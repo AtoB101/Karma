@@ -11,4 +11,8 @@ interface ILockPoolManager {
     function reserveMappingForBill(bytes32 poolId, uint256 amount) external;
     function releasePendingOnCancel(bytes32 poolId, uint256 amount) external;
     function settleFromPendingAndPayout(bytes32 poolId, address to, uint256 amount) external;
+    function getPoolAccounting(bytes32 poolId)
+        external
+        view
+        returns (uint256 totalLocked, uint256 mappingBalance, uint256 pendingAmount, uint256 settledAmount);
 }

@@ -54,58 +54,11 @@ contract BillManager is IBillManager {
         override
         returns (uint256 billId)
     {
-        if (circuitBreaker.isGlobalPaused() || circuitBreaker.isAgentPaused(msg.sender)) revert Errors.CircuitBreakerActive();
-        if (toAgent == address(0) || amount == 0) revert Errors.InvalidAmount();
+        _validateAndConsumeCreateAuth(poolId, toAgent, amount, tokenId, authDeadline, v, r, s);
+        _reservePoolFunds(poolId, amount);
 
-        (bool fromOk,,) = kyaRegistry.verifyDID(msg.sender);
-        (bool toOk,,) = kyaRegistry.verifyDID(toAgent);
-        if (!fromOk || !toOk) revert Errors.DIDNotActive();
-        authTokenManager.consumeAuth(
-            tokenId, msg.sender, Types.OperationType.CreateBill, amount, authDeadline, v, r, s
-        );
-
-        uint256 mappingBalance = lockPoolManager.getMappingBalance(poolId);
-        if (mappingBalance < amount) revert Errors.InsufficientMappingBalance();
-        lockPoolManager.reserveMappingForBill(poolId, amount);
-
-        uint256 batchId = activeBatchByPool[poolId];
-        if (batchId == 0) {
-            batchId = nextBatchId++;
-            activeBatchByPool[poolId] = batchId;
-        }
-
-        Types.Batch storage batch = batches[batchId];
-        if (batch.status != Types.BatchStatus.Open) {
-            batchId = nextBatchId++;
-            activeBatchByPool[poolId] = batchId;
-            batch = batches[batchId];
-        }
-
-        if (batch.createdAt == 0) {
-            batch.batchId = batchId;
-            batch.poolId = poolId;
-            batch.status = Types.BatchStatus.Open;
-            batch.createdAt = block.timestamp;
-        }
-
-        billId = nextBillId++;
-        bills[billId] = Types.Bill({
-            billId: billId,
-            batchId: batchId,
-            fromAgent: msg.sender,
-            toAgent: toAgent,
-            amount: amount,
-            purpose: purpose,
-            proofHash: proofHash,
-            status: Types.BillStatus.Pending,
-            createdAt: block.timestamp,
-            deadline: block.timestamp + 1 days
-        });
-
-        batch.totalPending += amount;
-        batch.billCount += 1;
-        batchBills[batchId].push(billId);
-        billPoolId[billId] = poolId;
+        uint256 batchId = _getOrCreateOpenBatch(poolId);
+        billId = _createPendingBill(batchId, poolId, toAgent, amount, purpose, proofHash);
 
         emit Events.BillCreated(billId, batchId, poolId, msg.sender, toAgent, amount);
     }
@@ -173,6 +126,88 @@ contract BillManager is IBillManager {
     function _getExistingBatch(uint256 batchId) internal view returns (Types.Batch storage batch) {
         batch = batches[batchId];
         if (batch.batchId == 0) revert Errors.NotFound();
+    }
+
+    function _validateAndConsumeCreateAuth(
+        bytes32 poolId,
+        address toAgent,
+        uint256 amount,
+        bytes32 tokenId,
+        uint256 authDeadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) internal {
+        if (circuitBreaker.isGlobalPaused() || circuitBreaker.isAgentPaused(msg.sender)) revert Errors.CircuitBreakerActive();
+        if (toAgent == address(0) || amount == 0) revert Errors.InvalidAmount();
+
+        (bool fromOk,,) = kyaRegistry.verifyDID(msg.sender);
+        (bool toOk,,) = kyaRegistry.verifyDID(toAgent);
+        if (!fromOk || !toOk) revert Errors.DIDNotActive();
+
+        // Access pool owner once to fail fast on invalid pool ids before reserving.
+        lockPoolManager.getPoolOwner(poolId);
+
+        authTokenManager.consumeAuth(
+            tokenId, msg.sender, Types.OperationType.CreateBill, amount, authDeadline, v, r, s
+        );
+    }
+
+    function _reservePoolFunds(bytes32 poolId, uint256 amount) internal {
+        uint256 mappingBalance = lockPoolManager.getMappingBalance(poolId);
+        if (mappingBalance < amount) revert Errors.InsufficientMappingBalance();
+        lockPoolManager.reserveMappingForBill(poolId, amount);
+    }
+
+    function _getOrCreateOpenBatch(bytes32 poolId) internal returns (uint256 batchId) {
+        batchId = activeBatchByPool[poolId];
+        if (batchId == 0) {
+            batchId = nextBatchId++;
+            activeBatchByPool[poolId] = batchId;
+        }
+
+        Types.Batch storage batch = batches[batchId];
+        if (batch.status != Types.BatchStatus.Open) {
+            batchId = nextBatchId++;
+            activeBatchByPool[poolId] = batchId;
+            batch = batches[batchId];
+        }
+
+        if (batch.createdAt == 0) {
+            batch.batchId = batchId;
+            batch.poolId = poolId;
+            batch.status = Types.BatchStatus.Open;
+            batch.createdAt = block.timestamp;
+        }
+    }
+
+    function _createPendingBill(
+        uint256 batchId,
+        bytes32 poolId,
+        address toAgent,
+        uint256 amount,
+        string memory purpose,
+        string memory proofHash
+    ) internal returns (uint256 billId) {
+        billId = nextBillId++;
+        bills[billId] = Types.Bill({
+            billId: billId,
+            batchId: batchId,
+            fromAgent: msg.sender,
+            toAgent: toAgent,
+            amount: amount,
+            purpose: purpose,
+            proofHash: proofHash,
+            status: Types.BillStatus.Pending,
+            createdAt: block.timestamp,
+            deadline: block.timestamp + 1 days
+        });
+
+        Types.Batch storage batch = batches[batchId];
+        batch.totalPending += amount;
+        batch.billCount += 1;
+        batchBills[batchId].push(billId);
+        billPoolId[billId] = poolId;
     }
 
     function _closeBatch(uint256 batchId, Types.Batch storage batch) internal {

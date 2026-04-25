@@ -78,6 +78,16 @@ contract LockPoolManager is ILockPoolManager {
         return pools[poolId].owner;
     }
 
+    function getPoolAccounting(bytes32 poolId)
+        external
+        view
+        override
+        returns (uint256 totalLocked, uint256 mappingBalance, uint256 pendingAmount, uint256 settledAmount)
+    {
+        Types.LockPool storage p = pools[poolId];
+        return (p.totalLocked, p.mappingBalance, p.pendingAmount, p.settledAmount);
+    }
+
     function setBillManager(address billManager_) external override {
         if (msg.sender != admin) revert Errors.Unauthorized();
         if (billManager_ == address(0)) revert Errors.InvalidAddress();

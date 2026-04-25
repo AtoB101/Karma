@@ -49,40 +49,38 @@ contract ScenarioFlowTest is AuthTestHelper {
         token.approve(address(pool), type(uint256).max);
     }
 
-    function testScenario_EndToEndPaymentFlow() public {
-        // 1) DID registration
+    function _registerScenarioDIDs() internal {
         vm.prank(owner);
         registry.registerDID{value: 0.01 ether}(buyerAgent, keccak256("buyer-perm"), 30);
         vm.prank(sellerAgent);
         registry.registerDID{value: 0.01 ether}(sellerAgent, keccak256("seller-perm"), 30);
+    }
 
-        // 2) Lock pool creation
+    function _createScenarioPool() internal returns (bytes32 poolId) {
         vm.prank(owner);
-        bytes32 poolId = pool.createLockPool(buyerAgent, address(token), 10_000);
+        poolId = pool.createLockPool(buyerAgent, address(token), 10_000);
         assertEq(pool.getMappingBalance(poolId), 10_000, "mapping balance mismatch");
+    }
 
-        // 3) Signed create bill
+    function _createBillWithSignedAuth(bytes32 poolId, uint256 amount) internal returns (uint256 billId) {
+        (bytes32 tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s) =
+            issueAndSignAuth(auth, buyerAgentPk, buyerAgent, Types.OperationType.CreateBill, amount);
         vm.prank(buyerAgent);
-        (bytes32 createTokenId, uint256 createDeadline, uint8 cv, bytes32 cr, bytes32 cs) =
-            issueAndSignAuth(auth, buyerAgentPk, buyerAgent, Types.OperationType.CreateBill, 500);
-        uint256 billId = bill.createBill(
-            poolId,
-            sellerAgent,
-            500,
-            "compute-task",
-            "ipfs://proof",
-            createTokenId,
-            createDeadline,
-            cv,
-            cr,
-            cs
-        );
+        billId = bill.createBill(poolId, sellerAgent, amount, "compute-task", "ipfs://proof", tokenId, deadline, v, r, s);
+    }
 
-        // 4) Signed confirm bill by pool owner
+    function _confirmBillWithSignedAuth(uint256 billId, uint256 amount) internal {
+        (bytes32 tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s) =
+            issueAndSignAuth(auth, ownerPk, owner, Types.OperationType.ConfirmBill, amount);
         vm.prank(owner);
-        (bytes32 confirmTokenId, uint256 confirmDeadline, uint8 fv, bytes32 fr, bytes32 fs) =
-            issueAndSignAuth(auth, ownerPk, owner, Types.OperationType.ConfirmBill, 500);
-        bill.confirmBill(billId, confirmTokenId, confirmDeadline, fv, fr, fs);
+        bill.confirmBill(billId, tokenId, deadline, v, r, s);
+    }
+
+    function testScenario_EndToEndPaymentFlow() public {
+        _registerScenarioDIDs();
+        bytes32 poolId = _createScenarioPool();
+        uint256 billId = _createBillWithSignedAuth(poolId, 500);
+        _confirmBillWithSignedAuth(billId, 500);
 
         // 5) Close & settle batch by owner (single focused entry point)
         uint256 sellerBefore = token.balanceOf(sellerAgent);
@@ -90,27 +88,21 @@ contract ScenarioFlowTest is AuthTestHelper {
         bill.closeAndSettleBatch(1);
         uint256 sellerAfter = token.balanceOf(sellerAgent);
 
-        // 6) Assertions
         assertEq(sellerAfter - sellerBefore, 500, "seller payout mismatch");
-        (, , , , uint256 totalLocked, uint256 mappingBalance, uint256 pendingAmount, uint256 settledAmount, ,) =
-            pool.pools(poolId);
+        (uint256 totalLocked, uint256 mappingBalance, uint256 pendingAmount, uint256 settledAmount) =
+            pool.getPoolAccounting(poolId);
         assertEq(totalLocked, mappingBalance + pendingAmount, "escrow conservation broken");
         assertEq(settledAmount, 500, "settled amount mismatch");
     }
 
     function testScenario_ReplayAuthIsRejected() public {
-        vm.prank(owner);
-        registry.registerDID{value: 0.01 ether}(buyerAgent, keccak256("buyer-perm"), 30);
-        vm.prank(sellerAgent);
-        registry.registerDID{value: 0.01 ether}(sellerAgent, keccak256("seller-perm"), 30);
+        _registerScenarioDIDs();
+        bytes32 poolId = _createScenarioPool();
 
-        vm.prank(owner);
-        bytes32 poolId = pool.createLockPool(buyerAgent, address(token), 10_000);
-
-        vm.prank(buyerAgent);
         (bytes32 createTokenId, uint256 createDeadline, uint8 cv, bytes32 cr, bytes32 cs) =
             issueAndSignAuth(auth, buyerAgentPk, buyerAgent, Types.OperationType.CreateBill, 500);
 
+        vm.prank(buyerAgent);
         bill.createBill(poolId, sellerAgent, 500, "compute-task", "ipfs://proof", createTokenId, createDeadline, cv, cr, cs);
 
         vm.prank(buyerAgent);
@@ -119,13 +111,8 @@ contract ScenarioFlowTest is AuthTestHelper {
     }
 
     function testScenario_ExpiredAuthDeadlineIsRejected() public {
-        vm.prank(owner);
-        registry.registerDID{value: 0.01 ether}(buyerAgent, keccak256("buyer-perm"), 30);
-        vm.prank(sellerAgent);
-        registry.registerDID{value: 0.01 ether}(sellerAgent, keccak256("seller-perm"), 30);
-
-        vm.prank(owner);
-        bytes32 poolId = pool.createLockPool(buyerAgent, address(token), 10_000);
+        _registerScenarioDIDs();
+        bytes32 poolId = _createScenarioPool();
 
         vm.prank(buyerAgent);
         bytes32 tokenId = auth.issueAuthToken(buyerAgent, Types.OperationType.CreateBill, 500, 1 days);
