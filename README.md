@@ -93,3 +93,8 @@ Client integration template:
 
 - script: `examples/v01-quote-settlement.ts`
 - guide: `docs/V0_1_CLIENT_TEMPLATE.md`
+
+Batch validation (50-100 settlements):
+
+- script: `examples/v01-batch-settlement.ts`
+- guide: `docs/V0_1_BATCH_TEST.md`
