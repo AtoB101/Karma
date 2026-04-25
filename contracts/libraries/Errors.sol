@@ -20,4 +20,8 @@ library Errors {
     error InvalidSignature();
     error DeadlineExpired();
     error DigestAlreadyUsed();
+    error InvalidNonce();
+    error TokenNotAllowed();
+    error QuoteAlreadyExecuted();
+    error EnginePaused();
 }

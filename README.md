@@ -71,3 +71,20 @@ forge test --match-path "contracts/test/BillStateMachine.invariant.t.sol" -vv
 - Tests cover deployment, basic happy paths, and selected revert paths.
 - Next iteration should tighten invariants for pool accounting, auth signatures (full EIP-712), and settlement safety.
 - `BatchSettlement` is kept only as a deprecated compatibility wrapper; call `BillManager` directly for `closeBatch/settleBatch`.
+
+## Core Settlement MVP v0.1
+
+The focused v0.1 path is "Quote -> Verify -> Settle":
+
+- signer creates EIP-712 quote commitment
+- relayer/counterparty submits settlement
+- contract verifies signature + nonce + deadline + replay
+- contract executes token transfer settlement
+
+Run focused v0.1 tests:
+
+```bash
+forge test --match-path "contracts/test/SettlementEngine.t.sol" -vv
+```
+
+See scope definition: `docs/V0_1_SCOPE.md`.
