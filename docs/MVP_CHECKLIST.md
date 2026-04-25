@@ -29,9 +29,9 @@ If an item does not improve this flow's correctness, safety, or integration clar
 
 ## 4) Integration Readiness (V1.5)
 
-- [ ] Publish signing payload/schema reference for backend integration
+- [x] Publish signing payload/schema reference for backend integration (`docs/SIGNING_PAYLOAD_SPEC.md`)
 - [ ] Add event schema docs for indexer consumers
-- [ ] Provide a single-command demo run wrapper around scenario flow
+- [x] Provide a single-command demo run wrapper around scenario flow (`scripts/run_focus_demo.sh`)
 - [ ] Run scenario + invariants in CI and publish reproducible output
 
 ## 5) Explicitly Deferred (Do Not Expand in V1)

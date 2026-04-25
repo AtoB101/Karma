@@ -142,10 +142,40 @@ contract BillManager is IBillManager {
     }
 
     function closeBatch(uint256 batchId) external override {
-        Types.Batch storage batch = batches[batchId];
-        if (batch.batchId == 0) revert Errors.NotFound();
+        Types.Batch storage batch = _getExistingBatch(batchId);
         if (batch.status != Types.BatchStatus.Open) revert Errors.InvalidState();
         _checkBatchOwnerAuthorization(batchId);
+        _closeBatch(batchId, batch);
+    }
+
+    function settleBatch(uint256 batchId) external override {
+        Types.Batch storage batch = _getExistingBatch(batchId);
+        if (batch.status != Types.BatchStatus.Closed) revert Errors.InvalidState();
+        _checkBatchOwnerAuthorization(batchId);
+        _settleBatch(batchId, batch);
+    }
+
+    /// @dev Convenience entry point for the demo-first core flow:
+    /// close an open batch and settle it in one call.
+    function closeAndSettleBatch(uint256 batchId) external override {
+        Types.Batch storage batch = _getExistingBatch(batchId);
+        if (batch.status == Types.BatchStatus.Open) {
+            _checkBatchOwnerAuthorization(batchId);
+            _closeBatch(batchId, batch);
+        } else if (batch.status != Types.BatchStatus.Closed) {
+            revert Errors.InvalidState();
+        } else {
+            _checkBatchOwnerAuthorization(batchId);
+        }
+        _settleBatch(batchId, batch);
+    }
+
+    function _getExistingBatch(uint256 batchId) internal view returns (Types.Batch storage batch) {
+        batch = batches[batchId];
+        if (batch.batchId == 0) revert Errors.NotFound();
+    }
+
+    function _closeBatch(uint256 batchId, Types.Batch storage batch) internal {
         batch.status = Types.BatchStatus.Closed;
         if (activeBatchByPool[batch.poolId] == batchId) {
             activeBatchByPool[batch.poolId] = 0;
@@ -153,12 +183,7 @@ contract BillManager is IBillManager {
         emit Events.BatchClosed(batchId, batch.poolId);
     }
 
-    function settleBatch(uint256 batchId) external override {
-        Types.Batch storage batch = batches[batchId];
-        if (batch.batchId == 0) revert Errors.NotFound();
-        if (batch.status != Types.BatchStatus.Closed) revert Errors.InvalidState();
-        _checkBatchOwnerAuthorization(batchId);
-
+    function _settleBatch(uint256 batchId, Types.Batch storage batch) internal {
         uint256 totalSettled;
         uint256[] storage ids = batchBills[batchId];
         for (uint256 i = 0; i < ids.length; i++) {

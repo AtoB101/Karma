@@ -19,4 +19,5 @@ interface IBillManager {
     function cancelBill(uint256 billId, bytes32 tokenId, uint256 authDeadline, uint8 v, bytes32 r, bytes32 s) external;
     function closeBatch(uint256 batchId) external;
     function settleBatch(uint256 batchId) external;
+    function closeAndSettleBatch(uint256 batchId) external;
 }

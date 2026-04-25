@@ -81,6 +81,35 @@ contract BillAndBatchTest is AuthTestHelper {
         assertGt(settledAt, 0, "settledAt");
     }
 
+    function testCloseAndSettleBatchFlow() public {
+        vm.prank(payerAgent);
+        registry.registerDID{value: 0.01 ether}(payerAgent, keccak256("payer"), 30);
+        vm.prank(payeeAgent);
+        registry.registerDID{value: 0.01 ether}(payeeAgent, keccak256("payee"), 30);
+        vm.prank(payerAgent);
+        bytes32 poolId = pool.createLockPool(payerAgent, address(tokenContract), 1000);
+
+        vm.prank(payerAgent);
+        (bytes32 createTokenId, uint256 createDeadline, uint8 cv, bytes32 cr, bytes32 cs) =
+            issueAndSignAuth(auth, payerPk, payerAgent, Types.OperationType.CreateBill, 100);
+        uint256 billId =
+            bill.createBill(poolId, payeeAgent, 100, "api call", "ipfs://proof", createTokenId, createDeadline, cv, cr, cs);
+
+        vm.prank(payerAgent);
+        (bytes32 confirmTokenId, uint256 confirmDeadline, uint8 fv, bytes32 fr, bytes32 fs) =
+            issueAndSignAuth(auth, payerPk, payerAgent, Types.OperationType.ConfirmBill, 100);
+        bill.confirmBill(billId, confirmTokenId, confirmDeadline, fv, fr, fs);
+
+        uint256 payeeBefore = tokenContract.balanceOf(payeeAgent);
+        vm.prank(payerAgent);
+        bill.closeAndSettleBatch(1);
+        uint256 payeeAfter = tokenContract.balanceOf(payeeAgent);
+
+        assertEq(payeeAfter - payeeBefore, 100, "payee should receive settled amount");
+        (, , , , uint8 status,,) = bill.batches(1);
+        assertEq(status, uint8(Types.BatchStatus.Settled), "batch should be settled");
+    }
+
     function testCreateBillRevertsWhenGlobalPaused() public {
         vm.prank(payerAgent);
         registry.registerDID{value: 0.01 ether}(payerAgent, keccak256("payer"), 30);

@@ -63,6 +63,12 @@ Run core narrative demo first (recommended):
 forge test --match-path "contracts/test/ScenarioFlow.t.sol" -vv
 ```
 
+Single-command demo wrapper:
+
+```bash
+./scripts/run_focus_demo.sh
+```
+
 Run all tests:
 
 ```bash
@@ -88,3 +94,4 @@ forge test --match-path "contracts/test/BillStateMachine.invariant.t.sol" -vv
 - Demo-first message: prove signed-intent settlement correctness before adding breadth.
 - Keep decisions tied to settlement reliability and integration simplicity.
 - `BatchSettlement` is a deprecated compatibility wrapper; use `BillManager` directly.
+- Signing payload details for backend integration: `docs/SIGNING_PAYLOAD_SPEC.md`

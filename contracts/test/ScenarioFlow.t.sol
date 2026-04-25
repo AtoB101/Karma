@@ -8,6 +8,7 @@ import {CircuitBreaker} from "../core/CircuitBreaker.sol";
 import {AuthTokenManager} from "../core/AuthTokenManager.sol";
 import {BillManager} from "../core/BillManager.sol";
 import {Types} from "../libraries/Types.sol";
+import {Errors} from "../libraries/Errors.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {AuthTestHelper} from "./helpers/AuthTestHelper.sol";
 
@@ -83,12 +84,10 @@ contract ScenarioFlowTest is AuthTestHelper {
             issueAndSignAuth(auth, ownerPk, owner, Types.OperationType.ConfirmBill, 500);
         bill.confirmBill(billId, confirmTokenId, confirmDeadline, fv, fr, fs);
 
-        // 5) Close & settle batch by owner
-        vm.prank(owner);
-        bill.closeBatch(1);
+        // 5) Close & settle batch by owner (single focused entry point)
         uint256 sellerBefore = token.balanceOf(sellerAgent);
         vm.prank(owner);
-        bill.settleBatch(1);
+        bill.closeAndSettleBatch(1);
         uint256 sellerAfter = token.balanceOf(sellerAgent);
 
         // 6) Assertions
@@ -97,5 +96,46 @@ contract ScenarioFlowTest is AuthTestHelper {
             pool.pools(poolId);
         assertEq(totalLocked, mappingBalance + pendingAmount, "escrow conservation broken");
         assertEq(settledAmount, 500, "settled amount mismatch");
+    }
+
+    function testScenario_ReplayAuthIsRejected() public {
+        vm.prank(owner);
+        registry.registerDID{value: 0.01 ether}(buyerAgent, keccak256("buyer-perm"), 30);
+        vm.prank(sellerAgent);
+        registry.registerDID{value: 0.01 ether}(sellerAgent, keccak256("seller-perm"), 30);
+
+        vm.prank(owner);
+        bytes32 poolId = pool.createLockPool(buyerAgent, address(token), 10_000);
+
+        vm.prank(buyerAgent);
+        (bytes32 createTokenId, uint256 createDeadline, uint8 cv, bytes32 cr, bytes32 cs) =
+            issueAndSignAuth(auth, buyerAgentPk, buyerAgent, Types.OperationType.CreateBill, 500);
+
+        bill.createBill(poolId, sellerAgent, 500, "compute-task", "ipfs://proof", createTokenId, createDeadline, cv, cr, cs);
+
+        vm.prank(buyerAgent);
+        vm.expectRevert(Errors.TokenUsed.selector);
+        bill.createBill(poolId, sellerAgent, 500, "compute-task", "ipfs://proof", createTokenId, createDeadline, cv, cr, cs);
+    }
+
+    function testScenario_ExpiredAuthDeadlineIsRejected() public {
+        vm.prank(owner);
+        registry.registerDID{value: 0.01 ether}(buyerAgent, keccak256("buyer-perm"), 30);
+        vm.prank(sellerAgent);
+        registry.registerDID{value: 0.01 ether}(sellerAgent, keccak256("seller-perm"), 30);
+
+        vm.prank(owner);
+        bytes32 poolId = pool.createLockPool(buyerAgent, address(token), 10_000);
+
+        vm.prank(buyerAgent);
+        bytes32 tokenId = auth.issueAuthToken(buyerAgent, Types.OperationType.CreateBill, 500, 1 days);
+        uint256 expiredDeadline = block.timestamp + 10;
+        bytes32 digest = auth.getAuthDigest(tokenId, buyerAgent, Types.OperationType.CreateBill, 500, expiredDeadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(buyerAgentPk, digest);
+
+        vm.warp(expiredDeadline + 1);
+        vm.prank(buyerAgent);
+        vm.expectRevert(Errors.DeadlineExpired.selector);
+        bill.createBill(poolId, sellerAgent, 500, "compute-task", "ipfs://proof", tokenId, expiredDeadline, v, r, s);
     }
 }
