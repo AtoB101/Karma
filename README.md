@@ -88,3 +88,8 @@ forge test --match-path "contracts/test/SettlementEngine.t.sol" -vv
 ```
 
 See scope definition: `docs/V0_1_SCOPE.md`.
+
+Client integration template:
+
+- script: `examples/v01-quote-settlement.ts`
+- guide: `docs/V0_1_CLIENT_TEMPLATE.md`
