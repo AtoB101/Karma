@@ -43,6 +43,13 @@ Right panel = monitoring + risk + logs + export JSON for support.
 D) One-line health rule
 If "Settlement Readiness" is not Ready, fix the red Risk Hints first (pause / allowlist / balance / allowance).
 
+E) One-command smoke test (ETH chain)
+After deploy/config, run one minimal settlement tx:
+  ETH_RPC_URL=<rpc> ENGINE_ADDRESS=<engine> TOKEN_ADDRESS=<token> PAYER_PRIVATE_KEY=<payer-pk> PAYEE_ADDRESS=<payee> \
+  ./scripts/smoke-v01-eth.sh
+Output artifact:
+  results/smoke-v01-eth.json
+
 ==================================================
 1) Objective
 ==================================================

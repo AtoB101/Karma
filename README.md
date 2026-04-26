@@ -96,6 +96,17 @@ This writes:
 - `results/deploy-v01-eth.json`
 - `examples/v01-console-config.json` (used by the UI "Load config" button)
 
+ETH-chain one-command smoke test (single on-chain settlement):
+
+```bash
+ETH_RPC_URL=<rpc> ENGINE_ADDRESS=<engine> TOKEN_ADDRESS=<token> \
+PAYER_PRIVATE_KEY=<payer-pk> PAYEE_ADDRESS=<payee> \
+./scripts/smoke-v01-eth.sh
+```
+
+This writes:
+- `results/smoke-v01-eth.json`
+
 Serve the browser console from repo root:
 
 ```bash
