@@ -250,6 +250,7 @@
         </div>
 
         <p style="margin-top: 12px">
+          <button id="loadConfigBtn">0) 载入部署配置 / Load config</button>
           <button id="connectBtn" class="button-primary">① 连接钱包 / Connect</button>
           <button id="healthBtn">② 一键体检 / Health</button>
           <button id="buildBtn">③ 构建并签名 / Sign</button>
@@ -372,6 +373,13 @@
           scopeText: document.getElementById("scopeText").value.trim() || "api-call:inference:v1",
           ttlSeconds: Number(document.getElementById("ttlSeconds").value || "3600"),
         };
+      }
+
+      function applyConfig(config) {
+        if (!config || typeof config !== "object") return;
+        if (config.engineAddress) document.getElementById("engineAddress").value = config.engineAddress;
+        if (config.tokenAddress) document.getElementById("tokenAddress").value = config.tokenAddress;
+        if (config.payeeAddress) document.getElementById("payeeAddress").value = config.payeeAddress;
       }
 
       function setOutput(obj) {
@@ -620,6 +628,15 @@
         });
       }
 
+      async function loadLocalConfig() {
+        const response = await fetch("./v01-console-config.json", { cache: "no-store" });
+        if (!response.ok) throw new Error("Config not found: examples/v01-console-config.json");
+        const config = await response.json();
+        applyConfig(config);
+        addDiagnostic("config", "low", "Config loaded", "Loaded examples/v01-console-config.json");
+        setOutput({ step: "config_loaded", config });
+      }
+
       async function connect() {
         if (!window.ethereum) throw new Error("MetaMask not found");
         state.provider = new BrowserProvider(window.ethereum);
@@ -777,6 +794,13 @@
         connect().catch((e) => {
           const msg = readErrorMessage(e);
           addDiagnostic("wallet", "high", "Wallet connection failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("loadConfigBtn").addEventListener("click", () =>
+        loadLocalConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("config", "medium", "Config load failed", msg, e);
           setOutput(msg);
         })
       );

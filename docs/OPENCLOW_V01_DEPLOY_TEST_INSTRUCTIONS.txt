@@ -23,8 +23,12 @@ A) Get the repo (once)
    OR: git submodule update --init --recursive
 
 B) Deploy only what v0.1 needs (three on-chain actions)
-1) Deploy SettlementEngine -> copy ENGINE_ADDRESS
-2) Admin: setTokenAllowed(TOKEN_ADDRESS, true)
+1) One command deploy (ETH chain):
+   ETH_RPC_URL=<rpc> DEPLOYER_PRIVATE_KEY=<pk> ADMIN_ADDRESS=<admin> TOKEN_ADDRESS=<token> PAYEE_ADDRESS=<payee> \
+   ./scripts/deploy-v01-eth.sh
+   - Output: results/deploy-v01-eth.json
+   - UI config auto-written: examples/v01-console-config.json
+2) Admin confirm token allowlist is true (script auto-calls when TOKEN_ADDRESS is set)
 3) Payer: mint/balance + approve(ENGINE_ADDRESS, enough allowance)
 
 C) Open the visual console (browser + MetaMask)
@@ -33,7 +37,7 @@ From repo root, serve the static file (avoids file:// wallet quirks):
 Then open:
   http://localhost:8787/examples/v01-metamask-settlement.html
 Fill Engine / Token / Payee / Amount -> buttons in order:
-  Connect -> Health Check -> Build+Sign -> Submit
+  Load config -> Connect -> Health Check -> Build+Sign -> Submit
 Right panel = monitoring + risk + logs + export JSON for support.
 
 D) One-line health rule

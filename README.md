@@ -85,6 +85,17 @@ The focused v0.1 path is "Quote -> Verify -> Settle":
 
 Short path (clone, deploy three on-chain steps, open one web UI): see section **0)** in `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt`.
 
+ETH-chain one-command deploy helper:
+
+```bash
+ETH_RPC_URL=<rpc> DEPLOYER_PRIVATE_KEY=<pk> ADMIN_ADDRESS=<admin> TOKEN_ADDRESS=<token> PAYEE_ADDRESS=<payee> \
+./scripts/deploy-v01-eth.sh
+```
+
+This writes:
+- `results/deploy-v01-eth.json`
+- `examples/v01-console-config.json` (used by the UI "Load config" button)
+
 Serve the browser console from repo root:
 
 ```bash
