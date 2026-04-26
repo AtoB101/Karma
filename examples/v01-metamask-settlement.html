@@ -168,19 +168,67 @@
       .tx-row:last-child {
         border-bottom: none;
       }
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        margin: 14px 0 18px;
+      }
+      .step {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 10px;
+        background: #fff;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+      .step strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #1e293b;
+      }
+      .callout {
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+        font-size: 14px;
+        line-height: 1.45;
+      }
       @media (max-width: 980px) {
         .layout {
           grid-template-columns: 1fr;
+        }
+        .steps {
+          grid-template-columns: 1fr 1fr;
         }
       }
     </style>
   </head>
   <body>
-    <h1>TrustChain v0.1 Settlement Console</h1>
-    <p>Clear path: connect wallet -> health check -> sign quote -> submit settlement.</p>
+    <h1>TrustChain v0.1 — 傻瓜式控制台 / Simple Console</h1>
+    <p>只做四步 / Only four steps. 右侧是监测 / Right side = monitoring.</p>
+
+    <div class="callout">
+      <strong>开始前三件事 / Before you start</strong>
+      <ol style="margin: 8px 0 0 18px; padding: 0">
+        <li>链上已有 Engine + Token 地址，且管理员已 allowlist / Have ENGINE + TOKEN; admin setTokenAllowed(true).</li>
+        <li>付款钱包有余额并已授权 Engine / Payer has balance + approved the engine.</li>
+        <li>MetaMask 网络与合约一致 / MetaMask network matches the deployment chain.</li>
+      </ol>
+    </div>
+
+    <div class="steps">
+      <div class="step"><strong>① 连接 / Connect</strong>Connect MetaMask</div>
+      <div class="step"><strong>② 体检 / Health</strong>Check pause, allowlist, balance</div>
+      <div class="step"><strong>③ 签名 / Sign</strong>EIP-712 sign quote</div>
+      <div class="step"><strong>④ 提交 / Submit</strong>Send settlement tx</div>
+    </div>
+
     <div class="layout">
       <section class="panel">
-        <h2>Action Panel</h2>
+        <h2>操作面板 / Action</h2>
         <div class="grid">
           <label for="engineAddress">Engine Address</label>
           <input id="engineAddress" placeholder="0x..." />
@@ -202,54 +250,54 @@
         </div>
 
         <p style="margin-top: 12px">
-          <button id="connectBtn" class="button-primary">1) Connect MetaMask</button>
-          <button id="healthBtn">2) Health Check</button>
-          <button id="buildBtn">3) Build + Sign Quote</button>
-          <button id="submitBtn">4) Submit Settlement</button>
+          <button id="connectBtn" class="button-primary">① 连接钱包 / Connect</button>
+          <button id="healthBtn">② 一键体检 / Health</button>
+          <button id="buildBtn">③ 构建并签名 / Sign</button>
+          <button id="submitBtn">④ 上链结算 / Submit</button>
         </p>
         <div class="inline-row">
-          <button id="toggleAutoBtn">Start Auto Monitor</button>
-          <label for="pollSeconds" class="muted">Poll (sec)</label>
+          <button id="toggleAutoBtn">自动监测开/关 / Auto monitor</button>
+          <label for="pollSeconds" class="muted">间隔秒 / Poll (s)</label>
           <input id="pollSeconds" type="number" min="3" value="10" style="width: 88px" />
-          <span id="autoState" class="chip">Auto monitor: OFF</span>
+          <span id="autoState" class="chip">自动监测: 关 / OFF</span>
         </div>
-        <p class="hint">Health check validates pause state, allowlist, balance, allowance, and nonce readiness.</p>
+        <p class="hint">体检会检查：暂停、白名单、余额、授权、nonce。红字风险先处理再提交。/ Health checks pause, allowlist, balance, allowance, nonce. Fix red risks before submit.</p>
 
-        <h3>Output / Selected Log</h3>
-        <pre id="output">Waiting...</pre>
+        <h3>输出 / Output</h3>
+        <pre id="output">等待操作… / Waiting…</pre>
       </section>
 
       <section class="panel">
-        <h2>Monitoring Panel</h2>
+        <h2>监测面板 / Monitoring</h2>
         <div class="kpi-grid">
           <div class="kpi">
-            <div class="label">Wallet</div>
-            <div id="kpiWallet" class="value status-warn">Not connected</div>
+            <div class="label">钱包 / Wallet</div>
+            <div id="kpiWallet" class="value status-warn">未连接 / Not connected</div>
           </div>
           <div class="kpi">
-            <div class="label">Engine</div>
-            <div id="kpiEngine" class="value status-warn">Unknown</div>
+            <div class="label">引擎 / Engine</div>
+            <div id="kpiEngine" class="value status-warn">未知 / Unknown</div>
           </div>
           <div class="kpi">
-            <div class="label">Token Allowlist</div>
-            <div id="kpiAllowlist" class="value status-warn">Unknown</div>
+            <div class="label">代币白名单 / Allowlist</div>
+            <div id="kpiAllowlist" class="value status-warn">未知 / Unknown</div>
           </div>
           <div class="kpi">
-            <div class="label">Settlement Readiness</div>
-            <div id="kpiReadiness" class="value status-warn">Waiting checks</div>
+            <div class="label">可结算？/ Ready?</div>
+            <div id="kpiReadiness" class="value status-warn">先体检 / Run health</div>
           </div>
         </div>
 
-        <h3>Risk Hints</h3>
+        <h3>风险提示 / Risk hints</h3>
         <div id="riskContainer"></div>
 
-        <h3>Issue Logs (one-click)</h3>
+        <h3>问题日志（点查看）/ Logs</h3>
         <div class="inline-row" style="margin-bottom: 8px">
-          <label for="logFilterKind" class="muted">Filter kind</label>
+          <label for="logFilterKind" class="muted">类型 / Kind</label>
           <select id="logFilterKind">
             <option value="all">all</option>
           </select>
-          <label for="logFilterSeverity" class="muted">Severity</label>
+          <label for="logFilterSeverity" class="muted">级别 / Level</label>
           <select id="logFilterSeverity">
             <option value="all">all</option>
             <option value="high">high</option>
@@ -259,13 +307,13 @@
         </div>
         <div id="logList" class="log-list"></div>
 
-        <h3>Transaction History</h3>
+        <h3>交易记录 / Tx history</h3>
         <div id="txList" class="tx-list"></div>
 
-        <h3>Export for support</h3>
+        <h3>一键导出给支持 / Export JSON</h3>
         <div class="inline-row">
-          <button id="exportDiagBtn">Export diagnosis JSON</button>
-          <span class="muted">Includes addresses, KPIs, logs, tx history, last quote fields. No private keys.</span>
+          <button id="exportDiagBtn">下载诊断包 / Download JSON</button>
+          <span class="muted">含地址、KPI、日志、交易记录、报价字段；不含私钥。/ No private keys.</span>
         </div>
       </section>
     </div>
@@ -374,7 +422,7 @@
         }
         const list = [...latestByKind.values()].slice(0, 8);
         if (!list.length) {
-          riskContainerEl.innerHTML = `<p class="muted">No risk hints yet. Run health check.</p>`;
+          riskContainerEl.innerHTML = `<p class="muted">暂无风险提示，先点「② 一键体检」。/ No hints yet — run Health.</p>`;
           return;
         }
         riskContainerEl.innerHTML = list
@@ -394,7 +442,7 @@
 
       function renderLogs() {
         if (!state.diagnostics.length) {
-          logListEl.innerHTML = `<div class="muted">No logs yet.</div>`;
+          logListEl.innerHTML = `<div class="muted">暂无日志。/ No logs yet.</div>`;
           return;
         }
         const kindFilter = logFilterKindEl.value || "all";
@@ -403,7 +451,7 @@
           (d) => (kindFilter === "all" || d.kind === kindFilter) && (severityFilter === "all" || d.severity === severityFilter)
         );
         if (!filtered.length) {
-          logListEl.innerHTML = `<div class="muted">No logs match current filters.</div>`;
+          logListEl.innerHTML = `<div class="muted">当前筛选无匹配日志。/ No logs match filters.</div>`;
           return;
         }
         logListEl.innerHTML = filtered
@@ -422,7 +470,7 @@
 
       function renderTxHistory() {
         if (!state.txHistory.length) {
-          txListEl.innerHTML = `<div class="muted">No transaction history yet.</div>`;
+          txListEl.innerHTML = `<div class="muted">暂无链上交易记录。/ No tx history yet.</div>`;
           return;
         }
         txListEl.innerHTML = state.txHistory
@@ -650,7 +698,7 @@
       }
 
       function setAutoMonitorUi(active) {
-        autoStateEl.textContent = active ? "Auto monitor: ON" : "Auto monitor: OFF";
+        autoStateEl.textContent = active ? "自动监测: 开 / ON" : "自动监测: 关 / OFF";
       }
 
       function toggleAutoMonitor() {

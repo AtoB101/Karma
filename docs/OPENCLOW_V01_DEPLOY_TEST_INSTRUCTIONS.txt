@@ -14,6 +14,32 @@ Repository Scope:
 Do NOT redesign architecture. Do NOT add unrelated modules. Keep changes minimal.
 
 ==================================================
+0) Foolproof path / 傻瓜式最简路径（先看这里）
+==================================================
+Goal: one screen to deploy addresses + one web page to test sign + settle + monitor.
+
+A) Get the repo (once)
+1) git clone --recurse-submodules <repo-url>
+   OR: git submodule update --init --recursive
+
+B) Deploy only what v0.1 needs (three on-chain actions)
+1) Deploy SettlementEngine -> copy ENGINE_ADDRESS
+2) Admin: setTokenAllowed(TOKEN_ADDRESS, true)
+3) Payer: mint/balance + approve(ENGINE_ADDRESS, enough allowance)
+
+C) Open the visual console (browser + MetaMask)
+From repo root, serve the static file (avoids file:// wallet quirks):
+  python3 -m http.server 8787
+Then open:
+  http://localhost:8787/examples/v01-metamask-settlement.html
+Fill Engine / Token / Payee / Amount -> buttons in order:
+  Connect -> Health Check -> Build+Sign -> Submit
+Right panel = monitoring + risk + logs + export JSON for support.
+
+D) One-line health rule
+If "Settlement Readiness" is not Ready, fix the red Risk Hints first (pause / allowlist / balance / allowance).
+
+==================================================
 1) Objective
 ==================================================
 Validate this flow end-to-end:

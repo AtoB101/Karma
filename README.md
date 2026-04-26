@@ -81,6 +81,18 @@ The focused v0.1 path is "Quote -> Verify -> Settle":
 - contract verifies signature + nonce + deadline + replay
 - contract executes token transfer settlement
 
+### Foolproof deploy + visual console (recommended first)
+
+Short path (clone, deploy three on-chain steps, open one web UI): see section **0)** in `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt`.
+
+Serve the browser console from repo root:
+
+```bash
+python3 -m http.server 8787
+```
+
+Open `http://localhost:8787/examples/v01-metamask-settlement.html` — control + monitoring on one page; export diagnosis JSON from the page when reporting issues.
+
 Run focused v0.1 tests:
 
 ```bash
