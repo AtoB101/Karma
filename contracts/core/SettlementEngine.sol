@@ -36,6 +36,26 @@ contract SettlementEngine is ISettlementEngine {
     }
 
     function submitSettlement(QuoteTypes.Quote calldata quote, uint8 v, bytes32 r, bytes32 s) external override {
+        _submitSettlement(quote, v, r, s);
+    }
+
+    function settleBatch(
+        QuoteTypes.Quote[] calldata quotes,
+        uint8[] calldata vs,
+        bytes32[] calldata rs,
+        bytes32[] calldata ss
+    ) external override {
+        uint256 length = quotes.length;
+        if (length == 0 || length != vs.length || length != rs.length || length != ss.length) {
+            revert Errors.InvalidBatchInput();
+        }
+
+        for (uint256 i = 0; i < length; ++i) {
+            _submitSettlement(quotes[i], vs[i], rs[i], ss[i]);
+        }
+    }
+
+    function _submitSettlement(QuoteTypes.Quote calldata quote, uint8 v, bytes32 r, bytes32 s) internal {
         if (paused) revert Errors.EnginePaused();
         if (!tokenAllowed[quote.token]) revert Errors.TokenNotAllowed();
         if (quote.payer == address(0) || quote.payee == address(0) || quote.amount == 0) revert Errors.InvalidAmount();

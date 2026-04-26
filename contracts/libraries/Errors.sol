@@ -24,4 +24,5 @@ library Errors {
     error TokenNotAllowed();
     error QuoteAlreadyExecuted();
     error EnginePaused();
+    error InvalidBatchInput();
 }

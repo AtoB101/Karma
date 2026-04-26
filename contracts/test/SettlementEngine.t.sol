@@ -111,6 +111,57 @@ contract SettlementEngineTest is Test {
         engine.submitSettlement(q, v, r, s);
     }
 
+    function testSettleBatchSuccess() public {
+        QuoteTypes.Quote memory q1 = _buildQuote(100, 0, block.timestamp + 1 hours);
+        QuoteTypes.Quote memory q2 = _buildQuote(250, 1, block.timestamp + 1 hours);
+        (uint8 v1, bytes32 r1, bytes32 s1) = _signQuote(q1, payerPk);
+        (uint8 v2, bytes32 r2, bytes32 s2) = _signQuote(q2, payerPk);
+
+        QuoteTypes.Quote[] memory quotes = new QuoteTypes.Quote[](2);
+        quotes[0] = q1;
+        quotes[1] = q2;
+
+        uint8[] memory vs = new uint8[](2);
+        vs[0] = v1;
+        vs[1] = v2;
+
+        bytes32[] memory rs = new bytes32[](2);
+        rs[0] = r1;
+        rs[1] = r2;
+
+        bytes32[] memory ss = new bytes32[](2);
+        ss[0] = s1;
+        ss[1] = s2;
+
+        uint256 payeeBefore = token.balanceOf(payee);
+        engine.settleBatch(quotes, vs, rs, ss);
+        uint256 payeeAfter = token.balanceOf(payee);
+
+        assertEq(payeeAfter - payeeBefore, 350);
+        assertEq(engine.nonces(payer), 2);
+        assertTrue(engine.executedQuotes(q1.quoteId));
+        assertTrue(engine.executedQuotes(q2.quoteId));
+    }
+
+    function testSettleBatchLengthMismatchFails() public {
+        QuoteTypes.Quote memory q1 = _buildQuote(100, 0, block.timestamp + 1 hours);
+        (uint8 v1, bytes32 r1,) = _signQuote(q1, payerPk);
+
+        QuoteTypes.Quote[] memory quotes = new QuoteTypes.Quote[](1);
+        quotes[0] = q1;
+
+        uint8[] memory vs = new uint8[](1);
+        vs[0] = v1;
+
+        bytes32[] memory rs = new bytes32[](1);
+        rs[0] = r1;
+
+        bytes32[] memory ss = new bytes32[](0);
+
+        vm.expectRevert(Errors.InvalidBatchInput.selector);
+        engine.settleBatch(quotes, vs, rs, ss);
+    }
+
     function _buildQuote(uint256 amount, uint256 nonce, uint256 deadline)
         internal
         view

@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TrustChain v0.1 Settlement Console</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 1180px;
+        margin: 24px auto;
+        padding: 0 16px 40px;
+        color: #111827;
+        background: #f8fafc;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 16px;
+      }
+      .panel {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 14px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 10px;
+        align-items: center;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+      }
+      button {
+        margin-right: 8px;
+        margin-bottom: 8px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        background: #fff;
+        cursor: pointer;
+      }
+      .button-primary {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+        color: #fff;
+      }
+      pre {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 12px;
+        overflow: auto;
+        border-radius: 8px;
+      }
+      .hint {
+        margin-top: 4px;
+        color: #475569;
+        font-size: 13px;
+      }
+      .inline-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .kpi {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 10px;
+        background: #f8fafc;
+      }
+      .kpi .label {
+        font-size: 12px;
+        color: #64748b;
+      }
+      .kpi .value {
+        margin-top: 6px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .status-good {
+        color: #166534;
+      }
+      .status-warn {
+        color: #92400e;
+      }
+      .status-bad {
+        color: #991b1b;
+      }
+      .risk-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 8px;
+      }
+      .risk-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .risk-tag {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+      }
+      .risk-low {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .risk-medium {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .risk-high {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .muted {
+        color: #64748b;
+        font-size: 12px;
+      }
+      .log-list {
+        max-height: 220px;
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 8px;
+        background: #fff;
+      }
+      .log-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 7px 0;
+        border-bottom: 1px dashed #e5e7eb;
+      }
+      .log-row:last-child {
+        border-bottom: none;
+      }
+      .chip {
+        padding: 4px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 999px;
+        font-size: 12px;
+        background: #fff;
+      }
+      .tx-list {
+        max-height: 200px;
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 8px;
+        background: #fff;
+      }
+      .tx-row {
+        border-bottom: 1px dashed #e5e7eb;
+        padding: 8px 0;
+      }
+      .tx-row:last-child {
+        border-bottom: none;
+      }
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>TrustChain v0.1 Settlement Console</h1>
+    <p>Clear path: connect wallet -> health check -> sign quote -> submit settlement.</p>
+    <div class="layout">
+      <section class="panel">
+        <h2>Action Panel</h2>
+        <div class="grid">
+          <label for="engineAddress">Engine Address</label>
+          <input id="engineAddress" placeholder="0x..." />
+
+          <label for="tokenAddress">Token Address</label>
+          <input id="tokenAddress" placeholder="0x..." />
+
+          <label for="payeeAddress">Payee Address</label>
+          <input id="payeeAddress" placeholder="0x..." />
+
+          <label for="amount">Amount (base unit)</label>
+          <input id="amount" type="number" value="100" min="1" />
+
+          <label for="scopeText">Scope Text</label>
+          <input id="scopeText" value="api-call:inference:v1" />
+
+          <label for="ttlSeconds">Deadline TTL (seconds)</label>
+          <input id="ttlSeconds" type="number" value="3600" min="60" />
+        </div>
+
+        <p style="margin-top: 12px">
+          <button id="connectBtn" class="button-primary">1) Connect MetaMask</button>
+          <button id="healthBtn">2) Health Check</button>
+          <button id="buildBtn">3) Build + Sign Quote</button>
+          <button id="submitBtn">4) Submit Settlement</button>
+        </p>
+        <div class="inline-row">
+          <button id="toggleAutoBtn">Start Auto Monitor</button>
+          <label for="pollSeconds" class="muted">Poll (sec)</label>
+          <input id="pollSeconds" type="number" min="3" value="10" style="width: 88px" />
+          <span id="autoState" class="chip">Auto monitor: OFF</span>
+        </div>
+        <p class="hint">Health check validates pause state, allowlist, balance, allowance, and nonce readiness.</p>
+
+        <h3>Output / Selected Log</h3>
+        <pre id="output">Waiting...</pre>
+      </section>
+
+      <section class="panel">
+        <h2>Monitoring Panel</h2>
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="label">Wallet</div>
+            <div id="kpiWallet" class="value status-warn">Not connected</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Engine</div>
+            <div id="kpiEngine" class="value status-warn">Unknown</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Token Allowlist</div>
+            <div id="kpiAllowlist" class="value status-warn">Unknown</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Settlement Readiness</div>
+            <div id="kpiReadiness" class="value status-warn">Waiting checks</div>
+          </div>
+        </div>
+
+        <h3>Risk Hints</h3>
+        <div id="riskContainer"></div>
+
+        <h3>Issue Logs (one-click)</h3>
+        <div class="inline-row" style="margin-bottom: 8px">
+          <label for="logFilterKind" class="muted">Filter kind</label>
+          <select id="logFilterKind">
+            <option value="all">all</option>
+          </select>
+          <label for="logFilterSeverity" class="muted">Severity</label>
+          <select id="logFilterSeverity">
+            <option value="all">all</option>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+          </select>
+        </div>
+        <div id="logList" class="log-list"></div>
+
+        <h3>Transaction History</h3>
+        <div id="txList" class="tx-list"></div>
+
+        <h3>Export for support</h3>
+        <div class="inline-row">
+          <button id="exportDiagBtn">Export diagnosis JSON</button>
+          <span class="muted">Includes addresses, KPIs, logs, tx history, last quote fields. No private keys.</span>
+        </div>
+      </section>
+    </div>
+
+    <script type="module">
+      import { BrowserProvider, Contract, Signature, keccak256, toUtf8Bytes } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
+
+      const outputEl = document.getElementById("output");
+      const riskContainerEl = document.getElementById("riskContainer");
+      const logListEl = document.getElementById("logList");
+      const txListEl = document.getElementById("txList");
+      const logFilterKindEl = document.getElementById("logFilterKind");
+      const logFilterSeverityEl = document.getElementById("logFilterSeverity");
+      const autoStateEl = document.getElementById("autoState");
+      const state = {
+        provider: null,
+        signer: null,
+        quote: null,
+        signature: null,
+        diagnostics: [],
+        txHistory: [],
+        autoMonitorTimer: null,
+      };
+
+      const engineAbi = [
+        "function nonces(address) view returns (uint256)",
+        "function paused() view returns (bool)",
+        "function tokenAllowed(address) view returns (bool)",
+        "function getQuoteDigest((bytes32 quoteId,address payer,address payee,address token,uint256 amount,uint256 nonce,uint256 deadline,bytes32 scopeHash) quote) view returns (bytes32)",
+        "function submitSettlement((bytes32 quoteId,address payer,address payee,address token,uint256 amount,uint256 nonce,uint256 deadline,bytes32 scopeHash) quote,uint8 v,bytes32 r,bytes32 s)",
+      ];
+      const erc20Abi = [
+        "function balanceOf(address) view returns (uint256)",
+        "function allowance(address,address) view returns (uint256)",
+      ];
+
+      const quoteTypes = {
+        Quote: [
+          { name: "quoteId", type: "bytes32" },
+          { name: "payer", type: "address" },
+          { name: "payee", type: "address" },
+          { name: "token", type: "address" },
+          { name: "amount", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+          { name: "scopeHash", type: "bytes32" },
+        ],
+      };
+
+      function readInputs() {
+        return {
+          engineAddress: document.getElementById("engineAddress").value.trim(),
+          tokenAddress: document.getElementById("tokenAddress").value.trim(),
+          payeeAddress: document.getElementById("payeeAddress").value.trim(),
+          amount: BigInt(document.getElementById("amount").value || "0"),
+          scopeText: document.getElementById("scopeText").value.trim() || "api-call:inference:v1",
+          ttlSeconds: Number(document.getElementById("ttlSeconds").value || "3600"),
+        };
+      }
+
+      function setOutput(obj) {
+        outputEl.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+      }
+
+      function updateKpi(id, text, cls) {
+        const el = document.getElementById(id);
+        el.textContent = text;
+        el.className = `value ${cls}`;
+      }
+
+      function addDiagnostic(kind, severity, title, detail, payload = null) {
+        state.diagnostics.unshift({
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          timestamp: new Date().toISOString(),
+          kind,
+          severity,
+          title,
+          detail,
+          payload,
+        });
+        state.diagnostics = state.diagnostics.slice(0, 60);
+        syncLogKindOptions();
+        renderRisks();
+        renderLogs();
+      }
+
+      function addTxHistory(record) {
+        state.txHistory.unshift(record);
+        state.txHistory = state.txHistory.slice(0, 30);
+        renderTxHistory();
+      }
+
+      function syncLogKindOptions() {
+        const previous = logFilterKindEl.value || "all";
+        const kinds = [...new Set(state.diagnostics.map((d) => d.kind))].sort();
+        logFilterKindEl.innerHTML = `<option value="all">all</option>${kinds
+          .map((k) => `<option value="${k}">${k}</option>`)
+          .join("")}`;
+        logFilterKindEl.value = kinds.includes(previous) || previous === "all" ? previous : "all";
+      }
+
+      function renderRisks() {
+        const latestByKind = new Map();
+        for (const d of state.diagnostics) {
+          if (!latestByKind.has(d.kind)) latestByKind.set(d.kind, d);
+        }
+        const list = [...latestByKind.values()].slice(0, 8);
+        if (!list.length) {
+          riskContainerEl.innerHTML = `<p class="muted">No risk hints yet. Run health check.</p>`;
+          return;
+        }
+        riskContainerEl.innerHTML = list
+          .map((d) => {
+            const cls = d.severity === "high" ? "risk-high" : d.severity === "medium" ? "risk-medium" : "risk-low";
+            return `<div class="risk-item">
+              <div class="risk-header">
+                <strong>${d.title}</strong>
+                <span class="risk-tag ${cls}">${d.severity.toUpperCase()}</span>
+              </div>
+              <div>${d.detail}</div>
+              <div class="muted">${d.timestamp}</div>
+            </div>`;
+          })
+          .join("");
+      }
+
+      function renderLogs() {
+        if (!state.diagnostics.length) {
+          logListEl.innerHTML = `<div class="muted">No logs yet.</div>`;
+          return;
+        }
+        const kindFilter = logFilterKindEl.value || "all";
+        const severityFilter = logFilterSeverityEl.value || "all";
+        const filtered = state.diagnostics.filter(
+          (d) => (kindFilter === "all" || d.kind === kindFilter) && (severityFilter === "all" || d.severity === severityFilter)
+        );
+        if (!filtered.length) {
+          logListEl.innerHTML = `<div class="muted">No logs match current filters.</div>`;
+          return;
+        }
+        logListEl.innerHTML = filtered
+          .slice(0, 20)
+          .map(
+            (d) => `<div class="log-row">
+              <div>
+                <div><strong>${d.title}</strong></div>
+                <div class="muted">${d.kind} • ${d.timestamp}</div>
+              </div>
+              <button data-log-id="${d.id}">View</button>
+            </div>`
+          )
+          .join("");
+      }
+
+      function renderTxHistory() {
+        if (!state.txHistory.length) {
+          txListEl.innerHTML = `<div class="muted">No transaction history yet.</div>`;
+          return;
+        }
+        txListEl.innerHTML = state.txHistory
+          .map(
+            (tx) => `<div class="tx-row">
+              <div><strong>${tx.status}</strong> • ${tx.timestamp}</div>
+              <div class="muted">hash: ${tx.txHash || "-"}</div>
+              <div class="muted">block: ${tx.blockNumber || "-"}</div>
+              <div class="muted">amount: ${tx.amount || "-"}</div>
+            </div>`
+          )
+          .join("");
+      }
+
+      function readErrorMessage(err) {
+        if (!err) return "Unknown error";
+        if (typeof err === "string") return err;
+        return err.shortMessage || err.reason || err.message || JSON.stringify(err);
+      }
+
+      function serializePayload(value) {
+        if (value === null || value === undefined) return null;
+        if (value instanceof Error) {
+          return {
+            _type: "Error",
+            name: value.name,
+            message: value.message,
+            stack: value.stack || null,
+            code: value.code ?? null,
+          };
+        }
+        if (typeof value === "bigint") return value.toString();
+        if (typeof value === "object") {
+          try {
+            return JSON.parse(JSON.stringify(value, (_, v) => (typeof v === "bigint" ? v.toString() : v)));
+          } catch {
+            return { _type: "Object", string: String(value) };
+          }
+        }
+        return value;
+      }
+
+      function serializeQuoteForExport(quote) {
+        if (!quote) return null;
+        return {
+          quoteId: quote.quoteId,
+          payer: quote.payer,
+          payee: quote.payee,
+          token: quote.token,
+          amount: quote.amount?.toString?.() ?? String(quote.amount),
+          nonce: quote.nonce?.toString?.() ?? String(quote.nonce),
+          deadline: quote.deadline?.toString?.() ?? String(quote.deadline),
+          scopeHash: quote.scopeHash,
+        };
+      }
+
+      function downloadJson(filename, data) {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      async function buildDiagnosisReport() {
+        const inputs = readInputs();
+        const inputsSerialized = {
+          engineAddress: inputs.engineAddress,
+          tokenAddress: inputs.tokenAddress,
+          payeeAddress: inputs.payeeAddress,
+          amount: inputs.amount.toString(),
+          scopeText: inputs.scopeText,
+          ttlSeconds: inputs.ttlSeconds,
+        };
+
+        let network = null;
+        if (state.provider) {
+          try {
+            const n = await state.provider.getNetwork();
+            network = { chainId: n.chainId.toString(), name: n.name || null };
+          } catch (e) {
+            network = { error: readErrorMessage(e) };
+          }
+        }
+
+        let walletFull = null;
+        if (state.signer) {
+          try {
+            walletFull = await state.signer.getAddress();
+          } catch {
+            walletFull = null;
+          }
+        }
+
+        return {
+          reportVersion: "1.0",
+          app: "TrustChain v0.1 Settlement Console",
+          exportedAt: new Date().toISOString(),
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+          pageUrl: typeof location !== "undefined" ? location.href : null,
+          network,
+          walletAddress: walletFull,
+          kpis: {
+            wallet: document.getElementById("kpiWallet").textContent,
+            engine: document.getElementById("kpiEngine").textContent,
+            tokenAllowlist: document.getElementById("kpiAllowlist").textContent,
+            settlementReadiness: document.getElementById("kpiReadiness").textContent,
+          },
+          autoMonitor: {
+            active: Boolean(state.autoMonitorTimer),
+            pollSeconds: Number(document.getElementById("pollSeconds").value || "10"),
+          },
+          form: inputsSerialized,
+          logFilters: {
+            kind: logFilterKindEl.value,
+            severity: logFilterSeverityEl.value,
+          },
+          diagnostics: state.diagnostics.map((d) => ({
+            id: d.id,
+            timestamp: d.timestamp,
+            kind: d.kind,
+            severity: d.severity,
+            title: d.title,
+            detail: d.detail,
+            payload: serializePayload(d.payload),
+          })),
+          transactionHistory: state.txHistory,
+          lastQuote: serializeQuoteForExport(state.quote),
+          signaturePresent: Boolean(state.signature),
+        };
+      }
+
+      async function exportDiagnosis() {
+        const data = await buildDiagnosisReport();
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        downloadJson(`trustchain-v01-diagnosis-${stamp}.json`, data);
+        addDiagnostic("export", "low", "Diagnosis exported", `Downloaded JSON report (${data.diagnostics.length} log entries).`);
+        setOutput({
+          step: "diagnosis_exported",
+          filename: `trustchain-v01-diagnosis-${stamp}.json`,
+          diagnosticsCount: data.diagnostics.length,
+          txHistoryCount: data.transactionHistory.length,
+          walletAddress: data.walletAddress,
+          network: data.network,
+        });
+      }
+
+      async function connect() {
+        if (!window.ethereum) throw new Error("MetaMask not found");
+        state.provider = new BrowserProvider(window.ethereum);
+        await state.provider.send("eth_requestAccounts", []);
+        state.signer = await state.provider.getSigner();
+        const wallet = await state.signer.getAddress();
+        updateKpi("kpiWallet", `${wallet.slice(0, 6)}...${wallet.slice(-4)}`, "status-good");
+        addDiagnostic("wallet", "low", "Wallet connected", `Connected wallet ${wallet}.`);
+        setOutput({ step: "connected", wallet, network: await state.provider.getNetwork() });
+      }
+
+      async function runHealthCheck() {
+        if (!state.signer || !state.provider) throw new Error("Connect wallet first");
+        const { engineAddress, tokenAddress, amount } = readInputs();
+        if (!engineAddress || !tokenAddress || amount <= 0n) throw new Error("Engine/Token/Amount required");
+
+        const signerAddress = await state.signer.getAddress();
+        const engine = new Contract(engineAddress, engineAbi, state.signer);
+        const token = new Contract(tokenAddress, erc20Abi, state.signer);
+        const [paused, tokenAllowed, nonce, balance, allowance] = await Promise.all([
+          engine.paused(),
+          engine.tokenAllowed(tokenAddress),
+          engine.nonces(signerAddress),
+          token.balanceOf(signerAddress),
+          token.allowance(signerAddress, engineAddress),
+        ]);
+
+        updateKpi("kpiEngine", paused ? "Paused" : "Running", paused ? "status-bad" : "status-good");
+        updateKpi("kpiAllowlist", tokenAllowed ? "Allowed" : "Not allowed", tokenAllowed ? "status-good" : "status-bad");
+
+        const enoughBalance = balance >= amount;
+        const enoughAllowance = allowance >= amount;
+        const ready = !paused && tokenAllowed && enoughBalance && enoughAllowance;
+        updateKpi("kpiReadiness", ready ? "Ready" : "Blocked", ready ? "status-good" : "status-bad");
+
+        addDiagnostic("engine_state", paused ? "high" : "low", "Engine status", paused ? "Engine is paused." : "Engine is running.");
+        addDiagnostic(
+          "token_allowlist",
+          tokenAllowed ? "low" : "high",
+          "Allowlist check",
+          tokenAllowed ? "Token is allowed." : "Token is not allowed by admin."
+        );
+        addDiagnostic(
+          "payer_balance",
+          enoughBalance ? "low" : "high",
+          "Balance check",
+          enoughBalance ? "Balance is sufficient." : `Insufficient balance: need ${amount}, have ${balance}.`
+        );
+        addDiagnostic(
+          "payer_allowance",
+          enoughAllowance ? "low" : "high",
+          "Allowance check",
+          enoughAllowance ? "Allowance is sufficient." : `Allowance too low: need ${amount}, approved ${allowance}.`
+        );
+        addDiagnostic("nonce_info", "low", "Nonce status", `Current nonce: ${nonce}.`);
+
+        setOutput({
+          step: "health_check",
+          signerAddress,
+          paused,
+          tokenAllowed,
+          nonce: nonce.toString(),
+          balance: balance.toString(),
+          allowance: allowance.toString(),
+          amount: amount.toString(),
+        });
+      }
+
+      async function runHealthCheckSilent() {
+        try {
+          await runHealthCheck();
+        } catch (e) {
+          const msg = readErrorMessage(e);
+          addDiagnostic("auto_monitor", "high", "Auto monitor check failed", msg, e);
+        }
+      }
+
+      function setAutoMonitorUi(active) {
+        autoStateEl.textContent = active ? "Auto monitor: ON" : "Auto monitor: OFF";
+      }
+
+      function toggleAutoMonitor() {
+        if (state.autoMonitorTimer) {
+          clearInterval(state.autoMonitorTimer);
+          state.autoMonitorTimer = null;
+          setAutoMonitorUi(false);
+          addDiagnostic("auto_monitor", "low", "Auto monitor stopped", "Background health polling stopped.");
+          return;
+        }
+
+        const seconds = Number(document.getElementById("pollSeconds").value || "10");
+        const intervalMs = Math.max(3, seconds) * 1000;
+        state.autoMonitorTimer = setInterval(runHealthCheckSilent, intervalMs);
+        setAutoMonitorUi(true);
+        addDiagnostic("auto_monitor", "low", "Auto monitor started", `Polling every ${intervalMs / 1000} seconds.`);
+        runHealthCheckSilent();
+      }
+
+      async function buildAndSign() {
+        if (!state.signer || !state.provider) throw new Error("Connect wallet first");
+        const { engineAddress, tokenAddress, payeeAddress, amount, scopeText, ttlSeconds } = readInputs();
+        if (!engineAddress || !tokenAddress || !payeeAddress || amount <= 0n) throw new Error("Please fill all required fields");
+
+        const engine = new Contract(engineAddress, engineAbi, state.signer);
+        const payerAddress = await state.signer.getAddress();
+        const nonce = await engine.nonces(payerAddress);
+        const now = Math.floor(Date.now() / 1000);
+        const deadline = BigInt(now + ttlSeconds);
+        const quote = {
+          quoteId: keccak256(toUtf8Bytes(`quote:${payerAddress}:${payeeAddress}:${now}`)),
+          payer: payerAddress,
+          payee: payeeAddress,
+          token: tokenAddress,
+          amount,
+          nonce,
+          deadline,
+          scopeHash: keccak256(toUtf8Bytes(scopeText)),
+        };
+        const net = await state.provider.getNetwork();
+        const domain = {
+          name: "TrustChainSettlementEngine",
+          version: "1",
+          chainId: Number(net.chainId),
+          verifyingContract: engineAddress,
+        };
+        const sig = await state.signer.signTypedData(domain, quoteTypes, quote);
+        state.quote = quote;
+        state.signature = sig;
+        addDiagnostic("signing", "low", "Quote signed", "EIP-712 signature completed.");
+        setOutput({ step: "quote_signed", quote, signature: sig });
+      }
+
+      async function submit() {
+        if (!state.signer || !state.quote || !state.signature) throw new Error("Build and sign quote first");
+        const { engineAddress } = readInputs();
+        if (!engineAddress) throw new Error("Missing engine address");
+
+        const engine = new Contract(engineAddress, engineAbi, state.signer);
+        const { v, r, s } = Signature.from(state.signature);
+        const onchainDigest = await engine.getQuoteDigest(state.quote);
+        const tx = await engine.submitSettlement(state.quote, v, r, s);
+        const receipt = await tx.wait();
+        addDiagnostic("settlement_tx", "low", "Settlement submitted", `Tx confirmed: ${receipt.hash}`);
+        addTxHistory({
+          timestamp: new Date().toISOString(),
+          status: "confirmed",
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          amount: state.quote.amount?.toString?.() || "-",
+        });
+        setOutput({ step: "settlement_submitted", onchainDigest, txHash: receipt.hash, blockNumber: receipt.blockNumber });
+      }
+
+      document.getElementById("connectBtn").addEventListener("click", () =>
+        connect().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("wallet", "high", "Wallet connection failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("healthBtn").addEventListener("click", () =>
+        runHealthCheck().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("health_check", "high", "Health check failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("buildBtn").addEventListener("click", () =>
+        buildAndSign().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("signing", "medium", "Build/sign failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("submitBtn").addEventListener("click", () =>
+        submit().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("settlement_tx", "high", "Submit failed", msg, e);
+          addTxHistory({
+            timestamp: new Date().toISOString(),
+            status: "failed",
+            txHash: "-",
+            blockNumber: "-",
+            amount: state.quote?.amount?.toString?.() || "-",
+          });
+          setOutput(msg);
+        })
+      );
+      document.getElementById("toggleAutoBtn").addEventListener("click", () => toggleAutoMonitor());
+      document.getElementById("exportDiagBtn").addEventListener("click", () =>
+        exportDiagnosis().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("export", "high", "Export failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      logFilterKindEl.addEventListener("change", () => renderLogs());
+      logFilterSeverityEl.addEventListener("change", () => renderLogs());
+
+      logListEl.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+        const id = target.getAttribute("data-log-id");
+        if (!id) return;
+        const row = state.diagnostics.find((d) => d.id === id);
+        if (!row) return;
+        setOutput({
+          selectedLog: {
+            title: row.title,
+            kind: row.kind,
+            severity: row.severity,
+            timestamp: row.timestamp,
+            detail: row.detail,
+            payload: row.payload,
+          },
+        });
+      });
+
+      renderRisks();
+      renderLogs();
+      renderTxHistory();
+      setAutoMonitorUi(false);
+    </script>
+  </body>
+</html>
