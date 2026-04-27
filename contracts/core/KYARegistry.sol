@@ -7,8 +7,13 @@ import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 
 contract KYARegistry is IKYARegistry {
+    address public immutable admin;
     mapping(address agent => Types.AgentDID) public didByAgent;
     uint256 public constant MIN_STAKE = 0.01 ether;
+
+    constructor() {
+        admin = msg.sender;
+    }
 
     function registerDID(address agent, bytes32 permissionsHash, uint256 validityDays)
         external
@@ -58,5 +63,13 @@ contract KYARegistry is IKYARegistry {
 
         did.permissionsHash = newPermissionsHash;
         emit Events.PermissionUpdated(agent, newPermissionsHash);
+    }
+
+    function withdrawStuckETH(address to, uint256 amount) external override {
+        if (msg.sender != admin) revert Errors.Unauthorized();
+        if (to == address(0)) revert Errors.InvalidAddress();
+        if (amount == 0 || amount > address(this).balance) revert Errors.InvalidAmount();
+        (bool ok,) = payable(to).call{value: amount}("");
+        if (!ok) revert Errors.InvalidState();
     }
 }

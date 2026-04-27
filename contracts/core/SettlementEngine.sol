@@ -8,6 +8,8 @@ import {QuoteEIP712} from "../libraries/QuoteEIP712.sol";
 import {Errors} from "../libraries/Errors.sol";
 
 contract SettlementEngine is ISettlementEngine {
+    uint256 internal constant SECP256K1N_DIV_2 = 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+
     address public immutable admin;
     bool public paused;
 
@@ -56,6 +58,8 @@ contract SettlementEngine is ISettlementEngine {
     }
 
     function _submitSettlement(QuoteTypes.Quote calldata quote, uint8 v, bytes32 r, bytes32 s) internal {
+        if (uint256(s) > SECP256K1N_DIV_2) revert Errors.InvalidSignature();
+        if (v != 27 && v != 28) revert Errors.InvalidSignature();
         if (paused) revert Errors.EnginePaused();
         if (!tokenAllowed[quote.token]) revert Errors.TokenNotAllowed();
         if (quote.payer == address(0) || quote.payee == address(0) || quote.amount == 0) revert Errors.InvalidAmount();

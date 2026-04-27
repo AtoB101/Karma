@@ -7,6 +7,8 @@ import {Types} from "../libraries/Types.sol";
 import {Errors} from "../libraries/Errors.sol";
 
 contract AuthTokenManagerTest is Test {
+    uint256 internal constant SECP256K1N =
+        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
     AuthTokenManager internal manager;
     uint256 internal ownerPk = 0xA11CE;
     address internal owner;
@@ -92,5 +94,18 @@ contract AuthTokenManagerTest is Test {
 
         vm.expectRevert(Errors.DeadlineExpired.selector);
         manager.consumeAuth(tokenId, agent, Types.OperationType.CreateBill, 40, deadline, v, r, s);
+    }
+
+    function testConsumeAuthRejectsHighSValue() public {
+        vm.prank(owner);
+        bytes32 tokenId = manager.issueAuthToken(agent, Types.OperationType.CreateBill, 100, 1 days);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 digest = manager.getAuthDigest(tokenId, agent, Types.OperationType.CreateBill, 40, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, digest);
+        bytes32 highS = bytes32(SECP256K1N - uint256(s));
+        uint8 flippedV = v == 27 ? 28 : 27;
+
+        vm.expectRevert(Errors.InvalidSignature.selector);
+        manager.consumeAuth(tokenId, agent, Types.OperationType.CreateBill, 40, deadline, flippedV, r, highS);
     }
 }

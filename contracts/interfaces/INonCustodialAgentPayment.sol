@@ -57,6 +57,9 @@ interface INonCustodialAgentPayment {
         returns (uint256 billId);
     function confirmBill(uint256 billId) external;
     function cancelBill(uint256 billId) external;
+    /// @notice Buyer or seller can raise a dispute on a confirmed bill.
+    /// @dev Seller-initiated disputes have no direct economic cost besides gas and can be abused for DoS-style friction.
+    /// Frontend/operator tooling should warn and rate-limit suspicious seller dispute patterns.
     function disputeBill(uint256 billId) external;
     function requestBillPayout(uint256 billId) external returns (bool ok);
     function expireBill(uint256 billId) external;

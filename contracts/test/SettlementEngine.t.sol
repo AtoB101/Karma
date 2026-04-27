@@ -8,6 +8,8 @@ import {QuoteTypes} from "../libraries/QuoteTypes.sol";
 import {Errors} from "../libraries/Errors.sol";
 
 contract SettlementEngineTest is Test {
+    uint256 internal constant SECP256K1N =
+        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
     SettlementEngine internal engine;
     MockERC20 internal token;
 
@@ -160,6 +162,16 @@ contract SettlementEngineTest is Test {
 
         vm.expectRevert(Errors.InvalidBatchInput.selector);
         engine.settleBatch(quotes, vs, rs, ss);
+    }
+
+    function testHighSValueFails() public {
+        QuoteTypes.Quote memory q = _buildQuote(100, 0, block.timestamp + 1 hours);
+        (uint8 v, bytes32 r, bytes32 s) = _signQuote(q, payerPk);
+        bytes32 highS = bytes32(SECP256K1N - uint256(s));
+        uint8 flippedV = v == 27 ? 28 : 27;
+
+        vm.expectRevert(Errors.InvalidSignature.selector);
+        engine.submitSettlement(q, flippedV, r, highS);
     }
 
     function _buildQuote(uint256 amount, uint256 nonce, uint256 deadline)

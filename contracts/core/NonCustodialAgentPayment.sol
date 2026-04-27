@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import {INonCustodialAgentPayment} from "../interfaces/INonCustodialAgentPayment.sol";
 
 interface IERC20Extended {
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function balanceOf(address account) external view returns (uint256);
     function allowance(address owner, address spender) external view returns (uint256);
 }
@@ -45,7 +44,9 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     mapping(uint256 billId => bool) internal billBatchFinalized;
     mapping(uint256 batchId => address) internal batchOwner;
     mapping(bytes32 ownerTokenKey => uint256 batchId) internal activeBatchByOwnerToken;
-    bool private entered;
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    uint256 private _status = _NOT_ENTERED;
 
     event LockModeEnabled(address indexed user, address indexed token, uint256 amount, uint256 lockedTotal);
     event LockModeReduced(address indexed user, address indexed token, uint256 amount, uint256 lockedTotal);
@@ -63,8 +64,8 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     event BillDisputed(uint256 indexed billId, address indexed by);
     event BillSettled(uint256 indexed billId, uint256 amount);
     event BillExpired(uint256 indexed billId);
-    event BillResolvedBuyer(uint256 indexed billId, uint256 sellerPenalty);
-    event BillResolvedSeller(uint256 indexed billId, uint256 paidAmount);
+    event BillResolvedBuyer(uint256 indexed billId, uint256 sellerPenalty, uint256 buyerRefunded);
+    event BillResolvedSeller(uint256 indexed billId, uint256 paidAmount, uint256 sellerBondReturned);
     event BillSplitResolved(uint256 indexed billId, uint16 buyerShareBps, uint256 buyerRefund, uint256 sellerPaid);
     event InvalidTransferIntent(address indexed caller, uint256 indexed billId, string reason);
     event BatchCreated(uint256 indexed batchId, address indexed owner, address indexed token);
@@ -73,6 +74,10 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     event BatchModeUpdated(bool enabled);
     event BatchCircuitBreakerUpdated(bool paused);
 
+    /// @notice Creates the non-custodial payment protocol core.
+    /// @param arbitrator_ Address allowed to resolve disputed bills.
+    /// @param sellerBondBps_ Seller bond ratio in basis points (1e4 = 100%).
+    /// @param defaultBillTtlSeconds_ Default bill TTL when createBill deadline is zero.
     constructor(address arbitrator_, uint16 sellerBondBps_, uint256 defaultBillTtlSeconds_) {
         if (arbitrator_ == address(0)) revert InvalidAddress();
         if (sellerBondBps_ > BPS_DENOMINATOR) revert InvalidShare();
@@ -83,6 +88,10 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         owner = msg.sender;
     }
 
+    /// @notice Increases logical lock capacity for caller on a token.
+    /// @dev This does not custody funds; caller must keep enough balance+allowance in wallet.
+    /// @param token ERC20 token used for accounting.
+    /// @param amount Additional amount to lock.
     function lockFunds(address token, uint256 amount) external override {
         if (token == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
@@ -96,6 +105,10 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit LockModeEnabled(msg.sender, token, amount, st.locked);
     }
 
+    /// @notice Decreases caller lock capacity and releases active amount.
+    /// @dev Reserved funds cannot be unlocked until related bill transitions finalize.
+    /// @param token ERC20 token used for accounting.
+    /// @param amount Amount to unlock from active capacity.
     function unlockFunds(address token, uint256 amount) external override {
         if (token == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
@@ -108,6 +121,15 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit LockModeReduced(msg.sender, token, amount, st.locked);
     }
 
+    /// @notice Creates a bill and reserves buyer amount plus seller bond.
+    /// @dev When batch mode is enabled, bill is auto-attached to caller's open batch for the same token.
+    /// @param seller Counterparty seller account.
+    /// @param token Settlement token.
+    /// @param amount Principal bill amount.
+    /// @param scopeHash Off-chain scope commitment hash.
+    /// @param proofHash Off-chain evidence pointer (e.g. IPFS URI hash string).
+    /// @param deadline Explicit deadline; if zero, default TTL is applied.
+    /// @return billId Newly created bill id.
     function createBill(address seller, address token, uint256 amount, bytes32 scopeHash, string calldata proofHash, uint256 deadline)
         external
         override
@@ -165,6 +187,8 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BillCreated(billId, msg.sender, seller, token, amount, sellerBond, finalDeadline);
     }
 
+    /// @notice Confirms a pending bill, making it eligible for payout/dispute.
+    /// @param billId Bill identifier.
     function confirmBill(uint256 billId) external override {
         Bill storage b = bills[billId];
         if (b.billId == 0) revert InvalidState();
@@ -174,6 +198,8 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BillConfirmed(billId, msg.sender);
     }
 
+    /// @notice Cancels a pending bill and releases both parties' reserved amounts.
+    /// @param billId Bill identifier.
     function cancelBill(uint256 billId) external override {
         Bill storage b = bills[billId];
         if (b.billId == 0) revert InvalidState();
@@ -185,6 +211,9 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BillCancelled(billId, msg.sender);
     }
 
+    /// @notice Escalates a confirmed bill to disputed status.
+    /// @dev Callable by buyer or seller.
+    /// @param billId Bill identifier.
     function disputeBill(uint256 billId) external override {
         Bill storage b = bills[billId];
         if (b.billId == 0) revert InvalidState();
@@ -194,36 +223,35 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BillDisputed(billId, msg.sender);
     }
 
-    function requestBillPayout(uint256 billId) external override returns (bool ok) {
-        if (entered) revert Reentrancy();
-        entered = true;
+    /// @notice Attempts to settle a confirmed bill by direct token transfer.
+    /// @dev Returns false and emits InvalidTransferIntent for non-terminal failures instead of reverting.
+    /// @param billId Bill identifier.
+    /// @return ok True when settlement succeeds.
+    function requestBillPayout(uint256 billId) external override nonReentrant returns (bool ok) {
         Bill storage b = bills[billId];
         if (b.billId == 0) {
             emit InvalidTransferIntent(msg.sender, billId, "bill-not-found");
-            entered = false;
             return false;
         }
         if (b.status != BillStatus.Confirmed) {
             emit InvalidTransferIntent(msg.sender, billId, "bill-not-confirmed");
-            entered = false;
             return false;
         }
         if (block.timestamp > b.deadline) {
             emit InvalidTransferIntent(msg.sender, billId, "bill-expired");
-            entered = false;
             return false;
         }
         if (!_hasSpendableBalance(b.buyer, b.token, b.amount)) {
             emit InvalidTransferIntent(msg.sender, billId, "buyer-capacity-insufficient");
-            entered = false;
             return false;
         }
 
         _settleConfirmedBill(b);
-        entered = false;
         return true;
     }
 
+    /// @notice Expires a pending/confirmed bill after deadline and releases reservations.
+    /// @param billId Bill identifier.
     function expireBill(uint256 billId) external override {
         Bill storage b = bills[billId];
         if (b.billId == 0) revert InvalidState();
@@ -237,7 +265,10 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BillExpired(billId);
     }
 
-    function resolveDisputeBuyer(uint256 billId) external override onlyArbitrator {
+    /// @notice Arbitrator resolves a dispute in buyer's favor.
+    /// @dev Buyer gets principal back to active; seller bond is paid to buyer as penalty.
+    /// @param billId Bill identifier.
+    function resolveDisputeBuyer(uint256 billId) external override nonReentrant onlyArbitrator {
         Bill storage b = bills[billId];
         if (b.status != BillStatus.Disputed) revert InvalidState();
 
@@ -256,10 +287,13 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         _finalizeBillFromBatch(b);
         _assertAccountInvariant(b.buyer, b.token);
         _assertAccountInvariant(b.seller, b.token);
-        emit BillResolvedBuyer(billId, penalty);
+        emit BillResolvedBuyer(billId, penalty, b.amount);
     }
 
-    function resolveDisputeSeller(uint256 billId) external override onlyArbitrator {
+    /// @notice Arbitrator resolves a dispute in seller's favor.
+    /// @dev Principal is paid to seller and seller bond is returned to seller active balance.
+    /// @param billId Bill identifier.
+    function resolveDisputeSeller(uint256 billId) external override nonReentrant onlyArbitrator {
         Bill storage b = bills[billId];
         if (b.status != BillStatus.Disputed) revert InvalidState();
         _settleDisputedBillSellerWins(b);
@@ -267,10 +301,13 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         _finalizeBillFromBatch(b);
         _assertAccountInvariant(b.buyer, b.token);
         _assertAccountInvariant(b.seller, b.token);
-        emit BillResolvedSeller(billId, b.amount);
+        emit BillResolvedSeller(billId, b.amount, b.sellerBond);
     }
 
-    function resolveDisputeSplit(uint256 billId, uint16 buyerShareBps) external override onlyArbitrator {
+    /// @notice Arbitrator resolves a dispute by splitting outcome using basis points.
+    /// @param billId Bill identifier.
+    /// @param buyerShareBps Buyer share of principal/bond penalty in basis points.
+    function resolveDisputeSplit(uint256 billId, uint16 buyerShareBps) external override nonReentrant onlyArbitrator {
         Bill storage b = bills[billId];
         if (b.status != BillStatus.Disputed) revert InvalidState();
         if (buyerShareBps > BPS_DENOMINATOR) revert InvalidShare();
@@ -306,6 +343,8 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BillSplitResolved(billId, buyerShareBps, buyerRefund, sellerPaid);
     }
 
+    /// @notice Closes an open batch so it can be settled.
+    /// @param batchId Batch identifier.
     function closeBatch(uint256 batchId) external override {
         Batch storage batch = batches[batchId];
         if (batch.batchId == 0) revert BatchNotFound();
@@ -319,14 +358,17 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BatchClosed(batchId, msg.sender);
     }
 
+    /// @notice Settles confirmed bills in a closed batch up to the requested limit.
+    /// @dev Batch is marked settled once all included bills are finalized to terminal states.
+    /// @param batchId Batch identifier.
+    /// @param maxBills Max number of bills to process; zero means full batch.
+    /// @return settledCount Number of successfully settled confirmed bills in this call.
+    /// @return settledAmount Sum of settled principal amount in this call.
     function settleBatch(uint256 batchId, uint256 maxBills)
         external
         override
         returns (uint256 settledCount, uint256 settledAmount)
     {
-        if (entered) revert Reentrancy();
-        entered = true;
-
         Batch storage batch = batches[batchId];
         if (batch.batchId == 0) revert BatchNotFound();
         if (batch.status != BatchStatus.Closed) revert BatchNotClosed();
@@ -352,37 +394,51 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
             batch.status = BatchStatus.Settled;
             batch.settledAt = block.timestamp;
         }
-
-        entered = false;
         emit BatchSettled(batchId, settledCount, settledAmount);
     }
 
+    /// @notice Enables or disables automatic batch assignment on bill creation.
+    /// @param enabled New batch mode flag.
     function setBatchModeEnabled(bool enabled) external override onlyOwner {
         batchModeEnabled = enabled;
         emit BatchModeUpdated(enabled);
     }
 
+    /// @notice Pauses or resumes batch path via circuit-breaker style fuse.
+    /// @param paused New breaker flag.
     function setBatchCircuitBreakerPaused(bool paused) external override onlyOwner {
         batchCircuitBreakerPaused = paused;
         emit BatchCircuitBreakerUpdated(paused);
     }
 
+    /// @notice Returns batch snapshot by id.
+    /// @param batchId Batch identifier.
     function getBatch(uint256 batchId) external view override returns (Batch memory) {
         return batches[batchId];
     }
 
+    /// @notice Returns bill ids linked to a batch.
+    /// @param batchId Batch identifier.
     function getBatchBillIds(uint256 batchId) external view override returns (uint256[] memory) {
         return batchBillIds[batchId];
     }
 
+    /// @notice Returns account lock/active/reserved state for user-token pair.
+    /// @param user Account address.
+    /// @param token Token address.
     function getAccountState(address user, address token) external view override returns (AccountState memory) {
         return accountStates[user][token];
     }
 
+    /// @notice Returns bill snapshot by id.
+    /// @param billId Bill identifier.
     function getBill(uint256 billId) external view override returns (Bill memory) {
         return bills[billId];
     }
 
+    /// @notice Checks account invariant active + reserved == locked.
+    /// @param user Account address.
+    /// @param token Token address.
     function isAccountConsistent(address user, address token) external view override returns (bool) {
         AccountState memory st = accountStates[user][token];
         return st.active + st.reserved == st.locked;
@@ -445,12 +501,25 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     }
 
     function _hasSpendableBalance(address account, address token, uint256 amount) internal view returns (bool) {
-        return _spendable(account, token) >= amount;
+        uint256 bal = IERC20Extended(token).balanceOf(account);
+        uint256 allw = IERC20Extended(token).allowance(account, address(this));
+        return bal >= amount && allw >= amount;
     }
 
     function _safeTransferFrom(address token, address from, address to, uint256 amount) internal returns (bool) {
         if (amount == 0) return true;
-        return IERC20Extended(token).transferFrom(from, to, amount);
+        (bool success, bytes memory data) =
+            token.call(abi.encodeWithSelector(bytes4(keccak256("transferFrom(address,address,uint256)")), from, to, amount));
+        if (!success) {
+            if (data.length > 0) {
+                assembly {
+                    revert(add(data, 0x20), mload(data))
+                }
+            }
+            return false;
+        }
+        if (data.length == 0) return true;
+        return abi.decode(data, (bool));
     }
 
     function _assertAccountInvariant(address user, address token) internal view {
@@ -520,5 +589,12 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
         _;
+    }
+
+    modifier nonReentrant() {
+        if (_status == _ENTERED) revert Reentrancy();
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
     }
 }

@@ -23,30 +23,26 @@ contract CircuitBreaker is ICircuitBreaker {
         emit Events.HumanApprovalThresholdUpdated(msg.sender, amount);
     }
 
-    function pauseAgent(address agent, string calldata reason) external override {
-        if (msg.sender != admin) revert Errors.Unauthorized();
+    function pauseAgent(address agent, string calldata reason) external override onlyAdmin {
         if (agent == address(0)) revert Errors.InvalidAddress();
 
         agentPaused[agent] = true;
         emit Events.AgentPaused(agent, reason);
     }
 
-    function resumeAgent(address agent) external override {
-        if (msg.sender != admin) revert Errors.Unauthorized();
+    function resumeAgent(address agent) external override onlyAdmin {
         if (agent == address(0)) revert Errors.InvalidAddress();
 
         agentPaused[agent] = false;
         emit Events.AgentResumed(agent);
     }
 
-    function emergencyPause(string calldata reason) external override {
-        if (msg.sender != admin) revert Errors.Unauthorized();
+    function emergencyPause(string calldata reason) external override onlyAdmin {
         globalPaused = true;
         emit Events.GlobalCircuitBreakerTriggered(msg.sender, reason);
     }
 
-    function emergencyResume() external override {
-        if (msg.sender != admin) revert Errors.Unauthorized();
+    function emergencyResume() external override onlyAdmin {
         globalPaused = false;
         emit Events.GlobalCircuitBreakerResumed(msg.sender);
     }
@@ -57,5 +53,10 @@ contract CircuitBreaker is ICircuitBreaker {
 
     function isAgentPaused(address agent) external view override returns (bool) {
         return agentPaused[agent];
+    }
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin) revert Errors.Unauthorized();
+        _;
     }
 }

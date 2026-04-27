@@ -7,6 +7,8 @@ import {MockERC20} from "./mocks/MockERC20.sol";
 import {INonCustodialAgentPayment} from "../interfaces/INonCustodialAgentPayment.sol";
 
 contract NonCustodialAgentPaymentTest is Test {
+    event InvalidTransferIntent(address indexed caller, uint256 indexed billId, string reason);
+
     NonCustodialAgentPayment internal protocol;
     MockERC20 internal token;
 
@@ -197,5 +199,308 @@ contract NonCustodialAgentPaymentTest is Test {
         vm.prank(seller);
         vm.expectRevert(NonCustodialAgentPayment.BatchOwnerMismatch.selector);
         protocol.closeBatch(bill.batchId);
+    }
+
+    function testExpireBillRestoresBothPartiesReserved() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-exp"), "ipfs://proof-exp", block.timestamp + 1 days);
+
+        INonCustodialAgentPayment.AccountState memory buyerBefore = protocol.getAccountState(buyer, address(token));
+        INonCustodialAgentPayment.AccountState memory sellerBefore = protocol.getAccountState(seller, address(token));
+        assertEq(buyerBefore.reserved, 10_000);
+        assertEq(sellerBefore.reserved, 3_000);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(address(0xdead));
+        protocol.expireBill(billId);
+
+        INonCustodialAgentPayment.AccountState memory buyerSt = protocol.getAccountState(buyer, address(token));
+        INonCustodialAgentPayment.AccountState memory sellerSt = protocol.getAccountState(seller, address(token));
+        INonCustodialAgentPayment.Bill memory b = protocol.getBill(billId);
+        assertEq(buyerSt.active, 100_000);
+        assertEq(buyerSt.reserved, 0);
+        assertEq(sellerSt.active, 100_000);
+        assertEq(sellerSt.reserved, 0);
+        assertEq(uint8(b.status), uint8(INonCustodialAgentPayment.BillStatus.Expired));
+        assertTrue(protocol.isAccountConsistent(buyer, address(token)));
+        assertTrue(protocol.isAccountConsistent(seller, address(token)));
+    }
+
+    function testExpireBillRevertsBeforeDeadline() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-exp2"), "ipfs://proof-exp2", block.timestamp + 1 days);
+        vm.expectRevert(NonCustodialAgentPayment.InvalidState.selector);
+        protocol.expireBill(billId);
+    }
+
+    function testExpireBillWorksOnConfirmedState() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-exp3"), "ipfs://proof-exp3", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.warp(block.timestamp + 1 days + 1);
+        protocol.expireBill(billId);
+        INonCustodialAgentPayment.Bill memory b = protocol.getBill(billId);
+        assertEq(uint8(b.status), uint8(INonCustodialAgentPayment.BillStatus.Expired));
+    }
+
+    function testExpireBillOnSettledFails() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-exp4"), "ipfs://proof-exp4", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        protocol.requestBillPayout(billId);
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.expectRevert(NonCustodialAgentPayment.InvalidState.selector);
+        protocol.expireBill(billId);
+    }
+
+    function testExpireBillAfterBuyerUnlock() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-exp5"), "ipfs://proof-exp5", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.unlockFunds(address(token), 90_000);
+        vm.warp(block.timestamp + 1 days + 1);
+        protocol.expireBill(billId);
+        INonCustodialAgentPayment.AccountState memory sellerSt = protocol.getAccountState(seller, address(token));
+        assertEq(sellerSt.active, 100_000);
+        assertEq(sellerSt.reserved, 0);
+    }
+
+    function testResolveDisputeBuyerTransfersPenalty() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-db"), "ipfs://proof-db", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+
+        uint256 buyerBefore = token.balanceOf(buyer);
+        uint256 sellerBefore = token.balanceOf(seller);
+        vm.prank(arbitrator);
+        protocol.resolveDisputeBuyer(billId);
+
+        uint256 buyerAfter = token.balanceOf(buyer);
+        uint256 sellerAfter = token.balanceOf(seller);
+        INonCustodialAgentPayment.Bill memory b = protocol.getBill(billId);
+        INonCustodialAgentPayment.AccountState memory buyerSt = protocol.getAccountState(buyer, address(token));
+        INonCustodialAgentPayment.AccountState memory sellerSt = protocol.getAccountState(seller, address(token));
+        assertEq(buyerAfter - buyerBefore, 3_000);
+        assertEq(sellerBefore - sellerAfter, 3_000);
+        assertEq(buyerSt.active, 100_000);
+        assertEq(buyerSt.reserved, 0);
+        assertEq(sellerSt.active, 97_000);
+        assertEq(sellerSt.reserved, 0);
+        assertEq(sellerSt.locked, 97_000);
+        assertEq(uint8(b.status), uint8(INonCustodialAgentPayment.BillStatus.ResolvedBuyer));
+    }
+
+    function testResolveDisputeBuyerRevertsIfNotArbitrator() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-db2"), "ipfs://proof-db2", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.Unauthorized.selector);
+        protocol.resolveDisputeBuyer(billId);
+    }
+
+    function testResolveDisputeBuyerRevertsIfNotDisputed() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-db3"), "ipfs://proof-db3", block.timestamp + 1 days);
+        vm.prank(arbitrator);
+        vm.expectRevert(NonCustodialAgentPayment.InvalidState.selector);
+        protocol.resolveDisputeBuyer(billId);
+    }
+
+    function testResolveDisputeSellerTransfersPayment() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-ds"), "ipfs://proof-ds", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+        uint256 sellerBefore = token.balanceOf(seller);
+        vm.prank(arbitrator);
+        protocol.resolveDisputeSeller(billId);
+        uint256 sellerAfter = token.balanceOf(seller);
+        INonCustodialAgentPayment.Bill memory b = protocol.getBill(billId);
+        INonCustodialAgentPayment.AccountState memory sellerSt = protocol.getAccountState(seller, address(token));
+        assertEq(sellerAfter - sellerBefore, 10_000);
+        assertEq(sellerSt.reserved, 0);
+        assertEq(sellerSt.active, 100_000);
+        assertEq(uint8(b.status), uint8(INonCustodialAgentPayment.BillStatus.ResolvedSeller));
+    }
+
+    function testResolveDisputeSellerRevertsIfNotArbitrator() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-ds2"), "ipfs://proof-ds2", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.Unauthorized.selector);
+        protocol.resolveDisputeSeller(billId);
+    }
+
+    function testSplitResolvedBuyerGetsZero() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-s0"), "ipfs://proof-s0", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+        uint256 sellerBefore = token.balanceOf(seller);
+        vm.prank(arbitrator);
+        protocol.resolveDisputeSplit(billId, 0);
+        uint256 sellerAfter = token.balanceOf(seller);
+        assertEq(sellerAfter - sellerBefore, 10_000);
+    }
+
+    function testSplitResolvedBuyerGetsAll() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-s1"), "ipfs://proof-s1", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+        uint256 buyerBefore = token.balanceOf(buyer);
+        vm.prank(arbitrator);
+        protocol.resolveDisputeSplit(billId, 10_000);
+        uint256 buyerAfter = token.balanceOf(buyer);
+        assertEq(buyerAfter - buyerBefore, 3_000);
+    }
+
+    function testSplitResolvedRevertsInvalidShare() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-s2"), "ipfs://proof-s2", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+        vm.prank(arbitrator);
+        vm.expectRevert(NonCustodialAgentPayment.InvalidShare.selector);
+        protocol.resolveDisputeSplit(billId, 10_001);
+    }
+
+    function testSplitResolvedFiftyFifty() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-s3"), "ipfs://proof-s3", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+        uint256 buyerBefore = token.balanceOf(buyer);
+        uint256 sellerBefore = token.balanceOf(seller);
+        vm.prank(arbitrator);
+        protocol.resolveDisputeSplit(billId, 5000);
+        uint256 buyerAfter = token.balanceOf(buyer);
+        uint256 sellerAfter = token.balanceOf(seller);
+        assertEq(buyerBefore - buyerAfter, 3_500);
+        assertEq(sellerAfter - sellerBefore, 3_500);
+    }
+
+    function testInvalidTransferIntentBillNotFound() public {
+        vm.expectEmit(true, true, true, true);
+        emit InvalidTransferIntent(address(this), 999, "bill-not-found");
+        bool ok = protocol.requestBillPayout(999);
+        assertFalse(ok);
+    }
+
+    function testInvalidTransferIntentNotConfirmed() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-it"), "ipfs://proof-it", block.timestamp + 1 days);
+        vm.expectEmit(true, true, true, true);
+        emit InvalidTransferIntent(address(this), billId, "bill-not-confirmed");
+        bool ok = protocol.requestBillPayout(billId);
+        assertFalse(ok);
+    }
+
+    function testInvalidTransferIntentExpired() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-it2"), "ipfs://proof-it2", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.expectEmit(true, true, true, true);
+        emit InvalidTransferIntent(address(this), billId, "bill-expired");
+        bool ok = protocol.requestBillPayout(billId);
+        assertFalse(ok);
+    }
+
+    function testInvalidTransferIntentInsufficientAllowance() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-it3"), "ipfs://proof-it3", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(buyer);
+        token.approve(address(protocol), 0);
+        vm.expectEmit(true, true, true, true);
+        emit InvalidTransferIntent(address(this), billId, "buyer-capacity-insufficient");
+        bool ok = protocol.requestBillPayout(billId);
+        assertFalse(ok);
+        INonCustodialAgentPayment.Bill memory b = protocol.getBill(billId);
+        assertEq(uint8(b.status), uint8(INonCustodialAgentPayment.BillStatus.Confirmed));
+    }
+
+    function testConcurrentBillsMaintainInvariant() public {
+        uint256[] memory billIds = new uint256[](5);
+        for (uint256 i = 0; i < 5; i++) {
+            vm.prank(buyer);
+            billIds[i] = protocol.createBill(
+                seller,
+                address(token),
+                5_000,
+                keccak256(abi.encode(i)),
+                string(abi.encodePacked("ipfs://proof-cb-", vm.toString(i))),
+                block.timestamp + 1 days
+            );
+            assertTrue(protocol.isAccountConsistent(buyer, address(token)));
+            assertTrue(protocol.isAccountConsistent(seller, address(token)));
+        }
+
+        vm.startPrank(buyer);
+        protocol.confirmBill(billIds[0]);
+        vm.stopPrank();
+        protocol.requestBillPayout(billIds[0]);
+
+        vm.startPrank(buyer);
+        protocol.confirmBill(billIds[2]);
+        protocol.cancelBill(billIds[4]);
+        protocol.confirmBill(billIds[1]);
+        vm.stopPrank();
+        protocol.requestBillPayout(billIds[1]);
+        protocol.requestBillPayout(billIds[2]);
+
+        vm.startPrank(buyer);
+        protocol.cancelBill(billIds[3]);
+        vm.stopPrank();
+
+        INonCustodialAgentPayment.AccountState memory buyerSt = protocol.getAccountState(buyer, address(token));
+        INonCustodialAgentPayment.AccountState memory sellerSt = protocol.getAccountState(seller, address(token));
+        assertEq(buyerSt.reserved, 0);
+        assertEq(sellerSt.reserved, 0);
+        assertTrue(protocol.isAccountConsistent(buyer, address(token)));
+        assertTrue(protocol.isAccountConsistent(seller, address(token)));
     }
 }

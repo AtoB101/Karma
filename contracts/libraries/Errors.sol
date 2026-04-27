@@ -9,13 +9,9 @@ library Errors {
     error NotFound();
     error DIDNotActive();
     error DIDExpired();
-    error InsufficientMappingBalance();
-    error PendingAmountNotZero();
     error InvalidToken();
     error TokenUsed();
-    error TokenExpired();
     error CircuitBreakerActive();
-    error DeprecatedEntryPoint();
     error TokenTransferFailed();
     error InvalidSignature();
     error DeadlineExpired();
