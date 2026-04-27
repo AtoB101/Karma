@@ -3,13 +3,14 @@ OpenClaw Execution Brief - TrustChain Core Settlement MVP v0.1
 Role:
 You are the deployment and testing executor. Your task is to deploy and validate ONLY the focused Core Settlement MVP flow in this repository.
 
-Repository Scope:
-- Contract: contracts/core/SettlementEngine.sol
-- Tests: contracts/test/SettlementEngine.t.sol, contracts/test/ScenarioFlow.t.sol
+Repository Scope (current non-custodial story):
+- Contract: contracts/core/NonCustodialAgentPayment.sol
+- Tests: contracts/test/NonCustodialAgentPayment.t.sol
 - Scripts:
-  - examples/v01-quote-settlement.ts
-  - examples/v01-batch-settlement.ts
-  - scripts/aggregate-results.ts
+  - scripts/deploy-v01-eth.sh
+  - scripts/integration-v01-noncustodial-batch.sh
+  - scripts/integration-openclaw-run.sh
+  - scripts/integration-hermes-run.sh
 
 Do NOT redesign architecture. Do NOT add unrelated modules. Keep changes minimal.
 
@@ -22,42 +23,38 @@ A) Get the repo (once)
 1) git clone --recurse-submodules <repo-url>
    OR: git submodule update --init --recursive
 
-B) Deploy only what v0.1 needs (three on-chain actions)
+B) Deploy only what v0.1 needs (non-custodial only)
 1) One command deploy (ETH chain):
    ETH_RPC_URL=<rpc> DEPLOYER_PRIVATE_KEY=<pk> ADMIN_ADDRESS=<admin> TOKEN_ADDRESS=<token> PAYEE_ADDRESS=<payee> \
    ./scripts/deploy-v01-eth.sh
    - Output: results/deploy-v01-eth.json
    - UI config auto-written: examples/v01-console-config.json
-2) Admin confirm token allowlist is true (script auto-calls when TOKEN_ADDRESS is set)
-3) Payer: mint/balance + approve(ENGINE_ADDRESS, enough allowance)
+2) Confirm NON_CUSTODIAL_ADDRESS is returned
+3) Buyer/Seller: token balance + approve(NON_CUSTODIAL_ADDRESS, enough allowance)
 
 C) Open the visual console (browser + MetaMask)
 From repo root, serve the static file (avoids file:// wallet quirks):
   python3 -m http.server 8787
 Then open:
   http://localhost:8787/examples/v01-metamask-settlement.html
-Fill Engine / Token / Payee / Amount -> buttons in order:
-  Load config -> Connect -> Health Check -> Build+Sign -> Submit
+Fill Non-custodial / Token / Payee / Amount -> buttons in order:
+  Load config -> Connect -> Health Check -> Batch controls
 Right panel = monitoring + risk + logs + export JSON for support.
 
 D) One-line health rule
-If "Settlement Readiness" is not Ready, fix the red Risk Hints first (pause / allowlist / balance / allowance).
+If "Settlement Readiness" is not Ready, fix the red Risk Hints first (batch breaker / balance / allowance / lock capacity).
 
-E) One-command smoke test (ETH chain)
-After deploy/config, run one minimal settlement tx:
-  ETH_RPC_URL=<rpc> ENGINE_ADDRESS=<engine> TOKEN_ADDRESS=<token> PAYER_PRIVATE_KEY=<payer-pk> PAYEE_ADDRESS=<payee> \
-  ./scripts/smoke-v01-eth.sh
+E) One-command non-custodial smoke (ETH chain)
+After deploy/config, run one minimal non-custodial integration:
+  ETH_RPC_URL=<rpc> NON_CUSTODIAL_ADDRESS=<nc> TOKEN_ADDRESS=<token> \
+  BUYER_PRIVATE_KEY=<buyer-pk> SELLER_PRIVATE_KEY=<seller-pk> \
+  ./scripts/integration-v01-noncustodial-batch.sh
 Output artifact:
-  results/smoke-v01-eth.json
+  results/integration-noncustodial-batch.json
 
-F) Optional batch smoke (small stress, same script)
-If you want a quick high-frequency confidence check in the same run:
-  ETH_RPC_URL=<rpc> ENGINE_ADDRESS=<engine> TOKEN_ADDRESS=<token> PAYER_PRIVATE_KEY=<payer-pk> PAYEE_ADDRESS=<payee> \
-  RUN_BATCH_SMOKE=1 BATCH_SIZE=20 BATCH_DELAY_MS=100 \
-  ./scripts/smoke-v01-eth.sh
-Output artifacts:
-  - results/smoke-v01-eth.json
-  - results/smoke-batch-v01-eth.json
+F) Optional legacy path
+Legacy SettlementEngine path is optional and no longer the default story.
+Use only when you explicitly need backward compatibility testing.
 
 G) Non-custodial batch operation (UI practical flow)
 Open:
@@ -147,18 +144,18 @@ Optional:
 ==================================================
 1) Objective
 ==================================================
-Validate this flow end-to-end:
-1. Build Quote off-chain
-2. Sign Quote via EIP-712
-3. Submit on-chain settlement
-4. Observe success/failure with clear traceability
+Validate current non-custodial flow end-to-end:
+1. lockFunds in user wallets
+2. create/confirm bill with batch assignment
+3. closeBatch + settleBatch
+4. observe invariants and traceability artifacts
 
 ==================================================
 2) Allowed Work
 ==================================================
 Allowed:
-- Deploy SettlementEngine
-- Configure token allowlist
+- Deploy NonCustodialAgentPayment
+- Configure batch mode/breaker fuse
 - Run local tests
 - Run testnet single-shot and batch runs
 - Produce result artifacts and summary
@@ -173,47 +170,35 @@ Not allowed:
 ==================================================
 A. Local Build + Core Tests
 Run in repo root:
-1) forge install foundry-rs/forge-std
-2) forge build
-3) forge test --match-path "contracts/test/SettlementEngine.t.sol" -vv
-4) forge test --match-path "contracts/test/ScenarioFlow.t.sol" -vv
+1) forge build
+2) forge test --match-path "contracts/test/NonCustodialAgentPayment.t.sol" -vv
 
 B. Testnet Deployment
-1) Deploy SettlementEngine (existing script or minimal deployment command)
-2) Record ENGINE_ADDRESS
-3) Admin executes:
-   setTokenAllowed(TOKEN_ADDRESS, true)
+1) Deploy NonCustodialAgentPayment:
+   ./scripts/deploy-v01-eth.sh
+2) Record NON_CUSTODIAL_ADDRESS
 
 C. Funding + Approval Precheck
-1) Ensure payer has token balance
-2) Ensure payer approved ENGINE_ADDRESS on TOKEN_ADDRESS
+1) Ensure buyer/seller have token balance
+2) Ensure buyer/seller approved NON_CUSTODIAL_ADDRESS
 
-D. Single Transaction Validation
+D. Non-custodial Integration Validation
 Run:
-npx tsx examples/v01-quote-settlement.ts
+./scripts/integration-v01-noncustodial-batch.sh
 
-Record:
-- tx hash
-- payer nonce before/after
-- payee balance delta
-
-E. Batch Stress Runs (50 and 100)
+E. Multi-scenario Validation
 Run:
-BATCH_SIZE=50 OUTPUT_PATH=results/run-050.json npx tsx examples/v01-batch-settlement.ts
-BATCH_SIZE=100 OUTPUT_PATH=results/run-100.json npx tsx examples/v01-batch-settlement.ts
-
-F. Aggregate Report
-Run:
-AGGREGATE_OUTPUT=results/aggregate-summary.json npx tsx scripts/aggregate-results.ts
+./scripts/integration-openclaw-run.sh
+./scripts/integration-hermes-run.sh
+./scripts/generate-integration-report.sh
 
 ==================================================
 4) Acceptance Criteria
 ==================================================
-- Single settlement path works on-chain
-- 50-run success rate >= 95%
-- 100-run success rate >= 95%
-- InvalidNonce near 0 in normal run
-- TokenTransferFailed = 0 if balance/approval correctly configured
+- Non-custodial integration path works on-chain
+- OpenClaw scenario artifact generated and valid
+- Hermes scenario artifact generated and valid
+- Account invariants remain true
 - Failure reasons classified and reported
 
 ==================================================
@@ -222,15 +207,16 @@ AGGREGATE_OUTPUT=results/aggregate-summary.json npx tsx scripts/aggregate-result
 Provide final output with:
 1) Deployment details:
    - chain
-   - ENGINE_ADDRESS
+   - NON_CUSTODIAL_ADDRESS
    - TOKEN_ADDRESS
-   - admin/payer/payee addresses
+   - admin/buyer/seller addresses
 2) Local test summary (pass/fail)
-3) Single-run validation summary
-4) Batch summaries from:
-   - results/run-050.json
-   - results/run-100.json
-   - results/aggregate-summary.json
+3) Integration summary from:
+   - results/integration-noncustodial-batch.json
+4) Scenario summaries from:
+   - results/integration-openclaw-run-*.json
+   - results/integration-hermes-run-*.json
+   - docs/INTEGRATION_RESULTS_REPORT_CN.generated.txt
 5) Final verdict:
    - Passed/Failed against acceptance criteria
 6) If failed:
@@ -252,7 +238,7 @@ End of instructions.
 Overall status: PASSED
 
 Final result overview:
-- ENGINE_ADDRESS: 0x5FbDB2315678afecb367f032d93F642f64180aa3
+- NON_CUSTODIAL_ADDRESS: 0x5FbDB2315678afecb367f032d93F642f64180aa3
 - TOKEN_ADDRESS: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
 - Single Settlement: 1/1 success
 - Batch 50: 50/50 success (100%)
@@ -274,7 +260,7 @@ B) Deployment + Configuration (PASS)
 
 C) Funding + Approval (PASS)
 - Payer balance: 10,000,000 TOKEN
-- Approval to ENGINE_ADDRESS: 10,000,000 TOKEN
+- Approval to NON_CUSTODIAL_ADDRESS: 10,000,000 TOKEN
 
 D) Single Settlement (PASS)
 - Transaction executed successfully

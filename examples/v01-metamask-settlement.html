@@ -196,6 +196,9 @@
         font-size: 14px;
         line-height: 1.45;
       }
+      .hidden {
+        display: none;
+      }
       @media (max-width: 980px) {
         .layout {
           grid-template-columns: 1fr;
@@ -213,7 +216,7 @@
     <div class="callout">
       <strong>开始前三件事 / Before you start</strong>
       <ol style="margin: 8px 0 0 18px; padding: 0">
-        <li>链上已有 Engine + Token 地址，且管理员已 allowlist / Have ENGINE + TOKEN; admin setTokenAllowed(true).</li>
+        <li>链上已有 Non-custodial + Token 地址，且买卖双方已 approve / Have NON_CUSTODIAL + TOKEN; buyer/seller approved.</li>
         <li>付款钱包有余额并已授权 Engine / Payer has balance + approved the engine.</li>
         <li>MetaMask 网络与合约一致 / MetaMask network matches the deployment chain.</li>
       </ol>
@@ -221,18 +224,15 @@
 
     <div class="steps">
       <div class="step"><strong>① 连接 / Connect</strong>Connect MetaMask</div>
-      <div class="step"><strong>② 体检 / Health</strong>Check pause, allowlist, balance</div>
-      <div class="step"><strong>③ 签名 / Sign</strong>EIP-712 sign quote</div>
-      <div class="step"><strong>④ 提交 / Submit</strong>Send settlement tx</div>
+      <div class="step"><strong>② 体检 / Health</strong>Check lock state, balance, allowance</div>
+      <div class="step"><strong>③ 批次 / Batch</strong>Read/Close/Settle batch</div>
+      <div class="step"><strong>④ Legacy / Optional</strong>Engine sign+submit (optional)</div>
     </div>
 
     <div class="layout">
       <section class="panel">
         <h2>操作面板 / Action</h2>
         <div class="grid">
-          <label for="engineAddress">Engine Address</label>
-          <input id="engineAddress" placeholder="0x..." />
-
           <label for="nonCustodialAddress">Non-custodial Address</label>
           <input id="nonCustodialAddress" placeholder="0x... (optional)" />
 
@@ -255,12 +255,25 @@
           <input id="ttlSeconds" type="number" value="3600" min="60" />
         </div>
 
+        <div class="inline-row" style="margin-top: 8px">
+          <label for="showLegacyToggle" class="muted">显示兼容模式 / Show legacy mode</label>
+          <input id="showLegacyToggle" type="checkbox" style="width: auto" />
+        </div>
+
+        <details id="legacyConfigSection" class="hidden" style="margin-top: 12px; margin-bottom: 8px">
+          <summary class="muted">Legacy SettlementEngine（可选）/ optional</summary>
+          <div class="grid" style="margin-top: 8px">
+            <label for="engineAddress">Engine Address (legacy)</label>
+            <input id="engineAddress" placeholder="0x... optional" />
+          </div>
+        </details>
+
         <p style="margin-top: 12px">
           <button id="loadConfigBtn">0) 载入部署配置 / Load config</button>
           <button id="connectBtn" class="button-primary">① 连接钱包 / Connect</button>
           <button id="healthBtn">② 一键体检 / Health</button>
-          <button id="buildBtn">③ 构建并签名 / Sign</button>
-          <button id="submitBtn">④ 上链结算 / Submit</button>
+          <button id="buildBtn" class="hidden">③ Legacy签名 / Legacy Sign</button>
+          <button id="submitBtn" class="hidden">④ Legacy提交 / Legacy Submit</button>
         </p>
         <div class="inline-row">
           <button id="toggleAutoBtn">自动监测开/关 / Auto monitor</button>
@@ -268,7 +281,7 @@
           <input id="pollSeconds" type="number" min="3" value="10" style="width: 88px" />
           <span id="autoState" class="chip">自动监测: 关 / OFF</span>
         </div>
-        <p class="hint">体检会检查：暂停、白名单、余额、授权、nonce。红字风险先处理再提交。/ Health checks pause, allowlist, balance, allowance, nonce. Fix red risks before submit.</p>
+        <p class="hint">默认走非托管：体检检查锁仓状态、余额、授权、一致性。Legacy Engine 仅在填写 Engine Address 时生效。/ Default non-custodial health checks lock state, balance, allowance, invariant. Legacy Engine works only if Engine Address is set.</p>
 
         <h3>批次控制 / Batch control (Non-custodial)</h3>
         <div class="grid">
@@ -375,6 +388,10 @@
       const logFilterKindEl = document.getElementById("logFilterKind");
       const logFilterSeverityEl = document.getElementById("logFilterSeverity");
       const autoStateEl = document.getElementById("autoState");
+      const showLegacyToggleEl = document.getElementById("showLegacyToggle");
+      const legacyConfigSectionEl = document.getElementById("legacyConfigSection");
+      const buildBtnEl = document.getElementById("buildBtn");
+      const submitBtnEl = document.getElementById("submitBtn");
       const state = {
         provider: null,
         signer: null,
@@ -455,6 +472,13 @@
         const el = document.getElementById(id);
         if (!el) return;
         el.textContent = text;
+      }
+
+      function setLegacyModeUi(enabled) {
+        const hidden = !enabled;
+        legacyConfigSectionEl.classList.toggle("hidden", hidden);
+        buildBtnEl.classList.toggle("hidden", hidden);
+        submitBtnEl.classList.toggle("hidden", hidden);
       }
 
       function addDiagnostic(kind, severity, title, detail, payload = null) {
@@ -581,9 +605,7 @@
         if (m.includes("insufficient funds")) {
           return { kind: "native_gas_insufficient", severity: "high", title: "Insufficient native gas balance" };
         }
-        if (m.includes("tokennotallowed")) {
-          return { kind: "token_not_allowed", severity: "high", title: "Token not allowlisted" };
-        }
+        if (m.includes("tokennotallowed")) return { kind: "token_not_allowed", severity: "high", title: "Token not allowed" };
         if (m.includes("enginepaused") || m.includes("paused")) {
           return { kind: "engine_paused", severity: "high", title: "Engine paused" };
         }
@@ -782,25 +804,33 @@
       async function runHealthCheck() {
         if (!state.signer || !state.provider) throw new Error("Connect wallet first");
         const { engineAddress, nonCustodialAddress, tokenAddress, amount } = readInputs();
-        if (!engineAddress || !tokenAddress || amount <= 0n) throw new Error("Engine/Token/Amount required");
+        if (!tokenAddress || amount <= 0n) throw new Error("Token/Amount required");
+        if (!nonCustodialAddress && !engineAddress) throw new Error("Provide Non-custodial address (preferred) or Engine address");
 
         const signerAddress = await state.signer.getAddress();
-        const engine = new Contract(engineAddress, engineAbi, state.signer);
         const token = new Contract(tokenAddress, erc20Abi, state.signer);
-        const [paused, tokenAllowed, nonce, balance, allowance] = await Promise.all([
-          engine.paused(),
-          engine.tokenAllowed(tokenAddress),
-          engine.nonces(signerAddress),
+        const spender = nonCustodialAddress || engineAddress;
+        const [balance, allowance] = await Promise.all([
           token.balanceOf(signerAddress),
-          token.allowance(signerAddress, engineAddress),
+          token.allowance(signerAddress, spender),
         ]);
 
-        updateKpi("kpiEngine", paused ? "Paused" : "Running", paused ? "status-bad" : "status-good");
-        updateKpi("kpiAllowlist", tokenAllowed ? "Allowed" : "Not allowed", tokenAllowed ? "status-good" : "status-bad");
+        let paused = false;
+        let tokenAllowed = true;
+        let nonce = 0n;
+        if (engineAddress) {
+          const engine = new Contract(engineAddress, engineAbi, state.signer);
+          [paused, tokenAllowed, nonce] = await Promise.all([engine.paused(), engine.tokenAllowed(tokenAddress), engine.nonces(signerAddress)]);
+          updateKpi("kpiEngine", paused ? "Paused (legacy)" : "Running (legacy)", paused ? "status-bad" : "status-good");
+          updateKpi("kpiAllowlist", tokenAllowed ? "Legacy allowed" : "Legacy blocked", tokenAllowed ? "status-good" : "status-bad");
+        } else {
+          updateKpi("kpiEngine", "N/A (non-custodial)", "status-warn");
+          updateKpi("kpiAllowlist", "N/A (non-custodial)", "status-warn");
+        }
 
         const enoughBalance = balance >= amount;
         const enoughAllowance = allowance >= amount;
-        const ready = !paused && tokenAllowed && enoughBalance && enoughAllowance;
+        const ready = (engineAddress ? (!paused && tokenAllowed) : true) && enoughBalance && enoughAllowance;
         updateKpi("kpiReadiness", ready ? "Ready" : "Blocked", ready ? "status-good" : "status-bad");
 
         if (nonCustodialAddress) {
@@ -838,13 +868,15 @@
           setChip("modeBreakerChip", "Breaker: N/A");
         }
 
-        addDiagnostic("engine_state", paused ? "high" : "low", "Engine status", paused ? "Engine is paused." : "Engine is running.");
-        addDiagnostic(
-          "token_allowlist",
-          tokenAllowed ? "low" : "high",
-          "Allowlist check",
-          tokenAllowed ? "Token is allowed." : "Token is not allowed by admin."
-        );
+        if (engineAddress) {
+          addDiagnostic("engine_state", paused ? "high" : "low", "Legacy engine status", paused ? "Engine is paused." : "Engine is running.");
+          addDiagnostic(
+            "token_allowlist",
+            tokenAllowed ? "low" : "high",
+            "Legacy allowlist check",
+            tokenAllowed ? "Token is allowed for legacy engine." : "Token is blocked for legacy engine."
+          );
+        }
         addDiagnostic(
           "payer_balance",
           enoughBalance ? "low" : "high",
@@ -905,7 +937,8 @@
       async function buildAndSign() {
         if (!state.signer || !state.provider) throw new Error("Connect wallet first");
         const { engineAddress, tokenAddress, payeeAddress, amount, scopeText, ttlSeconds } = readInputs();
-        if (!engineAddress || !tokenAddress || !payeeAddress || amount <= 0n) throw new Error("Please fill all required fields");
+        if (!engineAddress) throw new Error("Legacy Engine Address required for legacy sign flow");
+        if (!tokenAddress || !payeeAddress || amount <= 0n) throw new Error("Please fill token/payee/amount");
 
         const engine = new Contract(engineAddress, engineAbi, state.signer);
         const payerAddress = await state.signer.getAddress();
@@ -1011,7 +1044,7 @@
       async function submit() {
         if (!state.signer || !state.quote || !state.signature) throw new Error("Build and sign quote first");
         const { engineAddress } = readInputs();
-        if (!engineAddress) throw new Error("Missing engine address");
+        if (!engineAddress) throw new Error("Missing legacy engine address");
 
         const engine = new Contract(engineAddress, engineAbi, state.signer);
         const { v, r, s } = Signature.from(state.signature);
@@ -1051,14 +1084,14 @@
           setOutput(msg);
         })
       );
-      document.getElementById("buildBtn").addEventListener("click", () =>
+      buildBtnEl.addEventListener("click", () =>
         buildAndSign().catch((e) => {
           const msg = readErrorMessage(e);
           addDiagnostic("signing", "medium", "Build/sign failed", msg, e);
           setOutput(msg);
         })
       );
-      document.getElementById("submitBtn").addEventListener("click", () =>
+      submitBtnEl.addEventListener("click", () =>
         submit().catch((e) => {
           const msg = readErrorMessage(e);
           const c = classifyRuntimeError(e);
@@ -1073,6 +1106,9 @@
           setOutput(msg);
         })
       );
+      showLegacyToggleEl.addEventListener("change", () => {
+        setLegacyModeUi(Boolean(showLegacyToggleEl.checked));
+      });
       document.getElementById("toggleAutoBtn").addEventListener("click", () => toggleAutoMonitor());
       document.getElementById("exportDiagBtn").addEventListener("click", () =>
         exportDiagnosis().catch((e) => {
@@ -1131,6 +1167,7 @@
       renderLogs();
       renderTxHistory();
       setAutoMonitorUi(false);
+      setLegacyModeUi(false);
       setChip("modeCustodyChip", "Mode: Unknown");
       setChip("modeBatchChip", "Batch: Unknown");
       setChip("modeBreakerChip", "Breaker: Unknown");

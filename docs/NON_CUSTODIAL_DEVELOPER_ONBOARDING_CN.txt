@@ -60,7 +60,7 @@ ETH_RPC_URL=<rpc> DEPLOYER_PRIVATE_KEY=<pk> ADMIN_ADDRESS=<admin> TOKEN_ADDRESS=
 ./scripts/deploy-v01-eth.sh
 
 验收：
-1) 终端打印 ENGINE_ADDRESS 与 NON_CUSTODIAL_ADDRESS
+1) 终端打印 NON_CUSTODIAL_ADDRESS
 2) 生成文件：
    - results/deploy-v01-eth.json
    - examples/v01-console-config.json
@@ -78,22 +78,14 @@ ETH_RPC_URL=<rpc> DEPLOYER_PRIVATE_KEY=<pk> ADMIN_ADDRESS=<admin> TOKEN_ADDRESS=
 ==================================================
 3) 第二步：最小冒烟（约 5 分钟）
 ==================================================
-执行单笔冒烟：
+执行非托管一键集成冒烟（推荐）：
 
-ETH_RPC_URL=<rpc> ENGINE_ADDRESS=<engine> TOKEN_ADDRESS=<token> PAYER_PRIVATE_KEY=<payer-pk> PAYEE_ADDRESS=<payee> \
-./scripts/smoke-v01-eth.sh
-
-可选批量冒烟：
-
-ETH_RPC_URL=<rpc> ENGINE_ADDRESS=<engine> TOKEN_ADDRESS=<token> PAYER_PRIVATE_KEY=<payer-pk> PAYEE_ADDRESS=<payee> \
-RUN_BATCH_SMOKE=1 BATCH_SIZE=20 BATCH_DELAY_MS=100 \
-./scripts/smoke-v01-eth.sh
+ETH_RPC_URL=<rpc> NON_CUSTODIAL_ADDRESS=<nc> TOKEN_ADDRESS=<token> \
+BUYER_PRIVATE_KEY=<buyer-pk> SELLER_PRIVATE_KEY=<seller-pk> \
+./scripts/integration-v01-noncustodial-batch.sh
 
 验收：
-- results/smoke-v01-eth.json 的 status = passed
-- 若启用 RUN_BATCH_SMOKE=1，则有：
-  - batchSmokeStatus = passed
-  - batchSuccessRate 存在
+- results/integration-noncustodial-batch.json 的 status = passed
 
 ==================================================
 4) 第三步：非托管一键集成（约 10-20 分钟）
@@ -129,8 +121,8 @@ http://localhost:8787/examples/v01-metamask-settlement.html
 1) Load config
 2) Connect
 3) Health
-4) Sign
-5) Submit
+4) Batch controls（Read/Close/Settle）
+5) （可选）Legacy Sign/Submit
 
 批次面板操作：
 1) Read batch（输入 Batch ID）
@@ -166,13 +158,13 @@ http://localhost:8787/examples/v01-metamask-settlement.html
 ==================================================
 7) 常见故障与快速排查
 ==================================================
-1) Token not allowlisted
-- 现象：提交失败，日志 kind=token_not_allowed
-- 处理：管理员 setTokenAllowed(token, true)
+1) Token not allowed (legacy path only)
+- 现象：legacy 提交失败，日志 kind=token_not_allowed
+- 处理：仅 legacy Engine 路径需要 allowlist
 
-2) Engine paused / Batch paused
-- 现象：health 或 batch 操作失败
-- 处理：检查 pause 与 batchCircuitBreakerPaused 状态
+2) Batch paused
+- 现象：batch 操作失败
+- 处理：检查 batchCircuitBreakerPaused 状态
 
 3) Nonce mismatch / Invalid signature
 - 现象：提交时报 invalid_nonce / invalid_signature
@@ -195,7 +187,7 @@ http://localhost:8787/examples/v01-metamask-settlement.html
 ==================================================
 提交问题或进展时，至少附带：
 1) results/deploy-v01-eth.json
-2) results/smoke-v01-eth.json
+2) results/integration-noncustodial-batch.json
 3) results/integration-noncustodial-batch.json
 4) 前端导出的 diagnosis JSON（如有前端故障）
 

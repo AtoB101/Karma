@@ -9,9 +9,8 @@ set -euo pipefail
 # - ADMIN_ADDRESS
 #
 # Optional env vars:
-# - TOKEN_ADDRESS              # If set, script auto calls setTokenAllowed(token, true)
+# - TOKEN_ADDRESS              # Optional, for UI helper config only
 # - PAYEE_ADDRESS              # Used only for UI config helper output
-# - DEPLOY_NON_CUSTODIAL       # default: 1
 # - ARBITRATOR_ADDRESS         # default: ADMIN_ADDRESS
 # - SELLER_BOND_BPS            # default: 3000 (30%)
 # - BILL_TTL_SECONDS           # default: 86400 (24h)
@@ -36,88 +35,56 @@ OUTPUT_PATH="${OUTPUT_PATH:-results/deploy-v01-eth.json}"
 UI_CONFIG_PATH="${UI_CONFIG_PATH:-examples/v01-console-config.json}"
 WRITE_UI_CONFIG="${WRITE_UI_CONFIG:-1}"
 CHAIN_LABEL="${CHAIN_LABEL:-eth-like}"
-DEPLOY_NON_CUSTODIAL="${DEPLOY_NON_CUSTODIAL:-1}"
 ARBITRATOR_ADDRESS="${ARBITRATOR_ADDRESS:-$ADMIN_ADDRESS}"
 SELLER_BOND_BPS="${SELLER_BOND_BPS:-3000}"
 BILL_TTL_SECONDS="${BILL_TTL_SECONDS:-86400}"
 BATCH_MODE_ENABLED="${BATCH_MODE_ENABLED:-true}"
 BATCH_CIRCUIT_BREAKER="${BATCH_CIRCUIT_BREAKER:-false}"
 
-echo "Deploying SettlementEngine to ${CHAIN_LABEL}..."
-deploy_output="$(
-  forge create contracts/core/SettlementEngine.sol:SettlementEngine \
-    --rpc-url "$ETH_RPC_URL" \
-    --private-key "$DEPLOYER_PRIVATE_KEY" \
-    --constructor-args "$ADMIN_ADDRESS" \
-    --broadcast 2>&1
-)"
-
-engine_address="$(printf "%s" "$deploy_output" | rg "Deployed to:" | awk '{print $3}')"
-deploy_tx_hash="$(printf "%s" "$deploy_output" | rg "Transaction hash:" | awk '{print $3}')"
-
-if [[ -z "$engine_address" || -z "$deploy_tx_hash" ]]; then
-  echo "Deployment failed or output format changed."
-  echo "$deploy_output"
-  exit 1
-fi
-
-allowlist_tx_hash=""
-if [[ -n "${TOKEN_ADDRESS:-}" ]]; then
-  echo "Setting token allowlist for ${TOKEN_ADDRESS}..."
-  allowlist_output="$(
-    cast send "$engine_address" "setTokenAllowed(address,bool)" "$TOKEN_ADDRESS" true \
-      --rpc-url "$ETH_RPC_URL" \
-      --private-key "$DEPLOYER_PRIVATE_KEY" 2>&1
-  )"
-  allowlist_tx_hash="$(printf "%s" "$allowlist_output" | rg "transactionHash" | awk '{print $2}')"
-fi
-
 non_custodial_address=""
 non_custodial_deploy_tx_hash=""
 batch_mode_tx_hash=""
 batch_breaker_tx_hash=""
-if [[ "$DEPLOY_NON_CUSTODIAL" == "1" ]]; then
-  echo "Deploying NonCustodialAgentPayment (sellerBond=${SELLER_BOND_BPS}bps, ttl=${BILL_TTL_SECONDS}s)..."
-  nc_output="$(
-    forge create contracts/core/NonCustodialAgentPayment.sol:NonCustodialAgentPayment \
-      --rpc-url "$ETH_RPC_URL" \
-      --private-key "$DEPLOYER_PRIVATE_KEY" \
-      --constructor-args "$ARBITRATOR_ADDRESS" "$SELLER_BOND_BPS" "$BILL_TTL_SECONDS" \
-      --broadcast 2>&1
-  )"
-  non_custodial_address="$(printf "%s" "$nc_output" | rg "Deployed to:" | awk '{print $3}')"
-  non_custodial_deploy_tx_hash="$(printf "%s" "$nc_output" | rg "Transaction hash:" | awk '{print $3}')"
-  if [[ -z "$non_custodial_address" || -z "$non_custodial_deploy_tx_hash" ]]; then
-    echo "Non-custodial deployment failed or output format changed."
-    echo "$nc_output"
-    exit 1
-  fi
-
-  echo "Configuring non-custodial batch controls..."
-  mode_output="$(
-    cast send "$non_custodial_address" "setBatchModeEnabled(bool)" "$BATCH_MODE_ENABLED" \
-      --rpc-url "$ETH_RPC_URL" \
-      --private-key "$DEPLOYER_PRIVATE_KEY" 2>&1
-  )"
-  batch_mode_tx_hash="$(printf "%s" "$mode_output" | rg "transactionHash" | awk '{print $2}')"
-
-  breaker_output="$(
-    cast send "$non_custodial_address" "setBatchCircuitBreakerPaused(bool)" "$BATCH_CIRCUIT_BREAKER" \
-      --rpc-url "$ETH_RPC_URL" \
-      --private-key "$DEPLOYER_PRIVATE_KEY" 2>&1
-  )"
-  batch_breaker_tx_hash="$(printf "%s" "$breaker_output" | rg "transactionHash" | awk '{print $2}')"
+echo "Deploying NonCustodialAgentPayment to ${CHAIN_LABEL} (sellerBond=${SELLER_BOND_BPS}bps, ttl=${BILL_TTL_SECONDS}s)..."
+nc_output="$(
+  forge create contracts/core/NonCustodialAgentPayment.sol:NonCustodialAgentPayment \
+    --rpc-url "$ETH_RPC_URL" \
+    --private-key "$DEPLOYER_PRIVATE_KEY" \
+    --constructor-args "$ARBITRATOR_ADDRESS" "$SELLER_BOND_BPS" "$BILL_TTL_SECONDS" \
+    --broadcast 2>&1
+)"
+non_custodial_address="$(printf "%s" "$nc_output" | rg "Deployed to:" | awk '{print $3}')"
+non_custodial_deploy_tx_hash="$(printf "%s" "$nc_output" | rg "Transaction hash:" | awk '{print $3}')"
+if [[ -z "$non_custodial_address" || -z "$non_custodial_deploy_tx_hash" ]]; then
+  echo "Non-custodial deployment failed or output format changed."
+  echo "$nc_output"
+  exit 1
 fi
+
+echo "Configuring non-custodial batch controls..."
+mode_output="$(
+  cast send "$non_custodial_address" "setBatchModeEnabled(bool)" "$BATCH_MODE_ENABLED" \
+    --rpc-url "$ETH_RPC_URL" \
+    --private-key "$DEPLOYER_PRIVATE_KEY" 2>&1
+)"
+batch_mode_tx_hash="$(printf "%s" "$mode_output" | rg "transactionHash" | awk '{print $2}')"
+
+breaker_output="$(
+  cast send "$non_custodial_address" "setBatchCircuitBreakerPaused(bool)" "$BATCH_CIRCUIT_BREAKER" \
+    --rpc-url "$ETH_RPC_URL" \
+    --private-key "$DEPLOYER_PRIVATE_KEY" 2>&1
+)"
+batch_breaker_tx_hash="$(printf "%s" "$breaker_output" | rg "transactionHash" | awk '{print $2}')"
 
 mkdir -p "$(dirname "$OUTPUT_PATH")"
 cat > "$OUTPUT_PATH" <<EOF
 {
   "chainLabel": "${CHAIN_LABEL}",
-  "engineAddress": "${engine_address}",
+  "engineAddress": "",
   "adminAddress": "${ADMIN_ADDRESS}",
   "tokenAddress": "${TOKEN_ADDRESS:-}",
-  "deployTxHash": "${deploy_tx_hash}",
-  "allowlistTxHash": "${allowlist_tx_hash}",
+  "deployTxHash": "${non_custodial_deploy_tx_hash}",
+  "allowlistTxHash": "",
   "nonCustodialAddress": "${non_custodial_address}",
   "nonCustodialDeployTxHash": "${non_custodial_deploy_tx_hash}",
   "batchModeConfigTxHash": "${batch_mode_tx_hash}",
@@ -135,7 +102,7 @@ if [[ "$WRITE_UI_CONFIG" == "1" ]]; then
   mkdir -p "$(dirname "$UI_CONFIG_PATH")"
   cat > "$UI_CONFIG_PATH" <<EOF
 {
-  "engineAddress": "${engine_address}",
+  "engineAddress": "",
   "nonCustodialAddress": "${non_custodial_address}",
   "arbitratorAddress": "${ARBITRATOR_ADDRESS}",
   "sellerBondBps": "${SELLER_BOND_BPS}",
@@ -151,17 +118,10 @@ fi
 
 echo
 echo "Done."
-echo "ENGINE_ADDRESS=${engine_address}"
-echo "DEPLOY_TX=${deploy_tx_hash}"
-if [[ -n "$non_custodial_address" ]]; then
-  echo "NON_CUSTODIAL_ADDRESS=${non_custodial_address}"
-  echo "NON_CUSTODIAL_DEPLOY_TX=${non_custodial_deploy_tx_hash}"
-  [[ -n "$batch_mode_tx_hash" ]] && echo "BATCH_MODE_CONFIG_TX=${batch_mode_tx_hash}"
-  [[ -n "$batch_breaker_tx_hash" ]] && echo "BATCH_BREAKER_CONFIG_TX=${batch_breaker_tx_hash}"
-fi
-if [[ -n "$allowlist_tx_hash" ]]; then
-  echo "ALLOWLIST_TX=${allowlist_tx_hash}"
-fi
+echo "NON_CUSTODIAL_ADDRESS=${non_custodial_address}"
+echo "NON_CUSTODIAL_DEPLOY_TX=${non_custodial_deploy_tx_hash}"
+[[ -n "$batch_mode_tx_hash" ]] && echo "BATCH_MODE_CONFIG_TX=${batch_mode_tx_hash}"
+[[ -n "$batch_breaker_tx_hash" ]] && echo "BATCH_BREAKER_CONFIG_TX=${batch_breaker_tx_hash}"
 echo "Artifact written to: ${OUTPUT_PATH}"
 if [[ "$WRITE_UI_CONFIG" == "1" ]]; then
   echo "UI helper config: ${UI_CONFIG_PATH}"
@@ -170,4 +130,4 @@ echo
 echo "Next:"
 echo "1) Start UI: python3 -m http.server 8787"
 echo "2) Open: http://localhost:8787/examples/v01-metamask-settlement.html"
-echo "3) Paste Engine/Token/Payee -> Connect -> Health -> Sign -> Submit"
+echo "3) Paste Non-custodial/Token/Payee -> Connect -> Health -> Batch controls/Submit as needed"
