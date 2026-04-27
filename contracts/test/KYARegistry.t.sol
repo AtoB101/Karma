@@ -21,9 +21,9 @@ contract KYARegistryTest is Test {
         bytes32 did = registry.registerDID{value: 0.01 ether}(agent, permissionsHash, 30);
         assertTrue(did != bytes32(0), "did should be non-zero");
 
-        (bool ok, address owner, uint256 validUntil) = registry.verifyDID(agent);
+        (bool ok, address ownerAddr, uint256 validUntil) = registry.verifyDID(agent);
         assertTrue(ok, "did should be valid");
-        assertEq(owner, address(0xABCD), "owner mismatch");
+        assertEq(ownerAddr, address(0xABCD), "owner mismatch");
         assertGt(validUntil, block.timestamp, "validUntil should be future");
     }
 

@@ -1,0 +1,44 @@
+{
+  "runId": "non-custodial-acceptance-run-001",
+  "timestamp": "2026-04-27T07:38:44Z",
+  "environment": {
+    "network": "local-compile-and-test",
+    "mode": "non-custodial",
+    "notes": "Core non-custodial suite executed; broader repo tests contain legacy blockers outside this scope."
+  },
+  "config": {
+    "sellerBondBps": 3000,
+    "billTtlSeconds": 86400,
+    "splitResolvedEnabledInV1": true
+  },
+  "execution": {
+    "command": "forge test --match-path \"contracts/test/NonCustodialAgentPayment.t.sol\" --skip \"contracts/test/BillAndBatch.t.sol\" -vv",
+    "exitCode": 0,
+    "elapsedMs": 136616
+  },
+  "results": {
+    "suite": "NonCustodialAgentPaymentTest",
+    "testsTotal": 5,
+    "testsPassed": 5,
+    "testsFailed": 0,
+    "testsSkipped": 0,
+    "passedTests": [
+      "testCreateBillReservesBuyerAndSeller",
+      "testConfirmedBillCanSettleAndReleaseBond",
+      "testCancelRestoresReservedToActive",
+      "testUnlockCannotTouchReserved",
+      "testSplitResolvedWorksInV1"
+    ]
+  },
+  "acceptanceCoverage": {
+    "invariants": "covered (active+reserved==locked assertions)",
+    "doubleSidedLocking": "covered",
+    "splitResolved": "covered",
+    "nonCustodialFlow": "covered in contract-level tests"
+  },
+  "knownBlockersOutsideScope": [
+    "contracts/test/BillAndBatch.t.sol has legacy compile error unrelated to this module",
+    "forge-std auto-install in sandbox logs .git/config permission warning"
+  ],
+  "status": "pass-with-known-external-blockers"
+}

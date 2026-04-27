@@ -61,9 +61,9 @@ contract ScenarioFlowTest is AuthTestHelper {
         assertEq(pool.getMappingBalance(poolId), 10_000, "mapping balance mismatch");
 
         // 3) Signed create bill
-        vm.prank(buyerAgent);
         (bytes32 createTokenId, uint256 createDeadline, uint8 cv, bytes32 cr, bytes32 cs) =
             issueAndSignAuth(auth, buyerAgentPk, buyerAgent, Types.OperationType.CreateBill, 500);
+        vm.prank(buyerAgent);
         uint256 billId = bill.createBill(
             poolId,
             sellerAgent,
@@ -78,9 +78,9 @@ contract ScenarioFlowTest is AuthTestHelper {
         );
 
         // 4) Signed confirm bill by pool owner
-        vm.prank(owner);
         (bytes32 confirmTokenId, uint256 confirmDeadline, uint8 fv, bytes32 fr, bytes32 fs) =
             issueAndSignAuth(auth, ownerPk, owner, Types.OperationType.ConfirmBill, 500);
+        vm.prank(owner);
         bill.confirmBill(billId, confirmTokenId, confirmDeadline, fv, fr, fs);
 
         // 5) Close & settle batch by owner

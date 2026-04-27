@@ -233,6 +233,9 @@
           <label for="engineAddress">Engine Address</label>
           <input id="engineAddress" placeholder="0x..." />
 
+          <label for="nonCustodialAddress">Non-custodial Address</label>
+          <input id="nonCustodialAddress" placeholder="0x... (optional)" />
+
           <label for="tokenAddress">Token Address</label>
           <input id="tokenAddress" placeholder="0x..." />
 
@@ -286,6 +289,26 @@
           <div class="kpi">
             <div class="label">可结算？/ Ready?</div>
             <div id="kpiReadiness" class="value status-warn">先体检 / Run health</div>
+          </div>
+        </div>
+
+        <h3>非托管状态 / Non-custodial state</h3>
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="label">锁仓总额 / Locked</div>
+            <div id="kpiLocked" class="value status-warn">-</div>
+          </div>
+          <div class="kpi">
+            <div class="label">活期可用 / Active</div>
+            <div id="kpiActive" class="value status-warn">-</div>
+          </div>
+          <div class="kpi">
+            <div class="label">账单占用 / Reserved</div>
+            <div id="kpiReserved" class="value status-warn">-</div>
+          </div>
+          <div class="kpi">
+            <div class="label">状态一致性 / Invariant</div>
+            <div id="kpiInvariant" class="value status-warn">Unknown</div>
           </div>
         </div>
 
@@ -346,6 +369,10 @@
         "function getQuoteDigest((bytes32 quoteId,address payer,address payee,address token,uint256 amount,uint256 nonce,uint256 deadline,bytes32 scopeHash) quote) view returns (bytes32)",
         "function submitSettlement((bytes32 quoteId,address payer,address payee,address token,uint256 amount,uint256 nonce,uint256 deadline,bytes32 scopeHash) quote,uint8 v,bytes32 r,bytes32 s)",
       ];
+      const nonCustodialAbi = [
+        "function getAccountState(address user,address token) view returns ((uint256 locked,uint256 active,uint256 reserved))",
+        "function isAccountConsistent(address user,address token) view returns (bool)",
+      ];
       const erc20Abi = [
         "function balanceOf(address) view returns (uint256)",
         "function allowance(address,address) view returns (uint256)",
@@ -367,6 +394,7 @@
       function readInputs() {
         return {
           engineAddress: document.getElementById("engineAddress").value.trim(),
+          nonCustodialAddress: document.getElementById("nonCustodialAddress").value.trim(),
           tokenAddress: document.getElementById("tokenAddress").value.trim(),
           payeeAddress: document.getElementById("payeeAddress").value.trim(),
           amount: BigInt(document.getElementById("amount").value || "0"),
@@ -378,6 +406,7 @@
       function applyConfig(config) {
         if (!config || typeof config !== "object") return;
         if (config.engineAddress) document.getElementById("engineAddress").value = config.engineAddress;
+        if (config.nonCustodialAddress) document.getElementById("nonCustodialAddress").value = config.nonCustodialAddress;
         if (config.tokenAddress) document.getElementById("tokenAddress").value = config.tokenAddress;
         if (config.payeeAddress) document.getElementById("payeeAddress").value = config.payeeAddress;
       }
@@ -499,6 +528,15 @@
         return err.shortMessage || err.reason || err.message || JSON.stringify(err);
       }
 
+      function classifyRuntimeError(msg) {
+        const m = (msg || "").toLowerCase();
+        if (m.includes("invalidtransferintent") || m.includes("bill-not-") || m.includes("buyer-capacity-insufficient")) {
+          return { kind: "invalid_transfer_intent", title: "Invalid transfer intent blocked" };
+        }
+        if (m.includes("revert")) return { kind: "contract_revert", title: "Contract revert" };
+        return { kind: "runtime_error", title: "Runtime error" };
+      }
+
       function serializePayload(value) {
         if (value === null || value === undefined) return null;
         if (value instanceof Error) {
@@ -549,6 +587,7 @@
         const inputs = readInputs();
         const inputsSerialized = {
           engineAddress: inputs.engineAddress,
+          nonCustodialAddress: inputs.nonCustodialAddress,
           tokenAddress: inputs.tokenAddress,
           payeeAddress: inputs.payeeAddress,
           amount: inputs.amount.toString(),
@@ -588,6 +627,10 @@
             engine: document.getElementById("kpiEngine").textContent,
             tokenAllowlist: document.getElementById("kpiAllowlist").textContent,
             settlementReadiness: document.getElementById("kpiReadiness").textContent,
+            nonCustodialLocked: document.getElementById("kpiLocked").textContent,
+            nonCustodialActive: document.getElementById("kpiActive").textContent,
+            nonCustodialReserved: document.getElementById("kpiReserved").textContent,
+            nonCustodialInvariant: document.getElementById("kpiInvariant").textContent,
           },
           autoMonitor: {
             active: Boolean(state.autoMonitorTimer),
@@ -650,7 +693,7 @@
 
       async function runHealthCheck() {
         if (!state.signer || !state.provider) throw new Error("Connect wallet first");
-        const { engineAddress, tokenAddress, amount } = readInputs();
+        const { engineAddress, nonCustodialAddress, tokenAddress, amount } = readInputs();
         if (!engineAddress || !tokenAddress || amount <= 0n) throw new Error("Engine/Token/Amount required");
 
         const signerAddress = await state.signer.getAddress();
@@ -671,6 +714,29 @@
         const enoughAllowance = allowance >= amount;
         const ready = !paused && tokenAllowed && enoughBalance && enoughAllowance;
         updateKpi("kpiReadiness", ready ? "Ready" : "Blocked", ready ? "status-good" : "status-bad");
+
+        if (nonCustodialAddress) {
+          try {
+            const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+            const [acct, isConsistent] = await Promise.all([
+              nc.getAccountState(signerAddress, tokenAddress),
+              nc.isAccountConsistent(signerAddress, tokenAddress),
+            ]);
+            updateKpi("kpiLocked", acct.locked.toString(), "status-good");
+            updateKpi("kpiActive", acct.active.toString(), "status-good");
+            updateKpi("kpiReserved", acct.reserved.toString(), "status-good");
+            updateKpi("kpiInvariant", isConsistent ? "OK" : "BROKEN", isConsistent ? "status-good" : "status-bad");
+            addDiagnostic(
+              "non_custodial_state",
+              isConsistent ? "low" : "high",
+              "Non-custodial state",
+              `locked=${acct.locked}, active=${acct.active}, reserved=${acct.reserved}, invariant=${isConsistent}`
+            );
+          } catch (e) {
+            updateKpi("kpiInvariant", "READ FAIL", "status-warn");
+            addDiagnostic("non_custodial_state", "medium", "Non-custodial read failed", readErrorMessage(e), e);
+          }
+        }
 
         addDiagnostic("engine_state", paused ? "high" : "low", "Engine status", paused ? "Engine is paused." : "Engine is running.");
         addDiagnostic(
@@ -821,7 +887,8 @@
       document.getElementById("submitBtn").addEventListener("click", () =>
         submit().catch((e) => {
           const msg = readErrorMessage(e);
-          addDiagnostic("settlement_tx", "high", "Submit failed", msg, e);
+          const c = classifyRuntimeError(msg);
+          addDiagnostic(c.kind, "high", c.title, msg, e);
           addTxHistory({
             timestamp: new Date().toISOString(),
             status: "failed",

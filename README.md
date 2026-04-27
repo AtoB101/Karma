@@ -96,6 +96,11 @@ This writes:
 - `results/deploy-v01-eth.json`
 - `examples/v01-console-config.json` (used by the UI "Load config" button)
 
+Non-custodial defaults in deploy helper:
+- `DEPLOY_NON_CUSTODIAL=1` (enabled)
+- `SELLER_BOND_BPS=3000` (30%)
+- `BILL_TTL_SECONDS=86400` (24h)
+
 ETH-chain one-command smoke test (single on-chain settlement):
 
 ```bash
@@ -133,3 +138,12 @@ Batch validation (50-100 settlements):
 - script: `examples/v01-batch-settlement.ts`
 - guide: `docs/V0_1_BATCH_TEST.md`
 - aggregate tool: `scripts/aggregate-results.ts`
+
+## Community
+
+Community docs hub:
+
+- `docs/community/INDEX.md`
+
+New contributors should start here:
+- `docs/community/COMMUNITY_START_HERE.md`
