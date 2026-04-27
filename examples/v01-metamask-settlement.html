@@ -248,6 +248,9 @@
           <label for="scopeText">Scope Text</label>
           <input id="scopeText" value="api-call:inference:v1" />
 
+          <label for="proofHashText">Proof Hash (IPFS)</label>
+          <input id="proofHashText" value="ipfs://proof-demo-v1" />
+
           <label for="ttlSeconds">Deadline TTL (seconds)</label>
           <input id="ttlSeconds" type="number" value="3600" min="60" />
         </div>
@@ -267,12 +270,32 @@
         </div>
         <p class="hint">体检会检查：暂停、白名单、余额、授权、nonce。红字风险先处理再提交。/ Health checks pause, allowlist, balance, allowance, nonce. Fix red risks before submit.</p>
 
+        <h3>批次控制 / Batch control (Non-custodial)</h3>
+        <div class="grid">
+          <label for="batchIdInput">Batch ID</label>
+          <input id="batchIdInput" type="number" min="1" placeholder="from bill / manual input" />
+
+          <label for="maxBillsInput">Settle max bills</label>
+          <input id="maxBillsInput" type="number" min="0" value="0" />
+        </div>
+        <p style="margin-top: 10px">
+          <button id="batchStatusBtn">读取批次 / Read batch</button>
+          <button id="closeBatchBtn">关闭批次 / Close batch</button>
+          <button id="settleBatchBtn">批量结算 / Settle batch</button>
+        </p>
+
         <h3>输出 / Output</h3>
         <pre id="output">等待操作… / Waiting…</pre>
       </section>
 
       <section class="panel">
         <h2>监测面板 / Monitoring</h2>
+        <h3>模式状态 / Mode state</h3>
+        <div class="inline-row" style="margin-bottom: 10px">
+          <span id="modeCustodyChip" class="chip">Mode: Unknown</span>
+          <span id="modeBatchChip" class="chip">Batch: Unknown</span>
+          <span id="modeBreakerChip" class="chip">Breaker: Unknown</span>
+        </div>
         <div class="kpi-grid">
           <div class="kpi">
             <div class="label">钱包 / Wallet</div>
@@ -372,6 +395,12 @@
       const nonCustodialAbi = [
         "function getAccountState(address user,address token) view returns ((uint256 locked,uint256 active,uint256 reserved))",
         "function isAccountConsistent(address user,address token) view returns (bool)",
+        "function batchModeEnabled() view returns (bool)",
+        "function batchCircuitBreakerPaused() view returns (bool)",
+        "function getBatch(uint256 batchId) view returns ((uint256 batchId,uint256 totalPending,uint256 billCount,uint8 status,uint256 createdAt,uint256 settledAt))",
+        "function getBatchBillIds(uint256 batchId) view returns (uint256[])",
+        "function closeBatch(uint256 batchId)",
+        "function settleBatch(uint256 batchId,uint256 maxBills) returns (uint256 settledCount,uint256 settledAmount)",
       ];
       const erc20Abi = [
         "function balanceOf(address) view returns (uint256)",
@@ -399,6 +428,7 @@
           payeeAddress: document.getElementById("payeeAddress").value.trim(),
           amount: BigInt(document.getElementById("amount").value || "0"),
           scopeText: document.getElementById("scopeText").value.trim() || "api-call:inference:v1",
+          proofHashText: document.getElementById("proofHashText").value.trim() || "ipfs://proof-demo-v1",
           ttlSeconds: Number(document.getElementById("ttlSeconds").value || "3600"),
         };
       }
@@ -419,6 +449,12 @@
         const el = document.getElementById(id);
         el.textContent = text;
         el.className = `value ${cls}`;
+      }
+
+      function setChip(id, text) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = text;
       }
 
       function addDiagnostic(kind, severity, title, detail, payload = null) {
@@ -525,16 +561,67 @@
       function readErrorMessage(err) {
         if (!err) return "Unknown error";
         if (typeof err === "string") return err;
-        return err.shortMessage || err.reason || err.message || JSON.stringify(err);
+        return (
+          err.shortMessage
+          || err.reason
+          || err.message
+          || err?.info?.error?.message
+          || err?.error?.message
+          || JSON.stringify(err)
+        );
       }
 
-      function classifyRuntimeError(msg) {
+      function classifyRuntimeError(errorLike) {
+        const msg = readErrorMessage(errorLike);
         const m = (msg || "").toLowerCase();
-        if (m.includes("invalidtransferintent") || m.includes("bill-not-") || m.includes("buyer-capacity-insufficient")) {
-          return { kind: "invalid_transfer_intent", title: "Invalid transfer intent blocked" };
+
+        if (m.includes("user rejected") || m.includes("action_rejected") || m.includes("user denied")) {
+          return { kind: "wallet_rejected", severity: "medium", title: "Wallet request rejected" };
         }
-        if (m.includes("revert")) return { kind: "contract_revert", title: "Contract revert" };
-        return { kind: "runtime_error", title: "Runtime error" };
+        if (m.includes("insufficient funds")) {
+          return { kind: "native_gas_insufficient", severity: "high", title: "Insufficient native gas balance" };
+        }
+        if (m.includes("tokennotallowed")) {
+          return { kind: "token_not_allowed", severity: "high", title: "Token not allowlisted" };
+        }
+        if (m.includes("enginepaused") || m.includes("paused")) {
+          return { kind: "engine_paused", severity: "high", title: "Engine paused" };
+        }
+        if (m.includes("invalidnonce") || m.includes("nonce")) {
+          return { kind: "invalid_nonce", severity: "high", title: "Nonce mismatch" };
+        }
+        if (m.includes("invalidsignature") || m.includes("signature")) {
+          return { kind: "invalid_signature", severity: "high", title: "Invalid signature" };
+        }
+        if (m.includes("deadlineexpired") || m.includes("expired")) {
+          return { kind: "deadline_expired", severity: "high", title: "Deadline expired" };
+        }
+        if (m.includes("capacityinsufficient") || m.includes("insufficientmappingbalance") || m.includes("allowance")) {
+          return { kind: "allowance_or_capacity", severity: "high", title: "Allowance or lock capacity insufficient" };
+        }
+        if (m.includes("balance")) {
+          return { kind: "balance_insufficient", severity: "high", title: "Token balance insufficient" };
+        }
+        if (m.includes("unauthorized")) {
+          return { kind: "unauthorized_action", severity: "high", title: "Unauthorized action" };
+        }
+        if (m.includes("invalidstate") || m.includes("quotealreadyexecuted") || m.includes("batchalreadyclosed")) {
+          return { kind: "invalid_state", severity: "high", title: "Invalid state transition" };
+        }
+        if (m.includes("batchpaused")) {
+          return { kind: "batch_paused", severity: "high", title: "Batch mode paused by circuit breaker" };
+        }
+        if (m.includes("invalidbatchinput")) {
+          return { kind: "batch_input_invalid", severity: "medium", title: "Invalid batch input" };
+        }
+        if (m.includes("invalidtransferintent") || m.includes("bill-not-") || m.includes("buyer-capacity-insufficient")) {
+          return { kind: "invalid_transfer_intent", severity: "high", title: "Invalid transfer intent blocked" };
+        }
+        if (m.includes("transferfailed") || m.includes("tokentransferfailed")) {
+          return { kind: "token_transfer_failed", severity: "high", title: "Token transfer failed" };
+        }
+        if (m.includes("revert")) return { kind: "contract_revert", severity: "high", title: "Contract revert" };
+        return { kind: "runtime_error", severity: "high", title: "Runtime error" };
       }
 
       function serializePayload(value) {
@@ -592,6 +679,7 @@
           payeeAddress: inputs.payeeAddress,
           amount: inputs.amount.toString(),
           scopeText: inputs.scopeText,
+          proofHashText: inputs.proofHashText,
           ttlSeconds: inputs.ttlSeconds,
         };
 
@@ -718,24 +806,36 @@
         if (nonCustodialAddress) {
           try {
             const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
-            const [acct, isConsistent] = await Promise.all([
+            const [acct, isConsistent, batchModeEnabled, batchCircuitBreakerPaused] = await Promise.all([
               nc.getAccountState(signerAddress, tokenAddress),
               nc.isAccountConsistent(signerAddress, tokenAddress),
+              nc.batchModeEnabled(),
+              nc.batchCircuitBreakerPaused(),
             ]);
             updateKpi("kpiLocked", acct.locked.toString(), "status-good");
             updateKpi("kpiActive", acct.active.toString(), "status-good");
             updateKpi("kpiReserved", acct.reserved.toString(), "status-good");
             updateKpi("kpiInvariant", isConsistent ? "OK" : "BROKEN", isConsistent ? "status-good" : "status-bad");
+            setChip("modeCustodyChip", "Mode: Non-custodial");
+            setChip("modeBatchChip", `Batch: ${batchModeEnabled ? "ON" : "OFF"}`);
+            setChip("modeBreakerChip", `Breaker: ${batchCircuitBreakerPaused ? "PAUSED" : "OPEN"}`);
             addDiagnostic(
               "non_custodial_state",
               isConsistent ? "low" : "high",
               "Non-custodial state",
-              `locked=${acct.locked}, active=${acct.active}, reserved=${acct.reserved}, invariant=${isConsistent}`
+              `locked=${acct.locked}, active=${acct.active}, reserved=${acct.reserved}, invariant=${isConsistent}, batchMode=${batchModeEnabled}, breakerPaused=${batchCircuitBreakerPaused}`
             );
           } catch (e) {
             updateKpi("kpiInvariant", "READ FAIL", "status-warn");
+            setChip("modeCustodyChip", "Mode: Non-custodial?");
+            setChip("modeBatchChip", "Batch: Read fail");
+            setChip("modeBreakerChip", "Breaker: Read fail");
             addDiagnostic("non_custodial_state", "medium", "Non-custodial read failed", readErrorMessage(e), e);
           }
+        } else {
+          setChip("modeCustodyChip", "Mode: Custodial-only");
+          setChip("modeBatchChip", "Batch: N/A");
+          setChip("modeBreakerChip", "Breaker: N/A");
         }
 
         addDiagnostic("engine_state", paused ? "high" : "low", "Engine status", paused ? "Engine is paused." : "Engine is running.");
@@ -776,7 +876,8 @@
           await runHealthCheck();
         } catch (e) {
           const msg = readErrorMessage(e);
-          addDiagnostic("auto_monitor", "high", "Auto monitor check failed", msg, e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Auto monitor: ${c.title}`, msg, e);
         }
       }
 
@@ -835,6 +936,78 @@
         setOutput({ step: "quote_signed", quote, signature: sig });
       }
 
+      function readBatchInputs() {
+        return {
+          batchId: Number(document.getElementById("batchIdInput").value || "0"),
+          maxBills: Number(document.getElementById("maxBillsInput").value || "0"),
+        };
+      }
+
+      async function readBatchStatus() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        const { batchId } = readBatchInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        if (!batchId || batchId <= 0) throw new Error("Valid batch id required");
+
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const [batch, billIds] = await Promise.all([nc.getBatch(batchId), nc.getBatchBillIds(batchId)]);
+        const statusMap = ["Open", "Closed", "Settled"];
+        addDiagnostic("batch_state", "low", "Batch loaded", `batch=${batch.batchId} status=${statusMap[Number(batch.status)] || batch.status}`);
+        setOutput({
+          step: "batch_status",
+          batchId: batch.batchId.toString(),
+          totalPending: batch.totalPending.toString(),
+          billCount: batch.billCount.toString(),
+          status: statusMap[Number(batch.status)] || String(batch.status),
+          createdAt: batch.createdAt.toString(),
+          settledAt: batch.settledAt.toString(),
+          billIds: billIds.map((x) => x.toString()),
+        });
+      }
+
+      async function closeBatchAction() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        const { batchId } = readBatchInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        if (!batchId || batchId <= 0) throw new Error("Valid batch id required");
+
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.closeBatch(batchId);
+        const receipt = await tx.wait();
+        addDiagnostic("batch_action", "low", "Batch closed", `Batch ${batchId} closed. tx=${receipt.hash}`);
+        addTxHistory({
+          timestamp: new Date().toISOString(),
+          status: "batch_closed",
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          amount: "-",
+        });
+        setOutput({ step: "batch_closed", batchId, txHash: receipt.hash, blockNumber: receipt.blockNumber });
+      }
+
+      async function settleBatchAction() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        const { batchId, maxBills } = readBatchInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        if (!batchId || batchId <= 0) throw new Error("Valid batch id required");
+
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.settleBatch(batchId, Math.max(0, maxBills));
+        const receipt = await tx.wait();
+        addDiagnostic("batch_action", "low", "Batch settled", `Batch ${batchId} settled tx=${receipt.hash}`);
+        addTxHistory({
+          timestamp: new Date().toISOString(),
+          status: "batch_settled",
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          amount: "-",
+        });
+        setOutput({ step: "batch_settled", batchId, maxBills: Math.max(0, maxBills), txHash: receipt.hash, blockNumber: receipt.blockNumber });
+      }
+
       async function submit() {
         if (!state.signer || !state.quote || !state.signature) throw new Error("Build and sign quote first");
         const { engineAddress } = readInputs();
@@ -873,7 +1046,8 @@
       document.getElementById("healthBtn").addEventListener("click", () =>
         runHealthCheck().catch((e) => {
           const msg = readErrorMessage(e);
-          addDiagnostic("health_check", "high", "Health check failed", msg, e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Health check: ${c.title}`, msg, e);
           setOutput(msg);
         })
       );
@@ -887,8 +1061,8 @@
       document.getElementById("submitBtn").addEventListener("click", () =>
         submit().catch((e) => {
           const msg = readErrorMessage(e);
-          const c = classifyRuntimeError(msg);
-          addDiagnostic(c.kind, "high", c.title, msg, e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, c.title, msg, e);
           addTxHistory({
             timestamp: new Date().toISOString(),
             status: "failed",
@@ -904,6 +1078,30 @@
         exportDiagnosis().catch((e) => {
           const msg = readErrorMessage(e);
           addDiagnostic("export", "high", "Export failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("batchStatusBtn").addEventListener("click", () =>
+        readBatchStatus().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Read batch: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("closeBatchBtn").addEventListener("click", () =>
+        closeBatchAction().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Close batch: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("settleBatchBtn").addEventListener("click", () =>
+        settleBatchAction().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Settle batch: ${c.title}`, msg, e);
           setOutput(msg);
         })
       );
@@ -933,6 +1131,9 @@
       renderLogs();
       renderTxHistory();
       setAutoMonitorUi(false);
+      setChip("modeCustodyChip", "Mode: Unknown");
+      setChip("modeBatchChip", "Batch: Unknown");
+      setChip("modeBreakerChip", "Breaker: Unknown");
     </script>
   </body>
 </html>

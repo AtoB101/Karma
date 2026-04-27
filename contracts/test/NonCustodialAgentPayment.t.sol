@@ -42,7 +42,8 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testCreateBillReservesBuyerAndSeller() public {
         vm.prank(buyer);
-        uint256 billId = protocol.createBill(seller, address(token), 10_000, keccak256("scope"), block.timestamp + 1 days);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope"), "ipfs://proof-1", block.timestamp + 1 days);
 
         INonCustodialAgentPayment.AccountState memory buyerState = protocol.getAccountState(buyer, address(token));
         INonCustodialAgentPayment.AccountState memory sellerState = protocol.getAccountState(seller, address(token));
@@ -59,7 +60,8 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testConfirmedBillCanSettleAndReleaseBond() public {
         vm.prank(buyer);
-        uint256 billId = protocol.createBill(seller, address(token), 10_000, keccak256("scope"), block.timestamp + 1 days);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope"), "ipfs://proof-2", block.timestamp + 1 days);
         vm.prank(buyer);
         protocol.confirmBill(billId);
 
@@ -85,7 +87,8 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testCancelRestoresReservedToActive() public {
         vm.prank(buyer);
-        uint256 billId = protocol.createBill(seller, address(token), 10_000, keccak256("scope"), block.timestamp + 1 days);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope"), "ipfs://proof-3", block.timestamp + 1 days);
 
         vm.prank(buyer);
         protocol.cancelBill(billId);
@@ -105,7 +108,7 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testUnlockCannotTouchReserved() public {
         vm.prank(buyer);
-        protocol.createBill(seller, address(token), 10_000, keccak256("scope"), block.timestamp + 1 days);
+        protocol.createBill(seller, address(token), 10_000, keccak256("scope"), "ipfs://proof-4", block.timestamp + 1 days);
 
         vm.prank(buyer);
         vm.expectRevert();
@@ -114,7 +117,8 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testSplitResolvedWorksInV1() public {
         vm.prank(buyer);
-        uint256 billId = protocol.createBill(seller, address(token), 10_000, keccak256("scope"), block.timestamp + 1 days);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope"), "ipfs://proof-5", block.timestamp + 1 days);
         vm.prank(buyer);
         protocol.confirmBill(billId);
         vm.prank(seller);
@@ -136,5 +140,62 @@ contract NonCustodialAgentPaymentTest is Test {
         assertEq(uint8(b.status), uint8(INonCustodialAgentPayment.BillStatus.SplitResolved));
         assertTrue(protocol.isAccountConsistent(buyer, address(token)));
         assertTrue(protocol.isAccountConsistent(seller, address(token)));
+    }
+
+    function testBatchCloseAndSettleFlow() public {
+        vm.startPrank(buyer);
+        uint256 bill1 =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-a"), "ipfs://proof-a", block.timestamp + 1 days);
+        uint256 bill2 =
+            protocol.createBill(seller, address(token), 5_000, keccak256("scope-b"), "ipfs://proof-b", block.timestamp + 1 days);
+        protocol.confirmBill(bill1);
+        protocol.confirmBill(bill2);
+        vm.stopPrank();
+
+        INonCustodialAgentPayment.Bill memory b1 = protocol.getBill(bill1);
+        INonCustodialAgentPayment.Batch memory batchBefore = protocol.getBatch(b1.batchId);
+        assertEq(uint8(batchBefore.status), uint8(INonCustodialAgentPayment.BatchStatus.Open));
+        assertEq(batchBefore.totalPending, 15_000);
+
+        vm.prank(buyer);
+        protocol.closeBatch(b1.batchId);
+        vm.prank(buyer);
+        (uint256 settledCount, uint256 settledAmount) = protocol.settleBatch(b1.batchId, 0);
+        assertEq(settledCount, 2);
+        assertEq(settledAmount, 15_000);
+
+        INonCustodialAgentPayment.Batch memory batchAfter = protocol.getBatch(b1.batchId);
+        assertEq(uint8(batchAfter.status), uint8(INonCustodialAgentPayment.BatchStatus.Settled));
+        assertEq(batchAfter.totalPending, 0);
+    }
+
+    function testCloseBatchRevertsWithBatchNotFound() public {
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.BatchNotFound.selector);
+        protocol.closeBatch(999_999);
+    }
+
+    function testSettleBatchRevertsWhenBatchNotClosed() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 2_000, keccak256("scope-c"), "ipfs://proof-c", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        INonCustodialAgentPayment.Bill memory bill = protocol.getBill(billId);
+
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.BatchNotClosed.selector);
+        protocol.settleBatch(bill.batchId, 0);
+    }
+
+    function testCloseBatchRevertsForNonOwner() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 2_000, keccak256("scope-d"), "ipfs://proof-d", block.timestamp + 1 days);
+        INonCustodialAgentPayment.Bill memory bill = protocol.getBill(billId);
+
+        vm.prank(seller);
+        vm.expectRevert(NonCustodialAgentPayment.BatchOwnerMismatch.selector);
+        protocol.closeBatch(bill.batchId);
     }
 }

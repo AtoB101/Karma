@@ -50,6 +50,100 @@ After deploy/config, run one minimal settlement tx:
 Output artifact:
   results/smoke-v01-eth.json
 
+F) Optional batch smoke (small stress, same script)
+If you want a quick high-frequency confidence check in the same run:
+  ETH_RPC_URL=<rpc> ENGINE_ADDRESS=<engine> TOKEN_ADDRESS=<token> PAYER_PRIVATE_KEY=<payer-pk> PAYEE_ADDRESS=<payee> \
+  RUN_BATCH_SMOKE=1 BATCH_SIZE=20 BATCH_DELAY_MS=100 \
+  ./scripts/smoke-v01-eth.sh
+Output artifacts:
+  - results/smoke-v01-eth.json
+  - results/smoke-batch-v01-eth.json
+
+G) Non-custodial batch operation (UI practical flow)
+Open:
+  http://localhost:8787/examples/v01-metamask-settlement.html
+In the "Batch control (Non-custodial)" section:
+  1) Read batch:
+     - Input Batch ID
+     - Click "Read batch" and confirm:
+       - status = Open / Closed / Settled
+       - totalPending and billCount are expected
+  2) Close batch:
+     - Click "Close batch"
+     - Wait tx confirmed in Tx history
+     - Read again and confirm status -> Closed
+  3) Settle batch:
+     - Set "Settle max bills" (0 means process all bills)
+     - Click "Settle batch"
+     - Read again and confirm:
+       - status -> Settled (when all bills finalized)
+       - totalPending -> 0 (when all eligible bills settled/finalized)
+Acceptance quick checklist:
+  - Close batch only works for batch owner wallet
+  - Settle batch tx appears in Tx history
+  - Logs include batch_state / batch_action entries
+  - No invariant alarms in non-custodial KPI
+
+H) One-command non-custodial integration check (batch + fuses)
+Run:
+  ETH_RPC_URL=<rpc> NON_CUSTODIAL_ADDRESS=<nc> TOKEN_ADDRESS=<token> \
+  BUYER_PRIVATE_KEY=<buyer-pk> SELLER_PRIVATE_KEY=<seller-pk> \
+  ./scripts/integration-v01-noncustodial-batch.sh
+
+Optional (if you control owner key and want script to align fuse state first):
+  OWNER_PRIVATE_KEY=<owner-pk>
+
+Artifact:
+  results/integration-noncustodial-batch.json
+
+Key checks in artifact:
+  - checkpoints.finalBillStatus should be Settled(enum=3)
+  - checkpoints.finalBatchStatus should be Settled(enum=2) when all eligible bills settled
+  - checkpoints.buyerConsistent / sellerConsistent should be true
+  - checkpoints.batchModeEnabled should be true
+  - checkpoints.batchCircuitBreakerPaused should be false
+
+I) OpenClaw/Hermes scenario runs (NC-205)
+OpenClaw (high-frequency micro payment profile):
+  ETH_RPC_URL=<rpc> NON_CUSTODIAL_ADDRESS=<nc> TOKEN_ADDRESS=<token> \
+  BUYER_PRIVATE_KEY=<buyer-pk> SELLER_PRIVATE_KEY=<seller-pk> RUN_ID=001 \
+  ./scripts/integration-openclaw-run.sh
+  -> results/integration-openclaw-run-001.json
+
+Hermes (mid-frequency larger-ticket profile):
+  ETH_RPC_URL=<rpc> NON_CUSTODIAL_ADDRESS=<nc> TOKEN_ADDRESS=<token> \
+  BUYER_PRIVATE_KEY=<buyer-pk> SELLER_PRIVATE_KEY=<seller-pk> RUN_ID=001 \
+  ./scripts/integration-hermes-run.sh
+  -> results/integration-hermes-run-001.json
+
+Suggested reporting template:
+  docs/INTEGRATION_RESULTS_REPORT_CN.txt
+
+J) Auto-generate CN report draft from scenario artifacts
+After both scenario runs produce JSON artifacts:
+  REPORT_OWNER=<your-name> ./scripts/generate-integration-report.sh
+
+Default output:
+  docs/INTEGRATION_RESULTS_REPORT_CN.generated.txt
+
+Optional overrides:
+  OPENCLAW_RESULT_PATH=results/integration-openclaw-run-001.json \
+  HERMES_RESULT_PATH=results/integration-hermes-run-001.json \
+  REPORT_OUTPUT_PATH=docs/INTEGRATION_RESULTS_REPORT_CN.generated.txt \
+  REPORT_OWNER=<your-name> \
+  ./scripts/generate-integration-report.sh
+
+K) One-command NC-205 full pipeline
+Run both scenarios and generate the CN report draft in one go:
+  ETH_RPC_URL=<rpc> NON_CUSTODIAL_ADDRESS=<nc> TOKEN_ADDRESS=<token> \
+  BUYER_PRIVATE_KEY=<buyer-pk> SELLER_PRIVATE_KEY=<seller-pk> \
+  REPORT_OWNER=<your-name> \
+  ./scripts/run-nc205-full.sh
+
+Optional:
+  OPENCLAW_RUN_ID=001 HERMES_RUN_ID=001 \
+  REPORT_OUTPUT_PATH=docs/INTEGRATION_RESULTS_REPORT_CN.generated.txt
+
 ==================================================
 1) Objective
 ==================================================
