@@ -542,15 +542,16 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         AccountState storage buyerSt = accountStates[b.buyer][b.token];
         AccountState storage sellerSt = accountStates[b.seller][b.token];
 
+        // Effects first: lock accounting and bill state transition.
         buyerSt.reserved -= b.amount;
         buyerSt.locked -= b.amount;
-
-        if (!_safeTransferFrom(b.token, b.buyer, b.seller, b.amount)) revert TransferFailed();
-
         sellerSt.reserved -= b.sellerBond;
         sellerSt.active += b.sellerBond;
-
         b.status = BillStatus.Settled;
+
+        // Interaction last: external token transfer.
+        if (!_safeTransferFrom(b.token, b.buyer, b.seller, b.amount)) revert TransferFailed();
+
         _finalizeBillFromBatch(b);
         _assertAccountInvariant(b.buyer, b.token);
         _assertAccountInvariant(b.seller, b.token);
@@ -561,12 +562,15 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         AccountState storage buyerSt = accountStates[b.buyer][b.token];
         AccountState storage sellerSt = accountStates[b.seller][b.token];
 
+        // Effects first for CEI consistency.
         buyerSt.reserved -= b.amount;
         buyerSt.locked -= b.amount;
-        if (!_safeTransferFrom(b.token, b.buyer, b.seller, b.amount)) revert TransferFailed();
-
         sellerSt.reserved -= b.sellerBond;
         sellerSt.active += b.sellerBond;
+
+        // Interaction last.
+        if (!_safeTransferFrom(b.token, b.buyer, b.seller, b.amount)) revert TransferFailed();
+
         _finalizeBillFromBatch(b);
         _assertAccountInvariant(b.buyer, b.token);
         _assertAccountInvariant(b.seller, b.token);
