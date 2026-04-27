@@ -25,6 +25,7 @@ TrustChain maintains a layered evidence chain from unit testing to formal proofs
 | 5 | Certora | Formal verification | 6/6 rules verified |
 
 Formal verification scope and rule-level details are tracked in `SECURITY.md`.
+Investor/partner ready one-page bilingual summary: `docs/SECURITY_SUMMARY_CN_EN.md`.
 
 ## Current Module Posture
 

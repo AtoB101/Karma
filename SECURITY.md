@@ -3,6 +3,9 @@
 TrustChain maintains a layered security verification approach that combines tests,
 fuzzing, static analysis, and formal verification.
 
+Investor- and partner-facing one-page bilingual summary:
+`docs/SECURITY_SUMMARY_CN_EN.md`
+
 ## Verification Matrix (Current Baseline)
 
 | Layer | Tool | Type | Status |
