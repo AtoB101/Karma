@@ -109,6 +109,7 @@ import datetime as dt
 import glob
 import json
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -124,17 +125,51 @@ until = sys.argv[9]
 
 verify_script = root / "scripts" / "verify-proof-index.sh"
 
+STAMP_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z$")
+ISO_RE = re.compile(r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z$")
+
+def normalize_stamp(value: str) -> str:
+    if not value:
+        return ""
+    if STAMP_RE.match(value):
+        return value
+    m = ISO_RE.match(value)
+    if m:
+        y, mo, d, h, mi, s = m.groups()
+        return f"{y}{mo}{d}T{h}{mi}{s}Z"
+    raise ValueError("stamp must match YYYYmmddTHHMMSSZ or YYYY-mm-ddTHH:MM:SSZ")
+
+def extract_stamp(name: str):
+    if not name.startswith("support-bundle-") or not name.endswith(".zip"):
+        return None
+    stamp = name[len("support-bundle-"):-len(".zip")]
+    if STAMP_RE.match(stamp):
+        return stamp
+    return None
+
+try:
+    since_norm = normalize_stamp(since)
+except ValueError as exc:
+    print(f"Error: invalid --since value: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+try:
+    until_norm = normalize_stamp(until)
+except ValueError as exc:
+    print(f"Error: invalid --until value: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
 matches_all = sorted(target_dir.glob(glob_pattern))
 matches = []
 for item in matches_all:
     name = item.name
-    if not name.startswith("support-bundle-") or not name.endswith(".zip"):
+    stamp = extract_stamp(name)
+    if not stamp:
         matches.append(item)
         continue
-    stamp = name[len("support-bundle-"):-len(".zip")]
-    if since and stamp < since:
+    if since_norm and stamp < since_norm:
         continue
-    if until and stamp > until:
+    if until_norm and stamp > until_norm:
         continue
     matches.append(item)
 results = []
@@ -186,8 +221,8 @@ summary = {
     "generatedAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "targetDir": str(target_dir),
     "glob": glob_pattern,
-    "since": since or None,
-    "until": until or None,
+    "since": since_norm or None,
+    "until": until_norm or None,
     "strict": bool(strict),
     "maxFail": max_fail,
     "total": len(results),
