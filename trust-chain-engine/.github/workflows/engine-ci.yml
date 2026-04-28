@@ -1,0 +1,43 @@
+name: Engine CI (Private)
+
+on:
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  private-policy-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate private module layout
+        run: |
+          test -d risk-engine
+          test -d settlement-optimizer
+          test -d routing-engine
+          test -d dispute-engine
+          test -d analytics-engine
+          test -d enterprise-dashboard
+          test -d internal-admin
+          test -d data-pipeline
+          test -d pricing-strategy
+
+      - name: Strategy leakage guard (private should not expose to public docs)
+        run: |
+          if rg -n "publish.*strategy|open source.*strategy detail|publicly disclose.*scoring model" docs internal-admin 2>/dev/null; then
+            echo "Potential documentation leakage policy violation."
+            exit 1
+          fi
+
+      - name: Placeholder for proprietary test suites
+        run: |
+          echo "Add internal tests here (risk scoring, routing optimizer, anomaly detection, etc.)"

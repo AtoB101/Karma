@@ -1,0 +1,54 @@
+name: Trust-Chain Core CI
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  contract-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Install dependencies (if present)
+        run: |
+          if [[ -f foundry.toml ]]; then
+            forge install
+          else
+            echo "No foundry.toml found, skipping forge install."
+          fi
+
+      - name: Build contracts (if present)
+        run: |
+          if [[ -d contracts && -f foundry.toml ]]; then
+            forge build
+          else
+            echo "No contracts/foundry.toml found, skipping forge build."
+          fi
+
+      - name: Run contract tests (if present)
+        run: |
+          if [[ -d contracts/test && -f foundry.toml ]]; then
+            forge test -vv
+          else
+            echo "No contract tests/foundry.toml found, skipping forge test."
+          fi
+
+      - name: Validate core repository boundary
+        run: |
+          if rg -n "risk-engine|routing-engine|settlement-optimizer|enterprise-dashboard|internal-admin|pricing-strategy" .; then
+            echo "Boundary violation: private-engine modules should not exist in core repo."
+            exit 1
+          fi
+          echo "Boundary check passed."
