@@ -36,8 +36,8 @@ make quickstart
   EN: Generate machine-readable diagnostics JSON.
 
 - `make support-bundle`  
-  CN: 一键打包排障 zip（doctor 文本+JSON+关键日志+proof SOP 执行单）。  
-  EN: Build one-click support zip bundle (doctor reports + key logs + proof SOP checklist).
+  CN: 一键打包排障 zip（doctor 文本+JSON+关键日志+proof SOP 执行单+proof-index 指纹索引）。  
+  EN: Build one-click support zip bundle (doctor reports + key logs + proof SOP checklist + proof-index manifest).
 
 ### 3) Local CI checks
 
@@ -70,8 +70,8 @@ make quickstart
 - SOP 文档 / SOP doc: `docs/PROOF_VERIFICATION_SOP.md`
 
 - `make proof-sop-checklist`  
-  CN: 生成可归档 SOP 执行记录模板（Markdown + JSON）。  
-  EN: Generate archivable SOP execution record templates (Markdown + JSON).
+  CN: 生成可归档 SOP 执行记录模板（Markdown）。  
+  EN: Generate archivable SOP execution record template (Markdown).
 
 ## Direct Script Usage
 
@@ -84,7 +84,7 @@ make quickstart
 - `./scripts/support-bundle.sh --port 8790 --operator "alice@ops" --reviewer "bob@audit" --ticket "INC-2026-0428-01"`
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
-- `./scripts/proof-sop-checklist.sh --owner <name> --ticket <id>`
+- `./scripts/proof-sop-checklist.sh --operator <name> --reviewer <name> --ticket <id>`
 
 ## Frontend URL
 

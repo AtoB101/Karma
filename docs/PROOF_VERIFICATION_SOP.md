@@ -157,10 +157,12 @@ to incident/postmortem tickets together with diagnosis/proof JSON artifacts.
 
 ## 8) Support bundle integration (M3.2)
 
-`make support-bundle` now auto-generates and includes the SOP checklist template.
+`make support-bundle` now auto-generates and includes the SOP checklist template,
+and writes a bundle manifest with sha256 fingerprints.
 
 In bundled zip you should see:
-- `proof-sop-checklist-latest.md`
+- `proof-sop-checklist.md`
+- `proof-index.json`
 
 Optional metadata passthrough:
 
@@ -170,4 +172,11 @@ Optional metadata passthrough:
   --reviewer "bob@audit" \
   --ticket "INC-2026-0428-01"
 ```
+
+`proof-index.json` contains:
+- bundle metadata (`generatedAt`, `bundleStamp`, `repoRoot`)
+- per-artifact entries:
+  - `path`
+  - `size`
+  - `sha256`
 
