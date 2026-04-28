@@ -1,13 +1,13 @@
 # Agent Safety Guardian v0.1
 
-This document defines the full-chain "Agent Safety Guardian" workflow for internal validation, risk identification, severity tagging, and registry logging during market verification.
+This document defines the full-chain "Agent Safety Guardian" workflow for internal validation, risk identification, severity tagging, risk registration, and predictive-defense signal generation.
 
 ## 1) Goals
 
-- Run reproducible internal self-checks before and during external validation.
-- Identify and classify risks from evidence and patrol outputs.
-- Persist a machine-readable risk registry for longitudinal analysis.
-- Produce summary/alert artifacts to support later predictive defense models.
+- Run reproducible internal self-checks before/during market validation.
+- Identify and classify risks from pipeline and patrol signals.
+- Persist a machine-readable risk register for longitudinal analysis.
+- Emit trend and escalation signals for predictive defense.
 
 ## 2) Entry command
 
@@ -25,70 +25,88 @@ make agent-safety-guardian
 
 The guardian runs these stages in one flow:
 
-1. **Preflight check** (`scripts/preflight.sh --mode local`)  
-   Verifies local tool prerequisites.
-2. **Evidence schema check** (`scripts/validate-evidence-schema.sh`)  
-   Validates sample evidence schema compatibility.
-3. **Patrol check** (`scripts/proof-patrol.sh`)  
-   Executes proof-index policy gates with profile thresholds.
-4. **Risk synthesis + registry append**  
-   Builds:
-   - run summary JSON
-   - alert JSON
-   - append-only risk registry (`results/agent-safety-risk-registry.json`)
+1. **Doctor self-check** (`scripts/doctor.sh --format json`)  
+   Verifies local runtime context and baseline readiness.
+2. **Support bundle snapshot** (`scripts/support-bundle.sh`)  
+   Produces fresh integrity evidence for patrol scope.
+3. **Proof/evidence CI gates** (`scripts/ci-proof-gates.sh`)  
+   Validates schema compatibility and batch proof policy controls.
+4. **Patrol scan** (`scripts/proof-patrol.sh`)  
+   Executes profile-based patrol and emits batch + alert JSON.
+5. **Risk synthesis + registry append**  
+   Builds final report and updates persistent risk register.
 
-## 4) Severity model
+## 4) Key options
 
-Risk levels:
+```bash
+./scripts/agent-safety-guardian.sh \
+  --profile balanced \
+  --trend-window-hours 24 \
+  --escalate-repeat-threshold 2 \
+  --output results/agent-safety-guardian-latest.json \
+  --register results/agent-risk-register.json
+```
 
-- `critical`: blocking risk requiring immediate response
-- `high`: significant risk, should be resolved before broad rollout
-- `medium`: non-blocking but action recommended
-- `low`: informational/observation
+- `--trend-window-hours <n>`: sliding window for trend stats (default: 168h)
+- `--escalate-repeat-threshold <n>`: escalate warning -> high when same code repeats >= n within trend window (default: 3)
+- `--history-limit <n>`: cap stored risk records in register
 
-Current mapping (v0.1):
+## 5) Severity model (current)
 
-- preflight fail -> `high`
-- schema validation fail -> `high`
-- patrol `maxFailViolated` or `recentPassViolated` -> `critical`
-- patrol `minTotalViolated` -> `high`
-- patrol `strictNoMatchViolated` -> `medium`
+- `critical`: immediate trust/reliability threats
+- `high`: must-fix before wider rollout
+- `medium`: action recommended, non-blocking
+- `warning`: observability/coverage/process attention
 
-## 5) Artifacts
+Current mapping includes:
+
+- `binary_forge_missing` -> `medium`
+- `support_bundle_failed` -> `high`
+- `proof_gates_failed` -> `high`
+- `patrol_max_fail_violated` -> `critical`
+- `patrol_recent_pass_violated` -> `critical`
+- `patrol_min_total_violated` -> `warning` (may be escalated by repeat rule)
+- `patrol_strict_no_match` -> `warning` (may be escalated by repeat rule)
+
+## 6) Artifacts
 
 By default, outputs go to `results/`:
 
-- `agent-safety-guardian-summary-latest.json`
-- `agent-safety-guardian-alert-latest.json`
-- `agent-safety-risk-registry.json` (append-only array)
+- `agent-safety-guardian-latest.json` (full-chain run report)
+- `agent-risk-register.json` (persistent risk register)
 
-Each run includes:
+Report sections:
 
-- `runId`, `profile`, `generatedAt`
-- stage outcomes
-- structured `risks[]` list
-- recommended `nextActions[]`
+- `stageChecks`
+- `doctor`
+- `patrol.batchSummary / patrol.alertSummary`
+- `riskAssessment`
+- `predictiveDefense`:
+  - `trendSummary` (window stats)
+  - `escalations` (applied warning->high upgrades)
+  - `signals` (high-frequency risk code indicators)
+  - `nextActions`
 
-## 6) Suggested operations rhythm
+## 7) Suggested operations rhythm
 
-- **Daily/cron**: run `balanced` profile.
-- **Release gate**: run `strict` profile.
-- **Cold-start period**: optionally run `lenient` while accumulating enough samples.
+- **Hourly/Daily monitoring**: `balanced`
+- **Release gate**: `strict`
+- **Cold-start accumulation**: `lenient`
 
-Example cron (UTC every hour):
+Cron example (UTC hourly):
 
 ```bash
-0 * * * * cd /path/to/repo && ./scripts/agent-safety-guardian.sh --profile balanced --no-summary
+0 * * * * cd /path/to/repo && ./scripts/agent-safety-guardian.sh --profile balanced
 ```
 
-## 7) Registry usage for predictive defense
+## 8) Predictive defense usage
 
-`agent-safety-risk-registry.json` is intentionally stable and append-only for:
+`agent-risk-register.json` is designed for:
 
-- trend analysis (risk counts over time)
-- recurrence analysis by `category`/`reason`
-- future anomaly detection models
+- trend analysis (recentByCode)
+- repeat-risk escalation automation
+- future anomaly/prediction model training
 
 Recommended next step:
 
-- build a weekly trend report script that groups by `level/category/reason`.
+- add a weekly trend reporter that converts `trendSummary + escalations + signals` into ticket-ready remediation plans.

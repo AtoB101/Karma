@@ -12,11 +12,13 @@ SKIP_SUPPORT_BUNDLE=0
 OUTPUT_PATH="${RESULTS_DIR}/agent-safety-guardian-latest.json"
 REGISTER_PATH="${RESULTS_DIR}/agent-risk-register.json"
 HISTORY_LIMIT=200
+TREND_WINDOW_HOURS=168
+ESCALATE_REPEAT_THRESHOLD=3
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/agent-safety-guardian.sh [--profile <strict|balanced|lenient>] [--from-env] [--skip-proof-gates] [--skip-patrol] [--skip-support-bundle] [--output <path>] [--register <path>] [--history-limit <n>]
+  ./scripts/agent-safety-guardian.sh [--profile <strict|balanced|lenient>] [--from-env] [--skip-proof-gates] [--skip-patrol] [--skip-support-bundle] [--output <path>] [--register <path>] [--history-limit <n>] [--trend-window-hours <n>] [--escalate-repeat-threshold <n>]
 
 Description:
   Runs an end-to-end internal safety self-check pipeline and generates:
@@ -32,6 +34,8 @@ Options:
   --output <path>        Safety report path (default: results/agent-safety-guardian-latest.json)
   --register <path>      Persistent risk register path (default: results/agent-risk-register.json)
   --history-limit <n>    Keep latest N risk records in register (default: 200)
+  --trend-window-hours <n>        Window for trend stats and repeat checks (default: 168)
+  --escalate-repeat-threshold <n> Escalate warning->high when same risk code repeats >= n times in trend window (default: 3)
   -h, --help             Show this help message
 EOF
 }
@@ -78,6 +82,24 @@ while [[ $# -gt 0 ]]; do
       HISTORY_LIMIT="$2"
       if ! [[ "$HISTORY_LIMIT" =~ ^[0-9]+$ ]]; then
         echo "Error: --history-limit must be a non-negative integer"
+        exit 1
+      fi
+      shift 2
+      ;;
+    --trend-window-hours)
+      [[ $# -lt 2 ]] && { echo "Error: --trend-window-hours requires a value"; exit 1; }
+      TREND_WINDOW_HOURS="$2"
+      if ! [[ "$TREND_WINDOW_HOURS" =~ ^[0-9]+$ ]]; then
+        echo "Error: --trend-window-hours must be a non-negative integer"
+        exit 1
+      fi
+      shift 2
+      ;;
+    --escalate-repeat-threshold)
+      [[ $# -lt 2 ]] && { echo "Error: --escalate-repeat-threshold requires a value"; exit 1; }
+      ESCALATE_REPEAT_THRESHOLD="$2"
+      if ! [[ "$ESCALATE_REPEAT_THRESHOLD" =~ ^[0-9]+$ ]]; then
+        echo "Error: --escalate-repeat-threshold must be a non-negative integer"
         exit 1
       fi
       shift 2
@@ -150,7 +172,7 @@ if [[ "$SKIP_PATROL" -eq 0 ]]; then
   set -e
 fi
 
-python3 - "$DOCTOR_JSON" "$PATROL_BATCH" "$PATROL_ALERT" "$REGISTER_PATH" "$OUTPUT_PATH" "$PROFILE" "$STAMP" "$PROOF_GATES_EXIT" "$PATROL_EXIT" "$SUPPORT_BUNDLE_EXIT" "$HISTORY_LIMIT" "$SKIP_PROOF_GATES" "$SKIP_PATROL" "$SKIP_SUPPORT_BUNDLE" <<'PY'
+python3 - "$DOCTOR_JSON" "$PATROL_BATCH" "$PATROL_ALERT" "$REGISTER_PATH" "$OUTPUT_PATH" "$PROFILE" "$STAMP" "$PROOF_GATES_EXIT" "$PATROL_EXIT" "$SUPPORT_BUNDLE_EXIT" "$HISTORY_LIMIT" "$SKIP_PROOF_GATES" "$SKIP_PATROL" "$SKIP_SUPPORT_BUNDLE" "$TREND_WINDOW_HOURS" "$ESCALATE_REPEAT_THRESHOLD" <<'PY'
 import datetime as dt
 import json
 import pathlib
@@ -171,9 +193,26 @@ history_limit = int(sys.argv[11])
 skip_proof_gates = int(sys.argv[12])
 skip_patrol = int(sys.argv[13])
 skip_support_bundle = int(sys.argv[14])
+trend_window_hours = int(sys.argv[15])
+escalate_repeat_threshold = int(sys.argv[16])
 
 now_iso = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+now_dt = dt.datetime.now(dt.timezone.utc)
 doctor = json.loads(doctor_path.read_text(encoding="utf-8"))
+
+def parse_iso8601(value):
+    if not value:
+        return None
+    value = value.strip()
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(value)
+    except Exception:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
 
 patrol_batch = None
 if patrol_batch_path.exists():
@@ -309,6 +348,38 @@ if register_path.exists():
         pass
 
 records = list(existing.get("records") or [])
+
+# Predictive defense baseline:
+# 1) compute recent frequency by code inside trend window
+# 2) escalate fresh warning risks when the same code repeatedly appears
+trend_start_dt = now_dt - dt.timedelta(hours=trend_window_hours)
+recent_code_freq = {}
+for row in records:
+    code = row.get("code") or "unknown"
+    detected_at_dt = parse_iso8601(row.get("detectedAt"))
+    if detected_at_dt and detected_at_dt >= trend_start_dt:
+        recent_code_freq[code] = recent_code_freq.get(code, 0) + 1
+
+for row in risks:
+    if row.get("severity") != "warning":
+        continue
+    if escalate_repeat_threshold <= 0:
+        continue
+    code = row.get("code") or "unknown"
+    repeated_count = recent_code_freq.get(code, 0) + 1
+    if repeated_count >= escalate_repeat_threshold:
+        row["severity"] = "high"
+        row["detail"] = (
+            f"{row.get('detail')} Escalated to high: code '{code}' repeated "
+            f"{repeated_count} times within {trend_window_hours}h window."
+        )
+        row["escalation"] = {
+            "rule": "warning_to_high_on_repeat",
+            "threshold": escalate_repeat_threshold,
+            "windowHours": trend_window_hours,
+            "repeatCount": repeated_count,
+        }
+
 records.extend(risks)
 records = records[-history_limit:]
 
@@ -317,15 +388,23 @@ for row in records:
     c = row.get("code") or "unknown"
     code_freq[c] = code_freq.get(c, 0) + 1
 
+recent_code_freq = {}
+for row in records:
+    code = row.get("code") or "unknown"
+    detected_at_dt = parse_iso8601(row.get("detectedAt"))
+    if detected_at_dt and detected_at_dt >= trend_start_dt:
+        recent_code_freq[code] = recent_code_freq.get(code, 0) + 1
+
 predictions = []
-for code, freq in sorted(code_freq.items(), key=lambda x: x[1], reverse=True)[:5]:
+for code, freq in sorted(recent_code_freq.items(), key=lambda x: x[1], reverse=True)[:5]:
     if freq < 2:
         continue
-    level = "high" if freq >= 4 else "medium"
+    level = "high" if freq >= max(4, escalate_repeat_threshold) else "medium"
     predictions.append(
         {
             "code": code,
             "frequency": freq,
+            "windowHours": trend_window_hours,
             "predictedEscalation": level,
             "recommendedDefense": "tighten patrol profile and increase check frequency for this risk code",
         }
@@ -362,6 +441,23 @@ report = {
     },
     "predictiveDefense": {
         "signals": predictions,
+        "trendSummary": {
+            "windowHours": trend_window_hours,
+            "recentByCode": recent_code_freq,
+            "recentTotal": sum(recent_code_freq.values()),
+        },
+        "escalations": [
+            {
+                "code": r.get("code"),
+                "fromSeverity": (r.get("escalation") or {}).get("fromSeverity"),
+                "toSeverity": (r.get("escalation") or {}).get("toSeverity"),
+                "repeatCount": (r.get("escalation") or {}).get("repeatCount"),
+            }
+            for r in risks
+            if r.get("escalated")
+        ],
+        "windowHours": trend_window_hours,
+        "repeatEscalationThreshold": escalate_repeat_threshold,
         "nextActions": [
             "schedule guardian run every 1-6 hours (according to profile strictness)",
             "treat repeated risk codes as leading indicators and enforce targeted remediation",
@@ -374,6 +470,11 @@ register_payload = {
     "version": "agent-risk-register-v1",
     "updatedAt": now_iso,
     "profile": profile,
+    "summary": {
+        "totalRecords": len(records),
+        "trendWindowHours": trend_window_hours,
+        "recentByCode": recent_code_freq,
+    },
     "records": records,
 }
 
