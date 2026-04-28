@@ -182,3 +182,13 @@ Optional metadata passthrough:
   - `sizeBytes`
   - `sha256`
 
+You can verify this digest locally:
+
+```bash
+./scripts/verify-proof-index.sh --zip "results/support-bundle-<timestamp>.zip"
+```
+
+Expected terminal result:
+- `PASS` when digest matches canonical recomputation
+- `FAIL` with mismatch reason/details otherwise
+

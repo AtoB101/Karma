@@ -39,6 +39,10 @@ make quickstart
   CN: 一键打包排障 zip（doctor 文本+JSON+关键日志+proof SOP 执行单+proof-index 指纹索引+manifest digest）。  
   EN: Build one-click support zip bundle (doctor reports + key logs + proof SOP checklist + proof-index manifest + manifest digest).
 
+- `make verify-proof-index`  
+  CN: 校验 `results/proof-index.json` 的 `manifestDigest`（输出 pass/fail 与失败原因）。  
+  EN: Verify `results/proof-index.json` manifest digest (pass/fail with reason).
+
 ### 3) Local CI checks
 
 - `make ci-local`  
@@ -82,6 +86,7 @@ make quickstart
 - `./scripts/doctor.sh --format json --output results/doctor-report.json`
 - `./scripts/support-bundle.sh --port 8790`
 - `./scripts/support-bundle.sh --port 8790 --operator "alice@ops" --reviewer "bob@audit" --ticket "INC-2026-0428-01"`
+- `./scripts/verify-proof-index.sh --path results/proof-index.json`
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
 - `./scripts/proof-sop-checklist.sh --operator <name> --reviewer <name> --ticket <id>`
