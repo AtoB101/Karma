@@ -63,6 +63,10 @@ make quickstart
   CN: 运行全链路 Agent 安全管家（自检 + 证据兼容 + proof 巡检 + 风险分级登记）。  
   EN: Run end-to-end Agent safety guardian (self-check + evidence compatibility + proof patrol + risk registry).
 
+- `make rule-gap-adversarial-sim`  
+  CN: 运行规则漏洞对抗模拟，生成“利用规则”攻击场景与风险评分报告。  
+  EN: Run rule-gap adversarial simulation and export exploit-oriented risk report.
+
 ### 3) Local CI checks
 
 - `make ci-local`  
@@ -132,6 +136,8 @@ make quickstart
 - `./scripts/agent-safety-guardian.sh --profile strict --output results/agent-safety-guardian-strict.json --register results/agent-risk-register.json`
 - `./scripts/agent-safety-guardian.sh --profile balanced --trend-window-hours 24 --escalate-repeat-threshold 2`
 - `./scripts/agent-safety-guardian.sh --profile balanced --auto-apply-recommendation --auto-confirm-runs 2 --auto-state results/agent-safety-autotune-state.json`
+- `./scripts/agent-safety-guardian.sh --profile balanced --alert-threshold medium --alarm-output results/agent-safety-alarm-latest.json --fail-on-alarm`
+- `./scripts/rule-gap-adversarial-sim.sh --output results/rule-gap-adversarial-latest.json`
 
 ## Frontend URL
 

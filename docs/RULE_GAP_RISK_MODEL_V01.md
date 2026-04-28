@@ -71,28 +71,51 @@ Guardian mapping:
 
 ## 4) Machine-readable outputs
 
-The guardian report includes:
+Current guardian outputs include:
 
-- `ruleGapSignals[]`:
-  - `id`
-  - `kind`
+- `riskAssessment.ruleGapFindings[]`:
+  - `ruleId`
   - `severity`
-  - `score`
   - `title`
+  - `exploitPath`
   - `detail`
-  - `evidence`
-- `ruleGapSummary`:
-  - `count`
+  - `mitigation`
+- `riskAssessment.ruleGapSummary`:
+  - `total`
   - `bySeverity`
-  - `maxScore`
+  - `maxSeverity`
 
-And alert compatibility output:
+Alarm artifact output (`agent-safety-alarm-*.json`) includes:
 
-- `alerts[]` with:
-  - `level` (`warning|high|critical`)
-  - `source`
-  - `message`
-  - `recommendedAction`
+- `alarms[]` with:
+  - `kind` (`rule_vulnerability`)
+  - `ruleId`
+  - `severity`
+  - `title`
+  - `exploitPath`
+  - `detail`
+  - `mitigation`
+- plus aggregation fields:
+  - `alarmCount`
+  - `alertThreshold`
+  - `riskHeatIndex`
+  - `recommendedProfile`
+
+Adversarial simulation output (`rule-gap-adversarial-sim`) includes:
+
+- `scenarios[]` with:
+  - `scenarioId`
+  - `type`
+  - `status` (`simulated`)
+  - `riskSeverity`
+  - `attackPath`
+  - `mappedRuleId`
+  - `expectedDetection`
+  - `recommendedMitigation`
+- summary fields:
+  - `scenarioCount`
+  - `bySeverity`
+  - `maxSeverity`
 
 ## 5) Operational policy suggestion
 
@@ -101,6 +124,6 @@ And alert compatibility output:
   - route `critical` alerts to immediate on-call
   - route `high` alerts to same-day remediation
 - For production pilot:
-  - fail gate when `ruleGapSummary.maxScore >= 80`
+  - fail gate when rule-gap alarm contains `high`/`critical` at configured threshold
   - force strict profile when drift persists beyond confirmation threshold
 

@@ -272,7 +272,6 @@ patrol_batch_path = pathlib.Path(sys.argv[2])
 patrol_alert_path = pathlib.Path(sys.argv[3])
 register_path = pathlib.Path(sys.argv[4])
 output_path = pathlib.Path(sys.argv[5])
-auto_state_path = pathlib.Path(sys.argv[6])
 alarm_output_path = pathlib.Path(sys.argv[6])
 auto_state_path = pathlib.Path(sys.argv[7])
 profile = sys.argv[8]
@@ -648,6 +647,20 @@ for finding in rule_findings:
                 "exploitPath": finding["exploitPath"],
                 "detail": finding["detail"],
                 "mitigation": finding["mitigation"],
+            }
+        )
+
+for r in risks:
+    if severity_rank.get(r.get("severity", "warning"), 1) >= alert_rank:
+        alarms.append(
+            {
+                "kind": "operational_risk",
+                "ruleId": None,
+                "severity": r.get("severity"),
+                "title": r.get("title"),
+                "exploitPath": None,
+                "detail": r.get("detail"),
+                "mitigation": "inspect guardian riskAssessment and apply profile/coverage hardening",
             }
         )
 

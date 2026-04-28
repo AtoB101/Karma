@@ -1,4 +1,4 @@
-.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index verify-proof-index-batch validate-evidence-schema ci-proof-gates proof-patrol agent-safety-guardian
+.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index verify-proof-index-batch validate-evidence-schema ci-proof-gates proof-patrol agent-safety-guardian rule-gap-adversarial-sim
 
 help:
 	@echo "Available targets:"
@@ -17,6 +17,7 @@ help:
 	@echo "  make ci-proof-gates          # run M4.1 proof/evidence CI gate checks"
 	@echo "  make proof-patrol            # run M4.2 scheduled patrol profile (strict by default)"
 	@echo "  make agent-safety-guardian   # run end-to-end safety guardian (self-check + risk registry)"
+	@echo "  make rule-gap-adversarial-sim # run rule-exploit adversarial simulation scenarios"
 
 quickstart:
 	@./scripts/dev-up.sh --from-env
@@ -72,3 +73,6 @@ proof-patrol:
 
 agent-safety-guardian:
 	@./scripts/agent-safety-guardian.sh --profile balanced
+
+rule-gap-adversarial-sim:
+	@./scripts/rule-gap-adversarial-sim.sh
