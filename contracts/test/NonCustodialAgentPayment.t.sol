@@ -305,6 +305,16 @@ contract NonCustodialAgentPaymentTest is Test {
         protocol.confirmBillBySignature(billId, deadline, v, r, s);
     }
 
+    function testConfirmBillBySignatureRevertsOnZeroSigner() public {
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 3_000, keccak256("scope-sig-zero"), "ipfs://proof-sig-zero", block.timestamp + 1 days);
+
+        uint256 deadline = block.timestamp + 1 hours;
+        vm.expectRevert(NonCustodialAgentPayment.InvalidSignature.selector);
+        protocol.confirmBillBySignature(billId, deadline, 27, bytes32(0), bytes32(0));
+    }
+
     function testExpireBillRestoresBothPartiesReserved() public {
         vm.prank(buyer);
         uint256 billId =
@@ -403,6 +413,51 @@ contract NonCustodialAgentPaymentTest is Test {
         assertEq(sellerSt.reserved, 0);
         assertEq(sellerSt.locked, 97_000);
         assertEq(uint8(b.status), uint8(INonCustodialAgentPayment.BillStatus.ResolvedBuyer));
+    }
+
+    function testSellerDisputeRateLimitApplies() public {
+        vm.prank(buyer);
+        uint256 bill1 =
+            protocol.createBill(seller, address(token), 1_000, keccak256("scope-drl-1"), "ipfs://proof-drl-1", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(bill1);
+        vm.prank(seller);
+        protocol.disputeBill(bill1);
+
+        vm.prank(buyer);
+        uint256 bill2 =
+            protocol.createBill(seller, address(token), 1_000, keccak256("scope-drl-2"), "ipfs://proof-drl-2", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(bill2);
+        vm.prank(seller);
+        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        protocol.disputeBill(bill2);
+
+        vm.warp(block.timestamp + 1 hours + 1);
+        vm.prank(seller);
+        protocol.disputeBill(bill2);
+    }
+
+    function testSellerBondHasMinimumForNonZeroAmount() public {
+        NonCustodialAgentPayment protocolMin = new NonCustodialAgentPayment(arbitrator, 3000, 1 days);
+        MockERC20 tokenMin = new MockERC20();
+        tokenMin.mint(buyer, 100);
+        tokenMin.mint(seller, 100);
+
+        vm.prank(buyer);
+        tokenMin.approve(address(protocolMin), type(uint256).max);
+        vm.prank(seller);
+        tokenMin.approve(address(protocolMin), type(uint256).max);
+        vm.prank(buyer);
+        protocolMin.lockFunds(address(tokenMin), 10);
+        vm.prank(seller);
+        protocolMin.lockFunds(address(tokenMin), 10);
+
+        vm.prank(buyer);
+        uint256 billId =
+            protocolMin.createBill(seller, address(tokenMin), 1, keccak256("scope-bond-min"), "ipfs://proof-bond-min", block.timestamp + 1 days);
+        INonCustodialAgentPayment.Bill memory b = protocolMin.getBill(billId);
+        assertEq(b.sellerBond, 1);
     }
 
     function testResolveDisputeBuyerRevertsIfNotArbitrator() public {

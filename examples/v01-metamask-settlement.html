@@ -930,12 +930,31 @@
         });
       }
 
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
       function syncLogKindOptions() {
         const previous = logFilterKindEl.value || "all";
         const kinds = [...new Set(state.diagnostics.map((d) => d.kind))].sort();
-        logFilterKindEl.innerHTML = `<option value="all">all</option>${kinds
-          .map((k) => `<option value="${k}">${k}</option>`)
-          .join("")}`;
+        while (logFilterKindEl.firstChild) {
+          logFilterKindEl.removeChild(logFilterKindEl.firstChild);
+        }
+        const allOption = document.createElement("option");
+        allOption.value = "all";
+        allOption.textContent = "all";
+        logFilterKindEl.appendChild(allOption);
+        for (const kind of kinds) {
+          const option = document.createElement("option");
+          option.value = kind;
+          option.textContent = kind;
+          logFilterKindEl.appendChild(option);
+        }
         logFilterKindEl.value = kinds.includes(previous) || previous === "all" ? previous : "all";
       }
 
@@ -945,28 +964,56 @@
           if (!latestByKind.has(d.kind)) latestByKind.set(d.kind, d);
         }
         const list = [...latestByKind.values()].slice(0, 8);
+        while (riskContainerEl.firstChild) {
+          riskContainerEl.removeChild(riskContainerEl.firstChild);
+        }
         if (!list.length) {
-          riskContainerEl.innerHTML = `<p class="muted">No hints yet — run Health.</p>`;
+          const empty = document.createElement("p");
+          empty.className = "muted";
+          empty.textContent = "No hints yet — run Health.";
+          riskContainerEl.appendChild(empty);
           return;
         }
-        riskContainerEl.innerHTML = list
-          .map((d) => {
-            const cls = d.severity === "high" ? "risk-high" : d.severity === "medium" ? "risk-medium" : "risk-low";
-            return `<div class="risk-item">
-              <div class="risk-header">
-                <strong>${d.title}</strong>
-                <span class="risk-tag ${cls}">${d.severity.toUpperCase()}</span>
-              </div>
-              <div>${d.detail}</div>
-              <div class="muted">${d.timestamp}</div>
-            </div>`;
-          })
-          .join("");
+        for (const d of list) {
+          const cls = d.severity === "high" ? "risk-high" : d.severity === "medium" ? "risk-medium" : "risk-low";
+          const item = document.createElement("div");
+          item.className = "risk-item";
+
+          const header = document.createElement("div");
+          header.className = "risk-header";
+
+          const title = document.createElement("strong");
+          title.textContent = d.title;
+          header.appendChild(title);
+
+          const tag = document.createElement("span");
+          tag.className = `risk-tag ${cls}`;
+          tag.textContent = String(d.severity || "").toUpperCase();
+          header.appendChild(tag);
+
+          const detail = document.createElement("div");
+          detail.textContent = d.detail;
+
+          const timestamp = document.createElement("div");
+          timestamp.className = "muted";
+          timestamp.textContent = d.timestamp;
+
+          item.appendChild(header);
+          item.appendChild(detail);
+          item.appendChild(timestamp);
+          riskContainerEl.appendChild(item);
+        }
       }
 
       function renderLogs() {
+        while (logListEl.firstChild) {
+          logListEl.removeChild(logListEl.firstChild);
+        }
         if (!state.diagnostics.length) {
-          logListEl.innerHTML = `<div class="muted">No logs yet.</div>`;
+          const empty = document.createElement("div");
+          empty.className = "muted";
+          empty.textContent = "No logs yet.";
+          logListEl.appendChild(empty);
           return;
         }
         const kindFilter = logFilterKindEl.value || "all";
@@ -975,38 +1022,78 @@
           (d) => (kindFilter === "all" || d.kind === kindFilter) && (severityFilter === "all" || d.severity === severityFilter)
         );
         if (!filtered.length) {
-          logListEl.innerHTML = `<div class="muted">No logs match filters.</div>`;
+          const empty = document.createElement("div");
+          empty.className = "muted";
+          empty.textContent = "No logs match filters.";
+          logListEl.appendChild(empty);
           return;
         }
-        logListEl.innerHTML = filtered
-          .slice(0, 20)
-          .map(
-            (d) => `<div class="log-row">
-              <div>
-                <div><strong>${d.title}</strong></div>
-                <div class="muted">${d.kind} • ${d.timestamp}</div>
-              </div>
-              <button data-log-id="${d.id}">View</button>
-            </div>`
-          )
-          .join("");
+        for (const d of filtered.slice(0, 20)) {
+          const row = document.createElement("div");
+          row.className = "log-row";
+
+          const left = document.createElement("div");
+          const titleLine = document.createElement("div");
+          const title = document.createElement("strong");
+          title.textContent = d.title;
+          titleLine.appendChild(title);
+
+          const meta = document.createElement("div");
+          meta.className = "muted";
+          meta.textContent = `${d.kind} • ${d.timestamp}`;
+
+          left.appendChild(titleLine);
+          left.appendChild(meta);
+
+          const btn = document.createElement("button");
+          btn.dataset.logId = d.id;
+          btn.textContent = "View";
+
+          row.appendChild(left);
+          row.appendChild(btn);
+          logListEl.appendChild(row);
+        }
       }
 
       function renderTxHistory() {
+        while (txListEl.firstChild) {
+          txListEl.removeChild(txListEl.firstChild);
+        }
         if (!state.txHistory.length) {
-          txListEl.innerHTML = `<div class="muted">No tx history yet.</div>`;
+          const empty = document.createElement("div");
+          empty.className = "muted";
+          empty.textContent = "No tx history yet.";
+          txListEl.appendChild(empty);
           return;
         }
-        txListEl.innerHTML = state.txHistory
-          .map(
-            (tx) => `<div class="tx-row">
-              <div><strong>${tx.status}</strong> • ${tx.timestamp}</div>
-              <div class="muted">hash: ${tx.txHash || "-"}</div>
-              <div class="muted">block: ${tx.blockNumber || "-"}</div>
-              <div class="muted">amount: ${tx.amount || "-"}</div>
-            </div>`
-          )
-          .join("");
+        for (const tx of state.txHistory) {
+          const row = document.createElement("div");
+          row.className = "tx-row";
+
+          const line1 = document.createElement("div");
+          const strong = document.createElement("strong");
+          strong.textContent = tx.status;
+          line1.appendChild(strong);
+          line1.appendChild(document.createTextNode(` • ${tx.timestamp}`));
+
+          const hash = document.createElement("div");
+          hash.className = "muted";
+          hash.textContent = `hash: ${tx.txHash || "-"}`;
+
+          const block = document.createElement("div");
+          block.className = "muted";
+          block.textContent = `block: ${tx.blockNumber || "-"}`;
+
+          const amount = document.createElement("div");
+          amount.className = "muted";
+          amount.textContent = `amount: ${tx.amount || "-"}`;
+
+          row.appendChild(line1);
+          row.appendChild(hash);
+          row.appendChild(block);
+          row.appendChild(amount);
+          txListEl.appendChild(row);
+        }
       }
 
       function readErrorMessage(err) {

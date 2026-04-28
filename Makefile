@@ -1,4 +1,4 @@
-.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index verify-proof-index-batch validate-evidence-schema validate-output-contracts ci-proof-gates ci-proof-gate proof-patrol agent-safety-guardian guardian rule-gap-adversarial-sim api-run api-smoke commercialization-gate release-readiness system-status ops-alert ops-summary ops-health ops-doctor-json ops-support ops-proof-gates ops-commercialization-gate safety-guardian safety-patrol safety-rulegap safety-commercial-gate api-health api-contract
+.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index verify-proof-index-batch validate-evidence-schema validate-output-contracts slither-gate ci-proof-gates ci-proof-gate proof-patrol agent-safety-guardian guardian rule-gap-adversarial-sim api-run api-smoke commercialization-gate release-readiness system-status ops-alert ops-summary ops-health ops-doctor-json ops-support ops-proof-gates ops-commercialization-gate safety-guardian safety-patrol safety-rulegap safety-commercial-gate api-health api-contract
 
 help:
 	@echo "Available targets:"
@@ -15,6 +15,7 @@ help:
 	@echo "  make verify-proof-index-batch # batch verify manifests under results/"
 	@echo "  make validate-evidence-schema # validate exported diagnosis JSON schema compatibility"
 	@echo "  make validate-output-contracts # validate top-level output contract fields"
+	@echo "  make slither-gate            # run Slither static analysis gate"
 	@echo "  make ci-proof-gates          # run M4.1 proof/evidence CI gate checks"
 	@echo "  make ci-proof-gate           # alias of ci-proof-gates"
 	@echo "  make proof-patrol            # run M4.2 scheduled patrol profile (strict by default)"
@@ -88,6 +89,9 @@ validate-evidence-schema:
 
 validate-output-contracts:
 	@./scripts/validate-output-contracts.sh --format text
+
+slither-gate:
+	@./scripts/slither-gate.sh --format text --output results/slither-gate-latest.txt
 
 ci-proof-gates:
 	@./scripts/ci-proof-gates.sh

@@ -81,6 +81,10 @@ make quickstart
   CN: 校验关键 JSON 输出是否包含统一契约字段（`schemaVersion/generatedAt/source/traceId`）。  
   EN: Validate required unified output contract fields (`schemaVersion/generatedAt/source/traceId`) in core JSON artifacts.
 
+- `make slither-gate`  
+  CN: 运行 Slither 静态分析门禁（未安装 Slither 会给出安装提示并返回非零）。  
+  EN: Run Slither static-analysis gate (returns non-zero with installation guidance if Slither is missing).
+
 - `make system-status`  
   CN: 聚合商用门禁、巡检、安全管家、契约校验状态，生成系统健康视图。  
   EN: Aggregate commercialization/patrol/guardian/contract status into a system health snapshot.
@@ -218,6 +222,8 @@ make quickstart
 - `./scripts/commercialization-gate.sh --format json --output results/commercialization-gate-latest.json`
 - `./scripts/validate-output-contracts.sh --format text`
 - `./scripts/validate-output-contracts.sh --format json`
+- `./scripts/slither-gate.sh --format text`
+- `./scripts/slither-gate.sh --format json --output results/slither-gate-latest.json`
 - `./scripts/system-status.sh --format text`
 - `./scripts/system-status.sh --format json --output results/system-status-latest.json`
 - `./scripts/ops-summary.sh`

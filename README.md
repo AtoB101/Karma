@@ -49,6 +49,7 @@ Quick docs:
 - API smoke test: `make api-smoke` (verifies payment intent + evidence + risk alert routes)
 - Commercialization gate: `make commercialization-gate` (outputs `commercial-ready | pilot-ready | not-ready` with action plan)
 - Output contract gate: `make validate-output-contracts` (checks schemaVersion/source/traceId/generatedAt on latest artifacts)
+- Static analysis gate: `make slither-gate` (runs Slither; fails when tool is missing or findings are reported)
 - Layered aliases: `make ops-*`, `make safety-*`, `make api-*` (clean command namespace, old targets still supported)
 - Local CI gate: `make ci-local` (build + focused core tests, no env required)
 - Env-aware CI gate: `make ci-local-env` (includes preflight with `.env`)

@@ -38,6 +38,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     error ScopeNotAllowed();
     error SettlementTokenNotAllowed();
     error SettlementAmountTooLow();
+    error DisputeRateLimited();
 
     uint16 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant MAX_BATCH_SETTLE_SIZE = 200;
@@ -66,6 +67,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     mapping(address owner => PolicyUsage) internal policyUsageByOwner;
     mapping(address owner => mapping(address counterparty => bool)) internal policyAllowedCounterparty;
     mapping(address owner => mapping(bytes32 scopeHash => bool)) internal policyAllowedScope;
+    mapping(address seller => uint256 lastDisputeAt) internal sellerLastDisputeAt;
     mapping(address token => bool) internal settlementTokenAllowed;
     bool public settlementTokenEnforced;
     uint256 public minSettlementAmount;
@@ -74,6 +76,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     uint256 private _status = _NOT_ENTERED;
     uint256 internal constant SECP256K1N_DIV_2 =
         0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+    uint256 private constant SELLER_DISPUTE_COOLDOWN_SECONDS = 5 minutes;
     bytes32 private immutable _DOMAIN_SEPARATOR;
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
@@ -280,6 +283,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         bytes32 structHash = keccak256(abi.encode(_CONFIRM_BILL_TYPEHASH, billId, nonce, deadline, msg.sender));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _DOMAIN_SEPARATOR, structHash));
         address signer = ecrecover(digest, v, r, s);
+        if (signer == address(0)) revert InvalidSignature();
         if (signer != b.buyer) revert InvalidSignature();
 
         confirmNonce[b.buyer] = nonce + 1;
@@ -311,6 +315,12 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         if (msg.sender != b.buyer && msg.sender != b.seller) revert Unauthorized();
         if (b.status != BillStatus.Confirmed) {
             revert InvalidBillStatus(billId, BillStatus.Confirmed, b.status);
+        }
+        // Seller disputes can be abused for friction; enforce a short cooldown per seller.
+        if (msg.sender == b.seller) {
+            uint256 last = sellerLastDisputeAt[msg.sender];
+            if (last != 0 && block.timestamp < last + SELLER_DISPUTE_COOLDOWN_SECONDS) revert DisputeRateLimited();
+            sellerLastDisputeAt[msg.sender] = block.timestamp;
         }
         b.status = BillStatus.Disputed;
         emit BillDisputed(billId, msg.sender);
@@ -761,7 +771,9 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     }
 
     function _sellerBond(uint256 amount) internal view returns (uint256) {
-        return (amount * sellerBondBps) / BPS_DENOMINATOR;
+        uint256 bond = (amount * sellerBondBps) / BPS_DENOMINATOR;
+        if (amount > 0 && sellerBondBps > 0 && bond == 0) return 1;
+        return bond;
     }
 
     function _spendable(address account, address token) internal view returns (uint256) {

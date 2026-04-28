@@ -37,7 +37,13 @@ echo "==> [1/7] commercialization gate"
 echo "==> [2/7] proof/evidence CI gates"
 ./scripts/ci-proof-gates.sh --format json >/dev/null
 
-echo "==> [3/7] strict proof patrol"
+echo "==> [3/8] slither static analysis"
+if ! ./scripts/slither-gate.sh --format text --output "$RESULTS_DIR/slither-gate-latest.txt"; then
+  release_status="FAIL"
+  failed_stages+=("slither-gate")
+fi
+
+echo "==> [4/8] strict proof patrol"
 if ! ./scripts/proof-patrol.sh \
   --profile strict \
   --batch-output "$RESULTS_DIR/proof-patrol-batch-latest.json" \
@@ -47,7 +53,7 @@ if ! ./scripts/proof-patrol.sh \
   failed_stages+=("proof-patrol")
 fi
 
-echo "==> [4/7] guardian snapshot"
+echo "==> [5/8] guardian snapshot"
 ./scripts/agent-safety-guardian.sh \
   --profile balanced \
   --skip-support-bundle \
@@ -56,17 +62,17 @@ echo "==> [4/7] guardian snapshot"
   --output "$RESULTS_DIR/agent-safety-guardian-latest.json" \
   --register "$RESULTS_DIR/agent-risk-register.json" >/dev/null
 
-echo "==> [5/7] output contract validation"
+echo "==> [6/8] output contract validation"
 ./scripts/validate-output-contracts.sh --format json > "$RESULTS_DIR/output-contracts-validation-latest.json" || true
 if ! ./scripts/validate-output-contracts.sh --format text; then
   release_status="FAIL"
   failed_stages+=("output-contracts")
 fi
 
-echo "==> [6/7] system status"
+echo "==> [7/8] system status"
 ./scripts/system-status.sh --output "$RESULTS_DIR/system-status-latest.json" --format text
 
-echo "==> [7/7] ops alert export"
+echo "==> [8/8] ops alert export"
 ./scripts/ops-alert.sh --input "$RESULTS_DIR/system-status-latest.json" --output "$RESULTS_DIR/ops-alert-latest.json" --format text
 
 echo
