@@ -36,11 +36,13 @@ Quick docs:
 - Compatibility aliases: `make ci-proof-gate` and `make guardian` (mapped to current targets)
 - Rule-gap model: `docs/RULE_GAP_RISK_MODEL_V01.md` (rule exploitation attack surface + alert strategy)
 - Commercial readiness checklist: `docs/COMMERCIAL_READINESS_CHECKLIST_V01.md` (MUST/SHOULD/CAN commercial gate baseline)
+- Command map: `docs/COMMAND_MAP_V01.md` (layered entrypoints: core/ops/safety/api)
 - API roadmap: `docs/API_ROADMAP_V01.md` (ecosystem API landing phases and governance baseline)
 - OpenAPI contract: `openapi/trustchain-v1.yaml` (contract-first API spec for integration teams)
 - API local run: `make api-run` (starts zero-dependency API service at `127.0.0.1:8811`)
 - API smoke test: `make api-smoke` (verifies payment intent + evidence + risk alert routes)
 - Commercialization gate: `make commercialization-gate` (outputs `commercial-ready | pilot-ready | not-ready` with action plan)
+- Layered aliases: `make ops-*`, `make safety-*`, `make api-*` (clean command namespace, old targets still supported)
 - Local CI gate: `make ci-local` (build + focused core tests, no env required)
 - Env-aware CI gate: `make ci-local-env` (includes preflight with `.env`)
 - M4 roadmap: `docs/M4_ROADMAP_V01.md`

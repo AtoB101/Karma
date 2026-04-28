@@ -1,4 +1,4 @@
-.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index verify-proof-index-batch validate-evidence-schema ci-proof-gates ci-proof-gate proof-patrol agent-safety-guardian guardian rule-gap-adversarial-sim api-run api-smoke commercialization-gate
+.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index verify-proof-index-batch validate-evidence-schema ci-proof-gates ci-proof-gate proof-patrol agent-safety-guardian guardian rule-gap-adversarial-sim api-run api-smoke commercialization-gate ops-health ops-doctor-json ops-support ops-proof-gates ops-commercialization-gate safety-guardian safety-patrol safety-rulegap safety-commercial-gate api-health api-contract
 
 help:
 	@echo "Available targets:"
@@ -23,6 +23,17 @@ help:
 	@echo "  make api-run                 # start TrustChain ecosystem API server on :8811"
 	@echo "  make api-smoke               # run API smoke tests against local server"
 	@echo "  make commercialization-gate  # evaluate commercial readiness (MUST/SHOULD/CAN)"
+	@echo "  make ops-health              # run doctor + preflight(local) baseline checks (needs forge/cast)"
+	@echo "  make ops-doctor-json         # run doctor JSON report only (no forge/cast requirement)"
+	@echo "  make ops-support             # generate support bundle + verify latest proof index"
+	@echo "  make ops-proof-gates         # run proof/evidence gate checks (ops alias)"
+	@echo "  make ops-commercialization-gate # run commercial readiness gate (ops alias)"
+	@echo "  make safety-guardian         # run agent safety guardian (safety alias)"
+	@echo "  make safety-patrol           # run strict safety patrol (safety alias)"
+	@echo "  make safety-rulegap          # run adversarial rule-gap simulation (safety alias)"
+	@echo "  make safety-commercial-gate  # run commercialization gate (safety alias)"
+	@echo "  make api-health              # check API health endpoint"
+	@echo "  make api-contract            # verify OpenAPI contract file exists"
 
 quickstart:
 	@./scripts/dev-up.sh --from-env
@@ -96,3 +107,37 @@ api-smoke:
 
 commercialization-gate:
 	@./scripts/commercialization-gate.sh --output results/commercialization-gate-latest.json --format text
+
+ops-health:
+	@./scripts/doctor.sh --port 8790 --format text --output results/doctor-report.txt
+	@./scripts/preflight.sh --mode local
+
+ops-doctor-json:
+	@./scripts/doctor.sh --port 8790 --format json --output results/doctor-report.json
+
+ops-support: support-bundle verify-proof-index
+	@:
+
+ops-proof-gates: ci-proof-gates
+	@:
+
+ops-commercialization-gate: commercialization-gate
+	@:
+
+safety-guardian: agent-safety-guardian
+	@:
+
+safety-patrol:
+	@./scripts/proof-patrol.sh --profile strict --batch-output results/proof-patrol-batch-latest.json --alert-output results/proof-patrol-alert-latest.json
+
+safety-rulegap: rule-gap-adversarial-sim
+	@:
+
+safety-commercial-gate: commercialization-gate
+	@:
+
+api-health:
+	@curl -fsS "http://127.0.0.1:8811/v1/health" >/dev/null && echo "API health: ok"
+
+api-contract:
+	@test -f openapi/trustchain-v1.yaml && echo "OpenAPI contract: openapi/trustchain-v1.yaml"

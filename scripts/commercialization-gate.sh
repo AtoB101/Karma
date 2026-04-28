@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${ROOT_DIR}/scripts/lib/common.sh"
 OUTPUT_PATH="${ROOT_DIR}/results/commercialization-gate-latest.json"
 FORMAT="text"
 
@@ -14,6 +15,8 @@ Description:
   Evaluate commercial-readiness baseline with MUST/SHOULD/CAN layers.
 EOF
 }
+
+usage_if_requested "${1:-}" usage
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

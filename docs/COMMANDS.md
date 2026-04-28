@@ -87,7 +87,45 @@ make quickstart
   CN: 与上面相同，但会加载 `.env` 做环境校验。  
   EN: Same as above, but loads `.env` for env validation.
 
-### 4) Proof verification (frontend SOP)
+### 4) O1 grouped command entrypoints (new)
+
+- `make ops-doctor`  
+  CN: 生成诊断文本报告（分层入口，等价 `make doctor`）。  
+  EN: Generate diagnostics text report (grouped entry, alias of `make doctor`).
+
+- `make ops-bundle`  
+  CN: 生成支持包（分层入口，等价 `make support-bundle`）。  
+  EN: Build support bundle (grouped entry, alias of `make support-bundle`).
+
+- `make ops-commercial-gate`  
+  CN: 运行商用准入门禁（分层入口，等价 `make commercialization-gate`）。  
+  EN: Run commercial readiness gate (grouped entry, alias of `make commercialization-gate`).
+
+- `make safety-gates`  
+  CN: 运行证据/索引门禁（分层入口，等价 `make ci-proof-gates`）。  
+  EN: Run proof/evidence gates (grouped entry, alias of `make ci-proof-gates`).
+
+- `make safety-patrol`  
+  CN: 运行巡检策略（分层入口，等价 `make proof-patrol`）。  
+  EN: Run patrol profile (grouped entry, alias of `make proof-patrol`).
+
+- `make safety-guardian`  
+  CN: 运行安全管家（分层入口，等价 `make agent-safety-guardian`）。  
+  EN: Run safety guardian (grouped entry, alias of `make agent-safety-guardian`).
+
+- `make safety-adversarial-sim`  
+  CN: 运行规则漏洞对抗模拟（分层入口，等价 `make rule-gap-adversarial-sim`）。  
+  EN: Run rule-gap adversarial simulation (grouped entry, alias of `make rule-gap-adversarial-sim`).
+
+- `make api-serve`  
+  CN: 启动 API 服务（分层入口，等价 `make api-run`）。  
+  EN: Start API service (grouped entry, alias of `make api-run`).
+
+- `make api-check`  
+  CN: 运行 API 冒烟测试（分层入口，等价 `make api-smoke`）。  
+  EN: Run API smoke tests (grouped entry, alias of `make api-smoke`).
+
+### 5) Proof verification (frontend SOP)
 
 - `python3 -m http.server 8790`  
   CN: 启动前端控制台，用于离线验链/验签流程。  
