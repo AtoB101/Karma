@@ -3,6 +3,34 @@
 This repository now uses a single architecture story centered on `NonCustodialAgentPayment`.
 User funds stay in user wallets, while on-chain accounting enforces lock/reserve/dispute state transitions.
 
+## Golden Path (3 commands)
+
+```bash
+cp .env.example .env
+./scripts/dev-up.sh --from-env
+python3 -m webbrowser "http://127.0.0.1:8790/examples/v01-metamask-settlement.html?ts=$(date +%s)"
+```
+
+Or shorter:
+
+```bash
+cp .env.example .env
+make quickstart
+```
+
+If your shell does not have `python3 -m webbrowser`, open this URL manually:
+`http://127.0.0.1:8790/examples/v01-metamask-settlement.html`
+
+Quick docs:
+- Fast onboarding: `docs/GET_STARTED.md`
+- Commands cheat sheet: `docs/COMMANDS.md`
+- Troubleshooting: `docs/TROUBLESHOOTING.md`
+- Full ops workflow: `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt`
+- One-shot diagnostics: `make doctor` (text report) / `make doctor-json` (JSON report)
+- Support bundle zip: `make support-bundle` (collects doctor reports + key artifacts)
+- Local CI gate: `make ci-local` (build + focused core tests, no env required)
+- Env-aware CI gate: `make ci-local-env` (includes preflight with `.env`)
+
 ## Core Modules
 
 - `NonCustodialAgentPayment`: bill lifecycle, dual-side lock model, dispute and batch settlement
