@@ -400,6 +400,7 @@
         diagnostics: [],
         txHistory: [],
         autoMonitorTimer: null,
+        sessionTraceId: null,
       };
 
       const engineAbi = [
@@ -484,6 +485,7 @@
       function addDiagnostic(kind, severity, title, detail, payload = null) {
         state.diagnostics.unshift({
           id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          traceId: state.sessionTraceId || "trace-unset",
           timestamp: new Date().toISOString(),
           kind,
           severity,
@@ -498,7 +500,10 @@
       }
 
       function addTxHistory(record) {
-        state.txHistory.unshift(record);
+        state.txHistory.unshift({
+          traceId: state.sessionTraceId || "trace-unset",
+          ...record,
+        });
         state.txHistory = state.txHistory.slice(0, 30);
         renderTxHistory();
       }
@@ -692,6 +697,13 @@
         URL.revokeObjectURL(url);
       }
 
+      function generateTraceId() {
+        if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+          return `trace-${crypto.randomUUID()}`;
+        }
+        return `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
       async function buildDiagnosisReport() {
         const inputs = readInputs();
         const inputsSerialized = {
@@ -725,7 +737,9 @@
         }
 
         return {
-          reportVersion: "1.0",
+          reportVersion: "1.1",
+          evidenceVersion: "evidence-v1",
+          traceId: state.sessionTraceId,
           app: "TrustChain v0.1 wangcai Console",
           exportedAt: new Date().toISOString(),
           userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
@@ -746,23 +760,49 @@
             active: Boolean(state.autoMonitorTimer),
             pollSeconds: Number(document.getElementById("pollSeconds").value || "10"),
           },
-          form: inputsSerialized,
-          logFilters: {
-            kind: logFilterKindEl.value,
-            severity: logFilterSeverityEl.value,
+          authSnapshot: {
+            walletAddress: walletFull,
+            signaturePresent: Boolean(state.signature),
+            quotePresent: Boolean(state.quote),
           },
-          diagnostics: state.diagnostics.map((d) => ({
-            id: d.id,
-            timestamp: d.timestamp,
-            kind: d.kind,
-            severity: d.severity,
-            title: d.title,
-            detail: d.detail,
-            payload: serializePayload(d.payload),
-          })),
-          transactionHistory: state.txHistory,
-          lastQuote: serializeQuoteForExport(state.quote),
-          signaturePresent: Boolean(state.signature),
+          requestSnapshot: {
+            form: inputsSerialized,
+            logFilters: {
+              kind: logFilterKindEl.value,
+              severity: logFilterSeverityEl.value,
+            },
+          },
+          executionSnapshot: {
+            diagnostics: state.diagnostics.map((d) => ({
+              id: d.id,
+              traceId: d.traceId || state.sessionTraceId,
+              timestamp: d.timestamp,
+              kind: d.kind,
+              severity: d.severity,
+              title: d.title,
+              detail: d.detail,
+              payload: serializePayload(d.payload),
+            })),
+            transactionHistory: state.txHistory.map((tx) => ({
+              traceId: tx.traceId || state.sessionTraceId,
+              timestamp: tx.timestamp,
+              status: tx.status,
+              txHash: tx.txHash || "-",
+              blockNumber: tx.blockNumber || "-",
+              amount: tx.amount || "-",
+            })),
+            lastQuote: serializeQuoteForExport(state.quote),
+          },
+          riskSnapshot: {
+            summary: {
+              totalDiagnostics: state.diagnostics.length,
+              high: state.diagnostics.filter((d) => d.severity === "high").length,
+              medium: state.diagnostics.filter((d) => d.severity === "medium").length,
+              low: state.diagnostics.filter((d) => d.severity === "low").length,
+            },
+            latestHighRiskTitle:
+              state.diagnostics.find((d) => d.severity === "high")?.title || null,
+          },
         };
       }
 
@@ -774,8 +814,9 @@
         setOutput({
           step: "diagnosis_exported",
           filename: `trustchain-v01-diagnosis-${stamp}.json`,
-          diagnosticsCount: data.diagnostics.length,
-          txHistoryCount: data.transactionHistory.length,
+          traceId: data.traceId,
+          diagnosticsCount: data.executionSnapshot.diagnostics.length,
+          txHistoryCount: data.executionSnapshot.transactionHistory.length,
           walletAddress: data.walletAddress,
           network: data.network,
         });
@@ -1171,6 +1212,7 @@
       setChip("modeCustodyChip", "Mode: Unknown");
       setChip("modeBatchChip", "Batch: Unknown");
       setChip("modeBreakerChip", "Breaker: Unknown");
+      state.sessionTraceId = generateTraceId();
     </script>
   </body>
 </html>

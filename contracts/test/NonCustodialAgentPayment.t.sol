@@ -8,6 +8,15 @@ import {INonCustodialAgentPayment} from "../interfaces/INonCustodialAgentPayment
 
 contract NonCustodialAgentPaymentTest is Test {
     event InvalidTransferIntent(address indexed caller, uint256 indexed billId, string reason);
+    event PolicyUpdated(
+        address indexed buyer,
+        bool enabled,
+        uint256 perTxLimit,
+        uint256 dailyLimit,
+        uint256 maxTxPerMinute,
+        uint256 validUntil
+    );
+    event PolicyViolation(address indexed buyer, string reason);
 
     NonCustodialAgentPayment internal protocol;
     MockERC20 internal token;
@@ -604,6 +613,76 @@ contract NonCustodialAgentPaymentTest is Test {
         assertEq(sellerSt.reserved, 0);
         assertTrue(protocol.isAccountConsistent(buyer, address(token)));
         assertTrue(protocol.isAccountConsistent(seller, address(token)));
+    }
+
+    function testSetPolicyAndReadBack() public {
+        vm.prank(buyer);
+        protocol.setPolicy(true, 20_000, 50_000, 10, block.timestamp + 1 days);
+
+        INonCustodialAgentPayment.Policy memory p = protocol.getPolicy(buyer);
+        assertTrue(p.enabled);
+        assertEq(p.perTxLimit, 20_000);
+        assertEq(p.dailyLimit, 50_000);
+        assertEq(p.maxTxPerMinute, 10);
+        assertGt(p.validUntil, block.timestamp);
+    }
+
+    function testCreateBillBlockedByPerTxPolicy() public {
+        vm.prank(buyer);
+        protocol.setPolicy(true, 3_000, 100_000, 0, block.timestamp + 1 days);
+
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        protocol.createBill(seller, address(token), 4_000, keccak256("scope-policy-1"), "ipfs://proof-policy-1", block.timestamp + 1 days);
+    }
+
+    function testCreateBillBlockedByDailyPolicy() public {
+        vm.prank(buyer);
+        protocol.setPolicy(true, 10_000, 5_000, 0, block.timestamp + 1 days);
+
+        vm.prank(buyer);
+        protocol.createBill(seller, address(token), 3_000, keccak256("scope-policy-2"), "ipfs://proof-policy-2", block.timestamp + 1 days);
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        protocol.createBill(seller, address(token), 3_000, keccak256("scope-policy-3"), "ipfs://proof-policy-3", block.timestamp + 1 days);
+    }
+
+    function testCreateBillBlockedByPolicyExpiry() public {
+        vm.prank(buyer);
+        protocol.setPolicy(true, 10_000, 100_000, 0, block.timestamp + 10);
+        vm.warp(block.timestamp + 11);
+
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        protocol.createBill(seller, address(token), 1_000, keccak256("scope-policy-4"), "ipfs://proof-policy-4", block.timestamp + 1 days);
+    }
+
+    function testCreateBillBlockedByRateLimit() public {
+        vm.prank(buyer);
+        protocol.setPolicy(true, 10_000, 100_000, 1, block.timestamp + 1 days);
+
+        vm.prank(buyer);
+        protocol.createBill(seller, address(token), 1_000, keccak256("scope-policy-5"), "ipfs://proof-policy-5", block.timestamp + 1 days);
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        protocol.createBill(seller, address(token), 1_000, keccak256("scope-policy-6"), "ipfs://proof-policy-6", block.timestamp + 1 days);
+    }
+
+    function testPolicyUsageResetsNextDay() public {
+        vm.prank(buyer);
+        protocol.setPolicy(true, 10_000, 5_000, 0, block.timestamp + 2 days);
+
+        vm.prank(buyer);
+        protocol.createBill(seller, address(token), 4_000, keccak256("scope-policy-7"), "ipfs://proof-policy-7", block.timestamp + 1 days);
+        (, uint256 spentDay0,, uint256 day0) = protocol.getPolicyUsage(buyer);
+        assertEq(spentDay0, 4_000);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(buyer);
+        protocol.createBill(seller, address(token), 4_000, keccak256("scope-policy-8"), "ipfs://proof-policy-8", block.timestamp + 1 days);
+        (, uint256 spentDay1,, uint256 day1) = protocol.getPolicyUsage(buyer);
+        assertEq(spentDay1, 4_000);
+        assertGt(day1, day0);
     }
 
     function _confirmBillDigest(uint256 billId, uint256 nonce, uint256 deadline, address relayer)

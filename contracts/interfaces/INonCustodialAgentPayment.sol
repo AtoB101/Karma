@@ -2,6 +2,23 @@
 pragma solidity ^0.8.24;
 
 interface INonCustodialAgentPayment {
+    struct Policy {
+        uint256 perTxLimit;
+        uint256 dailyLimit;
+        uint256 maxTxPerWindow;
+        uint256 windowSeconds;
+        bool enabled;
+        bool hasPayeeRules;
+        bool hasTokenRules;
+    }
+
+    struct PolicyUsage {
+        uint256 dayStart;
+        uint256 spentToday;
+        uint256 windowStart;
+        uint256 txCountInWindow;
+    }
+
     enum BatchStatus {
         Open,
         Closed,
@@ -77,4 +94,12 @@ interface INonCustodialAgentPayment {
     function getBill(uint256 billId) external view returns (Bill memory);
     function confirmNonce(address buyer) external view returns (uint256);
     function isAccountConsistent(address user, address token) external view returns (bool);
+    function setPolicy(uint256 perTxLimit, uint256 dailyLimit, uint256 maxTxPerWindow, uint256 windowSeconds, bool enabled)
+        external;
+    function setPolicyPayee(address payee, bool allowed) external;
+    function setPolicyToken(address token, bool allowed) external;
+    function getPolicy(address user) external view returns (Policy memory);
+    function getPolicyUsage(address user) external view returns (PolicyUsage memory);
+    function isPolicyPayeeAllowed(address user, address payee) external view returns (bool);
+    function isPolicyTokenAllowed(address user, address token) external view returns (bool);
 }

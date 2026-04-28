@@ -29,6 +29,13 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     error BatchNotFound();
     error BatchNotClosed();
     error BatchOwnerMismatch();
+    error PolicyNotConfigured();
+    error PolicyExpired();
+    error PolicyViolation();
+    error DailyLimitExceeded();
+    error PerTxLimitExceeded();
+    error CounterpartyNotAllowed();
+    error ScopeNotAllowed();
 
     uint16 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant MAX_BATCH_SETTLE_SIZE = 200;
@@ -53,6 +60,10 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     mapping(uint256 batchId => address) internal batchOwner;
     mapping(bytes32 ownerTokenKey => uint256 batchId) internal activeBatchByOwnerToken;
     mapping(address buyer => uint256 nonce) public override confirmNonce;
+    mapping(address owner => PolicyConfig) internal policyByOwner;
+    mapping(address owner => PolicyUsage) internal policyUsageByOwner;
+    mapping(address owner => mapping(address counterparty => bool)) internal policyAllowedCounterparty;
+    mapping(address owner => mapping(bytes32 scopeHash => bool)) internal policyAllowedScope;
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
     uint256 private _status = _NOT_ENTERED;
@@ -89,6 +100,18 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     event BatchSettled(uint256 indexed batchId, uint256 settledCount, uint256 settledAmount);
     event BatchModeUpdated(bool enabled);
     event BatchCircuitBreakerUpdated(bool paused);
+    event PolicyConfigured(
+        address indexed owner,
+        bool enabled,
+        uint256 dailyLimit,
+        uint256 perTxLimit,
+        uint256 maxTxPerHour,
+        uint256 validUntil
+    );
+    event PolicyCounterpartyUpdated(address indexed owner, address indexed counterparty, bool allowed);
+    event PolicyScopeUpdated(address indexed owner, bytes32 indexed scopeHash, bool allowed);
+    event PolicyUsageUpdated(address indexed owner, uint256 dayIndex, uint256 spentToday, uint256 txCountToday, uint256 txCountHour);
+    event PolicyViolationEvent(address indexed owner, address indexed counterparty, bytes32 indexed scopeHash, string reason);
 
     /// @notice Creates the non-custodial payment protocol core.
     /// @param arbitrator_ Address allowed to resolve disputed bills.
@@ -163,6 +186,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         if (seller == address(0) || token == address(0)) revert InvalidAddress();
         if (seller == msg.sender) revert Unauthorized();
         if (amount == 0) revert InvalidAmount();
+        _enforcePolicy(msg.sender, seller, scopeHash, amount);
 
         uint256 finalDeadline = deadline == 0 ? block.timestamp + defaultBillTtlSeconds : deadline;
         if (finalDeadline <= block.timestamp) revert InvalidDeadline();
@@ -493,6 +517,72 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BatchCircuitBreakerUpdated(paused);
     }
 
+    /// @notice Configures caller policy constraints for bill creation.
+    /// @param enabled Whether policy checks are enabled.
+    /// @param dailyLimit Max total bill principal per UTC day.
+    /// @param perTxLimit Max bill principal per transaction.
+    /// @param maxTxPerHour Max bill create operations per rolling hour bucket.
+    /// @param validUntil Policy expiration timestamp.
+    function setPolicyConfig(bool enabled, uint256 dailyLimit, uint256 perTxLimit, uint256 maxTxPerHour, uint256 validUntil)
+        external
+        override
+    {
+        if (enabled) {
+            if (dailyLimit == 0 || perTxLimit == 0 || maxTxPerHour == 0) revert PolicyViolation();
+            if (validUntil <= block.timestamp) revert PolicyExpired();
+        }
+        policyByOwner[msg.sender] = PolicyConfig({
+            enabled: enabled,
+            dailyLimit: dailyLimit,
+            perTxLimit: perTxLimit,
+            maxTxPerHour: maxTxPerHour,
+            validUntil: validUntil
+        });
+        emit PolicyConfigured(msg.sender, enabled, dailyLimit, perTxLimit, maxTxPerHour, validUntil);
+    }
+
+    /// @notice Allows or disallows a specific counterparty under caller policy.
+    function setPolicyAllowedCounterparty(address counterparty, bool allowed) external override {
+        if (counterparty == address(0)) revert InvalidAddress();
+        policyAllowedCounterparty[msg.sender][counterparty] = allowed;
+        emit PolicyCounterpartyUpdated(msg.sender, counterparty, allowed);
+    }
+
+    /// @notice Allows or disallows a specific scope hash under caller policy.
+    function setPolicyAllowedScope(bytes32 scopeHash, bool allowed) external override {
+        if (scopeHash == bytes32(0)) revert PolicyViolation();
+        policyAllowedScope[msg.sender][scopeHash] = allowed;
+        emit PolicyScopeUpdated(msg.sender, scopeHash, allowed);
+    }
+
+    function getPolicyConfig(address ownerAddr) external view override returns (PolicyConfig memory) {
+        return policyByOwner[ownerAddr];
+    }
+
+    function getPolicyUsage(address ownerAddr) external view override returns (PolicyUsage memory) {
+        PolicyUsage memory usage = policyUsageByOwner[ownerAddr];
+        uint256 dayIndex = block.timestamp / 1 days;
+        uint256 hourIndex = block.timestamp / 1 hours;
+        if (usage.dayIndex != dayIndex) {
+            usage.dayIndex = dayIndex;
+            usage.spentToday = 0;
+            usage.txCountToday = 0;
+        }
+        if (usage.hourIndex != hourIndex) {
+            usage.hourIndex = hourIndex;
+            usage.txCountHour = 0;
+        }
+        return usage;
+    }
+
+    function isPolicyCounterpartyAllowed(address ownerAddr, address counterparty) external view override returns (bool) {
+        return policyAllowedCounterparty[ownerAddr][counterparty];
+    }
+
+    function isPolicyScopeAllowed(address ownerAddr, bytes32 scopeHash) external view override returns (bool) {
+        return policyAllowedScope[ownerAddr][scopeHash];
+    }
+
     /// @notice Returns batch snapshot by id.
     /// @param batchId Batch identifier.
     function getBatch(uint256 batchId) external view override returns (Batch memory) {
@@ -615,6 +705,49 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
 
     function _batchKey(address batchOwnerAddr, address token) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(batchOwnerAddr, token));
+    }
+
+    function _enforcePolicy(address ownerAddr, address counterparty, bytes32 scopeHash, uint256 amount) internal {
+        PolicyConfig memory cfg = policyByOwner[ownerAddr];
+        if (!cfg.enabled) return;
+        if (cfg.validUntil <= block.timestamp) revert PolicyExpired();
+        if (amount > cfg.perTxLimit) {
+            emit PolicyViolationEvent(ownerAddr, counterparty, scopeHash, "per-tx-limit-exceeded");
+            revert PerTxLimitExceeded();
+        }
+        if (!policyAllowedCounterparty[ownerAddr][counterparty]) {
+            emit PolicyViolationEvent(ownerAddr, counterparty, scopeHash, "counterparty-not-allowed");
+            revert CounterpartyNotAllowed();
+        }
+        if (!policyAllowedScope[ownerAddr][scopeHash]) {
+            emit PolicyViolationEvent(ownerAddr, counterparty, scopeHash, "scope-not-allowed");
+            revert ScopeNotAllowed();
+        }
+
+        PolicyUsage storage usage = policyUsageByOwner[ownerAddr];
+        uint256 dayIndex = block.timestamp / 1 days;
+        uint256 hourIndex = block.timestamp / 1 hours;
+        if (usage.dayIndex != dayIndex) {
+            usage.dayIndex = dayIndex;
+            usage.spentToday = 0;
+            usage.txCountToday = 0;
+        }
+        if (usage.hourIndex != hourIndex) {
+            usage.hourIndex = hourIndex;
+            usage.txCountHour = 0;
+        }
+        if (usage.spentToday + amount > cfg.dailyLimit) {
+            emit PolicyViolationEvent(ownerAddr, counterparty, scopeHash, "daily-limit-exceeded");
+            revert DailyLimitExceeded();
+        }
+        if (usage.txCountHour + 1 > cfg.maxTxPerHour) {
+            emit PolicyViolationEvent(ownerAddr, counterparty, scopeHash, "hour-rate-limit-exceeded");
+            revert PolicyViolation();
+        }
+        usage.spentToday += amount;
+        usage.txCountToday += 1;
+        usage.txCountHour += 1;
+        emit PolicyUsageUpdated(ownerAddr, usage.dayIndex, usage.spentToday, usage.txCountToday, usage.txCountHour);
     }
 
     function _ensureOpenBatch(address batchOwnerAddr, address token) internal returns (uint256 batchId) {
