@@ -33,6 +33,7 @@ The goal is to keep support/audit parsers stable while M2 adds new fields.
 - `walletAddress`
 - `signaturePresent`
 - `quotePresent`
+- `stableSettlementSnapshot` (string snapshot shown in UI; optional in M1, expected in M2.1+)
 
 ## requestSnapshot
 
@@ -50,6 +51,13 @@ The goal is to keep support/audit parsers stable while M2 adds new fields.
   - `severity`
 - `policySnapshot` (string snapshot shown in UI)
 - `policyDecision`:
+  - `result` (`allowed | blocked | unknown`)
+  - `reasonKind`
+  - `reasonTitle`
+  - `detail`
+  - `decidedAt`
+- `stableSettlementSnapshot` (string snapshot shown in UI)
+- `stableSettlementDecision`:
   - `result` (`allowed | blocked | unknown`)
   - `reasonKind`
   - `reasonTitle`
@@ -91,3 +99,8 @@ The goal is to keep support/audit parsers stable while M2 adds new fields.
 - `summary.medium`
 - `summary.low`
 - `latestHighRiskTitle`
+- `stableSettlement`:
+  - `enforcementEnabled` (nullable boolean)
+  - `minSettlementAmount` (nullable string)
+  - `tokenRuleResult` (nullable boolean)
+  - `latestStableDecision` (`allowed | blocked | unknown`)

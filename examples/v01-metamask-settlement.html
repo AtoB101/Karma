@@ -814,6 +814,36 @@
         };
       }
 
+      function parseStableDecisionFromDiagnostics() {
+        const latestStableIssue = state.diagnostics.find((d) => d.kind === "stable_settlement" && d.severity === "high");
+        if (latestStableIssue) {
+          return {
+            result: "blocked",
+            reasonKind: latestStableIssue.kind,
+            reasonTitle: latestStableIssue.title,
+            detail: latestStableIssue.detail,
+            decidedAt: latestStableIssue.timestamp,
+          };
+        }
+        const latestStableInfo = state.diagnostics.find((d) => d.kind === "stable_settlement");
+        if (latestStableInfo) {
+          return {
+            result: "allowed",
+            reasonKind: latestStableInfo.kind,
+            reasonTitle: latestStableInfo.title,
+            detail: latestStableInfo.detail,
+            decidedAt: latestStableInfo.timestamp,
+          };
+        }
+        return {
+          result: "unknown",
+          reasonKind: null,
+          reasonTitle: null,
+          detail: "No stable-settlement decision in diagnostics yet.",
+          decidedAt: null,
+        };
+      }
+
       async function buildDiagnosisReport() {
         const inputs = readInputs();
         const inputsSerialized = {
@@ -847,7 +877,9 @@
         }
 
         const policySnapshotText = document.getElementById("policySnapshot")?.textContent || null;
+        const stableSnapshotText = document.getElementById("stableSettlementSnapshot")?.textContent || null;
         const policyDecision = parsePolicyDecisionFromDiagnostics();
+        const stableDecision = parseStableDecisionFromDiagnostics();
 
         return {
           reportVersion: "1.1",
@@ -877,6 +909,7 @@
             walletAddress: walletFull,
             signaturePresent: Boolean(state.signature),
             quotePresent: Boolean(state.quote),
+            stableSettlementSnapshot: stableSnapshotText,
           },
           requestSnapshot: {
             form: inputsSerialized,
@@ -886,6 +919,7 @@
             },
             policySnapshot: policySnapshotText,
             policyDecision,
+            stableSettlementDecision: stableDecision,
           },
           executionSnapshot: {
             diagnostics: state.diagnostics.map((d) => ({
@@ -917,6 +951,8 @@
             },
             latestHighRiskTitle:
               state.diagnostics.find((d) => d.severity === "high")?.title || null,
+            latestStableRiskTitle:
+              state.diagnostics.find((d) => d.kind === "stable_settlement" && d.severity === "high")?.title || null,
           },
         };
       }
