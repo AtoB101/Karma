@@ -69,6 +69,10 @@ make quickstart
 
 - SOP 文档 / SOP doc: `docs/PROOF_VERIFICATION_SOP.md`
 
+- `make proof-sop-checklist`  
+  CN: 生成可归档 SOP 执行记录模板（Markdown + JSON）。  
+  EN: Generate archivable SOP execution record templates (Markdown + JSON).
+
 ## Direct Script Usage
 
 - `./scripts/dev-up.sh --from-env`
@@ -79,6 +83,7 @@ make quickstart
 - `./scripts/support-bundle.sh --port 8790`
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
+- `./scripts/proof-sop-checklist.sh --owner <name> --ticket <id>`
 
 ## Frontend URL
 

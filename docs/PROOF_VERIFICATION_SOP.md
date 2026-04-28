@@ -131,3 +131,27 @@ Actions:
 - [ ] Offline signature verification executed (`stable_proof_signature_verified`)
 - [ ] Archived diagnosis JSON contains all required `riskSnapshot` verification fields
 
+## 7) SOP execution record template (M3.1)
+
+You can generate a timestamped checklist artifact for team handoff:
+
+```bash
+./scripts/proof-sop-checklist.sh
+```
+
+Optional metadata:
+
+```bash
+./scripts/proof-sop-checklist.sh \
+  --operator "alice@ops" \
+  --reviewer "bob@audit" \
+  --ticket "INC-2026-0428-01"
+```
+
+Output:
+- `results/proof-sop-checklist-<timestamp>.md`
+- `results/proof-sop-checklist-latest.md` (latest copy for quick access)
+
+This file is intended for process traceability and audit archive, and can be attached
+to incident/postmortem tickets together with diagnosis/proof JSON artifacts.
+

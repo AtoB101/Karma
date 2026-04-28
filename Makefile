@@ -1,4 +1,4 @@
-.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env
+.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist
 
 help:
 	@echo "Available targets:"
@@ -10,6 +10,7 @@ help:
 	@echo "  make support-bundle        # zip diagnostics + key artifacts for support"
 	@echo "  make ci-local              # run local CI checks (local preflight + build + core tests)"
 	@echo "  make ci-local-env          # run local CI checks with .env loaded"
+	@echo "  make proof-sop-checklist   # generate proof verification SOP record template"
 
 quickstart:
 	@./scripts/dev-up.sh --from-env
@@ -34,3 +35,6 @@ ci-local:
 
 ci-local-env:
 	@./scripts/ci-local.sh --from-env
+
+proof-sop-checklist:
+	@./scripts/proof-sop-checklist.sh
