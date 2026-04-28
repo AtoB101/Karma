@@ -2,6 +2,30 @@
 pragma solidity ^0.8.24;
 
 interface INonCustodialAgentPayment {
+    struct PolicyConfig {
+        bool enabled;
+        uint256 dailyLimit;
+        uint256 perTxLimit;
+        uint256 maxTxPerHour;
+        uint256 validUntil;
+    }
+
+    struct Policy {
+        uint256 perTxLimit;
+        uint256 dailyLimit;
+        uint256 maxTxPerMinute;
+        uint256 validUntil;
+        bool enabled;
+    }
+
+    struct PolicyUsage {
+        uint256 dayIndex;
+        uint256 spentToday;
+        uint256 txCountToday;
+        uint256 hourIndex;
+        uint256 txCountHour;
+    }
+
     enum BatchStatus {
         Open,
         Closed,
@@ -77,4 +101,20 @@ interface INonCustodialAgentPayment {
     function getBill(uint256 billId) external view returns (Bill memory);
     function confirmNonce(address buyer) external view returns (uint256);
     function isAccountConsistent(address user, address token) external view returns (bool);
+    function setPolicy(uint256 perTxLimit, uint256 dailyLimit, uint256 maxTxPerMinute, uint256 validUntil, bool enabled)
+        external;
+    function setPolicyConfig(bool enabled, uint256 dailyLimit, uint256 perTxLimit, uint256 maxTxPerHour, uint256 validUntil)
+        external;
+    function setPolicyPayee(address payee, bool allowed) external;
+    function setPolicyToken(address token, bool allowed) external;
+    function setPolicyAllowedCounterparty(address counterparty, bool allowed) external;
+    function setPolicyAllowedScope(bytes32 scopeHash, bool allowed) external;
+    function getPolicy(address user) external view returns (Policy memory);
+    function getPolicyConfig(address ownerAddr) external view returns (PolicyConfig memory);
+    function getPolicyUsage(address ownerAddr) external view returns (uint256 txCountToday, uint256 spentToday, uint256 txCountHour, uint256 dayIndex);
+    function getPolicyUsageStruct(address ownerAddr) external view returns (PolicyUsage memory);
+    function isPolicyPayeeAllowed(address user, address payee) external view returns (bool);
+    function isPolicyTokenAllowed(address user, address token) external view returns (bool);
+    function isPolicyCounterpartyAllowed(address ownerAddr, address counterparty) external view returns (bool);
+    function isPolicyScopeAllowed(address ownerAddr, bytes32 scopeHash) external view returns (bool);
 }

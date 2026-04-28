@@ -283,6 +283,37 @@
         </div>
         <p class="hint">Default non-custodial health checks lock state, balance, allowance, and invariant. Legacy Engine works only if Engine Address is set.</p>
 
+        <h3>Policy control (Non-custodial)</h3>
+        <div class="grid">
+          <label for="policyEnabled">Policy enabled</label>
+          <input id="policyEnabled" type="checkbox" style="width: auto" />
+
+          <label for="policyPerTxLimit">Per-tx limit</label>
+          <input id="policyPerTxLimit" type="number" min="0" value="0" />
+
+          <label for="policyDailyLimit">Daily limit</label>
+          <input id="policyDailyLimit" type="number" min="0" value="0" />
+
+          <label for="policyMaxTxWindow">Max tx per window</label>
+          <input id="policyMaxTxWindow" type="number" min="0" value="0" />
+
+          <label for="policyWindowSeconds">Window (seconds)</label>
+          <input id="policyWindowSeconds" type="number" min="0" value="0" />
+
+          <label for="policyPayeeRule">Payee rule</label>
+          <input id="policyPayeeRule" placeholder="0x... (optional)" />
+
+          <label for="policyTokenRule">Token rule</label>
+          <input id="policyTokenRule" placeholder="0x... (optional)" />
+        </div>
+        <p style="margin-top: 10px">
+          <button id="applyPolicyBtn">Apply policy</button>
+          <button id="refreshPolicyBtn">Refresh policy</button>
+          <button id="setPolicyPayeeBtn">Allow payee</button>
+          <button id="setPolicyTokenBtn">Allow token</button>
+        </p>
+        <div id="policySnapshot" class="hint">Policy snapshot: not loaded</div>
+
         <h3>Batch control (Non-custodial)</h3>
         <div class="grid">
           <label for="batchIdInput">Batch ID</label>
@@ -400,6 +431,7 @@
         diagnostics: [],
         txHistory: [],
         autoMonitorTimer: null,
+        sessionTraceId: null,
       };
 
       const engineAbi = [
@@ -414,6 +446,13 @@
         "function isAccountConsistent(address user,address token) view returns (bool)",
         "function batchModeEnabled() view returns (bool)",
         "function batchCircuitBreakerPaused() view returns (bool)",
+        "function setPolicy(bool enabled,uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 windowSeconds)",
+        "function getPolicy(address user) view returns ((uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 windowSeconds,bool enabled,bool hasPayeeRules,bool hasTokenRules))",
+        "function getPolicyUsage(address user) view returns ((uint256 dayStart,uint256 spentToday,uint256 windowStart,uint256 txCountInWindow))",
+        "function setPolicyPayee(address payee,bool allowed)",
+        "function setPolicyToken(address token,bool allowed)",
+        "function isPolicyPayeeAllowed(address user,address payee) view returns (bool)",
+        "function isPolicyTokenAllowed(address user,address token) view returns (bool)",
         "function getBatch(uint256 batchId) view returns ((uint256 batchId,uint256 totalPending,uint256 billCount,uint8 status,uint256 createdAt,uint256 settledAt))",
         "function getBatchBillIds(uint256 batchId) view returns (uint256[])",
         "function closeBatch(uint256 batchId)",
@@ -484,6 +523,7 @@
       function addDiagnostic(kind, severity, title, detail, payload = null) {
         state.diagnostics.unshift({
           id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          traceId: state.sessionTraceId || "trace-unset",
           timestamp: new Date().toISOString(),
           kind,
           severity,
@@ -498,7 +538,10 @@
       }
 
       function addTxHistory(record) {
-        state.txHistory.unshift(record);
+        state.txHistory.unshift({
+          traceId: state.sessionTraceId || "trace-unset",
+          ...record,
+        });
         state.txHistory = state.txHistory.slice(0, 30);
         renderTxHistory();
       }
@@ -627,6 +670,24 @@
         if (m.includes("unauthorized")) {
           return { kind: "unauthorized_action", severity: "high", title: "Unauthorized action" };
         }
+        if (m.includes("policyviolation")) {
+          return { kind: "policy_violation", severity: "high", title: "Policy violation" };
+        }
+        if (m.includes("pertxlimitexceeded")) {
+          return { kind: "policy_per_tx_limit", severity: "high", title: "Per-transaction policy limit exceeded" };
+        }
+        if (m.includes("dailylimitexceeded")) {
+          return { kind: "policy_daily_limit", severity: "high", title: "Daily policy limit exceeded" };
+        }
+        if (m.includes("policyexpired")) {
+          return { kind: "policy_expired", severity: "high", title: "Policy expired" };
+        }
+        if (m.includes("counterpartynotallowed")) {
+          return { kind: "policy_payee_blocked", severity: "high", title: "Payee blocked by policy" };
+        }
+        if (m.includes("scopenotallowed")) {
+          return { kind: "policy_scope_blocked", severity: "high", title: "Scope blocked by policy" };
+        }
         if (m.includes("invalidstate") || m.includes("quotealreadyexecuted") || m.includes("batchalreadyclosed")) {
           return { kind: "invalid_state", severity: "high", title: "Invalid state transition" };
         }
@@ -692,6 +753,43 @@
         URL.revokeObjectURL(url);
       }
 
+      function generateTraceId() {
+        if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+          return `trace-${crypto.randomUUID()}`;
+        }
+        return `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      function parsePolicyDecisionFromDiagnostics() {
+        const latestPolicyIssue = state.diagnostics.find((d) => d.kind.startsWith("policy_"));
+        if (latestPolicyIssue) {
+          return {
+            result: "blocked",
+            reasonKind: latestPolicyIssue.kind,
+            reasonTitle: latestPolicyIssue.title,
+            detail: latestPolicyIssue.detail,
+            decidedAt: latestPolicyIssue.timestamp,
+          };
+        }
+        const hasPolicySuccess = state.diagnostics.find((d) => d.kind === "policy" && d.title.toLowerCase().includes("updated"));
+        if (hasPolicySuccess) {
+          return {
+            result: "allowed",
+            reasonKind: "policy_configured",
+            reasonTitle: hasPolicySuccess.title,
+            detail: hasPolicySuccess.detail,
+            decidedAt: hasPolicySuccess.timestamp,
+          };
+        }
+        return {
+          result: "unknown",
+          reasonKind: null,
+          reasonTitle: null,
+          detail: "No explicit policy decision in diagnostics yet.",
+          decidedAt: null,
+        };
+      }
+
       async function buildDiagnosisReport() {
         const inputs = readInputs();
         const inputsSerialized = {
@@ -724,8 +822,13 @@
           }
         }
 
+        const policySnapshotText = document.getElementById("policySnapshot")?.textContent || null;
+        const policyDecision = parsePolicyDecisionFromDiagnostics();
+
         return {
-          reportVersion: "1.0",
+          reportVersion: "1.1",
+          evidenceVersion: "evidence-v1",
+          traceId: state.sessionTraceId,
           app: "TrustChain v0.1 wangcai Console",
           exportedAt: new Date().toISOString(),
           userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
@@ -746,23 +849,51 @@
             active: Boolean(state.autoMonitorTimer),
             pollSeconds: Number(document.getElementById("pollSeconds").value || "10"),
           },
-          form: inputsSerialized,
-          logFilters: {
-            kind: logFilterKindEl.value,
-            severity: logFilterSeverityEl.value,
+          authSnapshot: {
+            walletAddress: walletFull,
+            signaturePresent: Boolean(state.signature),
+            quotePresent: Boolean(state.quote),
           },
-          diagnostics: state.diagnostics.map((d) => ({
-            id: d.id,
-            timestamp: d.timestamp,
-            kind: d.kind,
-            severity: d.severity,
-            title: d.title,
-            detail: d.detail,
-            payload: serializePayload(d.payload),
-          })),
-          transactionHistory: state.txHistory,
-          lastQuote: serializeQuoteForExport(state.quote),
-          signaturePresent: Boolean(state.signature),
+          requestSnapshot: {
+            form: inputsSerialized,
+            logFilters: {
+              kind: logFilterKindEl.value,
+              severity: logFilterSeverityEl.value,
+            },
+            policySnapshot: policySnapshotText,
+            policyDecision,
+          },
+          executionSnapshot: {
+            diagnostics: state.diagnostics.map((d) => ({
+              id: d.id,
+              traceId: d.traceId || state.sessionTraceId,
+              timestamp: d.timestamp,
+              kind: d.kind,
+              severity: d.severity,
+              title: d.title,
+              detail: d.detail,
+              payload: serializePayload(d.payload),
+            })),
+            transactionHistory: state.txHistory.map((tx) => ({
+              traceId: tx.traceId || state.sessionTraceId,
+              timestamp: tx.timestamp,
+              status: tx.status,
+              txHash: tx.txHash || "-",
+              blockNumber: tx.blockNumber || "-",
+              amount: tx.amount || "-",
+            })),
+            lastQuote: serializeQuoteForExport(state.quote),
+          },
+          riskSnapshot: {
+            summary: {
+              totalDiagnostics: state.diagnostics.length,
+              high: state.diagnostics.filter((d) => d.severity === "high").length,
+              medium: state.diagnostics.filter((d) => d.severity === "medium").length,
+              low: state.diagnostics.filter((d) => d.severity === "low").length,
+            },
+            latestHighRiskTitle:
+              state.diagnostics.find((d) => d.severity === "high")?.title || null,
+          },
         };
       }
 
@@ -774,10 +905,120 @@
         setOutput({
           step: "diagnosis_exported",
           filename: `trustchain-v01-diagnosis-${stamp}.json`,
-          diagnosticsCount: data.diagnostics.length,
-          txHistoryCount: data.transactionHistory.length,
+          traceId: data.traceId,
+          diagnosticsCount: data.executionSnapshot.diagnostics.length,
+          txHistoryCount: data.executionSnapshot.transactionHistory.length,
           walletAddress: data.walletAddress,
           network: data.network,
+        });
+      }
+
+      async function readPolicyState() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const signerAddress = await state.signer.getAddress();
+        const payee = document.getElementById("policyPayeeRule").value.trim();
+        const policyToken = document.getElementById("policyTokenRule").value.trim();
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const [policy, usage] = await Promise.all([nc.getPolicy(signerAddress), nc.getPolicyUsage(signerAddress)]);
+        let payeeAllowed = null;
+        let tokenAllowed = null;
+        if (payee) {
+          payeeAllowed = await nc.isPolicyPayeeAllowed(signerAddress, payee);
+        }
+        if (policyToken) {
+          tokenAllowed = await nc.isPolicyTokenAllowed(signerAddress, policyToken);
+        }
+        setOutput({
+          step: "policy_read",
+          policy: {
+            enabled: policy.enabled,
+            perTxLimit: policy.perTxLimit.toString(),
+            dailyLimit: policy.dailyLimit.toString(),
+            maxTxPerWindow: policy.maxTxPerWindow.toString(),
+            windowSeconds: policy.windowSeconds.toString(),
+            hasPayeeRules: policy.hasPayeeRules,
+            hasTokenRules: policy.hasTokenRules,
+          },
+          usage: {
+            dayStart: usage.dayStart.toString(),
+            spentToday: usage.spentToday.toString(),
+            windowStart: usage.windowStart.toString(),
+            txCountInWindow: usage.txCountInWindow.toString(),
+          },
+          checks: {
+            payee,
+            payeeAllowed,
+            policyToken,
+            tokenAllowed,
+          },
+        });
+        addDiagnostic("policy", "low", "Policy loaded", `Policy loaded for ${signerAddress}.`);
+      }
+
+      async function applyPolicyConfig() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const enabled = Boolean(document.getElementById("policyEnabled").checked);
+        const perTxLimit = BigInt(document.getElementById("policyPerTxLimit").value || "0");
+        const dailyLimit = BigInt(document.getElementById("policyDailyLimit").value || "0");
+        const maxTxPerWindow = BigInt(document.getElementById("policyMaxTxPerWindow").value || "0");
+        const windowSeconds = BigInt(document.getElementById("policyWindowSeconds").value || "0");
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setPolicy(enabled, perTxLimit, dailyLimit, maxTxPerWindow, windowSeconds);
+        const receipt = await tx.wait();
+        addDiagnostic("policy", "low", "Policy updated", `Policy update tx confirmed: ${receipt.hash}`);
+        setOutput({
+          step: "policy_updated",
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          policy: {
+            enabled,
+            perTxLimit: perTxLimit.toString(),
+            dailyLimit: dailyLimit.toString(),
+            maxTxPerWindow: maxTxPerWindow.toString(),
+            windowSeconds: windowSeconds.toString(),
+          },
+        });
+      }
+
+      async function setPolicyPayeeRule() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const payee = document.getElementById("policyPayeeRule").value.trim();
+        if (!payee) throw new Error("Policy payee address required");
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setPolicyPayee(payee, true);
+        const receipt = await tx.wait();
+        addDiagnostic("policy", "low", "Payee policy updated", `Payee ${payee} set to true.`);
+        setOutput({
+          step: "policy_payee_updated",
+          payee,
+          allowed: true,
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+        });
+      }
+
+      async function setPolicyTokenRule() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const policyToken = document.getElementById("policyTokenRule").value.trim();
+        if (!policyToken) throw new Error("Policy token address required");
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setPolicyToken(policyToken, true);
+        const receipt = await tx.wait();
+        addDiagnostic("policy", "low", "Token policy updated", `Token ${policyToken} set to true.`);
+        setOutput({
+          step: "policy_token_updated",
+          token: policyToken,
+          allowed: true,
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
         });
       }
 
@@ -1117,6 +1358,38 @@
           setOutput(msg);
         })
       );
+      document.getElementById("applyPolicyBtn").addEventListener("click", () =>
+        applyPolicyConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Apply policy: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("refreshPolicyBtn").addEventListener("click", () =>
+        refreshPolicyConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Refresh policy: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("setPolicyPayeeBtn").addEventListener("click", () =>
+        setPolicyPayeeRule().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Set payee rule: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("setPolicyTokenBtn").addEventListener("click", () =>
+        setPolicyTokenRule().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Set token rule: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
       document.getElementById("batchStatusBtn").addEventListener("click", () =>
         readBatchStatus().catch((e) => {
           const msg = readErrorMessage(e);
@@ -1171,6 +1444,7 @@
       setChip("modeCustodyChip", "Mode: Unknown");
       setChip("modeBatchChip", "Batch: Unknown");
       setChip("modeBreakerChip", "Breaker: Unknown");
+      state.sessionTraceId = generateTraceId();
     </script>
   </body>
 </html>
