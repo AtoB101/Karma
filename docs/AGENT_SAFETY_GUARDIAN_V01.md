@@ -133,4 +133,4 @@ v0.3 adds:
 
 Recommended next step:
 
-- add a weekly trend reporter that converts `trendSummary + escalations + riskHeatIndex + recommendedProfile` into ticket-ready remediation plans.
+- add a weekly trend reporter that converts `trendSummary + escalations + riskHeatIndex + profileRecommendation` into ticket-ready remediation plans.

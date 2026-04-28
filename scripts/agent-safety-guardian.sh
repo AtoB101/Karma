@@ -19,11 +19,14 @@ ESCALATE_REPEAT_THRESHOLD=3
 DECAY_HALF_LIFE_HOURS=48
 AUTO_APPLY_RECOMMENDATION=0
 AUTO_CONFIRM_RUNS=2
+ALERT_THRESHOLD="high"
+ALARM_OUTPUT_PATH="${RESULTS_DIR}/agent-safety-alarm-latest.json"
+FAIL_ON_ALARM=0
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/agent-safety-guardian.sh [--profile <strict|balanced|lenient>] [--from-env] [--skip-proof-gates] [--skip-patrol] [--skip-support-bundle] [--output <path>] [--register <path>] [--auto-state <path>] [--history-limit <n>] [--trend-window-hours <n>] [--escalate-repeat-threshold <n>] [--decay-half-life-hours <n>] [--auto-apply-recommendation] [--auto-confirm-runs <n>]
+  ./scripts/agent-safety-guardian.sh [--profile <strict|balanced|lenient>] [--from-env] [--skip-proof-gates] [--skip-patrol] [--skip-support-bundle] [--output <path>] [--register <path>] [--auto-state <path>] [--history-limit <n>] [--trend-window-hours <n>] [--escalate-repeat-threshold <n>] [--decay-half-life-hours <n>] [--auto-apply-recommendation] [--auto-confirm-runs <n>] [--alert-threshold <warning|medium|high|critical>] [--alarm-output <path>] [--fail-on-alarm]
 
 Description:
   Runs an end-to-end internal safety self-check pipeline and generates:
@@ -45,6 +48,9 @@ Options:
   --decay-half-life-hours <n>     Half-life for time-decay risk scoring/heat index (default: 48)
   --auto-apply-recommendation     Enable automatic profile switch via persistent state
   --auto-confirm-runs <n>         Required consecutive recommendation runs before switching profile (default: 2)
+  --alert-threshold <level>       Trigger alarms at/above level: warning|medium|high|critical (default: high)
+  --alarm-output <path>           Alarm artifact output path (default: results/agent-safety-alarm-latest.json)
+  --fail-on-alarm                 Exit non-zero when alarms are triggered
   -h, --help             Show this help message
 EOF
 }
@@ -141,6 +147,24 @@ while [[ $# -gt 0 ]]; do
       fi
       shift 2
       ;;
+    --alert-threshold)
+      [[ $# -lt 2 ]] && { echo "Error: --alert-threshold requires a value"; exit 1; }
+      ALERT_THRESHOLD="$2"
+      if [[ "$ALERT_THRESHOLD" != "warning" && "$ALERT_THRESHOLD" != "medium" && "$ALERT_THRESHOLD" != "high" && "$ALERT_THRESHOLD" != "critical" ]]; then
+        echo "Error: --alert-threshold must be one of warning|medium|high|critical"
+        exit 1
+      fi
+      shift 2
+      ;;
+    --alarm-output)
+      [[ $# -lt 2 ]] && { echo "Error: --alarm-output requires a value"; exit 1; }
+      ALARM_OUTPUT_PATH="$2"
+      shift 2
+      ;;
+    --fail-on-alarm)
+      FAIL_ON_ALARM=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -162,7 +186,10 @@ fi
 if [[ "$AUTO_STATE_PATH" != /* ]]; then
   AUTO_STATE_PATH="${ROOT_DIR}/${AUTO_STATE_PATH}"
 fi
-mkdir -p "$RESULTS_DIR" "$(dirname "$OUTPUT_PATH")" "$(dirname "$REGISTER_PATH")" "$(dirname "$AUTO_STATE_PATH")"
+if [[ "$ALARM_OUTPUT_PATH" != /* ]]; then
+  ALARM_OUTPUT_PATH="${ROOT_DIR}/${ALARM_OUTPUT_PATH}"
+fi
+mkdir -p "$RESULTS_DIR" "$(dirname "$OUTPUT_PATH")" "$(dirname "$REGISTER_PATH")" "$(dirname "$AUTO_STATE_PATH")" "$(dirname "$ALARM_OUTPUT_PATH")"
 
 if [[ "$AUTO_APPLY_RECOMMENDATION" -eq 1 && "$PROFILE_EXPLICIT" -eq 0 && -f "$AUTO_STATE_PATH" ]]; then
   AUTO_PROFILE="$(python3 - "$AUTO_STATE_PATH" <<'PY'
@@ -233,7 +260,7 @@ if [[ "$SKIP_PATROL" -eq 0 ]]; then
   set -e
 fi
 
-python3 - "$DOCTOR_JSON" "$PATROL_BATCH" "$PATROL_ALERT" "$REGISTER_PATH" "$OUTPUT_PATH" "$AUTO_STATE_PATH" "$PROFILE" "$STAMP" "$PROOF_GATES_EXIT" "$PATROL_EXIT" "$SUPPORT_BUNDLE_EXIT" "$HISTORY_LIMIT" "$SKIP_PROOF_GATES" "$SKIP_PATROL" "$SKIP_SUPPORT_BUNDLE" "$TREND_WINDOW_HOURS" "$ESCALATE_REPEAT_THRESHOLD" "$DECAY_HALF_LIFE_HOURS" "$AUTO_APPLY_RECOMMENDATION" "$AUTO_CONFIRM_RUNS" <<'PY'
+python3 - "$DOCTOR_JSON" "$PATROL_BATCH" "$PATROL_ALERT" "$REGISTER_PATH" "$OUTPUT_PATH" "$ALARM_OUTPUT_PATH" "$AUTO_STATE_PATH" "$PROFILE" "$STAMP" "$PROOF_GATES_EXIT" "$PATROL_EXIT" "$SUPPORT_BUNDLE_EXIT" "$HISTORY_LIMIT" "$SKIP_PROOF_GATES" "$SKIP_PATROL" "$SKIP_SUPPORT_BUNDLE" "$TREND_WINDOW_HOURS" "$ESCALATE_REPEAT_THRESHOLD" "$DECAY_HALF_LIFE_HOURS" "$AUTO_APPLY_RECOMMENDATION" "$AUTO_CONFIRM_RUNS" "$ALERT_THRESHOLD" "$FAIL_ON_ALARM" <<'PY'
 import datetime as dt
 import json
 import pathlib
@@ -246,20 +273,24 @@ patrol_alert_path = pathlib.Path(sys.argv[3])
 register_path = pathlib.Path(sys.argv[4])
 output_path = pathlib.Path(sys.argv[5])
 auto_state_path = pathlib.Path(sys.argv[6])
-profile = sys.argv[7]
-stamp = sys.argv[8]
-proof_gates_exit = int(sys.argv[9])
-patrol_exit = int(sys.argv[10])
-support_bundle_exit = int(sys.argv[11])
-history_limit = int(sys.argv[12])
-skip_proof_gates = int(sys.argv[13])
-skip_patrol = int(sys.argv[14])
-skip_support_bundle = int(sys.argv[15])
-trend_window_hours = int(sys.argv[16])
-escalate_repeat_threshold = int(sys.argv[17])
-decay_half_life_hours = int(sys.argv[18]) if len(sys.argv) > 18 else 48
-auto_apply_recommendation = int(sys.argv[19]) if len(sys.argv) > 19 else 0
-auto_confirm_runs = int(sys.argv[20]) if len(sys.argv) > 20 else 2
+alarm_output_path = pathlib.Path(sys.argv[6])
+auto_state_path = pathlib.Path(sys.argv[7])
+profile = sys.argv[8]
+stamp = sys.argv[9]
+proof_gates_exit = int(sys.argv[10])
+patrol_exit = int(sys.argv[11])
+support_bundle_exit = int(sys.argv[12])
+history_limit = int(sys.argv[13])
+skip_proof_gates = int(sys.argv[14])
+skip_patrol = int(sys.argv[15])
+skip_support_bundle = int(sys.argv[16])
+trend_window_hours = int(sys.argv[17])
+escalate_repeat_threshold = int(sys.argv[18])
+decay_half_life_hours = int(sys.argv[19]) if len(sys.argv) > 19 else 48
+auto_apply_recommendation = int(sys.argv[20]) if len(sys.argv) > 20 else 0
+auto_confirm_runs = int(sys.argv[21]) if len(sys.argv) > 21 else 2
+alert_threshold = (sys.argv[22] if len(sys.argv) > 22 else "high").lower()
+fail_on_alarm = int(sys.argv[23]) if len(sys.argv) > 23 else 0
 
 now_iso = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 now_dt = dt.datetime.now(dt.timezone.utc)
@@ -522,6 +553,104 @@ else:
         f"(heatIndex={heat_index}, recentCritical={recent_critical}, escalations={escalation_count})"
     )
 
+severity_rank = {"warning": 1, "medium": 2, "high": 3, "critical": 4}
+alert_rank = severity_rank.get(alert_threshold, 3)
+
+def rule_finding(rule_id, severity, title, exploit_path, detail, mitigation):
+    return {
+        "ruleId": rule_id,
+        "severity": severity,
+        "title": title,
+        "exploitPath": exploit_path,
+        "detail": detail,
+        "mitigation": mitigation,
+    }
+
+rule_findings = []
+if checks["proofGates"] == "skipped":
+    rule_findings.append(
+        rule_finding(
+            "rule-gate-bypass-proof-gates-skipped",
+            "critical",
+            "Proof gate is bypassed",
+            "attacker waits for maintenance/debug runs and submits malformed evidence",
+            "ci-proof-gates stage is skipped, removing schema and policy validation barrier.",
+            "enforce proof gates in all non-debug runs and trigger pager alert when skipped",
+        )
+    )
+if checks["patrol"] == "skipped":
+    rule_findings.append(
+        rule_finding(
+            "rule-gate-bypass-patrol-skipped",
+            "high",
+            "Patrol stage is bypassed",
+            "attacker exploits stale bundles without continuous integrity patrol",
+            "proof-patrol stage is skipped, reducing rolling integrity coverage.",
+            "require patrol for production validation windows and add no-patrol SLA alarms",
+        )
+    )
+if patrol_batch:
+    policy = patrol_batch.get("policy", {}) or {}
+    if policy.get("minTotalViolated"):
+        rule_findings.append(
+            rule_finding(
+                "rule-coverage-min-total",
+                "high",
+                "Coverage floor violated",
+                "attacker times malicious activity when sample volume is below threshold",
+                "min-total guardrail failed; observed sample set is insufficient for confidence.",
+                "raise sampling cadence and block go-live when min-total stays violated",
+            )
+        )
+    if policy.get("recentPassViolated"):
+        rule_findings.append(
+            rule_finding(
+                "rule-freshness-recent-pass",
+                "critical",
+                "Freshness guard violated",
+                "attacker reuses stale proof baseline while recent failures stay unobserved",
+                "recent-pass policy indicates no fresh successful patrol in required window.",
+                "escalate to strict profile and require immediate fresh-pass recovery",
+            )
+        )
+if auto_apply_recommendation and auto_state.get("lastDecision") == "awaiting_confirmation":
+    rule_findings.append(
+        rule_finding(
+            "rule-autotune-confirmation-window",
+            "medium",
+            "Auto-tuning confirmation window open",
+            "attacker exploits interim window before stricter profile activates",
+            "recommendation is pending and has not reached confirmation threshold yet.",
+            "reduce confirm runs during high-risk windows or force strict override",
+        )
+    )
+if auto_apply_recommendation and auto_state.get("activeProfile") == "lenient" and recommended_profile == "strict":
+    rule_findings.append(
+        rule_finding(
+            "rule-posture-mismatch-lenient-vs-strict",
+            "high",
+            "Active posture mismatches risk recommendation",
+            "attacker operates during low-friction controls despite high-risk signals",
+            "active profile remains lenient while model recommends strict posture.",
+            "force immediate strict profile and open incident ticket",
+        )
+    )
+
+alarms = []
+for finding in rule_findings:
+    if severity_rank.get(finding.get("severity", "warning"), 1) >= alert_rank:
+        alarms.append(
+            {
+                "kind": "rule_vulnerability",
+                "ruleId": finding["ruleId"],
+                "severity": finding["severity"],
+                "title": finding["title"],
+                "exploitPath": finding["exploitPath"],
+                "detail": finding["detail"],
+                "mitigation": finding["mitigation"],
+            }
+        )
+
 auto_state = {
     "version": "agent-safety-autotune-v1",
     "updatedAt": now_iso,
@@ -632,6 +761,10 @@ report = {
             "lastAppliedAt": auto_state.get("lastAppliedAt"),
             "nextRunProfile": auto_state.get("activeProfile") if auto_apply_recommendation else profile,
         },
+        "ruleRiskAnalysis": {
+            "findingCount": len(rule_findings),
+            "findings": rule_findings,
+        },
         "windowHours": trend_window_hours,
         "repeatEscalationThreshold": escalate_repeat_threshold,
         "nextActions": [
@@ -640,6 +773,17 @@ report = {
             "link risk register to alert routing (chatops/on-call) for closed-loop handling",
         ],
     },
+}
+
+alarm_payload = {
+    "version": "agent-safety-alarm-v1",
+    "generatedAt": now_iso,
+    "profile": profile,
+    "alertThreshold": alert_threshold,
+    "alarmCount": len(alarms),
+    "alarms": alarms,
+    "riskHeatIndex": heat_index,
+    "recommendedProfile": recommended_profile,
 }
 
 register_payload = {
@@ -659,8 +803,12 @@ register_payload = {
 register_path.write_text(json.dumps(register_payload, indent=2) + "\n", encoding="utf-8")
 auto_state_path.write_text(json.dumps(auto_state, indent=2) + "\n", encoding="utf-8")
 output_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+alarm_output_path.write_text(json.dumps(alarm_payload, indent=2) + "\n", encoding="utf-8")
 
 print(f"Safety report written: {output_path}")
 print(f"Risk register updated: {register_path}")
+print(f"Alarm artifact written: {alarm_output_path}")
 print(f"Overall: {overall} (new risks: {len(risks)})")
+if fail_on_alarm and len(alarms) > 0:
+    raise SystemExit(2)
 PY
