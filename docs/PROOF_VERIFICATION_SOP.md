@@ -155,3 +155,19 @@ Output:
 This file is intended for process traceability and audit archive, and can be attached
 to incident/postmortem tickets together with diagnosis/proof JSON artifacts.
 
+## 8) Support bundle integration (M3.2)
+
+`make support-bundle` now auto-generates and includes the SOP checklist template.
+
+In bundled zip you should see:
+- `proof-sop-checklist-latest.md`
+
+Optional metadata passthrough:
+
+```bash
+./scripts/support-bundle.sh \
+  --operator "alice@ops" \
+  --reviewer "bob@audit" \
+  --ticket "INC-2026-0428-01"
+```
+

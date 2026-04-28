@@ -147,5 +147,9 @@ ____________________________________________________________
 - Reviewer sign-off: ____________________  Date: ____________________
 EOF
 
+LATEST_PATH="${RESULTS_DIR}/proof-sop-checklist-latest.md"
+cp "$OUT_PATH" "$LATEST_PATH"
+
 echo "Proof SOP checklist generated: ${OUT_PATH}"
+echo "Latest checklist shortcut: ${LATEST_PATH}"
 echo "Fill this markdown and archive with proof artifacts."

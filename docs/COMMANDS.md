@@ -36,8 +36,8 @@ make quickstart
   EN: Generate machine-readable diagnostics JSON.
 
 - `make support-bundle`  
-  CN: 一键打包排障 zip（doctor 文本+JSON+关键日志）。  
-  EN: Build one-click support zip bundle.
+  CN: 一键打包排障 zip（doctor 文本+JSON+关键日志+proof SOP 执行单）。  
+  EN: Build one-click support zip bundle (doctor reports + key logs + proof SOP checklist).
 
 ### 3) Local CI checks
 
@@ -81,6 +81,7 @@ make quickstart
 - `./scripts/doctor.sh --port 8790`
 - `./scripts/doctor.sh --format json --output results/doctor-report.json`
 - `./scripts/support-bundle.sh --port 8790`
+- `./scripts/support-bundle.sh --port 8790 --operator "alice@ops" --reviewer "bob@audit" --ticket "INC-2026-0428-01"`
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
 - `./scripts/proof-sop-checklist.sh --owner <name> --ticket <id>`

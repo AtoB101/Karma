@@ -6,6 +6,9 @@ RESULTS_DIR="${ROOT_DIR}/results"
 OUT_PATH=""
 FROM_ENV=0
 PORT=8790
+OPERATOR_LABEL="${OPERATOR_LABEL:-bundle-operator}"
+REVIEWER_LABEL="${REVIEWER_LABEL:-bundle-reviewer}"
+TICKET_ID="${TICKET_ID:-SUPPORT-BUNDLE}"
 
 usage() {
   cat <<'EOF'
@@ -70,6 +73,11 @@ fi
 
 "${ROOT_DIR}/scripts/doctor.sh" "${DOCTOR_ARGS[@]}" --format text --output "${RESULTS_DIR}/doctor-report.txt"
 "${ROOT_DIR}/scripts/doctor.sh" "${DOCTOR_ARGS[@]}" --format json --output "${RESULTS_DIR}/doctor-report.json"
+"${ROOT_DIR}/scripts/proof-sop-checklist.sh" \
+  --output "${RESULTS_DIR}/proof-sop-checklist-${STAMP}.md" \
+  --operator "${OPERATOR_LABEL}" \
+  --reviewer "${REVIEWER_LABEL}" \
+  --ticket "${TICKET_ID}"
 
 PRELOG="${RESULTS_DIR}/preflight-last.log"
 if ! "${ROOT_DIR}/scripts/preflight.sh" --quiet >"$PRELOG" 2>&1; then
@@ -82,6 +90,7 @@ mkdir -p "$BUNDLE_TMP_DIR"
 
 cp "${RESULTS_DIR}/doctor-report.txt" "$BUNDLE_TMP_DIR/"
 cp "${RESULTS_DIR}/doctor-report.json" "$BUNDLE_TMP_DIR/"
+cp "${RESULTS_DIR}/proof-sop-checklist-${STAMP}.md" "$BUNDLE_TMP_DIR/"
 cp "$PRELOG" "$BUNDLE_TMP_DIR/"
 
 [[ -f "${ROOT_DIR}/results/deploy-v01-eth.json" ]] && cp "${ROOT_DIR}/results/deploy-v01-eth.json" "$BUNDLE_TMP_DIR/"
