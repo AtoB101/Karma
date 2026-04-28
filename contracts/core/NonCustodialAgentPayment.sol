@@ -9,22 +9,6 @@ interface IERC20Extended {
 }
 
 contract NonCustodialAgentPayment is INonCustodialAgentPayment {
-    struct PolicyConfig {
-        bool enabled;
-        uint256 dailyLimit;
-        uint256 perTxLimit;
-        uint256 maxTxPerHour;
-        uint256 validUntil;
-    }
-
-    struct PolicyUsage {
-        uint256 dayIndex;
-        uint256 spentToday;
-        uint256 txCountToday;
-        uint256 hourIndex;
-        uint256 txCountHour;
-    }
-
     error InvalidAddress();
     error InvalidAmount();
     error InvalidDeadline();
@@ -52,6 +36,8 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     error PerTxLimitExceeded();
     error CounterpartyNotAllowed();
     error ScopeNotAllowed();
+    error SettlementTokenNotAllowed();
+    error SettlementAmountTooLow();
 
     uint16 public constant BPS_DENOMINATOR = 10_000;
     uint256 public constant MAX_BATCH_SETTLE_SIZE = 200;
@@ -80,6 +66,9 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     mapping(address owner => PolicyUsage) internal policyUsageByOwner;
     mapping(address owner => mapping(address counterparty => bool)) internal policyAllowedCounterparty;
     mapping(address owner => mapping(bytes32 scopeHash => bool)) internal policyAllowedScope;
+    mapping(address token => bool) internal settlementTokenAllowed;
+    bool public settlementTokenEnforced;
+    uint256 public minSettlementAmount;
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
     uint256 private _status = _NOT_ENTERED;
@@ -128,6 +117,8 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     event PolicyScopeUpdated(address indexed owner, bytes32 indexed scopeHash, bool allowed);
     event PolicyUsageUpdated(address indexed owner, uint256 dayIndex, uint256 spentToday, uint256 txCountToday, uint256 txCountHour);
     event PolicyViolationEvent(address indexed owner, address indexed counterparty, bytes32 indexed scopeHash, string reason);
+    event SettlementTokenRuleUpdated(address indexed token, bool allowed);
+    event SettlementGuardUpdated(bool tokenEnforced, uint256 minAmount);
 
     /// @notice Creates the non-custodial payment protocol core.
     /// @param arbitrator_ Address allowed to resolve disputed bills.
@@ -202,6 +193,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         if (seller == address(0) || token == address(0)) revert InvalidAddress();
         if (seller == msg.sender) revert Unauthorized();
         if (amount == 0) revert InvalidAmount();
+        _enforceSettlementGuard(token, amount);
         _enforcePolicy(msg.sender, seller, scopeHash, amount);
 
         uint256 finalDeadline = deadline == 0 ? block.timestamp + defaultBillTtlSeconds : deadline;
@@ -535,6 +527,30 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BatchCircuitBreakerUpdated(paused);
     }
 
+    function setSettlementTokenAllowed(address token, bool allowed) external override onlyOwner {
+        if (token == address(0)) revert InvalidAddress();
+        settlementTokenAllowed[token] = allowed;
+        emit SettlementTokenRuleUpdated(token, allowed);
+    }
+
+    function setSettlementTokenEnforced(bool enabled) external override onlyOwner {
+        settlementTokenEnforced = enabled;
+        emit SettlementGuardUpdated(enabled, minSettlementAmount);
+    }
+
+    function setMinSettlementAmount(uint256 amount) external override onlyOwner {
+        minSettlementAmount = amount;
+        emit SettlementGuardUpdated(settlementTokenEnforced, amount);
+    }
+
+    function isSettlementTokenEnforced() external view override returns (bool) {
+        return settlementTokenEnforced;
+    }
+
+    function isSettlementTokenAllowed(address token) external view override returns (bool) {
+        return settlementTokenAllowed[token];
+    }
+
     /// @notice Configures caller policy constraints for bill creation.
     /// @param enabled Whether policy checks are enabled.
     /// @param dailyLimit Max total bill principal per UTC day.
@@ -542,11 +558,11 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     /// @param maxTxPerHour Max bill create operations per rolling hour bucket.
     /// @param validUntil Policy expiration timestamp.
     function setPolicyConfig(bool enabled, uint256 dailyLimit, uint256 perTxLimit, uint256 maxTxPerHour, uint256 validUntil)
-        external
+        public
         override
     {
         if (enabled) {
-            if (dailyLimit == 0 || perTxLimit == 0 || maxTxPerHour == 0) revert PolicyViolation();
+            if (dailyLimit == 0 || perTxLimit == 0) revert PolicyViolation();
             if (validUntil <= block.timestamp) revert PolicyExpired();
         }
         policyByOwner[msg.sender] = PolicyConfig({
@@ -560,7 +576,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     }
 
     /// @notice Allows or disallows a specific counterparty under caller policy.
-    function setPolicyAllowedCounterparty(address counterparty, bool allowed) external override {
+    function setPolicyAllowedCounterparty(address counterparty, bool allowed) public override {
         if (counterparty == address(0)) revert InvalidAddress();
         policyAllowedCounterparty[msg.sender][counterparty] = allowed;
         emit PolicyCounterpartyUpdated(msg.sender, counterparty, allowed);
@@ -577,7 +593,31 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         return policyByOwner[ownerAddr];
     }
 
-    function getPolicyUsage(address ownerAddr) external view override returns (PolicyUsage memory) {
+    function getPolicyUsage(address ownerAddr)
+        external
+        view
+        override
+        returns (uint256 txCountToday, uint256 spentToday, uint256 txCountHour, uint256 dayIndex)
+    {
+        PolicyUsage memory usage = policyUsageByOwner[ownerAddr];
+        uint256 _dayIndex = block.timestamp / 1 days;
+        uint256 _hourIndex = block.timestamp / 1 hours;
+        if (usage.dayIndex != _dayIndex) {
+            usage.dayIndex = _dayIndex;
+            usage.spentToday = 0;
+            usage.txCountToday = 0;
+        }
+        if (usage.hourIndex != _hourIndex) {
+            usage.hourIndex = _hourIndex;
+            usage.txCountHour = 0;
+        }
+        txCountToday = usage.txCountToday;
+        spentToday = usage.spentToday;
+        txCountHour = usage.txCountHour;
+        dayIndex = usage.dayIndex;
+    }
+
+    function getPolicyUsageStruct(address ownerAddr) external view override returns (PolicyUsage memory) {
         PolicyUsage memory usage = policyUsageByOwner[ownerAddr];
         uint256 dayIndex = block.timestamp / 1 days;
         uint256 hourIndex = block.timestamp / 1 hours;
@@ -601,12 +641,10 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         return policyAllowedScope[ownerAddr][scopeHash];
     }
 
-    function setPolicy(uint256 perTxLimit, uint256 dailyLimit, uint256 maxTxPerWindow, uint256 windowSeconds, bool enabled)
+    function setPolicy(uint256 perTxLimit, uint256 dailyLimit, uint256 maxTxPerWindow, uint256 validUntil, bool enabled)
         external
         override
     {
-        if (windowSeconds != 0 && windowSeconds != 3600) revert PolicyViolation();
-        uint256 validUntil = enabled ? block.timestamp + 365 days : 0;
         setPolicyConfig(enabled, dailyLimit, perTxLimit, maxTxPerWindow, validUntil);
     }
 
@@ -763,6 +801,11 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         return keccak256(abi.encodePacked(batchOwnerAddr, token));
     }
 
+    function _enforceSettlementGuard(address token, uint256 amount) internal view {
+        if (minSettlementAmount > 0 && amount < minSettlementAmount) revert SettlementAmountTooLow();
+        if (settlementTokenEnforced && !settlementTokenAllowed[token]) revert SettlementTokenNotAllowed();
+    }
+
     function _enforcePolicy(address ownerAddr, address counterparty, bytes32 scopeHash, uint256 amount) internal {
         PolicyConfig memory cfg = policyByOwner[ownerAddr];
         if (!cfg.enabled) return;
@@ -796,7 +839,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
             emit PolicyViolationEvent(ownerAddr, counterparty, scopeHash, "daily-limit-exceeded");
             revert DailyLimitExceeded();
         }
-        if (usage.txCountHour + 1 > cfg.maxTxPerHour) {
+        if (cfg.maxTxPerHour > 0 && usage.txCountHour + 1 > cfg.maxTxPerHour) {
             emit PolicyViolationEvent(ownerAddr, counterparty, scopeHash, "hour-rate-limit-exceeded");
             revert PolicyViolation();
         }

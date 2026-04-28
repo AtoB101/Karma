@@ -314,6 +314,33 @@
         </p>
         <div id="policySnapshot" class="hint">Policy snapshot: not loaded</div>
 
+        <h3>Stable settlement profile (M2.0)</h3>
+        <div class="grid">
+          <label for="stableEnforcementEnabled">Enforce stable token allowlist</label>
+          <input id="stableEnforcementEnabled" type="checkbox" style="width: auto" />
+
+          <label for="stableMinAmount">Minimum settlement amount</label>
+          <input id="stableMinAmount" type="number" min="0" value="0" />
+
+          <label for="stableTokenRule">Stable token rule</label>
+          <input id="stableTokenRule" placeholder="0x... (optional)" />
+
+          <label for="stableTokenAllowed">Stable token allowed</label>
+          <input id="stableTokenAllowed" type="checkbox" style="width: auto" checked />
+
+          <label for="stableChangeReason">Change reason</label>
+          <input id="stableChangeReason" placeholder="e.g. add USDC policy" />
+
+          <label for="stableOperator">Operator label</label>
+          <input id="stableOperator" placeholder="e.g. alice@ops" />
+        </div>
+        <p style="margin-top: 10px">
+          <button id="applyStableProfileBtn">Apply stable profile</button>
+          <button id="refreshStableProfileBtn">Refresh stable profile</button>
+          <button id="setStableTokenRuleBtn">Set stable token rule</button>
+        </p>
+        <div id="stableSettlementSnapshot" class="hint">Stable profile snapshot: not loaded</div>
+
         <h3>Batch control (Non-custodial)</h3>
         <div class="grid">
           <label for="batchIdInput">Batch ID</label>
@@ -404,13 +431,20 @@
         <h3>Export JSON for support</h3>
         <div class="inline-row">
           <button id="exportDiagBtn">Download JSON</button>
+          <button id="verifyStableChainBtn">Verify stable hash chain</button>
+          <button id="verifyStableChainFromFileBtn">Verify from JSON file</button>
+          <button id="exportStableProofBtn">Export stable proof</button>
+          <button id="signStableProofBtn">Sign stable proof</button>
+          <button id="verifyStableProofSigFromFileBtn">Verify proof signature</button>
+          <input id="verifyStableChainFileInput" type="file" accept="application/json,.json" style="display: none" />
+          <input id="verifyStableProofFileInput" type="file" accept="application/json,.json" style="display: none" />
           <span class="muted">Includes addresses, KPIs, logs, tx history, and quote fields; no private keys.</span>
         </div>
       </section>
     </div>
 
     <script type="module">
-      import { BrowserProvider, Contract, Signature, keccak256, toUtf8Bytes } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
+      import { BrowserProvider, Contract, Signature, keccak256, toUtf8Bytes, verifyMessage } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
 
       const outputEl = document.getElementById("output");
       const riskContainerEl = document.getElementById("riskContainer");
@@ -430,6 +464,13 @@
         signature: null,
         diagnostics: [],
         txHistory: [],
+        stableConfigHistory: [],
+        stableConfigVersion: 0,
+        importedStableHistoryVerification: null,
+        lastImportedStableChainHead: null,
+        importedStableProofReport: null,
+        importedStableProofSignature: null,
+        importedStableProofSignatureVerification: null,
         autoMonitorTimer: null,
         sessionTraceId: null,
       };
@@ -446,9 +487,15 @@
         "function isAccountConsistent(address user,address token) view returns (bool)",
         "function batchModeEnabled() view returns (bool)",
         "function batchCircuitBreakerPaused() view returns (bool)",
-        "function setPolicy(bool enabled,uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 windowSeconds)",
-        "function getPolicy(address user) view returns ((uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 windowSeconds,bool enabled,bool hasPayeeRules,bool hasTokenRules))",
-        "function getPolicyUsage(address user) view returns ((uint256 dayStart,uint256 spentToday,uint256 windowStart,uint256 txCountInWindow))",
+        "function stableTokenEnforcementEnabled() view returns (bool)",
+        "function minSettlementAmount() view returns (uint256)",
+        "function setStableTokenEnforcement(bool enabled)",
+        "function setStableTokenAllowed(address token,bool allowed)",
+        "function isStableTokenAllowed(address token) view returns (bool)",
+        "function setMinSettlementAmount(uint256 amount)",
+        "function setPolicy(uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 validUntil,bool enabled)",
+        "function getPolicy(address user) view returns ((uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerMinute,uint256 validUntil,bool enabled))",
+        "function getPolicyUsage(address user) view returns (uint256 txCountToday,uint256 spentToday,uint256 txCountHour,uint256 dayIndex)", (fix(m1): align contract interface, tests, and frontend ABI for policy enforcement)
         "function setPolicyPayee(address payee,bool allowed)",
         "function setPolicyToken(address token,bool allowed)",
         "function isPolicyPayeeAllowed(address user,address payee) view returns (bool)",
@@ -499,6 +546,7 @@
 
       function setOutput(obj) {
         outputEl.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+        if (typeof obj === "object" && obj !== null) state.lastOutput = obj;
       }
 
       function updateKpi(id, text, cls) {
@@ -544,6 +592,342 @@
         });
         state.txHistory = state.txHistory.slice(0, 30);
         renderTxHistory();
+      }
+
+      function addStableConfigHistory(entry) {
+        state.stableConfigVersion += 1;
+        const previousHash = state.stableConfigHistory[0]?.currentHash || "0x0";
+        const normalizedEntry = {
+          version: state.stableConfigVersion,
+          traceId: state.sessionTraceId || "trace-unset",
+          timestamp: new Date().toISOString(),
+          ...entry,
+        };
+        const hashPayload = JSON.stringify({
+          prevHash: previousHash,
+          version: normalizedEntry.version,
+          traceId: normalizedEntry.traceId,
+          timestamp: normalizedEntry.timestamp,
+          action: normalizedEntry.action || null,
+          reason: normalizedEntry.reason || null,
+          operator: normalizedEntry.operator || null,
+          tokenAddress: normalizedEntry.tokenAddress || null,
+          tokenAllowed: normalizedEntry.tokenAllowed ?? null,
+          enforcementEnabled: normalizedEntry.enforcementEnabled ?? null,
+          minSettlementAmount: normalizedEntry.minSettlementAmount || null,
+          txHashes: normalizedEntry.txHashes || null,
+        });
+        const currentHash = keccak256(toUtf8Bytes(hashPayload));
+        state.stableConfigHistory.unshift({
+          ...normalizedEntry,
+          prevHash: previousHash,
+          currentHash,
+        });
+        state.stableConfigHistory = state.stableConfigHistory.slice(0, 40);
+      }
+
+      function buildStableHistoryHashPayload(record) {
+        return JSON.stringify({
+          prevHash: record.prevHash ?? null,
+          version: record.version ?? null,
+          traceId: record.traceId ?? null,
+          timestamp: record.timestamp ?? null,
+          action: record.action ?? null,
+          reason: record.reason ?? null,
+          operator: record.operator ?? null,
+          tokenAddress: record.tokenAddress ?? null,
+          tokenAllowed: record.tokenAllowed ?? null,
+          enforcementEnabled: record.enforcementEnabled ?? null,
+          minSettlementAmount: record.minSettlementAmount ?? null,
+          txHashes: record.txHashes ?? null,
+        });
+      }
+
+      function verifyStableConfigHistoryChain() {
+        const history = state.stableConfigHistory || [];
+        return verifyStableConfigHistoryChainFromHistory(history);
+      }
+
+      function verifyStableConfigHistoryChainFromHistory(rawHistory) {
+        const history = Array.isArray(rawHistory) ? rawHistory : [];
+        if (!history.length) {
+          return {
+            ok: true,
+            checkedCount: 0,
+            breakIndex: null,
+            expectedHash: null,
+            actualHash: null,
+          };
+        }
+        for (let i = 0; i < history.length; i += 1) {
+          const current = history[i];
+          const prev = history[i + 1];
+          const expectedPrevHash = prev?.currentHash || "0x0";
+          if ((current.prevHash || null) !== expectedPrevHash) {
+            return {
+              ok: false,
+              checkedCount: i + 1,
+              breakIndex: i,
+              reason: "prev_hash_mismatch",
+              expectedHash: expectedPrevHash,
+              actualHash: current.prevHash || null,
+            };
+          }
+          const payload = buildStableHistoryHashPayload(current);
+          const recomputed = keccak256(toUtf8Bytes(payload));
+          if ((current.currentHash || null) !== recomputed) {
+            return {
+              ok: false,
+              checkedCount: i + 1,
+              breakIndex: i,
+              reason: "current_hash_mismatch",
+              expectedHash: recomputed,
+              actualHash: current.currentHash || null,
+            };
+          }
+        }
+        return {
+          ok: true,
+          checkedCount: history.length,
+          breakIndex: null,
+          expectedHash: null,
+          actualHash: null,
+        };
+      }
+
+      function runStableChainVerification() {
+        const result = verifyStableConfigHistoryChain();
+        addDiagnostic(
+          "stable_chain",
+          result.ok ? "low" : "high",
+          result.ok ? "Stable hash chain verified" : "Stable hash chain verification failed",
+          result.ok
+            ? `checked=${result.checkedCount}, breakIndex=null`
+            : `checked=${result.checkedCount}, breakIndex=${result.breakIndex}, reason=${result.reason}`
+        );
+        setOutput({
+          step: "stable_chain_verification",
+          ...result,
+        });
+        return result;
+      }
+
+      async function verifyStableChainFromFile(file) {
+        if (!file) throw new Error("Please select a JSON file first.");
+        const text = await file.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          throw new Error("Invalid JSON file.");
+        }
+        const history = parsed?.authSnapshot?.stableConfigHistory;
+        if (!Array.isArray(history)) {
+          throw new Error("JSON missing authSnapshot.stableConfigHistory array.");
+        }
+        const result = verifyStableConfigHistoryChainFromHistory(history);
+        const chainHead = history[0]?.currentHash || null;
+        state.importedStableHistoryVerification = {
+          source: "imported_json",
+          fileName: file.name,
+          recordCount: history.length,
+          chainHead,
+          verifiedAt: new Date().toISOString(),
+          ...result,
+        };
+        state.lastImportedStableChainHead = chainHead;
+        addDiagnostic(
+          "stable_chain",
+          result.ok ? "low" : "high",
+          result.ok ? "Stable hash chain verified (file)" : "Stable hash chain verification failed (file)",
+          result.ok
+            ? `file=${file.name}, checked=${result.checkedCount}, breakIndex=null`
+            : `file=${file.name}, checked=${result.checkedCount}, breakIndex=${result.breakIndex}, reason=${result.reason}`
+        );
+        setOutput({
+          step: "stable_chain_verification_file",
+          fileName: file.name,
+          ...result,
+        });
+        return result;
+      }
+
+      function buildStableProofReport() {
+        const imported = state.importedStableHistoryVerification;
+        if (!imported) {
+          throw new Error("Run 'Verify from JSON file' first to create proof context.");
+        }
+        return {
+          proofType: "stable_chain_verification_proof_v1",
+          proofVersion: "stable-proof-v1",
+          generatedAt: new Date().toISOString(),
+          app: "TrustChain v0.1 wangcai Console",
+          traceId: state.sessionTraceId || "trace-unset",
+          source: {
+            fileName: imported.fileName || null,
+            sourceType: imported.source || "imported_json",
+          },
+          verification: {
+            ok: Boolean(imported.ok),
+            checkedCount: imported.checkedCount ?? 0,
+            breakIndex: imported.breakIndex ?? null,
+            reason: imported.reason || null,
+            expectedHash: imported.expectedHash || null,
+            actualHash: imported.actualHash || null,
+          },
+          chain: {
+            headHash: imported.chainHead || state.lastImportedStableChainHead || null,
+            recordCount: imported.recordCount ?? null,
+          },
+          attestation: null,
+        };
+      }
+
+      function buildStableProofSigningPayload(proof) {
+        return JSON.stringify({
+          proofType: proof.proofType || null,
+          proofVersion: proof.proofVersion || null,
+          generatedAt: proof.generatedAt || null,
+          app: proof.app || null,
+          traceId: proof.traceId || null,
+          source: proof.source || null,
+          verification: proof.verification || null,
+          chain: proof.chain || null,
+        });
+      }
+
+      function normalizeAddress(value) {
+        if (!value || typeof value !== "string") return null;
+        return value.trim().toLowerCase();
+      }
+
+      function extractProofAttestation(proof) {
+        if (!proof || typeof proof !== "object") return null;
+        return proof.attestation || proof.signature || null;
+      }
+
+      async function signStableProofReport() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const proof = buildStableProofReport();
+        const payload = buildStableProofSigningPayload(proof);
+        const digest = keccak256(toUtf8Bytes(payload));
+        const walletAddress = await state.signer.getAddress();
+        const message = `TrustChain Stable Proof Digest:\n${digest}`;
+        const signature = await state.signer.signMessage(message);
+        const attestation = {
+          standard: "eip191_signMessage",
+          signer: walletAddress,
+          message,
+          digest,
+          signature,
+          signedAt: new Date().toISOString(),
+        };
+        state.importedStableProofSignature = attestation;
+        const signedProof = { ...proof, attestation };
+        state.importedStableProofReport = signedProof;
+        addDiagnostic("stable_chain", "low", "Stable proof signed", `signer=${walletAddress}, digest=${digest}`);
+        setOutput({
+          step: "stable_proof_signed",
+          signer: walletAddress,
+          digest,
+          signature,
+        });
+        return signedProof;
+      }
+
+      async function verifyStableProofSignatureFromFile(file) {
+        if (!file) throw new Error("Please select a proof JSON file first.");
+        const text = await file.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          throw new Error("Invalid proof JSON file.");
+        }
+        const attestation = extractProofAttestation(parsed);
+        if (!attestation) {
+          throw new Error("Proof JSON missing signature/attestation object.");
+        }
+        const digest = attestation.digest || attestation.proofDigest || null;
+        const message = attestation.message || (digest ? `TrustChain Stable Proof Digest:\n${digest}` : null);
+        const signatureValue = attestation.signature || attestation.value || null;
+        const declaredSigner = attestation.signer || attestation.wallet || null;
+        if (!digest || !message || !signatureValue || !declaredSigner) {
+          throw new Error("Proof signature fields incomplete (digest/message/signature/signer required).");
+        }
+        const rebuiltPayload = buildStableProofSigningPayload({
+          proofType: parsed.proofType || null,
+          proofVersion: parsed.proofVersion || null,
+          generatedAt: parsed.generatedAt || null,
+          app: parsed.app || null,
+          traceId: parsed.traceId || null,
+          source: parsed.source || null,
+          verification: parsed.verification || null,
+          chain: parsed.chain || null,
+        });
+        const recomputedDigest = keccak256(toUtf8Bytes(rebuiltPayload));
+        const recoveredSigner = Signature.from(signatureValue).recoverPublicKey(keccak256(toUtf8Bytes(message)));
+        // ethers v6 recoverPublicKey returns pubkey; we verify via verifyMessage for address-level check.
+        const { verifyMessage } = await import("https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm");
+        const recoveredAddress = verifyMessage(message, signatureValue);
+        const digestMatches = normalizeAddress(digest) === normalizeAddress(recomputedDigest);
+        const signerMatches = normalizeAddress(declaredSigner) === normalizeAddress(recoveredAddress);
+        const ok = Boolean(digestMatches && signerMatches);
+        const result = {
+          source: "proof_json",
+          fileName: file.name,
+          verifiedAt: new Date().toISOString(),
+          ok,
+          digestMatches,
+          signerMatches,
+          declaredSigner,
+          recoveredSigner: recoveredAddress,
+          digest,
+          recomputedDigest,
+          signature: signatureValue,
+        };
+        state.importedStableProofSignatureVerification = result;
+        addDiagnostic(
+          "stable_chain_proof",
+          ok ? "low" : "high",
+          ok ? "Stable proof signature verified" : "Stable proof signature verification failed",
+          ok
+            ? `file=${file.name}, signer=${declaredSigner}`
+            : `file=${file.name}, digestMatches=${digestMatches}, signerMatches=${signerMatches}`
+        );
+        setOutput({
+          step: "stable_proof_signature_verified",
+          ...result,
+        });
+        return result;
+      }
+
+      function exportStableProofReport() {
+        const proofBase = buildStableProofReport();
+        const payload = buildStableProofSigningPayload(proofBase);
+        const digest = keccak256(toUtf8Bytes(payload));
+        const attestation = state.importedStableProofSignature?.digest === digest
+          ? state.importedStableProofSignature
+          : null;
+        const proof = {
+          ...proofBase,
+          attestation,
+        };
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const fileName = `trustchain-stable-proof-${stamp}.json`;
+        state.importedStableProofReport = proof;
+        downloadJson(fileName, proof);
+        addDiagnostic(
+          "stable_chain",
+          proof.verification.ok ? "low" : "medium",
+          "Stable proof exported",
+          `Downloaded ${fileName} (ok=${proof.verification.ok}, checked=${proof.verification.checkedCount}).`
+        );
+        setOutput({
+          step: "stable_proof_exported",
+          fileName,
+          ...proof,
+        });
       }
 
       function syncLogKindOptions() {
@@ -790,6 +1174,36 @@
         };
       }
 
+      function parseStableDecisionFromDiagnostics() {
+        const latestStableIssue = state.diagnostics.find((d) => d.kind === "stable_settlement" && d.severity === "high");
+        if (latestStableIssue) {
+          return {
+            result: "blocked",
+            reasonKind: latestStableIssue.kind,
+            reasonTitle: latestStableIssue.title,
+            detail: latestStableIssue.detail,
+            decidedAt: latestStableIssue.timestamp,
+          };
+        }
+        const latestStableInfo = state.diagnostics.find((d) => d.kind === "stable_settlement");
+        if (latestStableInfo) {
+          return {
+            result: "allowed",
+            reasonKind: latestStableInfo.kind,
+            reasonTitle: latestStableInfo.title,
+            detail: latestStableInfo.detail,
+            decidedAt: latestStableInfo.timestamp,
+          };
+        }
+        return {
+          result: "unknown",
+          reasonKind: null,
+          reasonTitle: null,
+          detail: "No stable-settlement decision in diagnostics yet.",
+          decidedAt: null,
+        };
+      }
+
       async function buildDiagnosisReport() {
         const inputs = readInputs();
         const inputsSerialized = {
@@ -823,11 +1237,14 @@
         }
 
         const policySnapshotText = document.getElementById("policySnapshot")?.textContent || null;
+        const stableSnapshotText = document.getElementById("stableSettlementSnapshot")?.textContent || null;
         const policyDecision = parsePolicyDecisionFromDiagnostics();
+        const stableDecision = parseStableDecisionFromDiagnostics();
+        const stableChainVerification = verifyStableConfigHistoryChain();
 
         return {
           reportVersion: "1.1",
-          evidenceVersion: "evidence-v1",
+          schemaVersion: "evidence-v1",
           traceId: state.sessionTraceId,
           app: "TrustChain v0.1 wangcai Console",
           exportedAt: new Date().toISOString(),
@@ -853,6 +1270,13 @@
             walletAddress: walletFull,
             signaturePresent: Boolean(state.signature),
             quotePresent: Boolean(state.quote),
+            stableSettlementSnapshot: stableSnapshotText,
+            stableConfigVersion: state.stableConfigVersion,
+            latestStableChangeReason: state.stableConfigHistory[0]?.reason || null,
+            latestStableOperator: state.stableConfigHistory[0]?.operator || null,
+            latestStablePrevHash: state.stableConfigHistory[0]?.prevHash || null,
+            latestStableCurrentHash: state.stableConfigHistory[0]?.currentHash || null,
+            stableConfigHistory: state.stableConfigHistory,
           },
           requestSnapshot: {
             form: inputsSerialized,
@@ -862,6 +1286,7 @@
             },
             policySnapshot: policySnapshotText,
             policyDecision,
+            stableSettlementDecision: stableDecision,
           },
           executionSnapshot: {
             diagnostics: state.diagnostics.map((d) => ({
@@ -893,6 +1318,18 @@
             },
             latestHighRiskTitle:
               state.diagnostics.find((d) => d.severity === "high")?.title || null,
+            latestStableRiskTitle:
+              state.diagnostics.find((d) => d.kind === "stable_settlement" && d.severity === "high")?.title || null,
+            stableConfigChanges: state.stableConfigHistory.length,
+            latestStableConfigVersion: state.stableConfigHistory[0]?.version || null,
+            stableConfigChainHead: state.stableConfigHistory[0]?.currentHash || null,
+            stableHistoryIntegrity: stableChainVerification.ok ? "pass" : "fail",
+            stableHistoryBreakIndex: stableChainVerification.breakIndex,
+            stableHistoryCheckedCount: stableChainVerification.checkedCount,
+            stableHistoryVerification: stableChainVerification,
+            importedStableHistoryVerification: state.importedStableHistoryVerification,
+            importedStableProofReport: state.importedStableProofReport,
+            importedStableProofSignatureVerification: state.importedStableProofSignatureVerification,
           },
         };
       }
@@ -936,16 +1373,14 @@
             enabled: policy.enabled,
             perTxLimit: policy.perTxLimit.toString(),
             dailyLimit: policy.dailyLimit.toString(),
-            maxTxPerWindow: policy.maxTxPerWindow.toString(),
-            windowSeconds: policy.windowSeconds.toString(),
-            hasPayeeRules: policy.hasPayeeRules,
-            hasTokenRules: policy.hasTokenRules,
+            maxTxPerMinute: policy.maxTxPerMinute.toString(),
+            validUntil: policy.validUntil.toString(),
           },
           usage: {
-            dayStart: usage.dayStart.toString(),
+            txCountToday: usage.txCountToday.toString(),
             spentToday: usage.spentToday.toString(),
-            windowStart: usage.windowStart.toString(),
-            txCountInWindow: usage.txCountInWindow.toString(),
+            txCountHour: usage.txCountHour.toString(),
+            dayIndex: usage.dayIndex.toString(),
           },
           checks: {
             payee,
@@ -955,6 +1390,17 @@
           },
         });
         addDiagnostic("policy", "low", "Policy loaded", `Policy loaded for ${signerAddress}.`);
+      }
+
+      async function refreshPolicyConfig() {
+        await readPolicyState();
+        const out = state.lastOutput || {};
+        const p = (out.policy) || {};
+        const u = (out.usage) || {};
+        document.getElementById("policySnapshot").textContent =
+          `Enabled: ${p.enabled ?? "?"} | PerTx: ${p.perTxLimit ?? "?"} | Daily: ${p.dailyLimit ?? "?"} | ` +
+          `Rate: ${p.maxTxPerMinute ?? "?"}/hour | ValidUntil: ${p.validUntil ?? "?"} | ` +
+          `SpentToday: ${u.spentToday ?? "?"} | TxCount: ${u.txCountHour ?? "?"}/hour`;
       }
 
       async function applyPolicyConfig() {
@@ -967,7 +1413,7 @@
         const maxTxPerWindow = BigInt(document.getElementById("policyMaxTxPerWindow").value || "0");
         const windowSeconds = BigInt(document.getElementById("policyWindowSeconds").value || "0");
         const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
-        const tx = await nc.setPolicy(enabled, perTxLimit, dailyLimit, maxTxPerWindow, windowSeconds);
+        const tx = await nc.setPolicy(perTxLimit, dailyLimit, maxTxPerWindow, windowSeconds, enabled);
         const receipt = await tx.wait();
         addDiagnostic("policy", "low", "Policy updated", `Policy update tx confirmed: ${receipt.hash}`);
         setOutput({
@@ -1022,6 +1468,126 @@
         });
       }
 
+      async function readStableSettlementState() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const tokenAddress = document.getElementById("stableTokenRule").value.trim() || document.getElementById("tokenAddress").value.trim();
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const [enforcementEnabled, minSettlementAmount] = await Promise.all([
+          nc.stableTokenEnforcementEnabled(),
+          nc.minSettlementAmount(),
+        ]);
+        let tokenAllowed = null;
+        if (tokenAddress) tokenAllowed = await nc.isStableTokenAllowed(tokenAddress);
+
+        const snapshotText =
+          `Stable settlement: enforcement=${enforcementEnabled}, minAmount=${minSettlementAmount.toString()}, checkToken=${tokenAddress || "-"}, tokenAllowed=${tokenAllowed}`;
+        const snapshotEl = document.getElementById("stableSettlementSnapshot");
+        if (snapshotEl) snapshotEl.textContent = snapshotText;
+
+        setOutput({
+          step: "stable_settlement_read",
+          enforcementEnabled,
+          minSettlementAmount: minSettlementAmount.toString(),
+          checkToken: tokenAddress || null,
+          tokenAllowed,
+        });
+        addDiagnostic("stable_settlement", "low", "Stable settlement loaded", snapshotText);
+      }
+
+      async function applyStableSettlementConfig() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const enforcementEnabled = Boolean(document.getElementById("stableEnforcementEnabled").checked);
+        const minSettlementAmount = BigInt(document.getElementById("stableMinAmount").value || "0");
+        const tokenAddress = document.getElementById("stableTokenRule").value.trim() || document.getElementById("tokenAddress").value.trim();
+        const tokenAllowed = Boolean(document.getElementById("stableTokenAllowed").checked);
+        const changeReason = document.getElementById("stableChangeReason").value.trim() || "manual_update";
+        const operator = document.getElementById("stableOperator").value.trim() || "unknown_operator";
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+
+        const tx1 = await nc.setStableTokenEnforcement(enforcementEnabled);
+        const r1 = await tx1.wait();
+        const tx2 = await nc.setMinSettlementAmount(minSettlementAmount);
+        const r2 = await tx2.wait();
+        let r3 = null;
+        if (tokenAddress) {
+          const tx3 = await nc.setStableTokenAllowed(tokenAddress, tokenAllowed);
+          r3 = await tx3.wait();
+        }
+
+        addDiagnostic(
+          "stable_settlement",
+          "low",
+          "Stable settlement updated",
+          `enforcement=${enforcementEnabled}, minAmount=${minSettlementAmount.toString()}, token=${tokenAddress || "-"}, tokenAllowed=${tokenAddress ? tokenAllowed : "skipped"}`
+        );
+        addStableConfigHistory({
+          action: "apply_profile",
+          reason: changeReason,
+          operator,
+          enforcementEnabled,
+          minSettlementAmount: minSettlementAmount.toString(),
+          tokenAddress: tokenAddress || null,
+          tokenAllowed: tokenAddress ? tokenAllowed : null,
+          txHashes: {
+            enforcement: r1.hash,
+            minAmount: r2.hash,
+            tokenRule: r3?.hash || null,
+          },
+        });
+        setOutput({
+          step: "stable_settlement_updated",
+          reason: changeReason,
+          operator,
+          enforcementEnabled,
+          minSettlementAmount: minSettlementAmount.toString(),
+          tokenAddress: tokenAddress || null,
+          tokenAllowed: tokenAddress ? tokenAllowed : null,
+          txHashes: {
+            enforcement: r1.hash,
+            minAmount: r2.hash,
+            tokenRule: r3?.hash || null,
+          },
+        });
+      }
+
+      async function setStableTokenRule() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const tokenAddress = document.getElementById("stableTokenRule").value.trim() || document.getElementById("tokenAddress").value.trim();
+        if (!tokenAddress) throw new Error("Stable token address required");
+        const tokenAllowed = Boolean(document.getElementById("stableTokenAllowed").checked);
+        const changeReason = document.getElementById("stableChangeReason").value.trim() || "manual_update";
+        const operator = document.getElementById("stableOperator").value.trim() || "unknown_operator";
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setStableTokenAllowed(tokenAddress, tokenAllowed);
+        const receipt = await tx.wait();
+        addDiagnostic("stable_settlement", "low", "Stable token rule updated", `token=${tokenAddress}, allowed=${tokenAllowed}`);
+        addStableConfigHistory({
+          action: "set_token_rule",
+          reason: changeReason,
+          operator,
+          tokenAddress,
+          tokenAllowed,
+          txHashes: {
+            tokenRule: receipt.hash,
+          },
+        });
+        setOutput({
+          step: "stable_token_rule_updated",
+          reason: changeReason,
+          operator,
+          tokenAddress,
+          tokenAllowed,
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+        });
+      }
+
       async function loadLocalConfig() {
         const response = await fetch("./v01-console-config.json", { cache: "no-store" });
         if (!response.ok) throw new Error("Config not found: examples/v01-console-config.json");
@@ -1069,9 +1635,32 @@
           updateKpi("kpiAllowlist", "N/A (non-custodial)", "status-warn");
         }
 
+        let stableProfile = null;
+        if (nonCustodialAddress) {
+          try {
+            const ncStable = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+            const [enforcementEnabled, minSettlementAmount] = await Promise.all([
+              ncStable.stableTokenEnforcementEnabled(),
+              ncStable.minSettlementAmount(),
+            ]);
+            const stableTokenAllowed = tokenAddress ? await ncStable.isStableTokenAllowed(tokenAddress) : null;
+            stableProfile = {
+              enforcementEnabled,
+              minSettlementAmount,
+              stableTokenAllowed,
+            };
+          } catch (e) {
+            addDiagnostic("stable_settlement", "medium", "Stable profile read failed", readErrorMessage(e), e);
+          }
+        }
         const enoughBalance = balance >= amount;
         const enoughAllowance = allowance >= amount;
-        const ready = (engineAddress ? (!paused && tokenAllowed) : true) && enoughBalance && enoughAllowance;
+        const stableRulePass = !stableProfile
+          || (
+            (!stableProfile.enforcementEnabled || Boolean(stableProfile.stableTokenAllowed))
+            && amount >= BigInt(stableProfile.minSettlementAmount?.toString?.() || "0")
+          );
+        const ready = (engineAddress ? (!paused && tokenAllowed) : true) && enoughBalance && enoughAllowance && stableRulePass;
         updateKpi("kpiReadiness", ready ? "Ready" : "Blocked", ready ? "status-good" : "status-bad");
 
         if (nonCustodialAddress) {
@@ -1096,6 +1685,14 @@
               "Non-custodial state",
               `locked=${acct.locked}, active=${acct.active}, reserved=${acct.reserved}, invariant=${isConsistent}, batchMode=${batchModeEnabled}, breakerPaused=${batchCircuitBreakerPaused}`
             );
+            if (stableProfile) {
+              addDiagnostic(
+                "stable_settlement",
+                stableRulePass ? "low" : "high",
+                "Stable settlement profile",
+                `enforcement=${stableProfile.enforcementEnabled}, minAmount=${stableProfile.minSettlementAmount.toString()}, tokenAllowed=${stableProfile.stableTokenAllowed}`
+              );
+            }
           } catch (e) {
             updateKpi("kpiInvariant", "READ FAIL", "status-warn");
             setChip("modeCustodyChip", "Mode: Non-custodial?");
@@ -1358,6 +1955,73 @@
           setOutput(msg);
         })
       );
+      document.getElementById("verifyStableChainBtn").addEventListener("click", () =>
+        Promise.resolve()
+          .then(() => runStableChainVerification())
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain", "high", "Stable chain verification failed", msg, e);
+            setOutput(msg);
+          })
+      );
+      document.getElementById("verifyStableChainFromFileBtn").addEventListener("click", () => {
+        const fileInput = document.getElementById("verifyStableChainFileInput");
+        if (!(fileInput instanceof HTMLInputElement)) return;
+        fileInput.click();
+      });
+      document.getElementById("verifyStableChainFileInput").addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        const file = target.files?.[0];
+        Promise.resolve()
+          .then(() => verifyStableChainFromFile(file))
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain", "high", "Stable chain file verification failed", msg, e);
+            setOutput(msg);
+          })
+          .finally(() => {
+            target.value = "";
+          });
+      });
+      document.getElementById("exportStableProofBtn").addEventListener("click", () =>
+        Promise.resolve()
+          .then(() => exportStableProofReport())
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain", "high", "Stable proof export failed", msg, e);
+            setOutput(msg);
+          })
+      );
+      document.getElementById("signStableProofBtn").addEventListener("click", () =>
+        Promise.resolve()
+          .then(() => signStableProofReport())
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain", "high", "Stable proof signing failed", msg, e);
+            setOutput(msg);
+          })
+      );
+      document.getElementById("verifyStableProofSigFromFileBtn").addEventListener("click", () => {
+        const fileInput = document.getElementById("verifyStableProofFileInput");
+        if (!(fileInput instanceof HTMLInputElement)) return;
+        fileInput.click();
+      });
+      document.getElementById("verifyStableProofFileInput").addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        const file = target.files?.[0];
+        Promise.resolve()
+          .then(() => verifyStableProofSignatureFromFile(file))
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain_proof", "high", "Proof signature verification failed", msg, e);
+            setOutput(msg);
+          })
+          .finally(() => {
+            target.value = "";
+          });
+      });
       document.getElementById("applyPolicyBtn").addEventListener("click", () =>
         applyPolicyConfig().catch((e) => {
           const msg = readErrorMessage(e);
@@ -1387,6 +2051,30 @@
           const msg = readErrorMessage(e);
           const c = classifyRuntimeError(e);
           addDiagnostic(c.kind, c.severity, `Set token rule: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("applyStableProfileBtn").addEventListener("click", () =>
+        applyStableSettlementConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Apply stable profile: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("refreshStableProfileBtn").addEventListener("click", () =>
+        readStableSettlementState().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Refresh stable profile: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("setStableTokenRuleBtn").addEventListener("click", () =>
+        setStableTokenRule().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Set stable token rule: ${c.title}`, msg, e);
           setOutput(msg);
         })
       );
