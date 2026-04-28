@@ -242,6 +242,9 @@ for row in results:
         reason_summary[reason_key] = reason_summary.get(reason_key, 0) + 1
 
 summary = {
+    "schemaVersion": "trustchain.proof.batch.v1",
+    "source": "script:verify-proof-index-batch.sh",
+    "traceId": f"trace-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
     "generatedAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "targetDir": str(target_dir),
     "glob": glob_pattern,

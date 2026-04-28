@@ -730,9 +730,13 @@ auto_state["decisionHistory"] = decision_history[-decision_history_limit:]
 
 overall = "pass" if not risks else ("warning" if all(r["severity"] == "warning" for r in risks) else "fail")
 
+trace_id = f"trace-guardian-{stamp.lower()}"
 report = {
+    "schemaVersion": "trustchain.guardian.v1",
     "reportVersion": "agent-safety-guardian-v1",
     "generatedAt": now_iso,
+    "source": "script:agent-safety-guardian.sh",
+    "traceId": trace_id,
     "profile": profile,
     "stageChecks": checks,
     "doctor": {
@@ -814,8 +818,11 @@ report = {
 }
 
 alarm_payload = {
+    "schemaVersion": "trustchain.guardian.alarm.v1",
     "version": "agent-safety-alarm-v1",
     "generatedAt": now_iso,
+    "source": "script:agent-safety-guardian.sh",
+    "traceId": trace_id,
     "profile": profile,
     "alertThreshold": alert_threshold,
     "alarmCount": len(alarms),
@@ -825,8 +832,12 @@ alarm_payload = {
 }
 
 register_payload = {
+    "schemaVersion": "trustchain.risk.register.v1",
     "version": "agent-risk-register-v1",
+    "generatedAt": now_iso,
     "updatedAt": now_iso,
+    "source": "script:agent-safety-guardian.sh",
+    "traceId": trace_id,
     "profile": profile,
     "summary": {
         "totalRecords": len(records),

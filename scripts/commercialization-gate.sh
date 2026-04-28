@@ -127,9 +127,13 @@ if can_missing_count > 0:
 if not action_plan:
     action_plan.append("Maintain current baseline and monitor regression via CI gate.")
 
+generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 report = {
     "version": "commercialization-gate-v1",
-    "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "schemaVersion": "trustchain.commercial.gate.v1",
+    "generatedAt": generated_at,
+    "source": "script:commercialization-gate.sh",
+    "traceId": f"commercial-gate-{generated_at}",
     "overallStatus": overall,
     "must": {
         "ok": must_ok,

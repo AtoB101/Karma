@@ -77,6 +77,10 @@ make quickstart
   CN: 运行商用准入门禁（MUST/SHOULD/CAN 分层），输出 `commercial-ready` / `pilot-ready` / `not-ready` 结论。  
   EN: Run commercialization readiness gate (MUST/SHOULD/CAN layers) and output `commercial-ready` / `pilot-ready` / `not-ready`.
 
+- `make validate-output-contracts`  
+  CN: 校验关键 JSON 输出是否包含统一契约字段（`schemaVersion/generatedAt/source/traceId`）。  
+  EN: Validate required unified output contract fields (`schemaVersion/generatedAt/source/traceId`) in core JSON artifacts.
+
 ### 3) Local CI checks
 
 - `make ci-local`  
@@ -188,6 +192,8 @@ make quickstart
 - `./scripts/rule-gap-adversarial-sim.sh --output results/rule-gap-adversarial-latest.json`
 - `./scripts/commercialization-gate.sh --format text`
 - `./scripts/commercialization-gate.sh --format json --output results/commercialization-gate-latest.json`
+- `./scripts/validate-output-contracts.sh --format text`
+- `./scripts/validate-output-contracts.sh --format json`
 - `./scripts/api_server.py --host 127.0.0.1 --port 8811 --token dev-token`
 - `./scripts/api-smoke.sh --host 127.0.0.1 --port 8811 --token dev-token`
 

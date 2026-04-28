@@ -177,8 +177,13 @@ else:
     else:
         severity = "warning"
 
+trace_id = f"trace-{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-proof-patrol"
 alert = {
+    "schemaVersion": "trustchain.proof.patrol.alert.v1",
     "generatedAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "source": "script:proof-patrol.sh",
+    "traceId": trace_id,
+    "version": "proof-patrol-alert-v1",
     "profile": profile,
     "status": "pass" if ok else "fail",
     "severity": severity,
