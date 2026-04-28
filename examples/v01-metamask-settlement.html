@@ -481,9 +481,9 @@
         "function setStableTokenAllowed(address token,bool allowed)",
         "function isStableTokenAllowed(address token) view returns (bool)",
         "function setMinSettlementAmount(uint256 amount)",
-        "function setPolicy(bool enabled,uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 windowSeconds)",
-        "function getPolicy(address user) view returns ((uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 windowSeconds,bool enabled,bool hasPayeeRules,bool hasTokenRules))",
-        "function getPolicyUsage(address user) view returns ((uint256 dayStart,uint256 spentToday,uint256 windowStart,uint256 txCountInWindow))",
+        "function setPolicy(uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 validUntil,bool enabled)",
+        "function getPolicy(address user) view returns ((uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerMinute,uint256 validUntil,bool enabled))",
+        "function getPolicyUsage(address user) view returns (uint256 txCountToday,uint256 spentToday,uint256 txCountHour,uint256 dayIndex)", (fix(m1): align contract interface, tests, and frontend ABI for policy enforcement)
         "function setPolicyPayee(address payee,bool allowed)",
         "function setPolicyToken(address token,bool allowed)",
         "function isPolicyPayeeAllowed(address user,address payee) view returns (bool)",
@@ -534,6 +534,7 @@
 
       function setOutput(obj) {
         outputEl.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+        if (typeof obj === "object" && obj !== null) state.lastOutput = obj;
       }
 
       function updateKpi(id, text, cls) {
@@ -926,7 +927,7 @@
 
         return {
           reportVersion: "1.1",
-          evidenceVersion: "evidence-v1",
+          schemaVersion: "evidence-v1",
           traceId: state.sessionTraceId,
           app: "TrustChain v0.1 wangcai Console",
           exportedAt: new Date().toISOString(),
@@ -1048,16 +1049,14 @@
             enabled: policy.enabled,
             perTxLimit: policy.perTxLimit.toString(),
             dailyLimit: policy.dailyLimit.toString(),
-            maxTxPerWindow: policy.maxTxPerWindow.toString(),
-            windowSeconds: policy.windowSeconds.toString(),
-            hasPayeeRules: policy.hasPayeeRules,
-            hasTokenRules: policy.hasTokenRules,
+            maxTxPerMinute: policy.maxTxPerMinute.toString(),
+            validUntil: policy.validUntil.toString(),
           },
           usage: {
-            dayStart: usage.dayStart.toString(),
+            txCountToday: usage.txCountToday.toString(),
             spentToday: usage.spentToday.toString(),
-            windowStart: usage.windowStart.toString(),
-            txCountInWindow: usage.txCountInWindow.toString(),
+            txCountHour: usage.txCountHour.toString(),
+            dayIndex: usage.dayIndex.toString(),
           },
           checks: {
             payee,
@@ -1067,6 +1066,17 @@
           },
         });
         addDiagnostic("policy", "low", "Policy loaded", `Policy loaded for ${signerAddress}.`);
+      }
+
+      async function refreshPolicyConfig() {
+        await readPolicyState();
+        const out = state.lastOutput || {};
+        const p = (out.policy) || {};
+        const u = (out.usage) || {};
+        document.getElementById("policySnapshot").textContent =
+          `Enabled: ${p.enabled ?? "?"} | PerTx: ${p.perTxLimit ?? "?"} | Daily: ${p.dailyLimit ?? "?"} | ` +
+          `Rate: ${p.maxTxPerMinute ?? "?"}/hour | ValidUntil: ${p.validUntil ?? "?"} | ` +
+          `SpentToday: ${u.spentToday ?? "?"} | TxCount: ${u.txCountHour ?? "?"}/hour`;
       }
 
       async function applyPolicyConfig() {
@@ -1079,7 +1089,7 @@
         const maxTxPerWindow = BigInt(document.getElementById("policyMaxTxPerWindow").value || "0");
         const windowSeconds = BigInt(document.getElementById("policyWindowSeconds").value || "0");
         const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
-        const tx = await nc.setPolicy(enabled, perTxLimit, dailyLimit, maxTxPerWindow, windowSeconds);
+        const tx = await nc.setPolicy(perTxLimit, dailyLimit, maxTxPerWindow, windowSeconds, enabled);
         const receipt = await tx.wait();
         addDiagnostic("policy", "low", "Policy updated", `Policy update tx confirmed: ${receipt.hash}`);
         setOutput({

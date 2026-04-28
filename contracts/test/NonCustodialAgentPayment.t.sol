@@ -617,7 +617,7 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testSetPolicyAndReadBack() public {
         vm.prank(buyer);
-        protocol.setPolicy(true, 20_000, 50_000, 10, block.timestamp + 1 days);
+        protocol.setPolicy(20_000, 50_000, 10, block.timestamp + 1 days, true);
 
         INonCustodialAgentPayment.Policy memory p = protocol.getPolicy(buyer);
         assertTrue(p.enabled);
@@ -629,37 +629,53 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testCreateBillBlockedByPerTxPolicy() public {
         vm.prank(buyer);
-        protocol.setPolicy(true, 3_000, 100_000, 0, block.timestamp + 1 days);
+        protocol.setPolicy(3_000, 100_000, 0, block.timestamp + 1 days, true);
+        vm.prank(buyer);
+        protocol.setPolicyPayee(seller, true);
 
         vm.prank(buyer);
-        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        vm.expectRevert(NonCustodialAgentPayment.PerTxLimitExceeded.selector);
         protocol.createBill(seller, address(token), 4_000, keccak256("scope-policy-1"), "ipfs://proof-policy-1", block.timestamp + 1 days);
     }
 
     function testCreateBillBlockedByDailyPolicy() public {
         vm.prank(buyer);
-        protocol.setPolicy(true, 10_000, 5_000, 0, block.timestamp + 1 days);
+        protocol.setPolicy(10_000, 5_000, 0, block.timestamp + 1 days, true);
+        vm.prank(buyer);
+        protocol.setPolicyPayee(seller, true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("scope-policy-2"), true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("scope-policy-3"), true);
 
         vm.prank(buyer);
         protocol.createBill(seller, address(token), 3_000, keccak256("scope-policy-2"), "ipfs://proof-policy-2", block.timestamp + 1 days);
         vm.prank(buyer);
-        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        vm.expectRevert(NonCustodialAgentPayment.DailyLimitExceeded.selector);
         protocol.createBill(seller, address(token), 3_000, keccak256("scope-policy-3"), "ipfs://proof-policy-3", block.timestamp + 1 days);
     }
 
     function testCreateBillBlockedByPolicyExpiry() public {
         vm.prank(buyer);
-        protocol.setPolicy(true, 10_000, 100_000, 0, block.timestamp + 10);
+        protocol.setPolicy(10_000, 100_000, 0, block.timestamp + 10, true);
+        vm.prank(buyer);
+        protocol.setPolicyPayee(seller, true);
         vm.warp(block.timestamp + 11);
 
         vm.prank(buyer);
-        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        vm.expectRevert(NonCustodialAgentPayment.PolicyExpired.selector);
         protocol.createBill(seller, address(token), 1_000, keccak256("scope-policy-4"), "ipfs://proof-policy-4", block.timestamp + 1 days);
     }
 
     function testCreateBillBlockedByRateLimit() public {
         vm.prank(buyer);
-        protocol.setPolicy(true, 10_000, 100_000, 1, block.timestamp + 1 days);
+        protocol.setPolicy(10_000, 100_000, 1, block.timestamp + 1 days, true);
+        vm.prank(buyer);
+        protocol.setPolicyPayee(seller, true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("scope-policy-5"), true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("scope-policy-6"), true);
 
         vm.prank(buyer);
         protocol.createBill(seller, address(token), 1_000, keccak256("scope-policy-5"), "ipfs://proof-policy-5", block.timestamp + 1 days);
@@ -670,7 +686,13 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testPolicyUsageResetsNextDay() public {
         vm.prank(buyer);
-        protocol.setPolicy(true, 10_000, 5_000, 0, block.timestamp + 2 days);
+        protocol.setPolicy(10_000, 5_000, 0, block.timestamp + 2 days, true);
+        vm.prank(buyer);
+        protocol.setPolicyPayee(seller, true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("scope-policy-7"), true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("scope-policy-8"), true);
 
         vm.prank(buyer);
         protocol.createBill(seller, address(token), 4_000, keccak256("scope-policy-7"), "ipfs://proof-policy-7", block.timestamp + 1 days);
@@ -723,7 +745,13 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testCloseBatchBlockedByPolicyWhenNoScopeRule() public {
         vm.prank(buyer);
-        protocol.setPolicy(true, 50_000, 100_000, 0, block.timestamp + 1 days);
+        protocol.setPolicy(50_000, 100_000, 0, block.timestamp + 1 days, true);
+        vm.prank(buyer);
+        protocol.setPolicyPayee(seller, true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("scope-policy-batch"), true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedCounterparty(buyer, true);
 
         vm.prank(buyer);
         uint256 billId =
@@ -733,15 +761,21 @@ contract NonCustodialAgentPaymentTest is Test {
         uint256 batchId = protocol.getBill(billId).batchId;
 
         vm.prank(buyer);
-        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        vm.expectRevert(NonCustodialAgentPayment.ScopeNotAllowed.selector);
         protocol.closeBatch(batchId);
     }
 
     function testCloseBatchAllowedAfterScopeRule() public {
         vm.prank(buyer);
-        protocol.setPolicy(true, 50_000, 100_000, 0, block.timestamp + 1 days);
+        protocol.setPolicy(50_000, 100_000, 0, block.timestamp + 1 days, true);
         vm.prank(buyer);
-        protocol.setPolicyAllowedScope(keccak256("action:batch:close"), true);
+        protocol.setPolicyPayee(seller, true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("scope-policy-batch-allow"), true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedCounterparty(buyer, true);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("batch:close"), true);
 
         vm.prank(buyer);
         uint256 billId =
