@@ -95,6 +95,9 @@ make quickstart
 - `./scripts/verify-proof-index-batch.sh --dir results --glob "support-bundle-*.zip" --format csv --output results/proof-index-batch.csv`
 - `./scripts/verify-proof-index-batch.sh --dir results --glob "support-bundle-*.zip" --strict --max-fail 0`
 - `./scripts/verify-proof-index-batch.sh --dir results --since "2026-04-28T12:00:00Z" --until "2026-04-28T13:00:00Z"`
+- 批量 JSON 报告新增聚合字段 / Batch JSON report includes aggregates:
+  - `latestPassAt`
+  - `reasonSummary`
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
 - `./scripts/proof-sop-checklist.sh --operator <name> --reviewer <name> --ticket <id>`

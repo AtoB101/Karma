@@ -206,7 +206,10 @@ Optional policy controls for CI/ops:
 
 - `--strict`: fail if no bundle matched selection.
 - `--max-fail N`: fail when verified failures exceed `N`.
-- `--since/--until`: filter bundles by timestamp in filename (`support-bundle-YYYYmmddTHHMMSSZ.zip`).
+- `--since/--until`: filter bundles by timestamp in filename (`support-bundle-YYYYmmddTHHMMSSZ.zip`), supports compact and ISO8601 input.
+- batch summary fields:
+  - `reasonSummary`: fail reasons grouped by count
+  - `latestPassAt`: latest `generatedAt` among pass rows (if present)
 
 Expected terminal result:
 - `PASS` when digest matches canonical recomputation

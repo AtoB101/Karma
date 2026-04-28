@@ -169,6 +169,19 @@ for item in matches:
     parsed["exitCode"] = proc.returncode
     results.append(parsed)
 
+reason_summary = {}
+latest_pass_at = None
+for row in results:
+    if row.get("status") == "pass":
+        path_text = str(row.get("inputPath") or "")
+        name = pathlib.Path(path_text).name
+        stamp = extract_stamp(name)
+        if stamp and (latest_pass_at is None or stamp > latest_pass_at):
+            latest_pass_at = stamp
+    else:
+        reason_key = row.get("reason") or "unknown_reason"
+        reason_summary[reason_key] = reason_summary.get(reason_key, 0) + 1
+
 summary = {
     "generatedAt": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "targetDir": str(target_dir),
@@ -180,6 +193,8 @@ summary = {
     "total": len(results),
     "pass": sum(1 for r in results if r.get("status") == "pass"),
     "fail": sum(1 for r in results if r.get("status") != "pass"),
+    "latestPassAt": latest_pass_at,
+    "reasonSummary": reason_summary,
     "results": results,
 }
 
@@ -191,6 +206,8 @@ def emit_text(data):
         f"total: {data['total']}",
         f"pass: {data['pass']}",
         f"fail: {data['fail']}",
+        f"latestPassAt: {data.get('latestPassAt')}",
+        f"reasonSummary: {json.dumps(data.get('reasonSummary', {}), ensure_ascii=False)}",
         "",
     ]
     for row in data["results"]:
