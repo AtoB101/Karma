@@ -72,6 +72,8 @@ If Health Check is blocked:
 - Verify token balance
 - Verify allowance to `NON_CUSTODIAL_ADDRESS`
 - Verify addresses and chain
+- Run `make doctor` for text diagnostics
+- Run `make doctor-json` for machine-readable diagnostics
 
 ## 5) 中文快速说明
 
@@ -100,6 +102,7 @@ make quickstart
 - 执行部署
 - 启动前端服务（8790 端口）
 - 输出前端访问地址
+ - 如需排障：执行 `make doctor` 或 `make doctor-json`
 
 如果仍然启动失败，执行：
 

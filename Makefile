@@ -1,4 +1,4 @@
-.PHONY: help quickstart quickstart-skip-deploy preflight doctor
+.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json
 
 help:
 	@echo "Available targets:"
@@ -6,6 +6,7 @@ help:
 	@echo "  make quickstart-skip-deploy # preflight + start frontend only (from .env)"
 	@echo "  make preflight             # run setup checks (from .env)"
 	@echo "  make doctor                # generate local diagnosis report for support"
+	@echo "  make doctor-json           # generate machine-readable diagnosis JSON"
 
 quickstart:
 	@./scripts/dev-up.sh --from-env
@@ -18,3 +19,6 @@ preflight:
 
 doctor:
 	@./scripts/doctor.sh --port 8790
+
+doctor-json:
+	@./scripts/doctor.sh --port 8790 --format json --output results/doctor-report.json
