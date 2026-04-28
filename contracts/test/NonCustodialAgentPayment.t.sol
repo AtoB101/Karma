@@ -685,6 +685,40 @@ contract NonCustodialAgentPaymentTest is Test {
         assertGt(day1, day0);
     }
 
+    function testCloseBatchBlockedByPolicyWhenNoScopeRule() public {
+        vm.prank(buyer);
+        protocol.setPolicy(true, 50_000, 100_000, 0, block.timestamp + 1 days);
+
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 1_000, keccak256("scope-policy-batch"), "ipfs://proof-policy-batch", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        uint256 batchId = protocol.getBill(billId).batchId;
+
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.PolicyViolation.selector);
+        protocol.closeBatch(batchId);
+    }
+
+    function testCloseBatchAllowedAfterScopeRule() public {
+        vm.prank(buyer);
+        protocol.setPolicy(true, 50_000, 100_000, 0, block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.setPolicyAllowedScope(keccak256("action:batch:close"), true);
+
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 1_000, keccak256("scope-policy-batch-allow"), "ipfs://proof-policy-batch-allow", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        uint256 batchId = protocol.getBill(billId).batchId;
+
+        vm.prank(buyer);
+        protocol.closeBatch(batchId);
+        assertEq(uint8(protocol.getBatch(batchId).status), uint8(INonCustodialAgentPayment.BatchStatus.Closed));
+    }
+
     function _confirmBillDigest(uint256 billId, uint256 nonce, uint256 deadline, address relayer)
         internal
         view

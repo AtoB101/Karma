@@ -283,6 +283,37 @@
         </div>
         <p class="hint">Default non-custodial health checks lock state, balance, allowance, and invariant. Legacy Engine works only if Engine Address is set.</p>
 
+        <h3>Policy control (Non-custodial)</h3>
+        <div class="grid">
+          <label for="policyEnabled">Policy enabled</label>
+          <input id="policyEnabled" type="checkbox" style="width: auto" />
+
+          <label for="policyPerTxLimit">Per-tx limit</label>
+          <input id="policyPerTxLimit" type="number" min="0" value="0" />
+
+          <label for="policyDailyLimit">Daily limit</label>
+          <input id="policyDailyLimit" type="number" min="0" value="0" />
+
+          <label for="policyMaxTxWindow">Max tx per window</label>
+          <input id="policyMaxTxWindow" type="number" min="0" value="0" />
+
+          <label for="policyWindowSeconds">Window (seconds)</label>
+          <input id="policyWindowSeconds" type="number" min="0" value="0" />
+
+          <label for="policyPayeeRule">Payee rule</label>
+          <input id="policyPayeeRule" placeholder="0x... (optional)" />
+
+          <label for="policyTokenRule">Token rule</label>
+          <input id="policyTokenRule" placeholder="0x... (optional)" />
+        </div>
+        <p style="margin-top: 10px">
+          <button id="applyPolicyBtn">Apply policy</button>
+          <button id="refreshPolicyBtn">Refresh policy</button>
+          <button id="setPolicyPayeeBtn">Allow payee</button>
+          <button id="setPolicyTokenBtn">Allow token</button>
+        </p>
+        <div id="policySnapshot" class="hint">Policy snapshot: not loaded</div>
+
         <h3>Batch control (Non-custodial)</h3>
         <div class="grid">
           <label for="batchIdInput">Batch ID</label>
@@ -415,6 +446,13 @@
         "function isAccountConsistent(address user,address token) view returns (bool)",
         "function batchModeEnabled() view returns (bool)",
         "function batchCircuitBreakerPaused() view returns (bool)",
+        "function setPolicy(bool enabled,uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 windowSeconds)",
+        "function getPolicy(address user) view returns ((uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 windowSeconds,bool enabled,bool hasPayeeRules,bool hasTokenRules))",
+        "function getPolicyUsage(address user) view returns ((uint256 dayStart,uint256 spentToday,uint256 windowStart,uint256 txCountInWindow))",
+        "function setPolicyPayee(address payee,bool allowed)",
+        "function setPolicyToken(address token,bool allowed)",
+        "function isPolicyPayeeAllowed(address user,address payee) view returns (bool)",
+        "function isPolicyTokenAllowed(address user,address token) view returns (bool)",
         "function getBatch(uint256 batchId) view returns ((uint256 batchId,uint256 totalPending,uint256 billCount,uint8 status,uint256 createdAt,uint256 settledAt))",
         "function getBatchBillIds(uint256 batchId) view returns (uint256[])",
         "function closeBatch(uint256 batchId)",
@@ -822,6 +860,115 @@
         });
       }
 
+      async function readPolicyState() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const signerAddress = await state.signer.getAddress();
+        const payee = document.getElementById("policyPayeeRule").value.trim();
+        const policyToken = document.getElementById("policyTokenRule").value.trim();
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const [policy, usage] = await Promise.all([nc.getPolicy(signerAddress), nc.getPolicyUsage(signerAddress)]);
+        let payeeAllowed = null;
+        let tokenAllowed = null;
+        if (payee) {
+          payeeAllowed = await nc.isPolicyPayeeAllowed(signerAddress, payee);
+        }
+        if (policyToken) {
+          tokenAllowed = await nc.isPolicyTokenAllowed(signerAddress, policyToken);
+        }
+        setOutput({
+          step: "policy_read",
+          policy: {
+            enabled: policy.enabled,
+            perTxLimit: policy.perTxLimit.toString(),
+            dailyLimit: policy.dailyLimit.toString(),
+            maxTxPerWindow: policy.maxTxPerWindow.toString(),
+            windowSeconds: policy.windowSeconds.toString(),
+            hasPayeeRules: policy.hasPayeeRules,
+            hasTokenRules: policy.hasTokenRules,
+          },
+          usage: {
+            dayStart: usage.dayStart.toString(),
+            spentToday: usage.spentToday.toString(),
+            windowStart: usage.windowStart.toString(),
+            txCountInWindow: usage.txCountInWindow.toString(),
+          },
+          checks: {
+            payee,
+            payeeAllowed,
+            policyToken,
+            tokenAllowed,
+          },
+        });
+        addDiagnostic("policy", "low", "Policy loaded", `Policy loaded for ${signerAddress}.`);
+      }
+
+      async function applyPolicyConfig() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const enabled = Boolean(document.getElementById("policyEnabled").checked);
+        const perTxLimit = BigInt(document.getElementById("policyPerTxLimit").value || "0");
+        const dailyLimit = BigInt(document.getElementById("policyDailyLimit").value || "0");
+        const maxTxPerWindow = BigInt(document.getElementById("policyMaxTxPerWindow").value || "0");
+        const windowSeconds = BigInt(document.getElementById("policyWindowSeconds").value || "0");
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setPolicy(enabled, perTxLimit, dailyLimit, maxTxPerWindow, windowSeconds);
+        const receipt = await tx.wait();
+        addDiagnostic("policy", "low", "Policy updated", `Policy update tx confirmed: ${receipt.hash}`);
+        setOutput({
+          step: "policy_updated",
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          policy: {
+            enabled,
+            perTxLimit: perTxLimit.toString(),
+            dailyLimit: dailyLimit.toString(),
+            maxTxPerWindow: maxTxPerWindow.toString(),
+            windowSeconds: windowSeconds.toString(),
+          },
+        });
+      }
+
+      async function setPolicyPayeeRule() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const payee = document.getElementById("policyPayeeRule").value.trim();
+        if (!payee) throw new Error("Policy payee address required");
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setPolicyPayee(payee, true);
+        const receipt = await tx.wait();
+        addDiagnostic("policy", "low", "Payee policy updated", `Payee ${payee} set to true.`);
+        setOutput({
+          step: "policy_payee_updated",
+          payee,
+          allowed: true,
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+        });
+      }
+
+      async function setPolicyTokenRule() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const policyToken = document.getElementById("policyTokenRule").value.trim();
+        if (!policyToken) throw new Error("Policy token address required");
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setPolicyToken(policyToken, true);
+        const receipt = await tx.wait();
+        addDiagnostic("policy", "low", "Token policy updated", `Token ${policyToken} set to true.`);
+        setOutput({
+          step: "policy_token_updated",
+          token: policyToken,
+          allowed: true,
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+        });
+      }
+
       async function loadLocalConfig() {
         const response = await fetch("./v01-console-config.json", { cache: "no-store" });
         if (!response.ok) throw new Error("Config not found: examples/v01-console-config.json");
@@ -1155,6 +1302,38 @@
         exportDiagnosis().catch((e) => {
           const msg = readErrorMessage(e);
           addDiagnostic("export", "high", "Export failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("applyPolicyBtn").addEventListener("click", () =>
+        applyPolicyConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Apply policy: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("refreshPolicyBtn").addEventListener("click", () =>
+        refreshPolicyConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Refresh policy: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("setPolicyPayeeBtn").addEventListener("click", () =>
+        setPolicyPayeeRule().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Set payee rule: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("setPolicyTokenBtn").addEventListener("click", () =>
+        setPolicyTokenRule().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Set token rule: ${c.title}`, msg, e);
           setOutput(msg);
         })
       );

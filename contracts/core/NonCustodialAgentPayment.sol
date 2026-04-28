@@ -9,6 +9,22 @@ interface IERC20Extended {
 }
 
 contract NonCustodialAgentPayment is INonCustodialAgentPayment {
+    struct PolicyConfig {
+        bool enabled;
+        uint256 dailyLimit;
+        uint256 perTxLimit;
+        uint256 maxTxPerHour;
+        uint256 validUntil;
+    }
+
+    struct PolicyUsage {
+        uint256 dayIndex;
+        uint256 spentToday;
+        uint256 txCountToday;
+        uint256 hourIndex;
+        uint256 txCountHour;
+    }
+
     error InvalidAddress();
     error InvalidAmount();
     error InvalidDeadline();
@@ -448,6 +464,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
             revert InvalidBatchStatus(batchId, BatchStatus.Open, batch.status);
         }
         if (batchOwner[batchId] != msg.sender) revert BatchOwnerMismatch();
+        _enforcePolicy(msg.sender, msg.sender, keccak256("batch:close"), 1);
         batch.status = BatchStatus.Closed;
         bytes32 key = _batchKey(msg.sender, bills[batchBillIds[batchId][0]].token);
         if (activeBatchByOwnerToken[key] == batchId) {
@@ -473,6 +490,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
             revert InvalidBatchStatus(batchId, BatchStatus.Closed, batch.status);
         }
         if (batchOwner[batchId] != msg.sender) revert BatchOwnerMismatch();
+        _enforcePolicy(msg.sender, msg.sender, keccak256("batch:settle"), 1);
 
         uint256[] storage ids = batchBillIds[batchId];
         uint256 remaining = ids.length - batchNextSettleIndex[batchId];
@@ -581,6 +599,44 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
 
     function isPolicyScopeAllowed(address ownerAddr, bytes32 scopeHash) external view override returns (bool) {
         return policyAllowedScope[ownerAddr][scopeHash];
+    }
+
+    function setPolicy(uint256 perTxLimit, uint256 dailyLimit, uint256 maxTxPerWindow, uint256 windowSeconds, bool enabled)
+        external
+        override
+    {
+        if (windowSeconds != 0 && windowSeconds != 3600) revert PolicyViolation();
+        uint256 validUntil = enabled ? block.timestamp + 365 days : 0;
+        setPolicyConfig(enabled, dailyLimit, perTxLimit, maxTxPerWindow, validUntil);
+    }
+
+    function setPolicyPayee(address payee, bool allowed) external override {
+        setPolicyAllowedCounterparty(payee, allowed);
+    }
+
+    function setPolicyToken(address token, bool allowed) external override {
+        if (token == address(0)) revert InvalidAddress();
+        policyAllowedCounterparty[msg.sender][token] = allowed;
+        emit PolicyCounterpartyUpdated(msg.sender, token, allowed);
+    }
+
+    function getPolicy(address ownerAddr) external view override returns (Policy memory) {
+        PolicyConfig memory cfg = policyByOwner[ownerAddr];
+        return Policy({
+            perTxLimit: cfg.perTxLimit,
+            dailyLimit: cfg.dailyLimit,
+            maxTxPerMinute: cfg.maxTxPerHour,
+            validUntil: cfg.validUntil,
+            enabled: cfg.enabled
+        });
+    }
+
+    function isPolicyPayeeAllowed(address ownerAddr, address payee) external view override returns (bool) {
+        return policyAllowedCounterparty[ownerAddr][payee];
+    }
+
+    function isPolicyTokenAllowed(address ownerAddr, address token) external view override returns (bool) {
+        return policyAllowedCounterparty[ownerAddr][token];
     }
 
     /// @notice Returns batch snapshot by id.
