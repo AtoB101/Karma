@@ -64,6 +64,14 @@ make doctor
 
 This writes `results/doctor-report.txt`.
 
+For one-step bundle packaging (text + JSON + key artifacts):
+
+```bash
+make support-bundle
+```
+
+This writes a zip file in `results/` (e.g. `support-bundle-YYYYmmdd-HHMMSS.zip`).
+
 If wallet cannot connect:
 - Use `http://` URL (not `file://`)
 - Check MetaMask unlocked and network matches deployed chain
@@ -74,6 +82,7 @@ If Health Check is blocked:
 - Verify addresses and chain
 - Run `make doctor` for text diagnostics
 - Run `make doctor-json` for machine-readable diagnostics
+- Run `make support-bundle` for one-file handoff
 
 ## 5) 中文快速说明
 
@@ -111,6 +120,14 @@ make doctor
 ```
 
 会生成 `results/doctor-report.txt`，可以直接发给支持同学排查。
+
+如果你希望把诊断和关键产物打成一个压缩包，执行：
+
+```bash
+make support-bundle
+```
+
+会在 `results/` 下生成 `support-bundle-时间戳.zip`，可直接发送给支持同学。
 
 ### 第三步：打开前端
 

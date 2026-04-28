@@ -26,6 +26,7 @@ Quick docs:
 - Troubleshooting: `docs/TROUBLESHOOTING.md`
 - Full ops workflow: `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt`
 - One-shot diagnostics: `make doctor` (text report) / `make doctor-json` (JSON report)
+- Support bundle zip: `make support-bundle` (collects doctor reports + key artifacts)
 
 ## Core Modules
 
