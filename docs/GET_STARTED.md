@@ -171,3 +171,5 @@ http://127.0.0.1:8790/examples/v01-metamask-settlement.html
 
 Full command cheatsheet / 完整命令速查：
 - `docs/COMMANDS.md`
+- M1 acceptance checklist / M1 验收清单：
+- `docs/M1_ACCEPTANCE_CHECKLIST.md`

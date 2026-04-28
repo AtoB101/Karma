@@ -1,28 +1,80 @@
-# TrustChain Evidence Schema v0.1
+# TrustChain Evidence Schema v0.1 (Frozen for M1)
 
-This schema standardizes exported diagnosis JSON for audit, support, and policy analysis.
+This document defines the **field contract** for exported diagnosis JSON in M1.
+The goal is to keep support/audit parsers stable while M2 adds new fields.
+
+## Schema freeze policy (M1)
+
+- `evidenceVersion = "evidence-v1"` is the canonical schema marker.
+- Existing field names below are frozen for M1 and must not be renamed.
+- New optional fields may be appended in M2+, but existing fields must remain backward compatible.
+- `reportVersion` is legacy and transitional (`"1.1"` in current exporter); consumers should key on `evidenceVersion`.
 
 ## Top-level fields
 
-- `evidenceVersion`: schema version string (e.g. `1.0`)
-- `app`: application name
-- `traceId`: unique per-export trace id
-- `exportedAt`: ISO timestamp
-- `userAgent`: browser agent string
-- `pageUrl`: current page URL
-- `network`: chain metadata (`chainId`, `name`) or error info
-- `walletAddress`: full wallet address if connected
+- `reportVersion` (legacy compatibility)
+- `evidenceVersion` (canonical schema marker)
+- `traceId`
+- `app`
+- `exportedAt`
+- `userAgent`
+- `pageUrl`
+- `network`
+- `walletAddress`
+- `kpis`
+- `autoMonitor`
+- `authSnapshot`
+- `requestSnapshot`
+- `executionSnapshot`
+- `riskSnapshot`
 
-## Authorization snapshot
+## authSnapshot
 
-`authorizationSnapshot` summarizes what authorization context existed at export time.
+- `walletAddress`
+- `signaturePresent`
+- `quotePresent`
 
-- `walletConnected`: boolean
-- `signaturePresent`: boolean
-- `scopeText`: current scope input
-- `proofHashText`: current proof hash input
-- `deadlineTtlSeconds`: current TTL input
-- `lastQuoteSummary`:
+## requestSnapshot
+
+- `form`:
+  - `engineAddress`
+  - `nonCustodialAddress`
+  - `tokenAddress`
+  - `payeeAddress`
+  - `amount`
+  - `scopeText`
+  - `proofHashText`
+  - `ttlSeconds`
+- `logFilters`:
+  - `kind`
+  - `severity`
+- `policySnapshot` (string snapshot shown in UI)
+- `policyDecision`:
+  - `result` (`allowed | blocked | unknown`)
+  - `reasonKind`
+  - `reasonTitle`
+  - `detail`
+  - `decidedAt`
+
+## executionSnapshot
+
+- `diagnostics[]`:
+  - `id`
+  - `traceId`
+  - `timestamp`
+  - `kind`
+  - `severity`
+  - `title`
+  - `detail`
+  - `payload`
+- `transactionHistory[]`:
+  - `traceId`
+  - `timestamp`
+  - `status`
+  - `txHash`
+  - `blockNumber`
+  - `amount`
+- `lastQuote`:
   - `quoteId`
   - `payer`
   - `payee`
@@ -32,52 +84,10 @@ This schema standardizes exported diagnosis JSON for audit, support, and policy 
   - `deadline`
   - `scopeHash`
 
-## Request snapshot
+## riskSnapshot
 
-`requestSnapshot` captures current operator inputs.
-
-- `engineAddress`
-- `nonCustodialAddress`
-- `tokenAddress`
-- `payeeAddress`
-- `amount`
-- `scopeText`
-- `proofHashText`
-- `ttlSeconds`
-
-## Execution snapshot
-
-`executionSnapshot` captures runtime health and state context.
-
-- `autoMonitor`: `{ active, pollSeconds }`
-- `logFilters`: `{ kind, severity }`
-- `kpis`:
-  - `wallet`
-  - `engine`
-  - `tokenAllowlist`
-  - `settlementReadiness`
-  - `nonCustodialLocked`
-  - `nonCustodialActive`
-  - `nonCustodialReserved`
-  - `nonCustodialInvariant`
-
-## Risk snapshot
-
-`riskSnapshot` contains the latest high/medium/low diagnostics for risk review.
-
-- `totalDiagnostics`
-- `bySeverity`: counts per severity
-- `latestHigh`: latest high-severity entry or `null`
-- `latestMedium`: latest medium-severity entry or `null`
-- `latestLow`: latest low-severity entry or `null`
-
-## Diagnostics and tx history
-
-- `diagnostics`: array of diagnostic entries
-  - `id`, `timestamp`, `kind`, `severity`, `title`, `detail`, `payload`
-- `transactionHistory`: array of tx status entries from UI
-
-## Compatibility note
-
-Legacy exports used `reportVersion`; new exports use `evidenceVersion`.
-For backward compatibility, exporters may include both during transition.
+- `summary.totalDiagnostics`
+- `summary.high`
+- `summary.medium`
+- `summary.low`
+- `latestHighRiskTitle`
