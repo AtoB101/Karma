@@ -290,6 +290,7 @@ auto_apply_recommendation = int(sys.argv[20]) if len(sys.argv) > 20 else 0
 auto_confirm_runs = int(sys.argv[21]) if len(sys.argv) > 21 else 2
 alert_threshold = (sys.argv[22] if len(sys.argv) > 22 else "high").lower()
 fail_on_alarm = int(sys.argv[23]) if len(sys.argv) > 23 else 0
+decision_history_limit = 200
 
 now_iso = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 now_dt = dt.datetime.now(dt.timezone.utc)
@@ -612,6 +613,60 @@ if patrol_batch:
                 "escalate to strict profile and require immediate fresh-pass recovery",
             )
         )
+auto_state = {
+    "version": "agent-safety-autotune-v1",
+    "updatedAt": now_iso,
+    "activeProfile": profile,
+    "pendingRecommendation": recommended_profile,
+    "pendingStreak": 0,
+    "confirmRuns": auto_confirm_runs,
+    "lastAppliedAt": None,
+    "lastDecision": "manual_mode",
+    "decisionHistory": [],
+}
+if auto_state_path.exists():
+    try:
+        loaded_auto_state = json.loads(auto_state_path.read_text(encoding="utf-8"))
+        if isinstance(loaded_auto_state, dict):
+            auto_state.update(loaded_auto_state)
+    except Exception:
+        pass
+
+auto_state["updatedAt"] = now_iso
+auto_state["confirmRuns"] = auto_confirm_runs
+auto_state["activeProfile"] = profile
+decision_history = list(auto_state.get("decisionHistory") or [])
+decision_event = {
+    "at": now_iso,
+    "fromProfile": profile,
+    "recommendedProfile": recommended_profile,
+    "decision": "manual_mode",
+    "pendingStreak": int(auto_state.get("pendingStreak", 0)),
+}
+
+if auto_apply_recommendation:
+    if recommended_profile != profile:
+        if auto_state.get("pendingRecommendation") == recommended_profile:
+            auto_state["pendingStreak"] = int(auto_state.get("pendingStreak", 0)) + 1
+        else:
+            auto_state["pendingRecommendation"] = recommended_profile
+            auto_state["pendingStreak"] = 1
+        if int(auto_state.get("pendingStreak", 0)) >= max(1, auto_confirm_runs):
+            auto_state["activeProfile"] = recommended_profile
+            auto_state["lastAppliedAt"] = now_iso
+            auto_state["lastDecision"] = "switched"
+            auto_state["pendingStreak"] = 0
+            decision_event["decision"] = "switched"
+            decision_event["toProfile"] = recommended_profile
+        else:
+            auto_state["lastDecision"] = "awaiting_confirmation"
+            decision_event["decision"] = "awaiting_confirmation"
+            decision_event["toProfile"] = profile
+    else:
+        auto_state["pendingRecommendation"] = recommended_profile
+        auto_state["pendingStreak"] = 0
+        auto_state["lastDecision"] = "no_change"
+
 if auto_apply_recommendation and auto_state.get("lastDecision") == "awaiting_confirmation":
     rule_findings.append(
         rule_finding(
@@ -663,47 +718,15 @@ for r in risks:
                 "mitigation": "inspect guardian riskAssessment and apply profile/coverage hardening",
             }
         )
+        decision_event["decision"] = "no_change"
+        decision_event["toProfile"] = profile
+else:
+    decision_event["decision"] = "manual_mode"
+    decision_event["toProfile"] = profile
 
-auto_state = {
-    "version": "agent-safety-autotune-v1",
-    "updatedAt": now_iso,
-    "activeProfile": profile,
-    "pendingRecommendation": recommended_profile,
-    "pendingStreak": 0,
-    "confirmRuns": auto_confirm_runs,
-    "lastAppliedAt": None,
-    "lastDecision": "manual_mode",
-}
-if auto_state_path.exists():
-    try:
-        loaded_auto_state = json.loads(auto_state_path.read_text(encoding="utf-8"))
-        if isinstance(loaded_auto_state, dict):
-            auto_state.update(loaded_auto_state)
-    except Exception:
-        pass
-
-auto_state["updatedAt"] = now_iso
-auto_state["confirmRuns"] = auto_confirm_runs
-auto_state["activeProfile"] = profile
-
-if auto_apply_recommendation:
-    if recommended_profile != profile:
-        if auto_state.get("pendingRecommendation") == recommended_profile:
-            auto_state["pendingStreak"] = int(auto_state.get("pendingStreak", 0)) + 1
-        else:
-            auto_state["pendingRecommendation"] = recommended_profile
-            auto_state["pendingStreak"] = 1
-        if int(auto_state.get("pendingStreak", 0)) >= max(1, auto_confirm_runs):
-            auto_state["activeProfile"] = recommended_profile
-            auto_state["lastAppliedAt"] = now_iso
-            auto_state["lastDecision"] = "switched"
-            auto_state["pendingStreak"] = 0
-        else:
-            auto_state["lastDecision"] = "awaiting_confirmation"
-    else:
-        auto_state["pendingRecommendation"] = recommended_profile
-        auto_state["pendingStreak"] = 0
-        auto_state["lastDecision"] = "no_change"
+decision_event["pendingStreak"] = int(auto_state.get("pendingStreak", 0))
+decision_history.append(decision_event)
+auto_state["decisionHistory"] = decision_history[-decision_history_limit:]
 
 overall = "pass" if not risks else ("warning" if all(r["severity"] == "warning" for r in risks) else "fail")
 
@@ -772,6 +795,8 @@ report = {
             "pendingStreak": auto_state.get("pendingStreak"),
             "lastDecision": auto_state.get("lastDecision"),
             "lastAppliedAt": auto_state.get("lastAppliedAt"),
+            "decisionHistorySize": len(auto_state.get("decisionHistory") or []),
+            "latestDecision": (auto_state.get("decisionHistory") or [None])[-1],
             "nextRunProfile": auto_state.get("activeProfile") if auto_apply_recommendation else profile,
         },
         "ruleRiskAnalysis": {

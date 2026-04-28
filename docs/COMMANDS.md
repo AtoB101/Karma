@@ -144,6 +144,8 @@ make quickstart
 - `./scripts/agent-safety-guardian.sh --profile balanced --auto-apply-recommendation --auto-confirm-runs 2 --auto-state results/agent-safety-autotune-state.json`
 - `./scripts/agent-safety-guardian.sh --profile balanced --alert-threshold medium --alarm-output results/agent-safety-alarm-latest.json --fail-on-alarm`
 - `./scripts/rule-gap-adversarial-sim.sh --output results/rule-gap-adversarial-latest.json`
+- `./scripts/api_server.py --host 127.0.0.1 --port 8811 --token dev-token`
+- `./scripts/api-smoke.sh --host 127.0.0.1 --port 8811 --token dev-token`
 
 ## Frontend URL
 

@@ -35,6 +35,10 @@ Quick docs:
 - Agent safety guardian: `make agent-safety-guardian` (end-to-end self-check + risk grading + risk register ledger)
 - Compatibility aliases: `make ci-proof-gate` and `make guardian` (mapped to current targets)
 - Rule-gap model: `docs/RULE_GAP_RISK_MODEL_V01.md` (rule exploitation attack surface + alert strategy)
+- API roadmap: `docs/API_ROADMAP_V01.md` (ecosystem API landing phases and governance baseline)
+- OpenAPI contract: `openapi/trustchain-v1.yaml` (contract-first API spec for integration teams)
+- API local run: `make api-run` (starts zero-dependency API service at `127.0.0.1:8811`)
+- API smoke test: `make api-smoke` (verifies payment intent + evidence + risk alert routes)
 - Local CI gate: `make ci-local` (build + focused core tests, no env required)
 - Env-aware CI gate: `make ci-local-env` (includes preflight with `.env`)
 - M4 roadmap: `docs/M4_ROADMAP_V01.md`

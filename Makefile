@@ -1,4 +1,4 @@
-.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index verify-proof-index-batch validate-evidence-schema ci-proof-gates ci-proof-gate proof-patrol agent-safety-guardian guardian rule-gap-adversarial-sim
+.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index verify-proof-index-batch validate-evidence-schema ci-proof-gates ci-proof-gate proof-patrol agent-safety-guardian guardian rule-gap-adversarial-sim api-run api-smoke
 
 help:
 	@echo "Available targets:"
@@ -20,6 +20,8 @@ help:
 	@echo "  make agent-safety-guardian   # run end-to-end safety guardian (self-check + risk registry)"
 	@echo "  make guardian                # alias of agent-safety-guardian"
 	@echo "  make rule-gap-adversarial-sim # run rule-exploit adversarial simulation scenarios"
+	@echo "  make api-run                 # start TrustChain ecosystem API server on :8811"
+	@echo "  make api-smoke               # run API smoke tests against local server"
 
 quickstart:
 	@./scripts/dev-up.sh --from-env
@@ -84,3 +86,9 @@ guardian: agent-safety-guardian
 
 rule-gap-adversarial-sim:
 	@./scripts/rule-gap-adversarial-sim.sh
+
+api-run:
+	@./scripts/api_server.py --host 127.0.0.1 --port 8811 --results-dir results
+
+api-smoke:
+	@./scripts/api-smoke.sh --host 127.0.0.1 --port 8811

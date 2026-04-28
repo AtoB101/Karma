@@ -154,7 +154,7 @@ scenarios = [
     scenario_recommendation_execution_drift(),
 ]
 
-sev_rank = {"warning": 1, "high": 2, "critical": 3}
+sev_rank = {"warning": 1, "medium": 2, "high": 3, "critical": 4}
 max_sev = "warning"
 max_score = 0.0
 for s in scenarios:
