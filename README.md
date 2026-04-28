@@ -11,6 +11,13 @@ cp .env.example .env
 python3 -m webbrowser "http://127.0.0.1:8790/examples/v01-metamask-settlement.html?ts=$(date +%s)"
 ```
 
+Or shorter:
+
+```bash
+cp .env.example .env
+make quickstart
+```
+
 If your shell does not have `python3 -m webbrowser`, open this URL manually:
 `http://127.0.0.1:8790/examples/v01-metamask-settlement.html`
 

@@ -23,6 +23,12 @@ Recommended:
 ./scripts/dev-up.sh --from-env
 ```
 
+or with Make:
+
+```bash
+make quickstart
+```
+
 What it does:
 1. Runs environment checks (`forge`, `cast`, `python3`, required env).
 2. Deploys non-custodial core with `scripts/deploy-v01-eth.sh`.
@@ -73,6 +79,12 @@ If Health Check is blocked:
 
 ```bash
 ./scripts/dev-up.sh --from-env
+```
+
+或者使用 Make：
+
+```bash
+make quickstart
 ```
 
 该命令会自动：
