@@ -31,6 +31,7 @@ Quick docs:
 - Support bundle zip: `make support-bundle` (collects doctor reports + key artifacts)
 - Evidence schema check: `make validate-evidence-schema` (validates latest diagnosis JSON compatibility)
 - Proof CI gate: `make ci-proof-gates` (schema compatibility + proof-index batch policy checks)
+- Proof patrol profile: `make proof-patrol` (scheduled-style patrol with strict|balanced|lenient policy profiles)
 - Local CI gate: `make ci-local` (build + focused core tests, no env required)
 - Env-aware CI gate: `make ci-local-env` (includes preflight with `.env`)
 - M4 roadmap: `docs/M4_ROADMAP_V01.md`

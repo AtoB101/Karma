@@ -55,6 +55,10 @@ make quickstart
   CN: 运行 M4.1 的证据/索引门禁（schema 兼容 + proof-index 批量策略）。  
   EN: Run M4.1 proof gates (schema compatibility + batch proof-index policies).
 
+- `make proof-patrol`  
+  CN: 按巡检策略（strict/balanced/lenient）执行 proof-index 巡检并输出告警 JSON。  
+  EN: Run profile-based proof patrol and emit alert-friendly JSON.
+
 ### 3) Local CI checks
 
 - `make ci-local`  
@@ -116,9 +120,11 @@ make quickstart
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
 - `./scripts/ci-proof-gates.sh`
-- `./scripts/ci-proof-gates.sh --sample docs/samples/trustchain-evidence-sample-v1.json --results-dir results --strict --max-fail 0 --min-total 1 --require-recent-pass 24`
+- `./scripts/ci-proof-gates.sh --format json`
 - `./scripts/proof-sop-checklist.sh --operator <name> --reviewer <name> --ticket <id>`
 - `./scripts/validate-evidence-schema.sh --path results/trustchain-v01-diagnosis-<timestamp>.json`
+- `./scripts/proof-patrol.sh --profile strict --dir results --batch-output results/proof-patrol-batch-strict.json --alert-output results/proof-patrol-alert-strict.json`
+- `./scripts/proof-patrol.sh --profile balanced --since "2026-04-28T00:00:00Z" --until "2026-04-28T23:59:59Z"`
 
 ## Frontend URL
 

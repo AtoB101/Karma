@@ -61,10 +61,27 @@ Acceptance:
 Target:
 - convert existing batch proof checks into scheduled patrol policy profiles.
 
-Planned deliverables:
-- recommended policy bundles (strict/min-total/recent-pass/max-fail)
-- alert-friendly JSON report contract and examples
-- operator playbook for handling patrol failures
+Deliverables (implemented):
+- patrol wrapper script:
+  - `scripts/proof-patrol.sh`
+  - profile-based policies: `strict | balanced | lenient`
+  - emits two artifacts:
+    - batch summary JSON (from `verify-proof-index-batch.sh`)
+    - alert-oriented JSON (`status/severity/policy/reasonSummary/nextActions`)
+- predefined policy bundles:
+  - strict: `--strict --max-fail 0 --min-total 3 --require-recent-pass 24`
+  - balanced: `--strict --max-fail 1 --min-total 2 --require-recent-pass 72`
+  - lenient: `--max-fail 2 --min-total 1 --require-recent-pass 168`
+- Make target:
+  - `make proof-patrol` (defaults to balanced profile)
+- operator docs:
+  - command examples + cron-friendly usage in `docs/COMMANDS.md`
+  - handling guidance in `docs/PROOF_VERIFICATION_SOP.md`
+
+Acceptance:
+- patrol returns non-zero when batch policy gate fails.
+- patrol always emits alert JSON with `status` and `severity`.
+- profile switch changes thresholds without editing batch script internals.
 
 ## Notes
 

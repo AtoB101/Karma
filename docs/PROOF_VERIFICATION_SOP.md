@@ -213,6 +213,17 @@ Optional policy controls for CI/ops:
   - `./scripts/ci-proof-gates.sh` runs:
     1) evidence schema validation on `docs/samples/trustchain-evidence-sample-v1.json`
     2) batch proof-index verification with strict policy profile (`--strict --max-fail 0 --min-total 1 --require-recent-pass 24`)
+- patrol profile wrapper (M4.2):
+  - `./scripts/proof-patrol.sh --profile <strict|balanced|lenient>`
+  - outputs:
+    - batch summary JSON (`results/proof-patrol-batch-latest.json`)
+    - alert JSON (`results/proof-patrol-alert-latest.json`)
+  - alert JSON fields include:
+    - `status` (`pass|fail`)
+    - `severity` (`info|warning|critical`)
+    - `policy`
+    - `reasonSummary`
+    - `nextActions`
 - batch summary fields:
   - `reasonSummary`: fail reasons grouped by count
   - `latestPassAt`: latest bundle stamp among pass rows (if present)
