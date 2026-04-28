@@ -181,6 +181,34 @@ Proof JSON includes:
   - `stableConfigChainHead`
   - `stableHistoryIntegrity`
 
+## Evidence integration (M2.8 proof-signature extension)
+
+To make the proof artifact independently attestable, frontend now supports wallet signing
+of proof digest (EIP-191 style personal message via `signMessage`):
+
+- UI action: `Sign stable proof`
+- precondition:
+  - wallet connected
+  - at least one imported JSON verification result in current session
+
+Signature flow:
+
+1. Build canonical proof object from latest imported verification context.
+2. Hash canonical proof JSON with `keccak256(utf8Bytes(json))` as `proofDigest`.
+3. Ask wallet to sign `proofDigest` string via `signMessage`.
+4. Persist signature block into proof:
+   - `signature.digest`
+   - `signature.wallet`
+   - `signature.scheme` (`eip191_personal_sign`)
+   - `signature.signedAt`
+   - `signature.value` (hex signature)
+
+Export behavior:
+
+- `Export stable proof` now includes `signature` when present.
+- diagnosis export snapshots latest proof with signature in:
+  - `riskSnapshot.importedStableProofReport`
+
 ## Suggested rollout
 
 1. Deploy with enforcement disabled (default) and set desired `minSettlementAmount`.

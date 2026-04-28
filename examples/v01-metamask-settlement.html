@@ -434,6 +434,7 @@
           <button id="verifyStableChainBtn">Verify stable hash chain</button>
           <button id="verifyStableChainFromFileBtn">Verify from JSON file</button>
           <button id="exportStableProofBtn">Export stable proof</button>
+          <button id="signStableProofBtn">Sign stable proof</button>
           <input id="verifyStableChainFileInput" type="file" accept="application/json,.json" style="display: none" />
           <span class="muted">Includes addresses, KPIs, logs, tx history, and quote fields; no private keys.</span>
         </div>
@@ -466,6 +467,7 @@
         importedStableHistoryVerification: null,
         lastImportedStableChainHead: null,
         importedStableProofReport: null,
+        importedStableProofSignature: null,
         autoMonitorTimer: null,
         sessionTraceId: null,
       };
@@ -774,11 +776,63 @@
             headHash: imported.chainHead || state.lastImportedStableChainHead || null,
             recordCount: imported.recordCount ?? null,
           },
+          attestation: null,
         };
       }
 
-      function exportStableProofReport() {
+      function buildStableProofSigningPayload(proof) {
+        return JSON.stringify({
+          proofType: proof.proofType || null,
+          proofVersion: proof.proofVersion || null,
+          generatedAt: proof.generatedAt || null,
+          app: proof.app || null,
+          traceId: proof.traceId || null,
+          source: proof.source || null,
+          verification: proof.verification || null,
+          chain: proof.chain || null,
+        });
+      }
+
+      async function signStableProofReport() {
+        if (!state.signer) throw new Error("Connect wallet first");
         const proof = buildStableProofReport();
+        const payload = buildStableProofSigningPayload(proof);
+        const digest = keccak256(toUtf8Bytes(payload));
+        const walletAddress = await state.signer.getAddress();
+        const message = `TrustChain Stable Proof Digest:\n${digest}`;
+        const signature = await state.signer.signMessage(message);
+        const attestation = {
+          standard: "eip191_signMessage",
+          signer: walletAddress,
+          message,
+          digest,
+          signature,
+          signedAt: new Date().toISOString(),
+        };
+        state.importedStableProofSignature = attestation;
+        const signedProof = { ...proof, attestation };
+        state.importedStableProofReport = signedProof;
+        addDiagnostic("stable_chain", "low", "Stable proof signed", `signer=${walletAddress}, digest=${digest}`);
+        setOutput({
+          step: "stable_proof_signed",
+          signer: walletAddress,
+          digest,
+          signature,
+        });
+        return signedProof;
+      }
+
+      function exportStableProofReport() {
+        const proofBase = buildStableProofReport();
+        const payload = buildStableProofSigningPayload(proofBase);
+        const digest = keccak256(toUtf8Bytes(payload));
+        const attestation = state.importedStableProofSignature?.digest === digest
+          ? state.importedStableProofSignature
+          : null;
+        const proof = {
+          ...proofBase,
+          attestation,
+        };
         const stamp = new Date().toISOString().replace(/[:.]/g, "-");
         const fileName = `trustchain-stable-proof-${stamp}.json`;
         state.importedStableProofReport = proof;
@@ -1855,6 +1909,15 @@
           .catch((e) => {
             const msg = readErrorMessage(e);
             addDiagnostic("stable_chain", "high", "Stable proof export failed", msg, e);
+            setOutput(msg);
+          })
+      );
+      document.getElementById("signStableProofBtn").addEventListener("click", () =>
+        Promise.resolve()
+          .then(() => signStableProofReport())
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain", "high", "Stable proof signing failed", msg, e);
             setOutput(msg);
           })
       );

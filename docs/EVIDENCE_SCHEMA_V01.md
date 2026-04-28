@@ -146,6 +146,13 @@ The goal is to keep support/audit parsers stable while M2 adds new fields.
   - `reason` (nullable)
   - `expectedHash` (nullable)
   - `actualHash` (nullable)
+  - `signature` (nullable object; present when user signs proof digest in M2.8+)
+    - `scheme` (`eip191_signMessage`)
+    - `signer` (wallet address)
+    - `signedAt` (ISO timestamp)
+    - `digest` (`keccak256` of canonical proof summary payload)
+    - `message` (human-readable signable string including digest)
+    - `signature` (hex string)
 - `stableSettlement`:
   - `enforcementEnabled` (nullable boolean)
   - `minSettlementAmount` (nullable string)
