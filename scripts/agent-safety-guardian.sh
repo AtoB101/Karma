@@ -14,11 +14,12 @@ REGISTER_PATH="${RESULTS_DIR}/agent-risk-register.json"
 HISTORY_LIMIT=200
 TREND_WINDOW_HOURS=168
 ESCALATE_REPEAT_THRESHOLD=3
+DECAY_HALF_LIFE_HOURS=48
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/agent-safety-guardian.sh [--profile <strict|balanced|lenient>] [--from-env] [--skip-proof-gates] [--skip-patrol] [--skip-support-bundle] [--output <path>] [--register <path>] [--history-limit <n>] [--trend-window-hours <n>] [--escalate-repeat-threshold <n>]
+  ./scripts/agent-safety-guardian.sh [--profile <strict|balanced|lenient>] [--from-env] [--skip-proof-gates] [--skip-patrol] [--skip-support-bundle] [--output <path>] [--register <path>] [--history-limit <n>] [--trend-window-hours <n>] [--escalate-repeat-threshold <n>] [--decay-half-life-hours <n>]
 
 Description:
   Runs an end-to-end internal safety self-check pipeline and generates:
@@ -36,6 +37,7 @@ Options:
   --history-limit <n>    Keep latest N risk records in register (default: 200)
   --trend-window-hours <n>        Window for trend stats and repeat checks (default: 168)
   --escalate-repeat-threshold <n> Escalate warning->high when same risk code repeats >= n times in trend window (default: 3)
+  --decay-half-life-hours <n>     Half-life for time-decay risk scoring/heat index (default: 48)
   -h, --help             Show this help message
 EOF
 }
@@ -100,6 +102,15 @@ while [[ $# -gt 0 ]]; do
       ESCALATE_REPEAT_THRESHOLD="$2"
       if ! [[ "$ESCALATE_REPEAT_THRESHOLD" =~ ^[0-9]+$ ]]; then
         echo "Error: --escalate-repeat-threshold must be a non-negative integer"
+        exit 1
+      fi
+      shift 2
+      ;;
+    --decay-half-life-hours)
+      [[ $# -lt 2 ]] && { echo "Error: --decay-half-life-hours requires a value"; exit 1; }
+      DECAY_HALF_LIFE_HOURS="$2"
+      if ! [[ "$DECAY_HALF_LIFE_HOURS" =~ ^[0-9]+$ ]]; then
+        echo "Error: --decay-half-life-hours must be a non-negative integer"
         exit 1
       fi
       shift 2
@@ -172,7 +183,7 @@ if [[ "$SKIP_PATROL" -eq 0 ]]; then
   set -e
 fi
 
-python3 - "$DOCTOR_JSON" "$PATROL_BATCH" "$PATROL_ALERT" "$REGISTER_PATH" "$OUTPUT_PATH" "$PROFILE" "$STAMP" "$PROOF_GATES_EXIT" "$PATROL_EXIT" "$SUPPORT_BUNDLE_EXIT" "$HISTORY_LIMIT" "$SKIP_PROOF_GATES" "$SKIP_PATROL" "$SKIP_SUPPORT_BUNDLE" "$TREND_WINDOW_HOURS" "$ESCALATE_REPEAT_THRESHOLD" <<'PY'
+python3 - "$DOCTOR_JSON" "$PATROL_BATCH" "$PATROL_ALERT" "$REGISTER_PATH" "$OUTPUT_PATH" "$PROFILE" "$STAMP" "$PROOF_GATES_EXIT" "$PATROL_EXIT" "$SUPPORT_BUNDLE_EXIT" "$HISTORY_LIMIT" "$SKIP_PROOF_GATES" "$SKIP_PATROL" "$SKIP_SUPPORT_BUNDLE" "$TREND_WINDOW_HOURS" "$ESCALATE_REPEAT_THRESHOLD" "$DECAY_HALF_LIFE_HOURS" <<'PY'
 import datetime as dt
 import json
 import pathlib
@@ -195,6 +206,7 @@ skip_patrol = int(sys.argv[13])
 skip_support_bundle = int(sys.argv[14])
 trend_window_hours = int(sys.argv[15])
 escalate_repeat_threshold = int(sys.argv[16])
+decay_half_life_hours = int(sys.argv[17]) if len(sys.argv) > 17 else 48
 
 now_iso = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 now_dt = dt.datetime.now(dt.timezone.utc)
@@ -368,13 +380,17 @@ for row in risks:
     code = row.get("code") or "unknown"
     repeated_count = recent_code_freq.get(code, 0) + 1
     if repeated_count >= escalate_repeat_threshold:
+        from_severity = row["severity"]
         row["severity"] = "high"
+        row["escalated"] = True
         row["detail"] = (
             f"{row.get('detail')} Escalated to high: code '{code}' repeated "
             f"{repeated_count} times within {trend_window_hours}h window."
         )
         row["escalation"] = {
             "rule": "warning_to_high_on_repeat",
+            "fromSeverity": from_severity,
+            "toSeverity": "high",
             "threshold": escalate_repeat_threshold,
             "windowHours": trend_window_hours,
             "repeatCount": repeated_count,
@@ -408,6 +424,49 @@ for code, freq in sorted(recent_code_freq.items(), key=lambda x: x[1], reverse=T
             "predictedEscalation": level,
             "recommendedDefense": "tighten patrol profile and increase check frequency for this risk code",
         }
+    )
+
+severity_weight = {
+    "critical": 1.00,
+    "high": 0.70,
+    "medium": 0.40,
+    "warning": 0.20,
+}
+
+half_life_hours = max(1, decay_half_life_hours)
+decayed_score_by_code = {}
+decayed_total_score = 0.0
+recent_critical = 0
+for row in records:
+    detected_at_dt = parse_iso8601(row.get("detectedAt"))
+    if not detected_at_dt or detected_at_dt < trend_start_dt:
+        continue
+    age_hours = max(0.0, (now_dt - detected_at_dt).total_seconds() / 3600.0)
+    decay_factor = 0.5 ** (age_hours / half_life_hours)
+    sev = (row.get("severity") or "warning").lower()
+    weight = severity_weight.get(sev, 0.20)
+    contribution = weight * decay_factor
+    code = row.get("code") or "unknown"
+    decayed_score_by_code[code] = decayed_score_by_code.get(code, 0.0) + contribution
+    decayed_total_score += contribution
+    if sev == "critical":
+        recent_critical += 1
+
+heat_index = min(100.0, round(decayed_total_score * 25.0, 2))
+escalation_count = sum(1 for r in risks if r.get("escalated"))
+if recent_critical > 0 or heat_index >= 70.0 or escalation_count > 0:
+    recommended_profile = "strict"
+elif heat_index >= 35.0:
+    recommended_profile = "balanced"
+else:
+    recommended_profile = "lenient"
+
+if recommended_profile == profile:
+    recommendation_reason = "current patrol profile already matches calculated risk heat"
+else:
+    recommendation_reason = (
+        f"switch profile from {profile} to {recommended_profile} "
+        f"(heatIndex={heat_index}, recentCritical={recent_critical}, escalations={escalation_count})"
     )
 
 overall = "pass" if not risks else ("warning" if all(r["severity"] == "warning" for r in risks) else "fail")
@@ -446,6 +505,13 @@ report = {
             "recentByCode": recent_code_freq,
             "recentTotal": sum(recent_code_freq.values()),
         },
+        "timeDecayModel": {
+            "halfLifeHours": half_life_hours,
+            "severityWeight": severity_weight,
+            "decayedScoreByCode": {k: round(v, 6) for k, v in decayed_score_by_code.items()},
+            "decayedTotalScore": round(decayed_total_score, 6),
+        },
+        "riskHeatIndex": heat_index,
         "escalations": [
             {
                 "code": r.get("code"),
@@ -456,6 +522,11 @@ report = {
             for r in risks
             if r.get("escalated")
         ],
+        "profileRecommendation": {
+            "current": profile,
+            "recommended": recommended_profile,
+            "reason": recommendation_reason,
+        },
         "windowHours": trend_window_hours,
         "repeatEscalationThreshold": escalate_repeat_threshold,
         "nextActions": [
@@ -474,6 +545,8 @@ register_payload = {
         "totalRecords": len(records),
         "trendWindowHours": trend_window_hours,
         "recentByCode": recent_code_freq,
+        "riskHeatIndex": heat_index,
+        "recommendedProfile": recommended_profile,
     },
     "records": records,
 }

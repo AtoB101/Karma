@@ -1,4 +1,4 @@
-# Agent Safety Guardian v0.1
+# Agent Safety Guardian v0.2
 
 This document defines the full-chain "Agent Safety Guardian" workflow for internal validation, risk identification, severity tagging, risk registration, and predictive-defense signal generation.
 
@@ -99,14 +99,28 @@ Cron example (UTC hourly):
 0 * * * * cd /path/to/repo && ./scripts/agent-safety-guardian.sh --profile balanced
 ```
 
-## 8) Predictive defense usage
+## 8) Predictive defense usage (v0.2)
 
-`agent-risk-register.json` is designed for:
+`agent-risk-register.json` and guardian report are designed for:
 
-- trend analysis (recentByCode)
+- trend analysis (`recentByCode`)
 - repeat-risk escalation automation
+- risk heat-index tracking (time-decayed weighted score)
+- automatic patrol-profile recommendation (`lenient|balanced|strict`)
 - future anomaly/prediction model training
+
+v0.2 adds:
+
+- **time-decayed risk scoring** (`predictiveDefense.decayModel`)
+  - recent risks weigh more than older risks inside trend window
+  - per-risk severity mapped to weights (`warning/medium/high/critical`)
+- **risk heat index** (`predictiveDefense.riskHeatIndex`)
+  - normalized 0-100 score for current operational pressure
+- **auto patrol profile recommendation** (`predictiveDefense.recommendedProfile`)
+  - `strict` for high heat or critical trend pattern
+  - `balanced` for medium heat
+  - `lenient` for low heat
 
 Recommended next step:
 
-- add a weekly trend reporter that converts `trendSummary + escalations + signals` into ticket-ready remediation plans.
+- add a weekly trend reporter that converts `trendSummary + escalations + riskHeatIndex + recommendedProfile` into ticket-ready remediation plans.

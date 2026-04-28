@@ -88,7 +88,7 @@ Acceptance:
 - M4.0 focuses on backward compatibility and machine readability, minimizing break risk.
 - M4.1 and M4.2 build on existing M3 scripts and reports instead of replacing them.
 
-## M4.3 — Agent Safety Guardian (self-check + risk registry + predictive defense v0.1)
+## M4.3 — Agent Safety Guardian (self-check + risk registry + predictive defense v0.2)
 
 Target:
 - introduce a full-chain safety guardian that continuously records, identifies, and grades risk signals
@@ -110,14 +110,20 @@ Deliverables (implemented):
 - risk grading model:
   - severity levels: `critical | high | medium | warning`
   - includes policy violation mapping and environment/pipeline risk categories
-- predictive-defense v0.1:
+- predictive-defense v0.2:
   - trend window statistics (`--trend-window-hours`)
   - repeat-risk escalation threshold (`--escalate-repeat-threshold`)
   - auto-escalate warning -> high when the same risk code repeats above threshold in trend window
+  - time-decay weighted risk scoring (recent risks contribute more)
+  - `riskHeatIndex` (0-100) for quick patrol pressure judgement
+  - `recommendedPatrolProfile` auto-suggestion (`lenient | balanced | strict`)
   - machine-readable output fields:
     - `predictiveDefense.trendSummary`
     - `predictiveDefense.escalations`
     - `predictiveDefense.signals`
+    - `predictiveDefense.decayModel`
+    - `predictiveDefense.riskHeatIndex`
+    - `predictiveDefense.recommendedPatrolProfile`
 - Make target:
   - `make agent-safety-guardian`
 
@@ -125,4 +131,4 @@ Acceptance:
 - guardian report contains structured risk objects with `riskId/category/code/severity/source`.
 - guardian emits non-zero when high-severity integrity/pipeline policies fail.
 - registry contains rolling history and per-code trend summary.
-- predictive-defense section includes repeat-risk escalation and recommended actions.
+- predictive-defense section includes repeat-risk escalation, heat index, and auto patrol-profile recommendation.
