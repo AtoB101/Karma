@@ -1,4 +1,4 @@
-.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index
+.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env proof-sop-checklist verify-proof-index verify-proof-index-batch
 
 help:
 	@echo "Available targets:"
@@ -11,7 +11,8 @@ help:
 	@echo "  make ci-local              # run local CI checks (local preflight + build + core tests)"
 	@echo "  make ci-local-env          # run local CI checks with .env loaded"
 	@echo "  make proof-sop-checklist   # generate proof verification SOP record template"
-	@echo "  make verify-proof-index    # verify manifest digest in proof-index.json"
+	@echo "  make verify-proof-index    # verify manifest digest in latest support bundle"
+	@echo "  make verify-proof-index-batch # batch verify manifests under results/"
 
 quickstart:
 	@./scripts/dev-up.sh --from-env
@@ -41,4 +42,12 @@ proof-sop-checklist:
 	@./scripts/proof-sop-checklist.sh
 
 verify-proof-index:
-	@./scripts/verify-proof-index.sh
+	@LATEST_ZIP=$$(ls -t results/support-bundle-*.zip 2>/dev/null | head -n 1); \
+	if [[ -z "$$LATEST_ZIP" ]]; then \
+	  echo "No support-bundle zip found in results/. Run: make support-bundle"; \
+	  exit 1; \
+	fi; \
+	./scripts/verify-proof-index.sh --path "$$LATEST_ZIP"
+
+verify-proof-index-batch:
+	@./scripts/verify-proof-index-batch.sh --dir results --glob "support-bundle-*.zip"

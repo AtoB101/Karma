@@ -185,7 +185,13 @@ Optional metadata passthrough:
 You can verify this digest locally:
 
 ```bash
-./scripts/verify-proof-index.sh --zip "results/support-bundle-<timestamp>.zip"
+./scripts/verify-proof-index.sh --path "results/support-bundle-<timestamp>.zip"
+```
+
+Batch verification across a directory:
+
+```bash
+./scripts/verify-proof-index-batch.sh --dir results --format json --output results/proof-index-batch-report.json
 ```
 
 Expected terminal result:

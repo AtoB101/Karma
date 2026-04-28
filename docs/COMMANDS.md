@@ -40,8 +40,12 @@ make quickstart
   EN: Build one-click support zip bundle (doctor reports + key logs + proof SOP checklist + proof-index manifest + manifest digest).
 
 - `make verify-proof-index`  
-  CN: 校验 `results/proof-index.json` 的 `manifestDigest`（输出 pass/fail 与失败原因）。  
-  EN: Verify `results/proof-index.json` manifest digest (pass/fail with reason).
+  CN: 校验 `results/` 下最新 support-bundle 的 `manifestDigest`（输出 pass/fail 与失败原因）。  
+  EN: Verify manifest digest for latest support-bundle in `results/` (pass/fail with reason).
+
+- `make verify-proof-index-batch`  
+  CN: 批量校验目录下所有 support-bundle 的 `manifestDigest`，输出 JSON/CSV 汇总。  
+  EN: Batch-verify support-bundle manifest digests in a directory, with JSON/CSV summary.
 
 ### 3) Local CI checks
 
@@ -86,7 +90,9 @@ make quickstart
 - `./scripts/doctor.sh --format json --output results/doctor-report.json`
 - `./scripts/support-bundle.sh --port 8790`
 - `./scripts/support-bundle.sh --port 8790 --operator "alice@ops" --reviewer "bob@audit" --ticket "INC-2026-0428-01"`
-- `./scripts/verify-proof-index.sh --path results/proof-index.json`
+- `./scripts/verify-proof-index.sh --path results/support-bundle-<timestamp>.zip`
+- `./scripts/verify-proof-index-batch.sh --dir results --glob "support-bundle-*.zip" --format json --output results/proof-index-batch.json`
+- `./scripts/verify-proof-index-batch.sh --dir results --glob "support-bundle-*.zip" --format csv --output results/proof-index-batch.csv`
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
 - `./scripts/proof-sop-checklist.sh --operator <name> --reviewer <name> --ticket <id>`
