@@ -709,29 +709,32 @@ contract NonCustodialAgentPaymentTest is Test {
 
     function testStableSettlementTokenGateBlocksNonAllowedToken() public {
         vm.prank(address(this)); // owner
-        protocol.setSettlementTokenGateConfig(true, 1);
+        protocol.setSettlementTokenEnforced(true);
+        protocol.setMinSettlementAmount(1);
         vm.prank(address(this)); // owner
         protocol.setSettlementTokenAllowed(address(token), false);
 
         vm.prank(buyer);
-        vm.expectRevert(NonCustodialAgentPayment.SettlementTokenBlocked.selector);
+        vm.expectRevert(NonCustodialAgentPayment.SettlementTokenNotAllowed.selector);
         protocol.createBill(seller, address(token), 1_000, keccak256("scope-m2-token-block"), "ipfs://proof-m2-token-block", block.timestamp + 1 days);
     }
 
     function testStableSettlementMinAmountBlocksSmallBills() public {
         vm.prank(address(this)); // owner
-        protocol.setSettlementTokenGateConfig(true, 2_000);
+        protocol.setSettlementTokenEnforced(true);
+        protocol.setMinSettlementAmount(2_000);
         vm.prank(address(this)); // owner
         protocol.setSettlementTokenAllowed(address(token), true);
 
         vm.prank(buyer);
-        vm.expectRevert(NonCustodialAgentPayment.SettlementAmountTooSmall.selector);
+        vm.expectRevert(NonCustodialAgentPayment.SettlementAmountTooLow.selector);
         protocol.createBill(seller, address(token), 1_000, keccak256("scope-m2-small"), "ipfs://proof-m2-small", block.timestamp + 1 days);
     }
 
     function testStableSettlementAllowedTokenAndAmountPasses() public {
         vm.prank(address(this)); // owner
-        protocol.setSettlementTokenGateConfig(true, 2_000);
+        protocol.setSettlementTokenEnforced(true);
+        protocol.setMinSettlementAmount(2_000);
         vm.prank(address(this)); // owner
         protocol.setSettlementTokenAllowed(address(token), true);
 

@@ -527,16 +527,24 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         emit BatchCircuitBreakerUpdated(paused);
     }
 
-    function setSettlementTokenRule(address token, bool allowed) external override onlyOwner {
+    function setSettlementTokenAllowed(address token, bool allowed) external override onlyOwner {
         if (token == address(0)) revert InvalidAddress();
         settlementTokenAllowed[token] = allowed;
         emit SettlementTokenRuleUpdated(token, allowed);
     }
 
-    function setSettlementGuard(bool tokenEnforced, uint256 minAmount) external override onlyOwner {
-        settlementTokenEnforced = tokenEnforced;
-        minSettlementAmount = minAmount;
-        emit SettlementGuardUpdated(tokenEnforced, minAmount);
+    function setSettlementTokenEnforced(bool enabled) external override onlyOwner {
+        settlementTokenEnforced = enabled;
+        emit SettlementGuardUpdated(enabled, minSettlementAmount);
+    }
+
+    function setMinSettlementAmount(uint256 amount) external override onlyOwner {
+        minSettlementAmount = amount;
+        emit SettlementGuardUpdated(settlementTokenEnforced, amount);
+    }
+
+    function isSettlementTokenEnforced() external view override returns (bool) {
+        return settlementTokenEnforced;
     }
 
     function isSettlementTokenAllowed(address token) external view override returns (bool) {
