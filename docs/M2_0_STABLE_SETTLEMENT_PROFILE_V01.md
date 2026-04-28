@@ -209,6 +209,25 @@ Export behavior:
 - diagnosis export snapshots latest proof with signature in:
   - `riskSnapshot.importedStableProofReport`
 
+## Evidence integration (M2.9 proof-signature verify extension)
+
+Frontend now supports offline verification of a signed proof JSON:
+
+- UI action: `Verify proof signature`
+- input source: local signed proof JSON file (`.json`)
+- verification checks:
+  1. rebuild canonical proof signing payload and recompute `digest`
+  2. recover signer from `message + signature`
+  3. compare recovered signer with declared signer in proof
+  4. compare recomputed digest with declared digest in proof
+
+Result behavior:
+
+- writes diagnostic kind `stable_chain_proof` (low on pass, high on fail)
+- writes output step `stable_proof_signature_verified`
+- stores latest verify result into:
+  - `riskSnapshot.importedStableProofSignatureVerification`
+
 ## Suggested rollout
 
 1. Deploy with enforcement disabled (default) and set desired `minSettlementAmount`.

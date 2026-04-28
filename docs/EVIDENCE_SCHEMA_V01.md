@@ -153,6 +153,17 @@ The goal is to keep support/audit parsers stable while M2 adds new fields.
     - `digest` (`keccak256` of canonical proof summary payload)
     - `message` (human-readable signable string including digest)
     - `signature` (hex string)
+- `importedStableProofSignatureVerification` (object; result of local signature verification for imported proof JSON; nullable)
+  - `source` (`proof_json`)
+  - `fileName`
+  - `ok` (boolean)
+  - `digestMatches` (boolean)
+  - `signerMatches` (boolean)
+  - `declaredSigner` (proof-declared signer)
+  - `recoveredSigner` (locally recovered signer from signature)
+  - `digest` (declared digest in proof)
+  - `recomputedDigest` (local recomputed digest)
+  - `signature` (hex signature value used for recovery)
 - `stableSettlement`:
   - `enforcementEnabled` (nullable boolean)
   - `minSettlementAmount` (nullable string)

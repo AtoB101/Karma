@@ -435,14 +435,16 @@
           <button id="verifyStableChainFromFileBtn">Verify from JSON file</button>
           <button id="exportStableProofBtn">Export stable proof</button>
           <button id="signStableProofBtn">Sign stable proof</button>
+          <button id="verifyStableProofSigFromFileBtn">Verify proof signature</button>
           <input id="verifyStableChainFileInput" type="file" accept="application/json,.json" style="display: none" />
+          <input id="verifyStableProofFileInput" type="file" accept="application/json,.json" style="display: none" />
           <span class="muted">Includes addresses, KPIs, logs, tx history, and quote fields; no private keys.</span>
         </div>
       </section>
     </div>
 
     <script type="module">
-      import { BrowserProvider, Contract, Signature, keccak256, toUtf8Bytes } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
+      import { BrowserProvider, Contract, Signature, keccak256, toUtf8Bytes, verifyMessage } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
 
       const outputEl = document.getElementById("output");
       const riskContainerEl = document.getElementById("riskContainer");
@@ -468,6 +470,7 @@
         lastImportedStableChainHead: null,
         importedStableProofReport: null,
         importedStableProofSignature: null,
+        importedStableProofSignatureVerification: null,
         autoMonitorTimer: null,
         sessionTraceId: null,
       };
@@ -793,6 +796,16 @@
         });
       }
 
+      function normalizeAddress(value) {
+        if (!value || typeof value !== "string") return null;
+        return value.trim().toLowerCase();
+      }
+
+      function extractProofAttestation(proof) {
+        if (!proof || typeof proof !== "object") return null;
+        return proof.attestation || proof.signature || null;
+      }
+
       async function signStableProofReport() {
         if (!state.signer) throw new Error("Connect wallet first");
         const proof = buildStableProofReport();
@@ -820,6 +833,73 @@
           signature,
         });
         return signedProof;
+      }
+
+      async function verifyStableProofSignatureFromFile(file) {
+        if (!file) throw new Error("Please select a proof JSON file first.");
+        const text = await file.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          throw new Error("Invalid proof JSON file.");
+        }
+        const attestation = extractProofAttestation(parsed);
+        if (!attestation) {
+          throw new Error("Proof JSON missing signature/attestation object.");
+        }
+        const digest = attestation.digest || attestation.proofDigest || null;
+        const message = attestation.message || (digest ? `TrustChain Stable Proof Digest:\n${digest}` : null);
+        const signatureValue = attestation.signature || attestation.value || null;
+        const declaredSigner = attestation.signer || attestation.wallet || null;
+        if (!digest || !message || !signatureValue || !declaredSigner) {
+          throw new Error("Proof signature fields incomplete (digest/message/signature/signer required).");
+        }
+        const rebuiltPayload = buildStableProofSigningPayload({
+          proofType: parsed.proofType || null,
+          proofVersion: parsed.proofVersion || null,
+          generatedAt: parsed.generatedAt || null,
+          app: parsed.app || null,
+          traceId: parsed.traceId || null,
+          source: parsed.source || null,
+          verification: parsed.verification || null,
+          chain: parsed.chain || null,
+        });
+        const recomputedDigest = keccak256(toUtf8Bytes(rebuiltPayload));
+        const recoveredSigner = Signature.from(signatureValue).recoverPublicKey(keccak256(toUtf8Bytes(message)));
+        // ethers v6 recoverPublicKey returns pubkey; we verify via verifyMessage for address-level check.
+        const { verifyMessage } = await import("https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm");
+        const recoveredAddress = verifyMessage(message, signatureValue);
+        const digestMatches = normalizeAddress(digest) === normalizeAddress(recomputedDigest);
+        const signerMatches = normalizeAddress(declaredSigner) === normalizeAddress(recoveredAddress);
+        const ok = Boolean(digestMatches && signerMatches);
+        const result = {
+          source: "proof_json",
+          fileName: file.name,
+          verifiedAt: new Date().toISOString(),
+          ok,
+          digestMatches,
+          signerMatches,
+          declaredSigner,
+          recoveredSigner: recoveredAddress,
+          digest,
+          recomputedDigest,
+          signature: signatureValue,
+        };
+        state.importedStableProofSignatureVerification = result;
+        addDiagnostic(
+          "stable_chain_proof",
+          ok ? "low" : "high",
+          ok ? "Stable proof signature verified" : "Stable proof signature verification failed",
+          ok
+            ? `file=${file.name}, signer=${declaredSigner}`
+            : `file=${file.name}, digestMatches=${digestMatches}, signerMatches=${signerMatches}`
+        );
+        setOutput({
+          step: "stable_proof_signature_verified",
+          ...result,
+        });
+        return result;
       }
 
       function exportStableProofReport() {
@@ -1249,6 +1329,7 @@
             stableHistoryVerification: stableChainVerification,
             importedStableHistoryVerification: state.importedStableHistoryVerification,
             importedStableProofReport: state.importedStableProofReport,
+            importedStableProofSignatureVerification: state.importedStableProofSignatureVerification,
           },
         };
       }
@@ -1921,6 +2002,26 @@
             setOutput(msg);
           })
       );
+      document.getElementById("verifyStableProofSigFromFileBtn").addEventListener("click", () => {
+        const fileInput = document.getElementById("verifyStableProofFileInput");
+        if (!(fileInput instanceof HTMLInputElement)) return;
+        fileInput.click();
+      });
+      document.getElementById("verifyStableProofFileInput").addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        const file = target.files?.[0];
+        Promise.resolve()
+          .then(() => verifyStableProofSignatureFromFile(file))
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain_proof", "high", "Proof signature verification failed", msg, e);
+            setOutput(msg);
+          })
+          .finally(() => {
+            target.value = "";
+          });
+      });
       document.getElementById("applyPolicyBtn").addEventListener("click", () =>
         applyPolicyConfig().catch((e) => {
           const msg = readErrorMessage(e);
