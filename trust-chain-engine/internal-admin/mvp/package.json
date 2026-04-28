@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "demo": "bash ./run-demo.sh"
+    "demo": "bash ./run-demo.sh",
+    "verify": "bash ./verify-first-paid-call.sh"
   },
   "keywords": [],
   "author": "",

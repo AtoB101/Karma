@@ -55,6 +55,33 @@ Each record includes:
 - `txHash`
 - `balances.before/after`
 
+## Verify first paid call closure
+
+Run:
+
+```bash
+./verify-first-paid-call.sh
+```
+
+or:
+
+```bash
+npm run verify
+```
+
+Verifier checks:
+
+1. a paid-call log exists
+2. `chargedWei > 0`
+3. `txHash` format is valid
+4. user/provider balances changed in expected direction
+
+Optional explicit threshold:
+
+```bash
+EXPECTED_MIN_CHARGE_WEI=10000000000000 ./verify-first-paid-call.sh
+```
+
 ## Important
 
 - This is a private validation MVP.
