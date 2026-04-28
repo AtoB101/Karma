@@ -10,11 +10,13 @@ MAX_FAIL=-1
 STRICT=0
 SINCE=""
 UNTIL=""
+MIN_TOTAL=0
+REQUIRE_RECENT_PASS_HOURS=""
 
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/verify-proof-index-batch.sh [--dir <path>] [--glob <pattern>] [--format <text|json|csv>] [--output <path>] [--max-fail <n>] [--strict] [--since <stamp>] [--until <stamp>]
+  ./scripts/verify-proof-index-batch.sh [--dir <path>] [--glob <pattern>] [--format <text|json|csv>] [--output <path>] [--max-fail <n>] [--strict] [--since <stamp>] [--until <stamp>] [--min-total <n>] [--require-recent-pass <hours>]
 
 Description:
   Batch-verifies manifestDigest for support bundle proof-index manifests.
@@ -29,6 +31,8 @@ Options:
   --strict           Treat empty match set as failure
   --since <stamp>    Include bundles with stamp >= value (YYYYmmddTHHMMSSZ or YYYY-mm-ddTHH:MM:SSZ)
   --until <stamp>    Include bundles with stamp <= value (YYYYmmddTHHMMSSZ or YYYY-mm-ddTHH:MM:SSZ)
+  --min-total <n>    Require at least n matched bundles (default: 0 = disabled)
+  --require-recent-pass <hours>  Require latest pass within <hours> (relative to now UTC)
   -h, --help         Show this help message
 EOF
 }
@@ -82,6 +86,24 @@ while [[ $# -gt 0 ]]; do
       UNTIL="$2"
       shift 2
       ;;
+    --min-total)
+      [[ $# -lt 2 ]] && { echo "Error: --min-total requires a value"; exit 1; }
+      MIN_TOTAL="$2"
+      if ! [[ "$MIN_TOTAL" =~ ^[0-9]+$ ]]; then
+        echo "Error: --min-total must be a non-negative integer"
+        exit 1
+      fi
+      shift 2
+      ;;
+    --require-recent-pass)
+      [[ $# -lt 2 ]] && { echo "Error: --require-recent-pass requires a value"; exit 1; }
+      REQUIRE_RECENT_PASS_HOURS="$2"
+      if ! [[ "$REQUIRE_RECENT_PASS_HOURS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo "Error: --require-recent-pass must be a non-negative number of hours"
+        exit 1
+      fi
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -103,7 +125,7 @@ if [[ ! -d "$TARGET_DIR" ]]; then
   exit 1
 fi
 
-python3 - "$ROOT_DIR" "$TARGET_DIR" "$GLOB_PATTERN" "$FORMAT" "$OUT_PATH" "$MAX_FAIL" "$STRICT" "$SINCE" "$UNTIL" <<'PY'
+python3 - "$ROOT_DIR" "$TARGET_DIR" "$GLOB_PATTERN" "$FORMAT" "$OUT_PATH" "$MAX_FAIL" "$STRICT" "$SINCE" "$UNTIL" "$MIN_TOTAL" "$REQUIRE_RECENT_PASS_HOURS" <<'PY'
 import csv
 import datetime as dt
 import glob
@@ -122,6 +144,8 @@ max_fail = int(sys.argv[6])
 strict = int(sys.argv[7])
 since = sys.argv[8]
 until = sys.argv[9]
+min_total = int(sys.argv[10])
+require_recent_pass_hours = sys.argv[11]
 
 verify_script = root / "scripts" / "verify-proof-index.sh"
 
@@ -225,6 +249,8 @@ summary = {
     "until": until_norm or None,
     "strict": bool(strict),
     "maxFail": max_fail,
+    "minTotal": min_total,
+    "requireRecentPassHours": float(require_recent_pass_hours) if require_recent_pass_hours else None,
     "total": len(results),
     "pass": sum(1 for r in results if r.get("status") == "pass"),
     "fail": sum(1 for r in results if r.get("status") != "pass"),
@@ -232,6 +258,27 @@ summary = {
     "reasonSummary": reason_summary,
     "results": results,
 }
+
+policy = {
+    "strictNoMatchViolated": bool(strict and summary["total"] == 0),
+    "maxFailViolated": bool((max_fail >= 0 and summary["fail"] > max_fail) or (max_fail < 0 and summary["fail"] > 0)),
+    "minTotalViolated": bool(summary["total"] < min_total),
+    "recentPassViolated": False,
+}
+
+if require_recent_pass_hours:
+    hours = float(require_recent_pass_hours)
+    threshold = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=hours)
+    latest_pass_dt = None
+    if latest_pass_at:
+        latest_pass_dt = dt.datetime.strptime(latest_pass_at, "%Y%m%dT%H%M%SZ").replace(tzinfo=dt.timezone.utc)
+    policy["recentPassViolated"] = bool(latest_pass_dt is None or latest_pass_dt < threshold)
+    summary["recentPassThreshold"] = threshold.strftime("%Y%m%dT%H%M%SZ")
+else:
+    summary["recentPassThreshold"] = None
+
+summary["policy"] = policy
+summary["ok"] = not any(policy.values())
 
 def emit_text(data):
     lines = [
@@ -243,6 +290,8 @@ def emit_text(data):
         f"fail: {data['fail']}",
         f"latestPassAt: {data.get('latestPassAt')}",
         f"reasonSummary: {json.dumps(data.get('reasonSummary', {}), ensure_ascii=False)}",
+        f"policy: {json.dumps(data.get('policy', {}), ensure_ascii=False)}",
+        f"ok: {data.get('ok')}",
         "",
     ]
     for row in data["results"]:
@@ -299,13 +348,6 @@ if out_path:
 else:
     print(rendered, end="")
 
-if strict and summary["total"] == 0:
+if not summary["ok"]:
     raise SystemExit(2)
-
-if max_fail >= 0:
-    if summary["fail"] > max_fail:
-        raise SystemExit(2)
-else:
-    if summary["fail"] > 0:
-        raise SystemExit(2)
 PY

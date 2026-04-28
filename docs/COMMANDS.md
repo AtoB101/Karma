@@ -44,8 +44,8 @@ make quickstart
   EN: Verify manifest digest for latest support-bundle in `results/` (pass/fail with reason).
 
 - `make verify-proof-index-batch`  
-  CN: 批量校验目录下所有 support-bundle 的 `manifestDigest`，支持失败阈值与时间范围筛选。  
-  EN: Batch-verify support-bundle manifest digests with fail-threshold and time-window filters.
+  CN: 批量校验目录下所有 support-bundle 的 `manifestDigest`，支持失败阈值、时间范围、最小样本量与最近通过时效门槛。  
+  EN: Batch-verify support-bundle manifest digests with fail-threshold, time-window, minimum-sample, and recent-pass policies.
 
 ### 3) Local CI checks
 
@@ -95,9 +95,16 @@ make quickstart
 - `./scripts/verify-proof-index-batch.sh --dir results --glob "support-bundle-*.zip" --format csv --output results/proof-index-batch.csv`
 - `./scripts/verify-proof-index-batch.sh --dir results --glob "support-bundle-*.zip" --strict --max-fail 0`
 - `./scripts/verify-proof-index-batch.sh --dir results --since "2026-04-28T12:00:00Z" --until "2026-04-28T13:00:00Z"`
+- `./scripts/verify-proof-index-batch.sh --dir results --min-total 3 --require-recent-pass 24`
 - 批量 JSON 报告新增聚合字段 / Batch JSON report includes aggregates:
   - `latestPassAt`
   - `reasonSummary`
+- 批量 JSON 报告新增策略字段 / Batch JSON report includes policy fields:
+  - `minTotal`
+  - `requireRecentPassHours`
+  - `recentPassThreshold`
+  - `policy`
+  - `ok`
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
 - `./scripts/proof-sop-checklist.sh --operator <name> --reviewer <name> --ticket <id>`

@@ -236,6 +236,27 @@ Result behavior:
 4. Use frontend refresh + health check to verify profile status.
 5. Validate evidence export includes stable settlement fields.
 
+## M3.9 batch patrol policy extension
+
+Batch verifier now supports stronger patrol admission controls for scheduled jobs:
+
+- `--min-total <n>`: require at least `n` matched bundles after glob/time filtering.
+- `--require-recent-pass <hours>`: require at least one passing bundle whose timestamp
+  is within the last `<hours>` from current UTC time.
+
+These controls are implemented in:
+
+- `scripts/verify-proof-index-batch.sh`
+
+And reflected in JSON summary fields:
+
+- `minTotal`
+- `requireRecentPassHours`
+- `recentPassThreshold`
+- `policy.minTotalViolated`
+- `policy.recentPassViolated`
+- `ok`
+
 ## Validation commands (operator quick checks)
 
 Local tests:
