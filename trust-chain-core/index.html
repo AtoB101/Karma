@@ -91,6 +91,25 @@
     let serverData = null;
     let inFlight = 0;
 
+    const ERROR_TEXT = {
+      E_TIMEOUT: '请求超时，请稍后重试',
+      E_NETWORK: '网络不可达，请检查后端服务',
+      E_NOT_FOUND: '接口不存在，请确认后端版本',
+      E_SERVER: '服务暂时不可用，请稍后重试',
+      E_VALIDATION: '输入参数不完整，请检查后重试',
+      E_UNKNOWN: '未知错误，请重试',
+    };
+
+    function mapError(err) {
+      const msg = String(err?.message || '');
+      if (/超时|AbortError|timeout/i.test(msg)) return { code: 'E_TIMEOUT', text: ERROR_TEXT.E_TIMEOUT };
+      if (/Failed to fetch|network|ECONNREFUSED/i.test(msg)) return { code: 'E_NETWORK', text: ERROR_TEXT.E_NETWORK };
+      if (/404/.test(msg)) return { code: 'E_NOT_FOUND', text: ERROR_TEXT.E_NOT_FOUND };
+      if (/400|参数|validation/i.test(msg)) return { code: 'E_VALIDATION', text: ERROR_TEXT.E_VALIDATION };
+      if (/500|502|503|504/.test(msg)) return { code: 'E_SERVER', text: ERROR_TEXT.E_SERVER };
+      return { code: 'E_UNKNOWN', text: ERROR_TEXT.E_UNKNOWN };
+    }
+
     function normalizeResponse(payload) {
       if (payload && typeof payload === 'object' && 'ok' in payload && 'data' in payload) {
         if (!payload.ok) throw new Error(payload.message || payload.code || '接口返回失败');
@@ -106,10 +125,17 @@
       if (flag) inFlight += 1;
       else inFlight = Math.max(0, inFlight - 1);
       const busy = inFlight > 0;
-      document.querySelectorAll('button,select,input').forEach((el) => {
-        if (el.id === 'refreshData' || el.id === 'startDemoScript') return;
-        if (busy) el.setAttribute('disabled', 'disabled');
-        else el.removeAttribute('disabled');
+      const controls = document.querySelectorAll('button,select,input');
+      controls.forEach((el) => {
+        if (el.id === 'startDemoScript') return;
+        if (busy) {
+          if (!el.dataset.rawLabel && (el.tagName === 'BUTTON')) el.dataset.rawLabel = el.textContent;
+          if (el.tagName === 'BUTTON') el.textContent = '处理中...';
+          el.setAttribute('disabled', 'disabled');
+        } else {
+          if (el.tagName === 'BUTTON' && el.dataset.rawLabel) el.textContent = el.dataset.rawLabel;
+          el.removeAttribute('disabled');
+        }
       });
       if (busy) op('同步中，请稍候...');
     }
@@ -130,10 +156,7 @@
           });
           let payload = {};
           try { payload = await res.json(); } catch { payload = {}; }
-          if (!res.ok) {
-            const msg = payload?.message || payload?.error || `HTTP ${res.status}`;
-            throw new Error(msg);
-          }
+          if (!res.ok) throw new Error(payload?.message || payload?.error || `HTTP ${res.status}`);
           return normalizeResponse(payload);
         } catch (err) {
           const retryable = (err.name === 'AbortError' || /fetch|network|Failed to fetch/i.test(String(err.message || '')));
@@ -161,7 +184,8 @@
         await fn();
         if (okMsg) op(okMsg, false);
       } catch (e) {
-        op(`操作失败: ${e.message}`, true);
+        const mapped = mapError(e);
+        op(`操作失败[${mapped.code}]: ${mapped.text}`, true);
       } finally {
         setLoading(false);
       }
@@ -307,246 +331,6 @@
     document.getElementById('startDemoScript').onclick = () => window.tcUI.startDemoScript();
 
     runAction(loadData, '门户已与后端同步');
-  </script>
-</head>
-<body>
-  <header>
-    <h2>Trust-Chain 控制台</h2>
-    <nav><a href="/index.html">Dashboard</a><a href="/agent/confirm-call/">调用确认</a></nav>
-  </header>
-  <main>
-    <div class="card">
-      <div class="section-title">
-        <h3>首页 Dashboard</h3>
-        <div class="summary-line">
-          <span class="badge" id="topWallet"></span>
-          <span class="badge" id="topBalance"></span>
-          <span class="badge" id="topIncome"></span>
-          <span class="badge" id="topExpense"></span>
-          <span class="badge" id="topAllowance"></span>
-        </div>
-      </div>
-      <div class="toolbar">
-        <button id="buyerOneClick" class="primary">买方一键授权</button>
-        <button id="sellerOneClick" class="primary">卖方一键部署</button>
-        <button id="batchSettleNow">批量结算立即付</button>
-        <button id="refreshData">刷新数据</button>
-      </div>
-      <p class="muted" id="opResult">后端联动模式：所有操作会调用 API。</p>
-    </div>
-
-    <div class="layout">
-      <aside class="card side-nav">
-        <button class="nav-btn primary" onclick="document.getElementById('sec-income').scrollIntoView({behavior:'smooth'})">1. 收款区</button>
-        <button class="nav-btn primary" onclick="document.getElementById('sec-expense').scrollIntoView({behavior:'smooth'})">2. 付款区</button>
-        <button class="nav-btn primary" onclick="document.getElementById('sec-bills').scrollIntoView({behavior:'smooth'})">3. 账单记录</button>
-        <button class="nav-btn primary" onclick="document.getElementById('sec-settings').scrollIntoView({behavior:'smooth'})">4. 设置</button>
-      </aside>
-
-      <section>
-        <div id="sec-income" class="card content-section">
-          <h3>收款区：我的收费 Agent</h3>
-          <p><button id="toggleAddAgent" class="primary">+ 添加收费 Agent</button></p>
-          <div id="addAgentForm" style="display:none">
-            <div class="grid">
-              <div><label>Agent 名称</label><input id="fName"></div>
-              <div><label>Agent 描述</label><input id="fDesc"></div>
-              <div><label>服务类型</label><input id="fType"></div>
-              <div><label>API / 工具地址</label><input id="fEndpoint"></div>
-              <div><label>单次价格</label><input id="fPrice" type="number" step="0.001"></div>
-              <div><label>收款币种</label><select id="fToken"><option>USDC</option><option>USDT</option></select></div>
-              <div><label>收款钱包</label><input id="fWallet"></div>
-              <div><label>成功才收费</label><select id="fSuccess"><option value="true">是</option><option value="false">否</option></select></div>
-              <div><label>支持退款</label><select id="fRefund"><option value="true">是</option><option value="false">否</option></select></div>
-              <div><label>人工确认</label><select id="fManual"><option value="false">否</option><option value="true">是</option></select></div>
-            </div>
-            <p><button id="createAgent" class="primary">创建 Agent</button></p>
-          </div>
-          <div id="agentCards"></div>
-        </div>
-
-        <div id="sec-expense" class="card content-section">
-          <h3>付款区：我的付款账单与授权</h3>
-          <div class="grid">
-            <div class="kpi"><div class="label">授权币种</div><div class="value" id="authToken"></div></div>
-            <div class="kpi"><div class="label">授权额度</div><div class="value" id="authAllowance"></div></div>
-            <div class="kpi"><div class="label">可用额度</div><div class="value" id="authActive"></div></div>
-            <div class="kpi"><div class="label">已占用额度</div><div class="value" id="authLocked"></div></div>
-          </div>
-          <p><button id="stopAuth">停止授权</button> <button id="incAuth">增加额度 +10</button></p>
-        </div>
-
-        <div id="sec-bills" class="card content-section">
-          <h3>账单记录：待确认 / 待结算 / 已付款 / 争议中</h3>
-          <div id="billGroups"></div>
-        </div>
-
-        <div id="sec-settings" class="card content-section">
-          <h3>设置</h3>
-          <p class="muted">当前版本连接 mvp server 的 dashboard API。</p>
-        </div>
-      </section>
-    </div>
-  </main>
-
-  <script>
-    const API_BASE = `${window.location.protocol}//${window.location.hostname}:8822`;
-    let serverData = null;
-
-    async function api(path, method = 'GET', body) {
-      const res = await fetch(`${API_BASE}${path}`, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      if (!res.ok) throw new Error(`API ${method} ${path} failed: ${res.status}`);
-      return await res.json();
-    }
-
-    function op(msg, isErr = false) {
-      opResult.textContent = msg;
-      opResult.className = isErr ? 'danger' : 'success';
-    }
-
-    function agentDeployLinks(a) {
-      const key = encodeURIComponent(a.id);
-      return {
-        charge: `https://trustchain.local/pay/${key}`,
-        entry: `https://trustchain.local/call/${key}`,
-        code: `trustchain.wrapTool({ endpoint: "${a.endpoint}", price: "${a.price}", token: "${a.token}" })`,
-      };
-    }
-
-    async function loadData() {
-      serverData = await api('/api/dashboard');
-      render();
-    }
-
-    function copyText(text) { navigator.clipboard?.writeText(text); op('已复制'); }
-
-    async function createAgentAction() {
-      if (!fName.value.trim()) return op('请填写 Agent 名称', true);
-      await api('/api/agents', 'POST', {
-        name: fName.value,
-        description: fDesc.value,
-        serviceType: fType.value,
-        endpoint: fEndpoint.value,
-        price: Number(fPrice.value || 0),
-        token: fToken.value,
-        wallet: fWallet.value,
-        successOnly: fSuccess.value === 'true',
-        refundable: fRefund.value === 'true',
-        manualConfirm: fManual.value === 'true',
-      });
-      op('Agent 创建成功');
-      await loadData();
-    }
-
-    async function patchAgent(id, patch) { await api(`/api/agents/${id}`, 'PATCH', patch); await loadData(); }
-    async function deleteAgent(id) { await api(`/api/agents/${id}`, 'DELETE'); op('已删除 Agent'); await loadData(); }
-
-    async function billAction(id, action) {
-      const map = { confirm: 'confirm', reject: 'reject', pay: 'settle', dispute: 'dispute' };
-      await api(`/api/bills/${id}/${map[action]}`, 'POST', {});
-      op(`账单 ${id} 已执行 ${action}`);
-      await loadData();
-    }
-
-    async function setBillStrategy(id, val) {
-      await api('/api/bills/strategy', 'POST', { billId: id, payStrategy: val });
-      await loadData();
-    }
-
-    function renderBillsByGroup(list, title, token) {
-      return `<div class='bill-group'><h4>${title}</h4>${list.map(b => `
-        <div class='bill-card'>
-          <div><strong>${b.service}</strong> <span class='tiny'>${b.id}</span></div>
-          <div class='muted'>收款方 Agent: ${b.seller} | 调用方 Agent: ${b.callerAgent}</div>
-          <div class='muted'>金额: ${window.tcUI.fmt(b.amount, token)} | 状态: ${b.status} | 时间: ${b.createdAt}</div>
-          <div style='margin-top:8px' class='toolbar'>
-            <button onclick="billAction('${b.id}','confirm')" ${b.status !== 'PendingConfirm' ? 'disabled' : ''}>确认付款</button>
-            <button onclick="billAction('${b.id}','reject')" ${b.status !== 'PendingConfirm' ? 'disabled' : ''}>拒绝</button>
-            <button onclick="billAction('${b.id}','pay')" ${b.status !== 'PendingSettle' ? 'disabled' : ''}>结算付款</button>
-            <button onclick="billAction('${b.id}','dispute')" ${b.status !== 'Paid' ? 'disabled' : ''}>发起争议</button>
-            <button onclick="alert('服务结果：Demo Result for ${b.service}')">查看结果</button>
-            <button onclick="alert('链上记录：tx_demo_${b.id}')">查看链上记录</button>
-            <select onchange="setBillStrategy('${b.id}',this.value)">
-              <option value='now' ${b.payStrategy === 'now' ? 'selected' : ''}>立即付</option>
-              <option value='batch' ${b.payStrategy === 'batch' ? 'selected' : ''}>累计后付</option>
-            </select>
-          </div>
-        </div>`).join('') || "<p class='muted'>暂无</p>"}</div>`;
-    }
-
-    function render() {
-      const s = serverData;
-      const token = s.summary.wallet.token;
-      topWallet.textContent = `钱包: ${s.summary.wallet.address}`;
-      topBalance.textContent = `余额: ${window.tcUI.fmt(s.summary.wallet.balance, token)}`;
-      topIncome.textContent = `总收入: ${window.tcUI.fmt(s.summary.totals.totalIncome, token)}`;
-      topExpense.textContent = `总支出: ${window.tcUI.fmt(s.summary.totals.totalExpense, token)}`;
-      topAllowance.textContent = `可用授权: ${window.tcUI.fmt(s.summary.allowance.active, token)}`;
-      authToken.textContent = s.summary.allowance.token + (s.summary.allowance.stopped ? '（已停止）' : '');
-      authAllowance.textContent = window.tcUI.fmt(s.summary.allowance.allowance, token);
-      authActive.textContent = window.tcUI.fmt(s.summary.allowance.active, token);
-      authLocked.textContent = window.tcUI.fmt((s.summary.allowance.locked + s.summary.allowance.reserved), token);
-
-      agentCards.innerHTML = (s.agents || []).map(a => {
-        const links = agentDeployLinks(a);
-        return `<div class='agent-card'>
-          <div class='section-title'><strong>${a.name}</strong><span class='badge'>${a.status === 'running' ? '运行中' : '暂停'}</span></div>
-          <div class='muted'>${a.description}</div>
-          <div class='tiny'>类型: ${a.serviceType} | 接口: ${a.endpoint}</div>
-          <div class='summary-line'>
-            <span class='badge'>单次价格: ${window.tcUI.fmt(a.price, a.token)}</span>
-            <span class='badge'>今日调用: ${a.todayCalls}</span>
-            <span class='badge'>今日收入: ${window.tcUI.fmt(a.todayIncome, a.token)}</span>
-            <span class='badge'>总收入: ${window.tcUI.fmt(a.totalIncome, a.token)}</span>
-          </div>
-          <div class='agent-actions'>
-            <button onclick="patchAgent('${a.id}',{status:'${a.status === 'running' ? 'paused' : 'running'}'})">${a.status === 'running' ? '暂停收费' : '恢复运行'}</button>
-            <button onclick="deleteAgent('${a.id}')">删除</button>
-            <button onclick="copyText('${links.charge}')">复制收费链接</button>
-            <button onclick="copyText('${links.code}')">复制接入代码</button>
-            <button onclick="copyText('${links.entry}')">复制调用入口</button>
-          </div>
-        </div>`;
-      }).join('') || "<p class='muted'>暂无收费 Agent</p>";
-
-      const bills = s.bills || [];
-      billGroups.innerHTML =
-        renderBillsByGroup(bills.filter(b => b.status === 'PendingConfirm'), '待确认', token) +
-        renderBillsByGroup(bills.filter(b => b.status === 'PendingSettle'), '待结算', token) +
-        renderBillsByGroup(bills.filter(b => b.status === 'Paid'), '已付款', token) +
-        renderBillsByGroup(bills.filter(b => b.status === 'Disputed'), '争议中', token);
-    }
-
-    document.getElementById('toggleAddAgent').onclick = () => { addAgentForm.style.display = addAgentForm.style.display === 'none' ? 'block' : 'none'; };
-    document.getElementById('createAgent').onclick = createAgentAction;
-    document.getElementById('stopAuth').onclick = async () => { await api('/api/allowance/stop', 'POST', {}); op('已停止授权'); await loadData(); };
-    document.getElementById('incAuth').onclick = async () => { await api('/api/allowance/increase', 'POST', { amount: 10 }); op('已增加额度'); await loadData(); };
-    document.getElementById('batchSettleNow').onclick = async () => { const r = await api('/api/bills/batch-settle-now', 'POST', {}); op(`批量结算完成，金额 ${r.settledAmount}`); await loadData(); };
-    document.getElementById('buyerOneClick').onclick = async () => { await api('/api/allowance/increase', 'POST', { amount: 50 }); op('买方一键授权已执行'); await loadData(); };
-    document.getElementById('sellerOneClick').onclick = async () => {
-      await api('/api/agents', 'POST', {
-        name: 'Any Pair Price API',
-        description: '一键部署模板',
-        serviceType: '数据查询',
-        endpoint: 'https://api.binance.com/api/v3/ticker/price?symbol={SYMBOL}',
-        price: 0.03,
-        token: 'USDC',
-        wallet: '0xSELL...AUTO',
-        successOnly: true,
-        refundable: false,
-        manualConfirm: false,
-      });
-      op('卖方一键部署已执行');
-      await loadData();
-    };
-    document.getElementById('refreshData').onclick = loadData;
-    document.getElementById('startDemoScript').onclick = () => window.tcUI.startDemoScript();
-
-    loadData().catch((e) => op(`后端连接失败: ${e.message}`, true));
   </script>
 </body>
 </html>
