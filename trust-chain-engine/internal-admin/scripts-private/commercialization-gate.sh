@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${ROOT_DIR}/scripts/lib/common.sh"
 OUTPUT_PATH="${ROOT_DIR}/results/commercialization-gate-latest.json"
 FORMAT="text"
+WORKSPACE_ROOT="$(cd "${ROOT_DIR}/../.." && pwd)"
 
 usage() {
   cat <<'EOF'
@@ -93,18 +94,18 @@ ci_ok, ci_detail = run_ci_proof_gate()
 add_check(must_checks, "ci-proof-gates pass", ci_ok, ci_detail)
 add_check(must_checks, "guardian script present", check_script_exec("scripts/agent-safety-guardian.sh"), "scripts/agent-safety-guardian.sh")
 add_check(must_checks, "patrol script present", check_script_exec("scripts/proof-patrol.sh"), "scripts/proof-patrol.sh")
-add_check(must_checks, "openapi contract present", exists("openapi/trustchain-v1.yaml"), "openapi/trustchain-v1.yaml")
+add_check(must_checks, "openapi contract present", (root.parent.parent / "openapi" / "trustchain-v1.yaml").exists(), f"{root.parent.parent}/openapi/trustchain-v1.yaml")
 add_check(must_checks, "api server present", check_script_exec("scripts/api_server.py"), "scripts/api_server.py")
 add_check(must_checks, "api smoke present", check_script_exec("scripts/api-smoke.sh"), "scripts/api-smoke.sh")
 
-add_check(should_checks, "api roadmap doc present", exists("docs/API_ROADMAP_V01.md"), "docs/API_ROADMAP_V01.md")
-add_check(should_checks, "rule-gap model doc present", exists("docs/RULE_GAP_RISK_MODEL_V01.md"), "docs/RULE_GAP_RISK_MODEL_V01.md")
-add_check(should_checks, "proof SOP doc present", exists("docs/PROOF_VERIFICATION_SOP.md"), "docs/PROOF_VERIFICATION_SOP.md")
+add_check(should_checks, "api roadmap doc present", (root.parent.parent / "docs" / "API_ROADMAP_V01.md").exists(), f"{root.parent.parent}/docs/API_ROADMAP_V01.md")
+add_check(should_checks, "rule-gap model doc present", (root.parent.parent / "docs" / "RULE_GAP_RISK_MODEL_V01.md").exists(), f"{root.parent.parent}/docs/RULE_GAP_RISK_MODEL_V01.md")
+add_check(should_checks, "proof SOP doc present", (root / "docs-private" / "PROOF_VERIFICATION_SOP.md").exists(), f"{root}/docs-private/PROOF_VERIFICATION_SOP.md")
 
 add_check(can_checks, "support-bundle script present", check_script_exec("scripts/support-bundle.sh"), "scripts/support-bundle.sh")
 add_check(can_checks, "proof index verifier present", check_script_exec("scripts/verify-proof-index.sh"), "scripts/verify-proof-index.sh")
 add_check(can_checks, "proof batch verifier present", check_script_exec("scripts/verify-proof-index-batch.sh"), "scripts/verify-proof-index-batch.sh")
-add_check(can_checks, "governance doc present", exists("docs/community/GOVERNANCE_V01.md"), "docs/community/GOVERNANCE_V01.md")
+add_check(can_checks, "governance doc present", (root / "docs-private" / "community" / "GOVERNANCE_V01.md").exists(), f"{root}/docs-private/community/GOVERNANCE_V01.md")
 
 must_ok = all(x["ok"] for x in must_checks)
 should_warning_count = sum(1 for x in should_checks if not x["ok"])

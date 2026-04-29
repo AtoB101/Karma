@@ -5,6 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RESULTS_DIR="${ROOT_DIR}/results"
 FORMAT="text"
 SKIP_BUNDLE_GEN=0
+REPO_ROOT="$(git -C "$ROOT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+if [[ -z "$REPO_ROOT" ]]; then
+  REPO_ROOT="$ROOT_DIR"
+fi
+DOCS_DIR="${DOCS_DIR:-${REPO_ROOT}/docs}"
+OPENAPI_DIR="${OPENAPI_DIR:-${REPO_ROOT}/openapi}"
 
 usage() {
   cat <<'EOF'
@@ -54,7 +60,7 @@ cd "$ROOT_DIR"
 mkdir -p "$RESULTS_DIR"
 
 echo "==> [Gate 1/2] Evidence schema compatibility"
-EVIDENCE_INPUT="${ROOT_DIR}/docs/samples/trustchain-evidence-sample-v1.json"
+EVIDENCE_INPUT="${DOCS_DIR}/samples/trustchain-evidence-sample-v1.json"
 ./scripts/validate-evidence-schema.sh --path "$EVIDENCE_INPUT" --format text
 
 if [[ "$SKIP_BUNDLE_GEN" -eq 0 ]]; then
