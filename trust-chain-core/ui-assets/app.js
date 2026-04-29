@@ -332,6 +332,23 @@ function updateBillStrategy(billId, payStrategy) {
   return s;
 }
 
+function batchSettleNowBills() {
+  const s = ensureDataShape();
+  let settledAmount = 0;
+  s.bills = (s.bills || []).map((b) => {
+    if (b.status === "PendingSettle" && b.payStrategy === "now") {
+      settledAmount += Number(b.amount || 0);
+      return { ...b, status: "Paid" };
+    }
+    return b;
+  });
+  s.buyer.active = Math.max(0, Number(s.buyer.active || 0) - settledAmount);
+  s.buyer.reserved = Math.max(0, Number(s.buyer.reserved || 0) - settledAmount);
+  s.buyer.settled = Number(s.buyer.settled || 0) + settledAmount;
+  saveState(s);
+  return { ...s, _batchSettledAmount: settledAmount };
+}
+
 function getBuyerChecklist() {
   const s = getState();
   const b = s.buyer || {};
@@ -415,4 +432,5 @@ window.tcUI = {
   increaseBuyerAllowance,
   updateBillStatus,
   updateBillStrategy,
+  batchSettleNowBills,
 };
