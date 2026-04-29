@@ -68,6 +68,9 @@ Primary namespace is now `/api/v1` (legacy `/api/*` remains compatible).
 - `POST /api/v1/user-console/payments/create`
 - `POST /api/v1/user-console/payments/:id/approve|reject`
 - `POST /api/v1/user-console/receipts/create`
+- `GET /api/v1/user-console/sparky/config`
+- `POST /api/v1/user-console/sparky/config`
+- `POST /api/v1/user-console/sparky/test` (simulated acceptance; wire real provider HTTP in production)
 - `GET /api/v1/bills`
 - `POST /api/v1/bills/:id/confirm|reject|settle|dispute`
 - `POST /api/v1/bills/batch-settle-now`

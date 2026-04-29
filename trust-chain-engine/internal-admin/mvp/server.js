@@ -145,6 +145,15 @@ const userConsoleState = {
       createdAt: "2026-04-29 09:03",
     },
   ],
+  sparkyPush: {
+    channel: "telegram",
+    whatsappPhone: "",
+    whatsappApikey: "",
+    telegramBotToken: "",
+    telegramChatId: "",
+    wechatProvider: "pushplus",
+    wechatToken: "",
+  },
 };
 
 function chainEnabled() {
@@ -643,6 +652,68 @@ async function main() {
           status: "Paid",
         });
         json(res, 200, { ok: true, item });
+        return;
+      }
+
+      if (req.method === "GET" && apiPath === "/api/user-console/sparky/config") {
+        json(res, 200, { ok: true, item: userConsoleState.sparkyPush });
+        return;
+      }
+
+      if (req.method === "POST" && apiPath === "/api/user-console/sparky/config") {
+        const body = await readJsonBody(req);
+        const allowed = new Set([
+          "channel",
+          "whatsappPhone",
+          "whatsappApikey",
+          "telegramBotToken",
+          "telegramChatId",
+          "wechatProvider",
+          "wechatToken",
+        ]);
+        for (const k of Object.keys(body || {})) {
+          if (allowed.has(k)) {
+            userConsoleState.sparkyPush[k] = String(body[k] ?? "").trim();
+          }
+        }
+        const ch = userConsoleState.sparkyPush.channel;
+        if (!["whatsapp", "telegram", "wechat"].includes(ch)) {
+          throw new HttpError(400, "INVALID_ARGUMENT", "channel must be whatsapp, telegram, or wechat");
+        }
+        pushActivity({
+          agent: "Sparky",
+          action: "更新预警推送配置",
+          amount: 0,
+          status: "Paid",
+        });
+        json(res, 200, { ok: true, item: userConsoleState.sparkyPush });
+        return;
+      }
+
+      if (req.method === "POST" && apiPath === "/api/user-console/sparky/test") {
+        const cfg = userConsoleState.sparkyPush;
+        const channel = cfg.channel;
+        if (channel === "telegram" && (!cfg.telegramBotToken || !cfg.telegramChatId)) {
+          throw new HttpError(400, "INVALID_ARGUMENT", "telegram botToken and chatId are required for test");
+        }
+        if (channel === "whatsapp" && !cfg.whatsappPhone) {
+          throw new HttpError(400, "INVALID_ARGUMENT", "whatsapp phone is required for test");
+        }
+        if (channel === "wechat" && !cfg.wechatToken) {
+          throw new HttpError(400, "INVALID_ARGUMENT", "wechat token is required for test");
+        }
+        appendLog({
+          schemaVersion: "karma.mvp.sparky.test.v1",
+          at: new Date().toISOString(),
+          channel,
+          note: "simulated push — wire provider HTTP in production",
+        });
+        json(res, 200, {
+          ok: true,
+          code: "SPARKY_TEST_OK",
+          message: "Test push accepted (simulated). Configure provider webhooks server-side for real delivery.",
+          data: { channel, simulated: true },
+        });
         return;
       }
 
