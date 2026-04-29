@@ -8,16 +8,13 @@
 </head>
 <body>
   <header>
-    <h2>Trust-Chain Console</h2>
-    <nav>
-      <a href="/index.html">Dashboard</a>
-      <a href="/agent/confirm-call/">调用确认</a>
-    </nav>
+    <h2>Trust-Chain 控制台</h2>
+    <nav><a href="/index.html">Dashboard</a><a href="/agent/confirm-call/">调用确认</a></nav>
   </header>
   <main>
     <div class="card">
       <div class="section-title">
-        <h3>Agent 收款台 + 付款台 + 账单台</h3>
+        <h3>首页 Dashboard</h3>
         <div class="summary-line">
           <span class="badge" id="topWallet"></span>
           <span class="badge" id="topBalance"></span>
@@ -29,17 +26,20 @@
       <div class="toolbar">
         <button id="buyerOneClick" class="primary">买方一键授权</button>
         <button id="sellerOneClick" class="primary">卖方一键部署</button>
-        <button id="batchNowPay">批量结算立即付</button>
-        <button id="resetDemo">重置数据</button>
+        <button id="batchSettleNow">批量结算立即付</button>
+        <button id="refreshData">刷新数据</button>
       </div>
+      <p class="muted" id="opResult">后端联动模式：所有操作会调用 API。</p>
     </div>
+
     <div class="layout">
       <aside class="card side-nav">
-        <button class="nav-btn primary" onclick="scrollToSection('sec-income')">1. 收款区</button>
-        <button class="nav-btn primary" onclick="scrollToSection('sec-expense')">2. 付款区</button>
-        <button class="nav-btn primary" onclick="scrollToSection('sec-bills')">3. 账单记录</button>
-        <button class="nav-btn primary" onclick="scrollToSection('sec-settings')">4. 设置</button>
+        <button class="nav-btn primary" onclick="document.getElementById('sec-income').scrollIntoView({behavior:'smooth'})">1. 收款区</button>
+        <button class="nav-btn primary" onclick="document.getElementById('sec-expense').scrollIntoView({behavior:'smooth'})">2. 付款区</button>
+        <button class="nav-btn primary" onclick="document.getElementById('sec-bills').scrollIntoView({behavior:'smooth'})">3. 账单记录</button>
+        <button class="nav-btn primary" onclick="document.getElementById('sec-settings').scrollIntoView({behavior:'smooth'})">4. 设置</button>
       </aside>
+
       <section>
         <div id="sec-income" class="card content-section">
           <h3>收款区：我的收费 Agent</h3>
@@ -48,7 +48,7 @@
             <div class="grid">
               <div><label>Agent 名称</label><input id="fName"></div>
               <div><label>Agent 描述</label><input id="fDesc"></div>
-              <div><label>服务类型</label><input id="fType" placeholder="数据查询/风险检测"></div>
+              <div><label>服务类型</label><input id="fType"></div>
               <div><label>API / 工具地址</label><input id="fEndpoint"></div>
               <div><label>单次价格</label><input id="fPrice" type="number" step="0.001"></div>
               <div><label>收款币种</label><select id="fToken"><option>USDC</option><option>USDT</option></select></div>
@@ -61,141 +61,189 @@
           </div>
           <div id="agentCards"></div>
         </div>
+
         <div id="sec-expense" class="card content-section">
-          <h3>付款区：授权与额度</h3>
+          <h3>付款区：我的付款账单与授权</h3>
           <div class="grid">
             <div class="kpi"><div class="label">授权币种</div><div class="value" id="authToken"></div></div>
             <div class="kpi"><div class="label">授权额度</div><div class="value" id="authAllowance"></div></div>
             <div class="kpi"><div class="label">可用额度</div><div class="value" id="authActive"></div></div>
             <div class="kpi"><div class="label">已占用额度</div><div class="value" id="authLocked"></div></div>
           </div>
-          <div class="toolbar">
-            <button id="stopAuth">停止授权</button>
-            <button id="incAuth">增加额度 +10</button>
-          </div>
+          <p><button id="stopAuth">停止授权</button> <button id="incAuth">增加额度 +10</button></p>
         </div>
+
         <div id="sec-bills" class="card content-section">
           <h3>账单记录：待确认 / 待结算 / 已付款 / 争议中</h3>
           <div id="billGroups"></div>
         </div>
+
         <div id="sec-settings" class="card content-section">
           <h3>设置</h3>
-          <p class="muted">聚焦四件事：收款、付款、账单、授权。</p>
+          <p class="muted">当前版本连接 mvp server 的 dashboard API。</p>
         </div>
       </section>
     </div>
   </main>
+
   <script>
-    let s;
-    function scrollToSection(id){document.getElementById(id).scrollIntoView({behavior:"smooth"});}
-    function copyText(text){navigator.clipboard?.writeText(text);alert("已复制");}
-    function agentDeployLinks(a){
-      const key=encodeURIComponent(a.id);
+    const API_BASE = `${window.location.protocol}//${window.location.hostname}:8822`;
+    let serverData = null;
+
+    async function api(path, method = 'GET', body) {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!res.ok) throw new Error(`API ${method} ${path} failed: ${res.status}`);
+      return await res.json();
+    }
+
+    function op(msg, isErr = false) {
+      opResult.textContent = msg;
+      opResult.className = isErr ? 'danger' : 'success';
+    }
+
+    function agentDeployLinks(a) {
+      const key = encodeURIComponent(a.id);
       return {
-        charge:`https://trustchain.local/pay/${key}`,
-        entry:`https://trustchain.local/call/${key}`,
-        code:`trustchain.wrapTool({ endpoint: "${a.endpoint}", price: "${a.price}", token: "${a.token}" })`
+        charge: `https://trustchain.local/pay/${key}`,
+        entry: `https://trustchain.local/call/${key}`,
+        code: `trustchain.wrapTool({ endpoint: "${a.endpoint}", price: "${a.price}", token: "${a.token}" })`,
       };
     }
-    function pauseAgent(id){window.tcUI.updateMyAgent(id,{status:"paused"});render();}
-    function resumeAgent(id){window.tcUI.updateMyAgent(id,{status:"running"});render();}
-    function deleteAgent(id){window.tcUI.removeMyAgent(id);render();}
-    function editAgentPrice(id){const v=prompt("输入新价格");if(v===null)return;window.tcUI.updateMyAgent(id,{price:Number(v||0)});render();}
-    function billAction(id,action){
-      if(action==="confirm") window.tcUI.updateBillStatus(id,"PendingSettle");
-      if(action==="reject") window.tcUI.updateBillStatus(id,"Disputed");
-      if(action==="pay") window.tcUI.updateBillStatus(id,"Paid");
-      if(action==="dispute") window.tcUI.updateBillStatus(id,"Disputed");
+
+    async function loadData() {
+      serverData = await api('/api/dashboard');
       render();
     }
-    function setBillStrategy(id,val){window.tcUI.updateBillStrategy(id,val);render();}
-    function renderBillsByGroup(list,title){
-      return `<div class="bill-group"><h4>${title}</h4>${
-        list.map((b)=>`<div class="bill-card">
-          <div><strong>${b.service}</strong> <span class="tiny">${b.id}</span></div>
-          <div class="muted">收款方 Agent: ${b.seller} | 调用方 Agent: ${b.callerAgent}</div>
-          <div class="muted">金额: ${window.tcUI.fmt(b.amount,s.buyer.token)} | 状态: ${b.status} | 时间: ${b.createdAt}</div>
-          <div class="toolbar" style="margin-top:8px">
-            <button onclick="billAction('${b.id}','confirm')" ${b.status!=="PendingConfirm"?"disabled":""}>确认付款</button>
-            <button onclick="billAction('${b.id}','reject')" ${b.status!=="PendingConfirm"?"disabled":""}>拒绝</button>
-            <button onclick="billAction('${b.id}','pay')" ${b.status!=="PendingSettle"?"disabled":""}>结算付款</button>
-            <button onclick="billAction('${b.id}','dispute')" ${b.status==="Paid"?"":"disabled"}>发起争议</button>
+
+    function copyText(text) { navigator.clipboard?.writeText(text); op('已复制'); }
+
+    async function createAgentAction() {
+      if (!fName.value.trim()) return op('请填写 Agent 名称', true);
+      await api('/api/agents', 'POST', {
+        name: fName.value,
+        description: fDesc.value,
+        serviceType: fType.value,
+        endpoint: fEndpoint.value,
+        price: Number(fPrice.value || 0),
+        token: fToken.value,
+        wallet: fWallet.value,
+        successOnly: fSuccess.value === 'true',
+        refundable: fRefund.value === 'true',
+        manualConfirm: fManual.value === 'true',
+      });
+      op('Agent 创建成功');
+      await loadData();
+    }
+
+    async function patchAgent(id, patch) { await api(`/api/agents/${id}`, 'PATCH', patch); await loadData(); }
+    async function deleteAgent(id) { await api(`/api/agents/${id}`, 'DELETE'); op('已删除 Agent'); await loadData(); }
+
+    async function billAction(id, action) {
+      const map = { confirm: 'confirm', reject: 'reject', pay: 'settle', dispute: 'dispute' };
+      await api(`/api/bills/${id}/${map[action]}`, 'POST', {});
+      op(`账单 ${id} 已执行 ${action}`);
+      await loadData();
+    }
+
+    async function setBillStrategy(id, val) {
+      await api('/api/bills/strategy', 'POST', { billId: id, payStrategy: val });
+      await loadData();
+    }
+
+    function renderBillsByGroup(list, title, token) {
+      return `<div class='bill-group'><h4>${title}</h4>${list.map(b => `
+        <div class='bill-card'>
+          <div><strong>${b.service}</strong> <span class='tiny'>${b.id}</span></div>
+          <div class='muted'>收款方 Agent: ${b.seller} | 调用方 Agent: ${b.callerAgent}</div>
+          <div class='muted'>金额: ${window.tcUI.fmt(b.amount, token)} | 状态: ${b.status} | 时间: ${b.createdAt}</div>
+          <div style='margin-top:8px' class='toolbar'>
+            <button onclick="billAction('${b.id}','confirm')" ${b.status !== 'PendingConfirm' ? 'disabled' : ''}>确认付款</button>
+            <button onclick="billAction('${b.id}','reject')" ${b.status !== 'PendingConfirm' ? 'disabled' : ''}>拒绝</button>
+            <button onclick="billAction('${b.id}','pay')" ${b.status !== 'PendingSettle' ? 'disabled' : ''}>结算付款</button>
+            <button onclick="billAction('${b.id}','dispute')" ${b.status !== 'Paid' ? 'disabled' : ''}>发起争议</button>
             <button onclick="alert('服务结果：Demo Result for ${b.service}')">查看结果</button>
             <button onclick="alert('链上记录：tx_demo_${b.id}')">查看链上记录</button>
             <select onchange="setBillStrategy('${b.id}',this.value)">
-              <option value="now" ${b.payStrategy==="now"?"selected":""}>立即付</option>
-              <option value="batch" ${b.payStrategy==="batch"?"selected":""}>累计后付</option>
+              <option value='now' ${b.payStrategy === 'now' ? 'selected' : ''}>立即付</option>
+              <option value='batch' ${b.payStrategy === 'batch' ? 'selected' : ''}>累计后付</option>
             </select>
           </div>
-        </div>`).join("") || "<p class='muted'>暂无</p>"
-      }</div>`;
+        </div>`).join('') || "<p class='muted'>暂无</p>"}</div>`;
     }
-    function render(){
-      s=window.tcUI.getState();
-      const income=(s.myAgents||[]).reduce((a,b)=>a+Number(b.totalIncome||0),0);
-      const expense=(s.bills||[]).filter((x)=>x.status==="Paid").reduce((a,b)=>a+Number(b.amount||0),0);
-      topWallet.textContent=`钱包: ${s.buyer.wallet}`;
-      topBalance.textContent=`余额: ${window.tcUI.fmt(s.buyer.walletBalance,s.buyer.token)}`;
-      topIncome.textContent=`总收入: ${window.tcUI.fmt(income,s.buyer.token)}`;
-      topExpense.textContent=`总支出: ${window.tcUI.fmt(expense,s.buyer.token)}`;
-      topAllowance.textContent=`可用授权: ${window.tcUI.fmt(s.buyer.active,s.buyer.token)}`;
-      authToken.textContent=s.buyer.token+(s.buyer.stopped?"（已停止）":"");
-      authAllowance.textContent=window.tcUI.fmt(s.buyer.allowance,s.buyer.token);
-      authActive.textContent=window.tcUI.fmt(s.buyer.active,s.buyer.token);
-      authLocked.textContent=window.tcUI.fmt(Number(s.buyer.locked||0)+Number(s.buyer.reserved||0),s.buyer.token);
-      agentCards.innerHTML=(s.myAgents||[]).map((a)=>{
-        const links=agentDeployLinks(a);
-        return `<div class="agent-card">
-          <div class="section-title"><strong>${a.name}</strong><span class="badge">${a.status==="running"?"运行中":"暂停"}</span></div>
-          <div class="muted">${a.description || "-"}</div>
-          <div class="tiny">类型: ${a.serviceType} | 接口: ${a.endpoint}</div>
-          <div class="summary-line">
-            <span class="badge">单次价格: ${window.tcUI.fmt(a.price,a.token)}</span>
-            <span class="badge">今日调用: ${a.todayCalls}</span>
-            <span class="badge">今日收入: ${window.tcUI.fmt(a.todayIncome,a.token)}</span>
-            <span class="badge">总收入: ${window.tcUI.fmt(a.totalIncome,a.token)}</span>
+
+    function render() {
+      const s = serverData;
+      const token = s.summary.wallet.token;
+      topWallet.textContent = `钱包: ${s.summary.wallet.address}`;
+      topBalance.textContent = `余额: ${window.tcUI.fmt(s.summary.wallet.balance, token)}`;
+      topIncome.textContent = `总收入: ${window.tcUI.fmt(s.summary.totals.totalIncome, token)}`;
+      topExpense.textContent = `总支出: ${window.tcUI.fmt(s.summary.totals.totalExpense, token)}`;
+      topAllowance.textContent = `可用授权: ${window.tcUI.fmt(s.summary.allowance.active, token)}`;
+      authToken.textContent = s.summary.allowance.token + (s.summary.allowance.stopped ? '（已停止）' : '');
+      authAllowance.textContent = window.tcUI.fmt(s.summary.allowance.allowance, token);
+      authActive.textContent = window.tcUI.fmt(s.summary.allowance.active, token);
+      authLocked.textContent = window.tcUI.fmt((s.summary.allowance.locked + s.summary.allowance.reserved), token);
+
+      agentCards.innerHTML = (s.agents || []).map(a => {
+        const links = agentDeployLinks(a);
+        return `<div class='agent-card'>
+          <div class='section-title'><strong>${a.name}</strong><span class='badge'>${a.status === 'running' ? '运行中' : '暂停'}</span></div>
+          <div class='muted'>${a.description}</div>
+          <div class='tiny'>类型: ${a.serviceType} | 接口: ${a.endpoint}</div>
+          <div class='summary-line'>
+            <span class='badge'>单次价格: ${window.tcUI.fmt(a.price, a.token)}</span>
+            <span class='badge'>今日调用: ${a.todayCalls}</span>
+            <span class='badge'>今日收入: ${window.tcUI.fmt(a.todayIncome, a.token)}</span>
+            <span class='badge'>总收入: ${window.tcUI.fmt(a.totalIncome, a.token)}</span>
           </div>
-          <div class="agent-actions">
-            <button onclick="editAgentPrice('${a.id}')">编辑</button>
-            <button onclick="${a.status==="running"?"pauseAgent":"resumeAgent"}('${a.id}')">${a.status==="running"?"暂停收费":"恢复运行"}</button>
+          <div class='agent-actions'>
+            <button onclick="patchAgent('${a.id}',{status:'${a.status === 'running' ? 'paused' : 'running'}'})">${a.status === 'running' ? '暂停收费' : '恢复运行'}</button>
             <button onclick="deleteAgent('${a.id}')">删除</button>
             <button onclick="copyText('${links.charge}')">复制收费链接</button>
             <button onclick="copyText('${links.code}')">复制接入代码</button>
             <button onclick="copyText('${links.entry}')">复制调用入口</button>
           </div>
         </div>`;
-      }).join("") || "<p class='muted'>暂无收费 Agent</p>";
-      const pendingConfirm=(s.bills||[]).filter((b)=>b.status==="PendingConfirm");
-      const pendingSettle=(s.bills||[]).filter((b)=>b.status==="PendingSettle");
-      const paid=(s.bills||[]).filter((b)=>b.status==="Paid");
-      const disputed=(s.bills||[]).filter((b)=>b.status==="Disputed");
-      billGroups.innerHTML=
-        renderBillsByGroup(pendingConfirm,"待确认")+
-        renderBillsByGroup(pendingSettle,"待结算")+
-        renderBillsByGroup(paid,"已付款")+
-        renderBillsByGroup(disputed,"争议中");
+      }).join('') || "<p class='muted'>暂无收费 Agent</p>";
+
+      const bills = s.bills || [];
+      billGroups.innerHTML =
+        renderBillsByGroup(bills.filter(b => b.status === 'PendingConfirm'), '待确认', token) +
+        renderBillsByGroup(bills.filter(b => b.status === 'PendingSettle'), '待结算', token) +
+        renderBillsByGroup(bills.filter(b => b.status === 'Paid'), '已付款', token) +
+        renderBillsByGroup(bills.filter(b => b.status === 'Disputed'), '争议中', token);
     }
-    document.getElementById("buyerOneClick").onclick=()=>{window.tcUI.ensureBuyerOneClickAuthorization();render();};
-    document.getElementById("sellerOneClick").onclick=()=>{window.tcUI.ensureSellerOneClickDeploy();render();};
-    document.getElementById("batchNowPay").onclick=()=>{
-      const result=window.tcUI.batchSettleNowBills();
-      render();
-      alert(`已批量结算 ${window.tcUI.fmt(result._batchSettledAmount||0,result.buyer.token)}`);
-    };
-    document.getElementById("resetDemo").onclick=()=>{window.tcUI.resetDemoState();render();};
-    document.getElementById("toggleAddAgent").onclick=()=>{addAgentForm.style.display=addAgentForm.style.display==="none"?"block":"none";};
-    document.getElementById("createAgent").onclick=()=>{
-      if(!fName.value.trim()){alert("请填写 Agent 名称");return;}
-      window.tcUI.addMyAgent({
-        name:fName.value,description:fDesc.value,serviceType:fType.value,endpoint:fEndpoint.value,
-        price:Number(fPrice.value||0),token:fToken.value,wallet:fWallet.value,
-        successOnly:fSuccess.value==="true",refundable:fRefund.value==="true",manualConfirm:fManual.value==="true"
+
+    document.getElementById('toggleAddAgent').onclick = () => { addAgentForm.style.display = addAgentForm.style.display === 'none' ? 'block' : 'none'; };
+    document.getElementById('createAgent').onclick = createAgentAction;
+    document.getElementById('stopAuth').onclick = async () => { await api('/api/allowance/stop', 'POST', {}); op('已停止授权'); await loadData(); };
+    document.getElementById('incAuth').onclick = async () => { await api('/api/allowance/increase', 'POST', { amount: 10 }); op('已增加额度'); await loadData(); };
+    document.getElementById('batchSettleNow').onclick = async () => { const r = await api('/api/bills/batch-settle-now', 'POST', {}); op(`批量结算完成，金额 ${r.settledAmount}`); await loadData(); };
+    document.getElementById('buyerOneClick').onclick = async () => { await api('/api/allowance/increase', 'POST', { amount: 50 }); op('买方一键授权已执行'); await loadData(); };
+    document.getElementById('sellerOneClick').onclick = async () => {
+      await api('/api/agents', 'POST', {
+        name: 'Any Pair Price API',
+        description: '一键部署模板',
+        serviceType: '数据查询',
+        endpoint: 'https://api.binance.com/api/v3/ticker/price?symbol={SYMBOL}',
+        price: 0.03,
+        token: 'USDC',
+        wallet: '0xSELL...AUTO',
+        successOnly: true,
+        refundable: false,
+        manualConfirm: false,
       });
-      render();
+      op('卖方一键部署已执行');
+      await loadData();
     };
-    document.getElementById("stopAuth").onclick=()=>{window.tcUI.stopBuyerAuthorization();render();};
-    document.getElementById("incAuth").onclick=()=>{window.tcUI.increaseBuyerAllowance(10);render();};
-    render();
+    document.getElementById('refreshData').onclick = loadData;
+    document.getElementById('startDemoScript').onclick = () => window.tcUI.startDemoScript();
+
+    loadData().catch((e) => op(`后端连接失败: ${e.message}`, true));
   </script>
 </body>
 </html>

@@ -15,6 +15,69 @@ const PROVIDER_WALLET = process.env.PROVIDER_WALLET || process.env.TREASURY_ADDR
 const CHARGE_WEI = process.env.CHARGE_WEI || "10000000000000"; // 0.00001 ETH
 const LOG_PATH = process.env.LOG_PATH || path.join(__dirname, "logs", "paid-calls.jsonl");
 const DEFAULT_SYMBOL = (process.env.DEFAULT_SYMBOL || "BTC/USDT").toUpperCase();
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
+
+const dashboardState = {
+  allowance: {
+    token: "USDC",
+    allowance: 50,
+    active: 24.5,
+    locked: 30,
+    reserved: 5.5,
+    stopped: false,
+  },
+  agents: [
+    {
+      id: "agent-001",
+      name: "PriceHunter",
+      description: "Any pair market price query",
+      serviceType: "数据查询",
+      endpoint: "https://api.binance.com/api/v3/ticker/price?symbol={SYMBOL}",
+      price: 0.03,
+      token: "USDC",
+      wallet: "0xSELL...001",
+      successOnly: true,
+      refundable: true,
+      manualConfirm: false,
+      status: "running",
+      todayCalls: 12,
+      todayIncome: 0.36,
+      totalIncome: 8.42,
+    },
+  ],
+  bills: [
+    {
+      id: "BILL-001",
+      service: "ETHUSDT Price Query",
+      seller: "PriceHunter",
+      callerAgent: "PortfolioBot",
+      amount: 0.01,
+      status: "Paid",
+      payStrategy: "now",
+      createdAt: "2026-04-29 08:10",
+    },
+    {
+      id: "BILL-002",
+      service: "Risk Scan",
+      seller: "RiskGuard",
+      callerAgent: "TradingAgent",
+      amount: 0.03,
+      status: "PendingConfirm",
+      payStrategy: "batch",
+      createdAt: "2026-04-29 08:21",
+    },
+    {
+      id: "BILL-003",
+      service: "SOLUSDT Price Query",
+      seller: "PriceHunter",
+      callerAgent: "ArbAgent",
+      amount: 0.02,
+      status: "PendingSettle",
+      payStrategy: "now",
+      createdAt: "2026-04-29 08:34",
+    },
+  ],
+};
 
 function requireEnv() {
   const missing = [];
@@ -27,8 +90,23 @@ function requireEnv() {
 }
 
 function json(res, status, payload) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": ALLOW_ORIGIN,
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  });
   res.end(JSON.stringify(payload, null, 2));
+}
+
+function text(res, status, payload) {
+  res.writeHead(status, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Access-Control-Allow-Origin": ALLOW_ORIGIN,
+    "Access-Control-Allow-Methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  });
+  res.end(payload);
 }
 
 function appendLog(record) {
@@ -40,6 +118,51 @@ function serveStaticIndex(res) {
   const p = path.join(__dirname, "public", "index.html");
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(fs.readFileSync(p, "utf-8"));
+}
+
+function normalizeDashboardState() {
+  dashboardState.allowance.active = Math.max(
+    0,
+    Number(dashboardState.allowance.allowance || 0) -
+      Number(dashboardState.allowance.locked || 0) -
+      Number(dashboardState.allowance.reserved || 0)
+  );
+}
+
+function summarizeDashboard() {
+  const totalIncome = dashboardState.agents.reduce((sum, a) => sum + Number(a.totalIncome || 0), 0);
+  const totalExpense = dashboardState.bills
+    .filter((b) => b.status === "Paid")
+    .reduce((sum, b) => sum + Number(b.amount || 0), 0);
+  return {
+    wallet: {
+      address: "0xA12...89F",
+      token: dashboardState.allowance.token,
+      balance: 100,
+    },
+    allowance: dashboardState.allowance,
+    totals: { totalIncome, totalExpense },
+    counts: {
+      pendingConfirm: dashboardState.bills.filter((b) => b.status === "PendingConfirm").length,
+      pendingSettle: dashboardState.bills.filter((b) => b.status === "PendingSettle").length,
+      paid: dashboardState.bills.filter((b) => b.status === "Paid").length,
+      disputed: dashboardState.bills.filter((b) => b.status === "Disputed").length,
+    },
+  };
+}
+
+async function readJsonBody(req) {
+  let raw = "";
+  req.on("data", (chunk) => {
+    raw += chunk;
+  });
+  await new Promise((resolve) => req.on("end", resolve));
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
 }
 
 function normalizeSymbol(raw) {
@@ -145,6 +268,10 @@ async function main() {
 
   const server = http.createServer(async (req, res) => {
     try {
+      if (req.method === "OPTIONS") {
+        text(res, 204, "");
+        return;
+      }
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
       if (req.method === "GET" && url.pathname === "/") {
         serveStaticIndex(res);
@@ -180,20 +307,125 @@ async function main() {
         return;
       }
 
-      if (req.method === "POST" && (url.pathname === "/api/btc-price-paid" || url.pathname === "/api/price-paid")) {
-        let body = {};
-        let bodyRaw = "";
-        req.on("data", (chunk) => {
-          bodyRaw += chunk;
+      if (req.method === "GET" && url.pathname === "/api/dashboard") {
+        normalizeDashboardState();
+        json(res, 200, {
+          ok: true,
+          schemaVersion: "trustchain.mvp.dashboard.v1",
+          summary: summarizeDashboard(),
+          agents: dashboardState.agents,
+          bills: dashboardState.bills,
         });
-        await new Promise((resolve) => req.on("end", resolve));
-        if (bodyRaw.trim()) {
-          try {
-            body = JSON.parse(bodyRaw);
-          } catch (_) {
-            // Keep empty body; we'll use defaults.
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/agents") {
+        json(res, 200, { ok: true, items: dashboardState.agents });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/agents") {
+        const body = await readJsonBody(req);
+        const item = {
+          id: `agent-${Date.now()}`,
+          name: String(body.name || "NewAgent"),
+          description: String(body.description || ""),
+          serviceType: String(body.serviceType || "数据查询"),
+          endpoint: String(body.endpoint || ""),
+          price: Number(body.price || 0),
+          token: String(body.token || dashboardState.allowance.token),
+          wallet: String(body.wallet || ""),
+          successOnly: !!body.successOnly,
+          refundable: !!body.refundable,
+          manualConfirm: !!body.manualConfirm,
+          status: "running",
+          todayCalls: 0,
+          todayIncome: 0,
+          totalIncome: 0,
+        };
+        dashboardState.agents.unshift(item);
+        json(res, 200, { ok: true, item });
+        return;
+      }
+
+      if (req.method === "PATCH" && /^\/api\/agents\/[^/]+$/.test(url.pathname)) {
+        const agentId = url.pathname.split("/").pop();
+        const body = await readJsonBody(req);
+        dashboardState.agents = dashboardState.agents.map((a) => (a.id === agentId ? { ...a, ...body } : a));
+        json(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === "DELETE" && /^\/api\/agents\/[^/]+$/.test(url.pathname)) {
+        const agentId = url.pathname.split("/").pop();
+        dashboardState.agents = dashboardState.agents.filter((a) => a.id !== agentId);
+        json(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/bills") {
+        const status = url.searchParams.get("status");
+        const items = status ? dashboardState.bills.filter((b) => b.status === status) : dashboardState.bills;
+        json(res, 200, { ok: true, items });
+        return;
+      }
+
+      if (req.method === "POST" && /^\/api\/bills\/[^/]+\/(confirm|reject|settle|dispute)$/.test(url.pathname)) {
+        const seg = url.pathname.split("/");
+        const billId = seg[3];
+        const action = seg[4];
+        let target = "PendingConfirm";
+        if (action === "confirm") target = "PendingSettle";
+        if (action === "reject" || action === "dispute") target = "Disputed";
+        if (action === "settle") target = "Paid";
+        dashboardState.bills = dashboardState.bills.map((b) => (b.id === billId ? { ...b, status: target } : b));
+        json(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/bills/batch-settle-now") {
+        let settled = 0;
+        dashboardState.bills = dashboardState.bills.map((b) => {
+          if (b.status === "PendingSettle" && b.payStrategy === "now") {
+            settled += Number(b.amount || 0);
+            return { ...b, status: "Paid" };
           }
-        }
+          return b;
+        });
+        dashboardState.allowance.reserved = Math.max(0, Number(dashboardState.allowance.reserved || 0) - settled);
+        normalizeDashboardState();
+        json(res, 200, { ok: true, settledAmount: settled });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/bills/strategy") {
+        const body = await readJsonBody(req);
+        dashboardState.bills = dashboardState.bills.map((b) =>
+          b.id === body.billId ? { ...b, payStrategy: String(body.payStrategy || b.payStrategy) } : b
+        );
+        json(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/allowance/stop") {
+        dashboardState.allowance.stopped = true;
+        dashboardState.allowance.active = 0;
+        json(res, 200, { ok: true, allowance: dashboardState.allowance });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/api/allowance/increase") {
+        const body = await readJsonBody(req);
+        const amount = Number(body.amount || 0);
+        dashboardState.allowance.stopped = false;
+        dashboardState.allowance.allowance += amount;
+        normalizeDashboardState();
+        json(res, 200, { ok: true, allowance: dashboardState.allowance });
+        return;
+      }
+
+      if (req.method === "POST" && (url.pathname === "/api/btc-price-paid" || url.pathname === "/api/price-paid")) {
+        const body = await readJsonBody(req);
         const symbol = String(body.symbol || url.searchParams.get("symbol") || DEFAULT_SYMBOL);
         const userId = String(body.userId || "external-user");
         const output = await runPaidCall(provider, wallet, symbol, userId);
