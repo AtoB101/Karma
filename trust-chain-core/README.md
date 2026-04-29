@@ -26,7 +26,7 @@ forge build
 forge test -q
 ```
 
-Frontend demo:
+Frontend demo (manual):
 
 ```bash
 python3 -m http.server 8787
@@ -34,6 +34,19 @@ python3 -m http.server 8787
 
 Open:
 `http://127.0.0.1:8787/examples/v01-metamask-settlement.html`
+
+Frontend demo (one command):
+
+```bash
+./start-ui.sh
+```
+
+Optional:
+
+```bash
+./start-ui.sh --open
+./start-ui.sh --port 8790
+```
 
 Public P0 console entry:
 `http://127.0.0.1:8787/index.html`
