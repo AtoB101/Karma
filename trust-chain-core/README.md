@@ -1,15 +1,15 @@
-# trust-chain-core (Public)
+# Karma (formerly trust-chain-core)
 
-Trust-Chain: Non-custodial payment protocol for AI agents
+Karma: Non-custodial payment protocol for AI agents
 
 ## About
 
-AI agents need to pay each other, but existing solutions either require custody or lack enforceable settlement. Trust-Chain uses on-chain accounting + EIP-712 signatures to enable non-custodial, trust-minimized payments between any two agents.
+AI agents need to pay each other, but existing solutions either require custody or lack enforceable settlement. Karma uses on-chain accounting + EIP-712 signatures to enable non-custodial, trust-minimized payments between any two agents.
 
 ## Website
 
 - Portal (test): https://atob101.github.io/Trust-Chain/
-- Coming soon + waitlist: https://atob101.github.io/Trust-Chain/coming-soon.html
+- Coming soon + waitlist: https://atob101.github.io/Trust-Chain/coming-soon.html (Karma Coming Soon)
 
 This public repository exposes the verifiable settlement protocol baseline:
 
@@ -19,7 +19,7 @@ This public repository exposes the verifiable settlement protocol baseline:
 - minimal runnable demos
 - public documentation
 
-Commercial strategy logic is intentionally excluded and belongs in `trust-chain-engine` (private).
+Commercial strategy logic is intentionally excluded and belongs in the private Karma engine repository.
 
 ## Public Scope
 
