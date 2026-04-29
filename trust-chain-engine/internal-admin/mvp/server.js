@@ -19,6 +19,8 @@ const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
 const STATIC_ROOT =
   process.env.DASHBOARD_STATIC_DIR || path.resolve(__dirname, "../../../trust-chain-core");
 const API_PREFIX = "/api/v1";
+const APP_ENV = process.env.APP_ENV || process.env.NODE_ENV || "development";
+const BASE_PUBLIC_URL = process.env.BASE_PUBLIC_URL || "";
 
 const dashboardState = {
   allowance: {
@@ -102,6 +104,15 @@ function chainEnabled() {
   return Boolean(RPC_URL && USER_PRIVATE_KEY && PROVIDER_WALLET);
 }
 
+class HttpError extends Error {
+  constructor(status, code, message, data) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.data = data;
+  }
+}
+
 function json(res, status, payload) {
   let body = payload;
   if (payload && typeof payload === "object" && !Array.isArray(payload)) {
@@ -170,6 +181,31 @@ function isApiPath(urlPath, routePath) {
 function getApiPath(routePath) {
   const canonical = routePath.startsWith("/api/") ? routePath.slice(4) : routePath;
   return `${API_PREFIX}${canonical}`;
+}
+
+function toCanonicalApiPath(urlPath) {
+  if (urlPath.startsWith(`${API_PREFIX}/`)) {
+    return `/api${urlPath.slice(API_PREFIX.length)}`;
+  }
+  if (urlPath === API_PREFIX) return "/api";
+  if (urlPath.startsWith("/api/") || urlPath === "/api") return urlPath;
+  return null;
+}
+
+function assertNonEmptyString(value, fieldName) {
+  const str = String(value ?? "").trim();
+  if (!str) {
+    throw new HttpError(400, "INVALID_ARGUMENT", `${fieldName} is required`);
+  }
+  return str;
+}
+
+function assertPositiveNumber(value, fieldName) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) {
+    throw new HttpError(400, "INVALID_ARGUMENT", `${fieldName} must be a positive number`);
+  }
+  return num;
 }
 
 function tryServeStaticFile(urlPath, res) {
@@ -360,11 +396,13 @@ async function main() {
         json(res, 404, { error: `Static file not found: ${url.pathname}` });
         return;
       }
+      const apiPath = toCanonicalApiPath(url.pathname);
+      if (!apiPath) {
+        json(res, 404, { error: "Not found" });
+        return;
+      }
 
-      if (
-        req.method === "GET" &&
-        (isApiPath(url.pathname, "/api/status") || isApiPath(url.pathname, "/api/health"))
-      ) {
+      if (req.method === "GET" && (apiPath === "/api/status" || apiPath === "/api/health")) {
         const network = hasChain ? await provider.getNetwork() : { chainId: 0n };
         json(res, 200, {
           ok: true,
@@ -378,11 +416,12 @@ async function main() {
           defaultSymbol: DEFAULT_SYMBOL,
           supportedPriceSource: "binance",
           chainEnabled: hasChain,
+          environment: APP_ENV,
         });
         return;
       }
 
-      if (req.method === "GET" && isApiPath(url.pathname, "/api/config")) {
+      if (req.method === "GET" && apiPath === "/api/config") {
         json(res, 200, {
           ok: true,
           schemaVersion: "trustchain.mvp.config.v1",
@@ -390,11 +429,12 @@ async function main() {
           pricePerCallEth: ethers.formatEther(CHARGE_WEI),
           defaultSymbol: DEFAULT_SYMBOL,
           endpoint: getApiPath("/api/price-paid"),
+          basePublicUrl: BASE_PUBLIC_URL,
         });
         return;
       }
 
-      if (req.method === "GET" && isApiPath(url.pathname, "/api/dashboard")) {
+      if (req.method === "GET" && apiPath === "/api/dashboard") {
         normalizeDashboardState();
         json(res, 200, {
           ok: true,
@@ -407,7 +447,7 @@ async function main() {
         return;
       }
 
-      if (req.method === "GET" && isApiPath(url.pathname, "/api/deploy-readiness")) {
+      if (req.method === "GET" && apiPath === "/api/deploy-readiness") {
         const hasChain = chainEnabled();
         const checks = [
           { key: "api.dashboard", ok: true },
@@ -428,20 +468,25 @@ async function main() {
         return;
       }
 
-      if (req.method === "GET" && isApiPath(url.pathname, "/api/agents")) {
+      if (req.method === "GET" && apiPath === "/api/agents") {
         json(res, 200, { ok: true, items: dashboardState.agents });
         return;
       }
 
-      if (req.method === "POST" && isApiPath(url.pathname, "/api/agents")) {
+      if (req.method === "POST" && apiPath === "/api/agents") {
         const body = await readJsonBody(req);
+        const name = assertNonEmptyString(body.name || "NewAgent", "name");
+        const price = Number(body.price || 0);
+        if (!Number.isFinite(price) || price < 0) {
+          throw new HttpError(400, "INVALID_ARGUMENT", "price must be a non-negative number");
+        }
         const item = {
           id: `agent-${Date.now()}`,
-          name: String(body.name || "NewAgent"),
+          name,
           description: String(body.description || ""),
           serviceType: String(body.serviceType || "数据查询"),
           endpoint: String(body.endpoint || ""),
-          price: Number(body.price || 0),
+          price,
           token: String(body.token || dashboardState.allowance.token),
           wallet: String(body.wallet || ""),
           successOnly: !!body.successOnly,
@@ -463,11 +508,8 @@ async function main() {
         return;
       }
 
-      if (
-        req.method === "PATCH" &&
-        (/^\/api\/agents\/[^/]+$/.test(url.pathname) || /^\/api\/v1\/api\/agents\/[^/]+$/.test(url.pathname))
-      ) {
-        const agentId = url.pathname.split("/").pop();
+      if (req.method === "PATCH" && /^\/api\/agents\/[^/]+$/.test(apiPath)) {
+        const agentId = apiPath.split("/").pop();
         const body = await readJsonBody(req);
         let targetName = "Agent";
         dashboardState.agents = dashboardState.agents.map((a) => {
@@ -485,11 +527,8 @@ async function main() {
         return;
       }
 
-      if (
-        req.method === "DELETE" &&
-        (/^\/api\/agents\/[^/]+$/.test(url.pathname) || /^\/api\/v1\/api\/agents\/[^/]+$/.test(url.pathname))
-      ) {
-        const agentId = url.pathname.split("/").pop();
+      if (req.method === "DELETE" && /^\/api\/agents\/[^/]+$/.test(apiPath)) {
+        const agentId = apiPath.split("/").pop();
         let targetName = "Agent";
         dashboardState.agents = dashboardState.agents.filter((a) => {
           if (a.id === agentId) targetName = a.name;
@@ -505,19 +544,15 @@ async function main() {
         return;
       }
 
-      if (req.method === "GET" && isApiPath(url.pathname, "/api/bills")) {
+      if (req.method === "GET" && apiPath === "/api/bills") {
         const status = url.searchParams.get("status");
         const items = status ? dashboardState.bills.filter((b) => b.status === status) : dashboardState.bills;
         json(res, 200, { ok: true, items });
         return;
       }
 
-      if (
-        req.method === "POST" &&
-        (/^\/api\/bills\/[^/]+\/(confirm|reject|settle|dispute)$/.test(url.pathname) ||
-          /^\/api\/v1\/api\/bills\/[^/]+\/(confirm|reject|settle|dispute)$/.test(url.pathname))
-      ) {
-        const seg = url.pathname.split("/");
+      if (req.method === "POST" && /^\/api\/bills\/[^/]+\/(confirm|reject|settle|dispute)$/.test(apiPath)) {
+        const seg = apiPath.split("/");
         const billId = seg[seg.length - 2];
         const action = seg[seg.length - 1];
         let target = "PendingConfirm";
@@ -542,7 +577,7 @@ async function main() {
         return;
       }
 
-      if (req.method === "POST" && isApiPath(url.pathname, "/api/bills/batch-settle-now")) {
+      if (req.method === "POST" && apiPath === "/api/bills/batch-settle-now") {
         let settled = 0;
         dashboardState.bills = dashboardState.bills.map((b) => {
           if (b.status === "PendingSettle" && b.payStrategy === "now") {
@@ -563,16 +598,21 @@ async function main() {
         return;
       }
 
-      if (req.method === "POST" && isApiPath(url.pathname, "/api/bills/strategy")) {
+      if (req.method === "POST" && apiPath === "/api/bills/strategy") {
         const body = await readJsonBody(req);
+        const billId = assertNonEmptyString(body.billId, "billId");
+        const payStrategy = assertNonEmptyString(body.payStrategy, "payStrategy");
+        if (!["now", "batch"].includes(payStrategy)) {
+          throw new HttpError(400, "INVALID_ARGUMENT", "payStrategy must be one of: now, batch");
+        }
         dashboardState.bills = dashboardState.bills.map((b) =>
-          b.id === body.billId ? { ...b, payStrategy: String(body.payStrategy || b.payStrategy) } : b
+          b.id === billId ? { ...b, payStrategy } : b
         );
         json(res, 200, { ok: true });
         return;
       }
 
-      if (req.method === "POST" && isApiPath(url.pathname, "/api/allowance/stop")) {
+      if (req.method === "POST" && apiPath === "/api/allowance/stop") {
         dashboardState.allowance.stopped = true;
         dashboardState.allowance.active = 0;
         pushActivity({
@@ -585,9 +625,9 @@ async function main() {
         return;
       }
 
-      if (req.method === "POST" && isApiPath(url.pathname, "/api/allowance/increase")) {
+      if (req.method === "POST" && apiPath === "/api/allowance/increase") {
         const body = await readJsonBody(req);
-        const amount = Number(body.amount || 0);
+        const amount = assertPositiveNumber(body.amount, "amount");
         dashboardState.allowance.stopped = false;
         dashboardState.allowance.allowance += amount;
         normalizeDashboardState();
@@ -601,10 +641,7 @@ async function main() {
         return;
       }
 
-      if (
-        req.method === "POST" &&
-        (isApiPath(url.pathname, "/api/btc-price-paid") || isApiPath(url.pathname, "/api/price-paid"))
-      ) {
+      if (req.method === "POST" && (apiPath === "/api/btc-price-paid" || apiPath === "/api/price-paid")) {
         if (!hasChain) {
           json(res, 503, {
             ok: false,
@@ -624,8 +661,12 @@ async function main() {
 
       json(res, 404, { error: "Not found" });
     } catch (err) {
-      json(res, 500, {
-        error: String(err.message || err),
+      const status = Number(err?.status) || 500;
+      json(res, status, {
+        ok: false,
+        code: err?.code || "INTERNAL_ERROR",
+        message: String(err?.message || err),
+        data: err?.data || null,
       });
     }
   });

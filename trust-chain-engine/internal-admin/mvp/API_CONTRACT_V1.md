@@ -24,6 +24,9 @@ Response envelope (unified):
 ### GET `/api/v1/status` (or `/api/status`)
 
 Returns runtime status including chain capability flags.
+Also includes deployment context fields:
+
+- `environment` (from `APP_ENV` / `NODE_ENV`)
 
 ---
 
@@ -37,6 +40,7 @@ Returns:
 - `pricePerCallEth`
 - `defaultSymbol`
 - `endpoint` (normalized as `/api/v1/price-paid`)
+- `basePublicUrl` (from `BASE_PUBLIC_URL`)
 
 ---
 
@@ -68,6 +72,10 @@ List all agent definitions.
 
 ### POST `/api/v1/agents` (or `/api/agents`)
 Create a new agent.
+Validation:
+
+- `name` required (non-empty)
+- `price` must be a non-negative number
 
 Body (example):
 
@@ -110,6 +118,10 @@ Batch settle all `PendingSettle` bills with strategy `now`.
 
 ### POST `/api/v1/bills/strategy` (or `/api/bills/strategy`)
 Update one bill payment strategy.
+Validation:
+
+- `billId` required
+- `payStrategy` must be `now` or `batch`
 
 Body:
 
@@ -128,6 +140,9 @@ Body:
 Pause further spending.
 
 ### POST `/api/v1/allowance/increase` (or `/api/allowance/increase`)
+Validation:
+
+- `amount` must be a positive number
 
 Body:
 
