@@ -34,14 +34,14 @@
 
     <div class="layout">
       <aside class="card side-nav">
-        <button class="nav-btn primary" onclick="document.getElementById('sec-income').scrollIntoView({behavior:'smooth'})">1. 收款区</button>
-        <button class="nav-btn primary" onclick="document.getElementById('sec-expense').scrollIntoView({behavior:'smooth'})">2. 付款区</button>
-        <button class="nav-btn primary" onclick="document.getElementById('sec-bills').scrollIntoView({behavior:'smooth'})">3. 账单记录</button>
-        <button class="nav-btn primary" onclick="document.getElementById('sec-settings').scrollIntoView({behavior:'smooth'})">4. 设置</button>
+        <button class="nav-btn primary section-nav-btn is-active" data-target="income" onclick="switchPanel('income', this)">1. 收款区</button>
+        <button class="nav-btn primary section-nav-btn" data-target="expense" onclick="switchPanel('expense', this)">2. 付款区</button>
+        <button class="nav-btn primary section-nav-btn" data-target="bills" onclick="switchPanel('bills', this)">3. 账单记录</button>
+        <button class="nav-btn primary section-nav-btn" data-target="settings" onclick="switchPanel('settings', this)">4. 设置</button>
       </aside>
 
       <section>
-        <div id="sec-income" class="card content-section">
+        <div id="sec-income" class="card content-section active">
           <h3>收款区：我的收费 Agent</h3>
           <p><button id="toggleAddAgent" class="primary">+ 添加收费 Agent</button></p>
           <div id="addAgentForm" style="display:none">
@@ -263,6 +263,18 @@
         </div>`).join('') || "<p class='muted'>暂无</p>"}</div>`;
     }
 
+    function switchPanel(panel, btn) {
+      const all = ['income', 'expense', 'bills', 'settings'];
+      all.forEach((name) => {
+        const el = document.getElementById(`sec-${name}`);
+        if (!el) return;
+        if (name === panel) el.classList.add('active');
+        else el.classList.remove('active');
+      });
+      document.querySelectorAll('.section-nav-btn').forEach((b) => b.classList.remove('is-active'));
+      if (btn) btn.classList.add('is-active');
+    }
+
     function render() {
       const s = serverData;
       const token = s.summary.wallet.token;
@@ -330,6 +342,7 @@
     document.getElementById('refreshData').onclick = () => runAction(loadData, '数据已刷新');
     document.getElementById('startDemoScript').onclick = () => window.tcUI.startDemoScript();
 
+    switchPanel('income', document.querySelector('.section-nav-btn[data-target="income"]'));
     runAction(loadData, '门户已与后端同步');
   </script>
 </body>
