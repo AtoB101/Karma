@@ -47,6 +47,64 @@ make quickstart
   CN: 批量校验目录下所有 support-bundle 的 `manifestDigest`，支持失败阈值、时间范围、最小样本量与最近通过时效门槛。  
   EN: Batch-verify support-bundle manifest digests with fail-threshold, time-window, minimum-sample, and recent-pass policies.
 
+- `make validate-evidence-schema`  
+  CN: 校验最新 diagnosis JSON 的证据结构版本与关键字段兼容性。  
+  EN: Validate schema-version compatibility and required fields in latest diagnosis JSON.
+
+- `make ci-proof-gates`  
+  CN: 运行 M4.1 的证据/索引门禁（schema 兼容 + proof-index 批量策略）。  
+  EN: Run M4.1 proof gates (schema compatibility + batch proof-index policies).
+- `make ci-proof-gate`  
+  CN: `make ci-proof-gates` 的兼容别名（便于旧脚本调用）。  
+  EN: Compatibility alias of `make ci-proof-gates` for legacy automation.
+
+- `make proof-patrol`  
+  CN: 按巡检策略（strict/balanced/lenient）执行 proof-index 巡检并输出告警 JSON。  
+  EN: Run profile-based proof patrol and emit alert-friendly JSON.
+
+- `make agent-safety-guardian`  
+  CN: 运行全链路 Agent 安全管家（自检 + 证据兼容 + proof 巡检 + 风险分级登记）。  
+  EN: Run end-to-end Agent safety guardian (self-check + evidence compatibility + proof patrol + risk registry).
+- `make guardian`  
+  CN: `make agent-safety-guardian` 的兼容别名（便于旧脚本调用）。  
+  EN: Compatibility alias of `make agent-safety-guardian` for legacy automation.
+
+- `make rule-gap-adversarial-sim`  
+  CN: 运行规则漏洞对抗模拟，生成“利用规则”攻击场景与风险评分报告。  
+  EN: Run rule-gap adversarial simulation and export exploit-oriented risk report.
+
+- `make commercialization-gate`  
+  CN: 运行商用准入门禁（MUST/SHOULD/CAN 分层），输出 `commercial-ready` / `pilot-ready` / `not-ready` 结论。  
+  EN: Run commercialization readiness gate (MUST/SHOULD/CAN layers) and output `commercial-ready` / `pilot-ready` / `not-ready`.
+
+- `make validate-output-contracts`  
+  CN: 校验关键 JSON 输出是否包含统一契约字段（`schemaVersion/generatedAt/source/traceId`）。  
+  EN: Validate required unified output contract fields (`schemaVersion/generatedAt/source/traceId`) in core JSON artifacts.
+
+- `make slither-gate`  
+  CN: 运行 Slither 静态分析门禁（未安装 Slither 会给出安装提示并返回非零）。  
+  EN: Run Slither static-analysis gate (returns non-zero with installation guidance if Slither is missing).
+
+- `make system-status`  
+  CN: 聚合商用门禁、巡检、安全管家、契约校验状态，生成系统健康视图。  
+  EN: Aggregate commercialization/patrol/guardian/contract status into a system health snapshot.
+
+- `make ops-summary`  
+  CN: 一条命令生成运维摘要（自动刷新关键产物，输出总体健康、告警级别与 runbook 建议）。  
+  EN: One-command operational summary (refreshes core artifacts and prints health, alert level, and runbook actions).
+
+- `make ops-alert`  
+  CN: 导出告警工件 JSON（用于对接 IM/告警平台），输出 severity/priority/channel 与 nextActions。  
+  EN: Export alert artifact JSON for ChatOps/on-call integrations with severity/priority/channel and nextActions.
+
+- `make release-readiness`  
+  CN: 发版前总门禁（一条命令串行执行：commercialization/proof-gates/patrol/guardian/contracts/system-status/ops-alert，任一失败即阻断）。  
+  EN: Pre-release master gate (single command runs commercialization/proof-gates/patrol/guardian/contracts/system-status/ops-alert; any failure blocks release).
+
+- `Security CI workflow` (`.github/workflows/security-ci.yml`)  
+  CN: PR 自动执行 `forge test + slither-gate + release-readiness` 三段阻断，任一失败即阻断合并。  
+  EN: PR auto-runs `forge test + slither-gate + release-readiness`; any failure blocks merge.
+
 ### 3) Local CI checks
 
 - `make ci-local`  
@@ -57,7 +115,53 @@ make quickstart
   CN: 与上面相同，但会加载 `.env` 做环境校验。  
   EN: Same as above, but loads `.env` for env validation.
 
-### 4) Proof verification (frontend SOP)
+### 4) O1 grouped command entrypoints (new)
+
+- `make ops-doctor`  
+  CN: 生成诊断文本报告（分层入口，等价 `make doctor`）。  
+  EN: Generate diagnostics text report (grouped entry, alias of `make doctor`).
+
+- `make ops-bundle`  
+  CN: 生成支持包（分层入口，等价 `make support-bundle`）。  
+  EN: Build support bundle (grouped entry, alias of `make support-bundle`).
+
+- `make ops-commercial-gate`  
+  CN: 运行商用准入门禁（分层入口，等价 `make commercialization-gate`）。  
+  EN: Run commercial readiness gate (grouped entry, alias of `make commercialization-gate`).
+
+- `make ops-summary`  
+  CN: 运行运维摘要（分层入口，一次输出系统健康概览）。  
+  EN: Run ops summary (grouped entry for one-shot system health overview).
+
+- `make ops-alert`  
+  CN: 导出标准运维告警工件（分层入口，便于后续告警通道接入）。  
+  EN: Export standardized ops alert artifact (grouped entry for alert channel integrations).
+
+- `make safety-gates`  
+  CN: 运行证据/索引门禁（分层入口，等价 `make ci-proof-gates`）。  
+  EN: Run proof/evidence gates (grouped entry, alias of `make ci-proof-gates`).
+
+- `make safety-patrol`  
+  CN: 运行巡检策略（分层入口，等价 `make proof-patrol`）。  
+  EN: Run patrol profile (grouped entry, alias of `make proof-patrol`).
+
+- `make safety-guardian`  
+  CN: 运行安全管家（分层入口，等价 `make agent-safety-guardian`）。  
+  EN: Run safety guardian (grouped entry, alias of `make agent-safety-guardian`).
+
+- `make safety-adversarial-sim`  
+  CN: 运行规则漏洞对抗模拟（分层入口，等价 `make rule-gap-adversarial-sim`）。  
+  EN: Run rule-gap adversarial simulation (grouped entry, alias of `make rule-gap-adversarial-sim`).
+
+- `make api-serve`  
+  CN: 启动 API 服务（分层入口，等价 `make api-run`）。  
+  EN: Start API service (grouped entry, alias of `make api-run`).
+
+- `make api-check`  
+  CN: 运行 API 冒烟测试（分层入口，等价 `make api-smoke`）。  
+  EN: Run API smoke tests (grouped entry, alias of `make api-smoke`).
+
+### 5) Proof verification (frontend SOP)
 
 - `python3 -m http.server 8790`  
   CN: 启动前端控制台，用于离线验链/验签流程。  
@@ -107,7 +211,32 @@ make quickstart
   - `ok`
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
+- `./scripts/ci-proof-gates.sh`
+- `./scripts/ci-proof-gates.sh --format json`
 - `./scripts/proof-sop-checklist.sh --operator <name> --reviewer <name> --ticket <id>`
+- `./scripts/validate-evidence-schema.sh --path results/trustchain-v01-diagnosis-<timestamp>.json`
+- `./scripts/proof-patrol.sh --profile strict --dir results --batch-output results/proof-patrol-batch-strict.json --alert-output results/proof-patrol-alert-strict.json`
+- `./scripts/proof-patrol.sh --profile balanced --since "2026-04-28T00:00:00Z" --until "2026-04-28T23:59:59Z"`
+- `./scripts/agent-safety-guardian.sh --profile strict --output results/agent-safety-guardian-strict.json --register results/agent-risk-register.json`
+- `./scripts/agent-safety-guardian.sh --profile balanced --trend-window-hours 24 --escalate-repeat-threshold 2`
+- `./scripts/agent-safety-guardian.sh --profile balanced --auto-apply-recommendation --auto-confirm-runs 2 --auto-state results/agent-safety-autotune-state.json`
+- `./scripts/agent-safety-guardian.sh --profile balanced --alert-threshold medium --alarm-output results/agent-safety-alarm-latest.json --fail-on-alarm`
+- `./scripts/rule-gap-adversarial-sim.sh --output results/rule-gap-adversarial-latest.json`
+- `./scripts/commercialization-gate.sh --format text`
+- `./scripts/commercialization-gate.sh --format json --output results/commercialization-gate-latest.json`
+- `./scripts/validate-output-contracts.sh --format text`
+- `./scripts/validate-output-contracts.sh --format json`
+- `./scripts/slither-gate.sh --format text`
+- `./scripts/slither-gate.sh --format json --output results/slither-gate-latest.json`
+- `./scripts/system-status.sh --format text`
+- `./scripts/system-status.sh --format json --output results/system-status-latest.json`
+- `./scripts/ops-summary.sh`
+- `./scripts/ops-alert.sh --input results/system-status-latest.json --output results/ops-alert-latest.json --format text`
+- `./scripts/ops-alert.sh --input results/system-status-latest.json --output results/ops-alert-latest.json --format json`
+- `./scripts/release-readiness.sh`
+- `./scripts/system-status.sh --format json | jq '.summary'`
+- `./scripts/api_server.py --host 127.0.0.1 --port 8811 --token dev-token`
+- `./scripts/api-smoke.sh --host 127.0.0.1 --port 8811 --token dev-token`
 
 ## Frontend URL
 

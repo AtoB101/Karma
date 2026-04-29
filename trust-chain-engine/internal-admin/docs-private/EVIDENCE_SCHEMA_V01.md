@@ -3,17 +3,19 @@
 This document defines the **field contract** for exported diagnosis JSON in M1.
 The goal is to keep support/audit parsers stable while M2 adds new fields.
 
-## Schema freeze policy (M1)
+## Schema freeze policy (M1, compatibility updated in M4.0)
 
-- `evidenceVersion = "evidence-v1"` is the canonical schema marker.
+- `schemaVersion = "evidence-v1"` is the canonical schema marker.
+- `evidenceVersion = "evidence-v1"` is preserved as a compatibility alias.
 - Existing field names below are frozen for M1 and must not be renamed.
 - New optional fields may be appended in M2+, but existing fields must remain backward compatible.
-- `reportVersion` is legacy and transitional (`"1.1"` in current exporter); consumers should key on `evidenceVersion`.
+- `reportVersion` is legacy and transitional (`"1.1"` in current exporter); consumers should key on `schemaVersion` first.
 
 ## Top-level fields
 
 - `reportVersion` (legacy compatibility)
-- `evidenceVersion` (canonical schema marker)
+- `schemaVersion` (canonical schema marker)
+- `evidenceVersion` (compatibility alias)
 - `traceId`
 - `app`
 - `exportedAt`

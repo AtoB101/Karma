@@ -16,6 +16,7 @@ Description:
     1) preflight (optional)
     2) forge build
     3) focused non-custodial tests
+    4) proof/evidence CI gates
 
 Options:
   --from-env        Load .env before checks
@@ -77,6 +78,10 @@ echo "==> forge test (focused suites)"
 forge test --match-path "contracts/test/NonCustodialAgentPayment.t.sol" -q
 forge test --match-path "contracts/test/NonCustodialAgentPaymentReentrancy.t.sol" -q
 forge test --match-path "contracts/test/NonCustodialAgentPayment.invariant.t.sol" -q
+
+echo
+echo "==> proof/evidence gates"
+./scripts/ci-proof-gates.sh
 
 echo
 echo "Local CI checks passed."

@@ -1,0 +1,54 @@
+{
+  "reportVersion": "1.1",
+  "schemaVersion": "evidence-v1",
+  "evidenceVersion": "evidence-v1",
+  "traceId": "trace-sample-m4-ci",
+  "app": "TrustChain v0.1 wangcai Console",
+  "exportedAt": "2026-04-28T00:00:00Z",
+  "network": {
+    "chainId": "11155111",
+    "name": "sepolia"
+  },
+  "walletAddress": "0x000000000000000000000000000000000000dEaD",
+  "kpis": {
+    "wallet": "connected",
+    "engine": "N/A (non-custodial)",
+    "tokenAllowlist": "N/A (non-custodial)",
+    "settlementReadiness": "Ready"
+  },
+  "autoMonitor": {
+    "active": false,
+    "pollSeconds": 10
+  },
+  "authSnapshot": {
+    "walletAddress": "0x000000000000000000000000000000000000dEaD",
+    "signaturePresent": false,
+    "quotePresent": false,
+    "stableConfigHistory": []
+  },
+  "requestSnapshot": {
+    "form": {
+      "engineAddress": "",
+      "nonCustodialAddress": "0x0000000000000000000000000000000000000001",
+      "tokenAddress": "0x0000000000000000000000000000000000000002",
+      "payeeAddress": "0x0000000000000000000000000000000000000003",
+      "amount": "100",
+      "scopeText": "api-call:inference:v1",
+      "proofHashText": "ipfs://proof-demo-v1",
+      "ttlSeconds": 3600
+    }
+  },
+  "executionSnapshot": {
+    "diagnostics": [],
+    "transactionHistory": [],
+    "lastQuote": null
+  },
+  "riskSnapshot": {
+    "summary": {
+      "totalDiagnostics": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0
+    }
+  }
+}
