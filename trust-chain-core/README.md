@@ -35,6 +35,17 @@ python3 -m http.server 8787
 Open:
 `http://127.0.0.1:8787/examples/v01-metamask-settlement.html`
 
+P0 public UI pages:
+
+- `http://127.0.0.1:8787/buyer/dashboard/`
+- `http://127.0.0.1:8787/buyer/authorize/`
+- `http://127.0.0.1:8787/buyer/bills/`
+- `http://127.0.0.1:8787/buyer/agent-activity/`
+- `http://127.0.0.1:8787/agent/confirm-call/`
+- `http://127.0.0.1:8787/seller/dashboard/`
+- `http://127.0.0.1:8787/seller/create-service/`
+- `http://127.0.0.1:8787/seller/revenue/`
+
 P0 buyer/seller/agent UI demo pages:
 
 - `http://127.0.0.1:8787/buyer/authorize/`
