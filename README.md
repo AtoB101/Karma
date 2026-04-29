@@ -129,3 +129,9 @@ The page defaults to non-custodial mode; legacy engine controls are hidden by de
 ## Primary Ops Doc
 
 See `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt` for deploy, smoke, integration, and reporting workflows.
+
+## Project Conventions
+
+For naming, API path, and repository layout standards, see:
+
+- `CONVENTIONS.md`
