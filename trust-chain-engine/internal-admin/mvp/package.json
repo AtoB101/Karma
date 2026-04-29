@@ -1,7 +1,7 @@
 {
   "name": "mvp",
   "version": "1.0.0",
-  "description": "Trust-Chain private BTC paid API MVP",
+  "description": "Trust-Chain private paid-price gateway toolkit",
   "main": "trustchain-wrap-tool.js",
   "scripts": {
     "start": "node server.js",
@@ -9,7 +9,9 @@
     "verify": "bash ./verify-first-paid-call.sh",
     "simulate": "bash ./simulate-external-user-call.sh",
     "proof": "bash ./capture-demo-proof.sh",
-    "agent-example": "node ./examples/agent-wrap-example.js"
+    "agent-example": "node ./examples/agent-wrap-example.js",
+    "trustchain:doctor": "bash ./scripts/trustchain-doctor.sh",
+    "trustchain:first-sale": "bash ./scripts/trustchain-first-sale.sh"
   },
   "keywords": [],
   "author": "",
@@ -19,5 +21,8 @@
   },
   "exports": {
     ".": "./trustchain-wrap-tool.js"
+  },
+  "bin": {
+    "trustchain-seller-init": "./bin/trustchain-seller-init.js"
   }
 }

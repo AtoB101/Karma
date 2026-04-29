@@ -1,4 +1,4 @@
-# Trust-Chain P0 Paid BTC API MVP (Private)
+# Trust-Chain P0 Paid Price API MVP (Private)
 
 Goal: prove real paid API settlement with one call.
 
@@ -44,6 +44,26 @@ Open:
 - `POST /api/price-paid` with body `{ "symbol": "ETHUSDC" }`
 - Compatibility alias: `POST /api/btc-price-paid` (maps to BTCUSDT)
 
+## Seller one-click toolkit (new)
+
+Initialize a seller starter project:
+
+```bash
+npx --yes --package file:. trustchain-seller-init ./my-seller-agent
+```
+
+Run gateway self-check:
+
+```bash
+npm run trustchain:doctor
+```
+
+Simulate first paid sale and auto-verify:
+
+```bash
+npm run trustchain:first-sale
+```
+
 ## Agent wrapTool (author monetization)
 
 Use the private helper to wrap any tool and charge per invocation:
@@ -76,21 +96,6 @@ npm run simulate
 # writes logs/external-user-call-summary.json
 ```
 
-## Capture demo proof bundle
-
-```bash
-npm run proof
-# writes logs/demo-proof-<timestamp>.json
-```
-
-## Simulate external user first paid call
-
-Run one paid call from an "external user" wallet context and print a concise summary:
-
-```bash
-npm run simulate
-```
-
 Or with explicit environment overrides:
 
 ```bash
@@ -98,7 +103,14 @@ RPC_URL=http://127.0.0.1:8545 \
 USER_PRIVATE_KEY=<external-user-test-key> \
 PROVIDER_WALLET=<provider-wallet> \
 CHARGE_WEI=1000000000000 \
-./simulate-external-user-call.sh
+./simulate-external-user-call.sh --symbol ETHUSDC
+```
+
+## Capture demo proof bundle
+
+```bash
+npm run proof
+# writes logs/proofs/demo-proof-<timestamp>.json
 ```
 
 ## Output logs
@@ -141,24 +153,6 @@ Optional explicit threshold:
 
 ```bash
 EXPECTED_MIN_CHARGE_WEI=10000000000000 ./verify-first-paid-call.sh
-```
-
-## External user simulation
-
-```bash
-npm run simulate
-```
-
-Optional symbol:
-
-```bash
-./simulate-external-user-call.sh --symbol ETHUSDC
-```
-
-## Demo proof capture
-
-```bash
-npm run proof
 ```
 
 ## Important
