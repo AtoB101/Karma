@@ -36,6 +36,20 @@ Open:
 
 - `http://127.0.0.1:8822/`
 
+## Go live portal (single command)
+
+Start production-like portal server (serves UI + API on same origin):
+
+```bash
+./start-portal-live.sh
+```
+
+Run go-live checks (must pass before launch):
+
+```bash
+./portal-go-live-check.sh
+```
+
 ## API
 
 - `GET /api/health`
