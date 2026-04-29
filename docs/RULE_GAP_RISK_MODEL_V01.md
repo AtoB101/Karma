@@ -127,3 +127,25 @@ Adversarial simulation output (`rule-gap-adversarial-sim`) includes:
   - fail gate when rule-gap alarm contains `high`/`critical` at configured threshold
   - force strict profile when drift persists beyond confirmation threshold
 
+## 6) Baseline hardening profile (release gate)
+
+To reduce rule-gap exploitability before go-live, release pipelines should apply
+these baseline controls (reflected in adversarial sim outputs as `mitigationProfile`):
+
+- `BURST_GUARD=1`
+  - Enable burst-aware throttling for near-threshold repeated actions.
+- `STRICT_ON_HEAT=1`
+  - Force strict posture when heat/critical conditions are detected.
+- `PATROL_MIN_TOTAL=2` (or higher in production with stable sample volume)
+  - Prevent blind-window operation with insufficient patrol sample size.
+- `PATROL_RECENT_PASS_HOURS=24`
+  - Enforce freshness; stale patrol pass must fail release gate.
+- `AUTO_CONFIRM_RUNS=1`
+  - Reduce recommendation-execution drift window during elevated risk.
+
+Suggested gate rule:
+
+- Block release when adversarial report indicates:
+  - `maxResidualSeverity in {high, critical}`, or
+  - `residualExploitableCount > 0`.
+

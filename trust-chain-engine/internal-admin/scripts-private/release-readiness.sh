@@ -63,17 +63,23 @@ echo "==> [5/8] guardian snapshot"
   --output "$RESULTS_DIR/agent-safety-guardian-latest.json" \
   --register "$RESULTS_DIR/agent-risk-register.json" >/dev/null
 
-echo "==> [6/8] output contract validation"
+echo "==> [6/8] rule-gap adversarial simulation"
+if ! ./scripts/rule-gap-adversarial-sim.sh --output "$RESULTS_DIR/rule-gap-adversarial-latest.json" --format json >/dev/null; then
+  release_status="FAIL"
+  failed_stages+=("rule-gap-adversarial")
+fi
+
+echo "==> [7/8] output contract validation"
 ./scripts/validate-output-contracts.sh --format json > "$RESULTS_DIR/output-contracts-validation-latest.json" || true
 if ! ./scripts/validate-output-contracts.sh --format text; then
   release_status="FAIL"
   failed_stages+=("output-contracts")
 fi
 
-echo "==> [7/8] system status"
+echo "==> [8/8] system status"
 ./scripts/system-status.sh --output "$RESULTS_DIR/system-status-latest.json" --format text
 
-echo "==> [8/8] ops alert export"
+echo "==> [9/9] ops alert export"
 ./scripts/ops-alert.sh --input "$RESULTS_DIR/system-status-latest.json" --output "$RESULTS_DIR/ops-alert-latest.json" --format text
 
 echo
