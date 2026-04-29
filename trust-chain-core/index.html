@@ -52,6 +52,9 @@
     .agent-card strong { display: block; margin-bottom: 6px; }
     .agent-meta { font-size: 13px; color: #64748b; }
     .section-title { margin: 28px 0 14px; font-size: 18px; }
+    .statusline { margin-top: 10px; font-size: 13px; color: #334155; }
+    .ok { color: #166534; }
+    .err { color: #991b1b; }
     @media (max-width: 980px) { .app { flex-direction: column; } .sidebar { width: 100%; } .grid-4, .grid-2 { grid-template-columns: 1fr; } .topbar { align-items: flex-start; flex-direction: column; gap: 12px; } }
   </style>
 </head>
@@ -69,40 +72,45 @@
       <div class="sidebar-footer">当前版本：P0 Console<br />核心：收款、付款、账单、授权</div>
     </aside>
     <main class="main">
-      <div class="topbar"><h2 id="pageTitle">Dashboard</h2><div class="wallet">Wallet：0xA12...89F · USDC / USDT</div></div>
+      <div class="topbar"><h2 id="pageTitle">Dashboard</h2><div class="wallet" id="walletInfo">Wallet：-</div></div>
       <section id="dashboard" class="page active">
         <div class="grid grid-4">
-          <div class="card"><div class="metric-title">总收入</div><div class="metric-value">418.90 USDC</div><div class="metric-sub">来自 238 次 Agent 调用</div></div>
-          <div class="card"><div class="metric-title">总支出</div><div class="metric-value">73.42 USDC</div><div class="metric-sub">用于购买付费服务</div></div>
-          <div class="card"><div class="metric-title">可用额度</div><div class="metric-value">24.50 USDC</div><div class="metric-sub">Agent 可继续使用</div></div>
-          <div class="card"><div class="metric-title">待确认账单</div><div class="metric-value">6</div><div class="metric-sub">需要人工确认</div></div>
+          <div class="card"><div class="metric-title">总收入</div><div class="metric-value" id="mIncome">-</div><div class="metric-sub" id="mIncomeSub">-</div></div>
+          <div class="card"><div class="metric-title">总支出</div><div class="metric-value" id="mExpense">-</div><div class="metric-sub">用于购买付费服务</div></div>
+          <div class="card"><div class="metric-title">可用额度</div><div class="metric-value" id="mActive">-</div><div class="metric-sub">Agent 可继续使用</div></div>
+          <div class="card"><div class="metric-title">待确认账单</div><div class="metric-value" id="mPending">-</div><div class="metric-sub">需要人工确认</div></div>
         </div>
         <h3 class="section-title">最近 Agent 行为</h3>
-        <div class="card"><table class="table"><thead><tr><th>时间</th><th>Agent</th><th>行为</th><th>金额</th><th>状态</th></tr></thead><tbody><tr><td>15:42</td><td>交易助手 Agent</td><td>调用合约风险检测服务</td><td>0.03 USDC</td><td><span class="badge badge-warning">待确认</span></td></tr><tr><td>15:20</td><td>数据分析 Agent</td><td>调用钱包画像服务</td><td>0.08 USDC</td><td><span class="badge badge-success">已结算</span></td></tr></tbody></table></div>
+        <div class="card"><table class="table"><thead><tr><th>时间</th><th>Agent</th><th>行为</th><th>金额</th><th>状态</th></tr></thead><tbody id="activityRows"></tbody></table></div>
       </section>
       <section id="receive" class="page">
         <div class="grid grid-2">
-          <div class="card"><h3>添加收费 Agent</h3><div class="form"><div><label>Agent 名称</label><input placeholder="例如：合约风险检测 Agent" /></div><div><label>Agent 描述</label><textarea placeholder="说明这个 Agent 能提供什么服务"></textarea></div><div><label>服务类型</label><select><option>风险检测</option><option>链上数据</option><option>交易信号</option><option>钱包分析</option><option>自定义 API</option></select></div><div><label>API / 工具地址</label><input placeholder="https://api.example.com/check" /></div><div><label>单次价格</label><input placeholder="0.03" /></div><div><label>收款币种</label><select><option>USDC</option><option>USDT</option></select></div><div><label>收款钱包</label><input placeholder="0x..." /></div><div class="btn-row"><button class="btn btn-primary">创建收费 Agent</button><button class="btn btn-secondary">生成接入代码</button></div></div></div>
-          <div class="card"><h3>我的收费 Agent</h3><div class="agent-card"><div><strong>合约风险检测 Agent</strong><div class="agent-meta">0.03 USDC / 次 · 今日收入 12.36 USDC</div></div><span class="badge badge-success">运行中</span></div><div class="agent-card"><div><strong>Smart Money Tracker</strong><div class="agent-meta">0.08 USDC / 次 · 今日收入 31.80 USDC</div></div><span class="badge badge-success">运行中</span></div><div class="agent-card"><div><strong>交易信号 Agent</strong><div class="agent-meta">0.15 USDC / 次 · 今日收入 0.00 USDC</div></div><span class="badge badge-warning">暂停</span></div></div>
+          <div class="card"><h3>添加收费 Agent</h3><div class="form"><div><label>Agent 名称</label><input id="rName" placeholder="例如：合约风险检测 Agent" /></div><div><label>Agent 描述</label><textarea id="rDesc" placeholder="说明这个 Agent 能提供什么服务"></textarea></div><div><label>服务类型</label><select id="rType"><option>风险检测</option><option>链上数据</option><option>交易信号</option><option>钱包分析</option><option>自定义 API</option></select></div><div><label>API / 工具地址</label><input id="rEndpoint" placeholder="https://api.example.com/check" /></div><div><label>单次价格</label><input id="rPrice" placeholder="0.03" /></div><div><label>收款币种</label><select id="rToken"><option>USDC</option><option>USDT</option></select></div><div><label>收款钱包</label><input id="rWallet" placeholder="0x..." /></div><div class="btn-row"><button class="btn btn-primary" id="btnCreateAgent">创建收费 Agent</button><button class="btn btn-secondary" id="btnGenerateCode">生成接入代码</button></div></div></div>
+          <div class="card"><h3>我的收费 Agent</h3><div id="agentList"></div></div>
         </div>
       </section>
       <section id="pay" class="page">
         <div class="grid grid-2">
-          <div class="card"><h3>授权与额度</h3><div class="form"><div><label>授权币种</label><select><option>USDC</option><option>USDT</option></select></div><div><label>授权额度</label><input placeholder="例如：50" /></div><div class="grid grid-2"><div><label>可用额度</label><input value="24.50 USDC" readonly /></div><div><label>已占用额度</label><input value="5.50 USDC" readonly /></div></div><div class="btn-row"><button class="btn btn-primary">增加授权</button><button class="btn btn-secondary">解锁未占用额度</button><button class="btn btn-danger">暂停 Agent 消费</button></div></div></div>
-          <div class="card"><h3>自动确认规则</h3><div class="form"><div><label>单次自动确认上限</label><input value="0.05 USDC" /></div><div><label>每日自动消费上限</label><input value="5 USDC" /></div><div><label>今日已自动消费</label><input value="1.28 USDC" readonly /></div><div class="btn-row"><button class="btn btn-primary">保存规则</button></div></div></div>
+          <div class="card"><h3>授权与额度</h3><div class="form"><div><label>授权币种</label><select id="pToken"><option>USDC</option><option>USDT</option></select></div><div><label>授权额度</label><input id="pAllowance" placeholder="例如：50" /></div><div class="grid grid-2"><div><label>可用额度</label><input id="pActive" readonly /></div><div><label>已占用额度</label><input id="pUsed" readonly /></div></div><div class="btn-row"><button class="btn btn-primary" id="btnIncAuth">增加授权</button><button class="btn btn-secondary" id="btnUnlock">解锁未占用额度</button><button class="btn btn-danger" id="btnStop">暂停 Agent 消费</button></div></div></div>
+          <div class="card"><h3>自动确认规则</h3><div class="form"><div><label>单次自动确认上限</label><input id="pAutoOne" value="0.05 USDC" /></div><div><label>每日自动消费上限</label><input id="pAutoDay" value="5 USDC" /></div><div><label>今日已自动消费</label><input id="pAutoUsed" value="-" readonly /></div><div class="btn-row"><button class="btn btn-primary">保存规则</button></div></div></div>
         </div>
-        <h3 class="section-title">待确认账单</h3><div class="card"><table class="table"><thead><tr><th>调用方 Agent</th><th>服务</th><th>调用原因</th><th>金额</th><th>操作</th></tr></thead><tbody><tr><td>交易助手 Agent</td><td>合约风险检测 Agent</td><td>检测代币合约是否安全</td><td>0.03 USDC</td><td><button class="btn btn-primary">确认</button> <button class="btn btn-danger">拒绝</button></td></tr></tbody></table></div>
+        <h3 class="section-title">待确认账单</h3><div class="card"><table class="table"><thead><tr><th>调用方 Agent</th><th>服务</th><th>调用原因</th><th>金额</th><th>操作</th></tr></thead><tbody id="pendingRows"></tbody></table></div>
       </section>
       <section id="bills" class="page">
-        <div class="card"><h3>账单记录</h3><table class="table"><thead><tr><th>账单 ID</th><th>调用方</th><th>收款方</th><th>金额</th><th>状态</th><th>证据</th></tr></thead><tbody><tr><td>BILL-000123</td><td>交易助手 Agent</td><td>合约风险检测 Agent</td><td>0.03 USDC</td><td><span class="badge badge-warning">待确认</span></td><td>查看证据</td></tr><tr><td>BILL-000122</td><td>数据分析 Agent</td><td>钱包画像 Agent</td><td>0.08 USDC</td><td><span class="badge badge-success">已付款</span></td><td>查看证据</td></tr><tr><td>BILL-000121</td><td>交易助手 Agent</td><td>信号 Agent</td><td>0.15 USDC</td><td><span class="badge badge-danger">争议中</span></td><td>查看证据</td></tr></tbody></table></div>
+        <div class="card"><h3>账单记录</h3><div class="btn-row" style="margin-bottom:10px"><button class="btn btn-secondary" id="btnBatchNow">批量结算立即付</button><button class="btn btn-secondary" id="btnRefresh">刷新</button></div><table class="table"><thead><tr><th>账单 ID</th><th>调用方</th><th>收款方</th><th>金额</th><th>状态</th><th>证据</th></tr></thead><tbody id="billRows"></tbody></table></div>
       </section>
       <section id="settings" class="page">
-        <div class="grid grid-2"><div class="card"><h3>钱包设置</h3><div class="form"><div><label>默认支付币种</label><select><option>USDC</option><option>USDT</option></select></div><div><label>默认收款钱包</label><input value="0xA12...89F" /></div><button class="btn btn-primary">保存设置</button></div></div><div class="card"><h3>安全设置</h3><div class="btn-row"><button class="btn btn-danger">暂停所有 Agent 消费</button><button class="btn btn-secondary">撤销未占用额度</button><button class="btn btn-secondary">查看授权记录</button></div></div></div>
+        <div class="grid grid-2"><div class="card"><h3>钱包设置</h3><div class="form"><div><label>默认支付币种</label><select id="sToken"><option>USDC</option><option>USDT</option></select></div><div><label>默认收款钱包</label><input id="sWallet" value="0xA12...89F" /></div><button class="btn btn-primary">保存设置</button></div></div><div class="card"><h3>安全设置</h3><div class="btn-row"><button class="btn btn-danger" id="btnStopAll">暂停所有 Agent 消费</button><button class="btn btn-secondary">撤销未占用额度</button><button class="btn btn-secondary">查看授权记录</button></div></div></div>
       </section>
+      <div id="statusLine" class="statusline">初始化中...</div>
     </main>
   </div>
   <script>
     const titles = { dashboard: "Dashboard", receive: "收款区", pay: "付款区", bills: "账单记录", settings: "设置" };
+    const API_BASE = new URLSearchParams(window.location.search).get('apiBase') || window.location.origin;
+    let state = null;
+    let polling = null;
+
     function showPage(pageId, btn) {
       document.querySelectorAll(".page").forEach(page => page.classList.remove("active"));
       document.getElementById(pageId).classList.add("active");
@@ -110,6 +118,81 @@
       btn.classList.add("active");
       document.getElementById("pageTitle").innerText = titles[pageId];
     }
+
+    function setStatus(msg, ok=true){
+      const el=document.getElementById('statusLine');
+      el.textContent=msg;
+      el.className='statusline ' + (ok?'ok':'err');
+    }
+
+    function badge(status){
+      if(status==='Paid') return '<span class="badge badge-success">已付款</span>';
+      if(status==='PendingSettle') return '<span class="badge badge-info">待结算</span>';
+      if(status==='PendingConfirm') return '<span class="badge badge-warning">待确认</span>';
+      return '<span class="badge badge-danger">争议中</span>';
+    }
+
+    async function api(path, method='GET', body){
+      const r = await fetch(`${API_BASE}${path}`, {method, headers:{'Content-Type':'application/json'}, body: body?JSON.stringify(body):undefined});
+      const j = await r.json();
+      if(!r.ok || j.ok===false) throw new Error(j.message || j.error || `HTTP ${r.status}`);
+      return j.data ?? j;
+    }
+
+    async function load(){
+      const d = await api('/api/dashboard');
+      state = d;
+      render();
+    }
+
+    function render(){
+      if(!state) return;
+      const s=state.summary, token=s.wallet.token;
+      walletInfo.textContent=`Wallet：${s.wallet.address} · ${token} / USDT`;
+      mIncome.textContent=`${Number(s.totals.totalIncome).toFixed(2)} ${token}`;
+      mIncomeSub.textContent=`来自 ${(state.activity||[]).length} 次 Agent 调用`;
+      mExpense.textContent=`${Number(s.totals.totalExpense).toFixed(2)} ${token}`;
+      mActive.textContent=`${Number(s.allowance.active).toFixed(2)} ${token}`;
+      mPending.textContent=String(s.counts.pendingConfirm || 0);
+      pToken.value=s.allowance.token;
+      pAllowance.value=String(s.allowance.allowance);
+      pActive.value=`${Number(s.allowance.active).toFixed(2)} ${token}`;
+      pUsed.value=`${Number((s.allowance.locked||0)+(s.allowance.reserved||0)).toFixed(2)} ${token}`;
+      pAutoUsed.value=`${Number(s.totals.totalExpense).toFixed(2)} ${token}`;
+
+      activityRows.innerHTML=(state.activity||[]).map(a=>`<tr><td>${a.time}</td><td>${a.agent}</td><td>${a.action}</td><td>${Number(a.amount||0).toFixed(2)} ${token}</td><td>${badge(a.status)}</td></tr>`).join('') || '<tr><td colspan="5">暂无</td></tr>';
+
+      agentList.innerHTML=(state.agents||[]).map(a=>`<div class="agent-card"><div><strong>${a.name}</strong><div class="agent-meta">${Number(a.price||0).toFixed(2)} ${a.token} / 次 · 今日收入 ${Number(a.todayIncome||0).toFixed(2)} ${a.token}</div></div><div><span class="badge ${a.status==='running'?'badge-success':'badge-warning'}">${a.status==='running'?'运行中':'暂停'}</span><div class="btn-row"><button class="btn btn-secondary" onclick="toggleAgent('${a.id}','${a.status}')">${a.status==='running'?'暂停':'恢复'}</button><button class="btn btn-danger" onclick="removeAgent('${a.id}')">删除</button></div></div></div>`).join('') || '<div class="agent-meta">暂无 Agent</div>';
+
+      const pend=(state.bills||[]).filter(b=>b.status==='PendingConfirm');
+      pendingRows.innerHTML=pend.map(b=>`<tr><td>${b.callerAgent}</td><td>${b.service}</td><td>策略检查</td><td>${Number(b.amount).toFixed(2)} ${token}</td><td><button class="btn btn-primary" onclick="billAct('${b.id}','confirm')">确认</button> <button class="btn btn-danger" onclick="billAct('${b.id}','reject')">拒绝</button></td></tr>`).join('') || '<tr><td colspan="5">暂无待确认</td></tr>';
+
+      billRows.innerHTML=(state.bills||[]).map(b=>`<tr><td>${b.id}</td><td>${b.callerAgent}</td><td>${b.seller}</td><td>${Number(b.amount).toFixed(2)} ${token}</td><td>${badge(b.status)}</td><td><button class="btn btn-secondary" onclick="alert('evidence:'+ '${b.id}')">查看证据</button> ${b.status==='PendingSettle'?`<button class="btn btn-primary" onclick="billAct('${b.id}','settle')">结算</button>`:''}</td></tr>`).join('');
+    }
+
+    async function withAction(fn, okMsg){
+      try{ await fn(); await load(); setStatus(okMsg || '操作成功', true);}catch(e){ setStatus('失败: '+e.message, false);} }
+
+    async function toggleAgent(id,status){ await withAction(()=>api(`/api/agents/${id}`,'PATCH',{status: status==='running'?'paused':'running'}),'Agent 状态已更新'); }
+    async function removeAgent(id){ await withAction(()=>api(`/api/agents/${id}`,'DELETE'),'Agent 已删除'); }
+    async function billAct(id,act){ await withAction(()=>api(`/api/bills/${id}/${act}`,'POST',{}),`账单 ${id} 已${act}`); }
+
+    btnCreateAgent.onclick=()=>withAction(()=>api('/api/agents','POST',{name:rName.value||'NewAgent',description:rDesc.value||'',serviceType:rType.value||'自定义 API',endpoint:rEndpoint.value||'',price:Number(rPrice.value||0),token:rToken.value||'USDC',wallet:rWallet.value||'',successOnly:true,refundable:false,manualConfirm:false}),'收费 Agent 已创建');
+    btnGenerateCode.onclick=()=>{ navigator.clipboard?.writeText(`trustchain.wrapTool({ endpoint: "${rEndpoint.value||'https://api.example.com'}", price: "${rPrice.value||'0.03'}", token: "${rToken.value||'USDC'}" })`); setStatus('接入代码已复制',true); };
+    btnIncAuth.onclick=()=>withAction(()=>api('/api/allowance/increase','POST',{amount:Number(pAllowance.value||10)}),'授权额度已增加');
+    btnStop.onclick=()=>withAction(()=>api('/api/allowance/stop','POST',{}),'已暂停 Agent 消费');
+    btnUnlock.onclick=()=>setStatus('已解锁未占用额度（模拟）', true);
+    btnBatchNow.onclick=()=>withAction(()=>api('/api/bills/batch-settle-now','POST',{}),'批量结算完成');
+    btnRefresh.onclick=()=>withAction(()=>load(),'已刷新');
+    btnStopAll.onclick=()=>withAction(()=>api('/api/allowance/stop','POST',{}),'已暂停所有 Agent 消费');
+
+    async function boot(){
+      try{ await load(); setStatus('前后端同步正常'); }
+      catch(e){ setStatus('初始化失败: '+e.message, false); }
+      if(polling) clearInterval(polling);
+      polling = setInterval(()=>load().catch(()=>{}), 8000);
+    }
+    boot();
   </script>
 </body>
 </html>

@@ -79,6 +79,22 @@ const dashboardState = {
       createdAt: "2026-04-29 08:34",
     },
   ],
+  activity: [
+    {
+      time: "15:42",
+      agent: "交易助手 Agent",
+      action: "调用合约风险检测服务",
+      amount: 0.03,
+      status: "PendingConfirm",
+    },
+    {
+      time: "15:20",
+      agent: "数据分析 Agent",
+      action: "调用钱包画像服务",
+      amount: 0.08,
+      status: "Paid",
+    },
+  ],
 };
 
 function chainEnabled() {
@@ -164,6 +180,21 @@ function normalizeDashboardState() {
       Number(dashboardState.allowance.locked || 0) -
       Number(dashboardState.allowance.reserved || 0)
   );
+}
+
+function nowHm() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function pushActivity(entry) {
+  dashboardState.activity.unshift({
+    time: nowHm(),
+    ...entry,
+  });
+  dashboardState.activity = dashboardState.activity.slice(0, 30);
 }
 
 function summarizeDashboard() {
@@ -355,6 +386,28 @@ async function main() {
           summary: summarizeDashboard(),
           agents: dashboardState.agents,
           bills: dashboardState.bills,
+          activity: dashboardState.activity,
+        });
+        return;
+      }
+
+      if (req.method === "GET" && url.pathname === "/api/deploy-readiness") {
+        const hasChain = chainEnabled();
+        const checks = [
+          { key: "api.dashboard", ok: true },
+          { key: "api.agents", ok: true },
+          { key: "api.bills", ok: true },
+          { key: "chain.enabled", ok: hasChain },
+        ];
+        const requiredChecks = checks.filter((c) => c.key !== "chain.enabled");
+        json(res, 200, {
+          ok: true,
+          code: "DEPLOY_READINESS",
+          message: "deploy readiness snapshot",
+          data: {
+            ready: requiredChecks.every((c) => c.ok),
+            checks,
+          },
         });
         return;
       }
@@ -384,6 +437,12 @@ async function main() {
           totalIncome: 0,
         };
         dashboardState.agents.unshift(item);
+        pushActivity({
+          agent: item.name,
+          action: "新增收费 Agent",
+          amount: item.price,
+          status: "Paid",
+        });
         json(res, 200, { ok: true, item });
         return;
       }
@@ -391,14 +450,35 @@ async function main() {
       if (req.method === "PATCH" && /^\/api\/agents\/[^/]+$/.test(url.pathname)) {
         const agentId = url.pathname.split("/").pop();
         const body = await readJsonBody(req);
-        dashboardState.agents = dashboardState.agents.map((a) => (a.id === agentId ? { ...a, ...body } : a));
+        let targetName = "Agent";
+        dashboardState.agents = dashboardState.agents.map((a) => {
+          if (a.id !== agentId) return a;
+          targetName = a.name;
+          return { ...a, ...body };
+        });
+        pushActivity({
+          agent: targetName,
+          action: "更新 Agent 配置",
+          amount: 0,
+          status: "Paid",
+        });
         json(res, 200, { ok: true });
         return;
       }
 
       if (req.method === "DELETE" && /^\/api\/agents\/[^/]+$/.test(url.pathname)) {
         const agentId = url.pathname.split("/").pop();
-        dashboardState.agents = dashboardState.agents.filter((a) => a.id !== agentId);
+        let targetName = "Agent";
+        dashboardState.agents = dashboardState.agents.filter((a) => {
+          if (a.id === agentId) targetName = a.name;
+          return a.id !== agentId;
+        });
+        pushActivity({
+          agent: targetName,
+          action: "删除收费 Agent",
+          amount: 0,
+          status: "Disputed",
+        });
         json(res, 200, { ok: true });
         return;
       }
@@ -418,7 +498,20 @@ async function main() {
         if (action === "confirm") target = "PendingSettle";
         if (action === "reject" || action === "dispute") target = "Disputed";
         if (action === "settle") target = "Paid";
-        dashboardState.bills = dashboardState.bills.map((b) => (b.id === billId ? { ...b, status: target } : b));
+        let touched = null;
+        dashboardState.bills = dashboardState.bills.map((b) => {
+          if (b.id !== billId) return b;
+          touched = { ...b, status: target };
+          return touched;
+        });
+        if (touched) {
+          pushActivity({
+            agent: touched.callerAgent,
+            action: `账单${billId}执行${action}`,
+            amount: Number(touched.amount || 0),
+            status: target,
+          });
+        }
         json(res, 200, { ok: true });
         return;
       }
@@ -434,6 +527,12 @@ async function main() {
         });
         dashboardState.allowance.reserved = Math.max(0, Number(dashboardState.allowance.reserved || 0) - settled);
         normalizeDashboardState();
+        pushActivity({
+          agent: "系统批量",
+          action: "批量结算立即付账单",
+          amount: settled,
+          status: "Paid",
+        });
         json(res, 200, { ok: true, settledAmount: settled });
         return;
       }
@@ -450,6 +549,12 @@ async function main() {
       if (req.method === "POST" && url.pathname === "/api/allowance/stop") {
         dashboardState.allowance.stopped = true;
         dashboardState.allowance.active = 0;
+        pushActivity({
+          agent: "用户授权",
+          action: "暂停 Agent 消费",
+          amount: 0,
+          status: "Disputed",
+        });
         json(res, 200, { ok: true, allowance: dashboardState.allowance });
         return;
       }
@@ -460,6 +565,12 @@ async function main() {
         dashboardState.allowance.stopped = false;
         dashboardState.allowance.allowance += amount;
         normalizeDashboardState();
+        pushActivity({
+          agent: "用户授权",
+          action: "增加授权额度",
+          amount,
+          status: "Paid",
+        });
         json(res, 200, { ok: true, allowance: dashboardState.allowance });
         return;
       }
