@@ -16,6 +16,8 @@ const CHARGE_WEI = process.env.CHARGE_WEI || "10000000000000"; // 0.00001 ETH
 const LOG_PATH = process.env.LOG_PATH || path.join(__dirname, "logs", "paid-calls.jsonl");
 const DEFAULT_SYMBOL = (process.env.DEFAULT_SYMBOL || "BTC/USDT").toUpperCase();
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN || "*";
+const STATIC_ROOT =
+  process.env.DASHBOARD_STATIC_DIR || path.resolve(__dirname, "../../../trust-chain-core");
 
 const dashboardState = {
   allowance: {
@@ -79,14 +81,8 @@ const dashboardState = {
   ],
 };
 
-function requireEnv() {
-  const missing = [];
-  if (!RPC_URL) missing.push("RPC_URL");
-  if (!USER_PRIVATE_KEY) missing.push("USER_PRIVATE_KEY");
-  if (!PROVIDER_WALLET) missing.push("PROVIDER_WALLET");
-  if (missing.length > 0) {
-    throw new Error(`Missing required env: ${missing.join(", ")}`);
-  }
+function chainEnabled() {
+  return Boolean(RPC_URL && USER_PRIVATE_KEY && PROVIDER_WALLET);
 }
 
 function json(res, status, payload) {
@@ -132,10 +128,33 @@ function appendLog(record) {
   fs.appendFileSync(LOG_PATH, `${JSON.stringify(record)}\n`, "utf-8");
 }
 
-function serveStaticIndex(res) {
-  const p = path.join(__dirname, "public", "index.html");
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(fs.readFileSync(p, "utf-8"));
+function contentTypeByExt(ext) {
+  const map = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+  };
+  return map[ext] || "application/octet-stream";
+}
+
+function tryServeStaticFile(urlPath, res) {
+  const normalized = decodeURIComponent(urlPath || "/");
+  const relPath = normalized === "/" ? "/index.html" : normalized;
+  const absPath = path.resolve(STATIC_ROOT, `.${relPath}`);
+  if (!absPath.startsWith(STATIC_ROOT)) return false;
+  if (!fs.existsSync(absPath) || fs.statSync(absPath).isDirectory()) return false;
+  res.writeHead(200, {
+    "Content-Type": contentTypeByExt(path.extname(absPath).toLowerCase()),
+    "Access-Control-Allow-Origin": ALLOW_ORIGIN,
+  });
+  res.end(fs.readFileSync(absPath));
+  return true;
 }
 
 function normalizeDashboardState() {
@@ -280,9 +299,9 @@ async function runPaidCall(provider, wallet, symbol, userId) {
 }
 
 async function main() {
-  requireEnv();
-  const provider = new ethers.JsonRpcProvider(RPC_URL);
-  const wallet = new ethers.Wallet(USER_PRIVATE_KEY, provider);
+  const hasChain = chainEnabled();
+  const provider = hasChain ? new ethers.JsonRpcProvider(RPC_URL) : null;
+  const wallet = hasChain ? new ethers.Wallet(USER_PRIVATE_KEY, provider) : null;
 
   const server = http.createServer(async (req, res) => {
     try {
@@ -291,24 +310,27 @@ async function main() {
         return;
       }
       const url = new URL(req.url || "/", `http://${req.headers.host}`);
-      if (req.method === "GET" && url.pathname === "/") {
-        serveStaticIndex(res);
+      if (req.method === "GET" && !url.pathname.startsWith("/api/")) {
+        if (tryServeStaticFile(url.pathname, res)) return;
+        if (tryServeStaticFile("/index.html", res)) return;
+        json(res, 404, { error: `Static file not found: ${url.pathname}` });
         return;
       }
 
       if (req.method === "GET" && (url.pathname === "/api/status" || url.pathname === "/api/health")) {
-        const network = await provider.getNetwork();
+        const network = hasChain ? await provider.getNetwork() : { chainId: 0n };
         json(res, 200, {
           ok: true,
           schemaVersion: "trustchain.mvp.status.v1",
           network: {
             chainId: Number(network.chainId),
           },
-          userWallet: wallet.address,
-          providerWallet: PROVIDER_WALLET,
+          userWallet: hasChain ? wallet.address : "offline-mode",
+          providerWallet: PROVIDER_WALLET || "offline-mode",
           chargeWei: CHARGE_WEI,
           defaultSymbol: DEFAULT_SYMBOL,
           supportedPriceSource: "binance",
+          chainEnabled: hasChain,
         });
         return;
       }
@@ -443,6 +465,15 @@ async function main() {
       }
 
       if (req.method === "POST" && (url.pathname === "/api/btc-price-paid" || url.pathname === "/api/price-paid")) {
+        if (!hasChain) {
+          json(res, 503, {
+            ok: false,
+            code: "CHAIN_DISABLED",
+            message: "Chain settlement env missing. Dashboard sync APIs are still available.",
+            data: { required: ["RPC_URL", "USER_PRIVATE_KEY", "PROVIDER_WALLET"] },
+          });
+          return;
+        }
         const body = await readJsonBody(req);
         const symbol = String(body.symbol || url.searchParams.get("symbol") || DEFAULT_SYMBOL);
         const userId = String(body.userId || "external-user");

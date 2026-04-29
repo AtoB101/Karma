@@ -87,7 +87,7 @@
   </main>
 
   <script>
-    const API_BASE = `${window.location.protocol}//${window.location.hostname}:8822`;
+    const API_BASE = new URLSearchParams(window.location.search).get('apiBase') || window.location.origin;
     let serverData = null;
     let inFlight = 0;
 
