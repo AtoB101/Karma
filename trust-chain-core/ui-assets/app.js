@@ -146,6 +146,64 @@ function stopDemoScript() {
   window.sessionStorage.removeItem(DEMO_SCRIPT_KEY);
 }
 
+function ensureBuyerOneClickAuthorization() {
+  const s = getState();
+  const b = s.buyer || {};
+  b.token = b.token || "USDC";
+  b.allowance = Math.max(Number(b.allowance || 0), 100);
+  b.perCallLimit = Math.max(Number(b.perCallLimit || 0), 0.05);
+  b.dailyLimit = Math.max(Number(b.dailyLimit || 0), 5);
+  b.autoConfirm = Math.max(Number(b.autoConfirm || 0), 0.01);
+  b.locked = Math.max(Number(b.locked || 0), 30);
+  b.reserved = Math.max(Number(b.reserved || 0), 5.5);
+  b.active = Math.max(0, Number(b.allowance) - Number(b.locked) - Number(b.reserved));
+  s.buyer = b;
+  saveState(s);
+  return s;
+}
+
+function ensureSellerOneClickDeploy() {
+  const s = getState();
+  const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+  const baseService = {
+    id: `svc-${Date.now()}`,
+    name: "Any Pair Price API",
+    price: 0.03,
+    token: "USDC",
+    status: "active",
+    endpoint: "https://api.binance.com/api/v3/ticker/price?symbol={SYMBOL}",
+    method: "GET",
+    deployedAt: now,
+  };
+  const hasEquivalent = (s.services || []).some((v) => v.name === baseService.name && v.status === "active");
+  if (!hasEquivalent) {
+    s.services = s.services || [];
+    s.services.unshift(baseService);
+  }
+  saveState(s);
+  return s;
+}
+
+function getBuyerChecklist() {
+  const s = getState();
+  const b = s.buyer || {};
+  return [
+    { key: "authorize", label: "1) 一键授权额度", done: Number(b.allowance || 0) > 0, href: "/buyer/authorize/" },
+    { key: "confirm", label: "2) 确认 Agent 调用", done: (s.calls || []).length > 0, href: "/agent/confirm-call/" },
+    { key: "track", label: "3) 查看账单追踪", done: (s.bills || []).length > 0, href: "/buyer/bills/" },
+  ];
+}
+
+function getSellerChecklist() {
+  const s = getState();
+  const hasService = (s.services || []).length > 0;
+  return [
+    { key: "deploy", label: "1) 一键部署收费服务", done: hasService, href: "/seller/create-service/" },
+    { key: "accept", label: "2) 接收 Agent 调用", done: (s.calls || []).length > 0, href: "/agent/confirm-call/" },
+    { key: "income", label: "3) 查看收入结算", done: (s.revenue || []).length > 0, href: "/seller/revenue/" },
+  ];
+}
+
 function mountDemoScriptGuide() {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   const params = new URLSearchParams(window.location.search);
@@ -197,4 +255,8 @@ window.tcUI = {
   resetDemoState,
   startDemoScript,
   stopDemoScript,
+  ensureBuyerOneClickAuthorization,
+  ensureSellerOneClickDeploy,
+  getBuyerChecklist,
+  getSellerChecklist,
 };
