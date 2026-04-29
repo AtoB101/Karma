@@ -27,28 +27,82 @@ function buildSeedState() {
       autoConfirm: 0.01,
     },
     myAgents: [
-      { id: "agent-001", name: "PriceHunter", status: "active", services: 2 },
-      { id: "agent-002", name: "RiskGuard", status: "active", services: 1 },
+      {
+        id: "agent-001",
+        name: "PriceHunter",
+        description: "Any pair market price query",
+        serviceType: "数据查询",
+        endpoint: "https://api.binance.com/api/v3/ticker/price?symbol={SYMBOL}",
+        price: 0.03,
+        token: "USDC",
+        wallet: "0xSELL...001",
+        successOnly: true,
+        refundable: true,
+        manualConfirm: false,
+        status: "running",
+        todayCalls: 12,
+        todayIncome: 0.36,
+        totalIncome: 8.42,
+      },
+      {
+        id: "agent-002",
+        name: "RiskGuard",
+        description: "Token risk check and warning",
+        serviceType: "风险检测",
+        endpoint: "https://risk.example.com/check",
+        price: 0.05,
+        token: "USDT",
+        wallet: "0xSELL...002",
+        successOnly: true,
+        refundable: false,
+        manualConfirm: true,
+        status: "paused",
+        todayCalls: 4,
+        todayIncome: 0.2,
+        totalIncome: 3.1,
+      },
     ],
     services: [{ id: "svc-001", name: "Price API", price: 0.01, token: "USDC", status: "active" }],
     bills: [
       {
         id: "BILL-001",
-        service: "Price API",
-        seller: "MarketDataBot",
+        service: "ETHUSDT Price Query",
+        seller: "PriceHunter",
+        callerAgent: "PortfolioBot",
         amount: 0.01,
-        status: "Settled",
+        status: "Paid",
         payStrategy: "now",
         createdAt: "2026-04-29 08:10",
       },
       {
         id: "BILL-002",
         service: "Risk Scan",
-        seller: "SafeScan",
+        seller: "RiskGuard",
+        callerAgent: "TradingAgent",
         amount: 0.03,
-        status: "Pending",
+        status: "PendingConfirm",
         payStrategy: "batch",
         createdAt: "2026-04-29 08:21",
+      },
+      {
+        id: "BILL-003",
+        service: "SOLUSDT Price Query",
+        seller: "PriceHunter",
+        callerAgent: "ArbAgent",
+        amount: 0.02,
+        status: "PendingSettle",
+        payStrategy: "now",
+        createdAt: "2026-04-29 08:34",
+      },
+      {
+        id: "BILL-004",
+        service: "Token Risk Audit",
+        seller: "RiskGuard",
+        callerAgent: "AlphaAgent",
+        amount: 0.05,
+        status: "Disputed",
+        payStrategy: "batch",
+        createdAt: "2026-04-29 08:40",
       },
     ],
     calls: [
@@ -193,9 +247,14 @@ function ensureSellerOneClickDeploy() {
 function ensureDataShape() {
   const s = getState();
   if (!Array.isArray(s.myAgents)) {
-    s.myAgents = [{ id: `agent-${Date.now()}`, name: "DefaultAgent", status: "active", services: 1 }];
+    s.myAgents = [{ id: `agent-${Date.now()}`, name: "DefaultAgent", status: "running", services: 1 }];
   }
+  s.buyer = s.buyer || {};
+  s.buyer.stopped = !!s.buyer.stopped;
   s.bills = (s.bills || []).map((b) => ({
+    seller: b.seller || "UnknownSeller",
+    callerAgent: b.callerAgent || "UnknownAgent",
+    status: b.status || "PendingConfirm",
     payStrategy: b.payStrategy || (Number(b.amount || 0) >= 0.03 ? "batch" : "now"),
     ...b,
   }));
@@ -203,13 +262,25 @@ function ensureDataShape() {
   return s;
 }
 
-function addMyAgent(name) {
+function addMyAgent(payload) {
   const s = ensureDataShape();
+  const data = payload || {};
   s.myAgents.unshift({
     id: `agent-${Date.now()}`,
-    name: String(name || "NewAgent").trim(),
-    status: "active",
-    services: 0,
+    name: String(data.name || "NewAgent").trim(),
+    description: String(data.description || ""),
+    serviceType: String(data.serviceType || "数据查询"),
+    endpoint: String(data.endpoint || ""),
+    price: Number(data.price || 0),
+    token: String(data.token || "USDC"),
+    wallet: String(data.wallet || ""),
+    successOnly: !!data.successOnly,
+    refundable: !!data.refundable,
+    manualConfirm: !!data.manualConfirm,
+    status: "running",
+    todayCalls: 0,
+    todayIncome: 0,
+    totalIncome: 0,
   });
   saveState(s);
   return s;
@@ -218,6 +289,45 @@ function addMyAgent(name) {
 function removeMyAgent(agentId) {
   const s = ensureDataShape();
   s.myAgents = (s.myAgents || []).filter((a) => a.id !== agentId);
+  saveState(s);
+  return s;
+}
+
+function updateMyAgent(agentId, patch) {
+  const s = ensureDataShape();
+  s.myAgents = (s.myAgents || []).map((a) => (a.id === agentId ? { ...a, ...patch } : a));
+  saveState(s);
+  return s;
+}
+
+function stopBuyerAuthorization() {
+  const s = ensureDataShape();
+  s.buyer.stopped = true;
+  s.buyer.active = 0;
+  saveState(s);
+  return s;
+}
+
+function increaseBuyerAllowance(delta) {
+  const s = ensureDataShape();
+  const d = Number(delta || 0);
+  s.buyer.stopped = false;
+  s.buyer.allowance = Number(s.buyer.allowance || 0) + d;
+  s.buyer.active = Math.max(0, Number(s.buyer.active || 0) + d);
+  saveState(s);
+  return s;
+}
+
+function updateBillStatus(billId, status) {
+  const s = ensureDataShape();
+  s.bills = (s.bills || []).map((b) => (b.id === billId ? { ...b, status } : b));
+  saveState(s);
+  return s;
+}
+
+function updateBillStrategy(billId, payStrategy) {
+  const s = ensureDataShape();
+  s.bills = (s.bills || []).map((b) => (b.id === billId ? { ...b, payStrategy } : b));
   saveState(s);
   return s;
 }
@@ -300,4 +410,9 @@ window.tcUI = {
   getSellerChecklist,
   addMyAgent,
   removeMyAgent,
+  updateMyAgent,
+  stopBuyerAuthorization,
+  increaseBuyerAllowance,
+  updateBillStatus,
+  updateBillStrategy,
 };
