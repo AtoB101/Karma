@@ -52,11 +52,26 @@ Run go-live checks (must pass before launch):
 
 ## API
 
-- `GET /api/health`
-- `GET /api/status`
-- `POST /api/price-paid` with body `{ "symbol": "BTCUSDT" }`
-- `POST /api/price-paid` with body `{ "symbol": "ETHUSDC" }`
-- Compatibility alias: `POST /api/btc-price-paid` (maps to BTCUSDT)
+Primary namespace is now `/api/v1` (legacy `/api/*` remains compatible).
+
+- `GET /api/v1/health` (legacy: `/api/health`)
+- `GET /api/v1/status` (legacy: `/api/status`)
+- `GET /api/v1/config`
+- `GET /api/v1/dashboard`
+- `GET /api/v1/agents`
+- `POST /api/v1/agents`
+- `PATCH /api/v1/agents/:id`
+- `DELETE /api/v1/agents/:id`
+- `GET /api/v1/bills`
+- `POST /api/v1/bills/:id/confirm|reject|settle|dispute`
+- `POST /api/v1/bills/batch-settle-now`
+- `POST /api/v1/bills/strategy`
+- `POST /api/v1/allowance/stop`
+- `POST /api/v1/allowance/increase`
+- `POST /api/v1/price-paid` with body `{ "symbol": "BTCUSDT" }`
+- Compatibility alias: `POST /api/v1/btc-price-paid` (legacy alias remains too)
+
+Detailed request/response contract: `./API_CONTRACT_V1.md`
 
 ## Seller one-click toolkit (new)
 
