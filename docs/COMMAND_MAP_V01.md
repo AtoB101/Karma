@@ -1,4 +1,4 @@
-# TrustChain Command Map V0.1 (O1.1)
+# Karma Command Map V0.1 (O1.1)
 
 ## Purpose
 

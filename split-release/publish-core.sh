@@ -7,12 +7,12 @@ Usage:
   ./split-release/publish-core.sh --repo-url <url> [--branch main] [--workdir .publish-core]
 
 Description:
-  Publish / refresh trust-chain-core as an independent git repository.
-  This script creates a clean git repo from trust-chain-core contents and pushes it.
+  Publish / refresh karma-core as an independent git repository.
+  This script creates a clean git repo from karma-core contents and pushes it.
 
 Examples:
-  ./split-release/publish-core.sh --repo-url git@github.com:org/trust-chain-core.git
-  ./split-release/publish-core.sh --repo-url https://github.com/org/trust-chain-core.git --branch main
+  ./split-release/publish-core.sh --repo-url git@github.com:org/karma-core.git
+  ./split-release/publish-core.sh --repo-url https://github.com/org/karma-core.git --branch main
 EOF
 }
 
@@ -52,7 +52,7 @@ if [[ -z "$REPO_URL" ]]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC_DIR="$ROOT_DIR/trust-chain-core"
+SRC_DIR="$ROOT_DIR/karma-core"
 TMP_DIR="$ROOT_DIR/$WORKDIR"
 
 if [[ ! -d "$SRC_DIR" ]]; then
@@ -69,8 +69,8 @@ rm -rf .git
 git init
 git checkout -b "$BRANCH"
 git add -A
-git commit -m "chore: initialize trust-chain-core public repository"
+git commit -m "chore: initialize karma-core public repository"
 git remote add origin "$REPO_URL"
 git push -u origin "$BRANCH"
 
-echo "Published trust-chain-core to $REPO_URL (branch: $BRANCH)"
+echo "Published karma-core to $REPO_URL (branch: $BRANCH)"

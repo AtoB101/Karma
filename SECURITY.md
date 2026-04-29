@@ -1,6 +1,6 @@
 # Security Verification Status
 
-TrustChain maintains a layered security verification approach that combines tests,
+Karma maintains a layered security verification approach that combines tests,
 fuzzing, static analysis, and formal verification.
 
 Investor- and partner-facing one-page bilingual summary:

@@ -6,7 +6,7 @@ This document defines repository visibility boundaries and review ownership.
 
 ### Public domain (safe to expose)
 
-- `trust-chain-core/**`
+- `karma-core/**`
 - `docs/**` (public-facing docs only)
 - `openapi/**`
 - `.github/workflows/**`
@@ -17,10 +17,10 @@ This document defines repository visibility boundaries and review ownership.
 
 ### Private domain (internal only)
 
-- `trust-chain-engine/internal-admin/**`
-- `trust-chain-engine/docs/**`
-- `trust-chain-engine/settlement-optimizer/examples-private/**`
-- `trust-chain-engine/PRIVATE_MIGRATION_INVENTORY.md`
+- `karma-engine/internal-admin/**`
+- `karma-engine/docs/**`
+- `karma-engine/settlement-optimizer/examples-private/**`
+- `karma-engine/PRIVATE_MIGRATION_INVENTORY.md`
 
 ## 2) Boundary rules
 
@@ -32,14 +32,14 @@ This document defines repository visibility boundaries and review ownership.
    - `outreach-results.csv`
    - `PRIVATE_MIGRATION_INVENTORY`
 3. Public files must not include secret-looking env keys:
-   - `TRUSTCHAIN_API_TOKEN`
+   - `KARMA_API_TOKEN`
    - `USER_PRIVATE_KEY`
    - `DEPLOYER_PRIVATE_KEY`
 
 ## 3) Review policy
 
-- Changes under `trust-chain-core/**`, `docs/**`, `openapi/**`, and root public docs should be reviewed as public-surface changes.
-- Changes under `trust-chain-engine/internal-admin/**` must be reviewed as private/internal operational changes.
+- Changes under `karma-core/**`, `docs/**`, `openapi/**`, and root public docs should be reviewed as public-surface changes.
+- Changes under `karma-engine/internal-admin/**` must be reviewed as private/internal operational changes.
 - Cross-boundary PRs (both public and private touched) require both reviewers.
 
 ## 4) Automation

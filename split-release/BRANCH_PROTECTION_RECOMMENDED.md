@@ -2,10 +2,10 @@
 
 This document provides recommended GitHub branch protection settings for:
 
-- `trust-chain-core` (public repository)
-- `trust-chain-engine` (private repository)
+- `karma-core` (public repository)
+- `karma-engine` (private repository)
 
-## 1) trust-chain-core (public)
+## 1) karma-core (public)
 
 Target protected branches:
 
@@ -36,7 +36,7 @@ Optional (recommended):
 - Require merge queue: **ON** (if your org enables merge queue)
 - Restrict merge method to squash merge for cleaner audit history
 
-## 2) trust-chain-engine (private)
+## 2) karma-engine (private)
 
 Target protected branches:
 
@@ -76,7 +76,7 @@ Private-repo additional controls:
 
 ## 3) Minimal CODEOWNERS recommendation
 
-For `trust-chain-core`:
+For `karma-core`:
 
 ```text
 * @core-maintainers
@@ -85,7 +85,7 @@ sdk/** @sdk-team
 docs/** @docs-team
 ```
 
-For `trust-chain-engine`:
+For `karma-engine`:
 
 ```text
 * @engine-maintainers

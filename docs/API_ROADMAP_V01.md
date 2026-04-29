@@ -1,8 +1,8 @@
-# TrustChain Ecosystem API Roadmap V0.1 (M5)
+# Karma Ecosystem API Roadmap V0.1 (M5)
 
 ## Goal
 
-Turn TrustChain's internal capabilities (policy control, evidence/proof verification, and safety guardian operations) into ecosystem-facing APIs with stable contracts.
+Turn Karma's internal capabilities (policy control, evidence/proof verification, and safety guardian operations) into ecosystem-facing APIs with stable contracts.
 
 ## Scope (M5.0)
 
@@ -38,7 +38,7 @@ Turn TrustChain's internal capabilities (policy control, evidence/proof verifica
 ## Security Baseline
 
 - Bearer token required for `/v1/*` except `/v1/health`
-- Token configured by `TRUSTCHAIN_API_TOKEN`
+- Token configured by `KARMA_API_TOKEN`
 - All errors include `requestId`
 
 ## Error Code Baseline

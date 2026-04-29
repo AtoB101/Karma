@@ -1,6 +1,6 @@
 # Rule Gap Risk Model v0.1 (Agent Safety Guardian)
 
-This document defines a rule-centric threat lens for TrustChain.
+This document defines a rule-centric threat lens for Karma.
 Focus: attackers often exploit valid protocol paths and policy boundaries rather than violating obvious rules.
 
 ## 1) Why rule-gap modeling

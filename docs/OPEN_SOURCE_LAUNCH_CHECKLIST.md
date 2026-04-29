@@ -1,6 +1,6 @@
-# TrustChain Open Source Launch Checklist
+# Karma Open Source Launch Checklist
 
-This checklist is a practical launch plan for opening TrustChain to external builders
+This checklist is a practical launch plan for opening Karma to external builders
 while preserving focus on the core settlement story:
 
 > EIP-712 signed off-chain intent -> on-chain verifiable settlement
