@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: TrustChain Ecosystem API
+  title: Karma Ecosystem API
   version: 1.0.0
   summary: Payment intent, evidence verification, and risk alert APIs.
 servers:

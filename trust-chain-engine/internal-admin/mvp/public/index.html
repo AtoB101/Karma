@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Trust-Chain P0 Any Pair Paid API Demo</title>
+    <title>Karma P0 Any Pair Paid API Demo</title>
     <style>
       body { font-family: Arial, sans-serif; margin: 24px; max-width: 960px; }
       h1 { margin-bottom: 8px; }
@@ -20,7 +20,7 @@
     </style>
   </head>
   <body>
-    <h1>Trust-Chain P0 Demo: Any Pair Paid API</h1>
+    <h1>Karma P0 Demo: Any Pair Paid API</h1>
     <p class="muted">
       Goal: <b>one API call -> one on-chain settlement</b> (no free usage).
     </p>
@@ -76,9 +76,12 @@
       const symbolEl = document.getElementById("symbol");
       const callBtn = document.getElementById("callBtn");
 
+      const API_PREFIX = "/api/v1";
+
       async function init() {
-        const res = await fetch("/api/config");
-        const cfg = await res.json();
+        const res = await fetch(`${API_PREFIX}/config`);
+        const payload = await res.json();
+        const cfg = payload.data ?? payload;
         priceEthEl.textContent = `${cfg.pricePerCallEth} ETH`;
       }
 
@@ -93,7 +96,7 @@
         try {
           const userId = (userIdEl.value || "demo-user-01").trim();
           const symbol = (symbolEl.value || "BTCUSDT").trim().toUpperCase();
-          const resp = await fetch(`/api/price-paid?symbol=${encodeURIComponent(symbol)}`, {
+          const resp = await fetch(`${API_PREFIX}/price-paid?symbol=${encodeURIComponent(symbol)}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId }),
@@ -106,12 +109,13 @@
             return;
           }
 
-          beforeBalEl.textContent = `${data.settlement.beforeBalanceEth} ETH`;
-          afterBalEl.textContent = `${data.settlement.afterBalanceEth} ETH`;
-          priceResultEl.textContent = `${data.price.symbol} ${data.price.price}`;
-          txHashEl.textContent = data.settlement.txHash;
-          explorerLinkEl.textContent = data.settlement.explorerUrl;
-          explorerLinkEl.href = data.settlement.explorerUrl;
+          const payload = data.data ?? data;
+          beforeBalEl.textContent = `${payload.settlement.beforeBalanceEth} ETH`;
+          afterBalEl.textContent = `${payload.settlement.afterBalanceEth} ETH`;
+          priceResultEl.textContent = `${payload.quote.symbol} ${payload.quote.price}`;
+          txHashEl.textContent = payload.settlement.txHash;
+          explorerLinkEl.textContent = payload.settlement.explorerUrl;
+          explorerLinkEl.href = payload.settlement.explorerUrl;
           setStatus("completed: one call -> one settlement", true);
         } catch (err) {
           setStatus(String(err), false);
