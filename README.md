@@ -1,4 +1,4 @@
-# TrustChain Non-Custodial Protocol
+# Karma Non-Custodial Protocol
 
 This repository now uses a single architecture story centered on `NonCustodialAgentPayment`.
 User funds stay in user wallets, while on-chain accounting enforces lock/reserve/dispute state transitions.
