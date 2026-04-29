@@ -1,0 +1,20 @@
+# Private engine repository ignore rules
+.DS_Store
+*.log
+*.tmp
+*.swp
+
+# Runtime outputs and local artifacts
+results/
+artifacts/
+tmp/
+dist/
+build/
+node_modules/
+
+# Secrets and local env files
+.env
+.env.*
+!.env.example
+!.env.template
+

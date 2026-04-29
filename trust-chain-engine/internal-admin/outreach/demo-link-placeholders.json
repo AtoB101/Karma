@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "trustchain.outreach.demo-links.v1",
+  "generatedAt": "2026-04-29T00:00:00Z",
+  "source": "internal-admin/outreach",
+  "default": {
+    "demoPage": "<FILL_DEMO_PAGE_URL>",
+    "proofSample": "<FILL_PROOF_JSON_URL>",
+    "bookingLink": "<FILL_BOOKING_LINK>"
+  },
+  "segments": {
+    "TelegramSignalAdmin": {},
+    "PrivateStrategySeller": {},
+    "AutoTradingBotDev": {},
+    "WhaleAlertBotDev": {},
+    "SmartMoneyTracker": {},
+    "OnchainArbScanner": {},
+    "NftSmartMoneyWatcher": {},
+    "WalletTracker": {},
+    "DeFiAnalytics": {},
+    "LiquidityMonitor": {},
+    "DexAnalytics": {},
+    "OnchainFlowApi": {},
+    "TxDataApi": {},
+    "NftDataApi": {},
+    "HoneypotDetector": {},
+    "ContractSecurityApi": {},
+    "AddressRiskScorer": {},
+    "WalletSecurityAnalyzer": {},
+    "ApprovalRiskTool": {},
+    "KolLabelData": {},
+    "WalletProfile": {},
+    "SmartMoneyDb": {},
+    "OnchainBehaviorAnalyzer": {},
+    "TwitterCrawler": {},
+    "NewsAggregatorApi": {},
+    "SentimentAnalyzer": {},
+    "KolMonitorBot": {}
+  }
+}
