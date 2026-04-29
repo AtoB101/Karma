@@ -5,6 +5,7 @@ HOST="127.0.0.1"
 PORT="8811"
 TOKEN="${TRUSTCHAIN_API_TOKEN:-dev-token}"
 BASE_URL="http://${HOST}:${PORT}"
+API_PREFIX="${API_PREFIX:-/api/v1}"
 
 usage() {
   cat <<'EOF'
@@ -45,7 +46,7 @@ curl_json() {
   fi
 }
 
-HEALTH="$(curl -sS "${BASE_URL}/v1/health")"
+HEALTH="$(curl -sS "${BASE_URL}${API_PREFIX}/health")"
 python3 - <<'PY' "$HEALTH"
 import json,sys
 obj=json.loads(sys.argv[1])
@@ -54,7 +55,7 @@ print("health ok")
 PY
 
 CREATE_PAYLOAD='{"merchantRef":"ORDER-001","payer":"0x1111111111111111111111111111111111111111","payee":"0x2222222222222222222222222222222222222222","token":"USDT","amount":"1000000","chainId":11155111,"policyId":"policy-demo","expiresAt":"2030-01-01T00:00:00Z"}'
-CREATED="$(curl_json POST "${BASE_URL}/v1/payment-intents" "$CREATE_PAYLOAD")"
+CREATED="$(curl_json POST "${BASE_URL}${API_PREFIX}/payment-intents" "$CREATE_PAYLOAD")"
 INTENT_ID="$(python3 - <<'PY' "$CREATED"
 import json,sys
 obj=json.loads(sys.argv[1])
@@ -62,7 +63,7 @@ print(obj["intentId"])
 PY
 )"
 
-GET_INTENT="$(curl_json GET "${BASE_URL}/v1/payment-intents/${INTENT_ID}")"
+GET_INTENT="$(curl_json GET "${BASE_URL}${API_PREFIX}/payment-intents/${INTENT_ID}")"
 python3 - <<'PY' "$GET_INTENT" "$INTENT_ID"
 import json,sys
 obj=json.loads(sys.argv[1])
@@ -71,7 +72,7 @@ assert obj["status"]=="created"
 print("intent query ok")
 PY
 
-EVIDENCE="$(curl_json GET "${BASE_URL}/v1/evidence/${INTENT_ID}")"
+EVIDENCE="$(curl_json GET "${BASE_URL}${API_PREFIX}/evidence/${INTENT_ID}")"
 EVIDENCE_DIGEST="$(python3 - <<'PY' "$EVIDENCE"
 import json,sys
 obj=json.loads(sys.argv[1])
@@ -81,7 +82,7 @@ PY
 )"
 
 VERIFY_PAYLOAD="{\"expectedDigestSha256\":\"${EVIDENCE_DIGEST}\",\"expectedSchemaVersion\":\"evidence-v1\"}"
-VERIFIED="$(curl_json POST "${BASE_URL}/v1/evidence/${INTENT_ID}/verify" "$VERIFY_PAYLOAD")"
+VERIFIED="$(curl_json POST "${BASE_URL}${API_PREFIX}/evidence/${INTENT_ID}/verify" "$VERIFY_PAYLOAD")"
 python3 - <<'PY' "$VERIFIED"
 import json,sys
 obj=json.loads(sys.argv[1])
@@ -91,7 +92,7 @@ assert obj["checks"]["schemaVersionMatch"] is True
 print("evidence verify ok")
 PY
 
-ALERTS="$(curl_json GET "${BASE_URL}/v1/risk/alerts")"
+ALERTS="$(curl_json GET "${BASE_URL}${API_PREFIX}/risk/alerts")"
 python3 - <<'PY' "$ALERTS"
 import json,sys
 obj=json.loads(sys.argv[1])

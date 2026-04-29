@@ -12,6 +12,15 @@ from urllib.parse import parse_qs, urlparse
 API_VERSION = "trustchain-api-v1"
 
 
+def normalize_path(raw_path: str) -> str:
+    # Canonicalize API paths so /v1/* and /api/v1/* are both accepted.
+    if raw_path.startswith("/api/v1/"):
+        return raw_path[len("/api") :]
+    if raw_path == "/api/v1":
+        return "/v1"
+    return raw_path
+
+
 @dataclass
 class AppState:
     api_token: str
@@ -77,7 +86,7 @@ class Handler(BaseHTTPRequestHandler):
             return None
 
     def _require_auth(self) -> bool:
-        if self.path.startswith("/v1/health"):
+        if normalize_path(self.path).startswith("/v1/health"):
             return True
         if not self._auth_ok():
             self._error(401, "AUTH_UNAUTHORIZED", "Missing or invalid bearer token")
@@ -92,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         parsed = urlparse(self.path)
-        path = parsed.path
+        path = normalize_path(parsed.path)
 
         if path == "/v1/health":
             self._send_json(200, {"status": "ok", "version": API_VERSION})
@@ -136,7 +145,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         parsed = urlparse(self.path)
-        path = parsed.path
+        path = normalize_path(parsed.path)
         body = self._read_json_body()
         if body is None:
             self._error(400, "INVALID_JSON", "request body is not valid JSON")
