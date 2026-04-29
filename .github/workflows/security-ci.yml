@@ -15,9 +15,32 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Foundry
+        continue-on-error: true
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
+
+      - name: Ensure Foundry available (retry fallback)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v forge >/dev/null 2>&1 && command -v cast >/dev/null 2>&1; then
+            forge --version
+            cast --version
+            exit 0
+          fi
+          curl -L https://foundry.paradigm.xyz | bash
+          echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.foundry/bin:$PATH"
+          for wait in 2 4 8; do
+            if GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" foundryup; then
+              break
+            fi
+            echo "foundryup failed, retrying in ${wait}s..."
+            sleep "$wait"
+          done
+          forge --version
+          cast --version
 
       - name: Setup Python
         uses: actions/setup-python@v5
