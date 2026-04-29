@@ -39,6 +39,8 @@ Public P0 console entry:
 `http://127.0.0.1:8787/index.html`
 Reset demo data quickly:
 `http://127.0.0.1:8787/index.html?demoReset=1`
+Export screenshot checklist:
+Click `导出演示截图清单` button on `/index.html`
 
 P0 public UI pages:
 
