@@ -87,6 +87,15 @@ fi
 mkdir -p "$(dirname "$REPORT_PATH")"
 
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
+has_pattern_tool() { has_cmd rg || has_cmd grep; }
+pattern_match() {
+  local regex="$1"
+  if has_cmd rg; then
+    rg -q "$regex"
+  else
+    grep -Eq "$regex"
+  fi
+}
 yes_no() { [[ "$1" -eq 0 ]] && echo "yes" || echo "no"; }
 masked() {
   local value="${1:-}"
@@ -115,8 +124,8 @@ if ! "$ROOT_DIR/scripts/preflight.sh" $([[ "$FROM_ENV" -eq 1 ]] && echo "--from-
 fi
 
 port_status="unknown"
-if has_cmd ss; then
-  if ss -ltn | rg -q ":${PORT}\\b"; then
+if has_cmd ss && has_pattern_tool; then
+  if ss -ltn | pattern_match ":${PORT}\\b"; then
     port_status="in-use"
   else
     port_status="free"
