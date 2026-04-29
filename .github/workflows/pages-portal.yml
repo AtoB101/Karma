@@ -31,6 +31,7 @@ jobs:
         run: |
           mkdir -p _site
           cp -R trust-chain-core/. _site/
+          cp trust-chain-core/docs/public/index.html _site/index.html
           if [ -f trust-chain-core/CNAME ]; then
             cp trust-chain-core/CNAME _site/CNAME
           fi

@@ -1,5 +1,16 @@
 # trust-chain-core (Public)
 
+Trust-Chain: Non-custodial payment protocol for AI agents
+
+## About
+
+AI agents need to pay each other, but existing solutions either require custody or lack enforceable settlement. Trust-Chain uses on-chain accounting + EIP-712 signatures to enable non-custodial, trust-minimized payments between any two agents.
+
+## Website
+
+- Portal (test): https://atob101.github.io/Trust-Chain/
+- Coming soon + waitlist: https://atob101.github.io/Trust-Chain/coming-soon.html
+
 This public repository exposes the verifiable settlement protocol baseline:
 
 - core smart contracts
