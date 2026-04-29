@@ -62,6 +62,12 @@ Primary namespace is now `/api/v1` (legacy `/api/*` remains compatible).
 - `POST /api/v1/agents`
 - `PATCH /api/v1/agents/:id`
 - `DELETE /api/v1/agents/:id`
+- `GET /api/v1/user-console/overview`
+- `GET /api/v1/user-console/pay-rule`
+- `POST /api/v1/user-console/pay-rule`
+- `POST /api/v1/user-console/payments/create`
+- `POST /api/v1/user-console/payments/:id/approve|reject`
+- `POST /api/v1/user-console/receipts/create`
 - `GET /api/v1/bills`
 - `POST /api/v1/bills/:id/confirm|reject|settle|dispute`
 - `POST /api/v1/bills/batch-settle-now`

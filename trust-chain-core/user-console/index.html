@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Karma 用户管理后台</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 20px; background: #f6f8fb; color: #0f172a; }
+      h1 { margin: 0 0 8px; }
+      .muted { color: #475569; font-size: 14px; }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(300px, 1fr)); gap: 16px; margin-top: 16px; }
+      .card { background: #fff; border: 1px solid #dbe3ee; border-radius: 10px; padding: 14px; }
+      .line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+      input, button { padding: 8px 10px; border-radius: 8px; border: 1px solid #cbd5e1; }
+      button { cursor: pointer; border: none; background: #2563eb; color: #fff; }
+      button.alt { background: #64748b; }
+      button.warn { background: #b45309; }
+      button.bad { background: #dc2626; }
+      table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+      th, td { border-bottom: 1px solid #e2e8f0; text-align: left; padding: 8px 6px; }
+      .pill { border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+      .paid { background: #dcfce7; color: #166534; }
+      .pending { background: #fef3c7; color: #92400e; }
+      .rejected { background: #fee2e2; color: #991b1b; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>用户管理后台（收款 / 付款）</h1>
+    <div class="muted">核心策略：小额自动支付，大额必须人工确认。</div>
+
+    <div class="grid">
+      <section class="card">
+        <h3>支付策略（大额人控）</h3>
+        <div id="rule"></div>
+        <div class="line">
+          <label><input id="autoPayEnabled" type="checkbox" checked /> 启用小额自动支付</label>
+        </div>
+        <div class="line">
+          <input id="autoPayLimit" type="number" step="0.001" placeholder="小额自动阈值" />
+          <input id="hardLimit" type="number" step="0.001" placeholder="单笔硬上限" />
+          <button id="saveRule">保存规则</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>付款（Pay）</h3>
+        <div class="line">
+          <input id="payTo" placeholder="对方 Agent" />
+          <input id="payAmount" type="number" step="0.001" placeholder="金额" />
+        </div>
+        <div class="line">
+          <input id="payNote" placeholder="备注（可选）" style="width: 60%" />
+          <button id="createPay">创建付款</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>收款（Receive）</h3>
+        <div class="line">
+          <input id="recvFrom" placeholder="付款方" />
+          <input id="recvAmount" type="number" step="0.001" placeholder="金额" />
+        </div>
+        <div class="line">
+          <input id="recvNote" placeholder="备注（可选）" style="width: 60%" />
+          <button id="createRecv" class="alt">登记收款</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>概览</h3>
+        <div id="stats"></div>
+      </section>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <h3>待人工确认付款</h3>
+        <table>
+          <thead><tr><th>ID</th><th>对方</th><th>金额</th><th>操作</th></tr></thead>
+          <tbody id="pendingTable"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h3>最近收款</h3>
+        <table>
+          <thead><tr><th>ID</th><th>来源</th><th>金额</th><th>状态</th></tr></thead>
+          <tbody id="receiptTable"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <script>
+      const API = "/api/v1";
+      const ruleEl = document.getElementById("rule");
+      const statsEl = document.getElementById("stats");
+      const pendingTable = document.getElementById("pendingTable");
+      const receiptTable = document.getElementById("receiptTable");
+
+      async function req(path, method = "GET", body) {
+        const r = await fetch(`${API}${path}`, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const j = await r.json();
+        if (!r.ok || j.ok === false) throw new Error(j.message || `HTTP ${r.status}`);
+        return j.data ?? j;
+      }
+
+      function pill(status) {
+        const s = String(status || "");
+        if (s === "paid" || s === "received") return `<span class="pill paid">${s}</span>`;
+        if (s === "pending_manual") return `<span class="pill pending">${s}</span>`;
+        return `<span class="pill rejected">${s}</span>`;
+      }
+
+      async function load() {
+        const d = await req("/user-console/overview");
+        const { summary, payments, receipts } = d;
+        const { payRule, profile, stats } = summary;
+
+        ruleEl.innerHTML = `<div class="mono">用户: ${profile.displayName} | 钱包: ${profile.wallet} | Token: ${profile.token}</div>
+          <div>当前规则：${payRule.autoPayEnabled ? "自动支付开启" : "自动支付关闭"}，自动阈值 ≤ <b>${payRule.autoPayLimit}</b>，硬上限 <b>${payRule.hardLimit}</b></div>`;
+        statsEl.innerHTML = `<div>已支付: <b>${stats.paidOut}</b></div><div>待人工: <b>${stats.pendingManual}</b></div><div>已收款: <b>${stats.received}</b></div><div>${stats.autoPayRatio}</div>`;
+
+        document.getElementById("autoPayEnabled").checked = !!payRule.autoPayEnabled;
+        document.getElementById("autoPayLimit").value = payRule.autoPayLimit;
+        document.getElementById("hardLimit").value = payRule.hardLimit;
+
+        pendingTable.innerHTML = payments
+          .filter((p) => p.status === "pending_manual")
+          .map((p) => `<tr>
+            <td class="mono">${p.id}</td>
+            <td>${p.counterparty}</td>
+            <td>${p.amount}</td>
+            <td>
+              <button onclick="approvePay('${p.id}')">通过</button>
+              <button class="bad" onclick="rejectPay('${p.id}')">拒绝</button>
+            </td>
+          </tr>`)
+          .join("");
+
+        receiptTable.innerHTML = receipts
+          .slice(0, 12)
+          .map((r) => `<tr><td class="mono">${r.id}</td><td>${r.from}</td><td>${r.amount}</td><td>${pill(r.status)}</td></tr>`)
+          .join("");
+      }
+
+      async function saveRule() {
+        await req("/user-console/pay-rule", "POST", {
+          autoPayEnabled: document.getElementById("autoPayEnabled").checked,
+          autoPayLimit: Number(document.getElementById("autoPayLimit").value),
+          hardLimit: Number(document.getElementById("hardLimit").value),
+        });
+        await load();
+      }
+
+      async function createPay() {
+        await req("/user-console/payments/create", "POST", {
+          counterparty: document.getElementById("payTo").value,
+          amount: Number(document.getElementById("payAmount").value),
+          note: document.getElementById("payNote").value,
+        });
+        await load();
+      }
+
+      async function createRecv() {
+        await req("/user-console/receipts/create", "POST", {
+          from: document.getElementById("recvFrom").value,
+          amount: Number(document.getElementById("recvAmount").value),
+          note: document.getElementById("recvNote").value,
+        });
+        await load();
+      }
+
+      async function approvePay(id) {
+        await req(`/user-console/payments/${id}/approve`, "POST");
+        await load();
+      }
+      async function rejectPay(id) {
+        await req(`/user-console/payments/${id}/reject`, "POST");
+        await load();
+      }
+
+      document.getElementById("saveRule").onclick = saveRule;
+      document.getElementById("createPay").onclick = createPay;
+      document.getElementById("createRecv").onclick = createRecv;
+      window.approvePay = approvePay;
+      window.rejectPay = rejectPay;
+      load().catch((e) => alert(e.message));
+    </script>
+  </body>
+</html>

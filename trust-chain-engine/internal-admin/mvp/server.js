@@ -100,6 +100,53 @@ const dashboardState = {
   ],
 };
 
+const userConsoleState = {
+  profile: {
+    userId: "user-001",
+    displayName: "Karma Operator",
+    wallet: "0xA12...89F",
+    token: "USDC",
+  },
+  payRule: {
+    autoPayEnabled: true,
+    autoPayLimit: 0.02,
+    hardLimit: 1.0,
+  },
+  payments: [
+    {
+      id: "PAY-001",
+      direction: "pay",
+      counterparty: "PriceHunter",
+      amount: 0.01,
+      status: "paid",
+      note: "BTC/USDT quote",
+      createdAt: "2026-04-29 09:10",
+      approvalRequired: false,
+    },
+    {
+      id: "PAY-002",
+      direction: "pay",
+      counterparty: "RiskGuard",
+      amount: 0.08,
+      status: "pending_manual",
+      note: "Risk scan bundle",
+      createdAt: "2026-04-29 09:18",
+      approvalRequired: true,
+    },
+  ],
+  receipts: [
+    {
+      id: "REC-001",
+      direction: "receive",
+      from: "PortfolioBot",
+      amount: 0.03,
+      status: "received",
+      note: "ETH market data",
+      createdAt: "2026-04-29 09:03",
+    },
+  ],
+};
+
 function chainEnabled() {
   return Boolean(RPC_URL && USER_PRIVATE_KEY && PROVIDER_WALLET);
 }
@@ -264,6 +311,36 @@ function summarizeDashboard() {
       pendingSettle: dashboardState.bills.filter((b) => b.status === "PendingSettle").length,
       paid: dashboardState.bills.filter((b) => b.status === "Paid").length,
       disputed: dashboardState.bills.filter((b) => b.status === "Disputed").length,
+    },
+  };
+}
+
+function nowYmdHm() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd} ${nowHm()}`;
+}
+
+function summarizeUserConsole() {
+  const paidOut = userConsoleState.payments
+    .filter((p) => p.status === "paid")
+    .reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const pendingManual = userConsoleState.payments.filter((p) => p.status === "pending_manual").length;
+  const received = userConsoleState.receipts
+    .filter((r) => r.status === "received")
+    .reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  return {
+    profile: userConsoleState.profile,
+    payRule: userConsoleState.payRule,
+    stats: {
+      paidOut,
+      pendingManual,
+      received,
+      autoPayRatio: `${userConsoleState.payRule.autoPayEnabled ? "Auto" : "Manual"} <= ${
+        userConsoleState.payRule.autoPayLimit
+      } ${userConsoleState.profile.token}`,
     },
   };
 }
@@ -444,6 +521,128 @@ async function main() {
           bills: dashboardState.bills,
           activity: dashboardState.activity,
         });
+        return;
+      }
+
+      if (req.method === "GET" && apiPath === "/api/user-console/overview") {
+        json(res, 200, {
+          ok: true,
+          summary: summarizeUserConsole(),
+          payments: userConsoleState.payments,
+          receipts: userConsoleState.receipts,
+        });
+        return;
+      }
+
+      if (req.method === "GET" && apiPath === "/api/user-console/pay-rule") {
+        json(res, 200, { ok: true, item: userConsoleState.payRule });
+        return;
+      }
+
+      if (req.method === "POST" && apiPath === "/api/user-console/pay-rule") {
+        const body = await readJsonBody(req);
+        const autoPayEnabled = Boolean(body.autoPayEnabled);
+        const autoPayLimit = assertPositiveNumber(body.autoPayLimit, "autoPayLimit");
+        const hardLimit = assertPositiveNumber(body.hardLimit, "hardLimit");
+        if (autoPayLimit > hardLimit) {
+          throw new HttpError(400, "INVALID_ARGUMENT", "autoPayLimit must be <= hardLimit");
+        }
+        userConsoleState.payRule = { autoPayEnabled, autoPayLimit, hardLimit };
+        pushActivity({
+          agent: "用户支付策略",
+          action: "更新小额自动支付规则",
+          amount: autoPayLimit,
+          status: "Paid",
+        });
+        json(res, 200, { ok: true, item: userConsoleState.payRule });
+        return;
+      }
+
+      if (req.method === "POST" && apiPath === "/api/user-console/payments/create") {
+        const body = await readJsonBody(req);
+        const counterparty = assertNonEmptyString(body.counterparty, "counterparty");
+        const amount = assertPositiveNumber(body.amount, "amount");
+        const note = String(body.note || "").trim();
+        const { autoPayEnabled, autoPayLimit, hardLimit } = userConsoleState.payRule;
+        if (amount > hardLimit) {
+          throw new HttpError(
+            400,
+            "PAYMENT_LIMIT_EXCEEDED",
+            `amount exceeds hardLimit ${hardLimit} ${userConsoleState.profile.token}`
+          );
+        }
+        const approvalRequired = !(autoPayEnabled && amount <= autoPayLimit);
+        const item = {
+          id: `PAY-${Date.now()}`,
+          direction: "pay",
+          counterparty,
+          amount,
+          status: approvalRequired ? "pending_manual" : "paid",
+          note,
+          createdAt: nowYmdHm(),
+          approvalRequired,
+        };
+        userConsoleState.payments.unshift(item);
+        if (!approvalRequired) {
+          dashboardState.allowance.reserved = Math.max(0, Number(dashboardState.allowance.reserved || 0) - amount);
+          normalizeDashboardState();
+        }
+        pushActivity({
+          agent: counterparty,
+          action: approvalRequired ? "触发大额待人工确认支付" : "执行小额自动支付",
+          amount,
+          status: approvalRequired ? "PendingConfirm" : "Paid",
+        });
+        json(res, 200, { ok: true, item });
+        return;
+      }
+
+      if (req.method === "POST" && /^\/api\/user-console\/payments\/[^/]+\/(approve|reject)$/.test(apiPath)) {
+        const seg = apiPath.split("/");
+        const paymentId = seg[seg.length - 2];
+        const action = seg[seg.length - 1];
+        let item = null;
+        userConsoleState.payments = userConsoleState.payments.map((p) => {
+          if (p.id !== paymentId) return p;
+          if (p.status !== "pending_manual") return p;
+          item = { ...p, status: action === "approve" ? "paid" : "rejected", approvalRequired: false };
+          return item;
+        });
+        if (!item) {
+          throw new HttpError(404, "NOT_FOUND", "pending manual payment not found");
+        }
+        pushActivity({
+          agent: item.counterparty,
+          action: action === "approve" ? "人工确认通过支付" : "人工拒绝支付",
+          amount: Number(item.amount || 0),
+          status: action === "approve" ? "Paid" : "Disputed",
+        });
+        json(res, 200, { ok: true, item });
+        return;
+      }
+
+      if (req.method === "POST" && apiPath === "/api/user-console/receipts/create") {
+        const body = await readJsonBody(req);
+        const from = assertNonEmptyString(body.from, "from");
+        const amount = assertPositiveNumber(body.amount, "amount");
+        const note = String(body.note || "").trim();
+        const item = {
+          id: `REC-${Date.now()}`,
+          direction: "receive",
+          from,
+          amount,
+          status: "received",
+          note,
+          createdAt: nowYmdHm(),
+        };
+        userConsoleState.receipts.unshift(item);
+        pushActivity({
+          agent: from,
+          action: "收款到账",
+          amount,
+          status: "Paid",
+        });
+        json(res, 200, { ok: true, item });
         return;
       }
 
