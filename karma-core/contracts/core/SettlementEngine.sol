@@ -9,6 +9,7 @@ import {Errors} from "../libraries/Errors.sol";
 import {SignatureValidator} from "../libraries/SignatureValidator.sol";
 
 contract SettlementEngine is ISettlementEngine {
+    uint256 public constant MAX_BATCH_SIZE = 64;
     address public immutable admin;
     bool public paused;
     uint256 private constant _NOT_ENTERED = 1;
@@ -23,6 +24,7 @@ contract SettlementEngine is ISettlementEngine {
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 internal constant NAME_HASH = keccak256("KarmaSettlementEngine");
     bytes32 internal constant VERSION_HASH = keccak256("1");
+    // slither-disable-next-line naming-convention
     bytes32 public immutable DOMAIN_SEPARATOR;
 
     event SettlementSubmitted(bytes32 indexed quoteId, address indexed payer, address indexed payee, uint256 amount);
@@ -50,10 +52,11 @@ contract SettlementEngine is ISettlementEngine {
         bytes32[] calldata ss
     ) external override nonReentrant {
         uint256 length = quotes.length;
-        if (length == 0 || length != vs.length || length != rs.length || length != ss.length) {
+        if (length == 0 || length > MAX_BATCH_SIZE || length != vs.length || length != rs.length || length != ss.length) {
             revert Errors.InvalidBatchInput();
         }
 
+        // slither-disable-next-line calls-loop
         for (uint256 i = 0; i < length; ++i) {
             _submitSettlement(quotes[i], vs[i], rs[i], ss[i]);
         }
@@ -63,6 +66,7 @@ contract SettlementEngine is ISettlementEngine {
         if (paused) revert Errors.EnginePaused();
         if (!tokenAllowed[quote.token]) revert Errors.TokenNotAllowed();
         if (quote.payer == address(0) || quote.payee == address(0) || quote.amount == 0) revert Errors.InvalidAmount();
+        // slither-disable-next-line timestamp
         if (quote.deadline < block.timestamp) revert Errors.DeadlineExpired();
         if (executedQuotes[quote.quoteId]) revert Errors.QuoteAlreadyExecuted();
         if (nonces[quote.payer] != quote.nonce) revert Errors.InvalidNonce();
@@ -77,6 +81,7 @@ contract SettlementEngine is ISettlementEngine {
             nonces[quote.payer] = quote.nonce + 1;
         }
 
+        // slither-disable-next-line arbitrary-send-erc20
         if (!IERC20(quote.token).transferFrom(quote.payer, quote.payee, quote.amount)) {
             revert Errors.TokenTransferFailed();
         }

@@ -172,6 +172,24 @@ contract SettlementEngineTest is Test {
         engine.settleBatch(quotes, vs, rs, ss);
     }
 
+    function testSettleBatchTooLargeFails() public {
+        uint256 batchSize = 101;
+        QuoteTypes.Quote[] memory quotes = new QuoteTypes.Quote[](batchSize);
+        uint8[] memory vs = new uint8[](batchSize);
+        bytes32[] memory rs = new bytes32[](batchSize);
+        bytes32[] memory ss = new bytes32[](batchSize);
+        for (uint256 i = 0; i < batchSize; ++i) {
+            QuoteTypes.Quote memory q = _buildQuote(1, i, block.timestamp + 1 hours);
+            (uint8 v, bytes32 r, bytes32 s) = _signQuote(q, payerPk);
+            quotes[i] = q;
+            vs[i] = v;
+            rs[i] = r;
+            ss[i] = s;
+        }
+        vm.expectRevert(Errors.InvalidBatchInput.selector);
+        engine.settleBatch(quotes, vs, rs, ss);
+    }
+
     function testSettleBatchReentrancyBlocked() public {
         ReentrantERC20 reentrantToken = new ReentrantERC20();
         reentrantToken.mint(payer, 1_000_000);
