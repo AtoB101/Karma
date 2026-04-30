@@ -33,7 +33,7 @@ while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   [[ ! -f "$f" ]] && continue
   case "$f" in
-    trust-chain-engine/*|trust-chain-engine/internal-admin/*)
+    karma-engine/*|karma-engine/internal-admin/*)
       if file "$f" | rg -q "text"; then
         if rg -n "$private_text_patterns" "$f" >/dev/null; then
           echo "[visibility-guard][FAIL] suspected secret in private path file: $f"
@@ -45,12 +45,12 @@ while IFS= read -r f; do
 done <<< "$changed_files"
 
 # 2) Public area should not reference private-only docs/scripts directly.
-public_ref_forbidden='trust-chain-engine/internal-admin/docs-private|trust-chain-engine/internal-admin/scripts-private'
+public_ref_forbidden='karma-engine/internal-admin/docs-private|karma-engine/internal-admin/scripts-private'
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   [[ ! -f "$f" ]] && continue
   case "$f" in
-    trust-chain-core/*|docs/*|openapi/*|README.md|SECURITY.md)
+    karma-core/*|docs/*|openapi/*|README.md|SECURITY.md)
       if file "$f" | rg -q "text"; then
         if rg -n "$public_ref_forbidden" "$f" >/dev/null; then
           echo "[visibility-guard][FAIL] public-facing file references private path: $f"

@@ -1,0 +1,217 @@
+Karma 非托管结算架构（钱包内锁仓）设计说明
+
+版本：v0.1 草案
+目标：资金不进入任何池子，始终停留在用户钱包，账单确认后再划转
+
+==================================================
+一、设计目标
+==================================================
+1) 资金全程留在用户钱包（non-custodial）
+2) 创建账单只做“额度占用”，不转移资金
+3) 确认账单后才触发真正 transferFrom
+4) 支持取消、超时释放、防止额度永久占用
+5) 提供可验证、可审计、可追溯的状态机
+
+==================================================
+二、与旧模型的核心区别
+==================================================
+旧模型（池子托管）：
+- 用户先把钱转入合约池
+- 再从池子中 reserve/pending/settle
+
+新模型（钱包内锁仓）：
+- 用户资金留在钱包
+- 合约只记录 reserved（已占用额度）
+- 账单确认时才从 payer -> payee 划转
+
+收益：
+- 降低托管池攻击面
+- 避免“大额池子”集中风险
+- 更符合用户资产主权诉求
+
+==================================================
+三、核心状态与数据结构
+==================================================
+建议新增（或迁移）核心字段：
+
+1) 用户额度占用
+- reserved[payer][token] -> uint256
+
+2) 账单结构（简化示意）
+- billId
+- payer
+- payee
+- token
+- amount
+- status (Pending/Confirmed/Cancelled/Settled/Expired)
+- createdAt
+- deadline
+- quoteHash / scopeHash
+
+3) 幂等与防重放
+- executedBill[billId] -> bool
+
+==================================================
+四、状态机（必须严格）
+==================================================
+Pending:
+- 账单创建成功，额度已占用（reserved +amount）
+
+Confirmed:
+- 业务侧或授权方确认执行
+
+Settled:
+- transferFrom 成功，reserved -amount，状态终结
+
+Cancelled:
+- 主动取消，reserved -amount，状态终结
+
+Expired:
+- 超时释放，reserved -amount，状态终结
+
+状态迁移：
+Pending -> Confirmed -> Settled
+Pending -> Cancelled
+Pending -> Expired
+
+禁止迁移：
+- Settled/Cancelled/Expired 任何回退
+
+==================================================
+五、关键函数设计（伪代码）
+==================================================
+1) createBill(...)
+- require amount > 0
+- require deadline > now
+- require available(payer, token) >= amount
+- reserved[payer][token] += amount
+- bill.status = Pending
+- emit BillCreated
+
+2) confirmBill(billId)
+- require bill.status == Pending
+- require auth check pass
+- bill.status = Confirmed
+- emit BillConfirmed
+
+3) settleBill(billId)
+- require bill.status == Confirmed
+- checks:
+  - payer balance >= amount
+  - allowance >= amount
+- effects:
+  - bill.status = Settled (或使用处理中间态避免重入)
+  - reserved[payer][token] -= amount
+- interactions:
+  - token.transferFrom(payer, payee, amount)
+- emit BillSettled
+
+4) cancelBill(billId)
+- require bill.status == Pending
+- auth check
+- reserved[payer][token] -= amount
+- bill.status = Cancelled
+- emit BillCancelled
+
+5) expireBill(billId)
+- require bill.status == Pending
+- require now > deadline
+- reserved[payer][token] -= amount
+- bill.status = Expired
+- emit BillExpired
+
+6) available(payer, token)
+- return min(balance, allowance) - reserved[payer][token]
+  (注意边界：若 reserved > min(balance, allowance)，可视为 0)
+
+==================================================
+六、安全设计要点（必须做）
+==================================================
+1) Reentrancy 防护
+- settle 路径必须加 nonReentrant
+
+2) Checks-Effects-Interactions
+- 先状态变更，再外部调用（或中间态）
+
+3) 非标准ERC20兼容
+- 使用安全 transferFrom 包装（处理返回值异常）
+
+4) 幂等执行
+- 账单只允许结算一次
+
+5) 超时释放
+- 防止 reserved 永久占用导致资金“逻辑冻结”
+
+6) 授权风险控制
+- 推荐支持 Permit/Permit2，减少长期无限授权风险
+
+==================================================
+七、风控与用户体验策略
+==================================================
+1) 结算前检查
+- 若 allowance/balance 不足，给出明确错误类型
+
+2) 自动提醒
+- Pending 临近超时时提醒用户补授权或取消
+
+3) 明确失败可恢复路径
+- fail -> 保持或回退到安全状态 -> 可重试/可取消
+
+4) 审计友好日志
+- 每次额度变化与状态迁移都有事件
+
+==================================================
+八、迁移路径（从当前池子模型到非托管）
+==================================================
+阶段1（并行期）：
+- 保留旧池子模型
+- 新增 NonCustodialSettlement 模块
+- 双路径灰度测试
+
+阶段2（切换期）：
+- 新业务默认走非托管路径
+- 池子模型仅用于历史兼容
+
+阶段3（收敛期）：
+- 评估后逐步下线池子入口（或标记为deprecated）
+
+迁移原则：
+- 不破坏已有账单状态
+- 新旧路径清晰隔离
+- 文档与前端明确提示模式差异
+
+==================================================
+九、测试清单（上线前必须通过）
+==================================================
+A. 功能正确性
+1) createBill 成功占用额度
+2) confirm + settle 成功转账
+3) cancel 成功释放额度
+4) expire 成功释放额度
+
+B. 失败场景
+1) allowance 不足时 settle 失败并状态安全
+2) balance 不足时 settle 失败并状态安全
+3) 重复 settle 不可执行
+4) 非授权方不可 confirm/cancel
+
+C. 安全场景
+1) 重入攻击模拟
+2) 非标准ERC20行为测试
+3) 高并发多账单占用一致性
+4) 超时边界（deadline 前后）测试
+
+D. 经济正确性
+1) reserved 不可为负
+2) available 计算准确
+3) 状态终结后额度归还/扣减正确
+
+==================================================
+十、对外叙事建议（面向市场）
+==================================================
+Karma 采用“非托管钱包内锁仓”结算架构：
+- 资产不集中托管
+- 账单确认后才划转
+- 全流程可验证可审计
+
+这让协议更贴近“安全优先”的机构级资金执行需求。

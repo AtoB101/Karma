@@ -1,4 +1,4 @@
-# TrustChain Commercial Readiness Checklist V0.1
+# Karma Commercial Readiness Checklist V0.1
 
 ## Purpose
 
@@ -22,7 +22,7 @@ The gate script (`scripts/commercialization-gate.sh`) evaluates three layers:
 
 - evidence compatibility gate exists and passes (`scripts/ci-proof-gates.sh`)
 - risk guardian and patrol scripts exist
-- API contract exists (`openapi/trustchain-v1.yaml`)
+- API contract exists (`openapi/karma-v1.yaml`)
 - API service and smoke script exist (`scripts/api_server.py`, `scripts/api-smoke.sh`)
 
 ## SHOULD Baseline (v0.1)

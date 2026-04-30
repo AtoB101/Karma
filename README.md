@@ -44,7 +44,7 @@ Quick docs:
 - Ops runbook hints: `make ops-summary` now prints severity and prioritized next-actions for on-call execution
 - Release readiness: `make release-readiness` (one-command release preflight; fail-fast on any critical gate)
 - API roadmap: `docs/API_ROADMAP_V01.md` (ecosystem API landing phases and governance baseline)
-- OpenAPI contract: `openapi/trustchain-v1.yaml` (contract-first API spec for integration teams)
+- OpenAPI contract: `openapi/karma-v1.yaml` (contract-first API spec for integration teams)
 - API local run: `make api-run` (starts zero-dependency API service at `127.0.0.1:8811`)
 - API smoke test: `make api-smoke` (verifies payment intent + evidence + risk alert routes)
 - Commercialization gate: `make commercialization-gate` (outputs `commercial-ready | pilot-ready | not-ready` with action plan)

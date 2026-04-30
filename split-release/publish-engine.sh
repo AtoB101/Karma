@@ -4,14 +4,14 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  split-release/publish-engine.sh --repo <owner/trust-chain-engine> [--branch <name>] [--remote <name>]
+  split-release/publish-engine.sh --repo <owner/karma-engine> [--branch <name>] [--remote <name>]
 
 Description:
-  Publishes /workspace/trust-chain-engine as an independent private repository history.
-  This script initializes a temporary git repo from trust-chain-engine contents and pushes it to target remote.
+  Publishes /workspace/karma-engine as an independent private repository history.
+  This script initializes a temporary git repo from karma-engine contents and pushes it to target remote.
 
 Example:
-  split-release/publish-engine.sh --repo AtoB101/trust-chain-engine --branch main
+  split-release/publish-engine.sh --repo AtoB101/karma-engine --branch main
 EOF
 }
 
@@ -52,7 +52,7 @@ if [[ -z "$REPO" ]]; then
 fi
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC_DIR="${ROOT_DIR}/trust-chain-engine"
+SRC_DIR="${ROOT_DIR}/karma-engine"
 TMP_DIR="${ROOT_DIR}/.tmp-publish-engine"
 
 if [[ ! -d "$SRC_DIR" ]]; then
@@ -68,9 +68,9 @@ pushd "$TMP_DIR" >/dev/null
 git init
 git checkout -b "$BRANCH"
 git add -A
-git commit -m "chore: initialize trust-chain-engine private repository"
+git commit -m "chore: initialize karma-engine private repository"
 git remote add "$REMOTE" "https://github.com/${REPO}.git"
 git push -u "$REMOTE" "$BRANCH"
 popd >/dev/null
 
-echo "Published trust-chain-engine to https://github.com/${REPO}"
+echo "Published karma-engine to https://github.com/${REPO}"

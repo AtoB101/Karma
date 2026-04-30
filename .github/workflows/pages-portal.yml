@@ -4,7 +4,7 @@ on:
   push:
     branches: ["main", "cursor/repo-split-core-engine-dfef"]
     paths:
-      - "trust-chain-core/**"
+      - "karma-core/**"
       - ".github/workflows/pages-portal.yml"
   workflow_dispatch:
 
@@ -30,10 +30,10 @@ jobs:
       - name: Prepare publish dir
         run: |
           mkdir -p _site
-          cp -R trust-chain-core/. _site/
-          cp trust-chain-core/docs/public/index.html _site/index.html
-          if [ -f trust-chain-core/CNAME ]; then
-            cp trust-chain-core/CNAME _site/CNAME
+          cp -R karma-core/. _site/
+          cp karma-core/docs/public/index.html _site/index.html
+          if [ -f karma-core/CNAME ]; then
+            cp karma-core/CNAME _site/CNAME
           fi
 
       - name: Upload Pages artifact

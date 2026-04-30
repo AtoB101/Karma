@@ -1,0 +1,314 @@
+openapi: 3.1.0
+info:
+  title: Karma Ecosystem API
+  version: 1.0.0
+  summary: Payment intent, evidence verification, and risk alert APIs.
+servers:
+  - url: http://127.0.0.1:8811
+security:
+  - bearerAuth: []
+paths:
+  /v1/health:
+    get:
+      summary: Health probe
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    const: ok
+                  version:
+                    type: string
+                required: [status, version]
+  /v1/payment-intents:
+    post:
+      summary: Create payment intent
+      operationId: createPaymentIntent
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentIntentRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentIntent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/payment-intents/{intentId}:
+    get:
+      summary: Get payment intent
+      operationId: getPaymentIntent
+      parameters:
+        - in: path
+          name: intentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payment intent details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentIntent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/evidence/{evidenceId}:
+    get:
+      summary: Get evidence by ID
+      operationId: getEvidence
+      parameters:
+        - in: path
+          name: evidenceId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Evidence payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/evidence/{evidenceId}/verify:
+    post:
+      summary: Verify evidence digest and schema marker
+      operationId: verifyEvidence
+      parameters:
+        - in: path
+          name: evidenceId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyEvidenceRequest'
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifyEvidenceResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/risk/alerts:
+    get:
+      summary: List risk alerts
+      operationId: listRiskAlerts
+      parameters:
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: severity
+          required: false
+          schema:
+            type: string
+            enum: [warning, medium, high, critical]
+      responses:
+        '200':
+          description: Risk alerts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  alerts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RiskAlert'
+                required: [alerts]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    CreatePaymentIntentRequest:
+      type: object
+      properties:
+        merchantRef:
+          type: string
+        payer:
+          type: string
+        payee:
+          type: string
+        token:
+          type: string
+        amount:
+          type: string
+          pattern: '^[0-9]+$'
+        chainId:
+          type: integer
+        policyId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+      required: [merchantRef, payer, payee, token, amount, chainId, policyId, expiresAt]
+    PaymentIntent:
+      type: object
+      properties:
+        intentId:
+          type: string
+        merchantRef:
+          type: string
+        status:
+          type: string
+          enum: [created, authorized, settled, cancelled, expired]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        payer:
+          type: string
+        payee:
+          type: string
+        token:
+          type: string
+        amount:
+          type: string
+        chainId:
+          type: integer
+        policyId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+      required: [intentId, merchantRef, status, createdAt, updatedAt, payer, payee, token, amount, chainId, policyId, expiresAt]
+    EvidenceObject:
+      type: object
+      properties:
+        evidenceId:
+          type: string
+        schemaVersion:
+          type: string
+        evidenceVersion:
+          type: string
+        digestSha256:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+      required: [evidenceId, schemaVersion, evidenceVersion, digestSha256, payload]
+    VerifyEvidenceRequest:
+      type: object
+      properties:
+        expectedDigestSha256:
+          type: string
+        expectedSchemaVersion:
+          type: string
+      required: [expectedDigestSha256, expectedSchemaVersion]
+    VerifyEvidenceResponse:
+      type: object
+      properties:
+        evidenceId:
+          type: string
+        verified:
+          type: boolean
+        checks:
+          type: object
+          properties:
+            digestMatch:
+              type: boolean
+            schemaVersionMatch:
+              type: boolean
+          required: [digestMatch, schemaVersionMatch]
+      required: [evidenceId, verified, checks]
+    RiskAlert:
+      type: object
+      properties:
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        severity:
+          type: string
+          enum: [warning, medium, high, critical]
+        code:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+        source:
+          type: string
+      required: [id, createdAt, severity, code, title, detail, source]
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            requestId:
+              type: string
+          required: [code, message, requestId]
+      required: [error]
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

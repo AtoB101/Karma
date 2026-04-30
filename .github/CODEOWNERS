@@ -2,14 +2,14 @@
 * @AtoB101
 
 # Public core surface.
-/trust-chain-core/ @AtoB101
+/karma-core/ @AtoB101
 /docs/ @AtoB101
 /openapi/ @AtoB101
 /README.md @AtoB101
 /CONVENTIONS.md @AtoB101
 
 # Private engine/internal operations.
-/trust-chain-engine/ @AtoB101
+/karma-engine/ @AtoB101
 
 # CI and guardrail policy files.
 /.github/workflows/ @AtoB101

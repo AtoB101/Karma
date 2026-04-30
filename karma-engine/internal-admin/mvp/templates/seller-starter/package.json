@@ -1,0 +1,13 @@
+{
+  "name": "karma-seller-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Karma seller starter generated template",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "karma-mvp-private": "file:.."
+  }
+}

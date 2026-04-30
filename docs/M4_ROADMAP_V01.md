@@ -1,7 +1,7 @@
 # M4 Roadmap v0.1 (Productionization and Interop)
 
 This document formalizes M4 after M3 completion.
-Goal: evolve TrustChain proof/evidence flow from "operationally usable" to "production-grade and machine-enforceable."
+Goal: evolve Karma proof/evidence flow from "operationally usable" to "production-grade and machine-enforceable."
 
 ## M4 scope
 
@@ -43,7 +43,7 @@ Deliverables (implemented):
   - checks evidence schema marker/required fields via `validate-evidence-schema.sh`
   - checks proof-index batch policy gates via `verify-proof-index-batch.sh`
 - deterministic sample evidence for CI:
-  - `docs/samples/trustchain-evidence-sample-v1.json`
+  - `docs/samples/karma-evidence-sample-v1.json`
 - GitHub Actions integration:
   - `forge-ci.yml` adds `proof-gates` job on PR/workflow_dispatch
 - local parity:
