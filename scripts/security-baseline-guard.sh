@@ -25,7 +25,7 @@ fi
 
 # Block obvious insecure auth toggles in tracked files.
 if git grep -nE 'allowInsecureAuth[[:space:]]*:[[:space:]]*true' -- . >/tmp/security_guard_insecure_auth.txt; then
-  echo "ERR  insecure auth flag detected (allowInsecureAuth:true):"
+  echo "ERR  insecure auth flag detected (allowInsecureAuth set to true):"
   cat /tmp/security_guard_insecure_auth.txt
   exit 1
 fi
