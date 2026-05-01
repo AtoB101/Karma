@@ -43,13 +43,13 @@ if [[ "$FORMAT" == "text" ]]; then
   cat /tmp/slither-output.txt
 fi
 
-if rg -q "No contract was analyzed" /tmp/slither-output.txt; then
+if grep -q "No contract was analyzed" /tmp/slither-output.txt; then
   echo "ERR  slither analyzed zero contracts"
   exit 1
 fi
 
 if [[ "$SLITHER_EXIT" -ne 0 ]]; then
-  mapfile -t DETECTORS < <(rg -o "Detector: [a-z0-9-]+" /tmp/slither-output.txt | sed 's/Detector: //' | sort -u)
+  mapfile -t DETECTORS < <(grep -oE "Detector: [a-z0-9-]+" /tmp/slither-output.txt | sed 's/Detector: //' | sort -u)
   if [[ "${#DETECTORS[@]}" -eq 0 ]]; then
     echo "ERR  slither failed without parseable detector output"
     exit 1
