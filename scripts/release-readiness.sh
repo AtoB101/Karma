@@ -2,4 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-exec "${ROOT_DIR}/karma-engine/internal-admin/scripts-private/release-readiness.sh" "$@"
+cd "$ROOT_DIR"
+
+PROFILE="${1:-lenient}"
+
+echo "==> Release readiness (${PROFILE})"
+
+echo "==> Running security baseline guard"
+./scripts/security-baseline-guard.sh
+
+echo "==> Running proof/evidence gate"
+./scripts/ci-proof-gates.sh
+
+echo "==> Running slither gate"
+./scripts/slither-gate.sh --format text
+
+echo "OK   release-readiness passed."

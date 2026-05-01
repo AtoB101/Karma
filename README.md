@@ -25,6 +25,7 @@ Quick docs:
 - Fast onboarding: `docs/GET_STARTED.md`
 - Commands cheat sheet: `docs/COMMANDS.md`
 - Troubleshooting: `docs/TROUBLESHOOTING.md`
+- Public/private split policy: `docs/REPO_VISIBILITY_POLICY.md`
 - Proof verification SOP: `docs/PROOF_VERIFICATION_SOP.md`
 - Full ops workflow: `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt`
 - One-shot diagnostics: `make doctor` (text report) / `make doctor-json` (JSON report)
@@ -54,6 +55,9 @@ Quick docs:
 - Layered aliases: `make ops-*`, `make safety-*`, `make api-*` (clean command namespace, old targets still supported)
 - Local CI gate: `make ci-local` (build + focused core tests, no env required)
 - Env-aware CI gate: `make ci-local-env` (includes preflight with `.env`)
+- Security baseline gate: `make security-baseline-guard` (blocks sensitive file/secret leaks)
+- Owner watchdog dry run: `make owner-watchdog` (tests owner-change alert config and hooks)
+- Private repo sync scaffold: `make private-repo-sync PRIVATE_REPO_DIR=../karma-internal`
 - M4 roadmap: `docs/M4_ROADMAP_V01.md`
 
 ## Core Modules
@@ -114,8 +118,7 @@ Optional batch fuses:
 
 - One-step smoke: `./scripts/smoke-v01-eth.sh`
 - Non-custodial batch integration: `./scripts/integration-v01-noncustodial-batch.sh`
-- Scenario wrappers: `./scripts/integration-openclaw-run.sh`, `./scripts/integration-hermes-run.sh`
-- Full NC-205 pipeline: `./scripts/run-nc205-full.sh`
+- Private scenario wrappers are intentionally excluded from this public repository.
 
 ## Frontend Console
 
@@ -126,6 +129,7 @@ python3 -m http.server 8787
 Open `http://localhost:8787/examples/v01-metamask-settlement.html`.
 The page defaults to non-custodial mode; legacy engine controls are hidden by default.
 
-## Primary Ops Doc
+## Security
 
-See `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt` for deploy, smoke, integration, and reporting workflows.
+Security reporting policy and contact:
+- `SECURITY.md`
