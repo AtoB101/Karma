@@ -1,4 +1,4 @@
-# TrustChain Non-Custodial Protocol
+# Karma Non-Custodial Protocol
 
 This repository now uses a single architecture story centered on `NonCustodialAgentPayment`.
 User funds stay in user wallets, while on-chain accounting enforces lock/reserve/dispute state transitions.
@@ -25,7 +25,7 @@ Quick docs:
 - Fast onboarding: `docs/GET_STARTED.md`
 - Commands cheat sheet: `docs/COMMANDS.md`
 - Troubleshooting: `docs/TROUBLESHOOTING.md`
-- Full ops workflow: `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt`
+- Public/private split policy: `docs/REPO_VISIBILITY_POLICY.md`
 - One-shot diagnostics: `make doctor` (text report) / `make doctor-json` (JSON report)
 - Support bundle zip: `make support-bundle` (collects doctor reports + key artifacts)
 - Local CI gate: `make ci-local` (build + focused core tests, no env required)
@@ -89,8 +89,7 @@ Optional batch fuses:
 
 - One-step smoke: `./scripts/smoke-v01-eth.sh`
 - Non-custodial batch integration: `./scripts/integration-v01-noncustodial-batch.sh`
-- Scenario wrappers: `./scripts/integration-openclaw-run.sh`, `./scripts/integration-hermes-run.sh`
-- Full NC-205 pipeline: `./scripts/run-nc205-full.sh`
+- Private scenario wrappers are intentionally excluded from this public repository.
 
 ## Frontend Console
 
@@ -101,6 +100,7 @@ python3 -m http.server 8787
 Open `http://localhost:8787/examples/v01-metamask-settlement.html`.
 The page defaults to non-custodial mode; legacy engine controls are hidden by default.
 
-## Primary Ops Doc
+## Security
 
-See `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt` for deploy, smoke, integration, and reporting workflows.
+Security reporting policy and contact:
+- `SECURITY.md`

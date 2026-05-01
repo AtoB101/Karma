@@ -1,4 +1,4 @@
-# TrustChain Quick Start (CN/EN)
+# Karma Quick Start (CN/EN)
 
 This guide is the fastest path for first-time developers.
 

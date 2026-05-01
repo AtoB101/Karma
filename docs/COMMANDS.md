@@ -1,4 +1,4 @@
-# TrustChain Commands Cheat Sheet (CN/EN)
+# Karma Commands Cheat Sheet (CN/EN)
 
 This page is a quick command index for daily development and support.
 
