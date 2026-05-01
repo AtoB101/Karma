@@ -1,0 +1,63 @@
+You are the validation executor. Work from repository root and produce a structured report.
+
+[A. Context]
+- Branch: cursor/m1-policy-evidence-dfef
+- Target PR: #4
+- Validation scope:
+  1) Verify policy enforcement on createBill / closeBatch / settleBatch
+  2) Verify frontend policy panel and evidence export usability
+  3) Verify failure signals are readable and diagnosable
+
+[B. Contract test validation]
+1) Run:
+forge test --match-path "contracts/test/NonCustodialAgentPayment.t.sol" -vv
+
+2) Must explicitly verify:
+- per-tx limit violations are rejected
+- daily limit violations are rejected
+- expired policy is rejected
+- closeBatch is rejected when required scope is not allowed
+- settleBatch is rejected when policy constraints are exceeded
+
+3) Report:
+- total pass/fail counts
+- failed test names + root causes
+- key log excerpts
+
+[C. Frontend policy panel validation]
+1) Start frontend:
+python3 -m http.server 8790
+
+2) Validate flow:
+- Connect Wallet
+- Set policy (enabled/perTx/daily/window)
+- Allow payee
+- Allow token
+- Refresh policy and confirm snapshot is updated
+
+3) Trigger at least one policy-blocked operation and confirm UI shows a clear error.
+
+[D. Evidence export validation]
+1) Click "Download JSON"
+2) Confirm export contains:
+- trace.traceId
+- trace.schemaVersion
+- authSnapshot
+- requestSnapshot
+- executionSnapshot
+- riskSnapshot
+- diagnostics
+
+3) Judge whether export is sufficient for single-transaction audit replay (yes/no + rationale).
+
+[E. Output format (strict)]
+Return a Markdown report with:
+1. Executive summary (pass / partial pass / fail)
+2. Contract validation results
+3. Frontend validation results
+4. Evidence audit-readiness assessment
+5. Findings sorted by severity
+6. Top 5 recommended fixes
+
+[Environment blocker rule]
+If forge or wallet conditions are unavailable, mark as "environment blocker", provide reproducible steps, and do not mark functionality as failed by default.

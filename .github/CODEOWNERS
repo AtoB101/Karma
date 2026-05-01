@@ -1,0 +1,17 @@
+# Default reviewers for shared/root changes.
+* @AtoB101
+
+# Public core surface.
+/karma-core/ @AtoB101
+/docs/ @AtoB101
+/openapi/ @AtoB101
+/README.md @AtoB101
+/CONVENTIONS.md @AtoB101
+
+# Private engine/internal operations.
+/karma-engine/ @AtoB101
+
+# CI and guardrail policy files.
+/.github/workflows/ @AtoB101
+/scripts/visibility-guard.sh @AtoB101
+/VISIBILITY_MAP.md @AtoB101

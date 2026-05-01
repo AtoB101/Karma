@@ -1,0 +1,53 @@
+name: pages-portal
+
+on:
+  push:
+    branches: ["main", "cursor/repo-split-core-engine-dfef"]
+    paths:
+      - "karma-core/**"
+      - ".github/workflows/pages-portal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-portal
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Prepare publish dir
+        run: |
+          mkdir -p _site
+          cp -R karma-core/. _site/
+          cp karma-core/docs/public/index.html _site/index.html
+          if [ -f karma-core/CNAME ]; then
+            cp karma-core/CNAME _site/CNAME
+          fi
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

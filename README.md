@@ -26,13 +26,39 @@ Quick docs:
 - Commands cheat sheet: `docs/COMMANDS.md`
 - Troubleshooting: `docs/TROUBLESHOOTING.md`
 - Public/private split policy: `docs/REPO_VISIBILITY_POLICY.md`
+- Proof verification SOP: `docs/PROOF_VERIFICATION_SOP.md`
+- Full ops workflow: `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt`
 - One-shot diagnostics: `make doctor` (text report) / `make doctor-json` (JSON report)
 - Support bundle zip: `make support-bundle` (collects doctor reports + key artifacts)
+- Evidence schema check: `make validate-evidence-schema` (validates latest diagnosis JSON compatibility)
+- Proof CI gate: `make ci-proof-gates` (schema compatibility + proof-index batch policy checks)
+- Proof patrol profile: `make proof-patrol` (scheduled-style patrol with strict|balanced|lenient policy profiles)
+- Agent safety guardian: `make agent-safety-guardian` (end-to-end self-check + risk grading + risk register ledger)
+- Compatibility aliases: `make ci-proof-gate` and `make guardian` (mapped to current targets)
+- Rule-gap model: `docs/RULE_GAP_RISK_MODEL_V01.md` (rule exploitation attack surface + alert strategy)
+- Commercial readiness checklist: `docs/COMMERCIAL_READINESS_CHECKLIST_V01.md` (MUST/SHOULD/CAN commercial gate baseline)
+- Command map: `docs/COMMAND_MAP_V01.md` (layered entrypoints: core/ops/safety/api)
+- Data contracts: `docs/DATA_CONTRACTS_V01.md` (shared output schema/version/trace fields)
+- System status: `make system-status` (aggregate commercial/proof/guardian/contracts into one health view)
+- Ops one-shot summary: `make ops-summary` (generate and print a concise operational status snapshot)
+- Ops alert export: `make ops-alert` (emit `results/ops-alert-latest.json` for IM/on-call integrations)
+- Ops runbook hints: `make ops-summary` now prints severity and prioritized next-actions for on-call execution
+- Release readiness: `make release-readiness` (one-command release preflight; fail-fast on any critical gate)
+- API roadmap: `docs/API_ROADMAP_V01.md` (ecosystem API landing phases and governance baseline)
+- OpenAPI contract: `openapi/karma-v1.yaml` (contract-first API spec for integration teams)
+- API local run: `make api-run` (starts zero-dependency API service at `127.0.0.1:8811`)
+- API smoke test: `make api-smoke` (verifies payment intent + evidence + risk alert routes)
+- Commercialization gate: `make commercialization-gate` (outputs `commercial-ready | pilot-ready | not-ready` with action plan)
+- Output contract gate: `make validate-output-contracts` (checks schemaVersion/source/traceId/generatedAt on latest artifacts)
+- Static analysis gate: `make slither-gate` (runs Slither; fails when tool is missing or findings are reported)
+- Security CI workflow: `.github/workflows/security-ci.yml` (PR gate chain: forge test + slither + release-readiness)
+- Layered aliases: `make ops-*`, `make safety-*`, `make api-*` (clean command namespace, old targets still supported)
 - Local CI gate: `make ci-local` (build + focused core tests, no env required)
 - Env-aware CI gate: `make ci-local-env` (includes preflight with `.env`)
 - Security baseline gate: `make security-baseline-guard` (blocks sensitive file/secret leaks)
 - Owner watchdog dry run: `make owner-watchdog` (tests owner-change alert config and hooks)
 - Private repo sync scaffold: `make private-repo-sync PRIVATE_REPO_DIR=../karma-internal`
+- M4 roadmap: `docs/M4_ROADMAP_V01.md`
 
 ## Core Modules
 
