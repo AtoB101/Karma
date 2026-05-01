@@ -5,6 +5,15 @@ This directory provides reproducible scripts to publish the split repositories:
 - Public repo: `karma-core`
 - Private repo: `karma-engine`
 
+## Cross-repo deployment operations
+
+For production deployment orchestration across public/private repositories:
+
+- Playbook: `split-release/CROSS_REPO_DEPLOYMENT_PLAYBOOK.md`
+- Core version lock template: `split-release/templates/core-version.lock.example`
+- Deployment manifest template: `split-release/templates/deployment-manifest.example.json`
+- Manifest validator: `split-release/verify-cross-repo-manifest.sh`
+
 ## 1) Prerequisites
 
 - `git` installed and authenticated
