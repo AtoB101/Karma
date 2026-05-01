@@ -30,6 +30,9 @@ Quick docs:
 - Support bundle zip: `make support-bundle` (collects doctor reports + key artifacts)
 - Local CI gate: `make ci-local` (build + focused core tests, no env required)
 - Env-aware CI gate: `make ci-local-env` (includes preflight with `.env`)
+- Security baseline gate: `make security-baseline-guard` (blocks sensitive file/secret leaks)
+- Owner watchdog dry run: `make owner-watchdog` (tests owner-change alert config and hooks)
+- Private repo sync scaffold: `make private-repo-sync PRIVATE_REPO_DIR=../karma-internal`
 
 ## Core Modules
 

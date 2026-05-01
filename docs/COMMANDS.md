@@ -49,6 +49,14 @@ make quickstart
   CN: 与上面相同，但会加载 `.env` 做环境校验。  
   EN: Same as above, but loads `.env` for env validation.
 
+- `make security-baseline-guard`
+  CN: 公开仓库敏感内容门禁扫描（文件名 + 内容规则）。
+  EN: Public repo sensitive-content guard (filename + content rules).
+
+- `make private-repo-sync`
+  CN: 将敏感核心内容同步到私有子仓库（默认 `../karma-internal`）。
+  EN: Sync sensitive assets to private sub-repository (default `../karma-internal`).
+
 ## Direct Script Usage
 
 - `./scripts/dev-up.sh --from-env`
@@ -59,6 +67,8 @@ make quickstart
 - `./scripts/support-bundle.sh --port 8790`
 - `./scripts/ci-local.sh`
 - `./scripts/ci-local.sh --from-env`
+- `./scripts/security-baseline-guard.sh`
+- `./scripts/private-repo-sync.sh ../karma-internal`
 
 ## Frontend URL
 

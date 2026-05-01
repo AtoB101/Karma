@@ -1,4 +1,4 @@
-.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env
+.PHONY: help quickstart quickstart-skip-deploy preflight doctor doctor-json support-bundle ci-local ci-local-env public-safety private-seed owner-watch-dry
 
 help:
 	@echo "Available targets:"
@@ -10,6 +10,9 @@ help:
 	@echo "  make support-bundle        # zip diagnostics + key artifacts for support"
 	@echo "  make ci-local              # run local CI checks (local preflight + build + core tests)"
 	@echo "  make ci-local-env          # run local CI checks with .env loaded"
+	@echo "  make public-safety         # block private material/secrets in public repo"
+	@echo "  make private-seed          # generate private sub-repo seed package"
+	@echo "  make owner-watch-dry       # validate owner-monitor config without loop"
 
 quickstart:
 	@./scripts/dev-up.sh --from-env
@@ -34,3 +37,12 @@ ci-local:
 
 ci-local-env:
 	@./scripts/ci-local.sh --from-env
+
+public-safety:
+	@./scripts/public-safety-guard.sh
+
+private-seed:
+	@./scripts/export-private-subrepo.sh --target ../karma-internal
+
+owner-watch-dry:
+	@./scripts/owner-watch.sh --dry-run
