@@ -1,213 +1,470 @@
-# Karma 安全升级与上线方案（SECURITY_UPGRADE_PLAN）
+# 主网上线安全升级方案（SECURITY_UPGRADE_PLAN）
 
-**文档性质**：技术部执行清单 + 验收方逐项签字表  
-**适用范围**：`karma-core`（公开合约与接口）、与 `Karma2`（私有引擎/运维）的联动发布  
-**验收方**：按你方流程由指定负责人逐项勾选验收
-
----
-
-## 0. 与当前仓库的对照说明（技术部必读）
-
-本方案中的 **P0/P1 条目** 需与**当前主干实际代码**对齐后再关闭。下表为截至文档编写时、对 `karma-core/contracts` 的**静态对照**（技术部修完后应更新「证据」列：PR 链接、commit、测试命令输出）。
-
-| 方案项 | 当前主干参考状态 | 证据 / 待补 |
-|--------|------------------|-------------|
-| P0 编译错误 | 以 CI `forge build` 为准 | PR + `forge build` 绿 |
-| P0 gas 上限（批量结算） | `NonCustodialAgentPayment` 存在 `MAX_BATCH_SETTLE_SIZE`；`SettlementEngine.settleBatch` **未见**单独 `length` 上限常量 | 若方案要求 **SettlementEngine** 上限，需补 `MAX_BATCH_SIZE` + 测试 |
-| P0 重入保护 | `SettlementEngine`：`submitSettlement` / `settleBatch` + `nonReentrant`；`NonCustodialAgentPayment`：关键路径含 `nonReentrant` | 见下文代码锚点 |
-| P1 `expireBill` | 已实现：`Pending`/`Confirmed`、超时后释放 | 见代码锚点 |
-| P1 多签 / 阈值 / timelock | **链上仍为 `immutable admin/owner`**，需产品决策与迁移方案 | 部署与治理任务，非仅文档 |
+> **版本**: v1.0 | **日期**: 2026-05-02 | **状态**: 待执行  
+> **文档性质**: 技术部执行清单 + 验收方逐项签字  
+> **适用范围**: 主网部署前安全升级；与 `Karma`（公开）/ `Karma2`（私有）双仓联动一致
 
 ---
 
-## 1. P0 — 阻塞级（上线前必须关闭）
+## 与当前 Karma 仓库的映射（验收前必读）
 
-### P0-1 编译错误清零
+本仓库 **`karma-core/contracts`** 当前为 **NonCustodial（NC）+ SettlementEngine** 主线，**不包含**下列旧栈路径：
 
-- **目标**：`forge build` 与 CI 中所有 Solidity 相关 job 零错误。
-- **验收**：`forge build`；`forge test`（或 CI 等价矩阵）全绿。
-- **技术部回传**：失败时的 `forge build` 完整日志 + 修复 PR。
+| 方案中的文件/模块 | 在当前仓库中 |
+|-------------------|--------------|
+| `contracts/test/BillAndBatch.t.sol` | **不存在** |
+| `contracts/core/BillManager.sol` | **不存在** |
+| `contracts/core/LockPoolManager.sol` | **不存在** |
 
-### P0-2 Gas / 批量上限（防 DoS）
+**含义**：
 
-- **目标**：对批量外部调用路径设置明确上限，避免单 tx 过大导致 OOG 或滥用。
-- **当前代码要点**：
-  - `NonCustodialAgentPayment`：`MAX_BATCH_SETTLE_SIZE` + `settleBatch` 内对 `maxBills` 截断（见下「代码锚点」）。
-  - `SettlementEngine`：`settleBatch` 为循环 `_submitSettlement`；若方案要求此处上限，**须新增常量并在循环前 `revert`**，并补充 `forge test`。
-- **验收**：单测覆盖「超限 revert」；可选：fork 上估算 gas 边界。
+- 方案 **§2 P0-1～P0-3、P1-3（BillManager expireBill）** 适用于 **BillManager + LockPool（BM）栈** 或独立分支/子模块；若主网仍走该栈，须在**含 BM 代码的仓库/分支**上执行并验收。
+- 当前 **NC 主线** 上对应关系供验收时替换检查项：
+  - **批量 gas 上限**：`NonCustodialAgentPayment` 已有 `MAX_BATCH_SETTLE_SIZE`；`SettlementEngine.settleBatch` 若需与方案一致，应补 **单笔 batch 数组长度上限** + 测试。
+  - **重入**：`SettlementEngine` 结算路径带 `nonReentrant`；`NonCustodialAgentPayment` 关键路径带 `nonReentrant`（与方案中 LockPoolManager 加固目标同类）。
+  - **expireBill**：`NonCustodialAgentPayment.expireBill` **已实现**（Pending/Confirmed 超时释放）。
+- **CI 名称**：下文示例中的 `Trust-Chain CI` / 单文件 `ci.yml` 为模板；本仓库实际为 `.github/workflows/forge-ci.yml`、`security-ci.yml` 等，以**仓库内文件为准**做门禁对齐。
 
-### P0-3 重入与外部调用安全
+---
 
-- **目标**：资金路径上的 `transfer`/`transferFrom` 与可重入 token 组合下，不因重入破坏会计不变式。
-- **当前代码要点**：`SettlementEngine` 结算路径带 `nonReentrant`；`NonCustodialAgentPayment` 在 `requestBillPayout`、仲裁结算等带 `nonReentrant`（`expireBill` 为设计上的非重入敏感路径，若方案要求可再评估是否加 guard）。
-- **验收**：现有重入相关测试全绿；若有新路径，补 Foundry 用例。
+# 主网上线安全升级方案（正文 v1.0）
 
-#### P0 代码锚点（供 diff 与验收对齐）
+## 1. 执行摘要
 
-```42:60:karma-core/contracts/core/SettlementEngine.sol
-    function submitSettlement(QuoteTypes.Quote calldata quote, uint8 v, bytes32 r, bytes32 s) external override nonReentrant {
-        _submitSettlement(quote, v, r, s);
-    }
+| 指标 | 现状 | 目标 |
+|------|------|------|
+| 合约编译 | ❌ 测试套件编译失败 | ✅ 全量通过 |
+| 测试覆盖 | ⚠️ NC 模块有测试，BM 模块测试不通过 | ✅ 全模块可运行 |
+| 静态分析 | ❌ 未集成 | ✅ CI 中 Slither 自动运行 |
+| 多签控制 | ❌ 全部单地址 admin | ✅ Gnosis Safe 3/5 |
+| 部署验证 | ❌ 无自动化 | ✅ 部署后 bytecode hash 校验 |
+| 监控告警 | ⚠️ 仅 cron 轮询 | ✅ 事件驱动 + 阈值告警 |
+| 应急响应 | ❌ 无预案 | ✅ 分级 SOP |
 
-    function settleBatch(
-        QuoteTypes.Quote[] calldata quotes,
-        uint8[] calldata vs,
-        bytes32[] calldata rs,
-        bytes32[] calldata ss
-    ) external override nonReentrant {
-        uint256 length = quotes.length;
-        if (length == 0 || length != vs.length || length != rs.length || length != ss.length) {
-            revert Errors.InvalidBatchInput();
+**优先级**：P0 = 阻塞上线 | P1 = 上线前必须 | P2 = 上线后第一周 | P3 = 持续迭代
+
+---
+
+## 2. 合约修复清单
+
+### P0-1: 修复 BillAndBatch.t.sol 编译错误
+
+**文件**: `contracts/test/BillAndBatch.t.sol`，约第66行  
+**问题**: Solidity 不允许将 struct 中的 enum 字段直接解构为 `uint8`
+
+**当前代码（第59-71行）**:
+
+```solidity
+(
+    uint256 loadedBatchId,
+    bytes32 loadedPoolId,
+    uint256 totalPending,
+    uint256 billCount,
+    uint8 status,          // ← 编译错误在这里
+    uint256 createdAt,
+    uint256 settledAt
+) = bill.batches(1);
+assertEq(status, uint8(2), "status should be Settled");
+```
+
+**修复为**:
+
+```solidity
+Types.Batch memory batch = bill.batches(1);
+assertEq(batch.batchId, 1, "batch id");
+assertEq(batch.poolId, poolId, "pool id");
+assertEq(batch.totalPending, 100, "pending snapshot");
+assertEq(batch.billCount, 1, "bill count");
+assertEq(uint8(batch.status), uint8(Types.BatchStatus.Settled), "status should be Settled");
+assertGt(batch.createdAt, 0, "createdAt");
+assertGt(batch.settledAt, 0, "settledAt");
+```
+
+**验证**: `forge test --match-contract BillAndBatch -vvv`
+
+---
+
+### P0-2: BillManager.settleBatch 加 Gas 上限
+
+**文件**: `contracts/core/BillManager.sol`  
+**问题**: 无限循环遍历所有 bill，大 Batch 下 gas 耗尽导致资金永久锁死
+
+**当前代码中的 for 循环**:
+
+```solidity
+for (uint256 i = 0; i < ids.length; i++) {  // ← 无上限
+```
+
+**修复方案**（参考 NonCustodialAgentPayment 的游标分页模式）
+
+合约顶部新增:
+
+```solidity
+uint256 public constant MAX_BATCH_SETTLE_SIZE = 200;
+mapping(uint256 batchId => uint256) public batchNextSettleIndex;
+mapping(uint256 batchId => uint256) public batchRemainingCount;
+```
+
+`settleBatch` 改为:
+
+```solidity
+function settleBatch(uint256 batchId) external override {
+    Types.Batch storage batch = batches[batchId];
+    if (batch.batchId == 0) revert Errors.NotFound();
+    if (batch.status != Types.BatchStatus.Closed) revert Errors.InvalidState();
+    _checkBatchOwnerAuthorization(batchId);
+    uint256[] storage ids = batchBills[batchId];
+    uint256 remaining = ids.length - batchNextSettleIndex[batchId];
+    uint256 limit = remaining < MAX_BATCH_SETTLE_SIZE ? remaining : MAX_BATCH_SETTLE_SIZE;
+    uint256 end = batchNextSettleIndex[batchId] + limit;
+    uint256 totalSettled;
+    for (uint256 i = batchNextSettleIndex[batchId]; i < end; i++) {
+        Types.Bill storage bill = bills[ids[i]];
+        if (bill.status == Types.BillStatus.Confirmed) {
+            lockPoolManager.settleFromPendingAndPayout(
+                billPoolId[bill.billId], bill.toAgent, bill.amount
+            );
+            bill.status = Types.BillStatus.Settled;
+            totalSettled += bill.amount;
         }
-
-        for (uint256 i = 0; i < length; ++i) {
-            _submitSettlement(quotes[i], vs[i], rs[i], ss[i]);
-        }
     }
-```
-
-```43:49:karma-core/contracts/core/NonCustodialAgentPayment.sol
-    uint16 public constant BPS_DENOMINATOR = 10_000;
-    uint256 public constant MAX_BATCH_SETTLE_SIZE = 200;
-```
-
-```330:368:karma-core/contracts/core/NonCustodialAgentPayment.sol
-    function requestBillPayout(uint256 billId) external override nonReentrant returns (bool ok) {
-        // ...
+    batchNextSettleIndex[batchId] = end;
+    if (end == ids.length) {
+        batch.status = Types.BatchStatus.Settled;
+        batch.settledAt = block.timestamp;
+        emit Events.BatchSettled(batchId, batch.poolId, totalSettled);
     }
+}
+```
 
-    function expireBill(uint256 billId) external override {
-        Bill storage b = bills[billId];
-        if (b.billId == 0) revert BillNotFound(billId);
-        if (b.status != BillStatus.Pending && b.status != BillStatus.Confirmed) {
-            revert InvalidState();
-        }
-        if (block.timestamp <= b.deadline) revert InvalidState();
-        _releaseOnCancelOrExpire(b);
-        b.status = BillStatus.Expired;
-        // ...
-        emit BillExpired(billId);
+---
+
+### P0-3: LockPoolManager 加重入保护
+
+**文件**: `contracts/core/LockPoolManager.sol`  
+**问题**: `settleFromPendingAndPayout` 和 `withdrawLockPool` 执行外部 transfer 无重入防护
+
+合约顶部加:
+
+```solidity
+uint256 private constant _NOT_ENTERED = 1;
+uint256 private constant _ENTERED = 2;
+uint256 private _status = _NOT_ENTERED;
+modifier nonReentrant() {
+    if (_status == _ENTERED) revert Errors.ReentrancyGuard();
+    _status = _ENTERED;
+    _;
+    _status = _NOT_ENTERED;
+}
+```
+
+`settleFromPendingAndPayout` 和 `withdrawLockPool` 函数签名加 `nonReentrant` modifier。
+
+`Errors.sol` 加:
+
+```solidity
+error ReentrancyGuard();
+```
+
+---
+
+### P1-1: 全部 admin/owner 迁移到多签
+
+`NonCustodialAgentPayment` / `SettlementEngine` / `CircuitBreaker` 的 immutable admin 不可修改。需**重新部署**时传 Gnosis Safe 多签地址而非 EOA:
+
+```solidity
+NonCustodialAgentPayment(gnosisSafeAddr, 3000, 1 days);
+SettlementEngine(gnosisSafeAddr);
+CircuitBreaker(gnosisSafeAddr);
+```
+
+`LockPoolManager` admin 非 immutable，可部署后迁移:
+
+```solidity
+function transferAdmin(address newAdmin) external {
+    if (msg.sender != admin) revert Errors.Unauthorized();
+    admin = newAdmin;
+}
+```
+
+**目标架构**:
+
+```
+Gnosis Safe 3/5
+  ├── Owner/Admin (合约管理)
+  ├── Arbitrator   (争议裁决)
+  └── CircuitBreaker (紧急暂停)
+```
+
+推荐 3/5 签名者: 莱恩、联创/CTO、安全顾问、法律/合规、冷备份硬件钱包（异地）
+
+---
+
+### P1-2: CircuitBreaker 阈值强制执行
+
+`humanApprovalThreshold` 目前设置了但从任何调用路径都不检查。
+
+`BillManager.createBill` 开头加:
+
+```solidity
+uint256 threshold = circuitBreaker.humanApprovalThreshold(msg.sender);
+if (threshold > 0 && amount > threshold) {
+    revert Errors.ExceedsHumanApprovalThreshold(amount, threshold);
+}
+```
+
+或者在链下 relay 层打包交易前检查阈值。
+
+---
+
+### P1-3: BillManager 加 expireBill
+
+Bill 有 deadline 但没有 expire 入口，过期 bill 会永久锁在 pendingAmount。
+
+新增函数:
+
+```solidity
+function expireBill(uint256 billId) external override {
+    Types.Bill storage bill = bills[billId];
+    if (bill.billId == 0) revert Errors.NotFound();
+    if (bill.status != Types.BillStatus.Pending 
+        && bill.status != Types.BillStatus.Confirmed) {
+        revert Errors.InvalidState();
     }
+    if (block.timestamp <= bill.deadline) revert Errors.NotExpired();
+    lockPoolManager.releasePendingOnCancel(billPoolId[billId], bill.amount);
+    bill.status = Types.BillStatus.Cancelled;
+    emit Events.BillCancelled(billId, msg.sender);
+}
 ```
 
-**技术部须在 PR 描述中粘贴**：与上表不一致时的**具体 unified diff**（每项 P0 一条 PR 或合并说明）。
+需配套测试: `testExpirePendingBill`、`testExpireConfirmedBill`
 
 ---
 
-## 2. P1 — 上线前必须（治理与资金安全）
+### P2-1: Solidity 版本升级
 
-### P1-1 管理员 / Owner 多签（Gnosis Safe 或等效）
+`foundry.toml`: `solc_version = "0.8.28"`（若当前为 0.8.24，升级需全量回归）
 
-- **目标**：生产环境部署的 `SettlementEngine.admin`、`NonCustodialAgentPayment.owner`（及仲裁相关角色）为**多签地址**，非 EOA。
-- **验收**：链上 `admin`/`owner` 指向 Safe；Safe policy（阈值、成员）记录在运维台账。
+### P2-2: optimizer_runs 调整
 
-### P1-2 阈值执行 + Timelock（敏感操作）
+`foundry.toml`: `optimizer_runs = 1000`（若当前为 200，变更需 gas 快照对比）
 
-- **目标**：改参数、暂停、升级实现等路径具备**延迟 + 多签阈值**（具体列表与合约接口由架构定稿）。
-- **验收**：测试网演练一次「提案 → timelock → 执行」；主网参数表与角色表一致。
+### P2-3: safeTransferFrom 常量选择器
 
-### P1-3 `expireBill` 与超时释放（业务 + 安全）
+`NonCustodialAgentPayment.sol` 中，将 `bytes4(keccak256("transferFrom(address,address,uint256)"))` 替换为常量:
 
-- **目标**：超时账单可释放占用，避免资金/额度逻辑冻结；行为与监控一致。
-- **当前代码**：已实现（见上锚点）。
-- **验收**：集成测试覆盖 Pending/Confirmed 超时；监控对 `BillExpired` 有告警或仪表盘。
-
----
-
-## 3. P2 — 上线后加固（可排期）
-
-- **编译器 / 优化器**：固定 `solc` 版本与 `optimizer_runs`；变更需重新跑全量测试与 Slither。
-- **合约版本与存储布局**：升级策略（透明代理/UUPS 等）与存储 gap 文档化。
-- **Selector / 路由优化**：减少误调用面；与 OpenAPI/前端路由对齐（见 `openapi/karma-v1.yaml`）。
-
----
-
-## 4. CI/CD、静态分析、部署与监控
-
-| 域 | 要求 | 仓库参考 |
-|----|------|----------|
-| CI | PR 必过：`forge test`、安全门禁、可见性门禁 | `.github/workflows/forge-ci.yml`、`security-ci.yml`、`security-baseline-guard.yml`、`visibility-guard.yml` |
-| 静态分析 | Slither 等；残余须有 `docs/SECURITY_ACCEPTANCE_NOTES.md` 类书面接受项 | 与 `scripts/slither-gate.sh` 策略一致 |
-| 部署 | 双仓 `CORE_VERSION.lock` + `deployment-manifest.json` + `verify-manifest`；Karma2 防漂移 workflow | `split-release/`、`ops/release-sync/`（Karma2） |
-| 监控告警 | Owner 变更、异常 revert 率、结算失败分类 | 运维 runbook |
-| L0–L3 应急 SOP | 分级响应、回滚、沟通模板 | 技术部在私有仓维护最新版 runbook |
-
----
-
-## 5. 上线前最终检查表（28 项）
-
-验收方逐项勾选（`[ ]` 未完成，`[x]` 已完成）。
-
-### 合约与测试（8）
-
-- [ ] `forge build` 无错误、无未处理 warning 策略已约定
-- [ ] `forge test` 全量通过（含不变式/重入相关用例）
-- [ ] 批量路径 gas 上限与单测已合并（含 SettlementEngine 若适用）
-- [ ] `expireBill` / 超时路径行为与文档一致
-- [ ] EIP-712 域、链 ID、合约地址与前端/OpenAPI 一致
-- [ ] 任意 `transferFrom` 路径已审计（签名/nonce/白名单）
-- [ ] 暂停/熔断策略与运维一致
-- [ ] 升级/不可升级策略已书面确认
-
-### 治理与密钥（6）
-
-- [ ] 生产 `admin`/`owner` 为多签
-- [ ] Timelock 与阈值配置已记录
-- [ ] 无私钥进仓库；`.env` 仅占位
-- [ ] RPC / API 密钥在密钥管理器中轮换策略明确
-- [ ] 部署账户与日常运维账户分离
-- [ ] 事故时可紧急暂停的责任人已备案
-
-### 双仓联动（6）
-
-- [ ] `Karma` 发布 tag / commit 已冻结
-- [ ] `Karma2` `CORE_VERSION.lock` 与 manifest 一致且 `verify-manifest` 通过
-- [ ] `openapi/karma-v1.yaml` 版本与部署一致
-- [ ] 接口 ABI/地址已同步到引擎侧配置
-- [ ] Karma2 必跑 CI（lockstep）已启用且为 required check
-- [ ] 回滚 manifest 已准备上一版本
-
-### 监控与应急（5）
-
-- [ ] 主网/测试网关键事件订阅正常
-- [ ] Owner / 角色变更告警已配置
-- [ ] L1/L2 值班与升级窗口已排期
-- [ ] L3 重大事故升级路径与对外话术已批准
-- [ ] 演练记录已归档
-
-### 法务与对外（3）
-
-- [ ] 对外披露范围与白皮书/站点一致
-- [ ] 第三方依赖许可证审查完成
-- [ ] 用户条款/风险披露已更新（如适用）
-
----
-
-## 6. 技术部完成后的回传模板（复制到 PR 或邮件）
-
-```
-SECURITY_UPGRADE_PLAN 执行结果
-
-P0:
-- [ ] 编译：PR #___ forge build 绿
-- [ ] Gas 上限：PR #___ 说明文件：SettlementEngine / NonCustodialAgentPayment
-- [ ] 重入：PR #___ 测试：___
-
-P1:
-- [ ] 多签：Safe 地址 ___ 网络 ___
-- [ ] Timelock：配置摘要 ___
-- [ ] expireBill：已验收场景 ___
-
-P2：排期链接 ___
-
-28 项检查表：附件或 wiki 链接 ___
-
-验收负责人：___ 日期：___
+```solidity
+bytes4 private constant TRANSFER_FROM_SELECTOR = 0x23b872dd;
 ```
 
 ---
 
-## 7. 文档维护
+## 3. 工程基础设施
 
-- 技术部每完成一项 P0/P1，应更新本节「与当前仓库的对照表」中的 **证据** 列。
-- 若方案与实现有偏差，以**经批准的变更说明**为准，并同步更新 `docs/SECURITY_ACCEPTANCE_NOTES.md`（如适用）。
+### CI/CD 流水线
+
+本仓库使用多 workflow，与下列**单文件示例**等价整合即可（勿再使用旧名 `Trust-Chain`）:
+
+- `/.github/workflows/forge-ci.yml` — 构建与测试
+- `/.github/workflows/security-ci.yml` — Foundry + Slither + release-readiness
+- `/.github/workflows/security-baseline-guard.yml`、`visibility-guard.yml` — 安全基线与可见性
+
+**参考模板**（需按实际路径 `karma-core/contracts` 调整 `target`）:
+
+```yaml
+name: Karma CI
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Run tests
+        run: forge test -C karma-core/contracts -vvv --gas-report
+      - name: Run invariant tests
+        run: forge test -C karma-core/contracts --match-contract Invariant -vvv
+      - name: Check coverage
+        run: forge coverage -C karma-core/contracts --report lcov
+      - name: Static Analysis
+        uses: crytic/slither-action@v0.4.0
+        with:
+          target: karma-core/contracts/
+```
+
+### 静态分析（策略与门禁对齐）
+
+```bash
+pip install slither-analyzer
+# 本仓库使用 scripts/slither-gate.sh 与 SECURITY_ACCEPTANCE_NOTES 对残余项做书面接受；主网门禁目标由技术部与验收方共同签字。
+slither . --fail-high
+```
+
+可选: `aderyn` 等补充工具，纳入私有 CI 或定期任务。
+
+---
+
+## 4. 部署安全流程
+
+### 部署前验证脚本
+
+```bash
+forge build --force || exit 1
+forge test -C karma-core/contracts -vvv || exit 1
+forge test -C karma-core/contracts --match-contract Invariant -vvv || exit 1
+forge snapshot --diff
+# Slither 与仓库脚本策略一致
+# 部署后
+BYTECODE_HASH=$(cast code --rpc-url $RPC_URL $CONTRACT_ADDRESS | cast keccak)
+cast call $CONTRACT_ADDRESS "owner()(address)" --rpc-url $RPC_URL
+cast call $CONTRACT_ADDRESS "DOMAIN_SEPARATOR()(bytes32)" --rpc-url $RPC_URL
+```
+
+### 部署脚本加固
+
+使用环境变量 / `cast` 读取敏感配置（禁止硬编码私钥）；所有 admin 参数传**多签地址**。
+
+---
+
+## 5. 运维监控
+
+### 关键事件告警阈值
+
+| 事件 | 告警阈值 |
+|------|---------|
+| GlobalCircuitBreakerTriggered | 即时 |
+| BatchCircuitBreakerUpdated (paused=true) | 即时 |
+| BillDisputed (seller 发起) | >5/小时 |
+| BillSplitResolved | >3/天 |
+| InvalidTransferIntent | >10/小时 |
+
+### 余额与一致性（在现有 fund-flow-monitor 基础上加）
+
+- 合约 ETH 余额（防止意外转入）
+- 各 LockPool totalLocked vs mappingBalance 一致性（BM 栈）；NC 栈则对齐 **locked / reserved / active** 不变式监控
+- deployer 地址 nonce 活动（检测私钥泄露）
+- 异常大额 bill（超过历史均值 3σ）
+
+---
+
+## 6. 应急响应预案
+
+| 级别 | 定义 | 响应 | 动作 |
+|------|------|------|------|
+| 🟢 L3 | 异常无资金风险 | 24h | 记录评估 |
+| 🟡 L2 | 可疑小额风险 | 4h | 分析+暂停相关功能 |
+| 🟠 L1 | 确认攻击中等损失 | 30min | 触发 CB + 通知社区 |
+| 🔴 L0 | 大规模资金损失 | 即时 | GlobalPause + 多签紧急 + 公开披露 |
+
+### L0 响应流程
+
+```
+1. 任一多签成员调用 CircuitBreaker.emergencyPause("attack detected")
+2. 所有多签成员独立验证攻击交易
+3. 3/5 确认后:
+   a. 联系 Etherscan 暂停验证显示
+   b. Twitter/Discord 公开声明
+   c. 联系 SlowMist/PeckShield 追踪资金
+   d. 联系 CEX 冻结相关地址
+4. 分析攻击向量 → 修补 → 重新部署 → 迁移状态
+```
+
+---
+
+## 7. 上线前最终检查表
+
+### 合约
+
+- [ ] BillAndBatch.t.sol 编译通过（**仅 BM 栈仓库**；当前 karma-core 无此文件则标 N/A 并注明分支）
+- [ ] BillManager.settleBatch 有 gas 上限（**BM 栈**；NC 栈验收 `MAX_BATCH_SETTLE_SIZE` + SettlementEngine 是否需上限）
+- [ ] LockPoolManager 有 nonReentrant（**BM 栈**；NC 栈验收等价路径）
+- [ ] 所有 admin 指向多签地址
+- [ ] CircuitBreaker 阈值在调用链执行（BM：`createBill`；NC：需映射到实际策略入口）
+- [ ] BillManager 有 expireBill（**BM 栈**；NC 栈验收 `NonCustodialAgentPayment.expireBill`）
+- [ ] Solidity >=0.8.27（或团队批准版本）
+- [ ] optimizer_runs >=1000（或团队批准值）
+- [ ] safeTransferFrom 常量选择器（如适用）
+
+### 测试
+
+- [ ] `forge test -vvv` 全量 0 failed
+- [ ] 不变式测试通过
+- [ ] `forge coverage >=90%`（目标；以实际模块为准）
+- [ ] Slither 策略与验收签字一致（零 high/medium 或已接受项文档化）
+- [ ] Aderyn 零 warning（若启用）
+
+### 基础设施
+
+- [ ] CI/CD 流水线运行（forge-ci + security-ci 等）
+- [ ] `foundry.toml` 无硬编码私钥
+- [ ] `.env` 在 `.gitignore`
+- [ ] 部署脚本无硬编码密钥
+
+### 部署
+
+- [ ] Sepolia 预演全部流程
+- [ ] 部署后 bytecode hash 校验
+- [ ] owner/arbitrator/admin = 多签
+- [ ] EIP-712 domain separator 校验
+- [ ] 1 ETH 小额测试交易（或等价主网代币小额）
+
+### 运维
+
+- [ ] 事件监控脚本部署
+- [ ] 告警通道配置
+- [ ] 应急 SOP 分发
+- [ ] 多签成员确认
+- [ ] 冷备份钱包设置
+
+---
+
+## 8. 修复时间线
+
+```
+Week 1: P0 修复 → CI 搭建 → Sepolia 预演
+Week 2: P1 修复 → 测试覆盖 → 静态分析
+Week 3: 主网部署 → 监控上线 → 小额测试
+Week 4+: P2/P3 迭代 → 压力测试 → 社区披露
+```
+
+---
+
+## 9. Karma 当前主干对照（供验收勾选替代项）
+
+当验收 **NC 主线** 且无 BM 代码时，用下列替代原检查表中「仅 BM」条目：
+
+| 原方案项 | NC 主线验收替代 |
+|----------|----------------|
+| P0-1 BillAndBatch | `forge build` + `forge test -C karma-core/contracts` 全绿 |
+| P0-2 BillManager settleBatch 上限 | `NonCustodialAgentPayment` 批量上限 +（可选）`SettlementEngine` batch 长度上限 |
+| P0-3 LockPoolManager 重入 | `SettlementEngine` / `NonCustodialAgentPayment` 资金路径 `nonReentrant` + 测试 |
+| P1-3 BillManager expireBill | `NonCustodialAgentPayment.expireBill` + 测试 |
+
+**技术部回传模板**（PR 或邮件）:
+
+```
+SECURITY_UPGRADE_PLAN v1.0 执行结果
+
+栈: BM / NC / 双栈
+P0: PR #___ 命令输出摘要 ___
+P1: 多签 Safe ___ 网络 ___
+P2: 排期 ___
+
+检查表 §7: 附件链接 ___
+验收负责人: ___ 日期: ___
+```
+
+---
+
+## 10. 文档维护
+
+- 执行状态由 **待执行** → **进行中** → **待验收** → **已关闭** 时，更新本文首行 **状态** 与日期。
+- 若 BM 与 NC 分属不同分支/仓库，在 §0 表格中增加一行「实际验收仓库/分支」链接。
