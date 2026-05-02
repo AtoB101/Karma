@@ -22,6 +22,7 @@ If your shell does not have `python3 -m webbrowser`, open this URL manually:
 `http://127.0.0.1:8790/examples/v01-metamask-settlement.html`
 
 Quick docs:
+- Public vs private operations (releases without mixing repos): `docs/PUBLIC_PRIVATE_OPERATIONS.md`
 - Fast onboarding: `docs/GET_STARTED.md`
 - Commands cheat sheet: `docs/COMMANDS.md`
 - Troubleshooting: `docs/TROUBLESHOOTING.md`

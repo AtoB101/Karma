@@ -21,3 +21,7 @@ This repository is **public-only**. It contains:
 Use `split-release/prepare-karma2-sync-package.sh` to produce a bundle for the private repo, including vendor snapshots of public contract sources.
 
 Generated paths such as `results/` are **not committed** to this public repository (see root `.gitignore`).
+
+## Operations without mixing repos
+
+See **`docs/PUBLIC_PRIVATE_OPERATIONS.md`** for release order, daily workflow, and emergency rules so public and private stay separated while releases stay smooth.
