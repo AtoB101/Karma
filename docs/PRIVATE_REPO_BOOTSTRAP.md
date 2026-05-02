@@ -7,7 +7,7 @@ move sensitive internal assets out of the public codebase.
 
 Example:
 
-- GitHub repo name: `Karma-Internal`
+- GitHub repo name: `Karma2` (or `Karma-Internal`)
 - Visibility: **Private**
 - Owners: minimal set (security + operations)
 
@@ -16,28 +16,25 @@ Example:
 From this repository root:
 
 ```bash
-make private-repo-bootstrap
+./scripts/private-repo-sync.sh --private-repo-url https://github.com/AtoB101/Karma2.git
 ```
 
-This creates:
+This writes under **`results/private-repo-sync/`** (gitignored by default), for example:
 
-- `results/private-repo-bootstrap/README.md`
-- `results/private-repo-bootstrap/docs/private/.gitkeep`
-- `results/private-repo-bootstrap/scripts/private/.gitkeep`
-- `results/private-repo-bootstrap/examples/private/.gitkeep`
-- `results/private-repo-bootstrap/outreach/.gitkeep`
-- `results/private-repo-bootstrap/SECURITY_PRIVATE.md`
+- `manifest.txt`
+- `README.md`
+- `bootstrap-private-repo.sh`
+- `karma2-template/` (alignment templates when present)
+
+For full cross-repo sync (interfaces, OpenAPI, vendor snapshots), use:
+
+```bash
+./split-release/prepare-karma2-sync-package.sh --out-dir results/karma2-sync-package
+```
 
 ## 3) Seed child private repository
 
-In your private repository:
-
-```bash
-cp -R /path/to/public-repo/results/private-repo-bootstrap/* .
-git add .
-git commit -m "chore: bootstrap private repo structure"
-git push
-```
+Copy the generated output into your private repository, then commit and push.
 
 ## 4) Move sensitive assets into private repo
 
@@ -53,4 +50,4 @@ Move categories:
 
 - Keep only auditable source code and public-safe docs.
 - Keep all secrets in secure secret managers (never in git).
-- Use `make security-baseline-guard` in PR validation.
+- Run `./scripts/security-baseline-guard.sh` in PR validation.

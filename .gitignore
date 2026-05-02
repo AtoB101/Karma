@@ -1,0 +1,6 @@
+# Build and local artifacts
+/cache/
+/out/
+
+# Local reports and sync outputs (never commit secrets here)
+/results/
