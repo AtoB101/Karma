@@ -1,0 +1,29 @@
+name: Karma2 Lockstep Sync Check
+
+on:
+  pull_request:
+    branches: ["main"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  validate-lockstep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate lock + manifest presence
+        run: |
+          test -f "ops/release-sync/templates/CORE_VERSION.lock"
+          test -f "ops/release-sync/templates/deployment-manifest.json"
+          test -f "ops/release-sync/templates/verify-manifest.sh"
+
+      - name: Validate lock + manifest alignment
+        run: |
+          chmod +x ops/release-sync/templates/verify-manifest.sh
+          ops/release-sync/templates/verify-manifest.sh \
+            --manifest ops/release-sync/templates/deployment-manifest.json \
+            --lock ops/release-sync/templates/CORE_VERSION.lock

@@ -67,13 +67,14 @@ if [[ -z "$core_tag" ]]; then
 fi
 
 rm -rf "$out_dir"
-mkdir -p "$out_dir/openapi" "$out_dir/templates" "$out_dir/contracts/interfaces" "$out_dir/internal-admin/core-devops"
+mkdir -p "$out_dir/openapi" "$out_dir/templates/workflows" "$out_dir/contracts/interfaces" "$out_dir/internal-admin/core-devops"
 
 cp "$ROOT_DIR/openapi/karma-v1.yaml" "$out_dir/openapi/karma-v1.yaml"
 cp "$ROOT_DIR/split-release/templates/karma2/CORE_VERSION.lock.example" "$out_dir/templates/CORE_VERSION.lock.example"
 cp "$ROOT_DIR/split-release/templates/karma2/deployment-manifest.json.example" "$out_dir/templates/deployment-manifest.json.example"
 cp "$ROOT_DIR/split-release/templates/karma2/verify-manifest.sh" "$out_dir/templates/verify-manifest.sh"
 cp "$ROOT_DIR/split-release/templates/karma2/README.md" "$out_dir/templates/README.md"
+cp "$ROOT_DIR/split-release/templates/karma2/workflows/lockstep-sync-check.yml" "$out_dir/templates/workflows/lockstep-sync-check.yml"
 cp "$ROOT_DIR"/karma-core/contracts/interfaces/*.sol "$out_dir/contracts/interfaces/"
 cp "$ROOT_DIR/karma-engine/internal-admin/core-devops/.env.example.template" "$out_dir/internal-admin/core-devops/.env.example.template"
 
@@ -97,6 +98,7 @@ Keep the private repository aligned with the public core baseline:
 - Solidity interface surface (`contracts/interfaces/*.sol`)
 - deployment/environment template (`internal-admin/core-devops/.env.example.template`)
 - cross-repo lock + manifest templates
+- CI drift guard workflow template
 
 ## Import steps in Karma2
 
@@ -107,7 +109,10 @@ Keep the private repository aligned with the public core baseline:
 3. Fill lock + manifest with actual release tag, commit SHA, and deployed addresses.
 4. Validate alignment:
    - `bash templates/verify-manifest.sh --manifest deployment-manifest.json --lock CORE_VERSION.lock`
-5. Commit both files in Karma2 and run private CI + smoke tests.
+5. Install drift guard workflow:
+   - `mkdir -p .github/workflows`
+   - `cp templates/workflows/lockstep-sync-check.yml .github/workflows/lockstep-sync-check.yml`
+6. Commit lock/manifest/workflow in Karma2 and run private CI + smoke tests.
 EOF
 
 chmod +x "$out_dir/templates/verify-manifest.sh"

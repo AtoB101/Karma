@@ -82,8 +82,9 @@ These are temporary local repositories used only for clean publishing.
   - `split-release/templates/karma2/ENV_SYNC.example`
   - `split-release/templates/karma2/deployment-manifest.json.example`
   - `split-release/templates/karma2/verify-manifest.sh`
+  - `split-release/templates/karma2/workflows/lockstep-sync-check.yml`
   - `split-release/templates/karma2/README.md`
- - Sync package generator (for Karma2 agents):
+- Sync package generator (for Karma2 agents):
   - `split-release/prepare-karma2-sync-package.sh`
 
 To generate a copy package under `results/private-repo-sync/`:
@@ -96,6 +97,7 @@ To generate a compact bundle that Karma2-side agents can pull and apply:
 
 ```bash
 ./split-release/prepare-karma2-sync-package.sh \
-  --core-ref cursor/dev-friendly-onboarding-dfef \
-  --output-dir results/karma2-sync-package
+  --core-tag core-v1.0.0 \
+  --core-commit 1111111111111111111111111111111111111111 \
+  --out-dir results/karma2-sync-package
 ```

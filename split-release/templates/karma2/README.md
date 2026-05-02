@@ -6,6 +6,7 @@ Copy this directory into the private repository (`Karma2`) as:
 - `ops/release/deployment-manifest.json.example`
 - `ops/release/ENV_SYNC.example`
 - `ops/release/verify-manifest.sh`
+- `.github/workflows/lockstep-sync-check.yml`
 
 Then:
 
@@ -14,5 +15,6 @@ Then:
 3. Copy `ENV_SYNC.example` to `ENV_SYNC` and fill environment mapping (RPC/API/base URLs).
 4. Run `./verify-manifest.sh` in the private repository root before deployment.
 5. Keep `CORE_VERSION.lock`, `deployment-manifest.json`, and `ENV_SYNC` in the same PR.
+6. Enable the `Lockstep Sync Check` workflow as required status check in branch protection.
 
 This keeps private engine releases pinned to one audited public core release.
