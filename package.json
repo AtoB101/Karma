@@ -1,0 +1,14 @@
+{
+  "name": "karma-public-repo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Karma public repository dev tooling",
+  "scripts": {
+    "guard:dev": "python3 -m http.server 8787",
+    "guard:test": "playwright test --config=tests/guard/playwright.config.js",
+    "guard:test:headed": "playwright test --config=tests/guard/playwright.config.js --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
+  }
+}

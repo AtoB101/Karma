@@ -25,6 +25,22 @@ Then open:
 
 `http://127.0.0.1:8790/apps/agent-service-guard/frontend/index.html`
 
+### Local smoke check (Python-only)
+
+```bash
+python3 ./scripts/agent-service-guard-smoke.py
+```
+
+This validates required pages, paths, and key public-safe strings.
+
+Optional Node.js-based run + smoke:
+
+```bash
+npm install
+npm run guard:dev
+npm run guard:smoke
+```
+
 ## Pages
 
 - Home: `/apps/agent-service-guard/frontend/index.html`

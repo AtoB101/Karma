@@ -67,6 +67,8 @@ Quick docs:
 - Owner watchdog dry run: `make owner-watchdog` (tests owner-change alert config and hooks)
 - Private repo sync scaffold: `make private-repo-sync PRIVATE_REPO_DIR=../karma-internal`
 - M4 roadmap: `docs/M4_ROADMAP_V01.md`
+- Karma Guard (public sub-product MVP): `apps/agent-service-guard/README.md`
+- Agent Service Guard smoke: `python3 scripts/agent-service-guard-smoke.py`
 
 ## Core Modules
 
