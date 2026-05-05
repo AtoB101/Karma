@@ -71,6 +71,7 @@ Quick docs:
 - M4 roadmap: `docs/M4_ROADMAP_V01.md`
 - Karma Guard (public sub-product MVP): `apps/agent-service-guard/README.md`
 - Agent Service Guard smoke: `python3 scripts/agent-service-guard-smoke.py`
+- Phase 2 public contract gate: `python3 scripts/phase2-public-contract-gate.py`
 
 ## Core Modules
 

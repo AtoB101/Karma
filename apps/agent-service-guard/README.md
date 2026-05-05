@@ -41,6 +41,12 @@ npm run guard:dev
 npm run guard:smoke
 ```
 
+Phase 2 contract gate (schema/link integrity):
+
+```bash
+python3 scripts/phase2-public-contract-gate.py
+```
+
 ## Pages
 
 - Home: `/apps/agent-service-guard/frontend/index.html`
