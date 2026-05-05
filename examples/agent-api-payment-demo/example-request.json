@@ -1,0 +1,17 @@
+{
+  "service_name": "Agent API Summarization",
+  "service_type": "agent_api",
+  "seller_wallet": "0xSellerDemoWallet",
+  "buyer_wallet": "0xBuyerDemoWallet",
+  "price": 25,
+  "currency": "USDC",
+  "delivery_time": "24h",
+  "refund_policy": "Refund if output is missing or invalid",
+  "seller_bond_rate": 30,
+  "evidence_bundle": {
+    "input_summary": "Summarize URL content into 10 bullet points.",
+    "output_summary": "10 bullet points delivered as JSON array.",
+    "output_hash": "0xoutputhashdemo",
+    "execution_status": "DELIVERED"
+  }
+}

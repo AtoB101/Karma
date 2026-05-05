@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Karma Guard - Order Detail</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="hero compact">
+        <h1>Order Detail</h1>
+        <p>Delivery, evidence settlement, and dispute flow (mock).</p>
+      </header>
+
+      <section id="order-card" class="card"></section>
+
+      <section class="grid two">
+        <article class="card">
+          <h2>Seller Actions</h2>
+          <form id="deliver-form" class="stack">
+            <label>Output Summary</label>
+            <textarea id="output-summary" rows="4" required></textarea>
+            <button type="submit">Submit Delivery + Generate evidence_hash</button>
+          </form>
+        </article>
+
+        <article class="card">
+          <h2>Buyer Actions</h2>
+          <div class="stack">
+            <button id="confirm-btn">Confirm Completion</button>
+            <button id="open-dispute-btn" class="warn">Open Dispute</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="card">
+        <h2>Admin Mock Arbitration</h2>
+        <div class="row">
+          <button data-r="BUYER_WINS" class="warn arb-btn">BUYER_WINS</button>
+          <button data-r="SELLER_WINS" class="arb-btn">SELLER_WINS</button>
+          <button data-r="PARTIAL_REFUND" class="arb-btn">PARTIAL_REFUND</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Navigation</h2>
+        <div class="row">
+          <a class="button" href="./dashboard.html">Go Dashboard</a>
+          <a class="button secondary" id="badge-link" href="#">View Trust Badge</a>
+          <a class="button secondary" href="./index.html">Home</a>
+        </div>
+      </section>
+    </main>
+    <script type="module">
+      import {
+        getOrder,
+        updateOrderById,
+        generateEvidenceHash,
+        nowIso,
+      } from "./store.js";
+
+      const params = new URLSearchParams(window.location.search);
+      const orderId = params.get("order_id");
+      const orderCard = document.getElementById("order-card");
+      const badgeLink = document.getElementById("badge-link");
+
+      if (!orderId) {
+        orderCard.innerHTML = "<p class='warn'>order_id is required.</p>";
+      }
+
+      function render(order) {
+        if (!order) {
+          orderCard.innerHTML = "<p class='warn'>Order not found.</p>";
+          return;
+        }
+        badgeLink.href = `./badge.html?seller_wallet=${encodeURIComponent(order.seller_wallet)}`;
+        orderCard.innerHTML = `
+          <h2>${order.order_id}</h2>
+          <div class="kv">
+            <span>buyer_wallet</span><strong>${order.buyer_wallet}</strong>
+            <span>seller_wallet</span><strong>${order.seller_wallet}</strong>
+            <span>price</span><strong>${order.price} ${order.currency}</strong>
+            <span>payment_status</span><strong>${order.payment_status}</strong>
+            <span>delivery_status</span><strong>${order.delivery_status}</strong>
+            <span>dispute_status</span><strong>${order.dispute_status}</strong>
+            <span>settlement_status</span><strong>${order.settlement_status}</strong>
+            <span>seller_bond_status</span><strong>${order.seller_bond_status}</strong>
+            <span>evidence_hash</span><strong>${order.evidence_hash || "-"}</strong>
+          </div>
+        `;
+      }
+
+      const current = getOrder(orderId);
+      render(current);
+
+      document.getElementById("deliver-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const outputSummary = document.getElementById("output-summary").value.trim();
+        if (!outputSummary) return;
+        const hash = generateEvidenceHash(
+          `${orderId}|${current?.buyer_wallet || ""}|${current?.seller_wallet || ""}|${outputSummary}|${Date.now()}`
+        );
+        const updated = updateOrderById(orderId, {
+          delivery_status: "DELIVERED",
+          evidence_hash: hash,
+          updated_at: nowIso(),
+        });
+        render(updated);
+      });
+
+      document.getElementById("confirm-btn").addEventListener("click", () => {
+        const updated = updateOrderById(orderId, {
+          delivery_status: "CONFIRMED",
+          payment_status: "RELEASED",
+          settlement_status: "SETTLED",
+          seller_bond_status: "RELEASED",
+          updated_at: nowIso(),
+        });
+        render(updated);
+      });
+
+      document.getElementById("open-dispute-btn").addEventListener("click", () => {
+        const updated = updateOrderById(orderId, {
+          dispute_status: "OPEN",
+          settlement_status: "FROZEN",
+          seller_bond_status: "FROZEN",
+          updated_at: nowIso(),
+        });
+        render(updated);
+      });
+
+      document.querySelectorAll(".arb-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const r = btn.dataset.r;
+          let patch = { dispute_status: "RESOLVED", updated_at: nowIso() };
+          if (r === "BUYER_WINS") {
+            patch = {
+              ...patch,
+              payment_status: "REFUNDED",
+              settlement_status: "REFUNDED",
+              seller_bond_status: "SLASHED",
+            };
+          } else if (r === "SELLER_WINS") {
+            patch = {
+              ...patch,
+              payment_status: "RELEASED",
+              settlement_status: "SETTLED",
+              seller_bond_status: "RELEASED",
+            };
+          } else {
+            patch = {
+              ...patch,
+              payment_status: "PARTIAL_RELEASED",
+              settlement_status: "PARTIALLY_SETTLED",
+              seller_bond_status: "PARTIAL_RELEASED",
+            };
+          }
+          const updated = updateOrderById(orderId, patch);
+          render(updated);
+        });
+      });
+    </script>
+  </body>
+</html>

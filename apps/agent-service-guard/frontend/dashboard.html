@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Karma Guard - Dashboard</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Karma Guard Dashboard</h1>
+    <p class="lead">Public metrics from mock protected transactions.</p>
+    <div class="grid two" id="statsGrid"></div>
+    <div class="card">
+      <a class="button secondary" href="./index.html">Back to Home</a>
+    </div>
+  </main>
+
+  <script type="module">
+    import { computeDashboardStats, formatUsd } from "./store.js";
+
+    const stats = computeDashboardStats();
+    const data = [
+      ["total_protected_volume", formatUsd(stats.total_protected_volume)],
+      ["verified_orders", String(stats.verified_orders)],
+      ["settled_orders", String(stats.settled_orders)],
+      ["disputed_orders", String(stats.disputed_orders)],
+      ["refunded_orders", String(stats.refunded_orders)],
+      ["active_seller_bond", formatUsd(stats.active_seller_bond)],
+      ["average_settlement_time", `${stats.average_settlement_time} sec`],
+      ["seller_success_rate", `${stats.seller_success_rate}%`],
+      ["dispute_rate", `${stats.dispute_rate}%`]
+    ];
+
+    const grid = document.getElementById("statsGrid");
+    data.forEach(([k, v]) => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `<h3>${k}</h3><p>${v}</p>`;
+      grid.appendChild(card);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Karma Guard - Trust Badge</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="logo">Karma Guard</div>
+      <nav class="nav">
+        <a href="./index.html">Home</a>
+        <a href="./service-create.html">Create Protected Service</a>
+        <a href="./dashboard.html">Dashboard</a>
+      </nav>
+    </header>
+
+    <main class="container">
+      <section class="card">
+        <h1>Karma Protected Badge</h1>
+        <p class="muted">
+          Public badge data only. Internal risk model, scoring, and arbitration
+          weights are private.
+        </p>
+      </section>
+
+      <section class="card">
+        <div class="grid two">
+          <div>
+            <label for="sellerWallet">Seller Wallet</label>
+            <input id="sellerWallet" placeholder="0xSeller..." />
+          </div>
+          <div class="inline-end">
+            <button id="loadBtn">Load Badge</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="badgeCard"></section>
+    </main>
+
+    <script type="module">
+      import {
+        getSellerStats,
+        formatCurrency,
+      } from "./store.js";
+
+      const sellerInput = document.querySelector("#sellerWallet");
+      const loadBtn = document.querySelector("#loadBtn");
+      const badgeCard = document.querySelector("#badgeCard");
+
+      const renderBadge = (wallet) => {
+        const stats = getSellerStats(wallet);
+        const embedCode = `<div class="karma-protected-badge" data-wallet="${wallet}">Karma Protected: ${wallet}</div>`;
+
+        badgeCard.innerHTML = `
+          <div class="badge-box">
+            <h2>Karma Protected</h2>
+            <p><strong>Seller Wallet:</strong> ${stats.seller_wallet}</p>
+            <p><strong>Total Protected Volume:</strong> ${formatCurrency(stats.total_protected_volume, "USDT")}</p>
+            <p><strong>Verified Orders:</strong> ${stats.verified_orders}</p>
+            <p><strong>Success Rate:</strong> ${(stats.success_rate * 100).toFixed(2)}%</p>
+            <p><strong>Dispute Rate:</strong> ${(stats.dispute_rate * 100).toFixed(2)}%</p>
+            <p><strong>Active Bond:</strong> ${formatCurrency(stats.active_bond_amount, "USDT")}</p>
+            <label for="embedCode"><strong>Copy Embed Code</strong></label>
+            <textarea id="embedCode" rows="3" readonly>${embedCode}</textarea>
+            <button id="copyEmbed">Copy Embed Code</button>
+          </div>
+        `;
+
+        document.querySelector("#copyEmbed").addEventListener("click", async () => {
+          const el = document.querySelector("#embedCode");
+          await navigator.clipboard.writeText(el.value);
+          alert("Embed code copied.");
+        });
+      };
+
+      loadBtn.addEventListener("click", () => {
+        const wallet = sellerInput.value.trim();
+        if (!wallet) {
+          alert("Please enter seller wallet.");
+          return;
+        }
+        const hashWallet = encodeURIComponent(wallet);
+        history.replaceState({}, "", `?seller_wallet=${hashWallet}`);
+        renderBadge(wallet);
+      });
+
+      const params = new URLSearchParams(window.location.search);
+      const wallet = params.get("seller_wallet");
+      if (wallet) {
+        sellerInput.value = wallet;
+        renderBadge(wallet);
+      }
+    </script>
+  </body>
+</html>

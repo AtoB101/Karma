@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Karma Guard | Pay with Protection</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1><a href="./index.html">Karma Guard for Agent Services</a></h1>
+      <nav>
+        <a href="./service-create.html">Create Protected Service</a>
+        <a href="./dashboard.html">View Dashboard</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Pay with Protection</h2>
+      <div id="service-view"></div>
+      <form id="pay-form">
+        <label>Buyer Wallet
+          <input name="buyer_wallet" required placeholder="0xBuyer..." />
+        </label>
+        <button type="submit">Create Protected Order</button>
+      </form>
+      <p id="pay-result" class="hint"></p>
+    </section>
+  </main>
+  <script type="module">
+    import { getServiceById, createOrder } from "./store.js";
+
+    const params = new URLSearchParams(window.location.search);
+    const serviceId = params.get("service_id");
+    const service = getServiceById(serviceId);
+    const serviceView = document.getElementById("service-view");
+    const payForm = document.getElementById("pay-form");
+    const payResult = document.getElementById("pay-result");
+
+    if (!service) {
+      serviceView.innerHTML = "<p class='error'>Service not found. Please create a service first.</p>";
+      payForm.style.display = "none";
+    } else {
+      serviceView.innerHTML = `
+        <dl class="kv">
+          <dt>Service</dt><dd>${service.service_name}</dd>
+          <dt>Description</dt><dd>${service.description}</dd>
+          <dt>Price</dt><dd>${service.price} ${service.currency}</dd>
+          <dt>Seller Wallet</dt><dd>${service.seller_wallet}</dd>
+          <dt>Seller Bond Rate</dt><dd>${service.seller_bond_rate}%</dd>
+          <dt>Badge</dt><dd>Karma Protected</dd>
+        </dl>
+        <p class="hint">Buyer Protection: non-custodial settlement + evidence-based dispute flow.</p>
+      `;
+    }
+
+    payForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const formData = new FormData(payForm);
+      const buyerWallet = String(formData.get("buyer_wallet")).trim();
+      if (!buyerWallet || !service) return;
+      const order = createOrder(service, buyerWallet);
+      payResult.textContent = `Order created: ${order.order_id}`;
+      setTimeout(() => {
+        window.location.href = `./order.html?order_id=${encodeURIComponent(order.order_id)}`;
+      }, 300);
+    });
+  </script>
+</body>
+</html>

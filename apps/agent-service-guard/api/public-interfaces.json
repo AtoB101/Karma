@@ -1,0 +1,51 @@
+{
+  "name": "karma-guard-private-engine-interfaces",
+  "version": "1.0.0",
+  "description": "Public-side interface placeholders. Private logic is not implemented here.",
+  "interfaces": {
+    "RiskCheckInput": {
+      "order_id": "string",
+      "buyer_wallet": "string",
+      "seller_wallet": "string",
+      "service_type": "string",
+      "price": "string",
+      "currency": "string",
+      "evidence_hash": "string"
+    },
+    "RiskCheckResult": {
+      "risk_level": "LOW | MEDIUM | HIGH",
+      "public_reason_code": "string",
+      "action": "ALLOW | REVIEW | FREEZE",
+      "note": "This endpoint is provided by the private risk engine."
+    },
+    "DisputeReviewInput": {
+      "dispute_id": "string",
+      "order_id": "string",
+      "evidence_hash": "string",
+      "buyer_statement": "string",
+      "seller_statement": "string"
+    },
+    "DisputeReviewResult": {
+      "recommended_resolution": "BUYER_WINS | SELLER_WINS | PARTIAL_REFUND",
+      "public_reason_code": "string",
+      "note": "This endpoint is provided by the private risk engine."
+    },
+    "SellerScoreInput": {
+      "seller_wallet": "string",
+      "window_start": "string",
+      "window_end": "string",
+      "orders": "array"
+    },
+    "SellerScoreResult": {
+      "risk_level": "LOW | MEDIUM | HIGH",
+      "public_reason_code": "string",
+      "action": "ALLOW | REVIEW | FREEZE",
+      "note": "This endpoint is provided by the private risk engine."
+    }
+  },
+  "reserved_private_endpoints": [
+    "/risk/check",
+    "/dispute/recommend-resolution",
+    "/score/seller"
+  ]
+}

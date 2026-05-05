@@ -146,3 +146,26 @@ Security reporting policy and contact:
 
 - Contribution process and licensing terms: `CONTRIBUTING.md`
 - Notices and attribution: `NOTICE`
+
+## Agent Service Guard (public subproject)
+
+Public entrypoint for the first open scenario product:
+`apps/agent-service-guard/frontend/index.html`
+
+Quick run:
+
+```bash
+python3 -m http.server 8787
+```
+
+Then open:
+
+- `http://127.0.0.1:8787/apps/agent-service-guard/frontend/index.html`
+
+Core pages:
+
+- Create service: `/apps/agent-service-guard/frontend/service-create.html`
+- Pay with protection: `/apps/agent-service-guard/frontend/pay.html?service_id=<service_id>`
+- Order detail: `/apps/agent-service-guard/frontend/order.html?order_id=<order_id>`
+- Dashboard: `/apps/agent-service-guard/frontend/dashboard.html`
+- Trust badge: `/apps/agent-service-guard/frontend/badge.html?seller_wallet=<wallet>`
