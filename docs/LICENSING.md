@@ -10,6 +10,11 @@ is available under:
 
 - GNU Affero General Public License v3.0 (`LICENSE`)
 
+Scope:
+
+- The root `LICENSE` applies repository-wide by default.
+- Legacy per-folder license files are intentionally removed to avoid ambiguity.
+
 Key points:
 
 - You can run, study, modify, and redistribute under AGPLv3 terms.
