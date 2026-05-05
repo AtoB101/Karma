@@ -14,6 +14,8 @@ required_files=(
   "openapi/karma-v1.yaml"
   "SECURITY.md"
   "scripts/security-baseline-guard.sh"
+  "docs/TRUST_ENGINE_V1_PUBLIC_SCHEMA.md"
+  "scripts/check-trust-engine-public-safety.sh"
 )
 
 missing=0
@@ -30,5 +32,8 @@ if [[ "$missing" -ne 0 ]]; then
   echo "ERR  proof/evidence gate failed due to missing required files"
   exit 1
 fi
+
+# 3) Ensure trust-engine public surface exists while private internals stay private.
+./scripts/check-trust-engine-public-safety.sh
 
 echo "OK   proof/evidence CI gate passed."

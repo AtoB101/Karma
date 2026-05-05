@@ -67,3 +67,6 @@ jobs:
 
       - name: Release readiness gate
         run: ./scripts/release-readiness.sh
+
+      - name: Trust-engine public safety guard
+        run: ./scripts/check-trust-engine-public-safety.sh

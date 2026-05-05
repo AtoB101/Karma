@@ -234,7 +234,39 @@ components:
         payload:
           type: object
           additionalProperties: true
-      required: [evidenceId, schemaVersion, evidenceVersion, digestSha256, payload]
+        caller_authorization_signature:
+          type: string
+          description: Caller authorization signature presence marker.
+        provider_execution_signature:
+          type: string
+          description: Provider execution signature presence marker.
+        request_hash:
+          type: string
+          description: Hash pointer for the request payload.
+        response_hash:
+          type: string
+          description: Hash pointer for the response payload.
+        execution_trace_hash:
+          type: string
+          description: Optional trace hash pointer (field presence only in public schema).
+        dispute_status:
+          type: string
+          enum: [none, opened, under_review, resolved]
+        settlement_status:
+          type: string
+          enum: [pending, settled, cancelled, disputed]
+      required:
+        - evidenceId
+        - schemaVersion
+        - evidenceVersion
+        - digestSha256
+        - payload
+        - caller_authorization_signature
+        - provider_execution_signature
+        - request_hash
+        - response_hash
+        - dispute_status
+        - settlement_status
     VerifyEvidenceRequest:
       type: object
       properties:

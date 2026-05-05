@@ -52,6 +52,21 @@
 
 ---
 
+## A3 Trust Engine V1（公开侧边界）
+
+公开仓仅发布能力边界和字段契约，不发布私有评分参数：
+
+- 公共 Schema：`docs/TRUST_ENGINE_V1_PUBLIC_SCHEMA.md` + `openapi/karma-v1.yaml`
+  - 包含字段：`caller_authorization_signature`、`provider_execution_signature`、`request_hash`、`response_hash`、`execution_trace_hash`（presence-only）、`dispute_status`、`settlement_status`
+- 公开描述要求：可说明具备履约/争议/证据/风险能力；禁止公开权重、阈值、tie-break 细节
+- 最小 MVP 10 项检查：见 `docs/TRUST_ENGINE_V1_PUBLIC_SCHEMA.md`
+- 防泄露 CI：`scripts/check-trust-engine-public-safety.sh`
+  - 拦截目标：权重明细表、反作弊阈值常量、证据权重矩阵、仲裁平局决策常量
+
+**验收**：`./scripts/check-trust-engine-public-safety.sh` 本地通过，且 Forge/Security CI 通过。
+
+---
+
 ## Sepolia 联合预演
 
 1. Karma 发布冻结 tag + 合约地址写入 manifest。  

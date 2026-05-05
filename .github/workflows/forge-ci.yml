@@ -44,6 +44,9 @@ jobs:
       - name: Run proof/evidence CI gates (M4.1)
         run: ./scripts/ci-proof-gates.sh
 
+      - name: Trust-engine public safety guard
+        run: ./scripts/check-trust-engine-public-safety.sh
+
   full-check:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -75,3 +78,6 @@ jobs:
 
       - name: Run proof/evidence CI gates (M4.1)
         run: ./scripts/ci-proof-gates.sh
+
+      - name: Trust-engine public safety guard
+        run: ./scripts/check-trust-engine-public-safety.sh
