@@ -130,11 +130,38 @@ def require_version_sync_and_changelog() -> None:
     marker = changelog.find(expected_heading)
     next_heading = changelog.find("\n## ", marker + len(expected_heading))
     section = changelog[marker: next_heading if next_heading != -1 else len(changelog)]
-    if "Change Type: Breaking" not in section and "Change Type: Non-breaking" not in section:
+    has_breaking = "Change Type: Breaking" in section
+    has_non_breaking = "Change Type: Non-breaking" in section
+    if not has_breaking and not has_non_breaking:
         fail(
             "changelog entry must include `Change Type: Breaking` or "
             "`Change Type: Non-breaking` under current payload section"
         )
+    if has_breaking and has_non_breaking:
+        fail(
+            "changelog entry cannot include both `Change Type: Breaking` and "
+            "`Change Type: Non-breaking` for the same payload version"
+        )
+
+    if has_breaking:
+        migration_path = ROOT / f"docs/migrations/{payload_version}.md"
+        if not migration_path.exists():
+            fail(
+                "breaking payload change requires migration note file: "
+                f"docs/migrations/{payload_version}.md"
+            )
+        migration = migration_path.read_text(encoding="utf-8")
+        required_tokens = [
+            "## Migration Summary",
+            "## Required Actions",
+            "## Compatibility Impact",
+            "## Rollback Plan",
+        ]
+        for token in required_tokens:
+            if token not in migration:
+                fail(
+                    f"migration note docs/migrations/{payload_version}.md missing section: {token}"
+                )
 
     ok("payload version sync and changelog entry are present")
 

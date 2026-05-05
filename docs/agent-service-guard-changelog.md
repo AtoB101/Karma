@@ -13,3 +13,4 @@ Change Type: Non-breaking
 - Added initial public-safe wallet signature payload examples.
 - Added reusable wallet signature payload template for integrators.
 - Added Phase 2 testnet integration checklist and documentation links.
+- Migration Note: `docs/migrations/v1-public-testnet-prep.md`

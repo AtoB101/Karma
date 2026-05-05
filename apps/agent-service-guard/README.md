@@ -78,6 +78,7 @@ Phase 2 preparation assets (public-safe):
 - `docs/wallet-signature-payload-examples.json`
 - `apps/agent-service-guard/templates/wallet-signature-payload-template.json`
 - `docs/agent-service-guard-changelog.md`
+- `docs/migrations/<payload-version>.md` (required when changelog marks `Change Type: Breaking`)
 
 ## Private engine boundary
 

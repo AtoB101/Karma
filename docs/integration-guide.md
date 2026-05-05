@@ -98,6 +98,7 @@ For testnet integration preparation, use:
 - `docs/testnet-integration-checklist.md`
 - `docs/wallet-signature-payload-examples.json`
 - `apps/agent-service-guard/templates/wallet-signature-payload-template.json`
+- Migration notes (required when `Change Type: Breaking`): `docs/migrations/<payload-version>.md`
 
 These are public-safe templates and checklists only. Private decision engines
 remain out of scope for this repository.
