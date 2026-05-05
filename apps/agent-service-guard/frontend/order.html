@@ -93,9 +93,15 @@
 
       const current = getOrder(orderId);
       render(current);
+      const orderExists = Boolean(current);
+
+      function allowOrderActions() {
+        return Boolean(orderId) && orderExists;
+      }
 
       document.getElementById("deliver-form").addEventListener("submit", (e) => {
         e.preventDefault();
+        if (!allowOrderActions()) return;
         const outputSummary = document.getElementById("output-summary").value.trim();
         if (!outputSummary) return;
         const hash = generateEvidenceHash(
@@ -110,6 +116,7 @@
       });
 
       document.getElementById("confirm-btn").addEventListener("click", () => {
+        if (!allowOrderActions()) return;
         const updated = updateOrderById(orderId, {
           delivery_status: "CONFIRMED",
           payment_status: "RELEASED",
@@ -121,6 +128,7 @@
       });
 
       document.getElementById("open-dispute-btn").addEventListener("click", () => {
+        if (!allowOrderActions()) return;
         const updated = updateOrderById(orderId, {
           dispute_status: "OPEN",
           settlement_status: "FROZEN",
@@ -132,6 +140,7 @@
 
       document.querySelectorAll(".arb-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
+          if (!allowOrderActions()) return;
           const r = btn.dataset.r;
           let patch = { dispute_status: "RESOLVED", updated_at: nowIso() };
           if (r === "BUYER_WINS") {

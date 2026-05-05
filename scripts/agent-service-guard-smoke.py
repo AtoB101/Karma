@@ -8,12 +8,21 @@ import socketserver
 import threading
 import time
 import urllib.request
+import socket
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
 PORT = 8791
 BASE = f"http://127.0.0.1:{PORT}"
+
+
+def reserve_port() -> int:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = int(sock.getsockname()[1])
+    sock.close()
+    return port
 
 
 def fetch(path: str) -> str:
@@ -24,6 +33,9 @@ def fetch(path: str) -> str:
 
 
 def main() -> None:
+    global PORT, BASE
+    PORT = reserve_port()
+    BASE = f"http://127.0.0.1:{PORT}"
     handler = http.server.SimpleHTTPRequestHandler
     httpd = socketserver.TCPServer(("127.0.0.1", PORT), handler)
     httpd.allow_reuse_address = True
@@ -42,10 +54,10 @@ def main() -> None:
       assert "seller_bond_rate" in create_page
 
       pay_page = fetch("/apps/agent-service-guard/frontend/pay.html")
-      assert "Pay with Protection" in pay_page
+      assert "service_id is required" in pay_page
 
       order_page = fetch("/apps/agent-service-guard/frontend/order.html")
-      assert "Admin Mock Arbitration" in order_page
+      assert "order_id is required" in order_page
 
       dashboard_page = fetch("/apps/agent-service-guard/frontend/dashboard.html")
       assert "Karma Guard Dashboard" in dashboard_page

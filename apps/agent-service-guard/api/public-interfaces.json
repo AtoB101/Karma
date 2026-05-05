@@ -2,6 +2,7 @@
   "name": "karma-guard-private-engine-interfaces",
   "version": "1.0.0",
   "description": "Public-side interface placeholders. Private logic is not implemented here.",
+  "note": "Only input/output contracts and public reason codes are exposed. Internal risk scoring and arbitration logic remain private.",
   "interfaces": {
     "RiskCheckInput": {
       "order_id": "string",
@@ -40,6 +41,54 @@
       "risk_level": "LOW | MEDIUM | HIGH",
       "public_reason_code": "string",
       "action": "ALLOW | REVIEW | FREEZE",
+      "note": "This endpoint is provided by the private risk engine."
+    }
+  },
+  "public_examples": {
+    "risk_check_request": {
+      "order_id": "ord_20260506_demo",
+      "buyer_wallet": "0xBuyerDemo001",
+      "seller_wallet": "0xSellerDemo001",
+      "service_type": "agent-api",
+      "price": "120.00",
+      "currency": "USDC",
+      "evidence_hash": "0xabc12345def67890"
+    },
+    "risk_check_response": {
+      "risk_level": "LOW",
+      "public_reason_code": "EVIDENCE_PRESENT_AND_ORDER_CONSISTENT",
+      "action": "ALLOW",
+      "note": "This endpoint is provided by the private risk engine."
+    },
+    "dispute_review_request": {
+      "dispute_id": "dsp_20260506_demo",
+      "order_id": "ord_20260506_demo",
+      "evidence_hash": "0xabc12345def67890",
+      "buyer_statement": "Output did not match expected format.",
+      "seller_statement": "Delivery met listed service scope."
+    },
+    "dispute_review_response": {
+      "recommended_resolution": "PARTIAL_REFUND",
+      "public_reason_code": "PARTIAL_NONCONFORMITY_IN_DELIVERY",
+      "note": "This endpoint is provided by the private risk engine."
+    },
+    "seller_score_request": {
+      "seller_wallet": "0xSellerDemo001",
+      "window_start": "2026-05-01T00:00:00Z",
+      "window_end": "2026-05-31T23:59:59Z",
+      "orders": [
+        {
+          "order_id": "ord_20260506_demo",
+          "settlement_status": "SETTLED",
+          "dispute_status": "NONE",
+          "price": "120.00"
+        }
+      ]
+    },
+    "seller_score_response": {
+      "risk_level": "LOW",
+      "public_reason_code": "STABLE_SETTLEMENT_PROFILE",
+      "action": "ALLOW",
       "note": "This endpoint is provided by the private risk engine."
     }
   },

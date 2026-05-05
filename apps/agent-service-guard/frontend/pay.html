@@ -39,7 +39,13 @@
     const payForm = document.getElementById("pay-form");
     const payResult = document.getElementById("pay-result");
 
-    if (!service) {
+    if (!serviceId) {
+      serviceView.innerHTML = `
+        <p class='error'>service_id is required.</p>
+        <p class='hint'>Open this page from "Create Protected Service" or use /pay.html?service_id=&lt;id&gt;.</p>
+      `;
+      payForm.style.display = "none";
+    } else if (!service) {
       serviceView.innerHTML = "<p class='error'>Service not found. Please create a service first.</p>";
       payForm.style.display = "none";
     } else {

@@ -51,4 +51,12 @@ test.describe("Karma Guard public MVP smoke", () => {
     await expect(page).toHaveURL(/dashboard\.html$/);
     await expect(page.getByRole("heading", { name: "Karma Guard Dashboard" })).toBeVisible();
   });
+
+  test("shows clear message when required query params are missing", async ({ page }) => {
+    await page.goto("/apps/agent-service-guard/frontend/pay.html");
+    await expect(page.locator("#service-view")).toContainText("Missing required parameter: service_id");
+
+    await page.goto("/apps/agent-service-guard/frontend/order.html");
+    await expect(page.locator("#order-card")).toContainText("Missing required parameter: order_id");
+  });
 });
