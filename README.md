@@ -141,3 +141,8 @@ The page defaults to non-custodial mode; legacy engine controls are hidden by de
 
 Security reporting policy and contact:
 - `SECURITY.md`
+
+## Governance and contribution terms
+
+- Contribution process and licensing terms: `CONTRIBUTING.md`
+- Notices and attribution: `NOTICE`
