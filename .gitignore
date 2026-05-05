@@ -8,3 +8,8 @@
 # Python bytecode
 **/__pycache__/
 *.pyc
+
+# Node / Playwright local artifacts
+node_modules/
+test-results/
+playwright-report/
