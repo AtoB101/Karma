@@ -1,6 +1,6 @@
 /** @type {import('@playwright/test').PlaywrightTestConfig} */
 module.exports = {
-  testDir: "./tests/e2e",
+  testDir: "./tests",
   timeout: 30000,
   retries: 0,
   use: {

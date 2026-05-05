@@ -5,8 +5,9 @@
   "description": "Karma public repository dev tooling",
   "scripts": {
     "guard:dev": "python3 -m http.server 8787",
-    "guard:test": "playwright test --config=tests/guard/playwright.config.js",
-    "guard:test:headed": "playwright test --config=tests/guard/playwright.config.js --headed"
+    "test:agent-guard": "playwright test --config=playwright.config.cjs",
+    "guard:test": "playwright test --config=playwright.config.cjs",
+    "guard:test:headed": "playwright test --config=playwright.config.cjs --headed"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2"

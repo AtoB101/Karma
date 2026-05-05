@@ -293,8 +293,4 @@ export function generateEvidenceHash(input) {
   return hashFrom(String(input || ""));
 }
 
-export function generateEvidenceHash(input) {
-  return hashFrom(String(input || ""));
-}
-
 export { nowIso };

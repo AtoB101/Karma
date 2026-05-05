@@ -67,8 +67,7 @@
 
       if (!orderId) {
         orderCard.innerHTML = "<p class='warn'>order_id is required.</p>";
-      }
-
+      } else {
       function render(order) {
         if (!order) {
           orderCard.innerHTML = "<p class='warn'>Order not found.</p>";
@@ -169,6 +168,7 @@
           render(updated);
         });
       });
+      }
     </script>
   </body>
 </html>

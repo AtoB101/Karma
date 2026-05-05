@@ -91,6 +91,6 @@ This checklist validates the public mock MVP flow.
 ## Public/private boundary checks
 
 - [ ] No private scoring weights are exposed.
-- [ ] No anti-cheat threshold constants are exposed.
-- [ ] No arbitration tie-break weighting internals are exposed.
+- [ ] No internal fraud-prevention numeric thresholds are published in the repo.
+- [ ] No non-public dispute-resolution tie-break rules are published.
 - [ ] Only field contracts and public state-machine data are published.

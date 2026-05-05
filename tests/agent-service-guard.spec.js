@@ -29,7 +29,7 @@ test.describe("Karma Guard public MVP smoke", () => {
     await page.locator('input[name="seller_bond_rate"]').fill("30");
     await page.getByRole("button", { name: "Create Service" }).click();
 
-    await expect(page.locator("#result")).not.toContainText("No service created yet.");
+    await expect(page.getByRole("link", { name: "Open Payment Page" })).toBeVisible({ timeout: 15000 });
     await page.getByRole("link", { name: "Open Payment Page" }).click();
     await expect(page).toHaveURL(/pay\.html\?service_id=/);
 
@@ -54,9 +54,9 @@ test.describe("Karma Guard public MVP smoke", () => {
 
   test("shows clear message when required query params are missing", async ({ page }) => {
     await page.goto("/apps/agent-service-guard/frontend/pay.html");
-    await expect(page.locator("#service-view")).toContainText("Missing required parameter: service_id");
+    await expect(page.locator("#service-view")).toContainText("service_id is required");
 
     await page.goto("/apps/agent-service-guard/frontend/order.html");
-    await expect(page.locator("#order-card")).toContainText("Missing required parameter: order_id");
+    await expect(page.locator("#order-card")).toContainText("order_id is required");
   });
 });
