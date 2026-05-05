@@ -4,3 +4,7 @@
 
 # Local reports and sync outputs (never commit secrets here)
 /results/
+
+# Python bytecode
+**/__pycache__/
+*.pyc
