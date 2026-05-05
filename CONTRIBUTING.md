@@ -19,6 +19,16 @@ brand-protection policy.
 3. Run local checks before opening a PR.
 4. Open a PR with a concise summary and validation steps.
 
+## Payload contract PRs (Karma Guard / Phase 2)
+
+If your PR adds **`Change Type: Breaking`** to `docs/agent-service-guard-changelog.md`,
+CI requires:
+
+- `docs/migrations/<payload-version>.md` with the sections enforced by
+  `scripts/phase2-public-contract-gate.py`
+- A PR description section with heading **`## Migration Impact`** or
+  **`### Migration Impact`** (rollout, integrator steps; link the migration doc)
+
 ## Developer certificate and licensing of contributions
 
 By submitting a contribution (pull request, patch, commit, or issue attachment),
