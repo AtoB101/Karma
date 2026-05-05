@@ -26,9 +26,15 @@ contract KYARegistry is IKYARegistry {
         if (msg.value < MIN_STAKE) revert Errors.InvalidAmount();
         if (validityDays == 0) revert Errors.InvalidAmount();
         Types.AgentDID memory existing = didByAgent[agent];
+        // Any prior registration (including expired or revoked) stays bound to existing.owner
+        // until that owner re-registers; prevents third-party takeover of the agent slot.
+        if (existing.owner != address(0) && existing.owner != msg.sender) {
+            revert Errors.Unauthorized();
+        }
         if (existing.isActive && existing.validUntil >= block.timestamp) {
-            if (existing.owner != msg.sender) revert Errors.Unauthorized();
-            if (permissionsHash != existing.permissionsHash && permissionsHash != DID_RENEW_SCOPE) revert Errors.InvalidState();
+            if (permissionsHash != existing.permissionsHash && permissionsHash != DID_RENEW_SCOPE) {
+                revert Errors.InvalidState();
+            }
         }
 
         uint256 validUntil = block.timestamp + (validityDays * 1 days);

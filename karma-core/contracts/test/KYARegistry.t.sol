@@ -67,4 +67,15 @@ contract KYARegistryTest is Test {
         assertEq(ownerAddr, owner);
         assertGt(validUntil, block.timestamp + 25 days);
     }
+
+    function testRegisterDIDRevertsAfterRevokeUnlessSameOwner() public {
+        vm.prank(owner);
+        registry.registerDID{value: 0.01 ether}(agent, keccak256("perm"), 30);
+        vm.prank(owner);
+        registry.revokeDID(agent);
+
+        vm.prank(attacker);
+        vm.expectRevert(Errors.Unauthorized.selector);
+        registry.registerDID{value: 0.01 ether}(agent, keccak256("perm-attacker"), 30);
+    }
 }
