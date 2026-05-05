@@ -3,6 +3,12 @@
 This repository now uses a single architecture story centered on `NonCustodialAgentPayment`.
 User funds stay in user wallets, while on-chain accounting enforces lock/reserve/dispute state transitions.
 
+## License and usage policy
+
+- Community/open-source license: **AGPL-3.0-only** (see `LICENSE`)
+- Commercial license: available on request (see `docs/LICENSING.md`)
+- Brand and name usage: see `TRADEMARK_POLICY.md`
+
 ## Golden Path (3 commands)
 
 ```bash
