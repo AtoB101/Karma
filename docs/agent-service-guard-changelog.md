@@ -6,7 +6,9 @@ This changelog tracks public-facing contract/schema updates for:
 - `apps/agent-service-guard/templates/wallet-signature-payload-template.json`
 - `docs/integration-guide.md` (version references)
 
-## v1-public-testnet-prep
+## Payload Contract v1-public-testnet-prep
+
+Change Type: Non-breaking
 
 - Added initial public-safe wallet signature payload examples.
 - Added reusable wallet signature payload template for integrators.

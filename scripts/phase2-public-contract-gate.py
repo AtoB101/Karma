@@ -120,6 +120,22 @@ def require_version_sync_and_changelog() -> None:
             f"payload version: {payload_version}"
         )
 
+    expected_heading = f"## Payload Contract {payload_version}"
+    if expected_heading not in changelog:
+        fail(
+            "agent-service-guard-changelog.md must include heading: "
+            f"`{expected_heading}`"
+        )
+
+    marker = changelog.find(expected_heading)
+    next_heading = changelog.find("\n## ", marker + len(expected_heading))
+    section = changelog[marker: next_heading if next_heading != -1 else len(changelog)]
+    if "Change Type: Breaking" not in section and "Change Type: Non-breaking" not in section:
+        fail(
+            "changelog entry must include `Change Type: Breaking` or "
+            "`Change Type: Non-breaking` under current payload section"
+        )
+
     ok("payload version sync and changelog entry are present")
 
 
