@@ -77,6 +77,7 @@ Phase 2 preparation assets (public-safe):
 - `docs/testnet-integration-checklist.md`
 - `docs/wallet-signature-payload-examples.json`
 - `apps/agent-service-guard/templates/wallet-signature-payload-template.json`
+- `docs/agent-service-guard-changelog.md`
 
 ## Private engine boundary
 

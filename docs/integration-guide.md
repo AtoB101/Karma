@@ -3,6 +3,12 @@
 This guide describes how external developers integrate with the public
 Karma Guard surface for agent-service payments.
 
+## Version markers
+
+- Payload examples version: `v1-public-testnet-prep`
+- Contract template version: `1.0.0`
+- Changelog: `docs/agent-service-guard-changelog.md`
+
 ## Integration model
 
 Karma Guard protects agent-service payments with:
@@ -88,6 +94,7 @@ These endpoints are implemented by private risk engine.
 
 For testnet integration preparation, use:
 
+- Payload Version: `v1-public-testnet-prep`
 - `docs/testnet-integration-checklist.md`
 - `docs/wallet-signature-payload-examples.json`
 - `apps/agent-service-guard/templates/wallet-signature-payload-template.json`

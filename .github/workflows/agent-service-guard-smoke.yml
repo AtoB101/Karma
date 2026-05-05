@@ -31,8 +31,8 @@ jobs:
       - name: Run Agent Service Guard smoke tests
         run: npm run test:agent-guard
 
-      - name: Run Python route smoke fallback
-        run: python3 scripts/agent-service-guard-smoke.py
-
       - name: Run Phase 2 public contract gate
         run: python3 scripts/phase2-public-contract-gate.py
+
+      - name: Run Python route smoke fallback
+        run: python3 scripts/agent-service-guard-smoke.py

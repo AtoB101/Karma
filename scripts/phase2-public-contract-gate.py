@@ -96,11 +96,39 @@ def require_doc_references() -> None:
     ok("Phase2 doc references are present")
 
 
+def require_version_sync_and_changelog() -> None:
+    examples_doc = read_json(ROOT / "docs/wallet-signature-payload-examples.json")
+    payload_version = examples_doc.get("version")
+    if not payload_version or not isinstance(payload_version, str):
+        fail("wallet-signature-payload-examples.json must include string `version`")
+
+    integration = (ROOT / "docs/integration-guide.md").read_text(encoding="utf-8")
+    changelog_path = ROOT / "docs/agent-service-guard-changelog.md"
+    changelog = changelog_path.read_text(encoding="utf-8") if changelog_path.exists() else ""
+
+    plain = f"Payload Version: {payload_version}"
+    quoted = f"Payload Version: `{payload_version}`"
+    if plain not in integration and quoted not in integration:
+        fail(
+            "integration-guide.md must declare payload version in the format "
+            f"`Payload Version: {payload_version}`"
+        )
+
+    if payload_version not in changelog:
+        fail(
+            "agent-service-guard-changelog.md must contain an entry for current "
+            f"payload version: {payload_version}"
+        )
+
+    ok("payload version sync and changelog entry are present")
+
+
 def main() -> None:
     print("==> Phase2 public contract gate")
     require_paths()
     require_wallet_payload_fields()
     require_doc_references()
+    require_version_sync_and_changelog()
     ok("phase2 public contract gate passed")
 
 
