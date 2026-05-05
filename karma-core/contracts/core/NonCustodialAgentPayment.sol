@@ -486,6 +486,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     function settleBatch(uint256 batchId, uint256 maxBills)
         external
         override
+        nonReentrant
         returns (uint256 settledCount, uint256 settledAmount)
     {
         Batch storage batch = batches[batchId];

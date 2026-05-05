@@ -6,6 +6,9 @@ import {Errors} from "../libraries/Errors.sol";
 import {Events} from "../libraries/Events.sol";
 
 contract CircuitBreaker is ICircuitBreaker {
+    /// @notice Maximum per-owner threshold; aligns with Karma2 hardened deployment.
+    uint256 public constant MAX_THRESHOLD = uint256(type(uint128).max);
+
     address public immutable admin;
     bool public globalPaused;
 
@@ -19,6 +22,7 @@ contract CircuitBreaker is ICircuitBreaker {
 
     function setHumanApprovalThreshold(uint256 amount) external override {
         if (amount == 0) revert Errors.InvalidAmount();
+        if (amount > MAX_THRESHOLD) revert Errors.InvalidAmount();
         humanApprovalThreshold[msg.sender] = amount;
         emit Events.HumanApprovalThresholdUpdated(msg.sender, amount);
     }

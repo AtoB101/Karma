@@ -40,4 +40,14 @@ contract CircuitBreakerTest is Test {
         vm.expectRevert(Errors.Unauthorized.selector);
         breaker.pauseAgent(address(0xBEEF), "test");
     }
+
+    function testSetHumanApprovalThresholdRespectsCap() public {
+        vm.prank(admin);
+        breaker.setHumanApprovalThreshold(uint256(type(uint128).max));
+        assertEq(breaker.humanApprovalThreshold(admin), uint256(type(uint128).max));
+
+        vm.prank(admin);
+        vm.expectRevert(Errors.InvalidAmount.selector);
+        breaker.setHumanApprovalThreshold(uint256(type(uint128).max) + 1);
+    }
 }
