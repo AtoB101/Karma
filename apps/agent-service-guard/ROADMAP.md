@@ -18,6 +18,10 @@
 - Integrate contract events and settlement status from public contract interfaces.
 - Replace mock lock status with testnet transaction-driven status updates.
 - Add signature validation for buyer/seller action checkpoints.
+- Use `docs/testnet-integration-checklist.md` as release gate before public testnet demo.
+- Use payload templates in:
+  - `docs/wallet-signature-payload-examples.json`
+  - `apps/agent-service-guard/templates/wallet-signature-payload-template.json`
 
 ## Phase 3: x402 / Agent API integration
 

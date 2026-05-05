@@ -1,0 +1,33 @@
+{
+  "template_version": "1.0.0",
+  "description": "Public template for buyer/seller wallet signatures in Karma Guard Phase 2.",
+  "order_context": {
+    "order_id": "ord_1234567890_abcd12",
+    "service_id": "svc_1234567890_efgh34",
+    "chain_id": 11155111,
+    "payment_token": "0x0000000000000000000000000000000000000000",
+    "amount": "100.00",
+    "currency": "USDC"
+  },
+  "buyer_authorization_payload": {
+    "wallet": "0xBuyerWalletAddress",
+    "action": "AUTHORIZE_PAYMENT",
+    "nonce": "buyer-nonce-001",
+    "deadline": "2026-05-06T12:00:00Z",
+    "message_hash": "0xBUYER_MESSAGE_HASH",
+    "signature": "0xBUYER_SIGNATURE"
+  },
+  "seller_execution_payload": {
+    "wallet": "0xSellerWalletAddress",
+    "action": "SUBMIT_DELIVERY",
+    "nonce": "seller-nonce-001",
+    "deadline": "2026-05-06T12:30:00Z",
+    "message_hash": "0xSELLER_MESSAGE_HASH",
+    "signature": "0xSELLER_SIGNATURE"
+  },
+  "constraints": [
+    "Use testnet wallets only for this template.",
+    "Do not commit real private keys or production signatures.",
+    "Private fraud/risk scoring is out-of-scope in public repo."
+  ]
+}

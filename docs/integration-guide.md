@@ -84,3 +84,14 @@ Public repo supports placeholder interfaces only:
 
 These endpoints are implemented by private risk engine.
 
+## Phase 2 public preparation package
+
+For testnet integration preparation, use:
+
+- `docs/testnet-integration-checklist.md`
+- `docs/wallet-signature-payload-examples.json`
+- `apps/agent-service-guard/templates/wallet-signature-payload-template.json`
+
+These are public-safe templates and checklists only. Private decision engines
+remain out of scope for this repository.
+

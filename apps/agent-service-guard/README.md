@@ -66,6 +66,12 @@ Phase 2/3 targets are documented in `ROADMAP.md`:
 - Contract/testnet integration
 - x402 and agent API integration
 
+Phase 2 preparation assets (public-safe):
+
+- `docs/testnet-integration-checklist.md`
+- `docs/wallet-signature-payload-examples.json`
+- `apps/agent-service-guard/templates/wallet-signature-payload-template.json`
+
 ## Private engine boundary
 
 Public repo can reserve interface contracts only. Private logic remains private.
