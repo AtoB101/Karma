@@ -67,8 +67,15 @@ function renderNav(page) {
 }
 
 function renderDashboard() {
+  const session = loadSession() || {};
+  const signaturePreview = session.signature ? `${session.signature.slice(0, 18)}...` : "N/A";
   return `
-    <div class="card"><h3>Karma Agent Studio</h3><div class="muted">公开版用户端（演示）</div></div>
+    <div class="card">
+      <h3>Karma Agent Studio</h3>
+      <div class="muted">公开版用户端（演示）</div>
+      <div class="muted">Web3 登录：${escapeHtml(session.loginMethod || "unknown")} · Chain: ${escapeHtml(session.chainId || "unknown")}</div>
+      <div class="muted">签名摘要：${escapeHtml(signaturePreview)}</div>
+    </div>
     <div class="row">
       <div class="card"><strong>总收入</strong><div>1,280.45 USDC</div></div>
       <div class="card"><strong>总支出</strong><div>342.80 USDC</div></div>

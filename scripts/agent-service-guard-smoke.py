@@ -88,7 +88,8 @@ def main() -> None:
 
       web3_login_page = fetch("/apps/agent-service-guard/frontend/site/web3-login.html")
       assert "KARMA.PAY / WEB3 LOGIN" in web3_login_page
-      assert "wallet-qr" in web3_login_page
+      assert "WalletConnect v2" in web3_login_page
+      assert "sign-btn" in web3_login_page
 
       print("OK   agent-service-guard smoke passed")
     finally:

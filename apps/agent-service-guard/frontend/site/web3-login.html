@@ -48,13 +48,19 @@
         <div class="qr"><div id="qr-box"></div></div>
         <div class="card">
           <h2>钱包扫码登录用户端</h2>
-          <p class="muted" style="margin-top:8px">请用 WalletConnect/MetaMask/OKX Wallet 扫码。该页面为公开演示模式，不存储私钥，不请求签名。</p>
-          <input id="wallet-address" placeholder="扫码后粘贴钱包地址，例如 0xabc...123（演示）" />
+          <p class="muted" style="margin-top:8px">WalletConnect v2：扫码连接钱包 → 链 ID 校验 → 挑战签名。仅写入非敏感会话信息，不保存私钥。</p>
+          <input id="wc-project-id" placeholder="WalletConnect Project ID（必填）" />
           <div class="row">
-            <button id="refresh-qr">刷新二维码</button>
-            <button id="continue-btn">已扫码，进入用户端</button>
+            <button id="init-btn">初始化连接器</button>
+            <button id="connect-btn">生成并等待扫码</button>
           </div>
-          <p class="muted" style="margin-top:10px">登录后将跳转至 <code>../studio/index.html</code> 并写入非敏感会话标识。</p>
+          <div class="row">
+            <button id="sign-btn">签名挑战消息</button>
+            <button id="disconnect-btn">断开连接</button>
+            <button id="continue-btn">进入用户端</button>
+          </div>
+          <p class="muted" id="status-line" style="margin-top:10px">状态：未初始化</p>
+          <p class="muted">登录后将跳转至 <code>../studio/index.html</code> 并携带地址、链 ID、签名状态。</p>
         </div>
       </div>
       <footer>
@@ -62,36 +68,159 @@
       </footer>
     </section>
   </main>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-CNgIRecGoR0jP4zdxKQw1G7S4DOupLrj7zvFCf3z0vN5mP4xZ95Y4x0x5chA8M6CFf8fAifW6DwM5xQtp0mQnA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script type="module">
+    import SignClient from "https://esm.sh/@walletconnect/sign-client@2.17.1";
+
+    const REQUIRED_CHAIN = "eip155:1";
+    let client;
+    let activeSession;
+    let activeAccount = "";
+    let activeSignature = "";
+
+    function setStatus(message) {
+      document.getElementById("status-line").textContent = `状态：${message}`;
+    }
+
+    function walletAddressFromAccount(account) {
+      return account.split(":")[2] || "";
+    }
+
+    function chainFromAccount(account) {
+      const parts = account.split(":");
+      return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : "";
+    }
+
     function getTargetPath() {
       const target = new URLSearchParams(location.search).get("target");
       return target || "../studio/index.html";
     }
-    function makeWcUri() {
-      const nonce = Math.random().toString(16).slice(2);
-      return "wc:karma-demo@" + Date.now() + "?relay-protocol=irn&symKey=" + nonce;
-    }
-    function renderQr() {
+
+    function renderQr(uri) {
       const qrBox = document.getElementById("qr-box");
       qrBox.innerHTML = "";
-      const wcUri = makeWcUri();
-      localStorage.setItem("karma_web3_last_wc_uri", wcUri);
-      new QRCode(qrBox, { text: wcUri, width: 280, height: 280, correctLevel: QRCode.CorrectLevel.M });
+      new QRCode(qrBox, { text: uri, width: 280, height: 280, correctLevel: QRCode.CorrectLevel.M });
     }
-    document.getElementById("refresh-qr").addEventListener("click", renderQr);
-    document.getElementById("continue-btn").addEventListener("click", () => {
-      const raw = (document.getElementById("wallet-address").value || "").trim();
-      const wallet = /^0x[a-fA-F0-9]{6,64}$/.test(raw) ? raw : "0xDEMO000000000000000000000000000000000001";
-      localStorage.setItem("karma_web3_session", JSON.stringify({
-        wallet,
-        loginMethod: "wallet-qr",
-        loginAt: new Date().toISOString()
-      }));
+
+    async function initClient() {
+      const projectId = (document.getElementById("wc-project-id").value || "").trim();
+      if (!projectId) {
+        setStatus("请先填写 WalletConnect Project ID");
+        return;
+      }
+      localStorage.setItem("karma_wc_project_id", projectId);
+      client = await SignClient.init({
+        projectId,
+        metadata: {
+          name: "KarmaPay Agent Studio",
+          description: "KarmaPay Web3 QR login",
+          url: "https://www.karmapay.cloud",
+          icons: [location.origin + location.pathname.replace("web3-login.html", "favicon.svg")],
+        },
+      });
+      setStatus("WalletConnect 已初始化");
+    }
+
+    async function connectWallet() {
+      if (!client) {
+        await initClient();
+        if (!client) return;
+      }
+      setStatus("正在创建会话请求...");
+      const { uri, approval } = await client.connect({
+        requiredNamespaces: {
+          eip155: {
+            methods: ["personal_sign", "eth_chainId"],
+            chains: [REQUIRED_CHAIN],
+            events: ["accountsChanged", "chainChanged"],
+          },
+        },
+      });
+      if (uri) {
+        renderQr(uri);
+        localStorage.setItem("karma_web3_last_wc_uri", uri);
+        setStatus("二维码已生成，请使用钱包扫码");
+      }
+      activeSession = await approval();
+      const account = activeSession.namespaces?.eip155?.accounts?.[0] || "";
+      const wallet = walletAddressFromAccount(account);
+      const chain = chainFromAccount(account);
+      if (!wallet || !chain) {
+        setStatus("连接成功但未读取到钱包地址");
+        return;
+      }
+      if (chain !== REQUIRED_CHAIN) {
+        setStatus(`链校验失败：当前 ${chain}，要求 ${REQUIRED_CHAIN}`);
+        return;
+      }
+      activeAccount = wallet;
+      setStatus(`已连接 ${wallet.slice(0, 8)}...，链 ${chain}`);
+    }
+
+    async function signChallenge() {
+      if (!client || !activeSession || !activeAccount) {
+        setStatus("请先完成钱包连接");
+        return;
+      }
+      const challenge = `KarmaPay login challenge\nTime: ${new Date().toISOString()}\nOrigin: ${location.origin}`;
+      const response = await client.request({
+        topic: activeSession.topic,
+        chainId: REQUIRED_CHAIN,
+        request: {
+          method: "personal_sign",
+          params: [challenge, activeAccount],
+        },
+      });
+      activeSignature = String(response || "");
+      setStatus(`挑战签名成功：${activeSignature.slice(0, 14)}...`);
+    }
+
+    async function disconnectWallet() {
+      if (client && activeSession) {
+        await client.disconnect({
+          topic: activeSession.topic,
+          reason: { code: 6000, message: "User disconnected" },
+        });
+      }
+      activeSession = undefined;
+      activeAccount = "";
+      activeSignature = "";
+      document.getElementById("qr-box").innerHTML = "";
+      setStatus("连接已断开");
+    }
+
+    function continueToStudio() {
+      if (!activeAccount) {
+        setStatus("请先连接钱包");
+        return;
+      }
+      if (!activeSignature) {
+        setStatus("请先完成挑战签名");
+        return;
+      }
+      const challenge = `KarmaPay login challenge`;
+      const payload = {
+        wallet: activeAccount,
+        loginMethod: "walletconnect-v2-qr",
+        loginAt: new Date().toISOString(),
+        chainId: REQUIRED_CHAIN,
+        signature: activeSignature,
+        challenge,
+        wcTopic: activeSession?.topic || "",
+      };
+      localStorage.setItem("karma_web3_session", JSON.stringify(payload));
       const target = getTargetPath();
-      location.href = target + (target.includes("?") ? "&" : "?") + "wallet=" + encodeURIComponent(wallet);
-    });
-    renderQr();
+      const suffix = `wallet=${encodeURIComponent(activeAccount)}&chain=${encodeURIComponent(REQUIRED_CHAIN)}`;
+      location.href = target + (target.includes("?") ? "&" : "?") + suffix;
+    }
+
+    const cachedProjectId = localStorage.getItem("karma_wc_project_id");
+    if (cachedProjectId) document.getElementById("wc-project-id").value = cachedProjectId;
+    document.getElementById("init-btn").addEventListener("click", () => initClient().catch((err) => setStatus(`初始化失败：${err.message}`)));
+    document.getElementById("connect-btn").addEventListener("click", () => connectWallet().catch((err) => setStatus(`连接失败：${err.message}`)));
+    document.getElementById("sign-btn").addEventListener("click", () => signChallenge().catch((err) => setStatus(`签名失败：${err.message}`)));
+    document.getElementById("disconnect-btn").addEventListener("click", () => disconnectWallet().catch((err) => setStatus(`断开失败：${err.message}`)));
+    document.getElementById("continue-btn").addEventListener("click", continueToStudio);
   </script>
 </body>
 </html>
