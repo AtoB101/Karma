@@ -69,6 +69,10 @@ def main() -> None:
       assert "Karma Agent Studio" in studio_page
       assert "app.js" in studio_page
 
+      loyal_page = fetch("/apps/agent-service-guard/frontend/site/loyal.html")
+      assert "KarmaPay – Non-Custodial Settlement" in loyal_page
+      assert "KARMA.PAY" in loyal_page
+
       print("OK   agent-service-guard smoke passed")
     finally:
       httpd.shutdown()
