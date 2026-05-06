@@ -76,6 +76,7 @@ def main() -> None:
       builder_page = fetch("/apps/agent-service-guard/frontend/site/builder.html")
       assert "KarmaPay Builder Mode" in builder_page
       assert "Deploy your own settlement layer" in builder_page
+      assert "Web3 Login" in builder_page
 
       clean_page = fetch("/apps/agent-service-guard/frontend/site/index-clean.html")
       assert "KarmaPay – Non-Custodial Settlement" in clean_page
@@ -84,6 +85,10 @@ def main() -> None:
       war_page = fetch("/apps/agent-service-guard/frontend/site/war.html")
       assert "KarmaPay Raw Mode" in war_page
       assert "raw mode" in war_page.lower()
+
+      web3_login_page = fetch("/apps/agent-service-guard/frontend/site/web3-login.html")
+      assert "KARMA.PAY / WEB3 LOGIN" in web3_login_page
+      assert "wallet-qr" in web3_login_page
 
       print("OK   agent-service-guard smoke passed")
     finally:

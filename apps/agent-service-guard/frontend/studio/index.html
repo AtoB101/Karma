@@ -7,7 +7,9 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
+    <div class="toast-wrap" id="toast-wrap" aria-live="polite">
+      <div class="toast" id="toast"></div>
+    </div>
     <div class="studio">
       <aside class="sidebar">
         <div class="brand">
@@ -22,7 +24,10 @@
       <main class="main">
         <header class="topbar">
           <h2 id="page-title">仪表板</h2>
-          <div class="pill">0xA12...89F</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <div class="pill" id="wallet-pill">0xA12...89F</div>
+            <button id="logout-btn" type="button">退出登录</button>
+          </div>
         </header>
         <section id="view"></section>
       </main>

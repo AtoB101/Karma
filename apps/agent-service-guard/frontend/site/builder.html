@@ -4,6 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>KarmaPay Builder Mode</title>
+<meta name="description" content="Builder mode for integrating KarmaPay plus Web3 QR login to user studio." />
+<meta property="og:title" content="KarmaPay Builder Mode" />
+<meta property="og:description" content="Integration path for developers and service builders." />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="favicon.svg" />
+<link rel="icon" type="image/svg+xml" href="favicon.svg" />
 <style>
 :root{--bg:#07070d;--panel:rgba(8,10,18,.82);--text:#e5e7eb;--muted:#9ca3af;--cyan:#00f5ff;--pink:#ff00d4;--green:#23ff8f;--line:rgba(0,245,255,.38);--radius:22px}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -50,6 +56,7 @@ h1{font-size:clamp(42px,7vw,76px);line-height:.95;margin:0 0 18px;letter-spacing
       <div class="btns">
         <a class="btn" href="https://github.com/AtoB101/Karma" target="_blank" rel="noopener">Open GitHub</a>
         <a class="btn raw" href="war.html">Enter Raw Mode</a>
+        <a class="btn" href="web3-login.html?target=../studio/index.html%3Ffrom%3Dbuilder">Web3 Login → Studio</a>
       </div>
     </div>
     <div class="console">
@@ -67,6 +74,16 @@ $ make quickstart
     <div class="card"><h3>02 / Service</h3><p>Agent/API system generates a bill.</p></div>
     <div class="card"><h3>03 / Contract</h3><p>Verified bill triggers stablecoin settlement.</p></div>
   </div>
+  <footer style="margin-top:20px;border-top:1px solid rgba(255,255,255,.12);padding-top:12px;color:var(--muted);font-size:.85rem">
+    <div>
+      <a href="gateway.html">Gateway</a> ·
+      <a href="index-clean.html">Trust</a> ·
+      <a href="builder.html">Builder</a> ·
+      <a href="war.html">Raw</a> ·
+      <a href="web3-login.html?target=../studio/index.html%3Ffrom%3Dbuilder">Web3 Login</a>
+    </div>
+    <div style="margin-top:6px">Language: 中文 | English | Español | العربية (placeholder)</div>
+  </footer>
 </div>
 </body>
 </html>

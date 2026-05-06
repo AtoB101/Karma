@@ -22,6 +22,25 @@ const view = document.getElementById("view");
 const nav = document.getElementById("nav");
 const title = document.getElementById("page-title");
 const toast = document.getElementById("toast");
+const walletPill = document.getElementById("wallet-pill");
+const logoutBtn = document.getElementById("logout-btn");
+
+function loadSession() {
+  try {
+    return JSON.parse(localStorage.getItem("karma_web3_session") || "null");
+  } catch {
+    return null;
+  }
+}
+
+function requireSession() {
+  const session = loadSession();
+  if (!session || !session.wallet) {
+    location.href = "../site/web3-login.html?target=../studio/index.html";
+    return null;
+  }
+  return session;
+}
 
 function showToast(msg, type = "ok") {
   toast.textContent = msg;
@@ -180,6 +199,9 @@ function bindPageEvents(page) {
 }
 
 function render() {
+  const session = requireSession();
+  if (!session) return;
+  if (walletPill) walletPill.textContent = session.wallet;
   const page = NAV.map(([k]) => k).includes(currentPage()) ? currentPage() : "dashboard";
   title.textContent = NAV.find(([k]) => k === page)?.[1] || "Karma Agent Studio";
   renderNav(page);
@@ -193,4 +215,8 @@ function render() {
 }
 
 window.addEventListener("hashchange", render);
+logoutBtn?.addEventListener("click", () => {
+  localStorage.removeItem("karma_web3_session");
+  location.href = "../site/web3-login.html?target=../studio/index.html";
+});
 render();

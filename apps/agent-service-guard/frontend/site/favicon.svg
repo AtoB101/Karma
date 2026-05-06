@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="KarmaPay">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00f5ff"/>
+      <stop offset="1" stop-color="#ff00d4"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#07070d" stroke="url(#g)" stroke-width="4"/>
+  <path d="M20 46V18h7v11l11-11h9L34 31l14 15h-9L27 34v12z" fill="url(#g)"/>
+</svg>

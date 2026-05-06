@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KarmaPay Web3 Login</title>
+  <meta name="description" content="Scan QR with your Web3 wallet and continue to Karma Agent Studio." />
+  <meta property="og:title" content="KarmaPay Web3 Login" />
+  <meta property="og:description" content="Use wallet QR login to access the user studio." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="favicon.svg" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <style>
+    :root{--bg:#07070d;--panel:rgba(8,10,18,.86);--text:#e5e7eb;--muted:#9ca3af;--cyan:#00f5ff;--pink:#ff00d4;--line:rgba(0,245,255,.34)}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100vh;background:radial-gradient(circle at 15% 10%,rgba(255,0,212,.16),transparent 30%),radial-gradient(circle at 80% 15%,rgba(0,245,255,.14),transparent 30%),var(--bg);color:var(--text);font-family:"Courier New",monospace}
+    .wrap{width:min(900px,calc(100% - 30px));margin:40px auto}
+    .panel{border:1px solid var(--line);background:var(--panel);border-radius:20px;padding:24px}
+    .top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+    .links a{color:var(--muted);text-decoration:none;margin-left:8px}
+    .links a:hover{color:var(--cyan)}
+    .grid{display:grid;grid-template-columns:320px 1fr;gap:18px}
+    .qr{background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px;display:flex;align-items:center;justify-content:center;min-height:320px}
+    #qr-box canvas,#qr-box img{max-width:100%}
+    .card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px}
+    .muted{color:var(--muted)}
+    .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    button,a.btn{border:1px solid var(--line);background:rgba(0,245,255,.08);color:var(--cyan);padding:10px 14px;border-radius:10px;text-decoration:none;cursor:pointer;font-weight:700}
+    button:hover,a.btn:hover{background:var(--cyan);color:#000}
+    input{width:100%;margin-top:10px;background:#0d1328;border:1px solid #2f3d6e;color:#fff;border-radius:10px;padding:10px}
+    footer{margin-top:18px;color:var(--muted);font-size:.84rem}
+    @media(max-width:820px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="panel">
+      <div class="top">
+        <strong>KARMA.PAY / WEB3 LOGIN</strong>
+        <nav class="links">
+          <a href="gateway.html">Gateway</a>
+          <a href="index-clean.html">Trust</a>
+          <a href="builder.html">Builder</a>
+          <a href="war.html">Raw</a>
+        </nav>
+      </div>
+      <div class="grid">
+        <div class="qr"><div id="qr-box"></div></div>
+        <div class="card">
+          <h2>钱包扫码登录用户端</h2>
+          <p class="muted" style="margin-top:8px">请用 WalletConnect/MetaMask/OKX Wallet 扫码。该页面为公开演示模式，不存储私钥，不请求签名。</p>
+          <input id="wallet-address" placeholder="扫码后粘贴钱包地址，例如 0xabc...123（演示）" />
+          <div class="row">
+            <button id="refresh-qr">刷新二维码</button>
+            <button id="continue-btn">已扫码，进入用户端</button>
+          </div>
+          <p class="muted" style="margin-top:10px">登录后将跳转至 <code>../studio/index.html</code> 并写入非敏感会话标识。</p>
+        </div>
+      </div>
+      <footer>
+        Language: 中文 | English | Español | العربية (placeholder)
+      </footer>
+    </section>
+  </main>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha512-CNgIRecGoR0jP4zdxKQw1G7S4DOupLrj7zvFCf3z0vN5mP4xZ95Y4x0x5chA8M6CFf8fAifW6DwM5xQtp0mQnA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script>
+    function getTargetPath() {
+      const target = new URLSearchParams(location.search).get("target");
+      return target || "../studio/index.html";
+    }
+    function makeWcUri() {
+      const nonce = Math.random().toString(16).slice(2);
+      return "wc:karma-demo@" + Date.now() + "?relay-protocol=irn&symKey=" + nonce;
+    }
+    function renderQr() {
+      const qrBox = document.getElementById("qr-box");
+      qrBox.innerHTML = "";
+      const wcUri = makeWcUri();
+      localStorage.setItem("karma_web3_last_wc_uri", wcUri);
+      new QRCode(qrBox, { text: wcUri, width: 280, height: 280, correctLevel: QRCode.CorrectLevel.M });
+    }
+    document.getElementById("refresh-qr").addEventListener("click", renderQr);
+    document.getElementById("continue-btn").addEventListener("click", () => {
+      const raw = (document.getElementById("wallet-address").value || "").trim();
+      const wallet = /^0x[a-fA-F0-9]{6,64}$/.test(raw) ? raw : "0xDEMO000000000000000000000000000000000001";
+      localStorage.setItem("karma_web3_session", JSON.stringify({
+        wallet,
+        loginMethod: "wallet-qr",
+        loginAt: new Date().toISOString()
+      }));
+      const target = getTargetPath();
+      location.href = target + (target.includes("?") ? "&" : "?") + "wallet=" + encodeURIComponent(wallet);
+    });
+    renderQr();
+  </script>
+</body>
+</html>
