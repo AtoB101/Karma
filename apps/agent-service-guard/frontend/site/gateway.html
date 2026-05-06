@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KarmaPay — Gateway</title>
+  <style>
+    :root{--bg:#07070d;--panel:rgba(8,10,18,.82);--text:#e5e7eb;--muted:#9ca3af;--cyan:#00f5ff;--pink:#ff00d4;--green:#23ff8f;--line:rgba(0,245,255,.38);--radius:22px}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100vh;background:radial-gradient(circle at 15% 15%, rgba(255,0,212,.16), transparent 28%),radial-gradient(circle at 85% 15%, rgba(0,245,255,.14), transparent 30%),radial-gradient(circle at 50% 90%, rgba(35,255,143,.08), transparent 30%),var(--bg);color:var(--text);font-family:"Courier New", monospace;overflow-x:hidden}
+    .wrap{width:min(1000px, calc(100% - 30px));min-height:100vh;margin:0 auto;display:flex;align-items:center;justify-content:center;padding:40px 0}
+    .gateway{width:100%;border:1px solid var(--line);background:var(--panel);border-radius:var(--radius);padding:clamp(24px,5vw,54px)}
+    .top{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:24px;flex-wrap:wrap}
+    .brand{display:flex;align-items:center;gap:12px;font-weight:900}
+    .dot{width:12px;height:12px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--pink))}
+    .badge{padding:8px 12px;border:1px solid rgba(255,0,212,.45);border-radius:999px;color:var(--pink);font-size:.78rem}
+    .progress{height:7px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden;margin-bottom:24px}
+    .bar{height:100%;width:20%;background:linear-gradient(90deg,var(--cyan),var(--pink));transition:.3s ease}
+    h1{font-size:clamp(2rem,5vw,4rem);margin-bottom:12px}
+    .question{font-size:clamp(1.2rem,3vw,2rem);margin-bottom:16px;font-weight:900}
+    .hint{color:var(--muted);margin-bottom:20px}
+    .answers{display:grid;gap:12px}
+    button.answer{width:100%;text-align:left;color:var(--text);background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:16px;cursor:pointer}
+    button.answer:hover{border-color:var(--cyan)}
+    .footer{display:flex;justify-content:space-between;align-items:center;margin-top:18px;color:var(--muted);font-size:.84rem;gap:10px;flex-wrap:wrap}
+    .back{background:transparent;border:1px solid rgba(255,255,255,.16);color:var(--muted);padding:8px 12px;border-radius:999px;display:none;cursor:pointer}
+    .route{display:none;text-align:center;padding:24px 0}
+    .route h2{font-size:clamp(1.8rem,5vw,3rem);margin-bottom:10px}
+    .route p{color:var(--muted);margin-bottom:16px}
+    .enter{display:inline-block;padding:14px 24px;border-radius:12px;background:var(--cyan);color:#000;font-weight:900;text-decoration:none}
+    .enter.war{background:var(--pink)}
+    .enter.builder{background:var(--green)}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section class="gateway">
+      <div class="top">
+        <div class="brand"><span class="dot"></span>KARMA.PAY GATEWAY</div>
+        <div class="badge">User Routing System</div>
+      </div>
+      <div class="progress"><div class="bar" id="bar"></div></div>
+      <div id="quiz">
+        <div id="stepLabel" class="hint">STEP 1 / 5</div>
+        <h1 id="headline">Before entering KarmaPay</h1>
+        <div class="question" id="question">你现在的状态更接近哪一种？</div>
+        <p class="hint" id="hint">回答几个问题，系统会把你带到最适合你的 KarmaPay 版本。</p>
+        <div class="answers" id="answers"></div>
+        <div class="footer">
+          <button class="back" id="backBtn" onclick="goBack()">← Back</button>
+          <span>你的选择会决定最终展示页面。</span>
+        </div>
+      </div>
+      <div class="route" id="route">
+        <h2 id="routeTitle"></h2>
+        <p id="routeText"></p>
+        <a id="routeBtn" class="enter" href="#">Enter</a>
+      </div>
+    </section>
+  </main>
+<script>
+const pages={clean:{title:"进入专业信任版",text:"适合先看稳定、清晰、可信的 KarmaPay 介绍。",href:"index-clean.html",cls:"enter"},builder:{title:"进入开发者版",text:"适合直接看接入方式、部署命令与商业化路径。",href:"builder.html",cls:"enter builder"},war:{title:"进入战斗版",text:"你想看更直接的表达与愿景。",href:"war.html",cls:"enter war"}};
+const steps={q1:{step:1,headline:"Before entering KarmaPay",question:"你现在的状态更接近哪一种？",hint:"先判断你是路人、需求方，还是已被旧系统困扰。",answers:[{text:"我只是随便看看",to:"clean",mark:"A"},{text:"我在找一个解决方案",to:"q2",mark:"B"},{text:"我受够平台/托管/被卡钱",to:"q2",mark:"C"}]},q2:{step:2,headline:"Pain Check",question:"你是否遇到过这些问题？",hint:"如果你被平台规则、提现、中介困扰过，会更快理解 KarmaPay。",answers:[{text:"提现慢 / 钱卡住",to:"q3",mark:"A"},{text:"抽成高 / 规则不透明",to:"q3",mark:"B"},{text:"被中介坑过",to:"q3",mark:"C"},{text:"没遇到，但不想被托管",to:"q3",mark:"D"}]},q3:{step:3,headline:"Worldview Split",question:"你更认同哪句话？",hint:"决定你是否需要非托管结算核心。",answers:[{text:"平台托管更省心",to:"clean",mark:"A"},{text:"资金应留在用户钱包，规则自动执行",to:"q4",mark:"B"}]},q4:{step:4,headline:"User Type",question:"你来这里，是为了什么？",hint:"找工具、做接入、还是构建系统。",answers:[{text:"找一个安全可靠的工具",to:"clean",mark:"A"},{text:"我想接入/测试系统",to:"builder",mark:"B"},{text:"我想构建系统",to:"q5",mark:"C"}]},q5:{step:5,headline:"Final Gate",question:"你更接近哪种人？",hint:"最后一步决定展示风格。",answers:[{text:"我想用工具",to:"builder",mark:"A"},{text:"我想控制规则",to:"war",mark:"B"},{text:"我想看更直接版本",to:"war",mark:"C"}]}};
+let current="q1";let historyStack=[];
+function render(id){current=id;const s=steps[id];document.getElementById("quiz").style.display="block";document.getElementById("route").style.display="none";document.getElementById("stepLabel").innerText=`STEP ${s.step} / 5`;document.getElementById("headline").innerText=s.headline;document.getElementById("question").innerText=s.question;document.getElementById("hint").innerText=s.hint;document.getElementById("bar").style.width=`${s.step*20}%`;const box=document.getElementById("answers");box.innerHTML="";s.answers.forEach(a=>{const btn=document.createElement("button");btn.className="answer";btn.innerHTML=`<strong>${a.mark}.</strong> ${a.text}`;btn.onclick=()=>choose(a.to);box.appendChild(btn)});document.getElementById("backBtn").style.display=historyStack.length?"inline-block":"none";}
+function choose(to){historyStack.push(current);if(pages[to])showRoute(to);else render(to);}
+function goBack(){const prev=historyStack.pop();if(prev)render(prev);}
+function showRoute(type){const p=pages[type];document.getElementById("quiz").style.display="none";document.getElementById("route").style.display="block";document.getElementById("bar").style.width="100%";document.getElementById("routeTitle").innerText=p.title;document.getElementById("routeText").innerText=p.text;const btn=document.getElementById("routeBtn");btn.href=p.href;btn.className=p.cls;btn.innerText="Enter "+p.href;}
+render("q1");
+</script>
+</body>
+</html>

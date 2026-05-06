@@ -69,9 +69,21 @@ def main() -> None:
       assert "Karma Agent Studio" in studio_page
       assert "app.js" in studio_page
 
-      loyal_page = fetch("/apps/agent-service-guard/frontend/site/loyal.html")
-      assert "KarmaPay – Non-Custodial Settlement" in loyal_page
-      assert "KARMA.PAY" in loyal_page
+      gateway_page = fetch("/apps/agent-service-guard/frontend/site/gateway.html")
+      assert "KarmaPay — Gateway" in gateway_page
+      assert "User Routing System" in gateway_page
+
+      builder_page = fetch("/apps/agent-service-guard/frontend/site/builder.html")
+      assert "KarmaPay Builder Mode" in builder_page
+      assert "Deploy your own settlement layer" in builder_page
+
+      clean_page = fetch("/apps/agent-service-guard/frontend/site/index-clean.html")
+      assert "KarmaPay – Non-Custodial Settlement" in clean_page
+      assert "KARMA.PAY" in clean_page
+
+      war_page = fetch("/apps/agent-service-guard/frontend/site/war.html")
+      assert "KarmaPay Raw Mode" in war_page
+      assert "raw mode" in war_page.lower()
 
       print("OK   agent-service-guard smoke passed")
     finally:

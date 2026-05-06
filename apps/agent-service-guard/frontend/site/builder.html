@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>KarmaPay Builder Mode</title>
+<style>
+:root{--bg:#03060a;--panel:#07111a;--text:#dffcff;--muted:#7ea4ad;--line:rgba(0,245,255,.28);--cyan:#00f5ff;--green:#24ff9a;--pink:#ff3df2}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% 10%,rgba(0,245,255,.18),transparent 28%),radial-gradient(circle at 85% 15%,rgba(255,61,242,.12),transparent 30%),#03060a;color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;line-height:1.55}
+.wrap{width:min(1120px,calc(100% - 32px));margin:0 auto}.nav{display:flex;justify-content:space-between;align-items:center;padding:22px 0;color:var(--muted)}
+.brand{color:#fff;font-weight:900;text-shadow:0 0 16px var(--cyan)}.nav a{color:var(--muted);text-decoration:none;margin-left:18px}
+.hero{padding:70px 0 46px;display:grid;grid-template-columns:1.05fr .95fr;gap:28px;align-items:center}
+h1{font-size:clamp(42px,7vw,76px);line-height:.98;margin:0 0 20px;letter-spacing:-2px;color:#fff}.lead{font-size:18px;color:#a8cbd2}
+.btns{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 18px;border:1px solid var(--cyan);color:var(--cyan);text-decoration:none;border-radius:10px;background:rgba(0,245,255,.05);font-weight:900}
+.btn.raw{border-color:var(--pink);color:var(--pink)}
+.console{border:1px solid var(--line);background:rgba(0,0,0,.72);border-radius:18px;overflow:hidden}.top{height:40px;background:#07111a;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 14px;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;background:#ff5f57}.dot:nth-child(2){background:#ffbd2e}.dot:nth-child(3){background:#28c840}.code{padding:22px;white-space:pre-wrap;color:#b7fff0;font-size:14px}
+.section-title{font-size:30px;margin:48px 0 16px;color:#fff}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:28px 0}.card{border:1px solid var(--line);background:rgba(7,17,26,.85);border-radius:18px;padding:22px}
+@media(max-width:900px){.hero,.grid{grid-template-columns:1fr}.nav div:last-child{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="nav"><div class="brand">KARMA.PAY / BUILDER</div><div><a href="index-clean.html">Trust Page</a><a href="war.html">Raw Mode</a><a href="gateway.html">Gateway</a></div></nav>
+  <main class="hero">
+    <div>
+      <h1>Deploy your own settlement layer.</h1>
+      <p class="lead">KarmaPay gives builders a bill-first, non-custodial settlement flow for agent services, paid APIs, marketplaces and automated tasks.</p>
+      <div class="btns"><a class="btn" href="https://github.com/AtoB101/Karma" target="_blank" rel="noopener">Open GitHub</a><a class="btn raw" href="war.html">Enter Raw Mode</a></div>
+    </div>
+    <div class="console"><div class="top"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><div class="code">$ git clone https://github.com/AtoB101/Karma.git
+$ cd Karma
+$ cp .env.example .env
+$ make quickstart
+▶ open http://localhost:8790/examples/v01-metamask-settlement.html</div></div>
+  </main>
+  <h2 class="section-title">Integration map</h2>
+  <div class="grid">
+    <div class="card"><h3>01 User</h3><p>Connect wallet and authorize settlement conditions.</p></div>
+    <div class="card"><h3>02 Service</h3><p>Agent/API system generates a bill.</p></div>
+    <div class="card"><h3>03 Contract</h3><p>Verified bill triggers stablecoin settlement.</p></div>
+  </div>
+</div>
+</body></html>
