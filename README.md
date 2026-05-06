@@ -58,6 +58,7 @@ Quick docs:
 - API smoke test: `make api-smoke` (verifies payment intent + evidence + risk alert routes)
 - Phase 2 testnet prep checklist: `docs/testnet-integration-checklist.md`
 - Wallet signature payload examples (public-safe): `docs/wallet-signature-payload-examples.json`
+- Domain integration guide (www/app/api split + HTTPS): `docs/deployment/KARMAPAY_DOMAIN_INTEGRATION.md`
 - Commercialization gate: `make commercialization-gate` (outputs `commercial-ready | pilot-ready | not-ready` with action plan)
 - Output contract gate: `make validate-output-contracts` (checks schemaVersion/source/traceId/generatedAt on latest artifacts)
 - Static analysis gate: `make slither-gate` (runs Slither; fails when tool is missing or findings are reported)

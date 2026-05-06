@@ -1,0 +1,15 @@
+[Unit]
+Description=Karma Agent Studio static server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/karmapay
+ExecStart=/usr/bin/python3 -m http.server 8787 --directory /var/www/karmapay
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
