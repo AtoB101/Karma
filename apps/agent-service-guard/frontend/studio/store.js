@@ -58,3 +58,45 @@ export function safeText(input, max = 64) {
     .slice(0, max);
 }
 
+export function createAgent(state, payload) {
+  const id = `agent_${Date.now()}`;
+  const name = safeText(payload.name, 40) || "New Agent";
+  const price = Number(payload.price || 0);
+  const next = {
+    id,
+    name,
+    price: Number.isFinite(price) && price > 0 ? Number(price.toFixed(2)) : 0.01,
+    trust: 75,
+    totalCalls: 0,
+    shareLink: `${location.origin}/apps/agent-service-guard/frontend/pay.html?agent_id=${id}`,
+  };
+  state.agents.unshift(next);
+  state.allowances.unshift({
+    agentId: id,
+    agentName: name,
+    perTxLimit: Math.max(0.01, Number(next.price)),
+    dailyLimit: Math.max(1, Number((next.price * 20).toFixed(2))),
+    totalAssigned: 0,
+    usedThisMonth: 0,
+  });
+}
+
+export function updateAllowance(state, agentId, key, value) {
+  const item = state.allowances.find((a) => a.agentId === agentId);
+  if (!item) return;
+  if (!["perTxLimit", "dailyLimit"].includes(key)) return;
+  const next = Number(value || 0);
+  if (!Number.isFinite(next) || next < 0) return;
+  item[key] = Number(next.toFixed(2));
+}
+
+export function updatePushConfig(state, payload) {
+  const channel = safeText(payload.channel || state.pushConfig.channel, 16).toLowerCase();
+  const destination = safeText(payload.destination || "", 64);
+  state.pushConfig = {
+    ...state.pushConfig,
+    channel: channel || "whatsapp",
+    destination,
+  };
+}
+
