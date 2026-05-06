@@ -71,7 +71,7 @@ def main() -> None:
 
       gateway_page = fetch("/apps/agent-service-guard/frontend/site/gateway.html")
       assert "KarmaPay — Gateway" in gateway_page
-      assert "Audience routing" in gateway_page
+      assert "Choose your experience" in gateway_page
       assert "professional.html" in gateway_page
 
       professional = fetch("/apps/agent-service-guard/frontend/site/professional.html")
@@ -79,7 +79,7 @@ def main() -> None:
       assert "site-lang.js" in professional
 
       loyal = fetch("/apps/agent-service-guard/frontend/site/loyal.html")
-      assert "Loyal view" in loyal
+      assert "Extended presentation" in loyal
       assert "Community" in loyal
 
       builder_page = fetch("/apps/agent-service-guard/frontend/site/builder.html")
@@ -94,7 +94,7 @@ def main() -> None:
 
       web3_login_page = fetch("/apps/agent-service-guard/frontend/site/web3-login.html")
       assert "qr-box" in web3_login_page
-      assert "wc-project-id" in web3_login_page
+      assert "wc-config.js" in web3_login_page
       assert "word-grid" in web3_login_page
       assert "site-lang.js" in web3_login_page
 
