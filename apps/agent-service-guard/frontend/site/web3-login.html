@@ -1,85 +1,91 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>KarmaPay Web3 Login</title>
-  <meta name="description" content="Scan QR with your Web3 wallet and continue to Karma Agent Studio." />
-  <meta property="og:title" content="KarmaPay Web3 Login" />
-  <meta property="og:description" content="Use wallet QR login to access the user studio." />
-  <meta property="og:type" content="website" />
-  <meta property="og:image" content="favicon.svg" />
+  <title>KarmaPay — Login</title>
+  <meta name="description" content="Wallet QR login — rotates every 60 seconds. Optional recovery phrase (demo)." />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <style>
-    :root{--bg:#07070d;--panel:rgba(8,10,18,.86);--text:#e5e7eb;--muted:#9ca3af;--cyan:#00f5ff;--pink:#ff00d4;--line:rgba(0,245,255,.34)}
+    :root{--bg:#07070d;--line:rgba(0,245,255,.34);--cyan:#00f5ff;--muted:#9ca3af;--text:#e5e7eb}
     *{box-sizing:border-box;margin:0;padding:0}
-    body{min-height:100vh;background:radial-gradient(circle at 15% 10%,rgba(255,0,212,.16),transparent 30%),radial-gradient(circle at 80% 15%,rgba(0,245,255,.14),transparent 30%),var(--bg);color:var(--text);font-family:"Courier New",monospace}
-    .wrap{width:min(900px,calc(100% - 30px));margin:40px auto}
-    .panel{border:1px solid var(--line);background:var(--panel);border-radius:20px;padding:24px}
-    .top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:20px}
-    .links a{color:var(--muted);text-decoration:none;margin-left:8px}
-    .links a:hover{color:var(--cyan)}
-    .grid{display:grid;grid-template-columns:320px 1fr;gap:18px}
-    .qr{background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:12px;display:flex;align-items:center;justify-content:center;min-height:320px}
+    body{min-height:100vh;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
+    .nav{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.08)}
+    .nav a{color:var(--muted);text-decoration:none;font-size:.88rem}
+    .nav a:hover{color:var(--cyan)}
+    main{max-width:440px;margin:0 auto;padding:32px 16px 48px;text-align:center}
+    #qr-box{min-height:280px;display:flex;align-items:center;justify-content:center}
     #qr-box canvas,#qr-box img{max-width:100%}
-    .card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:16px}
-    .muted{color:var(--muted)}
-    .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-    button,a.btn{border:1px solid var(--line);background:rgba(0,245,255,.08);color:var(--cyan);padding:10px 14px;border-radius:10px;text-decoration:none;cursor:pointer;font-weight:700}
-    button:hover,a.btn:hover{background:var(--cyan);color:#000}
-    input{width:100%;margin-top:10px;background:#0d1328;border:1px solid #2f3d6e;color:#fff;border-radius:10px;padding:10px}
-    footer{margin-top:18px;color:var(--muted);font-size:.84rem}
-    @media(max-width:820px){.grid{grid-template-columns:1fr}}
+    .timer{margin-top:12px;font-size:.9rem;color:var(--muted)}
+    .mnemonic-wrap{margin-top:28px;text-align:left;border-top:1px solid rgba(255,255,255,.1);padding-top:20px}
+    .mnemonic-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+    @media(max-width:480px){.mnemonic-grid{grid-template-columns:repeat(2,1fr)}}
+    .mnemonic-grid input{font:inherit;padding:8px;border-radius:8px;border:1px solid #2f3d6e;background:#0d1328;color:#fff}
+    .status{margin-top:14px;font-size:.85rem;color:var(--muted)}
+    button{font:inherit;cursor:pointer;border-radius:10px;padding:10px 16px;border:1px solid var(--line);background:rgba(0,245,255,.1);color:var(--cyan);font-weight:600}
+    button:hover{background:var(--cyan);color:#000}
+    .cfg{margin-top:24px;font-size:.8rem;color:var(--muted)}
+    .cfg input{width:100%;margin-top:6px;padding:8px;border-radius:8px;border:1px solid #2f3d6e;background:#0d1328;color:#fff}
+    [hidden]{display:none!important}
   </style>
 </head>
 <body>
-  <main class="wrap">
-    <section class="panel">
-      <div class="top">
-        <strong>KARMA.PAY / WEB3 LOGIN</strong>
-        <nav class="links">
-          <a href="gateway.html">Gateway</a>
-          <a href="index-clean.html">Trust</a>
-          <a href="builder.html">Builder</a>
-          <a href="war.html">Raw</a>
-        </nav>
+  <header class="nav" data-i18n-root>
+    <strong>KARMA.PAY</strong>
+    <nav style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <a href="gateway.html" data-i18n="login.navGateway">Gateway</a>
+      <a href="professional.html" data-i18n="login.navPro">Overview</a>
+      <a href="loyal.html" data-i18n="login.navLoyal">Loyal</a>
+      <span id="lang-slot"></span>
+    </nav>
+  </header>
+
+  <main>
+    <div id="qr-box"></div>
+    <p class="timer" id="timer-line"></p>
+    <p class="status" id="status-line"></p>
+
+    <div class="mnemonic-wrap">
+      <button type="button" id="mnemonic-toggle"></button>
+      <div id="mnemonic-panel" hidden>
+        <p class="status" data-i18n="login.mnemonicHint" style="margin-bottom:10px">Demo only — never enter a real seed on shared devices.</p>
+        <div class="mnemonic-grid" id="word-grid"></div>
+        <button type="button" id="mnemonic-submit" style="margin-top:14px;width:100%"></button>
       </div>
-      <div class="grid">
-        <div class="qr"><div id="qr-box"></div></div>
-        <div class="card">
-          <h2>钱包扫码登录用户端</h2>
-          <p class="muted" style="margin-top:8px">WalletConnect v2：扫码连接钱包 → 链 ID 校验 → 挑战签名。仅写入非敏感会话信息，不保存私钥。</p>
-          <input id="wc-project-id" placeholder="WalletConnect Project ID（必填）" />
-          <div class="row">
-            <button id="init-btn">初始化连接器</button>
-            <button id="connect-btn">生成并等待扫码</button>
-          </div>
-          <div class="row">
-            <button id="sign-btn">签名挑战消息</button>
-            <button id="disconnect-btn">断开连接</button>
-            <button id="continue-btn">进入用户端</button>
-          </div>
-          <p class="muted" id="status-line" style="margin-top:10px">状态：未初始化</p>
-          <p class="muted">登录后将跳转至 <code>../studio/index.html</code> 并携带地址、链 ID、签名状态。</p>
-        </div>
-      </div>
-      <footer>
-        Language: 中文 | English | Español | العربية (placeholder)
-      </footer>
-    </section>
+    </div>
+
+    <div class="cfg">
+      <label for="wc-project-id"><span data-i18n="login.cfgOnce">WalletConnect Project ID (saved in this browser)</span></label>
+      <input type="text" id="wc-project-id" autocomplete="off" spellcheck="false" placeholder="project id" />
+    </div>
   </main>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
+  <script src="js/site-lang.js"></script>
   <script type="module">
     import SignClient from "https://esm.sh/@walletconnect/sign-client@2.17.1";
+    import { ethers } from "https://esm.sh/ethers@6.13.4";
 
     const REQUIRED_CHAIN = "eip155:1";
     let client;
     let activeSession;
     let activeAccount = "";
     let activeSignature = "";
+    let countdownTimer;
+    let secondsLeft = 60;
+    let pairingGeneration = 0;
 
-    function setStatus(message) {
-      document.getElementById("status-line").textContent = `状态：${message}`;
+    function t(k) {
+      return window.KarmaSiteLang ? window.KarmaSiteLang.t(k) : k;
+    }
+
+    function setStatus(msg) {
+      document.getElementById("status-line").textContent = msg;
+    }
+
+    function setTimerText() {
+      document.getElementById("timer-line").textContent =
+        t("login.qrExpires") + " " + secondsLeft + " " + t("login.sec");
     }
 
     function walletAddressFromAccount(account) {
@@ -88,7 +94,7 @@
 
     function chainFromAccount(account) {
       const parts = account.split(":");
-      return parts.length >= 2 ? `${parts[0]}:${parts[1]}` : "";
+      return parts.length >= 2 ? parts[0] + ":" + parts[1] : "";
     }
 
     function getTargetPath() {
@@ -99,128 +105,225 @@
     function renderQr(uri) {
       const qrBox = document.getElementById("qr-box");
       qrBox.innerHTML = "";
-      new QRCode(qrBox, { text: uri, width: 280, height: 280, correctLevel: QRCode.CorrectLevel.M });
+      new QRCode(qrBox, {
+        text: uri,
+        width: 260,
+        height: 260,
+        correctLevel: QRCode.CorrectLevel.M,
+      });
     }
 
     async function initClient() {
       const projectId = (document.getElementById("wc-project-id").value || "").trim();
       if (!projectId) {
-        setStatus("请先填写 WalletConnect Project ID");
-        return;
+        setStatus("Set WalletConnect Project ID below.");
+        return null;
       }
       localStorage.setItem("karma_wc_project_id", projectId);
-      client = await SignClient.init({
+      return SignClient.init({
         projectId,
         metadata: {
-          name: "KarmaPay Agent Studio",
-          description: "KarmaPay Web3 QR login",
-          url: "https://www.karmapay.cloud",
-          icons: [location.origin + location.pathname.replace("web3-login.html", "favicon.svg")],
+          name: "KarmaPay",
+          description: "Login",
+          url: location.origin || "https://www.karmapay.cloud",
+          icons: [new URL("favicon.svg", location.href).href],
         },
       });
-      setStatus("WalletConnect 已初始化");
     }
 
-    async function connectWallet() {
-      if (!client) {
-        await initClient();
-        if (!client) return;
-      }
-      setStatus("正在创建会话请求...");
-      const { uri, approval } = await client.connect({
-        requiredNamespaces: {
-          eip155: {
-            methods: ["personal_sign", "eth_chainId"],
-            chains: [REQUIRED_CHAIN],
-            events: ["accountsChanged", "chainChanged"],
+    async function startOrRotatePairing() {
+      if (activeAccount) return;
+      const gen = ++pairingGeneration;
+      setStatus(t("login.statusInit"));
+      client = await initClient();
+      if (!client) return;
+      setStatus(t("login.statusConn"));
+      try {
+        const { uri, approval } = await client.connect({
+          requiredNamespaces: {
+            eip155: {
+              methods: ["personal_sign", "eth_chainId"],
+              chains: [REQUIRED_CHAIN],
+              events: ["accountsChanged", "chainChanged"],
+            },
           },
-        },
-      });
-      if (uri) {
-        renderQr(uri);
-        localStorage.setItem("karma_web3_last_wc_uri", uri);
-        setStatus("二维码已生成，请使用钱包扫码");
-      }
-      activeSession = await approval();
-      const account = activeSession.namespaces?.eip155?.accounts?.[0] || "";
-      const wallet = walletAddressFromAccount(account);
-      const chain = chainFromAccount(account);
-      if (!wallet || !chain) {
-        setStatus("连接成功但未读取到钱包地址");
-        return;
-      }
-      if (chain !== REQUIRED_CHAIN) {
-        setStatus(`链校验失败：当前 ${chain}，要求 ${REQUIRED_CHAIN}`);
-        return;
-      }
-      activeAccount = wallet;
-      setStatus(`已连接 ${wallet.slice(0, 8)}...，链 ${chain}`);
-    }
-
-    async function signChallenge() {
-      if (!client || !activeSession || !activeAccount) {
-        setStatus("请先完成钱包连接");
-        return;
-      }
-      const challenge = `KarmaPay login challenge\nTime: ${new Date().toISOString()}\nOrigin: ${location.origin}`;
-      const response = await client.request({
-        topic: activeSession.topic,
-        chainId: REQUIRED_CHAIN,
-        request: {
-          method: "personal_sign",
-          params: [challenge, activeAccount],
-        },
-      });
-      activeSignature = String(response || "");
-      setStatus(`挑战签名成功：${activeSignature.slice(0, 14)}...`);
-    }
-
-    async function disconnectWallet() {
-      if (client && activeSession) {
-        await client.disconnect({
-          topic: activeSession.topic,
-          reason: { code: 6000, message: "User disconnected" },
         });
+        if (gen !== pairingGeneration) return;
+        if (uri) {
+          renderQr(uri);
+          localStorage.setItem("karma_web3_last_wc_uri", uri);
+          startCountdown();
+        }
+        const approvalRace = approval().then(function (session) {
+          if (gen !== pairingGeneration) return null;
+          return session;
+        });
+        const timeoutRace = new Promise(function (_, rej) {
+          setTimeout(function () {
+            rej(new Error("qr_timeout"));
+          }, 60000);
+        });
+        let session;
+        try {
+          session = await Promise.race([approvalRace, timeoutRace]);
+        } catch (e) {
+          if (e && e.message === "qr_timeout" && !activeAccount) {
+            document.getElementById("qr-box").innerHTML = "";
+            client = undefined;
+            await startOrRotatePairing();
+          }
+          return;
+        }
+        if (!session || gen !== pairingGeneration) return;
+        activeSession = session;
+        const account = session.namespaces?.eip155?.accounts?.[0] || "";
+        const wallet = walletAddressFromAccount(account);
+        const chain = chainFromAccount(account);
+        if (!wallet) {
+          setStatus("Connected but no address.");
+          return;
+        }
+        if (chain !== REQUIRED_CHAIN) {
+          setStatus("Wrong chain: " + chain);
+          return;
+        }
+        activeAccount = wallet;
+        clearInterval(countdownTimer);
+        const challenge =
+          "KarmaPay login challenge\nTime: " + new Date().toISOString() + "\nOrigin: " + location.origin;
+        const response = await client.request({
+          topic: session.topic,
+          chainId: REQUIRED_CHAIN,
+          request: {
+            method: "personal_sign",
+            params: [challenge, activeAccount],
+          },
+        });
+        activeSignature = String(response || "");
+        persistSessionAndGo();
+      } catch (err) {
+        if (gen !== pairingGeneration) return;
+        setStatus(err && err.message ? err.message : "Connection error");
       }
-      activeSession = undefined;
-      activeAccount = "";
-      activeSignature = "";
-      document.getElementById("qr-box").innerHTML = "";
-      setStatus("连接已断开");
     }
 
-    function continueToStudio() {
-      if (!activeAccount) {
-        setStatus("请先连接钱包");
-        return;
-      }
-      if (!activeSignature) {
-        setStatus("请先完成挑战签名");
-        return;
-      }
-      const challenge = `KarmaPay login challenge`;
+    function persistSessionAndGo() {
       const payload = {
         wallet: activeAccount,
         loginMethod: "walletconnect-v2-qr",
         loginAt: new Date().toISOString(),
         chainId: REQUIRED_CHAIN,
         signature: activeSignature,
-        challenge,
+        challenge: "KarmaPay login challenge",
         wcTopic: activeSession?.topic || "",
       };
       localStorage.setItem("karma_web3_session", JSON.stringify(payload));
       const target = getTargetPath();
-      const suffix = `wallet=${encodeURIComponent(activeAccount)}&chain=${encodeURIComponent(REQUIRED_CHAIN)}`;
+      const suffix =
+        "wallet=" +
+        encodeURIComponent(activeAccount) +
+        "&chain=" +
+        encodeURIComponent(REQUIRED_CHAIN);
       location.href = target + (target.includes("?") ? "&" : "?") + suffix;
     }
 
-    const cachedProjectId = localStorage.getItem("karma_wc_project_id");
-    if (cachedProjectId) document.getElementById("wc-project-id").value = cachedProjectId;
-    document.getElementById("init-btn").addEventListener("click", () => initClient().catch((err) => setStatus(`初始化失败：${err.message}`)));
-    document.getElementById("connect-btn").addEventListener("click", () => connectWallet().catch((err) => setStatus(`连接失败：${err.message}`)));
-    document.getElementById("sign-btn").addEventListener("click", () => signChallenge().catch((err) => setStatus(`签名失败：${err.message}`)));
-    document.getElementById("disconnect-btn").addEventListener("click", () => disconnectWallet().catch((err) => setStatus(`断开失败：${err.message}`)));
-    document.getElementById("continue-btn").addEventListener("click", continueToStudio);
+    function startCountdown() {
+      secondsLeft = 60;
+      setTimerText();
+      clearInterval(countdownTimer);
+      countdownTimer = setInterval(function () {
+        secondsLeft -= 1;
+        if (secondsLeft <= 0) {
+          clearInterval(countdownTimer);
+          return;
+        }
+        setTimerText();
+      }, 1000);
+    }
+
+    /* Mnemonic: 12 words */
+    const grid = document.getElementById("word-grid");
+    for (let i = 1; i <= 12; i++) {
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.autocomplete = "off";
+      inp.placeholder = (t("login.wordLabel") || "Word") + " " + i;
+      inp.dataset.index = String(i);
+      grid.appendChild(inp);
+    }
+
+    document.getElementById("mnemonic-toggle").addEventListener("click", function () {
+      const panel = document.getElementById("mnemonic-panel");
+      panel.hidden = !panel.hidden;
+    });
+
+    document.getElementById("mnemonic-submit").addEventListener("click", function () {
+      const words = [];
+      grid.querySelectorAll("input").forEach(function (el) {
+        words.push((el.value || "").trim().toLowerCase());
+      });
+      if (words.some(function (w) {
+        return !w;
+      })) {
+        setStatus(t("login.mnemonicError"));
+        return;
+      }
+      try {
+        const phrase = words.join(" ");
+        const w = ethers.Wallet.fromPhrase(phrase);
+        activeAccount = w.address;
+        activeSignature = "0xmnemonic_demo_" + w.address.slice(2, 10);
+        const payload = {
+          wallet: activeAccount,
+          loginMethod: "mnemonic-demo",
+          loginAt: new Date().toISOString(),
+          chainId: REQUIRED_CHAIN,
+          signature: activeSignature,
+          challenge: "mnemonic-demo",
+          wcTopic: "",
+        };
+        localStorage.setItem("karma_web3_session", JSON.stringify(payload));
+        location.href =
+          getTargetPath() +
+          (getTargetPath().includes("?") ? "&" : "?") +
+          "wallet=" +
+          encodeURIComponent(activeAccount);
+      } catch (e) {
+        setStatus(t("login.mnemonicError"));
+      }
+    });
+
+    window.__karmaLoginRerender = function () {
+      document.getElementById("mnemonic-toggle").textContent = t("login.mnemonicToggle");
+      document.getElementById("mnemonic-submit").textContent = t("login.mnemonicSubmit");
+      setTimerText();
+      setStatus(document.getElementById("status-line").textContent);
+    };
+
+    const cached = localStorage.getItem("karma_wc_project_id");
+    if (cached) document.getElementById("wc-project-id").value = cached;
+    document.getElementById("wc-project-id").addEventListener("change", function () {
+      localStorage.setItem("karma_wc_project_id", (this.value || "").trim());
+      client = undefined;
+      pairingGeneration++;
+      startOrRotatePairing();
+    });
+
+    if (window.KarmaSiteLang) {
+      window.KarmaSiteLang.injectLanguageSwitcher("#lang-slot");
+      window.KarmaSiteLang.applyToRoot(document.querySelector("[data-i18n-root]"), window.KarmaSiteLang.getLang());
+      document.getElementById("karma-lang-select")?.addEventListener("change", function () {
+        window.KarmaSiteLang.applyToRoot(document.querySelector("[data-i18n-root]"), window.KarmaSiteLang.getLang());
+        window.__karmaLoginRerender();
+      });
+    }
+    document.getElementById("mnemonic-toggle").textContent = t("login.mnemonicToggle");
+    document.getElementById("mnemonic-submit").textContent = t("login.mnemonicSubmit");
+    startCountdown();
+    setTimerText();
+    setStatus(t("login.statusConn"));
+    if (cached) startOrRotatePairing();
+    else setStatus("Set WalletConnect Project ID below to generate a QR code.");
   </script>
 </body>
 </html>

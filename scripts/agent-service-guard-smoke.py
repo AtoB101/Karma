@@ -71,25 +71,32 @@ def main() -> None:
 
       gateway_page = fetch("/apps/agent-service-guard/frontend/site/gateway.html")
       assert "KarmaPay — Gateway" in gateway_page
-      assert "User Routing System" in gateway_page
+      assert "Audience routing" in gateway_page
+      assert "professional.html" in gateway_page
+
+      professional = fetch("/apps/agent-service-guard/frontend/site/professional.html")
+      assert "Keep funds in user wallets" in professional
+      assert "site-lang.js" in professional
+
+      loyal = fetch("/apps/agent-service-guard/frontend/site/loyal.html")
+      assert "Loyal view" in loyal
+      assert "Community" in loyal
 
       builder_page = fetch("/apps/agent-service-guard/frontend/site/builder.html")
       assert "KarmaPay Builder Mode" in builder_page
       assert "Deploy your own settlement layer" in builder_page
-      assert "Web3 Login" in builder_page
 
-      clean_page = fetch("/apps/agent-service-guard/frontend/site/index-clean.html")
-      assert "KarmaPay – Non-Custodial Settlement" in clean_page
-      assert "KARMA.PAY" in clean_page
+      clean_redirect = fetch("/apps/agent-service-guard/frontend/site/index-clean.html")
+      assert "professional.html" in clean_redirect
 
-      war_page = fetch("/apps/agent-service-guard/frontend/site/war.html")
-      assert "KarmaPay Raw Mode" in war_page
-      assert "raw mode" in war_page.lower()
+      war_redirect = fetch("/apps/agent-service-guard/frontend/site/war.html")
+      assert "loyal.html" in war_redirect
 
       web3_login_page = fetch("/apps/agent-service-guard/frontend/site/web3-login.html")
-      assert "KARMA.PAY / WEB3 LOGIN" in web3_login_page
-      assert "WalletConnect v2" in web3_login_page
-      assert "sign-btn" in web3_login_page
+      assert "qr-box" in web3_login_page
+      assert "wc-project-id" in web3_login_page
+      assert "word-grid" in web3_login_page
+      assert "site-lang.js" in web3_login_page
 
       print("OK   agent-service-guard smoke passed")
     finally:

@@ -1,92 +1,13 @@
-<!doctype html>
-<html lang="zh-CN">
+<!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="refresh" content="0;url=loyal.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>KarmaPay Raw Mode</title>
-  <meta name="description" content="Raw mode page with a direct path to Web3 QR login and user studio." />
-  <meta property="og:title" content="KarmaPay Raw Mode" />
-  <meta property="og:description" content="For high-intent users who want direct control and verifiable settlement." />
-  <meta property="og:type" content="website" />
-  <meta property="og:image" content="favicon.svg" />
-  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <style>
-    :root{--bg:#05070e;--panel:rgba(10,14,25,.86);--text:#ecf2ff;--muted:#9aa8c4;--cyan:#00f5ff;--pink:#ff00d4;--line:rgba(0,245,255,.3)}
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{
-      min-height:100vh;color:var(--text);font-family:"Courier New",monospace;
-      background:
-        radial-gradient(circle at 12% 10%, rgba(255,0,212,.16), transparent 26%),
-        radial-gradient(circle at 90% 12%, rgba(0,245,255,.18), transparent 30%),
-        var(--bg)
-    }
-    body::before{
-      content:"";position:fixed;inset:0;pointer-events:none;opacity:.35;z-index:99;
-      background:repeating-linear-gradient(0deg,rgba(255,255,255,.03) 0,rgba(255,255,255,.03) 1px,transparent 1px,transparent 5px)
-    }
-    .wrap{max-width:1060px;margin:0 auto;padding:22px 16px 42px;position:relative;z-index:2}
-    .nav{
-      border:1px solid var(--line);border-radius:999px;padding:10px 12px;margin-bottom:20px;
-      background:rgba(6,8,14,.78);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap
-    }
-    .brand{font-weight:900;color:#fff;display:flex;gap:10px;align-items:center}
-    .dot{width:11px;height:11px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--pink))}
-    .links{display:flex;gap:8px;flex-wrap:wrap}
-    .links a{color:#a8b5d6;text-decoration:none;border:1px solid transparent;padding:7px 10px;border-radius:999px;font-size:12px}
-    .links a:hover{color:var(--cyan);border-color:var(--line)}
-    .panel{
-      border:1px solid var(--line);border-radius:22px;background:var(--panel);
-      box-shadow:0 0 28px rgba(0,245,255,.2);padding:28px
-    }
-    h1{font-size:clamp(2.2rem,7vw,4.8rem);line-height:.95;margin-bottom:12px;letter-spacing:-2px;
-      background:linear-gradient(135deg,#fff,var(--cyan),var(--pink));-webkit-background-clip:text;background-clip:text;color:transparent}
-    .lead{color:#c4d3f2;margin-bottom:16px}
-    .note{color:var(--muted);margin-bottom:18px}
-    .box{background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.12);padding:16px;border-radius:14px;margin-bottom:14px}
-    .box b{color:var(--cyan)}
-    .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
-    .btn{padding:10px 14px;border-radius:12px;border:1px solid var(--line);color:var(--cyan);text-decoration:none;background:rgba(0,245,255,.06);font-weight:800}
-    .btn:hover{background:var(--cyan);color:#001018}
-    .btn.alt{border-color:rgba(255,0,212,.4);color:#ff8ae9}
-    .btn.alt:hover{background:var(--pink);color:#000}
-  </style>
+  <title>KarmaPay — Redirect</title>
+  <link rel="canonical" href="loyal.html" />
 </head>
 <body>
-  <main class="wrap">
-    <nav class="nav">
-      <div class="brand"><span class="dot"></span>KARMA.PAY / RAW MODE</div>
-      <div class="links">
-        <a href="gateway.html">Gateway</a>
-        <a href="index-clean.html">Trust</a>
-        <a href="builder.html">Builder</a>
-      </div>
-    </nav>
-
-    <section class="panel">
-      <h1>Raw Mode</h1>
-      <p class="lead">这是面向高意图用户的直白版本：核心不是 UI，而是结算主权和规则可验证性。</p>
-      <p class="note">我们保持“锋利表达”，但仍以公开、安全、可合作为前提。</p>
-
-      <div class="box"><b>01</b> 资金不托管在平台池，避免“平台余额模型”单点风险。</div>
-      <div class="box"><b>02</b> 先账单、后结算，证据和状态可追踪。</div>
-      <div class="box"><b>03</b> 争议流程可审计，减少黑箱判断。</div>
-
-      <div class="btns">
-        <a class="btn" href="builder.html">进入 Builder Mode</a>
-        <a class="btn alt" href="index-clean.html">返回 Trust 版</a>
-        <a class="btn" href="web3-login.html?target=../studio/index.html%3Ffrom%3Draw">Web3 登录用户端</a>
-      </div>
-    </section>
-    <footer style="margin-top:20px;border-top:1px solid rgba(255,255,255,.12);padding-top:12px;color:var(--muted);font-size:.85rem">
-      <div>
-        <a href="gateway.html">Gateway</a> ·
-        <a href="index-clean.html">Trust</a> ·
-        <a href="builder.html">Builder</a> ·
-        <a href="war.html">Raw</a> ·
-        <a href="web3-login.html?target=../studio/index.html%3Ffrom%3Draw">Web3 Login</a>
-      </div>
-      <div style="margin-top:6px">Language: 中文 | English | Español | العربية (placeholder)</div>
-    </footer>
-  </main>
+  <p><a href="loyal.html">Continue to loyal view</a></p>
 </body>
 </html>
