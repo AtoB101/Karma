@@ -6,7 +6,7 @@ import {
   updatePushConfig,
   escapeHtml,
   safeText,
-} from "./store.js";
+} from "./store.js?v=20260506b";
 
 const state = loadState();
 const NAV = [
