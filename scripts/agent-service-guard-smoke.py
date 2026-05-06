@@ -79,8 +79,8 @@ def main() -> None:
       assert "site-lang.js" in professional
 
       loyal = fetch("/apps/agent-service-guard/frontend/site/loyal.html")
-      assert "Extended presentation" in loyal
-      assert "Community" in loyal
+      assert "KARMA//PAY" in loyal
+      assert "web3-login.html" in loyal
 
       builder_page = fetch("/apps/agent-service-guard/frontend/site/builder.html")
       assert "KarmaPay Builder Mode" in builder_page

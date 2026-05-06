@@ -1,104 +1,764 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>KarmaPay — Loyal view</title>
-  <meta name="description" content="High-intent KarmaPay view: sovereignty, verifiable bills, community energy." />
-  <meta property="og:title" content="KarmaPay — Loyal view" />
-  <meta property="og:description" content="For power users and loyal community — same cyber energy, direct voice." />
-  <meta property="og:type" content="website" />
-  <meta property="og:image" content="favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Karma · Agent payment trust layer | USDT / USDC</title>
+  <meta name="description" content="Non-custodial trust layer for Agent-to-Agent payments. USDT and USDC settlement." />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
   <style>
-    :root{--bg:#05070e;--panel:rgba(10,14,25,.86);--text:#ecf2ff;--muted:#9aa8c4;--cyan:#00f5ff;--pink:#ff00d4;--line:rgba(0,245,255,.3)}
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{
-      min-height:100vh;color:var(--text);font-family:"Courier New",Consolas,monospace;
-      background:
-        radial-gradient(circle at 12% 10%, rgba(255,0,212,.16), transparent 26%),
-        radial-gradient(circle at 90% 12%, rgba(0,245,255,.18), transparent 30%),
-        var(--bg)
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #010101;
+      font-family: "Inter", "Share Tech Mono", monospace;
+      color: #d0e0ff;
+      overflow-x: hidden;
     }
-    body::before{
-      content:"";position:fixed;inset:0;pointer-events:none;opacity:.35;z-index:99;
-      background:repeating-linear-gradient(0deg,rgba(255,255,255,.03) 0,rgba(255,255,255,.03) 1px,transparent 1px,transparent 5px)
+    .bg-grid {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image: linear-gradient(rgba(0, 255, 255, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 255, 255, 0.04) 1px, transparent 1px);
+      background-size: 45px 45px;
+      opacity: 0.07;
+      pointer-events: none;
+      z-index: 0;
     }
-    .wrap{max-width:1060px;margin:0 auto;padding:22px 16px 42px;position:relative;z-index:2}
-    .nav{
-      border:1px solid var(--line);border-radius:999px;padding:10px 14px;margin-bottom:20px;
-      background:rgba(6,8,14,.78);display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap
+    .glow-orb {
+      position: fixed;
+      top: 20%;
+      right: -10%;
+      width: 60vmax;
+      height: 60vmax;
+      background: radial-gradient(circle, rgba(0, 255, 255, 0.08), transparent 70%);
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
     }
-    .brand{font-weight:900;color:#fff;display:flex;gap:10px;align-items:center}
-    .dot{width:11px;height:11px;border-radius:50%;background:linear-gradient(135deg,var(--cyan),var(--pink))}
-    .links{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .links a{color:#a8b5d6;text-decoration:none;border:1px solid transparent;padding:7px 10px;border-radius:999px;font-size:12px}
-    .links a:hover{color:var(--cyan);border-color:var(--line)}
-    .panel{
-      border:1px solid var(--line);border-radius:22px;background:var(--panel);
-      box-shadow:0 0 28px rgba(0,245,255,.2);padding:28px
+    .container {
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 0 28px;
+      position: relative;
+      z-index: 10;
     }
-    h1{font-size:clamp(2.2rem,7vw,4.8rem);line-height:.95;margin-bottom:12px;letter-spacing:-2px;
-      background:linear-gradient(135deg,#fff,var(--cyan),var(--pink));-webkit-background-clip:text;background-clip:text;color:transparent}
-    .lead{color:#c4d3f2;margin-bottom:16px}
-    .note{color:var(--muted);margin-bottom:18px}
-    .box{background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.12);padding:16px;border-radius:14px;margin-bottom:14px}
-    .box b{color:var(--cyan)}
-    .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
-    .btn{padding:10px 14px;border-radius:12px;border:1px solid var(--line);color:var(--cyan);text-decoration:none;background:rgba(0,245,255,.06);font-weight:800}
-    .btn:hover{background:var(--cyan);color:#001018}
-    .btn.alt{border-color:rgba(255,0,212,.4);color:#ff8ae9}
-    .btn.alt:hover{background:var(--pink);color:#000}
-    .community{margin-top:22px;padding:18px;border:1px dashed rgba(0,245,255,.45);border-radius:16px;background:rgba(0,0,0,.35)}
-    .community h2{font-size:1rem;margin-bottom:8px;color:#fff}
+    .neon-title {
+      font-size: clamp(2.5rem, 9vw, 5rem);
+      font-weight: 800;
+      font-family: "Share Tech Mono", monospace;
+      text-transform: uppercase;
+      color: #0ef;
+      text-shadow: 0.04em 0 0 #f06, -0.03em -0.02em 0 #0ef;
+      letter-spacing: -1px;
+      white-space: pre-line;
+    }
+    .sub-neon {
+      border-left: 3px solid #0ef;
+      padding-left: 20px;
+      font-family: monospace;
+      font-size: 1rem;
+    }
+    .btn-cyber {
+      background: transparent;
+      border: 1.5px solid #0ef;
+      color: #0ef;
+      padding: 10px 24px;
+      font-weight: bold;
+      font-family: "Share Tech Mono", monospace;
+      cursor: pointer;
+      transition: 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      text-decoration: none;
+      backdrop-filter: blur(4px);
+    }
+    .btn-cyber:hover {
+      background: #0ef;
+      color: #000;
+      box-shadow: 0 0 14px #0ef;
+    }
+    .btn-cyber-pink {
+      border-color: #f06;
+      color: #f06;
+    }
+    .btn-cyber-pink:hover {
+      background: #f06;
+      color: #000;
+      box-shadow: 0 0 14px #f06;
+    }
+    .glass-card {
+      background: rgba(8, 12, 25, 0.6);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(0, 255, 255, 0.25);
+      border-radius: 28px;
+      padding: 1.8rem;
+      transition: 0.2s;
+    }
+    .glass-card:hover {
+      border-color: #0ef;
+      box-shadow: 0 0 18px rgba(0, 255, 255, 0.15);
+    }
+    .icon-lg {
+      font-size: 2.6rem;
+      color: #0ef;
+      margin-bottom: 1rem;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 2rem;
+      margin: 2.5rem 0;
+    }
+    .flex-between {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+    }
+    .code-block {
+      background: #03050b;
+      border-left: 3px solid #0ef;
+      font-family: "Share Tech Mono", monospace;
+      padding: 1rem;
+      border-radius: 14px;
+      font-size: 0.75rem;
+      margin-top: 1rem;
+      color: #9efff0;
+    }
+    hr {
+      border: none;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, #0ef, #f06, transparent);
+      margin: 2.5rem 0;
+    }
+    footer {
+      border-top: 1px solid rgba(0, 255, 255, 0.2);
+      padding: 2rem 0;
+      text-align: center;
+      font-size: 0.75rem;
+    }
+    .navbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 24px 0;
+      flex-wrap: wrap;
+      border-bottom: 1px solid rgba(0, 255, 255, 0.3);
+    }
+    .logo {
+      font-size: 1.6rem;
+      font-weight: 800;
+      font-family: monospace;
+      background: linear-gradient(95deg, #0ef, #f06);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .nav-link {
+      margin-left: 1.25rem;
+      text-decoration: none;
+      color: #b8c7ff;
+      font-family: monospace;
+      font-size: 0.9rem;
+    }
+    .nav-link:hover {
+      color: #0ef;
+      text-shadow: 0 0 4px #0ef;
+    }
+    .lang-selector {
+      margin-left: 1rem;
+      background: #0a0e1a;
+      border: 1px solid #0ef;
+      border-radius: 30px;
+      padding: 5px 12px;
+      color: #0ef;
+      font-family: monospace;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    @media (max-width: 700px) {
+      .navbar { flex-direction: column; gap: 16px; align-items: flex-start; }
+      .nav-link { margin-left: 0; margin-right: 1rem; }
+    }
+    .tag {
+      border: 1px solid #f06;
+      border-radius: 30px;
+      padding: 4px 14px;
+      font-size: 0.7rem;
+      display: inline-block;
+      margin-right: 8px;
+      margin-top: 10px;
+    }
+    .deploy-card {
+      background: linear-gradient(135deg, #0a0f1f, #01050f);
+      border: 2px solid #f06;
+      border-radius: 32px;
+      text-align: center;
+      margin: 30px 0;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal.is-open { display: flex; }
+    .modal-content {
+      background: rgba(6, 10, 25, 0.95);
+      border: 2px solid #0ef;
+      border-radius: 32px;
+      width: 90%;
+      max-width: 500px;
+      padding: 28px 24px;
+      box-shadow: 0 0 40px rgba(0, 255, 255, 0.2);
+      position: relative;
+    }
+    .modal-close {
+      position: absolute;
+      top: 16px;
+      right: 24px;
+      font-size: 28px;
+      cursor: pointer;
+      color: #0ef;
+      border: none;
+      background: none;
+    }
+    .modal-close:hover { color: #f06; }
+    .login-tab {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid #0ef;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      color: #a0b0e0;
+      font-family: monospace;
+      font-size: 1rem;
+      padding: 8px 0;
+      cursor: pointer;
+    }
+    .tab-btn.active {
+      color: #0ef;
+      border-bottom: 2px solid #0ef;
+    }
+    .qr-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    #qrcode {
+      background: #fff;
+      padding: 12px;
+      border-radius: 20px;
+    }
+    .mnemonic-inputs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 20px 0;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    @media (max-width: 520px) {
+      .mnemonic-inputs { grid-template-columns: repeat(2, 1fr); }
+    }
+    .word-input {
+      background: #010a1a;
+      border: 1px solid #0ef;
+      border-radius: 8px;
+      padding: 6px 8px;
+      color: #0ef;
+      font-family: monospace;
+      text-align: center;
+    }
+    .btn-confirm { width: 100%; justify-content: center; }
+    .switch-link {
+      text-align: center;
+      margin-top: 16px;
+      font-size: 0.8rem;
+      color: #f06;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .site-top-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   </style>
 </head>
 <body>
-  <main class="wrap" data-i18n-root>
-    <nav class="nav">
-      <div class="brand"><span class="dot"></span>KARMA.PAY</div>
-      <div class="links">
-        <a href="gateway.html" data-i18n="loyal.navGateway">Gateway</a>
-        <a href="professional.html" data-i18n="loyal.navPro">Overview</a>
-        <a href="loyal.html" data-i18n="loyal.navLoyal">Alternate</a>
-        <a href="web3-login.html?target=../studio/index.html" data-i18n="loyal.navLogin">Sign in</a>
-        <span id="lang-slot"></span>
+  <div class="bg-grid"></div>
+  <div class="glow-orb"></div>
+  <div class="container">
+    <div class="navbar">
+      <div class="logo"><i class="fas fa-bolt"></i> KARMA//PAY</div>
+      <div class="site-top-links">
+        <a href="gateway.html" class="nav-link" data-i18n="nav_gateway">Gateway</a>
+        <a href="professional.html" class="nav-link" data-i18n="nav_overview">Overview</a>
+        <a href="#problem" class="nav-link" data-i18n="nav_pay">Pay / receive</a>
+        <a href="#trust" class="nav-link" data-i18n="nav_trust">Trust layer</a>
+        <a href="#how" class="nav-link" data-i18n="nav_how">How it works</a>
+        <select id="langSwitcher" class="lang-selector" aria-label="Language">
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+          <option value="ja">日本語</option>
+          <option value="ko">한국어</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="ar">العربية</option>
+          <option value="ru">Русский</option>
+        </select>
+        <a href="web3-login.html?target=../studio/index.html" class="btn-cyber" style="padding: 6px 18px; font-size: 0.75rem"><i class="fas fa-sign-in-alt"></i> <span data-i18n="login">Sign in</span></a>
       </div>
-    </nav>
+    </div>
 
-    <section class="panel">
-      <h1 data-i18n="loyal.title">Extended presentation</h1>
-      <p class="lead" data-i18n="loyal.lead">
-        Non-custodial settlement for agent services and APIs: wallet-native funds, bill-first flows, and dispute evidence you can audit.
+    <div style="padding: 60px 0 30px">
+      <div class="neon-title" id="heroTitleBlock" data-i18n="hero_title">AGENT PAYMENT\nTRUST LAYER</div>
+      <div class="sub-neon" style="margin: 20px 0 24px">
+        <i class="fas fa-exchange-alt"></i> <span data-i18n="hero_sub">When one Agent pays another — no more “pay first, hope they deliver.”</span>
+      </div>
+      <p style="max-width: 680px; font-size: 1rem; line-height: 1.5; margin-bottom: 32px" data-i18n="hero_desc">
+        Karma addresses Agent-to-Agent settlement: verifiable delivery and rule-bound release. Stablecoin-focused, audit-friendly flows.
       </p>
-      <div class="box"><b>01</b> <span data-i18n="loyal.b1">No platform slush fund — funds stay user-side until rules say otherwise.</span></div>
-      <div class="box"><b>02</b> <span data-i18n="loyal.b2">Bill-first — evidence and state you can audit.</span></div>
-      <div class="box"><b>03</b> <span data-i18n="loyal.b3">Disputes anchored in process, not opaque queues.</span></div>
-
-      <div class="community">
-        <h2 data-i18n="loyal.community">Community</h2>
-        <p class="note" data-i18n="loyal.communityHint">Community channels will be announced here.</p>
-        <a class="btn" href="#" onclick="return false;" data-i18n="loyal.joinCta">Join community</a>
+      <div>
+        <a href="https://github.com/AtoB101/Karma" class="btn-cyber" target="_blank" rel="noopener"><i class="fas fa-rocket"></i> <span data-i18n="btn_integrate">Start integration</span></a>
+        <a href="web3-login.html?target=../studio/index.html" class="btn-cyber btn-cyber-pink" style="margin-left: 16px"><i class="fas fa-wallet"></i> <span data-i18n="btn_demo">Open user studio</span></a>
+        <button type="button" class="btn-cyber" style="margin-left: 16px" id="openLoginModal"><i class="fas fa-qrcode"></i> <span data-i18n="btn_modal_login">Login modal</span></button>
       </div>
-
-      <div class="btns" style="margin-top:18px">
-        <a class="btn alt" href="professional.html" data-i18n="loyal.ctaPro">Standard overview</a>
-        <a class="btn" href="web3-login.html?target=../studio/index.html" data-i18n="loyal.ctaLogin">Sign in</a>
+      <div style="margin-top: 40px">
+        <span class="tag">#AgentPayments</span>
+        <span class="tag" style="border-color: #0ef">#NonCustodial</span>
+        <span class="tag">#BillFirst</span>
+        <span class="tag" style="border-color: #f06">USDT / USDC</span>
       </div>
-    </section>
-  </main>
+    </div>
 
-  <script src="js/site-lang.js"></script>
-  <script>
-    (function () {
-      const L = window.KarmaSiteLang;
-      if (!L) return;
-      L.injectLanguageSwitcher("#lang-slot");
-      L.applyToRoot(document.querySelector("[data-i18n-root]"), L.getLang());
-      document.getElementById("karma-lang-select")?.addEventListener("change", function () {
-        L.applyToRoot(document.querySelector("[data-i18n-root]"), L.getLang());
+    <div class="glass-card" style="text-align: center; margin-bottom: 30px; border-color: #0ef">
+      <i class="fas fa-coins" style="font-size: 2rem; color: #f06"></i>
+      <h3 style="margin: 12px 0" data-i18n="settlement_title">Stablecoin settlement</h3>
+      <p data-i18n="settlement_desc">USDT and USDC on supported EVM networks. Configure networks in your deployment.</p>
+      <div class="code-block" style="display: inline-block; background: #000">USDC | USDC — non-custodial flows + verifiable state</div>
+    </div>
+
+    <div id="problem" style="margin: 40px 0">
+      <h2 style="font-size: 1.8rem; font-family: monospace"><i class="fas fa-question-circle"></i> <span data-i18n="problem_title">The Agent payment deadlock</span></h2>
+      <div class="grid-2" style="margin-top: 24px">
+        <div class="glass-card">
+          <i class="fas fa-receipt icon-lg"></i>
+          <h3 data-i18n="buyer_title">Payer → fears no delivery</h3>
+          <p style="margin-top: 12px" data-i18n="buyer_desc">You need proof the counterparty will perform before funds irrevocably leave your control.</p>
+          <div class="code-block" data-i18n="buyer_code">Before paying: how do we ensure delivery?</div>
+        </div>
+        <div class="glass-card">
+          <i class="fas fa-hand-holding-usd icon-lg"></i>
+          <h3 data-i18n="seller_title">Payee → fears unpaid work</h3>
+          <p style="margin-top: 12px" data-i18n="seller_desc">You need assurance payment follows verified delivery, without opaque custody.</p>
+          <div class="code-block" data-i18n="seller_code">After delivery: how do we ensure payment?</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="trust" class="glass-card" style="background: rgba(0, 10, 20, 0.7); border-color: #f06">
+      <div class="flex-between">
+        <div style="flex: 2">
+          <i class="fas fa-link" style="color: #0ef; font-size: 2rem"></i>
+          <h2 style="margin: 12px 0 8px" data-i18n="trust_title">Karma trust layer: rules + evidence</h2>
+          <p style="font-size: 1rem" data-i18n="trust_desc">Bill-first, wallet-native posture: obligations and settlement steps you can review — not a black-box float account.</p>
+          <div class="code-block" style="background: #05080f; margin-top: 18px" data-i18n="trust_code">Lock and policy state are verifiable on-chain where applicable; settlement follows agreed conditions.</div>
+        </div>
+        <div style="flex: 1; text-align: center">
+          <i class="fas fa-check-double" style="font-size: 3rem; color: #f06"></i>
+          <div style="font-weight: bold; margin-top: 8px" data-i18n="zero_custody">Non-custodial by design</div>
+          <div style="font-size: 0.8rem" data-i18n="funds_safe">Funds stay user-side until rules allow movement</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="deploy-card glass-card" style="text-align: center; background: radial-gradient(ellipse at 30% 40%, #0a0f20, #010101)">
+      <i class="fas fa-cloud-upload-alt" style="font-size: 2.8rem; color: #0ef; margin-bottom: 12px"></i>
+      <h2 data-i18n="deploy_title">Deploy your trust node</h2>
+      <p data-i18n="deploy_desc">Run Karma stack on your infrastructure. Replace the example URL with your distribution endpoint.</p>
+      <div class="code-block" style="background: #000; width: fit-content; margin: 16px auto">curl -sSL https://example.invalid/karma-deploy | bash</div>
+      <button type="button" id="oneClickDeployBtn" class="btn-cyber" style="margin-top: 12px"><i class="fas fa-terminal"></i> <span data-i18n="deploy_btn">Documentation</span></button>
+      <div style="font-size: 0.7rem; margin-top: 12px; color: #8899bb" data-i18n="deploy_note">Example command only — configure before production.</div>
+    </div>
+
+    <div id="how" style="margin: 60px 0">
+      <h2 style="font-size: 1.7rem"><i class="fas fa-cogs"></i> <span data-i18n="flow_title">Flow · trust as settlement</span></h2>
+      <div class="grid-2" style="margin-top: 28px">
+        <div class="glass-card">
+          <div style="font-size: 2rem; font-weight: bold; color: #0ef">1</div>
+          <h3 data-i18n="step1_title">Define obligation</h3>
+          <p data-i18n="step1_desc">Create a bill / policy the payer can review before authorizing.</p>
+          <p style="margin-top: 8px; font-size: 0.85rem; color: #9ab"><i class="fas fa-lock" style="color: #0ef"></i> <span data-i18n="step1_note">Rules first, not blind transfer</span></p>
+        </div>
+        <div class="glass-card">
+          <div style="font-size: 2rem; font-weight: bold; color: #0ef">2</div>
+          <h3 data-i18n="step2_title">Deliver &amp; attest</h3>
+          <p data-i18n="step2_desc">Attach delivery evidence hashes or signatures your counterpart can verify.</p>
+          <p style="margin-top: 8px; font-size: 0.85rem"><i class="fas fa-check-circle" style="color: #0ef"></i> <span data-i18n="step2_note">Fingerprinted, reviewable trail</span></p>
+        </div>
+        <div class="glass-card">
+          <div style="font-size: 2rem; font-weight: bold; color: #0ef">3</div>
+          <h3 data-i18n="step3_title">Settle on conditions</h3>
+          <p data-i18n="step3_desc">When conditions are met, stablecoin settlement executes per contract rules.</p>
+          <p style="margin-top: 8px; font-size: 0.85rem"><i class="fas fa-dollar-sign" style="color: #0ef"></i> <span data-i18n="step3_note">Closed loop, auditable</span></p>
+        </div>
+        <div class="glass-card">
+          <div style="font-size: 2rem; font-weight: bold; color: #0ef">4</div>
+          <h3 data-i18n="step4_title">Disputes (optional)</h3>
+          <p data-i18n="step4_desc">Escalate with evidence; outcomes remain on-chain where configured.</p>
+          <p style="margin-top: 8px; font-size: 0.85rem"><i class="fas fa-gavel" style="color: #0ef"></i> <span data-i18n="step4_note">Process-bound, not ad-hoc chat</span></p>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin: 55px 0 30px">
+      <h2 style="font-size: 1.5rem"><i class="fas fa-code"></i> <span data-i18n="integrate_title">Integrate</span></h2>
+      <div class="grid-2" style="margin-top: 20px">
+        <div class="glass-card">
+          <i class="fab fa-python"></i> <strong data-i18n="code_payer">Payer Agent</strong>
+          <div class="code-block" style="margin-top: 12px"># See repo examples &amp; public API contract<br /># karma-core + settlement adapters</div>
+        </div>
+        <div class="glass-card">
+          <i class="fab fa-js"></i> <strong data-i18n="code_payee">Payee Agent</strong>
+          <div class="code-block" style="margin-top: 12px">// Verify bill state before execution<br />// Submit delivery attestation</div>
+        </div>
+      </div>
+      <div style="text-align: center; margin-top: 28px">
+        <a href="https://github.com/AtoB101/Karma" class="btn-cyber" target="_blank" rel="noopener"><i class="fas fa-plug"></i> <span data-i18n="docs_btn">Repository &amp; docs</span></a>
+      </div>
+    </div>
+
+    <hr />
+
+    <div style="margin: 40px 0">
+      <h3><i class="fas fa-comment-dots"></i> <span data-i18n="faq_title">FAQ</span></h3>
+      <div class="grid-2" style="margin-top: 24px">
+        <div>
+          <p><strong data-i18n="faq1_q">Is non-custodial settlement safe?</strong><br /><span data-i18n="faq1_a">Rules are enforced by contracts you can read; funds follow policy, not informal promises.</span></p>
+          <p style="margin-top: 20px"><strong data-i18n="faq2_q">How does the payee know they will be paid?</strong><br /><span data-i18n="faq2_a">Bill and policy state are on-chain or otherwise verifiable before work is committed.</span></p>
+        </div>
+        <div>
+          <p><strong data-i18n="faq3_q">Which assets?</strong><br /><span data-i18n="faq3_a">USDC and USDT on networks you enable in deployment.</span></p>
+          <p style="margin-top: 20px"><strong data-i18n="faq4_q">Disputes?</strong><br /><span data-i18n="faq4_a">Evidence-backed escalation; exact governance depends on your deployment manifest.</span></p>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <p><i class="fas fa-microchip"></i> <span data-i18n="foot_line1">Karma — Agent payment trust layer</span></p>
+      <p data-i18n="foot_line2">USDT | USDC — non-custodial · verifiable</p>
+    </footer>
+  </div>
+
+  <div id="loginModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="loginModalTitle">
+    <div class="modal-content">
+      <button type="button" class="modal-close" id="closeModal" aria-label="Close">&times;</button>
+      <h3 id="loginModalTitle"><i class="fas fa-id-card"></i> <span data-i18n="modal_title">Sign in to Karma</span></h3>
+      <div class="login-tab">
+        <button type="button" class="tab-btn active" id="qrTabBtn" data-i18n="tab_qr">Wallet QR</button>
+        <button type="button" class="tab-btn" id="mnemonicTabBtn" data-i18n="tab_mnemonic">Mnemonic login</button>
+      </div>
+      <div id="qrLoginPanel">
+        <div class="qr-container">
+          <div id="qrcode"></div>
+          <p style="font-size: 0.85rem; color: #0ef" data-i18n="qr_hint">Scan with your wallet app, or continue in browser.</p>
+          <a class="btn-cyber" href="web3-login.html?target=../studio/index.html" data-i18n="qr_open_page">Open connection page</a>
+        </div>
+        <div class="switch-link" id="showMnemonicLink" data-i18n="switch_mnemonic">Mnemonic login →</div>
+      </div>
+      <div id="mnemonicLoginPanel" style="display: none">
+        <p style="margin-bottom: 12px; text-align: center; font-size: 0.9rem" data-i18n="mnemonic_intro">12-word recovery phrase (BIP-39 English)</p>
+        <div id="mnemonicInputs" class="mnemonic-inputs"></div>
+        <button type="button" id="confirmMnemonicBtn" class="btn-cyber btn-confirm"><i class="fas fa-key"></i> <span data-i18n="mnemonic_confirm">Continue</span></button>
+        <div class="switch-link" id="showQrLink" data-i18n="switch_qr">← Wallet QR</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="wc-config.js"></script>
+  <script type="module">
+    import { ethers } from "https://esm.sh/ethers@6.13.4";
+
+    const STUDIO = "../studio/index.html";
+    const WEB3_LOGIN = "web3-login.html?target=" + encodeURIComponent(STUDIO);
+
+    const T = {
+      en: {
+        nav_gateway: "Gateway",
+        nav_overview: "Overview",
+        nav_pay: "Pay / receive",
+        nav_trust: "Trust layer",
+        nav_how: "How it works",
+        login: "Sign in",
+        hero_title: "AGENT PAYMENT\nTRUST LAYER",
+        hero_sub: "When one Agent pays another — no more “pay first, hope they deliver.”",
+        hero_desc:
+          "Karma addresses Agent-to-Agent settlement: verifiable delivery and rule-bound release. Stablecoin-focused, audit-friendly flows.",
+        btn_integrate: "Start integration",
+        btn_demo: "Open user studio",
+        btn_modal_login: "Login modal",
+        settlement_title: "Stablecoin settlement",
+        settlement_desc: "USDT and USDC on supported EVM networks. Configure networks in your deployment.",
+        problem_title: "The Agent payment deadlock",
+        buyer_title: "Payer → fears no delivery",
+        buyer_desc: "You need proof the counterparty will perform before funds irrevocably leave your control.",
+        buyer_code: "Before paying: how do we ensure delivery?",
+        seller_title: "Payee → fears unpaid work",
+        seller_desc: "You need assurance payment follows verified delivery, without opaque custody.",
+        seller_code: "After delivery: how do we ensure payment?",
+        trust_title: "Karma trust layer: rules + evidence",
+        trust_desc: "Bill-first, wallet-native posture: obligations and settlement steps you can review — not a black-box float account.",
+        trust_code: "Lock and policy state are verifiable on-chain where applicable; settlement follows agreed conditions.",
+        zero_custody: "Non-custodial by design",
+        funds_safe: "Funds stay user-side until rules allow movement",
+        deploy_title: "Deploy your trust node",
+        deploy_desc: "Run Karma stack on your infrastructure. Replace the example URL with your distribution endpoint.",
+        deploy_btn: "Documentation",
+        deploy_note: "Example command only — configure before production.",
+        flow_title: "Flow · trust as settlement",
+        step1_title: "Define obligation",
+        step1_desc: "Create a bill / policy the payer can review before authorizing.",
+        step1_note: "Rules first, not blind transfer",
+        step2_title: "Deliver & attest",
+        step2_desc: "Attach delivery evidence hashes or signatures your counterpart can verify.",
+        step2_note: "Fingerprinted, reviewable trail",
+        step3_title: "Settle on conditions",
+        step3_desc: "When conditions are met, stablecoin settlement executes per contract rules.",
+        step3_note: "Closed loop, auditable",
+        step4_title: "Disputes (optional)",
+        step4_desc: "Escalate with evidence; outcomes remain on-chain where configured.",
+        step4_note: "Process-bound, not ad-hoc chat",
+        integrate_title: "Integrate",
+        code_payer: "Payer Agent",
+        code_payee: "Payee Agent",
+        docs_btn: "Repository & docs",
+        faq_title: "FAQ",
+        faq1_q: "Is non-custodial settlement safe?",
+        faq1_a: "Rules are enforced by contracts you can read; funds follow policy, not informal promises.",
+        faq2_q: "How does the payee know they will be paid?",
+        faq2_a: "Bill and policy state are on-chain or otherwise verifiable before work is committed.",
+        faq3_q: "Which assets?",
+        faq3_a: "USDC and USDT on networks you enable in deployment.",
+        faq4_q: "Disputes?",
+        faq4_a: "Evidence-backed escalation; exact governance depends on your deployment manifest.",
+        foot_line1: "Karma — Agent payment trust layer",
+        foot_line2: "USDT | USDC — non-custodial · verifiable",
+        modal_title: "Sign in to Karma",
+        tab_qr: "Wallet QR",
+        tab_mnemonic: "Mnemonic login",
+        qr_hint: "Scan with your wallet app, or continue in browser.",
+        qr_open_page: "Open connection page",
+        switch_mnemonic: "Mnemonic login →",
+        mnemonic_intro: "12-word recovery phrase (BIP-39 English)",
+        mnemonic_confirm: "Continue",
+        switch_qr: "← Wallet QR",
+        deploy_alert: "Replace the example URL in this page with your real deploy script before running in production.",
+        mnemonic_fill: "Enter all 12 words.",
+        mnemonic_invalid: "Invalid phrase. Check spelling and order.",
+      },
+      zh: {
+        nav_gateway: "入口",
+        nav_overview: "概览",
+        nav_pay: "收款 / 付款",
+        nav_trust: "信任层",
+        nav_how: "如何运作",
+        login: "登录",
+        hero_title: "AGENT 收付款\n信任层",
+        hero_sub: "让一个 Agent 向另一个 Agent 付款时 —— 减少「先付钱怕不交付」的不确定性。",
+        hero_desc:
+          "Karma 面向 Agent 间结算：可验证交付与按规则释放。以稳定币为主，流程可审计。",
+        btn_integrate: "开始集成",
+        btn_demo: "打开用户端",
+        btn_modal_login: "登录窗口",
+        settlement_title: "稳定币结算",
+        settlement_desc: "在已部署支持的 EVM 网络上使用 USDT 与 USDC。网络以您的部署配置为准。",
+        problem_title: "Agent 收付款的两难",
+        buyer_title: "付款方 → 怕收不到交付",
+        buyer_desc: "需要在资金不可逆转出前，尽可能验证对手会履约。",
+        buyer_code: "付款前：如何确保对方会交付？",
+        seller_title: "收款方 → 怕白干活",
+        seller_desc: "需要在交付被验证后，仍能按规则拿到款项，而非依赖不透明托管。",
+        seller_code: "交付后：如何确保对方会付款？",
+        trust_title: "Karma 信任层：规则 + 证据",
+        trust_desc: "账单优先、钱包侧姿态：义务与结算步骤可复核，而不是黑箱资金池。",
+        trust_code: "锁仓与策略状态在适用场景下可链上核验；条件满足后按约定结算。",
+        zero_custody: "非托管设计",
+        funds_safe: "在规则允许前，资金保持在用户侧",
+        deploy_title: "部署信任节点",
+        deploy_desc: "在您的基础设施运行 Karma 组件。请将示例 URL 换成您的分发地址。",
+        deploy_btn: "查看文档说明",
+        deploy_note: "仅为示例命令 — 生产前请自行配置。",
+        flow_title: "流程 · 以信任完成结算",
+        step1_title: "明确义务",
+        step1_desc: "生成付款方可先行审阅的账单 / 策略。",
+        step1_note: "先规则，再转账",
+        step2_title: "交付与证明",
+        step2_desc: "附上对手方可核验的交付哈希或签名。",
+        step2_note: "可追溯的指纹",
+        step3_title: "条件满足后结算",
+        step3_desc: "条件达成时，按合约规则执行稳定币结算。",
+        step3_note: "闭环、可审计",
+        step4_title: "争议（可选）",
+        step4_desc: "凭证据升级；结果在已配置链上执行。",
+        step4_note: "流程化，而非临时沟通",
+        integrate_title: "接入",
+        code_payer: "付款方 Agent",
+        code_payee: "收款方 Agent",
+        docs_btn: "仓库与文档",
+        faq_title: "常见问题",
+        faq1_q: "非托管结算安全吗？",
+        faq1_a: "规则由可读合约执行；资金按策略流动，而非口头承诺。",
+        faq2_q: "收款方如何确信能收到钱？",
+        faq2_a: "账单与策略状态可在投入工作前核验。",
+        faq3_q: "支持哪些资产？",
+        faq3_a: "以部署启用为准的 USDC / USDT。",
+        faq4_q: "争议如何处理？",
+        faq4_a: "基于证据的升级路径；具体治理以部署清单为准。",
+        foot_line1: "Karma — Agent 收付款信任层",
+        foot_line2: "USDT | USDC — 非托管 · 可验证",
+        modal_title: "登录 Karma",
+        tab_qr: "钱包扫码",
+        tab_mnemonic: "助记词登录",
+        qr_hint: "使用钱包 App 扫码，或在浏览器中继续。",
+        qr_open_page: "打开连接页面",
+        switch_mnemonic: "助记词登录 →",
+        mnemonic_intro: "12 个英文助记词（BIP-39）",
+        mnemonic_confirm: "继续",
+        switch_qr: "← 钱包扫码",
+        deploy_alert: "上线前请将页面中的示例部署地址替换为真实脚本来源。",
+        mnemonic_fill: "请填写全部 12 个词。",
+        mnemonic_invalid: "助记词无效，请检查拼写与顺序。",
+      },
+    };
+
+    function deepFill(lang) {
+      const base = T.en;
+      const over = T[lang] || {};
+      return new Proxy(over, {
+        get(_, k) {
+          return over[k] !== undefined ? over[k] : base[k];
+        },
       });
-    })();
+    }
+
+    let currentLang = localStorage.getItem("karma_landing_lang") || "en";
+    if (!["en", "zh", "ja", "ko", "de", "fr", "es", "ar", "ru"].includes(currentLang)) currentLang = "en";
+
+    function applyLanguage(lang) {
+      currentLang = lang;
+      localStorage.setItem("karma_landing_lang", lang);
+      document.documentElement.lang =
+        lang === "zh" ? "zh-CN" : lang === "ja" ? "ja" : lang === "ko" ? "ko" : lang === "ar" ? "ar" : lang;
+      document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+      const d = deepFill(lang);
+      document.querySelectorAll("[data-i18n]").forEach((el) => {
+        const key = el.getAttribute("data-i18n");
+        const k = key.replace(/-/g, "_");
+        const text = d[k];
+        if (text === undefined) return;
+        el.textContent = text;
+      });
+      document.getElementById("langSwitcher").value = lang;
+    }
+
+    document.getElementById("langSwitcher").value = currentLang;
+    applyLanguage(currentLang);
+    document.getElementById("langSwitcher").addEventListener("change", (e) => applyLanguage(e.target.value));
+
+    const modal = document.getElementById("loginModal");
+    document.getElementById("openLoginModal").addEventListener("click", () => {
+      modal.classList.add("is-open");
+      initQrPlaceholder();
+      ensureMnemonicInputs();
+    });
+    document.getElementById("closeModal").addEventListener("click", () => modal.classList.remove("is-open"));
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) modal.classList.remove("is-open");
+    });
+
+    function initQrPlaceholder() {
+      const el = document.getElementById("qrcode");
+      el.innerHTML = "";
+      const deep = new URL(WEB3_LOGIN, location.href).href;
+      new QRCode(el, { text: deep, width: 168, height: 168 });
+    }
+
+    function ensureMnemonicInputs() {
+      const container = document.getElementById("mnemonicInputs");
+      if (container.children.length) return;
+      for (let i = 1; i <= 12; i++) {
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "word-input";
+        inp.autocomplete = "off";
+        inp.placeholder = String(i);
+        container.appendChild(inp);
+      }
+    }
+
+    document.getElementById("qrTabBtn").addEventListener("click", () => {
+      document.getElementById("qrLoginPanel").style.display = "block";
+      document.getElementById("mnemonicLoginPanel").style.display = "none";
+      document.getElementById("qrTabBtn").classList.add("active");
+      document.getElementById("mnemonicTabBtn").classList.remove("active");
+    });
+    document.getElementById("mnemonicTabBtn").addEventListener("click", () => {
+      document.getElementById("qrLoginPanel").style.display = "none";
+      document.getElementById("mnemonicLoginPanel").style.display = "block";
+      document.getElementById("mnemonicTabBtn").classList.add("active");
+      document.getElementById("qrTabBtn").classList.remove("active");
+      ensureMnemonicInputs();
+    });
+    document.getElementById("showMnemonicLink").addEventListener("click", () => document.getElementById("mnemonicTabBtn").click());
+    document.getElementById("showQrLink").addEventListener("click", () => document.getElementById("qrTabBtn").click());
+
+    document.getElementById("confirmMnemonicBtn").addEventListener("click", () => {
+      const words = Array.from(document.querySelectorAll("#mnemonicInputs .word-input")).map((i) => i.value.trim().toLowerCase());
+      const d = deepFill(currentLang);
+      if (words.some((w) => !w)) {
+        alert(d.mnemonic_fill);
+        return;
+      }
+      try {
+        const phrase = words.join(" ");
+        const w = ethers.Wallet.fromPhrase(phrase);
+        const payload = {
+          wallet: w.address,
+          loginMethod: "mnemonic-login",
+          loginAt: new Date().toISOString(),
+          chainId: "eip155:1",
+          signature: "0xmnemonic_" + w.address.slice(2, 12),
+          challenge: "mnemonic-login",
+          wcTopic: "",
+        };
+        localStorage.setItem("karma_web3_session", JSON.stringify(payload));
+        modal.classList.remove("is-open");
+        location.href = STUDIO + "?wallet=" + encodeURIComponent(w.address);
+      } catch {
+        alert(d.mnemonic_invalid);
+      }
+    });
+
+    document.getElementById("oneClickDeployBtn").addEventListener("click", () => {
+      alert(deepFill(currentLang).deploy_alert);
+    });
   </script>
 </body>
 </html>
