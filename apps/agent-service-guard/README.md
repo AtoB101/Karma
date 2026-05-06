@@ -50,6 +50,7 @@ python3 scripts/phase2-public-contract-gate.py
 ## Pages
 
 - Home: `/apps/agent-service-guard/frontend/index.html`
+- User studio (refactored app shell): `/apps/agent-service-guard/frontend/studio/index.html`
 - Create service: `/apps/agent-service-guard/frontend/service-create.html`
 - Pay with protection: `/apps/agent-service-guard/frontend/pay.html?service_id=<id>`
 - Order detail: `/apps/agent-service-guard/frontend/order.html?order_id=<id>`

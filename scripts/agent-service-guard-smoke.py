@@ -65,6 +65,10 @@ def main() -> None:
       badge_page = fetch("/apps/agent-service-guard/frontend/badge.html")
       assert "Karma Protected Badge" in badge_page
 
+      studio_page = fetch("/apps/agent-service-guard/frontend/studio/index.html")
+      assert "Karma Agent Studio" in studio_page
+      assert "app.js" in studio_page
+
       print("OK   agent-service-guard smoke passed")
     finally:
       httpd.shutdown()
