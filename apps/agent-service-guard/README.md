@@ -1,17 +1,18 @@
-# Karma Guard for Agent Services (Public MVP)
+# Karma Guard — Agent Service Portal (Public)
 
-Karma Guard is the first public scenario product in the Karma public repository.
-It demonstrates a clear, open, and integrator-friendly flow for protected AI
-service payments:
+Single static **portal** plus **wallet sign-in** and **Agent Studio**. Optimized for daily deploy: one directory tree, consistent paths, no duplicate marketing pages.
 
-- Buyer protection
-- Seller bond
-- Evidence settlement
-- Non-custodial payment flow
-- Karma Protected badge
+## What ships in `frontend/`
 
-This public demo **does not** expose private scoring weights, anti-fraud
-parameters, or arbitration internals.
+| Path | Purpose |
+|------|---------|
+| `index.html` | Public portal (product narrative, FAQ, deploy CTA) |
+| `web3-login.html` | WalletConnect QR + mnemonic path → session → redirect to Studio |
+| `wc-config.js` | Set `window.KARMAPAY_WC_PROJECT_ID` (WalletConnect Cloud) before production |
+| `favicon.svg` | Site icon |
+| `studio/` | User Studio (requires `karma_web3_session` from sign-in) |
+
+**Flow:** `index.html` → `web3-login.html?target=studio%2Findex.html` → `studio/index.html`
 
 ## Run locally
 
@@ -21,78 +22,39 @@ From repository root:
 python3 -m http.server 8790
 ```
 
-Then open:
+Open:
 
-`http://127.0.0.1:8790/apps/agent-service-guard/frontend/index.html`
+- Portal: `http://127.0.0.1:8790/apps/agent-service-guard/frontend/index.html`
+- Sign-in: `http://127.0.0.1:8790/apps/agent-service-guard/frontend/web3-login.html`
+- Studio: `http://127.0.0.1:8790/apps/agent-service-guard/frontend/studio/index.html` (redirects to sign-in if no session)
 
-### Local smoke check (Python-only)
+### Smoke
 
 ```bash
 python3 ./scripts/agent-service-guard-smoke.py
+npm install && npm run test:agent-guard
 ```
 
-This validates required pages, paths, and key public-safe strings.
-
-Optional Node.js-based run + smoke:
-
-```bash
-npm install
-npm run guard:dev
-npm run guard:smoke
-```
-
-Phase 2 contract gate (schema/link integrity):
+### Phase 2 contract gate
 
 ```bash
 python3 scripts/phase2-public-contract-gate.py
 ```
 
-## Pages
+## Deploy checklist (server)
 
-- Home: `/apps/agent-service-guard/frontend/index.html`
-- User studio (refactored app shell): `/apps/agent-service-guard/frontend/studio/index.html`
-- Gateway entry page: `/apps/agent-service-guard/frontend/site/gateway.html`
-- Trust page: `/apps/agent-service-guard/frontend/site/index-clean.html`
-- Builder page: `/apps/agent-service-guard/frontend/site/builder.html`
-- Raw page (placeholder until custom copy): `/apps/agent-service-guard/frontend/site/war.html`
-- Loyalty/trust audience page alias (same style family): `/apps/agent-service-guard/frontend/site/loyal.html`
-- Create service: `/apps/agent-service-guard/frontend/service-create.html`
-- Pay with protection: `/apps/agent-service-guard/frontend/pay.html?service_id=<id>`
-- Order detail: `/apps/agent-service-guard/frontend/order.html?order_id=<id>`
-- Dashboard: `/apps/agent-service-guard/frontend/dashboard.html`
-- Trust badge: `/apps/agent-service-guard/frontend/badge.html?seller_wallet=<wallet>`
+1. Serve `apps/agent-service-guard/frontend/` as static files (same origin for portal, login, studio).
+2. Edit `wc-config.js` and set `KARMAPAY_WC_PROJECT_ID` to your [WalletConnect Cloud](https://cloud.walletconnect.com) project id.
+3. HTTPS required for WalletConnect in production.
+4. Confirm `web3-login.html` can load `wc-config.js`, `favicon.svg`, and ESM CDNs from the browser.
 
-## Current mock scope
+## API / contracts
 
-- Storage: browser localStorage (mock store)
-- Payment lock/bond lock: mock statuses only
-- Evidence hash: mock deterministic hash helper
-- Dispute decision: admin mock buttons (`BUYER_WINS`, `SELLER_WINS`, `PARTIAL_REFUND`)
-- Dashboard and badge metrics: computed from mock orders
-
-## Future real integrations
-
-Phase 2/3 targets are documented in `ROADMAP.md`:
-
-- Real wallet signature and settlement calls
-- Contract/testnet integration
-- x402 and agent API integration
-
-Phase 2 preparation assets (public-safe):
-
-- `docs/testnet-integration-checklist.md`
-- `docs/wallet-signature-payload-examples.json`
-- `apps/agent-service-guard/templates/wallet-signature-payload-template.json`
-- `docs/agent-service-guard-changelog.md`
-- `docs/migrations/<payload-version>.md` (required when changelog marks `Change Type: Breaking`)
+- `api/public-interfaces.json` — reserved private-engine shapes (risk/dispute/score placeholders)
+- `api/README.md` — integration notes
+- `docs/integration-guide.md` — public integration narrative
+- `docs/agent-service-guard-changelog.md` — payload contract changelog
 
 ## Private engine boundary
 
-Public repo can reserve interface contracts only. Private logic remains private.
-Reserved endpoints:
-
-- `/risk/check`
-- `/dispute/recommend-resolution`
-- `/score/seller`
-
-These endpoints are provided by the private risk engine.
+Public repo documents interfaces only. Reserved endpoint names (`/risk/check`, etc.) are implemented in the private engine.

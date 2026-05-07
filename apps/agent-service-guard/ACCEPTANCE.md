@@ -1,96 +1,25 @@
-# Karma Guard for Agent Services - Acceptance Checklist
+# Karma Guard — Acceptance (single portal + studio)
 
-This checklist validates the public mock MVP flow.
+## Portal (`frontend/index.html`)
 
-## Core flow checks
+- [ ] Page loads with KARMA//PAY branding and sections (problem / trust / flow / FAQ).
+- [ ] Language switcher changes visible copy (en/zh at minimum).
+- [ ] **Sign in** and **Open user studio** link to `web3-login.html?target=studio%2Findex.html`.
+- [ ] Login modal opens; QR targets full sign-in URL; mnemonic path accepts 12 words and redirects to Studio when valid (demo).
 
-- [ ] Open home page at `frontend/index.html`.
-- [ ] See the four entry actions:
-  - Create Protected Service
-  - Pay with Protection
-  - View Dashboard
-  - View Trust Badge
+## Sign-in (`frontend/web3-login.html`)
 
-## Service creation
+- [ ] With `wc-config.js` **empty**: page shows clear “set project id” style message (no crash).
+- [ ] With valid `KARMAPAY_WC_PROJECT_ID`: QR appears; after wallet connect + signature, browser lands on `studio/index.html` with session in `localStorage.karma_web3_session`.
+- [ ] **Home** returns to portal.
 
-- [ ] Create service with fields:
-  - `service_name`
-  - `service_type`
-  - `description`
-  - `price`
-  - `currency`
-  - `delivery_time`
-  - `refund_policy`
-  - `seller_wallet`
-  - `seller_bond_rate` (default 30%)
-- [ ] Confirm generated:
-  - `service_id`
-  - `payment_link` (`/pay/{service_id}`)
-- [ ] Confirm data is persisted in local mock storage.
+## Studio (`frontend/studio/`)
 
-## Buyer payment
+- [ ] Without session: redirect to `web3-login.html?target=studio%2Findex.html`.
+- [ ] With session: dashboard and nav render; **Sign out** clears session and returns to sign-in.
+- [ ] Create Agent produces `shareLink` pointing at `../index.html?agent=...` (portal deep link placeholder).
 
-- [ ] Open payment page for a service (`/pay/{service_id}` pattern via query mapping).
-- [ ] Confirm service card shows:
-  - service name/description/price
-  - seller wallet
-  - seller bond rate
-  - Karma Protected
-  - buyer protection note
-- [ ] Click payment action and create an order.
-- [ ] Confirm initial order state:
-  - `payment_status = MOCK_LOCKED`
-  - `delivery_status = PENDING`
-  - `dispute_status = NONE`
-  - `settlement_status = UNSETTLED`
-  - `seller_bond_status = MOCK_LOCKED`
+## Deploy
 
-## Order detail flow
-
-- [ ] Open order detail page and verify required fields displayed:
-  - `order_id`
-  - `buyer_wallet`
-  - `seller_wallet`
-  - `price`
-  - `payment_status`
-  - `delivery_status`
-  - `dispute_status`
-  - `settlement_status`
-  - `seller_bond_status`
-  - `evidence_hash`
-- [ ] Seller submits delivery and system generates `evidence_hash`.
-- [ ] Buyer confirms completion.
-- [ ] Buyer opens dispute.
-- [ ] Admin resolves dispute with mock options:
-  - `BUYER_WINS`
-  - `SELLER_WINS`
-  - `PARTIAL_REFUND`
-
-## Dashboard and badge
-
-- [ ] Dashboard metrics change after new orders / confirmations / disputes:
-  - `total_protected_volume`
-  - `verified_orders`
-  - `settled_orders`
-  - `disputed_orders`
-  - `refunded_orders`
-  - `active_seller_bond`
-  - `average_settlement_time`
-  - `seller_success_rate`
-  - `dispute_rate`
-- [ ] Badge page (`/badge/{seller_wallet}` pattern via query mapping) shows:
-  - Karma Protected
-  - Seller Wallet
-  - Total Protected Volume
-  - Verified Orders
-  - Success Rate
-  - Dispute Rate
-  - Active Bond
-  - Copy Embed Code action
-
-## Public/private boundary checks
-
-- [ ] No private scoring weights are exposed.
-- [ ] No internal fraud-prevention numeric thresholds are published in the repo.
-- [ ] No non-public dispute-resolution tie-break rules are published.
-- [ ] Only field contracts and public state-machine data are published.
+- [ ] Static host serves `frontend/` as one tree; HTTPS in production.
+- [ ] `wc-config.js` committed or injected at deploy with real WalletConnect project id.

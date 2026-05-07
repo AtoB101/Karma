@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal smoke checks for Karma Guard public frontend pages."""
+"""Smoke checks for Karma Guard single-portal frontend (index + sign-in + studio)."""
 
 from __future__ import annotations
 
@@ -45,58 +45,18 @@ def main() -> None:
     time.sleep(0.3)
 
     try:
-      index = fetch("/apps/agent-service-guard/frontend/index.html")
-      assert "Karma Guard for Agent Services" in index
-      assert "Create Protected Service" in index
-      assert "Pay with Protection" in index
+      portal = fetch("/apps/agent-service-guard/frontend/index.html")
+      assert "KARMA//PAY" in portal
+      assert "web3-login.html" in portal
+      assert "studio/index.html" in portal or "studio%2Findex.html" in portal
 
-      create_page = fetch("/apps/agent-service-guard/frontend/service-create.html")
-      assert "seller_bond_rate" in create_page
+      login = fetch("/apps/agent-service-guard/frontend/web3-login.html")
+      assert "wc-config.js" in login
+      assert "studio/index.html" in login
 
-      pay_page = fetch("/apps/agent-service-guard/frontend/pay.html")
-      assert "service_id is required" in pay_page
-
-      order_page = fetch("/apps/agent-service-guard/frontend/order.html")
-      assert "order_id is required" in order_page
-
-      dashboard_page = fetch("/apps/agent-service-guard/frontend/dashboard.html")
-      assert "Karma Guard Dashboard" in dashboard_page
-
-      badge_page = fetch("/apps/agent-service-guard/frontend/badge.html")
-      assert "Karma Protected Badge" in badge_page
-
-      studio_page = fetch("/apps/agent-service-guard/frontend/studio/index.html")
-      assert "Karma Agent Studio" in studio_page
-      assert "app.js" in studio_page
-
-      gateway_page = fetch("/apps/agent-service-guard/frontend/site/gateway.html")
-      assert "KarmaPay — Gateway" in gateway_page
-      assert "Choose your experience" in gateway_page
-      assert "professional.html" in gateway_page
-
-      professional = fetch("/apps/agent-service-guard/frontend/site/professional.html")
-      assert "Keep funds in user wallets" in professional
-      assert "site-lang.js" in professional
-
-      loyal = fetch("/apps/agent-service-guard/frontend/site/loyal.html")
-      assert "KARMA//PAY" in loyal
-      assert "web3-login.html" in loyal
-
-      builder_page = fetch("/apps/agent-service-guard/frontend/site/builder.html")
-      assert "KarmaPay Builder Mode" in builder_page
-      assert "Deploy your own settlement layer" in builder_page
-
-      clean_redirect = fetch("/apps/agent-service-guard/frontend/site/index-clean.html")
-      assert "professional.html" in clean_redirect
-
-      war_redirect = fetch("/apps/agent-service-guard/frontend/site/war.html")
-      assert "loyal.html" in war_redirect
-
-      web3_login_page = fetch("/apps/agent-service-guard/frontend/site/web3-login.html")
-      assert "qr-box" in web3_login_page
-      assert "wc-config.js" in web3_login_page
-      assert "word-grid" in web3_login_page
-      assert "site-lang.js" in web3_login_page
+      studio = fetch("/apps/agent-service-guard/frontend/studio/index.html")
+      assert "Karma Agent Studio" in studio
+      assert "app.js" in studio
 
       print("OK   agent-service-guard smoke passed")
     finally:

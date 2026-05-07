@@ -68,7 +68,7 @@ export function createAgent(state, payload) {
     price: Number.isFinite(price) && price > 0 ? Number(price.toFixed(2)) : 0.01,
     trust: 75,
     totalCalls: 0,
-    shareLink: `${location.origin}/apps/agent-service-guard/frontend/pay.html?agent_id=${id}`,
+    shareLink: new URL("../index.html", location.href).href + "?agent=" + encodeURIComponent(id),
   };
   state.agents.unshift(next);
   state.allowances.unshift({

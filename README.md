@@ -170,7 +170,7 @@ Then open:
 
 Core pages:
 
-- Create service: `/apps/agent-service-guard/frontend/service-create.html`
+- Karma Guard portal: `/apps/agent-service-guard/frontend/index.html`
 - Pay with protection: `/apps/agent-service-guard/frontend/pay.html?service_id=<service_id>`
 - Order detail: `/apps/agent-service-guard/frontend/order.html?order_id=<order_id>`
 - Dashboard: `/apps/agent-service-guard/frontend/dashboard.html`

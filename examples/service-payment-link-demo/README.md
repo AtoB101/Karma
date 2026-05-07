@@ -1,11 +1,9 @@
-# Service Payment Link Demo (Public)
+# Service payment link demo (reference)
 
-This example shows a public-safe seller flow:
+The interactive HTML demos under `apps/agent-service-guard/frontend/` were consolidated into a **single portal** (`index.html`) plus **Studio** (`studio/`).
 
-1. Create a service in `apps/agent-service-guard/frontend/service-create.html`
-2. Obtain `payment_link = /pay/{service_id}`
-3. Share payment link to buyer
-4. Buyer opens payment page and creates protected order
-5. Continue in order detail page for evidence/dispute flow
+For payment-link and order-flow examples, refer to:
 
-No private risk scoring or arbitration internals are included.
+- `apps/agent-service-guard/api/public-interfaces.json` — public request/response shapes
+- `docs/integration-guide.md` — integration narrative
+- Repository `examples/` for other contract-level samples

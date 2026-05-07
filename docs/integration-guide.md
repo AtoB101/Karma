@@ -27,18 +27,19 @@ Karma Guard public repo exposes:
 
 Karma Guard does not expose private risk-scoring logic.
 
-## Demo routes
+## Public web surface (current)
 
 Under `apps/agent-service-guard/frontend/`:
 
-- `index.html` - product entry page
-- `service-create.html` - seller creates protected service
-- `pay.html?service_id=<id>` - buyer creates protected order
-- `order.html?order_id=<id>` - delivery/evidence/dispute flow
-- `dashboard.html` - aggregate stats
-- `badge.html?seller_wallet=<wallet>` - trust badge view
+- `index.html` — single public portal (product + links)
+- `web3-login.html` — wallet sign-in (WalletConnect + optional mnemonic) → `studio/index.html`
+- `studio/` — authenticated user studio (mock flows, localStorage)
 
-## Service creation flow
+Legacy multi-page demos (`service-create.html`, `pay.html`, etc.) were removed to keep deploy paths aligned with this surface.
+
+## Service creation flow (contract reference)
+
+The following fields and states remain the **public contract** for integrations; the old browser demo pages were removed in favor of the single portal + Studio.
 
 Seller submits:
 

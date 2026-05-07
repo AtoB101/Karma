@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KarmaPay — Sign in</title>
-  <meta name="description" content="Sign in with your wallet." />
+  <meta name="description" content="Sign in with your wallet to open Agent Studio." />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <style>
     :root{--bg:#07070d;--line:rgba(0,245,255,.34);--cyan:#00f5ff;--muted:#9ca3af;--text:#e5e7eb}
@@ -28,13 +28,11 @@
   </style>
 </head>
 <body>
-  <header class="nav" data-i18n-root>
+  <header class="nav">
     <strong>KARMA.PAY</strong>
     <nav style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <a href="gateway.html" data-i18n="login.navGateway">Gateway</a>
-      <a href="professional.html" data-i18n="login.navPro">Overview</a>
-      <a href="loyal.html" data-i18n="login.navLoyal">Alternate</a>
-      <span id="lang-slot"></span>
+      <a href="./index.html">Home</a>
+      <a href="./studio/index.html">Studio</a>
     </nav>
   </header>
 
@@ -44,23 +42,31 @@
     <p class="status" id="status-line"></p>
 
     <div class="mnemonic-wrap">
-      <button type="button" id="mnemonic-toggle"></button>
+      <button type="button" id="mnemonic-toggle">Mnemonic login</button>
       <div id="mnemonic-panel" hidden>
-        <p class="status" data-i18n="login.mnemonicHint" style="margin-bottom:10px">Use only on a device you trust.</p>
+        <p class="status" style="margin-bottom:10px">Use only on a device you trust.</p>
         <div class="mnemonic-grid" id="word-grid"></div>
-        <button type="button" id="mnemonic-submit" style="margin-top:14px;width:100%"></button>
+        <button type="button" id="mnemonic-submit" style="margin-top:14px;width:100%">Continue</button>
       </div>
     </div>
   </main>
 
   <script src="wc-config.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
-  <script src="js/site-lang.js"></script>
   <script type="module">
     import SignClient from "https://esm.sh/@walletconnect/sign-client@2.17.1";
     import { ethers } from "https://esm.sh/ethers@6.13.4";
 
     const REQUIRED_CHAIN = "eip155:1";
+    const L = {
+      qrExpires: "QR refreshes in",
+      sec: "s",
+      statusInit: "Preparing connection…",
+      statusConn: "Scan with your wallet.",
+      statusNoConfig: "Sign-in is temporarily unavailable. Set KARMAPAY_WC_PROJECT_ID in wc-config.js (WalletConnect Cloud).",
+      mnemonicError: "Invalid phrase. Check words and order.",
+    };
+
     let client;
     let activeSession;
     let activeAccount = "";
@@ -68,10 +74,6 @@
     let countdownTimer;
     let secondsLeft = 60;
     let pairingGeneration = 0;
-
-    function t(k) {
-      return window.KarmaSiteLang ? window.KarmaSiteLang.t(k) : k;
-    }
 
     function getWalletConnectProjectId() {
       const fromWindow =
@@ -86,7 +88,7 @@
 
     function setTimerText() {
       document.getElementById("timer-line").textContent =
-        t("login.qrExpires") + " " + secondsLeft + " " + t("login.sec");
+        L.qrExpires + " " + secondsLeft + " " + L.sec;
     }
 
     function walletAddressFromAccount(account) {
@@ -100,7 +102,7 @@
 
     function getTargetPath() {
       const target = new URLSearchParams(location.search).get("target");
-      return target || "../studio/index.html";
+      return target || "studio/index.html";
     }
 
     function renderQr(uri) {
@@ -117,7 +119,7 @@
     async function initClient() {
       const projectId = getWalletConnectProjectId();
       if (!projectId) {
-        setStatus(t("login.statusNoConfig"));
+        setStatus(L.statusNoConfig);
         return null;
       }
       localStorage.setItem("karma_wc_project_id", projectId);
@@ -135,14 +137,14 @@
     async function startOrRotatePairing() {
       if (activeAccount) return;
       if (!getWalletConnectProjectId()) {
-        setStatus(t("login.statusNoConfig"));
+        setStatus(L.statusNoConfig);
         return;
       }
       const gen = ++pairingGeneration;
-      setStatus(t("login.statusInit"));
+      setStatus(L.statusInit);
       client = await initClient();
       if (!client) return;
-      setStatus(t("login.statusConn"));
+      setStatus(L.statusConn);
       try {
         const { uri, approval } = await client.connect({
           requiredNamespaces: {
@@ -251,7 +253,7 @@
       const inp = document.createElement("input");
       inp.type = "text";
       inp.autocomplete = "off";
-      inp.placeholder = (t("login.wordLabel") || "Word") + " " + i;
+      inp.placeholder = "Word " + i;
       grid.appendChild(inp);
     }
 
@@ -268,14 +270,14 @@
       if (words.some(function (w) {
         return !w;
       })) {
-        setStatus(t("login.mnemonicError"));
+        setStatus("Enter all 12 words.");
         return;
       }
       try {
         const phrase = words.join(" ");
         const w = ethers.Wallet.fromPhrase(phrase);
         activeAccount = w.address;
-        activeSignature = "0xmnemonic_demo_" + w.address.slice(2, 10);
+        activeSignature = "0xmnemonic_" + w.address.slice(2, 12);
         const payload = {
           wallet: activeAccount,
           loginMethod: "mnemonic-login",
@@ -292,33 +294,17 @@
           "wallet=" +
           encodeURIComponent(activeAccount);
       } catch (e) {
-        setStatus(t("login.mnemonicError"));
+        setStatus(L.mnemonicError);
       }
     });
 
-    window.__karmaLoginRerender = function () {
-      document.getElementById("mnemonic-toggle").textContent = t("login.mnemonicToggle");
-      document.getElementById("mnemonic-submit").textContent = t("login.mnemonicSubmit");
-      setTimerText();
-    };
-
-    if (window.KarmaSiteLang) {
-      window.KarmaSiteLang.injectLanguageSwitcher("#lang-slot");
-      window.KarmaSiteLang.applyToRoot(document.querySelector("[data-i18n-root]"), window.KarmaSiteLang.getLang());
-      document.getElementById("karma-lang-select")?.addEventListener("change", function () {
-        window.KarmaSiteLang.applyToRoot(document.querySelector("[data-i18n-root]"), window.KarmaSiteLang.getLang());
-        window.__karmaLoginRerender();
-      });
-    }
-    document.getElementById("mnemonic-toggle").textContent = t("login.mnemonicToggle");
-    document.getElementById("mnemonic-submit").textContent = t("login.mnemonicSubmit");
     startCountdown();
     setTimerText();
     if (getWalletConnectProjectId()) {
-      setStatus(t("login.statusConn"));
+      setStatus(L.statusConn);
       startOrRotatePairing();
     } else {
-      setStatus(t("login.statusNoConfig"));
+      setStatus(L.statusNoConfig);
       document.getElementById("qr-box").innerHTML = "";
     }
   </script>

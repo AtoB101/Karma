@@ -36,7 +36,7 @@ function loadSession() {
 function requireSession() {
   const session = loadSession();
   if (!session || !session.wallet) {
-    location.href = "../site/web3-login.html?target=../studio/index.html";
+    location.href = "../web3-login.html?target=studio%2Findex.html";
     return null;
   }
   return session;
@@ -224,6 +224,6 @@ function render() {
 window.addEventListener("hashchange", render);
 logoutBtn?.addEventListener("click", () => {
   localStorage.removeItem("karma_web3_session");
-  location.href = "../site/web3-login.html?target=../studio/index.html";
+  location.href = "../web3-login.html?target=studio%2Findex.html";
 });
 render();
