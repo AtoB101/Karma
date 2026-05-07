@@ -57,13 +57,27 @@
     import SignClient from "https://esm.sh/@walletconnect/sign-client@2.17.1";
     import { ethers } from "https://esm.sh/ethers@6.13.4";
 
+    async function applyRuntimePublicConfig() {
+      try {
+        const res = await fetch("./public-config.json", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const id = String(data.walletConnectProjectId || "").trim();
+        if (id) window.KARMAPAY_WC_PROJECT_ID = id;
+      } catch {
+        /* absent public-config.json is normal in local dev */
+      }
+    }
+    await applyRuntimePublicConfig();
+
     const REQUIRED_CHAIN = "eip155:1";
     const L = {
       qrExpires: "QR refreshes in",
       sec: "s",
       statusInit: "Preparing connection…",
       statusConn: "Scan with your wallet.",
-      statusNoConfig: "Sign-in is temporarily unavailable. Set KARMAPAY_WC_PROJECT_ID in wc-config.js (WalletConnect Cloud).",
+      statusNoConfig:
+        "Sign-in is temporarily unavailable. Deploy public-config.json (see public-config.json.example) or set wc-config.js / WALLETCONNECT_PROJECT_ID at build time.",
       mnemonicError: "Invalid phrase. Check words and order.",
     };
 

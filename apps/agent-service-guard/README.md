@@ -44,9 +44,20 @@ python3 scripts/phase2-public-contract-gate.py
 ## Deploy checklist (server)
 
 1. Serve `apps/agent-service-guard/frontend/` as static files (same origin for portal, login, studio).
-2. Edit `wc-config.js` and set `KARMAPAY_WC_PROJECT_ID` to your [WalletConnect Cloud](https://cloud.walletconnect.com) project id.
-3. HTTPS required for WalletConnect in production.
-4. Confirm `web3-login.html` can load `wc-config.js`, `favicon.svg`, and ESM CDNs from the browser.
+2. **WalletConnect project id (recommended):** generate `public-config.json` on the host or in CI so it is **not** committed to git (see `public-config.json.example`; real file is gitignored).
+
+   ```bash
+   export WALLETCONNECT_PROJECT_ID="your_id_from_https://cloud.walletconnect.com"
+   ./scripts/deploy/write-agent-guard-public-config.sh
+   ```
+
+   On load, `web3-login.html` fetches `./public-config.json` and applies `walletConnectProjectId` before starting pairing.
+
+3. **Optional local override:** keep `wc-config.js` for dev machines; if both exist, **`public-config.json` wins** when it contains a non-empty id.
+
+4. HTTPS in production (WalletConnect expects a real origin).
+
+5. Confirm the browser can load `wc-config.js`, optional `public-config.json`, `favicon.svg`, and ESM CDNs.
 
 ## API / contracts
 

@@ -9,8 +9,8 @@
 
 ## Sign-in (`frontend/web3-login.html`)
 
-- [ ] With `wc-config.js` **empty**: page shows clear “set project id” style message (no crash).
-- [ ] With valid `KARMAPAY_WC_PROJECT_ID`: QR appears; after wallet connect + signature, browser lands on `studio/index.html` with session in `localStorage.karma_web3_session`.
+- [ ] With no `public-config.json` and `wc-config.js` **empty**: page shows clear “configure project id” message (no crash).
+- [ ] With valid `public-config.json` **or** `wc-config.js` id: QR appears; after wallet connect + signature, browser lands on `studio/index.html` with session in `localStorage.karma_web3_session`.
 - [ ] **Home** returns to portal.
 
 ## Studio (`frontend/studio/`)
@@ -22,4 +22,4 @@
 ## Deploy
 
 - [ ] Static host serves `frontend/` as one tree; HTTPS in production.
-- [ ] `wc-config.js` committed or injected at deploy with real WalletConnect project id.
+- [ ] `public-config.json` generated on server (e.g. `./scripts/deploy/write-agent-guard-public-config.sh`) and **not** committed; or dev-only `wc-config.js` override.
