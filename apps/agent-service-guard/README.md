@@ -69,3 +69,7 @@ python3 scripts/phase2-public-contract-gate.py
 ## Private engine boundary
 
 Public repo documents interfaces only. Reserved endpoint names (`/risk/check`, etc.) are implemented in the private engine.
+
+## Security baseline
+
+See `docs/AGENT_GUARD_SECURITY_HARDENING.md` and `infra/nginx/agent-guard-security-headers.conf` for headers, session storage policy, SRI, and deployment hygiene.

@@ -10,7 +10,7 @@
 ## Sign-in (`frontend/web3-login.html`)
 
 - [ ] With no `public-config.json` and `wc-config.js` **empty**: page shows clear “configure project id” message (no crash).
-- [ ] With valid `public-config.json` **or** `wc-config.js` id: QR appears; after wallet connect + signature, browser lands on `studio/index.html` with session in `localStorage.karma_web3_session`.
+- [ ] With valid `public-config.json` **or** `wc-config.js` id: QR appears; after wallet connect + signature, browser lands on `studio/index.html` with session in **`sessionStorage.karma_web3_session`** (tab-scoped).
 - [ ] **Home** returns to portal.
 
 ## Studio (`frontend/studio/`)

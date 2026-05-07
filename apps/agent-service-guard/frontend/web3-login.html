@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>KarmaPay — Sign in</title>
   <meta name="description" content="Sign in with your wallet to open Agent Studio." />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
@@ -52,7 +53,7 @@
   </main>
 
   <script src="wc-config.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU" crossorigin="anonymous"></script>
   <script type="module">
     import SignClient from "https://esm.sh/@walletconnect/sign-client@2.17.1";
     import { ethers } from "https://esm.sh/ethers@6.13.4";
@@ -69,6 +70,11 @@
       }
     }
     await applyRuntimePublicConfig();
+
+    try {
+      localStorage.removeItem("karma_wc_project_id");
+      localStorage.removeItem("karma_web3_last_wc_uri");
+    } catch (_) {}
 
     const REQUIRED_CHAIN = "eip155:1";
     const L = {
@@ -90,10 +96,7 @@
     let pairingGeneration = 0;
 
     function getWalletConnectProjectId() {
-      const fromWindow =
-        typeof window.KARMAPAY_WC_PROJECT_ID === "string" ? window.KARMAPAY_WC_PROJECT_ID.trim() : "";
-      if (fromWindow) return fromWindow;
-      return (localStorage.getItem("karma_wc_project_id") || "").trim();
+      return typeof window.KARMAPAY_WC_PROJECT_ID === "string" ? window.KARMAPAY_WC_PROJECT_ID.trim() : "";
     }
 
     function setStatus(msg) {
@@ -136,7 +139,6 @@
         setStatus(L.statusNoConfig);
         return null;
       }
-      localStorage.setItem("karma_wc_project_id", projectId);
       return SignClient.init({
         projectId,
         metadata: {
@@ -172,7 +174,6 @@
         if (gen !== pairingGeneration) return;
         if (uri) {
           renderQr(uri);
-          localStorage.setItem("karma_web3_last_wc_uri", uri);
           startCountdown();
         }
         const approvalRace = approval().then(function (session) {
@@ -238,7 +239,10 @@
         challenge: "KarmaPay login challenge",
         wcTopic: activeSession?.topic || "",
       };
-      localStorage.setItem("karma_web3_session", JSON.stringify(payload));
+      sessionStorage.setItem("karma_web3_session", JSON.stringify(payload));
+      try {
+        localStorage.removeItem("karma_web3_session");
+      } catch (_) {}
       const target = getTargetPath();
       const suffix =
         "wallet=" +
@@ -301,7 +305,10 @@
           challenge: "mnemonic-login",
           wcTopic: "",
         };
-        localStorage.setItem("karma_web3_session", JSON.stringify(payload));
+        sessionStorage.setItem("karma_web3_session", JSON.stringify(payload));
+        try {
+          localStorage.removeItem("karma_web3_session");
+        } catch (_) {}
         location.href =
           getTargetPath() +
           (getTargetPath().includes("?") ? "&" : "?") +

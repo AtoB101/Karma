@@ -25,12 +25,29 @@ const toast = document.getElementById("toast");
 const walletPill = document.getElementById("wallet-pill");
 const logoutBtn = document.getElementById("logout-btn");
 
+const AUTH_SESSION_KEY = "karma_web3_session";
+
 function loadSession() {
   try {
-    return JSON.parse(localStorage.getItem("karma_web3_session") || "null");
+    const fromTab = sessionStorage.getItem(AUTH_SESSION_KEY);
+    if (fromTab) return JSON.parse(fromTab);
+    const legacy = localStorage.getItem(AUTH_SESSION_KEY);
+    if (legacy) {
+      sessionStorage.setItem(AUTH_SESSION_KEY, legacy);
+      localStorage.removeItem(AUTH_SESSION_KEY);
+      return JSON.parse(legacy);
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+function clearAuthSession() {
+  try {
+    sessionStorage.removeItem(AUTH_SESSION_KEY);
+    localStorage.removeItem(AUTH_SESSION_KEY);
+  } catch (_) {}
 }
 
 function requireSession() {
@@ -223,7 +240,7 @@ function render() {
 
 window.addEventListener("hashchange", render);
 logoutBtn?.addEventListener("click", () => {
-  localStorage.removeItem("karma_web3_session");
+  clearAuthSession();
   location.href = "../web3-login.html?target=studio%2Findex.html";
 });
 render();
