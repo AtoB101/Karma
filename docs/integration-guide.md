@@ -31,7 +31,7 @@ Karma Guard does not expose private risk-scoring logic.
 
 Under `apps/agent-service-guard/frontend/`:
 
-- `index.html` — single public portal (product + links)
+- `index.html` — Karma Protected brochure (multi-language; CTAs route to `web3-login.html` → Studio)
 - `web3-login.html` — isolated wallet sign-in (WalletConnect QR only) → `studio/index.html`
 - `studio/` — **统一操作界面**（WalletConnect 登录后）：`api-client.js` + `sync.js` 与公开 API 路径对齐；无后端时使用本地 `unified` 演示状态
 

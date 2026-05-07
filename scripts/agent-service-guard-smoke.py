@@ -46,7 +46,7 @@ def main() -> None:
 
     try:
       portal = fetch("/apps/agent-service-guard/frontend/index.html")
-      assert "KARMA//PAY" in portal
+      assert "Karma" in portal
       assert "web3-login.html" in portal
       assert "landing.js" in portal
       assert 'integrity="sha384-' in portal

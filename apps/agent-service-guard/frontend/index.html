@@ -2,392 +2,739 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <!-- Portal-only CSP: no WalletConnect/network; landing logic is external landing.js (SRI). -->
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; script-src 'self'; connect-src 'none'; manifest-src 'self'; upgrade-insecure-requests"
+    content="default-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'; manifest-src 'self'; upgrade-insecure-requests"
   />
-  <title>Karma · Agent payment trust layer | USDT / USDC</title>
-  <meta name="description" content="Non-custodial trust layer for Agent-to-Agent payments. USDT and USDC settlement." />
+  <title>Karma Protected</title>
+  <meta name="description" content="" />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet" crossorigin="anonymous" />
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha384-t1nt8BQoYMLFN5p42tRAtuAAFQaCQODekUVeKKZrEnEyp4H2R0RHFz0KWpmj7i8g" crossorigin="anonymous" />
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      background: #010101;
-      font-family: "Inter", "Share Tech Mono", monospace;
-      color: #d0e0ff;
-      overflow-x: hidden;
-    }
-    .bg-grid {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background-image: linear-gradient(rgba(0, 255, 255, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 255, 255, 0.04) 1px, transparent 1px);
-      background-size: 45px 45px;
-      opacity: 0.07;
-      pointer-events: none;
-      z-index: 0;
-    }
-    .glow-orb {
-      position: fixed;
-      top: 20%;
-      right: -10%;
-      width: 60vmax;
-      height: 60vmax;
-      background: radial-gradient(circle, rgba(0, 255, 255, 0.08), transparent 70%);
-      border-radius: 50%;
-      pointer-events: none;
-      z-index: 0;
-    }
-    .container {
-      max-width: 1300px;
-      margin: 0 auto;
-      padding: 0 28px;
-      position: relative;
-      z-index: 10;
-    }
-    .neon-title {
-      font-size: clamp(2.5rem, 9vw, 5rem);
-      font-weight: 800;
-      font-family: "Share Tech Mono", monospace;
-      text-transform: uppercase;
-      color: #0ef;
-      text-shadow: 0.04em 0 0 #f06, -0.03em -0.02em 0 #0ef;
-      letter-spacing: -1px;
-      white-space: pre-line;
-    }
-    .sub-neon {
-      border-left: 3px solid #0ef;
-      padding-left: 20px;
-      font-family: monospace;
-      font-size: 1rem;
-    }
-    .btn-cyber {
-      background: transparent;
-      border: 1.5px solid #0ef;
-      color: #0ef;
-      padding: 10px 24px;
-      font-weight: bold;
-      font-family: "Share Tech Mono", monospace;
-      cursor: pointer;
-      transition: 0.2s;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      text-decoration: none;
-      backdrop-filter: blur(4px);
-    }
-    .btn-cyber:hover {
-      background: #0ef;
-      color: #000;
-      box-shadow: 0 0 14px #0ef;
-    }
-    .btn-cyber-pink {
-      border-color: #f06;
-      color: #f06;
-    }
-    .btn-cyber-pink:hover {
-      background: #f06;
-      color: #000;
-      box-shadow: 0 0 14px #f06;
-    }
-    .glass-card {
-      background: rgba(8, 12, 25, 0.6);
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(0, 255, 255, 0.25);
-      border-radius: 28px;
-      padding: 1.8rem;
-      transition: 0.2s;
-    }
-    .glass-card:hover {
-      border-color: #0ef;
-      box-shadow: 0 0 18px rgba(0, 255, 255, 0.15);
-    }
-    .icon-lg {
-      font-size: 2.6rem;
-      color: #0ef;
-      margin-bottom: 1rem;
-    }
-    .grid-2 {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 2rem;
-      margin: 2.5rem 0;
-    }
-    .flex-between {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: center;
-      gap: 20px;
-    }
-    .code-block {
-      background: #03050b;
-      border-left: 3px solid #0ef;
-      font-family: "Share Tech Mono", monospace;
-      padding: 1rem;
-      border-radius: 14px;
-      font-size: 0.75rem;
-      margin-top: 1rem;
-      color: #9efff0;
-    }
-    hr {
-      border: none;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, #0ef, #f06, transparent);
-      margin: 2.5rem 0;
-    }
-    footer {
-      border-top: 1px solid rgba(0, 255, 255, 0.2);
-      padding: 2rem 0;
-      text-align: center;
-      font-size: 0.75rem;
-    }
-    .navbar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 24px 0;
-      flex-wrap: wrap;
-      border-bottom: 1px solid rgba(0, 255, 255, 0.3);
-    }
-    .logo {
-      font-size: 1.6rem;
-      font-weight: 800;
-      font-family: monospace;
-      background: linear-gradient(95deg, #0ef, #f06);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-    }
-    .nav-link {
-      margin-left: 1.25rem;
-      text-decoration: none;
-      color: #b8c7ff;
-      font-family: monospace;
-      font-size: 0.9rem;
-    }
-    .nav-link:hover {
-      color: #0ef;
-      text-shadow: 0 0 4px #0ef;
-    }
-    .lang-selector {
-      margin-left: 1rem;
-      background: #0a0e1a;
-      border: 1px solid #0ef;
-      border-radius: 30px;
-      padding: 5px 12px;
-      color: #0ef;
-      font-family: monospace;
-      cursor: pointer;
-      font-size: 0.8rem;
-    }
-    @media (max-width: 700px) {
-      .navbar { flex-direction: column; gap: 16px; align-items: flex-start; }
-      .nav-link { margin-left: 0; margin-right: 1rem; }
-    }
-    .tag {
-      border: 1px solid #f06;
-      border-radius: 30px;
-      padding: 4px 14px;
-      font-size: 0.7rem;
-      display: inline-block;
-      margin-right: 8px;
-      margin-top: 10px;
-    }
-    .deploy-card {
-      background: linear-gradient(135deg, #0a0f1f, #01050f);
-      border: 2px solid #f06;
-      border-radius: 32px;
-      text-align: center;
-      margin: 30px 0;
-    }
-    .site-top-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-    .studio-hint {
-      margin-top: 14px;
-      max-width: 640px;
-      font-size: 0.82rem;
-      line-height: 1.45;
-      color: #8aa0c8;
-    }
+:root {
+  --bg: #070a12;
+  --panel: #101827;
+  --panel2: #151f32;
+  --line: #2b3852;
+  --text: #f6f8fc;
+  --muted: #96a3b8;
+  --green: #34d399;
+  --yellow: #fbbf24;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --purple: #a78bfa;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  min-height: 100vh;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  background:
+    radial-gradient(circle at 9% 0%, rgba(96, 165, 250, 0.2), transparent 34%),
+    radial-gradient(circle at 92% 8%, rgba(52, 211, 153, 0.13), transparent 30%),
+    radial-gradient(circle at 50% 100%, rgba(167, 139, 250, 0.1), transparent 30%),
+    #070a12;
+}
+a {
+  text-decoration: none;
+  color: inherit;
+}
+.container {
+  width: min(1180px, 92%);
+  margin: 0 auto;
+}
+.nav {
+  height: 82px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(43, 56, 82, 0.55);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+  background: linear-gradient(135deg, var(--blue), var(--green));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #07111f;
+  font-weight: 900;
+  font-size: 20px;
+}
+.brand h1 {
+  font-size: 20px;
+  letter-spacing: 0.3px;
+}
+.brand p {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.nav-links {
+  display: flex;
+  gap: 24px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.nav-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.lang-switch {
+  background: rgba(21, 31, 50, 0.76);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 200px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-weight: 800;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: 0.18s;
+}
+.btn:hover {
+  transform: translateY(-1px);
+}
+.btn.primary {
+  background: var(--green);
+  color: #06111f;
+  border: 0;
+}
+.btn.secondary {
+  background: rgba(21, 31, 50, 0.76);
+  color: #fff;
+}
+.hero {
+  padding: 78px 0 58px;
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.12fr 0.88fr;
+  gap: 38px;
+  align-items: center;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 900;
+  margin-bottom: 20px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.hero h2 {
+  font-size: clamp(32px, 5vw, 58px);
+  line-height: 1.08;
+  letter-spacing: -1.8px;
+  max-width: 780px;
+}
+.hero h2 .accent {
+  color: var(--green);
+}
+.hero .lead {
+  margin-top: 22px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.85;
+  max-width: 720px;
+}
+.hero-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 32px;
+  flex-wrap: wrap;
+}
+.trust-line {
+  margin-top: 18px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.trust-pill {
+  border: 1px solid rgba(43, 56, 82, 0.75);
+  background: rgba(16, 24, 39, 0.7);
+  padding: 8px 11px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.mock {
+  background: linear-gradient(180deg, rgba(21, 31, 50, 0.96), rgba(16, 24, 39, 0.96));
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  padding: 22px;
+  box-shadow: var(--shadow);
+}
+.mock-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.mock h3 {
+  font-size: 18px;
+}
+.tag {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+.green {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--green);
+}
+.blue {
+  background: rgba(96, 165, 250, 0.15);
+  color: var(--blue);
+}
+.yellow {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--yellow);
+}
+.red {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--red);
+}
+.purple {
+  background: rgba(167, 139, 250, 0.15);
+  color: var(--purple);
+}
+.metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.metric {
+  background: rgba(7, 10, 18, 0.45);
+  border: 1px solid rgba(43, 56, 82, 0.8);
+  border-radius: 18px;
+  padding: 14px;
+}
+.metric span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.metric strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 24px;
+}
+.flow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+.flow-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(7, 10, 18, 0.35);
+  border: 1px solid rgba(43, 56, 82, 0.7);
+  border-radius: 16px;
+  padding: 12px;
+}
+.flow-item p {
+  font-size: 13px;
+  font-weight: 800;
+}
+.flow-item small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.section {
+  padding: 56px 0;
+}
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-end;
+  margin-bottom: 24px;
+}
+.section h3 {
+  font-size: 34px;
+  letter-spacing: -0.8px;
+}
+.section-head p {
+  color: var(--muted);
+  line-height: 1.8;
+  max-width: 570px;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.card {
+  background: rgba(16, 24, 39, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 22px;
+  min-height: 210px;
+}
+.icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: rgba(96, 165, 250, 0.14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  color: var(--blue);
+  margin-bottom: 16px;
+}
+.card h4 {
+  font-size: 19px;
+  margin-bottom: 10px;
+}
+.card p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.75;
+}
+.solution {
+  background: rgba(16, 24, 39, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 24px;
+}
+.solution-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.step {
+  background: rgba(7, 10, 18, 0.35);
+  border: 1px solid rgba(43, 56, 82, 0.7);
+  border-radius: 20px;
+  padding: 16px;
+  min-height: 150px;
+}
+.num {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--green);
+  color: #06111f;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.step h4 {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+.step p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.panel {
+  background: rgba(16, 24, 39, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 24px;
+}
+.panel h4 {
+  font-size: 22px;
+  margin-bottom: 14px;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 13px;
+  border-radius: 16px;
+  background: rgba(7, 10, 18, 0.35);
+  border: 1px solid rgba(43, 56, 82, 0.65);
+}
+.check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(52, 211, 153, 0.16);
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  flex: none;
+}
+.item b {
+  font-size: 14px;
+}
+.item p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin-top: 3px;
+}
+.security {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.12), rgba(52, 211, 153, 0.09));
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  border-radius: 28px;
+  padding: 28px;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 24px;
+  align-items: center;
+}
+.security h3 {
+  font-size: clamp(24px, 3vw, 32px);
+  margin-bottom: 14px;
+}
+.security > div > p {
+  color: var(--muted);
+  line-height: 1.8;
+}
+.sec-box {
+  background: rgba(7, 10, 18, 0.46);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px;
+}
+.sec-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(43, 56, 82, 0.65);
+}
+.sec-row:last-child {
+  border-bottom: 0;
+}
+.sec-row span:first-child {
+  color: var(--muted);
+  font-size: 13px;
+}
+.cta {
+  text-align: center;
+  padding: 70px 0 86px;
+}
+.cta-box {
+  background: linear-gradient(180deg, rgba(21, 31, 50, 0.96), rgba(16, 24, 39, 0.96));
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  padding: 42px;
+  box-shadow: var(--shadow);
+}
+.cta h3 {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+.cta p {
+  color: var(--muted);
+  line-height: 1.8;
+  max-width: 720px;
+  margin: 0 auto 24px;
+}
+.studio-hint {
+  margin-top: 20px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.footer {
+  border-top: 1px solid rgba(43, 56, 82, 0.55);
+  padding: 24px 0;
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+@media (max-width: 980px) {
+  .nav-links {
+    display: none;
+  }
+  .hero-grid,
+  .security,
+  .split {
+    grid-template-columns: 1fr;
+  }
+  .cards,
+  .solution-grid {
+    grid-template-columns: 1fr;
+  }
+  .footer {
+    display: block;
+    line-height: 1.8;
+  }
+}
   </style>
 </head>
 <body>
-  <div class="bg-grid"></div>
-  <div class="glow-orb"></div>
-  <div class="container" id="top">
-    <div class="navbar">
-      <div class="logo"><i class="fas fa-bolt"></i> KARMA//PAY</div>
-      <div class="site-top-links">
-        <a href="#top" class="nav-link" data-i18n="nav_home">Home</a>
-        <a href="#problem" class="nav-link" data-i18n="nav_pay">Pay / receive</a>
-        <a href="#trust" class="nav-link" data-i18n="nav_trust">Trust layer</a>
-        <a href="#how" class="nav-link" data-i18n="nav_how">How it works</a>
-        <select id="langSwitcher" class="lang-selector" aria-label="Language">
-          <option value="en">English</option>
-          <option value="zh">中文</option>
-          <option value="ja">日本語</option>
-          <option value="ko">한국어</option>
-          <option value="de">Deutsch</option>
-          <option value="fr">Français</option>
-          <option value="es">Español</option>
-          <option value="ar">العربية</option>
-          <option value="ru">Русский</option>
-        </select>
-        <a href="web3-login.html?target=studio%2Findex.html" class="btn-cyber" style="padding: 6px 18px; font-size: 0.75rem"><i class="fas fa-sign-in-alt"></i> <span data-i18n="login">Sign in</span></a>
-      </div>
-    </div>
-
-    <div style="padding: 60px 0 30px">
-      <div class="neon-title" id="heroTitleBlock" data-i18n="hero_title">AGENT PAYMENT\nTRUST LAYER</div>
-      <div class="sub-neon" style="margin: 20px 0 24px">
-        <i class="fas fa-exchange-alt"></i> <span data-i18n="hero_sub">When one Agent pays another — no more “pay first, hope they deliver.”</span>
-      </div>
-      <p style="max-width: 680px; font-size: 1rem; line-height: 1.5; margin-bottom: 32px" data-i18n="hero_desc">
-        Karma addresses Agent-to-Agent settlement: verifiable delivery and rule-bound release. Stablecoin-focused, audit-friendly flows.
-      </p>
+  <header class="container nav">
+    <a class="brand" href="#top" id="top">
+      <div class="logo">K</div>
       <div>
-        <a href="https://github.com/AtoB101/Karma" class="btn-cyber" target="_blank" rel="noopener noreferrer"><i class="fas fa-rocket"></i> <span data-i18n="btn_integrate">Start integration</span></a>
-        <a href="web3-login.html?target=studio%2Findex.html" class="btn-cyber btn-cyber-pink" style="margin-left: 16px"><i class="fas fa-wallet"></i> <span data-i18n="btn_demo">Open Agent Studio</span></a>
+        <h1>Karma</h1>
+        <p data-i18n="brand_domain">karma-network.ai</p>
       </div>
-      <p class="studio-hint" data-i18n="studio_isolated">Wallet sign-in uses a dedicated page. Do not enter a seed phrase on this site.</p>
-      <div style="margin-top: 40px">
-        <span class="tag">#AgentPayments</span>
-        <span class="tag" style="border-color: #0ef">#NonCustodial</span>
-        <span class="tag">#BillFirst</span>
-        <span class="tag" style="border-color: #f06">USDT / USDC</span>
-      </div>
+    </a>
+    <nav class="nav-links" aria-label="Section">
+      <a href="#pain" data-i18n="nav_pain">Trading pain points</a>
+      <a href="#solution" data-i18n="nav_solution">Protection</a>
+      <a href="#users" data-i18n="nav_users">Who it’s for</a>
+      <a href="#security" data-i18n="nav_security">Security</a>
+    </nav>
+    <div class="nav-actions">
+      <select id="langSwitcher" class="lang-switch" aria-label="Language"></select>
+      <a class="btn secondary" href="web3-login.html?target=studio%2Findex.html" data-i18n="nav_sign_in">Sign in</a>
+      <a class="btn secondary" href="#solution" data-i18n="nav_how_btn">How it works</a>
+      <a class="btn primary" href="web3-login.html?target=studio%2Findex.html" data-i18n="nav_console_btn">Open console</a>
     </div>
-
-    <div class="glass-card" style="text-align: center; margin-bottom: 30px; border-color: #0ef">
-      <i class="fas fa-coins" style="font-size: 2rem; color: #f06"></i>
-      <h3 style="margin: 12px 0" data-i18n="settlement_title">Stablecoin settlement</h3>
-      <p data-i18n="settlement_desc">USDT and USDC on supported EVM networks. Configure networks in your deployment.</p>
-      <div class="code-block" style="display: inline-block; background: #000">USDC | USDT — non-custodial flows + verifiable state</div>
-    </div>
-
-    <div id="problem" style="margin: 40px 0">
-      <h2 style="font-size: 1.8rem; font-family: monospace"><i class="fas fa-question-circle"></i> <span data-i18n="problem_title">The Agent payment deadlock</span></h2>
-      <div class="grid-2" style="margin-top: 24px">
-        <div class="glass-card">
-          <i class="fas fa-receipt icon-lg"></i>
-          <h3 data-i18n="buyer_title">Payer → fears no delivery</h3>
-          <p style="margin-top: 12px" data-i18n="buyer_desc">You need proof the counterparty will perform before funds irrevocably leave your control.</p>
-          <div class="code-block" data-i18n="buyer_code">Before paying: how do we ensure delivery?</div>
-        </div>
-        <div class="glass-card">
-          <i class="fas fa-hand-holding-usd icon-lg"></i>
-          <h3 data-i18n="seller_title">Payee → fears unpaid work</h3>
-          <p style="margin-top: 12px" data-i18n="seller_desc">You need assurance payment follows verified delivery, without opaque custody.</p>
-          <div class="code-block" data-i18n="seller_code">After delivery: how do we ensure payment?</div>
-        </div>
-      </div>
-    </div>
-
-    <div id="trust" class="glass-card" style="background: rgba(0, 10, 20, 0.7); border-color: #f06">
-      <div class="flex-between">
-        <div style="flex: 2">
-          <i class="fas fa-link" style="color: #0ef; font-size: 2rem"></i>
-          <h2 style="margin: 12px 0 8px" data-i18n="trust_title">Karma trust layer: rules + evidence</h2>
-          <p style="font-size: 1rem" data-i18n="trust_desc">Bill-first, wallet-native posture: obligations and settlement steps you can review — not a black-box float account.</p>
-          <div class="code-block" style="background: #05080f; margin-top: 18px" data-i18n="trust_code">Lock and policy state are verifiable on-chain where applicable; settlement follows agreed conditions.</div>
-        </div>
-        <div style="flex: 1; text-align: center">
-          <i class="fas fa-check-double" style="font-size: 3rem; color: #f06"></i>
-          <div style="font-weight: bold; margin-top: 8px" data-i18n="zero_custody">Non-custodial by design</div>
-          <div style="font-size: 0.8rem" data-i18n="funds_safe">Funds stay user-side until rules allow movement</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="deploy-card glass-card" style="text-align: center; background: radial-gradient(ellipse at 30% 40%, #0a0f20, #010101)">
-      <i class="fas fa-cloud-upload-alt" style="font-size: 2.8rem; color: #0ef; margin-bottom: 12px"></i>
-      <h2 data-i18n="deploy_title">Deploy your trust node</h2>
-      <p data-i18n="deploy_desc">Run Karma stack on your infrastructure. Replace the example URL with your distribution endpoint.</p>
-      <div class="code-block" style="background: #000; width: fit-content; margin: 16px auto">curl -sSL https://example.invalid/karma-deploy | bash</div>
-      <button type="button" id="oneClickDeployBtn" class="btn-cyber" style="margin-top: 12px"><i class="fas fa-terminal"></i> <span data-i18n="deploy_btn">Documentation</span></button>
-      <div style="font-size: 0.7rem; margin-top: 12px; color: #8899bb" data-i18n="deploy_note">Example command only — configure before production.</div>
-    </div>
-
-    <div id="how" style="margin: 60px 0">
-      <h2 style="font-size: 1.7rem"><i class="fas fa-cogs"></i> <span data-i18n="flow_title">Flow · trust as settlement</span></h2>
-      <div class="grid-2" style="margin-top: 28px">
-        <div class="glass-card">
-          <div style="font-size: 2rem; font-weight: bold; color: #0ef">1</div>
-          <h3 data-i18n="step1_title">Define obligation</h3>
-          <p data-i18n="step1_desc">Create a bill / policy the payer can review before authorizing.</p>
-          <p style="margin-top: 8px; font-size: 0.85rem; color: #9ab"><i class="fas fa-lock" style="color: #0ef"></i> <span data-i18n="step1_note">Rules first, not blind transfer</span></p>
-        </div>
-        <div class="glass-card">
-          <div style="font-size: 2rem; font-weight: bold; color: #0ef">2</div>
-          <h3 data-i18n="step2_title">Deliver &amp; attest</h3>
-          <p data-i18n="step2_desc">Attach delivery evidence hashes or signatures your counterpart can verify.</p>
-          <p style="margin-top: 8px; font-size: 0.85rem"><i class="fas fa-check-circle" style="color: #0ef"></i> <span data-i18n="step2_note">Fingerprinted, reviewable trail</span></p>
-        </div>
-        <div class="glass-card">
-          <div style="font-size: 2rem; font-weight: bold; color: #0ef">3</div>
-          <h3 data-i18n="step3_title">Settle on conditions</h3>
-          <p data-i18n="step3_desc">When conditions are met, stablecoin settlement executes per contract rules.</p>
-          <p style="margin-top: 8px; font-size: 0.85rem"><i class="fas fa-dollar-sign" style="color: #0ef"></i> <span data-i18n="step3_note">Closed loop, auditable</span></p>
-        </div>
-        <div class="glass-card">
-          <div style="font-size: 2rem; font-weight: bold; color: #0ef">4</div>
-          <h3 data-i18n="step4_title">Disputes (optional)</h3>
-          <p data-i18n="step4_desc">Escalate with evidence; outcomes remain on-chain where configured.</p>
-          <p style="margin-top: 8px; font-size: 0.85rem"><i class="fas fa-gavel" style="color: #0ef"></i> <span data-i18n="step4_note">Process-bound, not ad-hoc chat</span></p>
-        </div>
-      </div>
-    </div>
-
-    <div style="margin: 55px 0 30px">
-      <h2 style="font-size: 1.5rem"><i class="fas fa-code"></i> <span data-i18n="integrate_title">Integrate</span></h2>
-      <div class="grid-2" style="margin-top: 20px">
-        <div class="glass-card">
-          <i class="fab fa-python"></i> <strong data-i18n="code_payer">Payer Agent</strong>
-          <div class="code-block" style="margin-top: 12px"># See repo examples &amp; public API contract<br /># karma-core + settlement adapters</div>
-        </div>
-        <div class="glass-card">
-          <i class="fab fa-js"></i> <strong data-i18n="code_payee">Payee Agent</strong>
-          <div class="code-block" style="margin-top: 12px">// Verify bill state before execution<br />// Submit delivery attestation</div>
-        </div>
-      </div>
-      <div style="text-align: center; margin-top: 28px">
-        <a href="https://github.com/AtoB101/Karma" class="btn-cyber" target="_blank" rel="noopener noreferrer"><i class="fas fa-plug"></i> <span data-i18n="docs_btn">Repository &amp; docs</span></a>
-      </div>
-    </div>
-
-    <hr />
-
-    <div style="margin: 40px 0">
-      <h3><i class="fas fa-comment-dots"></i> <span data-i18n="faq_title">FAQ</span></h3>
-      <div class="grid-2" style="margin-top: 24px">
+  </header>
+  <main>
+    <section class="container hero">
+      <div class="hero-grid">
         <div>
-          <p><strong data-i18n="faq1_q">Is non-custodial settlement safe?</strong><br /><span data-i18n="faq1_a">Rules are enforced by contracts you can read; funds follow policy, not informal promises.</span></p>
-          <p style="margin-top: 20px"><strong data-i18n="faq2_q">How does the payee know they will be paid?</strong><br /><span data-i18n="faq2_a">Bill and policy state are on-chain or otherwise verifiable before work is committed.</span></p>
+          <div class="badge"><span class="dot"></span><span data-i18n="hero_badge">Karma Protected</span></div>
+          <h2><span data-i18n="hero_h2_line1">AI service deals shouldn’t rely on luck.</span><br /><span class="accent" data-i18n="hero_h2_line2">Funds lock first. Evidence settles disputes.</span></h2>
+          <p class="lead" data-i18n="hero_lead">
+            Buyers lock funds; sellers post a performance bond. Delivery generates evidence; disputes can freeze funds; confirmation triggers settlement. Built for agents, APIs, AI automation, and digital delivery teams.
+          </p>
+          <div class="hero-actions">
+            <a class="btn primary" href="web3-login.html?target=studio%2Findex.html" data-i18n="hero_cta_console">Open console</a>
+            <a class="btn secondary" href="#solution" data-i18n="hero_cta_how">See how protection works</a>
+          </div>
+          <div class="trust-line">
+            <span class="trust-pill" data-i18n="pill_1">Buyer lock</span>
+            <span class="trust-pill" data-i18n="pill_2">Seller bond</span>
+            <span class="trust-pill" data-i18n="pill_3">Auto evidence</span>
+            <span class="trust-pill" data-i18n="pill_4">Dispute freeze</span>
+            <span class="trust-pill" data-i18n="pill_5">Auto settlement</span>
+          </div>
         </div>
-        <div>
-          <p><strong data-i18n="faq3_q">Which assets?</strong><br /><span data-i18n="faq3_a">USDC and USDT on networks you enable in deployment.</span></p>
-          <p style="margin-top: 20px"><strong data-i18n="faq4_q">Disputes?</strong><br /><span data-i18n="faq4_a">Evidence-backed escalation; exact governance depends on your deployment manifest.</span></p>
+        <div class="mock">
+          <div class="mock-head">
+            <h3 data-i18n="mock_title">Protected order</h3>
+            <span class="tag green" data-i18n="mock_seller_tag">A+ seller</span>
+          </div>
+          <div class="metrics">
+            <div class="metric"><span data-i18n="mm_buyer">Buyer locked</span><strong>$500</strong></div>
+            <div class="metric"><span data-i18n="mm_bond">Seller bond</span><strong>$150</strong></div>
+            <div class="metric"><span data-i18n="mm_excess">Extra lock</span><strong>$50</strong></div>
+            <div class="metric"><span data-i18n="mm_settle">Settleable</span><strong>$500</strong></div>
+          </div>
+          <div class="flow">
+            <div class="flow-item">
+              <div><p data-i18n="f1_t">AI Data API</p><small data-i18n="f1_s">Evidence ready · awaiting confirmation</small></div>
+              <span class="tag blue" data-i18n="f1_tag">Pending settlement</span>
+            </div>
+            <div class="flow-item">
+              <div><p data-i18n="f2_t">AI video delivery</p><small data-i18n="f2_s">Bond frozen · more proof needed</small></div>
+              <span class="tag red" data-i18n="f2_tag">In dispute</span>
+            </div>
+            <div class="flow-item">
+              <div><p data-i18n="f3_t">Trust badge</p><small data-i18n="f3_s">High-assurance seller · visible to buyers</small></div>
+              <span class="tag green" data-i18n="f3_tag">Protected</span>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-
-    <footer>
-      <p><i class="fas fa-microchip"></i> <span data-i18n="foot_line1">Karma — Agent payment trust layer</span></p>
-      <p data-i18n="foot_line2">USDT | USDC — non-custodial · verifiable</p>
-    </footer>
-  </div>
-
+    </section>
+    <section id="pain" class="container section">
+      <div class="section-head">
+        <h3 data-i18n="pain_h">The hard part isn’t paying.</h3>
+        <p data-i18n="pain_p">Buyers fear paying first; sellers fear unpaid work; after delivery, disputes lack proof.</p>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <div class="icon">01</div>
+          <h4 data-i18n="c1_h">Buyers hesitate</h4>
+          <p data-i18n="c1_p">Hard to tell if the service is real, delivery is valid, or the seller will disappear.</p>
+        </div>
+        <div class="card">
+          <div class="icon">02</div>
+          <h4 data-i18n="c2_h">Sellers get stiffed</h4>
+          <p data-i18n="c2_p">Digital work is easy to copy, deny, or dispute without strong records.</p>
+        </div>
+        <div class="card">
+          <div class="icon">03</div>
+          <h4 data-i18n="c3_h">Disputes lack evidence</h4>
+          <p data-i18n="c3_p">Without request/response logs, outputs, and attestations, resolution becomes arguing.</p>
+        </div>
+      </div>
+    </section>
+    <section id="solution" class="container section">
+      <div class="section-head">
+        <h3 data-i18n="sol_h">How Karma protects deals</h3>
+        <p data-i18n="sol_p">Every protected order follows one state machine: funds, responsibility, evidence, disputes, settlement.</p>
+      </div>
+      <div class="solution">
+        <div class="solution-grid">
+          <div class="step">
+            <div class="num">1</div>
+            <h4 data-i18n="st1_h">Create a protected order</h4>
+            <p data-i18n="st1_p">Define scope, price, delivery standard, and confirmation window.</p>
+          </div>
+          <div class="step">
+            <div class="num">2</div>
+            <h4 data-i18n="st2_h">Buyer locks funds</h4>
+            <p data-i18n="st2_p">Buyer locks the full amount to prove ability to pay.</p>
+          </div>
+          <div class="step">
+            <div class="num">3</div>
+            <h4 data-i18n="st3_h">Seller locks bond</h4>
+            <p data-i18n="st3_p">Seller locks minimum performance bond for baseline recourse.</p>
+          </div>
+          <div class="step">
+            <div class="num">4</div>
+            <h4 data-i18n="st4_h">Evidence auto-captured</h4>
+            <p data-i18n="st4_p">Requests, responses, execution logs, and delivery proofs are recorded.</p>
+          </div>
+          <div class="step">
+            <div class="num">5</div>
+            <h4 data-i18n="st5_h">Settle or freeze</h4>
+            <p data-i18n="st5_p">Confirm to release funds; disputes freeze relevant amounts for resolution.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="users" class="container section">
+      <div class="section-head">
+        <h3 data-i18n="users_h">Who should use Karma</h3>
+        <p data-i18n="users_p">Remote delivery, automated execution, cross-border payments, or dispute-prone services.</p>
+      </div>
+      <div class="split">
+        <div class="panel">
+          <h4 data-i18n="sell_panel_h">Built for sellers</h4>
+          <div class="list">
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="sb1_b">Agent service sellers</b><p data-i18n="sb1_p">Automated tasks and outputs need trustworthy collection and evidence.</p></div>
+            </div>
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="sb2_b">API / data providers</b><p data-i18n="sb2_p">Per-call, per-package, or per-result billing maps cleanly to usage evidence.</p></div>
+            </div>
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="sb3_b">AI automation teams</b><p data-i18n="sb3_p">Video, content, marketing, bots, and workflows delivered digitally.</p></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h4 data-i18n="buy_panel_h">What buyers gain</h4>
+          <div class="list">
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="bb1_b">Funds don’t release blindly</b><p data-i18n="bb1_p">Until delivery is clear, funds aren’t handed to the seller.</p></div>
+            </div>
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="bb2_b">Seller bond backs the deal</b><p data-i18n="bb2_p">Default scenarios have a funded baseline for remediation.</p></div>
+            </div>
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="bb3_b">Evidence is traceable</b><p data-i18n="bb3_p">Each order keeps execution and delivery records for disputes.</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="security" class="container section">
+      <div class="security">
+        <div>
+          <h3 data-i18n="sec_h">Marketing site is the front door; trading happens in the isolated console.</h3>
+          <p data-i18n="sec_p">
+            This site explains the product and routes you to the console. Wallet connection, orders, locks, signatures, evidence, and disputes run in a dedicated console — not here — so the homepage stays clean and we never ask for seed phrases on the brochure page.
+          </p>
+          <div class="hero-actions">
+            <a class="btn primary" href="web3-login.html?target=studio%2Findex.html" data-i18n="sec_cta_console">Open console</a>
+            <a class="btn secondary" href="#solution" data-i18n="sec_cta_how">How protection works</a>
+          </div>
+        </div>
+        <div class="sec-box">
+          <div class="sec-row"><span data-i18n="rw_site">Website</span><b class="tag blue" data-i18n="rw_site_v">Learn &amp; enter</b></div>
+          <div class="sec-row"><span data-i18n="rw_wallet">Wallet connect</span><b class="tag yellow" data-i18n="rw_wallet_v">In console</b></div>
+          <div class="sec-row"><span data-i18n="rw_orders">Orders &amp; locks</span><b class="tag yellow" data-i18n="rw_orders_v">In console</b></div>
+          <div class="sec-row"><span data-i18n="rw_keys">Private keys / seed</span><b class="tag red" data-i18n="rw_keys_v">Never collected</b></div>
+          <div class="sec-row"><span data-i18n="rw_evid">Evidence &amp; disputes</span><b class="tag green" data-i18n="rw_evid_v">In console</b></div>
+        </div>
+      </div>
+    </section>
+    <section id="enter" class="container cta">
+      <div class="cta-box">
+        <h3 data-i18n="cta_h">Start with Karma Protected</h3>
+        <p data-i18n="cta_p">
+          Open the isolated console to create protected orders, set seller bonds, manage lock balances, review evidence bundles, and handle settlement and disputes.
+        </p>
+        <div class="hero-actions" style="justify-content: center">
+          <a class="btn primary" href="web3-login.html?target=studio%2Findex.html" data-i18n="cta_go">Open console</a>
+          <a class="btn secondary" href="#solution" data-i18n="cta_learn">Learn the mechanics first</a>
+        </div>
+        <p class="studio-hint" data-i18n="studio_hint">Wallet sign-in uses a separate page. Do not enter a seed phrase on this marketing site.</p>
+      </div>
+    </section>
+  </main>
+  <footer class="container footer">
+    <div data-i18n="foot1">© 2026 Karma Network. Trust infrastructure for AI commerce.</div>
+    <div data-i18n="foot2">Karma Protected · Karma Evidence · Karma Score · Karma Resolve</div>
+  </footer>
   <script
     type="module"
     src="./landing.js"
-    integrity="sha384-HEDXYZs7N61Uis0FMAWyHbdNy7XFWPcRrz3nA7dicPsbbwMwDOSVRJLuS27oDQwO"
+    integrity="sha384-J4v+gmiNXD1PljeI+FumvcksAPDqBOmKzGML3ESXPa8SSggbRtxqMEsu+Kktq37d"
     crossorigin="anonymous"
   ></script>
 </body>
