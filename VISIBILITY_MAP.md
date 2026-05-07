@@ -12,7 +12,6 @@ This document defines repository visibility boundaries and review ownership.
 - `.github/workflows/**`
 - `README.md`
 - `SECURITY.md`
-- `CONVENTIONS.md`
 - `scripts/**` (public wrappers only)
 
 ### Private domain (not in this public repository)

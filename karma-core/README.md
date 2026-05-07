@@ -9,7 +9,7 @@ AI agents need to pay each other, but existing solutions either require custody 
 ## Website
 
 - Portal (test): https://atob101.github.io/Karma/
-- Coming soon + waitlist: https://atob101.github.io/Karma/coming-soon.html (Karma Coming Soon)
+- **Karma Guard** (agent payments UI): see `apps/agent-service-guard/frontend/` in the repository root.
 
 This public repository exposes the verifiable settlement protocol baseline:
 
