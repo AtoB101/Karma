@@ -9,7 +9,6 @@
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;600;700;800&family=Share+Tech+Mono&display=swap" rel="stylesheet" crossorigin="anonymous" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha384-t1nt8BQoYMLFN5p42tRAtuAAFQaCQODekUVeKKZrEnEyp4H2R0RHFz0KWpmj7i8g" crossorigin="anonymous" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU" crossorigin="anonymous"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -204,101 +203,14 @@
       text-align: center;
       margin: 30px 0;
     }
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(8px);
-      z-index: 1000;
-      justify-content: center;
-      align-items: center;
-    }
-    .modal.is-open { display: flex; }
-    .modal-content {
-      background: rgba(6, 10, 25, 0.95);
-      border: 2px solid #0ef;
-      border-radius: 32px;
-      width: 90%;
-      max-width: 500px;
-      padding: 28px 24px;
-      box-shadow: 0 0 40px rgba(0, 255, 255, 0.2);
-      position: relative;
-    }
-    .modal-close {
-      position: absolute;
-      top: 16px;
-      right: 24px;
-      font-size: 28px;
-      cursor: pointer;
-      color: #0ef;
-      border: none;
-      background: none;
-    }
-    .modal-close:hover { color: #f06; }
-    .login-tab {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 24px;
-      border-bottom: 1px solid #0ef;
-    }
-    .tab-btn {
-      background: none;
-      border: none;
-      color: #a0b0e0;
-      font-family: monospace;
-      font-size: 1rem;
-      padding: 8px 0;
-      cursor: pointer;
-    }
-    .tab-btn.active {
-      color: #0ef;
-      border-bottom: 2px solid #0ef;
-    }
-    .qr-container {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 16px;
-    }
-    #qrcode {
-      background: #fff;
-      padding: 12px;
-      border-radius: 20px;
-    }
-    .mnemonic-inputs {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      margin: 20px 0;
-      max-height: 300px;
-      overflow-y: auto;
-    }
-    @media (max-width: 520px) {
-      .mnemonic-inputs { grid-template-columns: repeat(2, 1fr); }
-    }
-    .word-input {
-      background: #010a1a;
-      border: 1px solid #0ef;
-      border-radius: 8px;
-      padding: 6px 8px;
-      color: #0ef;
-      font-family: monospace;
-      text-align: center;
-    }
-    .btn-confirm { width: 100%; justify-content: center; }
-    .switch-link {
-      text-align: center;
-      margin-top: 16px;
-      font-size: 0.8rem;
-      color: #f06;
-      cursor: pointer;
-      text-decoration: underline;
-    }
     .site-top-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .studio-hint {
+      margin-top: 14px;
+      max-width: 640px;
+      font-size: 0.82rem;
+      line-height: 1.45;
+      color: #8aa0c8;
+    }
   </style>
 </head>
 <body>
@@ -337,9 +249,9 @@
       </p>
       <div>
         <a href="https://github.com/AtoB101/Karma" class="btn-cyber" target="_blank" rel="noopener"><i class="fas fa-rocket"></i> <span data-i18n="btn_integrate">Start integration</span></a>
-        <a href="web3-login.html?target=studio%2Findex.html" class="btn-cyber btn-cyber-pink" style="margin-left: 16px"><i class="fas fa-wallet"></i> <span data-i18n="btn_demo">Open user studio</span></a>
-        <button type="button" class="btn-cyber" style="margin-left: 16px" id="openLoginModal"><i class="fas fa-qrcode"></i> <span data-i18n="btn_modal_login">Login modal</span></button>
+        <a href="web3-login.html?target=studio%2Findex.html" class="btn-cyber btn-cyber-pink" style="margin-left: 16px"><i class="fas fa-wallet"></i> <span data-i18n="btn_demo">Open Agent Studio</span></a>
       </div>
+      <p class="studio-hint" data-i18n="studio_isolated">Wallet sign-in uses a dedicated page. Do not enter a seed phrase on this site.</p>
       <div style="margin-top: 40px">
         <span class="tag">#AgentPayments</span>
         <span class="tag" style="border-color: #0ef">#NonCustodial</span>
@@ -467,38 +379,7 @@
     </footer>
   </div>
 
-  <div id="loginModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="loginModalTitle">
-    <div class="modal-content">
-      <button type="button" class="modal-close" id="closeModal" aria-label="Close">&times;</button>
-      <h3 id="loginModalTitle"><i class="fas fa-id-card"></i> <span data-i18n="modal_title">Sign in to Karma</span></h3>
-      <div class="login-tab">
-        <button type="button" class="tab-btn active" id="qrTabBtn" data-i18n="tab_qr">Wallet QR</button>
-        <button type="button" class="tab-btn" id="mnemonicTabBtn" data-i18n="tab_mnemonic">Mnemonic login</button>
-      </div>
-      <div id="qrLoginPanel">
-        <div class="qr-container">
-          <div id="qrcode"></div>
-          <p style="font-size: 0.85rem; color: #0ef" data-i18n="qr_hint">Scan with your wallet app, or continue in browser.</p>
-          <a class="btn-cyber" href="web3-login.html?target=studio%2Findex.html" data-i18n="qr_open_page">Open connection page</a>
-        </div>
-        <div class="switch-link" id="showMnemonicLink" data-i18n="switch_mnemonic">Mnemonic login →</div>
-      </div>
-      <div id="mnemonicLoginPanel" style="display: none">
-        <p style="margin-bottom: 12px; text-align: center; font-size: 0.9rem" data-i18n="mnemonic_intro">12-word recovery phrase (BIP-39 English)</p>
-        <div id="mnemonicInputs" class="mnemonic-inputs"></div>
-        <button type="button" id="confirmMnemonicBtn" class="btn-cyber btn-confirm"><i class="fas fa-key"></i> <span data-i18n="mnemonic_confirm">Continue</span></button>
-        <div class="switch-link" id="showQrLink" data-i18n="switch_qr">← Wallet QR</div>
-      </div>
-    </div>
-  </div>
-
-  <script src="wc-config.js"></script>
   <script type="module">
-    import { ethers } from "https://esm.sh/ethers@6.13.4";
-
-    const STUDIO = "studio/index.html";
-    const WEB3_LOGIN = "web3-login.html?target=" + encodeURIComponent(STUDIO);
-
     const T = {
       en: {
         nav_home: "Home",
@@ -511,8 +392,9 @@
         hero_desc:
           "Karma addresses Agent-to-Agent settlement: verifiable delivery and rule-bound release. Stablecoin-focused, audit-friendly flows.",
         btn_integrate: "Start integration",
-        btn_demo: "Open user studio",
-        btn_modal_login: "Login modal",
+        btn_demo: "Open Agent Studio",
+        studio_isolated:
+          "Wallet sign-in uses a dedicated page. Do not enter a seed phrase on this site.",
         settlement_title: "Stablecoin settlement",
         settlement_desc: "USDT and USDC on supported EVM networks. Configure networks in your deployment.",
         problem_title: "The Agent payment deadlock",
@@ -559,18 +441,7 @@
         faq4_a: "Evidence-backed escalation; exact governance depends on your deployment manifest.",
         foot_line1: "Karma — Agent payment trust layer",
         foot_line2: "USDT | USDC — non-custodial · verifiable",
-        modal_title: "Sign in to Karma",
-        tab_qr: "Wallet QR",
-        tab_mnemonic: "Mnemonic login",
-        qr_hint: "Scan with your wallet app, or continue in browser.",
-        qr_open_page: "Open connection page",
-        switch_mnemonic: "Mnemonic login →",
-        mnemonic_intro: "12-word recovery phrase (BIP-39 English)",
-        mnemonic_confirm: "Continue",
-        switch_qr: "← Wallet QR",
         deploy_alert: "Replace the example URL in this page with your real deploy script before running in production.",
-        mnemonic_fill: "Enter all 12 words.",
-        mnemonic_invalid: "Invalid phrase. Check spelling and order.",
       },
       zh: {
         nav_home: "首页",
@@ -583,8 +454,8 @@
         hero_desc:
           "Karma 面向 Agent 间结算：可验证交付与按规则释放。以稳定币为主，流程可审计。",
         btn_integrate: "开始集成",
-        btn_demo: "打开用户端",
-        btn_modal_login: "登录窗口",
+        btn_demo: "打开 Agent Studio",
+        studio_isolated: "钱包登录在独立页面完成。请勿在本站输入助记词或私钥。",
         settlement_title: "稳定币结算",
         settlement_desc: "在已部署支持的 EVM 网络上使用 USDT 与 USDC。网络以您的部署配置为准。",
         problem_title: "Agent 收付款的两难",
@@ -631,18 +502,7 @@
         faq4_a: "基于证据的升级路径；具体治理以部署清单为准。",
         foot_line1: "Karma — Agent 收付款信任层",
         foot_line2: "USDT | USDC — 非托管 · 可验证",
-        modal_title: "登录 Karma",
-        tab_qr: "钱包扫码",
-        tab_mnemonic: "助记词登录",
-        qr_hint: "使用钱包 App 扫码，或在浏览器中继续。",
-        qr_open_page: "打开连接页面",
-        switch_mnemonic: "助记词登录 →",
-        mnemonic_intro: "12 个英文助记词（BIP-39）",
-        mnemonic_confirm: "继续",
-        switch_qr: "← 钱包扫码",
         deploy_alert: "上线前请将页面中的示例部署地址替换为真实脚本来源。",
-        mnemonic_fill: "请填写全部 12 个词。",
-        mnemonic_invalid: "助记词无效，请检查拼写与顺序。",
       },
     };
 
@@ -679,83 +539,6 @@
     document.getElementById("langSwitcher").value = currentLang;
     applyLanguage(currentLang);
     document.getElementById("langSwitcher").addEventListener("change", (e) => applyLanguage(e.target.value));
-
-    const modal = document.getElementById("loginModal");
-    document.getElementById("openLoginModal").addEventListener("click", () => {
-      modal.classList.add("is-open");
-      initQrPlaceholder();
-      ensureMnemonicInputs();
-    });
-    document.getElementById("closeModal").addEventListener("click", () => modal.classList.remove("is-open"));
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) modal.classList.remove("is-open");
-    });
-
-    function initQrPlaceholder() {
-      const el = document.getElementById("qrcode");
-      el.innerHTML = "";
-      const deep = new URL(WEB3_LOGIN, location.href).href;
-      new QRCode(el, { text: deep, width: 168, height: 168 });
-    }
-
-    function ensureMnemonicInputs() {
-      const container = document.getElementById("mnemonicInputs");
-      if (container.children.length) return;
-      for (let i = 1; i <= 12; i++) {
-        const inp = document.createElement("input");
-        inp.type = "text";
-        inp.className = "word-input";
-        inp.autocomplete = "off";
-        inp.placeholder = String(i);
-        container.appendChild(inp);
-      }
-    }
-
-    document.getElementById("qrTabBtn").addEventListener("click", () => {
-      document.getElementById("qrLoginPanel").style.display = "block";
-      document.getElementById("mnemonicLoginPanel").style.display = "none";
-      document.getElementById("qrTabBtn").classList.add("active");
-      document.getElementById("mnemonicTabBtn").classList.remove("active");
-    });
-    document.getElementById("mnemonicTabBtn").addEventListener("click", () => {
-      document.getElementById("qrLoginPanel").style.display = "none";
-      document.getElementById("mnemonicLoginPanel").style.display = "block";
-      document.getElementById("mnemonicTabBtn").classList.add("active");
-      document.getElementById("qrTabBtn").classList.remove("active");
-      ensureMnemonicInputs();
-    });
-    document.getElementById("showMnemonicLink").addEventListener("click", () => document.getElementById("mnemonicTabBtn").click());
-    document.getElementById("showQrLink").addEventListener("click", () => document.getElementById("qrTabBtn").click());
-
-    document.getElementById("confirmMnemonicBtn").addEventListener("click", () => {
-      const words = Array.from(document.querySelectorAll("#mnemonicInputs .word-input")).map((i) => i.value.trim().toLowerCase());
-      const d = deepFill(currentLang);
-      if (words.some((w) => !w)) {
-        alert(d.mnemonic_fill);
-        return;
-      }
-      try {
-        const phrase = words.join(" ");
-        const w = ethers.Wallet.fromPhrase(phrase);
-        const payload = {
-          wallet: w.address,
-          loginMethod: "mnemonic-login",
-          loginAt: new Date().toISOString(),
-          chainId: "eip155:1",
-          signature: "0xmnemonic_" + w.address.slice(2, 12),
-          challenge: "mnemonic-login",
-          wcTopic: "",
-        };
-        sessionStorage.setItem("karma_web3_session", JSON.stringify(payload));
-        try {
-          localStorage.removeItem("karma_web3_session");
-        } catch (_) {}
-        modal.classList.remove("is-open");
-        location.href = STUDIO + "?wallet=" + encodeURIComponent(w.address);
-      } catch {
-        alert(d.mnemonic_invalid);
-      }
-    });
 
     document.getElementById("oneClickDeployBtn").addEventListener("click", () => {
       alert(deepFill(currentLang).deploy_alert);

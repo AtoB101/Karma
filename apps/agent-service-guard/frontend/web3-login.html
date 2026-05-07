@@ -4,8 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <title>KarmaPay — Sign in</title>
-  <meta name="description" content="Sign in with your wallet to open Agent Studio." />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>KarmaPay — Studio sign-in</title>
+  <meta name="description" content="Wallet-only sign-in for Agent Studio (WalletConnect). Keys stay in your wallet app." />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <style>
     :root{--bg:#07070d;--line:rgba(0,245,255,.34);--cyan:#00f5ff;--muted:#9ca3af;--text:#e5e7eb}
@@ -14,18 +15,12 @@
     .nav{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.08)}
     .nav a{color:var(--muted);text-decoration:none;font-size:.88rem}
     .nav a:hover{color:var(--cyan)}
-    main{max-width:440px;margin:0 auto;padding:32px 16px 48px;text-align:center}
+    main{max-width:480px;margin:0 auto;padding:28px 16px 48px;text-align:center}
+    .trust{font-size:.82rem;color:var(--muted);line-height:1.45;margin-bottom:20px;text-align:left;border-left:3px solid rgba(0,245,255,.45);padding:10px 0 10px 14px}
     #qr-box{min-height:280px;display:flex;align-items:center;justify-content:center}
     #qr-box canvas,#qr-box img{max-width:100%}
     .timer{margin-top:12px;font-size:.88rem;color:var(--muted)}
-    .mnemonic-wrap{margin-top:28px;text-align:left;border-top:1px solid rgba(255,255,255,.1);padding-top:20px}
-    .mnemonic-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
-    @media(max-width:480px){.mnemonic-grid{grid-template-columns:repeat(2,1fr)}}
-    .mnemonic-grid input{font:inherit;padding:8px;border-radius:8px;border:1px solid #2f3d6e;background:#0d1328;color:#fff}
     .status{margin-top:14px;font-size:.85rem;color:var(--muted);min-height:1.2em}
-    button{font:inherit;cursor:pointer;border-radius:10px;padding:10px 16px;border:1px solid var(--line);background:rgba(0,245,255,.1);color:var(--cyan);font-weight:600}
-    button:hover{background:var(--cyan);color:#000}
-    [hidden]{display:none!important}
   </style>
 </head>
 <body>
@@ -38,25 +33,18 @@
   </header>
 
   <main>
+    <p class="trust">
+      This page is only for connecting your wallet app via QR. Signing happens in the wallet. Karma does not collect seed phrases or private keys here — never paste a recovery phrase into any website.
+    </p>
     <div id="qr-box"></div>
     <p class="timer" id="timer-line"></p>
     <p class="status" id="status-line"></p>
-
-    <div class="mnemonic-wrap">
-      <button type="button" id="mnemonic-toggle">Mnemonic login</button>
-      <div id="mnemonic-panel" hidden>
-        <p class="status" style="margin-bottom:10px">Use only on a device you trust.</p>
-        <div class="mnemonic-grid" id="word-grid"></div>
-        <button type="button" id="mnemonic-submit" style="margin-top:14px;width:100%">Continue</button>
-      </div>
-    </div>
   </main>
 
   <script src="wc-config.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU" crossorigin="anonymous"></script>
   <script type="module">
     import SignClient from "https://esm.sh/@walletconnect/sign-client@2.17.1";
-    import { ethers } from "https://esm.sh/ethers@6.13.4";
 
     async function applyRuntimePublicConfig() {
       try {
@@ -81,10 +69,9 @@
       qrExpires: "QR refreshes in",
       sec: "s",
       statusInit: "Preparing connection…",
-      statusConn: "Scan with your wallet.",
+      statusConn: "Scan with your wallet app.",
       statusNoConfig:
         "Sign-in is temporarily unavailable. Deploy public-config.json (see public-config.json.example) or set wc-config.js / WALLETCONNECT_PROJECT_ID at build time.",
-      mnemonicError: "Invalid phrase. Check words and order.",
     };
 
     let client;
@@ -143,7 +130,7 @@
         projectId,
         metadata: {
           name: "KarmaPay",
-          description: "Sign in",
+          description: "Studio sign-in",
           url: location.origin || "https://www.karmapay.cloud",
           icons: [new URL("favicon.svg", location.href).href],
         },
@@ -265,59 +252,6 @@
         setTimerText();
       }, 1000);
     }
-
-    const grid = document.getElementById("word-grid");
-    for (let i = 1; i <= 12; i++) {
-      const inp = document.createElement("input");
-      inp.type = "text";
-      inp.autocomplete = "off";
-      inp.placeholder = "Word " + i;
-      grid.appendChild(inp);
-    }
-
-    document.getElementById("mnemonic-toggle").addEventListener("click", function () {
-      const panel = document.getElementById("mnemonic-panel");
-      panel.hidden = !panel.hidden;
-    });
-
-    document.getElementById("mnemonic-submit").addEventListener("click", function () {
-      const words = [];
-      grid.querySelectorAll("input").forEach(function (el) {
-        words.push((el.value || "").trim().toLowerCase());
-      });
-      if (words.some(function (w) {
-        return !w;
-      })) {
-        setStatus("Enter all 12 words.");
-        return;
-      }
-      try {
-        const phrase = words.join(" ");
-        const w = ethers.Wallet.fromPhrase(phrase);
-        activeAccount = w.address;
-        activeSignature = "0xmnemonic_" + w.address.slice(2, 12);
-        const payload = {
-          wallet: activeAccount,
-          loginMethod: "mnemonic-login",
-          loginAt: new Date().toISOString(),
-          chainId: REQUIRED_CHAIN,
-          signature: activeSignature,
-          challenge: "mnemonic-login",
-          wcTopic: "",
-        };
-        sessionStorage.setItem("karma_web3_session", JSON.stringify(payload));
-        try {
-          localStorage.removeItem("karma_web3_session");
-        } catch (_) {}
-        location.href =
-          getTargetPath() +
-          (getTargetPath().includes("?") ? "&" : "?") +
-          "wallet=" +
-          encodeURIComponent(activeAccount);
-      } catch (e) {
-        setStatus(L.mnemonicError);
-      }
-    });
 
     startCountdown();
     setTimerText();

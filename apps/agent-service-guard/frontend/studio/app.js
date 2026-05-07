@@ -6,7 +6,7 @@ import {
   updatePushConfig,
   escapeHtml,
   safeText,
-} from "./store.js?v=20260506b";
+} from "./store.js?v=20260506c";
 
 const state = loadState();
 const NAV = [
@@ -53,6 +53,11 @@ function clearAuthSession() {
 function requireSession() {
   const session = loadSession();
   if (!session || !session.wallet) {
+    location.href = "../web3-login.html?target=studio%2Findex.html";
+    return null;
+  }
+  if (session.loginMethod !== "walletconnect-v2-qr") {
+    clearAuthSession();
     location.href = "../web3-login.html?target=studio%2Findex.html";
     return null;
   }
