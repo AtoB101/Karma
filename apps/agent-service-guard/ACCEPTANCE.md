@@ -4,6 +4,7 @@
 
 - [ ] Page loads with KARMA//PAY branding and sections (problem / trust / flow / FAQ).
 - [ ] Language switcher changes visible copy (en/zh at minimum).
+- [ ] Loads **`landing.js`** with **`integrity="sha384-..."`** + portal **CSP meta** (`connect-src 'none'`).
 - [ ] **Sign in** and **Open Agent Studio** link to `web3-login.html?target=studio%2Findex.html`.
 - [ ] Portal does **not** embed wallet QR, WalletConnect, or mnemonic entry (marketing surface stays separate from sign-in).
 

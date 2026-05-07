@@ -61,4 +61,11 @@ if [[ -s /tmp/security_guard_literals.txt ]]; then
   exit 1
 fi
 
+# WalletConnect runtime config must never be committed (generate on server / CI).
+tracked_cfg="$(git ls-files apps/agent-service-guard/frontend/public-config.json 2>/dev/null || true)"
+if [[ -n "$tracked_cfg" ]]; then
+  echo "ERR  apps/agent-service-guard/frontend/public-config.json is tracked; remove from git — generate at deploy time"
+  exit 1
+fi
+
 echo "OK   security baseline guard passed."

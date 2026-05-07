@@ -48,7 +48,12 @@ def main() -> None:
       portal = fetch("/apps/agent-service-guard/frontend/index.html")
       assert "KARMA//PAY" in portal
       assert "web3-login.html" in portal
+      assert "landing.js" in portal
+      assert 'integrity="sha384-' in portal
       assert "studio/index.html" in portal or "studio%2Findex.html" in portal
+
+      landing_js = fetch("/apps/agent-service-guard/frontend/landing.js")
+      assert "LANDING_LANG_KEY" in landing_js or "karma_landing_lang" in landing_js
 
       login = fetch("/apps/agent-service-guard/frontend/web3-login.html")
       assert "wc-config.js" in login
