@@ -9,6 +9,8 @@
 
 set -euo pipefail
 
+umask 077
+
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUT="${1:-$ROOT/apps/agent-service-guard/frontend/public-config.json}"
 export WRITE_PATH="$OUT"
@@ -29,4 +31,6 @@ with open(path, "w", encoding="utf-8") as f:
     f.write("\n")
 PY
 
-echo "wrote $OUT"
+chmod 600 "$OUT" 2>/dev/null || true
+
+echo "wrote $OUT (mode 600)"

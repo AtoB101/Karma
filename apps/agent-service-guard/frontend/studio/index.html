@@ -3,6 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; manifest-src 'self'; upgrade-insecure-requests"
+    />
     <title>Karma Agent Studio</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -32,6 +38,6 @@
         <section id="view"></section>
       </main>
     </div>
-    <script type="module" src="./app.js?v=20260506b"></script>
+    <script type="module" src="./app.js?v=20260506d"></script>
   </body>
 </html>

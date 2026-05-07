@@ -6,7 +6,7 @@ import {
   updatePushConfig,
   escapeHtml,
   safeText,
-} from "./store.js?v=20260506b";
+} from "./store.js?v=20260506d";
 
 const state = loadState();
 const NAV = [
@@ -56,6 +56,11 @@ function requireSession() {
     location.href = "../web3-login.html?target=studio%2Findex.html";
     return null;
   }
+  if (session.loginMethod !== "walletconnect-v2-qr") {
+    clearAuthSession();
+    location.href = "../web3-login.html?target=studio%2Findex.html";
+    return null;
+  }
   return session;
 }
 
@@ -85,13 +90,14 @@ function renderNav(page) {
 
 function renderDashboard() {
   const session = loadSession() || {};
-  const signaturePreview = session.signature ? `${session.signature.slice(0, 18)}...` : "N/A";
+  const verified = Boolean(session.signature);
+  const sigHint = verified ? "已验证 · 不向页面打印签名原文" : "未验证";
   return `
     <div class="card">
       <h3>Karma Agent Studio</h3>
       <div class="muted">公开版用户端（演示）</div>
       <div class="muted">Web3 登录：${escapeHtml(session.loginMethod || "unknown")} · Chain: ${escapeHtml(session.chainId || "unknown")}</div>
-      <div class="muted">签名摘要：${escapeHtml(signaturePreview)}</div>
+      <div class="muted">${escapeHtml(sigHint)}</div>
     </div>
     <div class="row">
       <div class="card"><strong>总收入</strong><div>1,280.45 USDC</div></div>

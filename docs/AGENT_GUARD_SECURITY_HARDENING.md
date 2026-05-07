@@ -1,39 +1,40 @@
-# Agent Guard — Security hardening (public static frontend)
+# Agent Guard — Security hardening (full-chain)
 
-This document describes **defense-in-depth** for `apps/agent-service-guard/frontend/` when you treat security as the first mission.
+Defense-in-depth for the public static frontend **and its CI gates**. Security CI for contracts (Foundry + Slither) runs separately; this document ties both together.
 
-## Threat model (short)
+## End-to-end control map
 
-- **XSS** on the same origin can read `sessionStorage` / `localStorage` and impersonate the user until logout or tab close.
-- **Supply-chain** compromise of third-party CDNs could alter scripts; mitigate with **SRI** and pinning versions.
-- **WalletConnect Project ID** is a *public client identifier*; still avoid committing production values to git — generate `public-config.json` at deploy (see `scripts/deploy/write-agent-guard-public-config.sh`).
+| Layer | Controls |
+|-------|-----------|
+| **Repository** | `scripts/security-baseline-guard.sh` blocks private paths, obvious secrets, insecure auth flags, tracked `public-config.json`. |
+| **CI — contracts** | `.github/workflows/security-ci.yml`: `forge test`, invariant suite, Slither, trust-engine safety, **`scripts/agent-guard-security-gate.py`**. |
+| **CI — Agent Guard UI** | `.github/workflows/agent-service-guard-smoke.yml`: Phase 2 gate, security gate, Playwright + Python smoke. |
+| **Marketing portal** | `index.html`: strict CSP meta (no remote scripts, **`connect-src 'none'`**), **`landing.js`** with **Subresource Integrity (SRI)**; no WalletConnect/ethers/session keys. Lang preference only: `localStorage[karma_landing_lang]`. |
+| **Studio** | CSP meta (`script-src/style-src/connect-src 'self'`); `robots noindex`; session **only** `walletconnect-v2-qr` in **`sessionStorage`**; dashboard does not print signature bytes; `saveState` size cap + bounded arrays. |
+| **Sign-in** | WalletConnect QR only; `noindex,nofollow`; Permissions-Policy meta; CDN + **`esm.sh`** pins (upgrade versions deliberately). |
+| **Deploy** | `scripts/deploy/write-agent-guard-public-config.sh`: `umask 077`, **`chmod 600`** on emitted JSON; **`public-config.json`** gitignored. |
+| **Edge** | `infra/nginx/agent-guard-security-headers.conf` + split CSP templates: `agent-guard-csp-portal.conf`, `agent-guard-csp-studio.conf`, `agent-guard-csp-wallet.conf`. |
 
-## Implemented in-repo
+## Threat notes
 
-| Control | Detail |
-|--------|--------|
-| Auth session | `karma_web3_session` stored in **`sessionStorage`** (tab-scoped). Legacy `localStorage` copies are **migrated once** then removed. |
-| WalletConnect ID | **Not** written to `localStorage`; only `window.KARMAPAY_WC_PROJECT_ID` after `wc-config.js` + optional `public-config.json`. |
-| Pairing URI | **Not** persisted to storage. |
-| Referrer | `strict-origin-when-cross-origin` on portal and sign-in pages. |
-| Subresource integrity | `integrity="sha384-…"` on pinned **Font Awesome** and **qrcodejs** CDN assets (portal + sign-in). |
-| Legacy cleanup | Sign-in boot removes obsolete `karma_wc_project_id` / `karma_web3_last_wc_uri` keys if present. |
+- **XSS** on the origin can steal `sessionStorage` while the tab is open. CSP + minimizing inline script + SRI shrink attack surface.
+- **WalletConnect Project ID** is public client metadata — still inject via **`public-config.json`**, never commit production IDs.
+- **Do not** add **Cross-Origin-Opener-Policy** on the WalletConnect route without staging tests (some wallets use popups or auxiliary tabs).
 
-## Deploy-time (mandatory for production)
+## Deploy checklist (production)
 
 1. **HTTPS only** — HSTS at the edge (see Nginx snippet).
-2. **Security headers** — use `infra/nginx/agent-guard-security-headers.conf` (or equivalent on Caddy/CloudFront). Includes `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Resource-Policy`.
-3. **`public-config.json`** — generated on the server from `WALLETCONNECT_PROJECT_ID`; file is **gitignored**; never paste secrets into the portal UI.
-4. **CSP (Content-Security-Policy)** — WalletConnect and `esm.sh` endpoints evolve. Start from **Report-Only** in staging, watch browser console / reports, then tighten `connect-src` / `script-src`. A starter policy is commented in the Nginx snippet file.
-5. **Mnemonic in browser** — highest practical safety is **not** typing seeds in a web app; keep for demo only. Prefer WalletConnect QR on trusted devices.
+2. **Host split** — `www` = portal (+ `landing.js`), `app` = `web3-login.html` + `studio/` (+ tighter CSP/connect rules).
+3. **Headers** — include baseline snippet; uncomment CSP **`add_header`** lines per-location after validating WalletConnect **`connect-src`** in staging.
+4. **SRI drift** — any edit to **`landing.js`** must update **`integrity`** in **`index.html`**; CI verifies with **`scripts/agent-guard-security-gate.py`**.
+5. **Operational** — rotate WalletConnect Cloud project if abuse is suspected; monitor `@walletconnect/sign-client` advisories.
 
-## Operational
+## Automation
 
-- Rotate WalletConnect Cloud project if abuse is suspected.
-- Rebuild and redeploy when upgrading CDN script versions (SRI hashes must match).
-- Monitor dependency advisories for `@walletconnect/sign-client` / `ethers` majors you pin in import URLs.
+- **`python3 scripts/agent-guard-security-gate.py`** — portal forbidden tokens, `landing.js` SHA-384 SRI vs file, WalletConnect page invariants, studio meta CSP.
+- **`scripts/agent-guard-security-gate.py`** is invoked from **Security CI** and **Agent Guard Smoke** workflows.
 
-## Out of scope for static-only hosting
+## Out of scope (static-only)
 
-- **HttpOnly cookies** and server-side session invalidation require a backend.
-- **Hardware security modules** / remote attestation are product-level, not static-file level.
+- **HttpOnly** sessions and server-side logout require a backend.
+- Hardware wallets / attestations are product choices outside this repo’s static bundle.

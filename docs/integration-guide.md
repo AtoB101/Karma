@@ -32,8 +32,8 @@ Karma Guard does not expose private risk-scoring logic.
 Under `apps/agent-service-guard/frontend/`:
 
 - `index.html` — single public portal (product + links)
-- `web3-login.html` — wallet sign-in (WalletConnect + optional mnemonic) → `studio/index.html`
-- `studio/` — authenticated user studio (mock flows, localStorage)
+- `web3-login.html` — isolated wallet sign-in (WalletConnect QR only) → `studio/index.html`
+- `studio/` — authenticated user studio (mock flows; wallet session in `sessionStorage`)
 
 Legacy multi-page demos (`service-create.html`, `pay.html`, etc.) were removed to keep deploy paths aligned with this surface.
 

@@ -5,7 +5,7 @@ test.describe("Karma Guard portal + studio", () => {
     await page.goto("/apps/agent-service-guard/frontend/index.html");
     await expect(page.locator(".logo")).toContainText("KARMA//PAY");
     await expect(page.getByRole("link", { name: /Sign in/i })).toHaveAttribute("href", /web3-login\.html/);
-    await expect(page.getByRole("link", { name: /Open user studio/i })).toHaveAttribute("href", /web3-login\.html/);
+    await expect(page.getByRole("link", { name: /Open Agent Studio/i })).toHaveAttribute("href", /web3-login\.html/);
   });
 
   test("sign-in page loads", async ({ page }) => {

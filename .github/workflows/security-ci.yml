@@ -70,3 +70,6 @@ jobs:
 
       - name: Trust-engine public safety guard
         run: ./scripts/check-trust-engine-public-safety.sh
+
+      - name: Agent Guard frontend security gate
+        run: python3 scripts/agent-guard-security-gate.py

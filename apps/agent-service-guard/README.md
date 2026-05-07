@@ -6,13 +6,14 @@ Single static **portal** plus **wallet sign-in** and **Agent Studio**. Optimized
 
 | Path | Purpose |
 |------|---------|
-| `index.html` | Public portal (product narrative, FAQ, deploy CTA) |
-| `web3-login.html` | WalletConnect QR + mnemonic path → session → redirect to Studio |
+| `index.html` | Public portal (CSP-enforced brochure; scripts only **`landing.js`**) |
+| `landing.js` | i18n + non-sensitive prefs (SRI-pinned from `index.html`; CI verifies hash drift) |
+| `web3-login.html` | Isolated WalletConnect QR sign-in → session → redirect to Studio (no mnemonic in the browser) |
 | `wc-config.js` | Set `window.KARMAPAY_WC_PROJECT_ID` (WalletConnect Cloud) before production |
 | `favicon.svg` | Site icon |
 | `studio/` | User Studio (requires `karma_web3_session` from sign-in) |
 
-**Flow:** `index.html` → `web3-login.html?target=studio%2Findex.html` → `studio/index.html`
+**Flow:** `index.html` (marketing only) → `web3-login.html?target=studio%2Findex.html` (isolated WalletConnect) → `studio/index.html`
 
 ## Run locally
 

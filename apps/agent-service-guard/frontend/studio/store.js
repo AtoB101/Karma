@@ -1,4 +1,6 @@
 const KEY = "karma_studio_state_v2";
+const MAX_STATE_BYTES = 300_000;
+const MAX_LIST = 200;
 
 const defaultState = {
   agents: [
@@ -25,12 +27,19 @@ export function loadState() {
     const raw = localStorage.getItem(KEY);
     if (!raw) return clone(defaultState);
     const parsed = JSON.parse(raw);
+    const agents = Array.isArray(parsed.agents)
+      ? parsed.agents.slice(0, MAX_LIST)
+      : clone(defaultState.agents);
+    const allowances = Array.isArray(parsed.allowances)
+      ? parsed.allowances.slice(0, MAX_LIST)
+      : clone(defaultState.allowances);
+    const bills = Array.isArray(parsed.bills) ? parsed.bills.slice(0, MAX_LIST) : clone(defaultState.bills);
     return {
       ...clone(defaultState),
       ...parsed,
-      agents: Array.isArray(parsed.agents) ? parsed.agents : clone(defaultState.agents),
-      allowances: Array.isArray(parsed.allowances) ? parsed.allowances : clone(defaultState.allowances),
-      bills: Array.isArray(parsed.bills) ? parsed.bills : clone(defaultState.bills),
+      agents,
+      allowances,
+      bills,
       pushConfig: { ...defaultState.pushConfig, ...(parsed.pushConfig || {}) },
     };
   } catch {
@@ -39,7 +48,11 @@ export function loadState() {
 }
 
 export function saveState(state) {
-  localStorage.setItem(KEY, JSON.stringify(state));
+  const raw = JSON.stringify(state);
+  if (typeof Blob !== "undefined" && new Blob([raw]).size > MAX_STATE_BYTES) {
+    return;
+  }
+  localStorage.setItem(KEY, raw);
 }
 
 export function escapeHtml(input) {
