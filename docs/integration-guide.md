@@ -33,7 +33,7 @@ Under `apps/agent-service-guard/frontend/`:
 
 - `index.html` — single public portal (product + links)
 - `web3-login.html` — isolated wallet sign-in (WalletConnect QR only) → `studio/index.html`
-- `studio/` — authenticated user studio (mock flows; wallet session in `sessionStorage`)
+- `studio/` — **统一操作界面**（WalletConnect 登录后）：`api-client.js` + `sync.js` 与公开 API 路径对齐；无后端时使用本地 `unified` 演示状态
 
 Legacy multi-page demos (`service-create.html`, `pay.html`, etc.) were removed to keep deploy paths aligned with this surface.
 

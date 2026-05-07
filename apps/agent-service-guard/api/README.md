@@ -4,8 +4,10 @@ This directory documents public mock API behavior and private-engine reserved en
 
 ## Mock APIs used by frontend demo
 
+- `GET /services` list services (optional `?seller_wallet=` — backend contract may vary)
 - `POST /services` create protected service
 - `GET /services/{service_id}` fetch service
+- `GET /orders` list orders (optional `?seller_wallet=`)
 - `POST /orders` create protected order from service
 - `GET /orders/{order_id}` fetch order
 - `POST /orders/{order_id}/deliver` seller delivery submit

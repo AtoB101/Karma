@@ -11,7 +11,7 @@ Single static **portal** plus **wallet sign-in** and **Agent Studio**. Optimized
 | `web3-login.html` | Isolated WalletConnect QR sign-in → session → redirect to Studio (no mnemonic in the browser) |
 | `wc-config.js` | Set `window.KARMAPAY_WC_PROJECT_ID` (WalletConnect Cloud) before production |
 | `favicon.svg` | Site icon |
-| `studio/` | User Studio (requires `karma_web3_session` from sign-in) |
+| `studio/` | 统一操作界面：`app.js` + `store.js`（`unified` 状态）、`api-client.js`、`sync.js`、`api-config.js` |
 
 **Flow:** `index.html` (marketing only) → `web3-login.html?target=studio%2Findex.html` (isolated WalletConnect) → `studio/index.html`
 
@@ -59,6 +59,8 @@ python3 scripts/phase2-public-contract-gate.py
 4. HTTPS in production (WalletConnect expects a real origin).
 
 5. Confirm the browser can load `wc-config.js`, optional `public-config.json`, `favicon.svg`, and ESM CDNs.
+
+6. **Studio API:** proxy the mock/REST paths listed in `apps/agent-service-guard/api/README.md` **same-origin** as the studio (matches `connect-src 'self'`). Override `KARMAPAY_STUDIO_API_BASE` in `studio/api-config.js` only if you also widen CSP.
 
 ## API / contracts
 

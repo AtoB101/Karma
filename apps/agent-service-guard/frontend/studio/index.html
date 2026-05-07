@@ -7,37 +7,51 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; manifest-src 'self'; upgrade-insecure-requests"
+      content="default-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; manifest-src 'self'; upgrade-insecure-requests"
     />
-    <title>Karma Agent Studio</title>
+    <title>Karma 统一操作界面</title>
+    <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="toast-wrap" id="toast-wrap" aria-live="polite">
       <div class="toast" id="toast"></div>
     </div>
-    <div class="studio">
+    <div class="app">
       <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-icon">K</div>
+        <div class="logo">
+          <div class="logo-box">K</div>
           <div>
             <h1>Karma</h1>
-            <p>Agent Studio (Public Mock)</p>
+            <p>统一操作界面</p>
           </div>
         </div>
-        <nav id="nav"></nav>
+        <nav class="nav" id="nav-main" aria-label="主导航"></nav>
+        <div class="side-box">
+          <h4>核心逻辑</h4>
+          <p>
+            买家锁全款，卖家锁最低责任金；卖家可增加锁仓提升信任，也可减少超额锁仓。订单按证据、状态机和争议规则自动结算。界面与
+            <code class="doc-ref">DATA_CONTRACT.md</code> 字段对齐。
+          </p>
+        </div>
       </aside>
-      <main class="main">
-        <header class="topbar">
-          <h2 id="page-title">仪表板</h2>
-          <div style="display:flex;gap:8px;align-items:center">
-            <div class="pill" id="wallet-pill">0xA12...89F</div>
-            <button id="logout-btn" type="button">退出登录</button>
+      <div class="main">
+        <div class="top">
+          <div>
+            <h2 id="page-title">Karma 统一操作界面</h2>
+            <p id="page-sub" class="muted-top">一个界面完成：收款、锁仓、交付、证据、争议、结算、信誉。</p>
           </div>
-        </header>
-        <section id="view"></section>
-      </main>
+          <div class="top-actions">
+            <button type="button" id="sync-now-btn">立即同步</button>
+            <div class="wallet" id="wallet-pill">0x…</div>
+            <button type="button" id="logout-btn">退出登录</button>
+          </div>
+        </div>
+        <p id="sync-line" class="sync-meta">同步: —</p>
+        <div id="view"></div>
+      </div>
     </div>
-    <script type="module" src="./app.js?v=20260506d"></script>
+    <script src="./api-config.js"></script>
+    <script type="module" src="./app.js?v=20260507a"></script>
   </body>
 </html>

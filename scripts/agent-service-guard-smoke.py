@@ -60,7 +60,7 @@ def main() -> None:
       assert "studio/index.html" in login
 
       studio = fetch("/apps/agent-service-guard/frontend/studio/index.html")
-      assert "Karma Agent Studio" in studio
+      assert "统一操作界面" in studio
       assert "app.js" in studio
 
       print("OK   agent-service-guard smoke passed")

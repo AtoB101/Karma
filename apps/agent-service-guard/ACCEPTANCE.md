@@ -19,8 +19,10 @@
 
 - [ ] Without session: redirect to `web3-login.html?target=studio%2Findex.html`.
 - [ ] Sessions created by legacy demo paths (non–WalletConnect `loginMethod`) are rejected and force a fresh sign-in.
-- [ ] With session: dashboard and nav render; **Sign out** clears session and returns to sign-in.
-- [ ] Create Agent produces `shareLink` pointing at `../index.html?agent=...` (portal deep link placeholder).
+- [ ] With session: **统一操作界面** loads;侧栏导航切换各模块；钱包址显示在顶栏。
+- [ ] **立即同步** / 定时拉取调用 `sync.js`：成功时 `syncMeta.lastSource=api`，失败保留本地 `unified` 演示数据。
+- [ ] `POST /services` / `GET /orders` 等在有后端时更新列表；无后端时创建服务回退到本地 `createAgent`。
+- [ ] **Sign out** clears session and returns to sign-in.
 
 ## Deploy
 

@@ -10,7 +10,7 @@ Defense-in-depth for the public static frontend **and its CI gates**. Security C
 | **CI — contracts** | `.github/workflows/security-ci.yml`: `forge test`, invariant suite, Slither, trust-engine safety, **`scripts/agent-guard-security-gate.py`**. |
 | **CI — Agent Guard UI** | `.github/workflows/agent-service-guard-smoke.yml`: Phase 2 gate, security gate, Playwright + Python smoke. |
 | **Marketing portal** | `index.html`: strict CSP meta (no remote scripts, **`connect-src 'none'`**), **`landing.js`** with **Subresource Integrity (SRI)**; no WalletConnect/ethers/session keys. Lang preference only: `localStorage[karma_landing_lang]`. |
-| **Studio** | CSP meta (`script-src/style-src/connect-src 'self'`); `robots noindex`; session **only** `walletconnect-v2-qr` in **`sessionStorage`**; dashboard does not print signature bytes; `saveState` size cap + bounded arrays. |
+| **Studio** | CSP meta（含 **`style-src 'self' 'unsafe-inline'`** 以支持动态样式条等 UI）；`connect-src 'self'`（API 请同源反代）；`robots noindex`；会话仅 **`walletconnect-v2-qr`**；`api-config.js` 设置 API 根路径；`saveState` 大小上限与列表上限。 |
 | **Sign-in** | WalletConnect QR only; `noindex,nofollow`; Permissions-Policy meta; CDN + **`esm.sh`** pins (upgrade versions deliberately). |
 | **Deploy** | `scripts/deploy/write-agent-guard-public-config.sh`: `umask 077`, **`chmod 600`** on emitted JSON; **`public-config.json`** gitignored. |
 | **Edge** | `infra/nginx/agent-guard-security-headers.conf` + split CSP templates: `agent-guard-csp-portal.conf`, `agent-guard-csp-studio.conf`, `agent-guard-csp-wallet.conf`. |
