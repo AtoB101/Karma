@@ -1,0 +1,238 @@
+[
+  {
+    "name": "getAccountState",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      { "name": "user",  "type": "address" },
+      { "name": "token", "type": "address" }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "components": [
+          { "name": "locked",   "type": "uint256" },
+          { "name": "active",   "type": "uint256" },
+          { "name": "reserved", "type": "uint256" }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "isAccountConsistent",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      { "name": "user",  "type": "address" },
+      { "name": "token", "type": "address" }
+    ],
+    "outputs": [{ "name": "", "type": "bool" }]
+  },
+  {
+    "name": "batchModeEnabled",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "bool" }]
+  },
+  {
+    "name": "batchCircuitBreakerPaused",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "bool" }]
+  },
+  {
+    "name": "stableTokenEnforcementEnabled",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "bool" }]
+  },
+  {
+    "name": "minSettlementAmount",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "uint256" }]
+  },
+  {
+    "name": "setStableTokenEnforcement",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [{ "name": "enabled", "type": "bool" }],
+    "outputs": []
+  },
+  {
+    "name": "setStableTokenAllowed",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      { "name": "token",   "type": "address" },
+      { "name": "allowed", "type": "bool" }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "isStableTokenAllowed",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [{ "name": "token", "type": "address" }],
+    "outputs": [{ "name": "", "type": "bool" }]
+  },
+  {
+    "name": "setMinSettlementAmount",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [{ "name": "amount", "type": "uint256" }],
+    "outputs": []
+  },
+  {
+    "name": "setPolicy",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      { "name": "perTxLimit",     "type": "uint256" },
+      { "name": "dailyLimit",     "type": "uint256" },
+      { "name": "maxTxPerWindow", "type": "uint256" },
+      { "name": "validUntil",     "type": "uint256" },
+      { "name": "enabled",        "type": "bool" }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "getPolicy",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [{ "name": "user", "type": "address" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "components": [
+          { "name": "perTxLimit",     "type": "uint256" },
+          { "name": "dailyLimit",     "type": "uint256" },
+          { "name": "maxTxPerMinute", "type": "uint256" },
+          { "name": "validUntil",     "type": "uint256" },
+          { "name": "enabled",        "type": "bool" }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getPolicyUsage",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [{ "name": "user", "type": "address" }],
+    "outputs": [
+      { "name": "txCountToday", "type": "uint256" },
+      { "name": "spentToday",   "type": "uint256" },
+      { "name": "txCountHour",  "type": "uint256" },
+      { "name": "dayIndex",     "type": "uint256" }
+    ]
+  },
+  {
+    "name": "setPolicyPayee",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      { "name": "payee",   "type": "address" },
+      { "name": "allowed", "type": "bool" }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "setPolicyToken",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      { "name": "token",   "type": "address" },
+      { "name": "allowed", "type": "bool" }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "isPolicyPayeeAllowed",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      { "name": "user",  "type": "address" },
+      { "name": "payee", "type": "address" }
+    ],
+    "outputs": [{ "name": "", "type": "bool" }]
+  },
+  {
+    "name": "isPolicyTokenAllowed",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      { "name": "user",  "type": "address" },
+      { "name": "token", "type": "address" }
+    ],
+    "outputs": [{ "name": "", "type": "bool" }]
+  },
+  {
+    "name": "getBatch",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [{ "name": "batchId", "type": "uint256" }],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "components": [
+          { "name": "batchId",      "type": "uint256" },
+          { "name": "totalPending", "type": "uint256" },
+          { "name": "billCount",    "type": "uint256" },
+          { "name": "status",       "type": "uint8" },
+          { "name": "createdAt",    "type": "uint256" },
+          { "name": "settledAt",    "type": "uint256" }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "getBatchBillIds",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [{ "name": "batchId", "type": "uint256" }],
+    "outputs": [{ "name": "", "type": "uint256[]" }]
+  },
+  {
+    "name": "closeBatch",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [{ "name": "batchId", "type": "uint256" }],
+    "outputs": []
+  },
+  {
+    "name": "settleBatch",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      { "name": "batchId",  "type": "uint256" },
+      { "name": "maxBills", "type": "uint256" }
+    ],
+    "outputs": [
+      { "name": "settledCount",  "type": "uint256" },
+      { "name": "settledAmount", "type": "uint256" }
+    ]
+  },
+  {
+    "name": "BatchSettled",
+    "type": "event",
+    "inputs": [
+      { "name": "batchId",       "type": "uint256", "indexed": true  },
+      { "name": "settledCount",  "type": "uint256", "indexed": false },
+      { "name": "settledAmount", "type": "uint256", "indexed": false }
+    ]
+  },
+  {
+    "name": "BatchClosed",
+    "type": "event",
+    "inputs": [
+      { "name": "batchId", "type": "uint256", "indexed": true }
+    ]
+  }
+]

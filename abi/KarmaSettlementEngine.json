@@ -1,0 +1,81 @@
+[
+  {
+    "name": "nonces",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [{ "name": "account", "type": "address" }],
+    "outputs": [{ "name": "", "type": "uint256" }]
+  },
+  {
+    "name": "paused",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [],
+    "outputs": [{ "name": "", "type": "bool" }]
+  },
+  {
+    "name": "tokenAllowed",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [{ "name": "token", "type": "address" }],
+    "outputs": [{ "name": "", "type": "bool" }]
+  },
+  {
+    "name": "getQuoteDigest",
+    "type": "function",
+    "stateMutability": "view",
+    "inputs": [
+      {
+        "name": "quote",
+        "type": "tuple",
+        "components": [
+          { "name": "quoteId",   "type": "bytes32" },
+          { "name": "payer",     "type": "address" },
+          { "name": "payee",     "type": "address" },
+          { "name": "token",     "type": "address" },
+          { "name": "amount",    "type": "uint256" },
+          { "name": "nonce",     "type": "uint256" },
+          { "name": "deadline",  "type": "uint256" },
+          { "name": "scopeHash", "type": "bytes32" }
+        ]
+      }
+    ],
+    "outputs": [{ "name": "", "type": "bytes32" }]
+  },
+  {
+    "name": "submitSettlement",
+    "type": "function",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "name": "quote",
+        "type": "tuple",
+        "components": [
+          { "name": "quoteId",   "type": "bytes32" },
+          { "name": "payer",     "type": "address" },
+          { "name": "payee",     "type": "address" },
+          { "name": "token",     "type": "address" },
+          { "name": "amount",    "type": "uint256" },
+          { "name": "nonce",     "type": "uint256" },
+          { "name": "deadline",  "type": "uint256" },
+          { "name": "scopeHash", "type": "bytes32" }
+        ]
+      },
+      { "name": "v", "type": "uint8"    },
+      { "name": "r", "type": "bytes32"  },
+      { "name": "s", "type": "bytes32"  }
+    ],
+    "outputs": []
+  },
+  {
+    "name": "SettlementExecuted",
+    "type": "event",
+    "inputs": [
+      { "name": "quoteId", "type": "bytes32", "indexed": true  },
+      { "name": "payer",   "type": "address", "indexed": true  },
+      { "name": "payee",   "type": "address", "indexed": true  },
+      { "name": "token",   "type": "address", "indexed": false },
+      { "name": "amount",  "type": "uint256", "indexed": false }
+    ]
+  }
+]

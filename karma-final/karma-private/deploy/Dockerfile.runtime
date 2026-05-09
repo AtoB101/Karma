@@ -1,0 +1,25 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install public SDK first (private runtime depends on it)
+COPY ../karma-public /karma-public
+RUN pip install --no-cache-dir -e /karma-public
+
+# Install private runtime
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir -e .
+
+COPY . .
+
+RUN adduser --disabled-password --gecos "" karma && \
+    chown -R karma:karma /app
+USER karma
+
+EXPOSE 8001
+
+CMD ["uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8001", "--workers", "2"]
