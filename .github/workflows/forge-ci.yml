@@ -35,6 +35,18 @@ jobs:
       - name: Run fast unit/integration tests
         run: forge test -vv
 
+      - name: Run invariant suite (NC)
+        run: forge test --match-path "karma-core/contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
+
+      - name: Gas snapshot diff (fail on unexpected regression)
+        run: forge snapshot --diff
+
+      - name: Run proof/evidence CI gates (M4.1)
+        run: ./scripts/ci-proof-gates.sh
+
+      - name: Trust-engine public safety guard
+        run: ./scripts/check-trust-engine-public-safety.sh
+
   full-check:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -58,11 +70,14 @@ jobs:
       - name: Run all tests
         run: forge test -vv
 
-      - name: Run scenario demo test
-        run: forge test --match-path "contracts/test/ScenarioFlow.t.sol" -vv
+      - name: Run invariant suite (NC)
+        run: forge test --match-path "karma-core/contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
 
-      - name: Run accounting invariants
-        run: forge test --match-path "contracts/test/CrossModuleAccounting.invariant.t.sol" -vv
+      - name: Gas snapshot diff
+        run: forge snapshot --diff
 
-      - name: Run state-machine invariants
-        run: forge test --match-path "contracts/test/BillStateMachine.invariant.t.sol" -vv
+      - name: Run proof/evidence CI gates (M4.1)
+        run: ./scripts/ci-proof-gates.sh
+
+      - name: Trust-engine public safety guard
+        run: ./scripts/check-trust-engine-public-safety.sh

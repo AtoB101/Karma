@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'; manifest-src 'self'; upgrade-insecure-requests"
+  />
+  <title>Karma Protected</title>
+  <meta name="description" content="" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <style>
+:root {
+  --bg: #070a12;
+  --panel: #101827;
+  --panel2: #151f32;
+  --line: #2b3852;
+  --text: #f6f8fc;
+  --muted: #96a3b8;
+  --green: #34d399;
+  --yellow: #fbbf24;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --purple: #a78bfa;
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+}
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  min-height: 100vh;
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  background:
+    radial-gradient(circle at 9% 0%, rgba(96, 165, 250, 0.2), transparent 34%),
+    radial-gradient(circle at 92% 8%, rgba(52, 211, 153, 0.13), transparent 30%),
+    radial-gradient(circle at 50% 100%, rgba(167, 139, 250, 0.1), transparent 30%),
+    #070a12;
+}
+a {
+  text-decoration: none;
+  color: inherit;
+}
+.container {
+  width: min(1180px, 92%);
+  margin: 0 auto;
+}
+.nav {
+  height: 82px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(43, 56, 82, 0.55);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+  background: linear-gradient(135deg, var(--blue), var(--green));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #07111f;
+  font-weight: 900;
+  font-size: 20px;
+}
+.brand h1 {
+  font-size: 20px;
+  letter-spacing: 0.3px;
+}
+.brand p {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.nav-links {
+  display: flex;
+  gap: 24px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.nav-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.lang-switch {
+  background: rgba(21, 31, 50, 0.76);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 200px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  padding: 12px 16px;
+  font-weight: 800;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: 0.18s;
+}
+.btn:hover {
+  transform: translateY(-1px);
+}
+.btn.primary {
+  background: var(--green);
+  color: #06111f;
+  border: 0;
+}
+.btn.secondary {
+  background: rgba(21, 31, 50, 0.76);
+  color: #fff;
+}
+.hero {
+  padding: 78px 0 58px;
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.12fr 0.88fr;
+  gap: 38px;
+  align-items: center;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 900;
+  margin-bottom: 20px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.hero h2 {
+  font-size: clamp(32px, 5vw, 58px);
+  line-height: 1.08;
+  letter-spacing: -1.8px;
+  max-width: 780px;
+}
+.hero h2 .accent {
+  color: var(--green);
+}
+.hero .lead {
+  margin-top: 22px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.85;
+  max-width: 720px;
+}
+.hero-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 32px;
+  flex-wrap: wrap;
+}
+.trust-line {
+  margin-top: 18px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.trust-pill {
+  border: 1px solid rgba(43, 56, 82, 0.75);
+  background: rgba(16, 24, 39, 0.7);
+  padding: 8px 11px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.mock {
+  background: linear-gradient(180deg, rgba(21, 31, 50, 0.96), rgba(16, 24, 39, 0.96));
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  padding: 22px;
+  box-shadow: var(--shadow);
+}
+.mock-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+.mock h3 {
+  font-size: 18px;
+}
+.tag {
+  display: inline-flex;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+.green {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--green);
+}
+.blue {
+  background: rgba(96, 165, 250, 0.15);
+  color: var(--blue);
+}
+.yellow {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--yellow);
+}
+.red {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--red);
+}
+.purple {
+  background: rgba(167, 139, 250, 0.15);
+  color: var(--purple);
+}
+.metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.metric {
+  background: rgba(7, 10, 18, 0.45);
+  border: 1px solid rgba(43, 56, 82, 0.8);
+  border-radius: 18px;
+  padding: 14px;
+}
+.metric span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.metric strong {
+  display: block;
+  margin-top: 7px;
+  font-size: 24px;
+}
+.flow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+.flow-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(7, 10, 18, 0.35);
+  border: 1px solid rgba(43, 56, 82, 0.7);
+  border-radius: 16px;
+  padding: 12px;
+}
+.flow-item p {
+  font-size: 13px;
+  font-weight: 800;
+}
+.flow-item small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.section {
+  padding: 56px 0;
+}
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-end;
+  margin-bottom: 24px;
+}
+.section h3 {
+  font-size: 34px;
+  letter-spacing: -0.8px;
+}
+.section-head p {
+  color: var(--muted);
+  line-height: 1.8;
+  max-width: 570px;
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.card {
+  background: rgba(16, 24, 39, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 22px;
+  min-height: 210px;
+}
+.icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: rgba(96, 165, 250, 0.14);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  color: var(--blue);
+  margin-bottom: 16px;
+}
+.card h4 {
+  font-size: 19px;
+  margin-bottom: 10px;
+}
+.card p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.75;
+}
+.solution {
+  background: rgba(16, 24, 39, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 24px;
+}
+.solution-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+}
+.step {
+  background: rgba(7, 10, 18, 0.35);
+  border: 1px solid rgba(43, 56, 82, 0.7);
+  border-radius: 20px;
+  padding: 16px;
+  min-height: 150px;
+}
+.num {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--green);
+  color: #06111f;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.step h4 {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+.step p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.panel {
+  background: rgba(16, 24, 39, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 24px;
+}
+.panel h4 {
+  font-size: 22px;
+  margin-bottom: 14px;
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 13px;
+  border-radius: 16px;
+  background: rgba(7, 10, 18, 0.35);
+  border: 1px solid rgba(43, 56, 82, 0.65);
+}
+.check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(52, 211, 153, 0.16);
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  flex: none;
+}
+.item b {
+  font-size: 14px;
+}
+.item p {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+  margin-top: 3px;
+}
+.security {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.12), rgba(52, 211, 153, 0.09));
+  border: 1px solid rgba(96, 165, 250, 0.28);
+  border-radius: 28px;
+  padding: 28px;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 24px;
+  align-items: center;
+}
+.security h3 {
+  font-size: clamp(24px, 3vw, 32px);
+  margin-bottom: 14px;
+}
+.security > div > p {
+  color: var(--muted);
+  line-height: 1.8;
+}
+.sec-box {
+  background: rgba(7, 10, 18, 0.46);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px;
+}
+.sec-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(43, 56, 82, 0.65);
+}
+.sec-row:last-child {
+  border-bottom: 0;
+}
+.sec-row span:first-child {
+  color: var(--muted);
+  font-size: 13px;
+}
+.cta {
+  text-align: center;
+  padding: 70px 0 86px;
+}
+.cta-box {
+  background: linear-gradient(180deg, rgba(21, 31, 50, 0.96), rgba(16, 24, 39, 0.96));
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  padding: 42px;
+  box-shadow: var(--shadow);
+}
+.cta h3 {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+.cta p {
+  color: var(--muted);
+  line-height: 1.8;
+  max-width: 720px;
+  margin: 0 auto 24px;
+}
+.studio-hint {
+  margin-top: 20px;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.footer {
+  border-top: 1px solid rgba(43, 56, 82, 0.55);
+  padding: 24px 0;
+  color: var(--muted);
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+@media (max-width: 980px) {
+  .nav-links {
+    display: none;
+  }
+  .hero-grid,
+  .security,
+  .split {
+    grid-template-columns: 1fr;
+  }
+  .cards,
+  .solution-grid {
+    grid-template-columns: 1fr;
+  }
+  .footer {
+    display: block;
+    line-height: 1.8;
+  }
+}
+  </style>
+</head>
+<body>
+  <header class="container nav">
+    <a class="brand" href="#top" id="top">
+      <div class="logo">K</div>
+      <div>
+        <h1>Karma</h1>
+        <p data-i18n="brand_domain">karma-network.ai</p>
+      </div>
+    </a>
+    <nav class="nav-links" aria-label="Section">
+      <a href="#pain" data-i18n="nav_pain">Trading pain points</a>
+      <a href="#solution" data-i18n="nav_solution">Protection</a>
+      <a href="#users" data-i18n="nav_users">Who it’s for</a>
+      <a href="#security" data-i18n="nav_security">Security</a>
+    </nav>
+    <div class="nav-actions">
+      <select id="langSwitcher" class="lang-switch" aria-label="Language"></select>
+      <a class="btn secondary" href="web3-login.html?target=studio%2Findex.html" data-i18n="nav_sign_in">Sign in</a>
+      <a class="btn secondary" href="#solution" data-i18n="nav_how_btn">How it works</a>
+      <a class="btn primary" href="web3-login.html?target=studio%2Findex.html" data-i18n="nav_console_btn">Open console</a>
+    </div>
+  </header>
+  <main>
+    <section class="container hero">
+      <div class="hero-grid">
+        <div>
+          <div class="badge"><span class="dot"></span><span data-i18n="hero_badge">Karma Protected</span></div>
+          <h2><span data-i18n="hero_h2_line1">AI service deals shouldn’t rely on luck.</span><br /><span class="accent" data-i18n="hero_h2_line2">Funds lock first. Evidence settles disputes.</span></h2>
+          <p class="lead" data-i18n="hero_lead">
+            Buyers lock funds; sellers post a performance bond. Delivery generates evidence; disputes can freeze funds; confirmation triggers settlement. Built for agents, APIs, AI automation, and digital delivery teams.
+          </p>
+          <div class="hero-actions">
+            <a class="btn primary" href="web3-login.html?target=studio%2Findex.html" data-i18n="hero_cta_console">Open console</a>
+            <a class="btn secondary" href="#solution" data-i18n="hero_cta_how">See how protection works</a>
+          </div>
+          <div class="trust-line">
+            <span class="trust-pill" data-i18n="pill_1">Buyer lock</span>
+            <span class="trust-pill" data-i18n="pill_2">Seller bond</span>
+            <span class="trust-pill" data-i18n="pill_3">Auto evidence</span>
+            <span class="trust-pill" data-i18n="pill_4">Dispute freeze</span>
+            <span class="trust-pill" data-i18n="pill_5">Auto settlement</span>
+          </div>
+        </div>
+        <div class="mock">
+          <div class="mock-head">
+            <h3 data-i18n="mock_title">Protected order</h3>
+            <span class="tag green" data-i18n="mock_seller_tag">A+ seller</span>
+          </div>
+          <div class="metrics">
+            <div class="metric"><span data-i18n="mm_buyer">Buyer locked</span><strong>$500</strong></div>
+            <div class="metric"><span data-i18n="mm_bond">Seller bond</span><strong>$150</strong></div>
+            <div class="metric"><span data-i18n="mm_excess">Extra lock</span><strong>$50</strong></div>
+            <div class="metric"><span data-i18n="mm_settle">Settleable</span><strong>$500</strong></div>
+          </div>
+          <div class="flow">
+            <div class="flow-item">
+              <div><p data-i18n="f1_t">AI Data API</p><small data-i18n="f1_s">Evidence ready · awaiting confirmation</small></div>
+              <span class="tag blue" data-i18n="f1_tag">Pending settlement</span>
+            </div>
+            <div class="flow-item">
+              <div><p data-i18n="f2_t">AI video delivery</p><small data-i18n="f2_s">Bond frozen · more proof needed</small></div>
+              <span class="tag red" data-i18n="f2_tag">In dispute</span>
+            </div>
+            <div class="flow-item">
+              <div><p data-i18n="f3_t">Trust badge</p><small data-i18n="f3_s">High-assurance seller · visible to buyers</small></div>
+              <span class="tag green" data-i18n="f3_tag">Protected</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="pain" class="container section">
+      <div class="section-head">
+        <h3 data-i18n="pain_h">The hard part isn’t paying.</h3>
+        <p data-i18n="pain_p">Buyers fear paying first; sellers fear unpaid work; after delivery, disputes lack proof.</p>
+      </div>
+      <div class="cards">
+        <div class="card">
+          <div class="icon">01</div>
+          <h4 data-i18n="c1_h">Buyers hesitate</h4>
+          <p data-i18n="c1_p">Hard to tell if the service is real, delivery is valid, or the seller will disappear.</p>
+        </div>
+        <div class="card">
+          <div class="icon">02</div>
+          <h4 data-i18n="c2_h">Sellers get stiffed</h4>
+          <p data-i18n="c2_p">Digital work is easy to copy, deny, or dispute without strong records.</p>
+        </div>
+        <div class="card">
+          <div class="icon">03</div>
+          <h4 data-i18n="c3_h">Disputes lack evidence</h4>
+          <p data-i18n="c3_p">Without request/response logs, outputs, and attestations, resolution becomes arguing.</p>
+        </div>
+      </div>
+    </section>
+    <section id="solution" class="container section">
+      <div class="section-head">
+        <h3 data-i18n="sol_h">How Karma protects deals</h3>
+        <p data-i18n="sol_p">Every protected order follows one state machine: funds, responsibility, evidence, disputes, settlement.</p>
+      </div>
+      <div class="solution">
+        <div class="solution-grid">
+          <div class="step">
+            <div class="num">1</div>
+            <h4 data-i18n="st1_h">Create a protected order</h4>
+            <p data-i18n="st1_p">Define scope, price, delivery standard, and confirmation window.</p>
+          </div>
+          <div class="step">
+            <div class="num">2</div>
+            <h4 data-i18n="st2_h">Buyer locks funds</h4>
+            <p data-i18n="st2_p">Buyer locks the full amount to prove ability to pay.</p>
+          </div>
+          <div class="step">
+            <div class="num">3</div>
+            <h4 data-i18n="st3_h">Seller locks bond</h4>
+            <p data-i18n="st3_p">Seller locks minimum performance bond for baseline recourse.</p>
+          </div>
+          <div class="step">
+            <div class="num">4</div>
+            <h4 data-i18n="st4_h">Evidence auto-captured</h4>
+            <p data-i18n="st4_p">Requests, responses, execution logs, and delivery proofs are recorded.</p>
+          </div>
+          <div class="step">
+            <div class="num">5</div>
+            <h4 data-i18n="st5_h">Settle or freeze</h4>
+            <p data-i18n="st5_p">Confirm to release funds; disputes freeze relevant amounts for resolution.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="users" class="container section">
+      <div class="section-head">
+        <h3 data-i18n="users_h">Who should use Karma</h3>
+        <p data-i18n="users_p">Remote delivery, automated execution, cross-border payments, or dispute-prone services.</p>
+      </div>
+      <div class="split">
+        <div class="panel">
+          <h4 data-i18n="sell_panel_h">Built for sellers</h4>
+          <div class="list">
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="sb1_b">Agent service sellers</b><p data-i18n="sb1_p">Automated tasks and outputs need trustworthy collection and evidence.</p></div>
+            </div>
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="sb2_b">API / data providers</b><p data-i18n="sb2_p">Per-call, per-package, or per-result billing maps cleanly to usage evidence.</p></div>
+            </div>
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="sb3_b">AI automation teams</b><p data-i18n="sb3_p">Video, content, marketing, bots, and workflows delivered digitally.</p></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <h4 data-i18n="buy_panel_h">What buyers gain</h4>
+          <div class="list">
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="bb1_b">Funds don’t release blindly</b><p data-i18n="bb1_p">Until delivery is clear, funds aren’t handed to the seller.</p></div>
+            </div>
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="bb2_b">Seller bond backs the deal</b><p data-i18n="bb2_p">Default scenarios have a funded baseline for remediation.</p></div>
+            </div>
+            <div class="item">
+              <div class="check">✓</div>
+              <div><b data-i18n="bb3_b">Evidence is traceable</b><p data-i18n="bb3_p">Each order keeps execution and delivery records for disputes.</p></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section id="security" class="container section">
+      <div class="security">
+        <div>
+          <h3 data-i18n="sec_h">Marketing site is the front door; trading happens in the isolated console.</h3>
+          <p data-i18n="sec_p">
+            This site explains the product and routes you to the console. Wallet connection, orders, locks, signatures, evidence, and disputes run in a dedicated console — not here — so the homepage stays clean and we never ask for seed phrases on the brochure page.
+          </p>
+          <div class="hero-actions">
+            <a class="btn primary" href="web3-login.html?target=studio%2Findex.html" data-i18n="sec_cta_console">Open console</a>
+            <a class="btn secondary" href="#solution" data-i18n="sec_cta_how">How protection works</a>
+          </div>
+        </div>
+        <div class="sec-box">
+          <div class="sec-row"><span data-i18n="rw_site">Website</span><b class="tag blue" data-i18n="rw_site_v">Learn &amp; enter</b></div>
+          <div class="sec-row"><span data-i18n="rw_wallet">Wallet connect</span><b class="tag yellow" data-i18n="rw_wallet_v">In console</b></div>
+          <div class="sec-row"><span data-i18n="rw_orders">Orders &amp; locks</span><b class="tag yellow" data-i18n="rw_orders_v">In console</b></div>
+          <div class="sec-row"><span data-i18n="rw_keys">Private keys / seed</span><b class="tag red" data-i18n="rw_keys_v">Never collected</b></div>
+          <div class="sec-row"><span data-i18n="rw_evid">Evidence &amp; disputes</span><b class="tag green" data-i18n="rw_evid_v">In console</b></div>
+        </div>
+      </div>
+    </section>
+    <section id="enter" class="container cta">
+      <div class="cta-box">
+        <h3 data-i18n="cta_h">Start with Karma Protected</h3>
+        <p data-i18n="cta_p">
+          Open the isolated console to create protected orders, set seller bonds, manage lock balances, review evidence bundles, and handle settlement and disputes.
+        </p>
+        <div class="hero-actions" style="justify-content: center">
+          <a class="btn primary" href="web3-login.html?target=studio%2Findex.html" data-i18n="cta_go">Open console</a>
+          <a class="btn secondary" href="#solution" data-i18n="cta_learn">Learn the mechanics first</a>
+        </div>
+        <p class="studio-hint" data-i18n="studio_hint">Wallet sign-in uses a separate page. Do not enter a seed phrase on this marketing site.</p>
+      </div>
+    </section>
+  </main>
+  <footer class="container footer">
+    <div data-i18n="foot1">© 2026 Karma Network. Trust infrastructure for AI commerce.</div>
+    <div data-i18n="foot2">Karma Protected · Karma Evidence · Karma Score · Karma Resolve</div>
+  </footer>
+  <script
+    type="module"
+    src="./landing.js"
+    integrity="sha384-J4v+gmiNXD1PljeI+FumvcksAPDqBOmKzGML3ESXPa8SSggbRtxqMEsu+Kktq37d"
+    crossorigin="anonymous"
+  ></script>
+</body>
+</html>

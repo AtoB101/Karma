@@ -1,4 +1,4 @@
-# TrustChain EIP-712 Signing Payload Spec (V1)
+# Karma EIP-712 Signing Payload Spec (V1)
 
 This document defines the minimal payload backend/off-chain agents must sign
 for the focused MVP flow:
@@ -9,7 +9,7 @@ for the focused MVP flow:
 
 `AuthTokenManager` computes:
 
-- `name`: `TrustChainAuth`
+- `name`: `KarmaAuth`
 - `version`: `1`
 - `chainId`: runtime chain id
 - `verifyingContract`: deployed `AuthTokenManager` address

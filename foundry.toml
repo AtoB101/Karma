@@ -1,9 +1,11 @@
+# Karma public contracts (karma-core). CI and local `forge` use this file at repo root.
 [profile.default]
-src = "contracts"
-test = "contracts/test"
-script = "contracts/script"
+src = "karma-core/contracts"
+test = "karma-core/contracts/test"
+script = "karma-core/contracts/script"
 out = "out"
 libs = ["lib"]
-solc_version = "0.8.24"
+solc_version = "0.8.28"
 optimizer = true
-optimizer_runs = 200
+optimizer_runs = 1000
+via_ir = true

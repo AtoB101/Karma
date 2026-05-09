@@ -10,10 +10,15 @@ test-gas:
 	forge test --gas-report
 
 deploy:
-	forge script contracts/script/DeployDemo.s.sol --rpc-url http://127.0.0.1:8545 --broadcast --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+	@echo "NOTE: Legacy LockPool/BillManager DeployDemo was removed when merging main (karma-core layout)."
+	@echo "      Use: forge test (contracts under karma-core/) or docs/TESTNET_RUNBOOK.md for on-chain flows."
+	@exit 1
 
 demo:
-	./run-demo.sh
+	@echo "NOTE: Legacy run-demo.sh stack is incompatible with current karma-core contracts."
+	@echo "      For Trusted Agent: python3 scripts/trusted_agent_minimal_flow.py"
+	@echo "      For hybrid/testnet: see docs/TESTNET_RUNBOOK.md"
+	@exit 1
 
 simulate:
 	node scripts/simulate.cjs

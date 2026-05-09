@@ -1,0 +1,23 @@
+Karma Pay - Notice
+==================
+
+Copyright (c) 2026 Karma
+
+This repository is licensed under the GNU Affero General Public License
+v3.0 (AGPL-3.0-only), unless stated otherwise for specific third-party
+components.
+
+Commercial licensing:
+- For proprietary/closed-source usage or other terms incompatible with AGPL,
+  contact: licensing@karmapay.cloud
+
+Trademark and brand usage:
+- "Karma", "Karma Pay", related names, logos, and marks are governed by
+  TRADEMARK_POLICY.md.
+- Code license grants do not include trademark rights.
+
+Contributions:
+- By submitting a contribution (pull request, patch, or direct commit), you
+  represent that you have the right to submit it and agree that it may be
+  distributed under the repository licensing policy described in LICENSE and
+  docs/LICENSING.md.

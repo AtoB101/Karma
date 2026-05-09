@@ -1,0 +1,21 @@
+name: Visibility Guard
+
+on:
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  visibility-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Fetch base branch
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+      - name: Run visibility guard
+        run: |
+          chmod +x ./scripts/visibility-guard.sh
+          ./scripts/visibility-guard.sh "origin/${{ github.base_ref }}...HEAD"

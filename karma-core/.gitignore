@@ -1,0 +1,21 @@
+# Build and runtime artifacts
+results/
+out/
+broadcast/
+cache/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Node / TS
+node_modules/
+dist/
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

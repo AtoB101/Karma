@@ -1,0 +1,103 @@
+{
+  "version": "v1-public-testnet-prep",
+  "note": "Public payload examples only. Private risk/arbitration scoring logic is not included.",
+  "examples": {
+    "buyer_authorize_payment": {
+      "description": "Buyer authorizes protected payment intent off-chain.",
+      "chain_id": 11155111,
+      "verifying_contract": "0x1111111111111111111111111111111111111111",
+      "domain": {
+        "name": "KarmaGuard",
+        "version": "1",
+        "chainId": 11155111,
+        "verifyingContract": "0x1111111111111111111111111111111111111111"
+      },
+      "types": {
+        "PaymentAuthorization": [
+          { "name": "order_id", "type": "string" },
+          { "name": "service_id", "type": "string" },
+          { "name": "buyer_wallet", "type": "address" },
+          { "name": "seller_wallet", "type": "address" },
+          { "name": "amount", "type": "uint256" },
+          { "name": "currency", "type": "string" },
+          { "name": "deadline", "type": "uint256" },
+          { "name": "nonce", "type": "uint256" }
+        ]
+      },
+      "message": {
+        "order_id": "ord_1710000000_demo01",
+        "service_id": "svc_1710000000_demo01",
+        "buyer_wallet": "0x2222222222222222222222222222222222222222",
+        "seller_wallet": "0x3333333333333333333333333333333333333333",
+        "amount": "120000000",
+        "currency": "USDC",
+        "deadline": 1910000000,
+        "nonce": 1
+      }
+    },
+    "seller_delivery_attestation": {
+      "description": "Seller signs delivery + evidence hash attestation.",
+      "chain_id": 11155111,
+      "verifying_contract": "0x1111111111111111111111111111111111111111",
+      "domain": {
+        "name": "KarmaGuard",
+        "version": "1",
+        "chainId": 11155111,
+        "verifyingContract": "0x1111111111111111111111111111111111111111"
+      },
+      "types": {
+        "DeliveryAttestation": [
+          { "name": "order_id", "type": "string" },
+          { "name": "seller_wallet", "type": "address" },
+          { "name": "output_hash", "type": "bytes32" },
+          { "name": "evidence_hash", "type": "bytes32" },
+          { "name": "completed_at", "type": "uint256" },
+          { "name": "nonce", "type": "uint256" }
+        ]
+      },
+      "message": {
+        "order_id": "ord_1710000000_demo01",
+        "seller_wallet": "0x3333333333333333333333333333333333333333",
+        "output_hash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "evidence_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "completed_at": 1710003600,
+        "nonce": 4
+      }
+    },
+    "buyer_confirm_settlement": {
+      "description": "Buyer confirms settlement release after delivery verification.",
+      "chain_id": 11155111,
+      "verifying_contract": "0x1111111111111111111111111111111111111111",
+      "domain": {
+        "name": "KarmaGuard",
+        "version": "1",
+        "chainId": 11155111,
+        "verifyingContract": "0x1111111111111111111111111111111111111111"
+      },
+      "types": {
+        "SettlementConfirmation": [
+          { "name": "order_id", "type": "string" },
+          { "name": "buyer_wallet", "type": "address" },
+          { "name": "evidence_hash", "type": "bytes32" },
+          { "name": "decision", "type": "string" },
+          { "name": "nonce", "type": "uint256" }
+        ]
+      },
+      "message": {
+        "order_id": "ord_1710000000_demo01",
+        "buyer_wallet": "0x2222222222222222222222222222222222222222",
+        "evidence_hash": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "decision": "CONFIRM",
+        "nonce": 7
+      }
+    }
+  },
+  "private_engine_boundary": {
+    "endpoints": [
+      "/risk/check",
+      "/dispute/recommend-resolution",
+      "/score/seller"
+    ],
+    "note": "These endpoints are provided by the private risk engine. Public repo consumes outputs only."
+  }
+}

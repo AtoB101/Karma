@@ -1,0 +1,2226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Karma v0.1 wangcai Console</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 1180px;
+        margin: 24px auto;
+        padding: 0 16px 40px;
+        color: #111827;
+        background: #f8fafc;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 16px;
+      }
+      .panel {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 14px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 10px;
+        align-items: center;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+      }
+      button {
+        margin-right: 8px;
+        margin-bottom: 8px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        background: #fff;
+        cursor: pointer;
+      }
+      .button-primary {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+        color: #fff;
+      }
+      pre {
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 12px;
+        overflow: auto;
+        border-radius: 8px;
+      }
+      .hint {
+        margin-top: 4px;
+        color: #475569;
+        font-size: 13px;
+      }
+      .inline-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .kpi {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 10px;
+        background: #f8fafc;
+      }
+      .kpi .label {
+        font-size: 12px;
+        color: #64748b;
+      }
+      .kpi .value {
+        margin-top: 6px;
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .status-good {
+        color: #166534;
+      }
+      .status-warn {
+        color: #92400e;
+      }
+      .status-bad {
+        color: #991b1b;
+      }
+      .risk-item {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 10px;
+        margin-bottom: 8px;
+      }
+      .risk-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .risk-tag {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+      }
+      .risk-low {
+        background: #dcfce7;
+        color: #166534;
+      }
+      .risk-medium {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .risk-high {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+      .muted {
+        color: #64748b;
+        font-size: 12px;
+      }
+      .log-list {
+        max-height: 220px;
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 8px;
+        background: #fff;
+      }
+      .log-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 7px 0;
+        border-bottom: 1px dashed #e5e7eb;
+      }
+      .log-row:last-child {
+        border-bottom: none;
+      }
+      .chip {
+        padding: 4px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 999px;
+        font-size: 12px;
+        background: #fff;
+      }
+      .tx-list {
+        max-height: 200px;
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 8px;
+        background: #fff;
+      }
+      .tx-row {
+        border-bottom: 1px dashed #e5e7eb;
+        padding: 8px 0;
+      }
+      .tx-row:last-child {
+        border-bottom: none;
+      }
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+        margin: 14px 0 18px;
+      }
+      .step {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 10px;
+        background: #fff;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+      .step strong {
+        display: block;
+        margin-bottom: 4px;
+        color: #1e293b;
+      }
+      .callout {
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      .hidden {
+        display: none;
+      }
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        .steps {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Karma v0.1 — wangcai Console</h1>
+    <p>Only four steps. The right side is monitoring.</p>
+
+    <div class="callout">
+      <strong>Before you start</strong>
+      <ol style="margin: 8px 0 0 18px; padding: 0">
+        <li>Have NON_CUSTODIAL + TOKEN deployed, and buyer/seller approved.</li>
+        <li>Payer wallet has enough balance and approval.</li>
+        <li>MetaMask network matches the deployment chain.</li>
+      </ol>
+    </div>
+
+    <div class="steps">
+      <div class="step"><strong>① Connect</strong>Connect MetaMask</div>
+      <div class="step"><strong>② Health</strong>Check lock state, balance, allowance</div>
+      <div class="step"><strong>③ Batch</strong>Read/Close/Settle batch</div>
+      <div class="step"><strong>④ Legacy / Optional</strong>Engine sign+submit (optional)</div>
+    </div>
+
+    <div class="layout">
+      <section class="panel">
+        <h2>Action Panel</h2>
+        <div class="grid">
+          <label for="nonCustodialAddress">Non-custodial Address</label>
+          <input id="nonCustodialAddress" placeholder="0x... (optional)" />
+
+          <label for="tokenAddress">Token Address</label>
+          <input id="tokenAddress" placeholder="0x..." />
+
+          <label for="payeeAddress">Payee Address</label>
+          <input id="payeeAddress" placeholder="0x..." />
+
+          <label for="amount">Amount (base unit)</label>
+          <input id="amount" type="number" value="100" min="1" />
+
+          <label for="scopeText">Scope Text</label>
+          <input id="scopeText" value="api-call:inference:v1" />
+
+          <label for="proofHashText">Proof Hash (IPFS)</label>
+          <input id="proofHashText" value="ipfs://proof-demo-v1" />
+
+          <label for="ttlSeconds">Deadline TTL (seconds)</label>
+          <input id="ttlSeconds" type="number" value="3600" min="60" />
+        </div>
+
+        <div class="inline-row" style="margin-top: 8px">
+          <label for="showLegacyToggle" class="muted">Show legacy mode</label>
+          <input id="showLegacyToggle" type="checkbox" style="width: auto" />
+        </div>
+
+        <details id="legacyConfigSection" class="hidden" style="margin-top: 12px; margin-bottom: 8px">
+          <summary class="muted">Legacy SettlementEngine (optional)</summary>
+          <div class="grid" style="margin-top: 8px">
+            <label for="engineAddress">Engine Address (legacy)</label>
+            <input id="engineAddress" placeholder="0x... optional" />
+          </div>
+        </details>
+
+        <p style="margin-top: 12px">
+          <button id="loadConfigBtn">0) Load config</button>
+          <button id="connectBtn" class="button-primary">① Connect Wallet</button>
+          <button id="healthBtn">② Run Health Check</button>
+          <button id="buildBtn" class="hidden">③ Legacy Sign</button>
+          <button id="submitBtn" class="hidden">④ Legacy Submit</button>
+        </p>
+        <div class="inline-row">
+          <button id="toggleAutoBtn">Auto monitor on/off</button>
+          <label for="pollSeconds" class="muted">Poll (s)</label>
+          <input id="pollSeconds" type="number" min="3" value="10" style="width: 88px" />
+          <span id="autoState" class="chip">Auto monitor: OFF</span>
+        </div>
+        <p class="hint">Default non-custodial health checks lock state, balance, allowance, and invariant. Legacy Engine works only if Engine Address is set.</p>
+
+        <h3>Policy control (Non-custodial)</h3>
+        <div class="grid">
+          <label for="policyEnabled">Policy enabled</label>
+          <input id="policyEnabled" type="checkbox" style="width: auto" />
+
+          <label for="policyPerTxLimit">Per-tx limit</label>
+          <input id="policyPerTxLimit" type="number" min="0" value="0" />
+
+          <label for="policyDailyLimit">Daily limit</label>
+          <input id="policyDailyLimit" type="number" min="0" value="0" />
+
+          <label for="policyMaxTxWindow">Max tx per window</label>
+          <input id="policyMaxTxWindow" type="number" min="0" value="0" />
+
+          <label for="policyWindowSeconds">Window (seconds)</label>
+          <input id="policyWindowSeconds" type="number" min="0" value="0" />
+
+          <label for="policyPayeeRule">Payee rule</label>
+          <input id="policyPayeeRule" placeholder="0x... (optional)" />
+
+          <label for="policyTokenRule">Token rule</label>
+          <input id="policyTokenRule" placeholder="0x... (optional)" />
+        </div>
+        <p style="margin-top: 10px">
+          <button id="applyPolicyBtn">Apply policy</button>
+          <button id="refreshPolicyBtn">Refresh policy</button>
+          <button id="setPolicyPayeeBtn">Allow payee</button>
+          <button id="setPolicyTokenBtn">Allow token</button>
+        </p>
+        <div id="policySnapshot" class="hint">Policy snapshot: not loaded</div>
+
+        <h3>Stable settlement profile (M2.0)</h3>
+        <div class="grid">
+          <label for="stableEnforcementEnabled">Enforce stable token allowlist</label>
+          <input id="stableEnforcementEnabled" type="checkbox" style="width: auto" />
+
+          <label for="stableMinAmount">Minimum settlement amount</label>
+          <input id="stableMinAmount" type="number" min="0" value="0" />
+
+          <label for="stableTokenRule">Stable token rule</label>
+          <input id="stableTokenRule" placeholder="0x... (optional)" />
+
+          <label for="stableTokenAllowed">Stable token allowed</label>
+          <input id="stableTokenAllowed" type="checkbox" style="width: auto" checked />
+
+          <label for="stableChangeReason">Change reason</label>
+          <input id="stableChangeReason" placeholder="e.g. add USDC policy" />
+
+          <label for="stableOperator">Operator label</label>
+          <input id="stableOperator" placeholder="e.g. alice@ops" />
+        </div>
+        <p style="margin-top: 10px">
+          <button id="applyStableProfileBtn">Apply stable profile</button>
+          <button id="refreshStableProfileBtn">Refresh stable profile</button>
+          <button id="setStableTokenRuleBtn">Set stable token rule</button>
+        </p>
+        <div id="stableSettlementSnapshot" class="hint">Stable profile snapshot: not loaded</div>
+
+        <h3>Batch control (Non-custodial)</h3>
+        <div class="grid">
+          <label for="batchIdInput">Batch ID</label>
+          <input id="batchIdInput" type="number" min="1" placeholder="from bill / manual input" />
+
+          <label for="maxBillsInput">Settle max bills</label>
+          <input id="maxBillsInput" type="number" min="0" value="0" />
+        </div>
+        <p style="margin-top: 10px">
+          <button id="batchStatusBtn">Read batch</button>
+          <button id="closeBatchBtn">Close batch</button>
+          <button id="settleBatchBtn">Settle batch</button>
+        </p>
+
+        <h3>Output</h3>
+        <pre id="output">Waiting...</pre>
+      </section>
+
+      <section class="panel">
+        <h2>Monitoring Panel</h2>
+        <h3>Mode state</h3>
+        <div class="inline-row" style="margin-bottom: 10px">
+          <span id="modeCustodyChip" class="chip">Mode: Unknown</span>
+          <span id="modeBatchChip" class="chip">Batch: Unknown</span>
+          <span id="modeBreakerChip" class="chip">Breaker: Unknown</span>
+        </div>
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="label">Wallet</div>
+            <div id="kpiWallet" class="value status-warn">Not connected</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Engine</div>
+            <div id="kpiEngine" class="value status-warn">Unknown</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Allowlist</div>
+            <div id="kpiAllowlist" class="value status-warn">Unknown</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Ready?</div>
+            <div id="kpiReadiness" class="value status-warn">Run health check first</div>
+          </div>
+        </div>
+
+        <h3>Non-custodial state</h3>
+        <div class="kpi-grid">
+          <div class="kpi">
+            <div class="label">Locked</div>
+            <div id="kpiLocked" class="value status-warn">-</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Active</div>
+            <div id="kpiActive" class="value status-warn">-</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Reserved</div>
+            <div id="kpiReserved" class="value status-warn">-</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Invariant</div>
+            <div id="kpiInvariant" class="value status-warn">Unknown</div>
+          </div>
+        </div>
+
+        <h3>Risk hints</h3>
+        <div id="riskContainer"></div>
+
+        <h3>Logs (click to view)</h3>
+        <div class="inline-row" style="margin-bottom: 8px">
+          <label for="logFilterKind" class="muted">Kind</label>
+          <select id="logFilterKind">
+            <option value="all">all</option>
+          </select>
+          <label for="logFilterSeverity" class="muted">Level</label>
+          <select id="logFilterSeverity">
+            <option value="all">all</option>
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+          </select>
+        </div>
+        <div id="logList" class="log-list"></div>
+
+        <h3>Tx history</h3>
+        <div id="txList" class="tx-list"></div>
+
+        <h3>Export JSON for support</h3>
+        <div class="inline-row">
+          <button id="exportDiagBtn">Download JSON</button>
+          <button id="verifyStableChainBtn">Verify stable hash chain</button>
+          <button id="verifyStableChainFromFileBtn">Verify from JSON file</button>
+          <button id="exportStableProofBtn">Export stable proof</button>
+          <button id="signStableProofBtn">Sign stable proof</button>
+          <button id="verifyStableProofSigFromFileBtn">Verify proof signature</button>
+          <input id="verifyStableChainFileInput" type="file" accept="application/json,.json" style="display: none" />
+          <input id="verifyStableProofFileInput" type="file" accept="application/json,.json" style="display: none" />
+          <span class="muted">Includes addresses, KPIs, logs, tx history, and quote fields; no private keys.</span>
+        </div>
+      </section>
+    </div>
+
+    <script type="module">
+      import { BrowserProvider, Contract, Signature, keccak256, toUtf8Bytes, verifyMessage } from "https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm";
+
+      const outputEl = document.getElementById("output");
+      const riskContainerEl = document.getElementById("riskContainer");
+      const logListEl = document.getElementById("logList");
+      const txListEl = document.getElementById("txList");
+      const logFilterKindEl = document.getElementById("logFilterKind");
+      const logFilterSeverityEl = document.getElementById("logFilterSeverity");
+      const autoStateEl = document.getElementById("autoState");
+      const showLegacyToggleEl = document.getElementById("showLegacyToggle");
+      const legacyConfigSectionEl = document.getElementById("legacyConfigSection");
+      const buildBtnEl = document.getElementById("buildBtn");
+      const submitBtnEl = document.getElementById("submitBtn");
+      const state = {
+        provider: null,
+        signer: null,
+        quote: null,
+        signature: null,
+        diagnostics: [],
+        txHistory: [],
+        stableConfigHistory: [],
+        stableConfigVersion: 0,
+        importedStableHistoryVerification: null,
+        lastImportedStableChainHead: null,
+        importedStableProofReport: null,
+        importedStableProofSignature: null,
+        importedStableProofSignatureVerification: null,
+        autoMonitorTimer: null,
+        sessionTraceId: null,
+      };
+
+      const engineAbi = [
+        "function nonces(address) view returns (uint256)",
+        "function paused() view returns (bool)",
+        "function tokenAllowed(address) view returns (bool)",
+        "function getQuoteDigest((bytes32 quoteId,address payer,address payee,address token,uint256 amount,uint256 nonce,uint256 deadline,bytes32 scopeHash) quote) view returns (bytes32)",
+        "function submitSettlement((bytes32 quoteId,address payer,address payee,address token,uint256 amount,uint256 nonce,uint256 deadline,bytes32 scopeHash) quote,uint8 v,bytes32 r,bytes32 s)",
+      ];
+      const nonCustodialAbi = [
+        "function getAccountState(address user,address token) view returns ((uint256 locked,uint256 active,uint256 reserved))",
+        "function isAccountConsistent(address user,address token) view returns (bool)",
+        "function batchModeEnabled() view returns (bool)",
+        "function batchCircuitBreakerPaused() view returns (bool)",
+        "function stableTokenEnforcementEnabled() view returns (bool)",
+        "function minSettlementAmount() view returns (uint256)",
+        "function setStableTokenEnforcement(bool enabled)",
+        "function setStableTokenAllowed(address token,bool allowed)",
+        "function isStableTokenAllowed(address token) view returns (bool)",
+        "function setMinSettlementAmount(uint256 amount)",
+        "function setPolicy(uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerWindow,uint256 validUntil,bool enabled)",
+        "function getPolicy(address user) view returns ((uint256 perTxLimit,uint256 dailyLimit,uint256 maxTxPerMinute,uint256 validUntil,bool enabled))",
+        "function getPolicyUsage(address user) view returns (uint256 txCountToday,uint256 spentToday,uint256 txCountHour,uint256 dayIndex)", (fix(m1): align contract interface, tests, and frontend ABI for policy enforcement)
+        "function setPolicyPayee(address payee,bool allowed)",
+        "function setPolicyToken(address token,bool allowed)",
+        "function isPolicyPayeeAllowed(address user,address payee) view returns (bool)",
+        "function isPolicyTokenAllowed(address user,address token) view returns (bool)",
+        "function getBatch(uint256 batchId) view returns ((uint256 batchId,uint256 totalPending,uint256 billCount,uint8 status,uint256 createdAt,uint256 settledAt))",
+        "function getBatchBillIds(uint256 batchId) view returns (uint256[])",
+        "function closeBatch(uint256 batchId)",
+        "function settleBatch(uint256 batchId,uint256 maxBills) returns (uint256 settledCount,uint256 settledAmount)",
+      ];
+      const erc20Abi = [
+        "function balanceOf(address) view returns (uint256)",
+        "function allowance(address,address) view returns (uint256)",
+      ];
+
+      const quoteTypes = {
+        Quote: [
+          { name: "quoteId", type: "bytes32" },
+          { name: "payer", type: "address" },
+          { name: "payee", type: "address" },
+          { name: "token", type: "address" },
+          { name: "amount", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+          { name: "scopeHash", type: "bytes32" },
+        ],
+      };
+
+      function readInputs() {
+        return {
+          engineAddress: document.getElementById("engineAddress").value.trim(),
+          nonCustodialAddress: document.getElementById("nonCustodialAddress").value.trim(),
+          tokenAddress: document.getElementById("tokenAddress").value.trim(),
+          payeeAddress: document.getElementById("payeeAddress").value.trim(),
+          amount: BigInt(document.getElementById("amount").value || "0"),
+          scopeText: document.getElementById("scopeText").value.trim() || "api-call:inference:v1",
+          proofHashText: document.getElementById("proofHashText").value.trim() || "ipfs://proof-demo-v1",
+          ttlSeconds: Number(document.getElementById("ttlSeconds").value || "3600"),
+        };
+      }
+
+      function applyConfig(config) {
+        if (!config || typeof config !== "object") return;
+        if (config.engineAddress) document.getElementById("engineAddress").value = config.engineAddress;
+        if (config.nonCustodialAddress) document.getElementById("nonCustodialAddress").value = config.nonCustodialAddress;
+        if (config.tokenAddress) document.getElementById("tokenAddress").value = config.tokenAddress;
+        if (config.payeeAddress) document.getElementById("payeeAddress").value = config.payeeAddress;
+      }
+
+      function setOutput(obj) {
+        outputEl.textContent = typeof obj === "string" ? obj : JSON.stringify(obj, null, 2);
+        if (typeof obj === "object" && obj !== null) state.lastOutput = obj;
+      }
+
+      function updateKpi(id, text, cls) {
+        const el = document.getElementById(id);
+        el.textContent = text;
+        el.className = `value ${cls}`;
+      }
+
+      function setChip(id, text) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = text;
+      }
+
+      function setLegacyModeUi(enabled) {
+        const hidden = !enabled;
+        legacyConfigSectionEl.classList.toggle("hidden", hidden);
+        buildBtnEl.classList.toggle("hidden", hidden);
+        submitBtnEl.classList.toggle("hidden", hidden);
+      }
+
+      function addDiagnostic(kind, severity, title, detail, payload = null) {
+        state.diagnostics.unshift({
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          traceId: state.sessionTraceId || "trace-unset",
+          timestamp: new Date().toISOString(),
+          kind,
+          severity,
+          title,
+          detail,
+          payload,
+        });
+        state.diagnostics = state.diagnostics.slice(0, 60);
+        syncLogKindOptions();
+        renderRisks();
+        renderLogs();
+      }
+
+      function addTxHistory(record) {
+        state.txHistory.unshift({
+          traceId: state.sessionTraceId || "trace-unset",
+          ...record,
+        });
+        state.txHistory = state.txHistory.slice(0, 30);
+        renderTxHistory();
+      }
+
+      function addStableConfigHistory(entry) {
+        state.stableConfigVersion += 1;
+        const previousHash = state.stableConfigHistory[0]?.currentHash || "0x0";
+        const normalizedEntry = {
+          version: state.stableConfigVersion,
+          traceId: state.sessionTraceId || "trace-unset",
+          timestamp: new Date().toISOString(),
+          ...entry,
+        };
+        const hashPayload = JSON.stringify({
+          prevHash: previousHash,
+          version: normalizedEntry.version,
+          traceId: normalizedEntry.traceId,
+          timestamp: normalizedEntry.timestamp,
+          action: normalizedEntry.action || null,
+          reason: normalizedEntry.reason || null,
+          operator: normalizedEntry.operator || null,
+          tokenAddress: normalizedEntry.tokenAddress || null,
+          tokenAllowed: normalizedEntry.tokenAllowed ?? null,
+          enforcementEnabled: normalizedEntry.enforcementEnabled ?? null,
+          minSettlementAmount: normalizedEntry.minSettlementAmount || null,
+          txHashes: normalizedEntry.txHashes || null,
+        });
+        const currentHash = keccak256(toUtf8Bytes(hashPayload));
+        state.stableConfigHistory.unshift({
+          ...normalizedEntry,
+          prevHash: previousHash,
+          currentHash,
+        });
+        state.stableConfigHistory = state.stableConfigHistory.slice(0, 40);
+      }
+
+      function buildStableHistoryHashPayload(record) {
+        return JSON.stringify({
+          prevHash: record.prevHash ?? null,
+          version: record.version ?? null,
+          traceId: record.traceId ?? null,
+          timestamp: record.timestamp ?? null,
+          action: record.action ?? null,
+          reason: record.reason ?? null,
+          operator: record.operator ?? null,
+          tokenAddress: record.tokenAddress ?? null,
+          tokenAllowed: record.tokenAllowed ?? null,
+          enforcementEnabled: record.enforcementEnabled ?? null,
+          minSettlementAmount: record.minSettlementAmount ?? null,
+          txHashes: record.txHashes ?? null,
+        });
+      }
+
+      function verifyStableConfigHistoryChain() {
+        const history = state.stableConfigHistory || [];
+        return verifyStableConfigHistoryChainFromHistory(history);
+      }
+
+      function verifyStableConfigHistoryChainFromHistory(rawHistory) {
+        const history = Array.isArray(rawHistory) ? rawHistory : [];
+        if (!history.length) {
+          return {
+            ok: true,
+            checkedCount: 0,
+            breakIndex: null,
+            expectedHash: null,
+            actualHash: null,
+          };
+        }
+        for (let i = 0; i < history.length; i += 1) {
+          const current = history[i];
+          const prev = history[i + 1];
+          const expectedPrevHash = prev?.currentHash || "0x0";
+          if ((current.prevHash || null) !== expectedPrevHash) {
+            return {
+              ok: false,
+              checkedCount: i + 1,
+              breakIndex: i,
+              reason: "prev_hash_mismatch",
+              expectedHash: expectedPrevHash,
+              actualHash: current.prevHash || null,
+            };
+          }
+          const payload = buildStableHistoryHashPayload(current);
+          const recomputed = keccak256(toUtf8Bytes(payload));
+          if ((current.currentHash || null) !== recomputed) {
+            return {
+              ok: false,
+              checkedCount: i + 1,
+              breakIndex: i,
+              reason: "current_hash_mismatch",
+              expectedHash: recomputed,
+              actualHash: current.currentHash || null,
+            };
+          }
+        }
+        return {
+          ok: true,
+          checkedCount: history.length,
+          breakIndex: null,
+          expectedHash: null,
+          actualHash: null,
+        };
+      }
+
+      function runStableChainVerification() {
+        const result = verifyStableConfigHistoryChain();
+        addDiagnostic(
+          "stable_chain",
+          result.ok ? "low" : "high",
+          result.ok ? "Stable hash chain verified" : "Stable hash chain verification failed",
+          result.ok
+            ? `checked=${result.checkedCount}, breakIndex=null`
+            : `checked=${result.checkedCount}, breakIndex=${result.breakIndex}, reason=${result.reason}`
+        );
+        setOutput({
+          step: "stable_chain_verification",
+          ...result,
+        });
+        return result;
+      }
+
+      async function verifyStableChainFromFile(file) {
+        if (!file) throw new Error("Please select a JSON file first.");
+        const text = await file.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          throw new Error("Invalid JSON file.");
+        }
+        const history = parsed?.authSnapshot?.stableConfigHistory;
+        if (!Array.isArray(history)) {
+          throw new Error("JSON missing authSnapshot.stableConfigHistory array.");
+        }
+        const result = verifyStableConfigHistoryChainFromHistory(history);
+        const chainHead = history[0]?.currentHash || null;
+        state.importedStableHistoryVerification = {
+          source: "imported_json",
+          fileName: file.name,
+          recordCount: history.length,
+          chainHead,
+          verifiedAt: new Date().toISOString(),
+          ...result,
+        };
+        state.lastImportedStableChainHead = chainHead;
+        addDiagnostic(
+          "stable_chain",
+          result.ok ? "low" : "high",
+          result.ok ? "Stable hash chain verified (file)" : "Stable hash chain verification failed (file)",
+          result.ok
+            ? `file=${file.name}, checked=${result.checkedCount}, breakIndex=null`
+            : `file=${file.name}, checked=${result.checkedCount}, breakIndex=${result.breakIndex}, reason=${result.reason}`
+        );
+        setOutput({
+          step: "stable_chain_verification_file",
+          fileName: file.name,
+          ...result,
+        });
+        return result;
+      }
+
+      function buildStableProofReport() {
+        const imported = state.importedStableHistoryVerification;
+        if (!imported) {
+          throw new Error("Run 'Verify from JSON file' first to create proof context.");
+        }
+        return {
+          proofType: "stable_chain_verification_proof_v1",
+          proofVersion: "stable-proof-v1",
+          generatedAt: new Date().toISOString(),
+          app: "Karma v0.1 wangcai Console",
+          traceId: state.sessionTraceId || "trace-unset",
+          source: {
+            fileName: imported.fileName || null,
+            sourceType: imported.source || "imported_json",
+          },
+          verification: {
+            ok: Boolean(imported.ok),
+            checkedCount: imported.checkedCount ?? 0,
+            breakIndex: imported.breakIndex ?? null,
+            reason: imported.reason || null,
+            expectedHash: imported.expectedHash || null,
+            actualHash: imported.actualHash || null,
+          },
+          chain: {
+            headHash: imported.chainHead || state.lastImportedStableChainHead || null,
+            recordCount: imported.recordCount ?? null,
+          },
+          attestation: null,
+        };
+      }
+
+      function buildStableProofSigningPayload(proof) {
+        return JSON.stringify({
+          proofType: proof.proofType || null,
+          proofVersion: proof.proofVersion || null,
+          generatedAt: proof.generatedAt || null,
+          app: proof.app || null,
+          traceId: proof.traceId || null,
+          source: proof.source || null,
+          verification: proof.verification || null,
+          chain: proof.chain || null,
+        });
+      }
+
+      function normalizeAddress(value) {
+        if (!value || typeof value !== "string") return null;
+        return value.trim().toLowerCase();
+      }
+
+      function extractProofAttestation(proof) {
+        if (!proof || typeof proof !== "object") return null;
+        return proof.attestation || proof.signature || null;
+      }
+
+      async function signStableProofReport() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const proof = buildStableProofReport();
+        const payload = buildStableProofSigningPayload(proof);
+        const digest = keccak256(toUtf8Bytes(payload));
+        const walletAddress = await state.signer.getAddress();
+        const message = `Karma Stable Proof Digest:\n${digest}`;
+        const signature = await state.signer.signMessage(message);
+        const attestation = {
+          standard: "eip191_signMessage",
+          signer: walletAddress,
+          message,
+          digest,
+          signature,
+          signedAt: new Date().toISOString(),
+        };
+        state.importedStableProofSignature = attestation;
+        const signedProof = { ...proof, attestation };
+        state.importedStableProofReport = signedProof;
+        addDiagnostic("stable_chain", "low", "Stable proof signed", `signer=${walletAddress}, digest=${digest}`);
+        setOutput({
+          step: "stable_proof_signed",
+          signer: walletAddress,
+          digest,
+          signature,
+        });
+        return signedProof;
+      }
+
+      async function verifyStableProofSignatureFromFile(file) {
+        if (!file) throw new Error("Please select a proof JSON file first.");
+        const text = await file.text();
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          throw new Error("Invalid proof JSON file.");
+        }
+        const attestation = extractProofAttestation(parsed);
+        if (!attestation) {
+          throw new Error("Proof JSON missing signature/attestation object.");
+        }
+        const digest = attestation.digest || attestation.proofDigest || null;
+        const message = attestation.message || (digest ? `Karma Stable Proof Digest:\n${digest}` : null);
+        const signatureValue = attestation.signature || attestation.value || null;
+        const declaredSigner = attestation.signer || attestation.wallet || null;
+        if (!digest || !message || !signatureValue || !declaredSigner) {
+          throw new Error("Proof signature fields incomplete (digest/message/signature/signer required).");
+        }
+        const rebuiltPayload = buildStableProofSigningPayload({
+          proofType: parsed.proofType || null,
+          proofVersion: parsed.proofVersion || null,
+          generatedAt: parsed.generatedAt || null,
+          app: parsed.app || null,
+          traceId: parsed.traceId || null,
+          source: parsed.source || null,
+          verification: parsed.verification || null,
+          chain: parsed.chain || null,
+        });
+        const recomputedDigest = keccak256(toUtf8Bytes(rebuiltPayload));
+        const recoveredSigner = Signature.from(signatureValue).recoverPublicKey(keccak256(toUtf8Bytes(message)));
+        // ethers v6 recoverPublicKey returns pubkey; we verify via verifyMessage for address-level check.
+        const { verifyMessage } = await import("https://cdn.jsdelivr.net/npm/ethers@6.13.5/+esm");
+        const recoveredAddress = verifyMessage(message, signatureValue);
+        const digestMatches = normalizeAddress(digest) === normalizeAddress(recomputedDigest);
+        const signerMatches = normalizeAddress(declaredSigner) === normalizeAddress(recoveredAddress);
+        const ok = Boolean(digestMatches && signerMatches);
+        const result = {
+          source: "proof_json",
+          fileName: file.name,
+          verifiedAt: new Date().toISOString(),
+          ok,
+          digestMatches,
+          signerMatches,
+          declaredSigner,
+          recoveredSigner: recoveredAddress,
+          digest,
+          recomputedDigest,
+          signature: signatureValue,
+        };
+        state.importedStableProofSignatureVerification = result;
+        addDiagnostic(
+          "stable_chain_proof",
+          ok ? "low" : "high",
+          ok ? "Stable proof signature verified" : "Stable proof signature verification failed",
+          ok
+            ? `file=${file.name}, signer=${declaredSigner}`
+            : `file=${file.name}, digestMatches=${digestMatches}, signerMatches=${signerMatches}`
+        );
+        setOutput({
+          step: "stable_proof_signature_verified",
+          ...result,
+        });
+        return result;
+      }
+
+      function exportStableProofReport() {
+        const proofBase = buildStableProofReport();
+        const payload = buildStableProofSigningPayload(proofBase);
+        const digest = keccak256(toUtf8Bytes(payload));
+        const attestation = state.importedStableProofSignature?.digest === digest
+          ? state.importedStableProofSignature
+          : null;
+        const proof = {
+          ...proofBase,
+          attestation,
+        };
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const fileName = `karma-stable-proof-${stamp}.json`;
+        state.importedStableProofReport = proof;
+        downloadJson(fileName, proof);
+        addDiagnostic(
+          "stable_chain",
+          proof.verification.ok ? "low" : "medium",
+          "Stable proof exported",
+          `Downloaded ${fileName} (ok=${proof.verification.ok}, checked=${proof.verification.checkedCount}).`
+        );
+        setOutput({
+          step: "stable_proof_exported",
+          fileName,
+          ...proof,
+        });
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function syncLogKindOptions() {
+        const previous = logFilterKindEl.value || "all";
+        const kinds = [...new Set(state.diagnostics.map((d) => d.kind))].sort();
+        while (logFilterKindEl.firstChild) {
+          logFilterKindEl.removeChild(logFilterKindEl.firstChild);
+        }
+        const allOption = document.createElement("option");
+        allOption.value = "all";
+        allOption.textContent = "all";
+        logFilterKindEl.appendChild(allOption);
+        for (const kind of kinds) {
+          const option = document.createElement("option");
+          option.value = kind;
+          option.textContent = kind;
+          logFilterKindEl.appendChild(option);
+        }
+        logFilterKindEl.value = kinds.includes(previous) || previous === "all" ? previous : "all";
+      }
+
+      function renderRisks() {
+        const latestByKind = new Map();
+        for (const d of state.diagnostics) {
+          if (!latestByKind.has(d.kind)) latestByKind.set(d.kind, d);
+        }
+        const list = [...latestByKind.values()].slice(0, 8);
+        while (riskContainerEl.firstChild) {
+          riskContainerEl.removeChild(riskContainerEl.firstChild);
+        }
+        if (!list.length) {
+          const empty = document.createElement("p");
+          empty.className = "muted";
+          empty.textContent = "No hints yet — run Health.";
+          riskContainerEl.appendChild(empty);
+          return;
+        }
+        for (const d of list) {
+          const cls = d.severity === "high" ? "risk-high" : d.severity === "medium" ? "risk-medium" : "risk-low";
+          const item = document.createElement("div");
+          item.className = "risk-item";
+
+          const header = document.createElement("div");
+          header.className = "risk-header";
+
+          const title = document.createElement("strong");
+          title.textContent = d.title;
+          header.appendChild(title);
+
+          const tag = document.createElement("span");
+          tag.className = `risk-tag ${cls}`;
+          tag.textContent = String(d.severity || "").toUpperCase();
+          header.appendChild(tag);
+
+          const detail = document.createElement("div");
+          detail.textContent = d.detail;
+
+          const timestamp = document.createElement("div");
+          timestamp.className = "muted";
+          timestamp.textContent = d.timestamp;
+
+          item.appendChild(header);
+          item.appendChild(detail);
+          item.appendChild(timestamp);
+          riskContainerEl.appendChild(item);
+        }
+      }
+
+      function renderLogs() {
+        while (logListEl.firstChild) {
+          logListEl.removeChild(logListEl.firstChild);
+        }
+        if (!state.diagnostics.length) {
+          const empty = document.createElement("div");
+          empty.className = "muted";
+          empty.textContent = "No logs yet.";
+          logListEl.appendChild(empty);
+          return;
+        }
+        const kindFilter = logFilterKindEl.value || "all";
+        const severityFilter = logFilterSeverityEl.value || "all";
+        const filtered = state.diagnostics.filter(
+          (d) => (kindFilter === "all" || d.kind === kindFilter) && (severityFilter === "all" || d.severity === severityFilter)
+        );
+        if (!filtered.length) {
+          const empty = document.createElement("div");
+          empty.className = "muted";
+          empty.textContent = "No logs match filters.";
+          logListEl.appendChild(empty);
+          return;
+        }
+        for (const d of filtered.slice(0, 20)) {
+          const row = document.createElement("div");
+          row.className = "log-row";
+
+          const left = document.createElement("div");
+          const titleLine = document.createElement("div");
+          const title = document.createElement("strong");
+          title.textContent = d.title;
+          titleLine.appendChild(title);
+
+          const meta = document.createElement("div");
+          meta.className = "muted";
+          meta.textContent = `${d.kind} • ${d.timestamp}`;
+
+          left.appendChild(titleLine);
+          left.appendChild(meta);
+
+          const btn = document.createElement("button");
+          btn.dataset.logId = d.id;
+          btn.textContent = "View";
+
+          row.appendChild(left);
+          row.appendChild(btn);
+          logListEl.appendChild(row);
+        }
+      }
+
+      function renderTxHistory() {
+        while (txListEl.firstChild) {
+          txListEl.removeChild(txListEl.firstChild);
+        }
+        if (!state.txHistory.length) {
+          const empty = document.createElement("div");
+          empty.className = "muted";
+          empty.textContent = "No tx history yet.";
+          txListEl.appendChild(empty);
+          return;
+        }
+        for (const tx of state.txHistory) {
+          const row = document.createElement("div");
+          row.className = "tx-row";
+
+          const line1 = document.createElement("div");
+          const strong = document.createElement("strong");
+          strong.textContent = tx.status;
+          line1.appendChild(strong);
+          line1.appendChild(document.createTextNode(` • ${tx.timestamp}`));
+
+          const hash = document.createElement("div");
+          hash.className = "muted";
+          hash.textContent = `hash: ${tx.txHash || "-"}`;
+
+          const block = document.createElement("div");
+          block.className = "muted";
+          block.textContent = `block: ${tx.blockNumber || "-"}`;
+
+          const amount = document.createElement("div");
+          amount.className = "muted";
+          amount.textContent = `amount: ${tx.amount || "-"}`;
+
+          row.appendChild(line1);
+          row.appendChild(hash);
+          row.appendChild(block);
+          row.appendChild(amount);
+          txListEl.appendChild(row);
+        }
+      }
+
+      function readErrorMessage(err) {
+        if (!err) return "Unknown error";
+        if (typeof err === "string") return err;
+        return (
+          err.shortMessage
+          || err.reason
+          || err.message
+          || err?.info?.error?.message
+          || err?.error?.message
+          || JSON.stringify(err)
+        );
+      }
+
+      function classifyRuntimeError(errorLike) {
+        const msg = readErrorMessage(errorLike);
+        const m = (msg || "").toLowerCase();
+
+        if (m.includes("user rejected") || m.includes("action_rejected") || m.includes("user denied")) {
+          return { kind: "wallet_rejected", severity: "medium", title: "Wallet request rejected" };
+        }
+        if (m.includes("insufficient funds")) {
+          return { kind: "native_gas_insufficient", severity: "high", title: "Insufficient native gas balance" };
+        }
+        if (m.includes("tokennotallowed")) return { kind: "token_not_allowed", severity: "high", title: "Token not allowed" };
+        if (m.includes("enginepaused") || m.includes("paused")) {
+          return { kind: "engine_paused", severity: "high", title: "Engine paused" };
+        }
+        if (m.includes("invalidnonce") || m.includes("nonce")) {
+          return { kind: "invalid_nonce", severity: "high", title: "Nonce mismatch" };
+        }
+        if (m.includes("invalidsignature") || m.includes("signature")) {
+          return { kind: "invalid_signature", severity: "high", title: "Invalid signature" };
+        }
+        if (m.includes("deadlineexpired") || m.includes("expired")) {
+          return { kind: "deadline_expired", severity: "high", title: "Deadline expired" };
+        }
+        if (m.includes("capacityinsufficient") || m.includes("insufficientmappingbalance") || m.includes("allowance")) {
+          return { kind: "allowance_or_capacity", severity: "high", title: "Allowance or lock capacity insufficient" };
+        }
+        if (m.includes("balance")) {
+          return { kind: "balance_insufficient", severity: "high", title: "Token balance insufficient" };
+        }
+        if (m.includes("unauthorized")) {
+          return { kind: "unauthorized_action", severity: "high", title: "Unauthorized action" };
+        }
+        if (m.includes("policyviolation")) {
+          return { kind: "policy_violation", severity: "high", title: "Policy violation" };
+        }
+        if (m.includes("pertxlimitexceeded")) {
+          return { kind: "policy_per_tx_limit", severity: "high", title: "Per-transaction policy limit exceeded" };
+        }
+        if (m.includes("dailylimitexceeded")) {
+          return { kind: "policy_daily_limit", severity: "high", title: "Daily policy limit exceeded" };
+        }
+        if (m.includes("policyexpired")) {
+          return { kind: "policy_expired", severity: "high", title: "Policy expired" };
+        }
+        if (m.includes("counterpartynotallowed")) {
+          return { kind: "policy_payee_blocked", severity: "high", title: "Payee blocked by policy" };
+        }
+        if (m.includes("scopenotallowed")) {
+          return { kind: "policy_scope_blocked", severity: "high", title: "Scope blocked by policy" };
+        }
+        if (m.includes("invalidstate") || m.includes("quotealreadyexecuted") || m.includes("batchalreadyclosed")) {
+          return { kind: "invalid_state", severity: "high", title: "Invalid state transition" };
+        }
+        if (m.includes("batchpaused")) {
+          return { kind: "batch_paused", severity: "high", title: "Batch mode paused by circuit breaker" };
+        }
+        if (m.includes("invalidbatchinput")) {
+          return { kind: "batch_input_invalid", severity: "medium", title: "Invalid batch input" };
+        }
+        if (m.includes("invalidtransferintent") || m.includes("bill-not-") || m.includes("buyer-capacity-insufficient")) {
+          return { kind: "invalid_transfer_intent", severity: "high", title: "Invalid transfer intent blocked" };
+        }
+        if (m.includes("transferfailed") || m.includes("tokentransferfailed")) {
+          return { kind: "token_transfer_failed", severity: "high", title: "Token transfer failed" };
+        }
+        if (m.includes("revert")) return { kind: "contract_revert", severity: "high", title: "Contract revert" };
+        return { kind: "runtime_error", severity: "high", title: "Runtime error" };
+      }
+
+      function serializePayload(value) {
+        if (value === null || value === undefined) return null;
+        if (value instanceof Error) {
+          return {
+            _type: "Error",
+            name: value.name,
+            message: value.message,
+            stack: value.stack || null,
+            code: value.code ?? null,
+          };
+        }
+        if (typeof value === "bigint") return value.toString();
+        if (typeof value === "object") {
+          try {
+            return JSON.parse(JSON.stringify(value, (_, v) => (typeof v === "bigint" ? v.toString() : v)));
+          } catch {
+            return { _type: "Object", string: String(value) };
+          }
+        }
+        return value;
+      }
+
+      function serializeQuoteForExport(quote) {
+        if (!quote) return null;
+        return {
+          quoteId: quote.quoteId,
+          payer: quote.payer,
+          payee: quote.payee,
+          token: quote.token,
+          amount: quote.amount?.toString?.() ?? String(quote.amount),
+          nonce: quote.nonce?.toString?.() ?? String(quote.nonce),
+          deadline: quote.deadline?.toString?.() ?? String(quote.deadline),
+          scopeHash: quote.scopeHash,
+        };
+      }
+
+      function downloadJson(filename, data) {
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function generateTraceId() {
+        if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+          return `trace-${crypto.randomUUID()}`;
+        }
+        return `trace-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+
+      function parsePolicyDecisionFromDiagnostics() {
+        const latestPolicyIssue = state.diagnostics.find((d) => d.kind.startsWith("policy_"));
+        if (latestPolicyIssue) {
+          return {
+            result: "blocked",
+            reasonKind: latestPolicyIssue.kind,
+            reasonTitle: latestPolicyIssue.title,
+            detail: latestPolicyIssue.detail,
+            decidedAt: latestPolicyIssue.timestamp,
+          };
+        }
+        const hasPolicySuccess = state.diagnostics.find((d) => d.kind === "policy" && d.title.toLowerCase().includes("updated"));
+        if (hasPolicySuccess) {
+          return {
+            result: "allowed",
+            reasonKind: "policy_configured",
+            reasonTitle: hasPolicySuccess.title,
+            detail: hasPolicySuccess.detail,
+            decidedAt: hasPolicySuccess.timestamp,
+          };
+        }
+        return {
+          result: "unknown",
+          reasonKind: null,
+          reasonTitle: null,
+          detail: "No explicit policy decision in diagnostics yet.",
+          decidedAt: null,
+        };
+      }
+
+      function parseStableDecisionFromDiagnostics() {
+        const latestStableIssue = state.diagnostics.find((d) => d.kind === "stable_settlement" && d.severity === "high");
+        if (latestStableIssue) {
+          return {
+            result: "blocked",
+            reasonKind: latestStableIssue.kind,
+            reasonTitle: latestStableIssue.title,
+            detail: latestStableIssue.detail,
+            decidedAt: latestStableIssue.timestamp,
+          };
+        }
+        const latestStableInfo = state.diagnostics.find((d) => d.kind === "stable_settlement");
+        if (latestStableInfo) {
+          return {
+            result: "allowed",
+            reasonKind: latestStableInfo.kind,
+            reasonTitle: latestStableInfo.title,
+            detail: latestStableInfo.detail,
+            decidedAt: latestStableInfo.timestamp,
+          };
+        }
+        return {
+          result: "unknown",
+          reasonKind: null,
+          reasonTitle: null,
+          detail: "No stable-settlement decision in diagnostics yet.",
+          decidedAt: null,
+        };
+      }
+
+      async function buildDiagnosisReport() {
+        const inputs = readInputs();
+        const inputsSerialized = {
+          engineAddress: inputs.engineAddress,
+          nonCustodialAddress: inputs.nonCustodialAddress,
+          tokenAddress: inputs.tokenAddress,
+          payeeAddress: inputs.payeeAddress,
+          amount: inputs.amount.toString(),
+          scopeText: inputs.scopeText,
+          proofHashText: inputs.proofHashText,
+          ttlSeconds: inputs.ttlSeconds,
+        };
+
+        let network = null;
+        if (state.provider) {
+          try {
+            const n = await state.provider.getNetwork();
+            network = { chainId: n.chainId.toString(), name: n.name || null };
+          } catch (e) {
+            network = { error: readErrorMessage(e) };
+          }
+        }
+
+        let walletFull = null;
+        if (state.signer) {
+          try {
+            walletFull = await state.signer.getAddress();
+          } catch {
+            walletFull = null;
+          }
+        }
+
+        const policySnapshotText = document.getElementById("policySnapshot")?.textContent || null;
+        const stableSnapshotText = document.getElementById("stableSettlementSnapshot")?.textContent || null;
+        const policyDecision = parsePolicyDecisionFromDiagnostics();
+        const stableDecision = parseStableDecisionFromDiagnostics();
+        const stableChainVerification = verifyStableConfigHistoryChain();
+
+        return {
+          reportVersion: "1.1",
+          schemaVersion: "evidence-v1",
+          evidenceVersion: "evidence-v1",
+          traceId: state.sessionTraceId,
+          app: "Karma v0.1 wangcai Console",
+          exportedAt: new Date().toISOString(),
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+          pageUrl: typeof location !== "undefined" ? location.href : null,
+          network,
+          walletAddress: walletFull,
+          kpis: {
+            wallet: document.getElementById("kpiWallet").textContent,
+            engine: document.getElementById("kpiEngine").textContent,
+            tokenAllowlist: document.getElementById("kpiAllowlist").textContent,
+            settlementReadiness: document.getElementById("kpiReadiness").textContent,
+            nonCustodialLocked: document.getElementById("kpiLocked").textContent,
+            nonCustodialActive: document.getElementById("kpiActive").textContent,
+            nonCustodialReserved: document.getElementById("kpiReserved").textContent,
+            nonCustodialInvariant: document.getElementById("kpiInvariant").textContent,
+          },
+          autoMonitor: {
+            active: Boolean(state.autoMonitorTimer),
+            pollSeconds: Number(document.getElementById("pollSeconds").value || "10"),
+          },
+          authSnapshot: {
+            walletAddress: walletFull,
+            signaturePresent: Boolean(state.signature),
+            quotePresent: Boolean(state.quote),
+            stableSettlementSnapshot: stableSnapshotText,
+            stableConfigVersion: state.stableConfigVersion,
+            latestStableChangeReason: state.stableConfigHistory[0]?.reason || null,
+            latestStableOperator: state.stableConfigHistory[0]?.operator || null,
+            latestStablePrevHash: state.stableConfigHistory[0]?.prevHash || null,
+            latestStableCurrentHash: state.stableConfigHistory[0]?.currentHash || null,
+            stableConfigHistory: state.stableConfigHistory,
+          },
+          requestSnapshot: {
+            form: inputsSerialized,
+            logFilters: {
+              kind: logFilterKindEl.value,
+              severity: logFilterSeverityEl.value,
+            },
+            policySnapshot: policySnapshotText,
+            policyDecision,
+            stableSettlementDecision: stableDecision,
+          },
+          executionSnapshot: {
+            diagnostics: state.diagnostics.map((d) => ({
+              id: d.id,
+              traceId: d.traceId || state.sessionTraceId,
+              timestamp: d.timestamp,
+              kind: d.kind,
+              severity: d.severity,
+              title: d.title,
+              detail: d.detail,
+              payload: serializePayload(d.payload),
+            })),
+            transactionHistory: state.txHistory.map((tx) => ({
+              traceId: tx.traceId || state.sessionTraceId,
+              timestamp: tx.timestamp,
+              status: tx.status,
+              txHash: tx.txHash || "-",
+              blockNumber: tx.blockNumber || "-",
+              amount: tx.amount || "-",
+            })),
+            lastQuote: serializeQuoteForExport(state.quote),
+          },
+          riskSnapshot: {
+            summary: {
+              totalDiagnostics: state.diagnostics.length,
+              high: state.diagnostics.filter((d) => d.severity === "high").length,
+              medium: state.diagnostics.filter((d) => d.severity === "medium").length,
+              low: state.diagnostics.filter((d) => d.severity === "low").length,
+            },
+            latestHighRiskTitle:
+              state.diagnostics.find((d) => d.severity === "high")?.title || null,
+            latestStableRiskTitle:
+              state.diagnostics.find((d) => d.kind === "stable_settlement" && d.severity === "high")?.title || null,
+            stableConfigChanges: state.stableConfigHistory.length,
+            latestStableConfigVersion: state.stableConfigHistory[0]?.version || null,
+            stableConfigChainHead: state.stableConfigHistory[0]?.currentHash || null,
+            stableHistoryIntegrity: stableChainVerification.ok ? "pass" : "fail",
+            stableHistoryBreakIndex: stableChainVerification.breakIndex,
+            stableHistoryCheckedCount: stableChainVerification.checkedCount,
+            stableHistoryVerification: stableChainVerification,
+            importedStableHistoryVerification: state.importedStableHistoryVerification,
+            importedStableProofReport: state.importedStableProofReport,
+            importedStableProofSignatureVerification: state.importedStableProofSignatureVerification,
+          },
+        };
+      }
+
+      async function exportDiagnosis() {
+        const data = await buildDiagnosisReport();
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        downloadJson(`karma-v01-diagnosis-${stamp}.json`, data);
+        addDiagnostic("export", "low", "Diagnosis exported", `Downloaded JSON report (${data.diagnostics.length} log entries).`);
+        setOutput({
+          step: "diagnosis_exported",
+          filename: `karma-v01-diagnosis-${stamp}.json`,
+          traceId: data.traceId,
+          diagnosticsCount: data.executionSnapshot.diagnostics.length,
+          txHistoryCount: data.executionSnapshot.transactionHistory.length,
+          walletAddress: data.walletAddress,
+          network: data.network,
+        });
+      }
+
+      async function readPolicyState() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const signerAddress = await state.signer.getAddress();
+        const payee = document.getElementById("policyPayeeRule").value.trim();
+        const policyToken = document.getElementById("policyTokenRule").value.trim();
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const [policy, usage] = await Promise.all([nc.getPolicy(signerAddress), nc.getPolicyUsage(signerAddress)]);
+        let payeeAllowed = null;
+        let tokenAllowed = null;
+        if (payee) {
+          payeeAllowed = await nc.isPolicyPayeeAllowed(signerAddress, payee);
+        }
+        if (policyToken) {
+          tokenAllowed = await nc.isPolicyTokenAllowed(signerAddress, policyToken);
+        }
+        setOutput({
+          step: "policy_read",
+          policy: {
+            enabled: policy.enabled,
+            perTxLimit: policy.perTxLimit.toString(),
+            dailyLimit: policy.dailyLimit.toString(),
+            maxTxPerMinute: policy.maxTxPerMinute.toString(),
+            validUntil: policy.validUntil.toString(),
+          },
+          usage: {
+            txCountToday: usage.txCountToday.toString(),
+            spentToday: usage.spentToday.toString(),
+            txCountHour: usage.txCountHour.toString(),
+            dayIndex: usage.dayIndex.toString(),
+          },
+          checks: {
+            payee,
+            payeeAllowed,
+            policyToken,
+            tokenAllowed,
+          },
+        });
+        addDiagnostic("policy", "low", "Policy loaded", `Policy loaded for ${signerAddress}.`);
+      }
+
+      async function refreshPolicyConfig() {
+        await readPolicyState();
+        const out = state.lastOutput || {};
+        const p = (out.policy) || {};
+        const u = (out.usage) || {};
+        document.getElementById("policySnapshot").textContent =
+          `Enabled: ${p.enabled ?? "?"} | PerTx: ${p.perTxLimit ?? "?"} | Daily: ${p.dailyLimit ?? "?"} | ` +
+          `Rate: ${p.maxTxPerMinute ?? "?"}/hour | ValidUntil: ${p.validUntil ?? "?"} | ` +
+          `SpentToday: ${u.spentToday ?? "?"} | TxCount: ${u.txCountHour ?? "?"}/hour`;
+      }
+
+      async function applyPolicyConfig() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const enabled = Boolean(document.getElementById("policyEnabled").checked);
+        const perTxLimit = BigInt(document.getElementById("policyPerTxLimit").value || "0");
+        const dailyLimit = BigInt(document.getElementById("policyDailyLimit").value || "0");
+        const maxTxPerWindow = BigInt(document.getElementById("policyMaxTxPerWindow").value || "0");
+        const windowSeconds = BigInt(document.getElementById("policyWindowSeconds").value || "0");
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setPolicy(perTxLimit, dailyLimit, maxTxPerWindow, windowSeconds, enabled);
+        const receipt = await tx.wait();
+        addDiagnostic("policy", "low", "Policy updated", `Policy update tx confirmed: ${receipt.hash}`);
+        setOutput({
+          step: "policy_updated",
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          policy: {
+            enabled,
+            perTxLimit: perTxLimit.toString(),
+            dailyLimit: dailyLimit.toString(),
+            maxTxPerWindow: maxTxPerWindow.toString(),
+            windowSeconds: windowSeconds.toString(),
+          },
+        });
+      }
+
+      async function setPolicyPayeeRule() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const payee = document.getElementById("policyPayeeRule").value.trim();
+        if (!payee) throw new Error("Policy payee address required");
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setPolicyPayee(payee, true);
+        const receipt = await tx.wait();
+        addDiagnostic("policy", "low", "Payee policy updated", `Payee ${payee} set to true.`);
+        setOutput({
+          step: "policy_payee_updated",
+          payee,
+          allowed: true,
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+        });
+      }
+
+      async function setPolicyTokenRule() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const policyToken = document.getElementById("policyTokenRule").value.trim();
+        if (!policyToken) throw new Error("Policy token address required");
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setPolicyToken(policyToken, true);
+        const receipt = await tx.wait();
+        addDiagnostic("policy", "low", "Token policy updated", `Token ${policyToken} set to true.`);
+        setOutput({
+          step: "policy_token_updated",
+          token: policyToken,
+          allowed: true,
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+        });
+      }
+
+      async function readStableSettlementState() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const tokenAddress = document.getElementById("stableTokenRule").value.trim() || document.getElementById("tokenAddress").value.trim();
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const [enforcementEnabled, minSettlementAmount] = await Promise.all([
+          nc.stableTokenEnforcementEnabled(),
+          nc.minSettlementAmount(),
+        ]);
+        let tokenAllowed = null;
+        if (tokenAddress) tokenAllowed = await nc.isStableTokenAllowed(tokenAddress);
+
+        const snapshotText =
+          `Stable settlement: enforcement=${enforcementEnabled}, minAmount=${minSettlementAmount.toString()}, checkToken=${tokenAddress || "-"}, tokenAllowed=${tokenAllowed}`;
+        const snapshotEl = document.getElementById("stableSettlementSnapshot");
+        if (snapshotEl) snapshotEl.textContent = snapshotText;
+
+        setOutput({
+          step: "stable_settlement_read",
+          enforcementEnabled,
+          minSettlementAmount: minSettlementAmount.toString(),
+          checkToken: tokenAddress || null,
+          tokenAllowed,
+        });
+        addDiagnostic("stable_settlement", "low", "Stable settlement loaded", snapshotText);
+      }
+
+      async function applyStableSettlementConfig() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const enforcementEnabled = Boolean(document.getElementById("stableEnforcementEnabled").checked);
+        const minSettlementAmount = BigInt(document.getElementById("stableMinAmount").value || "0");
+        const tokenAddress = document.getElementById("stableTokenRule").value.trim() || document.getElementById("tokenAddress").value.trim();
+        const tokenAllowed = Boolean(document.getElementById("stableTokenAllowed").checked);
+        const changeReason = document.getElementById("stableChangeReason").value.trim() || "manual_update";
+        const operator = document.getElementById("stableOperator").value.trim() || "unknown_operator";
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+
+        const tx1 = await nc.setStableTokenEnforcement(enforcementEnabled);
+        const r1 = await tx1.wait();
+        const tx2 = await nc.setMinSettlementAmount(minSettlementAmount);
+        const r2 = await tx2.wait();
+        let r3 = null;
+        if (tokenAddress) {
+          const tx3 = await nc.setStableTokenAllowed(tokenAddress, tokenAllowed);
+          r3 = await tx3.wait();
+        }
+
+        addDiagnostic(
+          "stable_settlement",
+          "low",
+          "Stable settlement updated",
+          `enforcement=${enforcementEnabled}, minAmount=${minSettlementAmount.toString()}, token=${tokenAddress || "-"}, tokenAllowed=${tokenAddress ? tokenAllowed : "skipped"}`
+        );
+        addStableConfigHistory({
+          action: "apply_profile",
+          reason: changeReason,
+          operator,
+          enforcementEnabled,
+          minSettlementAmount: minSettlementAmount.toString(),
+          tokenAddress: tokenAddress || null,
+          tokenAllowed: tokenAddress ? tokenAllowed : null,
+          txHashes: {
+            enforcement: r1.hash,
+            minAmount: r2.hash,
+            tokenRule: r3?.hash || null,
+          },
+        });
+        setOutput({
+          step: "stable_settlement_updated",
+          reason: changeReason,
+          operator,
+          enforcementEnabled,
+          minSettlementAmount: minSettlementAmount.toString(),
+          tokenAddress: tokenAddress || null,
+          tokenAllowed: tokenAddress ? tokenAllowed : null,
+          txHashes: {
+            enforcement: r1.hash,
+            minAmount: r2.hash,
+            tokenRule: r3?.hash || null,
+          },
+        });
+      }
+
+      async function setStableTokenRule() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        const tokenAddress = document.getElementById("stableTokenRule").value.trim() || document.getElementById("tokenAddress").value.trim();
+        if (!tokenAddress) throw new Error("Stable token address required");
+        const tokenAllowed = Boolean(document.getElementById("stableTokenAllowed").checked);
+        const changeReason = document.getElementById("stableChangeReason").value.trim() || "manual_update";
+        const operator = document.getElementById("stableOperator").value.trim() || "unknown_operator";
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.setStableTokenAllowed(tokenAddress, tokenAllowed);
+        const receipt = await tx.wait();
+        addDiagnostic("stable_settlement", "low", "Stable token rule updated", `token=${tokenAddress}, allowed=${tokenAllowed}`);
+        addStableConfigHistory({
+          action: "set_token_rule",
+          reason: changeReason,
+          operator,
+          tokenAddress,
+          tokenAllowed,
+          txHashes: {
+            tokenRule: receipt.hash,
+          },
+        });
+        setOutput({
+          step: "stable_token_rule_updated",
+          reason: changeReason,
+          operator,
+          tokenAddress,
+          tokenAllowed,
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+        });
+      }
+
+      async function loadLocalConfig() {
+        const response = await fetch("./v01-console-config.json", { cache: "no-store" });
+        if (!response.ok) throw new Error("Config not found: examples/v01-console-config.json");
+        const config = await response.json();
+        applyConfig(config);
+        addDiagnostic("config", "low", "Config loaded", "Loaded examples/v01-console-config.json");
+        setOutput({ step: "config_loaded", config });
+      }
+
+      async function connect() {
+        if (!window.ethereum) throw new Error("MetaMask not found");
+        state.provider = new BrowserProvider(window.ethereum);
+        await state.provider.send("eth_requestAccounts", []);
+        state.signer = await state.provider.getSigner();
+        const wallet = await state.signer.getAddress();
+        updateKpi("kpiWallet", `${wallet.slice(0, 6)}...${wallet.slice(-4)}`, "status-good");
+        addDiagnostic("wallet", "low", "Wallet connected", `Connected wallet ${wallet}.`);
+        setOutput({ step: "connected", wallet, network: await state.provider.getNetwork() });
+      }
+
+      async function runHealthCheck() {
+        if (!state.signer || !state.provider) throw new Error("Connect wallet first");
+        const { engineAddress, nonCustodialAddress, tokenAddress, amount } = readInputs();
+        if (!tokenAddress || amount <= 0n) throw new Error("Token/Amount required");
+        if (!nonCustodialAddress && !engineAddress) throw new Error("Provide Non-custodial address (preferred) or Engine address");
+
+        const signerAddress = await state.signer.getAddress();
+        const token = new Contract(tokenAddress, erc20Abi, state.signer);
+        const spender = nonCustodialAddress || engineAddress;
+        const [balance, allowance] = await Promise.all([
+          token.balanceOf(signerAddress),
+          token.allowance(signerAddress, spender),
+        ]);
+
+        let paused = false;
+        let tokenAllowed = true;
+        let nonce = 0n;
+        if (engineAddress) {
+          const engine = new Contract(engineAddress, engineAbi, state.signer);
+          [paused, tokenAllowed, nonce] = await Promise.all([engine.paused(), engine.tokenAllowed(tokenAddress), engine.nonces(signerAddress)]);
+          updateKpi("kpiEngine", paused ? "Paused (legacy)" : "Running (legacy)", paused ? "status-bad" : "status-good");
+          updateKpi("kpiAllowlist", tokenAllowed ? "Legacy allowed" : "Legacy blocked", tokenAllowed ? "status-good" : "status-bad");
+        } else {
+          updateKpi("kpiEngine", "N/A (non-custodial)", "status-warn");
+          updateKpi("kpiAllowlist", "N/A (non-custodial)", "status-warn");
+        }
+
+        let stableProfile = null;
+        if (nonCustodialAddress) {
+          try {
+            const ncStable = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+            const [enforcementEnabled, minSettlementAmount] = await Promise.all([
+              ncStable.stableTokenEnforcementEnabled(),
+              ncStable.minSettlementAmount(),
+            ]);
+            const stableTokenAllowed = tokenAddress ? await ncStable.isStableTokenAllowed(tokenAddress) : null;
+            stableProfile = {
+              enforcementEnabled,
+              minSettlementAmount,
+              stableTokenAllowed,
+            };
+          } catch (e) {
+            addDiagnostic("stable_settlement", "medium", "Stable profile read failed", readErrorMessage(e), e);
+          }
+        }
+        const enoughBalance = balance >= amount;
+        const enoughAllowance = allowance >= amount;
+        const stableRulePass = !stableProfile
+          || (
+            (!stableProfile.enforcementEnabled || Boolean(stableProfile.stableTokenAllowed))
+            && amount >= BigInt(stableProfile.minSettlementAmount?.toString?.() || "0")
+          );
+        const ready = (engineAddress ? (!paused && tokenAllowed) : true) && enoughBalance && enoughAllowance && stableRulePass;
+        updateKpi("kpiReadiness", ready ? "Ready" : "Blocked", ready ? "status-good" : "status-bad");
+
+        if (nonCustodialAddress) {
+          try {
+            const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+            const [acct, isConsistent, batchModeEnabled, batchCircuitBreakerPaused] = await Promise.all([
+              nc.getAccountState(signerAddress, tokenAddress),
+              nc.isAccountConsistent(signerAddress, tokenAddress),
+              nc.batchModeEnabled(),
+              nc.batchCircuitBreakerPaused(),
+            ]);
+            updateKpi("kpiLocked", acct.locked.toString(), "status-good");
+            updateKpi("kpiActive", acct.active.toString(), "status-good");
+            updateKpi("kpiReserved", acct.reserved.toString(), "status-good");
+            updateKpi("kpiInvariant", isConsistent ? "OK" : "BROKEN", isConsistent ? "status-good" : "status-bad");
+            setChip("modeCustodyChip", "Mode: Non-custodial");
+            setChip("modeBatchChip", `Batch: ${batchModeEnabled ? "ON" : "OFF"}`);
+            setChip("modeBreakerChip", `Breaker: ${batchCircuitBreakerPaused ? "PAUSED" : "OPEN"}`);
+            addDiagnostic(
+              "non_custodial_state",
+              isConsistent ? "low" : "high",
+              "Non-custodial state",
+              `locked=${acct.locked}, active=${acct.active}, reserved=${acct.reserved}, invariant=${isConsistent}, batchMode=${batchModeEnabled}, breakerPaused=${batchCircuitBreakerPaused}`
+            );
+            if (stableProfile) {
+              addDiagnostic(
+                "stable_settlement",
+                stableRulePass ? "low" : "high",
+                "Stable settlement profile",
+                `enforcement=${stableProfile.enforcementEnabled}, minAmount=${stableProfile.minSettlementAmount.toString()}, tokenAllowed=${stableProfile.stableTokenAllowed}`
+              );
+            }
+          } catch (e) {
+            updateKpi("kpiInvariant", "READ FAIL", "status-warn");
+            setChip("modeCustodyChip", "Mode: Non-custodial?");
+            setChip("modeBatchChip", "Batch: Read fail");
+            setChip("modeBreakerChip", "Breaker: Read fail");
+            addDiagnostic("non_custodial_state", "medium", "Non-custodial read failed", readErrorMessage(e), e);
+          }
+        } else {
+          setChip("modeCustodyChip", "Mode: Custodial-only");
+          setChip("modeBatchChip", "Batch: N/A");
+          setChip("modeBreakerChip", "Breaker: N/A");
+        }
+
+        if (engineAddress) {
+          addDiagnostic("engine_state", paused ? "high" : "low", "Legacy engine status", paused ? "Engine is paused." : "Engine is running.");
+          addDiagnostic(
+            "token_allowlist",
+            tokenAllowed ? "low" : "high",
+            "Legacy allowlist check",
+            tokenAllowed ? "Token is allowed for legacy engine." : "Token is blocked for legacy engine."
+          );
+        }
+        addDiagnostic(
+          "payer_balance",
+          enoughBalance ? "low" : "high",
+          "Balance check",
+          enoughBalance ? "Balance is sufficient." : `Insufficient balance: need ${amount}, have ${balance}.`
+        );
+        addDiagnostic(
+          "payer_allowance",
+          enoughAllowance ? "low" : "high",
+          "Allowance check",
+          enoughAllowance ? "Allowance is sufficient." : `Allowance too low: need ${amount}, approved ${allowance}.`
+        );
+        addDiagnostic("nonce_info", "low", "Nonce status", `Current nonce: ${nonce}.`);
+
+        setOutput({
+          step: "health_check",
+          signerAddress,
+          paused,
+          tokenAllowed,
+          nonce: nonce.toString(),
+          balance: balance.toString(),
+          allowance: allowance.toString(),
+          amount: amount.toString(),
+        });
+      }
+
+      async function runHealthCheckSilent() {
+        try {
+          await runHealthCheck();
+        } catch (e) {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Auto monitor: ${c.title}`, msg, e);
+        }
+      }
+
+      function setAutoMonitorUi(active) {
+        autoStateEl.textContent = active ? "Auto monitor: ON" : "Auto monitor: OFF";
+      }
+
+      function toggleAutoMonitor() {
+        if (state.autoMonitorTimer) {
+          clearInterval(state.autoMonitorTimer);
+          state.autoMonitorTimer = null;
+          setAutoMonitorUi(false);
+          addDiagnostic("auto_monitor", "low", "Auto monitor stopped", "Background health polling stopped.");
+          return;
+        }
+
+        const seconds = Number(document.getElementById("pollSeconds").value || "10");
+        const intervalMs = Math.max(3, seconds) * 1000;
+        state.autoMonitorTimer = setInterval(runHealthCheckSilent, intervalMs);
+        setAutoMonitorUi(true);
+        addDiagnostic("auto_monitor", "low", "Auto monitor started", `Polling every ${intervalMs / 1000} seconds.`);
+        runHealthCheckSilent();
+      }
+
+      async function buildAndSign() {
+        if (!state.signer || !state.provider) throw new Error("Connect wallet first");
+        const { engineAddress, tokenAddress, payeeAddress, amount, scopeText, ttlSeconds } = readInputs();
+        if (!engineAddress) throw new Error("Legacy Engine Address required for legacy sign flow");
+        if (!tokenAddress || !payeeAddress || amount <= 0n) throw new Error("Please fill token/payee/amount");
+
+        const engine = new Contract(engineAddress, engineAbi, state.signer);
+        const payerAddress = await state.signer.getAddress();
+        const nonce = await engine.nonces(payerAddress);
+        const now = Math.floor(Date.now() / 1000);
+        const deadline = BigInt(now + ttlSeconds);
+        const quote = {
+          quoteId: keccak256(toUtf8Bytes(`quote:${payerAddress}:${payeeAddress}:${now}`)),
+          payer: payerAddress,
+          payee: payeeAddress,
+          token: tokenAddress,
+          amount,
+          nonce,
+          deadline,
+          scopeHash: keccak256(toUtf8Bytes(scopeText)),
+        };
+        const net = await state.provider.getNetwork();
+        const domain = {
+          name: "KarmaSettlementEngine",
+          version: "1",
+          chainId: Number(net.chainId),
+          verifyingContract: engineAddress,
+        };
+        const sig = await state.signer.signTypedData(domain, quoteTypes, quote);
+        state.quote = quote;
+        state.signature = sig;
+        addDiagnostic("signing", "low", "Quote signed", "EIP-712 signature completed.");
+        setOutput({ step: "quote_signed", quote, signature: sig });
+      }
+
+      function readBatchInputs() {
+        return {
+          batchId: Number(document.getElementById("batchIdInput").value || "0"),
+          maxBills: Number(document.getElementById("maxBillsInput").value || "0"),
+        };
+      }
+
+      async function readBatchStatus() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        const { batchId } = readBatchInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        if (!batchId || batchId <= 0) throw new Error("Valid batch id required");
+
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const [batch, billIds] = await Promise.all([nc.getBatch(batchId), nc.getBatchBillIds(batchId)]);
+        const statusMap = ["Open", "Closed", "Settled"];
+        addDiagnostic("batch_state", "low", "Batch loaded", `batch=${batch.batchId} status=${statusMap[Number(batch.status)] || batch.status}`);
+        setOutput({
+          step: "batch_status",
+          batchId: batch.batchId.toString(),
+          totalPending: batch.totalPending.toString(),
+          billCount: batch.billCount.toString(),
+          status: statusMap[Number(batch.status)] || String(batch.status),
+          createdAt: batch.createdAt.toString(),
+          settledAt: batch.settledAt.toString(),
+          billIds: billIds.map((x) => x.toString()),
+        });
+      }
+
+      async function closeBatchAction() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        const { batchId } = readBatchInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        if (!batchId || batchId <= 0) throw new Error("Valid batch id required");
+
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.closeBatch(batchId);
+        const receipt = await tx.wait();
+        addDiagnostic("batch_action", "low", "Batch closed", `Batch ${batchId} closed. tx=${receipt.hash}`);
+        addTxHistory({
+          timestamp: new Date().toISOString(),
+          status: "batch_closed",
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          amount: "-",
+        });
+        setOutput({ step: "batch_closed", batchId, txHash: receipt.hash, blockNumber: receipt.blockNumber });
+      }
+
+      async function settleBatchAction() {
+        if (!state.signer) throw new Error("Connect wallet first");
+        const { nonCustodialAddress } = readInputs();
+        const { batchId, maxBills } = readBatchInputs();
+        if (!nonCustodialAddress) throw new Error("Non-custodial address required");
+        if (!batchId || batchId <= 0) throw new Error("Valid batch id required");
+
+        const nc = new Contract(nonCustodialAddress, nonCustodialAbi, state.signer);
+        const tx = await nc.settleBatch(batchId, Math.max(0, maxBills));
+        const receipt = await tx.wait();
+        addDiagnostic("batch_action", "low", "Batch settled", `Batch ${batchId} settled tx=${receipt.hash}`);
+        addTxHistory({
+          timestamp: new Date().toISOString(),
+          status: "batch_settled",
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          amount: "-",
+        });
+        setOutput({ step: "batch_settled", batchId, maxBills: Math.max(0, maxBills), txHash: receipt.hash, blockNumber: receipt.blockNumber });
+      }
+
+      async function submit() {
+        if (!state.signer || !state.quote || !state.signature) throw new Error("Build and sign quote first");
+        const { engineAddress } = readInputs();
+        if (!engineAddress) throw new Error("Missing legacy engine address");
+
+        const engine = new Contract(engineAddress, engineAbi, state.signer);
+        const { v, r, s } = Signature.from(state.signature);
+        const onchainDigest = await engine.getQuoteDigest(state.quote);
+        const tx = await engine.submitSettlement(state.quote, v, r, s);
+        const receipt = await tx.wait();
+        addDiagnostic("settlement_tx", "low", "Settlement submitted", `Tx confirmed: ${receipt.hash}`);
+        addTxHistory({
+          timestamp: new Date().toISOString(),
+          status: "confirmed",
+          txHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          amount: state.quote.amount?.toString?.() || "-",
+        });
+        setOutput({ step: "settlement_submitted", onchainDigest, txHash: receipt.hash, blockNumber: receipt.blockNumber });
+      }
+
+      document.getElementById("connectBtn").addEventListener("click", () =>
+        connect().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("wallet", "high", "Wallet connection failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("loadConfigBtn").addEventListener("click", () =>
+        loadLocalConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("config", "medium", "Config load failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("healthBtn").addEventListener("click", () =>
+        runHealthCheck().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Health check: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      buildBtnEl.addEventListener("click", () =>
+        buildAndSign().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("signing", "medium", "Build/sign failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      submitBtnEl.addEventListener("click", () =>
+        submit().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, c.title, msg, e);
+          addTxHistory({
+            timestamp: new Date().toISOString(),
+            status: "failed",
+            txHash: "-",
+            blockNumber: "-",
+            amount: state.quote?.amount?.toString?.() || "-",
+          });
+          setOutput(msg);
+        })
+      );
+      showLegacyToggleEl.addEventListener("change", () => {
+        setLegacyModeUi(Boolean(showLegacyToggleEl.checked));
+      });
+      document.getElementById("toggleAutoBtn").addEventListener("click", () => toggleAutoMonitor());
+      document.getElementById("exportDiagBtn").addEventListener("click", () =>
+        exportDiagnosis().catch((e) => {
+          const msg = readErrorMessage(e);
+          addDiagnostic("export", "high", "Export failed", msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("verifyStableChainBtn").addEventListener("click", () =>
+        Promise.resolve()
+          .then(() => runStableChainVerification())
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain", "high", "Stable chain verification failed", msg, e);
+            setOutput(msg);
+          })
+      );
+      document.getElementById("verifyStableChainFromFileBtn").addEventListener("click", () => {
+        const fileInput = document.getElementById("verifyStableChainFileInput");
+        if (!(fileInput instanceof HTMLInputElement)) return;
+        fileInput.click();
+      });
+      document.getElementById("verifyStableChainFileInput").addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        const file = target.files?.[0];
+        Promise.resolve()
+          .then(() => verifyStableChainFromFile(file))
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain", "high", "Stable chain file verification failed", msg, e);
+            setOutput(msg);
+          })
+          .finally(() => {
+            target.value = "";
+          });
+      });
+      document.getElementById("exportStableProofBtn").addEventListener("click", () =>
+        Promise.resolve()
+          .then(() => exportStableProofReport())
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain", "high", "Stable proof export failed", msg, e);
+            setOutput(msg);
+          })
+      );
+      document.getElementById("signStableProofBtn").addEventListener("click", () =>
+        Promise.resolve()
+          .then(() => signStableProofReport())
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain", "high", "Stable proof signing failed", msg, e);
+            setOutput(msg);
+          })
+      );
+      document.getElementById("verifyStableProofSigFromFileBtn").addEventListener("click", () => {
+        const fileInput = document.getElementById("verifyStableProofFileInput");
+        if (!(fileInput instanceof HTMLInputElement)) return;
+        fileInput.click();
+      });
+      document.getElementById("verifyStableProofFileInput").addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement)) return;
+        const file = target.files?.[0];
+        Promise.resolve()
+          .then(() => verifyStableProofSignatureFromFile(file))
+          .catch((e) => {
+            const msg = readErrorMessage(e);
+            addDiagnostic("stable_chain_proof", "high", "Proof signature verification failed", msg, e);
+            setOutput(msg);
+          })
+          .finally(() => {
+            target.value = "";
+          });
+      });
+      document.getElementById("applyPolicyBtn").addEventListener("click", () =>
+        applyPolicyConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Apply policy: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("refreshPolicyBtn").addEventListener("click", () =>
+        refreshPolicyConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Refresh policy: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("setPolicyPayeeBtn").addEventListener("click", () =>
+        setPolicyPayeeRule().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Set payee rule: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("setPolicyTokenBtn").addEventListener("click", () =>
+        setPolicyTokenRule().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Set token rule: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("applyStableProfileBtn").addEventListener("click", () =>
+        applyStableSettlementConfig().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Apply stable profile: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("refreshStableProfileBtn").addEventListener("click", () =>
+        readStableSettlementState().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Refresh stable profile: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("setStableTokenRuleBtn").addEventListener("click", () =>
+        setStableTokenRule().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Set stable token rule: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("batchStatusBtn").addEventListener("click", () =>
+        readBatchStatus().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Read batch: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("closeBatchBtn").addEventListener("click", () =>
+        closeBatchAction().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Close batch: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      document.getElementById("settleBatchBtn").addEventListener("click", () =>
+        settleBatchAction().catch((e) => {
+          const msg = readErrorMessage(e);
+          const c = classifyRuntimeError(e);
+          addDiagnostic(c.kind, c.severity, `Settle batch: ${c.title}`, msg, e);
+          setOutput(msg);
+        })
+      );
+      logFilterKindEl.addEventListener("change", () => renderLogs());
+      logFilterSeverityEl.addEventListener("change", () => renderLogs());
+
+      logListEl.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLButtonElement)) return;
+        const id = target.getAttribute("data-log-id");
+        if (!id) return;
+        const row = state.diagnostics.find((d) => d.id === id);
+        if (!row) return;
+        setOutput({
+          selectedLog: {
+            title: row.title,
+            kind: row.kind,
+            severity: row.severity,
+            timestamp: row.timestamp,
+            detail: row.detail,
+            payload: row.payload,
+          },
+        });
+      });
+
+      renderRisks();
+      renderLogs();
+      renderTxHistory();
+      setAutoMonitorUi(false);
+      setLegacyModeUi(false);
+      setChip("modeCustodyChip", "Mode: Unknown");
+      setChip("modeBatchChip", "Batch: Unknown");
+      setChip("modeBreakerChip", "Breaker: Unknown");
+      state.sessionTraceId = generateTraceId();
+    </script>
+  </body>
+</html>

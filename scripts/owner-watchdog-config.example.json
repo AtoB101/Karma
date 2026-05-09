@@ -1,0 +1,18 @@
+{
+  "network": "sepolia",
+  "rpcUrlEnv": "ETH_RPC_URL",
+  "contracts": [
+    {
+      "name": "NonCustodialAgentPayment",
+      "address": "0x0000000000000000000000000000000000000000",
+      "ownerSlotReadMethod": "owner()",
+      "expectedOwner": "0x0000000000000000000000000000000000000000"
+    }
+  ],
+  "alerts": {
+    "telegramEnabled": false,
+    "telegramBotTokenEnv": "TELEGRAM_BOT_TOKEN",
+    "telegramChatIdEnv": "TELEGRAM_CHAT_ID",
+    "ownerMention": "@KT_boos"
+  }
+}

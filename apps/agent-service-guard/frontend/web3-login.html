@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta http-equiv="Permissions-Policy" content="accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()" />
+  <title>KarmaPay — Studio sign-in</title>
+  <meta name="description" content="Wallet-only sign-in for Agent Studio (WalletConnect). Keys stay in your wallet app." />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <style>
+    :root{--bg:#07070d;--line:rgba(0,245,255,.34);--cyan:#00f5ff;--muted:#9ca3af;--text:#e5e7eb}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100vh;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif}
+    .nav{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;padding:14px 18px;border-bottom:1px solid rgba(255,255,255,.08)}
+    .nav a{color:var(--muted);text-decoration:none;font-size:.88rem}
+    .nav a:hover{color:var(--cyan)}
+    main{max-width:480px;margin:0 auto;padding:28px 16px 48px;text-align:center}
+    .trust{font-size:.82rem;color:var(--muted);line-height:1.45;margin-bottom:20px;text-align:left;border-left:3px solid rgba(0,245,255,.45);padding:10px 0 10px 14px}
+    #qr-box{min-height:280px;display:flex;align-items:center;justify-content:center}
+    #qr-box canvas,#qr-box img{max-width:100%}
+    .timer{margin-top:12px;font-size:.88rem;color:var(--muted)}
+    .status{margin-top:14px;font-size:.85rem;color:var(--muted);min-height:1.2em}
+  </style>
+</head>
+<body>
+  <header class="nav">
+    <strong>KARMA.PAY</strong>
+    <nav style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <a href="./index.html">Home</a>
+      <a href="./studio/index.html">Studio</a>
+    </nav>
+  </header>
+
+  <main>
+    <p class="trust">
+      This page is only for connecting your wallet app via QR. Signing happens in the wallet. Karma does not collect seed phrases or private keys here — never paste a recovery phrase into any website.
+    </p>
+    <div id="qr-box"></div>
+    <p class="timer" id="timer-line"></p>
+    <p class="status" id="status-line"></p>
+  </main>
+
+  <script src="wc-config.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" integrity="sha384-3zSEDfvllQohrq0PHL1fOXJuC/jSOO34H46t6UQfobFOmxE5BpjjaIJY5F2/bMnU" crossorigin="anonymous"></script>
+  <script type="module">
+    import SignClient from "https://esm.sh/@walletconnect/sign-client@2.17.1";
+
+    async function applyRuntimePublicConfig() {
+      try {
+        const res = await fetch("./public-config.json", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        const id = String(data.walletConnectProjectId || "").trim();
+        if (id) window.KARMAPAY_WC_PROJECT_ID = id;
+      } catch {
+        /* absent public-config.json is normal in local dev */
+      }
+    }
+    await applyRuntimePublicConfig();
+
+    try {
+      localStorage.removeItem("karma_wc_project_id");
+      localStorage.removeItem("karma_web3_last_wc_uri");
+    } catch (_) {}
+
+    const REQUIRED_CHAIN = "eip155:1";
+    const L = {
+      qrExpires: "QR refreshes in",
+      sec: "s",
+      statusInit: "Preparing connection…",
+      statusConn: "Scan with your wallet app.",
+      statusNoConfig:
+        "Sign-in is temporarily unavailable. Deploy public-config.json (see public-config.json.example) or set wc-config.js / WALLETCONNECT_PROJECT_ID at build time.",
+    };
+
+    let client;
+    let activeSession;
+    let activeAccount = "";
+    let activeSignature = "";
+    let countdownTimer;
+    let secondsLeft = 60;
+    let pairingGeneration = 0;
+
+    function getWalletConnectProjectId() {
+      return typeof window.KARMAPAY_WC_PROJECT_ID === "string" ? window.KARMAPAY_WC_PROJECT_ID.trim() : "";
+    }
+
+    function setStatus(msg) {
+      document.getElementById("status-line").textContent = msg || "";
+    }
+
+    function setTimerText() {
+      document.getElementById("timer-line").textContent =
+        L.qrExpires + " " + secondsLeft + " " + L.sec;
+    }
+
+    function walletAddressFromAccount(account) {
+      return account.split(":")[2] || "";
+    }
+
+    function chainFromAccount(account) {
+      const parts = account.split(":");
+      return parts.length >= 2 ? parts[0] + ":" + parts[1] : "";
+    }
+
+    function getTargetPath() {
+      const target = new URLSearchParams(location.search).get("target");
+      return target || "studio/index.html";
+    }
+
+    function renderQr(uri) {
+      const qrBox = document.getElementById("qr-box");
+      qrBox.innerHTML = "";
+      new QRCode(qrBox, {
+        text: uri,
+        width: 260,
+        height: 260,
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+    }
+
+    async function initClient() {
+      const projectId = getWalletConnectProjectId();
+      if (!projectId) {
+        setStatus(L.statusNoConfig);
+        return null;
+      }
+      return SignClient.init({
+        projectId,
+        metadata: {
+          name: "KarmaPay",
+          description: "Studio sign-in",
+          url: location.origin || "https://www.karmapay.cloud",
+          icons: [new URL("favicon.svg", location.href).href],
+        },
+      });
+    }
+
+    async function startOrRotatePairing() {
+      if (activeAccount) return;
+      if (!getWalletConnectProjectId()) {
+        setStatus(L.statusNoConfig);
+        return;
+      }
+      const gen = ++pairingGeneration;
+      setStatus(L.statusInit);
+      client = await initClient();
+      if (!client) return;
+      setStatus(L.statusConn);
+      try {
+        const { uri, approval } = await client.connect({
+          requiredNamespaces: {
+            eip155: {
+              methods: ["personal_sign", "eth_chainId"],
+              chains: [REQUIRED_CHAIN],
+              events: ["accountsChanged", "chainChanged"],
+            },
+          },
+        });
+        if (gen !== pairingGeneration) return;
+        if (uri) {
+          renderQr(uri);
+          startCountdown();
+        }
+        const approvalRace = approval().then(function (session) {
+          if (gen !== pairingGeneration) return null;
+          return session;
+        });
+        const timeoutRace = new Promise(function (_, rej) {
+          setTimeout(function () {
+            rej(new Error("qr_timeout"));
+          }, 60000);
+        });
+        let session;
+        try {
+          session = await Promise.race([approvalRace, timeoutRace]);
+        } catch (e) {
+          if (e && e.message === "qr_timeout" && !activeAccount) {
+            document.getElementById("qr-box").innerHTML = "";
+            client = undefined;
+            await startOrRotatePairing();
+          }
+          return;
+        }
+        if (!session || gen !== pairingGeneration) return;
+        activeSession = session;
+        const account = session.namespaces?.eip155?.accounts?.[0] || "";
+        const wallet = walletAddressFromAccount(account);
+        const chain = chainFromAccount(account);
+        if (!wallet) {
+          setStatus("Connected but no address.");
+          return;
+        }
+        if (chain !== REQUIRED_CHAIN) {
+          setStatus("Wrong chain: " + chain);
+          return;
+        }
+        activeAccount = wallet;
+        clearInterval(countdownTimer);
+        const challenge =
+          "KarmaPay login challenge\nTime: " + new Date().toISOString() + "\nOrigin: " + location.origin;
+        const response = await client.request({
+          topic: session.topic,
+          chainId: REQUIRED_CHAIN,
+          request: {
+            method: "personal_sign",
+            params: [challenge, activeAccount],
+          },
+        });
+        activeSignature = String(response || "");
+        persistSessionAndGo();
+      } catch (err) {
+        if (gen !== pairingGeneration) return;
+        setStatus(err && err.message ? err.message : "Connection error");
+      }
+    }
+
+    function persistSessionAndGo() {
+      const payload = {
+        wallet: activeAccount,
+        loginMethod: "walletconnect-v2-qr",
+        loginAt: new Date().toISOString(),
+        chainId: REQUIRED_CHAIN,
+        signature: activeSignature,
+        challenge: "KarmaPay login challenge",
+        wcTopic: activeSession?.topic || "",
+      };
+      sessionStorage.setItem("karma_web3_session", JSON.stringify(payload));
+      try {
+        localStorage.removeItem("karma_web3_session");
+      } catch (_) {}
+      const target = getTargetPath();
+      const suffix =
+        "wallet=" +
+        encodeURIComponent(activeAccount) +
+        "&chain=" +
+        encodeURIComponent(REQUIRED_CHAIN);
+      location.href = target + (target.includes("?") ? "&" : "?") + suffix;
+    }
+
+    function startCountdown() {
+      secondsLeft = 60;
+      setTimerText();
+      clearInterval(countdownTimer);
+      countdownTimer = setInterval(function () {
+        secondsLeft -= 1;
+        if (secondsLeft <= 0) {
+          clearInterval(countdownTimer);
+          return;
+        }
+        setTimerText();
+      }, 1000);
+    }
+
+    startCountdown();
+    setTimerText();
+    if (getWalletConnectProjectId()) {
+      setStatus(L.statusConn);
+      startOrRotatePairing();
+    } else {
+      setStatus(L.statusNoConfig);
+      document.getElementById("qr-box").innerHTML = "";
+    }
+  </script>
+</body>
+</html>

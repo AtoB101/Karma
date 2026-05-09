@@ -1,0 +1,38 @@
+{
+  "manifestVersion": "1.0.0",
+  "generatedAt": "2026-05-01T00:00:00Z",
+  "environment": "sepolia",
+  "core": {
+    "repo": "AtoB101/Karma",
+    "versionTag": "core-v1.0.0",
+    "commitSha": "abcdef1234567890abcdef1234567890abcdef12",
+    "openapiSpec": "openapi/karma-v1.yaml",
+    "contracts": {
+      "SettlementEngine": "0x0000000000000000000000000000000000000000",
+      "NonCustodialAgentPayment": "0x0000000000000000000000000000000000000000",
+      "AuthTokenManager": "0x0000000000000000000000000000000000000000",
+      "KYARegistry": "0x0000000000000000000000000000000000000000",
+      "CircuitBreaker": "0x0000000000000000000000000000000000000000"
+    }
+  },
+  "engine": {
+    "repo": "AtoB101/Karma2",
+    "versionTag": "engine-v1.0.0",
+    "commitSha": "1234567890abcdef1234567890abcdef12345678",
+    "compatibleCoreTag": "core-v1.0.0",
+    "compatibleCoreCommit": "abcdef1234567890abcdef1234567890abcdef12"
+  },
+  "validation": {
+    "coreChecksPassed": true,
+    "engineChecksPassed": true,
+    "crossRepoSmokePassed": true,
+    "operator": "REPLACE_WITH_OPERATOR",
+    "notes": "Record URLs of CI runs and critical tx hashes."
+  },
+  "rollbackPlan": {
+    "corePreviousTag": "core-v0.9.0",
+    "enginePreviousTag": "engine-v0.9.0",
+    "decisionOwner": "REPLACE_WITH_OWNER",
+    "maxDecisionDelayMinutes": 30
+  }
+}

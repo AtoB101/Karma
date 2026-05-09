@@ -1,4 +1,4 @@
-# TrustChain Tokenomics v0 Draft (Settlement-First)
+# Karma Tokenomics v0 Draft (Settlement-First)
 
 This draft is designed for the current product focus:
 
@@ -130,6 +130,6 @@ Only finalize token parameters after these metrics stabilize.
 
 ## 10) Communication Template (External)
 
-"TrustChain's token is designed to improve settlement reliability and network alignment.
+"Karma's token is designed to improve settlement reliability and network alignment.
 It is introduced only after real usage, security evidence, and economic stress testing meet explicit launch gates."
 

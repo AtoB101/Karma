@@ -1,9 +1,13 @@
 {
-  "name": "karma-mvp",
-  "version": "0.2.0",
+  "name": "karma-public-repo",
   "private": true,
-  "description": "Karma: frontend + backend sync test harness",
+  "version": "1.0.0",
+  "description": "Karma public repository dev tooling (includes optional local demo Node scripts)",
   "scripts": {
+    "guard:dev": "python3 -m http.server 8787",
+    "test:agent-guard": "playwright test --config=playwright.config.cjs",
+    "guard:test": "playwright test --config=playwright.config.cjs",
+    "guard:test:headed": "playwright test --config=playwright.config.cjs --headed",
     "simulate": "node scripts/simulate.cjs",
     "verify": "node scripts/verify.cjs",
     "proof": "node scripts/proof.cjs",
@@ -11,5 +15,8 @@
   },
   "dependencies": {
     "ethers": "^6.13.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
   }
 }

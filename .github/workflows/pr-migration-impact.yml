@@ -1,0 +1,22 @@
+name: PR Migration Impact (Breaking)
+
+on:
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout (full history for changelog diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce Migration Impact in PR body when Breaking is introduced
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/check-pr-migration-impact.py

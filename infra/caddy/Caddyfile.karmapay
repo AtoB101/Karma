@@ -1,0 +1,36 @@
+# karmapay.cloud production routing
+# Use with: caddy run --config /etc/caddy/Caddyfile
+
+karmapay.cloud, www.karmapay.cloud {
+  encode gzip zstd
+  root * /var/www/karmapay-site
+  file_server
+  try_files {path} /index.html
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Frame-Options "SAMEORIGIN"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  }
+}
+
+app.karmapay.cloud {
+  encode gzip zstd
+  root * /var/www/karmapay-app
+  file_server
+  try_files {path} /index.html
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Frame-Options "SAMEORIGIN"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  }
+}
+
+api.karmapay.cloud {
+  reverse_proxy 127.0.0.1:8811
+}

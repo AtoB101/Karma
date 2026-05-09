@@ -1,4 +1,4 @@
-# TrustChain Focus Roadmap
+# Karma Focus Roadmap
 
 This roadmap re-centers the project around one core capability:
 
@@ -8,7 +8,7 @@ The goal is to make the system easy to explain, easy to integrate, and hard to m
 
 ## 1) Product Narrative (Single Story)
 
-TrustChain is a settlement rail for machine-to-machine service payments:
+Karma is a settlement rail for machine-to-machine service payments:
 
 1. Agent (or its operator) signs a typed intent off-chain.
 2. On-chain contract verifies signer, nonce, amount, and deadline.

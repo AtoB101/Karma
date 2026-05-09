@@ -1,0 +1,6 @@
+CORE_REPO=github.com/AtoB101/Karma
+CORE_VERSION=v1.0.0
+CORE_COMMIT_SHA=replace-with-core-commit-sha
+CORE_OPENAPI_VERSION=karma-v1
+CORE_CHAIN=sepolia
+CORE_DEPLOYED_AT=2026-05-01T00:00:00Z

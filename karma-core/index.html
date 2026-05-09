@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Karma Console</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; background: #f4f6fb; color: #111827; }
+    .app { display: flex; min-height: 100vh; }
+    .sidebar { width: 260px; background: #0f172a; color: #fff; padding: 24px 18px; display: flex; flex-direction: column; }
+    .brand { margin-bottom: 34px; }
+    .brand h1 { margin: 0; font-size: 22px; letter-spacing: -0.5px; }
+    .brand p { margin: 8px 0 0; color: #94a3b8; font-size: 13px; line-height: 1.5; }
+    .nav button { width: 100%; border: none; background: transparent; color: #cbd5e1; text-align: left; padding: 13px 14px; margin-bottom: 8px; border-radius: 12px; cursor: pointer; font-size: 15px; transition: 0.2s; }
+    .nav button:hover { background: #1e293b; color: #fff; }
+    .nav button.active { background: #2563eb; color: #fff; font-weight: 600; }
+    .sidebar-footer { margin-top: auto; font-size: 12px; color: #64748b; line-height: 1.6; }
+    .main { flex: 1; padding: 28px; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 26px; }
+    .topbar h2 { margin: 0; font-size: 26px; letter-spacing: -0.8px; }
+    .wallet { background: #fff; border: 1px solid #e5e7eb; border-radius: 999px; padding: 10px 16px; font-size: 14px; color: #374151; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05); }
+    .page { display: none; }
+    .page.active { display: block; }
+    .grid { display: grid; gap: 18px; }
+    .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 18px; padding: 22px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06); }
+    .card h3 { margin: 0 0 16px; font-size: 18px; }
+    .metric-title { color: #6b7280; font-size: 13px; margin-bottom: 8px; }
+    .metric-value { font-size: 26px; font-weight: 700; }
+    .metric-sub { margin-top: 6px; font-size: 12px; color: #64748b; }
+    .form { display: grid; gap: 14px; }
+    label { display: block; font-size: 13px; color: #374151; margin-bottom: 7px; font-weight: 600; }
+    input, select, textarea { width: 100%; border: 1px solid #d1d5db; border-radius: 12px; padding: 12px 13px; font-size: 14px; outline: none; background: #fff; }
+    textarea { min-height: 90px; resize: vertical; }
+    input:focus, select:focus, textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    .btn { border: none; border-radius: 12px; padding: 11px 16px; font-size: 14px; cursor: pointer; font-weight: 600; }
+    .btn-primary { background: #2563eb; color: #fff; }
+    .btn-secondary { background: #eef2ff; color: #1d4ed8; }
+    .btn-danger { background: #fee2e2; color: #b91c1c; }
+    .table { width: 100%; border-collapse: collapse; overflow: hidden; }
+    .table th { text-align: left; font-size: 12px; color: #64748b; padding: 12px; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+    .table td { padding: 14px 12px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+    .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 700; }
+    .badge-success { background: #dcfce7; color: #166534; }
+    .badge-warning { background: #fef3c7; color: #92400e; }
+    .badge-info { background: #dbeafe; color: #1e40af; }
+    .badge-danger { background: #fee2e2; color: #991b1b; }
+    .agent-card { display: flex; justify-content: space-between; gap: 18px; align-items: center; border: 1px solid #e5e7eb; border-radius: 16px; padding: 16px; margin-bottom: 12px; background: #fbfdff; }
+    .agent-card strong { display: block; margin-bottom: 6px; }
+    .agent-meta { font-size: 13px; color: #64748b; }
+    .section-title { margin: 28px 0 14px; font-size: 18px; }
+    .statusline { margin-top: 10px; font-size: 13px; color: #334155; }
+    .ok { color: #166534; }
+    .err { color: #991b1b; }
+    @media (max-width: 980px) { .app { flex-direction: column; } .sidebar { width: 100%; } .grid-4, .grid-2 { grid-template-columns: 1fr; } .topbar { align-items: flex-start; flex-direction: column; gap: 12px; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><h1>Karma</h1><p>Agent 收款台 + 付款台 + 账单台 + 授权控制台</p></div>
+      <nav class="nav">
+        <button class="active" onclick="showPage('dashboard', this)">Dashboard</button>
+        <button onclick="showPage('receive', this)">收款区</button>
+        <button onclick="showPage('pay', this)">付款区</button>
+        <button onclick="showPage('bills', this)">账单记录</button>
+        <button onclick="showPage('settings', this)">设置</button>
+      </nav>
+      <div class="sidebar-footer">当前版本：P0 Console<br />核心：收款、付款、账单、授权</div>
+    </aside>
+    <main class="main">
+      <div class="topbar"><h2 id="pageTitle">Dashboard</h2><div class="wallet" id="walletInfo">Wallet：-</div></div>
+      <section id="dashboard" class="page active">
+        <div class="grid grid-4">
+          <div class="card"><div class="metric-title">总收入</div><div class="metric-value" id="mIncome">-</div><div class="metric-sub" id="mIncomeSub">-</div></div>
+          <div class="card"><div class="metric-title">总支出</div><div class="metric-value" id="mExpense">-</div><div class="metric-sub">用于购买付费服务</div></div>
+          <div class="card"><div class="metric-title">可用额度</div><div class="metric-value" id="mActive">-</div><div class="metric-sub">Agent 可继续使用</div></div>
+          <div class="card"><div class="metric-title">待确认账单</div><div class="metric-value" id="mPending">-</div><div class="metric-sub">需要人工确认</div></div>
+        </div>
+        <h3 class="section-title">最近 Agent 行为</h3>
+        <div class="card"><table class="table"><thead><tr><th>时间</th><th>Agent</th><th>行为</th><th>金额</th><th>状态</th></tr></thead><tbody id="activityRows"></tbody></table></div>
+      </section>
+      <section id="receive" class="page">
+        <div class="grid grid-2">
+          <div class="card"><h3>添加收费 Agent</h3><div class="form"><div><label>Agent 名称</label><input id="rName" placeholder="例如：合约风险检测 Agent" /></div><div><label>Agent 描述</label><textarea id="rDesc" placeholder="说明这个 Agent 能提供什么服务"></textarea></div><div><label>服务类型</label><select id="rType"><option>风险检测</option><option>链上数据</option><option>交易信号</option><option>钱包分析</option><option>自定义 API</option></select></div><div><label>API / 工具地址</label><input id="rEndpoint" placeholder="https://api.example.com/check" /></div><div><label>单次价格</label><input id="rPrice" placeholder="0.03" /></div><div><label>收款币种</label><select id="rToken"><option>USDC</option><option>USDT</option></select></div><div><label>收款钱包</label><input id="rWallet" placeholder="0x..." /></div><div class="btn-row"><button class="btn btn-primary" id="btnCreateAgent">创建收费 Agent</button><button class="btn btn-secondary" id="btnGenerateCode">生成接入代码</button></div></div></div>
+          <div class="card"><h3>我的收费 Agent</h3><div id="agentList"></div></div>
+        </div>
+      </section>
+      <section id="pay" class="page">
+        <div class="grid grid-2">
+          <div class="card"><h3>授权与额度</h3><div class="form"><div><label>授权币种</label><select id="pToken"><option>USDC</option><option>USDT</option></select></div><div><label>授权额度</label><input id="pAllowance" placeholder="例如：50" /></div><div class="grid grid-2"><div><label>可用额度</label><input id="pActive" readonly /></div><div><label>已占用额度</label><input id="pUsed" readonly /></div></div><div class="btn-row"><button class="btn btn-primary" id="btnIncAuth">增加授权</button><button class="btn btn-secondary" id="btnUnlock">解锁未占用额度</button><button class="btn btn-danger" id="btnStop">暂停 Agent 消费</button></div></div></div>
+          <div class="card"><h3>自动确认规则</h3><div class="form"><div><label>单次自动确认上限</label><input id="pAutoOne" value="0.05 USDC" /></div><div><label>每日自动消费上限</label><input id="pAutoDay" value="5 USDC" /></div><div><label>今日已自动消费</label><input id="pAutoUsed" value="-" readonly /></div><div class="btn-row"><button class="btn btn-primary">保存规则</button></div></div></div>
+        </div>
+        <h3 class="section-title">待确认账单</h3><div class="card"><table class="table"><thead><tr><th>调用方 Agent</th><th>服务</th><th>调用原因</th><th>金额</th><th>操作</th></tr></thead><tbody id="pendingRows"></tbody></table></div>
+      </section>
+      <section id="bills" class="page">
+        <div class="card"><h3>账单记录</h3><div class="btn-row" style="margin-bottom:10px"><button class="btn btn-secondary" id="btnBatchNow">批量结算立即付</button><button class="btn btn-secondary" id="btnRefresh">刷新</button></div><table class="table"><thead><tr><th>账单 ID</th><th>调用方</th><th>收款方</th><th>金额</th><th>状态</th><th>证据</th></tr></thead><tbody id="billRows"></tbody></table></div>
+      </section>
+      <section id="settings" class="page">
+        <div class="grid grid-2"><div class="card"><h3>钱包设置</h3><div class="form"><div><label>默认支付币种</label><select id="sToken"><option>USDC</option><option>USDT</option></select></div><div><label>默认收款钱包</label><input id="sWallet" value="0xA12...89F" /></div><button class="btn btn-primary">保存设置</button></div></div><div class="card"><h3>安全设置</h3><div class="btn-row"><button class="btn btn-danger" id="btnStopAll">暂停所有 Agent 消费</button><button class="btn btn-secondary">撤销未占用额度</button><button class="btn btn-secondary">查看授权记录</button></div></div></div>
+      </section>
+      <div id="statusLine" class="statusline">初始化中...</div>
+    </main>
+  </div>
+  <script>
+    window.KARMA_CONSOLE_CONFIG = {
+      apiBase: new URLSearchParams(window.location.search).get("apiBase") || window.location.origin,
+      apiPrefix: "/api/v1",
+    };
+  </script>
+  <script src="/ui-assets/console-app.js"></script>
+</body>
+</html>

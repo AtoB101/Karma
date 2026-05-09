@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Karma Agent Studio · Sparky 智能预警</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #0a0e17;
+            color: #e8edf5;
+            overflow-x: hidden;
+        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1a1f2e; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #3a4055; border-radius: 10px; }
+        .app { display: flex; min-height: 100vh; }
+        .sidebar {
+            width: 280px;
+            background: linear-gradient(180deg, #0c1222 0%, #080c18 100%);
+            border-right: 1px solid #1e2438;
+            padding: 32px 24px;
+            display: flex;
+            flex-direction: column;
+            backdrop-filter: blur(4px);
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+        .brand { margin-bottom: 48px; display: flex; align-items: center; gap: 12px; }
+        .brand-icon {
+            width: 40px; height: 40px;
+            background: linear-gradient(135deg, #6366f1, #9333ea);
+            border-radius: 14px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 22px;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        .brand h1 {
+            font-size: 24px; font-weight: 700;
+            background: linear-gradient(135deg, #fff, #a5b4fc);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .brand p { font-size: 11px; color: #6b7280; margin-top: 4px; }
+        .nav { flex: 1; }
+        .nav-item {
+            display: flex; align-items: center; gap: 14px;
+            padding: 12px 16px; margin-bottom: 8px; border-radius: 14px;
+            cursor: pointer; transition: all 0.2s ease;
+            color: #93a5cf; font-weight: 500;
+        }
+        .nav-item:hover { background: rgba(99, 102, 241, 0.1); color: #fff; }
+        .nav-item.active {
+            background: linear-gradient(135deg, #6366f1, #9333ea);
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        .sidebar-footer {
+            margin-top: auto; font-size: 11px; color: #4a5568;
+            text-align: center; padding-top: 24px; border-top: 1px solid #1e2438;
+        }
+        .main { flex: 1; padding: 32px 48px; overflow-y: auto; }
+        .topbar {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 36px; flex-wrap: wrap; gap: 20px;
+        }
+        .page-title {
+            font-size: 32px; font-weight: 800; letter-spacing: -1px;
+            background: linear-gradient(135deg, #fff, #cbd5e1);
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+        }
+        .wallet-badge {
+            background: rgba(99, 102, 241, 0.15);
+            border: 1px solid #2d3748; border-radius: 30px;
+            padding: 8px 20px; display: flex; align-items: center; gap: 10px;
+            font-size: 14px; font-weight: 500; font-family: monospace;
+            backdrop-filter: blur(8px);
+        }
+        .grid-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
+            margin-bottom: 48px;
+        }
+        .stat-card {
+            background: rgba(18, 24, 38, 0.8);
+            backdrop-filter: blur(12px);
+            border: 1px solid #2d3748;
+            border-radius: 28px;
+            padding: 24px;
+            transition: all 0.2s ease;
+        }
+        .stat-card:hover { border-color: #6366f1; transform: translateY(-2px); }
+        .stat-label {
+            font-size: 14px; color: #9ca3af; margin-bottom: 12px;
+            display: flex; justify-content: space-between;
+        }
+        .stat-value { font-size: 36px; font-weight: 800; margin-bottom: 8px; }
+        .stat-sub { font-size: 12px; color: #6b7280; }
+        .mood-tag {
+            background: rgba(99, 102, 241, 0.2);
+            border-radius: 20px; padding: 4px 12px;
+            font-size: 12px; color: #a5b4fc;
+        }
+        .section-title { font-size: 20px; font-weight: 600; margin-bottom: 20px; margin-top: 32px; }
+        .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+        .agent-card {
+            background: #111827; border: 1px solid #1f2937;
+            border-radius: 20px; padding: 20px; transition: all 0.2s;
+        }
+        .agent-card:hover { border-color: #6366f1; transform: translateY(-2px); }
+        .agent-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
+        .agent-name { font-weight: 700; font-size: 18px; }
+        .trust-badge {
+            background: #22c55e20; color: #22c55e;
+            padding: 4px 10px; border-radius: 30px;
+            font-size: 12px; font-weight: 600;
+        }
+        .agent-meta { display: flex; gap: 16px; margin: 12px 0; font-size: 13px; color: #8b9bb5; }
+        .price-tag {
+            background: linear-gradient(135deg, #6366f1, #9333ea);
+            padding: 4px 10px; border-radius: 20px;
+            font-size: 13px; font-weight: 600; display: inline-block;
+        }
+        .btn-icon {
+            background: #1f2937; border: none; color: #cbd5e1;
+            padding: 8px 12px; border-radius: 12px; cursor: pointer;
+            font-size: 13px; transition: 0.2s;
+        }
+        .btn-icon:hover { background: #374151; color: white; }
+        .trend-chart { background: #0f172a; border-radius: 16px; padding: 16px; margin-top: 8px; }
+        .trend-bars { display: flex; align-items: end; gap: 8px; height: 60px; }
+        .bar-item { flex: 1; background: #6366f1; border-radius: 4px 4px 0 0; }
+        .table-wrapper { overflow-x: auto; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            text-align: left; padding: 16px; background: #1a1f2e;
+            font-weight: 600; font-size: 13px; color: #9ca3af;
+        }
+        td { padding: 16px; border-bottom: 1px solid #1f2937; font-size: 14px; }
+        .status-badge {
+            background: #22c55e20; color: #22c55e;
+            padding: 4px 12px; border-radius: 30px;
+            font-size: 12px; font-weight: 600; display: inline-block;
+        }
+        .status-warning { background: #f59e0b20; color: #fbbf24; }
+        .status-danger { background: #ef444420; color: #f87171; }
+        .arbitration-progress { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+        .progress-steps { display: flex; gap: 4px; }
+        .step-dot { width: 8px; height: 8px; border-radius: 50%; background: #374151; }
+        .step-dot.completed { background: #22c55e; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; }
+        .text-small { font-size: 12px; color: #6b7280; }
+        .margin-top-2 { margin-top: 8px; }
+        @media (max-width: 1000px) {
+            .grid-stats { grid-template-columns: 1fr 1fr; }
+            .main { padding: 24px; }
+        }
+        @media (max-width: 640px) {
+            .grid-stats { grid-template-columns: 1fr; }
+            .app { flex-direction: column; }
+            .sidebar { width: 100%; height: auto; position: relative; }
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1, #9333ea);
+            border: none; padding: 10px 20px; border-radius: 30px;
+            color: white; font-weight: 600; cursor: pointer; transition: 0.2s;
+        }
+        .btn-primary:hover { opacity: 0.9; transform: scale(0.98); }
+        .btn-secondary {
+            background: #1f2937; border: 1px solid #374151;
+            padding: 10px 20px; border-radius: 30px;
+            color: #e5e7eb; font-weight: 500; cursor: pointer;
+        }
+        #sparky-container {
+            position: fixed; bottom: 20px; right: 20px; z-index: 9999; cursor: pointer;
+        }
+        #sparky-bubble {
+            position: absolute; bottom: 70px; right: 0;
+            background: #1e293b; border-radius: 20px; padding: 12px 18px;
+            max-width: 260px; color: white; font-size: 13px; display: none;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+            backdrop-filter: blur(8px);
+            border-left: 3px solid #6366f1;
+            font-family: monospace;
+        }
+        #sparky-canvas {
+            display: block; background: transparent;
+            filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
+            transition: transform 0.1s ease;
+        }
+        #sparky-container:hover #sparky-canvas { transform: scale(1.05); }
+        .config-group {
+            background: rgba(0,0,0,0.2); border-radius: 20px;
+            padding: 16px; margin-top: 12px;
+        }
+        .config-input {
+            background: #1f2937; border: 1px solid #374151;
+            border-radius: 14px; padding: 10px 14px; width: 100%;
+            color: white; font-family: monospace;
+        }
+        .config-input:focus { border-color: #6366f1; outline: none; }
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 10000; visibility: hidden; backdrop-filter: blur(4px);
+        }
+        .modal.show { visibility: visible; }
+        .modal-content {
+            background: #111827; border: 1px solid #374151;
+            border-radius: 32px; padding: 28px; width: 90%; max-width: 400px; color: white;
+        }
+        .modal-content input {
+            background: #1f2937; border: 1px solid #4b5563;
+            padding: 12px; border-radius: 16px; width: 100%; margin: 12px 0; color: white;
+        }
+        .sync-hint { font-size: 11px; color: #64748b; margin-left: 8px; }
+    </style>
+</head>
+<body>
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon">K</div>
+            <div><h1>Karma</h1><p>AI Agent 收款台 · 付款台</p></div>
+        </div>
+        <nav class="nav">
+            <div class="nav-item active" data-page="dashboard">📊 仪表板</div>
+            <div class="nav-item" data-page="receive">💰 收款区 · 开店</div>
+            <div class="nav-item" data-page="pay">💸 付款区 · 授权</div>
+            <div class="nav-item" data-page="bills">📜 账单 & 争议</div>
+            <div class="nav-item" data-page="trust">🏆 Karma 信誉分</div>
+            <div class="nav-item" data-page="settings">⚡ Sparky 设置</div>
+        </nav>
+        <div class="sidebar-footer">
+            Karma Protocol · 非托管 AI 支付<br>
+            Agent 经济底座 v1.0
+        </div>
+    </aside>
+    <main class="main">
+        <div class="topbar">
+            <div class="page-title" id="pageTitle">仪表板</div>
+            <div class="wallet-badge" id="walletBadge">🔗 同步中…</div>
+        </div>
+        <div id="dashboardPage">
+            <div class="grid-stats">
+                <div class="stat-card">
+                    <div class="stat-label">💰 总收入 <span class="mood-tag" id="incomeMood">—</span></div>
+                    <div class="stat-value" id="statIncome">—</div>
+                    <div class="stat-sub" id="statIncomeSub">来自 Agent 调用 · 链上/网关同步</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">💸 总支出</div>
+                    <div class="stat-value" id="statExpense">—</div>
+                    <div class="stat-sub">已确认付款累计</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">🪙 可用额度</div>
+                    <div class="stat-value" id="statActive">—</div>
+                    <div class="stat-sub" id="statAllowanceSub">授权池剩余</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">⏳ 待确认 <button id="gotoPayBtn" type="button" style="background:none;border:none;color:#6366f1;cursor:pointer;">去处理 →</button></div>
+                    <div class="stat-value" id="statPending">—</div>
+                    <div class="stat-sub">大额或策略要求人工确认</div>
+                </div>
+            </div>
+            <div>
+                <div class="flex-between">
+                    <span class="section-title">📈 最近 Agent 行为</span>
+                    <span class="text-small">实时 · <span id="syncStatus" class="sync-hint"></span></span>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead><tr><th>时间</th><th>Agent</th><th>行为</th><th>金额</th><th>状态</th></tr></thead>
+                        <tbody id="activityTbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div id="receivePage" style="display:none;">
+            <div class="flex-between" style="margin-bottom:24px;">
+                <span class="section-title" style="margin-top:0;">🔌 我的 Agent 商店</span>
+                <button class="btn-primary" type="button" id="simpleRegisterBtn">➕ 一键注册新 Agent</button>
+            </div>
+            <div class="agents-grid" id="agentsList"></div>
+        </div>
+        <div id="payPage" style="display:none;">
+            <div class="grid-stats">
+                <div class="stat-card"><div class="stat-label">💳 总授权额度</div><div class="stat-value" id="payStatAllowance">—</div><div class="stat-sub">网关授权池</div></div>
+                <div class="stat-card"><div class="stat-label">✅ 已用 / 冻结</div><div class="stat-value" id="payStatUsed">—</div><div class="stat-sub" id="payStatUsedSub">—</div></div>
+                <div class="stat-card"><div class="stat-label">⚡ 微支付自动放行</div><div class="stat-value" id="payStatMicro">—</div><div class="stat-sub">单笔 ≤ 阈值即自动</div></div>
+                <div class="stat-card"><div class="stat-label">📋 硬上限</div><div class="stat-value" id="payStatHard">—</div><div class="stat-sub">超过则拒绝创建</div></div>
+            </div>
+            <div class="flex-between"><span class="section-title">🧠 Agent 额度分配</span><button type="button" class="btn-secondary" id="addAgentAllowanceBtn">➕ 新增 Agent 额度</button></div>
+            <div class="table-wrapper">
+                <table id="allowanceTable">
+                    <thead><tr><th>Agent 名称</th><th>单笔上限</th><th>日累计上限</th><th>今年累计支付</th><th>已用额度/总授权</th><th>操作</th></tr></thead>
+                    <tbody id="allowanceTbody"></tbody>
+                </table>
+            </div>
+            <div class="section-title">⏳ 待确认账单（大额人工控制）</div>
+            <div class="table-wrapper">
+                <table>
+                    <thead><tr><th>付款 ID</th><th>对方</th><th>金额</th><th>备注</th><th>操作</th></tr></thead>
+                    <tbody id="pendingPayTbody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div id="billsPage" style="display:none;">
+            <div class="flex-between">
+                <span class="section-title">📋 历史账单 & 争议中心</span>
+                <span class="text-small">与网关账单状态同步</span>
+            </div>
+            <div class="table-wrapper">
+                <table id="billsTable">
+                    <thead><tr><th>账单ID</th><th>调用方</th><th>收款方</th><th>金额</th><th>进度</th><th>操作</th></tr></thead>
+                    <tbody id="billsTbody"></tbody>
+                </table>
+            </div>
+        </div>
+        <div id="trustPage" style="display:none;">
+            <div class="flex-between">
+                <span class="section-title">🏆 Karma 信誉分 · 链上问责制</span>
+                <span class="text-small">由收入与调用量估算展示分</span>
+            </div>
+            <div class="agents-grid" id="trustAgentsGrid"></div>
+            <div class="stat-card" style="margin-top:24px;">
+                <div class="stat-label">🤖 信誉分机制</div>
+                <div class="stat-value" style="font-size:18px;">基于活跃度 · 链上结算记录</div>
+                <div class="stat-sub">高分 Agent 可在策略中绑定更高微支付阈值（后续版本对接合约）。</div>
+            </div>
+        </div>
+        <div id="settingsPage" style="display:none;">
+            <div class="stat-card" style="padding:28px; margin-bottom:24px;">
+                <h3>💳 支付策略（小额自动 / 大额人工）</h3>
+                <p class="text-small" style="margin-bottom:16px;">与后端 <code>/api/v1/user-console/pay-rule</code> 同步</p>
+                <label class="text-small" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                    <input type="checkbox" id="setAutoPayEnabled" /> 启用小额自动支付
+                </label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <div><label class="text-small">自动阈值 (≤ 即免确认)</label><input type="number" step="0.001" id="setAutoPayLimit" class="config-input" /></div>
+                    <div><label class="text-small">单笔硬上限</label><input type="number" step="0.001" id="setHardLimit" class="config-input" /></div>
+                </div>
+                <button type="button" class="btn-primary" id="savePayRuleBtn">💾 保存支付策略</button>
+            </div>
+            <div class="stat-card" style="padding:28px;">
+                <h3>⚡ Sparky (Wangcai) · 预警推送设置</h3>
+                <p class="text-small" style="margin-bottom:20px;">配置保存至服务端（测试推送为模拟，生产需接第三方 HTTP）</p>
+                <div style="margin-bottom:24px;">
+                    <label style="display: block; margin-bottom: 8px;">📱 选择推送通道</label>
+                    <select id="pushChannelSelect" style="background:#1f2937; border:1px solid #4b5563; padding:10px; border-radius:16px; width:100%; color:white;">
+                        <option value="whatsapp">WhatsApp (CallMeBot / Twilio)</option>
+                        <option value="telegram">Telegram Bot</option>
+                        <option value="wechat">微信 (PushPlus / Server酱)</option>
+                    </select>
+                </div>
+                <div id="whatsappConfig" class="config-group">
+                    <div style="margin-bottom:16px;"><label>📞 手机号 (国际格式)</label><input type="text" id="waPhone" placeholder="+861234567890" class="config-input"></div>
+                    <div style="margin-bottom:16px;"><label>🔑 CallMeBot API Key (可选)</label><input type="text" id="waApikey" placeholder="从 callmebot.com 获取" class="config-input"></div>
+                    <div class="text-small">💡 免费方案：<a href="https://www.callmebot.com/" target="_blank" rel="noopener noreferrer" style="color:#6366f1;">CallMeBot</a></div>
+                </div>
+                <div id="telegramConfig" class="config-group" style="display:none;">
+                    <div style="margin-bottom:16px;"><label>🤖 Bot Token</label><input type="text" id="tgBotToken" class="config-input" autocomplete="off"></div>
+                    <div style="margin-bottom:16px;"><label>👤 Chat ID</label><input type="text" id="tgChatId" class="config-input"></div>
+                    <div class="text-small">💡 <a href="https://core.telegram.org/bots" target="_blank" rel="noopener noreferrer" style="color:#6366f1;">Telegram Bots</a></div>
+                </div>
+                <div id="wechatConfig" class="config-group" style="display:none;">
+                    <div style="margin-bottom:16px;"><label>📌 推送服务商</label>
+                        <select id="wechatProvider" style="background:#1f2937; border:1px solid #4b5563; padding:8px; border-radius:12px; color:white;">
+                            <option value="pushplus">PushPlus</option>
+                            <option value="serverchan">Server酱</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom:16px;"><label>🔑 Token / SendKey</label><input type="text" id="wxToken" class="config-input" autocomplete="off"></div>
+                </div>
+                <div style="margin-top:24px;">
+                    <button type="button" id="testPushBtn" class="btn-secondary" style="margin-right:12px;">📡 发送测试消息</button>
+                    <button type="button" id="savePushSettingsBtn" class="btn-primary">💾 保存配置</button>
+                </div>
+                <div id="pushTestResult" class="text-small" style="margin-top:16px; color:#9ca3af;"></div>
+            </div>
+        </div>
+    </main>
+</div>
+<div id="sparky-container" role="button" aria-label="Sparky">
+    <div id="sparky-bubble">🐕 汪汪！</div>
+    <canvas id="sparky-canvas" width="80" height="80"></canvas>
+</div>
+<div id="simpleRegisterModal" class="modal">
+    <div class="modal-content">
+        <h3>快速创建 Agent</h3>
+        <input type="text" id="agentNameInput" placeholder="Agent 名称">
+        <input type="text" id="agentPriceInput" placeholder="单次价格 (USDC)">
+        <div style="display:flex; gap:12px;">
+            <button type="button" class="btn-primary" id="confirmRegisterBtn" style="flex:1;">确认创建</button>
+            <button type="button" class="btn-secondary" id="closeModalBtn">取消</button>
+        </div>
+    </div>
+</div>
+<script>
+(function () {
+    const API_PREFIX = "/api/v1";
+
+    async function api(path, method, body) {
+        const r = await fetch(API_PREFIX + path, {
+            method: method || "GET",
+            headers: { "Content-Type": "application/json" },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || j.ok === false) throw new Error(j.message || j.error || "请求失败");
+        return j.data !== undefined ? j.data : j;
+    }
+
+    let dashboardCache = null;
+    let userConsoleCache = null;
+    let agents = [];
+    let allowances = [];
+    let bills = [];
+
+    function trustFromAgent(a) {
+        const inc = Number(a.totalIncome || 0);
+        const calls = Number(a.todayCalls || 0) + Number(a.totalIncome || 0) * 10;
+        return Math.min(98, Math.max(40, Math.floor(55 + inc * 4 + calls * 0.01)));
+    }
+
+    function billStatusLabel(st) {
+        const m = { Paid: "已付款", PendingConfirm: "待确认", PendingSettle: "待结算", Disputed: "争议中", Cancelled: "已取消", Expired: "已过期" };
+        return m[st] || st;
+    }
+
+    function activityStatusClass(st) {
+        if (st === "PendingConfirm" || st === "pending_manual") return "status-badge status-warning";
+        if (st === "Disputed" || st === "rejected") return "status-badge status-danger";
+        return "status-badge";
+    }
+
+    function renderReceive() {
+        const container = document.getElementById("agentsList");
+        if (!container) return;
+        const base = location.origin + "/user-console/";
+        container.innerHTML = agents.map((agent) => {
+            const link = agent.shareLink || base + "#agent-" + encodeURIComponent(agent.id);
+            const short = link.length > 36 ? link.slice(0, 36) + "…" : link;
+            return `
+            <div class="agent-card">
+                <div class="agent-header"><span class="agent-name">${escapeHtml(agent.name)}</span><div class="trust-badge">信誉 ${agent.trust}</div></div>
+                <div class="agent-meta"><span>💰 ${agent.price} /次</span><span>📊 今日 ${agent.todayIncome ?? 0}</span></div>
+                <div class="flex-between"><span class="price-tag">${escapeHtml(short)}</span><button type="button" class="btn-icon" data-copy="${escapeAttr(link)}">📋 复制</button></div>
+                <div class="trend-chart"><div class="text-small" style="margin-bottom:8px;">📈 近7天趋势（示意）</div><div class="trend-bars" id="trend-${escapeAttr(agent.id)}"></div><div class="text-small margin-top-2">累计收入 ${agent.totalIncome ?? 0}</div></div>
+            </div>`;
+        }).join("");
+        agents.forEach((agent) => {
+            const t = document.getElementById("trend-" + agent.id);
+            if (t) t.innerHTML = [40, 65, 30, 85, 45, 70, 90].map((h) => `<div class="bar-item" style="height:${Math.min(60, h / 2)}px;"></div>`).join("");
+        });
+        container.querySelectorAll("[data-copy]").forEach((btn) => {
+            btn.addEventListener("click", () => copyShareLink(btn.getAttribute("data-copy")));
+        });
+    }
+
+    function renderAllowance() {
+        const tbody = document.getElementById("allowanceTbody");
+        if (!tbody) return;
+        if (!allowances.length) {
+            tbody.innerHTML = `<tr><td colspan="6" class="text-small">暂无 Agent，请先在收款区注册</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = allowances
+            .map(
+                (a) => `<tr><td>${escapeHtml(a.agentName)}</td><td>${a.perTxLimit}</td><td>${a.dailyLimit}</td><td>${a.totalPaidYTD}</td><td>${a.usedThisMonth} / ${a.totalAssigned}</td><td><button type="button" class="btn-secondary" style="padding:4px 12px;">✏️ 调整</button></td></tr>`
+            )
+            .join("");
+    }
+
+    function renderBills() {
+        const tbody = document.getElementById("billsTbody");
+        if (!tbody) return;
+        tbody.innerHTML = bills
+            .map((b) => {
+                const st = billStatusLabel(b.status);
+                let statusHtml = `<span class="status-badge">${escapeHtml(st)}</span>`;
+                let progressHtml = "";
+                if (b.arbitration) {
+                    const dots = [];
+                    for (let i = 1; i <= b.arbitration.total; i++) {
+                        dots.push(`<div class="step-dot ${b.arbitration.step >= i ? "completed" : ""}"></div>`);
+                    }
+                    progressHtml = `<div class="arbitration-progress"><div class="progress-steps">${dots.join("")}</div><span>${escapeHtml(b.arbitration.desc)}</span></div>`;
+                }
+                const actionHtml =
+                    b.status === "Disputed"
+                        ? `<button type="button" class="btn-primary" style="padding:4px 12px;">⚖️ 查看</button>`
+                        : `<button type="button" class="btn-secondary" style="padding:4px 12px;">证据</button>`;
+                return `<tr><td>${escapeHtml(b.id)}</td><td>${escapeHtml(b.caller)}</td><td>${escapeHtml(b.receiver)}</td><td>${b.amount}</td><td>${statusHtml} ${progressHtml}</td><td>${actionHtml}</td></tr>`;
+            })
+            .join("");
+    }
+
+    function renderTrustAgents() {
+        const container = document.getElementById("trustAgentsGrid");
+        if (!container) return;
+        container.innerHTML = agents
+            .map(
+                (a) => `<div class="agent-card"><div class="agent-header"><span class="agent-name">${escapeHtml(a.name)}</span><div class="trust-badge">信誉 ${a.trust}</div></div><div class="agent-meta">链上/网关调用与收入加权</div><div class="text-small" style="margin-top:12px;">⚡ 特权: ${a.trust >= 70 ? "✅ 建议绑定更高微支付阈值" : "❌ 建议人工确认小额"}</div></div>`
+            )
+            .join("");
+    }
+
+    function renderActivity() {
+        const tbody = document.getElementById("activityTbody");
+        if (!tbody || !dashboardCache) return;
+        const rows = (dashboardCache.activity || []).slice(0, 20);
+        tbody.innerHTML = rows
+            .map(
+                (r) => `<tr><td>${escapeHtml(r.time)}</td><td>${escapeHtml(r.agent)}</td><td>${escapeHtml(r.action)}</td><td>${r.amount}</td><td><span class="${activityStatusClass(r.status)}">${escapeHtml(r.status)}</span></td></tr>`
+            )
+            .join("");
+    }
+
+    function renderPendingPayments() {
+        const tbody = document.getElementById("pendingPayTbody");
+        if (!tbody || !userConsoleCache) return;
+        const pending = (userConsoleCache.payments || []).filter((p) => p.status === "pending_manual");
+        if (!pending.length) {
+            tbody.innerHTML = `<tr><td colspan="5" class="text-small">暂无待确认付款</td></tr>`;
+            return;
+        }
+        tbody.innerHTML = pending
+            .map(
+                (p) => `<tr><td class="mono">${escapeHtml(p.id)}</td><td>${escapeHtml(p.counterparty)}</td><td>${p.amount}</td><td>${escapeHtml(p.note || "—")}</td><td>
+            <button type="button" class="btn-primary" style="padding:6px 16px;" data-approve="${escapeAttr(p.id)}">确认</button>
+            <button type="button" class="btn-secondary" style="padding:6px 16px;" data-reject="${escapeAttr(p.id)}">拒绝</button></td></tr>`
+            )
+            .join("");
+        tbody.querySelectorAll("[data-approve]").forEach((b) => b.addEventListener("click", () => approvePayment(b.getAttribute("data-approve"))));
+        tbody.querySelectorAll("[data-reject]").forEach((b) => b.addEventListener("click", () => rejectPayment(b.getAttribute("data-reject"))));
+    }
+
+    function escapeHtml(s) {
+        return String(s ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+    }
+    function escapeAttr(s) {
+        return escapeHtml(s).replace(/'/g, "&#39;");
+    }
+
+    async function copyShareLink(link) {
+        try {
+            await navigator.clipboard.writeText(link);
+            sparkySay("收款链接已复制到剪贴板 📋", false);
+        } catch {
+            sparkySay("复制失败，请手动复制", true);
+        }
+    }
+
+    async function syncFromServer() {
+        const el = document.getElementById("syncStatus");
+        if (el) el.textContent = "同步中…";
+        try {
+            const dash = await api("/dashboard", "GET");
+            const uc = await api("/user-console/overview", "GET");
+            const sparky = await api("/user-console/sparky/config", "GET").catch(() => null);
+
+            dashboardCache = dash;
+            userConsoleCache = uc;
+
+            const summary = dash.summary || {};
+            const wallet = summary.wallet || {};
+            const allowance = summary.allowance || {};
+            const totals = summary.totals || {};
+            const counts = summary.counts || {};
+            const ucSummary = uc.summary || {};
+            const profile = ucSummary.profile || {};
+            const payRule = ucSummary.payRule || {};
+            const stats = ucSummary.stats || {};
+
+            document.getElementById("walletBadge").textContent =
+                "🔗 " + (profile.wallet || wallet.address || "—") + " · " + (profile.token || allowance.token || "USDC");
+
+            document.getElementById("statIncome").textContent = (totals.totalIncome ?? 0).toFixed(2) + " " + (allowance.token || "USDC");
+            document.getElementById("statExpense").textContent = (stats.paidOut ?? totals.totalExpense ?? 0).toFixed(2) + " " + (profile.token || "USDC");
+            document.getElementById("statActive").textContent = (allowance.active ?? 0).toFixed(2) + " " + (allowance.token || "USDC");
+            document.getElementById("statAllowanceSub").textContent =
+                "授权 " + (allowance.allowance ?? "—") + " · 冻结 " + (allowance.locked ?? "—") + " · 预留 " + (allowance.reserved ?? "—");
+            const pend = (stats.pendingManual ?? 0) + (counts.pendingConfirm || 0);
+            document.getElementById("statPending").textContent = String(pend);
+            document.getElementById("incomeMood").textContent = "网关同步";
+
+            document.getElementById("payStatAllowance").textContent = (allowance.allowance ?? "—") + " " + (allowance.token || "");
+            document.getElementById("payStatUsed").textContent = (Number(allowance.locked || 0) + Number(allowance.reserved || 0)).toFixed(2);
+            document.getElementById("payStatUsedSub").textContent =
+                "active " + (allowance.active ?? 0) + " · stopped " + (allowance.stopped ? "yes" : "no");
+            document.getElementById("payStatMicro").textContent = "< " + (payRule.autoPayLimit ?? "—");
+            document.getElementById("payStatHard").textContent = (payRule.hardLimit ?? "—") + " " + (profile.token || "");
+
+            agents = (dash.agents || []).map((a) => ({
+                ...a,
+                trust: trustFromAgent(a),
+                shareLink: location.origin + "/user-console/#agent-" + encodeURIComponent(a.id),
+            }));
+            allowances = agents.map((a) => ({
+                agentId: a.id,
+                agentName: a.name,
+                perTxLimit: payRule.autoPayLimit || 0.1,
+                dailyLimit: 2,
+                totalAssigned: 50 + Math.floor((a.totalIncome || 0) * 5),
+                usedThisMonth: Number(a.todayIncome || 0) + Number(a.totalIncome || 0) * 0.1,
+                totalPaidYTD: Number(a.totalIncome || 0),
+            }));
+
+            bills = (dash.bills || []).map((b) => ({
+                id: b.id,
+                caller: b.callerAgent || "—",
+                receiver: b.seller || "—",
+                amount: b.amount,
+                status: b.status,
+                arbitration:
+                    b.status === "Disputed"
+                        ? { step: 2, total: 3, desc: "证据审查中" }
+                        : b.status === "PendingConfirm"
+                          ? { step: 1, total: 3, desc: "等待人工确认" }
+                          : null,
+                evidence: "查看",
+            }));
+
+            document.getElementById("setAutoPayEnabled").checked = !!payRule.autoPayEnabled;
+            document.getElementById("setAutoPayLimit").value = payRule.autoPayLimit ?? "";
+            document.getElementById("setHardLimit").value = payRule.hardLimit ?? "";
+
+            if (sparky && sparky.item) {
+                const c = sparky.item;
+                document.getElementById("pushChannelSelect").value = c.channel || "telegram";
+                document.getElementById("waPhone").value = c.whatsappPhone || "";
+                document.getElementById("waApikey").value = c.whatsappApikey || "";
+                document.getElementById("tgBotToken").value = c.telegramBotToken || "";
+                document.getElementById("tgChatId").value = c.telegramChatId || "";
+                document.getElementById("wechatProvider").value = c.wechatProvider || "pushplus";
+                document.getElementById("wxToken").value = c.wechatToken || "";
+                showConfigGroup(c.channel || "telegram");
+            }
+
+            renderActivity();
+            renderReceive();
+            renderAllowance();
+            renderBills();
+            renderTrustAgents();
+            renderPendingPayments();
+            if (el) el.textContent = "已同步 " + new Date().toLocaleTimeString();
+        } catch (e) {
+            if (el) el.textContent = "同步失败";
+            sparkySay(String(e.message || e), true);
+        }
+    }
+
+    async function approvePayment(id) {
+        try {
+            await api("/user-console/payments/" + encodeURIComponent(id) + "/approve", "POST");
+            await syncFromServer();
+            sparkySay("已确认付款 ✅", false);
+        } catch (err) {
+            sparkySay(err.message || String(err), true);
+        }
+    }
+    async function rejectPayment(id) {
+        try {
+            await api("/user-console/payments/" + encodeURIComponent(id) + "/reject", "POST");
+            await syncFromServer();
+            sparkySay("已拒绝该笔付款", false);
+        } catch (err) {
+            sparkySay(err.message || String(err), true);
+        }
+    }
+
+    const titles = { dashboard: "仪表板", receive: "收款区 · 开店", pay: "付款区 · 授权", bills: "账单 & 争议", trust: "Karma 信誉分", settings: "Sparky 设置" };
+    function switchPage(pageId) {
+        document.querySelectorAll(".nav-item").forEach((el) => el.classList.remove("active"));
+        document.querySelectorAll("#dashboardPage, #receivePage, #payPage, #billsPage, #trustPage, #settingsPage").forEach((p) => (p.style.display = "none"));
+        document.getElementById(pageId + "Page").style.display = "block";
+        const nav = document.querySelector('.nav-item[data-page="' + pageId + '"]');
+        if (nav) nav.classList.add("active");
+        document.getElementById("pageTitle").innerText = titles[pageId];
+        if (pageId === "receive") renderReceive();
+        if (pageId === "pay") {
+            renderAllowance();
+            renderPendingPayments();
+        }
+        if (pageId === "bills") renderBills();
+        if (pageId === "trust") renderTrustAgents();
+    }
+
+    document.querySelectorAll(".nav-item").forEach((el) => el.addEventListener("click", () => switchPage(el.getAttribute("data-page"))));
+    document.getElementById("gotoPayBtn")?.addEventListener("click", () => switchPage("pay"));
+
+    const modal = document.getElementById("simpleRegisterModal");
+    document.getElementById("simpleRegisterBtn")?.addEventListener("click", () => modal.classList.add("show"));
+    document.getElementById("closeModalBtn")?.addEventListener("click", () => modal.classList.remove("show"));
+    document.getElementById("confirmRegisterBtn")?.addEventListener("click", async () => {
+        const name = document.getElementById("agentNameInput").value.trim();
+        const price = parseFloat(document.getElementById("agentPriceInput").value);
+        if (!name || !Number.isFinite(price) || price < 0) {
+            alert("请填写名称与有效价格");
+            return;
+        }
+        try {
+            await api("/agents", "POST", { name, price, description: "", serviceType: "数据查询", endpoint: "", successOnly: true, refundable: true, manualConfirm: false });
+            modal.classList.remove("show");
+            await syncFromServer();
+            sparkySay('Agent「' + name + '」已创建', false);
+        } catch (e) {
+            alert(e.message || String(e));
+        }
+    });
+
+    document.getElementById("addAgentAllowanceBtn")?.addEventListener("click", () => {
+        sparkySay("请先在「收款区」注册 Agent，额度表会自动出现", false);
+    });
+
+    document.getElementById("savePayRuleBtn")?.addEventListener("click", async () => {
+        try {
+            await api("/user-console/pay-rule", "POST", {
+                autoPayEnabled: document.getElementById("setAutoPayEnabled").checked,
+                autoPayLimit: Number(document.getElementById("setAutoPayLimit").value),
+                hardLimit: Number(document.getElementById("setHardLimit").value),
+            });
+            await syncFromServer();
+            sparkySay("支付策略已保存", false);
+        } catch (e) {
+            alert(e.message || String(e));
+        }
+    });
+
+    const channelSelect = document.getElementById("pushChannelSelect");
+    const waDiv = document.getElementById("whatsappConfig");
+    const tgDiv = document.getElementById("telegramConfig");
+    const wxDiv = document.getElementById("wechatConfig");
+    function showConfigGroup(channel) {
+        waDiv.style.display = "none";
+        tgDiv.style.display = "none";
+        wxDiv.style.display = "none";
+        if (channel === "whatsapp") waDiv.style.display = "block";
+        if (channel === "telegram") tgDiv.style.display = "block";
+        if (channel === "wechat") wxDiv.style.display = "block";
+    }
+    channelSelect.addEventListener("change", (e) => showConfigGroup(e.target.value));
+
+    document.getElementById("savePushSettingsBtn").addEventListener("click", async () => {
+        const channel = channelSelect.value;
+        const body = { channel };
+        if (channel === "whatsapp") {
+            body.whatsappPhone = document.getElementById("waPhone").value.trim();
+            body.whatsappApikey = document.getElementById("waApikey").value.trim();
+        } else if (channel === "telegram") {
+            body.telegramBotToken = document.getElementById("tgBotToken").value.trim();
+            body.telegramChatId = document.getElementById("tgChatId").value.trim();
+        } else if (channel === "wechat") {
+            body.wechatProvider = document.getElementById("wechatProvider").value;
+            body.wechatToken = document.getElementById("wxToken").value.trim();
+        }
+        try {
+            await api("/user-console/sparky/config", "POST", body);
+            sparkySay("Sparky 推送配置已保存", false);
+        } catch (e) {
+            alert(e.message || String(e));
+        }
+    });
+
+    document.getElementById("testPushBtn").addEventListener("click", async () => {
+        const resultDiv = document.getElementById("pushTestResult");
+        resultDiv.textContent = "⏳ 请求中…";
+        try {
+            await api("/user-console/sparky/test", "POST", {});
+            resultDiv.textContent = "✅ 服务端已接受测试（模拟通道）。生产环境请接入真实 HTTP 推送。";
+            sparkySay("测试推送已记录，主人看下日志 🐕", false);
+        } catch (e) {
+            resultDiv.textContent = String(e.message || e);
+            sparkySay("测试失败：请填写对应通道密钥", true);
+        }
+    });
+
+    const canvas = document.getElementById("sparky-canvas");
+    const ctx = canvas.getContext("2d");
+    let eyeBlink = 0;
+    let earWiggle = 0;
+    let isSpeaking = false;
+    function drawSparky() {
+        ctx.clearRect(0, 0, 80, 80);
+        ctx.fillStyle = "#D28C47";
+        ctx.beginPath();
+        ctx.ellipse(40, 50, 25, 28, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#B36B2F";
+        ctx.beginPath();
+        ctx.ellipse(22, 32, 12, 18, -0.3 + earWiggle * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(58, 32, 12, 18, 0.3 - earWiggle * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#F5E6D3";
+        ctx.beginPath();
+        ctx.ellipse(40, 48, 18, 20, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#2D1B0C";
+        if (eyeBlink < 5) {
+            ctx.beginPath();
+            ctx.arc(32, 45, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(48, 45, 3, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            ctx.fillRect(29, 45, 6, 2);
+            ctx.fillRect(45, 45, 6, 2);
+        }
+        ctx.fillStyle = "#4A2A1A";
+        ctx.beginPath();
+        ctx.arc(40, 52, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        if (isSpeaking) {
+            ctx.fillStyle = "#FF6B6B";
+            ctx.beginPath();
+            ctx.ellipse(40, 59, 3, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        requestAnimationFrame(drawSparky);
+    }
+    drawSparky();
+    setInterval(() => {
+        eyeBlink = 10;
+        setTimeout(() => (eyeBlink = 0), 150);
+    }, 3000);
+    setInterval(() => {
+        earWiggle = Math.sin(Date.now() / 300) * 0.5;
+    }, 100);
+
+    function sparkySay(msg, isAlert) {
+        const bubble = document.getElementById("sparky-bubble");
+        bubble.innerText = msg;
+        bubble.style.display = "block";
+        bubble.style.borderLeftColor = isAlert ? "#ef4444" : "#6366f1";
+        isSpeaking = true;
+        setTimeout(() => (isSpeaking = false), 800);
+        setTimeout(() => (bubble.style.display = "none"), 5000);
+    }
+
+    const alerts = [
+        { msg: "有账单处于待确认或争议状态时，我会第一时间提醒你。", alert: false },
+        { msg: "大额付款默认需要你在「付款区」点确认。", alert: true },
+        { msg: "保存 Sparky 通道后，可在设置里发测试推送（当前为服务端模拟）。", alert: false },
+    ];
+    let alertIdx = 0;
+    setInterval(() => {
+        const a = alerts[alertIdx % alerts.length];
+        sparkySay(a.msg, a.alert);
+        alertIdx++;
+    }, 24000);
+
+    showConfigGroup(channelSelect.value);
+    syncFromServer().then(() => sparkySay("Sparky 已连接网关，正在盯你的收付款 🐕‍🦺", false));
+    setInterval(syncFromServer, 30000);
+
+    switchPage("dashboard");
+})();
+</script>
+</body>
+</html>
