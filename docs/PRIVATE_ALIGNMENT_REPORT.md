@@ -70,6 +70,12 @@ Tx hashes and `chain_id` should be written to **private** operational databases;
 
 ---
 
+## Phase 4 stress (public repo)
+
+The public **`stress_trusted_agent_runtime.py`** harness is **structural only** (receipt/evidence/proofHash/settlement-plan consistency, duplicate/replay/timeout/malformed/forged **signals**). It does **not** implement private fraud scoring; production abuse detection remains in Karma2.
+
+---
+
 ## Checklist before merging private changes that touch Trusted Agent
 
 - [ ] Public `Karma` commit is pinned and tagged if required by release policy.

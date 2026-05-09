@@ -53,7 +53,7 @@ Trusted Agent Runtime is an **integration and documentation layer** on top of ex
 ## MERGE (coexist with existing artifacts)
 
 1. **`sdk/agent-service-guard-example/`** — Remains the JS example for Guard; Trusted Agent runtime is **parallel** (Python) until a unified SDK is justified.
-2. **`scripts/`** — `trusted_agent_minimal_flow.py`, `testnet_full_flow.py`, and stepwise `testnet_lock.py` / `testnet_create_bill.py` / `testnet_confirm.py` / `testnet_payout.py` alongside existing smoke/guard scripts.
+2. **`scripts/`** — `trusted_agent_minimal_flow.py`, `testnet_full_flow.py`, stepwise `testnet_*.py`, and **`stress_trusted_agent_runtime.py`** (Phase 4 local stress) alongside existing smoke/guard scripts.
 3. **`docs/`** — This report + future `TRUSTED_AGENT_*` docs (Phase 4 documentation expansion); no conflict with existing roadmap docs.
 
 ---
@@ -81,7 +81,7 @@ Trusted Agent Runtime is an **integration and documentation layer** on top of ex
 | 1 | Alignment reports (this file + `PRIVATE_ALIGNMENT_REPORT.md`) | **Done** |
 | 2 | Offchain minimal flow: task → receipts → bundle → `proofHash` mapping → simulated settlement intents | **Implemented** (`trusted_agent_runtime/`, `scripts/trusted_agent_minimal_flow.py`, tests) |
 | 3 | Testnet scripts + tx hash writeback + hybrid mode | **Implemented** — `scripts/testnet_*.py`, `trusted_agent_runtime/testnet_client.py`, `requirements-testnet.txt`, `docs/TESTNET_RUNBOOK.md`, `.env.testnet.example` |
-| 4 | Stress tests (100/500 agents) | **Deferred** |
+| 4 | Stress tests (100/500 agents, structural only) | **Implemented** — `trusted_agent_runtime/stress_runner.py`, `scripts/stress_trusted_agent_runtime.py`, `docs/STRESS_TEST_RUNBOOK.md`, `tests/test_trusted_agent_stress.py` |
 
 ---
 
@@ -105,6 +105,16 @@ python3 scripts/testnet_full_flow.py --output-dir results/trusted-agent-hybrid -
 ```
 
 See **`docs/TESTNET_RUNBOOK.md`** for env vars, per-step scripts, and `tx_hash` / `chain_id` writeback format.
+
+## Phase 4 — local stress (structural)
+
+```bash
+python3 scripts/stress_trusted_agent_runtime.py --agents 100 --malicious-rate 0.1 --seed 42 --output-dir results/stress-test
+python3 scripts/stress_trusted_agent_runtime.py --agents 500 --malicious-rate 0.1 --seed 42 --output-dir results/stress-test-500
+python3 -m unittest tests.test_trusted_agent_stress -v
+```
+
+See **`docs/STRESS_TEST_RUNBOOK.md`**. No RPC; replay/duplicate/timeout/malformed/forged cases are **structural signals** only (no private fraud scoring).
 
 ---
 

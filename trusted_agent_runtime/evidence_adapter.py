@@ -34,6 +34,8 @@ class EvidenceAdapter:
         receipt_ids: list[str],
         *,
         evidence_storage_refs: list[str] | None = None,
+        bundle_id: str | None = None,
+        created_at: str | None = None,
     ) -> EvidenceBundle:
         receipts: list[ExecutionReceipt] = []
         for rid in receipt_ids:
@@ -44,15 +46,14 @@ class EvidenceAdapter:
         receipt_hashes = [receipt_record_hash(r) for r in receipts]
         final_hash = receipt_hashes[-1] if receipt_hashes else sha256_hex(b"empty")
 
-        now = _utc_iso()
         bundle = EvidenceBundle(
-            bundle_id=str(uuid.uuid4()),
+            bundle_id=bundle_id or str(uuid.uuid4()),
             task_id=task.task_id,
             task_contract_hash=task_contract_hash(task),
             receipt_hashes=receipt_hashes,
             final_result_hash=final_hash,
             evidence_storage_refs=list(evidence_storage_refs or []),
-            created_at=now,
+            created_at=created_at or _utc_iso(),
             signer="",
             signature="",
         )
