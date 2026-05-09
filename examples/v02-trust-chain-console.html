@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Karma MVP Console</title>
+<style>
+  :root { --bg: #0f1117; --card: #1a1d27; --border: #2a2d3a; --text: #e1e4ed; --muted: #8b90a0; --accent: #6c5ce7; --green: #00d68f; --red: #ff6b6b; --yellow: #ffd93d; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Mono', monospace; background: var(--bg); color: var(--text); padding: 20px; min-height: 100vh; }
+  h1 { font-size: 1.4rem; color: var(--accent); margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 0.85rem; margin-bottom: 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h2 { font-size: 0.9rem; color: var(--accent); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  .card h3 { font-size: 0.8rem; color: var(--muted); margin-bottom: 4px; }
+  .row { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom: none; }
+  .row .label { color: var(--muted); }
+  .row .value { font-weight: 600; word-break: break-all; }
+  .row .value.addr { font-size: 0.7rem; }
+  .row .value.ok { color: var(--green); }
+  .row .value.err { color: var(--red); }
+  .row .value.warn { color: var(--yellow); }
+  button { background: var(--accent); color: white; border: none; border-radius: 6px; padding: 8px 16px; font-size: 0.8rem; cursor: pointer; font-family: inherit; margin: 4px; }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.small { padding: 4px 10px; font-size: 0.75rem; }
+  button.danger { background: var(--red); }
+  button.green { background: var(--green); color: #000; }
+  select, input { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; font-size: 0.8rem; margin: 4px; }
+  #log { background: #000; border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 0.75rem; max-height: 300px; overflow-y: auto; font-family: 'SF Mono', monospace; white-space: pre-wrap; color: var(--muted); margin-top: 16px; }
+  #log .info { color: var(--accent); }
+  #log .ok { color: var(--green); }
+  #log .err { color: var(--red); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 600; }
+  .badge.ok { background: rgba(0,214,143,0.15); color: var(--green); }
+  .badge.err { background: rgba(255,107,107,0.15); color: var(--red); }
+  .badge.warn { background: rgba(255,217,61,0.15); color: var(--yellow); }
+  .badge.info { background: rgba(108,92,231,0.15); color: var(--accent); }
+  .full-width { grid-column: 1 / -1; }
+  #status-bar { padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; margin-bottom: 16px; }
+  #status-bar.connected { background: rgba(0,214,143,0.1); color: var(--green); }
+  #status-bar.disconnected { background: rgba(255,107,107,0.1); color: var(--red); }
+  .flow-step { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 0.8rem; }
+  .flow-step .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+  .flow-step .dot.done { background: var(--green); }
+  .flow-step .dot.active { background: var(--yellow); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+</style>
+</head>
+<body>
+
+<h1>⚡ Karma MVP Console</h1>
+<div class="subtitle">Non-custodial agent settlement · EIP-712 auth · E2E verifiable</div>
+
+<div id="status-bar" class="disconnected">🔌 Wallet not connected</div>
+
+<div class="grid">
+  <!-- ── Wallet ── -->
+  <div class="card">
+    <h2>🔑 Wallet</h2>
+    <button id="btn-connect" onclick="connectWallet()">Connect MetaMask</button>
+    <button id="btn-switch-anvil" class="small" onclick="switchToAnvil()">Switch to Anvil</button>
+    <div style="margin-top:8px;">
+      <div class="row"><span class="label">Account</span><span class="value addr" id="wallet-addr">—</span></div>
+      <div class="row"><span class="label">Network</span><span class="value" id="wallet-network">—</span></div>
+      <div class="row"><span class="label">sUSDC Balance</span><span class="value" id="wallet-balance">—</span></div>
+    </div>
+  </div>
+
+  <!-- ── Contracts ── -->
+  <div class="card">
+    <h2>📜 Contracts</h2>
+    <div class="row"><span class="label">Token</span><span class="value addr" id="addr-token">—</span></div>
+    <div class="row"><span class="label">KYA Registry</span><span class="value addr" id="addr-kya">—</span></div>
+    <div class="row"><span class="label">LockPool</span><span class="value addr" id="addr-pool">—</span></div>
+    <div class="row"><span class="label">AuthToken</span><span class="value addr" id="addr-auth">—</span></div>
+    <div class="row"><span class="label">CircuitBreaker</span><span class="value addr" id="addr-breaker">—</span></div>
+    <div class="row"><span class="label">BillManager</span><span class="value addr" id="addr-bill">—</span></div>
+  </div>
+
+  <!-- ── Flow Control ── -->
+  <div class="card full-width">
+    <h2>🔄 Settlement Flow</h2>
+    <div class="flow-step" id="step-did"><span class="dot" id="dot-did"></span>Register DIDs</div>
+    <div class="flow-step" id="step-pool"><span class="dot" id="dot-pool"></span>Create LockPool</div>
+    <div class="flow-step" id="step-auth"><span class="dot" id="dot-auth"></span>Issue AuthTokens</div>
+    <div class="flow-step" id="step-bill"><span class="dot" id="dot-bill"></span>Create Bill (EIP-712)</div>
+    <div class="flow-step" id="step-confirm"><span class="dot" id="dot-confirm"></span>Confirm Bill (EIP-712)</div>
+    <div class="flow-step" id="step-settle"><span class="dot" id="dot-settle"></span>Close & Settle Batch</div>
+    <div style="margin-top:12px;">
+      <button id="btn-full-flow" onclick="runFullFlow()">▶ Run Full Flow</button>
+      <button id="btn-verify" onclick="verifyState()" class="green">✅ Verify State</button>
+      <button id="btn-proof" onclick="generateProof()">📋 Generate Proof</button>
+    </div>
+  </div>
+
+  <!-- ── Interactive ── -->
+  <div class="card">
+    <h2>🛠 Actions</h2>
+    <div>
+      <h3>Register DID</h3>
+      <select id="did-agent"><option value="">Select account...</option></select>
+      <button class="small" onclick="registerDID()">Register</button>
+    </div>
+    <div style="margin-top:8px;">
+      <h3>Create LockPool</h3>
+      <input id="pool-amount" type="text" placeholder="Amount (sUSDC)" value="50000" style="width:120px;">
+      <button class="small" onclick="createPool()">Create</button>
+    </div>
+    <div style="margin-top:8px;">
+      <h3>Issue AuthToken</h3>
+      <select id="auth-target"><option value="">Payee...</option></select>
+      <select id="auth-op">
+        <option value="0">CreateBill</option>
+        <option value="1">ConfirmBill</option>
+        <option value="2">CancelBill</option>
+      </select>
+      <input id="auth-amount" type="text" placeholder="Max amount" value="5000" style="width:100px;">
+      <button class="small" onclick="issueAuth()">Issue</button>
+    </div>
+    <div style="margin-top:8px;">
+      <h3>Create Bill</h3>
+      <input id="bill-amount" type="text" placeholder="Amount" value="5000" style="width:100px;">
+      <input id="bill-purpose" type="text" placeholder="Purpose" value="Demo payment" style="width:140px;">
+      <button class="small" onclick="createBill()">Create</button>
+    </div>
+  </div>
+
+  <!-- ── State ── -->
+  <div class="card">
+    <h2>📊 Live State</h2>
+    <div class="row"><span class="label">DID (self)</span><span class="value" id="state-did">—</span></div>
+    <div class="row"><span class="label">LockPool</span><span class="value" id="state-pool">—</span></div>
+    <div class="row"><span class="label">Active Batch</span><span class="value" id="state-batch">—</span></div>
+    <div class="row"><span class="label">Bills in Batch</span><span class="value" id="state-bills">—</span></div>
+    <div class="row"><span class="label">CircuitBreaker</span><span class="value" id="state-breaker">—</span></div>
+    <button class="small green" onclick="refreshState()" style="margin-top:8px;">🔄 Refresh State</button>
+  </div>
+</div>
+
+<div id="log"><span class="info">[System]</span> Karma MVP Console ready. Connect wallet to begin.</div>
+
+<script>
+// ═══════════ Global State ═══════════
+let provider, signer, account;
+const AnvilChainId = '0x7a69'; // 31337
+
+// ABIs loaded from abis.json via fetch
+let abis = {};
+let contracts = {};
+let deployAddrs = {};
+
+const AnvilAccts = [
+  '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266', // #0 admin/deployer
+  '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', // #1 payer
+  '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC', // #2 payee
+];
+
+// ═══════════ Init ═══════════
+async function init() {
+  try {
+    const resp = await fetch('abis.json');
+    abis = await resp.json();
+  } catch(e) {}
+
+  try {
+    const resp = await fetch('deployment.json');
+    deployAddrs = await resp.json();
+  } catch(e) {}
+
+  renderContractAddresses();
+
+  // Try connect if already authorized
+  if (window.ethereum) {
+    try {
+      const accts = await ethereum.request({method: 'eth_accounts'});
+      if (accts.length > 0) await connectWallet();
+    } catch(e) {}
+  }
+
+  refreshState();
+
+  // Listen for account/network changes
+  if (window.ethereum) {
+    ethereum.on('accountsChanged', (accts) => {
+      if (accts.length === 0) disconnect();
+      else { account = accts[0]; setupSigner(); renderWallet(); refreshState(); }
+    });
+    ethereum.on('chainChanged', () => { setupSigner(); renderWallet(); refreshState(); });
+  }
+}
+
+// ═══════════ Wallet ═══════════
+async function connectWallet() {
+  if (!window.ethereum) { logMsg('err', 'MetaMask not detected'); return; }
+  try {
+    const accts = await ethereum.request({method: 'eth_requestAccounts'});
+    account = accts[0];
+    setupSigner();
+    renderWallet();
+    logMsg('ok', `Connected: ${account}`);
+  } catch(e) {
+    logMsg('err', `Connect failed: ${e.message}`);
+  }
+}
+
+function setupSigner() {
+  provider = new ethers.BrowserProvider(window.ethereum);
+  signer = null;
+  provider.getSigner().then(s => { signer = s; initContracts(); });
+}
+
+function disconnect() {
+  account = null;
+  signer = null;
+  document.getElementById('status-bar').className = 'disconnected';
+  document.getElementById('status-bar').textContent = '🔌 Wallet not connected';
+}
+
+function renderWallet() {
+  const bar = document.getElementById('status-bar');
+  if (account) {
+    bar.className = 'connected';
+    bar.textContent = `🟢 Connected: ${account}`;
+  }
+  document.getElementById('wallet-addr').textContent = account || '—';
+
+  provider.getNetwork().then(n => {
+    document.getElementById('wallet-network').textContent = `${n.name} (${n.chainId})`;
+  }).catch(() => {});
+
+  if (account && deployAddrs.token && abis.DemoToken) {
+    const tok = new ethers.Contract(deployAddrs.token, abis.DemoToken, provider);
+    tok.balanceOf(account).then(b => {
+      document.getElementById('wallet-balance').textContent = ethers.formatUnits(b, 6) + ' sUSDC';
+    }).catch(() => {});
+  }
+}
+
+async function switchToAnvil() {
+  if (!window.ethereum) return;
+  try {
+    await ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{chainId: AnvilChainId}]
+    });
+  } catch(e) {
+    if (e.code === 4902) {
+      await ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: AnvilChainId,
+          chainName: 'Anvil Local',
+          rpcUrls: ['http://127.0.0.1:8545'],
+          nativeCurrency: {name:'ETH',symbol:'ETH',decimals:18}
+        }]
+      });
+    }
+  }
+}
+
+// ═══════════ Contracts ═══════════
+function initContracts() {
+  if (!signer || !abis.BillManager || !deployAddrs.billManager) return;
+  contracts = {
+    token: new ethers.Contract(deployAddrs.token, abis.DemoToken, signer),
+    kya: new ethers.Contract(deployAddrs.kyaRegistry, abis.KYARegistry, signer),
+    pool: new ethers.Contract(deployAddrs.lockPoolManager, abis.LockPoolManager, signer),
+    auth: new ethers.Contract(deployAddrs.authTokenManager, abis.AuthTokenManager, signer),
+    breaker: new ethers.Contract(deployAddrs.circuitBreaker, abis.CircuitBreaker, signer),
+    billMgr: new ethers.Contract(deployAddrs.billManager, abis.BillManager, signer),
+  };
+}
+
+function renderContractAddresses() {
+  for (const [k, v] of Object.entries(deployAddrs)) {
+    const el = document.getElementById(`addr-${k === 'token' ? 'token' : k === 'kyaRegistry' ? 'kya' : k === 'lockPoolManager' ? 'pool' : k === 'authTokenManager' ? 'auth' : k === 'circuitBreaker' ? 'breaker' : k === 'billManager' ? 'bill' : ''}`);
+    if (el) el.textContent = v;
+  }
+}
+
+// ═══════════ Actions ═══════════
+async function registerDID() {
+  if (!signer) { logMsg('err','Connect wallet first'); return; }
+  try {
+    const permsHash = ethers.zeroPadValue(ethers.toUtf8Bytes('full'), 32);
+    const tx = await contracts.kya.registerDID(account, permsHash, 365, {value: ethers.parseEther('0.01')});
+    logMsg('info', `Registering DID... tx: ${tx.hash}`);
+    await tx.wait();
+    markStep('did');
+    logMsg('ok', 'DID registered ✅');
+    refreshState();
+  } catch(e) { logMsg('err', `DID registration failed: ${e.message}`); }
+}
+
+async function createPool() {
+  if (!signer) { logMsg('err','Connect wallet first'); return; }
+  try {
+    const amount = ethers.parseUnits(document.getElementById('pool-amount').value || '50000', 6);
+    // Approve token
+    const approveTx = await contracts.token.approve(deployAddrs.lockPoolManager, amount);
+    await approveTx.wait();
+    logMsg('info', 'Token approved. Creating pool...');
+    const tx = await contracts.pool.createLockPool(account, deployAddrs.token, amount);
+    logMsg('info', `CreatePool tx: ${tx.hash}`);
+    await tx.wait();
+    markStep('pool');
+    logMsg('ok', 'LockPool created ✅');
+    refreshState();
+  } catch(e) { logMsg('err', `CreatePool failed: ${e.message}`); }
+}
+
+async function issueAuth() {
+  if (!signer) { logMsg('err','Connect wallet first'); return; }
+  try {
+    const target = document.getElementById('auth-target').value || account;
+    const opType = parseInt(document.getElementById('auth-op').value);
+    const amount = ethers.parseUnits(document.getElementById('auth-amount').value || '5000', 6);
+    const tx = await contracts.auth.issueAuthToken(target, opType, amount, 3600);
+    logMsg('info', `Issuing auth token... tx: ${tx.hash}`);
+    await tx.wait();
+    markStep('auth');
+    logMsg('ok', `AuthToken issued for opType=${opType} ✅`);
+    refreshState();
+  } catch(e) { logMsg('err', `IssueAuth failed: ${e.message}`); }
+}
+
+async function createBill() {
+  if (!signer) { logMsg('err','Connect wallet first'); return; }
+  try {
+    const amount = ethers.parseUnits(document.getElementById('bill-amount').value || '5000', 6);
+    const purpose = document.getElementById('bill-purpose').value || 'Demo payment';
+    // CreateBill needs poolId, auth token, EIP-712 sig — use full flow for now
+    await runFullFlow();
+  } catch(e) { logMsg('err', `CreateBill failed: ${e.message}`); }
+}
+
+// ═══════════ Full Flow ═══════════
+async function runFullFlow() {
+  if (!signer) { logMsg('err','Connect wallet first'); return; }
+  logMsg('info', 'Starting full settlement flow...');
+  const btn = document.getElementById('btn-full-flow');
+  btn.disabled = true;
+
+  try {
+    // Step 0: Get payee address (the other anvil account)
+    const payee = AnvilAccts[2]; // Account #2
+
+    // Step 1: Register DIDs
+    const permsHash = ethers.zeroPadValue(ethers.toUtf8Bytes('full'), 32);
+    const didStake = ethers.parseEther('0.01');
+
+    logMsg('info', 'Registering DID for payer...');
+    const txDID = await contracts.kya.registerDID(account, permsHash, 365, {value: didStake});
+    await txDID.wait();
+    markStep('did');
+
+    // Step 2: Create LockPool
+    const poolAmount = ethers.parseUnits('50000', 6);
+    logMsg('info', 'Approving tokens...');
+    await (await contracts.token.approve(deployAddrs.lockPoolManager, poolAmount)).wait();
+    logMsg('info', 'Creating LockPool...');
+    const txPool = await contracts.pool.createLockPool(account, deployAddrs.token, poolAmount);
+    const poolRec = await txPool.wait();
+    const poolId = poolRec.logs[0]?.topics[1] || '0x0';
+    markStep('pool');
+
+    // Step 3: Issue AuthTokens
+    logMsg('info', 'Issuing CreateBill auth token...');
+    const txAuth1 = await contracts.auth.issueAuthToken(account, 0, poolAmount, 3600);
+    const rec1 = await txAuth1.wait();
+    const createTokenId = rec1.logs[0]?.topics[1];
+
+    logMsg('info', 'Issuing ConfirmBill auth token...');
+    const txAuth2 = await contracts.auth.issueAuthToken(payee, 1, poolAmount, 3600);
+    const rec2 = await txAuth2.wait();
+    const confirmTokenId = rec2.logs[0]?.topics[1];
+    markStep('auth');
+
+    // Step 4: Create Bill (EIP-712)
+    const billAmount = ethers.parseUnits('5000', 6);
+    const deadline = Math.floor(Date.now()/1000) + 3600;
+
+    const domain = {
+      name: 'TrustChainAuth',
+      version: '1',
+      chainId: 31337,
+      verifyingContract: deployAddrs.authTokenManager,
+    };
+    const types = {
+      Auth: [
+        {name:'tokenId',type:'bytes32'},
+        {name:'agent',type:'address'},
+        {name:'opType',type:'uint8'},
+        {name:'amount',type:'uint256'},
+        {name:'nonce',type:'uint256'},
+        {name:'deadline',type:'uint256'},
+      ],
+    };
+
+    const createToken = await contracts.auth.authTokens(createTokenId);
+    const createSig = await signer.signTypedData(domain, types, {
+      tokenId: createTokenId,
+      agent: account,
+      opType: 0,
+      amount: billAmount,
+      nonce: createToken.nonce,
+      deadline,
+    });
+    const cs = ethers.Signature.from(createSig);
+    logMsg('info', 'Creating bill with EIP-712 signature...');
+    const txBill = await contracts.billMgr.createBill(
+      poolId, payee, billAmount, 'Karma MVP Demo', ethers.id('proof-001'),
+      createTokenId, deadline, cs.v, cs.r, cs.s
+    );
+    const billRec = await txBill.wait();
+    const billId = billRec.logs[0]?.topics[1];
+    markStep('bill');
+    logMsg('ok', `Bill created: billId=${billId || '?'}`);
+
+    // Step 5: Confirm Bill
+    const confirmToken = await contracts.auth.authTokens(confirmTokenId);
+    const confirmSig = await signer.signTypedData(domain, types, {
+      tokenId: confirmTokenId,
+      agent: payee,
+      opType: 1,
+      amount: billAmount,
+      nonce: confirmToken.nonce,
+      deadline,
+    });
+    const cfs = ethers.Signature.from(confirmSig);
+    const txConfirm = await contracts.billMgr.confirmBill(
+      billId, confirmTokenId, deadline, cfs.v, cfs.r, cfs.s
+    );
+    await txConfirm.wait();
+    markStep('confirm');
+    logMsg('ok', 'Bill confirmed ✅');
+
+    // Step 6: Close & Settle
+    const bill = await contracts.billMgr.bills(billId);
+    const batchId = bill.batchId;
+    logMsg('info', `Closing & settling batch ${batchId}...`);
+    const txSettle = await contracts.billMgr.closeAndSettleBatch(batchId);
+    await txSettle.wait();
+    markStep('settle');
+    logMsg('ok', `Batch ${batchId} settled ✅`);
+
+    logMsg('ok', '🎉 Full flow completed successfully!');
+    refreshState();
+  } catch(e) {
+    logMsg('err', `Flow failed: ${e.message}`);
+  }
+  btn.disabled = false;
+}
+
+// ═══════════ Verify & Proof ─═��═════════
+async function verifyState() {
+  if (!provider) return;
+  logMsg('info', 'Running on-chain verification...');
+  const checks = [];
+  try {
+    // Circuit breaker not paused
+    const gp = await contracts.breaker.isGlobalPaused();
+    checks.push({name:'CircuitBreaker not paused', ok:!gp});
+    // DID
+    const [didOk] = await contracts.kya.verifyDID(account);
+    checks.push({name:'DID active', ok:didOk});
+    // Pool balance
+    const acct = await contracts.pool.getPoolAccounting('0x0000000000000000000000000000000000000000000000000000000000000000');
+    // Just basic checks for demo
+    for (const c of checks) {
+      logMsg(c.ok?'ok':'err', `${c.ok?'✅':'❌'} ${c.name}`);
+    }
+  } catch(e) {
+    logMsg('err', `Verification error: ${e.message}`);
+  }
+}
+
+function generateProof() {
+  logMsg('info', 'Run scripts/proof.cjs for full proof artifacts');
+  // Basic proof generation
+  const proof = {
+    schema: 'karma.evidence.v1',
+    generatedAt: new Date().toISOString(),
+    chain: { chainId: 31337 },
+    contracts: deployAddrs,
+    account: account,
+  };
+  logMsg('ok', JSON.stringify(proof, null, 2));
+}
+
+// ═══════════ UI Helpers ═══════════
+function markStep(step) {
+  const dot = document.getElementById(`dot-${step}`);
+  if (dot) dot.className = 'dot done';
+}
+
+function refreshState() {
+  if (!signer || !contracts.kya) return;
+  contracts.kya.verifyDID(account).then(([ok]) => {
+    document.getElementById('state-did').innerHTML = ok
+      ? '<span class="badge ok">Active</span>'
+      : '<span class="badge err">Not Registered</span>';
+  }).catch(() => {});
+}
+
+function logMsg(type, msg) {
+  const log = document.getElementById('log');
+  const prefix = type === 'ok' ? '✅' : type === 'err' ? '❌' : type === 'info' ? 'ℹ️' : '';
+  log.innerHTML += `\n<span class="${type}">[${new Date().toLocaleTimeString()}]</span> ${prefix} ${msg}`;
+  log.scrollTop = log.scrollHeight;
+}
+
+// ═══════════ Boot ═══════════
+init();
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.0/ethers.umd.min.js"></script>
+</body>
+</html>
