@@ -35,7 +35,7 @@ def verify_evidence_bundle_structural(
         reasons.append("receipt_missing")
         return _result(bundle_digest, bundle.task_id, "STRUCT_FAIL", reasons, verified_at)
 
-    chain_sorted = sorted(chain, key=lambda r: r.step_index)
+    chain_sorted = sorted(chain, key=lambda r: (r.step_index, r.receipt_id))
     expected_hashes = [receipt_record_hash(r) for r in chain_sorted]
     if expected_hashes != bundle.receipt_hashes:
         reasons.append("hash_mismatch")
