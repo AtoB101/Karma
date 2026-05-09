@@ -10,6 +10,7 @@ import { syncUnifiedState } from "./sync.js?v=20260507a";
 import * as api from "./api-client.js";
 
 const AUTH_SESSION_KEY = "karma_web3_session";
+const EVM_ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
 
 const state = loadState();
 
@@ -67,6 +68,11 @@ function requireSession() {
     return null;
   }
   if (session.loginMethod !== "walletconnect-v2-qr") {
+    clearAuthSession();
+    location.href = "../web3-login.html?target=studio%2Findex.html";
+    return null;
+  }
+  if (!EVM_ADDR_RE.test(String(session.wallet))) {
     clearAuthSession();
     location.href = "../web3-login.html?target=studio%2Findex.html";
     return null;

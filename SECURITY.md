@@ -46,3 +46,27 @@ Current baseline matrix:
 | 3 | Slither | Static analysis | Findings reviewed, no fund-loss critical accepted |
 | 4 | Echidna | Stateful fuzz attack simulation | 100,000 rounds, 0 violation |
 | 5 | Certora Prover | Formal methods proof | 6/6 rules verified |
+
+## Bug tracking sync (non-security)
+
+Use the repository **Issues** tab for product bugs, CI failures, and documentation fixes so they stay visible next to code and PRs.
+
+Use the **private email channel above** only for vulnerabilities that should not be disclosed publicly before a fix ships. Do not paste production keys, customer PII, or private scoring rules into public issues.
+
+## Agent Studio: CORS and API surface
+
+- Default Studio HTML uses **same-origin** API calls (`connect-src 'self'` in CSP). If you point `KARMAPAY_STUDIO_API_BASE` at another host, you must also relax CSP and set `KARMAPAY_STUDIO_API_ORIGIN_ALLOWLIST` to that API origin; otherwise the client refuses cross-origin calls.
+- Production JSON APIs should enforce **rate limits** at the edge (see `infra/nginx/agent-guard-rate-limit.example.conf`).
+
+## Docker builds and secrets
+
+- Never bake passwords or API keys into `Dockerfile` `ARG`/`ENV` literals; use runtime env or BuildKit secrets.
+- `.dockerignore` excludes `.env*` and common artifacts so they are not copied into build context.
+
+## Public tool surface (whitelist)
+
+Reserved high-trust engine routes documented for Agent Guard are limited to: `POST /risk/check`, `POST /dispute/recommend-resolution`, `POST /score/seller` (see `apps/agent-service-guard/api/README.md`). Public adapters must not add parallel “shadow” settlement or evidence engines.
+
+## DateTime policy (Python)
+
+Use **timezone-aware** UTC (`datetime.now(timezone.utc)` or `datetime(..., tzinfo=timezone.utc)`). Do not use `datetime.utcnow()` in new code; it is naive and deprecated for correctness-sensitive paths.
