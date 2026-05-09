@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {DemoToken} from "../core/DemoToken.sol";
 import {KYARegistry} from "../core/KYARegistry.sol";
 import {LockPoolManager} from "../core/LockPoolManager.sol";
 import {AuthTokenManager} from "../core/AuthTokenManager.sol";
@@ -9,6 +10,7 @@ import {BillManager} from "../core/BillManager.sol";
 
 contract Deploy {
     struct DeployedContracts {
+        address token;
         address kyaRegistry;
         address lockPoolManager;
         address authTokenManager;
@@ -17,6 +19,7 @@ contract Deploy {
     }
 
     function run(address admin) external returns (DeployedContracts memory deployed) {
+        DemoToken token = new DemoToken();
         KYARegistry kya = new KYARegistry();
         LockPoolManager lockPool = new LockPoolManager(address(kya));
         AuthTokenManager auth = new AuthTokenManager();
@@ -25,6 +28,7 @@ contract Deploy {
         lockPool.setBillManager(address(bill));
 
         deployed = DeployedContracts({
+            token: address(token),
             kyaRegistry: address(kya),
             lockPoolManager: address(lockPool),
             authTokenManager: address(auth),

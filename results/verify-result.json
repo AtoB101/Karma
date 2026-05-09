@@ -1,0 +1,67 @@
+{
+  "timestamp": "2026-04-29T15:49:13.883Z",
+  "total": 13,
+  "passed": 13,
+  "failed": 0,
+  "success": true,
+  "checks": [
+    {
+      "name": "CircuitBreaker.globalPaused == false",
+      "passed": true
+    },
+    {
+      "name": "Payer DID active",
+      "passed": true
+    },
+    {
+      "name": "Payee DID active",
+      "passed": true
+    },
+    {
+      "name": "Simulation completed all steps",
+      "passed": true
+    },
+    {
+      "name": "Bill status is Settled (3)",
+      "passed": true,
+      "detail": "status=3"
+    },
+    {
+      "name": "Batch status is Settled (2)",
+      "passed": true,
+      "detail": "status=2"
+    },
+    {
+      "name": "Pool totalLocked == 45000 sUSDC",
+      "passed": true,
+      "detail": "45000.0 sUSDC"
+    },
+    {
+      "name": "Pool pendingAmount == 0",
+      "passed": true,
+      "detail": "0.0 sUSDC"
+    },
+    {
+      "name": "Pool settledAmount == 5000 sUSDC",
+      "passed": true,
+      "detail": "5000.0 sUSDC"
+    },
+    {
+      "name": "Payee received 5000 sUSDC",
+      "passed": true,
+      "detail": "5000.0 sUSDC"
+    },
+    {
+      "name": "CreateBill token consumed",
+      "passed": true
+    },
+    {
+      "name": "ConfirmBill token consumed",
+      "passed": true
+    },
+    {
+      "name": "CircuitBreaker admin is deployer",
+      "passed": true
+    }
+  ]
+}

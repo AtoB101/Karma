@@ -1,0 +1,15 @@
+{
+  "name": "karma-mvp",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Karma: frontend + backend sync test harness",
+  "scripts": {
+    "simulate": "node scripts/simulate.cjs",
+    "verify": "node scripts/verify.cjs",
+    "proof": "node scripts/proof.cjs",
+    "full": "node scripts/simulate.cjs && node scripts/verify.cjs && node scripts/proof.cjs"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0"
+  }
+}
