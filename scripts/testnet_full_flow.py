@@ -43,6 +43,7 @@ def _write(path: Path, obj: object) -> None:
 
 
 def _run_onchain(payload: dict, tx_log: Path | None) -> dict:
+    trace = str((payload.get("task") or {}).get("trace_id") or "")
     w3 = connect_web3()
     buyer = account_from_env("TESTNET_BUYER_PRIVATE_KEY")
     seller = account_from_env("TESTNET_SELLER_PRIVATE_KEY")
@@ -65,6 +66,7 @@ def _run_onchain(payload: dict, tx_log: Path | None) -> dict:
             receipt=rc,
             contract_address=contract,
             settlement_status=status,
+            trace_id=trace,
             extra={k: v for k, v in kw.items() if v is not None},
         )
         txs.append(row)
@@ -117,6 +119,7 @@ def _run_onchain(payload: dict, tx_log: Path | None) -> dict:
     return {
         "settlement_mode": os.environ.get("SETTLEMENT_MODE", "hybrid"),
         "bill_id": bill_id,
+        "trace_id": trace,
         "onchain_transactions": txs,
         "chain_id": int(w3.eth.chain_id),
         "noncustodial_contract": karma.address,
@@ -129,11 +132,17 @@ def main() -> None:
     p.add_argument("--output-dir", default="results/trusted-agent-hybrid")
     p.add_argument("--send", action="store_true", help="Submit on-chain txs (requires env + funded wallets)")
     p.add_argument("--tx-log", type=Path, default=None, help="JSONL log path (default: <output-dir>/hybrid_tx_log.jsonl)")
+    p.add_argument(
+        "--trace-id",
+        default="",
+        help="Correlation id propagated through artifacts and tx writeback (default: trace-<task_id>)",
+    )
     args = p.parse_args()
     out = Path(args.output_dir)
     tx_log = args.tx_log or (out / "hybrid_tx_log.jsonl")
 
-    payload = build_demo_offchain_bundle()
+    tid = args.trace_id.strip() or None
+    payload = build_demo_offchain_bundle(trace_id=tid)
     _write(out / "task_contract.json", payload["task"])
     _write(out / "receipt_chain.json", payload["receipt_chain"])
     _write(out / "evidence_bundle.json", payload["evidence_bundle"])
@@ -157,6 +166,7 @@ def main() -> None:
     )
     os.environ.setdefault("SETTLEMENT_MODE", "hybrid")
     hybrid: dict = {
+        "trace_id": payload["task"].get("trace_id", ""),
         "offchain_plan": plan,
         "bundle_digest": payload["bundle_digest"],
         "karma_proof_hash": payload["proof_hash"],

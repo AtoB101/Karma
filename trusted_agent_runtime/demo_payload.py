@@ -21,15 +21,18 @@ def build_demo_offchain_bundle(
     agent_id: str = "agent-0x0001",
     runtime_id: str = "runtime-openmanus-stub",
     description: str = "Trusted data task (demo)",
+    trace_id: str | None = None,
 ) -> dict:
     store = InMemoryReceiptStore()
     adapter = EvidenceAdapter(store)
 
+    tid = trace_id if trace_id is not None else f"trace-{task_id}"
     task = TaskContract(
         task_id=task_id,
         agent_id=agent_id,
         runtime_id=runtime_id,
         description=description,
+        trace_id=tid,
     )
 
     t0 = _utc()
@@ -38,6 +41,7 @@ def build_demo_offchain_bundle(
         task_id=task.task_id,
         agent_id=task.agent_id,
         runtime_id=task.runtime_id,
+        trace_id=tid,
         step_index=0,
         tool_name="fetch_dataset",
         input_hash="sha256:" + "a" * 64,
@@ -57,6 +61,7 @@ def build_demo_offchain_bundle(
         task_id=task.task_id,
         agent_id=task.agent_id,
         runtime_id=task.runtime_id,
+        trace_id=tid,
         step_index=1,
         tool_name="summarize",
         input_hash="sha256:" + "c" * 64,

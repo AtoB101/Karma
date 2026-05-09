@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+from trusted_agent_runtime.hashing import canonical_json_bytes, sha256_hex
 from trusted_agent_runtime.schemas import ExecutionReceipt
+
+
+def _receipt_fingerprint(receipt: ExecutionReceipt) -> str:
+    return sha256_hex(canonical_json_bytes(receipt.to_canonical_dict()))
 
 
 class InMemoryReceiptStore:
@@ -10,6 +15,11 @@ class InMemoryReceiptStore:
         self._by_id: dict[str, ExecutionReceipt] = {}
 
     def save_receipt(self, receipt: ExecutionReceipt) -> None:
+        existing = self._by_id.get(receipt.receipt_id)
+        if existing is not None:
+            if _receipt_fingerprint(existing) != _receipt_fingerprint(receipt):
+                raise ValueError(f"receipt_id collision with different payload: {receipt.receipt_id}")
+            return
         self._by_id[receipt.receipt_id] = receipt
 
     def get_receipt(self, receipt_id: str) -> ExecutionReceipt | None:

@@ -53,6 +53,21 @@ set -a && source .env && set +a
 python3 scripts/testnet_full_flow.py --output-dir results/trusted-agent-hybrid --send
 ```
 
+Optional **`--trace-id`** sets the correlation id on `task`, receipts, bundle, verification, settlement plan, and each `tx_writeback_record` (default: `trace-<task_id>`).
+
+## Repeated small-value runs (10–50)
+
+For operational burn-in after stabilization checks pass locally:
+
+```bash
+python3 scripts/testnet_repetition_suite.py --runs 10 --output-root results/ta-repetition
+# With live txs (same env as one-shot --send):
+set -a && source .env && set +a
+python3 scripts/testnet_repetition_suite.py --runs 10 --output-root results/ta-repetition --send
+```
+
+Writes `repetition_summary.json` under `--output-root` plus one subdirectory per run (`run-0000`, …) each containing the usual hybrid JSON artifacts.
+
 Outputs:
 
 - `hybrid_settlement_result.json` — merges `offchain_plan`, bundle digest, and (with `--send`) `onchain_transactions` with **`tx_hash`**, **`chain_id`**, **`contract_address`**, **`settlement_status`**, **`onchain_status`**, `block_number`.

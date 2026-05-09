@@ -34,10 +34,12 @@ def main() -> None:
         default="results/trusted-agent-demo",
         help="Directory for JSON artifacts (default: results/trusted-agent-demo)",
     )
+    p.add_argument("--trace-id", default="", help="Optional correlation id (default: trace-<task_id>)")
     args = p.parse_args()
     out = Path(args.output_dir)
 
-    payload = build_demo_offchain_bundle()
+    tid = args.trace_id.strip() or None
+    payload = build_demo_offchain_bundle(trace_id=tid)
     settlement = SettlementAdapter()
 
     _write(out / "task_contract.json", payload["task"])
