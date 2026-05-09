@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from trusted_agent_runtime.demo_payload import build_demo_offchain_bundle
 from trusted_agent_runtime.evidence_adapter import EvidenceAdapter, new_receipt_id, receipt_record_hash, task_contract_hash
 from trusted_agent_runtime.hashing import karma_proof_hash_pointer
 from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
@@ -11,6 +12,13 @@ from trusted_agent_runtime.verification import verify_evidence_bundle_structural
 
 
 class TrustedAgentRuntimeTests(unittest.TestCase):
+    def test_demo_offchain_payload(self) -> None:
+        p = build_demo_offchain_bundle()
+        self.assertIn("proof_hash", p)
+        self.assertIn("scope_hex", p)
+        self.assertTrue(p["proof_hash"].startswith("karma-ta:v1/sha256/"))
+        self.assertEqual(p["verification"]["decision"], "STRUCT_OK")
+
     def test_task_contract_hash_stable(self) -> None:
         t = TaskContract(task_id="x", agent_id="a", runtime_id="r", description="d")
         h1 = task_contract_hash(t)

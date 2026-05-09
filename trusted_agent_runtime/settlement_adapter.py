@@ -82,5 +82,10 @@ class SettlementAdapter:
             },
         ]
         base["tx_hash"] = None
-        base["onchain_status"] = "offchain_simulated" if mode == "offchain" else "pending_testnet_implementation"
+        if mode == "offchain":
+            base["onchain_status"] = "offchain_simulated"
+        elif mode in ("hybrid", "testnet"):
+            base["onchain_status"] = "use_scripts_testnet_full_flow_send"
+        else:
+            base["onchain_status"] = "pending_testnet_implementation"
         return base

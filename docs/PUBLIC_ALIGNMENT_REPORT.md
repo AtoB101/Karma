@@ -42,9 +42,9 @@ Trusted Agent Runtime is an **integration and documentation layer** on top of ex
 
 ## ADAPT (implement as thin mapping)
 
-1. **Trusted Agent file layout** — Plan suggested `src/karma/agents/`; repo has no `src/` app tree. **MVP:** Python package `trusted_agent_runtime/` at repository root (stdlib-only) + `scripts/trusted_agent_minimal_flow.py`.
+1. **Trusted Agent file layout** — Plan suggested `src/karma/agents/`; repo has no `src/` app tree. **MVP:** Python package `trusted_agent_runtime/` at repository root (**stdlib** for receipt/evidence path) + `scripts/trusted_agent_minimal_flow.py`; **optional** `web3` via `requirements-testnet.txt` for Phase 3 JSON-RPC.
 2. **Execution receipts → `proofHash`** — `proofHash` is a **string** on-chain; MVP encodes a deterministic public pointer: `karma-ta:v1/sha256/<64-hex>` derived from canonical evidence bundle JSON (see `trusted_agent_runtime/evidence_adapter.py`).
-3. **`scopeHash`** — Task contract / policy commitment: MVP uses `keccak256` (via `hashlib` + ABI encoding note in code comments) over a **canonical task contract** JSON; integrators may replace with their own `bytes32` policy.
+3. **`scopeHash`** — Task contract / policy commitment: MVP uses **SHA256** (64-hex, `0x`-prefixed for calldata) over canonical task JSON — a valid `bytes32`-sized value on-chain; Solidity integrators may prefer `keccak256` for strict EVM parity.
 4. **Verification** — Public repo exposes **structural** verification only (hash chain, ordering, completeness). **No** production risk scoring in public (see PRIVATE_ONLY).
 5. **Database / receipt persistence** — No new production DB in public MVP; **InMemory** receipt store only (`trusted_agent_runtime/receipt_store.py`).
 
@@ -53,7 +53,7 @@ Trusted Agent Runtime is an **integration and documentation layer** on top of ex
 ## MERGE (coexist with existing artifacts)
 
 1. **`sdk/agent-service-guard-example/`** — Remains the JS example for Guard; Trusted Agent runtime is **parallel** (Python) until a unified SDK is justified.
-2. **`scripts/`** — New minimal demo script alongside existing smoke/guard scripts.
+2. **`scripts/`** — `trusted_agent_minimal_flow.py`, `testnet_full_flow.py`, and stepwise `testnet_lock.py` / `testnet_create_bill.py` / `testnet_confirm.py` / `testnet_payout.py` alongside existing smoke/guard scripts.
 3. **`docs/`** — This report + future `TRUSTED_AGENT_*` docs (Phase 4 documentation expansion); no conflict with existing roadmap docs.
 
 ---
@@ -80,7 +80,7 @@ Trusted Agent Runtime is an **integration and documentation layer** on top of ex
 |-------|------|------------------------|
 | 1 | Alignment reports (this file + `PRIVATE_ALIGNMENT_REPORT.md`) | **Done** |
 | 2 | Offchain minimal flow: task → receipts → bundle → `proofHash` mapping → simulated settlement intents | **Implemented** (`trusted_agent_runtime/`, `scripts/trusted_agent_minimal_flow.py`, tests) |
-| 3 | Testnet scripts + tx hash writeback + hybrid mode | **Deferred** (see repository root `.env.testnet.example` for env shape only) |
+| 3 | Testnet scripts + tx hash writeback + hybrid mode | **Implemented** — `scripts/testnet_*.py`, `trusted_agent_runtime/testnet_client.py`, `requirements-testnet.txt`, `docs/TESTNET_RUNBOOK.md`, `.env.testnet.example` |
 | 4 | Stress tests (100/500 agents) | **Deferred** |
 
 ---
@@ -95,6 +95,17 @@ python3 -m unittest tests.test_trusted_agent_runtime -v
 
 Artifacts are written under `results/trusted-agent-demo/` (directory is gitignored via `results/`; create it automatically or use `--output-dir`).
 
+## Phase 3 — hybrid / testnet (minimal)
+
+```bash
+pip install -r requirements-testnet.txt
+python3 scripts/testnet_full_flow.py --output-dir results/trusted-agent-hybrid
+# With funded env + keys:
+python3 scripts/testnet_full_flow.py --output-dir results/trusted-agent-hybrid --send
+```
+
+See **`docs/TESTNET_RUNBOOK.md`** for env vars, per-step scripts, and `tx_hash` / `chain_id` writeback format.
+
 ---
 
 ## Sign-off criteria (public MVP)
@@ -103,4 +114,4 @@ Artifacts are written under `results/trusted-agent-demo/` (directory is gitignor
 - [x] No second on-chain evidence system; bundles map into existing `proofHash` / digest semantics.
 - [x] Runtime is replaceable (OpenManus / LangGraph remain **out of band**; only hooks/receipt schema in public repo).
 - [x] Structural verification only; no private scoring.
-- [ ] Phase 3: real `tx_hash` from testnet (explicitly out of scope for this commit).
+- [x] Phase 3: optional real `tx_hash` via `scripts/testnet_full_flow.py --send` + JSONL writeback (`hybrid_tx_log.jsonl`).
