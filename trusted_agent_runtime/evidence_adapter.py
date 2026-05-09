@@ -4,6 +4,7 @@ import hashlib
 import secrets
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from trusted_agent_runtime.hashing import canonical_json_bytes, karma_proof_hash_pointer, sha256_hex
 from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
@@ -12,13 +13,15 @@ from trusted_agent_runtime.schemas import EvidenceBundle, ExecutionReceipt, Task
 
 def task_contract_hash(task: TaskContract) -> str:
     """32-byte digest as 64-char hex (SHA256 of canonical task contract). Not EVM keccak; valid bytes32-sized."""
-    payload = {
+    payload: dict[str, Any] = {
         "agent_id": task.agent_id,
         "description": task.description,
         "runtime_id": task.runtime_id,
         "schema_version": task.schema_version,
         "task_id": task.task_id,
     }
+    if task.trace_id:
+        payload["trace_id"] = task.trace_id
     return sha256_hex(canonical_json_bytes(payload))
 
 
@@ -56,6 +59,7 @@ class EvidenceAdapter:
             created_at=created_at or _utc_iso(),
             signer="",
             signature="",
+            trace_id=task.trace_id,
         )
         return bundle
 

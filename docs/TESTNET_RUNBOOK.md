@@ -53,6 +53,31 @@ set -a && source .env && set +a
 python3 scripts/testnet_full_flow.py --output-dir results/trusted-agent-hybrid --send
 ```
 
+Optional **`--trace-id`** sets the correlation id on `task`, receipts, bundle, verification, settlement plan, and each `tx_writeback_record` (default: `trace-<task_id>`).
+
+## Repeated small-value runs (10–50)
+
+For operational burn-in after stabilization checks pass locally:
+
+```bash
+python3 scripts/testnet_repetition_suite.py --runs 10 --output-root results/ta-repetition
+# With live txs (same env as one-shot --send):
+set -a && source .env && set +a
+python3 scripts/testnet_repetition_suite.py --runs 10 --output-root results/ta-repetition --send
+```
+
+Writes `repetition_summary.json` under `--output-root` plus one subdirectory per run (`run-0000`, …) each containing the usual hybrid JSON artifacts.
+
+After each run the suite also appends one JSON line per run to **`operational_log.jsonl`** (same directory) with: `exit_code`, artifact trace fields, `verification_decision`, settlement plan counts, `tx_hashes` (when `--send`), and **`trace_correlation_ok`** when a task `trace_id` is present.
+
+### Operational validation checklist (real `--send`)
+
+1. Run `python3 scripts/testnet_repetition_suite.py --runs 10 --output-root results/ta-repetition --send` with a funded local `.env`.
+2. Open `repetition_summary.json`: all `exit_code` should be `0`; `aggregates.total_onchain_transactions_recorded` should scale with runs (same steps per run).
+3. For each run folder: `verification_result.json` → `STRUCT_OK`; `hybrid_settlement_result.json` → `trace_id` matches `task_contract.json`.
+4. Scan `operational_log.jsonl`: no `trace_correlation_mismatches`; `idempotency_key_unique` always true.
+5. Optional replay guard: re-run the suite with the same `--output-root` on a fresh directory and compare tx hashes / bill ids off-chain — on-chain idempotency remains contract-enforced; the adapter keys in `settlement_step_keys` are for operator-side dedupe.
+
 Outputs:
 
 - `hybrid_settlement_result.json` — merges `offchain_plan`, bundle digest, and (with `--send`) `onchain_transactions` with **`tx_hash`**, **`chain_id`**, **`contract_address`**, **`settlement_status`**, **`onchain_status`**, `block_number`.

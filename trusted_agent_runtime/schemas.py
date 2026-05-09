@@ -16,6 +16,7 @@ class TaskContract:
     runtime_id: str
     description: str = ""
     schema_version: str = "karma.task_contract.v1"
+    trace_id: str = ""
 
 
 @dataclass
@@ -38,6 +39,7 @@ class ExecutionReceipt:
     signature: str = ""
     schema_version: str = "karma.execution_receipt.v1"
     prev_receipt_hash: str = ""
+    trace_id: str = ""
 
     def to_canonical_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -60,6 +62,8 @@ class ExecutionReceipt:
             "tool_name": self.tool_name,
             "prev_receipt_hash": self.prev_receipt_hash,
         }
+        if self.trace_id:
+            d["trace_id"] = self.trace_id
         return d
 
 
@@ -75,9 +79,10 @@ class EvidenceBundle:
     signer: str
     signature: str
     schema_version: str = "karma.ta.evidence_bundle.v1"
+    trace_id: str = ""
 
     def to_canonical_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "bundle_id": self.bundle_id,
             "created_at": self.created_at,
             "evidence_storage_refs": list(self.evidence_storage_refs),
@@ -89,6 +94,9 @@ class EvidenceBundle:
             "task_contract_hash": self.task_contract_hash,
             "task_id": self.task_id,
         }
+        if self.trace_id:
+            out["trace_id"] = self.trace_id
+        return out
 
 
 @dataclass
@@ -101,3 +109,4 @@ class VerificationResult:
     verified_at: str
     verifier: str = "karma.structural.v1"
     signature: str = ""
+    trace_id: str = ""

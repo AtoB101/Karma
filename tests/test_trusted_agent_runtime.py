@@ -18,6 +18,7 @@ class TrustedAgentRuntimeTests(unittest.TestCase):
         self.assertIn("scope_hex", p)
         self.assertTrue(p["proof_hash"].startswith("karma-ta:v1/sha256/"))
         self.assertEqual(p["verification"]["decision"], "STRUCT_OK")
+        self.assertEqual(p["task"].get("trace_id"), f"trace-{p['task']['task_id']}")
 
     def test_task_contract_hash_stable(self) -> None:
         t = TaskContract(task_id="x", agent_id="a", runtime_id="r", description="d")

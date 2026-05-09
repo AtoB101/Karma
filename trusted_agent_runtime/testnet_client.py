@@ -97,6 +97,7 @@ def tx_writeback_record(
     receipt: TxReceipt,
     contract_address: str,
     settlement_status: str,
+    trace_id: str = "",
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ok = receipt.status == 1
@@ -109,6 +110,8 @@ def tx_writeback_record(
         "settlement_status": settlement_status,
         "onchain_status": "success" if ok else "failed",
     }
+    if trace_id:
+        row["trace_id"] = trace_id
     if extra:
         row.update({k: v for k, v in extra.items() if v is not None})
     return row

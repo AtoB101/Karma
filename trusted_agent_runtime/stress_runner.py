@@ -120,11 +120,13 @@ def _pick_attack(rng: random.Random) -> AttackKind:
 
 
 def _build_honest_receipts(agent_idx: int, seed: int, steps: int) -> tuple[TaskContract, list[ExecutionReceipt]]:
+    tid = f"trace-stress-{seed}-a{agent_idx}"
     task = TaskContract(
         task_id=f"stress-{seed}-a{agent_idx}",
         agent_id=f"agent-{agent_idx}",
         runtime_id="stress-runtime",
         description="stress",
+        trace_id=tid,
     )
     receipts: list[ExecutionReceipt] = []
     prev_hash = ""
@@ -137,6 +139,7 @@ def _build_honest_receipts(agent_idx: int, seed: int, steps: int) -> tuple[TaskC
             task_id=task.task_id,
             agent_id=task.agent_id,
             runtime_id=task.runtime_id,
+            trace_id=tid,
             step_index=step,
             tool_name=f"tool_{step}",
             input_hash=sha256_hex(f"in-{seed}-{agent_idx}-{step}".encode()),
@@ -167,6 +170,7 @@ def _apply_attack(receipts: list[ExecutionReceipt], attack: AttackKind, rng: ran
             task_id=r0.task_id,
             agent_id=r0.agent_id,
             runtime_id=r0.runtime_id,
+            trace_id=r0.trace_id,
             step_index=r0.step_index,
             tool_name=r0.tool_name,
             input_hash=r0.input_hash,
