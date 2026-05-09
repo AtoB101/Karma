@@ -1,6 +1,11 @@
 # Build and local artifacts
 /cache/
 /out/
+/broadcast/
+
+# Local forge / demo outputs (do not commit)
+/deployment.json
+/abis.json
 
 # Local reports and sync outputs (never commit secrets here)
 /results/
