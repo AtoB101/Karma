@@ -1,0 +1,2 @@
+# Optional: Phase 3 testnet / hybrid JSON-RPC tooling (install only when sending txs)
+web3>=6.15.0

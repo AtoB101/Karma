@@ -63,7 +63,7 @@ Skipping lock updates causes drift between **public documentation** and **what p
 
 When enabling `SETTLEMENT_MODE=testnet` or `hybrid`:
 
-- **Private** env holds `TESTNET_PRIVATE_KEY` (or signer service).
+- **Private** env holds `TESTNET_BUYER_PRIVATE_KEY` / `TESTNET_SELLER_PRIVATE_KEY` (or a signer service). Never commit these to the public repo.
 - **Public** repo may ship **parameter builders** and **ABI fragments**; signing and broadcast typically run in **CI or private job** unless the org explicitly open-sources a signer tool.
 
 Tx hashes and `chain_id` should be written to **private** operational databases; public demos may print them to stdout only.
