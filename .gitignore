@@ -10,6 +10,27 @@
 # Local reports and sync outputs (never commit secrets here)
 /results/
 
+# Secrets and local env (never commit real keys)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+docker-compose.override.yml
+
+# Python tooling / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
 # Python bytecode
 **/__pycache__/
 *.pyc

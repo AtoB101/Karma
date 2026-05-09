@@ -1,6 +1,11 @@
 /**
  * Public API client — paths match apps/agent-service-guard/api/README.md.
  * Reserved engine endpoints: POST /risk/check, /dispute/recommend-resolution, /score/seller
+ *
+ * Security defaults:
+ * - Relative URLs only unless `KARMAPAY_STUDIO_API_ORIGIN_ALLOWLIST` includes the API origin.
+ * - `credentials: "same-origin"` so cookies are never sent to cross-origin APIs by mistake.
+ * - Basic 429 backoff (server should still enforce rate limits; see infra/nginx examples).
  */
 
 function apiBase() {
@@ -10,17 +15,68 @@ function apiBase() {
   return b.replace(/\/$/, "");
 }
 
+function apiOriginAllowlist() {
+  if (typeof window === "undefined") return [];
+  const v = window.KARMAPAY_STUDIO_API_ORIGIN_ALLOWLIST;
+  if (typeof v === "string") {
+    return v.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  return Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()) : [];
+}
+
+/** @returns {string | null} blocked origin label, or null if allowed */
+function crossOriginApiBlocked(base) {
+  if (typeof window === "undefined" || !base) return null;
+  try {
+    const u = new URL(base, window.location.href);
+    if (u.origin === window.location.origin) return null;
+    const list = apiOriginAllowlist();
+    if (list.includes(u.origin)) return null;
+    return u.origin;
+  } catch {
+    return "invalid_api_base_url";
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchJson(path, options = {}) {
-  const url = `${apiBase()}${path.startsWith("/") ? path : "/" + path}`;
+  const base = apiBase();
+  const blocked = crossOriginApiBlocked(base);
+  if (blocked) {
+    return {
+      ok: false,
+      status: 0,
+      body: { error: "studio_api_cross_origin_blocked", detail: String(blocked) },
+    };
+  }
+
+  const url = `${base}${path.startsWith("/") ? path : "/" + path}`;
   const { headers = {}, ...rest } = options;
-  const res = await fetch(url, {
-    ...rest,
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...headers,
-    },
-  });
+  const maxAttempts = 3;
+  let lastRes = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    lastRes = await fetch(url, {
+      ...rest,
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...headers,
+      },
+    });
+    if (lastRes.status === 429 && attempt < maxAttempts) {
+      const ra = lastRes.headers.get("Retry-After");
+      const sec = ra ? parseInt(ra, 10) : NaN;
+      const backoff = Number.isFinite(sec) && sec > 0 ? Math.min(sec * 1000, 15000) : 300 * attempt;
+      await sleep(backoff);
+      continue;
+    }
+    break;
+  }
+  const res = lastRes;
   const text = await res.text();
   let body = null;
   if (text) {
