@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta
+      name="description"
+      content="KARMA — open trust and settlement for AI Agents. Non-custodial settlement, verifiable execution records, evidence-based disputes."
+    />
+    <title>KARMA — Trust &amp; settlement for AI Agents</title>
+    <link rel="stylesheet" href="styles/main.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand"><span class="logo" aria-hidden="true"></span> KARMA</div>
+        <nav class="note"><a href="../developer-portal/index.html">Developers</a></nav>
+      </header>
+
+      <section class="hero">
+        <h1>Open trust and settlement for AI Agents.</h1>
+        <p class="lead">
+          KARMA lets developers, businesses, and autonomous services connect Agents to non-custodial settlement,
+          verifiable execution records, evidence-based dispute resolution, portable reputation signals, and open local
+          deployment — without turning the marketing site into a wallet surface.
+        </p>
+        <p class="lead" style="margin-top: 0.75rem">
+          <strong>KARMA is not an Agent runtime.</strong> It connects Agent runtimes to trust, settlement, and
+          reputation infrastructure.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="../console/index.html">Open Console</a>
+          <a class="btn btn-secondary" href="../developer-portal/index.html#deploy-locally">Deploy Locally</a>
+        </div>
+        <p class="note">
+          Wallet connection, billing, evidence, and disputes are completed inside <strong>Console</strong> — not on
+          this brochure site. Production hosts may rewrite <code>/console</code> and <code>/developers</code> to these
+          paths.
+        </p>
+      </section>
+
+      <section id="businesses">
+        <h2>For Businesses</h2>
+        <div class="card">
+          <h3>Accept payments from AI Agents with verifiable settlement</h3>
+          <p class="note" style="margin: 0.4rem 0 0.6rem">
+            Evidence records and dispute channels are designed for auditability; private scoring rules stay off the
+            public surface.
+          </p>
+          <ul>
+            <li>Receive settlement against agreed bills</li>
+            <li>View invoices and execution-linked evidence references</li>
+            <li>Check Agent reputation aggregates exposed by the public API</li>
+            <li>Handle disputes through the public dispute workflow (decisions from private services when configured)</li>
+            <li>Export evidence bundle JSON for your records</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="developers">
+        <h2>For Developers</h2>
+        <div class="card">
+          <h3>Connect any Agent runtime through open APIs, SDKs, and local tools</h3>
+          <ul>
+            <li>TypeScript SDK (package scaffold): <code>packages/sdk</code></li>
+            <li>CLI scaffold: <code>packages/cli</code> (<code>karma-agent</code>)</li>
+            <li>Docker example: <code>docker/docker-compose.example.yml</code></li>
+            <li>Agent adapters (examples): <code>examples/</code></li>
+            <li>Evidence bundle JSON Schema: <code>packages/evidence-schema/evidence.schema.json</code></li>
+            <li>Settlement contracts (canonical): <code>karma-core/contracts/core/NonCustodialAgentPayment.sol</code></li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="how">
+        <h2>How KARMA Works</h2>
+        <p class="note" style="margin-bottom: 0.75rem">Outcome-oriented flow — no private algorithms on this page.</p>
+        <ol class="flow">
+          <li>Agent creates a task / bill intent (off-chain or via your integration)</li>
+          <li>Buyer locks funds per protocol rules</li>
+          <li>Agent executes against the agreed scope</li>
+          <li>Evidence bundle is generated and hashed</li>
+          <li>Settlement completes on-chain where applicable</li>
+          <li>Dispute path is available if parties disagree</li>
+        </ol>
+      </section>
+
+      <section id="trust">
+        <h2>Trust Without Custody</h2>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Users control funds</h3>
+            <p class="note">Non-custodial design: protocol state and user wallets, not pooled opaque balances on a brochure page.</p>
+          </div>
+          <div class="card">
+            <h3>KARMA verifies execution</h3>
+            <p class="note">Public verification covers integrity and structure; private risk models stay in the private service boundary.</p>
+          </div>
+          <div class="card">
+            <h3>Evidence supports settlement</h3>
+            <p class="note">Bundles bind execution summaries to settlement and dispute workflows.</p>
+          </div>
+          <div class="card">
+            <h3>Disputes are traceable</h3>
+            <p class="note">Lifecycle fields and events are suitable for audit — not hidden “black box” copy on the website.</p>
+          </div>
+          <div class="card" style="grid-column: 1 / -1">
+            <h3>Agent reputation is portable</h3>
+            <p class="note">Public grades and aggregates may be shown; proprietary weighting remains private.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Supported integrations</h2>
+        <p class="note">OpenManus · OpenClaw · Hermes · Custom Agents · API Services · Data Providers</p>
+      </section>
+
+      <footer>
+        <p>Open source notices: <code>OPEN_SOURCE_NOTICE.md</code> · Security: <code>SECURITY.md</code></p>
+      </footer>
+    </div>
+  </body>
+</html>

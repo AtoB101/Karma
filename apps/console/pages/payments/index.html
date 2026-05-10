@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Payments · KARMA Console</title>
+    <link rel="stylesheet" href="../../styles/console.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">KARMA · Console</div>
+      <nav>
+        <a href="../../index.html">Overview</a>
+        <a href="../receiving/index.html">Receiving</a>
+        <a class="active" href="index.html">Payments</a>
+        <a href="../agents/index.html">Agents</a>
+        <a href="../evidence/index.html">Evidence</a>
+        <a href="../disputes/index.html">Disputes</a>
+        <a href="../settings/index.html">Settings</a>
+      </nav>
+    </header>
+    <main>
+      <h1>Payments</h1>
+      <p class="sub">Buyers and callers: lock funds, bills, execution status, evidence, disputes, settlement.</p>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Bill ID</th>
+              <th>Agent ID</th>
+              <th>Amount</th>
+              <th>Locked</th>
+              <th>Execution</th>
+              <th>Settlement</th>
+              <th>Dispute</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="7" style="color: var(--muted)">No rows — connect wallet + backend</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="margin-top: 0.65rem">
+          <span class="btn">Connect Wallet</span>
+          <span class="btn">Lock Funds</span>
+          <span class="btn">Increase Lock</span>
+          <span class="btn">Cancel Lock</span>
+          <span class="btn">View Evidence</span>
+          <span class="btn">Open Dispute</span>
+          <span class="btn">Approve Settlement</span>
+        </p>
+      </div>
+    </main>
+  </body>
+</html>

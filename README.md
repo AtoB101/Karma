@@ -75,6 +75,16 @@ python3 -m http.server 8787
 # http://127.0.0.1:8787/apps/agent-service-guard/frontend/index.html
 ```
 
+### Product web surfaces (static)
+
+| Surface | Path |
+|---------|------|
+| Marketing website | `apps/website/index.html` |
+| Console shell | `apps/console/index.html` |
+| Developer / local deploy | `apps/developer-portal/index.html` |
+
+Optional Docker host: `docker compose -f docker/docker-compose.example.yml up` (see `docker/README.md`).
+
 ---
 
 ## License and usage policy

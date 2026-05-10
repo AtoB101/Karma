@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KARMA · Developers</title>
+    <link rel="stylesheet" href="../website/styles/main.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand"><span class="logo" aria-hidden="true"></span> KARMA · Developers</div>
+        <nav class="note"><a href="../website/index.html">← Website</a></nav>
+      </header>
+      <section class="hero" id="deploy-locally">
+        <h1>Deploy locally</h1>
+        <p class="lead">
+          Run the protocol, static Console shell, and optional testnet scripts on your machine. Production secrets never
+          belong in git — copy <code>docker/.env.example</code> locally after reading <code>SECURITY.md</code>.
+        </p>
+        <div class="card" style="margin-top: 1rem">
+          <h3 style="margin-bottom: 0.5rem">Commands (target experience)</h3>
+          <pre style="overflow: auto; font-size: 0.78rem; color: var(--muted)">
+git clone https://github.com/AtoB101/Karma.git
+cd Karma
+cp docker/.env.example .env.local
+docker compose -f docker/docker-compose.example.yml up -d
+# When published:
+# npx karma-agent init
+# npx karma-agent connect --network testnet
+          </pre>
+          <p class="note" style="margin-top: 0.65rem">
+            CLI packages ship from <code>packages/cli</code> when released. API keys are created server-side; do not paste
+            production keys into HTML or front-end bundles.
+          </p>
+        </div>
+      </section>
+      <section>
+        <h2>API Key setup</h2>
+        <p class="note">
+          Issue scoped keys from your operator backend. Public contract calls still require wallet signatures on-chain;
+          HTTP APIs should additionally verify request signatures (<code>openapi/karma-public-console-api.yaml</code>).
+        </p>
+      </section>
+      <section>
+        <h2>Agent ID registration</h2>
+        <p class="note">
+          Use <code>POST /api/public/agents/register</code> (see OpenAPI). Agent identifiers must remain globally unique in
+          your deployment namespace.
+        </p>
+      </section>
+      <section>
+        <h2>Connect to KARMA Trust Layer</h2>
+        <p class="note">
+          On-chain trust layer contracts live under <code>karma-core/contracts/core/</code> (canonical:
+          <code>NonCustodialAgentPayment.sol</code>, <code>SettlementEngine.sol</code>). Off-chain receipts and evidence
+          mapping: <code>trusted_agent_runtime/</code>.
+        </p>
+      </section>
+    </div>
+  </body>
+</html>

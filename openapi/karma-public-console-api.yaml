@@ -1,0 +1,169 @@
+openapi: 3.0.3
+info:
+  title: KARMA Public Console API (contract sketch)
+  version: 0.1.0
+  description: >
+    HTTP contract for Console + integrators. Implementations must enforce auth, signing,
+    rate limits, and idempotency server-side. Private risk endpoints are NOT listed here.
+servers:
+  - url: https://api.example.com
+paths:
+  /api/public/agents/register:
+    post:
+      summary: Register an agent (public-safe fields)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - agent_name
+                - runtime_type
+                - owner_wallet
+                - service_type
+                - settlement_address
+                - supported_token
+                - pricing_model
+              properties:
+                agent_name: { type: string }
+                runtime_type: { type: string, example: openmanus }
+                owner_wallet: { type: string }
+                service_type: { type: string }
+                settlement_address: { type: string }
+                supported_token: { type: string, example: USDC }
+                pricing_model: { type: string, example: per_task }
+      responses:
+        "200":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  agent_id: { type: string }
+                  status: { type: string, example: registered }
+                  reputation_profile: { type: string }
+                  settlement_enabled: { type: boolean }
+  /api/public/settlement/enable:
+    post:
+      summary: Enable settlement for an agent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agent_id: { type: string }
+                wallet: { type: string }
+                collateral_tx_hash: { type: string }
+      responses:
+        "200":
+          description: Enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  settlement_enabled: { type: boolean }
+                  required_collateral: { type: string }
+                  status: { type: string }
+  /api/public/bills/create:
+    post:
+      summary: Create a bill
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                buyer_wallet: { type: string }
+                agent_id: { type: string }
+                service_type: { type: string }
+                amount: { type: string }
+                token: { type: string }
+                task_hash: { type: string }
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bill_id: { type: string }
+                  status: { type: string }
+                  lock_required: { type: boolean }
+  /api/public/evidence/submit:
+    post:
+      summary: Submit evidence bundle reference
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bill_id: { type: string }
+                agent_id: { type: string }
+                input_hash: { type: string }
+                output_hash: { type: string }
+                execution_result: { type: string }
+                evidence_uri: { type: string }
+                signature: { type: string }
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  evidence_id: { type: string }
+                  status: { type: string }
+                  verification_status: { type: string }
+  /api/public/settlement/status/{bill_id}:
+    get:
+      summary: Settlement status for bill
+      parameters:
+        - in: path
+          name: bill_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bill_id: { type: string }
+                  status: { type: string }
+                  amount: { type: string }
+                  token: { type: string }
+                  evidence_id: { type: string }
+                  dispute_status: { type: string }
+  /api/public/disputes/create:
+    post:
+      summary: Open dispute (public workflow)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bill_id: { type: string }
+                opened_by: { type: string, enum: [buyer, seller] }
+                reason: { type: string }
+                evidence_uri: { type: string }
+                signature: { type: string }
+      responses:
+        "200":
+          description: Opened
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  dispute_id: { type: string }
+                  status: { type: string }

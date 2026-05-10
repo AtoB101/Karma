@@ -8,10 +8,10 @@ Single source for **execution order**, **priority tiers**, and **release accepta
 
 Complete in this sequence unless a dependency blocks you:
 
-1. Split marketing / brochure HTML into `apps/website` (static site).  
-2. Wire **Open Console** CTA → `/console` route (hosting / reverse-proxy concern).  
-3. Wire **Deploy Locally** CTA → `/developers` route.  
-4. Create `apps/console` shell pages (static or SPA — align with hosting).  
+1. ~~Split marketing / brochure HTML into `apps/website` (static site).~~ **Scaffold present:** `apps/website/`.  
+2. Wire **Open Console** CTA → `/console` route (hosting / reverse-proxy concern). **Local:** links to `apps/console/`.  
+3. Wire **Deploy Locally** CTA → `/developers` route. **Local:** `apps/developer-portal/`.  
+4. ~~Create `apps/console` shell pages~~ **Scaffold present:** `apps/console/pages/...`.  
 5. Implement **wallet signature login** on console (reuse patterns from Agent Guard where possible).  
 6. Implement **Receiving / Payments** core console views (read-only chain state first, then actions).  
 7. Create **public API routes** (contract-first: extend `openapi/karma-v1.yaml` before code).  

@@ -1,0 +1,11 @@
+# Example: static website + console + developer portal behind a single static file host.
+# This does NOT start chain nodes or databases — add your own services in a private overlay file.
+
+services:
+  static:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ../:/usr/share/nginx/html:ro
+      - ./nginx-default.conf:/etc/nginx/conf.d/default.conf:ro
