@@ -1,177 +1,136 @@
-# Karma Non-Custodial Protocol
+# KARMA — open trust and settlement for AI Agents
 
-This repository now uses a single architecture story centered on `NonCustodialAgentPayment`.
-User funds stay in user wallets, while on-chain accounting enforces lock/reserve/dispute state transitions.
+**KARMA** is an open trust and settlement layer for AI Agents.
 
-## License and usage policy
+It allows developers, businesses and autonomous services to connect Agents to:
 
-- Community/open-source license: **AGPL-3.0-only** (see `LICENSE`)
-- Commercial license: available on request (see `docs/LICENSING.md`)
-- Brand and name usage: see `TRADEMARK_POLICY.md`
+- non-custodial settlement  
+- verifiable execution records  
+- evidence-based dispute resolution  
+- portable Agent reputation  
+- open local deployment  
 
-## Golden Path (3 commands)
+**KARMA is not an Agent runtime.**  
+**KARMA** connects Agent runtimes to trust, settlement and reputation infrastructure.
 
-```bash
-cp .env.example .env
-./scripts/dev-up.sh --from-env
-python3 -m webbrowser "http://127.0.0.1:8790/examples/v01-metamask-settlement.html?ts=$(date +%s)"
-```
+### Supported integrations (ecosystem)
 
-Or shorter:
+- OpenManus  
+- OpenClaw  
+- Hermes  
+- Custom Agents  
+- API Services  
+- Data Providers  
 
-```bash
-cp .env.example .env
-make quickstart
-```
+Integration depth varies by component: public adapters and contracts live in this repository; some connectors are documented or shipped as examples elsewhere.
 
-If your shell does not have `python3 -m webbrowser`, open this URL manually:
-`http://127.0.0.1:8790/examples/v01-metamask-settlement.html`
+---
 
-Quick docs:
-- Public vs private operations (releases without mixing repos): `docs/PUBLIC_PRIVATE_OPERATIONS.md`
-- Fast onboarding: `docs/GET_STARTED.md`
-- Commands cheat sheet: `docs/COMMANDS.md`
-- Troubleshooting: `docs/TROUBLESHOOTING.md`
-- Public/private split policy: `docs/REPO_VISIBILITY_POLICY.md`
-- Proof verification SOP: `docs/PROOF_VERIFICATION_SOP.md`
-- Full ops workflow: `docs/OPENCLOW_V01_DEPLOY_TEST_INSTRUCTIONS.txt`
-- One-shot diagnostics: `make doctor` (text report) / `make doctor-json` (JSON report)
-- Support bundle zip: `make support-bundle` (collects doctor reports + key artifacts)
-- Evidence schema check: `make validate-evidence-schema` (validates latest diagnosis JSON compatibility)
-- Proof CI gate: `make ci-proof-gates` (schema compatibility + proof-index batch policy checks)
-- Proof patrol profile: `make proof-patrol` (scheduled-style patrol with strict|balanced|lenient policy profiles)
-- Agent safety guardian: `make agent-safety-guardian` (end-to-end self-check + risk grading + risk register ledger)
-- Compatibility aliases: `make ci-proof-gate` and `make guardian` (mapped to current targets)
-- Rule-gap model: `docs/RULE_GAP_RISK_MODEL_V01.md` (rule exploitation attack surface + alert strategy)
-- Commercial readiness checklist: `docs/COMMERCIAL_READINESS_CHECKLIST_V01.md` (MUST/SHOULD/CAN commercial gate baseline)
-- Command map: `docs/COMMAND_MAP_V01.md` (layered entrypoints: core/ops/safety/api)
-- Data contracts: `docs/DATA_CONTRACTS_V01.md` (shared output schema/version/trace fields)
-- System status: `make system-status` (aggregate commercial/proof/guardian/contracts into one health view)
-- Ops one-shot summary: `make ops-summary` (generate and print a concise operational status snapshot)
-- Ops alert export: `make ops-alert` (emit `results/ops-alert-latest.json` for IM/on-call integrations)
-- Ops runbook hints: `make ops-summary` now prints severity and prioritized next-actions for on-call execution
-- Release readiness: `make release-readiness` (one-command release preflight; fail-fast on any critical gate)
-- API roadmap: `docs/API_ROADMAP_V01.md` (ecosystem API landing phases and governance baseline)
-- OpenAPI contract: `openapi/karma-v1.yaml` (contract-first API spec for integration teams)
-- Trust-engine public schema boundary: `docs/TRUST_ENGINE_V1_PUBLIC_SCHEMA.md` (public fields + private boundary rules)
-- API local run: `make api-run` (starts zero-dependency API service at `127.0.0.1:8811`)
-- API smoke test: `make api-smoke` (verifies payment intent + evidence + risk alert routes)
-- Phase 2 testnet prep checklist: `docs/testnet-integration-checklist.md`
-- Wallet signature payload examples (public-safe): `docs/wallet-signature-payload-examples.json`
-- Domain integration guide (www/app/api split + HTTPS): `docs/deployment/KARMAPAY_DOMAIN_INTEGRATION.md`
-- Commercialization gate: `make commercialization-gate` (outputs `commercial-ready | pilot-ready | not-ready` with action plan)
-- Output contract gate: `make validate-output-contracts` (checks schemaVersion/source/traceId/generatedAt on latest artifacts)
-- Static analysis gate: `make slither-gate` (runs Slither; fails when tool is missing or findings are reported)
-- Security CI workflow: `.github/workflows/security-ci.yml` (PR gate chain: forge test + slither + release-readiness)
-- Layered aliases: `make ops-*`, `make safety-*`, `make api-*` (clean command namespace, old targets still supported)
-- Local CI gate: `make ci-local` (build + focused core tests, no env required)
-- Env-aware CI gate: `make ci-local-env` (includes preflight with `.env`)
-- Security baseline gate: `make security-baseline-guard` (blocks sensitive file/secret leaks)
-- Owner watchdog dry run: `make owner-watchdog` (tests owner-change alert config and hooks)
-- Private repo sync scaffold: `make private-repo-sync PRIVATE_REPO_DIR=../karma-internal`
-- M4 roadmap: `docs/M4_ROADMAP_V01.md`
-- Karma Guard (public sub-product MVP): `apps/agent-service-guard/README.md`
-- Agent Service Guard smoke: `python3 scripts/agent-service-guard-smoke.py`
-- Phase 2 public contract gate: `python3 scripts/phase2-public-contract-gate.py`
+## Quick Start
 
-## Core Modules
+### Target distribution (product packaging)
 
-- `NonCustodialAgentPayment`: bill lifecycle, dual-side lock model, dispute and batch settlement
-- `SettlementEngine`: direct transfer settlement path with strict EIP-712 checks
-- `AuthTokenManager`: auth token consumption and replay-safe signature validation
-- `KYARegistry`: identity registration and permission hash management
-- `CircuitBreaker`: emergency pause and agent-level risk control
-
-## Prerequisites
+Some releases may ship under a **Trust-Chain** style monorepo or installer. The **authoritative public protocol source** for this line of work is maintained here:
 
 ```bash
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
-forge --version
-forge install foundry-rs/forge-std
+git clone https://github.com/AtoB101/Karma.git
+cd Karma
 ```
 
-## Build And Test
+Optional testnet / hybrid tooling (Python `web3`):
+
+```bash
+cp .env.testnet.example .env.testnet.local   # edit locally; never commit secrets
+pip install -r requirements-testnet.txt
+# See docs/TESTNET_EXECUTION_CHECKLIST.md and docs/TESTNET_RUNBOOK.md
+```
+
+Planned **CLI / Docker** flows (roadmap — not all commands exist in this tree yet):
+
+```bash
+# Illustrative only — verify availability in your distribution package
+# cp .env.example .env
+# docker compose up -d
+# npx karma-agent init
+# npx karma-agent connect --network testnet
+```
+
+### This repository today (contracts + static tools)
 
 ```bash
 forge build
 forge test -q
 ```
 
-Focused non-custodial test runs:
+Off-chain Trusted Agent demo (receipts → evidence → structural verify → settlement plan):
 
 ```bash
-forge test --match-path "contracts/test/NonCustodialAgentPayment.t.sol" -vv
-forge test --match-path "contracts/test/NonCustodialAgentPaymentReentrancy.t.sol" -vv
-forge test --match-path "contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
+python3 scripts/trusted_agent_minimal_flow.py
 ```
 
-## Sepolia Deployment
-
-Deploy only the non-custodial core:
-
-```bash
-ETH_RPC_URL=<rpc> \
-DEPLOYER_PRIVATE_KEY=<pk> \
-ADMIN_ADDRESS=<admin> \
-TOKEN_ADDRESS=<token> \
-./scripts/deploy-v01-eth.sh
-```
-
-Artifacts:
-
-- `results/deploy-v01-eth.json`
-- `examples/v01-console-config.json`
-
-Optional batch fuses:
-
-- `BATCH_MODE_ENABLED` (default `1`)
-- `BATCH_CIRCUIT_BREAKER` (default `0`)
-
-## Integration And Operations
-
-- One-step smoke: `./scripts/smoke-v01-eth.sh`
-- Non-custodial batch integration: `./scripts/integration-v01-noncustodial-batch.sh`
-- Private scenario wrappers are intentionally excluded from this public repository.
-
-## Frontend Console
+Static Agent Guard / console-style UI (local file server):
 
 ```bash
 python3 -m http.server 8787
+# http://127.0.0.1:8787/apps/agent-service-guard/frontend/index.html
 ```
 
-Open `http://localhost:8787/examples/v01-metamask-settlement.html`.
-The page defaults to non-custodial mode; legacy engine controls are hidden by default.
+---
+
+## License and usage policy
+
+- Community/open-source license: **AGPL-3.0-only** (see `LICENSE`)  
+- Commercial license: available on request (see `docs/LICENSING.md`)  
+- Brand and name usage: see `TRADEMARK_POLICY.md`  
+- Open source acknowledgements: `OPEN_SOURCE_ACKNOWLEDGEMENTS.md`, `OPEN_SOURCE_NOTICE.md`, `THIRD_PARTY_COMPONENTS.md`
+
+---
+
+## Core protocol (Solidity)
+
+- `NonCustodialAgentPayment`: bill lifecycle, dual-side lock model, dispute and batch settlement  
+- `SettlementEngine`: EIP-712 quote settlement path  
+- `AuthTokenManager`: replay-safe auth token consumption  
+- `KYARegistry`: DID registration surface  
+- `CircuitBreaker`: pause / risk controls  
+
+Prerequisites: Foundry (`forge`, `cast`). Install `forge-std` into `lib/` for tests (`forge install foundry-rs/forge-std`).
+
+---
+
+## Documentation map (selected)
+
+| Topic | Doc |
+|-------|-----|
+| Public vs private boundary | `docs/PUBLIC_PRIVATE_OPERATIONS.md` |
+| Trusted Agent runtime (public adapter) | `docs/PUBLIC_ALIGNMENT_REPORT.md`, `docs/TESTNET_RUNBOOK.md` |
+| Testnet execution checklist | `docs/TESTNET_EXECUTION_CHECKLIST.md` |
+| Developer execution order & priorities | `docs/DEVELOPER_EXECUTION_PLAN.md` |
+| Product security & console requirements | `docs/PRODUCT_SECURITY_REQUIREMENTS.md` |
+| Private repository README template | `docs/README_PRIVATE.md` |
+| Security contact | `SECURITY.md` |
+| OpenAPI (contract-first) | `openapi/karma-v1.yaml` |
+
+A longer historical index of ops / proof / CI commands still exists across `docs/COMMANDS.md`, `docs/COMMAND_MAP_V01.md`, and related make targets where applicable.
+
+---
 
 ## Security
 
-Security reporting policy and contact:
-- `SECURITY.md`
+- Vulnerability reporting: `SECURITY.md`  
+- Public baseline guard: `make security-baseline-guard` (when Make targets are wired in your checkout)
 
-## Governance and contribution terms
+---
 
-- Contribution process and licensing terms: `CONTRIBUTING.md`
-- Notices and attribution: `NOTICE`
+## Governance
 
-## Agent Service Guard (public subproject)
+- `CONTRIBUTING.md`  
+- `NOTICE`  
+- `TRADEMARK_POLICY.md`
 
-Public entrypoint for the first open scenario product:
-`apps/agent-service-guard/frontend/index.html`
+---
 
-Quick run:
+## Agent Service Guard (public sub-project)
 
-```bash
-python3 -m http.server 8787
-```
-
-Then open:
-
-- `http://127.0.0.1:8787/apps/agent-service-guard/frontend/index.html`
-
-Core pages:
-
-- Karma Guard portal: `/apps/agent-service-guard/frontend/index.html`
-- Pay with protection: `/apps/agent-service-guard/frontend/pay.html?service_id=<service_id>`
-- Order detail: `/apps/agent-service-guard/frontend/order.html?order_id=<order_id>`
-- Dashboard: `/apps/agent-service-guard/frontend/dashboard.html`
-- Trust badge: `/apps/agent-service-guard/frontend/badge.html?seller_wallet=<wallet>`
+Entry: `apps/agent-service-guard/frontend/index.html`  
+Details: `apps/agent-service-guard/README.md`
