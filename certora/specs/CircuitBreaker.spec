@@ -4,7 +4,7 @@
  *
  * Verified properties:
  *  1. Only admin: all admin functions revert for non-admin
- *  2. Agent pause is binary (no invalid intermediate states)
+ *  2. Agent pause/resume cycle works
  *  3. Global pause enforces properly
  *  4. Threshold positivity
  */
@@ -21,7 +21,7 @@ methods {
 rule onlyAdminCanPauseAgent(address caller, address agent) {
     env e;
     require e.msg.sender == caller;
-    require caller != cb.admin(e);
+    require caller != admin();
 
     pauseAgent@withrevert(e, agent, "test");
     assert lastReverted, "Non-admin cannot pause agent";
@@ -31,7 +31,7 @@ rule onlyAdminCanPauseAgent(address caller, address agent) {
 rule onlyAdminCanResumeAgent(address caller, address agent) {
     env e;
     require e.msg.sender == caller;
-    require caller != cb.admin(e);
+    require caller != admin();
 
     resumeAgent@withrevert(e, agent);
     assert lastReverted, "Non-admin cannot resume agent";
@@ -41,7 +41,7 @@ rule onlyAdminCanResumeAgent(address caller, address agent) {
 rule onlyAdminCanEmergencyPause(address caller) {
     env e;
     require e.msg.sender == caller;
-    require caller != cb.admin(e);
+    require caller != admin();
 
     emergencyPause@withrevert(e, "test");
     assert lastReverted, "Non-admin cannot trigger emergency pause";
@@ -51,41 +51,35 @@ rule onlyAdminCanEmergencyPause(address caller) {
 rule onlyAdminCanEmergencyResume(address caller) {
     env e;
     require e.msg.sender == caller;
-    require caller != cb.admin(e);
+    require caller != admin();
 
     emergencyResume@withrevert(e);
     assert lastReverted, "Non-admin cannot resume from emergency";
 }
 
-// ── Agent Pause is Idempotent ──────────────────────────────────────────────
-/*
- * RULE: Pausing an already-paused agent should not change state,
- * and resume after pause restores to unpaused.
- */
+// ── Agent Pause/Resume Cycle ───────────────────────────────────────────────
 rule agentPauseResumeCycle(address agent) {
     env e;
-    require e.msg.sender == cb.admin(e);
+    require e.msg.sender == admin();
     require agent != 0;
 
-    // Pause
     pauseAgent(e, agent, "test");
-    assert isAgentPaused(e, agent) == true, "Agent must be paused";
+    assert isAgentPaused(agent) == true, "Agent must be paused after pauseAgent";
 
-    // Resume
     resumeAgent(e, agent);
-    assert isAgentPaused(e, agent) == false, "Agent must be resumed";
+    assert isAgentPaused(agent) == false, "Agent must be un-paused after resumeAgent";
 }
 
 // ── Emergency Pause/Resume Cycle ───────────────────────────────────────────
 rule emergencyPauseResumeCycle() {
     env e;
-    require e.msg.sender == cb.admin(e);
+    require e.msg.sender == admin();
 
     emergencyPause(e, "test");
-    assert isGlobalPaused(e) == true, "Global pause must be active";
+    assert isGlobalPaused() == true, "Global pause must be active after emergencyPause";
 
     emergencyResume(e);
-    assert isGlobalPaused(e) == false, "Global pause must be inactive";
+    assert isGlobalPaused() == false, "Global pause must be inactive after emergencyResume";
 }
 
 // ── Threshold Must Be Positive ─────────────────────────────────────────────

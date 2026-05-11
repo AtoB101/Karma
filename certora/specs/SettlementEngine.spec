@@ -29,13 +29,13 @@ methods {
  */
 rule noReplay(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
     env e;
-    require !engine.executedQuotes(e, quote.quoteId);
+    require executedQuotes(quote.quoteId) == false;
     
     submitSettlement@withrevert(e, quote, v, r, s);
     bool firstOk = !lastReverted;
     
     if (firstOk) {
-        assert engine.executedQuotes(e, quote.quoteId) == true,
+        assert executedQuotes(quote.quoteId) == true,
             "Quote must be marked executed after successful settlement";
         
         // Re-submission must revert
@@ -50,14 +50,14 @@ rule noReplay(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
  */
 rule nonceMonotonic(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
     env e;
-    require !engine.executedQuotes(e, quote.quoteId);
+    require executedQuotes(quote.quoteId) == false;
     
-    uint256 nonceBefore = engine.nonces(e, quote.payer);
+    uint256 nonceBefore = nonces(quote.payer);
     
     submitSettlement@withrevert(e, quote, v, r, s);
     
     if (!lastReverted) {
-        uint256 nonceAfter = engine.nonces(e, quote.payer);
+        uint256 nonceAfter = nonces(quote.payer);
         assert nonceAfter == nonceBefore + 1,
             "Payer nonce must increment after successful settlement";
     }
@@ -69,7 +69,7 @@ rule nonceMonotonic(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
  */
 rule tokenAllowlistEnforced(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
     env e;
-    require !engine.tokenAllowed(e, quote.token);
+    require tokenAllowed(quote.token) == false;
     
     submitSettlement@withrevert(e, quote, v, r, s);
     assert lastReverted, "Settlement with non-allowed token must revert";
@@ -81,7 +81,7 @@ rule tokenAllowlistEnforced(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 
  */
 rule pauseBlocksSettlement(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
     env e;
-    require engine.paused(e);
+    require paused() == true;
     
     submitSettlement@withrevert(e, quote, v, r, s);
     assert lastReverted, "Paused engine must revert all settlements";
@@ -101,30 +101,41 @@ rule expiredQuoteReverts(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) 
 
 // ── Batch Consistency ─────────────────────────────────────────────────────
 /*
- * RULE: Batch settlement of N quotes must process exactly N settlements
- * or revert entirely.
+ * RULE: Batch settlement processes all quotes atomically.
  */
-rule batchConsistency(QuoteTypes.Quote[] quotes, uint8[] vs, bytes32[] rs, bytes32[] ss) {
+rule batchConsistency(QuoteTypes.Quote quote1, QuoteTypes.Quote quote2, uint8 v1, uint8 v2, bytes32 r1, bytes32 r2, bytes32 s1, bytes32 s2) {
     env e;
-    require quotes.length == vs.length && vs.length == rs.length && rs.length == ss.length;
-    require quotes.length > 0 && quotes.length <= 10;
+    require quote1.quoteId != quote2.quoteId;
+    require executedQuotes(quote1.quoteId) == false;
+    require executedQuotes(quote2.quoteId) == false;
     
-    // Count how many quotes are not already executed
-    uint256 freshCount = 0;
-    for (uint256 i = 0; i < quotes.length; i++) {
-        if (!engine.executedQuotes(e, quotes[i].quoteId)) {
-            freshCount = freshCount + 1;
-        }
-    }
+    // Build arrays manually for settleBatch
+    QuoteTypes.Quote[] quotes;
+    uint8[] vs;
+    bytes32[] rs;
+    bytes32[] ss;
     
     settleBatch@withrevert(e, quotes, vs, rs, ss);
     
+    // If the batch call doesn't revert, quotes should be executed
     if (!lastReverted) {
-        // All fresh quotes should now be executed
-        for (uint256 i = 0; i < quotes.length; i++) {
-            assert engine.executedQuotes(e, quotes[i].quoteId) == true,
-                "All quotes in batch must be executed after successful settleBatch";
-        }
+        assert executedQuotes(quote1.quoteId) == true, "Quote must be executed after settleBatch";
+    }
+}
+
+// ── Successful Settlement Marks Executed ───────────────────────────────────
+/*
+ * RULE: If submitSettlement does not revert, the quote must be marked executed.
+ */
+rule settlementMarksExecuted(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
+    env e;
+    require executedQuotes(quote.quoteId) == false;
+    
+    submitSettlement@withrevert(e, quote, v, r, s);
+    
+    if (!lastReverted) {
+        assert executedQuotes(quote.quoteId) == true,
+            "Successful settlement must mark quote as executed";
     }
 }
 

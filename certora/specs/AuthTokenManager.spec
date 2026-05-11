@@ -14,6 +14,7 @@ using AuthTokenManager as auth;
 
 methods {
     function DOMAIN_SEPARATOR() external returns (bytes32) envfree;
+    function authTokens(bytes32) external returns (Types.AuthToken) envfree;
 }
 
 // ── Token Single Use ───────────────────────────────────────────────────────
@@ -25,9 +26,9 @@ rule tokenSingleUse(bytes32 tokenId, address agent, Types.OperationType opType, 
     env e;
     
     // Ensure valid token exists
-    Types.AuthToken memory tok = auth.authTokens(e, tokenId);
+    Types.AuthToken tok = authTokens(tokenId);
     require tok.owner != 0;
-    require !tok.used;
+    require tok.used == false;
     require tok.agent == agent;
     require tok.opType == opType;
     require amount > 0 && amount <= tok.maxAmount;
@@ -38,7 +39,7 @@ rule tokenSingleUse(bytes32 tokenId, address agent, Types.OperationType opType, 
     bool firstOk = !lastReverted;
 
     if (firstOk) {
-        Types.AuthToken memory tokAfter = auth.authTokens(e, tokenId);
+        Types.AuthToken tokAfter = authTokens(tokenId);
         assert tokAfter.used == true, "Token must be marked used after consumption";
 
         // Second consumption must revert
@@ -54,9 +55,9 @@ rule tokenSingleUse(bytes32 tokenId, address agent, Types.OperationType opType, 
 rule expiredTokenReverts(bytes32 tokenId, address agent, Types.OperationType opType, uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) {
     env e;
     
-    Types.AuthToken memory tok = auth.authTokens(e, tokenId);
+    Types.AuthToken tok = authTokens(tokenId);
     require tok.owner != 0;
-    require !tok.used;
+    require tok.used == false;
     require e.block.timestamp > tok.validUntil;
 
     consumeAuth@withrevert(e, tokenId, agent, opType, amount, deadline, v, r, s);
@@ -68,7 +69,7 @@ rule onlyOwnerRevokes(bytes32 tokenId, address caller) {
     env e;
     require e.msg.sender == caller;
     
-    Types.AuthToken memory tok = auth.authTokens(e, tokenId);
+    Types.AuthToken tok = authTokens(tokenId);
     require tok.owner != 0;
     require caller != tok.owner;
 
@@ -87,7 +88,7 @@ rule issueCreatesValidToken(address agent, Types.OperationType opType, uint256 m
     require validitySeconds > 0;
 
     bytes32 tokenId = issueAuthToken(e, agent, opType, maxAmount, validitySeconds);
-    Types.AuthToken memory tok = auth.authTokens(e, tokenId);
+    Types.AuthToken tok = authTokens(tokenId);
 
     assert tok.owner == e.msg.sender, "Token owner must be issuer";
     assert tok.agent == agent, "Token agent must match";
@@ -101,7 +102,7 @@ rule issueCreatesValidToken(address agent, Types.OperationType opType, uint256 m
 rule validateRejectsWrongAgent(bytes32 tokenId, address wrongAgent, Types.OperationType opType, uint256 amount) {
     env e;
 
-    Types.AuthToken memory tok = auth.authTokens(e, tokenId);
+    Types.AuthToken tok = authTokens(tokenId);
     require tok.owner != 0;
     require tok.agent != wrongAgent;
 
@@ -113,7 +114,7 @@ rule validateRejectsWrongAgent(bytes32 tokenId, address wrongAgent, Types.Operat
 rule validateRejectsUsedToken(bytes32 tokenId, address agent, Types.OperationType opType, uint256 amount) {
     env e;
 
-    Types.AuthToken memory tok = auth.authTokens(e, tokenId);
+    Types.AuthToken tok = authTokens(tokenId);
     require tok.owner != 0;
     require tok.used == true;
 
