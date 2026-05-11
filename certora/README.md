@@ -34,3 +34,8 @@ This repo enables `via_ir` in Foundry. If the Prover fails on IR-only code paths
 ## Audit posture
 
 Passing Certora jobs prove **the stated CVL properties** only. They complement but do not replace independent third-party review, operational security, and economic threat modeling.
+
+## Troubleshooting
+
+- **`AuthTokenManager.spec` import**: specs use `import "karma-core/contracts/libraries/Types.sol";` (repo-root resolution). If your Certora CLI expects another root, change that line to a path relative to the spec file, e.g. `import "../../karma-core/contracts/libraries/Types.sol";`.
+- **`SettlementEngine` depth**: this batch intentionally omits parametric `QuoteTypes.Quote` / `submitSettlement` rules to reduce version-specific CVL friction; extend when your toolchain accepts the struct in `methods` cleanly.
