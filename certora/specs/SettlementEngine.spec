@@ -46,3 +46,10 @@ rule nonAdminCannotSetToken(address caller, address token, bool allowed) {
     setTokenAllowed@withrevert(e, token, allowed);
     assert lastReverted, "non-admin setTokenAllowed must revert";
 }
+
+rule constructorSetsAdminAndDomain() {
+    assert admin() != address(0), "Admin must be set in constructor";
+    assert DOMAIN_SEPARATOR() !=
+        0x0000000000000000000000000000000000000000000000000000000000000000,
+        "Domain separator must be non-zero";
+}

@@ -113,7 +113,7 @@ rule onlyOwnerUpdatesPermissions(address agent, address caller, bytes32 newPerms
     assert lastReverted, "Non-owner cannot update permissions";
 }
 
-// ── One-day validity window stored (replaces misleading "expires eventually") ─
+// ── One-day validity window stored ─────────────────────────────────────────
 rule didOneDayWindowStored(address agent) {
     env e;
     require agent != address(0);

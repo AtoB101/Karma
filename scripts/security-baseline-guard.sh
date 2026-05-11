@@ -68,4 +68,12 @@ if [[ -n "$tracked_cfg" ]]; then
   exit 1
 fi
 
+# Local run outputs under results/ must never be tracked (may contain signed payloads / addresses).
+tracked_results="$(git ls-files 'results/' 2>/dev/null || true)"
+if [[ -n "$tracked_results" ]]; then
+  echo "ERR  tracked files under results/ — remove from git (see .gitignore):"
+  echo "$tracked_results"
+  exit 1
+fi
+
 echo "OK   security baseline guard passed."

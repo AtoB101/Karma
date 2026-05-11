@@ -1,0 +1,28 @@
+version: "3.9"
+
+# PRIVATE runtime service — internal network only, never exposed to internet
+
+services:
+
+  private-runtime:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.runtime
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8001:8001"   # bind localhost only
+    env_file: .env.private
+    networks:
+      - karma_internal
+    environment:
+      DATABASE_URL: postgresql+asyncpg://karma:karma@postgres:5432/karma_db
+      REDIS_URL: redis://redis:6379/0
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  karma_internal:
+    internal: true
