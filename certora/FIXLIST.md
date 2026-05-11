@@ -9,3 +9,4 @@
 | 5 | `certora/specs/NonCustodialAgentPayment.spec` | 类型/别名 | 保持当前 CVL2 版本（勿使用实例名作类型前缀） |
 | 6 | `certora/specs/SettlementEngine.spec` | 无 EIP-712 `Quote` / `submitSettlement` 规则 | **有意为之**：降低工具链差异；详见 `certora/README.md`「SettlementEngine 范围」 |
 | 7 | 运行环境 | 类型检查 / Java | Certora 建议 **Java 21+**；若本地类型检查阻塞，可在确认风险后使用官方文档中的 **`--disable_local_typechecking`**（不推荐作为长期默认） |
+| 8 | 报告 INFO | `onlyAdminWithdraw` / `optimistic_fallback` | 指 **`admin()`** 零参调用的摘要策略提示；**非失败**。`KYARegistry.conf` 已加 **`optimistic_fallback`**；也可用 **`CERTORA_EXTRA_ARGS`** 传给 `certora-verify.sh` |

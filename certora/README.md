@@ -75,3 +75,10 @@ Passing Certora jobs prove **the stated CVL properties** only. They complement b
 - **CVL → contract calls are never summarized** (Certora docs). If a method is **only** invoked from rules with `f(e, ...)`, you usually **should not** list it in `methods` unless you need **`envfree`** or cross-contract **`_.`** / **`DISPATCHER`** behavior. Listing it with **`=> DISPATCHER`** on `CurrentContract.foo` is invalid (`UNRESOLVED` summaries require wildcard receivers like **`_.foo`**).
 - **`view` + `block.timestamp`**: do **not** mark as `envfree` (e.g. `KYARegistry.verifyDID`); call with **`verifyDID(e, agent)`**. Omit from `methods` if only called from CVL, or use a wildcard entry if you truly need a dispatcher for unresolved Solidity call sites.
 - **Local typechecking failures**: after installing **Java 21**, if issues persist, see Certora docs for **`--disable_local_typechecking`** (escape hatch only).
+
+### INFO: `onlyAdminWithdraw` / `optimistic_fallback`
+
+If the report shows **“A call in onlyAdminWithdraw … takes 0 arguments and therefore can be summarized with `--optimistic_fallback`”**, that refers to **`admin()`** (no parameters, `envfree`). It is an **optimization hint**, not a verification failure.
+
+- **`KYARegistry.conf`** sets **`"optimistic_fallback": true`** (maps to CLI `--optimistic_fallback`). If your `certoraRun` rejects this key, remove it from the conf or pass the flag manually when supported.
+- Alternatively set **`CERTORA_EXTRA_ARGS`** before `./scripts/certora-verify.sh` (see script header).
