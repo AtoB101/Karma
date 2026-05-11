@@ -13,13 +13,13 @@
 methods {
     function admin() external returns (address) envfree;
     function MIN_STAKE() external returns (uint256) envfree;
-    // Payable on-chain; CVL methods entry omits `payable` keyword for broader Prover compatibility.
-    function registerDID(address, bytes32, uint256) external returns (bytes32) => NONDET;
-    // Not envfree: implementation uses block.timestamp (validUntil vs now).
-    function verifyDID(address) external returns (bool, address, uint256);
-    function revokeDID(address) external => NONDET;
-    function updatePermissions(address, bytes32) external => NONDET;
-    function withdrawStuckETH(address, uint256) external => NONDET;
+    // Payable on-chain; methods block omits `payable` for Prover compatibility.
+    function registerDID(address, bytes32, uint256) external returns (bytes32) => DISPATCHER(true);
+    // Not envfree (uses block.timestamp); must be summarized for CVL2 — dispatch to Solidity impl.
+    function verifyDID(address) external returns (bool, address, uint256) => DISPATCHER(true);
+    function revokeDID(address) external => DISPATCHER(true);
+    function updatePermissions(address, bytes32) external => DISPATCHER(true);
+    function withdrawStuckETH(address, uint256) external => DISPATCHER(true);
 }
 
 // ── DID validity after registration ───────────────────────────────────────
