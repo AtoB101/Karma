@@ -12,8 +12,7 @@ methods {
         external
         returns (bytes32, address, address, Types.OperationType, uint256, uint256, bool, uint256)
         envfree;
-    function issueAuthToken(address, Types.OperationType, uint256, uint256) external returns (bytes32) => NONDET;
-    function revokeAuthToken(bytes32) external => NONDET;
+    // issueAuthToken / revokeAuthToken are only called from CVL — omit from methods.
 }
 
 // ── Issue with zero agent must revert ──────────────────────────────────────

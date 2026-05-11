@@ -12,12 +12,8 @@ methods {
     function admin() external returns (address) envfree;
     function isGlobalPaused() external returns (bool) envfree;
     function isAgentPaused(address) external returns (bool) envfree;
-    // `DISPATCHER` is only valid on wildcard receivers (`_.foo`); on the contract under test use `optional`.
-    function setHumanApprovalThreshold(uint256) external optional;
-    function pauseAgent(address, string) external optional;
-    function resumeAgent(address) external optional;
-    function emergencyPause(string) external optional;
-    function emergencyResume() external optional;
+    // State-changing methods are only invoked from CVL in this spec; Certora does not apply
+    // summaries to CVL→contract calls — omit them here (avoids DISPATCHER / “no effect” issues).
 }
 
 // ── Admin-only: agent pause / resume ───────────────────────────────────────

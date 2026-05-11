@@ -11,10 +11,7 @@ methods {
     function admin() external returns (address) envfree;
     function paused() external returns (bool) envfree;
     function tokenAllowed(address) external returns (bool) envfree;
-    // `optional` satisfies CVL2 “envfree | optional | summarized” when DISPATCHER is ignored by some CLI builds.
-    function setTokenAllowed(address, bool) external optional;
-    function pause() external optional;
-    function unpause() external optional;
+    // pause / unpause / setTokenAllowed are only called from CVL here — omit from methods (see Certora docs).
 }
 
 // DOMAIN_SEPARATOR is a non-zero commitment (deployment binding)

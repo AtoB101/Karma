@@ -13,14 +13,8 @@
 methods {
     function admin() external returns (address) envfree;
     function MIN_STAKE() external returns (uint256) envfree;
-    // Payable on-chain; methods block omits `payable` for Prover compatibility.
-    // `DISPATCHER` / `NONDET` on the contract-under-test is invalid (use `_.method` for wildcards only).
-    // `optional` satisfies CVL2 (envfree | optional | summarized); verifyDID uses block.timestamp so not envfree.
-    function registerDID(address, bytes32, uint256) external returns (bytes32) optional;
-    function verifyDID(address) external returns (bool, address, uint256) optional;
-    function revokeDID(address) external optional;
-    function updatePermissions(address, bytes32) external optional;
-    function withdrawStuckETH(address, uint256) external optional;
+    // registerDID / verifyDID / revokeDID / updatePermissions / withdrawStuckETH are only called from CVL
+    // in this spec — omit from methods (summaries never apply to CVL→contract direct calls).
 }
 
 // ── DID validity after registration ───────────────────────────────────────

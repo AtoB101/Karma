@@ -9,10 +9,7 @@
 methods {
     function arbitrator() external returns (address) envfree;
     function owner() external returns (address) envfree;
-    function resolveDisputeBuyer(uint256) external => NONDET;
-    function resolveDisputeSeller(uint256) external => NONDET;
-    function resolveDisputeSplit(uint256, uint16) external => NONDET;
-    function lockFunds(address, uint256) external => NONDET;
+    // Dispute / lockFunds paths are only exercised from CVL here — omit from methods block.
 }
 
 // ── Arbitrator-only dispute resolutions ────────────────────────────────────
