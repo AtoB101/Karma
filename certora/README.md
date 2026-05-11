@@ -73,5 +73,5 @@ Passing Certora jobs prove **the stated CVL properties** only. They complement b
 - **`bytes32` vs zero**: use **`to_bytes32(0)`** or a full **64-hex** literal; short **`0x0`** is not `bytes32`.
 - **`payable` in `methods {}`**: some builds reject `payable` in the methods block; entries may omit it while rules use `e.msg.value` and **`=> NONDET`** on the summarized call.
 - **State-changing methods on the contract under verification**: plain **`external` only** → **“has no effect”**. **`=> DISPATCHER(...)`** is only for **wildcard** receivers (e.g. **`_.registerDID(...)`**), not `KYARegistry.registerDID`. Use **`optional`** on the concrete contract, or a non-`UNRESOLVED` summary your Prover version documents.
-- **`view` + `block.timestamp`**: do **not** mark as `envfree` (e.g. `KYARegistry.verifyDID`); call with **`verifyDID(e, agent)`**, and declare **`=> DISPATCHER(true)`** in `methods` so the entry is not “no effect”.
+- **`view` + `block.timestamp`**: do **not** mark as `envfree` (e.g. `KYARegistry.verifyDID`); call with **`verifyDID(e, agent)`**, and declare **`optional`** in `methods` (do not use **`DISPATCHER`** on the contract-under-test).
 - **Local typechecking failures**: after installing **Java 21**, if issues persist, see Certora docs for **`--disable_local_typechecking`** (escape hatch only).
