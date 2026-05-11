@@ -3,19 +3,17 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-SOLC="${CERTORA_SOLC:-solc8.28}"
 
-run() {
-  local sol_path="$1"
-  local cname="$2"
-  local spec="$3"
-  echo "=== certoraRun ${cname} ==="
-  certoraRun "${sol_path}:${cname}" --verify "${cname}:${spec}" --solc "${SOLC}" "$@"
-}
+CONFS=(
+  certora/conf/KYARegistry.conf
+  certora/conf/CircuitBreaker.conf
+  certora/conf/AuthTokenManager.conf
+  certora/conf/SettlementEngine.conf
+  certora/conf/NonCustodialAgentPayment.conf
+)
 
-run karma-core/contracts/core/KYARegistry.sol KYARegistry certora/specs/KYARegistry.spec "$@"
-run karma-core/contracts/core/CircuitBreaker.sol CircuitBreaker certora/specs/CircuitBreaker.spec "$@"
-run karma-core/contracts/core/AuthTokenManager.sol AuthTokenManager certora/specs/AuthTokenManager.spec "$@"
-run karma-core/contracts/core/SettlementEngine.sol SettlementEngine certora/specs/SettlementEngine.spec "$@"
-run karma-core/contracts/core/NonCustodialAgentPayment.sol NonCustodialAgentPayment certora/specs/NonCustodialAgentPayment.spec "$@"
+for conf in "${CONFS[@]}"; do
+  echo "=== certoraRun --conf ${conf} ==="
+  certoraRun --conf "${conf}" "$@"
+done
 echo "All Certora jobs finished."

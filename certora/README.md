@@ -9,7 +9,17 @@ These specs target the five core contracts under `karma-core/contracts/core/`. T
 
 ## Run (from repository root)
 
-Use `certoraRun` with the contract path **and** the spec. Example for KYA:
+### Option A — JSON conf (recommended)
+
+From the repo root (requires `CERTORAKEY`):
+
+```bash
+certoraRun --conf certora/conf/KYARegistry.conf
+```
+
+Repeat with `CircuitBreaker.conf`, `AuthTokenManager.conf`, `SettlementEngine.conf`, `NonCustodialAgentPayment.conf`.
+
+### Option B — CLI without conf file
 
 ```bash
 certoraRun karma-core/contracts/core/KYARegistry.sol:KYARegistry \
