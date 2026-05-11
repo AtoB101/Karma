@@ -12,12 +12,12 @@ methods {
     function admin() external returns (address) envfree;
     function isGlobalPaused() external returns (bool) envfree;
     function isAgentPaused(address) external returns (bool) envfree;
-    // Dispatch to Solidity implementation (satisfies CVL2 “summarized”; avoids dead NONDET + no-effect plain `external`).
-    function setHumanApprovalThreshold(uint256) external => DISPATCHER(true);
-    function pauseAgent(address, string) external => DISPATCHER(true);
-    function resumeAgent(address) external => DISPATCHER(true);
-    function emergencyPause(string) external => DISPATCHER(true);
-    function emergencyResume() external => DISPATCHER(true);
+    // `DISPATCHER` is only valid on wildcard receivers (`_.foo`); on the contract under test use `optional`.
+    function setHumanApprovalThreshold(uint256) external optional;
+    function pauseAgent(address, string) external optional;
+    function resumeAgent(address) external optional;
+    function emergencyPause(string) external optional;
+    function emergencyResume() external optional;
 }
 
 // ── Admin-only: agent pause / resume ───────────────────────────────────────
