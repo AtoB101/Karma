@@ -51,6 +51,20 @@
           <span class="btn">Disconnect Agent</span>
         </p>
       </div>
+      <div class="panel" data-karma-bff-panel style="margin-top: 1rem">
+        <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Karma BFF · 状态（只读）</h2>
+        <p class="sub" style="margin: 0">与 <code>docs/KARMA_BFF_OPENMANUS_INTEGRATION.md</code> 对齐；仅 GET <code>/public/status/:traceId</code>。</p>
+        <div class="bff-row">
+          <input type="text" data-karma-bff-trace placeholder="trace_id" autocomplete="off" />
+          <button type="button" class="btn" data-karma-bff-refresh>同步</button>
+        </div>
+        <pre data-karma-bff-out>—</pre>
+        <p class="bff-hint">锁仓说明：<span data-karma-bff-lock-link>—</span></p>
+      </div>
     </main>
+    <script>
+      window.KARMA_BFF_PUBLIC_BASE = window.KARMA_BFF_PUBLIC_BASE || "";
+    </script>
+    <script src="../../scripts/karma-bff-readonly.js"></script>
   </body>
 </html>

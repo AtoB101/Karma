@@ -12,6 +12,8 @@ Single static **portal** plus **wallet sign-in** and **Agent Studio**. Optimized
 | `wc-config.js` | Set `window.KARMAPAY_WC_PROJECT_ID` (WalletConnect Cloud) before production |
 | `favicon.svg` | Site icon |
 | `studio/` | 统一操作界面：`app.js` + `store.js`（`unified` 状态）、`api-client.js`、`sync.js`、`api-config.js` |
+| `studio/karma-bff-config.js` | 只读 BFF 根地址 `KARMA_BFF_PUBLIC_BASE`（无密钥）；生产可改为服务端注入 |
+| `studio/karma-bff-status.js` | `GET /public/status/:traceId` 拉取；首页总览「同步状态」按钮使用 |
 
 **Flow:** `index.html` (marketing only) → `web3-login.html?target=studio%2Findex.html` (isolated WalletConnect) → `studio/index.html`
 

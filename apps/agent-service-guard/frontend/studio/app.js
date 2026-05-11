@@ -107,6 +107,20 @@ function tagForDispute(ds) {
   return { cls: "blue", text: "等待买家确认" };
 }
 
+function renderKarmaBffPanel() {
+  return `
+<div class="panel" id="karma-bff-panel">
+  <div class="panel-head"><h3>OpenManus · Karma BFF 状态</h3><span class="tag blue">只读</span></div>
+  <p class="muted">同步 <code>GET /public/status/:traceId</code>，不携带 <code>BFF_INTEGRATION_SECRET</code>。写入与 HMAC 在后端 / OpenManus。</p>
+  <div class="input-row" style="margin-top:8px">
+    <input type="text" id="karma-bff-trace-input" placeholder="trace_id" style="flex:1;min-width:200px" autocomplete="off" />
+    <button type="button" class="secondary" id="karma-bff-refresh-btn">同步状态</button>
+  </div>
+  <pre id="karma-bff-status-out" class="code-inline" style="margin-top:10px;min-height:3rem">—</pre>
+  <p class="muted" style="margin-top:8px">买家锁仓说明：<span id="karma-bff-lock-link">—</span></p>
+</div>`;
+}
+
 function renderOverview(u) {
   const ls = u.lockSummary;
   const st = u.stats;
@@ -139,6 +153,7 @@ function renderOverview(u) {
   <div class="stat"><span>保障等级</span><strong>${escapeHtml(st.trustLevel)}</strong></div>
   <div class="stat"><span>争议冻结</span><strong>${formatMoney(st.disputeFrozen)}</strong></div>
 </div>
+${renderKarmaBffPanel()}
 <div class="layout">
   <div>
     ${renderFundingPanel(u)}
@@ -477,6 +492,43 @@ function bindActions() {
     showToast("已减少本地演示锁仓");
     renderMain();
   });
+
+  document.getElementById("karma-bff-refresh-btn")?.addEventListener("click", async () => {
+    const tid = safeText(document.getElementById("karma-bff-trace-input")?.value || "", 160);
+    const out = document.getElementById("karma-bff-status-out");
+    const linkEl = document.getElementById("karma-bff-lock-link");
+    if (!tid) return showToast("请输入 trace_id", "error");
+    if (out) out.textContent = "加载中…";
+    if (linkEl) linkEl.textContent = "—";
+    try {
+      const { fetchKarmaBffPublicStatus } = await import("./karma-bff-status.js");
+      const r = await fetchKarmaBffPublicStatus(tid);
+      if (out) out.textContent = JSON.stringify(r, null, 2);
+      const base = String(window.KARMA_BFF_PUBLIC_BASE || "")
+        .trim()
+        .replace(/\/$/, "");
+      if (linkEl) {
+        if (base && r.ok) {
+          linkEl.innerHTML = `<a href="${base}/public/lock/${encodeURIComponent(tid)}" target="_blank" rel="noopener noreferrer">打开锁仓说明页</a>`;
+        } else if (!base) {
+          linkEl.textContent = "请在 karma-bff-config.js 中配置 KARMA_BFF_PUBLIC_BASE";
+        } else {
+          linkEl.textContent = "状态异常或 BFF 不可达";
+        }
+      }
+      try {
+        sessionStorage.setItem("karma_bff_last_trace", tid);
+      } catch (_) {}
+    } catch (e) {
+      if (out) out.textContent = String(e && e.message ? e.message : e);
+      showToast("BFF 状态拉取失败", "warn");
+    }
+  });
+  try {
+    const last = sessionStorage.getItem("karma_bff_last_trace");
+    const inp = document.getElementById("karma-bff-trace-input");
+    if (inp && last) inp.value = last;
+  } catch (_) {}
 
   document.getElementById("new-svc-btn")?.addEventListener("click", async () => {
     const session = loadSession();

@@ -7,7 +7,7 @@
     <meta name="robots" content="noindex, nofollow" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; manifest-src 'self'; upgrade-insecure-requests"
+      content="default-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:8820 http://localhost:8820 https:; manifest-src 'self'; upgrade-insecure-requests"
     />
     <title>Karma 统一操作界面</title>
     <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
@@ -51,7 +51,8 @@
         <div id="view"></div>
       </div>
     </div>
+    <script src="./karma-bff-config.js"></script>
     <script src="./api-config.js"></script>
-    <script type="module" src="./app.js?v=20260507a"></script>
+    <script type="module" src="./app.js?v=20260507b"></script>
   </body>
 </html>

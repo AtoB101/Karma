@@ -116,3 +116,35 @@ th {
   border-radius: 10px;
   margin-bottom: 0.75rem;
 }
+[data-karma-bff-panel] .bff-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+[data-karma-bff-panel] input[type="text"] {
+  flex: 1;
+  min-width: 220px;
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0a0f18;
+  color: var(--text);
+}
+[data-karma-bff-panel] pre[data-karma-bff-out] {
+  margin-top: 0.65rem;
+  padding: 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #0a0f18;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-height: 3.5rem;
+}
+[data-karma-bff-panel] .bff-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
+}
