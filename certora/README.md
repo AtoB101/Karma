@@ -4,30 +4,49 @@ These specs target the five core contracts under `karma-core/contracts/core/`. T
 
 ## Prerequisites
 
-- Certora CLI installed and `CERTORAKEY` set (see [Certora installation](https://docs.certora.com/)).
-- Solidity compiler matching `foundry.toml` (e.g. `solc8.28`).
+- **Certora CLI** installed and **`CERTORAKEY`** set ([Certora installation](https://docs.certora.com/)).
+- **Java 21+** recommended for the Prover toolchain.
+- **Solc** aligned with `foundry.toml` (this repo uses **0.8.28** with **`via_ir`**).
+
+## Configuration (`certora/conf/*.json`)
+
+- **`solc`**: set to **`/usr/local/bin/solc`** for **Certora Cloud** compatibility. On a dev machine, install solc 0.8.28 (e.g. via `solc-select`) and point to it, or symlink to `/usr/local/bin/solc`, or edit the conf file to your absolute path.
+- **`solc_via_ir`**: **`true`**, matching Foundry `via_ir = true` in the repo root `foundry.toml`.
 
 ## Run (from repository root)
 
-### Option A — JSON conf (recommended)
-
-From the repo root (requires `CERTORAKEY`):
+### Option A — JSON config (recommended for CI / cloud)
 
 ```bash
-certoraRun --conf certora/conf/KYARegistry.conf
+certoraRun certora/conf/KYARegistry.conf
 ```
 
-Repeat with `CircuitBreaker.conf`, `AuthTokenManager.conf`, `SettlementEngine.conf`, `NonCustodialAgentPayment.conf`.
+Additional Prover flags go **after** the config path, e.g.:
 
-### Option B — CLI without conf file
+```bash
+certoraRun certora/conf/KYARegistry.conf --disable_local_typechecking
+```
+
+Use one conf per contract: `KYARegistry.conf`, `CircuitBreaker.conf`, `AuthTokenManager.conf`, `SettlementEngine.conf`, `NonCustodialAgentPayment.conf`.
+
+### Option B — Run all five (script)
+
+```bash
+./scripts/certora-verify.sh
+# with extra flags forwarded to each job:
+./scripts/certora-verify.sh --disable_local_typechecking
+```
+
+The script invokes `certoraRun "${conf}" "$@"` so the config file is the **first positional argument** (no `--conf`).
+
+### Option C — CLI without conf file
 
 ```bash
 certoraRun karma-core/contracts/core/KYARegistry.sol:KYARegistry \
   --verify KYARegistry:certora/specs/KYARegistry.spec \
-  --solc solc8.28
+  --solc "$(which solc)" \
+  --solc_via_ir true
 ```
-
-Repeat for each contract, swapping the Solidity path, contract name, and spec file:
 
 | Contract                 | Spec                                      |
 |--------------------------|-------------------------------------------|
@@ -37,9 +56,11 @@ Repeat for each contract, swapping the Solidity path, contract name, and spec fi
 | `SettlementEngine`       | `certora/specs/SettlementEngine.spec`     |
 | `NonCustodialAgentPayment` | `certora/specs/NonCustodialAgentPayment.spec` |
 
-## Foundry / IR
+## SettlementEngine scope (design)
 
-This repo enables `via_ir` in Foundry. If the Prover fails on IR-only code paths, re-run with Certora’s documented flags for your CLI version (often a disable-IR or alternate build mode). Specs here avoid deep `Quote` parametric rules so `SettlementEngine` stays lightweight.
+This batch **does not** include parametric **`QuoteTypes.Quote` / `submitSettlement`** rules. That avoids brittle struct wiring across Certora CLI versions and keeps the first pass green. Extend with quote / batch settlement properties in a **follow-up spec** once your toolchain accepts the struct in `methods` cleanly.
+
+See also `certora/FIXLIST.md`.
 
 ## Audit posture
 
@@ -47,9 +68,9 @@ Passing Certora jobs prove **the stated CVL properties** only. They complement b
 
 ## Troubleshooting
 
-- **`AuthTokenManager.spec` import**: specs use `import "karma-core/contracts/libraries/Types.sol";` (repo-root resolution). If your Certora CLI expects another root, change that line to a path relative to the spec file, e.g. `import "../../karma-core/contracts/libraries/Types.sol";`.
-- **`SettlementEngine` depth**: this batch intentionally omits parametric `QuoteTypes.Quote` / `submitSettlement` rules to reduce version-specific CVL friction; extend when your toolchain accepts the struct in `methods` cleanly.
-- **Zero address in CVL**: use literal **`0`**, not Solidity’s `address(0)` (the Prover often has no `address(...)` pseudo-constructor in rules).
-- **`bytes32` vs zero**: compare using **`to_bytes32(0)`** or a full **64-hex** literal; short **`0x0`** is typed as an integer and fails typecheck.
-- **`payable` in `methods {}`**: some Prover builds reject `payable` in the methods block; the entry may omit `payable` while rules still use `e.msg.value` and a **`=> NONDET`** summary on the call.
-- **State-changing methods**: entries that are not `envfree` need a summary such as **`=> NONDET`** or the Prover warns they have “no effect”.
+- **`AuthTokenManager.spec`**: no `import` of `Types.sol`; `Types.OperationType` is taken from the compiled contract scene.
+- **Zero address in CVL**: use literal **`0`**, not Solidity’s `address(0)`.
+- **`bytes32` vs zero**: use **`to_bytes32(0)`** or a full **64-hex** literal; short **`0x0`** is not `bytes32`.
+- **`payable` in `methods {}`**: some builds reject `payable` in the methods block; entries may omit it while rules use `e.msg.value` and **`=> NONDET`** on the summarized call.
+- **State-changing methods**: non-`envfree` entries need a summary such as **`=> NONDET`**.
+- **Local typechecking failures**: after installing **Java 21**, if issues persist, see Certora docs for **`--disable_local_typechecking`** (escape hatch only).

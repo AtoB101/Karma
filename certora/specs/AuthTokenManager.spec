@@ -4,9 +4,8 @@
  * Contract: AuthTokenManager.sol
  *
  * Single, consistent typing for authTokens(bytes32) public getter return tuple.
+ * Types from Solidity (e.g. Types.OperationType) are available from the compiled scene; no explicit import.
  */
-import "karma-core/contracts/libraries/Types.sol";
-
 methods {
     function DOMAIN_SEPARATOR() external returns (bytes32) envfree;
     function authTokens(bytes32)
