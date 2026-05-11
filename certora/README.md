@@ -49,3 +49,7 @@ Passing Certora jobs prove **the stated CVL properties** only. They complement b
 
 - **`AuthTokenManager.spec` import**: specs use `import "karma-core/contracts/libraries/Types.sol";` (repo-root resolution). If your Certora CLI expects another root, change that line to a path relative to the spec file, e.g. `import "../../karma-core/contracts/libraries/Types.sol";`.
 - **`SettlementEngine` depth**: this batch intentionally omits parametric `QuoteTypes.Quote` / `submitSettlement` rules to reduce version-specific CVL friction; extend when your toolchain accepts the struct in `methods` cleanly.
+- **Zero address in CVL**: use literal **`0`**, not Solidity’s `address(0)` (the Prover often has no `address(...)` pseudo-constructor in rules).
+- **`bytes32` vs zero**: compare using **`to_bytes32(0)`** or a full **64-hex** literal; short **`0x0`** is typed as an integer and fails typecheck.
+- **`payable` in `methods {}`**: some Prover builds reject `payable` in the methods block; the entry may omit `payable` while rules still use `e.msg.value` and a **`=> NONDET`** summary on the call.
+- **State-changing methods**: entries that are not `envfree` need a summary such as **`=> NONDET`** or the Prover warns they have “no effect”.

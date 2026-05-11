@@ -9,10 +9,10 @@
 methods {
     function arbitrator() external returns (address) envfree;
     function owner() external returns (address) envfree;
-    function resolveDisputeBuyer(uint256) external;
-    function resolveDisputeSeller(uint256) external;
-    function resolveDisputeSplit(uint256, uint16) external;
-    function lockFunds(address, uint256) external;
+    function resolveDisputeBuyer(uint256) external => NONDET;
+    function resolveDisputeSeller(uint256) external => NONDET;
+    function resolveDisputeSplit(uint256, uint16) external => NONDET;
+    function lockFunds(address, uint256) external => NONDET;
 }
 
 // ── Arbitrator-only dispute resolutions ────────────────────────────────────
@@ -44,6 +44,6 @@ rule nonArbitratorCannotResolveSplit(address caller, uint256 billId, uint16 shar
 rule lockFundsZeroTokenReverts(uint256 amount) {
     env e;
     require amount > 0;
-    lockFunds@withrevert(e, address(0), amount);
+    lockFunds@withrevert(e, 0, amount);
     assert lastReverted, "zero token address must revert";
 }

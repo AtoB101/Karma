@@ -12,11 +12,11 @@ methods {
     function admin() external returns (address) envfree;
     function isGlobalPaused() external returns (bool) envfree;
     function isAgentPaused(address) external returns (bool) envfree;
-    function setHumanApprovalThreshold(uint256) external;
-    function pauseAgent(address, string) external;
-    function resumeAgent(address) external;
-    function emergencyPause(string) external;
-    function emergencyResume() external;
+    function setHumanApprovalThreshold(uint256) external => NONDET;
+    function pauseAgent(address, string) external => NONDET;
+    function resumeAgent(address) external => NONDET;
+    function emergencyPause(string) external => NONDET;
+    function emergencyResume() external => NONDET;
 }
 
 // ── Admin-only: agent pause / resume ───────────────────────────────────────
@@ -57,7 +57,7 @@ rule onlyAdminCanEmergencyResume(address caller) {
 rule agentPauseResumeCycle(address agent) {
     env e;
     require e.msg.sender == admin();
-    require agent != address(0);
+    require agent != 0;
     pauseAgent(e, agent, "test");
     assert isAgentPaused(agent) == true, "Agent must be paused after pauseAgent";
     resumeAgent(e, agent);
@@ -84,6 +84,6 @@ rule thresholdMustBePositive(uint256 amount) {
 
 // ── Initial admin ──────────────────────────────────────────────────────────
 rule constructorSetsAdmin() {
-    assert admin() != address(0), "Admin must be set in constructor";
+    assert admin() != 0, "Admin must be set in constructor";
     assert isGlobalPaused() == false, "Global pause must be false initially";
 }

@@ -11,16 +11,14 @@ methods {
     function admin() external returns (address) envfree;
     function paused() external returns (bool) envfree;
     function tokenAllowed(address) external returns (bool) envfree;
-    function setTokenAllowed(address, bool) external;
-    function pause() external;
-    function unpause() external;
+    function setTokenAllowed(address, bool) external => NONDET;
+    function pause() external => NONDET;
+    function unpause() external => NONDET;
 }
 
 // DOMAIN_SEPARATOR is a non-zero commitment (deployment binding)
 rule domainSeparatorNonZero() {
-    assert DOMAIN_SEPARATOR() !=
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        "DOMAIN_SEPARATOR must be non-zero";
+    assert DOMAIN_SEPARATOR() != to_bytes32(0), "DOMAIN_SEPARATOR must be non-zero";
 }
 
 rule nonAdminCannotPause(address caller) {
@@ -48,8 +46,6 @@ rule nonAdminCannotSetToken(address caller, address token, bool allowed) {
 }
 
 rule constructorSetsAdminAndDomain() {
-    assert admin() != address(0), "Admin must be set in constructor";
-    assert DOMAIN_SEPARATOR() !=
-        0x0000000000000000000000000000000000000000000000000000000000000000,
-        "Domain separator must be non-zero";
+    assert admin() != 0, "Admin must be set in constructor";
+    assert DOMAIN_SEPARATOR() != to_bytes32(0), "Domain separator must be non-zero";
 }

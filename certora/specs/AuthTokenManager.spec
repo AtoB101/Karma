@@ -13,8 +13,8 @@ methods {
         external
         returns (bytes32, address, address, Types.OperationType, uint256, uint256, bool, uint256)
         envfree;
-    function issueAuthToken(address, Types.OperationType, uint256, uint256) external returns (bytes32);
-    function revokeAuthToken(bytes32) external;
+    function issueAuthToken(address, Types.OperationType, uint256, uint256) external returns (bytes32) => NONDET;
+    function revokeAuthToken(bytes32) external => NONDET;
 }
 
 // ── Issue with zero agent must revert ──────────────────────────────────────
@@ -22,6 +22,6 @@ rule issueZeroAgentReverts(Types.OperationType opType, uint256 maxAmount, uint25
     env e;
     require maxAmount > 0;
     require validitySeconds > 0;
-    issueAuthToken@withrevert(e, address(0), opType, maxAmount, validitySeconds);
+    issueAuthToken@withrevert(e, 0, opType, maxAmount, validitySeconds);
     assert lastReverted, "Zero agent must revert on issueAuthToken";
 }

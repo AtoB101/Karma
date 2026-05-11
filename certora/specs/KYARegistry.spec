@@ -13,17 +13,18 @@
 methods {
     function admin() external returns (address) envfree;
     function MIN_STAKE() external returns (uint256) envfree;
-    function registerDID(address, bytes32, uint256) external payable returns (bytes32);
+    // Payable on-chain; CVL methods entry omits `payable` keyword for broader Prover compatibility.
+    function registerDID(address, bytes32, uint256) external returns (bytes32) => NONDET;
     function verifyDID(address) external returns (bool, address, uint256) envfree;
-    function revokeDID(address) external;
-    function updatePermissions(address, bytes32) external;
-    function withdrawStuckETH(address, uint256) external;
+    function revokeDID(address) external => NONDET;
+    function updatePermissions(address, bytes32) external => NONDET;
+    function withdrawStuckETH(address, uint256) external => NONDET;
 }
 
 // ── DID validity after registration ───────────────────────────────────────
 rule didValidityCorrect(address agent, bytes32 permissionsHash, uint256 validityDays) {
     env e;
-    require agent != address(0);
+    require agent != 0;
     require validityDays > 0;
 
     uint256 stake = MIN_STAKE();
@@ -45,7 +46,7 @@ rule didValidityCorrect(address agent, bytes32 permissionsHash, uint256 validity
 // ── Minimum stake enforced ──────────────────────────────────────────────────
 rule minStakeEnforced(address agent, bytes32 permissionsHash, uint256 validityDays) {
     env e;
-    require agent != address(0);
+    require agent != 0;
     require validityDays > 0;
 
     uint256 stake = MIN_STAKE();
@@ -65,7 +66,7 @@ rule onlyOwnerRevokesDID(address agent, address caller) {
     uint256 vuntil;
     isValid, didOwner, vuntil = verifyDID(e, agent);
     require isValid == true;
-    require didOwner != address(0);
+    require didOwner != 0;
     require caller != didOwner;
 
     revokeDID@withrevert(e, agent);
@@ -75,7 +76,7 @@ rule onlyOwnerRevokesDID(address agent, address caller) {
 // ── Revoked DID is inactive ─────────────────────────────────────────────────
 rule revokedDidNotValid(address agent) {
     env e;
-    require agent != address(0);
+    require agent != 0;
 
     uint256 stake = MIN_STAKE();
     require e.msg.value == stake;
@@ -106,7 +107,7 @@ rule onlyOwnerUpdatesPermissions(address agent, address caller, bytes32 newPerms
     address didOwner;
     uint256 vuntil;
     isValid, didOwner, vuntil = verifyDID(e, agent);
-    require didOwner != address(0);
+    require didOwner != 0;
     require caller != didOwner;
 
     updatePermissions@withrevert(e, agent, newPerms);
@@ -116,7 +117,7 @@ rule onlyOwnerUpdatesPermissions(address agent, address caller, bytes32 newPerms
 // ── One-day validity window stored ─────────────────────────────────────────
 rule didOneDayWindowStored(address agent) {
     env e;
-    require agent != address(0);
+    require agent != 0;
 
     uint256 stake = MIN_STAKE();
     require e.msg.value == stake;
@@ -137,7 +138,7 @@ rule onlyAdminWithdraw(address caller, address to, uint256 amount) {
     env e;
     require e.msg.sender == caller;
     require caller != admin();
-    require to != address(0);
+    require to != 0;
     require amount > 0;
 
     withdrawStuckETH@withrevert(e, to, amount);
@@ -146,5 +147,5 @@ rule onlyAdminWithdraw(address caller, address to, uint256 amount) {
 
 // ── Constructor / initial admin ─────────────────────────────────────────────
 rule constructorSetsAdmin() {
-    assert admin() != address(0), "Admin must be set in constructor";
+    assert admin() != 0, "Admin must be set in constructor";
 }
