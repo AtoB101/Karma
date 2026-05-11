@@ -12,12 +12,12 @@ methods {
     function admin() external returns (address) envfree;
     function isGlobalPaused() external returns (bool) envfree;
     function isAgentPaused(address) external returns (bool) envfree;
-    // Primary contract: `=> NONDET` was unused (Certora INFO on cloud runs).
-    function setHumanApprovalThreshold(uint256) external;
-    function pauseAgent(address, string) external;
-    function resumeAgent(address) external;
-    function emergencyPause(string) external;
-    function emergencyResume() external;
+    // Dispatch to Solidity implementation (satisfies CVL2 “summarized”; avoids dead NONDET + no-effect plain `external`).
+    function setHumanApprovalThreshold(uint256) external => DISPATCHER(true);
+    function pauseAgent(address, string) external => DISPATCHER(true);
+    function resumeAgent(address) external => DISPATCHER(true);
+    function emergencyPause(string) external => DISPATCHER(true);
+    function emergencyResume() external => DISPATCHER(true);
 }
 
 // ── Admin-only: agent pause / resume ───────────────────────────────────────

@@ -11,10 +11,9 @@ methods {
     function admin() external returns (address) envfree;
     function paused() external returns (bool) envfree;
     function tokenAllowed(address) external returns (bool) envfree;
-    // Direct calls on the contract under verification; `=> NONDET` was unused (Certora INFO).
-    function setTokenAllowed(address, bool) external;
-    function pause() external;
-    function unpause() external;
+    function setTokenAllowed(address, bool) external => DISPATCHER(true);
+    function pause() external => DISPATCHER(true);
+    function unpause() external => DISPATCHER(true);
 }
 
 // DOMAIN_SEPARATOR is a non-zero commitment (deployment binding)

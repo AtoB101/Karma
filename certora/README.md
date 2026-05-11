@@ -72,6 +72,6 @@ Passing Certora jobs prove **the stated CVL properties** only. They complement b
 - **Zero address in CVL**: use literal **`0`**, not Solidity’s `address(0)`.
 - **`bytes32` vs zero**: use **`to_bytes32(0)`** or a full **64-hex** literal; short **`0x0`** is not `bytes32`.
 - **`payable` in `methods {}`**: some builds reject `payable` in the methods block; entries may omit it while rules use `e.msg.value` and **`=> NONDET`** on the summarized call.
-- **State-changing methods**: for **secondary** contracts or heavily wrapped calls, non-`envfree` entries often need a summary such as **`=> NONDET`**. For the **primary contract under verification**, summarizers may be **unused** (Certora INFO); plain `external` is OK unless you see “has no effect” warnings.
+- **State-changing methods**: plain `external` (no `envfree`) **without** a summary triggers **“has no effect”**. Use **`=> DISPATCHER(true)`** to dispatch to the Solidity implementation on the contract under test (typical for `pause`, `pauseAgent`, etc.). **`=> NONDET`** is for abstracting unknown callees; on the primary contract it is often reported as **unused**.
 - **`view` + `block.timestamp`**: do **not** mark as `envfree` (e.g. `KYARegistry.verifyDID`); call with **`verifyDID(e, agent)`**.
 - **Local typechecking failures**: after installing **Java 21**, if issues persist, see Certora docs for **`--disable_local_typechecking`** (escape hatch only).
