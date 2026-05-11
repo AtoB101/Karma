@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Receiving · KARMA Console</title>
+    <link rel="stylesheet" href="../../styles/console.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">KARMA · Console</div>
+      <nav>
+        <a href="../../index.html">Overview</a>
+        <a class="active" href="index.html">Receiving</a>
+        <a href="../payments/index.html">Payments</a>
+        <a href="../agents/index.html">Agents</a>
+        <a href="../evidence/index.html">Evidence</a>
+        <a href="../disputes/index.html">Disputes</a>
+        <a href="../settings/index.html">Settings</a>
+      </nav>
+    </header>
+    <main>
+      <h1>Receiving</h1>
+      <p class="sub">Service providers: Agents, APIs, data products. UI shell only — bind to public API + chain.</p>
+      <div class="banner">Cancel lock rules (product): only when all bills settled, no pending dispute, no pending execution.</div>
+      <div class="panel">
+        <p style="font-size: 0.85rem; margin-bottom: 0.5rem">Placeholder grid (wire to <code>GET /api/public/...</code>)</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Agent Name</th>
+              <th>Agent ID</th>
+              <th>Service Type</th>
+              <th>Settlement</th>
+              <th>Token</th>
+              <th>Reputation</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="6" style="color: var(--muted)">No rows — connect backend</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="margin-top: 0.65rem">
+          <span class="btn">Add Agent</span>
+          <span class="btn">Enable KARMA Settlement</span>
+          <span class="btn">View Evidence</span>
+          <span class="btn">Export Records</span>
+          <span class="btn">Pause Agent</span>
+          <span class="btn">Disconnect Agent</span>
+        </p>
+      </div>
+      <div class="panel" data-karma-bff-panel style="margin-top: 1rem">
+        <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Karma BFF · 状态（只读）</h2>
+        <p class="sub" style="margin: 0">与 <code>docs/KARMA_BFF_OPENMANUS_INTEGRATION.md</code> 对齐；仅 GET <code>/public/status/:traceId</code>。</p>
+        <div class="bff-row">
+          <input type="text" data-karma-bff-trace placeholder="trace_id" autocomplete="off" />
+          <button type="button" class="btn" data-karma-bff-refresh>同步</button>
+        </div>
+        <pre data-karma-bff-out>—</pre>
+        <p class="bff-hint">锁仓说明：<span data-karma-bff-lock-link>—</span></p>
+      </div>
+    </main>
+    <script>
+      window.KARMA_BFF_PUBLIC_BASE = window.KARMA_BFF_PUBLIC_BASE || "";
+    </script>
+    <script src="../../scripts/karma-bff-readonly.js"></script>
+  </body>
+</html>

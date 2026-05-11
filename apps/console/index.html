@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KARMA Console</title>
+    <link rel="stylesheet" href="styles/console.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">KARMA · Console</div>
+      <nav>
+        <a class="active" href="index.html">Overview</a>
+        <a href="pages/receiving/index.html">Receiving</a>
+        <a href="pages/payments/index.html">Payments</a>
+        <a href="pages/agents/index.html">Agents</a>
+        <a href="pages/evidence/index.html">Evidence</a>
+        <a href="pages/disputes/index.html">Disputes</a>
+        <a href="pages/settings/index.html">Settings</a>
+        <a href="../website/index.html">Website</a>
+      </nav>
+    </header>
+    <main>
+      <div class="banner">
+        <strong>Connect Wallet</strong> belongs here in Console — not on the marketing site. Wire WalletConnect / your
+        signer to a backend that implements <code>openapi/karma-public-console-api.yaml</code>. Demo sign-in lives under
+        <code>apps/agent-service-guard/frontend/web3-login.html</code>.
+      </div>
+      <h1>Overview</h1>
+      <p class="sub">Receiving and Payments are the two primary modules; other areas support operations and audit.</p>
+      <div class="grid cols-2">
+        <div class="panel">
+          <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Receiving</h2>
+          <p class="sub" style="margin: 0">Settlement-side workflows for service providers.</p>
+          <a class="btn" href="pages/receiving/index.html">Open Receiving</a>
+        </div>
+        <div class="panel">
+          <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Payments</h2>
+          <p class="sub" style="margin: 0">Buyer / caller flows: lock, bills, evidence, disputes.</p>
+          <a class="btn" href="pages/payments/index.html">Open Payments</a>
+        </div>
+      </div>
+      <div class="panel" data-karma-bff-panel style="margin-top: 1rem">
+        <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Karma BFF · 状态同步（只读）</h2>
+        <p class="sub" style="margin: 0">
+          对齐 <code>GET /public/status/:traceId</code> · 无密钥 · 写入与 HMAC 仅在后端 / OpenManus 执行
+        </p>
+        <div class="bff-row">
+          <input type="text" data-karma-bff-trace placeholder="trace_id" autocomplete="off" />
+          <button type="button" class="btn" data-karma-bff-refresh>同步状态</button>
+        </div>
+        <pre data-karma-bff-out>—</pre>
+        <p class="bff-hint">买家锁仓说明：<span data-karma-bff-lock-link>—</span></p>
+      </div>
+    </main>
+    <script>
+      /* Set to your BFF origin for read-only status (e.g. http://127.0.0.1:8820). Leave empty to disable fetch. */
+      window.KARMA_BFF_PUBLIC_BASE = window.KARMA_BFF_PUBLIC_BASE || "";
+    </script>
+    <script src="scripts/karma-bff-readonly.js"></script>
+  </body>
+</html>

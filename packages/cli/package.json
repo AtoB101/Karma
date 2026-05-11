@@ -1,0 +1,10 @@
+{
+  "name": "karma-agent-cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Scaffold — karma-agent CLI (implementation pending)",
+  "bin": {
+    "karma-agent": "./karma-agent.js"
+  },
+  "license": "AGPL-3.0-only"
+}

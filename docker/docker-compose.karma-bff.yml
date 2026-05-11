@@ -1,0 +1,17 @@
+services:
+  karma-bff:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.karma-bff
+    ports:
+      - "8820:8820"
+    environment:
+      BFF_INTEGRATION_SECRET: "${BFF_INTEGRATION_SECRET:-change-me-in-production-min-32-chars!!}"
+      BFF_WEBHOOK_SECRET: "${BFF_WEBHOOK_SECRET:-}"
+      BFF_DATABASE_PATH: "/data/karma_bff.db"
+      BFF_PUBLIC_BASE_URL: "${BFF_PUBLIC_BASE_URL:-http://127.0.0.1:8820}"
+    volumes:
+      - karma-bff-data:/data
+
+volumes:
+  karma-bff-data:
