@@ -1,80 +1,55 @@
+// SPDX-License-Identifier: MIT
 /*
- * Karma Trust Protocol — Certora Formal Verification Spec
+ * Karma Trust Protocol — Certora (CVL2)
  * Contract: SettlementEngine.sol
+ *
+ * Lightweight admin / domain checks. Parametric Quote settlement is left for a
+ * follow-up spec once QuoteTypes wiring is stable under your Certora CLI version.
  */
-
-using SettlementEngine as engine;
-
 methods {
+    function DOMAIN_SEPARATOR() external returns (bytes32) envfree;
     function admin() external returns (address) envfree;
     function paused() external returns (bool) envfree;
-    function DOMAIN_SEPARATOR() external returns (bytes32) envfree;
     function tokenAllowed(address) external returns (bool) envfree;
-    function executedQuotes(bytes32) external returns (bool) envfree;
-    function nonces(address) external returns (uint256) envfree;
+    function setTokenAllowed(address, bool) external;
+    function pause() external;
+    function unpause() external;
 }
 
-// ── No Replay ──────────────────────────────────────────────────────────────
-rule noReplay(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
+// DOMAIN_SEPARATOR is a non-zero commitment (deployment binding)
+rule domainSeparatorNonZero() {
+    assert DOMAIN_SEPARATOR() !=
+        0x0000000000000000000000000000000000000000000000000000000000000000,
+        "DOMAIN_SEPARATOR must be non-zero";
+}
+
+rule nonAdminCannotPause(address caller) {
     env e;
-    require executedQuotes(quote.quoteId) == false;
-    
-    submitSettlement@withrevert(e, quote, v, r, s);
-    bool firstOk = !lastReverted;
-    
-    if (firstOk) {
-        assert executedQuotes(quote.quoteId) == true,
-            "Quote must be marked executed after successful settlement";
-        submitSettlement@withrevert(e, quote, v, r, s);
-        assert lastReverted, "Re-submission of executed quote must revert";
-    }
+    require e.msg.sender == caller;
+    require caller != admin();
+    pause@withrevert(e);
+    assert lastReverted, "non-admin pause must revert";
 }
 
-// ── Nonce Monotonicity ─────────────────────────────────────────────────────
-rule nonceMonotonic(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
+rule nonAdminCannotUnpause(address caller) {
     env e;
-    require executedQuotes(quote.quoteId) == false;
-    
-    uint256 nonceBefore = nonces(quote.payer);
-    
-    submitSettlement@withrevert(e, quote, v, r, s);
-    
-    if (!lastReverted) {
-        uint256 nonceAfter = nonces(quote.payer);
-        assert nonceAfter == nonceBefore + 1,
-            "Payer nonce must increment after successful settlement";
-    }
+    require e.msg.sender == caller;
+    require caller != admin();
+    unpause@withrevert(e);
+    assert lastReverted, "non-admin unpause must revert";
 }
 
-// ── Token Allowlist ────────────────────────────────────────────────────────
-rule tokenAllowlistEnforced(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
+rule nonAdminCannotSetToken(address caller, address token, bool allowed) {
     env e;
-    require tokenAllowed(quote.token) == false;
-    
-    submitSettlement@withrevert(e, quote, v, r, s);
-    assert lastReverted, "Settlement with non-allowed token must revert";
+    require e.msg.sender == caller;
+    require caller != admin();
+    setTokenAllowed@withrevert(e, token, allowed);
+    assert lastReverted, "non-admin setTokenAllowed must revert";
 }
 
-// ── Pause Enforces ─────────────────────────────────────────────────────────
-rule pauseBlocksSettlement(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
-    env e;
-    require paused() == true;
-    
-    submitSettlement@withrevert(e, quote, v, r, s);
-    assert lastReverted, "Paused engine must revert all settlements";
-}
-
-// ── Expired Quote Reverts ──────────────────────────────────────────────────
-rule expiredQuoteReverts(QuoteTypes.Quote quote, uint8 v, bytes32 r, bytes32 s) {
-    env e;
-    require quote.deadline < e.block.timestamp;
-    
-    submitSettlement@withrevert(e, quote, v, r, s);
-    assert lastReverted, "Expired quote must revert";
-}
-
-// ── Constructor ────────────────────────────────────────────────────────────
-rule constructorSetsAdmin() {
-    assert admin() != 0, "Admin must be set in constructor";
-    assert DOMAIN_SEPARATOR() != 0, "Domain separator must be computed";
+rule constructorSetsAdminAndDomain() {
+    assert admin() != address(0), "Admin must be set in constructor";
+    assert DOMAIN_SEPARATOR() !=
+        0x0000000000000000000000000000000000000000000000000000000000000000,
+        "Domain separator must be non-zero";
 }

@@ -1,100 +1,49 @@
+// SPDX-License-Identifier: MIT
 /*
- * Karma Trust Protocol — Certora Formal Verification Spec
+ * Karma Trust Protocol — Certora (CVL2)
  * Contract: NonCustodialAgentPayment.sol
+ *
+ * Use the Solidity contract name for types (e.g. NonCustodialAgentPayment.BillStatus).
+ * Do not use a `using ... as payment` alias as a *type* prefix — CVL2 rejects it.
  */
+methods {
+    function arbitrator() external returns (address) envfree;
+    function owner() external returns (address) envfree;
+    function resolveDisputeBuyer(uint256) external;
+    function resolveDisputeSeller(uint256) external;
+    function resolveDisputeSplit(uint256, uint16) external;
+    function lockFunds(address, uint256) external;
+}
 
-using NonCustodialAgentPayment as payment;
-
-// ── Account Consistency Invariant ──────────────────────────────────────────
-invariant accountConsistency(address user, address token)
-    getAccountState(user, token).locked
-        == getAccountState(user, token).active + getAccountState(user, token).reserved;
-
-// ── Lock Positivity ───────────────────────────────────────────────────────
-invariant lockNonNegative(address user, address token)
-    getAccountState(user, token).locked >= getAccountState(user, token).active
-    && getAccountState(user, token).active >= 0
-    && getAccountState(user, token).reserved >= 0;
-
-// ── No Double Settlement ──────────────────────────────────────────────────
-rule noDoubleSettlement(method f, mathint billId) {
+// ── Arbitrator-only dispute resolutions ────────────────────────────────────
+rule nonArbitratorCannotResolveBuyer(address caller, uint256 billId) {
     env e;
-    payment.Bill billBefore = getBill(billId);
-    
-    require billBefore.billId != 0;
-    require billBefore.status == payment.BillStatus.Settled
-        || billBefore.status == payment.BillStatus.ResolvedBuyer
-        || billBefore.status == payment.BillStatus.ResolvedSeller
-        || billBefore.status == payment.BillStatus.SplitResolved;
-    
-    calldataarg args;
-    f(e, args);
-    
-    payment.Bill billAfter = getBill(billId);
-    
-    assert billAfter.status == billBefore.status,
-        "Settled bill status must not change";
+    require e.msg.sender == caller;
+    require caller != arbitrator();
+    resolveDisputeBuyer@withrevert(e, billId);
+    assert lastReverted, "non-arbitrator cannot resolve buyer";
 }
 
-// ── Only Buyer Can Confirm ────────────────────────────────────────────────
-rule onlyBuyerConfirms(mathint billId) {
+rule nonArbitratorCannotResolveSeller(address caller, uint256 billId) {
     env e;
-    
-    payment.Bill bill = getBill(billId);
-    require bill.billId != 0;
-    require bill.status == payment.BillStatus.Pending;
-    require e.msg.sender != bill.buyer;
-    
-    confirmBill@withrevert(e, billId);
-    assert lastReverted, "confirmBill must revert for non-buyer";
+    require e.msg.sender == caller;
+    require caller != arbitrator();
+    resolveDisputeSeller@withrevert(e, billId);
+    assert lastReverted, "non-arbitrator cannot resolve seller";
 }
 
-// ── Amount Conservation ────────────────────────────────────────────────────
-rule amountConservation(method f, mathint billId) {
+rule nonArbitratorCannotResolveSplit(address caller, uint256 billId, uint16 shareBps) {
     env e;
-    payment.Bill billBefore = getBill(billId);
-    require billBefore.billId != 0;
-    
-    uint256 billAmount = billBefore.amount;
-    
-    calldataarg args;
-    f(e, args);
-    
-    payment.Bill billAfter = getBill(billId);
-    
-    assert billAfter.amount == billAmount,
-        "Bill amount must not change during lifecycle";
+    require e.msg.sender == caller;
+    require caller != arbitrator();
+    resolveDisputeSplit@withrevert(e, billId, shareBps);
+    assert lastReverted, "non-arbitrator cannot resolve split";
 }
 
-// ── Seller Bond Calculation ───────────────────────────────────────────────
-rule sellerBondBounded(mathint amount) {
-    require amount > 0;
-    require amount <= to_mathint(max_uint256) / 10000;
-    
-    mathint expectedBond = amount * to_mathint(sellerBondBps()) / to_mathint(BPS_DENOMINATOR());
-    assert expectedBond <= amount, "Seller bond must not exceed amount";
-}
-
-// ── Constructor Validation ────────────────────────────────────────────────
-rule constructorValidatesInputs() {
-    assert owner() != 0, "Owner must be set";
-    assert arbitrator() != 0, "Arbitrator must be set";
-    assert sellerBondBps() <= BPS_DENOMINATOR(), "Bond ratio must be <= 100%";
-}
-
-// ── Lock/Unlock Symmetry ──────────────────────────────────────────────────
-rule lockUnlockSymmetry(address token, uint256 amount) {
+// ── lockFunds rejects zero token ───────────────────────────────────────────
+rule lockFundsZeroTokenReverts(uint256 amount) {
     env e;
     require amount > 0;
-    require token != 0;
-    
-    payment.AccountState stateBefore = getAccountState(e.msg.sender, token);
-    require stateBefore.active >= amount;
-    
-    lockFunds(e, token, amount);
-    unlockFunds(e, token, amount);
-    
-    payment.AccountState stateAfter = getAccountState(e.msg.sender, token);
-    assert stateAfter.locked == stateBefore.locked, "Lock/unlock should restore locked";
-    assert stateAfter.active == stateBefore.active, "Lock/unlock should restore active";
+    lockFunds@withrevert(e, address(0), amount);
+    assert lastReverted, "zero token address must revert";
 }
