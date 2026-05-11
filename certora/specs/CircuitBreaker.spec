@@ -12,11 +12,12 @@ methods {
     function admin() external returns (address) envfree;
     function isGlobalPaused() external returns (bool) envfree;
     function isAgentPaused(address) external returns (bool) envfree;
-    function setHumanApprovalThreshold(uint256) external => NONDET;
-    function pauseAgent(address, string) external => NONDET;
-    function resumeAgent(address) external => NONDET;
-    function emergencyPause(string) external => NONDET;
-    function emergencyResume() external => NONDET;
+    // Primary contract: `=> NONDET` was unused (Certora INFO on cloud runs).
+    function setHumanApprovalThreshold(uint256) external;
+    function pauseAgent(address, string) external;
+    function resumeAgent(address) external;
+    function emergencyPause(string) external;
+    function emergencyResume() external;
 }
 
 // ── Admin-only: agent pause / resume ───────────────────────────────────────
