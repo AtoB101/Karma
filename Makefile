@@ -1,4 +1,8 @@
-.PHONY: build test deploy demo simulate verify proof clean
+.PHONY: build test deploy demo simulate verify proof clean karma-bff-smoke
+
+karma-bff-smoke:
+	pip install -q -r requirements-bff.txt httpx
+	PYTHONPATH=. python3 -m unittest tests.test_karma_bff_smoke -v
 
 build:
 	forge build

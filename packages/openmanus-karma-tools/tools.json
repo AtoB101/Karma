@@ -1,0 +1,50 @@
+{
+  "version": "1",
+  "description": "Register these tools in OpenManus / LangGraph so the runtime calls Karma BFF instead of chain RPC directly.",
+  "base_url_env": "KARMA_BFF_URL",
+  "auth": {
+    "type": "hmac-sha256",
+    "headers": ["X-Karma-Timestamp", "X-Karma-Signature"],
+    "secret_env": "BFF_INTEGRATION_SECRET",
+    "body_canonical": "timestamp + '\\n' + raw_json_body_utf8"
+  },
+  "tools": [
+    {
+      "name": "karma_create_task",
+      "description": "Register a new task with trace_id for end-to-end correlation.",
+      "method": "POST",
+      "path": "/v1/integration/tasks",
+      "headers_required": ["Idempotency-Key", "X-Karma-Timestamp", "X-Karma-Signature", "Content-Type"]
+    },
+    {
+      "name": "karma_submit_order_snapshot",
+      "description": "Attach buyer-confirmed order snapshot JSON after user agrees in chat.",
+      "method": "POST",
+      "path": "/v1/integration/tasks/{trace_id}/order-snapshot"
+    },
+    {
+      "name": "karma_request_buyer_lock_page",
+      "description": "Get HTTPS URL for buyer wallet lock (no private keys in OpenManus).",
+      "method": "POST",
+      "path": "/v1/integration/tasks/{trace_id}/buyer-lock-intent"
+    },
+    {
+      "name": "karma_append_execution_receipt",
+      "description": "Append one ExecutionReceipt-shaped record after a tool step (only after EXECUTE_ALLOWED).",
+      "method": "POST",
+      "path": "/v1/integration/tasks/{trace_id}/receipts"
+    },
+    {
+      "name": "karma_build_evidence_and_settlement_plan",
+      "description": "Structural evidence bundle + offchain settlement plan mapping to NonCustodialAgentPayment.",
+      "method": "POST",
+      "path": "/v1/integration/tasks/{trace_id}/evidence/build"
+    },
+    {
+      "name": "karma_get_task_status",
+      "description": "Poll integration state + receipt count.",
+      "method": "GET",
+      "path": "/v1/integration/tasks/{trace_id}/status"
+    }
+  ]
+}

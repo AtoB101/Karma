@@ -85,6 +85,18 @@ python3 -m http.server 8787
 
 Optional Docker host: `docker compose -f docker/docker-compose.example.yml up` (see `docker/README.md`).
 
+### Karma BFF (OpenManus ↔ Karma bridge)
+
+Secure HMAC API + buyer lock page + chain webhook hook: `apps/karma_bff/` · `docs/KARMA_BFF_OPENMANUS_INTEGRATION.md` · `make karma-bff-smoke`
+
+```bash
+pip install -r requirements-bff.txt
+export BFF_INTEGRATION_SECRET="your-32+-char-secret"
+PYTHONPATH=. uvicorn apps.karma_bff.app.main:app --host 127.0.0.1 --port 8820
+```
+
+Docker: `docker compose -f docker/docker-compose.karma-bff.yml up --build`
+
 ---
 
 ## License and usage policy
