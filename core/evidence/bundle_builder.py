@@ -133,10 +133,12 @@ class EvidenceBundleBuilder:
         failed = sum(1 for r in receipts if r.status == ToolStatus.FAILURE)
         total_ms = sum(r.duration_ms for r in receipts)
 
-        receipt_hashes = [_sha256(r.model_dump()) for r in receipts]
+        receipt_hashes = [_sha256(r.model_dump(mode="json")) for r in receipts]
         receipt_ids = [r.receipt_id for r in receipts]
         final_result_hash = _sha256(final_result)
-        contract_hash = task_contract.contract_hash or _sha256(task_contract.model_dump())
+        contract_hash = task_contract.contract_hash or _sha256(
+            task_contract.model_dump(mode="json"),
+        )
 
         bundle_payload: dict[str, Any] = {
             "task_id": task_id,

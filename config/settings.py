@@ -2,6 +2,8 @@
 Karma — Global Settings (Public)
 """
 from functools import lru_cache
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,6 +16,10 @@ class Settings(BaseSettings):
     app_port: int = 8000
     app_secret_key: str = "change-me-in-production"
     debug: bool = False
+
+    # Comma-separated browser origins for CORS, e.g. "https://app.example.com,https://console.example.com".
+    # Empty in non-development environments defaults to no cross-origin allowance until configured.
+    cors_allow_origins: str = ""
 
     # Database
     database_url: str = "postgresql+asyncpg://karma:karma@localhost:5432/karma_db"
@@ -99,6 +105,25 @@ class Settings(BaseSettings):
 
     # Quote TTL in seconds
     settlement_ttl_seconds: int = 3600
+
+    @model_validator(mode="after")
+    def _reject_default_secrets_in_production(self) -> "Settings":
+        env = (self.app_env or "").lower()
+        if env in ("production", "prod"):
+            key = (self.app_secret_key or "").strip()
+            if not key or key == "change-me-in-production":
+                raise ValueError(
+                    "APP_SECRET_KEY must be set to a strong value when APP_ENV is production",
+                )
+        return self
+
+    def cors_allow_origins_list(self) -> list[str]:
+        raw = (self.cors_allow_origins or "").strip()
+        if raw:
+            return [o.strip() for o in raw.split(",") if o.strip()]
+        if (self.app_env or "").lower() in ("development", "dev", "local", "test"):
+            return ["*"]
+        return []
 
 
 @lru_cache()
