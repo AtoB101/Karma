@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
-from apps.karma_bff.app import config, services
+from apps.karma_bff.app import auth, config, services
 from apps.karma_bff.app.deps import read_hmac_json
+from apps.karma_bff.app.security_utils import assert_valid_trace_id
 
 _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
@@ -24,6 +26,13 @@ from trusted_agent_runtime.settlement_adapter import SettlementAdapter
 from trusted_agent_runtime.verification import verify_evidence_bundle_structural
 
 router = APIRouter(prefix="/v1/integration", tags=["integration"])
+
+
+def _tid(raw: str) -> str:
+    try:
+        return assert_valid_trace_id(raw)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 def _conn():
@@ -41,8 +50,8 @@ def _idem(
     route: str,
     fn,
 ) -> dict[str, Any]:
-    if not idem_key:
-        raise HTTPException(400, "Idempotency-Key header required")
+    if not idem_key or len(idem_key) < 8 or len(idem_key) > 256:
+        raise HTTPException(400, "Idempotency-Key required (8-256 chars)")
     conn = _conn()
     try:
         cached = services.idempotency_get(conn, idem_key)
@@ -60,10 +69,10 @@ def create_task(
     payload: dict[str, Any] = Depends(read_hmac_json),
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, Any]:
-    trace_id = str(payload.get("trace_id") or "").strip()
+    trace_id = _tid(str(payload.get("trace_id") or ""))
     task_id = str(payload.get("task_id") or "").strip()
-    if not trace_id or not task_id:
-        raise HTTPException(400, "trace_id and task_id required")
+    if not task_id:
+        raise HTTPException(400, "task_id required")
 
     def go(conn) -> dict[str, Any]:
         if services.task_get(conn, trace_id):
@@ -87,6 +96,8 @@ def order_snapshot(
     payload: dict[str, Any] = Depends(read_hmac_json),
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, Any]:
+    trace_id = _tid(trace_id)
+
     def go(conn) -> dict[str, Any]:
         row = services.task_get(conn, trace_id)
         if not row:
@@ -108,6 +119,7 @@ def buyer_lock_intent(
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, Any]:
     """Return buyer-facing lock page URL (wallet signing happens in browser, not here)."""
+    trace_id = _tid(trace_id)
 
     def go(conn) -> dict[str, Any]:
         row = services.task_get(conn, trace_id)
@@ -116,8 +128,9 @@ def buyer_lock_intent(
         if row["state"] != "SNAPSHOT_RECORDED":
             raise HTTPException(409, f"expected SNAPSHOT_RECORDED, got {row['state']}")
         services.task_set_state(conn, trace_id, "LOCK_PENDING")
-        base = config.public_base_url()
-        lock_url = f"{base}/public/lock/{trace_id}"
+        base = config.public_base_url().rstrip("/")
+        qid = urllib.parse.quote(trace_id, safe="")
+        lock_url = f"{base}/public/lock/{qid}"
         return {
             "ok": True,
             "trace_id": trace_id,
@@ -130,12 +143,48 @@ def buyer_lock_intent(
     return _idem(idempotency_key, f"buyer_lock_intent:{trace_id}", go)
 
 
+@router.get("/tasks/{trace_id}/status")
+def integration_task_status(
+    trace_id: str,
+    x_karma_timestamp: Annotated[str | None, Header(alias="X-Karma-Timestamp")] = None,
+    x_karma_signature: Annotated[str | None, Header(alias="X-Karma-Signature")] = None,
+) -> dict[str, Any]:
+    """Poll lifecycle + URLs. HMAC message is timestamp + '\\n' + empty body (no JSON)."""
+    trace_id = _tid(trace_id)
+    secret = config.integration_secret()
+    if not x_karma_timestamp or not x_karma_signature:
+        raise HTTPException(401, "missing X-Karma-Timestamp or X-Karma-Signature")
+    auth.verify_hmac_body(secret, x_karma_timestamp, b"", x_karma_signature)
+    conn = _conn()
+    try:
+        row = services.task_get(conn, trace_id)
+        if not row:
+            raise HTTPException(404, "task not found")
+        n = len(services.receipts_list(conn, trace_id))
+        base = config.public_base_url().rstrip("/")
+        qid = urllib.parse.quote(trace_id, safe="")
+        return {
+            "ok": True,
+            "trace_id": trace_id,
+            "state": row["state"],
+            "receipt_count": n,
+            "bill_id": row.get("bill_id"),
+            "buyer_lock_page_url": f"{base}/public/lock/{qid}",
+            "public_status_url": f"{base}/public/status/{qid}",
+            "task": _serialize_task(row),
+        }
+    finally:
+        conn.close()
+
+
 @router.post("/tasks/{trace_id}/receipts")
 def append_receipt(
     trace_id: str,
     payload: dict[str, Any] = Depends(read_hmac_json),
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, Any]:
+    trace_id = _tid(trace_id)
+
     def go(conn) -> dict[str, Any]:
         row = services.task_get(conn, trace_id)
         if not row:
@@ -169,6 +218,7 @@ def build_evidence(
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, Any]:
     """Build evidence bundle from stored receipts + public structural verify + settlement plan (offchain)."""
+    trace_id = _tid(trace_id)
 
     def go(conn) -> dict[str, Any]:
         row = services.task_get(conn, trace_id)
@@ -220,23 +270,10 @@ def build_evidence(
     return _idem(idempotency_key, f"evidence_build:{trace_id}", go)
 
 
-@router.get("/tasks/{trace_id}/status")
-def task_status(trace_id: str) -> dict[str, Any]:
-    conn = _conn()
-    try:
-        row = services.task_get(conn, trace_id)
-        if not row:
-            raise HTTPException(404, "task not found")
-        n = len(services.receipts_list(conn, trace_id))
-        return {"ok": True, "task": _serialize_task(row), "receipt_count": n}
-    finally:
-        conn.close()
-
-
 @router.post("/demo/seed")
 def demo_seed(payload: dict[str, Any] = Depends(read_hmac_json)) -> dict[str, Any]:
     """Optional: load demo bundle into a new trace for integration tests (still requires HMAC)."""
-    trace_id = str(payload.get("trace_id") or "trace-demo-seed")
+    trace_id = _tid(str(payload.get("trace_id") or "trace-demo-seed"))
     bundle = build_demo_offchain_bundle(trace_id=trace_id)
     task = bundle["task"]
     conn = _conn()

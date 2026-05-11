@@ -509,7 +509,11 @@ function bindActions() {
         .replace(/\/$/, "");
       if (linkEl) {
         if (base && r.ok) {
-          linkEl.innerHTML = `<a href="${base}/public/lock/${encodeURIComponent(tid)}" target="_blank" rel="noopener noreferrer">打开锁仓说明页</a>`;
+          const lockHref =
+            r.body && r.body.buyer_lock_page_url
+              ? String(r.body.buyer_lock_page_url)
+              : `${base}/public/lock/${encodeURIComponent(tid)}`;
+          linkEl.innerHTML = `<a href="${escapeHtml(lockHref)}" target="_blank" rel="noopener noreferrer">打开锁仓说明页</a>`;
         } else if (!base) {
           linkEl.textContent = "请在 karma-bff-config.js 中配置 KARMA_BFF_PUBLIC_BASE";
         } else {

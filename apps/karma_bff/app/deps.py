@@ -16,7 +16,17 @@ async def read_hmac_json(
     x_karma_signature: Annotated[str | None, Header(alias="X-Karma-Signature")] = None,
 ) -> dict[str, Any]:
     secret = config.integration_secret()
+    cl = request.headers.get("content-length")
+    if cl:
+        try:
+            n = int(cl)
+        except ValueError as e:
+            raise HTTPException(400, "invalid Content-Length") from e
+        if n > config.max_body_bytes():
+            raise HTTPException(413, "body too large")
     body_bytes = await request.body()
+    if len(body_bytes) > config.max_body_bytes():
+        raise HTTPException(413, "body too large")
     if not x_karma_timestamp or not x_karma_signature:
         raise HTTPException(401, "missing X-Karma-Timestamp or X-Karma-Signature")
     auth.verify_hmac_body(secret, x_karma_timestamp, body_bytes, x_karma_signature)
@@ -32,7 +42,17 @@ async def read_webhook_json(
     x_karma_signature: Annotated[str | None, Header(alias="X-Karma-Signature")] = None,
 ) -> dict[str, Any]:
     secret = config.webhook_secret()
+    cl = request.headers.get("content-length")
+    if cl:
+        try:
+            n = int(cl)
+        except ValueError as e:
+            raise HTTPException(400, "invalid Content-Length") from e
+        if n > config.max_body_bytes():
+            raise HTTPException(413, "body too large")
     body_bytes = await request.body()
+    if len(body_bytes) > config.max_body_bytes():
+        raise HTTPException(413, "body too large")
     if not x_karma_timestamp or not x_karma_signature:
         raise HTTPException(401, "missing X-Karma-Timestamp or X-Karma-Signature")
     auth.verify_hmac_body(secret, x_karma_timestamp, body_bytes, x_karma_signature)

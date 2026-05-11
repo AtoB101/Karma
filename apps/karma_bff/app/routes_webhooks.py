@@ -9,16 +9,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from apps.karma_bff.app import services
 from apps.karma_bff.app.deps import read_webhook_json
 from apps.karma_bff.app.routes_integration import _conn
+from apps.karma_bff.app.security_utils import assert_valid_trace_id
 
 router = APIRouter(prefix="/v1/webhooks", tags=["webhooks"])
 
 
 @router.post("/chain")
 def chain_event(payload: dict[str, Any] = Depends(read_webhook_json)) -> dict[str, Any]:
-    trace_id = str(payload.get("trace_id") or "").strip()
+    try:
+        trace_id = assert_valid_trace_id(str(payload.get("trace_id") or ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     event = str(payload.get("event") or "").strip()
-    if not trace_id or not event:
-        raise HTTPException(400, "trace_id and event required")
+    if not event:
+        raise HTTPException(400, "event required")
     conn = _conn()
     try:
         row = services.task_get(conn, trace_id)

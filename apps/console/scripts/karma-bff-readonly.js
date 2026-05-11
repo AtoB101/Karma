@@ -49,12 +49,13 @@
         if (link) {
           var b = base();
           if (b && r.ok && r.body && !r.body.error) {
+            var href =
+              (r.body.buyer_lock_page_url && String(r.body.buyer_lock_page_url)) ||
+              b + "/public/lock/" + encodeURIComponent(tid);
             link.innerHTML =
               '<a href="' +
-              b +
-              "/public/lock/" +
-              encodeURIComponent(tid) +
-              '" target="_blank" rel="noopener noreferrer">买家锁仓说明页</a>";
+              href.replace(/"/g, "&quot;") +
+              '" target="_blank" rel="noopener noreferrer">买家锁仓说明页</a>';
           } else if (b) {
             link.textContent = "状态异常或 BFF 不可达";
           } else {

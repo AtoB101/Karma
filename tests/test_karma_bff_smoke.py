@@ -23,6 +23,12 @@ def _sign(secret: str, body: dict) -> tuple[str, str, bytes]:
     return ts, sig, raw
 
 
+def _sign_empty(secret: str) -> tuple[str, str]:
+    ts = str(int(time.time()))
+    sig = hmac.new(secret.encode("utf-8"), ts.encode("utf-8") + b"\n", hashlib.sha256).hexdigest()
+    return ts, sig
+
+
 @unittest.skipUnless(TestClient is not None, "fastapi not installed")
 class KarmaBffSmokeTests(unittest.TestCase):
     @classmethod
@@ -104,6 +110,34 @@ class KarmaBffSmokeTests(unittest.TestCase):
         )
         self.assertEqual(r4.status_code, 200, r4.text)
         self.assertEqual(r4.json()["state"], "EXECUTE_ALLOWED")
+
+        ts5, sig5 = _sign_empty(secret)
+        r5 = self.client.get(
+            "/v1/integration/tasks/tr-smoke-1/status",
+            headers={"X-Karma-Timestamp": ts5, "X-Karma-Signature": sig5},
+        )
+        self.assertEqual(r5.status_code, 200, r5.text)
+        j5 = r5.json()
+        self.assertEqual(j5["trace_id"], "tr-smoke-1")
+        self.assertEqual(j5["state"], "EXECUTE_ALLOWED")
+        self.assertIn("buyer_lock_page_url", j5)
+        self.assertIn("/public/lock/", j5["buyer_lock_page_url"])
+
+        r6 = self.client.get("/public/status/tr-smoke-1")
+        self.assertEqual(r6.status_code, 200, r6.text)
+        j6 = r6.json()
+        self.assertEqual(j6["receipt_count"], 0)
+        self.assertIn("buyer_lock_page_url", j6)
+        self.assertTrue(j6["buyer_lock_page_url"].endswith("/public/lock/tr-smoke-1"))
+
+        r7 = self.client.get("/public/status/not%20valid!!")
+        self.assertEqual(r7.status_code, 400)
+
+        r8 = self.client.get("/public/lock/tr-smoke-1")
+        self.assertEqual(r8.status_code, 200)
+        self.assertIn(b"<!doctype html", r8.content.lower())
+        self.assertIn(b"EXECUTE_ALLOWED", r8.content)
+        self.assertIn(b"tr-smoke-1", r8.content)
 
 
 if __name__ == "__main__":

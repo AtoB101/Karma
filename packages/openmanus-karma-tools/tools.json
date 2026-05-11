@@ -42,9 +42,17 @@
     },
     {
       "name": "karma_get_task_status",
-      "description": "Poll integration state + receipt count.",
+      "description": "Poll integration state + receipt count + public URLs (HMAC). Message: timestamp + '\\n' + empty body.",
       "method": "GET",
-      "path": "/v1/integration/tasks/{trace_id}/status"
+      "path": "/v1/integration/tasks/{trace_id}/status",
+      "headers_required": ["X-Karma-Timestamp", "X-Karma-Signature"],
+      "hmac_empty_body": true
+    },
+    {
+      "name": "karma_get_buyer_public_status",
+      "description": "Read-only JSON for Web/Bot UIs (no HMAC). Same core fields as public status.",
+      "method": "GET",
+      "path": "/public/status/{trace_id}"
     }
   ]
 }
