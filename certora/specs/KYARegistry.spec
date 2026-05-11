@@ -15,7 +15,8 @@ methods {
     function MIN_STAKE() external returns (uint256) envfree;
     // Payable on-chain; CVL methods entry omits `payable` keyword for broader Prover compatibility.
     function registerDID(address, bytes32, uint256) external returns (bytes32) => NONDET;
-    function verifyDID(address) external returns (bool, address, uint256) envfree;
+    // Not envfree: implementation uses block.timestamp (validUntil vs now).
+    function verifyDID(address) external returns (bool, address, uint256);
     function revokeDID(address) external => NONDET;
     function updatePermissions(address, bytes32) external => NONDET;
     function withdrawStuckETH(address, uint256) external => NONDET;
