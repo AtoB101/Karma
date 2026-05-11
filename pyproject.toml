@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "karma-trust-protocol"
@@ -74,8 +74,9 @@ karma-worker  = "worker.tasks:app"
 [tool.setuptools.packages.find]
 where = ["."]
 include = [
-    "agents*", "api*", "config*", "core*",
+    "agents*", "api*", "apps*", "config*", "core*",
     "db*", "sdk*", "services*", "worker*",
+    "trusted_agent_runtime*",
 ]
 
 [tool.pytest.ini_options]

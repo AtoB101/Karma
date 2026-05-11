@@ -48,9 +48,15 @@ def decode_access_token(token: str) -> dict:
     try:
         return jwt.decode(token, settings.app_secret_key, algorithms=[ALGORITHM])
     except JWTError as e:
+        env = (settings.app_env or "").lower()
+        detail = (
+            f"Invalid token: {e}"
+            if env in ("development", "dev", "local", "test")
+            else "Invalid or expired token"
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {e}",
+            detail=detail,
             headers={"WWW-Authenticate": "Bearer"},
         )
 

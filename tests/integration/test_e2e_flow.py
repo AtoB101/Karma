@@ -101,7 +101,7 @@ async def mock_qc_tool(data: dict) -> dict:
 # Task runner
 # ---------------------------------------------------------------------------
 
-async def test_task_runner(contract: TaskContract, agent: KarmaOpenManusAgent):
+async def caption_e2e_runner(contract: TaskContract, agent: KarmaOpenManusAgent):
     results = []
     for i in range(1, 4):
         caption, _ = await agent.run_tool(
@@ -148,7 +148,7 @@ async def test_full_langgraph_task_flow():
         deadline_at=datetime.utcnow() + timedelta(hours=1),
     )
 
-    graph = build_karma_graph(settler, verifier, builder, agent, test_task_runner)
+    graph = build_karma_graph(settler, verifier, builder, agent, caption_e2e_runner)
 
     initial_state: KarmaTaskState = {
         "task_id":             contract.task_id,
