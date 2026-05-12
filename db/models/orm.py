@@ -149,6 +149,54 @@ class SettlementModel(Base):
 
 
 # ---------------------------------------------------------------------------
+# Capacity & Voucher
+# ---------------------------------------------------------------------------
+
+class CapacityModel(Base):
+    __tablename__ = "capacity"
+
+    identity_id:                  Mapped[str]      = mapped_column(String(64), primary_key=True)
+    total_locked_usdc:            Mapped[float]    = mapped_column(Float, default=0.0)
+    total_bill_credits:           Mapped[float]    = mapped_column(Float, default=0.0)
+    available_credits:            Mapped[float]    = mapped_column(Float, default=0.0)
+    reserved_credits:             Mapped[float]    = mapped_column(Float, default=0.0)
+    in_progress_credits:          Mapped[float]    = mapped_column(Float, default=0.0)
+    confirmed_progress_credits:   Mapped[float]    = mapped_column(Float, default=0.0)
+    disputed_credits:             Mapped[float]    = mapped_column(Float, default=0.0)
+    pending_settlement_credits:   Mapped[float]    = mapped_column(Float, default=0.0)
+    burned_credits:               Mapped[float]    = mapped_column(Float, default=0.0)
+    released_credits:             Mapped[float]    = mapped_column(Float, default=0.0)
+    updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class VoucherModel(Base):
+    __tablename__ = "vouchers"
+
+    voucher_id:                 Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    buyer_identity_id:          Mapped[str]      = mapped_column(String(64), nullable=False)
+    seller_identity_id:         Mapped[str]      = mapped_column(String(64), nullable=False)
+    amount:                     Mapped[float]    = mapped_column(Float, nullable=False)
+    currency:                   Mapped[str]      = mapped_column(String(8), default="USDC")
+    bill_credit_amount:         Mapped[float]    = mapped_column(Float, nullable=False)
+    task_type:                  Mapped[str]      = mapped_column(String(64), nullable=False)
+    task_description_hash:      Mapped[str]      = mapped_column(String(128), nullable=False)
+    progress_rule_hash:         Mapped[str]      = mapped_column(String(128), nullable=False)
+    evidence_requirement_hash:  Mapped[str]      = mapped_column(String(128), nullable=False)
+    expiry_time:                Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    nonce:                      Mapped[str]      = mapped_column(String(128), nullable=False)
+    buyer_signature:            Mapped[str]      = mapped_column(Text, nullable=False)
+    status:                     Mapped[str]      = mapped_column(String(16), nullable=False, default="created")
+    buyer_sub_identity_id:      Mapped[str|None] = mapped_column(String(64))
+    seller_sub_identity_id:     Mapped[str|None] = mapped_column(String(64))
+    accepted_at:                Mapped[datetime|None] = mapped_column(DateTime)
+    created_at:                 Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("buyer_identity_id", "nonce", name="uq_voucher_buyer_nonce"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Verification Result
 # ---------------------------------------------------------------------------
 

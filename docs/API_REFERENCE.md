@@ -175,6 +175,47 @@ CREATED → LOCKED → RUNNING → SUBMITTED → VERIFYING → VERIFIED → RELE
 
 ---
 
+## Capacity & Vouchers (P0 Open Flow)
+
+### `GET /v1/capacity/{identity_id}`
+Get identity capacity snapshot. If not initialized, returns zeroed capacity.
+
+### `POST /v1/capacity/{identity_id}/lock`
+Lock USDC-equivalent amount and mint 1:1 bill credits into `available_credits`.
+
+**Request**
+```json
+{ "amount": 200 }
+```
+
+### `POST /v1/capacity/{identity_id}/release`
+Release unused `available_credits` and reduce locked capacity.
+
+**Request**
+```json
+{ "amount": 50 }
+```
+
+### `POST /v1/vouchers`
+Create one-time Authorization Voucher. Buyer must have sufficient available credits.
+
+### `POST /v1/vouchers/{voucher_id}/verify`
+Seller-side verification entrypoint:
+- authentic / expired / used
+- seller & amount match
+- buyer capacity still sufficient
+- whether task can start now
+
+### `POST /v1/vouchers/{voucher_id}/accept`
+Seller accepts voucher; system atomically reserves credits:
+- `available_credits -= bill_credit_amount`
+- `reserved_credits += bill_credit_amount`
+
+### `GET /v1/vouchers/{voucher_id}`
+Get voucher details and status.
+
+---
+
 ## Reputation
 
 ### `GET /v1/reputation/{agent_id}`

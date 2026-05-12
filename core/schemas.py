@@ -70,6 +70,15 @@ class VerificationDecision(str, Enum):
     DISPUTE = "dispute"  # Route to arbitration
 
 
+class VoucherStatus(str, Enum):
+    """Lifecycle of an authorization voucher."""
+    CREATED = "created"
+    ACCEPTED = "accepted"
+    USED = "used"
+    EXPIRED = "expired"
+    CANCELLED = "cancelled"
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------
@@ -226,6 +235,70 @@ class SettlementState(BaseModel):
     evidence_bundle_hash: Optional[str] = Field(default=None, description="keccak256 of evidence bundle submitted on-chain")
     onchain_status: Optional[str] = Field(default=None, description="pending | confirmed | failed")
     quote_id: Optional[str] = Field(default=None, description="EIP-712 quoteId used in settlement tx")
+
+
+# ---------------------------------------------------------------------------
+# Capacity & Voucher
+# ---------------------------------------------------------------------------
+
+class CapacityState(BaseModel):
+    """USDC-anchored bill credit capacity for one identity."""
+    identity_id: str
+    total_locked_usdc: float = 0.0
+    total_bill_credits: float = 0.0
+    available_credits: float = 0.0
+    reserved_credits: float = 0.0
+    in_progress_credits: float = 0.0
+    confirmed_progress_credits: float = 0.0
+    disputed_credits: float = 0.0
+    pending_settlement_credits: float = 0.0
+    burned_credits: float = 0.0
+    released_credits: float = 0.0
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    def active_credits(self) -> float:
+        return (
+            self.available_credits
+            + self.reserved_credits
+            + self.in_progress_credits
+            + self.confirmed_progress_credits
+            + self.disputed_credits
+            + self.pending_settlement_credits
+        )
+
+
+class AuthorizationVoucher(BaseModel):
+    """One-time buyer authorization for a seller-bound task."""
+    voucher_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    buyer_identity_id: str
+    seller_identity_id: str
+    amount: float = Field(gt=0.0)
+    currency: str = Field(default="USDC")
+    bill_credit_amount: float = Field(gt=0.0)
+    task_type: str
+    task_description_hash: str
+    progress_rule_hash: str
+    evidence_requirement_hash: str
+    expiry_time: datetime
+    nonce: str
+    buyer_signature: str
+    status: VoucherStatus = VoucherStatus.CREATED
+    buyer_sub_identity_id: Optional[str] = None
+    seller_sub_identity_id: Optional[str] = None
+    accepted_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class VoucherVerificationResult(BaseModel):
+    voucher_id: str
+    is_authentic: bool
+    is_expired: bool
+    is_used: bool
+    amount_matches: bool
+    seller_matches: bool
+    has_sufficient_capacity: bool
+    can_start: bool
+    status: VoucherStatus
 
 
 # ---------------------------------------------------------------------------

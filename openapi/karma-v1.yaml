@@ -159,6 +159,169 @@ paths:
                 required: [alerts]
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /v1/capacity/{identityId}:
+    get:
+      summary: Get identity capacity ledger
+      operationId: getCapacity
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Capacity snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapacityState'
+  /v1/capacity/{identityId}/lock:
+    post:
+      summary: Lock USDC and mint 1:1 bill credits
+      operationId: lockCapacity
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AmountRequest'
+      responses:
+        '200':
+          description: Updated capacity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapacityState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /v1/capacity/{identityId}/release:
+    post:
+      summary: Release unused available credits
+      operationId: releaseCapacity
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AmountRequest'
+      responses:
+        '200':
+          description: Updated capacity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapacityState'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/vouchers:
+    post:
+      summary: Create authorization voucher
+      operationId: createVoucher
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVoucherRequest'
+      responses:
+        '201':
+          description: Voucher created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationVoucher'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/vouchers/{voucherId}:
+    get:
+      summary: Get voucher by ID
+      operationId: getVoucher
+      parameters:
+        - in: path
+          name: voucherId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Voucher
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationVoucher'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/vouchers/{voucherId}/verify:
+    post:
+      summary: Verify voucher validity and startability
+      operationId: verifyVoucher
+      parameters:
+        - in: path
+          name: voucherId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyVoucherRequest'
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoucherVerificationResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/vouchers/{voucherId}/accept:
+    post:
+      summary: Seller accepts voucher and reserves credits
+      operationId: acceptVoucher
+      parameters:
+        - in: path
+          name: voucherId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptVoucherRequest'
+      responses:
+        '200':
+          description: Accepted voucher
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthorizationVoucher'
+        '403':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
 components:
   securitySchemes:
     bearerAuth:
@@ -220,6 +383,206 @@ components:
           type: string
           format: date-time
       required: [intentId, merchantRef, status, createdAt, updatedAt, payer, payee, token, amount, chainId, policyId, expiresAt]
+    AmountRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          exclusiveMinimum: 0
+      required: [amount]
+    CapacityState:
+      type: object
+      properties:
+        identity_id:
+          type: string
+        total_locked_usdc:
+          type: number
+        total_bill_credits:
+          type: number
+        available_credits:
+          type: number
+        reserved_credits:
+          type: number
+        in_progress_credits:
+          type: number
+        confirmed_progress_credits:
+          type: number
+        disputed_credits:
+          type: number
+        pending_settlement_credits:
+          type: number
+        burned_credits:
+          type: number
+        released_credits:
+          type: number
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - identity_id
+        - total_locked_usdc
+        - total_bill_credits
+        - available_credits
+        - reserved_credits
+        - in_progress_credits
+        - confirmed_progress_credits
+        - disputed_credits
+        - pending_settlement_credits
+        - burned_credits
+        - released_credits
+        - updated_at
+    CreateVoucherRequest:
+      type: object
+      properties:
+        buyer_identity_id:
+          type: string
+        seller_identity_id:
+          type: string
+        amount:
+          type: number
+          exclusiveMinimum: 0
+        currency:
+          type: string
+          default: USDC
+        bill_credit_amount:
+          type: number
+          exclusiveMinimum: 0
+        task_type:
+          type: string
+        task_description_hash:
+          type: string
+        progress_rule_hash:
+          type: string
+        evidence_requirement_hash:
+          type: string
+        expiry_time:
+          type: string
+          format: date-time
+        nonce:
+          type: string
+        buyer_signature:
+          type: string
+        buyer_sub_identity_id:
+          type: string
+        seller_sub_identity_id:
+          type: string
+      required:
+        - buyer_identity_id
+        - seller_identity_id
+        - amount
+        - bill_credit_amount
+        - task_type
+        - task_description_hash
+        - progress_rule_hash
+        - evidence_requirement_hash
+        - expiry_time
+        - nonce
+        - buyer_signature
+    AuthorizationVoucher:
+      type: object
+      properties:
+        voucher_id:
+          type: string
+        buyer_identity_id:
+          type: string
+        seller_identity_id:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+        bill_credit_amount:
+          type: number
+        task_type:
+          type: string
+        task_description_hash:
+          type: string
+        progress_rule_hash:
+          type: string
+        evidence_requirement_hash:
+          type: string
+        expiry_time:
+          type: string
+          format: date-time
+        nonce:
+          type: string
+        buyer_signature:
+          type: string
+        status:
+          type: string
+          enum: [created, accepted, used, expired, cancelled]
+        buyer_sub_identity_id:
+          type: string
+        seller_sub_identity_id:
+          type: string
+        accepted_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - voucher_id
+        - buyer_identity_id
+        - seller_identity_id
+        - amount
+        - currency
+        - bill_credit_amount
+        - task_type
+        - task_description_hash
+        - progress_rule_hash
+        - evidence_requirement_hash
+        - expiry_time
+        - nonce
+        - buyer_signature
+        - status
+        - created_at
+    VerifyVoucherRequest:
+      type: object
+      properties:
+        seller_identity_id:
+          type: string
+        expected_amount:
+          type: number
+      required: [seller_identity_id]
+    AcceptVoucherRequest:
+      type: object
+      properties:
+        seller_identity_id:
+          type: string
+      required: [seller_identity_id]
+    VoucherVerificationResult:
+      type: object
+      properties:
+        voucher_id:
+          type: string
+        is_authentic:
+          type: boolean
+        is_expired:
+          type: boolean
+        is_used:
+          type: boolean
+        amount_matches:
+          type: boolean
+        seller_matches:
+          type: boolean
+        has_sufficient_capacity:
+          type: boolean
+        can_start:
+          type: boolean
+        status:
+          type: string
+          enum: [created, accepted, used, expired, cancelled]
+      required:
+        - voucher_id
+        - is_authentic
+        - is_expired
+        - is_used
+        - amount_matches
+        - seller_matches
+        - has_sufficient_capacity
+        - can_start
+        - status
     EvidenceObject:
       type: object
       properties:

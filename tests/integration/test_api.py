@@ -229,6 +229,93 @@ async def test_settlement_lifecycle(client: AsyncClient):
     assert resp.json()["escrow_amount"] == 100.0
 
 
+@pytest.mark.asyncio
+async def test_settlement_invalid_transition_rejected(client: AsyncClient):
+    task_id = "task-settle-invalid-001"
+    await client.post("/v1/settlement/create", json={
+        "task_id": task_id,
+        "client_agent_id": "client-001",
+        "escrow_amount": 10.0,
+        "currency": "USD",
+    })
+
+    # created -> submitted is invalid
+    resp = await client.post(f"/v1/settlement/{task_id}/submit", json={})
+    assert resp.status_code == 409
+    assert "invalid status transition" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Capacity & Vouchers
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_capacity_lock_and_release(client: AsyncClient):
+    identity = "buyer-cap-001"
+
+    lock = await client.post(f"/v1/capacity/{identity}/lock", json={"amount": 120})
+    assert lock.status_code == 200
+    payload = lock.json()
+    assert payload["total_locked_usdc"] == 120
+    assert payload["available_credits"] == 120
+    assert payload["total_bill_credits"] == 120
+
+    release = await client.post(f"/v1/capacity/{identity}/release", json={"amount": 20})
+    assert release.status_code == 200
+    payload = release.json()
+    assert payload["total_locked_usdc"] == 100
+    assert payload["available_credits"] == 100
+    assert payload["released_credits"] == 20
+
+
+@pytest.mark.asyncio
+async def test_voucher_accept_reserves_capacity(client: AsyncClient):
+    buyer = "buyer-voucher-001"
+    seller = "seller-voucher-001"
+    await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 200})
+
+    create = await client.post("/v1/vouchers", json={
+        "buyer_identity_id": buyer,
+        "seller_identity_id": seller,
+        "amount": 150,
+        "currency": "USDC",
+        "bill_credit_amount": 150,
+        "task_type": "api-call",
+        "task_description_hash": "a" * 64,
+        "progress_rule_hash": "b" * 64,
+        "evidence_requirement_hash": "c" * 64,
+        "expiry_time": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+        "nonce": "nonce-001",
+        "buyer_signature": "sig-001",
+    })
+    assert create.status_code == 201
+    voucher_id = create.json()["voucher_id"]
+
+    verify = await client.post(f"/v1/vouchers/{voucher_id}/verify", json={
+        "seller_identity_id": seller,
+        "expected_amount": 150,
+    })
+    assert verify.status_code == 200
+    assert verify.json()["can_start"] is True
+
+    accept = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={
+        "seller_identity_id": seller
+    })
+    assert accept.status_code == 200
+    assert accept.json()["status"] == "accepted"
+
+    cap = await client.get(f"/v1/capacity/{buyer}")
+    assert cap.status_code == 200
+    body = cap.json()
+    assert body["available_credits"] == 50
+    assert body["reserved_credits"] == 150
+
+    second_accept = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={
+        "seller_identity_id": seller
+    })
+    assert second_accept.status_code == 409
+
+
 # ---------------------------------------------------------------------------
 # Reputation
 # ---------------------------------------------------------------------------

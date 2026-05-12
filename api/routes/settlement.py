@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import SettlementState, TaskStatus
+from core.settlement.engine import can_transition
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
 
@@ -39,6 +40,9 @@ async def create_settlement(body: CreateSettlementRequest, db: AsyncSession = De
         contract_address=_s.karma_engine_address or None,
     )
     store = PostgresSettlementStore(db)
+    existing = await store.get(body.task_id)
+    if existing:
+        raise HTTPException(409, f"Settlement already exists for task {body.task_id}")
     await store.save(state)
     return state
 
@@ -49,6 +53,7 @@ async def lock_settlement(task_id: str, body: LockRequest, db: AsyncSession = De
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    _assert_transition(state.status, TaskStatus.LOCKED)
     state.status = TaskStatus.LOCKED
     state.worker_agent_id = body.worker_agent_id
     await store.save(state)
@@ -61,6 +66,7 @@ async def start_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    _assert_transition(state.status, TaskStatus.RUNNING)
     state.status = TaskStatus.RUNNING
     await store.save(state)
     return state
@@ -72,6 +78,7 @@ async def submit_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    _assert_transition(state.status, TaskStatus.SUBMITTED)
     state.status = TaskStatus.SUBMITTED
     await store.save(state)
     return state
@@ -83,6 +90,7 @@ async def fail_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    _assert_transition(state.status, TaskStatus.FAILED)
     state.status = TaskStatus.FAILED
     await store.save(state)
     return state
@@ -95,3 +103,11 @@ async def get_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
     if not state:
         raise HTTPException(404)
     return state
+
+
+def _assert_transition(current: TaskStatus, target: TaskStatus) -> None:
+    if not can_transition(current, target):
+        raise HTTPException(
+            409,
+            f"invalid status transition: {current.value} -> {target.value}",
+        )
