@@ -26,6 +26,7 @@ from core.schemas import (
     ResponsibilityEdgeType,
     ResponsibilityBatchScanRun,
     ResponsibilityBatchScanResult,
+    ResponsibilityQueueMaintenanceTickResult,
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
     ResponsibilityScanQueueStats,
@@ -34,6 +35,7 @@ from core.schemas import (
     ResponsibilityRiskSignal,
     ResponsibilityScanMode,
     ResponsibilityScoreSummary,
+    ResponsibilityWorkerPullExecuteResult,
     TaskTemporalConsistencyReport,
     ReputationSnapshot,
     SettlementState,
@@ -692,6 +694,52 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return ResponsibilityRecoverStaleRunsResult(**resp.json())
+
+    async def pull_execute_responsibility_batch_scan(
+        self,
+        *,
+        runner_identity_id: str,
+        lease_seconds: int = 300,
+        include_failed: bool = True,
+        force_execute: bool = False,
+    ) -> ResponsibilityWorkerPullExecuteResult:
+        """POST /v1/responsibility/scan-runs/worker/pull-execute"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/worker/pull-execute",
+                json={
+                    "runner_identity_id": runner_identity_id,
+                    "lease_seconds": lease_seconds,
+                    "include_failed": include_failed,
+                    "force_execute": force_execute,
+                },
+            )
+            resp.raise_for_status()
+            return ResponsibilityWorkerPullExecuteResult(**resp.json())
+
+    async def run_responsibility_scan_queue_maintenance_tick(
+        self,
+        *,
+        runner_identity_id: str,
+        recover_limit: int = 100,
+        max_claim_execute: int = 5,
+        lease_seconds: int = 300,
+        include_failed: bool = True,
+    ) -> ResponsibilityQueueMaintenanceTickResult:
+        """POST /v1/responsibility/scan-runs/maintenance/tick"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/maintenance/tick",
+                json={
+                    "runner_identity_id": runner_identity_id,
+                    "recover_limit": recover_limit,
+                    "max_claim_execute": max_claim_execute,
+                    "lease_seconds": lease_seconds,
+                    "include_failed": include_failed,
+                },
+            )
+            resp.raise_for_status()
+            return ResponsibilityQueueMaintenanceTickResult(**resp.json())
 
     async def execute_responsibility_batch_scan(
         self,

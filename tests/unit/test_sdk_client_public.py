@@ -666,6 +666,54 @@ async def test_responsibility_sdk_methods():
             "recovered_scan_ids": ["scan-1"],
             "generated_at": now,
         },
+        ("POST", f"{base}/v1/responsibility/scan-runs/worker/pull-execute"): {
+            "runner_identity_id": "runner-1",
+            "outcome": "completed",
+            "claimed_scan_id": "scan-1",
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "claimed_by": None,
+                "claimed_at": None,
+                "lease_expires_at": None,
+                "last_heartbeat_at": None,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
+                "cancelled_at": None,
+                "cancel_reason": None,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "message": "scan run executed",
+            "generated_at": now,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/maintenance/tick"): {
+            "runner_identity_id": "runner-ops",
+            "recover_limit": 100,
+            "max_claim_execute": 5,
+            "recovered_count": 1,
+            "recovered_scan_ids": ["scan-0"],
+            "claimed_count": 1,
+            "executed_count": 1,
+            "failed_count": 0,
+            "executed_scan_ids": ["scan-1"],
+            "failed_scan_ids": [],
+            "generated_at": now,
+        },
         ("POST", f"{base}/v1/responsibility/scan-runs/scan-1/execute"): {
             "run": {
                 "scan_id": "scan-1",
@@ -885,6 +933,15 @@ async def test_responsibility_sdk_methods():
     assert queue_stats.total_runs == 5
     recovered_stale = await client.recover_stale_responsibility_batch_scans(limit=100)
     assert recovered_stale.recovered_scan_ids == ["scan-1"]
+    pull_executed = await client.pull_execute_responsibility_batch_scan(
+        runner_identity_id="runner-1",
+        include_failed=True,
+    )
+    assert pull_executed.outcome.value == "completed"
+    maintenance = await client.run_responsibility_scan_queue_maintenance_tick(
+        runner_identity_id="runner-ops",
+    )
+    assert maintenance.executed_count == 1
     heartbeated = await client.heartbeat_responsibility_batch_scan(
         "scan-1",
         runner_identity_id="runner-1",

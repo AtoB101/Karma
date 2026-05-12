@@ -26,12 +26,15 @@ from core.schemas import (
     ResponsibilityScanExecutionMode,
     ResponsibilityScanQueueStats,
     ResponsibilityRecoverStaleRunsResult,
+    ResponsibilityQueueMaintenanceTickResult,
     ResponsibilityScanMode,
     ResponsibilityScanRunStatus,
     ResponsibilitySignalSeverity,
     ResponsibilitySignalType,
     ResponsibilityScoreBand,
     ResponsibilityScoreSummary,
+    ResponsibilityWorkerPullExecuteOutcome,
+    ResponsibilityWorkerPullExecuteResult,
     ResponsibilityPublicRiskModel,
     TaskTemporalConsistencyReport,
     TemporalConsistencyIssue,
@@ -605,6 +608,110 @@ async def recover_stale_scan_runs(
         recovered_count=len(recovered_scan_ids),
         recovered_scan_ids=recovered_scan_ids,
         generated_at=now,
+    )
+
+
+async def pull_and_execute_scan_run(
+    *,
+    db: AsyncSession,
+    runner_identity_id: str,
+    lease_seconds: int = DEFAULT_SCAN_LEASE_SECONDS,
+    include_failed: bool = True,
+    force_execute: bool = False,
+) -> ResponsibilityWorkerPullExecuteResult:
+    claimed = await claim_next_scan_run(
+        db=db,
+        runner_identity_id=runner_identity_id,
+        lease_seconds=lease_seconds,
+        include_failed=include_failed,
+    )
+    now = datetime.utcnow()
+    if not claimed:
+        return ResponsibilityWorkerPullExecuteResult(
+            runner_identity_id=runner_identity_id,
+            outcome=ResponsibilityWorkerPullExecuteOutcome.IDLE,
+            message="no claimable scan run available",
+            generated_at=now,
+        )
+
+    try:
+        executed = await execute_scan_run(
+            db=db,
+            scan_id=claimed.scan_id,
+            runner_identity_id=runner_identity_id,
+            lease_seconds=lease_seconds,
+            force=force_execute,
+            require_failed=False,
+        )
+        return ResponsibilityWorkerPullExecuteResult(
+            runner_identity_id=runner_identity_id,
+            outcome=ResponsibilityWorkerPullExecuteOutcome.COMPLETED,
+            claimed_scan_id=claimed.scan_id,
+            run=executed.run,
+            message="scan run executed",
+            generated_at=now,
+        )
+    except Exception as exc:
+        run_result = await get_batch_scan_result(db=db, scan_id=claimed.scan_id, findings_limit=1)
+        return ResponsibilityWorkerPullExecuteResult(
+            runner_identity_id=runner_identity_id,
+            outcome=ResponsibilityWorkerPullExecuteOutcome.FAILED,
+            claimed_scan_id=claimed.scan_id,
+            run=run_result.run if run_result else None,
+            message=str(exc),
+            generated_at=now,
+        )
+
+
+async def run_scan_queue_maintenance_tick(
+    *,
+    db: AsyncSession,
+    runner_identity_id: str,
+    recover_limit: int = 100,
+    max_claim_execute: int = 5,
+    lease_seconds: int = DEFAULT_SCAN_LEASE_SECONDS,
+    include_failed: bool = True,
+) -> ResponsibilityQueueMaintenanceTickResult:
+    recover_result = await recover_stale_scan_runs(db=db, limit=recover_limit)
+    max_jobs = max(0, min(max_claim_execute, 100))
+
+    claimed_count = 0
+    executed_count = 0
+    failed_count = 0
+    executed_scan_ids: list[str] = []
+    failed_scan_ids: list[str] = []
+
+    for _ in range(max_jobs):
+        pull_result = await pull_and_execute_scan_run(
+            db=db,
+            runner_identity_id=runner_identity_id,
+            lease_seconds=lease_seconds,
+            include_failed=include_failed,
+            force_execute=False,
+        )
+        if pull_result.outcome == ResponsibilityWorkerPullExecuteOutcome.IDLE:
+            break
+        claimed_count += 1
+        if pull_result.claimed_scan_id:
+            if pull_result.outcome == ResponsibilityWorkerPullExecuteOutcome.COMPLETED:
+                executed_count += 1
+                executed_scan_ids.append(pull_result.claimed_scan_id)
+            else:
+                failed_count += 1
+                failed_scan_ids.append(pull_result.claimed_scan_id)
+
+    return ResponsibilityQueueMaintenanceTickResult(
+        runner_identity_id=runner_identity_id,
+        recover_limit=recover_result.limit,
+        max_claim_execute=max_jobs,
+        recovered_count=recover_result.recovered_count,
+        recovered_scan_ids=recover_result.recovered_scan_ids,
+        claimed_count=claimed_count,
+        executed_count=executed_count,
+        failed_count=failed_count,
+        executed_scan_ids=executed_scan_ids,
+        failed_scan_ids=failed_scan_ids,
+        generated_at=datetime.utcnow(),
     )
 
 

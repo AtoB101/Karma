@@ -11,9 +11,11 @@ from core.schemas import (
     ResponsibilityBatchScanRun,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
+    ResponsibilityQueueMaintenanceTickResult,
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
     ResponsibilityScanQueueStats,
+    ResponsibilityWorkerPullExecuteResult,
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
@@ -38,7 +40,9 @@ from services.responsibility_graph import (
     get_task_temporal_consistency_report,
     heartbeat_scan_run,
     ingest_edge,
+    pull_and_execute_scan_run,
     recover_stale_scan_runs,
+    run_scan_queue_maintenance_tick,
     run_batch_scan,
 )
 
@@ -90,6 +94,21 @@ class CancelScanRunRequest(BaseModel):
 
 class RecoverStaleScanRunsRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=1000)
+
+
+class PullExecuteScanRunRequest(BaseModel):
+    runner_identity_id: str
+    lease_seconds: int = Field(default=300, ge=1, le=3600)
+    include_failed: bool = True
+    force_execute: bool = False
+
+
+class ScanQueueMaintenanceTickRequest(BaseModel):
+    runner_identity_id: str
+    recover_limit: int = Field(default=100, ge=1, le=1000)
+    max_claim_execute: int = Field(default=5, ge=0, le=100)
+    lease_seconds: int = Field(default=300, ge=1, le=3600)
+    include_failed: bool = True
 
 
 class ExportExplainableRiskReportRequest(BaseModel):
@@ -222,6 +241,35 @@ async def recover_stale_runs(
     db: AsyncSession = Depends(get_db),
 ):
     return await recover_stale_scan_runs(db=db, limit=body.limit)
+
+
+@router.post("/scan-runs/worker/pull-execute", response_model=ResponsibilityWorkerPullExecuteResult)
+async def pull_execute_scan_run(
+    body: PullExecuteScanRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await pull_and_execute_scan_run(
+        db=db,
+        runner_identity_id=body.runner_identity_id,
+        lease_seconds=body.lease_seconds,
+        include_failed=body.include_failed,
+        force_execute=body.force_execute,
+    )
+
+
+@router.post("/scan-runs/maintenance/tick", response_model=ResponsibilityQueueMaintenanceTickResult)
+async def maintenance_tick(
+    body: ScanQueueMaintenanceTickRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await run_scan_queue_maintenance_tick(
+        db=db,
+        runner_identity_id=body.runner_identity_id,
+        recover_limit=body.recover_limit,
+        max_claim_execute=body.max_claim_execute,
+        lease_seconds=body.lease_seconds,
+        include_failed=body.include_failed,
+    )
 
 
 @router.get("/scan-runs/{scan_id}", response_model=ResponsibilityBatchScanResult)

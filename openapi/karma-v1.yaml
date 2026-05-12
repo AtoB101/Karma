@@ -1040,6 +1040,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResponsibilityRecoverStaleRunsResult'
+  /v1/responsibility/scan-runs/worker/pull-execute:
+    post:
+      summary: Worker pulls one scan run and executes it
+      operationId: pullExecuteResponsibilityBatchScan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PullExecuteResponsibilityScanRunRequest'
+      responses:
+        '200':
+          description: Pull-execute result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityWorkerPullExecuteResult'
+  /v1/responsibility/scan-runs/maintenance/tick:
+    post:
+      summary: Run one scan queue maintenance tick
+      operationId: runResponsibilityScanQueueMaintenanceTick
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResponsibilityScanQueueMaintenanceTickRequest'
+      responses:
+        '200':
+          description: Maintenance tick summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityQueueMaintenanceTickResult'
   /v1/responsibility/scan-runs/{scanId}:
     get:
       summary: Get responsibility batch scan run by id
@@ -2058,6 +2092,47 @@ components:
           minimum: 1
           maximum: 1000
           default: 100
+    PullExecuteResponsibilityScanRunRequest:
+      type: object
+      properties:
+        runner_identity_id:
+          type: string
+        lease_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+        include_failed:
+          type: boolean
+          default: true
+        force_execute:
+          type: boolean
+          default: false
+      required: [runner_identity_id]
+    ResponsibilityScanQueueMaintenanceTickRequest:
+      type: object
+      properties:
+        runner_identity_id:
+          type: string
+        recover_limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+        max_claim_execute:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 5
+        lease_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+        include_failed:
+          type: boolean
+          default: true
+      required: [runner_identity_id]
     ResponsibilityScanFinding:
       type: object
       properties:
@@ -2233,6 +2308,72 @@ components:
         - scanned_count
         - recovered_count
         - recovered_scan_ids
+        - generated_at
+    ResponsibilityWorkerPullExecuteResult:
+      type: object
+      properties:
+        runner_identity_id:
+          type: string
+        outcome:
+          type: string
+          enum: [idle, completed, failed]
+        claimed_scan_id:
+          type: string
+        run:
+          $ref: '#/components/schemas/ResponsibilityBatchScanRun'
+        message:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - runner_identity_id
+        - outcome
+        - message
+        - generated_at
+    ResponsibilityQueueMaintenanceTickResult:
+      type: object
+      properties:
+        runner_identity_id:
+          type: string
+        recover_limit:
+          type: integer
+        max_claim_execute:
+          type: integer
+        recovered_count:
+          type: integer
+        recovered_scan_ids:
+          type: array
+          items:
+            type: string
+        claimed_count:
+          type: integer
+        executed_count:
+          type: integer
+        failed_count:
+          type: integer
+        executed_scan_ids:
+          type: array
+          items:
+            type: string
+        failed_scan_ids:
+          type: array
+          items:
+            type: string
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - runner_identity_id
+        - recover_limit
+        - max_claim_execute
+        - recovered_count
+        - recovered_scan_ids
+        - claimed_count
+        - executed_count
+        - failed_count
+        - executed_scan_ids
+        - failed_scan_ids
         - generated_at
     TemporalConsistencyIssue:
       type: object

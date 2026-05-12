@@ -646,6 +646,35 @@ class ResponsibilityRecoverStaleRunsResult(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ResponsibilityWorkerPullExecuteOutcome(str, Enum):
+    IDLE = "idle"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ResponsibilityWorkerPullExecuteResult(BaseModel):
+    runner_identity_id: str
+    outcome: ResponsibilityWorkerPullExecuteOutcome
+    claimed_scan_id: Optional[str] = None
+    run: Optional[ResponsibilityBatchScanRun] = None
+    message: str = ""
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityQueueMaintenanceTickResult(BaseModel):
+    runner_identity_id: str
+    recover_limit: int
+    max_claim_execute: int
+    recovered_count: int = 0
+    recovered_scan_ids: list[str] = Field(default_factory=list)
+    claimed_count: int = 0
+    executed_count: int = 0
+    failed_count: int = 0
+    executed_scan_ids: list[str] = Field(default_factory=list)
+    failed_scan_ids: list[str] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class TemporalConsistencyIssue(BaseModel):
     issue_type: TemporalConsistencyIssueType
     severity: ResponsibilitySignalSeverity

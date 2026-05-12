@@ -22,7 +22,9 @@ from services.responsibility_graph import (
     get_identity_path_features,
     get_identity_score,
     ingest_edge,
+    pull_and_execute_scan_run,
     recover_stale_scan_runs,
+    run_scan_queue_maintenance_tick,
     run_batch_scan,
 )
 
@@ -340,6 +342,65 @@ async def test_scan_queue_stats_and_recover_stale_runs(db_session):
     stats_after = await get_scan_run_queue_stats(db=db_session)
     assert stats_after.stale_claimed == 0
     assert stats_after.claimable_pending >= 1
+
+
+@pytest.mark.asyncio
+async def test_pull_execute_scan_run_idle_and_completed(db_session):
+    idle = await pull_and_execute_scan_run(
+        db=db_session,
+        runner_identity_id="runner-empty",
+    )
+    assert idle.outcome.value == "idle"
+
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=["pull-a"],
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.FULL,
+        min_score_threshold=0.0,
+    )
+    result = await pull_and_execute_scan_run(
+        db=db_session,
+        runner_identity_id="runner-pull",
+        lease_seconds=120,
+    )
+    assert result.outcome.value == "completed"
+    assert result.claimed_scan_id == created.run.scan_id
+    assert result.run is not None
+    assert result.run.status.value == "completed"
+
+
+@pytest.mark.asyncio
+async def test_scan_queue_maintenance_tick_executes_jobs(db_session):
+    await run_batch_scan(
+        db=db_session,
+        identity_ids=["mt-a"],
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.FULL,
+        min_score_threshold=0.0,
+    )
+    await run_batch_scan(
+        db=db_session,
+        identity_ids=["mt-b"],
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.FULL,
+        min_score_threshold=0.0,
+    )
+
+    tick = await run_scan_queue_maintenance_tick(
+        db=db_session,
+        runner_identity_id="runner-maint",
+        recover_limit=50,
+        max_claim_execute=2,
+        lease_seconds=120,
+        include_failed=True,
+    )
+    assert tick.recover_limit == 50
+    assert tick.max_claim_execute == 2
+    assert tick.claimed_count == 2
+    assert tick.executed_count == 2
+    assert tick.failed_count == 0
+    assert len(tick.executed_scan_ids) == 2
 
 
 @pytest.mark.asyncio
