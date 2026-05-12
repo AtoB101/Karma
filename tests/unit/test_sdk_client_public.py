@@ -1253,3 +1253,49 @@ async def test_responsibility_sdk_methods():
     assert report.report_id == "report-1"
     assert report.signature and report.signature.status.value == "provided"
 
+
+@pytest.mark.asyncio
+async def test_security_ops_sdk_method():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    payload = {
+        "window_minutes": 15,
+        "summary": {
+            "failed_auth_count": 3,
+            "rate_limited_count": 5,
+            "private_runtime_error_count": 2,
+            "verify_request_count": 10,
+            "private_runtime_error_rate": 0.2,
+        },
+        "alerts": [
+            {
+                "alert_id": "sec-alert-1",
+                "severity": "high",
+                "alert_type": "auth_failure_spike",
+                "message": "authentication failures spiked",
+                "metadata": {"failed_auth_count": 3, "threshold": 2},
+                "generated_at": now,
+            }
+        ],
+        "generated_at": now,
+    }
+    routes = {
+        (
+            "GET",
+            f"{base}/v1/security/ops/alerts"
+            "?window_minutes=15"
+            "&failed_auth_threshold=10"
+            "&rate_limit_threshold=30"
+            "&private_runtime_error_threshold=5"
+            "&private_runtime_error_rate_threshold=0.25"
+            "&private_runtime_min_requests=10",
+        ): payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    report = await client.get_security_ops_alerts(window_minutes=15)
+    assert report.summary.failed_auth_count == 3
+    assert report.summary.private_runtime_error_rate == 0.2
+    assert report.alerts[0].alert_type.value == "auth_failure_spike"

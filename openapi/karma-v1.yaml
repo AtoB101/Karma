@@ -159,6 +159,68 @@ paths:
                 required: [alerts]
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /v1/security/ops/alerts:
+    get:
+      summary: Get security operations alerts
+      operationId: getSecurityOpsAlerts
+      parameters:
+        - in: query
+          name: window_minutes
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1440
+            default: 15
+        - in: query
+          name: failed_auth_threshold
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 10
+        - in: query
+          name: rate_limit_threshold
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 30
+        - in: query
+          name: private_runtime_error_threshold
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 5
+        - in: query
+          name: private_runtime_error_rate_threshold
+          required: false
+          schema:
+            type: number
+            minimum: 0.01
+            maximum: 1
+            default: 0.25
+        - in: query
+          name: private_runtime_min_requests
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 10
+      responses:
+        '200':
+          description: Security alert report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityOpsAlertReport'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
   /v1/capacity/{identityId}:
     get:
       summary: Get identity capacity ledger
@@ -2387,6 +2449,77 @@ components:
         - alerts
         - arbitrator_activity
         - overdue_cases
+        - generated_at
+    SecurityOpsAlertSeverity:
+      type: string
+      enum: [info, medium, high, critical]
+    SecurityOpsAlertType:
+      type: string
+      enum:
+        - auth_failure_spike
+        - rate_limit_spike
+        - private_runtime_error_rate
+    SecurityOpsAlert:
+      type: object
+      properties:
+        alert_id:
+          type: string
+        severity:
+          $ref: '#/components/schemas/SecurityOpsAlertSeverity'
+        alert_type:
+          $ref: '#/components/schemas/SecurityOpsAlertType'
+        message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - alert_id
+        - severity
+        - alert_type
+        - message
+        - metadata
+        - generated_at
+    SecurityOpsSummary:
+      type: object
+      properties:
+        failed_auth_count:
+          type: integer
+        rate_limited_count:
+          type: integer
+        private_runtime_error_count:
+          type: integer
+        verify_request_count:
+          type: integer
+        private_runtime_error_rate:
+          type: number
+      required:
+        - failed_auth_count
+        - rate_limited_count
+        - private_runtime_error_count
+        - verify_request_count
+        - private_runtime_error_rate
+    SecurityOpsAlertReport:
+      type: object
+      properties:
+        window_minutes:
+          type: integer
+        summary:
+          $ref: '#/components/schemas/SecurityOpsSummary'
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsAlert'
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - window_minutes
+        - summary
+        - alerts
         - generated_at
     SubmitArbitrationMaterialRequest:
       type: object

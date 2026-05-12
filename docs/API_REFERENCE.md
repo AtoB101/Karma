@@ -8,6 +8,7 @@ https://api.karma.xyz/v1
 
 All requests require authentication via `Authorization: Bearer <token>` or `X-Karma-Api-Key: karma_{agent_id}_{secret}`.
 Sensitive write endpoints are security-audited and protected by Redis-backed rate limiting in production.
+Security telemetry alerts are available via `GET /v1/security/ops/alerts`.
 
 ---
 
@@ -26,6 +27,23 @@ Production must also set `AUTH_ENFORCE_PROTECTED_ROUTES=true` to require auth on
 ```json
 { "access_token": "eyJ...", "token_type": "bearer", "agent_id": "agent-001" }
 ```
+
+### `GET /v1/security/ops/alerts`
+Get rolling security operations alerts (default 15-minute window), including:
+- auth failure spikes (`401`)
+- rate-limit spikes (`429`)
+- private runtime error rate (`/v1/verify` returning `502/503`)
+
+Query parameters allow threshold tuning:
+- `window_minutes`
+- `failed_auth_threshold`
+- `rate_limit_threshold`
+- `private_runtime_error_threshold`
+- `private_runtime_error_rate_threshold`
+- `private_runtime_min_requests`
+
+SDK helper:
+- `get_security_ops_alerts(...)`
 
 ---
 

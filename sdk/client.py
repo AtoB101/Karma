@@ -48,6 +48,7 @@ from core.schemas import (
     ResponsibilityScanMode,
     ResponsibilityScoreSummary,
     ResponsibilityWorkerPullExecuteResult,
+    SecurityOpsAlertReport,
     TaskTemporalConsistencyReport,
     ReputationSnapshot,
     SettlementState,
@@ -1092,6 +1093,30 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return resp.json()["access_token"]
+
+    async def get_security_ops_alerts(
+        self,
+        *,
+        window_minutes: int = 15,
+        failed_auth_threshold: int = 10,
+        rate_limit_threshold: int = 30,
+        private_runtime_error_threshold: int = 5,
+        private_runtime_error_rate_threshold: float = 0.25,
+        private_runtime_min_requests: int = 10,
+    ) -> SecurityOpsAlertReport:
+        """GET /v1/security/ops/alerts"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/security/ops/alerts"
+                f"?window_minutes={window_minutes}"
+                f"&failed_auth_threshold={failed_auth_threshold}"
+                f"&rate_limit_threshold={rate_limit_threshold}"
+                f"&private_runtime_error_threshold={private_runtime_error_threshold}"
+                f"&private_runtime_error_rate_threshold={private_runtime_error_rate_threshold}"
+                f"&private_runtime_min_requests={private_runtime_min_requests}"
+            )
+            resp.raise_for_status()
+            return SecurityOpsAlertReport(**resp.json())
 
     # ------------------------------------------------------------------ #
     # Helpers

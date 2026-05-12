@@ -16,10 +16,11 @@ from prometheus_client import Counter, Histogram, make_asgi_app
 from config.settings import settings
 from api.middleware.auth import require_auth_if_enabled, resolve_agent_id_from_auth_headers
 from api.middleware.rate_limit import rate_limit
+from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from db.session import init_db
 from api.routes import (
     agents, auth, contracts, receipts,
-    bundles, settlement, reputation, verify, capacity, vouchers, progress, identities, arbitration, responsibility,
+    bundles, settlement, reputation, verify, capacity, vouchers, progress, identities, arbitration, responsibility, security,
 )
 
 logger = structlog.get_logger(__name__)
@@ -173,6 +174,26 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
             actor_id=actor_id,
             request_id=response.headers.get("X-Request-Id"),
         )
+    if path.startswith("/v1/") and response.status_code == 401:
+        record_security_event(
+            SecurityMonitoringEventType.FAILED_AUTH,
+            metadata={"path": path, "method": method, "status": response.status_code},
+        )
+    if path.startswith("/v1/") and response.status_code == 429:
+        record_security_event(
+            SecurityMonitoringEventType.RATE_LIMIT_EXCEEDED,
+            metadata={"path": path, "method": method, "status": response.status_code},
+        )
+    if path == "/v1/verify" and method == "POST":
+        record_security_event(
+            SecurityMonitoringEventType.VERIFY_REQUEST,
+            metadata={"path": path, "method": method, "status": response.status_code},
+        )
+        if response.status_code in {502, 503}:
+            record_security_event(
+                SecurityMonitoringEventType.PRIVATE_RUNTIME_ERROR,
+                metadata={"path": path, "method": method, "status": response.status_code},
+            )
     return response
 
 
@@ -196,6 +217,7 @@ app.include_router(bundles.router,    prefix="/v1/bundles",    tags=["Bundles"],
 app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verification"], dependencies=_protected_dependencies)
 app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_protected_dependencies)
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
+app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_protected_dependencies)
 
 
 @app.get("/health")

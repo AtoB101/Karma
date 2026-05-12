@@ -584,6 +584,43 @@ class ArbitrationCaseOpsReport(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class SecurityOpsAlertSeverity(str, Enum):
+    INFO = "info"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class SecurityOpsAlertType(str, Enum):
+    AUTH_FAILURE_SPIKE = "auth_failure_spike"
+    RATE_LIMIT_SPIKE = "rate_limit_spike"
+    PRIVATE_RUNTIME_ERROR_RATE = "private_runtime_error_rate"
+
+
+class SecurityOpsAlert(BaseModel):
+    alert_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    severity: SecurityOpsAlertSeverity
+    alert_type: SecurityOpsAlertType
+    message: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SecurityOpsSummary(BaseModel):
+    failed_auth_count: int = 0
+    rate_limited_count: int = 0
+    private_runtime_error_count: int = 0
+    verify_request_count: int = 0
+    private_runtime_error_rate: float = 0.0
+
+
+class SecurityOpsAlertReport(BaseModel):
+    window_minutes: int
+    summary: SecurityOpsSummary
+    alerts: list[SecurityOpsAlert] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class MCPVerificationTemplate(BaseModel):
     template_version: str = "mcp-v2"
     mcp_server_id: str
