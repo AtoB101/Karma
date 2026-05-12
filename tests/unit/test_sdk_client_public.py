@@ -386,6 +386,20 @@ async def test_arbitration_sdk_methods():
         "metadata": {"task_id": task_id},
         "created_at": now,
     }
+    ops_overdue_payload = [
+        {
+            "case_id": case_id,
+            "task_id": task_id,
+            "status": "voting",
+            "opened_by": "buyer-1",
+            "decided_outcome": None,
+            "overdue_stage": "voting",
+            "age_hours": 25.0,
+            "threshold_hours": 24,
+            "created_at": now,
+            "updated_at": now,
+        }
+    ]
     ops_report_payload = {
         "window_hours": 24,
         "total_cases": 1,
@@ -433,20 +447,6 @@ async def test_arbitration_sdk_methods():
             "last_assigned_at": now,
             "last_voted_at": now,
             "last_activity_at": now,
-        }
-    ]
-    ops_overdue_payload = [
-        {
-            "case_id": case_id,
-            "task_id": task_id,
-            "status": "voting",
-            "opened_by": "buyer-1",
-            "decided_outcome": None,
-            "overdue_stage": "voting",
-            "age_hours": 25.0,
-            "threshold_hours": 24,
-            "created_at": now,
-            "updated_at": now,
         }
     ]
     material_payload = {
