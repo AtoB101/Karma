@@ -30,6 +30,7 @@ from core.schemas import (
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
     ResponsibilityScanQueueStats,
+    ResponsibilityScanRunEvent,
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
@@ -653,6 +654,20 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return ResponsibilityBatchScanResult(**resp.json())
+
+    async def list_responsibility_batch_scan_events(
+        self,
+        scan_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[ResponsibilityScanRunEvent]:
+        """GET /v1/responsibility/scan-runs/{scan_id}/events"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/{scan_id}/events?limit={limit}"
+            )
+            resp.raise_for_status()
+            return [ResponsibilityScanRunEvent(**item) for item in resp.json()]
 
     async def claim_responsibility_batch_scan(
         self,

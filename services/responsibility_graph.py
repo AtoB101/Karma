@@ -17,6 +17,8 @@ from core.schemas import (
     ReportSignatureStatus,
     ResponsibilityBatchScanResult,
     ResponsibilityBatchScanRun,
+    ResponsibilityScanRunEvent,
+    ResponsibilityScanEventType,
     ResponsibilityEdge,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
@@ -43,6 +45,7 @@ from core.schemas import (
 )
 from db.models.orm import (
     ResponsibilityEdgeModel,
+    ResponsibilityScanEventModel,
     ResponsibilityScanFindingModel,
     ResponsibilityScanRunModel,
     ResponsibilitySignalModel,
@@ -436,6 +439,17 @@ async def run_batch_scan(
     )
     db.add(run_row)
     await db.flush()
+    await _append_scan_event(
+        db=db,
+        scan_id=run_row.scan_id,
+        event_type=ResponsibilityScanEventType.CREATED,
+        detail="scan run created",
+        metadata={
+            "execution_mode": run_row.execution_mode,
+            "scan_mode": run_row.scan_mode,
+            "requested_identity_ids": run_row.requested_identity_ids or [],
+        },
+    )
 
     if execution_mode == ResponsibilityScanExecutionMode.ASYNC:
         return ResponsibilityBatchScanResult(run=_scan_run_to_schema(run_row), findings=[])
@@ -492,6 +506,7 @@ async def claim_next_scan_run(
     if not run_row:
         return None
 
+    previous_status = run_row.status
     run_row.status = ResponsibilityScanRunStatus.CLAIMED.value
     run_row.claimed_by = runner_identity_id
     run_row.claimed_at = now
@@ -500,6 +515,17 @@ async def claim_next_scan_run(
     run_row.cancelled_at = None
     run_row.cancel_reason = None
     await db.flush()
+    await _append_scan_event(
+        db=db,
+        scan_id=run_row.scan_id,
+        event_type=ResponsibilityScanEventType.CLAIMED,
+        detail="scan run claimed by worker",
+        metadata={
+            "runner_identity_id": runner_identity_id,
+            "lease_seconds": claimable_lease_seconds,
+            "status_before_claim": previous_status,
+        },
+    )
     return _scan_run_to_schema(run_row)
 
 
@@ -586,6 +612,7 @@ async def recover_stale_scan_runs(
     recovered_scan_ids: list[str] = []
 
     for run_row in stale_rows:
+        previous_status = run_row.status
         if run_row.status == ResponsibilityScanRunStatus.CLAIMED.value:
             run_row.status = ResponsibilityScanRunStatus.PENDING.value
             run_row.last_error = "stale claim recovered to pending"
@@ -600,6 +627,16 @@ async def recover_stale_scan_runs(
                 run_row.next_retry_at = None
         _clear_claim_fields(run_row)
         recovered_scan_ids.append(run_row.scan_id)
+        await _append_scan_event(
+            db=db,
+            scan_id=run_row.scan_id,
+            event_type=ResponsibilityScanEventType.STALE_RECOVERED,
+            detail="scan run recovered after lease expiration",
+            metadata={
+                "previous_status": previous_status,
+                "recovered_status": run_row.status,
+            },
+        )
 
     await db.flush()
     return ResponsibilityRecoverStaleRunsResult(
@@ -738,6 +775,16 @@ async def heartbeat_scan_run(
     run_row.last_heartbeat_at = now
     run_row.lease_expires_at = now + timedelta(seconds=max(1, lease_seconds))
     await db.flush()
+    await _append_scan_event(
+        db=db,
+        scan_id=run_row.scan_id,
+        event_type=ResponsibilityScanEventType.HEARTBEAT,
+        detail="scan run lease heartbeat",
+        metadata={
+            "runner_identity_id": runner_identity_id,
+            "lease_seconds": max(1, lease_seconds),
+        },
+    )
     return _scan_run_to_schema(run_row)
 
 
@@ -768,6 +815,16 @@ async def cancel_scan_run(
     run_row.next_retry_at = None
     run_row.completed_at = None
     await db.flush()
+    await _append_scan_event(
+        db=db,
+        scan_id=run_row.scan_id,
+        event_type=ResponsibilityScanEventType.CANCELLED,
+        detail="scan run cancelled",
+        metadata={
+            "runner_identity_id": runner_identity_id,
+            "reason": run_row.cancel_reason,
+        },
+    )
     return _scan_run_to_schema(run_row)
 
 
@@ -820,6 +877,17 @@ async def execute_scan_run(
     run_row.last_error = None
     run_row.next_retry_at = None
     await db.flush()
+    await _append_scan_event(
+        db=db,
+        scan_id=run_row.scan_id,
+        event_type=ResponsibilityScanEventType.EXECUTION_STARTED,
+        detail="scan run execution started",
+        metadata={
+            "runner_identity_id": run_row.claimed_by,
+            "attempt": run_row.current_attempt,
+            "force": force,
+        },
+    )
 
     try:
         incremental_since_at = await _resolve_incremental_since(db=db, run_row=run_row)
@@ -870,6 +938,17 @@ async def execute_scan_run(
         run_row.next_retry_at = None
         _clear_claim_fields(run_row)
         await db.flush()
+        await _append_scan_event(
+            db=db,
+            scan_id=run_row.scan_id,
+            event_type=ResponsibilityScanEventType.EXECUTION_COMPLETED,
+            detail="scan run execution completed",
+            metadata={
+                "total_identities": run_row.total_identities,
+                "flagged_identities": run_row.flagged_identities,
+                "attempt": run_row.current_attempt,
+            },
+        )
     except Exception as exc:
         run_row.status = ResponsibilityScanRunStatus.FAILED.value
         run_row.completed_at = None
@@ -881,6 +960,17 @@ async def execute_scan_run(
         else:
             run_row.next_retry_at = None
         await db.flush()
+        await _append_scan_event(
+            db=db,
+            scan_id=run_row.scan_id,
+            event_type=ResponsibilityScanEventType.EXECUTION_FAILED,
+            detail="scan run execution failed",
+            metadata={
+                "error": str(exc),
+                "attempt": run_row.current_attempt,
+                "next_retry_at": run_row.next_retry_at.isoformat() if run_row.next_retry_at else None,
+            },
+        )
         raise
 
     result = await get_batch_scan_result(db=db, scan_id=scan_id)
@@ -909,6 +999,24 @@ async def get_batch_scan_result(
         run=_scan_run_to_schema(run_row),
         findings=[_scan_finding_to_schema(row) for row in findings],
     )
+
+
+async def list_scan_run_events(
+    *,
+    db: AsyncSession,
+    scan_id: str,
+    limit: int = 200,
+) -> list[ResponsibilityScanRunEvent]:
+    run_row = await db.get(ResponsibilityScanRunModel, scan_id)
+    if not run_row:
+        raise ValueError(f"scan run {scan_id} not found")
+    result = await db.execute(
+        select(ResponsibilityScanEventModel)
+        .where(ResponsibilityScanEventModel.scan_id == scan_id)
+        .order_by(ResponsibilityScanEventModel.created_at.asc())
+        .limit(limit)
+    )
+    return [_scan_event_to_schema(row) for row in result.scalars().all()]
 
 
 async def export_explainable_risk_report(
@@ -1216,6 +1324,36 @@ def _scan_finding_to_schema(row: ResponsibilityScanFindingModel) -> Responsibili
         cycle_paths_detected=row.cycle_paths_detected,
         detail=row.detail,
         created_at=row.created_at,
+    )
+
+
+def _scan_event_to_schema(row: ResponsibilityScanEventModel) -> ResponsibilityScanRunEvent:
+    return ResponsibilityScanRunEvent(
+        event_id=row.event_id,
+        scan_id=row.scan_id,
+        event_type=ResponsibilityScanEventType(row.event_type),
+        detail=row.detail,
+        metadata=row.metadata_ or {},
+        created_at=row.created_at,
+    )
+
+
+async def _append_scan_event(
+    *,
+    db: AsyncSession,
+    scan_id: str,
+    event_type: ResponsibilityScanEventType,
+    detail: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    db.add(
+        ResponsibilityScanEventModel(
+            scan_id=scan_id,
+            event_type=event_type.value,
+            detail=detail,
+            metadata_=metadata or {},
+            created_at=datetime.utcnow(),
+        )
     )
 
 

@@ -1101,6 +1101,35 @@ paths:
                 $ref: '#/components/schemas/ResponsibilityBatchScanResult'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/responsibility/scan-runs/{scanId}/events:
+    get:
+      summary: Get responsibility scan run event timeline
+      operationId: listResponsibilityBatchScanEvents
+      parameters:
+        - in: path
+          name: scanId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+      responses:
+        '200':
+          description: Scan run events list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResponsibilityScanRunEvent'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/responsibility/scan-runs/{scanId}/execute:
     post:
       summary: Execute or re-execute responsibility scan run
@@ -2133,6 +2162,39 @@ components:
           type: boolean
           default: true
       required: [runner_identity_id]
+    ResponsibilityScanRunEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+        scan_id:
+          type: string
+        event_type:
+          type: string
+          enum:
+            - created
+            - claimed
+            - heartbeat
+            - execution_started
+            - execution_completed
+            - execution_failed
+            - cancelled
+            - stale_recovered
+        detail:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - event_id
+        - scan_id
+        - event_type
+        - detail
+        - metadata
+        - created_at
     ResponsibilityScanFinding:
       type: object
       properties:

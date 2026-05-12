@@ -15,6 +15,7 @@ from core.schemas import (
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
     ResponsibilityScanQueueStats,
+    ResponsibilityScanRunEvent,
     ResponsibilityWorkerPullExecuteResult,
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
@@ -40,6 +41,7 @@ from services.responsibility_graph import (
     get_task_temporal_consistency_report,
     heartbeat_scan_run,
     ingest_edge,
+    list_scan_run_events,
     pull_and_execute_scan_run,
     recover_stale_scan_runs,
     run_scan_queue_maintenance_tick,
@@ -282,6 +284,18 @@ async def get_scan_run(
     if not result:
         raise HTTPException(404, f"scan run {scan_id} not found")
     return result
+
+
+@router.get("/scan-runs/{scan_id}/events", response_model=list[ResponsibilityScanRunEvent])
+async def get_scan_run_events(
+    scan_id: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await list_scan_run_events(db=db, scan_id=scan_id, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.post("/scan-runs/{scan_id}/execute", response_model=ResponsibilityBatchScanResult)

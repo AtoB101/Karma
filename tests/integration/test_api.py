@@ -806,6 +806,13 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     async_scan_executed_body = async_scan_executed.json()
     assert async_scan_executed_body["run"]["status"] == "completed"
     assert async_scan_executed_body["run"]["current_attempt"] == 1
+    async_scan_events = await client.get(f"/v1/responsibility/scan-runs/{async_scan_id}/events?limit=50")
+    assert async_scan_events.status_code == 200
+    async_scan_event_types = [item["event_type"] for item in async_scan_events.json()]
+    assert "created" in async_scan_event_types
+    assert "claimed" in async_scan_event_types
+    assert "execution_started" in async_scan_event_types
+    assert "execution_completed" in async_scan_event_types
 
     extra = await client.post("/v1/responsibility/edges", json={
         "source_identity_id": "id-c",

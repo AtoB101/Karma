@@ -622,6 +622,24 @@ async def test_responsibility_sdk_methods():
                 }
             ],
         },
+        ("GET", f"{base}/v1/responsibility/scan-runs/scan-1/events?limit=20"): [
+            {
+                "event_id": "evt-1",
+                "scan_id": "scan-1",
+                "event_type": "created",
+                "detail": "scan run created",
+                "metadata": {"execution_mode": "async"},
+                "created_at": now,
+            },
+            {
+                "event_id": "evt-2",
+                "scan_id": "scan-1",
+                "event_type": "execution_completed",
+                "detail": "scan run execution completed",
+                "metadata": {"attempt": 1},
+                "created_at": now,
+            },
+        ],
         ("POST", f"{base}/v1/responsibility/scan-runs/claim"): {
             "scan_id": "scan-1",
             "status": "claimed",
@@ -927,6 +945,9 @@ async def test_responsibility_sdk_methods():
     assert scan.run.scan_mode.value == "incremental"
     scan_read = await client.get_responsibility_batch_scan("scan-1", findings_limit=20)
     assert scan_read.findings[0].identity_id == "id-a"
+    scan_events = await client.list_responsibility_batch_scan_events("scan-1", limit=20)
+    assert scan_events[0].event_type.value == "created"
+    assert scan_events[1].event_type.value == "execution_completed"
     claimed = await client.claim_responsibility_batch_scan(runner_identity_id="runner-1")
     assert claimed.status.value == "claimed"
     queue_stats = await client.get_responsibility_scan_queue_stats()

@@ -416,6 +416,17 @@ class ResponsibilityScanFindingModel(Base):
     created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ResponsibilityScanEventModel(Base):
+    __tablename__ = "responsibility_scan_events"
+
+    event_id:              Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    scan_id:               Mapped[str]      = mapped_column(String(64), ForeignKey("responsibility_scan_runs.scan_id"), nullable=False)
+    event_type:            Mapped[str]      = mapped_column(String(32), nullable=False)
+    detail:                Mapped[str]      = mapped_column(Text, nullable=False)
+    metadata_:             Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Verification Result
 # ---------------------------------------------------------------------------

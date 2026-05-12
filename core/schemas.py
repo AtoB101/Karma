@@ -594,6 +594,26 @@ class ResponsibilityScanFinding(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ResponsibilityScanEventType(str, Enum):
+    CREATED = "created"
+    CLAIMED = "claimed"
+    HEARTBEAT = "heartbeat"
+    EXECUTION_STARTED = "execution_started"
+    EXECUTION_COMPLETED = "execution_completed"
+    EXECUTION_FAILED = "execution_failed"
+    CANCELLED = "cancelled"
+    STALE_RECOVERED = "stale_recovered"
+
+
+class ResponsibilityScanRunEvent(BaseModel):
+    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    scan_id: str
+    event_type: ResponsibilityScanEventType
+    detail: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ResponsibilityBatchScanRun(BaseModel):
     scan_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     status: ResponsibilityScanRunStatus = ResponsibilityScanRunStatus.PENDING

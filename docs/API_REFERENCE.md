@@ -437,6 +437,15 @@ worker 一次性拉取并执行 1 个 scan run（无任务时返回 `idle`）。
 - 再按 `max_claim_execute` 拉取并执行队列任务
 - 返回 recover/execute 汇总统计
 
+### `GET /v1/responsibility/scan-runs/{scan_id}/events`
+返回 scan-run 事件时间线（按时间顺序）：
+- `created`
+- `claimed`
+- `heartbeat`
+- `execution_started / execution_completed / execution_failed`
+- `cancelled`
+- `stale_recovered`
+
 ### `POST /v1/responsibility/scan-runs/{scan_id}/execute`
 执行（或强制重执行）一个 scan run，支持：
 - `force`
@@ -471,6 +480,7 @@ SDK helper methods:
 - `get_responsibility_path_features(identity_id, window_hours=24, max_hops=4)`
 - `create_responsibility_batch_scan(...)`
 - `get_responsibility_batch_scan(scan_id, findings_limit=200)`
+- `list_responsibility_batch_scan_events(scan_id, limit=200)`
 - `claim_responsibility_batch_scan(runner_identity_id, lease_seconds=300, include_failed=True)`
 - `get_responsibility_scan_queue_stats()`
 - `recover_stale_responsibility_batch_scans(limit=100)`

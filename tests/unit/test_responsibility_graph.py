@@ -6,6 +6,7 @@ import pytest
 
 from core.schemas import (
     ResponsibilityEdgeType,
+    ResponsibilityScanEventType,
     ResponsibilityScanExecutionMode,
     ResponsibilityScanMode,
 )
@@ -17,6 +18,7 @@ from services.responsibility_graph import (
     execute_scan_run,
     export_explainable_risk_report,
     get_batch_scan_result,
+    list_scan_run_events,
     get_scan_run_queue_stats,
     get_task_temporal_consistency_report,
     get_identity_path_features,
@@ -228,6 +230,9 @@ async def test_async_scan_run_failure_sets_retry_window(db_session):
             scan_id=created.run.scan_id,
             require_failed=True,
         )
+    events = await list_scan_run_events(db=db_session, scan_id=created.run.scan_id)
+    event_types = {item.event_type for item in events}
+    assert ResponsibilityScanEventType.EXECUTION_FAILED in event_types
 
 
 @pytest.mark.asyncio
@@ -342,6 +347,9 @@ async def test_scan_queue_stats_and_recover_stale_runs(db_session):
     stats_after = await get_scan_run_queue_stats(db=db_session)
     assert stats_after.stale_claimed == 0
     assert stats_after.claimable_pending >= 1
+    events = await list_scan_run_events(db=db_session, scan_id=scan_id)
+    event_types = {item.event_type for item in events}
+    assert ResponsibilityScanEventType.STALE_RECOVERED in event_types
 
 
 @pytest.mark.asyncio
@@ -401,6 +409,42 @@ async def test_scan_queue_maintenance_tick_executes_jobs(db_session):
     assert tick.executed_count == 2
     assert tick.failed_count == 0
     assert len(tick.executed_scan_ids) == 2
+
+
+@pytest.mark.asyncio
+async def test_scan_run_event_timeline_contains_lifecycle_events(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=["evt-a"],
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.FULL,
+        min_score_threshold=0.0,
+    )
+    scan_id = created.run.scan_id
+    await claim_next_scan_run(
+        db=db_session,
+        runner_identity_id="runner-evt",
+        lease_seconds=120,
+    )
+    await heartbeat_scan_run(
+        db=db_session,
+        scan_id=scan_id,
+        runner_identity_id="runner-evt",
+        lease_seconds=120,
+    )
+    await execute_scan_run(
+        db=db_session,
+        scan_id=scan_id,
+        runner_identity_id="runner-evt",
+        lease_seconds=120,
+    )
+    events = await list_scan_run_events(db=db_session, scan_id=scan_id)
+    event_types = [item.event_type for item in events]
+    assert event_types[0] == ResponsibilityScanEventType.CREATED
+    assert ResponsibilityScanEventType.CLAIMED in event_types
+    assert ResponsibilityScanEventType.HEARTBEAT in event_types
+    assert ResponsibilityScanEventType.EXECUTION_STARTED in event_types
+    assert ResponsibilityScanEventType.EXECUTION_COMPLETED in event_types
 
 
 @pytest.mark.asyncio
