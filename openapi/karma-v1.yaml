@@ -693,6 +693,38 @@ paths:
             minimum: 1
             maximum: 200
             default: 20
+        - in: query
+          name: overdue_limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+        - in: query
+          name: open_overdue_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8760
+            default: 24
+        - in: query
+          name: voting_overdue_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8760
+            default: 24
+        - in: query
+          name: decided_overdue_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8760
+            default: 12
       responses:
         '200':
           description: Arbitration operations report
@@ -700,6 +732,52 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ArbitrationCaseOpsReport'
+  /v1/arbitration/cases/ops/overdue:
+    get:
+      summary: List overdue arbitration cases
+      operationId: listArbitrationCaseOpsOverdue
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+        - in: query
+          name: open_overdue_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8760
+            default: 24
+        - in: query
+          name: voting_overdue_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8760
+            default: 24
+        - in: query
+          name: decided_overdue_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8760
+            default: 12
+      responses:
+        '200':
+          description: Overdue arbitration case list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArbitrationCaseOverdueItem'
   /v1/arbitration/cases/ops/arbitrators:
     get:
       summary: Get arbitration arbitrator activity summary
@@ -2226,6 +2304,46 @@ components:
         - arbitrator_identity_id
         - assigned_count
         - vote_count
+    ArbitrationOverdueStage:
+      type: string
+      enum: [open, voting, decided_pending_execution]
+    ArbitrationCaseOverdueItem:
+      type: object
+      properties:
+        case_id:
+          type: string
+        task_id:
+          type: string
+        status:
+          type: string
+          enum: [open, voting, decided, executed, cancelled]
+        opened_by:
+          type: string
+        decided_outcome:
+          type: string
+          enum: [buyer_wins, seller_wins, partial]
+        overdue_stage:
+          $ref: '#/components/schemas/ArbitrationOverdueStage'
+        age_hours:
+          type: number
+        threshold_hours:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - case_id
+        - task_id
+        - status
+        - opened_by
+        - overdue_stage
+        - age_hours
+        - threshold_hours
+        - created_at
+        - updated_at
     ArbitrationCaseOpsReport:
       type: object
       properties:
@@ -2253,6 +2371,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ArbitrationArbitratorActivitySummary'
+        overdue_cases:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArbitrationCaseOverdueItem'
         generated_at:
           type: string
           format: date-time
@@ -2264,6 +2386,7 @@ components:
         - recent_events
         - alerts
         - arbitrator_activity
+        - overdue_cases
         - generated_at
     SubmitArbitrationMaterialRequest:
       type: object

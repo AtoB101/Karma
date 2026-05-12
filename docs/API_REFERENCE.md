@@ -317,6 +317,7 @@ Get arbitration operations report snapshot:
 - recent case events within `window_hours`
 - `alerts`（open/voting backlog、decided timeout risk、partial spike）
 - `arbitrator_activity`（assignment/vote 活跃度聚合）
+- `overdue_cases`（open/voting/decided 阶段超时案件）
 
 ### `GET /v1/arbitration/cases/ops/alerts`
 Get arbitration operations alerts only (supports threshold tuning):
@@ -332,6 +333,13 @@ Get arbitrator activity summary (windowed):
 - `last_assigned_at`
 - `last_voted_at`
 - `last_activity_at`
+
+### `GET /v1/arbitration/cases/ops/overdue`
+List overdue arbitration cases by stage thresholds:
+- `open_overdue_hours`
+- `voting_overdue_hours`
+- `decided_overdue_hours`
+- `limit`
 
 ### `POST /v1/arbitration/cases/{case_id}/assign-auto`
 Auto-assign arbitrators from active pool.
@@ -363,6 +371,7 @@ SDK helper methods:
 - `get_arbitration_case_ops_report(window_hours=24, recent_events_limit=50, arbitrator_limit=20)`
 - `get_arbitration_case_ops_alerts(...)`
 - `list_arbitration_case_ops_arbitrators(window_hours=24, limit=20)`
+- `list_arbitration_case_ops_overdue(limit=20, open_overdue_hours=24, voting_overdue_hours=24, decided_overdue_hours=12)`
 - `assign_arbitrators(case_id, count=3)`
 - `list_arbitration_case_events(case_id, limit=200)`
 - `submit_arbitration_material(case_id, submitted_by, ...)`

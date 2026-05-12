@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
@@ -15,6 +15,7 @@ from core.schemas import (
     ArbitrationAssignment,
     ArbitrationCase,
     ArbitrationCaseEvent,
+    ArbitrationCaseOverdueItem,
     ArbitrationCaseOpsReport,
     ArbitrationOpsAlert,
     ArbitrationOpsAlertSeverity,
@@ -22,6 +23,7 @@ from core.schemas import (
     ArbitrationCaseStatus,
     ArbitrationEventType,
     ArbitrationMaterialPackage,
+    ArbitrationOverdueStage,
     ArbitrationPoolMember,
     ArbitrationPoolMemberStatus,
     ArbitrationVoteDecision,
@@ -48,6 +50,9 @@ DEFAULT_OPEN_CASE_ALERT_THRESHOLD = 5
 DEFAULT_VOTING_CASE_ALERT_THRESHOLD = 5
 DEFAULT_DECIDED_CASE_ALERT_THRESHOLD = 3
 DEFAULT_PARTIAL_RATIO_ALERT_THRESHOLD = 0.5
+DEFAULT_OPEN_OVERDUE_HOURS = 24
+DEFAULT_VOTING_OVERDUE_HOURS = 24
+DEFAULT_DECIDED_OVERDUE_HOURS = 12
 
 
 class JoinArbitrationPoolRequest(BaseModel):
@@ -167,6 +172,10 @@ async def get_arbitration_case_ops_report(
     window_hours: int = Query(default=24, ge=1, le=24 * 30),
     recent_events_limit: int = Query(default=50, ge=1, le=1000),
     arbitrator_limit: int = Query(default=20, ge=1, le=200),
+    overdue_limit: int = Query(default=20, ge=1, le=200),
+    open_overdue_hours: int = Query(default=24, ge=1, le=24 * 365),
+    voting_overdue_hours: int = Query(default=24, ge=1, le=24 * 365),
+    decided_overdue_hours: int = Query(default=12, ge=1, le=24 * 365),
     db: AsyncSession = Depends(get_db),
 ):
     return await _build_arbitration_case_ops_report(
@@ -174,6 +183,10 @@ async def get_arbitration_case_ops_report(
         window_hours=window_hours,
         recent_events_limit=recent_events_limit,
         arbitrator_limit=arbitrator_limit,
+        overdue_limit=overdue_limit,
+        open_overdue_hours=open_overdue_hours,
+        voting_overdue_hours=voting_overdue_hours,
+        decided_overdue_hours=decided_overdue_hours,
     )
 
 
@@ -208,6 +221,23 @@ async def get_arbitration_case_ops_arbitrators(
         db=db,
         window_hours=window_hours,
         limit=limit,
+    )
+
+
+@router.get("/cases/ops/overdue", response_model=list[ArbitrationCaseOverdueItem])
+async def get_arbitration_case_ops_overdue(
+    limit: int = Query(default=20, ge=1, le=200),
+    open_overdue_hours: int = Query(default=24, ge=1, le=24 * 365),
+    voting_overdue_hours: int = Query(default=24, ge=1, le=24 * 365),
+    decided_overdue_hours: int = Query(default=12, ge=1, le=24 * 365),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _list_overdue_cases(
+        db=db,
+        limit=limit,
+        open_overdue_hours=open_overdue_hours,
+        voting_overdue_hours=voting_overdue_hours,
+        decided_overdue_hours=decided_overdue_hours,
     )
 
 
@@ -630,6 +660,10 @@ async def _build_arbitration_case_ops_report(
     window_hours: int = 24,
     recent_events_limit: int = 50,
     arbitrator_limit: int = 20,
+    overdue_limit: int = 20,
+    open_overdue_hours: int = DEFAULT_OPEN_OVERDUE_HOURS,
+    voting_overdue_hours: int = DEFAULT_VOTING_OVERDUE_HOURS,
+    decided_overdue_hours: int = DEFAULT_DECIDED_OVERDUE_HOURS,
     open_case_threshold: int = DEFAULT_OPEN_CASE_ALERT_THRESHOLD,
     voting_case_threshold: int = DEFAULT_VOTING_CASE_ALERT_THRESHOLD,
     decided_case_threshold: int = DEFAULT_DECIDED_CASE_ALERT_THRESHOLD,
@@ -678,6 +712,13 @@ async def _build_arbitration_case_ops_report(
         window_hours=hours,
         limit=arbitrator_limit,
     )
+    overdue_cases = await _list_overdue_cases(
+        db=db,
+        limit=overdue_limit,
+        open_overdue_hours=open_overdue_hours,
+        voting_overdue_hours=voting_overdue_hours,
+        decided_overdue_hours=decided_overdue_hours,
+    )
 
     return ArbitrationCaseOpsReport(
         window_hours=hours,
@@ -687,6 +728,7 @@ async def _build_arbitration_case_ops_report(
         recent_events=recent_events,
         alerts=alerts,
         arbitrator_activity=arbitrator_activity,
+        overdue_cases=overdue_cases,
         generated_at=now,
     )
 
@@ -858,6 +900,79 @@ async def _list_arbitrator_activity(
         reverse=True,
     )
     return sorted_items[:limit_value]
+
+
+async def _list_overdue_cases(
+    *,
+    db: AsyncSession,
+    limit: int = 20,
+    open_overdue_hours: int = DEFAULT_OPEN_OVERDUE_HOURS,
+    voting_overdue_hours: int = DEFAULT_VOTING_OVERDUE_HOURS,
+    decided_overdue_hours: int = DEFAULT_DECIDED_OVERDUE_HOURS,
+) -> list[ArbitrationCaseOverdueItem]:
+    now = datetime.utcnow()
+    limit_value = max(1, min(limit, 200))
+    open_hours = max(1, open_overdue_hours)
+    voting_hours = max(1, voting_overdue_hours)
+    decided_hours = max(1, decided_overdue_hours)
+
+    open_cutoff = now - timedelta(hours=open_hours)
+    voting_cutoff = now - timedelta(hours=voting_hours)
+    decided_cutoff = now - timedelta(hours=decided_hours)
+
+    result = await db.execute(
+        select(ArbitrationCaseModel)
+        .where(
+            or_(
+                and_(
+                    ArbitrationCaseModel.status == ArbitrationCaseStatus.OPEN.value,
+                    ArbitrationCaseModel.created_at <= open_cutoff,
+                ),
+                and_(
+                    ArbitrationCaseModel.status == ArbitrationCaseStatus.VOTING.value,
+                    ArbitrationCaseModel.updated_at <= voting_cutoff,
+                ),
+                and_(
+                    ArbitrationCaseModel.status == ArbitrationCaseStatus.DECIDED.value,
+                    ArbitrationCaseModel.updated_at <= decided_cutoff,
+                ),
+            )
+        )
+        .order_by(ArbitrationCaseModel.updated_at.asc(), ArbitrationCaseModel.created_at.asc())
+        .limit(limit_value)
+    )
+    rows = result.scalars().all()
+
+    items: list[ArbitrationCaseOverdueItem] = []
+    for row in rows:
+        if row.status == ArbitrationCaseStatus.OPEN.value:
+            stage = ArbitrationOverdueStage.OPEN
+            base_at = row.created_at
+            threshold = open_hours
+        elif row.status == ArbitrationCaseStatus.VOTING.value:
+            stage = ArbitrationOverdueStage.VOTING
+            base_at = row.updated_at
+            threshold = voting_hours
+        else:
+            stage = ArbitrationOverdueStage.DECIDED_PENDING_EXECUTION
+            base_at = row.updated_at
+            threshold = decided_hours
+        age_hours = max(0.0, (now - base_at).total_seconds() / 3600.0)
+        items.append(
+            ArbitrationCaseOverdueItem(
+                case_id=row.case_id,
+                task_id=row.task_id,
+                status=ArbitrationCaseStatus(row.status),
+                opened_by=row.opened_by,
+                decided_outcome=ArbitrationVoteDecision(row.decided_outcome) if row.decided_outcome else None,
+                overdue_stage=stage,
+                age_hours=round(age_hours, 2),
+                threshold_hours=threshold,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+        )
+    return items
 
 
 async def _apply_capacity_resolution(

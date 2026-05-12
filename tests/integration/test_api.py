@@ -550,6 +550,7 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
     assert ops_body["decision_counts"].get("buyer_wins", 0) >= 1
     assert "alerts" in ops_body
     assert "arbitrator_activity" in ops_body
+    assert "overdue_cases" in ops_body
     assert any(item["event_type"] == "case_executed" for item in ops_body["recent_events"])
 
     ops_alerts = await client.get(
@@ -564,6 +565,13 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
     ops_arbitrators_body = ops_arbitrators.json()
     assert isinstance(ops_arbitrators_body, list)
     assert any(item["arbitrator_identity_id"] == "arb-001" for item in ops_arbitrators_body)
+
+    ops_overdue = await client.get(
+        "/v1/arbitration/cases/ops/overdue"
+        "?limit=20&open_overdue_hours=1&voting_overdue_hours=1&decided_overdue_hours=1"
+    )
+    assert ops_overdue.status_code == 200
+    assert isinstance(ops_overdue.json(), list)
 
 
 # ---------------------------------------------------------------------------

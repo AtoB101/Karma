@@ -16,6 +16,7 @@ from core.schemas import (
     ArbitrationAssignment,
     ArbitrationCase,
     ArbitrationCaseEvent,
+    ArbitrationCaseOverdueItem,
     ArbitrationCaseOpsReport,
     ArbitrationOpsAlert,
     ArbitrationMaterialPackage,
@@ -541,6 +542,26 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return [ArbitrationArbitratorActivitySummary(**item) for item in resp.json()]
+
+    async def list_arbitration_case_ops_overdue(
+        self,
+        *,
+        limit: int = 20,
+        open_overdue_hours: int = 24,
+        voting_overdue_hours: int = 24,
+        decided_overdue_hours: int = 12,
+    ) -> list[ArbitrationCaseOverdueItem]:
+        """GET /v1/arbitration/cases/ops/overdue"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/arbitration/cases/ops/overdue"
+                f"?limit={limit}"
+                f"&open_overdue_hours={open_overdue_hours}"
+                f"&voting_overdue_hours={voting_overdue_hours}"
+                f"&decided_overdue_hours={decided_overdue_hours}"
+            )
+            resp.raise_for_status()
+            return [ArbitrationCaseOverdueItem(**item) for item in resp.json()]
 
     async def submit_arbitration_material(
         self,

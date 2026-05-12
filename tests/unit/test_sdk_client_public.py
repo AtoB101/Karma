@@ -412,6 +412,7 @@ async def test_arbitration_sdk_methods():
                 "last_activity_at": now,
             }
         ],
+        "overdue_cases": ops_overdue_payload,
         "generated_at": now,
     }
     ops_alerts_payload = [
@@ -432,6 +433,20 @@ async def test_arbitration_sdk_methods():
             "last_assigned_at": now,
             "last_voted_at": now,
             "last_activity_at": now,
+        }
+    ]
+    ops_overdue_payload = [
+        {
+            "case_id": case_id,
+            "task_id": task_id,
+            "status": "voting",
+            "opened_by": "buyer-1",
+            "decided_outcome": None,
+            "overdue_stage": "voting",
+            "age_hours": 25.0,
+            "threshold_hours": 24,
+            "created_at": now,
+            "updated_at": now,
         }
     ]
     material_payload = {
@@ -483,6 +498,7 @@ async def test_arbitration_sdk_methods():
         ("GET", f"{base}/v1/arbitration/cases/ops/report?window_hours=24&recent_events_limit=50&arbitrator_limit=20"): ops_report_payload,
         ("GET", f"{base}/v1/arbitration/cases/ops/alerts?window_hours=24&open_case_threshold=5&voting_case_threshold=5&decided_case_threshold=3&partial_ratio_threshold=0.5"): ops_alerts_payload,
         ("GET", f"{base}/v1/arbitration/cases/ops/arbitrators?window_hours=24&limit=20"): ops_arbitrators_payload,
+        ("GET", f"{base}/v1/arbitration/cases/ops/overdue?limit=20&open_overdue_hours=24&voting_overdue_hours=24&decided_overdue_hours=12"): ops_overdue_payload,
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/materials"): material_payload,
         ("GET", f"{base}/v1/arbitration/cases/{case_id}/materials"): [material_payload],
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/vote"): voted_case_payload,
@@ -509,10 +525,13 @@ async def test_arbitration_sdk_methods():
     assert ops_report.status_counts.get("executed") == 1
     assert ops_report.alerts[0].alert_type.value == "open_case_backlog"
     assert ops_report.arbitrator_activity[0].arbitrator_identity_id == "arb-1"
+    assert ops_report.overdue_cases[0].overdue_stage.value == "voting"
     ops_alerts = await client.get_arbitration_case_ops_alerts(window_hours=24)
     assert ops_alerts[0].severity.value == "medium"
     ops_arbitrators = await client.list_arbitration_case_ops_arbitrators(window_hours=24, limit=20)
     assert ops_arbitrators[0].vote_count == 1
+    ops_overdue = await client.list_arbitration_case_ops_overdue(limit=20)
+    assert ops_overdue[0].threshold_hours == 24
 
     material = await client.submit_arbitration_material(
         case_id=case_id,

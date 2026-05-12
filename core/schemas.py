@@ -553,6 +553,25 @@ class ArbitrationArbitratorActivitySummary(BaseModel):
     last_activity_at: Optional[datetime] = None
 
 
+class ArbitrationOverdueStage(str, Enum):
+    OPEN = "open"
+    VOTING = "voting"
+    DECIDED_PENDING_EXECUTION = "decided_pending_execution"
+
+
+class ArbitrationCaseOverdueItem(BaseModel):
+    case_id: str
+    task_id: str
+    status: ArbitrationCaseStatus
+    opened_by: str
+    decided_outcome: Optional[ArbitrationVoteDecision] = None
+    overdue_stage: ArbitrationOverdueStage
+    age_hours: float = 0.0
+    threshold_hours: int
+    created_at: datetime
+    updated_at: datetime
+
+
 class ArbitrationCaseOpsReport(BaseModel):
     window_hours: int
     total_cases: int = 0
@@ -561,6 +580,7 @@ class ArbitrationCaseOpsReport(BaseModel):
     recent_events: list[ArbitrationCaseEvent] = Field(default_factory=list)
     alerts: list[ArbitrationOpsAlert] = Field(default_factory=list)
     arbitrator_activity: list[ArbitrationArbitratorActivitySummary] = Field(default_factory=list)
+    overdue_cases: list[ArbitrationCaseOverdueItem] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
