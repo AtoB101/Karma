@@ -25,6 +25,7 @@ from core.schemas import (
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
     ResponsibilityBatchScanResult,
+    ResponsibilityScanExecutionMode,
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
@@ -608,20 +609,26 @@ class KarmaClient:
         self,
         *,
         identity_ids: list[str] | None = None,
+        execution_mode: ResponsibilityScanExecutionMode = ResponsibilityScanExecutionMode.SYNC,
         scan_mode: ResponsibilityScanMode = ResponsibilityScanMode.FULL,
         base_scan_id: str | None = None,
         window_hours: int = 24,
         max_hops: int = 4,
         min_score_threshold: float = 8.0,
+        retry_max_attempts: int = 3,
+        retry_backoff_seconds: int = 30,
     ) -> ResponsibilityBatchScanResult:
         """POST /v1/responsibility/scan-runs"""
         payload: dict[str, Any] = {
             "identity_ids": identity_ids,
+            "execution_mode": execution_mode.value,
             "scan_mode": scan_mode.value,
             "base_scan_id": base_scan_id,
             "window_hours": window_hours,
             "max_hops": max_hops,
             "min_score_threshold": min_score_threshold,
+            "retry_max_attempts": retry_max_attempts,
+            "retry_backoff_seconds": retry_backoff_seconds,
         }
         async with self._http() as http:
             resp = await http.post(f"{self.runtime_url}/v1/responsibility/scan-runs", json=payload)
@@ -638,6 +645,31 @@ class KarmaClient:
         async with self._http() as http:
             resp = await http.get(
                 f"{self.runtime_url}/v1/responsibility/scan-runs/{scan_id}?findings_limit={findings_limit}"
+            )
+            resp.raise_for_status()
+            return ResponsibilityBatchScanResult(**resp.json())
+
+    async def execute_responsibility_batch_scan(
+        self,
+        scan_id: str,
+        *,
+        force: bool = False,
+    ) -> ResponsibilityBatchScanResult:
+        """POST /v1/responsibility/scan-runs/{scan_id}/execute"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/{scan_id}/execute",
+                json={"force": force},
+            )
+            resp.raise_for_status()
+            return ResponsibilityBatchScanResult(**resp.json())
+
+    async def retry_responsibility_batch_scan(self, scan_id: str) -> ResponsibilityBatchScanResult:
+        """POST /v1/responsibility/scan-runs/{scan_id}/retry"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/{scan_id}/retry",
+                json={},
             )
             resp.raise_for_status()
             return ResponsibilityBatchScanResult(**resp.json())

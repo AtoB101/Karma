@@ -153,6 +153,11 @@ class ResponsibilityScanMode(str, Enum):
     INCREMENTAL = "incremental"
 
 
+class ResponsibilityScanExecutionMode(str, Enum):
+    SYNC = "sync"
+    ASYNC = "async"
+
+
 class TemporalConsistencyIssueType(str, Enum):
     EDGE_TYPE_OUT_OF_ORDER = "edge_type_out_of_order"
     DUPLICATE_DIRECTION_BURST = "duplicate_direction_burst"
@@ -590,12 +595,20 @@ class ResponsibilityScanFinding(BaseModel):
 class ResponsibilityBatchScanRun(BaseModel):
     scan_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     status: ResponsibilityScanRunStatus = ResponsibilityScanRunStatus.PENDING
+    execution_mode: ResponsibilityScanExecutionMode = ResponsibilityScanExecutionMode.SYNC
     scan_mode: ResponsibilityScanMode = ResponsibilityScanMode.FULL
     base_scan_id: Optional[str] = None
     incremental_since_at: Optional[datetime] = None
+    requested_identity_ids: Optional[list[str]] = None
     window_hours: int = 24
     max_hops: int = 4
     min_score_threshold: float = 8.0
+    retry_max_attempts: int = 3
+    retry_backoff_seconds: int = 30
+    current_attempt: int = 0
+    started_at: Optional[datetime] = None
+    next_retry_at: Optional[datetime] = None
+    last_error: Optional[str] = None
     total_identities: int = 0
     flagged_identities: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)

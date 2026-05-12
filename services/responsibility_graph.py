@@ -7,7 +7,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
@@ -23,6 +23,7 @@ from core.schemas import (
     ResponsibilityPathFeaturesSummary,
     ResponsibilityRiskSignal,
     ResponsibilityScanFinding,
+    ResponsibilityScanExecutionMode,
     ResponsibilityScanMode,
     ResponsibilityScanRunStatus,
     ResponsibilitySignalSeverity,
@@ -391,31 +392,38 @@ async def run_batch_scan(
     *,
     db: AsyncSession,
     identity_ids: list[str] | None = None,
+    execution_mode: ResponsibilityScanExecutionMode = ResponsibilityScanExecutionMode.SYNC,
     scan_mode: ResponsibilityScanMode = ResponsibilityScanMode.FULL,
     base_scan_id: str | None = None,
     window_hours: int = 24,
     max_hops: int = 4,
     min_score_threshold: float = 8.0,
+    retry_max_attempts: int = 3,
+    retry_backoff_seconds: int = 30,
 ) -> ResponsibilityBatchScanResult:
     now = datetime.utcnow()
+    requested_identity_ids = (
+        sorted({item.strip() for item in identity_ids if item and item.strip()})
+        if identity_ids is not None
+        else None
+    )
     incremental_since_at: datetime | None = None
-    if scan_mode == ResponsibilityScanMode.INCREMENTAL:
-        if base_scan_id:
-            base_run = await db.get(ResponsibilityScanRunModel, base_scan_id)
-            if not base_run:
-                raise ValueError(f"base scan run not found: {base_scan_id}")
-            incremental_since_at = base_run.completed_at or base_run.created_at
-        else:
-            incremental_since_at = now - timedelta(hours=window_hours)
+    if scan_mode == ResponsibilityScanMode.INCREMENTAL and not base_scan_id:
+        incremental_since_at = now - timedelta(hours=window_hours)
 
     run_row = ResponsibilityScanRunModel(
-        status=ResponsibilityScanRunStatus.RUNNING.value,
+        status=ResponsibilityScanRunStatus.PENDING.value,
+        execution_mode=execution_mode.value,
         scan_mode=scan_mode.value,
         base_scan_id=base_scan_id,
         incremental_since_at=incremental_since_at,
+        requested_identity_ids=requested_identity_ids,
         window_hours=window_hours,
         max_hops=max_hops,
         min_score_threshold=min_score_threshold,
+        retry_max_attempts=retry_max_attempts,
+        retry_backoff_seconds=retry_backoff_seconds,
+        current_attempt=0,
         total_identities=0,
         flagged_identities=0,
         created_at=now,
@@ -423,72 +431,111 @@ async def run_batch_scan(
     db.add(run_row)
     await db.flush()
 
-    if identity_ids is None:
-        since = incremental_since_at or (datetime.utcnow() - timedelta(hours=window_hours))
-        source_rows = await db.execute(
-            select(ResponsibilityEdgeModel.source_identity_id).where(
-                ResponsibilityEdgeModel.created_at >= since
-            )
-        )
-        target_rows = await db.execute(
-            select(ResponsibilityEdgeModel.target_identity_id).where(
-                ResponsibilityEdgeModel.created_at >= since
-            )
-        )
-        signal_rows = await db.execute(
-            select(ResponsibilitySignalModel.identity_id).where(
-                ResponsibilitySignalModel.created_at >= since
-            )
-        )
-        id_set = {
-            *(item for item in source_rows.scalars().all() if item),
-            *(item for item in target_rows.scalars().all() if item),
-            *(item for item in signal_rows.scalars().all() if item),
-        }
-        scan_identities = sorted(id_set)
-    else:
-        scan_identities = sorted({item.strip() for item in identity_ids if item and item.strip()})
+    if execution_mode == ResponsibilityScanExecutionMode.ASYNC:
+        return ResponsibilityBatchScanResult(run=_scan_run_to_schema(run_row), findings=[])
 
-    findings_rows: list[ResponsibilityScanFindingModel] = []
-    for identity_id in scan_identities:
-        score = await get_identity_score(db=db, identity_id=identity_id, window_hours=window_hours)
-        features = await get_identity_path_features(
-            db=db,
-            identity_id=identity_id,
-            window_hours=window_hours,
-            max_hops=max_hops,
-        )
-        should_flag = (
-            score.normalized_score >= min_score_threshold
-            or features.cycle_paths_detected > 0
-        )
-        if should_flag:
-            finding = ResponsibilityScanFindingModel(
-                scan_id=run_row.scan_id,
-                identity_id=identity_id,
-                normalized_score=score.normalized_score,
-                risk_band=score.risk_band.value,
-                signal_count=score.signal_count,
-                cycle_paths_detected=features.cycle_paths_detected,
-                detail=(
-                    f"window_score={score.normalized_score:.2f}, "
-                    f"signals={score.signal_count}, cycles={features.cycle_paths_detected}"
-                ),
-                created_at=datetime.utcnow(),
-            )
-            db.add(finding)
-            findings_rows.append(finding)
+    return await execute_scan_run(db=db, scan_id=run_row.scan_id, force=True)
 
-    run_row.total_identities = len(scan_identities)
-    run_row.flagged_identities = len(findings_rows)
-    run_row.status = ResponsibilityScanRunStatus.COMPLETED.value
-    run_row.completed_at = datetime.utcnow()
+
+async def execute_scan_run(
+    *,
+    db: AsyncSession,
+    scan_id: str,
+    force: bool = False,
+    require_failed: bool = False,
+) -> ResponsibilityBatchScanResult:
+    run_row = await db.get(ResponsibilityScanRunModel, scan_id)
+    if not run_row:
+        raise ValueError(f"scan run {scan_id} not found")
+
+    now = datetime.utcnow()
+    if require_failed and run_row.status != ResponsibilityScanRunStatus.FAILED.value:
+        raise ValueError("scan run is not in failed state")
+    if run_row.status == ResponsibilityScanRunStatus.COMPLETED.value and not force:
+        result = await get_batch_scan_result(db=db, scan_id=scan_id)
+        if result:
+            return result
+    if run_row.status == ResponsibilityScanRunStatus.RUNNING.value and not force:
+        result = await get_batch_scan_result(db=db, scan_id=scan_id)
+        if result:
+            return result
+    if run_row.status == ResponsibilityScanRunStatus.FAILED.value and not force:
+        if run_row.next_retry_at and run_row.next_retry_at > now:
+            raise ValueError("scan run is waiting for next retry window")
+        if run_row.current_attempt >= run_row.retry_max_attempts:
+            raise ValueError("scan run retry attempts exhausted")
+
+    run_row.status = ResponsibilityScanRunStatus.RUNNING.value
+    run_row.started_at = now
+    run_row.current_attempt = (run_row.current_attempt or 0) + 1
+    run_row.last_error = None
+    run_row.next_retry_at = None
     await db.flush()
 
-    return ResponsibilityBatchScanResult(
-        run=_scan_run_to_schema(run_row),
-        findings=[_scan_finding_to_schema(row) for row in findings_rows],
-    )
+    try:
+        incremental_since_at = await _resolve_incremental_since(db=db, run_row=run_row)
+        run_row.incremental_since_at = incremental_since_at
+        scan_identities = await _resolve_scan_identities(db=db, run_row=run_row, incremental_since_at=incremental_since_at)
+
+        await db.execute(
+            delete(ResponsibilityScanFindingModel).where(
+                ResponsibilityScanFindingModel.scan_id == run_row.scan_id
+            )
+        )
+
+        findings_rows: list[ResponsibilityScanFindingModel] = []
+        for identity_id in scan_identities:
+            score = await get_identity_score(db=db, identity_id=identity_id, window_hours=run_row.window_hours)
+            features = await get_identity_path_features(
+                db=db,
+                identity_id=identity_id,
+                window_hours=run_row.window_hours,
+                max_hops=run_row.max_hops,
+            )
+            should_flag = (
+                score.normalized_score >= run_row.min_score_threshold
+                or features.cycle_paths_detected > 0
+            )
+            if should_flag:
+                finding = ResponsibilityScanFindingModel(
+                    scan_id=run_row.scan_id,
+                    identity_id=identity_id,
+                    normalized_score=score.normalized_score,
+                    risk_band=score.risk_band.value,
+                    signal_count=score.signal_count,
+                    cycle_paths_detected=features.cycle_paths_detected,
+                    detail=(
+                        f"window_score={score.normalized_score:.2f}, "
+                        f"signals={score.signal_count}, cycles={features.cycle_paths_detected}"
+                    ),
+                    created_at=datetime.utcnow(),
+                )
+                db.add(finding)
+                findings_rows.append(finding)
+
+        run_row.total_identities = len(scan_identities)
+        run_row.flagged_identities = len(findings_rows)
+        run_row.status = ResponsibilityScanRunStatus.COMPLETED.value
+        run_row.completed_at = datetime.utcnow()
+        run_row.last_error = None
+        run_row.next_retry_at = None
+        await db.flush()
+    except Exception as exc:
+        run_row.status = ResponsibilityScanRunStatus.FAILED.value
+        run_row.completed_at = None
+        run_row.last_error = str(exc)
+        if run_row.current_attempt < run_row.retry_max_attempts:
+            backoff_seconds = max(1, run_row.retry_backoff_seconds) * run_row.current_attempt
+            run_row.next_retry_at = datetime.utcnow() + timedelta(seconds=backoff_seconds)
+        else:
+            run_row.next_retry_at = None
+        await db.flush()
+        raise
+
+    result = await get_batch_scan_result(db=db, scan_id=scan_id)
+    if not result:
+        raise ValueError(f"scan run {scan_id} result not found after execution")
+    return result
 
 
 async def get_batch_scan_result(
@@ -780,12 +827,20 @@ def _scan_run_to_schema(row: ResponsibilityScanRunModel) -> ResponsibilityBatchS
     return ResponsibilityBatchScanRun(
         scan_id=row.scan_id,
         status=ResponsibilityScanRunStatus(row.status),
+        execution_mode=ResponsibilityScanExecutionMode(row.execution_mode),
         scan_mode=ResponsibilityScanMode(row.scan_mode),
         base_scan_id=row.base_scan_id,
         incremental_since_at=row.incremental_since_at,
+        requested_identity_ids=row.requested_identity_ids,
         window_hours=row.window_hours,
         max_hops=row.max_hops,
         min_score_threshold=row.min_score_threshold,
+        retry_max_attempts=row.retry_max_attempts,
+        retry_backoff_seconds=row.retry_backoff_seconds,
+        current_attempt=row.current_attempt,
+        started_at=row.started_at,
+        next_retry_at=row.next_retry_at,
+        last_error=row.last_error,
         total_identities=row.total_identities,
         flagged_identities=row.flagged_identities,
         created_at=row.created_at,
@@ -805,4 +860,54 @@ def _scan_finding_to_schema(row: ResponsibilityScanFindingModel) -> Responsibili
         detail=row.detail,
         created_at=row.created_at,
     )
+
+
+async def _resolve_incremental_since(
+    *,
+    db: AsyncSession,
+    run_row: ResponsibilityScanRunModel,
+) -> datetime | None:
+    if run_row.scan_mode != ResponsibilityScanMode.INCREMENTAL.value:
+        return None
+    if run_row.base_scan_id:
+        base_run = await db.get(ResponsibilityScanRunModel, run_row.base_scan_id)
+        if not base_run:
+            raise ValueError(f"base scan run not found: {run_row.base_scan_id}")
+        return base_run.completed_at or base_run.created_at
+    if run_row.incremental_since_at:
+        return run_row.incremental_since_at
+    return datetime.utcnow() - timedelta(hours=run_row.window_hours)
+
+
+async def _resolve_scan_identities(
+    *,
+    db: AsyncSession,
+    run_row: ResponsibilityScanRunModel,
+    incremental_since_at: datetime | None,
+) -> list[str]:
+    if run_row.requested_identity_ids:
+        return sorted({item.strip() for item in run_row.requested_identity_ids if item and item.strip()})
+
+    since = incremental_since_at or (datetime.utcnow() - timedelta(hours=run_row.window_hours))
+    source_rows = await db.execute(
+        select(ResponsibilityEdgeModel.source_identity_id).where(
+            ResponsibilityEdgeModel.created_at >= since
+        )
+    )
+    target_rows = await db.execute(
+        select(ResponsibilityEdgeModel.target_identity_id).where(
+            ResponsibilityEdgeModel.created_at >= since
+        )
+    )
+    signal_rows = await db.execute(
+        select(ResponsibilitySignalModel.identity_id).where(
+            ResponsibilitySignalModel.created_at >= since
+        )
+    )
+    id_set = {
+        *(item for item in source_rows.scalars().all() if item),
+        *(item for item in target_rows.scalars().all() if item),
+        *(item for item in signal_rows.scalars().all() if item),
+    }
+    return sorted(id_set)
 

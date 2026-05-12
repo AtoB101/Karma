@@ -4,10 +4,16 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from core.schemas import ResponsibilityEdgeType, ResponsibilityScanMode
+from core.schemas import (
+    ResponsibilityEdgeType,
+    ResponsibilityScanExecutionMode,
+    ResponsibilityScanMode,
+)
 from db.models.orm import ResponsibilitySignalModel
 from services.responsibility_graph import (
+    execute_scan_run,
     export_explainable_risk_report,
+    get_batch_scan_result,
     get_task_temporal_consistency_report,
     get_identity_path_features,
     get_identity_score,
@@ -154,6 +160,67 @@ async def test_incremental_batch_scan_uses_base_scan(db_session):
     assert incremental.run.scan_mode.value == "incremental"
     assert incremental.run.base_scan_id == base.run.scan_id
     assert incremental.run.total_identities >= 1
+
+
+@pytest.mark.asyncio
+async def test_async_scan_run_create_then_execute(db_session):
+    await ingest_edge(
+        db=db_session,
+        source_identity_id="async-a",
+        target_identity_id="async-b",
+        edge_type=ResponsibilityEdgeType.MANUAL_LINK,
+    )
+
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=["async-a", "async-b"],
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        window_hours=24,
+        max_hops=4,
+        min_score_threshold=0.0,
+    )
+    assert created.run.status.value == "pending"
+    assert created.run.current_attempt == 0
+    assert created.findings == []
+
+    polled = await get_batch_scan_result(db=db_session, scan_id=created.run.scan_id)
+    assert polled is not None
+    assert polled.run.status.value == "pending"
+
+    executed = await execute_scan_run(db=db_session, scan_id=created.run.scan_id)
+    assert executed.run.status.value == "completed"
+    assert executed.run.current_attempt == 1
+    assert executed.run.total_identities == 2
+
+
+@pytest.mark.asyncio
+async def test_async_scan_run_failure_sets_retry_window(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=None,
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.INCREMENTAL,
+        base_scan_id="missing-base-scan",
+        retry_max_attempts=2,
+        retry_backoff_seconds=60,
+    )
+
+    with pytest.raises(ValueError, match="base scan run not found"):
+        await execute_scan_run(db=db_session, scan_id=created.run.scan_id)
+
+    failed = await get_batch_scan_result(db=db_session, scan_id=created.run.scan_id)
+    assert failed is not None
+    assert failed.run.status.value == "failed"
+    assert failed.run.current_attempt == 1
+    assert failed.run.next_retry_at is not None
+    assert failed.run.last_error is not None
+
+    with pytest.raises(ValueError, match="waiting for next retry window"):
+        await execute_scan_run(
+            db=db_session,
+            scan_id=created.run.scan_id,
+            require_failed=True,
+        )
 
 
 @pytest.mark.asyncio

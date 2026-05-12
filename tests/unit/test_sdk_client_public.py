@@ -10,6 +10,7 @@ from core.schemas import (
     ProgressConfirmationStatus,
     ProgressReceipt,
     ResponsibilityEdgeType,
+    ResponsibilityScanExecutionMode,
     ResponsibilityScanMode,
     SubIdentityType,
 )
@@ -551,12 +552,20 @@ async def test_responsibility_sdk_methods():
             "run": {
                 "scan_id": "scan-1",
                 "status": "completed",
+                "execution_mode": "async",
                 "scan_mode": "incremental",
                 "base_scan_id": "scan-0",
                 "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
                 "window_hours": 48,
                 "max_hops": 5,
                 "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
                 "total_identities": 2,
                 "flagged_identities": 1,
                 "created_at": now,
@@ -580,12 +589,20 @@ async def test_responsibility_sdk_methods():
             "run": {
                 "scan_id": "scan-1",
                 "status": "completed",
+                "execution_mode": "async",
                 "scan_mode": "incremental",
                 "base_scan_id": "scan-0",
                 "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
                 "window_hours": 48,
                 "max_hops": 5,
                 "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
                 "total_identities": 2,
                 "flagged_identities": 1,
                 "created_at": now,
@@ -604,6 +621,56 @@ async def test_responsibility_sdk_methods():
                     "created_at": now,
                 }
             ],
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/scan-1/execute"): {
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "findings": [],
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/scan-1/retry"): {
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 2,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "findings": [],
         },
         ("POST", f"{base}/v1/responsibility/reports/export"): {
             "report_id": "report-1",
@@ -689,15 +756,21 @@ async def test_responsibility_sdk_methods():
     model = await client.get_public_responsibility_risk_model()
     assert model.model_version == "public-risk-v1"
     scan = await client.create_responsibility_batch_scan(
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
         scan_mode=ResponsibilityScanMode.INCREMENTAL,
         base_scan_id="scan-0",
         window_hours=48,
         max_hops=5,
     )
     assert scan.run.scan_id == "scan-1"
+    assert scan.run.execution_mode.value == "async"
     assert scan.run.scan_mode.value == "incremental"
     scan_read = await client.get_responsibility_batch_scan("scan-1", findings_limit=20)
     assert scan_read.findings[0].identity_id == "id-a"
+    executed = await client.execute_responsibility_batch_scan("scan-1")
+    assert executed.run.current_attempt == 1
+    retried = await client.retry_responsibility_batch_scan("scan-1")
+    assert retried.run.current_attempt == 2
     report = await client.export_explainable_risk_report(
         identity_id="id-a",
         signer_identity_id="signer-1",

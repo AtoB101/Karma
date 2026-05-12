@@ -393,14 +393,29 @@ SDK helper methods:
 - `scan_mode = full`：按窗口全量扫描
 - `scan_mode = incremental`：基于 `base_scan_id`（或窗口基线）仅扫描增量活动身份
 
+执行模式：
+- `execution_mode = sync`：创建即执行并返回结果
+- `execution_mode = async`：仅创建 `pending` run，需后续触发执行
+
+重试策略字段：
+- `retry_max_attempts`
+- `retry_backoff_seconds`
+
 ### `GET /v1/responsibility/scan-runs/{scan_id}`
 查询批处理扫描结果（含 `run` + `findings`）。
+
+### `POST /v1/responsibility/scan-runs/{scan_id}/execute`
+执行（或强制重执行）一个 scan run，支持 `force` 参数。
+
+### `POST /v1/responsibility/scan-runs/{scan_id}/retry`
+重试失败的 scan run（遵循 next retry window）。
 
 ### `POST /v1/responsibility/reports/export`
 导出可解释风险报告（identity 或 task 二选一）：
 - identity 报告：score + path features + top signals + findings excerpt
 - task 报告：task path hash + temporal consistency + top signals
 - 返回 `signature` 占位结构（`signature_payload_hash` + `status`），用于公开侧验签流程对接
+- 可选提交 `signer_identity_id` 与 `signature`，用于 public 验签流程占位。
 
 自动接入：
 - `POST /v1/vouchers/{voucher_id}/accept` 成功后会自动记录一条 `voucher_accept` 责任边。
@@ -414,6 +429,8 @@ SDK helper methods:
 - `get_responsibility_path_features(identity_id, window_hours=24, max_hops=4)`
 - `create_responsibility_batch_scan(...)`
 - `get_responsibility_batch_scan(scan_id, findings_limit=200)`
+- `execute_responsibility_batch_scan(scan_id, force=False)`
+- `retry_responsibility_batch_scan(scan_id)`
 - `get_task_temporal_consistency(task_id)`
 - `export_explainable_risk_report(...)`
 

@@ -10,6 +10,7 @@ from core.schemas import (
     ResponsibilityBatchScanResult,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
+    ResponsibilityScanExecutionMode,
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
@@ -20,6 +21,7 @@ from core.schemas import (
 )
 from db.session import get_db
 from services.responsibility_graph import (
+    execute_scan_run,
     export_explainable_risk_report,
     get_batch_scan_result,
     get_identity_path_features,
@@ -46,11 +48,18 @@ class IngestResponsibilityEdgeRequest(BaseModel):
 
 class CreateBatchScanRunRequest(BaseModel):
     identity_ids: list[str] | None = None
+    execution_mode: ResponsibilityScanExecutionMode = ResponsibilityScanExecutionMode.SYNC
     scan_mode: ResponsibilityScanMode = ResponsibilityScanMode.FULL
     base_scan_id: str | None = None
     window_hours: int = Field(default=24, ge=1, le=24 * 30)
     max_hops: int = Field(default=4, ge=1, le=12)
     min_score_threshold: float = Field(default=8.0, ge=0.0, le=100.0)
+    retry_max_attempts: int = Field(default=3, ge=1, le=10)
+    retry_backoff_seconds: int = Field(default=30, ge=1, le=3600)
+
+
+class ExecuteScanRunRequest(BaseModel):
+    force: bool = False
 
 
 class ExportExplainableRiskReportRequest(BaseModel):
@@ -143,14 +152,17 @@ async def create_batch_scan_run(
         return await run_batch_scan(
             db=db,
             identity_ids=body.identity_ids,
+            execution_mode=body.execution_mode,
             scan_mode=body.scan_mode,
             base_scan_id=body.base_scan_id,
             window_hours=body.window_hours,
             max_hops=body.max_hops,
             min_score_threshold=body.min_score_threshold,
+            retry_max_attempts=body.retry_max_attempts,
+            retry_backoff_seconds=body.retry_backoff_seconds,
         )
     except ValueError as exc:
-        raise HTTPException(404, str(exc)) from exc
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/scan-runs/{scan_id}", response_model=ResponsibilityBatchScanResult)
@@ -163,6 +175,42 @@ async def get_scan_run(
     if not result:
         raise HTTPException(404, f"scan run {scan_id} not found")
     return result
+
+
+@router.post("/scan-runs/{scan_id}/execute", response_model=ResponsibilityBatchScanResult)
+async def execute_scan(
+    scan_id: str,
+    body: ExecuteScanRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await execute_scan_run(
+            db=db,
+            scan_id=scan_id,
+            force=body.force,
+            require_failed=False,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message:
+            raise HTTPException(404, message) from exc
+        raise HTTPException(409, message) from exc
+
+
+@router.post("/scan-runs/{scan_id}/retry", response_model=ResponsibilityBatchScanResult)
+async def retry_scan(scan_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        return await execute_scan_run(
+            db=db,
+            scan_id=scan_id,
+            force=False,
+            require_failed=True,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message:
+            raise HTTPException(404, message) from exc
+        raise HTTPException(409, message) from exc
 
 
 @router.post("/reports/export", response_model=ExplainableRiskReport)

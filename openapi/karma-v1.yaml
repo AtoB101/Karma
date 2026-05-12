@@ -1020,6 +1020,54 @@ paths:
                 $ref: '#/components/schemas/ResponsibilityBatchScanResult'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/responsibility/scan-runs/{scanId}/execute:
+    post:
+      summary: Execute or re-execute responsibility scan run
+      operationId: executeResponsibilityBatchScan
+      parameters:
+        - in: path
+          name: scanId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteResponsibilityScanRunRequest'
+      responses:
+        '200':
+          description: Batch scan result after execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityBatchScanResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/responsibility/scan-runs/{scanId}/retry:
+    post:
+      summary: Retry failed responsibility scan run
+      operationId: retryResponsibilityBatchScan
+      parameters:
+        - in: path
+          name: scanId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Batch scan result after retry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityBatchScanResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
   /v1/responsibility/reports/export:
     post:
       summary: Export explainable responsibility risk report
@@ -1820,6 +1868,10 @@ components:
           type: array
           items:
             type: string
+        execution_mode:
+          type: string
+          enum: [sync, async]
+          default: sync
         scan_mode:
           type: string
           enum: [full, incremental]
@@ -1841,6 +1893,23 @@ components:
           minimum: 0
           maximum: 100
           default: 8
+        retry_max_attempts:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 3
+        retry_backoff_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 30
+    ExecuteResponsibilityScanRunRequest:
+      type: object
+      properties:
+        force:
+          type: boolean
+          default: false
+      required: [force]
     ResponsibilityScanFinding:
       type: object
       properties:
@@ -1882,6 +1951,9 @@ components:
         status:
           type: string
           enum: [pending, running, completed, failed]
+        execution_mode:
+          type: string
+          enum: [sync, async]
         scan_mode:
           type: string
           enum: [full, incremental]
@@ -1890,12 +1962,30 @@ components:
         incremental_since_at:
           type: string
           format: date-time
+        requested_identity_ids:
+          type: array
+          items:
+            type: string
         window_hours:
           type: integer
         max_hops:
           type: integer
         min_score_threshold:
           type: number
+        retry_max_attempts:
+          type: integer
+        retry_backoff_seconds:
+          type: integer
+        current_attempt:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+        next_retry_at:
+          type: string
+          format: date-time
+        last_error:
+          type: string
         total_identities:
           type: integer
         flagged_identities:
@@ -1909,10 +1999,14 @@ components:
       required:
         - scan_id
         - status
+        - execution_mode
         - scan_mode
         - window_hours
         - max_hops
         - min_score_threshold
+        - retry_max_attempts
+        - retry_backoff_seconds
+        - current_attempt
         - total_identities
         - flagged_identities
         - created_at

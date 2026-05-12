@@ -723,6 +723,37 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert fetched_body["run"]["scan_id"] == scan_id
     assert fetched_body["run"]["flagged_identities"] >= 1
     assert fetched_body["run"]["scan_mode"] == "full"
+    assert fetched_body["run"]["execution_mode"] == "sync"
+
+    async_scan = await client.post("/v1/responsibility/scan-runs", json={
+        "identity_ids": ["id-a", "id-b"],
+        "execution_mode": "async",
+        "scan_mode": "full",
+        "window_hours": 24,
+        "max_hops": 4,
+        "min_score_threshold": 1.0,
+        "retry_max_attempts": 3,
+        "retry_backoff_seconds": 30,
+    })
+    assert async_scan.status_code == 201
+    async_scan_body = async_scan.json()
+    async_scan_id = async_scan_body["run"]["scan_id"]
+    assert async_scan_body["run"]["status"] == "pending"
+    assert async_scan_body["run"]["execution_mode"] == "async"
+    assert async_scan_body["run"]["current_attempt"] == 0
+
+    async_scan_polled = await client.get(f"/v1/responsibility/scan-runs/{async_scan_id}?findings_limit=50")
+    assert async_scan_polled.status_code == 200
+    assert async_scan_polled.json()["run"]["status"] == "pending"
+
+    async_scan_executed = await client.post(
+        f"/v1/responsibility/scan-runs/{async_scan_id}/execute",
+        json={"force": False},
+    )
+    assert async_scan_executed.status_code == 200
+    async_scan_executed_body = async_scan_executed.json()
+    assert async_scan_executed_body["run"]["status"] == "completed"
+    assert async_scan_executed_body["run"]["current_attempt"] == 1
 
     extra = await client.post("/v1/responsibility/edges", json={
         "source_identity_id": "id-c",
@@ -743,6 +774,35 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     incremental_body = incremental_scan.json()
     assert incremental_body["run"]["scan_mode"] == "incremental"
     assert incremental_body["run"]["base_scan_id"] == scan_id
+
+    failing_async_scan = await client.post("/v1/responsibility/scan-runs", json={
+        "execution_mode": "async",
+        "scan_mode": "incremental",
+        "base_scan_id": "missing-run",
+        "window_hours": 24,
+        "max_hops": 4,
+        "min_score_threshold": 1.0,
+        "retry_max_attempts": 2,
+        "retry_backoff_seconds": 60,
+    })
+    assert failing_async_scan.status_code == 201
+    failing_scan_id = failing_async_scan.json()["run"]["scan_id"]
+
+    failed_execute = await client.post(
+        f"/v1/responsibility/scan-runs/{failing_scan_id}/execute",
+        json={"force": False},
+    )
+    assert failed_execute.status_code == 404
+
+    failed_scan = await client.get(f"/v1/responsibility/scan-runs/{failing_scan_id}?findings_limit=50")
+    assert failed_scan.status_code == 200
+    failed_scan_body = failed_scan.json()
+    assert failed_scan_body["run"]["status"] == "failed"
+    assert failed_scan_body["run"]["last_error"] is not None
+    assert failed_scan_body["run"]["next_retry_at"] is not None
+
+    failed_retry = await client.post(f"/v1/responsibility/scan-runs/{failing_scan_id}/retry")
+    assert failed_retry.status_code == 409
 
     report_identity = await client.post("/v1/responsibility/reports/export", json={
         "identity_id": "id-c",
