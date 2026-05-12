@@ -742,13 +742,31 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert async_scan_body["run"]["execution_mode"] == "async"
     assert async_scan_body["run"]["current_attempt"] == 0
 
+    async_scan_claimed = await client.post("/v1/responsibility/scan-runs/claim", json={
+        "runner_identity_id": "runner-int-1",
+        "lease_seconds": 300,
+        "include_failed": True,
+    })
+    assert async_scan_claimed.status_code == 200
+    async_claim_body = async_scan_claimed.json()
+    assert async_claim_body["scan_id"] == async_scan_id
+    assert async_claim_body["status"] == "claimed"
+    assert async_claim_body["claimed_by"] == "runner-int-1"
+
     async_scan_polled = await client.get(f"/v1/responsibility/scan-runs/{async_scan_id}?findings_limit=50")
     assert async_scan_polled.status_code == 200
-    assert async_scan_polled.json()["run"]["status"] == "pending"
+    assert async_scan_polled.json()["run"]["status"] == "claimed"
+
+    async_scan_heartbeated = await client.post(
+        f"/v1/responsibility/scan-runs/{async_scan_id}/heartbeat",
+        json={"runner_identity_id": "runner-int-1", "lease_seconds": 300},
+    )
+    assert async_scan_heartbeated.status_code == 200
+    assert async_scan_heartbeated.json()["status"] == "claimed"
 
     async_scan_executed = await client.post(
         f"/v1/responsibility/scan-runs/{async_scan_id}/execute",
-        json={"force": False},
+        json={"force": False, "runner_identity_id": "runner-int-1", "lease_seconds": 300},
     )
     assert async_scan_executed.status_code == 200
     async_scan_executed_body = async_scan_executed.json()
@@ -803,6 +821,26 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
 
     failed_retry = await client.post(f"/v1/responsibility/scan-runs/{failing_scan_id}/retry")
     assert failed_retry.status_code == 409
+
+    cancellable_scan = await client.post("/v1/responsibility/scan-runs", json={
+        "identity_ids": ["id-a"],
+        "execution_mode": "async",
+        "scan_mode": "full",
+        "window_hours": 24,
+        "max_hops": 4,
+        "min_score_threshold": 1.0,
+    })
+    assert cancellable_scan.status_code == 201
+    cancellable_scan_id = cancellable_scan.json()["run"]["scan_id"]
+
+    cancel_resp = await client.post(
+        f"/v1/responsibility/scan-runs/{cancellable_scan_id}/cancel",
+        json={"runner_identity_id": "ops-int-1", "reason": "maintenance-window"},
+    )
+    assert cancel_resp.status_code == 200
+    cancel_body = cancel_resp.json()
+    assert cancel_body["status"] == "cancelled"
+    assert cancel_body["cancel_reason"] == "maintenance-window"
 
     report_identity = await client.post("/v1/responsibility/reports/export", json={
         "identity_id": "id-c",

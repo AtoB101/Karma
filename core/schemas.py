@@ -143,9 +143,11 @@ class ResponsibilityScoreBand(str, Enum):
 
 class ResponsibilityScanRunStatus(str, Enum):
     PENDING = "pending"
+    CLAIMED = "claimed"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class ResponsibilityScanMode(str, Enum):
@@ -606,9 +608,15 @@ class ResponsibilityBatchScanRun(BaseModel):
     retry_max_attempts: int = 3
     retry_backoff_seconds: int = 30
     current_attempt: int = 0
+    claimed_by: Optional[str] = None
+    claimed_at: Optional[datetime] = None
+    lease_expires_at: Optional[datetime] = None
+    last_heartbeat_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     next_retry_at: Optional[datetime] = None
     last_error: Optional[str] = None
+    cancelled_at: Optional[datetime] = None
+    cancel_reason: Optional[str] = None
     total_identities: int = 0
     flagged_identities: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)

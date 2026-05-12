@@ -55,6 +55,7 @@ SIGNAL_TYPE_WEIGHTS: dict[ResponsibilitySignalType, float] = {
     ResponsibilitySignalType.CYCLE_AUTHORIZATION: 3.5,
 }
 RECENCY_FLOOR = 0.2
+DEFAULT_SCAN_LEASE_SECONDS = 300
 EDGE_STAGE_ORDER: dict[ResponsibilityEdgeType, int] = {
     ResponsibilityEdgeType.VOUCHER_ACCEPT: 1,
     ResponsibilityEdgeType.TASK_DELEGATION: 2,
@@ -437,10 +438,128 @@ async def run_batch_scan(
     return await execute_scan_run(db=db, scan_id=run_row.scan_id, force=True)
 
 
+async def claim_next_scan_run(
+    *,
+    db: AsyncSession,
+    runner_identity_id: str,
+    lease_seconds: int = DEFAULT_SCAN_LEASE_SECONDS,
+    include_failed: bool = True,
+) -> ResponsibilityBatchScanRun | None:
+    now = datetime.utcnow()
+    claimable_lease_seconds = max(1, lease_seconds)
+
+    pending_result = await db.execute(
+        select(ResponsibilityScanRunModel)
+        .where(ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.PENDING.value)
+        .order_by(ResponsibilityScanRunModel.created_at.asc())
+        .limit(1)
+    )
+    run_row = pending_result.scalar_one_or_none()
+
+    if not run_row:
+        stale_claimed_result = await db.execute(
+            select(ResponsibilityScanRunModel)
+            .where(
+                ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.CLAIMED.value,
+                ResponsibilityScanRunModel.lease_expires_at.is_not(None),
+                ResponsibilityScanRunModel.lease_expires_at <= now,
+            )
+            .order_by(ResponsibilityScanRunModel.lease_expires_at.asc())
+            .limit(1)
+        )
+        run_row = stale_claimed_result.scalar_one_or_none()
+
+    if not run_row and include_failed:
+        failed_result = await db.execute(
+            select(ResponsibilityScanRunModel)
+            .where(
+                ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.FAILED.value,
+                ResponsibilityScanRunModel.current_attempt < ResponsibilityScanRunModel.retry_max_attempts,
+            )
+            .order_by(ResponsibilityScanRunModel.next_retry_at.asc(), ResponsibilityScanRunModel.created_at.asc())
+            .limit(1)
+        )
+        candidate = failed_result.scalar_one_or_none()
+        if candidate and candidate.next_retry_at and candidate.next_retry_at > now:
+            candidate = None
+        run_row = candidate
+
+    if not run_row:
+        return None
+
+    run_row.status = ResponsibilityScanRunStatus.CLAIMED.value
+    run_row.claimed_by = runner_identity_id
+    run_row.claimed_at = now
+    run_row.lease_expires_at = now + timedelta(seconds=claimable_lease_seconds)
+    run_row.last_heartbeat_at = now
+    run_row.cancelled_at = None
+    run_row.cancel_reason = None
+    await db.flush()
+    return _scan_run_to_schema(run_row)
+
+
+async def heartbeat_scan_run(
+    *,
+    db: AsyncSession,
+    scan_id: str,
+    runner_identity_id: str,
+    lease_seconds: int = DEFAULT_SCAN_LEASE_SECONDS,
+) -> ResponsibilityBatchScanRun:
+    run_row = await db.get(ResponsibilityScanRunModel, scan_id)
+    if not run_row:
+        raise ValueError(f"scan run {scan_id} not found")
+    if run_row.status not in {
+        ResponsibilityScanRunStatus.CLAIMED.value,
+        ResponsibilityScanRunStatus.RUNNING.value,
+    }:
+        raise ValueError("scan run is not claimable for heartbeat")
+    if run_row.claimed_by and run_row.claimed_by != runner_identity_id:
+        raise ValueError("scan run is claimed by another runner")
+
+    now = datetime.utcnow()
+    run_row.claimed_by = runner_identity_id
+    run_row.last_heartbeat_at = now
+    run_row.lease_expires_at = now + timedelta(seconds=max(1, lease_seconds))
+    await db.flush()
+    return _scan_run_to_schema(run_row)
+
+
+async def cancel_scan_run(
+    *,
+    db: AsyncSession,
+    scan_id: str,
+    runner_identity_id: str | None = None,
+    reason: str | None = None,
+) -> ResponsibilityBatchScanRun:
+    run_row = await db.get(ResponsibilityScanRunModel, scan_id)
+    if not run_row:
+        raise ValueError(f"scan run {scan_id} not found")
+    if run_row.status in {
+        ResponsibilityScanRunStatus.COMPLETED.value,
+        ResponsibilityScanRunStatus.CANCELLED.value,
+    }:
+        raise ValueError("scan run is already terminal and cannot be cancelled")
+    if runner_identity_id and run_row.claimed_by and run_row.claimed_by != runner_identity_id:
+        raise ValueError("scan run is claimed by another runner")
+
+    now = datetime.utcnow()
+    run_row.status = ResponsibilityScanRunStatus.CANCELLED.value
+    run_row.cancelled_at = now
+    run_row.cancel_reason = reason or "cancelled by operator"
+    run_row.lease_expires_at = None
+    run_row.last_heartbeat_at = None
+    run_row.next_retry_at = None
+    run_row.completed_at = None
+    await db.flush()
+    return _scan_run_to_schema(run_row)
+
+
 async def execute_scan_run(
     *,
     db: AsyncSession,
     scan_id: str,
+    runner_identity_id: str | None = None,
+    lease_seconds: int = DEFAULT_SCAN_LEASE_SECONDS,
     force: bool = False,
     require_failed: bool = False,
 ) -> ResponsibilityBatchScanResult:
@@ -451,6 +570,13 @@ async def execute_scan_run(
     now = datetime.utcnow()
     if require_failed and run_row.status != ResponsibilityScanRunStatus.FAILED.value:
         raise ValueError("scan run is not in failed state")
+    if run_row.status == ResponsibilityScanRunStatus.CANCELLED.value:
+        raise ValueError("scan run is cancelled")
+    if run_row.status == ResponsibilityScanRunStatus.CLAIMED.value:
+        if runner_identity_id and run_row.claimed_by and run_row.claimed_by != runner_identity_id:
+            raise ValueError("scan run is claimed by another runner")
+        if not runner_identity_id:
+            runner_identity_id = run_row.claimed_by
     if run_row.status == ResponsibilityScanRunStatus.COMPLETED.value and not force:
         result = await get_batch_scan_result(db=db, scan_id=scan_id)
         if result:
@@ -468,6 +594,12 @@ async def execute_scan_run(
     run_row.status = ResponsibilityScanRunStatus.RUNNING.value
     run_row.started_at = now
     run_row.current_attempt = (run_row.current_attempt or 0) + 1
+    run_row.claimed_by = runner_identity_id or run_row.claimed_by
+    run_row.claimed_at = run_row.claimed_at or now
+    run_row.last_heartbeat_at = now
+    run_row.lease_expires_at = now + timedelta(seconds=max(1, lease_seconds))
+    run_row.cancelled_at = None
+    run_row.cancel_reason = None
     run_row.last_error = None
     run_row.next_retry_at = None
     await db.flush()
@@ -519,11 +651,13 @@ async def execute_scan_run(
         run_row.completed_at = datetime.utcnow()
         run_row.last_error = None
         run_row.next_retry_at = None
+        _clear_claim_fields(run_row)
         await db.flush()
     except Exception as exc:
         run_row.status = ResponsibilityScanRunStatus.FAILED.value
         run_row.completed_at = None
         run_row.last_error = str(exc)
+        _clear_claim_fields(run_row)
         if run_row.current_attempt < run_row.retry_max_attempts:
             backoff_seconds = max(1, run_row.retry_backoff_seconds) * run_row.current_attempt
             run_row.next_retry_at = datetime.utcnow() + timedelta(seconds=backoff_seconds)
@@ -838,9 +972,15 @@ def _scan_run_to_schema(row: ResponsibilityScanRunModel) -> ResponsibilityBatchS
         retry_max_attempts=row.retry_max_attempts,
         retry_backoff_seconds=row.retry_backoff_seconds,
         current_attempt=row.current_attempt,
+        claimed_by=row.claimed_by,
+        claimed_at=row.claimed_at,
+        lease_expires_at=row.lease_expires_at,
+        last_heartbeat_at=row.last_heartbeat_at,
         started_at=row.started_at,
         next_retry_at=row.next_retry_at,
         last_error=row.last_error,
+        cancelled_at=row.cancelled_at,
+        cancel_reason=row.cancel_reason,
         total_identities=row.total_identities,
         flagged_identities=row.flagged_identities,
         created_at=row.created_at,
@@ -860,6 +1000,13 @@ def _scan_finding_to_schema(row: ResponsibilityScanFindingModel) -> Responsibili
         detail=row.detail,
         created_at=row.created_at,
     )
+
+
+def _clear_claim_fields(run_row: ResponsibilityScanRunModel) -> None:
+    run_row.claimed_by = None
+    run_row.claimed_at = None
+    run_row.lease_expires_at = None
+    run_row.last_heartbeat_at = None
 
 
 async def _resolve_incremental_since(

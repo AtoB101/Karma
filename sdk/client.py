@@ -24,6 +24,7 @@ from core.schemas import (
     ProgressReceipt,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
+    ResponsibilityBatchScanRun,
     ResponsibilityBatchScanResult,
     ResponsibilityScanExecutionMode,
     ResponsibilityPathFeaturesSummary,
@@ -649,20 +650,65 @@ class KarmaClient:
             resp.raise_for_status()
             return ResponsibilityBatchScanResult(**resp.json())
 
+    async def claim_responsibility_batch_scan(
+        self,
+        *,
+        runner_identity_id: str,
+        lease_seconds: int = 300,
+        include_failed: bool = True,
+    ) -> ResponsibilityBatchScanRun:
+        """POST /v1/responsibility/scan-runs/claim"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/claim",
+                json={
+                    "runner_identity_id": runner_identity_id,
+                    "lease_seconds": lease_seconds,
+                    "include_failed": include_failed,
+                },
+            )
+            resp.raise_for_status()
+            return ResponsibilityBatchScanRun(**resp.json())
+
     async def execute_responsibility_batch_scan(
         self,
         scan_id: str,
         *,
         force: bool = False,
+        runner_identity_id: str | None = None,
+        lease_seconds: int = 300,
     ) -> ResponsibilityBatchScanResult:
         """POST /v1/responsibility/scan-runs/{scan_id}/execute"""
         async with self._http() as http:
             resp = await http.post(
                 f"{self.runtime_url}/v1/responsibility/scan-runs/{scan_id}/execute",
-                json={"force": force},
+                json={
+                    "force": force,
+                    "runner_identity_id": runner_identity_id,
+                    "lease_seconds": lease_seconds,
+                },
             )
             resp.raise_for_status()
             return ResponsibilityBatchScanResult(**resp.json())
+
+    async def heartbeat_responsibility_batch_scan(
+        self,
+        scan_id: str,
+        *,
+        runner_identity_id: str,
+        lease_seconds: int = 300,
+    ) -> ResponsibilityBatchScanRun:
+        """POST /v1/responsibility/scan-runs/{scan_id}/heartbeat"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/{scan_id}/heartbeat",
+                json={
+                    "runner_identity_id": runner_identity_id,
+                    "lease_seconds": lease_seconds,
+                },
+            )
+            resp.raise_for_status()
+            return ResponsibilityBatchScanRun(**resp.json())
 
     async def retry_responsibility_batch_scan(self, scan_id: str) -> ResponsibilityBatchScanResult:
         """POST /v1/responsibility/scan-runs/{scan_id}/retry"""
@@ -673,6 +719,25 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return ResponsibilityBatchScanResult(**resp.json())
+
+    async def cancel_responsibility_batch_scan(
+        self,
+        scan_id: str,
+        *,
+        runner_identity_id: str | None = None,
+        reason: str | None = None,
+    ) -> ResponsibilityBatchScanRun:
+        """POST /v1/responsibility/scan-runs/{scan_id}/cancel"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/{scan_id}/cancel",
+                json={
+                    "runner_identity_id": runner_identity_id,
+                    "reason": reason,
+                },
+            )
+            resp.raise_for_status()
+            return ResponsibilityBatchScanRun(**resp.json())
 
     async def export_explainable_risk_report(
         self,

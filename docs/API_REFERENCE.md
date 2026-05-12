@@ -401,14 +401,34 @@ SDK helper methods:
 - `retry_max_attempts`
 - `retry_backoff_seconds`
 
+worker 任务编排字段：
+- `claimed_by`
+- `claimed_at`
+- `lease_expires_at`
+- `last_heartbeat_at`
+- `cancelled_at`
+- `cancel_reason`
+
 ### `GET /v1/responsibility/scan-runs/{scan_id}`
 查询批处理扫描结果（含 `run` + `findings`）。
 
+### `POST /v1/responsibility/scan-runs/claim`
+worker 认领下一个可执行 scan run（`pending` / 可重试 `failed` / 过期 `claimed`）。
+
 ### `POST /v1/responsibility/scan-runs/{scan_id}/execute`
-执行（或强制重执行）一个 scan run，支持 `force` 参数。
+执行（或强制重执行）一个 scan run，支持：
+- `force`
+- `runner_identity_id`
+- `lease_seconds`
+
+### `POST /v1/responsibility/scan-runs/{scan_id}/heartbeat`
+worker 心跳续租（延长 lease）以保持 claim 有效。
 
 ### `POST /v1/responsibility/scan-runs/{scan_id}/retry`
 重试失败的 scan run（遵循 next retry window）。
+
+### `POST /v1/responsibility/scan-runs/{scan_id}/cancel`
+取消非终态 scan run，记录取消原因。
 
 ### `POST /v1/responsibility/reports/export`
 导出可解释风险报告（identity 或 task 二选一）：
@@ -429,8 +449,11 @@ SDK helper methods:
 - `get_responsibility_path_features(identity_id, window_hours=24, max_hops=4)`
 - `create_responsibility_batch_scan(...)`
 - `get_responsibility_batch_scan(scan_id, findings_limit=200)`
-- `execute_responsibility_batch_scan(scan_id, force=False)`
+- `claim_responsibility_batch_scan(runner_identity_id, lease_seconds=300, include_failed=True)`
+- `execute_responsibility_batch_scan(scan_id, force=False, runner_identity_id=None, lease_seconds=300)`
+- `heartbeat_responsibility_batch_scan(scan_id, runner_identity_id, lease_seconds=300)`
 - `retry_responsibility_batch_scan(scan_id)`
+- `cancel_responsibility_batch_scan(scan_id, runner_identity_id=None, reason=None)`
 - `get_task_temporal_consistency(task_id)`
 - `export_explainable_risk_report(...)`
 

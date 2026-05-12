@@ -993,6 +993,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResponsibilityBatchScanResult'
+  /v1/responsibility/scan-runs/claim:
+    post:
+      summary: Claim next responsibility scan run for worker
+      operationId: claimResponsibilityBatchScan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimResponsibilityScanRunRequest'
+      responses:
+        '200':
+          description: Claimed scan run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityBatchScanRun'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/responsibility/scan-runs/{scanId}:
     get:
       summary: Get responsibility batch scan run by id
@@ -1047,6 +1066,33 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/responsibility/scan-runs/{scanId}/heartbeat:
+    post:
+      summary: Heartbeat claimed or running scan run lease
+      operationId: heartbeatResponsibilityBatchScan
+      parameters:
+        - in: path
+          name: scanId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatResponsibilityScanRunRequest'
+      responses:
+        '200':
+          description: Updated scan run lease
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityBatchScanRun'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
   /v1/responsibility/scan-runs/{scanId}/retry:
     post:
       summary: Retry failed responsibility scan run
@@ -1064,6 +1110,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResponsibilityBatchScanResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/responsibility/scan-runs/{scanId}/cancel:
+    post:
+      summary: Cancel responsibility scan run
+      operationId: cancelResponsibilityBatchScan
+      parameters:
+        - in: path
+          name: scanId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelResponsibilityScanRunRequest'
+      responses:
+        '200':
+          description: Cancelled scan run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityBatchScanRun'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1909,7 +1982,46 @@ components:
         force:
           type: boolean
           default: false
+        runner_identity_id:
+          type: string
+        lease_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
       required: [force]
+    ClaimResponsibilityScanRunRequest:
+      type: object
+      properties:
+        runner_identity_id:
+          type: string
+        lease_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+        include_failed:
+          type: boolean
+          default: true
+      required: [runner_identity_id]
+    HeartbeatResponsibilityScanRunRequest:
+      type: object
+      properties:
+        runner_identity_id:
+          type: string
+        lease_seconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          default: 300
+      required: [runner_identity_id]
+    CancelResponsibilityScanRunRequest:
+      type: object
+      properties:
+        runner_identity_id:
+          type: string
+        reason:
+          type: string
     ResponsibilityScanFinding:
       type: object
       properties:
@@ -1950,7 +2062,7 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, running, completed, failed]
+          enum: [pending, claimed, running, completed, failed, cancelled]
         execution_mode:
           type: string
           enum: [sync, async]
@@ -1978,6 +2090,17 @@ components:
           type: integer
         current_attempt:
           type: integer
+        claimed_by:
+          type: string
+        claimed_at:
+          type: string
+          format: date-time
+        lease_expires_at:
+          type: string
+          format: date-time
+        last_heartbeat_at:
+          type: string
+          format: date-time
         started_at:
           type: string
           format: date-time
@@ -1985,6 +2108,11 @@ components:
           type: string
           format: date-time
         last_error:
+          type: string
+        cancelled_at:
+          type: string
+          format: date-time
+        cancel_reason:
           type: string
         total_identities:
           type: integer

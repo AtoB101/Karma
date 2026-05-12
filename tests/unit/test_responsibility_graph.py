@@ -9,8 +9,11 @@ from core.schemas import (
     ResponsibilityScanExecutionMode,
     ResponsibilityScanMode,
 )
-from db.models.orm import ResponsibilitySignalModel
+from db.models.orm import ResponsibilityScanRunModel, ResponsibilitySignalModel
 from services.responsibility_graph import (
+    cancel_scan_run,
+    claim_next_scan_run,
+    heartbeat_scan_run,
     execute_scan_run,
     export_explainable_risk_report,
     get_batch_scan_result,
@@ -221,6 +224,81 @@ async def test_async_scan_run_failure_sets_retry_window(db_session):
             scan_id=created.run.scan_id,
             require_failed=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_claim_heartbeat_cancel_scan_run(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=["ops-a"],
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.FULL,
+    )
+    scan_id = created.run.scan_id
+
+    claimed = await claim_next_scan_run(
+        db=db_session,
+        runner_identity_id="runner-1",
+        lease_seconds=120,
+    )
+    assert claimed is not None
+    assert claimed.scan_id == scan_id
+    assert claimed.status.value == "claimed"
+    assert claimed.claimed_by == "runner-1"
+    assert claimed.lease_expires_at is not None
+
+    heartbeated = await heartbeat_scan_run(
+        db=db_session,
+        scan_id=scan_id,
+        runner_identity_id="runner-1",
+        lease_seconds=180,
+    )
+    assert heartbeated.last_heartbeat_at is not None
+    assert heartbeated.lease_expires_at is not None
+    assert heartbeated.status.value == "claimed"
+
+    cancelled = await cancel_scan_run(
+        db=db_session,
+        scan_id=scan_id,
+        runner_identity_id="runner-1",
+        reason="worker shutdown",
+    )
+    assert cancelled.status.value == "cancelled"
+    assert cancelled.cancel_reason == "worker shutdown"
+
+    with pytest.raises(ValueError, match="cancelled"):
+        await execute_scan_run(db=db_session, scan_id=scan_id)
+
+
+@pytest.mark.asyncio
+async def test_claim_reacquires_stale_claimed_scan_run(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=["ops-b"],
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+    )
+    scan_id = created.run.scan_id
+    first_claim = await claim_next_scan_run(
+        db=db_session,
+        runner_identity_id="runner-1",
+        lease_seconds=1,
+    )
+    assert first_claim is not None
+    assert first_claim.status.value == "claimed"
+
+    row = await db_session.get(ResponsibilityScanRunModel, scan_id)
+    assert row is not None
+    row.lease_expires_at = datetime.utcnow() - timedelta(seconds=5)
+    await db_session.flush()
+
+    second_claim = await claim_next_scan_run(
+        db=db_session,
+        runner_identity_id="runner-2",
+        lease_seconds=60,
+    )
+    assert second_claim is not None
+    assert second_claim.scan_id == scan_id
+    assert second_claim.claimed_by == "runner-2"
 
 
 @pytest.mark.asyncio

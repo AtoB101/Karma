@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.schemas import (
     ExplainableRiskReport,
     ResponsibilityBatchScanResult,
+    ResponsibilityBatchScanRun,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
     ResponsibilityScanExecutionMode,
@@ -21,6 +22,8 @@ from core.schemas import (
 )
 from db.session import get_db
 from services.responsibility_graph import (
+    cancel_scan_run,
+    claim_next_scan_run,
     execute_scan_run,
     export_explainable_risk_report,
     get_batch_scan_result,
@@ -30,6 +33,7 @@ from services.responsibility_graph import (
     get_public_risk_model,
     get_task_path_summary,
     get_task_temporal_consistency_report,
+    heartbeat_scan_run,
     ingest_edge,
     run_batch_scan,
 )
@@ -60,6 +64,24 @@ class CreateBatchScanRunRequest(BaseModel):
 
 class ExecuteScanRunRequest(BaseModel):
     force: bool = False
+    runner_identity_id: str | None = None
+    lease_seconds: int = Field(default=300, ge=1, le=3600)
+
+
+class ClaimScanRunRequest(BaseModel):
+    runner_identity_id: str
+    lease_seconds: int = Field(default=300, ge=1, le=3600)
+    include_failed: bool = True
+
+
+class HeartbeatScanRunRequest(BaseModel):
+    runner_identity_id: str
+    lease_seconds: int = Field(default=300, ge=1, le=3600)
+
+
+class CancelScanRunRequest(BaseModel):
+    runner_identity_id: str | None = None
+    reason: str | None = None
 
 
 class ExportExplainableRiskReportRequest(BaseModel):
@@ -177,6 +199,22 @@ async def get_scan_run(
     return result
 
 
+@router.post("/scan-runs/claim", response_model=ResponsibilityBatchScanRun)
+async def claim_scan_run(
+    body: ClaimScanRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await claim_next_scan_run(
+        db=db,
+        runner_identity_id=body.runner_identity_id,
+        lease_seconds=body.lease_seconds,
+        include_failed=body.include_failed,
+    )
+    if not result:
+        raise HTTPException(404, "no claimable scan run available")
+    return result
+
+
 @router.post("/scan-runs/{scan_id}/execute", response_model=ResponsibilityBatchScanResult)
 async def execute_scan(
     scan_id: str,
@@ -187,8 +225,30 @@ async def execute_scan(
         return await execute_scan_run(
             db=db,
             scan_id=scan_id,
+            runner_identity_id=body.runner_identity_id,
+            lease_seconds=body.lease_seconds,
             force=body.force,
             require_failed=False,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message:
+            raise HTTPException(404, message) from exc
+        raise HTTPException(409, message) from exc
+
+
+@router.post("/scan-runs/{scan_id}/heartbeat", response_model=ResponsibilityBatchScanRun)
+async def heartbeat_scan(
+    scan_id: str,
+    body: HeartbeatScanRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await heartbeat_scan_run(
+            db=db,
+            scan_id=scan_id,
+            runner_identity_id=body.runner_identity_id,
+            lease_seconds=body.lease_seconds,
         )
     except ValueError as exc:
         message = str(exc)
@@ -205,6 +265,26 @@ async def retry_scan(scan_id: str, db: AsyncSession = Depends(get_db)):
             scan_id=scan_id,
             force=False,
             require_failed=True,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message:
+            raise HTTPException(404, message) from exc
+        raise HTTPException(409, message) from exc
+
+
+@router.post("/scan-runs/{scan_id}/cancel", response_model=ResponsibilityBatchScanRun)
+async def cancel_scan(
+    scan_id: str,
+    body: CancelScanRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await cancel_scan_run(
+            db=db,
+            scan_id=scan_id,
+            runner_identity_id=body.runner_identity_id,
+            reason=body.reason,
         )
     except ValueError as exc:
         message = str(exc)
