@@ -10,5 +10,12 @@ One-stop import for integrating with the Karma runtime.
 """
 from sdk.client import KarmaClient
 from sdk.task import TaskRunner
+from sdk.adapters import APIExecutionAdapter, MCPExecutionAdapter, AgentRuntimeExecutionAdapter
 
-__all__ = ["KarmaClient", "TaskRunner"]
+__all__ = [
+    "KarmaClient",
+    "TaskRunner",
+    "APIExecutionAdapter",
+    "MCPExecutionAdapter",
+    "AgentRuntimeExecutionAdapter",
+]

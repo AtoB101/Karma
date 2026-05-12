@@ -82,6 +82,7 @@ Assign a worker agent to the contract.
 
 ### `POST /v1/receipts`
 Submit a single `ExecutionReceipt` (called automatically by `KarmaHookLayer`).
+Receipt format standard: `docs/EXECUTION_RECEIPT_STANDARD.md`.
 
 ### `GET /v1/receipts/{receipt_id}`
 Get a receipt by ID.

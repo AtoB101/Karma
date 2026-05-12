@@ -9,6 +9,7 @@
 ## Integration steps
 
 1. Record execution steps into **ExecutionReceipt**-compatible payloads (`trusted_agent_runtime/schemas.py`).  
+   - SDK adapters are available in `sdk/adapters.py` for API/MCP/Agent Runtime templates.
 2. Build **EvidenceBundle** + `proofHash` mapping (`trusted_agent_runtime/evidence_adapter.py`).  
 3. Call **structural verification** before proposing settlement (`trusted_agent_runtime/verification.py`).  
 4. Submit on-chain actions through **existing** `NonCustodialAgentPayment` flows (`docs/TESTNET_RUNBOOK.md`).
