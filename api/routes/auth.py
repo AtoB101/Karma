@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.middleware.auth import create_access_token
+from api.middleware.auth import create_access_token, validate_api_key_for_agent
 from db.session import get_db
 from db.models.orm import AgentModel
 
@@ -36,6 +36,8 @@ async def issue_token(body: TokenRequest, db: AsyncSession = Depends(get_db)):
     if not agent or not agent.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    # Simplified: in production, verify hashed API key
+    if not validate_api_key_for_agent(body.agent_id, body.api_key):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
     token = create_access_token(subject=body.agent_id)
     return TokenResponse(access_token=token, agent_id=body.agent_id)

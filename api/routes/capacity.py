@@ -98,5 +98,5 @@ def _validate(state: CapacityState) -> None:
     try:
         assert_capacity_invariants(state)
     except ValueError as exc:
-        raise HTTPException(500, str(exc)) from exc
+        raise HTTPException(500, "capacity invariant check failed") from exc
 

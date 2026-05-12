@@ -1021,5 +1021,5 @@ def _assert_capacity_model(cap: CapacityModel) -> None:
             )
         )
     except ValueError as exc:
-        raise HTTPException(500, str(exc)) from exc
+        raise HTTPException(500, "capacity invariant check failed") from exc
 

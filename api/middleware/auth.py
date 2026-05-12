@@ -4,6 +4,8 @@ Supports both JWT bearer tokens and API keys.
 """
 from __future__ import annotations
 
+import hmac
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -67,6 +69,7 @@ def decode_access_token(token: str) -> dict:
 
 bearer_scheme = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-Karma-Api-Key", auto_error=False)
+_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{1,63}$")
 
 
 async def get_current_agent_id(
@@ -103,12 +106,42 @@ def _validate_api_key(api_key: str) -> Optional[str]:
     In production: look up in DB / Redis.
     Format: karma_{agent_id}_{secret}
     """
+    parsed = _parse_api_key(api_key)
+    if not parsed:
+        return None
+    agent_id, secret = parsed
+    if not _AGENT_ID_RE.match(agent_id):
+        return None
+    configured = settings.auth_api_keys_map()
+    expected = configured.get(agent_id)
+    if expected is not None:
+        return agent_id if hmac.compare_digest(secret, expected) else None
+
+    # Backward-compatible development fallback only.
+    env = (settings.app_env or "").lower()
+    if env in ("development", "dev", "local", "test") and len(secret) >= 12:
+        return agent_id
+    return None
+
+
+def validate_api_key_for_agent(agent_id: str, api_key: str) -> bool:
+    parsed = _parse_api_key(api_key)
+    if not parsed:
+        return False
+    parsed_agent_id, _ = parsed
+    if parsed_agent_id != agent_id:
+        return False
+    resolved_agent_id = _validate_api_key(api_key)
+    return resolved_agent_id == agent_id
+
+
+def _parse_api_key(api_key: str) -> Optional[tuple[str, str]]:
     if not api_key.startswith("karma_"):
         return None
     parts = api_key.split("_", 2)
     if len(parts) < 3:
         return None
-    return parts[1]  # agent_id
+    return parts[1], parts[2]
 
 
 # ---------------------------------------------------------------------------
