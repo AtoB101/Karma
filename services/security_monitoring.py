@@ -288,6 +288,7 @@ def build_security_ops_alert_report(
     baseline_drift_multiplier: float = 2.5,
     baseline_min_sample_count: int = 3,
     baseline_capture_interval_minutes: int = 10,
+    record_baseline_snapshot: bool = True,
 ) -> SecurityOpsAlertReport:
     events = _list_recent_events(window_minutes)
     counts = Counter(event.event_type.value for event in events)
@@ -662,13 +663,14 @@ def build_security_ops_alert_report(
         escalation=escalation,
     )
 
-    _maybe_capture_baseline_snapshot(
-        capture_interval_minutes=baseline_capture_interval_minutes,
-        failed_auth_count=failed_auth_count,
-        rate_limited_count=rate_limited_count,
-        private_runtime_error_rate=private_runtime_error_rate,
-        verify_request_count=verify_request_count,
-    )
+    if record_baseline_snapshot:
+        _maybe_capture_baseline_snapshot(
+            capture_interval_minutes=baseline_capture_interval_minutes,
+            failed_auth_count=failed_auth_count,
+            rate_limited_count=rate_limited_count,
+            private_runtime_error_rate=private_runtime_error_rate,
+            verify_request_count=verify_request_count,
+        )
 
     return SecurityOpsAlertReport(
         window_minutes=window_minutes,

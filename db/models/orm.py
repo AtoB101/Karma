@@ -460,6 +460,42 @@ class SecurityThresholdPolicyModel(Base):
     parent_policy_id:      Mapped[str|None] = mapped_column(String(64))
 
 
+class SecurityPolicyChangeRequestModel(Base):
+    __tablename__ = "security_policy_change_requests"
+
+    request_id:               Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    action:                   Mapped[str]      = mapped_column(String(32), nullable=False)
+    status:                   Mapped[str]      = mapped_column(String(16), nullable=False, default="pending")
+    target_policy_id:         Mapped[str|None] = mapped_column(String(64))
+    target_rollback_policy_id: Mapped[str|None] = mapped_column(String(64))
+    rollout_percent:          Mapped[int|None] = mapped_column(Integer)
+    note:                     Mapped[str|None] = mapped_column(Text)
+    requested_by:             Mapped[str|None] = mapped_column(String(64))
+    requested_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    applied_at:               Mapped[datetime|None] = mapped_column(DateTime)
+    required_approvals:       Mapped[int]      = mapped_column(Integer, nullable=False, default=2)
+    dry_run_report:           Mapped[dict|None] = mapped_column(JSON)
+
+
+class SecurityPolicyChangeApprovalModel(Base):
+    __tablename__ = "security_policy_change_approvals"
+
+    approval_id:              Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    request_id:               Mapped[str]      = mapped_column(
+        String(64),
+        ForeignKey("security_policy_change_requests.request_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    approver_id:              Mapped[str]      = mapped_column(String(64), nullable=False)
+    decision:                 Mapped[str]      = mapped_column(String(16), nullable=False)
+    comment:                  Mapped[str|None] = mapped_column(Text)
+    created_at:               Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("request_id", "approver_id", name="uq_security_policy_change_approver"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Verification Result
 # ---------------------------------------------------------------------------

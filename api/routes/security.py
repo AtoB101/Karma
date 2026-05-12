@@ -8,6 +8,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
+    SecurityPolicyApprovalDecision,
+    SecurityPolicyChangeAction,
+    SecurityPolicyChangeRequest,
+    SecurityPolicyChangeStatus,
+    SecurityPolicyDryRunResult,
     SecurityOpsAlertReport,
     SecurityThresholdPolicy,
     SecurityThresholdPolicyStatus,
@@ -17,11 +22,17 @@ from services.security_monitoring import build_security_ops_alert_report
 from services.security_policy_center import (
     create_security_threshold_policy,
     activate_security_threshold_policy,
+    apply_security_policy_change_request,
+    create_security_policy_change_request,
+    get_security_policy_change_request,
     list_security_threshold_policies,
+    list_security_policy_change_requests,
     get_security_threshold_policy,
     merge_security_policy_defaults,
+    review_security_policy_change_request,
     resolve_security_threshold_policy,
     rollback_security_threshold_policy,
+    simulate_policy_change_dry_run,
     set_candidate_security_threshold_policy,
 )
 
@@ -42,6 +53,23 @@ class SetSecurityThresholdPolicyCandidateRequest(BaseModel):
 
 class RollbackSecurityThresholdPolicyRequest(BaseModel):
     target_policy_id: str | None = None
+
+
+class CreateSecurityPolicyChangeRequest(BaseModel):
+    action: SecurityPolicyChangeAction
+    target_policy_id: str | None = None
+    target_rollback_policy_id: str | None = None
+    rollout_percent: int | None = Field(default=None, ge=1, le=99)
+    note: str | None = None
+    requested_by: str | None = None
+    required_approvals: int = Field(default=2, ge=1, le=10)
+    dry_run_actor_id: str | None = None
+
+
+class ReviewSecurityPolicyChangeRequest(BaseModel):
+    approver_id: str
+    decision: SecurityPolicyApprovalDecision
+    comment: str | None = None
 
 
 @router.post("/policies", response_model=SecurityThresholdPolicy, status_code=201)
@@ -82,8 +110,14 @@ async def get_security_policy(
 @router.post("/policies/{policy_id}/activate", response_model=SecurityThresholdPolicy)
 async def activate_security_policy(
     policy_id: str,
+    emergency_override: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
+    if not emergency_override:
+        raise HTTPException(
+            status_code=409,
+            detail="direct activation disabled; use change-request approvals workflow",
+        )
     try:
         return await activate_security_threshold_policy(db=db, policy_id=policy_id)
     except ValueError as exc:
@@ -94,8 +128,14 @@ async def activate_security_policy(
 async def set_security_policy_candidate(
     policy_id: str,
     body: SetSecurityThresholdPolicyCandidateRequest,
+    emergency_override: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
+    if not emergency_override:
+        raise HTTPException(
+            status_code=409,
+            detail="direct candidate rollout disabled; use change-request approvals workflow",
+        )
     try:
         return await set_candidate_security_threshold_policy(
             db=db,
@@ -109,8 +149,14 @@ async def set_security_policy_candidate(
 @router.post("/policies/rollback", response_model=SecurityThresholdPolicy)
 async def rollback_security_policy(
     body: RollbackSecurityThresholdPolicyRequest,
+    emergency_override: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
+    if not emergency_override:
+        raise HTTPException(
+            status_code=409,
+            detail="direct rollback disabled; use change-request approvals workflow",
+        )
     try:
         return await rollback_security_threshold_policy(
             db=db,
@@ -118,6 +164,96 @@ async def rollback_security_policy(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/policies/changes", response_model=SecurityPolicyChangeRequest, status_code=201)
+async def create_security_policy_change(
+    body: CreateSecurityPolicyChangeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> SecurityPolicyChangeRequest:
+    try:
+        return await create_security_policy_change_request(
+            db=db,
+            action=body.action,
+            target_policy_id=body.target_policy_id,
+            target_rollback_policy_id=body.target_rollback_policy_id,
+            rollout_percent=body.rollout_percent,
+            note=body.note,
+            requested_by=body.requested_by,
+            required_approvals=body.required_approvals,
+            dry_run_actor_id=body.dry_run_actor_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/policies/changes", response_model=list[SecurityPolicyChangeRequest])
+async def list_security_policy_changes(
+    status: SecurityPolicyChangeStatus | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+) -> list[SecurityPolicyChangeRequest]:
+    return await list_security_policy_change_requests(db=db, status=status, limit=limit)
+
+
+@router.get("/policies/changes/{request_id}", response_model=SecurityPolicyChangeRequest)
+async def get_security_policy_change(
+    request_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> SecurityPolicyChangeRequest:
+    try:
+        return await get_security_policy_change_request(db=db, request_id=request_id, include_approvals=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/policies/changes/{request_id}/review", response_model=SecurityPolicyChangeRequest)
+async def review_security_policy_change(
+    request_id: str,
+    body: ReviewSecurityPolicyChangeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> SecurityPolicyChangeRequest:
+    try:
+        return await review_security_policy_change_request(
+            db=db,
+            request_id=request_id,
+            approver_id=body.approver_id,
+            decision=body.decision,
+            comment=body.comment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/policies/changes/{request_id}/apply", response_model=SecurityPolicyChangeRequest)
+async def apply_security_policy_change(
+    request_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> SecurityPolicyChangeRequest:
+    try:
+        applied_request, _ = await apply_security_policy_change_request(db=db, request_id=request_id)
+        return applied_request
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/policies/changes/dry-run", response_model=SecurityPolicyDryRunResult)
+async def dry_run_security_policy_change(
+    body: CreateSecurityPolicyChangeRequest,
+    db: AsyncSession = Depends(get_db),
+) -> SecurityPolicyDryRunResult:
+    try:
+        dry_run = await simulate_policy_change_dry_run(
+            db=db,
+            action=body.action,
+            target_policy_id=body.target_policy_id,
+            target_rollback_policy_id=body.target_rollback_policy_id,
+            rollout_percent=body.rollout_percent,
+            actor_id=body.dry_run_actor_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return dry_run
 
 
 @router.get("/ops/alerts", response_model=SecurityOpsAlertReport)

@@ -679,6 +679,74 @@ class SecurityThresholdPolicyResolveResult(BaseModel):
     reason: str = "no_policy"
 
 
+class SecurityPolicyChangeAction(str, Enum):
+    ACTIVATE = "activate"
+    SET_CANDIDATE = "set_candidate"
+    ROLLBACK = "rollback"
+
+
+class SecurityPolicyChangeStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    APPLIED = "applied"
+    CANCELLED = "cancelled"
+
+
+class SecurityPolicyApprovalDecision(str, Enum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class SecurityPolicyChangeApproval(BaseModel):
+    approval_id: str
+    request_id: str
+    approver_id: str
+    decision: SecurityPolicyApprovalDecision
+    comment: Optional[str] = None
+    created_at: datetime
+
+
+class SecurityPolicyDryRunSummary(BaseModel):
+    current_alert_count: int = 0
+    projected_alert_count: int = 0
+    delta_alert_count: int = 0
+    current_critical_count: int = 0
+    projected_critical_count: int = 0
+    delta_critical_count: int = 0
+    current_high_count: int = 0
+    projected_high_count: int = 0
+    delta_high_count: int = 0
+    newly_triggered_alert_types: list[SecurityOpsAlertType] = Field(default_factory=list)
+    resolved_alert_types: list[SecurityOpsAlertType] = Field(default_factory=list)
+
+
+class SecurityPolicyDryRunResult(BaseModel):
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    actor_id: Optional[str] = None
+    current_policy_id: Optional[str] = None
+    projected_policy_id: Optional[str] = None
+    current_report: SecurityOpsAlertReport
+    projected_report: SecurityOpsAlertReport
+    summary: SecurityPolicyDryRunSummary
+
+
+class SecurityPolicyChangeRequest(BaseModel):
+    request_id: str
+    action: SecurityPolicyChangeAction
+    status: SecurityPolicyChangeStatus
+    target_policy_id: Optional[str] = None
+    target_rollback_policy_id: Optional[str] = None
+    rollout_percent: Optional[int] = None
+    note: Optional[str] = None
+    requested_by: Optional[str] = None
+    requested_at: datetime
+    applied_at: Optional[datetime] = None
+    required_approvals: int = 2
+    approvals: list[SecurityPolicyChangeApproval] = Field(default_factory=list)
+    dry_run: Optional[SecurityPolicyDryRunResult] = None
+
+
 class SecurityOpsAlertReport(BaseModel):
     window_minutes: int
     summary: SecurityOpsSummary

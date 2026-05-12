@@ -49,6 +49,11 @@ from core.schemas import (
     ResponsibilityScoreSummary,
     ResponsibilityWorkerPullExecuteResult,
     SecurityOpsAlertReport,
+    SecurityPolicyApprovalDecision,
+    SecurityPolicyChangeAction,
+    SecurityPolicyChangeRequest,
+    SecurityPolicyChangeStatus,
+    SecurityPolicyDryRunResult,
     SecurityThresholdPolicy,
     SecurityThresholdPolicyStatus,
     TaskTemporalConsistencyReport,
@@ -1140,10 +1145,19 @@ class KarmaClient:
             resp.raise_for_status()
             return SecurityThresholdPolicy(**resp.json())
 
-    async def activate_security_threshold_policy(self, policy_id: str) -> SecurityThresholdPolicy:
+    async def activate_security_threshold_policy(
+        self,
+        policy_id: str,
+        *,
+        emergency_override: bool = False,
+    ) -> SecurityThresholdPolicy:
         """POST /v1/security/policies/{policy_id}/activate"""
         async with self._http() as http:
-            resp = await http.post(f"{self.runtime_url}/v1/security/policies/{policy_id}/activate", json={})
+            resp = await http.post(
+                f"{self.runtime_url}/v1/security/policies/{policy_id}/activate"
+                f"?emergency_override={str(emergency_override).lower()}",
+                json={},
+            )
             resp.raise_for_status()
             return SecurityThresholdPolicy(**resp.json())
 
@@ -1152,11 +1166,13 @@ class KarmaClient:
         policy_id: str,
         *,
         rollout_percent: int = 10,
+        emergency_override: bool = False,
     ) -> SecurityThresholdPolicy:
         """POST /v1/security/policies/{policy_id}/candidate"""
         async with self._http() as http:
             resp = await http.post(
-                f"{self.runtime_url}/v1/security/policies/{policy_id}/candidate",
+                f"{self.runtime_url}/v1/security/policies/{policy_id}/candidate"
+                f"?emergency_override={str(emergency_override).lower()}",
                 json={"rollout_percent": rollout_percent},
             )
             resp.raise_for_status()
@@ -1166,15 +1182,127 @@ class KarmaClient:
         self,
         *,
         target_policy_id: str | None = None,
+        emergency_override: bool = False,
     ) -> SecurityThresholdPolicy:
         """POST /v1/security/policies/rollback"""
         async with self._http() as http:
             resp = await http.post(
-                f"{self.runtime_url}/v1/security/policies/rollback",
+                f"{self.runtime_url}/v1/security/policies/rollback"
+                f"?emergency_override={str(emergency_override).lower()}",
                 json={"target_policy_id": target_policy_id},
             )
             resp.raise_for_status()
             return SecurityThresholdPolicy(**resp.json())
+
+    async def create_security_policy_change_request(
+        self,
+        *,
+        action: SecurityPolicyChangeAction,
+        target_policy_id: str | None = None,
+        target_rollback_policy_id: str | None = None,
+        rollout_percent: int | None = None,
+        note: str | None = None,
+        requested_by: str | None = None,
+        required_approvals: int = 2,
+        dry_run_actor_id: str | None = None,
+    ) -> SecurityPolicyChangeRequest:
+        """POST /v1/security/policies/changes"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/security/policies/changes",
+                json={
+                    "action": action.value,
+                    "target_policy_id": target_policy_id,
+                    "target_rollback_policy_id": target_rollback_policy_id,
+                    "rollout_percent": rollout_percent,
+                    "note": note,
+                    "requested_by": requested_by,
+                    "required_approvals": required_approvals,
+                    "dry_run_actor_id": dry_run_actor_id,
+                },
+            )
+            resp.raise_for_status()
+            return SecurityPolicyChangeRequest(**resp.json())
+
+    async def list_security_policy_change_requests(
+        self,
+        *,
+        status: SecurityPolicyChangeStatus | None = None,
+        limit: int = 50,
+    ) -> list[SecurityPolicyChangeRequest]:
+        """GET /v1/security/policies/changes"""
+        query = f"?limit={limit}"
+        if status is not None:
+            query = f"?status={status.value}&limit={limit}"
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/security/policies/changes{query}")
+            resp.raise_for_status()
+            return [SecurityPolicyChangeRequest(**item) for item in resp.json()]
+
+    async def get_security_policy_change_request(self, request_id: str) -> SecurityPolicyChangeRequest:
+        """GET /v1/security/policies/changes/{request_id}"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/security/policies/changes/{request_id}")
+            resp.raise_for_status()
+            return SecurityPolicyChangeRequest(**resp.json())
+
+    async def review_security_policy_change_request(
+        self,
+        request_id: str,
+        *,
+        approver_id: str,
+        decision: SecurityPolicyApprovalDecision,
+        comment: str | None = None,
+    ) -> SecurityPolicyChangeRequest:
+        """POST /v1/security/policies/changes/{request_id}/review"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/security/policies/changes/{request_id}/review",
+                json={
+                    "approver_id": approver_id,
+                    "decision": decision.value,
+                    "comment": comment,
+                },
+            )
+            resp.raise_for_status()
+            return SecurityPolicyChangeRequest(**resp.json())
+
+    async def apply_security_policy_change_request(self, request_id: str) -> SecurityPolicyChangeRequest:
+        """POST /v1/security/policies/changes/{request_id}/apply"""
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/security/policies/changes/{request_id}/apply", json={})
+            resp.raise_for_status()
+            return SecurityPolicyChangeRequest(**resp.json())
+
+    async def dry_run_security_policy_change(
+        self,
+        *,
+        action: SecurityPolicyChangeAction,
+        target_policy_id: str | None = None,
+        target_rollback_policy_id: str | None = None,
+        rollout_percent: int | None = None,
+        note: str | None = None,
+        requested_by: str | None = None,
+        required_approvals: int = 2,
+        dry_run_actor_id: str | None = None,
+    ) -> SecurityPolicyDryRunResult:
+        """POST /v1/security/policies/changes/dry-run"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/security/policies/changes/dry-run",
+                json={
+                    "action": action.value,
+                    "target_policy_id": target_policy_id,
+                    "target_rollback_policy_id": target_rollback_policy_id,
+                    "rollout_percent": rollout_percent,
+                    "note": note,
+                    "requested_by": requested_by,
+                    "required_approvals": required_approvals,
+                    "dry_run_actor_id": dry_run_actor_id,
+                },
+            )
+            resp.raise_for_status()
+            return SecurityPolicyDryRunResult(**resp.json())
 
     async def get_security_ops_alerts(
         self,

@@ -6,10 +6,18 @@ import pytest
 
 from services.security_policy_center import (
     activate_security_threshold_policy,
+    apply_security_policy_change_request,
     create_security_threshold_policy,
+    create_security_policy_change_request,
+    get_security_policy_change_request,
+    review_security_policy_change_request,
     resolve_security_threshold_policy,
     rollback_security_threshold_policy,
     set_candidate_security_threshold_policy,
+)
+from core.schemas import (
+    SecurityPolicyApprovalDecision,
+    SecurityPolicyChangeAction,
 )
 
 
@@ -84,9 +92,8 @@ async def test_security_policy_center_api_endpoints(client):
     assert created.status_code == 201
     policy_id = created.json()["policy_id"]
 
-    activated = await client.post(f"/v1/security/policies/{policy_id}/activate", json={})
-    assert activated.status_code == 200
-    assert activated.json()["status"] == "active"
+    blocked_activate = await client.post(f"/v1/security/policies/{policy_id}/activate", json={})
+    assert blocked_activate.status_code == 409
 
     draft_two = await client.post(
         "/v1/security/policies",
@@ -101,13 +108,66 @@ async def test_security_policy_center_api_endpoints(client):
     assert draft_two.status_code == 201
     policy_two_id = draft_two.json()["policy_id"]
 
-    candidate = await client.post(
-        f"/v1/security/policies/{policy_two_id}/candidate",
-        json={"rollout_percent": 25},
+    dry_run = await client.post(
+        "/v1/security/policies/changes/dry-run",
+        json={
+            "action": "set_candidate",
+            "target_policy_id": policy_two_id,
+            "rollout_percent": 25,
+            "requested_by": "sec-admin",
+        },
     )
-    assert candidate.status_code == 200
-    assert candidate.json()["status"] == "candidate"
-    assert candidate.json()["rollout_percent"] == 25
+    assert dry_run.status_code == 200
+    assert "summary" in dry_run.json()
+
+    activate_req = await client.post(
+        "/v1/security/policies/changes",
+        json={
+            "action": "activate",
+            "target_policy_id": policy_id,
+            "requested_by": "sec-admin",
+        },
+    )
+    assert activate_req.status_code == 201
+    activate_req_id = activate_req.json()["request_id"]
+    first_review = await client.post(
+        f"/v1/security/policies/changes/{activate_req_id}/review",
+        json={"approver_id": "sec-reviewer-1", "decision": "approve"},
+    )
+    assert first_review.status_code == 200
+    assert first_review.json()["status"] == "pending"
+    second_review = await client.post(
+        f"/v1/security/policies/changes/{activate_req_id}/review",
+        json={"approver_id": "sec-reviewer-2", "decision": "approve"},
+    )
+    assert second_review.status_code == 200
+    assert second_review.json()["status"] == "approved"
+    applied_activate = await client.post(f"/v1/security/policies/changes/{activate_req_id}/apply", json={})
+    assert applied_activate.status_code == 200
+    assert applied_activate.json()["status"] == "applied"
+
+    candidate_req = await client.post(
+        "/v1/security/policies/changes",
+        json={
+            "action": "set_candidate",
+            "target_policy_id": policy_two_id,
+            "rollout_percent": 25,
+            "requested_by": "sec-admin",
+        },
+    )
+    assert candidate_req.status_code == 201
+    candidate_req_id = candidate_req.json()["request_id"]
+    await client.post(
+        f"/v1/security/policies/changes/{candidate_req_id}/review",
+        json={"approver_id": "sec-reviewer-1", "decision": "approve"},
+    )
+    await client.post(
+        f"/v1/security/policies/changes/{candidate_req_id}/review",
+        json={"approver_id": "sec-reviewer-2", "decision": "approve"},
+    )
+    applied_candidate = await client.post(f"/v1/security/policies/changes/{candidate_req_id}/apply", json={})
+    assert applied_candidate.status_code == 200
+    assert applied_candidate.json()["status"] == "applied"
 
     candidate_list = await client.get("/v1/security/policies?status=candidate&limit=10")
     assert candidate_list.status_code == 200
@@ -121,7 +181,59 @@ async def test_security_policy_center_api_endpoints(client):
     assert body["policy_id"] == policy_two_id
     assert body["policy_status"] == "candidate"
 
-    rollback = await client.post("/v1/security/policies/rollback", json={"target_policy_id": policy_id})
-    assert rollback.status_code == 200
-    assert rollback.json()["policy_id"] == policy_id
-    assert rollback.json()["status"] == "active"
+    rollback_req = await client.post(
+        "/v1/security/policies/changes",
+        json={"action": "rollback", "target_rollback_policy_id": policy_id, "requested_by": "sec-admin"},
+    )
+    assert rollback_req.status_code == 201
+    rollback_req_id = rollback_req.json()["request_id"]
+    await client.post(
+        f"/v1/security/policies/changes/{rollback_req_id}/review",
+        json={"approver_id": "sec-reviewer-1", "decision": "approve"},
+    )
+    await client.post(
+        f"/v1/security/policies/changes/{rollback_req_id}/review",
+        json={"approver_id": "sec-reviewer-2", "decision": "approve"},
+    )
+    rollback_applied = await client.post(f"/v1/security/policies/changes/{rollback_req_id}/apply", json={})
+    assert rollback_applied.status_code == 200
+    assert rollback_applied.json()["status"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_security_policy_change_request_requires_two_approvals(db_session):
+    policy = await create_security_threshold_policy(
+        db_session,
+        config={"failed_auth_threshold": 5},
+        created_by="sec-admin",
+    )
+    request = await create_security_policy_change_request(
+        db_session,
+        action=SecurityPolicyChangeAction.ACTIVATE,
+        target_policy_id=policy.policy_id,
+        requested_by="sec-admin",
+    )
+    pending = await review_security_policy_change_request(
+        db_session,
+        request_id=request.request_id,
+        approver_id="approver-1",
+        decision=SecurityPolicyApprovalDecision.APPROVE,
+    )
+    assert pending.status.value == "pending"
+    with pytest.raises(ValueError, match="must be approved"):
+        await apply_security_policy_change_request(db_session, request_id=request.request_id)
+    approved = await review_security_policy_change_request(
+        db_session,
+        request_id=request.request_id,
+        approver_id="approver-2",
+        decision=SecurityPolicyApprovalDecision.APPROVE,
+    )
+    assert approved.status.value == "approved"
+    applied_request, applied_policy = await apply_security_policy_change_request(
+        db_session,
+        request_id=request.request_id,
+    )
+    assert applied_request.status.value == "applied"
+    assert applied_policy.status.value == "active"
+    loaded = await get_security_policy_change_request(db_session, request_id=request.request_id, include_approvals=True)
+    assert len(loaded.approvals) == 2

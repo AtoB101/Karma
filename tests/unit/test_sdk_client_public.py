@@ -9,6 +9,9 @@ from core.schemas import (
     ArbitrationVoteDecision,
     ProgressConfirmationStatus,
     ProgressReceipt,
+    SecurityPolicyApprovalDecision,
+    SecurityPolicyChangeAction,
+    SecurityPolicyChangeStatus,
     ResponsibilityEdgeType,
     ResponsibilityScanExecutionMode,
     ResponsibilityScanMode,
@@ -1360,13 +1363,140 @@ async def test_security_policy_center_sdk_methods():
     candidate_payload = dict(created_payload)
     candidate_payload["status"] = "candidate"
     candidate_payload["rollout_percent"] = 20
+    change_payload = {
+        "request_id": "change-1",
+        "action": "set_candidate",
+        "status": "approved",
+        "target_policy_id": "policy-1",
+        "target_rollback_policy_id": None,
+        "rollout_percent": 20,
+        "note": "test change",
+        "requested_by": "sec-admin",
+        "requested_at": now,
+        "applied_at": None,
+        "required_approvals": 2,
+        "approvals": [
+            {
+                "approval_id": "ap-1",
+                "request_id": "change-1",
+                "approver_id": "rev-1",
+                "decision": "approve",
+                "comment": None,
+                "created_at": now,
+            },
+            {
+                "approval_id": "ap-2",
+                "request_id": "change-1",
+                "approver_id": "rev-2",
+                "decision": "approve",
+                "comment": None,
+                "created_at": now,
+            },
+        ],
+        "dry_run": {
+            "generated_at": now,
+            "actor_id": "actor-1",
+            "current_policy_id": "policy-1",
+            "projected_policy_id": "policy-1",
+            "current_report": {
+                "window_minutes": 15,
+                "summary": {
+                    "failed_auth_count": 0,
+                    "rate_limited_count": 0,
+                    "private_runtime_error_count": 0,
+                    "verify_request_count": 0,
+                    "private_runtime_error_rate": 0.0,
+                    "failed_auth_by_path": [],
+                    "failed_auth_by_actor": [],
+                    "failed_auth_by_route_group": [],
+                    "rate_limited_by_path": [],
+                    "rate_limited_by_actor": [],
+                    "rate_limited_by_route_group": [],
+                    "private_runtime_error_by_path": [],
+                    "private_runtime_error_by_route_group": [],
+                },
+                "alerts": [],
+                "suppressed_alert_count": 0,
+                "baseline": {
+                    "sample_count": 0,
+                    "baseline_window_minutes": 1440,
+                    "failed_auth_avg": 0.0,
+                    "rate_limited_avg": 0.0,
+                    "private_runtime_error_rate_avg": 0.0,
+                },
+                "policy_id": "policy-1",
+                "policy_version": 1,
+                "policy_status": "active",
+                "matched_candidate": False,
+                "escalation": {"level": "none", "reason": "n/a", "trigger_alert_types": []},
+                "recommended_actions": [],
+                "generated_at": now,
+            },
+            "projected_report": {
+                "window_minutes": 15,
+                "summary": {
+                    "failed_auth_count": 0,
+                    "rate_limited_count": 0,
+                    "private_runtime_error_count": 0,
+                    "verify_request_count": 0,
+                    "private_runtime_error_rate": 0.0,
+                    "failed_auth_by_path": [],
+                    "failed_auth_by_actor": [],
+                    "failed_auth_by_route_group": [],
+                    "rate_limited_by_path": [],
+                    "rate_limited_by_actor": [],
+                    "rate_limited_by_route_group": [],
+                    "private_runtime_error_by_path": [],
+                    "private_runtime_error_by_route_group": [],
+                },
+                "alerts": [],
+                "suppressed_alert_count": 0,
+                "baseline": {
+                    "sample_count": 0,
+                    "baseline_window_minutes": 1440,
+                    "failed_auth_avg": 0.0,
+                    "rate_limited_avg": 0.0,
+                    "private_runtime_error_rate_avg": 0.0,
+                },
+                "policy_id": "policy-1",
+                "policy_version": 1,
+                "policy_status": "active",
+                "matched_candidate": True,
+                "escalation": {"level": "none", "reason": "n/a", "trigger_alert_types": []},
+                "recommended_actions": [],
+                "generated_at": now,
+            },
+            "summary": {
+                "current_alert_count": 0,
+                "projected_alert_count": 0,
+                "delta_alert_count": 0,
+                "current_critical_count": 0,
+                "projected_critical_count": 0,
+                "delta_critical_count": 0,
+                "current_high_count": 0,
+                "projected_high_count": 0,
+                "delta_high_count": 0,
+                "newly_triggered_alert_types": [],
+                "resolved_alert_types": [],
+            },
+        },
+    }
+    applied_change_payload = dict(change_payload)
+    applied_change_payload["status"] = "applied"
+    applied_change_payload["applied_at"] = now
     routes = {
         ("POST", f"{base}/v1/security/policies"): created_payload,
         ("GET", f"{base}/v1/security/policies?limit=50"): [active_payload, candidate_payload],
         ("GET", f"{base}/v1/security/policies/policy-1"): active_payload,
-        ("POST", f"{base}/v1/security/policies/policy-1/activate"): active_payload,
-        ("POST", f"{base}/v1/security/policies/policy-1/candidate"): candidate_payload,
-        ("POST", f"{base}/v1/security/policies/rollback"): active_payload,
+        ("POST", f"{base}/v1/security/policies/policy-1/activate?emergency_override=true"): active_payload,
+        ("POST", f"{base}/v1/security/policies/policy-1/candidate?emergency_override=true"): candidate_payload,
+        ("POST", f"{base}/v1/security/policies/rollback?emergency_override=true"): active_payload,
+        ("POST", f"{base}/v1/security/policies/changes"): change_payload,
+        ("GET", f"{base}/v1/security/policies/changes?status=approved&limit=50"): [change_payload],
+        ("GET", f"{base}/v1/security/policies/changes/change-1"): change_payload,
+        ("POST", f"{base}/v1/security/policies/changes/change-1/review"): change_payload,
+        ("POST", f"{base}/v1/security/policies/changes/change-1/apply"): applied_change_payload,
+        ("POST", f"{base}/v1/security/policies/changes/dry-run"): change_payload["dry_run"],
     }
     mock_http = _MockHTTP(routes)
     client = KarmaClient(agent_id="a1", runtime_url=base)
@@ -1386,11 +1516,48 @@ async def test_security_policy_center_sdk_methods():
     fetched = await client.get_security_threshold_policy("policy-1")
     assert fetched.policy_id == "policy-1"
 
-    activated = await client.activate_security_threshold_policy("policy-1")
+    activated = await client.activate_security_threshold_policy("policy-1", emergency_override=True)
     assert activated.status.value == "active"
 
-    canary = await client.set_security_threshold_policy_candidate("policy-1", rollout_percent=20)
+    canary = await client.set_security_threshold_policy_candidate(
+        "policy-1",
+        rollout_percent=20,
+        emergency_override=True,
+    )
     assert canary.rollout_percent == 20
 
-    rolled_back = await client.rollback_security_threshold_policy(target_policy_id=None)
+    rolled_back = await client.rollback_security_threshold_policy(
+        target_policy_id=None,
+        emergency_override=True,
+    )
     assert rolled_back.status.value == "active"
+
+    created_change = await client.create_security_policy_change_request(
+        action=SecurityPolicyChangeAction.SET_CANDIDATE,
+        target_policy_id="policy-1",
+        rollout_percent=20,
+        requested_by="sec-admin",
+    )
+    assert created_change.status.value == "approved"
+    listed_changes = await client.list_security_policy_change_requests(
+        status=SecurityPolicyChangeStatus.APPROVED,
+        limit=50,
+    )
+    assert len(listed_changes) == 1
+    loaded_change = await client.get_security_policy_change_request("change-1")
+    assert loaded_change.request_id == "change-1"
+    reviewed_change = await client.review_security_policy_change_request(
+        "change-1",
+        approver_id="rev-3",
+        decision=SecurityPolicyApprovalDecision.APPROVE,
+    )
+    assert reviewed_change.request_id == "change-1"
+    applied_change = await client.apply_security_policy_change_request("change-1")
+    assert applied_change.status.value == "applied"
+    dry_run = await client.dry_run_security_policy_change(
+        action=SecurityPolicyChangeAction.SET_CANDIDATE,
+        target_policy_id="policy-1",
+        rollout_percent=20,
+        dry_run_actor_id="actor-1",
+    )
+    assert dry_run.projected_policy_id == "policy-1"
