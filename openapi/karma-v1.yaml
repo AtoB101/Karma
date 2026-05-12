@@ -322,6 +322,123 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/progress:
+    post:
+      summary: Submit progress receipt
+      operationId: submitProgressReceipt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgressReceipt'
+      responses:
+        '201':
+          description: Progress receipt submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressReceipt'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/progress/{progressReceiptId}/confirm:
+    post:
+      summary: Confirm progress receipt
+      operationId: confirmProgressReceipt
+      parameters:
+        - in: path
+          name: progressReceiptId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Confirmed progress receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressReceipt'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/progress/task/{taskId}:
+    get:
+      summary: List progress receipts for task
+      operationId: listProgressReceipts
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Progress receipts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProgressReceipt'
+  /v1/settlement/{taskId}/partial:
+    post:
+      summary: Partial settlement by value percent
+      operationId: partialSettlement
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartialSettlementRequest'
+      responses:
+        '200':
+          description: Updated settlement state
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/settlement/{taskId}/regret:
+    post:
+      summary: Buyer regret settlement
+      operationId: regretSettlement
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegretRequest'
+      responses:
+        '200':
+          description: Updated settlement state
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
 components:
   securitySchemes:
     bearerAuth:
@@ -583,6 +700,69 @@ components:
         - has_sufficient_capacity
         - can_start
         - status
+    ProgressReceipt:
+      type: object
+      properties:
+        progress_receipt_id:
+          type: string
+        task_id:
+          type: string
+        seller_identity_id:
+          type: string
+        progress_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        claimed_value_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        evidence_hash:
+          type: string
+        runtime_log_hash:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        seller_signature:
+          type: string
+        validation_method:
+          type: string
+        confirmation_status:
+          type: string
+          enum: [pending, confirmed, rejected]
+        confirmed_at:
+          type: string
+          format: date-time
+      required:
+        - progress_receipt_id
+        - task_id
+        - seller_identity_id
+        - progress_percent
+        - claimed_value_percent
+        - evidence_hash
+        - runtime_log_hash
+        - timestamp
+        - seller_signature
+        - validation_method
+        - confirmation_status
+    PartialSettlementRequest:
+      type: object
+      properties:
+        settled_value_percent:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 100
+        reason:
+          type: string
+      required: [settled_value_percent]
+    RegretRequest:
+      type: object
+      properties:
+        buyer_identity_id:
+          type: string
+        reason:
+          type: string
     EvidenceObject:
       type: object
       properties:
