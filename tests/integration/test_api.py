@@ -337,6 +337,124 @@ async def test_manual_partial_settlement(client: AsyncClient):
 
 
 # ---------------------------------------------------------------------------
+# Dispute and auto-arbitration
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(client: AsyncClient):
+    task_id = "task-auto-arbitrate-001"
+
+    await client.post("/v1/settlement/create", json={
+        "task_id": task_id,
+        "client_agent_id": "buyer-001",
+        "escrow_amount": 50.0,
+        "currency": "USD",
+    })
+    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": "seller-001"})
+    await client.post(f"/v1/settlement/{task_id}/start", json={})
+    await client.post(f"/v1/settlement/{task_id}/submit", json={})
+
+    dispute = await client.post(f"/v1/settlement/{task_id}/dispute", json={"reason": "quality issue"})
+    assert dispute.status_code == 200
+    assert dispute.json()["status"] == "disputed"
+
+    arbitrate = await client.post(f"/v1/settlement/{task_id}/auto-arbitrate", json={})
+    assert arbitrate.status_code == 200
+    assert arbitrate.json()["status"] == "buyer_wins"
+    assert arbitrate.json()["released_amount"] == 0.0
+    assert arbitrate.json()["refunded_amount"] == 50.0
+
+
+# ---------------------------------------------------------------------------
+# Identity profile and sub-identities
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_sub_identity_limit_and_display_rotation(client: AsyncClient):
+    identity_id = "identity-parent-001"
+
+    init = await client.post(f"/v1/identities/{identity_id}/profile/init", json={})
+    assert init.status_code == 200
+    display_before = init.json()["display_id"]
+
+    create_1 = await client.post(f"/v1/identities/{identity_id}/sub-identities", json={
+        "sub_identity_type": "buyer",
+        "alias": "buyer-sub",
+    })
+    assert create_1.status_code == 201
+
+    create_2 = await client.post(f"/v1/identities/{identity_id}/sub-identities", json={
+        "sub_identity_type": "agent",
+        "alias": "agent-sub",
+    })
+    assert create_2.status_code == 201
+
+    create_3 = await client.post(f"/v1/identities/{identity_id}/sub-identities", json={
+        "sub_identity_type": "project",
+        "alias": "project-sub",
+    })
+    assert create_3.status_code == 409
+
+    rotate = await client.post(f"/v1/identities/{identity_id}/rotate-display-id", json={})
+    assert rotate.status_code == 200
+    display_after = rotate.json()["display_id"]
+    assert display_after != display_before
+
+
+@pytest.mark.asyncio
+async def test_voucher_validates_sub_identity_parent_binding(client: AsyncClient):
+    buyer = "identity-buyer-001"
+    seller = "identity-seller-001"
+    await client.post(f"/v1/identities/{buyer}/profile/init", json={})
+    await client.post(f"/v1/identities/{seller}/profile/init", json={})
+    buyer_sub = await client.post(f"/v1/identities/{buyer}/sub-identities", json={
+        "sub_identity_type": "buyer",
+        "alias": "buyer-sub-1",
+    })
+    seller_sub = await client.post(f"/v1/identities/{seller}/sub-identities", json={
+        "sub_identity_type": "seller",
+        "alias": "seller-sub-1",
+    })
+    await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
+
+    valid = await client.post("/v1/vouchers", json={
+        "buyer_identity_id": buyer,
+        "seller_identity_id": seller,
+        "amount": 60,
+        "currency": "USDC",
+        "bill_credit_amount": 60,
+        "task_type": "agent-task",
+        "task_description_hash": "a" * 64,
+        "progress_rule_hash": "b" * 64,
+        "evidence_requirement_hash": "c" * 64,
+        "expiry_time": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+        "nonce": "nonce-sub-valid",
+        "buyer_signature": "sig-sub-valid",
+        "buyer_sub_identity_id": buyer_sub.json()["sub_identity_id"],
+        "seller_sub_identity_id": seller_sub.json()["sub_identity_id"],
+    })
+    assert valid.status_code == 201
+
+    invalid = await client.post("/v1/vouchers", json={
+        "buyer_identity_id": buyer,
+        "seller_identity_id": seller,
+        "amount": 10,
+        "currency": "USDC",
+        "bill_credit_amount": 10,
+        "task_type": "agent-task",
+        "task_description_hash": "d" * 64,
+        "progress_rule_hash": "e" * 64,
+        "evidence_requirement_hash": "f" * 64,
+        "expiry_time": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+        "nonce": "nonce-sub-invalid",
+        "buyer_signature": "sig-sub-invalid",
+        # buyer is trying to use seller's sub identity -> must fail
+        "buyer_sub_identity_id": seller_sub.json()["sub_identity_id"],
+    })
+    assert invalid.status_code == 409
+
+
+# ---------------------------------------------------------------------------
 # Capacity & Vouchers
 # ---------------------------------------------------------------------------
 

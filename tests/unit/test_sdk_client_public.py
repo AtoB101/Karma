@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from sdk.client import KarmaClient
-from core.schemas import ProgressReceipt, ProgressConfirmationStatus
+from core.schemas import ProgressConfirmationStatus, ProgressReceipt, SubIdentityType
 
 
 class _MockResponse:
@@ -37,6 +37,10 @@ class _MockHTTP:
     async def post(self, url: str, json: dict):
         self.calls.append(("POST", url, json))
         return _MockResponse(self._routes[("POST", url)])
+
+    async def delete(self, url: str):
+        self.calls.append(("DELETE", url, None))
+        return _MockResponse(self._routes[("DELETE", url)])
 
 
 @pytest.mark.asyncio
@@ -245,4 +249,89 @@ async def test_progress_and_regret_sdk_methods():
     assert regret_state.status.value == "partial"
     partial_state = await client.partial_settlement("task-1", 20, reason="manual partial")
     assert partial_state.released_amount == 20
+
+
+@pytest.mark.asyncio
+async def test_identity_and_dispute_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    identity_id = "buyer-identity-1"
+    sub_id = "sub-1"
+    profile_payload = {
+        "identity_id": identity_id,
+        "display_id": "Karma-ID-ABCD1234",
+        "legal_identity_status": "unbound",
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    sub_payload = {
+        "sub_identity_id": sub_id,
+        "parent_identity_id": identity_id,
+        "sub_identity_type": "buyer",
+        "alias": "buyer-sub",
+        "status": "active",
+        "created_at": now,
+        "deleted_at": None,
+    }
+    dispute_payload = {
+        "settlement_id": "s-2",
+        "task_id": "task-2",
+        "escrow_amount": 100,
+        "currency": "USD",
+        "status": "disputed",
+        "client_agent_id": identity_id,
+        "worker_agent_id": "seller-1",
+        "released_amount": None,
+        "refunded_amount": None,
+        "dispute_reason": "quality issue",
+        "arbitration_notes": None,
+        "created_at": now,
+        "updated_at": now,
+        "released_at": None,
+        "settlement_mode": "offchain",
+        "chain_id": None,
+        "contract_address": None,
+        "tx_hash": None,
+        "evidence_bundle_hash": None,
+        "onchain_status": None,
+        "quote_id": None,
+    }
+    arbitrate_payload = dict(dispute_payload)
+    arbitrate_payload["status"] = "buyer_wins"
+    arbitrate_payload["released_amount"] = 0
+    arbitrate_payload["refunded_amount"] = 100
+    arbitrate_payload["arbitration_notes"] = "auto arbitration"
+    routes = {
+        ("POST", f"{base}/v1/identities/{identity_id}/profile/init"): profile_payload,
+        ("GET", f"{base}/v1/identities/{identity_id}/profile"): profile_payload,
+        ("POST", f"{base}/v1/identities/{identity_id}/rotate-display-id"): profile_payload,
+        ("POST", f"{base}/v1/identities/{identity_id}/sub-identities"): sub_payload,
+        ("GET", f"{base}/v1/identities/{identity_id}/sub-identities"): [sub_payload],
+        ("DELETE", f"{base}/v1/identities/{identity_id}/sub-identities/{sub_id}"): sub_payload,
+        ("POST", f"{base}/v1/settlement/task-2/dispute"): dispute_payload,
+        ("POST", f"{base}/v1/settlement/task-2/auto-arbitrate"): arbitrate_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    profile = await client.init_identity_profile(identity_id)
+    assert profile.identity_id == identity_id
+    fetched = await client.get_identity_profile(identity_id)
+    assert fetched.display_id.startswith("Karma-ID-")
+    rotated = await client.rotate_display_id(identity_id)
+    assert rotated.status == "active"
+
+    sub = await client.create_sub_identity(identity_id, sub_identity_type=SubIdentityType.BUYER, alias="buyer-sub")
+    assert sub.sub_identity_id == sub_id
+    listed = await client.list_sub_identities(identity_id)
+    assert len(listed) == 1
+    deleted = await client.delete_sub_identity(identity_id, sub_id)
+    assert deleted.alias == "buyer-sub"
+
+    disputed = await client.open_dispute("task-2", reason="quality issue")
+    assert disputed.status.value == "disputed"
+    arbitrated = await client.auto_arbitrate("task-2")
+    assert arbitrated.refunded_amount == 100
 

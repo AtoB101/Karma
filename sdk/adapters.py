@@ -149,3 +149,50 @@ class AgentRuntimeExecutionAdapter:
             },
         )
 
+
+class AIWorkflowExecutionAdapter:
+    """Adapter for multi-step AI workflow receipts (P2 template)."""
+
+    @staticmethod
+    def build(
+        *,
+        task_id: str,
+        agent_id: str,
+        step_index: int,
+        workflow_name: str,
+        stage_name: str,
+        stage_input: Any,
+        stage_output: Any,
+        started_at: datetime,
+        ended_at: datetime,
+        success: bool,
+        model_used: str | None = None,
+        policy_version: str | None = None,
+        trace_id: str | None = None,
+        error_message: str | None = None,
+    ) -> ExecutionReceipt:
+        duration_ms = max(0, int((ended_at - started_at).total_seconds() * 1000))
+        return ExecutionReceipt(
+            task_id=task_id,
+            agent_id=agent_id,
+            step_index=step_index,
+            tool_name=f"workflow.{workflow_name}.{stage_name}",
+            input_hash=_sha256(stage_input),
+            output_hash=_sha256(stage_output),
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_ms=duration_ms,
+            status=_status_from_success(success),
+            error_message=error_message if not success else None,
+            metadata={
+                "template": "ai_workflow",
+                "workflow_name": workflow_name,
+                "stage_name": stage_name,
+                "model_used": model_used,
+                "policy_version": policy_version,
+                "trace_id": trace_id,
+                "stage_input_digest": _sha256(stage_input),
+                "stage_output_digest": _sha256(stage_output),
+            },
+        )
+

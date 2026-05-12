@@ -14,9 +14,12 @@ from core.schemas import (
     AuthorizationVoucher,
     CapacityState,
     EvidenceBundle,
+    IdentityProfile,
     ProgressReceipt,
     ReputationSnapshot,
     SettlementState,
+    SubIdentity,
+    SubIdentityType,
     TaskContract,
     TaskStatus,
     VerificationResult,
@@ -315,6 +318,76 @@ class KarmaClient:
             resp = await http.post(f"{self.runtime_url}/v1/settlement/{task_id}/regret", json=payload)
             resp.raise_for_status()
             return SettlementState(**resp.json())
+
+    async def open_dispute(self, task_id: str, reason: str | None = None) -> SettlementState:
+        """POST /v1/settlement/{task_id}/dispute"""
+        payload: dict[str, Any] = {}
+        if reason:
+            payload["reason"] = reason
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/settlement/{task_id}/dispute", json=payload)
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
+
+    async def auto_arbitrate(self, task_id: str) -> SettlementState:
+        """POST /v1/settlement/{task_id}/auto-arbitrate"""
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/settlement/{task_id}/auto-arbitrate", json={})
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
+
+    async def init_identity_profile(self, identity_id: str) -> IdentityProfile:
+        """POST /v1/identities/{identity_id}/profile/init"""
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/identities/{identity_id}/profile/init", json={})
+            resp.raise_for_status()
+            return IdentityProfile(**resp.json())
+
+    async def get_identity_profile(self, identity_id: str) -> IdentityProfile:
+        """GET /v1/identities/{identity_id}/profile"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/identities/{identity_id}/profile")
+            resp.raise_for_status()
+            return IdentityProfile(**resp.json())
+
+    async def rotate_display_id(self, identity_id: str) -> IdentityProfile:
+        """POST /v1/identities/{identity_id}/rotate-display-id"""
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/identities/{identity_id}/rotate-display-id", json={})
+            resp.raise_for_status()
+            return IdentityProfile(**resp.json())
+
+    async def create_sub_identity(
+        self,
+        identity_id: str,
+        sub_identity_type: SubIdentityType,
+        alias: str,
+    ) -> SubIdentity:
+        """POST /v1/identities/{identity_id}/sub-identities"""
+        payload = {"sub_identity_type": sub_identity_type.value, "alias": alias}
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/identities/{identity_id}/sub-identities",
+                json=payload,
+            )
+            resp.raise_for_status()
+            return SubIdentity(**resp.json())
+
+    async def list_sub_identities(self, identity_id: str) -> list[SubIdentity]:
+        """GET /v1/identities/{identity_id}/sub-identities"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/identities/{identity_id}/sub-identities")
+            resp.raise_for_status()
+            return [SubIdentity(**item) for item in resp.json()]
+
+    async def delete_sub_identity(self, identity_id: str, sub_identity_id: str) -> SubIdentity:
+        """DELETE /v1/identities/{identity_id}/sub-identities/{sub_identity_id}"""
+        async with self._http() as http:
+            resp = await http.delete(
+                f"{self.runtime_url}/v1/identities/{identity_id}/sub-identities/{sub_identity_id}",
+            )
+            resp.raise_for_status()
+            return SubIdentity(**resp.json())
 
     async def get_token(self, agent_id: str, api_key: str) -> str:
         """POST /v1/auth/token — returns JWT access token."""

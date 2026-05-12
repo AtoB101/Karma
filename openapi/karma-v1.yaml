@@ -322,6 +322,130 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/identities/{identityId}/profile/init:
+    post:
+      summary: Initialize identity profile
+      operationId: initIdentityProfile
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Identity profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProfile'
+  /v1/identities/{identityId}/profile:
+    get:
+      summary: Get identity profile
+      operationId: getIdentityProfile
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Identity profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProfile'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/identities/{identityId}/rotate-display-id:
+    post:
+      summary: Rotate identity display ID
+      operationId: rotateDisplayId
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Identity profile with new display ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProfile'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/identities/{identityId}/sub-identities:
+    post:
+      summary: Create sub-identity
+      operationId: createSubIdentity
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubIdentityRequest'
+      responses:
+        '201':
+          description: Sub-identity created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubIdentity'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+    get:
+      summary: List sub-identities
+      operationId: listSubIdentities
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sub-identity list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubIdentity'
+  /v1/identities/{identityId}/sub-identities/{subIdentityId}:
+    delete:
+      summary: Delete sub-identity
+      operationId: deleteSubIdentity
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: subIdentityId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sub-identity updated to deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubIdentity'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
   /v1/progress:
     post:
       summary: Submit progress receipt
@@ -430,6 +554,56 @@ paths:
       responses:
         '200':
           description: Updated settlement state
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/settlement/{taskId}/dispute:
+    post:
+      summary: Open dispute for settlement task
+      operationId: openDispute
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DisputeRequest'
+      responses:
+        '200':
+          description: Updated settlement state
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/settlement/{taskId}/auto-arbitrate:
+    post:
+      summary: Run automatic arbitration rules
+      operationId: autoArbitrate
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated settlement state after automatic arbitration
           content:
             application/json:
               schema:
@@ -763,6 +937,72 @@ components:
           type: string
         reason:
           type: string
+    DisputeRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    IdentityProfile:
+      type: object
+      properties:
+        identity_id:
+          type: string
+        display_id:
+          type: string
+        legal_identity_status:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - identity_id
+        - display_id
+        - legal_identity_status
+        - status
+        - created_at
+        - updated_at
+    CreateSubIdentityRequest:
+      type: object
+      properties:
+        sub_identity_type:
+          type: string
+          enum: [buyer, seller, agent, project, temporary_task]
+        alias:
+          type: string
+      required: [sub_identity_type, alias]
+    SubIdentity:
+      type: object
+      properties:
+        sub_identity_id:
+          type: string
+        parent_identity_id:
+          type: string
+        sub_identity_type:
+          type: string
+          enum: [buyer, seller, agent, project, temporary_task]
+        alias:
+          type: string
+        status:
+          type: string
+          enum: [active, deleted]
+        created_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+      required:
+        - sub_identity_id
+        - parent_identity_id
+        - sub_identity_type
+        - alias
+        - status
+        - created_at
     EvidenceObject:
       type: object
       properties:

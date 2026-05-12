@@ -16,7 +16,7 @@ from config.settings import settings
 from db.session import init_db
 from api.routes import (
     agents, auth, contracts, receipts,
-    bundles, settlement, reputation, verify, capacity, vouchers, progress,
+    bundles, settlement, reputation, verify, capacity, vouchers, progress, identities,
 )
 
 logger = structlog.get_logger(__name__)
@@ -108,6 +108,7 @@ app.mount("/metrics", metrics_app)
 app.include_router(auth.router,       prefix="/v1/auth",       tags=["Auth"])
 app.include_router(agents.router,     prefix="/v1/agents",     tags=["Agents"])
 app.include_router(contracts.router,  prefix="/v1/contracts",  tags=["Contracts"])
+app.include_router(identities.router, prefix="/v1/identities", tags=["Identities"])
 app.include_router(capacity.router,   prefix="/v1/capacity",   tags=["Capacity"])
 app.include_router(vouchers.router,   prefix="/v1/vouchers",   tags=["Vouchers"])
 app.include_router(progress.router,   prefix="/v1/progress",   tags=["Progress"])

@@ -174,6 +174,15 @@ Apply a partial settlement split by percent.
 ### `POST /v1/settlement/{task_id}/regret`
 Buyer regret flow: settles confirmed progress and releases remainder.
 
+### `POST /v1/settlement/{task_id}/dispute`
+Open dispute and move task into `DISPUTED`.
+
+### `POST /v1/settlement/{task_id}/auto-arbitrate`
+Run public auto-arbitration rules:
+- confirmed progress = 0% → `BUYER_WINS`
+- confirmed progress >= 90% → `SELLER_WINS`
+- otherwise proportional `PARTIAL`
+
 ### `GET /v1/settlement/{task_id}`
 Get current settlement state.
 
@@ -204,6 +213,8 @@ SDK helper methods:
 - `list_progress(task_id)`
 - `regret_task(task_id, buyer_identity_id=None, reason=None)`
 - `partial_settlement(task_id, settled_value_percent, reason=None)`
+- `open_dispute(task_id, reason=None)`
+- `auto_arbitrate(task_id)`
 
 ---
 
@@ -230,6 +241,7 @@ Release unused `available_credits` and reduce locked capacity.
 
 ### `POST /v1/vouchers`
 Create one-time Authorization Voucher. Buyer must have sufficient available credits.
+If `buyer_sub_identity_id` / `seller_sub_identity_id` is provided, it must be active and bound to the corresponding parent identity.
 
 ### `POST /v1/vouchers/{voucher_id}/verify`
 Seller-side verification entrypoint:
@@ -254,6 +266,36 @@ SDK helper methods:
 - `get_voucher(voucher_id)`
 - `verify_voucher(voucher_id, seller_identity_id, expected_amount=None)`
 - `accept_voucher(voucher_id, seller_identity_id)`
+
+---
+
+## Identity Profile & Sub-Identities (P2)
+
+### `POST /v1/identities/{identity_id}/profile/init`
+Initialize identity profile if absent (idempotent).
+
+### `GET /v1/identities/{identity_id}/profile`
+Get identity profile.
+
+### `POST /v1/identities/{identity_id}/rotate-display-id`
+Rotate public display id for privacy hardening.
+
+### `POST /v1/identities/{identity_id}/sub-identities`
+Create sub-identity with hard cap `<= 2` active sub-identities per parent.
+
+### `GET /v1/identities/{identity_id}/sub-identities`
+List all sub-identities.
+
+### `DELETE /v1/identities/{identity_id}/sub-identities/{sub_identity_id}`
+Soft-delete sub-identity (blocked if linked to active vouchers).
+
+SDK helper methods:
+- `init_identity_profile(identity_id)`
+- `get_identity_profile(identity_id)`
+- `rotate_display_id(identity_id)`
+- `create_sub_identity(identity_id, sub_identity_type, alias)`
+- `list_sub_identities(identity_id)`
+- `delete_sub_identity(identity_id, sub_identity_id)`
 
 ---
 

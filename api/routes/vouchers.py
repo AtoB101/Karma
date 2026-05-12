@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.schemas import AuthorizationVoucher, CapacityState, VoucherStatus, VoucherVerificationResult
-from db.models.orm import CapacityModel, VoucherModel
+from core.schemas import AuthorizationVoucher, CapacityState, SubIdentityStatus, VoucherStatus, VoucherVerificationResult
+from db.models.orm import CapacityModel, SubIdentityModel, VoucherModel
 from db.session import get_db
 from services.capacity_ledger import assert_capacity_invariants
 
@@ -51,6 +51,19 @@ async def create_voucher(body: CreateVoucherRequest, db: AsyncSession = Depends(
     cap = await db.get(CapacityModel, body.buyer_identity_id)
     if not cap or cap.available_credits < body.bill_credit_amount:
         raise HTTPException(409, "insufficient buyer available credits")
+
+    await _validate_sub_identity_binding(
+        db=db,
+        parent_identity_id=body.buyer_identity_id,
+        sub_identity_id=body.buyer_sub_identity_id,
+        role="buyer",
+    )
+    await _validate_sub_identity_binding(
+        db=db,
+        parent_identity_id=body.seller_identity_id,
+        sub_identity_id=body.seller_sub_identity_id,
+        role="seller",
+    )
 
     voucher = AuthorizationVoucher(**body.model_dump())
     db.add(
@@ -183,4 +196,22 @@ def _validate_capacity(cap: CapacityModel) -> None:
             updated_at=cap.updated_at,
         )
     )
+
+
+async def _validate_sub_identity_binding(
+    *,
+    db: AsyncSession,
+    parent_identity_id: str,
+    sub_identity_id: str | None,
+    role: str,
+) -> None:
+    if sub_identity_id is None:
+        return
+    row = await db.get(SubIdentityModel, sub_identity_id)
+    if not row:
+        raise HTTPException(404, f"{role} sub-identity not found: {sub_identity_id}")
+    if row.parent_identity_id != parent_identity_id:
+        raise HTTPException(409, f"{role} sub-identity parent mismatch")
+    if row.status != SubIdentityStatus.ACTIVE.value:
+        raise HTTPException(409, f"{role} sub-identity is not active")
 

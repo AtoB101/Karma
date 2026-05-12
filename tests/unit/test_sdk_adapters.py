@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sdk.adapters import APIExecutionAdapter, AgentRuntimeExecutionAdapter, MCPExecutionAdapter
+from sdk.adapters import (
+    APIExecutionAdapter,
+    AIWorkflowExecutionAdapter,
+    AgentRuntimeExecutionAdapter,
+    MCPExecutionAdapter,
+)
 
 
 def test_api_execution_adapter_builds_success_receipt():
@@ -72,4 +77,31 @@ def test_runtime_execution_adapter_includes_trace_metadata():
     assert receipt.metadata["model_used"] == "gpt-4o"
     assert receipt.metadata["runtime_trace_hash"] == "0xabc"
     assert receipt.status.value == "success"
+
+
+def test_ai_workflow_execution_adapter_template_fields():
+    started = datetime.utcnow()
+    ended = started + timedelta(milliseconds=210)
+
+    receipt = AIWorkflowExecutionAdapter.build(
+        task_id="task-4",
+        agent_id="agent-4",
+        step_index=4,
+        workflow_name="invoice-reconcile",
+        stage_name="extract",
+        stage_input={"file": "invoice.pdf"},
+        stage_output={"total": 320},
+        started_at=started,
+        ended_at=ended,
+        success=True,
+        model_used="gpt-4.1",
+        policy_version="p2.0.0",
+        trace_id="trace-1",
+    )
+
+    assert receipt.status.value == "success"
+    assert receipt.metadata["template"] == "ai_workflow"
+    assert receipt.metadata["workflow_name"] == "invoice-reconcile"
+    assert receipt.metadata["stage_name"] == "extract"
+    assert receipt.metadata["policy_version"] == "p2.0.0"
 

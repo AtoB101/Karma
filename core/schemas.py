@@ -89,6 +89,19 @@ class ProgressConfirmationStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class SubIdentityType(str, Enum):
+    BUYER = "buyer"
+    SELLER = "seller"
+    AGENT = "agent"
+    PROJECT = "project"
+    TEMPORARY_TASK = "temporary_task"
+
+
+class SubIdentityStatus(str, Enum):
+    ACTIVE = "active"
+    DELETED = "deleted"
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------
@@ -329,6 +342,29 @@ class VoucherVerificationResult(BaseModel):
     has_sufficient_capacity: bool
     can_start: bool
     status: VoucherStatus
+
+
+# ---------------------------------------------------------------------------
+# Identity Profile & Sub Identity
+# ---------------------------------------------------------------------------
+
+class IdentityProfile(BaseModel):
+    identity_id: str
+    display_id: str
+    legal_identity_status: str = "unbound"
+    status: str = "active"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SubIdentity(BaseModel):
+    sub_identity_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    parent_identity_id: str
+    sub_identity_type: SubIdentityType
+    alias: str
+    status: SubIdentityStatus = SubIdentityStatus.ACTIVE
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    deleted_at: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------

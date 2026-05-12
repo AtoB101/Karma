@@ -39,6 +39,10 @@ class RegretRequest(BaseModel):
     reason: str | None = None
 
 
+class DisputeRequest(BaseModel):
+    reason: str | None = None
+
+
 @router.post("/create", response_model=SettlementState, status_code=201)
 async def create_settlement(body: CreateSettlementRequest, db: AsyncSession = Depends(get_db)):
     from config.settings import settings as _s
@@ -183,6 +187,74 @@ async def regret_settlement(task_id: str, body: RegretRequest, db: AsyncSession 
     await _apply_capacity_resolution(
         db=db,
         buyer_identity_id=body.buyer_identity_id or state.client_agent_id,
+        escrow_amount=state.escrow_amount,
+        settled_amount=settled_amount,
+        refunded_amount=refunded_amount,
+    )
+    await db.flush()
+    return state
+
+
+@router.post("/{task_id}/dispute", response_model=SettlementState)
+async def open_dispute(task_id: str, body: DisputeRequest, db: AsyncSession = Depends(get_db)):
+    store = PostgresSettlementStore(db)
+    state = await store.get(task_id)
+    if not state:
+        raise HTTPException(404, f"Settlement {task_id} not found")
+    if not can_transition(state.status, TaskStatus.DISPUTED):
+        raise HTTPException(409, f"invalid status transition: {state.status.value} -> disputed")
+
+    state.status = TaskStatus.DISPUTED
+    state.dispute_reason = body.reason or "buyer disputed task result"
+    state.updated_at = datetime.utcnow()
+    await store.save(state)
+    return state
+
+
+@router.post("/{task_id}/auto-arbitrate", response_model=SettlementState)
+async def auto_arbitrate(task_id: str, db: AsyncSession = Depends(get_db)):
+    store = PostgresSettlementStore(db)
+    state = await store.get(task_id)
+    if not state:
+        raise HTTPException(404, f"Settlement {task_id} not found")
+    if not can_transition(state.status, TaskStatus.ARBITRATION):
+        raise HTTPException(409, f"invalid status transition: {state.status.value} -> arbitration")
+
+    state.status = TaskStatus.ARBITRATION
+    state.updated_at = datetime.utcnow()
+    await store.save(state)
+
+    confirmed_percent = await _confirmed_progress_percent(db, task_id)
+    if confirmed_percent <= 0.0:
+        decision = TaskStatus.BUYER_WINS
+        settled_amount = 0.0
+        refunded_amount = round(state.escrow_amount, 2)
+        notes = "auto arbitration: no confirmed progress, buyer wins"
+    elif confirmed_percent >= 90.0:
+        decision = TaskStatus.SELLER_WINS
+        settled_amount = round(state.escrow_amount, 2)
+        refunded_amount = 0.0
+        notes = "auto arbitration: near-complete confirmed progress, seller wins"
+    else:
+        decision = TaskStatus.PARTIAL
+        settled_amount = round(state.escrow_amount * confirmed_percent / 100.0, 2)
+        refunded_amount = round(state.escrow_amount - settled_amount, 2)
+        notes = f"auto arbitration: partial split by confirmed progress {confirmed_percent:.2f}%"
+
+    if not can_transition(state.status, decision):
+        raise HTTPException(409, f"invalid status transition: {state.status.value} -> {decision.value}")
+
+    state.status = decision
+    state.released_amount = settled_amount
+    state.refunded_amount = refunded_amount
+    state.arbitration_notes = notes
+    state.updated_at = datetime.utcnow()
+    state.released_at = datetime.utcnow() if settled_amount > 0 else None
+    await store.save(state)
+
+    await _apply_capacity_resolution(
+        db=db,
+        buyer_identity_id=state.client_agent_id,
         escrow_amount=state.escrow_amount,
         settled_amount=settled_amount,
         refunded_amount=refunded_amount,

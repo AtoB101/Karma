@@ -224,6 +224,37 @@ class VoucherModel(Base):
 
 
 # ---------------------------------------------------------------------------
+# Identity Profile & Sub Identity
+# ---------------------------------------------------------------------------
+
+class IdentityProfileModel(Base):
+    __tablename__ = "identity_profiles"
+
+    identity_id:            Mapped[str]      = mapped_column(String(64), primary_key=True)
+    display_id:             Mapped[str]      = mapped_column(String(64), nullable=False, unique=True)
+    legal_identity_status:  Mapped[str]      = mapped_column(String(32), nullable=False, default="unbound")
+    status:                 Mapped[str]      = mapped_column(String(32), nullable=False, default="active")
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SubIdentityModel(Base):
+    __tablename__ = "sub_identities"
+
+    sub_identity_id:      Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    parent_identity_id:   Mapped[str]      = mapped_column(String(64), nullable=False)
+    sub_identity_type:    Mapped[str]      = mapped_column(String(32), nullable=False)
+    alias:                Mapped[str]      = mapped_column(String(64), nullable=False)
+    status:               Mapped[str]      = mapped_column(String(16), nullable=False, default="active")
+    created_at:           Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    deleted_at:           Mapped[datetime|None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint("parent_identity_id", "alias", name="uq_sub_identity_alias_per_parent"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Verification Result
 # ---------------------------------------------------------------------------
 
