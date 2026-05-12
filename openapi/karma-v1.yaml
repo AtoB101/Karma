@@ -3356,6 +3356,24 @@ components:
           type: integer
         delta_high_count:
           type: integer
+        current_transition_denied_count:
+          type: integer
+        projected_transition_denied_count:
+          type: integer
+        delta_transition_denied_count:
+          type: integer
+        current_transition_denied_rate:
+          type: number
+        projected_transition_denied_rate:
+          type: number
+        delta_transition_denied_rate:
+          type: number
+        current_transition_denied_rate_critical:
+          type: boolean
+        projected_transition_denied_rate_critical:
+          type: boolean
+        critical_auto_brake_will_trigger:
+          type: boolean
         newly_triggered_alert_types:
           type: array
           items:
@@ -3374,6 +3392,15 @@ components:
         - current_high_count
         - projected_high_count
         - delta_high_count
+        - current_transition_denied_count
+        - projected_transition_denied_count
+        - delta_transition_denied_count
+        - current_transition_denied_rate
+        - projected_transition_denied_rate
+        - delta_transition_denied_rate
+        - current_transition_denied_rate_critical
+        - projected_transition_denied_rate_critical
+        - critical_auto_brake_will_trigger
         - newly_triggered_alert_types
         - resolved_alert_types
     SecurityPolicyDryRunResult:

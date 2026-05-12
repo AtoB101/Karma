@@ -12,6 +12,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
+    SecurityOpsAlertSeverity,
+    SecurityOpsAlertType,
     SecurityOpsAlertReport,
     SecurityPolicyApprovalDecision,
     SecurityPolicyChangeAction,
@@ -89,6 +91,20 @@ def _dry_run_summary(current: SecurityOpsAlertReport, projected: SecurityOpsAler
     projected_critical = sum(1 for item in projected.alerts if item.severity.value == "critical")
     current_high = sum(1 for item in current.alerts if item.severity.value == "high")
     projected_high = sum(1 for item in projected.alerts if item.severity.value == "high")
+    current_transition_denied_count = current.summary.settlement_transition_denied_count
+    projected_transition_denied_count = projected.summary.settlement_transition_denied_count
+    current_transition_denied_rate = current.summary.settlement_transition_denied_rate
+    projected_transition_denied_rate = projected.summary.settlement_transition_denied_rate
+    current_transition_denied_rate_critical = any(
+        item.alert_type == SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_RATE
+        and item.severity == SecurityOpsAlertSeverity.CRITICAL
+        for item in current.alerts
+    )
+    projected_transition_denied_rate_critical = any(
+        item.alert_type == SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_RATE
+        and item.severity == SecurityOpsAlertSeverity.CRITICAL
+        for item in projected.alerts
+    )
     return SecurityPolicyDryRunSummary(
         current_alert_count=len(current.alerts),
         projected_alert_count=len(projected.alerts),
@@ -99,6 +115,15 @@ def _dry_run_summary(current: SecurityOpsAlertReport, projected: SecurityOpsAler
         current_high_count=current_high,
         projected_high_count=projected_high,
         delta_high_count=projected_high - current_high,
+        current_transition_denied_count=current_transition_denied_count,
+        projected_transition_denied_count=projected_transition_denied_count,
+        delta_transition_denied_count=projected_transition_denied_count - current_transition_denied_count,
+        current_transition_denied_rate=current_transition_denied_rate,
+        projected_transition_denied_rate=projected_transition_denied_rate,
+        delta_transition_denied_rate=projected_transition_denied_rate - current_transition_denied_rate,
+        current_transition_denied_rate_critical=current_transition_denied_rate_critical,
+        projected_transition_denied_rate_critical=projected_transition_denied_rate_critical,
+        critical_auto_brake_will_trigger=projected_transition_denied_rate_critical,
         newly_triggered_alert_types=sorted(projected_types - current_types, key=lambda item: item.value),
         resolved_alert_types=sorted(current_types - projected_types, key=lambda item: item.value),
     )

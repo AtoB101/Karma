@@ -19,6 +19,11 @@ from core.schemas import (
     SecurityPolicyApprovalDecision,
     SecurityPolicyChangeAction,
 )
+from services.security_monitoring import (
+    SecurityMonitoringEventType,
+    clear_security_events,
+    record_security_event,
+)
 
 
 def _bucket(actor_id: str) -> int:
@@ -119,6 +124,7 @@ async def test_security_policy_center_api_endpoints(client):
     )
     assert dry_run.status_code == 200
     assert "summary" in dry_run.json()
+    assert "projected_transition_denied_rate" in dry_run.json()["summary"]
 
     activate_req = await client.post(
         "/v1/security/policies/changes",
@@ -237,3 +243,68 @@ async def test_security_policy_change_request_requires_two_approvals(db_session)
     assert applied_policy.status.value == "active"
     loaded = await get_security_policy_change_request(db_session, request_id=request.request_id, include_approvals=True)
     assert len(loaded.approvals) == 2
+
+
+@pytest.mark.asyncio
+async def test_security_policy_dry_run_summary_includes_transition_anomaly_projection(db_session):
+    clear_security_events()
+    try:
+        for _ in range(8):
+            record_security_event(
+                SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+                metadata={
+                    "path": "/v1/settlement/task-risk/submit",
+                    "actor_id": "worker-risk",
+                    "guard_stage": "route",
+                    "transition_allowed": False,
+                },
+            )
+        for _ in range(2):
+            record_security_event(
+                SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+                metadata={
+                    "path": "/v1/settlement/task-risk/submit",
+                    "actor_id": "worker-risk",
+                    "guard_stage": "route",
+                    "transition_allowed": True,
+                },
+            )
+
+        baseline_policy = await create_security_threshold_policy(
+            db_session,
+            config={
+                "settlement_transition_denied_threshold": 100,
+                "settlement_transition_denied_rate_threshold": 0.95,
+                "settlement_transition_min_requests": 5,
+            },
+            created_by="sec-admin",
+        )
+        await activate_security_threshold_policy(db_session, policy_id=baseline_policy.policy_id)
+
+        strict_policy = await create_security_threshold_policy(
+            db_session,
+            config={
+                "settlement_transition_denied_threshold": 1,
+                "settlement_transition_denied_rate_threshold": 0.5,
+                "settlement_transition_min_requests": 2,
+            },
+            created_by="sec-admin",
+        )
+
+        change_request = await create_security_policy_change_request(
+            db_session,
+            action=SecurityPolicyChangeAction.ACTIVATE,
+            target_policy_id=strict_policy.policy_id,
+            requested_by="sec-admin",
+        )
+        assert change_request.dry_run is not None
+        summary = change_request.dry_run.summary
+        assert summary.current_transition_denied_count == 8
+        assert summary.projected_transition_denied_count == 8
+        assert summary.current_transition_denied_rate == pytest.approx(0.8)
+        assert summary.projected_transition_denied_rate == pytest.approx(0.8)
+        assert summary.current_transition_denied_rate_critical is False
+        assert summary.projected_transition_denied_rate_critical is True
+        assert summary.critical_auto_brake_will_trigger is True
+    finally:
+        clear_security_events()

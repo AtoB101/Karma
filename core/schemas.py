@@ -751,6 +751,15 @@ class SecurityPolicyDryRunSummary(BaseModel):
     current_high_count: int = 0
     projected_high_count: int = 0
     delta_high_count: int = 0
+    current_transition_denied_count: int = 0
+    projected_transition_denied_count: int = 0
+    delta_transition_denied_count: int = 0
+    current_transition_denied_rate: float = 0.0
+    projected_transition_denied_rate: float = 0.0
+    delta_transition_denied_rate: float = 0.0
+    current_transition_denied_rate_critical: bool = False
+    projected_transition_denied_rate_critical: bool = False
+    critical_auto_brake_will_trigger: bool = False
     newly_triggered_alert_types: list[SecurityOpsAlertType] = Field(default_factory=list)
     resolved_alert_types: list[SecurityOpsAlertType] = Field(default_factory=list)
 

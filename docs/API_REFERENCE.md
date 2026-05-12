@@ -114,6 +114,11 @@ Requests cannot be applied before satisfying the approval threshold.
 
 ### `POST /v1/security/policies/changes/dry-run`
 Run simulation only (no persistence / no activation) and return projected alert impact.
+Dry-run summary now includes transition-anomaly projection fields:
+- `current_transition_denied_count / projected_transition_denied_count / delta_transition_denied_count`
+- `current_transition_denied_rate / projected_transition_denied_rate / delta_transition_denied_rate`
+- `current_transition_denied_rate_critical / projected_transition_denied_rate_critical`
+- `critical_auto_brake_will_trigger`
 
 ### `GET /v1/security/runtime/safety-mode`
 Read current runtime safety-mode state (enabled flag, trigger reason, latest anchor-audit totals).
