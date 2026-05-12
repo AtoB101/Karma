@@ -4,6 +4,21 @@ Build verifiable AI agents. Every tool call generates a signed receipt. Every ta
 
 ---
 
+## Start Here
+
+- First-time contributors: **[docs/START_HERE.md](docs/START_HERE.md)**
+- Contribution policy: **[CONTRIBUTING.md](CONTRIBUTING.md)**
+- Security disclosure: **[SECURITY.md](SECURITY.md)**
+
+### Role-based entry points
+
+- **Backend/API**: `docs/GETTING_STARTED.md` → `docs/API_REFERENCE.md` → `api/`
+- **Contracts/Security**: `contracts/core/` → `contracts/test/` → `certora/README.md`
+- **SDK/Runtime integration**: `docs/AGENT_INTEGRATION.md` → `sdk/` + `trusted_agent_runtime/`
+- **Ops/SRE**: `docs/SECURITY_RELEASE_GATES.md` + `docs/SECURITY_OPS_DRILL_RUNBOOK.md`
+
+---
+
 ## Repository Focus
 
 This repository contains the **active Karma system only**:
@@ -140,10 +155,25 @@ karma-public/
 
 ## Docs
 
+### Onboarding and contribution
+- [Start Here](docs/START_HERE.md)
+- [Getting Started](docs/GETTING_STARTED.md)
+- [Developer Execution Plan](docs/DEVELOPER_EXECUTION_PLAN.md)
+
+### Core protocol docs
 - [API Reference](docs/API_REFERENCE.md)
-- [Deployment SOP](docs/DEPLOYMENT.md)
-- [Karma FINAL V1.0 Engineering Kickoff (CN)](docs/KARMA_FINAL_V1_ENGINEERING_KICKOFF_CN.md)
 - [Execution Receipt Standard](docs/EXECUTION_RECEIPT_STANDARD.md)
+- [Settlement Flow (Public)](docs/SETTLEMENT_FLOW_PUBLIC.md)
+- [Dispute Flow (Public)](docs/DISPUTE_FLOW_PUBLIC.md)
+- [Deployment SOP](docs/DEPLOYMENT.md)
+
+### Security and operations
+- [Security Release Gates](docs/SECURITY_RELEASE_GATES.md)
+- [Security Incident Playbook](docs/SECURITY_INCIDENT_PLAYBOOK.md)
+- [Security Ops Drill Runbook](docs/SECURITY_OPS_DRILL_RUNBOOK.md)
+
+### Strategy and CN docs
+- [Karma FINAL V1.0 Engineering Kickoff (CN)](docs/KARMA_FINAL_V1_ENGINEERING_KICKOFF_CN.md)
 - [Public 12 Deliverables (CN)](docs/PUBLIC_12_DELIVERABLES_CN.md)
 - [Public P0 Acceptance Runbook (CN)](docs/PUBLIC_P0_ACCEPTANCE_RUNBOOK_CN.md)
 
