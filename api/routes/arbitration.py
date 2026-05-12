@@ -3,17 +3,18 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
     ArbitrationAssignment,
     ArbitrationCase,
     ArbitrationCaseEvent,
+    ArbitrationCaseOpsReport,
     ArbitrationCaseStatus,
     ArbitrationEventType,
     ArbitrationMaterialPackage,
@@ -151,6 +152,19 @@ async def create_arbitration_case(body: CreateArbitrationCaseRequest, db: AsyncS
         },
     )
     return _case_to_schema(row)
+
+
+@router.get("/cases/ops/report", response_model=ArbitrationCaseOpsReport)
+async def get_arbitration_case_ops_report(
+    window_hours: int = Query(default=24, ge=1, le=24 * 30),
+    recent_events_limit: int = Query(default=50, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _build_arbitration_case_ops_report(
+        db=db,
+        window_hours=window_hours,
+        recent_events_limit=recent_events_limit,
+    )
 
 
 @router.get("/cases/{case_id}", response_model=ArbitrationCase)
@@ -563,6 +577,52 @@ async def _append_case_event(
             metadata_=metadata or {},
             created_at=datetime.utcnow(),
         )
+    )
+
+
+async def _build_arbitration_case_ops_report(
+    *,
+    db: AsyncSession,
+    window_hours: int = 24,
+    recent_events_limit: int = 50,
+) -> ArbitrationCaseOpsReport:
+    now = datetime.utcnow()
+    hours = max(1, min(window_hours, 24 * 30))
+    limit_value = max(1, min(recent_events_limit, 1000))
+    cutoff = now - timedelta(hours=hours)
+
+    total_cases = int(
+        (await db.execute(select(func.count()).select_from(ArbitrationCaseModel))).scalar_one() or 0
+    )
+    status_result = await db.execute(
+        select(ArbitrationCaseModel.status, func.count())
+        .group_by(ArbitrationCaseModel.status)
+    )
+    status_counts = {str(status): int(count) for status, count in status_result.all()}
+
+    decision_result = await db.execute(
+        select(ArbitrationCaseModel.decided_outcome, func.count())
+        .where(ArbitrationCaseModel.decided_outcome.is_not(None))
+        .group_by(ArbitrationCaseModel.decided_outcome)
+    )
+    decision_counts = {str(decision): int(count) for decision, count in decision_result.all() if decision}
+
+    events_result = await db.execute(
+        select(ArbitrationCaseEventModel)
+        .where(ArbitrationCaseEventModel.created_at >= cutoff)
+        .order_by(ArbitrationCaseEventModel.created_at.desc())
+        .limit(limit_value)
+    )
+    recent_event_rows = list(reversed(events_result.scalars().all()))
+    recent_events = [_case_event_to_schema(row) for row in recent_event_rows]
+
+    return ArbitrationCaseOpsReport(
+        window_hours=hours,
+        total_cases=total_cases,
+        status_counts=status_counts,
+        decision_counts=decision_counts,
+        recent_events=recent_events,
+        generated_at=now,
     )
 
 

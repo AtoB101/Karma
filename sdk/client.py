@@ -15,6 +15,7 @@ from core.schemas import (
     ArbitrationAssignment,
     ArbitrationCase,
     ArbitrationCaseEvent,
+    ArbitrationCaseOpsReport,
     ArbitrationMaterialPackage,
     ArbitrationPoolMember,
     ArbitrationVoteDecision,
@@ -483,6 +484,21 @@ class KarmaClient:
             resp = await http.get(f"{self.runtime_url}/v1/arbitration/cases/{case_id}/events?limit={limit}")
             resp.raise_for_status()
             return [ArbitrationCaseEvent(**item) for item in resp.json()]
+
+    async def get_arbitration_case_ops_report(
+        self,
+        *,
+        window_hours: int = 24,
+        recent_events_limit: int = 50,
+    ) -> ArbitrationCaseOpsReport:
+        """GET /v1/arbitration/cases/ops/report"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/arbitration/cases/ops/report"
+                f"?window_hours={window_hours}&recent_events_limit={recent_events_limit}"
+            )
+            resp.raise_for_status()
+            return ArbitrationCaseOpsReport(**resp.json())
 
     async def submit_arbitration_material(
         self,

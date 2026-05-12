@@ -522,6 +522,15 @@ class ArbitrationCaseEvent(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ArbitrationCaseOpsReport(BaseModel):
+    window_hours: int
+    total_cases: int = 0
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    decision_counts: dict[str, int] = Field(default_factory=dict)
+    recent_events: list[ArbitrationCaseEvent] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class MCPVerificationTemplate(BaseModel):
     template_version: str = "mcp-v2"
     mcp_server_id: str

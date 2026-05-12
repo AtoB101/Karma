@@ -310,6 +310,12 @@ List current arbitration pool members.
 ### `POST /v1/arbitration/cases`
 Create arbitration case from an already disputed settlement task.
 
+### `GET /v1/arbitration/cases/ops/report`
+Get arbitration operations report snapshot:
+- `status_counts`
+- `decision_counts`
+- recent case events within `window_hours`
+
 ### `POST /v1/arbitration/cases/{case_id}/assign-auto`
 Auto-assign arbitrators from active pool.
 
@@ -337,6 +343,7 @@ SDK helper methods:
 - `join_arbitration_pool(arbitrator_identity_id, stake_amount=0.0)`
 - `list_arbitration_pool()`
 - `create_arbitration_case(task_id, opened_by, reason=None, required_arbitrators=3)`
+- `get_arbitration_case_ops_report(window_hours=24, recent_events_limit=50)`
 - `assign_arbitrators(case_id, count=3)`
 - `list_arbitration_case_events(case_id, limit=200)`
 - `submit_arbitration_material(case_id, submitted_by, ...)`

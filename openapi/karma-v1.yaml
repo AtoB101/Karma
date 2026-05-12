@@ -664,6 +664,34 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/arbitration/cases/ops/report:
+    get:
+      summary: Get arbitration case operations report
+      operationId: getArbitrationCaseOpsReport
+      parameters:
+        - in: query
+          name: window_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+            default: 24
+        - in: query
+          name: recent_events_limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 50
+      responses:
+        '200':
+          description: Arbitration operations report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArbitrationCaseOpsReport'
   /v1/arbitration/cases/{caseId}:
     get:
       summary: Get arbitration case
@@ -2050,6 +2078,35 @@ components:
         - detail
         - metadata
         - created_at
+    ArbitrationCaseOpsReport:
+      type: object
+      properties:
+        window_hours:
+          type: integer
+        total_cases:
+          type: integer
+        status_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        decision_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        recent_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArbitrationCaseEvent'
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - window_hours
+        - total_cases
+        - status_counts
+        - decision_counts
+        - recent_events
+        - generated_at
     SubmitArbitrationMaterialRequest:
       type: object
       properties:
