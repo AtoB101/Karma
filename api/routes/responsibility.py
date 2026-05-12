@@ -8,11 +8,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.schemas import (
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
+    ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
+    ResponsibilityScoreSummary,
     TaskPathHashSummary,
 )
 from db.session import get_db
-from services.responsibility_graph import get_identity_signals, get_task_path_summary, ingest_edge
+from services.responsibility_graph import (
+    get_identity_score,
+    get_identity_signals,
+    get_public_risk_model,
+    get_task_path_summary,
+    ingest_edge,
+)
 
 router = APIRouter()
 
@@ -54,7 +62,25 @@ async def list_identity_signals(
     return await get_identity_signals(db=db, identity_id=identity_id, limit=limit)
 
 
+@router.get("/identity/{identity_id}/score", response_model=ResponsibilityScoreSummary)
+async def get_identity_risk_score(
+    identity_id: str,
+    window_hours: int = Query(default=24, ge=1, le=24 * 30),
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_identity_score(
+        db=db,
+        identity_id=identity_id,
+        window_hours=window_hours,
+    )
+
+
 @router.get("/task/{task_id}/path-hash", response_model=TaskPathHashSummary)
 async def get_task_path_hash(task_id: str, db: AsyncSession = Depends(get_db)):
     return await get_task_path_summary(db=db, task_id=task_id)
+
+
+@router.get("/model/public-risk", response_model=ResponsibilityPublicRiskModel)
+async def get_public_model():
+    return get_public_risk_model()
 

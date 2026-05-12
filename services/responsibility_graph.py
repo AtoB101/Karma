@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -17,9 +17,25 @@ from core.schemas import (
     ResponsibilityRiskSignal,
     ResponsibilitySignalSeverity,
     ResponsibilitySignalType,
+    ResponsibilityScoreBand,
+    ResponsibilityScoreSummary,
+    ResponsibilityPublicRiskModel,
     TaskPathHashSummary,
 )
 from db.models.orm import ResponsibilityEdgeModel, ResponsibilitySignalModel
+
+PUBLIC_MODEL_VERSION = "public-risk-v1"
+SEVERITY_WEIGHTS: dict[ResponsibilitySignalSeverity, float] = {
+    ResponsibilitySignalSeverity.INFO: 1.0,
+    ResponsibilitySignalSeverity.MEDIUM: 2.5,
+    ResponsibilitySignalSeverity.HIGH: 4.0,
+}
+SIGNAL_TYPE_WEIGHTS: dict[ResponsibilitySignalType, float] = {
+    ResponsibilitySignalType.DIRECT_LOOP: 3.0,
+    ResponsibilitySignalType.MUTUAL_EXCHANGE: 2.0,
+    ResponsibilitySignalType.CYCLE_AUTHORIZATION: 3.5,
+}
+RECENCY_FLOOR = 0.2
 
 
 def _sha256(payload: Any) -> str:
@@ -129,6 +145,92 @@ async def get_task_path_summary(*, db: AsyncSession, task_id: str) -> TaskPathHa
         return TaskPathHashSummary(task_id=task_id, edge_hashes=[], path_hash=None)
     path_hash = _sha256({"task_id": task_id, "edge_hashes": edge_hashes})
     return TaskPathHashSummary(task_id=task_id, edge_hashes=edge_hashes, path_hash=path_hash)
+
+
+async def get_identity_score(
+    *,
+    db: AsyncSession,
+    identity_id: str,
+    window_hours: int = 24,
+) -> ResponsibilityScoreSummary:
+    now = datetime.utcnow()
+    since = now - timedelta(hours=window_hours)
+    result = await db.execute(
+        select(ResponsibilitySignalModel)
+        .where(
+            ResponsibilitySignalModel.identity_id == identity_id,
+            ResponsibilitySignalModel.created_at >= since,
+        )
+        .order_by(ResponsibilitySignalModel.created_at.desc())
+    )
+    signals = result.scalars().all()
+    if not signals:
+        return ResponsibilityScoreSummary(
+            identity_id=identity_id,
+            window_hours=window_hours,
+            model_version=PUBLIC_MODEL_VERSION,
+            weighted_points=0.0,
+            normalized_score=0.0,
+            signal_count=0,
+            signal_type_counts={},
+            severity_counts={},
+            risk_band=ResponsibilityScoreBand.LOW,
+            computed_at=now,
+        )
+
+    weighted_points = 0.0
+    signal_type_counts: dict[str, int] = {}
+    severity_counts: dict[str, int] = {}
+    for signal in signals:
+        stype = ResponsibilitySignalType(signal.signal_type)
+        severity = ResponsibilitySignalSeverity(signal.severity)
+        age_hours = max(0.0, (now - signal.created_at).total_seconds() / 3600.0)
+        if window_hours <= 0:
+            recency_weight = 1.0
+        else:
+            recency_weight = max(RECENCY_FLOOR, 1.0 - (age_hours / window_hours))
+        weighted_points += SIGNAL_TYPE_WEIGHTS[stype] * SEVERITY_WEIGHTS[severity] * recency_weight
+
+        signal_type_counts[stype.value] = signal_type_counts.get(stype.value, 0) + 1
+        severity_counts[severity.value] = severity_counts.get(severity.value, 0) + 1
+
+    normalized_score = min(100.0, round(weighted_points, 2))
+    if normalized_score >= 35:
+        band = ResponsibilityScoreBand.CRITICAL
+    elif normalized_score >= 20:
+        band = ResponsibilityScoreBand.HIGH
+    elif normalized_score >= 8:
+        band = ResponsibilityScoreBand.ELEVATED
+    else:
+        band = ResponsibilityScoreBand.LOW
+
+    return ResponsibilityScoreSummary(
+        identity_id=identity_id,
+        window_hours=window_hours,
+        model_version=PUBLIC_MODEL_VERSION,
+        weighted_points=round(weighted_points, 2),
+        normalized_score=normalized_score,
+        signal_count=len(signals),
+        signal_type_counts=signal_type_counts,
+        severity_counts=severity_counts,
+        risk_band=band,
+        computed_at=now,
+    )
+
+
+def get_public_risk_model() -> ResponsibilityPublicRiskModel:
+    return ResponsibilityPublicRiskModel(
+        model_version=PUBLIC_MODEL_VERSION,
+        severity_weights={key.value: value for key, value in SEVERITY_WEIGHTS.items()},
+        signal_type_weights={key.value: value for key, value in SIGNAL_TYPE_WEIGHTS.items()},
+        recency_floor=RECENCY_FLOOR,
+        public_band_reference={
+            "low_min": 0.0,
+            "elevated_min": 8.0,
+            "high_min": 20.0,
+            "critical_min": 35.0,
+        },
+    )
 
 
 async def _detect_signals(

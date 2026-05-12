@@ -677,6 +677,20 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert len(body["edge_hashes"]) == 3
     assert body["path_hash"] is not None
 
+    score = await client.get("/v1/responsibility/identity/id-c/score?window_hours=24")
+    assert score.status_code == 200
+    score_body = score.json()
+    assert score_body["identity_id"] == "id-c"
+    assert score_body["signal_count"] >= 1
+    assert score_body["weighted_points"] > 0
+    assert score_body["risk_band"] in {"elevated", "high", "critical"}
+
+    model = await client.get("/v1/responsibility/model/public-risk")
+    assert model.status_code == 200
+    model_body = model.json()
+    assert model_body["model_version"] == "public-risk-v1"
+    assert "cycle_authorization" in model_body["signal_type_weights"]
+
 
 # ---------------------------------------------------------------------------
 # Reputation

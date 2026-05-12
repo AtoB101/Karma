@@ -358,8 +358,17 @@ SDK helper methods:
 ### `GET /v1/responsibility/identity/{identity_id}/signals`
 按身份查询风险信号（可指定 `limit`）。
 
+### `GET /v1/responsibility/identity/{identity_id}/score`
+按时间窗口计算公开风险评分（默认 `window_hours=24`）：
+- 使用公开权重（`signal_type * severity * recency`）
+- 输出 `weighted_points`、`normalized_score`、`risk_band`
+- 该评分仅是公开可解释层，不等同私有裁决引擎分数
+
 ### `GET /v1/responsibility/task/{task_id}/path-hash`
 返回该 task 下的 `edge_hashes` 与聚合 `path_hash`。
+
+### `GET /v1/responsibility/model/public-risk`
+返回公开风险模型基线（版本、权重、recency floor、分段参考）。
 
 自动接入：
 - `POST /v1/vouchers/{voucher_id}/accept` 成功后会自动记录一条 `voucher_accept` 责任边。
@@ -368,6 +377,8 @@ SDK helper methods:
 - `ingest_responsibility_edge(...)`
 - `list_responsibility_signals(identity_id, limit=50)`
 - `get_task_path_hash(task_id)`
+- `get_responsibility_score(identity_id, window_hours=24)`
+- `get_public_responsibility_risk_model()`
 
 ---
 

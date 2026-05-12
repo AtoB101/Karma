@@ -23,7 +23,9 @@ from core.schemas import (
     ProgressReceipt,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
+    ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
+    ResponsibilityScoreSummary,
     ReputationSnapshot,
     SettlementState,
     SubIdentity,
@@ -557,6 +559,22 @@ class KarmaClient:
             resp = await http.get(f"{self.runtime_url}/v1/responsibility/task/{task_id}/path-hash")
             resp.raise_for_status()
             return TaskPathHashSummary(**resp.json())
+
+    async def get_responsibility_score(self, identity_id: str, window_hours: int = 24) -> ResponsibilityScoreSummary:
+        """GET /v1/responsibility/identity/{identity_id}/score"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/responsibility/identity/{identity_id}/score?window_hours={window_hours}"
+            )
+            resp.raise_for_status()
+            return ResponsibilityScoreSummary(**resp.json())
+
+    async def get_public_responsibility_risk_model(self) -> ResponsibilityPublicRiskModel:
+        """GET /v1/responsibility/model/public-risk"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/responsibility/model/public-risk")
+            resp.raise_for_status()
+            return ResponsibilityPublicRiskModel(**resp.json())
 
     async def get_token(self, agent_id: str, api_key: str) -> str:
         """POST /v1/auth/token — returns JWT access token."""

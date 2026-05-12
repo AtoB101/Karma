@@ -502,6 +502,26 @@ async def test_responsibility_sdk_methods():
             "edge_hashes": ["a" * 64, "b" * 64],
             "path_hash": "c" * 64,
         },
+        ("GET", f"{base}/v1/responsibility/identity/id-a/score?window_hours=48"): {
+            "identity_id": "id-a",
+            "window_hours": 48,
+            "model_version": "public-risk-v1",
+            "weighted_points": 12.4,
+            "normalized_score": 12.4,
+            "signal_count": 2,
+            "signal_type_counts": {"mutual_exchange": 1, "cycle_authorization": 1},
+            "severity_counts": {"medium": 1, "high": 1},
+            "risk_band": "elevated",
+            "computed_at": now,
+        },
+        ("GET", f"{base}/v1/responsibility/model/public-risk"): {
+            "model_version": "public-risk-v1",
+            "time_window_rule": "include signals in now-window_hours to now",
+            "severity_weights": {"info": 1.0, "medium": 2.5, "high": 4.0},
+            "signal_type_weights": {"direct_loop": 3.0, "mutual_exchange": 2.0, "cycle_authorization": 3.5},
+            "recency_floor": 0.2,
+            "public_band_reference": {"low_min": 0.0, "elevated_min": 8.0, "high_min": 20.0, "critical_min": 35.0},
+        },
     }
     mock_http = _MockHTTP(routes)
     client = KarmaClient(agent_id="a1", runtime_url=base)
@@ -521,4 +541,8 @@ async def test_responsibility_sdk_methods():
 
     summary = await client.get_task_path_hash(task_id)
     assert summary.path_hash == "c" * 64
+    score = await client.get_responsibility_score("id-a", window_hours=48)
+    assert score.risk_band.value == "elevated"
+    model = await client.get_public_responsibility_risk_model()
+    assert model.model_version == "public-risk-v1"
 

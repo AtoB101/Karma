@@ -134,6 +134,13 @@ class ResponsibilitySignalSeverity(str, Enum):
     HIGH = "high"
 
 
+class ResponsibilityScoreBand(str, Enum):
+    LOW = "low"
+    ELEVATED = "elevated"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------
@@ -503,6 +510,28 @@ class TaskPathHashSummary(BaseModel):
     task_id: str
     edge_hashes: list[str] = Field(default_factory=list)
     path_hash: Optional[str] = None
+
+
+class ResponsibilityScoreSummary(BaseModel):
+    identity_id: str
+    window_hours: int
+    model_version: str = "public-risk-v1"
+    weighted_points: float = 0.0
+    normalized_score: float = 0.0
+    signal_count: int = 0
+    signal_type_counts: dict[str, int] = Field(default_factory=dict)
+    severity_counts: dict[str, int] = Field(default_factory=dict)
+    risk_band: ResponsibilityScoreBand = ResponsibilityScoreBand.LOW
+    computed_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityPublicRiskModel(BaseModel):
+    model_version: str = "public-risk-v1"
+    time_window_rule: str = "include signals in now-window_hours to now"
+    severity_weights: dict[str, float]
+    signal_type_weights: dict[str, float]
+    recency_floor: float
+    public_band_reference: dict[str, float]
 
 
 # ---------------------------------------------------------------------------

@@ -873,6 +873,31 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ResponsibilityRiskSignal'
+  /v1/responsibility/identity/{identityId}/score:
+    get:
+      summary: Get windowed responsibility risk score for identity
+      operationId: getResponsibilityScore
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: window_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+            default: 24
+      responses:
+        '200':
+          description: Responsibility risk score summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityScoreSummary'
   /v1/responsibility/task/{taskId}/path-hash:
     get:
       summary: Get task responsibility path hash summary
@@ -890,6 +915,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskPathHashSummary'
+  /v1/responsibility/model/public-risk:
+    get:
+      summary: Get public responsibility risk model baseline
+      operationId: getPublicResponsibilityRiskModel
+      responses:
+        '200':
+          description: Public baseline model metadata and weights
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityPublicRiskModel'
 components:
   securitySchemes:
     bearerAuth:
@@ -1565,6 +1601,74 @@ components:
         path_hash:
           type: string
       required: [task_id, edge_hashes]
+    ResponsibilityScoreSummary:
+      type: object
+      properties:
+        identity_id:
+          type: string
+        window_hours:
+          type: integer
+        model_version:
+          type: string
+        weighted_points:
+          type: number
+        normalized_score:
+          type: number
+        signal_count:
+          type: integer
+        signal_type_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        severity_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        risk_band:
+          type: string
+          enum: [low, elevated, high, critical]
+        computed_at:
+          type: string
+          format: date-time
+      required:
+        - identity_id
+        - window_hours
+        - model_version
+        - weighted_points
+        - normalized_score
+        - signal_count
+        - signal_type_counts
+        - severity_counts
+        - risk_band
+        - computed_at
+    ResponsibilityPublicRiskModel:
+      type: object
+      properties:
+        model_version:
+          type: string
+        time_window_rule:
+          type: string
+        severity_weights:
+          type: object
+          additionalProperties:
+            type: number
+        signal_type_weights:
+          type: object
+          additionalProperties:
+            type: number
+        recency_floor:
+          type: number
+        public_band_reference:
+          type: object
+          additionalProperties:
+            type: number
+      required:
+        - model_version
+        - time_window_rule
+        - severity_weights
+        - signal_type_weights
+        - recency_floor
+        - public_band_reference
     EvidenceObject:
       type: object
       properties:
