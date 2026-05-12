@@ -255,6 +255,87 @@ class SubIdentityModel(Base):
 
 
 # ---------------------------------------------------------------------------
+# Arbitration (P2 skeleton)
+# ---------------------------------------------------------------------------
+
+class ArbitrationPoolMemberModel(Base):
+    __tablename__ = "arbitration_pool_members"
+
+    arbitrator_identity_id: Mapped[str]      = mapped_column(String(64), primary_key=True)
+    stake_amount:           Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    status:                 Mapped[str]      = mapped_column(String(16), nullable=False, default="active")
+    joined_at:              Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ArbitrationCaseModel(Base):
+    __tablename__ = "arbitration_cases"
+
+    case_id:                Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    task_id:                Mapped[str]      = mapped_column(String(64), ForeignKey("task_contracts.task_id"), nullable=False, unique=True)
+    settlement_id:          Mapped[str|None] = mapped_column(String(64))
+    opened_by:              Mapped[str]      = mapped_column(String(64), nullable=False)
+    reason:                 Mapped[str|None] = mapped_column(Text)
+    status:                 Mapped[str]      = mapped_column(String(16), nullable=False, default="open")
+    required_arbitrators:   Mapped[int]      = mapped_column(Integer, nullable=False, default=3)
+    decided_outcome:        Mapped[str|None] = mapped_column(String(16))
+    final_partial_percent:  Mapped[float|None] = mapped_column(Float)
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    executed_at:            Mapped[datetime|None] = mapped_column(DateTime)
+
+
+class ArbitrationAssignmentModel(Base):
+    __tablename__ = "arbitration_assignments"
+
+    assignment_id:            Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    case_id:                  Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
+    arbitrator_identity_id:   Mapped[str]      = mapped_column(String(64), nullable=False)
+    assigned_at:              Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    status:                   Mapped[str]      = mapped_column(String(16), nullable=False, default="assigned")
+
+    __table_args__ = (
+        UniqueConstraint("case_id", "arbitrator_identity_id", name="uq_arbitration_assignment"),
+    )
+
+
+class ArbitrationMaterialPackageModel(Base):
+    __tablename__ = "arbitration_material_packages"
+
+    material_id:            Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    case_id:                Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
+    task_id:                Mapped[str]      = mapped_column(String(64), nullable=False)
+    submitted_by:           Mapped[str]      = mapped_column(String(64), nullable=False)
+    bundle_id:              Mapped[str|None] = mapped_column(String(64))
+    progress_receipt_ids:   Mapped[list]     = mapped_column(JSON, nullable=False)
+    evidence_hashes:        Mapped[list]     = mapped_column(JSON, nullable=False)
+    package_hash:           Mapped[str]      = mapped_column(String(128), nullable=False)
+    storage_uri:            Mapped[str|None] = mapped_column(String(512))
+    format_version:         Mapped[str]      = mapped_column(String(32), nullable=False, default="arbitration-material-v1")
+    submitted_at:           Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("case_id", "package_hash", name="uq_arbitration_material_hash_per_case"),
+    )
+
+
+class ArbitrationVoteModel(Base):
+    __tablename__ = "arbitration_votes"
+
+    vote_id:                Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    case_id:                Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
+    arbitrator_identity_id: Mapped[str]      = mapped_column(String(64), nullable=False)
+    decision:               Mapped[str]      = mapped_column(String(16), nullable=False)
+    partial_percent:        Mapped[float|None] = mapped_column(Float)
+    rationale:              Mapped[str|None] = mapped_column(Text)
+    voted_at:               Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("case_id", "arbitrator_identity_id", name="uq_arbitration_vote"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Verification Result
 # ---------------------------------------------------------------------------
 

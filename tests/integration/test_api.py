@@ -455,6 +455,85 @@ async def test_voucher_validates_sub_identity_parent_binding(client: AsyncClient
 
 
 # ---------------------------------------------------------------------------
+# Arbitration pool and decentralized case flow
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
+    task_id = "task-arb-flow-001"
+    buyer_id = "buyer-arb-001"
+
+    await client.post("/v1/settlement/create", json={
+        "task_id": task_id,
+        "client_agent_id": buyer_id,
+        "escrow_amount": 100.0,
+        "currency": "USD",
+    })
+    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": "seller-arb-001"})
+    await client.post(f"/v1/settlement/{task_id}/start", json={})
+    await client.post(f"/v1/settlement/{task_id}/submit", json={})
+    disputed = await client.post(f"/v1/settlement/{task_id}/dispute", json={"reason": "quality issue"})
+    assert disputed.status_code == 200
+    assert disputed.json()["status"] == "disputed"
+
+    pool_1 = await client.post("/v1/arbitration/pool/join", json={
+        "arbitrator_identity_id": "arb-001",
+        "stake_amount": 10.0,
+    })
+    pool_2 = await client.post("/v1/arbitration/pool/join", json={
+        "arbitrator_identity_id": "arb-002",
+        "stake_amount": 8.0,
+    })
+    assert pool_1.status_code == 200
+    assert pool_2.status_code == 200
+
+    created_case = await client.post("/v1/arbitration/cases", json={
+        "task_id": task_id,
+        "opened_by": buyer_id,
+        "reason": "quality issue",
+        "required_arbitrators": 2,
+    })
+    assert created_case.status_code == 201
+    case_id = created_case.json()["case_id"]
+    assert created_case.json()["status"] in {"open", "voting"}
+
+    assigned = await client.post(f"/v1/arbitration/cases/{case_id}/assign-auto", json={"count": 2})
+    assert assigned.status_code == 200
+    assert len(assigned.json()) == 2
+
+    material = await client.post(f"/v1/arbitration/cases/{case_id}/materials", json={
+        "submitted_by": buyer_id,
+        "bundle_id": "bundle-arb-001",
+        "evidence_hashes": ["AA" * 32, "aa" * 32, "BB" * 32],
+    })
+    assert material.status_code == 201
+    # Normalized: lowercase + dedupe + sort
+    assert material.json()["evidence_hashes"] == ["aa" * 32, "bb" * 32]
+
+    vote_1 = await client.post(f"/v1/arbitration/cases/{case_id}/vote", json={
+        "arbitrator_identity_id": "arb-001",
+        "decision": "buyer_wins",
+        "rationale": "hash mismatch",
+    })
+    assert vote_1.status_code == 200
+    assert vote_1.json()["status"] in {"voting", "decided"}
+
+    vote_2 = await client.post(f"/v1/arbitration/cases/{case_id}/vote", json={
+        "arbitrator_identity_id": "arb-002",
+        "decision": "buyer_wins",
+        "rationale": "invalid format",
+    })
+    assert vote_2.status_code == 200
+    assert vote_2.json()["status"] == "decided"
+    assert vote_2.json()["decided_outcome"] == "buyer_wins"
+
+    executed = await client.post(f"/v1/arbitration/cases/{case_id}/execute", json={})
+    assert executed.status_code == 200
+    assert executed.json()["status"] == "buyer_wins"
+    assert executed.json()["refunded_amount"] == 100.0
+
+
+# ---------------------------------------------------------------------------
 # Capacity & Vouchers
 # ---------------------------------------------------------------------------
 

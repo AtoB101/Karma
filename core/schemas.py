@@ -102,6 +102,20 @@ class SubIdentityStatus(str, Enum):
     DELETED = "deleted"
 
 
+class ArbitrationCaseStatus(str, Enum):
+    OPEN = "open"
+    VOTING = "voting"
+    DECIDED = "decided"
+    EXECUTED = "executed"
+    CANCELLED = "cancelled"
+
+
+class ArbitrationVoteDecision(str, Enum):
+    BUYER_WINS = "buyer_wins"
+    SELLER_WINS = "seller_wins"
+    PARTIAL = "partial"
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------
@@ -365,6 +379,77 @@ class SubIdentity(BaseModel):
     status: SubIdentityStatus = SubIdentityStatus.ACTIVE
     created_at: datetime = Field(default_factory=datetime.utcnow)
     deleted_at: Optional[datetime] = None
+
+
+class ArbitrationPoolMemberStatus(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+
+
+class ArbitrationPoolMember(BaseModel):
+    arbitrator_identity_id: str
+    stake_amount: float = Field(ge=0.0)
+    status: ArbitrationPoolMemberStatus = ArbitrationPoolMemberStatus.ACTIVE
+    joined_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ArbitrationCase(BaseModel):
+    case_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    task_id: str
+    settlement_id: Optional[str] = None
+    opened_by: str
+    reason: Optional[str] = None
+    status: ArbitrationCaseStatus = ArbitrationCaseStatus.OPEN
+    required_arbitrators: int = Field(default=3, ge=1, le=21)
+    decided_outcome: Optional[ArbitrationVoteDecision] = None
+    final_partial_percent: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    executed_at: Optional[datetime] = None
+
+
+class ArbitrationAssignment(BaseModel):
+    assignment_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    case_id: str
+    arbitrator_identity_id: str
+    assigned_at: datetime = Field(default_factory=datetime.utcnow)
+    status: str = "assigned"
+
+
+class ArbitrationMaterialPackage(BaseModel):
+    material_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    case_id: str
+    task_id: str
+    submitted_by: str
+    bundle_id: Optional[str] = None
+    progress_receipt_ids: list[str] = Field(default_factory=list)
+    evidence_hashes: list[str] = Field(default_factory=list)
+    package_hash: str
+    storage_uri: Optional[str] = None
+    format_version: str = "arbitration-material-v1"
+    submitted_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ArbitrationVote(BaseModel):
+    vote_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    case_id: str
+    arbitrator_identity_id: str
+    decision: ArbitrationVoteDecision
+    partial_percent: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+    rationale: Optional[str] = None
+    voted_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class MCPVerificationTemplate(BaseModel):
+    template_version: str = "mcp-v2"
+    mcp_server_id: str
+    tool_name: str
+    input_schema_hash: str
+    output_schema_hash: str
+    prompt_hash: Optional[str] = None
+    constraints_hash: Optional[str] = None
+    runtime_receipt_hash: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

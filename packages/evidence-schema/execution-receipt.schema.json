@@ -36,7 +36,7 @@
       "type": "object",
       "required": ["template"],
       "properties": {
-        "template": { "type": "string", "enum": ["api", "mcp", "agent_runtime"] }
+        "template": { "type": "string", "enum": ["api", "mcp", "agent_runtime", "ai_workflow"] }
       },
       "additionalProperties": true
     }

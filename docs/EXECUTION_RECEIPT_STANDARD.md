@@ -15,7 +15,7 @@
 - `ended_at`
 - `duration_ms`
 - `status` (`success|failure|timeout|skipped`)
-- `metadata.template` (`api|mcp|agent_runtime`)
+- `metadata.template` (`api|mcp|agent_runtime|ai_workflow`)
 
 Schema 文件：
 
@@ -44,6 +44,12 @@ Schema 文件：
 - `output_digest`
 - `result_hash`
 - `mcp_runtime_receipt`（可选）
+- `verification_template`（可选，推荐）
+  - `template_version`（`mcp-v2`）
+  - `input_schema_hash`
+  - `output_schema_hash`
+  - `prompt_hash` / `constraints_hash` / `runtime_receipt_hash`（可选）
+- `verification_template_hash`（可选）
 
 ### 2.3 Agent Runtime 模板
 
@@ -56,6 +62,19 @@ Schema 文件：
 - `input_digest`
 - `output_digest`
 
+### 2.4 AI Workflow 模板（P2）
+
+`metadata` 推荐字段：
+
+- `template = "ai_workflow"`
+- `workflow_name`
+- `stage_name`
+- `model_used`
+- `policy_version`
+- `trace_id`
+- `stage_input_digest`
+- `stage_output_digest`
+
 ## 3. SDK 适配器
 
 公共 SDK 提供基础适配器：
@@ -63,6 +82,7 @@ Schema 文件：
 - `APIExecutionAdapter`
 - `MCPExecutionAdapter`
 - `AgentRuntimeExecutionAdapter`
+- `AIWorkflowExecutionAdapter`
 
 位置：
 

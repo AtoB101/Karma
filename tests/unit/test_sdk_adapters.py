@@ -55,6 +55,37 @@ def test_mcp_execution_adapter_builds_failure_receipt():
     assert receipt.error_message == "timeout"
 
 
+def test_mcp_execution_adapter_builds_verification_template():
+    template = MCPExecutionAdapter.build_verification_template(
+        mcp_server_id="notion",
+        tool_name="search",
+        input_schema_hash="a" * 64,
+        output_schema_hash="b" * 64,
+        prompt_hash="c" * 64,
+        constraints_hash="d" * 64,
+    )
+    assert template.template_version == "mcp-v2"
+    assert template.input_schema_hash == "a" * 64
+
+    started = datetime.utcnow()
+    ended = started + timedelta(milliseconds=70)
+    receipt = MCPExecutionAdapter.build(
+        task_id="task-mcp-v2",
+        agent_id="agent-x",
+        step_index=1,
+        mcp_server_id="notion",
+        tool_name="search",
+        tool_input={"query": "karma"},
+        tool_output={"items": []},
+        started_at=started,
+        ended_at=ended,
+        success=True,
+        verification_template=template,
+    )
+    assert receipt.metadata["verification_template"]["template_version"] == "mcp-v2"
+    assert receipt.metadata["verification_template_hash"]
+
+
 def test_runtime_execution_adapter_includes_trace_metadata():
     started = datetime.utcnow()
     ended = started + timedelta(milliseconds=300)

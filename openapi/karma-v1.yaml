@@ -613,6 +613,220 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/arbitration/pool/join:
+    post:
+      summary: Join or update arbitration pool membership
+      operationId: joinArbitrationPool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinArbitrationPoolRequest'
+      responses:
+        '200':
+          description: Arbitration pool member snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArbitrationPoolMember'
+  /v1/arbitration/pool:
+    get:
+      summary: List arbitration pool members
+      operationId: listArbitrationPool
+      responses:
+        '200':
+          description: Arbitration pool list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArbitrationPoolMember'
+  /v1/arbitration/cases:
+    post:
+      summary: Create arbitration case
+      operationId: createArbitrationCase
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateArbitrationCaseRequest'
+      responses:
+        '201':
+          description: Arbitration case created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArbitrationCase'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/arbitration/cases/{caseId}:
+    get:
+      summary: Get arbitration case
+      operationId: getArbitrationCase
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Arbitration case
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArbitrationCase'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/arbitration/cases/{caseId}/assign-auto:
+    post:
+      summary: Auto assign arbitrators from active pool
+      operationId: assignArbitrators
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignArbitratorsRequest'
+      responses:
+        '200':
+          description: Assigned arbitrators
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArbitrationAssignment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/arbitration/cases/{caseId}/assignments:
+    get:
+      summary: List case assignments
+      operationId: listArbitrationAssignments
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Case assignment list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArbitrationAssignment'
+  /v1/arbitration/cases/{caseId}/materials:
+    post:
+      summary: Submit arbitration material package
+      operationId: submitArbitrationMaterial
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitArbitrationMaterialRequest'
+      responses:
+        '201':
+          description: Material package created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArbitrationMaterialPackage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+    get:
+      summary: List arbitration material packages
+      operationId: listArbitrationMaterials
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Arbitration materials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArbitrationMaterialPackage'
+  /v1/arbitration/cases/{caseId}/vote:
+    post:
+      summary: Cast arbitration vote
+      operationId: castArbitrationVote
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CastArbitrationVoteRequest'
+      responses:
+        '200':
+          description: Updated arbitration case
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArbitrationCase'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/arbitration/cases/{caseId}/execute:
+    post:
+      summary: Execute decided arbitration case into settlement result
+      operationId: executeArbitrationCase
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated settlement state
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
 components:
   securitySchemes:
     bearerAuth:
@@ -1003,6 +1217,184 @@ components:
         - alias
         - status
         - created_at
+    JoinArbitrationPoolRequest:
+      type: object
+      properties:
+        arbitrator_identity_id:
+          type: string
+        stake_amount:
+          type: number
+          minimum: 0
+      required: [arbitrator_identity_id, stake_amount]
+    ArbitrationPoolMember:
+      type: object
+      properties:
+        arbitrator_identity_id:
+          type: string
+        stake_amount:
+          type: number
+        status:
+          type: string
+          enum: [active, inactive]
+        joined_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [arbitrator_identity_id, stake_amount, status, joined_at, updated_at]
+    CreateArbitrationCaseRequest:
+      type: object
+      properties:
+        task_id:
+          type: string
+        opened_by:
+          type: string
+        reason:
+          type: string
+        required_arbitrators:
+          type: integer
+          minimum: 1
+          maximum: 21
+      required: [task_id, opened_by, required_arbitrators]
+    ArbitrationCase:
+      type: object
+      properties:
+        case_id:
+          type: string
+        task_id:
+          type: string
+        settlement_id:
+          type: string
+        opened_by:
+          type: string
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [open, voting, decided, executed, cancelled]
+        required_arbitrators:
+          type: integer
+        decided_outcome:
+          type: string
+          enum: [buyer_wins, seller_wins, partial]
+        final_partial_percent:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        executed_at:
+          type: string
+          format: date-time
+      required:
+        - case_id
+        - task_id
+        - opened_by
+        - status
+        - required_arbitrators
+        - created_at
+        - updated_at
+    AssignArbitratorsRequest:
+      type: object
+      properties:
+        count:
+          type: integer
+          minimum: 1
+          maximum: 21
+      required: [count]
+    ArbitrationAssignment:
+      type: object
+      properties:
+        assignment_id:
+          type: string
+        case_id:
+          type: string
+        arbitrator_identity_id:
+          type: string
+        assigned_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+      required: [assignment_id, case_id, arbitrator_identity_id, assigned_at, status]
+    SubmitArbitrationMaterialRequest:
+      type: object
+      properties:
+        submitted_by:
+          type: string
+        bundle_id:
+          type: string
+        progress_receipt_ids:
+          type: array
+          items:
+            type: string
+        evidence_hashes:
+          type: array
+          items:
+            type: string
+        storage_uri:
+          type: string
+        format_version:
+          type: string
+      required: [submitted_by]
+    ArbitrationMaterialPackage:
+      type: object
+      properties:
+        material_id:
+          type: string
+        case_id:
+          type: string
+        task_id:
+          type: string
+        submitted_by:
+          type: string
+        bundle_id:
+          type: string
+        progress_receipt_ids:
+          type: array
+          items:
+            type: string
+        evidence_hashes:
+          type: array
+          items:
+            type: string
+        package_hash:
+          type: string
+        storage_uri:
+          type: string
+        format_version:
+          type: string
+        submitted_at:
+          type: string
+          format: date-time
+      required:
+        - material_id
+        - case_id
+        - task_id
+        - submitted_by
+        - progress_receipt_ids
+        - evidence_hashes
+        - package_hash
+        - format_version
+        - submitted_at
+    CastArbitrationVoteRequest:
+      type: object
+      properties:
+        arbitrator_identity_id:
+          type: string
+        decision:
+          type: string
+          enum: [buyer_wins, seller_wins, partial]
+        partial_percent:
+          type: number
+          minimum: 0
+          maximum: 100
+        rationale:
+          type: string
+      required: [arbitrator_identity_id, decision]
     EvidenceObject:
       type: object
       properties:
@@ -1117,6 +1509,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     Unauthorized:
       description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Forbidden
       content:
         application/json:
           schema:

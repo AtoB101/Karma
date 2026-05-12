@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from sdk.client import KarmaClient
-from core.schemas import ProgressConfirmationStatus, ProgressReceipt, SubIdentityType
+from core.schemas import ArbitrationVoteDecision, ProgressConfirmationStatus, ProgressReceipt, SubIdentityType
 
 
 class _MockResponse:
@@ -334,4 +334,125 @@ async def test_identity_and_dispute_sdk_methods():
     assert disputed.status.value == "disputed"
     arbitrated = await client.auto_arbitrate("task-2")
     assert arbitrated.refunded_amount == 100
+
+
+@pytest.mark.asyncio
+async def test_arbitration_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    case_id = "case-1"
+    task_id = "task-arb-1"
+    pool_payload = {
+        "arbitrator_identity_id": "arb-1",
+        "stake_amount": 100.0,
+        "status": "active",
+        "joined_at": now,
+        "updated_at": now,
+    }
+    case_payload = {
+        "case_id": case_id,
+        "task_id": task_id,
+        "settlement_id": "s-arb-1",
+        "opened_by": "buyer-1",
+        "reason": "quality dispute",
+        "status": "voting",
+        "required_arbitrators": 2,
+        "decided_outcome": None,
+        "final_partial_percent": None,
+        "created_at": now,
+        "updated_at": now,
+        "executed_at": None,
+    }
+    assignment_payload = {
+        "assignment_id": "as-1",
+        "case_id": case_id,
+        "arbitrator_identity_id": "arb-1",
+        "assigned_at": now,
+        "status": "assigned",
+    }
+    material_payload = {
+        "material_id": "mat-1",
+        "case_id": case_id,
+        "task_id": task_id,
+        "submitted_by": "buyer-1",
+        "bundle_id": "bundle-1",
+        "progress_receipt_ids": [],
+        "evidence_hashes": ["a" * 64],
+        "package_hash": "b" * 64,
+        "storage_uri": None,
+        "format_version": "arbitration-material-v1",
+        "submitted_at": now,
+    }
+    voted_case_payload = dict(case_payload)
+    voted_case_payload["status"] = "decided"
+    voted_case_payload["decided_outcome"] = "buyer_wins"
+    settlement_payload = {
+        "settlement_id": "s-arb-1",
+        "task_id": task_id,
+        "escrow_amount": 100,
+        "currency": "USD",
+        "status": "buyer_wins",
+        "client_agent_id": "buyer-1",
+        "worker_agent_id": "seller-1",
+        "released_amount": 0,
+        "refunded_amount": 100,
+        "dispute_reason": "quality dispute",
+        "arbitration_notes": "decentralized pool decision: buyer_wins",
+        "created_at": now,
+        "updated_at": now,
+        "released_at": None,
+        "settlement_mode": "offchain",
+        "chain_id": None,
+        "contract_address": None,
+        "tx_hash": None,
+        "evidence_bundle_hash": None,
+        "onchain_status": None,
+        "quote_id": None,
+    }
+    routes = {
+        ("POST", f"{base}/v1/arbitration/pool/join"): pool_payload,
+        ("GET", f"{base}/v1/arbitration/pool"): [pool_payload],
+        ("POST", f"{base}/v1/arbitration/cases"): case_payload,
+        ("POST", f"{base}/v1/arbitration/cases/{case_id}/assign-auto"): [assignment_payload],
+        ("GET", f"{base}/v1/arbitration/cases/{case_id}/assignments"): [assignment_payload],
+        ("POST", f"{base}/v1/arbitration/cases/{case_id}/materials"): material_payload,
+        ("GET", f"{base}/v1/arbitration/cases/{case_id}/materials"): [material_payload],
+        ("POST", f"{base}/v1/arbitration/cases/{case_id}/vote"): voted_case_payload,
+        ("POST", f"{base}/v1/arbitration/cases/{case_id}/execute"): settlement_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    member = await client.join_arbitration_pool("arb-1", stake_amount=100.0)
+    assert member.arbitrator_identity_id == "arb-1"
+    pool = await client.list_arbitration_pool()
+    assert len(pool) == 1
+
+    case = await client.create_arbitration_case(task_id=task_id, opened_by="buyer-1", reason="quality dispute", required_arbitrators=2)
+    assert case.case_id == case_id
+    assignments = await client.assign_arbitrators(case_id, count=2)
+    assert len(assignments) == 1
+    listed_assignments = await client.list_arbitration_assignments(case_id)
+    assert listed_assignments[0].arbitrator_identity_id == "arb-1"
+
+    material = await client.submit_arbitration_material(
+        case_id=case_id,
+        submitted_by="buyer-1",
+        bundle_id="bundle-1",
+        evidence_hashes=["a" * 64],
+    )
+    assert material.case_id == case_id
+    materials = await client.list_arbitration_materials(case_id)
+    assert len(materials) == 1
+
+    voted_case = await client.cast_arbitration_vote(
+        case_id=case_id,
+        arbitrator_identity_id="arb-1",
+        decision=ArbitrationVoteDecision.BUYER_WINS,
+    )
+    assert voted_case.status.value == "decided"
+
+    settled = await client.execute_arbitration_case(case_id)
+    assert settled.status.value == "buyer_wins"
 

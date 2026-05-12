@@ -11,7 +11,7 @@
 | 3 | KarmaBillLedger 账单额度合约 | 概念映射到 `NonCustodialAgentPayment.sol` 账户状态与不变量；公开 API `capacity` 账本补齐 | 已落地 |
 | 4 | KarmaVoucher 授权凭证合约 | 授权主路径：`AuthTokenManager.sol`；公开 API `v1/vouchers/*` 已落地 | 已落地 |
 | 5 | KarmaTaskManager 任务状态机 | `core/schemas.py` + `core/settlement/engine.py` + `api/routes/settlement.py` | 已落地（含 P2 dispute/auto-arbitrate） |
-| 6 | KarmaSettlementEngine 结算与账单币销毁 | 概念映射到 `SettlementEngine.sol` + `NonCustodialAgentPayment.sol` 结算路径 | 已有主路径 |
+| 6 | KarmaSettlementEngine 结算与账单币销毁 | 概念映射到 `SettlementEngine.sol` + `NonCustodialAgentPayment.sol` 结算路径，公开侧补齐 dispute/auto-arbitrate/仲裁池执行接口 | 已落地（P2骨架） |
 | 7 | 基础 SDK | `sdk/client.py`, `sdk/task.py`, `sdk/adapters.py` | 已落地 |
 | 8 | 接入文档 | `README.md`, `docs/API_REFERENCE.md`, `docs/AGENT_INTEGRATION.md` | 已落地 |
 | 9 | Execution Receipt 标准格式 | `docs/EXECUTION_RECEIPT_STANDARD.md` + `packages/evidence-schema/execution-receipt.schema.json` | 本次补齐 |

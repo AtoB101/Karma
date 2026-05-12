@@ -299,6 +299,54 @@ SDK helper methods:
 
 ---
 
+## Arbitration Pool & Case Flow (P2)
+
+### `POST /v1/arbitration/pool/join`
+Join (or update) a decentralized arbitration pool member.
+
+### `GET /v1/arbitration/pool`
+List current arbitration pool members.
+
+### `POST /v1/arbitration/cases`
+Create arbitration case from an already disputed settlement task.
+
+### `POST /v1/arbitration/cases/{case_id}/assign-auto`
+Auto-assign arbitrators from active pool.
+
+### `POST /v1/arbitration/cases/{case_id}/materials`
+Submit normalized arbitration material package:
+- evidence hashes are normalized (`trim + lowercase + dedupe + sort`)
+- package hash generated deterministically
+
+### `POST /v1/arbitration/cases/{case_id}/vote`
+Assigned arbitrator casts vote (`buyer_wins | seller_wins | partial`).
+
+### `POST /v1/arbitration/cases/{case_id}/execute`
+Apply decided arbitration outcome to settlement state.
+
+SDK helper methods:
+- `join_arbitration_pool(arbitrator_identity_id, stake_amount=0.0)`
+- `list_arbitration_pool()`
+- `create_arbitration_case(task_id, opened_by, reason=None, required_arbitrators=3)`
+- `assign_arbitrators(case_id, count=3)`
+- `submit_arbitration_material(case_id, submitted_by, ...)`
+- `cast_arbitration_vote(case_id, arbitrator_identity_id, decision, ...)`
+- `execute_arbitration_case(case_id)`
+
+---
+
+## MCP Verification Template (P2)
+
+`MCPExecutionAdapter` 新增 `build_verification_template(...)`，用于构建标准化 MCP 验证模板（`mcp-v2`），并可在 `build(...)` 中注入：
+- `input_schema_hash`
+- `output_schema_hash`
+- `prompt_hash` / `constraints_hash`
+- `runtime_receipt_hash`
+
+用于在公开侧保留“可验证字段模板”，同时不暴露私有阈值与权重。
+
+---
+
 ## Reputation
 
 ### `GET /v1/reputation/{agent_id}`

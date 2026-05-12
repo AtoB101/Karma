@@ -11,6 +11,11 @@ import httpx
 
 from core.schemas import (
     AgentRole,
+    ArbitrationAssignment,
+    ArbitrationCase,
+    ArbitrationMaterialPackage,
+    ArbitrationPoolMember,
+    ArbitrationVoteDecision,
     AuthorizationVoucher,
     CapacityState,
     EvidenceBundle,
@@ -388,6 +393,128 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return SubIdentity(**resp.json())
+
+    async def join_arbitration_pool(self, arbitrator_identity_id: str, stake_amount: float = 0.0) -> ArbitrationPoolMember:
+        """POST /v1/arbitration/pool/join"""
+        payload = {"arbitrator_identity_id": arbitrator_identity_id, "stake_amount": stake_amount}
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/arbitration/pool/join", json=payload)
+            resp.raise_for_status()
+            return ArbitrationPoolMember(**resp.json())
+
+    async def list_arbitration_pool(self) -> list[ArbitrationPoolMember]:
+        """GET /v1/arbitration/pool"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/arbitration/pool")
+            resp.raise_for_status()
+            return [ArbitrationPoolMember(**item) for item in resp.json()]
+
+    async def create_arbitration_case(
+        self,
+        *,
+        task_id: str,
+        opened_by: str,
+        reason: str | None = None,
+        required_arbitrators: int = 3,
+    ) -> ArbitrationCase:
+        """POST /v1/arbitration/cases"""
+        payload: dict[str, Any] = {
+            "task_id": task_id,
+            "opened_by": opened_by,
+            "required_arbitrators": required_arbitrators,
+        }
+        if reason:
+            payload["reason"] = reason
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/arbitration/cases", json=payload)
+            resp.raise_for_status()
+            return ArbitrationCase(**resp.json())
+
+    async def assign_arbitrators(self, case_id: str, count: int = 3) -> list[ArbitrationAssignment]:
+        """POST /v1/arbitration/cases/{case_id}/assign-auto"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/arbitration/cases/{case_id}/assign-auto",
+                json={"count": count},
+            )
+            resp.raise_for_status()
+            return [ArbitrationAssignment(**item) for item in resp.json()]
+
+    async def list_arbitration_assignments(self, case_id: str) -> list[ArbitrationAssignment]:
+        """GET /v1/arbitration/cases/{case_id}/assignments"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/arbitration/cases/{case_id}/assignments")
+            resp.raise_for_status()
+            return [ArbitrationAssignment(**item) for item in resp.json()]
+
+    async def submit_arbitration_material(
+        self,
+        *,
+        case_id: str,
+        submitted_by: str,
+        bundle_id: str | None = None,
+        progress_receipt_ids: list[str] | None = None,
+        evidence_hashes: list[str] | None = None,
+        storage_uri: str | None = None,
+        format_version: str = "arbitration-material-v1",
+    ) -> ArbitrationMaterialPackage:
+        """POST /v1/arbitration/cases/{case_id}/materials"""
+        payload: dict[str, Any] = {
+            "submitted_by": submitted_by,
+            "bundle_id": bundle_id,
+            "progress_receipt_ids": progress_receipt_ids or [],
+            "evidence_hashes": evidence_hashes or [],
+            "storage_uri": storage_uri,
+            "format_version": format_version,
+        }
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/arbitration/cases/{case_id}/materials",
+                json=payload,
+            )
+            resp.raise_for_status()
+            return ArbitrationMaterialPackage(**resp.json())
+
+    async def list_arbitration_materials(self, case_id: str) -> list[ArbitrationMaterialPackage]:
+        """GET /v1/arbitration/cases/{case_id}/materials"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/arbitration/cases/{case_id}/materials")
+            resp.raise_for_status()
+            return [ArbitrationMaterialPackage(**item) for item in resp.json()]
+
+    async def cast_arbitration_vote(
+        self,
+        *,
+        case_id: str,
+        arbitrator_identity_id: str,
+        decision: ArbitrationVoteDecision,
+        partial_percent: float | None = None,
+        rationale: str | None = None,
+    ) -> ArbitrationCase:
+        """POST /v1/arbitration/cases/{case_id}/vote"""
+        payload: dict[str, Any] = {
+            "arbitrator_identity_id": arbitrator_identity_id,
+            "decision": decision.value,
+            "partial_percent": partial_percent,
+            "rationale": rationale,
+        }
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/arbitration/cases/{case_id}/vote",
+                json=payload,
+            )
+            resp.raise_for_status()
+            return ArbitrationCase(**resp.json())
+
+    async def execute_arbitration_case(self, case_id: str) -> SettlementState:
+        """POST /v1/arbitration/cases/{case_id}/execute"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/arbitration/cases/{case_id}/execute",
+                json={},
+            )
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
 
     async def get_token(self, agent_id: str, api_key: str) -> str:
         """POST /v1/auth/token — returns JWT access token."""

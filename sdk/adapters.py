@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from core.schemas import ExecutionReceipt, ToolStatus
+from core.schemas import ExecutionReceipt, MCPVerificationTemplate, ToolStatus
 
 
 def _sha256(payload: Any) -> str:
@@ -19,6 +19,14 @@ def _sha256(payload: Any) -> str:
 
 def _status_from_success(success: bool) -> ToolStatus:
     return ToolStatus.SUCCESS if success else ToolStatus.FAILURE
+
+
+def _normalize_hex_hash(value: str) -> str:
+    normalized = value.strip().lower()
+    if len(normalized) != 64:
+        raise ValueError("expected 64-char hex hash")
+    int(normalized, 16)
+    return normalized
 
 
 class APIExecutionAdapter:
@@ -80,9 +88,11 @@ class MCPExecutionAdapter:
         ended_at: datetime,
         success: bool,
         runtime_receipt: str | None = None,
+        verification_template: MCPVerificationTemplate | None = None,
         error_message: str | None = None,
     ) -> ExecutionReceipt:
         duration_ms = max(0, int((ended_at - started_at).total_seconds() * 1000))
+        template_payload = verification_template.model_dump(mode="json") if verification_template else None
         return ExecutionReceipt(
             task_id=task_id,
             agent_id=agent_id,
@@ -103,7 +113,30 @@ class MCPExecutionAdapter:
                 "output_digest": _sha256(tool_output),
                 "result_hash": _sha256({"output": tool_output, "ok": success}),
                 "mcp_runtime_receipt": runtime_receipt,
+                "verification_template": template_payload,
+                "verification_template_hash": _sha256(template_payload) if template_payload else None,
             },
+        )
+
+    @staticmethod
+    def build_verification_template(
+        *,
+        mcp_server_id: str,
+        tool_name: str,
+        input_schema_hash: str,
+        output_schema_hash: str,
+        prompt_hash: str | None = None,
+        constraints_hash: str | None = None,
+        runtime_receipt_hash: str | None = None,
+    ) -> MCPVerificationTemplate:
+        return MCPVerificationTemplate(
+            mcp_server_id=mcp_server_id,
+            tool_name=tool_name,
+            input_schema_hash=_normalize_hex_hash(input_schema_hash),
+            output_schema_hash=_normalize_hex_hash(output_schema_hash),
+            prompt_hash=_normalize_hex_hash(prompt_hash) if prompt_hash else None,
+            constraints_hash=_normalize_hex_hash(constraints_hash) if constraints_hash else None,
+            runtime_receipt_hash=_normalize_hex_hash(runtime_receipt_hash) if runtime_receipt_hash else None,
         )
 
 
