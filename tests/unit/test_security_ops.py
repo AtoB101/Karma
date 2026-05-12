@@ -9,6 +9,7 @@ from services.security_monitoring import (
     clear_security_events,
     record_security_event,
 )
+from services.runtime_safety import get_runtime_safety_mode_state, set_runtime_safety_mode
 
 
 def test_build_security_ops_alert_report_detects_spikes():
@@ -146,6 +147,46 @@ def test_security_ops_baseline_drift_alert_detected():
         clear_security_events()
 
 
+def test_security_ops_detects_settlement_transition_denied_rate_alert():
+    clear_security_events()
+    try:
+        for _ in range(8):
+            record_security_event(
+                SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+                metadata={
+                    "path": "/v1/settlement/task-x/submit",
+                    "actor_id": "worker-risk",
+                    "guard_stage": "route",
+                    "transition_allowed": False,
+                },
+            )
+        for _ in range(2):
+            record_security_event(
+                SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+                metadata={
+                    "path": "/v1/settlement/task-x/submit",
+                    "actor_id": "worker-risk",
+                    "guard_stage": "route",
+                    "transition_allowed": True,
+                },
+            )
+        report = build_security_ops_alert_report(
+            window_minutes=30,
+            settlement_transition_denied_threshold=3,
+            settlement_transition_denied_rate_threshold=0.5,
+            settlement_transition_min_requests=5,
+            settlement_transition_denied_threshold_overrides="/v1/settlement/task-x/submit=2",
+            alert_cooldown_minutes=0,
+        )
+        assert report.summary.settlement_transition_total_count == 10
+        assert report.summary.settlement_transition_denied_count == 8
+        assert report.summary.settlement_transition_denied_rate == pytest.approx(0.8)
+        assert any(item.alert_type.value == "settlement_transition_denied_spike" for item in report.alerts)
+        assert any(item.alert_type.value == "settlement_transition_denied_rate" for item in report.alerts)
+    finally:
+        clear_security_events()
+
+
 @pytest.mark.asyncio
 async def test_security_ops_alerts_endpoint_returns_report(client):
     clear_security_events()
@@ -188,6 +229,8 @@ async def test_security_ops_alerts_endpoint_returns_report(client):
         assert payload["summary"]["rate_limited_count"] == 2
         assert payload["summary"]["private_runtime_error_count"] == 2
         assert payload["summary"]["verify_request_count"] == 4
+        assert payload["summary"]["settlement_transition_total_count"] == 0
+        assert payload["summary"]["settlement_transition_denied_count"] == 0
         assert payload["summary"]["failed_auth_by_path"][0]["key"] == "/v1/auth/token"
         assert payload["summary"]["rate_limited_by_actor"][0]["key"] == "agent-r"
         assert payload["summary"]["rate_limited_by_route_group"][0]["key"] == "verification"
@@ -200,6 +243,46 @@ async def test_security_ops_alerts_endpoint_returns_report(client):
         assert "rate_limit_spike" in alert_types
         assert "private_runtime_error_rate" in alert_types
     finally:
+        clear_security_events()
+
+
+@pytest.mark.asyncio
+async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client):
+    clear_security_events()
+    set_runtime_safety_mode(enabled=False, reason="test reset", actor_id="test")
+    try:
+        task_id = "task-transition-abuse-001"
+        created = await client.post(
+            "/v1/settlement/create",
+            json={
+                "task_id": task_id,
+                "client_agent_id": "buyer-001",
+                "escrow_amount": 10.0,
+                "currency": "USD",
+            },
+        )
+        assert created.status_code == 201
+        denied = await client.post(f"/v1/settlement/{task_id}/submit", json={})
+        assert denied.status_code == 409
+
+        report = await client.get(
+            "/v1/security/ops/alerts"
+            "?window_minutes=30"
+            "&settlement_transition_denied_threshold=1"
+            "&settlement_transition_denied_rate_threshold=0.4"
+            "&settlement_transition_min_requests=2"
+            "&alert_cooldown_minutes=0"
+            "&auto_brake_on_transition_critical=true"
+            "&auto_brake_actor_id=sec-auto",
+        )
+        assert report.status_code == 200
+        alert_types = {item["alert_type"] for item in report.json()["alerts"]}
+        assert "settlement_transition_denied_rate" in alert_types
+        state = get_runtime_safety_mode_state()
+        assert state.enabled is True
+        assert state.triggered_by == "sec-auto"
+    finally:
+        set_runtime_safety_mode(enabled=False, reason="test cleanup", actor_id="test")
         clear_security_events()
 
 

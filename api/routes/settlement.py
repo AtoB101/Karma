@@ -25,6 +25,7 @@ from services.runtime_safety import (
     assert_runtime_operation_allowed,
     audit_capacity_anchor_and_maybe_trip,
 )
+from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 
 router = APIRouter()
 
@@ -457,6 +458,20 @@ async def _record_transition_audit(
     )
     db.add(row)
     await db.flush()
+    record_security_event(
+        SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+        metadata={
+            "task_id": state.task_id,
+            "settlement_id": state.settlement_id,
+            "from_status": from_status.value if from_status else None,
+            "to_status": to_status.value,
+            "transition_allowed": transition_allowed,
+            "guard_stage": guard_stage,
+            "path": route_path or "unknown",
+            "actor_id": actor_id or "anonymous",
+            "route_group": "settlement",
+        },
+    )
     return _transition_audit_to_schema(row)
 
 

@@ -621,6 +621,8 @@ class SecurityOpsAlertType(str, Enum):
     AUTH_FAILURE_SPIKE = "auth_failure_spike"
     RATE_LIMIT_SPIKE = "rate_limit_spike"
     PRIVATE_RUNTIME_ERROR_RATE = "private_runtime_error_rate"
+    SETTLEMENT_TRANSITION_DENIED_SPIKE = "settlement_transition_denied_spike"
+    SETTLEMENT_TRANSITION_DENIED_RATE = "settlement_transition_denied_rate"
     AUTH_FAILURE_BASELINE_DRIFT = "auth_failure_baseline_drift"
     RATE_LIMIT_BASELINE_DRIFT = "rate_limit_baseline_drift"
     PRIVATE_RUNTIME_ERROR_BASELINE_DRIFT = "private_runtime_error_baseline_drift"
@@ -667,6 +669,12 @@ class SecurityOpsSummary(BaseModel):
     rate_limited_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     private_runtime_error_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     private_runtime_error_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    settlement_transition_total_count: int = 0
+    settlement_transition_denied_count: int = 0
+    settlement_transition_denied_rate: float = 0.0
+    settlement_transition_denied_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    settlement_transition_denied_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    settlement_transition_denied_by_guard_stage: list[SecurityOpsDimensionCount] = Field(default_factory=list)
 
 
 class SecurityOpsBaselineReference(BaseModel):

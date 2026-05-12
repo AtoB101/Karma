@@ -1435,12 +1435,16 @@ class KarmaClient:
         private_runtime_error_threshold: int = 5,
         private_runtime_error_rate_threshold: float = 0.25,
         private_runtime_min_requests: int = 10,
+        settlement_transition_denied_threshold: int = 5,
+        settlement_transition_denied_rate_threshold: float = 0.2,
+        settlement_transition_min_requests: int = 10,
         dimension_limit: int = 5,
         alert_cooldown_minutes: int = 10,
         failed_auth_threshold_overrides: str | None = None,
         rate_limit_threshold_overrides: str | None = None,
         private_runtime_error_threshold_overrides: str | None = None,
         private_runtime_error_rate_threshold_overrides: str | None = None,
+        settlement_transition_denied_threshold_overrides: str | None = None,
         baseline_window_minutes: int = 24 * 60,
         baseline_drift_multiplier: float = 2.5,
         baseline_min_sample_count: int = 3,
@@ -1448,14 +1452,18 @@ class KarmaClient:
         apply_policy_center: bool = True,
         policy_id: str | None = None,
         policy_actor_id: str | None = None,
+        auto_brake_on_transition_critical: bool = True,
+        auto_brake_actor_id: str | None = "security-ops",
     ) -> SecurityOpsAlertReport:
         """GET /v1/security/ops/alerts"""
         failed_auth_threshold_overrides = failed_auth_threshold_overrides or ""
         rate_limit_threshold_overrides = rate_limit_threshold_overrides or ""
         private_runtime_error_threshold_overrides = private_runtime_error_threshold_overrides or ""
         private_runtime_error_rate_threshold_overrides = private_runtime_error_rate_threshold_overrides or ""
+        settlement_transition_denied_threshold_overrides = settlement_transition_denied_threshold_overrides or ""
         policy_id = policy_id or ""
         policy_actor_id = policy_actor_id or ""
+        auto_brake_actor_id = auto_brake_actor_id or ""
         async with self._http() as http:
             resp = await http.get(
                 f"{self.runtime_url}/v1/security/ops/alerts"
@@ -1465,12 +1473,16 @@ class KarmaClient:
                 f"&private_runtime_error_threshold={private_runtime_error_threshold}"
                 f"&private_runtime_error_rate_threshold={private_runtime_error_rate_threshold}"
                 f"&private_runtime_min_requests={private_runtime_min_requests}"
+                f"&settlement_transition_denied_threshold={settlement_transition_denied_threshold}"
+                f"&settlement_transition_denied_rate_threshold={settlement_transition_denied_rate_threshold}"
+                f"&settlement_transition_min_requests={settlement_transition_min_requests}"
                 f"&dimension_limit={dimension_limit}"
                 f"&alert_cooldown_minutes={alert_cooldown_minutes}"
                 f"&failed_auth_threshold_overrides={failed_auth_threshold_overrides}"
                 f"&rate_limit_threshold_overrides={rate_limit_threshold_overrides}"
                 f"&private_runtime_error_threshold_overrides={private_runtime_error_threshold_overrides}"
                 f"&private_runtime_error_rate_threshold_overrides={private_runtime_error_rate_threshold_overrides}"
+                f"&settlement_transition_denied_threshold_overrides={settlement_transition_denied_threshold_overrides}"
                 f"&baseline_window_minutes={baseline_window_minutes}"
                 f"&baseline_drift_multiplier={baseline_drift_multiplier}"
                 f"&baseline_min_sample_count={baseline_min_sample_count}"
@@ -1478,6 +1490,8 @@ class KarmaClient:
                 f"&apply_policy_center={str(apply_policy_center).lower()}"
                 f"&policy_id={policy_id}"
                 f"&policy_actor_id={policy_actor_id}"
+                f"&auto_brake_on_transition_critical={str(auto_brake_on_transition_critical).lower()}"
+                f"&auto_brake_actor_id={auto_brake_actor_id}"
             )
             resp.raise_for_status()
             return SecurityOpsAlertReport(**resp.json())

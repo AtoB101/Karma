@@ -213,6 +213,30 @@ paths:
             maximum: 100000
             default: 10
         - in: query
+          name: settlement_transition_denied_threshold
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 5
+        - in: query
+          name: settlement_transition_denied_rate_threshold
+          required: false
+          schema:
+            type: number
+            minimum: 0.01
+            maximum: 1
+            default: 0.2
+        - in: query
+          name: settlement_transition_min_requests
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 10
+        - in: query
           name: dimension_limit
           required: false
           schema:
@@ -252,6 +276,12 @@ paths:
           schema:
             type: string
           description: "Comma-separated ratio overrides, e.g. '/v1/verify=0.2,group:verification=0.3'"
+        - in: query
+          name: settlement_transition_denied_threshold_overrides
+          required: false
+          schema:
+            type: string
+          description: "Comma-separated overrides, e.g. '/v1/settlement/task-x/submit=2'"
         - in: query
           name: baseline_window_minutes
           required: false
@@ -300,6 +330,18 @@ paths:
           required: false
           schema:
             type: string
+        - in: query
+          name: auto_brake_on_transition_critical
+          required: false
+          schema:
+            type: boolean
+            default: true
+        - in: query
+          name: auto_brake_actor_id
+          required: false
+          schema:
+            type: string
+            default: security-ops
       responses:
         '200':
           description: Security alert report
@@ -3117,6 +3159,8 @@ components:
         - auth_failure_spike
         - rate_limit_spike
         - private_runtime_error_rate
+        - settlement_transition_denied_spike
+        - settlement_transition_denied_rate
         - auth_failure_baseline_drift
         - rate_limit_baseline_drift
         - private_runtime_error_baseline_drift
@@ -3553,6 +3597,24 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        settlement_transition_total_count:
+          type: integer
+        settlement_transition_denied_count:
+          type: integer
+        settlement_transition_denied_rate:
+          type: number
+        settlement_transition_denied_by_path:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        settlement_transition_denied_by_actor:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        settlement_transition_denied_by_guard_stage:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
       required:
         - failed_auth_count
         - rate_limited_count
@@ -3567,6 +3629,12 @@ components:
         - rate_limited_by_route_group
         - private_runtime_error_by_path
         - private_runtime_error_by_route_group
+        - settlement_transition_total_count
+        - settlement_transition_denied_count
+        - settlement_transition_denied_rate
+        - settlement_transition_denied_by_path
+        - settlement_transition_denied_by_actor
+        - settlement_transition_denied_by_guard_stage
     SecurityOpsAlertReport:
       type: object
       properties:

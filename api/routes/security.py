@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
     RuntimeSafetyModeState,
+    SecurityOpsAlertSeverity,
+    SecurityOpsAlertType,
     SecurityPolicyApprovalDecision,
     SecurityPolicyChangeAction,
     SecurityPolicyChangeRequest,
@@ -298,6 +300,9 @@ async def get_security_ops_alerts(
     private_runtime_error_threshold: int | None = Query(default=None, ge=1, le=100000),
     private_runtime_error_rate_threshold: float | None = Query(default=None, ge=0.01, le=1.0),
     private_runtime_min_requests: int | None = Query(default=None, ge=1, le=100000),
+    settlement_transition_denied_threshold: int | None = Query(default=None, ge=1, le=100000),
+    settlement_transition_denied_rate_threshold: float | None = Query(default=None, ge=0.01, le=1.0),
+    settlement_transition_min_requests: int | None = Query(default=None, ge=1, le=100000),
     dimension_limit: int | None = Query(default=None, ge=1, le=50),
     alert_cooldown_minutes: int | None = Query(default=None, ge=0, le=24 * 60),
     failed_auth_threshold_overrides: str | None = Query(
@@ -316,6 +321,10 @@ async def get_security_ops_alerts(
         None,
         description="Comma-separated overrides: '/v1/verify=0.2,group:verification=0.3'",
     ),
+    settlement_transition_denied_threshold_overrides: str | None = Query(
+        None,
+        description="Comma-separated overrides: '/v1/settlement/task-x/submit=2'",
+    ),
     baseline_window_minutes: int | None = Query(default=None, ge=10, le=14 * 24 * 60),
     baseline_drift_multiplier: float | None = Query(default=None, ge=1.1, le=20.0),
     baseline_min_sample_count: int | None = Query(default=None, ge=1, le=100000),
@@ -323,6 +332,8 @@ async def get_security_ops_alerts(
     apply_policy_center: bool = Query(default=True),
     policy_id: str | None = Query(default=None),
     policy_actor_id: str | None = Query(default=None),
+    auto_brake_on_transition_critical: bool = Query(default=True),
+    auto_brake_actor_id: str | None = Query(default="security-ops"),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityOpsAlertReport:
     """
@@ -365,6 +376,21 @@ async def get_security_ops_alerts(
             if private_runtime_min_requests is not None
             else int(policy_config["private_runtime_min_requests"])
         ),
+        settlement_transition_denied_threshold=(
+            settlement_transition_denied_threshold
+            if settlement_transition_denied_threshold is not None
+            else int(policy_config["settlement_transition_denied_threshold"])
+        ),
+        settlement_transition_denied_rate_threshold=(
+            settlement_transition_denied_rate_threshold
+            if settlement_transition_denied_rate_threshold is not None
+            else float(policy_config["settlement_transition_denied_rate_threshold"])
+        ),
+        settlement_transition_min_requests=(
+            settlement_transition_min_requests
+            if settlement_transition_min_requests is not None
+            else int(policy_config["settlement_transition_min_requests"])
+        ),
         dimension_limit=dimension_limit if dimension_limit is not None else int(policy_config["dimension_limit"]),
         alert_cooldown_minutes=(
             alert_cooldown_minutes
@@ -390,6 +416,11 @@ async def get_security_ops_alerts(
             private_runtime_error_rate_threshold_overrides
             if private_runtime_error_rate_threshold_overrides is not None
             else str(policy_config["private_runtime_error_rate_threshold_overrides"])
+        ),
+        settlement_transition_denied_threshold_overrides=(
+            settlement_transition_denied_threshold_overrides
+            if settlement_transition_denied_threshold_overrides is not None
+            else str(policy_config["settlement_transition_denied_threshold_overrides"])
         ),
         baseline_window_minutes=(
             baseline_window_minutes
@@ -420,5 +451,16 @@ async def get_security_ops_alerts(
                 "policy_status": resolved.policy.status,
                 "matched_candidate": resolved.matched_candidate,
             }
+        )
+    should_auto_brake = any(
+        alert.alert_type == SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_RATE
+        and alert.severity == SecurityOpsAlertSeverity.CRITICAL
+        for alert in report.alerts
+    )
+    if auto_brake_on_transition_critical and should_auto_brake:
+        set_runtime_safety_mode(
+            enabled=True,
+            reason="auto brake: settlement transition denied rate critical alert",
+            actor_id=auto_brake_actor_id,
         )
     return report

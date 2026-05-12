@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
 
 from core.schemas import (
     SecurityOpsAlert,
@@ -37,6 +37,7 @@ class SecurityMonitoringEventType(str, Enum):
     RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
     VERIFY_REQUEST = "verify_request"
     PRIVATE_RUNTIME_ERROR = "private_runtime_error"
+    SETTLEMENT_TRANSITION_AUDIT = "settlement_transition_audit"
 
 
 @dataclass
@@ -119,6 +120,26 @@ def _dimension_counter(
     counter: Counter[str] = Counter()
     for event in events:
         if event.event_type != event_type:
+            continue
+        raw_value = event.metadata.get(metadata_key)
+        key = str(raw_value).strip() if raw_value else default_key
+        counter[key] += 1
+    return counter
+
+
+def _dimension_counter_with_filter(
+    *,
+    events: list[SecurityMonitoringEvent],
+    event_type: SecurityMonitoringEventType,
+    metadata_key: str,
+    default_key: str,
+    predicate: Callable[[SecurityMonitoringEvent], bool] | None = None,
+) -> Counter[str]:
+    counter: Counter[str] = Counter()
+    for event in events:
+        if event.event_type != event_type:
+            continue
+        if predicate is not None and not predicate(event):
             continue
         raw_value = event.metadata.get(metadata_key)
         key = str(raw_value).strip() if raw_value else default_key
@@ -265,6 +286,10 @@ def _build_recommended_actions(
         actions.append("Review sudden 429 drift and apply endpoint-specific throttling overrides.")
     if SecurityOpsAlertType.PRIVATE_RUNTIME_ERROR_BASELINE_DRIFT in alert_types:
         actions.append("Investigate private runtime stability drift and trigger dependency failover checks.")
+    if SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_SPIKE in alert_types:
+        actions.append("Review rejected settlement transitions by path/actor and investigate workflow misuse.")
+    if SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_RATE in alert_types:
+        actions.append("Enable emergency brake controls and investigate irreversibility guard violations immediately.")
     if escalation.level == SecurityOpsEscalationLevel.PAGE:
         actions.append("Page on-call security owner and open incident channel immediately.")
     return actions
@@ -278,12 +303,16 @@ def build_security_ops_alert_report(
     private_runtime_error_threshold: int = 5,
     private_runtime_error_rate_threshold: float = 0.25,
     private_runtime_min_requests: int = 10,
+    settlement_transition_denied_threshold: int = 5,
+    settlement_transition_denied_rate_threshold: float = 0.2,
+    settlement_transition_min_requests: int = 10,
     dimension_limit: int = 5,
     alert_cooldown_minutes: int = 10,
     failed_auth_threshold_overrides: str | None = None,
     rate_limit_threshold_overrides: str | None = None,
     private_runtime_error_threshold_overrides: str | None = None,
     private_runtime_error_rate_threshold_overrides: str | None = None,
+    settlement_transition_denied_threshold_overrides: str | None = None,
     baseline_window_minutes: int = 24 * 60,
     baseline_drift_multiplier: float = 2.5,
     baseline_min_sample_count: int = 3,
@@ -297,6 +326,18 @@ def build_security_ops_alert_report(
     rate_limited_count = counts.get(SecurityMonitoringEventType.RATE_LIMIT_EXCEEDED.value, 0)
     verify_request_count = counts.get(SecurityMonitoringEventType.VERIFY_REQUEST.value, 0)
     private_runtime_error_count = counts.get(SecurityMonitoringEventType.PRIVATE_RUNTIME_ERROR.value, 0)
+    settlement_transition_total_count = counts.get(SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT.value, 0)
+    settlement_transition_denied_count = sum(
+        1
+        for event in events
+        if event.event_type == SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT
+        and not bool(event.metadata.get("transition_allowed", True))
+    )
+    settlement_transition_denied_rate = (
+        float(settlement_transition_denied_count) / float(settlement_transition_total_count)
+        if settlement_transition_total_count > 0
+        else 0.0
+    )
     private_runtime_error_rate = (
         float(private_runtime_error_count) / float(verify_request_count)
         if verify_request_count > 0
@@ -308,6 +349,10 @@ def build_security_ops_alert_report(
     private_runtime_error_rate_override_map = _parse_threshold_overrides(
         private_runtime_error_rate_threshold_overrides,
         as_float=True,
+    )
+    settlement_transition_denied_override_map = _parse_threshold_overrides(
+        settlement_transition_denied_threshold_overrides,
+        as_float=False,
     )
 
     failed_auth_by_path_counter = _dimension_counter(
@@ -357,6 +402,27 @@ def build_security_ops_alert_report(
         event_type=SecurityMonitoringEventType.PRIVATE_RUNTIME_ERROR,
         metadata_key="route_group",
         default_key="other",
+    )
+    settlement_transition_denied_by_path_counter = _dimension_counter_with_filter(
+        events=events,
+        event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+        metadata_key="path",
+        default_key="unknown",
+        predicate=lambda event: not bool(event.metadata.get("transition_allowed", True)),
+    )
+    settlement_transition_denied_by_actor_counter = _dimension_counter_with_filter(
+        events=events,
+        event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+        metadata_key="actor_id",
+        default_key="anonymous",
+        predicate=lambda event: not bool(event.metadata.get("transition_allowed", True)),
+    )
+    settlement_transition_denied_by_guard_stage_counter = _dimension_counter_with_filter(
+        events=events,
+        event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+        metadata_key="guard_stage",
+        default_key="route",
+        predicate=lambda event: not bool(event.metadata.get("transition_allowed", True)),
     )
 
     baseline = _compute_baseline_reference(
@@ -574,6 +640,71 @@ def build_security_ops_alert_report(
                 )
             )
 
+    if settlement_transition_denied_count >= settlement_transition_denied_threshold:
+        candidate_alerts.append(
+            SecurityOpsAlert(
+                severity=SecurityOpsAlertSeverity.HIGH,
+                alert_type=SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_SPIKE,
+                message=(
+                    "settlement transition guard rejects spiked to "
+                    f"{settlement_transition_denied_count} within {window_minutes}m"
+                ),
+                metadata={
+                    "settlement_transition_denied_count": settlement_transition_denied_count,
+                    "settlement_transition_total_count": settlement_transition_total_count,
+                    "settlement_transition_denied_rate": round(settlement_transition_denied_rate, 4),
+                    "threshold": settlement_transition_denied_threshold,
+                    "window_minutes": window_minutes,
+                },
+            )
+        )
+
+    if (
+        settlement_transition_total_count >= settlement_transition_min_requests
+        and settlement_transition_denied_rate >= settlement_transition_denied_rate_threshold
+    ):
+        candidate_alerts.append(
+            SecurityOpsAlert(
+                severity=SecurityOpsAlertSeverity.CRITICAL,
+                alert_type=SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_RATE,
+                message=(
+                    "settlement transition reject-rate exceeded threshold: "
+                    f"{settlement_transition_denied_count}/{settlement_transition_total_count} "
+                    f"({settlement_transition_denied_rate:.2%}) in {window_minutes}m"
+                ),
+                metadata={
+                    "settlement_transition_denied_count": settlement_transition_denied_count,
+                    "settlement_transition_total_count": settlement_transition_total_count,
+                    "settlement_transition_denied_rate": round(settlement_transition_denied_rate, 4),
+                    "threshold": settlement_transition_denied_rate_threshold,
+                    "min_requests": settlement_transition_min_requests,
+                    "window_minutes": window_minutes,
+                },
+            )
+        )
+
+    for path, count in settlement_transition_denied_by_path_counter.items():
+        threshold = _scope_threshold(
+            settlement_transition_denied_threshold,
+            settlement_transition_denied_override_map,
+            path,
+        )
+        if count >= threshold:
+            candidate_alerts.append(
+                SecurityOpsAlert(
+                    severity=SecurityOpsAlertSeverity.MEDIUM,
+                    alert_type=SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_SPIKE,
+                    message=f"endpoint settlement transition rejects spiked on {path}: {count}",
+                    metadata={
+                        "scope_type": "path",
+                        "scope_key": path,
+                        "settlement_transition_denied_count": count,
+                        "threshold": threshold,
+                        "window_minutes": window_minutes,
+                    },
+                )
+            )
+
     if baseline.sample_count >= baseline_min_sample_count and baseline.failed_auth_avg > 0:
         drift_threshold = baseline.failed_auth_avg * baseline_drift_multiplier
         if failed_auth_count >= drift_threshold:
@@ -735,6 +866,45 @@ def build_security_ops_alert_report(
                 metadata_key="route_group",
                 limit=dimension_limit,
                 default_key="other",
+            ),
+            settlement_transition_total_count=settlement_transition_total_count,
+            settlement_transition_denied_count=settlement_transition_denied_count,
+            settlement_transition_denied_rate=settlement_transition_denied_rate,
+            settlement_transition_denied_by_path=_top_dimension_counts(
+                events=[
+                    event
+                    for event in events
+                    if event.event_type == SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT
+                    and not bool(event.metadata.get("transition_allowed", True))
+                ],
+                event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+                metadata_key="path",
+                limit=dimension_limit,
+                default_key="unknown",
+            ),
+            settlement_transition_denied_by_actor=_top_dimension_counts(
+                events=[
+                    event
+                    for event in events
+                    if event.event_type == SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT
+                    and not bool(event.metadata.get("transition_allowed", True))
+                ],
+                event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+                metadata_key="actor_id",
+                limit=dimension_limit,
+                default_key="anonymous",
+            ),
+            settlement_transition_denied_by_guard_stage=_top_dimension_counts(
+                events=[
+                    event
+                    for event in events
+                    if event.event_type == SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT
+                    and not bool(event.metadata.get("transition_allowed", True))
+                ],
+                event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
+                metadata_key="guard_stage",
+                limit=dimension_limit,
+                default_key="route",
             ),
         ),
         alerts=alerts,

@@ -33,6 +33,7 @@ Get rolling security operations alerts (default 15-minute window), including:
 - auth failure spikes (`401`)
 - rate-limit spikes (`429`)
 - private runtime error rate (`/v1/verify` returning `502/503`)
+- settlement transition guard reject spikes / reject-rate anomalies
 - top dimension slices by `path` and `actor_id`
 - escalation decision (`none` / `watch` / `page`) and suggested response actions
 - alert suppression count when cooldown is enabled
@@ -44,12 +45,16 @@ Query parameters allow threshold tuning:
 - `private_runtime_error_threshold`
 - `private_runtime_error_rate_threshold`
 - `private_runtime_min_requests`
+- `settlement_transition_denied_threshold`
+- `settlement_transition_denied_rate_threshold`
+- `settlement_transition_min_requests`
 - `dimension_limit`
 - `alert_cooldown_minutes`
 - `failed_auth_threshold_overrides`（如：`/v1/auth/token=5,group:auth=8`）
 - `rate_limit_threshold_overrides`（如：`/v1/verify=20,group:verification=25`）
 - `private_runtime_error_threshold_overrides`
 - `private_runtime_error_rate_threshold_overrides`
+- `settlement_transition_denied_threshold_overrides`
 - `baseline_window_minutes`
 - `baseline_drift_multiplier`
 - `baseline_min_sample_count`
@@ -57,6 +62,8 @@ Query parameters allow threshold tuning:
 - `apply_policy_center`
 - `policy_id`
 - `policy_actor_id`
+- `auto_brake_on_transition_critical`
+- `auto_brake_actor_id`
 
 返回结构额外包含：
 - `baseline`（滚动基线均值与样本数）
@@ -64,6 +71,7 @@ Query parameters allow threshold tuning:
 - `escalation`（`none/watch/page`）
 - `recommended_actions`（值班动作建议）
 - `policy_id / policy_version / policy_status / matched_candidate`（策略中心命中信息）
+- `summary.settlement_transition_*`（迁移总量/拒绝量/拒绝率与维度聚合）
 
 ### `POST /v1/security/policies`
 Create a new persisted security threshold policy version.
