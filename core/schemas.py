@@ -726,6 +726,26 @@ class ResponsibilityDeadLetterPurgeResult(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ResponsibilityScanFailureReasonSummary(BaseModel):
+    reason: str
+    count: int
+    last_seen_at: Optional[datetime] = None
+
+
+class ResponsibilityScanOpsReport(BaseModel):
+    window_hours: int
+    total_runs: int = 0
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    claimable_pending: int = 0
+    claimable_failed: int = 0
+    dead_letter_count: int = 0
+    stale_claimed: int = 0
+    stale_running: int = 0
+    top_failure_reasons: list[ResponsibilityScanFailureReasonSummary] = Field(default_factory=list)
+    recent_events: list[ResponsibilityScanRunEvent] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class TemporalConsistencyIssue(BaseModel):
     issue_type: TemporalConsistencyIssueType
     severity: ResponsibilitySignalSeverity

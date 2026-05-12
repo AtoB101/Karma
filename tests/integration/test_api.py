@@ -758,6 +758,17 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     queue_stats_body = queue_stats.json()
     assert queue_stats_body["total_runs"] >= 2
     assert "claimed" in queue_stats_body["status_counts"]
+    assert "dead_letter_count" in queue_stats_body
+
+    ops_report = await client.get(
+        "/v1/responsibility/scan-runs/ops/report"
+        "?window_hours=24&recent_events_limit=50&top_failure_limit=10"
+    )
+    assert ops_report.status_code == 200
+    ops_body = ops_report.json()
+    assert ops_body["window_hours"] == 24
+    assert "recent_events" in ops_body
+    assert "top_failure_reasons" in ops_body
 
     recover_stale = await client.post("/v1/responsibility/scan-runs/recover-stale", json={"limit": 50})
     assert recover_stale.status_code == 200

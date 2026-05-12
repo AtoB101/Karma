@@ -32,6 +32,7 @@ from core.schemas import (
     ResponsibilityQueueMaintenanceTickResult,
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
+    ResponsibilityScanOpsReport,
     ResponsibilityScanQueueStats,
     ResponsibilityScanRunEvent,
     ResponsibilityPathFeaturesSummary,
@@ -698,6 +699,24 @@ class KarmaClient:
             resp = await http.get(f"{self.runtime_url}/v1/responsibility/scan-runs/queue/stats")
             resp.raise_for_status()
             return ResponsibilityScanQueueStats(**resp.json())
+
+    async def get_responsibility_scan_ops_report(
+        self,
+        *,
+        window_hours: int = 24,
+        recent_events_limit: int = 50,
+        top_failure_limit: int = 10,
+    ) -> ResponsibilityScanOpsReport:
+        """GET /v1/responsibility/scan-runs/ops/report"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/ops/report"
+                f"?window_hours={window_hours}"
+                f"&recent_events_limit={recent_events_limit}"
+                f"&top_failure_limit={top_failure_limit}"
+            )
+            resp.raise_for_status()
+            return ResponsibilityScanOpsReport(**resp.json())
 
     async def recover_stale_responsibility_batch_scans(
         self,

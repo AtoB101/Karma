@@ -17,6 +17,7 @@ from core.schemas import (
     ResponsibilityQueueMaintenanceTickResult,
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
+    ResponsibilityScanOpsReport,
     ResponsibilityScanQueueStats,
     ResponsibilityScanRunEvent,
     ResponsibilityWorkerPullExecuteResult,
@@ -39,6 +40,7 @@ from services.responsibility_graph import (
     get_identity_score,
     get_identity_signals,
     get_public_risk_model,
+    get_scan_run_ops_report,
     get_scan_run_queue_stats,
     get_task_path_summary,
     get_task_temporal_consistency_report,
@@ -262,6 +264,21 @@ async def claim_scan_run(
 @router.get("/scan-runs/queue/stats", response_model=ResponsibilityScanQueueStats)
 async def get_scan_queue_stats(db: AsyncSession = Depends(get_db)):
     return await get_scan_run_queue_stats(db=db)
+
+
+@router.get("/scan-runs/ops/report", response_model=ResponsibilityScanOpsReport)
+async def get_scan_ops_report(
+    window_hours: int = Query(default=24, ge=1, le=24 * 30),
+    recent_events_limit: int = Query(default=50, ge=1, le=1000),
+    top_failure_limit: int = Query(default=10, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_scan_run_ops_report(
+        db=db,
+        window_hours=window_hours,
+        recent_events_limit=recent_events_limit,
+        top_failure_limit=top_failure_limit,
+    )
 
 
 @router.post("/scan-runs/recover-stale", response_model=ResponsibilityRecoverStaleRunsResult)

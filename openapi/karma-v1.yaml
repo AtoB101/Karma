@@ -1023,6 +1023,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResponsibilityScanQueueStats'
+  /v1/responsibility/scan-runs/ops/report:
+    get:
+      summary: Get scan-run operations report
+      operationId: getResponsibilityScanOpsReport
+      parameters:
+        - in: query
+          name: window_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+            default: 24
+        - in: query
+          name: recent_events_limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 50
+        - in: query
+          name: top_failure_limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: Scan-run operations report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityScanOpsReport'
   /v1/responsibility/scan-runs/recover-stale:
     post:
       summary: Recover stale claimed or running scan runs
@@ -2587,6 +2623,63 @@ components:
         - scanned_count
         - purged_count
         - purged_scan_ids
+        - generated_at
+    ResponsibilityScanFailureReasonSummary:
+      type: object
+      properties:
+        reason:
+          type: string
+        count:
+          type: integer
+        last_seen_at:
+          type: string
+          format: date-time
+      required:
+        - reason
+        - count
+    ResponsibilityScanOpsReport:
+      type: object
+      properties:
+        window_hours:
+          type: integer
+        total_runs:
+          type: integer
+        status_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        claimable_pending:
+          type: integer
+        claimable_failed:
+          type: integer
+        dead_letter_count:
+          type: integer
+        stale_claimed:
+          type: integer
+        stale_running:
+          type: integer
+        top_failure_reasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponsibilityScanFailureReasonSummary'
+        recent_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponsibilityScanRunEvent'
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - window_hours
+        - total_runs
+        - status_counts
+        - claimable_pending
+        - claimable_failed
+        - dead_letter_count
+        - stale_claimed
+        - stale_running
+        - top_failure_reasons
+        - recent_events
         - generated_at
     ResponsibilityWorkerPullExecuteResult:
       type: object

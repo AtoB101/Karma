@@ -20,6 +20,7 @@ from services.responsibility_graph import (
     get_batch_scan_result,
     list_dead_letter_scan_runs,
     list_scan_run_events,
+    get_scan_run_ops_report,
     get_scan_run_queue_stats,
     get_task_temporal_consistency_report,
     get_identity_path_features,
@@ -428,6 +429,39 @@ async def test_scan_queue_stats_and_recover_stale_runs(db_session):
     events = await list_scan_run_events(db=db_session, scan_id=scan_id)
     event_types = {item.event_type for item in events}
     assert ResponsibilityScanEventType.STALE_RECOVERED in event_types
+
+
+@pytest.mark.asyncio
+async def test_scan_ops_report_contains_recent_events_and_failures(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=None,
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.INCREMENTAL,
+        base_scan_id="missing-base-ops-report",
+        retry_max_attempts=1,
+        retry_backoff_seconds=10,
+    )
+    scan_id = created.run.scan_id
+    with pytest.raises(ValueError, match="base scan run not found"):
+        await execute_scan_run(db=db_session, scan_id=scan_id)
+    await sweep_dead_letter_scan_runs(db=db_session, limit=100, reason="ops-report-dlq")
+
+    report = await get_scan_run_ops_report(
+        db=db_session,
+        window_hours=24,
+        recent_events_limit=50,
+        top_failure_limit=10,
+    )
+    assert report.window_hours == 24
+    assert report.total_runs >= 1
+    assert report.dead_letter_count >= 1
+    assert len(report.recent_events) >= 1
+    event_types = {item.event_type for item in report.recent_events}
+    assert ResponsibilityScanEventType.CREATED in event_types
+    assert ResponsibilityScanEventType.DEAD_LETTERED in event_types
+    assert len(report.top_failure_reasons) >= 1
+    assert any("base scan run not found" in item.reason for item in report.top_failure_reasons)
 
 
 @pytest.mark.asyncio

@@ -678,6 +678,30 @@ async def test_responsibility_sdk_methods():
             "stale_running": 0,
             "generated_at": now,
         },
+        ("GET", f"{base}/v1/responsibility/scan-runs/ops/report?window_hours=24&recent_events_limit=50&top_failure_limit=10"): {
+            "window_hours": 24,
+            "total_runs": 5,
+            "status_counts": {"pending": 1, "claimed": 1, "running": 1, "failed": 1, "completed": 1, "dead_letter": 1},
+            "claimable_pending": 1,
+            "claimable_failed": 1,
+            "dead_letter_count": 1,
+            "stale_claimed": 0,
+            "stale_running": 0,
+            "top_failure_reasons": [
+                {"reason": "base scan run not found", "count": 2, "last_seen_at": now}
+            ],
+            "recent_events": [
+                {
+                    "event_id": "evt-ops-1",
+                    "scan_id": "scan-1",
+                    "event_type": "execution_failed",
+                    "detail": "scan run execution failed",
+                    "metadata": {"attempt": 1},
+                    "created_at": now,
+                }
+            ],
+            "generated_at": now,
+        },
         ("POST", f"{base}/v1/responsibility/scan-runs/recover-stale"): {
             "limit": 100,
             "scanned_count": 1,
@@ -1037,6 +1061,9 @@ async def test_responsibility_sdk_methods():
     assert claimed.status.value == "claimed"
     queue_stats = await client.get_responsibility_scan_queue_stats()
     assert queue_stats.total_runs == 5
+    ops_report = await client.get_responsibility_scan_ops_report()
+    assert ops_report.dead_letter_count == 1
+    assert ops_report.top_failure_reasons[0].reason == "base scan run not found"
     recovered_stale = await client.recover_stale_responsibility_batch_scans(limit=100)
     assert recovered_stale.recovered_scan_ids == ["scan-1"]
     dead_letter_runs = await client.list_dead_letter_responsibility_batch_scans(limit=20)

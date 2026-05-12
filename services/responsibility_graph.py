@@ -29,6 +29,8 @@ from core.schemas import (
     ResponsibilityRiskSignal,
     ResponsibilityScanFinding,
     ResponsibilityScanExecutionMode,
+    ResponsibilityScanFailureReasonSummary,
+    ResponsibilityScanOpsReport,
     ResponsibilityScanQueueStats,
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityQueueMaintenanceTickResult,
@@ -589,6 +591,73 @@ async def get_scan_run_queue_stats(*, db: AsyncSession) -> ResponsibilityScanQue
         dead_letter_count=int(status_counts.get(ResponsibilityScanRunStatus.DEAD_LETTER.value, 0)),
         stale_claimed=int(stale_claimed_result.scalar_one() or 0),
         stale_running=int(stale_running_result.scalar_one() or 0),
+        generated_at=now,
+    )
+
+
+async def get_scan_run_ops_report(
+    *,
+    db: AsyncSession,
+    window_hours: int = 24,
+    recent_events_limit: int = 50,
+    top_failure_limit: int = 10,
+) -> ResponsibilityScanOpsReport:
+    now = datetime.utcnow()
+    hours = max(1, min(window_hours, 24 * 30))
+    recent_limit = max(1, min(recent_events_limit, 1000))
+    failure_limit = max(1, min(top_failure_limit, 100))
+    since = now - timedelta(hours=hours)
+
+    queue_stats = await get_scan_run_queue_stats(db=db)
+
+    events_result = await db.execute(
+        select(ResponsibilityScanEventModel)
+        .where(ResponsibilityScanEventModel.created_at >= since)
+        .order_by(ResponsibilityScanEventModel.created_at.desc())
+        .limit(recent_limit)
+    )
+    recent_events = [_scan_event_to_schema(row) for row in events_result.scalars().all()]
+
+    failure_result = await db.execute(
+        select(
+            ResponsibilityScanRunModel.last_error,
+            func.count().label("count"),
+            func.max(ResponsibilityScanRunModel.created_at).label("last_seen_at"),
+        )
+        .where(
+            ResponsibilityScanRunModel.status.in_(
+                [
+                    ResponsibilityScanRunStatus.FAILED.value,
+                    ResponsibilityScanRunStatus.DEAD_LETTER.value,
+                ]
+            ),
+            ResponsibilityScanRunModel.last_error.is_not(None),
+            ResponsibilityScanRunModel.created_at >= since,
+        )
+        .group_by(ResponsibilityScanRunModel.last_error)
+        .order_by(func.count().desc(), func.max(ResponsibilityScanRunModel.created_at).desc())
+        .limit(failure_limit)
+    )
+    top_failure_reasons = [
+        ResponsibilityScanFailureReasonSummary(
+            reason=(reason or "unknown error"),
+            count=int(count),
+            last_seen_at=last_seen_at,
+        )
+        for reason, count, last_seen_at in failure_result.all()
+    ]
+
+    return ResponsibilityScanOpsReport(
+        window_hours=hours,
+        total_runs=queue_stats.total_runs,
+        status_counts=queue_stats.status_counts,
+        claimable_pending=queue_stats.claimable_pending,
+        claimable_failed=queue_stats.claimable_failed,
+        dead_letter_count=queue_stats.dead_letter_count,
+        stale_claimed=queue_stats.stale_claimed,
+        stale_running=queue_stats.stale_running,
+        top_failure_reasons=top_failure_reasons,
+        recent_events=recent_events,
         generated_at=now,
     )
 
