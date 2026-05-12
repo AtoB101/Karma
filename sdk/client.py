@@ -32,6 +32,7 @@ from core.schemas import (
     ResponsibilityQueueMaintenanceTickResult,
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
+    ResponsibilityScanOpsAlert,
     ResponsibilityScanOpsReport,
     ResponsibilityScanQueueStats,
     ResponsibilityScanRunnerActivitySummary,
@@ -735,6 +736,32 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return [ResponsibilityScanRunnerActivitySummary(**item) for item in resp.json()]
+
+    async def get_responsibility_scan_ops_alerts(
+        self,
+        *,
+        window_hours: int = 24,
+        runner_limit: int = 20,
+        dead_letter_threshold: int = 5,
+        stale_threshold: int = 3,
+        failed_ratio_threshold: float = 0.25,
+        runner_failure_min_started: int = 3,
+        runner_failure_ratio_threshold: float = 0.5,
+    ) -> list[ResponsibilityScanOpsAlert]:
+        """GET /v1/responsibility/scan-runs/ops/alerts"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/ops/alerts"
+                f"?window_hours={window_hours}"
+                f"&runner_limit={runner_limit}"
+                f"&dead_letter_threshold={dead_letter_threshold}"
+                f"&stale_threshold={stale_threshold}"
+                f"&failed_ratio_threshold={failed_ratio_threshold}"
+                f"&runner_failure_min_started={runner_failure_min_started}"
+                f"&runner_failure_ratio_threshold={runner_failure_ratio_threshold}"
+            )
+            resp.raise_for_status()
+            return [ResponsibilityScanOpsAlert(**item) for item in resp.json()]
 
     async def recover_stale_responsibility_batch_scans(
         self,

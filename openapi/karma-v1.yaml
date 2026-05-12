@@ -1097,6 +1097,76 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ResponsibilityScanRunnerActivitySummary'
+  /v1/responsibility/scan-runs/ops/alerts:
+    get:
+      summary: Get scan-run operations alerts
+      operationId: getResponsibilityScanOpsAlerts
+      parameters:
+        - in: query
+          name: window_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+            default: 24
+        - in: query
+          name: runner_limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+        - in: query
+          name: dead_letter_threshold
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 5
+        - in: query
+          name: stale_threshold
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 3
+        - in: query
+          name: failed_ratio_threshold
+          required: false
+          schema:
+            type: number
+            minimum: 0.01
+            maximum: 1
+            default: 0.25
+        - in: query
+          name: runner_failure_min_started
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 3
+        - in: query
+          name: runner_failure_ratio_threshold
+          required: false
+          schema:
+            type: number
+            minimum: 0.01
+            maximum: 1
+            default: 0.5
+      responses:
+        '200':
+          description: Operations alert list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResponsibilityScanOpsAlert'
   /v1/responsibility/scan-runs/recover-stale:
     post:
       summary: Recover stale claimed or running scan runs
@@ -2700,6 +2770,36 @@ components:
         - execution_started_count
         - execution_completed_count
         - execution_failed_count
+    ResponsibilityScanOpsAlert:
+      type: object
+      properties:
+        alert_id:
+          type: string
+        severity:
+          type: string
+          enum: [info, medium, high]
+        alert_type:
+          type: string
+          enum:
+            - queue_stale_lease
+            - queue_dead_letter_pressure
+            - queue_failure_ratio
+            - runner_failure_spike
+        message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - alert_id
+        - severity
+        - alert_type
+        - message
+        - metadata
+        - generated_at
     ResponsibilityScanOpsReport:
       type: object
       properties:
@@ -2733,6 +2833,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ResponsibilityScanRunnerActivitySummary'
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponsibilityScanOpsAlert'
         generated_at:
           type: string
           format: date-time
@@ -2748,6 +2852,7 @@ components:
         - top_failure_reasons
         - recent_events
         - runner_activity
+        - alerts
         - generated_at
     ResponsibilityWorkerPullExecuteResult:
       type: object

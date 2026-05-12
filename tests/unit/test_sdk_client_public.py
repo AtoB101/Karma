@@ -711,6 +711,16 @@ async def test_responsibility_sdk_methods():
                     "last_event_at": now,
                 }
             ],
+            "alerts": [
+                {
+                    "alert_id": "alert-ops-1",
+                    "severity": "high",
+                    "alert_type": "queue_dead_letter_pressure",
+                    "message": "dead-letter queue pressure: 1",
+                    "metadata": {"dead_letter_count": 1, "threshold": 1},
+                    "generated_at": now,
+                }
+            ],
             "generated_at": now,
         },
         ("GET", f"{base}/v1/responsibility/scan-runs/ops/runners?window_hours=24&limit=20"): [
@@ -722,6 +732,16 @@ async def test_responsibility_sdk_methods():
                 "execution_completed_count": 1,
                 "execution_failed_count": 0,
                 "last_event_at": now,
+            }
+        ],
+        ("GET", f"{base}/v1/responsibility/scan-runs/ops/alerts?window_hours=24&runner_limit=20&dead_letter_threshold=5&stale_threshold=3&failed_ratio_threshold=0.25&runner_failure_min_started=3&runner_failure_ratio_threshold=0.5"): [
+            {
+                "alert_id": "alert-ops-1",
+                "severity": "high",
+                "alert_type": "queue_dead_letter_pressure",
+                "message": "dead-letter queue pressure: 1",
+                "metadata": {"dead_letter_count": 1, "threshold": 1},
+                "generated_at": now,
             }
         ],
         ("POST", f"{base}/v1/responsibility/scan-runs/recover-stale"): {
@@ -1087,8 +1107,11 @@ async def test_responsibility_sdk_methods():
     assert ops_report.dead_letter_count == 1
     assert ops_report.top_failure_reasons[0].reason == "base scan run not found"
     assert ops_report.runner_activity[0].runner_identity_id == "runner-1"
+    assert ops_report.alerts[0].alert_type.value == "queue_dead_letter_pressure"
     runner_activity = await client.list_responsibility_scan_runner_activity(window_hours=24, limit=20)
     assert runner_activity[0].execution_completed_count == 1
+    alerts = await client.get_responsibility_scan_ops_alerts(window_hours=24, runner_limit=20)
+    assert alerts[0].severity.value == "high"
     recovered_stale = await client.recover_stale_responsibility_batch_scans(limit=100)
     assert recovered_stale.recovered_scan_ids == ["scan-1"]
     dead_letter_runs = await client.list_dead_letter_responsibility_batch_scans(limit=20)

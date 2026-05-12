@@ -770,10 +770,15 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert "recent_events" in ops_body
     assert "top_failure_reasons" in ops_body
     assert "runner_activity" in ops_body
+    assert "alerts" in ops_body
 
     runner_activity = await client.get("/v1/responsibility/scan-runs/ops/runners?window_hours=24&limit=20")
     assert runner_activity.status_code == 200
     assert isinstance(runner_activity.json(), list)
+
+    ops_alerts = await client.get("/v1/responsibility/scan-runs/ops/alerts?window_hours=24&runner_limit=20")
+    assert ops_alerts.status_code == 200
+    assert isinstance(ops_alerts.json(), list)
 
     recover_stale = await client.post("/v1/responsibility/scan-runs/recover-stale", json={"limit": 50})
     assert recover_stale.status_code == 200

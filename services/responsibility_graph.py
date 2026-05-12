@@ -30,6 +30,9 @@ from core.schemas import (
     ResponsibilityScanFinding,
     ResponsibilityScanExecutionMode,
     ResponsibilityScanFailureReasonSummary,
+    ResponsibilityScanOpsAlert,
+    ResponsibilityScanOpsAlertSeverity,
+    ResponsibilityScanOpsAlertType,
     ResponsibilityScanOpsReport,
     ResponsibilityScanRunnerActivitySummary,
     ResponsibilityScanQueueStats,
@@ -70,6 +73,11 @@ SIGNAL_TYPE_WEIGHTS: dict[ResponsibilitySignalType, float] = {
 }
 RECENCY_FLOOR = 0.2
 DEFAULT_SCAN_LEASE_SECONDS = 300
+DEFAULT_DEAD_LETTER_ALERT_THRESHOLD = 5
+DEFAULT_STALE_LEASE_ALERT_THRESHOLD = 3
+DEFAULT_FAILED_RATIO_ALERT_THRESHOLD = 0.25
+DEFAULT_RUNNER_FAILURE_MIN_STARTED = 3
+DEFAULT_RUNNER_FAILURE_RATIO_THRESHOLD = 0.5
 EDGE_STAGE_ORDER: dict[ResponsibilityEdgeType, int] = {
     ResponsibilityEdgeType.VOUCHER_ACCEPT: 1,
     ResponsibilityEdgeType.TASK_DELEGATION: 2,
@@ -653,6 +661,16 @@ async def get_scan_run_ops_report(
         window_hours=hours,
         limit=runner_limit,
     )
+    alerts = _build_scan_ops_alerts(
+        queue_stats=queue_stats,
+        runner_activity=runner_activity,
+        generated_at=now,
+        dead_letter_threshold=DEFAULT_DEAD_LETTER_ALERT_THRESHOLD,
+        stale_threshold=DEFAULT_STALE_LEASE_ALERT_THRESHOLD,
+        failed_ratio_threshold=DEFAULT_FAILED_RATIO_ALERT_THRESHOLD,
+        runner_failure_min_started=DEFAULT_RUNNER_FAILURE_MIN_STARTED,
+        runner_failure_ratio_threshold=DEFAULT_RUNNER_FAILURE_RATIO_THRESHOLD,
+    )
 
     return ResponsibilityScanOpsReport(
         window_hours=hours,
@@ -666,6 +684,7 @@ async def get_scan_run_ops_report(
         top_failure_reasons=top_failure_reasons,
         recent_events=recent_events,
         runner_activity=runner_activity,
+        alerts=alerts,
         generated_at=now,
     )
 
@@ -736,6 +755,37 @@ async def get_scan_runner_activity(
         reverse=True,
     )
     return sorted_summaries[:limit_value]
+
+
+async def get_scan_ops_alerts(
+    *,
+    db: AsyncSession,
+    window_hours: int = 24,
+    runner_limit: int = 20,
+    dead_letter_threshold: int = DEFAULT_DEAD_LETTER_ALERT_THRESHOLD,
+    stale_threshold: int = DEFAULT_STALE_LEASE_ALERT_THRESHOLD,
+    failed_ratio_threshold: float = DEFAULT_FAILED_RATIO_ALERT_THRESHOLD,
+    runner_failure_min_started: int = DEFAULT_RUNNER_FAILURE_MIN_STARTED,
+    runner_failure_ratio_threshold: float = DEFAULT_RUNNER_FAILURE_RATIO_THRESHOLD,
+) -> list[ResponsibilityScanOpsAlert]:
+    now = datetime.utcnow()
+    hours = max(1, min(window_hours, 24 * 30))
+    queue_stats = await get_scan_run_queue_stats(db=db)
+    runner_activity = await get_scan_runner_activity(
+        db=db,
+        window_hours=hours,
+        limit=runner_limit,
+    )
+    return _build_scan_ops_alerts(
+        queue_stats=queue_stats,
+        runner_activity=runner_activity,
+        generated_at=now,
+        dead_letter_threshold=dead_letter_threshold,
+        stale_threshold=stale_threshold,
+        failed_ratio_threshold=failed_ratio_threshold,
+        runner_failure_min_started=runner_failure_min_started,
+        runner_failure_ratio_threshold=runner_failure_ratio_threshold,
+    )
 
 
 async def recover_stale_scan_runs(
@@ -1707,6 +1757,115 @@ async def _append_scan_event(
             metadata_=metadata or {},
             created_at=datetime.utcnow(),
         )
+    )
+
+
+def _build_scan_ops_alerts(
+    *,
+    queue_stats: ResponsibilityScanQueueStats,
+    runner_activity: list[ResponsibilityScanRunnerActivitySummary],
+    generated_at: datetime,
+    dead_letter_threshold: int,
+    stale_threshold: int,
+    failed_ratio_threshold: float,
+    runner_failure_min_started: int,
+    runner_failure_ratio_threshold: float,
+) -> list[ResponsibilityScanOpsAlert]:
+    alerts: list[ResponsibilityScanOpsAlert] = []
+    stale_total = queue_stats.stale_claimed + queue_stats.stale_running
+    stale_threshold_value = max(1, stale_threshold)
+    dead_letter_threshold_value = max(1, dead_letter_threshold)
+    failed_ratio_threshold_value = max(0.01, min(failed_ratio_threshold, 1.0))
+    runner_failure_min_started_value = max(1, runner_failure_min_started)
+    runner_failure_ratio_threshold_value = max(0.01, min(runner_failure_ratio_threshold, 1.0))
+
+    if stale_total >= stale_threshold_value:
+        alerts.append(
+            ResponsibilityScanOpsAlert(
+                severity=ResponsibilityScanOpsAlertSeverity.HIGH,
+                alert_type=ResponsibilityScanOpsAlertType.QUEUE_STALE_LEASE,
+                message=f"stale scan leases detected: {stale_total}",
+                metadata={
+                    "stale_claimed": queue_stats.stale_claimed,
+                    "stale_running": queue_stats.stale_running,
+                    "threshold": stale_threshold_value,
+                },
+                generated_at=generated_at,
+            )
+        )
+
+    if queue_stats.dead_letter_count >= dead_letter_threshold_value:
+        alerts.append(
+            ResponsibilityScanOpsAlert(
+                severity=ResponsibilityScanOpsAlertSeverity.HIGH,
+                alert_type=ResponsibilityScanOpsAlertType.QUEUE_DEAD_LETTER_PRESSURE,
+                message=f"dead-letter queue pressure: {queue_stats.dead_letter_count}",
+                metadata={
+                    "dead_letter_count": queue_stats.dead_letter_count,
+                    "threshold": dead_letter_threshold_value,
+                },
+                generated_at=generated_at,
+            )
+        )
+
+    failed_total = int(queue_stats.status_counts.get(ResponsibilityScanRunStatus.FAILED.value, 0)) + int(
+        queue_stats.status_counts.get(ResponsibilityScanRunStatus.DEAD_LETTER.value, 0)
+    )
+    if queue_stats.total_runs > 0:
+        failed_ratio = failed_total / queue_stats.total_runs
+        if failed_ratio >= failed_ratio_threshold_value:
+            alerts.append(
+                ResponsibilityScanOpsAlert(
+                    severity=ResponsibilityScanOpsAlertSeverity.MEDIUM,
+                    alert_type=ResponsibilityScanOpsAlertType.QUEUE_FAILURE_RATIO,
+                    message=f"scan failure ratio elevated: {failed_ratio:.2%}",
+                    metadata={
+                        "failed_total": failed_total,
+                        "total_runs": queue_stats.total_runs,
+                        "failed_ratio": round(failed_ratio, 4),
+                        "threshold": failed_ratio_threshold_value,
+                    },
+                    generated_at=generated_at,
+                )
+            )
+
+    for runner in runner_activity:
+        started = max(
+            runner.execution_started_count,
+            runner.execution_completed_count + runner.execution_failed_count,
+        )
+        if started < runner_failure_min_started_value:
+            continue
+        failure_ratio = 0.0 if started == 0 else (runner.execution_failed_count / started)
+        if failure_ratio >= runner_failure_ratio_threshold_value:
+            alerts.append(
+                ResponsibilityScanOpsAlert(
+                    severity=ResponsibilityScanOpsAlertSeverity.MEDIUM,
+                    alert_type=ResponsibilityScanOpsAlertType.RUNNER_FAILURE_SPIKE,
+                    message=f"runner failure spike detected: {runner.runner_identity_id}",
+                    metadata={
+                        "runner_identity_id": runner.runner_identity_id,
+                        "execution_started_count": started,
+                        "execution_failed_count": runner.execution_failed_count,
+                        "failure_ratio": round(failure_ratio, 4),
+                        "threshold": runner_failure_ratio_threshold_value,
+                    },
+                    generated_at=generated_at,
+                )
+            )
+
+    severity_order = {
+        ResponsibilityScanOpsAlertSeverity.HIGH: 3,
+        ResponsibilityScanOpsAlertSeverity.MEDIUM: 2,
+        ResponsibilityScanOpsAlertSeverity.INFO: 1,
+    }
+    return sorted(
+        alerts,
+        key=lambda item: (
+            severity_order[item.severity],
+            item.generated_at,
+        ),
+        reverse=True,
     )
 
 

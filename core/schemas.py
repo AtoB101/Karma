@@ -742,6 +742,28 @@ class ResponsibilityScanRunnerActivitySummary(BaseModel):
     last_event_at: Optional[datetime] = None
 
 
+class ResponsibilityScanOpsAlertSeverity(str, Enum):
+    INFO = "info"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ResponsibilityScanOpsAlertType(str, Enum):
+    QUEUE_STALE_LEASE = "queue_stale_lease"
+    QUEUE_DEAD_LETTER_PRESSURE = "queue_dead_letter_pressure"
+    QUEUE_FAILURE_RATIO = "queue_failure_ratio"
+    RUNNER_FAILURE_SPIKE = "runner_failure_spike"
+
+
+class ResponsibilityScanOpsAlert(BaseModel):
+    alert_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    severity: ResponsibilityScanOpsAlertSeverity
+    alert_type: ResponsibilityScanOpsAlertType
+    message: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ResponsibilityScanOpsReport(BaseModel):
     window_hours: int
     total_runs: int = 0
@@ -754,6 +776,7 @@ class ResponsibilityScanOpsReport(BaseModel):
     top_failure_reasons: list[ResponsibilityScanFailureReasonSummary] = Field(default_factory=list)
     recent_events: list[ResponsibilityScanRunEvent] = Field(default_factory=list)
     runner_activity: list[ResponsibilityScanRunnerActivitySummary] = Field(default_factory=list)
+    alerts: list[ResponsibilityScanOpsAlert] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

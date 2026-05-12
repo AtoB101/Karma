@@ -21,6 +21,7 @@ from services.responsibility_graph import (
     list_dead_letter_scan_runs,
     list_scan_run_events,
     get_scan_runner_activity,
+    get_scan_ops_alerts,
     get_scan_run_ops_report,
     get_scan_run_queue_stats,
     get_task_temporal_consistency_report,
@@ -468,6 +469,41 @@ async def test_scan_ops_report_contains_recent_events_and_failures(db_session):
     assert len(report.top_failure_reasons) >= 1
     assert any("base scan run not found" in item.reason for item in report.top_failure_reasons)
     assert any(item.runner_identity_id == "runner-ops-report" for item in report.runner_activity)
+    assert any(item.alert_type.value == "queue_failure_ratio" for item in report.alerts)
+
+
+@pytest.mark.asyncio
+async def test_scan_ops_alerts_detect_runner_failure_spike(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=None,
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.INCREMENTAL,
+        base_scan_id="missing-base-alerts",
+        retry_max_attempts=3,
+        retry_backoff_seconds=1,
+    )
+    scan_id = created.run.scan_id
+    for _ in range(3):
+        with pytest.raises(ValueError, match="base scan run not found"):
+            await execute_scan_run(
+                db=db_session,
+                scan_id=scan_id,
+                runner_identity_id="runner-alert-1",
+                force=True,
+            )
+
+    alerts = await get_scan_ops_alerts(
+        db=db_session,
+        window_hours=24,
+        runner_limit=20,
+        dead_letter_threshold=100,
+        stale_threshold=100,
+        failed_ratio_threshold=0.9,
+        runner_failure_min_started=2,
+        runner_failure_ratio_threshold=0.5,
+    )
+    assert any(item.alert_type.value == "runner_failure_spike" for item in alerts)
 
 
 @pytest.mark.asyncio

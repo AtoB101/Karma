@@ -17,6 +17,7 @@ from core.schemas import (
     ResponsibilityQueueMaintenanceTickResult,
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
+    ResponsibilityScanOpsAlert,
     ResponsibilityScanOpsReport,
     ResponsibilityScanQueueStats,
     ResponsibilityScanRunnerActivitySummary,
@@ -42,6 +43,7 @@ from services.responsibility_graph import (
     get_identity_signals,
     get_public_risk_model,
     get_scan_runner_activity,
+    get_scan_ops_alerts,
     get_scan_run_ops_report,
     get_scan_run_queue_stats,
     get_task_path_summary,
@@ -295,6 +297,29 @@ async def get_scan_runner_activity_view(
         db=db,
         window_hours=window_hours,
         limit=limit,
+    )
+
+
+@router.get("/scan-runs/ops/alerts", response_model=list[ResponsibilityScanOpsAlert])
+async def get_scan_ops_alerts_view(
+    window_hours: int = Query(default=24, ge=1, le=24 * 30),
+    runner_limit: int = Query(default=20, ge=1, le=200),
+    dead_letter_threshold: int = Query(default=5, ge=1, le=100000),
+    stale_threshold: int = Query(default=3, ge=1, le=100000),
+    failed_ratio_threshold: float = Query(default=0.25, ge=0.01, le=1.0),
+    runner_failure_min_started: int = Query(default=3, ge=1, le=100000),
+    runner_failure_ratio_threshold: float = Query(default=0.5, ge=0.01, le=1.0),
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_scan_ops_alerts(
+        db=db,
+        window_hours=window_hours,
+        runner_limit=runner_limit,
+        dead_letter_threshold=dead_letter_threshold,
+        stale_threshold=stale_threshold,
+        failed_ratio_threshold=failed_ratio_threshold,
+        runner_failure_min_started=runner_failure_min_started,
+        runner_failure_ratio_threshold=runner_failure_ratio_threshold,
     )
 
 
