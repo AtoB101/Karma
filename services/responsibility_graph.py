@@ -31,6 +31,7 @@ from core.schemas import (
     ResponsibilityScanExecutionMode,
     ResponsibilityScanFailureReasonSummary,
     ResponsibilityScanOpsReport,
+    ResponsibilityScanRunnerActivitySummary,
     ResponsibilityScanQueueStats,
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityQueueMaintenanceTickResult,
@@ -601,6 +602,7 @@ async def get_scan_run_ops_report(
     window_hours: int = 24,
     recent_events_limit: int = 50,
     top_failure_limit: int = 10,
+    runner_limit: int = 20,
 ) -> ResponsibilityScanOpsReport:
     now = datetime.utcnow()
     hours = max(1, min(window_hours, 24 * 30))
@@ -646,6 +648,11 @@ async def get_scan_run_ops_report(
         )
         for reason, count, last_seen_at in failure_result.all()
     ]
+    runner_activity = await get_scan_runner_activity(
+        db=db,
+        window_hours=hours,
+        limit=runner_limit,
+    )
 
     return ResponsibilityScanOpsReport(
         window_hours=hours,
@@ -658,8 +665,77 @@ async def get_scan_run_ops_report(
         stale_running=queue_stats.stale_running,
         top_failure_reasons=top_failure_reasons,
         recent_events=recent_events,
+        runner_activity=runner_activity,
         generated_at=now,
     )
+
+
+async def get_scan_runner_activity(
+    *,
+    db: AsyncSession,
+    window_hours: int = 24,
+    limit: int = 20,
+) -> list[ResponsibilityScanRunnerActivitySummary]:
+    hours = max(1, min(window_hours, 24 * 30))
+    limit_value = max(1, min(limit, 200))
+    since = datetime.utcnow() - timedelta(hours=hours)
+    tracked_types = {
+        ResponsibilityScanEventType.CLAIMED.value,
+        ResponsibilityScanEventType.HEARTBEAT.value,
+        ResponsibilityScanEventType.EXECUTION_STARTED.value,
+        ResponsibilityScanEventType.EXECUTION_COMPLETED.value,
+        ResponsibilityScanEventType.EXECUTION_FAILED.value,
+    }
+
+    result = await db.execute(
+        select(ResponsibilityScanEventModel)
+        .where(
+            ResponsibilityScanEventModel.created_at >= since,
+            ResponsibilityScanEventModel.event_type.in_(tracked_types),
+        )
+        .order_by(ResponsibilityScanEventModel.created_at.desc())
+        .limit(5000)
+    )
+    rows = result.scalars().all()
+    by_runner: dict[str, ResponsibilityScanRunnerActivitySummary] = {}
+
+    for row in rows:
+        metadata = row.metadata_ or {}
+        runner_identity_id = metadata.get("runner_identity_id")
+        if not isinstance(runner_identity_id, str) or not runner_identity_id.strip():
+            continue
+        runner_id = runner_identity_id.strip()
+        summary = by_runner.get(runner_id)
+        if not summary:
+            summary = ResponsibilityScanRunnerActivitySummary(runner_identity_id=runner_id)
+            by_runner[runner_id] = summary
+        if summary.last_event_at is None or row.created_at > summary.last_event_at:
+            summary.last_event_at = row.created_at
+
+        if row.event_type == ResponsibilityScanEventType.CLAIMED.value:
+            summary.claimed_count += 1
+        elif row.event_type == ResponsibilityScanEventType.HEARTBEAT.value:
+            summary.heartbeat_count += 1
+        elif row.event_type == ResponsibilityScanEventType.EXECUTION_STARTED.value:
+            summary.execution_started_count += 1
+        elif row.event_type == ResponsibilityScanEventType.EXECUTION_COMPLETED.value:
+            summary.execution_completed_count += 1
+        elif row.event_type == ResponsibilityScanEventType.EXECUTION_FAILED.value:
+            summary.execution_failed_count += 1
+
+    sorted_summaries = sorted(
+        by_runner.values(),
+        key=lambda item: (
+            item.last_event_at or datetime.min,
+            item.claimed_count
+            + item.heartbeat_count
+            + item.execution_started_count
+            + item.execution_completed_count
+            + item.execution_failed_count,
+        ),
+        reverse=True,
+    )
+    return sorted_summaries[:limit_value]
 
 
 async def recover_stale_scan_runs(
@@ -1207,6 +1283,7 @@ async def execute_scan_run(
         run_row.completed_at = datetime.utcnow()
         run_row.last_error = None
         run_row.next_retry_at = None
+        runner_identity_id_for_event = run_row.claimed_by
         _clear_claim_fields(run_row)
         await db.flush()
         await _append_scan_event(
@@ -1218,12 +1295,14 @@ async def execute_scan_run(
                 "total_identities": run_row.total_identities,
                 "flagged_identities": run_row.flagged_identities,
                 "attempt": run_row.current_attempt,
+                "runner_identity_id": runner_identity_id_for_event,
             },
         )
     except Exception as exc:
         run_row.status = ResponsibilityScanRunStatus.FAILED.value
         run_row.completed_at = None
         run_row.last_error = str(exc)
+        runner_identity_id_for_event = run_row.claimed_by
         _clear_claim_fields(run_row)
         if run_row.current_attempt < run_row.retry_max_attempts:
             backoff_seconds = max(1, run_row.retry_backoff_seconds) * run_row.current_attempt
@@ -1240,6 +1319,7 @@ async def execute_scan_run(
                 "error": str(exc),
                 "attempt": run_row.current_attempt,
                 "next_retry_at": run_row.next_retry_at.isoformat() if run_row.next_retry_at else None,
+                "runner_identity_id": runner_identity_id_for_event,
             },
         )
         raise

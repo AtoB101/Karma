@@ -20,6 +20,7 @@ from services.responsibility_graph import (
     get_batch_scan_result,
     list_dead_letter_scan_runs,
     list_scan_run_events,
+    get_scan_runner_activity,
     get_scan_run_ops_report,
     get_scan_run_queue_stats,
     get_task_temporal_consistency_report,
@@ -444,7 +445,11 @@ async def test_scan_ops_report_contains_recent_events_and_failures(db_session):
     )
     scan_id = created.run.scan_id
     with pytest.raises(ValueError, match="base scan run not found"):
-        await execute_scan_run(db=db_session, scan_id=scan_id)
+        await execute_scan_run(
+            db=db_session,
+            scan_id=scan_id,
+            runner_identity_id="runner-ops-report",
+        )
     await sweep_dead_letter_scan_runs(db=db_session, limit=100, reason="ops-report-dlq")
 
     report = await get_scan_run_ops_report(
@@ -462,6 +467,46 @@ async def test_scan_ops_report_contains_recent_events_and_failures(db_session):
     assert ResponsibilityScanEventType.DEAD_LETTERED in event_types
     assert len(report.top_failure_reasons) >= 1
     assert any("base scan run not found" in item.reason for item in report.top_failure_reasons)
+    assert any(item.runner_identity_id == "runner-ops-report" for item in report.runner_activity)
+
+
+@pytest.mark.asyncio
+async def test_scan_runner_activity_summary_counts(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=["runner-a"],
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.FULL,
+    )
+    scan_id = created.run.scan_id
+    await claim_next_scan_run(
+        db=db_session,
+        runner_identity_id="runner-activity-1",
+        lease_seconds=120,
+    )
+    await heartbeat_scan_run(
+        db=db_session,
+        scan_id=scan_id,
+        runner_identity_id="runner-activity-1",
+        lease_seconds=120,
+    )
+    await execute_scan_run(
+        db=db_session,
+        scan_id=scan_id,
+        runner_identity_id="runner-activity-1",
+        lease_seconds=120,
+    )
+
+    activity = await get_scan_runner_activity(
+        db=db_session,
+        window_hours=24,
+        limit=20,
+    )
+    summary = next(item for item in activity if item.runner_identity_id == "runner-activity-1")
+    assert summary.claimed_count >= 1
+    assert summary.heartbeat_count >= 1
+    assert summary.execution_started_count >= 1
+    assert summary.execution_completed_count >= 1
 
 
 @pytest.mark.asyncio

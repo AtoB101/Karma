@@ -732,6 +732,16 @@ class ResponsibilityScanFailureReasonSummary(BaseModel):
     last_seen_at: Optional[datetime] = None
 
 
+class ResponsibilityScanRunnerActivitySummary(BaseModel):
+    runner_identity_id: str
+    claimed_count: int = 0
+    heartbeat_count: int = 0
+    execution_started_count: int = 0
+    execution_completed_count: int = 0
+    execution_failed_count: int = 0
+    last_event_at: Optional[datetime] = None
+
+
 class ResponsibilityScanOpsReport(BaseModel):
     window_hours: int
     total_runs: int = 0
@@ -743,6 +753,7 @@ class ResponsibilityScanOpsReport(BaseModel):
     stale_running: int = 0
     top_failure_reasons: list[ResponsibilityScanFailureReasonSummary] = Field(default_factory=list)
     recent_events: list[ResponsibilityScanRunEvent] = Field(default_factory=list)
+    runner_activity: list[ResponsibilityScanRunnerActivitySummary] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

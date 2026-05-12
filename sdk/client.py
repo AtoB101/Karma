@@ -34,6 +34,7 @@ from core.schemas import (
     ResponsibilityScanExecutionMode,
     ResponsibilityScanOpsReport,
     ResponsibilityScanQueueStats,
+    ResponsibilityScanRunnerActivitySummary,
     ResponsibilityScanRunEvent,
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
@@ -706,6 +707,7 @@ class KarmaClient:
         window_hours: int = 24,
         recent_events_limit: int = 50,
         top_failure_limit: int = 10,
+        runner_limit: int = 20,
     ) -> ResponsibilityScanOpsReport:
         """GET /v1/responsibility/scan-runs/ops/report"""
         async with self._http() as http:
@@ -714,9 +716,25 @@ class KarmaClient:
                 f"?window_hours={window_hours}"
                 f"&recent_events_limit={recent_events_limit}"
                 f"&top_failure_limit={top_failure_limit}"
+                f"&runner_limit={runner_limit}"
             )
             resp.raise_for_status()
             return ResponsibilityScanOpsReport(**resp.json())
+
+    async def list_responsibility_scan_runner_activity(
+        self,
+        *,
+        window_hours: int = 24,
+        limit: int = 20,
+    ) -> list[ResponsibilityScanRunnerActivitySummary]:
+        """GET /v1/responsibility/scan-runs/ops/runners"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/ops/runners"
+                f"?window_hours={window_hours}&limit={limit}"
+            )
+            resp.raise_for_status()
+            return [ResponsibilityScanRunnerActivitySummary(**item) for item in resp.json()]
 
     async def recover_stale_responsibility_batch_scans(
         self,

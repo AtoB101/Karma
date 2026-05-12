@@ -1052,6 +1052,14 @@ paths:
             minimum: 1
             maximum: 100
             default: 10
+        - in: query
+          name: runner_limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
       responses:
         '200':
           description: Scan-run operations report
@@ -1059,6 +1067,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResponsibilityScanOpsReport'
+  /v1/responsibility/scan-runs/ops/runners:
+    get:
+      summary: Get scan-run runner activity summary
+      operationId: listResponsibilityScanRunnerActivity
+      parameters:
+        - in: query
+          name: window_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+            default: 24
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+      responses:
+        '200':
+          description: Runner activity summary list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResponsibilityScanRunnerActivitySummary'
   /v1/responsibility/scan-runs/recover-stale:
     post:
       summary: Recover stale claimed or running scan runs
@@ -2637,6 +2675,31 @@ components:
       required:
         - reason
         - count
+    ResponsibilityScanRunnerActivitySummary:
+      type: object
+      properties:
+        runner_identity_id:
+          type: string
+        claimed_count:
+          type: integer
+        heartbeat_count:
+          type: integer
+        execution_started_count:
+          type: integer
+        execution_completed_count:
+          type: integer
+        execution_failed_count:
+          type: integer
+        last_event_at:
+          type: string
+          format: date-time
+      required:
+        - runner_identity_id
+        - claimed_count
+        - heartbeat_count
+        - execution_started_count
+        - execution_completed_count
+        - execution_failed_count
     ResponsibilityScanOpsReport:
       type: object
       properties:
@@ -2666,6 +2729,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ResponsibilityScanRunEvent'
+        runner_activity:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponsibilityScanRunnerActivitySummary'
         generated_at:
           type: string
           format: date-time
@@ -2680,6 +2747,7 @@ components:
         - stale_running
         - top_failure_reasons
         - recent_events
+        - runner_activity
         - generated_at
     ResponsibilityWorkerPullExecuteResult:
       type: object
