@@ -132,6 +132,10 @@ karma-public/
 
 - [API Reference](docs/API_REFERENCE.md)
 - [Deployment SOP](docs/DEPLOYMENT.md)
+- [Karma FINAL V1.0 Engineering Kickoff (CN)](docs/KARMA_FINAL_V1_ENGINEERING_KICKOFF_CN.md)
+- [Execution Receipt Standard](docs/EXECUTION_RECEIPT_STANDARD.md)
+- [Public 12 Deliverables (CN)](docs/PUBLIC_12_DELIVERABLES_CN.md)
+- [Public P0 Acceptance Runbook (CN)](docs/PUBLIC_P0_ACCEPTANCE_RUNBOOK_CN.md)
 
 ---
 

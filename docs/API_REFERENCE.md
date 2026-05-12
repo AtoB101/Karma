@@ -7,6 +7,8 @@ https://api.karma.xyz/v1
 ```
 
 All requests require authentication via `Authorization: Bearer <token>` or `X-Karma-Api-Key: karma_{agent_id}_{secret}`.
+Sensitive write endpoints are security-audited and protected by Redis-backed rate limiting in production.
+Security telemetry alerts are available via `GET /v1/security/ops/alerts`.
 
 ---
 
@@ -14,6 +16,8 @@ All requests require authentication via `Authorization: Bearer <token>` or `X-Ka
 
 ### `POST /v1/auth/token`
 Exchange a static API key for a short-lived JWT (24h).
+Server-side API keys must be configured via `AUTH_API_KEYS` (`agent_id:secret` pairs).
+Production must also set `AUTH_ENFORCE_PROTECTED_ROUTES=true` to require auth on protected routers.
 
 **Request**
 ```json
@@ -23,6 +27,143 @@ Exchange a static API key for a short-lived JWT (24h).
 ```json
 { "access_token": "eyJ...", "token_type": "bearer", "agent_id": "agent-001" }
 ```
+
+### `GET /v1/security/ops/alerts`
+Get rolling security operations alerts (default 15-minute window), including:
+- auth failure spikes (`401`)
+- rate-limit spikes (`429`)
+- private runtime error rate (`/v1/verify` returning `502/503`)
+- settlement transition guard reject spikes / reject-rate anomalies
+- top dimension slices by `path` and `actor_id`
+- escalation decision (`none` / `watch` / `page`) and suggested response actions
+- alert suppression count when cooldown is enabled
+
+Query parameters allow threshold tuning:
+- `window_minutes`
+- `failed_auth_threshold`
+- `rate_limit_threshold`
+- `private_runtime_error_threshold`
+- `private_runtime_error_rate_threshold`
+- `private_runtime_min_requests`
+- `settlement_transition_denied_threshold`
+- `settlement_transition_denied_rate_threshold`
+- `settlement_transition_min_requests`
+- `dimension_limit`
+- `alert_cooldown_minutes`
+- `failed_auth_threshold_overrides`（如：`/v1/auth/token=5,group:auth=8`）
+- `rate_limit_threshold_overrides`（如：`/v1/verify=20,group:verification=25`）
+- `private_runtime_error_threshold_overrides`
+- `private_runtime_error_rate_threshold_overrides`
+- `settlement_transition_denied_threshold_overrides`
+- `baseline_window_minutes`
+- `baseline_drift_multiplier`
+- `baseline_min_sample_count`
+- `baseline_capture_interval_minutes`
+- `apply_policy_center`
+- `policy_id`
+- `policy_actor_id`
+- `auto_brake_on_transition_critical`
+- `auto_brake_actor_id`
+
+返回结构额外包含：
+- `baseline`（滚动基线均值与样本数）
+- `suppressed_alert_count`（被冷却策略抑制的告警数量）
+- `escalation`（`none/watch/page`）
+- `recommended_actions`（值班动作建议）
+- `policy_id / policy_version / policy_status / matched_candidate`（策略中心命中信息）
+- `summary.settlement_transition_*`（迁移总量/拒绝量/拒绝率与维度聚合）
+
+### `POST /v1/security/policies`
+Create a new persisted security threshold policy version.
+
+### `GET /v1/security/policies`
+List policy versions (supports `status` filter and `limit`).
+
+### `GET /v1/security/policies/{policy_id}`
+Get one policy version.
+
+### `POST /v1/security/policies/{policy_id}/activate`
+Emergency direct promote only (`?emergency_override=true`).  
+Default flow is the approval workflow under `/v1/security/policies/changes`.
+
+### `POST /v1/security/policies/{policy_id}/candidate`
+Emergency direct candidate rollout only (`?emergency_override=true`).  
+Default flow is the approval workflow under `/v1/security/policies/changes`.
+
+### `POST /v1/security/policies/rollback`
+Emergency direct rollback only (`?emergency_override=true`).  
+Default flow is the approval workflow under `/v1/security/policies/changes`.
+
+### `POST /v1/security/policies/changes`
+Create a policy change request (activate / set_candidate / rollback).  
+Automatically includes pre-activation dry-run simulation results.
+
+### `GET /v1/security/policies/changes`
+List policy change requests (`status`, `limit`).
+
+### `GET /v1/security/policies/changes/{request_id}`
+Get a single policy change request with approvals and dry-run payload.
+
+### `POST /v1/security/policies/changes/{request_id}/review`
+Submit reviewer decision (`approve` or `reject`).  
+Distinct reviewers are required; default gate requires 2 approvals.
+
+### `POST /v1/security/policies/changes/{request_id}/apply`
+Apply an approved change request.  
+Requests cannot be applied before satisfying the approval threshold.
+
+### `POST /v1/security/policies/changes/dry-run`
+Run simulation only (no persistence / no activation) and return projected alert impact.
+Dry-run summary now includes transition-anomaly projection fields:
+- `current_transition_denied_count / projected_transition_denied_count / delta_transition_denied_count`
+- `current_transition_denied_rate / projected_transition_denied_rate / delta_transition_denied_rate`
+- `current_transition_denied_rate_critical / projected_transition_denied_rate_critical`
+- `critical_auto_brake_will_trigger`
+
+### `GET /v1/security/runtime/safety-mode`
+Read current runtime safety-mode state (enabled flag, trigger reason, latest anchor-audit totals).
+
+### `POST /v1/security/runtime/safety-mode`
+Manually enable/disable runtime safety mode.
+
+### `POST /v1/security/runtime/anchor-audit`
+Run a global anchor audit:
+- `sum(total_bill_credits) <= sum(total_locked_usdc)`
+- if violated, system auto-enables safety mode and blocks sensitive write paths.
+
+### `GET /v1/admin/controls`
+Read current brake-only control state (admin whitelist required).
+
+### `POST /v1/admin/controls/safety-mode`
+Admin one-switch safety mode.
+
+### `POST /v1/admin/controls/pauses`
+Admin fine-grained brakes:
+- `pause_new_lock`
+- `pause_new_authorization`
+- `pause_new_task`
+- `pause_new_settlement`
+
+### `POST /v1/admin/controls/identities/{identity_id}/risk-mark`
+Admin marks or clears risk flag on identity profile (`risk_marked`/`active`).
+
+SDK helper:
+- `get_security_ops_alerts(...)`
+- `create_security_threshold_policy(...)`
+- `list_security_threshold_policies(...)`
+- `get_security_threshold_policy(policy_id)`
+- `activate_security_threshold_policy(policy_id, emergency_override=True)`
+- `set_security_threshold_policy_candidate(policy_id, rollout_percent=..., emergency_override=True)`
+- `rollback_security_threshold_policy(target_policy_id=None, emergency_override=True)`
+- `create_security_policy_change_request(...)`
+- `list_security_policy_change_requests(...)`
+- `get_security_policy_change_request(request_id)`
+- `review_security_policy_change_request(request_id, approver_id=..., decision=...)`
+- `apply_security_policy_change_request(request_id)`
+- `dry_run_security_policy_change(...)`
+- `get_runtime_safety_mode()`
+- `update_runtime_safety_mode(enabled=..., reason=..., actor_id=...)`
+- `run_runtime_anchor_audit(actor_id=\"sdk\")`
 
 ---
 
@@ -82,6 +223,14 @@ Assign a worker agent to the contract.
 
 ### `POST /v1/receipts`
 Submit a single `ExecutionReceipt` (called automatically by `KarmaHookLayer`).
+Receipt format standard: `docs/EXECUTION_RECEIPT_STANDARD.md`.
+
+Strict acceptance rules:
+- signature required and verified
+- `input_hash` / `output_hash` must be 64-char hex
+- `step_index` must be sequential per `task_id` (first step must be `1`)
+- timestamp ordering must be monotonic per task
+- duplicate receipt IDs / duplicate task-step pairs rejected
 
 ### `GET /v1/receipts/{receipt_id}`
 Get a receipt by ID.
@@ -148,30 +297,457 @@ Get verification result for a task.
 ## Settlement
 
 ### `POST /v1/settlement/create`
-Create escrow for a task.
+Create a settlement record in `draft`.
 
 ### `POST /v1/settlement/{task_id}/lock`
-Lock escrow once worker accepts task. Body: `{ "worker_agent_id": "..." }`
+Move to `accepted` and bind worker identity. Body: `{ "worker_agent_id": "..." }`
+
+### `POST /v1/settlement/{task_id}/pending`
+Move from `draft` to `pending` (explicit queue/waiting phase before acceptance).
 
 ### `POST /v1/settlement/{task_id}/start`
-Mark task as running.
+Move to `in_progress`.
 
 ### `POST /v1/settlement/{task_id}/submit`
-Mark task as submitted (evidence bundle uploaded).
+Mark task as `delivered` (waiting confirmation / arbitration path).
 
 ### `POST /v1/settlement/{task_id}/fail`
-Mark task as failed (triggers refund).
+Mark task as `cancelled`.
+
+### `POST /v1/settlement/{task_id}/partial`
+Apply a split and finalize as `settled`.
+
+**Request**
+```json
+{ "settled_value_percent": 40, "reason": "milestone-1" }
+```
+
+### `POST /v1/settlement/{task_id}/regret`
+Buyer regret flow: settle confirmed progress share and finalize as `settled`.
+
+### `POST /v1/settlement/{task_id}/dispute`
+Open dispute and move task into `DISPUTED`.
+
+### `POST /v1/settlement/{task_id}/auto-arbitrate`
+Run public auto-arbitration rules:
+- confirmed progress = 0% → `refunded`
+- confirmed progress >= 90% → `settled`
+- otherwise proportional split → `settled`
 
 ### `GET /v1/settlement/{task_id}`
 Get current settlement state.
 
-**Task Lifecycle**
+### `GET /v1/settlement/{task_id}/transitions`
+List immutable transition audit entries (`allowed/rejected`, guard stage, reason, actor, route).
+
+**Canonical Task Lifecycle (FINAL)**
 ```
-CREATED → LOCKED → RUNNING → SUBMITTED → VERIFYING → VERIFIED → RELEASED
-                ↘ REFUNDED          ↘ DISPUTED → ARBITRATION → BUYER_WINS
-         ↘ FAILED → REFUNDED                               → SELLER_WINS
-                                                           → PARTIAL
+draft → pending(optional) → accepted → in_progress
+      → progress_submitted → progress_confirmed → delivered
+      → disputed → arbitrated → settled/refunded
+terminal: settled / refunded / cancelled
 ```
+
+Compatibility note:
+- legacy statuses (`created/locked/running/submitted/...`) are still parsed
+- runtime persists and returns canonical FINAL statuses
+
+---
+
+## Progress Receipts
+
+### `POST /v1/progress`
+Submit a progress receipt (`pending` by default). Requires task settlement state to allow progress submission.
+
+### `POST /v1/progress/{progress_receipt_id}/confirm`
+Confirm a progress receipt and promote settlement state to `progress_confirmed`.
+
+### `GET /v1/progress/task/{task_id}`
+List all progress receipts for a task ordered by submission time.
+
+SDK helper methods:
+- `submit_progress(progress_receipt)`
+- `confirm_progress(progress_receipt_id)`
+- `list_progress(task_id)`
+- `mark_settlement_pending(task_id)`
+- `list_settlement_transitions(task_id, limit=100)`
+- `regret_task(task_id, buyer_identity_id=None, reason=None)`
+- `partial_settlement(task_id, settled_value_percent, reason=None)`
+- `open_dispute(task_id, reason=None)`
+- `auto_arbitrate(task_id)`
+
+---
+
+## Capacity & Vouchers (P0 Open Flow)
+
+### `GET /v1/capacity/{identity_id}`
+Get identity capacity snapshot. If not initialized, returns zeroed capacity.
+
+### `POST /v1/capacity/{identity_id}/lock`
+Lock USDC-equivalent amount and mint 1:1 bill credits into `available_credits`.
+
+**Request**
+```json
+{ "amount": 200 }
+```
+
+### `POST /v1/capacity/{identity_id}/release`
+Release unused `available_credits` and reduce locked capacity.
+
+**Request**
+```json
+{ "amount": 50 }
+```
+
+### `POST /v1/vouchers`
+Create one-time Authorization Voucher. Buyer must have sufficient available credits.
+If `buyer_sub_identity_id` / `seller_sub_identity_id` is provided, it must be active and bound to the corresponding parent identity.
+
+### `POST /v1/vouchers/{voucher_id}/verify`
+Seller-side verification entrypoint:
+- authentic / expired / used
+- seller & amount match
+- buyer capacity still sufficient
+- whether task can start now
+
+### `POST /v1/vouchers/{voucher_id}/accept`
+Seller accepts voucher; system atomically reserves credits:
+- `available_credits -= bill_credit_amount`
+- `reserved_credits += bill_credit_amount`
+
+### `GET /v1/vouchers/{voucher_id}`
+Get voucher details and status.
+
+SDK helper methods:
+- `get_capacity(identity_id)`
+- `lock_capacity(identity_id, amount)`
+- `release_capacity(identity_id, amount)`
+- `create_voucher(...)`
+- `get_voucher(voucher_id)`
+- `verify_voucher(voucher_id, seller_identity_id, expected_amount=None)`
+- `accept_voucher(voucher_id, seller_identity_id)`
+
+---
+
+## Identity Profile & Sub-Identities (P2)
+
+### `POST /v1/identities/{identity_id}/profile/init`
+Initialize identity profile if absent (idempotent).
+
+### `GET /v1/identities/{identity_id}/profile`
+Get identity profile.
+
+### `POST /v1/identities/{identity_id}/rotate-display-id`
+Rotate public display id for privacy hardening.
+
+### `POST /v1/identities/{identity_id}/sub-identities`
+Create sub-identity with hard cap `<= 2` active sub-identities per parent.
+
+### `GET /v1/identities/{identity_id}/sub-identities`
+List all sub-identities.
+
+### `DELETE /v1/identities/{identity_id}/sub-identities/{sub_identity_id}`
+Soft-delete sub-identity (blocked if linked to active vouchers).
+
+SDK helper methods:
+- `init_identity_profile(identity_id)`
+- `get_identity_profile(identity_id)`
+- `rotate_display_id(identity_id)`
+- `create_sub_identity(identity_id, sub_identity_type, alias)`
+- `list_sub_identities(identity_id)`
+- `delete_sub_identity(identity_id, sub_identity_id)`
+
+---
+
+## Arbitration Pool & Case Flow (P2)
+
+### `POST /v1/arbitration/pool/join`
+Join (or update) a decentralized arbitration pool member.
+
+### `GET /v1/arbitration/pool`
+List current arbitration pool members.
+
+### `POST /v1/arbitration/cases`
+Create arbitration case from an already disputed settlement task.
+
+### `GET /v1/arbitration/cases/ops/report`
+Get arbitration operations report snapshot:
+- `status_counts`
+- `decision_counts`
+- recent case events within `window_hours`
+- `alerts`（open/voting backlog、decided timeout risk、partial spike）
+- `arbitrator_activity`（assignment/vote 活跃度聚合）
+- `overdue_cases`（open/voting/decided 阶段超时案件）
+
+### `GET /v1/arbitration/cases/ops/alerts`
+Get arbitration operations alerts only (supports threshold tuning):
+- `open_case_threshold`
+- `voting_case_threshold`
+- `decided_case_threshold`
+- `partial_ratio_threshold`
+
+### `GET /v1/arbitration/cases/ops/arbitrators`
+Get arbitrator activity summary (windowed):
+- `assigned_count`
+- `vote_count`
+- `last_assigned_at`
+- `last_voted_at`
+- `last_activity_at`
+
+### `GET /v1/arbitration/cases/ops/overdue`
+List overdue arbitration cases by stage thresholds:
+- `open_overdue_hours`
+- `voting_overdue_hours`
+- `decided_overdue_hours`
+- `limit`
+
+### `POST /v1/arbitration/cases/{case_id}/assign-auto`
+Auto-assign arbitrators from active pool.
+
+### `GET /v1/arbitration/cases/{case_id}/events`
+Query arbitration case event timeline (audit trail), including:
+- `case_created`
+- `arbitrators_assigned`
+- `material_submitted`
+- `vote_cast`
+- `case_decided`
+- `case_executed`
+
+### `POST /v1/arbitration/cases/{case_id}/materials`
+Submit normalized arbitration material package:
+- evidence hashes are normalized (`trim + lowercase + dedupe + sort`)
+- package hash generated deterministically
+
+### `POST /v1/arbitration/cases/{case_id}/vote`
+Assigned arbitrator casts vote (`buyer_wins | seller_wins | partial`).
+
+### `POST /v1/arbitration/cases/{case_id}/execute`
+Apply decided arbitration outcome to settlement state.
+
+SDK helper methods:
+- `join_arbitration_pool(arbitrator_identity_id, stake_amount=0.0)`
+- `list_arbitration_pool()`
+- `create_arbitration_case(task_id, opened_by, reason=None, required_arbitrators=3)`
+- `get_arbitration_case_ops_report(window_hours=24, recent_events_limit=50, arbitrator_limit=20)`
+- `get_arbitration_case_ops_alerts(...)`
+- `list_arbitration_case_ops_arbitrators(window_hours=24, limit=20)`
+- `list_arbitration_case_ops_overdue(limit=20, open_overdue_hours=24, voting_overdue_hours=24, decided_overdue_hours=12)`
+- `assign_arbitrators(case_id, count=3)`
+- `list_arbitration_case_events(case_id, limit=200)`
+- `submit_arbitration_material(case_id, submitted_by, ...)`
+- `cast_arbitration_vote(case_id, arbitrator_identity_id, decision, ...)`
+- `execute_arbitration_case(case_id)`
+
+---
+
+## MCP Verification Template (P2)
+
+`MCPExecutionAdapter` 新增 `build_verification_template(...)`，用于构建标准化 MCP 验证模板（`mcp-v2`），并可在 `build(...)` 中注入：
+- `input_schema_hash`
+- `output_schema_hash`
+- `prompt_hash` / `constraints_hash`
+- `runtime_receipt_hash`
+
+用于在公开侧保留“可验证字段模板”，同时不暴露私有阈值与权重。
+
+---
+
+## Responsibility Graph & Path Hash (P2)
+
+### `POST /v1/responsibility/edges`
+提交责任边并触发公开侧风险信号检测（骨架规则）：
+- `direct_loop`：同源同目标
+- `mutual_exchange`：A->B 与 B->A 反向互连
+- `cycle_authorization`：检测到闭环授权路径
+
+### `GET /v1/responsibility/identity/{identity_id}/signals`
+按身份查询风险信号（可指定 `limit`）。
+
+### `GET /v1/responsibility/identity/{identity_id}/path-features`
+返回多跳路径特征摘要（`window_hours` + `max_hops`）：
+- `traversed_edge_count`
+- `reachable_identity_count`
+- `cycle_paths_detected`
+- `path_hashes_sample`
+
+### `GET /v1/responsibility/task/{task_id}/temporal-consistency`
+返回任务级时序一致性检查报告：
+- `edge_type_out_of_order`
+- `duplicate_direction_burst`
+- `missing_anchor_edge`
+
+### `GET /v1/responsibility/identity/{identity_id}/score`
+按时间窗口计算公开风险评分（默认 `window_hours=24`）：
+- 使用公开权重（`signal_type * severity * recency`）
+- 输出 `weighted_points`、`normalized_score`、`risk_band`
+- 该评分仅是公开可解释层，不等同私有裁决引擎分数
+
+### `GET /v1/responsibility/task/{task_id}/path-hash`
+返回该 task 下的 `edge_hashes` 与聚合 `path_hash`。
+
+### `GET /v1/responsibility/model/public-risk`
+返回公开风险模型基线（版本、权重、recency floor、分段参考）。
+
+### `POST /v1/responsibility/scan-runs`
+创建批处理扫描任务（公开接口），对一组身份（或窗口内全量身份）执行：
+- 时间窗口风险评分
+- 多跳路径特征提取
+- 发现项归档（score 超阈值或检测到 cycle）
+
+支持模式：
+- `scan_mode = full`：按窗口全量扫描
+- `scan_mode = incremental`：基于 `base_scan_id`（或窗口基线）仅扫描增量活动身份
+
+执行模式：
+- `execution_mode = sync`：创建即执行并返回结果
+- `execution_mode = async`：仅创建 `pending` run，需后续触发执行
+
+重试策略字段：
+- `retry_max_attempts`
+- `retry_backoff_seconds`
+
+worker 任务编排字段：
+- `claimed_by`
+- `claimed_at`
+- `lease_expires_at`
+- `last_heartbeat_at`
+- `cancelled_at`
+- `cancel_reason`
+
+### `GET /v1/responsibility/scan-runs/{scan_id}`
+查询批处理扫描结果（含 `run` + `findings`）。
+
+### `POST /v1/responsibility/scan-runs/claim`
+worker 认领下一个可执行 scan run（`pending` / 可重试 `failed` / 过期 `claimed`）。
+
+### `GET /v1/responsibility/scan-runs/queue/stats`
+返回扫描队列可观测统计：
+- `status_counts`
+- `claimable_pending`
+- `claimable_failed`
+- `dead_letter_count`
+- `stale_claimed`
+- `stale_running`
+
+### `GET /v1/responsibility/scan-runs/ops/report`
+返回 scan-run 运维总览：
+- 队列统计快照
+- 近期事件（按窗口）
+- 失败原因 Top N（按窗口）
+- runner 活跃度摘要（claim/heartbeat/execution）
+- 运维告警摘要（stale lease / dead-letter pressure / failure ratio / runner failure spike）
+
+### `GET /v1/responsibility/scan-runs/ops/runners`
+返回 runner 活跃度明细（按窗口聚合）：
+- `claimed_count`
+- `heartbeat_count`
+- `execution_started_count`
+- `execution_completed_count`
+- `execution_failed_count`
+- `last_event_at`
+
+### `GET /v1/responsibility/scan-runs/ops/alerts`
+返回 scan-run 运维告警列表，支持阈值调参：
+- `dead_letter_threshold`
+- `stale_threshold`
+- `failed_ratio_threshold`
+- `runner_failure_min_started`
+- `runner_failure_ratio_threshold`
+
+### `POST /v1/responsibility/scan-runs/recover-stale`
+回收 lease 过期的 `claimed/running` run：
+- 过期 `claimed` -> 回置 `pending`
+- 过期 `running` -> 标记 `failed` 并触发可重试窗口
+
+### `GET /v1/responsibility/scan-runs/dead-letter`
+查询 dead-letter 队列中的 scan run。
+
+### `POST /v1/responsibility/scan-runs/dead-letter/sweep`
+将“重试次数耗尽”的 `failed` run 扫入 `dead_letter`（公开运维骨架）。
+
+### `POST /v1/responsibility/scan-runs/dead-letter/requeue-batch`
+按批次将 dead-letter run 回置到 `pending`（用于批量 redrive）。
+
+### `POST /v1/responsibility/scan-runs/dead-letter/purge`
+按保留期清理 dead-letter run（默认 `72h`），并清理关联事件/发现记录。
+
+### `POST /v1/responsibility/scan-runs/worker/pull-execute`
+worker 一次性拉取并执行 1 个 scan run（无任务时返回 `idle`）。
+
+### `POST /v1/responsibility/scan-runs/maintenance/tick`
+运维 tick（公开骨架）：
+- 先执行 stale 回收
+- 再按 `max_claim_execute` 拉取并执行队列任务
+- 返回 recover/execute 汇总统计
+
+### `GET /v1/responsibility/scan-runs/{scan_id}/events`
+返回 scan-run 事件时间线（按时间顺序）：
+- `created`
+- `claimed`
+- `heartbeat`
+- `execution_started / execution_completed / execution_failed`
+- `cancelled`
+- `stale_recovered`
+- `dead_lettered`
+- `requeued`
+
+### `POST /v1/responsibility/scan-runs/{scan_id}/requeue`
+将 `dead_letter` run 回置到 `pending`，用于人工重入队。
+
+### `POST /v1/responsibility/scan-runs/{scan_id}/execute`
+执行（或强制重执行）一个 scan run，支持：
+- `force`
+- `runner_identity_id`
+- `lease_seconds`
+
+### `POST /v1/responsibility/scan-runs/{scan_id}/heartbeat`
+worker 心跳续租（延长 lease）以保持 claim 有效。
+
+### `POST /v1/responsibility/scan-runs/{scan_id}/retry`
+重试失败的 scan run（遵循 next retry window）。
+
+### `POST /v1/responsibility/scan-runs/{scan_id}/cancel`
+取消非终态 scan run，记录取消原因。
+
+### `POST /v1/responsibility/reports/export`
+导出可解释风险报告（identity 或 task 二选一）：
+- identity 报告：score + path features + top signals + findings excerpt
+- task 报告：task path hash + temporal consistency + top signals
+- 返回 `signature` 占位结构（`signature_payload_hash` + `status`），用于公开侧验签流程对接
+- 可选提交 `signer_identity_id` 与 `signature`，用于 public 验签流程占位。
+
+自动接入：
+- `POST /v1/vouchers/{voucher_id}/accept` 成功后会自动记录一条 `voucher_accept` 责任边。
+
+SDK helper methods:
+- `ingest_responsibility_edge(...)`
+- `list_responsibility_signals(identity_id, limit=50)`
+- `get_task_path_hash(task_id)`
+- `get_responsibility_score(identity_id, window_hours=24)`
+- `get_public_responsibility_risk_model()`
+- `get_responsibility_path_features(identity_id, window_hours=24, max_hops=4)`
+- `create_responsibility_batch_scan(...)`
+- `get_responsibility_batch_scan(scan_id, findings_limit=200)`
+- `list_responsibility_batch_scan_events(scan_id, limit=200)`
+- `claim_responsibility_batch_scan(runner_identity_id, lease_seconds=300, include_failed=True)`
+- `get_responsibility_scan_queue_stats()`
+- `get_responsibility_scan_ops_report(window_hours=24, recent_events_limit=50, top_failure_limit=10, runner_limit=20)`
+- `list_responsibility_scan_runner_activity(window_hours=24, limit=20)`
+- `get_responsibility_scan_ops_alerts(...)`
+- `recover_stale_responsibility_batch_scans(limit=100)`
+- `list_dead_letter_responsibility_batch_scans(limit=200)`
+- `sweep_dead_letter_responsibility_batch_scans(limit=100, reason=None)`
+- `requeue_dead_letter_responsibility_batch_scans(limit=100, reason=None)`
+- `purge_dead_letter_responsibility_batch_scans(limit=100, older_than_hours=72)`
+- `pull_execute_responsibility_batch_scan(...)`
+- `run_responsibility_scan_queue_maintenance_tick(...)`
+- `requeue_dead_letter_responsibility_batch_scan(scan_id, reason=None)`
+- `execute_responsibility_batch_scan(scan_id, force=False, runner_identity_id=None, lease_seconds=300)`
+- `heartbeat_responsibility_batch_scan(scan_id, runner_identity_id, lease_seconds=300)`
+- `retry_responsibility_batch_scan(scan_id)`
+- `cancel_responsibility_batch_scan(scan_id, runner_identity_id=None, reason=None)`
+- `get_task_temporal_consistency(task_id)`
+- `export_explainable_risk_report(...)`
 
 ---
 

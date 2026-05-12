@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     app_secret_key: str = "change-me-in-production"
+    # Comma-separated static API keys: "agent-1:supersecret,agent-2:anothersecret".
+    # Required in production for secure token issuance / API-key auth.
+    auth_api_keys: str = ""
+    # If enabled, all protected API routers require valid auth headers.
+    auth_enforce_protected_routes: bool = False
+    # Comma-separated privileged actor IDs allowed to use brake-only admin controls.
+    admin_actor_ids: str = ""
     debug: bool = False
 
     # Comma-separated browser origins for CORS, e.g. "https://app.example.com,https://console.example.com".
@@ -59,6 +66,10 @@ class Settings(BaseSettings):
     verification_min_steps: int = 1
     verification_hash_algo: str = "sha256"
     verification_timeout_seconds: int = 300
+    receipt_require_signature: bool = True
+    receipt_max_future_skew_seconds: int = 300
+    receipt_max_past_hours: int = 24 * 7
+    progress_require_signature: bool = True
 
     # Reputation
     reputation_initial_score: float = 100.0
@@ -115,6 +126,14 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "APP_SECRET_KEY must be set to a strong value when APP_ENV is production",
                 )
+            if not self.auth_enforce_protected_routes:
+                raise ValueError(
+                    "AUTH_ENFORCE_PROTECTED_ROUTES must be true when APP_ENV is production",
+                )
+            if not self.auth_api_keys_map():
+                raise ValueError(
+                    "AUTH_API_KEYS must contain at least one configured agent key in production",
+                )
         return self
 
     def cors_allow_origins_list(self) -> list[str]:
@@ -124,6 +143,28 @@ class Settings(BaseSettings):
         if (self.app_env or "").lower() in ("development", "dev", "local", "test"):
             return ["*"]
         return []
+
+    def auth_api_keys_map(self) -> dict[str, str]:
+        raw = (self.auth_api_keys or "").strip()
+        if not raw:
+            return {}
+        parsed: dict[str, str] = {}
+        for item in raw.split(","):
+            entry = item.strip()
+            if not entry or ":" not in entry:
+                continue
+            agent_id, secret = entry.split(":", 1)
+            agent_id = agent_id.strip()
+            secret = secret.strip()
+            if agent_id and secret:
+                parsed[agent_id] = secret
+        return parsed
+
+    def admin_actor_id_set(self) -> set[str]:
+        raw = (self.admin_actor_ids or "").strip()
+        if not raw:
+            return set()
+        return {item.strip() for item in raw.split(",") if item.strip()}
 
 
 @lru_cache()

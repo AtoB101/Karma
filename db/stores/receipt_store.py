@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,11 +22,15 @@ class PostgresReceiptStore(ReceiptStore):
     async def save(self, receipt: ExecutionReceipt) -> None:
         existing = await self.session.get(ReceiptModel, receipt.receipt_id)
         if existing:
-            for field, value in self._to_row(receipt).items():
-                setattr(existing, field, value)
-        else:
-            self.session.add(ReceiptModel(**self._to_row(receipt)))
-        await self.session.flush()
+            if self._from_row(existing).model_dump() != receipt.model_dump():
+                raise ValueError(f"receipt_id {receipt.receipt_id} already exists with different payload")
+            return
+
+        self.session.add(ReceiptModel(**self._to_row(receipt)))
+        try:
+            await self.session.flush()
+        except IntegrityError as exc:
+            raise ValueError("duplicate task_id + step_index receipt") from exc
 
     async def get(self, receipt_id: str) -> Optional[ExecutionReceipt]:
         row = await self.session.get(ReceiptModel, receipt_id)
@@ -38,6 +43,16 @@ class PostgresReceiptStore(ReceiptStore):
             .order_by(ReceiptModel.step_index)
         )
         return [self._from_row(r) for r in result.scalars().all()]
+
+    async def get_latest_by_task(self, task_id: str) -> Optional[ExecutionReceipt]:
+        result = await self.session.execute(
+            select(ReceiptModel)
+            .where(ReceiptModel.task_id == task_id)
+            .order_by(ReceiptModel.step_index.desc())
+            .limit(1)
+        )
+        row = result.scalar_one_or_none()
+        return self._from_row(row) if row else None
 
     @staticmethod
     def _to_row(r: ExecutionReceipt) -> dict:

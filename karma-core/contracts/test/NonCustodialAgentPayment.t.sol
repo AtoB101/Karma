@@ -349,16 +349,15 @@ contract NonCustodialAgentPaymentTest is Test {
         protocol.expireBill(billId);
     }
 
-    function testExpireBillWorksOnConfirmedState() public {
+    function testExpireBillRejectedOnConfirmedState() public {
         vm.prank(buyer);
         uint256 billId =
             protocol.createBill(seller, address(token), 10_000, keccak256("scope-exp3"), "ipfs://proof-exp3", block.timestamp + 1 days);
         vm.prank(buyer);
         protocol.confirmBill(billId);
         vm.warp(block.timestamp + 1 days + 1);
+        vm.expectRevert(NonCustodialAgentPayment.InvalidState.selector);
         protocol.expireBill(billId);
-        INonCustodialAgentPayment.Bill memory b = protocol.getBill(billId);
-        assertEq(uint8(b.status), uint8(INonCustodialAgentPayment.BillStatus.Expired));
     }
 
     function testExpireBillOnSettledFails() public {
@@ -522,6 +521,40 @@ contract NonCustodialAgentPaymentTest is Test {
         protocol.resolveDisputeSeller(billId);
     }
 
+    function testResolveDisputeByTimeoutAfterWindow() public {
+        vm.prank(buyer);
+        uint256 billId = protocol.createBill(
+            seller, address(token), 10_000, keccak256("scope-timeout-dispute"), "ipfs://proof-timeout-dispute", block.timestamp + 1 days
+        );
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+
+        vm.warp(block.timestamp + 3 days + 1);
+        protocol.resolveDisputeByTimeout(billId);
+
+        INonCustodialAgentPayment.Bill memory b = protocol.getBill(billId);
+        assertEq(uint8(b.status), uint8(INonCustodialAgentPayment.BillStatus.SplitResolved));
+        assertTrue(protocol.isAccountConsistent(buyer, address(token)));
+        assertTrue(protocol.isAccountConsistent(seller, address(token)));
+    }
+
+    function testResolveDisputeByTimeoutRevertsBeforeWindow() public {
+        vm.prank(buyer);
+        uint256 billId = protocol.createBill(
+            seller, address(token), 10_000, keccak256("scope-timeout-dispute-2"), "ipfs://proof-timeout-dispute-2", block.timestamp + 1 days
+        );
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+
+        vm.warp(block.timestamp + 1 days);
+        vm.expectRevert(NonCustodialAgentPayment.DisputeNotTimedOut.selector);
+        protocol.resolveDisputeByTimeout(billId);
+    }
+
     function testSplitResolvedBuyerGetsZero() public {
         vm.prank(buyer);
         uint256 billId =
@@ -581,6 +614,36 @@ contract NonCustodialAgentPaymentTest is Test {
         uint256 sellerAfter = token.balanceOf(seller);
         assertEq(buyerBefore - buyerAfter, 3_500);
         assertEq(sellerAfter - sellerBefore, 3_500);
+    }
+
+    function testSafetyModePausesNewOperationsButAllowsArbitrationPath() public {
+        vm.prank(address(this));
+        protocol.setSafetyMode(true);
+
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.OperationPaused.selector);
+        protocol.lockFunds(address(token), 1_000);
+
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.OperationPaused.selector);
+        protocol.createBill(seller, address(token), 1_000, keccak256("scope-safe"), "ipfs://proof-safe", block.timestamp + 1 days);
+
+        vm.prank(address(this));
+        protocol.setSafetyMode(false);
+
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 5_000, keccak256("scope-safe-2"), "ipfs://proof-safe-2", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        vm.prank(seller);
+        protocol.disputeBill(billId);
+
+        vm.prank(address(this));
+        protocol.setSafetyMode(true);
+        vm.prank(arbitrator);
+        protocol.resolveDisputeSeller(billId);
+        assertEq(uint8(protocol.getBill(billId).status), uint8(INonCustodialAgentPayment.BillStatus.ResolvedSeller));
     }
 
     function testInvalidTransferIntentBillNotFound() public {

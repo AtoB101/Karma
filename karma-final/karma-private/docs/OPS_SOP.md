@@ -17,6 +17,11 @@ PostgreSQL (shared DB)
 The private runtime **never** receives traffic from the public internet.
 All calls come from the public API via `X-Runtime-Key` authentication.
 
+Policy/Audit controls:
+- `POLICY_VERSION` (`config/settings.py`) tags every verification note.
+- Decision audit trail is append-only JSONL at `AUDIT_LOG_PATH`.
+- Internal audit query endpoint: `GET /v1/audit/{task_id}?limit=50`.
+
 ---
 
 ## Decision Logic Summary

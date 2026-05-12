@@ -83,7 +83,7 @@ async def submit_for_verification(
             resp.raise_for_status()
             result = VerificationResult(**resp.json())
     except httpx.HTTPStatusError as e:
-        raise HTTPException(502, f"Private runtime error: {e}")
+        raise HTTPException(502, "Private runtime returned an error") from e
     except httpx.ConnectError:
         raise HTTPException(503, "Private runtime unreachable")
 

@@ -59,6 +59,11 @@ class TaskContractModel(Base):
     created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     receipts:   Mapped[list[ReceiptModel]]    = relationship("ReceiptModel",    back_populates="contract", lazy="selectin")
+    progress_receipts: Mapped[list[ProgressReceiptModel]] = relationship(
+        "ProgressReceiptModel",
+        back_populates="contract",
+        lazy="selectin",
+    )
     settlement: Mapped[SettlementModel|None]  = relationship("SettlementModel", back_populates="contract", uselist=False, lazy="selectin")
 
 
@@ -90,6 +95,28 @@ class ReceiptModel(Base):
         UniqueConstraint("task_id", "step_index", name="uq_task_step"),
     )
 
+
+# ---------------------------------------------------------------------------
+# Progress Receipt
+# ---------------------------------------------------------------------------
+
+class ProgressReceiptModel(Base):
+    __tablename__ = "progress_receipts"
+
+    progress_receipt_id: Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    task_id:             Mapped[str]      = mapped_column(String(64), ForeignKey("task_contracts.task_id"), nullable=False)
+    seller_identity_id:  Mapped[str]      = mapped_column(String(64), nullable=False)
+    progress_percent:    Mapped[float]    = mapped_column(Float, nullable=False)
+    claimed_value_percent: Mapped[float]  = mapped_column(Float, nullable=False)
+    evidence_hash:       Mapped[str]      = mapped_column(String(128), nullable=False)
+    runtime_log_hash:    Mapped[str]      = mapped_column(String(128), nullable=False)
+    timestamp:           Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    seller_signature:    Mapped[str]      = mapped_column(Text, nullable=False)
+    validation_method:   Mapped[str]      = mapped_column(String(64), nullable=False)
+    confirmation_status: Mapped[str]      = mapped_column(String(16), nullable=False, default="pending")
+    confirmed_at:        Mapped[datetime|None] = mapped_column(DateTime)
+
+    contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="progress_receipts")
 
 # ---------------------------------------------------------------------------
 # Evidence Bundle
@@ -146,6 +173,344 @@ class SettlementModel(Base):
     quote_id:             Mapped[str|None]  = mapped_column(String(66))
 
     contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="settlement")
+
+
+class SettlementTransitionAuditModel(Base):
+    __tablename__ = "settlement_transition_audits"
+
+    audit_id:            Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    settlement_id:       Mapped[str | None] = mapped_column(String(64), ForeignKey("settlements.settlement_id"))
+    task_id:             Mapped[str] = mapped_column(String(64), nullable=False)
+    from_status:         Mapped[str | None] = mapped_column(String(32))
+    to_status:           Mapped[str] = mapped_column(String(32), nullable=False)
+    transition_allowed:  Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    guard_stage:         Mapped[str] = mapped_column(String(16), nullable=False, default="route")
+    reason:              Mapped[str | None] = mapped_column(Text)
+    route_path:          Mapped[str | None] = mapped_column(String(256))
+    actor_id:            Mapped[str | None] = mapped_column(String(64))
+    metadata_:           Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    created_at:          Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Capacity & Voucher
+# ---------------------------------------------------------------------------
+
+class CapacityModel(Base):
+    __tablename__ = "capacity"
+
+    identity_id:                  Mapped[str]      = mapped_column(String(64), primary_key=True)
+    total_locked_usdc:            Mapped[float]    = mapped_column(Float, default=0.0)
+    total_bill_credits:           Mapped[float]    = mapped_column(Float, default=0.0)
+    available_credits:            Mapped[float]    = mapped_column(Float, default=0.0)
+    reserved_credits:             Mapped[float]    = mapped_column(Float, default=0.0)
+    in_progress_credits:          Mapped[float]    = mapped_column(Float, default=0.0)
+    confirmed_progress_credits:   Mapped[float]    = mapped_column(Float, default=0.0)
+    disputed_credits:             Mapped[float]    = mapped_column(Float, default=0.0)
+    pending_settlement_credits:   Mapped[float]    = mapped_column(Float, default=0.0)
+    burned_credits:               Mapped[float]    = mapped_column(Float, default=0.0)
+    released_credits:             Mapped[float]    = mapped_column(Float, default=0.0)
+    updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class VoucherModel(Base):
+    __tablename__ = "vouchers"
+
+    voucher_id:                 Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    buyer_identity_id:          Mapped[str]      = mapped_column(String(64), nullable=False)
+    seller_identity_id:         Mapped[str]      = mapped_column(String(64), nullable=False)
+    amount:                     Mapped[float]    = mapped_column(Float, nullable=False)
+    currency:                   Mapped[str]      = mapped_column(String(8), default="USDC")
+    bill_credit_amount:         Mapped[float]    = mapped_column(Float, nullable=False)
+    task_type:                  Mapped[str]      = mapped_column(String(64), nullable=False)
+    task_description_hash:      Mapped[str]      = mapped_column(String(128), nullable=False)
+    progress_rule_hash:         Mapped[str]      = mapped_column(String(128), nullable=False)
+    evidence_requirement_hash:  Mapped[str]      = mapped_column(String(128), nullable=False)
+    expiry_time:                Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    nonce:                      Mapped[str]      = mapped_column(String(128), nullable=False)
+    buyer_signature:            Mapped[str]      = mapped_column(Text, nullable=False)
+    status:                     Mapped[str]      = mapped_column(String(16), nullable=False, default="created")
+    buyer_sub_identity_id:      Mapped[str|None] = mapped_column(String(64))
+    seller_sub_identity_id:     Mapped[str|None] = mapped_column(String(64))
+    accepted_at:                Mapped[datetime|None] = mapped_column(DateTime)
+    created_at:                 Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("buyer_identity_id", "nonce", name="uq_voucher_buyer_nonce"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Identity Profile & Sub Identity
+# ---------------------------------------------------------------------------
+
+class IdentityProfileModel(Base):
+    __tablename__ = "identity_profiles"
+
+    identity_id:            Mapped[str]      = mapped_column(String(64), primary_key=True)
+    display_id:             Mapped[str]      = mapped_column(String(64), nullable=False, unique=True)
+    legal_identity_status:  Mapped[str]      = mapped_column(String(32), nullable=False, default="unbound")
+    status:                 Mapped[str]      = mapped_column(String(32), nullable=False, default="active")
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SubIdentityModel(Base):
+    __tablename__ = "sub_identities"
+
+    sub_identity_id:      Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    parent_identity_id:   Mapped[str]      = mapped_column(String(64), nullable=False)
+    sub_identity_type:    Mapped[str]      = mapped_column(String(32), nullable=False)
+    alias:                Mapped[str]      = mapped_column(String(64), nullable=False)
+    status:               Mapped[str]      = mapped_column(String(16), nullable=False, default="active")
+    created_at:           Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    deleted_at:           Mapped[datetime|None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint("parent_identity_id", "alias", name="uq_sub_identity_alias_per_parent"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Arbitration (P2 skeleton)
+# ---------------------------------------------------------------------------
+
+class ArbitrationPoolMemberModel(Base):
+    __tablename__ = "arbitration_pool_members"
+
+    arbitrator_identity_id: Mapped[str]      = mapped_column(String(64), primary_key=True)
+    stake_amount:           Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    status:                 Mapped[str]      = mapped_column(String(16), nullable=False, default="active")
+    joined_at:              Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ArbitrationCaseModel(Base):
+    __tablename__ = "arbitration_cases"
+
+    case_id:                Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    task_id:                Mapped[str]      = mapped_column(String(64), ForeignKey("task_contracts.task_id"), nullable=False, unique=True)
+    settlement_id:          Mapped[str|None] = mapped_column(String(64))
+    opened_by:              Mapped[str]      = mapped_column(String(64), nullable=False)
+    reason:                 Mapped[str|None] = mapped_column(Text)
+    status:                 Mapped[str]      = mapped_column(String(16), nullable=False, default="open")
+    required_arbitrators:   Mapped[int]      = mapped_column(Integer, nullable=False, default=3)
+    decided_outcome:        Mapped[str|None] = mapped_column(String(16))
+    final_partial_percent:  Mapped[float|None] = mapped_column(Float)
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    executed_at:            Mapped[datetime|None] = mapped_column(DateTime)
+
+
+class ArbitrationAssignmentModel(Base):
+    __tablename__ = "arbitration_assignments"
+
+    assignment_id:            Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    case_id:                  Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
+    arbitrator_identity_id:   Mapped[str]      = mapped_column(String(64), nullable=False)
+    assigned_at:              Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    status:                   Mapped[str]      = mapped_column(String(16), nullable=False, default="assigned")
+
+    __table_args__ = (
+        UniqueConstraint("case_id", "arbitrator_identity_id", name="uq_arbitration_assignment"),
+    )
+
+
+class ArbitrationMaterialPackageModel(Base):
+    __tablename__ = "arbitration_material_packages"
+
+    material_id:            Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    case_id:                Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
+    task_id:                Mapped[str]      = mapped_column(String(64), nullable=False)
+    submitted_by:           Mapped[str]      = mapped_column(String(64), nullable=False)
+    bundle_id:              Mapped[str|None] = mapped_column(String(64))
+    progress_receipt_ids:   Mapped[list]     = mapped_column(JSON, nullable=False)
+    evidence_hashes:        Mapped[list]     = mapped_column(JSON, nullable=False)
+    package_hash:           Mapped[str]      = mapped_column(String(128), nullable=False)
+    storage_uri:            Mapped[str|None] = mapped_column(String(512))
+    format_version:         Mapped[str]      = mapped_column(String(32), nullable=False, default="arbitration-material-v1")
+    submitted_at:           Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("case_id", "package_hash", name="uq_arbitration_material_hash_per_case"),
+    )
+
+
+class ArbitrationVoteModel(Base):
+    __tablename__ = "arbitration_votes"
+
+    vote_id:                Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    case_id:                Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
+    arbitrator_identity_id: Mapped[str]      = mapped_column(String(64), nullable=False)
+    decision:               Mapped[str]      = mapped_column(String(16), nullable=False)
+    partial_percent:        Mapped[float|None] = mapped_column(Float)
+    rationale:              Mapped[str|None] = mapped_column(Text)
+    voted_at:               Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("case_id", "arbitrator_identity_id", name="uq_arbitration_vote"),
+    )
+
+
+class ArbitrationCaseEventModel(Base):
+    __tablename__ = "arbitration_case_events"
+
+    event_id:               Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    case_id:                Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
+    event_type:             Mapped[str]      = mapped_column(String(32), nullable=False)
+    detail:                 Mapped[str]      = mapped_column(Text, nullable=False)
+    metadata_:              Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Responsibility Graph (P2 skeleton)
+# ---------------------------------------------------------------------------
+
+class ResponsibilityEdgeModel(Base):
+    __tablename__ = "responsibility_edges"
+
+    edge_id:               Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    edge_hash:             Mapped[str]      = mapped_column(String(64), nullable=False, unique=True)
+    source_identity_id:    Mapped[str]      = mapped_column(String(64), nullable=False)
+    target_identity_id:    Mapped[str]      = mapped_column(String(64), nullable=False)
+    edge_type:             Mapped[str]      = mapped_column(String(32), nullable=False)
+    task_id:               Mapped[str|None] = mapped_column(String(64))
+    voucher_id:            Mapped[str|None] = mapped_column(String(64))
+    metadata_:             Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("voucher_id", name="uq_responsibility_edge_voucher"),
+    )
+
+
+class ResponsibilitySignalModel(Base):
+    __tablename__ = "responsibility_signals"
+
+    signal_id:             Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    signal_type:           Mapped[str]      = mapped_column(String(32), nullable=False)
+    severity:              Mapped[str]      = mapped_column(String(16), nullable=False)
+    identity_id:           Mapped[str]      = mapped_column(String(64), nullable=False)
+    edge_hash:             Mapped[str]      = mapped_column(String(64), nullable=False)
+    related_edge_hashes:   Mapped[list]     = mapped_column(JSON, nullable=False, default=list)
+    task_id:               Mapped[str|None] = mapped_column(String(64))
+    detail:                Mapped[str]      = mapped_column(Text, nullable=False)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ResponsibilityScanRunModel(Base):
+    __tablename__ = "responsibility_scan_runs"
+
+    scan_id:               Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    status:                Mapped[str]      = mapped_column(String(16), nullable=False, default="pending")
+    execution_mode:        Mapped[str]      = mapped_column(String(16), nullable=False, default="sync")
+    scan_mode:             Mapped[str]      = mapped_column(String(16), nullable=False, default="full")
+    base_scan_id:          Mapped[str|None] = mapped_column(String(64))
+    incremental_since_at:  Mapped[datetime|None] = mapped_column(DateTime)
+    requested_identity_ids: Mapped[list|None] = mapped_column(JSON)
+    window_hours:          Mapped[int]      = mapped_column(Integer, nullable=False, default=24)
+    max_hops:              Mapped[int]      = mapped_column(Integer, nullable=False, default=4)
+    min_score_threshold:   Mapped[float]    = mapped_column(Float, nullable=False, default=8.0)
+    retry_max_attempts:    Mapped[int]      = mapped_column(Integer, nullable=False, default=3)
+    retry_backoff_seconds: Mapped[int]      = mapped_column(Integer, nullable=False, default=30)
+    current_attempt:       Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
+    claimed_by:            Mapped[str|None] = mapped_column(String(64))
+    claimed_at:            Mapped[datetime|None] = mapped_column(DateTime)
+    lease_expires_at:      Mapped[datetime|None] = mapped_column(DateTime)
+    last_heartbeat_at:     Mapped[datetime|None] = mapped_column(DateTime)
+    started_at:            Mapped[datetime|None] = mapped_column(DateTime)
+    next_retry_at:         Mapped[datetime|None] = mapped_column(DateTime)
+    last_error:            Mapped[str|None] = mapped_column(Text)
+    cancelled_at:          Mapped[datetime|None] = mapped_column(DateTime)
+    cancel_reason:         Mapped[str|None] = mapped_column(Text)
+    dead_lettered_at:      Mapped[datetime|None] = mapped_column(DateTime)
+    dead_letter_reason:    Mapped[str|None] = mapped_column(Text)
+    total_identities:      Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
+    flagged_identities:    Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at:          Mapped[datetime|None] = mapped_column(DateTime)
+
+
+class ResponsibilityScanFindingModel(Base):
+    __tablename__ = "responsibility_scan_findings"
+
+    finding_id:            Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    scan_id:               Mapped[str]      = mapped_column(String(64), ForeignKey("responsibility_scan_runs.scan_id"), nullable=False)
+    identity_id:           Mapped[str]      = mapped_column(String(64), nullable=False)
+    normalized_score:      Mapped[float]    = mapped_column(Float, nullable=False)
+    risk_band:             Mapped[str]      = mapped_column(String(16), nullable=False)
+    signal_count:          Mapped[int]      = mapped_column(Integer, nullable=False)
+    cycle_paths_detected:  Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
+    detail:                Mapped[str]      = mapped_column(Text, nullable=False)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ResponsibilityScanEventModel(Base):
+    __tablename__ = "responsibility_scan_events"
+
+    event_id:              Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    scan_id:               Mapped[str]      = mapped_column(String(64), ForeignKey("responsibility_scan_runs.scan_id"), nullable=False)
+    event_type:            Mapped[str]      = mapped_column(String(32), nullable=False)
+    detail:                Mapped[str]      = mapped_column(Text, nullable=False)
+    metadata_:             Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Security Threshold Policy Center (P2 security hardening)
+# ---------------------------------------------------------------------------
+
+class SecurityThresholdPolicyModel(Base):
+    __tablename__ = "security_threshold_policies"
+
+    policy_id:             Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    version:               Mapped[int]      = mapped_column(Integer, nullable=False, unique=True)
+    status:                Mapped[str]      = mapped_column(String(16), nullable=False, default="draft")
+    rollout_percent:       Mapped[int]      = mapped_column(Integer, nullable=False, default=100)
+    config:                Mapped[dict]     = mapped_column(JSON, nullable=False, default=dict)
+    note:                  Mapped[str|None] = mapped_column(Text)
+    created_by:            Mapped[str|None] = mapped_column(String(64))
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    activated_at:          Mapped[datetime|None] = mapped_column(DateTime)
+    archived_at:           Mapped[datetime|None] = mapped_column(DateTime)
+    parent_policy_id:      Mapped[str|None] = mapped_column(String(64))
+
+
+class SecurityPolicyChangeRequestModel(Base):
+    __tablename__ = "security_policy_change_requests"
+
+    request_id:               Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    action:                   Mapped[str]      = mapped_column(String(32), nullable=False)
+    status:                   Mapped[str]      = mapped_column(String(16), nullable=False, default="pending")
+    target_policy_id:         Mapped[str|None] = mapped_column(String(64))
+    target_rollback_policy_id: Mapped[str|None] = mapped_column(String(64))
+    rollout_percent:          Mapped[int|None] = mapped_column(Integer)
+    note:                     Mapped[str|None] = mapped_column(Text)
+    requested_by:             Mapped[str|None] = mapped_column(String(64))
+    requested_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    applied_at:               Mapped[datetime|None] = mapped_column(DateTime)
+    required_approvals:       Mapped[int]      = mapped_column(Integer, nullable=False, default=2)
+    dry_run_report:           Mapped[dict|None] = mapped_column(JSON)
+
+
+class SecurityPolicyChangeApprovalModel(Base):
+    __tablename__ = "security_policy_change_approvals"
+
+    approval_id:              Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    request_id:               Mapped[str]      = mapped_column(
+        String(64),
+        ForeignKey("security_policy_change_requests.request_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    approver_id:              Mapped[str]      = mapped_column(String(64), nullable=False)
+    decision:                 Mapped[str]      = mapped_column(String(16), nullable=False)
+    comment:                  Mapped[str|None] = mapped_column(Text)
+    created_at:               Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("request_id", "approver_id", name="uq_security_policy_change_approver"),
+    )
 
 
 # ---------------------------------------------------------------------------

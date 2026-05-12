@@ -98,7 +98,7 @@ async def test_bundle_status_is_submitted():
     await store.save(_make_receipt(task_id, 1))
     builder = EvidenceBundleBuilder(receipt_store=store)
     bundle = await builder.build(_make_contract(task_id), {})
-    assert bundle.settlement_status == TaskStatus.SUBMITTED
+    assert bundle.settlement_status == TaskStatus.DELIVERED
 
 
 @pytest.mark.asyncio

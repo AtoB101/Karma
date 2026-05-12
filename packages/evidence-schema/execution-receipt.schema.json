@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://karma.example/schemas/execution-receipt-public-1.0.json",
+  "title": "Karma Execution Receipt (public v1.0)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "receipt_id",
+    "task_id",
+    "agent_id",
+    "step_index",
+    "tool_name",
+    "input_hash",
+    "output_hash",
+    "started_at",
+    "ended_at",
+    "duration_ms",
+    "status",
+    "metadata"
+  ],
+  "properties": {
+    "receipt_id": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "agent_id": { "type": "string", "minLength": 1 },
+    "step_index": { "type": "integer", "minimum": 1 },
+    "tool_name": { "type": "string", "minLength": 1 },
+    "input_hash": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+    "output_hash": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "ended_at": { "type": "string", "format": "date-time" },
+    "duration_ms": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "enum": ["success", "failure", "timeout", "skipped"] },
+    "error_message": { "type": ["string", "null"] },
+    "signature": { "type": ["string", "null"] },
+    "metadata": {
+      "type": "object",
+      "required": ["template"],
+      "properties": {
+        "template": { "type": "string", "enum": ["api", "mcp", "agent_runtime", "ai_workflow"] }
+      },
+      "additionalProperties": true
+    }
+  }
+}

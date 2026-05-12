@@ -1,0 +1,1693 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+
+import pytest
+
+from sdk.client import KarmaClient
+from core.schemas import (
+    ArbitrationVoteDecision,
+    ProgressConfirmationStatus,
+    ProgressReceipt,
+    SecurityPolicyApprovalDecision,
+    SecurityPolicyChangeAction,
+    SecurityPolicyChangeStatus,
+    ResponsibilityEdgeType,
+    ResponsibilityScanExecutionMode,
+    ResponsibilityScanMode,
+    SubIdentityType,
+)
+
+
+class _MockResponse:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class _MockHTTP:
+    def __init__(self, routes: dict[tuple[str, str], dict]):
+        self._routes = routes
+        self.calls: list[tuple[str, str, dict | None]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def get(self, url: str):
+        self.calls.append(("GET", url, None))
+        return _MockResponse(self._routes[("GET", url)])
+
+    async def post(self, url: str, json: dict):
+        self.calls.append(("POST", url, json))
+        return _MockResponse(self._routes[("POST", url)])
+
+    async def delete(self, url: str):
+        self.calls.append(("DELETE", url, None))
+        return _MockResponse(self._routes[("DELETE", url)])
+
+
+@pytest.mark.asyncio
+async def test_capacity_sdk_methods():
+    base = "http://runtime"
+    identity_id = "buyer-1"
+    updated_at = datetime.utcnow().isoformat()
+    routes = {
+        ("GET", f"{base}/v1/capacity/{identity_id}"): {
+            "identity_id": identity_id,
+            "total_locked_usdc": 0,
+            "total_bill_credits": 0,
+            "available_credits": 0,
+            "reserved_credits": 0,
+            "in_progress_credits": 0,
+            "confirmed_progress_credits": 0,
+            "disputed_credits": 0,
+            "pending_settlement_credits": 0,
+            "burned_credits": 0,
+            "released_credits": 0,
+            "updated_at": updated_at,
+        },
+        ("POST", f"{base}/v1/capacity/{identity_id}/lock"): {
+            "identity_id": identity_id,
+            "total_locked_usdc": 100,
+            "total_bill_credits": 100,
+            "available_credits": 100,
+            "reserved_credits": 0,
+            "in_progress_credits": 0,
+            "confirmed_progress_credits": 0,
+            "disputed_credits": 0,
+            "pending_settlement_credits": 0,
+            "burned_credits": 0,
+            "released_credits": 0,
+            "updated_at": updated_at,
+        },
+        ("POST", f"{base}/v1/capacity/{identity_id}/release"): {
+            "identity_id": identity_id,
+            "total_locked_usdc": 80,
+            "total_bill_credits": 80,
+            "available_credits": 80,
+            "reserved_credits": 0,
+            "in_progress_credits": 0,
+            "confirmed_progress_credits": 0,
+            "disputed_credits": 0,
+            "pending_settlement_credits": 0,
+            "burned_credits": 0,
+            "released_credits": 20,
+            "updated_at": updated_at,
+        },
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    cap0 = await client.get_capacity(identity_id)
+    assert cap0.identity_id == identity_id
+    cap1 = await client.lock_capacity(identity_id, 100)
+    assert cap1.available_credits == 100
+    cap2 = await client.release_capacity(identity_id, 20)
+    assert cap2.released_credits == 20
+
+    assert ("POST", f"{base}/v1/capacity/{identity_id}/lock", {"amount": 100}) in mock_http.calls
+    assert ("POST", f"{base}/v1/capacity/{identity_id}/release", {"amount": 20}) in mock_http.calls
+
+
+@pytest.mark.asyncio
+async def test_voucher_sdk_methods():
+    base = "http://runtime"
+    voucher_id = "v-1"
+    expiry = (datetime.utcnow() + timedelta(hours=1)).isoformat()
+    created = datetime.utcnow().isoformat()
+    voucher_payload = {
+        "voucher_id": voucher_id,
+        "buyer_identity_id": "buyer-1",
+        "seller_identity_id": "seller-1",
+        "amount": 50,
+        "currency": "USDC",
+        "bill_credit_amount": 50,
+        "task_type": "api-call",
+        "task_description_hash": "a" * 64,
+        "progress_rule_hash": "b" * 64,
+        "evidence_requirement_hash": "c" * 64,
+        "expiry_time": expiry,
+        "nonce": "n-1",
+        "buyer_signature": "sig",
+        "status": "created",
+        "buyer_sub_identity_id": None,
+        "seller_sub_identity_id": None,
+        "accepted_at": None,
+        "created_at": created,
+    }
+    verify_payload = {
+        "voucher_id": voucher_id,
+        "is_authentic": True,
+        "is_expired": False,
+        "is_used": False,
+        "amount_matches": True,
+        "seller_matches": True,
+        "has_sufficient_capacity": True,
+        "can_start": True,
+        "status": "created",
+    }
+    accepted_payload = dict(voucher_payload)
+    accepted_payload["status"] = "accepted"
+    accepted_payload["accepted_at"] = created
+
+    routes = {
+        ("POST", f"{base}/v1/vouchers"): voucher_payload,
+        ("GET", f"{base}/v1/vouchers/{voucher_id}"): voucher_payload,
+        ("POST", f"{base}/v1/vouchers/{voucher_id}/verify"): verify_payload,
+        ("POST", f"{base}/v1/vouchers/{voucher_id}/accept"): accepted_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    created_voucher = await client.create_voucher(
+        buyer_identity_id="buyer-1",
+        seller_identity_id="seller-1",
+        amount=50,
+        bill_credit_amount=50,
+        task_type="api-call",
+        task_description_hash="a" * 64,
+        progress_rule_hash="b" * 64,
+        evidence_requirement_hash="c" * 64,
+        expiry_time=expiry,
+        nonce="n-1",
+        buyer_signature="sig",
+    )
+    assert created_voucher.voucher_id == voucher_id
+
+    fetched_voucher = await client.get_voucher(voucher_id)
+    assert fetched_voucher.seller_identity_id == "seller-1"
+
+    verification = await client.verify_voucher(voucher_id, "seller-1", expected_amount=50)
+    assert verification.can_start is True
+
+    accepted = await client.accept_voucher(voucher_id, "seller-1")
+    assert accepted.status.value == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_progress_and_regret_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    progress_id = "p-1"
+    progress_payload = {
+        "progress_receipt_id": progress_id,
+        "task_id": "task-1",
+        "seller_identity_id": "seller-1",
+        "progress_percent": 20,
+        "claimed_value_percent": 20,
+        "evidence_hash": "a" * 64,
+        "runtime_log_hash": "b" * 64,
+        "timestamp": now,
+        "seller_signature": "sig",
+        "validation_method": "buyer_confirm",
+        "confirmation_status": "pending",
+        "confirmed_at": None,
+    }
+    confirmed_payload = dict(progress_payload)
+    confirmed_payload["confirmation_status"] = "confirmed"
+    confirmed_payload["confirmed_at"] = now
+    settlement_payload = {
+        "settlement_id": "s-1",
+        "task_id": "task-1",
+        "escrow_amount": 100,
+        "currency": "USD",
+        "status": "partial",
+        "client_agent_id": "buyer-1",
+        "worker_agent_id": "seller-1",
+        "released_amount": 20,
+        "refunded_amount": 80,
+        "dispute_reason": "buyer regret",
+        "arbitration_notes": "buyer regret with confirmed progress 20.00%",
+        "created_at": now,
+        "updated_at": now,
+        "released_at": now,
+        "settlement_mode": "offchain",
+        "chain_id": None,
+        "contract_address": None,
+        "tx_hash": None,
+        "evidence_bundle_hash": None,
+        "onchain_status": None,
+        "quote_id": None,
+    }
+    routes = {
+        ("POST", f"{base}/v1/progress"): progress_payload,
+        ("POST", f"{base}/v1/progress/{progress_id}/confirm"): confirmed_payload,
+        ("GET", f"{base}/v1/progress/task/task-1"): [confirmed_payload],
+        ("POST", f"{base}/v1/settlement/task-1/regret"): settlement_payload,
+        ("POST", f"{base}/v1/settlement/task-1/partial"): settlement_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    submitted = await client.submit_progress(ProgressReceipt(**progress_payload))
+    assert submitted.progress_receipt_id == progress_id
+    confirmed = await client.confirm_progress(progress_id)
+    assert confirmed.confirmation_status == ProgressConfirmationStatus.CONFIRMED
+    listed = await client.list_progress("task-1")
+    assert len(listed) == 1
+    regret_state = await client.regret_task("task-1", buyer_identity_id="buyer-1", reason="buyer regret")
+    assert regret_state.status.value == "partial"
+    partial_state = await client.partial_settlement("task-1", 20, reason="manual partial")
+    assert partial_state.released_amount == 20
+
+
+@pytest.mark.asyncio
+async def test_identity_and_dispute_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    identity_id = "buyer-identity-1"
+    sub_id = "sub-1"
+    profile_payload = {
+        "identity_id": identity_id,
+        "display_id": "Karma-ID-ABCD1234",
+        "legal_identity_status": "unbound",
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    sub_payload = {
+        "sub_identity_id": sub_id,
+        "parent_identity_id": identity_id,
+        "sub_identity_type": "buyer",
+        "alias": "buyer-sub",
+        "status": "active",
+        "created_at": now,
+        "deleted_at": None,
+    }
+    dispute_payload = {
+        "settlement_id": "s-2",
+        "task_id": "task-2",
+        "escrow_amount": 100,
+        "currency": "USD",
+        "status": "disputed",
+        "client_agent_id": identity_id,
+        "worker_agent_id": "seller-1",
+        "released_amount": None,
+        "refunded_amount": None,
+        "dispute_reason": "quality issue",
+        "arbitration_notes": None,
+        "created_at": now,
+        "updated_at": now,
+        "released_at": None,
+        "settlement_mode": "offchain",
+        "chain_id": None,
+        "contract_address": None,
+        "tx_hash": None,
+        "evidence_bundle_hash": None,
+        "onchain_status": None,
+        "quote_id": None,
+    }
+    arbitrate_payload = dict(dispute_payload)
+    arbitrate_payload["status"] = "buyer_wins"
+    arbitrate_payload["released_amount"] = 0
+    arbitrate_payload["refunded_amount"] = 100
+    arbitrate_payload["arbitration_notes"] = "auto arbitration"
+    routes = {
+        ("POST", f"{base}/v1/identities/{identity_id}/profile/init"): profile_payload,
+        ("GET", f"{base}/v1/identities/{identity_id}/profile"): profile_payload,
+        ("POST", f"{base}/v1/identities/{identity_id}/rotate-display-id"): profile_payload,
+        ("POST", f"{base}/v1/identities/{identity_id}/sub-identities"): sub_payload,
+        ("GET", f"{base}/v1/identities/{identity_id}/sub-identities"): [sub_payload],
+        ("DELETE", f"{base}/v1/identities/{identity_id}/sub-identities/{sub_id}"): sub_payload,
+        ("POST", f"{base}/v1/settlement/task-2/dispute"): dispute_payload,
+        ("POST", f"{base}/v1/settlement/task-2/auto-arbitrate"): arbitrate_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    profile = await client.init_identity_profile(identity_id)
+    assert profile.identity_id == identity_id
+    fetched = await client.get_identity_profile(identity_id)
+    assert fetched.display_id.startswith("Karma-ID-")
+    rotated = await client.rotate_display_id(identity_id)
+    assert rotated.status == "active"
+
+    sub = await client.create_sub_identity(identity_id, sub_identity_type=SubIdentityType.BUYER, alias="buyer-sub")
+    assert sub.sub_identity_id == sub_id
+    listed = await client.list_sub_identities(identity_id)
+    assert len(listed) == 1
+    deleted = await client.delete_sub_identity(identity_id, sub_id)
+    assert deleted.alias == "buyer-sub"
+
+    disputed = await client.open_dispute("task-2", reason="quality issue")
+    assert disputed.status.value == "disputed"
+    arbitrated = await client.auto_arbitrate("task-2")
+    assert arbitrated.refunded_amount == 100
+
+
+@pytest.mark.asyncio
+async def test_settlement_pending_and_transition_audit_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    settlement_payload = {
+        "settlement_id": "s-pending-1",
+        "task_id": "task-pending-1",
+        "escrow_amount": 80.0,
+        "currency": "USD",
+        "status": "pending",
+        "client_agent_id": "buyer-pending-1",
+        "worker_agent_id": None,
+        "released_amount": None,
+        "refunded_amount": None,
+        "dispute_reason": None,
+        "arbitration_notes": None,
+        "created_at": now,
+        "updated_at": now,
+        "released_at": None,
+        "settlement_mode": "offchain",
+        "chain_id": None,
+        "contract_address": None,
+        "tx_hash": None,
+        "evidence_bundle_hash": None,
+        "onchain_status": None,
+        "quote_id": None,
+    }
+    transition_payload = [
+        {
+            "audit_id": "audit-1",
+            "settlement_id": "s-pending-1",
+            "task_id": "task-pending-1",
+            "from_status": "draft",
+            "to_status": "pending",
+            "transition_allowed": True,
+            "guard_stage": "store",
+            "reason": "task moved to pending",
+            "route_path": "/v1/settlement/task-pending-1/pending",
+            "actor_id": "sdk-admin",
+            "metadata": {},
+            "created_at": now,
+        }
+    ]
+    routes = {
+        ("POST", f"{base}/v1/settlement/task-pending-1/pending"): settlement_payload,
+        ("GET", f"{base}/v1/settlement/task-pending-1/transitions?limit=10"): transition_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    pending = await client.mark_settlement_pending("task-pending-1")
+    assert pending.status.value == "pending"
+    transitions = await client.list_settlement_transitions("task-pending-1", limit=10)
+    assert len(transitions) == 1
+    assert transitions[0].to_status.value == "pending"
+    assert transitions[0].transition_allowed is True
+
+
+@pytest.mark.asyncio
+async def test_arbitration_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    case_id = "case-1"
+    task_id = "task-arb-1"
+    pool_payload = {
+        "arbitrator_identity_id": "arb-1",
+        "stake_amount": 100.0,
+        "status": "active",
+        "joined_at": now,
+        "updated_at": now,
+    }
+    case_payload = {
+        "case_id": case_id,
+        "task_id": task_id,
+        "settlement_id": "s-arb-1",
+        "opened_by": "buyer-1",
+        "reason": "quality dispute",
+        "status": "voting",
+        "required_arbitrators": 2,
+        "decided_outcome": None,
+        "final_partial_percent": None,
+        "created_at": now,
+        "updated_at": now,
+        "executed_at": None,
+    }
+    assignment_payload = {
+        "assignment_id": "as-1",
+        "case_id": case_id,
+        "arbitrator_identity_id": "arb-1",
+        "assigned_at": now,
+        "status": "assigned",
+    }
+    event_payload = {
+        "event_id": "evt-1",
+        "case_id": case_id,
+        "event_type": "case_created",
+        "detail": "arbitration case created",
+        "metadata": {"task_id": task_id},
+        "created_at": now,
+    }
+    ops_overdue_payload = [
+        {
+            "case_id": case_id,
+            "task_id": task_id,
+            "status": "voting",
+            "opened_by": "buyer-1",
+            "decided_outcome": None,
+            "overdue_stage": "voting",
+            "age_hours": 25.0,
+            "threshold_hours": 24,
+            "created_at": now,
+            "updated_at": now,
+        }
+    ]
+    ops_report_payload = {
+        "window_hours": 24,
+        "total_cases": 1,
+        "status_counts": {"executed": 1},
+        "decision_counts": {"buyer_wins": 1},
+        "recent_events": [event_payload],
+        "alerts": [
+            {
+                "alert_id": "arb-alert-1",
+                "severity": "medium",
+                "alert_type": "open_case_backlog",
+                "message": "arbitration open-case backlog: 1",
+                "metadata": {"open_cases": 1, "threshold": 1},
+                "generated_at": now,
+            }
+        ],
+        "arbitrator_activity": [
+            {
+                "arbitrator_identity_id": "arb-1",
+                "assigned_count": 1,
+                "vote_count": 1,
+                "last_assigned_at": now,
+                "last_voted_at": now,
+                "last_activity_at": now,
+            }
+        ],
+        "overdue_cases": ops_overdue_payload,
+        "generated_at": now,
+    }
+    ops_alerts_payload = [
+        {
+            "alert_id": "arb-alert-1",
+            "severity": "medium",
+            "alert_type": "open_case_backlog",
+            "message": "arbitration open-case backlog: 1",
+            "metadata": {"open_cases": 1, "threshold": 1},
+            "generated_at": now,
+        }
+    ]
+    ops_arbitrators_payload = [
+        {
+            "arbitrator_identity_id": "arb-1",
+            "assigned_count": 1,
+            "vote_count": 1,
+            "last_assigned_at": now,
+            "last_voted_at": now,
+            "last_activity_at": now,
+        }
+    ]
+    material_payload = {
+        "material_id": "mat-1",
+        "case_id": case_id,
+        "task_id": task_id,
+        "submitted_by": "buyer-1",
+        "bundle_id": "bundle-1",
+        "progress_receipt_ids": [],
+        "evidence_hashes": ["a" * 64],
+        "package_hash": "b" * 64,
+        "storage_uri": None,
+        "format_version": "arbitration-material-v1",
+        "submitted_at": now,
+    }
+    voted_case_payload = dict(case_payload)
+    voted_case_payload["status"] = "decided"
+    voted_case_payload["decided_outcome"] = "buyer_wins"
+    settlement_payload = {
+        "settlement_id": "s-arb-1",
+        "task_id": task_id,
+        "escrow_amount": 100,
+        "currency": "USD",
+        "status": "buyer_wins",
+        "client_agent_id": "buyer-1",
+        "worker_agent_id": "seller-1",
+        "released_amount": 0,
+        "refunded_amount": 100,
+        "dispute_reason": "quality dispute",
+        "arbitration_notes": "decentralized pool decision: buyer_wins",
+        "created_at": now,
+        "updated_at": now,
+        "released_at": None,
+        "settlement_mode": "offchain",
+        "chain_id": None,
+        "contract_address": None,
+        "tx_hash": None,
+        "evidence_bundle_hash": None,
+        "onchain_status": None,
+        "quote_id": None,
+    }
+    routes = {
+        ("POST", f"{base}/v1/arbitration/pool/join"): pool_payload,
+        ("GET", f"{base}/v1/arbitration/pool"): [pool_payload],
+        ("POST", f"{base}/v1/arbitration/cases"): case_payload,
+        ("POST", f"{base}/v1/arbitration/cases/{case_id}/assign-auto"): [assignment_payload],
+        ("GET", f"{base}/v1/arbitration/cases/{case_id}/assignments"): [assignment_payload],
+        ("GET", f"{base}/v1/arbitration/cases/{case_id}/events?limit=200"): [event_payload],
+        ("GET", f"{base}/v1/arbitration/cases/ops/report?window_hours=24&recent_events_limit=50&arbitrator_limit=20"): ops_report_payload,
+        ("GET", f"{base}/v1/arbitration/cases/ops/alerts?window_hours=24&open_case_threshold=5&voting_case_threshold=5&decided_case_threshold=3&partial_ratio_threshold=0.5"): ops_alerts_payload,
+        ("GET", f"{base}/v1/arbitration/cases/ops/arbitrators?window_hours=24&limit=20"): ops_arbitrators_payload,
+        ("GET", f"{base}/v1/arbitration/cases/ops/overdue?limit=20&open_overdue_hours=24&voting_overdue_hours=24&decided_overdue_hours=12"): ops_overdue_payload,
+        ("POST", f"{base}/v1/arbitration/cases/{case_id}/materials"): material_payload,
+        ("GET", f"{base}/v1/arbitration/cases/{case_id}/materials"): [material_payload],
+        ("POST", f"{base}/v1/arbitration/cases/{case_id}/vote"): voted_case_payload,
+        ("POST", f"{base}/v1/arbitration/cases/{case_id}/execute"): settlement_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    member = await client.join_arbitration_pool("arb-1", stake_amount=100.0)
+    assert member.arbitrator_identity_id == "arb-1"
+    pool = await client.list_arbitration_pool()
+    assert len(pool) == 1
+
+    case = await client.create_arbitration_case(task_id=task_id, opened_by="buyer-1", reason="quality dispute", required_arbitrators=2)
+    assert case.case_id == case_id
+    assignments = await client.assign_arbitrators(case_id, count=2)
+    assert len(assignments) == 1
+    listed_assignments = await client.list_arbitration_assignments(case_id)
+    assert listed_assignments[0].arbitrator_identity_id == "arb-1"
+    events = await client.list_arbitration_case_events(case_id, limit=200)
+    assert events[0].event_type.value == "case_created"
+    ops_report = await client.get_arbitration_case_ops_report(window_hours=24, recent_events_limit=50)
+    assert ops_report.status_counts.get("executed") == 1
+    assert ops_report.alerts[0].alert_type.value == "open_case_backlog"
+    assert ops_report.arbitrator_activity[0].arbitrator_identity_id == "arb-1"
+    assert ops_report.overdue_cases[0].overdue_stage.value == "voting"
+    ops_alerts = await client.get_arbitration_case_ops_alerts(window_hours=24)
+    assert ops_alerts[0].severity.value == "medium"
+    ops_arbitrators = await client.list_arbitration_case_ops_arbitrators(window_hours=24, limit=20)
+    assert ops_arbitrators[0].vote_count == 1
+    ops_overdue = await client.list_arbitration_case_ops_overdue(limit=20)
+    assert ops_overdue[0].threshold_hours == 24
+
+    material = await client.submit_arbitration_material(
+        case_id=case_id,
+        submitted_by="buyer-1",
+        bundle_id="bundle-1",
+        evidence_hashes=["a" * 64],
+    )
+    assert material.case_id == case_id
+    materials = await client.list_arbitration_materials(case_id)
+    assert len(materials) == 1
+
+    voted_case = await client.cast_arbitration_vote(
+        case_id=case_id,
+        arbitrator_identity_id="arb-1",
+        decision=ArbitrationVoteDecision.BUYER_WINS,
+    )
+    assert voted_case.status.value == "decided"
+
+    settled = await client.execute_arbitration_case(case_id)
+    assert settled.status.value == "buyer_wins"
+
+
+@pytest.mark.asyncio
+async def test_responsibility_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    task_id = "task-resp-1"
+    ingest_payload = {
+        "edge": {
+            "edge_id": "edge-1",
+            "edge_hash": "a" * 64,
+            "source_identity_id": "id-a",
+            "target_identity_id": "id-b",
+            "edge_type": "task_delegation",
+            "task_id": task_id,
+            "voucher_id": None,
+            "metadata": {},
+            "created_at": now,
+        },
+        "signals": [
+            {
+                "signal_id": "sig-1",
+                "signal_type": "mutual_exchange",
+                "severity": "medium",
+                "identity_id": "id-a",
+                "edge_hash": "a" * 64,
+                "related_edge_hashes": ["a" * 64, "b" * 64],
+                "task_id": task_id,
+                "detail": "reverse edge detected",
+                "created_at": now,
+            }
+        ],
+    }
+    routes = {
+        ("POST", f"{base}/v1/responsibility/edges"): ingest_payload,
+        ("GET", f"{base}/v1/responsibility/identity/id-a/signals?limit=10"): ingest_payload["signals"],
+        ("GET", f"{base}/v1/responsibility/task/{task_id}/path-hash"): {
+            "task_id": task_id,
+            "edge_hashes": ["a" * 64, "b" * 64],
+            "path_hash": "c" * 64,
+        },
+        ("GET", f"{base}/v1/responsibility/task/{task_id}/temporal-consistency"): {
+            "task_id": task_id,
+            "total_edges": 2,
+            "is_consistent": False,
+            "issues": [
+                {
+                    "issue_type": "missing_anchor_edge",
+                    "severity": "medium",
+                    "detail": "task has responsibility edges but no voucher_accept anchor edge",
+                    "edge_hashes": ["a" * 64],
+                }
+            ],
+            "analyzed_at": now,
+        },
+        ("GET", f"{base}/v1/responsibility/identity/id-a/path-features?window_hours=48&max_hops=5"): {
+            "identity_id": "id-a",
+            "window_hours": 48,
+            "max_hops": 5,
+            "traversed_edge_count": 4,
+            "reachable_identity_count": 3,
+            "cycle_paths_detected": 1,
+            "path_hashes_sample": ["d" * 64],
+            "computed_at": now,
+        },
+        ("GET", f"{base}/v1/responsibility/identity/id-a/score?window_hours=48"): {
+            "identity_id": "id-a",
+            "window_hours": 48,
+            "model_version": "public-risk-v1",
+            "weighted_points": 12.4,
+            "normalized_score": 12.4,
+            "signal_count": 2,
+            "signal_type_counts": {"mutual_exchange": 1, "cycle_authorization": 1},
+            "severity_counts": {"medium": 1, "high": 1},
+            "risk_band": "elevated",
+            "computed_at": now,
+        },
+        ("GET", f"{base}/v1/responsibility/model/public-risk"): {
+            "model_version": "public-risk-v1",
+            "time_window_rule": "include signals in now-window_hours to now",
+            "severity_weights": {"info": 1.0, "medium": 2.5, "high": 4.0},
+            "signal_type_weights": {"direct_loop": 3.0, "mutual_exchange": 2.0, "cycle_authorization": 3.5},
+            "recency_floor": 0.2,
+            "public_band_reference": {"low_min": 0.0, "elevated_min": 8.0, "high_min": 20.0, "critical_min": 35.0},
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs"): {
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "findings": [
+                {
+                    "finding_id": "finding-1",
+                    "scan_id": "scan-1",
+                    "identity_id": "id-a",
+                    "normalized_score": 12.4,
+                    "risk_band": "elevated",
+                    "signal_count": 2,
+                    "cycle_paths_detected": 1,
+                    "detail": "window_score=12.40, signals=2, cycles=1",
+                    "created_at": now,
+                }
+            ],
+        },
+        ("GET", f"{base}/v1/responsibility/scan-runs/scan-1?findings_limit=20"): {
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "findings": [
+                {
+                    "finding_id": "finding-1",
+                    "scan_id": "scan-1",
+                    "identity_id": "id-a",
+                    "normalized_score": 12.4,
+                    "risk_band": "elevated",
+                    "signal_count": 2,
+                    "cycle_paths_detected": 1,
+                    "detail": "window_score=12.40, signals=2, cycles=1",
+                    "created_at": now,
+                }
+            ],
+        },
+        ("GET", f"{base}/v1/responsibility/scan-runs/scan-1/events?limit=20"): [
+            {
+                "event_id": "evt-1",
+                "scan_id": "scan-1",
+                "event_type": "created",
+                "detail": "scan run created",
+                "metadata": {"execution_mode": "async"},
+                "created_at": now,
+            },
+            {
+                "event_id": "evt-2",
+                "scan_id": "scan-1",
+                "event_type": "execution_completed",
+                "detail": "scan run execution completed",
+                "metadata": {"attempt": 1},
+                "created_at": now,
+            },
+        ],
+        ("POST", f"{base}/v1/responsibility/scan-runs/claim"): {
+            "scan_id": "scan-1",
+            "status": "claimed",
+            "execution_mode": "async",
+            "scan_mode": "incremental",
+            "base_scan_id": "scan-0",
+            "incremental_since_at": now,
+            "requested_identity_ids": ["id-a"],
+            "window_hours": 48,
+            "max_hops": 5,
+            "min_score_threshold": 8.0,
+            "retry_max_attempts": 3,
+            "retry_backoff_seconds": 30,
+            "current_attempt": 0,
+            "claimed_by": "runner-1",
+            "claimed_at": now,
+            "lease_expires_at": now,
+            "last_heartbeat_at": now,
+            "started_at": None,
+            "next_retry_at": None,
+            "last_error": None,
+            "cancelled_at": None,
+            "cancel_reason": None,
+            "total_identities": 0,
+            "flagged_identities": 0,
+            "created_at": now,
+            "completed_at": None,
+        },
+        ("GET", f"{base}/v1/responsibility/scan-runs/queue/stats"): {
+            "total_runs": 5,
+            "status_counts": {"pending": 1, "claimed": 1, "running": 1, "failed": 1, "completed": 1, "dead_letter": 1},
+            "claimable_pending": 1,
+            "claimable_failed": 1,
+            "dead_letter_count": 1,
+            "stale_claimed": 0,
+            "stale_running": 0,
+            "generated_at": now,
+        },
+        ("GET", f"{base}/v1/responsibility/scan-runs/ops/report?window_hours=24&recent_events_limit=50&top_failure_limit=10&runner_limit=20"): {
+            "window_hours": 24,
+            "total_runs": 5,
+            "status_counts": {"pending": 1, "claimed": 1, "running": 1, "failed": 1, "completed": 1, "dead_letter": 1},
+            "claimable_pending": 1,
+            "claimable_failed": 1,
+            "dead_letter_count": 1,
+            "stale_claimed": 0,
+            "stale_running": 0,
+            "top_failure_reasons": [
+                {"reason": "base scan run not found", "count": 2, "last_seen_at": now}
+            ],
+            "recent_events": [
+                {
+                    "event_id": "evt-ops-1",
+                    "scan_id": "scan-1",
+                    "event_type": "execution_failed",
+                    "detail": "scan run execution failed",
+                    "metadata": {"attempt": 1},
+                    "created_at": now,
+                }
+            ],
+            "runner_activity": [
+                {
+                    "runner_identity_id": "runner-1",
+                    "claimed_count": 1,
+                    "heartbeat_count": 1,
+                    "execution_started_count": 1,
+                    "execution_completed_count": 1,
+                    "execution_failed_count": 0,
+                    "last_event_at": now,
+                }
+            ],
+            "alerts": [
+                {
+                    "alert_id": "alert-ops-1",
+                    "severity": "high",
+                    "alert_type": "queue_dead_letter_pressure",
+                    "message": "dead-letter queue pressure: 1",
+                    "metadata": {"dead_letter_count": 1, "threshold": 1},
+                    "generated_at": now,
+                }
+            ],
+            "generated_at": now,
+        },
+        ("GET", f"{base}/v1/responsibility/scan-runs/ops/runners?window_hours=24&limit=20"): [
+            {
+                "runner_identity_id": "runner-1",
+                "claimed_count": 1,
+                "heartbeat_count": 1,
+                "execution_started_count": 1,
+                "execution_completed_count": 1,
+                "execution_failed_count": 0,
+                "last_event_at": now,
+            }
+        ],
+        ("GET", f"{base}/v1/responsibility/scan-runs/ops/alerts?window_hours=24&runner_limit=20&dead_letter_threshold=5&stale_threshold=3&failed_ratio_threshold=0.25&runner_failure_min_started=3&runner_failure_ratio_threshold=0.5"): [
+            {
+                "alert_id": "alert-ops-1",
+                "severity": "high",
+                "alert_type": "queue_dead_letter_pressure",
+                "message": "dead-letter queue pressure: 1",
+                "metadata": {"dead_letter_count": 1, "threshold": 1},
+                "generated_at": now,
+            }
+        ],
+        ("POST", f"{base}/v1/responsibility/scan-runs/recover-stale"): {
+            "limit": 100,
+            "scanned_count": 1,
+            "recovered_count": 1,
+            "recovered_scan_ids": ["scan-1"],
+            "generated_at": now,
+        },
+        ("GET", f"{base}/v1/responsibility/scan-runs/dead-letter?limit=20"): [
+            {
+                "scan_id": "scan-dlq-1",
+                "status": "dead_letter",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-z"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 1,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "claimed_by": None,
+                "claimed_at": None,
+                "lease_expires_at": None,
+                "last_heartbeat_at": None,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": "base scan run not found",
+                "cancelled_at": None,
+                "cancel_reason": None,
+                "dead_lettered_at": now,
+                "dead_letter_reason": "retry exhausted",
+                "total_identities": 0,
+                "flagged_identities": 0,
+                "created_at": now,
+                "completed_at": None,
+            }
+        ],
+        ("POST", f"{base}/v1/responsibility/scan-runs/dead-letter/sweep"): {
+            "limit": 100,
+            "scanned_count": 1,
+            "dead_lettered_count": 1,
+            "dead_lettered_scan_ids": ["scan-dlq-1"],
+            "generated_at": now,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/dead-letter/requeue-batch"): {
+            "limit": 100,
+            "scanned_count": 1,
+            "requeued_count": 1,
+            "requeued_scan_ids": ["scan-dlq-1"],
+            "generated_at": now,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/dead-letter/purge"): {
+            "limit": 100,
+            "older_than_hours": 72,
+            "scanned_count": 1,
+            "purged_count": 1,
+            "purged_scan_ids": ["scan-dlq-0"],
+            "generated_at": now,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/worker/pull-execute"): {
+            "runner_identity_id": "runner-1",
+            "outcome": "completed",
+            "claimed_scan_id": "scan-1",
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "claimed_by": None,
+                "claimed_at": None,
+                "lease_expires_at": None,
+                "last_heartbeat_at": None,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
+                "cancelled_at": None,
+                "cancel_reason": None,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "message": "scan run executed",
+            "generated_at": now,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/maintenance/tick"): {
+            "runner_identity_id": "runner-ops",
+            "recover_limit": 100,
+            "max_claim_execute": 5,
+            "recovered_count": 1,
+            "recovered_scan_ids": ["scan-0"],
+            "claimed_count": 1,
+            "executed_count": 1,
+            "failed_count": 0,
+            "executed_scan_ids": ["scan-1"],
+            "failed_scan_ids": [],
+            "generated_at": now,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/scan-1/execute"): {
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "claimed_by": None,
+                "claimed_at": None,
+                "lease_expires_at": None,
+                "last_heartbeat_at": None,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
+                "cancelled_at": None,
+                "cancel_reason": None,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "findings": [],
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/scan-1/heartbeat"): {
+            "scan_id": "scan-1",
+            "status": "claimed",
+            "execution_mode": "async",
+            "scan_mode": "incremental",
+            "base_scan_id": "scan-0",
+            "incremental_since_at": now,
+            "requested_identity_ids": ["id-a"],
+            "window_hours": 48,
+            "max_hops": 5,
+            "min_score_threshold": 8.0,
+            "retry_max_attempts": 3,
+            "retry_backoff_seconds": 30,
+            "current_attempt": 0,
+            "claimed_by": "runner-1",
+            "claimed_at": now,
+            "lease_expires_at": now,
+            "last_heartbeat_at": now,
+            "started_at": None,
+            "next_retry_at": None,
+            "last_error": None,
+            "cancelled_at": None,
+            "cancel_reason": None,
+            "total_identities": 0,
+            "flagged_identities": 0,
+            "created_at": now,
+            "completed_at": None,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/scan-1/retry"): {
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-a"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 3,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 2,
+                "claimed_by": None,
+                "claimed_at": None,
+                "lease_expires_at": None,
+                "last_heartbeat_at": None,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": None,
+                "cancelled_at": None,
+                "cancel_reason": None,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "findings": [],
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/scan-1/cancel"): {
+            "scan_id": "scan-1",
+            "status": "cancelled",
+            "execution_mode": "async",
+            "scan_mode": "incremental",
+            "base_scan_id": "scan-0",
+            "incremental_since_at": now,
+            "requested_identity_ids": ["id-a"],
+            "window_hours": 48,
+            "max_hops": 5,
+            "min_score_threshold": 8.0,
+            "retry_max_attempts": 3,
+            "retry_backoff_seconds": 30,
+            "current_attempt": 0,
+            "claimed_by": "runner-1",
+            "claimed_at": now,
+            "lease_expires_at": None,
+            "last_heartbeat_at": None,
+            "started_at": None,
+            "next_retry_at": None,
+            "last_error": None,
+            "cancelled_at": now,
+            "cancel_reason": "manual-cancel",
+            "total_identities": 0,
+            "flagged_identities": 0,
+            "created_at": now,
+            "completed_at": None,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/scan-dlq-1/requeue"): {
+            "scan_id": "scan-dlq-1",
+            "status": "pending",
+            "execution_mode": "async",
+            "scan_mode": "incremental",
+            "base_scan_id": "scan-0",
+            "incremental_since_at": now,
+            "requested_identity_ids": ["id-z"],
+            "window_hours": 48,
+            "max_hops": 5,
+            "min_score_threshold": 8.0,
+            "retry_max_attempts": 1,
+            "retry_backoff_seconds": 30,
+            "current_attempt": 0,
+            "claimed_by": None,
+            "claimed_at": None,
+            "lease_expires_at": None,
+            "last_heartbeat_at": None,
+            "started_at": None,
+            "next_retry_at": None,
+            "last_error": "requeued from dead-letter",
+            "cancelled_at": None,
+            "cancel_reason": None,
+            "dead_lettered_at": None,
+            "dead_letter_reason": None,
+            "total_identities": 0,
+            "flagged_identities": 0,
+            "created_at": now,
+            "completed_at": None,
+        },
+        ("POST", f"{base}/v1/responsibility/reports/export"): {
+            "report_id": "report-1",
+            "target": "identity",
+            "identity_id": "id-a",
+            "task_id": None,
+            "window_hours": 48,
+            "max_hops": 5,
+            "generated_at": now,
+            "content_hash": "e" * 64,
+            "score_summary": {
+                "identity_id": "id-a",
+                "window_hours": 48,
+                "model_version": "public-risk-v1",
+                "weighted_points": 12.4,
+                "normalized_score": 12.4,
+                "signal_count": 2,
+                "signal_type_counts": {"mutual_exchange": 1, "cycle_authorization": 1},
+                "severity_counts": {"medium": 1, "high": 1},
+                "risk_band": "elevated",
+                "computed_at": now,
+            },
+            "path_features": {
+                "identity_id": "id-a",
+                "window_hours": 48,
+                "max_hops": 5,
+                "traversed_edge_count": 4,
+                "reachable_identity_count": 3,
+                "cycle_paths_detected": 1,
+                "path_hashes_sample": ["d" * 64],
+                "computed_at": now,
+            },
+            "task_path_summary": None,
+            "temporal_consistency": None,
+            "top_signals": ingest_payload["signals"],
+            "findings_excerpt": [
+                {
+                    "finding_id": "finding-1",
+                    "scan_id": "scan-1",
+                    "identity_id": "id-a",
+                    "normalized_score": 12.4,
+                    "risk_band": "elevated",
+                    "signal_count": 2,
+                    "cycle_paths_detected": 1,
+                    "detail": "window_score=12.40, signals=2, cycles=1",
+                    "created_at": now,
+                }
+            ],
+            "signature": {
+                "signature_scheme": "ed25519-public-placeholder",
+                "signer_identity_id": "signer-1",
+                "signature_payload_hash": "f" * 64,
+                "signature": "sig-value",
+                "status": "provided",
+                "verification_note": "public signature verification placeholder only",
+            },
+        },
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    ingest = await client.ingest_responsibility_edge(
+        source_identity_id="id-a",
+        target_identity_id="id-b",
+        edge_type=ResponsibilityEdgeType.TASK_DELEGATION,
+        task_id=task_id,
+    )
+    assert ingest.edge.edge_hash == "a" * 64
+    assert len(ingest.signals) == 1
+
+    signals = await client.list_responsibility_signals("id-a", limit=10)
+    assert signals[0].signal_type.value == "mutual_exchange"
+
+    summary = await client.get_task_path_hash(task_id)
+    assert summary.path_hash == "c" * 64
+    temporal = await client.get_task_temporal_consistency(task_id)
+    assert temporal.is_consistent is False
+    features = await client.get_responsibility_path_features("id-a", window_hours=48, max_hops=5)
+    assert features.cycle_paths_detected == 1
+    score = await client.get_responsibility_score("id-a", window_hours=48)
+    assert score.risk_band.value == "elevated"
+    model = await client.get_public_responsibility_risk_model()
+    assert model.model_version == "public-risk-v1"
+    scan = await client.create_responsibility_batch_scan(
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.INCREMENTAL,
+        base_scan_id="scan-0",
+        window_hours=48,
+        max_hops=5,
+    )
+    assert scan.run.scan_id == "scan-1"
+    assert scan.run.execution_mode.value == "async"
+    assert scan.run.scan_mode.value == "incremental"
+    scan_read = await client.get_responsibility_batch_scan("scan-1", findings_limit=20)
+    assert scan_read.findings[0].identity_id == "id-a"
+    scan_events = await client.list_responsibility_batch_scan_events("scan-1", limit=20)
+    assert scan_events[0].event_type.value == "created"
+    assert scan_events[1].event_type.value == "execution_completed"
+    claimed = await client.claim_responsibility_batch_scan(runner_identity_id="runner-1")
+    assert claimed.status.value == "claimed"
+    queue_stats = await client.get_responsibility_scan_queue_stats()
+    assert queue_stats.total_runs == 5
+    ops_report = await client.get_responsibility_scan_ops_report()
+    assert ops_report.dead_letter_count == 1
+    assert ops_report.top_failure_reasons[0].reason == "base scan run not found"
+    assert ops_report.runner_activity[0].runner_identity_id == "runner-1"
+    assert ops_report.alerts[0].alert_type.value == "queue_dead_letter_pressure"
+    runner_activity = await client.list_responsibility_scan_runner_activity(window_hours=24, limit=20)
+    assert runner_activity[0].execution_completed_count == 1
+    alerts = await client.get_responsibility_scan_ops_alerts(window_hours=24, runner_limit=20)
+    assert alerts[0].severity.value == "high"
+    recovered_stale = await client.recover_stale_responsibility_batch_scans(limit=100)
+    assert recovered_stale.recovered_scan_ids == ["scan-1"]
+    dead_letter_runs = await client.list_dead_letter_responsibility_batch_scans(limit=20)
+    assert dead_letter_runs[0].status.value == "dead_letter"
+    swept = await client.sweep_dead_letter_responsibility_batch_scans(limit=100, reason="retry exhausted")
+    assert swept.dead_lettered_count == 1
+    requeued_batch = await client.requeue_dead_letter_responsibility_batch_scans(limit=100, reason="ops-batch")
+    assert requeued_batch.requeued_scan_ids == ["scan-dlq-1"]
+    purged = await client.purge_dead_letter_responsibility_batch_scans(limit=100, older_than_hours=72)
+    assert purged.purged_scan_ids == ["scan-dlq-0"]
+    pull_executed = await client.pull_execute_responsibility_batch_scan(
+        runner_identity_id="runner-1",
+        include_failed=True,
+    )
+    assert pull_executed.outcome.value == "completed"
+    maintenance = await client.run_responsibility_scan_queue_maintenance_tick(
+        runner_identity_id="runner-ops",
+    )
+    assert maintenance.executed_count == 1
+    heartbeated = await client.heartbeat_responsibility_batch_scan(
+        "scan-1",
+        runner_identity_id="runner-1",
+    )
+    assert heartbeated.claimed_by == "runner-1"
+    executed = await client.execute_responsibility_batch_scan(
+        "scan-1",
+        runner_identity_id="runner-1",
+    )
+    assert executed.run.current_attempt == 1
+    retried = await client.retry_responsibility_batch_scan("scan-1")
+    assert retried.run.current_attempt == 2
+    cancelled = await client.cancel_responsibility_batch_scan(
+        "scan-1",
+        runner_identity_id="runner-1",
+        reason="manual-cancel",
+    )
+    assert cancelled.status.value == "cancelled"
+    requeued = await client.requeue_dead_letter_responsibility_batch_scan(
+        "scan-dlq-1",
+        reason="ops-requeue",
+    )
+    assert requeued.status.value == "pending"
+    report = await client.export_explainable_risk_report(
+        identity_id="id-a",
+        signer_identity_id="signer-1",
+        signature="sig-value",
+        window_hours=48,
+        max_hops=5,
+    )
+    assert report.report_id == "report-1"
+    assert report.signature and report.signature.status.value == "provided"
+
+
+@pytest.mark.asyncio
+async def test_security_ops_sdk_method():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    payload = {
+        "window_minutes": 15,
+        "summary": {
+            "failed_auth_count": 3,
+            "rate_limited_count": 5,
+            "private_runtime_error_count": 2,
+            "verify_request_count": 10,
+            "private_runtime_error_rate": 0.2,
+            "failed_auth_by_path": [],
+            "failed_auth_by_actor": [],
+            "failed_auth_by_route_group": [],
+            "rate_limited_by_path": [],
+            "rate_limited_by_actor": [],
+            "rate_limited_by_route_group": [],
+            "private_runtime_error_by_path": [],
+            "private_runtime_error_by_route_group": [],
+        },
+        "alerts": [
+            {
+                "alert_id": "sec-alert-1",
+                "severity": "high",
+                "alert_type": "auth_failure_spike",
+                "message": "authentication failures spiked",
+                "metadata": {"failed_auth_count": 3, "threshold": 2},
+                "generated_at": now,
+            }
+        ],
+        "suppressed_alert_count": 0,
+        "baseline": {
+            "sample_count": 0,
+            "baseline_window_minutes": 1440,
+            "failed_auth_avg": 0.0,
+            "rate_limited_avg": 0.0,
+            "private_runtime_error_rate_avg": 0.0,
+        },
+        "policy_id": "policy-1",
+        "policy_version": 1,
+        "policy_status": "active",
+        "matched_candidate": False,
+        "escalation": {"level": "watch", "reason": "sample", "trigger_alert_types": ["auth_failure_spike"]},
+        "recommended_actions": ["investigate"],
+        "generated_at": now,
+    }
+    routes = {
+        (
+            "GET",
+            f"{base}/v1/security/ops/alerts"
+            "?window_minutes=15"
+            "&failed_auth_threshold=10"
+            "&rate_limit_threshold=30"
+            "&private_runtime_error_threshold=5"
+            "&private_runtime_error_rate_threshold=0.25"
+            "&private_runtime_min_requests=10"
+            "&settlement_transition_denied_threshold=5"
+            "&settlement_transition_denied_rate_threshold=0.2"
+            "&settlement_transition_min_requests=10"
+            "&dimension_limit=5"
+            "&alert_cooldown_minutes=10"
+            "&failed_auth_threshold_overrides="
+            "&rate_limit_threshold_overrides="
+            "&private_runtime_error_threshold_overrides="
+            "&private_runtime_error_rate_threshold_overrides="
+            "&settlement_transition_denied_threshold_overrides="
+            "&baseline_window_minutes=1440"
+            "&baseline_drift_multiplier=2.5"
+            "&baseline_min_sample_count=3"
+            "&baseline_capture_interval_minutes=10"
+            "&apply_policy_center=true"
+            "&policy_id="
+            "&policy_actor_id="
+            "&auto_brake_on_transition_critical=true"
+            "&auto_brake_actor_id=security-ops",
+        ): payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    report = await client.get_security_ops_alerts(window_minutes=15)
+    assert report.summary.failed_auth_count == 3
+    assert report.summary.private_runtime_error_rate == 0.2
+    assert report.alerts[0].alert_type.value == "auth_failure_spike"
+    assert report.policy_id == "policy-1"
+
+
+@pytest.mark.asyncio
+async def test_security_policy_center_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    created_payload = {
+        "policy_id": "policy-1",
+        "version": 1,
+        "status": "draft",
+        "rollout_percent": 100,
+        "config": {"failed_auth_threshold": 7},
+        "note": "draft policy",
+        "created_by": "sec-admin",
+        "created_at": now,
+        "activated_at": None,
+        "archived_at": None,
+        "parent_policy_id": None,
+    }
+    active_payload = dict(created_payload)
+    active_payload["status"] = "active"
+    active_payload["activated_at"] = now
+    candidate_payload = dict(created_payload)
+    candidate_payload["status"] = "candidate"
+    candidate_payload["rollout_percent"] = 20
+    change_payload = {
+        "request_id": "change-1",
+        "action": "set_candidate",
+        "status": "approved",
+        "target_policy_id": "policy-1",
+        "target_rollback_policy_id": None,
+        "rollout_percent": 20,
+        "note": "test change",
+        "requested_by": "sec-admin",
+        "requested_at": now,
+        "applied_at": None,
+        "required_approvals": 2,
+        "approvals": [
+            {
+                "approval_id": "ap-1",
+                "request_id": "change-1",
+                "approver_id": "rev-1",
+                "decision": "approve",
+                "comment": None,
+                "created_at": now,
+            },
+            {
+                "approval_id": "ap-2",
+                "request_id": "change-1",
+                "approver_id": "rev-2",
+                "decision": "approve",
+                "comment": None,
+                "created_at": now,
+            },
+        ],
+        "dry_run": {
+            "generated_at": now,
+            "actor_id": "actor-1",
+            "current_policy_id": "policy-1",
+            "projected_policy_id": "policy-1",
+            "current_report": {
+                "window_minutes": 15,
+                "summary": {
+                    "failed_auth_count": 0,
+                    "rate_limited_count": 0,
+                    "private_runtime_error_count": 0,
+                    "verify_request_count": 0,
+                    "private_runtime_error_rate": 0.0,
+                    "failed_auth_by_path": [],
+                    "failed_auth_by_actor": [],
+                    "failed_auth_by_route_group": [],
+                    "rate_limited_by_path": [],
+                    "rate_limited_by_actor": [],
+                    "rate_limited_by_route_group": [],
+                    "private_runtime_error_by_path": [],
+                    "private_runtime_error_by_route_group": [],
+                },
+                "alerts": [],
+                "suppressed_alert_count": 0,
+                "baseline": {
+                    "sample_count": 0,
+                    "baseline_window_minutes": 1440,
+                    "failed_auth_avg": 0.0,
+                    "rate_limited_avg": 0.0,
+                    "private_runtime_error_rate_avg": 0.0,
+                },
+                "policy_id": "policy-1",
+                "policy_version": 1,
+                "policy_status": "active",
+                "matched_candidate": False,
+                "escalation": {"level": "none", "reason": "n/a", "trigger_alert_types": []},
+                "recommended_actions": [],
+                "generated_at": now,
+            },
+            "projected_report": {
+                "window_minutes": 15,
+                "summary": {
+                    "failed_auth_count": 0,
+                    "rate_limited_count": 0,
+                    "private_runtime_error_count": 0,
+                    "verify_request_count": 0,
+                    "private_runtime_error_rate": 0.0,
+                    "failed_auth_by_path": [],
+                    "failed_auth_by_actor": [],
+                    "failed_auth_by_route_group": [],
+                    "rate_limited_by_path": [],
+                    "rate_limited_by_actor": [],
+                    "rate_limited_by_route_group": [],
+                    "private_runtime_error_by_path": [],
+                    "private_runtime_error_by_route_group": [],
+                },
+                "alerts": [],
+                "suppressed_alert_count": 0,
+                "baseline": {
+                    "sample_count": 0,
+                    "baseline_window_minutes": 1440,
+                    "failed_auth_avg": 0.0,
+                    "rate_limited_avg": 0.0,
+                    "private_runtime_error_rate_avg": 0.0,
+                },
+                "policy_id": "policy-1",
+                "policy_version": 1,
+                "policy_status": "active",
+                "matched_candidate": True,
+                "escalation": {"level": "none", "reason": "n/a", "trigger_alert_types": []},
+                "recommended_actions": [],
+                "generated_at": now,
+            },
+            "summary": {
+                "current_alert_count": 0,
+                "projected_alert_count": 0,
+                "delta_alert_count": 0,
+                "current_critical_count": 0,
+                "projected_critical_count": 0,
+                "delta_critical_count": 0,
+                "current_high_count": 0,
+                "projected_high_count": 0,
+                "delta_high_count": 0,
+                "current_transition_denied_count": 0,
+                "projected_transition_denied_count": 1,
+                "delta_transition_denied_count": 1,
+                "current_transition_denied_rate": 0.0,
+                "projected_transition_denied_rate": 0.25,
+                "delta_transition_denied_rate": 0.25,
+                "current_transition_denied_rate_critical": False,
+                "projected_transition_denied_rate_critical": True,
+                "critical_auto_brake_will_trigger": True,
+                "newly_triggered_alert_types": [],
+                "resolved_alert_types": [],
+            },
+        },
+    }
+    applied_change_payload = dict(change_payload)
+    applied_change_payload["status"] = "applied"
+    applied_change_payload["applied_at"] = now
+    runtime_safety_payload = {
+        "enabled": False,
+        "reason": "normal operations",
+        "triggered_by": "sec-admin",
+        "triggered_at": now,
+        "pause_new_lock": False,
+        "pause_new_authorization": False,
+        "pause_new_task": False,
+        "pause_new_settlement": False,
+        "last_anchor_audit_at": now,
+        "total_locked_usdc": 100.0,
+        "total_bill_credits": 100.0,
+    }
+    runtime_safety_enabled_payload = dict(runtime_safety_payload)
+    runtime_safety_enabled_payload["enabled"] = True
+    runtime_safety_enabled_payload["reason"] = "manual drill"
+    runtime_pause_payload = dict(runtime_safety_payload)
+    runtime_pause_payload["enabled"] = True
+    runtime_pause_payload["pause_new_task"] = True
+    risk_profile_payload = {
+        "identity_id": "worker-risk-001",
+        "display_id": "Karma-ID-WORKERRISK",
+        "legal_identity_status": "unbound|admin:sec-admin|abnormal graph",
+        "status": "risk_marked",
+        "created_at": now,
+        "updated_at": now,
+    }
+    routes = {
+        ("POST", f"{base}/v1/security/policies"): created_payload,
+        ("GET", f"{base}/v1/security/policies?limit=50"): [active_payload, candidate_payload],
+        ("GET", f"{base}/v1/security/policies/policy-1"): active_payload,
+        ("POST", f"{base}/v1/security/policies/policy-1/activate?emergency_override=true"): active_payload,
+        ("POST", f"{base}/v1/security/policies/policy-1/candidate?emergency_override=true"): candidate_payload,
+        ("POST", f"{base}/v1/security/policies/rollback?emergency_override=true"): active_payload,
+        ("POST", f"{base}/v1/security/policies/changes"): change_payload,
+        ("GET", f"{base}/v1/security/policies/changes?status=approved&limit=50"): [change_payload],
+        ("GET", f"{base}/v1/security/policies/changes/change-1"): change_payload,
+        ("POST", f"{base}/v1/security/policies/changes/change-1/review"): change_payload,
+        ("POST", f"{base}/v1/security/policies/changes/change-1/apply"): applied_change_payload,
+        ("POST", f"{base}/v1/security/policies/changes/dry-run"): change_payload["dry_run"],
+        ("GET", f"{base}/v1/security/runtime/safety-mode"): runtime_safety_payload,
+        ("POST", f"{base}/v1/security/runtime/safety-mode"): runtime_safety_enabled_payload,
+        ("POST", f"{base}/v1/security/runtime/anchor-audit?actor_id=sdk"): runtime_safety_enabled_payload,
+        ("GET", f"{base}/v1/admin/controls"): runtime_safety_payload,
+        ("POST", f"{base}/v1/admin/controls/safety-mode"): runtime_safety_enabled_payload,
+        ("POST", f"{base}/v1/admin/controls/pauses"): runtime_pause_payload,
+        ("POST", f"{base}/v1/admin/controls/identities/worker-risk-001/risk-mark"): risk_profile_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    created = await client.create_security_threshold_policy(
+        config={"failed_auth_threshold": 7},
+        note="draft policy",
+        created_by="sec-admin",
+    )
+    assert created.status.value == "draft"
+
+    listed = await client.list_security_threshold_policies(limit=50)
+    assert len(listed) == 2
+    assert listed[0].status.value == "active"
+
+    fetched = await client.get_security_threshold_policy("policy-1")
+    assert fetched.policy_id == "policy-1"
+
+    activated = await client.activate_security_threshold_policy("policy-1", emergency_override=True)
+    assert activated.status.value == "active"
+
+    canary = await client.set_security_threshold_policy_candidate(
+        "policy-1",
+        rollout_percent=20,
+        emergency_override=True,
+    )
+    assert canary.rollout_percent == 20
+
+    rolled_back = await client.rollback_security_threshold_policy(
+        target_policy_id=None,
+        emergency_override=True,
+    )
+    assert rolled_back.status.value == "active"
+
+    created_change = await client.create_security_policy_change_request(
+        action=SecurityPolicyChangeAction.SET_CANDIDATE,
+        target_policy_id="policy-1",
+        rollout_percent=20,
+        requested_by="sec-admin",
+    )
+    assert created_change.status.value == "approved"
+    listed_changes = await client.list_security_policy_change_requests(
+        status=SecurityPolicyChangeStatus.APPROVED,
+        limit=50,
+    )
+    assert len(listed_changes) == 1
+    loaded_change = await client.get_security_policy_change_request("change-1")
+    assert loaded_change.request_id == "change-1"
+    reviewed_change = await client.review_security_policy_change_request(
+        "change-1",
+        approver_id="rev-3",
+        decision=SecurityPolicyApprovalDecision.APPROVE,
+    )
+    assert reviewed_change.request_id == "change-1"
+    applied_change = await client.apply_security_policy_change_request("change-1")
+    assert applied_change.status.value == "applied"
+    dry_run = await client.dry_run_security_policy_change(
+        action=SecurityPolicyChangeAction.SET_CANDIDATE,
+        target_policy_id="policy-1",
+        rollout_percent=20,
+        dry_run_actor_id="actor-1",
+    )
+    assert dry_run.projected_policy_id == "policy-1"
+    runtime_state = await client.get_runtime_safety_mode()
+    assert runtime_state.enabled is False
+    enabled_state = await client.update_runtime_safety_mode(
+        enabled=True,
+        reason="manual drill",
+        actor_id="sec-admin",
+    )
+    assert enabled_state.enabled is True
+    audited_state = await client.run_runtime_anchor_audit(actor_id="sdk")
+    assert audited_state.enabled is True
+    admin_state = await client.get_admin_controls_state()
+    assert admin_state.enabled is False
+    admin_enabled = await client.update_admin_safety_mode(enabled=True, reason="manual drill")
+    assert admin_enabled.enabled is True
+    paused_state = await client.update_admin_operational_pauses(pause_new_task=True, reason="maint")
+    assert paused_state.pause_new_task is True
+    marked_profile = await client.mark_identity_risk_flag(
+        identity_id="worker-risk-001",
+        risk_marked=True,
+        reason="abnormal graph",
+    )
+    assert marked_profile.status == "risk_marked"

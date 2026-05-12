@@ -9,7 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import SettlementState, TaskStatus
-from core.settlement.engine import SettlementStore
+from core.settlement.engine import (
+    SettlementStore,
+    can_transition,
+    canonical_task_status,
+    is_post_accepted,
+)
 from db.models.orm import SettlementModel
 
 
@@ -22,6 +27,21 @@ class PostgresSettlementStore(SettlementStore):
         existing = await self.session.get(SettlementModel, state.settlement_id)
         row_data = self._to_row(state)
         if existing:
+            existing_status = canonical_task_status(existing.status)
+            next_status = canonical_task_status(state.status)
+            if existing_status != next_status and not can_transition(existing_status, next_status):
+                raise ValueError(
+                    f"invalid status transition persistence guard: {existing_status.value} -> {next_status.value}"
+                )
+
+            immutable_fields = ("escrow_amount", "currency", "client_agent_id", "worker_agent_id")
+            if is_post_accepted(existing_status):
+                for field_name in immutable_fields:
+                    if getattr(existing, field_name) != row_data[field_name]:
+                        raise ValueError(
+                            f"immutable field cannot be modified after accepted: {field_name}"
+                        )
+
             for k, v in row_data.items():
                 setattr(existing, k, v)
         else:
@@ -48,7 +68,7 @@ class PostgresSettlementStore(SettlementStore):
             "task_id":           s.task_id,
             "escrow_amount":     s.escrow_amount,
             "currency":          s.currency,
-            "status":            s.status.value if hasattr(s.status, "value") else s.status,
+            "status":            canonical_task_status(s.status).value,
             "client_agent_id":   s.client_agent_id,
             "worker_agent_id":   s.worker_agent_id,
             "released_amount":   s.released_amount,
@@ -75,7 +95,7 @@ class PostgresSettlementStore(SettlementStore):
             task_id=row.task_id,
             escrow_amount=row.escrow_amount,
             currency=row.currency,
-            status=TaskStatus(row.status),
+            status=canonical_task_status(row.status),
             client_agent_id=row.client_agent_id,
             worker_agent_id=row.worker_agent_id,
             released_amount=row.released_amount,

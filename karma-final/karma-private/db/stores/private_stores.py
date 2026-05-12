@@ -11,10 +11,12 @@ from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
 from services.signing import Ed25519SigningService
 from core.reputation.pg_store import PostgresReputationStore
+from core.audit.trail import DecisionAuditTrail
 
 _signing = None
 _engine = None
 _session_factory = None
+_audit = None
 
 
 def _get_engine():
@@ -55,3 +57,11 @@ def get_settlement_store() -> PostgresSettlementStore:
 
 def get_reputation_store() -> PostgresReputationStore:
     return PostgresReputationStore(_get_session_factory()())
+
+
+def get_audit_trail() -> DecisionAuditTrail:
+    global _audit
+    if _audit is None:
+        from config.settings import settings
+        _audit = DecisionAuditTrail(settings.audit_log_path)
+    return _audit
