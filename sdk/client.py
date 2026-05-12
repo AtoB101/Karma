@@ -11,6 +11,7 @@ import httpx
 
 from core.schemas import (
     AgentRole,
+    ExplainableRiskReport,
     ArbitrationAssignment,
     ArbitrationCase,
     ArbitrationMaterialPackage,
@@ -28,6 +29,7 @@ from core.schemas import (
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
     ResponsibilityScoreSummary,
+    TaskTemporalConsistencyReport,
     ReputationSnapshot,
     SettlementState,
     SubIdentity,
@@ -562,6 +564,13 @@ class KarmaClient:
             resp.raise_for_status()
             return TaskPathHashSummary(**resp.json())
 
+    async def get_task_temporal_consistency(self, task_id: str) -> TaskTemporalConsistencyReport:
+        """GET /v1/responsibility/task/{task_id}/temporal-consistency"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/responsibility/task/{task_id}/temporal-consistency")
+            resp.raise_for_status()
+            return TaskTemporalConsistencyReport(**resp.json())
+
     async def get_responsibility_score(self, identity_id: str, window_hours: int = 24) -> ResponsibilityScoreSummary:
         """GET /v1/responsibility/identity/{identity_id}/score"""
         async with self._http() as http:
@@ -627,6 +636,28 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return ResponsibilityBatchScanResult(**resp.json())
+
+    async def export_explainable_risk_report(
+        self,
+        *,
+        identity_id: str | None = None,
+        task_id: str | None = None,
+        window_hours: int = 24,
+        max_hops: int = 4,
+        top_signals_limit: int = 20,
+    ) -> ExplainableRiskReport:
+        """POST /v1/responsibility/reports/export"""
+        payload: dict[str, Any] = {
+            "identity_id": identity_id,
+            "task_id": task_id,
+            "window_hours": window_hours,
+            "max_hops": max_hops,
+            "top_signals_limit": top_signals_limit,
+        }
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/responsibility/reports/export", json=payload)
+            resp.raise_for_status()
+            return ExplainableRiskReport(**resp.json())
 
     async def get_token(self, agent_id: str, api_key: str) -> str:
         """POST /v1/auth/token — returns JWT access token."""

@@ -677,6 +677,13 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert len(body["edge_hashes"]) == 3
     assert body["path_hash"] is not None
 
+    temporal = await client.get(f"/v1/responsibility/task/{task_id}/temporal-consistency")
+    assert temporal.status_code == 200
+    temporal_body = temporal.json()
+    assert temporal_body["task_id"] == task_id
+    assert temporal_body["total_edges"] == 3
+    assert isinstance(temporal_body["issues"], list)
+
     score = await client.get("/v1/responsibility/identity/id-c/score?window_hours=24")
     assert score.status_code == 200
     score_body = score.json()
@@ -714,6 +721,30 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     fetched_body = fetched_scan.json()
     assert fetched_body["run"]["scan_id"] == scan_id
     assert fetched_body["run"]["flagged_identities"] >= 1
+
+    report_identity = await client.post("/v1/responsibility/reports/export", json={
+        "identity_id": "id-c",
+        "window_hours": 24,
+        "max_hops": 4,
+        "top_signals_limit": 10,
+    })
+    assert report_identity.status_code == 200
+    identity_report_body = report_identity.json()
+    assert identity_report_body["target"] == "identity"
+    assert identity_report_body["identity_id"] == "id-c"
+    assert identity_report_body["content_hash"]
+
+    report_task = await client.post("/v1/responsibility/reports/export", json={
+        "task_id": task_id,
+        "window_hours": 24,
+        "max_hops": 4,
+        "top_signals_limit": 10,
+    })
+    assert report_task.status_code == 200
+    task_report_body = report_task.json()
+    assert task_report_body["target"] == "task"
+    assert task_report_body["task_id"] == task_id
+    assert task_report_body["temporal_consistency"]["task_id"] == task_id
 
 
 # ---------------------------------------------------------------------------

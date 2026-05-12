@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
+    ExplainableRiskReport,
     ResponsibilityBatchScanResult,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
@@ -13,16 +14,19 @@ from core.schemas import (
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
     ResponsibilityScoreSummary,
+    TaskTemporalConsistencyReport,
     TaskPathHashSummary,
 )
 from db.session import get_db
 from services.responsibility_graph import (
+    export_explainable_risk_report,
     get_batch_scan_result,
     get_identity_path_features,
     get_identity_score,
     get_identity_signals,
     get_public_risk_model,
     get_task_path_summary,
+    get_task_temporal_consistency_report,
     ingest_edge,
     run_batch_scan,
 )
@@ -44,6 +48,14 @@ class CreateBatchScanRunRequest(BaseModel):
     window_hours: int = Field(default=24, ge=1, le=24 * 30)
     max_hops: int = Field(default=4, ge=1, le=12)
     min_score_threshold: float = Field(default=8.0, ge=0.0, le=100.0)
+
+
+class ExportExplainableRiskReportRequest(BaseModel):
+    identity_id: str | None = None
+    task_id: str | None = None
+    window_hours: int = Field(default=24, ge=1, le=24 * 30)
+    max_hops: int = Field(default=4, ge=1, le=12)
+    top_signals_limit: int = Field(default=20, ge=1, le=200)
 
 
 @router.post("/edges", response_model=ResponsibilityEdgeIngestResult, status_code=201)
@@ -107,6 +119,11 @@ async def get_task_path_hash(task_id: str, db: AsyncSession = Depends(get_db)):
     return await get_task_path_summary(db=db, task_id=task_id)
 
 
+@router.get("/task/{task_id}/temporal-consistency", response_model=TaskTemporalConsistencyReport)
+async def get_task_temporal_consistency(task_id: str, db: AsyncSession = Depends(get_db)):
+    return await get_task_temporal_consistency_report(db=db, task_id=task_id)
+
+
 @router.get("/model/public-risk", response_model=ResponsibilityPublicRiskModel)
 async def get_public_model():
     return get_public_risk_model()
@@ -136,4 +153,21 @@ async def get_scan_run(
     if not result:
         raise HTTPException(404, f"scan run {scan_id} not found")
     return result
+
+
+@router.post("/reports/export", response_model=ExplainableRiskReport)
+async def export_report(
+    body: ExportExplainableRiskReportRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    if bool(body.identity_id) == bool(body.task_id):
+        raise HTTPException(400, "exactly one of identity_id or task_id must be provided")
+    return await export_explainable_risk_report(
+        db=db,
+        identity_id=body.identity_id,
+        task_id=body.task_id,
+        window_hours=body.window_hours,
+        max_hops=body.max_hops,
+        top_signals_limit=body.top_signals_limit,
+    )
 

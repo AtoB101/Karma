@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
+    ExplainableRiskReport,
+    ExplainableRiskReportTarget,
     ResponsibilityBatchScanResult,
     ResponsibilityBatchScanRun,
     ResponsibilityEdge,
@@ -25,6 +27,9 @@ from core.schemas import (
     ResponsibilityScoreBand,
     ResponsibilityScoreSummary,
     ResponsibilityPublicRiskModel,
+    TaskTemporalConsistencyReport,
+    TemporalConsistencyIssue,
+    TemporalConsistencyIssueType,
     TaskPathHashSummary,
 )
 from db.models.orm import (
@@ -46,6 +51,11 @@ SIGNAL_TYPE_WEIGHTS: dict[ResponsibilitySignalType, float] = {
     ResponsibilitySignalType.CYCLE_AUTHORIZATION: 3.5,
 }
 RECENCY_FLOOR = 0.2
+EDGE_STAGE_ORDER: dict[ResponsibilityEdgeType, int] = {
+    ResponsibilityEdgeType.VOUCHER_ACCEPT: 1,
+    ResponsibilityEdgeType.TASK_DELEGATION: 2,
+    ResponsibilityEdgeType.MANUAL_LINK: 3,
+}
 
 
 def _sha256(payload: Any) -> str:
@@ -290,6 +300,90 @@ async def get_identity_path_features(
     )
 
 
+async def get_task_temporal_consistency_report(
+    *,
+    db: AsyncSession,
+    task_id: str,
+    burst_seconds: int = 300,
+) -> TaskTemporalConsistencyReport:
+    result = await db.execute(
+        select(ResponsibilityEdgeModel)
+        .where(ResponsibilityEdgeModel.task_id == task_id)
+        .order_by(ResponsibilityEdgeModel.created_at.asc())
+    )
+    edges = result.scalars().all()
+    issues: list[TemporalConsistencyIssue] = []
+    if not edges:
+        return TaskTemporalConsistencyReport(
+            task_id=task_id,
+            total_edges=0,
+            is_consistent=True,
+            issues=[],
+            analyzed_at=datetime.utcnow(),
+        )
+
+    has_anchor = any(edge.edge_type == ResponsibilityEdgeType.VOUCHER_ACCEPT.value for edge in edges)
+    if not has_anchor and len(edges) > 0:
+        issues.append(
+            TemporalConsistencyIssue(
+                issue_type=TemporalConsistencyIssueType.MISSING_ANCHOR_EDGE,
+                severity=ResponsibilitySignalSeverity.MEDIUM,
+                detail="task has responsibility edges but no voucher_accept anchor edge",
+                edge_hashes=[edge.edge_hash for edge in edges[:5]],
+            )
+        )
+
+    last_stage = 0
+    out_of_order_hashes: list[str] = []
+    for edge in edges:
+        etype = ResponsibilityEdgeType(edge.edge_type)
+        stage = EDGE_STAGE_ORDER[etype]
+        if stage < last_stage:
+            out_of_order_hashes.append(edge.edge_hash)
+        last_stage = max(last_stage, stage)
+    if out_of_order_hashes:
+        issues.append(
+            TemporalConsistencyIssue(
+                issue_type=TemporalConsistencyIssueType.EDGE_TYPE_OUT_OF_ORDER,
+                severity=ResponsibilitySignalSeverity.HIGH,
+                detail="edge types violated expected temporal stage ordering",
+                edge_hashes=out_of_order_hashes[:20],
+            )
+        )
+
+    grouped: dict[tuple[str, str, str], list[ResponsibilityEdgeModel]] = {}
+    for edge in edges:
+        key = (edge.source_identity_id, edge.target_identity_id, edge.edge_type)
+        grouped.setdefault(key, []).append(edge)
+    burst_hashes: list[str] = []
+    for group_edges in grouped.values():
+        if len(group_edges) < 3:
+            continue
+        for idx in range(len(group_edges) - 2):
+            start = group_edges[idx].created_at
+            end = group_edges[idx + 2].created_at
+            if (end - start).total_seconds() <= burst_seconds:
+                burst_hashes.extend([group_edges[idx].edge_hash, group_edges[idx + 1].edge_hash, group_edges[idx + 2].edge_hash])
+                break
+    if burst_hashes:
+        issues.append(
+            TemporalConsistencyIssue(
+                issue_type=TemporalConsistencyIssueType.DUPLICATE_DIRECTION_BURST,
+                severity=ResponsibilitySignalSeverity.MEDIUM,
+                detail=f"detected repeated same-direction edges within {burst_seconds}s burst window",
+                edge_hashes=list(dict.fromkeys(burst_hashes))[:20],
+            )
+        )
+
+    return TaskTemporalConsistencyReport(
+        task_id=task_id,
+        total_edges=len(edges),
+        is_consistent=len(issues) == 0,
+        issues=issues,
+        analyzed_at=datetime.utcnow(),
+    )
+
+
 async def run_batch_scan(
     *,
     db: AsyncSession,
@@ -391,6 +485,91 @@ async def get_batch_scan_result(
     return ResponsibilityBatchScanResult(
         run=_scan_run_to_schema(run_row),
         findings=[_scan_finding_to_schema(row) for row in findings],
+    )
+
+
+async def export_explainable_risk_report(
+    *,
+    db: AsyncSession,
+    identity_id: str | None = None,
+    task_id: str | None = None,
+    window_hours: int = 24,
+    max_hops: int = 4,
+    top_signals_limit: int = 20,
+) -> ExplainableRiskReport:
+    if bool(identity_id) == bool(task_id):
+        raise ValueError("exactly one of identity_id or task_id must be provided")
+
+    now = datetime.utcnow()
+    if identity_id:
+        score = await get_identity_score(db=db, identity_id=identity_id, window_hours=window_hours)
+        features = await get_identity_path_features(
+            db=db,
+            identity_id=identity_id,
+            window_hours=window_hours,
+            max_hops=max_hops,
+        )
+        signals = await get_identity_signals(
+            db=db,
+            identity_id=identity_id,
+            limit=top_signals_limit,
+        )
+        findings_rows = await db.execute(
+            select(ResponsibilityScanFindingModel)
+            .where(ResponsibilityScanFindingModel.identity_id == identity_id)
+            .order_by(ResponsibilityScanFindingModel.created_at.desc())
+            .limit(5)
+        )
+        findings_excerpt = [_scan_finding_to_schema(row) for row in findings_rows.scalars().all()]
+        content_payload = {
+            "target": "identity",
+            "identity_id": identity_id,
+            "score": score.model_dump(mode="json"),
+            "features": features.model_dump(mode="json"),
+            "signals": [item.model_dump(mode="json") for item in signals],
+            "findings_excerpt": [item.model_dump(mode="json") for item in findings_excerpt],
+        }
+        return ExplainableRiskReport(
+            target=ExplainableRiskReportTarget.IDENTITY,
+            identity_id=identity_id,
+            window_hours=window_hours,
+            max_hops=max_hops,
+            generated_at=now,
+            content_hash=_sha256(content_payload),
+            score_summary=score,
+            path_features=features,
+            top_signals=signals,
+            findings_excerpt=findings_excerpt,
+        )
+
+    task_id_value = task_id or ""
+    task_summary = await get_task_path_summary(db=db, task_id=task_id_value)
+    temporal_report = await get_task_temporal_consistency_report(db=db, task_id=task_id_value)
+    signals_result = await db.execute(
+        select(ResponsibilitySignalModel)
+        .where(ResponsibilitySignalModel.task_id == task_id_value)
+        .order_by(ResponsibilitySignalModel.created_at.desc())
+        .limit(top_signals_limit)
+    )
+    signals = [_signal_to_schema(row) for row in signals_result.scalars().all()]
+    content_payload = {
+        "target": "task",
+        "task_id": task_id_value,
+        "task_path_summary": task_summary.model_dump(mode="json"),
+        "temporal_consistency": temporal_report.model_dump(mode="json"),
+        "signals": [item.model_dump(mode="json") for item in signals],
+    }
+    return ExplainableRiskReport(
+        target=ExplainableRiskReportTarget.TASK,
+        task_id=task_id_value,
+        window_hours=window_hours,
+        max_hops=max_hops,
+        generated_at=now,
+        content_hash=_sha256(content_payload),
+        task_path_summary=task_summary,
+        temporal_consistency=temporal_report,
+        top_signals=signals,
+        findings_excerpt=[],
     )
 
 

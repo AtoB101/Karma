@@ -365,6 +365,12 @@ SDK helper methods:
 - `cycle_paths_detected`
 - `path_hashes_sample`
 
+### `GET /v1/responsibility/task/{task_id}/temporal-consistency`
+返回任务级时序一致性检查报告：
+- `edge_type_out_of_order`
+- `duplicate_direction_burst`
+- `missing_anchor_edge`
+
 ### `GET /v1/responsibility/identity/{identity_id}/score`
 按时间窗口计算公开风险评分（默认 `window_hours=24`）：
 - 使用公开权重（`signal_type * severity * recency`）
@@ -386,6 +392,11 @@ SDK helper methods:
 ### `GET /v1/responsibility/scan-runs/{scan_id}`
 查询批处理扫描结果（含 `run` + `findings`）。
 
+### `POST /v1/responsibility/reports/export`
+导出可解释风险报告（identity 或 task 二选一）：
+- identity 报告：score + path features + top signals + findings excerpt
+- task 报告：task path hash + temporal consistency + top signals
+
 自动接入：
 - `POST /v1/vouchers/{voucher_id}/accept` 成功后会自动记录一条 `voucher_accept` 责任边。
 
@@ -398,6 +409,8 @@ SDK helper methods:
 - `get_responsibility_path_features(identity_id, window_hours=24, max_hops=4)`
 - `create_responsibility_batch_scan(...)`
 - `get_responsibility_batch_scan(scan_id, findings_limit=200)`
+- `get_task_temporal_consistency(task_id)`
+- `export_explainable_risk_report(...)`
 
 ---
 

@@ -7,6 +7,8 @@ import pytest
 from core.schemas import ResponsibilityEdgeType
 from db.models.orm import ResponsibilitySignalModel
 from services.responsibility_graph import (
+    export_explainable_risk_report,
+    get_task_temporal_consistency_report,
     get_identity_path_features,
     get_identity_score,
     ingest_edge,
@@ -115,4 +117,59 @@ async def test_batch_scan_returns_flagged_findings(db_session):
     assert result.run.total_identities == 2
     assert result.run.flagged_identities >= 1
     assert len(result.findings) >= 1
+
+
+@pytest.mark.asyncio
+async def test_task_temporal_consistency_missing_anchor_issue(db_session):
+    task_id = "task-temporal-001"
+    await ingest_edge(
+        db=db_session,
+        source_identity_id="temp-a",
+        target_identity_id="temp-b",
+        edge_type=ResponsibilityEdgeType.TASK_DELEGATION,
+        task_id=task_id,
+    )
+    report = await get_task_temporal_consistency_report(db=db_session, task_id=task_id)
+    assert report.task_id == task_id
+    assert report.is_consistent is False
+    assert any(issue.issue_type.value == "missing_anchor_edge" for issue in report.issues)
+
+
+@pytest.mark.asyncio
+async def test_export_explainable_report_identity_and_task(db_session):
+    task_id = "task-report-001"
+    await ingest_edge(
+        db=db_session,
+        source_identity_id="exp-a",
+        target_identity_id="exp-b",
+        edge_type=ResponsibilityEdgeType.VOUCHER_ACCEPT,
+        task_id=task_id,
+    )
+    await ingest_edge(
+        db=db_session,
+        source_identity_id="exp-b",
+        target_identity_id="exp-c",
+        edge_type=ResponsibilityEdgeType.TASK_DELEGATION,
+        task_id=task_id,
+    )
+
+    identity_report = await export_explainable_risk_report(
+        db=db_session,
+        identity_id="exp-a",
+        window_hours=24,
+        max_hops=4,
+    )
+    assert identity_report.target.value == "identity"
+    assert identity_report.identity_id == "exp-a"
+    assert identity_report.content_hash
+
+    task_report = await export_explainable_risk_report(
+        db=db_session,
+        task_id=task_id,
+        window_hours=24,
+        max_hops=4,
+    )
+    assert task_report.target.value == "task"
+    assert task_report.task_id == task_id
+    assert task_report.temporal_consistency is not None
 

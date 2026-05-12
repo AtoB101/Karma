@@ -948,6 +948,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskPathHashSummary'
+  /v1/responsibility/task/{taskId}/temporal-consistency:
+    get:
+      summary: Get task responsibility temporal consistency report
+      operationId: getTaskTemporalConsistency
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Temporal consistency report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskTemporalConsistencyReport'
   /v1/responsibility/model/public-risk:
     get:
       summary: Get public responsibility risk model baseline
@@ -1003,6 +1020,25 @@ paths:
                 $ref: '#/components/schemas/ResponsibilityBatchScanResult'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/responsibility/reports/export:
+    post:
+      summary: Export explainable responsibility risk report
+      operationId: exportExplainableRiskReport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportExplainableRiskReportRequest'
+      responses:
+        '200':
+          description: Explainable risk report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplainableRiskReport'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 components:
   securitySchemes:
     bearerAuth:
@@ -1875,6 +1911,107 @@ components:
           items:
             $ref: '#/components/schemas/ResponsibilityScanFinding'
       required: [run, findings]
+    TemporalConsistencyIssue:
+      type: object
+      properties:
+        issue_type:
+          type: string
+          enum: [edge_type_out_of_order, duplicate_direction_burst, missing_anchor_edge]
+        severity:
+          type: string
+          enum: [info, medium, high]
+        detail:
+          type: string
+        edge_hashes:
+          type: array
+          items:
+            type: string
+      required: [issue_type, severity, detail, edge_hashes]
+    TaskTemporalConsistencyReport:
+      type: object
+      properties:
+        task_id:
+          type: string
+        total_edges:
+          type: integer
+        is_consistent:
+          type: boolean
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemporalConsistencyIssue'
+        analyzed_at:
+          type: string
+          format: date-time
+      required: [task_id, total_edges, is_consistent, issues, analyzed_at]
+    ExportExplainableRiskReportRequest:
+      type: object
+      properties:
+        identity_id:
+          type: string
+        task_id:
+          type: string
+        window_hours:
+          type: integer
+          minimum: 1
+          maximum: 720
+          default: 24
+        max_hops:
+          type: integer
+          minimum: 1
+          maximum: 12
+          default: 4
+        top_signals_limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 20
+    ExplainableRiskReport:
+      type: object
+      properties:
+        report_id:
+          type: string
+        target:
+          type: string
+          enum: [identity, task]
+        identity_id:
+          type: string
+        task_id:
+          type: string
+        window_hours:
+          type: integer
+        max_hops:
+          type: integer
+        generated_at:
+          type: string
+          format: date-time
+        content_hash:
+          type: string
+        score_summary:
+          $ref: '#/components/schemas/ResponsibilityScoreSummary'
+        path_features:
+          $ref: '#/components/schemas/ResponsibilityPathFeaturesSummary'
+        task_path_summary:
+          $ref: '#/components/schemas/TaskPathHashSummary'
+        temporal_consistency:
+          $ref: '#/components/schemas/TaskTemporalConsistencyReport'
+        top_signals:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponsibilityRiskSignal'
+        findings_excerpt:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponsibilityScanFinding'
+      required:
+        - report_id
+        - target
+        - window_hours
+        - max_hops
+        - generated_at
+        - content_hash
+        - top_signals
+        - findings_excerpt
     EvidenceObject:
       type: object
       properties:

@@ -148,6 +148,17 @@ class ResponsibilityScanRunStatus(str, Enum):
     FAILED = "failed"
 
 
+class TemporalConsistencyIssueType(str, Enum):
+    EDGE_TYPE_OUT_OF_ORDER = "edge_type_out_of_order"
+    DUPLICATE_DIRECTION_BURST = "duplicate_direction_burst"
+    MISSING_ANCHOR_EDGE = "missing_anchor_edge"
+
+
+class ExplainableRiskReportTarget(str, Enum):
+    IDENTITY = "identity"
+    TASK = "task"
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------
@@ -579,6 +590,38 @@ class ResponsibilityBatchScanRun(BaseModel):
 class ResponsibilityBatchScanResult(BaseModel):
     run: ResponsibilityBatchScanRun
     findings: list[ResponsibilityScanFinding] = Field(default_factory=list)
+
+
+class TemporalConsistencyIssue(BaseModel):
+    issue_type: TemporalConsistencyIssueType
+    severity: ResponsibilitySignalSeverity
+    detail: str
+    edge_hashes: list[str] = Field(default_factory=list)
+
+
+class TaskTemporalConsistencyReport(BaseModel):
+    task_id: str
+    total_edges: int = 0
+    is_consistent: bool = True
+    issues: list[TemporalConsistencyIssue] = Field(default_factory=list)
+    analyzed_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ExplainableRiskReport(BaseModel):
+    report_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    target: ExplainableRiskReportTarget
+    identity_id: Optional[str] = None
+    task_id: Optional[str] = None
+    window_hours: int = 24
+    max_hops: int = 4
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    content_hash: str
+    score_summary: Optional[ResponsibilityScoreSummary] = None
+    path_features: Optional[ResponsibilityPathFeaturesSummary] = None
+    task_path_summary: Optional[TaskPathHashSummary] = None
+    temporal_consistency: Optional[TaskTemporalConsistencyReport] = None
+    top_signals: list[ResponsibilityRiskSignal] = Field(default_factory=list)
+    findings_excerpt: list[ResponsibilityScanFinding] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

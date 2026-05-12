@@ -502,6 +502,20 @@ async def test_responsibility_sdk_methods():
             "edge_hashes": ["a" * 64, "b" * 64],
             "path_hash": "c" * 64,
         },
+        ("GET", f"{base}/v1/responsibility/task/{task_id}/temporal-consistency"): {
+            "task_id": task_id,
+            "total_edges": 2,
+            "is_consistent": False,
+            "issues": [
+                {
+                    "issue_type": "missing_anchor_edge",
+                    "severity": "medium",
+                    "detail": "task has responsibility edges but no voucher_accept anchor edge",
+                    "edge_hashes": ["a" * 64],
+                }
+            ],
+            "analyzed_at": now,
+        },
         ("GET", f"{base}/v1/responsibility/identity/id-a/path-features?window_hours=48&max_hops=5"): {
             "identity_id": "id-a",
             "window_hours": 48,
@@ -584,6 +598,54 @@ async def test_responsibility_sdk_methods():
                 }
             ],
         },
+        ("POST", f"{base}/v1/responsibility/reports/export"): {
+            "report_id": "report-1",
+            "target": "identity",
+            "identity_id": "id-a",
+            "task_id": None,
+            "window_hours": 48,
+            "max_hops": 5,
+            "generated_at": now,
+            "content_hash": "e" * 64,
+            "score_summary": {
+                "identity_id": "id-a",
+                "window_hours": 48,
+                "model_version": "public-risk-v1",
+                "weighted_points": 12.4,
+                "normalized_score": 12.4,
+                "signal_count": 2,
+                "signal_type_counts": {"mutual_exchange": 1, "cycle_authorization": 1},
+                "severity_counts": {"medium": 1, "high": 1},
+                "risk_band": "elevated",
+                "computed_at": now,
+            },
+            "path_features": {
+                "identity_id": "id-a",
+                "window_hours": 48,
+                "max_hops": 5,
+                "traversed_edge_count": 4,
+                "reachable_identity_count": 3,
+                "cycle_paths_detected": 1,
+                "path_hashes_sample": ["d" * 64],
+                "computed_at": now,
+            },
+            "task_path_summary": None,
+            "temporal_consistency": None,
+            "top_signals": ingest_payload["signals"],
+            "findings_excerpt": [
+                {
+                    "finding_id": "finding-1",
+                    "scan_id": "scan-1",
+                    "identity_id": "id-a",
+                    "normalized_score": 12.4,
+                    "risk_band": "elevated",
+                    "signal_count": 2,
+                    "cycle_paths_detected": 1,
+                    "detail": "window_score=12.40, signals=2, cycles=1",
+                    "created_at": now,
+                }
+            ],
+        },
     }
     mock_http = _MockHTTP(routes)
     client = KarmaClient(agent_id="a1", runtime_url=base)
@@ -603,6 +665,8 @@ async def test_responsibility_sdk_methods():
 
     summary = await client.get_task_path_hash(task_id)
     assert summary.path_hash == "c" * 64
+    temporal = await client.get_task_temporal_consistency(task_id)
+    assert temporal.is_consistent is False
     features = await client.get_responsibility_path_features("id-a", window_hours=48, max_hops=5)
     assert features.cycle_paths_detected == 1
     score = await client.get_responsibility_score("id-a", window_hours=48)
@@ -613,4 +677,6 @@ async def test_responsibility_sdk_methods():
     assert scan.run.scan_id == "scan-1"
     scan_read = await client.get_responsibility_batch_scan("scan-1", findings_limit=20)
     assert scan_read.findings[0].identity_id == "id-a"
+    report = await client.export_explainable_risk_report(identity_id="id-a", window_hours=48, max_hops=5)
+    assert report.report_id == "report-1"
 
