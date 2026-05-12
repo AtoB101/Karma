@@ -249,8 +249,10 @@ async def test_security_ops_alerts_endpoint_returns_report(client):
 @pytest.mark.asyncio
 async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client):
     clear_security_events()
+    original_admin_ids = settings.admin_actor_ids
     set_runtime_safety_mode(enabled=False, reason="test reset", actor_id="test")
     try:
+        settings.admin_actor_ids = "sec-admin"
         task_id = "task-transition-abuse-001"
         created = await client.post(
             "/v1/settlement/create",
@@ -274,6 +276,7 @@ async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client):
             "&alert_cooldown_minutes=0"
             "&auto_brake_on_transition_critical=true"
             "&auto_brake_actor_id=sec-auto",
+            headers={"X-Karma-Api-Key": "karma_sec-admin_supersecret123456"},
         )
         assert report.status_code == 200
         alert_types = {item["alert_type"] for item in report.json()["alerts"]}
@@ -282,6 +285,47 @@ async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client):
         assert state.enabled is True
         assert state.triggered_by == "sec-auto"
     finally:
+        settings.admin_actor_ids = original_admin_ids
+        set_runtime_safety_mode(enabled=False, reason="test cleanup", actor_id="test")
+        clear_security_events()
+
+
+@pytest.mark.asyncio
+async def test_security_ops_auto_brake_requires_admin_whitelist(client):
+    clear_security_events()
+    original_admin_ids = settings.admin_actor_ids
+    set_runtime_safety_mode(enabled=False, reason="test reset", actor_id="test")
+    try:
+        settings.admin_actor_ids = "sec-admin"
+        task_id = "task-transition-abuse-002"
+        created = await client.post(
+            "/v1/settlement/create",
+            json={
+                "task_id": task_id,
+                "client_agent_id": "buyer-001",
+                "escrow_amount": 10.0,
+                "currency": "USD",
+            },
+        )
+        assert created.status_code == 201
+        denied = await client.post(f"/v1/settlement/{task_id}/submit", json={})
+        assert denied.status_code == 409
+
+        report = await client.get(
+            "/v1/security/ops/alerts"
+            "?window_minutes=30"
+            "&settlement_transition_denied_threshold=1"
+            "&settlement_transition_denied_rate_threshold=0.4"
+            "&settlement_transition_min_requests=2"
+            "&alert_cooldown_minutes=0"
+            "&auto_brake_on_transition_critical=true",
+            headers={"X-Karma-Api-Key": "karma_untrusted_operator123456"},
+        )
+        assert report.status_code == 403
+        assert "admin actor whitelist" in report.json()["detail"]
+        assert get_runtime_safety_mode_state().enabled is False
+    finally:
+        settings.admin_actor_ids = original_admin_ids
         set_runtime_safety_mode(enabled=False, reason="test cleanup", actor_id="test")
         clear_security_events()
 

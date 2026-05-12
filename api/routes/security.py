@@ -3,7 +3,7 @@ Karma API — Security Operations Routes
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +21,9 @@ from core.schemas import (
     SecurityThresholdPolicyStatus,
 )
 from db.session import get_db
+from api.middleware.auth import resolve_agent_id_from_auth_headers
+from config.settings import settings
+from api.middleware.rate_limit import write_sensitive_rate_limit
 from services.security_monitoring import build_security_ops_alert_report
 from services.security_policy_center import (
     create_security_threshold_policy,
@@ -294,6 +297,7 @@ async def run_runtime_anchor_audit(
 
 @router.get("/ops/alerts", response_model=SecurityOpsAlertReport)
 async def get_security_ops_alerts(
+    request: Request,
     window_minutes: int | None = Query(default=None, ge=1, le=24 * 60),
     failed_auth_threshold: int | None = Query(default=None, ge=1, le=100000),
     rate_limit_threshold: int | None = Query(default=None, ge=1, le=100000),
@@ -334,6 +338,7 @@ async def get_security_ops_alerts(
     policy_actor_id: str | None = Query(default=None),
     auto_brake_on_transition_critical: bool = Query(default=True),
     auto_brake_actor_id: str | None = Query(default="security-ops"),
+    _rl: None = Depends(write_sensitive_rate_limit),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityOpsAlertReport:
     """
@@ -458,6 +463,15 @@ async def get_security_ops_alerts(
         for alert in report.alerts
     )
     if auto_brake_on_transition_critical and should_auto_brake:
+        caller_actor_id = resolve_agent_id_from_auth_headers(
+            authorization=request.headers.get("Authorization"),
+            api_key=request.headers.get("X-Karma-Api-Key"),
+        )
+        if not caller_actor_id or caller_actor_id not in settings.admin_actor_id_set():
+            raise HTTPException(
+                status_code=403,
+                detail="auto brake requires admin actor whitelist",
+            )
         set_runtime_safety_mode(
             enabled=True,
             reason="auto brake: settlement transition denied rate critical alert",

@@ -65,6 +65,9 @@ Query parameters allow threshold tuning:
 - `auto_brake_on_transition_critical`
 - `auto_brake_actor_id`
 
+安全说明：
+- 当 `auto_brake_on_transition_critical=true` 且触发临界迁移拒绝率告警时，调用方必须是管理员白名单 actor（`ADMIN_ACTOR_IDS`），否则返回 `403`。
+
 返回结构额外包含：
 - `baseline`（滚动基线均值与样本数）
 - `suppressed_alert_count`（被冷却策略抑制的告警数量）

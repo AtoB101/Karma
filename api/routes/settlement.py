@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import resolve_agent_id_from_auth_headers
+from api.middleware.rate_limit import state_transition_rate_limit
 from core.schemas import (
     CapacityState,
     ProgressConfirmationStatus,
@@ -56,7 +57,12 @@ class DisputeRequest(BaseModel):
 
 
 @router.post("/create", response_model=SettlementState, status_code=201)
-async def create_settlement(body: CreateSettlementRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def create_settlement(
+    body: CreateSettlementRequest,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     from config.settings import settings as _s
@@ -90,7 +96,12 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
 
 
 @router.post("/{task_id}/pending", response_model=SettlementState)
-async def mark_settlement_pending(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def mark_settlement_pending(
+    task_id: str,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
@@ -109,7 +120,13 @@ async def mark_settlement_pending(task_id: str, request: Request, db: AsyncSessi
 
 
 @router.post("/{task_id}/lock", response_model=SettlementState)
-async def lock_settlement(task_id: str, body: LockRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def lock_settlement(
+    task_id: str,
+    body: LockRequest,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
@@ -129,7 +146,12 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
 
 
 @router.post("/{task_id}/start", response_model=SettlementState)
-async def start_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def start_settlement(
+    task_id: str,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
@@ -148,7 +170,12 @@ async def start_settlement(task_id: str, request: Request, db: AsyncSession = De
 
 
 @router.post("/{task_id}/submit", response_model=SettlementState)
-async def submit_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def submit_settlement(
+    task_id: str,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
@@ -167,7 +194,12 @@ async def submit_settlement(task_id: str, request: Request, db: AsyncSession = D
 
 
 @router.post("/{task_id}/fail", response_model=SettlementState)
-async def fail_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def fail_settlement(
+    task_id: str,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
@@ -211,7 +243,13 @@ async def list_settlement_transitions(
 
 
 @router.post("/{task_id}/partial", response_model=SettlementState)
-async def partial_settlement(task_id: str, body: PartialSettlementRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def partial_settlement(
+    task_id: str,
+    body: PartialSettlementRequest,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
@@ -248,7 +286,13 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
 
 
 @router.post("/{task_id}/regret", response_model=SettlementState)
-async def regret_settlement(task_id: str, body: RegretRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def regret_settlement(
+    task_id: str,
+    body: RegretRequest,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
@@ -289,7 +333,13 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
 
 
 @router.post("/{task_id}/dispute", response_model=SettlementState)
-async def open_dispute(task_id: str, body: DisputeRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def open_dispute(
+    task_id: str,
+    body: DisputeRequest,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
@@ -307,7 +357,12 @@ async def open_dispute(task_id: str, body: DisputeRequest, request: Request, db:
 
 
 @router.post("/{task_id}/auto-arbitrate", response_model=SettlementState)
-async def auto_arbitrate(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def auto_arbitrate(
+    task_id: str,
+    request: Request,
+    _rl: None = Depends(state_transition_rate_limit),
+    db: AsyncSession = Depends(get_db),
+):
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:

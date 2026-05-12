@@ -349,6 +349,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SecurityOpsAlertReport'
+        '403':
+          description: Auto-brake requested by non-admin actor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /v1/security/policies:

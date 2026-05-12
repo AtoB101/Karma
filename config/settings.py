@@ -35,6 +35,10 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    redis_max_connections: int = 200
+    redis_socket_timeout_seconds: float = 2.0
+    redis_socket_connect_timeout_seconds: float = 2.0
+    redis_key_max_length: int = 128
 
     # MinIO
     minio_endpoint: str = "localhost:9000"
@@ -83,6 +87,8 @@ class Settings(BaseSettings):
     # Monitoring
     prometheus_port: int = 9090
     log_level: str = "INFO"
+    # Comma-separated rate-limit keys that should fail closed when Redis is unavailable.
+    rate_limit_fail_closed_keys: str = "register,verify,write_sensitive,state_transition"
 
     # ------------------------------------------------------------------
     # Chain / Testnet
@@ -162,6 +168,12 @@ class Settings(BaseSettings):
 
     def admin_actor_id_set(self) -> set[str]:
         raw = (self.admin_actor_ids or "").strip()
+        if not raw:
+            return set()
+        return {item.strip() for item in raw.split(",") if item.strip()}
+
+    def rate_limit_fail_closed_key_set(self) -> set[str]:
+        raw = (self.rate_limit_fail_closed_keys or "").strip()
         if not raw:
             return set()
         return {item.strip() for item in raw.split(",") if item.strip()}
