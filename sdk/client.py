@@ -11,12 +11,15 @@ import httpx
 
 from core.schemas import (
     AgentRole,
+    AuthorizationVoucher,
+    CapacityState,
     EvidenceBundle,
     ReputationSnapshot,
     SettlementState,
     TaskContract,
     TaskStatus,
     VerificationResult,
+    VoucherVerificationResult,
 )
 from core.hooks.hook_layer import InMemoryReceiptStore, KarmaHookLayer, ReceiptStore
 from core.evidence.bundle_builder import EvidenceBundleBuilder
@@ -160,6 +163,108 @@ class KarmaClient:
             resp = await http.get(f"{self.runtime_url}/v1/reputation/{agent_id}")
             resp.raise_for_status()
             return ReputationSnapshot(**resp.json())
+
+    async def get_capacity(self, identity_id: str) -> CapacityState:
+        """GET /v1/capacity/{identity_id}"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/capacity/{identity_id}")
+            resp.raise_for_status()
+            return CapacityState(**resp.json())
+
+    async def lock_capacity(self, identity_id: str, amount: float) -> CapacityState:
+        """POST /v1/capacity/{identity_id}/lock"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/capacity/{identity_id}/lock",
+                json={"amount": amount},
+            )
+            resp.raise_for_status()
+            return CapacityState(**resp.json())
+
+    async def release_capacity(self, identity_id: str, amount: float) -> CapacityState:
+        """POST /v1/capacity/{identity_id}/release"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/capacity/{identity_id}/release",
+                json={"amount": amount},
+            )
+            resp.raise_for_status()
+            return CapacityState(**resp.json())
+
+    async def create_voucher(
+        self,
+        *,
+        buyer_identity_id: str,
+        seller_identity_id: str,
+        amount: float,
+        bill_credit_amount: float,
+        task_type: str,
+        task_description_hash: str,
+        progress_rule_hash: str,
+        evidence_requirement_hash: str,
+        expiry_time: str,
+        nonce: str,
+        buyer_signature: str,
+        currency: str = "USDC",
+        buyer_sub_identity_id: Optional[str] = None,
+        seller_sub_identity_id: Optional[str] = None,
+    ) -> AuthorizationVoucher:
+        """POST /v1/vouchers"""
+        payload = {
+            "buyer_identity_id": buyer_identity_id,
+            "seller_identity_id": seller_identity_id,
+            "amount": amount,
+            "currency": currency,
+            "bill_credit_amount": bill_credit_amount,
+            "task_type": task_type,
+            "task_description_hash": task_description_hash,
+            "progress_rule_hash": progress_rule_hash,
+            "evidence_requirement_hash": evidence_requirement_hash,
+            "expiry_time": expiry_time,
+            "nonce": nonce,
+            "buyer_signature": buyer_signature,
+            "buyer_sub_identity_id": buyer_sub_identity_id,
+            "seller_sub_identity_id": seller_sub_identity_id,
+        }
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/vouchers", json=payload)
+            resp.raise_for_status()
+            return AuthorizationVoucher(**resp.json())
+
+    async def get_voucher(self, voucher_id: str) -> AuthorizationVoucher:
+        """GET /v1/vouchers/{voucher_id}"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/vouchers/{voucher_id}")
+            resp.raise_for_status()
+            return AuthorizationVoucher(**resp.json())
+
+    async def verify_voucher(
+        self,
+        voucher_id: str,
+        seller_identity_id: str,
+        expected_amount: Optional[float] = None,
+    ) -> VoucherVerificationResult:
+        """POST /v1/vouchers/{voucher_id}/verify"""
+        payload: dict[str, Any] = {"seller_identity_id": seller_identity_id}
+        if expected_amount is not None:
+            payload["expected_amount"] = expected_amount
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/vouchers/{voucher_id}/verify",
+                json=payload,
+            )
+            resp.raise_for_status()
+            return VoucherVerificationResult(**resp.json())
+
+    async def accept_voucher(self, voucher_id: str, seller_identity_id: str) -> AuthorizationVoucher:
+        """POST /v1/vouchers/{voucher_id}/accept"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/vouchers/{voucher_id}/accept",
+                json={"seller_identity_id": seller_identity_id},
+            )
+            resp.raise_for_status()
+            return AuthorizationVoucher(**resp.json())
 
     async def get_token(self, agent_id: str, api_key: str) -> str:
         """POST /v1/auth/token — returns JWT access token."""

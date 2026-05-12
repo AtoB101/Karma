@@ -215,6 +215,15 @@ Seller accepts voucher; system atomically reserves credits:
 ### `GET /v1/vouchers/{voucher_id}`
 Get voucher details and status.
 
+SDK helper methods:
+- `get_capacity(identity_id)`
+- `lock_capacity(identity_id, amount)`
+- `release_capacity(identity_id, amount)`
+- `create_voucher(...)`
+- `get_voucher(voucher_id)`
+- `verify_voucher(voucher_id, seller_identity_id, expected_amount=None)`
+- `accept_voucher(voucher_id, seller_identity_id)`
+
 ---
 
 ## Reputation
