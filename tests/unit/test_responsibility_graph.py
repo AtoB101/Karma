@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from core.schemas import ResponsibilityEdgeType
+from core.schemas import ResponsibilityEdgeType, ResponsibilityScanMode
 from db.models.orm import ResponsibilitySignalModel
 from services.responsibility_graph import (
     export_explainable_risk_report,
@@ -117,6 +117,43 @@ async def test_batch_scan_returns_flagged_findings(db_session):
     assert result.run.total_identities == 2
     assert result.run.flagged_identities >= 1
     assert len(result.findings) >= 1
+
+
+@pytest.mark.asyncio
+async def test_incremental_batch_scan_uses_base_scan(db_session):
+    await ingest_edge(
+        db=db_session,
+        source_identity_id="inc-a",
+        target_identity_id="inc-b",
+        edge_type=ResponsibilityEdgeType.MANUAL_LINK,
+    )
+    base = await run_batch_scan(
+        db=db_session,
+        identity_ids=None,
+        scan_mode=ResponsibilityScanMode.FULL,
+        window_hours=24,
+        max_hops=4,
+        min_score_threshold=0.0,
+    )
+
+    await ingest_edge(
+        db=db_session,
+        source_identity_id="inc-a",
+        target_identity_id="inc-c",
+        edge_type=ResponsibilityEdgeType.MANUAL_LINK,
+    )
+    incremental = await run_batch_scan(
+        db=db_session,
+        identity_ids=None,
+        scan_mode=ResponsibilityScanMode.INCREMENTAL,
+        base_scan_id=base.run.scan_id,
+        window_hours=24,
+        max_hops=4,
+        min_score_threshold=0.0,
+    )
+    assert incremental.run.scan_mode.value == "incremental"
+    assert incremental.run.base_scan_id == base.run.scan_id
+    assert incremental.run.total_identities >= 1
 
 
 @pytest.mark.asyncio

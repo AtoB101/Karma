@@ -376,6 +376,9 @@ class ResponsibilityScanRunModel(Base):
 
     scan_id:               Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
     status:                Mapped[str]      = mapped_column(String(16), nullable=False, default="pending")
+    scan_mode:             Mapped[str]      = mapped_column(String(16), nullable=False, default="full")
+    base_scan_id:          Mapped[str|None] = mapped_column(String(64))
+    incremental_since_at:  Mapped[datetime|None] = mapped_column(DateTime)
     window_hours:          Mapped[int]      = mapped_column(Integer, nullable=False, default=24)
     max_hops:              Mapped[int]      = mapped_column(Integer, nullable=False, default=4)
     min_score_threshold:   Mapped[float]    = mapped_column(Float, nullable=False, default=8.0)

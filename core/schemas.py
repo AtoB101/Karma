@@ -148,6 +148,11 @@ class ResponsibilityScanRunStatus(str, Enum):
     FAILED = "failed"
 
 
+class ResponsibilityScanMode(str, Enum):
+    FULL = "full"
+    INCREMENTAL = "incremental"
+
+
 class TemporalConsistencyIssueType(str, Enum):
     EDGE_TYPE_OUT_OF_ORDER = "edge_type_out_of_order"
     DUPLICATE_DIRECTION_BURST = "duplicate_direction_burst"
@@ -157,6 +162,13 @@ class TemporalConsistencyIssueType(str, Enum):
 class ExplainableRiskReportTarget(str, Enum):
     IDENTITY = "identity"
     TASK = "task"
+
+
+class ReportSignatureStatus(str, Enum):
+    UNSIGNED = "unsigned"
+    PROVIDED = "provided"
+    VERIFIED = "verified"
+    INVALID = "invalid"
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +590,9 @@ class ResponsibilityScanFinding(BaseModel):
 class ResponsibilityBatchScanRun(BaseModel):
     scan_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     status: ResponsibilityScanRunStatus = ResponsibilityScanRunStatus.PENDING
+    scan_mode: ResponsibilityScanMode = ResponsibilityScanMode.FULL
+    base_scan_id: Optional[str] = None
+    incremental_since_at: Optional[datetime] = None
     window_hours: int = 24
     max_hops: int = 4
     min_score_threshold: float = 8.0
@@ -607,6 +622,15 @@ class TaskTemporalConsistencyReport(BaseModel):
     analyzed_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ReportSignaturePlaceholder(BaseModel):
+    signature_scheme: str = "ed25519-public-placeholder"
+    signer_identity_id: Optional[str] = None
+    signature_payload_hash: str
+    signature: Optional[str] = None
+    status: ReportSignatureStatus = ReportSignatureStatus.UNSIGNED
+    verification_note: str = "public signature verification placeholder only"
+
+
 class ExplainableRiskReport(BaseModel):
     report_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     target: ExplainableRiskReportTarget
@@ -622,6 +646,7 @@ class ExplainableRiskReport(BaseModel):
     temporal_consistency: Optional[TaskTemporalConsistencyReport] = None
     top_signals: list[ResponsibilityRiskSignal] = Field(default_factory=list)
     findings_excerpt: list[ResponsibilityScanFinding] = Field(default_factory=list)
+    signature: Optional[ReportSignaturePlaceholder] = None
 
 
 # ---------------------------------------------------------------------------

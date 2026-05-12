@@ -10,6 +10,7 @@ from core.schemas import (
     ProgressConfirmationStatus,
     ProgressReceipt,
     ResponsibilityEdgeType,
+    ResponsibilityScanMode,
     SubIdentityType,
 )
 
@@ -550,6 +551,9 @@ async def test_responsibility_sdk_methods():
             "run": {
                 "scan_id": "scan-1",
                 "status": "completed",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
                 "window_hours": 48,
                 "max_hops": 5,
                 "min_score_threshold": 8.0,
@@ -576,6 +580,9 @@ async def test_responsibility_sdk_methods():
             "run": {
                 "scan_id": "scan-1",
                 "status": "completed",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
                 "window_hours": 48,
                 "max_hops": 5,
                 "min_score_threshold": 8.0,
@@ -645,6 +652,14 @@ async def test_responsibility_sdk_methods():
                     "created_at": now,
                 }
             ],
+            "signature": {
+                "signature_scheme": "ed25519-public-placeholder",
+                "signer_identity_id": "signer-1",
+                "signature_payload_hash": "f" * 64,
+                "signature": "sig-value",
+                "status": "provided",
+                "verification_note": "public signature verification placeholder only",
+            },
         },
     }
     mock_http = _MockHTTP(routes)
@@ -673,10 +688,23 @@ async def test_responsibility_sdk_methods():
     assert score.risk_band.value == "elevated"
     model = await client.get_public_responsibility_risk_model()
     assert model.model_version == "public-risk-v1"
-    scan = await client.create_responsibility_batch_scan(window_hours=48, max_hops=5)
+    scan = await client.create_responsibility_batch_scan(
+        scan_mode=ResponsibilityScanMode.INCREMENTAL,
+        base_scan_id="scan-0",
+        window_hours=48,
+        max_hops=5,
+    )
     assert scan.run.scan_id == "scan-1"
+    assert scan.run.scan_mode.value == "incremental"
     scan_read = await client.get_responsibility_batch_scan("scan-1", findings_limit=20)
     assert scan_read.findings[0].identity_id == "id-a"
-    report = await client.export_explainable_risk_report(identity_id="id-a", window_hours=48, max_hops=5)
+    report = await client.export_explainable_risk_report(
+        identity_id="id-a",
+        signer_identity_id="signer-1",
+        signature="sig-value",
+        window_hours=48,
+        max_hops=5,
+    )
     assert report.report_id == "report-1"
+    assert report.signature and report.signature.status.value == "provided"
 

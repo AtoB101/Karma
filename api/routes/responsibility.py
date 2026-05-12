@@ -13,6 +13,7 @@ from core.schemas import (
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
+    ResponsibilityScanMode,
     ResponsibilityScoreSummary,
     TaskTemporalConsistencyReport,
     TaskPathHashSummary,
@@ -45,6 +46,8 @@ class IngestResponsibilityEdgeRequest(BaseModel):
 
 class CreateBatchScanRunRequest(BaseModel):
     identity_ids: list[str] | None = None
+    scan_mode: ResponsibilityScanMode = ResponsibilityScanMode.FULL
+    base_scan_id: str | None = None
     window_hours: int = Field(default=24, ge=1, le=24 * 30)
     max_hops: int = Field(default=4, ge=1, le=12)
     min_score_threshold: float = Field(default=8.0, ge=0.0, le=100.0)
@@ -53,6 +56,8 @@ class CreateBatchScanRunRequest(BaseModel):
 class ExportExplainableRiskReportRequest(BaseModel):
     identity_id: str | None = None
     task_id: str | None = None
+    signer_identity_id: str | None = None
+    signature: str | None = None
     window_hours: int = Field(default=24, ge=1, le=24 * 30)
     max_hops: int = Field(default=4, ge=1, le=12)
     top_signals_limit: int = Field(default=20, ge=1, le=200)
@@ -134,13 +139,18 @@ async def create_batch_scan_run(
     body: CreateBatchScanRunRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    return await run_batch_scan(
-        db=db,
-        identity_ids=body.identity_ids,
-        window_hours=body.window_hours,
-        max_hops=body.max_hops,
-        min_score_threshold=body.min_score_threshold,
-    )
+    try:
+        return await run_batch_scan(
+            db=db,
+            identity_ids=body.identity_ids,
+            scan_mode=body.scan_mode,
+            base_scan_id=body.base_scan_id,
+            window_hours=body.window_hours,
+            max_hops=body.max_hops,
+            min_score_threshold=body.min_score_threshold,
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.get("/scan-runs/{scan_id}", response_model=ResponsibilityBatchScanResult)
@@ -169,5 +179,7 @@ async def export_report(
         window_hours=body.window_hours,
         max_hops=body.max_hops,
         top_signals_limit=body.top_signals_limit,
+        signer_identity_id=body.signer_identity_id,
+        signature=body.signature,
     )
 

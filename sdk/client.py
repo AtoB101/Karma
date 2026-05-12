@@ -28,6 +28,7 @@ from core.schemas import (
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
+    ResponsibilityScanMode,
     ResponsibilityScoreSummary,
     TaskTemporalConsistencyReport,
     ReputationSnapshot,
@@ -607,6 +608,8 @@ class KarmaClient:
         self,
         *,
         identity_ids: list[str] | None = None,
+        scan_mode: ResponsibilityScanMode = ResponsibilityScanMode.FULL,
+        base_scan_id: str | None = None,
         window_hours: int = 24,
         max_hops: int = 4,
         min_score_threshold: float = 8.0,
@@ -614,6 +617,8 @@ class KarmaClient:
         """POST /v1/responsibility/scan-runs"""
         payload: dict[str, Any] = {
             "identity_ids": identity_ids,
+            "scan_mode": scan_mode.value,
+            "base_scan_id": base_scan_id,
             "window_hours": window_hours,
             "max_hops": max_hops,
             "min_score_threshold": min_score_threshold,
@@ -642,6 +647,8 @@ class KarmaClient:
         *,
         identity_id: str | None = None,
         task_id: str | None = None,
+        signer_identity_id: str | None = None,
+        signature: str | None = None,
         window_hours: int = 24,
         max_hops: int = 4,
         top_signals_limit: int = 20,
@@ -650,6 +657,8 @@ class KarmaClient:
         payload: dict[str, Any] = {
             "identity_id": identity_id,
             "task_id": task_id,
+            "signer_identity_id": signer_identity_id,
+            "signature": signature,
             "window_hours": window_hours,
             "max_hops": max_hops,
             "top_signals_limit": top_signals_limit,

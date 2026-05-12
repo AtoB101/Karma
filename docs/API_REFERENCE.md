@@ -389,6 +389,10 @@ SDK helper methods:
 - 多跳路径特征提取
 - 发现项归档（score 超阈值或检测到 cycle）
 
+支持模式：
+- `scan_mode = full`：按窗口全量扫描
+- `scan_mode = incremental`：基于 `base_scan_id`（或窗口基线）仅扫描增量活动身份
+
 ### `GET /v1/responsibility/scan-runs/{scan_id}`
 查询批处理扫描结果（含 `run` + `findings`）。
 
@@ -396,6 +400,7 @@ SDK helper methods:
 导出可解释风险报告（identity 或 task 二选一）：
 - identity 报告：score + path features + top signals + findings excerpt
 - task 报告：task path hash + temporal consistency + top signals
+- 返回 `signature` 占位结构（`signature_payload_hash` + `status`），用于公开侧验签流程对接
 
 自动接入：
 - `POST /v1/vouchers/{voucher_id}/accept` 成功后会自动记录一条 `voucher_accept` 责任边。

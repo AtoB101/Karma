@@ -706,6 +706,7 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
 
     scan = await client.post("/v1/responsibility/scan-runs", json={
         "identity_ids": ["id-a", "id-b", "id-c"],
+        "scan_mode": "full",
         "window_hours": 24,
         "max_hops": 4,
         "min_score_threshold": 1.0,
@@ -721,9 +722,32 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     fetched_body = fetched_scan.json()
     assert fetched_body["run"]["scan_id"] == scan_id
     assert fetched_body["run"]["flagged_identities"] >= 1
+    assert fetched_body["run"]["scan_mode"] == "full"
+
+    extra = await client.post("/v1/responsibility/edges", json={
+        "source_identity_id": "id-c",
+        "target_identity_id": "id-d",
+        "edge_type": "manual_link",
+        "task_id": task_id,
+    })
+    assert extra.status_code == 201
+
+    incremental_scan = await client.post("/v1/responsibility/scan-runs", json={
+        "scan_mode": "incremental",
+        "base_scan_id": scan_id,
+        "window_hours": 24,
+        "max_hops": 4,
+        "min_score_threshold": 1.0,
+    })
+    assert incremental_scan.status_code == 201
+    incremental_body = incremental_scan.json()
+    assert incremental_body["run"]["scan_mode"] == "incremental"
+    assert incremental_body["run"]["base_scan_id"] == scan_id
 
     report_identity = await client.post("/v1/responsibility/reports/export", json={
         "identity_id": "id-c",
+        "signer_identity_id": "risk-ops-001",
+        "signature": "sig-placeholder",
         "window_hours": 24,
         "max_hops": 4,
         "top_signals_limit": 10,
@@ -733,6 +757,8 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert identity_report_body["target"] == "identity"
     assert identity_report_body["identity_id"] == "id-c"
     assert identity_report_body["content_hash"]
+    assert identity_report_body["signature"]["status"] == "provided"
+    assert identity_report_body["signature"]["signer_identity_id"] == "risk-ops-001"
 
     report_task = await client.post("/v1/responsibility/reports/export", json={
         "task_id": task_id,
@@ -745,6 +771,7 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert task_report_body["target"] == "task"
     assert task_report_body["task_id"] == task_id
     assert task_report_body["temporal_consistency"]["task_id"] == task_id
+    assert task_report_body["signature"]["status"] in {"unsigned", "provided"}
 
 
 # ---------------------------------------------------------------------------

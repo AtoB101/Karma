@@ -1820,6 +1820,12 @@ components:
           type: array
           items:
             type: string
+        scan_mode:
+          type: string
+          enum: [full, incremental]
+          default: full
+        base_scan_id:
+          type: string
         window_hours:
           type: integer
           minimum: 1
@@ -1876,6 +1882,14 @@ components:
         status:
           type: string
           enum: [pending, running, completed, failed]
+        scan_mode:
+          type: string
+          enum: [full, incremental]
+        base_scan_id:
+          type: string
+        incremental_since_at:
+          type: string
+          format: date-time
         window_hours:
           type: integer
         max_hops:
@@ -1895,6 +1909,7 @@ components:
       required:
         - scan_id
         - status
+        - scan_mode
         - window_hours
         - max_hops
         - min_score_threshold
@@ -1951,6 +1966,10 @@ components:
           type: string
         task_id:
           type: string
+        signer_identity_id:
+          type: string
+        signature:
+          type: string
         window_hours:
           type: integer
           minimum: 1
@@ -2003,6 +2022,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ResponsibilityScanFinding'
+        signature:
+          $ref: '#/components/schemas/ReportSignaturePlaceholder'
       required:
         - report_id
         - target
@@ -2012,6 +2033,27 @@ components:
         - content_hash
         - top_signals
         - findings_excerpt
+    ReportSignaturePlaceholder:
+      type: object
+      properties:
+        signature_scheme:
+          type: string
+        signer_identity_id:
+          type: string
+        signature_payload_hash:
+          type: string
+        signature:
+          type: string
+        status:
+          type: string
+          enum: [unsigned, provided, verified, invalid]
+        verification_note:
+          type: string
+      required:
+        - signature_scheme
+        - signature_payload_hash
+        - status
+        - verification_note
     EvidenceObject:
       type: object
       properties:

@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.schemas import (
     ExplainableRiskReport,
     ExplainableRiskReportTarget,
+    ReportSignaturePlaceholder,
+    ReportSignatureStatus,
     ResponsibilityBatchScanResult,
     ResponsibilityBatchScanRun,
     ResponsibilityEdge,
@@ -21,6 +23,7 @@ from core.schemas import (
     ResponsibilityPathFeaturesSummary,
     ResponsibilityRiskSignal,
     ResponsibilityScanFinding,
+    ResponsibilityScanMode,
     ResponsibilityScanRunStatus,
     ResponsibilitySignalSeverity,
     ResponsibilitySignalType,
@@ -388,24 +391,40 @@ async def run_batch_scan(
     *,
     db: AsyncSession,
     identity_ids: list[str] | None = None,
+    scan_mode: ResponsibilityScanMode = ResponsibilityScanMode.FULL,
+    base_scan_id: str | None = None,
     window_hours: int = 24,
     max_hops: int = 4,
     min_score_threshold: float = 8.0,
 ) -> ResponsibilityBatchScanResult:
+    now = datetime.utcnow()
+    incremental_since_at: datetime | None = None
+    if scan_mode == ResponsibilityScanMode.INCREMENTAL:
+        if base_scan_id:
+            base_run = await db.get(ResponsibilityScanRunModel, base_scan_id)
+            if not base_run:
+                raise ValueError(f"base scan run not found: {base_scan_id}")
+            incremental_since_at = base_run.completed_at or base_run.created_at
+        else:
+            incremental_since_at = now - timedelta(hours=window_hours)
+
     run_row = ResponsibilityScanRunModel(
         status=ResponsibilityScanRunStatus.RUNNING.value,
+        scan_mode=scan_mode.value,
+        base_scan_id=base_scan_id,
+        incremental_since_at=incremental_since_at,
         window_hours=window_hours,
         max_hops=max_hops,
         min_score_threshold=min_score_threshold,
         total_identities=0,
         flagged_identities=0,
-        created_at=datetime.utcnow(),
+        created_at=now,
     )
     db.add(run_row)
     await db.flush()
 
     if identity_ids is None:
-        since = datetime.utcnow() - timedelta(hours=window_hours)
+        since = incremental_since_at or (datetime.utcnow() - timedelta(hours=window_hours))
         source_rows = await db.execute(
             select(ResponsibilityEdgeModel.source_identity_id).where(
                 ResponsibilityEdgeModel.created_at >= since
@@ -416,9 +435,15 @@ async def run_batch_scan(
                 ResponsibilityEdgeModel.created_at >= since
             )
         )
+        signal_rows = await db.execute(
+            select(ResponsibilitySignalModel.identity_id).where(
+                ResponsibilitySignalModel.created_at >= since
+            )
+        )
         id_set = {
             *(item for item in source_rows.scalars().all() if item),
             *(item for item in target_rows.scalars().all() if item),
+            *(item for item in signal_rows.scalars().all() if item),
         }
         scan_identities = sorted(id_set)
     else:
@@ -496,6 +521,8 @@ async def export_explainable_risk_report(
     window_hours: int = 24,
     max_hops: int = 4,
     top_signals_limit: int = 20,
+    signer_identity_id: str | None = None,
+    signature: str | None = None,
 ) -> ExplainableRiskReport:
     if bool(identity_id) == bool(task_id):
         raise ValueError("exactly one of identity_id or task_id must be provided")
@@ -529,17 +556,33 @@ async def export_explainable_risk_report(
             "signals": [item.model_dump(mode="json") for item in signals],
             "findings_excerpt": [item.model_dump(mode="json") for item in findings_excerpt],
         }
+        content_hash = _sha256(content_payload)
+        signature_payload_hash = _sha256(
+            {
+                "content_hash": content_hash,
+                "target": "identity",
+                "identity_id": identity_id,
+                "window_hours": window_hours,
+                "max_hops": max_hops,
+            }
+        )
         return ExplainableRiskReport(
             target=ExplainableRiskReportTarget.IDENTITY,
             identity_id=identity_id,
             window_hours=window_hours,
             max_hops=max_hops,
             generated_at=now,
-            content_hash=_sha256(content_payload),
+            content_hash=content_hash,
             score_summary=score,
             path_features=features,
             top_signals=signals,
             findings_excerpt=findings_excerpt,
+            signature=ReportSignaturePlaceholder(
+                signer_identity_id=signer_identity_id,
+                signature_payload_hash=signature_payload_hash,
+                signature=signature,
+                status=ReportSignatureStatus.PROVIDED if signature else ReportSignatureStatus.UNSIGNED,
+            ),
         )
 
     task_id_value = task_id or ""
@@ -559,17 +602,33 @@ async def export_explainable_risk_report(
         "temporal_consistency": temporal_report.model_dump(mode="json"),
         "signals": [item.model_dump(mode="json") for item in signals],
     }
+    content_hash = _sha256(content_payload)
+    signature_payload_hash = _sha256(
+        {
+            "content_hash": content_hash,
+            "target": "task",
+            "task_id": task_id_value,
+            "window_hours": window_hours,
+            "max_hops": max_hops,
+        }
+    )
     return ExplainableRiskReport(
         target=ExplainableRiskReportTarget.TASK,
         task_id=task_id_value,
         window_hours=window_hours,
         max_hops=max_hops,
         generated_at=now,
-        content_hash=_sha256(content_payload),
+        content_hash=content_hash,
         task_path_summary=task_summary,
         temporal_consistency=temporal_report,
         top_signals=signals,
         findings_excerpt=[],
+        signature=ReportSignaturePlaceholder(
+            signer_identity_id=signer_identity_id,
+            signature_payload_hash=signature_payload_hash,
+            signature=signature,
+            status=ReportSignatureStatus.PROVIDED if signature else ReportSignatureStatus.UNSIGNED,
+        ),
     )
 
 
@@ -721,6 +780,9 @@ def _scan_run_to_schema(row: ResponsibilityScanRunModel) -> ResponsibilityBatchS
     return ResponsibilityBatchScanRun(
         scan_id=row.scan_id,
         status=ResponsibilityScanRunStatus(row.status),
+        scan_mode=ResponsibilityScanMode(row.scan_mode),
+        base_scan_id=row.base_scan_id,
+        incremental_since_at=row.incremental_since_at,
         window_hours=row.window_hours,
         max_hops=row.max_hops,
         min_score_threshold=row.min_score_threshold,
