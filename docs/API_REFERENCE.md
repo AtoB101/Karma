@@ -15,6 +15,7 @@ All requests require authentication via `Authorization: Bearer <token>` or `X-Ka
 ### `POST /v1/auth/token`
 Exchange a static API key for a short-lived JWT (24h).
 Server-side API keys must be configured via `AUTH_API_KEYS` (`agent_id:secret` pairs).
+Production must also set `AUTH_ENFORCE_PROTECTED_ROUTES=true` to require auth on protected routers.
 
 **Request**
 ```json

@@ -10,9 +10,11 @@ from db.models.orm import AgentModel
 def test_validate_api_key_for_agent_uses_configured_secret_map():
     original_env = settings.app_env
     original_keys = settings.auth_api_keys
+    original_enforce = settings.auth_enforce_protected_routes
     try:
         settings.app_env = "production"
         settings.auth_api_keys = "agent-secure:super-secret-value-123"
+        settings.auth_enforce_protected_routes = True
 
         assert validate_api_key_for_agent(
             "agent-secure",
@@ -35,15 +37,18 @@ def test_validate_api_key_for_agent_uses_configured_secret_map():
     finally:
         settings.app_env = original_env
         settings.auth_api_keys = original_keys
+        settings.auth_enforce_protected_routes = original_enforce
 
 
 @pytest.mark.asyncio
 async def test_issue_token_requires_valid_api_key(client, db_session):
     original_env = settings.app_env
     original_keys = settings.auth_api_keys
+    original_enforce = settings.auth_enforce_protected_routes
     try:
         settings.app_env = "test"
         settings.auth_api_keys = "agent-auth:very-strong-secret-123"
+        settings.auth_enforce_protected_routes = False
 
         db_session.add(
             AgentModel(
@@ -76,4 +81,30 @@ async def test_issue_token_requires_valid_api_key(client, db_session):
     finally:
         settings.app_env = original_env
         settings.auth_api_keys = original_keys
+        settings.auth_enforce_protected_routes = original_enforce
+
+
+@pytest.mark.asyncio
+async def test_protected_routes_require_auth_when_enforced(client):
+    original_env = settings.app_env
+    original_keys = settings.auth_api_keys
+    original_enforce = settings.auth_enforce_protected_routes
+    try:
+        settings.app_env = "test"
+        settings.auth_api_keys = "agent-capacity:capacity-secret-123"
+        settings.auth_enforce_protected_routes = True
+
+        unauthorized = await client.post("/v1/capacity/agent-capacity/lock", json={"amount": 10})
+        assert unauthorized.status_code == 401
+
+        authorized = await client.post(
+            "/v1/capacity/agent-capacity/lock",
+            json={"amount": 10},
+            headers={"X-Karma-Api-Key": "karma_agent-capacity_capacity-secret-123"},
+        )
+        assert authorized.status_code == 200
+    finally:
+        settings.app_env = original_env
+        settings.auth_api_keys = original_keys
+        settings.auth_enforce_protected_routes = original_enforce
 

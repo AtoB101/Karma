@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     # Comma-separated static API keys: "agent-1:supersecret,agent-2:anothersecret".
     # Required in production for secure token issuance / API-key auth.
     auth_api_keys: str = ""
+    # If enabled, all protected API routers require valid auth headers.
+    auth_enforce_protected_routes: bool = False
     debug: bool = False
 
     # Comma-separated browser origins for CORS, e.g. "https://app.example.com,https://console.example.com".
@@ -117,6 +119,10 @@ class Settings(BaseSettings):
             if not key or key == "change-me-in-production":
                 raise ValueError(
                     "APP_SECRET_KEY must be set to a strong value when APP_ENV is production",
+                )
+            if not self.auth_enforce_protected_routes:
+                raise ValueError(
+                    "AUTH_ENFORCE_PROTECTED_ROUTES must be true when APP_ENV is production",
                 )
             if not self.auth_api_keys_map():
                 raise ValueError(

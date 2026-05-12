@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import create_access_token, validate_api_key_for_agent
+from api.middleware.rate_limit import register_rate_limit
 from db.session import get_db
 from db.models.orm import AgentModel
 
@@ -27,7 +28,11 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/token", response_model=TokenResponse)
-async def issue_token(body: TokenRequest, db: AsyncSession = Depends(get_db)):
+async def issue_token(
+    body: TokenRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(register_rate_limit),
+):
     """
     Exchange a static API key for a short-lived JWT.
     In production: verify api_key hash against DB record.

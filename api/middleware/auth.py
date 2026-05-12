@@ -9,13 +9,16 @@ import re
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+import structlog
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from config.settings import settings
+
+logger = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Password hashing
@@ -119,7 +122,7 @@ def _validate_api_key(api_key: str) -> Optional[str]:
 
     # Backward-compatible development fallback only.
     env = (settings.app_env or "").lower()
-    if env in ("development", "dev", "local", "test") and len(secret) >= 12:
+    if (not settings.auth_enforce_protected_routes) and env in ("development", "dev", "local", "test") and len(secret) >= 12:
         return agent_id
     return None
 
@@ -156,3 +159,20 @@ async def get_optional_agent_id(
         return await get_current_agent_id(bearer, api_key)
     except HTTPException:
         return None
+
+
+async def require_auth_if_enabled(
+    request: Request,
+    agent_id: Optional[str] = Depends(get_optional_agent_id),
+) -> None:
+    if settings.auth_enforce_protected_routes and not agent_id:
+        logger.warning(
+            "auth_required_for_protected_route",
+            method=request.method,
+            path=request.url.path,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )

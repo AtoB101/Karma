@@ -8,11 +8,12 @@ import uuid
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Counter, Histogram, make_asgi_app
 
 from config.settings import settings
+from api.middleware.auth import require_auth_if_enabled
 from db.session import init_db
 from api.routes import (
     agents, auth, contracts, receipts,
@@ -106,19 +107,20 @@ app.mount("/metrics", metrics_app)
 
 # Routers
 app.include_router(auth.router,       prefix="/v1/auth",       tags=["Auth"])
-app.include_router(agents.router,     prefix="/v1/agents",     tags=["Agents"])
-app.include_router(contracts.router,  prefix="/v1/contracts",  tags=["Contracts"])
-app.include_router(identities.router, prefix="/v1/identities", tags=["Identities"])
-app.include_router(arbitration.router, prefix="/v1/arbitration", tags=["Arbitration"])
-app.include_router(responsibility.router, prefix="/v1/responsibility", tags=["Responsibility"])
-app.include_router(capacity.router,   prefix="/v1/capacity",   tags=["Capacity"])
-app.include_router(vouchers.router,   prefix="/v1/vouchers",   tags=["Vouchers"])
-app.include_router(progress.router,   prefix="/v1/progress",   tags=["Progress"])
-app.include_router(receipts.router,   prefix="/v1/receipts",   tags=["Receipts"])
-app.include_router(bundles.router,    prefix="/v1/bundles",    tags=["Bundles"])
-app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verification"])
-app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"])
-app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"])
+_protected_dependencies = [Depends(require_auth_if_enabled)]
+app.include_router(agents.router,     prefix="/v1/agents",     tags=["Agents"], dependencies=_protected_dependencies)
+app.include_router(contracts.router,  prefix="/v1/contracts",  tags=["Contracts"], dependencies=_protected_dependencies)
+app.include_router(identities.router, prefix="/v1/identities", tags=["Identities"], dependencies=_protected_dependencies)
+app.include_router(arbitration.router, prefix="/v1/arbitration", tags=["Arbitration"], dependencies=_protected_dependencies)
+app.include_router(responsibility.router, prefix="/v1/responsibility", tags=["Responsibility"], dependencies=_protected_dependencies)
+app.include_router(capacity.router,   prefix="/v1/capacity",   tags=["Capacity"], dependencies=_protected_dependencies)
+app.include_router(vouchers.router,   prefix="/v1/vouchers",   tags=["Vouchers"], dependencies=_protected_dependencies)
+app.include_router(progress.router,   prefix="/v1/progress",   tags=["Progress"], dependencies=_protected_dependencies)
+app.include_router(receipts.router,   prefix="/v1/receipts",   tags=["Receipts"], dependencies=_protected_dependencies)
+app.include_router(bundles.router,    prefix="/v1/bundles",    tags=["Bundles"], dependencies=_protected_dependencies)
+app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verification"], dependencies=_protected_dependencies)
+app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_protected_dependencies)
+app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
 
 
 @app.get("/health")
