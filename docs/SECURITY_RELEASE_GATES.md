@@ -30,6 +30,7 @@ This checklist is blocking for broad public test rollout.
 
 ## Gate E — Verification and Rollback
 - [ ] Security regression tests pass in CI
+- [ ] Ops drill suite passes (`pytest -q tests/unit/test_ops_security_drills.py`)
 - [ ] Public acceptance script passes
 - [ ] `scripts/public-beta-security-gate.sh` passes in release environment
 - [ ] Rollback plan and on-call runbook are confirmed (`docs/SECURITY_INCIDENT_PLAYBOOK.md`)
