@@ -63,4 +63,18 @@ You can then materialize runtime env quickly:
 bash scripts/karma-ecosystem-inject-env.sh .
 ```
 
+## Zero-config quickstart wrapper
+
+You can run the full bootstrap + env-inject flow through one wrapper script:
+
+```bash
+bash scripts/ecosystem/quickstart.sh --framework openclaw --workspace-dir . --skip-runtime-check --no-compose
+```
+
+To also start Docker services immediately:
+
+```bash
+bash scripts/ecosystem/quickstart.sh --framework openclaw --workspace-dir . --start-compose
+```
+
 `verify` and `doctor` both return machine-readable JSON for CI pipelines.

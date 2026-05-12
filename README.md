@@ -116,11 +116,13 @@ Use the new CLI to scaffold integration config and run a quick doctor check:
 karma-ecosystem --framework openclaw init --workspace-dir .
 karma-ecosystem --framework openclaw doctor --workspace-dir . --skip-runtime-check
 karma-ecosystem --framework openclaw bootstrap --workspace-dir . --skip-runtime-check
+bash scripts/ecosystem/quickstart.sh --framework openclaw --workspace-dir . --skip-runtime-check --no-compose
 
 # OpenManus
 karma-ecosystem --framework openmanus init --workspace-dir .
 karma-ecosystem --framework openmanus deploy --workspace-dir . --skip-runtime-check
 karma-ecosystem --framework openmanus bootstrap --workspace-dir . --skip-runtime-check
+bash scripts/ecosystem/quickstart.sh --framework openmanus --workspace-dir . --skip-runtime-check --no-compose
 ```
 
 Generated files include:

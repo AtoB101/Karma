@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+from pathlib import Path
 
 from sdk.ecosystem.cli import main
 from sdk.ecosystem.core import KarmaEcosystemConfig
@@ -105,3 +107,30 @@ def test_cli_bootstrap_writes_release_templates(tmp_path, capsys):
     assert (tmp_path / "deploy/karma-ecosystem/docker-compose.openclaw.yml").exists()
     assert (tmp_path / "scripts/karma-ecosystem-inject-env.sh").exists()
     assert (tmp_path / ".github/workflows/karma-ecosystem-verify.template.yml").exists()
+
+
+def test_quickstart_wrapper_bootstraps_without_compose(tmp_path):
+    repo_root = Path(__file__).resolve().parents[2]
+    script_path = repo_root / "scripts/ecosystem/quickstart.sh"
+    assert script_path.exists()
+    result = subprocess.run(
+        [
+            "bash",
+            str(script_path),
+            "--framework",
+            "openmanus",
+            "--workspace-dir",
+            str(tmp_path),
+            "--skip-runtime-check",
+            "--overwrite",
+            "--no-compose",
+        ],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert "Karma ecosystem quickstart completed." in result.stdout
+    assert (tmp_path / ".env.karma").exists()
+    assert (tmp_path / "openmanus/karma.integration.toml").exists()
+    assert (tmp_path / "deploy/karma-ecosystem/docker-compose.openmanus.yml").exists()

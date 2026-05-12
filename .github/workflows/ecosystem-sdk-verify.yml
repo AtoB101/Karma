@@ -25,10 +25,16 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
 
-      - name: Generate ecosystem scaffold
+      - name: Generate ecosystem scaffold via quickstart wrapper
+        shell: bash
         run: |
-          karma-ecosystem --framework ${{ matrix.framework }} init --workspace-dir .
-          karma-ecosystem --framework ${{ matrix.framework }} bootstrap --workspace-dir . --skip-runtime-check --overwrite
+          set -euo pipefail
+          bash scripts/ecosystem/quickstart.sh \
+            --framework "${{ matrix.framework }}" \
+            --workspace-dir . \
+            --skip-runtime-check \
+            --overwrite \
+            --no-compose
 
       - name: Validate generated files
         shell: bash
