@@ -1079,6 +1079,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResponsibilityDeadLetterSweepResult'
+  /v1/responsibility/scan-runs/dead-letter/requeue-batch:
+    post:
+      summary: Batch requeue dead-letter scan runs
+      operationId: requeueDeadLetterResponsibilityBatchScans
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequeueDeadLetterResponsibilityScanRunsRequest'
+      responses:
+        '200':
+          description: Dead-letter batch requeue result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityDeadLetterRequeueBatchResult'
+  /v1/responsibility/scan-runs/dead-letter/purge:
+    post:
+      summary: Purge old dead-letter scan runs
+      operationId: purgeDeadLetterResponsibilityBatchScans
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurgeDeadLetterResponsibilityScanRunsRequest'
+      responses:
+        '200':
+          description: Dead-letter purge result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityDeadLetterPurgeResult'
   /v1/responsibility/scan-runs/worker/pull-execute:
     post:
       summary: Worker pulls one scan run and executes it
@@ -2197,6 +2231,29 @@ components:
           default: 100
         reason:
           type: string
+    RequeueDeadLetterResponsibilityScanRunsRequest:
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+        reason:
+          type: string
+    PurgeDeadLetterResponsibilityScanRunsRequest:
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+        older_than_hours:
+          type: integer
+          minimum: 1
+          maximum: 8760
+          default: 72
     RequeueResponsibilityScanRunRequest:
       type: object
       properties:
@@ -2422,6 +2479,8 @@ components:
           type: integer
         claimable_failed:
           type: integer
+        dead_letter_count:
+          type: integer
         stale_claimed:
           type: integer
         stale_running:
@@ -2434,6 +2493,7 @@ components:
         - status_counts
         - claimable_pending
         - claimable_failed
+        - dead_letter_count
         - stale_claimed
         - stale_running
         - generated_at
@@ -2480,6 +2540,53 @@ components:
         - scanned_count
         - dead_lettered_count
         - dead_lettered_scan_ids
+        - generated_at
+    ResponsibilityDeadLetterRequeueBatchResult:
+      type: object
+      properties:
+        limit:
+          type: integer
+        scanned_count:
+          type: integer
+        requeued_count:
+          type: integer
+        requeued_scan_ids:
+          type: array
+          items:
+            type: string
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - limit
+        - scanned_count
+        - requeued_count
+        - requeued_scan_ids
+        - generated_at
+    ResponsibilityDeadLetterPurgeResult:
+      type: object
+      properties:
+        limit:
+          type: integer
+        older_than_hours:
+          type: integer
+        scanned_count:
+          type: integer
+        purged_count:
+          type: integer
+        purged_scan_ids:
+          type: array
+          items:
+            type: string
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - limit
+        - older_than_hours
+        - scanned_count
+        - purged_count
+        - purged_scan_ids
         - generated_at
     ResponsibilityWorkerPullExecuteResult:
       type: object

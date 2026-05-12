@@ -26,7 +26,9 @@ from services.responsibility_graph import (
     get_identity_score,
     ingest_edge,
     pull_and_execute_scan_run,
+    purge_dead_letter_scan_runs,
     requeue_dead_letter_scan_run,
+    requeue_dead_letter_scan_runs,
     recover_stale_scan_runs,
     run_scan_queue_maintenance_tick,
     run_batch_scan,
@@ -274,6 +276,41 @@ async def test_dead_letter_sweep_list_and_requeue(db_session):
     event_types = {item.event_type for item in events}
     assert ResponsibilityScanEventType.DEAD_LETTERED in event_types
     assert ResponsibilityScanEventType.REQUEUED in event_types
+
+
+@pytest.mark.asyncio
+async def test_dead_letter_batch_requeue_and_purge(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=None,
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.INCREMENTAL,
+        base_scan_id="missing-base-dlq-batch",
+        retry_max_attempts=1,
+        retry_backoff_seconds=10,
+    )
+    scan_id = created.run.scan_id
+    with pytest.raises(ValueError, match="base scan run not found"):
+        await execute_scan_run(db=db_session, scan_id=scan_id)
+
+    sweep = await sweep_dead_letter_scan_runs(db=db_session, limit=100, reason="batch-exhausted")
+    assert scan_id in sweep.dead_lettered_scan_ids
+
+    requeue_batch = await requeue_dead_letter_scan_runs(db=db_session, limit=100, reason="ops-batch")
+    assert requeue_batch.requeued_count >= 1
+    assert scan_id in requeue_batch.requeued_scan_ids
+
+    row = await db_session.get(ResponsibilityScanRunModel, scan_id)
+    assert row is not None
+    row.status = "dead_letter"
+    row.dead_lettered_at = datetime.utcnow() - timedelta(hours=2)
+    row.dead_letter_reason = "manual-old-dlq"
+    await db_session.flush()
+
+    purge = await purge_dead_letter_scan_runs(db=db_session, limit=100, older_than_hours=1)
+    assert purge.purged_count >= 1
+    assert scan_id in purge.purged_scan_ids
+    assert await db_session.get(ResponsibilityScanRunModel, scan_id) is None
 
 
 @pytest.mark.asyncio

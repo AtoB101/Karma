@@ -17,6 +17,8 @@ from core.schemas import (
     ReportSignatureStatus,
     ResponsibilityBatchScanResult,
     ResponsibilityBatchScanRun,
+    ResponsibilityDeadLetterPurgeResult,
+    ResponsibilityDeadLetterRequeueBatchResult,
     ResponsibilityDeadLetterSweepResult,
     ResponsibilityScanRunEvent,
     ResponsibilityScanEventType,
@@ -584,6 +586,7 @@ async def get_scan_run_queue_stats(*, db: AsyncSession) -> ResponsibilityScanQue
         status_counts=status_counts,
         claimable_pending=int(status_counts.get(ResponsibilityScanRunStatus.PENDING.value, 0)),
         claimable_failed=int(claimable_failed_result.scalar_one() or 0),
+        dead_letter_count=int(status_counts.get(ResponsibilityScanRunStatus.DEAD_LETTER.value, 0)),
         stale_claimed=int(stale_claimed_result.scalar_one() or 0),
         stale_running=int(stale_running_result.scalar_one() or 0),
         generated_at=now,
@@ -744,6 +747,103 @@ async def requeue_dead_letter_scan_run(
         metadata={"reason": reason or "manual requeue"},
     )
     return _scan_run_to_schema(run_row)
+
+
+async def requeue_dead_letter_scan_runs(
+    *,
+    db: AsyncSession,
+    limit: int = 100,
+    reason: str | None = None,
+) -> ResponsibilityDeadLetterRequeueBatchResult:
+    limit_value = max(1, min(limit, 1000))
+    result = await db.execute(
+        select(ResponsibilityScanRunModel)
+        .where(ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.DEAD_LETTER.value)
+        .order_by(ResponsibilityScanRunModel.dead_lettered_at.asc(), ResponsibilityScanRunModel.created_at.asc())
+        .limit(limit_value)
+    )
+    rows = result.scalars().all()
+    requeued_scan_ids: list[str] = []
+    requeue_reason = reason or "batch requeue"
+
+    for run_row in rows:
+        run_row.status = ResponsibilityScanRunStatus.PENDING.value
+        run_row.current_attempt = 0
+        run_row.next_retry_at = None
+        run_row.last_error = "requeued from dead-letter"
+        run_row.completed_at = None
+        run_row.cancelled_at = None
+        run_row.cancel_reason = None
+        run_row.dead_lettered_at = None
+        run_row.dead_letter_reason = None
+        _clear_claim_fields(run_row)
+        requeued_scan_ids.append(run_row.scan_id)
+        await _append_scan_event(
+            db=db,
+            scan_id=run_row.scan_id,
+            event_type=ResponsibilityScanEventType.REQUEUED,
+            detail="scan run batch requeued from dead-letter",
+            metadata={"reason": requeue_reason},
+        )
+
+    await db.flush()
+    return ResponsibilityDeadLetterRequeueBatchResult(
+        limit=limit_value,
+        scanned_count=len(rows),
+        requeued_count=len(requeued_scan_ids),
+        requeued_scan_ids=requeued_scan_ids,
+        generated_at=datetime.utcnow(),
+    )
+
+
+async def purge_dead_letter_scan_runs(
+    *,
+    db: AsyncSession,
+    limit: int = 100,
+    older_than_hours: int = 72,
+) -> ResponsibilityDeadLetterPurgeResult:
+    limit_value = max(1, min(limit, 1000))
+    age_hours = max(1, min(older_than_hours, 24 * 365))
+    cutoff = datetime.utcnow() - timedelta(hours=age_hours)
+    result = await db.execute(
+        select(ResponsibilityScanRunModel)
+        .where(
+            ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.DEAD_LETTER.value,
+            or_(
+                ResponsibilityScanRunModel.dead_lettered_at.is_(None),
+                ResponsibilityScanRunModel.dead_lettered_at <= cutoff,
+            ),
+        )
+        .order_by(ResponsibilityScanRunModel.dead_lettered_at.asc(), ResponsibilityScanRunModel.created_at.asc())
+        .limit(limit_value)
+    )
+    rows = result.scalars().all()
+    scan_ids = [row.scan_id for row in rows]
+    if scan_ids:
+        await db.execute(
+            delete(ResponsibilityScanEventModel).where(
+                ResponsibilityScanEventModel.scan_id.in_(scan_ids)
+            )
+        )
+        await db.execute(
+            delete(ResponsibilityScanFindingModel).where(
+                ResponsibilityScanFindingModel.scan_id.in_(scan_ids)
+            )
+        )
+        await db.execute(
+            delete(ResponsibilityScanRunModel).where(
+                ResponsibilityScanRunModel.scan_id.in_(scan_ids)
+            )
+        )
+    await db.flush()
+    return ResponsibilityDeadLetterPurgeResult(
+        limit=limit_value,
+        older_than_hours=age_hours,
+        scanned_count=len(rows),
+        purged_count=len(scan_ids),
+        purged_scan_ids=scan_ids,
+        generated_at=datetime.utcnow(),
+    )
 
 
 async def pull_and_execute_scan_run(

@@ -670,9 +670,10 @@ async def test_responsibility_sdk_methods():
         },
         ("GET", f"{base}/v1/responsibility/scan-runs/queue/stats"): {
             "total_runs": 5,
-            "status_counts": {"pending": 1, "claimed": 1, "running": 1, "failed": 1, "completed": 1},
+            "status_counts": {"pending": 1, "claimed": 1, "running": 1, "failed": 1, "completed": 1, "dead_letter": 1},
             "claimable_pending": 1,
             "claimable_failed": 1,
+            "dead_letter_count": 1,
             "stale_claimed": 0,
             "stale_running": 0,
             "generated_at": now,
@@ -721,6 +722,21 @@ async def test_responsibility_sdk_methods():
             "scanned_count": 1,
             "dead_lettered_count": 1,
             "dead_lettered_scan_ids": ["scan-dlq-1"],
+            "generated_at": now,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/dead-letter/requeue-batch"): {
+            "limit": 100,
+            "scanned_count": 1,
+            "requeued_count": 1,
+            "requeued_scan_ids": ["scan-dlq-1"],
+            "generated_at": now,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/dead-letter/purge"): {
+            "limit": 100,
+            "older_than_hours": 72,
+            "scanned_count": 1,
+            "purged_count": 1,
+            "purged_scan_ids": ["scan-dlq-0"],
             "generated_at": now,
         },
         ("POST", f"{base}/v1/responsibility/scan-runs/worker/pull-execute"): {
@@ -1027,6 +1043,10 @@ async def test_responsibility_sdk_methods():
     assert dead_letter_runs[0].status.value == "dead_letter"
     swept = await client.sweep_dead_letter_responsibility_batch_scans(limit=100, reason="retry exhausted")
     assert swept.dead_lettered_count == 1
+    requeued_batch = await client.requeue_dead_letter_responsibility_batch_scans(limit=100, reason="ops-batch")
+    assert requeued_batch.requeued_scan_ids == ["scan-dlq-1"]
+    purged = await client.purge_dead_letter_responsibility_batch_scans(limit=100, older_than_hours=72)
+    assert purged.purged_scan_ids == ["scan-dlq-0"]
     pull_executed = await client.pull_execute_responsibility_batch_scan(
         runner_identity_id="runner-1",
         include_failed=True,

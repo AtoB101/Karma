@@ -26,6 +26,8 @@ from core.schemas import (
     ResponsibilityEdgeType,
     ResponsibilityBatchScanRun,
     ResponsibilityBatchScanResult,
+    ResponsibilityDeadLetterPurgeResult,
+    ResponsibilityDeadLetterRequeueBatchResult,
     ResponsibilityDeadLetterSweepResult,
     ResponsibilityQueueMaintenanceTickResult,
     ResponsibilityRecoverStaleRunsResult,
@@ -738,6 +740,36 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return ResponsibilityDeadLetterSweepResult(**resp.json())
+
+    async def requeue_dead_letter_responsibility_batch_scans(
+        self,
+        *,
+        limit: int = 100,
+        reason: str | None = None,
+    ) -> ResponsibilityDeadLetterRequeueBatchResult:
+        """POST /v1/responsibility/scan-runs/dead-letter/requeue-batch"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/dead-letter/requeue-batch",
+                json={"limit": limit, "reason": reason},
+            )
+            resp.raise_for_status()
+            return ResponsibilityDeadLetterRequeueBatchResult(**resp.json())
+
+    async def purge_dead_letter_responsibility_batch_scans(
+        self,
+        *,
+        limit: int = 100,
+        older_than_hours: int = 72,
+    ) -> ResponsibilityDeadLetterPurgeResult:
+        """POST /v1/responsibility/scan-runs/dead-letter/purge"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/dead-letter/purge",
+                json={"limit": limit, "older_than_hours": older_than_hours},
+            )
+            resp.raise_for_status()
+            return ResponsibilityDeadLetterPurgeResult(**resp.json())
 
     async def pull_execute_responsibility_batch_scan(
         self,

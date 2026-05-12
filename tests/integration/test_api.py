@@ -911,6 +911,48 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert "dead_lettered" in requeue_event_types
     assert "requeued" in requeue_event_types
 
+    exhausted_scan_batch = await client.post("/v1/responsibility/scan-runs", json={
+        "execution_mode": "async",
+        "scan_mode": "incremental",
+        "base_scan_id": "missing-run-batch",
+        "window_hours": 24,
+        "max_hops": 4,
+        "min_score_threshold": 1.0,
+        "retry_max_attempts": 1,
+        "retry_backoff_seconds": 10,
+    })
+    assert exhausted_scan_batch.status_code == 201
+    exhausted_scan_batch_id = exhausted_scan_batch.json()["run"]["scan_id"]
+    exhausted_batch_execute = await client.post(
+        f"/v1/responsibility/scan-runs/{exhausted_scan_batch_id}/execute",
+        json={"force": False},
+    )
+    assert exhausted_batch_execute.status_code == 404
+    dead_letter_sweep_batch = await client.post(
+        "/v1/responsibility/scan-runs/dead-letter/sweep",
+        json={"limit": 100, "reason": "retry-exhausted-batch"},
+    )
+    assert dead_letter_sweep_batch.status_code == 200
+    assert exhausted_scan_batch_id in dead_letter_sweep_batch.json()["dead_lettered_scan_ids"]
+
+    requeue_batch = await client.post(
+        "/v1/responsibility/scan-runs/dead-letter/requeue-batch",
+        json={"limit": 100, "reason": "batch-redrive"},
+    )
+    assert requeue_batch.status_code == 200
+    requeue_batch_body = requeue_batch.json()
+    assert requeue_batch_body["requeued_count"] >= 1
+    assert exhausted_scan_batch_id in requeue_batch_body["requeued_scan_ids"]
+
+    purge_dead_letter = await client.post(
+        "/v1/responsibility/scan-runs/dead-letter/purge",
+        json={"limit": 100, "older_than_hours": 1},
+    )
+    assert purge_dead_letter.status_code == 200
+    purge_dead_letter_body = purge_dead_letter.json()
+    assert purge_dead_letter_body["older_than_hours"] == 1
+    assert purge_dead_letter_body["purged_count"] >= 0
+
     cancellable_scan = await client.post("/v1/responsibility/scan-runs", json={
         "identity_ids": ["id-a"],
         "execution_mode": "async",

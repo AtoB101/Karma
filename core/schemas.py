@@ -658,6 +658,7 @@ class ResponsibilityScanQueueStats(BaseModel):
     status_counts: dict[str, int] = Field(default_factory=dict)
     claimable_pending: int = 0
     claimable_failed: int = 0
+    dead_letter_count: int = 0
     stale_claimed: int = 0
     stale_running: int = 0
     generated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -705,6 +706,23 @@ class ResponsibilityDeadLetterSweepResult(BaseModel):
     scanned_count: int
     dead_lettered_count: int
     dead_lettered_scan_ids: list[str] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityDeadLetterRequeueBatchResult(BaseModel):
+    limit: int
+    scanned_count: int
+    requeued_count: int
+    requeued_scan_ids: list[str] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityDeadLetterPurgeResult(BaseModel):
+    limit: int
+    older_than_hours: int
+    scanned_count: int
+    purged_count: int
+    purged_scan_ids: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

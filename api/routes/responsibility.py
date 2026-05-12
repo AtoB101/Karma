@@ -9,6 +9,8 @@ from core.schemas import (
     ExplainableRiskReport,
     ResponsibilityBatchScanResult,
     ResponsibilityBatchScanRun,
+    ResponsibilityDeadLetterPurgeResult,
+    ResponsibilityDeadLetterRequeueBatchResult,
     ResponsibilityDeadLetterSweepResult,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
@@ -44,9 +46,11 @@ from services.responsibility_graph import (
     ingest_edge,
     list_scan_run_events,
     list_dead_letter_scan_runs,
+    purge_dead_letter_scan_runs,
     pull_and_execute_scan_run,
     recover_stale_scan_runs,
     requeue_dead_letter_scan_run,
+    requeue_dead_letter_scan_runs,
     run_scan_queue_maintenance_tick,
     sweep_dead_letter_scan_runs,
     run_batch_scan,
@@ -105,6 +109,16 @@ class RecoverStaleScanRunsRequest(BaseModel):
 class SweepDeadLetterScanRunsRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=1000)
     reason: str | None = None
+
+
+class RequeueDeadLetterScanRunsRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=1000)
+    reason: str | None = None
+
+
+class PurgeDeadLetterScanRunsRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=1000)
+    older_than_hours: int = Field(default=72, ge=1, le=24 * 365)
 
 
 class RequeueScanRunRequest(BaseModel):
@@ -275,6 +289,30 @@ async def sweep_dead_letter_runs(
         db=db,
         limit=body.limit,
         reason=body.reason,
+    )
+
+
+@router.post("/scan-runs/dead-letter/requeue-batch", response_model=ResponsibilityDeadLetterRequeueBatchResult)
+async def requeue_dead_letter_batch(
+    body: RequeueDeadLetterScanRunsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await requeue_dead_letter_scan_runs(
+        db=db,
+        limit=body.limit,
+        reason=body.reason,
+    )
+
+
+@router.post("/scan-runs/dead-letter/purge", response_model=ResponsibilityDeadLetterPurgeResult)
+async def purge_dead_letter_runs(
+    body: PurgeDeadLetterScanRunsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await purge_dead_letter_scan_runs(
+        db=db,
+        limit=body.limit,
+        older_than_hours=body.older_than_hours,
     )
 
 
