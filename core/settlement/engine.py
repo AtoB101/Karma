@@ -207,6 +207,10 @@ class SettlementClient(SettlementEngine):
         data = await self._post(f"/v1/settlement/{task_id}/lock", {"worker_agent_id": worker_agent_id})
         return SettlementState(**data)
 
+    async def pending(self, task_id):
+        data = await self._post(f"/v1/settlement/{task_id}/pending", {})
+        return SettlementState(**data)
+
     async def start(self, task_id):
         data = await self._post(f"/v1/settlement/{task_id}/start", {})
         return SettlementState(**data)
@@ -226,3 +230,6 @@ class SettlementClient(SettlementEngine):
     async def get(self, task_id):
         data = await self._get(f"/v1/settlement/{task_id}")
         return SettlementState(**data)
+
+    async def list_transitions(self, task_id, limit: int = 100):
+        return await self._get(f"/v1/settlement/{task_id}/transitions?limit={limit}")

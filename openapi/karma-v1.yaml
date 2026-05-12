@@ -1061,6 +1061,54 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ProgressReceipt'
+  /v1/settlement/{taskId}/pending:
+    post:
+      summary: Move settlement to pending
+      operationId: markSettlementPending
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated settlement state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SettlementState'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/settlement/{taskId}/transitions:
+    get:
+      summary: List settlement transition audits
+      operationId: listSettlementTransitions
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: Transition audit list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SettlementTransitionAudit'
   /v1/settlement/{taskId}/partial:
     post:
       summary: Partial settlement by value percent
@@ -1083,8 +1131,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/SettlementState'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1111,8 +1158,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/SettlementState'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1139,8 +1185,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/SettlementState'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1161,8 +1206,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/SettlementState'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -2583,6 +2627,128 @@ components:
         - seller_signature
         - validation_method
         - confirmation_status
+    SettlementState:
+      type: object
+      properties:
+        settlement_id:
+          type: string
+        task_id:
+          type: string
+        escrow_amount:
+          type: number
+        currency:
+          type: string
+        status:
+          type: string
+          enum:
+            - draft
+            - pending
+            - accepted
+            - in_progress
+            - progress_submitted
+            - progress_confirmed
+            - delivered
+            - disputed
+            - arbitrated
+            - settled
+            - refunded
+            - cancelled
+            - created
+            - locked
+            - running
+            - submitted
+            - buyer_regret
+            - verifying
+            - verified
+            - released
+            - failed
+            - arbitration
+            - buyer_wins
+            - seller_wins
+            - partial
+        client_agent_id:
+          type: string
+        worker_agent_id:
+          type: string
+        released_amount:
+          type: number
+        refunded_amount:
+          type: number
+        dispute_reason:
+          type: string
+        arbitration_notes:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        released_at:
+          type: string
+          format: date-time
+        settlement_mode:
+          type: string
+        chain_id:
+          type: integer
+        contract_address:
+          type: string
+        tx_hash:
+          type: string
+        evidence_bundle_hash:
+          type: string
+        onchain_status:
+          type: string
+        quote_id:
+          type: string
+      required:
+        - settlement_id
+        - task_id
+        - escrow_amount
+        - currency
+        - status
+        - client_agent_id
+        - created_at
+        - updated_at
+        - settlement_mode
+    SettlementTransitionAudit:
+      type: object
+      properties:
+        audit_id:
+          type: string
+        settlement_id:
+          type: string
+        task_id:
+          type: string
+        from_status:
+          type: string
+        to_status:
+          type: string
+        transition_allowed:
+          type: boolean
+        guard_stage:
+          type: string
+          enum: [route, store]
+        reason:
+          type: string
+        route_path:
+          type: string
+        actor_id:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - audit_id
+        - task_id
+        - to_status
+        - transition_allowed
+        - guard_stage
+        - metadata
+        - created_at
     PartialSettlementRequest:
       type: object
       properties:

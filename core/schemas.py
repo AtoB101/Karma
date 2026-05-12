@@ -376,6 +376,22 @@ class SettlementState(BaseModel):
     quote_id: Optional[str] = Field(default=None, description="EIP-712 quoteId used in settlement tx")
 
 
+class SettlementTransitionAudit(BaseModel):
+    """Immutable audit record for settlement status transitions."""
+    audit_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    settlement_id: Optional[str] = None
+    task_id: str
+    from_status: Optional[TaskStatus] = None
+    to_status: TaskStatus
+    transition_allowed: bool
+    guard_stage: str = Field(description="route | store")
+    reason: Optional[str] = None
+    route_path: Optional[str] = None
+    actor_id: Optional[str] = None
+    metadata: dict = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Capacity & Voucher
 # ---------------------------------------------------------------------------

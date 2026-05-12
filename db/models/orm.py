@@ -175,6 +175,23 @@ class SettlementModel(Base):
     contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="settlement")
 
 
+class SettlementTransitionAuditModel(Base):
+    __tablename__ = "settlement_transition_audits"
+
+    audit_id:            Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    settlement_id:       Mapped[str | None] = mapped_column(String(64), ForeignKey("settlements.settlement_id"))
+    task_id:             Mapped[str] = mapped_column(String(64), nullable=False)
+    from_status:         Mapped[str | None] = mapped_column(String(32))
+    to_status:           Mapped[str] = mapped_column(String(32), nullable=False)
+    transition_allowed:  Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    guard_stage:         Mapped[str] = mapped_column(String(16), nullable=False, default="route")
+    reason:              Mapped[str | None] = mapped_column(Text)
+    route_path:          Mapped[str | None] = mapped_column(String(256))
+    actor_id:            Mapped[str | None] = mapped_column(String(64))
+    metadata_:           Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    created_at:          Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Capacity & Voucher
 # ---------------------------------------------------------------------------

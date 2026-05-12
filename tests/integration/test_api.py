@@ -290,6 +290,10 @@ async def test_settlement_lifecycle(client: AsyncClient):
     assert resp.status_code == 201
     assert resp.json()["status"] == "draft"
 
+    # Pending
+    resp = await client.post(f"/v1/settlement/{task_id}/pending", json={})
+    assert resp.json()["status"] == "pending"
+
     # Lock
     resp = await client.post(f"/v1/settlement/{task_id}/lock", json={
         "worker_agent_id": "worker-001"
@@ -309,6 +313,15 @@ async def test_settlement_lifecycle(client: AsyncClient):
     assert resp.status_code == 200
     assert resp.json()["escrow_amount"] == 100.0
 
+    transitions = await client.get(f"/v1/settlement/{task_id}/transitions?limit=20")
+    assert transitions.status_code == 200
+    pairs = [(item["from_status"], item["to_status"], item["transition_allowed"]) for item in transitions.json()]
+    assert (None, "draft", True) in pairs
+    assert ("draft", "pending", True) in pairs
+    assert ("pending", "accepted", True) in pairs
+    assert ("accepted", "in_progress", True) in pairs
+    assert ("in_progress", "delivered", True) in pairs
+
 
 @pytest.mark.asyncio
 async def test_settlement_invalid_transition_rejected(client: AsyncClient):
@@ -324,6 +337,16 @@ async def test_settlement_invalid_transition_rejected(client: AsyncClient):
     resp = await client.post(f"/v1/settlement/{task_id}/submit", json={})
     assert resp.status_code == 409
     assert "invalid status transition" in resp.json()["detail"]
+
+    audits = await client.get(f"/v1/settlement/{task_id}/transitions?limit=20")
+    assert audits.status_code == 200
+    assert any(
+        item["from_status"] == "draft"
+        and item["to_status"] == "delivered"
+        and item["transition_allowed"] is False
+        and item["guard_stage"] == "route"
+        for item in audits.json()
+    )
 
 
 @pytest.mark.asyncio

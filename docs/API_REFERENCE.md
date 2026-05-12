@@ -289,6 +289,9 @@ Create a settlement record in `draft`.
 ### `POST /v1/settlement/{task_id}/lock`
 Move to `accepted` and bind worker identity. Body: `{ "worker_agent_id": "..." }`
 
+### `POST /v1/settlement/{task_id}/pending`
+Move from `draft` to `pending` (explicit queue/waiting phase before acceptance).
+
 ### `POST /v1/settlement/{task_id}/start`
 Move to `in_progress`.
 
@@ -321,6 +324,9 @@ Run public auto-arbitration rules:
 ### `GET /v1/settlement/{task_id}`
 Get current settlement state.
 
+### `GET /v1/settlement/{task_id}/transitions`
+List immutable transition audit entries (`allowed/rejected`, guard stage, reason, actor, route).
+
 **Canonical Task Lifecycle (FINAL)**
 ```
 draft → pending(optional) → accepted → in_progress
@@ -350,6 +356,8 @@ SDK helper methods:
 - `submit_progress(progress_receipt)`
 - `confirm_progress(progress_receipt_id)`
 - `list_progress(task_id)`
+- `mark_settlement_pending(task_id)`
+- `list_settlement_transitions(task_id, limit=100)`
 - `regret_task(task_id, buyer_identity_id=None, reason=None)`
 - `partial_settlement(task_id, settled_value_percent, reason=None)`
 - `open_dispute(task_id, reason=None)`

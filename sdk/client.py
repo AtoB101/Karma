@@ -60,6 +60,7 @@ from core.schemas import (
     TaskTemporalConsistencyReport,
     ReputationSnapshot,
     SettlementState,
+    SettlementTransitionAudit,
     SubIdentity,
     SubIdentityType,
     TaskPathHashSummary,
@@ -203,6 +204,27 @@ class KarmaClient:
             resp = await http.get(f"{self.runtime_url}/v1/settlement/{task_id}")
             resp.raise_for_status()
             return SettlementState(**resp.json())
+
+    async def mark_settlement_pending(self, task_id: str) -> SettlementState:
+        """POST /v1/settlement/{task_id}/pending"""
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/settlement/{task_id}/pending", json={})
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
+
+    async def list_settlement_transitions(
+        self,
+        task_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[SettlementTransitionAudit]:
+        """GET /v1/settlement/{task_id}/transitions"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/settlement/{task_id}/transitions?limit={limit}"
+            )
+            resp.raise_for_status()
+            return [SettlementTransitionAudit(**item) for item in resp.json()]
 
     async def get_reputation(self, agent_id: str) -> ReputationSnapshot:
         """GET /v1/reputation/{agent_id}"""

@@ -348,6 +348,65 @@ async def test_identity_and_dispute_sdk_methods():
 
 
 @pytest.mark.asyncio
+async def test_settlement_pending_and_transition_audit_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    settlement_payload = {
+        "settlement_id": "s-pending-1",
+        "task_id": "task-pending-1",
+        "escrow_amount": 80.0,
+        "currency": "USD",
+        "status": "pending",
+        "client_agent_id": "buyer-pending-1",
+        "worker_agent_id": None,
+        "released_amount": None,
+        "refunded_amount": None,
+        "dispute_reason": None,
+        "arbitration_notes": None,
+        "created_at": now,
+        "updated_at": now,
+        "released_at": None,
+        "settlement_mode": "offchain",
+        "chain_id": None,
+        "contract_address": None,
+        "tx_hash": None,
+        "evidence_bundle_hash": None,
+        "onchain_status": None,
+        "quote_id": None,
+    }
+    transition_payload = [
+        {
+            "audit_id": "audit-1",
+            "settlement_id": "s-pending-1",
+            "task_id": "task-pending-1",
+            "from_status": "draft",
+            "to_status": "pending",
+            "transition_allowed": True,
+            "guard_stage": "store",
+            "reason": "task moved to pending",
+            "route_path": "/v1/settlement/task-pending-1/pending",
+            "actor_id": "sdk-admin",
+            "metadata": {},
+            "created_at": now,
+        }
+    ]
+    routes = {
+        ("POST", f"{base}/v1/settlement/task-pending-1/pending"): settlement_payload,
+        ("GET", f"{base}/v1/settlement/task-pending-1/transitions?limit=10"): transition_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    pending = await client.mark_settlement_pending("task-pending-1")
+    assert pending.status.value == "pending"
+    transitions = await client.list_settlement_transitions("task-pending-1", limit=10)
+    assert len(transitions) == 1
+    assert transitions[0].to_status.value == "pending"
+    assert transitions[0].transition_allowed is True
+
+
+@pytest.mark.asyncio
 async def test_arbitration_sdk_methods():
     base = "http://runtime"
     now = datetime.utcnow().isoformat()
