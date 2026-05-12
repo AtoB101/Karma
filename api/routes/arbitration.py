@@ -15,6 +15,9 @@ from core.schemas import (
     ArbitrationCase,
     ArbitrationCaseEvent,
     ArbitrationCaseOpsReport,
+    ArbitrationOpsAlert,
+    ArbitrationOpsAlertSeverity,
+    ArbitrationOpsAlertType,
     ArbitrationCaseStatus,
     ArbitrationEventType,
     ArbitrationMaterialPackage,
@@ -40,6 +43,10 @@ from db.stores.settlement_store import PostgresSettlementStore
 from services.capacity_ledger import assert_capacity_invariants
 
 router = APIRouter()
+DEFAULT_OPEN_CASE_ALERT_THRESHOLD = 5
+DEFAULT_VOTING_CASE_ALERT_THRESHOLD = 5
+DEFAULT_DECIDED_CASE_ALERT_THRESHOLD = 3
+DEFAULT_PARTIAL_RATIO_ALERT_THRESHOLD = 0.5
 
 
 class JoinArbitrationPoolRequest(BaseModel):
@@ -165,6 +172,27 @@ async def get_arbitration_case_ops_report(
         window_hours=window_hours,
         recent_events_limit=recent_events_limit,
     )
+
+
+@router.get("/cases/ops/alerts", response_model=list[ArbitrationOpsAlert])
+async def get_arbitration_case_ops_alerts(
+    window_hours: int = Query(default=24, ge=1, le=24 * 30),
+    open_case_threshold: int = Query(default=5, ge=1, le=100000),
+    voting_case_threshold: int = Query(default=5, ge=1, le=100000),
+    decided_case_threshold: int = Query(default=3, ge=1, le=100000),
+    partial_ratio_threshold: float = Query(default=0.5, ge=0.01, le=1.0),
+    db: AsyncSession = Depends(get_db),
+):
+    report = await _build_arbitration_case_ops_report(
+        db=db,
+        window_hours=window_hours,
+        recent_events_limit=50,
+        open_case_threshold=open_case_threshold,
+        voting_case_threshold=voting_case_threshold,
+        decided_case_threshold=decided_case_threshold,
+        partial_ratio_threshold=partial_ratio_threshold,
+    )
+    return report.alerts
 
 
 @router.get("/cases/{case_id}", response_model=ArbitrationCase)
@@ -585,6 +613,10 @@ async def _build_arbitration_case_ops_report(
     db: AsyncSession,
     window_hours: int = 24,
     recent_events_limit: int = 50,
+    open_case_threshold: int = DEFAULT_OPEN_CASE_ALERT_THRESHOLD,
+    voting_case_threshold: int = DEFAULT_VOTING_CASE_ALERT_THRESHOLD,
+    decided_case_threshold: int = DEFAULT_DECIDED_CASE_ALERT_THRESHOLD,
+    partial_ratio_threshold: float = DEFAULT_PARTIAL_RATIO_ALERT_THRESHOLD,
 ) -> ArbitrationCaseOpsReport:
     now = datetime.utcnow()
     hours = max(1, min(window_hours, 24 * 30))
@@ -615,6 +647,15 @@ async def _build_arbitration_case_ops_report(
     )
     recent_event_rows = list(reversed(events_result.scalars().all()))
     recent_events = [_case_event_to_schema(row) for row in recent_event_rows]
+    alerts = _build_arbitration_ops_alerts(
+        status_counts=status_counts,
+        decision_counts=decision_counts,
+        generated_at=now,
+        open_case_threshold=open_case_threshold,
+        voting_case_threshold=voting_case_threshold,
+        decided_case_threshold=decided_case_threshold,
+        partial_ratio_threshold=partial_ratio_threshold,
+    )
 
     return ArbitrationCaseOpsReport(
         window_hours=hours,
@@ -622,7 +663,104 @@ async def _build_arbitration_case_ops_report(
         status_counts=status_counts,
         decision_counts=decision_counts,
         recent_events=recent_events,
+        alerts=alerts,
         generated_at=now,
+    )
+
+
+def _build_arbitration_ops_alerts(
+    *,
+    status_counts: dict[str, int],
+    decision_counts: dict[str, int],
+    generated_at: datetime,
+    open_case_threshold: int,
+    voting_case_threshold: int,
+    decided_case_threshold: int,
+    partial_ratio_threshold: float,
+) -> list[ArbitrationOpsAlert]:
+    alerts: list[ArbitrationOpsAlert] = []
+    open_threshold = max(1, open_case_threshold)
+    voting_threshold = max(1, voting_case_threshold)
+    decided_threshold = max(1, decided_case_threshold)
+    partial_ratio_threshold_value = max(0.01, min(partial_ratio_threshold, 1.0))
+
+    open_count = int(status_counts.get(ArbitrationCaseStatus.OPEN.value, 0))
+    voting_count = int(status_counts.get(ArbitrationCaseStatus.VOTING.value, 0))
+    decided_count = int(status_counts.get(ArbitrationCaseStatus.DECIDED.value, 0))
+
+    if open_count >= open_threshold:
+        alerts.append(
+            ArbitrationOpsAlert(
+                severity=ArbitrationOpsAlertSeverity.MEDIUM,
+                alert_type=ArbitrationOpsAlertType.OPEN_CASE_BACKLOG,
+                message=f"arbitration open-case backlog: {open_count}",
+                metadata={
+                    "open_cases": open_count,
+                    "threshold": open_threshold,
+                },
+                generated_at=generated_at,
+            )
+        )
+
+    if voting_count >= voting_threshold:
+        alerts.append(
+            ArbitrationOpsAlert(
+                severity=ArbitrationOpsAlertSeverity.HIGH,
+                alert_type=ArbitrationOpsAlertType.VOTING_CASE_BACKLOG,
+                message=f"arbitration voting-case backlog: {voting_count}",
+                metadata={
+                    "voting_cases": voting_count,
+                    "threshold": voting_threshold,
+                },
+                generated_at=generated_at,
+            )
+        )
+
+    if decided_count >= decided_threshold:
+        alerts.append(
+            ArbitrationOpsAlert(
+                severity=ArbitrationOpsAlertSeverity.HIGH,
+                alert_type=ArbitrationOpsAlertType.DECISION_TIMEOUT_RISK,
+                message=f"decided cases pending execution: {decided_count}",
+                metadata={
+                    "decided_cases": decided_count,
+                    "threshold": decided_threshold,
+                },
+                generated_at=generated_at,
+            )
+        )
+
+    partial_count = int(decision_counts.get(ArbitrationVoteDecision.PARTIAL.value, 0))
+    decided_total = sum(int(value) for value in decision_counts.values())
+    partial_ratio = (partial_count / decided_total) if decided_total > 0 else 0.0
+    if decided_total > 0 and partial_ratio >= partial_ratio_threshold_value:
+        alerts.append(
+            ArbitrationOpsAlert(
+                severity=ArbitrationOpsAlertSeverity.MEDIUM,
+                alert_type=ArbitrationOpsAlertType.DECISION_PARTIAL_SPIKE,
+                message=f"partial decision ratio elevated: {partial_ratio:.2%}",
+                metadata={
+                    "partial_count": partial_count,
+                    "decided_total": decided_total,
+                    "partial_ratio": round(partial_ratio, 4),
+                    "threshold": partial_ratio_threshold_value,
+                },
+                generated_at=generated_at,
+            )
+        )
+
+    severity_order = {
+        ArbitrationOpsAlertSeverity.HIGH: 3,
+        ArbitrationOpsAlertSeverity.MEDIUM: 2,
+        ArbitrationOpsAlertSeverity.INFO: 1,
+    }
+    return sorted(
+        alerts,
+        key=lambda item: (
+            severity_order[item.severity],
+            item.generated_at,
+        ),
+        reverse=True,
     )
 
 

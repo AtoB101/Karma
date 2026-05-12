@@ -522,12 +522,35 @@ class ArbitrationCaseEvent(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ArbitrationOpsAlertSeverity(str, Enum):
+    INFO = "info"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ArbitrationOpsAlertType(str, Enum):
+    OPEN_CASE_BACKLOG = "open_case_backlog"
+    VOTING_CASE_BACKLOG = "voting_case_backlog"
+    DECISION_TIMEOUT_RISK = "decision_timeout_risk"
+    DECISION_PARTIAL_SPIKE = "decision_partial_spike"
+
+
+class ArbitrationOpsAlert(BaseModel):
+    alert_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    severity: ArbitrationOpsAlertSeverity
+    alert_type: ArbitrationOpsAlertType
+    message: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ArbitrationCaseOpsReport(BaseModel):
     window_hours: int
     total_cases: int = 0
     status_counts: dict[str, int] = Field(default_factory=dict)
     decision_counts: dict[str, int] = Field(default_factory=dict)
     recent_events: list[ArbitrationCaseEvent] = Field(default_factory=list)
+    alerts: list[ArbitrationOpsAlert] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

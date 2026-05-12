@@ -16,6 +16,7 @@ from core.schemas import (
     ArbitrationCase,
     ArbitrationCaseEvent,
     ArbitrationCaseOpsReport,
+    ArbitrationOpsAlert,
     ArbitrationMaterialPackage,
     ArbitrationPoolMember,
     ArbitrationVoteDecision,
@@ -499,6 +500,28 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return ArbitrationCaseOpsReport(**resp.json())
+
+    async def get_arbitration_case_ops_alerts(
+        self,
+        *,
+        window_hours: int = 24,
+        open_case_threshold: int = 5,
+        voting_case_threshold: int = 5,
+        decided_case_threshold: int = 3,
+        partial_ratio_threshold: float = 0.5,
+    ) -> list[ArbitrationOpsAlert]:
+        """GET /v1/arbitration/cases/ops/alerts"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/arbitration/cases/ops/alerts"
+                f"?window_hours={window_hours}"
+                f"&open_case_threshold={open_case_threshold}"
+                f"&voting_case_threshold={voting_case_threshold}"
+                f"&decided_case_threshold={decided_case_threshold}"
+                f"&partial_ratio_threshold={partial_ratio_threshold}"
+            )
+            resp.raise_for_status()
+            return [ArbitrationOpsAlert(**item) for item in resp.json()]
 
     async def submit_arbitration_material(
         self,

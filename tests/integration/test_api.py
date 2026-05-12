@@ -548,7 +548,15 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
     assert ops_body["total_cases"] >= 1
     assert ops_body["status_counts"].get("executed", 0) >= 1
     assert ops_body["decision_counts"].get("buyer_wins", 0) >= 1
+    assert "alerts" in ops_body
     assert any(item["event_type"] == "case_executed" for item in ops_body["recent_events"])
+
+    ops_alerts = await client.get(
+        "/v1/arbitration/cases/ops/alerts"
+        "?window_hours=24&open_case_threshold=1&voting_case_threshold=1&decided_case_threshold=1&partial_ratio_threshold=0.1"
+    )
+    assert ops_alerts.status_code == 200
+    assert isinstance(ops_alerts.json(), list)
 
 
 # ---------------------------------------------------------------------------

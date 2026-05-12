@@ -315,6 +315,14 @@ Get arbitration operations report snapshot:
 - `status_counts`
 - `decision_counts`
 - recent case events within `window_hours`
+- `alerts`（open/voting backlog、decided timeout risk、partial spike）
+
+### `GET /v1/arbitration/cases/ops/alerts`
+Get arbitration operations alerts only (supports threshold tuning):
+- `open_case_threshold`
+- `voting_case_threshold`
+- `decided_case_threshold`
+- `partial_ratio_threshold`
 
 ### `POST /v1/arbitration/cases/{case_id}/assign-auto`
 Auto-assign arbitrators from active pool.
@@ -344,6 +352,7 @@ SDK helper methods:
 - `list_arbitration_pool()`
 - `create_arbitration_case(task_id, opened_by, reason=None, required_arbitrators=3)`
 - `get_arbitration_case_ops_report(window_hours=24, recent_events_limit=50)`
+- `get_arbitration_case_ops_alerts(...)`
 - `assign_arbitrators(case_id, count=3)`
 - `list_arbitration_case_events(case_id, limit=200)`
 - `submit_arbitration_material(case_id, submitted_by, ...)`

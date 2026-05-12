@@ -392,8 +392,28 @@ async def test_arbitration_sdk_methods():
         "status_counts": {"executed": 1},
         "decision_counts": {"buyer_wins": 1},
         "recent_events": [event_payload],
+        "alerts": [
+            {
+                "alert_id": "arb-alert-1",
+                "severity": "medium",
+                "alert_type": "open_case_backlog",
+                "message": "arbitration open-case backlog: 1",
+                "metadata": {"open_cases": 1, "threshold": 1},
+                "generated_at": now,
+            }
+        ],
         "generated_at": now,
     }
+    ops_alerts_payload = [
+        {
+            "alert_id": "arb-alert-1",
+            "severity": "medium",
+            "alert_type": "open_case_backlog",
+            "message": "arbitration open-case backlog: 1",
+            "metadata": {"open_cases": 1, "threshold": 1},
+            "generated_at": now,
+        }
+    ]
     material_payload = {
         "material_id": "mat-1",
         "case_id": case_id,
@@ -441,6 +461,7 @@ async def test_arbitration_sdk_methods():
         ("GET", f"{base}/v1/arbitration/cases/{case_id}/assignments"): [assignment_payload],
         ("GET", f"{base}/v1/arbitration/cases/{case_id}/events?limit=200"): [event_payload],
         ("GET", f"{base}/v1/arbitration/cases/ops/report?window_hours=24&recent_events_limit=50"): ops_report_payload,
+        ("GET", f"{base}/v1/arbitration/cases/ops/alerts?window_hours=24&open_case_threshold=5&voting_case_threshold=5&decided_case_threshold=3&partial_ratio_threshold=0.5"): ops_alerts_payload,
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/materials"): material_payload,
         ("GET", f"{base}/v1/arbitration/cases/{case_id}/materials"): [material_payload],
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/vote"): voted_case_payload,
@@ -465,6 +486,9 @@ async def test_arbitration_sdk_methods():
     assert events[0].event_type.value == "case_created"
     ops_report = await client.get_arbitration_case_ops_report(window_hours=24, recent_events_limit=50)
     assert ops_report.status_counts.get("executed") == 1
+    assert ops_report.alerts[0].alert_type.value == "open_case_backlog"
+    ops_alerts = await client.get_arbitration_case_ops_alerts(window_hours=24)
+    assert ops_alerts[0].severity.value == "medium"
 
     material = await client.submit_arbitration_material(
         case_id=case_id,
