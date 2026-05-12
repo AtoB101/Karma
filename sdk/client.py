@@ -14,6 +14,7 @@ from core.schemas import (
     AuthorizationVoucher,
     CapacityState,
     EvidenceBundle,
+    ProgressReceipt,
     ReputationSnapshot,
     SettlementState,
     TaskContract,
@@ -265,6 +266,55 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return AuthorizationVoucher(**resp.json())
+
+    async def submit_progress(self, progress: ProgressReceipt) -> ProgressReceipt:
+        """POST /v1/progress"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/progress",
+                json=progress.model_dump(mode="json"),
+            )
+            resp.raise_for_status()
+            return ProgressReceipt(**resp.json())
+
+    async def confirm_progress(self, progress_receipt_id: str) -> ProgressReceipt:
+        """POST /v1/progress/{progress_receipt_id}/confirm"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/progress/{progress_receipt_id}/confirm",
+                json={},
+            )
+            resp.raise_for_status()
+            return ProgressReceipt(**resp.json())
+
+    async def list_progress(self, task_id: str) -> list[ProgressReceipt]:
+        """GET /v1/progress/task/{task_id}"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/progress/task/{task_id}")
+            resp.raise_for_status()
+            return [ProgressReceipt(**item) for item in resp.json()]
+
+    async def partial_settlement(self, task_id: str, settled_value_percent: float, reason: str | None = None) -> SettlementState:
+        """POST /v1/settlement/{task_id}/partial"""
+        payload: dict[str, Any] = {"settled_value_percent": settled_value_percent}
+        if reason:
+            payload["reason"] = reason
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/settlement/{task_id}/partial", json=payload)
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
+
+    async def regret_task(self, task_id: str, buyer_identity_id: str | None = None, reason: str | None = None) -> SettlementState:
+        """POST /v1/settlement/{task_id}/regret"""
+        payload: dict[str, Any] = {}
+        if buyer_identity_id:
+            payload["buyer_identity_id"] = buyer_identity_id
+        if reason:
+            payload["reason"] = reason
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/settlement/{task_id}/regret", json=payload)
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
 
     async def get_token(self, agent_id: str, api_key: str) -> str:
         """POST /v1/auth/token — returns JWT access token."""

@@ -59,6 +59,11 @@ class TaskContractModel(Base):
     created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     receipts:   Mapped[list[ReceiptModel]]    = relationship("ReceiptModel",    back_populates="contract", lazy="selectin")
+    progress_receipts: Mapped[list[ProgressReceiptModel]] = relationship(
+        "ProgressReceiptModel",
+        back_populates="contract",
+        lazy="selectin",
+    )
     settlement: Mapped[SettlementModel|None]  = relationship("SettlementModel", back_populates="contract", uselist=False, lazy="selectin")
 
 
@@ -90,6 +95,28 @@ class ReceiptModel(Base):
         UniqueConstraint("task_id", "step_index", name="uq_task_step"),
     )
 
+
+# ---------------------------------------------------------------------------
+# Progress Receipt
+# ---------------------------------------------------------------------------
+
+class ProgressReceiptModel(Base):
+    __tablename__ = "progress_receipts"
+
+    progress_receipt_id: Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    task_id:             Mapped[str]      = mapped_column(String(64), ForeignKey("task_contracts.task_id"), nullable=False)
+    seller_identity_id:  Mapped[str]      = mapped_column(String(64), nullable=False)
+    progress_percent:    Mapped[float]    = mapped_column(Float, nullable=False)
+    claimed_value_percent: Mapped[float]  = mapped_column(Float, nullable=False)
+    evidence_hash:       Mapped[str]      = mapped_column(String(128), nullable=False)
+    runtime_log_hash:    Mapped[str]      = mapped_column(String(128), nullable=False)
+    timestamp:           Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    seller_signature:    Mapped[str]      = mapped_column(Text, nullable=False)
+    validation_method:   Mapped[str]      = mapped_column(String(64), nullable=False)
+    confirmation_status: Mapped[str]      = mapped_column(String(16), nullable=False, default="pending")
+    confirmed_at:        Mapped[datetime|None] = mapped_column(DateTime)
+
+    contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="progress_receipts")
 
 # ---------------------------------------------------------------------------
 # Evidence Bundle

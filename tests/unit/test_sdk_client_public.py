@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from sdk.client import KarmaClient
+from core.schemas import ProgressReceipt, ProgressConfirmationStatus
 
 
 class _MockResponse:
@@ -176,4 +177,72 @@ async def test_voucher_sdk_methods():
 
     accepted = await client.accept_voucher(voucher_id, "seller-1")
     assert accepted.status.value == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_progress_and_regret_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    progress_id = "p-1"
+    progress_payload = {
+        "progress_receipt_id": progress_id,
+        "task_id": "task-1",
+        "seller_identity_id": "seller-1",
+        "progress_percent": 20,
+        "claimed_value_percent": 20,
+        "evidence_hash": "a" * 64,
+        "runtime_log_hash": "b" * 64,
+        "timestamp": now,
+        "seller_signature": "sig",
+        "validation_method": "buyer_confirm",
+        "confirmation_status": "pending",
+        "confirmed_at": None,
+    }
+    confirmed_payload = dict(progress_payload)
+    confirmed_payload["confirmation_status"] = "confirmed"
+    confirmed_payload["confirmed_at"] = now
+    settlement_payload = {
+        "settlement_id": "s-1",
+        "task_id": "task-1",
+        "escrow_amount": 100,
+        "currency": "USD",
+        "status": "partial",
+        "client_agent_id": "buyer-1",
+        "worker_agent_id": "seller-1",
+        "released_amount": 20,
+        "refunded_amount": 80,
+        "dispute_reason": "buyer regret",
+        "arbitration_notes": "buyer regret with confirmed progress 20.00%",
+        "created_at": now,
+        "updated_at": now,
+        "released_at": now,
+        "settlement_mode": "offchain",
+        "chain_id": None,
+        "contract_address": None,
+        "tx_hash": None,
+        "evidence_bundle_hash": None,
+        "onchain_status": None,
+        "quote_id": None,
+    }
+    routes = {
+        ("POST", f"{base}/v1/progress"): progress_payload,
+        ("POST", f"{base}/v1/progress/{progress_id}/confirm"): confirmed_payload,
+        ("GET", f"{base}/v1/progress/task/task-1"): [confirmed_payload],
+        ("POST", f"{base}/v1/settlement/task-1/regret"): settlement_payload,
+        ("POST", f"{base}/v1/settlement/task-1/partial"): settlement_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    submitted = await client.submit_progress(ProgressReceipt(**progress_payload))
+    assert submitted.progress_receipt_id == progress_id
+    confirmed = await client.confirm_progress(progress_id)
+    assert confirmed.confirmation_status == ProgressConfirmationStatus.CONFIRMED
+    listed = await client.list_progress("task-1")
+    assert len(listed) == 1
+    regret_state = await client.regret_task("task-1", buyer_identity_id="buyer-1", reason="buyer regret")
+    assert regret_state.status.value == "partial"
+    partial_state = await client.partial_settlement("task-1", 20, reason="manual partial")
+    assert partial_state.released_amount == 20
 

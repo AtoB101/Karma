@@ -163,6 +163,17 @@ Mark task as submitted (evidence bundle uploaded).
 ### `POST /v1/settlement/{task_id}/fail`
 Mark task as failed (triggers refund).
 
+### `POST /v1/settlement/{task_id}/partial`
+Apply a partial settlement split by percent.
+
+**Request**
+```json
+{ "settled_value_percent": 40, "reason": "milestone-1" }
+```
+
+### `POST /v1/settlement/{task_id}/regret`
+Buyer regret flow: settles confirmed progress and releases remainder.
+
 ### `GET /v1/settlement/{task_id}`
 Get current settlement state.
 
@@ -173,6 +184,26 @@ CREATED → LOCKED → RUNNING → SUBMITTED → VERIFYING → VERIFIED → RELE
          ↘ FAILED → REFUNDED                               → SELLER_WINS
                                                            → PARTIAL
 ```
+
+---
+
+## Progress Receipts
+
+### `POST /v1/progress`
+Submit a progress receipt (`pending` by default). Requires task settlement state to allow progress submission.
+
+### `POST /v1/progress/{progress_receipt_id}/confirm`
+Confirm a progress receipt and promote settlement state to `progress_confirmed`.
+
+### `GET /v1/progress/task/{task_id}`
+List all progress receipts for a task ordered by submission time.
+
+SDK helper methods:
+- `submit_progress(progress_receipt)`
+- `confirm_progress(progress_receipt_id)`
+- `list_progress(task_id)`
+- `regret_task(task_id, buyer_identity_id=None, reason=None)`
+- `partial_settlement(task_id, settled_value_percent, reason=None)`
 
 ---
 

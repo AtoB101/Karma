@@ -30,7 +30,10 @@ class TaskStatus(str, Enum):
     CREATED     = "created"      # Contract signed, escrow not yet locked
     LOCKED      = "locked"       # Escrow locked, worker accepted
     RUNNING     = "running"      # Agent is executing
+    PROGRESS_SUBMITTED = "progress_submitted"  # Seller submitted progress receipt
+    PROGRESS_CONFIRMED = "progress_confirmed"  # Progress receipt confirmed
     SUBMITTED   = "submitted"    # Agent submitted evidence bundle
+    BUYER_REGRET = "buyer_regret"  # Buyer ended task with progress liability
     VERIFYING   = "verifying"    # Verification engine running
     VERIFIED    = "verified"     # Passed verification
     RELEASED    = "released"     # Escrow released to worker ✅
@@ -77,6 +80,13 @@ class VoucherStatus(str, Enum):
     USED = "used"
     EXPIRED = "expired"
     CANCELLED = "cancelled"
+
+
+class ProgressConfirmationStatus(str, Enum):
+    """Confirmation status for a submitted progress receipt."""
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +154,26 @@ class ExecutionReceipt(BaseModel):
         default=None,
         description="Ed25519 signature over canonical receipt fields",
     )
+
+
+# ---------------------------------------------------------------------------
+# Progress Receipt
+# ---------------------------------------------------------------------------
+
+class ProgressReceipt(BaseModel):
+    """Progress evidence used for regret liability and partial settlement."""
+    progress_receipt_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    task_id: str
+    seller_identity_id: str
+    progress_percent: float = Field(ge=0.0, le=100.0)
+    claimed_value_percent: float = Field(ge=0.0, le=100.0)
+    evidence_hash: str
+    runtime_log_hash: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    seller_signature: str
+    validation_method: str
+    confirmation_status: ProgressConfirmationStatus = ProgressConfirmationStatus.PENDING
+    confirmed_at: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------

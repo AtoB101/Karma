@@ -245,6 +245,97 @@ async def test_settlement_invalid_transition_rejected(client: AsyncClient):
     assert "invalid status transition" in resp.json()["detail"]
 
 
+@pytest.mark.asyncio
+async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient):
+    task_id = "task-progress-regret-001"
+    buyer = "buyer-progress-001"
+    seller = "seller-progress-001"
+
+    # Capacity + reservation to simulate an authorized task.
+    await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
+    voucher = await client.post("/v1/vouchers", json={
+        "buyer_identity_id": buyer,
+        "seller_identity_id": seller,
+        "amount": 100,
+        "currency": "USDC",
+        "bill_credit_amount": 100,
+        "task_type": "agent-task",
+        "task_description_hash": "a" * 64,
+        "progress_rule_hash": "b" * 64,
+        "evidence_requirement_hash": "c" * 64,
+        "expiry_time": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+        "nonce": "nonce-progress-001",
+        "buyer_signature": "sig-progress-001",
+    })
+    voucher_id = voucher.json()["voucher_id"]
+    await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
+
+    # Settlement lifecycle to running.
+    await client.post("/v1/settlement/create", json={
+        "task_id": task_id,
+        "client_agent_id": buyer,
+        "escrow_amount": 100.0,
+        "currency": "USD",
+    })
+    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": seller})
+    await client.post(f"/v1/settlement/{task_id}/start", json={})
+
+    progress = await client.post("/v1/progress", json={
+        "task_id": task_id,
+        "seller_identity_id": seller,
+        "progress_percent": 20,
+        "claimed_value_percent": 20,
+        "evidence_hash": "d" * 64,
+        "runtime_log_hash": "e" * 64,
+        "seller_signature": "sig-seller",
+        "validation_method": "buyer_confirm",
+    })
+    assert progress.status_code == 201
+    progress_id = progress.json()["progress_receipt_id"]
+
+    confirm = await client.post(f"/v1/progress/{progress_id}/confirm", json={})
+    assert confirm.status_code == 200
+    assert confirm.json()["confirmation_status"] == "confirmed"
+
+    regret = await client.post(f"/v1/settlement/{task_id}/regret", json={
+        "buyer_identity_id": buyer,
+        "reason": "buyer regret",
+    })
+    assert regret.status_code == 200
+    assert regret.json()["status"] == "partial"
+    assert regret.json()["released_amount"] == 20.0
+    assert regret.json()["refunded_amount"] == 80.0
+
+    cap = await client.get(f"/v1/capacity/{buyer}")
+    assert cap.status_code == 200
+    payload = cap.json()
+    assert payload["reserved_credits"] == 0
+    assert payload["burned_credits"] == 20.0
+    assert payload["released_credits"] == 80.0
+
+
+@pytest.mark.asyncio
+async def test_manual_partial_settlement(client: AsyncClient):
+    task_id = "task-manual-partial-001"
+    await client.post("/v1/settlement/create", json={
+        "task_id": task_id,
+        "client_agent_id": "client-001",
+        "escrow_amount": 100.0,
+        "currency": "USD",
+    })
+    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": "worker-001"})
+    await client.post(f"/v1/settlement/{task_id}/start", json={})
+
+    partial = await client.post(f"/v1/settlement/{task_id}/partial", json={
+        "settled_value_percent": 40,
+        "reason": "milestone-1",
+    })
+    assert partial.status_code == 200
+    assert partial.json()["status"] == "partial"
+    assert partial.json()["released_amount"] == 40.0
+    assert partial.json()["refunded_amount"] == 60.0
+
+
 # ---------------------------------------------------------------------------
 # Capacity & Vouchers
 # ---------------------------------------------------------------------------

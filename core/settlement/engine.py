@@ -29,8 +29,11 @@ from core.schemas import SettlementState, TaskStatus, VerificationResult
 VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.CREATED:     [TaskStatus.LOCKED],
     TaskStatus.LOCKED:      [TaskStatus.RUNNING, TaskStatus.REFUNDED],
-    TaskStatus.RUNNING:     [TaskStatus.SUBMITTED, TaskStatus.FAILED],
-    TaskStatus.SUBMITTED:   [TaskStatus.VERIFYING, TaskStatus.DISPUTED],
+    TaskStatus.RUNNING:     [TaskStatus.PROGRESS_SUBMITTED, TaskStatus.SUBMITTED, TaskStatus.BUYER_REGRET, TaskStatus.PARTIAL, TaskStatus.FAILED],
+    TaskStatus.PROGRESS_SUBMITTED: [TaskStatus.PROGRESS_CONFIRMED, TaskStatus.SUBMITTED, TaskStatus.DISPUTED],
+    TaskStatus.PROGRESS_CONFIRMED: [TaskStatus.SUBMITTED, TaskStatus.BUYER_REGRET, TaskStatus.PARTIAL, TaskStatus.DISPUTED],
+    TaskStatus.SUBMITTED:   [TaskStatus.VERIFYING, TaskStatus.DISPUTED, TaskStatus.BUYER_REGRET, TaskStatus.PARTIAL],
+    TaskStatus.BUYER_REGRET: [TaskStatus.PARTIAL, TaskStatus.REFUNDED, TaskStatus.RELEASED],
     TaskStatus.VERIFYING:   [TaskStatus.VERIFIED, TaskStatus.DISPUTED, TaskStatus.REFUNDED],
     TaskStatus.VERIFIED:    [TaskStatus.RELEASED],
     TaskStatus.DISPUTED:    [TaskStatus.ARBITRATION],
