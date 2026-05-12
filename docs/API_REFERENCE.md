@@ -313,6 +313,15 @@ Create arbitration case from an already disputed settlement task.
 ### `POST /v1/arbitration/cases/{case_id}/assign-auto`
 Auto-assign arbitrators from active pool.
 
+### `GET /v1/arbitration/cases/{case_id}/events`
+Query arbitration case event timeline (audit trail), including:
+- `case_created`
+- `arbitrators_assigned`
+- `material_submitted`
+- `vote_cast`
+- `case_decided`
+- `case_executed`
+
 ### `POST /v1/arbitration/cases/{case_id}/materials`
 Submit normalized arbitration material package:
 - evidence hashes are normalized (`trim + lowercase + dedupe + sort`)
@@ -329,6 +338,7 @@ SDK helper methods:
 - `list_arbitration_pool()`
 - `create_arbitration_case(task_id, opened_by, reason=None, required_arbitrators=3)`
 - `assign_arbitrators(case_id, count=3)`
+- `list_arbitration_case_events(case_id, limit=200)`
 - `submit_arbitration_material(case_id, submitted_by, ...)`
 - `cast_arbitration_vote(case_id, arbitrator_identity_id, decision, ...)`
 - `execute_arbitration_case(case_id)`

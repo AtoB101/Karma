@@ -532,6 +532,16 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
     assert executed.json()["status"] == "buyer_wins"
     assert executed.json()["refunded_amount"] == 100.0
 
+    events = await client.get(f"/v1/arbitration/cases/{case_id}/events?limit=100")
+    assert events.status_code == 200
+    event_types = [item["event_type"] for item in events.json()]
+    assert "case_created" in event_types
+    assert "arbitrators_assigned" in event_types
+    assert "material_submitted" in event_types
+    assert "vote_cast" in event_types
+    assert "case_decided" in event_types
+    assert "case_executed" in event_types
+
 
 # ---------------------------------------------------------------------------
 # Capacity & Vouchers

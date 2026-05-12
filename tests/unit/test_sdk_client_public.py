@@ -378,6 +378,14 @@ async def test_arbitration_sdk_methods():
         "assigned_at": now,
         "status": "assigned",
     }
+    event_payload = {
+        "event_id": "evt-1",
+        "case_id": case_id,
+        "event_type": "case_created",
+        "detail": "arbitration case created",
+        "metadata": {"task_id": task_id},
+        "created_at": now,
+    }
     material_payload = {
         "material_id": "mat-1",
         "case_id": case_id,
@@ -423,6 +431,7 @@ async def test_arbitration_sdk_methods():
         ("POST", f"{base}/v1/arbitration/cases"): case_payload,
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/assign-auto"): [assignment_payload],
         ("GET", f"{base}/v1/arbitration/cases/{case_id}/assignments"): [assignment_payload],
+        ("GET", f"{base}/v1/arbitration/cases/{case_id}/events?limit=200"): [event_payload],
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/materials"): material_payload,
         ("GET", f"{base}/v1/arbitration/cases/{case_id}/materials"): [material_payload],
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/vote"): voted_case_payload,
@@ -443,6 +452,8 @@ async def test_arbitration_sdk_methods():
     assert len(assignments) == 1
     listed_assignments = await client.list_arbitration_assignments(case_id)
     assert listed_assignments[0].arbitrator_identity_id == "arb-1"
+    events = await client.list_arbitration_case_events(case_id, limit=200)
+    assert events[0].event_type.value == "case_created"
 
     material = await client.submit_arbitration_material(
         case_id=case_id,

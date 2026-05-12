@@ -335,6 +335,17 @@ class ArbitrationVoteModel(Base):
     )
 
 
+class ArbitrationCaseEventModel(Base):
+    __tablename__ = "arbitration_case_events"
+
+    event_id:               Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    case_id:                Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
+    event_type:             Mapped[str]      = mapped_column(String(32), nullable=False)
+    detail:                 Mapped[str]      = mapped_column(Text, nullable=False)
+    metadata_:              Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Responsibility Graph (P2 skeleton)
 # ---------------------------------------------------------------------------

@@ -116,6 +116,15 @@ class ArbitrationVoteDecision(str, Enum):
     PARTIAL = "partial"
 
 
+class ArbitrationEventType(str, Enum):
+    CASE_CREATED = "case_created"
+    ARBITRATORS_ASSIGNED = "arbitrators_assigned"
+    MATERIAL_SUBMITTED = "material_submitted"
+    VOTE_CAST = "vote_cast"
+    CASE_DECIDED = "case_decided"
+    CASE_EXECUTED = "case_executed"
+
+
 class ResponsibilityEdgeType(str, Enum):
     VOUCHER_ACCEPT = "voucher_accept"
     TASK_DELEGATION = "task_delegation"
@@ -502,6 +511,15 @@ class ArbitrationVote(BaseModel):
     partial_percent: Optional[float] = Field(default=None, ge=0.0, le=100.0)
     rationale: Optional[str] = None
     voted_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ArbitrationCaseEvent(BaseModel):
+    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    case_id: str
+    event_type: ArbitrationEventType
+    detail: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class MCPVerificationTemplate(BaseModel):

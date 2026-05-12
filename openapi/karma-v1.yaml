@@ -731,6 +731,35 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ArbitrationAssignment'
+  /v1/arbitration/cases/{caseId}/events:
+    get:
+      summary: List arbitration case events timeline
+      operationId: listArbitrationCaseEvents
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+      responses:
+        '200':
+          description: Arbitration case event timeline
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArbitrationCaseEvent'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/arbitration/cases/{caseId}/materials:
     post:
       summary: Submit arbitration material package
@@ -1988,6 +2017,39 @@ components:
         status:
           type: string
       required: [assignment_id, case_id, arbitrator_identity_id, assigned_at, status]
+    ArbitrationEventType:
+      type: string
+      enum:
+        - case_created
+        - arbitrators_assigned
+        - material_submitted
+        - vote_cast
+        - case_decided
+        - case_executed
+    ArbitrationCaseEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+        case_id:
+          type: string
+        event_type:
+          $ref: '#/components/schemas/ArbitrationEventType'
+        detail:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - event_id
+        - case_id
+        - event_type
+        - detail
+        - metadata
+        - created_at
     SubmitArbitrationMaterialRequest:
       type: object
       properties:

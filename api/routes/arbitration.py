@@ -5,7 +5,7 @@ import hashlib
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.schemas import (
     ArbitrationAssignment,
     ArbitrationCase,
+    ArbitrationCaseEvent,
     ArbitrationCaseStatus,
+    ArbitrationEventType,
     ArbitrationMaterialPackage,
     ArbitrationPoolMember,
     ArbitrationPoolMemberStatus,
@@ -26,6 +28,7 @@ from core.settlement.engine import can_transition
 from db.models.orm import (
     ArbitrationAssignmentModel,
     ArbitrationCaseModel,
+    ArbitrationCaseEventModel,
     ArbitrationMaterialPackageModel,
     ArbitrationPoolMemberModel,
     ArbitrationVoteModel,
@@ -136,6 +139,17 @@ async def create_arbitration_case(body: CreateArbitrationCaseRequest, db: AsyncS
     )
     db.add(row)
     await db.flush()
+    await _append_case_event(
+        db=db,
+        case_id=row.case_id,
+        event_type=ArbitrationEventType.CASE_CREATED,
+        detail="arbitration case created",
+        metadata={
+            "task_id": row.task_id,
+            "opened_by": row.opened_by,
+            "required_arbitrators": row.required_arbitrators,
+        },
+    )
     return _case_to_schema(row)
 
 
@@ -186,6 +200,16 @@ async def assign_arbitrators(case_id: str, body: AssignArbitratorsRequest, db: A
     case_row.status = ArbitrationCaseStatus.VOTING.value
     case_row.updated_at = datetime.utcnow()
     await db.flush()
+    await _append_case_event(
+        db=db,
+        case_id=case_id,
+        event_type=ArbitrationEventType.ARBITRATORS_ASSIGNED,
+        detail="arbitrators auto-assigned to case",
+        metadata={
+            "assigned_count": len(assignment_rows),
+            "arbitrator_identity_ids": [row.arbitrator_identity_id for row in assignment_rows],
+        },
+    )
     return [_assignment_to_schema(row) for row in assignment_rows]
 
 
@@ -198,6 +222,25 @@ async def list_case_assignments(case_id: str, db: AsyncSession = Depends(get_db)
     )
     rows = result.scalars().all()
     return [_assignment_to_schema(row) for row in rows]
+
+
+@router.get("/cases/{case_id}/events", response_model=list[ArbitrationCaseEvent])
+async def list_case_events(
+    case_id: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    case_row = await db.get(ArbitrationCaseModel, case_id)
+    if not case_row:
+        raise HTTPException(404, f"arbitration case {case_id} not found")
+    result = await db.execute(
+        select(ArbitrationCaseEventModel)
+        .where(ArbitrationCaseEventModel.case_id == case_id)
+        .order_by(ArbitrationCaseEventModel.created_at.asc())
+        .limit(limit)
+    )
+    rows = result.scalars().all()
+    return [_case_event_to_schema(row) for row in rows]
 
 
 @router.post("/cases/{case_id}/materials", response_model=ArbitrationMaterialPackage, status_code=201)
@@ -246,6 +289,17 @@ async def submit_material(case_id: str, body: SubmitArbitrationMaterialRequest, 
     )
     db.add(row)
     await db.flush()
+    await _append_case_event(
+        db=db,
+        case_id=case_id,
+        event_type=ArbitrationEventType.MATERIAL_SUBMITTED,
+        detail="arbitration material submitted",
+        metadata={
+            "material_id": row.material_id,
+            "submitted_by": row.submitted_by,
+            "package_hash": row.package_hash,
+        },
+    )
     return _material_to_schema(row)
 
 
@@ -295,6 +349,18 @@ async def cast_vote(case_id: str, body: CastArbitrationVoteRequest, db: AsyncSes
         await db.flush()
     except Exception as exc:  # pragma: no cover - SQL uniqueness safeguard
         raise HTTPException(409, "duplicate vote for arbitrator in this case") from exc
+    await _append_case_event(
+        db=db,
+        case_id=case_id,
+        event_type=ArbitrationEventType.VOTE_CAST,
+        detail="arbitration vote cast",
+        metadata={
+            "vote_id": row.vote_id,
+            "arbitrator_identity_id": row.arbitrator_identity_id,
+            "decision": row.decision,
+            "partial_percent": row.partial_percent,
+        },
+    )
 
     votes_result = await db.execute(
         select(ArbitrationVoteModel).where(ArbitrationVoteModel.case_id == case_id)
@@ -318,6 +384,18 @@ async def cast_vote(case_id: str, body: CastArbitrationVoteRequest, db: AsyncSes
         case_row.decided_outcome = outcome.value
         case_row.final_partial_percent = partial_percent
         case_row.updated_at = datetime.utcnow()
+        await _append_case_event(
+            db=db,
+            case_id=case_id,
+            event_type=ArbitrationEventType.CASE_DECIDED,
+            detail="arbitration case reached decision",
+            metadata={
+                "decided_outcome": outcome.value,
+                "final_partial_percent": partial_percent,
+                "vote_count": len(votes),
+                "required_arbitrators": case_row.required_arbitrators,
+            },
+        )
     elif case_row.status == ArbitrationCaseStatus.OPEN.value:
         case_row.status = ArbitrationCaseStatus.VOTING.value
         case_row.updated_at = datetime.utcnow()
@@ -385,6 +463,18 @@ async def execute_arbitration_case(case_id: str, db: AsyncSession = Depends(get_
     case_row.executed_at = datetime.utcnow()
     case_row.updated_at = datetime.utcnow()
     await db.flush()
+    await _append_case_event(
+        db=db,
+        case_id=case_id,
+        event_type=ArbitrationEventType.CASE_EXECUTED,
+        detail="arbitration decision executed into settlement",
+        metadata={
+            "settlement_status": state.status.value,
+            "released_amount": state.released_amount,
+            "refunded_amount": state.refunded_amount,
+            "arbitration_notes": state.arbitration_notes,
+        },
+    )
     return state
 
 
@@ -443,6 +533,36 @@ def _material_to_schema(row: ArbitrationMaterialPackageModel) -> ArbitrationMate
         storage_uri=row.storage_uri,
         format_version=row.format_version,
         submitted_at=row.submitted_at,
+    )
+
+
+def _case_event_to_schema(row: ArbitrationCaseEventModel) -> ArbitrationCaseEvent:
+    return ArbitrationCaseEvent(
+        event_id=row.event_id,
+        case_id=row.case_id,
+        event_type=ArbitrationEventType(row.event_type),
+        detail=row.detail,
+        metadata=row.metadata_ or {},
+        created_at=row.created_at,
+    )
+
+
+async def _append_case_event(
+    *,
+    db: AsyncSession,
+    case_id: str,
+    event_type: ArbitrationEventType,
+    detail: str,
+    metadata: dict[str, object] | None = None,
+) -> None:
+    db.add(
+        ArbitrationCaseEventModel(
+            case_id=case_id,
+            event_type=event_type.value,
+            detail=detail,
+            metadata_=metadata or {},
+            created_at=datetime.utcnow(),
+        )
     )
 
 
