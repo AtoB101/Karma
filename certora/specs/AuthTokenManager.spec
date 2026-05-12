@@ -5,7 +5,7 @@
  *
  * Single, consistent typing for authTokens(bytes32) public getter return tuple.
  */
-import "karma-core/contracts/libraries/Types.sol";
+import "contracts/libraries/Types.sol";
 
 methods {
     function DOMAIN_SEPARATOR() external returns (bytes32) envfree;

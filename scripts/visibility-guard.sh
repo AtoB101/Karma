@@ -33,7 +33,7 @@ while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   [[ ! -f "$f" ]] && continue
   case "$f" in
-    karma-core/*|docs/*|openapi/*|README.md|SECURITY.md)
+    contracts/*|docs/*|openapi/*|README.md|SECURITY.md)
       if file "$f" | rg -q "text"; then
         if rg -n "$public_ref_forbidden" "$f" >/dev/null; then
           echo "[visibility-guard][FAIL] public-facing file references private path: $f"

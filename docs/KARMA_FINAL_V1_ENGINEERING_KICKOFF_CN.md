@@ -40,7 +40,7 @@
 当前仓库已有明确约束：不要并行复制第二套结算权威合约。
 
 参考：`contracts/README.md`  
-当前核心合约源：`karma-core/contracts/core/`
+当前核心合约源：`contracts/core/`
 
 - `NonCustodialAgentPayment.sol`（账单生命周期与非托管支付主路径）
 - `SettlementEngine.sol`（EIP-712 报价结算）

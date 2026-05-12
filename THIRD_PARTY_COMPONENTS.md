@@ -36,7 +36,7 @@ Other Python packages may appear only as **transitive** installs in developer en
 | **forge-std** | Test harness imports (`forge-std/Test.sol`, …) | Present when `lib/forge-std` is installed locally |
 | **Ethereum execution specs / EVM** | Target environment for contracts | N/A (protocol) |
 
-**OpenZeppelin Contracts:** widely used across the Ethereum ecosystem; this repository’s engineering documentation references OpenZeppelin **patterns and libraries** as common practice. **Whether** a given revision imports `@openzeppelin/*` packages is **source-level fact** — search `karma-core/contracts` for imports in your checkout.
+**OpenZeppelin Contracts:** widely used across the Ethereum ecosystem; this repository’s engineering documentation references OpenZeppelin **patterns and libraries** as common practice. **Whether** a given revision imports `@openzeppelin/*` packages is **source-level fact** — search `contracts` for imports in your checkout.
 
 ---
 

@@ -20,7 +20,7 @@ This document captures **non-negotiable security properties** and **frontend pro
 | 8 | Rate limiting | Per-IP / per-key limits at edge and app | **Partial:** client + nginx examples; app server TBD |
 | 9 | Operational audit logs | Append-only operator and security logs with trace correlation | **Partial:** `operational_log.jsonl` patterns in repetition suite |
 |10 | Backend environment isolation | Secrets only in server env / secret manager | **Doc:** `.gitignore`, `SECURITY.md`; enforcement in deployment |
-|11 | Private API not on public Internet | Private risk APIs only on internal network + mTLS / zero trust | **Policy:** `docs/README_PRIVATE.md`, `docs/PUBLIC_PRIVATE_OPERATIONS.md` |
+|11 | Private API not on public Internet | Private risk APIs only on internal network + mTLS / zero trust | **Policy:** private deployment runbooks and zero-trust network controls |
 |12 | Production HTTPS | TLS everywhere; HSTS where applicable | **Doc:** `docs/deployment/KARMAPAY_DOMAIN_INTEGRATION.md` |
 
 | 13 | Sensitive keys never in frontend | No private keys, API secrets, or admin tokens in browser bundles | **Policy + review:** see section B |

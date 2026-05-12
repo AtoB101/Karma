@@ -4,6 +4,18 @@ Build verifiable AI agents. Every tool call generates a signed receipt. Every ta
 
 ---
 
+## Repository Focus
+
+This repository contains the **active Karma system only**:
+- public API/runtime (`api/`, `core/`, `services/`, `db/`, `worker/`)
+- smart contracts (`contracts/`)
+- SDK and adapters (`sdk/`, `agents/`)
+- product surfaces (`apps/website`, `apps/console`, `apps/developer-portal`)
+
+Historical mirror trees and ecosystem-specific scaffolding were removed to keep contributor onboarding and code ownership clear.
+
+---
+
 ## Quick Start
 
 ### 1. Install

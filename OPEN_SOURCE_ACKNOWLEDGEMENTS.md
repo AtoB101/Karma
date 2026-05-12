@@ -6,7 +6,7 @@ Karma’s public work stands on widely used open-source foundations. This docume
 
 ## 1. Relationship to upstream agent runtimes (architecture boundary)
 
-**OpenManus, LangGraph, and similar projects** provide general-purpose **agent execution, orchestration, and tooling** patterns. They are not defined or owned by Karma.
+**LangGraph and similar projects** provide general-purpose **agent execution, orchestration, and tooling** patterns. They are not defined or owned by Karma.
 
 In Karma’s architecture, such systems are appropriately viewed as:
 
@@ -31,7 +31,6 @@ The following are called out **by ecosystem role**. Where a component is **direc
 
 | Area | Acknowledgement |
 |------|-----------------|
-| **OpenManus** | *Integration ecosystem.* Referenced as an example agent runtime context in public demos and naming; not shipped as a vendored dependency of this repository. |
 | **LangGraph** | *Integration ecosystem.* Often used for durable agent graphs in production systems that may call Karma settlement surfaces; not a declared runtime dependency of this repository today. |
 | **FastAPI** | *Integration ecosystem.* Frequently used for HTTP services around agents and webhooks; not a declared Python dependency of this repository today. |
 | **SQLAlchemy** | *Integration ecosystem.* Common persistence layer for operational stores; not a declared dependency here today. |
@@ -42,7 +41,7 @@ The following are called out **by ecosystem role**. Where a component is **direc
 | **ethers.js** | **Direct.** Declared in `package.json` for Node-based tooling and demos. |
 | **Playwright** | **Direct (dev).** Declared in `package.json` for browser automation tests. |
 | **Foundry** | **Direct (toolchain).** `foundry.toml` and Solidity tests use the Foundry toolkit; tests import **forge-std** where present in a developer’s `lib/` checkout. |
-| **OpenZeppelin** | **Ecosystem / engineering practice.** Public engineering notes in this repository reference OpenZeppelin patterns as industry practice; core contracts in `karma-core/` may or may not import OpenZeppelin packages depending on revision — verify `imports` in-tree for your checkout. |
+| **OpenZeppelin** | **Ecosystem / engineering practice.** Public engineering notes in this repository reference OpenZeppelin patterns as industry practice; core contracts in `contracts/` may or may not import OpenZeppelin packages depending on revision — verify `imports` in-tree for your checkout. |
 | **Python open-source ecosystem** | **Direct.** Standard library and common OSS packages used by Python modules and tests (see `THIRD_PARTY_COMPONENTS.md` for a concrete inventory). |
 | **Ethereum ecosystem** | **Direct.** On-chain interfaces, ABIs, and EIP standards (including EIP-712) used in contract design and clients. |
 

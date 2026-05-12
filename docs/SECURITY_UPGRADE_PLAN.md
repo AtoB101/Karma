@@ -9,7 +9,7 @@
 
 ## 与当前 Karma 仓库的映射（验收前必读）
 
-本仓库 **`karma-core/contracts`** 当前为 **NonCustodial（NC）+ SettlementEngine** 主线，**不包含**下列旧栈路径：
+本仓库 **`contracts`** 当前为 **NonCustodial（NC）+ SettlementEngine** 主线，**不包含**下列旧栈路径：
 
 | 方案中的文件/模块 | 在当前仓库中 |
 |-------------------|--------------|
@@ -273,7 +273,7 @@ bytes4 private constant TRANSFER_FROM_SELECTOR = 0x23b872dd;
 - `/.github/workflows/security-ci.yml` — Foundry + Slither + release-readiness
 - `/.github/workflows/security-baseline-guard.yml`、`visibility-guard.yml` — 安全基线与可见性
 
-**单文件合并示例（Karma Pay CI）** — 若合并为一条流水线，请将 `target` / `forge test -C` 指向 **`karma-core/contracts`**（本仓库合约根路径）：
+**单文件合并示例（Karma Pay CI）** — 若合并为一条流水线，请将 `target` / `forge test -C` 指向 **`contracts`**（本仓库合约根路径）：
 
 ```yaml
 name: Karma Pay CI
@@ -292,15 +292,15 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
       - name: Run tests
-        run: forge test -C karma-core/contracts -vvv --gas-report
+        run: forge test -C contracts -vvv --gas-report
       - name: Run invariant tests
-        run: forge test -C karma-core/contracts --match-contract Invariant -vvv
+        run: forge test -C contracts --match-contract Invariant -vvv
       - name: Check coverage
-        run: forge coverage -C karma-core/contracts --report lcov
+        run: forge coverage -C contracts --report lcov
       - name: Static Analysis
         uses: crytic/slither-action@v0.4.0
         with:
-          target: karma-core/contracts/
+          target: contracts/
 ```
 
 ### 静态分析（门禁目标由验收签字）
@@ -308,8 +308,8 @@ jobs:
 ```bash
 pip install slither-analyzer aderyn
 # 目标：主网前与验收方约定为「零 high」或书面接受项（见 docs/SECURITY_ACCEPTANCE_NOTES.md）
-slither karma-core/contracts --fail-high
-aderyn karma-core/contracts
+slither contracts --fail-high
+aderyn contracts
 ```
 
 可选: 将 `aderyn` 纳入 Karma2 私有 CI 定期任务，与公开仓 Slither 策略互补。
@@ -322,11 +322,11 @@ aderyn karma-core/contracts
 
 ```bash
 forge build --force || exit 1
-forge test -C karma-core/contracts -vvv || exit 1
-forge test -C karma-core/contracts --match-contract Invariant -vvv || exit 1
+forge test -C contracts -vvv || exit 1
+forge test -C contracts --match-contract Invariant -vvv || exit 1
 forge snapshot --diff
 # 与仓库门禁对齐（或直接用 scripts/slither-gate.sh）
-slither karma-core/contracts --fail-high || exit 1
+slither contracts --fail-high || exit 1
 
 # 部署后必须验证
 BYTECODE_HASH=$(cast code --rpc-url $RPC_URL $CONTRACT_ADDRESS | cast keccak)
@@ -391,7 +391,7 @@ cast call $CONTRACT_ADDRESS "DOMAIN_SEPARATOR()(bytes32)" --rpc-url $RPC_URL
 
 ### 合约
 
-- [ ] BillAndBatch.t.sol 编译通过（**仅 BM 栈仓库**；当前 karma-core 无此文件则标 N/A 并注明分支）
+- [ ] BillAndBatch.t.sol 编译通过（**仅 BM 栈仓库**；当前主线仓库无此文件则标 N/A 并注明分支）
 - [ ] BillManager.settleBatch 有 gas 上限（**BM 栈**；NC 栈验收 `MAX_BATCH_SETTLE_SIZE` + SettlementEngine 是否需上限）
 - [ ] LockPoolManager 有 nonReentrant（**BM 栈**；NC 栈验收等价路径）
 - [ ] 所有 admin 指向多签地址
@@ -451,7 +451,7 @@ Week 4+: P2/P3 迭代 → 压力测试 → 社区披露
 
 | 原方案项 | NC 主线验收替代 |
 |----------|----------------|
-| P0-1 BillAndBatch | `forge build` + `forge test -C karma-core/contracts` 全绿 |
+| P0-1 BillAndBatch | `forge build` + `forge test -C contracts` 全绿 |
 | P0-2 BillManager settleBatch 上限 | `NonCustodialAgentPayment` 批量上限 +（可选）`SettlementEngine` batch 长度上限 |
 | P0-3 LockPoolManager 重入 | `SettlementEngine` / `NonCustodialAgentPayment` 资金路径 `nonReentrant` + 测试 |
 | P1-3 BillManager expireBill | `NonCustodialAgentPayment.expireBill` + 测试 |

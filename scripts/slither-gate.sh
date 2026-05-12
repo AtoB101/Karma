@@ -22,7 +22,7 @@ if ! command -v slither >/dev/null 2>&1; then
   exit 1
 fi
 
-TARGET="karma-core/contracts/core/SettlementEngine.sol"
+TARGET="contracts/core/SettlementEngine.sol"
 if [[ ! -f "$TARGET" ]]; then
   TARGET="contracts/core/SettlementEngine.sol"
 fi
@@ -32,7 +32,7 @@ if [[ ! -f "$TARGET" ]]; then
   exit 1
 fi
 
-ALLOW_PATHS="$(pwd),$(pwd)/karma-core/contracts,$(pwd)/contracts"
+ALLOW_PATHS="$(pwd),$(pwd)/contracts,$(pwd)/contracts"
 echo "Running slither on: $TARGET"
 set +e
 slither "$TARGET" --solc-args "--allow-paths $ALLOW_PATHS" --exclude-dependencies > /tmp/slither-output.txt 2>&1

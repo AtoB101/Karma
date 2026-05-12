@@ -57,7 +57,7 @@ jobs:
         run: forge test -vv
 
       - name: Run invariant suite (NC)
-        run: forge test --match-path "karma-core/contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
+        run: forge test --match-path "contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
 
       - name: Gas snapshot diff
         run: forge snapshot --diff

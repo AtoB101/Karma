@@ -1,8 +1,8 @@
-# Karma public contracts (karma-core). CI and local `forge` use this file at repo root.
+# Karma public contracts. CI and local `forge` use this file at repo root.
 [profile.default]
-src = "karma-core/contracts"
-test = "karma-core/contracts/test"
-script = "karma-core/contracts/script"
+src = "contracts"
+test = "contracts/test"
+script = "contracts/script"
 out = "out"
 libs = ["lib"]
 solc_version = "0.8.28"

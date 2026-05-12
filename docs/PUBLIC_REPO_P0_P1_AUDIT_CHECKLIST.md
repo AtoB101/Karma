@@ -2,7 +2,7 @@
 
 本文档把团队给出的 **BillManager / LockPoolManager / DemoToken** 类 P0 条目，与当前 **公开仓库** (`AtoB101/Karma`) 实际代码路径对齐。
 
-## 当前公开核心（`karma-core/contracts/core`）
+## 当前公开核心（`contracts/core`）
 
 主线为 **NonCustodial + SettlementEngine**，仅包含：
 

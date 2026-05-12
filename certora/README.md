@@ -1,6 +1,6 @@
 # Certora formal verification (Karma core)
 
-These specs target the five core contracts under `karma-core/contracts/core/`. They are written for **CVL 2** (function-style `methods` entries, `sig:` where needed, envfree call discipline).
+These specs target the five core contracts under `contracts/core/`. They are written for **CVL 2** (function-style `methods` entries, `sig:` where needed, envfree call discipline).
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ Repeat with `CircuitBreaker.conf`, `AuthTokenManager.conf`, `SettlementEngine.co
 ### Option B — CLI without conf file
 
 ```bash
-certoraRun karma-core/contracts/core/KYARegistry.sol:KYARegistry \
+certoraRun contracts/core/KYARegistry.sol:KYARegistry \
   --verify KYARegistry:certora/specs/KYARegistry.spec \
   --solc solc8.28
 ```
@@ -47,5 +47,5 @@ Passing Certora jobs prove **the stated CVL properties** only. They complement b
 
 ## Troubleshooting
 
-- **`AuthTokenManager.spec` import**: specs use `import "karma-core/contracts/libraries/Types.sol";` (repo-root resolution). If your Certora CLI expects another root, change that line to a path relative to the spec file, e.g. `import "../../karma-core/contracts/libraries/Types.sol";`.
+- **`AuthTokenManager.spec` import**: specs use `import "contracts/libraries/Types.sol";` (repo-root resolution). If your Certora CLI expects another root, change that line to a path relative to the spec file, e.g. `import "../../contracts/libraries/Types.sol";`.
 - **`SettlementEngine` depth**: this batch intentionally omits parametric `QuoteTypes.Quote` / `submitSettlement` rules to reduce version-specific CVL friction; extend when your toolchain accepts the struct in `methods` cleanly.

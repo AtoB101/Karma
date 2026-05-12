@@ -14,8 +14,9 @@ Python reference implementation and hashing rules:
 
 ## On-chain mapping
 
-Evidence integrity is surfaced to Karma bills via existing `proofHash` string semantics — see `docs/PUBLIC_ALIGNMENT_REPORT.md`
-and `NonCustodialAgentPayment` ABI in `trusted_agent_runtime/abis/non_custodial_agent_payment_min.json`.
+Evidence integrity is surfaced to Karma bills via existing `proofHash` string semantics — see
+`docs/SETTLEMENT_FLOW_PUBLIC.md` and `NonCustodialAgentPayment` ABI in
+`trusted_agent_runtime/abis/non_custodial_agent_payment_min.json`.
 
 ## Non-goals (public)
 

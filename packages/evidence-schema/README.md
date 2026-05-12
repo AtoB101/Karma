@@ -6,4 +6,4 @@ fraud rules, or dispute weighting — those belong in the private risk engine re
 Align runtime tooling with:
 
 - `trusted_agent_runtime/` (hashing + structural verification)
-- On-chain `proofHash` / bill semantics in `karma-core/contracts/core/NonCustodialAgentPayment.sol`
+- On-chain `proofHash` / bill semantics in `contracts/core/NonCustodialAgentPayment.sol`

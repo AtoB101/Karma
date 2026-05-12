@@ -2,7 +2,7 @@
 
 Canonical on-chain settlement for bills is implemented in:
 
-- `karma-core/contracts/core/NonCustodialAgentPayment.sol`
+- `contracts/core/NonCustodialAgentPayment.sol`
 
 High-level public states (informative — refer to source for exact enums):
 
@@ -13,7 +13,7 @@ High-level public states (informative — refer to source for exact enums):
 
 Direct quote settlement (non-bill path) is implemented in:
 
-- `karma-core/contracts/core/SettlementEngine.sol`
+- `contracts/core/SettlementEngine.sol`
 
 This repository **does not** ship a second parallel settlement contract named `KarmaSettlement.sol`; product docs may use
 that label conceptually, but engineering should map to the files above.
