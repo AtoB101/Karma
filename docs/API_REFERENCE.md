@@ -415,6 +415,19 @@ worker 任务编排字段：
 ### `POST /v1/responsibility/scan-runs/claim`
 worker 认领下一个可执行 scan run（`pending` / 可重试 `failed` / 过期 `claimed`）。
 
+### `GET /v1/responsibility/scan-runs/queue/stats`
+返回扫描队列可观测统计：
+- `status_counts`
+- `claimable_pending`
+- `claimable_failed`
+- `stale_claimed`
+- `stale_running`
+
+### `POST /v1/responsibility/scan-runs/recover-stale`
+回收 lease 过期的 `claimed/running` run：
+- 过期 `claimed` -> 回置 `pending`
+- 过期 `running` -> 标记 `failed` 并触发可重试窗口
+
 ### `POST /v1/responsibility/scan-runs/{scan_id}/execute`
 执行（或强制重执行）一个 scan run，支持：
 - `force`
@@ -450,6 +463,8 @@ SDK helper methods:
 - `create_responsibility_batch_scan(...)`
 - `get_responsibility_batch_scan(scan_id, findings_limit=200)`
 - `claim_responsibility_batch_scan(runner_identity_id, lease_seconds=300, include_failed=True)`
+- `get_responsibility_scan_queue_stats()`
+- `recover_stale_responsibility_batch_scans(limit=100)`
 - `execute_responsibility_batch_scan(scan_id, force=False, runner_identity_id=None, lease_seconds=300)`
 - `heartbeat_responsibility_batch_scan(scan_id, runner_identity_id, lease_seconds=300)`
 - `retry_responsibility_batch_scan(scan_id)`

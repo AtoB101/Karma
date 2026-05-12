@@ -650,6 +650,22 @@ async def test_responsibility_sdk_methods():
             "created_at": now,
             "completed_at": None,
         },
+        ("GET", f"{base}/v1/responsibility/scan-runs/queue/stats"): {
+            "total_runs": 5,
+            "status_counts": {"pending": 1, "claimed": 1, "running": 1, "failed": 1, "completed": 1},
+            "claimable_pending": 1,
+            "claimable_failed": 1,
+            "stale_claimed": 0,
+            "stale_running": 0,
+            "generated_at": now,
+        },
+        ("POST", f"{base}/v1/responsibility/scan-runs/recover-stale"): {
+            "limit": 100,
+            "scanned_count": 1,
+            "recovered_count": 1,
+            "recovered_scan_ids": ["scan-1"],
+            "generated_at": now,
+        },
         ("POST", f"{base}/v1/responsibility/scan-runs/scan-1/execute"): {
             "run": {
                 "scan_id": "scan-1",
@@ -865,6 +881,10 @@ async def test_responsibility_sdk_methods():
     assert scan_read.findings[0].identity_id == "id-a"
     claimed = await client.claim_responsibility_batch_scan(runner_identity_id="runner-1")
     assert claimed.status.value == "claimed"
+    queue_stats = await client.get_responsibility_scan_queue_stats()
+    assert queue_stats.total_runs == 5
+    recovered_stale = await client.recover_stale_responsibility_batch_scans(limit=100)
+    assert recovered_stale.recovered_scan_ids == ["scan-1"]
     heartbeated = await client.heartbeat_responsibility_batch_scan(
         "scan-1",
         runner_identity_id="runner-1",

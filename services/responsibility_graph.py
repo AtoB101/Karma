@@ -7,7 +7,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
@@ -24,6 +24,8 @@ from core.schemas import (
     ResponsibilityRiskSignal,
     ResponsibilityScanFinding,
     ResponsibilityScanExecutionMode,
+    ResponsibilityScanQueueStats,
+    ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanMode,
     ResponsibilityScanRunStatus,
     ResponsibilitySignalSeverity,
@@ -496,6 +498,114 @@ async def claim_next_scan_run(
     run_row.cancel_reason = None
     await db.flush()
     return _scan_run_to_schema(run_row)
+
+
+async def get_scan_run_queue_stats(*, db: AsyncSession) -> ResponsibilityScanQueueStats:
+    now = datetime.utcnow()
+
+    total_runs_result = await db.execute(
+        select(func.count()).select_from(ResponsibilityScanRunModel)
+    )
+    total_runs = int(total_runs_result.scalar_one() or 0)
+
+    by_status_result = await db.execute(
+        select(ResponsibilityScanRunModel.status, func.count())
+        .group_by(ResponsibilityScanRunModel.status)
+    )
+    status_counts = {status: int(count) for status, count in by_status_result.all()}
+
+    claimable_failed_result = await db.execute(
+        select(func.count())
+        .select_from(ResponsibilityScanRunModel)
+        .where(
+            ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.FAILED.value,
+            ResponsibilityScanRunModel.current_attempt < ResponsibilityScanRunModel.retry_max_attempts,
+            or_(
+                ResponsibilityScanRunModel.next_retry_at.is_(None),
+                ResponsibilityScanRunModel.next_retry_at <= now,
+            ),
+        )
+    )
+    stale_claimed_result = await db.execute(
+        select(func.count())
+        .select_from(ResponsibilityScanRunModel)
+        .where(
+            ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.CLAIMED.value,
+            ResponsibilityScanRunModel.lease_expires_at.is_not(None),
+            ResponsibilityScanRunModel.lease_expires_at <= now,
+        )
+    )
+    stale_running_result = await db.execute(
+        select(func.count())
+        .select_from(ResponsibilityScanRunModel)
+        .where(
+            ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.RUNNING.value,
+            ResponsibilityScanRunModel.lease_expires_at.is_not(None),
+            ResponsibilityScanRunModel.lease_expires_at <= now,
+        )
+    )
+
+    return ResponsibilityScanQueueStats(
+        total_runs=total_runs,
+        status_counts=status_counts,
+        claimable_pending=int(status_counts.get(ResponsibilityScanRunStatus.PENDING.value, 0)),
+        claimable_failed=int(claimable_failed_result.scalar_one() or 0),
+        stale_claimed=int(stale_claimed_result.scalar_one() or 0),
+        stale_running=int(stale_running_result.scalar_one() or 0),
+        generated_at=now,
+    )
+
+
+async def recover_stale_scan_runs(
+    *,
+    db: AsyncSession,
+    limit: int = 100,
+) -> ResponsibilityRecoverStaleRunsResult:
+    now = datetime.utcnow()
+    limit_value = max(1, min(limit, 1000))
+
+    stale_result = await db.execute(
+        select(ResponsibilityScanRunModel)
+        .where(
+            ResponsibilityScanRunModel.status.in_(
+                [
+                    ResponsibilityScanRunStatus.CLAIMED.value,
+                    ResponsibilityScanRunStatus.RUNNING.value,
+                ]
+            ),
+            ResponsibilityScanRunModel.lease_expires_at.is_not(None),
+            ResponsibilityScanRunModel.lease_expires_at <= now,
+        )
+        .order_by(ResponsibilityScanRunModel.lease_expires_at.asc())
+        .limit(limit_value)
+    )
+    stale_rows = stale_result.scalars().all()
+    recovered_scan_ids: list[str] = []
+
+    for run_row in stale_rows:
+        if run_row.status == ResponsibilityScanRunStatus.CLAIMED.value:
+            run_row.status = ResponsibilityScanRunStatus.PENDING.value
+            run_row.last_error = "stale claim recovered to pending"
+            run_row.next_retry_at = None
+        elif run_row.status == ResponsibilityScanRunStatus.RUNNING.value:
+            run_row.status = ResponsibilityScanRunStatus.FAILED.value
+            run_row.completed_at = None
+            run_row.last_error = "worker lease expired during run execution"
+            if run_row.current_attempt < run_row.retry_max_attempts:
+                run_row.next_retry_at = now
+            else:
+                run_row.next_retry_at = None
+        _clear_claim_fields(run_row)
+        recovered_scan_ids.append(run_row.scan_id)
+
+    await db.flush()
+    return ResponsibilityRecoverStaleRunsResult(
+        limit=limit_value,
+        scanned_count=len(stale_rows),
+        recovered_count=len(recovered_scan_ids),
+        recovered_scan_ids=recovered_scan_ids,
+        generated_at=now,
+    )
 
 
 async def heartbeat_scan_run(

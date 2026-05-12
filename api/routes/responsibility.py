@@ -11,7 +11,9 @@ from core.schemas import (
     ResponsibilityBatchScanRun,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
+    ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
+    ResponsibilityScanQueueStats,
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
@@ -31,10 +33,12 @@ from services.responsibility_graph import (
     get_identity_score,
     get_identity_signals,
     get_public_risk_model,
+    get_scan_run_queue_stats,
     get_task_path_summary,
     get_task_temporal_consistency_report,
     heartbeat_scan_run,
     ingest_edge,
+    recover_stale_scan_runs,
     run_batch_scan,
 )
 
@@ -82,6 +86,10 @@ class HeartbeatScanRunRequest(BaseModel):
 class CancelScanRunRequest(BaseModel):
     runner_identity_id: str | None = None
     reason: str | None = None
+
+
+class RecoverStaleScanRunsRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=1000)
 
 
 class ExportExplainableRiskReportRequest(BaseModel):
@@ -187,18 +195,6 @@ async def create_batch_scan_run(
         raise HTTPException(400, str(exc)) from exc
 
 
-@router.get("/scan-runs/{scan_id}", response_model=ResponsibilityBatchScanResult)
-async def get_scan_run(
-    scan_id: str,
-    findings_limit: int = Query(default=200, ge=1, le=1000),
-    db: AsyncSession = Depends(get_db),
-):
-    result = await get_batch_scan_result(db=db, scan_id=scan_id, findings_limit=findings_limit)
-    if not result:
-        raise HTTPException(404, f"scan run {scan_id} not found")
-    return result
-
-
 @router.post("/scan-runs/claim", response_model=ResponsibilityBatchScanRun)
 async def claim_scan_run(
     body: ClaimScanRunRequest,
@@ -212,6 +208,31 @@ async def claim_scan_run(
     )
     if not result:
         raise HTTPException(404, "no claimable scan run available")
+    return result
+
+
+@router.get("/scan-runs/queue/stats", response_model=ResponsibilityScanQueueStats)
+async def get_scan_queue_stats(db: AsyncSession = Depends(get_db)):
+    return await get_scan_run_queue_stats(db=db)
+
+
+@router.post("/scan-runs/recover-stale", response_model=ResponsibilityRecoverStaleRunsResult)
+async def recover_stale_runs(
+    body: RecoverStaleScanRunsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await recover_stale_scan_runs(db=db, limit=body.limit)
+
+
+@router.get("/scan-runs/{scan_id}", response_model=ResponsibilityBatchScanResult)
+async def get_scan_run(
+    scan_id: str,
+    findings_limit: int = Query(default=200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await get_batch_scan_result(db=db, scan_id=scan_id, findings_limit=findings_limit)
+    if not result:
+        raise HTTPException(404, f"scan run {scan_id} not found")
     return result
 
 

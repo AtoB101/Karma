@@ -17,10 +17,12 @@ from services.responsibility_graph import (
     execute_scan_run,
     export_explainable_risk_report,
     get_batch_scan_result,
+    get_scan_run_queue_stats,
     get_task_temporal_consistency_report,
     get_identity_path_features,
     get_identity_score,
     ingest_edge,
+    recover_stale_scan_runs,
     run_batch_scan,
 )
 
@@ -299,6 +301,45 @@ async def test_claim_reacquires_stale_claimed_scan_run(db_session):
     assert second_claim is not None
     assert second_claim.scan_id == scan_id
     assert second_claim.claimed_by == "runner-2"
+
+
+@pytest.mark.asyncio
+async def test_scan_queue_stats_and_recover_stale_runs(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=["ops-c"],
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.FULL,
+    )
+    scan_id = created.run.scan_id
+
+    claimed = await claim_next_scan_run(
+        db=db_session,
+        runner_identity_id="runner-stale",
+        lease_seconds=60,
+    )
+    assert claimed is not None
+    row = await db_session.get(ResponsibilityScanRunModel, scan_id)
+    assert row is not None
+    row.lease_expires_at = datetime.utcnow() - timedelta(seconds=10)
+    await db_session.flush()
+
+    stats_before = await get_scan_run_queue_stats(db=db_session)
+    assert stats_before.stale_claimed >= 1
+    assert stats_before.status_counts.get("claimed", 0) >= 1
+
+    recovered = await recover_stale_scan_runs(db=db_session, limit=100)
+    assert recovered.recovered_count >= 1
+    assert scan_id in recovered.recovered_scan_ids
+
+    refreshed = await db_session.get(ResponsibilityScanRunModel, scan_id)
+    assert refreshed is not None
+    assert refreshed.status == "pending"
+    assert refreshed.claimed_by is None
+
+    stats_after = await get_scan_run_queue_stats(db=db_session)
+    assert stats_after.stale_claimed == 0
+    assert stats_after.claimable_pending >= 1
 
 
 @pytest.mark.asyncio

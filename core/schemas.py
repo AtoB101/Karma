@@ -628,6 +628,24 @@ class ResponsibilityBatchScanResult(BaseModel):
     findings: list[ResponsibilityScanFinding] = Field(default_factory=list)
 
 
+class ResponsibilityScanQueueStats(BaseModel):
+    total_runs: int = 0
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    claimable_pending: int = 0
+    claimable_failed: int = 0
+    stale_claimed: int = 0
+    stale_running: int = 0
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityRecoverStaleRunsResult(BaseModel):
+    limit: int
+    scanned_count: int
+    recovered_count: int
+    recovered_scan_ids: list[str] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class TemporalConsistencyIssue(BaseModel):
     issue_type: TemporalConsistencyIssueType
     severity: ResponsibilitySignalSeverity

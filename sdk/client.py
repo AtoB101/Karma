@@ -26,7 +26,9 @@ from core.schemas import (
     ResponsibilityEdgeType,
     ResponsibilityBatchScanRun,
     ResponsibilityBatchScanResult,
+    ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
+    ResponsibilityScanQueueStats,
     ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
@@ -669,6 +671,27 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return ResponsibilityBatchScanRun(**resp.json())
+
+    async def get_responsibility_scan_queue_stats(self) -> ResponsibilityScanQueueStats:
+        """GET /v1/responsibility/scan-runs/queue/stats"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/responsibility/scan-runs/queue/stats")
+            resp.raise_for_status()
+            return ResponsibilityScanQueueStats(**resp.json())
+
+    async def recover_stale_responsibility_batch_scans(
+        self,
+        *,
+        limit: int = 100,
+    ) -> ResponsibilityRecoverStaleRunsResult:
+        """POST /v1/responsibility/scan-runs/recover-stale"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/recover-stale",
+                json={"limit": limit},
+            )
+            resp.raise_for_status()
+            return ResponsibilityRecoverStaleRunsResult(**resp.json())
 
     async def execute_responsibility_batch_scan(
         self,

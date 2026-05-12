@@ -753,6 +753,18 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert async_claim_body["status"] == "claimed"
     assert async_claim_body["claimed_by"] == "runner-int-1"
 
+    queue_stats = await client.get("/v1/responsibility/scan-runs/queue/stats")
+    assert queue_stats.status_code == 200
+    queue_stats_body = queue_stats.json()
+    assert queue_stats_body["total_runs"] >= 2
+    assert "claimed" in queue_stats_body["status_counts"]
+
+    recover_stale = await client.post("/v1/responsibility/scan-runs/recover-stale", json={"limit": 50})
+    assert recover_stale.status_code == 200
+    recover_body = recover_stale.json()
+    assert recover_body["limit"] == 50
+    assert recover_body["recovered_count"] >= 0
+
     async_scan_polled = await client.get(f"/v1/responsibility/scan-runs/{async_scan_id}?findings_limit=50")
     assert async_scan_polled.status_code == 200
     assert async_scan_polled.json()["run"]["status"] == "claimed"

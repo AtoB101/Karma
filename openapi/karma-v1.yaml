@@ -1012,6 +1012,34 @@ paths:
                 $ref: '#/components/schemas/ResponsibilityBatchScanRun'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/responsibility/scan-runs/queue/stats:
+    get:
+      summary: Get responsibility scan run queue stats
+      operationId: getResponsibilityScanQueueStats
+      responses:
+        '200':
+          description: Queue-level stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityScanQueueStats'
+  /v1/responsibility/scan-runs/recover-stale:
+    post:
+      summary: Recover stale claimed or running scan runs
+      operationId: recoverStaleResponsibilityScanRuns
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecoverStaleResponsibilityScanRunsRequest'
+      responses:
+        '200':
+          description: Stale recovery summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityRecoverStaleRunsResult'
   /v1/responsibility/scan-runs/{scanId}:
     get:
       summary: Get responsibility batch scan run by id
@@ -2022,6 +2050,14 @@ components:
           type: string
         reason:
           type: string
+    RecoverStaleResponsibilityScanRunsRequest:
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
     ResponsibilityScanFinding:
       type: object
       properties:
@@ -2148,6 +2184,56 @@ components:
           items:
             $ref: '#/components/schemas/ResponsibilityScanFinding'
       required: [run, findings]
+    ResponsibilityScanQueueStats:
+      type: object
+      properties:
+        total_runs:
+          type: integer
+        status_counts:
+          type: object
+          additionalProperties:
+            type: integer
+        claimable_pending:
+          type: integer
+        claimable_failed:
+          type: integer
+        stale_claimed:
+          type: integer
+        stale_running:
+          type: integer
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - total_runs
+        - status_counts
+        - claimable_pending
+        - claimable_failed
+        - stale_claimed
+        - stale_running
+        - generated_at
+    ResponsibilityRecoverStaleRunsResult:
+      type: object
+      properties:
+        limit:
+          type: integer
+        scanned_count:
+          type: integer
+        recovered_count:
+          type: integer
+        recovered_scan_ids:
+          type: array
+          items:
+            type: string
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - limit
+        - scanned_count
+        - recovered_count
+        - recovered_scan_ids
+        - generated_at
     TemporalConsistencyIssue:
       type: object
       properties:
