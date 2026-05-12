@@ -118,6 +118,22 @@ Run a global anchor audit:
 - `sum(total_bill_credits) <= sum(total_locked_usdc)`
 - if violated, system auto-enables safety mode and blocks sensitive write paths.
 
+### `GET /v1/admin/controls`
+Read current brake-only control state (admin whitelist required).
+
+### `POST /v1/admin/controls/safety-mode`
+Admin one-switch safety mode.
+
+### `POST /v1/admin/controls/pauses`
+Admin fine-grained brakes:
+- `pause_new_lock`
+- `pause_new_authorization`
+- `pause_new_task`
+- `pause_new_settlement`
+
+### `POST /v1/admin/controls/identities/{identity_id}/risk-mark`
+Admin marks or clears risk flag on identity profile (`risk_marked`/`active`).
+
 SDK helper:
 - `get_security_ops_alerts(...)`
 - `create_security_threshold_policy(...)`
@@ -268,22 +284,22 @@ Get verification result for a task.
 ## Settlement
 
 ### `POST /v1/settlement/create`
-Create escrow for a task.
+Create a settlement record in `draft`.
 
 ### `POST /v1/settlement/{task_id}/lock`
-Lock escrow once worker accepts task. Body: `{ "worker_agent_id": "..." }`
+Move to `accepted` and bind worker identity. Body: `{ "worker_agent_id": "..." }`
 
 ### `POST /v1/settlement/{task_id}/start`
-Mark task as running.
+Move to `in_progress`.
 
 ### `POST /v1/settlement/{task_id}/submit`
-Mark task as submitted (evidence bundle uploaded).
+Mark task as `delivered` (waiting confirmation / arbitration path).
 
 ### `POST /v1/settlement/{task_id}/fail`
-Mark task as failed (triggers refund).
+Mark task as `cancelled`.
 
 ### `POST /v1/settlement/{task_id}/partial`
-Apply a partial settlement split by percent.
+Apply a split and finalize as `settled`.
 
 **Request**
 ```json
@@ -291,27 +307,31 @@ Apply a partial settlement split by percent.
 ```
 
 ### `POST /v1/settlement/{task_id}/regret`
-Buyer regret flow: settles confirmed progress and releases remainder.
+Buyer regret flow: settle confirmed progress share and finalize as `settled`.
 
 ### `POST /v1/settlement/{task_id}/dispute`
 Open dispute and move task into `DISPUTED`.
 
 ### `POST /v1/settlement/{task_id}/auto-arbitrate`
 Run public auto-arbitration rules:
-- confirmed progress = 0% → `BUYER_WINS`
-- confirmed progress >= 90% → `SELLER_WINS`
-- otherwise proportional `PARTIAL`
+- confirmed progress = 0% → `refunded`
+- confirmed progress >= 90% → `settled`
+- otherwise proportional split → `settled`
 
 ### `GET /v1/settlement/{task_id}`
 Get current settlement state.
 
-**Task Lifecycle**
+**Canonical Task Lifecycle (FINAL)**
 ```
-CREATED → LOCKED → RUNNING → SUBMITTED → VERIFYING → VERIFIED → RELEASED
-                ↘ REFUNDED          ↘ DISPUTED → ARBITRATION → BUYER_WINS
-         ↘ FAILED → REFUNDED                               → SELLER_WINS
-                                                           → PARTIAL
+draft → pending(optional) → accepted → in_progress
+      → progress_submitted → progress_confirmed → delivered
+      → disputed → arbitrated → settled/refunded
+terminal: settled / refunded / cancelled
 ```
+
+Compatibility note:
+- legacy statuses (`created/locked/running/submitted/...`) are still parsed
+- runtime persists and returns canonical FINAL statuses
 
 ---
 

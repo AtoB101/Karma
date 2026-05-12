@@ -635,6 +635,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /v1/admin/controls:
+    get:
+      summary: Get brake-only admin control state
+      operationId: getAdminControlState
+      responses:
+        '200':
+          description: Current admin control state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSafetyModeState'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/admin/controls/safety-mode:
+    post:
+      summary: Update admin safety mode
+      operationId: updateAdminSafetyMode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAdminSafetyModeRequest'
+      responses:
+        '200':
+          description: Updated admin safety mode state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSafetyModeState'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/admin/controls/pauses:
+    post:
+      summary: Update fine-grained admin operational pauses
+      operationId: updateAdminOperationalPauses
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAdminOperationalPausesRequest'
+      responses:
+        '200':
+          description: Updated pause state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSafetyModeState'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /v1/admin/controls/identities/{identityId}/risk-mark:
+    post:
+      summary: Mark or clear identity risk flag
+      operationId: markIdentityRiskFlag
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarkRiskIdentityRequest'
+      responses:
+        '200':
+          description: Updated identity profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityProfile'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/capacity/{identityId}:
     get:
       summary: Get identity capacity ledger
@@ -3198,6 +3276,14 @@ components:
         triggered_at:
           type: string
           format: date-time
+        pause_new_lock:
+          type: boolean
+        pause_new_authorization:
+          type: boolean
+        pause_new_task:
+          type: boolean
+        pause_new_settlement:
+          type: boolean
         last_anchor_audit_at:
           type: string
           format: date-time
@@ -3207,6 +3293,10 @@ components:
           type: number
       required:
         - enabled
+        - pause_new_lock
+        - pause_new_authorization
+        - pause_new_task
+        - pause_new_settlement
         - total_locked_usdc
         - total_bill_credits
     UpdateRuntimeSafetyModeRequest:
@@ -3219,6 +3309,39 @@ components:
         actor_id:
           type: string
       required: [enabled]
+    UpdateAdminSafetyModeRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        reason:
+          type: string
+      required: [enabled]
+    UpdateAdminOperationalPausesRequest:
+      type: object
+      properties:
+        pause_new_lock:
+          type: boolean
+          default: false
+        pause_new_authorization:
+          type: boolean
+          default: false
+        pause_new_task:
+          type: boolean
+          default: false
+        pause_new_settlement:
+          type: boolean
+          default: false
+        reason:
+          type: string
+    MarkRiskIdentityRequest:
+      type: object
+      properties:
+        risk_marked:
+          type: boolean
+          default: true
+        reason:
+          type: string
     SecurityOpsSummary:
       type: object
       properties:

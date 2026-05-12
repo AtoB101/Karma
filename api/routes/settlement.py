@@ -57,7 +57,7 @@ async def create_settlement(body: CreateSettlementRequest, db: AsyncSession = De
         escrow_amount=body.escrow_amount,
         currency=body.currency,
         client_agent_id=body.client_agent_id,
-        status=TaskStatus.CREATED,
+        status=TaskStatus.DRAFT,
         settlement_mode=_s.settlement_mode,
         chain_id=_s.testnet_chain_id if _s.settlement_mode != "offchain" else None,
         contract_address=_s.karma_engine_address or None,
@@ -78,8 +78,8 @@ async def lock_settlement(task_id: str, body: LockRequest, db: AsyncSession = De
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
-    _assert_transition(state.status, TaskStatus.LOCKED)
-    state.status = TaskStatus.LOCKED
+    _assert_transition(state.status, TaskStatus.ACCEPTED)
+    state.status = TaskStatus.ACCEPTED
     state.worker_agent_id = body.worker_agent_id
     await store.save(state)
     return state
@@ -93,8 +93,8 @@ async def start_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
-    _assert_transition(state.status, TaskStatus.RUNNING)
-    state.status = TaskStatus.RUNNING
+    _assert_transition(state.status, TaskStatus.IN_PROGRESS)
+    state.status = TaskStatus.IN_PROGRESS
     await store.save(state)
     return state
 
@@ -107,8 +107,8 @@ async def submit_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
-    _assert_transition(state.status, TaskStatus.SUBMITTED)
-    state.status = TaskStatus.SUBMITTED
+    _assert_transition(state.status, TaskStatus.DELIVERED)
+    state.status = TaskStatus.DELIVERED
     await store.save(state)
     return state
 
@@ -121,8 +121,8 @@ async def fail_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
-    _assert_transition(state.status, TaskStatus.FAILED)
-    state.status = TaskStatus.FAILED
+    _assert_transition(state.status, TaskStatus.CANCELLED)
+    state.status = TaskStatus.CANCELLED
     await store.save(state)
     return state
 
@@ -144,13 +144,13 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, db: A
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
-    if not can_transition(state.status, TaskStatus.PARTIAL):
-        raise HTTPException(409, f"invalid status transition: {state.status.value} -> partial")
+    if not can_transition(state.status, TaskStatus.SETTLED):
+        raise HTTPException(409, f"invalid status transition: {state.status.value} -> settled")
 
     settled_amount = round(state.escrow_amount * body.settled_value_percent / 100.0, 2)
     refunded_amount = round(state.escrow_amount - settled_amount, 2)
 
-    state.status = TaskStatus.PARTIAL
+    state.status = TaskStatus.SETTLED
     state.released_amount = settled_amount
     state.refunded_amount = refunded_amount
     state.arbitration_notes = body.reason or f"partial settlement at {body.settled_value_percent:.2f}%"
@@ -177,22 +177,15 @@ async def regret_settlement(task_id: str, body: RegretRequest, db: AsyncSession 
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
-    if not can_transition(state.status, TaskStatus.BUYER_REGRET):
-        raise HTTPException(409, f"invalid status transition: {state.status.value} -> buyer_regret")
+    if not can_transition(state.status, TaskStatus.SETTLED):
+        raise HTTPException(409, f"invalid status transition: {state.status.value} -> settled")
 
     confirmed_percent = await _confirmed_progress_percent(db, task_id)
     settled_amount = round(state.escrow_amount * confirmed_percent / 100.0, 2)
     refunded_amount = round(state.escrow_amount - settled_amount, 2)
 
-    state.status = TaskStatus.BUYER_REGRET
+    state.status = TaskStatus.SETTLED
     state.dispute_reason = body.reason or "buyer regret"
-    state.updated_at = datetime.utcnow()
-    await store.save(state)
-
-    # Buyer regret settles immediately as a partial split.
-    if not can_transition(state.status, TaskStatus.PARTIAL):
-        raise HTTPException(409, "buyer regret cannot resolve to partial in current state machine")
-    state.status = TaskStatus.PARTIAL
     state.released_amount = settled_amount
     state.refunded_amount = refunded_amount
     state.arbitration_notes = (
@@ -235,26 +228,26 @@ async def auto_arbitrate(task_id: str, db: AsyncSession = Depends(get_db)):
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
-    if not can_transition(state.status, TaskStatus.ARBITRATION):
-        raise HTTPException(409, f"invalid status transition: {state.status.value} -> arbitration")
+    if not can_transition(state.status, TaskStatus.ARBITRATED):
+        raise HTTPException(409, f"invalid status transition: {state.status.value} -> arbitrated")
 
-    state.status = TaskStatus.ARBITRATION
+    state.status = TaskStatus.ARBITRATED
     state.updated_at = datetime.utcnow()
     await store.save(state)
 
     confirmed_percent = await _confirmed_progress_percent(db, task_id)
     if confirmed_percent <= 0.0:
-        decision = TaskStatus.BUYER_WINS
+        decision = TaskStatus.REFUNDED
         settled_amount = 0.0
         refunded_amount = round(state.escrow_amount, 2)
         notes = "auto arbitration: no confirmed progress, buyer wins"
     elif confirmed_percent >= 90.0:
-        decision = TaskStatus.SELLER_WINS
+        decision = TaskStatus.SETTLED
         settled_amount = round(state.escrow_amount, 2)
         refunded_amount = 0.0
         notes = "auto arbitration: near-complete confirmed progress, seller wins"
     else:
-        decision = TaskStatus.PARTIAL
+        decision = TaskStatus.SETTLED
         settled_amount = round(state.escrow_amount * confirmed_percent / 100.0, 2)
         refunded_amount = round(state.escrow_amount - settled_amount, 2)
         notes = f"auto arbitration: partial split by confirmed progress {confirmed_percent:.2f}%"

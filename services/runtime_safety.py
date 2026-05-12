@@ -35,6 +35,10 @@ def set_runtime_safety_mode(
                 "reason": reason or _STATE.reason or "manual safety mode enabled",
                 "triggered_by": actor_id or "system",
                 "triggered_at": _STATE.triggered_at or now,
+                "pause_new_lock": True,
+                "pause_new_authorization": True,
+                "pause_new_task": True,
+                "pause_new_settlement": True,
             }
         )
     else:
@@ -44,18 +48,58 @@ def set_runtime_safety_mode(
                 "reason": reason or "safety mode disabled",
                 "triggered_by": actor_id or "system",
                 "triggered_at": now,
+                "pause_new_lock": False,
+                "pause_new_authorization": False,
+                "pause_new_task": False,
+                "pause_new_settlement": False,
             }
         )
     return _STATE.model_copy()
 
 
-def assert_runtime_operation_allowed(operation: str) -> None:
-    if not _STATE.enabled:
-        return
-    raise HTTPException(
-        status_code=503,
-        detail=f"safety mode active: blocked operation '{operation}'",
+def set_runtime_operational_pauses(
+    *,
+    pause_new_lock: bool,
+    pause_new_authorization: bool,
+    pause_new_task: bool,
+    pause_new_settlement: bool,
+    reason: str | None = None,
+    actor_id: str | None = None,
+) -> RuntimeSafetyModeState:
+    global _STATE
+    now = datetime.utcnow()
+    enabled = pause_new_lock or pause_new_authorization or pause_new_task or pause_new_settlement
+    _STATE = _STATE.model_copy(
+        update={
+            "enabled": enabled,
+            "reason": reason or ("manual operational pause update" if enabled else "operational pauses disabled"),
+            "triggered_by": actor_id or "system",
+            "triggered_at": now,
+            "pause_new_lock": pause_new_lock,
+            "pause_new_authorization": pause_new_authorization,
+            "pause_new_task": pause_new_task,
+            "pause_new_settlement": pause_new_settlement,
+        }
     )
+    return _STATE.model_copy()
+
+
+def assert_runtime_operation_allowed(operation: str) -> None:
+    op = (operation or "").strip().lower()
+    blocked = False
+    if op == "new_lock":
+        blocked = _STATE.pause_new_lock
+    elif op == "new_authorization":
+        blocked = _STATE.pause_new_authorization
+    elif op == "new_task":
+        blocked = _STATE.pause_new_task
+    elif op == "new_settlement":
+        blocked = _STATE.pause_new_settlement
+    else:
+        blocked = _STATE.enabled
+    if not blocked:
+        return
+    raise HTTPException(status_code=503, detail=f"safety mode active: blocked operation '{operation}'")
 
 
 async def audit_capacity_anchor_and_maybe_trip(

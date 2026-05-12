@@ -26,34 +26,72 @@ from core.schemas import SettlementState, TaskStatus, VerificationResult
 # Valid transition table (public reference)
 # ---------------------------------------------------------------------------
 
+LEGACY_TO_CANONICAL_STATUS: dict[TaskStatus, TaskStatus] = {
+    TaskStatus.CREATED: TaskStatus.DRAFT,
+    TaskStatus.LOCKED: TaskStatus.ACCEPTED,
+    TaskStatus.RUNNING: TaskStatus.IN_PROGRESS,
+    TaskStatus.SUBMITTED: TaskStatus.DELIVERED,
+    TaskStatus.BUYER_REGRET: TaskStatus.SETTLED,
+    TaskStatus.VERIFYING: TaskStatus.DELIVERED,
+    TaskStatus.VERIFIED: TaskStatus.DELIVERED,
+    TaskStatus.RELEASED: TaskStatus.SETTLED,
+    TaskStatus.FAILED: TaskStatus.CANCELLED,
+    TaskStatus.ARBITRATION: TaskStatus.ARBITRATED,
+    TaskStatus.BUYER_WINS: TaskStatus.REFUNDED,
+    TaskStatus.SELLER_WINS: TaskStatus.SETTLED,
+    TaskStatus.PARTIAL: TaskStatus.SETTLED,
+}
+
 VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
-    TaskStatus.CREATED:     [TaskStatus.LOCKED],
-    TaskStatus.LOCKED:      [TaskStatus.RUNNING, TaskStatus.REFUNDED],
-    TaskStatus.RUNNING:     [TaskStatus.PROGRESS_SUBMITTED, TaskStatus.SUBMITTED, TaskStatus.BUYER_REGRET, TaskStatus.PARTIAL, TaskStatus.FAILED],
-    TaskStatus.PROGRESS_SUBMITTED: [TaskStatus.PROGRESS_CONFIRMED, TaskStatus.SUBMITTED, TaskStatus.DISPUTED],
-    TaskStatus.PROGRESS_CONFIRMED: [TaskStatus.SUBMITTED, TaskStatus.BUYER_REGRET, TaskStatus.PARTIAL, TaskStatus.DISPUTED],
-    TaskStatus.SUBMITTED:   [TaskStatus.VERIFYING, TaskStatus.DISPUTED, TaskStatus.BUYER_REGRET, TaskStatus.PARTIAL],
-    TaskStatus.BUYER_REGRET: [TaskStatus.PARTIAL, TaskStatus.REFUNDED, TaskStatus.RELEASED],
-    TaskStatus.VERIFYING:   [TaskStatus.VERIFIED, TaskStatus.DISPUTED, TaskStatus.REFUNDED],
-    TaskStatus.VERIFIED:    [TaskStatus.RELEASED],
-    TaskStatus.DISPUTED:    [TaskStatus.ARBITRATION],
-    TaskStatus.ARBITRATION: [TaskStatus.BUYER_WINS, TaskStatus.SELLER_WINS, TaskStatus.PARTIAL],
-    TaskStatus.FAILED:      [TaskStatus.REFUNDED],
-    # Terminal states
-    TaskStatus.RELEASED:    [],
-    TaskStatus.REFUNDED:    [],
-    TaskStatus.BUYER_WINS:  [],
-    TaskStatus.SELLER_WINS: [],
-    TaskStatus.PARTIAL:     [],
+    TaskStatus.DRAFT: [TaskStatus.PENDING, TaskStatus.ACCEPTED, TaskStatus.CANCELLED],
+    TaskStatus.PENDING: [TaskStatus.ACCEPTED, TaskStatus.CANCELLED],
+    TaskStatus.ACCEPTED: [TaskStatus.IN_PROGRESS, TaskStatus.DISPUTED, TaskStatus.CANCELLED],
+    TaskStatus.IN_PROGRESS: [TaskStatus.PROGRESS_SUBMITTED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.CANCELLED],
+    TaskStatus.PROGRESS_SUBMITTED: [TaskStatus.PROGRESS_CONFIRMED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED],
+    TaskStatus.PROGRESS_CONFIRMED: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED],
+    TaskStatus.DELIVERED: [TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.REFUNDED],
+    TaskStatus.DISPUTED: [TaskStatus.ARBITRATED],
+    TaskStatus.ARBITRATED: [TaskStatus.SETTLED, TaskStatus.REFUNDED],
+    TaskStatus.SETTLED: [],
+    TaskStatus.REFUNDED: [],
+    TaskStatus.CANCELLED: [],
+}
+
+STATUS_ORDER: dict[TaskStatus, int] = {
+    TaskStatus.DRAFT: 1,
+    TaskStatus.PENDING: 2,
+    TaskStatus.ACCEPTED: 3,
+    TaskStatus.IN_PROGRESS: 4,
+    TaskStatus.PROGRESS_SUBMITTED: 5,
+    TaskStatus.PROGRESS_CONFIRMED: 6,
+    TaskStatus.DELIVERED: 7,
+    TaskStatus.DISPUTED: 8,
+    TaskStatus.ARBITRATED: 9,
+    TaskStatus.SETTLED: 10,
+    TaskStatus.REFUNDED: 10,
+    TaskStatus.CANCELLED: 10,
 }
 
 
+def canonical_task_status(status: TaskStatus | str) -> TaskStatus:
+    parsed = status if isinstance(status, TaskStatus) else TaskStatus(status)
+    return LEGACY_TO_CANONICAL_STATUS.get(parsed, parsed)
+
+
 def is_terminal(status: TaskStatus) -> bool:
-    return VALID_TRANSITIONS.get(status, []) == []
+    canonical = canonical_task_status(status)
+    return VALID_TRANSITIONS.get(canonical, []) == []
 
 
 def can_transition(from_status: TaskStatus, to_status: TaskStatus) -> bool:
-    return to_status in VALID_TRANSITIONS.get(from_status, [])
+    from_canonical = canonical_task_status(from_status)
+    to_canonical = canonical_task_status(to_status)
+    return to_canonical in VALID_TRANSITIONS.get(from_canonical, [])
+
+
+def is_post_accepted(status: TaskStatus | str) -> bool:
+    canonical = canonical_task_status(status)
+    return STATUS_ORDER.get(canonical, 0) >= STATUS_ORDER[TaskStatus.ACCEPTED]
 
 
 # ---------------------------------------------------------------------------

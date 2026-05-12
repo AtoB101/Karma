@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     auth_api_keys: str = ""
     # If enabled, all protected API routers require valid auth headers.
     auth_enforce_protected_routes: bool = False
+    # Comma-separated privileged actor IDs allowed to use brake-only admin controls.
+    admin_actor_ids: str = ""
     debug: bool = False
 
     # Comma-separated browser origins for CORS, e.g. "https://app.example.com,https://console.example.com".
@@ -157,6 +159,12 @@ class Settings(BaseSettings):
             if agent_id and secret:
                 parsed[agent_id] = secret
         return parsed
+
+    def admin_actor_id_set(self) -> set[str]:
+        raw = (self.admin_actor_ids or "").strip()
+        if not raw:
+            return set()
+        return {item.strip() for item in raw.split(",") if item.strip()}
 
 
 @lru_cache()

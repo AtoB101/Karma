@@ -165,7 +165,7 @@ class EvidenceBundleBuilder:
             failed_steps=failed,
             total_duration_ms=total_ms,
             agent_signature=signature,
-            settlement_status=TaskStatus.SUBMITTED,
+            settlement_status=TaskStatus.DELIVERED,
         )
 
         if self.object_store:

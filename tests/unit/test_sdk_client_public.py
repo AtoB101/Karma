@@ -1489,6 +1489,10 @@ async def test_security_policy_center_sdk_methods():
         "reason": "normal operations",
         "triggered_by": "sec-admin",
         "triggered_at": now,
+        "pause_new_lock": False,
+        "pause_new_authorization": False,
+        "pause_new_task": False,
+        "pause_new_settlement": False,
         "last_anchor_audit_at": now,
         "total_locked_usdc": 100.0,
         "total_bill_credits": 100.0,
@@ -1496,6 +1500,17 @@ async def test_security_policy_center_sdk_methods():
     runtime_safety_enabled_payload = dict(runtime_safety_payload)
     runtime_safety_enabled_payload["enabled"] = True
     runtime_safety_enabled_payload["reason"] = "manual drill"
+    runtime_pause_payload = dict(runtime_safety_payload)
+    runtime_pause_payload["enabled"] = True
+    runtime_pause_payload["pause_new_task"] = True
+    risk_profile_payload = {
+        "identity_id": "worker-risk-001",
+        "display_id": "Karma-ID-WORKERRISK",
+        "legal_identity_status": "unbound|admin:sec-admin|abnormal graph",
+        "status": "risk_marked",
+        "created_at": now,
+        "updated_at": now,
+    }
     routes = {
         ("POST", f"{base}/v1/security/policies"): created_payload,
         ("GET", f"{base}/v1/security/policies?limit=50"): [active_payload, candidate_payload],
@@ -1512,6 +1527,10 @@ async def test_security_policy_center_sdk_methods():
         ("GET", f"{base}/v1/security/runtime/safety-mode"): runtime_safety_payload,
         ("POST", f"{base}/v1/security/runtime/safety-mode"): runtime_safety_enabled_payload,
         ("POST", f"{base}/v1/security/runtime/anchor-audit?actor_id=sdk"): runtime_safety_enabled_payload,
+        ("GET", f"{base}/v1/admin/controls"): runtime_safety_payload,
+        ("POST", f"{base}/v1/admin/controls/safety-mode"): runtime_safety_enabled_payload,
+        ("POST", f"{base}/v1/admin/controls/pauses"): runtime_pause_payload,
+        ("POST", f"{base}/v1/admin/controls/identities/worker-risk-001/risk-mark"): risk_profile_payload,
     }
     mock_http = _MockHTTP(routes)
     client = KarmaClient(agent_id="a1", runtime_url=base)
@@ -1586,3 +1605,15 @@ async def test_security_policy_center_sdk_methods():
     assert enabled_state.enabled is True
     audited_state = await client.run_runtime_anchor_audit(actor_id="sdk")
     assert audited_state.enabled is True
+    admin_state = await client.get_admin_controls_state()
+    assert admin_state.enabled is False
+    admin_enabled = await client.update_admin_safety_mode(enabled=True, reason="manual drill")
+    assert admin_enabled.enabled is True
+    paused_state = await client.update_admin_operational_pauses(pause_new_task=True, reason="maint")
+    assert paused_state.pause_new_task is True
+    marked_profile = await client.mark_identity_risk_flag(
+        identity_id="worker-risk-001",
+        risk_marked=True,
+        reason="abnormal graph",
+    )
+    assert marked_profile.status == "risk_marked"

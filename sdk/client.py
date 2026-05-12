@@ -1342,6 +1342,68 @@ class KarmaClient:
             resp.raise_for_status()
             return RuntimeSafetyModeState(**resp.json())
 
+    async def get_admin_controls_state(self) -> RuntimeSafetyModeState:
+        """GET /v1/admin/controls"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/admin/controls")
+            resp.raise_for_status()
+            return RuntimeSafetyModeState(**resp.json())
+
+    async def update_admin_safety_mode(
+        self,
+        *,
+        enabled: bool,
+        reason: str | None = None,
+    ) -> RuntimeSafetyModeState:
+        """POST /v1/admin/controls/safety-mode"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/admin/controls/safety-mode",
+                json={"enabled": enabled, "reason": reason},
+            )
+            resp.raise_for_status()
+            return RuntimeSafetyModeState(**resp.json())
+
+    async def update_admin_operational_pauses(
+        self,
+        *,
+        pause_new_lock: bool = False,
+        pause_new_authorization: bool = False,
+        pause_new_task: bool = False,
+        pause_new_settlement: bool = False,
+        reason: str | None = None,
+    ) -> RuntimeSafetyModeState:
+        """POST /v1/admin/controls/pauses"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/admin/controls/pauses",
+                json={
+                    "pause_new_lock": pause_new_lock,
+                    "pause_new_authorization": pause_new_authorization,
+                    "pause_new_task": pause_new_task,
+                    "pause_new_settlement": pause_new_settlement,
+                    "reason": reason,
+                },
+            )
+            resp.raise_for_status()
+            return RuntimeSafetyModeState(**resp.json())
+
+    async def mark_identity_risk_flag(
+        self,
+        *,
+        identity_id: str,
+        risk_marked: bool = True,
+        reason: str | None = None,
+    ) -> IdentityProfile:
+        """POST /v1/admin/controls/identities/{identity_id}/risk-mark"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/admin/controls/identities/{identity_id}/risk-mark",
+                json={"risk_marked": risk_marked, "reason": reason},
+            )
+            resp.raise_for_status()
+            return IdentityProfile(**resp.json())
+
     async def get_security_ops_alerts(
         self,
         *,

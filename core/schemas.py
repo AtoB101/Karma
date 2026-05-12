@@ -26,24 +26,34 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 class TaskStatus(str, Enum):
-    """Full lifecycle of a task in the Karma settlement system."""
-    CREATED     = "created"      # Contract signed, escrow not yet locked
-    LOCKED      = "locked"       # Escrow locked, worker accepted
-    RUNNING     = "running"      # Agent is executing
-    PROGRESS_SUBMITTED = "progress_submitted"  # Seller submitted progress receipt
-    PROGRESS_CONFIRMED = "progress_confirmed"  # Progress receipt confirmed
-    SUBMITTED   = "submitted"    # Agent submitted evidence bundle
-    BUYER_REGRET = "buyer_regret"  # Buyer ended task with progress liability
-    VERIFYING   = "verifying"    # Verification engine running
-    VERIFIED    = "verified"     # Passed verification
-    RELEASED    = "released"     # Escrow released to worker ✅
-    FAILED      = "failed"       # Execution failure
-    DISPUTED    = "disputed"     # Dispute raised
-    ARBITRATION = "arbitration"  # Under human/AI arbitration
-    BUYER_WINS  = "buyer_wins"   # Refund to client
-    SELLER_WINS = "seller_wins"  # Full release to worker
-    PARTIAL     = "partial"      # Split settlement
-    REFUNDED    = "refunded"     # Full refund to client
+    """Canonical lifecycle states aligned to FINAL safety architecture."""
+    DRAFT = "draft"
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    IN_PROGRESS = "in_progress"
+    PROGRESS_SUBMITTED = "progress_submitted"
+    PROGRESS_CONFIRMED = "progress_confirmed"
+    DELIVERED = "delivered"
+    DISPUTED = "disputed"
+    ARBITRATED = "arbitrated"
+    SETTLED = "settled"
+    REFUNDED = "refunded"
+    CANCELLED = "cancelled"
+
+    # Legacy values kept for backward-compatible parsing.
+    CREATED = "created"
+    LOCKED = "locked"
+    RUNNING = "running"
+    SUBMITTED = "submitted"
+    BUYER_REGRET = "buyer_regret"
+    VERIFYING = "verifying"
+    VERIFIED = "verified"
+    RELEASED = "released"
+    FAILED = "failed"
+    ARBITRATION = "arbitration"
+    BUYER_WINS = "buyer_wins"
+    SELLER_WINS = "seller_wins"
+    PARTIAL = "partial"
 
 
 class ToolStatus(str, Enum):
@@ -304,7 +314,7 @@ class EvidenceBundle(BaseModel):
         default=None, description="Object store path (MinIO/S3) for full bundle"
     )
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    settlement_status: TaskStatus = Field(default=TaskStatus.SUBMITTED)
+    settlement_status: TaskStatus = Field(default=TaskStatus.DELIVERED)
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +355,7 @@ class SettlementState(BaseModel):
     task_id: str
     escrow_amount: float
     currency: str = "USD"
-    status: TaskStatus = TaskStatus.CREATED
+    status: TaskStatus = TaskStatus.DRAFT
     client_agent_id: str
     worker_agent_id: Optional[str] = None
     released_amount: Optional[float] = None
@@ -767,6 +777,10 @@ class RuntimeSafetyModeState(BaseModel):
     reason: Optional[str] = None
     triggered_by: Optional[str] = None
     triggered_at: Optional[datetime] = None
+    pause_new_lock: bool = False
+    pause_new_authorization: bool = False
+    pause_new_task: bool = False
+    pause_new_settlement: bool = False
     last_anchor_audit_at: Optional[datetime] = None
     total_locked_usdc: float = 0.0
     total_bill_credits: float = 0.0

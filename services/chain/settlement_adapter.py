@@ -277,7 +277,6 @@ class OnChainSettlementAdapter:
         }
 
         # Sign EIP-712
-        from eth_account.messages import encode_typed_data
         structured_data = {
             "types": {
                 "EIP712Domain": [

@@ -288,21 +288,21 @@ async def test_settlement_lifecycle(client: AsyncClient):
         "currency":        "USD",
     })
     assert resp.status_code == 201
-    assert resp.json()["status"] == "created"
+    assert resp.json()["status"] == "draft"
 
     # Lock
     resp = await client.post(f"/v1/settlement/{task_id}/lock", json={
         "worker_agent_id": "worker-001"
     })
-    assert resp.json()["status"] == "locked"
+    assert resp.json()["status"] == "accepted"
 
     # Start
     resp = await client.post(f"/v1/settlement/{task_id}/start", json={})
-    assert resp.json()["status"] == "running"
+    assert resp.json()["status"] == "in_progress"
 
     # Submit
     resp = await client.post(f"/v1/settlement/{task_id}/submit", json={})
-    assert resp.json()["status"] == "submitted"
+    assert resp.json()["status"] == "delivered"
 
     # Get state
     resp = await client.get(f"/v1/settlement/{task_id}")
@@ -383,7 +383,7 @@ async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient):
         "reason": "buyer regret",
     })
     assert regret.status_code == 200
-    assert regret.json()["status"] == "partial"
+    assert regret.json()["status"] == "settled"
     assert regret.json()["released_amount"] == 20.0
     assert regret.json()["refunded_amount"] == 80.0
 
@@ -484,7 +484,7 @@ async def test_manual_partial_settlement(client: AsyncClient):
         "reason": "milestone-1",
     })
     assert partial.status_code == 200
-    assert partial.json()["status"] == "partial"
+    assert partial.json()["status"] == "settled"
     assert partial.json()["released_amount"] == 40.0
     assert partial.json()["refunded_amount"] == 60.0
 
@@ -513,7 +513,7 @@ async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(clien
 
     arbitrate = await client.post(f"/v1/settlement/{task_id}/auto-arbitrate", json={})
     assert arbitrate.status_code == 200
-    assert arbitrate.json()["status"] == "buyer_wins"
+    assert arbitrate.json()["status"] == "refunded"
     assert arbitrate.json()["released_amount"] == 0.0
     assert arbitrate.json()["refunded_amount"] == 50.0
 
@@ -682,7 +682,7 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
 
     executed = await client.post(f"/v1/arbitration/cases/{case_id}/execute", json={})
     assert executed.status_code == 200
-    assert executed.json()["status"] == "buyer_wins"
+    assert executed.json()["status"] == "refunded"
     assert executed.json()["refunded_amount"] == 100.0
 
     events = await client.get(f"/v1/arbitration/cases/{case_id}/events?limit=100")

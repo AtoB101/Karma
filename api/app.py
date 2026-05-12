@@ -20,7 +20,7 @@ from services.security_monitoring import SecurityMonitoringEventType, record_sec
 from db.session import init_db
 from api.routes import (
     agents, auth, contracts, receipts,
-    bundles, settlement, reputation, verify, capacity, vouchers, progress, identities, arbitration, responsibility, security,
+    bundles, settlement, reputation, verify, capacity, vouchers, progress, identities, arbitration, responsibility, security, admin_controls,
 )
 
 logger = structlog.get_logger(__name__)
@@ -265,6 +265,7 @@ app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verificati
 app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_protected_dependencies)
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_protected_dependencies)
+app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_protected_dependencies)
 
 
 @app.get("/health")

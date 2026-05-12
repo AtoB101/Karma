@@ -131,13 +131,13 @@ async def create_arbitration_case(body: CreateArbitrationCaseRequest, db: AsyncS
     state = await settlement_store.get(body.task_id)
     if not state:
         raise HTTPException(404, f"settlement {body.task_id} not found")
-    if state.status not in {TaskStatus.DISPUTED, TaskStatus.ARBITRATION}:
+    if state.status not in {TaskStatus.DISPUTED, TaskStatus.ARBITRATED}:
         raise HTTPException(409, "settlement must be disputed before arbitration case creation")
 
     if state.status == TaskStatus.DISPUTED:
-        if not can_transition(state.status, TaskStatus.ARBITRATION):
+        if not can_transition(state.status, TaskStatus.ARBITRATED):
             raise HTTPException(409, "invalid settlement transition to arbitration")
-        state.status = TaskStatus.ARBITRATION
+        state.status = TaskStatus.ARBITRATED
         state.updated_at = datetime.utcnow()
         await settlement_store.save(state)
 
@@ -507,22 +507,22 @@ async def execute_arbitration_case(case_id: str, db: AsyncSession = Depends(get_
         raise HTTPException(404, f"settlement {case_row.task_id} not found")
 
     if state.status == TaskStatus.DISPUTED:
-        if not can_transition(state.status, TaskStatus.ARBITRATION):
+        if not can_transition(state.status, TaskStatus.ARBITRATED):
             raise HTTPException(409, "cannot transition settlement to arbitration")
-        state.status = TaskStatus.ARBITRATION
+        state.status = TaskStatus.ARBITRATED
 
     if case_row.decided_outcome == ArbitrationVoteDecision.BUYER_WINS.value:
-        target = TaskStatus.BUYER_WINS
+        target = TaskStatus.REFUNDED
         settled_amount = 0.0
         refunded_amount = round(state.escrow_amount, 2)
         notes = "decentralized pool decision: buyer_wins"
     elif case_row.decided_outcome == ArbitrationVoteDecision.SELLER_WINS.value:
-        target = TaskStatus.SELLER_WINS
+        target = TaskStatus.SETTLED
         settled_amount = round(state.escrow_amount, 2)
         refunded_amount = 0.0
         notes = "decentralized pool decision: seller_wins"
     else:
-        target = TaskStatus.PARTIAL
+        target = TaskStatus.SETTLED
         partial_percent = case_row.final_partial_percent if case_row.final_partial_percent is not None else 50.0
         settled_amount = round(state.escrow_amount * partial_percent / 100.0, 2)
         refunded_amount = round(state.escrow_amount - settled_amount, 2)
