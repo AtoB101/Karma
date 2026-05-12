@@ -15,6 +15,8 @@ DO NOT commit to public repository.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import hashlib
+import json
 
 import structlog
 from fastapi import FastAPI, HTTPException
@@ -39,6 +41,7 @@ from core.reputation.system import PrivateReputationSystem, ReputationStore
 from core.risk.scorer import RiskScorer
 from core.fraud.detector import FraudDetector
 from core.behavior.analyzer import BehaviorAnalyzer
+from core.audit.trail import DecisionAuditEntry
 
 
 @asynccontextmanager
@@ -62,9 +65,11 @@ app = FastAPI(
 
 def get_verification_engine() -> PrivateVerificationEngine:
     from db.stores.private_stores import get_receipt_store, get_signing_service
+    from config.settings import settings
     return PrivateVerificationEngine(
         signing_service=get_signing_service(),
         receipt_store=get_receipt_store(),
+        policy_version=settings.policy_version,
     )
 
 def get_settlement_machine() -> PrivateSettlementStateMachine:
@@ -74,6 +79,11 @@ def get_settlement_machine() -> PrivateSettlementStateMachine:
 def get_reputation_system() -> PrivateReputationSystem:
     from db.stores.private_stores import get_reputation_store
     return PrivateReputationSystem(store=get_reputation_store())
+
+
+def get_audit_trail():
+    from db.stores.private_stores import get_audit_trail as _get_audit_trail
+    return _get_audit_trail()
 
 risk_scorer    = RiskScorer()
 fraud_detector = FraudDetector()
@@ -92,7 +102,20 @@ class VerifyRequest(BaseModel):
 @app.post("/v1/verify", response_model=VerificationResult)
 async def verify(body: VerifyRequest):
     engine = get_verification_engine()
+    request_hash = _request_hash(body.model_dump(mode="json"))
     result = await engine.verify(body.bundle, body.contract)
+    _write_audit(
+        DecisionAuditEntry(
+            event_type="verification",
+            task_id=body.bundle.task_id,
+            bundle_id=body.bundle.bundle_id,
+            request_hash=request_hash,
+            policy_version=_policy_version(),
+            decision=result.decision.value if hasattr(result.decision, "value") else str(result.decision),
+            confidence=result.confidence,
+            notes=result.notes,
+        )
+    )
     logger.info("verification_complete", task_id=body.bundle.task_id, decision=result.decision)
     return result
 
@@ -104,7 +127,19 @@ class ApplyVerificationRequest(BaseModel):
 @app.post("/v1/settlement/{task_id}/apply-verification", response_model=SettlementState)
 async def apply_verification(task_id: str, body: ApplyVerificationRequest):
     machine = get_settlement_machine()
+    request_hash = _request_hash(body.model_dump(mode="json"))
     state = await machine.apply_verification(task_id, body.result)
+    _write_audit(
+        DecisionAuditEntry(
+            event_type="settlement_apply",
+            task_id=task_id,
+            request_hash=request_hash,
+            policy_version=_policy_version(),
+            decision=state.status.value,
+            confidence=body.result.confidence,
+            notes=body.result.notes,
+        )
+    )
     return state
 
 
@@ -145,6 +180,29 @@ async def assess_risk(body: RiskRequest):
     return assessment
 
 
+@app.get("/v1/audit/{task_id}")
+async def get_audit_records(task_id: str, limit: int = 50):
+    safe_limit = min(max(limit, 1), 200)
+    return {"task_id": task_id, "entries": get_audit_trail().list_by_task(task_id, safe_limit)}
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "runtime": "private"}
+
+
+def _request_hash(payload: dict) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _policy_version() -> str:
+    from config.settings import settings
+    return settings.policy_version
+
+
+def _write_audit(entry: DecisionAuditEntry) -> None:
+    try:
+        get_audit_trail().append(entry)
+    except Exception:
+        logger.exception("audit_write_failed", task_id=entry.task_id, event_type=entry.event_type)

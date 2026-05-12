@@ -16,6 +16,8 @@ class PrivateSettings(BaseSettings):
     runtime_host: str = "127.0.0.1"
     runtime_port: int = 8001
     runtime_api_key: str = "change-in-production"
+    policy_version: str = "private-policy-v1"
+    audit_log_path: str = "./runtime-data/private-audit.log"
 
     # Database (same as public)
     database_url: str = "postgresql+asyncpg://karma:karma@localhost:5432/karma_db"

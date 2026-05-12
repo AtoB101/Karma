@@ -114,6 +114,7 @@ async def test_all_checks_pass_releases(engine):
     )
     result = await engine2.verify(bundle, contract)
     assert result.decision == VerificationDecision.RELEASE
+    assert "[policy=" in (result.notes or "")
 
 
 # ---------------------------------------------------------------------------

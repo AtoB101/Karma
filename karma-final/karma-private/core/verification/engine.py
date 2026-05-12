@@ -123,9 +123,10 @@ class PrivateVerificationEngine:
         "agent_signature_valid",
     }
 
-    def __init__(self, signing_service, receipt_store):
+    def __init__(self, signing_service, receipt_store, policy_version: str = "private-policy-unknown"):
         self.signer = signing_service
         self.receipt_store = receipt_store
+        self.policy_version = policy_version
 
     async def verify(
         self,
@@ -203,13 +204,14 @@ class PrivateVerificationEngine:
             confidence = round(weighted_score, 3)
             notes = "All checks passed."
 
+        note_with_policy = f"[policy={self.policy_version}] {notes}"
         result = VerificationResult(
             task_id=bundle.task_id,
             bundle_id=bundle.bundle_id,
             decision=decision,
             confidence=confidence,
             checks=[c.to_public() for c in checks],
-            notes=notes,
+            notes=note_with_policy,
         )
 
         log.info(

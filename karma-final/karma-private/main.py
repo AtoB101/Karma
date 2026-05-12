@@ -14,6 +14,8 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.security import APIKeyHeader
 from fastapi import Security
 from pydantic import BaseModel
+import json
+import hashlib
 
 from config.settings import settings
 from core.schemas import (
@@ -27,6 +29,7 @@ from core.risk.scorer import RiskScorer
 from core.fraud.detector import FraudDetector
 from core.behavior.analyzer import BehaviorAnalyzer
 from core.arbitration.engine import ArbitrationEngine
+from core.audit.trail import DecisionAuditEntry
 
 logger = structlog.get_logger(__name__)
 
@@ -56,19 +59,21 @@ async def get_engines():
     """Build all private engines with real DB stores."""
     from db.stores.private_stores import (
         get_receipt_store, get_settlement_store,
-        get_reputation_store, get_signing_service,
+        get_reputation_store, get_signing_service, get_audit_trail,
     )
     return {
         "verifier":   PrivateVerificationEngine(
             signing_service=get_signing_service(),
             receipt_store=get_receipt_store(),
+            policy_version=settings.policy_version,
         ),
         "settler":    PrivateSettlementStateMachine(store=get_settlement_store()),
         "reputation": PrivateReputationSystem(store=get_reputation_store()),
         "risk":       RiskScorer(),
         "fraud":      FraudDetector(),
         "behavior":   BehaviorAnalyzer(),
-        "arbitration":ArbitrationEngine(),
+        "arbitration": ArbitrationEngine(),
+        "audit":      get_audit_trail(),
     }
 
 
@@ -117,6 +122,7 @@ class VerifyRequest(BaseModel):
 @app.post("/v1/verify", response_model=VerificationResult)
 async def verify(body: VerifyRequest, _key: str = Security(_verify_runtime_key)):
     engines = await get_engines()
+    request_hash = _request_hash(body.model_dump(mode="json"))
 
     # 1. Risk assessment (pre-check)
     risk = engines["risk"].assess(body.contract, None, None)
@@ -140,6 +146,26 @@ async def verify(body: VerifyRequest, _key: str = Security(_verify_runtime_key))
 
     # 4. Full verification
     result = await engines["verifier"].verify(body.bundle, body.contract)
+    _write_audit_safe(
+        engines,
+        DecisionAuditEntry(
+            event_type="verification",
+            task_id=body.bundle.task_id,
+            bundle_id=body.bundle.bundle_id,
+            request_hash=request_hash,
+            policy_version=settings.policy_version,
+            decision=result.decision.value if hasattr(result.decision, "value") else str(result.decision),
+            confidence=result.confidence,
+            notes=result.notes,
+            metadata={
+                "risk_blocked": risk.should_block,
+                "risk_score": risk.composite_score,
+                "fraud_action": fraud_report.recommended_action,
+                "fraud_signal_count": len(fraud_report.signals),
+                "behavior_score": behavior.behavior_score,
+            },
+        ),
+    )
 
     logger.info("verification_complete",
                 task_id=body.bundle.task_id,
@@ -161,7 +187,25 @@ async def apply_verification(
     _key: str = Security(_verify_runtime_key),
 ):
     engines = await get_engines()
+    request_hash = _request_hash(body.model_dump(mode="json"))
     state = await engines["settler"].apply_verification(task_id, body.result)
+    _write_audit_safe(
+        engines,
+        DecisionAuditEntry(
+            event_type="settlement_apply",
+            task_id=task_id,
+            request_hash=request_hash,
+            policy_version=settings.policy_version,
+            decision=state.status.value,
+            confidence=body.result.confidence,
+            notes=body.result.notes,
+            metadata={
+                "verification_decision": body.result.decision.value if hasattr(body.result.decision, "value") else str(body.result.decision),
+                "released_amount": state.released_amount,
+                "refunded_amount": state.refunded_amount,
+            },
+        ),
+    )
 
     # Trigger reputation update for both parties
     from core.schemas import TaskStatus as TS
@@ -221,6 +265,17 @@ async def assess_risk(body: RiskRequest, _key: str = Security(_verify_runtime_ke
     return engines["risk"].assess(body.contract, body.buyer_rep, body.worker_rep)
 
 
+@app.get("/v1/audit/{task_id}")
+async def get_audit_records(
+    task_id: str,
+    limit: int = 50,
+    _key: str = Security(_verify_runtime_key),
+):
+    engines = await get_engines()
+    safe_limit = min(max(limit, 1), 200)
+    return {"task_id": task_id, "entries": engines["audit"].list_by_task(task_id, safe_limit)}
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "runtime": "private"}
@@ -229,6 +284,18 @@ async def health():
 # ---------------------------------------------------------------------------
 # Entry
 # ---------------------------------------------------------------------------
+
+def _request_hash(payload: dict) -> str:
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _write_audit_safe(engines: dict, entry: DecisionAuditEntry) -> None:
+    try:
+        engines["audit"].append(entry)
+    except Exception:
+        logger.exception("audit_write_failed", task_id=entry.task_id, event_type=entry.event_type)
+
 
 if __name__ == "__main__":
     import uvicorn
