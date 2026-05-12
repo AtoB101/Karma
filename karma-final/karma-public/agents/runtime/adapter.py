@@ -1,37 +1,20 @@
 """
-Karma Trust Protocol — OpenManus Adapter (Public)
-==================================================
-Wraps an OpenManus agent so every tool call it makes is intercepted
-by the KarmaHookLayer and produces a signed ExecutionReceipt.
-
-Usage
------
-    from karma.agents.openmanus import KarmaOpenManusAgent
-
-    agent = KarmaOpenManusAgent(
-        agent_id="worker-001",
-        hook_layer=hooks,
-    )
-    result, receipts = await agent.run_task(task_id, task_spec)
+Karma Trust Protocol — Runtime Adapter (Public)
+================================================
+Wraps a generic agent runtime so every tool call is intercepted by
+KarmaHookLayer and produces a signed ExecutionReceipt.
 """
 
 from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from core.schemas import ExecutionReceipt
 from core.hooks.hook_layer import KarmaHookLayer
+from core.schemas import ExecutionReceipt
 
 
-class KarmaOpenManusAgent:
-    """
-    Drop-in wrapper for an OpenManus agent that instruments every tool call.
-
-    Parameters
-    ----------
-    agent_id:    Unique identifier for this agent in the Karma network.
-    hook_layer:  Configured KarmaHookLayer instance.
-    """
+class KarmaRuntimeAgent:
+    """Runtime-agnostic execution wrapper with receipt instrumentation."""
 
     def __init__(self, agent_id: str, hook_layer: KarmaHookLayer):
         self.agent_id = agent_id
@@ -47,11 +30,6 @@ class KarmaOpenManusAgent:
         metadata: Optional[dict[str, Any]] = None,
         timeout: Optional[float] = None,
     ) -> tuple[Any, ExecutionReceipt]:
-        """
-        Execute a single tool call with Karma instrumentation.
-
-        Returns (result, receipt).
-        """
         result, receipt = await self.hook_layer.run_tool(
             task_id=task_id,
             tool_name=tool_name,
@@ -64,10 +42,8 @@ class KarmaOpenManusAgent:
         return result, receipt
 
     def get_receipts(self, task_id: str) -> list[ExecutionReceipt]:
-        """Return all receipts collected for a task so far."""
         return self._receipts.get(task_id, [])
 
     def reset(self, task_id: str) -> None:
-        """Clear collected receipts and step counter for a task."""
         self._receipts.pop(task_id, None)
         self.hook_layer.reset_task(task_id)

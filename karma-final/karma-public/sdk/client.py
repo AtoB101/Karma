@@ -20,7 +20,7 @@ from core.schemas import (
 )
 from core.hooks.hook_layer import InMemoryReceiptStore, KarmaHookLayer, ReceiptStore
 from core.evidence.bundle_builder import EvidenceBundleBuilder
-from agents.openmanus.adapter import KarmaOpenManusAgent
+from agents.runtime.adapter import KarmaRuntimeAgent
 
 
 class KarmaClient:
@@ -61,7 +61,7 @@ class KarmaClient:
             agent_id=agent_id,
             receipt_store=self._store,
         )
-        self._agent = KarmaOpenManusAgent(
+        self._agent = KarmaRuntimeAgent(
             agent_id=agent_id,
             hook_layer=self._hooks,
         )

@@ -1,6 +1,6 @@
-# Karma BFF — secure bridge (OpenManus ↔ Karma)
+# Karma BFF — secure bridge (orchestrator ↔ Karma)
 
-Thin **Backend-for-OpenManus** service:
+Thin **Backend-for-orchestrator** service:
 
 - **HMAC** integration auth (`X-Karma-Timestamp` + `X-Karma-Signature`).
 - **Idempotency-Key** on mutating routes.
@@ -19,7 +19,7 @@ PYTHONPATH=/workspace uvicorn apps.karma_bff.app.main:app --host 127.0.0.1 --por
 ```
 
 - Health: `GET http://127.0.0.1:8820/health`
-- OpenManus (server): `POST /v1/integration/...` with HMAC headers (see `docs/KARMA_BFF_OPENMANUS_INTEGRATION.md`).
+- Orchestrator server: `POST /v1/integration/...` with HMAC headers (see `docs/AGENT_INTEGRATION.md`).
 - Buyer lock **info page** (human-readable): `GET /public/lock/{trace_id}`
 
 ## Docker

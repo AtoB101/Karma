@@ -1,4 +1,4 @@
-"""HMAC-protected integration API for OpenManus / orchestrators."""
+"""HMAC-protected integration API for external orchestrators."""
 
 from __future__ import annotations
 
@@ -79,8 +79,8 @@ def create_task(
             raise HTTPException(409, "trace_id already exists")
         tc = {
             "task_id": task_id,
-            "agent_id": str(payload.get("agent_id") or "openmanus"),
-            "runtime_id": str(payload.get("runtime_id") or "openmanus"),
+            "agent_id": str(payload.get("agent_id") or "karma-runtime"),
+            "runtime_id": str(payload.get("runtime_id") or "karma-runtime"),
             "description": str(payload.get("description") or ""),
             "trace_id": trace_id,
         }

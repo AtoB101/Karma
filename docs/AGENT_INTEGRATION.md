@@ -2,7 +2,7 @@
 
 ## Principles
 
-1. **Agent runtimes** (OpenManus, OpenClaw, Hermes, custom) own orchestration and tool execution.  
+1. **Agent runtimes** (third-party or custom) own orchestration and tool execution.  
 2. **KARMA** owns trust artifacts: receipts, evidence bundles, settlement mapping, and public verification surfaces.  
 3. **Private** scoring, fraud, and dispute weights live in a **separate private repository** — never ship them in public SDKs.
 

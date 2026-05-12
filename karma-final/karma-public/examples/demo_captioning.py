@@ -23,7 +23,7 @@ from core.hooks.hook_layer import KarmaHookLayer, InMemoryReceiptStore
 from core.evidence.bundle_builder import EvidenceBundleBuilder
 from core.verification.engine import MockVerificationEngine
 from core.settlement.engine import InMemorySettlementStore
-from agents.openmanus.adapter import KarmaOpenManusAgent
+from agents.runtime.adapter import KarmaRuntimeAgent
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ async def mock_quality_check_tool(input_data: dict) -> dict:
 # Task runner (called by LangGraph run_agent node)
 # ---------------------------------------------------------------------------
 
-async def caption_task_runner(contract: TaskContract, agent: KarmaOpenManusAgent) -> dict:
+async def caption_task_runner(contract: TaskContract, agent: KarmaRuntimeAgent) -> dict:
     """
     Process N images: generate caption + quality check for each.
     Returns aggregated results.
@@ -111,7 +111,7 @@ async def run_demo() -> None:
     # --- Setup ---
     receipt_store = InMemoryReceiptStore()
     hooks         = KarmaHookLayer(agent_id="worker-demo-001", receipt_store=receipt_store)
-    agent         = KarmaOpenManusAgent(agent_id="worker-demo-001", hook_layer=hooks)
+    agent         = KarmaRuntimeAgent(agent_id="worker-demo-001", hook_layer=hooks)
     builder       = EvidenceBundleBuilder(receipt_store=receipt_store)
     verifier      = MockVerificationEngine()
 

@@ -15,7 +15,7 @@ from core.evidence.bundle_builder import EvidenceBundleBuilder
 from core.verification.engine import MockVerificationEngine
 from core.settlement.engine import InMemorySettlementStore, SettlementEngine
 from core.settlement.engine import SettlementStore
-from agents.openmanus.adapter import KarmaOpenManusAgent
+from agents.runtime.adapter import KarmaRuntimeAgent
 from agents.langgraph.workflow import KarmaTaskState, build_karma_graph
 
 
@@ -101,7 +101,7 @@ async def mock_qc_tool(data: dict) -> dict:
 # Task runner
 # ---------------------------------------------------------------------------
 
-async def caption_e2e_runner(contract: TaskContract, agent: KarmaOpenManusAgent):
+async def caption_e2e_runner(contract: TaskContract, agent: KarmaRuntimeAgent):
     results = []
     for i in range(1, 4):
         caption, _ = await agent.run_tool(
@@ -131,7 +131,7 @@ async def test_full_langgraph_task_flow():
     """
     receipt_store   = InMemoryReceiptStore()
     hooks           = KarmaHookLayer(agent_id="worker-lg-001", receipt_store=receipt_store)
-    agent           = KarmaOpenManusAgent(agent_id="worker-lg-001", hook_layer=hooks)
+    agent           = KarmaRuntimeAgent(agent_id="worker-lg-001", hook_layer=hooks)
     builder         = EvidenceBundleBuilder(receipt_store=receipt_store)
     verifier        = MockVerificationEngine()
     settler         = SimpleSettlementEngine()
@@ -188,7 +188,7 @@ async def test_langgraph_handles_tool_failure():
     """
     receipt_store = InMemoryReceiptStore()
     hooks         = KarmaHookLayer(agent_id="worker-fail-001", receipt_store=receipt_store)
-    agent         = KarmaOpenManusAgent(agent_id="worker-fail-001", hook_layer=hooks)
+    agent         = KarmaRuntimeAgent(agent_id="worker-fail-001", hook_layer=hooks)
     builder       = EvidenceBundleBuilder(receipt_store=receipt_store)
     verifier      = MockVerificationEngine()
     settler       = SimpleSettlementEngine()

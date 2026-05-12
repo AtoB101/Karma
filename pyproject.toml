@@ -70,7 +70,6 @@ dev = [
 [project.scripts]
 karma-api     = "api.app:app"
 karma-worker  = "worker.tasks:app"
-karma-ecosystem = "sdk.ecosystem.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

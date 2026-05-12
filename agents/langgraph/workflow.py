@@ -180,7 +180,7 @@ def build_karma_graph(
     settlement_engine:   SettlementEngine implementation.
     verification_engine: VerificationEngine implementation.
     bundle_builder:      EvidenceBundleBuilder instance.
-    karma_agent:         KarmaOpenManusAgent instance.
+    karma_agent:         KarmaRuntimeAgent instance.
     task_runner:         async fn(contract, agent) → result
     """
     graph = StateGraph(KarmaTaskState)

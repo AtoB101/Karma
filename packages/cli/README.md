@@ -9,6 +9,6 @@ Commands (target):
 - `karma-agent submit-evidence`
 - `karma-agent status`
 - `karma-agent verify`
-- `karma-agent local --runtime openmanus`
+- `karma-agent local --runtime karma-runtime`
 
 **Status:** placeholder binary — implement in TypeScript or Go and publish from CI.

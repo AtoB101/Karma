@@ -19,7 +19,7 @@ def build_demo_offchain_bundle(
     *,
     task_id: str = "task-demo-001",
     agent_id: str = "agent-0x0001",
-    runtime_id: str = "runtime-openmanus-stub",
+    runtime_id: str = "runtime-karma-stub",
     description: str = "Trusted data task (demo)",
     trace_id: str | None = None,
 ) -> dict:

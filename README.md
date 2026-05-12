@@ -107,43 +107,12 @@ async def my_task(contract, client):
 result = await client.run_task(contract, my_task)
 ```
 
-### One-click ecosystem integration (OpenClaw / OpenManus)
-
-Use the new CLI to scaffold integration config and run a quick doctor check:
-
-```bash
-# OpenClaw
-karma-ecosystem --framework openclaw init --workspace-dir .
-karma-ecosystem --framework openclaw doctor --workspace-dir . --skip-runtime-check
-karma-ecosystem --framework openclaw bootstrap --workspace-dir . --skip-runtime-check
-bash scripts/ecosystem/quickstart.sh --framework openclaw --workspace-dir . --skip-runtime-check --no-compose
-
-# OpenManus
-karma-ecosystem --framework openmanus init --workspace-dir .
-karma-ecosystem --framework openmanus deploy --workspace-dir . --skip-runtime-check
-karma-ecosystem --framework openmanus bootstrap --workspace-dir . --skip-runtime-check
-bash scripts/ecosystem/quickstart.sh --framework openmanus --workspace-dir . --skip-runtime-check --no-compose
-```
-
-Generated files include:
-- `.env.karma.example`
-- `karma.ecosystem.json`
-- framework adapter file:
-  - `openclaw/karma.integration.yaml`
-  - or `openmanus/karma.integration.toml`
-- release-grade templates (bootstrap):
-  - `deploy/karma-ecosystem/docker-compose.<framework>.yml`
-  - `scripts/karma-ecosystem-inject-env.sh`
-  - `.github/workflows/karma-ecosystem-verify.template.yml`
-
----
-
 ## Project Layout
 
 ```
 karma-public/
 ├── api/                  FastAPI routes + middleware
-├── agents/               OpenManus + LangGraph adapters
+├── agents/               Runtime + LangGraph adapters
 ├── core/                 Schemas, hooks, evidence builder, interfaces
 ├── db/                   ORM models, migrations, stores (PG + Redis)
 ├── sdk/                  High-level SDK client
@@ -161,7 +130,6 @@ karma-public/
 
 - [API Reference](docs/API_REFERENCE.md)
 - [Deployment SOP](docs/DEPLOYMENT.md)
-- [Ecosystem SDK One-Click Deployment](docs/ECOSYSTEM_SDK_DEPLOYMENT.md)
 - [Karma FINAL V1.0 Engineering Kickoff (CN)](docs/KARMA_FINAL_V1_ENGINEERING_KICKOFF_CN.md)
 - [Execution Receipt Standard](docs/EXECUTION_RECEIPT_STANDARD.md)
 - [Public 12 Deliverables (CN)](docs/PUBLIC_12_DELIVERABLES_CN.md)

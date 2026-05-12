@@ -1,6 +1,6 @@
 # Agent adapters (examples)
 
-Place thin adapters here (`openmanus`, `openclaw`, …) that:
+Place thin adapters here (`runtime-a`, `runtime-b`, …) that:
 
 - emit **public** evidence bundles,
 - never embed private risk logic,

@@ -27,7 +27,7 @@ paths:
                 - pricing_model
               properties:
                 agent_name: { type: string }
-                runtime_type: { type: string, example: openmanus }
+                runtime_type: { type: string, example: karma-runtime }
                 owner_wallet: { type: string }
                 service_type: { type: string }
                 settlement_address: { type: string }
