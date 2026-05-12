@@ -16,6 +16,7 @@ This checklist is blocking for broad public test rollout.
 - [ ] `/v1/security/ops/alerts` is monitored with tuned thresholds
 - [ ] Alert cooldown / suppression policy is configured and reviewed with on-call
 - [ ] Endpoint / route-group threshold overrides are configured for critical paths
+- [ ] Active security threshold policy version is pinned and documented
 
 ## Gate C — Security Auditability
 - [ ] Security audit logs are collected for sensitive write methods
@@ -34,4 +35,5 @@ This checklist is blocking for broad public test rollout.
 - [ ] Rollback plan and on-call runbook are confirmed (`docs/SECURITY_INCIDENT_PLAYBOOK.md`)
 - [ ] `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` are configured
 - [ ] Baseline drift strategy (`baseline_window_minutes` / `baseline_drift_multiplier`) is reviewed
+- [ ] Policy-center rollback drill (`/v1/security/policies/rollback`) has been exercised
 

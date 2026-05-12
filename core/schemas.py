@@ -651,12 +651,44 @@ class SecurityOpsBaselineReference(BaseModel):
     private_runtime_error_rate_avg: float = 0.0
 
 
+class SecurityThresholdPolicyStatus(str, Enum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    CANDIDATE = "candidate"
+    ARCHIVED = "archived"
+
+
+class SecurityThresholdPolicy(BaseModel):
+    policy_id: str
+    version: int
+    status: SecurityThresholdPolicyStatus
+    rollout_percent: int = 100
+    config: dict[str, Any] = Field(default_factory=dict)
+    note: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: datetime
+    activated_at: Optional[datetime] = None
+    archived_at: Optional[datetime] = None
+    parent_policy_id: Optional[str] = None
+
+
+class SecurityThresholdPolicyResolveResult(BaseModel):
+    policy: Optional[SecurityThresholdPolicy] = None
+    matched_candidate: bool = False
+    actor_id: Optional[str] = None
+    reason: str = "no_policy"
+
+
 class SecurityOpsAlertReport(BaseModel):
     window_minutes: int
     summary: SecurityOpsSummary
     alerts: list[SecurityOpsAlert] = Field(default_factory=list)
     suppressed_alert_count: int = 0
     baseline: SecurityOpsBaselineReference = Field(default_factory=SecurityOpsBaselineReference)
+    policy_id: Optional[str] = None
+    policy_version: Optional[int] = None
+    policy_status: Optional[SecurityThresholdPolicyStatus] = None
+    matched_candidate: bool = False
     escalation: SecurityOpsEscalationDecision = Field(default_factory=SecurityOpsEscalationDecision)
     recommended_actions: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)

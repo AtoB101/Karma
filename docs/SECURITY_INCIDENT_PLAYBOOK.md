@@ -39,6 +39,7 @@ Use `/v1/security/ops/alerts` response fields:
 3. Execute first containment:
    - Rotate exposed `AUTH_API_KEYS`
    - Increase rate-limit strictness if abuse is active
+   - Promote or roll back threshold policy via policy center (`/v1/security/policies/*`)
    - Temporarily disable risky public entrypoints if required
 
 ## 4) Investigation and Containment

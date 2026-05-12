@@ -1266,6 +1266,14 @@ async def test_security_ops_sdk_method():
             "private_runtime_error_count": 2,
             "verify_request_count": 10,
             "private_runtime_error_rate": 0.2,
+            "failed_auth_by_path": [],
+            "failed_auth_by_actor": [],
+            "failed_auth_by_route_group": [],
+            "rate_limited_by_path": [],
+            "rate_limited_by_actor": [],
+            "rate_limited_by_route_group": [],
+            "private_runtime_error_by_path": [],
+            "private_runtime_error_by_route_group": [],
         },
         "alerts": [
             {
@@ -1277,6 +1285,20 @@ async def test_security_ops_sdk_method():
                 "generated_at": now,
             }
         ],
+        "suppressed_alert_count": 0,
+        "baseline": {
+            "sample_count": 0,
+            "baseline_window_minutes": 1440,
+            "failed_auth_avg": 0.0,
+            "rate_limited_avg": 0.0,
+            "private_runtime_error_rate_avg": 0.0,
+        },
+        "policy_id": "policy-1",
+        "policy_version": 1,
+        "policy_status": "active",
+        "matched_candidate": False,
+        "escalation": {"level": "watch", "reason": "sample", "trigger_alert_types": ["auth_failure_spike"]},
+        "recommended_actions": ["investigate"],
         "generated_at": now,
     }
     routes = {
@@ -1298,7 +1320,10 @@ async def test_security_ops_sdk_method():
             "&baseline_window_minutes=1440"
             "&baseline_drift_multiplier=2.5"
             "&baseline_min_sample_count=3"
-            "&baseline_capture_interval_minutes=10",
+            "&baseline_capture_interval_minutes=10"
+            "&apply_policy_center=true"
+            "&policy_id="
+            "&policy_actor_id=",
         ): payload,
     }
     mock_http = _MockHTTP(routes)
@@ -1309,3 +1334,63 @@ async def test_security_ops_sdk_method():
     assert report.summary.failed_auth_count == 3
     assert report.summary.private_runtime_error_rate == 0.2
     assert report.alerts[0].alert_type.value == "auth_failure_spike"
+    assert report.policy_id == "policy-1"
+
+
+@pytest.mark.asyncio
+async def test_security_policy_center_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    created_payload = {
+        "policy_id": "policy-1",
+        "version": 1,
+        "status": "draft",
+        "rollout_percent": 100,
+        "config": {"failed_auth_threshold": 7},
+        "note": "draft policy",
+        "created_by": "sec-admin",
+        "created_at": now,
+        "activated_at": None,
+        "archived_at": None,
+        "parent_policy_id": None,
+    }
+    active_payload = dict(created_payload)
+    active_payload["status"] = "active"
+    active_payload["activated_at"] = now
+    candidate_payload = dict(created_payload)
+    candidate_payload["status"] = "candidate"
+    candidate_payload["rollout_percent"] = 20
+    routes = {
+        ("POST", f"{base}/v1/security/policies"): created_payload,
+        ("GET", f"{base}/v1/security/policies?limit=50"): [active_payload, candidate_payload],
+        ("GET", f"{base}/v1/security/policies/policy-1"): active_payload,
+        ("POST", f"{base}/v1/security/policies/policy-1/activate"): active_payload,
+        ("POST", f"{base}/v1/security/policies/policy-1/candidate"): candidate_payload,
+        ("POST", f"{base}/v1/security/policies/rollback"): active_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    created = await client.create_security_threshold_policy(
+        config={"failed_auth_threshold": 7},
+        note="draft policy",
+        created_by="sec-admin",
+    )
+    assert created.status.value == "draft"
+
+    listed = await client.list_security_threshold_policies(limit=50)
+    assert len(listed) == 2
+    assert listed[0].status.value == "active"
+
+    fetched = await client.get_security_threshold_policy("policy-1")
+    assert fetched.policy_id == "policy-1"
+
+    activated = await client.activate_security_threshold_policy("policy-1")
+    assert activated.status.value == "active"
+
+    canary = await client.set_security_threshold_policy_candidate("policy-1", rollout_percent=20)
+    assert canary.rollout_percent == 20
+
+    rolled_back = await client.rollback_security_threshold_policy(target_policy_id=None)
+    assert rolled_back.status.value == "active"

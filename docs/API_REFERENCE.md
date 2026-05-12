@@ -54,15 +54,43 @@ Query parameters allow threshold tuning:
 - `baseline_drift_multiplier`
 - `baseline_min_sample_count`
 - `baseline_capture_interval_minutes`
+- `apply_policy_center`
+- `policy_id`
+- `policy_actor_id`
 
 返回结构额外包含：
 - `baseline`（滚动基线均值与样本数）
 - `suppressed_alert_count`（被冷却策略抑制的告警数量）
 - `escalation`（`none/watch/page`）
 - `recommended_actions`（值班动作建议）
+- `policy_id / policy_version / policy_status / matched_candidate`（策略中心命中信息）
+
+### `POST /v1/security/policies`
+Create a new persisted security threshold policy version.
+
+### `GET /v1/security/policies`
+List policy versions (supports `status` filter and `limit`).
+
+### `GET /v1/security/policies/{policy_id}`
+Get one policy version.
+
+### `POST /v1/security/policies/{policy_id}/activate`
+Promote a policy to global active (version switch).
+
+### `POST /v1/security/policies/{policy_id}/candidate`
+Enable canary rollout for a policy (`rollout_percent` in `1..99`).
+
+### `POST /v1/security/policies/rollback`
+Rollback active policy to a target or latest archived version.
 
 SDK helper:
 - `get_security_ops_alerts(...)`
+- `create_security_threshold_policy(...)`
+- `list_security_threshold_policies(...)`
+- `get_security_threshold_policy(policy_id)`
+- `activate_security_threshold_policy(policy_id)`
+- `set_security_threshold_policy_candidate(policy_id, rollout_percent=...)`
+- `rollback_security_threshold_policy(target_policy_id=None)`
 
 ---
 

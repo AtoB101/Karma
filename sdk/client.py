@@ -49,6 +49,8 @@ from core.schemas import (
     ResponsibilityScoreSummary,
     ResponsibilityWorkerPullExecuteResult,
     SecurityOpsAlertReport,
+    SecurityThresholdPolicy,
+    SecurityThresholdPolicyStatus,
     TaskTemporalConsistencyReport,
     ReputationSnapshot,
     SettlementState,
@@ -1094,6 +1096,86 @@ class KarmaClient:
             resp.raise_for_status()
             return resp.json()["access_token"]
 
+    async def create_security_threshold_policy(
+        self,
+        *,
+        config: dict[str, Any],
+        note: str | None = None,
+        created_by: str | None = None,
+        parent_policy_id: str | None = None,
+        rollout_percent: int = 100,
+    ) -> SecurityThresholdPolicy:
+        """POST /v1/security/policies"""
+        payload = {
+            "config": config,
+            "note": note,
+            "created_by": created_by,
+            "parent_policy_id": parent_policy_id,
+            "rollout_percent": rollout_percent,
+        }
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/security/policies", json=payload)
+            resp.raise_for_status()
+            return SecurityThresholdPolicy(**resp.json())
+
+    async def list_security_threshold_policies(
+        self,
+        *,
+        status: SecurityThresholdPolicyStatus | None = None,
+        limit: int = 50,
+    ) -> list[SecurityThresholdPolicy]:
+        """GET /v1/security/policies"""
+        query = f"?limit={limit}"
+        if status is not None:
+            query = f"?status={status.value}&limit={limit}"
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/security/policies{query}")
+            resp.raise_for_status()
+            return [SecurityThresholdPolicy(**item) for item in resp.json()]
+
+    async def get_security_threshold_policy(self, policy_id: str) -> SecurityThresholdPolicy:
+        """GET /v1/security/policies/{policy_id}"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/security/policies/{policy_id}")
+            resp.raise_for_status()
+            return SecurityThresholdPolicy(**resp.json())
+
+    async def activate_security_threshold_policy(self, policy_id: str) -> SecurityThresholdPolicy:
+        """POST /v1/security/policies/{policy_id}/activate"""
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/security/policies/{policy_id}/activate", json={})
+            resp.raise_for_status()
+            return SecurityThresholdPolicy(**resp.json())
+
+    async def set_security_threshold_policy_candidate(
+        self,
+        policy_id: str,
+        *,
+        rollout_percent: int = 10,
+    ) -> SecurityThresholdPolicy:
+        """POST /v1/security/policies/{policy_id}/candidate"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/security/policies/{policy_id}/candidate",
+                json={"rollout_percent": rollout_percent},
+            )
+            resp.raise_for_status()
+            return SecurityThresholdPolicy(**resp.json())
+
+    async def rollback_security_threshold_policy(
+        self,
+        *,
+        target_policy_id: str | None = None,
+    ) -> SecurityThresholdPolicy:
+        """POST /v1/security/policies/rollback"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/security/policies/rollback",
+                json={"target_policy_id": target_policy_id},
+            )
+            resp.raise_for_status()
+            return SecurityThresholdPolicy(**resp.json())
+
     async def get_security_ops_alerts(
         self,
         *,
@@ -1113,12 +1195,17 @@ class KarmaClient:
         baseline_drift_multiplier: float = 2.5,
         baseline_min_sample_count: int = 3,
         baseline_capture_interval_minutes: int = 10,
+        apply_policy_center: bool = True,
+        policy_id: str | None = None,
+        policy_actor_id: str | None = None,
     ) -> SecurityOpsAlertReport:
         """GET /v1/security/ops/alerts"""
         failed_auth_threshold_overrides = failed_auth_threshold_overrides or ""
         rate_limit_threshold_overrides = rate_limit_threshold_overrides or ""
         private_runtime_error_threshold_overrides = private_runtime_error_threshold_overrides or ""
         private_runtime_error_rate_threshold_overrides = private_runtime_error_rate_threshold_overrides or ""
+        policy_id = policy_id or ""
+        policy_actor_id = policy_actor_id or ""
         async with self._http() as http:
             resp = await http.get(
                 f"{self.runtime_url}/v1/security/ops/alerts"
@@ -1138,6 +1225,9 @@ class KarmaClient:
                 f"&baseline_drift_multiplier={baseline_drift_multiplier}"
                 f"&baseline_min_sample_count={baseline_min_sample_count}"
                 f"&baseline_capture_interval_minutes={baseline_capture_interval_minutes}"
+                f"&apply_policy_center={str(apply_policy_center).lower()}"
+                f"&policy_id={policy_id}"
+                f"&policy_actor_id={policy_actor_id}"
             )
             resp.raise_for_status()
             return SecurityOpsAlertReport(**resp.json())

@@ -441,6 +441,26 @@ class ResponsibilityScanEventModel(Base):
 
 
 # ---------------------------------------------------------------------------
+# Security Threshold Policy Center (P2 security hardening)
+# ---------------------------------------------------------------------------
+
+class SecurityThresholdPolicyModel(Base):
+    __tablename__ = "security_threshold_policies"
+
+    policy_id:             Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    version:               Mapped[int]      = mapped_column(Integer, nullable=False, unique=True)
+    status:                Mapped[str]      = mapped_column(String(16), nullable=False, default="draft")
+    rollout_percent:       Mapped[int]      = mapped_column(Integer, nullable=False, default=100)
+    config:                Mapped[dict]     = mapped_column(JSON, nullable=False, default=dict)
+    note:                  Mapped[str|None] = mapped_column(Text)
+    created_by:            Mapped[str|None] = mapped_column(String(64))
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    activated_at:          Mapped[datetime|None] = mapped_column(DateTime)
+    archived_at:           Mapped[datetime|None] = mapped_column(DateTime)
+    parent_policy_id:      Mapped[str|None] = mapped_column(String(64))
+
+
+# ---------------------------------------------------------------------------
 # Verification Result
 # ---------------------------------------------------------------------------
 
