@@ -19,6 +19,10 @@ from db.models.orm import CapacityModel, SubIdentityModel, VoucherModel
 from db.session import get_db
 from services.capacity_ledger import assert_capacity_invariants
 from services.responsibility_graph import ingest_edge
+from services.runtime_safety import (
+    assert_runtime_operation_allowed,
+    audit_capacity_anchor_and_maybe_trip,
+)
 
 router = APIRouter()
 
@@ -51,6 +55,8 @@ class AcceptVoucherRequest(BaseModel):
 
 @router.post("", response_model=AuthorizationVoucher, status_code=201)
 async def create_voucher(body: CreateVoucherRequest, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_authorization")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     if body.amount <= 0 or body.bill_credit_amount <= 0:
         raise HTTPException(400, "amount and bill_credit_amount must be > 0")
     if body.expiry_time <= datetime.utcnow():
@@ -138,6 +144,8 @@ async def verify_voucher(voucher_id: str, body: VerifyVoucherRequest, db: AsyncS
 
 @router.post("/{voucher_id}/accept", response_model=AuthorizationVoucher)
 async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_authorization")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     row = await db.get(VoucherModel, voucher_id)
     if not row:
         raise HTTPException(404, f"Voucher {voucher_id} not found")
@@ -157,6 +165,7 @@ async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, db: AsyncS
     cap.reserved_credits += row.bill_credit_amount
     cap.updated_at = datetime.utcnow()
     _validate_capacity(cap)
+    await audit_capacity_anchor_and_maybe_trip(db=db)
 
     row.status = VoucherStatus.ACCEPTED.value
     row.accepted_at = datetime.utcnow()

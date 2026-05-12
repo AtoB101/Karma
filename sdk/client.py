@@ -48,6 +48,7 @@ from core.schemas import (
     ResponsibilityScanMode,
     ResponsibilityScoreSummary,
     ResponsibilityWorkerPullExecuteResult,
+    RuntimeSafetyModeState,
     SecurityOpsAlertReport,
     SecurityPolicyApprovalDecision,
     SecurityPolicyChangeAction,
@@ -1303,6 +1304,43 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return SecurityPolicyDryRunResult(**resp.json())
+
+    async def get_runtime_safety_mode(self) -> RuntimeSafetyModeState:
+        """GET /v1/security/runtime/safety-mode"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/security/runtime/safety-mode")
+            resp.raise_for_status()
+            return RuntimeSafetyModeState(**resp.json())
+
+    async def update_runtime_safety_mode(
+        self,
+        *,
+        enabled: bool,
+        reason: str | None = None,
+        actor_id: str | None = None,
+    ) -> RuntimeSafetyModeState:
+        """POST /v1/security/runtime/safety-mode"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/security/runtime/safety-mode",
+                json={"enabled": enabled, "reason": reason, "actor_id": actor_id},
+            )
+            resp.raise_for_status()
+            return RuntimeSafetyModeState(**resp.json())
+
+    async def run_runtime_anchor_audit(
+        self,
+        *,
+        actor_id: str = "sdk",
+    ) -> RuntimeSafetyModeState:
+        """POST /v1/security/runtime/anchor-audit"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/security/runtime/anchor-audit?actor_id={actor_id}",
+                json={},
+            )
+            resp.raise_for_status()
+            return RuntimeSafetyModeState(**resp.json())
 
     async def get_security_ops_alerts(
         self,

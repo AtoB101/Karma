@@ -11,6 +11,10 @@ from core.schemas import CapacityState
 from db.models.orm import CapacityModel
 from db.session import get_db
 from services.capacity_ledger import assert_capacity_invariants
+from services.runtime_safety import (
+    assert_runtime_operation_allowed,
+    audit_capacity_anchor_and_maybe_trip,
+)
 
 router = APIRouter()
 
@@ -29,6 +33,8 @@ async def get_capacity(identity_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{identity_id}/lock", response_model=CapacityState)
 async def lock_usdc(identity_id: str, body: AmountRequest, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_lock")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     row = await db.get(CapacityModel, identity_id)
     if not row:
         row = CapacityModel(
@@ -53,12 +59,15 @@ async def lock_usdc(identity_id: str, body: AmountRequest, db: AsyncSession = De
 
     state = _to_schema(row)
     _validate(state)
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     await db.flush()
     return state
 
 
 @router.post("/{identity_id}/release", response_model=CapacityState)
 async def release_unused(identity_id: str, body: AmountRequest, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_settlement")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     row = await db.get(CapacityModel, identity_id)
     if not row:
         raise HTTPException(404, f"Capacity for {identity_id} not found")
@@ -73,6 +82,7 @@ async def release_unused(identity_id: str, body: AmountRequest, db: AsyncSession
 
     state = _to_schema(row)
     _validate(state)
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     await db.flush()
     return state
 

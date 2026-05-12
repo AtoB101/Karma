@@ -14,6 +14,10 @@ from db.models.orm import CapacityModel, ProgressReceiptModel
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
 from services.capacity_ledger import assert_capacity_invariants
+from services.runtime_safety import (
+    assert_runtime_operation_allowed,
+    audit_capacity_anchor_and_maybe_trip,
+)
 
 router = APIRouter()
 
@@ -45,6 +49,8 @@ class DisputeRequest(BaseModel):
 
 @router.post("/create", response_model=SettlementState, status_code=201)
 async def create_settlement(body: CreateSettlementRequest, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_task")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     from config.settings import settings as _s
     state = SettlementState(
         task_id=body.task_id,
@@ -66,6 +72,8 @@ async def create_settlement(body: CreateSettlementRequest, db: AsyncSession = De
 
 @router.post("/{task_id}/lock", response_model=SettlementState)
 async def lock_settlement(task_id: str, body: LockRequest, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_task")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
@@ -79,6 +87,8 @@ async def lock_settlement(task_id: str, body: LockRequest, db: AsyncSession = De
 
 @router.post("/{task_id}/start", response_model=SettlementState)
 async def start_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_task")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
@@ -91,6 +101,8 @@ async def start_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{task_id}/submit", response_model=SettlementState)
 async def submit_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_task")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
@@ -103,6 +115,8 @@ async def submit_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{task_id}/fail", response_model=SettlementState)
 async def fail_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_task")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
@@ -124,6 +138,8 @@ async def get_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{task_id}/partial", response_model=SettlementState)
 async def partial_settlement(task_id: str, body: PartialSettlementRequest, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_settlement")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
@@ -155,6 +171,8 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, db: A
 
 @router.post("/{task_id}/regret", response_model=SettlementState)
 async def regret_settlement(task_id: str, body: RegretRequest, db: AsyncSession = Depends(get_db)):
+    assert_runtime_operation_allowed("new_settlement")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
@@ -311,6 +329,7 @@ async def _apply_capacity_resolution(
     cap.total_locked_usdc -= escrow_amount
     cap.updated_at = datetime.utcnow()
     _assert_capacity_model(cap)
+    await audit_capacity_anchor_and_maybe_trip(db=db)
 
 
 def _assert_capacity_model(cap: CapacityModel) -> None:

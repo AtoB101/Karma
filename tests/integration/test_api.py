@@ -8,6 +8,36 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
+from core.schemas import ExecutionReceipt, ToolStatus
+from services.signing import signing_service
+
+
+def _signed_receipt_payload(
+    *,
+    task_id: str,
+    agent_id: str,
+    step_index: int,
+    tool_name: str,
+    input_hash: str,
+    output_hash: str,
+    started_at: datetime,
+    ended_at: datetime,
+    duration_ms: int,
+) -> dict:
+    receipt = ExecutionReceipt(
+        task_id=task_id,
+        agent_id=agent_id,
+        step_index=step_index,
+        tool_name=tool_name,
+        input_hash=input_hash,
+        output_hash=output_hash,
+        started_at=started_at,
+        ended_at=ended_at,
+        duration_ms=duration_ms,
+        status=ToolStatus.SUCCESS,
+    )
+    receipt.signature = signing_service.sign_receipt(receipt)
+    return receipt.model_dump(mode="json")
 
 
 # ---------------------------------------------------------------------------
@@ -99,20 +129,18 @@ async def test_get_contract(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_submit_and_retrieve_receipt(client: AsyncClient):
-    from datetime import datetime
     now = datetime.utcnow()
-    receipt_data = {
-        "task_id":    "task-int-001",
-        "agent_id":   "worker-int-001",
-        "step_index": 1,
-        "tool_name":  "caption.generate",
-        "input_hash": "a" * 64,
-        "output_hash":"b" * 64,
-        "started_at": now.isoformat(),
-        "ended_at":   (now + timedelta(milliseconds=200)).isoformat(),
-        "duration_ms":200,
-        "status":     "success",
-    }
+    receipt_data = _signed_receipt_payload(
+        task_id="task-int-001",
+        agent_id="worker-int-001",
+        step_index=1,
+        tool_name="caption.generate",
+        input_hash="a" * 64,
+        output_hash="b" * 64,
+        started_at=now,
+        ended_at=now + timedelta(milliseconds=200),
+        duration_ms=200,
+    )
     resp = await client.post("/v1/receipts", json=receipt_data)
     assert resp.status_code == 201
     receipt_id = resp.json()["receipt_id"]
@@ -124,26 +152,79 @@ async def test_submit_and_retrieve_receipt(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_list_receipts_by_task(client: AsyncClient):
-    from datetime import datetime
     task_id = "task-list-receipts"
     now = datetime.utcnow()
     for i in range(1, 4):
-        await client.post("/v1/receipts", json={
-            "task_id":    task_id,
-            "agent_id":   "worker-001",
-            "step_index": i,
-            "tool_name":  f"tool.{i}",
-            "input_hash": "a" * 64,
-            "output_hash":"b" * 64,
-            "started_at": (now + timedelta(seconds=i)).isoformat(),
-            "ended_at":   (now + timedelta(seconds=i, milliseconds=100)).isoformat(),
-            "duration_ms":100,
-            "status":     "success",
-        })
+        payload = _signed_receipt_payload(
+            task_id=task_id,
+            agent_id="worker-001",
+            step_index=i,
+            tool_name=f"tool.{i}",
+            input_hash="a" * 64,
+            output_hash="b" * 64,
+            started_at=now + timedelta(seconds=i),
+            ended_at=now + timedelta(seconds=i, milliseconds=100),
+            duration_ms=100,
+        )
+        await client.post("/v1/receipts", json=payload)
     resp = await client.get(f"/v1/receipts/task/{task_id}")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
     assert [r["step_index"] for r in resp.json()] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_submit_receipt_rejects_missing_signature(client: AsyncClient):
+    now = datetime.utcnow()
+    resp = await client.post(
+        "/v1/receipts",
+        json={
+            "task_id": "task-missing-sig",
+            "agent_id": "worker-001",
+            "step_index": 1,
+            "tool_name": "caption.generate",
+            "input_hash": "a" * 64,
+            "output_hash": "b" * 64,
+            "started_at": now.isoformat(),
+            "ended_at": (now + timedelta(milliseconds=50)).isoformat(),
+            "duration_ms": 50,
+            "status": "success",
+        },
+    )
+    assert resp.status_code == 400
+    assert "signature" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_submit_receipt_rejects_non_sequential_step(client: AsyncClient):
+    now = datetime.utcnow()
+    first = _signed_receipt_payload(
+        task_id="task-receipt-seq",
+        agent_id="worker-001",
+        step_index=1,
+        tool_name="tool.1",
+        input_hash="a" * 64,
+        output_hash="b" * 64,
+        started_at=now,
+        ended_at=now + timedelta(milliseconds=50),
+        duration_ms=50,
+    )
+    second = _signed_receipt_payload(
+        task_id="task-receipt-seq",
+        agent_id="worker-001",
+        step_index=3,
+        tool_name="tool.3",
+        input_hash="c" * 64,
+        output_hash="d" * 64,
+        started_at=now + timedelta(seconds=1),
+        ended_at=now + timedelta(seconds=1, milliseconds=50),
+        duration_ms=50,
+    )
+    first_resp = await client.post("/v1/receipts", json=first)
+    assert first_resp.status_code == 201
+    second_resp = await client.post("/v1/receipts", json=second)
+    assert second_resp.status_code == 409
+    assert "sequential" in second_resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +393,78 @@ async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient):
     assert payload["reserved_credits"] == 0
     assert payload["burned_credits"] == 20.0
     assert payload["released_credits"] == 80.0
+
+
+@pytest.mark.asyncio
+async def test_progress_receipt_rejects_rollback_and_duplicate_hash_pair(client: AsyncClient):
+    task_id = "task-progress-guard-001"
+    buyer = "buyer-progress-guard-001"
+    seller = "seller-progress-guard-001"
+    await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
+    voucher = await client.post("/v1/vouchers", json={
+        "buyer_identity_id": buyer,
+        "seller_identity_id": seller,
+        "amount": 100,
+        "currency": "USDC",
+        "bill_credit_amount": 100,
+        "task_type": "agent-task",
+        "task_description_hash": "a" * 64,
+        "progress_rule_hash": "b" * 64,
+        "evidence_requirement_hash": "c" * 64,
+        "expiry_time": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+        "nonce": "nonce-progress-guard-001",
+        "buyer_signature": "sig-progress-guard-001",
+    })
+    await client.post(f"/v1/vouchers/{voucher.json()['voucher_id']}/accept", json={"seller_identity_id": seller})
+    await client.post("/v1/settlement/create", json={
+        "task_id": task_id,
+        "client_agent_id": buyer,
+        "escrow_amount": 100.0,
+        "currency": "USD",
+    })
+    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": seller})
+    await client.post(f"/v1/settlement/{task_id}/start", json={})
+
+    first = await client.post("/v1/progress", json={
+        "task_id": task_id,
+        "seller_identity_id": seller,
+        "progress_percent": 30,
+        "claimed_value_percent": 30,
+        "evidence_hash": "d" * 64,
+        "runtime_log_hash": "e" * 64,
+        "seller_signature": "sig-seller-1",
+        "validation_method": "buyer_confirm",
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+    assert first.status_code == 201
+
+    rollback = await client.post("/v1/progress", json={
+        "task_id": task_id,
+        "seller_identity_id": seller,
+        "progress_percent": 20,
+        "claimed_value_percent": 20,
+        "evidence_hash": "f" * 64,
+        "runtime_log_hash": "1" * 64,
+        "seller_signature": "sig-seller-2",
+        "validation_method": "buyer_confirm",
+        "timestamp": (datetime.utcnow() + timedelta(seconds=2)).isoformat(),
+    })
+    assert rollback.status_code == 409
+    assert "rollback" in rollback.json()["detail"]
+
+    duplicate_hash_pair = await client.post("/v1/progress", json={
+        "task_id": task_id,
+        "seller_identity_id": seller,
+        "progress_percent": 40,
+        "claimed_value_percent": 40,
+        "evidence_hash": "d" * 64,
+        "runtime_log_hash": "e" * 64,
+        "seller_signature": "sig-seller-3",
+        "validation_method": "buyer_confirm",
+        "timestamp": (datetime.utcnow() + timedelta(seconds=4)).isoformat(),
+    })
+    assert duplicate_hash_pair.status_code == 409
+    assert "duplicate progress evidence" in duplicate_hash_pair.json()["detail"]
 
 
 @pytest.mark.asyncio

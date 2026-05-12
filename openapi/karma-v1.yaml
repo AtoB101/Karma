@@ -584,6 +584,57 @@ paths:
                 $ref: '#/components/schemas/SecurityPolicyDryRunResult'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/security/runtime/safety-mode:
+    get:
+      summary: Get runtime safety mode state
+      operationId: getRuntimeSafetyMode
+      responses:
+        '200':
+          description: Runtime safety mode state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSafetyModeState'
+    post:
+      summary: Update runtime safety mode state
+      operationId: updateRuntimeSafetyMode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRuntimeSafetyModeRequest'
+      responses:
+        '200':
+          description: Updated runtime safety mode state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSafetyModeState'
+  /v1/security/runtime/anchor-audit:
+    post:
+      summary: Run runtime capacity-anchor audit
+      operationId: runRuntimeAnchorAudit
+      parameters:
+        - in: query
+          name: actor_id
+          required: false
+          schema:
+            type: string
+            default: system
+      responses:
+        '200':
+          description: Anchor audit passed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeSafetyModeState'
+        '503':
+          description: Anchor audit failed and safety mode was enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /v1/capacity/{identityId}:
     get:
       summary: Get identity capacity ledger
@@ -3135,6 +3186,39 @@ components:
         comment:
           type: string
       required: [approver_id, decision]
+    RuntimeSafetyModeState:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        reason:
+          type: string
+        triggered_by:
+          type: string
+        triggered_at:
+          type: string
+          format: date-time
+        last_anchor_audit_at:
+          type: string
+          format: date-time
+        total_locked_usdc:
+          type: number
+        total_bill_credits:
+          type: number
+      required:
+        - enabled
+        - total_locked_usdc
+        - total_bill_credits
+    UpdateRuntimeSafetyModeRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        reason:
+          type: string
+        actor_id:
+          type: string
+      required: [enabled]
     SecurityOpsSummary:
       type: object
       properties:

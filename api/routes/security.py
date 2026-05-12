@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
+    RuntimeSafetyModeState,
     SecurityPolicyApprovalDecision,
     SecurityPolicyChangeAction,
     SecurityPolicyChangeRequest,
@@ -34,6 +35,11 @@ from services.security_policy_center import (
     rollback_security_threshold_policy,
     simulate_policy_change_dry_run,
     set_candidate_security_threshold_policy,
+)
+from services.runtime_safety import (
+    audit_capacity_anchor_and_maybe_trip,
+    get_runtime_safety_mode_state,
+    set_runtime_safety_mode,
 )
 
 router = APIRouter()
@@ -70,6 +76,12 @@ class ReviewSecurityPolicyChangeRequest(BaseModel):
     approver_id: str
     decision: SecurityPolicyApprovalDecision
     comment: str | None = None
+
+
+class UpdateRuntimeSafetyModeRequest(BaseModel):
+    enabled: bool
+    reason: str | None = None
+    actor_id: str | None = None
 
 
 @router.post("/policies", response_model=SecurityThresholdPolicy, status_code=201)
@@ -254,6 +266,28 @@ async def dry_run_security_policy_change(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return dry_run
+
+
+@router.get("/runtime/safety-mode", response_model=RuntimeSafetyModeState)
+async def get_runtime_safety_mode() -> RuntimeSafetyModeState:
+    return get_runtime_safety_mode_state()
+
+
+@router.post("/runtime/safety-mode", response_model=RuntimeSafetyModeState)
+async def update_runtime_safety_mode(body: UpdateRuntimeSafetyModeRequest) -> RuntimeSafetyModeState:
+    return set_runtime_safety_mode(
+        enabled=body.enabled,
+        reason=body.reason,
+        actor_id=body.actor_id,
+    )
+
+
+@router.post("/runtime/anchor-audit", response_model=RuntimeSafetyModeState)
+async def run_runtime_anchor_audit(
+    actor_id: str | None = Query(default="system"),
+    db: AsyncSession = Depends(get_db),
+) -> RuntimeSafetyModeState:
+    return await audit_capacity_anchor_and_maybe_trip(db=db, actor_id=actor_id)
 
 
 @router.get("/ops/alerts", response_model=SecurityOpsAlertReport)

@@ -12,20 +12,57 @@ from core.settlement.engine import can_transition
 from db.models.orm import ProgressReceiptModel
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
+from services.receipt_guard import validate_progress_receipt_static
 
 router = APIRouter()
 
 
 @router.post("", response_model=ProgressReceipt, status_code=201)
 async def submit_progress_receipt(progress: ProgressReceipt, db: AsyncSession = Depends(get_db)):
+    try:
+        validate_progress_receipt_static(progress)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     existing = await db.get(ProgressReceiptModel, progress.progress_receipt_id)
     if existing:
         raise HTTPException(409, f"Progress receipt {progress.progress_receipt_id} already exists")
+
+    latest_result = await db.execute(
+        select(ProgressReceiptModel)
+        .where(ProgressReceiptModel.task_id == progress.task_id)
+        .order_by(ProgressReceiptModel.timestamp.desc())
+        .limit(1)
+    )
+    latest = latest_result.scalar_one_or_none()
+    if latest is not None:
+        if progress.timestamp < latest.timestamp:
+            raise HTTPException(409, "progress timestamp is older than latest receipt")
+        if progress.progress_percent + 1e-9 < latest.progress_percent:
+            raise HTTPException(409, "progress_percent rollback is not allowed")
+        if progress.claimed_value_percent + 1e-9 < latest.claimed_value_percent:
+            raise HTTPException(409, "claimed_value_percent rollback is not allowed")
+
+    duplicate_hash_result = await db.execute(
+        select(ProgressReceiptModel.progress_receipt_id).where(
+            ProgressReceiptModel.task_id == progress.task_id,
+            ProgressReceiptModel.evidence_hash == progress.evidence_hash,
+            ProgressReceiptModel.runtime_log_hash == progress.runtime_log_hash,
+        )
+    )
+    duplicate_hash_receipt_id = duplicate_hash_result.scalar_one_or_none()
+    if duplicate_hash_receipt_id is not None:
+        raise HTTPException(
+            409,
+            f"duplicate progress evidence/runtime hash pair already submitted: {duplicate_hash_receipt_id}",
+        )
 
     settlement_store = PostgresSettlementStore(db)
     settlement = await settlement_store.get(progress.task_id)
     if not settlement:
         raise HTTPException(404, f"Settlement for task {progress.task_id} not found")
+    if settlement.worker_agent_id and settlement.worker_agent_id != progress.seller_identity_id:
+        raise HTTPException(409, "seller_identity_id does not match settlement worker_agent_id")
     if not can_transition(settlement.status, TaskStatus.PROGRESS_SUBMITTED):
         raise HTTPException(409, f"invalid status transition: {settlement.status.value} -> progress_submitted")
 

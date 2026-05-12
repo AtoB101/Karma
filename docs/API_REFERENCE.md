@@ -107,6 +107,17 @@ Requests cannot be applied before satisfying the approval threshold.
 ### `POST /v1/security/policies/changes/dry-run`
 Run simulation only (no persistence / no activation) and return projected alert impact.
 
+### `GET /v1/security/runtime/safety-mode`
+Read current runtime safety-mode state (enabled flag, trigger reason, latest anchor-audit totals).
+
+### `POST /v1/security/runtime/safety-mode`
+Manually enable/disable runtime safety mode.
+
+### `POST /v1/security/runtime/anchor-audit`
+Run a global anchor audit:
+- `sum(total_bill_credits) <= sum(total_locked_usdc)`
+- if violated, system auto-enables safety mode and blocks sensitive write paths.
+
 SDK helper:
 - `get_security_ops_alerts(...)`
 - `create_security_threshold_policy(...)`
@@ -121,6 +132,9 @@ SDK helper:
 - `review_security_policy_change_request(request_id, approver_id=..., decision=...)`
 - `apply_security_policy_change_request(request_id)`
 - `dry_run_security_policy_change(...)`
+- `get_runtime_safety_mode()`
+- `update_runtime_safety_mode(enabled=..., reason=..., actor_id=...)`
+- `run_runtime_anchor_audit(actor_id=\"sdk\")`
 
 ---
 
@@ -181,6 +195,13 @@ Assign a worker agent to the contract.
 ### `POST /v1/receipts`
 Submit a single `ExecutionReceipt` (called automatically by `KarmaHookLayer`).
 Receipt format standard: `docs/EXECUTION_RECEIPT_STANDARD.md`.
+
+Strict acceptance rules:
+- signature required and verified
+- `input_hash` / `output_hash` must be 64-char hex
+- `step_index` must be sequential per `task_id` (first step must be `1`)
+- timestamp ordering must be monotonic per task
+- duplicate receipt IDs / duplicate task-step pairs rejected
 
 ### `GET /v1/receipts/{receipt_id}`
 Get a receipt by ID.

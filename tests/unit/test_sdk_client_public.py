@@ -1484,6 +1484,18 @@ async def test_security_policy_center_sdk_methods():
     applied_change_payload = dict(change_payload)
     applied_change_payload["status"] = "applied"
     applied_change_payload["applied_at"] = now
+    runtime_safety_payload = {
+        "enabled": False,
+        "reason": "normal operations",
+        "triggered_by": "sec-admin",
+        "triggered_at": now,
+        "last_anchor_audit_at": now,
+        "total_locked_usdc": 100.0,
+        "total_bill_credits": 100.0,
+    }
+    runtime_safety_enabled_payload = dict(runtime_safety_payload)
+    runtime_safety_enabled_payload["enabled"] = True
+    runtime_safety_enabled_payload["reason"] = "manual drill"
     routes = {
         ("POST", f"{base}/v1/security/policies"): created_payload,
         ("GET", f"{base}/v1/security/policies?limit=50"): [active_payload, candidate_payload],
@@ -1497,6 +1509,9 @@ async def test_security_policy_center_sdk_methods():
         ("POST", f"{base}/v1/security/policies/changes/change-1/review"): change_payload,
         ("POST", f"{base}/v1/security/policies/changes/change-1/apply"): applied_change_payload,
         ("POST", f"{base}/v1/security/policies/changes/dry-run"): change_payload["dry_run"],
+        ("GET", f"{base}/v1/security/runtime/safety-mode"): runtime_safety_payload,
+        ("POST", f"{base}/v1/security/runtime/safety-mode"): runtime_safety_enabled_payload,
+        ("POST", f"{base}/v1/security/runtime/anchor-audit?actor_id=sdk"): runtime_safety_enabled_payload,
     }
     mock_http = _MockHTTP(routes)
     client = KarmaClient(agent_id="a1", runtime_url=base)
@@ -1561,3 +1576,13 @@ async def test_security_policy_center_sdk_methods():
         dry_run_actor_id="actor-1",
     )
     assert dry_run.projected_policy_id == "policy-1"
+    runtime_state = await client.get_runtime_safety_mode()
+    assert runtime_state.enabled is False
+    enabled_state = await client.update_runtime_safety_mode(
+        enabled=True,
+        reason="manual drill",
+        actor_id="sec-admin",
+    )
+    assert enabled_state.enabled is True
+    audited_state = await client.run_runtime_anchor_audit(actor_id="sdk")
+    assert audited_state.enabled is True

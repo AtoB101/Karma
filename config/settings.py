@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     verification_min_steps: int = 1
     verification_hash_algo: str = "sha256"
     verification_timeout_seconds: int = 300
+    receipt_require_signature: bool = True
+    receipt_max_future_skew_seconds: int = 300
+    receipt_max_past_hours: int = 24 * 7
+    progress_require_signature: bool = True
 
     # Reputation
     reputation_initial_score: float = 100.0

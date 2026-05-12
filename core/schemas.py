@@ -762,6 +762,16 @@ class SecurityOpsAlertReport(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class RuntimeSafetyModeState(BaseModel):
+    enabled: bool = False
+    reason: Optional[str] = None
+    triggered_by: Optional[str] = None
+    triggered_at: Optional[datetime] = None
+    last_anchor_audit_at: Optional[datetime] = None
+    total_locked_usdc: float = 0.0
+    total_bill_credits: float = 0.0
+
+
 class MCPVerificationTemplate(BaseModel):
     template_version: str = "mcp-v2"
     mcp_server_id: str
