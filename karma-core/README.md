@@ -117,3 +117,20 @@ The protocol supports:
 - data analysis via external analytics modules
 
 Internal decision rules, scoring formulas, route strategies, optimization models, and enterprise backend logic are not in this public repository.
+
+## Security Posture (FINAL alignment)
+
+The public contracts enforce several hard safety guarantees:
+
+- non-custodial accounting invariant: `active + reserved == locked`
+- after bill confirmation, bills can no longer be expired through the pending timeout path
+- disputed bills are frozen in `Disputed` until arbitrator action or timeout fallback resolution
+- permissionless dispute-timeout fallback (`resolveDisputeByTimeout`) prevents indefinite fund freeze
+- owner controls are brake-only operational controls:
+  - pause new lock
+  - pause new authorization
+  - pause new task progression
+  - pause new settlement
+  - enable/disable unified safety mode
+
+These controls are designed for risk containment and do not introduce owner fund-withdraw permissions from user balances.

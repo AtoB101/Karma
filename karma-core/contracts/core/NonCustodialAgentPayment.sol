@@ -40,9 +40,13 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     error SettlementTokenNotAllowed();
     error SettlementAmountTooLow();
     error DisputeRateLimited();
+    error OperationPaused();
+    error DisputeNotTimedOut();
 
     uint16 public constant BPS_DENOMINATOR = 10_000;
+    uint16 public constant DEFAULT_TIMEOUT_BUYER_SHARE_BPS = 5000;
     uint256 public constant MAX_BATCH_SETTLE_SIZE = 200;
+    uint256 public constant DISPUTE_TIMEOUT_SECONDS = 3 days;
     /// @dev ERC20.transferFrom(address,address,uint256) — fixed selector, avoids per-call keccak256.
     bytes4 private constant TRANSFER_FROM_SELECTOR = 0x23b872dd;
     uint16 public immutable sellerBondBps;
@@ -55,6 +59,11 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
 
     bool public batchModeEnabled = true;
     bool public batchCircuitBreakerPaused;
+    bool public pauseNewLock;
+    bool public pauseNewAuthorization;
+    bool public pauseNewTask;
+    bool public pauseNewSettlement;
+    bool public safetyMode;
 
     mapping(address user => mapping(address token => AccountState)) internal accountStates;
     mapping(uint256 billId => Bill) internal bills;
@@ -123,6 +132,9 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     event PolicyViolationEvent(address indexed owner, address indexed counterparty, bytes32 indexed scopeHash, string reason);
     event SettlementTokenRuleUpdated(address indexed token, bool allowed);
     event SettlementGuardUpdated(bool tokenEnforced, uint256 minAmount);
+    event OperationalPauseUpdated(bool pauseNewLock, bool pauseNewAuthorization, bool pauseNewTask, bool pauseNewSettlement);
+    event SafetyModeUpdated(bool enabled);
+    event BillAutoResolvedTimeout(uint256 indexed billId, uint16 buyerShareBps);
 
     /// @notice Creates the non-custodial payment protocol core.
     /// @param arbitrator_ Address allowed to resolve disputed bills.
@@ -152,6 +164,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     /// @param token ERC20 token used for accounting.
     /// @param amount Additional amount to lock.
     function lockFunds(address token, uint256 amount) external override {
+        if (pauseNewLock) revert OperationPaused();
         if (token == address(0)) revert InvalidAddress();
         if (amount == 0) revert InvalidAmount();
 
@@ -194,6 +207,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         override
         returns (uint256 billId)
     {
+        if (pauseNewAuthorization || pauseNewTask) revert OperationPaused();
         if (seller == address(0) || token == address(0)) revert InvalidAddress();
         if (seller == msg.sender) revert Unauthorized();
         if (amount == 0) revert InvalidAmount();
@@ -238,7 +252,8 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
             proofHash: proofHash,
             status: BillStatus.Pending,
             createdAt: block.timestamp,
-            deadline: finalDeadline
+            deadline: finalDeadline,
+            disputedAt: 0
         });
 
         if (batchId != 0) {
@@ -255,6 +270,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     /// @notice Confirms a pending bill, making it eligible for payout/dispute.
     /// @param billId Bill identifier.
     function confirmBill(uint256 billId) external override {
+        if (pauseNewTask) revert OperationPaused();
         Bill storage b = bills[billId];
         if (b.billId == 0) revert BillNotFound(billId);
         if (msg.sender != b.buyer) revert Unauthorized();
@@ -273,6 +289,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     /// @param r Signature r.
     /// @param s Signature s.
     function confirmBillBySignature(uint256 billId, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external override {
+        if (pauseNewTask) revert OperationPaused();
         if (block.timestamp > deadline) revert SignatureExpired();
 
         Bill storage b = bills[billId];
@@ -325,6 +342,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
             sellerLastDisputeAt[msg.sender] = block.timestamp;
         }
         b.status = BillStatus.Disputed;
+        b.disputedAt = block.timestamp;
         emit BillDisputed(billId, msg.sender);
     }
 
@@ -333,6 +351,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     /// @param billId Bill identifier.
     /// @return ok True when settlement succeeds.
     function requestBillPayout(uint256 billId) external override nonReentrant returns (bool ok) {
+        if (pauseNewSettlement) revert OperationPaused();
         Bill storage b = bills[billId];
         if (b.billId == 0) {
             emit InvalidTransferIntent(msg.sender, billId, "bill-not-found");
@@ -355,12 +374,12 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         return true;
     }
 
-    /// @notice Expires a pending/confirmed bill after deadline and releases reservations.
+    /// @notice Expires a pending bill after deadline and releases reservations.
     /// @param billId Bill identifier.
     function expireBill(uint256 billId) external override {
         Bill storage b = bills[billId];
         if (b.billId == 0) revert BillNotFound(billId);
-        if (b.status != BillStatus.Pending && b.status != BillStatus.Confirmed) {
+        if (b.status != BillStatus.Pending) {
             revert InvalidState();
         }
         if (block.timestamp <= b.deadline) revert InvalidState();
@@ -427,11 +446,37 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
             revert InvalidBillStatus(billId, BillStatus.Disputed, b.status);
         }
         if (buyerShareBps > BPS_DENOMINATOR) revert InvalidShare();
+        _resolveDisputeSplitInternal(b, buyerShareBps);
+        b.status = BillStatus.SplitResolved;
+        _finalizeBillFromBatch(b);
+        _assertAccountInvariant(b.buyer, b.token);
+        _assertAccountInvariant(b.seller, b.token);
+        emit BillSplitResolved(billId, buyerShareBps, (b.amount * buyerShareBps) / BPS_DENOMINATOR, b.amount - ((b.amount * buyerShareBps) / BPS_DENOMINATOR));
+    }
 
+    /// @notice Permissionless fallback resolution for overdue disputes.
+    /// @dev Applies protocol default split when arbitrator does not resolve within timeout.
+    function resolveDisputeByTimeout(uint256 billId) external override nonReentrant {
+        Bill storage b = bills[billId];
+        if (b.billId == 0) revert BillNotFound(billId);
+        if (b.status != BillStatus.Disputed) {
+            revert InvalidBillStatus(billId, BillStatus.Disputed, b.status);
+        }
+        if (block.timestamp <= b.disputedAt + DISPUTE_TIMEOUT_SECONDS) revert DisputeNotTimedOut();
+        uint16 buyerShareBps = DEFAULT_TIMEOUT_BUYER_SHARE_BPS;
+        _resolveDisputeSplitInternal(b, buyerShareBps);
+        b.status = BillStatus.SplitResolved;
+        _finalizeBillFromBatch(b);
+        _assertAccountInvariant(b.buyer, b.token);
+        _assertAccountInvariant(b.seller, b.token);
+        emit BillSplitResolved(billId, buyerShareBps, (b.amount * buyerShareBps) / BPS_DENOMINATOR, b.amount - ((b.amount * buyerShareBps) / BPS_DENOMINATOR));
+        emit BillAutoResolvedTimeout(billId, buyerShareBps);
+    }
+
+    function _resolveDisputeSplitInternal(Bill storage b, uint16 buyerShareBps) internal {
         uint256 buyerRefund = (b.amount * buyerShareBps) / BPS_DENOMINATOR;
         uint256 sellerPaid = b.amount - buyerRefund;
         uint256 sellerPenalty = (b.sellerBond * buyerShareBps) / BPS_DENOMINATOR;
-
         AccountState storage buyerSt = accountStates[b.buyer][b.token];
         AccountState storage sellerSt = accountStates[b.seller][b.token];
 
@@ -451,12 +496,6 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         if (sellerBondRemainder > 0) {
             sellerSt.active += sellerBondRemainder;
         }
-
-        b.status = BillStatus.SplitResolved;
-        _finalizeBillFromBatch(b);
-        _assertAccountInvariant(b.buyer, b.token);
-        _assertAccountInvariant(b.seller, b.token);
-        emit BillSplitResolved(billId, buyerShareBps, buyerRefund, sellerPaid);
     }
 
     /// @notice Closes an open batch so it can be settled.
@@ -489,6 +528,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         nonReentrant
         returns (uint256 settledCount, uint256 settledAmount)
     {
+        if (pauseNewSettlement) revert OperationPaused();
         Batch storage batch = batches[batchId];
         if (batch.batchId == 0) revert BatchNotFound();
         if (batch.status != BatchStatus.Closed) {
@@ -538,6 +578,29 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     function setBatchCircuitBreakerPaused(bool paused) external override onlyOwner {
         batchCircuitBreakerPaused = paused;
         emit BatchCircuitBreakerUpdated(paused);
+    }
+
+    function setOperationalPauses(
+        bool pauseNewLock_,
+        bool pauseNewAuthorization_,
+        bool pauseNewTask_,
+        bool pauseNewSettlement_
+    ) external override onlyOwner {
+        pauseNewLock = pauseNewLock_;
+        pauseNewAuthorization = pauseNewAuthorization_;
+        pauseNewTask = pauseNewTask_;
+        pauseNewSettlement = pauseNewSettlement_;
+        emit OperationalPauseUpdated(pauseNewLock_, pauseNewAuthorization_, pauseNewTask_, pauseNewSettlement_);
+    }
+
+    function setSafetyMode(bool enabled) external override onlyOwner {
+        safetyMode = enabled;
+        pauseNewLock = enabled;
+        pauseNewAuthorization = enabled;
+        pauseNewTask = enabled;
+        pauseNewSettlement = enabled;
+        emit SafetyModeUpdated(enabled);
+        emit OperationalPauseUpdated(enabled, enabled, enabled, enabled);
     }
 
     function setSettlementTokenAllowed(address token, bool allowed) external override onlyOwner {

@@ -63,6 +63,7 @@ interface INonCustodialAgentPayment {
         BillStatus status;
         uint256 createdAt;
         uint256 deadline;
+        uint256 disputedAt;
     }
 
     struct Batch {
@@ -91,10 +92,14 @@ interface INonCustodialAgentPayment {
     function resolveDisputeBuyer(uint256 billId) external;
     function resolveDisputeSeller(uint256 billId) external;
     function resolveDisputeSplit(uint256 billId, uint16 buyerShareBps) external;
+    function resolveDisputeByTimeout(uint256 billId) external;
     function closeBatch(uint256 batchId) external;
     function settleBatch(uint256 batchId, uint256 maxBills) external returns (uint256 settledCount, uint256 settledAmount);
     function setBatchModeEnabled(bool enabled) external;
     function setBatchCircuitBreakerPaused(bool paused) external;
+    function setOperationalPauses(bool pauseNewLock_, bool pauseNewAuthorization_, bool pauseNewTask_, bool pauseNewSettlement_)
+        external;
+    function setSafetyMode(bool enabled) external;
     function getBatch(uint256 batchId) external view returns (Batch memory);
     function getBatchBillIds(uint256 batchId) external view returns (uint256[] memory);
     function getAccountState(address user, address token) external view returns (AccountState memory);
