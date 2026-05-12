@@ -23,6 +23,8 @@ from core.schemas import (
     ProgressReceipt,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
+    ResponsibilityBatchScanResult,
+    ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
     ResponsibilityScoreSummary,
@@ -569,12 +571,62 @@ class KarmaClient:
             resp.raise_for_status()
             return ResponsibilityScoreSummary(**resp.json())
 
+    async def get_responsibility_path_features(
+        self,
+        identity_id: str,
+        *,
+        window_hours: int = 24,
+        max_hops: int = 4,
+    ) -> ResponsibilityPathFeaturesSummary:
+        """GET /v1/responsibility/identity/{identity_id}/path-features"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/responsibility/identity/{identity_id}/path-features"
+                f"?window_hours={window_hours}&max_hops={max_hops}"
+            )
+            resp.raise_for_status()
+            return ResponsibilityPathFeaturesSummary(**resp.json())
+
     async def get_public_responsibility_risk_model(self) -> ResponsibilityPublicRiskModel:
         """GET /v1/responsibility/model/public-risk"""
         async with self._http() as http:
             resp = await http.get(f"{self.runtime_url}/v1/responsibility/model/public-risk")
             resp.raise_for_status()
             return ResponsibilityPublicRiskModel(**resp.json())
+
+    async def create_responsibility_batch_scan(
+        self,
+        *,
+        identity_ids: list[str] | None = None,
+        window_hours: int = 24,
+        max_hops: int = 4,
+        min_score_threshold: float = 8.0,
+    ) -> ResponsibilityBatchScanResult:
+        """POST /v1/responsibility/scan-runs"""
+        payload: dict[str, Any] = {
+            "identity_ids": identity_ids,
+            "window_hours": window_hours,
+            "max_hops": max_hops,
+            "min_score_threshold": min_score_threshold,
+        }
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/responsibility/scan-runs", json=payload)
+            resp.raise_for_status()
+            return ResponsibilityBatchScanResult(**resp.json())
+
+    async def get_responsibility_batch_scan(
+        self,
+        scan_id: str,
+        *,
+        findings_limit: int = 200,
+    ) -> ResponsibilityBatchScanResult:
+        """GET /v1/responsibility/scan-runs/{scan_id}"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/{scan_id}?findings_limit={findings_limit}"
+            )
+            resp.raise_for_status()
+            return ResponsibilityBatchScanResult(**resp.json())
 
     async def get_token(self, agent_id: str, api_key: str) -> str:
         """POST /v1/auth/token — returns JWT access token."""

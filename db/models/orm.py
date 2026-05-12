@@ -371,6 +371,34 @@ class ResponsibilitySignalModel(Base):
     created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class ResponsibilityScanRunModel(Base):
+    __tablename__ = "responsibility_scan_runs"
+
+    scan_id:               Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    status:                Mapped[str]      = mapped_column(String(16), nullable=False, default="pending")
+    window_hours:          Mapped[int]      = mapped_column(Integer, nullable=False, default=24)
+    max_hops:              Mapped[int]      = mapped_column(Integer, nullable=False, default=4)
+    min_score_threshold:   Mapped[float]    = mapped_column(Float, nullable=False, default=8.0)
+    total_identities:      Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
+    flagged_identities:    Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at:          Mapped[datetime|None] = mapped_column(DateTime)
+
+
+class ResponsibilityScanFindingModel(Base):
+    __tablename__ = "responsibility_scan_findings"
+
+    finding_id:            Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    scan_id:               Mapped[str]      = mapped_column(String(64), ForeignKey("responsibility_scan_runs.scan_id"), nullable=False)
+    identity_id:           Mapped[str]      = mapped_column(String(64), nullable=False)
+    normalized_score:      Mapped[float]    = mapped_column(Float, nullable=False)
+    risk_band:             Mapped[str]      = mapped_column(String(16), nullable=False)
+    signal_count:          Mapped[int]      = mapped_column(Integer, nullable=False)
+    cycle_paths_detected:  Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
+    detail:                Mapped[str]      = mapped_column(Text, nullable=False)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Verification Result
 # ---------------------------------------------------------------------------

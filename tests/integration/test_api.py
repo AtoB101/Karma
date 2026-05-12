@@ -691,6 +691,30 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     assert model_body["model_version"] == "public-risk-v1"
     assert "cycle_authorization" in model_body["signal_type_weights"]
 
+    features = await client.get("/v1/responsibility/identity/id-c/path-features?window_hours=24&max_hops=4")
+    assert features.status_code == 200
+    features_body = features.json()
+    assert features_body["identity_id"] == "id-c"
+    assert features_body["cycle_paths_detected"] >= 1
+
+    scan = await client.post("/v1/responsibility/scan-runs", json={
+        "identity_ids": ["id-a", "id-b", "id-c"],
+        "window_hours": 24,
+        "max_hops": 4,
+        "min_score_threshold": 1.0,
+    })
+    assert scan.status_code == 201
+    scan_body = scan.json()
+    assert scan_body["run"]["status"] == "completed"
+    assert scan_body["run"]["total_identities"] == 3
+    scan_id = scan_body["run"]["scan_id"]
+
+    fetched_scan = await client.get(f"/v1/responsibility/scan-runs/{scan_id}?findings_limit=50")
+    assert fetched_scan.status_code == 200
+    fetched_body = fetched_scan.json()
+    assert fetched_body["run"]["scan_id"] == scan_id
+    assert fetched_body["run"]["flagged_identities"] >= 1
+
 
 # ---------------------------------------------------------------------------
 # Reputation

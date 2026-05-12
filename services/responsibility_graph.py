@@ -11,10 +11,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
+    ResponsibilityBatchScanResult,
+    ResponsibilityBatchScanRun,
     ResponsibilityEdge,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
+    ResponsibilityPathFeaturesSummary,
     ResponsibilityRiskSignal,
+    ResponsibilityScanFinding,
+    ResponsibilityScanRunStatus,
     ResponsibilitySignalSeverity,
     ResponsibilitySignalType,
     ResponsibilityScoreBand,
@@ -22,7 +27,12 @@ from core.schemas import (
     ResponsibilityPublicRiskModel,
     TaskPathHashSummary,
 )
-from db.models.orm import ResponsibilityEdgeModel, ResponsibilitySignalModel
+from db.models.orm import (
+    ResponsibilityEdgeModel,
+    ResponsibilityScanFindingModel,
+    ResponsibilityScanRunModel,
+    ResponsibilitySignalModel,
+)
 
 PUBLIC_MODEL_VERSION = "public-risk-v1"
 SEVERITY_WEIGHTS: dict[ResponsibilitySignalSeverity, float] = {
@@ -218,6 +228,172 @@ async def get_identity_score(
     )
 
 
+async def get_identity_path_features(
+    *,
+    db: AsyncSession,
+    identity_id: str,
+    window_hours: int = 24,
+    max_hops: int = 4,
+) -> ResponsibilityPathFeaturesSummary:
+    now = datetime.utcnow()
+    since = now - timedelta(hours=window_hours)
+    result = await db.execute(
+        select(ResponsibilityEdgeModel).where(ResponsibilityEdgeModel.created_at >= since)
+    )
+    edges = result.scalars().all()
+    adjacency: dict[str, list[ResponsibilityEdgeModel]] = {}
+    for edge in edges:
+        adjacency.setdefault(edge.source_identity_id, []).append(edge)
+
+    traversed_edge_hashes: set[str] = set()
+    reachable: set[str] = set()
+    cycle_paths_detected = 0
+    path_hashes_sample: list[str] = []
+    seen_path_hashes: set[str] = set()
+
+    queue: deque[tuple[str, int, list[str], list[str]]] = deque([(identity_id, 0, [], [identity_id])])
+    visited_depth: dict[str, int] = {identity_id: 0}
+
+    while queue:
+        node, hops, path_hashes, path_nodes = queue.popleft()
+        if hops >= max_hops:
+            continue
+        for edge in adjacency.get(node, []):
+            traversed_edge_hashes.add(edge.edge_hash)
+            next_path_hashes = [*path_hashes, edge.edge_hash]
+            hashed_path = _sha256({"start": identity_id, "edge_hashes": next_path_hashes})
+            if hashed_path not in seen_path_hashes and len(path_hashes_sample) < 20:
+                seen_path_hashes.add(hashed_path)
+                path_hashes_sample.append(hashed_path)
+
+            target = edge.target_identity_id
+            if target != identity_id:
+                reachable.add(target)
+            if target == identity_id or target in path_nodes:
+                cycle_paths_detected += 1
+                continue
+            next_hops = hops + 1
+            prev = visited_depth.get(target)
+            if prev is None or next_hops < prev:
+                visited_depth[target] = next_hops
+                queue.append((target, next_hops, next_path_hashes, [*path_nodes, target]))
+
+    return ResponsibilityPathFeaturesSummary(
+        identity_id=identity_id,
+        window_hours=window_hours,
+        max_hops=max_hops,
+        traversed_edge_count=len(traversed_edge_hashes),
+        reachable_identity_count=len(reachable),
+        cycle_paths_detected=cycle_paths_detected,
+        path_hashes_sample=path_hashes_sample,
+        computed_at=now,
+    )
+
+
+async def run_batch_scan(
+    *,
+    db: AsyncSession,
+    identity_ids: list[str] | None = None,
+    window_hours: int = 24,
+    max_hops: int = 4,
+    min_score_threshold: float = 8.0,
+) -> ResponsibilityBatchScanResult:
+    run_row = ResponsibilityScanRunModel(
+        status=ResponsibilityScanRunStatus.RUNNING.value,
+        window_hours=window_hours,
+        max_hops=max_hops,
+        min_score_threshold=min_score_threshold,
+        total_identities=0,
+        flagged_identities=0,
+        created_at=datetime.utcnow(),
+    )
+    db.add(run_row)
+    await db.flush()
+
+    if identity_ids is None:
+        since = datetime.utcnow() - timedelta(hours=window_hours)
+        source_rows = await db.execute(
+            select(ResponsibilityEdgeModel.source_identity_id).where(
+                ResponsibilityEdgeModel.created_at >= since
+            )
+        )
+        target_rows = await db.execute(
+            select(ResponsibilityEdgeModel.target_identity_id).where(
+                ResponsibilityEdgeModel.created_at >= since
+            )
+        )
+        id_set = {
+            *(item for item in source_rows.scalars().all() if item),
+            *(item for item in target_rows.scalars().all() if item),
+        }
+        scan_identities = sorted(id_set)
+    else:
+        scan_identities = sorted({item.strip() for item in identity_ids if item and item.strip()})
+
+    findings_rows: list[ResponsibilityScanFindingModel] = []
+    for identity_id in scan_identities:
+        score = await get_identity_score(db=db, identity_id=identity_id, window_hours=window_hours)
+        features = await get_identity_path_features(
+            db=db,
+            identity_id=identity_id,
+            window_hours=window_hours,
+            max_hops=max_hops,
+        )
+        should_flag = (
+            score.normalized_score >= min_score_threshold
+            or features.cycle_paths_detected > 0
+        )
+        if should_flag:
+            finding = ResponsibilityScanFindingModel(
+                scan_id=run_row.scan_id,
+                identity_id=identity_id,
+                normalized_score=score.normalized_score,
+                risk_band=score.risk_band.value,
+                signal_count=score.signal_count,
+                cycle_paths_detected=features.cycle_paths_detected,
+                detail=(
+                    f"window_score={score.normalized_score:.2f}, "
+                    f"signals={score.signal_count}, cycles={features.cycle_paths_detected}"
+                ),
+                created_at=datetime.utcnow(),
+            )
+            db.add(finding)
+            findings_rows.append(finding)
+
+    run_row.total_identities = len(scan_identities)
+    run_row.flagged_identities = len(findings_rows)
+    run_row.status = ResponsibilityScanRunStatus.COMPLETED.value
+    run_row.completed_at = datetime.utcnow()
+    await db.flush()
+
+    return ResponsibilityBatchScanResult(
+        run=_scan_run_to_schema(run_row),
+        findings=[_scan_finding_to_schema(row) for row in findings_rows],
+    )
+
+
+async def get_batch_scan_result(
+    *,
+    db: AsyncSession,
+    scan_id: str,
+    findings_limit: int = 200,
+) -> ResponsibilityBatchScanResult | None:
+    run_row = await db.get(ResponsibilityScanRunModel, scan_id)
+    if not run_row:
+        return None
+    findings_result = await db.execute(
+        select(ResponsibilityScanFindingModel)
+        .where(ResponsibilityScanFindingModel.scan_id == scan_id)
+        .order_by(ResponsibilityScanFindingModel.created_at.desc())
+        .limit(findings_limit)
+    )
+    findings = findings_result.scalars().all()
+    return ResponsibilityBatchScanResult(
+        run=_scan_run_to_schema(run_row),
+        findings=[_scan_finding_to_schema(row) for row in findings],
+    )
+
+
 def get_public_risk_model() -> ResponsibilityPublicRiskModel:
     return ResponsibilityPublicRiskModel(
         model_version=PUBLIC_MODEL_VERSION,
@@ -357,6 +533,34 @@ def _signal_to_schema(row: ResponsibilitySignalModel) -> ResponsibilityRiskSigna
         edge_hash=row.edge_hash,
         related_edge_hashes=row.related_edge_hashes or [],
         task_id=row.task_id,
+        detail=row.detail,
+        created_at=row.created_at,
+    )
+
+
+def _scan_run_to_schema(row: ResponsibilityScanRunModel) -> ResponsibilityBatchScanRun:
+    return ResponsibilityBatchScanRun(
+        scan_id=row.scan_id,
+        status=ResponsibilityScanRunStatus(row.status),
+        window_hours=row.window_hours,
+        max_hops=row.max_hops,
+        min_score_threshold=row.min_score_threshold,
+        total_identities=row.total_identities,
+        flagged_identities=row.flagged_identities,
+        created_at=row.created_at,
+        completed_at=row.completed_at,
+    )
+
+
+def _scan_finding_to_schema(row: ResponsibilityScanFindingModel) -> ResponsibilityScanFinding:
+    return ResponsibilityScanFinding(
+        finding_id=row.finding_id,
+        scan_id=row.scan_id,
+        identity_id=row.identity_id,
+        normalized_score=row.normalized_score,
+        risk_band=ResponsibilityScoreBand(row.risk_band),
+        signal_count=row.signal_count,
+        cycle_paths_detected=row.cycle_paths_detected,
         detail=row.detail,
         created_at=row.created_at,
     )

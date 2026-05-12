@@ -6,8 +6,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
+    ResponsibilityBatchScanResult,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
+    ResponsibilityPathFeaturesSummary,
     ResponsibilityPublicRiskModel,
     ResponsibilityRiskSignal,
     ResponsibilityScoreSummary,
@@ -15,11 +17,14 @@ from core.schemas import (
 )
 from db.session import get_db
 from services.responsibility_graph import (
+    get_batch_scan_result,
+    get_identity_path_features,
     get_identity_score,
     get_identity_signals,
     get_public_risk_model,
     get_task_path_summary,
     ingest_edge,
+    run_batch_scan,
 )
 
 router = APIRouter()
@@ -32,6 +37,13 @@ class IngestResponsibilityEdgeRequest(BaseModel):
     task_id: str | None = None
     voucher_id: str | None = None
     metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class CreateBatchScanRunRequest(BaseModel):
+    identity_ids: list[str] | None = None
+    window_hours: int = Field(default=24, ge=1, le=24 * 30)
+    max_hops: int = Field(default=4, ge=1, le=12)
+    min_score_threshold: float = Field(default=8.0, ge=0.0, le=100.0)
 
 
 @router.post("/edges", response_model=ResponsibilityEdgeIngestResult, status_code=201)
@@ -62,6 +74,21 @@ async def list_identity_signals(
     return await get_identity_signals(db=db, identity_id=identity_id, limit=limit)
 
 
+@router.get("/identity/{identity_id}/path-features", response_model=ResponsibilityPathFeaturesSummary)
+async def get_identity_path_feature_summary(
+    identity_id: str,
+    window_hours: int = Query(default=24, ge=1, le=24 * 30),
+    max_hops: int = Query(default=4, ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_identity_path_features(
+        db=db,
+        identity_id=identity_id,
+        window_hours=window_hours,
+        max_hops=max_hops,
+    )
+
+
 @router.get("/identity/{identity_id}/score", response_model=ResponsibilityScoreSummary)
 async def get_identity_risk_score(
     identity_id: str,
@@ -83,4 +110,30 @@ async def get_task_path_hash(task_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/model/public-risk", response_model=ResponsibilityPublicRiskModel)
 async def get_public_model():
     return get_public_risk_model()
+
+
+@router.post("/scan-runs", response_model=ResponsibilityBatchScanResult, status_code=201)
+async def create_batch_scan_run(
+    body: CreateBatchScanRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await run_batch_scan(
+        db=db,
+        identity_ids=body.identity_ids,
+        window_hours=body.window_hours,
+        max_hops=body.max_hops,
+        min_score_threshold=body.min_score_threshold,
+    )
+
+
+@router.get("/scan-runs/{scan_id}", response_model=ResponsibilityBatchScanResult)
+async def get_scan_run(
+    scan_id: str,
+    findings_limit: int = Query(default=200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await get_batch_scan_result(db=db, scan_id=scan_id, findings_limit=findings_limit)
+    if not result:
+        raise HTTPException(404, f"scan run {scan_id} not found")
+    return result
 

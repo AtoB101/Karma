@@ -141,6 +141,13 @@ class ResponsibilityScoreBand(str, Enum):
     CRITICAL = "critical"
 
 
+class ResponsibilityScanRunStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------
@@ -532,6 +539,46 @@ class ResponsibilityPublicRiskModel(BaseModel):
     signal_type_weights: dict[str, float]
     recency_floor: float
     public_band_reference: dict[str, float]
+
+
+class ResponsibilityPathFeaturesSummary(BaseModel):
+    identity_id: str
+    window_hours: int
+    max_hops: int
+    traversed_edge_count: int = 0
+    reachable_identity_count: int = 0
+    cycle_paths_detected: int = 0
+    path_hashes_sample: list[str] = Field(default_factory=list)
+    computed_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityScanFinding(BaseModel):
+    finding_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    scan_id: str
+    identity_id: str
+    normalized_score: float
+    risk_band: ResponsibilityScoreBand
+    signal_count: int
+    cycle_paths_detected: int
+    detail: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityBatchScanRun(BaseModel):
+    scan_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    status: ResponsibilityScanRunStatus = ResponsibilityScanRunStatus.PENDING
+    window_hours: int = 24
+    max_hops: int = 4
+    min_score_threshold: float = 8.0
+    total_identities: int = 0
+    flagged_identities: int = 0
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+
+
+class ResponsibilityBatchScanResult(BaseModel):
+    run: ResponsibilityBatchScanRun
+    findings: list[ResponsibilityScanFinding] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

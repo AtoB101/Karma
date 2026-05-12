@@ -502,6 +502,16 @@ async def test_responsibility_sdk_methods():
             "edge_hashes": ["a" * 64, "b" * 64],
             "path_hash": "c" * 64,
         },
+        ("GET", f"{base}/v1/responsibility/identity/id-a/path-features?window_hours=48&max_hops=5"): {
+            "identity_id": "id-a",
+            "window_hours": 48,
+            "max_hops": 5,
+            "traversed_edge_count": 4,
+            "reachable_identity_count": 3,
+            "cycle_paths_detected": 1,
+            "path_hashes_sample": ["d" * 64],
+            "computed_at": now,
+        },
         ("GET", f"{base}/v1/responsibility/identity/id-a/score?window_hours=48"): {
             "identity_id": "id-a",
             "window_hours": 48,
@@ -522,6 +532,58 @@ async def test_responsibility_sdk_methods():
             "recency_floor": 0.2,
             "public_band_reference": {"low_min": 0.0, "elevated_min": 8.0, "high_min": 20.0, "critical_min": 35.0},
         },
+        ("POST", f"{base}/v1/responsibility/scan-runs"): {
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "findings": [
+                {
+                    "finding_id": "finding-1",
+                    "scan_id": "scan-1",
+                    "identity_id": "id-a",
+                    "normalized_score": 12.4,
+                    "risk_band": "elevated",
+                    "signal_count": 2,
+                    "cycle_paths_detected": 1,
+                    "detail": "window_score=12.40, signals=2, cycles=1",
+                    "created_at": now,
+                }
+            ],
+        },
+        ("GET", f"{base}/v1/responsibility/scan-runs/scan-1?findings_limit=20"): {
+            "run": {
+                "scan_id": "scan-1",
+                "status": "completed",
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "total_identities": 2,
+                "flagged_identities": 1,
+                "created_at": now,
+                "completed_at": now,
+            },
+            "findings": [
+                {
+                    "finding_id": "finding-1",
+                    "scan_id": "scan-1",
+                    "identity_id": "id-a",
+                    "normalized_score": 12.4,
+                    "risk_band": "elevated",
+                    "signal_count": 2,
+                    "cycle_paths_detected": 1,
+                    "detail": "window_score=12.40, signals=2, cycles=1",
+                    "created_at": now,
+                }
+            ],
+        },
     }
     mock_http = _MockHTTP(routes)
     client = KarmaClient(agent_id="a1", runtime_url=base)
@@ -541,8 +603,14 @@ async def test_responsibility_sdk_methods():
 
     summary = await client.get_task_path_hash(task_id)
     assert summary.path_hash == "c" * 64
+    features = await client.get_responsibility_path_features("id-a", window_hours=48, max_hops=5)
+    assert features.cycle_paths_detected == 1
     score = await client.get_responsibility_score("id-a", window_hours=48)
     assert score.risk_band.value == "elevated"
     model = await client.get_public_responsibility_risk_model()
     assert model.model_version == "public-risk-v1"
+    scan = await client.create_responsibility_batch_scan(window_hours=48, max_hops=5)
+    assert scan.run.scan_id == "scan-1"
+    scan_read = await client.get_responsibility_batch_scan("scan-1", findings_limit=20)
+    assert scan_read.findings[0].identity_id == "id-a"
 

@@ -358,6 +358,13 @@ SDK helper methods:
 ### `GET /v1/responsibility/identity/{identity_id}/signals`
 按身份查询风险信号（可指定 `limit`）。
 
+### `GET /v1/responsibility/identity/{identity_id}/path-features`
+返回多跳路径特征摘要（`window_hours` + `max_hops`）：
+- `traversed_edge_count`
+- `reachable_identity_count`
+- `cycle_paths_detected`
+- `path_hashes_sample`
+
 ### `GET /v1/responsibility/identity/{identity_id}/score`
 按时间窗口计算公开风险评分（默认 `window_hours=24`）：
 - 使用公开权重（`signal_type * severity * recency`）
@@ -370,6 +377,15 @@ SDK helper methods:
 ### `GET /v1/responsibility/model/public-risk`
 返回公开风险模型基线（版本、权重、recency floor、分段参考）。
 
+### `POST /v1/responsibility/scan-runs`
+创建批处理扫描任务（公开接口），对一组身份（或窗口内全量身份）执行：
+- 时间窗口风险评分
+- 多跳路径特征提取
+- 发现项归档（score 超阈值或检测到 cycle）
+
+### `GET /v1/responsibility/scan-runs/{scan_id}`
+查询批处理扫描结果（含 `run` + `findings`）。
+
 自动接入：
 - `POST /v1/vouchers/{voucher_id}/accept` 成功后会自动记录一条 `voucher_accept` 责任边。
 
@@ -379,6 +395,9 @@ SDK helper methods:
 - `get_task_path_hash(task_id)`
 - `get_responsibility_score(identity_id, window_hours=24)`
 - `get_public_responsibility_risk_model()`
+- `get_responsibility_path_features(identity_id, window_hours=24, max_hops=4)`
+- `create_responsibility_batch_scan(...)`
+- `get_responsibility_batch_scan(scan_id, findings_limit=200)`
 
 ---
 
