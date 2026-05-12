@@ -402,6 +402,16 @@ async def test_arbitration_sdk_methods():
                 "generated_at": now,
             }
         ],
+        "arbitrator_activity": [
+            {
+                "arbitrator_identity_id": "arb-1",
+                "assigned_count": 1,
+                "vote_count": 1,
+                "last_assigned_at": now,
+                "last_voted_at": now,
+                "last_activity_at": now,
+            }
+        ],
         "generated_at": now,
     }
     ops_alerts_payload = [
@@ -412,6 +422,16 @@ async def test_arbitration_sdk_methods():
             "message": "arbitration open-case backlog: 1",
             "metadata": {"open_cases": 1, "threshold": 1},
             "generated_at": now,
+        }
+    ]
+    ops_arbitrators_payload = [
+        {
+            "arbitrator_identity_id": "arb-1",
+            "assigned_count": 1,
+            "vote_count": 1,
+            "last_assigned_at": now,
+            "last_voted_at": now,
+            "last_activity_at": now,
         }
     ]
     material_payload = {
@@ -460,8 +480,9 @@ async def test_arbitration_sdk_methods():
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/assign-auto"): [assignment_payload],
         ("GET", f"{base}/v1/arbitration/cases/{case_id}/assignments"): [assignment_payload],
         ("GET", f"{base}/v1/arbitration/cases/{case_id}/events?limit=200"): [event_payload],
-        ("GET", f"{base}/v1/arbitration/cases/ops/report?window_hours=24&recent_events_limit=50"): ops_report_payload,
+        ("GET", f"{base}/v1/arbitration/cases/ops/report?window_hours=24&recent_events_limit=50&arbitrator_limit=20"): ops_report_payload,
         ("GET", f"{base}/v1/arbitration/cases/ops/alerts?window_hours=24&open_case_threshold=5&voting_case_threshold=5&decided_case_threshold=3&partial_ratio_threshold=0.5"): ops_alerts_payload,
+        ("GET", f"{base}/v1/arbitration/cases/ops/arbitrators?window_hours=24&limit=20"): ops_arbitrators_payload,
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/materials"): material_payload,
         ("GET", f"{base}/v1/arbitration/cases/{case_id}/materials"): [material_payload],
         ("POST", f"{base}/v1/arbitration/cases/{case_id}/vote"): voted_case_payload,
@@ -487,8 +508,11 @@ async def test_arbitration_sdk_methods():
     ops_report = await client.get_arbitration_case_ops_report(window_hours=24, recent_events_limit=50)
     assert ops_report.status_counts.get("executed") == 1
     assert ops_report.alerts[0].alert_type.value == "open_case_backlog"
+    assert ops_report.arbitrator_activity[0].arbitrator_identity_id == "arb-1"
     ops_alerts = await client.get_arbitration_case_ops_alerts(window_hours=24)
     assert ops_alerts[0].severity.value == "medium"
+    ops_arbitrators = await client.list_arbitration_case_ops_arbitrators(window_hours=24, limit=20)
+    assert ops_arbitrators[0].vote_count == 1
 
     material = await client.submit_arbitration_material(
         case_id=case_id,

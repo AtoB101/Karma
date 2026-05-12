@@ -12,6 +12,7 @@ import httpx
 from core.schemas import (
     AgentRole,
     ExplainableRiskReport,
+    ArbitrationArbitratorActivitySummary,
     ArbitrationAssignment,
     ArbitrationCase,
     ArbitrationCaseEvent,
@@ -491,12 +492,15 @@ class KarmaClient:
         *,
         window_hours: int = 24,
         recent_events_limit: int = 50,
+        arbitrator_limit: int = 20,
     ) -> ArbitrationCaseOpsReport:
         """GET /v1/arbitration/cases/ops/report"""
         async with self._http() as http:
             resp = await http.get(
                 f"{self.runtime_url}/v1/arbitration/cases/ops/report"
-                f"?window_hours={window_hours}&recent_events_limit={recent_events_limit}"
+                f"?window_hours={window_hours}"
+                f"&recent_events_limit={recent_events_limit}"
+                f"&arbitrator_limit={arbitrator_limit}"
             )
             resp.raise_for_status()
             return ArbitrationCaseOpsReport(**resp.json())
@@ -522,6 +526,21 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return [ArbitrationOpsAlert(**item) for item in resp.json()]
+
+    async def list_arbitration_case_ops_arbitrators(
+        self,
+        *,
+        window_hours: int = 24,
+        limit: int = 20,
+    ) -> list[ArbitrationArbitratorActivitySummary]:
+        """GET /v1/arbitration/cases/ops/arbitrators"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/arbitration/cases/ops/arbitrators"
+                f"?window_hours={window_hours}&limit={limit}"
+            )
+            resp.raise_for_status()
+            return [ArbitrationArbitratorActivitySummary(**item) for item in resp.json()]
 
     async def submit_arbitration_material(
         self,

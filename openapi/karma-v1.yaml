@@ -685,6 +685,14 @@ paths:
             minimum: 1
             maximum: 1000
             default: 50
+        - in: query
+          name: arbitrator_limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
       responses:
         '200':
           description: Arbitration operations report
@@ -692,6 +700,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ArbitrationCaseOpsReport'
+  /v1/arbitration/cases/ops/arbitrators:
+    get:
+      summary: Get arbitration arbitrator activity summary
+      operationId: listArbitrationCaseOpsArbitrators
+      parameters:
+        - in: query
+          name: window_hours
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 720
+            default: 24
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 20
+      responses:
+        '200':
+          description: Arbitration arbitrator activity list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ArbitrationArbitratorActivitySummary'
   /v1/arbitration/cases/ops/alerts:
     get:
       summary: Get arbitration operations alerts
@@ -2166,6 +2204,28 @@ components:
         - message
         - metadata
         - generated_at
+    ArbitrationArbitratorActivitySummary:
+      type: object
+      properties:
+        arbitrator_identity_id:
+          type: string
+        assigned_count:
+          type: integer
+        vote_count:
+          type: integer
+        last_assigned_at:
+          type: string
+          format: date-time
+        last_voted_at:
+          type: string
+          format: date-time
+        last_activity_at:
+          type: string
+          format: date-time
+      required:
+        - arbitrator_identity_id
+        - assigned_count
+        - vote_count
     ArbitrationCaseOpsReport:
       type: object
       properties:
@@ -2189,6 +2249,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ArbitrationOpsAlert'
+        arbitrator_activity:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArbitrationArbitratorActivitySummary'
         generated_at:
           type: string
           format: date-time
@@ -2199,6 +2263,7 @@ components:
         - decision_counts
         - recent_events
         - alerts
+        - arbitrator_activity
         - generated_at
     SubmitArbitrationMaterialRequest:
       type: object

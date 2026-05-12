@@ -544,6 +544,15 @@ class ArbitrationOpsAlert(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class ArbitrationArbitratorActivitySummary(BaseModel):
+    arbitrator_identity_id: str
+    assigned_count: int = 0
+    vote_count: int = 0
+    last_assigned_at: Optional[datetime] = None
+    last_voted_at: Optional[datetime] = None
+    last_activity_at: Optional[datetime] = None
+
+
 class ArbitrationCaseOpsReport(BaseModel):
     window_hours: int
     total_cases: int = 0
@@ -551,6 +560,7 @@ class ArbitrationCaseOpsReport(BaseModel):
     decision_counts: dict[str, int] = Field(default_factory=dict)
     recent_events: list[ArbitrationCaseEvent] = Field(default_factory=list)
     alerts: list[ArbitrationOpsAlert] = Field(default_factory=list)
+    arbitrator_activity: list[ArbitrationArbitratorActivitySummary] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

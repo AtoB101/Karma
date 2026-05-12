@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import (
+    ArbitrationArbitratorActivitySummary,
     ArbitrationAssignment,
     ArbitrationCase,
     ArbitrationCaseEvent,
@@ -165,12 +166,14 @@ async def create_arbitration_case(body: CreateArbitrationCaseRequest, db: AsyncS
 async def get_arbitration_case_ops_report(
     window_hours: int = Query(default=24, ge=1, le=24 * 30),
     recent_events_limit: int = Query(default=50, ge=1, le=1000),
+    arbitrator_limit: int = Query(default=20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
     return await _build_arbitration_case_ops_report(
         db=db,
         window_hours=window_hours,
         recent_events_limit=recent_events_limit,
+        arbitrator_limit=arbitrator_limit,
     )
 
 
@@ -193,6 +196,19 @@ async def get_arbitration_case_ops_alerts(
         partial_ratio_threshold=partial_ratio_threshold,
     )
     return report.alerts
+
+
+@router.get("/cases/ops/arbitrators", response_model=list[ArbitrationArbitratorActivitySummary])
+async def get_arbitration_case_ops_arbitrators(
+    window_hours: int = Query(default=24, ge=1, le=24 * 30),
+    limit: int = Query(default=20, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _list_arbitrator_activity(
+        db=db,
+        window_hours=window_hours,
+        limit=limit,
+    )
 
 
 @router.get("/cases/{case_id}", response_model=ArbitrationCase)
@@ -613,6 +629,7 @@ async def _build_arbitration_case_ops_report(
     db: AsyncSession,
     window_hours: int = 24,
     recent_events_limit: int = 50,
+    arbitrator_limit: int = 20,
     open_case_threshold: int = DEFAULT_OPEN_CASE_ALERT_THRESHOLD,
     voting_case_threshold: int = DEFAULT_VOTING_CASE_ALERT_THRESHOLD,
     decided_case_threshold: int = DEFAULT_DECIDED_CASE_ALERT_THRESHOLD,
@@ -656,6 +673,11 @@ async def _build_arbitration_case_ops_report(
         decided_case_threshold=decided_case_threshold,
         partial_ratio_threshold=partial_ratio_threshold,
     )
+    arbitrator_activity = await _list_arbitrator_activity(
+        db=db,
+        window_hours=hours,
+        limit=arbitrator_limit,
+    )
 
     return ArbitrationCaseOpsReport(
         window_hours=hours,
@@ -664,6 +686,7 @@ async def _build_arbitration_case_ops_report(
         decision_counts=decision_counts,
         recent_events=recent_events,
         alerts=alerts,
+        arbitrator_activity=arbitrator_activity,
         generated_at=now,
     )
 
@@ -762,6 +785,79 @@ def _build_arbitration_ops_alerts(
         ),
         reverse=True,
     )
+
+
+async def _list_arbitrator_activity(
+    *,
+    db: AsyncSession,
+    window_hours: int = 24,
+    limit: int = 20,
+) -> list[ArbitrationArbitratorActivitySummary]:
+    now = datetime.utcnow()
+    hours = max(1, min(window_hours, 24 * 30))
+    limit_value = max(1, min(limit, 200))
+    cutoff = now - timedelta(hours=hours)
+
+    assigned_result = await db.execute(
+        select(
+            ArbitrationAssignmentModel.arbitrator_identity_id,
+            func.count(),
+            func.max(ArbitrationAssignmentModel.assigned_at),
+        )
+        .where(ArbitrationAssignmentModel.assigned_at >= cutoff)
+        .group_by(ArbitrationAssignmentModel.arbitrator_identity_id)
+    )
+    voted_result = await db.execute(
+        select(
+            ArbitrationVoteModel.arbitrator_identity_id,
+            func.count(),
+            func.max(ArbitrationVoteModel.voted_at),
+        )
+        .where(ArbitrationVoteModel.voted_at >= cutoff)
+        .group_by(ArbitrationVoteModel.arbitrator_identity_id)
+    )
+
+    summaries: dict[str, ArbitrationArbitratorActivitySummary] = {}
+
+    for arbitrator_identity_id, assigned_count, last_assigned_at in assigned_result.all():
+        summaries[str(arbitrator_identity_id)] = ArbitrationArbitratorActivitySummary(
+            arbitrator_identity_id=str(arbitrator_identity_id),
+            assigned_count=int(assigned_count or 0),
+            vote_count=0,
+            last_assigned_at=last_assigned_at,
+            last_voted_at=None,
+            last_activity_at=last_assigned_at,
+        )
+
+    for arbitrator_identity_id, vote_count, last_voted_at in voted_result.all():
+        key = str(arbitrator_identity_id)
+        existing = summaries.get(
+            key,
+            ArbitrationArbitratorActivitySummary(
+                arbitrator_identity_id=key,
+                assigned_count=0,
+                vote_count=0,
+                last_assigned_at=None,
+                last_voted_at=None,
+                last_activity_at=None,
+            ),
+        )
+        existing.vote_count = int(vote_count or 0)
+        existing.last_voted_at = last_voted_at
+        if existing.last_activity_at is None or (last_voted_at and last_voted_at > existing.last_activity_at):
+            existing.last_activity_at = last_voted_at
+        summaries[key] = existing
+
+    sorted_items = sorted(
+        summaries.values(),
+        key=lambda item: (
+            item.last_activity_at or datetime.min,
+            item.vote_count,
+            item.assigned_count,
+        ),
+        reverse=True,
+    )
+    return sorted_items[:limit_value]
 
 
 async def _apply_capacity_resolution(

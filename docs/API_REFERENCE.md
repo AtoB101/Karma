@@ -316,6 +316,7 @@ Get arbitration operations report snapshot:
 - `decision_counts`
 - recent case events within `window_hours`
 - `alerts`（open/voting backlog、decided timeout risk、partial spike）
+- `arbitrator_activity`（assignment/vote 活跃度聚合）
 
 ### `GET /v1/arbitration/cases/ops/alerts`
 Get arbitration operations alerts only (supports threshold tuning):
@@ -323,6 +324,14 @@ Get arbitration operations alerts only (supports threshold tuning):
 - `voting_case_threshold`
 - `decided_case_threshold`
 - `partial_ratio_threshold`
+
+### `GET /v1/arbitration/cases/ops/arbitrators`
+Get arbitrator activity summary (windowed):
+- `assigned_count`
+- `vote_count`
+- `last_assigned_at`
+- `last_voted_at`
+- `last_activity_at`
 
 ### `POST /v1/arbitration/cases/{case_id}/assign-auto`
 Auto-assign arbitrators from active pool.
@@ -351,8 +360,9 @@ SDK helper methods:
 - `join_arbitration_pool(arbitrator_identity_id, stake_amount=0.0)`
 - `list_arbitration_pool()`
 - `create_arbitration_case(task_id, opened_by, reason=None, required_arbitrators=3)`
-- `get_arbitration_case_ops_report(window_hours=24, recent_events_limit=50)`
+- `get_arbitration_case_ops_report(window_hours=24, recent_events_limit=50, arbitrator_limit=20)`
 - `get_arbitration_case_ops_alerts(...)`
+- `list_arbitration_case_ops_arbitrators(window_hours=24, limit=20)`
 - `assign_arbitrators(case_id, count=3)`
 - `list_arbitration_case_events(case_id, limit=200)`
 - `submit_arbitration_material(case_id, submitted_by, ...)`
