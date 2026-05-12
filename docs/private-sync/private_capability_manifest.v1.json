@@ -1,0 +1,73 @@
+{
+  "manifestVersion": "karma.private.capabilities.v1",
+  "generatedBy": "public-repo",
+  "description": "Required private capability baseline aligned to public Karma system",
+  "capabilities": [
+    {
+      "capabilityId": "private.receipt_anti_forgery",
+      "required": true,
+      "title": "Fake receipt identification",
+      "acceptance": "Can classify suspicious/forged execution receipts and emit risk signals"
+    },
+    {
+      "capabilityId": "private.execution_truth_verification",
+      "required": true,
+      "title": "Execution truthfulness verification",
+      "acceptance": "Can evaluate whether claimed execution evidence is materially authentic"
+    },
+    {
+      "capabilityId": "private.risk_scoring_model",
+      "required": true,
+      "title": "Risk scoring model",
+      "acceptance": "Produces stable risk score/band for settlement and operations decisions"
+    },
+    {
+      "capabilityId": "private.arbitration_weighting",
+      "required": true,
+      "title": "Arbitration weighting rules",
+      "acceptance": "Supports weighted arbitration recommendation with explainable factors"
+    },
+    {
+      "capabilityId": "private.anti_wash_abuse",
+      "required": true,
+      "title": "Anti-wash and anti-abuse strategy",
+      "acceptance": "Detects wash/self-dealing and abuse patterns under operational load"
+    },
+    {
+      "capabilityId": "private.responsibility_cycle_detection",
+      "required": true,
+      "title": "Responsibility cycle detection (private enrichment)",
+      "acceptance": "Finds high-risk cyclical responsibility paths beyond public structural checks"
+    },
+    {
+      "capabilityId": "private.identity_risk_scoring",
+      "required": true,
+      "title": "Identity risk scoring",
+      "acceptance": "Maintains identity-level risk profile used by private policy decisions"
+    },
+    {
+      "capabilityId": "private.dispute_decision_assist",
+      "required": true,
+      "title": "Dispute decision assistance",
+      "acceptance": "Provides private recommendation artifacts for dispute resolution pipeline"
+    },
+    {
+      "capabilityId": "private.malicious_agent_detection",
+      "required": true,
+      "title": "Malicious agent detection",
+      "acceptance": "Detects malicious agent behavior patterns and escalation conditions"
+    },
+    {
+      "capabilityId": "private.high_risk_scenario_recognition",
+      "required": true,
+      "title": "High-risk scenario recognition",
+      "acceptance": "Recognizes pre-defined high-risk scenarios and outputs mitigation guidance"
+    },
+    {
+      "capabilityId": "private.ops_sop_runtime",
+      "required": true,
+      "title": "Private operations SOP runtime support",
+      "acceptance": "Supports operational runbooks for emergency handling and controlled rollback"
+    }
+  ]
+}

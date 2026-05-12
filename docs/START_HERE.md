@@ -55,6 +55,12 @@ KARMA is a trust-and-settlement system for AI agent workloads:
 3. `TRADEMARK_POLICY.md`
 4. `docs/LICENSING.md`
 
+### F) Public-private alignment owner
+
+1. `docs/PRIVATE_CAPABILITY_SYNC_SPEC.md`
+2. `docs/private-sync/private_capability_manifest.v1.json`
+3. `docs/private-sync/private_capability_status.v1.template.json`
+
 ---
 
 ## Minimal local validation

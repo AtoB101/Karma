@@ -177,6 +177,9 @@ karma-public/
 - [Public 12 Deliverables (CN)](docs/PUBLIC_12_DELIVERABLES_CN.md)
 - [Public P0 Acceptance Runbook (CN)](docs/PUBLIC_P0_ACCEPTANCE_RUNBOOK_CN.md)
 
+### Public-private capability alignment
+- [Private Capability Sync Spec](docs/PRIVATE_CAPABILITY_SYNC_SPEC.md)
+
 ---
 
 ## Architecture

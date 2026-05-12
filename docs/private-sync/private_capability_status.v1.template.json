@@ -1,0 +1,107 @@
+{
+  "statusVersion": "karma.private.capability.status.v1",
+  "manifestVersion": "karma.private.capabilities.v1",
+  "repository": "private-repo-name",
+  "updatedAt": "2026-05-12T00:00:00Z",
+  "capabilities": [
+    {
+      "capabilityId": "private.receipt_anti_forgery",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.execution_truth_verification",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.risk_scoring_model",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.arbitration_weighting",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.anti_wash_abuse",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.responsibility_cycle_detection",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.identity_risk_scoring",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.dispute_decision_assist",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.malicious_agent_detection",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.high_risk_scenario_recognition",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    },
+    {
+      "capabilityId": "private.ops_sop_runtime",
+      "implemented": false,
+      "status": "blocked",
+      "owner": "",
+      "lastValidatedAt": "",
+      "evidence": "",
+      "notes": ""
+    }
+  ]
+}
