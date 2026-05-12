@@ -17,6 +17,7 @@ from core.schemas import (
     ReportSignatureStatus,
     ResponsibilityBatchScanResult,
     ResponsibilityBatchScanRun,
+    ResponsibilityDeadLetterSweepResult,
     ResponsibilityScanRunEvent,
     ResponsibilityScanEventType,
     ResponsibilityEdge,
@@ -433,6 +434,8 @@ async def run_batch_scan(
         retry_max_attempts=retry_max_attempts,
         retry_backoff_seconds=retry_backoff_seconds,
         current_attempt=0,
+        dead_lettered_at=None,
+        dead_letter_reason=None,
         total_identities=0,
         flagged_identities=0,
         created_at=now,
@@ -514,6 +517,8 @@ async def claim_next_scan_run(
     run_row.last_heartbeat_at = now
     run_row.cancelled_at = None
     run_row.cancel_reason = None
+    run_row.dead_lettered_at = None
+    run_row.dead_letter_reason = None
     await db.flush()
     await _append_scan_event(
         db=db,
@@ -646,6 +651,99 @@ async def recover_stale_scan_runs(
         recovered_scan_ids=recovered_scan_ids,
         generated_at=now,
     )
+
+
+async def sweep_dead_letter_scan_runs(
+    *,
+    db: AsyncSession,
+    limit: int = 100,
+    reason: str | None = None,
+) -> ResponsibilityDeadLetterSweepResult:
+    now = datetime.utcnow()
+    limit_value = max(1, min(limit, 1000))
+    sweep_reason = reason or "retry attempts exhausted"
+
+    result = await db.execute(
+        select(ResponsibilityScanRunModel)
+        .where(
+            ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.FAILED.value,
+            ResponsibilityScanRunModel.current_attempt >= ResponsibilityScanRunModel.retry_max_attempts,
+        )
+        .order_by(ResponsibilityScanRunModel.created_at.asc())
+        .limit(limit_value)
+    )
+    rows = result.scalars().all()
+    dead_lettered_scan_ids: list[str] = []
+    for run_row in rows:
+        run_row.status = ResponsibilityScanRunStatus.DEAD_LETTER.value
+        run_row.dead_lettered_at = now
+        run_row.dead_letter_reason = sweep_reason
+        _clear_claim_fields(run_row)
+        dead_lettered_scan_ids.append(run_row.scan_id)
+        await _append_scan_event(
+            db=db,
+            scan_id=run_row.scan_id,
+            event_type=ResponsibilityScanEventType.DEAD_LETTERED,
+            detail="scan run moved to dead-letter",
+            metadata={"reason": sweep_reason},
+        )
+
+    await db.flush()
+    return ResponsibilityDeadLetterSweepResult(
+        limit=limit_value,
+        scanned_count=len(rows),
+        dead_lettered_count=len(dead_lettered_scan_ids),
+        dead_lettered_scan_ids=dead_lettered_scan_ids,
+        generated_at=now,
+    )
+
+
+async def list_dead_letter_scan_runs(
+    *,
+    db: AsyncSession,
+    limit: int = 200,
+) -> list[ResponsibilityBatchScanRun]:
+    limit_value = max(1, min(limit, 1000))
+    result = await db.execute(
+        select(ResponsibilityScanRunModel)
+        .where(ResponsibilityScanRunModel.status == ResponsibilityScanRunStatus.DEAD_LETTER.value)
+        .order_by(ResponsibilityScanRunModel.dead_lettered_at.desc(), ResponsibilityScanRunModel.created_at.desc())
+        .limit(limit_value)
+    )
+    return [_scan_run_to_schema(row) for row in result.scalars().all()]
+
+
+async def requeue_dead_letter_scan_run(
+    *,
+    db: AsyncSession,
+    scan_id: str,
+    reason: str | None = None,
+) -> ResponsibilityBatchScanRun:
+    run_row = await db.get(ResponsibilityScanRunModel, scan_id)
+    if not run_row:
+        raise ValueError(f"scan run {scan_id} not found")
+    if run_row.status != ResponsibilityScanRunStatus.DEAD_LETTER.value:
+        raise ValueError("scan run is not in dead-letter state")
+
+    run_row.status = ResponsibilityScanRunStatus.PENDING.value
+    run_row.current_attempt = 0
+    run_row.next_retry_at = None
+    run_row.last_error = "requeued from dead-letter"
+    run_row.completed_at = None
+    run_row.cancelled_at = None
+    run_row.cancel_reason = None
+    run_row.dead_lettered_at = None
+    run_row.dead_letter_reason = None
+    _clear_claim_fields(run_row)
+    await db.flush()
+    await _append_scan_event(
+        db=db,
+        scan_id=run_row.scan_id,
+        event_type=ResponsibilityScanEventType.REQUEUED,
+        detail="scan run requeued from dead-letter",
+        metadata={"reason": reason or "manual requeue"},
+    )
+    return _scan_run_to_schema(run_row)
 
 
 async def pull_and_execute_scan_run(
@@ -810,6 +908,8 @@ async def cancel_scan_run(
     run_row.status = ResponsibilityScanRunStatus.CANCELLED.value
     run_row.cancelled_at = now
     run_row.cancel_reason = reason or "cancelled by operator"
+    run_row.dead_lettered_at = None
+    run_row.dead_letter_reason = None
     run_row.lease_expires_at = None
     run_row.last_heartbeat_at = None
     run_row.next_retry_at = None
@@ -874,6 +974,8 @@ async def execute_scan_run(
     run_row.lease_expires_at = now + timedelta(seconds=max(1, lease_seconds))
     run_row.cancelled_at = None
     run_row.cancel_reason = None
+    run_row.dead_lettered_at = None
+    run_row.dead_letter_reason = None
     run_row.last_error = None
     run_row.next_retry_at = None
     await db.flush()
@@ -1306,6 +1408,8 @@ def _scan_run_to_schema(row: ResponsibilityScanRunModel) -> ResponsibilityBatchS
         last_error=row.last_error,
         cancelled_at=row.cancelled_at,
         cancel_reason=row.cancel_reason,
+        dead_lettered_at=row.dead_lettered_at,
+        dead_letter_reason=row.dead_letter_reason,
         total_identities=row.total_identities,
         flagged_identities=row.flagged_identities,
         created_at=row.created_at,

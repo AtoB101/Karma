@@ -18,6 +18,7 @@ from services.responsibility_graph import (
     execute_scan_run,
     export_explainable_risk_report,
     get_batch_scan_result,
+    list_dead_letter_scan_runs,
     list_scan_run_events,
     get_scan_run_queue_stats,
     get_task_temporal_consistency_report,
@@ -25,9 +26,11 @@ from services.responsibility_graph import (
     get_identity_score,
     ingest_edge,
     pull_and_execute_scan_run,
+    requeue_dead_letter_scan_run,
     recover_stale_scan_runs,
     run_scan_queue_maintenance_tick,
     run_batch_scan,
+    sweep_dead_letter_scan_runs,
 )
 
 
@@ -233,6 +236,44 @@ async def test_async_scan_run_failure_sets_retry_window(db_session):
     events = await list_scan_run_events(db=db_session, scan_id=created.run.scan_id)
     event_types = {item.event_type for item in events}
     assert ResponsibilityScanEventType.EXECUTION_FAILED in event_types
+
+
+@pytest.mark.asyncio
+async def test_dead_letter_sweep_list_and_requeue(db_session):
+    created = await run_batch_scan(
+        db=db_session,
+        identity_ids=None,
+        execution_mode=ResponsibilityScanExecutionMode.ASYNC,
+        scan_mode=ResponsibilityScanMode.INCREMENTAL,
+        base_scan_id="missing-base-dlq",
+        retry_max_attempts=1,
+        retry_backoff_seconds=10,
+    )
+    scan_id = created.run.scan_id
+    with pytest.raises(ValueError, match="base scan run not found"):
+        await execute_scan_run(db=db_session, scan_id=scan_id)
+
+    sweep = await sweep_dead_letter_scan_runs(db=db_session, limit=100, reason="exhausted retries")
+    assert sweep.dead_lettered_count >= 1
+    assert scan_id in sweep.dead_lettered_scan_ids
+
+    dead_letter_runs = await list_dead_letter_scan_runs(db=db_session, limit=100)
+    dead_letter_ids = {item.scan_id for item in dead_letter_runs}
+    assert scan_id in dead_letter_ids
+
+    requeued = await requeue_dead_letter_scan_run(
+        db=db_session,
+        scan_id=scan_id,
+        reason="operator requeue",
+    )
+    assert requeued.status.value == "pending"
+    assert requeued.current_attempt == 0
+    assert requeued.dead_lettered_at is None
+
+    events = await list_scan_run_events(db=db_session, scan_id=scan_id)
+    event_types = {item.event_type for item in events}
+    assert ResponsibilityScanEventType.DEAD_LETTERED in event_types
+    assert ResponsibilityScanEventType.REQUEUED in event_types
 
 
 @pytest.mark.asyncio

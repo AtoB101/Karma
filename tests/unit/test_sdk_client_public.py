@@ -684,6 +684,45 @@ async def test_responsibility_sdk_methods():
             "recovered_scan_ids": ["scan-1"],
             "generated_at": now,
         },
+        ("GET", f"{base}/v1/responsibility/scan-runs/dead-letter?limit=20"): [
+            {
+                "scan_id": "scan-dlq-1",
+                "status": "dead_letter",
+                "execution_mode": "async",
+                "scan_mode": "incremental",
+                "base_scan_id": "scan-0",
+                "incremental_since_at": now,
+                "requested_identity_ids": ["id-z"],
+                "window_hours": 48,
+                "max_hops": 5,
+                "min_score_threshold": 8.0,
+                "retry_max_attempts": 1,
+                "retry_backoff_seconds": 30,
+                "current_attempt": 1,
+                "claimed_by": None,
+                "claimed_at": None,
+                "lease_expires_at": None,
+                "last_heartbeat_at": None,
+                "started_at": now,
+                "next_retry_at": None,
+                "last_error": "base scan run not found",
+                "cancelled_at": None,
+                "cancel_reason": None,
+                "dead_lettered_at": now,
+                "dead_letter_reason": "retry exhausted",
+                "total_identities": 0,
+                "flagged_identities": 0,
+                "created_at": now,
+                "completed_at": None,
+            }
+        ],
+        ("POST", f"{base}/v1/responsibility/scan-runs/dead-letter/sweep"): {
+            "limit": 100,
+            "scanned_count": 1,
+            "dead_lettered_count": 1,
+            "dead_lettered_scan_ids": ["scan-dlq-1"],
+            "generated_at": now,
+        },
         ("POST", f"{base}/v1/responsibility/scan-runs/worker/pull-execute"): {
             "runner_identity_id": "runner-1",
             "outcome": "completed",
@@ -850,6 +889,36 @@ async def test_responsibility_sdk_methods():
             "created_at": now,
             "completed_at": None,
         },
+        ("POST", f"{base}/v1/responsibility/scan-runs/scan-dlq-1/requeue"): {
+            "scan_id": "scan-dlq-1",
+            "status": "pending",
+            "execution_mode": "async",
+            "scan_mode": "incremental",
+            "base_scan_id": "scan-0",
+            "incremental_since_at": now,
+            "requested_identity_ids": ["id-z"],
+            "window_hours": 48,
+            "max_hops": 5,
+            "min_score_threshold": 8.0,
+            "retry_max_attempts": 1,
+            "retry_backoff_seconds": 30,
+            "current_attempt": 0,
+            "claimed_by": None,
+            "claimed_at": None,
+            "lease_expires_at": None,
+            "last_heartbeat_at": None,
+            "started_at": None,
+            "next_retry_at": None,
+            "last_error": "requeued from dead-letter",
+            "cancelled_at": None,
+            "cancel_reason": None,
+            "dead_lettered_at": None,
+            "dead_letter_reason": None,
+            "total_identities": 0,
+            "flagged_identities": 0,
+            "created_at": now,
+            "completed_at": None,
+        },
         ("POST", f"{base}/v1/responsibility/reports/export"): {
             "report_id": "report-1",
             "target": "identity",
@@ -954,6 +1023,10 @@ async def test_responsibility_sdk_methods():
     assert queue_stats.total_runs == 5
     recovered_stale = await client.recover_stale_responsibility_batch_scans(limit=100)
     assert recovered_stale.recovered_scan_ids == ["scan-1"]
+    dead_letter_runs = await client.list_dead_letter_responsibility_batch_scans(limit=20)
+    assert dead_letter_runs[0].status.value == "dead_letter"
+    swept = await client.sweep_dead_letter_responsibility_batch_scans(limit=100, reason="retry exhausted")
+    assert swept.dead_lettered_count == 1
     pull_executed = await client.pull_execute_responsibility_batch_scan(
         runner_identity_id="runner-1",
         include_failed=True,
@@ -981,6 +1054,11 @@ async def test_responsibility_sdk_methods():
         reason="manual-cancel",
     )
     assert cancelled.status.value == "cancelled"
+    requeued = await client.requeue_dead_letter_responsibility_batch_scan(
+        "scan-dlq-1",
+        reason="ops-requeue",
+    )
+    assert requeued.status.value == "pending"
     report = await client.export_explainable_risk_report(
         identity_id="id-a",
         signer_identity_id="signer-1",

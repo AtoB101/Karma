@@ -26,6 +26,7 @@ from core.schemas import (
     ResponsibilityEdgeType,
     ResponsibilityBatchScanRun,
     ResponsibilityBatchScanResult,
+    ResponsibilityDeadLetterSweepResult,
     ResponsibilityQueueMaintenanceTickResult,
     ResponsibilityRecoverStaleRunsResult,
     ResponsibilityScanExecutionMode,
@@ -710,6 +711,34 @@ class KarmaClient:
             resp.raise_for_status()
             return ResponsibilityRecoverStaleRunsResult(**resp.json())
 
+    async def list_dead_letter_responsibility_batch_scans(
+        self,
+        *,
+        limit: int = 200,
+    ) -> list[ResponsibilityBatchScanRun]:
+        """GET /v1/responsibility/scan-runs/dead-letter"""
+        async with self._http() as http:
+            resp = await http.get(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/dead-letter?limit={limit}"
+            )
+            resp.raise_for_status()
+            return [ResponsibilityBatchScanRun(**item) for item in resp.json()]
+
+    async def sweep_dead_letter_responsibility_batch_scans(
+        self,
+        *,
+        limit: int = 100,
+        reason: str | None = None,
+    ) -> ResponsibilityDeadLetterSweepResult:
+        """POST /v1/responsibility/scan-runs/dead-letter/sweep"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/dead-letter/sweep",
+                json={"limit": limit, "reason": reason},
+            )
+            resp.raise_for_status()
+            return ResponsibilityDeadLetterSweepResult(**resp.json())
+
     async def pull_execute_responsibility_batch_scan(
         self,
         *,
@@ -821,6 +850,21 @@ class KarmaClient:
                     "runner_identity_id": runner_identity_id,
                     "reason": reason,
                 },
+            )
+            resp.raise_for_status()
+            return ResponsibilityBatchScanRun(**resp.json())
+
+    async def requeue_dead_letter_responsibility_batch_scan(
+        self,
+        scan_id: str,
+        *,
+        reason: str | None = None,
+    ) -> ResponsibilityBatchScanRun:
+        """POST /v1/responsibility/scan-runs/{scan_id}/requeue"""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/responsibility/scan-runs/{scan_id}/requeue",
+                json={"reason": reason},
             )
             resp.raise_for_status()
             return ResponsibilityBatchScanRun(**resp.json())

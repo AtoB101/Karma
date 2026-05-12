@@ -863,6 +863,54 @@ async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: A
     failed_retry = await client.post(f"/v1/responsibility/scan-runs/{failing_scan_id}/retry")
     assert failed_retry.status_code == 409
 
+    exhausted_scan = await client.post("/v1/responsibility/scan-runs", json={
+        "execution_mode": "async",
+        "scan_mode": "incremental",
+        "base_scan_id": "missing-run-exhausted",
+        "window_hours": 24,
+        "max_hops": 4,
+        "min_score_threshold": 1.0,
+        "retry_max_attempts": 1,
+        "retry_backoff_seconds": 10,
+    })
+    assert exhausted_scan.status_code == 201
+    exhausted_scan_id = exhausted_scan.json()["run"]["scan_id"]
+
+    exhausted_execute = await client.post(
+        f"/v1/responsibility/scan-runs/{exhausted_scan_id}/execute",
+        json={"force": False},
+    )
+    assert exhausted_execute.status_code == 404
+
+    dead_letter_sweep = await client.post(
+        "/v1/responsibility/scan-runs/dead-letter/sweep",
+        json={"limit": 100, "reason": "retry-exhausted"},
+    )
+    assert dead_letter_sweep.status_code == 200
+    dead_letter_sweep_body = dead_letter_sweep.json()
+    assert dead_letter_sweep_body["dead_lettered_count"] >= 1
+    assert exhausted_scan_id in dead_letter_sweep_body["dead_lettered_scan_ids"]
+
+    dead_letter_runs = await client.get("/v1/responsibility/scan-runs/dead-letter?limit=100")
+    assert dead_letter_runs.status_code == 200
+    dead_letter_ids = {item["scan_id"] for item in dead_letter_runs.json()}
+    assert exhausted_scan_id in dead_letter_ids
+
+    requeued_scan = await client.post(
+        f"/v1/responsibility/scan-runs/{exhausted_scan_id}/requeue",
+        json={"reason": "ops-requeue"},
+    )
+    assert requeued_scan.status_code == 200
+    requeued_body = requeued_scan.json()
+    assert requeued_body["status"] == "pending"
+    assert requeued_body["current_attempt"] == 0
+
+    requeue_events = await client.get(f"/v1/responsibility/scan-runs/{exhausted_scan_id}/events?limit=100")
+    assert requeue_events.status_code == 200
+    requeue_event_types = [item["event_type"] for item in requeue_events.json()]
+    assert "dead_lettered" in requeue_event_types
+    assert "requeued" in requeue_event_types
+
     cancellable_scan = await client.post("/v1/responsibility/scan-runs", json={
         "identity_ids": ["id-a"],
         "execution_mode": "async",

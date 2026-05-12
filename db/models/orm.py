@@ -396,6 +396,8 @@ class ResponsibilityScanRunModel(Base):
     last_error:            Mapped[str|None] = mapped_column(Text)
     cancelled_at:          Mapped[datetime|None] = mapped_column(DateTime)
     cancel_reason:         Mapped[str|None] = mapped_column(Text)
+    dead_lettered_at:      Mapped[datetime|None] = mapped_column(DateTime)
+    dead_letter_reason:    Mapped[str|None] = mapped_column(Text)
     total_identities:      Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     flagged_identities:    Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -1040,6 +1040,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ResponsibilityRecoverStaleRunsResult'
+  /v1/responsibility/scan-runs/dead-letter:
+    get:
+      summary: List dead-letter responsibility scan runs
+      operationId: listDeadLetterResponsibilityBatchScans
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+      responses:
+        '200':
+          description: Dead-letter scan runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResponsibilityBatchScanRun'
+  /v1/responsibility/scan-runs/dead-letter/sweep:
+    post:
+      summary: Sweep exhausted failed runs into dead-letter
+      operationId: sweepDeadLetterResponsibilityBatchScans
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SweepDeadLetterResponsibilityScanRunsRequest'
+      responses:
+        '200':
+          description: Dead-letter sweep result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityDeadLetterSweepResult'
   /v1/responsibility/scan-runs/worker/pull-execute:
     post:
       summary: Worker pulls one scan run and executes it
@@ -1130,6 +1169,33 @@ paths:
                   $ref: '#/components/schemas/ResponsibilityScanRunEvent'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/responsibility/scan-runs/{scanId}/requeue:
+    post:
+      summary: Requeue dead-letter responsibility scan run
+      operationId: requeueDeadLetterResponsibilityBatchScan
+      parameters:
+        - in: path
+          name: scanId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequeueResponsibilityScanRunRequest'
+      responses:
+        '200':
+          description: Requeued scan run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityBatchScanRun'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
   /v1/responsibility/scan-runs/{scanId}/execute:
     post:
       summary: Execute or re-execute responsibility scan run
@@ -2121,6 +2187,21 @@ components:
           minimum: 1
           maximum: 1000
           default: 100
+    SweepDeadLetterResponsibilityScanRunsRequest:
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+        reason:
+          type: string
+    RequeueResponsibilityScanRunRequest:
+      type: object
+      properties:
+        reason:
+          type: string
     PullExecuteResponsibilityScanRunRequest:
       type: object
       properties:
@@ -2180,6 +2261,8 @@ components:
             - execution_failed
             - cancelled
             - stale_recovered
+            - dead_lettered
+            - requeued
         detail:
           type: string
         metadata:
@@ -2235,7 +2318,7 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, claimed, running, completed, failed, cancelled]
+          enum: [pending, claimed, running, completed, failed, cancelled, dead_letter]
         execution_mode:
           type: string
           enum: [sync, async]
@@ -2286,6 +2369,11 @@ components:
           type: string
           format: date-time
         cancel_reason:
+          type: string
+        dead_lettered_at:
+          type: string
+          format: date-time
+        dead_letter_reason:
           type: string
         total_identities:
           type: integer
@@ -2370,6 +2458,28 @@ components:
         - scanned_count
         - recovered_count
         - recovered_scan_ids
+        - generated_at
+    ResponsibilityDeadLetterSweepResult:
+      type: object
+      properties:
+        limit:
+          type: integer
+        scanned_count:
+          type: integer
+        dead_lettered_count:
+          type: integer
+        dead_lettered_scan_ids:
+          type: array
+          items:
+            type: string
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - limit
+        - scanned_count
+        - dead_lettered_count
+        - dead_lettered_scan_ids
         - generated_at
     ResponsibilityWorkerPullExecuteResult:
       type: object

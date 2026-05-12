@@ -9,6 +9,7 @@ from core.schemas import (
     ExplainableRiskReport,
     ResponsibilityBatchScanResult,
     ResponsibilityBatchScanRun,
+    ResponsibilityDeadLetterSweepResult,
     ResponsibilityEdgeIngestResult,
     ResponsibilityEdgeType,
     ResponsibilityQueueMaintenanceTickResult,
@@ -42,9 +43,12 @@ from services.responsibility_graph import (
     heartbeat_scan_run,
     ingest_edge,
     list_scan_run_events,
+    list_dead_letter_scan_runs,
     pull_and_execute_scan_run,
     recover_stale_scan_runs,
+    requeue_dead_letter_scan_run,
     run_scan_queue_maintenance_tick,
+    sweep_dead_letter_scan_runs,
     run_batch_scan,
 )
 
@@ -96,6 +100,15 @@ class CancelScanRunRequest(BaseModel):
 
 class RecoverStaleScanRunsRequest(BaseModel):
     limit: int = Field(default=100, ge=1, le=1000)
+
+
+class SweepDeadLetterScanRunsRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=1000)
+    reason: str | None = None
+
+
+class RequeueScanRunRequest(BaseModel):
+    reason: str | None = None
 
 
 class PullExecuteScanRunRequest(BaseModel):
@@ -245,6 +258,26 @@ async def recover_stale_runs(
     return await recover_stale_scan_runs(db=db, limit=body.limit)
 
 
+@router.get("/scan-runs/dead-letter", response_model=list[ResponsibilityBatchScanRun])
+async def list_dead_letter_runs(
+    limit: int = Query(default=200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    return await list_dead_letter_scan_runs(db=db, limit=limit)
+
+
+@router.post("/scan-runs/dead-letter/sweep", response_model=ResponsibilityDeadLetterSweepResult)
+async def sweep_dead_letter_runs(
+    body: SweepDeadLetterScanRunsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    return await sweep_dead_letter_scan_runs(
+        db=db,
+        limit=body.limit,
+        reason=body.reason,
+    )
+
+
 @router.post("/scan-runs/worker/pull-execute", response_model=ResponsibilityWorkerPullExecuteResult)
 async def pull_execute_scan_run(
     body: PullExecuteScanRunRequest,
@@ -296,6 +329,25 @@ async def get_scan_run_events(
         return await list_scan_run_events(db=db, scan_id=scan_id, limit=limit)
     except ValueError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/scan-runs/{scan_id}/requeue", response_model=ResponsibilityBatchScanRun)
+async def requeue_scan_run(
+    scan_id: str,
+    body: RequeueScanRunRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await requeue_dead_letter_scan_run(
+            db=db,
+            scan_id=scan_id,
+            reason=body.reason,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message:
+            raise HTTPException(404, message) from exc
+        raise HTTPException(409, message) from exc
 
 
 @router.post("/scan-runs/{scan_id}/execute", response_model=ResponsibilityBatchScanResult)

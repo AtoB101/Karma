@@ -148,6 +148,7 @@ class ResponsibilityScanRunStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    DEAD_LETTER = "dead_letter"
 
 
 class ResponsibilityScanMode(str, Enum):
@@ -603,6 +604,8 @@ class ResponsibilityScanEventType(str, Enum):
     EXECUTION_FAILED = "execution_failed"
     CANCELLED = "cancelled"
     STALE_RECOVERED = "stale_recovered"
+    DEAD_LETTERED = "dead_lettered"
+    REQUEUED = "requeued"
 
 
 class ResponsibilityScanRunEvent(BaseModel):
@@ -637,6 +640,8 @@ class ResponsibilityBatchScanRun(BaseModel):
     last_error: Optional[str] = None
     cancelled_at: Optional[datetime] = None
     cancel_reason: Optional[str] = None
+    dead_lettered_at: Optional[datetime] = None
+    dead_letter_reason: Optional[str] = None
     total_identities: int = 0
     flagged_identities: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -692,6 +697,14 @@ class ResponsibilityQueueMaintenanceTickResult(BaseModel):
     failed_count: int = 0
     executed_scan_ids: list[str] = Field(default_factory=list)
     failed_scan_ids: list[str] = Field(default_factory=list)
+    generated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityDeadLetterSweepResult(BaseModel):
+    limit: int
+    scanned_count: int
+    dead_lettered_count: int
+    dead_lettered_scan_ids: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
