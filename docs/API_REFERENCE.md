@@ -75,22 +75,52 @@ List policy versions (supports `status` filter and `limit`).
 Get one policy version.
 
 ### `POST /v1/security/policies/{policy_id}/activate`
-Promote a policy to global active (version switch).
+Emergency direct promote only (`?emergency_override=true`).  
+Default flow is the approval workflow under `/v1/security/policies/changes`.
 
 ### `POST /v1/security/policies/{policy_id}/candidate`
-Enable canary rollout for a policy (`rollout_percent` in `1..99`).
+Emergency direct candidate rollout only (`?emergency_override=true`).  
+Default flow is the approval workflow under `/v1/security/policies/changes`.
 
 ### `POST /v1/security/policies/rollback`
-Rollback active policy to a target or latest archived version.
+Emergency direct rollback only (`?emergency_override=true`).  
+Default flow is the approval workflow under `/v1/security/policies/changes`.
+
+### `POST /v1/security/policies/changes`
+Create a policy change request (activate / set_candidate / rollback).  
+Automatically includes pre-activation dry-run simulation results.
+
+### `GET /v1/security/policies/changes`
+List policy change requests (`status`, `limit`).
+
+### `GET /v1/security/policies/changes/{request_id}`
+Get a single policy change request with approvals and dry-run payload.
+
+### `POST /v1/security/policies/changes/{request_id}/review`
+Submit reviewer decision (`approve` or `reject`).  
+Distinct reviewers are required; default gate requires 2 approvals.
+
+### `POST /v1/security/policies/changes/{request_id}/apply`
+Apply an approved change request.  
+Requests cannot be applied before satisfying the approval threshold.
+
+### `POST /v1/security/policies/changes/dry-run`
+Run simulation only (no persistence / no activation) and return projected alert impact.
 
 SDK helper:
 - `get_security_ops_alerts(...)`
 - `create_security_threshold_policy(...)`
 - `list_security_threshold_policies(...)`
 - `get_security_threshold_policy(policy_id)`
-- `activate_security_threshold_policy(policy_id)`
-- `set_security_threshold_policy_candidate(policy_id, rollout_percent=...)`
-- `rollback_security_threshold_policy(target_policy_id=None)`
+- `activate_security_threshold_policy(policy_id, emergency_override=True)`
+- `set_security_threshold_policy_candidate(policy_id, rollout_percent=..., emergency_override=True)`
+- `rollback_security_threshold_policy(target_policy_id=None, emergency_override=True)`
+- `create_security_policy_change_request(...)`
+- `list_security_policy_change_requests(...)`
+- `get_security_policy_change_request(request_id)`
+- `review_security_policy_change_request(request_id, approver_id=..., decision=...)`
+- `apply_security_policy_change_request(request_id)`
+- `dry_run_security_policy_change(...)`
 
 ---
 

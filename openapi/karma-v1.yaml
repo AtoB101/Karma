@@ -373,7 +373,7 @@ paths:
           $ref: '#/components/responses/NotFound'
   /v1/security/policies/{policyId}/activate:
     post:
-      summary: Promote policy to active
+      summary: Promote policy to active (emergency override)
       operationId: activateSecurityThresholdPolicy
       parameters:
         - in: path
@@ -381,6 +381,12 @@ paths:
           required: true
           schema:
             type: string
+        - in: query
+          name: emergency_override
+          required: false
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: Activated policy
@@ -388,11 +394,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SecurityThresholdPolicy'
+        '409':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
   /v1/security/policies/{policyId}/candidate:
     post:
-      summary: Set policy as rollout candidate
+      summary: Set policy as rollout candidate (emergency override)
       operationId: setSecurityThresholdPolicyCandidate
       parameters:
         - in: path
@@ -400,6 +408,12 @@ paths:
           required: true
           schema:
             type: string
+        - in: query
+          name: emergency_override
+          required: false
+          schema:
+            type: boolean
+            default: false
       requestBody:
         required: true
         content:
@@ -417,8 +431,15 @@ paths:
           $ref: '#/components/responses/BadRequest'
   /v1/security/policies/rollback:
     post:
-      summary: Roll back active policy
+      summary: Roll back active policy (emergency override)
       operationId: rollbackSecurityThresholdPolicy
+      parameters:
+        - in: query
+          name: emergency_override
+          required: false
+          schema:
+            type: boolean
+            default: false
       requestBody:
         required: true
         content:
@@ -432,8 +453,137 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SecurityThresholdPolicy'
+        '409':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/security/policies/changes:
+    post:
+      summary: Create security policy change request
+      operationId: createSecurityPolicyChangeRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSecurityPolicyChangeRequest'
+      responses:
+        '201':
+          description: Policy change request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityPolicyChangeRequest'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+    get:
+      summary: List security policy change requests
+      operationId: listSecurityPolicyChangeRequests
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            $ref: '#/components/schemas/SecurityPolicyChangeStatus'
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+      responses:
+        '200':
+          description: Policy change requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SecurityPolicyChangeRequest'
+  /v1/security/policies/changes/{requestId}:
+    get:
+      summary: Get one security policy change request
+      operationId: getSecurityPolicyChangeRequest
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Policy change request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityPolicyChangeRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/security/policies/changes/{requestId}/review:
+    post:
+      summary: Review security policy change request
+      operationId: reviewSecurityPolicyChangeRequest
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewSecurityPolicyChangeRequest'
+      responses:
+        '200':
+          description: Updated policy change request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityPolicyChangeRequest'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/security/policies/changes/{requestId}/apply:
+    post:
+      summary: Apply approved security policy change request
+      operationId: applySecurityPolicyChangeRequest
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Applied policy change request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityPolicyChangeRequest'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/security/policies/changes/dry-run:
+    post:
+      summary: Dry-run security policy change request
+      operationId: dryRunSecurityPolicyChangeRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSecurityPolicyChangeRequest'
+      responses:
+        '200':
+          description: Simulated impact report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityPolicyDryRunResult'
+        '409':
+          $ref: '#/components/responses/BadRequest'
   /v1/capacity/{identityId}:
     get:
       summary: Get identity capacity ledger
@@ -2820,6 +2970,171 @@ components:
       properties:
         target_policy_id:
           type: string
+    SecurityPolicyChangeAction:
+      type: string
+      enum: [activate, set_candidate, rollback]
+    SecurityPolicyChangeStatus:
+      type: string
+      enum: [pending, approved, rejected, applied, cancelled]
+    SecurityPolicyApprovalDecision:
+      type: string
+      enum: [approve, reject]
+    SecurityPolicyChangeApproval:
+      type: object
+      properties:
+        approval_id:
+          type: string
+        request_id:
+          type: string
+        approver_id:
+          type: string
+        decision:
+          $ref: '#/components/schemas/SecurityPolicyApprovalDecision'
+        comment:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required: [approval_id, request_id, approver_id, decision, created_at]
+    SecurityPolicyDryRunSummary:
+      type: object
+      properties:
+        current_alert_count:
+          type: integer
+        projected_alert_count:
+          type: integer
+        delta_alert_count:
+          type: integer
+        current_critical_count:
+          type: integer
+        projected_critical_count:
+          type: integer
+        delta_critical_count:
+          type: integer
+        current_high_count:
+          type: integer
+        projected_high_count:
+          type: integer
+        delta_high_count:
+          type: integer
+        newly_triggered_alert_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsAlertType'
+        resolved_alert_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsAlertType'
+      required:
+        - current_alert_count
+        - projected_alert_count
+        - delta_alert_count
+        - current_critical_count
+        - projected_critical_count
+        - delta_critical_count
+        - current_high_count
+        - projected_high_count
+        - delta_high_count
+        - newly_triggered_alert_types
+        - resolved_alert_types
+    SecurityPolicyDryRunResult:
+      type: object
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        actor_id:
+          type: string
+        current_policy_id:
+          type: string
+        projected_policy_id:
+          type: string
+        current_report:
+          $ref: '#/components/schemas/SecurityOpsAlertReport'
+        projected_report:
+          $ref: '#/components/schemas/SecurityOpsAlertReport'
+        summary:
+          $ref: '#/components/schemas/SecurityPolicyDryRunSummary'
+      required:
+        - generated_at
+        - current_report
+        - projected_report
+        - summary
+    SecurityPolicyChangeRequest:
+      type: object
+      properties:
+        request_id:
+          type: string
+        action:
+          $ref: '#/components/schemas/SecurityPolicyChangeAction'
+        status:
+          $ref: '#/components/schemas/SecurityPolicyChangeStatus'
+        target_policy_id:
+          type: string
+        target_rollback_policy_id:
+          type: string
+        rollout_percent:
+          type: integer
+        note:
+          type: string
+        requested_by:
+          type: string
+        requested_at:
+          type: string
+          format: date-time
+        applied_at:
+          type: string
+          format: date-time
+        required_approvals:
+          type: integer
+        approvals:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityPolicyChangeApproval'
+        dry_run:
+          $ref: '#/components/schemas/SecurityPolicyDryRunResult'
+      required:
+        - request_id
+        - action
+        - status
+        - requested_at
+        - required_approvals
+        - approvals
+    CreateSecurityPolicyChangeRequest:
+      type: object
+      properties:
+        action:
+          $ref: '#/components/schemas/SecurityPolicyChangeAction'
+        target_policy_id:
+          type: string
+        target_rollback_policy_id:
+          type: string
+        rollout_percent:
+          type: integer
+          minimum: 1
+          maximum: 99
+        note:
+          type: string
+        requested_by:
+          type: string
+        required_approvals:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 2
+        dry_run_actor_id:
+          type: string
+      required: [action]
+    ReviewSecurityPolicyChangeRequest:
+      type: object
+      properties:
+        approver_id:
+          type: string
+        decision:
+          $ref: '#/components/schemas/SecurityPolicyApprovalDecision'
+        comment:
+          type: string
+      required: [approver_id, decision]
     SecurityOpsSummary:
       type: object
       properties:
