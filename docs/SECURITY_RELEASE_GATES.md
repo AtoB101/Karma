@@ -15,6 +15,7 @@ This checklist is blocking for broad public test rollout.
 - [ ] Alerting exists for sustained 429 spikes and auth failures
 - [ ] `/v1/security/ops/alerts` is monitored with tuned thresholds
 - [ ] Alert cooldown / suppression policy is configured and reviewed with on-call
+- [ ] Endpoint / route-group threshold overrides are configured for critical paths
 
 ## Gate C — Security Auditability
 - [ ] Security audit logs are collected for sensitive write methods
@@ -32,4 +33,5 @@ This checklist is blocking for broad public test rollout.
 - [ ] `scripts/public-beta-security-gate.sh` passes in release environment
 - [ ] Rollback plan and on-call runbook are confirmed (`docs/SECURITY_INCIDENT_PLAYBOOK.md`)
 - [ ] `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` are configured
+- [ ] Baseline drift strategy (`baseline_window_minutes` / `baseline_drift_multiplier`) is reviewed
 

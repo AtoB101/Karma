@@ -46,6 +46,20 @@ Query parameters allow threshold tuning:
 - `private_runtime_min_requests`
 - `dimension_limit`
 - `alert_cooldown_minutes`
+- `failed_auth_threshold_overrides`（如：`/v1/auth/token=5,group:auth=8`）
+- `rate_limit_threshold_overrides`（如：`/v1/verify=20,group:verification=25`）
+- `private_runtime_error_threshold_overrides`
+- `private_runtime_error_rate_threshold_overrides`
+- `baseline_window_minutes`
+- `baseline_drift_multiplier`
+- `baseline_min_sample_count`
+- `baseline_capture_interval_minutes`
+
+返回结构额外包含：
+- `baseline`（滚动基线均值与样本数）
+- `suppressed_alert_count`（被冷却策略抑制的告警数量）
+- `escalation`（`none/watch/page`）
+- `recommended_actions`（值班动作建议）
 
 SDK helper:
 - `get_security_ops_alerts(...)`

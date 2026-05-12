@@ -109,6 +109,26 @@ def _is_state_transition_write(path: str) -> bool:
     return any(segment in path for segment in STATE_TRANSITION_SEGMENTS)
 
 
+def _route_group_for_path(path: str) -> str:
+    if path.startswith("/v1/auth"):
+        return "auth"
+    if path.startswith("/v1/verify"):
+        return "verification"
+    if path.startswith("/v1/settlement"):
+        return "settlement"
+    if path.startswith("/v1/arbitration"):
+        return "arbitration"
+    if path.startswith("/v1/responsibility"):
+        return "responsibility"
+    if path.startswith("/v1/vouchers"):
+        return "vouchers"
+    if path.startswith("/v1/capacity"):
+        return "capacity"
+    if path.startswith("/v1/progress"):
+        return "progress"
+    return "other"
+
+
 @app.middleware("http")
 async def security_write_rate_limit_middleware(request: Request, call_next) -> Response:
     path = request.url.path
@@ -161,6 +181,7 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
     response = await call_next(request)
     path = request.url.path
     method = request.method.upper()
+    route_group = _route_group_for_path(path)
     actor_id = resolve_agent_id_from_auth_headers(
         authorization=request.headers.get("Authorization"),
         api_key=request.headers.get("X-Karma-Api-Key"),
@@ -171,6 +192,7 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
             "security_write_audit",
             method=method,
             path=path,
+            route_group=route_group,
             status=response.status_code,
             actor_id=actor_id,
             request_id=response.headers.get("X-Request-Id"),
@@ -183,6 +205,7 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
                 "method": method,
                 "status": response.status_code,
                 "actor_id": actor_label,
+                "route_group": route_group,
             },
         )
     if path.startswith("/v1/") and response.status_code == 429:
@@ -193,6 +216,7 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
                 "method": method,
                 "status": response.status_code,
                 "actor_id": actor_label,
+                "route_group": route_group,
             },
         )
     if path == "/v1/verify" and method == "POST":
@@ -203,6 +227,7 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
                 "method": method,
                 "status": response.status_code,
                 "actor_id": actor_label,
+                "route_group": route_group,
             },
         )
         if response.status_code in {502, 503}:
@@ -213,6 +238,7 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
                     "method": method,
                     "status": response.status_code,
                     "actor_id": actor_label,
+                    "route_group": route_group,
                 },
             )
     return response

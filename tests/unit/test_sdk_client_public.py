@@ -1290,7 +1290,15 @@ async def test_security_ops_sdk_method():
             "&private_runtime_error_rate_threshold=0.25"
             "&private_runtime_min_requests=10"
             "&dimension_limit=5"
-            "&alert_cooldown_minutes=10",
+            "&alert_cooldown_minutes=10"
+            "&failed_auth_threshold_overrides="
+            "&rate_limit_threshold_overrides="
+            "&private_runtime_error_threshold_overrides="
+            "&private_runtime_error_rate_threshold_overrides="
+            "&baseline_window_minutes=1440"
+            "&baseline_drift_multiplier=2.5"
+            "&baseline_min_sample_count=3"
+            "&baseline_capture_interval_minutes=10",
         ): payload,
     }
     mock_http = _MockHTTP(routes)

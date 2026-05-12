@@ -595,6 +595,9 @@ class SecurityOpsAlertType(str, Enum):
     AUTH_FAILURE_SPIKE = "auth_failure_spike"
     RATE_LIMIT_SPIKE = "rate_limit_spike"
     PRIVATE_RUNTIME_ERROR_RATE = "private_runtime_error_rate"
+    AUTH_FAILURE_BASELINE_DRIFT = "auth_failure_baseline_drift"
+    RATE_LIMIT_BASELINE_DRIFT = "rate_limit_baseline_drift"
+    PRIVATE_RUNTIME_ERROR_BASELINE_DRIFT = "private_runtime_error_baseline_drift"
 
 
 class SecurityOpsAlert(BaseModel):
@@ -632,9 +635,20 @@ class SecurityOpsSummary(BaseModel):
     private_runtime_error_rate: float = 0.0
     failed_auth_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     failed_auth_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    failed_auth_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     rate_limited_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     rate_limited_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    rate_limited_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     private_runtime_error_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    private_runtime_error_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+
+
+class SecurityOpsBaselineReference(BaseModel):
+    sample_count: int = 0
+    baseline_window_minutes: int = 0
+    failed_auth_avg: float = 0.0
+    rate_limited_avg: float = 0.0
+    private_runtime_error_rate_avg: float = 0.0
 
 
 class SecurityOpsAlertReport(BaseModel):
@@ -642,6 +656,7 @@ class SecurityOpsAlertReport(BaseModel):
     summary: SecurityOpsSummary
     alerts: list[SecurityOpsAlert] = Field(default_factory=list)
     suppressed_alert_count: int = 0
+    baseline: SecurityOpsBaselineReference = Field(default_factory=SecurityOpsBaselineReference)
     escalation: SecurityOpsEscalationDecision = Field(default_factory=SecurityOpsEscalationDecision)
     recommended_actions: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)

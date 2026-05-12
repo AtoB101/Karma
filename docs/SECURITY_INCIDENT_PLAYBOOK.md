@@ -9,6 +9,7 @@ Treat any of the following as an incident trigger:
 - Repeated `auth_failure_spike` alerts from `/v1/security/ops/alerts`
 - Sustained `rate_limit_spike` with customer-facing 429 impact
 - `private_runtime_error_rate` alert at `high` or `critical`
+- baseline drift alerts (`*_baseline_drift`) sustained across consecutive windows
 - Any confirmed unauthorized write action, credential leak, or data integrity violation
 
 ## 2) Severity Levels

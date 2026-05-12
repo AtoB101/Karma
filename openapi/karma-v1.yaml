@@ -228,6 +228,62 @@ paths:
             minimum: 0
             maximum: 1440
             default: 10
+        - in: query
+          name: failed_auth_threshold_overrides
+          required: false
+          schema:
+            type: string
+          description: "Comma-separated threshold overrides, e.g. '/v1/auth/token=5,group:auth=8'"
+        - in: query
+          name: rate_limit_threshold_overrides
+          required: false
+          schema:
+            type: string
+          description: "Comma-separated threshold overrides, e.g. '/v1/verify=20,group:verification=25'"
+        - in: query
+          name: private_runtime_error_threshold_overrides
+          required: false
+          schema:
+            type: string
+          description: "Comma-separated threshold overrides, e.g. '/v1/verify=3,group:verification=4'"
+        - in: query
+          name: private_runtime_error_rate_threshold_overrides
+          required: false
+          schema:
+            type: string
+          description: "Comma-separated ratio overrides, e.g. '/v1/verify=0.2,group:verification=0.3'"
+        - in: query
+          name: baseline_window_minutes
+          required: false
+          schema:
+            type: integer
+            minimum: 10
+            maximum: 20160
+            default: 1440
+        - in: query
+          name: baseline_drift_multiplier
+          required: false
+          schema:
+            type: number
+            minimum: 1.1
+            maximum: 20
+            default: 2.5
+        - in: query
+          name: baseline_min_sample_count
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100000
+            default: 3
+        - in: query
+          name: baseline_capture_interval_minutes
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1440
+            default: 10
       responses:
         '200':
           description: Security alert report
@@ -2475,6 +2531,9 @@ components:
         - auth_failure_spike
         - rate_limit_spike
         - private_runtime_error_rate
+        - auth_failure_baseline_drift
+        - rate_limit_baseline_drift
+        - private_runtime_error_baseline_drift
     SecurityOpsAlert:
       type: object
       properties:
@@ -2530,6 +2589,25 @@ components:
         - level
         - reason
         - trigger_alert_types
+    SecurityOpsBaselineReference:
+      type: object
+      properties:
+        sample_count:
+          type: integer
+        baseline_window_minutes:
+          type: integer
+        failed_auth_avg:
+          type: number
+        rate_limited_avg:
+          type: number
+        private_runtime_error_rate_avg:
+          type: number
+      required:
+        - sample_count
+        - baseline_window_minutes
+        - failed_auth_avg
+        - rate_limited_avg
+        - private_runtime_error_rate_avg
     SecurityOpsSummary:
       type: object
       properties:
@@ -2551,6 +2629,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        failed_auth_by_route_group:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
         rate_limited_by_path:
           type: array
           items:
@@ -2559,7 +2641,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        rate_limited_by_route_group:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
         private_runtime_error_by_path:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        private_runtime_error_by_route_group:
           type: array
           items:
             $ref: '#/components/schemas/SecurityOpsDimensionCount'
@@ -2571,9 +2661,12 @@ components:
         - private_runtime_error_rate
         - failed_auth_by_path
         - failed_auth_by_actor
+        - failed_auth_by_route_group
         - rate_limited_by_path
         - rate_limited_by_actor
+        - rate_limited_by_route_group
         - private_runtime_error_by_path
+        - private_runtime_error_by_route_group
     SecurityOpsAlertReport:
       type: object
       properties:
@@ -2587,6 +2680,8 @@ components:
             $ref: '#/components/schemas/SecurityOpsAlert'
         suppressed_alert_count:
           type: integer
+        baseline:
+          $ref: '#/components/schemas/SecurityOpsBaselineReference'
         escalation:
           $ref: '#/components/schemas/SecurityOpsEscalationDecision'
         recommended_actions:
@@ -2601,6 +2696,7 @@ components:
         - summary
         - alerts
         - suppressed_alert_count
+        - baseline
         - escalation
         - recommended_actions
         - generated_at

@@ -1105,8 +1105,20 @@ class KarmaClient:
         private_runtime_min_requests: int = 10,
         dimension_limit: int = 5,
         alert_cooldown_minutes: int = 10,
+        failed_auth_threshold_overrides: str | None = None,
+        rate_limit_threshold_overrides: str | None = None,
+        private_runtime_error_threshold_overrides: str | None = None,
+        private_runtime_error_rate_threshold_overrides: str | None = None,
+        baseline_window_minutes: int = 24 * 60,
+        baseline_drift_multiplier: float = 2.5,
+        baseline_min_sample_count: int = 3,
+        baseline_capture_interval_minutes: int = 10,
     ) -> SecurityOpsAlertReport:
         """GET /v1/security/ops/alerts"""
+        failed_auth_threshold_overrides = failed_auth_threshold_overrides or ""
+        rate_limit_threshold_overrides = rate_limit_threshold_overrides or ""
+        private_runtime_error_threshold_overrides = private_runtime_error_threshold_overrides or ""
+        private_runtime_error_rate_threshold_overrides = private_runtime_error_rate_threshold_overrides or ""
         async with self._http() as http:
             resp = await http.get(
                 f"{self.runtime_url}/v1/security/ops/alerts"
@@ -1118,6 +1130,14 @@ class KarmaClient:
                 f"&private_runtime_min_requests={private_runtime_min_requests}"
                 f"&dimension_limit={dimension_limit}"
                 f"&alert_cooldown_minutes={alert_cooldown_minutes}"
+                f"&failed_auth_threshold_overrides={failed_auth_threshold_overrides}"
+                f"&rate_limit_threshold_overrides={rate_limit_threshold_overrides}"
+                f"&private_runtime_error_threshold_overrides={private_runtime_error_threshold_overrides}"
+                f"&private_runtime_error_rate_threshold_overrides={private_runtime_error_rate_threshold_overrides}"
+                f"&baseline_window_minutes={baseline_window_minutes}"
+                f"&baseline_drift_multiplier={baseline_drift_multiplier}"
+                f"&baseline_min_sample_count={baseline_min_sample_count}"
+                f"&baseline_capture_interval_minutes={baseline_capture_interval_minutes}"
             )
             resp.raise_for_status()
             return SecurityOpsAlertReport(**resp.json())
