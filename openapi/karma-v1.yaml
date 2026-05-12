@@ -212,6 +212,22 @@ paths:
             minimum: 1
             maximum: 100000
             default: 10
+        - in: query
+          name: dimension_limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 5
+        - in: query
+          name: alert_cooldown_minutes
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1440
+            default: 10
       responses:
         '200':
           description: Security alert report
@@ -2483,6 +2499,37 @@ components:
         - message
         - metadata
         - generated_at
+    SecurityOpsDimensionCount:
+      type: object
+      properties:
+        key:
+          type: string
+        count:
+          type: integer
+        last_seen_at:
+          type: string
+          format: date-time
+      required:
+        - key
+        - count
+    SecurityOpsEscalationLevel:
+      type: string
+      enum: [none, watch, page]
+    SecurityOpsEscalationDecision:
+      type: object
+      properties:
+        level:
+          $ref: '#/components/schemas/SecurityOpsEscalationLevel'
+        reason:
+          type: string
+        trigger_alert_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsAlertType'
+      required:
+        - level
+        - reason
+        - trigger_alert_types
     SecurityOpsSummary:
       type: object
       properties:
@@ -2496,12 +2543,37 @@ components:
           type: integer
         private_runtime_error_rate:
           type: number
+        failed_auth_by_path:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        failed_auth_by_actor:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        rate_limited_by_path:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        rate_limited_by_actor:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
+        private_runtime_error_by_path:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecurityOpsDimensionCount'
       required:
         - failed_auth_count
         - rate_limited_count
         - private_runtime_error_count
         - verify_request_count
         - private_runtime_error_rate
+        - failed_auth_by_path
+        - failed_auth_by_actor
+        - rate_limited_by_path
+        - rate_limited_by_actor
+        - private_runtime_error_by_path
     SecurityOpsAlertReport:
       type: object
       properties:
@@ -2513,6 +2585,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SecurityOpsAlert'
+        suppressed_alert_count:
+          type: integer
+        escalation:
+          $ref: '#/components/schemas/SecurityOpsEscalationDecision'
+        recommended_actions:
+          type: array
+          items:
+            type: string
         generated_at:
           type: string
           format: date-time
@@ -2520,6 +2600,9 @@ components:
         - window_minutes
         - summary
         - alerts
+        - suppressed_alert_count
+        - escalation
+        - recommended_actions
         - generated_at
     SubmitArbitrationMaterialRequest:
       type: object

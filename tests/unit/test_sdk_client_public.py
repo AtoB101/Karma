@@ -1288,7 +1288,9 @@ async def test_security_ops_sdk_method():
             "&rate_limit_threshold=30"
             "&private_runtime_error_threshold=5"
             "&private_runtime_error_rate_threshold=0.25"
-            "&private_runtime_min_requests=10",
+            "&private_runtime_min_requests=10"
+            "&dimension_limit=5"
+            "&alert_cooldown_minutes=10",
         ): payload,
     }
     mock_http = _MockHTTP(routes)

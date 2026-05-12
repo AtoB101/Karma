@@ -161,11 +161,12 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
     response = await call_next(request)
     path = request.url.path
     method = request.method.upper()
+    actor_id = resolve_agent_id_from_auth_headers(
+        authorization=request.headers.get("Authorization"),
+        api_key=request.headers.get("X-Karma-Api-Key"),
+    )
+    actor_label = actor_id or "anonymous"
     if _is_sensitive_write(path, method):
-        actor_id = resolve_agent_id_from_auth_headers(
-            authorization=request.headers.get("Authorization"),
-            api_key=request.headers.get("X-Karma-Api-Key"),
-        )
         security_audit_logger.info(
             "security_write_audit",
             method=method,
@@ -177,22 +178,42 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
     if path.startswith("/v1/") and response.status_code == 401:
         record_security_event(
             SecurityMonitoringEventType.FAILED_AUTH,
-            metadata={"path": path, "method": method, "status": response.status_code},
+            metadata={
+                "path": path,
+                "method": method,
+                "status": response.status_code,
+                "actor_id": actor_label,
+            },
         )
     if path.startswith("/v1/") and response.status_code == 429:
         record_security_event(
             SecurityMonitoringEventType.RATE_LIMIT_EXCEEDED,
-            metadata={"path": path, "method": method, "status": response.status_code},
+            metadata={
+                "path": path,
+                "method": method,
+                "status": response.status_code,
+                "actor_id": actor_label,
+            },
         )
     if path == "/v1/verify" and method == "POST":
         record_security_event(
             SecurityMonitoringEventType.VERIFY_REQUEST,
-            metadata={"path": path, "method": method, "status": response.status_code},
+            metadata={
+                "path": path,
+                "method": method,
+                "status": response.status_code,
+                "actor_id": actor_label,
+            },
         )
         if response.status_code in {502, 503}:
             record_security_event(
                 SecurityMonitoringEventType.PRIVATE_RUNTIME_ERROR,
-                metadata={"path": path, "method": method, "status": response.status_code},
+                metadata={
+                    "path": path,
+                    "method": method,
+                    "status": response.status_code,
+                    "actor_id": actor_label,
+                },
             )
     return response
 

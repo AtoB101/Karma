@@ -606,18 +606,44 @@ class SecurityOpsAlert(BaseModel):
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class SecurityOpsDimensionCount(BaseModel):
+    key: str
+    count: int = 0
+    last_seen_at: Optional[datetime] = None
+
+
+class SecurityOpsEscalationLevel(str, Enum):
+    NONE = "none"
+    WATCH = "watch"
+    PAGE = "page"
+
+
+class SecurityOpsEscalationDecision(BaseModel):
+    level: SecurityOpsEscalationLevel = SecurityOpsEscalationLevel.NONE
+    reason: str = "no escalation"
+    trigger_alert_types: list[SecurityOpsAlertType] = Field(default_factory=list)
+
+
 class SecurityOpsSummary(BaseModel):
     failed_auth_count: int = 0
     rate_limited_count: int = 0
     private_runtime_error_count: int = 0
     verify_request_count: int = 0
     private_runtime_error_rate: float = 0.0
+    failed_auth_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    failed_auth_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    rate_limited_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    rate_limited_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    private_runtime_error_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
 
 
 class SecurityOpsAlertReport(BaseModel):
     window_minutes: int
     summary: SecurityOpsSummary
     alerts: list[SecurityOpsAlert] = Field(default_factory=list)
+    suppressed_alert_count: int = 0
+    escalation: SecurityOpsEscalationDecision = Field(default_factory=SecurityOpsEscalationDecision)
+    recommended_actions: list[str] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

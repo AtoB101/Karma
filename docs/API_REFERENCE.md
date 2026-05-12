@@ -33,6 +33,9 @@ Get rolling security operations alerts (default 15-minute window), including:
 - auth failure spikes (`401`)
 - rate-limit spikes (`429`)
 - private runtime error rate (`/v1/verify` returning `502/503`)
+- top dimension slices by `path` and `actor_id`
+- escalation decision (`none` / `watch` / `page`) and suggested response actions
+- alert suppression count when cooldown is enabled
 
 Query parameters allow threshold tuning:
 - `window_minutes`
@@ -41,6 +44,8 @@ Query parameters allow threshold tuning:
 - `private_runtime_error_threshold`
 - `private_runtime_error_rate_threshold`
 - `private_runtime_min_requests`
+- `dimension_limit`
+- `alert_cooldown_minutes`
 
 SDK helper:
 - `get_security_ops_alerts(...)`

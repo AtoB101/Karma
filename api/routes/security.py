@@ -19,6 +19,8 @@ async def get_security_ops_alerts(
     private_runtime_error_threshold: int = Query(5, ge=1, le=100000),
     private_runtime_error_rate_threshold: float = Query(0.25, ge=0.01, le=1.0),
     private_runtime_min_requests: int = Query(10, ge=1, le=100000),
+    dimension_limit: int = Query(5, ge=1, le=50),
+    alert_cooldown_minutes: int = Query(10, ge=0, le=24 * 60),
 ) -> SecurityOpsAlertReport:
     """
     Build a windowed security alert report from recent runtime events.
@@ -30,4 +32,6 @@ async def get_security_ops_alerts(
         private_runtime_error_threshold=private_runtime_error_threshold,
         private_runtime_error_rate_threshold=private_runtime_error_rate_threshold,
         private_runtime_min_requests=private_runtime_min_requests,
+        dimension_limit=dimension_limit,
+        alert_cooldown_minutes=alert_cooldown_minutes,
     )

@@ -24,6 +24,8 @@ APP_ENV_VALUE="${APP_ENV:-}"
 APP_SECRET_VALUE="${APP_SECRET_KEY:-}"
 AUTH_ENFORCE_VALUE="${AUTH_ENFORCE_PROTECTED_ROUTES:-}"
 AUTH_KEYS_VALUE="${AUTH_API_KEYS:-}"
+ONCALL_PRIMARY_VALUE="${SECURITY_ONCALL_PRIMARY:-}"
+ONCALL_BACKUP_VALUE="${SECURITY_ONCALL_BACKUP:-}"
 
 if [[ "$ALLOW_NON_PROD" == "false" ]]; then
   if [[ "${APP_ENV_VALUE,,}" != "production" && "${APP_ENV_VALUE,,}" != "prod" ]]; then
@@ -47,11 +49,18 @@ if [[ -z "$AUTH_KEYS_VALUE" ]]; then
   exit 1
 fi
 
+if [[ "$ALLOW_NON_PROD" == "false" ]]; then
+  if [[ -z "$ONCALL_PRIMARY_VALUE" || -z "$ONCALL_BACKUP_VALUE" ]]; then
+    echo "ERR  SECURITY_ONCALL_PRIMARY and SECURITY_ONCALL_BACKUP must be configured"
+    exit 1
+  fi
+fi
+
 echo "==> Running security baseline guard"
 ./scripts/security-baseline-guard.sh
 
 echo "==> Running auth/security regression tests"
-pytest -q tests/unit/test_auth_security.py tests/unit/test_security_ops.py
+python3 -m pytest -q tests/unit/test_auth_security.py tests/unit/test_security_ops.py
 
 echo "==> Running public acceptance checks"
 ./scripts/public-p0-acceptance.sh

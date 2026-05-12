@@ -1103,6 +1103,8 @@ class KarmaClient:
         private_runtime_error_threshold: int = 5,
         private_runtime_error_rate_threshold: float = 0.25,
         private_runtime_min_requests: int = 10,
+        dimension_limit: int = 5,
+        alert_cooldown_minutes: int = 10,
     ) -> SecurityOpsAlertReport:
         """GET /v1/security/ops/alerts"""
         async with self._http() as http:
@@ -1114,6 +1116,8 @@ class KarmaClient:
                 f"&private_runtime_error_threshold={private_runtime_error_threshold}"
                 f"&private_runtime_error_rate_threshold={private_runtime_error_rate_threshold}"
                 f"&private_runtime_min_requests={private_runtime_min_requests}"
+                f"&dimension_limit={dimension_limit}"
+                f"&alert_cooldown_minutes={alert_cooldown_minutes}"
             )
             resp.raise_for_status()
             return SecurityOpsAlertReport(**resp.json())
