@@ -35,8 +35,21 @@ class OpenClawKarmaAdapter:
         )
         return created
 
-    async def deploy(self, *, overwrite: bool = False, skip_runtime_check: bool = False) -> dict[str, Any]:
+    async def deploy(
+        self,
+        *,
+        overwrite: bool = False,
+        skip_runtime_check: bool = False,
+        release_templates: bool = False,
+    ) -> dict[str, Any]:
         created = self.init_scaffold(overwrite=overwrite)
+        if release_templates:
+            created.extend(
+                self.deployer.write_release_templates(
+                    framework=self.framework_name,
+                    overwrite=overwrite,
+                )
+            )
         doctor = await self.deployer.doctor(skip_runtime_check=skip_runtime_check)
         return {"framework": self.framework_name, "created_files": created, "doctor": doctor}
 

@@ -42,7 +42,8 @@ def _make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--workspace-dir", default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--skip-runtime-check", action="store_true")
-    parser.add_argument("command", choices=["init", "deploy", "verify", "doctor"])
+    parser.add_argument("--release-templates", action="store_true")
+    parser.add_argument("command", choices=["init", "deploy", "verify", "doctor", "bootstrap"])
     return parser
 
 
@@ -60,6 +61,13 @@ async def _run_async(args: argparse.Namespace) -> dict:
         return await adapter.deploy(
             overwrite=args.overwrite,
             skip_runtime_check=args.skip_runtime_check,
+            release_templates=args.release_templates,
+        )
+    if args.command == "bootstrap":
+        return await adapter.deploy(
+            overwrite=args.overwrite,
+            skip_runtime_check=args.skip_runtime_check,
+            release_templates=True,
         )
     if args.command in {"verify", "doctor"}:
         return await adapter.verify(skip_runtime_check=args.skip_runtime_check)

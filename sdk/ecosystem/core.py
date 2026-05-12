@@ -71,6 +71,87 @@ class KarmaEcosystemDeployer:
         ]
         return created
 
+    def write_release_templates(self, *, framework: str, overwrite: bool = False) -> list[str]:
+        compose_template = f"""version: "3.9"
+services:
+  karma-ecosystem-check:
+    image: python:3.11-slim
+    working_dir: /workspace
+    env_file:
+      - .env.karma
+    volumes:
+      - .:/workspace
+    command: >
+      bash -lc "python -m pip install --upgrade pip && python -m pip install -e . && \\
+      karma-ecosystem --framework {framework} verify --workspace-dir /workspace --skip-runtime-check"
+"""
+        env_inject_script = """#!/usr/bin/env bash
+set -euo pipefail
+
+WORKSPACE_DIR="${1:-.}"
+EXAMPLE_PATH="${WORKSPACE_DIR}/.env.karma.example"
+TARGET_PATH="${WORKSPACE_DIR}/.env.karma"
+
+if [[ ! -f "${EXAMPLE_PATH}" ]]; then
+  echo "missing ${EXAMPLE_PATH}; run karma-ecosystem ... init first"
+  exit 1
+fi
+
+if [[ -f "${TARGET_PATH}" ]]; then
+  echo "${TARGET_PATH} already exists; skipping"
+  exit 0
+fi
+
+cp "${EXAMPLE_PATH}" "${TARGET_PATH}"
+echo "generated ${TARGET_PATH}"
+echo "edit KARMA_API_KEY and KARMA_AGENT_ID before deployment"
+"""
+        workflow_template = f"""name: Karma Ecosystem Verify
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  karma-ecosystem-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Generate scaffold
+        run: |
+          karma-ecosystem --framework {framework} init --workspace-dir .
+          bash scripts/karma-ecosystem-inject-env.sh .
+      - name: Doctor
+        run: |
+          karma-ecosystem --framework {framework} doctor --workspace-dir . --skip-runtime-check
+"""
+        created = [
+            self._write_file(
+                f"deploy/karma-ecosystem/docker-compose.{framework}.yml",
+                compose_template,
+                overwrite=overwrite,
+            ),
+            self._write_file(
+                "scripts/karma-ecosystem-inject-env.sh",
+                env_inject_script,
+                overwrite=overwrite,
+            ),
+            self._write_file(
+                ".github/workflows/karma-ecosystem-verify.template.yml",
+                workflow_template,
+                overwrite=overwrite,
+            ),
+        ]
+        return created
+
     async def verify_runtime(self, *, skip_runtime_check: bool = False) -> dict[str, Any]:
         if skip_runtime_check:
             return {"reachable": None, "status_code": None, "detail": "runtime health check skipped"}

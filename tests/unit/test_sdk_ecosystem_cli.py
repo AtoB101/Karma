@@ -82,3 +82,26 @@ def test_cli_doctor_reports_missing_env_when_skip_runtime(tmp_path, capsys):
     assert "KARMA_AGENT_ID" in payload["missing_env"]
     assert "KARMA_API_KEY" in payload["missing_env"]
     assert payload["runtime"]["detail"] == "runtime health check skipped"
+
+
+def test_cli_bootstrap_writes_release_templates(tmp_path, capsys):
+    exit_code = main(
+        [
+            "--framework",
+            "openclaw",
+            "--workspace-dir",
+            str(tmp_path),
+            "--agent-id",
+            "agent-cli-2",
+            "--api-key",
+            "karma_agent-cli-2_secret",
+            "--skip-runtime-check",
+            "bootstrap",
+        ]
+    )
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["framework"] == "openclaw"
+    assert (tmp_path / "deploy/karma-ecosystem/docker-compose.openclaw.yml").exists()
+    assert (tmp_path / "scripts/karma-ecosystem-inject-env.sh").exists()
+    assert (tmp_path / ".github/workflows/karma-ecosystem-verify.template.yml").exists()

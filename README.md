@@ -115,10 +115,12 @@ Use the new CLI to scaffold integration config and run a quick doctor check:
 # OpenClaw
 karma-ecosystem --framework openclaw init --workspace-dir .
 karma-ecosystem --framework openclaw doctor --workspace-dir . --skip-runtime-check
+karma-ecosystem --framework openclaw bootstrap --workspace-dir . --skip-runtime-check
 
 # OpenManus
 karma-ecosystem --framework openmanus init --workspace-dir .
 karma-ecosystem --framework openmanus deploy --workspace-dir . --skip-runtime-check
+karma-ecosystem --framework openmanus bootstrap --workspace-dir . --skip-runtime-check
 ```
 
 Generated files include:
@@ -127,6 +129,10 @@ Generated files include:
 - framework adapter file:
   - `openclaw/karma.integration.yaml`
   - or `openmanus/karma.integration.toml`
+- release-grade templates (bootstrap):
+  - `deploy/karma-ecosystem/docker-compose.<framework>.yml`
+  - `scripts/karma-ecosystem-inject-env.sh`
+  - `.github/workflows/karma-ecosystem-verify.template.yml`
 
 ---
 
