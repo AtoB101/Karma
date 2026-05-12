@@ -161,6 +161,26 @@ async def get_optional_agent_id(
         return None
 
 
+def resolve_agent_id_from_auth_headers(
+    *,
+    authorization: str | None,
+    api_key: str | None,
+) -> Optional[str]:
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        if token:
+            try:
+                payload = decode_access_token(token)
+                subject = payload.get("sub")
+                if isinstance(subject, str) and subject:
+                    return subject
+            except HTTPException:
+                pass
+    if api_key:
+        return _validate_api_key(api_key)
+    return None
+
+
 async def require_auth_if_enabled(
     request: Request,
     agent_id: Optional[str] = Depends(get_optional_agent_id),

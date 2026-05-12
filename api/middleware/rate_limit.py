@@ -17,6 +17,8 @@ RATE_LIMITS = {
     "submit":       (20,  60),    # 20 submissions / 60s
     "verify":       (10,  60),    # 10 verifications / 60s
     "register":     (5,   60),    # 5 registrations / 60s
+    "write_sensitive": (30, 60),  # 30 sensitive writes / 60s
+    "state_transition": (20, 60), # 20 state transitions / 60s
 }
 
 _redis: Optional[aioredis.Redis] = None
@@ -83,3 +85,5 @@ default_rate_limit  = make_rate_limit_dep("default")
 submit_rate_limit   = make_rate_limit_dep("submit")
 verify_rate_limit   = make_rate_limit_dep("verify")
 register_rate_limit = make_rate_limit_dep("register")
+write_sensitive_rate_limit = make_rate_limit_dep("write_sensitive")
+state_transition_rate_limit = make_rate_limit_dep("state_transition")

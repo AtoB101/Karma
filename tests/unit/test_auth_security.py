@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from api.middleware.auth import validate_api_key_for_agent
+from api.middleware.auth import resolve_agent_id_from_auth_headers, validate_api_key_for_agent
 from config.settings import settings
 from db.models.orm import AgentModel
 
@@ -33,6 +33,35 @@ def test_validate_api_key_for_agent_uses_configured_secret_map():
         assert not validate_api_key_for_agent(
             "agent-secure",
             "karma_agent-secure_super-secret-value-123",
+        )
+    finally:
+        settings.app_env = original_env
+        settings.auth_api_keys = original_keys
+        settings.auth_enforce_protected_routes = original_enforce
+
+
+def test_resolve_agent_id_from_headers_prefers_bearer_then_api_key():
+    original_env = settings.app_env
+    original_keys = settings.auth_api_keys
+    original_enforce = settings.auth_enforce_protected_routes
+    try:
+        settings.app_env = "test"
+        settings.auth_api_keys = "agent-secure:super-secret-value-123"
+        settings.auth_enforce_protected_routes = True
+
+        assert (
+            resolve_agent_id_from_auth_headers(
+                authorization=None,
+                api_key="karma_agent-secure_super-secret-value-123",
+            )
+            == "agent-secure"
+        )
+        assert (
+            resolve_agent_id_from_auth_headers(
+                authorization=None,
+                api_key="karma_agent-secure_bad",
+            )
+            is None
         )
     finally:
         settings.app_env = original_env

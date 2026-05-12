@@ -8,12 +8,14 @@ import uuid
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Histogram, make_asgi_app
 
 from config.settings import settings
-from api.middleware.auth import require_auth_if_enabled
+from api.middleware.auth import require_auth_if_enabled, resolve_agent_id_from_auth_headers
+from api.middleware.rate_limit import rate_limit
 from db.session import init_db
 from api.routes import (
     agents, auth, contracts, receipts,
@@ -21,6 +23,31 @@ from api.routes import (
 )
 
 logger = structlog.get_logger(__name__)
+security_audit_logger = structlog.get_logger("security.audit")
+SENSITIVE_WRITE_PREFIXES = (
+    "/v1/settlement/",
+    "/v1/arbitration/",
+    "/v1/vouchers/",
+    "/v1/verify",
+    "/v1/progress/",
+    "/v1/capacity/",
+)
+STATE_TRANSITION_SEGMENTS = (
+    "/lock",
+    "/start",
+    "/submit",
+    "/fail",
+    "/partial",
+    "/regret",
+    "/dispute",
+    "/auto-arbitrate",
+    "/execute",
+    "/accept",
+    "/cancel",
+    "/retry",
+    "/requeue",
+    "/maintenance/",
+)
 
 # Prometheus metrics
 REQUEST_COUNT = Counter(
@@ -71,6 +98,33 @@ async def security_headers_middleware(request: Request, call_next) -> Response:
     return response
 
 
+def _is_sensitive_write(path: str, method: str) -> bool:
+    if method.upper() not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return False
+    return any(path.startswith(prefix) for prefix in SENSITIVE_WRITE_PREFIXES)
+
+
+def _is_state_transition_write(path: str) -> bool:
+    return any(segment in path for segment in STATE_TRANSITION_SEGMENTS)
+
+
+@app.middleware("http")
+async def security_write_rate_limit_middleware(request: Request, call_next) -> Response:
+    path = request.url.path
+    method = request.method.upper()
+    if _is_sensitive_write(path, method):
+        limit_key = "state_transition" if _is_state_transition_write(path) else "write_sensitive"
+        try:
+            await rate_limit(request, limit_key)
+        except HTTPException as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=exc.headers or {},
+            )
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next) -> Response:
     request_id = str(uuid.uuid4())[:8]
@@ -98,6 +152,27 @@ async def request_logging_middleware(request: Request, call_next) -> Response:
 
     log.info("request_end", status=response.status_code, duration_ms=round(elapsed * 1000))
     response.headers["X-Request-Id"] = request_id
+    return response
+
+
+@app.middleware("http")
+async def security_audit_middleware(request: Request, call_next) -> Response:
+    response = await call_next(request)
+    path = request.url.path
+    method = request.method.upper()
+    if _is_sensitive_write(path, method):
+        actor_id = resolve_agent_id_from_auth_headers(
+            authorization=request.headers.get("Authorization"),
+            api_key=request.headers.get("X-Karma-Api-Key"),
+        )
+        security_audit_logger.info(
+            "security_write_audit",
+            method=method,
+            path=path,
+            status=response.status_code,
+            actor_id=actor_id,
+            request_id=response.headers.get("X-Request-Id"),
+        )
     return response
 
 

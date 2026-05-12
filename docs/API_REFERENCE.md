@@ -7,6 +7,7 @@ https://api.karma.xyz/v1
 ```
 
 All requests require authentication via `Authorization: Bearer <token>` or `X-Karma-Api-Key: karma_{agent_id}_{secret}`.
+Sensitive write endpoints are security-audited and protected by Redis-backed rate limiting in production.
 
 ---
 
