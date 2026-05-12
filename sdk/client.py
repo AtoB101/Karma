@@ -21,10 +21,14 @@ from core.schemas import (
     EvidenceBundle,
     IdentityProfile,
     ProgressReceipt,
+    ResponsibilityEdgeIngestResult,
+    ResponsibilityEdgeType,
+    ResponsibilityRiskSignal,
     ReputationSnapshot,
     SettlementState,
     SubIdentity,
     SubIdentityType,
+    TaskPathHashSummary,
     TaskContract,
     TaskStatus,
     VerificationResult,
@@ -515,6 +519,44 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return SettlementState(**resp.json())
+
+    async def ingest_responsibility_edge(
+        self,
+        *,
+        source_identity_id: str,
+        target_identity_id: str,
+        edge_type: ResponsibilityEdgeType = ResponsibilityEdgeType.MANUAL_LINK,
+        task_id: str | None = None,
+        voucher_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ResponsibilityEdgeIngestResult:
+        """POST /v1/responsibility/edges"""
+        payload: dict[str, Any] = {
+            "source_identity_id": source_identity_id,
+            "target_identity_id": target_identity_id,
+            "edge_type": edge_type.value,
+            "task_id": task_id,
+            "voucher_id": voucher_id,
+            "metadata": metadata or {},
+        }
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/responsibility/edges", json=payload)
+            resp.raise_for_status()
+            return ResponsibilityEdgeIngestResult(**resp.json())
+
+    async def list_responsibility_signals(self, identity_id: str, limit: int = 50) -> list[ResponsibilityRiskSignal]:
+        """GET /v1/responsibility/identity/{identity_id}/signals"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/responsibility/identity/{identity_id}/signals?limit={limit}")
+            resp.raise_for_status()
+            return [ResponsibilityRiskSignal(**item) for item in resp.json()]
+
+    async def get_task_path_hash(self, task_id: str) -> TaskPathHashSummary:
+        """GET /v1/responsibility/task/{task_id}/path-hash"""
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/responsibility/task/{task_id}/path-hash")
+            resp.raise_for_status()
+            return TaskPathHashSummary(**resp.json())
 
     async def get_token(self, agent_id: str, api_key: str) -> str:
         """POST /v1/auth/token — returns JWT access token."""

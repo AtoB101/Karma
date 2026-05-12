@@ -347,6 +347,30 @@ SDK helper methods:
 
 ---
 
+## Responsibility Graph & Path Hash (P2)
+
+### `POST /v1/responsibility/edges`
+提交责任边并触发公开侧风险信号检测（骨架规则）：
+- `direct_loop`：同源同目标
+- `mutual_exchange`：A->B 与 B->A 反向互连
+- `cycle_authorization`：检测到闭环授权路径
+
+### `GET /v1/responsibility/identity/{identity_id}/signals`
+按身份查询风险信号（可指定 `limit`）。
+
+### `GET /v1/responsibility/task/{task_id}/path-hash`
+返回该 task 下的 `edge_hashes` 与聚合 `path_hash`。
+
+自动接入：
+- `POST /v1/vouchers/{voucher_id}/accept` 成功后会自动记录一条 `voucher_accept` 责任边。
+
+SDK helper methods:
+- `ingest_responsibility_edge(...)`
+- `list_responsibility_signals(identity_id, limit=50)`
+- `get_task_path_hash(task_id)`
+
+---
+
 ## Reputation
 
 ### `GET /v1/reputation/{agent_id}`

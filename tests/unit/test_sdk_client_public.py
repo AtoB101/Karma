@@ -5,7 +5,13 @@ from datetime import datetime, timedelta
 import pytest
 
 from sdk.client import KarmaClient
-from core.schemas import ArbitrationVoteDecision, ProgressConfirmationStatus, ProgressReceipt, SubIdentityType
+from core.schemas import (
+    ArbitrationVoteDecision,
+    ProgressConfirmationStatus,
+    ProgressReceipt,
+    ResponsibilityEdgeType,
+    SubIdentityType,
+)
 
 
 class _MockResponse:
@@ -455,4 +461,64 @@ async def test_arbitration_sdk_methods():
 
     settled = await client.execute_arbitration_case(case_id)
     assert settled.status.value == "buyer_wins"
+
+
+@pytest.mark.asyncio
+async def test_responsibility_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    task_id = "task-resp-1"
+    ingest_payload = {
+        "edge": {
+            "edge_id": "edge-1",
+            "edge_hash": "a" * 64,
+            "source_identity_id": "id-a",
+            "target_identity_id": "id-b",
+            "edge_type": "task_delegation",
+            "task_id": task_id,
+            "voucher_id": None,
+            "metadata": {},
+            "created_at": now,
+        },
+        "signals": [
+            {
+                "signal_id": "sig-1",
+                "signal_type": "mutual_exchange",
+                "severity": "medium",
+                "identity_id": "id-a",
+                "edge_hash": "a" * 64,
+                "related_edge_hashes": ["a" * 64, "b" * 64],
+                "task_id": task_id,
+                "detail": "reverse edge detected",
+                "created_at": now,
+            }
+        ],
+    }
+    routes = {
+        ("POST", f"{base}/v1/responsibility/edges"): ingest_payload,
+        ("GET", f"{base}/v1/responsibility/identity/id-a/signals?limit=10"): ingest_payload["signals"],
+        ("GET", f"{base}/v1/responsibility/task/{task_id}/path-hash"): {
+            "task_id": task_id,
+            "edge_hashes": ["a" * 64, "b" * 64],
+            "path_hash": "c" * 64,
+        },
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    ingest = await client.ingest_responsibility_edge(
+        source_identity_id="id-a",
+        target_identity_id="id-b",
+        edge_type=ResponsibilityEdgeType.TASK_DELEGATION,
+        task_id=task_id,
+    )
+    assert ingest.edge.edge_hash == "a" * 64
+    assert len(ingest.signals) == 1
+
+    signals = await client.list_responsibility_signals("id-a", limit=10)
+    assert signals[0].signal_type.value == "mutual_exchange"
+
+    summary = await client.get_task_path_hash(task_id)
+    assert summary.path_hash == "c" * 64
 

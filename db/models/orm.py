@@ -336,6 +336,42 @@ class ArbitrationVoteModel(Base):
 
 
 # ---------------------------------------------------------------------------
+# Responsibility Graph (P2 skeleton)
+# ---------------------------------------------------------------------------
+
+class ResponsibilityEdgeModel(Base):
+    __tablename__ = "responsibility_edges"
+
+    edge_id:               Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    edge_hash:             Mapped[str]      = mapped_column(String(64), nullable=False, unique=True)
+    source_identity_id:    Mapped[str]      = mapped_column(String(64), nullable=False)
+    target_identity_id:    Mapped[str]      = mapped_column(String(64), nullable=False)
+    edge_type:             Mapped[str]      = mapped_column(String(32), nullable=False)
+    task_id:               Mapped[str|None] = mapped_column(String(64))
+    voucher_id:            Mapped[str|None] = mapped_column(String(64))
+    metadata_:             Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("voucher_id", name="uq_responsibility_edge_voucher"),
+    )
+
+
+class ResponsibilitySignalModel(Base):
+    __tablename__ = "responsibility_signals"
+
+    signal_id:             Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    signal_type:           Mapped[str]      = mapped_column(String(32), nullable=False)
+    severity:              Mapped[str]      = mapped_column(String(16), nullable=False)
+    identity_id:           Mapped[str]      = mapped_column(String(64), nullable=False)
+    edge_hash:             Mapped[str]      = mapped_column(String(64), nullable=False)
+    related_edge_hashes:   Mapped[list]     = mapped_column(JSON, nullable=False, default=list)
+    task_id:               Mapped[str|None] = mapped_column(String(64))
+    detail:                Mapped[str]      = mapped_column(Text, nullable=False)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
 # Verification Result
 # ---------------------------------------------------------------------------
 

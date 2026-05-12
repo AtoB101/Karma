@@ -827,6 +827,69 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/responsibility/edges:
+    post:
+      summary: Ingest responsibility graph edge and detect risk signals
+      operationId: ingestResponsibilityEdge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestResponsibilityEdgeRequest'
+      responses:
+        '201':
+          description: Edge ingest result with detected signals
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponsibilityEdgeIngestResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /v1/responsibility/identity/{identityId}/signals:
+    get:
+      summary: List responsibility risk signals for identity
+      operationId: listResponsibilitySignals
+      parameters:
+        - in: path
+          name: identityId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        '200':
+          description: Responsibility risk signals
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResponsibilityRiskSignal'
+  /v1/responsibility/task/{taskId}/path-hash:
+    get:
+      summary: Get task responsibility path hash summary
+      operationId: getTaskPathHash
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Path hash summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskPathHashSummary'
 components:
   securitySchemes:
     bearerAuth:
@@ -1395,6 +1458,113 @@ components:
         rationale:
           type: string
       required: [arbitrator_identity_id, decision]
+    IngestResponsibilityEdgeRequest:
+      type: object
+      properties:
+        source_identity_id:
+          type: string
+        target_identity_id:
+          type: string
+        edge_type:
+          type: string
+          enum: [voucher_accept, task_delegation, manual_link]
+        task_id:
+          type: string
+        voucher_id:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+      required: [source_identity_id, target_identity_id]
+    ResponsibilityEdge:
+      type: object
+      properties:
+        edge_id:
+          type: string
+        edge_hash:
+          type: string
+        source_identity_id:
+          type: string
+        target_identity_id:
+          type: string
+        edge_type:
+          type: string
+          enum: [voucher_accept, task_delegation, manual_link]
+        task_id:
+          type: string
+        voucher_id:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - edge_id
+        - edge_hash
+        - source_identity_id
+        - target_identity_id
+        - edge_type
+        - metadata
+        - created_at
+    ResponsibilityRiskSignal:
+      type: object
+      properties:
+        signal_id:
+          type: string
+        signal_type:
+          type: string
+          enum: [direct_loop, mutual_exchange, cycle_authorization]
+        severity:
+          type: string
+          enum: [info, medium, high]
+        identity_id:
+          type: string
+        edge_hash:
+          type: string
+        related_edge_hashes:
+          type: array
+          items:
+            type: string
+        task_id:
+          type: string
+        detail:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - signal_id
+        - signal_type
+        - severity
+        - identity_id
+        - edge_hash
+        - related_edge_hashes
+        - detail
+        - created_at
+    ResponsibilityEdgeIngestResult:
+      type: object
+      properties:
+        edge:
+          $ref: '#/components/schemas/ResponsibilityEdge'
+        signals:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponsibilityRiskSignal'
+      required: [edge, signals]
+    TaskPathHashSummary:
+      type: object
+      properties:
+        task_id:
+          type: string
+        edge_hashes:
+          type: array
+          items:
+            type: string
+        path_hash:
+          type: string
+      required: [task_id, edge_hashes]
     EvidenceObject:
       type: object
       properties:

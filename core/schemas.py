@@ -116,6 +116,24 @@ class ArbitrationVoteDecision(str, Enum):
     PARTIAL = "partial"
 
 
+class ResponsibilityEdgeType(str, Enum):
+    VOUCHER_ACCEPT = "voucher_accept"
+    TASK_DELEGATION = "task_delegation"
+    MANUAL_LINK = "manual_link"
+
+
+class ResponsibilitySignalType(str, Enum):
+    DIRECT_LOOP = "direct_loop"
+    MUTUAL_EXCHANGE = "mutual_exchange"
+    CYCLE_AUTHORIZATION = "cycle_authorization"
+
+
+class ResponsibilitySignalSeverity(str, Enum):
+    INFO = "info"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------
@@ -450,6 +468,41 @@ class MCPVerificationTemplate(BaseModel):
     prompt_hash: Optional[str] = None
     constraints_hash: Optional[str] = None
     runtime_receipt_hash: Optional[str] = None
+
+
+class ResponsibilityEdge(BaseModel):
+    edge_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    edge_hash: str
+    source_identity_id: str
+    target_identity_id: str
+    edge_type: ResponsibilityEdgeType = ResponsibilityEdgeType.MANUAL_LINK
+    task_id: Optional[str] = None
+    voucher_id: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityRiskSignal(BaseModel):
+    signal_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    signal_type: ResponsibilitySignalType
+    severity: ResponsibilitySignalSeverity
+    identity_id: str
+    edge_hash: str
+    related_edge_hashes: list[str] = Field(default_factory=list)
+    task_id: Optional[str] = None
+    detail: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ResponsibilityEdgeIngestResult(BaseModel):
+    edge: ResponsibilityEdge
+    signals: list[ResponsibilityRiskSignal] = Field(default_factory=list)
+
+
+class TaskPathHashSummary(BaseModel):
+    task_id: str
+    edge_hashes: list[str] = Field(default_factory=list)
+    path_hash: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

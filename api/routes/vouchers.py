@@ -7,10 +7,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.schemas import AuthorizationVoucher, CapacityState, SubIdentityStatus, VoucherStatus, VoucherVerificationResult
+from core.schemas import (
+    AuthorizationVoucher,
+    CapacityState,
+    ResponsibilityEdgeType,
+    SubIdentityStatus,
+    VoucherStatus,
+    VoucherVerificationResult,
+)
 from db.models.orm import CapacityModel, SubIdentityModel, VoucherModel
 from db.session import get_db
 from services.capacity_ledger import assert_capacity_invariants
+from services.responsibility_graph import ingest_edge
 
 router = APIRouter()
 
@@ -152,6 +160,22 @@ async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, db: AsyncS
 
     row.status = VoucherStatus.ACCEPTED.value
     row.accepted_at = datetime.utcnow()
+
+    await ingest_edge(
+        db=db,
+        source_identity_id=row.buyer_identity_id,
+        target_identity_id=row.seller_identity_id,
+        edge_type=ResponsibilityEdgeType.VOUCHER_ACCEPT,
+        voucher_id=row.voucher_id,
+        metadata={
+            "amount": row.amount,
+            "currency": row.currency,
+            "task_type": row.task_type,
+            "buyer_sub_identity_id": row.buyer_sub_identity_id,
+            "seller_sub_identity_id": row.seller_sub_identity_id,
+        },
+    )
+
     await db.flush()
     return _to_schema(row)
 

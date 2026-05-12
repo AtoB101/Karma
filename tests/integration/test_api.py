@@ -604,6 +604,80 @@ async def test_voucher_accept_reserves_capacity(client: AsyncClient):
     assert second_accept.status_code == 409
 
 
+@pytest.mark.asyncio
+async def test_responsibility_graph_detects_mutual_exchange_from_voucher_accept(client: AsyncClient):
+    buyer = "buyer-loop-001"
+    seller = "seller-loop-001"
+    await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
+
+    create = await client.post("/v1/vouchers", json={
+        "buyer_identity_id": buyer,
+        "seller_identity_id": seller,
+        "amount": 80,
+        "currency": "USDC",
+        "bill_credit_amount": 80,
+        "task_type": "delegation",
+        "task_description_hash": "d" * 64,
+        "progress_rule_hash": "e" * 64,
+        "evidence_requirement_hash": "f" * 64,
+        "expiry_time": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+        "nonce": "nonce-loop-001",
+        "buyer_signature": "sig-loop-001",
+    })
+    assert create.status_code == 201
+    voucher_id = create.json()["voucher_id"]
+
+    accepted = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
+    assert accepted.status_code == 200
+
+    reverse = await client.post("/v1/responsibility/edges", json={
+        "source_identity_id": seller,
+        "target_identity_id": buyer,
+        "edge_type": "manual_link",
+    })
+    assert reverse.status_code == 201
+    signal_types = {item["signal_type"] for item in reverse.json()["signals"]}
+    assert "mutual_exchange" in signal_types
+
+
+@pytest.mark.asyncio
+async def test_responsibility_graph_cycle_detection_and_task_path_hash(client: AsyncClient):
+    task_id = "task-path-cycle-001"
+    edge_1 = await client.post("/v1/responsibility/edges", json={
+        "source_identity_id": "id-a",
+        "target_identity_id": "id-b",
+        "edge_type": "task_delegation",
+        "task_id": task_id,
+    })
+    edge_2 = await client.post("/v1/responsibility/edges", json={
+        "source_identity_id": "id-b",
+        "target_identity_id": "id-c",
+        "edge_type": "task_delegation",
+        "task_id": task_id,
+    })
+    edge_3 = await client.post("/v1/responsibility/edges", json={
+        "source_identity_id": "id-c",
+        "target_identity_id": "id-a",
+        "edge_type": "task_delegation",
+        "task_id": task_id,
+    })
+    assert edge_1.status_code == 201
+    assert edge_2.status_code == 201
+    assert edge_3.status_code == 201
+    signal_types = {item["signal_type"] for item in edge_3.json()["signals"]}
+    assert "cycle_authorization" in signal_types
+
+    signals = await client.get("/v1/responsibility/identity/id-c/signals?limit=10")
+    assert signals.status_code == 200
+    assert any(item["signal_type"] == "cycle_authorization" for item in signals.json())
+
+    summary = await client.get(f"/v1/responsibility/task/{task_id}/path-hash")
+    assert summary.status_code == 200
+    body = summary.json()
+    assert len(body["edge_hashes"]) == 3
+    assert body["path_hash"] is not None
+
+
 # ---------------------------------------------------------------------------
 # Reputation
 # ---------------------------------------------------------------------------
