@@ -16,12 +16,21 @@ from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
 from services.progress_curve import validate_claimed_against_curve
 from services.receipt_guard import validate_progress_receipt_static
+from services.path_param_safety import validate_public_url_segment
+from services.settlement_party_access import (
+    party_binding_active,
+    require_actor_matches_identity,
+    require_buyer,
+)
 
 router = APIRouter()
 
 
 @router.post("", response_model=ProgressReceipt, status_code=201)
-async def submit_progress_receipt(progress: ProgressReceipt, db: AsyncSession = Depends(get_db)):
+async def submit_progress_receipt(progress: ProgressReceipt, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", progress.task_id)
+    validate_public_url_segment("progress_receipt_id", progress.progress_receipt_id)
+    validate_public_url_segment("seller_identity_id", progress.seller_identity_id)
     try:
         validate_progress_receipt_static(progress)
     except ValueError as exc:
@@ -64,6 +73,7 @@ async def submit_progress_receipt(progress: ProgressReceipt, db: AsyncSession = 
     settlement = await settlement_store.get(progress.task_id)
     if not settlement:
         raise HTTPException(404, f"Settlement for task {progress.task_id} not found")
+    require_actor_matches_identity(request, progress.seller_identity_id)
     try:
         validate_claimed_against_curve(
             progress_percent=progress.progress_percent,
@@ -100,6 +110,7 @@ async def submit_progress_receipt(progress: ProgressReceipt, db: AsyncSession = 
 
 @router.post("/{progress_receipt_id}/confirm", response_model=ProgressReceipt)
 async def confirm_progress_receipt(progress_receipt_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("progress_receipt_id", progress_receipt_id)
     row = await db.get(ProgressReceiptModel, progress_receipt_id)
     if not row:
         raise HTTPException(404, f"Progress receipt {progress_receipt_id} not found")
@@ -110,7 +121,9 @@ async def confirm_progress_receipt(progress_receipt_id: str, request: Request, d
     settlement = await settlement_store.get(row.task_id)
     if not settlement:
         raise HTTPException(404, f"Settlement for task {row.task_id} not found")
-    if settings.progress_confirm_require_buyer_actor:
+    if party_binding_active():
+        require_buyer(request, settlement)
+    elif settings.progress_confirm_require_buyer_actor:
         actor = resolve_agent_id_from_auth_headers(
             authorization=request.headers.get("authorization"),
             api_key=request.headers.get("x-karma-api-key"),
@@ -134,17 +147,20 @@ async def confirm_progress_receipt(progress_receipt_id: str, request: Request, d
 @router.post("/task/{task_id}/timeout-confirm", response_model=list[ProgressReceipt])
 async def timeout_confirm_progress(
     task_id: str,
+    request: Request,
     max_pending_hours: float = Query(default=72.0, ge=0.25, le=24 * 90),
     db: AsyncSession = Depends(get_db),
 ):
     """
     P1 — Auto-confirm pending progress receipts older than max_pending_hours (buyer-timeout path).
     """
+    validate_public_url_segment("task_id", task_id)
     cutoff = datetime.utcnow() - timedelta(hours=max_pending_hours)
     settlement_store = PostgresSettlementStore(db)
     settlement = await settlement_store.get(task_id)
     if not settlement:
         raise HTTPException(404, f"Settlement for task {task_id} not found")
+    require_buyer(request, settlement)
 
     result = await db.execute(
         select(ProgressReceiptModel).where(
@@ -173,6 +189,7 @@ async def timeout_confirm_progress(
 
 @router.get("/task/{task_id}", response_model=list[ProgressReceipt])
 async def list_progress_receipts(task_id: str, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     result = await db.execute(
         select(ProgressReceiptModel)
         .where(ProgressReceiptModel.task_id == task_id)

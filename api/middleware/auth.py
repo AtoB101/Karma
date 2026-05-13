@@ -120,9 +120,14 @@ def _validate_api_key(api_key: str) -> Optional[str]:
     if expected is not None:
         return agent_id if hmac.compare_digest(secret, expected) else None
 
-    # Backward-compatible development fallback only.
+    # Backward-compatible development fallback only (explicit opt-in).
     env = (settings.app_env or "").lower()
-    if (not settings.auth_enforce_protected_routes) and env in ("development", "dev", "local", "test") and len(secret) >= 12:
+    if (
+        settings.auth_allow_dev_key_fallback
+        and (not settings.auth_enforce_protected_routes)
+        and env in ("development", "dev", "local", "test")
+        and len(secret) >= 12
+    ):
         return agent_id
     return None
 

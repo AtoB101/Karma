@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
@@ -25,6 +25,8 @@ from services.runtime_safety import (
 )
 from services.voucher_eip712 import verify_authorization_voucher_buyer
 from config.settings import settings
+from services.ledger_party_access import require_ledger_identity
+from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
 
@@ -58,9 +60,18 @@ class AcceptVoucherRequest(BaseModel):
 
 
 @router.post("", response_model=AuthorizationVoucher, status_code=201)
-async def create_voucher(body: CreateVoucherRequest, db: AsyncSession = Depends(get_db)):
+async def create_voucher(body: CreateVoucherRequest, request: Request, db: AsyncSession = Depends(get_db)):
     assert_runtime_operation_allowed("new_authorization")
     await audit_capacity_anchor_and_maybe_trip(db=db)
+    validate_public_url_segment("buyer_identity_id", body.buyer_identity_id)
+    validate_public_url_segment("seller_identity_id", body.seller_identity_id)
+    if body.buyer_sub_identity_id:
+        validate_public_url_segment("buyer_sub_identity_id", body.buyer_sub_identity_id)
+    if body.seller_sub_identity_id:
+        validate_public_url_segment("seller_sub_identity_id", body.seller_sub_identity_id)
+    validate_public_url_segment("nonce", body.nonce)
+    validate_public_url_segment("task_type", body.task_type)
+    require_ledger_identity(request, body.buyer_identity_id)
     if body.amount <= 0 or body.bill_credit_amount <= 0:
         raise HTTPException(400, "amount and bill_credit_amount must be > 0")
     if body.expiry_time <= datetime.utcnow():
@@ -146,6 +157,7 @@ async def create_voucher(body: CreateVoucherRequest, db: AsyncSession = Depends(
 
 @router.get("/{voucher_id}", response_model=AuthorizationVoucher)
 async def get_voucher(voucher_id: str, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("voucher_id", voucher_id)
     row = await db.get(VoucherModel, voucher_id)
     if not row:
         raise HTTPException(404, f"Voucher {voucher_id} not found")
@@ -153,10 +165,13 @@ async def get_voucher(voucher_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{voucher_id}/verify", response_model=VoucherVerificationResult)
-async def verify_voucher(voucher_id: str, body: VerifyVoucherRequest, db: AsyncSession = Depends(get_db)):
+async def verify_voucher(voucher_id: str, body: VerifyVoucherRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("voucher_id", voucher_id)
+    validate_public_url_segment("seller_identity_id", body.seller_identity_id)
     row = await db.get(VoucherModel, voucher_id)
     if not row:
         raise HTTPException(404, f"Voucher {voucher_id} not found")
+    require_ledger_identity(request, body.seller_identity_id)
 
     now = datetime.utcnow()
     is_expired = row.expiry_time <= now
@@ -203,7 +218,9 @@ async def verify_voucher(voucher_id: str, body: VerifyVoucherRequest, db: AsyncS
 
 
 @router.post("/{voucher_id}/accept", response_model=AuthorizationVoucher)
-async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, db: AsyncSession = Depends(get_db)):
+async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("voucher_id", voucher_id)
+    validate_public_url_segment("seller_identity_id", body.seller_identity_id)
     assert_runtime_operation_allowed("new_authorization")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     row = await db.get(VoucherModel, voucher_id)
@@ -216,6 +233,7 @@ async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, db: AsyncS
         raise HTTPException(409, "voucher expired")
     if row.seller_identity_id != body.seller_identity_id:
         raise HTTPException(403, "seller mismatch")
+    require_ledger_identity(request, body.seller_identity_id)
 
     cap = await db.get(CapacityModel, row.buyer_identity_id)
     if not cap or cap.available_credits < row.bill_credit_amount:

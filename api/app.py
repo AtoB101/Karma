@@ -32,6 +32,14 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/verify",
     "/v1/progress/",
     "/v1/capacity/",
+    "/v1/receipts",
+    "/v1/bundles",
+    "/v1/responsibility/",
+    "/v1/security/",
+    "/v1/admin/",
+    "/v1/contracts/",
+    "/v1/agents/",
+    "/v1/identities/",
 )
 STATE_TRANSITION_SEGMENTS = (
     "/lock",
@@ -96,6 +104,9 @@ async def security_headers_middleware(request: Request, call_next) -> Response:
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    # Prevent shared-cache storage of authenticated API payloads (CDN / browser back/forward cache).
+    if request.url.path.startswith("/v1/"):
+        response.headers.setdefault("Cache-Control", "private, no-store")
     return response
 
 
