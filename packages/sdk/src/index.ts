@@ -1,9 +1,92 @@
 /**
- * @karma-network/sdk — P0 HTTP surface for Karma public API (TypeScript).
- * Mirrors Python `sdk.KarmaClient` lock / capacity / voucher / settlement / receipts.
+ * @karma-network/sdk — P0–P1 HTTP surface for Karma public API (TypeScript).
+ * Mirrors Python `sdk.KarmaClient` lock / capacity / voucher / settlement / receipts
+ * and exposes P1 typed receipt extension builders (hash-in / JSON-out).
  */
 
 export type Json = Record<string, unknown>;
+
+/** P1 — typed execution receipt extension (matches OpenAPI / Python schemas). */
+export type ApiExecutionReceiptExtension = {
+  kind: "api";
+  request_hash: string;
+  response_hash: string;
+  http_status_code: number;
+  latency_ms: number;
+  error_code?: string | null;
+};
+
+export type McpExecutionReceiptExtension = {
+  kind: "mcp";
+  mcp_server_id: string;
+  mcp_tool_name: string;
+  trace_hash: string;
+  result_hash: string;
+};
+
+export type AgentExecutionReceiptExtension = {
+  kind: "agent";
+  model_used: string;
+  tool_calls_hash: string;
+  step_log_hash: string;
+  runtime_trace_hash: string;
+};
+
+export type ExecutionReceiptExtension =
+  | ApiExecutionReceiptExtension
+  | McpExecutionReceiptExtension
+  | AgentExecutionReceiptExtension;
+
+/**
+ * Build ``kind: api`` extension when the caller already has lowercase hex SHA-256 digests
+ * (64 chars). Keeps the TS SDK free of crypto so it works in browsers without polyfills.
+ */
+export function apiExecutionExtensionFromHashes(params: {
+  requestHash: string;
+  responseHash: string;
+  httpStatusCode: number;
+  latencyMs: number;
+  errorCode?: string | null;
+}): ApiExecutionReceiptExtension {
+  return {
+    kind: "api",
+    request_hash: params.requestHash,
+    response_hash: params.responseHash,
+    http_status_code: params.httpStatusCode,
+    latency_ms: params.latencyMs,
+    error_code: params.errorCode ?? undefined,
+  };
+}
+
+export function mcpExecutionExtensionFromHashes(params: {
+  mcpServerId: string;
+  mcpToolName: string;
+  traceHash: string;
+  resultHash: string;
+}): McpExecutionReceiptExtension {
+  return {
+    kind: "mcp",
+    mcp_server_id: params.mcpServerId,
+    mcp_tool_name: params.mcpToolName,
+    trace_hash: params.traceHash,
+    result_hash: params.resultHash,
+  };
+}
+
+export function agentExecutionExtensionFromHashes(params: {
+  modelUsed: string;
+  toolCallsHash: string;
+  stepLogHash: string;
+  runtimeTraceHash: string;
+}): AgentExecutionReceiptExtension {
+  return {
+    kind: "agent",
+    model_used: params.modelUsed,
+    tool_calls_hash: params.toolCallsHash,
+    step_log_hash: params.stepLogHash,
+    runtime_trace_hash: params.runtimeTraceHash,
+  };
+}
 
 export interface KarmaSdkOptions {
   runtimeUrl: string;
@@ -144,5 +227,19 @@ export class KarmaPublicSdk {
     });
     if (!r.ok) throw new Error(`submitExecutionReceipt failed: ${r.status} ${await r.text()}`);
     return (await r.json()) as Json;
+  }
+
+  async timeoutConfirmStaleProgress(taskId: string, maxPendingHours = 72): Promise<Json[]> {
+    const q = new URLSearchParams({ max_pending_hours: String(maxPendingHours) });
+    const r = await fetch(
+      `${this.runtimeUrl}/v1/progress/task/${encodeURIComponent(taskId)}/timeout-confirm?${q.toString()}`,
+      {
+        method: "POST",
+        headers: this.headers(),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      },
+    );
+    if (!r.ok) throw new Error(`timeoutConfirmStaleProgress failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json[];
   }
 }

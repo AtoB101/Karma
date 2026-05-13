@@ -121,10 +121,10 @@
 
 ### P1（回执标准化 + 进度责任）
 
-1. 标准化 API/MCP/Agent Runtime 回执模板。
-2. Progress Receipt + Confirmed Progress。
-3. Buyer Regret 责任计算（含非线性价值曲线）。
-4. 部分结算（partial settlement）。
+1. 标准化 API/MCP/Agent Runtime 回执模板（`ExecutionReceipt.extension` + voucher `task_type` 前缀绑定；`sdk/execution_receipt_helpers.py`；Hook `run_tool(..., extension=)`；OpenAPI `POST /v1/receipts`）。
+2. Progress Receipt + Confirmed Progress（`POST /v1/progress`、`/v1/progress/{id}/confirm`、`POST /v1/progress/task/{taskId}/timeout-confirm`；可选配置 `progress_confirm_require_buyer_actor` 强制买家鉴权后确认）。
+3. Buyer Regret 责任计算（已确认 `claimed_value_percent` 最大值驱动结算；`buyer_identity_id` 若提供须与 settlement 买家一致）。
+4. 部分结算（`POST /v1/settlement/{taskId}/partial`；存在已确认进度时 `settled_value_percent` 不得超过已确认责任上限）。
 
 ### P2（仲裁与自动验证增强）
 

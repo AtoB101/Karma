@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.settings import settings
 from core.schemas import ExecutionReceipt
 from db.session import get_db
+from db.models.orm import SettlementModel, VoucherModel
 from db.stores.receipt_store import PostgresReceiptStore
 from services.receipt_guard import (
     validate_execution_receipt_static,
     verify_execution_receipt_signature,
 )
+from services.receipt_templates import validate_extension_vs_task_type
 
 router = APIRouter()
 
@@ -37,6 +41,18 @@ async def submit_receipt(receipt: ExecutionReceipt, db: AsyncSession = Depends(g
         validate_execution_receipt_static(receipt)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if settings.receipt_template_voucher_binding:
+        res = await db.execute(select(SettlementModel).where(SettlementModel.task_id == receipt.task_id))
+        sm = res.scalar_one_or_none()
+        if sm is not None and sm.voucher_id:
+            vm = await db.get(VoucherModel, sm.voucher_id)
+            task_type = vm.task_type if vm is not None else None
+            try:
+                validate_extension_vs_task_type(task_type=task_type, receipt=receipt)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if not verify_execution_receipt_signature(receipt):
         raise HTTPException(status_code=400, detail="invalid receipt signature")
 

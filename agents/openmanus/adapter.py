@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from core.schemas import ExecutionReceipt
-from core.hooks.hook_layer import KarmaHookLayer
+from core.hooks.hook_layer import ExecutionReceiptExtensionConcrete, KarmaHookLayer
 
 
 class KarmaOpenManusAgent:
@@ -46,6 +46,7 @@ class KarmaOpenManusAgent:
         input_data: Any,
         metadata: Optional[dict[str, Any]] = None,
         timeout: Optional[float] = None,
+        extension: Optional[ExecutionReceiptExtensionConcrete] = None,
     ) -> tuple[Any, ExecutionReceipt]:
         """
         Execute a single tool call with Karma instrumentation.
@@ -59,6 +60,7 @@ class KarmaOpenManusAgent:
             input_data=input_data,
             metadata=metadata,
             timeout=timeout,
+            extension=extension,
         )
         self._receipts.setdefault(task_id, []).append(receipt)
         return result, receipt

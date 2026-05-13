@@ -918,6 +918,70 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/receipts:
+    post:
+      summary: Submit signed execution receipt (P1 optional typed extension)
+      operationId: submitExecutionReceipt
+      description: |
+        When a settlement for the same `task_id` links an accepted voucher whose
+        `task_type` begins with `api.`, `mcp.`, or `agent.`, the matching typed
+        `extension` is required and participates in Ed25519 signing. Generic
+        `task_type` values must omit `extension`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecutionReceipt'
+      responses:
+        '201':
+          description: Receipt stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionReceipt'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/receipts/{receiptId}:
+    get:
+      summary: Get execution receipt by ID
+      operationId: getExecutionReceipt
+      parameters:
+        - in: path
+          name: receiptId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionReceipt'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/receipts/task/{taskId}:
+    get:
+      summary: List execution receipts for a task
+      operationId: listExecutionReceiptsByTask
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ordered receipts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExecutionReceipt'
   /v1/identities/{identityId}/profile/init:
     post:
       summary: Initialize identity profile
@@ -1080,6 +1144,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProgressReceipt'
+        '403':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1103,6 +1169,40 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ProgressReceipt'
+  /v1/progress/task/{taskId}/timeout-confirm:
+    post:
+      summary: Auto-confirm stale pending progress receipts (P1 buyer-timeout path)
+      operationId: timeoutConfirmProgressReceipts
+      description: |
+        Confirms all pending progress receipts for the task whose timestamp is older than
+        ``now - max_pending_hours``. Intended for operational automation when the buyer does not act.
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: max_pending_hours
+          required: false
+          schema:
+            type: number
+            default: 72
+            minimum: 0.25
+            maximum: 2160
+      responses:
+        '200':
+          description: Receipts that were confirmed by this call (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProgressReceipt'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
   /v1/settlement/{taskId}/pending:
     post:
       summary: Move settlement to pending
@@ -1153,7 +1253,11 @@ paths:
                   $ref: '#/components/schemas/SettlementTransitionAudit'
   /v1/settlement/{taskId}/partial:
     post:
-      summary: Partial settlement by value percent
+      summary: Partial settlement by economic value percent of escrow
+      description: |
+        Settles ``settled_value_percent`` of escrow to the seller and refunds the remainder.
+        When the task has any **confirmed** progress receipts, ``settled_value_percent`` must not
+        exceed the maximum confirmed ``claimed_value_percent`` (prevents paying beyond established liability).
       operationId: partialSettlement
       parameters:
         - in: path
@@ -1174,6 +1278,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SettlementState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1181,6 +1287,9 @@ paths:
   /v1/settlement/{taskId}/regret:
     post:
       summary: Buyer regret settlement
+      description: |
+        Settles to the seller based on the maximum **confirmed** ``claimed_value_percent`` on progress receipts,
+        and refunds the remainder to the buyer. When ``buyer_identity_id`` is supplied it must match the settlement buyer.
       operationId: regretSettlement
       parameters:
         - in: path
@@ -1201,6 +1310,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SettlementState'
+        '403':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -2525,6 +2636,10 @@ components:
           exclusiveMinimum: 0
         task_type:
           type: string
+          description: |
+            Logical task category. If the first dot-separated segment is `api`, `mcp`, or `agent`
+            (e.g. `api.echo`), execution receipts for settlements bound to this voucher must carry
+            the matching typed `extension` (see POST /v1/receipts).
         task_description_hash:
           type: string
         progress_rule_hash:
@@ -2634,6 +2749,135 @@ components:
         seller_identity_id:
           type: string
       required: [seller_identity_id]
+    ApiExecutionReceiptExtension:
+      type: object
+      description: P1 API call step — request/response digests (64-char lowercase hex SHA-256).
+      properties:
+        kind:
+          type: string
+          enum: [api]
+        request_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        response_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        http_status_code:
+          type: integer
+          minimum: 100
+          maximum: 599
+        latency_ms:
+          type: integer
+          minimum: 0
+          maximum: 3600000
+        error_code:
+          type: string
+          maxLength: 128
+      required: [kind, request_hash, response_hash, http_status_code, latency_ms]
+    McpExecutionReceiptExtension:
+      type: object
+      description: P1 MCP tool invocation digest bundle.
+      properties:
+        kind:
+          type: string
+          enum: [mcp]
+        mcp_server_id:
+          type: string
+          maxLength: 256
+        mcp_tool_name:
+          type: string
+          maxLength: 256
+        trace_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        result_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+      required: [kind, mcp_server_id, mcp_tool_name, trace_hash, result_hash]
+    AgentExecutionReceiptExtension:
+      type: object
+      description: P1 Agent / LLM runtime step digests.
+      properties:
+        kind:
+          type: string
+          enum: [agent]
+        model_used:
+          type: string
+          maxLength: 128
+        tool_calls_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        step_log_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        runtime_trace_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+      required: [kind, model_used, tool_calls_hash, step_log_hash, runtime_trace_hash]
+    ExecutionReceiptExtension:
+      oneOf:
+        - $ref: '#/components/schemas/ApiExecutionReceiptExtension'
+        - $ref: '#/components/schemas/McpExecutionReceiptExtension'
+        - $ref: '#/components/schemas/AgentExecutionReceiptExtension'
+      discriminator:
+        propertyName: kind
+        mapping:
+          api: '#/components/schemas/ApiExecutionReceiptExtension'
+          mcp: '#/components/schemas/McpExecutionReceiptExtension'
+          agent: '#/components/schemas/AgentExecutionReceiptExtension'
+    ExecutionReceipt:
+      type: object
+      properties:
+        receipt_id:
+          type: string
+        task_id:
+          type: string
+        agent_id:
+          type: string
+        step_index:
+          type: integer
+          minimum: 1
+        tool_name:
+          type: string
+        input_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        output_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [success, failure, timeout, skipped]
+        error_message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        signature:
+          type: string
+          description: Ed25519 signature (base64) over canonical receipt fields including extension when present.
+        extension:
+          $ref: '#/components/schemas/ExecutionReceiptExtension'
+      required:
+        - task_id
+        - agent_id
+        - step_index
+        - tool_name
+        - input_hash
+        - output_hash
+        - started_at
+        - ended_at
+        - duration_ms
+        - status
     VoucherVerificationResult:
       type: object
       properties:
@@ -2917,6 +3161,9 @@ components:
           type: number
           exclusiveMinimum: 0
           maximum: 100
+          description: |
+            Percent of escrow (by economic value) to settle to the seller. If any progress receipts are **confirmed**,
+            this must not exceed the maximum confirmed ``claimed_value_percent`` for the task.
         reason:
           type: string
       required: [settled_value_percent]
@@ -2925,6 +3172,7 @@ components:
       properties:
         buyer_identity_id:
           type: string
+          description: Optional; when set must equal the settlement ``client_agent_id`` (buyer).
         reason:
           type: string
     DisputeRequest:

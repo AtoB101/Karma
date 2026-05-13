@@ -27,9 +27,21 @@ import hashlib
 import json
 import time
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Union
 
-from core.schemas import ExecutionReceipt, ToolStatus
+from core.schemas import (
+    AgentExecutionReceiptExtension,
+    ApiExecutionReceiptExtension,
+    ExecutionReceipt,
+    McpExecutionReceiptExtension,
+    ToolStatus,
+)
+
+ExecutionReceiptExtensionConcrete = Union[
+    ApiExecutionReceiptExtension,
+    McpExecutionReceiptExtension,
+    AgentExecutionReceiptExtension,
+]
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +55,7 @@ def sha256_of(data: Any) -> str:
     elif isinstance(data, str):
         raw = data.encode()
     else:
-        raw = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+        raw = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str).encode()
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -62,6 +74,7 @@ class ToolCallContext:
         agent_id: str,
         step_index: int,
         tool_name: str,
+        extension: Optional[ExecutionReceiptExtensionConcrete] = None,
     ):
         self.task_id = task_id
         self.agent_id = agent_id
@@ -74,6 +87,7 @@ class ToolCallContext:
         self.status: ToolStatus = ToolStatus.SUCCESS
         self.error_message: Optional[str] = None
         self.metadata: dict[str, Any] = {}
+        self.extension: Optional[ExecutionReceiptExtensionConcrete] = extension
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +181,7 @@ class KarmaHookLayer:
         input_data: Any,
         timeout: Optional[float] = None,
         metadata: Optional[dict[str, Any]] = None,
+        extension: Optional[ExecutionReceiptExtensionConcrete] = None,
     ) -> tuple[Any, ExecutionReceipt]:
         """
         Execute a tool and return (result, receipt).
@@ -179,6 +194,7 @@ class KarmaHookLayer:
         input_data: Anything JSON-serialisable.
         timeout:    Override default timeout (seconds).
         metadata:   Extra fields embedded in the receipt.
+        extension:  Optional P1 typed extension (api / mcp / agent); included in signing when set.
         """
         step = self._next_step(task_id)
         ctx = ToolCallContext(
@@ -186,6 +202,7 @@ class KarmaHookLayer:
             agent_id=self.agent_id,
             step_index=step,
             tool_name=tool_name,
+            extension=extension,
         )
         if metadata:
             ctx.metadata = metadata
@@ -271,6 +288,7 @@ class KarmaHookLayer:
             status=ctx.status,
             error_message=ctx.error_message,
             metadata=ctx.metadata,
+            extension=ctx.extension,
         )
 
         if self.signer:
@@ -290,13 +308,11 @@ class ReceiptSigner:
 
     Example
     -------
-        class MyReceiptSigner(ReceiptSigner):
-            def sign_receipt(self, receipt: ExecutionReceipt) -> str:
-                payload = receipt.model_dump(include={
-                    "task_id", "agent_id", "step_index", "tool_name",
-                    "input_hash", "output_hash", "started_at", "ended_at", "status"
-                })
-                return my_ed25519_sign(payload)
+    class MyReceiptSigner(ReceiptSigner):
+        def sign_receipt(self, receipt: ExecutionReceipt) -> str:
+            # Must match ``services.receipt_canonical.execution_receipt_signing_dict``
+            # (include ``extension`` when present).
+            ...
     """
 
     def sign_receipt(self, receipt: ExecutionReceipt) -> str:
