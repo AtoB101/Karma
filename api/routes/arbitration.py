@@ -27,7 +27,6 @@ from core.schemas import (
     ArbitrationPoolMember,
     ArbitrationPoolMemberStatus,
     ArbitrationVoteDecision,
-    CapacityState,
     SettlementState,
     TaskStatus,
 )
@@ -39,11 +38,11 @@ from db.models.orm import (
     ArbitrationMaterialPackageModel,
     ArbitrationPoolMemberModel,
     ArbitrationVoteModel,
-    CapacityModel,
 )
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
-from services.capacity_ledger import assert_capacity_invariants
+from services.capacity_resolution import apply_capacity_resolution
+from services.settlement_voucher import mark_voucher_used_if_linked
 
 router = APIRouter()
 DEFAULT_OPEN_CASE_ALERT_THRESHOLD = 5
@@ -539,13 +538,14 @@ async def execute_arbitration_case(case_id: str, db: AsyncSession = Depends(get_
     state.released_at = datetime.utcnow() if settled_amount > 0 else None
     await store.save(state)
 
-    await _apply_capacity_resolution(
+    await apply_capacity_resolution(
         db=db,
         buyer_identity_id=state.client_agent_id,
         escrow_amount=state.escrow_amount,
         settled_amount=settled_amount,
         refunded_amount=refunded_amount,
     )
+    await mark_voucher_used_if_linked(db, case_row.task_id)
 
     case_row.status = ArbitrationCaseStatus.EXECUTED.value
     case_row.executed_at = datetime.utcnow()
@@ -973,53 +973,4 @@ async def _list_overdue_cases(
             )
         )
     return items
-
-
-async def _apply_capacity_resolution(
-    *,
-    db: AsyncSession,
-    buyer_identity_id: str,
-    escrow_amount: float,
-    settled_amount: float,
-    refunded_amount: float,
-) -> None:
-    cap = await db.get(CapacityModel, buyer_identity_id)
-    if not cap:
-        return
-    if cap.reserved_credits + 1e-9 < escrow_amount:
-        raise HTTPException(409, "capacity reserved_credits lower than settlement escrow amount")
-    if cap.total_bill_credits + 1e-9 < escrow_amount:
-        raise HTTPException(409, "capacity total_bill_credits lower than settlement escrow amount")
-    if cap.total_locked_usdc + 1e-9 < escrow_amount:
-        raise HTTPException(409, "capacity total_locked_usdc lower than settlement escrow amount")
-
-    cap.reserved_credits -= escrow_amount
-    cap.burned_credits += settled_amount
-    cap.released_credits += refunded_amount
-    cap.total_bill_credits -= escrow_amount
-    cap.total_locked_usdc -= escrow_amount
-    cap.updated_at = datetime.utcnow()
-    _assert_capacity_model(cap)
-
-
-def _assert_capacity_model(cap: CapacityModel) -> None:
-    try:
-        assert_capacity_invariants(
-            CapacityState(
-                identity_id=cap.identity_id,
-                total_locked_usdc=cap.total_locked_usdc,
-                total_bill_credits=cap.total_bill_credits,
-                available_credits=cap.available_credits,
-                reserved_credits=cap.reserved_credits,
-                in_progress_credits=cap.in_progress_credits,
-                confirmed_progress_credits=cap.confirmed_progress_credits,
-                disputed_credits=cap.disputed_credits,
-                pending_settlement_credits=cap.pending_settlement_credits,
-                burned_credits=cap.burned_credits,
-                released_credits=cap.released_credits,
-                updated_at=cap.updated_at,
-            )
-        )
-    except ValueError as exc:
-        raise HTTPException(500, "capacity invariant check failed") from exc
 

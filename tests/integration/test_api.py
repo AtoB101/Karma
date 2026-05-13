@@ -519,14 +519,42 @@ async def test_manual_partial_settlement(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(client: AsyncClient):
     task_id = "task-auto-arbitrate-001"
+    buyer = "buyer-001"
+    seller = "seller-001"
 
-    await client.post("/v1/settlement/create", json={
-        "task_id": task_id,
-        "client_agent_id": "buyer-001",
-        "escrow_amount": 50.0,
-        "currency": "USD",
-    })
-    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": "seller-001"})
+    await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 50.0})
+    v = await client.post(
+        "/v1/vouchers",
+        json={
+            "buyer_identity_id": buyer,
+            "seller_identity_id": seller,
+            "amount": 50.0,
+            "currency": "USDC",
+            "bill_credit_amount": 50.0,
+            "task_type": "agent-task",
+            "task_description_hash": "a" * 64,
+            "progress_rule_hash": "b" * 64,
+            "evidence_requirement_hash": "c" * 64,
+            "expiry_time": (datetime.utcnow() + timedelta(hours=2)).isoformat(),
+            "nonce": "nonce-auto-arb-001",
+            "buyer_signature": "sig-auto-arb",
+        },
+    )
+    assert v.status_code == 201
+    voucher_id = v.json()["voucher_id"]
+    await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
+
+    await client.post(
+        "/v1/settlement/create",
+        json={
+            "task_id": task_id,
+            "client_agent_id": buyer,
+            "escrow_amount": 50.0,
+            "currency": "USD",
+            "voucher_id": voucher_id,
+        },
+    )
+    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": seller})
     await client.post(f"/v1/settlement/{task_id}/start", json={})
     await client.post(f"/v1/settlement/{task_id}/submit", json={})
 
@@ -638,14 +666,41 @@ async def test_voucher_validates_sub_identity_parent_binding(client: AsyncClient
 async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
     task_id = "task-arb-flow-001"
     buyer_id = "buyer-arb-001"
+    seller_id = "seller-arb-001"
 
-    await client.post("/v1/settlement/create", json={
-        "task_id": task_id,
-        "client_agent_id": buyer_id,
-        "escrow_amount": 100.0,
-        "currency": "USD",
-    })
-    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": "seller-arb-001"})
+    await client.post(f"/v1/capacity/{buyer_id}/lock", json={"amount": 100.0})
+    v = await client.post(
+        "/v1/vouchers",
+        json={
+            "buyer_identity_id": buyer_id,
+            "seller_identity_id": seller_id,
+            "amount": 100.0,
+            "currency": "USDC",
+            "bill_credit_amount": 100.0,
+            "task_type": "agent-task",
+            "task_description_hash": "a" * 64,
+            "progress_rule_hash": "b" * 64,
+            "evidence_requirement_hash": "c" * 64,
+            "expiry_time": (datetime.utcnow() + timedelta(hours=2)).isoformat(),
+            "nonce": "nonce-arb-flow-001",
+            "buyer_signature": "sig-arb-flow",
+        },
+    )
+    assert v.status_code == 201
+    voucher_id = v.json()["voucher_id"]
+    await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller_id})
+
+    await client.post(
+        "/v1/settlement/create",
+        json={
+            "task_id": task_id,
+            "client_agent_id": buyer_id,
+            "escrow_amount": 100.0,
+            "currency": "USD",
+            "voucher_id": voucher_id,
+        },
+    )
+    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": seller_id})
     await client.post(f"/v1/settlement/{task_id}/start", json={})
     await client.post(f"/v1/settlement/{task_id}/submit", json={})
     disputed = await client.post(f"/v1/settlement/{task_id}/dispute", json={"reason": "quality issue"})

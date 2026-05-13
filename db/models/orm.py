@@ -171,6 +171,9 @@ class SettlementModel(Base):
     evidence_bundle_hash: Mapped[str|None]  = mapped_column(String(66))
     onchain_status:       Mapped[str|None]  = mapped_column(String(32))
     quote_id:             Mapped[str|None]  = mapped_column(String(66))
+    voucher_id:           Mapped[str|None]  = mapped_column(String(64), nullable=True)
+    delivery_deadline_at: Mapped[datetime|None] = mapped_column(DateTime, nullable=True)
+    progress_rule_spec:   Mapped[dict|None] = mapped_column(JSON, nullable=True)
 
     contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="settlement")
 
@@ -234,6 +237,7 @@ class VoucherModel(Base):
     seller_sub_identity_id:     Mapped[str|None] = mapped_column(String(64))
     accepted_at:                Mapped[datetime|None] = mapped_column(DateTime)
     created_at:                 Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    progress_rule_spec:         Mapped[dict|None] = mapped_column(JSON, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("buyer_identity_id", "nonce", name="uq_voucher_buyer_nonce"),

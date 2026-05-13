@@ -10,22 +10,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import resolve_agent_id_from_auth_headers
 from core.schemas import (
-    CapacityState,
     ProgressConfirmationStatus,
     SettlementState,
     SettlementTransitionAudit,
     TaskStatus,
+    ToolStatus,
+    VoucherStatus,
 )
 from core.settlement.engine import can_transition
-from db.models.orm import CapacityModel, ProgressReceiptModel, SettlementTransitionAuditModel
+from db.models.orm import ProgressReceiptModel, SettlementTransitionAuditModel, VoucherModel
 from db.session import get_db
+from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
-from services.capacity_ledger import assert_capacity_invariants
+from services.capacity_resolution import apply_capacity_resolution, move_reserved_to_disputed
+from services.auto_arbitration_rules import adjust_auto_split_for_rules, build_auto_arbitration_context
 from services.runtime_safety import (
     assert_runtime_operation_allowed,
     audit_capacity_anchor_and_maybe_trip,
 )
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
+from services.settlement_voucher import mark_voucher_used_if_linked
 
 router = APIRouter()
 
@@ -35,6 +39,8 @@ class CreateSettlementRequest(BaseModel):
     client_agent_id: str
     escrow_amount: float
     currency: str = "USD"
+    voucher_id: str | None = None
+    delivery_deadline_at: datetime | None = None
 
 
 class LockRequest(BaseModel):
@@ -60,15 +66,35 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     from config.settings import settings as _s
+
+    voucher_id = body.voucher_id
+    delivery_deadline_at = body.delivery_deadline_at
+    progress_rule_spec = None
+    escrow_amount = body.escrow_amount
+    if voucher_id:
+        vrow = await db.get(VoucherModel, voucher_id)
+        if not vrow:
+            raise HTTPException(404, f"voucher {voucher_id} not found")
+        if vrow.status != VoucherStatus.ACCEPTED.value:
+            raise HTTPException(409, f"voucher must be accepted before settlement bind, got {vrow.status}")
+        if vrow.buyer_identity_id != body.client_agent_id:
+            raise HTTPException(409, "settlement client_agent_id must match voucher buyer_identity_id")
+        if abs(vrow.bill_credit_amount - body.escrow_amount) > 1e-6:
+            raise HTTPException(409, "escrow_amount must equal voucher bill_credit_amount when voucher_id is set")
+        progress_rule_spec = vrow.progress_rule_spec
+
     state = SettlementState(
         task_id=body.task_id,
-        escrow_amount=body.escrow_amount,
+        escrow_amount=escrow_amount,
         currency=body.currency,
         client_agent_id=body.client_agent_id,
         status=TaskStatus.DRAFT,
         settlement_mode=_s.settlement_mode,
         chain_id=_s.testnet_chain_id if _s.settlement_mode != "offchain" else None,
         contract_address=_s.karma_engine_address or None,
+        voucher_id=voucher_id,
+        delivery_deadline_at=delivery_deadline_at,
+        progress_rule_spec=progress_rule_spec,
     )
     store = PostgresSettlementStore(db)
     existing = await store.get(body.task_id)
@@ -236,13 +262,14 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
         actor_id=_resolve_actor_id(request),
     )
 
-    await _apply_capacity_resolution(
+    await apply_capacity_resolution(
         db=db,
         buyer_identity_id=state.client_agent_id,
         escrow_amount=state.escrow_amount,
         settled_amount=settled_amount,
         refunded_amount=refunded_amount,
     )
+    await mark_voucher_used_if_linked(db, task_id)
     await db.flush()
     return state
 
@@ -277,13 +304,14 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
         actor_id=_resolve_actor_id(request),
     )
 
-    await _apply_capacity_resolution(
+    await apply_capacity_resolution(
         db=db,
         buyer_identity_id=body.buyer_identity_id or state.client_agent_id,
         escrow_amount=state.escrow_amount,
         settled_amount=settled_amount,
         refunded_amount=refunded_amount,
     )
+    await mark_voucher_used_if_linked(db, task_id)
     await db.flush()
     return state
 
@@ -294,6 +322,11 @@ async def open_dispute(task_id: str, body: DisputeRequest, request: Request, db:
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    await move_reserved_to_disputed(
+        db=db,
+        buyer_identity_id=state.client_agent_id,
+        escrow_amount=state.escrow_amount,
+    )
     state.dispute_reason = body.reason or "buyer disputed task result"
     return await _apply_transition(
         db=db,
@@ -306,12 +339,59 @@ async def open_dispute(task_id: str, body: DisputeRequest, request: Request, db:
     )
 
 
+@router.post("/{task_id}/buyer-accept", response_model=SettlementState)
+async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """P0: full release to seller after delivery — requires at least one successful execution receipt."""
+    assert_runtime_operation_allowed("new_settlement")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
+    store = PostgresSettlementStore(db)
+    state = await store.get(task_id)
+    if not state:
+        raise HTTPException(404, f"Settlement {task_id} not found")
+    if state.status != TaskStatus.DELIVERED:
+        raise HTTPException(409, "buyer accept requires delivered status")
+
+    rstore = PostgresReceiptStore(db)
+    receipts = await rstore.list_by_task(task_id)
+    if not any(r.status == ToolStatus.SUCCESS for r in receipts):
+        raise HTTPException(
+            409,
+            "at least one successful execution receipt is required before buyer-accept settlement",
+        )
+
+    state.released_amount = round(state.escrow_amount, 2)
+    state.refunded_amount = 0.0
+    state.arbitration_notes = "buyer accepted delivery — full settlement to seller"
+    state.released_at = datetime.utcnow()
+    state.updated_at = datetime.utcnow()
+    state = await _apply_transition(
+        db=db,
+        store=store,
+        state=state,
+        target_status=TaskStatus.SETTLED,
+        reason="buyer accepted delivered work",
+        route_path=str(request.url.path),
+        actor_id=_resolve_actor_id(request),
+    )
+    await apply_capacity_resolution(
+        db=db,
+        buyer_identity_id=state.client_agent_id,
+        escrow_amount=state.escrow_amount,
+        settled_amount=state.escrow_amount,
+        refunded_amount=0.0,
+    )
+    await mark_voucher_used_if_linked(db, task_id)
+    await db.flush()
+    return state
+
+
 @router.post("/{task_id}/auto-arbitrate", response_model=SettlementState)
 async def auto_arbitrate(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    status_before = state.status
     state = await _apply_transition(
         db=db,
         store=store,
@@ -323,21 +403,21 @@ async def auto_arbitrate(task_id: str, request: Request, db: AsyncSession = Depe
     )
 
     confirmed_percent = await _confirmed_progress_percent(db, task_id)
-    if confirmed_percent <= 0.0:
-        decision = TaskStatus.REFUNDED
-        settled_amount = 0.0
-        refunded_amount = round(state.escrow_amount, 2)
-        notes = "auto arbitration: no confirmed progress, buyer wins"
-    elif confirmed_percent >= 90.0:
-        decision = TaskStatus.SETTLED
-        settled_amount = round(state.escrow_amount, 2)
-        refunded_amount = 0.0
-        notes = "auto arbitration: near-complete confirmed progress, seller wins"
-    else:
-        decision = TaskStatus.SETTLED
-        settled_amount = round(state.escrow_amount * confirmed_percent / 100.0, 2)
-        refunded_amount = round(state.escrow_amount - settled_amount, 2)
-        notes = f"auto arbitration: partial split by confirmed progress {confirmed_percent:.2f}%"
+    ctx = await build_auto_arbitration_context(
+        db,
+        task_id=task_id,
+        state_status=status_before,
+        delivery_deadline_at=state.delivery_deadline_at,
+    )
+    settled_amount, refunded_amount, rule_notes = adjust_auto_split_for_rules(
+        ctx,
+        confirmed_percent=confirmed_percent,
+        escrow_amount=state.escrow_amount,
+    )
+    decision = TaskStatus.REFUNDED if settled_amount <= 1e-6 else TaskStatus.SETTLED
+    notes = rule_notes
+    if ctx.notes:
+        notes = notes + " | " + "; ".join(ctx.notes)
 
     state.released_amount = settled_amount
     state.refunded_amount = refunded_amount
@@ -354,13 +434,14 @@ async def auto_arbitrate(task_id: str, request: Request, db: AsyncSession = Depe
         actor_id=_resolve_actor_id(request),
     )
 
-    await _apply_capacity_resolution(
+    await apply_capacity_resolution(
         db=db,
         buyer_identity_id=state.client_agent_id,
         escrow_amount=state.escrow_amount,
         settled_amount=settled_amount,
         refunded_amount=refunded_amount,
     )
+    await mark_voucher_used_if_linked(db, task_id)
     await db.flush()
     return state
 
@@ -503,55 +584,3 @@ async def _confirmed_progress_percent(db: AsyncSession, task_id: str) -> float:
     if confirmed is None:
         return 0.0
     return float(confirmed)
-
-
-async def _apply_capacity_resolution(
-    *,
-    db: AsyncSession,
-    buyer_identity_id: str,
-    escrow_amount: float,
-    settled_amount: float,
-    refunded_amount: float,
-) -> None:
-    # Best-effort accounting sync when capacity is tracked for this identity.
-    # No-op if caller does not use capacity ledger.
-    cap = await db.get(CapacityModel, buyer_identity_id)
-    if not cap:
-        return
-    if cap.reserved_credits + 1e-9 < escrow_amount:
-        raise HTTPException(409, "capacity reserved_credits lower than settlement escrow amount")
-    if cap.total_bill_credits + 1e-9 < escrow_amount:
-        raise HTTPException(409, "capacity total_bill_credits lower than settlement escrow amount")
-    if cap.total_locked_usdc + 1e-9 < escrow_amount:
-        raise HTTPException(409, "capacity total_locked_usdc lower than settlement escrow amount")
-
-    cap.reserved_credits -= escrow_amount
-    cap.burned_credits += settled_amount
-    cap.released_credits += refunded_amount
-    cap.total_bill_credits -= escrow_amount
-    cap.total_locked_usdc -= escrow_amount
-    cap.updated_at = datetime.utcnow()
-    _assert_capacity_model(cap)
-    await audit_capacity_anchor_and_maybe_trip(db=db)
-
-
-def _assert_capacity_model(cap: CapacityModel) -> None:
-    try:
-        assert_capacity_invariants(
-            CapacityState(
-                identity_id=cap.identity_id,
-                total_locked_usdc=cap.total_locked_usdc,
-                total_bill_credits=cap.total_bill_credits,
-                available_credits=cap.available_credits,
-                reserved_credits=cap.reserved_credits,
-                in_progress_credits=cap.in_progress_credits,
-                confirmed_progress_credits=cap.confirmed_progress_credits,
-                disputed_credits=cap.disputed_credits,
-                pending_settlement_credits=cap.pending_settlement_credits,
-                burned_credits=cap.burned_credits,
-                released_credits=cap.released_credits,
-                updated_at=cap.updated_at,
-            )
-        )
-    except ValueError as exc:
-        raise HTTPException(500, "capacity invariant check failed") from exc
