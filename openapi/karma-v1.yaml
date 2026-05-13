@@ -982,6 +982,74 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ExecutionReceipt'
+  /v1/bundles:
+    post:
+      summary: Submit evidence bundle for a task
+      operationId: submitEvidenceBundle
+      description: |
+        Persists an aggregated proof package (ordered execution receipt IDs and matching SHA-256
+        digests, step counters, optional worker ``agent_signature``).
+
+        **Uniqueness:** at most one stored bundle per ``task_id``; submitting again yields ``409``.
+
+        **P2 auto-arbitration:** ``POST /v1/settlement/{taskId}/auto-arbitrate`` may compare
+        ``receipt_hashes`` and step metadata (``total_steps``, ``successful_steps``, ``failed_steps``)
+        against stored execution receipts; inconsistent or tampered evidence tends toward buyer-favorable splits.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvidenceBundle'
+      responses:
+        '201':
+          description: Bundle stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceBundle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/bundles/{bundleId}:
+    get:
+      summary: Get evidence bundle by bundle ID
+      operationId: getEvidenceBundle
+      parameters:
+        - in: path
+          name: bundleId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Evidence bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceBundle'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/bundles/task/{taskId}:
+    get:
+      summary: Get evidence bundle by task ID
+      operationId: getEvidenceBundleByTask
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Evidence bundle for the task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceBundle'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/identities/{identityId}/profile/init:
     post:
       summary: Initialize identity profile
@@ -3034,8 +3102,98 @@ components:
           description: Optional; settlement status after apply (mock / diagnostics).
         body_digest:
           type: string
-          description: Optional SHA-256 hex over canonical JSON of `{"result": …}` (sort_keys, etc.).
+          description: >-
+            Optional SHA-256 hex over canonical JSON of `{"result": …}` (sort_keys, etc.).
       required: [ok, task_id, status, received_at]
+    EvidenceBundle:
+      type: object
+      description: |
+        Aggregated execution proof for verification and settlement. Receipt hashes must align with
+        stored execution receipts (same order as ``receipt_ids``) for downstream integrity checks.
+      properties:
+        bundle_id:
+          type: string
+          description: Server accepts client-supplied ID; otherwise generated UUID.
+        task_id:
+          type: string
+        task_contract_hash:
+          type: string
+          description: Lowercase hex SHA-256 of the canonical task contract JSON.
+        receipt_ids:
+          type: array
+          items:
+            type: string
+          description: Ordered execution receipt IDs included in this bundle.
+        receipt_hashes:
+          type: array
+          items:
+            type: string
+          description: SHA-256 digest of each receipt JSON (same length and order as ``receipt_ids``).
+        final_result_hash:
+          type: string
+          description: SHA-256 of the final delivered task output blob.
+        total_steps:
+          type: integer
+          minimum: 0
+        successful_steps:
+          type: integer
+          minimum: 0
+        failed_steps:
+          type: integer
+          minimum: 0
+        total_duration_ms:
+          type: integer
+          minimum: 0
+        agent_signature:
+          type: string
+          nullable: true
+          description: Optional Ed25519 signature by the worker over bundle fields (encoding as stored by the agent).
+        storage_path:
+          type: string
+          nullable: true
+          description: Optional object-store key for the full bundle payload.
+        created_at:
+          type: string
+          format: date-time
+        settlement_status:
+          type: string
+          description: Lifecycle tag carried with the bundle; default on create is ``delivered``.
+          enum:
+            - draft
+            - pending
+            - accepted
+            - in_progress
+            - progress_submitted
+            - progress_confirmed
+            - delivered
+            - disputed
+            - arbitrated
+            - settled
+            - refunded
+            - cancelled
+            - created
+            - locked
+            - running
+            - submitted
+            - buyer_regret
+            - verifying
+            - verified
+            - released
+            - failed
+            - arbitration
+            - buyer_wins
+            - seller_wins
+            - partial
+      required:
+        - task_id
+        - task_contract_hash
+        - receipt_ids
+        - receipt_hashes
+        - final_result_hash
+        - total_steps
+        - successful_steps
+        - failed_steps
+        - total_duration_ms
     SettlementState:
       type: object
       properties:

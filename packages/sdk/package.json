@@ -1,17 +1,19 @@
 {
   "name": "@karma-network/sdk",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "TypeScript SDK for Karma public HTTP API (P0–P2: capacity, vouchers, settlement lifecycle, dispute, partial/regret, auto-arbitrate, receipts, progress, evidence bundles)",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
   },
   "license": "AGPL-3.0-only",
   "keywords": ["karma", "agents", "settlement"],
   "devDependencies": {
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^3.0.5"
   }
 }
