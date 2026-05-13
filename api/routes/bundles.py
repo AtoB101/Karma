@@ -8,12 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.schemas import EvidenceBundle, TaskStatus
 from db.session import get_db
 from db.models.orm import EvidenceBundleModel
+from services.evidence_bundle_limits import enforce_limits_for_bundle_post
 
 router = APIRouter()
 
 
 @router.post("", response_model=EvidenceBundle, status_code=201)
 async def submit_bundle(bundle: EvidenceBundle, db: AsyncSession = Depends(get_db)):
+    enforce_limits_for_bundle_post(bundle)
     existing = await db.execute(
         select(EvidenceBundleModel).where(EvidenceBundleModel.task_id == bundle.task_id)
     )

@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     verification_min_steps: int = 1
     verification_hash_algo: str = "sha256"
     verification_timeout_seconds: int = 300
+    # Evidence bundle / verify proxy — limits oversized JSON and receipt lists (DoS mitigation).
+    evidence_bundle_max_receipt_entries: int = 2048
+    evidence_bundle_max_json_bytes: int = 5 * 1024 * 1024
+    verify_max_combined_json_bytes: int = 5 * 1024 * 1024
     receipt_require_signature: bool = True
     receipt_max_future_skew_seconds: int = 300
     receipt_max_past_hours: int = 24 * 7
