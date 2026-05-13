@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import resolve_agent_id_from_auth_headers
+from config.settings import settings
 from core.schemas import (
     ProgressConfirmationStatus,
     SettlementState,
@@ -17,7 +18,7 @@ from core.schemas import (
     ToolStatus,
     VoucherStatus,
 )
-from core.settlement.engine import can_transition
+from core.settlement.engine import can_transition, canonical_task_status
 from db.models.orm import ProgressReceiptModel, SettlementTransitionAuditModel, VoucherModel
 from db.session import get_db
 from db.stores.receipt_store import PostgresReceiptStore
@@ -159,6 +160,11 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
     if not state:
         raise HTTPException(404)
     require_buyer(request, state)
+    if settings.settlement_lock_requires_pending and canonical_task_status(state.status) == TaskStatus.DRAFT:
+        raise HTTPException(
+            409,
+            "settlement must be moved to pending before lock (settlement_lock_requires_pending)",
+        )
     state.worker_agent_id = body.worker_agent_id
     return await _apply_transition(
         db=db,

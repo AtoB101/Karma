@@ -137,3 +137,64 @@ async def test_protected_routes_require_auth_when_enforced(client):
         settings.auth_api_keys = original_keys
         settings.auth_enforce_protected_routes = original_enforce
 
+
+def test_resolve_verify_submitter_id_allows_anonymous_when_enforcement_off():
+    from starlette.requests import Request
+
+    async def recv():
+        return {"type": "http.disconnect"}
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/v1/verify",
+        "raw_path": b"/v1/verify",
+        "headers": [],
+        "client": ("127.0.0.1", 0),
+        "server": ("test", 80),
+    }
+    req = Request(scope, recv)
+    orig = settings.auth_enforce_protected_routes
+    try:
+        settings.auth_enforce_protected_routes = False
+        from api.middleware.auth import resolve_verify_submitter_id
+
+        assert resolve_verify_submitter_id(req) == "anonymous-verify"
+    finally:
+        settings.auth_enforce_protected_routes = orig
+
+
+def test_resolve_verify_submitter_id_requires_auth_when_enforcement_on():
+    from starlette.requests import Request
+    from fastapi import HTTPException
+
+    async def recv():
+        return {"type": "http.disconnect"}
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/v1/verify",
+        "raw_path": b"/v1/verify",
+        "headers": [],
+        "client": ("127.0.0.1", 0),
+        "server": ("test", 80),
+    }
+    req = Request(scope, recv)
+    orig = settings.auth_enforce_protected_routes
+    try:
+        settings.auth_enforce_protected_routes = True
+        from api.middleware.auth import resolve_verify_submitter_id
+
+        with pytest.raises(HTTPException) as ei:
+            resolve_verify_submitter_id(req)
+        assert ei.value.status_code == 401
+    finally:
+        settings.auth_enforce_protected_routes = orig
+

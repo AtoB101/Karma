@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     # When true together with AUTH_ENFORCE_PROTECTED_ROUTES, settlement mutations require the caller's
     # authenticated actor to match the economic party (buyer = client_agent_id, worker = worker_agent_id).
     settlement_require_party_actor: bool = True
+    # When true, POST /v1/settlement/{task_id}/lock is only allowed from PENDING (not directly from DRAFT).
+    settlement_lock_requires_pending: bool = False
     # When true with AUTH_ENFORCE_PROTECTED_ROUTES, capacity lock/release and voucher create/verify/accept
     # bind the authenticated actor to the ledger identity or asserted voucher party (buyer/seller).
     ledger_require_party_actor: bool = True
