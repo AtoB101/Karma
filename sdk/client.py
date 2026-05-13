@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Callable, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -416,6 +417,32 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return ExecutionReceipt(**resp.json())
+
+    async def submit_evidence_bundle(self, bundle: EvidenceBundle) -> EvidenceBundle:
+        """POST /v1/bundles — persist aggregated execution proof for a task."""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/bundles",
+                json=bundle.model_dump(mode="json"),
+            )
+            resp.raise_for_status()
+            return EvidenceBundle(**resp.json())
+
+    async def get_evidence_bundle(self, bundle_id: str) -> EvidenceBundle:
+        """GET /v1/bundles/{bundle_id} — path segment is URL-encoded (matches TS ``encodeURIComponent``)."""
+        seg = quote(bundle_id, safe="")
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/bundles/{seg}")
+            resp.raise_for_status()
+            return EvidenceBundle(**resp.json())
+
+    async def get_evidence_bundle_by_task(self, task_id: str) -> EvidenceBundle:
+        """GET /v1/bundles/task/{task_id} — path segment is URL-encoded."""
+        seg = quote(task_id, safe="")
+        async with self._http() as http:
+            resp = await http.get(f"{self.runtime_url}/v1/bundles/task/{seg}")
+            resp.raise_for_status()
+            return EvidenceBundle(**resp.json())
 
     async def accept_task(
         self,
