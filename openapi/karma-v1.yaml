@@ -1346,6 +1346,10 @@ paths:
   /v1/settlement/{taskId}/auto-arbitrate:
     post:
       summary: Run automatic arbitration rules
+      description: >
+        Evaluates delivery deadline, execution receipt success, and evidence-bundle integrity
+        (receipt id order, step counts vs receipts, receipt hash list vs recomputed SHA-256 of stored receipts).
+        Split follows confirmed progress with conservative buyer bias when integrity checks fail.
       operationId: autoArbitrate
       parameters:
         - in: path
