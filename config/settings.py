@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     receipt_require_signature: bool = True
     receipt_max_future_skew_seconds: int = 300
     receipt_max_past_hours: int = 24 * 7
+    # P1 — bind typed execution receipt extensions to voucher.task_type when a settlement links a voucher.
+    receipt_template_voucher_binding: bool = True
     progress_require_signature: bool = True
 
     # Reputation

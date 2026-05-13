@@ -1,11 +1,12 @@
 """Execution/progress receipt validation guardrails."""
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timedelta
 
 from core.schemas import ExecutionReceipt, ProgressReceipt
+from services.receipt_canonical import execution_receipt_signing_bytes
+from services.receipt_templates import validate_extension_payloads
 from services.signing import signing_service
 from config.settings import settings
 
@@ -16,21 +17,6 @@ def _is_hex_64(value: str) -> bool:
     return bool(_HEX_64_RE.fullmatch((value or "").lower()))
 
 
-def _canonical_execution_receipt_payload(receipt: ExecutionReceipt) -> dict[str, str | int]:
-    return {
-        "receipt_id": receipt.receipt_id,
-        "task_id": receipt.task_id,
-        "agent_id": receipt.agent_id,
-        "step_index": receipt.step_index,
-        "tool_name": receipt.tool_name,
-        "input_hash": receipt.input_hash,
-        "output_hash": receipt.output_hash,
-        "started_at": receipt.started_at.isoformat(),
-        "ended_at": receipt.ended_at.isoformat(),
-        "status": receipt.status.value if hasattr(receipt.status, "value") else str(receipt.status),
-    }
-
-
 def validate_execution_receipt_static(receipt: ExecutionReceipt) -> None:
     if not _is_hex_64(receipt.input_hash):
         raise ValueError("input_hash must be 64-char lowercase hex")
@@ -38,6 +24,9 @@ def validate_execution_receipt_static(receipt: ExecutionReceipt) -> None:
         raise ValueError("output_hash must be 64-char lowercase hex")
     if receipt.ended_at < receipt.started_at:
         raise ValueError("receipt ended_at must be >= started_at")
+
+    if receipt.extension is not None:
+        validate_extension_payloads(receipt.extension)
 
     now = datetime.utcnow()
     max_future = now + timedelta(seconds=max(0, settings.receipt_max_future_skew_seconds))
@@ -59,8 +48,7 @@ def verify_execution_receipt_signature(receipt: ExecutionReceipt) -> bool:
     signature = (receipt.signature or "").strip()
     if not signature:
         return False
-    payload = _canonical_execution_receipt_payload(receipt)
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    raw = execution_receipt_signing_bytes(receipt)
     return signing_service.verify(raw, signature)
 
 

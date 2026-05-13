@@ -19,6 +19,7 @@ from config.settings import settings
 from core.hooks.hook_layer import ReceiptSigner
 from core.evidence.bundle_builder import BundleSigner
 from core.schemas import ExecutionReceipt
+from services.receipt_canonical import execution_receipt_signing_dict
 
 
 class Ed25519SigningService(ReceiptSigner, BundleSigner):
@@ -95,18 +96,7 @@ class Ed25519SigningService(ReceiptSigner, BundleSigner):
     # --- ReceiptSigner ---
 
     def sign_receipt(self, receipt: ExecutionReceipt) -> str:
-        payload = {
-            "receipt_id": receipt.receipt_id,
-            "task_id":    receipt.task_id,
-            "agent_id":   receipt.agent_id,
-            "step_index": receipt.step_index,
-            "tool_name":  receipt.tool_name,
-            "input_hash": receipt.input_hash,
-            "output_hash":receipt.output_hash,
-            "started_at": receipt.started_at.isoformat(),
-            "ended_at":   receipt.ended_at.isoformat(),
-            "status":     receipt.status.value if hasattr(receipt.status, "value") else receipt.status,
-        }
+        payload = execution_receipt_signing_dict(receipt)
         return self.sign_dict(payload)
 
     # --- BundleSigner ---

@@ -12,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.hooks.hook_layer import ReceiptStore
 from core.schemas import ExecutionReceipt, ToolStatus
 from db.models.orm import ReceiptModel
+from services.receipt_templates import parse_execution_receipt_extension
+
+_KARMA_RECEIPT_EXTENSION_KEY = "karma_receipt_extension"
 
 
 class PostgresReceiptStore(ReceiptStore):
@@ -56,6 +59,10 @@ class PostgresReceiptStore(ReceiptStore):
 
     @staticmethod
     def _to_row(r: ExecutionReceipt) -> dict:
+        md = dict(r.metadata or {})
+        md.pop(_KARMA_RECEIPT_EXTENSION_KEY, None)
+        if r.extension is not None:
+            md[_KARMA_RECEIPT_EXTENSION_KEY] = r.extension.model_dump(mode="json")
         return {
             "receipt_id":    r.receipt_id,
             "task_id":       r.task_id,
@@ -69,12 +76,15 @@ class PostgresReceiptStore(ReceiptStore):
             "duration_ms":   r.duration_ms,
             "status":        r.status.value if hasattr(r.status, "value") else r.status,
             "error_message": r.error_message,
-            "metadata_":     r.metadata,
+            "metadata_":     md,
             "signature":     r.signature,
         }
 
     @staticmethod
     def _from_row(row: ReceiptModel) -> ExecutionReceipt:
+        md = dict(row.metadata_ or {})
+        ext_raw = md.pop(_KARMA_RECEIPT_EXTENSION_KEY, None)
+        extension = parse_execution_receipt_extension(ext_raw) if ext_raw else None
         return ExecutionReceipt(
             receipt_id=row.receipt_id,
             task_id=row.task_id,
@@ -88,6 +98,7 @@ class PostgresReceiptStore(ReceiptStore):
             duration_ms=row.duration_ms,
             status=ToolStatus(row.status),
             error_message=row.error_message,
-            metadata=row.metadata_ or {},
+            metadata=md,
             signature=row.signature,
+            extension=extension,
         )

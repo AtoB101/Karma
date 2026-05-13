@@ -16,9 +16,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +234,51 @@ class TaskContract(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# P1 — Execution receipt typed extensions (API / MCP / Agent runtime)
+# ---------------------------------------------------------------------------
+
+
+class ApiExecutionReceiptExtension(BaseModel):
+    """P1 API call step — hashes bind request/response bodies (never raw PII here)."""
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["api"] = "api"
+    request_hash: str = Field(description="SHA-256 of canonical HTTP request payload")
+    response_hash: str = Field(description="SHA-256 of canonical HTTP response body")
+    http_status_code: int = Field(ge=100, le=599)
+    latency_ms: int = Field(ge=0, le=3_600_000, description="Round-trip latency in ms")
+    error_code: Optional[str] = Field(default=None, max_length=128, description="Provider error code if any")
+
+
+class McpExecutionReceiptExtension(BaseModel):
+    """P1 MCP tool invocation — trace + result digests."""
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["mcp"] = "mcp"
+    mcp_server_id: str = Field(max_length=256)
+    mcp_tool_name: str = Field(max_length=256)
+    trace_hash: str = Field(description="SHA-256 digest of tool call trace")
+    result_hash: str = Field(description="SHA-256 digest of normalized tool result")
+
+
+class AgentExecutionReceiptExtension(BaseModel):
+    """P1 Agent / LLM runtime step — model + trace digests (no chain-of-thought storage)."""
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["agent"] = "agent"
+    model_used: str = Field(max_length=128, description="Model identifier (e.g. provider/model)")
+    tool_calls_hash: str = Field(description="SHA-256 digest over tool call summaries")
+    step_log_hash: str = Field(description="SHA-256 digest over step log")
+    runtime_trace_hash: str = Field(description="SHA-256 digest over runtime trace envelope")
+
+
+ExecutionReceiptExtension = Annotated[
+    Union[ApiExecutionReceiptExtension, McpExecutionReceiptExtension, AgentExecutionReceiptExtension],
+    Field(discriminator="kind"),
+]
+
+
+# ---------------------------------------------------------------------------
 # Execution Receipt
 # ---------------------------------------------------------------------------
 
@@ -262,6 +307,10 @@ class ExecutionReceipt(BaseModel):
     signature: Optional[str] = Field(
         default=None,
         description="Ed25519 signature over canonical receipt fields",
+    )
+    extension: Optional[ExecutionReceiptExtension] = Field(
+        default=None,
+        description="P1 typed extension — required when voucher task_type uses api.* / mcp.* / agent.* prefix",
     )
 
 

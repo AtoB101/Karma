@@ -918,6 +918,70 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/receipts:
+    post:
+      summary: Submit signed execution receipt (P1 optional typed extension)
+      operationId: submitExecutionReceipt
+      description: |
+        When a settlement for the same `task_id` links an accepted voucher whose
+        `task_type` begins with `api.`, `mcp.`, or `agent.`, the matching typed
+        `extension` is required and participates in Ed25519 signing. Generic
+        `task_type` values must omit `extension`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecutionReceipt'
+      responses:
+        '201':
+          description: Receipt stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionReceipt'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/BadRequest'
+  /v1/receipts/{receiptId}:
+    get:
+      summary: Get execution receipt by ID
+      operationId: getExecutionReceipt
+      parameters:
+        - in: path
+          name: receiptId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionReceipt'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/receipts/task/{taskId}:
+    get:
+      summary: List execution receipts for a task
+      operationId: listExecutionReceiptsByTask
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Ordered receipts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExecutionReceipt'
   /v1/identities/{identityId}/profile/init:
     post:
       summary: Initialize identity profile
@@ -2525,6 +2589,10 @@ components:
           exclusiveMinimum: 0
         task_type:
           type: string
+          description: |
+            Logical task category. If the first dot-separated segment is `api`, `mcp`, or `agent`
+            (e.g. `api.echo`), execution receipts for settlements bound to this voucher must carry
+            the matching typed `extension` (see POST /v1/receipts).
         task_description_hash:
           type: string
         progress_rule_hash:
@@ -2634,6 +2702,135 @@ components:
         seller_identity_id:
           type: string
       required: [seller_identity_id]
+    ApiExecutionReceiptExtension:
+      type: object
+      description: P1 API call step — request/response digests (64-char lowercase hex SHA-256).
+      properties:
+        kind:
+          type: string
+          enum: [api]
+        request_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        response_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        http_status_code:
+          type: integer
+          minimum: 100
+          maximum: 599
+        latency_ms:
+          type: integer
+          minimum: 0
+          maximum: 3600000
+        error_code:
+          type: string
+          maxLength: 128
+      required: [kind, request_hash, response_hash, http_status_code, latency_ms]
+    McpExecutionReceiptExtension:
+      type: object
+      description: P1 MCP tool invocation digest bundle.
+      properties:
+        kind:
+          type: string
+          enum: [mcp]
+        mcp_server_id:
+          type: string
+          maxLength: 256
+        mcp_tool_name:
+          type: string
+          maxLength: 256
+        trace_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        result_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+      required: [kind, mcp_server_id, mcp_tool_name, trace_hash, result_hash]
+    AgentExecutionReceiptExtension:
+      type: object
+      description: P1 Agent / LLM runtime step digests.
+      properties:
+        kind:
+          type: string
+          enum: [agent]
+        model_used:
+          type: string
+          maxLength: 128
+        tool_calls_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        step_log_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        runtime_trace_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+      required: [kind, model_used, tool_calls_hash, step_log_hash, runtime_trace_hash]
+    ExecutionReceiptExtension:
+      oneOf:
+        - $ref: '#/components/schemas/ApiExecutionReceiptExtension'
+        - $ref: '#/components/schemas/McpExecutionReceiptExtension'
+        - $ref: '#/components/schemas/AgentExecutionReceiptExtension'
+      discriminator:
+        propertyName: kind
+        mapping:
+          api: '#/components/schemas/ApiExecutionReceiptExtension'
+          mcp: '#/components/schemas/McpExecutionReceiptExtension'
+          agent: '#/components/schemas/AgentExecutionReceiptExtension'
+    ExecutionReceipt:
+      type: object
+      properties:
+        receipt_id:
+          type: string
+        task_id:
+          type: string
+        agent_id:
+          type: string
+        step_index:
+          type: integer
+          minimum: 1
+        tool_name:
+          type: string
+        input_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        output_hash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          minimum: 0
+        status:
+          type: string
+          enum: [success, failure, timeout, skipped]
+        error_message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        signature:
+          type: string
+          description: Ed25519 signature (base64) over canonical receipt fields including extension when present.
+        extension:
+          $ref: '#/components/schemas/ExecutionReceiptExtension'
+      required:
+        - task_id
+        - agent_id
+        - step_index
+        - tool_name
+        - input_hash
+        - output_hash
+        - started_at
+        - ended_at
+        - duration_ms
+        - status
     VoucherVerificationResult:
       type: object
       properties:
