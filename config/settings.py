@@ -117,6 +117,13 @@ class Settings(BaseSettings):
     # Quote TTL in seconds
     settlement_ttl_seconds: int = 3600
 
+    # P0 — Authorization Voucher EIP-712 (buyer commitment)
+    # When true, POST /v1/vouchers requires buyer_wallet_address and a valid ECDSA
+    # signature over the KarmaAuthorizationVoucher typed data (see services/voucher_eip712.py).
+    voucher_require_eip712: bool = False
+    voucher_eip712_chain_id: int | None = None  # None → testnet_chain_id
+    voucher_eip712_verifying_contract: str = "0x0000000000000000000000000000000000000000"
+
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":
         env = (self.app_env or "").lower()

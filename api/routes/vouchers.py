@@ -23,6 +23,8 @@ from services.runtime_safety import (
     assert_runtime_operation_allowed,
     audit_capacity_anchor_and_maybe_trip,
 )
+from services.voucher_eip712 import verify_authorization_voucher_buyer
+from config.settings import settings
 
 router = APIRouter()
 
@@ -43,6 +45,7 @@ class CreateVoucherRequest(BaseModel):
     buyer_sub_identity_id: str | None = None
     seller_sub_identity_id: str | None = None
     progress_rule_spec: dict | None = None
+    buyer_wallet_address: str | None = None
 
 
 class VerifyVoucherRequest(BaseModel):
@@ -80,7 +83,37 @@ async def create_voucher(body: CreateVoucherRequest, db: AsyncSession = Depends(
         role="seller",
     )
 
-    voucher = AuthorizationVoucher(**body.model_dump())
+    if settings.voucher_require_eip712:
+        if not (body.buyer_wallet_address or "").strip():
+            raise HTTPException(400, "buyer_wallet_address is required when voucher EIP-712 is enforced")
+        chain_id = settings.voucher_eip712_chain_id or settings.testnet_chain_id
+        v_contract = (settings.voucher_eip712_verifying_contract or "").strip()
+        if not v_contract:
+            v_contract = "0x0000000000000000000000000000000000000000"
+        try:
+            verify_authorization_voucher_buyer(
+                buyer_wallet_address=body.buyer_wallet_address,
+                buyer_signature=body.buyer_signature,
+                buyer_identity_id=body.buyer_identity_id,
+                seller_identity_id=body.seller_identity_id,
+                amount=body.amount,
+                bill_credit_amount=body.bill_credit_amount,
+                currency=body.currency,
+                task_type=body.task_type,
+                task_description_hash=body.task_description_hash,
+                progress_rule_hash=body.progress_rule_hash,
+                evidence_requirement_hash=body.evidence_requirement_hash,
+                nonce=body.nonce,
+                expiry_time=body.expiry_time,
+                chain_id=int(chain_id),
+                verifying_contract=v_contract,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    payload = body.model_dump()
+    payload.pop("buyer_wallet_address", None)
+    voucher = AuthorizationVoucher(**payload)
     try:
         db.add(
             VoucherModel(

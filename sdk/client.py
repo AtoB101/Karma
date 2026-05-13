@@ -5,6 +5,7 @@ verification, and settlement into a single interface.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Callable, Optional
 
 import httpx
@@ -25,6 +26,7 @@ from core.schemas import (
     AuthorizationVoucher,
     CapacityState,
     EvidenceBundle,
+    ExecutionReceipt,
     IdentityProfile,
     ProgressReceipt,
     ResponsibilityEdgeIngestResult,
@@ -250,6 +252,10 @@ class KarmaClient:
             resp.raise_for_status()
             return CapacityState(**resp.json())
 
+    async def lock_usdc(self, identity_id: str, amount: float) -> CapacityState:
+        """P0 alias: lock USDC-backed bill credits (same as ``lock_capacity``)."""
+        return await self.lock_capacity(identity_id, amount)
+
     async def release_capacity(self, identity_id: str, amount: float) -> CapacityState:
         """POST /v1/capacity/{identity_id}/release"""
         async with self._http() as http:
@@ -277,6 +283,8 @@ class KarmaClient:
         currency: str = "USDC",
         buyer_sub_identity_id: Optional[str] = None,
         seller_sub_identity_id: Optional[str] = None,
+        progress_rule_spec: Optional[dict[str, Any]] = None,
+        buyer_wallet_address: Optional[str] = None,
     ) -> AuthorizationVoucher:
         """POST /v1/vouchers"""
         payload = {
@@ -295,6 +303,10 @@ class KarmaClient:
             "buyer_sub_identity_id": buyer_sub_identity_id,
             "seller_sub_identity_id": seller_sub_identity_id,
         }
+        if progress_rule_spec is not None:
+            payload["progress_rule_spec"] = progress_rule_spec
+        if buyer_wallet_address is not None:
+            payload["buyer_wallet_address"] = buyer_wallet_address
         async with self._http() as http:
             resp = await http.post(f"{self.runtime_url}/v1/vouchers", json=payload)
             resp.raise_for_status()
@@ -334,6 +346,91 @@ class KarmaClient:
             )
             resp.raise_for_status()
             return AuthorizationVoucher(**resp.json())
+
+    async def create_settlement(
+        self,
+        *,
+        task_id: str,
+        client_agent_id: str,
+        escrow_amount: float,
+        currency: str = "USD",
+        voucher_id: Optional[str] = None,
+        delivery_deadline_at: Optional[datetime] = None,
+    ) -> SettlementState:
+        """POST /v1/settlement/create"""
+        payload: dict[str, Any] = {
+            "task_id": task_id,
+            "client_agent_id": client_agent_id,
+            "escrow_amount": escrow_amount,
+            "currency": currency,
+        }
+        if voucher_id is not None:
+            payload["voucher_id"] = voucher_id
+        if delivery_deadline_at is not None:
+            payload["delivery_deadline_at"] = delivery_deadline_at.isoformat()
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/settlement/create", json=payload)
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
+
+    async def lock_settlement(self, task_id: str, worker_agent_id: str) -> SettlementState:
+        """POST /v1/settlement/{task_id}/lock — seller accepts task (worker bound)."""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/settlement/{task_id}/lock",
+                json={"worker_agent_id": worker_agent_id},
+            )
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
+
+    async def start_task_execution(self, task_id: str) -> SettlementState:
+        """POST /v1/settlement/{task_id}/start"""
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/settlement/{task_id}/start", json={})
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
+
+    async def submit_delivery(self, task_id: str) -> SettlementState:
+        """POST /v1/settlement/{task_id}/submit"""
+        async with self._http() as http:
+            resp = await http.post(f"{self.runtime_url}/v1/settlement/{task_id}/submit", json={})
+            resp.raise_for_status()
+            return SettlementState(**resp.json())
+
+    async def submit_execution_receipt(self, receipt: ExecutionReceipt) -> ExecutionReceipt:
+        """POST /v1/receipts — P0 seller / worker execution receipt."""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/receipts",
+                json=receipt.model_dump(mode="json"),
+            )
+            resp.raise_for_status()
+            return ExecutionReceipt(**resp.json())
+
+    async def accept_task(
+        self,
+        *,
+        task_id: str,
+        buyer_identity_id: str,
+        seller_identity_id: str,
+        voucher_id: str,
+        escrow_amount: float,
+        currency: str = "USD",
+    ) -> SettlementState:
+        """
+        P0 minimal path after voucher accept: create settlement → pending → lock (seller).
+
+        Caller should have created+accepted the voucher and locked buyer capacity first.
+        """
+        await self.create_settlement(
+            task_id=task_id,
+            client_agent_id=buyer_identity_id,
+            escrow_amount=escrow_amount,
+            currency=currency,
+            voucher_id=voucher_id,
+        )
+        await self.mark_settlement_pending(task_id)
+        return await self.lock_settlement(task_id, worker_agent_id=seller_identity_id)
 
     async def submit_progress(self, progress: ProgressReceipt) -> ProgressReceipt:
         """POST /v1/progress"""
