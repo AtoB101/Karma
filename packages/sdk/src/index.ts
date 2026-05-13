@@ -2,6 +2,7 @@
  * @karma-network/sdk — P0–P1 HTTP surface for Karma public API (TypeScript).
  * Mirrors Python `sdk.KarmaClient` lock / capacity / voucher / settlement / receipts
  * and exposes P1 typed receipt extension builders (hash-in / JSON-out).
+ * P2 settlement helpers: dispute, partial / regret, auto-arbitrate, evidence bundle POST.
  */
 
 export type Json = Record<string, unknown>;
@@ -229,6 +230,68 @@ export class KarmaPublicSdk {
     return (await r.json()) as Json;
   }
 
+  async startTaskExecution(taskId: string): Promise<Json> {
+    const r = await fetch(`${this.runtimeUrl}/v1/settlement/${encodeURIComponent(taskId)}/start`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`startTaskExecution failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
+  async submitDelivery(taskId: string): Promise<Json> {
+    const r = await fetch(`${this.runtimeUrl}/v1/settlement/${encodeURIComponent(taskId)}/submit`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`submitDelivery failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
+  async openDispute(taskId: string, reason?: string): Promise<Json> {
+    const body: Json = {};
+    if (reason !== undefined && reason !== "") body.reason = reason;
+    const r = await fetch(`${this.runtimeUrl}/v1/settlement/${encodeURIComponent(taskId)}/dispute`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`openDispute failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
+  async partialSettlement(taskId: string, settledValuePercent: number, reason?: string): Promise<Json> {
+    const body: Json = { settled_value_percent: settledValuePercent };
+    if (reason !== undefined && reason !== "") body.reason = reason;
+    const r = await fetch(`${this.runtimeUrl}/v1/settlement/${encodeURIComponent(taskId)}/partial`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`partialSettlement failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
+  async regretTask(taskId: string, params?: { buyerIdentityId?: string; reason?: string }): Promise<Json> {
+    const body: Json = {};
+    if (params?.buyerIdentityId) body.buyer_identity_id = params.buyerIdentityId;
+    if (params?.reason) body.reason = params.reason;
+    const r = await fetch(`${this.runtimeUrl}/v1/settlement/${encodeURIComponent(taskId)}/regret`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`regretTask failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
   async submitExecutionReceipt(receipt: Json): Promise<Json> {
     const r = await fetch(`${this.runtimeUrl}/v1/receipts`, {
       method: "POST",
@@ -238,6 +301,40 @@ export class KarmaPublicSdk {
     });
     if (!r.ok) throw new Error(`submitExecutionReceipt failed: ${r.status} ${await r.text()}`);
     return (await r.json()) as Json;
+  }
+
+  async submitProgress(progress: Json): Promise<Json> {
+    const r = await fetch(`${this.runtimeUrl}/v1/progress`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(progress),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`submitProgress failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
+  async confirmProgress(progressReceiptId: string): Promise<Json> {
+    const r = await fetch(
+      `${this.runtimeUrl}/v1/progress/${encodeURIComponent(progressReceiptId)}/confirm`,
+      {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({}),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      },
+    );
+    if (!r.ok) throw new Error(`confirmProgress failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
+  async listProgressForTask(taskId: string): Promise<Json[]> {
+    const r = await fetch(`${this.runtimeUrl}/v1/progress/task/${encodeURIComponent(taskId)}`, {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`listProgressForTask failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json[];
   }
 
   async timeoutConfirmStaleProgress(taskId: string, maxPendingHours = 72): Promise<Json[]> {
@@ -252,5 +349,16 @@ export class KarmaPublicSdk {
     );
     if (!r.ok) throw new Error(`timeoutConfirmStaleProgress failed: ${r.status} ${await r.text()}`);
     return (await r.json()) as Json[];
+  }
+
+  async submitEvidenceBundle(bundle: Json): Promise<Json> {
+    const r = await fetch(`${this.runtimeUrl}/v1/bundles`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(bundle),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`submitEvidenceBundle failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
   }
 }

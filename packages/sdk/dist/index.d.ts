@@ -2,6 +2,7 @@
  * @karma-network/sdk — P0–P1 HTTP surface for Karma public API (TypeScript).
  * Mirrors Python `sdk.KarmaClient` lock / capacity / voucher / settlement / receipts
  * and exposes P1 typed receipt extension builders (hash-in / JSON-out).
+ * P2 settlement helpers: dispute, partial / regret, auto-arbitrate, evidence bundle POST.
  */
 export type Json = Record<string, unknown>;
 /** P1 — typed execution receipt extension (matches OpenAPI / Python schemas). */
@@ -79,6 +80,18 @@ export declare class KarmaPublicSdk {
     }): Promise<Json>;
     lockSettlement(taskId: string, workerAgentId: string): Promise<Json>;
     autoArbitrate(taskId: string): Promise<Json>;
+    startTaskExecution(taskId: string): Promise<Json>;
+    submitDelivery(taskId: string): Promise<Json>;
+    openDispute(taskId: string, reason?: string): Promise<Json>;
+    partialSettlement(taskId: string, settledValuePercent: number, reason?: string): Promise<Json>;
+    regretTask(taskId: string, params?: {
+        buyerIdentityId?: string;
+        reason?: string;
+    }): Promise<Json>;
     submitExecutionReceipt(receipt: Json): Promise<Json>;
+    submitProgress(progress: Json): Promise<Json>;
+    confirmProgress(progressReceiptId: string): Promise<Json>;
+    listProgressForTask(taskId: string): Promise<Json[]>;
     timeoutConfirmStaleProgress(taskId: string, maxPendingHours?: number): Promise<Json[]>;
+    submitEvidenceBundle(bundle: Json): Promise<Json>;
 }
