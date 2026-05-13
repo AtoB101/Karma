@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     # When true together with AUTH_ENFORCE_PROTECTED_ROUTES, settlement mutations require the caller's
     # authenticated actor to match the economic party (buyer = client_agent_id, worker = worker_agent_id).
     settlement_require_party_actor: bool = True
+    # When true with AUTH_ENFORCE_PROTECTED_ROUTES, capacity lock/release and voucher create/verify/accept
+    # bind the authenticated actor to the ledger identity or asserted voucher party (buyer/seller).
+    ledger_require_party_actor: bool = True
     # P1 — bind typed execution receipt extensions to voucher.task_type when a settlement links a voucher.
     receipt_template_voucher_binding: bool = True
     progress_require_signature: bool = True

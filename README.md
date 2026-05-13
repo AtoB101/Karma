@@ -242,7 +242,7 @@ SETTLEMENT_MODE=hybrid     # off-chain receipts/verify, on-chain payment only
 
 ### Runtime security
 
-See `docs/SECURITY_AUDIT_2026.md` for the audit summary and configuration checklist. When `AUTH_ENFORCE_PROTECTED_ROUTES` is enabled together with `SETTLEMENT_REQUIRE_PARTY_ACTOR` (default **true**), settlement and progress mutations bind to the **buyer** or **worker** identity so arbitrary API keys cannot drive another party’s task rules.
+See `docs/SECURITY_AUDIT_2026.md` for the audit summary and configuration checklist. When `AUTH_ENFORCE_PROTECTED_ROUTES` is enabled together with `SETTLEMENT_REQUIRE_PARTY_ACTOR` (default **true**), settlement and progress mutations bind to the **buyer** or **worker** identity so arbitrary API keys cannot drive another party’s task rules. With **`LEDGER_REQUIRE_PARTY_ACTOR`** (default **true**), **capacity** lock/release and **voucher** create/verify/accept bind to the asserted ledger identities.
 
 ### On-chain fields in API response
 
