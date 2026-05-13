@@ -128,10 +128,10 @@
 
 ### P2（仲裁与自动验证增强）
 
-1. 自动规则仲裁（超时、哈希不匹配、格式错误）。
-2. 去中心化仲裁池接口与裁决执行器。
-3. 多 Agent 责任路径哈希检测（循环授权、互刷识别）。
-4. 子身份增强与隐私增强（展示 ID 轮换）。
+1. 自动规则仲裁（`POST /v1/settlement/{taskId}/auto-arbitrate`；`services/auto_arbitration_rules.py`：超时、无成功回执、证据包 `receipt_ids` / 步数元数据 / `receipt_hashes` 与存库回执再哈希一致性）。
+2. 去中心化仲裁池接口与裁决执行器（`api/routes/arbitration.py`：pool / cases / vote / execute；与 `services/capacity_resolution` 等衔接）。
+3. 多 Agent 责任路径哈希检测（`services/responsibility_graph.py` + `POST /v1/responsibility/...` 摄入与扫描；`cycle_authorization` 等信号）。
+4. 子身份增强与隐私增强（`api/routes/identities.py`：子身份上限、`rotate-display-id` 展示号轮换；voucher 子身份绑定校验）。
 
 ### P3（高级能力）
 

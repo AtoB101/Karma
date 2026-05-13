@@ -41,6 +41,15 @@ def _sha256(data: Any) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def execution_receipt_bundle_digest(receipt: ExecutionReceipt) -> str:
+    """
+    SHA-256 hex digest of a receipt as embedded in ``EvidenceBundle.receipt_hashes``.
+
+    Must stay aligned with ``EvidenceBundleBuilder`` hashing (canonical JSON of the receipt).
+    """
+    return _sha256(receipt.model_dump(mode="json"))
+
+
 # ---------------------------------------------------------------------------
 # Bundle Signer Interface
 # ---------------------------------------------------------------------------
