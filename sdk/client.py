@@ -462,6 +462,18 @@ class KarmaClient:
             resp.raise_for_status()
             return ProgressReceipt(**resp.json())
 
+    async def timeout_confirm_stale_progress(
+        self, task_id: str, *, max_pending_hours: float = 72.0
+    ) -> list[ProgressReceipt]:
+        """POST /v1/progress/task/{task_id}/timeout-confirm — P1 auto-confirm stale pending receipts."""
+        async with self._http() as http:
+            resp = await http.post(
+                f"{self.runtime_url}/v1/progress/task/{task_id}/timeout-confirm",
+                params={"max_pending_hours": max_pending_hours},
+            )
+            resp.raise_for_status()
+            return [ProgressReceipt(**item) for item in resp.json()]
+
     async def list_progress(self, task_id: str) -> list[ProgressReceipt]:
         """GET /v1/progress/task/{task_id}"""
         async with self._http() as http:

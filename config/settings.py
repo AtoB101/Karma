@@ -72,6 +72,8 @@ class Settings(BaseSettings):
     # P1 — bind typed execution receipt extensions to voucher.task_type when a settlement links a voucher.
     receipt_template_voucher_binding: bool = True
     progress_require_signature: bool = True
+    # When true, POST /v1/progress/{id}/confirm requires authenticated actor to match settlement.client_agent_id (buyer).
+    progress_confirm_require_buyer_actor: bool = False
 
     # Reputation
     reputation_initial_score: float = 100.0

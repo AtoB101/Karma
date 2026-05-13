@@ -228,4 +228,18 @@ export class KarmaPublicSdk {
     if (!r.ok) throw new Error(`submitExecutionReceipt failed: ${r.status} ${await r.text()}`);
     return (await r.json()) as Json;
   }
+
+  async timeoutConfirmStaleProgress(taskId: string, maxPendingHours = 72): Promise<Json[]> {
+    const q = new URLSearchParams({ max_pending_hours: String(maxPendingHours) });
+    const r = await fetch(
+      `${this.runtimeUrl}/v1/progress/task/${encodeURIComponent(taskId)}/timeout-confirm?${q.toString()}`,
+      {
+        method: "POST",
+        headers: this.headers(),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      },
+    );
+    if (!r.ok) throw new Error(`timeoutConfirmStaleProgress failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json[];
+  }
 }

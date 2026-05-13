@@ -244,6 +244,12 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    confirmed_claimed = await _confirmed_progress_percent(db, task_id)
+    if confirmed_claimed > 1e-9 and body.settled_value_percent > confirmed_claimed + 1e-4:
+        raise HTTPException(
+            400,
+            f"settled_value_percent exceeds confirmed claimed value ceiling ({confirmed_claimed:.4f}%)",
+        )
     settled_amount = round(state.escrow_amount * body.settled_value_percent / 100.0, 2)
     refunded_amount = round(state.escrow_amount - settled_amount, 2)
 
@@ -282,6 +288,8 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    if body.buyer_identity_id is not None and body.buyer_identity_id != state.client_agent_id:
+        raise HTTPException(403, "buyer_identity_id does not match settlement buyer (client_agent_id)")
     confirmed_percent = await _confirmed_progress_percent(db, task_id)
     settled_amount = round(state.escrow_amount * confirmed_percent / 100.0, 2)
     refunded_amount = round(state.escrow_amount - settled_amount, 2)

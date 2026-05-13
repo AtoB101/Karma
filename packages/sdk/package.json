@@ -1,6 +1,6 @@
 {
   "name": "@karma-network/sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "TypeScript SDK for Karma public HTTP API (P0–P1: capacity, vouchers, settlement, receipts + typed receipt extensions)",
   "type": "module",

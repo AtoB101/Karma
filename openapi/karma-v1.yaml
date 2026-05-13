@@ -1144,6 +1144,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ProgressReceipt'
+        '403':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1167,6 +1169,40 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ProgressReceipt'
+  /v1/progress/task/{taskId}/timeout-confirm:
+    post:
+      summary: Auto-confirm stale pending progress receipts (P1 buyer-timeout path)
+      operationId: timeoutConfirmProgressReceipts
+      description: |
+        Confirms all pending progress receipts for the task whose timestamp is older than
+        ``now - max_pending_hours``. Intended for operational automation when the buyer does not act.
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: max_pending_hours
+          required: false
+          schema:
+            type: number
+            default: 72
+            minimum: 0.25
+            maximum: 2160
+      responses:
+        '200':
+          description: Receipts that were confirmed by this call (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProgressReceipt'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/BadRequest'
   /v1/settlement/{taskId}/pending:
     post:
       summary: Move settlement to pending
@@ -1217,7 +1253,11 @@ paths:
                   $ref: '#/components/schemas/SettlementTransitionAudit'
   /v1/settlement/{taskId}/partial:
     post:
-      summary: Partial settlement by value percent
+      summary: Partial settlement by economic value percent of escrow
+      description: |
+        Settles ``settled_value_percent`` of escrow to the seller and refunds the remainder.
+        When the task has any **confirmed** progress receipts, ``settled_value_percent`` must not
+        exceed the maximum confirmed ``claimed_value_percent`` (prevents paying beyond established liability).
       operationId: partialSettlement
       parameters:
         - in: path
@@ -1238,6 +1278,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SettlementState'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1245,6 +1287,9 @@ paths:
   /v1/settlement/{taskId}/regret:
     post:
       summary: Buyer regret settlement
+      description: |
+        Settles to the seller based on the maximum **confirmed** ``claimed_value_percent`` on progress receipts,
+        and refunds the remainder to the buyer. When ``buyer_identity_id`` is supplied it must match the settlement buyer.
       operationId: regretSettlement
       parameters:
         - in: path
@@ -1265,6 +1310,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SettlementState'
+        '403':
+          $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -3114,6 +3161,9 @@ components:
           type: number
           exclusiveMinimum: 0
           maximum: 100
+          description: |
+            Percent of escrow (by economic value) to settle to the seller. If any progress receipts are **confirmed**,
+            this must not exceed the maximum confirmed ``claimed_value_percent`` for the task.
         reason:
           type: string
       required: [settled_value_percent]
@@ -3122,6 +3172,7 @@ components:
       properties:
         buyer_identity_id:
           type: string
+          description: Optional; when set must equal the settlement ``client_agent_id`` (buyer).
         reason:
           type: string
     DisputeRequest:

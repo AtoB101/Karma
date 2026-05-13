@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.middleware.auth import resolve_agent_id_from_auth_headers
+from config.settings import settings
 from core.schemas import ProgressConfirmationStatus, ProgressReceipt, TaskStatus
 from core.settlement.engine import can_transition
 from db.models.orm import ProgressReceiptModel
@@ -97,7 +99,7 @@ async def submit_progress_receipt(progress: ProgressReceipt, db: AsyncSession = 
 
 
 @router.post("/{progress_receipt_id}/confirm", response_model=ProgressReceipt)
-async def confirm_progress_receipt(progress_receipt_id: str, db: AsyncSession = Depends(get_db)):
+async def confirm_progress_receipt(progress_receipt_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     row = await db.get(ProgressReceiptModel, progress_receipt_id)
     if not row:
         raise HTTPException(404, f"Progress receipt {progress_receipt_id} not found")
@@ -108,6 +110,16 @@ async def confirm_progress_receipt(progress_receipt_id: str, db: AsyncSession = 
     settlement = await settlement_store.get(row.task_id)
     if not settlement:
         raise HTTPException(404, f"Settlement for task {row.task_id} not found")
+    if settings.progress_confirm_require_buyer_actor:
+        actor = resolve_agent_id_from_auth_headers(
+            authorization=request.headers.get("authorization"),
+            api_key=request.headers.get("x-karma-api-key"),
+        )
+        if not actor or actor != settlement.client_agent_id:
+            raise HTTPException(
+                403,
+                "progress confirmation must be performed by the settlement buyer when progress_confirm_require_buyer_actor is enabled",
+            )
     if not can_transition(settlement.status, TaskStatus.PROGRESS_CONFIRMED):
         raise HTTPException(409, f"invalid status transition: {settlement.status.value} -> progress_confirmed")
 

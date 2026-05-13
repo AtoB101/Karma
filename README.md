@@ -107,7 +107,7 @@ async def my_task(contract, client):
 result = await client.run_task(contract, my_task)
 ```
 
-P0 helpers on `KarmaClient` include `lock_usdc`, `get_capacity`, `create_voucher`, `verify_voucher`, `accept_voucher`, `accept_task` (settlement create → pending → lock), and `submit_execution_receipt`. P1 adds optional `extension` on `run_tool` / hook layer (api / mcp / agent templates) plus `sdk/execution_receipt_helpers.py` for digest construction. TypeScript mirror: `packages/sdk` (`npm run build`) with `apiExecutionExtensionFromHashes` and related builders. Optional voucher EIP-712 enforcement: environment `VOUCHER_REQUIRE_EIP712=true` plus `buyer_wallet_address` on `POST /v1/vouchers` (see `services/voucher_eip712.py`). Isolated operational UI demo: `examples/p0-buyer-seller-console.html`.
+P0 helpers on `KarmaClient` include `lock_usdc`, `get_capacity`, `create_voucher`, `verify_voucher`, `accept_voucher`, `accept_task` (settlement create → pending → lock), and `submit_execution_receipt`. P1 adds optional `extension` on `run_tool` / hook layer (api / mcp / agent templates) plus `sdk/execution_receipt_helpers.py` for digest construction. Progress path: optional `progress_confirm_require_buyer_actor`, partial settlement capped to confirmed claimed value when confirmations exist, and `timeout_confirm_stale_progress` on the HTTP/SDK surface. TypeScript mirror: `packages/sdk` (`npm run build`) with `apiExecutionExtensionFromHashes` and related builders. Optional voucher EIP-712 enforcement: environment `VOUCHER_REQUIRE_EIP712=true` plus `buyer_wallet_address` on `POST /v1/vouchers` (see `services/voucher_eip712.py`). Isolated operational UI demo: `examples/p0-buyer-seller-console.html`.
 
 ---
 
