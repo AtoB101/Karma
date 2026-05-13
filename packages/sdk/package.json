@@ -1,8 +1,8 @@
 {
   "name": "@karma-network/sdk",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "private": true,
-  "description": "TypeScript SDK for Karma public HTTP API (P0–P1: capacity, vouchers, settlement, receipts + typed receipt extensions)",
+  "description": "TypeScript SDK for Karma public HTTP API (P0–P2: capacity, vouchers, settlement lifecycle, dispute, partial/regret, auto-arbitrate, receipts, progress, evidence bundles)",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
