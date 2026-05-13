@@ -104,8 +104,6 @@ async def submit_for_verification(
     run_settlement.delay(
         result.task_id,
         result.model_dump(mode="json"),
-        body.bundle.model_dump(mode="json"),
-        body.contract.model_dump(mode="json"),
     )
 
     return result

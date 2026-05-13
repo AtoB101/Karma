@@ -86,6 +86,9 @@ class PostgresSettlementStore(SettlementStore):
             "evidence_bundle_hash": getattr(s, "evidence_bundle_hash", None),
             "onchain_status":       getattr(s, "onchain_status", None),
             "quote_id":             getattr(s, "quote_id", None),
+            "voucher_id":           getattr(s, "voucher_id", None),
+            "delivery_deadline_at": getattr(s, "delivery_deadline_at", None),
+            "progress_rule_spec": getattr(s, "progress_rule_spec", None),
         }
 
     @staticmethod
@@ -113,4 +116,7 @@ class PostgresSettlementStore(SettlementStore):
             evidence_bundle_hash=getattr(row, "evidence_bundle_hash", None),
             onchain_status=getattr(row, "onchain_status", None),
             quote_id=getattr(row, "quote_id", None),
+            voucher_id=getattr(row, "voucher_id", None),
+            delivery_deadline_at=getattr(row, "delivery_deadline_at", None),
+            progress_rule_spec=getattr(row, "progress_rule_spec", None),
         )

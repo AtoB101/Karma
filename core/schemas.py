@@ -374,6 +374,14 @@ class SettlementState(BaseModel):
     evidence_bundle_hash: Optional[str] = Field(default=None, description="keccak256 of evidence bundle submitted on-chain")
     onchain_status: Optional[str] = Field(default=None, description="pending | confirmed | failed")
     quote_id: Optional[str] = Field(default=None, description="EIP-712 quoteId used in settlement tx")
+    voucher_id: Optional[str] = Field(default=None, description="Linked authorization voucher after seller accept")
+    delivery_deadline_at: Optional[datetime] = Field(
+        default=None, description="P2 auto-arbitration: expected delivery time (UTC)"
+    )
+    progress_rule_spec: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="P1 non-linear progress curve JSON (mirrors voucher at settlement creation)",
+    )
 
 
 class SettlementTransitionAudit(BaseModel):
@@ -442,6 +450,10 @@ class AuthorizationVoucher(BaseModel):
     seller_sub_identity_id: Optional[str] = None
     accepted_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    progress_rule_spec: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Structured curve (e.g. piecewise); committed alongside progress_rule_hash",
+    )
 
 
 class VoucherVerificationResult(BaseModel):
@@ -454,6 +466,13 @@ class VoucherVerificationResult(BaseModel):
     has_sufficient_capacity: bool
     can_start: bool
     status: VoucherStatus
+    voucher_accepted: bool = Field(
+        default=False, description="True when voucher status is accepted (credits frozen for this auth)"
+    )
+    reserved_covers_voucher_amount: bool = Field(
+        default=False,
+        description="True when buyer reserved credits cover bill_credit_amount (post-accept invariant)",
+    )
 
 
 # ---------------------------------------------------------------------------

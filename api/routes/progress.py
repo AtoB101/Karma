@@ -1,9 +1,9 @@
 """Karma API — Progress receipts."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +12,7 @@ from core.settlement.engine import can_transition
 from db.models.orm import ProgressReceiptModel
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
+from services.progress_curve import validate_claimed_against_curve
 from services.receipt_guard import validate_progress_receipt_static
 
 router = APIRouter()
@@ -61,6 +62,14 @@ async def submit_progress_receipt(progress: ProgressReceipt, db: AsyncSession = 
     settlement = await settlement_store.get(progress.task_id)
     if not settlement:
         raise HTTPException(404, f"Settlement for task {progress.task_id} not found")
+    try:
+        validate_claimed_against_curve(
+            progress_percent=progress.progress_percent,
+            claimed_value_percent=progress.claimed_value_percent,
+            spec=settlement.progress_rule_spec,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     if settlement.worker_agent_id and settlement.worker_agent_id != progress.seller_identity_id:
         raise HTTPException(409, "seller_identity_id does not match settlement worker_agent_id")
     if not can_transition(settlement.status, TaskStatus.PROGRESS_SUBMITTED):
@@ -108,6 +117,46 @@ async def confirm_progress_receipt(progress_receipt_id: str, db: AsyncSession = 
     await settlement_store.save(settlement)
     await db.flush()
     return _to_schema(row)
+
+
+@router.post("/task/{task_id}/timeout-confirm", response_model=list[ProgressReceipt])
+async def timeout_confirm_progress(
+    task_id: str,
+    max_pending_hours: float = Query(default=72.0, ge=0.25, le=24 * 90),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    P1 — Auto-confirm pending progress receipts older than max_pending_hours (buyer-timeout path).
+    """
+    cutoff = datetime.utcnow() - timedelta(hours=max_pending_hours)
+    settlement_store = PostgresSettlementStore(db)
+    settlement = await settlement_store.get(task_id)
+    if not settlement:
+        raise HTTPException(404, f"Settlement for task {task_id} not found")
+
+    result = await db.execute(
+        select(ProgressReceiptModel).where(
+            ProgressReceiptModel.task_id == task_id,
+            ProgressReceiptModel.confirmation_status == ProgressConfirmationStatus.PENDING.value,
+            ProgressReceiptModel.timestamp <= cutoff,
+        )
+    )
+    rows = list(result.scalars().all())
+    if rows and not can_transition(settlement.status, TaskStatus.PROGRESS_CONFIRMED):
+        raise HTTPException(
+            409,
+            f"cannot timeout-confirm from settlement status {settlement.status.value}",
+        )
+    updated: list[ProgressReceipt] = []
+    for row in rows:
+        row.confirmation_status = ProgressConfirmationStatus.CONFIRMED.value
+        row.confirmed_at = datetime.utcnow()
+        updated.append(_to_schema(row))
+    if rows:
+        settlement.status = TaskStatus.PROGRESS_CONFIRMED
+        await settlement_store.save(settlement)
+    await db.flush()
+    return updated
 
 
 @router.get("/task/{task_id}", response_model=list[ProgressReceipt])

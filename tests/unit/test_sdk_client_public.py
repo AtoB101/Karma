@@ -154,6 +154,8 @@ async def test_voucher_sdk_methods():
         "has_sufficient_capacity": True,
         "can_start": True,
         "status": "created",
+        "voucher_accepted": False,
+        "reserved_covers_voucher_amount": False,
     }
     accepted_payload = dict(voucher_payload)
     accepted_payload["status"] = "accepted"

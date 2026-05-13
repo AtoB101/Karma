@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from core.schemas import (
     AuthorizationVoucher,
@@ -42,6 +42,7 @@ class CreateVoucherRequest(BaseModel):
     buyer_signature: str
     buyer_sub_identity_id: str | None = None
     seller_sub_identity_id: str | None = None
+    progress_rule_spec: dict | None = None
 
 
 class VerifyVoucherRequest(BaseModel):
@@ -80,28 +81,33 @@ async def create_voucher(body: CreateVoucherRequest, db: AsyncSession = Depends(
     )
 
     voucher = AuthorizationVoucher(**body.model_dump())
-    db.add(
-        VoucherModel(
-            voucher_id=voucher.voucher_id,
-            buyer_identity_id=voucher.buyer_identity_id,
-            seller_identity_id=voucher.seller_identity_id,
-            amount=voucher.amount,
-            currency=voucher.currency,
-            bill_credit_amount=voucher.bill_credit_amount,
-            task_type=voucher.task_type,
-            task_description_hash=voucher.task_description_hash,
-            progress_rule_hash=voucher.progress_rule_hash,
-            evidence_requirement_hash=voucher.evidence_requirement_hash,
-            expiry_time=voucher.expiry_time,
-            nonce=voucher.nonce,
-            buyer_signature=voucher.buyer_signature,
-            status=voucher.status.value,
-            buyer_sub_identity_id=voucher.buyer_sub_identity_id,
-            seller_sub_identity_id=voucher.seller_sub_identity_id,
-            accepted_at=voucher.accepted_at,
-            created_at=voucher.created_at,
+    try:
+        db.add(
+            VoucherModel(
+                voucher_id=voucher.voucher_id,
+                buyer_identity_id=voucher.buyer_identity_id,
+                seller_identity_id=voucher.seller_identity_id,
+                amount=voucher.amount,
+                currency=voucher.currency,
+                bill_credit_amount=voucher.bill_credit_amount,
+                task_type=voucher.task_type,
+                task_description_hash=voucher.task_description_hash,
+                progress_rule_hash=voucher.progress_rule_hash,
+                evidence_requirement_hash=voucher.evidence_requirement_hash,
+                expiry_time=voucher.expiry_time,
+                nonce=voucher.nonce,
+                buyer_signature=voucher.buyer_signature,
+                status=voucher.status.value,
+                buyer_sub_identity_id=voucher.buyer_sub_identity_id,
+                seller_sub_identity_id=voucher.seller_sub_identity_id,
+                accepted_at=voucher.accepted_at,
+                created_at=voucher.created_at,
+                progress_rule_spec=voucher.progress_rule_spec,
+            )
         )
-    )
+        await db.flush()
+    except IntegrityError as exc:
+        raise HTTPException(409, "duplicate voucher nonce for this buyer") from exc
     return voucher
 
 
@@ -127,7 +133,26 @@ async def verify_voucher(voucher_id: str, body: VerifyVoucherRequest, db: AsyncS
 
     cap = await db.get(CapacityModel, row.buyer_identity_id)
     has_capacity = bool(cap and cap.available_credits >= row.bill_credit_amount)
-    can_start = (not is_expired) and (not is_used) and seller_matches and amount_matches and has_capacity
+    accepted = row.status == VoucherStatus.ACCEPTED.value
+    reserved_ok = bool(
+        cap and accepted and cap.reserved_credits + 1e-9 >= row.bill_credit_amount
+    )
+    if accepted:
+        can_start = (
+            (not is_expired)
+            and (not is_used)
+            and seller_matches
+            and amount_matches
+            and reserved_ok
+        )
+    else:
+        can_start = (
+            (not is_expired)
+            and (not is_used)
+            and seller_matches
+            and amount_matches
+            and has_capacity
+        )
 
     return VoucherVerificationResult(
         voucher_id=row.voucher_id,
@@ -139,6 +164,8 @@ async def verify_voucher(voucher_id: str, body: VerifyVoucherRequest, db: AsyncS
         has_sufficient_capacity=has_capacity,
         can_start=can_start,
         status=VoucherStatus(row.status),
+        voucher_accepted=accepted,
+        reserved_covers_voucher_amount=reserved_ok,
     )
 
 
@@ -209,6 +236,7 @@ def _to_schema(row: VoucherModel) -> AuthorizationVoucher:
         seller_sub_identity_id=row.seller_sub_identity_id,
         accepted_at=row.accepted_at,
         created_at=row.created_at,
+        progress_rule_spec=row.progress_rule_spec,
     )
 
 
