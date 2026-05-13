@@ -1,4 +1,9 @@
-.PHONY: build test deploy demo simulate verify proof clean karma-bff-smoke
+.PHONY: build test test-python test-gas deploy demo simulate verify proof clean karma-bff-smoke
+
+# Python: 单元 + 集成（含 Runtime /runtime 端到端，见 tests/integration/test_runtime_e2e.py）
+test-python:
+	python3 -m pip install -q -e ".[dev]"
+	python3 -m pytest tests/ -q --tb=short
 
 karma-bff-smoke:
 	pip install -q -r requirements-bff.txt httpx

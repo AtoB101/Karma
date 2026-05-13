@@ -19,6 +19,21 @@ brand-protection policy.
 3. Run local checks before opening a PR.
 4. Open a PR with a concise summary and validation steps.
 
+## Local checks (Python API + tests)
+
+Install dev dependencies and run the **full** pytest tree (unit, integration, and
+root-level tests under `tests/`, including Runtime Gateway E2E in
+`tests/integration/test_runtime_e2e.py`):
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -q
+# or: make test-python
+```
+
+Contract / static analysis may use `forge test` and repo scripts as documented in
+`README.md` and `.github/workflows/`.
+
 ## Contract changes that affect the private runtime
 
 If your PR changes **`openapi/karma-v1.yaml`**, **`core/schemas.py`** verify/apply-verification payloads, or related HTTP contracts, add the trigger line from **`docs/SYNC_PRIVATE_RUNTIME.md`** to the PR description (and changelog when applicable) so private Karma2 can bump **`PUBLIC_BASELINE_*`** and run contract tests. See that file for the exact sentence and playbook link.

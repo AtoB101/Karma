@@ -1,0 +1,45 @@
+# Python API + Runtime — 全量测试（单元 + 集成 + 信任运行时）
+#
+# 与 Makefile 中 ``forge test`` 互补：本 Job 覆盖 FastAPI、/runtime 网关、
+# SDK 与 tests/ 下全部 pytest 用例（含 tests/integration/test_runtime_e2e.py）。
+name: Python tests
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project (dev extras)
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e ".[dev]"
+
+      - name: Run full Python test suite
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/ -q --tb=short
+
+      - name: karma-openclaw smoke (optional package)
+        run: |
+          set -euo pipefail
+          python3 -m pytest packages/karma-openclaw/tests -q --tb=short
