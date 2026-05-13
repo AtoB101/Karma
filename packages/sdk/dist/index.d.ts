@@ -78,6 +78,7 @@ export declare class KarmaPublicSdk {
         currency?: string;
     }): Promise<Json>;
     lockSettlement(taskId: string, workerAgentId: string): Promise<Json>;
+    autoArbitrate(taskId: string): Promise<Json>;
     submitExecutionReceipt(receipt: Json): Promise<Json>;
     timeoutConfirmStaleProgress(taskId: string, maxPendingHours?: number): Promise<Json[]>;
 }

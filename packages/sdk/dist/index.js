@@ -150,6 +150,17 @@ export class KarmaPublicSdk {
             throw new Error(`lockSettlement failed: ${r.status} ${await r.text()}`);
         return (await r.json());
     }
+    async autoArbitrate(taskId) {
+        const r = await fetch(`${this.runtimeUrl}/v1/settlement/${encodeURIComponent(taskId)}/auto-arbitrate`, {
+            method: "POST",
+            headers: this.headers(),
+            body: JSON.stringify({}),
+            signal: AbortSignal.timeout(this.timeoutMs),
+        });
+        if (!r.ok)
+            throw new Error(`autoArbitrate failed: ${r.status} ${await r.text()}`);
+        return (await r.json());
+    }
     async submitExecutionReceipt(receipt) {
         const r = await fetch(`${this.runtimeUrl}/v1/receipts`, {
             method: "POST",

@@ -218,6 +218,17 @@ export class KarmaPublicSdk {
     return (await r.json()) as Json;
   }
 
+  async autoArbitrate(taskId: string): Promise<Json> {
+    const r = await fetch(`${this.runtimeUrl}/v1/settlement/${encodeURIComponent(taskId)}/auto-arbitrate`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`autoArbitrate failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
   async submitExecutionReceipt(receipt: Json): Promise<Json> {
     const r = await fetch(`${this.runtimeUrl}/v1/receipts`, {
       method: "POST",
