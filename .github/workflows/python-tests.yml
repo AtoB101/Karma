@@ -42,4 +42,5 @@ jobs:
       - name: karma-openclaw smoke (optional package)
         run: |
           set -euo pipefail
+          python3 -m pip install -e "./packages/karma-openclaw[dev]"
           python3 -m pytest packages/karma-openclaw/tests -q --tb=short
