@@ -107,6 +107,14 @@
 5. 每笔结算均存在同额销毁记录。
 6. 全量守恒：`sum(active_credits) <= vault_balance_usdc`。
 
+**仓库落地补充（与 §5.1–§5.3 对齐）：**
+
+- Python `sdk.KarmaClient`：`lock_usdc`（`lock_capacity` 别名）、`create_settlement` / `mark_settlement_pending` / `lock_settlement`、`accept_task`（创建结算→pending→lock）、`submit_execution_receipt`（`POST /v1/receipts`）。
+- EIP-712：`services/voucher_eip712.py`；运行时 `VOUCHER_REQUIRE_EIP712` / `voucher_eip712_chain_id` / `voucher_eip712_verifying_contract`（见 `config/settings.py`）；OpenAPI `CreateVoucherRequest` 含 `buyer_wallet_address`。
+- **验收自动化**：`tests/integration/test_p0_acceptance.py`（§5.4 六条）；`tests/unit/test_voucher_eip712.py`。
+- **操作端（与官网隔离）**：`examples/p0-buyer-seller-console.html`（配置 API Base URL；钱包仅在本页用于演示锁仓与签名）。
+- **TypeScript SDK**：`packages/sdk`（`npm run build` 生成 `dist/`）。
+
 ---
 
 ## 6. P1 / P2 / P3 实施范围

@@ -1,14 +1,17 @@
 {
   "name": "@karma-network/sdk",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Scaffold — TypeScript SDK for KARMA public APIs (implementation pending)",
+  "description": "TypeScript SDK for Karma public HTTP API (P0 surface: capacity, vouchers, settlement, receipts)",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "echo \"SDK build not wired yet\" && exit 0"
+    "build": "tsc -p tsconfig.json"
   },
   "license": "AGPL-3.0-only",
-  "keywords": ["karma", "agents", "settlement"]
+  "keywords": ["karma", "agents", "settlement"],
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
 }

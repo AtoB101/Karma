@@ -2538,10 +2538,17 @@ components:
           type: string
         buyer_signature:
           type: string
+          description: ECDSA signature (0x-hex) over KarmaAuthorizationVoucher EIP-712 typed data when enforcement is enabled.
+        buyer_wallet_address:
+          type: string
+          description: Buyer signer address; required when VOUCHER_REQUIRE_EIP712=true.
         buyer_sub_identity_id:
           type: string
         seller_sub_identity_id:
           type: string
+        progress_rule_spec:
+          type: object
+          additionalProperties: true
       required:
         - buyer_identity_id
         - seller_identity_id

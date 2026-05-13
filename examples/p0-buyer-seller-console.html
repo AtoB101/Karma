@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Karma P0 — Buyer / Seller 操作端（演示）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 1rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.25rem; }
+    fieldset { margin: 1rem 0; border: 1px solid #ccc; padding: 0.75rem; }
+    label { display: block; margin: 0.35rem 0; }
+    input, button { padding: 0.35rem 0.5rem; }
+    pre { background: #111; color: #eee; padding: 0.75rem; overflow: auto; font-size: 0.8rem; }
+    .warn { color: #a40; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>Karma P0 操作端（与官网隔离）</h1>
+  <p class="warn">仅用于开发/内网联调：在此页连接钱包、调用公开 API。生产环境请使用独立部署的操作端域名并配置 CORS。</p>
+
+  <fieldset>
+    <legend>API</legend>
+    <label>Runtime Base URL <input id="base" size="48" value="http://127.0.0.1:8000" /></label>
+    <label>X-Karma-Api-Key（可选）<input id="apikey" size="48" /></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Buyer — 锁仓 / 查额度</legend>
+    <label>Buyer identity_id <input id="bid" value="buyer-local-1" /></label>
+    <label>Lock amount (USDC 记账单位) <input id="lamt" type="number" value="100" /></label>
+    <button type="button" id="btnLock">POST /v1/capacity/…/lock</button>
+    <button type="button" id="btnCap">GET /v1/capacity/…</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>Seller — voucher 验证 / 接单</legend>
+    <label>Voucher ID <input id="vid" size="40" /></label>
+    <label>Seller identity_id <input id="sid" value="seller-local-1" /></label>
+    <button type="button" id="btnVerify">POST …/verify</button>
+    <button type="button" id="btnAccept">POST …/accept</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>Receipt（需与后端 Ed25519 密钥一致签名；此处仅演示 JSON 形状）</legend>
+    <p class="warn">真实回执签名由 SDK / Agent 运行时生成；本页可粘贴已由工具签好的 JSON POST 到 /v1/receipts。</p>
+    <label>Receipt JSON <textarea id="receiptJson" rows="8" cols="80"></textarea></label>
+    <button type="button" id="btnReceipt">POST /v1/receipts</button>
+  </fieldset>
+
+  <h2>响应</h2>
+  <pre id="out">{}</pre>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const headers = () => {
+      const h = { "content-type": "application/json" };
+      const k = $("apikey").value.trim();
+      if (k) h["X-Karma-Api-Key"] = k;
+      return h;
+    };
+    const base = () => $("base").value.replace(/\/$/, "");
+    const show = async (r) => {
+      const t = await r.text();
+      try { $("out").textContent = JSON.stringify(JSON.parse(t), null, 2); }
+      catch { $("out").textContent = t; }
+    };
+    $("btnLock").onclick = async () => {
+      const id = $("bid").value.trim();
+      const r = await fetch(base() + "/v1/capacity/" + encodeURIComponent(id) + "/lock", {
+        method: "POST", headers: headers(),
+        body: JSON.stringify({ amount: Number($("lamt").value) }),
+      });
+      await show(r);
+    };
+    $("btnCap").onclick = async () => {
+      const id = $("bid").value.trim();
+      const r = await fetch(base() + "/v1/capacity/" + encodeURIComponent(id), { headers: headers() });
+      await show(r);
+    };
+    $("btnVerify").onclick = async () => {
+      const v = $("vid").value.trim();
+      const s = $("sid").value.trim();
+      const r = await fetch(base() + "/v1/vouchers/" + encodeURIComponent(v) + "/verify", {
+        method: "POST", headers: headers(),
+        body: JSON.stringify({ seller_identity_id: s }),
+      });
+      await show(r);
+    };
+    $("btnAccept").onclick = async () => {
+      const v = $("vid").value.trim();
+      const s = $("sid").value.trim();
+      const r = await fetch(base() + "/v1/vouchers/" + encodeURIComponent(v) + "/accept", {
+        method: "POST", headers: headers(),
+        body: JSON.stringify({ seller_identity_id: s }),
+      });
+      await show(r);
+    };
+    $("btnReceipt").onclick = async () => {
+      const body = JSON.parse($("receiptJson").value || "{}");
+      const r = await fetch(base() + "/v1/receipts", {
+        method: "POST", headers: headers(), body: JSON.stringify(body),
+      });
+      await show(r);
+    };
+  </script>
+</body>
+</html>
