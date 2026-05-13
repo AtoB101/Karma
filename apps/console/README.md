@@ -1,12 +1,12 @@
 # KARMA Console (public shell)
 
-Static **operational shell** for Receiving, Payments, Agents, Evidence, and Disputes.  
-Wallet signing, chain writes, and private risk calls belong in integrated clients — this tree ships **layout + copy + navigation** only.
+Static **operational shell** for Receiving, Payments, Agents, Evidence, and Disputes — plus **Cyber Console** (`pages/cyber/index.html`) which connects to the **Karma public API** (`GET /v1/capacity/{id}`, `GET /v1/settlement/{task_id}`) with optional `X-Karma-Api-Key` and **8-locale UI** (zh-CN, en, ja, ko, es, fr, de, pt-BR).
 
 ## Principles
 
 - **Website** (`apps/website`) does not connect wallets.  
 - **Console** is where Connect Wallet and bill/evidence/dispute UX live.  
+- **Cyber Console** stores API base / key / identity in `localStorage` (dev convenience); do not use shared machines for production secrets.
 - Production may host Console at `https://app.karma-network.ai` with `/console` rewrites.
 
 ## Preview
@@ -15,7 +15,9 @@ Wallet signing, chain writes, and private risk calls belong in integrated client
 python3 -m http.server 8787
 ```
 
-Open `http://127.0.0.1:8787/apps/console/index.html`.
+Open `http://127.0.0.1:8787/apps/console/index.html` or **`http://127.0.0.1:8787/apps/console/pages/cyber/index.html`**.
+
+Ensure the Karma API allows **CORS** from your static origin (`CORS_ALLOW_ORIGINS` / dev `*`) or serve Console behind the same origin as the API.
 
 ## Karma BFF status (read-only, no secrets)
 

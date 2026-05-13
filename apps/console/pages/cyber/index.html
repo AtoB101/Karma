@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Karma Console — Cyber</title>
+    <link rel="stylesheet" href="../../styles/cyber-console.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="logo">K</div>
+          <div>
+            <h1 data-i18n="brand.title">Karma Console</h1>
+            <p data-i18n="brand.tagline">赛博责任网络</p>
+          </div>
+        </div>
+        <div class="identity-box">
+          <div class="id-top" style="display: flex; justify-content: space-between">
+            <span data-i18n="id.current">当前身份</span>
+            <span class="status" data-i18n="id.status">正常</span>
+          </div>
+          <div class="id-main">worker-001</div>
+          <div class="id-sub">SBT · Main</div>
+          <div class="id-meta">
+            <div class="mini"><b>Buyer-ID</b><span data-i18n="id.buyer_sub">付款子身份</span></div>
+            <div class="mini"><b>Seller-ID</b><span data-i18n="id.seller_sub">收款子身份</span></div>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="active" data-page="overview"><span class="icon">◎</span><span data-i18n="nav.overview">总览</span></button>
+          <button data-page="center"><span class="icon">⇄</span><span data-i18n="nav.center">收付中心</span></button>
+          <button data-page="tasks"><span class="icon">▣</span><span data-i18n="nav.tasks">任务执行</span></button>
+          <button data-page="receipts"><span class="icon">R</span><span data-i18n="nav.receipts">回执证明</span></button>
+          <button data-page="bills"><span class="icon">≋</span><span data-i18n="nav.bills">账单</span></button>
+          <button data-page="disputes"><span class="icon">⚖</span><span data-i18n="nav.disputes">争议</span></button>
+          <button data-page="identity"><span class="icon">ID</span><span data-i18n="nav.identity">身份</span></button>
+          <button data-page="settings"><span class="icon">⚙</span><span data-i18n="nav.settings">设置</span></button>
+        </nav>
+        <div class="side-warning">
+          <b data-i18n="side.rule_title">资金安全规则</b>
+          <p data-i18n="side.rule_body">管理员只能暂停，不能改账、不能提现。所有责任额度永远 1:1 锚定 USDC。</p>
+        </div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div class="topbar-inner">
+            <div class="api-strip">
+              <label class="lang-select" style="display: flex; align-items: center; gap: 8px; border: none; background: transparent">
+                <span data-i18n="api.lang">语言</span>
+                <select id="cyberLang" class="lang-select">
+                  <option value="zh-CN">中文</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
+                  <option value="es">Español</option>
+                  <option value="fr">Français</option>
+                  <option value="de">Deutsch</option>
+                  <option value="pt-BR">Português (BR)</option>
+                </select>
+              </label>
+              <input data-cfg="api_base" data-i18n-placeholder="api.base" type="text" placeholder="http://127.0.0.1:8000" />
+              <input data-cfg="api_key" data-i18n-placeholder="api.key" type="password" placeholder="API Key" autocomplete="off" />
+              <input data-cfg="identity_id" data-i18n-placeholder="api.identity" type="text" placeholder="Identity ID" autocomplete="off" />
+              <button type="button" class="btn" data-action="save-cfg" data-i18n="api.save">保存连接</button>
+              <button type="button" class="btn primary" data-action="refresh-api" data-i18n="api.refresh">从 API 刷新额度</button>
+              <span class="api-status" data-api-status>—</span>
+            </div>
+            <div class="api-strip" style="margin-bottom: 0">
+              <span data-i18n="api.lookup" style="font-size: 12px; color: var(--text-dim); white-space: nowrap">查询结算任务</span>
+              <input data-cfg="task_id" data-i18n-placeholder="api.task_id" type="text" placeholder="task_id" autocomplete="off" />
+              <button type="button" class="btn" data-action="fetch-settlement" data-i18n="api.fetch_settlement">拉取 Settlement</button>
+            </div>
+            <div class="topbar-row">
+              <div class="page-title">
+                <h2 id="pageHeading">总览</h2>
+                <p id="pageSubheading">—</p>
+              </div>
+              <div class="top-actions">
+                <button type="button" class="btn" data-i18n="top.sub">切换子身份</button>
+                <button type="button" class="btn" data-i18n="top.export">导出记录</button>
+                <button type="button" class="btn primary" data-i18n="top.lock">增加锁仓额度</button>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <section id="overview" class="page active">
+          <div class="grid metrics">
+            <div class="card metric">
+              <div class="label" data-i18n="m.locked">锁仓 USDC</div>
+              <div class="value" data-bind="total_locked_usdc">—</div>
+              <div class="hint" data-i18n="m.locked_hint">真实资金锚定</div>
+            </div>
+            <div class="card metric">
+              <div class="label" data-i18n="m.available">可用额度</div>
+              <div class="value" data-bind="available_credits">—</div>
+              <div class="hint" data-i18n="m.available_hint">可创建付款授权</div>
+            </div>
+            <div class="card metric">
+              <div class="label" data-i18n="m.exec">执行占用</div>
+              <div class="value" data-bind="in_progress_bucket">—</div>
+              <div class="hint" data-i18n="m.exec_hint">已接单任务冻结</div>
+            </div>
+            <div class="card metric">
+              <div class="label" data-i18n="m.pending">待收款</div>
+              <div class="value" data-bind="pending_settlement_credits">—</div>
+              <div class="hint" data-i18n="m.pending_hint">已接单 / 待结算</div>
+            </div>
+            <div class="card metric">
+              <div class="label" data-i18n="m.dispute">争议冻结</div>
+              <div class="value" data-bind="disputed_credits">—</div>
+              <div class="hint" data-i18n="m.dispute_hint">等待仲裁推进</div>
+            </div>
+          </div>
+          <div class="layout-2">
+            <div class="card section">
+              <div class="section-header">
+                <div>
+                  <h3>快捷操作</h3>
+                  <p>不区分固定买家/卖家，同一个身份在不同任务里可以付款，也可以收款。</p>
+                </div>
+              </div>
+              <div class="quick">
+                <div class="action-card" data-go="center"><b>创建付款授权</b><span>给卖家一个一次性 Voucher，卖家验证后开工。</span></div>
+                <div class="action-card" data-go="center"><b>验证收款授权</b><span>输入买家 Voucher，确认额度已锁定。</span></div>
+                <div class="action-card" data-go="receipts"><b>提交执行回执</b><span>上传 evidence hash、runtime log hash 和进度。</span></div>
+                <div class="action-card" data-go="disputes"><b>处理争议</b><span>提交证据、接受方案或请求仲裁。</span></div>
+              </div>
+            </div>
+            <div class="card section">
+              <div class="section-header">
+                <div>
+                  <h3>责任状态流</h3>
+                  <p>责任成立前灵活，责任成立后不可后台篡改。</p>
+                </div>
+              </div>
+              <div class="timeline">
+                <div class="time-row">
+                  <span class="node"></span>
+                  <div><b>USDC 已锁仓</b><p>USDC 已锁入 Vault，生成内部责任额度。</p></div>
+                </div>
+                <div class="time-row">
+                  <span class="node"></span>
+                  <div><b>任务额度已冻结</b><p>执行中额度不能重复授权给其他任务。</p></div>
+                </div>
+                <div class="time-row">
+                  <span class="node"></span>
+                  <div><b>回执等待确认</b><p>Execution Receipt 已提交，等待验证或买家确认。</p></div>
+                </div>
+                <div class="time-row">
+                  <span class="node"></span>
+                  <div><b>结算后销毁</b><p>USDC 结算时，同额内部责任额度同步销毁。</p></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card section" style="margin-top: 20px">
+            <div class="section-header">
+              <div>
+                <h3>API 数据预览</h3>
+                <p><code>GET /v1/settlement/{task_id}</code> 返回 JSON（需 API Key 与权限）。</p>
+              </div>
+            </div>
+            <pre class="settlement-preview" data-settlement-preview>—</pre>
+          </div>
+          <div class="card section" style="margin-top: 20px">
+            <div class="section-header">
+              <div>
+                <h3>最近需要处理</h3>
+                <p>以下为演示数据；任务列表需后端提供聚合接口后替换。</p>
+              </div>
+              <button type="button" class="btn">查看全部</button>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>任务</th>
+                  <th>本方角色</th>
+                  <th>对方</th>
+                  <th>金额</th>
+                  <th>进度</th>
+                  <th>状态</th>
+                  <th>下一步</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>AI 视频生成</td>
+                  <td>付款方</td>
+                  <td>Karma-ID-B21</td>
+                  <td>50 USDC</td>
+                  <td><div class="progress"><span style="width: 40%"></span></div></td>
+                  <td><span class="badge cyan">执行中</span></td>
+                  <td><button type="button" class="btn">查看进度</button></td>
+                </tr>
+                <tr>
+                  <td>API 数据服务</td>
+                  <td>收款方</td>
+                  <td>Karma-ID-A82</td>
+                  <td>40 USDC</td>
+                  <td><div class="progress"><span style="width: 100%"></span></div></td>
+                  <td><span class="badge green">可结算</span></td>
+                  <td><button type="button" class="btn primary">申请结算</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="center" class="page">
+          <div class="split">
+            <div class="flow-card">
+              <h3>我要付款</h3>
+              <p>创建一次性授权，卖家验证后会锁定对应额度。（完整 Voucher 需服务端签名 / EIP-712）</p>
+              <div class="notice warn">此页为产品示意；生产环境请通过已认证客户端调用 <code>POST /v1/vouchers</code>。</div>
+            </div>
+            <div class="flow-card">
+              <h3>我要收款</h3>
+              <p>输入买家 Voucher，确认额度已锁定后再开工。</p>
+              <div class="notice">调用 <code>POST /v1/vouchers/{id}/verify</code> 与 <code>.../accept</code>（需卖家身份 API Key）。</div>
+            </div>
+          </div>
+        </section>
+
+        <section id="tasks" class="page">
+          <div class="card section">
+            <div class="section-header">
+              <div>
+                <h3>任务执行</h3>
+                <p>使用上方「查询结算任务」从 API 拉取真实 <code>SettlementState</code>。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="receipts" class="page">
+          <div class="flow-card">
+            <h3>Execution Receipt</h3>
+            <p>调用公开 API <code>POST /v1/receipts</code>（需 worker 身份与签名策略）。</p>
+          </div>
+        </section>
+
+        <section id="bills" class="page">
+          <div class="card section">
+            <h3>账单</h3>
+            <p>账单与链上流水对齐后，可由索引服务或报表 API 提供；此处保留布局。</p>
+          </div>
+        </section>
+
+        <section id="disputes" class="page">
+          <div class="card section">
+            <h3>争议</h3>
+            <p>调用 <code>POST /v1/settlement/{task_id}/dispute</code> 等路由（需对应参与方 API Key）。</p>
+          </div>
+        </section>
+
+        <section id="identity" class="page">
+          <div class="flow-card">
+            <h3>主身份</h3>
+            <p>当前控制台以 <code>identity_id</code> 与 Karma API 对齐；SBT 链上展示在集成钱包后完成。</p>
+          </div>
+        </section>
+
+        <section id="settings" class="page">
+          <div class="card section">
+            <div class="section-header">
+              <div>
+                <h3>设置</h3>
+                <p>连接参数保存在浏览器 localStorage（请勿在共享电脑保存生产密钥）。</p>
+              </div>
+            </div>
+            <div class="settings-grid">
+              <div class="setting">
+                <h4>AI Agent 自动授权中心</h4>
+                <p>演示开关，不与后端耦合。</p>
+                <div class="toggle-wrap">
+                  <div>
+                    <b>开启授权 AI 代理</b><span style="display: block; font-size: 11px; color: var(--text-dim)">仅 UI 示意</span>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="aiAgentToggle" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="notice" style="margin-top: 12px">当前状态：<b id="aiAgentStatus">关闭</b></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+      window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
+    </script>
+    <script src="../../scripts/i18n-cyber.js"></script>
+    <script src="../../scripts/karma-public-api.js"></script>
+    <script src="../../scripts/cyber-console.js"></script>
+  </body>
+</html>
