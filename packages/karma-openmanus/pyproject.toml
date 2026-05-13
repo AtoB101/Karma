@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karma-openmanus"
+version = "0.1.0"
+description = "Karma ↔ OpenManus integration — HMAC client for Karma BFF (tools.json contract)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "httpx>=0.27.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2.0", "pytest-asyncio>=0.23.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["karma_openmanus*"]
+
+[tool.setuptools.package-data]
+karma_openmanus = ["data/tools.json"]

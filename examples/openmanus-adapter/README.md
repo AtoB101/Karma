@@ -1,9 +1,11 @@
-# OpenManus adapter (example placeholder)
+# OpenManus ↔ Karma (integration)
 
-Add a thin adapter that:
+Use the **`karma-openmanus`** installable package for HMAC-authenticated calls to **Karma BFF** (`/v1/integration/...`):
 
-1. Emits execution receipts compatible with `trusted_agent_runtime`.  
-2. Builds evidence bundles per `packages/evidence-schema/evidence.schema.json`.  
-3. Calls only **public** HTTP routes or on-chain contracts.
+```bash
+pip install -e ../../packages/karma-openmanus
+```
 
-Do not embed private risk logic.
+See **`packages/karma-openmanus/README.md`** and **`docs/KARMA_BFF_OPENMANUS_INTEGRATION.md`**.
+
+For **in-process tool instrumentation** (signed `ExecutionReceipt` per tool call), use the repo **`KarmaOpenManusAgent`** + `KarmaHookLayer` (`agents/openmanus/adapter.py`, `sdk.KarmaClient`) — that path does not go through BFF.
