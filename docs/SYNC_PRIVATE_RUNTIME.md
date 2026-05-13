@@ -51,6 +51,7 @@ No separate verbal agreement is required beyond this doc pair + the PR trigger l
 |------------|---------|
 | **`33bfa57`** (example) | Merge commit on public **`main`** that landed a given public PR (e.g. PR #36); use as **`PUBLIC_BASELINE_COMMIT`** when you mean “we are aligned with public default branch after that merge”. |
 | **`a977ce5`** (example) | A specific commit **inside** that merge history (e.g. OpenAPI-only doc commit); use when you only need to pin the **OpenAPI** delta, with the merge SHA still documented for context. |
+| **`3e7de43`** (example) | Public PR [#39](https://github.com/AtoB101/Karma/pull/39): narrative alignment for contract pin vs documentation canonical, plus a `VerificationResult` docstring link. Use as an **audit anchor** for “sync prose matches public `main`”; **not** a contract baseline bump by itself. |
 
 Exact SHAs change over time; always take the value from **current public `main`** after merge.
 
@@ -60,7 +61,7 @@ Exact SHAs change over time; always take the value from **current public `main`*
 
 **Private `PUBLIC_BASELINE_COMMIT` / tag** records the **API and schema contract** you implement (OpenAPI, `core/schemas.py` on the verify / apply-verification path, and generated types). Advance it when those shapes **materially change**.
 
-Updates that only adjust **this document**, `PUBLIC_PRIVATE_SYNC.md`, or other **operational prose** on public `main` refresh the **documentation canonical** at the URL in the header. They do **not** require bumping the contract baseline by themselves. On public `main`, PR [#37](https://github.com/AtoB101/Karma/pull/37) (`badf1aa`) and PR [#38](https://github.com/AtoB101/Karma/pull/38) (`cf52a40`) were documentation and canonical-URL housekeeping only.
+Updates that only adjust **this document**, `PUBLIC_PRIVATE_SYNC.md`, or other **operational prose** on public `main` refresh the **documentation canonical** at the URL in the header. They do **not** require bumping the contract baseline by themselves. On public `main`, PR [#37](https://github.com/AtoB101/Karma/pull/37) (`badf1aa`) and PR [#38](https://github.com/AtoB101/Karma/pull/38) (`cf52a40`) were documentation and canonical-URL housekeeping only. PR [#39](https://github.com/AtoB101/Karma/pull/39) (`3e7de43`) added the **contract pin vs documentation canonical** narrative, tightened the private playbook wording, and linked `VerificationResult` in `core/schemas.py` — still **not** a contract baseline bump unless OpenAPI or schema **fields** change.
 
 Keep the contract pin on the merge that introduced the shapes you ship (for example **`33bfa57`** after public PR [#36](https://github.com/AtoB101/Karma/pull/36)) until the next substantive contract drift.
 
