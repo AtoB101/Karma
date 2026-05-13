@@ -1,5 +1,12 @@
 # Syncing the private runtime when public contracts change
 
+**Canonical (stable on `main`):**  
+https://github.com/AtoB101/Karma/blob/main/docs/SYNC_PRIVATE_RUNTIME.md  
+
+Karma2 and other private trees should link to that URL (or a pinned `PUBLIC_BASELINE_TAG`); do not fork the long-form content—use a short pointer file in private repos if needed.
+
+---
+
 This document is the **public-repo counterpart** to the private baseline doc  
 `private-risk-engine/docs/SYNC_PUBLIC_REPO.md` (Karma2 / private-risk-engine).  
 It answers: **when must private teams bump their baseline**, and **where to look for the fixed upgrade steps**.
@@ -55,4 +62,4 @@ Exact SHAs change over time; always take the value from **current public `main`*
 - **`PUBLIC_PRIVATE_OPERATIONS.md`** — release order, locks, and operational boundaries.
 - **`split-release/CROSS_REPO_DEPLOYMENT_PLAYBOOK.md`** — cross-repo deployment steps.
 
-Private tree (Karma2) should link back here from `SYNC_PUBLIC_REPO.md` §2.1 so both directions are one click away.
+Private tree (Karma2) should link to the **canonical URL** above from `SYNC_PUBLIC_REPO.md` §2.1 so both directions are one click away.
