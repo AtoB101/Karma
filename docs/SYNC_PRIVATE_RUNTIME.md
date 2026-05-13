@@ -5,6 +5,8 @@ https://github.com/AtoB101/Karma/blob/main/docs/SYNC_PRIVATE_RUNTIME.md
 
 Karma2 and other private trees should link to that URL (or a pinned `PUBLIC_BASELINE_TAG`); do not fork the long-form content—use a short pointer file in private repos if needed.
 
+**Optional — pointer / ledger “main tip” cross-check (not a fourth semantic layer):** short pointer files may append the merge SHA of the latest **documentation-only** change on public `main` that touched this canonical file, to show the pointer was refreshed against current `main`. Treat that SHA as **operational metadata** only: it does **not** extend the **Baseline semantics** table (contract pin `33bfa57`, narrative `3e7de43`, long-form anchor `0b61d70`, …) and does **not** advance **`PUBLIC_BASELINE_COMMIT`**.
+
 ---
 
 This document is the **public-repo counterpart** to the private baseline doc  
