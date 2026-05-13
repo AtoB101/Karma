@@ -48,6 +48,8 @@ If a hotfix would change ABI or addresses, the manifest and any downstream confi
 
 ## Related documents
 
+- `docs/PUBLIC_PRIVATE_SYNC.md` — index for public ↔ private sync (contract upgrades).
+- `docs/SYNC_PRIVATE_RUNTIME.md` — when to flag private in PRs/changelogs; links to private `SYNC_PUBLIC_REPO.md` §2.1.
 - `docs/PUBLIC_REPO_LAYOUT.md` — what belongs in the public tree.
 - `split-release/CROSS_REPO_DEPLOYMENT_PLAYBOOK.md` — cross-repo deployment steps.
 - `VISIBILITY_MAP.md` — visibility rules and automation entry points.
