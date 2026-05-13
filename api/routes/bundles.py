@@ -8,12 +8,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.schemas import EvidenceBundle, TaskStatus
 from db.session import get_db
 from db.models.orm import EvidenceBundleModel
+from services.evidence_bundle_limits import enforce_limits_for_bundle_post
+from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
 
 
 @router.post("", response_model=EvidenceBundle, status_code=201)
 async def submit_bundle(bundle: EvidenceBundle, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("bundle_id", bundle.bundle_id)
+    validate_public_url_segment("task_id", bundle.task_id)
+    enforce_limits_for_bundle_post(bundle)
     existing = await db.execute(
         select(EvidenceBundleModel).where(EvidenceBundleModel.task_id == bundle.task_id)
     )
@@ -40,20 +45,23 @@ async def submit_bundle(bundle: EvidenceBundle, db: AsyncSession = Depends(get_d
     return bundle
 
 
-@router.get("/{bundle_id}", response_model=EvidenceBundle)
-async def get_bundle(bundle_id: str, db: AsyncSession = Depends(get_db)):
-    row = await db.get(EvidenceBundleModel, bundle_id)
+@router.get("/task/{task_id}", response_model=EvidenceBundle)
+async def get_bundle_by_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    """Registered before ``/{bundle_id}`` so ``task`` is not captured as a bundle id."""
+    validate_public_url_segment("task_id", task_id)
+    result = await db.execute(
+        select(EvidenceBundleModel).where(EvidenceBundleModel.task_id == task_id)
+    )
+    row = result.scalar_one_or_none()
     if not row:
         raise HTTPException(404)
     return _from_row(row)
 
 
-@router.get("/task/{task_id}", response_model=EvidenceBundle)
-async def get_bundle_by_task(task_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(EvidenceBundleModel).where(EvidenceBundleModel.task_id == task_id)
-    )
-    row = result.scalar_one_or_none()
+@router.get("/{bundle_id}", response_model=EvidenceBundle)
+async def get_bundle(bundle_id: str, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("bundle_id", bundle_id)
+    row = await db.get(EvidenceBundleModel, bundle_id)
     if not row:
         raise HTTPException(404)
     return _from_row(row)

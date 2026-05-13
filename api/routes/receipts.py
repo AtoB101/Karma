@@ -15,27 +15,15 @@ from services.receipt_guard import (
     verify_execution_receipt_signature,
 )
 from services.receipt_templates import validate_extension_vs_task_type
+from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
 
 
-@router.get("/{receipt_id}", response_model=ExecutionReceipt)
-async def get_receipt(receipt_id: str, db: AsyncSession = Depends(get_db)):
-    store = PostgresReceiptStore(db)
-    receipt = await store.get(receipt_id)
-    if not receipt:
-        raise HTTPException(404, f"Receipt {receipt_id} not found")
-    return receipt
-
-
-@router.get("/task/{task_id}", response_model=list[ExecutionReceipt])
-async def list_receipts_by_task(task_id: str, db: AsyncSession = Depends(get_db)):
-    store = PostgresReceiptStore(db)
-    return await store.list_by_task(task_id)
-
-
 @router.post("", response_model=ExecutionReceipt, status_code=201)
 async def submit_receipt(receipt: ExecutionReceipt, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", receipt.task_id)
+    validate_public_url_segment("receipt_id", receipt.receipt_id)
     store = PostgresReceiptStore(db)
     try:
         validate_execution_receipt_static(receipt)
@@ -72,4 +60,22 @@ async def submit_receipt(receipt: ExecutionReceipt, db: AsyncSession = Depends(g
         await store.save(receipt)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return receipt
+
+
+@router.get("/task/{task_id}", response_model=list[ExecutionReceipt])
+async def list_receipts_by_task(task_id: str, db: AsyncSession = Depends(get_db)):
+    """Registered before ``/{receipt_id}`` so the literal ``task`` segment is not treated as a receipt id."""
+    validate_public_url_segment("task_id", task_id)
+    store = PostgresReceiptStore(db)
+    return await store.list_by_task(task_id)
+
+
+@router.get("/{receipt_id}", response_model=ExecutionReceipt)
+async def get_receipt(receipt_id: str, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("receipt_id", receipt_id)
+    store = PostgresReceiptStore(db)
+    receipt = await store.get(receipt_id)
+    if not receipt:
+        raise HTTPException(404, f"Receipt {receipt_id} not found")
     return receipt

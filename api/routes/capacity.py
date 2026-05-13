@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,8 @@ from core.schemas import CapacityState
 from db.models.orm import CapacityModel
 from db.session import get_db
 from services.capacity_ledger import assert_capacity_invariants
+from services.ledger_party_access import require_ledger_identity
+from services.path_param_safety import validate_public_url_segment
 from services.runtime_safety import (
     assert_runtime_operation_allowed,
     audit_capacity_anchor_and_maybe_trip,
@@ -25,6 +27,7 @@ class AmountRequest(BaseModel):
 
 @router.get("/{identity_id}", response_model=CapacityState)
 async def get_capacity(identity_id: str, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("identity_id", identity_id)
     row = await db.get(CapacityModel, identity_id)
     if not row:
         return CapacityState(identity_id=identity_id)
@@ -32,7 +35,9 @@ async def get_capacity(identity_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{identity_id}/lock", response_model=CapacityState)
-async def lock_usdc(identity_id: str, body: AmountRequest, db: AsyncSession = Depends(get_db)):
+async def lock_usdc(identity_id: str, body: AmountRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("identity_id", identity_id)
+    require_ledger_identity(request, identity_id)
     assert_runtime_operation_allowed("new_lock")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     row = await db.get(CapacityModel, identity_id)
@@ -65,7 +70,9 @@ async def lock_usdc(identity_id: str, body: AmountRequest, db: AsyncSession = De
 
 
 @router.post("/{identity_id}/release", response_model=CapacityState)
-async def release_unused(identity_id: str, body: AmountRequest, db: AsyncSession = Depends(get_db)):
+async def release_unused(identity_id: str, body: AmountRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("identity_id", identity_id)
+    require_ledger_identity(request, identity_id)
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     row = await db.get(CapacityModel, identity_id)

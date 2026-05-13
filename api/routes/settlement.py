@@ -30,6 +30,13 @@ from services.runtime_safety import (
 )
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from services.settlement_voucher import mark_voucher_used_if_linked
+from services.path_param_safety import validate_public_url_segment
+from services.settlement_party_access import (
+    require_buyer,
+    require_buyer_on_create,
+    require_buyer_or_worker,
+    require_worker,
+)
 
 router = APIRouter()
 
@@ -65,6 +72,11 @@ class DisputeRequest(BaseModel):
 async def create_settlement(body: CreateSettlementRequest, request: Request, db: AsyncSession = Depends(get_db)):
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
+    validate_public_url_segment("task_id", body.task_id)
+    validate_public_url_segment("client_agent_id", body.client_agent_id)
+    if body.voucher_id:
+        validate_public_url_segment("voucher_id", body.voucher_id)
+    require_buyer_on_create(request, body.client_agent_id)
     from config.settings import settings as _s
 
     voucher_id = body.voucher_id
@@ -117,12 +129,14 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
 
 @router.post("/{task_id}/pending", response_model=SettlementState)
 async def mark_settlement_pending(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    require_buyer(request, state)
     return await _apply_transition(
         db=db,
         store=store,
@@ -136,12 +150,15 @@ async def mark_settlement_pending(task_id: str, request: Request, db: AsyncSessi
 
 @router.post("/{task_id}/lock", response_model=SettlementState)
 async def lock_settlement(task_id: str, body: LockRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
+    validate_public_url_segment("worker_agent_id", body.worker_agent_id)
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    require_buyer(request, state)
     state.worker_agent_id = body.worker_agent_id
     return await _apply_transition(
         db=db,
@@ -156,12 +173,14 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
 
 @router.post("/{task_id}/start", response_model=SettlementState)
 async def start_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    require_worker(request, state)
     return await _apply_transition(
         db=db,
         store=store,
@@ -175,12 +194,14 @@ async def start_settlement(task_id: str, request: Request, db: AsyncSession = De
 
 @router.post("/{task_id}/submit", response_model=SettlementState)
 async def submit_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    require_worker(request, state)
     return await _apply_transition(
         db=db,
         store=store,
@@ -194,12 +215,14 @@ async def submit_settlement(task_id: str, request: Request, db: AsyncSession = D
 
 @router.post("/{task_id}/fail", response_model=SettlementState)
 async def fail_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     assert_runtime_operation_allowed("new_task")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    require_buyer_or_worker(request, state)
     return await _apply_transition(
         db=db,
         store=store,
@@ -213,6 +236,7 @@ async def fail_settlement(task_id: str, request: Request, db: AsyncSession = Dep
 
 @router.get("/{task_id}", response_model=SettlementState)
 async def get_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
@@ -226,6 +250,7 @@ async def list_settlement_transitions(
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
+    validate_public_url_segment("task_id", task_id)
     result = await db.execute(
         select(SettlementTransitionAuditModel)
         .where(SettlementTransitionAuditModel.task_id == task_id)
@@ -238,12 +263,14 @@ async def list_settlement_transitions(
 
 @router.post("/{task_id}/partial", response_model=SettlementState)
 async def partial_settlement(task_id: str, body: PartialSettlementRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    require_buyer(request, state)
     confirmed_claimed = await _confirmed_progress_percent(db, task_id)
     if confirmed_claimed > 1e-9 and body.settled_value_percent > confirmed_claimed + 1e-4:
         raise HTTPException(
@@ -282,12 +309,14 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
 
 @router.post("/{task_id}/regret", response_model=SettlementState)
 async def regret_settlement(task_id: str, body: RegretRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    require_buyer(request, state)
     if body.buyer_identity_id is not None and body.buyer_identity_id != state.client_agent_id:
         raise HTTPException(403, "buyer_identity_id does not match settlement buyer (client_agent_id)")
     confirmed_percent = await _confirmed_progress_percent(db, task_id)
@@ -326,10 +355,12 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
 
 @router.post("/{task_id}/dispute", response_model=SettlementState)
 async def open_dispute(task_id: str, body: DisputeRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    require_buyer(request, state)
     await move_reserved_to_disputed(
         db=db,
         buyer_identity_id=state.client_agent_id,
@@ -350,12 +381,14 @@ async def open_dispute(task_id: str, body: DisputeRequest, request: Request, db:
 @router.post("/{task_id}/buyer-accept", response_model=SettlementState)
 async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """P0: full release to seller after delivery — requires at least one successful execution receipt."""
+    validate_public_url_segment("task_id", task_id)
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    require_buyer(request, state)
     if state.status != TaskStatus.DELIVERED:
         raise HTTPException(409, "buyer accept requires delivered status")
 
@@ -395,10 +428,12 @@ async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSessi
 
 @router.post("/{task_id}/auto-arbitrate", response_model=SettlementState)
 async def auto_arbitrate(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("task_id", task_id)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    require_buyer_or_worker(request, state)
     status_before = state.status
     state = await _apply_transition(
         db=db,

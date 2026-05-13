@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     auth_api_keys: str = ""
     # If enabled, all protected API routers require valid auth headers.
     auth_enforce_protected_routes: bool = False
+    # When true with AUTH_ENFORCE_PROTECTED_ROUTES, accept karma_{agent}_{secret} keys that are not
+    # listed in AUTH_API_KEYS (development convenience). Must stay false in production.
+    auth_allow_dev_key_fallback: bool = False
     # Comma-separated privileged actor IDs allowed to use brake-only admin controls.
     admin_actor_ids: str = ""
     debug: bool = False
@@ -35,6 +38,8 @@ class Settings(BaseSettings):
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
+    # When true, Redis errors in rate limiting return 503 instead of failing open (DDoS risk if Redis is down).
+    rate_limit_redis_fail_closed: bool = False
 
     # MinIO
     minio_endpoint: str = "localhost:9000"
@@ -66,9 +71,19 @@ class Settings(BaseSettings):
     verification_min_steps: int = 1
     verification_hash_algo: str = "sha256"
     verification_timeout_seconds: int = 300
+    # Evidence bundle / verify proxy — limits oversized JSON and receipt lists (DoS mitigation).
+    evidence_bundle_max_receipt_entries: int = 2048
+    evidence_bundle_max_json_bytes: int = 5 * 1024 * 1024
+    verify_max_combined_json_bytes: int = 5 * 1024 * 1024
     receipt_require_signature: bool = True
     receipt_max_future_skew_seconds: int = 300
     receipt_max_past_hours: int = 24 * 7
+    # When true together with AUTH_ENFORCE_PROTECTED_ROUTES, settlement mutations require the caller's
+    # authenticated actor to match the economic party (buyer = client_agent_id, worker = worker_agent_id).
+    settlement_require_party_actor: bool = True
+    # When true with AUTH_ENFORCE_PROTECTED_ROUTES, capacity lock/release and voucher create/verify/accept
+    # bind the authenticated actor to the ledger identity or asserted voucher party (buyer/seller).
+    ledger_require_party_actor: bool = True
     # P1 — bind typed execution receipt extensions to voucher.task_type when a settlement links a voucher.
     receipt_template_voucher_binding: bool = True
     progress_require_signature: bool = True
@@ -144,6 +159,14 @@ class Settings(BaseSettings):
             if not self.auth_api_keys_map():
                 raise ValueError(
                     "AUTH_API_KEYS must contain at least one configured agent key in production",
+                )
+            if self.auth_allow_dev_key_fallback:
+                raise ValueError(
+                    "AUTH_ALLOW_DEV_KEY_FALLBACK must be false when APP_ENV is production",
+                )
+            if not self.rate_limit_redis_fail_closed:
+                raise ValueError(
+                    "RATE_LIMIT_REDIS_FAIL_CLOSED must be true when APP_ENV is production",
                 )
         return self
 

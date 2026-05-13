@@ -7,10 +7,11 @@ Do not commit private business files, customer leads, investor decks, or secrets
 
 ## Reporting a Vulnerability
 
-If you believe you found a security issue, report it privately:
+If you believe you found a security issue, report it **privately** so it can be fixed before public disclosure.
 
-- Email: **security@karma-protocol.example**
-- Subject: **[Karma Security Report] <short title>**
+**Preferred channel:** use [GitHub private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing/privately-reporting-a-security-vulnerability) for this repository (open the **Security** tab, then **Report a vulnerability**). That keeps the report scoped to maintainers and coordinates disclosure with a fix.
+
+If that workflow is unavailable for your account, contact the repository maintainers through a channel they publish for security (for example a `security.txt` or organization security page). **Do not** open a public issue for unfixed vulnerabilities that affect funds, authentication, or the private verification runtime.
 
 Please include:
 
@@ -19,10 +20,28 @@ Please include:
 3. Impact assessment
 4. Suggested mitigation (if available)
 
-Target response windows:
+Target response windows (best effort, not a legal commitment):
 
 - Acknowledge within 72 hours
 - Initial triage decision within 7 days
+
+### Bug bounty
+
+There is **no** formal paid bug bounty program in this repository today. Responsible disclosure is still welcome; recognition is at maintainer discretion.
+
+## Verify proxy and evidence bundles (DoS surface)
+
+`POST /v1/verify` forwards JSON to the **private runtime** for fraud and risk checks. That boundary is a natural DoS target (oversized payloads, huge receipt lists). The public API applies configurable limits before persistence and forwarding:
+
+| Setting (environment) | Role |
+| --- | --- |
+| `EVIDENCE_BUNDLE_MAX_JSON_BYTES` | Max serialized JSON size for `POST /v1/bundles` |
+| `VERIFY_MAX_COMBINED_JSON_BYTES` | Max serialized JSON for the `{bundle, contract}` body on `POST /v1/verify` |
+| `EVIDENCE_BUNDLE_MAX_RECEIPT_ENTRIES` | Max length of `receipt_ids` / `receipt_hashes` (must match) |
+
+Defaults are conservative (on the order of a few MiB and a few thousand receipts). Tune them for your deployment, and still enforce **rate limits** and resource quotas at the edge and on the private runtime (see `infra/nginx/` examples and your orchestrator limits).
+
+Further review notes: `docs/SECURITY_SUMMARY_CN_EN.md` and historical audit notes under `docs/`.
 
 ## Sensitive Data Rules
 
@@ -51,7 +70,7 @@ Current baseline matrix:
 
 Use the repository **Issues** tab for product bugs, CI failures, and documentation fixes so they stay visible next to code and PRs.
 
-Use the **private email channel above** only for vulnerabilities that should not be disclosed publicly before a fix ships. Do not paste production keys, customer PII, or private scoring rules into public issues.
+Use the **private reporting channel above** only for vulnerabilities that should not be disclosed publicly before a fix ships. Do not paste production keys, customer PII, or private scoring rules into public issues.
 
 ## Agent Studio: CORS and API surface
 

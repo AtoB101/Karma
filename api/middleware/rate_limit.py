@@ -3,6 +3,7 @@ Karma — Rate Limiting Middleware (Redis-backed)
 """
 from __future__ import annotations
 
+import hashlib
 import time
 from typing import Optional
 
@@ -38,13 +39,17 @@ async def rate_limit(request: Request, limit_key: str = "default") -> None:
     """
     max_requests, window_seconds = RATE_LIMITS.get(limit_key, RATE_LIMITS["default"])
 
-    # Identify client: API key > IP
-    client_id = (
-        request.headers.get("X-Karma-Api-Key")
-        or request.headers.get("X-Forwarded-For")
-        or request.client.host
-        or "anonymous"
-    )
+    # Identify client: hash API keys / forwarded header so Redis keys and MONITOR logs never store raw secrets.
+    raw_key = request.headers.get("X-Karma-Api-Key")
+    raw_fwd = request.headers.get("X-Forwarded-For")
+    if raw_key:
+        digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:40]
+        client_id = f"ak:{digest}"
+    elif raw_fwd:
+        digest = hashlib.sha256(raw_fwd.encode("utf-8")).hexdigest()[:40]
+        client_id = f"xff:{digest}"
+    else:
+        client_id = request.client.host if request.client else "anonymous"
 
     redis_key = f"ratelimit:{limit_key}:{client_id}"
     now = time.time()
@@ -60,7 +65,12 @@ async def rate_limit(request: Request, limit_key: str = "default") -> None:
         results = await pipe.execute()
         count = results[2]
     except Exception:
-        # Redis unavailable — fail open (don't block legitimate traffic)
+        if settings.rate_limit_redis_fail_closed:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Rate limiting service unavailable",
+            ) from None
+        # Redis unavailable — fail open when not configured for fail-closed (avoid hard outage in dev).
         return
 
     if count > max_requests:

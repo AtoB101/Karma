@@ -39,6 +39,10 @@ async def submit_for_verification(
     Decision logic runs in the private runtime — result returned async via Celery
     or synchronously via HTTP call to private runtime.
     """
+    from services.evidence_bundle_limits import enforce_limits_for_verify_request
+
+    enforce_limits_for_verify_request(body.bundle, body.contract)
+
     from config.settings import settings
     import httpx
 
@@ -50,7 +54,6 @@ async def submit_for_verification(
         )
     )
     if not existing.scalar_one_or_none():
-        from api.routes.bundles import _from_row
         db.add(EvidenceBundleModel(
             bundle_id=body.bundle.bundle_id,
             task_id=body.bundle.task_id,
