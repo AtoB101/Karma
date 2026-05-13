@@ -19,6 +19,10 @@ brand-protection policy.
 3. Run local checks before opening a PR.
 4. Open a PR with a concise summary and validation steps.
 
+## Contract changes that affect the private runtime
+
+If your PR changes **`openapi/karma-v1.yaml`**, **`core/schemas.py`** verify/apply-verification payloads, or related HTTP contracts, add the trigger line from **`docs/SYNC_PRIVATE_RUNTIME.md`** to the PR description (and changelog when applicable) so private Karma2 can bump **`PUBLIC_BASELINE_*`** and run contract tests. See that file for the exact sentence and playbook link.
+
 ## Payload contract PRs (Karma Guard / Phase 2)
 
 If your PR adds **`Change Type: Breaking`** to `docs/agent-service-guard-changelog.md`,
