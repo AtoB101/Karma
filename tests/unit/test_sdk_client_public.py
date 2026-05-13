@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
 import pytest
 
 from sdk.client import KarmaClient
 from core.schemas import (
+    EvidenceBundle,
     ArbitrationVoteDecision,
     ProgressConfirmationStatus,
     ProgressReceipt,
@@ -262,6 +264,51 @@ async def test_progress_and_regret_sdk_methods():
     assert regret_state.status.value == "partial"
     partial_state = await client.partial_settlement("task-1", 20, reason="manual partial")
     assert partial_state.released_amount == 20
+
+
+@pytest.mark.asyncio
+async def test_evidence_bundle_sdk_methods():
+    base = "http://runtime"
+    now = datetime.utcnow().isoformat()
+    bundle_payload = {
+        "bundle_id": "bundle-uuid-1",
+        "task_id": "task-bundle-1",
+        "task_contract_hash": "c" * 64,
+        "receipt_ids": ["r1", "r2"],
+        "receipt_hashes": ["a" * 64, "b" * 64],
+        "final_result_hash": "f" * 64,
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 500,
+        "agent_signature": None,
+        "storage_path": None,
+        "created_at": now,
+        "settlement_status": "delivered",
+    }
+    bid_special = "b/x"
+    tid_special = "t%2Fp"
+    routes = {
+        ("POST", f"{base}/v1/bundles"): bundle_payload,
+        ("GET", f"{base}/v1/bundles/{quote(bid_special, safe='')}"): bundle_payload,
+        ("GET", f"{base}/v1/bundles/task/{quote(tid_special, safe='')}"): bundle_payload,
+    }
+    mock_http = _MockHTTP(routes)
+    client = KarmaClient(agent_id="a1", runtime_url=base)
+    client._http = lambda: mock_http  # type: ignore[method-assign]
+
+    posted = await client.submit_evidence_bundle(EvidenceBundle(**bundle_payload))
+    assert posted.bundle_id == "bundle-uuid-1"
+    by_id = await client.get_evidence_bundle(bid_special)
+    assert by_id.task_id == "task-bundle-1"
+    by_task = await client.get_evidence_bundle_by_task(tid_special)
+    assert by_task.bundle_id == "bundle-uuid-1"
+
+    posts = [c for c in mock_http.calls if c[0] == "POST" and c[1] == f"{base}/v1/bundles"]
+    assert len(posts) == 1
+    assert posts[0][2]["bundle_id"] == "bundle-uuid-1"
+    assert ("GET", f"{base}/v1/bundles/{quote(bid_special, safe='')}", None) in mock_http.calls
+    assert ("GET", f"{base}/v1/bundles/task/{quote(tid_special, safe='')}", None) in mock_http.calls
 
 
 @pytest.mark.asyncio
