@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karma-openclaw"
+version = "0.1.0"
+description = "Karma ↔ OpenClaw — stdio MCP server bridging to Karma public HTTP API"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "httpx>=0.27.0",
+    "mcp>=1.8.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2.0", "pytest-asyncio>=0.23.0"]
+
+[project.scripts]
+karma-openclaw-mcp = "karma_openclaw.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["karma_openclaw*"]

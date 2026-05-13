@@ -10,7 +10,7 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 22
 
     steps:
       - name: Checkout
@@ -22,6 +22,11 @@ jobs:
           node-version: "20"
           cache: "npm"
 
+      - name: Setup Python (integration packages)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install dependencies
         run: npm install
 
@@ -32,6 +37,15 @@ jobs:
           npm install
           npm run test
           npm run build
+
+      - name: Python integration packages (karma-openmanus, karma-openclaw)
+        run: |
+          set -euo pipefail
+          python3 -m pip install -U pip
+          python3 -m pip install -e "./packages/karma-openmanus[dev]"
+          python3 -m pytest packages/karma-openmanus/tests -q
+          python3 -m pip install -e "./packages/karma-openclaw[dev]"
+          python3 -m pytest packages/karma-openclaw/tests -q
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

@@ -109,6 +109,15 @@ result = await client.run_task(contract, my_task)
 
 P0 helpers on `KarmaClient` include `lock_usdc`, `get_capacity`, `create_voucher`, `verify_voucher`, `accept_voucher`, `accept_task` (settlement create → pending → lock), and `submit_execution_receipt`. Evidence bundle helpers: `submit_evidence_bundle`, `get_evidence_bundle`, `get_evidence_bundle_by_task` (`GET` uses URL-encoded segments, matching `KarmaPublicSdk`'s `submitEvidenceBundle`, `getEvidenceBundle`, and `getEvidenceBundleByTask`). P1 adds optional `extension` on `run_tool` / hook layer (api / mcp / agent templates) plus `sdk/execution_receipt_helpers.py` for digest construction. Progress path: optional `progress_confirm_require_buyer_actor`, partial settlement capped to confirmed claimed value when confirmations exist, and `timeout_confirm_stale_progress` on the HTTP/SDK surface. TypeScript mirror: `packages/sdk` (`npm run build`; `npm run test` runs Vitest fetch-URL smoke checks) exposes settlement start/submit/dispute/partial/regret/auto-arbitrate, progress CRUD, evidence bundle POST/GET, and `apiExecutionExtensionFromHashes` plus related builders. OpenAPI documents `POST`/`GET /v1/bundles` and related paths (`openapi/karma-v1.yaml`). **P2 (public surface):** `POST /v1/settlement/{taskId}/auto-arbitrate` uses `services/auto_arbitration_rules.py` (delivery timeout, receipt success, evidence-bundle id order, step metadata, per-receipt hash recomputation); decentralized arbitration pool and case flow live under `api/routes/arbitration.py`; multi-agent path features under `services/responsibility_graph.py`; sub-identities and `rotate-display-id` under `api/routes/identities.py`. Optional voucher EIP-712 enforcement: environment `VOUCHER_REQUIRE_EIP712=true` plus `buyer_wallet_address` on `POST /v1/vouchers` (see `services/voucher_eip712.py`). Isolated operational UI demo: `examples/p0-buyer-seller-console.html`.
 
+### OpenManus / OpenClaw installable bridges
+
+| Package | Purpose |
+|---------|---------|
+| [`packages/karma-openmanus`](packages/karma-openmanus/) | `pip install ./packages/karma-openmanus` — async **HMAC client** for Karma **BFF** `/v1/integration/*` (matches `packages/openmanus-karma-tools/tools.json`). |
+| [`packages/karma-openclaw`](packages/karma-openclaw/) | `pip install ./packages/karma-openclaw` — **stdio MCP** server (`karma-openclaw-mcp`) exposing selected **`/v1/*`** tools for [OpenClaw](https://github.com/openclaw/openclaw) MCP bridge. |
+
+In-process signed tool calls without BFF: `agents/openmanus/adapter.py` + `KarmaHookLayer` / `KarmaClient` (see examples above).
+
 ---
 
 ## Project Layout
@@ -121,6 +130,7 @@ karma-public/
 ├── db/                   ORM models, migrations, stores (PG + Redis)
 ├── sdk/                  High-level SDK client
 ├── services/             Signing service, MinIO object store
+├── packages/             TypeScript SDK, OpenManus tools spec, karma-openmanus, karma-openclaw
 ├── worker/               Celery tasks
 ├── scripts/              init_db, seed, generate_keys
 ├── tests/                Unit + integration tests
