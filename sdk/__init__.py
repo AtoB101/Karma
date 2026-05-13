@@ -9,6 +9,7 @@ One-stop import for integrating with the Karma runtime.
     result = await client.run_task(contract, my_task_fn)
 """
 from sdk.client import KarmaClient
+from sdk.runtime_client import KarmaRuntime
 from sdk.task import TaskRunner
 from sdk.adapters import (
     APIExecutionAdapter,
@@ -19,6 +20,7 @@ from sdk.adapters import (
 
 __all__ = [
     "KarmaClient",
+    "KarmaRuntime",
     "TaskRunner",
     "APIExecutionAdapter",
     "AIWorkflowExecutionAdapter",

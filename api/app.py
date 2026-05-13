@@ -20,7 +20,7 @@ from services.security_monitoring import SecurityMonitoringEventType, record_sec
 from db.session import init_db
 from api.routes import (
     agents, auth, contracts, receipts,
-    bundles, settlement, reputation, verify, capacity, vouchers, progress, identities, arbitration, responsibility, security, admin_controls,
+    bundles, settlement, reputation, verify, capacity, vouchers, progress, identities, arbitration, responsibility, security, admin_controls, runtime_gateway,
 )
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +40,7 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/contracts/",
     "/v1/agents/",
     "/v1/identities/",
+    "/runtime/",
 )
 STATE_TRANSITION_SEGMENTS = (
     "/lock",
@@ -105,7 +106,7 @@ async def security_headers_middleware(request: Request, call_next) -> Response:
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     # Prevent shared-cache storage of authenticated API payloads (CDN / browser back/forward cache).
-    if request.url.path.startswith("/v1/"):
+    if request.url.path.startswith("/v1/") or request.url.path.startswith("/runtime/"):
         response.headers.setdefault("Cache-Control", "private, no-store")
     return response
 
@@ -123,6 +124,8 @@ def _is_state_transition_write(path: str) -> bool:
 def _route_group_for_path(path: str) -> str:
     if path.startswith("/v1/auth"):
         return "auth"
+    if path.startswith("/runtime"):
+        return "runtime"
     if path.startswith("/v1/verify"):
         return "verification"
     if path.startswith("/v1/settlement"):
@@ -260,6 +263,7 @@ metrics_app = make_asgi_app()
 app.mount("/metrics", metrics_app)
 
 # Routers
+app.include_router(runtime_gateway.router, prefix="/runtime", tags=["Runtime Gateway"])
 app.include_router(auth.router,       prefix="/v1/auth",       tags=["Auth"])
 _protected_dependencies = [Depends(require_auth_if_enabled)]
 app.include_router(agents.router,     prefix="/v1/agents",     tags=["Agents"], dependencies=_protected_dependencies)

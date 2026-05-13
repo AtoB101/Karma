@@ -75,7 +75,7 @@ karma-worker  = "worker.tasks:app"
 where = ["."]
 include = [
     "agents*", "api*", "apps*", "config*", "core*",
-    "db*", "sdk*", "services*", "worker*",
+    "db*", "karma*", "sdk*", "services*", "worker*",
     "trusted_agent_runtime*",
 ]
 
