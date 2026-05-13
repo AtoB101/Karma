@@ -5,12 +5,12 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.settings import settings
 from core.schemas import TaskContract
 from db.session import get_db
-from db.models.orm import TaskContractModel
+from db.models.orm import CapacityModel, TaskContractModel
 from services.signing import sha256_of
 
 router = APIRouter()
@@ -32,6 +32,23 @@ async def create_contract(
     body: CreateContractRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    if body.escrow_amount < settings.escrow_min_amount - 1e-9:
+        raise HTTPException(
+            status_code=400,
+            detail=f"escrow_amount must be >= {settings.escrow_min_amount}",
+        )
+    if body.escrow_amount > settings.escrow_max_amount + 1e-9:
+        raise HTTPException(
+            status_code=400,
+            detail=f"escrow_amount must be <= {settings.escrow_max_amount}",
+        )
+    cap = await db.get(CapacityModel, body.client_agent_id)
+    if cap is not None and float(cap.available_credits) + 1e-9 < float(body.escrow_amount):
+        raise HTTPException(
+            status_code=409,
+            detail="escrow_amount exceeds buyer available_credits on capacity ledger",
+        )
+
     contract = TaskContract(**body.model_dump())
     contract.contract_hash = sha256_of(contract.model_dump(exclude={"contract_hash"}))
 

@@ -186,6 +186,28 @@ def resolve_agent_id_from_auth_headers(
     return None
 
 
+def resolve_verify_submitter_id(request: Request) -> str:
+    """
+    Identity for ``POST /v1/verify``.
+
+    When ``AUTH_ENFORCE_PROTECTED_ROUTES`` is true, JWT / ``X-Karma-Api-Key`` is mandatory.
+    In development (enforcement off), anonymous submitters are labeled ``anonymous-verify``.
+    """
+    actor = resolve_agent_id_from_auth_headers(
+        authorization=request.headers.get("Authorization"),
+        api_key=request.headers.get("X-Karma-Api-Key"),
+    )
+    if settings.auth_enforce_protected_routes:
+        if not actor:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required for POST /v1/verify (Bearer token or X-Karma-Api-Key)",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return actor
+    return actor or "anonymous-verify"
+
+
 async def require_auth_if_enabled(
     request: Request,
     agent_id: Optional[str] = Depends(get_optional_agent_id),

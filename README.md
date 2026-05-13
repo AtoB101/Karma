@@ -71,10 +71,12 @@ docker compose -f deploy/docker-compose.yml up
 ## Run Tests
 
 ```bash
-pytest                          # all tests
-pytest tests/unit/              # unit tests only
-pytest tests/integration/       # integration tests only
+pytest tests/                    # all Python tests (unit + integration + trusted_agent, etc.)
+pytest tests/unit/               # unit tests only
+pytest tests/integration/        # integration + E2E (incl. test_runtime_e2e.py)
+pytest tests/integration/test_runtime_e2e.py -v   # Runtime Key /runtime acceptance only
 pytest -v --cov=. --cov-report=term-missing
+make test-python                 # pip install -e ".[dev]" then pytest tests/
 ```
 
 ---

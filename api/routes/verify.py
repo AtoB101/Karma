@@ -16,7 +16,7 @@ from core.schemas import (
 )
 from db.session import get_db
 from db.models.orm import VerificationResultModel, EvidenceBundleModel
-from api.middleware.auth import get_current_agent_id
+from api.middleware.auth import resolve_verify_submitter_id
 from api.middleware.rate_limit import verify_rate_limit
 
 router = APIRouter()
@@ -31,7 +31,7 @@ class VerifyRequest(BaseModel):
 async def submit_for_verification(
     body: VerifyRequest,
     db: AsyncSession = Depends(get_db),
-    agent_id: str = Depends(get_current_agent_id),
+    agent_id: str = Depends(resolve_verify_submitter_id),
     _rl: None = Depends(verify_rate_limit),
 ):
     """

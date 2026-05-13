@@ -21,7 +21,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # foundry-toolchain sometimes hits GitHub API 403/rate limits; fall back to foundryup below.
       - name: Setup Foundry
+        id: foundry_toolchain
+        continue-on-error: true
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable

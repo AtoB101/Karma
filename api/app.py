@@ -295,4 +295,13 @@ async def info():
         "version": "0.1.0",
         "docs": "/docs",
         "schemas": "/v1/schemas",
+        "verify_auth": {
+            "enforcement": bool(settings.auth_enforce_protected_routes),
+            "post_verify_requires_credentials_when_enforcement_on": True,
+            "note": "When auth enforcement is off, POST /v1/verify accepts anonymous actor label anonymous-verify.",
+        },
+        "runtime_gateway_prefix": "/runtime",
+        "settlement_guards": {
+            "lock_requires_pending": bool(settings.settlement_lock_requires_pending),
+        },
     }
