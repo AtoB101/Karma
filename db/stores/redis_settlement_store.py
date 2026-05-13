@@ -29,8 +29,18 @@ class RedisSettlementStore(SettlementStore):
     async def save(self, state: SettlementState) -> None:
         data = state.model_dump(mode="json")
         pipe = self._r.pipeline()
+        prev_raw = await self._r.get(f"settlement:{state.task_id}")
+        if prev_raw:
+            try:
+                prev = json.loads(prev_raw)
+                prev_status = prev.get("status")
+                if prev_status and prev_status != data.get("status"):
+                    pipe.srem(f"settlements_by_status:{prev_status}", state.task_id)
+            except (json.JSONDecodeError, TypeError):
+                pass
         pipe.setex(f"settlement:{state.task_id}", STATE_TTL, json.dumps(data))
-        pipe.sadd(f"settlements_by_status:{state.status}", state.task_id)
+        status_val = state.status.value if hasattr(state.status, "value") else str(state.status)
+        pipe.sadd(f"settlements_by_status:{status_val}", state.task_id)
         await pipe.execute()
 
     async def get(self, task_id: str) -> Optional[SettlementState]:

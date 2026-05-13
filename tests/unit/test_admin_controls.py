@@ -11,7 +11,9 @@ from db.models.orm import IdentityProfileModel
 @pytest.mark.asyncio
 async def test_admin_controls_require_whitelisted_actor(client):
     original_allowlist = settings.admin_actor_ids
+    original_keys = settings.auth_api_keys
     try:
+        settings.auth_api_keys = "secadmin:supersecret123456"
         settings.admin_actor_ids = ""
         resp = await client.get(
             "/v1/admin/controls",
@@ -20,12 +22,15 @@ async def test_admin_controls_require_whitelisted_actor(client):
         assert resp.status_code == 403
     finally:
         settings.admin_actor_ids = original_allowlist
+        settings.auth_api_keys = original_keys
 
 
 @pytest.mark.asyncio
 async def test_admin_operational_pause_blocks_new_task_path(client):
     original_allowlist = settings.admin_actor_ids
+    original_keys = settings.auth_api_keys
     try:
+        settings.auth_api_keys = "sec-admin:supersecret123456"
         settings.admin_actor_ids = "sec-admin"
         headers = {"X-Karma-Api-Key": "karma_sec-admin_supersecret123456"}
 
@@ -70,12 +75,15 @@ async def test_admin_operational_pause_blocks_new_task_path(client):
         assert unpause.json()["enabled"] is False
     finally:
         settings.admin_actor_ids = original_allowlist
+        settings.auth_api_keys = original_keys
 
 
 @pytest.mark.asyncio
 async def test_admin_can_mark_identity_risk(client, db_session):
     original_allowlist = settings.admin_actor_ids
+    original_keys = settings.auth_api_keys
     try:
+        settings.auth_api_keys = "sec-admin:supersecret123456"
         settings.admin_actor_ids = "sec-admin"
         headers = {"X-Karma-Api-Key": "karma_sec-admin_supersecret123456"}
         db_session.add(
@@ -107,3 +115,4 @@ async def test_admin_can_mark_identity_risk(client, db_session):
         assert cleared.json()["status"] == "active"
     finally:
         settings.admin_actor_ids = original_allowlist
+        settings.auth_api_keys = original_keys
