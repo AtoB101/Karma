@@ -1253,6 +1253,42 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/BadRequest'
+  /v1/settlement/{taskId}/apply-verification:
+    post:
+      summary: Apply verification result to settlement (private runtime contract)
+      description: >
+        Implemented on the **private verification / risk engine** host
+        (`PRIVATE_RUNTIME_URL`), not the public Karma API. Public workers call
+        `POST …/apply-verification` with body `{"result": VerificationResult}`.
+        Canonical request: `ApplyVerificationRequest`. Some engines may still accept
+        a legacy flat `VerificationResult` at the root when `verification_id` and
+        `decision` are present; clients should migrate to the wrapped form.
+      operationId: applyVerificationPrivate
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyVerificationRequest'
+      responses:
+        '200':
+          description: ACK from private engine (public worker may log JSON only)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApplyVerificationResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/arbitration/pool/join:
     post:
       summary: Join or update arbitration pool membership
@@ -2669,6 +2705,82 @@ components:
         - seller_signature
         - validation_method
         - confirmation_status
+    VerificationCheck:
+      type: object
+      properties:
+        name:
+          type: string
+        passed:
+          type: boolean
+        detail:
+          type: string
+          description: Optional human-readable note (must be safe to expose; no secret weights).
+      required: [name, passed]
+    VerificationResult:
+      type: object
+      properties:
+        verification_id:
+          type: string
+        task_id:
+          type: string
+        bundle_id:
+          type: string
+        decision:
+          type: string
+          enum: [release, hold, refund, dispute]
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/VerificationCheck'
+        notes:
+          type: string
+        verified_at:
+          type: string
+          format: date-time
+      required:
+        - verification_id
+        - task_id
+        - bundle_id
+        - decision
+        - confidence
+        - checks
+        - verified_at
+    ApplyVerificationRequest:
+      type: object
+      description: Canonical wrapper for private `apply-verification` (matches public worker JSON body).
+      properties:
+        result:
+          $ref: '#/components/schemas/VerificationResult'
+      required: [result]
+    ApplyVerificationResponse:
+      type: object
+      description: >
+        Stable ACK from private engine. Public Celery worker currently treats 2xx +
+        optional logging only; required fields are the minimum private engines should return.
+      properties:
+        ok:
+          type: boolean
+        task_id:
+          type: string
+        status:
+          type: string
+        received_at:
+          type: string
+          format: date-time
+        from_state:
+          type: string
+          description: Optional; settlement status before apply (mock / diagnostics).
+        to_state:
+          type: string
+          description: Optional; settlement status after apply (mock / diagnostics).
+        body_digest:
+          type: string
+          description: Optional SHA-256 hex over canonical JSON of `{"result": …}` (sort_keys, etc.).
+      required: [ok, task_id, status, received_at]
     SettlementState:
       type: object
       properties:
