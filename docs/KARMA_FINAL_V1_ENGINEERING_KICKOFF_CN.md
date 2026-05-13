@@ -121,7 +121,7 @@
 
 ### P1（回执标准化 + 进度责任）
 
-1. 标准化 API/MCP/Agent Runtime 回执模板。
+1. 标准化 API/MCP/Agent Runtime 回执模板（`ExecutionReceipt.extension` + voucher `task_type` 前缀绑定；`sdk/execution_receipt_helpers.py`；Hook `run_tool(..., extension=)`；OpenAPI `POST /v1/receipts`）。
 2. Progress Receipt + Confirmed Progress。
 3. Buyer Regret 责任计算（含非线性价值曲线）。
 4. 部分结算（partial settlement）。

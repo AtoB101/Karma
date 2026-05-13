@@ -71,7 +71,13 @@ from core.schemas import (
     VerificationResult,
     VoucherVerificationResult,
 )
-from core.hooks.hook_layer import InMemoryReceiptStore, KarmaHookLayer, ReceiptStore
+from core.hooks.hook_layer import (
+    ExecutionReceiptExtensionConcrete,
+    InMemoryReceiptStore,
+    KarmaHookLayer,
+    ReceiptSigner,
+    ReceiptStore,
+)
 from core.evidence.bundle_builder import EvidenceBundleBuilder
 from agents.openmanus.adapter import KarmaOpenManusAgent
 
@@ -103,6 +109,7 @@ class KarmaClient:
         api_key: str = "",
         receipt_store: Optional[ReceiptStore] = None,
         timeout: float = 120.0,
+        receipt_signer: Optional[ReceiptSigner] = None,
     ):
         self.agent_id = agent_id
         self.runtime_url = runtime_url.rstrip("/")
@@ -113,6 +120,7 @@ class KarmaClient:
         self._hooks = KarmaHookLayer(
             agent_id=agent_id,
             receipt_store=self._store,
+            signer=receipt_signer,
         )
         self._agent = KarmaOpenManusAgent(
             agent_id=agent_id,
@@ -132,6 +140,7 @@ class KarmaClient:
         input_data: Any,
         metadata: Optional[dict] = None,
         timeout: Optional[float] = None,
+        extension: Optional[ExecutionReceiptExtensionConcrete] = None,
     ):
         """
         Execute one tool call with automatic receipt generation.
@@ -144,6 +153,7 @@ class KarmaClient:
             input_data=input_data,
             metadata=metadata,
             timeout=timeout,
+            extension=extension,
         )
 
     # ------------------------------------------------------------------ #

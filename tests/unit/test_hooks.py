@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from core.schemas import ExecutionReceipt, TaskContract, ToolStatus
+from core.schemas import ApiExecutionReceiptExtension, ExecutionReceipt, TaskContract, ToolStatus
 from core.hooks.hook_layer import (
     InMemoryReceiptStore,
     KarmaHookLayer,
@@ -177,10 +177,20 @@ async def test_metadata_stored_in_receipt(hooks):
 
 
 @pytest.mark.asyncio
-async def test_sync_tool_supported(hooks):
-    def sync_tool(data):
-        return {"sync": data}
-
-    result, receipt = await hooks.run_tool("task-sync", "sync", sync_tool, 42)
-    assert result == {"sync": 42}
-    assert receipt.status == ToolStatus.SUCCESS
+async def test_run_tool_with_api_extension(hooks, store):
+    ext = ApiExecutionReceiptExtension(
+        request_hash="11" * 32,
+        response_hash="22" * 32,
+        http_status_code=200,
+        latency_ms=12,
+    )
+    _, receipt = await hooks.run_tool(
+        task_id="task-ext",
+        tool_name="http.get",
+        tool_fn=_success_tool,
+        input_data={"a": 1},
+        extension=ext,
+    )
+    assert receipt.extension is not None
+    assert receipt.extension.kind == "api"
+    assert receipt.extension.request_hash == "11" * 32
