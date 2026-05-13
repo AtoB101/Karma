@@ -35,9 +35,9 @@ Private engineers follow **§2.1「基线再升级」** in:
 
 `private-risk-engine/docs/SYNC_PUBLIC_REPO.md`
 
-That section defines the closed loop, typically:
+That section defines the closed loop. After a **contract-affecting** merge on public `main` (see the trigger list above), private teams typically:
 
-1. Set **`PUBLIC_BASELINE_COMMIT`** to the new merge commit on public **`main`**, or set **`PUBLIC_BASELINE_TAG`** if public maintainers published a tag.
+1. Set **`PUBLIC_BASELINE_COMMIT`** to that merge commit on public **`main`**, or set **`PUBLIC_BASELINE_TAG`** if public maintainers published a tag.
 2. Sync the **OpenAPI** artifact the private repo uses as contract source of truth (same shapes as public `openapi/karma-v1.yaml` when applicable).
 3. Run **`run_public_contract_sync_tests`**; if JSON Schemas or generated types drift, also run **`run_schema_contract_tests`** (or your repo’s equivalent).
 
@@ -53,6 +53,16 @@ No separate verbal agreement is required beyond this doc pair + the PR trigger l
 | **`a977ce5`** (example) | A specific commit **inside** that merge history (e.g. OpenAPI-only doc commit); use when you only need to pin the **OpenAPI** delta, with the merge SHA still documented for context. |
 
 Exact SHAs change over time; always take the value from **current public `main`** after merge.
+
+---
+
+## Contract pin vs documentation canonical
+
+**Private `PUBLIC_BASELINE_COMMIT` / tag** records the **API and schema contract** you implement (OpenAPI, `core/schemas.py` on the verify / apply-verification path, and generated types). Advance it when those shapes **materially change**.
+
+Updates that only adjust **this document**, `PUBLIC_PRIVATE_SYNC.md`, or other **operational prose** on public `main` refresh the **documentation canonical** at the URL in the header. They do **not** require bumping the contract baseline by themselves. On public `main`, PR [#37](https://github.com/AtoB101/Karma/pull/37) (`badf1aa`) and PR [#38](https://github.com/AtoB101/Karma/pull/38) (`cf52a40`) were documentation and canonical-URL housekeeping only.
+
+Keep the contract pin on the merge that introduced the shapes you ship (for example **`33bfa57`** after public PR [#36](https://github.com/AtoB101/Karma/pull/36)) until the next substantive contract drift.
 
 ---
 

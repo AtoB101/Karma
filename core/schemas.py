@@ -332,6 +332,9 @@ class VerificationResult(BaseModel):
     """
     Output of the Verification Engine.
     Decision logic is private — only the result is exposed here.
+
+    Cross-repo contract and baseline semantics (including doc-only vs schema changes):
+    https://github.com/AtoB101/Karma/blob/main/docs/SYNC_PRIVATE_RUNTIME.md
     """
     verification_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     task_id: str
