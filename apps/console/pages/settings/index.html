@@ -1,10 +1,69 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hans">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Settings · KARMA Console</title>
+    <title>设置 · AI Agent 自动授权 · KARMA Console</title>
     <link rel="stylesheet" href="../../styles/console.css" />
+    <style>
+      .callout {
+        border: 1px solid var(--accent);
+        background: rgba(94, 234, 212, 0.06);
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.88rem;
+        line-height: 1.45;
+      }
+      .callout strong {
+        color: var(--accent);
+      }
+      label.chk {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        margin: 0.35rem 0;
+        font-size: 0.88rem;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        margin: 0.35rem 0;
+      }
+      input[type="text"],
+      input[type="number"],
+      textarea,
+      select {
+        background: #0a1018;
+        border: 1px solid var(--line);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 0.35rem 0.5rem;
+        min-width: 180px;
+        font-size: 0.85rem;
+      }
+      textarea {
+        width: 100%;
+        min-height: 120px;
+        font-family: ui-monospace, monospace;
+      }
+      pre.out {
+        background: #0a1018;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.5rem;
+        font-size: 0.78rem;
+        overflow: auto;
+        max-height: 220px;
+        margin-top: 0.5rem;
+      }
+      h2 {
+        font-size: 1rem;
+        margin: 0.75rem 0 0.35rem;
+      }
+    </style>
   </head>
   <body>
     <header class="top">
@@ -20,9 +79,120 @@
       </nav>
     </header>
     <main>
-      <h1>Settings</h1>
-      <p class="sub">Network endpoints, feature flags, and operator preferences — no private scoring here.</p>
-      <div class="panel"><span class="btn">Save (disabled)</span></div>
+      <h1>设置 · AI Agent 自动授权中心</h1>
+      <p class="sub">
+        配置 Agent 在 Runtime Key 权限内的自动行为与额度。所有资金动作仍受用户规则与链上/账本约束；此处不包含任何私有风控或评分细节。
+      </p>
+
+      <div class="callout">
+        <strong>重要</strong>：Runtime Key <strong>不是</strong>钱包私钥。它只是 Agent 工作通行证，<strong>不能</strong>提现、<strong>不能</strong>转走
+        USDC、<strong>不能</strong>修改锁仓额度。请在官方 Console 完成钱包授权；Agent 进程只应持有 Runtime Key。
+      </div>
+
+      <section class="panel" data-local-policy>
+        <h2>自动授权策略（本地偏好）</h2>
+        <p class="sub">以下开关保存在本浏览器 <code>localStorage</code>，便于与后端策略对齐展示；生产环境请接入持久化账户设置 API。</p>
+        <label class="chk"><input type="checkbox" data-k="auto_enabled" /> 开启 AI 代理自动授权</label>
+        <div class="row">
+          <span class="sub">单次 AI 最大自动授权额度（USDC）</span>
+          <input type="number" data-k="single_limit" min="0" step="0.01" value="50" />
+        </div>
+        <div class="row">
+          <span class="sub">每日 AI 自动授权总额度（USDC）</span>
+          <input type="number" data-k="daily_limit" min="0" step="0.01" value="200" />
+        </div>
+        <label class="chk"><input type="checkbox" data-k="perm_voucher" checked /> 自动请求 Voucher</label>
+        <label class="chk"><input type="checkbox" data-k="perm_receipt" checked /> 自动提交 Execution Receipt</label>
+        <label class="chk"><input type="checkbox" data-k="perm_progress" checked /> 自动提交 Progress Receipt</label>
+        <label class="chk"><input type="checkbox" data-k="perm_sync" checked /> 自动同步任务状态</label>
+        <label class="chk"><input type="checkbox" data-k="perm_settle" /> 自动请求 Settlement</label>
+        <div class="row" style="margin-top: 0.5rem">
+          <span class="sub">高风险任务人工确认</span>
+          <select data-k="high_risk">
+            <option value="always">始终人工确认</option>
+            <option value="above_single">超过单次额度时需确认</option>
+            <option value="off">关闭（仅演示）</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top: 0.75rem">
+          <button type="button" class="btn" data-save-local>保存本地偏好</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Runtime Key 管理</h2>
+        <p class="sub">
+          生成前请在上方同步「单次 / 每日额度」与权限勾选。生成请求使用 EIP-191 对固定文本签名（见下方「待签名消息」）。签名仅证明钱包同意创建该
+          Key，不会授予提现能力。
+        </p>
+        <div class="row">
+          <span class="sub">API Base</span>
+          <input type="text" data-api-base placeholder="http://127.0.0.1:8000" style="flex: 1; min-width: 240px" />
+        </div>
+        <div class="row">
+          <span class="sub">钱包地址</span>
+          <input type="text" data-wallet placeholder="0x…" />
+        </div>
+        <div class="row">
+          <span class="sub">Karma Identity ID</span>
+          <input type="text" data-identity placeholder="buyer-identity-001" />
+        </div>
+        <div class="row">
+          <span class="sub">Agent 名称</span>
+          <input type="text" data-agent-name value="console-agent" />
+        </div>
+        <div class="row">
+          <span class="sub">过期时间（本地 datetime-local）</span>
+          <input type="datetime-local" data-expire />
+        </div>
+        <p class="sub" style="margin-top: 0.5rem">权限（将写入 Runtime Key，与上方自动授权勾选独立）</p>
+        <label class="chk"><input type="checkbox" data-perm name="request_voucher" checked /> request_voucher</label>
+        <label class="chk"><input type="checkbox" data-perm name="submit_receipt" checked /> submit_receipt</label>
+        <label class="chk"><input type="checkbox" data-perm name="update_progress" /> update_progress</label>
+        <label class="chk"><input type="checkbox" data-perm name="request_settlement" /> request_settlement</label>
+        <label class="chk"><input type="checkbox" data-perm name="sync_task_status" checked /> sync_task_status</label>
+        <p class="sub" style="margin-top: 0.5rem">待签名消息（复制到钱包或 MetaMask「签名」）</p>
+        <textarea data-sign-message readonly></textarea>
+        <div class="row">
+          <button type="button" class="btn" data-build-msg>生成待签名消息</button>
+          <button type="button" class="btn" data-sign-mm type="button">使用 MetaMask 签名</button>
+        </div>
+        <div class="row">
+          <span class="sub">wallet_signature（0x…）</span>
+          <input type="text" data-signature placeholder="粘贴签名" style="flex: 1" />
+        </div>
+        <div class="row">
+          <button type="button" class="btn" data-create-key>生成 Runtime Key</button>
+          <button type="button" class="btn" data-copy-key disabled>复制 Runtime Key</button>
+          <button type="button" class="btn" data-revoke-key disabled>吊销当前 Key</button>
+        </div>
+        <p class="sub">Runtime Key 明文仅显示一次；关闭弹层后不可再查看，只能重新生成。</p>
+        <pre class="out" data-key-out>—</pre>
+
+        <h2 style="margin-top: 1rem">已存在的 Key（需 list-keys 签名）</h2>
+        <div class="row">
+          <span class="sub">list client_nonce</span>
+          <input type="text" data-list-nonce placeholder="随机字符串" />
+          <button type="button" class="btn" data-build-list-msg>生成 list 待签名消息</button>
+          <button type="button" class="btn" data-list-keys>查询 Key 列表</button>
+        </div>
+        <textarea data-list-sign-message readonly style="min-height: 80px"></textarea>
+        <pre class="out" data-list-out>—</pre>
+
+        <h2 style="margin-top: 1rem">接入说明（.env）</h2>
+        <pre class="out" data-env-sample>
+KARMA_RUNTIME_URL=https://runtime.karma.network
+KARMA_RUNTIME_KEY=KRM_RT_xxxxxxxxxxxxxxxx_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+KARMA_ID=Karma-ID-82F7X9
+        </pre>
+        <p class="sub">Python：<code>from karma import KarmaRuntime</code> · <code>runtime = KarmaRuntime.from_env()</code></p>
+        <p class="sub">Node：<code>import { KarmaRuntime } from "@karma/runtime-sdk"</code> · <code>KarmaRuntime.fromEnv()</code></p>
+      </section>
     </main>
+    <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+    </script>
+    <script src="../../scripts/karma-public-api.js"></script>
+    <script type="module" src="../../scripts/runtime-console.js"></script>
   </body>
 </html>

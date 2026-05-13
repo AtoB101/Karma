@@ -1,0 +1,20 @@
+{
+  "name": "@karma/runtime-sdk",
+  "version": "0.1.0",
+  "description": "Karma Agent Runtime SDK — Runtime Key only, no wallet private keys",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "undici": "^6.19.0"
+  }
+}

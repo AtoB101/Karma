@@ -535,8 +535,37 @@ class VerificationResultModel(Base):
 
 
 # ---------------------------------------------------------------------------
+# Runtime Key (Agent Runtime Gateway — public SDK / Console)
+# ---------------------------------------------------------------------------
+
+
+class RuntimeKeyModel(Base):
+    """
+    Stores metadata and a bcrypt hash of the secret segment of a Runtime Key.
+    Plaintext ``KRM_RT_*`` tokens are never persisted after creation.
+    """
+
+    __tablename__ = "runtime_keys"
+
+    key_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    secret_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    wallet_address: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    permissions: Mapped[list] = mapped_column(JSON, nullable=False)
+    single_limit: Mapped[float] = mapped_column(Float, nullable=False)
+    daily_limit: Mapped[float] = mapped_column(Float, nullable=False)
+    expire_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    agent_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    agent_binding: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+# ---------------------------------------------------------------------------
 # Reputation
 # ---------------------------------------------------------------------------
+
 
 class ReputationModel(Base):
     __tablename__ = "reputation"

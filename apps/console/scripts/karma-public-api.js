@@ -51,5 +51,30 @@
     return karmaFetch("/v1/settlement/" + id, { method: "GET", headers: headers() });
   }
 
+  async function runtimeCreateKey(payload) {
+    return karmaFetch("/runtime/create-key", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function runtimeListKeys(payload) {
+    return karmaFetch("/runtime/list-keys", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function runtimeRevokeKey(payload) {
+    return karmaFetch("/runtime/revoke-key", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
   global.cyberKarmaApi = { apiBase, getCapacity, getSettlement };
+  global.karmaRuntimeApi = { runtimeCreateKey, runtimeListKeys, runtimeRevokeKey, karmaFetch, headers };
 })(window);

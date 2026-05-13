@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     private_runtime_url: str = "http://localhost:8001"
     private_runtime_api_key: str = ""
 
+    # Public Runtime Gateway (SDK / Console) — canonical external base URL for signed payloads.
+    public_runtime_base_url: str = ""
+
     # Settlement (off-chain)
     escrow_min_amount: float = 0.01
     escrow_max_amount: float = 10000.0
