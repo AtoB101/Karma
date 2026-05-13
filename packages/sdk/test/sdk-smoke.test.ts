@@ -183,6 +183,8 @@ describe("KarmaPublicSdk HTTP surface (smoke)", () => {
     const list = await sdk.listProgressForTask("t/p");
     await sdk.timeoutConfirmStaleProgress("t/p", 48);
     await sdk.submitEvidenceBundle({ bundle_id: "b1" });
+    await sdk.getEvidenceBundle("b%2Fid");
+    await sdk.getEvidenceBundleByTask("t/p");
 
     expect(calls[0]?.url).toBe(`${BASE}/v1/receipts`);
     expect(calls[1]?.url).toBe(`${BASE}/v1/progress`);
@@ -193,6 +195,10 @@ describe("KarmaPublicSdk HTTP surface (smoke)", () => {
     );
     expect(calls[4]?.url).toContain("max_pending_hours=48");
     expect(calls[5]?.url).toBe(`${BASE}/v1/bundles`);
+    expect(calls[6]?.method).toBe("GET");
+    expect(calls[6]?.url).toBe(`${BASE}/v1/bundles/${encodeURIComponent("b%2Fid")}`);
+    expect(calls[7]?.method).toBe("GET");
+    expect(calls[7]?.url).toBe(`${BASE}/v1/bundles/task/${encodeURIComponent("t/p")}`);
     expect(Array.isArray(list)).toBe(true);
   });
 });

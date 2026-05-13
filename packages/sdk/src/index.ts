@@ -2,7 +2,7 @@
  * @karma-network/sdk — P0–P1 HTTP surface for Karma public API (TypeScript).
  * Mirrors Python `sdk.KarmaClient` lock / capacity / voucher / settlement / receipts
  * and exposes P1 typed receipt extension builders (hash-in / JSON-out).
- * P2 settlement helpers: dispute, partial / regret, auto-arbitrate, evidence bundle POST.
+ * P2 settlement helpers: dispute, partial / regret, auto-arbitrate, evidence bundle POST/GET.
  */
 
 export type Json = Record<string, unknown>;
@@ -359,6 +359,24 @@ export class KarmaPublicSdk {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!r.ok) throw new Error(`submitEvidenceBundle failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
+  async getEvidenceBundle(bundleId: string): Promise<Json> {
+    const r = await fetch(`${this.runtimeUrl}/v1/bundles/${encodeURIComponent(bundleId)}`, {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`getEvidenceBundle failed: ${r.status} ${await r.text()}`);
+    return (await r.json()) as Json;
+  }
+
+  async getEvidenceBundleByTask(taskId: string): Promise<Json> {
+    const r = await fetch(`${this.runtimeUrl}/v1/bundles/task/${encodeURIComponent(taskId)}`, {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!r.ok) throw new Error(`getEvidenceBundleByTask failed: ${r.status} ${await r.text()}`);
     return (await r.json()) as Json;
   }
 }
