@@ -6,7 +6,7 @@
 
 Contract baseline (`PUBLIC_BASELINE_COMMIT`) vs documentation-only updates: see **Contract pin vs documentation canonical** in that file.
 
-Private pointer files may optionally record a documentation-only **`main` tip** merge SHA next to that URL for cross-check; see **Optional — pointer / ledger “main tip” cross-check** at the top of the canonical file (not a fourth audit layer).
+Private pointer files may optionally record a documentation-only **`main` tip** merge SHA next to that URL for cross-check; see **Optional — pointer / ledger “main tip” cross-check** at the top of the canonical file (not a fourth audit layer). Example after PR [#42](https://github.com/AtoB101/Karma/pull/42): **`49c3ace`**.
 
 ## Other references
 
