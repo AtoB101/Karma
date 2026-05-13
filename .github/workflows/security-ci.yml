@@ -5,17 +5,23 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
+# Authenticated GitHub API access avoids rate-limit 403s when Foundry installers
+# resolve release metadata (especially important for pull_request workflows).
+permissions:
+  contents: read
+
 jobs:
   security-gates:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Foundry
-        continue-on-error: true
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: stable
@@ -32,8 +38,8 @@ jobs:
           curl -L https://foundry.paradigm.xyz | bash
           echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.foundry/bin:$PATH"
-          for wait in 2 4 8; do
-            if GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}" foundryup; then
+          for wait in 2 4 8 16; do
+            if foundryup; then
               break
             fi
             echo "foundryup failed, retrying in ${wait}s..."
