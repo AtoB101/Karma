@@ -63,11 +63,23 @@ console.log(await runtime.getPermissions());
 5. 用 `wrap_tool_call`（或 `submit_receipt`）提交执行回执。
 6. 用 `get_task_status` 对齐任务状态；完成后 `request_settlement`。
 
+### 端到端集成验收（仓库内）
+
+``tests/integration/test_runtime_e2e.py`` 使用与 ``tests/integration/test_api.py`` 相同的 ``httpx.AsyncClient`` + 内存 SQLite（不启动外网），覆盖：
+
+- 钱包签名签发 Runtime Key → ``list-keys`` → ``revoke-key`` → 吊销后无法再调 ``permissions``；
+- 买方 / 卖方双 Key：``capacity``、``request-voucher``、结算创建与状态推进、``submit-receipt``、``task-status``、``buyer_accept`` 全流程；
+- ``permissions`` 返回中的 ``chain_id``。
+
+```bash
+python3 -m pytest tests/integration/test_runtime_e2e.py -v
+```
+
 ## 3. 响应签名（可选）
 
 当服务端与 SDK 配置相同的 `KARMA_APP_SECRET`（对齐 `Settings.app_secret_key`）时，Runtime 网关响应带 `X-Karma-Response-Signature: sha256=...`，SDK 将校验 JSON 正文 HMAC。
 
-## 延伸阅读
+## 4. 延伸阅读
 
 - `docs/runtime-key-guide.md`  
 - `docs/execution-receipt-standard.md`  
