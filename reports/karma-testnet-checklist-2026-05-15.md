@@ -4,7 +4,7 @@
 **Outcome:** 39 / 39 checks passed (operator-reported matrix)  
 **Related:** `docs/TESTNET_RUNBOOK.md` — `proofHash` format, `createBill` gas (~760k+ vs ~300k cap), capacity notes.
 
-Subgroup scores below are **as reported by the operator** (each `n/n` may bundle several atomic assertions in automation).
+Where a section shows fewer bullet lines than the `n/n` score (e.g. automation bundles several assertions), the **score is authoritative**; extend this file with your per-step rows if you need a line-by-line audit trail.
 
 ---
 
