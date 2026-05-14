@@ -82,6 +82,7 @@ include = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths    = ["tests"]
+pythonpath   = ["tests"]
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.ruff]

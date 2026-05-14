@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     receipt_require_signature: bool = True
     receipt_max_future_skew_seconds: int = 300
     receipt_max_past_hours: int = 24 * 7
+    # When true, execution/progress receipt timestamps may not be older than receipt_max_past_hours_strict.
+    receipt_strict_recent_timestamps: bool = True
+    receipt_max_past_hours_strict: int = 24
     # When true together with AUTH_ENFORCE_PROTECTED_ROUTES, settlement mutations require the caller's
     # authenticated actor to match the economic party (buyer = client_agent_id, worker = worker_agent_id).
     settlement_require_party_actor: bool = True

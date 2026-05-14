@@ -6,6 +6,7 @@ import pytest
 
 from config.settings import settings
 from db.models.orm import IdentityProfileModel
+from httptest import post_minimal_contract
 
 
 @pytest.mark.asyncio
@@ -48,6 +49,13 @@ async def test_admin_operational_pause_blocks_new_task_path(client):
         assert pause.status_code == 200
         assert pause.json()["pause_new_task"] is True
 
+        await post_minimal_contract(
+            client,
+            task_id="admin-pause-task-001",
+            client_agent_id="buyer-001",
+            escrow_amount=10.0,
+            expected_step_count=1,
+        )
         blocked = await client.post(
             "/v1/settlement/create",
             json={

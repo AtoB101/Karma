@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
+from httptest import post_minimal_contract
 
 
 @pytest.mark.asyncio
@@ -13,6 +14,13 @@ async def test_partial_settlement_rejects_above_confirmed_claimed(client: AsyncC
     buyer = "buyer-p1-partial-cap"
     seller = "seller-p1-partial-cap"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=100.0,
+        expected_step_count=5,
+    )
     v = await client.post(
         "/v1/vouchers",
         json={
@@ -71,6 +79,13 @@ async def test_regret_rejects_mismatched_buyer_identity(client: AsyncClient):
     buyer = "buyer-p1-regret"
     seller = "seller-p1-regret"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 50})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=50.0,
+        expected_step_count=5,
+    )
     v = await client.post(
         "/v1/vouchers",
         json={
@@ -106,6 +121,13 @@ async def test_progress_timeout_confirm_stale_pending(client: AsyncClient):
     buyer = "buyer-p1-tc"
     seller = "seller-p1-tc"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 40})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=40.0,
+        expected_step_count=5,
+    )
     v = await client.post(
         "/v1/vouchers",
         json={

@@ -40,7 +40,12 @@ def validate_execution_receipt_static(receipt: ExecutionReceipt) -> None:
 
     now = datetime.now(timezone.utc)
     max_future = now + timedelta(seconds=max(0, settings.receipt_max_future_skew_seconds))
-    min_past = now - timedelta(hours=max(1, settings.receipt_max_past_hours))
+    past_hours = (
+        max(1, settings.receipt_max_past_hours_strict)
+        if settings.receipt_strict_recent_timestamps
+        else max(1, settings.receipt_max_past_hours)
+    )
+    min_past = now - timedelta(hours=past_hours)
     if started > max_future or ended > max_future:
         raise ValueError("receipt timestamp is too far in the future")
     if started < min_past:

@@ -5,6 +5,7 @@ import pytest
 from httpx import AsyncClient
 
 from config.settings import settings
+from httptest import post_minimal_contract
 
 
 @pytest.mark.asyncio
@@ -12,6 +13,7 @@ async def test_lock_from_draft_blocked_when_pending_required(client: AsyncClient
     monkeypatch.setattr(settings, "settlement_lock_requires_pending", True)
     buyer, worker = "buyer-pend-lock-1", "worker-pend-lock-1"
     tid = "task-pend-lock-1"
+    await post_minimal_contract(client, task_id=tid, client_agent_id=buyer, escrow_amount=10.0, expected_step_count=1)
     await client.post(
         "/v1/settlement/create",
         json={"task_id": tid, "client_agent_id": buyer, "escrow_amount": 10.0, "currency": "USD"},

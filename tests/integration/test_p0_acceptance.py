@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
+from httptest import post_minimal_contract
 
 from core.schemas import ExecutionReceipt, ToolStatus
 from services.signing import signing_service
@@ -95,6 +96,13 @@ async def test_p0_buyer_accept_requires_success_receipt(client: AsyncClient):
     buyer, seller = "p0-buyer-bacc", "p0-seller-bacc"
     tid = "task-p0-bacc"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 80.0})
+    await post_minimal_contract(
+        client,
+        task_id=tid,
+        client_agent_id=buyer,
+        escrow_amount=30.0,
+        expected_step_count=5,
+    )
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, amount=30.0, nonce="nonce-bacc"))
     vid = v.json()["voucher_id"]
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
@@ -131,6 +139,13 @@ async def test_p0_dispute_moves_reserved_to_disputed(client: AsyncClient):
     buyer, seller = "p0-buyer-disp", "p0-seller-disp"
     tid = "task-p0-disp"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100.0})
+    await post_minimal_contract(
+        client,
+        task_id=tid,
+        client_agent_id=buyer,
+        escrow_amount=35.0,
+        expected_step_count=5,
+    )
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, amount=35.0, nonce="nonce-disp"))
     vid = v.json()["voucher_id"]
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
@@ -160,6 +175,13 @@ async def test_p0_settlement_records_burn_on_buyer_accept(client: AsyncClient):
     buyer, seller = "p0-buyer-burn", "p0-seller-burn"
     tid = "task-p0-burn"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 60.0})
+    await post_minimal_contract(
+        client,
+        task_id=tid,
+        client_agent_id=buyer,
+        escrow_amount=25.0,
+        expected_step_count=5,
+    )
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, amount=25.0, nonce="nonce-burn"))
     vid = v.json()["voucher_id"]
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})

@@ -4,7 +4,7 @@ Karma — Test Configuration & Shared Fixtures
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import AsyncGenerator
 
 import pytest
@@ -72,6 +72,26 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides.clear()
 
 
+@pytest.fixture
+async def client_sec(db_session, monkeypatch):
+    """HTTP client with API key for routes that always require credentials (e.g. /v1/security)."""
+    monkeypatch.setattr(
+        settings,
+        "auth_api_keys",
+        "sec-route-default:sec-route-default-secret-abcdef12",
+    )
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    headers = {"X-Karma-Api-Key": "karma_sec-route-default_sec-route-default-secret-abcdef12"}
+    async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as ac:
+        yield ac
+    app.dependency_overrides.clear()
+
+
 # ---------------------------------------------------------------------------
 # Domain fixtures
 # ---------------------------------------------------------------------------
@@ -105,7 +125,7 @@ def make_receipt():
         duration_ms: int = 150,
         tool_name: str | None = None,
     ) -> ExecutionReceipt:
-        base = datetime(2025, 1, 1, 12, 0, 0) + timedelta(seconds=step * 3)
+        base = datetime.now(timezone.utc) + timedelta(seconds=step * 3)
         return ExecutionReceipt(
             task_id=task_id,
             agent_id="worker-test-001",

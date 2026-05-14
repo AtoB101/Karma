@@ -84,8 +84,8 @@ async def test_security_policy_center_versioning_and_canary_resolution(db_sessio
 
 
 @pytest.mark.asyncio
-async def test_security_policy_center_api_endpoints(client):
-    created = await client.post(
+async def test_security_policy_center_api_endpoints(client_sec):
+    created = await client_sec.post(
         "/v1/security/policies",
         json={
             "config": {"failed_auth_threshold": 8, "window_minutes": 20},
@@ -97,10 +97,10 @@ async def test_security_policy_center_api_endpoints(client):
     assert created.status_code == 201
     policy_id = created.json()["policy_id"]
 
-    blocked_activate = await client.post(f"/v1/security/policies/{policy_id}/activate", json={})
+    blocked_activate = await client_sec.post(f"/v1/security/policies/{policy_id}/activate", json={})
     assert blocked_activate.status_code == 409
 
-    draft_two = await client.post(
+    draft_two = await client_sec.post(
         "/v1/security/policies",
         json={
             "config": {"failed_auth_threshold": 2, "window_minutes": 15},
@@ -113,7 +113,7 @@ async def test_security_policy_center_api_endpoints(client):
     assert draft_two.status_code == 201
     policy_two_id = draft_two.json()["policy_id"]
 
-    dry_run = await client.post(
+    dry_run = await client_sec.post(
         "/v1/security/policies/changes/dry-run",
         json={
             "action": "set_candidate",
@@ -126,7 +126,7 @@ async def test_security_policy_center_api_endpoints(client):
     assert "summary" in dry_run.json()
     assert "projected_transition_denied_rate" in dry_run.json()["summary"]
 
-    activate_req = await client.post(
+    activate_req = await client_sec.post(
         "/v1/security/policies/changes",
         json={
             "action": "activate",
@@ -136,23 +136,23 @@ async def test_security_policy_center_api_endpoints(client):
     )
     assert activate_req.status_code == 201
     activate_req_id = activate_req.json()["request_id"]
-    first_review = await client.post(
+    first_review = await client_sec.post(
         f"/v1/security/policies/changes/{activate_req_id}/review",
         json={"approver_id": "sec-reviewer-1", "decision": "approve"},
     )
     assert first_review.status_code == 200
     assert first_review.json()["status"] == "pending"
-    second_review = await client.post(
+    second_review = await client_sec.post(
         f"/v1/security/policies/changes/{activate_req_id}/review",
         json={"approver_id": "sec-reviewer-2", "decision": "approve"},
     )
     assert second_review.status_code == 200
     assert second_review.json()["status"] == "approved"
-    applied_activate = await client.post(f"/v1/security/policies/changes/{activate_req_id}/apply", json={})
+    applied_activate = await client_sec.post(f"/v1/security/policies/changes/{activate_req_id}/apply", json={})
     assert applied_activate.status_code == 200
     assert applied_activate.json()["status"] == "applied"
 
-    candidate_req = await client.post(
+    candidate_req = await client_sec.post(
         "/v1/security/policies/changes",
         json={
             "action": "set_candidate",
@@ -163,23 +163,23 @@ async def test_security_policy_center_api_endpoints(client):
     )
     assert candidate_req.status_code == 201
     candidate_req_id = candidate_req.json()["request_id"]
-    await client.post(
+    await client_sec.post(
         f"/v1/security/policies/changes/{candidate_req_id}/review",
         json={"approver_id": "sec-reviewer-1", "decision": "approve"},
     )
-    await client.post(
+    await client_sec.post(
         f"/v1/security/policies/changes/{candidate_req_id}/review",
         json={"approver_id": "sec-reviewer-2", "decision": "approve"},
     )
-    applied_candidate = await client.post(f"/v1/security/policies/changes/{candidate_req_id}/apply", json={})
+    applied_candidate = await client_sec.post(f"/v1/security/policies/changes/{candidate_req_id}/apply", json={})
     assert applied_candidate.status_code == 200
     assert applied_candidate.json()["status"] == "applied"
 
-    candidate_list = await client.get("/v1/security/policies?status=candidate&limit=10")
+    candidate_list = await client_sec.get("/v1/security/policies?status=candidate&limit=10")
     assert candidate_list.status_code == 200
     assert any(item["policy_id"] == policy_two_id for item in candidate_list.json())
 
-    report = await client.get(
+    report = await client_sec.get(
         f"/v1/security/ops/alerts?apply_policy_center=true&policy_id={policy_two_id}&policy_actor_id=actor-1"
     )
     assert report.status_code == 200
@@ -187,21 +187,21 @@ async def test_security_policy_center_api_endpoints(client):
     assert body["policy_id"] == policy_two_id
     assert body["policy_status"] == "candidate"
 
-    rollback_req = await client.post(
+    rollback_req = await client_sec.post(
         "/v1/security/policies/changes",
         json={"action": "rollback", "target_rollback_policy_id": policy_id, "requested_by": "sec-admin"},
     )
     assert rollback_req.status_code == 201
     rollback_req_id = rollback_req.json()["request_id"]
-    await client.post(
+    await client_sec.post(
         f"/v1/security/policies/changes/{rollback_req_id}/review",
         json={"approver_id": "sec-reviewer-1", "decision": "approve"},
     )
-    await client.post(
+    await client_sec.post(
         f"/v1/security/policies/changes/{rollback_req_id}/review",
         json={"approver_id": "sec-reviewer-2", "decision": "approve"},
     )
-    rollback_applied = await client.post(f"/v1/security/policies/changes/{rollback_req_id}/apply", json={})
+    rollback_applied = await client_sec.post(f"/v1/security/policies/changes/{rollback_req_id}/apply", json={})
     assert rollback_applied.status_code == 200
     assert rollback_applied.json()["status"] == "applied"
 

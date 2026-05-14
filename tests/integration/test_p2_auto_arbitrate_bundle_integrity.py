@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
+from httptest import post_minimal_contract
 
 from core.schemas import ExecutionReceipt, ToolStatus
 from services.signing import signing_service
@@ -39,6 +40,13 @@ async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(cli
     buyer = "buyer-p2-bht"
     seller = "seller-p2-bht"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 55.0})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=55.0,
+        expected_step_count=5,
+    )
     v = await client.post(
         "/v1/vouchers",
         json={
@@ -104,6 +112,13 @@ async def test_auto_arbitrate_format_error_when_bundle_step_counts_inconsistent(
     buyer = "buyer-p2-steps"
     seller = "seller-p2-steps"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 40.0})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=40.0,
+        expected_step_count=5,
+    )
     v = await client.post(
         "/v1/vouchers",
         json={

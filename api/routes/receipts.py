@@ -15,6 +15,7 @@ from services.receipt_guard import (
     validate_execution_receipt_static,
 )
 from services.receipt_templates import validate_extension_vs_task_type
+from services.task_contract_guard import ensure_task_contract_exists
 from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
@@ -24,6 +25,7 @@ router = APIRouter()
 async def submit_receipt(receipt: ExecutionReceipt, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("task_id", receipt.task_id)
     validate_public_url_segment("receipt_id", receipt.receipt_id)
+    await ensure_task_contract_exists(db, receipt.task_id)
     store = PostgresReceiptStore(db)
     try:
         validate_execution_receipt_static(receipt)
