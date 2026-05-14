@@ -111,19 +111,53 @@
 
   function roleHint(identityId, contract, settlement) {
     if (!identityId) return "—";
-    if (contract && contract.client_agent_id === identityId) return "buyer";
-    if (settlement && settlement.worker_agent_id === identityId) return "seller";
-    if (contract && contract.worker_agent_id === identityId) return "seller";
+    var buyerId = (contract && contract.client_agent_id) || (settlement && settlement.client_agent_id);
+    var sellerId = (contract && contract.worker_agent_id) || (settlement && settlement.worker_agent_id);
+    if (buyerId && buyerId === identityId) return "buyer";
+    if (sellerId && sellerId === identityId) return "seller";
     return "—";
   }
 
   function counterparty(identityId, contract, settlement) {
     if (!contract && !settlement) return "—";
-    var cid = contract && contract.client_agent_id;
+    var cid = (contract && contract.client_agent_id) || (settlement && settlement.client_agent_id);
     var wid = (settlement && settlement.worker_agent_id) || (contract && contract.worker_agent_id);
-    if (identityId === cid) return wid || "—";
-    if (identityId === wid) return cid || "—";
+    if (identityId && identityId === cid) return wid || "—";
+    if (identityId && identityId === wid) return cid || "—";
     return (wid || "—") + " / " + (cid || "—");
+  }
+
+  /** Human hint aligned with TaskStatus (API returns lowercase snake values). */
+  function nextStepHint(status) {
+    if (!status) return "—";
+    var map = {
+      draft: "POST …/create or /pending",
+      pending: "POST …/lock (worker)",
+      accepted: "POST …/start",
+      in_progress: "POST …/submit or progress",
+      progress_submitted: "confirm progress (buyer)",
+      progress_confirmed: "partial / continue / submit",
+      delivered: "buyer-accept / dispute / partial",
+      disputed: "arbitration / evidence",
+      arbitrated: "POST …/auto-arbitrate done — settle",
+      settled: "—",
+      refunded: "—",
+      cancelled: "—",
+      created: "legacy — advance workflow",
+      locked: "POST …/start",
+      running: "POST …/submit",
+      submitted: "buyer review",
+      buyer_regret: "terminal (split)",
+      verifying: "verification",
+      verified: "buyer-accept",
+      released: "—",
+      failed: "fail / refund path",
+      arbitration: "arbitration",
+      buyer_wins: "terminal",
+      seller_wins: "terminal",
+      partial: "partial path",
+    };
+    return map[status] || "—";
   }
 
   function renderTasksTbody(tbody, identityId, taskIds) {
@@ -185,13 +219,7 @@
         addCell(s ? fmtNum(s.escrow_amount) + " " + (s.currency || "") : "—");
         addCell(String(maxProgressPct(prog)) + "%");
         addCell(s ? String(s.status) : "—");
-        var nxt =
-          s && s.status === "delivered"
-            ? "buyer-accept / dispute"
-            : s && s.status === "disputed"
-              ? "arbitration"
-              : "—";
-        addCell(nxt);
+        addCell(s ? nextStepHint(String(s.status)) : "—");
         addCell(String(rc));
       });
     });
@@ -329,7 +357,18 @@
     try {
       var sm = await a.getRuntimeSafetyMode();
       setText(document.body, "[data-bind=safety_enabled]", sm && sm.enabled ? "yes" : "no");
-      setText(document.body, "[data-bind=safety_detail]", (sm && (sm.reason || "")) || "—");
+      if (sm) {
+        var pauses = [];
+        if (sm.pause_new_lock) pauses.push("lock");
+        if (sm.pause_new_authorization) pauses.push("auth");
+        if (sm.pause_new_task) pauses.push("task");
+        if (sm.pause_new_settlement) pauses.push("settlement");
+        var detail =
+          (sm.reason || "—") + (pauses.length ? " · pauses: " + pauses.join(", ") : "");
+        setText(document.body, "[data-bind=safety_detail]", detail);
+      } else {
+        setText(document.body, "[data-bind=safety_detail]", "—");
+      }
     } catch (e) {
       setText(document.body, "[data-bind=safety_enabled]", "n/a");
       setText(document.body, "[data-bind=safety_detail]", e.message || String(e));
