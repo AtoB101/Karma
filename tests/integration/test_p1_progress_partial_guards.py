@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
-from httptest import post_minimal_contract
+from httptest import post_minimal_contract, post_success_execution_receipt
 
 
 @pytest.mark.asyncio
@@ -63,6 +63,8 @@ async def test_partial_settlement_rejects_above_confirmed_claimed(client: AsyncC
     assert pr.status_code == 201
     pid = pr.json()["progress_receipt_id"]
     await client.post(f"/v1/progress/{pid}/confirm", json={})
+
+    await post_success_execution_receipt(client, task_id=task_id, agent_id=seller)
 
     bad = await client.post(f"/v1/settlement/{task_id}/partial", json={"settled_value_percent": 60, "reason": "too much"})
     assert bad.status_code == 400

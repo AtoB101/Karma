@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,7 +15,6 @@ from core.schemas import (
     SettlementState,
     SettlementTransitionAudit,
     TaskStatus,
-    ToolStatus,
     VoucherStatus,
 )
 from core.settlement.engine import can_transition, canonical_task_status
@@ -38,7 +37,10 @@ from services.settlement_party_access import (
     require_buyer_or_worker,
     require_worker,
 )
+from services.settlement_cycle_guard import assert_lock_does_not_close_payment_cycle
+from services.settlement_receipt_release_guard import ensure_success_execution_receipt_before_seller_payout
 from services.task_contract_guard import ensure_task_contract_exists
+from services.text_safety import validate_safe_storage_text_optional
 
 router = APIRouter()
 
@@ -60,14 +62,35 @@ class PartialSettlementRequest(BaseModel):
     settled_value_percent: float = Field(gt=0.0, le=100.0)
     reason: str | None = None
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _safe_reason(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        return validate_safe_storage_text_optional(str(v), field="reason")
+
 
 class RegretRequest(BaseModel):
     buyer_identity_id: str | None = None
     reason: str | None = None
 
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _safe_regret_reason(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        return validate_safe_storage_text_optional(str(v), field="reason")
+
 
 class DisputeRequest(BaseModel):
     reason: str | None = None
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _safe_dispute_reason(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        return validate_safe_storage_text_optional(str(v), field="reason")
 
 
 @router.post("/create", response_model=SettlementState, status_code=201)
@@ -167,6 +190,12 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
             status_code=409,
             detail="worker_agent_id cannot equal settlement buyer (client_agent_id)",
         )
+    await assert_lock_does_not_close_payment_cycle(
+        db,
+        task_id=task_id,
+        buyer_id=state.client_agent_id,
+        worker_id=body.worker_agent_id,
+    )
     if settings.settlement_lock_requires_pending and canonical_task_status(state.status) == TaskStatus.DRAFT:
         raise HTTPException(
             409,
@@ -293,6 +322,8 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
     settled_amount = round(state.escrow_amount * body.settled_value_percent / 100.0, 2)
     refunded_amount = round(state.escrow_amount - settled_amount, 2)
 
+    await ensure_success_execution_receipt_before_seller_payout(db, task_id, settled_amount=settled_amount)
+
     state.released_amount = settled_amount
     state.refunded_amount = refunded_amount
     state.arbitration_notes = body.reason or f"partial settlement at {body.settled_value_percent:.2f}%"
@@ -335,6 +366,8 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
     confirmed_percent = await _confirmed_progress_percent(db, task_id)
     settled_amount = round(state.escrow_amount * confirmed_percent / 100.0, 2)
     refunded_amount = round(state.escrow_amount - settled_amount, 2)
+
+    await ensure_success_execution_receipt_before_seller_payout(db, task_id, settled_amount=settled_amount)
 
     state.dispute_reason = body.reason or "buyer regret"
     state.released_amount = settled_amount
@@ -405,13 +438,9 @@ async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSessi
     if state.status != TaskStatus.DELIVERED:
         raise HTTPException(409, "buyer accept requires delivered status")
 
-    rstore = PostgresReceiptStore(db)
-    receipts = await rstore.list_by_task(task_id)
-    if not any(r.status == ToolStatus.SUCCESS for r in receipts):
-        raise HTTPException(
-            409,
-            "at least one successful execution receipt is required before buyer-accept settlement",
-        )
+    await ensure_success_execution_receipt_before_seller_payout(
+        db, task_id, settled_amount=float(state.escrow_amount)
+    )
 
     state.released_amount = round(state.escrow_amount, 2)
     state.refunded_amount = 0.0
@@ -470,6 +499,7 @@ async def auto_arbitrate(task_id: str, request: Request, db: AsyncSession = Depe
         confirmed_percent=confirmed_percent,
         escrow_amount=state.escrow_amount,
     )
+    await ensure_success_execution_receipt_before_seller_payout(db, task_id, settled_amount=settled_amount)
     decision = TaskStatus.REFUNDED if settled_amount <= 1e-6 else TaskStatus.SETTLED
     notes = rule_notes
     if ctx.notes:

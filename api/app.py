@@ -322,5 +322,9 @@ async def info():
         },
         "settlement_guards": {
             "lock_requires_pending": bool(settings.settlement_lock_requires_pending),
+            "requires_success_execution_receipt_for_seller_release": bool(
+                settings.settlement_requires_success_execution_receipt_for_seller_release
+            ),
+            "block_buyer_worker_payment_cycle": bool(settings.settlement_block_buyer_worker_payment_cycle),
         },
     }

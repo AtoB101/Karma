@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy.exc import IntegrityError
 
 from core.schemas import (
@@ -27,6 +27,7 @@ from services.voucher_eip712 import verify_authorization_voucher_buyer
 from config.settings import settings
 from services.ledger_party_access import require_ledger_identity
 from services.path_param_safety import validate_public_url_segment
+from services.text_safety import validate_json_strings_safe, validate_safe_storage_text
 
 router = APIRouter()
 
@@ -48,6 +49,21 @@ class CreateVoucherRequest(BaseModel):
     seller_sub_identity_id: str | None = None
     progress_rule_spec: dict | None = None
     buyer_wallet_address: str | None = None
+
+    @model_validator(mode="after")
+    def _reject_unsafe_embedded_text(self) -> "CreateVoucherRequest":
+        validate_safe_storage_text(self.currency, field="currency")
+        validate_safe_storage_text(self.task_type, field="task_type")
+        validate_safe_storage_text(self.task_description_hash, field="task_description_hash")
+        validate_safe_storage_text(self.progress_rule_hash, field="progress_rule_hash")
+        validate_safe_storage_text(self.evidence_requirement_hash, field="evidence_requirement_hash")
+        validate_safe_storage_text(self.nonce, field="nonce")
+        validate_safe_storage_text(self.buyer_signature, field="buyer_signature")
+        if self.buyer_wallet_address:
+            validate_safe_storage_text(self.buyer_wallet_address, field="buyer_wallet_address")
+        if self.progress_rule_spec is not None:
+            validate_json_strings_safe(self.progress_rule_spec, field="progress_rule_spec")
+        return self
 
 
 class VerifyVoucherRequest(BaseModel):
