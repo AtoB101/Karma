@@ -55,6 +55,12 @@ Copy the value from `hybrid_settlement_result.json` → **`karma_proof_hash`** i
 
 `scripts/testnet_create_bill.py` validates this format by default (`--skip-proof-format-check` only for deliberate non-karma pointers such as `ipfs://…`).
 
+### Gas budgets (wallets / manual caps)
+
+`createBill` touches policy checks, storage, and a UTF-8 `string proofHash`; on **Sepolia** a successful path has been observed at roughly **760k–770k gas used**. If a wallet or script caps gas at ~**300k**, the transaction will **revert out-of-gas** (not `CapacityInsufficient`). Prefer **automatic gas estimation**, or set an explicit gas limit **≥ ~850k** for `createBill` only. Reference points from one closed-loop run: `createBill` ≈761k gas, `confirmBill` ≈53k, `requestBillPayout` ≈121k (chain-dependent; treat as order-of-magnitude).
+
+Repo Python helpers (`trusted_agent_runtime/testnet_client.py`) use `estimate_gas` with a headroom multiplier; failures here are usually from **MetaMask / hardware wallet UI limits**, not from the Python path.
+
 Generate them from the hybrid artifact file:
 
 - `hybrid_settlement_result.json` → fields `karma_proof_hash`, `karma_scope_hex`
