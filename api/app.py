@@ -302,7 +302,29 @@ async def info():
             "note": "When auth enforcement is off, POST /v1/verify accepts anonymous actor label anonymous-verify.",
         },
         "runtime_gateway_prefix": "/runtime",
+        "security_and_admin_auth": {
+            "always_requires_credentials": True,
+            "path_prefixes": ["/v1/security", "/v1/admin"],
+            "note": (
+                "Bearer JWT or X-Karma-Api-Key is required for these route trees even when "
+                "AUTH_ENFORCE_PROTECTED_ROUTES is false."
+            ),
+        },
+        "execution_receipt_timestamp_guards": {
+            "strict_recent_timestamps": bool(settings.receipt_strict_recent_timestamps),
+            "max_past_hours_when_strict": int(settings.receipt_max_past_hours_strict),
+            "progress_receipt_max_past_hours": int(settings.receipt_max_past_hours),
+            "note": (
+                "When strict_recent_timestamps is true, execution receipt started_at/ended_at may not be older "
+                "than max_past_hours_when_strict. Progress receipts still use progress_receipt_max_past_hours "
+                "(receipt_max_past_hours) for long-window flows such as timeout confirmation."
+            ),
+        },
         "settlement_guards": {
             "lock_requires_pending": bool(settings.settlement_lock_requires_pending),
+            "requires_success_execution_receipt_for_seller_release": bool(
+                settings.settlement_requires_success_execution_receipt_for_seller_release
+            ),
+            "block_buyer_worker_payment_cycle": bool(settings.settlement_block_buyer_worker_payment_cycle),
         },
     }

@@ -5,7 +5,7 @@ from datetime import datetime
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
@@ -14,6 +14,7 @@ from db.session import get_db
 from db.models.orm import CapacityModel, TaskContractModel
 from services.path_param_safety import validate_public_url_segment
 from services.signing import sha256_of
+from services.text_safety import validate_json_strings_safe, validate_safe_storage_text
 
 router = APIRouter()
 
@@ -32,11 +33,32 @@ class CreateContractRequest(BaseModel):
     currency: str = Field(default="USD", max_length=16)
     deadline_at: datetime
 
+    @field_validator("title")
+    @classmethod
+    def _safe_title(cls, v: str) -> str:
+        return validate_safe_storage_text(v, field="title")
+
+    @field_validator("description")
+    @classmethod
+    def _safe_description(cls, v: str) -> str:
+        return validate_safe_storage_text(v, field="description")
+
+    @field_validator("currency")
+    @classmethod
+    def _safe_currency(cls, v: str) -> str:
+        return validate_safe_storage_text(v, field="currency")
+
+    @field_validator("client_agent_id")
+    @classmethod
+    def _safe_client_agent_id(cls, v: str) -> str:
+        return validate_safe_storage_text(v, field="client_agent_id")
+
     @model_validator(mode="after")
     def _limit_schema_json_size(self) -> "CreateContractRequest":
         raw = json.dumps(self.expected_output_schema, sort_keys=True, default=str)
         if len(raw.encode("utf-8")) > 65536:
             raise ValueError("expected_output_schema JSON must be <= 65536 bytes")
+        validate_json_strings_safe(self.expected_output_schema, field="expected_output_schema")
         return self
 
 

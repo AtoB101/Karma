@@ -29,6 +29,7 @@
 | 轮次 | 日期 | 范围摘要 | 结论 / 风险等级 | 关联 PR / 文档 |
 |------|------|----------|-----------------|----------------|
 | 模拟攻击清单（KSA） | 2026-05-14 | 30 场景 / 7 项漏洞（公开仓库可修复子集） | 见下表「已落地缓解」 | 本仓库 `services/task_contract_guard.py`、`api/app.py`、`api/routes/*` |
+| Level 2（KSA2） | 2026-05-13 | 38 场景 / 4 项漏洞（公开仓库可修复子集） | 见下表「Level 2 已落地缓解」 | `services/settlement_receipt_release_guard.py`、`services/settlement_cycle_guard.py`、`services/text_safety.py` |
 
 ### 3.1 已落地缓解（公开仓库）
 
@@ -40,9 +41,18 @@
 | **KSA-023** | 超大自由文本 / JSON 导致内存压力 | `CreateContractRequest` / `RegisterAgentRequest` 增加 **长度与 JSON 体积** 上限；`expected_output_schema` 序列化 ≤ 65536 字节 |
 | **KSA-001** | 批量虚假注册 | `POST /v1/agents` 增加 **`register_rate_limit`** 依赖 |
 | **KSA-010** | 过久时间戳的执行回执仍被接受 | **仅执行回执** `validate_execution_receipt_static` 在 `receipt_strict_recent_timestamps=true` 时使用 `receipt_max_past_hours_strict`（默认 24h）；进度回执仍用宽松 `receipt_max_past_hours` 以支持超时确认等场景 |
-| **KSA-029** | 循环结算 A→B→C→A | **未在 API 层做图环检测**（易误伤合法背对背双边任务）；保留为路线图项，可与链上/风控层协同 |
+| **KSA-029** | 循环结算 A→B→C→A | 全量图论「任意环」仍不作为默认 API 护栏（误伤合法多边协作的风险）；与 **KSA2-034** 的「锁单前 buyer→worker 有向链闭环」检测互补，见下表 3.2 |
 
-回归用例：`tests/unit/test_security_attack_mitigations.py`。
+### 3.2 Level 2 已落地缓解（KSA2）
+
+| ID | 说明 | 缓解方式 |
+|----|------|----------|
+| **KSA2-006** | 无执行回执即可向卖方释放资金（如 `partial` 在 0% 已确认进度下全额结算） | **`ensure_success_execution_receipt_before_seller_payout`**：`settled_amount > 0` 时要求任务上至少一条 **SUCCESS** 执行回执；适用于 `partial`、`regret`、`auto-arbitrate`、`buyer-accept`（默认 `settlement_requires_success_execution_receipt_for_seller_release=true`） |
+| **KSA2-008** | RLO / 双向排版控制符（如 U+202E）原样入库 | **`validate_safe_storage_text`**：拒绝 U+202A–U+202E、U+2066–U+2069；用于合约标题/描述、Agent 名称、Voucher 字符串字段、结算 `reason` 等 |
+| **KSA2-011** | NUL（`\x00`）原样入库 | 同上 **禁止 NUL**；`expected_output_schema` 内嵌字符串经 **`validate_json_strings_safe`** 校验 |
+| **KSA2-034** | 多买方链式锁单形成有向环（如 A→B→…→A） | **`assert_lock_does_not_close_payment_cycle`**：在 `lock` 前于 **非终态** 结算上检测 `worker` 是否已可达 `buyer`；默认 `settlement_block_buyer_worker_payment_cycle=true`（与 KSA-029「全图环」不同，此为 **轻量、可解释** 的锁前护栏） |
+
+回归用例：`tests/unit/test_security_attack_mitigations.py`、`tests/unit/test_level2_attack_mitigations.py`、`tests/unit/test_settlement_cycle_guard.py`。
 
 ---
 

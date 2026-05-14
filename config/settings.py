@@ -89,6 +89,11 @@ class Settings(BaseSettings):
     settlement_require_party_actor: bool = True
     # When true, POST /v1/settlement/{task_id}/lock is only allowed from PENDING (not directly from DRAFT).
     settlement_lock_requires_pending: bool = False
+    # KSA2-006: require ≥1 successful execution receipt before any seller-side monetary release
+    # (partial / regret / auto-arbitrate / buyer-accept), except pure refunds (settled_amount≈0).
+    settlement_requires_success_execution_receipt_for_seller_release: bool = True
+    # KSA2-034: reject worker lock if it would close a directed cycle among non-terminal settlements.
+    settlement_block_buyer_worker_payment_cycle: bool = True
     # When true with AUTH_ENFORCE_PROTECTED_ROUTES, capacity lock/release and voucher create/verify/accept
     # bind the authenticated actor to the ledger identity or asserted voucher party (buyer/seller).
     ledger_require_party_actor: bool = True

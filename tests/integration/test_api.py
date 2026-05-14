@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
-from httptest import post_minimal_contract
+from httptest import post_minimal_contract, post_success_execution_receipt
 from core.schemas import ExecutionReceipt, ToolStatus
 from services.signing import signing_service
 
@@ -487,6 +487,8 @@ async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient):
     assert confirm.status_code == 200
     assert confirm.json()["confirmation_status"] == "confirmed"
 
+    await post_success_execution_receipt(client, task_id=task_id, agent_id=seller)
+
     regret = await client.post(f"/v1/settlement/{task_id}/regret", json={
         "buyer_identity_id": buyer,
         "reason": "buyer regret",
@@ -601,6 +603,8 @@ async def test_manual_partial_settlement(client: AsyncClient):
     })
     await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": "worker-001"})
     await client.post(f"/v1/settlement/{task_id}/start", json={})
+
+    await post_success_execution_receipt(client, task_id=task_id, agent_id="worker-001")
 
     partial = await client.post(f"/v1/settlement/{task_id}/partial", json={
         "settled_value_percent": 40,

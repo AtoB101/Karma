@@ -12,6 +12,7 @@ from core.schemas import AgentIdentity, AgentRole
 from db.session import get_db
 from db.models.orm import AgentModel
 from services.signing import signing_service
+from services.text_safety import validate_safe_storage_text, validate_safe_storage_text_optional
 
 router = APIRouter()
 
@@ -22,12 +23,23 @@ class RegisterAgentRequest(BaseModel):
     endpoint_url: str | None = Field(default=None, max_length=2048)
     capabilities: list[str] = Field(default_factory=list, max_length=64)
 
+    @field_validator("name")
+    @classmethod
+    def _safe_name(cls, v: str) -> str:
+        return validate_safe_storage_text(v, field="name")
+
+    @field_validator("endpoint_url", mode="before")
+    @classmethod
+    def _safe_endpoint(cls, v: object) -> str | None:
+        return validate_safe_storage_text_optional(None if v is None else str(v), field="endpoint_url")
+
     @field_validator("capabilities")
     @classmethod
     def _capability_item_length(cls, v: list[str]) -> list[str]:
         for item in v:
             if len(item) > 128:
                 raise ValueError("each capability string must be at most 128 characters")
+            validate_safe_storage_text(item, field="capabilities[]")
         return v
 
 
