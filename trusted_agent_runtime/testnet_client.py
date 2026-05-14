@@ -15,6 +15,69 @@ from web3.types import TxReceipt
 _PKG = Path(__file__).resolve().parent
 
 
+def seller_bond_wei(amount: int, seller_bond_bps: int) -> int:
+    """Match NonCustodialAgentPayment._sellerBond rounding for tiny principals."""
+    bond = (int(amount) * int(seller_bond_bps)) // 10_000
+    if int(amount) > 0 and int(seller_bond_bps) > 0 and bond == 0:
+        bond = 1
+    return bond
+
+
+def read_account_state(w3: Web3, karma_c, user: str, token: str) -> dict[str, int]:
+    """On-chain AccountState tuple: locked, active, reserved (active + reserved == locked)."""
+    u = Web3.to_checksum_address(user)
+    t = Web3.to_checksum_address(token)
+    st = karma_c.functions.getAccountState(u, t).call()
+    return {"locked": int(st[0]), "active": int(st[1]), "reserved": int(st[2])}
+
+
+def describe_create_bill_capacity_shortfall(
+    w3: Web3,
+    karma_c,
+    *,
+    buyer: str,
+    seller: str,
+    token: str,
+    amount: int,
+) -> tuple[bool, str]:
+    """
+    createBill requires buyer.active >= amount and seller.active >= sellerBond(amount).
+
+    Returns (ok, human-readable diagnostics). ``ok`` is True when both sides have enough **active**
+    (unreserved) capacity for a new bill at the given principal.
+    """
+    buyer_st = read_account_state(w3, karma_c, buyer, token)
+    seller_st = read_account_state(w3, karma_c, seller, token)
+    bps = int(karma_c.functions.sellerBondBps().call())
+    bond = seller_bond_wei(amount, bps)
+    buyer_ok = buyer_st["active"] >= amount
+    seller_ok = seller_st["active"] >= bond
+    buyer_consistent = bool(karma_c.functions.isAccountConsistent(Web3.to_checksum_address(buyer), Web3.to_checksum_address(token)).call())
+    seller_consistent = bool(
+        karma_c.functions.isAccountConsistent(Web3.to_checksum_address(seller), Web3.to_checksum_address(token)).call()
+    )
+    lines = [
+        f"createBill capacity check (amount={amount} wei, sellerBondBps={bps} → bond={bond} wei):",
+        f"  buyer  {Web3.to_checksum_address(buyer)}: locked={buyer_st['locked']} active={buyer_st['active']} reserved={buyer_st['reserved']} invariant_ok={buyer_consistent}",
+        f"  seller {Web3.to_checksum_address(seller)}: locked={seller_st['locked']} active={seller_st['active']} reserved={seller_st['reserved']} invariant_ok={seller_consistent}",
+    ]
+    if not buyer_ok:
+        lines.append(
+            f"  [fail] buyer active {buyer_st['active']} < bill amount {amount} — lock more for buyer or finish/cancel pending bills to free active."
+        )
+    if not seller_ok:
+        lines.append(
+            f"  [fail] seller active {seller_st['active']} < seller bond {bond} — lock more for seller or finish/cancel pending bills."
+        )
+    if not buyer_consistent:
+        lines.append("  [warn] buyer active+reserved != locked — unexpected; open an issue with chain + contract + addresses.")
+    if not seller_consistent:
+        lines.append("  [warn] seller active+reserved != locked — unexpected; open an issue with chain + contract + addresses.")
+    if buyer_ok and seller_ok:
+        lines.append("  [ok] buyer and seller have enough active capacity for this createBill.")
+    return (buyer_ok and seller_ok), "\n".join(lines)
+
+
 def _load_abi(name: str) -> list:
     with open(_PKG / "abis" / name, encoding="utf-8") as f:
         return json.load(f)

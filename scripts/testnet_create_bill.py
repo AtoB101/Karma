@@ -20,6 +20,7 @@ from trusted_agent_runtime.testnet_client import (
     append_tx_log,
     bill_id_from_create_receipt,
     connect_web3,
+    describe_create_bill_capacity_shortfall,
     karma_payment,
     send_contract_tx,
     tx_writeback_record,
@@ -35,6 +36,11 @@ def main() -> None:
     p.add_argument("--scope-hex", default=None, help="bytes32 as 0x… hex (default KARMA_SCOPE_HEX)")
     p.add_argument("--deadline", type=int, default=None, help="Unix deadline (default now+7d)")
     p.add_argument("--tx-log", type=Path, default=None)
+    p.add_argument(
+        "--skip-capacity-preflight",
+        action="store_true",
+        help="Do not call getAccountState before createBill (default: preflight and abort if CapacityInsufficient is certain)",
+    )
     p.add_argument(
         "--skip-proof-format-check",
         action="store_true",
@@ -59,6 +65,22 @@ def main() -> None:
     w3 = connect_web3()
     buyer = account_from_env("TESTNET_BUYER_PRIVATE_KEY")
     karma = karma_payment(w3)
+    if not args.skip_capacity_preflight:
+        ok_cap, cap_msg = describe_create_bill_capacity_shortfall(
+            w3,
+            karma,
+            buyer=buyer.address,
+            seller=Web3.to_checksum_address(seller),
+            token=Web3.to_checksum_address(token),
+            amount=amount,
+        )
+        print(cap_msg)
+        if not ok_cap:
+            raise SystemExit(
+                "Aborting: createBill would revert with CapacityInsufficient (0x56daf627). "
+                "Increase BUYER_LOCK_WEI / SELLER_LOCK_WEI, cancel pending bills, or pass --skip-capacity-preflight."
+            )
+
     tx = karma.functions.createBill(
         Web3.to_checksum_address(seller),
         Web3.to_checksum_address(token),
