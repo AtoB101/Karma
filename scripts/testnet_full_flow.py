@@ -22,6 +22,9 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from trusted_agent_runtime.demo_payload import build_demo_offchain_bundle
+from trusted_agent_runtime.evidence_adapter import EvidenceAdapter
+from trusted_agent_runtime.proof_hash_format import assert_canonical_karma_proof_hash
+from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
 from trusted_agent_runtime.settlement_adapter import SettlementAdapter
 from trusted_agent_runtime.testnet_client import (
     account_from_env,
@@ -153,6 +156,18 @@ def main() -> None:
     task = TaskContract(**payload["task"])
     bundle = EvidenceBundle(**payload["evidence_bundle"])
     verify = VerificationResult(**payload["verification"])
+    expected_proof = EvidenceAdapter(InMemoryReceiptStore()).map_to_karma_proof_hash(bundle)
+    if payload["proof_hash"] != expected_proof:
+        raise SystemExit(
+            "proof_hash encoding mismatch: payload proof_hash != bundle-derived pointer.\n"
+            f"  payload:  {payload['proof_hash']!r}\n"
+            f"  expected: {expected_proof!r}\n"
+            "Regenerate with build_demo_offchain_bundle() or fix evidence_bundle.json manually."
+        )
+    try:
+        payload["proof_hash"] = assert_canonical_karma_proof_hash(payload["proof_hash"])
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     plan = SettlementAdapter().build_offchain_plan(
         task,
         bundle,
