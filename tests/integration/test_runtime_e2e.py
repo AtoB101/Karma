@@ -17,6 +17,7 @@ from core.schemas import ExecutionReceipt, ToolStatus
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from httpx import AsyncClient
+from httptest import post_minimal_contract
 from services.runtime_wallet import (
     build_create_key_message,
     build_list_keys_message,
@@ -171,6 +172,16 @@ async def test_runtime_e2e_voucher_receipt_settlement_flow(client: AsyncClient):
 
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 120.0})
 
+    task_id = f"task-rt-e2e-{uuid.uuid4().hex[:12]}"
+
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=35.0,
+        expected_step_count=5,
+    )
+
     v_nonce = f"vn-{uuid.uuid4().hex}"
     vclient = f"vc-{uuid.uuid4().hex}"
     voucher_body = _voucher_payload(buyer=buyer, seller=seller, amount=35.0, nonce=v_nonce)
@@ -185,7 +196,6 @@ async def test_runtime_e2e_voucher_receipt_settlement_flow(client: AsyncClient):
     acc = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
     assert acc.status_code == 200, acc.text
 
-    task_id = f"task-rt-e2e-{uuid.uuid4().hex[:12]}"
     cr = await client.post(
         "/v1/settlement/create",
         json={

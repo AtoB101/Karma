@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
+from httptest import post_minimal_contract
 from core.schemas import ExecutionReceipt, ToolStatus
 from services.signing import signing_service
 
@@ -130,6 +131,13 @@ async def test_get_contract(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_submit_and_retrieve_receipt(client: AsyncClient):
     now = datetime.utcnow()
+    await post_minimal_contract(
+        client,
+        task_id="task-int-001",
+        client_agent_id="client-int-001",
+        escrow_amount=50.0,
+        expected_step_count=5,
+    )
     receipt_data = _signed_receipt_payload(
         task_id="task-int-001",
         agent_id="worker-int-001",
@@ -154,6 +162,13 @@ async def test_submit_and_retrieve_receipt(client: AsyncClient):
 async def test_list_receipts_by_task(client: AsyncClient):
     task_id = "task-list-receipts"
     now = datetime.utcnow()
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id="client-001",
+        escrow_amount=50.0,
+        expected_step_count=5,
+    )
     for i in range(1, 4):
         payload = _signed_receipt_payload(
             task_id=task_id,
@@ -176,6 +191,13 @@ async def test_list_receipts_by_task(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_submit_receipt_rejects_missing_signature(client: AsyncClient):
     now = datetime.utcnow()
+    await post_minimal_contract(
+        client,
+        task_id="task-missing-sig",
+        client_agent_id="client-missing-sig",
+        escrow_amount=50.0,
+        expected_step_count=1,
+    )
     resp = await client.post(
         "/v1/receipts",
         json={
@@ -196,8 +218,50 @@ async def test_submit_receipt_rejects_missing_signature(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_submit_receipt_allows_missing_signature_when_requirement_disabled(
+    client: AsyncClient, monkeypatch
+):
+    from config.settings import settings
+
+    monkeypatch.setattr(settings, "receipt_require_signature", False)
+    now = datetime.utcnow()
+    tid = "task-no-sig-opt-001"
+    await post_minimal_contract(
+        client,
+        task_id=tid,
+        client_agent_id="client-no-sig-opt",
+        escrow_amount=50.0,
+        expected_step_count=1,
+    )
+    resp = await client.post(
+        "/v1/receipts",
+        json={
+            "task_id": tid,
+            "agent_id": "worker-001",
+            "step_index": 1,
+            "tool_name": "caption.generate",
+            "input_hash": "a" * 64,
+            "output_hash": "b" * 64,
+            "started_at": now.isoformat(),
+            "ended_at": (now + timedelta(milliseconds=50)).isoformat(),
+            "duration_ms": 50,
+            "status": "success",
+        },
+    )
+    assert resp.status_code == 201
+    assert not resp.json().get("signature")
+
+
+@pytest.mark.asyncio
 async def test_submit_receipt_rejects_non_sequential_step(client: AsyncClient):
     now = datetime.utcnow()
+    await post_minimal_contract(
+        client,
+        task_id="task-receipt-seq",
+        client_agent_id="client-receipt-seq",
+        escrow_amount=50.0,
+        expected_step_count=5,
+    )
     first = _signed_receipt_payload(
         task_id="task-receipt-seq",
         agent_id="worker-001",
@@ -280,6 +344,14 @@ async def test_get_bundle_by_task(client: AsyncClient):
 async def test_settlement_lifecycle(client: AsyncClient):
     task_id = "task-settle-int-001"
 
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id="client-001",
+        escrow_amount=100.0,
+        expected_step_count=5,
+    )
+
     # Create
     resp = await client.post("/v1/settlement/create", json={
         "task_id":         task_id,
@@ -326,6 +398,13 @@ async def test_settlement_lifecycle(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_settlement_invalid_transition_rejected(client: AsyncClient):
     task_id = "task-settle-invalid-001"
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id="client-001",
+        escrow_amount=10.0,
+        expected_step_count=1,
+    )
     await client.post("/v1/settlement/create", json={
         "task_id": task_id,
         "client_agent_id": "client-001",
@@ -357,6 +436,13 @@ async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient):
 
     # Capacity + reservation to simulate an authorized task.
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=100.0,
+        expected_step_count=5,
+    )
     voucher = await client.post("/v1/vouchers", json={
         "buyer_identity_id": buyer,
         "seller_identity_id": seller,
@@ -424,6 +510,13 @@ async def test_progress_receipt_rejects_rollback_and_duplicate_hash_pair(client:
     buyer = "buyer-progress-guard-001"
     seller = "seller-progress-guard-001"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=100.0,
+        expected_step_count=5,
+    )
     voucher = await client.post("/v1/vouchers", json={
         "buyer_identity_id": buyer,
         "seller_identity_id": seller,
@@ -493,6 +586,13 @@ async def test_progress_receipt_rejects_rollback_and_duplicate_hash_pair(client:
 @pytest.mark.asyncio
 async def test_manual_partial_settlement(client: AsyncClient):
     task_id = "task-manual-partial-001"
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id="client-001",
+        escrow_amount=100.0,
+        expected_step_count=5,
+    )
     await client.post("/v1/settlement/create", json={
         "task_id": task_id,
         "client_agent_id": "client-001",
@@ -523,6 +623,13 @@ async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(clien
     seller = "seller-001"
 
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 50.0})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=50.0,
+        expected_step_count=5,
+    )
     v = await client.post(
         "/v1/vouchers",
         json={
@@ -669,6 +776,13 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
     seller_id = "seller-arb-001"
 
     await client.post(f"/v1/capacity/{buyer_id}/lock", json={"amount": 100.0})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer_id,
+        escrow_amount=100.0,
+        expected_step_count=5,
+    )
     v = await client.post(
         "/v1/vouchers",
         json={

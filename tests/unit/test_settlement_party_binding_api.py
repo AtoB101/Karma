@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from api.app import app
 from config.settings import settings
 from db.session import get_db
+from httptest import post_minimal_contract
 
 
 @pytest.mark.asyncio
@@ -26,6 +27,14 @@ async def test_settlement_partial_rejects_wrong_actor_when_party_binding_on(db_s
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             task_id = "party-bind-task-1"
+            await post_minimal_contract(
+                client,
+                task_id=task_id,
+                client_agent_id="buyer-1",
+                escrow_amount=10.0,
+                expected_step_count=1,
+                headers={"X-Karma-Api-Key": "karma_buyer-1_buyer-secret-123456"},
+            )
             r = await client.post(
                 "/v1/settlement/create",
                 json={

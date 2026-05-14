@@ -38,6 +38,7 @@ from services.settlement_party_access import (
     require_buyer_or_worker,
     require_worker,
 )
+from services.task_contract_guard import ensure_task_contract_exists
 
 router = APIRouter()
 
@@ -78,6 +79,7 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
     if body.voucher_id:
         validate_public_url_segment("voucher_id", body.voucher_id)
     require_buyer_on_create(request, body.client_agent_id)
+    await ensure_task_contract_exists(db, body.task_id)
     from config.settings import settings as _s
 
     voucher_id = body.voucher_id
@@ -160,6 +162,11 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
     if not state:
         raise HTTPException(404)
     require_buyer(request, state)
+    if body.worker_agent_id == state.client_agent_id:
+        raise HTTPException(
+            status_code=409,
+            detail="worker_agent_id cannot equal settlement buyer (client_agent_id)",
+        )
     if settings.settlement_lock_requires_pending and canonical_task_status(state.status) == TaskStatus.DRAFT:
         raise HTTPException(
             409,

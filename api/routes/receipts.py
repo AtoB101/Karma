@@ -11,10 +11,11 @@ from db.session import get_db
 from db.models.orm import SettlementModel, VoucherModel
 from db.stores.receipt_store import PostgresReceiptStore
 from services.receipt_guard import (
+    execution_receipt_signature_acceptable,
     validate_execution_receipt_static,
-    verify_execution_receipt_signature,
 )
 from services.receipt_templates import validate_extension_vs_task_type
+from services.task_contract_guard import ensure_task_contract_exists
 from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
@@ -24,6 +25,7 @@ router = APIRouter()
 async def submit_receipt(receipt: ExecutionReceipt, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("task_id", receipt.task_id)
     validate_public_url_segment("receipt_id", receipt.receipt_id)
+    await ensure_task_contract_exists(db, receipt.task_id)
     store = PostgresReceiptStore(db)
     try:
         validate_execution_receipt_static(receipt)
@@ -41,7 +43,7 @@ async def submit_receipt(receipt: ExecutionReceipt, db: AsyncSession = Depends(g
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if not verify_execution_receipt_signature(receipt):
+    if not execution_receipt_signature_acceptable(receipt):
         raise HTTPException(status_code=400, detail="invalid receipt signature")
 
     latest = await store.get_latest_by_task(receipt.task_id)

@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.middleware.rate_limit import register_rate_limit
 
 from core.schemas import AgentIdentity, AgentRole
 from db.session import get_db
@@ -15,16 +17,25 @@ router = APIRouter()
 
 
 class RegisterAgentRequest(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=256)
     role: AgentRole
-    endpoint_url: str | None = None
-    capabilities: list[str] = []
+    endpoint_url: str | None = Field(default=None, max_length=2048)
+    capabilities: list[str] = Field(default_factory=list, max_length=64)
+
+    @field_validator("capabilities")
+    @classmethod
+    def _capability_item_length(cls, v: list[str]) -> list[str]:
+        for item in v:
+            if len(item) > 128:
+                raise ValueError("each capability string must be at most 128 characters")
+        return v
 
 
 @router.post("", response_model=AgentIdentity, status_code=201)
 async def register_agent(
     body: RegisterAgentRequest,
     db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(register_rate_limit),
 ):
     agent = AgentIdentity(
         name=body.name,

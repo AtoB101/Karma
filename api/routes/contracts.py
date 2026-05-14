@@ -2,29 +2,42 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
 from core.schemas import TaskContract
 from db.session import get_db
 from db.models.orm import CapacityModel, TaskContractModel
+from services.path_param_safety import validate_public_url_segment
 from services.signing import sha256_of
 
 router = APIRouter()
 
 
 class CreateContractRequest(BaseModel):
-    client_agent_id: str
-    title: str
-    description: str
+    task_id: str | None = Field(
+        default=None,
+        description="Optional explicit task id (must be unused). If omitted, a UUID is assigned.",
+    )
+    client_agent_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=512)
+    description: str = Field(default="", max_length=32768)
     expected_output_schema: dict
-    expected_step_count: int
+    expected_step_count: int = Field(ge=1, le=1_000_000)
     escrow_amount: float
-    currency: str = "USD"
+    currency: str = Field(default="USD", max_length=16)
     deadline_at: datetime
+
+    @model_validator(mode="after")
+    def _limit_schema_json_size(self) -> "CreateContractRequest":
+        raw = json.dumps(self.expected_output_schema, sort_keys=True, default=str)
+        if len(raw.encode("utf-8")) > 65536:
+            raise ValueError("expected_output_schema JSON must be <= 65536 bytes")
+        return self
 
 
 @router.post("", response_model=TaskContract, status_code=201)
@@ -32,6 +45,11 @@ async def create_contract(
     body: CreateContractRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    if body.task_id is not None:
+        validate_public_url_segment("task_id", body.task_id)
+        if await db.get(TaskContractModel, body.task_id):
+            raise HTTPException(409, "task_id already in use")
+
     if body.escrow_amount < settings.escrow_min_amount - 1e-9:
         raise HTTPException(
             status_code=400,
@@ -49,7 +67,12 @@ async def create_contract(
             detail="escrow_amount exceeds buyer available_credits on capacity ledger",
         )
 
-    contract = TaskContract(**body.model_dump())
+    data = body.model_dump()
+    if body.task_id is not None:
+        data["task_id"] = body.task_id
+    else:
+        data.pop("task_id", None)
+    contract = TaskContract(**data)
     contract.contract_hash = sha256_of(contract.model_dump(exclude={"contract_hash"}))
 
     db.add(TaskContractModel(
@@ -82,9 +105,16 @@ async def assign_worker(
     worker_agent_id: str,
     db: AsyncSession = Depends(get_db),
 ):
+    validate_public_url_segment("task_id", task_id)
+    validate_public_url_segment("worker_agent_id", worker_agent_id)
     row = await db.get(TaskContractModel, task_id)
     if not row:
         raise HTTPException(404)
+    if worker_agent_id == row.client_agent_id:
+        raise HTTPException(
+            status_code=409,
+            detail="worker_agent_id cannot equal contract client_agent_id (self-assignment)",
+        )
     row.worker_agent_id = worker_agent_id
     return _row_to_contract(row)
 

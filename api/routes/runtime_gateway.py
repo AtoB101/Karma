@@ -34,6 +34,7 @@ from db.stores.settlement_store import PostgresSettlementStore
 from services.path_param_safety import validate_public_url_segment
 from services.receipt_guard import validate_execution_receipt_static, verify_execution_receipt_signature
 from services.receipt_templates import validate_extension_vs_task_type
+from services.task_contract_guard import ensure_task_contract_exists
 from services.runtime_key_service import (
     RuntimeKeyContext,
     assert_permission,
@@ -294,6 +295,8 @@ async def runtime_submit_receipt(
     validate_public_url_segment("receipt_id", receipt.receipt_id)
     if receipt.agent_id != ctx.karma_identity_id:
         raise HTTPException(status_code=403, detail="receipt agent_id must match runtime key identity")
+
+    await ensure_task_contract_exists(db, receipt.task_id)
 
     store = PostgresReceiptStore(db)
     try:

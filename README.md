@@ -144,6 +144,7 @@ karma-public/
 
 ## Docs
 
+- [**公开测试计划（模拟 / 攻击测试 / 测试网）— 索引**](docs/public-testing/README.md)
 - [API Reference](docs/API_REFERENCE.md)
 - [Deployment SOP](docs/DEPLOYMENT.md)
 - [Karma FINAL V1.0 Engineering Kickoff (CN)](docs/KARMA_FINAL_V1_ENGINEERING_KICKOFF_CN.md)

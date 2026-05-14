@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Histogram, make_asgi_app
 
 from config.settings import settings
-from api.middleware.auth import require_auth_if_enabled, resolve_agent_id_from_auth_headers
+from api.middleware.auth import get_current_agent_id, require_auth_if_enabled, resolve_agent_id_from_auth_headers
 from api.middleware.rate_limit import rate_limit
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from db.session import init_db
@@ -266,6 +266,7 @@ app.mount("/metrics", metrics_app)
 app.include_router(runtime_gateway.router, prefix="/runtime", tags=["Runtime Gateway"])
 app.include_router(auth.router,       prefix="/v1/auth",       tags=["Auth"])
 _protected_dependencies = [Depends(require_auth_if_enabled)]
+_security_always_auth = [Depends(get_current_agent_id)]
 app.include_router(agents.router,     prefix="/v1/agents",     tags=["Agents"], dependencies=_protected_dependencies)
 app.include_router(contracts.router,  prefix="/v1/contracts",  tags=["Contracts"], dependencies=_protected_dependencies)
 app.include_router(identities.router, prefix="/v1/identities", tags=["Identities"], dependencies=_protected_dependencies)
@@ -279,8 +280,8 @@ app.include_router(bundles.router,    prefix="/v1/bundles",    tags=["Bundles"],
 app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verification"], dependencies=_protected_dependencies)
 app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_protected_dependencies)
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
-app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_protected_dependencies)
-app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_protected_dependencies)
+app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)
+app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_security_always_auth)
 
 
 @app.get("/health")

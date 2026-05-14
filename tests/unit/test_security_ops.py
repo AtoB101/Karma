@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from config.settings import settings
+from httptest import post_minimal_contract
 from services.security_monitoring import (
     SecurityMonitoringEventType,
     build_security_ops_alert_report,
@@ -188,7 +189,13 @@ def test_security_ops_detects_settlement_transition_denied_rate_alert():
 
 
 @pytest.mark.asyncio
-async def test_security_ops_alerts_endpoint_returns_report(client):
+async def test_security_ops_alerts_endpoint_returns_report(client, monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "auth_api_keys",
+        "ops-alert-reader:ops-alert-reader-secret-abcdef",
+    )
+    hdr = {"X-Karma-Api-Key": "karma_ops-alert-reader_ops-alert-reader-secret-abcdef"}
     clear_security_events()
     try:
         for _ in range(2):
@@ -221,7 +228,8 @@ async def test_security_ops_alerts_endpoint_returns_report(client):
             "&private_runtime_error_rate_threshold=0.2"
             "&private_runtime_min_requests=2"
             "&dimension_limit=5"
-            "&alert_cooldown_minutes=0"
+            "&alert_cooldown_minutes=0",
+            headers=hdr,
         )
         assert response.status_code == 200
         payload = response.json()
@@ -247,11 +255,24 @@ async def test_security_ops_alerts_endpoint_returns_report(client):
 
 
 @pytest.mark.asyncio
-async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client):
+async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client, monkeypatch):
+    monkeypatch.setattr(
+        settings,
+        "auth_api_keys",
+        "ops-alert-reader:ops-alert-reader-secret-abcdef",
+    )
+    hdr = {"X-Karma-Api-Key": "karma_ops-alert-reader_ops-alert-reader-secret-abcdef"}
     clear_security_events()
     set_runtime_safety_mode(enabled=False, reason="test reset", actor_id="test")
     try:
         task_id = "task-transition-abuse-001"
+        await post_minimal_contract(
+            client,
+            task_id=task_id,
+            client_agent_id="buyer-001",
+            escrow_amount=10.0,
+            expected_step_count=1,
+        )
         created = await client.post(
             "/v1/settlement/create",
             json={
@@ -274,6 +295,7 @@ async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client):
             "&alert_cooldown_minutes=0"
             "&auto_brake_on_transition_critical=true"
             "&auto_brake_actor_id=sec-auto",
+            headers=hdr,
         )
         assert report.status_code == 200
         alert_types = {item["alert_type"] for item in report.json()["alerts"]}
