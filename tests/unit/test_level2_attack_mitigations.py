@@ -31,6 +31,7 @@ async def test_partial_settlement_without_execution_receipt_returns_409(client: 
     lk = await client.post(f"/v1/settlement/{tid}/lock", json={"worker_agent_id": worker})
     assert lk.status_code == 200, lk.text
     await client.post(f"/v1/settlement/{tid}/start", json={})
+    await client.post(f"/v1/settlement/{tid}/submit", json={})
 
     partial = await client.post(
         f"/v1/settlement/{tid}/partial",
