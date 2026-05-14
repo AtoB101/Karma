@@ -20,6 +20,16 @@ def _utc_aware(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def execution_receipt_starts_before_prior_ended(*, started_at: datetime, prior_ended_at: datetime) -> bool:
+    """
+    True when the new receipt starts strictly before the prior receipt ended.
+
+    PostgreSQL/SQLite often round-trip ``DateTime`` as naive; clients may send
+    RFC3339 with ``Z``. Comparing naive vs aware raises TypeError unless normalized.
+    """
+    return _utc_aware(started_at) < _utc_aware(prior_ended_at)
+
+
 def _is_hex_64(value: str) -> bool:
     return bool(_HEX_64_RE.fullmatch((value or "").lower()))
 

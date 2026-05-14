@@ -4,7 +4,7 @@ Full end-to-end API flow: register → contract → receipts → bundle → veri
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
@@ -186,6 +186,34 @@ async def test_list_receipts_by_task(client: AsyncClient):
     assert resp.status_code == 200
     assert len(resp.json()) == 3
     assert [r["step_index"] for r in resp.json()] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_multi_step_receipts_with_timezone_aware_timestamps(client: AsyncClient):
+    """Regression: step 2 must not 500 when DB returns naive ended_at but client sends RFC3339 Z."""
+    task_id = "task-receipt-utc-multistep"
+    base = datetime.now(timezone.utc)
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id="client-utc-ms",
+        escrow_amount=10.0,
+        expected_step_count=3,
+    )
+    for step in (1, 2, 3):
+        payload = _signed_receipt_payload(
+            task_id=task_id,
+            agent_id="worker-utc-ms",
+            step_index=step,
+            tool_name=f"tool.utc.{step}",
+            input_hash="a" * 64,
+            output_hash=("c" * 62 + f"{step:02d}"),
+            started_at=base + timedelta(seconds=step * 3),
+            ended_at=base + timedelta(seconds=step * 3, milliseconds=200),
+            duration_ms=200,
+        )
+        r = await client.post("/v1/receipts", json=payload)
+        assert r.status_code == 201, r.text
 
 
 @pytest.mark.asyncio

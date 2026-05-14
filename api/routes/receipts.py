@@ -12,6 +12,7 @@ from db.models.orm import SettlementModel, VoucherModel
 from db.stores.receipt_store import PostgresReceiptStore
 from services.receipt_guard import (
     execution_receipt_signature_acceptable,
+    execution_receipt_starts_before_prior_ended,
     validate_execution_receipt_static,
 )
 from services.receipt_templates import validate_extension_vs_task_type
@@ -56,7 +57,9 @@ async def submit_receipt(receipt: ExecutionReceipt, db: AsyncSession = Depends(g
                 status_code=409,
                 detail=f"receipt step_index must be sequential: expected {latest.step_index + 1}",
             )
-        if receipt.started_at < latest.ended_at:
+        if execution_receipt_starts_before_prior_ended(
+            started_at=receipt.started_at, prior_ended_at=latest.ended_at
+        ):
             raise HTTPException(status_code=409, detail="receipt timestamps out of order for task")
     try:
         await store.save(receipt)
