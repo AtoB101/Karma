@@ -36,6 +36,25 @@ For **stepwise** scripts you also need:
 | `KARMA_PROOF_HASH` | `testnet_create_bill.py` (string passed to `createBill`) |
 | `KARMA_SCOPE_HEX` | `testnet_create_bill.py` (`0x` + 64 hex = 32-byte `scopeHash`) |
 
+### `KARMA_PROOF_HASH` string format (hybrid / Trusted Agent)
+
+`createBill` takes `proofHash` as a Solidity **`string`** (UTF-8), not `bytes32`. For the **Trusted Agent** path the repo emits a deterministic pointer:
+
+```text
+karma-ta:v1/sha256/<64 lowercase hexadecimal characters>
+```
+
+Copy the value from `hybrid_settlement_result.json` → **`karma_proof_hash`** into `KARMA_PROOF_HASH`.
+
+**Common failures (“encoding mismatch”, or reading `amount=0` / `status=0`):**
+
+- Using a raw **`0x…` 32-byte** hex string as the entire `proofHash` (hybrid uses the pointer above; `0x…` is for **`KARMA_SCOPE_HEX`** / `scopeHash`).
+- Putting **`0x`** on the digest **tail** after `karma-ta:v1/sha256/` — the tail must be **64 bare hex chars**, no prefix.
+- **Trailing newline/whitespace** from `.env` or shell `export` — strip or paste from JSON without quotes.
+- **Wrong `billId`**: `bills(0)` is uninitialized (`amount == 0`, `status == 0`); use the id from **`BillCreated`** / script stdout (`nextBillId` starts at **1**).
+
+`scripts/testnet_create_bill.py` validates this format by default (`--skip-proof-format-check` only for deliberate non-karma pointers such as `ipfs://…`).
+
 Generate them from the hybrid artifact file:
 
 - `hybrid_settlement_result.json` → fields `karma_proof_hash`, `karma_scope_hex`

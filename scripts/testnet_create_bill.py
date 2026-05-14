@@ -14,6 +14,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from trusted_agent_runtime.proof_hash_format import assert_canonical_karma_proof_hash
 from trusted_agent_runtime.testnet_client import (
     account_from_env,
     append_tx_log,
@@ -34,6 +35,11 @@ def main() -> None:
     p.add_argument("--scope-hex", default=None, help="bytes32 as 0x… hex (default KARMA_SCOPE_HEX)")
     p.add_argument("--deadline", type=int, default=None, help="Unix deadline (default now+7d)")
     p.add_argument("--tx-log", type=Path, default=None)
+    p.add_argument(
+        "--skip-proof-format-check",
+        action="store_true",
+        help="Do not validate karma-ta proofHash shape (only for non-hybrid pointers like ipfs://…)",
+    )
     args = p.parse_args()
 
     seller = args.seller or os.environ.get("TESTNET_SELLER_ADDRESS", "").strip()
@@ -43,6 +49,11 @@ def main() -> None:
     scope = args.scope_hex or os.environ.get("KARMA_SCOPE_HEX", "").strip()
     if not seller or not token or not proof or not scope:
         raise SystemExit("Need seller, token, proof hash, and scope (flags or env).")
+    if not args.skip_proof_format_check:
+        try:
+            proof = assert_canonical_karma_proof_hash(proof)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
     deadline = args.deadline if args.deadline is not None else int(time.time()) + 7 * 86400
 
     w3 = connect_web3()
