@@ -2,6 +2,8 @@
 
 Build verifiable AI agents. Every tool call generates a signed receipt. Every task produces an auditable evidence bundle. Settlement is automatic.
 
+**Early builders:** we are recruiting **core developers** (≈10 roles), **security researchers**, and **ecosystem advocates** (≈20) for the pre-token phase. Incentive design (including potential future token mechanisms and early **equity-like** arrangements) will follow formal governance and legal processes. **→ [Read the full public brief (中文)](docs/early-builders-recruitment-zh.md)**
+
 ---
 
 ## Quick Start
