@@ -603,6 +603,7 @@ async def test_manual_partial_settlement(client: AsyncClient):
     })
     await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": "worker-001"})
     await client.post(f"/v1/settlement/{task_id}/start", json={})
+    await client.post(f"/v1/settlement/{task_id}/submit", json={})
 
     await post_success_execution_receipt(client, task_id=task_id, agent_id="worker-001")
 

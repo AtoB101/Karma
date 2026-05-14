@@ -314,11 +314,24 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
         raise HTTPException(404, f"Settlement {task_id} not found")
     require_buyer(request, state)
     confirmed_claimed = await _confirmed_progress_percent(db, task_id)
-    if confirmed_claimed > 1e-9 and body.settled_value_percent > confirmed_claimed + 1e-4:
-        raise HTTPException(
-            400,
-            f"settled_value_percent exceeds confirmed claimed value ceiling ({confirmed_claimed:.4f}%)",
-        )
+    st = canonical_task_status(state.status)
+    # P0-9: splits must not exceed confirmed claimed liability; without any confirmed progress,
+    # partial release is only allowed after formal delivery (submit) so settlement does not skip
+    # the delivered checkpoint from in_progress.
+    if body.settled_value_percent > 1e-4:
+        if confirmed_claimed > 1e-9:
+            if body.settled_value_percent > confirmed_claimed + 1e-4:
+                raise HTTPException(
+                    400,
+                    f"settled_value_percent exceeds confirmed claimed value ceiling ({confirmed_claimed:.4f}%)",
+                )
+        elif st != TaskStatus.DELIVERED:
+            raise HTTPException(
+                400,
+                "partial settlement with no confirmed progress requires delivered status "
+                "(POST /v1/settlement/{task_id}/submit first); otherwise confirm progress receipts "
+                "up to the intended split",
+            )
     settled_amount = round(state.escrow_amount * body.settled_value_percent / 100.0, 2)
     refunded_amount = round(state.escrow_amount - settled_amount, 2)
 

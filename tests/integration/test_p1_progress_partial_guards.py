@@ -76,6 +76,54 @@ async def test_partial_settlement_rejects_above_confirmed_claimed(client: AsyncC
 
 
 @pytest.mark.asyncio
+async def test_partial_settlement_rejects_in_progress_without_confirmed_or_delivered(client: AsyncClient):
+    """P0-9: no economic split from in_progress when there is zero confirmed progress."""
+    task_id = "task-p0-partial-no-deliver"
+    buyer = "buyer-p0-partial-nd"
+    seller = "seller-p0-partial-nd"
+    await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
+    await post_minimal_contract(
+        client,
+        task_id=task_id,
+        client_agent_id=buyer,
+        escrow_amount=100.0,
+        expected_step_count=5,
+    )
+    v = await client.post(
+        "/v1/vouchers",
+        json={
+            "buyer_identity_id": buyer,
+            "seller_identity_id": seller,
+            "amount": 100,
+            "currency": "USDC",
+            "bill_credit_amount": 100,
+            "task_type": "agent.partial_nd",
+            "task_description_hash": "a" * 64,
+            "progress_rule_hash": "b" * 64,
+            "evidence_requirement_hash": "c" * 64,
+            "expiry_time": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+            "nonce": "nonce-p0-partial-nd",
+            "buyer_signature": "sig-p0-partial-nd",
+        },
+    )
+    await client.post(f"/v1/vouchers/{v.json()['voucher_id']}/accept", json={"seller_identity_id": seller})
+    await client.post(
+        "/v1/settlement/create",
+        json={"task_id": task_id, "client_agent_id": buyer, "escrow_amount": 100.0, "currency": "USD"},
+    )
+    await client.post(f"/v1/settlement/{task_id}/lock", json={"worker_agent_id": seller})
+    await client.post(f"/v1/settlement/{task_id}/start", json={})
+    await post_success_execution_receipt(client, task_id=task_id, agent_id=seller)
+
+    bad = await client.post(
+        f"/v1/settlement/{task_id}/partial",
+        json={"settled_value_percent": 10, "reason": "skip delivered"},
+    )
+    assert bad.status_code == 400
+    assert "delivered" in bad.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
 async def test_regret_rejects_mismatched_buyer_identity(client: AsyncClient):
     task_id = "task-p1-regret-buyer"
     buyer = "buyer-p1-regret"
