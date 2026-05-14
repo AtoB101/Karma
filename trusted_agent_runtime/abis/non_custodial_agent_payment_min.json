@@ -45,6 +45,37 @@
     "type": "function"
   },
   {
+    "inputs": [
+      { "internalType": "address", "name": "user", "type": "address" },
+      { "internalType": "address", "name": "token", "type": "address" }
+    ],
+    "name": "getAccountState",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "uint256", "name": "locked", "type": "uint256" },
+          { "internalType": "uint256", "name": "active", "type": "uint256" },
+          { "internalType": "uint256", "name": "reserved", "type": "uint256" }
+        ],
+        "internalType": "struct INonCustodialAgentPayment.AccountState",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "user", "type": "address" },
+      { "internalType": "address", "name": "token", "type": "address" }
+    ],
+    "name": "isAccountConsistent",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "anonymous": false,
     "inputs": [
       { "indexed": true, "internalType": "uint256", "name": "billId", "type": "uint256" },

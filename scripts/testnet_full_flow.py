@@ -32,10 +32,12 @@ from trusted_agent_runtime.testnet_client import (
     approve_max,
     bill_id_from_create_receipt,
     connect_web3,
+    describe_create_bill_capacity_shortfall,
     erc20_token,
     karma_payment,
     lock_party,
     send_contract_tx,
+    seller_bond_wei,
     tx_writeback_record,
 )
 
@@ -83,9 +85,7 @@ def _run_onchain(payload: dict, tx_log: Path | None) -> dict:
 
     amt = int(os.environ.get("BILL_AMOUNT_WEI", "1000000"))
     bps = int(karma.functions.sellerBondBps().call())
-    bond = (amt * bps) // 10_000
-    if amt > 0 and bps > 0 and bond == 0:
-        bond = 1
+    bond = seller_bond_wei(amt, bps)
     buyer_lock = int(os.environ.get("BUYER_LOCK_WEI", str(max(amt * 5, amt + 1))))
     seller_lock = int(os.environ.get("SELLER_LOCK_WEI", str(max(bond * 5, bond + 1))))
 
@@ -98,6 +98,21 @@ def _run_onchain(payload: dict, tx_log: Path | None) -> dict:
     proof = payload["proof_hash"]
     scope = payload["scope_hex"]
     deadline = int(os.environ.get("BILL_DEADLINE_UNIX", str(int(time.time()) + 7 * 86400)))
+
+    ok_cap, cap_msg = describe_create_bill_capacity_shortfall(
+        w3,
+        karma,
+        buyer=buyer.address,
+        seller=seller_addr,
+        token=token_addr,
+        amount=amt,
+    )
+    print(cap_msg)
+    if not ok_cap:
+        raise SystemExit(
+            "createBill would revert CapacityInsufficient (0x56daf627). "
+            "See printed AccountState; cancel pending bills or raise BUYER_LOCK_WEI / SELLER_LOCK_WEI."
+        )
 
     tx = karma.functions.createBill(
         seller_addr,

@@ -55,6 +55,24 @@ Copy the value from `hybrid_settlement_result.json` → **`karma_proof_hash`** i
 
 `scripts/testnet_create_bill.py` validates this format by default (`--skip-proof-format-check` only for deliberate non-karma pointers such as `ipfs://…`).
 
+### `CapacityInsufficient` on `createBill` (selector `0x56daf627`)
+
+On-chain, `createBill` **only** checks that both parties still have enough **unreserved active** capacity:
+
+- `buyer.active >= bill principal`
+- `seller.active >= sellerBond(principal)` (from `sellerBondBps`)
+
+So this error usually means **insufficient `lockFunds` headroom** or **funds already reserved** by another **pending** bill — not “corruption” from earlier **reverted** `createBill` attempts (those roll back all state for that transaction).
+
+**Typical fixes (no redeploy required):**
+
+1. Inspect state: `python3 scripts/testnet_print_capacity.py` (uses `TESTNET_RPC_URL`, contract address, buyer key or `--buyer-address`, seller, token, `BILL_AMOUNT_WEI`).
+2. Raise `BUYER_LOCK_WEI` / `SELLER_LOCK_WEI` before locking, or run additional `scripts/testnet_lock.py` for the side that is short on **active**.
+3. If a bill is stuck in **Pending**, the buyer can call `cancelBill(billId)` on-chain (or wait past the deadline and call `expireBill`) to move principal and bond back from **reserved** to **active**, then create a new bill.
+4. `scripts/testnet_create_bill.py` runs a **capacity preflight** by default (skip with `--skip-capacity-preflight` only if you intentionally want the node to surface the revert).
+
+**Fresh wallet + new deployment** is still a valid **reset** for operators who prefer a clean ledger, but it is not required to fix a normal capacity shortfall.
+
 Generate them from the hybrid artifact file:
 
 - `hybrid_settlement_result.json` → fields `karma_proof_hash`, `karma_scope_hex`
@@ -107,6 +125,7 @@ Outputs:
 ```bash
 python3 scripts/testnet_lock.py --party buyer --amount 10000000 --tx-log results/tx.jsonl
 python3 scripts/testnet_lock.py --party seller --amount 5000000 --tx-log results/tx.jsonl
+python3 scripts/testnet_print_capacity.py   # read-only: buyer/seller active vs BILL_AMOUNT_WEI
 export KARMA_PROOF_HASH='...' KARMA_SCOPE_HEX='0x...'
 python3 scripts/testnet_create_bill.py --tx-log results/tx.jsonl
 python3 scripts/testnet_confirm.py --bill-id <id> --tx-log results/tx.jsonl
