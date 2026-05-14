@@ -76,7 +76,13 @@ Pre-configured paths for **Railway**, **Fly.io**, and **Vercel** (static marketi
 - `fly.toml` — Fly Machines + `release_command` migrations
 - `apps/website/vercel.json` — optional headers for the static site
 
-Full checklist (env vars, Postgres/Redis, Vercel root directory): **[`deploy/one-click-deploy.md`](deploy/one-click-deploy.md)**.
+| | |
+|--|--|
+| **Railway** (API) | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/github?repositories[]=https://github.com/AtoB101/Karma) |
+| **Fly.io** (API) | [![Deploy to Fly.io](https://fly.io/button.svg)](https://fly.io/launch?template=https://github.com/AtoB101/Karma) |
+| **Vercel** (`apps/website`) | [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAtoB101%2FKarma&root-directory=apps%2Fwebsite) |
+
+Full checklist (env vars, Postgres/Redis, post-click steps): **[`deploy/one-click-deploy.md`](deploy/one-click-deploy.md)**.
 
 ---
 

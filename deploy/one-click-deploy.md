@@ -3,6 +3,24 @@
 Lower-friction paths to run **Karma Public API** and the **static marketing site** on managed hosts.  
 Production still requires you to set secrets, attach Postgres/Redis, and run migrations (wired below where possible).
 
+**Upstream GitHub repo (used in deploy links):** `https://github.com/AtoB101/Karma` — forks should replace this in their own README / docs fork.
+
+## One-click buttons
+
+| Platform | Action |
+|----------|--------|
+| **Railway** (API) | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/github?repositories[]=https://github.com/AtoB101/Karma) |
+| **Fly.io** (API) | [![Deploy to Fly.io](https://fly.io/button.svg)](https://fly.io/launch?template=https://github.com/AtoB101/Karma) |
+| **Vercel** (static `apps/website`) | [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAtoB101%2FKarma&root-directory=apps%2Fwebsite) |
+
+- **Railway:** opens **New project → GitHub** with this repo pre-filled when the `repositories[]` query is honored. After deploy, add **PostgreSQL** + **Redis** plugins and env vars (see below). `railway.toml` supplies Dockerfile path, health check, and `preDeployCommand` migrations.
+- **Fly.io:** `fly launch` flow reads **`fly.toml`** at repo root; set `fly secrets` before first deploy. Edit `app = "karma-api-replace-me"` in `fly.toml` if the launcher does not rename it for you.
+- **Vercel:** clone flow sets **`root-directory=apps/website`** so only the marketing static tree is deployed.
+
+### Railway Marketplace template (optional)
+
+If maintainers **publish a Railway Template** (workspace → Templates → publish), add a second README button pointing to `https://railway.com/new/template/<TEMPLATE_ID>` (see [Publish and share templates](https://docs.railway.com/templates/publish-and-share)). Until then, the GitHub-prefill button above plus `railway.toml` is the supported path.
+
 ## What ships in this repo
 
 | Artifact | Purpose |
@@ -36,7 +54,7 @@ Generate signing keys locally (`python scripts/generate_keys.py`) and mount or i
 
 ## Railway (API)
 
-1. Open [railway.app/new](https://railway.app/new) → **Deploy from GitHub repo** → select this repository.
+1. Click **Deploy on Railway** at the top of this doc (or open [railway.com/new](https://railway.com/new) → **Deploy from GitHub repo** → select **AtoB101/Karma**).
 2. Add plugins: **PostgreSQL**, **Redis** (and optional Redis DB indices for Celery if you add a worker service later).
 3. Map plugin connection strings to `DATABASE_URL` and `REDIS_URL` (async URL form as above).
 4. Set the rest of the env vars from the table.
@@ -69,12 +87,6 @@ The API is **not** suited to Vercel Serverless as-is (long-lived FastAPI + WebSo
 5. Output directory: `.` (default when root is `apps/website`).
 
 `apps/website/vercel.json` adds basic security headers. Update links in HTML if the developer portal is hosted elsewhere.
-
----
-
-## Optional: template buttons
-
-Hosted **“Deploy to Railway”** buttons require a **template** published under a Railway account; this repo ships **config-as-code** (`railway.toml`) instead so any fork can connect without a central template URL. You can still add a button later via [Railway Template docs](https://docs.railway.app/guides/publish-templates).
 
 ---
 
