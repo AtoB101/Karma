@@ -29,6 +29,69 @@
       </div>
       <h1>Overview</h1>
       <p class="sub">Receiving and Payments are the two primary modules; other areas support operations and audit.</p>
+      <section class="panel" data-karma-console-root data-sync-interval-ms="12000">
+        <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Karma API · live state</h2>
+        <p class="sub" style="margin: 0 0 0.65rem">
+          Polls <code>/health</code>, <code>/v1/capacity/{identity}</code>, <code>/v1/security/runtime/safety-mode</code>, and
+          per-task reads (<code>GET /v1/settlement/{task_id}</code>, contract, receipts, progress). Shares localStorage keys
+          with Cyber Console (<code>karma_cyber_*</code>).
+        </p>
+        <div class="grid cols-2">
+          <label
+            >API base<br /><input
+              data-cfg="api_base"
+              type="text"
+              placeholder="http://127.0.0.1:8000"
+              style="width: 100%; margin-top: 0.25rem"
+          /></label>
+          <label
+            >API key<br /><input data-cfg="api_key" type="password" autocomplete="off" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+          <label
+            >Identity (capacity ledger)<br /><input data-cfg="identity_id" type="text" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+          <label
+            >Task IDs (comma-separated)<br /><input
+              data-cfg="task_ids"
+              type="text"
+              placeholder="task-uuid-one, task-uuid-two"
+              style="width: 100%; margin-top: 0.25rem"
+          /></label>
+        </div>
+        <p style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
+          <button type="button" class="btn" data-action="karma-save-cfg">Save + sync</button>
+          <button type="button" class="btn" data-action="karma-refresh-now">Refresh now</button>
+          <label class="sub" style="display: flex; align-items: center; gap: 0.35rem"
+            ><input type="checkbox" data-cfg="auto_sync" /> Auto-sync</label
+          >
+          <span class="sub">Last: <span data-bind="console_last_sync">—</span></span>
+        </p>
+        <p class="sub" style="margin-top: 0.25rem">
+          Health <span data-bind="health_status">—</span> · Safety <span data-bind="safety_enabled">—</span>
+          <span data-bind="safety_detail"></span>
+          <span data-bind="sync_capacity_error" style="color: #f87171"></span>
+        </p>
+        <div class="grid cols-2" style="margin-top: 0.75rem">
+          <div><span class="sub">Locked USDC</span><div data-bind="total_locked_usdc" style="font-weight: 700">—</div></div>
+          <div><span class="sub">Available</span><div data-bind="available_credits" style="font-weight: 700">—</div></div>
+        </div>
+        <h3 style="font-size: 0.9rem; margin: 1rem 0 0.35rem">Tasks (from ID list)</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Role</th>
+              <th>Counterparty</th>
+              <th>Amount</th>
+              <th>Progress</th>
+              <th>Status</th>
+              <th>Next</th>
+              <th>Rcpts</th>
+            </tr>
+          </thead>
+          <tbody data-sync-table="tasks"></tbody>
+        </table>
+      </section>
       <div class="grid cols-2">
         <div class="panel">
           <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Receiving</h2>
@@ -55,9 +118,14 @@
       </div>
     </main>
     <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+      window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
       /* Set to your BFF origin for read-only status (e.g. http://127.0.0.1:8820). Leave empty to disable fetch. */
       window.KARMA_BFF_PUBLIC_BASE = window.KARMA_BFF_PUBLIC_BASE || "";
     </script>
+    <script src="scripts/karma-public-api.js"></script>
+    <script src="scripts/console-sync.js"></script>
     <script src="scripts/karma-bff-readonly.js"></script>
   </body>
 </html>

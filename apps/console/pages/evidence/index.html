@@ -21,13 +21,52 @@
     </header>
     <main>
       <h1>Evidence Records</h1>
-      <p class="sub">Maps to <code>packages/evidence-schema/evidence.schema.json</code> and public verification rules.</p>
-      <div class="panel">
-        <span class="btn">View</span>
-        <span class="btn">Copy Hash</span>
-        <span class="btn">Export JSON</span>
-        <span class="btn">Verify Signature</span>
-      </div>
+      <p class="sub">
+        Bundles per task via <code>GET /v1/bundles/task/{task_id}</code>. Schema: <code>packages/evidence-schema/evidence.schema.json</code>.
+      </p>
+      <section class="panel" data-karma-console-root data-sync-interval-ms="12000">
+        <div class="grid cols-2">
+          <label
+            >API base<br /><input data-cfg="api_base" type="text" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+          <label
+            >API key<br /><input data-cfg="api_key" type="password" autocomplete="off" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+          <label style="grid-column: 1 / -1"
+            >Task IDs<br /><input data-cfg="task_ids" type="text" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+        </div>
+        <p style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
+          <button type="button" class="btn" data-action="karma-save-cfg">Save + sync</button>
+          <button type="button" class="btn" data-action="karma-refresh-now">Refresh</button>
+          <label class="sub" style="display: flex; align-items: center; gap: 0.35rem"
+            ><input type="checkbox" data-cfg="auto_sync" /> Auto-sync</label
+          >
+        </p>
+        <table style="margin-top: 0.75rem">
+          <thead>
+            <tr>
+              <th>Task</th>
+              <th>Bundle ID</th>
+              <th>Final result hash (prefix)</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody data-sync-table="evidence"></tbody>
+        </table>
+        <p style="margin-top: 0.65rem">
+          <span class="btn">View</span>
+          <span class="btn">Copy Hash</span>
+          <span class="btn">Export JSON</span>
+          <span class="btn">Verify Signature</span>
+        </p>
+      </section>
     </main>
+    <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+    </script>
+    <script src="../../scripts/karma-public-api.js"></script>
+    <script src="../../scripts/console-sync.js"></script>
   </body>
 </html>

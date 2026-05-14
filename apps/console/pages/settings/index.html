@@ -89,6 +89,28 @@
         USDC、<strong>不能</strong>修改锁仓额度。请在官方 Console 完成钱包授权；Agent 进程只应持有 Runtime Key。
       </div>
 
+      <section class="panel" data-karma-console-root data-sync-interval-ms="15000">
+        <h2>Karma API · 容量与安全（只读）</h2>
+        <p class="sub">轮询 <code>/health</code>、<code>/v1/capacity/{identity}</code>、<code>/v1/security/runtime/safety-mode</code>；与 Overview / Cyber 共用 <code>karma_cyber_*</code> 存储键。</p>
+        <div class="row" style="flex-direction: column; align-items: stretch; max-width: 520px">
+          <label>API base <input data-cfg="api_base" type="text" style="width: 100%" /></label>
+          <label>API key <input data-cfg="api_key" type="password" autocomplete="off" style="width: 100%" /></label>
+          <label>Identity <input data-cfg="identity_id" type="text" style="width: 100%" /></label>
+        </div>
+        <p class="row">
+          <button type="button" class="btn" data-action="karma-save-cfg">保存并同步</button>
+          <button type="button" class="btn" data-action="karma-refresh-now">立即刷新</button>
+          <label class="chk"><input type="checkbox" data-cfg="auto_sync" /> 自动轮询</label>
+          <span class="sub">上次 <span data-bind="console_last_sync">—</span></span>
+        </p>
+        <p class="sub">
+          Health <span data-bind="health_status">—</span> · Safety <span data-bind="safety_enabled">—</span>
+          <span data-bind="safety_detail"></span>
+          <span data-bind="sync_capacity_error" style="color: #f87171"></span>
+        </p>
+        <pre class="out" data-sync-bind="capacity_json">—</pre>
+      </section>
+
       <section class="panel" data-local-policy>
         <h2>自动授权策略（本地偏好）</h2>
         <p class="sub">以下开关保存在本浏览器 <code>localStorage</code>，便于与后端策略对齐展示；生产环境请接入持久化账户设置 API。</p>
@@ -191,8 +213,11 @@ KARMA_ID=Karma-ID-82F7X9
     </main>
     <script>
       window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+      window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
     </script>
     <script src="../../scripts/karma-public-api.js"></script>
+    <script src="../../scripts/console-sync.js"></script>
     <script type="module" src="../../scripts/runtime-console.js"></script>
   </body>
 </html>
