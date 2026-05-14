@@ -1,0 +1,39 @@
+# Fly.io — https://fly.io/docs/getting-started/launch/
+#
+# First time:
+#   fly apps create <your-app-name>
+#   fly secrets set DATABASE_URL=... REDIS_URL=... APP_SECRET_KEY=...
+#   fly deploy
+#
+# Edit `app` below to match your Fly app name.
+
+app = "karma-api-replace-me"
+primary_region = "iad"
+
+[build]
+  dockerfile = "deploy/Dockerfile.paas"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "45s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[deploy]
+  release_command = "alembic upgrade head"
