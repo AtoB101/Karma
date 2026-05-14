@@ -428,8 +428,6 @@ async def open_dispute(task_id: str, body: DisputeRequest, request: Request, db:
 async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """P0: full release to seller after delivery — requires at least one successful execution receipt."""
     validate_public_url_segment("task_id", task_id)
-    assert_runtime_operation_allowed("new_settlement")
-    await audit_capacity_anchor_and_maybe_trip(db=db)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
@@ -437,6 +435,8 @@ async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSessi
     require_buyer(request, state)
     if state.status != TaskStatus.DELIVERED:
         raise HTTPException(409, "buyer accept requires delivered status")
+    assert_runtime_operation_allowed("new_settlement")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
 
     await ensure_success_execution_receipt_before_seller_payout(
         db, task_id, settled_amount=float(state.escrow_amount)

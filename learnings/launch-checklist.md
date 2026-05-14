@@ -3,6 +3,8 @@
 > 基于《去中心化项目成功对比与成功方案 V1.0》整理
 > 日期：2026-05-06
 
+**最小安全灰度（第八节 15 条）验收矩阵**（实现 / 测试 / 缺口）：[`minimal-security-launch-acceptance-matrix.md`](./minimal-security-launch-acceptance-matrix.md)
+
 ---
 
 ## 一、上线前（预计 30-60 天）

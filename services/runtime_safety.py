@@ -95,6 +95,10 @@ def assert_runtime_operation_allowed(operation: str) -> None:
         blocked = _STATE.pause_new_task
     elif op == "new_settlement":
         blocked = _STATE.pause_new_settlement
+    elif op == "release_unused_capacity":
+        # P0-14: operational / safety pauses must still allow releasing *available* bill credits
+        # (USDC-side unlock is modeled as reducing total_locked for unused available only).
+        blocked = False
     else:
         blocked = _STATE.enabled
     if not blocked:

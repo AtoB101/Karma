@@ -26,7 +26,32 @@ from pydantic import BaseModel, ConfigDict, Field
 # ---------------------------------------------------------------------------
 
 class TaskStatus(str, Enum):
-    """Canonical lifecycle states aligned to FINAL safety architecture."""
+    """Canonical settlement task lifecycle (API + DB).
+
+    Mapping — product / security checklist (Chinese names) → this enum:
+
+    | Checklist (文档态)   | TaskStatus | Notes |
+    |---------------------|--------------|-------|
+    | Draft               | DRAFT        | |
+    | Pending             | PENDING      | Optional buyer step when ``settlement_lock_requires_pending`` |
+    | Authorized          | —            | Voucher ``CREATED`` + buyer capacity (off-task ledger) |
+    | Reserved            | —            | Voucher ``ACCEPTED``: ``reserved_credits`` (ledger) |
+    | Accepted            | ACCEPTED     | Worker locked (``/lock``) |
+    | InProgress          | IN_PROGRESS  | |
+    | ProgressSubmitted   | PROGRESS_SUBMITTED | |
+    | ProgressConfirmed   | PROGRESS_CONFIRMED | |
+    | Delivered           | DELIVERED    | |
+    | BuyerAccepted       | —            | Route ``buyer-accept`` → **SETTLED** (full release) |
+    | BuyerRegret         | —            | Route ``regret`` → **SETTLED** (split); legacy enum BUYER_REGRET maps to SETTLED |
+    | Disputed            | DISPUTED     | |
+    | Arbitrated          | ARBITRATED    | |
+    | Settled             | SETTLED      | Terminal |
+    | Refunded            | REFUNDED     | Terminal |
+    | Cancelled           | CANCELLED    | Terminal |
+    | Expired             | —            | No dedicated enum; use policy timeout → CANCELLED / off-task expiry |
+
+    Allowed edges are enforced in ``core/settlement/engine.VALID_TRANSITIONS`` (plus route-level guards).
+    """
     DRAFT = "draft"
     PENDING = "pending"
     ACCEPTED = "accepted"
