@@ -73,7 +73,7 @@ async def lock_usdc(identity_id: str, body: AmountRequest, request: Request, db:
 async def release_unused(identity_id: str, body: AmountRequest, request: Request, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("identity_id", identity_id)
     require_ledger_identity(request, identity_id)
-    assert_runtime_operation_allowed("new_settlement")
+    assert_runtime_operation_allowed("release_unused_capacity")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     row = await db.get(CapacityModel, identity_id)
     if not row:

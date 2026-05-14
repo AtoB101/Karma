@@ -42,6 +42,8 @@ LEGACY_TO_CANONICAL_STATUS: dict[TaskStatus, TaskStatus] = {
     TaskStatus.PARTIAL: TaskStatus.SETTLED,
 }
 
+# Transition table must stay aligned with ``TaskStatus`` docstring in ``core/schemas.py``
+# (checklist names vs canonical enum). Illegal jumps are rejected in ``api.routes.settlement._apply_transition``.
 VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.DRAFT: [TaskStatus.PENDING, TaskStatus.ACCEPTED, TaskStatus.CANCELLED],
     TaskStatus.PENDING: [TaskStatus.ACCEPTED, TaskStatus.CANCELLED],

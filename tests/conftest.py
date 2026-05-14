@@ -32,6 +32,16 @@ def event_loop():
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def reset_runtime_safety_mode_between_tests() -> None:
+    """Global runtime safety mode is in-process; clear it so integration tests do not leak pauses."""
+    from services.runtime_safety import set_runtime_safety_mode
+
+    set_runtime_safety_mode(enabled=False, reason="pytest autouse reset", actor_id="pytest")
+    yield
+    set_runtime_safety_mode(enabled=False, reason="pytest autouse reset", actor_id="pytest")
+
+
 # ---------------------------------------------------------------------------
 # Test database (SQLite in-memory)
 # ---------------------------------------------------------------------------
