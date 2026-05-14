@@ -75,6 +75,61 @@
     });
   }
 
-  global.cyberKarmaApi = { apiBase, getCapacity, getSettlement };
+  async function getHealth() {
+    return karmaFetch("/health", { method: "GET", headers: { Accept: "application/json" } });
+  }
+
+  async function getV1Info() {
+    return karmaFetch("/v1/info", { method: "GET", headers: headers() });
+  }
+
+  async function getContract(taskId) {
+    return karmaFetch("/v1/contracts/" + encodeURIComponent(taskId), { method: "GET", headers: headers() });
+  }
+
+  async function listReceiptsForTask(taskId) {
+    return karmaFetch("/v1/receipts/task/" + encodeURIComponent(taskId), { method: "GET", headers: headers() });
+  }
+
+  async function listProgressForTask(taskId) {
+    return karmaFetch("/v1/progress/task/" + encodeURIComponent(taskId), { method: "GET", headers: headers() });
+  }
+
+  async function getBundleForTask(taskId) {
+    return karmaFetch("/v1/bundles/task/" + encodeURIComponent(taskId), { method: "GET", headers: headers() });
+  }
+
+  async function listSettlementTransitions(taskId) {
+    return karmaFetch(
+      "/v1/settlement/" + encodeURIComponent(taskId) + "/transitions?limit=50",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function listAgents(role) {
+    var q = role ? "?role=" + encodeURIComponent(role) : "";
+    return karmaFetch("/v1/agents" + q, { method: "GET", headers: headers() });
+  }
+
+  async function getRuntimeSafetyMode() {
+    return karmaFetch("/v1/security/runtime/safety-mode", { method: "GET", headers: headers() });
+  }
+
+  global.cyberKarmaApi = {
+    apiBase,
+    karmaFetch,
+    headers,
+    getCapacity,
+    getSettlement,
+    getHealth,
+    getV1Info,
+    getContract,
+    listReceiptsForTask,
+    listProgressForTask,
+    getBundleForTask,
+    listSettlementTransitions,
+    listAgents,
+    getRuntimeSafetyMode,
+  };
   global.karmaRuntimeApi = { runtimeCreateKey, runtimeListKeys, runtimeRevokeKey, karmaFetch, headers };
 })(window);

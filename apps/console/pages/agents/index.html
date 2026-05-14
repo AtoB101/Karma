@@ -21,11 +21,48 @@
     </header>
     <main>
       <h1>Agent Management</h1>
-      <p class="sub">Runtime types: OpenManus · OpenClaw · Hermes · Custom Agent · API Service · Data Provider</p>
-      <div class="panel">
-        <p class="sub">API keys must be issued server-side only — never embed production secrets in this static shell.</p>
-        <span class="btn">API Key Management</span>
-      </div>
+      <p class="sub">
+        Live list from <code>GET /v1/agents</code>. API keys are issued server-side only — never embed production secrets in
+        this static shell.
+      </p>
+      <section class="panel" data-karma-console-root data-sync-interval-ms="12000">
+        <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Connection</h2>
+        <div class="grid cols-2">
+          <label
+            >API base<br /><input data-cfg="api_base" type="text" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+          <label
+            >API key<br /><input data-cfg="api_key" type="password" autocomplete="off" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+        </div>
+        <p style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
+          <button type="button" class="btn" data-action="karma-save-cfg">Save + sync</button>
+          <button type="button" class="btn" data-action="karma-refresh-now">Refresh</button>
+          <label class="sub" style="display: flex; align-items: center; gap: 0.35rem"
+            ><input type="checkbox" data-cfg="auto_sync" checked /> Auto-sync</label
+          >
+          <span class="sub">Health <span data-bind="health_status">—</span></span>
+          <span class="sub">Last <span data-bind="console_last_sync">—</span></span>
+        </p>
+        <table style="margin-top: 0.75rem">
+          <thead>
+            <tr>
+              <th>Agent ID</th>
+              <th>Name</th>
+              <th>Role</th>
+              <th>Endpoint</th>
+              <th>Capabilities</th>
+            </tr>
+          </thead>
+          <tbody data-sync-table="agents"></tbody>
+        </table>
+      </section>
     </main>
+    <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+    </script>
+    <script src="../../scripts/karma-public-api.js"></script>
+    <script src="../../scripts/console-sync.js"></script>
   </body>
 </html>

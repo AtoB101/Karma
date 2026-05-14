@@ -5,6 +5,8 @@
   const LS_BASE = "karma_cyber_api_base";
   const LS_KEY = "karma_cyber_api_key";
   const LS_ID = "karma_cyber_identity_id";
+  const LS_TASKS = "karma_console_task_ids";
+  const LS_AUTO = "karma_console_auto_sync";
 
   const pages = {
     overview: ["page.overview.title", "page.overview.sub"],
@@ -31,6 +33,9 @@
       if (el("[data-cfg=identity_id]"))
         el("[data-cfg=identity_id]").value =
           localStorage.getItem(LS_ID) || window.KARMA_IDENTITY_ID || "worker-001";
+      if (el("[data-cfg=task_ids]"))
+        el("[data-cfg=task_ids]").value = localStorage.getItem(LS_TASKS) || "";
+      if (el("[data-cfg=auto_sync]")) el("[data-cfg=auto_sync]").checked = localStorage.getItem(LS_AUTO) === "1";
     } catch (_) {}
   }
 
@@ -38,10 +43,14 @@
     const base = el("[data-cfg=api_base]")?.value?.trim() || "";
     const key = el("[data-cfg=api_key]")?.value?.trim() || "";
     const id = el("[data-cfg=identity_id]")?.value?.trim() || "";
+    const tasks = el("[data-cfg=task_ids]")?.value?.trim() || "";
+    const auto = el("[data-cfg=auto_sync]")?.checked;
     try {
       localStorage.setItem(LS_BASE, base);
       localStorage.setItem(LS_KEY, key);
       localStorage.setItem(LS_ID, id);
+      localStorage.setItem(LS_TASKS, tasks);
+      if (auto !== undefined) localStorage.setItem(LS_AUTO, auto ? "1" : "");
     } catch (_) {}
     window.KARMA_API_BASE = base;
     window.KARMA_API_KEY = key;

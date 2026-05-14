@@ -67,6 +67,15 @@
               <button type="button" class="btn primary" data-action="refresh-api" data-i18n="api.refresh">从 API 刷新额度</button>
               <span class="api-status" data-api-status>—</span>
             </div>
+            <div class="api-strip" style="margin-top: 6px">
+              <span data-i18n="api.task_batch" style="font-size: 12px; color: var(--text-dim); white-space: nowrap">任务列表（逗号分隔）</span>
+              <input data-cfg="task_ids" type="text" placeholder="task_id_1, task_id_2" autocomplete="off" style="flex: 1; min-width: 180px" />
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); white-space: nowrap">
+                <input type="checkbox" data-cfg="auto_sync" />
+                <span>自动同步</span>
+              </label>
+              <span style="font-size: 11px; color: var(--text-dim)">上次 <span data-bind="console_last_sync">—</span></span>
+            </div>
             <div class="api-strip" style="margin-bottom: 0">
               <span data-i18n="api.lookup" style="font-size: 12px; color: var(--text-dim); white-space: nowrap">查询结算任务</span>
               <input data-cfg="task_id" data-i18n-placeholder="api.task_id" type="text" placeholder="task_id" autocomplete="off" />
@@ -169,7 +178,7 @@
             <div class="section-header">
               <div>
                 <h3>最近需要处理</h3>
-                <p>以下为演示数据；任务列表需后端提供聚合接口后替换。</p>
+                <p>下方表格由 <code>GET /v1/settlement</code> 等接口按「任务 ID 列表」自动填充（与 Overview 同步策略一致）。</p>
               </div>
               <button type="button" class="btn">查看全部</button>
             </div>
@@ -177,34 +186,16 @@
               <thead>
                 <tr>
                   <th>任务</th>
-                  <th>本方角色</th>
+                  <th>角色</th>
                   <th>对方</th>
                   <th>金额</th>
                   <th>进度</th>
                   <th>状态</th>
                   <th>下一步</th>
+                  <th>回执数</th>
                 </tr>
               </thead>
-              <tbody>
-                <tr>
-                  <td>AI 视频生成</td>
-                  <td>付款方</td>
-                  <td>Karma-ID-B21</td>
-                  <td>50 USDC</td>
-                  <td><div class="progress"><span style="width: 40%"></span></div></td>
-                  <td><span class="badge cyan">执行中</span></td>
-                  <td><button type="button" class="btn">查看进度</button></td>
-                </tr>
-                <tr>
-                  <td>API 数据服务</td>
-                  <td>收款方</td>
-                  <td>Karma-ID-A82</td>
-                  <td>40 USDC</td>
-                  <td><div class="progress"><span style="width: 100%"></span></div></td>
-                  <td><span class="badge green">可结算</span></td>
-                  <td><button type="button" class="btn primary">申请结算</button></td>
-                </tr>
-              </tbody>
+              <tbody data-sync-table="tasks"></tbody>
             </table>
           </div>
         </section>
@@ -299,5 +290,6 @@
     <script src="../../scripts/i18n-cyber.js"></script>
     <script src="../../scripts/karma-public-api.js"></script>
     <script src="../../scripts/cyber-console.js"></script>
+    <script src="../../scripts/console-sync.js"></script>
   </body>
 </html>

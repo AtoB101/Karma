@@ -22,24 +22,56 @@
     <main>
       <h1>Payments</h1>
       <p class="sub">Buyers and callers: lock funds, bills, execution status, evidence, disputes, settlement.</p>
-      <div class="panel">
-        <table>
+      <section class="panel" data-karma-console-root data-sync-interval-ms="10000">
+        <h2 style="font-size: 1rem; margin-bottom: 0.35rem">API state sync</h2>
+        <p class="sub" style="margin: 0 0 0.65rem">
+          Same reads as Overview: capacity for the configured identity, then one row per <code>task_id</code> (settlement +
+          contract + receipt count + progress).
+        </p>
+        <div class="grid cols-2">
+          <label
+            >API base<br /><input data-cfg="api_base" type="text" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+          <label
+            >API key<br /><input data-cfg="api_key" type="password" autocomplete="off" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+          <label
+            >Identity<br /><input data-cfg="identity_id" type="text" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+          <label
+            >Task IDs<br /><input data-cfg="task_ids" type="text" style="width: 100%; margin-top: 0.25rem"
+          /></label>
+        </div>
+        <p style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
+          <button type="button" class="btn" data-action="karma-save-cfg">Save + sync</button>
+          <button type="button" class="btn" data-action="karma-refresh-now">Refresh</button>
+          <label class="sub" style="display: flex; align-items: center; gap: 0.35rem"
+            ><input type="checkbox" data-cfg="auto_sync" /> Auto-sync</label
+          >
+          <span class="sub">Last: <span data-bind="console_last_sync">—</span></span>
+        </p>
+        <p class="sub" style="margin-top: 0.25rem">
+          Health <span data-bind="health_status">—</span> · Safety <span data-bind="safety_enabled">—</span>
+          <span data-bind="sync_capacity_error" style="color: #f87171"></span>
+        </p>
+        <div class="grid cols-2" style="margin-top: 0.5rem">
+          <div><span class="sub">Locked</span><div data-bind="total_locked_usdc">—</div></div>
+          <div><span class="sub">Available</span><div data-bind="available_credits">—</div></div>
+        </div>
+        <table style="margin-top: 0.75rem">
           <thead>
             <tr>
-              <th>Bill ID</th>
-              <th>Agent ID</th>
+              <th>Task</th>
+              <th>Role</th>
+              <th>Counterparty</th>
               <th>Amount</th>
-              <th>Locked</th>
-              <th>Execution</th>
-              <th>Settlement</th>
-              <th>Dispute</th>
+              <th>Progress</th>
+              <th>Status</th>
+              <th>Next</th>
+              <th>Rcpts</th>
             </tr>
           </thead>
-          <tbody>
-            <tr>
-              <td colspan="7" style="color: var(--muted)">No rows — connect wallet + backend</td>
-            </tr>
-          </tbody>
+          <tbody data-sync-table="tasks"></tbody>
         </table>
         <p style="margin-top: 0.65rem">
           <span class="btn">Connect Wallet</span>
@@ -50,7 +82,7 @@
           <span class="btn">Open Dispute</span>
           <span class="btn">Approve Settlement</span>
         </p>
-      </div>
+      </section>
       <div class="panel" data-karma-bff-panel style="margin-top: 1rem">
         <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Karma BFF · 状态（只读）</h2>
         <p class="sub" style="margin: 0">付款侧与后端 <code>trace_id</code> 对齐；不写密钥。</p>
@@ -63,8 +95,13 @@
       </div>
     </main>
     <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+      window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
       window.KARMA_BFF_PUBLIC_BASE = window.KARMA_BFF_PUBLIC_BASE || "";
     </script>
+    <script src="../../scripts/karma-public-api.js"></script>
+    <script src="../../scripts/console-sync.js"></script>
     <script src="../../scripts/karma-bff-readonly.js"></script>
   </body>
 </html>
