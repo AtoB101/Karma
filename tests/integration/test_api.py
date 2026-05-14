@@ -196,6 +196,34 @@ async def test_submit_receipt_rejects_missing_signature(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_submit_receipt_allows_missing_signature_when_requirement_disabled(
+    client: AsyncClient, monkeypatch
+):
+    from config.settings import settings
+
+    monkeypatch.setattr(settings, "receipt_require_signature", False)
+    now = datetime.utcnow()
+    tid = "task-no-sig-opt-001"
+    resp = await client.post(
+        "/v1/receipts",
+        json={
+            "task_id": tid,
+            "agent_id": "worker-001",
+            "step_index": 1,
+            "tool_name": "caption.generate",
+            "input_hash": "a" * 64,
+            "output_hash": "b" * 64,
+            "started_at": now.isoformat(),
+            "ended_at": (now + timedelta(milliseconds=50)).isoformat(),
+            "duration_ms": 50,
+            "status": "success",
+        },
+    )
+    assert resp.status_code == 201
+    assert not resp.json().get("signature")
+
+
+@pytest.mark.asyncio
 async def test_submit_receipt_rejects_non_sequential_step(client: AsyncClient):
     now = datetime.utcnow()
     first = _signed_receipt_payload(

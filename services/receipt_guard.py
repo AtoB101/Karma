@@ -55,11 +55,27 @@ def validate_execution_receipt_static(receipt: ExecutionReceipt) -> None:
 
 
 def verify_execution_receipt_signature(receipt: ExecutionReceipt) -> bool:
+    """Return True only when a non-empty signature verifies against canonical bytes."""
     signature = (receipt.signature or "").strip()
     if not signature:
         return False
     raw = execution_receipt_signing_bytes(receipt)
     return signing_service.verify(raw, signature)
+
+
+def execution_receipt_signature_acceptable(receipt: ExecutionReceipt) -> bool:
+    """
+    HTTP-layer gate: respects ``receipt_require_signature``.
+
+    When signatures are optional, an absent signature is accepted; if the client
+    sends one, it must verify. When required, presence is enforced by
+    ``validate_execution_receipt_static`` and this delegates to
+    ``verify_execution_receipt_signature``.
+    """
+    if not settings.receipt_require_signature:
+        if not (receipt.signature or "").strip():
+            return True
+    return verify_execution_receipt_signature(receipt)
 
 
 def validate_progress_receipt_static(progress: ProgressReceipt) -> None:

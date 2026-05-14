@@ -72,3 +72,43 @@ def test_validate_progress_receipt_accepts_utc_aware_timestamp():
         confirmation_status=ProgressConfirmationStatus.PENDING,
     )
     rg.validate_progress_receipt_static(p)
+
+
+def test_execution_receipt_signature_acceptable_when_optional_and_empty():
+    t0 = datetime.now(timezone.utc) - timedelta(seconds=2)
+    t1 = datetime.now(timezone.utc) - timedelta(seconds=1)
+    dur_ms = int((t1 - t0).total_seconds() * 1000)
+    r = ExecutionReceipt(
+        task_id="sig-opt",
+        agent_id="agent-1",
+        step_index=1,
+        tool_name="noop",
+        input_hash=_hex64(),
+        output_hash=_hex64(),
+        started_at=t0,
+        ended_at=t1,
+        duration_ms=dur_ms,
+        status=ToolStatus.SUCCESS,
+        signature=None,
+    )
+    assert rg.execution_receipt_signature_acceptable(r) is True
+
+
+def test_execution_receipt_signature_acceptable_when_optional_but_invalid_sig_rejected():
+    t0 = datetime.now(timezone.utc) - timedelta(seconds=2)
+    t1 = datetime.now(timezone.utc) - timedelta(seconds=1)
+    dur_ms = int((t1 - t0).total_seconds() * 1000)
+    r = ExecutionReceipt(
+        task_id="sig-opt-bad",
+        agent_id="agent-1",
+        step_index=1,
+        tool_name="noop",
+        input_hash=_hex64(),
+        output_hash=_hex64(),
+        started_at=t0,
+        ended_at=t1,
+        duration_ms=dur_ms,
+        status=ToolStatus.SUCCESS,
+        signature="not-a-valid-ed25519-signature-bytes",
+    )
+    assert rg.execution_receipt_signature_acceptable(r) is False
