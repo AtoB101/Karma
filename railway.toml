@@ -1,0 +1,18 @@
+# Railway — https://railway.app/new
+# After connecting this repo: add PostgreSQL + Redis (+ optional MinIO or S3-compatible),
+# set env vars from deploy/one-click-deploy.md, then deploy.
+#
+# Build uses deploy/Dockerfile.paas (pip install, not Poetry).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "deploy/Dockerfile.paas"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+numReplicas = 1
+# Run DB migrations before new revision receives traffic (requires DATABASE_URL).
+preDeployCommand = ["sh", "-c", "alembic upgrade head"]

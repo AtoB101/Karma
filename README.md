@@ -68,6 +68,24 @@ docker compose -f deploy/docker-compose.yml up
 
 ---
 
+## One-click deploy (PaaS)
+
+Pre-configured paths for **Railway**, **Fly.io**, and **Vercel** (static marketing site):
+
+- `railway.toml` + `deploy/Dockerfile.paas` — API container, `/health`, `alembic` pre-deploy
+- `fly.toml` — Fly Machines + `release_command` migrations
+- `apps/website/vercel.json` — optional headers for the static site
+
+| | |
+|--|--|
+| **Railway** (API) | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/github?repositories[]=https://github.com/AtoB101/Karma) |
+| **Fly.io** (API) | [![Deploy to Fly.io](https://fly.io/button.svg)](https://fly.io/launch?template=https://github.com/AtoB101/Karma) |
+| **Vercel** (`apps/website`) | [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAtoB101%2FKarma&root-directory=apps%2Fwebsite) |
+
+Full checklist (env vars, Postgres/Redis, post-click steps): **[`deploy/one-click-deploy.md`](deploy/one-click-deploy.md)**.
+
+---
+
 ## Run Tests
 
 ```bash
@@ -136,7 +154,9 @@ karma-public/
 ├── worker/               Celery tasks
 ├── scripts/              init_db, seed, generate_keys
 ├── tests/                Unit + integration tests
-├── deploy/               Dockerfile, docker-compose, Prometheus config
+├── deploy/               Dockerfile(s), docker-compose, Prometheus, PaaS (`Dockerfile.paas`, `one-click-deploy.md`)
+├── railway.toml          Railway config-as-code (API)
+├── fly.toml              Fly.io template (API)
 └── docs/                 API reference, deployment SOP
 ```
 
@@ -147,6 +167,7 @@ karma-public/
 - [**公开测试计划（模拟 / 攻击测试 / 测试网）— 索引**](docs/public-testing/README.md)
 - [API Reference](docs/API_REFERENCE.md)
 - [Deployment SOP](docs/DEPLOYMENT.md)
+- [**One-click deploy — Railway / Fly.io / Vercel**](deploy/one-click-deploy.md)
 - [Karma FINAL V1.0 Engineering Kickoff (CN)](docs/KARMA_FINAL_V1_ENGINEERING_KICKOFF_CN.md)
 - [Execution Receipt Standard](docs/EXECUTION_RECEIPT_STANDARD.md)
 - [Public 12 Deliverables (CN)](docs/PUBLIC_12_DELIVERABLES_CN.md)
