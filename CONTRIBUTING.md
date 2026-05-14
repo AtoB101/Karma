@@ -31,6 +31,8 @@ pytest tests/ -q
 # or: make test-python
 ```
 
+Public-facing test program index (simulation, planned attack testing, testnet acceptance): see **`docs/public-testing/README.md`**.
+
 Contract / static analysis may use `forge test` and repo scripts as documented in
 `README.md` and `.github/workflows/`.
 
