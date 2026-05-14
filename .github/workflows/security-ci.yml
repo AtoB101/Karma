@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 40
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      FOUNDRY_CI_VERSION: v1.7.1
 
     steps:
       - name: Checkout
@@ -27,7 +28,7 @@ jobs:
         continue-on-error: true
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          version: ${{ env.FOUNDRY_CI_VERSION }}
 
       - name: Ensure Foundry available (retry fallback)
         shell: bash
@@ -41,12 +42,12 @@ jobs:
           curl -L https://foundry.paradigm.xyz | bash
           echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.foundry/bin:$PATH"
-          for wait in 2 4 8 16; do
-            if foundryup; then
+          for wait in 0 2 4 8 16; do
+            if [[ "$wait" -gt 0 ]]; then sleep "$wait"; fi
+            if foundryup -i "${FOUNDRY_CI_VERSION}"; then
               break
             fi
-            echo "foundryup failed, retrying in ${wait}s..."
-            sleep "$wait"
+            echo "foundryup -i ${FOUNDRY_CI_VERSION} failed, retrying in ${wait}s..."
           done
           forge --version
           cast --version
