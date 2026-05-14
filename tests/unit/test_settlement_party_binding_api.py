@@ -66,6 +66,12 @@ async def test_settlement_partial_rejects_wrong_actor_when_party_binding_on(db_s
             )
             assert r4.status_code == 200, r4.text
 
+            r_submit = await client.post(
+                f"/v1/settlement/{task_id}/submit",
+                headers={"X-Karma-Api-Key": "karma_seller-1_seller-secret-123456"},
+            )
+            assert r_submit.status_code == 200, r_submit.text
+
             await post_success_execution_receipt(
                 client,
                 task_id=task_id,
