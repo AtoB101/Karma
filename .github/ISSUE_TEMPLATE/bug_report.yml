@@ -1,0 +1,27 @@
+name: Bug report
+description: Report incorrect behavior in the public Karma repository
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Do **not** include secrets, private keys, or customer data.
+        For security vulnerabilities, use GitHub **Security → Report a vulnerability** (see `SECURITY.md`).
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Steps to reproduce and expected vs actual behavior
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or tag (if known)
+      placeholder: e.g. main @ abc1234
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Redact API keys and PII

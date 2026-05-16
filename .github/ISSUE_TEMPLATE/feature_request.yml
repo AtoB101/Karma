@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an improvement to the public protocol or API surface
+title: "[feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep proposals within the **public** settlement / evidence scope.
+        Private scoring, outreach, and commercial workflows belong in the private repository (see `docs/PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md`).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered

@@ -8,7 +8,7 @@
 
 | 检查项 | 要求 |
 |--------|------|
-| 合并 PR | [PR #75](https://github.com/AtoB101/Karma/pull/75)（或等价授权链分支）已合 `main` |
+| 合并 PR | 授权链已合入 `main`（OpenClaw 自动化策略、存证、Runtime 闸门） |
 | 数据库迁移 | `alembic upgrade head` |
 | `APP_ENV` | `production` |
 | Runtime 闸门（全部为 `true`） | `RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY`、`RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS`、`RUNTIME_REQUIRE_HANDOFF_ATTESTATION`、`RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING`、`RUNTIME_DAILY_SPEND_PERSIST` |
@@ -41,11 +41,11 @@
 将 `BASE`、`KEY`、`IDENTITY`、`TASK` 替换为实际值。
 
 ```bash
-# 4 — 登记存证前就绪（不含存证项）
+# 5 — 登记存证前就绪（不含存证项）
 curl -s -H "X-Karma-Api-Key: $KEY" \
   "$BASE/v1/openclaw/automation-readiness?task_id=$TASK&karma_identity_id=$IDENTITY&role=buyer&for_handoff_confirm=true"
 
-# 5 — 登记存证
+# 6② — 登记存证
 curl -s -X POST -H "X-Karma-Api-Key: $KEY" -H "Content-Type: application/json" \
   -d "{\"task_id\":\"$TASK\",\"karma_identity_id\":\"$IDENTITY\",\"role\":\"buyer\"}" \
   "$BASE/v1/openclaw/handoff-confirm"
@@ -54,7 +54,7 @@ curl -s -X POST -H "X-Karma-Api-Key: $KEY" -H "Content-Type: application/json" \
 curl -s -H "X-Karma-Api-Key: $KEY" \
   "$BASE/v1/openclaw/handoff-attestation?task_id=$TASK&karma_identity_id=$IDENTITY"
 
-# 6 — 全量就绪（含存证，开启 RUNTIME_REQUIRE_HANDOFF_ATTESTATION 时）
+# 6③ 之后 — 全量就绪（含存证，开启 RUNTIME_REQUIRE_HANDOFF_ATTESTATION 时）
 curl -s -H "X-Karma-Api-Key: $KEY" \
   "$BASE/v1/openclaw/automation-readiness?task_id=$TASK&karma_identity_id=$IDENTITY&role=buyer"
 ```
@@ -105,4 +105,4 @@ curl -s -H "X-Karma-Api-Key: $KEY" \
 
 ---
 
-*文档版本：与 PR #75 授权链一致；如有 env 名变更以 `config/settings.py` 为准。*
+*文档版本：与公开 `main` 授权链一致；env 名变更以 `config/settings.py` 为准。*
