@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from karma_openclaw.guard import (
     block_response,
     buyer_accept_allowed,
-    require_valid_handoff,
+    require_valid_handoff_for_automation,
     setup_mutations_allowed,
 )
 from karma_openclaw.http_client import api_get, api_post, runtime_get, runtime_key, runtime_post
@@ -31,7 +31,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
 
         Use after seller accepted voucher in Console; requires valid handoff.
         """
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         body: dict[str, Any] = {"seller_identity_id": seller_identity_id}
@@ -50,7 +50,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
                 "setup_mutations_disabled",
                 hint="Create contract in Karma Console, or set KARMA_OPENCLAW_ALLOW_SETUP_MUTATIONS=true",
             )
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         return await api_post("/v1/contracts", json.loads(contract_json))
@@ -65,7 +65,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
                 "setup_mutations_disabled",
                 hint="Create settlement in Console after voucher accept, or set ALLOW_SETUP_MUTATIONS",
             )
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         return await api_post("/v1/settlement/create", json.loads(settlement_json))
@@ -79,7 +79,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def karma_settlement_pending(task_id: str, handoff_json: str = "") -> dict[str, Any]:
         """POST /v1/settlement/{task_id}/pending"""
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         tid = quote(task_id, safe="")
@@ -92,7 +92,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
         handoff_json: str = "",
     ) -> dict[str, Any]:
         """POST /v1/settlement/{task_id}/lock — seller binds as worker."""
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         tid = quote(task_id, safe="")
@@ -101,7 +101,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def karma_settlement_start(task_id: str, handoff_json: str = "") -> dict[str, Any]:
         """POST /v1/settlement/{task_id}/start"""
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         tid = quote(task_id, safe="")
@@ -110,7 +110,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def karma_settlement_submit_delivery(task_id: str, handoff_json: str = "") -> dict[str, Any]:
         """POST /v1/settlement/{task_id}/submit — mark delivered."""
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         tid = quote(task_id, safe="")
@@ -128,7 +128,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
                 "buyer_accept_console_only",
                 hint="Complete buyer-accept in Console or set KARMA_OPENCLAW_ALLOW_BUYER_ACCEPT=true",
             )
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         tid = quote(task_id, safe="")
@@ -137,7 +137,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def karma_submit_execution_receipt(receipt_json: str, handoff_json: str = "") -> dict[str, Any]:
         """POST /v1/receipts — signed execution receipt from seller/worker."""
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         return await api_post("/v1/receipts", json.loads(receipt_json))
@@ -145,7 +145,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def karma_submit_progress(progress_json: str, handoff_json: str = "") -> dict[str, Any]:
         """POST /v1/progress — seller progress receipt."""
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         return await api_post("/v1/progress", json.loads(progress_json))
@@ -157,7 +157,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
         """POST /runtime/submit-receipt — requires KARMA_RUNTIME_KEY (seller)."""
         if not runtime_key():
             return block_response("runtime_key_missing", hint="Set KARMA_RUNTIME_KEY for seller Claw process")
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         return await runtime_post("/runtime/submit-receipt", json.loads(receipt_json))
@@ -179,7 +179,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
             return block_response("runtime_key_missing", hint="Set KARMA_RUNTIME_KEY")
         if kind == "buyer_accept" and not buyer_accept_allowed():
             return block_response("buyer_accept_console_only", hint="Use Console or ALLOW_BUYER_ACCEPT")
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         body: dict[str, Any] = {
@@ -216,7 +216,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
         """POST /runtime/check-voucher — seller verify only (not accept); needs verify_voucher permission."""
         if not runtime_key():
             return block_response("runtime_key_missing", hint="Set KARMA_RUNTIME_KEY")
-        err, _ = require_valid_handoff(handoff_json or None)
+        err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
         body: dict[str, Any] = {"voucher_id": voucher_id, "client_nonce": client_nonce}
@@ -235,6 +235,23 @@ def register_p0_tools(mcp: FastMCP) -> None:
         return await api_get(f"/v1/openclaw/handoff-events{q}")
 
     @mcp.tool()
+    async def karma_check_automation_readiness(
+        task_id: str,
+        role: str = "buyer",
+        karma_identity_id: str = "",
+    ) -> dict[str, Any]:
+        """
+        GET /v1/openclaw/automation-readiness — server-verified gate before AI auto-execute.
+
+        Returns ``ready_for_task_automation`` and ``blockers`` (policy, Runtime Key, voucher, settlement).
+        """
+        q = f"?task_id={quote(task_id.strip(), safe='')}&role={quote(role.strip() or 'buyer', safe='')}"
+        kid = karma_identity_id.strip()
+        if kid:
+            q += f"&karma_identity_id={quote(kid, safe='')}"
+        return await api_get(f"/v1/openclaw/automation-readiness{q}")
+
+    @mcp.tool()
     async def karma_automation_status(
         task_id: str,
         role: str,
@@ -244,7 +261,7 @@ def register_p0_tools(mcp: FastMCP) -> None:
         """
         Aggregate handoff + settlement + optional voucher; return suggested next MCP/Console step.
         """
-        err, norm = require_valid_handoff(handoff_json or None)
+        err, norm = await require_valid_handoff_for_automation(handoff_json or None)
         handoff_ok = err is None
         settlement = await api_get(f"/v1/settlement/{quote(task_id, safe='')}")
         v_id = voucher_id.strip() or (norm.get("voucher_id") if handoff_ok else "") or ""

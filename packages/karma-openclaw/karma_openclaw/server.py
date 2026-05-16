@@ -8,7 +8,12 @@ from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 
-from karma_openclaw.guard import buyer_confirm_allowed, require_valid_handoff
+from karma_openclaw.guard import (
+    buyer_confirm_allowed,
+    require_valid_handoff,
+    require_valid_handoff_for_automation,
+    server_attestation_required,
+)
 from karma_openclaw.handoff import validate_handoff_v1
 from karma_openclaw.helpers import (
     build_execution_receipt_skeleton,
@@ -83,9 +88,11 @@ def build_app() -> FastMCP:
 
     @mcp.tool()
     async def karma_validate_handoff(handoff_json: str) -> dict[str, Any]:
-        """Validate handoff v1; optional live GET voucher when KARMA_API_KEY is set."""
-        payload = json.loads(handoff_json)
-        ok, errors, normalized = validate_handoff_v1(payload)
+        """Validate handoff v1; live voucher check; optional server attestation."""
+        err, normalized = await require_valid_handoff_for_automation(handoff_json)
+        if err:
+            return err
+        ok, errors, _ = validate_handoff_v1(json.loads(handoff_json))
         out: dict[str, Any] = {"ok": ok, "errors": errors, "handoff": normalized}
         vid = normalized.get("voucher_id")
         if ok and vid:
@@ -101,6 +108,8 @@ def build_app() -> FastMCP:
                     out["errors"] = list(errors) + [
                         f"live voucher status is {status!r}; seller must accept in Console"
                     ]
+        if server_attestation_required():
+            out["server_attestation"] = {"ok": True, "required": True}
         return out
 
     # --- P1 verify / reads ---

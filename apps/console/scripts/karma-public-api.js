@@ -121,6 +121,40 @@
     return karmaFetch("/v1/openclaw/handoff-draft?" + q.toString(), { method: "GET", headers: headers() });
   }
 
+  async function getAutomationPolicy(identityId) {
+    return karmaFetch("/v1/identities/" + encodeURIComponent(identityId) + "/automation-policy", {
+      method: "GET",
+      headers: headers(),
+    });
+  }
+
+  async function putAutomationPolicy(identityId, payload) {
+    return karmaFetch("/v1/identities/" + encodeURIComponent(identityId) + "/automation-policy", {
+      method: "PUT",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function postOpenclawHandoffConfirm(payload) {
+    return karmaFetch("/v1/openclaw/handoff-confirm", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function getOpenclawHandoffAttestation(taskId, identityId) {
+    const q = new URLSearchParams({ task_id: taskId, karma_identity_id: identityId });
+    return karmaFetch("/v1/openclaw/handoff-attestation?" + q.toString(), { method: "GET", headers: headers() });
+  }
+
+  async function getOpenclawAutomationReadiness(taskId, role, identityId) {
+    const q = new URLSearchParams({ task_id: taskId, role: role || "buyer" });
+    if (identityId) q.set("karma_identity_id", identityId);
+    return karmaFetch("/v1/openclaw/automation-readiness?" + q.toString(), { method: "GET", headers: headers() });
+  }
+
   async function listOpenclawHandoffEvents(taskId, limit) {
     const q = new URLSearchParams();
     if (taskId) q.set("task_id", taskId);
@@ -145,6 +179,11 @@
     listAgents,
     getRuntimeSafetyMode,
     getOpenclawHandoffDraft,
+    getOpenclawAutomationReadiness,
+    postOpenclawHandoffConfirm,
+    getOpenclawHandoffAttestation,
+    getAutomationPolicy,
+    putAutomationPolicy,
     listOpenclawHandoffEvents,
   };
   global.karmaRuntimeApi = { runtimeCreateKey, runtimeListKeys, runtimeRevokeKey, karmaFetch, headers };

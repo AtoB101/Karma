@@ -561,6 +561,7 @@ class IdentityProfile(BaseModel):
     display_id: str
     legal_identity_status: str = "unbound"
     status: str = "active"
+    bound_wallet_address: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

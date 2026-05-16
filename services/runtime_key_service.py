@@ -94,13 +94,20 @@ def check_replay_nonce(*, key_id: str, endpoint: str, nonce: str, ttl_seconds: i
         bucket.popleft()
 
 
-def check_single_and_daily_limits(*, key_id: str, amount: float, single_limit: float, daily_limit: float) -> None:
+def check_single_and_daily_limits(
+    *,
+    key_id: str,
+    amount: float,
+    single_limit: float,
+    daily_limit: float,
+    daily_used: float | None = None,
+) -> None:
     if amount <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
     if amount > single_limit + 1e-9:
         raise HTTPException(status_code=403, detail="amount exceeds runtime key single_limit")
     today = date.today().isoformat()
-    used = _DAILY[key_id].get(today, 0.0)
+    used = float(daily_used) if daily_used is not None else float(_DAILY[key_id].get(today, 0.0))
     if used + amount > daily_limit + 1e-9:
         raise HTTPException(status_code=403, detail="amount exceeds runtime key daily_limit")
 

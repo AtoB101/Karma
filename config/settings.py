@@ -161,6 +161,22 @@ class Settings(BaseSettings):
     openclaw_webhook_secret: str = ""
     openclaw_webhook_store_events: bool = False
 
+    # Console — require saved automation policy before Runtime Key mint (fund limits + permissions + responsibility ack)
+    runtime_require_saved_automation_policy: bool = False
+
+    # Runtime mutators (receipt, progress, settlement, check-voucher) require task automation-readiness
+    runtime_require_task_automation_readiness: bool = False
+
+    # Require POST /v1/openclaw/handoff-confirm before task automation (pairs with readiness)
+    runtime_require_handoff_attestation: bool = False
+
+    # Runtime Key daily spend — persist to DB (recommended production / multi-instance)
+    runtime_daily_spend_persist: bool = True
+
+    # Wallet ↔ karma_identity_id binding on Runtime Key mint
+    runtime_require_wallet_identity_binding: bool = False
+    runtime_auto_bind_wallet_on_create_key: bool = True
+
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":
         env = (self.app_env or "").lower()
@@ -185,6 +201,26 @@ class Settings(BaseSettings):
             if not self.rate_limit_redis_fail_closed:
                 raise ValueError(
                     "RATE_LIMIT_REDIS_FAIL_CLOSED must be true when APP_ENV is production",
+                )
+            if not self.runtime_require_saved_automation_policy:
+                raise ValueError(
+                    "RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY must be true when APP_ENV is production",
+                )
+            if not self.runtime_require_task_automation_readiness:
+                raise ValueError(
+                    "RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS must be true when APP_ENV is production",
+                )
+            if not self.runtime_require_handoff_attestation:
+                raise ValueError(
+                    "RUNTIME_REQUIRE_HANDOFF_ATTESTATION must be true when APP_ENV is production",
+                )
+            if not self.runtime_require_wallet_identity_binding:
+                raise ValueError(
+                    "RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING must be true when APP_ENV is production",
+                )
+            if not self.runtime_daily_spend_persist:
+                raise ValueError(
+                    "RUNTIME_DAILY_SPEND_PERSIST must be true when APP_ENV is production",
                 )
         return self
 

@@ -255,6 +255,7 @@ class IdentityProfileModel(Base):
     display_id:             Mapped[str]      = mapped_column(String(64), nullable=False, unique=True)
     legal_identity_status:  Mapped[str]      = mapped_column(String(32), nullable=False, default="unbound")
     status:                 Mapped[str]      = mapped_column(String(32), nullable=False, default="active")
+    bound_wallet_address:   Mapped[str|None] = mapped_column(String(128), nullable=True)
     created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -537,6 +538,63 @@ class VerificationResultModel(Base):
 # ---------------------------------------------------------------------------
 # Runtime Key (Agent Runtime Gateway — public SDK / Console)
 # ---------------------------------------------------------------------------
+
+
+class AgentAutomationPolicyModel(Base):
+    """
+    Server-side record of operator-configured AI automation bounds (Console).
+
+    Must be saved before minting a Runtime Key when ``runtime_require_saved_automation_policy`` is enabled.
+    """
+
+    __tablename__ = "agent_automation_policies"
+
+    karma_identity_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    auto_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    single_limit: Mapped[float] = mapped_column(Float, nullable=False)
+    daily_limit: Mapped[float] = mapped_column(Float, nullable=False)
+    permissions: Mapped[list] = mapped_column(JSON, nullable=False)
+    high_risk_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="always")
+    responsibility_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by_actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class OpenclawHandoffAttestationModel(Base):
+    """Operator attestation that Console authorization is complete for a task (per identity)."""
+
+    __tablename__ = "openclaw_handoff_attestations"
+
+    attestation_id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    trace_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    attested_by_actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    handoff_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    handoff_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    readiness_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id",
+            "karma_identity_id",
+            name="uq_handoff_attestation_task_identity",
+        ),
+    )
+
+
+class RuntimeKeyDailySpendModel(Base):
+    """Per-key daily spend totals (UTC date) for Runtime fund limits."""
+
+    __tablename__ = "runtime_key_daily_spend"
+
+    key_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    spend_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    amount_used: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class RuntimeKeyModel(Base):

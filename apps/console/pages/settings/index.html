@@ -85,6 +85,11 @@
       </p>
 
       <div class="callout">
+        <strong>授权闸门（落地顺序）</strong>：先配置<strong>资金额度</strong>与<strong>权限范围</strong>并确认<strong>责任边界</strong> →
+        <strong>保存服务端策略</strong> → 钱包签名<strong>铸造 Runtime Key</strong>（不得超过已保存策略）→ Console 完成 Voucher / Settlement →
+        ④ 就绪检查 → ⑤ 服务端存证 → ⑥ 导出 handoff 给 OpenClaw。Voucher 创建/接受不可由 AI 代签。
+      </div>
+      <div class="callout">
         <strong>重要</strong>：Runtime Key <strong>不是</strong>钱包私钥。它只是 Agent 工作通行证，<strong>不能</strong>提现、<strong>不能</strong>转走
         USDC、<strong>不能</strong>修改锁仓额度。请在官方 Console 完成钱包授权；Agent 进程只应持有 Runtime Key。
       </div>
@@ -111,9 +116,12 @@
         <pre class="out" data-sync-bind="capacity_json">—</pre>
       </section>
 
-      <section class="panel" data-local-policy>
-        <h2>自动授权策略（本地偏好）</h2>
-        <p class="sub">以下开关保存在本浏览器 <code>localStorage</code>，便于与后端策略对齐展示；生产环境请接入持久化账户设置 API。</p>
+      <section class="panel" data-automation-policy>
+        <h2>步骤 1–2 · 服务端自动授权策略（资金 + 权限 + 责任）</h2>
+        <p class="sub">
+          保存到 <code>PUT /v1/identities/{id}/automation-policy</code>。生产建议
+          <code>RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY=true</code>，未保存策略时无法铸造 Runtime Key。
+        </p>
         <label class="chk"><input type="checkbox" data-k="auto_enabled" /> 开启 AI 代理自动授权</label>
         <div class="row">
           <span class="sub">单次 AI 最大自动授权额度（USDC）</span>
@@ -123,11 +131,17 @@
           <span class="sub">每日 AI 自动授权总额度（USDC）</span>
           <input type="number" data-k="daily_limit" min="0" step="0.01" value="200" />
         </div>
-        <label class="chk"><input type="checkbox" data-k="perm_voucher" checked /> 自动请求 Voucher</label>
-        <label class="chk"><input type="checkbox" data-k="perm_receipt" checked /> 自动提交 Execution Receipt</label>
-        <label class="chk"><input type="checkbox" data-k="perm_progress" checked /> 自动提交 Progress Receipt</label>
-        <label class="chk"><input type="checkbox" data-k="perm_sync" checked /> 自动同步任务状态</label>
-        <label class="chk"><input type="checkbox" data-k="perm_settle" /> 自动请求 Settlement</label>
+        <p class="sub" style="margin-top: 0.5rem">Runtime Key 权限（与步骤 3 铸造共用）</p>
+        <label class="chk"><input type="checkbox" data-perm name="submit_receipt" checked /> submit_receipt</label>
+        <label class="chk"><input type="checkbox" data-perm name="update_progress" /> update_progress</label>
+        <label class="chk"><input type="checkbox" data-perm name="sync_task_status" checked /> sync_task_status</label>
+        <label class="chk"><input type="checkbox" data-perm name="request_settlement" /> request_settlement</label>
+        <label class="chk"><input type="checkbox" data-perm name="verify_voucher" /> verify_voucher</label>
+        <label class="chk"><input type="checkbox" data-perm name="request_voucher" /> request_voucher（默认关闭）</label>
+        <label class="chk" style="margin-top: 0.65rem; border-top: 1px solid var(--line); padding-top: 0.65rem">
+          <input type="checkbox" data-k="responsibility_ack" />
+          我已理解责任边界：AI 仅在上述额度与权限内行动；Voucher 接受与资金锁仓由本人完成；超额与争议需人工介入。
+        </label>
         <div class="row" style="margin-top: 0.5rem">
           <span class="sub">高风险任务人工确认</span>
           <select data-k="high_risk">
@@ -137,17 +151,23 @@
           </select>
         </div>
         <div class="row" style="margin-top: 0.75rem">
-          <button type="button" class="btn" data-save-local>保存本地偏好</button>
+          <button type="button" class="btn" data-save-automation-policy>保存服务端策略</button>
+          <span class="sub" data-policy-status>策略：未保存</span>
         </div>
       </section>
 
       <section class="panel" data-openclaw-handoff>
-        <h2>OpenClaw Handoff 导出</h2>
+        <h2>步骤 4–6 · 就绪 · 存证 · Handoff 导出</h2>
         <p class="sub">
-          从账本状态生成 <code>openclaw-handoff-v1</code> 草案（<code>GET /v1/openclaw/handoff-draft</code>）。Voucher 创建/接受与 Runtime Key
-          仍须在 Console 人工完成；导出前请核对 <code>manual_console_steps_completed</code>。
+          完整链路：① <code>automation-readiness</code> → ② <code>handoff-confirm</code>（服务端存证）→ ③ 导出 handoff 给 OpenClaw。
         </p>
-        <div class="row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
+        <div class="row">
+          <button type="button" class="btn" data-check-readiness>① 检查自动化就绪</button>
+          <button type="button" class="btn" data-confirm-handoff disabled>② 登记服务端存证</button>
+        </div>
+        <pre class="out" data-readiness-out style="max-height: 160px">—</pre>
+        <p class="sub" data-attestation-status>存证：未登记</p>
+        <div class="row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem">
           <span class="sub">task_id</span>
           <input type="text" data-handoff-task-id placeholder="task-uuid" style="flex: 1; min-width: 200px" />
           <span class="sub">trace_id（可选）</span>
@@ -163,11 +183,11 @@
       </section>
 
       <section class="panel">
-        <h2>Runtime Key 管理</h2>
+        <h2>步骤 3 · Runtime Key 管理</h2>
         <p class="sub">
-          生成前请在上方同步「单次 / 每日额度」与权限勾选。生成请求使用 EIP-191 对固定文本签名（见下方「待签名消息」）。签名仅证明钱包同意创建该
-          Key，不会授予提现能力。
+          须先<strong>保存服务端策略</strong>。铸造使用 EIP-191 签名；Key 权限与额度不得超过已保存策略。
         </p>
+        <p class="sub" data-runtime-gate style="color: #fbbf24">请先保存步骤 1–2 的服务端策略。</p>
         <div class="row">
           <span class="sub">API Base</span>
           <input type="text" data-api-base placeholder="http://127.0.0.1:8000" style="flex: 1; min-width: 240px" />
@@ -188,13 +208,6 @@
           <span class="sub">过期时间（本地 datetime-local）</span>
           <input type="datetime-local" data-expire />
         </div>
-        <p class="sub" style="margin-top: 0.5rem">权限（将写入 Runtime Key，与上方自动授权勾选独立）</p>
-        <label class="chk"><input type="checkbox" data-perm name="request_voucher" checked /> request_voucher</label>
-        <label class="chk"><input type="checkbox" data-perm name="submit_receipt" checked /> submit_receipt</label>
-        <label class="chk"><input type="checkbox" data-perm name="update_progress" /> update_progress</label>
-        <label class="chk"><input type="checkbox" data-perm name="request_settlement" /> request_settlement</label>
-        <label class="chk"><input type="checkbox" data-perm name="sync_task_status" checked /> sync_task_status</label>
-        <label class="chk"><input type="checkbox" data-perm name="verify_voucher" /> verify_voucher</label>
         <p class="sub" style="margin-top: 0.5rem">待签名消息（复制到钱包或 MetaMask「签名」）</p>
         <textarea data-sign-message readonly></textarea>
         <div class="row">
@@ -206,7 +219,7 @@
           <input type="text" data-signature placeholder="粘贴签名" style="flex: 1" />
         </div>
         <div class="row">
-          <button type="button" class="btn" data-create-key>生成 Runtime Key</button>
+          <button type="button" class="btn" data-create-key disabled>生成 Runtime Key</button>
           <button type="button" class="btn" data-copy-key disabled>复制 Runtime Key</button>
           <button type="button" class="btn" data-revoke-key disabled>吊销当前 Key</button>
         </div>
@@ -241,6 +254,7 @@ KARMA_ID=Karma-ID-82F7X9
     <script src="../../scripts/karma-public-api.js"></script>
     <script src="../../scripts/console-sync.js"></script>
     <script src="../../scripts/console-handoff.js"></script>
+    <script src="../../scripts/console-automation-policy.js"></script>
     <script type="module" src="../../scripts/runtime-console.js"></script>
   </body>
 </html>

@@ -46,10 +46,8 @@ from services.runtime_key_service import (
     check_replay_nonce,
     check_single_and_daily_limits,
     create_runtime_key_record,
-    get_daily_used,
     list_runtime_keys_for_identity,
     load_active_context,
-    record_daily_spend,
     revoke_runtime_key,
 )
 from services.runtime_response_sign import signed_json_response
@@ -60,6 +58,12 @@ from services.runtime_wallet import (
     build_revoke_key_message,
     verify_personal_message,
 )
+from services.identity_wallet_binding import ensure_wallet_authorized_for_runtime_key
+from services.openclaw_automation_readiness import (
+    assert_task_automation_ready,
+    resolve_task_id_for_voucher,
+)
+from services.runtime_daily_spend import get_daily_used_async, record_daily_spend_async
 from services.signing import signing_service
 
 router = APIRouter()
@@ -104,6 +108,27 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
         message=msg,
         wallet_address=body.wallet_address,
         wallet_signature=body.wallet_signature,
+    )
+    from config.settings import settings
+    from services.agent_automation_policy import assert_runtime_key_matches_policy, get_automation_policy
+
+    if settings.runtime_require_saved_automation_policy:
+        policy = await get_automation_policy(db, body.karma_identity_id)
+        if not policy:
+            raise HTTPException(
+                status_code=403,
+                detail="automation policy not saved — configure fund limits and permissions in Console first",
+            )
+        assert_runtime_key_matches_policy(
+            policy=policy,
+            permissions=body.permissions,
+            single_limit=body.single_limit,
+            daily_limit=body.daily_limit,
+        )
+    await ensure_wallet_authorized_for_runtime_key(
+        db,
+        karma_identity_id=body.karma_identity_id,
+        wallet_address=body.wallet_address,
     )
     token, row = await create_runtime_key_record(
         db=db,
@@ -213,7 +238,11 @@ async def get_runtime_context(
 
 
 @router.get("/permissions")
-async def runtime_permissions(ctx: RuntimeKeyContext = Depends(get_runtime_context)):
+async def runtime_permissions(
+    ctx: RuntimeKeyContext = Depends(get_runtime_context),
+    db: AsyncSession = Depends(get_db),
+):
+    daily_used = await get_daily_used_async(db, ctx.key_id)
     return signed_json_response(
         {
             "key_id": ctx.key_id,
@@ -223,7 +252,7 @@ async def runtime_permissions(ctx: RuntimeKeyContext = Depends(get_runtime_conte
             "status": ctx.status,
             "single_limit": ctx.single_limit,
             "daily_limit": ctx.daily_limit,
-            "daily_used": get_daily_used(ctx.key_id),
+            "daily_used": daily_used,
             "chain_id": int(settings.testnet_chain_id or 0),
             "runtime_url": (settings.public_runtime_base_url or "").strip(),
         }
@@ -273,18 +302,20 @@ async def runtime_request_voucher(
     if v.buyer_identity_id != ctx.karma_identity_id:
         raise HTTPException(status_code=403, detail="voucher buyer_identity_id must match runtime key identity")
     check_replay_nonce(key_id=ctx.key_id, endpoint="request-voucher", nonce=body.client_nonce)
+    daily_used = await get_daily_used_async(db, ctx.key_id)
     check_single_and_daily_limits(
         key_id=ctx.key_id,
         amount=float(v.amount),
         single_limit=ctx.single_limit,
         daily_limit=ctx.daily_limit,
+        daily_used=daily_used,
     )
     delegate = synthetic_request(
         headers={"X-Karma-Api-Key": _dev_api_key(ctx.karma_identity_id)},
         path="/runtime/request-voucher",
     )
     out = await vouchers_create_route(v, delegate, db)
-    record_daily_spend(key_id=ctx.key_id, amount=float(v.amount))
+    await record_daily_spend_async(db, key_id=ctx.key_id, amount=float(v.amount))
     await db.commit()
     return signed_json_response(out.model_dump(mode="json"), status_code=201)
 
@@ -306,6 +337,11 @@ async def runtime_check_voucher(
     assert_permission(ctx, "verify_voucher")
     validate_public_url_segment("voucher_id", body.voucher_id)
     check_replay_nonce(key_id=ctx.key_id, endpoint="check-voucher", nonce=body.client_nonce)
+    task_id = await resolve_task_id_for_voucher(db, body.voucher_id)
+    if task_id:
+        await assert_task_automation_ready(
+            db, task_id=task_id, karma_identity_id=ctx.karma_identity_id
+        )
     delegate = synthetic_request(
         headers={"X-Karma-Api-Key": _dev_api_key(ctx.karma_identity_id)},
         path="/runtime/check-voucher",
@@ -332,6 +368,9 @@ async def runtime_submit_receipt(
     if receipt.agent_id != ctx.karma_identity_id:
         raise HTTPException(status_code=403, detail="receipt agent_id must match runtime key identity")
 
+    await assert_task_automation_ready(
+        db, task_id=receipt.task_id, karma_identity_id=ctx.karma_identity_id
+    )
     await ensure_task_contract_exists(db, receipt.task_id)
 
     store = PostgresReceiptStore(db)
@@ -386,6 +425,9 @@ async def runtime_update_progress(
     assert_permission(ctx, "update_progress")
     if progress.seller_identity_id != ctx.karma_identity_id:
         raise HTTPException(status_code=403, detail="seller_identity_id must match runtime key identity")
+    await assert_task_automation_ready(
+        db, task_id=progress.task_id, karma_identity_id=ctx.karma_identity_id
+    )
     sig = signing_service.sign_dict(
         {
             "runtime_progress_binding": ctx.key_id,
@@ -421,6 +463,9 @@ async def runtime_request_settlement(
     assert_permission(ctx, "request_settlement")
     validate_public_url_segment("task_id", body.task_id)
     check_replay_nonce(key_id=ctx.key_id, endpoint="request-settlement", nonce=body.client_nonce)
+    await assert_task_automation_ready(
+        db, task_id=body.task_id, karma_identity_id=ctx.karma_identity_id
+    )
 
     store = PostgresSettlementStore(db)
     state = await store.get(body.task_id)

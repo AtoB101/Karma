@@ -55,6 +55,19 @@ Generate signing keys locally (`python scripts/generate_keys.py`) and mount or i
 
 See also `deploy/.env.paas.example` and `docs/openclaw-handoff-webhook-v1.md` for OpenClaw ↔ Karma wiring.
 
+| Variable | Notes |
+|----------|--------|
+| `RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY` | When `true`, `POST /runtime/create-key` requires a prior `PUT /v1/identities/{id}/automation-policy` (fund limits, permissions, responsibility ack). |
+| `RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS` | When `true`, Runtime task mutators (`submit-receipt`, `update-progress`, `request-settlement`, `check-voucher`) return 403 until `GET /v1/openclaw/automation-readiness` is satisfied. |
+| `RUNTIME_DAILY_SPEND_PERSIST` | When `true` (default), daily Runtime spend is stored in `runtime_key_daily_spend` (multi-instance safe). |
+| `RUNTIME_AUTO_BIND_WALLET_ON_CREATE_KEY` | First `create-key` binds `wallet_address` to `identity_profiles.bound_wallet_address`. |
+| `RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING` | When `true`, `create-key` rejects wallets that do not match the bound address. |
+| `RUNTIME_REQUIRE_HANDOFF_ATTESTATION` | When `true`, task automation requires `POST /v1/openclaw/handoff-confirm` per identity. |
+
+When `APP_ENV=production`, the API **refuses to start** unless the `RUNTIME_REQUIRE_*` flags above are all `true`.
+
+**Console authorization gate (6 steps):** policy → Runtime Key → voucher/settlement (manual) → automation-readiness → handoff-confirm → export handoff. OpenClaw: `KARMA_OPENCLAW_REQUIRE_SERVER_ATTESTATION=true`.
+
 ---
 
 ## Railway (API)
