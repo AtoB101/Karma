@@ -38,6 +38,7 @@ from api.routes import (
     runtime_gateway,
     openclaw,
     payment_codes,
+    trade,
 )
 
 logger = structlog.get_logger(__name__)
@@ -295,6 +296,12 @@ app.include_router(
     payment_codes.router,
     prefix="/v1/payment-codes",
     tags=["PaymentCodes"],
+    dependencies=_protected_dependencies,
+)
+app.include_router(
+    trade.router,
+    prefix="/v1/trade",
+    tags=["Trade"],
     dependencies=_protected_dependencies,
 )
 app.include_router(progress.router,   prefix="/v1/progress",   tags=["Progress"], dependencies=_protected_dependencies)

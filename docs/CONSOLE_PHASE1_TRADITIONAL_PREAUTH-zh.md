@@ -6,6 +6,15 @@
 2. **底部**：「一键开启预授权」→ 展开买卖双方预授权设置（责任边界 ID、任务精密度区间、信任对手方、金额上限等）。  
 3. **预授权付款码**：`payment_mode=preauth` 时，创建后服务端按卖方策略 **自动 accept 或 reject**，并写入 `voucher_events` + webhook（`voucher.rejected` / `voucher.accepted`）。
 
+## 全自动流水线（买卖双方预授权 + Runtime Key）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/v1/trade/orders/launch` | 买方需求 → 拆解 → 订单 → 自动接单 → 结算 → 双方存证 → 启动执行 |
+| GET | `/v1/trade/orders/{order_id}` | 查询流水线状态 |
+
+策略字段：`auto_execute_pipeline=true`（与 `preauth_enabled`、`auto_enabled`、有效 Runtime Key 一并必填）。
+
 ## API（公开）
 
 | 方法 | 路径 | 说明 |

@@ -244,6 +244,7 @@ class VoucherModel(Base):
     rejection_reason:           Mapped[str|None] = mapped_column(Text, nullable=True)
     rejected_at:                Mapped[datetime|None] = mapped_column(DateTime, nullable=True)
     rejected_by_identity_id:    Mapped[str|None] = mapped_column(String(64), nullable=True)
+    task_id:                    Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
 
     __table_args__ = (
         UniqueConstraint("buyer_identity_id", "nonce", name="uq_voucher_buyer_nonce"),
@@ -587,6 +588,25 @@ class AgentAutomationPolicyModel(Base):
     payment_code_ttl_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=3600)
     responsibility_boundary_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     auto_accept_incoming: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    auto_execute_pipeline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class TradeOrderModel(Base):
+    """Auditable preauth trade order pipeline (phase 1.5)."""
+
+    __tablename__ = "trade_orders"
+
+    order_id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    voucher_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    buyer_identity_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    seller_identity_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    requirement_text: Mapped[str] = mapped_column(Text, nullable=False)
+    decomposed_spec: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="started")
+    status_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class OpenclawHandoffAttestationModel(Base):

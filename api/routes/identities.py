@@ -169,6 +169,7 @@ class AutomationPolicyBody(BaseModel):
     payment_code_ttl_seconds: int = Field(default=3600, ge=60)
     responsibility_boundary_id: str | None = None
     auto_accept_incoming: bool = False
+    auto_execute_pipeline: bool = False
 
 
 @router.get("/{identity_id}/automation-policy")
@@ -208,6 +209,7 @@ async def put_automation_policy_route(
         payment_code_ttl_seconds=body.payment_code_ttl_seconds,
         responsibility_boundary_id=body.responsibility_boundary_id,
         auto_accept_incoming=body.auto_accept_incoming,
+        auto_execute_pipeline=body.auto_execute_pipeline,
     )
     await db.commit()
     return {"configured": True, **policy_to_dict(row)}

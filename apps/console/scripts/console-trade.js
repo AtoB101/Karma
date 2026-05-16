@@ -213,6 +213,7 @@
       payment_code_ttl_seconds: Number(preauthField("payment_code_ttl_seconds") || 3600),
       responsibility_boundary_id: preauthField("responsibility_boundary_id") || null,
       auto_accept_incoming: role === "seller" && !!preauthField("auto_accept_incoming"),
+      auto_execute_pipeline: !!preauthField("auto_execute_pipeline"),
     };
     try {
       var res = await fetch(apiBase() + "/v1/identities/" + encodeURIComponent(id) + "/automation-policy", {
@@ -225,6 +226,34 @@
       if (st) st.textContent = "预授权：已保存 v" + (data.policy_version || "?");
     } catch (e) {
       if (st) st.textContent = "保存失败: " + (e.message || e);
+    }
+  }
+
+  async function launchOrder() {
+    saveCfg();
+    var out = $("[data-pipeline-out]");
+    if (out) out.textContent = "发起中…";
+    try {
+      var res = await fetch(apiBase() + "/v1/trade/orders/launch", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          buyer_identity_id: identityId(),
+          seller_identity_id: field("seller_identity_id"),
+          requirement_text: field("requirement_text") || field("task_type"),
+          buyer_signature: field("buyer_signature") || "0xtrade_console",
+          amount: field("amount") ? Number(field("amount")) : null,
+          task_precision: field("task_precision") ? Number(field("task_precision")) : null,
+          task_type: field("task_type") || null,
+          chain_anchor_hash: field("chain_anchor_hash") || null,
+        }),
+      });
+      var body = await res.json();
+      if (!res.ok) throw new Error(JSON.stringify(body));
+      if (out) out.textContent = JSON.stringify(body, null, 2);
+      if (body.voucher_id && $("[data-f=voucher_id]")) $("[data-f=voucher_id]").value = body.voucher_id;
+    } catch (e) {
+      if (out) out.textContent = "失败: " + (e.message || e);
     }
   }
 
@@ -241,6 +270,7 @@
     $("[data-accept-voucher]")?.addEventListener("click", acceptVoucher);
     $("[data-reject-voucher]")?.addEventListener("click", rejectVoucher);
     $("[data-save-preauth]")?.addEventListener("click", savePreauth);
+    $("[data-launch-order]")?.addEventListener("click", launchOrder);
     $("[data-preauth-toggle]")?.addEventListener("change", function (ev) {
       var on = !!ev.target.checked;
       try {

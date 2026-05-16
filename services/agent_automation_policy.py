@@ -34,6 +34,7 @@ def policy_to_dict(row: AgentAutomationPolicyModel) -> dict[str, Any]:
         "payment_code_ttl_seconds": int(getattr(row, "payment_code_ttl_seconds", 3600) or 3600),
         "responsibility_boundary_id": getattr(row, "responsibility_boundary_id", None),
         "auto_accept_incoming": bool(getattr(row, "auto_accept_incoming", False)),
+        "auto_execute_pipeline": bool(getattr(row, "auto_execute_pipeline", False)),
     }
 
 
@@ -63,6 +64,7 @@ async def upsert_automation_policy(
     payment_code_ttl_seconds: int = 3600,
     responsibility_boundary_id: str | None = None,
     auto_accept_incoming: bool = False,
+    auto_execute_pipeline: bool = False,
 ) -> AgentAutomationPolicyModel:
     if single_limit <= 0 or daily_limit <= 0:
         raise HTTPException(status_code=400, detail="single_limit and daily_limit must be > 0")
@@ -104,6 +106,7 @@ async def upsert_automation_policy(
         row.payment_code_ttl_seconds = int(payment_code_ttl_seconds)
         row.responsibility_boundary_id = responsibility_boundary_id
         row.auto_accept_incoming = auto_accept_incoming
+        row.auto_execute_pipeline = auto_execute_pipeline
         row.policy_version = int(row.policy_version) + 1
         row.updated_at = datetime.utcnow()
         row.updated_by_actor = updated_by_actor
@@ -124,6 +127,7 @@ async def upsert_automation_policy(
             payment_code_ttl_seconds=int(payment_code_ttl_seconds),
             responsibility_boundary_id=responsibility_boundary_id,
             auto_accept_incoming=auto_accept_incoming,
+            auto_execute_pipeline=auto_execute_pipeline,
             policy_version=1,
             updated_at=datetime.utcnow(),
             updated_by_actor=updated_by_actor,
