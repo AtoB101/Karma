@@ -1,0 +1,21 @@
+{
+  "handoff_version": "1",
+  "trace_id": "trace-demo-openclaw-001",
+  "task_id": "task-demo-openclaw-001",
+  "voucher_id": "voucher-replace-after-console-create",
+  "buyer_identity_id": "buyer-openclaw-a",
+  "seller_identity_id": "seller-openclaw-b",
+  "bill_credit_amount": 35.0,
+  "authorization": {
+    "voucher_status": "accepted",
+    "manual_console_steps_completed": [
+      "buyer_lock_capacity",
+      "buyer_create_voucher",
+      "seller_lock_capacity",
+      "seller_accept_voucher",
+      "settlement_created",
+      "settlement_worker_locked"
+    ]
+  },
+  "notes": "Populate after human completes Karma Console authorization; pass file path or JSON to karma_validate_handoff before verify/delivery MCP tools."
+}
