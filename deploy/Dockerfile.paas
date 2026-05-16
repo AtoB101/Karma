@@ -12,6 +12,7 @@ COPY pyproject.toml README.md ./
 COPY . .
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir ./packages/karma-openclaw \
     && pip install --no-cache-dir .
 
 RUN adduser --disabled-password --gecos "" karma \

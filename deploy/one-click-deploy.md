@@ -47,8 +47,13 @@ Set at least (names match `config/settings.py` / `.env` conventions — use UPPE
 | `AUTH_ENFORCE_PROTECTED_ROUTES` | `true` in production |
 | `CORS_ALLOW_ORIGINS` | Your Console / site origins, comma-separated |
 | `MINIO_*` or future S3-compatible settings | Evidence storage — use a managed bucket in production |
+| `OPENCLAW_WEBHOOK_URL` | Optional HTTPS endpoint for OpenClaw handoff events (`voucher.accepted`, `settlement.delivered`, `settlement.settled`) |
+| `OPENCLAW_WEBHOOK_SECRET` | HMAC secret for `X-OpenClaw-Signature` (required when URL is set) |
+| `OPENCLAW_WEBHOOK_STORE_EVENTS` | `true` only for single-instance dev — enables `GET /v1/openclaw/handoff-events` in-process ring buffer |
 
 Generate signing keys locally (`python scripts/generate_keys.py`) and mount or inject paths if you do not bake keys into the image (recommended: secrets + volume).
+
+See also `deploy/.env.paas.example` and `docs/openclaw-handoff-webhook-v1.md` for OpenClaw ↔ Karma wiring.
 
 ---
 

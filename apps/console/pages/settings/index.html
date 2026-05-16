@@ -141,6 +141,27 @@
         </div>
       </section>
 
+      <section class="panel" data-openclaw-handoff>
+        <h2>OpenClaw Handoff 导出</h2>
+        <p class="sub">
+          从账本状态生成 <code>openclaw-handoff-v1</code> 草案（<code>GET /v1/openclaw/handoff-draft</code>）。Voucher 创建/接受与 Runtime Key
+          仍须在 Console 人工完成；导出前请核对 <code>manual_console_steps_completed</code>。
+        </p>
+        <div class="row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
+          <span class="sub">task_id</span>
+          <input type="text" data-handoff-task-id placeholder="task-uuid" style="flex: 1; min-width: 200px" />
+          <span class="sub">trace_id（可选）</span>
+          <input type="text" data-handoff-trace-id placeholder="trace-…" style="min-width: 160px" />
+        </div>
+        <div class="row">
+          <button type="button" class="btn" data-fetch-handoff-draft>生成草案</button>
+          <button type="button" class="btn" data-copy-handoff disabled>复制 handoff JSON</button>
+          <button type="button" class="btn" data-download-handoff disabled>下载 handoff.json</button>
+        </div>
+        <p class="sub" data-handoff-status>—</p>
+        <pre class="out" data-handoff-out>—</pre>
+      </section>
+
       <section class="panel">
         <h2>Runtime Key 管理</h2>
         <p class="sub">
@@ -173,6 +194,7 @@
         <label class="chk"><input type="checkbox" data-perm name="update_progress" /> update_progress</label>
         <label class="chk"><input type="checkbox" data-perm name="request_settlement" /> request_settlement</label>
         <label class="chk"><input type="checkbox" data-perm name="sync_task_status" checked /> sync_task_status</label>
+        <label class="chk"><input type="checkbox" data-perm name="verify_voucher" /> verify_voucher</label>
         <p class="sub" style="margin-top: 0.5rem">待签名消息（复制到钱包或 MetaMask「签名」）</p>
         <textarea data-sign-message readonly></textarea>
         <div class="row">
@@ -218,6 +240,7 @@ KARMA_ID=Karma-ID-82F7X9
     </script>
     <script src="../../scripts/karma-public-api.js"></script>
     <script src="../../scripts/console-sync.js"></script>
+    <script src="../../scripts/console-handoff.js"></script>
     <script type="module" src="../../scripts/runtime-console.js"></script>
   </body>
 </html>

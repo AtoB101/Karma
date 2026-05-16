@@ -115,6 +115,20 @@
     return karmaFetch("/v1/security/runtime/safety-mode", { method: "GET", headers: headers() });
   }
 
+  async function getOpenclawHandoffDraft(taskId, traceId) {
+    const q = new URLSearchParams({ task_id: taskId });
+    if (traceId) q.set("trace_id", traceId);
+    return karmaFetch("/v1/openclaw/handoff-draft?" + q.toString(), { method: "GET", headers: headers() });
+  }
+
+  async function listOpenclawHandoffEvents(taskId, limit) {
+    const q = new URLSearchParams();
+    if (taskId) q.set("task_id", taskId);
+    if (limit != null) q.set("limit", String(limit));
+    const qs = q.toString();
+    return karmaFetch("/v1/openclaw/handoff-events" + (qs ? "?" + qs : ""), { method: "GET", headers: headers() });
+  }
+
   global.cyberKarmaApi = {
     apiBase,
     karmaFetch,
@@ -130,6 +144,8 @@
     listSettlementTransitions,
     listAgents,
     getRuntimeSafetyMode,
+    getOpenclawHandoffDraft,
+    listOpenclawHandoffEvents,
   };
   global.karmaRuntimeApi = { runtimeCreateKey, runtimeListKeys, runtimeRevokeKey, karmaFetch, headers };
 })(window);
