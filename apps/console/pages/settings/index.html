@@ -87,7 +87,7 @@
       <div class="callout">
         <strong>授权闸门（落地顺序）</strong>：先配置<strong>资金额度</strong>与<strong>权限范围</strong>并确认<strong>责任边界</strong> →
         <strong>保存服务端策略</strong> → 钱包签名<strong>铸造 Runtime Key</strong>（不得超过已保存策略）→ Console 完成 Voucher / Settlement →
-        核对<strong>自动化就绪</strong>后再导出 handoff 交给 OpenClaw。Voucher 创建/接受不可由 AI 代签。
+        ④ 就绪检查 → ⑤ 服务端存证 → ⑥ 导出 handoff 给 OpenClaw。Voucher 创建/接受不可由 AI 代签。
       </div>
       <div class="callout">
         <strong>重要</strong>：Runtime Key <strong>不是</strong>钱包私钥。它只是 Agent 工作通行证，<strong>不能</strong>提现、<strong>不能</strong>转走
@@ -157,12 +157,16 @@
       </section>
 
       <section class="panel" data-openclaw-handoff>
-        <h2>步骤 5 · Handoff 与自动化就绪</h2>
-        <p class="sub">先检查 <code>GET /v1/openclaw/automation-readiness</code>，再导出 handoff。</p>
+        <h2>步骤 4–6 · 就绪 · 存证 · Handoff 导出</h2>
+        <p class="sub">
+          完整链路：① <code>automation-readiness</code> → ② <code>handoff-confirm</code>（服务端存证）→ ③ 导出 handoff 给 OpenClaw。
+        </p>
         <div class="row">
-          <button type="button" class="btn" data-check-readiness>检查自动化就绪</button>
+          <button type="button" class="btn" data-check-readiness>① 检查自动化就绪</button>
+          <button type="button" class="btn" data-confirm-handoff disabled>② 登记服务端存证</button>
         </div>
         <pre class="out" data-readiness-out style="max-height: 160px">—</pre>
+        <p class="sub" data-attestation-status>存证：未登记</p>
         <div class="row" style="display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.5rem">
           <span class="sub">task_id</span>
           <input type="text" data-handoff-task-id placeholder="task-uuid" style="flex: 1; min-width: 200px" />

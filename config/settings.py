@@ -167,6 +167,9 @@ class Settings(BaseSettings):
     # Runtime mutators (receipt, progress, settlement, check-voucher) require task automation-readiness
     runtime_require_task_automation_readiness: bool = False
 
+    # Require POST /v1/openclaw/handoff-confirm before task automation (pairs with readiness)
+    runtime_require_handoff_attestation: bool = False
+
     # Runtime Key daily spend — persist to DB (recommended production / multi-instance)
     runtime_daily_spend_persist: bool = True
 
@@ -198,6 +201,26 @@ class Settings(BaseSettings):
             if not self.rate_limit_redis_fail_closed:
                 raise ValueError(
                     "RATE_LIMIT_REDIS_FAIL_CLOSED must be true when APP_ENV is production",
+                )
+            if not self.runtime_require_saved_automation_policy:
+                raise ValueError(
+                    "RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY must be true when APP_ENV is production",
+                )
+            if not self.runtime_require_task_automation_readiness:
+                raise ValueError(
+                    "RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS must be true when APP_ENV is production",
+                )
+            if not self.runtime_require_handoff_attestation:
+                raise ValueError(
+                    "RUNTIME_REQUIRE_HANDOFF_ATTESTATION must be true when APP_ENV is production",
+                )
+            if not self.runtime_require_wallet_identity_binding:
+                raise ValueError(
+                    "RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING must be true when APP_ENV is production",
+                )
+            if not self.runtime_daily_spend_persist:
+                raise ValueError(
+                    "RUNTIME_DAILY_SPEND_PERSIST must be true when APP_ENV is production",
                 )
         return self
 

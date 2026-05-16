@@ -19,6 +19,7 @@ from db.models.orm import (
 )
 from db.stores.settlement_store import PostgresSettlementStore
 from services.agent_automation_policy import get_automation_policy, policy_summary_for_console
+from services.openclaw_handoff_attestation import has_handoff_attestation
 from services.openclaw_handoff_draft import build_handoff_draft
 
 Role = Literal["buyer", "seller"]
@@ -69,6 +70,9 @@ async def assert_task_automation_ready(
         karma_identity_id=karma_identity_id,
     )
     if report.get("ready_for_task_automation"):
+        from services.openclaw_handoff_attestation import assert_handoff_attested
+
+        await assert_handoff_attested(db, task_id=task_id, karma_identity_id=karma_identity_id)
         return
     raise HTTPException(
         status_code=403,
@@ -88,6 +92,7 @@ async def evaluate_automation_readiness(
     task_id: str,
     role: Role = "buyer",
     karma_identity_id: str | None = None,
+    require_attestation: bool | None = None,
 ) -> dict[str, Any]:
     """
     Return authoritative readiness for AI automation on a task.
@@ -149,6 +154,12 @@ async def evaluate_automation_readiness(
 
     contract_row = await db.get(TaskContractModel, task_id)
 
+    handoff_attested = False
+    if identity_id:
+        handoff_attested = await has_handoff_attestation(
+            db, task_id=task_id, karma_identity_id=identity_id
+        )
+
     server_checks = {
         "policy_configured": policy is not None,
         "policy_auto_enabled": bool(policy and policy.auto_enabled),
@@ -158,9 +169,17 @@ async def evaluate_automation_readiness(
         "settlement_created": settlement_created,
         "responsibility_edge_recorded": responsibility_ok,
         "contract_exists": contract_row is not None,
+        "handoff_attested": handoff_attested,
     }
 
     blockers: list[str] = list(policy_blockers)
+    from config.settings import settings as _settings
+
+    if require_attestation is None:
+        require_attestation = _settings.runtime_require_handoff_attestation
+
+    if require_attestation and not handoff_attested:
+        blockers.append("未登记 Console handoff 确认（POST /v1/openclaw/handoff-confirm）")
     if not server_checks["runtime_key_active"]:
         blockers.append("无有效 Runtime Key（需钱包签名铸造，且未过期）")
     if not server_checks["voucher_accepted"]:
@@ -174,7 +193,7 @@ async def evaluate_automation_readiness(
         if w not in blockers:
             blockers.append(w)
 
-    ready = (
+    base_ready = (
         server_checks["policy_configured"]
         and server_checks["policy_auto_enabled"]
         and server_checks["responsibility_acknowledged"]
@@ -184,6 +203,7 @@ async def evaluate_automation_readiness(
         and server_checks["responsibility_edge_recorded"]
         and draft.get("validation_ok") is True
     )
+    ready = base_ready and (handoff_attested or not require_attestation)
 
     return {
         "task_id": task_id,
@@ -201,12 +221,14 @@ async def evaluate_automation_readiness(
         "handoff_validation_ok": draft.get("validation_ok"),
         "handoff_inferred_steps": draft.get("inferred_steps"),
         "blockers": blockers,
+        "ready_for_handoff_confirm": base_ready,
         "ready_for_task_automation": ready,
         "authorization_flow": [
             "1. 在 Console 设置资金额度、权限范围，并确认责任边界",
             "2. 保存服务端策略（PUT /v1/identities/{id}/automation-policy）",
             "3. 钱包签名铸造 Runtime Key（不得超过已保存策略）",
             "4. Console 完成 Voucher 创建/接受与 Settlement",
-            "5. 导出 handoff 或调用 automation-readiness 确认就绪后再交给 OpenClaw",
+            "5. POST /v1/openclaw/handoff-confirm 登记服务端存证",
+            "6. 导出 handoff JSON 交给 OpenClaw（MCP 将校验存证）",
         ],
     }

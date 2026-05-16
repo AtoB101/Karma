@@ -81,3 +81,72 @@ def block_response(reason: str, *, hint: str = "") -> dict[str, Any]:
     if hint:
         out["hint"] = hint
     return out
+
+
+def server_attestation_required() -> bool:
+    return _env_flag("KARMA_OPENCLAW_REQUIRE_SERVER_ATTESTATION")
+
+
+async def require_valid_handoff_for_automation(
+    handoff_json: str | None,
+    *,
+    karma_identity_id: str | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """
+    Local handoff validation plus optional server attestation (POST handoff-confirm).
+    """
+    err, normalized = require_valid_handoff(handoff_json)
+    if err:
+        return err, normalized
+
+    if not server_attestation_required():
+        return None, normalized
+
+    task_id = str(normalized.get("task_id") or "").strip()
+    kid = (
+        (karma_identity_id or "").strip()
+        or os.environ.get("KARMA_ID", "").strip()
+        or str(normalized.get("buyer_identity_id") or "").strip()
+    )
+    if not task_id or not kid:
+        return (
+            {
+                "ok": False,
+                "error": "attestation_context_missing",
+                "detail": "task_id and karma_identity_id required for server attestation check",
+                "hint": "Set KARMA_ID to this OpenClaw party identity",
+            },
+            normalized,
+        )
+
+    from urllib.parse import quote
+
+    from karma_openclaw.http_client import api_get
+
+    try:
+        path = (
+            f"/v1/openclaw/handoff-attestation?task_id={quote(task_id, safe='')}"
+            f"&karma_identity_id={quote(kid, safe='')}"
+        )
+        att = await api_get(path)
+    except Exception as exc:  # noqa: BLE001
+        return (
+            {
+                "ok": False,
+                "error": "attestation_check_failed",
+                "detail": str(exc),
+                "hint": "Call POST /v1/openclaw/handoff-confirm in Console first",
+            },
+            normalized,
+        )
+
+    if not (isinstance(att, dict) and att.get("attested")):
+        return (
+            {
+                "ok": False,
+                "error": "handoff_not_attested",
+                "hint": "Complete Console: automation-readiness → handoff-confirm → export handoff",
+            },
+            normalized,
+        )
+    return None, normalized

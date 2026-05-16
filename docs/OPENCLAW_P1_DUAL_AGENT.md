@@ -31,6 +31,19 @@ karma-openclaw-mcp
 
 在 OpenClaw 中注册 **stdio** MCP 桥接上述命令。
 
+## 完整授权链路（Console → API → OpenClaw）
+
+生产建议开启全部 Runtime 闸门（见 `deploy/.env.paas.example`）：
+
+1. **策略** — `PUT /v1/identities/{id}/automation-policy`（额度、权限、`responsibility_acknowledged`）  
+2. **Runtime Key** — 钱包签名 `POST /runtime/create-key`（不得超过策略；钱包绑定到 identity）  
+3. **人工** — Console 完成 Voucher 创建/接受、Settlement  
+4. **就绪** — `GET /v1/openclaw/automation-readiness`（或 MCP `karma_check_automation_readiness`）  
+5. **存证** — `POST /v1/openclaw/handoff-confirm`（服务端登记，不可仅本地 JSON 自证）  
+6. **Handoff** — `GET /v1/openclaw/handoff-draft` → 导出 `handoff.json` 给 OpenClaw  
+
+OpenClaw 侧设置 `KARMA_OPENCLAW_REQUIRE_SERVER_ATTESTATION=true` 时，MCP 变更类工具会查询 `GET /v1/openclaw/handoff-attestation`。
+
 ## Handoff v1（协同信封）
 
 双方完成 Console 授权后，由操作员导出或生成 `handoff.json`（示例见 `schemas/openclaw-handoff-v1.example.json`），字段：
@@ -73,7 +86,9 @@ karma_validate_handoff(handoff_json=<file contents>)
 
 - `KARMA_OPENCLAW_HANDOFF_PATH` — 默认 handoff 文件路径（可变工具省略 `handoff_json` 参数）  
 - `KARMA_OPENCLAW_ALLOW_SETUP_MUTATIONS` — 允许 MCP 创建 contract/settlement（默认关）  
-- `KARMA_OPENCLAW_ALLOW_BUYER_ACCEPT` — 允许 MCP buyer-accept（默认关）
+- `KARMA_OPENCLAW_ALLOW_BUYER_ACCEPT` — 允许 MCP buyer-accept（默认关）  
+- `KARMA_OPENCLAW_REQUIRE_SERVER_ATTESTATION` — MCP 要求服务端 handoff 存证（生产建议 `true`）  
+- `karma_check_automation_readiness` — 调用服务端就绪 API
 
 ## P1 MCP 工具一览
 

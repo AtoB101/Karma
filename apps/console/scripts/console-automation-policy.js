@@ -166,11 +166,11 @@
       if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
       if (pre) pre.textContent = JSON.stringify(data, null, 2);
       window.__karmaLastReadiness = data;
-      var copyBtn = $("[data-copy-handoff]");
-      var dlBtn = $("[data-download-handoff]");
-      var allowExport = !!data.ready_for_task_automation;
-      if (copyBtn) copyBtn.disabled = !allowExport;
-      if (dlBtn) dlBtn.disabled = !allowExport;
+      if (window.karmaHandoffFlow && window.karmaHandoffFlow.updateExportGate) {
+        /* handoff.js owns export gate after attestation */
+      }
+      var confirmBtn = document.querySelector("[data-confirm-handoff]");
+      if (confirmBtn) confirmBtn.disabled = !data.ready_for_handoff_confirm;
     } catch (e) {
       if (pre) pre.textContent = String(e.message || e);
     }

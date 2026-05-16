@@ -62,8 +62,11 @@ See also `deploy/.env.paas.example` and `docs/openclaw-handoff-webhook-v1.md` fo
 | `RUNTIME_DAILY_SPEND_PERSIST` | When `true` (default), daily Runtime spend is stored in `runtime_key_daily_spend` (multi-instance safe). |
 | `RUNTIME_AUTO_BIND_WALLET_ON_CREATE_KEY` | First `create-key` binds `wallet_address` to `identity_profiles.bound_wallet_address`. |
 | `RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING` | When `true`, `create-key` rejects wallets that do not match the bound address. |
+| `RUNTIME_REQUIRE_HANDOFF_ATTESTATION` | When `true`, task automation requires `POST /v1/openclaw/handoff-confirm` per identity. |
 
-**Console authorization gate:** Settings → save automation policy → wallet-sign Runtime Key (wallet auto-binds to identity on first mint) → complete voucher/settlement → `GET /v1/openclaw/automation-readiness` or MCP `karma_check_automation_readiness` → export handoff for OpenClaw.
+When `APP_ENV=production`, the API **refuses to start** unless the `RUNTIME_REQUIRE_*` flags above are all `true`.
+
+**Console authorization gate (6 steps):** policy → Runtime Key → voucher/settlement (manual) → automation-readiness → handoff-confirm → export handoff. OpenClaw: `KARMA_OPENCLAW_REQUIRE_SERVER_ATTESTATION=true`.
 
 ---
 
