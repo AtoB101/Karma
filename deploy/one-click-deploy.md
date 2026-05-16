@@ -68,6 +68,8 @@ When `APP_ENV=production`, the API **refuses to start** unless the `RUNTIME_REQU
 
 **Console authorization gate (6 steps):** policy → Runtime Key → voucher/settlement (manual) → automation-readiness → handoff-confirm → export handoff. OpenClaw: `KARMA_OPENCLAW_REQUIRE_SERVER_ATTESTATION=true`.
 
+Operator checklist (Chinese, one page): `docs/OPENCLAW_OPERATOR_CHECKLIST-zh.md`.
+
 ---
 
 ## Railway (API)
