@@ -1,5 +1,7 @@
 # OpenClaw P0+P1 — 双端自动验证/交付 + 操作端手动授权
 
+**运营一页纸检查清单：** [`docs/OPENCLAW_OPERATOR_CHECKLIST-zh.md`](OPENCLAW_OPERATOR_CHECKLIST-zh.md)（Console 六步、生产 env、买方/卖方 OpenClaw、故障表）。
+
 本页描述 **P1** 落地范围：两只 OpenClaw 在 **授权已由人在 Console 完成** 的前提下，自动跑 **进度查询、证据校验、执行收据构造、结算状态读取**；**不**通过 MCP 自动创建/接受 Voucher 或签发 Runtime Key。
 
 ## 原则
