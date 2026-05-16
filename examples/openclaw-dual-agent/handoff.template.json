@@ -1,0 +1,21 @@
+{
+  "handoff_version": "1",
+  "trace_id": "trace-openclaw-dual-001",
+  "task_id": "task-openclaw-dual-001",
+  "voucher_id": "REPLACE_AFTER_CONSOLE_CREATE",
+  "buyer_identity_id": "buyer-openclaw-a",
+  "seller_identity_id": "seller-openclaw-b",
+  "bill_credit_amount": 50.0,
+  "authorization": {
+    "voucher_status": "accepted",
+    "manual_console_steps_completed": [
+      "buyer_lock_capacity",
+      "buyer_create_voucher",
+      "seller_lock_capacity",
+      "seller_accept_voucher",
+      "settlement_created",
+      "settlement_worker_locked"
+    ]
+  },
+  "notes": "Do not run Claw settlement/voucher mutators until Console authorization is done."
+}
