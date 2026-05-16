@@ -19,8 +19,24 @@ from api.middleware.rate_limit import rate_limit
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from db.session import init_db
 from api.routes import (
-    agents, auth, contracts, receipts,
-    bundles, settlement, reputation, verify, capacity, vouchers, progress, identities, arbitration, responsibility, security, admin_controls, runtime_gateway,
+    agents,
+    auth,
+    contracts,
+    receipts,
+    bundles,
+    settlement,
+    reputation,
+    verify,
+    capacity,
+    vouchers,
+    progress,
+    identities,
+    arbitration,
+    responsibility,
+    security,
+    admin_controls,
+    runtime_gateway,
+    openclaw,
 )
 
 logger = structlog.get_logger(__name__)
@@ -282,6 +298,7 @@ app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)
 app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_security_always_auth)
+app.include_router(openclaw.router, prefix="/v1/openclaw", tags=["OpenClaw"], dependencies=_protected_dependencies)
 
 
 @app.get("/health")

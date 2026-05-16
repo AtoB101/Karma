@@ -48,6 +48,9 @@ Register in OpenClaw’s **MCP bridge** (stdio). Tool names are prefixed with `k
 | `karma_submit_progress` | POST /v1/progress |
 | `karma_create_contract` / `create_settlement` | `ALLOW_SETUP_MUTATIONS` (default off) |
 | `karma_runtime_*` | Needs `KARMA_RUNTIME_KEY` |
+| `karma_runtime_check_voucher` | Seller verify via Runtime (not accept) |
+| `karma_poll_handoff_events` | Poll API event ring when enabled |
+| `karma_automation_status` | Suggested next step for buyer/seller |
 
 ### P1 (verify / delivery; no voucher mutate)
 

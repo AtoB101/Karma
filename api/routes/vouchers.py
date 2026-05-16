@@ -280,6 +280,19 @@ async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, request: R
     )
 
     await db.flush()
+    from services.openclaw_webhook import emit_openclaw_event
+
+    emit_openclaw_event(
+        "voucher.accepted",
+        {
+            "voucher_id": row.voucher_id,
+            "buyer_identity_id": row.buyer_identity_id,
+            "seller_identity_id": row.seller_identity_id,
+            "bill_credit_amount": float(row.bill_credit_amount),
+            "amount": float(row.amount),
+            "task_type": row.task_type,
+        },
+    )
     return _to_schema(row)
 
 

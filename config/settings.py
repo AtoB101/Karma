@@ -156,6 +156,11 @@ class Settings(BaseSettings):
     voucher_eip712_chain_id: int | None = None  # None → testnet_chain_id
     voucher_eip712_verifying_contract: str = "0x0000000000000000000000000000000000000000"
 
+    # OpenClaw — optional outbound handoff webhooks (HMAC) + in-process event ring for polling
+    openclaw_webhook_url: str = ""
+    openclaw_webhook_secret: str = ""
+    openclaw_webhook_store_events: bool = False
+
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":
         env = (self.app_env or "").lower()

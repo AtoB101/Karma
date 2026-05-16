@@ -106,7 +106,7 @@ v0.1 仍保留：`karma_get_capacity`、`karma_lock_usdc`、证据包读写。
 
 ## Webhook（可选，后续）
 
-事件契约草案见 `docs/openclaw-handoff-webhook-v1.md`（P1 仅文档，无强制服务实现）。可用于「乙 Claw 订阅 voucher.accepted」以减少轮询。
+已实现出站 webhook + 可选轮询，见 `docs/openclaw-handoff-webhook-v1.md`。MCP：`karma_poll_handoff_events`、`karma_automation_status`、`karma_runtime_check_voucher`。
 
 ## 相关文档
 

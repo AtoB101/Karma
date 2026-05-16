@@ -21,6 +21,7 @@ from db.models.orm import RuntimeKeyModel
 ALLOWED_PERMISSIONS = frozenset(
     {
         "request_voucher",
+        "verify_voucher",
         "submit_receipt",
         "update_progress",
         "request_settlement",
