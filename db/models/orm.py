@@ -238,10 +238,30 @@ class VoucherModel(Base):
     accepted_at:                Mapped[datetime|None] = mapped_column(DateTime)
     created_at:                 Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     progress_rule_spec:         Mapped[dict|None] = mapped_column(JSON, nullable=True)
+    task_precision:             Mapped[float|None] = mapped_column(Float, nullable=True)
+    payment_mode:               Mapped[str]      = mapped_column(String(16), nullable=False, default="manual")
+    chain_anchor_hash:          Mapped[str|None] = mapped_column(String(128), nullable=True)
+    rejection_reason:           Mapped[str|None] = mapped_column(Text, nullable=True)
+    rejected_at:                Mapped[datetime|None] = mapped_column(DateTime, nullable=True)
+    rejected_by_identity_id:    Mapped[str|None] = mapped_column(String(64), nullable=True)
 
     __table_args__ = (
         UniqueConstraint("buyer_identity_id", "nonce", name="uq_voucher_buyer_nonce"),
     )
+
+
+class VoucherEventModel(Base):
+    """Auditable voucher lifecycle events visible to buyer/seller (phase 1)."""
+
+    __tablename__ = "voucher_events"
+
+    event_id:              Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    voucher_id:            Mapped[str]      = mapped_column(String(64), nullable=False, index=True)
+    event_type:            Mapped[str]      = mapped_column(String(32), nullable=False)
+    actor_identity_id:     Mapped[str|None] = mapped_column(String(64), nullable=True)
+    target_identity_id:    Mapped[str|None] = mapped_column(String(64), nullable=True)
+    payload:               Mapped[dict]     = mapped_column(JSON, nullable=False, default=dict)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -559,6 +579,14 @@ class AgentAutomationPolicyModel(Base):
     policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by_actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    preauth_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    allowed_task_types: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    task_precision_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    task_precision_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trusted_counterparty_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    payment_code_ttl_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=3600)
+    responsibility_boundary_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    auto_accept_incoming: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class OpenclawHandoffAttestationModel(Base):
