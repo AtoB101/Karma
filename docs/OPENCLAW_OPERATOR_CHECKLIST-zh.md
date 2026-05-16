@@ -54,7 +54,7 @@ curl -s -X POST -H "X-Karma-Api-Key: $KEY" -H "Content-Type: application/json" \
 curl -s -H "X-Karma-Api-Key: $KEY" \
   "$BASE/v1/openclaw/handoff-attestation?task_id=$TASK&karma_identity_id=$IDENTITY"
 
-# 6③ 之后 — 全量就绪（含存证）
+# 6③ 之后 — 全量就绪（含存证，开启 RUNTIME_REQUIRE_HANDOFF_ATTESTATION 时）
 curl -s -H "X-Karma-Api-Key: $KEY" \
   "$BASE/v1/openclaw/automation-readiness?task_id=$TASK&karma_identity_id=$IDENTITY&role=buyer"
 ```
