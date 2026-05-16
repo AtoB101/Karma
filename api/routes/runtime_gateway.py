@@ -60,6 +60,10 @@ from services.runtime_wallet import (
     build_revoke_key_message,
     verify_personal_message,
 )
+from services.openclaw_automation_readiness import (
+    assert_task_automation_ready,
+    resolve_task_id_for_voucher,
+)
 from services.signing import signing_service
 
 router = APIRouter()
@@ -322,6 +326,11 @@ async def runtime_check_voucher(
     assert_permission(ctx, "verify_voucher")
     validate_public_url_segment("voucher_id", body.voucher_id)
     check_replay_nonce(key_id=ctx.key_id, endpoint="check-voucher", nonce=body.client_nonce)
+    task_id = await resolve_task_id_for_voucher(db, body.voucher_id)
+    if task_id:
+        await assert_task_automation_ready(
+            db, task_id=task_id, karma_identity_id=ctx.karma_identity_id
+        )
     delegate = synthetic_request(
         headers={"X-Karma-Api-Key": _dev_api_key(ctx.karma_identity_id)},
         path="/runtime/check-voucher",
@@ -348,6 +357,9 @@ async def runtime_submit_receipt(
     if receipt.agent_id != ctx.karma_identity_id:
         raise HTTPException(status_code=403, detail="receipt agent_id must match runtime key identity")
 
+    await assert_task_automation_ready(
+        db, task_id=receipt.task_id, karma_identity_id=ctx.karma_identity_id
+    )
     await ensure_task_contract_exists(db, receipt.task_id)
 
     store = PostgresReceiptStore(db)
@@ -402,6 +414,9 @@ async def runtime_update_progress(
     assert_permission(ctx, "update_progress")
     if progress.seller_identity_id != ctx.karma_identity_id:
         raise HTTPException(status_code=403, detail="seller_identity_id must match runtime key identity")
+    await assert_task_automation_ready(
+        db, task_id=progress.task_id, karma_identity_id=ctx.karma_identity_id
+    )
     sig = signing_service.sign_dict(
         {
             "runtime_progress_binding": ctx.key_id,
@@ -437,6 +452,9 @@ async def runtime_request_settlement(
     assert_permission(ctx, "request_settlement")
     validate_public_url_segment("task_id", body.task_id)
     check_replay_nonce(key_id=ctx.key_id, endpoint="request-settlement", nonce=body.client_nonce)
+    await assert_task_automation_ready(
+        db, task_id=body.task_id, karma_identity_id=ctx.karma_identity_id
+    )
 
     store = PostgresSettlementStore(db)
     state = await store.get(body.task_id)

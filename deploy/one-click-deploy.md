@@ -58,6 +58,7 @@ See also `deploy/.env.paas.example` and `docs/openclaw-handoff-webhook-v1.md` fo
 | Variable | Notes |
 |----------|--------|
 | `RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY` | When `true`, `POST /runtime/create-key` requires a prior `PUT /v1/identities/{id}/automation-policy` (fund limits, permissions, responsibility ack). |
+| `RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS` | When `true`, Runtime task mutators (`submit-receipt`, `update-progress`, `request-settlement`, `check-voucher`) return 403 until `GET /v1/openclaw/automation-readiness` is satisfied. |
 
 **Console authorization gate:** Settings → save automation policy → wallet-sign Runtime Key → complete voucher/settlement → `GET /v1/openclaw/automation-readiness` → export handoff for OpenClaw.
 

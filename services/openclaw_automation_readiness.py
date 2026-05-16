@@ -5,20 +5,81 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.schemas import TaskStatus, VoucherStatus
+from core.schemas import VoucherStatus
 from db.models.orm import (
     ResponsibilityEdgeModel,
     RuntimeKeyModel,
+    SettlementModel,
     TaskContractModel,
     VoucherModel,
 )
+from db.stores.settlement_store import PostgresSettlementStore
 from services.agent_automation_policy import get_automation_policy, policy_summary_for_console
 from services.openclaw_handoff_draft import build_handoff_draft
 
 Role = Literal["buyer", "seller"]
+
+
+async def resolve_task_id_for_voucher(db: AsyncSession, voucher_id: str) -> str | None:
+    result = await db.execute(
+        select(SettlementModel.task_id).where(SettlementModel.voucher_id == voucher_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def infer_role_for_task(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    karma_identity_id: str,
+) -> Role:
+    contract = await db.get(TaskContractModel, task_id)
+    if contract and contract.worker_agent_id == karma_identity_id:
+        return "seller"
+    state = await PostgresSettlementStore(db).get(task_id)
+    if state and (state.worker_agent_id or "") == karma_identity_id:
+        return "seller"
+    return "buyer"
+
+
+async def assert_task_automation_ready(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    karma_identity_id: str,
+) -> None:
+    """
+    Raise 403 when ``RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS`` is on and task gates fail.
+
+    Used by Runtime Gateway mutators (receipt, progress, settlement, check-voucher).
+    """
+    from config.settings import settings
+
+    if not settings.runtime_require_task_automation_readiness:
+        return
+    role = await infer_role_for_task(db, task_id=task_id, karma_identity_id=karma_identity_id)
+    report = await evaluate_automation_readiness(
+        db,
+        task_id=task_id,
+        role=role,
+        karma_identity_id=karma_identity_id,
+    )
+    if report.get("ready_for_task_automation"):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error": "automation_not_ready",
+            "task_id": task_id,
+            "karma_identity_id": karma_identity_id,
+            "blockers": report.get("blockers") or [],
+            "hint": "Complete Console authorization gate and GET /v1/openclaw/automation-readiness",
+        },
+    )
 
 
 async def evaluate_automation_readiness(
@@ -75,8 +136,6 @@ async def evaluate_automation_readiness(
     voucher_accepted = bool(
         voucher_row and VoucherStatus(voucher_row.status) == VoucherStatus.ACCEPTED
     )
-
-    from db.stores.settlement_store import PostgresSettlementStore
 
     settlement_state = await PostgresSettlementStore(db).get(task_id)
     settlement_created = settlement_state is not None

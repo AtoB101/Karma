@@ -164,6 +164,9 @@ class Settings(BaseSettings):
     # Console — require saved automation policy before Runtime Key mint (fund limits + permissions + responsibility ack)
     runtime_require_saved_automation_policy: bool = False
 
+    # Runtime mutators (receipt, progress, settlement, check-voucher) require task automation-readiness
+    runtime_require_task_automation_readiness: bool = False
+
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":
         env = (self.app_env or "").lower()
