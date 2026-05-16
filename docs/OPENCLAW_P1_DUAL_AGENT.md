@@ -1,4 +1,4 @@
-# OpenClaw P1 — 双端自动验证/交付 + 操作端手动授权
+# OpenClaw P0+P1 — 双端自动验证/交付 + 操作端手动授权
 
 本页描述 **P1** 落地范围：两只 OpenClaw 在 **授权已由人在 Console 完成** 的前提下，自动跑 **进度查询、证据校验、执行收据构造、结算状态读取**；**不**通过 MCP 自动创建/接受 Voucher 或签发 Runtime Key。
 
@@ -54,6 +54,26 @@ karma_validate_handoff(handoff_json=<file contents>)
 - `settlement_created`  
 
 完整列表见 `karma_openclaw/handoff.py` 中的 `ALL_KNOWN_MANUAL_STEPS`。
+
+## P0 MCP 工具（结算执行；仍需 handoff）
+
+| 工具 | 作用 |
+|------|------|
+| `karma_verify_voucher` | POST verify（**不接受**） |
+| `karma_settlement_pending` / `lock` / `start` / `submit` | 状态机推进 |
+| `karma_settlement_buyer_accept` | 默认关闭，同 Console |
+| `karma_submit_execution_receipt` | POST /v1/receipts |
+| `karma_submit_progress` | POST /v1/progress |
+| `karma_create_contract` / `create_settlement` | 默认关闭（`KARMA_OPENCLAW_ALLOW_SETUP_MUTATIONS`） |
+| `karma_runtime_*` | 需 `KARMA_RUNTIME_KEY` |
+
+示例目录：`examples/openclaw-dual-agent/`
+
+环境变量补充：
+
+- `KARMA_OPENCLAW_HANDOFF_PATH` — 默认 handoff 文件路径（可变工具省略 `handoff_json` 参数）  
+- `KARMA_OPENCLAW_ALLOW_SETUP_MUTATIONS` — 允许 MCP 创建 contract/settlement（默认关）  
+- `KARMA_OPENCLAW_ALLOW_BUYER_ACCEPT` — 允许 MCP buyer-accept（默认关）
 
 ## P1 MCP 工具一览
 
