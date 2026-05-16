@@ -11,8 +11,8 @@ Build verifiable AI agents. Every tool call generates a signed receipt. Every ta
 ### 1. Install
 
 ```bash
-git clone https://github.com/your-org/karma-public.git
-cd karma-public
+git clone https://github.com/AtoB101/Karma.git
+cd Karma
 
 pip install -e ".[dev]"
 ```
@@ -145,7 +145,7 @@ In-process signed tool calls without BFF: `agents/openmanus/adapter.py` + `Karma
 ## Project Layout
 
 ```
-karma-public/
+Karma/
 ├── api/                  FastAPI routes + middleware
 ├── agents/               OpenManus + LangGraph adapters
 ├── core/                 Schemas, hooks, evidence builder, interfaces
@@ -166,7 +166,10 @@ karma-public/
 
 ## Docs
 
+- [**公开仓库落地指南（中文）**](docs/PUBLIC_REPO_LANDING-zh.md) · [**私有仓库执行清单（中文，Karma2）**](docs/PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md)
+- [**OpenClaw 运营检查清单（中文）**](docs/OPENCLAW_OPERATOR_CHECKLIST-zh.md)
 - [**公开测试计划（模拟 / 攻击测试 / 测试网）— 索引**](docs/public-testing/README.md)
+- [Getting started](docs/GETTING_STARTED.md)
 - [API Reference](docs/API_REFERENCE.md)
 - [Deployment SOP](docs/DEPLOYMENT.md)
 - [**One-click deploy — Railway / Fly.io / Vercel**](deploy/one-click-deploy.md)
@@ -201,7 +204,7 @@ The verification decision logic, fraud detection rules, and reputation scoring w
 
 ## License
 
-Apache 2.0
+AGPL-3.0-only — see [`LICENSE`](LICENSE) and [`docs/LICENSING.md`](docs/LICENSING.md).
 
 ---
 

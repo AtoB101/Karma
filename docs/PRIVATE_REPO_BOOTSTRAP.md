@@ -51,3 +51,7 @@ Move categories:
 - Keep only auditable source code and public-safe docs.
 - Keep all secrets in secure secret managers (never in git).
 - Run `./scripts/security-baseline-guard.sh` in PR validation.
+
+## 6) Ongoing private operations
+
+Use the one-page checklist: **`docs/PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md`** (lockstep release, manifest, runtime, commercial paths).

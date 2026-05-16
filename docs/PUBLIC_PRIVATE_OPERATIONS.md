@@ -48,6 +48,8 @@ If a hotfix would change ABI or addresses, the manifest and any downstream confi
 
 ## Related documents
 
+- **`docs/PUBLIC_REPO_LANDING-zh.md`** — public repo onboarding, PaaS, and doc index.
+- **`docs/PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md`** — one-page Karma2 execution checklist (lockstep, runtime, commercial).
 - `docs/PUBLIC_PRIVATE_SYNC.md` — index for public ↔ private sync (contract upgrades).
 - `docs/SYNC_PRIVATE_RUNTIME.md` — when to flag private in PRs/changelogs; links to private `SYNC_PUBLIC_REPO.md` §2.1.
 - `docs/PUBLIC_REPO_LAYOUT.md` — what belongs in the public tree.
