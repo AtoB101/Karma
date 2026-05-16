@@ -55,6 +55,12 @@ Generate signing keys locally (`python scripts/generate_keys.py`) and mount or i
 
 See also `deploy/.env.paas.example` and `docs/openclaw-handoff-webhook-v1.md` for OpenClaw ↔ Karma wiring.
 
+| Variable | Notes |
+|----------|--------|
+| `RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY` | When `true`, `POST /runtime/create-key` requires a prior `PUT /v1/identities/{id}/automation-policy` (fund limits, permissions, responsibility ack). |
+
+**Console authorization gate:** Settings → save automation policy → wallet-sign Runtime Key → complete voucher/settlement → `GET /v1/openclaw/automation-readiness` → export handoff for OpenClaw.
+
 ---
 
 ## Railway (API)

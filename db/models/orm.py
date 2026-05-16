@@ -539,6 +539,27 @@ class VerificationResultModel(Base):
 # ---------------------------------------------------------------------------
 
 
+class AgentAutomationPolicyModel(Base):
+    """
+    Server-side record of operator-configured AI automation bounds (Console).
+
+    Must be saved before minting a Runtime Key when ``runtime_require_saved_automation_policy`` is enabled.
+    """
+
+    __tablename__ = "agent_automation_policies"
+
+    karma_identity_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    auto_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    single_limit: Mapped[float] = mapped_column(Float, nullable=False)
+    daily_limit: Mapped[float] = mapped_column(Float, nullable=False)
+    permissions: Mapped[list] = mapped_column(JSON, nullable=False)
+    high_risk_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="always")
+    responsibility_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by_actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
 class RuntimeKeyModel(Base):
     """
     Stores metadata and a bcrypt hash of the secret segment of a Runtime Key.

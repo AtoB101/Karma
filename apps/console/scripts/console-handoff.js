@@ -49,6 +49,15 @@
       setStatus("请输入 task_id");
       return;
     }
+    if (window.karmaAutomationPolicy && !window.karmaAutomationPolicy.isPolicySaved()) {
+      setStatus("请先保存服务端自动授权策略");
+      return;
+    }
+    const readiness = window.__karmaLastReadiness;
+    if (readiness && readiness.task_id === taskId && !readiness.ready_for_task_automation) {
+      setStatus("自动化未就绪 — 请先「检查自动化就绪」并解决 blockers");
+      return;
+    }
     const traceId = $("[data-handoff-trace-id]")?.value?.trim() || "";
     const q = new URLSearchParams({ task_id: taskId });
     if (traceId) q.set("trace_id", traceId);

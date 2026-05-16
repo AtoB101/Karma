@@ -5,13 +5,14 @@ import secrets
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import IdentityProfile, SubIdentity, SubIdentityStatus, SubIdentityType, VoucherStatus
 from db.models.orm import IdentityProfileModel, SubIdentityModel, VoucherModel
 from db.session import get_db
+from services.agent_automation_policy import get_automation_policy, policy_to_dict, upsert_automation_policy
 
 router = APIRouter()
 
@@ -150,4 +151,47 @@ def _sub_to_schema(row: SubIdentityModel) -> SubIdentity:
         created_at=row.created_at,
         deleted_at=row.deleted_at,
     )
+
+
+class AutomationPolicyBody(BaseModel):
+    auto_enabled: bool = False
+    single_limit: float = Field(gt=0)
+    daily_limit: float = Field(gt=0)
+    permissions: list[str]
+    high_risk_mode: str = "always"
+    responsibility_acknowledged: bool = False
+
+
+@router.get("/{identity_id}/automation-policy")
+async def get_automation_policy_route(identity_id: str, db: AsyncSession = Depends(get_db)):
+    """Return saved AI automation policy (fund limits, permissions, responsibility ack) for Console."""
+    row = await get_automation_policy(db, identity_id)
+    if not row:
+        return {"configured": False, "karma_identity_id": identity_id}
+    return {"configured": True, **policy_to_dict(row)}
+
+
+@router.put("/{identity_id}/automation-policy")
+async def put_automation_policy_route(
+    identity_id: str,
+    body: AutomationPolicyBody,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Persist operator AI automation bounds before Runtime Key mint / OpenClaw handoff.
+
+    Enabling ``auto_enabled`` requires ``responsibility_acknowledged=true``.
+    """
+    row = await upsert_automation_policy(
+        db,
+        karma_identity_id=identity_id,
+        auto_enabled=body.auto_enabled,
+        single_limit=body.single_limit,
+        daily_limit=body.daily_limit,
+        permissions=body.permissions,
+        high_risk_mode=body.high_risk_mode,
+        responsibility_acknowledged=body.responsibility_acknowledged,
+    )
+    await db.commit()
+    return {"configured": True, **policy_to_dict(row)}
 

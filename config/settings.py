@@ -161,6 +161,9 @@ class Settings(BaseSettings):
     openclaw_webhook_secret: str = ""
     openclaw_webhook_store_events: bool = False
 
+    # Console — require saved automation policy before Runtime Key mint (fund limits + permissions + responsibility ack)
+    runtime_require_saved_automation_policy: bool = False
+
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":
         env = (self.app_env or "").lower()

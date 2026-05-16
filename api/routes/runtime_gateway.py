@@ -105,6 +105,22 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
         wallet_address=body.wallet_address,
         wallet_signature=body.wallet_signature,
     )
+    from config.settings import settings
+    from services.agent_automation_policy import assert_runtime_key_matches_policy, get_automation_policy
+
+    if settings.runtime_require_saved_automation_policy:
+        policy = await get_automation_policy(db, body.karma_identity_id)
+        if not policy:
+            raise HTTPException(
+                status_code=403,
+                detail="automation policy not saved — configure fund limits and permissions in Console first",
+            )
+        assert_runtime_key_matches_policy(
+            policy=policy,
+            permissions=body.permissions,
+            single_limit=body.single_limit,
+            daily_limit=body.daily_limit,
+        )
     token, row = await create_runtime_key_record(
         db=db,
         wallet_address=body.wallet_address,

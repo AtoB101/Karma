@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import get_current_agent_id
 from db.session import get_db
+from services.openclaw_automation_readiness import evaluate_automation_readiness
 from services.openclaw_handoff_draft import build_handoff_draft
 from services.openclaw_webhook import list_stored_events
 
@@ -41,3 +42,25 @@ async def get_handoff_draft(
     Voucher create/accept and Runtime Key mint remain Console-only.
     """
     return await build_handoff_draft(db, task_id=task_id.strip(), trace_id=trace_id)
+
+
+@router.get("/automation-readiness")
+async def get_automation_readiness(
+    task_id: str = Query(..., min_length=1),
+    role: str = Query(default="buyer", pattern="^(buyer|seller)$"),
+    karma_identity_id: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _actor: str = Depends(get_current_agent_id),
+):
+    """
+    Server-verified checklist before task-scoped AI automation.
+
+    ``ready_for_task_automation`` is true only when policy, Runtime Key, voucher, settlement,
+    and responsibility edge preconditions are satisfied.
+    """
+    return await evaluate_automation_readiness(
+        db,
+        task_id=task_id.strip(),
+        role=role,  # type: ignore[arg-type]
+        karma_identity_id=karma_identity_id,
+    )

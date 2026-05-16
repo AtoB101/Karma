@@ -55,34 +55,7 @@ function wire() {
   const baseInput = $("[data-api-base]");
   baseInput.value = window.KARMA_API_BASE || baseInput.placeholder;
 
-  $("[data-save-local]").addEventListener("click", () => {
-    const policy = {
-      auto_enabled: $("[data-k=auto_enabled]").checked,
-      single_limit: Number($("[data-k=single_limit]").value || 0),
-      daily_limit: Number($("[data-k=daily_limit]").value || 0),
-      perm_voucher: $("[data-k=perm_voucher]").checked,
-      perm_receipt: $("[data-k=perm_receipt]").checked,
-      perm_progress: $("[data-k=perm_progress]").checked,
-      perm_sync: $("[data-k=perm_sync]").checked,
-      perm_settle: $("[data-k=perm_settle]").checked,
-      high_risk: $("[data-k=high_risk]").value,
-    };
-    saveLocal(policy);
-    alert("已保存到本浏览器 localStorage");
-  });
-
-  const saved = loadLocal();
-  if (saved && Object.keys(saved).length) {
-    if ("auto_enabled" in saved) $("[data-k=auto_enabled]").checked = !!saved.auto_enabled;
-    if (saved.single_limit != null) $("[data-k=single_limit]").value = String(saved.single_limit);
-    if (saved.daily_limit != null) $("[data-k=daily_limit]").value = String(saved.daily_limit);
-    if ("perm_voucher" in saved) $("[data-k=perm_voucher]").checked = !!saved.perm_voucher;
-    if ("perm_receipt" in saved) $("[data-k=perm_receipt]").checked = !!saved.perm_receipt;
-    if ("perm_progress" in saved) $("[data-k=perm_progress]").checked = !!saved.perm_progress;
-    if ("perm_sync" in saved) $("[data-k=perm_sync]").checked = !!saved.perm_sync;
-    if ("perm_settle" in saved) $("[data-k=perm_settle]").checked = !!saved.perm_settle;
-    if (saved.high_risk) $("[data-k=high_risk]").value = saved.high_risk;
-  }
+  // Policy persistence handled by console-automation-policy.js (server-side).
 
   $("[data-build-msg]").addEventListener("click", () => {
     window.KARMA_API_BASE = baseInput.value.trim();
@@ -121,6 +94,10 @@ function wire() {
   let lastRuntimeKey = "";
 
   $("[data-create-key]").addEventListener("click", async () => {
+    if (window.karmaAutomationPolicy && !window.karmaAutomationPolicy.isPolicySaved()) {
+      alert("请先保存服务端自动授权策略（步骤 1–2）");
+      return;
+    }
     window.KARMA_API_BASE = baseInput.value.trim();
     const expireLocal = $("[data-expire]").value;
     const expireIso = expireLocal ? new Date(expireLocal).toISOString() : "";
