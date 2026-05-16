@@ -255,6 +255,7 @@ class IdentityProfileModel(Base):
     display_id:             Mapped[str]      = mapped_column(String(64), nullable=False, unique=True)
     legal_identity_status:  Mapped[str]      = mapped_column(String(32), nullable=False, default="unbound")
     status:                 Mapped[str]      = mapped_column(String(32), nullable=False, default="active")
+    bound_wallet_address:   Mapped[str|None] = mapped_column(String(128), nullable=True)
     created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -558,6 +559,17 @@ class AgentAutomationPolicyModel(Base):
     policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by_actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+
+class RuntimeKeyDailySpendModel(Base):
+    """Per-key daily spend totals (UTC date) for Runtime fund limits."""
+
+    __tablename__ = "runtime_key_daily_spend"
+
+    key_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    spend_date: Mapped[str] = mapped_column(String(10), primary_key=True)
+    amount_used: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class RuntimeKeyModel(Base):

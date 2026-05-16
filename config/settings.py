@@ -167,6 +167,13 @@ class Settings(BaseSettings):
     # Runtime mutators (receipt, progress, settlement, check-voucher) require task automation-readiness
     runtime_require_task_automation_readiness: bool = False
 
+    # Runtime Key daily spend — persist to DB (recommended production / multi-instance)
+    runtime_daily_spend_persist: bool = True
+
+    # Wallet ↔ karma_identity_id binding on Runtime Key mint
+    runtime_require_wallet_identity_binding: bool = False
+    runtime_auto_bind_wallet_on_create_key: bool = True
+
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":
         env = (self.app_env or "").lower()

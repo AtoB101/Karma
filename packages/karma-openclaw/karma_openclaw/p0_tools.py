@@ -235,6 +235,23 @@ def register_p0_tools(mcp: FastMCP) -> None:
         return await api_get(f"/v1/openclaw/handoff-events{q}")
 
     @mcp.tool()
+    async def karma_check_automation_readiness(
+        task_id: str,
+        role: str = "buyer",
+        karma_identity_id: str = "",
+    ) -> dict[str, Any]:
+        """
+        GET /v1/openclaw/automation-readiness — server-verified gate before AI auto-execute.
+
+        Returns ``ready_for_task_automation`` and ``blockers`` (policy, Runtime Key, voucher, settlement).
+        """
+        q = f"?task_id={quote(task_id.strip(), safe='')}&role={quote(role.strip() or 'buyer', safe='')}"
+        kid = karma_identity_id.strip()
+        if kid:
+            q += f"&karma_identity_id={quote(kid, safe='')}"
+        return await api_get(f"/v1/openclaw/automation-readiness{q}")
+
+    @mcp.tool()
     async def karma_automation_status(
         task_id: str,
         role: str,

@@ -51,6 +51,7 @@ Register in OpenClaw’s **MCP bridge** (stdio). Tool names are prefixed with `k
 | `karma_runtime_check_voucher` | Seller verify via Runtime (not accept) |
 | `karma_poll_handoff_events` | Poll API event ring when enabled |
 | `karma_automation_status` | Suggested next step for buyer/seller |
+| `karma_check_automation_readiness` | `GET /v1/openclaw/automation-readiness` — server gate before auto-execute |
 
 ### P1 (verify / delivery; no voucher mutate)
 

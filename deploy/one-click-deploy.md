@@ -59,8 +59,11 @@ See also `deploy/.env.paas.example` and `docs/openclaw-handoff-webhook-v1.md` fo
 |----------|--------|
 | `RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY` | When `true`, `POST /runtime/create-key` requires a prior `PUT /v1/identities/{id}/automation-policy` (fund limits, permissions, responsibility ack). |
 | `RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS` | When `true`, Runtime task mutators (`submit-receipt`, `update-progress`, `request-settlement`, `check-voucher`) return 403 until `GET /v1/openclaw/automation-readiness` is satisfied. |
+| `RUNTIME_DAILY_SPEND_PERSIST` | When `true` (default), daily Runtime spend is stored in `runtime_key_daily_spend` (multi-instance safe). |
+| `RUNTIME_AUTO_BIND_WALLET_ON_CREATE_KEY` | First `create-key` binds `wallet_address` to `identity_profiles.bound_wallet_address`. |
+| `RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING` | When `true`, `create-key` rejects wallets that do not match the bound address. |
 
-**Console authorization gate:** Settings → save automation policy → wallet-sign Runtime Key → complete voucher/settlement → `GET /v1/openclaw/automation-readiness` → export handoff for OpenClaw.
+**Console authorization gate:** Settings → save automation policy → wallet-sign Runtime Key (wallet auto-binds to identity on first mint) → complete voucher/settlement → `GET /v1/openclaw/automation-readiness` or MCP `karma_check_automation_readiness` → export handoff for OpenClaw.
 
 ---
 
