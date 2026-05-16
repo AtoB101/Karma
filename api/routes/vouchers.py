@@ -10,7 +10,6 @@ from sqlalchemy.exc import IntegrityError
 from core.schemas import (
     AuthorizationVoucher,
     CapacityState,
-    ResponsibilityEdgeType,
     SubIdentityStatus,
     VoucherStatus,
     VoucherVerificationResult,
@@ -18,7 +17,6 @@ from core.schemas import (
 from db.models.orm import CapacityModel, SubIdentityModel, VoucherModel
 from db.session import get_db
 from services.capacity_ledger import assert_capacity_invariants
-from services.responsibility_graph import ingest_edge
 from services.runtime_safety import (
     assert_runtime_operation_allowed,
     audit_capacity_anchor_and_maybe_trip,
@@ -168,6 +166,33 @@ async def create_voucher(body: CreateVoucherRequest, request: Request, db: Async
         await db.flush()
     except IntegrityError as exc:
         raise HTTPException(409, "duplicate voucher nonce for this buyer") from exc
+
+    from services.voucher_events import record_voucher_event
+    from services.openclaw_webhook import emit_openclaw_event
+
+    await record_voucher_event(
+        db,
+        voucher_id=voucher.voucher_id,
+        event_type="voucher.created",
+        actor_identity_id=voucher.buyer_identity_id,
+        target_identity_id=voucher.seller_identity_id,
+        payload={
+            "amount": float(voucher.amount),
+            "task_type": voucher.task_type,
+            "bill_credit_amount": float(voucher.bill_credit_amount),
+        },
+    )
+    emit_openclaw_event(
+        "voucher.created",
+        {
+            "voucher_id": voucher.voucher_id,
+            "buyer_identity_id": voucher.buyer_identity_id,
+            "seller_identity_id": voucher.seller_identity_id,
+            "amount": float(voucher.amount),
+            "task_type": voucher.task_type,
+            "expiry_time": voucher.expiry_time.isoformat(),
+        },
+    )
     return voucher
 
 
@@ -233,66 +258,34 @@ async def verify_voucher(voucher_id: str, body: VerifyVoucherRequest, request: R
     )
 
 
+@router.get("/{voucher_id}/events")
+async def list_voucher_events_route(
+    voucher_id: str,
+    identity_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    validate_public_url_segment("voucher_id", voucher_id)
+    from services.voucher_events import list_voucher_events
+
+    return {
+        "voucher_id": voucher_id,
+        "events": await list_voucher_events(db, voucher_id, for_identity_id=identity_id),
+    }
+
+
 @router.post("/{voucher_id}/accept", response_model=AuthorizationVoucher)
 async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, request: Request, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("voucher_id", voucher_id)
     validate_public_url_segment("seller_identity_id", body.seller_identity_id)
     assert_runtime_operation_allowed("new_authorization")
     await audit_capacity_anchor_and_maybe_trip(db=db)
+    require_ledger_identity(request, body.seller_identity_id)
     row = await db.get(VoucherModel, voucher_id)
     if not row:
         raise HTTPException(404, f"Voucher {voucher_id} not found")
-    if row.status != VoucherStatus.CREATED.value:
-        raise HTTPException(409, f"voucher already processed: {row.status}")
-    if row.expiry_time <= datetime.utcnow():
-        row.status = VoucherStatus.EXPIRED.value
-        raise HTTPException(409, "voucher expired")
-    if row.seller_identity_id != body.seller_identity_id:
-        raise HTTPException(403, "seller mismatch")
-    require_ledger_identity(request, body.seller_identity_id)
+    from services.voucher_lifecycle import accept_voucher_row
 
-    cap = await db.get(CapacityModel, row.buyer_identity_id)
-    if not cap or cap.available_credits < row.bill_credit_amount:
-        raise HTTPException(409, "insufficient buyer available credits")
-
-    cap.available_credits -= row.bill_credit_amount
-    cap.reserved_credits += row.bill_credit_amount
-    cap.updated_at = datetime.utcnow()
-    _validate_capacity(cap)
-    await audit_capacity_anchor_and_maybe_trip(db=db)
-
-    row.status = VoucherStatus.ACCEPTED.value
-    row.accepted_at = datetime.utcnow()
-
-    await ingest_edge(
-        db=db,
-        source_identity_id=row.buyer_identity_id,
-        target_identity_id=row.seller_identity_id,
-        edge_type=ResponsibilityEdgeType.VOUCHER_ACCEPT,
-        voucher_id=row.voucher_id,
-        metadata={
-            "amount": row.amount,
-            "currency": row.currency,
-            "task_type": row.task_type,
-            "buyer_sub_identity_id": row.buyer_sub_identity_id,
-            "seller_sub_identity_id": row.seller_sub_identity_id,
-        },
-    )
-
-    await db.flush()
-    from services.openclaw_webhook import emit_openclaw_event
-
-    emit_openclaw_event(
-        "voucher.accepted",
-        {
-            "voucher_id": row.voucher_id,
-            "buyer_identity_id": row.buyer_identity_id,
-            "seller_identity_id": row.seller_identity_id,
-            "bill_credit_amount": float(row.bill_credit_amount),
-            "amount": float(row.amount),
-            "task_type": row.task_type,
-        },
-    )
+    row = await accept_voucher_row(db, row, seller_identity_id=body.seller_identity_id, actor="api")
     return _to_schema(row)
 
 
@@ -317,6 +310,12 @@ def _to_schema(row: VoucherModel) -> AuthorizationVoucher:
         accepted_at=row.accepted_at,
         created_at=row.created_at,
         progress_rule_spec=row.progress_rule_spec,
+        task_precision=getattr(row, "task_precision", None),
+        payment_mode=getattr(row, "payment_mode", "manual") or "manual",
+        chain_anchor_hash=getattr(row, "chain_anchor_hash", None),
+        rejection_reason=getattr(row, "rejection_reason", None),
+        rejected_at=getattr(row, "rejected_at", None),
+        rejected_by_identity_id=getattr(row, "rejected_by_identity_id", None),
     )
 
 

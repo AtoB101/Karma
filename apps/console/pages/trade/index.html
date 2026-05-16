@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>交易 · KARMA Console</title>
+    <link rel="stylesheet" href="../../styles/console.css" />
+    <style>
+      .mode-bar {
+        margin-top: 1.25rem;
+        padding: 1rem;
+        border: 1px dashed var(--line);
+        border-radius: 10px;
+        background: rgba(94, 234, 212, 0.04);
+      }
+      .preauth-panel[hidden] {
+        display: none;
+      }
+      pre.qr {
+        font-size: 0.75rem;
+        max-height: 200px;
+        overflow: auto;
+        word-break: break-all;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">KARMA · Console</div>
+      <nav>
+        <a href="../../index.html">Overview</a>
+        <a href="../receiving/index.html">Receiving</a>
+        <a href="../payments/index.html">Payments</a>
+        <a class="active" href="index.html">交易</a>
+        <a href="../settings/index.html">Settings</a>
+      </nav>
+    </header>
+    <main data-trade-root>
+      <h1>交易 · 传统模式</h1>
+      <p class="sub">
+        买方生成<strong>时效付款码</strong>（含卖家 ID、任务类型、精密度、金额）；卖方验码后<strong>手动接单或拒绝</strong>。预授权开启后，符合策略的订单将自动接单或自动拒绝并回执买方。
+      </p>
+
+      <section class="panel">
+        <h2 style="font-size: 1rem">API 连接</h2>
+        <div class="grid cols-2">
+          <label>API Base<br /><input data-cfg="api_base" type="text" style="width: 100%; margin-top: 0.25rem" /></label>
+          <label>API Key<br /><input data-cfg="api_key" type="password" style="width: 100%; margin-top: 0.25rem" /></label>
+          <label>当前 Identity<br /><input data-cfg="identity_id" type="text" style="width: 100%; margin-top: 0.25rem" /></label>
+          <label>角色<br />
+            <select data-trade-role style="margin-top: 0.25rem">
+              <option value="buyer">买方</option>
+              <option value="seller">卖方</option>
+            </select>
+          </label>
+        </div>
+        <p style="margin-top: 0.5rem"><button type="button" class="btn" data-save-cfg>保存连接</button></p>
+      </section>
+
+      <section class="panel" data-pipeline-panel>
+        <h2 style="font-size: 1rem">买方 · 一键发起订单（预授权 + 自动接单 + 自动执行）</h2>
+        <p class="sub">
+          买卖双方须已保存预授权并勾选<strong>自动执行流水线</strong>，且各自已铸造 <strong>Runtime Key</strong>（Settings）。
+        </p>
+        <label>需求描述（自然语言，Agent 将拆解为任务/金额/精密度）<br />
+          <textarea data-f="requirement_text" rows="4" style="width: 100%; margin-top: 0.35rem" placeholder="例如：为卖家 seller-001 生成字幕任务，金额 20 USDC，精度 1.5，48小时内交付"></textarea>
+        </label>
+        <p style="margin-top: 0.65rem">
+          <button type="button" class="btn" data-launch-order>发起订单（全流程）</button>
+        </p>
+        <pre class="out qr" data-pipeline-out>—</pre>
+      </section>
+
+      <section class="panel" data-buyer-panel>
+        <h2 style="font-size: 1rem">买方 · 生成时效付款码（单步）</h2>
+        <div class="grid cols-2">
+          <label>卖方 Identity<br /><input data-f="seller_identity_id" type="text" /></label>
+          <label>金额 (USDC)<br /><input data-f="amount" type="number" step="0.01" value="10" /></label>
+          <label>账单币额度<br /><input data-f="bill_credit_amount" type="number" step="0.01" value="10" /></label>
+          <label>任务类型<br /><input data-f="task_type" type="text" value="api.caption" /></label>
+          <label>任务精密度<br /><input data-f="task_precision" type="number" step="0.1" value="1" /></label>
+          <label>时效（秒）<br /><input data-f="ttl_seconds" type="number" value="3600" /></label>
+          <label>买方签名（占位/EIP-712）<br /><input data-f="buyer_signature" type="text" value="0xdev_buyer_sig" style="width: 100%" /></label>
+          <label>链上锚定哈希（可选）<br /><input data-f="chain_anchor_hash" type="text" placeholder="0x…" style="width: 100%" /></label>
+        </div>
+        <p style="margin-top: 0.65rem">
+          <button type="button" class="btn" data-create-payment-code>生成付款码（传统）</button>
+          <button type="button" class="btn" data-create-payment-code-preauth hidden>生成付款码（预授权）</button>
+        </p>
+        <p class="sub" data-buyer-status>—</p>
+        <pre class="out qr" data-payment-code-out>—</pre>
+      </section>
+
+      <section class="panel" data-seller-panel>
+        <h2 style="font-size: 1rem">卖方 · 验码接单 / 拒绝</h2>
+        <label>Voucher ID（来自付款码）<br /><input data-f="voucher_id" type="text" style="width: 100%; margin-top: 0.25rem" /></label>
+        <p style="margin-top: 0.65rem">
+          <button type="button" class="btn" data-load-payment-code>读取付款码信息</button>
+          <button type="button" class="btn" data-accept-voucher>确认接单</button>
+          <button type="button" class="btn" data-reject-voucher>拒绝</button>
+        </p>
+        <label>拒绝原因<br /><input data-f="reject_reason" type="text" value="不符合接单条件" style="width: 100%; margin-top: 0.25rem" /></label>
+        <p class="sub" data-seller-status>—</p>
+        <pre class="out" data-seller-code-out>—</pre>
+        <h3 style="font-size: 0.9rem; margin-top: 0.75rem">事件回执（买方可见）</h3>
+        <pre class="out" data-voucher-events-out>—</pre>
+      </section>
+
+      <section class="mode-bar">
+        <label class="chk" style="font-size: 1rem">
+          <input type="checkbox" data-preauth-toggle />
+          <span><strong>一键开启预授权</strong>（买卖双方须分别保存预授权策略后，预授权付款码才会自动接单/拒单）</span>
+        </label>
+      </section>
+
+      <section class="panel preauth-panel" data-preauth-panel hidden>
+        <h2 style="font-size: 1rem">预授权设置（保存后 Agent 按此执行）</h2>
+        <div class="grid cols-2">
+          <label>单笔上限<br /><input data-p="single_limit" type="number" value="100" /></label>
+          <label>每日上限<br /><input data-p="daily_limit" type="number" value="500" /></label>
+          <label>精密度下限<br /><input data-p="task_precision_min" type="number" step="0.1" placeholder="空=不限" /></label>
+          <label>精密度上限<br /><input data-p="task_precision_max" type="number" step="0.1" placeholder="空=不限" /></label>
+          <label>允许任务类型（逗号分隔）<br /><input data-p="allowed_task_types" type="text" placeholder="api.caption,api.translate" style="width: 100%" /></label>
+          <label>信任对手方 ID（逗号分隔）<br /><input data-p="trusted_counterparty_ids" type="text" style="width: 100%" /></label>
+          <label>责任边界 ID<br /><input data-p="responsibility_boundary_id" type="text" placeholder="scene-v1-caption" style="width: 100%" /></label>
+          <label>付款码默认时效（秒）<br /><input data-p="payment_code_ttl_seconds" type="number" value="3600" /></label>
+        </div>
+        <label class="chk"><input type="checkbox" data-p="responsibility_ack" /> 我已阅读并确认责任边界</label>
+        <label class="chk" data-seller-only hidden><input type="checkbox" data-p="auto_accept_incoming" /> 自动接受符合策略的 incoming 付款码</label>
+        <label class="chk"><input type="checkbox" data-p="auto_enabled" checked /> 启用 AI 自动化（Runtime Key / OpenClaw）</label>
+        <label class="chk"><input type="checkbox" data-p="auto_execute_pipeline" /> 启用自动执行流水线（发起订单全流程）</label>
+        <p style="margin-top: 0.65rem">
+          <button type="button" class="btn" data-save-preauth>保存预授权</button>
+          <span class="sub" data-preauth-status>预授权：未保存</span>
+        </p>
+        <p class="sub">完整 Runtime / handoff 仍在 <a href="../settings/index.html">Settings</a>。</p>
+      </section>
+    </main>
+    <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+      window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
+    </script>
+    <script src="../../scripts/karma-public-api.js"></script>
+    <script src="../../scripts/console-trade.js"></script>
+  </body>
+</html>

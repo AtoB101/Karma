@@ -161,6 +161,15 @@ class AutomationPolicyBody(BaseModel):
     permissions: list[str]
     high_risk_mode: str = "always"
     responsibility_acknowledged: bool = False
+    preauth_enabled: bool = False
+    allowed_task_types: list[str] = Field(default_factory=list)
+    task_precision_min: float | None = None
+    task_precision_max: float | None = None
+    trusted_counterparty_ids: list[str] = Field(default_factory=list)
+    payment_code_ttl_seconds: int = Field(default=3600, ge=60)
+    responsibility_boundary_id: str | None = None
+    auto_accept_incoming: bool = False
+    auto_execute_pipeline: bool = False
 
 
 @router.get("/{identity_id}/automation-policy")
@@ -192,6 +201,15 @@ async def put_automation_policy_route(
         permissions=body.permissions,
         high_risk_mode=body.high_risk_mode,
         responsibility_acknowledged=body.responsibility_acknowledged,
+        preauth_enabled=body.preauth_enabled,
+        allowed_task_types=body.allowed_task_types,
+        task_precision_min=body.task_precision_min,
+        task_precision_max=body.task_precision_max,
+        trusted_counterparty_ids=body.trusted_counterparty_ids,
+        payment_code_ttl_seconds=body.payment_code_ttl_seconds,
+        responsibility_boundary_id=body.responsibility_boundary_id,
+        auto_accept_incoming=body.auto_accept_incoming,
+        auto_execute_pipeline=body.auto_execute_pipeline,
     )
     await db.commit()
     return {"configured": True, **policy_to_dict(row)}

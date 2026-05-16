@@ -115,6 +115,7 @@ class VoucherStatus(str, Enum):
     USED = "used"
     EXPIRED = "expired"
     CANCELLED = "cancelled"
+    REJECTED = "rejected"
 
 
 class ProgressConfirmationStatus(str, Enum):
@@ -531,6 +532,18 @@ class AuthorizationVoucher(BaseModel):
         default=None,
         description="Structured curve (e.g. piecewise); committed alongside progress_rule_hash",
     )
+    task_precision: Optional[float] = Field(
+        default=None,
+        description="Task granularity / precision level (scenario-specific scale)",
+    )
+    payment_mode: str = Field(default="manual", description="manual | preauth")
+    chain_anchor_hash: Optional[str] = Field(
+        default=None,
+        description="Optional EIP-712 or tx hash anchoring buyer intent at code creation",
+    )
+    rejection_reason: Optional[str] = None
+    rejected_at: Optional[datetime] = None
+    rejected_by_identity_id: Optional[str] = None
 
 
 class VoucherVerificationResult(BaseModel):

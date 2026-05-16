@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.schemas import CapacityState
 from db.models.orm import CapacityModel
 from db.session import get_db
-from services.capacity_ledger import assert_capacity_invariants
+from services.capacity_ledger import assert_can_release_locked_funds, assert_capacity_invariants
 from services.ledger_party_access import require_ledger_identity
 from services.path_param_safety import validate_public_url_segment
 from services.runtime_safety import (
@@ -78,8 +78,11 @@ async def release_unused(identity_id: str, body: AmountRequest, request: Request
     row = await db.get(CapacityModel, identity_id)
     if not row:
         raise HTTPException(404, f"Capacity for {identity_id} not found")
-    if row.available_credits < body.amount:
-        raise HTTPException(409, "insufficient available credits")
+    state_before = _to_schema(row)
+    try:
+        assert_can_release_locked_funds(state_before, body.amount)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
     row.available_credits -= body.amount
     row.total_bill_credits -= body.amount
