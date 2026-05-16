@@ -20,7 +20,12 @@ from api.routes.settlement import (
     partial_settlement,
     submit_settlement,
 )
-from api.routes.vouchers import CreateVoucherRequest, create_voucher as vouchers_create_route
+from api.routes.vouchers import (
+    CreateVoucherRequest,
+    VerifyVoucherRequest,
+    create_voucher as vouchers_create_route,
+    verify_voucher as vouchers_verify_route,
+)
 from config.settings import settings
 from core.schemas import (
     CapacityState,
@@ -282,6 +287,37 @@ async def runtime_request_voucher(
     record_daily_spend(key_id=ctx.key_id, amount=float(v.amount))
     await db.commit()
     return signed_json_response(out.model_dump(mode="json"), status_code=201)
+
+
+class RuntimeCheckVoucherBody(BaseModel):
+    """Read-only voucher verify for seller Runtime Key (does not accept)."""
+
+    voucher_id: str
+    client_nonce: str = Field(min_length=8, max_length=128)
+    expected_amount: Optional[float] = None
+
+
+@router.post("/check-voucher")
+async def runtime_check_voucher(
+    body: RuntimeCheckVoucherBody,
+    ctx: RuntimeKeyContext = Depends(get_runtime_context),
+    db: AsyncSession = Depends(get_db),
+):
+    assert_permission(ctx, "verify_voucher")
+    validate_public_url_segment("voucher_id", body.voucher_id)
+    check_replay_nonce(key_id=ctx.key_id, endpoint="check-voucher", nonce=body.client_nonce)
+    delegate = synthetic_request(
+        headers={"X-Karma-Api-Key": _dev_api_key(ctx.karma_identity_id)},
+        path="/runtime/check-voucher",
+    )
+    out = await vouchers_verify_route(
+        body.voucher_id,
+        VerifyVoucherRequest(seller_identity_id=ctx.karma_identity_id, expected_amount=body.expected_amount),
+        delegate,
+        db,
+    )
+    await db.commit()
+    return signed_json_response(out.model_dump(mode="json"))
 
 
 @router.post("/submit-receipt")

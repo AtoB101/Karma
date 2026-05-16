@@ -15,6 +15,7 @@ from karma_openclaw.guard import (
     setup_mutations_allowed,
 )
 from karma_openclaw.http_client import api_get, api_post, runtime_get, runtime_key, runtime_post
+from karma_openclaw.orchestration import suggest_next_steps
 
 
 def register_p0_tools(mcp: FastMCP) -> None:
@@ -204,3 +205,68 @@ def register_p0_tools(mcp: FastMCP) -> None:
         if not runtime_key():
             return block_response("runtime_key_missing", hint="Set KARMA_RUNTIME_KEY")
         return await runtime_get("/runtime/capacity")
+
+    @mcp.tool()
+    async def karma_runtime_check_voucher(
+        voucher_id: str,
+        client_nonce: str,
+        handoff_json: str = "",
+        expected_amount: float | None = None,
+    ) -> dict[str, Any]:
+        """POST /runtime/check-voucher — seller verify only (not accept); needs verify_voucher permission."""
+        if not runtime_key():
+            return block_response("runtime_key_missing", hint="Set KARMA_RUNTIME_KEY")
+        err, _ = require_valid_handoff(handoff_json or None)
+        if err:
+            return err
+        body: dict[str, Any] = {"voucher_id": voucher_id, "client_nonce": client_nonce}
+        if expected_amount is not None:
+            body["expected_amount"] = expected_amount
+        return await runtime_post("/runtime/check-voucher", body)
+
+    @mcp.tool()
+    async def karma_poll_handoff_events(task_id: str = "", limit: int = 20) -> dict[str, Any]:
+        """
+        GET /v1/openclaw/handoff-events — recent voucher/settlement events (requires OPENCLAW_WEBHOOK_STORE_EVENTS on API).
+        """
+        q = f"?limit={int(limit)}"
+        if task_id.strip():
+            q = f"?task_id={quote(task_id.strip(), safe='')}&limit={int(limit)}"
+        return await api_get(f"/v1/openclaw/handoff-events{q}")
+
+    @mcp.tool()
+    async def karma_automation_status(
+        task_id: str,
+        role: str,
+        handoff_json: str = "",
+        voucher_id: str = "",
+    ) -> dict[str, Any]:
+        """
+        Aggregate handoff + settlement + optional voucher; return suggested next MCP/Console step.
+        """
+        err, norm = require_valid_handoff(handoff_json or None)
+        handoff_ok = err is None
+        settlement = await api_get(f"/v1/settlement/{quote(task_id, safe='')}")
+        v_id = voucher_id.strip() or (norm.get("voucher_id") if handoff_ok else "") or ""
+        v_status = None
+        if v_id:
+            try:
+                vrow = await api_get(f"/v1/vouchers/{quote(v_id, safe='')}")
+                v_status = vrow.get("status") if isinstance(vrow, dict) else None
+            except Exception as exc:  # noqa: BLE001
+                v_status = f"error:{exc}"
+        st = settlement.get("status") if isinstance(settlement, dict) else None
+        if hasattr(st, "value"):
+            st = st.value
+        plan = suggest_next_steps(
+            role=role,
+            settlement_status=str(st) if st is not None else None,
+            voucher_status=str(v_status) if v_status is not None else None,
+            handoff_ok=handoff_ok,
+        )
+        return {
+            "handoff_errors": err.get("errors") if err else [],
+            "settlement": settlement,
+            "voucher_status": v_status,
+            "plan": plan,
+        }

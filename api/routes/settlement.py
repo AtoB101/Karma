@@ -244,7 +244,7 @@ async def submit_settlement(task_id: str, request: Request, db: AsyncSession = D
     if not state:
         raise HTTPException(404)
     require_worker(request, state)
-    return await _apply_transition(
+    out = await _apply_transition(
         db=db,
         store=store,
         state=state,
@@ -253,6 +253,20 @@ async def submit_settlement(task_id: str, request: Request, db: AsyncSession = D
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
     )
+    from services.openclaw_webhook import emit_openclaw_event
+
+    emit_openclaw_event(
+        "settlement.delivered",
+        {
+            "task_id": task_id,
+            "buyer_identity_id": out.client_agent_id,
+            "seller_identity_id": out.worker_agent_id or "",
+            "voucher_id": out.voucher_id,
+            "status": out.status.value if hasattr(out.status, "value") else str(out.status),
+            "escrow_amount": float(out.escrow_amount),
+        },
+    )
+    return out
 
 
 @router.post("/{task_id}/fail", response_model=SettlementState)
@@ -478,6 +492,20 @@ async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSessi
     )
     await mark_voucher_used_if_linked(db, task_id)
     await db.flush()
+    from services.openclaw_webhook import emit_openclaw_event
+
+    emit_openclaw_event(
+        "settlement.settled",
+        {
+            "task_id": task_id,
+            "buyer_identity_id": state.client_agent_id,
+            "seller_identity_id": state.worker_agent_id or "",
+            "voucher_id": state.voucher_id,
+            "status": state.status.value if hasattr(state.status, "value") else str(state.status),
+            "escrow_amount": float(state.escrow_amount),
+            "settled_amount": float(state.released_amount or 0),
+        },
+    )
     return state
 
 

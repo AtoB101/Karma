@@ -1,16 +1,30 @@
-# OpenClaw handoff webhook v1 (optional, document-only)
+# OpenClaw handoff webhook v1
 
-P1 does **not** require a running webhook receiver. This contract is for a future BFF or Karma API extension so **seller OpenClaw** can react when **buyer Console** completes authorization.
+Karma API can **emit** signed webhooks when operators complete Console steps. **Seller OpenClaw** can react without polling vouchers manually.
 
-## Endpoint (future)
+## Configuration (Karma API)
+
+| Env | Purpose |
+|-----|---------|
+| `OPENCLAW_WEBHOOK_URL` | POST target (your Claw receiver or `scripts/openclaw_webhook_receiver.py`) |
+| `OPENCLAW_WEBHOOK_SECRET` | HMAC secret → `X-Karma-Signature: sha256=…` |
+| `OPENCLAW_WEBHOOK_STORE_EVENTS` | `true` → also keep last events in API memory for `GET /v1/openclaw/handoff-events` |
+
+## Outbound request
 
 ```http
-POST /v1/webhooks/openclaw-handoff
+POST <OPENCLAW_WEBHOOK_URL>
 Content-Type: application/json
 X-Karma-Signature: sha256=<hmac>
 ```
 
-Shared secret: same pattern as `apps/karma_bff` chain webhooks (`BFF_WEBHOOK_SECRET` or dedicated `OPENCLAW_WEBHOOK_SECRET`).
+Local dev receiver:
+
+```bash
+export OPENCLAW_WEBHOOK_SECRET=devsecret
+python3 scripts/openclaw_webhook_receiver.py --port 8765
+export OPENCLAW_WEBHOOK_URL=http://127.0.0.1:8765/hook
+```
 
 ## Event envelope
 
@@ -45,4 +59,6 @@ Shared secret: same pattern as `apps/karma_bff` chain webhooks (`BFF_WEBHOOK_SEC
 2. Merge into local `handoff.json` (`authorization.voucher_status`, `manual_console_steps_completed`).  
 3. Call `karma_validate_handoff` before automated tools.
 
-Until implemented, poll `karma_get_voucher` or Console sync.
+OpenClaw MCP: `karma_poll_handoff_events` (when `OPENCLAW_WEBHOOK_STORE_EVENTS=true`) or configure outbound URL.
+
+Runtime seller verify (not accept): `POST /runtime/check-voucher` with `verify_voucher` permission — MCP `karma_runtime_check_voucher`.
