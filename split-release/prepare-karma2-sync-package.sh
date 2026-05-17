@@ -31,6 +31,8 @@ Outputs:
   <out-dir>/vendor/karma-public-sync/README.txt
   <out-dir>/vendor/karma-public-sync/karma-engine/internal-admin/core-devops/foundry.toml  (from split-release/sync-templates)
   <out-dir>/vendor/karma-public-sync/karma-core/contracts/core/NonCustodialAgentPayment.sol
+  <out-dir>/schemas_public/*.json
+  <out-dir>/KARMA2_PUBLIC_SYNC_NOTICE.md
   <out-dir>/README.md
 EOF
 }
@@ -74,8 +76,11 @@ mkdir -p "$out_dir/openapi" "$out_dir/templates/workflows" "$out_dir/contracts/i
 mkdir -p "$out_dir/vendor/karma-public-sync/karma-engine/internal-admin/core-devops"
 ENGINE_DEVOPS_TEMPLATES="${ROOT_DIR}/split-release/sync-templates/engine-core-devops"
 mkdir -p "$out_dir/vendor/karma-public-sync/karma-core/contracts/core"
+mkdir -p "$out_dir/schemas_public"
 
 cp "$ROOT_DIR/openapi/karma-v1.yaml" "$out_dir/openapi/karma-v1.yaml"
+cp "$ROOT_DIR/schemas/openclaw-handoff-v1.example.json" "$out_dir/schemas_public/" 2>/dev/null || true
+cp "$ROOT_DIR/packages/evidence-schema/"*.schema.json "$out_dir/schemas_public/" 2>/dev/null || true
 cp "$ROOT_DIR/split-release/templates/karma2/CORE_VERSION.lock.example" "$out_dir/templates/CORE_VERSION.lock.example"
 cp "$ROOT_DIR/split-release/templates/karma2/deployment-manifest.json.example" "$out_dir/templates/deployment-manifest.json.example"
 cp "$ROOT_DIR/split-release/templates/karma2/verify-manifest.sh" "$out_dir/templates/verify-manifest.sh"
@@ -98,13 +103,26 @@ Paths mirror the public monorepo:
 - karma-core/contracts/core/NonCustodialAgentPayment.sol
 EOF
 
+generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
 cat > "$out_dir/SYNC_METADATA.env" <<EOF
 CORE_REPO=${core_repo}
 CORE_TAG=${core_tag}
 CORE_COMMIT=${core_commit}
 PRIVATE_REPO=${private_repo}
-GENERATED_AT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+GENERATED_AT_UTC=${generated_at}
 EOF
+
+notice_tpl="${ROOT_DIR}/split-release/templates/karma2/KARMA2_PUBLIC_SYNC_NOTICE.md.tpl"
+if [[ -f "$notice_tpl" ]]; then
+  sed -e "s|{{CORE_REPO}}|${core_repo}|g" \
+      -e "s|{{CORE_COMMIT}}|${core_commit}|g" \
+      -e "s|{{CORE_TAG}}|${core_tag}|g" \
+      -e "s|{{GENERATED_AT_UTC}}|${generated_at}|g" \
+      "$notice_tpl" > "$out_dir/KARMA2_PUBLIC_SYNC_NOTICE.md"
+else
+  echo "WARN missing KARMA2_PUBLIC_SYNC_NOTICE.md.tpl" >&2
+fi
 
 cat > "$out_dir/README.md" <<'EOF'
 # Karma2 Sync Package
@@ -133,8 +151,9 @@ Keep the private repository aligned with the public core baseline:
 5. Install drift guard workflow:
    - `mkdir -p .github/workflows`
    - `cp templates/workflows/lockstep-sync-check.yml .github/workflows/lockstep-sync-check.yml`
-6. (Optional) Copy `vendor/karma-public-sync/` into Karma2 under the same relative path (e.g. `ops/release-sync/vendor/karma-public-sync/`) so private engineers can `forge build` against pinned sources.
-7. Commit lock/manifest/workflow (+ vendor if used) in Karma2 and run private CI + smoke tests.
+6. Copy `vendor/karma-public-sync/` and `schemas_public/` into Karma2 `ops/release-sync/` — **do not hand-edit vendor in Karma2**.
+7. Read `KARMA2_PUBLIC_SYNC_NOTICE.md` for lock commit and post-merge `make -C private-risk-engine contract-sync alignment-guard acceptance`.
+8. Commit lock/manifest/workflow (+ vendor/schemas from this package) in Karma2 and run private CI + smoke tests.
 EOF
 
 chmod +x "$out_dir/templates/verify-manifest.sh"
