@@ -25,10 +25,27 @@
     return String($("[data-cfg=identity_id]")?.value || localStorage.getItem(LS_ID) || "").trim();
   }
 
-  function headers() {
+  function launchIdempotencyKey() {
+    var seed =
+      identityId() +
+      "|" +
+      field("seller_identity_id") +
+      "|" +
+      (field("requirement_text") || field("task_type") || "launch");
+    var h = 0;
+    for (var i = 0; i < seed.length; i++) h = (Math.imul(31, h) + seed.charCodeAt(i)) | 0;
+    return "console-trade-" + Math.abs(h).toString(16) + "-" + Date.now().toString(36);
+  }
+
+  function headers(extra) {
     var h = { Accept: "application/json", "Content-Type": "application/json" };
     var k = apiKey();
     if (k) h["X-Karma-Api-Key"] = k;
+    if (extra) {
+      for (var ek in extra) {
+        if (Object.prototype.hasOwnProperty.call(extra, ek)) h[ek] = extra[ek];
+      }
+    }
     return h;
   }
 
@@ -236,7 +253,7 @@
     try {
       var res = await fetch(apiBase() + "/v1/trade/orders/launch", {
         method: "POST",
-        headers: headers(),
+        headers: headers({ "Idempotency-Key": launchIdempotencyKey() }),
         body: JSON.stringify({
           buyer_identity_id: identityId(),
           seller_identity_id: field("seller_identity_id"),

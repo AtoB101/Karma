@@ -45,6 +45,8 @@ logger = structlog.get_logger(__name__)
 security_audit_logger = structlog.get_logger("security.audit")
 SENSITIVE_WRITE_PREFIXES = (
     "/v1/settlement/",
+    "/v1/trade/",
+    "/v1/payment-codes",
     "/v1/arbitration/",
     "/v1/vouchers/",
     "/v1/verify",

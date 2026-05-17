@@ -1,0 +1,40 @@
+{
+  "version": "1",
+  "description": "Optional OpenManus tools for direct Karma Runtime API (phase 1). Use karma_openmanus.KarmaRuntimeClient or register paths below.",
+  "base_url_env": "KARMA_RUNTIME_URL",
+  "auth": {
+    "type": "api-key",
+    "header": "X-Karma-Api-Key",
+    "secret_env": "KARMA_API_KEY"
+  },
+  "tools": [
+    {
+      "name": "karma_runtime_launch_trade_order",
+      "description": "POST /v1/trade/orders/launch — full preauth pipeline; requires Idempotency-Key header.",
+      "method": "POST",
+      "path": "/v1/trade/orders/launch",
+      "headers_required": ["Idempotency-Key", "X-Karma-Api-Key", "Content-Type"]
+    },
+    {
+      "name": "karma_runtime_get_trade_order",
+      "description": "GET /v1/trade/orders/{order_id}",
+      "method": "GET",
+      "path": "/v1/trade/orders/{order_id}",
+      "headers_required": ["X-Karma-Api-Key"]
+    },
+    {
+      "name": "karma_runtime_create_payment_code",
+      "description": "POST /v1/payment-codes — buyer timed payment code.",
+      "method": "POST",
+      "path": "/v1/payment-codes",
+      "headers_required": ["X-Karma-Api-Key", "Content-Type"]
+    },
+    {
+      "name": "karma_runtime_automation_readiness",
+      "description": "GET /v1/openclaw/automation-readiness?task_id=&role=",
+      "method": "GET",
+      "path": "/v1/openclaw/automation-readiness",
+      "headers_required": ["X-Karma-Api-Key"]
+    }
+  ]
+}

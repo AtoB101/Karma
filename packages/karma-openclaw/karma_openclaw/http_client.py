@@ -49,9 +49,36 @@ async def api_get(path: str) -> Any:
         return r.text
 
 
-async def api_post(path: str, body: Any) -> Any:
+def _merge_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
+    h = api_headers()
+    if extra:
+        h.update(extra)
+    return h
+
+
+async def api_post(
+    path: str,
+    body: Any,
+    *,
+    idempotency_key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> Any:
+    headers = _merge_headers(extra_headers)
+    if idempotency_key:
+        headers["Idempotency-Key"] = idempotency_key
     async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(
+            f"{runtime_base_url()}{path}",
+            headers=headers,
+            content=json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+async def api_put(path: str, body: Any) -> Any:
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.put(
             f"{runtime_base_url()}{path}",
             headers=api_headers(),
             content=json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8"),

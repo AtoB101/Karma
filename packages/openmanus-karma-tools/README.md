@@ -9,3 +9,5 @@ See `tools.json` for HTTP paths. Implement your OpenManus tool wrappers to:
 Reference BFF: `apps/karma_bff/`.
 
 **Python package:** install **`karma-openmanus`** from `packages/karma-openmanus/` — it provides `KarmaBffClient` with the same HMAC rules so tool handlers do not duplicate signing code.
+
+**Phase 1 Runtime API:** `KarmaRuntimeClient` + `packages/karma-openmanus/karma_openmanus/data/runtime_tools.json` for `/v1/trade` and `/v1/payment-codes` (see `docs/PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md`).

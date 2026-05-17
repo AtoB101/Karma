@@ -40,6 +40,28 @@ async def main():
 
 Tool names and paths follow `packages/openmanus-karma-tools/tools.json` (also bundled under `karma_openmanus/data/tools.json` for offline reference).
 
+## Direct Runtime API (phase 1 trade / payment codes)
+
+When OpenManus should call the **main Karma API** (not BFF integration state):
+
+```python
+from karma_openmanus import KarmaRuntimeClient
+
+client = KarmaRuntimeClient.from_env()  # KARMA_RUNTIME_URL + KARMA_API_KEY
+order = await client.launch_trade_order(
+    buyer_identity_id="buyer-1",
+    seller_identity_id="seller-1",
+    requirement_text="caption 任务 15 USDC",
+    idempotency_key="manus-order-001",
+    task_type="api.caption",
+)
+status = await client.get_trade_order(order["order_id"])
+```
+
+Tool manifest for orchestrator registration: `karma_openmanus/data/runtime_tools.json`.
+
+**Acceptance checklist:** `docs/PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md`
+
 ## Security
 
 - Read secrets **only** from the OpenManus **server** environment — never from end-user chat.
