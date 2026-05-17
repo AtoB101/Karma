@@ -19,7 +19,9 @@ def _terminal_status_strings() -> tuple[str, ...]:
 
 
 def worker_reaches_buyer_on_edges(edges: list[tuple[str, str]], worker_id: str, buyer_id: str) -> bool:
-    """Return True iff there is a directed path worker_id → … → buyer_id following (client, worker) edges."""
+    """True iff there is a directed path worker_id → … → buyer_id following (client, worker) edges."""
+    if worker_id == buyer_id:
+        return False
     stack = [worker_id]
     seen: set[str] = set()
     while stack:
