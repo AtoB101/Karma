@@ -37,6 +37,11 @@
 - `SETTLEMENT_MODE=testnet|hybrid` 时须提供合法 **`chain_anchor_hash`**（`0x` + 64 hex）。
 - 结算迁移写入 `settlement_transition_audits`；测试网验收见 [`TESTNET_PHASE1_TRADE_ACCEPTANCE-zh.md`](TESTNET_PHASE1_TRADE_ACCEPTANCE-zh.md)。
 
+## SDK 接入（OpenClaw / OpenManus）
+
+- **OpenClaw MCP：** `packages/karma-openclaw` — Phase 1 工具表见包内 README；实测清单 `docs/PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md`
+- **OpenManus：** BFF 用 `KarmaBffClient`；主 API 阶段一用 `KarmaRuntimeClient`（`packages/karma-openmanus`）
+
 ## 阶段二（未在本阶段）
 
 账单币迁移至子身份、链上哈希锚定、定向可见性审计 — 见 `docs/PHASE2_BILLCOIN_MIGRATION-zh.md`（占位）与私有仓清单。

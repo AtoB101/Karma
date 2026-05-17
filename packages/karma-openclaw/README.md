@@ -70,7 +70,26 @@ Register in OpenClaw’s **MCP bridge** (stdio). Tool names are prefixed with `k
 | `karma_build_mcp_receipt_extension` | `mcp.*` extension helper |
 | `karma_voucher_eip712_notes` | Operator signing notes |
 
-**Not exposed (Console only):** create/accept/verify voucher, Runtime Key create/revoke.
+**Legacy voucher routes (Console preferred):** raw `POST /v1/vouchers` create/accept — use Phase 1 payment codes below when possible.
+
+### Phase 1 (payment codes + trade pipeline)
+
+| Tool | Karma API |
+|------|-----------|
+| `karma_build_payment_code_request` | Local helper → POST body |
+| `karma_create_payment_code` | `POST /v1/payment-codes` |
+| `karma_get_payment_code` | `GET /v1/payment-codes/{voucher_id}` |
+| `karma_accept_payment_code` / `karma_reject_payment_code` | Seller manual actions |
+| `karma_launch_trade_order` | `POST /v1/trade/orders/launch` (+ `Idempotency-Key`) |
+| `karma_get_trade_order` | `GET /v1/trade/orders/{order_id}` |
+| `karma_list_voucher_events` | `GET /v1/vouchers/{id}/events` |
+| `karma_get_handoff_draft` / `karma_confirm_handoff` | OpenClaw operator chain |
+| `karma_get_automation_policy` / `karma_save_automation_policy` | Preauth setup |
+| `karma_continue_after_trade_launch` | Post-launch handoff + next-step hints |
+
+**Still Console-only:** Runtime Key mint/revoke (wallet signing).
+
+**Live acceptance:** `docs/PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md` · `examples/phase1-live-test/`
 
 ## Security
 
