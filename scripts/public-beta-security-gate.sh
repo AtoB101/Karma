@@ -49,6 +49,15 @@ if [[ -z "$AUTH_KEYS_VALUE" ]]; then
   exit 1
 fi
 
+for var in RECEIPT_REQUIRE_SIGNATURE LEDGER_REQUIRE_PARTY_ACTOR SETTLEMENT_REQUIRE_PARTY_ACTOR \
+  RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS RUNTIME_REQUIRE_HANDOFF_ATTESTATION; do
+  val="${!var:-}"
+  if [[ "$ALLOW_NON_PROD" == "false" && "${val,,}" != "true" ]]; then
+    echo "ERR  ${var} must be true (current: '${val:-unset}')"
+    exit 1
+  fi
+done
+
 if [[ "$ALLOW_NON_PROD" == "false" ]]; then
   if [[ -z "$ONCALL_PRIMARY_VALUE" || -z "$ONCALL_BACKUP_VALUE" ]]; then
     echo "ERR  SECURITY_ONCALL_PRIMARY and SECURITY_ONCALL_BACKUP must be configured"

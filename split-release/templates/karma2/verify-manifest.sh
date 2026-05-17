@@ -80,6 +80,16 @@ if not hex40.match(settlement):
 if not hex40.match(payment):
     raise SystemExit("deployment.contracts.nonCustodialAgentPayment must be 0x + 40 hex chars")
 
+zero_addr = "0x0000000000000000000000000000000000000000"
+env_name = str(data.get("environment", "")).lower()
+if env_name in ("sepolia", "mainnet", "production", "testnet"):
+    for label, addr in (("settlementEngine", settlement), ("nonCustodialAgentPayment", payment)):
+        if addr.lower() == zero_addr:
+            raise SystemExit(
+                f"deployment.contracts.{label} must not be zero address when environment={env_name!r}; "
+                "fill deployed contract addresses from chain"
+            )
+
 lock_map = {}
 for raw in lock_path.read_text().splitlines():
     line = raw.strip()

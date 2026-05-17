@@ -222,6 +222,18 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "RUNTIME_DAILY_SPEND_PERSIST must be true when APP_ENV is production",
                 )
+            if not self.receipt_require_signature:
+                raise ValueError(
+                    "RECEIPT_REQUIRE_SIGNATURE must be true when APP_ENV is production",
+                )
+            if not self.ledger_require_party_actor:
+                raise ValueError(
+                    "LEDGER_REQUIRE_PARTY_ACTOR must be true when APP_ENV is production",
+                )
+            if not self.settlement_require_party_actor:
+                raise ValueError(
+                    "SETTLEMENT_REQUIRE_PARTY_ACTOR must be true when APP_ENV is production",
+                )
         return self
 
     def cors_allow_origins_list(self) -> list[str]:
