@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.middleware.rate_limit import register_rate_limit
+from api.middleware.rate_limit import register_agent_rate_limit
 
 from core.schemas import AgentIdentity, AgentRole
 from db.session import get_db
@@ -47,7 +47,7 @@ class RegisterAgentRequest(BaseModel):
 async def register_agent(
     body: RegisterAgentRequest,
     db: AsyncSession = Depends(get_db),
-    _rl: None = Depends(register_rate_limit),
+    _rl: None = Depends(register_agent_rate_limit),
 ):
     agent = AgentIdentity(
         name=body.name,

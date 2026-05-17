@@ -1,7 +1,7 @@
 # 攻击面与安全测试（公开路线图）
 
-> 最近更新：2026-05-14  
-> 状态：**路线图** — 已补充一轮模拟攻击的公开缓解摘要；后续轮次在此增量更新。
+> 最近更新：2026-05-17  
+> 状态：**路线图 + 验收摘要** — 见 [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md)、[TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md)。
 
 ---
 
@@ -28,6 +28,8 @@
 
 | 轮次 | 日期 | 范围摘要 | 结论 / 风险等级 | 关联 PR / 文档 |
 |------|------|----------|-----------------|----------------|
+| **全量压力 + 攻击** | 2026-05-17 | 3,143 项；30 攻击场景；500 并发 | **0 CRITICAL/HIGH**；3 MEDIUM → 公开仓加固 | [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md) |
+| **测试网预授权 E2E** | 2026-05-17 | 353 项；Sepolia 7/7；预授权流水线 | **99.7%**；0 CRITICAL/HIGH | [TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md) |
 | 模拟攻击清单（KSA） | 2026-05-14 | 30 场景 / 7 项漏洞（公开仓库可修复子集） | 见下表「已落地缓解」 | 本仓库 `services/task_contract_guard.py`、`api/app.py`、`api/routes/*` |
 | Level 2（KSA2） | 2026-05-13 | 38 场景 / 4 项漏洞（公开仓库可修复子集） | 见下表「Level 2 已落地缓解」 | `services/settlement_receipt_release_guard.py`、`services/settlement_cycle_guard.py`、`services/text_safety.py` |
 
@@ -39,9 +41,9 @@
 | **KSA-011** | 对不存在 `task_id` 提交 Execution Receipt 仍被接受 | `POST /v1/receipts` 与 `POST /runtime/submit-receipt` 在持久化前 **`ensure_task_contract_exists`**；`POST /v1/settlement/create` 同样要求已存在任务合约 |
 | **KSA-028** | 买方将自身设为 worker（自买自卖） | `POST .../settlement/.../lock` 与 `PATCH /v1/contracts/{id}/assign` 拒绝 `worker == buyer/client` |
 | **KSA-023** | 超大自由文本 / JSON 导致内存压力 | `CreateContractRequest` / `RegisterAgentRequest` 增加 **长度与 JSON 体积** 上限；`expected_output_schema` 序列化 ≤ 65536 字节 |
-| **KSA-001** | 批量虚假注册 | `POST /v1/agents` 增加 **`register_rate_limit`** 依赖 |
+| **KSA-001** | 批量虚假注册 | `POST /v1/agents` 使用 **`register_agent_rate_limit`**；Redis 不可用时 **进程内滑动窗口兜底**（2026-05-17） |
 | **KSA-010** | 过久时间戳的执行回执仍被接受 | **仅执行回执** `validate_execution_receipt_static` 在 `receipt_strict_recent_timestamps=true` 时使用 `receipt_max_past_hours_strict`（默认 24h）；进度回执仍用宽松 `receipt_max_past_hours` 以支持超时确认等场景 |
-| **KSA-029** | 循环结算 A→B→C→A | 全量图论「任意环」仍不作为默认 API 护栏（误伤合法多边协作的风险）；与 **KSA2-034** 的「锁单前 buyer→worker 有向链闭环」检测互补，见下表 3.2 |
+| **KSA-029** | 循环结算 A→B→C→A | 与 **KSA2-034** 互补；三角环 `A→B→C→A` 由 `assert_lock_does_not_close_payment_cycle` 拦截（`tests/integration/test_triangle_settlement_cycle.py`） |
 
 ### 3.2 Level 2 已落地缓解（KSA2）
 
@@ -52,7 +54,9 @@
 | **KSA2-011** | NUL（`\x00`）原样入库 | 同上 **禁止 NUL**；`expected_output_schema` 内嵌字符串经 **`validate_json_strings_safe`** 校验 |
 | **KSA2-034** | 多买方链式锁单形成有向环（如 A→B→…→A） | **`assert_lock_does_not_close_payment_cycle`**：在 `lock` 前于 **非终态** 结算上检测 `worker` 是否已可达 `buyer`；默认 `settlement_block_buyer_worker_payment_cycle=true`（与 KSA-029「全图环」不同，此为 **轻量、可解释** 的锁前护栏） |
 
-回归用例：`tests/unit/test_security_attack_mitigations.py`、`tests/unit/test_level2_attack_mitigations.py`、`tests/unit/test_settlement_cycle_guard.py`。
+| **KSA-010b** | 同任务执行回执 `started_at` 早于上一笔 | `POST /v1/receipts` 拒绝 `started_at < latest.started_at`（2026-05-17） |
+
+回归用例：`tests/unit/test_security_attack_mitigations.py`、`tests/unit/test_level2_attack_mitigations.py`、`tests/unit/test_settlement_cycle_guard.py`、`tests/integration/test_triangle_settlement_cycle.py`、`tests/unit/test_receipt_chronology.py`。
 
 ---
 

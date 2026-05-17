@@ -13,3 +13,9 @@ def test_worker_reaches_buyer_detects_chain() -> None:
 def test_worker_reaches_buyer_false_when_disconnected() -> None:
     edges = [("A", "B"), ("C", "D")]
     assert not worker_reaches_buyer_on_edges(edges, "B", "A")
+
+
+def test_worker_reaches_buyer_detects_triangle_a_b_c_a() -> None:
+    """Attack MEDIUM: ring A→B→C→A must be caught before lock buyer C worker A."""
+    edges = [("A", "B"), ("B", "C")]
+    assert worker_reaches_buyer_on_edges(edges, "A", "C")

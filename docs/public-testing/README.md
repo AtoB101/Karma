@@ -10,8 +10,10 @@
 | 文档 | 说明 |
 |------|------|
 | [simulation-and-cross-settlement.md](./simulation-and-cross-settlement.md) | 模拟 / 压测、账本守恒（如 Delta=0）、本地与生产数据库选型说明 |
-| [attack-testing-roadmap.md](./attack-testing-roadmap.md) | 攻击面与安全测试路线图（占位，后续补充执行记录与摘要） |
+| [attack-testing-roadmap.md](./attack-testing-roadmap.md) | 攻击面与安全测试路线图 + KSA/KSA2 回归索引 |
 | [testnet-public-acceptance.md](./testnet-public-acceptance.md) | 测试网公开验收范围、与既有 Runbook 的对应关系及结果更新约定 |
+| [TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md) | **2026-05-17** 测试网预授权 + 全自动流水线验收摘要（353 项） |
+| [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md) | **2026-05-17** 压力 + 攻击测试摘要（3,143 项；MEDIUM 修复说明） |
 
 ---
 
@@ -42,8 +44,9 @@
 
 | 轮次 / 版本 | 类型 | 结论摘要 | 详细文档 / 工件 |
 |-------------|------|----------|-----------------|
+| `ee68f62` · 2026-05-17 | 测试网预授权 + Agent 自动执行 | 352/353 通过；Sepolia 7/7；0 CRITICAL/HIGH | [TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md) |
+| `ee68f62` · 2026-05-17 | 压力 + 攻击 | 3,143 项；27/30 攻击拦截；3 MEDIUM 已在公开仓加固 | [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md) |
 | （示例） | 交叉结算压测 | Delta=0，账本平衡 | 见 [simulation-and-cross-settlement.md](./simulation-and-cross-settlement.md) |
-| （待填） | 攻击 / 滥用测试 | — | 见 [attack-testing-roadmap.md](./attack-testing-roadmap.md) |
-| （待填） | 测试网验收 | — | 见 [testnet-public-acceptance.md](./testnet-public-acceptance.md) |
+| 持续 | 测试网清单 | 与 Runbook 对齐 | [testnet-public-acceptance.md](./testnet-public-acceptance.md) |
 
 维护者将上表作为「对外一句话结论」入口；细节一律落在子文档或已链接的 Runbook 中。

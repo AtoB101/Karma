@@ -11,6 +11,7 @@ from db.session import get_db
 from db.models.orm import SettlementModel, VoucherModel
 from db.stores.receipt_store import PostgresReceiptStore
 from services.receipt_guard import (
+    _utc_aware,
     execution_receipt_signature_acceptable,
     execution_receipt_starts_before_prior_ended,
     validate_execution_receipt_static,
@@ -56,6 +57,11 @@ async def submit_receipt(receipt: ExecutionReceipt, db: AsyncSession = Depends(g
             raise HTTPException(
                 status_code=409,
                 detail=f"receipt step_index must be sequential: expected {latest.step_index + 1}",
+            )
+        if _utc_aware(receipt.started_at) < _utc_aware(latest.started_at):
+            raise HTTPException(
+                status_code=409,
+                detail="receipt started_at must not precede prior receipt on task",
             )
         if execution_receipt_starts_before_prior_ended(
             started_at=receipt.started_at, prior_ended_at=latest.ended_at

@@ -3,6 +3,7 @@ Karma — Rate Limiting Middleware (Redis-backed)
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import time
 from typing import Optional
@@ -17,12 +18,37 @@ RATE_LIMITS = {
     "default":      (100, 60),    # 100 req / 60s
     "submit":       (20,  60),    # 20 submissions / 60s
     "verify":       (10,  60),    # 10 verifications / 60s
-    "register":     (5,   60),    # 5 registrations / 60s
+    "register":     (5,   60),    # 5 auth token exchanges / 60s
+    "register_agent": (5, 60),    # 5 agent registrations / 60s (stress-test MEDIUM)
     "write_sensitive": (30, 60),  # 30 sensitive writes / 60s
     "state_transition": (20, 60), # 20 state transitions / 60s
 }
 
 _redis: Optional[aioredis.Redis] = None
+_memory_windows: dict[str, list[float]] = {}
+_memory_lock = asyncio.Lock()
+
+
+def _memory_sliding_count(key: str, window_seconds: int) -> int:
+    now = time.time()
+    window_start = now - window_seconds
+    hits = [t for t in _memory_windows.get(key, []) if t >= window_start]
+    _memory_windows[key] = hits
+    return len(hits)
+
+
+async def _memory_rate_limit(client_id: str, limit_key: str, max_requests: int, window_seconds: int) -> None:
+    """Process-local fallback when Redis is down (dev); not shared across workers."""
+    mem_key = f"{limit_key}:{client_id}"
+    async with _memory_lock:
+        count = _memory_sliding_count(mem_key, window_seconds)
+        if count >= max_requests:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded: {max_requests} requests per {window_seconds}s",
+                headers={"Retry-After": str(window_seconds)},
+            )
+        _memory_windows.setdefault(mem_key, []).append(time.time())
 
 
 async def get_redis() -> aioredis.Redis:
@@ -70,7 +96,9 @@ async def rate_limit(request: Request, limit_key: str = "default") -> None:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Rate limiting service unavailable",
             ) from None
-        # Redis unavailable — fail open when not configured for fail-closed (avoid hard outage in dev).
+        # Agent registration floods were the stress-test MEDIUM finding; other keys fail-open in dev.
+        if limit_key == "register_agent":
+            await _memory_rate_limit(client_id, limit_key, max_requests, window_seconds)
         return
 
     if count > max_requests:
@@ -95,5 +123,6 @@ default_rate_limit  = make_rate_limit_dep("default")
 submit_rate_limit   = make_rate_limit_dep("submit")
 verify_rate_limit   = make_rate_limit_dep("verify")
 register_rate_limit = make_rate_limit_dep("register")
+register_agent_rate_limit = make_rate_limit_dep("register_agent")
 write_sensitive_rate_limit = make_rate_limit_dep("write_sensitive")
 state_transition_rate_limit = make_rate_limit_dep("state_transition")
