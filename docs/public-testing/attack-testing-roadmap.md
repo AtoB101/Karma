@@ -41,7 +41,7 @@
 | **KSA-011** | 对不存在 `task_id` 提交 Execution Receipt 仍被接受 | `POST /v1/receipts` 与 `POST /runtime/submit-receipt` 在持久化前 **`ensure_task_contract_exists`**；`POST /v1/settlement/create` 同样要求已存在任务合约 |
 | **KSA-028** | 买方将自身设为 worker（自买自卖） | `POST .../settlement/.../lock` 与 `PATCH /v1/contracts/{id}/assign` 拒绝 `worker == buyer/client` |
 | **KSA-023** | 超大自由文本 / JSON 导致内存压力 | `CreateContractRequest` / `RegisterAgentRequest` 增加 **长度与 JSON 体积** 上限；`expected_output_schema` 序列化 ≤ 65536 字节 |
-| **KSA-001** | 批量虚假注册 | `POST /v1/agents` 增加 **`register_rate_limit`**；Redis 不可用时 **进程内滑动窗口兜底**（2026-05-17） |
+| **KSA-001** | 批量虚假注册 | `POST /v1/agents` 使用 **`register_agent_rate_limit`**；Redis 不可用时 **进程内滑动窗口兜底**（2026-05-17） |
 | **KSA-010** | 过久时间戳的执行回执仍被接受 | **仅执行回执** `validate_execution_receipt_static` 在 `receipt_strict_recent_timestamps=true` 时使用 `receipt_max_past_hours_strict`（默认 24h）；进度回执仍用宽松 `receipt_max_past_hours` 以支持超时确认等场景 |
 | **KSA-029** | 循环结算 A→B→C→A | 与 **KSA2-034** 互补；三角环 `A→B→C→A` 由 `assert_lock_does_not_close_payment_cycle` 拦截（`tests/integration/test_triangle_settlement_cycle.py`） |
 

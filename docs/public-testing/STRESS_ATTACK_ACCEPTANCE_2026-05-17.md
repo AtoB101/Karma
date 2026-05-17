@@ -35,7 +35,7 @@
 
 | # | 发现 | 公开仓状态（2026-05-17 分支） |
 |---|------|------------------------------|
-| 1 | 批量 Agent 注册无速率限制（500/500） | **已加固**：Redis 不可用时仅对 `register` 限流键启用进程内滑动窗口兜底（`api/middleware/rate_limit.py`）；其他键仍 fail-open；生产须 `RATE_LIMIT_REDIS_FAIL_CLOSED=true` + Redis |
+| 1 | 批量 Agent 注册无速率限制（500/500） | **已加固**：`POST /v1/agents` 使用 `register_agent` 限流键；Redis 不可用时仅该键启用进程内滑动窗口兜底（`api/middleware/rate_limit.py`）；`POST /v1/auth/token` 仍用 `register` 键；生产须 `RATE_LIMIT_REDIS_FAIL_CLOSED=true` + Redis |
 | 2 | 乱序时间戳未严格校验 | **已加固**：`POST /v1/receipts` 拒绝 `started_at` 早于同任务上一笔收据（`api/routes/receipts.py`）；进度见 `api/routes/progress.py` |
 | 3 | 环形结算 A→B→C→A | **已有 KSA2-034**：`assert_lock_does_not_close_payment_cycle`；补充三角环集成测 `tests/integration/test_triangle_settlement_cycle.py`。压测须 `settlement_block_buyer_worker_payment_cycle=true`（默认 true） |
 

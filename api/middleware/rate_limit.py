@@ -18,7 +18,8 @@ RATE_LIMITS = {
     "default":      (100, 60),    # 100 req / 60s
     "submit":       (20,  60),    # 20 submissions / 60s
     "verify":       (10,  60),    # 10 verifications / 60s
-    "register":     (5,   60),    # 5 registrations / 60s
+    "register":     (5,   60),    # 5 auth token exchanges / 60s
+    "register_agent": (5, 60),    # 5 agent registrations / 60s (stress-test MEDIUM)
     "write_sensitive": (30, 60),  # 30 sensitive writes / 60s
     "state_transition": (20, 60), # 20 state transitions / 60s
 }
@@ -95,8 +96,8 @@ async def rate_limit(request: Request, limit_key: str = "default") -> None:
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Rate limiting service unavailable",
             ) from None
-        # Register floods were the stress-test MEDIUM finding; other keys stay fail-open in dev.
-        if limit_key == "register":
+        # Agent registration floods were the stress-test MEDIUM finding; other keys fail-open in dev.
+        if limit_key == "register_agent":
             await _memory_rate_limit(client_id, limit_key, max_requests, window_seconds)
         return
 
@@ -122,5 +123,6 @@ default_rate_limit  = make_rate_limit_dep("default")
 submit_rate_limit   = make_rate_limit_dep("submit")
 verify_rate_limit   = make_rate_limit_dep("verify")
 register_rate_limit = make_rate_limit_dep("register")
+register_agent_rate_limit = make_rate_limit_dep("register_agent")
 write_sensitive_rate_limit = make_rate_limit_dep("write_sensitive")
 state_transition_rate_limit = make_rate_limit_dep("state_transition")
