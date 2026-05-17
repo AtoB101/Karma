@@ -605,6 +605,8 @@ class TradeOrderModel(Base):
     decomposed_spec: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="started")
     status_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    launch_idempotency_key: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True, unique=True)
+    pipeline_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v2")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

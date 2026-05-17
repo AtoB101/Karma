@@ -29,7 +29,13 @@
 
 ## 迁移
 
-`alembic upgrade head` — revision `0023_phase1_preauth_payment_code`。
+`alembic upgrade head` — 至少至 **`0025_trade_pipeline_security`**（含 `0023` 付款码/预授权、`0024` 流水线、`0025` 幂等与审计加固）。
+
+## 流水线安全（v2）
+
+- 启动接口支持 **`Idempotency-Key`**；生产环境（`APP_ENV=production`）必填。
+- `SETTLEMENT_MODE=testnet|hybrid` 时须提供合法 **`chain_anchor_hash`**（`0x` + 64 hex）。
+- 结算迁移写入 `settlement_transition_audits`；测试网验收见 [`TESTNET_PHASE1_TRADE_ACCEPTANCE-zh.md`](TESTNET_PHASE1_TRADE_ACCEPTANCE-zh.md)。
 
 ## 阶段二（未在本阶段）
 

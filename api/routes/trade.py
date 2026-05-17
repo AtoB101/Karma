@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,7 @@ from db.session import get_db
 from services.ledger_party_access import require_ledger_identity
 from services.path_param_safety import validate_public_url_segment
 from services.trade_order_pipeline import launch_preauth_trade_order
+from services.trade_pipeline_security import require_idempotency_key_if_configured
 
 router = APIRouter()
 
@@ -31,14 +32,18 @@ async def launch_trade_order(
     body: LaunchTradeOrderRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     """
     Launch full preauth pipeline when both parties saved automation-policy with
     preauth_enabled, auto_enabled, auto_execute_pipeline, and an active Runtime Key.
+
+    Send ``Idempotency-Key`` (8–256 chars) for safe retries; required when ``APP_ENV=production``.
     """
     validate_public_url_segment("buyer_identity_id", body.buyer_identity_id)
     validate_public_url_segment("seller_identity_id", body.seller_identity_id)
     require_ledger_identity(request, body.buyer_identity_id)
+    normalized_key = require_idempotency_key_if_configured(idempotency_key)
 
     result = await launch_preauth_trade_order(
         db,
@@ -50,8 +55,11 @@ async def launch_trade_order(
         task_precision=body.task_precision,
         task_type=body.task_type,
         chain_anchor_hash=body.chain_anchor_hash,
+        launch_idempotency_key=normalized_key,
     )
     await db.commit()
+    if result.get("idempotent_replay"):
+        return result
     return result
 
 
@@ -70,6 +78,8 @@ async def get_trade_order(order_id: str, db: AsyncSession = Depends(get_db)):
         "status": row.status,
         "status_detail": row.status_detail,
         "decomposed_spec": row.decomposed_spec,
+        "pipeline_version": row.pipeline_version,
+        "launch_idempotency_key": row.launch_idempotency_key,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }

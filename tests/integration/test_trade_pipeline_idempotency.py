@@ -1,4 +1,4 @@
-"""Full trade order launch — decompose, accept, settlement, execution kickoff."""
+"""Trade launch idempotency replay."""
 
 from __future__ import annotations
 
@@ -48,9 +48,9 @@ async def _seed_party(db, identity: str, *, seller: bool = False):
 
 
 @pytest.mark.asyncio
-async def test_launch_full_pipeline(client: AsyncClient, db_session, monkeypatch):
+async def test_launch_idempotent_replay(client: AsyncClient, db_session, monkeypatch):
     monkeypatch.setattr(settings, "ledger_require_party_actor", False)
-    buyer, seller = "buyer-launch-1", "seller-launch-1"
+    buyer, seller = "buyer-idem-1", "seller-idem-1"
     db_session.add(
         CapacityModel(
             identity_id=buyer,
@@ -66,20 +66,19 @@ async def test_launch_full_pipeline(client: AsyncClient, db_session, monkeypatch
         policy.trusted_counterparty_ids = [buyer]
     await db_session.commit()
 
-    resp = await client.post(
-        "/v1/trade/orders/launch",
-        json={
-            "buyer_identity_id": buyer,
-            "seller_identity_id": seller,
-            "requirement_text": "caption 字幕任务 金额 15 USDC 精度 1.2",
-            "buyer_signature": "0xlaunch",
-            "task_type": "api.caption",
-        },
-        headers={"Idempotency-Key": "trade-launch-full-pipeline-test"},
-    )
-    assert resp.status_code == 201, resp.text
-    body = resp.json()
-    assert body["status"] == "execution_started"
-    assert body["decomposed"]["task_type"] == "api.caption"
-    assert body["readiness"]["buyer"] is True
-    assert body["readiness"]["seller"] is True
+    payload = {
+        "buyer_identity_id": buyer,
+        "seller_identity_id": seller,
+        "requirement_text": "caption 字幕 15 USDC 精度 1.2",
+        "task_type": "api.caption",
+    }
+    headers = {"Idempotency-Key": "trade-launch-idem-test-001"}
+    r1 = await client.post("/v1/trade/orders/launch", json=payload, headers=headers)
+    assert r1.status_code == 201, r1.text
+    order_id = r1.json()["order_id"]
+
+    r2 = await client.post("/v1/trade/orders/launch", json=payload, headers=headers)
+    assert r2.status_code == 201, r2.text
+    body = r2.json()
+    assert body.get("idempotent_replay") is True
+    assert body["order_id"] == order_id
