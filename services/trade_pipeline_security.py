@@ -32,7 +32,7 @@ def require_idempotency_key_if_configured(key: str | None) -> str | None:
     normalized = normalize_idempotency_key(key)
     env = (settings.app_env or "").lower()
     if env in ("production", "prod") and not normalized:
-        raise HTTPException(400, detail="Idempotency-Key required for trade launch in production")
+        raise HTTPException(400, detail="Idempotency-Key required in production")
     return normalized
 
 

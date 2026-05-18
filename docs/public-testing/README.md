@@ -24,6 +24,7 @@
 | 主题 | 路径 |
 |------|------|
 | Phase 4 结构压测（本地、确定性） | [`STRESS_TEST_RUNBOOK.md`](../STRESS_TEST_RUNBOOK.md) |
+| **全链路审计 + 测试网 Claw/Manus** | [`FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md`](FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md) |
 | Phase 3 AP2 / PaymentIntent 验收 | [`PHASE3_AP2_ACCEPTANCE.md`](PHASE3_AP2_ACCEPTANCE.md) |
 | Phase 3 测试网最小链上路径 | [`TESTNET_RUNBOOK.md`](../TESTNET_RUNBOOK.md) |
 | 测试网执行检查清单 | [`TESTNET_EXECUTION_CHECKLIST.md`](../TESTNET_EXECUTION_CHECKLIST.md) |
