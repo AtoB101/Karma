@@ -45,6 +45,12 @@ from services.text_safety import validate_safe_storage_text_optional
 router = APIRouter()
 
 
+async def _sync_payment_intents_after_settled(db: AsyncSession, task_id: str) -> None:
+    from services.payment_intent_service import mark_intents_settled_for_task
+
+    await mark_intents_settled_for_task(db, task_id)
+
+
 class CreateSettlementRequest(BaseModel):
     task_id: str
     client_agent_id: str
@@ -374,6 +380,7 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
         refunded_amount=refunded_amount,
     )
     await mark_voucher_used_if_linked(db, task_id)
+    await _sync_payment_intents_after_settled(db, task_id)
     await db.flush()
     return state
 
@@ -422,6 +429,7 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
         refunded_amount=refunded_amount,
     )
     await mark_voucher_used_if_linked(db, task_id)
+    await _sync_payment_intents_after_settled(db, task_id)
     await db.flush()
     return state
 
@@ -491,6 +499,7 @@ async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSessi
         refunded_amount=0.0,
     )
     await mark_voucher_used_if_linked(db, task_id)
+    await _sync_payment_intents_after_settled(db, task_id)
     await db.flush()
     from services.openclaw_webhook import emit_openclaw_event
 
@@ -569,6 +578,8 @@ async def auto_arbitrate(task_id: str, request: Request, db: AsyncSession = Depe
         refunded_amount=refunded_amount,
     )
     await mark_voucher_used_if_linked(db, task_id)
+    if decision == TaskStatus.SETTLED:
+        await _sync_payment_intents_after_settled(db, task_id)
     await db.flush()
     return state
 

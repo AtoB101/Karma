@@ -40,6 +40,8 @@ from api.routes import (
     payment_codes,
     trade,
     x402,
+    payment_intents,
+    evidence,
 )
 
 logger = structlog.get_logger(__name__)
@@ -311,6 +313,18 @@ app.include_router(
     x402.router,
     prefix="/v1/x402",
     tags=["X402"],
+    dependencies=_protected_dependencies,
+)
+app.include_router(
+    payment_intents.router,
+    prefix="/v1/payment-intents",
+    tags=["PaymentIntents"],
+    dependencies=_protected_dependencies,
+)
+app.include_router(
+    evidence.router,
+    prefix="/v1/evidence",
+    tags=["Evidence"],
     dependencies=_protected_dependencies,
 )
 app.include_router(progress.router,   prefix="/v1/progress",   tags=["Progress"], dependencies=_protected_dependencies)

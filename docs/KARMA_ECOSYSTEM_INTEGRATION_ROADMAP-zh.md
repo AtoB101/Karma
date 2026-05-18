@@ -204,10 +204,10 @@ sequenceDiagram
 
 ### 6.2 验收标准
 
-- [ ] 单测：sample bundle ↔ AP2 JSON 往返不丢必填字段（`evidence_hash` 稳定）。
-- [ ] 集成：创建 PaymentIntent → 绑定 voucher/task → settlement 完成 → intent `SETTLED`。
-- [ ] 第三方只读验证：仅凭 SD-JWT/导出 JSON 可复算 digest（文档给出命令）。
-- [ ] 更新 [`API_ROADMAP_V01.md`](API_ROADMAP_V01.md) M5 状态为「已实现 /v1 子集」。
+- [x] 单测：sample bundle ↔ AP2 JSON 往返不丢必填字段（`evidence_hash` 稳定）。
+- [x] 集成：创建 PaymentIntent → 绑定 voucher/task → settlement 完成 → intent `SETTLED`。
+- [x] 第三方只读验证：仅凭 SD-JWT/导出 JSON 可复算 digest（文档给出命令）。
+- [x] 更新 [`API_ROADMAP_V01.md`](API_ROADMAP_V01.md) M5 状态为「已实现 /v1 子集」。
 
 ### 6.3 私有仓职责
 

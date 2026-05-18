@@ -33,7 +33,10 @@ async def assert_pre_launch_spending_policy(
     additional_amount: float,
 ) -> None:
     """Enforce buyer daily_limit across successful trade launches today."""
-    daily = float(buyer_policy.daily_limit or 0)
+    from services.human_not_present_policy import effective_spending_limits
+
+    _, daily = effective_spending_limits(buyer_policy)
+    daily = float(daily or 0)
     if daily <= 0:
         return
     used = await sum_buyer_launch_amount_today(db, buyer_policy.karma_identity_id)

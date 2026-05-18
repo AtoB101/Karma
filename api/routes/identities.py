@@ -170,6 +170,7 @@ class AutomationPolicyBody(BaseModel):
     responsibility_boundary_id: str | None = None
     auto_accept_incoming: bool = False
     auto_execute_pipeline: bool = False
+    human_not_present_allowed: bool = False
 
 
 @router.get("/{identity_id}/automation-policy")
@@ -210,6 +211,7 @@ async def put_automation_policy_route(
         responsibility_boundary_id=body.responsibility_boundary_id,
         auto_accept_incoming=body.auto_accept_incoming,
         auto_execute_pipeline=body.auto_execute_pipeline,
+        human_not_present_allowed=body.human_not_present_allowed,
     )
     await db.commit()
     return {"configured": True, **policy_to_dict(row)}
