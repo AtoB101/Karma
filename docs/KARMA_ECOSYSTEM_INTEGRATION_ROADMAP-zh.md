@@ -118,10 +118,11 @@ flowchart LR
 
 ### 4.2 验收标准
 
-- [ ] Sepolia E2E：OpenClaw 通过 `ExternalWalletBackend` 完成一笔 trade launch（人工确认一次）。
-- [ ] 策略拒绝：超日限额 / 非 allowlist 合约 → **409**，且写入 security audit。
-- [ ] `pytest tests/unit/test_signing_backend*.py` + 扩展现有 `test_production_settings_gates.py` 不回归。
-- [ ] 公开文档：威胁模型对比表（Runtime 持钥 vs HW/钱包签名）。
+- [x] EIP-712 `TradeLaunchIntent` + `SigningBackend` + signing-preview API（PR #86）
+- [x] Voucher 统一：`trade_launch_attestation` + `voucher_buyer_commitment`（Phase 1.5）
+- [x] 生产闸门 + KSA-TL 回归（`tests/unit/test_trade_launch_security.py`）
+- [ ] Sepolia E2E：钱包签名完成一笔 trade launch（人工；填入 [PHASE1_OPEN_WALLET_ACCEPTANCE.md](public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md)）
+- [ ] 私有环境 Redis+PG 压测/攻击复跑（可选）
 
 ### 4.3 技术风险与缓解
 

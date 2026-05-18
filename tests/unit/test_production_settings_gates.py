@@ -23,6 +23,8 @@ def _prod_kwargs(**overrides):
         receipt_require_signature=True,
         ledger_require_party_actor=True,
         settlement_require_party_actor=True,
+        trade_launch_require_eip712=True,
+        karma_signing_backend="client_only",
     )
     base.update(overrides)
     return base
@@ -40,6 +42,8 @@ def test_production_accepts_full_gates():
         ("settlement_require_party_actor", False),
         ("runtime_require_handoff_attestation", False),
         ("auth_enforce_protected_routes", False),
+        ("trade_launch_require_eip712", False),
+        ("karma_signing_backend", "local"),
     ],
 )
 def test_production_rejects_disabled_gate(field, value):

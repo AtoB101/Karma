@@ -35,6 +35,8 @@ defaults = {
     "RUNTIME_REQUIRE_HANDOFF_ATTESTATION": "true",
     "RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING": "true",
     "RUNTIME_DAILY_SPEND_PERSIST": "true",
+    "TRADE_LAUNCH_REQUIRE_EIP712": "true",
+    "KARMA_SIGNING_BACKEND": "client_only",
 }
 for k, v in defaults.items():
     os.environ.setdefault(k, v)

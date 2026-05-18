@@ -117,6 +117,62 @@ def register_phase1_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool()
+    async def karma_trade_launch_signing_preview(
+        buyer_identity_id: str,
+        seller_identity_id: str,
+        requirement_text: str,
+        idempotency_key: str = "",
+        amount: float | None = None,
+        task_precision: float | None = None,
+        task_type: str = "",
+        chain_anchor_hash: str = "",
+    ) -> dict[str, Any]:
+        """POST /v1/trade/orders/launch/signing-preview — EIP-712 typed data for wallet signing."""
+        body: dict[str, Any] = {
+            "buyer_identity_id": buyer_identity_id,
+            "seller_identity_id": seller_identity_id,
+            "requirement_text": requirement_text,
+        }
+        if amount is not None:
+            body["amount"] = amount
+        if task_precision is not None:
+            body["task_precision"] = task_precision
+        if task_type.strip():
+            body["task_type"] = task_type.strip()
+        if chain_anchor_hash.strip():
+            body["chain_anchor_hash"] = chain_anchor_hash.strip()
+        key = idempotency_key.strip() or f"oc-preview-{uuid.uuid4().hex}"
+        return await api_post("/v1/trade/orders/launch/signing-preview", body, idempotency_key=key)
+
+    @mcp.tool()
+    async def karma_trade_launch_sign_with_backend(
+        buyer_identity_id: str,
+        seller_identity_id: str,
+        requirement_text: str,
+        idempotency_key: str = "",
+        amount: float | None = None,
+        task_precision: float | None = None,
+        task_type: str = "",
+        chain_anchor_hash: str = "",
+    ) -> dict[str, Any]:
+        """POST /v1/trade/orders/launch/sign-with-backend — dev only when KARMA_SIGNING_BACKEND=local|env."""
+        body: dict[str, Any] = {
+            "buyer_identity_id": buyer_identity_id,
+            "seller_identity_id": seller_identity_id,
+            "requirement_text": requirement_text,
+        }
+        if amount is not None:
+            body["amount"] = amount
+        if task_precision is not None:
+            body["task_precision"] = task_precision
+        if task_type.strip():
+            body["task_type"] = task_type.strip()
+        if chain_anchor_hash.strip():
+            body["chain_anchor_hash"] = chain_anchor_hash.strip()
+        key = idempotency_key.strip() or f"oc-sign-{uuid.uuid4().hex}"
+        return await api_post("/v1/trade/orders/launch/sign-with-backend", body, idempotency_key=key)
+
+    @mcp.tool()
     async def karma_launch_trade_order(
         buyer_identity_id: str,
         seller_identity_id: str,

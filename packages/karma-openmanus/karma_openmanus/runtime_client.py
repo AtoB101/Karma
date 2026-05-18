@@ -54,6 +54,34 @@ class KarmaRuntimeClient:
             r.raise_for_status()
             return r.json()
 
+    async def trade_launch_signing_preview(
+        self,
+        *,
+        buyer_identity_id: str,
+        seller_identity_id: str,
+        requirement_text: str,
+        idempotency_key: str | None = None,
+        amount: float | None = None,
+        task_type: str | None = None,
+        task_precision: float | None = None,
+        chain_anchor_hash: str | None = None,
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "buyer_identity_id": buyer_identity_id,
+            "seller_identity_id": seller_identity_id,
+            "requirement_text": requirement_text,
+        }
+        if amount is not None:
+            body["amount"] = amount
+        if task_type:
+            body["task_type"] = task_type
+        if task_precision is not None:
+            body["task_precision"] = task_precision
+        if chain_anchor_hash:
+            body["chain_anchor_hash"] = chain_anchor_hash
+        key = idempotency_key or f"manus-preview-{uuid.uuid4().hex}"
+        return await self._post("/v1/trade/orders/launch/signing-preview", body, idempotency_key=key)
+
     async def launch_trade_order(
         self,
         *,
