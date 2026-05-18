@@ -84,6 +84,7 @@ uvicorn api.app:app --reload
 | 公开 P0 验收 | [`PUBLIC_P0_ACCEPTANCE_RUNBOOK_CN.md`](PUBLIC_P0_ACCEPTANCE_RUNBOOK_CN.md) |
 | 技术部 A（公开合约/CI） | [`TECH_TEAM_A_KARMA_PUBLIC_CHECKLIST.md`](TECH_TEAM_A_KARMA_PUBLIC_CHECKLIST.md) |
 | 早期共建招募 | [`early-builders-recruitment-zh.md`](early-builders-recruitment-zh.md) |
+| 生态集成路线图（Open Wallet / x402 / AP2） | [`KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md`](KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md) |
 | **私有仓执行** | [`PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md`](PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md) |
 
 ---

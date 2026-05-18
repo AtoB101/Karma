@@ -63,6 +63,7 @@ Acceptance criteria:
 - Rich identity/attestation extensions (KYA as a modular policy layer).
 - Advanced pool controls and multi-pool optimization.
 - Circuit breaker policy expansion beyond minimal pause.
+- Ecosystem adapters (Open Wallet signing, x402, AP2 evidence interop) — see **[`KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md`](KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md)** for phased delivery.
 
 ## 4) Module Posture (Keep / Simplify / Defer)
 
