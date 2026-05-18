@@ -172,6 +172,13 @@ class Settings(BaseSettings):
     # Mirror trade launch amounts into Runtime Key daily spend (unify with policy daily_limit)
     trade_launch_record_runtime_daily_spend: bool = True
 
+    # Phase 2 — x402 HTTP machine payments
+    x402_enabled: bool = True
+    x402_payment_backend: str = "mock"
+    x402_default_max_budget_usdc: float = 10.0
+    x402_hard_max_budget_usdc: float = 100.0
+    x402_allow_private_hosts: bool = True
+
     # OpenClaw — optional outbound handoff webhooks (HMAC) + in-process event ring for polling
     openclaw_webhook_url: str = ""
     openclaw_webhook_secret: str = ""

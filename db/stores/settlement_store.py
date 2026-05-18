@@ -89,6 +89,7 @@ class PostgresSettlementStore(SettlementStore):
             "voucher_id":           getattr(s, "voucher_id", None),
             "delivery_deadline_at": getattr(s, "delivery_deadline_at", None),
             "progress_rule_spec": getattr(s, "progress_rule_spec", None),
+            "funding_source": getattr(s, "funding_source", "internal") or "internal",
         }
 
     @staticmethod
@@ -119,4 +120,5 @@ class PostgresSettlementStore(SettlementStore):
             voucher_id=getattr(row, "voucher_id", None),
             delivery_deadline_at=getattr(row, "delivery_deadline_at", None),
             progress_rule_spec=getattr(row, "progress_rule_spec", None),
+            funding_source=getattr(row, "funding_source", "internal") or "internal",
         )

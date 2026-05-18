@@ -15,6 +15,7 @@
 | [TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md) | **2026-05-17** 测试网预授权 + 全自动流水线验收摘要（353 项） |
 | [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md) | **2026-05-17** 压力 + 攻击测试摘要（3,143 项；MEDIUM 修复说明） |
 | [PHASE1_OPEN_WALLET_ACCEPTANCE.md](./PHASE1_OPEN_WALLET_ACCEPTANCE.md) | **Phase 1** Open Wallet / TradeLaunch EIP-712 验收摘要与复测表 |
+| [PHASE2_X402_ACCEPTANCE.md](./PHASE2_X402_ACCEPTANCE.md) | **Phase 2** x402 机器支付 + external_payment 验收摘要 |
 
 ---
 

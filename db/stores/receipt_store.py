@@ -10,11 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.hooks.hook_layer import ReceiptStore
-from core.schemas import ExecutionReceipt, ToolStatus
+from core.schemas import ExecutionReceipt, ExternalPaymentRecord, ToolStatus
 from db.models.orm import ReceiptModel
 from services.receipt_templates import parse_execution_receipt_extension
 
 _KARMA_RECEIPT_EXTENSION_KEY = "karma_receipt_extension"
+_EXTERNAL_PAYMENT_KEY = "external_payment"
 
 
 class PostgresReceiptStore(ReceiptStore):
@@ -61,8 +62,11 @@ class PostgresReceiptStore(ReceiptStore):
     def _to_row(r: ExecutionReceipt) -> dict:
         md = dict(r.metadata or {})
         md.pop(_KARMA_RECEIPT_EXTENSION_KEY, None)
+        md.pop(_EXTERNAL_PAYMENT_KEY, None)
         if r.extension is not None:
             md[_KARMA_RECEIPT_EXTENSION_KEY] = r.extension.model_dump(mode="json")
+        if r.external_payment is not None:
+            md[_EXTERNAL_PAYMENT_KEY] = r.external_payment.model_dump(mode="json")
         return {
             "receipt_id":    r.receipt_id,
             "task_id":       r.task_id,
@@ -84,7 +88,9 @@ class PostgresReceiptStore(ReceiptStore):
     def _from_row(row: ReceiptModel) -> ExecutionReceipt:
         md = dict(row.metadata_ or {})
         ext_raw = md.pop(_KARMA_RECEIPT_EXTENSION_KEY, None)
+        pay_raw = md.pop(_EXTERNAL_PAYMENT_KEY, None)
         extension = parse_execution_receipt_extension(ext_raw) if ext_raw else None
+        external_payment = ExternalPaymentRecord.model_validate(pay_raw) if pay_raw else None
         return ExecutionReceipt(
             receipt_id=row.receipt_id,
             task_id=row.task_id,
@@ -99,6 +105,7 @@ class PostgresReceiptStore(ReceiptStore):
             status=ToolStatus(row.status),
             error_message=row.error_message,
             metadata=md,
+            external_payment=external_payment,
             signature=row.signature,
             extension=extension,
         )
