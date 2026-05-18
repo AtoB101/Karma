@@ -218,12 +218,16 @@ async def test_multi_step_receipts_with_timezone_aware_timestamps(client: AsyncC
 
 @pytest.mark.asyncio
 async def test_submit_receipt_rejects_missing_signature(client: AsyncClient, monkeypatch):
+    """Requires strict policy — see tests/unit/test_sentinel_nonblocking_regressions.py."""
     from config.settings import settings
 
     monkeypatch.setattr(settings, "receipt_require_signature", True)
     monkeypatch.setattr(settings, "openclaw_local_phase1_auto_relax", False)
     monkeypatch.setattr(settings, "openclaw_relax_delivery_signatures", False)
-    now = datetime.utcnow()
+    monkeypatch.setattr(settings, "trade_launch_require_eip712", True)
+    from tests.helpers.time_test_utils import utc_naive_datetime
+
+    now = utc_naive_datetime()
     await post_minimal_contract(
         client,
         task_id="task-missing-sig",

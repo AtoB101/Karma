@@ -27,8 +27,9 @@ echo "== [4/7] Phase 3 AP2 gate =="
 bash scripts/acceptance/phase3_ap2_gate.sh
 
 echo ""
-echo "== [5/7] Security attack regressions (KSA / KSA2 / KSA-TL) =="
+echo "== [5/7] Security attack regressions (KSA / KSA2 / KSA-TL / Sentinel) =="
 python3 -m pytest -q \
+  tests/unit/test_sentinel_nonblocking_regressions.py \
   tests/unit/test_security_attack_mitigations.py \
   tests/unit/test_level2_attack_mitigations.py \
   tests/unit/test_trade_launch_security.py \

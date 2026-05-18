@@ -21,6 +21,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Sentinel audit: fix two non-blocking test failures (receipt relax pin + UTC deadline); add `test_sentinel_nonblocking_regressions.py` and `tests/helpers/time_test_utils.py`.
+- Tests (PR #94): receipt missing-signature pins strict policy; voucher attestation uses UTC-aware deadline.
 - Production gates: `X402_PAYMENT_BACKEND=sepolia` in `phase1_open_wallet_gate.sh` and `production-prelaunch-gate.sh` (Phase 2 prod validator).
 - Idempotency error message generalized for PaymentIntent (`trade_pipeline_security.py`).
 - Rate limit: in-process sliding window fallback when Redis is unavailable (mitigates register flood; production should use Redis + fail-closed).
