@@ -1,0 +1,19 @@
+<!-- Copy into <section class="panel" data-console-actions> on seller pages (Receiving). -->
+<h2 style="font-size: 1rem; margin-bottom: 0.35rem">Seller actions · live API</h2>
+<p class="sub" style="margin: 0 0 0.65rem">Start work, submit delivery, export transition audit.</p>
+<div class="grid cols-2">
+  <label
+    >Active task<br /><select data-action-task-select style="width: 100%; margin-top: 0.25rem"></select
+  ></label>
+  <label
+    >Reason (optional)<br /><input data-action-reason type="text" style="width: 100%; margin-top: 0.25rem"
+  /></label>
+</div>
+<p class="btn-row" style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem">
+  <button type="button" class="btn" data-console-action="settlement-start">Start execution</button>
+  <button type="button" class="btn" data-console-action="settlement-submit">Submit delivery</button>
+  <button type="button" class="btn" data-console-action="view-evidence">View evidence</button>
+  <button type="button" class="btn" data-console-action="view-transitions">Export transitions</button>
+  <button type="button" class="btn" data-console-action="navigate-trade">付款码 / 接单</button>
+</p>
+<pre class="out" data-console-action-out style="margin-top: 0.75rem; max-height: 220px; overflow: auto">—</pre>

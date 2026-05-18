@@ -163,6 +163,133 @@
     return karmaFetch("/v1/openclaw/handoff-events" + (qs ? "?" + qs : ""), { method: "GET", headers: headers() });
   }
 
+  function jsonPost(path, payload, extraHeaders) {
+    const h = { ...headers(), "Content-Type": "application/json" };
+    if (extraHeaders) {
+      for (const ek in extraHeaders) {
+        if (Object.prototype.hasOwnProperty.call(extraHeaders, ek)) h[ek] = extraHeaders[ek];
+      }
+    }
+    return karmaFetch(path, {
+      method: "POST",
+      headers: h,
+      body: JSON.stringify(payload == null ? {} : payload),
+    });
+  }
+
+  function jsonPut(path, payload) {
+    return karmaFetch(path, {
+      method: "PUT",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function postAuthToken(agentId, apiKey) {
+    return karmaFetch("/v1/auth/token", {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: agentId, api_key: apiKey }),
+    });
+  }
+
+  async function lockCapacity(identityId, amount) {
+    const id = encodeURIComponent(identityId);
+    return jsonPost("/v1/capacity/" + id + "/lock", { amount: Number(amount) });
+  }
+
+  async function releaseCapacity(identityId, amount) {
+    const id = encodeURIComponent(identityId);
+    return jsonPost("/v1/capacity/" + id + "/release", { amount: Number(amount) });
+  }
+
+  async function createSettlement(payload) {
+    return jsonPost("/v1/settlement/create", payload);
+  }
+
+  async function settlementPending(taskId) {
+    return jsonPost("/v1/settlement/" + encodeURIComponent(taskId) + "/pending", {});
+  }
+
+  async function settlementLock(taskId, workerAgentId) {
+    return jsonPost("/v1/settlement/" + encodeURIComponent(taskId) + "/lock", {
+      worker_agent_id: workerAgentId,
+    });
+  }
+
+  async function settlementStart(taskId) {
+    return jsonPost("/v1/settlement/" + encodeURIComponent(taskId) + "/start", {});
+  }
+
+  async function settlementSubmit(taskId) {
+    return jsonPost("/v1/settlement/" + encodeURIComponent(taskId) + "/submit", {});
+  }
+
+  async function settlementFail(taskId) {
+    return jsonPost("/v1/settlement/" + encodeURIComponent(taskId) + "/fail", {});
+  }
+
+  async function settlementDispute(taskId, reason) {
+    return jsonPost("/v1/settlement/" + encodeURIComponent(taskId) + "/dispute", {
+      reason: reason || "console dispute",
+    });
+  }
+
+  async function settlementBuyerAccept(taskId) {
+    return jsonPost("/v1/settlement/" + encodeURIComponent(taskId) + "/buyer-accept", {});
+  }
+
+  async function settlementPartial(taskId, settledValuePercent, reason) {
+    return jsonPost("/v1/settlement/" + encodeURIComponent(taskId) + "/partial", {
+      settled_value_percent: Number(settledValuePercent),
+      reason: reason || null,
+    });
+  }
+
+  async function settlementRegret(taskId, buyerIdentityId, reason) {
+    return jsonPost("/v1/settlement/" + encodeURIComponent(taskId) + "/regret", {
+      buyer_identity_id: buyerIdentityId || null,
+      reason: reason || null,
+    });
+  }
+
+  async function createPaymentCode(body) {
+    return jsonPost("/v1/payment-codes", body);
+  }
+
+  async function getPaymentCode(voucherId) {
+    return karmaFetch("/v1/payment-codes/" + encodeURIComponent(voucherId), {
+      method: "GET",
+      headers: headers(),
+    });
+  }
+
+  async function acceptPaymentCode(voucherId, sellerIdentityId) {
+    return jsonPost("/v1/payment-codes/" + encodeURIComponent(voucherId) + "/accept", {
+      seller_identity_id: sellerIdentityId,
+    });
+  }
+
+  async function rejectPaymentCode(voucherId, sellerIdentityId, reason) {
+    return jsonPost("/v1/payment-codes/" + encodeURIComponent(voucherId) + "/reject", {
+      seller_identity_id: sellerIdentityId,
+      reason: reason || "rejected",
+    });
+  }
+
+  async function getVoucherEvents(voucherId, identityId) {
+    const q = new URLSearchParams({ identity_id: identityId });
+    return karmaFetch(
+      "/v1/vouchers/" + encodeURIComponent(voucherId) + "/events?" + q.toString(),
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function launchTradeOrder(body, idempotencyKey) {
+    const extra = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : null;
+    return jsonPost("/v1/trade/orders/launch", body, extra);
+  }
+
   global.cyberKarmaApi = {
     apiBase,
     karmaFetch,
@@ -185,6 +312,27 @@
     getAutomationPolicy,
     putAutomationPolicy,
     listOpenclawHandoffEvents,
+    postAuthToken,
+    lockCapacity,
+    releaseCapacity,
+    createSettlement,
+    settlementPending,
+    settlementLock,
+    settlementStart,
+    settlementSubmit,
+    settlementFail,
+    settlementDispute,
+    settlementBuyerAccept,
+    settlementPartial,
+    settlementRegret,
+    createPaymentCode,
+    getPaymentCode,
+    acceptPaymentCode,
+    rejectPaymentCode,
+    getVoucherEvents,
+    launchTradeOrder,
+    jsonPost,
+    jsonPut,
   };
   global.karmaRuntimeApi = { runtimeCreateKey, runtimeListKeys, runtimeRevokeKey, karmaFetch, headers };
 })(window);

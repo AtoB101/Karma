@@ -11,14 +11,26 @@
     return document.querySelector(sel);
   }
 
+  function client() {
+    return window.cyberKarmaApi;
+  }
+
   function apiBase() {
+    var a = client();
+    if (a && a.apiBase) return a.apiBase();
     return String($("[data-cfg=api_base]")?.value || localStorage.getItem(LS_BASE) || "http://127.0.0.1:8000")
       .trim()
       .replace(/\/$/, "");
   }
 
   function apiKey() {
-    return String($("[data-cfg=api_key]")?.value || localStorage.getItem(LS_KEY) || "").trim();
+    return String($("[data-cfg=api_key]")?.value || localStorage.getItem(LS_KEY) || window.KARMA_API_KEY || "").trim();
+  }
+
+  function syncWindowCfg() {
+    if ($("[data-cfg=api_base]")) window.KARMA_API_BASE = apiBase();
+    if ($("[data-cfg=api_key]")) window.KARMA_API_KEY = apiKey();
+    if ($("[data-cfg=identity_id]")) window.KARMA_IDENTITY_ID = identityId();
   }
 
   function identityId() {
@@ -108,16 +120,23 @@
 
   async function createPaymentCode(mode) {
     saveCfg();
+    syncWindowCfg();
     var st = $("[data-buyer-status]");
     if (st) st.textContent = "提交中…";
     try {
-      var res = await fetch(apiBase() + "/v1/payment-codes", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify(collectPaymentCodeBody(mode)),
-      });
-      var body = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(body));
+      var a = client();
+      var body;
+      if (a && a.createPaymentCode) {
+        body = await a.createPaymentCode(collectPaymentCodeBody(mode));
+      } else {
+        var res = await fetch(apiBase() + "/v1/payment-codes", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify(collectPaymentCodeBody(mode)),
+        });
+        body = await res.json();
+        if (!res.ok) throw new Error(JSON.stringify(body));
+      }
       if ($("[data-f=voucher_id]")) $("[data-f=voucher_id]").value = body.voucher?.voucher_id || "";
       if ($("[data-payment-code-out]")) $("[data-payment-code-out]").textContent = JSON.stringify(body, null, 2);
       if (st) {
@@ -132,6 +151,8 @@
   }
 
   async function loadPaymentCode() {
+    saveCfg();
+    syncWindowCfg();
     var vid = field("voucher_id");
     var st = $("[data-seller-status]");
     if (!vid) {
@@ -139,9 +160,15 @@
       return;
     }
     try {
-      var res = await fetch(apiBase() + "/v1/payment-codes/" + encodeURIComponent(vid), { headers: headers() });
-      var body = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(body));
+      var a = client();
+      var body;
+      if (a && a.getPaymentCode) {
+        body = await a.getPaymentCode(vid);
+      } else {
+        var res = await fetch(apiBase() + "/v1/payment-codes/" + encodeURIComponent(vid), { headers: headers() });
+        body = await res.json();
+        if (!res.ok) throw new Error(JSON.stringify(body));
+      }
       if ($("[data-seller-code-out]")) $("[data-seller-code-out]").textContent = JSON.stringify(body, null, 2);
       if (st) st.textContent = "状态: " + (body.voucher_status || "—");
       await loadEvents(vid);
@@ -151,26 +178,40 @@
   }
 
   async function loadEvents(vid) {
+    syncWindowCfg();
     var id = identityId();
-    var res = await fetch(
-      apiBase() + "/v1/vouchers/" + encodeURIComponent(vid) + "/events?identity_id=" + encodeURIComponent(id),
-      { headers: headers() }
-    );
-    var body = await res.json();
+    var a = client();
+    var body;
+    if (a && a.getVoucherEvents) {
+      body = await a.getVoucherEvents(vid, id);
+    } else {
+      var res = await fetch(
+        apiBase() + "/v1/vouchers/" + encodeURIComponent(vid) + "/events?identity_id=" + encodeURIComponent(id),
+        { headers: headers() }
+      );
+      body = await res.json();
+    }
     if ($("[data-voucher-events-out]")) $("[data-voucher-events-out]").textContent = JSON.stringify(body, null, 2);
   }
 
   async function acceptVoucher() {
+    saveCfg();
+    syncWindowCfg();
     var vid = field("voucher_id");
     var st = $("[data-seller-status]");
     try {
-      var res = await fetch(apiBase() + "/v1/payment-codes/" + encodeURIComponent(vid) + "/accept", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ seller_identity_id: identityId() }),
-      });
-      var body = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(body));
+      var a = client();
+      if (a && a.acceptPaymentCode) {
+        await a.acceptPaymentCode(vid, identityId());
+      } else {
+        var res = await fetch(apiBase() + "/v1/payment-codes/" + encodeURIComponent(vid) + "/accept", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ seller_identity_id: identityId() }),
+        });
+        var body = await res.json();
+        if (!res.ok) throw new Error(JSON.stringify(body));
+      }
       if (st) st.textContent = "已接单";
       await loadEvents(vid);
     } catch (e) {
@@ -179,19 +220,26 @@
   }
 
   async function rejectVoucher() {
+    saveCfg();
+    syncWindowCfg();
     var vid = field("voucher_id");
     var st = $("[data-seller-status]");
     try {
-      var res = await fetch(apiBase() + "/v1/payment-codes/" + encodeURIComponent(vid) + "/reject", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({
-          seller_identity_id: identityId(),
-          reason: field("reject_reason") || "rejected",
-        }),
-      });
-      var body = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(body));
+      var a = client();
+      if (a && a.rejectPaymentCode) {
+        await a.rejectPaymentCode(vid, identityId(), field("reject_reason") || "rejected");
+      } else {
+        var res = await fetch(apiBase() + "/v1/payment-codes/" + encodeURIComponent(vid) + "/reject", {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({
+            seller_identity_id: identityId(),
+            reason: field("reject_reason") || "rejected",
+          }),
+        });
+        var body = await res.json();
+        if (!res.ok) throw new Error(JSON.stringify(body));
+      }
       if (st) st.textContent = "已拒绝并回执买方";
       await loadEvents(vid);
     } catch (e) {
@@ -210,6 +258,7 @@
 
   async function savePreauth() {
     saveCfg();
+    syncWindowCfg();
     var id = identityId();
     var st = $("[data-preauth-status]");
     var role = $("[data-trade-role]")?.value || "buyer";
@@ -233,13 +282,19 @@
       auto_execute_pipeline: !!preauthField("auto_execute_pipeline"),
     };
     try {
-      var res = await fetch(apiBase() + "/v1/identities/" + encodeURIComponent(id) + "/automation-policy", {
-        method: "PUT",
-        headers: headers(),
-        body: JSON.stringify(body),
-      });
-      var data = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(data));
+      var a = client();
+      var data;
+      if (a && a.putAutomationPolicy) {
+        data = await a.putAutomationPolicy(id, body);
+      } else {
+        var res = await fetch(apiBase() + "/v1/identities/" + encodeURIComponent(id) + "/automation-policy", {
+          method: "PUT",
+          headers: headers(),
+          body: JSON.stringify(body),
+        });
+        data = await res.json();
+        if (!res.ok) throw new Error(JSON.stringify(data));
+      }
       if (st) st.textContent = "预授权：已保存 v" + (data.policy_version || "?");
     } catch (e) {
       if (st) st.textContent = "保存失败: " + (e.message || e);
@@ -248,25 +303,33 @@
 
   async function launchOrder() {
     saveCfg();
+    syncWindowCfg();
     var out = $("[data-pipeline-out]");
     if (out) out.textContent = "发起中…";
+    var payload = {
+      buyer_identity_id: identityId(),
+      seller_identity_id: field("seller_identity_id"),
+      requirement_text: field("requirement_text") || field("task_type"),
+      buyer_signature: field("buyer_signature") || "0xtrade_console",
+      amount: field("amount") ? Number(field("amount")) : null,
+      task_precision: field("task_precision") ? Number(field("task_precision")) : null,
+      task_type: field("task_type") || null,
+      chain_anchor_hash: field("chain_anchor_hash") || null,
+    };
     try {
-      var res = await fetch(apiBase() + "/v1/trade/orders/launch", {
-        method: "POST",
-        headers: headers({ "Idempotency-Key": launchIdempotencyKey() }),
-        body: JSON.stringify({
-          buyer_identity_id: identityId(),
-          seller_identity_id: field("seller_identity_id"),
-          requirement_text: field("requirement_text") || field("task_type"),
-          buyer_signature: field("buyer_signature") || "0xtrade_console",
-          amount: field("amount") ? Number(field("amount")) : null,
-          task_precision: field("task_precision") ? Number(field("task_precision")) : null,
-          task_type: field("task_type") || null,
-          chain_anchor_hash: field("chain_anchor_hash") || null,
-        }),
-      });
-      var body = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(body));
+      var a = client();
+      var body;
+      if (a && a.launchTradeOrder) {
+        body = await a.launchTradeOrder(payload, launchIdempotencyKey());
+      } else {
+        var res = await fetch(apiBase() + "/v1/trade/orders/launch", {
+          method: "POST",
+          headers: headers({ "Idempotency-Key": launchIdempotencyKey() }),
+          body: JSON.stringify(payload),
+        });
+        body = await res.json();
+        if (!res.ok) throw new Error(JSON.stringify(body));
+      }
       if (out) out.textContent = JSON.stringify(body, null, 2);
       if (body.voucher_id && $("[data-f=voucher_id]")) $("[data-f=voucher_id]").value = body.voucher_id;
     } catch (e) {

@@ -23,7 +23,7 @@
       <h1>Receiving</h1>
       <p class="sub">Service providers: same backend reads as Payments; rows show your role as seller when the identity matches <code>worker_agent_id</code>.</p>
       <div class="banner">Cancel lock rules (product): only when all bills settled, no pending dispute, no pending execution.</div>
-      <section class="panel" data-karma-console-root data-sync-interval-ms="10000">
+      <section class="panel" data-karma-console-root data-console-connect data-sync-interval-ms="10000">
         <h2 style="font-size: 1rem; margin-bottom: 0.35rem">API state sync</h2>
         <div class="grid cols-2">
           <label
@@ -42,6 +42,8 @@
         <p style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
           <button type="button" class="btn" data-action="karma-save-cfg">Save + sync</button>
           <button type="button" class="btn" data-action="karma-refresh-now">Refresh</button>
+          <button type="button" class="btn" data-action="connect-test">Test API</button>
+          <span class="sub" data-connect-status">—</span>
           <label class="sub" style="display: flex; align-items: center; gap: 0.35rem"
             ><input type="checkbox" data-cfg="auto_sync" /> Auto-sync</label
           >
@@ -66,14 +68,20 @@
           </thead>
           <tbody data-sync-table="tasks"></tbody>
         </table>
-        <p style="margin-top: 0.65rem">
-          <span class="btn">Add Agent</span>
-          <span class="btn">Enable KARMA Settlement</span>
-          <span class="btn">View Evidence</span>
-          <span class="btn">Export Records</span>
-          <span class="btn">Pause Agent</span>
-          <span class="btn">Disconnect Agent</span>
+      </section>
+      <section class="panel" data-console-actions style="margin-top: 1rem">
+        <h2 style="font-size: 1rem">Seller actions · live API</h2>
+        <label
+          >Active task<br /><select data-action-task-select style="width: 100%; max-width: 28rem; margin-top: 0.25rem"></select
+        ></label>
+        <p style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem">
+          <button type="button" class="btn" data-console-action="settlement-start">Start execution</button>
+          <button type="button" class="btn" data-console-action="settlement-submit">Submit delivery</button>
+          <button type="button" class="btn" data-console-action="view-evidence">View evidence</button>
+          <button type="button" class="btn" data-console-action="view-transitions">Transitions JSON</button>
+          <button type="button" class="btn" data-console-action="navigate-trade">付款码 / 接单</button>
         </p>
+        <pre class="out" data-console-action-out style="margin-top: 0.75rem; max-height: 240px; overflow: auto">—</pre>
       </section>
       <div class="panel" data-karma-bff-panel style="margin-top: 1rem">
         <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Karma BFF · 状态（只读）</h2>
@@ -86,14 +94,18 @@
         <p class="bff-hint">锁仓说明：<span data-karma-bff-lock-link>—</span></p>
       </div>
     </main>
+    <script src="../../scripts/config.js" onerror="void 0"></script>
     <script>
       window.KARMA_API_BASE = window.KARMA_API_BASE || "";
       window.KARMA_API_KEY = window.KARMA_API_KEY || "";
       window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
       window.KARMA_BFF_PUBLIC_BASE = window.KARMA_BFF_PUBLIC_BASE || "";
     </script>
+    <script src="../../scripts/console-bootstrap.js"></script>
     <script src="../../scripts/karma-public-api.js"></script>
+    <script src="../../scripts/console-connect.js"></script>
     <script src="../../scripts/console-sync.js"></script>
+    <script src="../../scripts/console-actions.js"></script>
     <script src="../../scripts/karma-bff-readonly.js"></script>
   </body>
 </html>
