@@ -49,8 +49,12 @@ echo "== [7/8] Production prelaunch settings (no full on-call gate) =="
 bash scripts/production-prelaunch-gate.sh
 
 echo ""
-echo "== [8/8] Testnet manifest sample (optional cast) =="
+echo "== [8/9] Testnet manifest sample (optional cast) =="
 bash scripts/acceptance/verify_testnet_manifest_sample.sh || true
+
+echo ""
+echo "== [9/9] Console last-mile wiring (static) =="
+bash scripts/acceptance/console_last_mile_gate.sh
 
 echo ""
 echo "========================================"

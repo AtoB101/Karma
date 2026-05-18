@@ -38,10 +38,21 @@ python3 scripts/acceptance/reverse_rule_audit.py
 | 5 | KSA 攻击回归（含 KSA-AP2） |
 | 6 | `run_public_acceptance_tests.sh`（monorepo + OpenClaw/OpenManus + karma-public） |
 | 7 | `production-prelaunch-gate.sh` |
+| 8–9 | Manifest 抽样（可选 cast）、**Console 最后一公里**（`console_last_mile_gate.sh`） |
 
-详见 [`FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md`](FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md)。
+详见 [`FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md`](FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md)、[`CONSOLE_LAST_MILE-zh.md`](CONSOLE_LAST_MILE-zh.md)。
 
-### 2.2 测试网 + OpenClaw / Manus（需运行中 API）
+### 2.2 Console 前后端联调（静态 + 浏览器）
+
+```bash
+cp apps/console/config.example.js apps/console/config.js
+python3 -m http.server 8787   # http://127.0.0.1:8787/apps/console/
+bash scripts/acceptance/console_last_mile_gate.sh
+```
+
+在 Overview / Payments 填写 **API base**、**API key**、**identity**、**task_id**，使用 **Quick actions** 或 **Trade** 页发起真实 HTTP 写操作。
+
+### 2.3 测试网 + OpenClaw / Manus（需运行中 API）
 
 推荐 Docker 栈（PostgreSQL + Redis）：[`deploy/TESTNET_STACK-zh.md`](../deploy/TESTNET_STACK-zh.md)
 

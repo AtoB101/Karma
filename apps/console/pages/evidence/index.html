@@ -24,7 +24,7 @@
       <p class="sub">
         Bundles per task via <code>GET /v1/bundles/task/{task_id}</code>. Schema: <code>packages/evidence-schema/evidence.schema.json</code>.
       </p>
-      <section class="panel" data-karma-console-root data-sync-interval-ms="12000">
+      <section class="panel" data-karma-console-root data-console-actions data-sync-interval-ms="12000">
         <div class="grid cols-2">
           <label
             >API base<br /><input data-cfg="api_base" type="text" style="width: 100%; margin-top: 0.25rem"
@@ -54,19 +54,26 @@
           </thead>
           <tbody data-sync-table="evidence"></tbody>
         </table>
-        <p style="margin-top: 0.65rem">
-          <span class="btn">View</span>
-          <span class="btn">Copy Hash</span>
-          <span class="btn">Export JSON</span>
-          <span class="btn">Verify Signature</span>
+        <p style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end">
+          <label
+            >Active task<br /><select data-action-task-select style="min-width: 14rem; margin-top: 0.25rem"></select
+          ></label>
+          <button type="button" class="btn" data-console-action="view-evidence">View bundle</button>
+          <button type="button" class="btn" data-console-action="copy-bundle-hash">Copy hash</button>
+          <button type="button" class="btn" data-console-action="export-bundle-json">Export JSON</button>
+          <button type="button" class="btn" data-console-action="view-transitions">Settlement log</button>
         </p>
+        <pre class="out" data-console-action-out style="margin-top: 0.75rem; max-height: 240px; overflow: auto">—</pre>
       </section>
     </main>
     <script>
       window.KARMA_API_BASE = window.KARMA_API_BASE || "";
       window.KARMA_API_KEY = window.KARMA_API_KEY || "";
     </script>
+    <script src="../../scripts/config.js" onerror="void 0"></script>
+    <script src="../../scripts/console-bootstrap.js"></script>
     <script src="../../scripts/karma-public-api.js"></script>
     <script src="../../scripts/console-sync.js"></script>
+    <script src="../../scripts/console-actions.js"></script>
   </body>
 </html>

@@ -16,6 +16,7 @@
         <a href="pages/agents/index.html">Agents</a>
         <a href="pages/evidence/index.html">Evidence</a>
         <a href="pages/disputes/index.html">Disputes</a>
+        <a href="pages/trade/index.html">Trade</a>
         <a href="pages/settings/index.html">Settings</a>
         <a href="pages/cyber/index.html">Cyber Console</a>
         <a href="../website/index.html">Website</a>
@@ -23,13 +24,13 @@
     </header>
     <main>
       <div class="banner">
-        <strong>Connect Wallet</strong> belongs here in Console — not on the marketing site. Wire WalletConnect / your
-        signer to a backend that implements <code>openapi/karma-public-console-api.yaml</code>. Demo sign-in lives under
-        <code>apps/agent-service-guard/frontend/web3-login.html</code>.
+        <strong>Last mile:</strong> set API base + key below; use <a href="pages/payments/index.html">Payments</a> or
+        <a href="pages/trade/index.html">Trade</a> for live writes. Demo wallet:
+        <a href="../agent-service-guard/frontend/web3-login.html">web3-login</a>.
       </div>
       <h1>Overview</h1>
       <p class="sub">Receiving and Payments are the two primary modules; other areas support operations and audit.</p>
-      <section class="panel" data-karma-console-root data-sync-interval-ms="12000">
+      <section class="panel" data-karma-console-root data-console-connect data-sync-interval-ms="12000">
         <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Karma API · live state</h2>
         <p class="sub" style="margin: 0 0 0.65rem">
           Polls <code>/health</code>, <code>/v1/capacity/{identity}</code>, <code>/v1/security/runtime/safety-mode</code>, and
@@ -61,14 +62,17 @@
         <p style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
           <button type="button" class="btn" data-action="karma-save-cfg">Save + sync</button>
           <button type="button" class="btn" data-action="karma-refresh-now">Refresh now</button>
+          <button type="button" class="btn" data-action="connect-test">Test API</button>
           <label class="sub" style="display: flex; align-items: center; gap: 0.35rem"
             ><input type="checkbox" data-cfg="auto_sync" /> Auto-sync</label
           >
           <span class="sub">Last: <span data-bind="console_last_sync">—</span></span>
         </p>
         <p class="sub" style="margin-top: 0.25rem">
-          Health <span data-bind="health_status">—</span> · Safety <span data-bind="safety_enabled">—</span>
+          Health <span data-bind="health_status">—</span> · API <span data-bind="api_env">—</span>
+          <span data-bind="api_version"></span> · Safety <span data-bind="safety_enabled">—</span>
           <span data-bind="safety_detail"></span>
+          <span class="sub" data-connect-status></span>
           <span data-bind="sync_capacity_error" style="color: #f87171"></span>
         </p>
         <div class="grid cols-2" style="margin-top: 0.75rem">
@@ -125,8 +129,11 @@
       /* Set to your BFF origin for read-only status (e.g. http://127.0.0.1:8820). Leave empty to disable fetch. */
       window.KARMA_BFF_PUBLIC_BASE = window.KARMA_BFF_PUBLIC_BASE || "";
     </script>
+    <script src="scripts/config.js" onerror="void 0"></script>
+    <script src="scripts/console-bootstrap.js"></script>
     <script src="scripts/testnet-banner.js"></script>
     <script src="scripts/karma-public-api.js"></script>
+    <script src="scripts/console-connect.js"></script>
     <script src="scripts/console-sync.js"></script>
     <script src="scripts/karma-bff-readonly.js"></script>
   </body>

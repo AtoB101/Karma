@@ -180,6 +180,19 @@
         }
         var rc = Array.isArray(rcpts) ? rcpts.length : 0;
         addCell(tid);
+        tr.setAttribute("data-task-row", tid);
+        tr.style.cursor = "pointer";
+        tr.title = "Click to select for quick actions";
+        tr.addEventListener("click", function () {
+          try {
+            localStorage.setItem("karma_console_selected_task", tid);
+          } catch (_) {}
+          if (global.KarmaConsoleActions && global.KarmaConsoleActions.populateTaskSelect) {
+            global.KarmaConsoleActions.populateTaskSelect();
+          }
+          var sel = document.querySelector("[data-action-task-select]");
+          if (sel) sel.value = tid;
+        });
         addCell(roleHint(identityId, c, s));
         addCell(counterparty(identityId, c, s));
         addCell(s ? fmtNum(s.escrow_amount) + " " + (s.currency || "") : "—");
@@ -316,6 +329,15 @@
       setText(document.body, "[data-bind=health_status]", "err: " + (e.message || e));
     }
 
+    try {
+      var info = await a.getV1Info();
+      setText(document.body, "[data-bind=api_env]", (info && info.app_env) || "—");
+      setText(document.body, "[data-bind=api_version]", (info && info.version) || "—");
+    } catch (_) {
+      setText(document.body, "[data-bind=api_env]", "—");
+      setText(document.body, "[data-bind=api_version]", "—");
+    }
+
     if (identityId) {
       try {
         setText(document.body, "[data-bind=sync_capacity_error]", "");
@@ -346,6 +368,10 @@
 
     var tbDisp = el(document.body, "[data-sync-table=disputes]");
     if (tbDisp) renderDisputesTbody(tbDisp, identityId, taskIds);
+
+    try {
+      document.dispatchEvent(new CustomEvent("karma-console-sync-done"));
+    } catch (_) {}
   }
 
   var _timer = null;
