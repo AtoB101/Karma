@@ -25,6 +25,7 @@ def _prod_kwargs(**overrides):
         settlement_require_party_actor=True,
         trade_launch_require_eip712=True,
         karma_signing_backend="client_only",
+        x402_payment_backend="sepolia",
     )
     base.update(overrides)
     return base
@@ -46,6 +47,7 @@ def test_production_accepts_full_gates():
         ("karma_signing_backend", "local"),
         ("openclaw_relax_delivery_signatures", True),
         ("openclaw_local_phase1_auto_relax", True),
+        ("x402_payment_backend", "mock"),
     ],
 )
 def test_production_rejects_disabled_gate(field, value):

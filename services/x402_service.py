@@ -13,7 +13,8 @@ from core.schemas import ExecutionReceipt, ExternalPaymentRecord, ToolStatus
 from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
 from sdk.x402.client import X402Client
-from sdk.x402.executors import MockX402PaymentExecutor
+from sdk.x402.chain_executor import EnvSigningX402PaymentExecutor, SepoliaErc20X402PaymentExecutor
+from sdk.x402.executors import MockX402PaymentExecutor, resolve_x402_private_key
 from sdk.x402.url_safety import UnsafeX402UrlError
 from services.task_contract_guard import ensure_task_contract_exists
 
@@ -25,11 +26,14 @@ def _hex64(data: bytes) -> str:
 def build_x402_client() -> X402Client:
     backend = (settings.x402_payment_backend or "mock").strip().lower()
     if backend == "mock":
-        return X402Client(
-            MockX402PaymentExecutor(),
-            allow_private_hosts=settings.x402_allow_private_hosts,
-        )
-    raise ValueError(f"unsupported X402_PAYMENT_BACKEND: {backend}")
+        executor = MockX402PaymentExecutor()
+    elif backend == "env":
+        executor = EnvSigningX402PaymentExecutor(private_key=resolve_x402_private_key())
+    elif backend == "sepolia":
+        executor = SepoliaErc20X402PaymentExecutor(private_key=resolve_x402_private_key())
+    else:
+        raise ValueError(f"unsupported X402_PAYMENT_BACKEND: {backend}")
+    return X402Client(executor, allow_private_hosts=settings.x402_allow_private_hosts)
 
 
 async def pay_and_fetch_with_audit(

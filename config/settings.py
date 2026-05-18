@@ -265,6 +265,10 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "OPENCLAW_LOCAL_PHASE1_AUTO_RELAX must be false when APP_ENV is production",
                 )
+            if (self.x402_payment_backend or "").strip().lower() == "mock":
+                raise ValueError(
+                    "X402_PAYMENT_BACKEND=mock is not allowed when APP_ENV is production",
+                )
             if not self.trade_launch_require_eip712:
                 raise ValueError(
                     "TRADE_LAUNCH_REQUIRE_EIP712 must be true when APP_ENV is production",

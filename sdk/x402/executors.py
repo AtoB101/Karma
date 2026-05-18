@@ -15,6 +15,18 @@ class X402PaymentExecutor(Protocol):
         """Produce payment proof for retried HTTP request."""
 
 
+def resolve_x402_private_key() -> str:
+    """Dev/testnet key for env or sepolia x402 backends."""
+    from config.settings import settings
+
+    key = (settings.karma_signing_dev_private_key or settings.testnet_private_key or "").strip()
+    if not key:
+        raise ValueError(
+            "x402 env/sepolia backend requires KARMA_SIGNING_DEV_PRIVATE_KEY or TESTNET_PRIVATE_KEY"
+        )
+    return key
+
+
 class MockX402PaymentExecutor:
     """CI/local — deterministic mock tx + PAYMENT-SIGNATURE payload."""
 

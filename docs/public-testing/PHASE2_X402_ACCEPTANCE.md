@@ -18,7 +18,8 @@ bash scripts/acceptance/phase2_x402_gate.sh
 
 | 场景 | 结果 |
 |------|------|
-| 真实 x402 provider + Sepolia USDC | ☐ |
+| `X402_PAYMENT_BACKEND=env` 签名路径 | ☐ |
+| Sepolia USDC `sepolia` 后端 + 链上 tx | ☐ |
 | OpenClaw `karma_x402_fetch` 实机 | ☐ |
 
 ## 生产闸门
