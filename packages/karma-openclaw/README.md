@@ -80,6 +80,8 @@ Register in OpenClaw’s **MCP bridge** (stdio). Tool names are prefixed with `k
 | `karma_create_payment_code` | `POST /v1/payment-codes` |
 | `karma_get_payment_code` | `GET /v1/payment-codes/{voucher_id}` |
 | `karma_accept_payment_code` / `karma_reject_payment_code` | Seller manual actions |
+| `karma_trade_launch_signing_preview` | `POST /v1/trade/orders/launch/signing-preview` |
+| `karma_trade_launch_sign_with_backend` | `POST .../sign-with-backend` (dev only) |
 | `karma_launch_trade_order` | `POST /v1/trade/orders/launch` (+ `Idempotency-Key`) |
 | `karma_get_trade_order` | `GET /v1/trade/orders/{order_id}` |
 | `karma_list_voucher_events` | `GET /v1/vouchers/{id}/events` |
@@ -89,7 +91,7 @@ Register in OpenClaw’s **MCP bridge** (stdio). Tool names are prefixed with `k
 
 **Still Console-only:** Runtime Key mint/revoke (wallet signing).
 
-**Live acceptance:** `docs/PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md` · `examples/phase1-live-test/`
+**Live acceptance:** `docs/PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md` · env: `deploy/.env.local-openclaw.example` (path A) / `deploy/.env.local-eip712.example` (path B)
 
 ## Security
 
