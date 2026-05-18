@@ -1,7 +1,7 @@
 # Phase 1 Open Wallet 签名验收（公开摘要）
 
 > 最近更新：2026-05-18  
-> 实现 PR：[#86](https://github.com/AtoB101/Karma/pull/86)（合并后请将本行 SHA 更新为 `main` 合并 commit）  
+> 基线：`main` @ [`84b9345`](https://github.com/AtoB101/Karma/commit/84b9345)（PR [#86](https://github.com/AtoB101/Karma/pull/86)）  
 > 路线图：[`KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md`](../KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md) Phase 1  
 > 操作文档：[`OPEN_WALLET_SIGNING-zh.md`](../OPEN_WALLET_SIGNING-zh.md)
 
@@ -19,20 +19,16 @@
 ## 自动化验收（公开 CI）
 
 ```bash
+bash scripts/acceptance/phase1_open_wallet_gate.sh
 bash scripts/run_public_acceptance_tests.sh -q
 ./scripts/production-prelaunch-gate.sh deploy/.env.paas.example  # 需按 example 填全
-
-pytest tests/unit/test_trade_launch_eip712.py \
-  tests/unit/test_voucher_buyer_commitment.py \
-  tests/unit/test_trade_launch_security.py \
-  tests/integration/test_trade_launch_eip712_launch.py -q
 ```
 
-| 套件 | 预期 |
-|------|------|
-| 公开 acceptance gate | 298+ monorepo + 50 karma-public |
-| Phase 1 专项 | 见上 `pytest` 全绿 |
-| production-prelaunch-gate | Settings() 接受 production + trade EIP-712 闸门 |
+| 套件 | 预期 | 公开仓状态（2026-05-18 @ `84b9345`） |
+|------|------|--------------------------------------|
+| `phase1_open_wallet_gate.sh` | Phase 1 专项 pytest + 生产 trade EIP-712 Settings | pass |
+| 公开 acceptance gate | 300 monorepo + 50 karma-public | pass |
+| production-prelaunch-gate | Settings() 接受 production + trade EIP-712 闸门 | pass |
 
 ## 建议私有/预发复测（归档时填写）
 
@@ -62,4 +58,8 @@ RECEIPT_REQUIRE_SIGNATURE=true
 
 ## Karma2 锁步
 
-合并后执行 `prepare-karma2-sync-package.sh --core-commit <merge-sha>`，更新 `CORE_VERSION.lock` 与 vendor 快照。
+```bash
+./split-release/prepare-karma2-sync-package.sh --core-commit 84b9345
+```
+
+在私仓 Karma2 更新 `CORE_VERSION.lock`、vendor 快照与生产 env（见 [`OPEN_WALLET_SIGNING-zh.md`](../OPEN_WALLET_SIGNING-zh.md)）。同步包可写入 `results/karma2-sync-package/`（不强制入 git）。

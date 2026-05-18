@@ -47,7 +47,7 @@
 |-------------|------|----------|-----------------|
 | `ee68f62` · 2026-05-17 | 测试网预授权 + Agent 自动执行 | 352/353 通过；Sepolia 7/7；0 CRITICAL/HIGH | [TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md) |
 | `ee68f62` · 2026-05-17 | 压力 + 攻击 | 3,143 项；27/30 攻击拦截；3 MEDIUM 已在公开仓加固 | [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md) |
-| Phase 1 · 2026-05-18 | Open Wallet 贸易签名 | CI 专项 + KSA-TL 矩阵；预发 Sepolia 待填 | [PHASE1_OPEN_WALLET_ACCEPTANCE.md](./PHASE1_OPEN_WALLET_ACCEPTANCE.md) |
+| `84b9345` · 2026-05-18 | Open Wallet 贸易签名 | 公开 CI + `phase1_open_wallet_gate.sh` 绿；Sepolia 钱包 E2E 待填 | [PHASE1_OPEN_WALLET_ACCEPTANCE.md](./PHASE1_OPEN_WALLET_ACCEPTANCE.md) |
 | （示例） | 交叉结算压测 | Delta=0，账本平衡 | 见 [simulation-and-cross-settlement.md](./simulation-and-cross-settlement.md) |
 | 持续 | 测试网清单 | 与 Runbook 对齐 | [testnet-public-acceptance.md](./testnet-public-acceptance.md) |
 

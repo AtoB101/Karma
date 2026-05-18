@@ -9,9 +9,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Added
 
 - Ecosystem integration phased roadmap: `docs/KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md` (Open Wallet, x402, AP2, governance, commercial).
-- Phase 1 Open Wallet signing: EIP-712 trade launch, `sdk/signing_backend.py`, signing-preview APIs, daily launch budget checks (`docs/OPEN_WALLET_SIGNING-zh.md`).
-- Phase 1.5 unification: `trade_launch_attestation` in voucher spec, `voucher_buyer_commitment` dual-path verify, runtime daily spend mirror, production gates for trade EIP-712.
-- Phase 1 public acceptance template: `docs/public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md`.
 - Public testing acceptance summaries: `docs/public-testing/TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md`, `STRESS_ATTACK_ACCEPTANCE_2026-05-17.md`.
 - Integration test for triangle settlement cycle `A→B→C→A` (`tests/integration/test_triangle_settlement_cycle.py`).
 
@@ -23,6 +20,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Security
 
 - Documented 2026-05-17 stress/attack (3,143 tests) and testnet pre-auth (353 tests) results in `docs/public-testing/`.
+
+## [2026-05-18] — Phase 1 Open Wallet signing (on `main` @ `84b9345`)
+
+### Added
+
+- Phase 1 Open Wallet signing: EIP-712 `TradeLaunchIntent`, `sdk/signing_backend.py`, signing-preview / sign-with-backend APIs, daily launch budget checks (`docs/OPEN_WALLET_SIGNING-zh.md`).
+- Phase 1.5 unification: `trade_launch_attestation` in voucher spec, `voucher_buyer_commitment` dual-path verify, runtime daily spend mirror, production gates for trade EIP-712.
+- Phase 1 acceptance: `docs/public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md`, `scripts/acceptance/phase1_open_wallet_gate.sh`.
+- OpenClaw MCP: `karma_trade_launch_signing_preview`, `karma_trade_launch_sign_with_backend`; OpenManus `trade_launch_signing_preview()`.
+
+### Security
+
+- Attack matrix KSA-TL-001..005 in `docs/public-testing/attack-testing-roadmap.md`; covered by `tests/unit/test_trade_launch_security.py`.
 
 ## [2026-05-17] — Phase 1 trade, SDK, production gates (on `main` @ `ee68f62`)
 

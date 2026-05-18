@@ -118,7 +118,7 @@ flowchart LR
 
 ### 4.2 验收标准
 
-- [x] EIP-712 `TradeLaunchIntent` + `SigningBackend` + signing-preview API（PR #86）
+- [x] EIP-712 `TradeLaunchIntent` + `SigningBackend` + signing-preview API（`main` @ `84b9345` / PR #86）
 - [x] Voucher 统一：`trade_launch_attestation` + `voucher_buyer_commitment`（Phase 1.5）
 - [x] 生产闸门 + KSA-TL 回归（`tests/unit/test_trade_launch_security.py`）
 - [ ] Sepolia E2E：钱包签名完成一笔 trade launch（人工；填入 [PHASE1_OPEN_WALLET_ACCEPTANCE.md](public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md)）
