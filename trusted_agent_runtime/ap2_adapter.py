@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import asdict, is_dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Mapping
 
 from trusted_agent_runtime.hashing import canonical_json_bytes, sha256_hex
@@ -27,7 +27,12 @@ REQUIRED_PAYMENT_KEYS = frozenset(
 
 
 def _utc_now_iso() -> str:
-    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    return (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def _bundle_canonical_dict(bundle: Any) -> dict[str, Any]:
