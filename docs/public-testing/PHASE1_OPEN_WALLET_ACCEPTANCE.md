@@ -1,7 +1,7 @@
 # Phase 1 Open Wallet 签名验收（公开摘要）
 
 > 最近更新：2026-05-18  
-> 基线：`main` @ [`84b9345`](https://github.com/AtoB101/Karma/commit/84b9345)（PR [#86](https://github.com/AtoB101/Karma/pull/86)）  
+> 基线：`main` @ [`6ab1ccf`](https://github.com/AtoB101/Karma/commit/6ab1ccf)（#86 Phase 1 + #87 验收归档；OpenClaw 本地交付签名见 #88+）  
 > 路线图：[`KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md`](../KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md) Phase 1  
 > 操作文档：[`OPEN_WALLET_SIGNING-zh.md`](../OPEN_WALLET_SIGNING-zh.md)
 
@@ -29,6 +29,13 @@ bash scripts/run_public_acceptance_tests.sh -q
 | `phase1_open_wallet_gate.sh` | Phase 1 专项 pytest + 生产 trade EIP-712 Settings | pass |
 | 公开 acceptance gate | 300 monorepo + 50 karma-public | pass |
 | production-prelaunch-gate | Settings() 接受 production + trade EIP-712 闸门 | pass |
+
+## OpenClaw 本地实测（路径 A）
+
+| 场景 | 环境 | 结果 | 备注 |
+|------|------|------|------|
+| 全自动 launch + 幂等 + handoff | `TRADE_LAUNCH_REQUIRE_EIP712=false`，`deploy/.env.local-openclaw.example` | ☐ | `docs/PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md` |
+| 卖方 MCP receipt/progress | 同上（自动 `delivery_signatures_relaxed`） | ☐ | `karma_submit_*` 或 pipeline 首条 progress |
 
 ## 建议私有/预发复测（归档时填写）
 

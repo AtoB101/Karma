@@ -14,6 +14,7 @@ from karma_openclaw.guard import (
     require_valid_handoff_for_automation,
     setup_mutations_allowed,
 )
+from karma_openclaw.helpers import apply_openclaw_dev_delivery_signatures
 from karma_openclaw.http_client import api_get, api_post, runtime_get, runtime_key, runtime_post
 from karma_openclaw.orchestration import suggest_next_steps
 
@@ -140,7 +141,8 @@ def register_p0_tools(mcp: FastMCP) -> None:
         err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
-        return await api_post("/v1/receipts", json.loads(receipt_json))
+        body = apply_openclaw_dev_delivery_signatures(json.loads(receipt_json))
+        return await api_post("/v1/receipts", body)
 
     @mcp.tool()
     async def karma_submit_progress(progress_json: str, handoff_json: str = "") -> dict[str, Any]:
@@ -148,7 +150,8 @@ def register_p0_tools(mcp: FastMCP) -> None:
         err, _ = await require_valid_handoff_for_automation(handoff_json or None)
         if err:
             return err
-        return await api_post("/v1/progress", json.loads(progress_json))
+        body = apply_openclaw_dev_delivery_signatures(json.loads(progress_json))
+        return await api_post("/v1/progress", body)
 
     # --- Runtime Gateway (optional KARMA_RUNTIME_KEY) ---
 

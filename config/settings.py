@@ -100,6 +100,10 @@ class Settings(BaseSettings):
     # P1 — bind typed execution receipt extensions to voucher.task_type when a settlement links a voucher.
     receipt_template_voucher_binding: bool = True
     progress_require_signature: bool = True
+    # None = use openclaw_local_phase1_auto_relax + trade_launch_require_eip712 rule
+    openclaw_relax_delivery_signatures: bool | None = None
+    # Local OpenClaw Phase 1 template sets this true (never production)
+    openclaw_local_phase1_auto_relax: bool = False
     # When true, POST /v1/progress/{id}/confirm requires authenticated actor to match settlement.client_agent_id (buyer).
     progress_confirm_require_buyer_actor: bool = False
 
@@ -245,6 +249,14 @@ class Settings(BaseSettings):
             if not self.settlement_require_party_actor:
                 raise ValueError(
                     "SETTLEMENT_REQUIRE_PARTY_ACTOR must be true when APP_ENV is production",
+                )
+            if self.openclaw_relax_delivery_signatures is True:
+                raise ValueError(
+                    "OPENCLAW_RELAX_DELIVERY_SIGNATURES must be false or unset when APP_ENV is production",
+                )
+            if self.openclaw_local_phase1_auto_relax:
+                raise ValueError(
+                    "OPENCLAW_LOCAL_PHASE1_AUTO_RELAX must be false when APP_ENV is production",
                 )
             if not self.trade_launch_require_eip712:
                 raise ValueError(

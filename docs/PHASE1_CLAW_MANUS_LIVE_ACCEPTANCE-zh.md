@@ -8,6 +8,9 @@
 export KARMA_RUNTIME_URL=http://127.0.0.1:8000
 export AUTH_ENFORCE_PROTECTED_ROUTES=false   # 本地实测可关；生产必须 true
 export LEDGER_REQUIRE_PARTY_ACTOR=false      # 本地 pytest/脚本可关
+export TRADE_LAUNCH_REQUIRE_EIP712=false     # 路径 A 本地兼容
+# 配合 OPENCLAW_LOCAL_PHASE1_AUTO_RELAX=true 放宽 progress/receipt 签名校验（见 deploy/.env.local-openclaw.example）
+# 完整模板：deploy/.env.local-openclaw.example
 # 测试网：
 # export SETTLEMENT_MODE=testnet
 # export chain_anchor_hash=0x<64 hex>  # launch 时必填
@@ -59,7 +62,8 @@ karma-openclaw-mcp
 | 4 | `karma_get_trade_order` | `pipeline_version=v2`，状态一致 |
 | 5 | `karma_get_handoff_draft` + `karma_confirm_handoff`（买卖双方） | readiness 无 blocker |
 | 6 | `karma_continue_after_trade_launch` | `ok: true`，含 `next_steps` |
-| 7 | **卖方** `karma_submit_execution_receipt` / `karma_submit_progress` | handoff 校验通过后 2xx |
+| 7 | **卖方** `karma_submit_execution_receipt` / `karma_submit_progress` | handoff 校验通过后 2xx；本地 `TRADE_LAUNCH_REQUIRE_EIP712=false` 时 MCP 自动填充 `0xopenclaw_*` 占位签名 |
+| 7b | （可选）pipeline 已写首条 progress | launch 后 `karma_list_progress_for_task` 已有 5% progress 则 A7 可标 pipeline-covered |
 
 ### 路径 2 — 付款码 + 传统/预授权（与 Console 一致）
 

@@ -44,6 +44,8 @@ def test_production_accepts_full_gates():
         ("auth_enforce_protected_routes", False),
         ("trade_launch_require_eip712", False),
         ("karma_signing_backend", "local"),
+        ("openclaw_relax_delivery_signatures", True),
+        ("openclaw_local_phase1_auto_relax", True),
     ],
 )
 def test_production_rejects_disabled_gate(field, value):
