@@ -1,6 +1,6 @@
 # Open Wallet 签名集成（Phase 1）
 
-> **最近更新：** 2026-05-18（基线 `main` @ `84b9345`）  
+> **最近更新：** 2026-05-18（基线 `main` @ `81d20b0`）  
 > **路线图：** [`KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md`](KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md)
 
 ## 目标
@@ -94,9 +94,11 @@ POST /v1/trade/orders/launch/sign-with-backend
 
 ```bash
 bash scripts/acceptance/phase1_open_wallet_gate.sh
+# 路径 B（live API，需 seed + deploy/.env.local-eip712.example）：
+python3 scripts/acceptance/phase1_eip712_launch_smoke.py
 ```
 
-验收摘要与 Sepolia 人工表：[`public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md`](public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md)。
+验收摘要：[`public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md`](public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md)。
 
 ## 下一步（Phase 2）
 

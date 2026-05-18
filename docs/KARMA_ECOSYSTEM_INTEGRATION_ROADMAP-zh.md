@@ -118,10 +118,12 @@ flowchart LR
 
 ### 4.2 验收标准
 
-- [x] EIP-712 `TradeLaunchIntent` + `SigningBackend` + signing-preview API（`main` @ `84b9345` / PR #86）
+- [x] EIP-712 `TradeLaunchIntent` + `SigningBackend` + signing-preview API（`main` @ `81d20b0` / PR #86）
 - [x] Voucher 统一：`trade_launch_attestation` + `voucher_buyer_commitment`（Phase 1.5）
 - [x] 生产闸门 + KSA-TL 回归（`tests/unit/test_trade_launch_security.py`）
-- [ ] Sepolia E2E：钱包签名完成一笔 trade launch（人工；填入 [PHASE1_OPEN_WALLET_ACCEPTANCE.md](public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md)）
+- [x] OpenClaw 本地路径 A + A9 交付签名（PR #88；`deploy/.env.local-openclaw.example`）
+- [x] EIP-712 路径 B 冒烟脚本（`phase1_eip712_launch_smoke.py` + `.env.local-eip712.example`）
+- [ ] Sepolia E2E：钱包签名完成一笔 trade launch（路径 C；[PHASE1_OPEN_WALLET_ACCEPTANCE.md](public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md)）
 - [ ] 私有环境 Redis+PG 压测/攻击复跑（可选）
 
 ### 4.3 技术风险与缓解

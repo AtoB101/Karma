@@ -28,7 +28,11 @@ export TRADE_LAUNCH_REQUIRE_EIP712=false     # 路径 A 本地兼容
 自动化冒烟（不启动 MCP stdio）：
 
 ```bash
+# 路径 A — 无 EIP-712（deploy/.env.local-openclaw.example）
 python3 scripts/acceptance/phase1_claw_manus_smoke.py --buyer-id <buyer> --seller-id <seller>
+
+# 路径 B — EIP-712 代签（deploy/.env.local-eip712.example）
+python3 scripts/acceptance/phase1_eip712_launch_smoke.py --buyer-id <buyer> --seller-id <seller>
 ```
 
 ---

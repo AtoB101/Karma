@@ -5,13 +5,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-echo "==> Phase 1 EIP-712 + voucher commitment + security tests"
+echo "==> Phase 1 EIP-712 + voucher commitment + security + OpenClaw relax tests"
 python3 -m pytest -q \
   tests/unit/test_trade_launch_eip712.py \
   tests/unit/test_voucher_buyer_commitment.py \
   tests/unit/test_trade_launch_security.py \
   tests/unit/test_spending_policy.py \
-  tests/integration/test_trade_launch_eip712_launch.py
+  tests/unit/test_openclaw_delivery_signature_relax.py \
+  tests/integration/test_trade_launch_eip712_launch.py \
+  packages/karma-openclaw/tests/test_dev_delivery_signatures.py
 
 echo "==> Production trade EIP-712 settings (APP_ENV=production)"
 APP_ENV=production python3 <<'PY'

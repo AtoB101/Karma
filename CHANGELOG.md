@@ -8,12 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- OpenClaw local delivery signature relax: auto when `TRADE_LAUNCH_REQUIRE_EIP712=false` (non-production); `deploy/.env.local-openclaw.example`.
 - Ecosystem integration phased roadmap: `docs/KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md` (Open Wallet, x402, AP2, governance, commercial).
-
-### Fixed
-
-- OpenClaw path A9: `karma_submit_execution_receipt` / `karma_submit_progress` work in local Phase 1 without Ed25519 wallet signatures (`services/receipt_guard.py`).
 - Public testing acceptance summaries: `docs/public-testing/TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md`, `STRESS_ATTACK_ACCEPTANCE_2026-05-17.md`.
 - Integration test for triangle settlement cycle `A→B→C→A` (`tests/integration/test_triangle_settlement_cycle.py`).
 
@@ -25,6 +20,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Security
 
 - Documented 2026-05-17 stress/attack (3,143 tests) and testnet pre-auth (353 tests) results in `docs/public-testing/`.
+
+## [2026-05-18] — Phase 1 Open Wallet + OpenClaw local (on `main` @ `81d20b0`)
+
+### Added
+
+- OpenClaw local delivery signature relax (`OPENCLAW_LOCAL_PHASE1_AUTO_RELAX`); `deploy/.env.local-openclaw.example`.
+- EIP-712 path B local template: `deploy/.env.local-eip712.example`; `scripts/acceptance/phase1_eip712_launch_smoke.py`.
+- OpenManus `KarmaRuntimeClient.trade_launch_sign_with_backend()`.
+
+### Fixed
+
+- OpenClaw path A9: seller `karma_submit_execution_receipt` / `karma_submit_progress` in local Phase 1 (`services/receipt_guard.py`, PR #88).
 
 ## [2026-05-18] — Phase 1 Open Wallet signing (on `main` @ `84b9345`)
 

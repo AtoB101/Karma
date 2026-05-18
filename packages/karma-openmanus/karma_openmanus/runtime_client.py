@@ -82,6 +82,35 @@ class KarmaRuntimeClient:
         key = idempotency_key or f"manus-preview-{uuid.uuid4().hex}"
         return await self._post("/v1/trade/orders/launch/signing-preview", body, idempotency_key=key)
 
+    async def trade_launch_sign_with_backend(
+        self,
+        *,
+        buyer_identity_id: str,
+        seller_identity_id: str,
+        requirement_text: str,
+        idempotency_key: str | None = None,
+        amount: float | None = None,
+        task_type: str | None = None,
+        task_precision: float | None = None,
+        chain_anchor_hash: str | None = None,
+    ) -> dict[str, Any]:
+        """POST /v1/trade/orders/launch/sign-with-backend — dev when KARMA_SIGNING_BACKEND=local|env."""
+        body: dict[str, Any] = {
+            "buyer_identity_id": buyer_identity_id,
+            "seller_identity_id": seller_identity_id,
+            "requirement_text": requirement_text,
+        }
+        if amount is not None:
+            body["amount"] = amount
+        if task_type:
+            body["task_type"] = task_type
+        if task_precision is not None:
+            body["task_precision"] = task_precision
+        if chain_anchor_hash:
+            body["chain_anchor_hash"] = chain_anchor_hash
+        key = idempotency_key or f"manus-sign-{uuid.uuid4().hex}"
+        return await self._post("/v1/trade/orders/launch/sign-with-backend", body, idempotency_key=key)
+
     async def launch_trade_order(
         self,
         *,
