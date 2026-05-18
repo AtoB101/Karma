@@ -12,6 +12,7 @@ from config.settings import settings
 from core.schemas import IdentityProfile, RuntimeSafetyModeState
 from db.models.orm import IdentityProfileModel
 from db.session import get_db
+from services.payment_intent_service import expire_stale_intents
 from services.runtime_safety import (
     get_runtime_safety_mode_state,
     set_runtime_operational_pauses,
@@ -106,3 +107,16 @@ async def mark_identity_risk(
     row.updated_at = datetime.utcnow()
     await db.flush()
     return _profile_to_schema(row)
+
+
+@router.post("/maintenance/expire-payment-intents")
+async def admin_expire_stale_payment_intents(
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin_actor),
+) -> dict[str, int]:
+    """Expire payment intents past ``expiresAt`` (cron / beat / manual)."""
+    if not settings.payment_intent_expire_enabled:
+        raise HTTPException(status_code=403, detail="payment intent expire maintenance disabled")
+    count = await expire_stale_intents(db)
+    await db.flush()
+    return {"expired_count": count}

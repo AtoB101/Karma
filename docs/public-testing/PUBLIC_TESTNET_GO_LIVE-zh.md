@@ -43,12 +43,22 @@ python3 scripts/acceptance/reverse_rule_audit.py
 
 ### 2.2 测试网 + OpenClaw / Manus（需运行中 API）
 
+推荐 Docker 栈（PostgreSQL + Redis）：[`deploy/TESTNET_STACK-zh.md`](../deploy/TESTNET_STACK-zh.md)
+
+```bash
+cd deploy && cp .env.testnet-stack.example .env && docker compose -f docker-compose.testnet.yml up -d --build
+cd .. && alembic upgrade head
+```
+
+或本地 uvicorn：
+
 ```bash
 cp deploy/.env.testnet-claw-manus.example .env.testnet.local
-# 填写身份、API Key、CHAIN_ANCHOR_HASH、可选 Sepolia 变量
 set -a && source .env.testnet.local && set +a
 uvicorn api.app:app --host 0.0.0.0 --port 8000
+```
 
+```bash
 bash scripts/acceptance/public_testnet_preflight.sh
 bash scripts/acceptance/testnet_claw_manus_gate.sh
 ```

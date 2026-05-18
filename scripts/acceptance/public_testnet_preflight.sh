@@ -74,6 +74,16 @@ fi
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
   _warn_if "DATABASE_URL unset — default may be SQLite (not recommended for public testnet)"
+elif [[ "${PUBLIC_TESTNET_STRICT:-false}" == "true" ]]; then
+  case "${DATABASE_URL}" in
+    postgresql*|postgres*)
+      echo "OK    DATABASE_URL uses PostgreSQL"
+      ;;
+    *)
+      echo "FAIL  PUBLIC_TESTNET_STRICT requires postgresql DATABASE_URL" >&2
+      fail=$((fail + 1))
+      ;;
+  esac
 fi
 if [[ -z "${REDIS_URL:-}" && -z "${RATE_LIMIT_REDIS_URL:-}" ]]; then
   _warn_if "Redis URL unset — rate limit may be in-process only"

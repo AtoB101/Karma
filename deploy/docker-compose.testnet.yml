@@ -1,0 +1,70 @@
+# Public Sepolia testnet stack — PostgreSQL + Redis + API (production-like).
+# Usage:
+#   cp deploy/.env.testnet-stack.example deploy/.env
+#   docker compose -f deploy/docker-compose.testnet.yml up -d --build
+#   alembic upgrade head   # from host against DATABASE_URL in .env
+# See deploy/TESTNET_STACK-zh.md
+
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: karma
+      POSTGRES_PASSWORD: karma
+      POSTGRES_DB: karma_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_testnet_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U karma"]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_testnet_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 8
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://karma:karma@postgres:5432/karma_db
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/3
+      CELERY_RESULT_BACKEND: redis://redis:6379/4
+      RATE_LIMIT_REDIS_FAIL_CLOSED: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_testnet_data:
+  redis_testnet_data:

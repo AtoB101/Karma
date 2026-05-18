@@ -56,12 +56,23 @@ async def _post_webhook(envelope: dict[str, Any]) -> None:
     headers = {"Content-Type": "application/json"}
     if secret:
         headers["X-Karma-Signature"] = _sign_body(body_bytes, secret)
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(url, content=body_bytes, headers=headers)
-            resp.raise_for_status()
-    except Exception:
-        logger.warning("openclaw webhook delivery failed", exc_info=True, extra={"event_type": envelope.get("event_type")})
+    max_retries = max(1, int(getattr(settings, "openclaw_webhook_max_retries", 3) or 3))
+    last_exc: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(url, content=body_bytes, headers=headers)
+                resp.raise_for_status()
+            return
+        except Exception as exc:
+            last_exc = exc
+            if attempt + 1 < max_retries:
+                await asyncio.sleep(min(8.0, 2.0**attempt))
+    logger.warning(
+        "openclaw webhook delivery failed after retries",
+        exc_info=last_exc,
+        extra={"event_type": envelope.get("event_type"), "attempts": max_retries},
+    )
 
 
 def emit_openclaw_event(event_type: str, payload: dict[str, Any], *, trace_id: str = "") -> None:

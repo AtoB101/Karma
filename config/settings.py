@@ -183,6 +183,10 @@ class Settings(BaseSettings):
     openclaw_webhook_url: str = ""
     openclaw_webhook_secret: str = ""
     openclaw_webhook_store_events: bool = False
+    openclaw_webhook_max_retries: int = 3
+
+    # PaymentIntent maintenance (expire stale intents)
+    payment_intent_expire_enabled: bool = True
 
     # Console — require saved automation policy before Runtime Key mint (fund limits + permissions + responsibility ack)
     runtime_require_saved_automation_policy: bool = False

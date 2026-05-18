@@ -92,6 +92,10 @@ pythonpath   = [
     "packages/karma-openclaw",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "integration: integration tests (database / API client)",
+    "unit: fast unit tests",
+]
 
 [tool.ruff]
 line-length    = 100

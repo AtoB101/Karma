@@ -8,6 +8,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Testnet Docker stack (`deploy/docker-compose.testnet.yml`, `.env.testnet-stack.example`, `TESTNET_STACK-zh.md`).
+- PaymentIntent expiry: admin `POST /v1/admin/maintenance/expire-payment-intents`, Celery beat hourly, `scripts/maintenance/expire_payment_intents.py`.
+- OpenClaw webhook retries (`OPENCLAW_WEBHOOK_MAX_RETRIES`); Console testnet beta banner (`KARMA_TESTNET_BETA`).
+- Manifest sample script `verify_testnet_manifest_sample.sh`; preflight `PUBLIC_TESTNET_STRICT` PostgreSQL check.
 - Public testnet go-live: `PUBLIC_TESTNET_GO_LIVE-zh.md`, `OPTIMIZATION_BACKLOG_POST_AUDIT-zh.md`, `public_testnet_preflight.sh`; CI runs `full_chain_audit_gate.sh`.
 - Full-chain audit gate: `full_chain_audit_gate.sh`, `reverse_rule_audit.py`, `testnet_claw_manus_gate.sh`, `FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md`.
 - Phase 3 AP2: `trusted_agent_runtime/ap2_adapter.py`, `docs/AP2_EVIDENCE_PROFILE-zh.md`, SD-JWT export (`services/evidence_export.py`).

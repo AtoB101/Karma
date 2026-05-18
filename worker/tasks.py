@@ -28,6 +28,13 @@ app.conf.update(
         "worker.tasks.run_verification":   {"queue": "verification"},
         "worker.tasks.run_settlement":     {"queue": "settlement"},
         "worker.tasks.update_reputation":  {"queue": "reputation"},
+        "worker.tasks.expire_stale_payment_intents": {"queue": "settlement"},
+    },
+    beat_schedule={
+        "expire-stale-payment-intents-hourly": {
+            "task": "worker.tasks.expire_stale_payment_intents",
+            "schedule": 3600.0,
+        },
     },
 )
 
@@ -261,3 +268,27 @@ async def _persist_offchain_result(task_id: str, bundle_hash: str, onchain_statu
             row.onchain_status       = onchain_status
             row.settlement_mode      = mode
             await session.commit()
+
+
+@app.task(name="worker.tasks.expire_stale_payment_intents")
+def expire_stale_payment_intents() -> dict[str, int]:
+    """Hourly beat: mark expired payment intents (Phase 3 maintenance)."""
+    import asyncio
+
+    from config.settings import settings
+    from services.payment_intent_service import expire_stale_intents
+
+    if not settings.payment_intent_expire_enabled:
+        return {"expired_count": 0}
+
+    async def _run() -> int:
+        from db.session import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as session:
+            count = await expire_stale_intents(session)
+            await session.commit()
+            return count
+
+    count = asyncio.run(_run())
+    logger.info("expire_stale_payment_intents complete", extra={"expired_count": count})
+    return {"expired_count": count}
