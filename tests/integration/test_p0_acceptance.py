@@ -224,7 +224,11 @@ async def test_p0_voucher_eip712_enforced_on_create(client: AsyncClient):
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 50.0})
 
     orig = voucher_routes.settings
-    voucher_routes.settings = orig.model_copy(update={"voucher_require_eip712": True, "testnet_chain_id": 31337})
+    patched = orig.model_copy(update={"voucher_require_eip712": True, "testnet_chain_id": 31337})
+    voucher_routes.settings = patched
+    import config.settings as settings_mod
+
+    settings_mod.settings = patched
     try:
         h = "ff" * 32
         exp = datetime.utcnow() + timedelta(hours=3)
@@ -286,3 +290,4 @@ async def test_p0_voucher_eip712_enforced_on_create(client: AsyncClient):
         assert ok.status_code == 201, ok.text
     finally:
         voucher_routes.settings = orig
+        settings_mod.settings = orig

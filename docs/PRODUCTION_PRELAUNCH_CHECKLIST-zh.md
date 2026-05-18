@@ -13,6 +13,8 @@
 | `SETTLEMENT_REQUIRE_PARTY_ACTOR` | `true` |
 | `RUNTIME_REQUIRE_*` | 见 example 全部为 `true` |
 | `RATE_LIMIT_REDIS_FAIL_CLOSED` | `true` |
+| `TRADE_LAUNCH_REQUIRE_EIP712` | `true` |
+| `KARMA_SIGNING_BACKEND` | `client_only` 或 `external` |
 
 ```bash
 ./scripts/production-prelaunch-gate.sh /path/to/production.env

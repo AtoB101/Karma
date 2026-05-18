@@ -165,6 +165,9 @@ class Settings(BaseSettings):
     karma_signing_backend: str = "client_only"
     karma_signing_dev_private_key: str = ""
 
+    # Mirror trade launch amounts into Runtime Key daily spend (unify with policy daily_limit)
+    trade_launch_record_runtime_daily_spend: bool = True
+
     # OpenClaw — optional outbound handoff webhooks (HMAC) + in-process event ring for polling
     openclaw_webhook_url: str = ""
     openclaw_webhook_secret: str = ""
@@ -242,6 +245,15 @@ class Settings(BaseSettings):
             if not self.settlement_require_party_actor:
                 raise ValueError(
                     "SETTLEMENT_REQUIRE_PARTY_ACTOR must be true when APP_ENV is production",
+                )
+            if not self.trade_launch_require_eip712:
+                raise ValueError(
+                    "TRADE_LAUNCH_REQUIRE_EIP712 must be true when APP_ENV is production",
+                )
+            backend = (self.karma_signing_backend or "client_only").strip().lower()
+            if backend in ("local", "env"):
+                raise ValueError(
+                    "KARMA_SIGNING_BACKEND must be client_only or external in production (not local/env)",
                 )
         return self
 

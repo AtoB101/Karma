@@ -197,7 +197,66 @@ async def sign_trade_launch_with_configured_backend(
     return preview
 
 
-async def assert_buyer_signature_for_launch(
+def build_trade_launch_attestation(
+    *,
+    ctx: TradeLaunchSignContext,
+    buyer_wallet_address: str,
+) -> dict[str, Any]:
+    """Embedded in voucher ``progress_rule_spec`` — links TradeLaunch signature to voucher row."""
+    return {
+        "schema": "karma-trade-launch-attestation-v1",
+        "eip712_primary_type": "TradeLaunchIntent",
+        "requirement_fingerprint": ctx.requirement_fingerprint,
+        "launch_nonce": ctx.launch_nonce,
+        "deadline_unix": ctx.deadline_unix,
+        "buyer_wallet_address": buyer_wallet_address.strip().lower(),
+        "buyer_identity_id": ctx.buyer_identity_id,
+        "seller_identity_id": ctx.seller_identity_id,
+        "amount": ctx.amount,
+        "task_type": ctx.task_type,
+        "task_precision": ctx.task_precision,
+        "chain_anchor_hash": ctx.chain_anchor_hash,
+    }
+
+
+def verify_trade_launch_attestation_signature(
+    *,
+    attestation: dict[str, Any],
+    buyer_signature: str,
+) -> None:
+    """Re-verify TradeLaunchIntent from attestation embedded at pipeline launch."""
+    if attestation.get("schema") != "karma-trade-launch-attestation-v1":
+        raise ValueError("invalid trade_launch_attestation schema")
+    ctx = TradeLaunchSignContext(
+        buyer_identity_id=str(attestation["buyer_identity_id"]),
+        seller_identity_id=str(attestation["seller_identity_id"]),
+        requirement_fingerprint=str(attestation["requirement_fingerprint"]),
+        amount=float(attestation["amount"]),
+        task_type=str(attestation["task_type"]),
+        task_precision=float(attestation["task_precision"]),
+        launch_nonce=str(attestation["launch_nonce"]),
+        deadline_unix=int(attestation["deadline_unix"]),
+        chain_id=int(
+            settings.trade_launch_eip712_chain_id or settings.testnet_chain_id or 11155111
+        ),
+        verifying_contract=(
+            settings.trade_launch_eip712_verifying_contract
+            or settings.voucher_eip712_verifying_contract
+            or "0x0000000000000000000000000000000000000000"
+        ),
+        chain_anchor_hash=attestation.get("chain_anchor_hash"),
+    )
+    verify_trade_launch_buyer_signature(
+        buyer_wallet_address=str(attestation["buyer_wallet_address"]),
+        buyer_signature=buyer_signature,
+        typed_data=ctx.to_typed_data(),
+    )
+    now = int(__import__("time").time())
+    if now > ctx.deadline_unix:
+        raise ValueError("trade launch signature expired (deadline_unix passed)")
+
+
+async def verify_trade_launch_commitment(
     db: AsyncSession,
     *,
     buyer_identity_id: str,
@@ -209,9 +268,14 @@ async def assert_buyer_signature_for_launch(
     buyer_signature: str,
     launch_idempotency_key: str | None,
     chain_anchor_hash: str | None,
-) -> None:
+) -> tuple[TradeLaunchSignContext, str, dict[str, Any]] | None:
+    """
+    Verify TradeLaunch EIP-712 when enabled.
+
+    Returns (context, wallet, attestation) or None when EIP-712 not required.
+    """
     if not settings.trade_launch_require_eip712:
-        return
+        return None
 
     ctx = build_sign_context(
         buyer_identity_id=buyer_identity_id,
@@ -241,3 +305,38 @@ async def assert_buyer_signature_for_launch(
     now = int(__import__("time").time())
     if now > ctx.deadline_unix:
         raise HTTPException(status_code=403, detail="trade launch signature expired (deadline_unix passed)")
+
+    att = build_trade_launch_attestation(ctx=ctx, buyer_wallet_address=wallet)
+    return ctx, wallet, att
+
+
+async def assert_buyer_signature_for_launch(
+    db: AsyncSession,
+    *,
+    buyer_identity_id: str,
+    seller_identity_id: str,
+    requirement_text: str,
+    amount: float,
+    task_type: str,
+    task_precision: float,
+    buyer_signature: str,
+    launch_idempotency_key: str | None,
+    chain_anchor_hash: str | None,
+) -> dict[str, Any] | None:
+    """Backward-compatible wrapper; returns attestation dict when EIP-712 enforced."""
+    result = await verify_trade_launch_commitment(
+        db,
+        buyer_identity_id=buyer_identity_id,
+        seller_identity_id=seller_identity_id,
+        requirement_text=requirement_text,
+        amount=amount,
+        task_type=task_type,
+        task_precision=task_precision,
+        buyer_signature=buyer_signature,
+        launch_idempotency_key=launch_idempotency_key,
+        chain_anchor_hash=chain_anchor_hash,
+    )
+    if result is None:
+        return None
+    _ctx, _wallet, att = result
+    return att

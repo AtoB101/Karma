@@ -19,7 +19,19 @@
 | `KARMA_SIGNING_DEV_PRIVATE_KEY` | 空 | `env` 后端用（**勿提交主网钥**） |
 | `TESTNET_PRIVATE_KEY` | 空 | `local` 后端用 |
 
-生产建议：`TRADE_LAUNCH_REQUIRE_EIP712=true` + 买方 Console 绑定钱包 + `RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING=true`。
+生产建议（`APP_ENV=production` 启动校验）：
+
+- `TRADE_LAUNCH_REQUIRE_EIP712=true`
+- `KARMA_SIGNING_BACKEND=client_only` 或 `external`（禁止 `local`/`env`）
+- `RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING=true`
+- `TRADE_LAUNCH_RECORD_RUNTIME_DAILY_SPEND=true`（launch 金额计入 Runtime Key 日限额，与 policy 对齐）
+
+## 与 voucher 的统一承诺（Phase 1.5）
+
+贸易流水线在 `progress_rule_spec.trade_launch_attestation` 写入启动证明；`buyer_signature` 为 **TradeLaunchIntent** 签名。
+
+- `POST /v1/vouchers` / payment-codes：若 spec 含 attestation 且开启 trade EIP-712，走 **同一套** TradeLaunch 校验（`services/voucher_buyer_commitment.py`），无需再签 AuthorizationVoucher。
+- 手动 payment-code 路径：仍可使用 `VOUCHER_REQUIRE_EIP712` + AuthorizationVoucher 签名。
 
 ## API 流程
 
