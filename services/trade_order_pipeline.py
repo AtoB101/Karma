@@ -28,6 +28,8 @@ from services.openclaw_webhook import emit_openclaw_event
 from services.payment_code import build_payment_code_payload, finalize_payload_hash
 from services.requirement_decomposer import decompose_buyer_requirement
 from services.settlement_cycle_guard import assert_lock_does_not_close_payment_cycle
+from services.spending_policy import assert_pre_launch_spending_policy
+from services.trade_launch_signing import assert_buyer_signature_for_launch
 from services.settlement_transitions import (
     PIPELINE_ACTOR_ID,
     PIPELINE_ROUTE_PATH,
@@ -166,6 +168,24 @@ async def launch_preauth_trade_order(
         spec,
         buyer_policy=buyer_policy,
         seller_policy=seller_policy,
+    )
+
+    await assert_pre_launch_spending_policy(
+        db,
+        buyer_policy=buyer_policy,
+        additional_amount=float(spec["amount"]),
+    )
+    await assert_buyer_signature_for_launch(
+        db,
+        buyer_identity_id=buyer_identity_id,
+        seller_identity_id=seller_identity_id,
+        requirement_text=cleaned_requirement,
+        amount=float(spec["amount"]),
+        task_type=str(spec["task_type"]),
+        task_precision=float(spec["task_precision"]),
+        buyer_signature=buyer_signature,
+        launch_idempotency_key=launch_idempotency_key,
+        chain_anchor_hash=chain_anchor_hash,
     )
 
     task_id = spec["task_id"]

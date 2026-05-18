@@ -156,6 +156,15 @@ class Settings(BaseSettings):
     voucher_eip712_chain_id: int | None = None  # None → testnet_chain_id
     voucher_eip712_verifying_contract: str = "0x0000000000000000000000000000000000000000"
 
+    # Phase 1 — Trade launch EIP-712 (Open Wallet signing)
+    trade_launch_require_eip712: bool = False
+    trade_launch_eip712_chain_id: int | None = None  # None → testnet_chain_id
+    trade_launch_eip712_verifying_contract: str = "0x0000000000000000000000000000000000000000"
+    trade_launch_signature_ttl_seconds: int = 600
+    # client_only | external | local | env — local/env sign server-side (dev/CI only)
+    karma_signing_backend: str = "client_only"
+    karma_signing_dev_private_key: str = ""
+
     # OpenClaw — optional outbound handoff webhooks (HMAC) + in-process event ring for polling
     openclaw_webhook_url: str = ""
     openclaw_webhook_secret: str = ""
