@@ -33,6 +33,7 @@ Outputs:
   <out-dir>/vendor/karma-public-sync/karma-core/contracts/core/NonCustodialAgentPayment.sol
   <out-dir>/schemas_public/*.json
   <out-dir>/KARMA2_PUBLIC_SYNC_NOTICE.md
+  <out-dir>/docs/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md
   <out-dir>/README.md
 EOF
 }
@@ -113,15 +114,28 @@ PRIVATE_REPO=${private_repo}
 GENERATED_AT_UTC=${generated_at}
 EOF
 
-notice_tpl="${ROOT_DIR}/split-release/templates/karma2/KARMA2_PUBLIC_SYNC_NOTICE.md.tpl"
-if [[ -f "$notice_tpl" ]]; then
+_render_karma2_tpl() {
+  local src="$1" dest="$2"
   sed -e "s|{{CORE_REPO}}|${core_repo}|g" \
       -e "s|{{CORE_COMMIT}}|${core_commit}|g" \
       -e "s|{{CORE_TAG}}|${core_tag}|g" \
       -e "s|{{GENERATED_AT_UTC}}|${generated_at}|g" \
-      "$notice_tpl" > "$out_dir/KARMA2_PUBLIC_SYNC_NOTICE.md"
+      "$src" > "$dest"
+}
+
+notice_tpl="${ROOT_DIR}/split-release/templates/karma2/KARMA2_PUBLIC_SYNC_NOTICE.md.tpl"
+if [[ -f "$notice_tpl" ]]; then
+  _render_karma2_tpl "$notice_tpl" "$out_dir/KARMA2_PUBLIC_SYNC_NOTICE.md"
 else
   echo "WARN missing KARMA2_PUBLIC_SYNC_NOTICE.md.tpl" >&2
+fi
+
+gap_tpl="${ROOT_DIR}/split-release/templates/karma2/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md.tpl"
+if [[ -f "$gap_tpl" ]]; then
+  mkdir -p "$out_dir/docs"
+  _render_karma2_tpl "$gap_tpl" "$out_dir/docs/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md"
+else
+  echo "WARN missing PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md.tpl" >&2
 fi
 
 cat > "$out_dir/README.md" <<'EOF'
@@ -153,7 +167,8 @@ Keep the private repository aligned with the public core baseline:
    - `cp templates/workflows/lockstep-sync-check.yml .github/workflows/lockstep-sync-check.yml`
 6. Copy `vendor/karma-public-sync/` and `schemas_public/` into Karma2 `ops/release-sync/` — **do not hand-edit vendor in Karma2**.
 7. Read `KARMA2_PUBLIC_SYNC_NOTICE.md` for lock commit and post-merge `make -C private-risk-engine contract-sync alignment-guard acceptance`.
-8. Commit lock/manifest/workflow (+ vendor/schemas from this package) in Karma2 and run private CI + smoke tests.
+8. Copy `docs/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md` into Karma2 `ops/release/` (or `docs/ops/`) and track Phase 1–3 private gaps.
+9. Commit lock/manifest/workflow (+ vendor/schemas from this package) in Karma2 and run private CI + smoke tests.
 EOF
 
 chmod +x "$out_dir/templates/verify-manifest.sh"

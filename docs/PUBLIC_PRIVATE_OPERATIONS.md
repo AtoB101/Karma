@@ -29,6 +29,7 @@ Skipping step 2 or 3 causes drift between what users see (public ABI / docs) and
 ## Keeping private engineers unblocked
 
 - Use `split-release/prepare-karma2-sync-package.sh` to refresh **`ops/release-sync/`** in Karma2, including **vendor snapshots** (pinned public sources and engine devops templates) without cloning the whole monorepo history into the wrong place.
+- Each sync package includes **`docs/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md`** (from `split-release/templates/karma2/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md.tpl`) — private Phase 1–3 capability gaps and lockstep checkboxes after a public merge.
 - Treat vendor snapshots as **read-only mirrors** of a public commit; the source of truth remains **Karma**.
 
 ## Emergency fixes
