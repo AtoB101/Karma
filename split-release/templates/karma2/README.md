@@ -18,3 +18,11 @@ Then:
 6. Enable the `Lockstep Sync Check` workflow as required status check in branch protection.
 
 This keeps private engine releases pinned to one audited public core release.
+
+## Phase 1–3 private gap checklist
+
+After running `prepare-karma2-sync-package.sh`, copy:
+
+- `docs/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md` → Karma2 `ops/release/` (or your ops docs tree)
+
+Template source: `split-release/templates/karma2/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md.tpl` (commit and `GENERATED_AT_UTC` are filled at package generation time).

@@ -14,6 +14,7 @@
 | A2 | 在 **公开仓** 根目录执行同步包生成 | `./split-release/prepare-karma2-sync-package.sh --out-dir results/karma2-sync-package` |
 | A3 | 可选：生成迁移引导包 | `./scripts/private-repo-sync.sh --private-repo-url https://github.com/AtoB101/Karma2.git` |
 | A4 | 将 `split-release/templates/karma2/` 复制到私有仓 `ops/release/`（见模板 README） | 存在 `CORE_VERSION.lock`、`deployment-manifest.json`、`ENV_SYNC`、`verify-manifest.sh` |
+| A4b | 从同步包复制 Phase 1–3 私仓补齐清单 | `docs/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md`（由 `prepare-karma2-sync-package.sh` 生成） |
 | A5 | 启用 CI workflow **Lockstep Sync Check**（模板内） | PR 上 lock 与 manifest 不一致则失败 |
 | A6 | 配置 Secrets（**仅** CI/部署密钥库，不进 git） | RPC（带鉴权）、`TESTNET_*_PRIVATE_KEY`、KMS、WalletConnect 生产 ID、内部 DB |
 | A7 | 私有 README 使用 [`docs/README_PRIVATE.md`](README_PRIVATE.md) 文案 | 明确风控/评分为私有边界 |
