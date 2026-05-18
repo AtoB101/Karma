@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Public testnet go-live: `PUBLIC_TESTNET_GO_LIVE-zh.md`, `OPTIMIZATION_BACKLOG_POST_AUDIT-zh.md`, `public_testnet_preflight.sh`; CI runs `full_chain_audit_gate.sh`.
+- Full-chain audit gate: `full_chain_audit_gate.sh`, `reverse_rule_audit.py`, `testnet_claw_manus_gate.sh`, `FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md`.
 - Phase 3 AP2: `trusted_agent_runtime/ap2_adapter.py`, `docs/AP2_EVIDENCE_PROFILE-zh.md`, SD-JWT export (`services/evidence_export.py`).
 - Phase 3 Payment Intent: `POST/GET /v1/payment-intents`, bind endpoint, settlement → `settled` sync; migrations `0027`–`0028`.
 - Phase 3 Evidence API: `GET /v1/evidence/{id}`, `verify`, `verify-external`; `human_not_present_allowed` on automation policy.

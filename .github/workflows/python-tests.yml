@@ -38,3 +38,8 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/run_public_acceptance_tests.sh -q --tb=short
+
+      - name: Full-chain audit gate (phase 1-3 + reverse-rule + prod prelaunch)
+        run: |
+          set -euo pipefail
+          bash scripts/acceptance/full_chain_audit_gate.sh
