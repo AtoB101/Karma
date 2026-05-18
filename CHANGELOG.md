@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Phase 2 x402: `sdk/x402/` client/middleware, `POST /v1/x402/pay-and-fetch`, `ExecutionReceipt.external_payment`, settlement `funding_source`, OpenClaw `karma_x402_fetch`, `examples/x402_agent_buy_api/`.
+- Phase 2 x402 backends: `env` (EIP-191 signed PAYMENT-SIGNATURE), `sepolia` (ERC-20 USDC transfer on testnet).
 - Ecosystem integration phased roadmap: `docs/KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md` (Open Wallet, x402, AP2, governance, commercial).
 - Public testing acceptance summaries: `docs/public-testing/TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md`, `STRESS_ATTACK_ACCEPTANCE_2026-05-17.md`.
 - Integration test for triangle settlement cycle `A→B→C→A` (`tests/integration/test_triangle_settlement_cycle.py`).

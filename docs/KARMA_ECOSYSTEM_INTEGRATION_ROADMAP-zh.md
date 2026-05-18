@@ -158,10 +158,10 @@ flowchart LR
 
 ### 5.2 验收标准
 
-- [ ] 集成测试：mock 402 服务 → 支付 → 200 响应，receipt 含 `external_payment`。
+- [x] 集成测试：mock 402 服务 → 支付 → 200 响应，receipt 含 `external_payment`。
 - [ ] 测试网可选：真实 x402 provider（小额 USDC）记录在 `docs/public-testing/` 摘要。
-- [ ] 攻击回归：超额预算、重复 402、路径遍历 URL → 拦截（扩 `attack-testing-roadmap.md` KSA 行）。
-- [ ] Benchmark 脚本（初版）：`scripts/benchmark_x402_evidence_integrity.py` 输出 JSON 摘要。
+- [x] 攻击回归：超额预算、resource 不匹配、路径遍历、私网 SSRF（KSA-X402-*）。
+- [x] Benchmark 脚本（初版）：`scripts/benchmark_x402_evidence_integrity.py` 输出 JSON 摘要。
 
 ### 5.3 架构示意
 

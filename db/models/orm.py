@@ -174,6 +174,7 @@ class SettlementModel(Base):
     voucher_id:           Mapped[str|None]  = mapped_column(String(64), nullable=True)
     delivery_deadline_at: Mapped[datetime|None] = mapped_column(DateTime, nullable=True)
     progress_rule_spec:   Mapped[dict|None] = mapped_column(JSON, nullable=True)
+    funding_source:       Mapped[str]        = mapped_column(String(16), nullable=False, default="internal")
 
     contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="settlement")
 

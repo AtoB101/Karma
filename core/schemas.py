@@ -308,6 +308,19 @@ ExecutionReceiptExtension = Annotated[
 # Execution Receipt
 # ---------------------------------------------------------------------------
 
+class ExternalPaymentRecord(BaseModel):
+    """Phase 2 — x402 (or other) out-of-band payment anchored on a receipt."""
+
+    protocol: str = "x402"
+    tx_hash: Optional[str] = None
+    amount_usdc: float = Field(ge=0.0)
+    resource_url: str
+    payment_proof: Optional[str] = None
+    network: Optional[str] = None
+    asset: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ExecutionReceipt(BaseModel):
     """
     Signed record of a single tool call during agent execution.
@@ -330,6 +343,10 @@ class ExecutionReceipt(BaseModel):
         default=None, description="Error detail if status is FAILURE or TIMEOUT"
     )
     metadata: dict[str, Any] = Field(default_factory=dict)
+    external_payment: Optional[ExternalPaymentRecord] = Field(
+        default=None,
+        description="Phase 2 — x402 external API payment audit anchor",
+    )
     signature: Optional[str] = Field(
         default=None,
         description="Ed25519 signature over canonical receipt fields",
@@ -459,6 +476,10 @@ class SettlementState(BaseModel):
     progress_rule_spec: Optional[dict[str, Any]] = Field(
         default=None,
         description="P1 non-linear progress curve JSON (mirrors voucher at settlement creation)",
+    )
+    funding_source: str = Field(
+        default="internal",
+        description="Phase 2 — internal | x402 | hybrid settlement funding",
     )
 
 

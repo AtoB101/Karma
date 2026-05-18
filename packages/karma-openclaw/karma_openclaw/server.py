@@ -26,6 +26,7 @@ from karma_openclaw.helpers import (
 from karma_openclaw.http_client import api_get, api_post
 from karma_openclaw.p0_tools import register_p0_tools
 from karma_openclaw.phase1_tools import register_phase1_tools
+from karma_openclaw.phase2_tools import register_phase2_tools
 
 
 def build_app() -> FastMCP:
@@ -225,6 +226,7 @@ def build_app() -> FastMCP:
 
     register_p0_tools(mcp)
     register_phase1_tools(mcp)
+    register_phase2_tools(mcp)
     return mcp
 
 

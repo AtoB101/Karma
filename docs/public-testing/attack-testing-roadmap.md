@@ -67,7 +67,20 @@
 
 | **KSA-010b** | 同任务执行回执 `started_at` 早于上一笔 | `POST /v1/receipts` 拒绝 `started_at < latest.started_at`（2026-05-17） |
 
-回归用例：`tests/unit/test_security_attack_mitigations.py`、`tests/unit/test_level2_attack_mitigations.py`、`tests/unit/test_settlement_cycle_guard.py`、`tests/integration/test_triangle_settlement_cycle.py`、`tests/unit/test_receipt_chronology.py`、`tests/unit/test_trade_launch_eip712.py`、`tests/unit/test_trade_launch_security.py`、`tests/unit/test_voucher_buyer_commitment.py`、`tests/integration/test_trade_launch_eip712_launch.py`。
+### 3.4 Phase 2 x402（KSA-X402）
+
+| ID | 说明 | 缓解方式 |
+|----|------|----------|
+| **KSA-X402-001** | 超额预算仍发起支付 | `assert_budget` + API `x402_hard_max_budget_usdc` |
+| **KSA-X402-002** | 402 resource 与请求 URL 不一致（钓鱼） | `assert_resource_matches_url` |
+| **KSA-X402-003** | 路径遍历 / 内网 SSRF | `validate_x402_target_url`；生产关闭 `X402_ALLOW_PRIVATE_HOSTS` |
+| **KSA-X402-004** | 重复 402 无限重试 | 客户端单次 pay + 单次 retry（`payment_attempts`） |
+
+回归用例：`tests/unit/test_x402_client.py`、`tests/unit/test_x402_security.py`、`tests/integration/test_x402_pay_and_fetch.py`。
+
+---
+
+回归用例（Phase 1 等）：`tests/unit/test_security_attack_mitigations.py`、`tests/unit/test_level2_attack_mitigations.py`、`tests/unit/test_settlement_cycle_guard.py`、`tests/integration/test_triangle_settlement_cycle.py`、`tests/unit/test_receipt_chronology.py`、`tests/unit/test_trade_launch_eip712.py`、`tests/unit/test_trade_launch_security.py`、`tests/unit/test_voucher_buyer_commitment.py`、`tests/integration/test_trade_launch_eip712_launch.py`。
 
 ---
 
