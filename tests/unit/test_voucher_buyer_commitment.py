@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from eth_account import Account
@@ -27,7 +27,7 @@ def test_trade_launch_attestation_satisfies_voucher_commitment(monkeypatch):
         task_type="api.caption",
         task_precision=1.0,
         launch_nonce="nonce-abc",
-        deadline_unix=int(datetime.utcnow().timestamp()) + 600,
+        deadline_unix=int(datetime.now(timezone.utc).timestamp()) + 600,
         chain_id=11155111,
         verifying_contract="0x0000000000000000000000000000000000000000",
     )
@@ -48,6 +48,6 @@ def test_trade_launch_attestation_satisfies_voucher_commitment(monkeypatch):
         progress_rule_hash="e" * 64,
         evidence_requirement_hash="f" * 64,
         nonce="n1",
-        expiry_time=datetime.utcnow() + timedelta(hours=1),
+        expiry_time=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1),
     )
     assert mode == "trade_launch"

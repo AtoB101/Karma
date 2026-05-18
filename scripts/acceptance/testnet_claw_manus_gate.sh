@@ -39,12 +39,16 @@ echo "== [1/5] Off-chain full-chain audit (no RPC) =="
 bash scripts/acceptance/full_chain_audit_gate.sh
 
 echo ""
-echo "== [2/5] API health =="
+echo "== [2/6] Public testnet preflight =="
+bash scripts/acceptance/public_testnet_preflight.sh
+
+echo ""
+echo "== [3/6] API health =="
 curl -sf "${KARMA_RUNTIME_URL%/}/health" | head -c 200
 echo ""
 
 echo ""
-echo "== [3/5] OpenManus / Runtime smoke (launch + idempotency) =="
+echo "== [4/6] OpenManus / Runtime smoke (launch + idempotency) =="
 export KARMA_API_KEY="${KARMA_BUYER_API_KEY:-${KARMA_API_KEY:-}}"
 if [[ -z "${KARMA_API_KEY:-}" ]]; then
   echo "WARN  KARMA_BUYER_API_KEY / KARMA_API_KEY unset — skipping launch smoke"
@@ -61,7 +65,7 @@ else
 fi
 
 echo ""
-echo "== [4/5] Optional EIP-712 launch smoke =="
+echo "== [5/6] Optional EIP-712 launch smoke =="
 if [[ "${RUN_EIP712_SMOKE:-false}" == "true" ]]; then
   python3 scripts/acceptance/phase1_eip712_launch_smoke.py \
     --base-url "$KARMA_RUNTIME_URL" \
@@ -72,7 +76,7 @@ else
 fi
 
 echo ""
-echo "== [5/5] Optional on-chain hybrid (Sepolia) =="
+echo "== [6/6] Optional on-chain hybrid (Sepolia) =="
 if [[ "${RUN_TESTNET_ONCHAIN:-false}" == "true" ]]; then
   if [[ -z "${TESTNET_RPC_URL:-}" || -z "${NONCUSTODIAL_AGENT_PAYMENT_ADDRESS:-}" ]]; then
     echo "ERR  RUN_TESTNET_ONCHAIN=true requires TESTNET_RPC_URL and NONCUSTODIAL_AGENT_PAYMENT_ADDRESS" >&2

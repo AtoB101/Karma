@@ -52,6 +52,7 @@ uvicorn api.app:app --host 0.0.0.0 --port 8000
 ### 3.2 执行
 
 ```bash
+bash scripts/acceptance/public_testnet_preflight.sh   # 环境安全预检
 bash scripts/acceptance/testnet_claw_manus_gate.sh
 ```
 
