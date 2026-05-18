@@ -78,6 +78,18 @@
 
 回归用例：`tests/unit/test_x402_client.py`、`tests/unit/test_x402_security.py`、`tests/integration/test_x402_pay_and_fetch.py`。
 
+### 3.5 Phase 3 AP2 / PaymentIntent（KSA-AP2）
+
+| ID | 说明 | 缓解方式 |
+|----|------|----------|
+| **KSA-AP2-001** | 不完整 AP2 mandate 通过外部验证 | `POST .../verify-external` 校验必填层 + `from_ap2_mandate` 抛 400 |
+| **KSA-AP2-002** | 生产环境重复创建 PaymentIntent | `Idempotency-Key` 在 `APP_ENV=production` 必填 + DB unique |
+| **KSA-AP2-003** | Human-not-present 绕过更严限额 | `assert_human_not_present_policy_fields` + `effective_spending_limits` |
+
+静态反向审计：`scripts/acceptance/reverse_rule_audit.py`  
+回归用例：`tests/unit/test_ap2_adapter.py`、`tests/unit/test_ap2_security.py`、`tests/integration/test_phase3_payment_intent.py`  
+全链路门：`scripts/acceptance/full_chain_audit_gate.sh`
+
 ---
 
 回归用例（Phase 1 等）：`tests/unit/test_security_attack_mitigations.py`、`tests/unit/test_level2_attack_mitigations.py`、`tests/unit/test_settlement_cycle_guard.py`、`tests/integration/test_triangle_settlement_cycle.py`、`tests/unit/test_receipt_chronology.py`、`tests/unit/test_trade_launch_eip712.py`、`tests/unit/test_trade_launch_security.py`、`tests/unit/test_voucher_buyer_commitment.py`、`tests/integration/test_trade_launch_eip712_launch.py`。

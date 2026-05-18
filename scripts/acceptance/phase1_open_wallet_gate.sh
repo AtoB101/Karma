@@ -35,6 +35,7 @@ defaults = {
     "TRADE_LAUNCH_REQUIRE_EIP712": "true",
     "KARMA_SIGNING_BACKEND": "client_only",
     "TRADE_LAUNCH_RECORD_RUNTIME_DAILY_SPEND": "true",
+    "X402_PAYMENT_BACKEND": "sepolia",
 }
 for k, v in defaults.items():
     os.environ.setdefault(k, v)

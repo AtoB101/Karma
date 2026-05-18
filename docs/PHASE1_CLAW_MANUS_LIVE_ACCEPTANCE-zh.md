@@ -25,6 +25,16 @@ export TRADE_LAUNCH_REQUIRE_EIP712=false     # 路径 A 本地兼容
 - 有效 **Runtime Key**
 - 买方 `available_credits` 充足；卖方 `auto_accept_incoming` + 信任买方
 
+全链路离链门 + 测试网包装（推荐先跑）：
+
+```bash
+bash scripts/acceptance/full_chain_audit_gate.sh          # 无 RPC
+cp deploy/.env.testnet-claw-manus.example .env.testnet.local  # 填 Key 后
+bash scripts/acceptance/testnet_claw_manus_gate.sh        # 需运行中的 API
+```
+
+详见 [`public-testing/FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md`](public-testing/FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md)。
+
 自动化冒烟（不启动 MCP stdio）：
 
 ```bash
