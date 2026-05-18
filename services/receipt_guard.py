@@ -12,6 +12,46 @@ from config.settings import settings
 
 _HEX_64_RE = re.compile(r"^[0-9a-f]{64}$")
 
+_DEV_PLACEHOLDER_SIGNATURE_PREFIXES = (
+    "0xopenclaw_",
+    "0xtrade_pipeline_",
+    "sig-",
+    "sig_",
+    "runtime:",
+)
+
+
+def _is_production_env() -> bool:
+    return (settings.app_env or "").lower() in ("production", "prod")
+
+
+def delivery_signatures_relaxed() -> bool:
+    """
+    Local Phase 1 / OpenClaw: when trade launch EIP-712 is off, allow placeholder
+    execution/progress signatures (never in production).
+
+    Explicit: ``OPENCLAW_RELAX_DELIVERY_SIGNATURES=true|false``.
+
+    Auto (non-production only): ``OPENCLAW_LOCAL_PHASE1_AUTO_RELAX=true`` and
+    ``TRADE_LAUNCH_REQUIRE_EIP712=false`` (see ``deploy/.env.local-openclaw.example``).
+    """
+    if _is_production_env():
+        return False
+    explicit = settings.openclaw_relax_delivery_signatures
+    if explicit is not None:
+        return explicit
+    return (
+        settings.openclaw_local_phase1_auto_relax
+        and not settings.trade_launch_require_eip712
+    )
+
+
+def _is_dev_placeholder_signature(value: str) -> bool:
+    v = (value or "").strip().lower()
+    if not v:
+        return False
+    return any(v.startswith(p) for p in _DEV_PLACEHOLDER_SIGNATURE_PREFIXES)
+
 
 def _utc_aware(dt: datetime) -> datetime:
     """Normalize to UTC with tzinfo=timezone.utc (avoids naive vs aware comparisons)."""
@@ -65,7 +105,8 @@ def validate_execution_receipt_static(receipt: ExecutionReceipt) -> None:
     if abs(expected_duration - receipt.duration_ms) > 5_000:
         raise ValueError("receipt duration_ms does not match timestamp delta")
 
-    if settings.receipt_require_signature and not (receipt.signature or "").strip():
+    require_sig = settings.receipt_require_signature and not delivery_signatures_relaxed()
+    if require_sig and not (receipt.signature or "").strip():
         raise ValueError("receipt signature is required")
 
 
@@ -87,6 +128,10 @@ def execution_receipt_signature_acceptable(receipt: ExecutionReceipt) -> bool:
     ``validate_execution_receipt_static`` and this delegates to
     ``verify_execution_receipt_signature``.
     """
+    if delivery_signatures_relaxed():
+        sig = (receipt.signature or "").strip()
+        if not sig or _is_dev_placeholder_signature(sig):
+            return True
     if not settings.receipt_require_signature:
         if not (receipt.signature or "").strip():
             return True
@@ -98,7 +143,8 @@ def validate_progress_receipt_static(progress: ProgressReceipt) -> None:
         raise ValueError("progress evidence_hash must be 64-char lowercase hex")
     if not _is_hex_64(progress.runtime_log_hash):
         raise ValueError("progress runtime_log_hash must be 64-char lowercase hex")
-    if settings.progress_require_signature and not (progress.seller_signature or "").strip():
+    require_sig = settings.progress_require_signature and not delivery_signatures_relaxed()
+    if require_sig and not (progress.seller_signature or "").strip():
         raise ValueError("progress seller_signature is required")
 
     now = datetime.now(timezone.utc)

@@ -8,7 +8,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- OpenClaw local delivery signature relax: auto when `TRADE_LAUNCH_REQUIRE_EIP712=false` (non-production); `deploy/.env.local-openclaw.example`.
 - Ecosystem integration phased roadmap: `docs/KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md` (Open Wallet, x402, AP2, governance, commercial).
+
+### Fixed
+
+- OpenClaw path A9: `karma_submit_execution_receipt` / `karma_submit_progress` work in local Phase 1 without Ed25519 wallet signatures (`services/receipt_guard.py`).
 - Public testing acceptance summaries: `docs/public-testing/TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md`, `STRESS_ATTACK_ACCEPTANCE_2026-05-17.md`.
 - Integration test for triangle settlement cycle `A→B→C→A` (`tests/integration/test_triangle_settlement_cycle.py`).
 

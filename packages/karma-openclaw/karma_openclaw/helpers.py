@@ -40,6 +40,20 @@ def build_mcp_execution_extension(
     }
 
 
+def apply_openclaw_dev_delivery_signatures(body: dict[str, Any]) -> dict[str, Any]:
+    """
+    Fill placeholder delivery signatures for local Phase 1 when the server relaxes checks.
+
+    Safe to call client-side: production with EIP-712 on still requires real Ed25519 receipts.
+    """
+    out = dict(body)
+    if not (out.get("signature") or "").strip():
+        out["signature"] = "0xopenclaw_execution_receipt_dev"
+    if not (out.get("seller_signature") or "").strip():
+        out["seller_signature"] = "0xopenclaw_progress_dev"
+    return out
+
+
 def build_execution_receipt_skeleton(
     *,
     task_id: str,
