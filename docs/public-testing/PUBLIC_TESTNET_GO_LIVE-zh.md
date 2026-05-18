@@ -107,7 +107,7 @@ bash scripts/acceptance/testnet_claw_manus_gate.sh
 
 | 测试层 | 通过/总数 | 通过率 |
 |--------|-----------|--------|
-| 全量单元 + 集成 | 307/309 → **建议按当前 CI 复跑** | 见 §7 |
+| 全量单元 + 集成 | **309/309**（`main` @ `f60d8cf`+） | 100% |
 | EIP-712 专项 | 11/11 | 100% |
 | 生产/安全专项 | 66/66 | 100% |
 | E2E / P0 | 14/14 | 100% |
@@ -115,7 +115,7 @@ bash scripts/acceptance/testnet_claw_manus_gate.sh
 | Phase 2 x402 | 10/10 | 100% |
 | Phase 3 AP2 | 9/9 | 100% |
 
-已知非阻塞项（Sentinel）：dev 下 receipt 签名旁路测试、trade launch deadline 时区 — 见 [`OPTIMIZATION_BACKLOG_POST_AUDIT-zh.md`](OPTIMIZATION_BACKLOG_POST_AUDIT-zh.md) 已加固项。
+Sentinel 原「2 项非阻塞失败」已在 `f60d8cf` / #94 修复，并由 `tests/unit/test_sentinel_nonblocking_regressions.py` 锁定（见 [`OPTIMIZATION_BACKLOG_POST_AUDIT-zh.md`](OPTIMIZATION_BACKLOG_POST_AUDIT-zh.md)）。
 
 ---
 

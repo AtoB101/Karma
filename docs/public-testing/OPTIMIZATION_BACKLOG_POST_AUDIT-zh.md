@@ -13,8 +13,9 @@
 | 测试网包装 | `testnet_claw_manus_gate.sh` + `deploy/.env.testnet-claw-manus.example` |
 | 生产 x402 闸门 | `X402_PAYMENT_BACKEND=sepolia` 写入 prelaunch / phase1 gate |
 | KSA-AP2 回归 | `tests/unit/test_ap2_security.py` |
-| 测试确定性 | `test_submit_receipt_rejects_missing_signature` 显式关闭 OpenClaw relax |
-| 时区 | `test_trade_launch_attestation_*` 使用 `datetime.now(timezone.utc).timestamp()` |
+| 测试确定性 | `test_submit_receipt_rejects_missing_signature` 显式关闭 OpenClaw relax + `trade_launch_require_eip712` |
+| 时区 | `future_deadline_unix()` / `utc_naive_datetime()` 测试辅助；voucher attestation 回归 |
+| Sentinel 专项 | `tests/unit/test_sentinel_nonblocking_regressions.py`（含 relax-on 对照测） |
 | 运维预检 | `scripts/acceptance/public_testnet_preflight.sh` |
 | 上线签字页 | 本文档姊妹篇 [`PUBLIC_TESTNET_GO_LIVE-zh.md`](PUBLIC_TESTNET_GO_LIVE-zh.md) |
 
