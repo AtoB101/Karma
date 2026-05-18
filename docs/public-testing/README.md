@@ -14,6 +14,7 @@
 | [testnet-public-acceptance.md](./testnet-public-acceptance.md) | 测试网公开验收范围、与既有 Runbook 的对应关系及结果更新约定 |
 | [TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md) | **2026-05-17** 测试网预授权 + 全自动流水线验收摘要（353 项） |
 | [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md) | **2026-05-17** 压力 + 攻击测试摘要（3,143 项；MEDIUM 修复说明） |
+| [PHASE1_OPEN_WALLET_ACCEPTANCE.md](./PHASE1_OPEN_WALLET_ACCEPTANCE.md) | **Phase 1** Open Wallet / TradeLaunch EIP-712 验收摘要与复测表 |
 
 ---
 
@@ -46,6 +47,7 @@
 |-------------|------|----------|-----------------|
 | `ee68f62` · 2026-05-17 | 测试网预授权 + Agent 自动执行 | 352/353 通过；Sepolia 7/7；0 CRITICAL/HIGH | [TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md) |
 | `ee68f62` · 2026-05-17 | 压力 + 攻击 | 3,143 项；27/30 攻击拦截；3 MEDIUM 已在公开仓加固 | [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md) |
+| Phase 1 · 2026-05-18 | Open Wallet 贸易签名 | CI 专项 + KSA-TL 矩阵；预发 Sepolia 待填 | [PHASE1_OPEN_WALLET_ACCEPTANCE.md](./PHASE1_OPEN_WALLET_ACCEPTANCE.md) |
 | （示例） | 交叉结算压测 | Delta=0，账本平衡 | 见 [simulation-and-cross-settlement.md](./simulation-and-cross-settlement.md) |
 | 持续 | 测试网清单 | 与 Runbook 对齐 | [testnet-public-acceptance.md](./testnet-public-acceptance.md) |
 

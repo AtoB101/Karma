@@ -1,7 +1,7 @@
 # 攻击面与安全测试（公开路线图）
 
-> 最近更新：2026-05-17  
-> 状态：**路线图 + 验收摘要** — 见 [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md)、[TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md)。
+> 最近更新：2026-05-18  
+> 状态：**路线图 + 验收摘要** — 见 [PHASE1_OPEN_WALLET_ACCEPTANCE.md](./PHASE1_OPEN_WALLET_ACCEPTANCE.md)、[STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md)、[TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md)。
 
 ---
 
@@ -30,6 +30,7 @@
 |------|------|----------|-----------------|----------------|
 | **全量压力 + 攻击** | 2026-05-17 | 3,143 项；30 攻击场景；500 并发 | **0 CRITICAL/HIGH**；3 MEDIUM → 公开仓加固 | [STRESS_ATTACK_ACCEPTANCE_2026-05-17.md](./STRESS_ATTACK_ACCEPTANCE_2026-05-17.md) |
 | **测试网预授权 E2E** | 2026-05-17 | 353 项；Sepolia 7/7；预授权流水线 | **99.7%**；0 CRITICAL/HIGH | [TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md](./TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md) |
+| **Phase 1 Open Wallet 签名** | 2026-05-18 | TradeLaunch EIP-712 + voucher attestation 统一 | CI 专项通过；预发见验收表 | [PHASE1_OPEN_WALLET_ACCEPTANCE.md](./PHASE1_OPEN_WALLET_ACCEPTANCE.md) |
 | 模拟攻击清单（KSA） | 2026-05-14 | 30 场景 / 7 项漏洞（公开仓库可修复子集） | 见下表「已落地缓解」 | 本仓库 `services/task_contract_guard.py`、`api/app.py`、`api/routes/*` |
 | Level 2（KSA2） | 2026-05-13 | 38 场景 / 4 项漏洞（公开仓库可修复子集） | 见下表「Level 2 已落地缓解」 | `services/settlement_receipt_release_guard.py`、`services/settlement_cycle_guard.py`、`services/text_safety.py` |
 
@@ -45,7 +46,17 @@
 | **KSA-010** | 过久时间戳的执行回执仍被接受 | **仅执行回执** `validate_execution_receipt_static` 在 `receipt_strict_recent_timestamps=true` 时使用 `receipt_max_past_hours_strict`（默认 24h）；进度回执仍用宽松 `receipt_max_past_hours` 以支持超时确认等场景 |
 | **KSA-029** | 循环结算 A→B→C→A | 与 **KSA2-034** 互补；三角环 `A→B→C→A` 由 `assert_lock_does_not_close_payment_cycle` 拦截（`tests/integration/test_triangle_settlement_cycle.py`） |
 
-### 3.2 Level 2 已落地缓解（KSA2）
+### 3.2 Phase 1 贸易启动签名（KSA-TL）
+
+| ID | 说明 | 缓解方式 |
+|----|------|----------|
+| **KSA-TL-001** | 无 EIP-712 或占位符 `buyer_signature` 仍可 launch | `TRADE_LAUNCH_REQUIRE_EIP712=true`（生产启动校验）+ `verify_trade_launch_commitment` |
+| **KSA-TL-002** | 签名钱包与绑定 `karma_identity_id` 不一致 | recover 地址必须等于 `IdentityProfile.bound_wallet_address` |
+| **KSA-TL-003** | 过期 `deadline_unix` 仍接受 | launch 前校验 `now <= deadline_unix` |
+| **KSA-TL-004** | launch 金额绕过 `daily_limit` | `assert_pre_launch_spending_policy` + 可选 `trade_launch_record_runtime_daily_spend` |
+| **KSA-TL-005** | TradeLaunch 签与 voucher AuthorizationVoucher 语义割裂 | `trade_launch_attestation` + `voucher_buyer_commitment` 双路径统一 |
+
+### 3.3 Level 2 已落地缓解（KSA2）
 
 | ID | 说明 | 缓解方式 |
 |----|------|----------|
@@ -56,7 +67,7 @@
 
 | **KSA-010b** | 同任务执行回执 `started_at` 早于上一笔 | `POST /v1/receipts` 拒绝 `started_at < latest.started_at`（2026-05-17） |
 
-回归用例：`tests/unit/test_security_attack_mitigations.py`、`tests/unit/test_level2_attack_mitigations.py`、`tests/unit/test_settlement_cycle_guard.py`、`tests/integration/test_triangle_settlement_cycle.py`、`tests/unit/test_receipt_chronology.py`。
+回归用例：`tests/unit/test_security_attack_mitigations.py`、`tests/unit/test_level2_attack_mitigations.py`、`tests/unit/test_settlement_cycle_guard.py`、`tests/integration/test_triangle_settlement_cycle.py`、`tests/unit/test_receipt_chronology.py`、`tests/unit/test_trade_launch_eip712.py`、`tests/unit/test_trade_launch_security.py`、`tests/unit/test_voucher_buyer_commitment.py`、`tests/integration/test_trade_launch_eip712_launch.py`。
 
 ---
 
