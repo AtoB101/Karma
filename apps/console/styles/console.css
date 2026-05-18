@@ -116,6 +116,15 @@ th {
   border-radius: 10px;
   margin-bottom: 0.75rem;
 }
+.banner.testnet-beta {
+  color: #fde68a;
+  border: 1px solid #b45309;
+  background: rgba(180, 83, 9, 0.15);
+}
+.banner.testnet-beta a {
+  color: var(--accent);
+  text-decoration: underline;
+}
 [data-karma-bff-panel] .bff-row {
   display: flex;
   flex-wrap: wrap;

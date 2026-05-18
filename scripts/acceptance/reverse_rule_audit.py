@@ -107,6 +107,17 @@ def check_openclaw_manus_packages(failures: list[str]) -> None:
         _fail("openclaw missing phase2 x402 tools module", failures)
 
 
+def check_testnet_stack_files(failures: list[str]) -> None:
+    for rel in (
+        "deploy/docker-compose.testnet.yml",
+        "deploy/.env.testnet-stack.example",
+        "deploy/TESTNET_STACK-zh.md",
+        "scripts/maintenance/expire_payment_intents.py",
+    ):
+        if not (ROOT / rel).is_file():
+            _fail(f"missing {rel}", failures)
+
+
 def check_acceptance_scripts_executable(failures: list[str]) -> None:
     scripts = [
         "scripts/acceptance/phase1_open_wallet_gate.sh",
@@ -134,6 +145,7 @@ def main() -> int:
         check_x402_url_safety,
         check_ap2_adapter,
         check_openclaw_manus_packages,
+        check_testnet_stack_files,
         check_acceptance_scripts_executable,
     ]
     for fn in checks:
