@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import AgentAutomationPolicyModel
+from services.human_not_present_policy import assert_human_not_present_policy_fields
 from services.runtime_key_service import ALLOWED_PERMISSIONS, normalize_permissions
 
 HIGH_RISK_MODES = frozenset({"always", "above_single", "off"})
@@ -35,6 +36,7 @@ def policy_to_dict(row: AgentAutomationPolicyModel) -> dict[str, Any]:
         "responsibility_boundary_id": getattr(row, "responsibility_boundary_id", None),
         "auto_accept_incoming": bool(getattr(row, "auto_accept_incoming", False)),
         "auto_execute_pipeline": bool(getattr(row, "auto_execute_pipeline", False)),
+        "human_not_present_allowed": bool(getattr(row, "human_not_present_allowed", False)),
     }
 
 
@@ -65,7 +67,15 @@ async def upsert_automation_policy(
     responsibility_boundary_id: str | None = None,
     auto_accept_incoming: bool = False,
     auto_execute_pipeline: bool = False,
+    human_not_present_allowed: bool = False,
 ) -> AgentAutomationPolicyModel:
+    assert_human_not_present_policy_fields(
+        human_not_present_allowed=human_not_present_allowed,
+        auto_enabled=auto_enabled,
+        single_limit=single_limit,
+        daily_limit=daily_limit,
+        responsibility_acknowledged=responsibility_acknowledged,
+    )
     if single_limit <= 0 or daily_limit <= 0:
         raise HTTPException(status_code=400, detail="single_limit and daily_limit must be > 0")
     if daily_limit + 1e-9 < single_limit:
@@ -107,6 +117,7 @@ async def upsert_automation_policy(
         row.responsibility_boundary_id = responsibility_boundary_id
         row.auto_accept_incoming = auto_accept_incoming
         row.auto_execute_pipeline = auto_execute_pipeline
+        row.human_not_present_allowed = human_not_present_allowed
         row.policy_version = int(row.policy_version) + 1
         row.updated_at = datetime.utcnow()
         row.updated_by_actor = updated_by_actor
@@ -128,6 +139,7 @@ async def upsert_automation_policy(
             responsibility_boundary_id=responsibility_boundary_id,
             auto_accept_incoming=auto_accept_incoming,
             auto_execute_pipeline=auto_execute_pipeline,
+            human_not_present_allowed=human_not_present_allowed,
             policy_version=1,
             updated_at=datetime.utcnow(),
             updated_by_actor=updated_by_actor,

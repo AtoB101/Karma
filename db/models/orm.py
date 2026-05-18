@@ -590,6 +590,30 @@ class AgentAutomationPolicyModel(Base):
     responsibility_boundary_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     auto_accept_incoming: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     auto_execute_pipeline: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    human_not_present_allowed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class PaymentIntentModel(Base):
+    """AP2 / M5 Payment Intent — merchant-facing payment contract (Phase 3)."""
+
+    __tablename__ = "payment_intents"
+
+    intent_id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    merchant_ref: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="created")
+    payer: Mapped[str] = mapped_column(String(128), nullable=False)
+    payee: Mapped[str] = mapped_column(String(128), nullable=False)
+    token: Mapped[str] = mapped_column(String(128), nullable=False)
+    amount: Mapped[str] = mapped_column(String(64), nullable=False)
+    chain_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    voucher_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ap2_mandate_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class TradeOrderModel(Base):

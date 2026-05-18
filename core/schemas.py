@@ -1301,3 +1301,44 @@ class ReputationSnapshot(BaseModel):
     disputed_tasks: int
     success_rate: float = Field(ge=0.0, le=1.0)
     last_updated: datetime
+
+
+# ---------------------------------------------------------------------------
+# Payment Intent (M5 / AP2 Phase 3)
+# ---------------------------------------------------------------------------
+
+PaymentIntentStatus = Literal["created", "authorized", "settled", "cancelled", "expired"]
+
+
+class CreatePaymentIntentRequest(BaseModel):
+    merchant_ref: str = Field(alias="merchantRef")
+    payer: str
+    payee: str
+    token: str
+    amount: str = Field(pattern=r"^[0-9]+$")
+    chain_id: int = Field(alias="chainId")
+    policy_id: str = Field(alias="policyId")
+    expires_at: datetime = Field(alias="expiresAt")
+    task_id: str | None = Field(default=None, alias="taskId")
+    voucher_id: str | None = Field(default=None, alias="voucherId")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PaymentIntent(BaseModel):
+    intent_id: str = Field(alias="intentId")
+    merchant_ref: str = Field(alias="merchantRef")
+    status: PaymentIntentStatus
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    payer: str
+    payee: str
+    token: str
+    amount: str
+    chain_id: int = Field(alias="chainId")
+    policy_id: str = Field(alias="policyId")
+    expires_at: datetime = Field(alias="expiresAt")
+    task_id: str | None = Field(default=None, alias="taskId")
+    voucher_id: str | None = Field(default=None, alias="voucherId")
+
+    model_config = ConfigDict(populate_by_name=True)

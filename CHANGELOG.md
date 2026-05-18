@@ -8,6 +8,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Phase 3 AP2: `trusted_agent_runtime/ap2_adapter.py`, `docs/AP2_EVIDENCE_PROFILE-zh.md`, SD-JWT export (`services/evidence_export.py`).
+- Phase 3 Payment Intent: `POST/GET /v1/payment-intents`, bind endpoint, settlement → `settled` sync; migrations `0027`–`0028`.
+- Phase 3 Evidence API: `GET /v1/evidence/{id}`, `verify`, `verify-external`; `human_not_present_allowed` on automation policy.
 - Phase 2 x402: `sdk/x402/` client/middleware, `POST /v1/x402/pay-and-fetch`, `ExecutionReceipt.external_payment`, settlement `funding_source`, OpenClaw `karma_x402_fetch`, `examples/x402_agent_buy_api/`.
 - Phase 2 x402 backends: `env` (EIP-191 signed PAYMENT-SIGNATURE), `sepolia` (ERC-20 USDC transfer on testnet).
 - Ecosystem integration phased roadmap: `docs/KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md` (Open Wallet, x402, AP2, governance, commercial).

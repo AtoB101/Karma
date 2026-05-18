@@ -98,6 +98,50 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+  /v1/evidence/{evidenceId}/verify-external:
+    post:
+      summary: Verify AP2 mandate against stored evidence digest
+      operationId: verifyEvidenceExternal
+      parameters:
+        - in: path
+          name: evidenceId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ap2_mandate:
+                  type: object
+                  additionalProperties: true
+                sd_jwt_export:
+                  type: string
+              required: [ap2_mandate]
+      responses:
+        '200':
+          description: External verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  evidenceId:
+                    type: string
+                  verified:
+                    type: boolean
+                  digestSha256:
+                    type: string
+                required: [evidenceId, verified]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /v1/evidence/{evidenceId}/verify:
     post:
       summary: Verify evidence digest and schema marker

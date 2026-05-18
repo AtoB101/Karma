@@ -6,12 +6,15 @@ Turn Karma's internal capabilities (policy control, evidence/proof verification,
 
 ## Scope (M5.0)
 
-1. Payment Intent API
-   - Create/query intent
+**Status (2026-05-17):** `/v1` **子集已实现** — Payment Intent、Evidence GET/verify、AP2 `verify-external`、SD-JWT 导出（Phase 3 @ `cursor/phase3-ap2-3ed7`）。
+
+1. Payment Intent API — **implemented**
+   - `POST/GET /v1/payment-intents`, `POST .../bind`
    - Idempotent creation via `Idempotency-Key`
-2. Evidence API
-   - Query evidence by ID
-   - Verify evidence digest/schema marker
+2. Evidence API — **implemented (subset)**
+   - `GET /v1/evidence/{evidenceId}`
+   - `POST .../verify`, `POST .../verify-external`
+   - Operator helper: `POST .../export-ap2`
 3. Risk API
    - Query risk alerts and guardian-derived alarm feed
 4. API baseline governance
