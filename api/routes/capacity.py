@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import CapacityState
+from config.settings import settings
 from db.models.orm import CapacityModel
 from db.session import get_db
 from services.capacity_ledger import assert_can_release_locked_funds, assert_capacity_invariants
@@ -39,6 +40,13 @@ async def lock_usdc(identity_id: str, body: AmountRequest, request: Request, db:
     validate_public_url_segment("identity_id", identity_id)
     require_ledger_identity(request, identity_id)
     assert_runtime_operation_allowed("new_lock")
+
+    # Enforce min/max escrow limits from config
+    if body.amount < settings.escrow_min_amount:
+        raise HTTPException(422, f"amount below minimum {settings.escrow_min_amount} USDC")
+    if body.amount > settings.escrow_max_amount:
+        raise HTTPException(422, f"amount exceeds maximum {settings.escrow_max_amount} USDC")
+
     await audit_capacity_anchor_and_maybe_trip(db=db)
     row = await db.get(CapacityModel, identity_id)
     if not row:
