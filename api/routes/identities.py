@@ -24,8 +24,16 @@ class CreateSubIdentityRequest(BaseModel):
     alias: str
 
 
+class InitProfileRequest(BaseModel):
+    wallet_address: str | None = Field(default=None, max_length=128)
+
+
 @router.post("/{identity_id}/profile/init", response_model=IdentityProfile)
-async def init_identity_profile(identity_id: str, db: AsyncSession = Depends(get_db)):
+async def init_identity_profile(
+    identity_id: str,
+    body: InitProfileRequest = InitProfileRequest(),
+    db: AsyncSession = Depends(get_db),
+):
     row = await db.get(IdentityProfileModel, identity_id)
     if row:
         return _profile_to_schema(row)
@@ -35,6 +43,7 @@ async def init_identity_profile(identity_id: str, db: AsyncSession = Depends(get
         display_id=_new_display_id(),
         legal_identity_status="unbound",
         status="active",
+        bound_wallet_address=body.wallet_address,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
