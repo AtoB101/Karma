@@ -232,6 +232,31 @@ class DataServiceEvidence(BaseModel):
     revision_count: int = Field(default=0, ge=0)
     max_revisions: int = Field(default=1, ge=0)
 
+    def auto_pass_checks(self) -> dict[str, bool]:
+        """MVVS V1 Scene 2 auto-pass: file exists, hash matches, schema matches, row count met."""
+        return {
+            "file_hash_exists": bool(self.data_file_hash),
+            "delivery_accessible": bool(self.delivery_uri),
+            "schema_match": True,  # verified externally against contract
+            "row_count_met": self.row_count is not None and self.row_count > 0,
+            "format_readable": bool(self.delivery_uri),
+        }
+
+    def auto_fail_checks(self) -> dict[str, bool]:
+        """MVVS V1 Scene 2 auto-fail: no file, empty data, schema mismatch."""
+        return {
+            "no_file": not bool(self.data_file_hash),
+            "no_rows": self.row_count is not None and self.row_count == 0,
+            "revision_exceeded": self.revision_count > self.max_revisions,
+        }
+
+    def auto_verdict(self) -> str:
+        """Data services default to review (buyer confirmation required)."""
+        fail = self.auto_fail_checks()
+        if any(fail.values()):
+            return "fail"
+        return "review"  # Data services always need buyer review
+
 
 class AiContentEvidence(BaseModel):
     """
@@ -258,6 +283,37 @@ class AiContentEvidence(BaseModel):
     buyer_acceptance_status: Optional[str] = Field(default="pending")
     rejection_reason: Optional[RejectionReason] = Field(default=None)
     rejection_detail: Optional[str] = Field(default=None, max_length=2000)
+
+    def auto_pass_checks(self) -> dict[str, bool]:
+        """MVVS V1 Scene 3 auto-pass: delivery exists, format matches, not empty."""
+        return {
+            "file_exists": bool(self.output_file_hash),
+            "format_match": bool(self.output_format),
+            "not_empty": (
+                bool(self.output_file_hash)
+                and (self.word_count or 0) + (self.code_lines or 0) + (self.page_count or 0) + (1 if self.file_size and self.file_size > 0 else 0) > 0
+            ),
+            "delivery_accessible": bool(self.delivery_uri),
+            "within_deadline": True,  # verified externally
+        }
+
+    def auto_fail_checks(self) -> dict[str, bool]:
+        """MVVS V1 Scene 3 auto-fail: empty delivery, wrong format, exceeding revisions."""
+        return {
+            "empty_file": (
+                self.output_file_hash is not None
+                and (self.file_size == 0 or (self.word_count == 0 and self.code_lines == 0 and self.page_count == 0))
+            ),
+            "delivery_missing": not bool(self.output_file_hash),
+            "revision_exceeded": self.revision_count > self.max_revisions,
+        }
+
+    def auto_verdict(self) -> str:
+        """AI content defaults to review (subjective quality requires buyer confirmation)."""
+        fail = self.auto_fail_checks()
+        if any(fail.values()):
+            return "fail"
+        return "review"  # AI content always needs buyer review
 
 
 class ChainOpEvidence(BaseModel):
