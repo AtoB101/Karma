@@ -40,6 +40,11 @@ LEGACY_TO_CANONICAL_STATUS: dict[TaskStatus, TaskStatus] = {
     TaskStatus.BUYER_WINS: TaskStatus.REFUNDED,
     TaskStatus.SELLER_WINS: TaskStatus.SETTLED,
     TaskStatus.PARTIAL: TaskStatus.SETTLED,
+    # MVVS V1 — new canonical statuses (legacy mapping: these are already canonical)
+    TaskStatus.AUTHORIZED: TaskStatus.AUTHORIZED,
+    TaskStatus.AUTO_CONFIRMED: TaskStatus.AUTO_CONFIRMED,
+    TaskStatus.PARTIALLY_SETTLED: TaskStatus.PARTIALLY_SETTLED,
+    TaskStatus.FROZEN: TaskStatus.FROZEN,
 }
 
 # Transition table must stay aligned with ``TaskStatus`` docstring in ``core/schemas.py``
@@ -50,13 +55,17 @@ VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.ACCEPTED: [TaskStatus.IN_PROGRESS, TaskStatus.DISPUTED, TaskStatus.CANCELLED],
     TaskStatus.IN_PROGRESS: [TaskStatus.PROGRESS_SUBMITTED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.CANCELLED],
     TaskStatus.PROGRESS_SUBMITTED: [TaskStatus.PROGRESS_CONFIRMED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED],
-    TaskStatus.PROGRESS_CONFIRMED: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED],
-    TaskStatus.DELIVERED: [TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.REFUNDED],
-    TaskStatus.DISPUTED: [TaskStatus.ARBITRATED],
-    TaskStatus.ARBITRATED: [TaskStatus.SETTLED, TaskStatus.REFUNDED],
-    TaskStatus.SETTLED: [],
-    TaskStatus.REFUNDED: [],
-    TaskStatus.CANCELLED: [],
+    TaskStatus.PROGRESS_CONFIRMED: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED, TaskStatus.AUTO_CONFIRMED],
+    TaskStatus.DELIVERED: [TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.REFUNDED, TaskStatus.FROZEN],
+    TaskStatus.DISPUTED: [TaskStatus.ARBITRATED, TaskStatus.FROZEN],
+    TaskStatus.ARBITRATED: [TaskStatus.SETTLED, TaskStatus.REFUNDED, TaskStatus.PARTIALLY_SETTLED, TaskStatus.FROZEN],
+    TaskStatus.SETTLED: [TaskStatus.FROZEN],
+    TaskStatus.PARTIALLY_SETTLED: [TaskStatus.SETTLED, TaskStatus.FROZEN],
+    TaskStatus.REFUNDED: [TaskStatus.FROZEN],
+    TaskStatus.CANCELLED: [TaskStatus.FROZEN],
+    # MVVS V1 — new non-terminal / transitory statuses
+    TaskStatus.AUTO_CONFIRMED: [TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.FROZEN],
+    TaskStatus.FROZEN: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED, TaskStatus.REFUNDED, TaskStatus.CANCELLED],
 }
 
 STATUS_ORDER: dict[TaskStatus, int] = {
@@ -69,7 +78,9 @@ STATUS_ORDER: dict[TaskStatus, int] = {
     TaskStatus.DELIVERED: 7,
     TaskStatus.DISPUTED: 8,
     TaskStatus.ARBITRATED: 9,
-    TaskStatus.SETTLED: 10,
+    TaskStatus.AUTO_CONFIRMED: 6,  # between PROGRESS_CONFIRMED (6) and DELIVERED (7)
+    TaskStatus.PARTIALLY_SETTLED: 9,  # between ARBITRATED (9) and SETTLED (10)
+    TaskStatus.FROZEN: 0,  # FROZEN is a meta-state, not in normal order
     TaskStatus.REFUNDED: 10,
     TaskStatus.CANCELLED: 10,
 }

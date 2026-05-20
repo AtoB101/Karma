@@ -12,6 +12,7 @@ from api.middleware.auth import resolve_agent_id_from_auth_headers
 from config.settings import settings
 from core.schemas import (
     ProgressConfirmationStatus,
+    RejectionReason,
     SettlementState,
     SettlementTransitionAudit,
     TaskStatus,
@@ -64,6 +65,19 @@ class LockRequest(BaseModel):
     worker_agent_id: str
 
 
+class BuyerRejectRequest(BaseModel):
+    """MVVS V1 — Buyer rejection with mandatory reason_code."""
+    reason_code: RejectionReason = Field(description="MVVS V1 standardized rejection code (required)")
+    reason: str | None = Field(default=None, max_length=2000, description="Optional free-text detail")
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def _safe_reason(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        return validate_safe_storage_text_optional(str(v), field="reason")
+
+
 class PartialSettlementRequest(BaseModel):
     settled_value_percent: float = Field(gt=0.0, le=100.0)
     reason: str | None = None
@@ -79,6 +93,10 @@ class PartialSettlementRequest(BaseModel):
 class RegretRequest(BaseModel):
     buyer_identity_id: str | None = None
     reason: str | None = None
+    reason_code: RejectionReason | None = Field(
+        default=None,
+        description="MVVS V1 — standardized rejection reason code",
+    )
 
     @field_validator("reason", mode="before")
     @classmethod
@@ -90,6 +108,10 @@ class RegretRequest(BaseModel):
 
 class DisputeRequest(BaseModel):
     reason: str | None = None
+    reason_code: RejectionReason | None = Field(
+        default=None,
+        description="MVVS V1 — standardized rejection reason code",
+    )
 
     @field_validator("reason", mode="before")
     @classmethod
@@ -448,6 +470,7 @@ async def open_dispute(task_id: str, body: DisputeRequest, request: Request, db:
         escrow_amount=state.escrow_amount,
     )
     state.dispute_reason = body.reason or "buyer disputed task result"
+    state.rejection_reason_code = body.reason_code.value if body.reason_code else None
     return await _apply_transition(
         db=db,
         store=store,
@@ -516,6 +539,50 @@ async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSessi
         },
     )
     return state
+
+
+@router.post("/{task_id}/buyer-reject", response_model=SettlementState)
+async def buyer_reject_settlement(
+    task_id: str,
+    body: BuyerRejectRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    MVVS V1 — Buyer rejection with mandatory reason_code.
+
+    Requires DELIVERED status. Buyer must provide a standardized RejectionReason.
+    Rejection opens a dispute automatically. Free-text reason is optional supplementary.
+    """
+    validate_public_url_segment("task_id", task_id)
+    store = PostgresSettlementStore(db)
+    state = await store.get(task_id)
+    if not state:
+        raise HTTPException(404, f"Settlement {task_id} not found")
+    require_buyer(request, state)
+    if canonical_task_status(state.status) != TaskStatus.DELIVERED:
+        raise HTTPException(
+            409,
+            f"buyer reject requires delivered status, got {state.status.value}",
+        )
+    state.dispute_reason = (
+        f"[{body.reason_code.value}] {body.reason or ''}".strip()
+    )
+    state.rejection_reason_code = body.reason_code.value
+    await move_reserved_to_disputed(
+        db=db,
+        buyer_identity_id=state.client_agent_id,
+        escrow_amount=state.escrow_amount,
+    )
+    return await _apply_transition(
+        db=db,
+        store=store,
+        state=state,
+        target_status=TaskStatus.DISPUTED,
+        reason=f"buyer rejected: {body.reason_code.value}",
+        route_path=str(request.url.path),
+        actor_id=_resolve_actor_id(request),
+    )
 
 
 @router.post("/{task_id}/auto-arbitrate", response_model=SettlementState)
