@@ -507,6 +507,14 @@ class SettlementState(BaseModel):
     delivery_deadline_at: Optional[datetime] = Field(
         default=None, description="P2 auto-arbitration: expected delivery time (UTC)"
     )
+    confirm_window_hours: Optional[int] = Field(
+        default=None, ge=0, le=720,
+        description="MVVS V1 — buyer confirmation window in hours (0 = instant, null = manual)",
+    )
+    confirm_deadline_at: Optional[datetime] = Field(
+        default=None,
+        description="MVVS V1 — computed: delivered_at + confirm_window_hours",
+    )
     progress_rule_spec: Optional[dict[str, Any]] = Field(
         default=None,
         description="P1 non-linear progress curve JSON (mirrors voucher at settlement creation)",

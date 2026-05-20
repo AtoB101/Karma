@@ -1,7 +1,7 @@
 """Karma API — Settlement (public state endpoints)"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
@@ -538,6 +538,54 @@ async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSessi
             "settled_amount": float(state.released_amount or 0),
         },
     )
+    return state
+
+
+@router.post("/{task_id}/auto-confirm", response_model=SettlementState)
+async def auto_confirm_settlement(
+    task_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    MVVS V1 — Timeout-based auto-confirmation.
+    """
+    validate_public_url_segment("task_id", task_id)
+    store = PostgresSettlementStore(db)
+    state = await store.get(task_id)
+    if not state:
+        raise HTTPException(404, f"Settlement {task_id} not found")
+    if canonical_task_status(state.status) != TaskStatus.DELIVERED:
+        raise HTTPException(409, f"auto-confirm requires delivered, got {state.status.value}")
+    if state.confirm_window_hours is None:
+        raise HTTPException(409, "confirm_window_hours not set")
+    now = datetime.utcnow()
+    if state.confirm_deadline_at is None and state.updated_at:
+        state.confirm_deadline_at = state.updated_at + timedelta(hours=state.confirm_window_hours)
+    if state.confirm_deadline_at and now < state.confirm_deadline_at:
+        remaining = (state.confirm_deadline_at - now).total_seconds() / 3600
+        raise HTTPException(409, f"confirm window not expired — {remaining:.1f}h remaining")
+    require_buyer_or_worker(request, state)
+    assert_runtime_operation_allowed("new_settlement")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
+    state.arbitration_notes = f"auto-confirmed after {state.confirm_window_hours}h window"
+    state.updated_at = now
+    state = await _apply_transition(db=db, store=store, state=state,
+        target_status=TaskStatus.AUTO_CONFIRMED,
+        reason=f"confirm window ({state.confirm_window_hours}h) expired",
+        route_path=str(request.url.path), actor_id=_resolve_actor_id(request))
+    state.released_amount = round(state.escrow_amount, 2)
+    state.refunded_amount = 0.0
+    state.released_at = now
+    state = await _apply_transition(db=db, store=store, state=state,
+        target_status=TaskStatus.SETTLED,
+        reason="auto-confirmed → settled",
+        route_path=str(request.url.path), actor_id=_resolve_actor_id(request))
+    await apply_capacity_resolution(db=db, buyer_identity_id=state.client_agent_id,
+        escrow_amount=state.escrow_amount, settled_amount=state.escrow_amount, refunded_amount=0.0)
+    await mark_voucher_used_if_linked(db, task_id)
+    await _sync_payment_intents_after_settled(db, task_id)
+    await db.flush()
     return state
 
 

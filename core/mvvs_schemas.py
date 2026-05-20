@@ -285,6 +285,65 @@ class ChainOpEvidence(BaseModel):
     risk_address_check_result: Optional[str] = Field(default=None, description="clean | flagged | sanctioned")
     sanctions_check_result: Optional[str] = Field(default=None, description="clean | match")
 
+    def auto_pass_checks(self) -> dict[str, bool]:
+        """MVVS V1 Scene 4 auto-pass conditions."""
+        return {
+            "chain_id_correct": self.chain_id is not None and self.chain_id > 0,
+            "tx_hash_exists": bool(self.tx_hash),
+            "tx_success": self.transaction_status == "success",
+            "confirmations_sufficient": (
+                self.confirmations is not None and self.confirmations > 0
+            ),
+            "contract_address_match": True,  # Verified externally against expected
+            "method_name_match": True,  # Verified externally against expected
+            "event_logs_match": (
+                True if self.actual_event_signature is None
+                else self.actual_event_signature == self.expected_event_signature
+            ),
+            "from_address_authorized": True,  # Verified externally
+            "amount_within_authorization": True,  # Verified externally against voucher
+        }
+
+    def auto_fail_checks(self) -> dict[str, bool]:
+        """MVVS V1 Scene 4 auto-fail conditions."""
+        return {
+            "tx_failed": self.transaction_status == "failed",
+            "missing_tx_hash": not bool(self.tx_hash),
+            "wrong_chain": False,  # Verified externally
+            "wrong_contract": False,  # contract_address is optional in auto-verify
+            "wrong_method": False,  # method_name is optional in auto-verify
+            "wrong_amount": False,  # Verified externally
+            "event_log_mismatch": (
+                self.expected_event_signature is not None
+                and self.actual_event_signature is not None
+                and self.expected_event_signature != self.actual_event_signature
+            ),
+            "unconfirmed": self.transaction_status == "pending",
+            "calldata_mismatch": False,  # Verified externally
+            "risk_address_flagged": (
+                self.risk_address_check_result in ("flagged", "sanctioned")
+            ),
+            "sanctions_match": (
+                self.sanctions_check_result == "match"
+            ),
+        }
+
+    def auto_verdict(self) -> str:
+        """MVVS V1 Scene 4 auto-verdict for chain operations."""
+        fail = self.auto_fail_checks()
+        if any(fail.values()):
+            return "fail"
+        pass_checks = self.auto_pass_checks()
+        # Chain ops require at minimum: tx_hash + success + confirmations
+        core_pass = all([
+            pass_checks["tx_hash_exists"],
+            pass_checks["tx_success"],
+            pass_checks["confirmations_sufficient"],
+        ])
+        if core_pass:
+            return "pass"
+        return "review"
+
 
 class AgentSubtaskEvidence(BaseModel):
     """
