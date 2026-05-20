@@ -79,6 +79,11 @@ class TaskStatus(str, Enum):
     BUYER_WINS = "buyer_wins"
     SELLER_WINS = "seller_wins"
     PARTIAL = "partial"
+    # MVVS V1 — new canonical statuses
+    AUTHORIZED = "authorized"
+    AUTO_CONFIRMED = "auto_confirmed"
+    PARTIALLY_SETTLED = "partially_settled"
+    FROZEN = "frozen"
 
 
 class ToolStatus(str, Enum):
@@ -123,6 +128,31 @@ class ProgressConfirmationStatus(str, Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
     REJECTED = "rejected"
+
+
+class RejectionReason(str, Enum):
+    """
+    MVVS V1 — Standardized buyer rejection codes.
+    Buyers MUST select a reason_code; free-text reason is supplementary.
+    """
+    EMPTY_OUTPUT = "EMPTY_OUTPUT"
+    FORMAT_ERROR = "FORMAT_ERROR"
+    FILE_UNREADABLE = "FILE_UNREADABLE"
+    SCHEMA_MISMATCH = "SCHEMA_MISMATCH"
+    TIMEOUT = "TIMEOUT"
+    WRONG_CHAIN = "WRONG_CHAIN"
+    WRONG_AMOUNT = "WRONG_AMOUNT"
+    TX_FAILED = "TX_FAILED"
+    HASH_MISMATCH = "HASH_MISMATCH"
+    SIGNATURE_INVALID = "SIGNATURE_INVALID"
+    TASK_MISMATCH = "TASK_MISMATCH"
+    QUALITY_OBJECTIVE_FAIL = "QUALITY_OBJECTIVE_FAIL"
+    RESPONSIBILITY_CHAIN_BROKEN = "RESPONSIBILITY_CHAIN_BROKEN"
+    DUPLICATE_BILLING = "DUPLICATE_BILLING"
+    MALICIOUS_REJECTION = "MALICIOUS_REJECTION"
+    FAKE_DELIVERY = "FAKE_DELIVERY"
+    RISK_ADDRESS = "RISK_ADDRESS"
+    POLICY_VIOLATION = "POLICY_VIOLATION"
 
 
 class SubIdentityType(str, Enum):
@@ -456,6 +486,10 @@ class SettlementState(BaseModel):
     released_amount: Optional[float] = None
     refunded_amount: Optional[float] = None
     dispute_reason: Optional[str] = None
+    rejection_reason_code: Optional[str] = Field(
+        default=None,
+        description="MVVS V1 — standardized RejectionReason code",
+    )
     arbitration_notes: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -472,6 +506,14 @@ class SettlementState(BaseModel):
     voucher_id: Optional[str] = Field(default=None, description="Linked authorization voucher after seller accept")
     delivery_deadline_at: Optional[datetime] = Field(
         default=None, description="P2 auto-arbitration: expected delivery time (UTC)"
+    )
+    confirm_window_hours: Optional[int] = Field(
+        default=None, ge=0, le=720,
+        description="MVVS V1 — buyer confirmation window in hours (0 = instant, null = manual)",
+    )
+    confirm_deadline_at: Optional[datetime] = Field(
+        default=None,
+        description="MVVS V1 — computed: delivered_at + confirm_window_hours",
     )
     progress_rule_spec: Optional[dict[str, Any]] = Field(
         default=None,
