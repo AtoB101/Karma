@@ -421,6 +421,74 @@ class AgentSubtaskEvidence(BaseModel):
     subtask_evidence_hash: Optional[str] = Field(default=None)
     final_output_binding_hash: Optional[str] = Field(default=None)
 
+    # ── Responsibility Chain ──
+    # Ordered list from buyer → primary seller → subcontractors → tool providers
+    responsibility_chain: list[str] = Field(
+        default_factory=list,
+        description="Ordered list of identity IDs: [buyer, primary_seller, sub_1, ..., tool_provider]",
+    )
+
+    def auto_pass_checks(self) -> dict[str, bool]:
+        """MVVS V1 Scene 5 auto-pass: chain complete, hashes present, signatures valid."""
+        return {
+            "has_subtask_id": bool(self.subtask_id),
+            "has_upstream": bool(self.upstream_agent_id),
+            "has_downstream": bool(self.downstream_agent_id),
+            "input_hash_present": bool(self.subtask_input_hash),
+            "output_hash_present": bool(self.subtask_output_hash),
+            "upstream_signed": bool(self.upstream_signature),
+            "downstream_signed": bool(self.downstream_signature),
+            "binding_hash_present": bool(self.final_output_binding_hash),
+        }
+
+    def auto_fail_checks(self) -> dict[str, bool]:
+        """MVVS V1 Scene 5 auto-fail: chain broken, missing critical evidence."""
+        return {
+            "self_delegation": self.upstream_agent_id == self.downstream_agent_id,
+            "no_subtask_id": not bool(self.subtask_id),
+            "no_evidence": not bool(self.subtask_evidence_hash),
+            "zero_price": self.subtask_price <= 0 and self.subtask_price is not None,
+        }
+
+    def auto_verdict(self) -> str:
+        """A2A subcontracting defaults to review (human verification of responsibility chain)."""
+        fail = self.auto_fail_checks()
+        if any(fail.values()):
+            return "fail"
+        pass_checks = self.auto_pass_checks()
+        # A2A requires all pass checks
+        if all(pass_checks.values()):
+            return "review"  # Even with all checks, needs human review for responsibility
+        return "review"
+
+    def chain_is_valid(self) -> bool:
+        """Check if responsibility chain is well-formed."""
+        chain = self.responsibility_chain
+        if len(chain) < 2:
+            return False
+        # No self-references
+        if len(set(chain)) != len(chain):
+            return False
+        return True
+
+    def responsible_party(self, failure_point: int | None = None) -> str | None:
+        """
+        Determine responsible party based on failure point in chain.
+        
+        MVVS V1 Rule:
+        - If buyer (index 0) caused failure → buyer bears responsibility
+        - If primary seller (index 1) caused failure → seller bears responsibility
+        - If subcontractor (index N, N>=2) caused failure → that subcontractor bears responsibility
+        - If no failure point specified → primary seller (index 1) is default responsible
+        """
+        chain = self.responsibility_chain
+        if not chain:
+            return self.upstream_agent_id  # fallback
+        if failure_point is not None and 0 <= failure_point < len(chain):
+            return chain[failure_point]
+        # Default: primary seller is responsible to buyer
+        return chain[1] if len(chain) > 1 else chain[0]
+
 
 # ---------------------------------------------------------------------------
 # MVVS Settlement Condition Validator
