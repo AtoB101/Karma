@@ -1,5 +1,7 @@
 # Karma Trust Protocol — Public SDK & API
 
+[![BNB Chain Integration](https://img.shields.io/badge/BNB_Chain-ERC--8183_Verifiable_Evaluator-F0B90B?style=flat&logo=binance)](https://github.com/bnb-chain/bnbagent-sdk/pull/33)
+
 Build verifiable AI agents. Every tool call generates a signed receipt. Every task produces an auditable evidence bundle. Settlement is automatic.
 
 **Early builders:** we are recruiting **core developers** (≈10 roles), **security researchers**, and **ecosystem advocates** (≈20) for the pre-token phase. Incentive design (including potential future token mechanisms and early **equity-like** arrangements) will follow formal governance and legal processes. **→ [Read the full public brief (中文)](docs/early-builders-recruitment-zh.md)**
