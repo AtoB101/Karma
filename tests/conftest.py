@@ -22,6 +22,17 @@ from core.schemas import (
 from core.hooks.hook_layer import InMemoryReceiptStore
 
 # ---------------------------------------------------------------------------
+# Rate limit isolation (prevent cross-test memory pollution)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _clear_rate_limits():
+    """Clear in-memory rate limit windows before each test."""
+    from api.middleware.rate_limit import clear_memory_rate_limits
+    clear_memory_rate_limits()
+
+
+# ---------------------------------------------------------------------------
 # Event loop
 # ---------------------------------------------------------------------------
 

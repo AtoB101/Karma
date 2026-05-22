@@ -29,6 +29,11 @@ _memory_windows: dict[str, list[float]] = {}
 _memory_lock = asyncio.Lock()
 
 
+def clear_memory_rate_limits() -> None:
+    """Clear all in-memory rate limit windows. Call between tests to prevent cross-test pollution."""
+    _memory_windows.clear()
+
+
 def _memory_sliding_count(key: str, window_seconds: int) -> int:
     now = time.time()
     window_start = now - window_seconds

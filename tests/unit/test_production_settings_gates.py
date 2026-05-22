@@ -15,6 +15,8 @@ def _prod_kwargs(**overrides):
         auth_api_keys="agent-1:secret-1",
         auth_allow_dev_key_fallback=False,
         rate_limit_redis_fail_closed=True,
+        minio_access_key="prod-minio-access-key",
+        minio_secret_key="prod-minio-secret-key",
         runtime_require_saved_automation_policy=True,
         runtime_require_task_automation_readiness=True,
         runtime_require_handoff_attestation=True,
