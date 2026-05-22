@@ -4,16 +4,34 @@
 **/node_modules
 **/__pycache__
 *.pyc
+# Secrets and local configs (whitelist examples only)
 .env
 .env.*
 !.env.example
 !.env.*.example
 *.pem
 *.key
+# Local test databases (never ship to production image)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+# Certora internal artifacts (large, not needed at runtime)
+.certora_internal/
+# Duplicate workspace / build artifacts
+karma-final/
+contracts-hardhat/
+learnings/
+split-release/
+ops-intelligence/
+# Build and test outputs
 results/
 out/
 cache/
 broadcast/
 deployment.json
 abis.json
+# CI / config files not needed at runtime
 apps/agent-service-guard/frontend/public-config.json
+certora/
+reports/

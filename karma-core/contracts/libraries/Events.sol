@@ -24,5 +24,6 @@ library Events {
     event AgentPaused(address indexed agent, string reason);
     event AgentResumed(address indexed agent);
     event GlobalCircuitBreakerTriggered(address indexed triggeredBy, string reason);
+    event EmergencyResumeRequested(address indexed requestedBy, uint256 requestedAt, uint256 availableAt);
     event GlobalCircuitBreakerResumed(address indexed triggeredBy);
 }

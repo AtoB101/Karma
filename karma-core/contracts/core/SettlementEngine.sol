@@ -9,6 +9,9 @@ import {Errors} from "../libraries/Errors.sol";
 import {SignatureValidator} from "../libraries/SignatureValidator.sol";
 
 contract SettlementEngine is ISettlementEngine {
+    /// @notice Maximum batch size to prevent gas exhaustion.
+    uint256 public constant MAX_BATCH_SIZE = 50;
+
     address public immutable admin;
     bool public paused;
     uint256 private constant _NOT_ENTERED = 1;
@@ -50,7 +53,7 @@ contract SettlementEngine is ISettlementEngine {
         bytes32[] calldata ss
     ) external override nonReentrant {
         uint256 length = quotes.length;
-        if (length == 0 || length != vs.length || length != rs.length || length != ss.length) {
+        if (length == 0 || length > MAX_BATCH_SIZE || length != vs.length || length != rs.length || length != ss.length) {
             revert Errors.InvalidBatchInput();
         }
 

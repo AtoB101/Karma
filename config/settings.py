@@ -206,8 +206,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":
+        """Reject unsafe defaults in any non-development environment (production, testnet, staging)."""
         env = (self.app_env or "").lower()
-        if env in ("production", "prod"):
+        # Only skip these checks for local development environments
+        if env not in ("development", "dev", "local", "test"):
             key = (self.app_secret_key or "").strip()
             if not key or key == "change-me-in-production":
                 raise ValueError(
@@ -281,6 +283,17 @@ class Settings(BaseSettings):
             if backend in ("local", "env"):
                 raise ValueError(
                     "KARMA_SIGNING_BACKEND must be client_only or external in production (not local/env)",
+                )
+            # Verify MinIO credentials are not defaults
+            minio_access = (self.minio_access_key or "").strip()
+            minio_secret = (self.minio_secret_key or "").strip()
+            if not minio_access or minio_access == "minioadmin":
+                raise ValueError(
+                    "MINIO_ACCESS_KEY must be set to a non-default value in this environment",
+                )
+            if not minio_secret or minio_secret == "minioadmin":
+                raise ValueError(
+                    "MINIO_SECRET_KEY must be set to a non-default value in this environment",
                 )
         return self
 

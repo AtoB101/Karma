@@ -11,9 +11,10 @@
 /results/
 
 # Secrets and local env (never commit real keys)
-.env
-.env.local
-.env.*.local
+# Catch-all for all .env variants; whitelist examples only
+**/.env*
+!**/.env.example
+!**/.env.*.example
 *.pem
 *.key
 docker-compose.override.yml

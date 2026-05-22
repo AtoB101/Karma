@@ -9,8 +9,13 @@ contract CircuitBreaker is ICircuitBreaker {
     /// @notice Maximum per-owner threshold; aligns with Karma2 hardened deployment.
     uint256 public constant MAX_THRESHOLD = uint256(type(uint128).max);
 
+    /// @notice Minimum delay between requesting and executing an emergency resume.
+    uint256 public constant EMERGENCY_RESUME_DELAY = 24 hours;
+
     address public immutable admin;
     bool public globalPaused;
+    /// @notice Timestamp when emergency resume was requested (0 = not requested).
+    uint256 public emergencyResumeRequestedAt;
 
     mapping(address owner => uint256 threshold) public humanApprovalThreshold;
     mapping(address agent => bool paused) public agentPaused;
@@ -43,10 +48,27 @@ contract CircuitBreaker is ICircuitBreaker {
 
     function emergencyPause(string calldata reason) external override onlyAdmin {
         globalPaused = true;
+        emergencyResumeRequestedAt = 0; // reset any pending resume request
         emit Events.GlobalCircuitBreakerTriggered(msg.sender, reason);
     }
 
+    /// @notice Request emergency resume. Must wait EMERGENCY_RESUME_DELAY before executing.
+    function requestEmergencyResume() external override onlyAdmin {
+        if (!globalPaused) revert Errors.InvalidState();
+        emergencyResumeRequestedAt = block.timestamp;
+        uint256 availableAt = block.timestamp + EMERGENCY_RESUME_DELAY;
+        emit Events.EmergencyResumeRequested(msg.sender, block.timestamp, availableAt);
+    }
+
     function emergencyResume() external override onlyAdmin {
+        if (emergencyResumeRequestedAt == 0) revert Errors.InvalidState();
+        if (block.timestamp < emergencyResumeRequestedAt + EMERGENCY_RESUME_DELAY) {
+            revert Errors.EmergencyResumeTooSoon(
+                emergencyResumeRequestedAt,
+                emergencyResumeRequestedAt + EMERGENCY_RESUME_DELAY
+            );
+        }
+        emergencyResumeRequestedAt = 0;
         globalPaused = false;
         emit Events.GlobalCircuitBreakerResumed(msg.sender);
     }
