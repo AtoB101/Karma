@@ -39,6 +39,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     error ScopeNotAllowed();
     error SettlementTokenNotAllowed();
     error SettlementAmountTooLow();
+    error BatchSettlementBelowThreshold();
     error DisputeRateLimited();
     error OperationPaused();
     error DisputeNotTimedOut();
@@ -83,6 +84,9 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     mapping(address token => bool) internal settlementTokenAllowed;
     bool public settlementTokenEnforced;
     uint256 public minSettlementAmount;
+    /// @notice Max age of a batch before settlement is allowed even below minSettlementAmount.
+    /// @dev 0 disables the timeout trigger (pure threshold mode).
+    uint256 public maxBatchAge = 6 hours;
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
     uint256 private _status = _NOT_ENTERED;
@@ -118,6 +122,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     event BatchSettled(uint256 indexed batchId, uint256 settledCount, uint256 settledAmount);
     event BatchModeUpdated(bool enabled);
     event BatchCircuitBreakerUpdated(bool paused);
+    event MaxBatchAgeUpdated(uint256 ageSeconds);
     event PolicyConfigured(
         address indexed owner,
         bool enabled,
@@ -211,7 +216,6 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         if (seller == address(0) || token == address(0)) revert InvalidAddress();
         if (seller == msg.sender) revert Unauthorized();
         if (amount == 0) revert InvalidAmount();
-        _enforceSettlementGuard(token, amount);
         _enforcePolicy(msg.sender, seller, scopeHash, amount);
 
         uint256 finalDeadline = deadline == 0 ? block.timestamp + defaultBillTtlSeconds : deadline;
@@ -538,7 +542,21 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         if (batchOwner[batchId] != msg.sender) revert BatchOwnerMismatch();
         _enforcePolicy(msg.sender, msg.sender, keccak256("batch:settle"), 1);
 
+        // Dual-trigger: settle when (pending >= threshold) OR (batch aged out)
         uint256[] storage ids = batchBillIds[batchId];
+        if (batch.totalPending > 0) {
+            // Token gate enforcement
+            if (settlementTokenEnforced) {
+                uint256 firstBillId = ids[0];
+                address batchToken = bills[firstBillId].token;
+                if (!settlementTokenAllowed[batchToken]) revert SettlementTokenNotAllowed();
+            }
+            uint256 batchAge = block.timestamp - batch.createdAt;
+            if (batch.totalPending < minSettlementAmount && (maxBatchAge == 0 || batchAge < maxBatchAge)) {
+                revert BatchSettlementBelowThreshold();
+            }
+        }
+
         uint256 remaining = ids.length - batchNextSettleIndex[batchId];
         uint256 requested = maxBills == 0 ? MAX_BATCH_SETTLE_SIZE : maxBills;
         if (requested > MAX_BATCH_SETTLE_SIZE) requested = MAX_BATCH_SETTLE_SIZE;
@@ -618,6 +636,14 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
     function setMinSettlementAmount(uint256 amount) external override onlyOwner {
         minSettlementAmount = amount;
         emit SettlementGuardUpdated(settlementTokenEnforced, amount);
+    }
+
+    /// @notice Sets the max batch age before settlement is allowed even below the minimum amount.
+    /// @dev Set to 0 to disable the time-based trigger. Default: 6 hours.
+    /// @param ageSeconds Maximum age in seconds; 0 disables timeout.
+    function setMaxBatchAge(uint256 ageSeconds) external override onlyOwner {
+        maxBatchAge = ageSeconds;
+        emit MaxBatchAgeUpdated(ageSeconds);
     }
 
     function isSettlementTokenEnforced() external view override returns (bool) {
