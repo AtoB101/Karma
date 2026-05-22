@@ -40,7 +40,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 # ---------------------------------------------------------------------------
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+ACCESS_TOKEN_EXPIRE_MINUTES = 15  # 15 minutes
 
 
 def create_access_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:

@@ -22,4 +22,5 @@ library Errors {
     error EnginePaused();
     error InvalidBatchInput();
     error EmergencyResumeTooSoon(uint256 requestedAt, uint256 availableAt);
+    error UnpauseTooSoon(uint256 requestedAt, uint256 availableAt);
 }

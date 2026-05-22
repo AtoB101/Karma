@@ -9,7 +9,7 @@ import {Events} from "../libraries/Events.sol";
 contract KYARegistry is IKYARegistry {
     address public immutable admin;
     mapping(address agent => Types.AgentDID) public didByAgent;
-    uint256 public constant MIN_STAKE = 0.01 ether;
+    uint256 public minStake = 0.01 ether;
     bytes32 public constant DID_RENEW_SCOPE = keccak256("kya:did:renew");
 
     constructor() {
@@ -23,7 +23,7 @@ contract KYARegistry is IKYARegistry {
         returns (bytes32 did)
     {
         if (agent == address(0)) revert Errors.InvalidAddress();
-        if (msg.value < MIN_STAKE) revert Errors.InvalidAmount();
+        if (msg.value < minStake) revert Errors.InvalidAmount();
         if (validityDays == 0) revert Errors.InvalidAmount();
         Types.AgentDID memory existing = didByAgent[agent];
         // Any prior registration (including expired or revoked) stays bound to existing.owner
@@ -83,5 +83,12 @@ contract KYARegistry is IKYARegistry {
         if (amount == 0 || amount > address(this).balance) revert Errors.InvalidAmount();
         (bool ok,) = payable(to).call{value: amount}("");
         if (!ok) revert Errors.InvalidState();
+        emit Events.StuckETHWithdrawn(to, amount);
+    }
+
+    function setMinStake(uint256 newMinStake) external override {
+        if (msg.sender != admin) revert Errors.Unauthorized();
+        if (newMinStake == 0) revert Errors.InvalidAmount();
+        minStake = newMinStake;
     }
 }

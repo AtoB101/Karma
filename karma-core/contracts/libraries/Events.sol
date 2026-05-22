@@ -26,4 +26,6 @@ library Events {
     event GlobalCircuitBreakerTriggered(address indexed triggeredBy, string reason);
     event EmergencyResumeRequested(address indexed requestedBy, uint256 requestedAt, uint256 availableAt);
     event GlobalCircuitBreakerResumed(address indexed triggeredBy);
+
+    event StuckETHWithdrawn(address indexed to, uint256 amount);
 }

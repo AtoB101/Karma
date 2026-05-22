@@ -383,6 +383,7 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
             revert InvalidState();
         }
         if (block.timestamp <= b.deadline) revert InvalidState();
+        if (msg.sender != b.buyer && msg.sender != b.seller && msg.sender != owner) revert Unauthorized();
         _releaseOnCancelOrExpire(b);
         b.status = BillStatus.Expired;
         _finalizeBillFromBatch(b);
@@ -410,9 +411,10 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         uint256 penalty = b.sellerBond;
         sellerSt.reserved -= b.sellerBond;
         sellerSt.locked -= b.sellerBond;
+        b.status = BillStatus.ResolvedBuyer;
         if (!_safeTransferFrom(b.token, b.seller, b.buyer, penalty)) revert TransferFailed();
 
-        b.status = BillStatus.ResolvedBuyer;
+
         _finalizeBillFromBatch(b);
         _assertAccountInvariant(b.buyer, b.token);
         _assertAccountInvariant(b.seller, b.token);
@@ -428,9 +430,8 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         if (b.status != BillStatus.Disputed) {
             revert InvalidBillStatus(billId, BillStatus.Disputed, b.status);
         }
-        _settleDisputedBillSellerWins(b);
         b.status = BillStatus.ResolvedSeller;
-        _finalizeBillFromBatch(b);
+        _settleDisputedBillSellerWins(b);
         _assertAccountInvariant(b.buyer, b.token);
         _assertAccountInvariant(b.seller, b.token);
         emit BillResolvedSeller(billId, b.amount, b.sellerBond);
@@ -464,8 +465,8 @@ contract NonCustodialAgentPayment is INonCustodialAgentPayment {
         }
         if (block.timestamp <= b.disputedAt + DISPUTE_TIMEOUT_SECONDS) revert DisputeNotTimedOut();
         uint16 buyerShareBps = DEFAULT_TIMEOUT_BUYER_SHARE_BPS;
-        _resolveDisputeSplitInternal(b, buyerShareBps);
         b.status = BillStatus.SplitResolved;
+        _resolveDisputeSplitInternal(b, buyerShareBps);
         _finalizeBillFromBatch(b);
         _assertAccountInvariant(b.buyer, b.token);
         _assertAccountInvariant(b.seller, b.token);

@@ -7,4 +7,5 @@ interface IKYARegistry {
     function verifyDID(address agent) external view returns (bool isValid, address owner, uint256 validUntil);
     function updatePermissions(address agent, bytes32 newPermissionsHash) external;
     function withdrawStuckETH(address to, uint256 amount) external;
+    function setMinStake(uint256 newMinStake) external;
 }
