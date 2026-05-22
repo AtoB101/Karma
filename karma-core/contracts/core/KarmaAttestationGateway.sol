@@ -49,6 +49,7 @@ contract KarmaAttestationGateway {
     error QuorumNotReached();
     error ChallengeWindowOpen();
     error ChallengeAlreadyRaised();
+    error ChallengeRaised();
     error NoActiveChallenge();
     error ChallengeResolved();
     error NotArbitrator();
