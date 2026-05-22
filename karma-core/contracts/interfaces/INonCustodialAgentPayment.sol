@@ -125,6 +125,7 @@ interface INonCustodialAgentPayment {
     function setSettlementTokenAllowed(address token, bool allowed) external;
     function setSettlementTokenEnforced(bool enabled) external;
     function setMinSettlementAmount(uint256 amount) external;
+    function setMaxBatchAge(uint256 ageSeconds) external;
     function isSettlementTokenAllowed(address token) external view returns (bool);
     function isSettlementTokenEnforced() external view returns (bool);
     function minSettlementAmount() external view returns (uint256);

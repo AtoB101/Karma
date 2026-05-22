@@ -829,25 +829,49 @@ contract NonCustodialAgentPaymentTest is Test {
     function testStableSettlementTokenGateBlocksNonAllowedToken() public {
         vm.prank(address(this)); // owner
         protocol.setSettlementTokenEnforced(true);
-        protocol.setMinSettlementAmount(1);
         vm.prank(address(this)); // owner
         protocol.setSettlementTokenAllowed(address(token), false);
 
+        // Bill creation is allowed (token gate checks at settlement time)
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 1_000, keccak256("scope-m2-token-block"), "ipfs://proof-m2-token-block", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        uint256 batchId = protocol.getBill(billId).batchId;
+
+        vm.prank(buyer);
+        protocol.closeBatch(batchId);
+
+        // Settlement blocked by token gate
         vm.prank(buyer);
         vm.expectRevert(NonCustodialAgentPayment.SettlementTokenNotAllowed.selector);
-        protocol.createBill(seller, address(token), 1_000, keccak256("scope-m2-token-block"), "ipfs://proof-m2-token-block", block.timestamp + 1 days);
+        protocol.settleBatch(batchId, 0);
     }
 
     function testStableSettlementMinAmountBlocksSmallBills() public {
         vm.prank(address(this)); // owner
         protocol.setSettlementTokenEnforced(true);
         protocol.setMinSettlementAmount(2_000);
+        protocol.setMaxBatchAge(1 hours);
         vm.prank(address(this)); // owner
         protocol.setSettlementTokenAllowed(address(token), true);
 
+        // Bill creation allowed (min enforced at batch settlement level)
         vm.prank(buyer);
-        vm.expectRevert(NonCustodialAgentPayment.SettlementAmountTooLow.selector);
-        protocol.createBill(seller, address(token), 1_000, keccak256("scope-m2-small"), "ipfs://proof-m2-small", block.timestamp + 1 days);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 1_000, keccak256("scope-m2-small"), "ipfs://proof-m2-small", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        uint256 batchId = protocol.getBill(billId).batchId;
+
+        vm.prank(buyer);
+        protocol.closeBatch(batchId);
+
+        // 1_000 < 2_000 threshold AND batch not aged → blocked
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.BatchSettlementBelowThreshold.selector);
+        protocol.settleBatch(batchId, 0);
     }
 
     function testStableSettlementAllowedTokenAndAmountPasses() public {
@@ -909,6 +933,95 @@ contract NonCustodialAgentPaymentTest is Test {
         vm.prank(buyer);
         protocol.closeBatch(batchId);
         assertEq(uint8(protocol.getBatch(batchId).status), uint8(INonCustodialAgentPayment.BatchStatus.Closed));
+    }
+
+    function testSettleBatchBelowThresholdReverts() public {
+        protocol.setMinSettlementAmount(5_000);
+        protocol.setMaxBatchAge(1 hours);
+
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 1_000, keccak256("scope-batch-threshold"), "ipfs://proof", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        uint256 batchId = protocol.getBill(billId).batchId;
+
+        vm.prank(buyer);
+        protocol.closeBatch(batchId);
+
+        // 1_000 < 5_000 threshold AND batch not aged → should revert
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.BatchSettlementBelowThreshold.selector);
+        protocol.settleBatch(batchId, 0);
+    }
+
+    function testSettleBatchBelowThresholdAllowedAfterTimeout() public {
+        protocol.setMinSettlementAmount(5_000);
+        protocol.setMaxBatchAge(1 hours);
+
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 1_000, keccak256("scope-batch-timeout"), "ipfs://proof", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        uint256 batchId = protocol.getBill(billId).batchId;
+
+        vm.prank(buyer);
+        protocol.closeBatch(batchId);
+
+        // Warp past maxBatchAge
+        vm.warp(block.timestamp + 1 hours + 1);
+
+        // Now allowed despite being below threshold
+        vm.prank(buyer);
+        (uint256 count, uint256 amt) = protocol.settleBatch(batchId, 0);
+        assertEq(count, 1);
+        assertEq(amt, 1_000);
+        assertEq(uint8(protocol.getBatch(batchId).status), uint8(INonCustodialAgentPayment.BatchStatus.Settled));
+    }
+
+    function testSettleBatchAboveThresholdNoTimeoutNeeded() public {
+        protocol.setMinSettlementAmount(5_000);
+        protocol.setMaxBatchAge(1 hours);
+
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 10_000, keccak256("scope-batch-above"), "ipfs://proof", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        uint256 batchId = protocol.getBill(billId).batchId;
+
+        vm.prank(buyer);
+        protocol.closeBatch(batchId);
+
+        // 10_000 >= 5_000 threshold → allowed immediately
+        vm.prank(buyer);
+        (uint256 count, uint256 amt) = protocol.settleBatch(batchId, 0);
+        assertEq(count, 1);
+        assertEq(amt, 10_000);
+    }
+
+    function testSettleBatchTimeoutDisabledWhenMaxBatchAgeZero() public {
+        protocol.setMinSettlementAmount(5_000);
+        protocol.setMaxBatchAge(0); // disable timeout
+
+        vm.prank(buyer);
+        uint256 billId =
+            protocol.createBill(seller, address(token), 1_000, keccak256("scope-batch-no-timeout"), "ipfs://proof", block.timestamp + 1 days);
+        vm.prank(buyer);
+        protocol.confirmBill(billId);
+        uint256 batchId = protocol.getBill(billId).batchId;
+
+        vm.prank(buyer);
+        protocol.closeBatch(batchId);
+
+        // Warp past any reasonable time
+        vm.warp(block.timestamp + 24 hours);
+
+        // Still reverts because maxBatchAge=0 disables timeout
+        vm.prank(buyer);
+        vm.expectRevert(NonCustodialAgentPayment.BatchSettlementBelowThreshold.selector);
+        protocol.settleBatch(batchId, 0);
     }
 
     function _confirmBillDigest(uint256 billId, uint256 nonce, uint256 deadline, address relayer)
