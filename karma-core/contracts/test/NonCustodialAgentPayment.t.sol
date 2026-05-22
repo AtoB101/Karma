@@ -326,7 +326,7 @@ contract NonCustodialAgentPaymentTest is Test {
         assertEq(sellerBefore.reserved, 3_000);
 
         vm.warp(block.timestamp + 1 days + 1);
-        vm.prank(address(0xdead));
+        vm.prank(buyer);
         protocol.expireBill(billId);
 
         INonCustodialAgentPayment.AccountState memory buyerSt = protocol.getAccountState(buyer, address(token));

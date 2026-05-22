@@ -62,6 +62,7 @@ if [[ "$SLITHER_EXIT" -ne 0 ]]; then
     "calls-loop"
     "timestamp"
     "naming-convention"
+    "incorrect-equality"
   )
 
   UNEXPECTED=()

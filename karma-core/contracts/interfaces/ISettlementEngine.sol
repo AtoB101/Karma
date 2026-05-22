@@ -11,6 +11,7 @@ interface ISettlementEngine {
     function setTokenAllowed(address token, bool allowed) external;
     function pause() external;
     function unpause() external;
+    function requestUnpause() external;
     function nonces(address payer) external view returns (uint256);
     function executedQuotes(bytes32 quoteId) external view returns (bool);
 }

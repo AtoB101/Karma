@@ -14,6 +14,12 @@ contract SettlementEngine is ISettlementEngine {
 
     address public immutable admin;
     bool public paused;
+
+    /// @notice Minimum delay between requesting and executing an unpause.
+    uint256 public constant UNPAUSE_DELAY = 1 hours;
+    /// @notice Timestamp when unpause was requested (0 = not requested).
+    uint256 public unpauseRequestedAt;
+
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
     uint256 private _status = _NOT_ENTERED;
@@ -101,11 +107,24 @@ contract SettlementEngine is ISettlementEngine {
     function pause() external override {
         if (msg.sender != admin) revert Errors.Unauthorized();
         paused = true;
+        unpauseRequestedAt = 0; // reset any pending unpause request
         emit Paused(msg.sender);
+    }
+
+    /// @notice Request unpause. Must wait UNPAUSE_DELAY before executing.
+    function requestUnpause() external override {
+        if (msg.sender != admin) revert Errors.Unauthorized();
+        if (!paused) revert Errors.InvalidState();
+        unpauseRequestedAt = block.timestamp;
     }
 
     function unpause() external override {
         if (msg.sender != admin) revert Errors.Unauthorized();
+        if (unpauseRequestedAt == 0) revert Errors.InvalidState();
+        if (block.timestamp < unpauseRequestedAt + UNPAUSE_DELAY) {
+            revert Errors.UnpauseTooSoon(unpauseRequestedAt, unpauseRequestedAt + UNPAUSE_DELAY);
+        }
+        unpauseRequestedAt = 0;
         paused = false;
         emit Unpaused(msg.sender);
     }
