@@ -1,7 +1,7 @@
 """Pre-launch spending policy checks (automation-policy limits + daily budget)."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -10,8 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models.orm import AgentAutomationPolicyModel, TradeOrderModel
 
 
+def _utc_today_midnight() -> datetime:
+    """Return today's midnight in UTC as a naive datetime."""
+    now = datetime.now(timezone.utc)
+    return datetime(now.year, now.month, now.day, 0, 0, 0)
+
+
 async def sum_buyer_launch_amount_today(db: AsyncSession, buyer_identity_id: str) -> float:
-    today_start = datetime.combine(date.today(), datetime.min.time())
+    today_start = _utc_today_midnight()
     res = await db.execute(
         select(TradeOrderModel).where(
             TradeOrderModel.buyer_identity_id == buyer_identity_id,
