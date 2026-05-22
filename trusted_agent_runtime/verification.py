@@ -1,3 +1,13 @@
+"""
+⚠️  DEPRECATED — Structural verification logic has moved.
+
+This module is kept for backward compatibility with existing tests.
+New code should use:
+  from decentralized_verifier.rules.structural import structural_verify
+  from decentralized_verifier.rules.hashing import receipt_hash, task_contract_hash
+
+See: KARMA_PRIVATE_TRUSTED_REPLACEMENT_PLAN_V1 (PR #105)
+"""
 from __future__ import annotations
 
 import uuid

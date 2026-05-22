@@ -37,6 +37,22 @@ htmlcov/
 **/__pycache__/
 *.pyc
 
+# Build artifacts (never commit)
+out/
+cache/
+broadcast/
+.certora_internal/
+
+# Test databases
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Archives
+*.zip
+*.tar.gz
+
 # Node / Playwright local artifacts
 node_modules/
 test-results/

@@ -1,3 +1,11 @@
+"""
+⚠️  DEPRECATED — Hashing functions have moved.
+
+Kept for backward compatibility. New code use:
+  from decentralized_verifier.rules.hashing import canonical_json_bytes, sha256_hex
+
+See: KARMA_PRIVATE_TRUSTED_REPLACEMENT_PLAN_V1 (PR #105)
+"""
 from __future__ import annotations
 
 import hashlib
