@@ -49,6 +49,7 @@ contract KarmaAttestationGateway {
     error QuorumNotReached();
     error ChallengeWindowOpen();
     error ChallengeAlreadyRaised();
+    error SettlementBlocked();
     error NoActiveChallenge();
     error ChallengeResolved();
     error NotArbitrator();
@@ -297,10 +298,10 @@ contract KarmaAttestationGateway {
             // If challenge was resolved as overruled, proceed.
             // If resolved as upheld, block permanently.
             if (!challengeResolved[taskId]) {
-                revert ChallengeRaised();
+                revert SettlementBlocked();
             }
             if (challengeUpheld[taskId]) {
-                revert ChallengeRaised(); // upheld = settlement permanently blocked
+                revert SettlementBlocked(); // upheld = settlement permanently blocked
             }
             // overruled → fall through and settle
         }
