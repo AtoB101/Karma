@@ -15,7 +15,7 @@ from prometheus_client import Counter, Histogram, make_asgi_app
 
 from config.settings import settings
 from api.middleware.auth import get_current_agent_id, require_auth_if_enabled, resolve_agent_id_from_auth_headers
-from api.middleware.rate_limit import rate_limit
+from api.middleware.rate_limit import make_rate_limit_dep, rate_limit
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from db.session import init_db
 from api.routes import (
@@ -290,13 +290,14 @@ app.include_router(runtime_gateway.router, prefix="/runtime", tags=["Runtime Gat
 app.include_router(auth.router,       prefix="/v1/auth",       tags=["Auth"])
 _protected_dependencies = [Depends(require_auth_if_enabled)]
 _security_always_auth = [Depends(get_current_agent_id)]
+_rate_limited_rw = [Depends(require_auth_if_enabled), Depends(make_rate_limit_dep("write_sensitive"))]
 app.include_router(agents.router,     prefix="/v1/agents",     tags=["Agents"], dependencies=_protected_dependencies)
 app.include_router(contracts.router,  prefix="/v1/contracts",  tags=["Contracts"], dependencies=_protected_dependencies)
 app.include_router(identities.router, prefix="/v1/identities", tags=["Identities"], dependencies=_protected_dependencies)
 app.include_router(arbitration.router, prefix="/v1/arbitration", tags=["Arbitration"], dependencies=_protected_dependencies)
 app.include_router(responsibility.router, prefix="/v1/responsibility", tags=["Responsibility"], dependencies=_protected_dependencies)
 app.include_router(capacity.router,   prefix="/v1/capacity",   tags=["Capacity"], dependencies=_protected_dependencies)
-app.include_router(vouchers.router,   prefix="/v1/vouchers",   tags=["Vouchers"], dependencies=_protected_dependencies)
+app.include_router(vouchers.router,   prefix="/v1/vouchers",   tags=["Vouchers"], dependencies=_rate_limited_rw)
 app.include_router(
     payment_codes.router,
     prefix="/v1/payment-codes",
@@ -307,7 +308,7 @@ app.include_router(
     trade.router,
     prefix="/v1/trade",
     tags=["Trade"],
-    dependencies=_protected_dependencies,
+    dependencies=_rate_limited_rw,
 )
 app.include_router(
     x402.router,
@@ -331,10 +332,10 @@ app.include_router(progress.router,   prefix="/v1/progress",   tags=["Progress"]
 app.include_router(receipts.router,   prefix="/v1/receipts",   tags=["Receipts"], dependencies=_protected_dependencies)
 app.include_router(bundles.router,    prefix="/v1/bundles",    tags=["Bundles"], dependencies=_protected_dependencies)
 app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verification"], dependencies=_protected_dependencies)
-app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_protected_dependencies)
+app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_rate_limited_rw)
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)
-app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_security_always_auth)
+app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_security_always_auth + [Depends(make_rate_limit_dep("write_sensitive"))])
 app.include_router(openclaw.router, prefix="/v1/openclaw", tags=["OpenClaw"], dependencies=_protected_dependencies)
 
 
