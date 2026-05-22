@@ -1,6 +1,7 @@
 # Karma 公开仓库落地指南
 
-面向 **外部贡献者**、**集成方** 与 **平台 SRE**。私有侧（Karma2、风控运行时、商业材料）见 [`PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md`](PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md)。
+面向 **外部贡献者**、**集成方** 与 **平台 SRE**。
+私有侧：风控引擎 → `Karma2`，运维后台 → `Karma3`。
 
 **公开真源：** [https://github.com/AtoB101/Karma](https://github.com/AtoB101/Karma)  
 **许可：** AGPL-3.0-only（见根目录 `LICENSE`、`docs/LICENSING.md`）
@@ -12,7 +13,7 @@
 | 区域 | 路径 | 说明 |
 |------|------|------|
 | 协议与合约 | `karma-core/contracts/` | 公开 NC 栈；不含 BillManager / LockPool 私有实现 |
-| HTTP API | `api/`、`openapi/` | 公开契约；`/v1/verify` 转发至 **私有运行时** |
+| HTTP API | `api/`、`openapi/` | 公开契约；`/v1/verify` 转发至 **去中心化验证网络** |
 | Console / 网站 | `apps/console/`、`apps/website/` | 静态 UI + 公开 API 客户端 |
 | OpenClaw / OpenManus | `packages/karma-openclaw/` 等 | MCP 与集成包 |
 | 部署 | `deploy/`、`railway.toml`、`fly.toml` | 本地 Compose + PaaS 一键模板 |
@@ -29,7 +30,7 @@ git clone https://github.com/AtoB101/Karma.git
 cd Karma
 pip install -e ".[dev]"
 cp .env.example .env
-# 编辑 APP_SECRET_KEY、PRIVATE_RUNTIME_API_KEY 等
+# 编辑 APP_SECRET_KEY 等
 alembic upgrade head
 uvicorn api.app:app --reload
 ```

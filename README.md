@@ -1,8 +1,10 @@
 # Karma Trust Protocol — Public SDK & API
 
 [![BNB Chain Integration](https://img.shields.io/badge/BNB_Chain-ERC--8183_Verifiable_Evaluator-F0B90B?style=flat&logo=binance)](https://github.com/bnb-chain/bnbagent-sdk/pull/33)
+[![Solana SDK](https://img.shields.io/badge/Solana-Karma_SDK-9945FF?style=flat&logo=solana)](https://github.com/AtoB101/Karma/tree/main/packages/karma_solana)
+[![Tests](https://img.shields.io/badge/tests-442%2F442%20passed-brightgreen?style=flat)](docs/public-testing/security-test-report-2026-05-22.md)
 
-Build verifiable AI agents. Every tool call generates a signed receipt. Every task produces an auditable evidence bundle. Settlement is automatic.
+Build verifiable AI agents with **decentralized N-of-M attestation**. Every tool call generates a signed receipt. Every task produces an auditable evidence bundle published to IPFS. Settlement requires multi-verifier consensus — no single trusted party controls fund release.
 
 **Early builders:** we are recruiting **core developers** (≈10 roles), **security researchers**, and **ecosystem advocates** (≈20) for the pre-token phase. Incentive design (including potential future token mechanisms and early **equity-like** arrangements) will follow formal governance and legal processes. **→ [Read the full public brief (中文)](docs/early-builders-recruitment-zh.md)**
 
@@ -23,7 +25,7 @@ pip install -e ".[dev]"
 
 ```bash
 cp .env.example .env
-# Edit .env — at minimum set APP_SECRET_KEY and PRIVATE_RUNTIME_API_KEY
+# Edit .env — at minimum set APP_SECRET_KEY
 ```
 
 ### 3. Generate signing keys
@@ -61,7 +63,7 @@ uvicorn api.app:app --reload
 ### 8. Start Celery worker (separate terminal)
 
 ```bash
-celery -A worker.tasks worker --loglevel=info -Q verification,settlement,reputation
+celery -A worker.tasks worker --loglevel=info -Q evidence_publish,verification,settlement,reputation
 ```
 
 ### 9. Start full stack via Docker
@@ -168,17 +170,15 @@ Karma/
 
 ## Docs
 
-- [**公开仓库落地指南（中文）**](docs/PUBLIC_REPO_LANDING-zh.md) · [**私有仓库执行清单（中文，Karma2）**](docs/PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md)
-- [**OpenClaw 运营检查清单（中文）**](docs/OPENCLAW_OPERATOR_CHECKLIST-zh.md)
-- [**公开测试计划（模拟 / 攻击测试 / 测试网）— 索引**](docs/public-testing/README.md)
+- [**安全测试报告 (442/442 通过)**](docs/public-testing/security-test-report-2026-05-22.md)
+- [**公开仓库落地指南（中文）**](docs/PUBLIC_REPO_LANDING-zh.md)
+- [**开放贡献者招募 (中文)**](docs/early-builders-recruitment-zh.md)
 - [Getting started](docs/GETTING_STARTED.md)
 - [API Reference](docs/API_REFERENCE.md)
 - [Deployment SOP](docs/DEPLOYMENT.md)
 - [**One-click deploy — Railway / Fly.io / Vercel**](deploy/one-click-deploy.md)
-- [Karma FINAL V1.0 Engineering Kickoff (CN)](docs/KARMA_FINAL_V1_ENGINEERING_KICKOFF_CN.md)
 - [Execution Receipt Standard](docs/EXECUTION_RECEIPT_STANDARD.md)
-- [Public 12 Deliverables (CN)](docs/PUBLIC_12_DELIVERABLES_CN.md)
-- [Public P0 Acceptance Runbook (CN)](docs/PUBLIC_P0_ACCEPTANCE_RUNBOOK_CN.md)
+- [去中心化验证标准 V1](docs/KARMA_DECENTRALIZED_VERIFICATION_STANDARD_V1.md) (即将发布)
 
 ---
 
@@ -191,16 +191,22 @@ KarmaHookLayer          ← wraps every tool call, generates signed receipts
     ↓
 EvidenceBundleBuilder   ← aggregates receipts into proof package
     ↓
-POST /v1/verify         ← public API forwards to private runtime
+EvidencePublisher       ← publishes bundle to IPFS (trust anchor) + MinIO (cache)
     ↓
-Private Runtime         ← verification + fraud + behavior + risk (internal)
+Verifier Nodes          ← N independent nodes run public verification rules
     ↓
-Settlement              ← escrow released / refunded / disputed
+Attestation Aggregator  ← collects N-of-M EIP-712 attestations (3-of-5 default)
     ↓
-Reputation              ← agent scores updated
+Challenge Window        ← open period for anyone to challenge (30min-24h)
+    ↓
+Settlement Gateway      ← KarmaAttestationGateway.sol — gates confirmBill behind quorum
+    ↓
+Reputation              ← agent scores updated from public on-chain events
 ```
 
-The verification decision logic, fraud detection rules, and reputation scoring weights live in the **private runtime** and are never exposed here.
+**Trust model:** No single party can unilaterally release funds. Settlement requires
+N-of-M verifier consensus + challenge window closure + no active disputes.
+See [KARMA_PRIVATE_TRUSTED_REPLACEMENT_PLAN_V1](https://github.com/AtoB101/Karma/pull/105).
 
 ---
 
@@ -224,7 +230,6 @@ cp .env.testnet.example .env
 #   SETTLEMENT_MODE=testnet
 #   TESTNET_RPC_URL=https://sepolia.infura.io/v3/YOUR_KEY
 #   TESTNET_CHAIN_ID=11155111
-#   TESTNET_PRIVATE_KEY=0x...  (testnet-only wallet, never mainnet)
 #   KARMA_ENGINE_ADDRESS=0x...
 #   ERC20_TOKEN_ADDRESS=0x...
 #   PAYEE_ADDRESS=0x...

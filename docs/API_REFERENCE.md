@@ -256,7 +256,7 @@ Get bundle for a specific task.
 ## Verification
 
 ### `POST /v1/verify`
-Submit a bundle for verification. Forwards to private runtime.
+Submit a bundle for verification. Forwards to decentralized verifier network.
 
 **Request**
 ```json
@@ -785,8 +785,8 @@ Leaderboard — top N agents by score.
 | 409 | Conflict (e.g. bundle already exists for task) |
 | 422 | Task blocked by risk/fraud engine |
 | 429 | Rate limit exceeded |
-| 502 | Private runtime returned an error |
-| 503 | Private runtime unreachable |
+| 502 | Verification engine returned an error |
+| 503 | Verification engine unreachable |
 
 ---
 
