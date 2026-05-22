@@ -19,9 +19,29 @@ contract CircuitBreakerTest is Test {
         breaker.emergencyPause("incident");
         assertTrue(breaker.isGlobalPaused(), "global should be paused");
 
+        // Emergency resume requires 24h timelock
+        vm.prank(admin);
+        breaker.requestEmergencyResume();
+        assertEq(breaker.emergencyResumeRequestedAt(), block.timestamp);
+
+        // Fast-forward 24 hours
+        vm.warp(block.timestamp + 24 hours + 1);
+
         vm.prank(admin);
         breaker.emergencyResume();
         assertFalse(breaker.isGlobalPaused(), "global should be resumed");
+    }
+
+    function testEmergencyResumeFailsBeforeDelay() public {
+        vm.prank(admin);
+        breaker.emergencyPause("incident");
+
+        vm.prank(admin);
+        breaker.requestEmergencyResume();
+
+        vm.expectRevert();
+        vm.prank(admin);
+        breaker.emergencyResume(); // too soon!
     }
 
     function testAdminCanPauseAndResumeAgent() public {

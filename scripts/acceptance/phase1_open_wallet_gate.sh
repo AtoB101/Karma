@@ -42,6 +42,8 @@ for k, v in defaults.items():
 
 os.environ.setdefault("APP_SECRET_KEY", "gate-check-secret-min-32-chars-long!!")
 os.environ.setdefault("AUTH_API_KEYS", "gate-agent:gate-secret-minimum")
+os.environ.setdefault("MINIO_ACCESS_KEY", "gate-check-minio-access")
+os.environ.setdefault("MINIO_SECRET_KEY", "gate-check-minio-secret")
 
 from config.settings import Settings
 

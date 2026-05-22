@@ -6,7 +6,9 @@ interface ICircuitBreaker {
     function pauseAgent(address agent, string calldata reason) external;
     function resumeAgent(address agent) external;
     function emergencyPause(string calldata reason) external;
+    function requestEmergencyResume() external;
     function emergencyResume() external;
+    function emergencyResumeRequestedAt() external view returns (uint256);
     function isGlobalPaused() external view returns (bool);
     function isAgentPaused(address agent) external view returns (bool);
 }

@@ -21,4 +21,5 @@ library Errors {
     error QuoteAlreadyExecuted();
     error EnginePaused();
     error InvalidBatchInput();
+    error EmergencyResumeTooSoon(uint256 requestedAt, uint256 availableAt);
 }

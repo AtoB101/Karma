@@ -46,6 +46,10 @@ if not os.environ.get("APP_SECRET_KEY") or os.environ.get("APP_SECRET_KEY") == "
     os.environ["APP_SECRET_KEY"] = os.environ.get("APP_SECRET_KEY") or "gate-check-secret-min-32-chars-long!!"
 if not os.environ.get("AUTH_API_KEYS"):
     os.environ["AUTH_API_KEYS"] = "gate-agent:gate-secret-minimum"
+if not os.environ.get("MINIO_ACCESS_KEY") or os.environ.get("MINIO_ACCESS_KEY") == "minioadmin":
+    os.environ["MINIO_ACCESS_KEY"] = "gate-check-minio-access"
+if not os.environ.get("MINIO_SECRET_KEY") or os.environ.get("MINIO_SECRET_KEY") == "minioadmin":
+    os.environ["MINIO_SECRET_KEY"] = "gate-check-minio-secret"
 
 from config.settings import Settings
 
