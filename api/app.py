@@ -42,6 +42,7 @@ from api.routes import (
     x402,
     payment_intents,
     evidence,
+    verifier_network,
 )
 
 logger = structlog.get_logger(__name__)
@@ -63,6 +64,7 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/contracts/",
     "/v1/agents/",
     "/v1/identities/",
+    "/v1/verifiers/",
     "/runtime/",
 )
 STATE_TRANSITION_SEGMENTS = (
@@ -337,6 +339,7 @@ app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)
 app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_security_always_auth + [Depends(make_rate_limit_dep("write_sensitive"))])
 app.include_router(openclaw.router, prefix="/v1/openclaw", tags=["OpenClaw"], dependencies=_protected_dependencies)
+app.include_router(verifier_network.router, prefix="/v1/verifiers", tags=["VerifierNetwork"], dependencies=_protected_dependencies)
 
 
 @app.get("/health")

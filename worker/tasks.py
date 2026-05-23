@@ -29,16 +29,32 @@ app.conf.update(
         "worker.tasks.run_settlement":     {"queue": "settlement"},
         "worker.tasks.update_reputation":  {"queue": "reputation"},
         "worker.tasks.expire_stale_payment_intents": {"queue": "settlement"},
+        "worker.tasks.auto_verify_bundle":           {"queue": "verification"},
+        "worker.tasks.check_challenge_expiry":        {"queue": "verification"},
+        "worker.tasks.update_verifier_reputation":    {"queue": "reputation"},
+        "worker.tasks.sync_attestations_to_chain":     {"queue": "verification"},
     },
     beat_schedule={
         "expire-stale-payment-intents-hourly": {
             "task": "worker.tasks.expire_stale_payment_intents",
             "schedule": 3600.0,
         },
+        "check-challenge-expiry-every-5-min": {
+            "task": "worker.tasks.check_challenge_expiry",
+            "schedule": 300.0,
+        },
+        "update-verifier-reputation-hourly": {
+            "task": "worker.tasks.update_verifier_reputation",
+            "schedule": 3600.0,
+        },
     },
 )
 
 logger = get_task_logger(__name__)
+
+
+# ── Import decentralized verifier tasks so Celery discovers them ──
+import decentralized_verifier.tasks  # noqa: F401  — registers shared_task entries
 
 
 # ---------------------------------------------------------------------------
