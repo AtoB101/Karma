@@ -95,6 +95,7 @@ pythonpath   = [
     ".",
     "packages/karma-openmanus",
     "packages/karma-openclaw",
+    "packages",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
