@@ -96,6 +96,7 @@ pythonpath   = [
     "packages/karma-openmanus",
     "packages/karma-openclaw",
     "packages",
+    "decentralized_verifier",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [

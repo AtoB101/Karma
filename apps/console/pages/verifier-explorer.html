@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verifier Network · KARMA Console</title>
+    <link rel="stylesheet" href="../../styles/console.css" />
+    <style>
+      /* ── Verifier Explorer extensions ── */
+
+      /* Stats banner */
+      .stats-banner {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+      }
+      .stat-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1rem 1.1rem;
+        text-align: center;
+      }
+      .stat-val {
+        font-size: 2rem;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        color: var(--accent);
+        line-height: 1.2;
+      }
+      .stat-lbl {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin-top: 0.25rem;
+      }
+
+      /* Mock data banner */
+      .mock-banner {
+        display: none;
+        background: rgba(251, 191, 36, 0.08);
+        border: 1px solid rgba(251, 191, 36, 0.35);
+        border-radius: 10px;
+        padding: 0.6rem 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.82rem;
+        color: #fbbf24;
+      }
+
+      /* Two-column layout for content */
+      .explorer-layout {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+      }
+
+      /* ── Verifier cards ── */
+      .verifier-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 0.65rem;
+      }
+      .verifier-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.8rem 0.9rem;
+        transition: border-color 0.2s;
+      }
+      .verifier-card:hover {
+        border-color: var(--accent);
+      }
+      .verifier-card-top {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin-bottom: 0.6rem;
+      }
+      .verifier-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .verifier-addr {
+        font-family: monospace;
+        font-size: 0.82rem;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .verifier-status {
+        font-size: 0.72rem;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+      .verifier-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.35rem;
+        text-align: center;
+      }
+      .vstat-val {
+        font-size: 0.85rem;
+        font-weight: 700;
+      }
+      .vstat-lbl {
+        font-size: 0.65rem;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+
+      /* ── Attestation timeline ── */
+      .att-stream {
+        max-height: 520px;
+        overflow-y: auto;
+      }
+      .att-stream::-webkit-scrollbar { width: 4px; }
+      .att-stream::-webkit-scrollbar-track { background: transparent; }
+      .att-stream::-webkit-scrollbar-thumb { background: var(--line); border-radius: 10px; }
+
+      .att-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.6rem;
+        padding: 0.55rem 0;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+      }
+      .att-row:last-child { border-bottom: none; }
+      .att-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-top: 4px;
+        flex-shrink: 0;
+      }
+      .att-body { flex: 1; min-width: 0; }
+      .att-task {
+        font-family: monospace;
+        font-size: 0.78rem;
+        color: var(--text);
+        word-break: break-all;
+      }
+      .att-meta {
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-top: 0.15rem;
+      }
+      .att-decision {
+        font-size: 0.72rem;
+        font-weight: 700;
+        flex-shrink: 0;
+        min-width: 3rem;
+        text-align: right;
+      }
+
+      /* ── Challenge panel ── */
+      .challenge-entry {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        margin-bottom: 0.5rem;
+        overflow: hidden;
+      }
+      .challenge-summary {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.65rem 0.8rem;
+        cursor: pointer;
+        list-style: none;
+        font-size: 0.82rem;
+      }
+      .challenge-summary::-webkit-details-marker { display: none; }
+      .challenge-summary::marker { display: none; content: ""; }
+      .ch-task {
+        font-family: monospace;
+        font-size: 0.78rem;
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .ch-quorum {
+        font-size: 0.72rem;
+        color: var(--muted);
+        flex-shrink: 0;
+      }
+      .ch-time {
+        font-size: 0.72rem;
+        color: var(--muted);
+        flex-shrink: 0;
+      }
+      .challenge-detail {
+        padding: 0.65rem 0.8rem;
+        border-top: 1px solid var(--line);
+        background: rgba(0,0,0,0.2);
+      }
+      .challenge-detail .sub {
+        margin-bottom: 0.25rem;
+        font-size: 0.78rem;
+      }
+
+      /* Badges (extended from console.css) */
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 100px;
+        padding: 0.2rem 0.55rem;
+        font-size: 0.68rem;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+      .badge.red { background: rgba(248,113,113,0.12); color: #fca5a5; }
+      .badge.yellow { background: rgba(251,191,36,0.12); color: #fde68a; }
+      .badge.green { background: rgba(94,234,212,0.12); color: #5eead4; }
+
+      /* Config row */
+      .cfg-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+      }
+      .cfg-row input {
+        flex: 1;
+        min-width: 160px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.45rem 0.65rem;
+        color: var(--text);
+        font-size: 0.82rem;
+      }
+      .cfg-row label {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.78rem;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+
+      /* Responsive */
+      @media (max-width: 900px) {
+        .stats-banner { grid-template-columns: repeat(2, 1fr); }
+        .explorer-layout { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 500px) {
+        .stats-banner { grid-template-columns: 1fr 1fr; }
+        .stat-val { font-size: 1.4rem; }
+        .verifier-stats { grid-template-columns: repeat(2, 1fr); }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">KARMA · Console</div>
+      <nav>
+        <a href="../../index.html">Overview</a>
+        <a href="../receiving/index.html">Receiving</a>
+        <a href="../payments/index.html">Payments</a>
+        <a href="../agents/index.html">Agents</a>
+        <a href="../evidence/index.html">Evidence</a>
+        <a href="../disputes/index.html">Disputes</a>
+        <a href="../trade/index.html">Trade</a>
+        <a href="../openclaw-connect.html">⚡ OpenClaw Connect</a>
+        <a href="../settings/index.html">Settings</a>
+        <a class="active" href="index.html">Verifier Network</a>
+        <a href="../cyber/index.html">Cyber Console</a>
+      </nav>
+    </header>
+
+    <main>
+      <h1>🛡️ Decentralized Verifier Network</h1>
+      <p class="sub">
+        Real-time view of the Karma decentralized verification layer. Verifiers stake tokens and
+        independently attest to task outcomes.
+      </p>
+
+      <!-- Mock data banner -->
+      <div class="mock-banner" data-mock-banner>
+        ⚠️ Verifier network API not connected — showing <strong>mock data</strong>.
+        Configure an API base below to connect.
+      </div>
+
+      <!-- API config -->
+      <section class="panel">
+        <h2 style="font-size:1rem;margin-bottom:0.5rem">API Connection</h2>
+        <div class="cfg-row">
+          <input data-cfg="api_base" type="text" placeholder="http://127.0.0.1:8000" />
+          <input data-cfg="api_key" type="password" placeholder="API key (optional)" />
+          <button type="button" class="btn" data-action="save-cfg">Connect</button>
+          <label>
+            <input type="checkbox" data-action="toggle-auto" checked />
+            Auto-refresh
+          </label>
+          <span class="sub" style="font-size:0.75rem;white-space:nowrap" data-refresh-status>Loading…</span>
+        </div>
+      </section>
+
+      <!-- Stats banner -->
+      <div class="stats-banner">
+        <div class="stat-card">
+          <div class="stat-val" data-stat="total-verifiers">—</div>
+          <div class="stat-lbl">Total Verifiers</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" data-stat="active-challenges">—</div>
+          <div class="stat-lbl">Active Challenges</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" data-stat="attestations-24h">—</div>
+          <div class="stat-lbl">24h Attestations</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" data-stat="avg-confidence">—</div>
+          <div class="stat-lbl">Avg Confidence</div>
+        </div>
+      </div>
+
+      <!-- Main content: verifiers + attestations side by side -->
+      <div class="explorer-layout">
+        <!-- Verifier network map -->
+        <section class="panel">
+          <h2 style="font-size:1rem;margin-bottom:0.65rem">🔗 Verifier Network Map</h2>
+          <div class="verifier-grid" data-list="verifiers">
+            <div class="sub" style="padding:1rem">Loading verifiers…</div>
+          </div>
+        </section>
+
+        <!-- Attestation stream -->
+        <section class="panel">
+          <h2 style="font-size:1rem;margin-bottom:0.65rem">📡 Attestation Stream</h2>
+          <div class="att-stream" data-list="attestations">
+            <div class="sub" style="padding:1rem">Loading attestations…</div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Challenge panel (full width) -->
+      <section class="panel" style="margin-top:1rem">
+        <h2 style="font-size:1rem;margin-bottom:0.65rem">⚡ Active Challenges</h2>
+        <div data-list="challenges">
+          <div class="sub" style="padding:1rem">Loading challenges…</div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+    </script>
+    <script src="../../scripts/verifier-explorer.js"></script>
+  </body>
+</html>
