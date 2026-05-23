@@ -7,7 +7,6 @@ Controls when receipts are anchored based on configurable policies.
 
 Usage
 -----
-    from karma_solana import IncrementalMerkleAnchor, AnchorResult
     from karma_billing.bridge import AnchoringBridge, AnchoringPolicy
 
     policy = AnchoringPolicy(
@@ -172,7 +171,7 @@ class AnchoringBridge:
     ----------
     sync_service : ReceiptSyncService
         Service that provides unanchored receipts.
-    merkle_anchor : IncrementalMerkleAnchor
+    merkle_anchor : "IncrementalMerkleAnchor"
         Solana Merkle tree anchor client.
     policy : AnchoringPolicy
         Policy controlling anchoring triggers.
@@ -309,27 +308,8 @@ class AnchoringBridge:
         if not receipts:
             return None
 
-        # Convert dict receipts to UniversalReceipt objects
-        from karma_solana.merkle_anchor import UniversalReceipt
-
-        universal_receipts = []
-        for receipt in receipts:
-            task_id_bytes = _str_to_fixed_bytes(task_id, 16)
-            receipt_data = _serialize_receipt(receipt)
-            scenario = receipt.get("scenario", "default")
-            billing_state = receipt.get("billing_state", "unknown")
-            cost = receipt.get("cost_accrued_usdc", 0)
-
-            universal_receipts.append(UniversalReceipt(
-                task_id=task_id_bytes,
-                receipt_data=receipt_data,
-                scenario=scenario,
-                billing_state=billing_state,
-                cost_accrued_usdc=cost,
-            ))
-
-        # Append to Merkle tree
-        result = await self._anchor.append_batch(universal_receipts)
+        # Pass receipts directly to anchor (handles both dict and object formats)
+        result = await self._anchor.append_batch(receipts)
 
         # Update state
         state = self._states.get(task_id, _AnchoringState(task_id=task_id))
@@ -428,9 +408,15 @@ def create_bridge(
     -------
     AnchoringBridge
     """
-    from karma_solana.merkle_anchor import IncrementalMerkleAnchor
+    # Lazy import: only needed when actually connecting to Solana
+    try:
+        from karma_solana.merkle_anchor import IncrementalMerkleAnchor as _IMAnchor
+    except ImportError:
+        raise ImportError(
+            "karma_solana is not installed. Install with: pip install karma-solana"
+        )
 
-    anchor = IncrementalMerkleAnchor(
+    anchor = _IMAnchor(
         solana_client=solana_client,
         program_id=program_id,
         tree_address=tree_address,
