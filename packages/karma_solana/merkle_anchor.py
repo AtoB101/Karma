@@ -39,11 +39,19 @@ try:
     from solana.rpc.async_api import AsyncClient
     from solana.rpc.commitment import Confirmed
     from solana.rpc.types import TxOpts
+    _SOLANA_AVAILABLE = True
 except ImportError:
-    raise ImportError(
-        "karma_solana.merkle_anchor requires solders and solana packages. "
-        "Install with: pip install solders solana"
-    )
+    _SOLANA_AVAILABLE = False
+    Keypair = None  # type: ignore
+    Pubkey = None  # type: ignore
+    Instruction = None  # type: ignore
+    AccountMeta = None  # type: ignore
+    Blockhash = None  # type: ignore
+    MessageV0 = None  # type: ignore
+    VersionedTransaction = None  # type: ignore
+    AsyncClient = None  # type: ignore
+    Confirmed = None  # type: ignore
+    TxOpts = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +174,11 @@ class IncrementalMerkleAnchor:
         commitment: str = "confirmed",
         simulate: bool = False,
     ) -> None:
+        if not _SOLANA_AVAILABLE:
+            raise ImportError(
+                "karma_solana.merkle_anchor requires solders and solana packages. "
+                "Install with: pip install solders solana"
+            )
         self._client = solana_client
         self._program_id = (
             Pubkey.from_string(program_id) if isinstance(program_id, str) else program_id
