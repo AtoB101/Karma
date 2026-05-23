@@ -429,9 +429,37 @@
             "Agent合规: " + (el("[data-bind='score-agents']") ? el("[data-bind='score-agents']").textContent : "—") + "\n" +
             "网络安全: " + (el("[data-bind='score-network']") ? el("[data-bind='score-network']").textContent : "—") + "\n\n" +
             "Sepolia Testnet · MinimalEscrow\n" +
-            "0xce335327c35FB9797Bd949A5D312c4f0ecD75444"
+            "0x1E16C17C211A40496d485eFdd2b616f86981aBbf"
           );
         });
+      });
+    }
+
+    // 💧 Faucet button
+    var faucetBtn = el("#btn-faucet");
+    if (faucetBtn) {
+      faucetBtn.addEventListener("click", function () {
+        var addr = prompt("输入你的 Sepolia 钱包地址领取 0.01 ETH:");
+        if (!addr || addr.length !== 42 || !addr.startsWith("0x")) {
+          alert("❌ 无效地址 (需要 0x... 格式)"); return;
+        }
+        faucetBtn.textContent = "⏳ 发送中..."; faucetBtn.disabled = true;
+        var base = window.KARMA_API_BASE || "";
+        fetch(base + "/v1/faucet/drip", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: addr, amount_eth: 0.01 })
+        }).then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.ok) {
+              alert("✅ 已发送 0.01 ETH 到 " + addr.slice(0,10) + "...\nTX: " + (data.tx||"pending").slice(0,20) + "...");
+            } else {
+              alert("⚠️ 水龙头: " + (data.error || "请稍后重试"));
+            }
+          }).catch(function () {
+            alert("⚠️ 水龙头 API 未连接。\n请到 https://sepoliafaucet.com 领取测试币");
+          }).finally(function () {
+            faucetBtn.textContent = "💧 领取测试币"; faucetBtn.disabled = false;
+          });
       });
     }
   }
