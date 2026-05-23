@@ -26,8 +26,13 @@ See the README for the full guide.
 
 from __future__ import annotations
 
-from .verifier import KarmaSolanaVerifier, SolanaSettlementResult
-from .transaction_builder import SolanaTransactionBuilder
+try:
+    from .verifier import KarmaSolanaVerifier, SolanaSettlementResult
+    from .transaction_builder import SolanaTransactionBuilder
+except ImportError:
+    KarmaSolanaVerifier = None  # type: ignore
+    SolanaSettlementResult = None  # type: ignore
+    SolanaTransactionBuilder = None  # type: ignore
 from .evidence_store import SolanaEvidenceStore, ArweaveUploader
 from .x402 import SolanaX402Hook, SolanaPaymentProof
 

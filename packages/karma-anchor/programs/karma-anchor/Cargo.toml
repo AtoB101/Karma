@@ -1,0 +1,25 @@
+[package]
+name = "karma-anchor"
+version = "0.1.0"
+description = "Karma Trust Protocol — Solana Anchor program for verifiable execution anchoring via Merkle Trees"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "karma_anchor"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = { workspace = true, features = ["event-cpi"] }
+anchor-spl = { workspace = true }
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
