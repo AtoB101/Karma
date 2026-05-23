@@ -1,0 +1,12 @@
+{
+  "contract": "MultiSigEscrow",
+  "address": "0x1E16C17C211A40496d485eFdd2b616f86981aBbf",
+  "owners": [
+    "0x3295c96a2993C366B3dB27B6ac81f85801D75f51",
+    "0x16fE563a56E6566809597e4aF9a1608d3e55Dd7F",
+    "0x7Ed437E5786AB0d217D52937da4fF4790998d94C"
+  ],
+  "required": 2,
+  "network": "sepolia",
+  "chainId": 11155111
+}
