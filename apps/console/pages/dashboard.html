@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>仪表盘 · KARMA Console</title>
+    <link rel="stylesheet" href="../../styles/console.css" />
+    <style>
+      /* ── Dashboard extensions ── */
+
+      /* Top banner */
+      .dash-banner {
+        background: linear-gradient(135deg, var(--panel) 0%, #0f1a2e 100%);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+      }
+      .dash-banner-left {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+      .dash-banner h1 {
+        font-size: 1.5rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        margin: 0;
+        color: var(--accent);
+      }
+      .dash-banner .network-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: rgba(94, 234, 212, 0.08);
+        border: 1px solid rgba(94, 234, 212, 0.3);
+        border-radius: 100px;
+        padding: 0.3rem 0.7rem;
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: var(--accent);
+      }
+      .dash-banner .network-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #5eead4;
+        flex-shrink: 0;
+        animation: pulse-dot 2s infinite;
+      }
+      @keyframes pulse-dot {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+      .contract-badge {
+        font-family: monospace;
+        font-size: 0.72rem;
+        color: var(--muted);
+        background: rgba(143, 155, 184, 0.08);
+        border-radius: 8px;
+        padding: 0.4rem 0.6rem;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: default;
+      }
+
+      /* Stats cards */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+      }
+      .stat-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1.25rem;
+        text-align: center;
+        transition: border-color 0.2s, transform 0.2s;
+      }
+      .stat-card:hover {
+        border-color: var(--accent);
+        transform: translateY(-2px);
+      }
+      .stat-card .stat-icon {
+        font-size: 1.5rem;
+        margin-bottom: 0.3rem;
+      }
+      .stat-card .stat-val {
+        font-size: 2.2rem;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        color: var(--accent);
+        line-height: 1.2;
+      }
+      .stat-card .stat-lbl {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin-top: 0.25rem;
+      }
+      .stat-card .stat-sub {
+        font-size: 0.68rem;
+        color: var(--muted);
+        margin-top: 0.15rem;
+        opacity: 0.7;
+      }
+
+      /* Quick actions */
+      .quick-actions {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.65rem;
+        margin-bottom: 1rem;
+      }
+      .quick-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1rem 0.75rem;
+        cursor: pointer;
+        transition: border-color 0.2s, background 0.2s;
+        text-decoration: none;
+        color: var(--text);
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
+      .quick-btn:hover {
+        border-color: var(--accent);
+        background: rgba(94, 234, 212, 0.05);
+      }
+      .quick-btn .btn-icon {
+        font-size: 1.5rem;
+      }
+      .quick-btn.alert-btn {
+        border-color: rgba(248, 113, 113, 0.3);
+        background: rgba(248, 113, 113, 0.05);
+      }
+      .quick-btn.alert-btn:hover {
+        border-color: #f87171;
+        background: rgba(248, 113, 113, 0.1);
+      }
+      .quick-btn.faucet-btn {
+        border-color: rgba(96, 165, 250, 0.4);
+        background: rgba(96, 165, 250, 0.08);
+      }
+      .quick-btn.faucet-btn:hover {
+        border-color: #60a5fa;
+        background: rgba(96, 165, 250, 0.15);
+      }
+
+      /* Two-column layout */
+      .dash-layout {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+
+      /* Activity stream */
+      .activity-stream {
+        max-height: 420px;
+        overflow-y: auto;
+      }
+      .activity-stream::-webkit-scrollbar { width: 4px; }
+      .activity-stream::-webkit-scrollbar-track { background: transparent; }
+      .activity-stream::-webkit-scrollbar-thumb { background: var(--line); border-radius: 10px; }
+
+      .act-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.65rem;
+        padding: 0.6rem 0;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+      }
+      .act-row:last-child { border-bottom: none; }
+      .act-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .act-icon.receipt { background: rgba(94,234,212,0.15); color: #5eead4; }
+      .act-icon.settlement { background: rgba(129,140,248,0.15); color: #818cf8; }
+      .act-icon.dispute { background: rgba(248,113,113,0.15); color: #f87171; }
+      .act-icon.warning { background: rgba(251,191,36,0.15); color: #fbbf24; }
+      .act-body { flex: 1; min-width: 0; }
+      .act-desc {
+        font-size: 0.82rem;
+        color: var(--text);
+        line-height: 1.4;
+      }
+      .act-task {
+        font-family: monospace;
+        font-size: 0.7rem;
+        color: var(--muted);
+        margin-top: 0.15rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .act-time {
+        font-size: 0.7rem;
+        color: var(--muted);
+        flex-shrink: 0;
+        white-space: nowrap;
+        margin-top: 2px;
+      }
+      .act-amt {
+        font-size: 0.75rem;
+        font-weight: 700;
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+      .act-amt.positive { color: #5eead4; }
+      .act-amt.negative { color: #f87171; }
+      .act-amt.neutral { color: var(--muted); }
+
+      /* Security score card */
+      .security-score {
+        text-align: center;
+        padding: 1rem 0;
+      }
+      .score-ring {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        border: 4px solid #5eead4;
+        font-size: 2rem;
+        font-weight: 800;
+        color: var(--accent);
+        margin-bottom: 0.5rem;
+      }
+      .score-breakdown {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.4rem;
+        margin-top: 0.75rem;
+        text-align: left;
+        padding: 0 0.5rem;
+      }
+      .score-item {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.75rem;
+        padding: 0.3rem 0;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+      }
+      .score-item .lbl { color: var(--muted); }
+      .score-item .val { font-weight: 700; }
+      .score-item .val.high { color: #5eead4; }
+      .score-item .val.mid { color: #fbbf24; }
+      .score-item .val.low { color: #f87171; }
+
+      /* Safety mode indicator */
+      .safety-indicator {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        margin-top: 0.5rem;
+        justify-content: center;
+      }
+      .safety-indicator .safety-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+      }
+      .safety-indicator .safety-dot.active { background: #5eead4; }
+      .safety-indicator .safety-dot.inactive { background: #f87171; }
+
+      /* Bottom status bar */
+      .dash-footer {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 0.65rem 1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        font-size: 0.75rem;
+        color: var(--muted);
+      }
+      .dash-footer .footer-left {
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+      .dash-footer .footer-right {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+
+      /* Mock banner */
+      .dash-mock-banner {
+        display: none;
+        background: rgba(251, 191, 36, 0.08);
+        border: 1px solid rgba(251, 191, 36, 0.35);
+        border-radius: 10px;
+        padding: 0.6rem 1rem;
+        margin-bottom: 1rem;
+        font-size: 0.82rem;
+        color: #fbbf24;
+      }
+
+      /* Loading placeholder */
+      .loading-shimmer {
+        background: linear-gradient(90deg, var(--panel) 25%, rgba(255,255,255,0.03) 50%, var(--panel) 75%);
+        background-size: 200% 100%;
+        animation: shimmer 1.5s infinite;
+        border-radius: 8px;
+      }
+      @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+
+      /* Responsive */
+      @media (max-width: 960px) {
+        .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        .quick-actions { grid-template-columns: repeat(2, 1fr); }
+        .dash-layout { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 500px) {
+        .stats-grid { grid-template-columns: 1fr 1fr; }
+        .stat-card .stat-val { font-size: 1.5rem; }
+        .dash-banner { padding: 0.8rem; }
+        .dash-banner h1 { font-size: 1.15rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">KARMA · Console</div>
+      <nav>
+        <a class="active" href="../dashboard.html">📊 仪表盘</a>
+        <a href="../../index.html">Overview</a>
+        <a href="../receiving/index.html">Receiving</a>
+        <a href="../payments/index.html">Payments</a>
+        <a href="../agents/index.html">Agents</a>
+        <a href="../evidence/index.html">Evidence</a>
+        <a href="../disputes/index.html">Disputes</a>
+        <a href="../trade/index.html">Trade</a>
+        <a href="../verifier-explorer.html">🛡️ Verifier Network</a>
+        <a href="../openclaw-connect.html">⚡ OpenClaw Connect</a>
+        <a href="../settings/index.html">Settings</a>
+        <a href="../mvvs-dashboard.html">🛡️ MVVS</a>
+        <a href="../cyber/index.html">Cyber Console</a>
+        <a href="../../../website/index.html">Website</a>
+      </nav>
+    </header>
+
+    <main>
+      <!-- Top banner -->
+      <div class="dash-banner">
+        <div class="dash-banner-left">
+          <h1>KARMA CONSOLE</h1>
+          <div class="network-badge">
+            <span class="network-dot"></span>
+            Sepolia <span data-bind="network-status">Connected</span>
+          </div>
+        </div>
+        <div class="contract-badge" title="MinimalEscrow: 0xce335327c35FB9797Bd949A5D312c4f0ecD75444">
+          📜 MinimalEscrow <code data-bind="contract-addr">0xce33…5444</code>
+        </div>
+      </div>
+
+      <!-- Mock data banner -->
+      <div class="dash-mock-banner" data-mock-banner>
+        ⚠️ Karma API not connected — showing <strong>mock data</strong>.
+        Navigate to <a href="../../index.html" style="color:var(--accent)">Overview</a> to configure.
+      </div>
+
+      <!-- Four stat cards -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">📋</div>
+          <div class="stat-val" data-stat="active-tasks">—</div>
+          <div class="stat-lbl">Active Tasks</div>
+          <div class="stat-sub">运行中任务</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🧾</div>
+          <div class="stat-val" data-stat="total-receipts">—</div>
+          <div class="stat-lbl">Total Receipts</div>
+          <div class="stat-sub">累计收据</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">💰</div>
+          <div class="stat-val" data-stat="escrow-balance">—</div>
+          <div class="stat-lbl">Escrow Balance</div>
+          <div class="stat-sub">USDC on Sepolia</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🛡️</div>
+          <div class="stat-val" data-stat="verifiers-online">—</div>
+          <div class="stat-lbl">Verifiers Online</div>
+          <div class="stat-sub">在线验证者</div>
+        </div>
+      </div>
+
+      <!-- Quick actions -->
+      <div class="quick-actions">
+        <a class="quick-btn" href="../trade/index.html">
+          <span class="btn-icon">➕</span>
+          创建任务
+        </a>
+        <a class="quick-btn" href="../evidence/index.html">
+          <span class="btn-icon">📄</span>
+          查看收据
+        </a>
+        <a class="quick-btn" href="../verifier-explorer.html">
+          <span class="btn-icon">🌐</span>
+          验证者网络
+        </a>
+        <button class="quick-btn faucet-btn" id="btn-faucet" type="button">
+          <span class="btn-icon">💧</span>
+          领取测试币
+        </button>
+        <button class="quick-btn alert-btn" id="btn-security-audit" type="button">
+          <span class="btn-icon">🔒</span>
+          安全审计
+        </button>
+      </div>
+
+      <!-- Two-column: activity stream + security score -->
+      <div class="dash-layout">
+        <!-- Activity stream -->
+        <section class="panel">
+          <h2 style="font-size:1rem;margin-bottom:0.65rem;display:flex;align-items:center;justify-content:space-between">
+            <span>📡 实时活动流</span>
+            <span style="font-size:0.72rem;color:var(--muted);font-weight:400" data-bind="refresh-status">Auto-refresh 5s</span>
+          </h2>
+          <div class="activity-stream" data-list="activity">
+            <div class="sub" style="padding:1rem">Loading activity…</div>
+          </div>
+        </section>
+
+        <!-- Security score -->
+        <section class="panel">
+          <h2 style="font-size:1rem;margin-bottom:0.65rem">🔐 Security Score</h2>
+          <div class="security-score">
+            <div class="score-ring" data-bind="security-score">8.9</div>
+            <div style="font-size:0.82rem;color:var(--muted)">/10 — 安全评级: 高</div>
+            <div class="safety-indicator">
+              <span class="safety-dot active" data-bind="safety-dot"></span>
+              <span style="font-size:0.78rem" data-bind="safety-status">Safety mode: ACTIVE</span>
+            </div>
+          </div>
+          <div class="score-breakdown">
+            <div class="score-item">
+              <span class="lbl">合约权限</span>
+              <span class="val high" data-bind="score-contract">9.2</span>
+            </div>
+            <div class="score-item">
+              <span class="lbl">密钥安全</span>
+              <span class="val high" data-bind="score-keys">9.5</span>
+            </div>
+            <div class="score-item">
+              <span class="lbl">资金流</span>
+              <span class="val high" data-bind="score-funds">8.7</span>
+            </div>
+            <div class="score-item">
+              <span class="lbl">信誉系统</span>
+              <span class="val mid" data-bind="score-reputation">8.1</span>
+            </div>
+            <div class="score-item">
+              <span class="lbl">Agent合规</span>
+              <span class="val high" data-bind="score-agents">8.8</span>
+            </div>
+            <div class="score-item">
+              <span class="lbl">网络安全</span>
+              <span class="val high" data-bind="score-network">9.0</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Bottom status bar -->
+      <div class="dash-footer">
+        <span class="footer-left">⚙️ Karma Hybrid Architecture v0.1.0</span>
+        <div class="footer-right">
+          <span>⛓️ Sepolia Testnet</span>
+          <span>🛡️ Security Score: <strong data-bind="footer-score">8.9</strong>/10</span>
+          <span>🕐 Last updated: <strong data-bind="last-updated">—</strong></span>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+    </script>
+    <script src="../../scripts/karma-public-api.js"></script>
+    <script src="../../scripts/dashboard.js"></script>
+  </body>
+</html>

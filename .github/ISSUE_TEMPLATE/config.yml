@@ -1,8 +1,68 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Security vulnerability (private)
-    url: https://github.com/AtoB101/Karma/security/advisories/new
-    about: Do not open a public issue for unfixed security bugs affecting funds or auth.
-  - name: Documentation
-    url: https://github.com/AtoB101/Karma/tree/main/docs
-    about: Public docs index and landing guides
+name: 🐛 Bug Report
+description: 报告 Karma 测试网的 bug
+labels: ["bug", "testnet"]
+body:
+  - type: textarea
+    attributes:
+      label: 描述
+      description: 发生了什么？
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: 你的钱包地址
+      description: 方便我们查链上记录
+  - type: input
+    attributes:
+      label: 交易 Hash (如果有)
+      description: Sepolia 交易哈希
+  - type: dropdown
+    attributes:
+      label: 场景
+      options:
+        - S1 单次委托
+        - S2 竞标
+        - S3 流水线
+        - S5 数据购买
+        - S8 争议仲裁
+        - Console UI
+        - 水龙头
+        - 其他
+  - type: textarea
+    attributes:
+      label: 复现步骤
+      description: 一步一步描述如何复现
+
+---
+name: 💡 Feature Request
+description: 建议新功能
+labels: ["enhancement"]
+body:
+  - type: textarea
+    attributes:
+      label: 你的想法
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: 为什么这对 Karma 重要？
+
+---
+name: 🛡️ Security Report
+description: 报告安全漏洞 (私密)
+labels: ["security"]
+body:
+  - type: textarea
+    attributes:
+      label: 漏洞描述
+      description: 请详细描述漏洞。我们会私下处理。
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: 严重程度
+      options:
+        - 🔴 严重 (资金风险)
+        - 🟠 高危 (合约漏洞)
+        - 🟡 中危 (逻辑缺陷)
+        - 🔵 低危 (UI问题)
