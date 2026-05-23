@@ -435,6 +435,7 @@ class TestCreateBridge:
 
         sync = SimpleMemReceiptSync()
         client = MagicMock()
+        pytest.importorskip("solders", reason="CI: solders not installed")
         from solders.keypair import Keypair
         from solders.pubkey import Pubkey
 
@@ -458,6 +459,7 @@ class TestCreateBridge:
 
         sync = SimpleMemReceiptSync()
         client = MagicMock()
+        pytest.importorskip("solders", reason="CI: solders not installed")
         from solders.keypair import Keypair
         from solders.pubkey import Pubkey
 

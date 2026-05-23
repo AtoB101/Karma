@@ -633,7 +633,7 @@ def _empty_root() -> bytes:
     return bytes(32)
 
 
-_SYSTEM_PROGRAM_ID = Pubkey.from_string("11111111111111111111111111111111")
+_SYSTEM_PROGRAM_ID = Pubkey.from_string("11111111111111111111111111111111") if _SOLANA_AVAILABLE else None
 
 
 def _borsh_serialize_fixed_bytes(data: bytes, expected_len: int) -> bytes:
