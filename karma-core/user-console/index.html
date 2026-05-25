@@ -1,874 +1,969 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Karma Agent Studio · Sparky 智能预警</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #0a0e17;
-            color: #e8edf5;
-            overflow-x: hidden;
-        }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #1a1f2e; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb { background: #3a4055; border-radius: 10px; }
-        .app { display: flex; min-height: 100vh; }
-        .sidebar {
-            width: 280px;
-            background: linear-gradient(180deg, #0c1222 0%, #080c18 100%);
-            border-right: 1px solid #1e2438;
-            padding: 32px 24px;
-            display: flex;
-            flex-direction: column;
-            backdrop-filter: blur(4px);
-            position: sticky;
-            top: 0;
-            height: 100vh;
-        }
-        .brand { margin-bottom: 48px; display: flex; align-items: center; gap: 12px; }
-        .brand-icon {
-            width: 40px; height: 40px;
-            background: linear-gradient(135deg, #6366f1, #9333ea);
-            border-radius: 14px;
-            display: flex; align-items: center; justify-content: center;
-            font-weight: 700; font-size: 22px;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-        }
-        .brand h1 {
-            font-size: 24px; font-weight: 700;
-            background: linear-gradient(135deg, #fff, #a5b4fc);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
-        }
-        .brand p { font-size: 11px; color: #6b7280; margin-top: 4px; }
-        .nav { flex: 1; }
-        .nav-item {
-            display: flex; align-items: center; gap: 14px;
-            padding: 12px 16px; margin-bottom: 8px; border-radius: 14px;
-            cursor: pointer; transition: all 0.2s ease;
-            color: #93a5cf; font-weight: 500;
-        }
-        .nav-item:hover { background: rgba(99, 102, 241, 0.1); color: #fff; }
-        .nav-item.active {
-            background: linear-gradient(135deg, #6366f1, #9333ea);
-            color: #fff;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-        }
-        .sidebar-footer {
-            margin-top: auto; font-size: 11px; color: #4a5568;
-            text-align: center; padding-top: 24px; border-top: 1px solid #1e2438;
-        }
-        .main { flex: 1; padding: 32px 48px; overflow-y: auto; }
-        .topbar {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 36px; flex-wrap: wrap; gap: 20px;
-        }
-        .page-title {
-            font-size: 32px; font-weight: 800; letter-spacing: -1px;
-            background: linear-gradient(135deg, #fff, #cbd5e1);
-            -webkit-background-clip: text; background-clip: text; color: transparent;
-        }
-        .wallet-badge {
-            background: rgba(99, 102, 241, 0.15);
-            border: 1px solid #2d3748; border-radius: 30px;
-            padding: 8px 20px; display: flex; align-items: center; gap: 10px;
-            font-size: 14px; font-weight: 500; font-family: monospace;
-            backdrop-filter: blur(8px);
-        }
-        .grid-stats {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 24px;
-            margin-bottom: 48px;
-        }
-        .stat-card {
-            background: rgba(18, 24, 38, 0.8);
-            backdrop-filter: blur(12px);
-            border: 1px solid #2d3748;
-            border-radius: 28px;
-            padding: 24px;
-            transition: all 0.2s ease;
-        }
-        .stat-card:hover { border-color: #6366f1; transform: translateY(-2px); }
-        .stat-label {
-            font-size: 14px; color: #9ca3af; margin-bottom: 12px;
-            display: flex; justify-content: space-between;
-        }
-        .stat-value { font-size: 36px; font-weight: 800; margin-bottom: 8px; }
-        .stat-sub { font-size: 12px; color: #6b7280; }
-        .mood-tag {
-            background: rgba(99, 102, 241, 0.2);
-            border-radius: 20px; padding: 4px 12px;
-            font-size: 12px; color: #a5b4fc;
-        }
-        .section-title { font-size: 20px; font-weight: 600; margin-bottom: 20px; margin-top: 32px; }
-        .agents-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
-        .agent-card {
-            background: #111827; border: 1px solid #1f2937;
-            border-radius: 20px; padding: 20px; transition: all 0.2s;
-        }
-        .agent-card:hover { border-color: #6366f1; transform: translateY(-2px); }
-        .agent-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
-        .agent-name { font-weight: 700; font-size: 18px; }
-        .trust-badge {
-            background: #22c55e20; color: #22c55e;
-            padding: 4px 10px; border-radius: 30px;
-            font-size: 12px; font-weight: 600;
-        }
-        .agent-meta { display: flex; gap: 16px; margin: 12px 0; font-size: 13px; color: #8b9bb5; }
-        .price-tag {
-            background: linear-gradient(135deg, #6366f1, #9333ea);
-            padding: 4px 10px; border-radius: 20px;
-            font-size: 13px; font-weight: 600; display: inline-block;
-        }
-        .btn-icon {
-            background: #1f2937; border: none; color: #cbd5e1;
-            padding: 8px 12px; border-radius: 12px; cursor: pointer;
-            font-size: 13px; transition: 0.2s;
-        }
-        .btn-icon:hover { background: #374151; color: white; }
-        .trend-chart { background: #0f172a; border-radius: 16px; padding: 16px; margin-top: 8px; }
-        .trend-bars { display: flex; align-items: end; gap: 8px; height: 60px; }
-        .bar-item { flex: 1; background: #6366f1; border-radius: 4px 4px 0 0; }
-        .table-wrapper { overflow-x: auto; margin-top: 20px; }
-        table { width: 100%; border-collapse: collapse; }
-        th {
-            text-align: left; padding: 16px; background: #1a1f2e;
-            font-weight: 600; font-size: 13px; color: #9ca3af;
-        }
-        td { padding: 16px; border-bottom: 1px solid #1f2937; font-size: 14px; }
-        .status-badge {
-            background: #22c55e20; color: #22c55e;
-            padding: 4px 12px; border-radius: 30px;
-            font-size: 12px; font-weight: 600; display: inline-block;
-        }
-        .status-warning { background: #f59e0b20; color: #fbbf24; }
-        .status-danger { background: #ef444420; color: #f87171; }
-        .arbitration-progress { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-        .progress-steps { display: flex; gap: 4px; }
-        .step-dot { width: 8px; height: 8px; border-radius: 50%; background: #374151; }
-        .step-dot.completed { background: #22c55e; }
-        .flex-between { display: flex; justify-content: space-between; align-items: center; }
-        .text-small { font-size: 12px; color: #6b7280; }
-        .margin-top-2 { margin-top: 8px; }
-        @media (max-width: 1000px) {
-            .grid-stats { grid-template-columns: 1fr 1fr; }
-            .main { padding: 24px; }
-        }
-        @media (max-width: 640px) {
-            .grid-stats { grid-template-columns: 1fr; }
-            .app { flex-direction: column; }
-            .sidebar { width: 100%; height: auto; position: relative; }
-        }
-        .btn-primary {
-            background: linear-gradient(135deg, #6366f1, #9333ea);
-            border: none; padding: 10px 20px; border-radius: 30px;
-            color: white; font-weight: 600; cursor: pointer; transition: 0.2s;
-        }
-        .btn-primary:hover { opacity: 0.9; transform: scale(0.98); }
-        .btn-secondary {
-            background: #1f2937; border: 1px solid #374151;
-            padding: 10px 20px; border-radius: 30px;
-            color: #e5e7eb; font-weight: 500; cursor: pointer;
-        }
-        #sparky-container {
-            position: fixed; bottom: 20px; right: 20px; z-index: 9999; cursor: pointer;
-        }
-        #sparky-bubble {
-            position: absolute; bottom: 70px; right: 0;
-            background: #1e293b; border-radius: 20px; padding: 12px 18px;
-            max-width: 260px; color: white; font-size: 13px; display: none;
-            box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-            backdrop-filter: blur(8px);
-            border-left: 3px solid #6366f1;
-            font-family: monospace;
-        }
-        #sparky-canvas {
-            display: block; background: transparent;
-            filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
-            transition: transform 0.1s ease;
-        }
-        #sparky-container:hover #sparky-canvas { transform: scale(1.05); }
-        .config-group {
-            background: rgba(0,0,0,0.2); border-radius: 20px;
-            padding: 16px; margin-top: 12px;
-        }
-        .config-input {
-            background: #1f2937; border: 1px solid #374151;
-            border-radius: 14px; padding: 10px 14px; width: 100%;
-            color: white; font-family: monospace;
-        }
-        .config-input:focus { border-color: #6366f1; outline: none; }
-        .modal {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.7);
-            display: flex; align-items: center; justify-content: center;
-            z-index: 10000; visibility: hidden; backdrop-filter: blur(4px);
-        }
-        .modal.show { visibility: visible; }
-        .modal-content {
-            background: #111827; border: 1px solid #374151;
-            border-radius: 32px; padding: 28px; width: 90%; max-width: 400px; color: white;
-        }
-        .modal-content input {
-            background: #1f2937; border: 1px solid #4b5563;
-            padding: 12px; border-radius: 16px; width: 100%; margin: 12px 0; color: white;
-        }
-        .sync-hint { font-size: 11px; color: #64748b; margin-left: 8px; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Karma Console — Agent Responsibility Network</title>
+  <style>
+    /* ============================================================
+       KARMA CYBER CONSOLE v3.0 — 赛博责任操作台
+       设计语言: 霓虹荧光 · 3D棱角切面 · 玻璃质感 · 动态扫描线
+       Base: karma_console_ai_toggle_full.html (2026-05-14)
+       ============================================================ */
+    :root {
+      --bg-deep: #020408;
+      --bg-side: #040c18;
+      --panel: rgba(8, 18, 32, 0.85);
+      --panel2: rgba(12, 26, 44, 0.88);
+      --card: rgba(9, 20, 36, 0.86);
+      --line: rgba(0, 229, 255, 0.16);
+      --line-bright: rgba(0, 229, 255, 0.35);
+      --line-dim: rgba(255, 255, 255, 0.05);
+      --text: #eaf6ff;
+      --text-muted: #6a8ea0;
+      --text-dim: #3d5a6b;
+      --cyan: #00e5ff;
+      --green: #00ff88;
+      --blue: #6080ff;
+      --purple: #a855f7;
+      --yellow: #fbbf24;
+      --red: #ff4e6a;
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+      --radius: 20px;
+      --radius-sm: 14px;
+      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(ellipse at 18% 8%, rgba(0, 229, 255, 0.08), transparent 32%),
+        radial-gradient(ellipse at 78% 18%, rgba(168, 85, 247, 0.07), transparent 34%),
+        radial-gradient(ellipse at 50% 110%, rgba(0, 255, 136, 0.05), transparent 40%),
+        linear-gradient(145deg, #020408, #050e1a 46%, #070f1c);
+      position: relative;
+    }
+
+    /* ── 背景: 网格 + 扫描线 ── */
+    body::before {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background-image:
+        linear-gradient(rgba(0, 229, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 229, 255, 0.018) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: radial-gradient(circle at 50% 14%, black, transparent 76%);
+    }
+    body::after {
+      content: "";
+      position: fixed; inset: 0; pointer-events: none; z-index: 0;
+      background: linear-gradient(transparent 50%, rgba(0, 229, 255, 0.012) 50%);
+      background-size: 100% 4px;
+      animation: scanlines 8s linear infinite;
+    }
+    @keyframes scanlines {
+      0% { background-position: 0 0; }
+      100% { background-position: 0 4px; }
+    }
+
+    /* ── 滚动条 ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #040c18; }
+    ::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, var(--cyan), var(--purple));
+      border-radius: 10px;
+    }
+
+    /* ── 主布局 ── */
+    .app {
+      position: relative; z-index: 1;
+      display: grid;
+      grid-template-columns: 292px 1fr;
+      height: 100vh;
+    }
+
+    /* ── 侧边栏 ── */
+    .sidebar {
+      background: rgba(4, 10, 20, 0.88);
+      backdrop-filter: blur(22px);
+      border-right: 1px solid var(--line);
+      padding: 22px 18px;
+      display: flex; flex-direction: column;
+      min-width: 0;
+      position: relative;
+    }
+    .sidebar::after {
+      content: "";
+      position: absolute;
+      top: 0; right: -1px;
+      width: 1px; height: 100px;
+      background: linear-gradient(180deg, var(--cyan), transparent);
+      box-shadow: 0 0 10px var(--cyan);
+    }
+
+    .brand {
+      display: flex; align-items: center; gap: 12px;
+      padding: 6px 8px 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .logo {
+      width: 46px; height: 46px;
+      clip-path: polygon(30% 0, 100% 0, 100% 70%, 70% 100%, 0 100%, 0 30%);
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, var(--cyan), var(--green));
+      color: #020810; font-weight: 950;
+      box-shadow: 0 0 28px rgba(0, 229, 255, 0.35);
+      animation: logoGlow 3s ease-in-out infinite;
+    }
+    @keyframes logoGlow {
+      0%, 100% { box-shadow: 0 0 28px rgba(0, 229, 255, 0.35); }
+      50% { box-shadow: 0 0 42px rgba(0, 229, 255, 0.55); }
+    }
+
+    .brand h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
+    .brand p { margin: 3px 0 0; color: var(--text-muted); font-size: 12px; }
+
+    /* ── 身份卡片 ── */
+    .identity-box {
+      margin: 18px 3px 14px;
+      padding: 15px;
+      clip-path: polygon(0 8px, 8px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 6px 100%, 0 calc(100% - 6px));
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(12, 28, 48, 0.82), rgba(5, 14, 24, 0.82));
+    }
+
+    .id-top {
+      display: flex; justify-content: space-between; align-items: center;
+      color: var(--text-muted); font-size: 12px; margin-bottom: 10px;
+    }
+
+    .status {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--green); font-weight: 800;
+      text-shadow: 0 0 8px rgba(0, 255, 136, 0.4);
+    }
+    .status::before {
+      content: "";
+      width: 7px; height: 7px;
+      clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+      background: var(--green);
+      box-shadow: 0 0 12px var(--green);
+      animation: glowPulse 2s ease-in-out infinite;
+    }
+    @keyframes glowPulse {
+      0%, 100% { box-shadow: 0 0 12px var(--green); }
+      50% { box-shadow: 0 0 20px var(--green); }
+    }
+
+    .id-main { font-size: 14px; font-weight: 900; margin-bottom: 6px; font-family: var(--font-mono); }
+    .id-sub { font-size: 12px; color: var(--cyan); font-family: var(--font-mono); }
+    .id-meta { margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .mini {
+      padding: 9px;
+      clip-path: polygon(0 5px, 5px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 3px 100%, 0 calc(100% - 3px));
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(0, 229, 255, 0.08);
+    }
+    .mini b { display: block; font-size: 13px; }
+    .mini span { font-size: 11px; color: var(--text-muted); }
+
+    /* ── 导航 ── */
+    .nav {
+      display: flex; flex-direction: column; gap: 8px;
+      margin-top: 8px; overflow: auto; padding-right: 2px;
+    }
+
+    .nav button {
+      all: unset;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 12px;
+      padding: 13px 14px;
+      clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+      color: var(--text-muted);
+      transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1px solid transparent;
+      font-weight: 800; font-size: 14px;
+      position: relative;
+    }
+    .nav button:hover {
+      color: var(--text);
+      background: rgba(0, 229, 255, 0.06);
+      border-color: rgba(0, 229, 255, 0.12);
+    }
+    .nav button.active {
+      color: var(--text);
+      background: linear-gradient(135deg, rgba(0, 229, 255, 0.18), rgba(168, 85, 247, 0.10));
+      border-color: var(--line-bright);
+      box-shadow: 0 0 16px rgba(0, 229, 255, 0.12);
+    }
+    .nav button.active::before {
+      content: "";
+      position: absolute;
+      left: -2px; top: 50%; transform: translateY(-50%);
+      width: 3px; height: 20px;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan), 0 0 16px var(--cyan);
+      border-radius: 2px;
+    }
+    .icon {
+      width: 28px; height: 28px;
+      clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+      display: grid; place-items: center;
+      background: rgba(255, 255, 255, 0.04);
+      font-size: 12px;
+    }
+
+    /* ── 侧边栏底部 ── */
+    .side-warning {
+      margin-top: auto;
+      padding: 14px;
+      border: 1px solid rgba(0, 255, 136, 0.16);
+      clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
+      background: rgba(0, 255, 136, 0.045);
+    }
+    .side-warning b { display: block; margin-bottom: 6px; font-size: 13px; color: var(--green); }
+    .side-warning p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55; }
+
+    /* ── 主内容区 ── */
+    .main {
+      height: 100vh; overflow: auto; padding: 24px;
+    }
+
+    /* ── 顶部栏 ── */
+    .topbar {
+      position: sticky; top: 0; z-index: 10;
+      margin: -24px -24px 22px;
+      padding: 18px 24px;
+      display: flex; justify-content: space-between; align-items: center; gap: 18px;
+      background: rgba(3, 8, 14, 0.82);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--line);
+    }
+    .topbar::after {
+      content: "";
+      position: absolute;
+      bottom: -1px; left: 30px;
+      width: 60px; height: 2px;
+      background: var(--cyan);
+      box-shadow: 0 0 10px var(--cyan);
+    }
+
+    .page-title h2 { margin: 0; font-size: 26px; letter-spacing: -0.4px; }
+    .page-title p { margin: 5px 0 0; color: var(--text-muted); font-size: 13px; }
+
+    .top-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    /* ── 按钮系统 ── */
+    .btn {
+      border: 1px solid rgba(0, 229, 255, 0.22);
+      background: rgba(0, 229, 255, 0.06);
+      color: var(--text);
+      clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+      padding: 12px 15px;
+      font-weight: 900; font-size: 13px;
+      cursor: pointer;
+      transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      border-color: var(--line-bright);
+      box-shadow: 0 10px 28px rgba(0, 229, 255, 0.12);
+      background: rgba(0, 229, 255, 0.1);
+    }
+    .btn:active {
+      box-shadow: 0 0 18px rgba(0, 229, 255, 0.4), 0 0 36px rgba(168, 85, 247, 0.2);
+      transform: scale(0.95);
+    }
+    .btn.primary {
+      border: 0;
+      color: #020810;
+      background: linear-gradient(135deg, var(--cyan), var(--green));
+      box-shadow: 0 10px 28px rgba(0, 229, 255, 0.22);
+    }
+    .btn.primary:hover {
+      box-shadow: 0 14px 36px rgba(0, 229, 255, 0.35), 0 0 40px rgba(0, 255, 136, 0.2);
+    }
+    .btn.primary:active {
+      box-shadow: 0 0 30px rgba(0, 229, 255, 0.7), 0 0 60px rgba(0, 255, 136, 0.5), 0 0 90px rgba(0, 229, 255, 0.3);
+      transform: scale(0.94);
+      transition: all 0.05s ease;
+    }
+    .btn.red {
+      border-color: rgba(255, 78, 106, 0.28);
+      background: rgba(255, 78, 106, 0.08);
+      color: #ffd8df;
+    }
+    .btn.red:hover {
+      border-color: rgba(255, 78, 106, 0.5);
+      box-shadow: 0 10px 28px rgba(255, 78, 106, 0.15);
+    }
+    .btn.red:active {
+      box-shadow: 0 0 24px rgba(255, 78, 106, 0.5), 0 0 48px rgba(255, 78, 106, 0.25);
+      transform: scale(0.94);
+    }
+    .btn.yellow {
+      border-color: rgba(251, 191, 36, 0.28);
+      background: rgba(251, 191, 36, 0.06);
+      color: #fff0cc;
+    }
+
+    /* ── 页面切换动画 ── */
+    .page { display: none; animation: fadeIn 0.22s cubic-bezier(0.4, 0, 0.2, 1); }
+    .page.active { display: block; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── 网格 ── */
+    .grid { display: grid; gap: 16px; }
+    .metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      clip-path: polygon(0 14px, 12px 0, calc(100% - 8px) 0, 100% 8px, 100% calc(100% - 14px), calc(100% - 12px) 100%, 8px 100%, 0 calc(100% - 8px));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .card:hover {
+      border-color: var(--line-bright);
+      box-shadow: var(--shadow), 0 0 20px rgba(0, 229, 255, 0.1);
+    }
+    .card::before {
+      content: "";
+      position: absolute;
+      top: -1px; right: 35px;
+      width: 36px; height: 2px;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+      opacity: 0; transition: opacity 0.3s ease;
+      z-index: 2;
+    }
+    .card:hover::before { opacity: 1; }
+
+    .metric {
+      position: relative;
+      padding: 18px;
+      min-height: 120px;
+      overflow: hidden;
+    }
+    .metric::after {
+      content: "";
+      position: absolute;
+      right: -42px; top: -46px;
+      width: 122px; height: 122px;
+      background: rgba(0, 229, 255, 0.06);
+      clip-path: polygon(30% 0, 100% 0, 100% 70%, 70% 100%, 0 100%, 0 30%);
+    }
+    .metric .label { position: relative; z-index: 1; color: var(--text-muted); font-size: 13px; margin-bottom: 16px; letter-spacing: 0.2px; }
+    .metric .value {
+      position: relative; z-index: 1; font-size: 25px; font-weight: 950;
+      font-family: var(--font-mono);
+      background: linear-gradient(135deg, #fff, var(--cyan));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.2));
+    }
+    .metric .hint { position: relative; z-index: 1; margin-top: 8px; color: var(--text-dim); font-size: 12px; }
+
+    /* ── 双列布局 ── */
+    .layout-2 { grid-template-columns: 1.08fr 0.92fr; margin-top: 16px; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .section { padding: 20px; }
+    .section-header {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 14px; margin-bottom: 16px;
+    }
+    .section-header h3 { margin: 0; font-size: 18px; }
+    .section-header p { margin: 5px 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+
+    /* ── 快捷操作卡片 ── */
+    .quick {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .action-card {
+      cursor: pointer;
+      padding: 18px;
+      clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
+      border: 1px solid rgba(0, 229, 255, 0.13);
+      background: linear-gradient(180deg, rgba(0, 229, 255, 0.06), rgba(255, 255, 255, 0.02));
+      transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .action-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--line-bright);
+      box-shadow: 0 8px 24px rgba(0, 229, 255, 0.1);
+    }
+    .action-card:active {
+      box-shadow: 0 0 20px rgba(0, 229, 255, 0.3), 0 0 40px rgba(168, 85, 247, 0.15);
+      transform: scale(0.96);
+    }
+    .action-card b { display: block; margin-bottom: 8px; font-size: 15px; }
+    .action-card span { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+    /* ── 表格 ── */
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    th, td { padding: 14px 12px; border-bottom: 1px solid rgba(0, 229, 255, 0.08); text-align: left; font-size: 13px; white-space: nowrap; }
+    th {
+      color: var(--cyan); font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      background: rgba(0, 229, 255, 0.03);
+      position: relative;
+    }
+    th::after {
+      content: "";
+      position: absolute;
+      bottom: 0; left: 50%; transform: translateX(-50%);
+      width: 24px; height: 2px;
+      background: var(--cyan);
+      box-shadow: 0 0 6px var(--cyan);
+    }
+    td { color: #e3f4ff; }
+    tr:hover td { background: rgba(0, 229, 255, 0.025); }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+      padding: 6px 9px;
+      font-size: 11px; font-weight: 900;
+      font-family: var(--font-mono);
+    }
+    .badge.green {
+      color: #caffec; background: rgba(0, 255, 136, 0.10);
+      text-shadow: 0 0 6px rgba(0, 255, 136, 0.3);
+    }
+    .badge.cyan {
+      color: #c9f8ff; background: rgba(0, 229, 255, 0.10);
+      text-shadow: 0 0 6px rgba(0, 229, 255, 0.3);
+    }
+    .badge.yellow {
+      color: #fff0cc; background: rgba(251, 191, 36, 0.10);
+    }
+    .badge.red {
+      color: #ffd8df; background: rgba(255, 78, 106, 0.10);
+      text-shadow: 0 0 6px rgba(255, 78, 106, 0.3);
+    }
+    .badge.purple {
+      color: #eadcff; background: rgba(168, 85, 247, 0.10);
+    }
+
+    .progress {
+      width: 118px; height: 8px;
+      clip-path: polygon(0 2px, 2px 0, calc(100% - 2px) 0, 100% 2px, 100% calc(100% - 2px), calc(100% - 2px) 100%, 2px 100%, 0 calc(100% - 2px));
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+    }
+    .progress span {
+      display: block; height: 100%;
+      background: linear-gradient(90deg, var(--cyan), var(--green));
+      box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
+    }
+
+    /* ── 流程卡片 ── */
+    .flow-card {
+      padding: 20px;
+      clip-path: polygon(0 10px, 10px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 6px 100%, 0 calc(100% - 6px));
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(10, 24, 42, 0.92), rgba(5, 14, 22, 0.90));
+      box-shadow: var(--shadow);
+      position: relative;
+    }
+    .flow-card::before {
+      content: "";
+      position: absolute;
+      top: -1px; left: 40px;
+      width: 50px; height: 2px;
+      background: var(--cyan);
+      box-shadow: 0 0 10px var(--cyan);
+    }
+    .flow-card h3 { margin: 0 0 8px; font-size: 20px; }
+    .flow-card p { margin: 0 0 18px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+
+    /* ── 表单 ── */
+    .form { display: grid; gap: 12px; }
+    label { display: block; color: var(--text-muted); font-size: 12px; font-weight: 900; margin-bottom: 7px; letter-spacing: 0.3px; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid rgba(0, 229, 255, 0.14);
+      outline: none;
+      color: var(--text);
+      background: rgba(3, 10, 18, 0.7);
+      clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+      padding: 12px 13px;
+      font-size: 13px;
+      font-family: inherit;
+      transition: all 0.2s ease;
+    }
+    textarea { min-height: 86px; resize: vertical; }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 12px rgba(0, 229, 255, 0.25), inset 0 0 8px rgba(0, 229, 255, 0.04);
+    }
+    input::placeholder, textarea::placeholder { color: var(--text-dim); }
+    select {
+      appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2300e5ff' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 36px;
+    }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* ── 通知 ── */
+    .notice {
+      padding: 13px 14px;
+      clip-path: polygon(0 6px, 6px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 4px 100%, 0 calc(100% - 4px));
+      background: rgba(0, 255, 136, 0.06);
+      border: 1px solid rgba(0, 255, 136, 0.18);
+      color: #caffec;
+      font-size: 12px; line-height: 1.6;
+    }
+    .notice.warn {
+      background: rgba(251, 191, 36, 0.06);
+      border-color: rgba(251, 191, 36, 0.18);
+      color: #fff0cc;
+    }
+    .notice.red {
+      background: rgba(255, 78, 106, 0.06);
+      border-color: rgba(255, 78, 106, 0.18);
+      color: #ffd8df;
+    }
+
+    /* ── 任务列表 ── */
+    .task-list { display: grid; gap: 12px; }
+    .task-item {
+      padding: 16px;
+      clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
+      border: 1px solid rgba(0, 229, 255, 0.12);
+      background: rgba(255, 255, 255, 0.03);
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+      transition: all 0.2s ease;
+    }
+    .task-item:hover {
+      border-color: var(--line-bright);
+      box-shadow: 0 0 14px rgba(0, 229, 255, 0.08);
+    }
+    .task-item b { display: block; margin-bottom: 6px; }
+    .task-item p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+    /* ── 时间线 ── */
+    .timeline { display: grid; gap: 14px; padding-left: 8px; }
+    .time-row { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start; }
+    .node {
+      width: 18px; height: 18px; margin-top: 2px;
+      clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+      background: var(--cyan);
+      box-shadow: 0 0 14px rgba(0, 229, 255, 0.45);
+    }
+    .time-row div:last-child {
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(0, 229, 255, 0.08);
+    }
+    .time-row b { font-size: 13px; }
+    .time-row p { margin: 5px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+
+    /* ── 设置网格 ── */
+    .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .setting {
+      padding: 18px;
+      clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
+      border: 1px solid rgba(0, 229, 255, 0.12);
+      background: rgba(255, 255, 255, 0.025);
+    }
+    .setting h4 { margin: 0 0 8px; }
+    .setting p { margin: 0 0 14px; color: var(--text-muted); font-size: 12px; line-height: 1.55; }
+
+    /* ── AI Toggle ── */
+    .toggle-wrap {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 14px; padding: 14px;
+      clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(0, 229, 255, 0.12);
+      margin-bottom: 12px;
+    }
+    .toggle-copy b { display: block; font-size: 14px; margin-bottom: 5px; }
+    .toggle-copy span { display: block; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+    .switch { position: relative; display: inline-block; width: 66px; height: 36px; flex: 0 0 auto; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(0, 229, 255, 0.16);
+      border-radius: 999px;
+      transition: 0.22s ease;
+      box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.3);
+    }
+    .slider::before {
+      content: "";
+      position: absolute;
+      height: 28px; width: 28px; left: 3px; top: 3px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #d7e9ef, #ffffff);
+      transition: 0.22s ease;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    }
+    .switch input:checked + .slider {
+      background: linear-gradient(135deg, rgba(0, 229, 255, 0.78), rgba(0, 255, 136, 0.78));
+      border-color: rgba(0, 255, 136, 0.5);
+      box-shadow: 0 0 24px rgba(0, 255, 136, 0.25), 0 0 48px rgba(0, 229, 255, 0.15);
+    }
+    .switch input:checked + .slider::before {
+      transform: translateX(30px);
+      background: #020810;
+    }
+    .ai-auth-panel {
+      margin-top: 12px; padding: 14px;
+      clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
+      border: 1px solid rgba(0, 255, 136, 0.14);
+      background: rgba(0, 255, 136, 0.04);
+    }
+
+    /* ── 响应式 ── */
+    @media (max-width: 1180px) {
+      body { overflow: auto; }
+      .app { grid-template-columns: 1fr; height: auto; }
+      .main { height: auto; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .layout-2, .split, .settings-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .topbar { flex-direction: column; align-items: stretch; }
+      .metrics, .quick, .form-row { grid-template-columns: 1fr; }
+      th, td { white-space: normal; }
+      .main { padding: 16px; }
+      .topbar { margin: -16px -16px 18px; padding: 16px; }
+    }
+  </style>
 </head>
 <body>
-<div class="app">
+  <div class="app">
     <aside class="sidebar">
-        <div class="brand">
-            <div class="brand-icon">K</div>
-            <div><h1>Karma</h1><p>AI Agent 收款台 · 付款台</p></div>
+      <div class="brand">
+        <div class="logo">K</div>
+        <div>
+          <h1>Karma Console</h1>
+          <p>Responsibility Operating Desk</p>
         </div>
-        <nav class="nav">
-            <div class="nav-item active" data-page="dashboard">📊 仪表板</div>
-            <div class="nav-item" data-page="receive">💰 收款区 · 开店</div>
-            <div class="nav-item" data-page="pay">💸 付款区 · 授权</div>
-            <div class="nav-item" data-page="bills">📜 账单 & 争议</div>
-            <div class="nav-item" data-page="trust">🏆 Karma 信誉分</div>
-            <div class="nav-item" data-page="settings">⚡ Sparky 设置</div>
-        </nav>
-        <div class="sidebar-footer">
-            Karma Protocol · 非托管 AI 支付<br>
-            Agent 经济底座 v1.0
+      </div>
+
+      <div class="identity-box">
+        <div class="id-top"><span>当前身份</span><span class="status">正常</span></div>
+        <div class="id-main">Karma-ID-82F7X9</div>
+        <div class="id-sub">0xA8F2...91F0 · Main SBT</div>
+        <div class="id-meta">
+          <div class="mini"><b>Buyer-ID</b><span>付款子身份</span></div>
+          <div class="mini"><b>Seller-ID</b><span>收款子身份</span></div>
         </div>
+      </div>
+
+      <nav class="nav">
+        <button class="active" data-page="overview"><span class="icon">◎</span>总览</button>
+        <button data-page="center"><span class="icon">⇄</span>收付中心</button>
+        <button data-page="tasks"><span class="icon">▣</span>任务执行</button>
+        <button data-page="receipts"><span class="icon">R</span>回执证明</button>
+        <button data-page="bills"><span class="icon">≋</span>账单</button>
+        <button data-page="disputes"><span class="icon">⚖</span>争议</button>
+        <button data-page="identity"><span class="icon">ID</span>身份</button>
+        <button data-page="settings"><span class="icon">⚙</span>设置</button>
+      </nav>
+
+      <div class="side-warning">
+        <b>资金安全规则</b>
+        <p>管理员只能暂停，不能改账、不能提现。所有责任额度永远 1:1 锚定 USDC。</p>
+      </div>
     </aside>
+
     <main class="main">
-        <div class="topbar">
-            <div class="page-title" id="pageTitle">仪表板</div>
-            <div class="wallet-badge" id="walletBadge">🔗 同步中…</div>
+      <header class="topbar">
+        <div class="page-title">
+          <h2 id="pageHeading">总览</h2>
+          <p id="pageSubheading">资金、额度、任务、收款和争议一屏掌握。</p>
         </div>
-        <div id="dashboardPage">
-            <div class="grid-stats">
-                <div class="stat-card">
-                    <div class="stat-label">💰 总收入 <span class="mood-tag" id="incomeMood">—</span></div>
-                    <div class="stat-value" id="statIncome">—</div>
-                    <div class="stat-sub" id="statIncomeSub">来自 Agent 调用 · 链上/网关同步</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">💸 总支出</div>
-                    <div class="stat-value" id="statExpense">—</div>
-                    <div class="stat-sub">已确认付款累计</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">🪙 可用额度</div>
-                    <div class="stat-value" id="statActive">—</div>
-                    <div class="stat-sub" id="statAllowanceSub">授权池剩余</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">⏳ 待确认 <button id="gotoPayBtn" type="button" style="background:none;border:none;color:#6366f1;cursor:pointer;">去处理 →</button></div>
-                    <div class="stat-value" id="statPending">—</div>
-                    <div class="stat-sub">大额或策略要求人工确认</div>
-                </div>
-            </div>
-            <div>
-                <div class="flex-between">
-                    <span class="section-title">📈 最近 Agent 行为</span>
-                    <span class="text-small">实时 · <span id="syncStatus" class="sync-hint"></span></span>
-                </div>
-                <div class="table-wrapper">
-                    <table>
-                        <thead><tr><th>时间</th><th>Agent</th><th>行为</th><th>金额</th><th>状态</th></tr></thead>
-                        <tbody id="activityTbody"></tbody>
-                    </table>
-                </div>
-            </div>
+        <div class="top-actions">
+          <button class="btn">切换子身份</button>
+          <button class="btn">导出记录</button>
+          <button class="btn primary">增加锁仓额度</button>
         </div>
-        <div id="receivePage" style="display:none;">
-            <div class="flex-between" style="margin-bottom:24px;">
-                <span class="section-title" style="margin-top:0;">🔌 我的 Agent 商店</span>
-                <button class="btn-primary" type="button" id="simpleRegisterBtn">➕ 一键注册新 Agent</button>
-            </div>
-            <div class="agents-grid" id="agentsList"></div>
+      </header>
+
+      <section id="overview" class="page active">
+        <div class="grid metrics">
+          <div class="card metric"><div class="label">锁仓 USDC</div><div class="value">200.00</div><div class="hint">真实资金锚定</div></div>
+          <div class="card metric"><div class="label">可用额度</div><div class="value">120.00</div><div class="hint">可创建付款授权</div></div>
+          <div class="card metric"><div class="label">执行占用</div><div class="value">60.00</div><div class="hint">已接单任务冻结</div></div>
+          <div class="card metric"><div class="label">待收款</div><div class="value">80.00</div><div class="hint">已接单 / 待结算</div></div>
+          <div class="card metric"><div class="label">争议冻结</div><div class="value">20.00</div><div class="hint">等待仲裁推进</div></div>
         </div>
-        <div id="payPage" style="display:none;">
-            <div class="grid-stats">
-                <div class="stat-card"><div class="stat-label">💳 总授权额度</div><div class="stat-value" id="payStatAllowance">—</div><div class="stat-sub">网关授权池</div></div>
-                <div class="stat-card"><div class="stat-label">✅ 已用 / 冻结</div><div class="stat-value" id="payStatUsed">—</div><div class="stat-sub" id="payStatUsedSub">—</div></div>
-                <div class="stat-card"><div class="stat-label">⚡ 微支付自动放行</div><div class="stat-value" id="payStatMicro">—</div><div class="stat-sub">单笔 ≤ 阈值即自动</div></div>
-                <div class="stat-card"><div class="stat-label">📋 硬上限</div><div class="stat-value" id="payStatHard">—</div><div class="stat-sub">超过则拒绝创建</div></div>
+
+        <div class="grid layout-2">
+          <div class="card section">
+            <div class="section-header">
+              <div>
+                <h3>快捷操作</h3>
+                <p>不区分固定买家/卖家，同一个身份在不同任务里可以付款，也可以收款。</p>
+              </div>
             </div>
-            <div class="flex-between"><span class="section-title">🧠 Agent 额度分配</span><button type="button" class="btn-secondary" id="addAgentAllowanceBtn">➕ 新增 Agent 额度</button></div>
-            <div class="table-wrapper">
-                <table id="allowanceTable">
-                    <thead><tr><th>Agent 名称</th><th>单笔上限</th><th>日累计上限</th><th>今年累计支付</th><th>已用额度/总授权</th><th>操作</th></tr></thead>
-                    <tbody id="allowanceTbody"></tbody>
-                </table>
+            <div class="quick">
+              <div class="action-card" onclick="switchPage('center')"><b>创建付款授权</b><span>给卖家一个一次性 Voucher，卖家验证后开工。</span></div>
+              <div class="action-card" onclick="switchPage('center')"><b>验证收款授权</b><span>输入买家 Voucher，确认额度已锁定。</span></div>
+              <div class="action-card" onclick="switchPage('receipts')"><b>提交执行回执</b><span>上传 evidence hash、runtime log hash 和进度。</span></div>
+              <div class="action-card" onclick="switchPage('disputes')"><b>处理争议</b><span>提交证据、接受方案或请求仲裁。</span></div>
             </div>
-            <div class="section-title">⏳ 待确认账单（大额人工控制）</div>
-            <div class="table-wrapper">
-                <table>
-                    <thead><tr><th>付款 ID</th><th>对方</th><th>金额</th><th>备注</th><th>操作</th></tr></thead>
-                    <tbody id="pendingPayTbody"></tbody>
-                </table>
+          </div>
+
+          <div class="card section">
+            <div class="section-header">
+              <div>
+                <h3>责任状态流</h3>
+                <p>责任成立前灵活，责任成立后不可后台篡改。</p>
+              </div>
             </div>
+            <div class="timeline">
+              <div class="time-row"><span class="node"></span><div><b>USDC 已锁仓</b><p>200 USDC 已锁入 Vault，生成 200 内部责任额度。</p></div></div>
+              <div class="time-row"><span class="node"></span><div><b>任务额度已冻结</b><p>60 USDC 正在执行，不能重复授权给其他任务。</p></div></div>
+              <div class="time-row"><span class="node"></span><div><b>回执等待确认</b><p>3 条 Execution Receipt 已提交，等待自动验证或买家确认。</p></div></div>
+              <div class="time-row"><span class="node"></span><div><b>结算后销毁</b><p>USDC 结算时，同额内部责任额度同步销毁。</p></div></div>
+            </div>
+          </div>
         </div>
-        <div id="billsPage" style="display:none;">
-            <div class="flex-between">
-                <span class="section-title">📋 历史账单 & 争议中心</span>
-                <span class="text-small">与网关账单状态同步</span>
-            </div>
-            <div class="table-wrapper">
-                <table id="billsTable">
-                    <thead><tr><th>账单ID</th><th>调用方</th><th>收款方</th><th>金额</th><th>进度</th><th>操作</th></tr></thead>
-                    <tbody id="billsTbody"></tbody>
-                </table>
-            </div>
+
+        <div class="card section" style="margin-top:16px;">
+          <div class="section-header">
+            <div><h3>最近需要处理</h3><p>只显示用户下一步需要做什么。</p></div>
+            <button class="btn">查看全部</button>
+          </div>
+          <table>
+            <thead><tr><th>任务</th><th>本方角色</th><th>对方</th><th>金额</th><th>进度</th><th>状态</th><th>下一步</th></tr></thead>
+            <tbody>
+              <tr><td>AI 视频生成</td><td>付款方</td><td>Karma-ID-B21</td><td>50 USDC</td><td><div class="progress"><span style="width:40%"></span></div></td><td><span class="badge cyan">执行中</span></td><td><button class="btn">查看进度</button></td></tr>
+              <tr><td>API 数据服务</td><td>收款方</td><td>Karma-ID-A82</td><td>40 USDC</td><td><div class="progress"><span style="width:100%"></span></div></td><td><span class="badge green">可结算</span></td><td><button class="btn primary">申请结算</button></td></tr>
+              <tr><td>Agent 研究任务</td><td>付款方</td><td>Karma-ID-F77</td><td>20 USDC</td><td><div class="progress"><span style="width:20%"></span></div></td><td><span class="badge red">争议中</span></td><td><button class="btn red">提交证据</button></td></tr>
+            </tbody>
+          </table>
         </div>
-        <div id="trustPage" style="display:none;">
-            <div class="flex-between">
-                <span class="section-title">🏆 Karma 信誉分 · 链上问责制</span>
-                <span class="text-small">由收入与调用量估算展示分</span>
-            </div>
-            <div class="agents-grid" id="trustAgentsGrid"></div>
-            <div class="stat-card" style="margin-top:24px;">
-                <div class="stat-label">🤖 信誉分机制</div>
-                <div class="stat-value" style="font-size:18px;">基于活跃度 · 链上结算记录</div>
-                <div class="stat-sub">高分 Agent 可在策略中绑定更高微支付阈值（后续版本对接合约）。</div>
-            </div>
+      </section>
+
+      <section id="center" class="page">
+        <div class="grid metrics">
+          <div class="card metric"><div class="label">可付款额度</div><div class="value">120.00</div><div class="hint">可创建 Voucher</div></div>
+          <div class="card metric"><div class="label">已发出授权</div><div class="value">40.00</div><div class="hint">等待/执行中</div></div>
+          <div class="card metric"><div class="label">待收款</div><div class="value">80.00</div><div class="hint">可提交回执</div></div>
+          <div class="card metric"><div class="label">可结算</div><div class="value">40.00</div><div class="hint">可申请到账</div></div>
+          <div class="card metric"><div class="label">协议费预估</div><div class="value">0.12</div><div class="hint">结算时扣除</div></div>
         </div>
-        <div id="settingsPage" style="display:none;">
-            <div class="stat-card" style="padding:28px; margin-bottom:24px;">
-                <h3>💳 支付策略（小额自动 / 大额人工）</h3>
-                <p class="text-small" style="margin-bottom:16px;">与后端 <code>/api/v1/user-console/pay-rule</code> 同步</p>
-                <label class="text-small" style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-                    <input type="checkbox" id="setAutoPayEnabled" /> 启用小额自动支付
-                </label>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-                    <div><label class="text-small">自动阈值 (≤ 即免确认)</label><input type="number" step="0.001" id="setAutoPayLimit" class="config-input" /></div>
-                    <div><label class="text-small">单笔硬上限</label><input type="number" step="0.001" id="setHardLimit" class="config-input" /></div>
-                </div>
-                <button type="button" class="btn-primary" id="savePayRuleBtn">💾 保存支付策略</button>
+
+        <div class="split" style="margin-top:16px;">
+          <div class="flow-card">
+            <h3>我要付款</h3>
+            <p>创建一次性授权，卖家验证后会锁定对应额度。</p>
+            <div class="form">
+              <div><label>收款方 Karma ID</label><input value="Karma-ID-B21"></div>
+              <div class="form-row">
+                <div><label>金额</label><input value="50"></div>
+                <div><label>有效期</label><select><option>24 小时</option><option>48 小时</option><option>7 天</option></select></div>
+              </div>
+              <div><label>任务类型</label><select><option>AI 工作流 / Agent 任务</option><option>API 调用</option><option>MCP 工具调用</option><option>文件交付</option></select></div>
+              <div><label>任务说明</label><textarea>生成一条 30 秒 AI 产品介绍视频，包含脚本、配音和成片。</textarea></div>
+              <div class="notice">卖家接单后，这 50 USDC 对应额度会被锁定，不能再用于其他任务。</div>
+              <button class="btn primary">生成付款授权 Voucher</button>
             </div>
-            <div class="stat-card" style="padding:28px;">
-                <h3>⚡ Sparky (Wangcai) · 预警推送设置</h3>
-                <p class="text-small" style="margin-bottom:20px;">配置保存至服务端（测试推送为模拟，生产需接第三方 HTTP）</p>
-                <div style="margin-bottom:24px;">
-                    <label style="display: block; margin-bottom: 8px;">📱 选择推送通道</label>
-                    <select id="pushChannelSelect" style="background:#1f2937; border:1px solid #4b5563; padding:10px; border-radius:16px; width:100%; color:white;">
-                        <option value="whatsapp">WhatsApp (CallMeBot / Twilio)</option>
-                        <option value="telegram">Telegram Bot</option>
-                        <option value="wechat">微信 (PushPlus / Server酱)</option>
-                    </select>
-                </div>
-                <div id="whatsappConfig" class="config-group">
-                    <div style="margin-bottom:16px;"><label>📞 手机号 (国际格式)</label><input type="text" id="waPhone" placeholder="+861234567890" class="config-input"></div>
-                    <div style="margin-bottom:16px;"><label>🔑 CallMeBot API Key (可选)</label><input type="text" id="waApikey" placeholder="从 callmebot.com 获取" class="config-input"></div>
-                    <div class="text-small">💡 免费方案：<a href="https://www.callmebot.com/" target="_blank" rel="noopener noreferrer" style="color:#6366f1;">CallMeBot</a></div>
-                </div>
-                <div id="telegramConfig" class="config-group" style="display:none;">
-                    <div style="margin-bottom:16px;"><label>🤖 Bot Token</label><input type="text" id="tgBotToken" class="config-input" autocomplete="off"></div>
-                    <div style="margin-bottom:16px;"><label>👤 Chat ID</label><input type="text" id="tgChatId" class="config-input"></div>
-                    <div class="text-small">💡 <a href="https://core.telegram.org/bots" target="_blank" rel="noopener noreferrer" style="color:#6366f1;">Telegram Bots</a></div>
-                </div>
-                <div id="wechatConfig" class="config-group" style="display:none;">
-                    <div style="margin-bottom:16px;"><label>📌 推送服务商</label>
-                        <select id="wechatProvider" style="background:#1f2937; border:1px solid #4b5563; padding:8px; border-radius:12px; color:white;">
-                            <option value="pushplus">PushPlus</option>
-                            <option value="serverchan">Server酱</option>
-                        </select>
-                    </div>
-                    <div style="margin-bottom:16px;"><label>🔑 Token / SendKey</label><input type="text" id="wxToken" class="config-input" autocomplete="off"></div>
-                </div>
-                <div style="margin-top:24px;">
-                    <button type="button" id="testPushBtn" class="btn-secondary" style="margin-right:12px;">📡 发送测试消息</button>
-                    <button type="button" id="savePushSettingsBtn" class="btn-primary">💾 保存配置</button>
-                </div>
-                <div id="pushTestResult" class="text-small" style="margin-top:16px; color:#9ca3af;"></div>
+          </div>
+
+          <div class="flow-card">
+            <h3>我要收款</h3>
+            <p>输入买家提供的 Voucher，确认额度已锁定后再开工。</p>
+            <div class="form">
+              <div><label>买家 Voucher</label><input value="KRM-8F2X-91QZ"></div>
+              <button class="btn primary">验证授权</button>
+              <div class="notice">验证结果：真实 · 金额 100 USDC · 买家 Karma-ID-A82 · 已锁定 · 可开工。</div>
+              <div><label>接单方式</label><select><option>接单后立即执行</option><option>接单后等待手动开始</option><option>由 Agent Runtime 自动开始</option></select></div>
+              <button class="btn">接单并开始任务</button>
             </div>
+          </div>
         </div>
+      </section>
+
+      <section id="tasks" class="page">
+        <div class="card section">
+          <div class="section-header"><div><h3>任务执行</h3><p>查看执行进度、反悔责任、交付状态和下一步动作。</p></div><button class="btn primary">新建付款授权</button></div>
+          <div class="task-list">
+            <div class="task-item"><div><b>AI 视频生成 · #1021</b><p>付款方 · 对方 Karma-ID-B21 · 金额 50 USDC · 已确认进度 40% · 当前反悔责任 20 USDC</p></div><span class="badge cyan">执行中</span></div>
+            <div class="task-item"><div><b>API 数据服务 · #2103</b><p>收款方 · 对方 Karma-ID-A82 · 金额 40 USDC · 回执已验证 · 可申请结算</p></div><span class="badge green">可结算</span></div>
+            <div class="task-item"><div><b>MCP 工具调用 · #2188</b><p>收款方 · 自动回执 7 条 · 等待买家确认或超时确认</p></div><span class="badge yellow">等待确认</span></div>
+          </div>
+        </div>
+
+        <div class="split" style="margin-top:16px;">
+          <div class="flow-card">
+            <h3>提交进度</h3>
+            <div class="form">
+              <div><label>任务 ID</label><input value="#2103"></div>
+              <div class="form-row">
+                <div><label>完成进度</label><select><option>10%</option><option>30%</option><option selected>50%</option><option>100%</option></select></div>
+                <div><label>验证类型</label><select><option>Agent Runtime</option><option>API 回执</option><option>MCP Trace</option><option>文件哈希</option></select></div>
+              </div>
+              <div><label>进度说明</label><textarea>核心 API 已完成调用，返回结果已写入 evidence bundle。</textarea></div>
+              <button class="btn primary">提交进度回执</button>
+            </div>
+          </div>
+          <div class="flow-card">
+            <h3>反悔责任预览</h3>
+            <p>买家中途取消时，只按已确认进度结算。</p>
+            <div class="notice warn">任务金额：50 USDC<br>已确认进度：40%<br>当前反悔责任：20 USDC<br>取消可释放：30 USDC</div>
+            <button class="btn red">中途取消并承担责任</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="receipts" class="page">
+        <div class="split">
+          <div class="flow-card">
+            <h3>提交 Execution Receipt</h3>
+            <p>回执必须绑定任务、身份、证据哈希、日志哈希和签名。</p>
+            <div class="form">
+              <div><label>Task ID</label><input value="task_1021"></div>
+              <div><label>Evidence Hash</label><input value="0x9a82...e11f"></div>
+              <div><label>Runtime Log Hash</label><input value="0x7f21...909c"></div>
+              <div><label>Output Digest</label><input value="0x4c9b...27aa"></div>
+              <button class="btn primary">提交回执</button>
+            </div>
+          </div>
+
+          <div class="flow-card">
+            <h3>回执验证规则</h3>
+            <div class="notice">
+              系统拒绝：无签名、无哈希、重复 receipt、时间戳异常、进度倒退、超过 100%、任务类型不匹配的回执。
+            </div>
+            <div class="task-list" style="margin-top:14px;">
+              <div class="task-item"><div><b>#R-10082</b><p>API response hash · status 200 · provider signature valid</p></div><span class="badge green">Valid</span></div>
+              <div class="task-item"><div><b>#R-10083</b><p>MCP tool trace · waiting verifier</p></div><span class="badge yellow">Pending</span></div>
+              <div class="task-item"><div><b>#R-10084</b><p>Repeated receipt id</p></div><span class="badge red">Rejected</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="bills" class="page">
+        <div class="card section">
+          <div class="section-header"><div><h3>账单</h3><p>账单额度是内部责任状态，只对身份主人展示。</p></div><button class="btn">导出 CSV</button></div>
+          <table>
+            <thead><tr><th>时间</th><th>方向</th><th>任务</th><th>对方</th><th>金额</th><th>结算结果</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td>2026-05-13</td><td>付款</td><td>AI 视频生成</td><td>Karma-ID-B21</td><td>50</td><td>未结算</td><td><span class="badge cyan">执行中</span></td></tr>
+              <tr><td>2026-05-13</td><td>收款</td><td>API 数据服务</td><td>Karma-ID-A82</td><td>40</td><td>39.88 到账 / 0.12 协议费</td><td><span class="badge green">已结算</span></td></tr>
+              <tr><td>2026-05-12</td><td>付款</td><td>Agent 研究</td><td>Karma-ID-F77</td><td>20</td><td>冻结中</td><td><span class="badge red">争议中</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="disputes" class="page">
+        <div class="grid metrics">
+          <div class="card metric"><div class="label">争议冻结</div><div class="value">20.00</div><div class="hint">资金已锁定</div></div>
+          <div class="card metric"><div class="label">待我处理</div><div class="value">1</div><div class="hint">需要提交证据</div></div>
+          <div class="card metric"><div class="label">等待对方</div><div class="value">2</div><div class="hint">等待回应</div></div>
+          <div class="card metric"><div class="label">仲裁中</div><div class="value">1</div><div class="hint">等待裁决</div></div>
+          <div class="card metric"><div class="label">已完成</div><div class="value">5</div><div class="hint">历史争议</div></div>
+        </div>
+        <div class="card section" style="margin-top:16px;">
+          <div class="section-header"><div><h3>争议处理</h3><p>争议期间资金不会被任何一方拿走，裁决后自动执行。</p></div></div>
+          <table>
+            <thead><tr><th>任务</th><th>对方</th><th>金额</th><th>原因</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody>
+              <tr><td>#1024 Agent 研究</td><td>Karma-ID-F77</td><td>20</td><td>输出不符合要求</td><td><span class="badge red">待我提交证据</span></td><td><button class="btn red">提交证据</button></td></tr>
+              <tr><td>#2190 MCP 调用</td><td>Karma-ID-L19</td><td>12</td><td>工具返回失败</td><td><span class="badge yellow">自动规则裁决</span></td><td><button class="btn">查看</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="identity" class="page">
+        <div class="split">
+          <div class="flow-card">
+            <h3>主身份</h3>
+            <p>Karma Identity SBT 是责任身份，不可交易、不可转让。</p>
+            <div class="notice">主身份：Karma-ID-82F7X9<br>绑定钱包：0xA8F2...91F0<br>法律身份：未绑定<br>状态：正常</div>
+            <div class="form" style="margin-top:14px;">
+              <button class="btn">更换展示编号</button>
+              <button class="btn">绑定法律身份</button>
+            </div>
+          </div>
+          <div class="flow-card">
+            <h3>子身份</h3>
+            <p>最多 2 个。子身份隐藏业务场景，最终责任仍属于主身份。</p>
+            <div class="task-list">
+              <div class="task-item"><div><b>Buyer Sub-ID</b><p>Karma-ID-82F7X9-B · 用于付款任务</p></div><span class="badge cyan">启用</span></div>
+              <div class="task-item"><div><b>Seller Sub-ID</b><p>Karma-ID-82F7X9-S · 用于收款任务</p></div><span class="badge green">启用</span></div>
+            </div>
+            <button class="btn" style="margin-top:14px;">管理子身份</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="settings" class="page">
+        <div class="card section">
+          <div class="section-header"><div><h3>设置</h3><p>资金安全、回执规则、结算偏好、隐私和 Webhook。</p></div></div>
+          <div class="settings-grid">
+            <div class="setting"><h4>资金安全</h4><p>设置单笔任务上限、每日授权上限、释放额度确认方式。</p><div class="form-row"><input value="单笔上限：100 USDC"><input value="每日上限：500 USDC"></div></div>
+            <div class="setting"><h4>回执规则</h4><p>决定 API / MCP / Agent 任务如何自动验证。</p><select><option>优先自动验证，失败后人工确认</option></select></div>
+            <div class="setting"><h4>结算偏好</h4><p>任务完成后自动结算或手动确认结算。</p><select><option>买家确认后自动结算</option><option>任务完成后手动结算</option></select></div>
+            <div class="setting"><h4>隐私设置</h4><p>展示编号轮换、子身份使用和证据披露权限。</p><select><option>默认半隐私，仅争议时披露必要证据</option></select></div>
+            <div class="setting"><h4>通知</h4><p>任务接单、回执提交、争议、结算到账时提醒。</p><select><option>应用内 + 邮件 + Webhook</option></select></div>
+            <div class="setting"><h4>开发者 Webhook</h4><p>Agent 平台自动接收任务状态、回执验证和结算结果。</p><input value="https://api.example.com/karma/webhook"></div>
+            <div class="setting"><h4>AI Agent 自动授权中心</h4><p>用户设置好规则后，可用一个开关控制是否允许 AI 代理自动请求授权、提交回执并实时同步任务状态。</p><div class="toggle-wrap"><div class="toggle-copy"><b>开启授权 AI 代理</b><span>开启后，AI 只能在你设置的额度、任务类型和风控规则内自动操作。</span></div><label class="switch"><input type="checkbox" id="aiAgentToggle"><span class="slider"></span></label></div><div class="ai-auth-panel"><div class="notice">当前状态：<b id="aiAgentStatus">关闭</b><br>AI 代理不能读取私钥，不能提高额度，不能修改已成立责任账单，不能绕过状态机结算。</div><div class="form" style="margin-top:14px;"><label>单次 AI 最大自动授权额度</label><input value="20 USDC"><label>每日 AI 自动授权总额度</label><input value="100 USDC"><label>AI 自动操作范围</label><select><option selected>自动请求授权 + 自动提交回执 + 实时同步状态</option><option>只允许自动提交回执</option><option>只允许实时同步状态</option><option>全部关闭</option></select><label>Execution Receipt 模式</label><select><option selected>Agent Runtime 自动提交</option><option>MCP Trace 自动提交</option><option>API 回执自动提交</option><option>手动提交</option></select><label>高风险任务确认模式</label><select><option selected>超过额度 / 未知 Agent / 外部合约请求时必须人工确认</option><option>所有 AI 授权都必须人工确认</option><option>完全自动，但受额度限制</option></select><label>实时状态同步</label><select><option selected>开启：同步任务、回执、进度、结算和争议状态</option><option>关闭</option></select><div class="notice warn">安全边界：AI 代理只能请求授权和提交回执；任何超出规则的金额、未知 Agent、未知合约、跨链请求，都必须人工二次确认。</div><button class="btn primary">保存 AI Agent 授权规则</button></div></div></div>
+
+          </div>
+        </div>
+      </section>
     </main>
-</div>
-<div id="sparky-container" role="button" aria-label="Sparky">
-    <div id="sparky-bubble">🐕 汪汪！</div>
-    <canvas id="sparky-canvas" width="80" height="80"></canvas>
-</div>
-<div id="simpleRegisterModal" class="modal">
-    <div class="modal-content">
-        <h3>快速创建 Agent</h3>
-        <input type="text" id="agentNameInput" placeholder="Agent 名称">
-        <input type="text" id="agentPriceInput" placeholder="单次价格 (USDC)">
-        <div style="display:flex; gap:12px;">
-            <button type="button" class="btn-primary" id="confirmRegisterBtn" style="flex:1;">确认创建</button>
-            <button type="button" class="btn-secondary" id="closeModalBtn">取消</button>
-        </div>
-    </div>
-</div>
-<script>
-(function () {
-    const API_PREFIX = "/api/v1";
+  </div>
 
-    async function api(path, method, body) {
-        const r = await fetch(API_PREFIX + path, {
-            method: method || "GET",
-            headers: { "Content-Type": "application/json" },
-            body: body ? JSON.stringify(body) : undefined,
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || j.ok === false) throw new Error(j.message || j.error || "请求失败");
-        return j.data !== undefined ? j.data : j;
+  <script>
+    const titles = {
+      overview: ["总览","资金、额度、任务、收款和争议一屏掌握。"],
+      center: ["收付中心","同一个身份既可以付款，也可以收款。"],
+      tasks: ["任务执行","查看任务进度、执行回执、反悔责任和结算状态。"],
+      receipts: ["回执证明","提交和验证 Execution Receipt、Evidence Hash 与 Runtime Log。"],
+      bills: ["账单","查看付款、收款、冻结、退款和结算记录。"],
+      disputes: ["争议","提交证据、查看冻结资金、请求仲裁或接受方案。"],
+      identity: ["身份","管理 Karma Identity SBT、展示编号和子身份。"],
+      settings: ["设置","配置资金安全、回执规则、结算偏好、隐私和 Webhook。"]
+    };
+
+    function switchPage(page){
+      document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+      document.getElementById(page).classList.add("active");
+      document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
+      document.querySelector(`.nav button[data-page="${page}"]`).classList.add("active");
+      document.getElementById("pageHeading").textContent=titles[page][0];
+      document.getElementById("pageSubheading").textContent=titles[page][1];
+      window.scrollTo({top:0,behavior:"smooth"});
     }
-
-    let dashboardCache = null;
-    let userConsoleCache = null;
-    let agents = [];
-    let allowances = [];
-    let bills = [];
-
-    function trustFromAgent(a) {
-        const inc = Number(a.totalIncome || 0);
-        const calls = Number(a.todayCalls || 0) + Number(a.totalIncome || 0) * 10;
-        return Math.min(98, Math.max(40, Math.floor(55 + inc * 4 + calls * 0.01)));
-    }
-
-    function billStatusLabel(st) {
-        const m = { Paid: "已付款", PendingConfirm: "待确认", PendingSettle: "待结算", Disputed: "争议中", Cancelled: "已取消", Expired: "已过期" };
-        return m[st] || st;
-    }
-
-    function activityStatusClass(st) {
-        if (st === "PendingConfirm" || st === "pending_manual") return "status-badge status-warning";
-        if (st === "Disputed" || st === "rejected") return "status-badge status-danger";
-        return "status-badge";
-    }
-
-    function renderReceive() {
-        const container = document.getElementById("agentsList");
-        if (!container) return;
-        const base = location.origin + "/user-console/";
-        container.innerHTML = agents.map((agent) => {
-            const link = agent.shareLink || base + "#agent-" + encodeURIComponent(agent.id);
-            const short = link.length > 36 ? link.slice(0, 36) + "…" : link;
-            return `
-            <div class="agent-card">
-                <div class="agent-header"><span class="agent-name">${escapeHtml(agent.name)}</span><div class="trust-badge">信誉 ${agent.trust}</div></div>
-                <div class="agent-meta"><span>💰 ${agent.price} /次</span><span>📊 今日 ${agent.todayIncome ?? 0}</span></div>
-                <div class="flex-between"><span class="price-tag">${escapeHtml(short)}</span><button type="button" class="btn-icon" data-copy="${escapeAttr(link)}">📋 复制</button></div>
-                <div class="trend-chart"><div class="text-small" style="margin-bottom:8px;">📈 近7天趋势（示意）</div><div class="trend-bars" id="trend-${escapeAttr(agent.id)}"></div><div class="text-small margin-top-2">累计收入 ${agent.totalIncome ?? 0}</div></div>
-            </div>`;
-        }).join("");
-        agents.forEach((agent) => {
-            const t = document.getElementById("trend-" + agent.id);
-            if (t) t.innerHTML = [40, 65, 30, 85, 45, 70, 90].map((h) => `<div class="bar-item" style="height:${Math.min(60, h / 2)}px;"></div>`).join("");
-        });
-        container.querySelectorAll("[data-copy]").forEach((btn) => {
-            btn.addEventListener("click", () => copyShareLink(btn.getAttribute("data-copy")));
-        });
-    }
-
-    function renderAllowance() {
-        const tbody = document.getElementById("allowanceTbody");
-        if (!tbody) return;
-        if (!allowances.length) {
-            tbody.innerHTML = `<tr><td colspan="6" class="text-small">暂无 Agent，请先在收款区注册</td></tr>`;
-            return;
-        }
-        tbody.innerHTML = allowances
-            .map(
-                (a) => `<tr><td>${escapeHtml(a.agentName)}</td><td>${a.perTxLimit}</td><td>${a.dailyLimit}</td><td>${a.totalPaidYTD}</td><td>${a.usedThisMonth} / ${a.totalAssigned}</td><td><button type="button" class="btn-secondary" style="padding:4px 12px;">✏️ 调整</button></td></tr>`
-            )
-            .join("");
-    }
-
-    function renderBills() {
-        const tbody = document.getElementById("billsTbody");
-        if (!tbody) return;
-        tbody.innerHTML = bills
-            .map((b) => {
-                const st = billStatusLabel(b.status);
-                let statusHtml = `<span class="status-badge">${escapeHtml(st)}</span>`;
-                let progressHtml = "";
-                if (b.arbitration) {
-                    const dots = [];
-                    for (let i = 1; i <= b.arbitration.total; i++) {
-                        dots.push(`<div class="step-dot ${b.arbitration.step >= i ? "completed" : ""}"></div>`);
-                    }
-                    progressHtml = `<div class="arbitration-progress"><div class="progress-steps">${dots.join("")}</div><span>${escapeHtml(b.arbitration.desc)}</span></div>`;
-                }
-                const actionHtml =
-                    b.status === "Disputed"
-                        ? `<button type="button" class="btn-primary" style="padding:4px 12px;">⚖️ 查看</button>`
-                        : `<button type="button" class="btn-secondary" style="padding:4px 12px;">证据</button>`;
-                return `<tr><td>${escapeHtml(b.id)}</td><td>${escapeHtml(b.caller)}</td><td>${escapeHtml(b.receiver)}</td><td>${b.amount}</td><td>${statusHtml} ${progressHtml}</td><td>${actionHtml}</td></tr>`;
-            })
-            .join("");
-    }
-
-    function renderTrustAgents() {
-        const container = document.getElementById("trustAgentsGrid");
-        if (!container) return;
-        container.innerHTML = agents
-            .map(
-                (a) => `<div class="agent-card"><div class="agent-header"><span class="agent-name">${escapeHtml(a.name)}</span><div class="trust-badge">信誉 ${a.trust}</div></div><div class="agent-meta">链上/网关调用与收入加权</div><div class="text-small" style="margin-top:12px;">⚡ 特权: ${a.trust >= 70 ? "✅ 建议绑定更高微支付阈值" : "❌ 建议人工确认小额"}</div></div>`
-            )
-            .join("");
-    }
-
-    function renderActivity() {
-        const tbody = document.getElementById("activityTbody");
-        if (!tbody || !dashboardCache) return;
-        const rows = (dashboardCache.activity || []).slice(0, 20);
-        tbody.innerHTML = rows
-            .map(
-                (r) => `<tr><td>${escapeHtml(r.time)}</td><td>${escapeHtml(r.agent)}</td><td>${escapeHtml(r.action)}</td><td>${r.amount}</td><td><span class="${activityStatusClass(r.status)}">${escapeHtml(r.status)}</span></td></tr>`
-            )
-            .join("");
-    }
-
-    function renderPendingPayments() {
-        const tbody = document.getElementById("pendingPayTbody");
-        if (!tbody || !userConsoleCache) return;
-        const pending = (userConsoleCache.payments || []).filter((p) => p.status === "pending_manual");
-        if (!pending.length) {
-            tbody.innerHTML = `<tr><td colspan="5" class="text-small">暂无待确认付款</td></tr>`;
-            return;
-        }
-        tbody.innerHTML = pending
-            .map(
-                (p) => `<tr><td class="mono">${escapeHtml(p.id)}</td><td>${escapeHtml(p.counterparty)}</td><td>${p.amount}</td><td>${escapeHtml(p.note || "—")}</td><td>
-            <button type="button" class="btn-primary" style="padding:6px 16px;" data-approve="${escapeAttr(p.id)}">确认</button>
-            <button type="button" class="btn-secondary" style="padding:6px 16px;" data-reject="${escapeAttr(p.id)}">拒绝</button></td></tr>`
-            )
-            .join("");
-        tbody.querySelectorAll("[data-approve]").forEach((b) => b.addEventListener("click", () => approvePayment(b.getAttribute("data-approve"))));
-        tbody.querySelectorAll("[data-reject]").forEach((b) => b.addEventListener("click", () => rejectPayment(b.getAttribute("data-reject"))));
-    }
-
-    function escapeHtml(s) {
-        return String(s ?? "")
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;");
-    }
-    function escapeAttr(s) {
-        return escapeHtml(s).replace(/'/g, "&#39;");
-    }
-
-    async function copyShareLink(link) {
-        try {
-            await navigator.clipboard.writeText(link);
-            sparkySay("收款链接已复制到剪贴板 📋", false);
-        } catch {
-            sparkySay("复制失败，请手动复制", true);
-        }
-    }
-
-    async function syncFromServer() {
-        const el = document.getElementById("syncStatus");
-        if (el) el.textContent = "同步中…";
-        try {
-            const dash = await api("/dashboard", "GET");
-            const uc = await api("/user-console/overview", "GET");
-            const sparky = await api("/user-console/sparky/config", "GET").catch(() => null);
-
-            dashboardCache = dash;
-            userConsoleCache = uc;
-
-            const summary = dash.summary || {};
-            const wallet = summary.wallet || {};
-            const allowance = summary.allowance || {};
-            const totals = summary.totals || {};
-            const counts = summary.counts || {};
-            const ucSummary = uc.summary || {};
-            const profile = ucSummary.profile || {};
-            const payRule = ucSummary.payRule || {};
-            const stats = ucSummary.stats || {};
-
-            document.getElementById("walletBadge").textContent =
-                "🔗 " + (profile.wallet || wallet.address || "—") + " · " + (profile.token || allowance.token || "USDC");
-
-            document.getElementById("statIncome").textContent = (totals.totalIncome ?? 0).toFixed(2) + " " + (allowance.token || "USDC");
-            document.getElementById("statExpense").textContent = (stats.paidOut ?? totals.totalExpense ?? 0).toFixed(2) + " " + (profile.token || "USDC");
-            document.getElementById("statActive").textContent = (allowance.active ?? 0).toFixed(2) + " " + (allowance.token || "USDC");
-            document.getElementById("statAllowanceSub").textContent =
-                "授权 " + (allowance.allowance ?? "—") + " · 冻结 " + (allowance.locked ?? "—") + " · 预留 " + (allowance.reserved ?? "—");
-            const pend = (stats.pendingManual ?? 0) + (counts.pendingConfirm || 0);
-            document.getElementById("statPending").textContent = String(pend);
-            document.getElementById("incomeMood").textContent = "网关同步";
-
-            document.getElementById("payStatAllowance").textContent = (allowance.allowance ?? "—") + " " + (allowance.token || "");
-            document.getElementById("payStatUsed").textContent = (Number(allowance.locked || 0) + Number(allowance.reserved || 0)).toFixed(2);
-            document.getElementById("payStatUsedSub").textContent =
-                "active " + (allowance.active ?? 0) + " · stopped " + (allowance.stopped ? "yes" : "no");
-            document.getElementById("payStatMicro").textContent = "< " + (payRule.autoPayLimit ?? "—");
-            document.getElementById("payStatHard").textContent = (payRule.hardLimit ?? "—") + " " + (profile.token || "");
-
-            agents = (dash.agents || []).map((a) => ({
-                ...a,
-                trust: trustFromAgent(a),
-                shareLink: location.origin + "/user-console/#agent-" + encodeURIComponent(a.id),
-            }));
-            allowances = agents.map((a) => ({
-                agentId: a.id,
-                agentName: a.name,
-                perTxLimit: payRule.autoPayLimit || 0.1,
-                dailyLimit: 2,
-                totalAssigned: 50 + Math.floor((a.totalIncome || 0) * 5),
-                usedThisMonth: Number(a.todayIncome || 0) + Number(a.totalIncome || 0) * 0.1,
-                totalPaidYTD: Number(a.totalIncome || 0),
-            }));
-
-            bills = (dash.bills || []).map((b) => ({
-                id: b.id,
-                caller: b.callerAgent || "—",
-                receiver: b.seller || "—",
-                amount: b.amount,
-                status: b.status,
-                arbitration:
-                    b.status === "Disputed"
-                        ? { step: 2, total: 3, desc: "证据审查中" }
-                        : b.status === "PendingConfirm"
-                          ? { step: 1, total: 3, desc: "等待人工确认" }
-                          : null,
-                evidence: "查看",
-            }));
-
-            document.getElementById("setAutoPayEnabled").checked = !!payRule.autoPayEnabled;
-            document.getElementById("setAutoPayLimit").value = payRule.autoPayLimit ?? "";
-            document.getElementById("setHardLimit").value = payRule.hardLimit ?? "";
-
-            if (sparky && sparky.item) {
-                const c = sparky.item;
-                document.getElementById("pushChannelSelect").value = c.channel || "telegram";
-                document.getElementById("waPhone").value = c.whatsappPhone || "";
-                document.getElementById("waApikey").value = c.whatsappApikey || "";
-                document.getElementById("tgBotToken").value = c.telegramBotToken || "";
-                document.getElementById("tgChatId").value = c.telegramChatId || "";
-                document.getElementById("wechatProvider").value = c.wechatProvider || "pushplus";
-                document.getElementById("wxToken").value = c.wechatToken || "";
-                showConfigGroup(c.channel || "telegram");
-            }
-
-            renderActivity();
-            renderReceive();
-            renderAllowance();
-            renderBills();
-            renderTrustAgents();
-            renderPendingPayments();
-            if (el) el.textContent = "已同步 " + new Date().toLocaleTimeString();
-        } catch (e) {
-            if (el) el.textContent = "同步失败";
-            sparkySay(String(e.message || e), true);
-        }
-    }
-
-    async function approvePayment(id) {
-        try {
-            await api("/user-console/payments/" + encodeURIComponent(id) + "/approve", "POST");
-            await syncFromServer();
-            sparkySay("已确认付款 ✅", false);
-        } catch (err) {
-            sparkySay(err.message || String(err), true);
-        }
-    }
-    async function rejectPayment(id) {
-        try {
-            await api("/user-console/payments/" + encodeURIComponent(id) + "/reject", "POST");
-            await syncFromServer();
-            sparkySay("已拒绝该笔付款", false);
-        } catch (err) {
-            sparkySay(err.message || String(err), true);
-        }
-    }
-
-    const titles = { dashboard: "仪表板", receive: "收款区 · 开店", pay: "付款区 · 授权", bills: "账单 & 争议", trust: "Karma 信誉分", settings: "Sparky 设置" };
-    function switchPage(pageId) {
-        document.querySelectorAll(".nav-item").forEach((el) => el.classList.remove("active"));
-        document.querySelectorAll("#dashboardPage, #receivePage, #payPage, #billsPage, #trustPage, #settingsPage").forEach((p) => (p.style.display = "none"));
-        document.getElementById(pageId + "Page").style.display = "block";
-        const nav = document.querySelector('.nav-item[data-page="' + pageId + '"]');
-        if (nav) nav.classList.add("active");
-        document.getElementById("pageTitle").innerText = titles[pageId];
-        if (pageId === "receive") renderReceive();
-        if (pageId === "pay") {
-            renderAllowance();
-            renderPendingPayments();
-        }
-        if (pageId === "bills") renderBills();
-        if (pageId === "trust") renderTrustAgents();
-    }
-
-    document.querySelectorAll(".nav-item").forEach((el) => el.addEventListener("click", () => switchPage(el.getAttribute("data-page"))));
-    document.getElementById("gotoPayBtn")?.addEventListener("click", () => switchPage("pay"));
-
-    const modal = document.getElementById("simpleRegisterModal");
-    document.getElementById("simpleRegisterBtn")?.addEventListener("click", () => modal.classList.add("show"));
-    document.getElementById("closeModalBtn")?.addEventListener("click", () => modal.classList.remove("show"));
-    document.getElementById("confirmRegisterBtn")?.addEventListener("click", async () => {
-        const name = document.getElementById("agentNameInput").value.trim();
-        const price = parseFloat(document.getElementById("agentPriceInput").value);
-        if (!name || !Number.isFinite(price) || price < 0) {
-            alert("请填写名称与有效价格");
-            return;
-        }
-        try {
-            await api("/agents", "POST", { name, price, description: "", serviceType: "数据查询", endpoint: "", successOnly: true, refundable: true, manualConfirm: false });
-            modal.classList.remove("show");
-            await syncFromServer();
-            sparkySay('Agent「' + name + '」已创建', false);
-        } catch (e) {
-            alert(e.message || String(e));
-        }
+    document.querySelectorAll(".nav button").forEach(btn=>{
+      btn.addEventListener("click",()=>switchPage(btn.dataset.page));
     });
 
-    document.getElementById("addAgentAllowanceBtn")?.addEventListener("click", () => {
-        sparkySay("请先在「收款区」注册 Agent，额度表会自动出现", false);
-    });
-
-    document.getElementById("savePayRuleBtn")?.addEventListener("click", async () => {
-        try {
-            await api("/user-console/pay-rule", "POST", {
-                autoPayEnabled: document.getElementById("setAutoPayEnabled").checked,
-                autoPayLimit: Number(document.getElementById("setAutoPayLimit").value),
-                hardLimit: Number(document.getElementById("setHardLimit").value),
-            });
-            await syncFromServer();
-            sparkySay("支付策略已保存", false);
-        } catch (e) {
-            alert(e.message || String(e));
-        }
-    });
-
-    const channelSelect = document.getElementById("pushChannelSelect");
-    const waDiv = document.getElementById("whatsappConfig");
-    const tgDiv = document.getElementById("telegramConfig");
-    const wxDiv = document.getElementById("wechatConfig");
-    function showConfigGroup(channel) {
-        waDiv.style.display = "none";
-        tgDiv.style.display = "none";
-        wxDiv.style.display = "none";
-        if (channel === "whatsapp") waDiv.style.display = "block";
-        if (channel === "telegram") tgDiv.style.display = "block";
-        if (channel === "wechat") wxDiv.style.display = "block";
-    }
-    channelSelect.addEventListener("change", (e) => showConfigGroup(e.target.value));
-
-    document.getElementById("savePushSettingsBtn").addEventListener("click", async () => {
-        const channel = channelSelect.value;
-        const body = { channel };
-        if (channel === "whatsapp") {
-            body.whatsappPhone = document.getElementById("waPhone").value.trim();
-            body.whatsappApikey = document.getElementById("waApikey").value.trim();
-        } else if (channel === "telegram") {
-            body.telegramBotToken = document.getElementById("tgBotToken").value.trim();
-            body.telegramChatId = document.getElementById("tgChatId").value.trim();
-        } else if (channel === "wechat") {
-            body.wechatProvider = document.getElementById("wechatProvider").value;
-            body.wechatToken = document.getElementById("wxToken").value.trim();
-        }
-        try {
-            await api("/user-console/sparky/config", "POST", body);
-            sparkySay("Sparky 推送配置已保存", false);
-        } catch (e) {
-            alert(e.message || String(e));
-        }
-    });
-
-    document.getElementById("testPushBtn").addEventListener("click", async () => {
-        const resultDiv = document.getElementById("pushTestResult");
-        resultDiv.textContent = "⏳ 请求中…";
-        try {
-            await api("/user-console/sparky/test", "POST", {});
-            resultDiv.textContent = "✅ 服务端已接受测试（模拟通道）。生产环境请接入真实 HTTP 推送。";
-            sparkySay("测试推送已记录，主人看下日志 🐕", false);
-        } catch (e) {
-            resultDiv.textContent = String(e.message || e);
-            sparkySay("测试失败：请填写对应通道密钥", true);
-        }
-    });
-
-    const canvas = document.getElementById("sparky-canvas");
-    const ctx = canvas.getContext("2d");
-    let eyeBlink = 0;
-    let earWiggle = 0;
-    let isSpeaking = false;
-    function drawSparky() {
-        ctx.clearRect(0, 0, 80, 80);
-        ctx.fillStyle = "#D28C47";
-        ctx.beginPath();
-        ctx.ellipse(40, 50, 25, 28, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#B36B2F";
-        ctx.beginPath();
-        ctx.ellipse(22, 32, 12, 18, -0.3 + earWiggle * 0.1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.ellipse(58, 32, 12, 18, 0.3 - earWiggle * 0.1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#F5E6D3";
-        ctx.beginPath();
-        ctx.ellipse(40, 48, 18, 20, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#2D1B0C";
-        if (eyeBlink < 5) {
-            ctx.beginPath();
-            ctx.arc(32, 45, 3, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.arc(48, 45, 3, 0, Math.PI * 2);
-            ctx.fill();
-        } else {
-            ctx.fillRect(29, 45, 6, 2);
-            ctx.fillRect(45, 45, 6, 2);
-        }
-        ctx.fillStyle = "#4A2A1A";
-        ctx.beginPath();
-        ctx.arc(40, 52, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-        if (isSpeaking) {
-            ctx.fillStyle = "#FF6B6B";
-            ctx.beginPath();
-            ctx.ellipse(40, 59, 3, 5, 0, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        requestAnimationFrame(drawSparky);
-    }
-    drawSparky();
-    setInterval(() => {
-        eyeBlink = 10;
-        setTimeout(() => (eyeBlink = 0), 150);
-    }, 3000);
-    setInterval(() => {
-        earWiggle = Math.sin(Date.now() / 300) * 0.5;
-    }, 100);
-
-    function sparkySay(msg, isAlert) {
-        const bubble = document.getElementById("sparky-bubble");
-        bubble.innerText = msg;
-        bubble.style.display = "block";
-        bubble.style.borderLeftColor = isAlert ? "#ef4444" : "#6366f1";
-        isSpeaking = true;
-        setTimeout(() => (isSpeaking = false), 800);
-        setTimeout(() => (bubble.style.display = "none"), 5000);
+    const aiToggle = document.getElementById("aiAgentToggle");
+    const aiStatus = document.getElementById("aiAgentStatus");
+    if (aiToggle && aiStatus) {
+      aiToggle.addEventListener("change", () => {
+        aiStatus.textContent = aiToggle.checked ? "开启" : "关闭";
+      });
     }
 
-    const alerts = [
-        { msg: "有账单处于待确认或争议状态时，我会第一时间提醒你。", alert: false },
-        { msg: "大额付款默认需要你在「付款区」点确认。", alert: true },
-        { msg: "保存 Sparky 通道后，可在设置里发测试推送（当前为服务端模拟）。", alert: false },
-    ];
-    let alertIdx = 0;
-    setInterval(() => {
-        const a = alerts[alertIdx % alerts.length];
-        sparkySay(a.msg, a.alert);
-        alertIdx++;
-    }, 24000);
-
-    showConfigGroup(channelSelect.value);
-    syncFromServer().then(() => sparkySay("Sparky 已连接网关，正在盯你的收付款 🐕‍🦺", false));
-    setInterval(syncFromServer, 30000);
-
-    switchPage("dashboard");
-})();
-</script>
+  </script>
 </body>
 </html>
