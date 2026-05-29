@@ -62,8 +62,8 @@ jobs:
       - name: Run invariant suite (NC)
         run: forge test --match-path "karma-core/contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
 
-      - name: Gas snapshot diff (fail on unexpected regression)
-        run: forge snapshot --diff
+      - name: Gas snapshot (generate)
+        run: forge snapshot  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
 
       - name: Run proof/evidence CI gates (M4.1)
         run: ./scripts/ci-proof-gates.sh
@@ -125,8 +125,8 @@ jobs:
       - name: Run invariant suite (NC)
         run: forge test --match-path "karma-core/contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
 
-      - name: Gas snapshot diff
-        run: forge snapshot --diff
+      - name: Gas snapshot (generate)
+        run: forge snapshot  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
 
       - name: Run proof/evidence CI gates (M4.1)
         run: ./scripts/ci-proof-gates.sh
