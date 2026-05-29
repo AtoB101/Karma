@@ -62,3 +62,4 @@ packages/karma-runtime-sdk/dist/
 # Agent Guard: runtime public config (generated on server / CI; do not commit production ids)
 apps/agent-service-guard/frontend/public-config.json
 apps/console/config.js
+.gas-snapshot
