@@ -69,8 +69,8 @@ jobs:
       - name: Run invariant suite (NC)
         run: forge test --match-path "karma-core/contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
 
-      - name: Gas snapshot diff
-        run: forge snapshot --diff
+      - name: Gas snapshot (generate)
+        run: forge snapshot  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
 
       - name: Slither gate
         run: ./scripts/slither-gate.sh --format text
