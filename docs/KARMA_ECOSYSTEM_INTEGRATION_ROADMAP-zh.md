@@ -362,7 +362,7 @@ flowchart TB
 | [`PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md`](PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md) | 当前 agent 验收 |
 | [`PRODUCTION_PRELAUNCH_CHECKLIST-zh.md`](PRODUCTION_PRELAUNCH_CHECKLIST-zh.md) | 生产配置 |
 | [`PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md`](PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md) | Karma2 锁步 |
-| [`learnings/launch-checklist.md`](../learnings/launch-checklist.md) | 历史 x402 运营备忘 |
+| [Karma2 私有仓] 历史 x402 运营备忘 |
 
 ---
 
