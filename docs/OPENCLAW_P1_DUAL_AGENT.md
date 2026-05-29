@@ -1,4 +1,4 @@
-# OpenClaw P0+P1 — 双端自动验证/交付 + 操作端手动授权
+# Advanced OpenClaw Handoff Workflow (P0+P1)
 
 **运营一页纸检查清单：** [`docs/OPENCLAW_OPERATOR_CHECKLIST-zh.md`](OPENCLAW_OPERATOR_CHECKLIST-zh.md)（Console 六步、生产 env、买方/卖方 OpenClaw、故障表）。
 

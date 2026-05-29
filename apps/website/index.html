@@ -6,9 +6,9 @@
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta
       name="description"
-      content="KARMA — open trust and settlement for AI Agents. Non-custodial settlement, verifiable execution records, evidence-based disputes."
+      content="Karma — Proof receipts for paid agent actions. Verifiable execution records for x402, AP2, and MCP transactions."
     />
-    <title>KARMA — Trust &amp; settlement for AI Agents</title>
+    <title>Karma — Proof layer for paid agent actions</title>
     <link rel="stylesheet" href="styles/main.css" />
   </head>
   <body>
@@ -19,111 +19,74 @@
       </header>
 
       <section class="hero">
-        <h1>Open trust and settlement for AI Agents.</h1>
+        <h1>Proof receipts for paid agent actions.</h1>
         <p class="lead">
-          KARMA lets developers, businesses, and autonomous services connect Agents to non-custodial settlement,
-          verifiable execution records, evidence-based dispute resolution, portable reputation signals, and open local
-          deployment — without turning the marketing site into a wallet surface.
-        </p>
-        <p class="lead" style="margin-top: 0.75rem">
-          <strong>KARMA is not an Agent runtime.</strong> It connects Agent runtimes to trust, settlement, and
-          reputation infrastructure.
+          Karma attaches verifiable receipts and evidence bundles to x402, AP2, and MCP transactions.
+          Prove what was authorized, executed, and delivered — without replacing your payment stack.
         </p>
         <div class="cta-row">
           <a class="btn btn-primary" href="../console/index.html">Open Console</a>
-          <a class="btn btn-secondary" href="../developer-portal/index.html#deploy-locally">Deploy Locally</a>
+          <a class="btn btn-secondary" href="https://github.com/AtoB101/Karma">GitHub</a>
         </div>
         <p class="note" style="margin-top: 1rem">
-          <strong>Early builders (中文):</strong>
-          <a href="https://github.com/AtoB101/Karma/blob/main/docs/early-builders-recruitment-zh.md">招募核心开发、安全研究员与生态布道者</a>
-          — 激励与分配机制以正式治理与法律文件为准。
-        </p>
-        <p class="note">
-          Wallet connection, billing, evidence, and disputes are completed inside <strong>Console</strong> — not on
-          this brochure site. Production hosts may rewrite <code>/console</code> and <code>/developers</code> to these
-          paths.
+          Wallet connection, evidence, and proof flows are inside <strong>Console</strong>.
+          See the <a href="https://github.com/AtoB101/Karma">GitHub README</a> for a 10-minute getting-started guide.
         </p>
       </section>
 
-      <section id="businesses">
-        <h2>For Businesses</h2>
+      <section id="primitives">
+        <h2>Three Primitives</h2>
         <div class="card">
-          <h3>Accept payments from AI Agents with verifiable settlement</h3>
-          <p class="note" style="margin: 0.4rem 0 0.6rem">
-            Evidence records and dispute channels are designed for auditability; private scoring rules stay off the
-            public surface.
-          </p>
-          <ul>
-            <li>Receive settlement against agreed bills</li>
-            <li>View invoices and execution-linked evidence references</li>
-            <li>Check Agent reputation aggregates exposed by the public API</li>
-            <li>Handle disputes through the public dispute workflow (decisions from private services when configured)</li>
-            <li>Export evidence bundle JSON for your records</li>
-          </ul>
+          <h3>Execution Receipt</h3>
+          <p>Signed, hashable record of one agent/tool/API call: agent id, tool name, input hash, output hash, timestamp, status, optional payment reference.</p>
         </div>
+        <div class="card">
+          <h3>Evidence Bundle</h3>
+          <p>Portable audit package: collects receipts, payment references, delivery metadata, and verification hints into one verifiable unit.</p>
+        </div>
+        <div class="card">
+          <h3>Verification</h3>
+          <p>Structural and rule-based checks on receipts and bundles. Confirm signatures, chain integrity, hash correctness, and completeness.</p>
+        </div>
+      </section>
+
+      <section id="integrations">
+        <h2>Works With Your Stack</h2>
+        <table class="integrations">
+          <thead><tr><th>Protocol</th><th>What it does</th><th>What Karma adds</th></tr></thead>
+          <tbody>
+            <tr><td>x402</td><td>HTTP-native machine payments</td><td>Proof of paid API/tool execution</td></tr>
+            <tr><td>AP2</td><td>Agent payment authorization</td><td>Post-authorization execution evidence</td></tr>
+            <tr><td>MCP</td><td>Agent tool interface</td><td>Traceable tool receipts</td></tr>
+            <tr><td>OpenClaw</td><td>Agent runtime / operator workflow</td><td>MCP proof plugin and handoff checks</td></tr>
+          </tbody>
+        </table>
+        <p class="note">Karma does not replace payment protocols. It complements them with a proof layer.</p>
       </section>
 
       <section id="developers">
         <h2>For Developers</h2>
         <div class="card">
-          <h3>Connect any Agent runtime through open APIs, SDKs, and local tools</h3>
-          <ul>
-            <li>TypeScript SDK (package scaffold): <code>packages/sdk</code></li>
-            <li>CLI scaffold: <code>packages/cli</code> (<code>karma-agent</code>)</li>
-            <li>Docker example: <code>docker/docker-compose.example.yml</code></li>
-            <li>Agent adapters (examples): <code>examples/</code></li>
-            <li>Evidence bundle JSON Schema: <code>packages/evidence-schema/evidence.schema.json</code></li>
-            <li>Settlement contracts (canonical): <code>karma-core/contracts/core/NonCustodialAgentPayment.sol</code></li>
-          </ul>
+          <h3>Quick Start</h3>
+          <pre><code>git clone https://github.com/AtoB101/Karma.git
+cd Karma && pip install -e ".[dev]"
+uvicorn api.app:app --reload</code></pre>
+          <p><a href="https://github.com/AtoB101/Karma">GitHub →</a> | <a href="https://github.com/AtoB101/Karma/blob/main/docs/GETTING_STARTED.md">Getting Started →</a> | <a href="https://github.com/AtoB101/Karma/blob/main/docs/PROOF_LAYER.md">Proof Layer Docs →</a></p>
         </div>
-      </section>
-
-      <section id="how">
-        <h2>How KARMA Works</h2>
-        <p class="note" style="margin-bottom: 0.75rem">Outcome-oriented flow — no private algorithms on this page.</p>
-        <ol class="flow">
-          <li>Agent creates a task / bill intent (off-chain or via your integration)</li>
-          <li>Buyer locks funds per protocol rules</li>
-          <li>Agent executes against the agreed scope</li>
-          <li>Evidence bundle is generated and hashed</li>
-          <li>Settlement completes on-chain where applicable</li>
-          <li>Dispute path is available if parties disagree</li>
-        </ol>
-      </section>
-
-      <section id="trust">
-        <h2>Trust Without Custody</h2>
-        <div class="grid-2">
-          <div class="card">
-            <h3>Users control funds</h3>
-            <p class="note">Non-custodial design: protocol state and user wallets, not pooled opaque balances on a brochure page.</p>
-          </div>
-          <div class="card">
-            <h3>KARMA verifies execution</h3>
-            <p class="note">Public verification covers integrity and structure; private risk models stay in the private service boundary.</p>
-          </div>
-          <div class="card">
-            <h3>Evidence supports settlement</h3>
-            <p class="note">Bundles bind execution summaries to settlement and dispute workflows.</p>
-          </div>
-          <div class="card">
-            <h3>Disputes are traceable</h3>
-            <p class="note">Lifecycle fields and events are suitable for audit — not hidden “black box” copy on the website.</p>
-          </div>
-          <div class="card" style="grid-column: 1 / -1">
-            <h3>Agent reputation is portable</h3>
-            <p class="note">Public grades and aggregates may be shown; proprietary weighting remains private.</p>
-          </div>
+        <div class="card">
+          <h3>OpenClaw MCP Plugin</h3>
+          <pre><code>pip install -e ./packages/karma-openclaw
+export KARMA_RUNTIME_URL=http://127.0.0.1:8000
+karma-openclaw-mcp</code></pre>
+          <p>Generate receipts and bundles directly from your OpenClaw agent.</p>
         </div>
-      </section>
-
-      <section>
-        <h2>Supported integrations</h2>
-        <p class="note">OpenManus · OpenClaw · Hermes · Custom Agents · API Services · Data Providers</p>
       </section>
 
       <footer>
-        <p>Open source notices: <code>OPEN_SOURCE_NOTICE.md</code> · Security: <code>SECURITY.md</code></p>
+        <p class="note">
+          Karma is early-stage infrastructure. APIs may evolve. License: AGPL-3.0-only.
+          <a href="https://github.com/AtoB101/Karma">GitHub</a>
+        </p>
       </footer>
     </div>
   </body>
