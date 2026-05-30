@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ISettlementEngine} from "../interfaces/ISettlementEngine.sol";
+import {ISettlementEngine} from "../_legacy/interfaces/ISettlementEngine.sol";
 import {IERC20} from "../interfaces/IERC20.sol";
 import {QuoteTypes} from "../libraries/QuoteTypes.sol";
 import {QuoteEIP712} from "../libraries/QuoteEIP712.sol";

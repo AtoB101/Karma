@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {NonCustodialAgentPayment} from "../core/NonCustodialAgentPayment.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
-import {INonCustodialAgentPayment} from "../interfaces/INonCustodialAgentPayment.sol";
+import {NonCustodialAgentPayment} from "../_legacy/core/NonCustodialAgentPayment.sol";
+import {MockERC20} from "../../test/mocks/MockERC20.sol";
+import {INonCustodialAgentPayment} from "../_legacy/interfaces/INonCustodialAgentPayment.sol";
 
 contract NonCustodialAgentPaymentTest is Test {
     event InvalidTransferIntent(address indexed caller, uint256 indexed billId, string reason);

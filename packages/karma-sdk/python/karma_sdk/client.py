@@ -27,6 +27,24 @@ except ImportError as exc:  # pragma: no cover
 
 # ── ABI (minimal — only the three core methods + events) ─────────────────────
 
+# ── Custom Exceptions ────────────────────────────────────────────────────────
+
+class TransactionError(Exception):
+    """Transaction failed (revert, gas, or build failure)."""
+
+class NonceError(TransactionError):
+    """Nonce mismatch — likely due to pending transactions."""
+
+class BalanceError(TransactionError):
+    """Insufficient ETH or token balance."""
+
+class InvalidStateError(Exception):
+    """Contract state does not permit this operation."""
+
+class TimeoutError(Exception):
+    """Operation timed out (e.g., waiting for receipt)."""
+
+
 _ABI = [
     # lock
     {
@@ -324,15 +342,46 @@ class KarmaBilateral:
         )
         self._send(erc20.functions.approve(self._contract.address, amount))
 
-    def _send(self, fn) -> TxReceipt:
-        tx = fn.build_transaction({
-            "from":  self._account.address,
-            "nonce": self.w3.eth.get_transaction_count(self._account.address),
-            "gas":   self.gas,
-        })
-        signed  = self._account.sign_transaction(tx)
-        tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
-        return self.w3.eth.wait_for_transaction_receipt(tx_hash)
+    def _send(self, fn, value: int = 0) -> TxReceipt:
+        """Send transaction with error handling."""
+        try:
+            tx = fn.build_transaction({
+                "from":  self._account.address,
+                "nonce": self.w3.eth.get_transaction_count(self._account.address),
+                "gas":   self.gas,
+                "value": value,
+            })
+        except Exception as e:
+            raise TransactionError(f"build_transaction failed: {e}") from e
+
+        try:
+            signed  = self._account.sign_transaction(tx)
+            tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            if receipt.status != 1:
+                raise TransactionError(f"tx {tx_hash.hex()} reverted")
+            return receipt
+        except ValueError as e:
+            if "nonce" in str(e).lower():
+                raise NonceError(str(e)) from e
+            if "insufficient funds" in str(e).lower():
+                raise BalanceError(str(e)) from e
+            raise TransactionError(str(e)) from e
+        except Exception as e:
+            raise TransactionError(f"send failed: {e}") from e
+
+    def get_nonce(self) -> int:
+        return self.w3.eth.get_transaction_count(self._account.address)
+
+    def get_balance(self, token: str | None = None) -> int:
+        """Get ETH balance or ERC-20 token balance."""
+        if token is None:
+            return self.w3.eth.get_balance(self._account.address)
+        erc20 = self.w3.eth.contract(
+            address=Web3.to_checksum_address(token),
+            abi=[{"name":"balanceOf","type":"function","inputs":[{"name":"a","type":"address"}],"outputs":[{"name":"","type":"uint256"}]}]
+        )
+        return erc20.functions.balanceOf(self._account.address).call()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

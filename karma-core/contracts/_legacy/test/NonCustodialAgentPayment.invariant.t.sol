@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
-import {NonCustodialAgentPayment} from "../core/NonCustodialAgentPayment.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
+import {NonCustodialAgentPayment} from "../_legacy/core/NonCustodialAgentPayment.sol";
+import {MockERC20} from "../../test/mocks/MockERC20.sol";
 
 contract NonCustodialAgentPaymentHandler is Test {
     NonCustodialAgentPayment public protocol;
