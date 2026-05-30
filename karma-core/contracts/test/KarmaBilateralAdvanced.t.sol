@@ -667,217 +667,251 @@ contract KarmaBilateralAdvancedTest is Test {
     //  STATE MACHINE EXHAUSTION — Invalid Transitions
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// @notice Try every invalid state transition and verify each reverts.
-    /// @dev Disabled: state leakage between sections due to global vm.warp.
-    function test_invalidTransition_matrix() public {
-        vm.skip(true);
-        // ── Prepare reference states ──
-        (uint256 mintedBill, , ) = _setupSingleLock();           // MINTED bills
-        (, , uint256 activeBinding) = _setupBinding();             // ACTIVE binding
+    /// @notice Test invalid binding transitions: bind already-BOUND and already-BURNED bills.
+    function test_invalidTransition_bind() public {
+        (, , uint256 activeBinding) = _setupBinding();
+        (, , uint256 settledBinding) = _setupSettleAndFinalize();
 
-        // Save settle delay before we warp
+        // bind() with bill that is already BOUND
+        uint256 boundBill = karma.getBinding(activeBinding).buyerBillId;
+        vm.prank(buyer); uint256 freshBill = karma.lock(address(usdc), BUYER_LOCK);
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBillState.selector, boundBill,
+            KarmaBilateral.BillState.MINTED, KarmaBilateral.BillState.BOUND
+        ));
+        karma.bind(boundBill, freshBill, SCOPE);
+
+        // bind() with bill that is BURNED
+        uint256 burnedBill = karma.getBinding(settledBinding).buyerBillId;
+        assertEq(uint8(karma.getBill(burnedBill).state), uint8(KarmaBilateral.BillState.BURNED));
+        vm.prank(buyer); uint256 freshBill2 = karma.lock(address(usdc), BUYER_LOCK);
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBillState.selector, burnedBill,
+            KarmaBilateral.BillState.MINTED, KarmaBilateral.BillState.BURNED
+        ));
+        karma.bind(burnedBill, freshBill2, SCOPE);
+    }
+
+    /// @notice Test invalid unlock transitions: unlock BOUND and BURNED bills.
+    function test_invalidTransition_unlock() public {
+        (, , uint256 activeBinding) = _setupBinding();
+        (, , uint256 settledBinding) = _setupSettleAndFinalize();
+
+        // unlock BOUND bill
+        uint256 boundBill = karma.getBinding(activeBinding).buyerBillId;
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBillState.selector, boundBill,
+            KarmaBilateral.BillState.MINTED, KarmaBilateral.BillState.BOUND
+        ));
+        karma.unlock(boundBill);
+
+        // unlock BURNED bill
+        uint256 burnedBill = karma.getBinding(settledBinding).buyerBillId;
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBillState.selector, burnedBill,
+            KarmaBilateral.BillState.MINTED, KarmaBilateral.BillState.BURNED
+        ));
+        karma.unlock(burnedBill);
+    }
+
+    /// @notice Test invalid settle transitions on ACTIVE (before delay), FINALIZING, DISPUTED, SETTLED.
+    function test_invalidTransition_settle() public {
+        (, , uint256 activeBinding) = _setupBinding();
+        // Save settle delay before warps from further setups
         uint256 activeSettleAfter = block.timestamp + karma.disputeWindowSeconds();
 
-        (, , uint256 finalizingBinding) = _setupSettle();          // FINALIZING binding
-        (, , uint256 disputedBinding) = _setupSettleAndDispute();  // DISPUTED binding
-        (, , uint256 settledBinding) = _setupSettleAndFinalize();  // SETTLED binding
+        (, , uint256 finalizingBinding) = _setupSettle();
+        (, , uint256 disputedBinding) = _setupSettleAndDispute();
+        (, , uint256 settledBinding) = _setupSettleAndFinalize();
 
-        // ── bind() invalid transitions ──
-        {
-            // bind() with bill that is already BOUND
-            uint256 boundBill = karma.getBinding(activeBinding).buyerBillId;
-            vm.prank(buyer); uint256 freshBill = karma.lock(address(usdc), BUYER_LOCK);
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBillState.selector, boundBill,
-                KarmaBilateral.BillState.MINTED, KarmaBilateral.BillState.BOUND
-            ));
-            karma.bind(boundBill, freshBill, SCOPE);
+        // settle() on ACTIVE before settle delay
+        // Warp back to a time before the delay expired (the setups warped us forward)
+        // activeBinding's settleAfter = createdAt + disputeWindowSeconds.
+        // Since createdAt is t=1 (setUp) and binding was at t=1, settleAfter = 1801.
+        // But _setupSettleAndFinalize warped us far forward. We need to use a fresh
+        // binding created at base time to test delay. Since warp is global, we can't
+        // go back. Instead verify settle() reverts on non-ACTIVE states.
 
-            // bind() with bill that is BURNED
-            uint256 burnedBill = karma.getBinding(settledBinding).buyerBillId;
-            assertEq(uint8(karma.getBill(burnedBill).state), uint8(KarmaBilateral.BillState.BURNED));
-            vm.prank(buyer); uint256 freshBill2 = karma.lock(address(usdc), BUYER_LOCK);
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBillState.selector, burnedBill,
-                KarmaBilateral.BillState.MINTED, KarmaBilateral.BillState.BURNED
-            ));
-            karma.bind(burnedBill, freshBill2, SCOPE);
-        }
+        // settle() on FINALIZING (already in that state)
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, finalizingBinding,
+            KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.FINALIZING
+        ));
+        karma.settle(finalizingBinding, PROOF);
 
-        // ── unlock() invalid transitions ──
-        {
-            // unlock BOUND bill
-            uint256 boundBill = karma.getBinding(activeBinding).buyerBillId;
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBillState.selector, boundBill,
-                KarmaBilateral.BillState.MINTED, KarmaBilateral.BillState.BOUND
-            ));
-            karma.unlock(boundBill);
+        // settle() on DISPUTED
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, disputedBinding,
+            KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.DISPUTED
+        ));
+        karma.settle(disputedBinding, PROOF);
 
-            // unlock BURNED bill
-            uint256 burnedBill = karma.getBinding(settledBinding).buyerBillId;
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBillState.selector, burnedBill,
-                KarmaBilateral.BillState.MINTED, KarmaBilateral.BillState.BURNED
-            ));
-            karma.unlock(burnedBill);
-        }
+        // settle() on SETTLED
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, settledBinding,
+            KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.SETTLED
+        ));
+        karma.settle(settledBinding, PROOF);
 
-        // ── settle() invalid transitions ──
-        {
-            // settle() on ACTIVE before settle delay — call static first, then prank
-            uint256 settleAfter = activeSettleAfter;
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.SettleDelayActive.selector, settleAfter
-            ));
-            karma.settle(activeBinding, PROOF);
+        // settle() on ACTIVE before settle delay (fresh binding at current time)
+        (uint256 bb, uint256 ab, uint256 freshBinding) = _setupBinding();
+        uint256 settleAfter = block.timestamp + karma.disputeWindowSeconds();
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.SettleDelayActive.selector, settleAfter
+        ));
+        karma.settle(freshBinding, PROOF);
+    }
 
-            // Advance past delay for remaining tests
-            vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+    /// @notice Test invalid finalizeSettle transitions on ACTIVE, FINALIZING (before window),
+    ///         DISPUTED, and SETTLED.
+    function test_invalidTransition_finalizeSettle() public {
+        (, , uint256 activeBinding) = _setupBinding();
+        (, , uint256 finalizingBinding) = _setupSettle();
 
-            // settle() on FINALIZING (already in that state)
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, finalizingBinding,
-                KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.FINALIZING
-            ));
-            karma.settle(finalizingBinding, PROOF);
+        // Test finalizeSettle on FINALIZING before dispute window closes NOW
+        // (before later warps from _setupSettleAndDispute etc. accidentally open the window)
+        uint256 windowEnd = karma.finalizeAfter(finalizingBinding);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.FinalizeWindowOpen.selector, windowEnd
+        ));
+        karma.finalizeSettle(finalizingBinding);
 
-            // settle() on DISPUTED
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, disputedBinding,
-                KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.DISPUTED
-            ));
-            karma.settle(disputedBinding, PROOF);
+        // Now create remaining states (these warp time forward)
+        (, , uint256 disputedBinding) = _setupSettleAndDispute();
+        (, , uint256 settledBinding) = _setupSettleAndFinalize();
 
-            // settle() on SETTLED
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, settledBinding,
-                KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.SETTLED
-            ));
-            karma.settle(settledBinding, PROOF);
-        }
+        // finalizeSettle() on ACTIVE
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, activeBinding,
+            KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.ACTIVE
+        ));
+        karma.finalizeSettle(activeBinding);
 
-        // ── finalizeSettle() invalid transitions ──
-        {
-            // finalizeSettle() on ACTIVE
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, activeBinding,
-                KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.ACTIVE
-            ));
-            karma.finalizeSettle(activeBinding);
+        // finalizeSettle() on DISPUTED
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, disputedBinding,
+            KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.DISPUTED
+        ));
+        karma.finalizeSettle(disputedBinding);
 
-            // finalizeSettle() on FINALIZING before dispute window closes
-            uint256 windowEnd = karma.finalizeAfter(finalizingBinding);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.FinalizeWindowOpen.selector, windowEnd
-            ));
-            karma.finalizeSettle(finalizingBinding);
+        // finalizeSettle() on SETTLED (already terminal)
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, settledBinding,
+            KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.SETTLED
+        ));
+        karma.finalizeSettle(settledBinding);
+    }
 
-            // finalizeSettle() on DISPUTED
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, disputedBinding,
-                KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.DISPUTED
-            ));
-            karma.finalizeSettle(disputedBinding);
+    /// @notice Test invalid dispute transitions on ACTIVE, DISPUTED, and SETTLED.
+    function test_invalidTransition_dispute() public {
+        (, , uint256 activeBinding) = _setupBinding();
+        (, , uint256 disputedBinding) = _setupSettleAndDispute();
+        (, , uint256 settledBinding) = _setupSettleAndFinalize();
 
-            // finalizeSettle() on SETTLED (already terminal)
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, settledBinding,
-                KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.SETTLED
-            ));
-            karma.finalizeSettle(settledBinding);
-        }
+        // dispute() on ACTIVE
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, activeBinding,
+            KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.ACTIVE
+        ));
+        karma.dispute(activeBinding, PROOF);
 
-        // ── dispute() invalid transitions ──
-        {
-            // dispute() on ACTIVE
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, activeBinding,
-                KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.ACTIVE
-            ));
-            karma.dispute(activeBinding, PROOF);
+        // dispute() on DISPUTED (already in that state)
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, disputedBinding,
+            KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.DISPUTED
+        ));
+        karma.dispute(disputedBinding, PROOF);
 
-            // dispute() on DISPUTED (already in that state)
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, disputedBinding,
-                KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.DISPUTED
-            ));
-            karma.dispute(disputedBinding, PROOF);
+        // dispute() on SETTLED
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, settledBinding,
+            KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.SETTLED
+        ));
+        karma.dispute(settledBinding, PROOF);
+    }
 
-            // dispute() on SETTLED
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, settledBinding,
-                KarmaBilateral.BindingState.FINALIZING, KarmaBilateral.BindingState.SETTLED
-            ));
-            karma.dispute(settledBinding, PROOF);
-        }
+    /// @notice Test invalid submitArbitrationEvidence on non-DISPUTED bindings.
+    function test_invalidTransition_submitEvidence() public {
+        (, , uint256 activeBinding) = _setupBinding();
+        (, , uint256 settledBinding) = _setupSettleAndFinalize();
 
-        // ── submitArbitrationEvidence() invalid transitions ──
-        {
-            // on non-DISPUTED binding (ACTIVE)
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, activeBinding,
-                KarmaBilateral.BindingState.DISPUTED, KarmaBilateral.BindingState.ACTIVE
-            ));
-            karma.submitArbitrationEvidence(activeBinding, PROOF);
+        // on non-DISPUTED binding (ACTIVE)
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, activeBinding,
+            KarmaBilateral.BindingState.DISPUTED, KarmaBilateral.BindingState.ACTIVE
+        ));
+        karma.submitArbitrationEvidence(activeBinding, PROOF);
 
-            // on SETTLED binding
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, settledBinding,
-                KarmaBilateral.BindingState.DISPUTED, KarmaBilateral.BindingState.SETTLED
-            ));
-            karma.submitArbitrationEvidence(settledBinding, PROOF);
-        }
+        // on SETTLED binding
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, settledBinding,
+            KarmaBilateral.BindingState.DISPUTED, KarmaBilateral.BindingState.SETTLED
+        ));
+        karma.submitArbitrationEvidence(settledBinding, PROOF);
+    }
 
-        // ── autoResolveArbitration() invalid transitions ──
-        {
-            // on non-DISPUTED binding
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, activeBinding,
-                KarmaBilateral.BindingState.DISPUTED, KarmaBilateral.BindingState.ACTIVE
-            ));
-            karma.autoResolveArbitration(activeBinding);
-        }
+    /// @notice Test invalid autoResolveArbitration on non-DISPUTED binding.
+    function test_invalidTransition_autoResolve() public {
+        (, , uint256 activeBinding) = _setupBinding();
 
-        // ── refundOnTimeout() invalid transitions ──
-        {
-            // on FINALIZING binding
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, finalizingBinding,
-                KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.FINALIZING
-            ));
-            karma.refundOnTimeout(finalizingBinding);
+        // on non-DISPUTED binding
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, activeBinding,
+            KarmaBilateral.BindingState.DISPUTED, KarmaBilateral.BindingState.ACTIVE
+        ));
+        karma.autoResolveArbitration(activeBinding);
+    }
 
-            // on DISPUTED binding
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, disputedBinding,
-                KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.DISPUTED
-            ));
-            karma.refundOnTimeout(disputedBinding);
+    /// @notice Test invalid refundOnTimeout transitions on FINALIZING, DISPUTED, SETTLED.
+    function test_invalidTransition_refundOnTimeout() public {
+        (, , uint256 finalizingBinding) = _setupSettle();
+        (, , uint256 disputedBinding) = _setupSettleAndDispute();
+        (, , uint256 settledBinding) = _setupSettleAndFinalize();
 
-            // on SETTLED binding (terminal)
-            vm.prank(buyer);
-            vm.expectRevert(abi.encodeWithSelector(
-                KarmaBilateral.WrongBindingState.selector, settledBinding,
-                KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.SETTLED
-            ));
-            karma.refundOnTimeout(settledBinding);
-        }
+        // on FINALIZING binding
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, finalizingBinding,
+            KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.FINALIZING
+        ));
+        karma.refundOnTimeout(finalizingBinding);
+
+        // on DISPUTED binding
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, disputedBinding,
+            KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.DISPUTED
+        ));
+        karma.refundOnTimeout(disputedBinding);
+
+        // on SETTLED binding (terminal)
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(
+            KarmaBilateral.WrongBindingState.selector, settledBinding,
+            KarmaBilateral.BindingState.ACTIVE, KarmaBilateral.BindingState.SETTLED
+        ));
+        karma.refundOnTimeout(settledBinding);
+    }
+
+    /// @notice Legacy combined matrix test — all invalid transitions in one test.
+    ///         Splits into individual tests above for reliability with via_ir.
+    function test_invalidTransition_matrix() public pure {
+        // All invalid transitions are now tested in the individual test_invalidTransition_* tests.
+        // This test exists as a placeholder; the real coverage is in the split tests.
+        assertTrue(true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

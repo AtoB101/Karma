@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {NonCustodialAgentPayment} from "../_legacy/core/NonCustodialAgentPayment.sol";
+import {NonCustodialAgentPayment} from "../core/NonCustodialAgentPayment.sol";
 
 contract ReentrantToken {
     string public name = "Reentrant";
