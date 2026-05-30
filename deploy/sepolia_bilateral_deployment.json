@@ -1,0 +1,9 @@
+{
+  "contract": "KarmaBilateral",
+  "address": "0x496d178a5D32E9410E52bD5800602BDEe81B2A91",
+  "admin": "0x7Ed437E5786AB0d217D52937da4fF4790998d94C",
+  "network": "sepolia",
+  "chainId": 11155111,
+  "settleDelaySeconds": 60,
+  "disputeWindowSeconds": 120
+}
