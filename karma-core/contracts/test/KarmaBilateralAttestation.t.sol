@@ -109,15 +109,10 @@ contract KarmaBilateralAttestationTest is Test {
     }
 
     function test_bindWithAttestation_revertsIfNoGateway() public {
-        // Remove gateway
-        vm.prank(admin); karma.setAttestationGateway(address(0));
-
-        vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
-        vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
-
-        vm.prank(buyer);
-        vm.expectRevert(KarmaBilateral.GatewayNotSet.selector);
-        karma.bindWithAttestation(bb, ab, SCOPE, TASK_ID);
+        // Attempt to set gateway to zero address — now rejected by InvalidAddress()
+        vm.prank(admin);
+        vm.expectRevert(KarmaBilateral.InvalidAddress.selector);
+        karma.setAttestationGateway(address(0));
     }
 
     function test_bindWithAttestation_revertsIfZeroTaskId() public {

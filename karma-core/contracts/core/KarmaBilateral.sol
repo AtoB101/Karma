@@ -68,6 +68,7 @@ contract KarmaBilateral {
     error PerAddressInvariantBroken(address addr, uint256 free, uint256 bound, uint256 minted);
     error Reentrancy();
     error Unauthorized();
+    error InvalidAddress();
     error InvalidSplit();
     error AttestationRequired(uint256 bindingId);
     error GatewayNotSet();
@@ -264,6 +265,11 @@ contract KarmaBilateral {
     event TokenAllowed(address indexed token, bool allowed);
     event InvariantChecked(address indexed token, uint256 supply, uint256 locked);
     event AttestationGatewayUpdated(address indexed gateway);
+    event DisputeWindowUpdated(uint256 seconds_);
+    event OptimisticDisputeWindowUpdated(uint256 seconds_);
+    event EvidenceWindowUpdated(uint256 seconds_);
+    event AutoArbitrationThresholdUpdated(uint256 amount);
+    event SettleTimeoutUpdated(uint256 seconds_);
     event AttestationBindingRegistered(uint256 indexed bindingId, bytes32 indexed taskId);
     // Layer 1 events
     event SettleSubmitted(uint256 indexed bindingId, bytes32 proofHash, uint256 finalizeAfter);
@@ -1073,28 +1079,34 @@ contract KarmaBilateral {
     /// @notice Set minimum time after bind() before settle() can be called.
     function setDisputeWindow(uint256 seconds_) external onlyAdmin {
         disputeWindowSeconds = seconds_;
+        emit DisputeWindowUpdated(seconds_);
     }
 
     /// @notice Set Layer 1 dispute window duration (after settle() submission).
     function setOptimisticDisputeWindow(uint256 seconds_) external onlyAdmin {
         disputeWindow = seconds_;
+        emit OptimisticDisputeWindowUpdated(seconds_);
     }
 
     /// @notice Set arbitration evidence window duration.
     function setEvidenceWindow(uint256 seconds_) external onlyAdmin {
         evidenceWindow = seconds_;
+        emit EvidenceWindowUpdated(seconds_);
     }
 
     /// @notice Set auto-arbitration threshold (pool value below which auto-resolve applies).
     function setAutoArbitrationThreshold(uint256 amount) external onlyAdmin {
         autoArbitrationThreshold = amount;
+        emit AutoArbitrationThresholdUpdated(amount);
     }
 
     function setSettleTimeout(uint256 seconds_) external onlyAdmin {
         settleTimeoutSeconds = seconds_;
+        emit SettleTimeoutUpdated(seconds_);
     }
 
     function setAttestationGateway(address gateway) external onlyAdmin {
+        if (gateway == address(0)) revert InvalidAddress();
         attestationGateway = gateway;
         emit AttestationGatewayUpdated(gateway);
     }
