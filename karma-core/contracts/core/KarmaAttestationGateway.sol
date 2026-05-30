@@ -3,40 +3,36 @@ pragma solidity ^0.8.24;
 
 import {VerifierRegistry} from "./VerifierRegistry.sol";
 
-/// @notice Minimal payment-contract interface consumed by the Gateway.
-///        Full interface in INonCustodialAgentPayment.sol.
-interface IPaymentSettlement {
-    function confirmBill(uint256 billId) external;
-    function getBill(uint256 billId)
-        external
-        view
-        returns (
-            uint256 billId_,
-            uint256 batchId,
-            address buyer,
-            address seller,
-            address token,
-            uint256 amount,
-            uint256 sellerBond,
-            bytes32 scopeHash,
-            string memory proofHash,
-            uint8   status,
-            uint256 createdAt,
-            uint256 deadline
-        );
+/// @notice Minimal KarmaBilateral interface consumed by the Gateway.
+interface IKarmaBilateral {
+    function settle(uint256 bindingId, bytes32 proofHash) external;
+    function getBinding(uint256 bindingId) external view returns (
+        uint256 bindingId_,
+        uint256 buyerBillId,
+        uint256 agentBillId,
+        bytes32 scopeHash,
+        uint8   state,
+        uint256 createdAt,
+        uint256 settleAfter,
+        bytes32 proofHash_,
+        uint256 disputedAt,
+        address disputeInitiator
+    );
+    function bindingTaskId(uint256 bindingId) external view returns (bytes32);
+    function requiresAttestation(uint256 bindingId) external view returns (bool);
 }
 
 /// @title KarmaAttestationGateway
-/// @notice Settlement-permission layer that gates NonCustodialAgentPayment
-///         confirmBill calls behind N-of-M verifier attestations and a
-///         challenge window. It wraps the existing payment contract without
-///         modifying it.
-/// @dev   This contract is the "decentralized settlement gate":
-///        1. Evidence is published (immutable record of the task output).
-///        2. Verifiers submit EIP-712 attestations (N of M required).
+/// @notice Settlement-permission layer that gates KarmaBilateral.settle()
+///         behind N-of-M verifier attestations and a challenge window.
+/// @dev   Decentralized settlement gate — full flow:
+///        1. Evidence is published on-chain (immutable hash + CID).
+///        2. Registered verifiers submit EIP-712 attestations (N-of-M required).
 ///        3. A challenge window opens; anyone may raise a dispute.
-///        4. Only after the window closes undisputed can settleWithAttestation
-///           forward confirmBill to the underlying payment contract.
+///        4. Only after the window closes undisputed does settleWithAttestation
+///           forward settle() to KarmaBilateral.
+///        5. KarmaBilateral.settle() accepts the call only from this gateway
+///           when requiresAttestation[bindingId] == true.
 contract KarmaAttestationGateway {
     // ─────────────────────────────── Errors ──────────────────────────────────
 
@@ -61,8 +57,8 @@ contract KarmaAttestationGateway {
     /// @notice The verifier registry that authorizes attesting nodes.
     VerifierRegistry public immutable registry;
 
-    /// @notice The underlying NonCustodialAgentPayment contract.
-    address public immutable paymentContract;
+    /// @notice The KarmaBilateral contract that this gateway gates.
+    address public immutable bilateralContract;
 
     /// @notice Address authorized to resolve challenges.
     address public immutable arbitrator;
@@ -124,7 +120,8 @@ contract KarmaAttestationGateway {
 
     event SettlementApproved(
         bytes32 indexed taskId,
-        uint256 billId
+        uint256 indexed bindingId,
+        bytes32 proofHash
     );
 
     event ChallengeRaised(
@@ -145,23 +142,23 @@ contract KarmaAttestationGateway {
     // ──────────────────────────── Constructor ───────────────────────────────
 
     /// @param _registry Address of the VerifierRegistry contract.
-    /// @param _paymentContract Address of NonCustodialAgentPayment.
+    /// @param _bilateralContract Address of KarmaBilateral.
     /// @param _arbitrator Address authorized to resolve challenges.
     /// @param _challengeWindowDuration Default challenge window in seconds.
     constructor(
         address _registry,
-        address _paymentContract,
+        address _bilateralContract,
         address _arbitrator,
         uint256 _challengeWindowDuration
     ) {
         if (
             _registry == address(0) ||
-            _paymentContract == address(0) ||
+            _bilateralContract == address(0) ||
             _arbitrator == address(0)
         ) revert InvalidAddress();
 
         registry = VerifierRegistry(_registry);
-        paymentContract = _paymentContract;
+        bilateralContract = _bilateralContract;
         arbitrator = _arbitrator;
         challengeWindowDuration = _challengeWindowDuration;
 
@@ -269,46 +266,52 @@ contract KarmaAttestationGateway {
 
     // ═══════════════════════════ Settlement ══════════════════════════════════
 
-    /// @notice Settle a bill after N-of-M attestations pass and the
-    ///         challenge window closes without dispute.
+    /// @notice Settle a KarmaBilateral binding after N-of-M attestations pass
+    ///         and the challenge window closes without dispute.
     ///
     ///         Gating conditions (any failure reverts):
-    ///         1. Sufficient valid attestations (N-of-M).
-    ///         2. Challenge window has ended.
-    ///         3. No challenge was raised OR challenge was overruled.
+    ///         1. Evidence has been published for taskId.
+    ///         2. Sufficient valid attestations (N-of-M quorum reached).
+    ///         3. Challenge window has ended.
+    ///         4. No challenge raised, OR challenge was overruled.
     ///
-    ///         On success, forwards confirmBill to the payment contract.
+    ///         On success, calls KarmaBilateral.settle(bindingId, proofHash).
+    ///         KarmaBilateral.settle() accepts this call because msg.sender == attestationGateway.
     ///
-    /// @param taskId Task identifier (on-chain evidence key).
-    /// @param billId The bill ID in NonCustodialAgentPayment to confirm.
-    function settleWithAttestation(bytes32 taskId, uint256 billId) external {
-        // ── Gate 1: Attestation quorum ──────────────────────────────────
+    /// @param taskId     Task identifier (must match bindingTaskId[bindingId] in KarmaBilateral).
+    /// @param bindingId  The Binding ID in KarmaBilateral to settle.
+    /// @param proofHash  keccak256 of execution proof / evidence bundle CID (must match published evidence).
+    function settleWithAttestation(bytes32 taskId, uint256 bindingId, bytes32 proofHash) external {
+        // ── Gate 0: Evidence published ─────────────────────────────────
+        if (taskEvidence[taskId] == bytes32(0)) revert TaskNotFound();
+
+        // ── Gate 1: proofHash must match published evidence ────────────
+        // The evidence hash committed at publishEvidence time is the ground truth.
+        if (taskEvidence[taskId] != proofHash) revert InvalidSignature(); // reuse: hash mismatch
+
+        // ── Gate 2: Attestation quorum ─────────────────────────────────
         uint256 required = registry.getRequiredThreshold();
         if (validAttestationCount[taskId] < required) {
             revert InsufficientAttestations(validAttestationCount[taskId], required);
         }
 
-        // ── Gate 2: Challenge window closed ────────────────────────────
+        // ── Gate 3: Challenge window closed ────────────────────────────
         if (block.timestamp < challengeEnd[taskId]) {
             revert ChallengeWindowOpen();
         }
 
-        // ── Gate 3: No active (upheld) challenge ───────────────────────
+        // ── Gate 4: No active (upheld) challenge ───────────────────────
         if (challenged[taskId]) {
-            // If challenge was resolved as overruled, proceed.
-            // If resolved as upheld, block permanently.
-            if (!challengeResolved[taskId]) {
-                revert SettlementBlocked();
-            }
-            if (challengeUpheld[taskId]) {
-                revert SettlementBlocked(); // upheld = settlement permanently blocked
-            }
-            // overruled → fall through and settle
+            if (!challengeResolved[taskId]) revert SettlementBlocked();
+            if (challengeUpheld[taskId])    revert SettlementBlocked();
+            // overruled → fall through
         }
 
-        // ── Forward to payment contract ────────────────────────────────
-        IPaymentSettlement(paymentContract).confirmBill(billId);
-        emit SettlementApproved(taskId, billId);
+        // ── Forward to KarmaBilateral ──────────────────────────────────
+        // KarmaBilateral.settle() checks msg.sender == attestationGateway for
+        // attested bindings, so this call is the only authorised entry point.
+        IKarmaBilateral(bilateralContract).settle(bindingId, proofHash);
+        emit SettlementApproved(taskId, bindingId, proofHash);
     }
 
     // ═══════════════════════════ Challenge ═════════════════════════════
@@ -368,7 +371,22 @@ contract KarmaAttestationGateway {
     }
 
     /// @notice Check if a task can be settled (all gates pass).
-    function canSettle(bytes32 taskId) external view returns (bool) {
+    /// @param taskId   Task identifier.
+    /// @param proofHash The proof hash that will be passed to settleWithAttestation.
+    function canSettle(bytes32 taskId, bytes32 proofHash) external view returns (bool) {
+        if (taskEvidence[taskId] == bytes32(0)) return false;
+        if (taskEvidence[taskId] != proofHash) return false;
+        if (validAttestationCount[taskId] < registry.getRequiredThreshold()) return false;
+        if (block.timestamp < challengeEnd[taskId]) return false;
+        if (challenged[taskId]) {
+            if (!challengeResolved[taskId]) return false;
+            if (challengeUpheld[taskId]) return false;
+        }
+        return true;
+    }
+
+    /// @notice Convenience: canSettle without proofHash check (legacy view).
+    function canSettleTask(bytes32 taskId) external view returns (bool) {
         if (taskEvidence[taskId] == bytes32(0)) return false;
         if (validAttestationCount[taskId] < registry.getRequiredThreshold()) return false;
         if (block.timestamp < challengeEnd[taskId]) return false;

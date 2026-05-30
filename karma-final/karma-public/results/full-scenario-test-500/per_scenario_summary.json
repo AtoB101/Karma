@@ -1,0 +1,140 @@
+[
+  {
+    "scenario": "data_labeling",
+    "total_tasks": 400,
+    "honest_tasks": 200,
+    "malicious_tasks": 200,
+    "released": 200,
+    "held": 88,
+    "refunded": 112,
+    "detection_rate": 1.0,
+    "attacks_detected": {
+      "cross_task_receipt_reuse": 22,
+      "malformed_receipt": 22,
+      "fake_execution": 23,
+      "forged_hash": 22,
+      "duplicate_receipt": 46,
+      "repeated_output": 22,
+      "timeout": 22,
+      "partial_receipt_chain": 22
+    },
+    "average_verification_ms": 0.207,
+    "p95_verification_ms": 0.392,
+    "failed_cases": []
+  },
+  {
+    "scenario": "ocr",
+    "total_tasks": 400,
+    "honest_tasks": 200,
+    "malicious_tasks": 200,
+    "released": 200,
+    "held": 88,
+    "refunded": 112,
+    "detection_rate": 1.0,
+    "attacks_detected": {
+      "cross_task_receipt_reuse": 22,
+      "malformed_receipt": 22,
+      "fake_execution": 22,
+      "forged_hash": 22,
+      "duplicate_receipt": 46,
+      "repeated_output": 22,
+      "timeout": 23,
+      "partial_receipt_chain": 22
+    },
+    "average_verification_ms": 0.143,
+    "p95_verification_ms": 0.179,
+    "failed_cases": []
+  },
+  {
+    "scenario": "api_call",
+    "total_tasks": 400,
+    "honest_tasks": 200,
+    "malicious_tasks": 200,
+    "released": 200,
+    "held": 88,
+    "refunded": 112,
+    "detection_rate": 1.0,
+    "attacks_detected": {
+      "cross_task_receipt_reuse": 22,
+      "malformed_receipt": 22,
+      "fake_execution": 24,
+      "forged_hash": 22,
+      "duplicate_receipt": 46,
+      "repeated_output": 22,
+      "timeout": 22,
+      "partial_receipt_chain": 22
+    },
+    "average_verification_ms": 0.143,
+    "p95_verification_ms": 0.166,
+    "failed_cases": []
+  },
+  {
+    "scenario": "translation",
+    "total_tasks": 400,
+    "honest_tasks": 200,
+    "malicious_tasks": 200,
+    "released": 200,
+    "held": 88,
+    "refunded": 112,
+    "detection_rate": 1.0,
+    "attacks_detected": {
+      "cross_task_receipt_reuse": 22,
+      "malformed_receipt": 23,
+      "fake_execution": 22,
+      "forged_hash": 22,
+      "duplicate_receipt": 46,
+      "repeated_output": 22,
+      "timeout": 22,
+      "partial_receipt_chain": 22
+    },
+    "average_verification_ms": 0.12,
+    "p95_verification_ms": 0.143,
+    "failed_cases": []
+  },
+  {
+    "scenario": "data_cleaning",
+    "total_tasks": 400,
+    "honest_tasks": 200,
+    "malicious_tasks": 200,
+    "released": 200,
+    "held": 88,
+    "refunded": 112,
+    "detection_rate": 1.0,
+    "attacks_detected": {
+      "cross_task_receipt_reuse": 22,
+      "malformed_receipt": 24,
+      "fake_execution": 24,
+      "forged_hash": 22,
+      "duplicate_receipt": 46,
+      "repeated_output": 22,
+      "timeout": 22,
+      "partial_receipt_chain": 22
+    },
+    "average_verification_ms": 0.142,
+    "p95_verification_ms": 0.167,
+    "failed_cases": []
+  },
+  {
+    "scenario": "a2a_microservice",
+    "total_tasks": 400,
+    "honest_tasks": 200,
+    "malicious_tasks": 200,
+    "released": 200,
+    "held": 88,
+    "refunded": 112,
+    "detection_rate": 1.0,
+    "attacks_detected": {
+      "cross_task_receipt_reuse": 22,
+      "malformed_receipt": 22,
+      "fake_execution": 23,
+      "forged_hash": 22,
+      "duplicate_receipt": 46,
+      "repeated_output": 22,
+      "timeout": 24,
+      "partial_receipt_chain": 22
+    },
+    "average_verification_ms": 0.142,
+    "p95_verification_ms": 0.174,
+    "failed_cases": []
+  }
+]

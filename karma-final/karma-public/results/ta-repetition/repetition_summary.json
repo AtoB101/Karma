@@ -1,0 +1,29 @@
+{
+  "simulation_mode": true,
+  "timestamp": "2026-05-09T18:40:40.426466+00:00",
+  "total_runs": 10,
+  "successful_runs": 10,
+  "failed_runs": 0,
+  "transactions": {
+    "lock": 10,
+    "confirm": 10,
+    "settle": 10
+  },
+  "gas": {
+    "total_used": 6000000,
+    "avg_per_run": 600000.0
+  },
+  "verification": {
+    "avg_latency_ms": 0.0,
+    "failures": 0
+  },
+  "trace_correlation": {
+    "success": 10,
+    "fail": 0
+  },
+  "settlement_consistency": {
+    "consistent": 10,
+    "inconsistent": 0
+  },
+  "verdict": "PASS"
+}

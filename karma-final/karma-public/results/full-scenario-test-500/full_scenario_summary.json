@@ -1,0 +1,50 @@
+{
+  "simulation_name": "karma_full_scenario_simulation",
+  "timestamp": "2026-05-09T18:28:26.896301+00:00",
+  "config": {
+    "scenarios": [
+      "data_labeling",
+      "ocr",
+      "api_call",
+      "translation",
+      "data_cleaning",
+      "a2a_microservice"
+    ],
+    "num_agents": 500,
+    "num_workers": 400,
+    "num_clients": 100,
+    "malicious_rate": 0.5,
+    "seed": 42
+  },
+  "results": {
+    "total_tasks": 2400,
+    "total_honest_tasks": 1200,
+    "total_malicious_tasks": 1200,
+    "released": 1200,
+    "held": 528,
+    "refunded": 672,
+    "honest_release_rate": 1.0,
+    "malicious_detection_rate": 1.0,
+    "false_positive_count": 0,
+    "undetected_attack_count": 0
+  },
+  "performance": {
+    "total_duration_s": 1.35,
+    "average_verification_ms": 0.15,
+    "p95_verification_ms": 0.219,
+    "tasks_per_second": 1775.1
+  },
+  "detected_attack_types": {
+    "cross_task_receipt_reuse": 132,
+    "malformed_receipt": 135,
+    "fake_execution": 138,
+    "forged_hash": 132,
+    "duplicate_receipt": 276,
+    "repeated_output": 132,
+    "timeout": 135,
+    "partial_receipt_chain": 132
+  },
+  "failed_cases": [],
+  "determinism_rerun_match": true,
+  "verdict": "PASS"
+}

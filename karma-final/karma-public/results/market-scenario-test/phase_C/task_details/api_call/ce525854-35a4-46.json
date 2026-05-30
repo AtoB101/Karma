@@ -1,0 +1,324 @@
+{
+  "task_contract": {
+    "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+    "client_agent_id": "f58ae9cf-070b-40ef-8a8c-ba2aa45b5e2d",
+    "worker_agent_id": "d0394481-cac7-4b8f-a67e-8f8966169184",
+    "market": "api_call",
+    "escrow_amount": 73.02,
+    "quality_threshold": 0.5,
+    "timeout_seconds": 20,
+    "expected_steps": 8,
+    "created_at": "2026-05-09T21:29:58.096489+00:00"
+  },
+  "receipt_chain": [
+    {
+      "receipt_id": "1f091775-9151-4e68-9697-b4e0d9f0cd26",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "agent_id": "d0394481-cac7-4b8f-a67e-8f8966169184",
+      "step_index": 1,
+      "tool_name": "api.authenticate",
+      "input_hash": "39e2e667c87bd67dd51e4f4e5a788521084caefc7ea83b7af50a053c7056817a",
+      "output_hash": "ab40822285021cd4e5479e4c677ea473bfb5c312186091ec715651b51de55074",
+      "started_at": "2026-05-09T21:29:58.096520+00:00",
+      "ended_at": "2026-05-09T21:29:58.247520+00:00",
+      "duration_ms": 151,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 201
+      }
+    },
+    {
+      "receipt_id": "f2ef3c48-1201-4750-83b3-e31415444794",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "agent_id": "d0394481-cac7-4b8f-a67e-8f8966169184",
+      "step_index": 2,
+      "tool_name": "api.fetch_data",
+      "input_hash": "8adf7c1782359258dbfbbcb2bb208e055c501e0ce63a765d38f94fea84c84d10",
+      "output_hash": "0a01f1cb158584ff6fd13b93b8f45633bfd0735c17bf5685676ab4f842224b1c",
+      "started_at": "2026-05-09T21:29:58.247520+00:00",
+      "ended_at": "2026-05-09T21:30:06.176520+00:00",
+      "duration_ms": 7929,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "12f2e31f-b822-48f5-aa58-349ed6637075",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "agent_id": "d0394481-cac7-4b8f-a67e-8f8966169184",
+      "step_index": 3,
+      "tool_name": "api.fetch_data",
+      "input_hash": "128b4c16d460ec1aec279605391f6778a4ca30321b47697a84cbd55288bbc351",
+      "output_hash": "e8064a59b977b95e6f96925b59eec8c718a167ae9d1fb2e1cae6db4054879fce",
+      "started_at": "2026-05-09T21:30:06.176520+00:00",
+      "ended_at": "2026-05-09T21:30:14.105520+00:00",
+      "duration_ms": 7929,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "c16ba3e1-e21a-4a87-99e2-ecda17e1525c",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "agent_id": "d0394481-cac7-4b8f-a67e-8f8966169184",
+      "step_index": 4,
+      "tool_name": "api.fetch_data",
+      "input_hash": "7979819c4d8daae9bf904c81fb588553c1aad73a222a980178b7a79270b70f9b",
+      "output_hash": "ebe5e99d59b070d9e18476aa624358fd967746aaa2ca25c0ab6b0c0807ed1a67",
+      "started_at": "2026-05-09T21:30:14.105520+00:00",
+      "ended_at": "2026-05-09T21:30:22.034520+00:00",
+      "duration_ms": 7929,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 204
+      }
+    },
+    {
+      "receipt_id": "29f88f8a-127f-47aa-8854-bc878a60f14a",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "agent_id": "d0394481-cac7-4b8f-a67e-8f8966169184",
+      "step_index": 5,
+      "tool_name": "api.parse_response",
+      "input_hash": "93b5fb01946d7714c60d85f21057c5c5a229b364585a0c1e88370a5c6aa31a9e",
+      "output_hash": "a9332071b0e3edd74e2b3193ca994c2db4ed8c2c92fceaf0103ef279c552a065",
+      "started_at": "2026-05-09T21:30:22.034520+00:00",
+      "ended_at": "2026-05-09T21:30:22.353520+00:00",
+      "duration_ms": 319,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "86db0f10-8f96-45bf-ba6a-76c3f97ee920",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "agent_id": "d0394481-cac7-4b8f-a67e-8f8966169184",
+      "step_index": 6,
+      "tool_name": "api.parse_response",
+      "input_hash": "aee9ca9ce270eef69506202e83c1bafd2f08bbf3747795f7d4f27d43be00cbb9",
+      "output_hash": "bc7ced24656f0fc4858ac5109400c680d3887cb7649469a8ceb6a283d5481ef8",
+      "started_at": "2026-05-09T21:30:22.353520+00:00",
+      "ended_at": "2026-05-09T21:30:22.473520+00:00",
+      "duration_ms": 120,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "fa9fd4cc-8d7b-496c-a83c-9e1d821a769a",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "agent_id": "d0394481-cac7-4b8f-a67e-8f8966169184",
+      "step_index": 7,
+      "tool_name": "api.validate_output",
+      "input_hash": "375113c178320584da1fbd456c818c413f2f5b4695dfe90baf4d44a28c353739",
+      "output_hash": "8df0ab18d82e5af99daa76dbcba1726d3c9dcca79ee457316a6ca5fea612dfda",
+      "started_at": "2026-05-09T21:30:22.473520+00:00",
+      "ended_at": "2026-05-09T21:30:22.703520+00:00",
+      "duration_ms": 230,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "19e3086a-5f16-4191-b051-7dcf3cb72e3c",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "agent_id": "d0394481-cac7-4b8f-a67e-8f8966169184",
+      "step_index": 8,
+      "tool_name": "api.return_result",
+      "input_hash": "f0723ed9aa2b2d6c02895f52c72ce791cf39b0dc067d5b88919a27433c5a7ad5",
+      "output_hash": "8170be05169aeabdafaa7ee7439654ba809a5b7d2f7802c9313c4748bb6c7381",
+      "started_at": "2026-05-09T21:30:22.703520+00:00",
+      "ended_at": "2026-05-09T21:30:22.811520+00:00",
+      "duration_ms": 108,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 200
+      }
+    }
+  ],
+  "evidence_bundle": {
+    "bundle_id": "95ee032c-a816-4ddb-bf14-05b2124e0183",
+    "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+    "task_contract_hash": "09b1b18e5e8c192c10a892b5391bbcbb4e2457b542eaeb7401a523ffed8c5a62",
+    "receipt_ids": [
+      "1f091775-9151-4e68-9697-b4e0d9f0cd26",
+      "f2ef3c48-1201-4750-83b3-e31415444794",
+      "12f2e31f-b822-48f5-aa58-349ed6637075",
+      "c16ba3e1-e21a-4a87-99e2-ecda17e1525c",
+      "29f88f8a-127f-47aa-8854-bc878a60f14a",
+      "86db0f10-8f96-45bf-ba6a-76c3f97ee920",
+      "fa9fd4cc-8d7b-496c-a83c-9e1d821a769a",
+      "19e3086a-5f16-4191-b051-7dcf3cb72e3c"
+    ],
+    "receipt_hashes": [
+      "eedbb8ab003dbd24161e9d311b5fe7496295b83976aca4df6ed77f7e2cec46e6",
+      "a28ed85621851cd589b8ca1a84bf721e9754a74c0750df1f6c723cc5a544e700",
+      "0bc311eb2a4950c624f53733ba4dde53b7555b67aef8f405372453aa9a00c3f5",
+      "f10caf534d1c28f4321ac728390f253ae4fc715ddc495ae9c9fd16ac4947ff06",
+      "4abc96bf9977ac7aec3b6ab220582ff7e595b3e0d04b0f9c0b15c203d0d506b3",
+      "bc4f0ec05776ace843f31fd11463a1e8a4adbde6ff9ba8ab384d078907041fff",
+      "f99b3719c1e6d387eff4172aff2795427a4757253383279406d6203fa5691975",
+      "62526fda6f794b887eb3ba20971e40453080631227b3551658008755673fd876"
+    ],
+    "final_result_hash": "0cebf5e5e09161c98e7f8ae184c1929588e9fff90c541d9bb74be6550cd1991c",
+    "total_steps": 8,
+    "successful_steps": 8,
+    "failed_steps": 0,
+    "total_duration_ms": 24715,
+    "average_quality": 1.0,
+    "settlement_status": "submitted"
+  },
+  "verification_result": {
+    "verification_id": "b85796a8-529b-41f9-ac33-39eb2a408161",
+    "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+    "bundle_id": "95ee032c-a816-4ddb-bf14-05b2124e0183",
+    "decision": "release",
+    "confidence": 0.9664,
+    "checks": [
+      {
+        "name": "receipt_chain_completeness",
+        "passed": true,
+        "detail": "expected=8, actual=8"
+      },
+      {
+        "name": "step_index_continuity",
+        "passed": true,
+        "detail": "indices=[1, 2, 3, 4, 5, 6, 7, 8]"
+      },
+      {
+        "name": "task_id_consistency",
+        "passed": true
+      },
+      {
+        "name": "hash_format_validity",
+        "passed": true
+      },
+      {
+        "name": "receipt_hash_integrity",
+        "passed": true
+      },
+      {
+        "name": "execution_duration_positive",
+        "passed": true
+      },
+      {
+        "name": "output_diversity",
+        "passed": true,
+        "detail": "unique=8/8"
+      },
+      {
+        "name": "no_timeout_in_chain",
+        "passed": true
+      },
+      {
+        "name": "receipt_id_global_uniqueness",
+        "passed": true
+      },
+      {
+        "name": "quality_threshold",
+        "passed": true,
+        "detail": "avg=1.000 threshold=0.5"
+      },
+      {
+        "name": "api_call_health",
+        "passed": true,
+        "detail": "OK"
+      },
+      {
+        "name": "completion_ratio",
+        "passed": true,
+        "detail": "100.0% complete"
+      }
+    ],
+    "detected_attacks": [],
+    "verification_ms": 0.22
+  },
+  "settlement_plan": {
+    "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+    "trace_id": "trace_api_call_a4a8d47b69ba99e3",
+    "decision": "release",
+    "escrow_amount": 73.02,
+    "release_to_worker": 73.02,
+    "refund_to_client": 0.0,
+    "reason": "All verification checks passed",
+    "detected_attacks": []
+  },
+  "trace_id": "trace_api_call_a4a8d47b69ba99e3",
+  "operational_log": [
+    {
+      "timestamp": "2026-05-09T21:29:58.096514+00:00",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "event": "task_created",
+      "detail": {
+        "buyer": "Social-Media-Analytics-0168",
+        "worker": "honest-worker-api_call-0370",
+        "escrow": 73.02
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:29:58.096520+00:00",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "event": "api_request_received",
+      "detail": {
+        "agent": "honest-worker-api_call-0370"
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:30:22.811520+00:00",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "event": "api_call_complete",
+      "detail": {
+        "endpoint": "/weather",
+        "steps": 8,
+        "latency_ms": 24715
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:29:58.097198+00:00",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "event": "verification_complete",
+      "detail": {
+        "decision": "release",
+        "confidence": 0.9664
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:29:58.097204+00:00",
+      "task_id": "ce525854-35a4-463b-a104-50b763cf2406",
+      "event": "settlement_plan_generated",
+      "detail": {
+        "plan": "release",
+        "release": 73.02,
+        "refund": 0.0
+      }
+    }
+  ]
+}

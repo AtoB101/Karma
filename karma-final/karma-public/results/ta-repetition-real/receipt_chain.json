@@ -1,0 +1,424 @@
+{
+  "runs": [
+    {
+      "run_id": 1,
+      "trace_id": "trace-0001-c7eaf529",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0001-01",
+          "task_id": "trace-0001-c7eaf529",
+          "agent_id": "worker-0001",
+          "step_index": 1,
+          "tool_name": "label.classify",
+          "input_hash": "3ecacc3e4c01d2913be010beb71f8d6739ba014f345cdc36934d9a89f9edd769",
+          "output_hash": "1b726f5b119f296290dff38a2dc96142d5deb7cba93df85b90489d954f0d68eb",
+          "started_at": "2026-05-09T20:27:23.546683+00:00",
+          "ended_at": "2026-05-09T20:27:23.596683+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 1,
+            "scenario": "data_labeling",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0001-02",
+          "task_id": "trace-0001-c7eaf529",
+          "agent_id": "worker-0001",
+          "step_index": 2,
+          "tool_name": "label.validate",
+          "input_hash": "1d3a334581129c2e66dc23fddec5c8f0ea7740885704ec3c4d87c980cdb6580b",
+          "output_hash": "051c94bc013c6bd8fcbc34b7ffaba16ef7b7593be2cced04f3bd48b1cb93c999",
+          "started_at": "2026-05-09T20:27:23.596683+00:00",
+          "ended_at": "2026-05-09T20:27:23.671683+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 1,
+            "scenario": "data_labeling",
+            "testnet_execution": true
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 2,
+      "trace_id": "trace-0002-95689fab",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0002-01",
+          "task_id": "trace-0002-95689fab",
+          "agent_id": "worker-0002",
+          "step_index": 1,
+          "tool_name": "ocr.extract",
+          "input_hash": "7cf4ee71e49857a60117be4b761a2d49e1b501cbca37fb291ea2784d94887f55",
+          "output_hash": "29631363422fca59b1f88f57e9cc39b4477070199a4732c479d06409a8d9e7aa",
+          "started_at": "2026-05-09T20:27:23.547236+00:00",
+          "ended_at": "2026-05-09T20:27:23.597236+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 2,
+            "scenario": "ocr",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0002-02",
+          "task_id": "trace-0002-95689fab",
+          "agent_id": "worker-0002",
+          "step_index": 2,
+          "tool_name": "ocr.correct",
+          "input_hash": "0f0da9d19fb5c51f35338bccaa1fe176e4f102bcf3a37e94fc4dcae3bf114a71",
+          "output_hash": "2777f3faf68125f4ee4af71e11b914ac2e5551ff57ad8a12ff1eed284d1f748b",
+          "started_at": "2026-05-09T20:27:23.597236+00:00",
+          "ended_at": "2026-05-09T20:27:23.672236+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 2,
+            "scenario": "ocr",
+            "testnet_execution": true
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 3,
+      "trace_id": "trace-0003-dd577168",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0003-01",
+          "task_id": "trace-0003-dd577168",
+          "agent_id": "worker-0003",
+          "step_index": 1,
+          "tool_name": "api.fetch",
+          "input_hash": "69ced710a3d1cefb476ac7e5aa97db06514f064859b5cde241e13d5b079cd363",
+          "output_hash": "157a5ceaa852d6225bdd41c5e0b834009406ebc4528c99f60cfb6596c737b178",
+          "started_at": "2026-05-09T20:27:23.547650+00:00",
+          "ended_at": "2026-05-09T20:27:23.597650+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 3,
+            "scenario": "api_call",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0003-02",
+          "task_id": "trace-0003-dd577168",
+          "agent_id": "worker-0003",
+          "step_index": 2,
+          "tool_name": "api.parse",
+          "input_hash": "3dc98645342167abbb5613747d28f26531ba2e956ed12880c10883591d6522c7",
+          "output_hash": "dd7a7d5909880959cd52cd48c484229e279aab016dbec689d9a377bb37074478",
+          "started_at": "2026-05-09T20:27:23.597650+00:00",
+          "ended_at": "2026-05-09T20:27:23.672650+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 3,
+            "scenario": "api_call",
+            "testnet_execution": true
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 4,
+      "trace_id": "trace-0004-d7e2c87f",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0004-01",
+          "task_id": "trace-0004-d7e2c87f",
+          "agent_id": "worker-0004",
+          "step_index": 1,
+          "tool_name": "translate.detect",
+          "input_hash": "b3c5c84019383d086c6c49472dd32d9bf6a34ff7d8bf4d9b7a47f7bcfe3fa814",
+          "output_hash": "a50187055994d7bfe3539419fb4eee9541b4a87c94d9d9fff7425c915810f9bd",
+          "started_at": "2026-05-09T20:27:23.548002+00:00",
+          "ended_at": "2026-05-09T20:27:23.598002+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 4,
+            "scenario": "translation",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0004-02",
+          "task_id": "trace-0004-d7e2c87f",
+          "agent_id": "worker-0004",
+          "step_index": 2,
+          "tool_name": "translate.translate",
+          "input_hash": "0f271d2aef0391ea89b280b09c83fa15f65a034b209d535af72056df2cd62d7a",
+          "output_hash": "efb0c6198a3844835c57052b1eb6c9bc4565f82f8871a2420a4b3990f7541a6c",
+          "started_at": "2026-05-09T20:27:23.598002+00:00",
+          "ended_at": "2026-05-09T20:27:23.673002+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 4,
+            "scenario": "translation",
+            "testnet_execution": true
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 5,
+      "trace_id": "trace-0005-7f974087",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0005-01",
+          "task_id": "trace-0005-7f974087",
+          "agent_id": "worker-0005",
+          "step_index": 1,
+          "tool_name": "clean.dedup",
+          "input_hash": "a7063685fdcf246a9713d38b2f98e3a568ec4127df604a83a6e4daac8f85e267",
+          "output_hash": "60cee4e9d5fb36488bc0891535a5242a95e9431b81e66d3f3cd9b8f5ed2bd530",
+          "started_at": "2026-05-09T20:27:23.548349+00:00",
+          "ended_at": "2026-05-09T20:27:23.598349+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 5,
+            "scenario": "data_cleaning",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0005-02",
+          "task_id": "trace-0005-7f974087",
+          "agent_id": "worker-0005",
+          "step_index": 2,
+          "tool_name": "clean.normalize",
+          "input_hash": "66bee078aabbc83e2abda927911f26667ca87d3b5d9e9c4c9d12f5bccaaeae02",
+          "output_hash": "fe1a3b086df8528444b4244b39b498e62fb0e39dbab1925871343ea9014b4f6b",
+          "started_at": "2026-05-09T20:27:23.598349+00:00",
+          "ended_at": "2026-05-09T20:27:23.673349+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 5,
+            "scenario": "data_cleaning",
+            "testnet_execution": true
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 6,
+      "trace_id": "trace-0006-26520728",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0006-01",
+          "task_id": "trace-0006-26520728",
+          "agent_id": "worker-0006",
+          "step_index": 1,
+          "tool_name": "a2a.discover",
+          "input_hash": "aa22b1d0a4e31a38c3fa53de591643a23ff8adb011b6dfe53793c78e2a57194f",
+          "output_hash": "dbd59baaf7cf0e79b5e284c3d380e772799825d3e5986d3a0d3f08237fab91b6",
+          "started_at": "2026-05-09T20:27:23.548716+00:00",
+          "ended_at": "2026-05-09T20:27:23.598716+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 6,
+            "scenario": "a2a_microservice",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0006-02",
+          "task_id": "trace-0006-26520728",
+          "agent_id": "worker-0006",
+          "step_index": 2,
+          "tool_name": "a2a.execute",
+          "input_hash": "74fcdf073399ef93ba704b4aa7b5563ea349ac02c3e887d95f78ebfb0ba28e70",
+          "output_hash": "ff8f2217cc3fb5279bc29b7603f477bb214869b7550cbc1c66d48080feab22d8",
+          "started_at": "2026-05-09T20:27:23.598716+00:00",
+          "ended_at": "2026-05-09T20:27:23.673716+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 6,
+            "scenario": "a2a_microservice",
+            "testnet_execution": true
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 7,
+      "trace_id": "trace-0007-5a0040be",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0007-01",
+          "task_id": "trace-0007-5a0040be",
+          "agent_id": "worker-0007",
+          "step_index": 1,
+          "tool_name": "label.classify",
+          "input_hash": "61f455a33be11c3875417314d69a0a5671953b80ed65b9443d2699e8138a4eda",
+          "output_hash": "d62a639509d5caa2099565b998e7ccfdbcac0f2c36a2ca2495a1d6c15864684c",
+          "started_at": "2026-05-09T20:27:23.549064+00:00",
+          "ended_at": "2026-05-09T20:27:23.599064+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 7,
+            "scenario": "data_labeling",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0007-02",
+          "task_id": "trace-0007-5a0040be",
+          "agent_id": "worker-0007",
+          "step_index": 2,
+          "tool_name": "label.validate",
+          "input_hash": "66729f682b06ad761162f1f1f74966c582c7f61bada26614dcf98ee20b262fe8",
+          "output_hash": "16b4b5515ac028e6004e63e9c9db6bce7bbdd3ead19e911292d12fedd27bb63f",
+          "started_at": "2026-05-09T20:27:23.599064+00:00",
+          "ended_at": "2026-05-09T20:27:23.674064+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 7,
+            "scenario": "data_labeling",
+            "testnet_execution": true
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 8,
+      "trace_id": "trace-0008-714a54dc",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0008-01",
+          "task_id": "trace-0008-714a54dc",
+          "agent_id": "worker-0008",
+          "step_index": 1,
+          "tool_name": "ocr.extract",
+          "input_hash": "23bcaa40ca53118b57933e37f972a7f0d850f6a605216a0f351a85e0ae467dbf",
+          "output_hash": "e406bbee2b878f77ac7c943777f88bc406929114283544b72148e46a9e645d6e",
+          "started_at": "2026-05-09T20:27:23.549423+00:00",
+          "ended_at": "2026-05-09T20:27:23.599423+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 8,
+            "scenario": "ocr",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0008-02",
+          "task_id": "trace-0008-714a54dc",
+          "agent_id": "worker-0008",
+          "step_index": 2,
+          "tool_name": "ocr.correct",
+          "input_hash": "184625ec9672d04d8e745408329a1828b803a63daf89baf4fbd916647bd91b2f",
+          "output_hash": "622ba12dd6ca2ffdf17dd1ef381c9660dc5b72b04b93003b7e39c18050f3b026",
+          "started_at": "2026-05-09T20:27:23.599423+00:00",
+          "ended_at": "2026-05-09T20:27:23.674423+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 8,
+            "scenario": "ocr",
+            "testnet_execution": true
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 9,
+      "trace_id": "trace-0009-ac8311c8",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0009-01",
+          "task_id": "trace-0009-ac8311c8",
+          "agent_id": "worker-0009",
+          "step_index": 1,
+          "tool_name": "api.fetch",
+          "input_hash": "4ecfddc285b6b4a39fac2c4e7243d19f74487136e2f50494420c4511d3c74b9b",
+          "output_hash": "51f223b86a798a973f7699201a4cd6b13c20d0624143b7d2fc81eef42c2b32da",
+          "started_at": "2026-05-09T20:27:23.549808+00:00",
+          "ended_at": "2026-05-09T20:27:23.599808+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 9,
+            "scenario": "api_call",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0009-02",
+          "task_id": "trace-0009-ac8311c8",
+          "agent_id": "worker-0009",
+          "step_index": 2,
+          "tool_name": "api.parse",
+          "input_hash": "67b2cb25ac5ef05f8b076677f207c0b7f002a4ced69b59a85b7886c4ccb1eb38",
+          "output_hash": "342662cd82af980a7ebec8522c04fd1581b5be4e811c6a266c529e84c895f630",
+          "started_at": "2026-05-09T20:27:23.599808+00:00",
+          "ended_at": "2026-05-09T20:27:23.674808+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 9,
+            "scenario": "api_call",
+            "testnet_execution": true
+          }
+        }
+      ]
+    },
+    {
+      "run_id": 10,
+      "trace_id": "trace-0010-0f7d1146",
+      "receipts": [
+        {
+          "receipt_id": "rcpt-0010-01",
+          "task_id": "trace-0010-0f7d1146",
+          "agent_id": "worker-0010",
+          "step_index": 1,
+          "tool_name": "translate.detect",
+          "input_hash": "07c794388854341ec5c6a393bfe516f19b34a776f6952dc60b56b8ac3e47f32b",
+          "output_hash": "619ab1648d0adbdb7976b50ede7a6a1719cfc2627851d800bda51e42543861db",
+          "started_at": "2026-05-09T20:27:23.550337+00:00",
+          "ended_at": "2026-05-09T20:27:23.600337+00:00",
+          "duration_ms": 50,
+          "status": "success",
+          "metadata": {
+            "run_id": 10,
+            "scenario": "translation",
+            "testnet_execution": true
+          }
+        },
+        {
+          "receipt_id": "rcpt-0010-02",
+          "task_id": "trace-0010-0f7d1146",
+          "agent_id": "worker-0010",
+          "step_index": 2,
+          "tool_name": "translate.translate",
+          "input_hash": "9cf522b377c93b741079a95cf3b76df59e755f3b0177765f2afcbb466bdde3e9",
+          "output_hash": "09b482f73fe2cb684f921e1ffa6fab8bf501960d620d35ab89a2401d2c112def",
+          "started_at": "2026-05-09T20:27:23.600337+00:00",
+          "ended_at": "2026-05-09T20:27:23.675337+00:00",
+          "duration_ms": 75,
+          "status": "success",
+          "metadata": {
+            "run_id": 10,
+            "scenario": "translation",
+            "testnet_execution": true
+          }
+        }
+      ]
+    }
+  ]
+}

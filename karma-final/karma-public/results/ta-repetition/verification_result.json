@@ -1,0 +1,314 @@
+{
+  "runs": [
+    {
+      "run_id": 1,
+      "trace_id": "trace-0001-480ce9cf",
+      "verification": {
+        "verification_id": "verif-0001",
+        "task_id": "trace-0001-480ce9cf",
+        "bundle_id": "bundle-0001",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.059
+      }
+    },
+    {
+      "run_id": 2,
+      "trace_id": "trace-0002-f2705d2d",
+      "verification": {
+        "verification_id": "verif-0002",
+        "task_id": "trace-0002-f2705d2d",
+        "bundle_id": "bundle-0002",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.051
+      }
+    },
+    {
+      "run_id": 3,
+      "trace_id": "trace-0003-047371b8",
+      "verification": {
+        "verification_id": "verif-0003",
+        "task_id": "trace-0003-047371b8",
+        "bundle_id": "bundle-0003",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.044
+      }
+    },
+    {
+      "run_id": 4,
+      "trace_id": "trace-0004-6f2848bd",
+      "verification": {
+        "verification_id": "verif-0004",
+        "task_id": "trace-0004-6f2848bd",
+        "bundle_id": "bundle-0004",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.043
+      }
+    },
+    {
+      "run_id": 5,
+      "trace_id": "trace-0005-a52c31b1",
+      "verification": {
+        "verification_id": "verif-0005",
+        "task_id": "trace-0005-a52c31b1",
+        "bundle_id": "bundle-0005",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.042
+      }
+    },
+    {
+      "run_id": 6,
+      "trace_id": "trace-0006-73c758e7",
+      "verification": {
+        "verification_id": "verif-0006",
+        "task_id": "trace-0006-73c758e7",
+        "bundle_id": "bundle-0006",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.043
+      }
+    },
+    {
+      "run_id": 7,
+      "trace_id": "trace-0007-0e3e1b2f",
+      "verification": {
+        "verification_id": "verif-0007",
+        "task_id": "trace-0007-0e3e1b2f",
+        "bundle_id": "bundle-0007",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.041
+      }
+    },
+    {
+      "run_id": 8,
+      "trace_id": "trace-0008-62469bfd",
+      "verification": {
+        "verification_id": "verif-0008",
+        "task_id": "trace-0008-62469bfd",
+        "bundle_id": "bundle-0008",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.042
+      }
+    },
+    {
+      "run_id": 9,
+      "trace_id": "trace-0009-eea3287c",
+      "verification": {
+        "verification_id": "verif-0009",
+        "task_id": "trace-0009-eea3287c",
+        "bundle_id": "bundle-0009",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.042
+      }
+    },
+    {
+      "run_id": 10,
+      "trace_id": "trace-0010-5df39760",
+      "verification": {
+        "verification_id": "verif-0010",
+        "task_id": "trace-0010-5df39760",
+        "bundle_id": "bundle-0010",
+        "decision": "release",
+        "confidence": 0.95,
+        "checks": [
+          {
+            "name": "receipt_chain_completeness",
+            "passed": true
+          },
+          {
+            "name": "step_index_continuity",
+            "passed": true
+          },
+          {
+            "name": "receipt_hash_integrity",
+            "passed": true
+          },
+          {
+            "name": "transaction_coverage",
+            "passed": true
+          }
+        ],
+        "detected_issues": [],
+        "verification_ms": 0.043
+      }
+    }
+  ]
+}
