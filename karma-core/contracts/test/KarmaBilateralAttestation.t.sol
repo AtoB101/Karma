@@ -328,6 +328,9 @@ contract KarmaBilateralAttestationTest is Test {
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, EVIDENCE);
+        // settle() enters FINALIZING; finalizeSettle() transitions to SETTLED
+        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        karma.finalizeSettle(bindingId);
 
         assertEq(
             uint8(karma.getBinding(bindingId).state),
