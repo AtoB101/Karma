@@ -1,0 +1,8 @@
+[profile.default]
+src = "core"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.24"
+via_ir = true
+optimizer = true

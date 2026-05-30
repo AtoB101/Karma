@@ -1,0 +1,254 @@
+{
+  "runs": [
+    {
+      "run_id": 1,
+      "trace_id": "trace-0001-480ce9cf",
+      "bundle": {
+        "bundle_id": "bundle-0001",
+        "task_id": "trace-0001-480ce9cf",
+        "task_contract_hash": "fe0f992423e99faf5dc0cfffa8ceec1d30127a904d709c6eee7e002b6bebc2ca",
+        "receipt_ids": [
+          "rcpt-0001-01",
+          "rcpt-0001-02"
+        ],
+        "receipt_hashes": [
+          "47bb626131f64c9f68285e8ae6c9442bdb78021413f13d5e3e68b1dec9b00663",
+          "30aa64a704d999a05c7a865bb920432f2c390ed0c61af27810321610469e0171"
+        ],
+        "final_result_hash": "3603cc2a5b4a9eaea43c2ece6163e5a830220d47cd313bf73a6877123290cac0",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.420757+00:00",
+        "testnet_origin": true
+      }
+    },
+    {
+      "run_id": 2,
+      "trace_id": "trace-0002-f2705d2d",
+      "bundle": {
+        "bundle_id": "bundle-0002",
+        "task_id": "trace-0002-f2705d2d",
+        "task_contract_hash": "b3e4c8b1d031df84cca4a07d12219a12d33e83161331d717aec9b50d4d399c6e",
+        "receipt_ids": [
+          "rcpt-0002-01",
+          "rcpt-0002-02"
+        ],
+        "receipt_hashes": [
+          "eaec0697fbbba120ac1652bdbd45f63a329278e7ac3a9cee437076a01a17a21d",
+          "79de5cf492a8bc04b443f8a62a9f101c86279761fa1ebb7124d334c975df48b3"
+        ],
+        "final_result_hash": "6cf3262608dc9fe3620f43d36fefaa4c64007ad586c5dd552372ba2871f2084e",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.421071+00:00",
+        "testnet_origin": true
+      }
+    },
+    {
+      "run_id": 3,
+      "trace_id": "trace-0003-047371b8",
+      "bundle": {
+        "bundle_id": "bundle-0003",
+        "task_id": "trace-0003-047371b8",
+        "task_contract_hash": "5dacf351e09cd7ed0ce608010778abb37adc01d16c980269e87963fb615145be",
+        "receipt_ids": [
+          "rcpt-0003-01",
+          "rcpt-0003-02"
+        ],
+        "receipt_hashes": [
+          "2c392042c738da131107ca265186d4e3d8704bdeeecd569f69e4c26d8f9004f0",
+          "113d61bf0a2690ac91e84a226372364c2eb76e34b8674499496e73f8cb41b989"
+        ],
+        "final_result_hash": "9e231a27885f52bb487538215f6d6c4db008e66277ed32d541ec8c2b7dd41d56",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.421334+00:00",
+        "testnet_origin": true
+      }
+    },
+    {
+      "run_id": 4,
+      "trace_id": "trace-0004-6f2848bd",
+      "bundle": {
+        "bundle_id": "bundle-0004",
+        "task_id": "trace-0004-6f2848bd",
+        "task_contract_hash": "37995ce82fb7c97860e507b344b1af74f0f6bbb0b17f7abff3fcd20bdda16ab1",
+        "receipt_ids": [
+          "rcpt-0004-01",
+          "rcpt-0004-02"
+        ],
+        "receipt_hashes": [
+          "f0bd0cd525c9bb48f51b2b3388ddcad1dfa49246f094e2653b76ca7cba062b07",
+          "c903e72a4e88ca85218451a7460ad2c727daee451cb72e3cf153bb88892dd6e3"
+        ],
+        "final_result_hash": "9112206a41a5b1e37afa9273fed325b77c96e94443a15c04e1c11695fd1af2ad",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.421552+00:00",
+        "testnet_origin": true
+      }
+    },
+    {
+      "run_id": 5,
+      "trace_id": "trace-0005-a52c31b1",
+      "bundle": {
+        "bundle_id": "bundle-0005",
+        "task_id": "trace-0005-a52c31b1",
+        "task_contract_hash": "bfc68fb774a08ff8c52c6b9f3956f53242fe851c7c83bf6b2df978af691165d6",
+        "receipt_ids": [
+          "rcpt-0005-01",
+          "rcpt-0005-02"
+        ],
+        "receipt_hashes": [
+          "bebee4b9f3bb4e248917f2b8ee8f5edabd5a586d98aebc61b62dadd4dfcef746",
+          "4fdaa6ddea7d6bffc6bda45ba7da34780f6c2bf7ca8d650ffacc368b8a5a993f"
+        ],
+        "final_result_hash": "0830d41eb98f87da06e7f732bc5348c06f1ad00de1ddece9c4da50a2e67f09e8",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.421772+00:00",
+        "testnet_origin": true
+      }
+    },
+    {
+      "run_id": 6,
+      "trace_id": "trace-0006-73c758e7",
+      "bundle": {
+        "bundle_id": "bundle-0006",
+        "task_id": "trace-0006-73c758e7",
+        "task_contract_hash": "c04a9b0064cf4b38e81acaf9067dd251f6151b4de95a274bed5d63f61858a2cb",
+        "receipt_ids": [
+          "rcpt-0006-01",
+          "rcpt-0006-02"
+        ],
+        "receipt_hashes": [
+          "4b54ed5c208f7bcd779f5dfa5b02791217818ae3e29cbeec0941f5cbd2c38dbf",
+          "f4c596b32a8c1731b821690dff172754087bb8e21181d3b53506d8829e20ada4"
+        ],
+        "final_result_hash": "0d5fd73f88e000201f5889dd83d5745ce6c6095addfee040f8642f2a644e8ffc",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.421989+00:00",
+        "testnet_origin": true
+      }
+    },
+    {
+      "run_id": 7,
+      "trace_id": "trace-0007-0e3e1b2f",
+      "bundle": {
+        "bundle_id": "bundle-0007",
+        "task_id": "trace-0007-0e3e1b2f",
+        "task_contract_hash": "633c4f528762e31e3585adb0716205cbfa94777435e279f36606fd8802e454bc",
+        "receipt_ids": [
+          "rcpt-0007-01",
+          "rcpt-0007-02"
+        ],
+        "receipt_hashes": [
+          "b2609d958a927525d4a19648b7728229c4c604502bb012051f90920a51260540",
+          "8107799d3d6aa9f9c44df11e957b1c7b84ea5bbbad88dd467c3e4f76e14261ff"
+        ],
+        "final_result_hash": "f99ce213d4602fbc06090b070161546c932938560c3989dc319a459fc8fab29f",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.422195+00:00",
+        "testnet_origin": true
+      }
+    },
+    {
+      "run_id": 8,
+      "trace_id": "trace-0008-62469bfd",
+      "bundle": {
+        "bundle_id": "bundle-0008",
+        "task_id": "trace-0008-62469bfd",
+        "task_contract_hash": "d40ba54c3f8cbaaa150a2cc1734cb79de7b738db43aa7c2af4a9da0594cf2cba",
+        "receipt_ids": [
+          "rcpt-0008-01",
+          "rcpt-0008-02"
+        ],
+        "receipt_hashes": [
+          "6a6f4fbe2bd5b334e70654976881185905c1f9534190f5d4cbf86bbee7d971f6",
+          "e15fa2009fce1dcca8a30ff9dbe3525d7a89b5bfafa96f90c54714ae0a3988cd"
+        ],
+        "final_result_hash": "923da982bc8904ba0dfbd91eeccf05a07de742feb631044bb3278ef2e09c7890",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.422405+00:00",
+        "testnet_origin": true
+      }
+    },
+    {
+      "run_id": 9,
+      "trace_id": "trace-0009-eea3287c",
+      "bundle": {
+        "bundle_id": "bundle-0009",
+        "task_id": "trace-0009-eea3287c",
+        "task_contract_hash": "6d9c352a2cd1d195cec4480a29ec9b20fb0d69c4f543ed814c7a438899858da0",
+        "receipt_ids": [
+          "rcpt-0009-01",
+          "rcpt-0009-02"
+        ],
+        "receipt_hashes": [
+          "86c6942fd03aec2d169e5339188ff19bf69082ed55228ba766e2933df7a86543",
+          "930cf56b9c7f88ef6311e77c12518050b1d30ecab36f45611b3a4b5c64cb5b51"
+        ],
+        "final_result_hash": "2283a2f8f09b5e0c6bc012d09ba32251ee2dbc4e97771e41c3f7b7143563d265",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.422616+00:00",
+        "testnet_origin": true
+      }
+    },
+    {
+      "run_id": 10,
+      "trace_id": "trace-0010-5df39760",
+      "bundle": {
+        "bundle_id": "bundle-0010",
+        "task_id": "trace-0010-5df39760",
+        "task_contract_hash": "ebeca180062c90b4cbc82a867842cfa01c7662f4c3e925814cfe8bbfd087be17",
+        "receipt_ids": [
+          "rcpt-0010-01",
+          "rcpt-0010-02"
+        ],
+        "receipt_hashes": [
+          "aa3adebe5b3dbf410f7256705320384868bdf7d89fe3fa98b3222ca56118ccab",
+          "5ddb54561fda42c7cee68a8360a1d3c0880a0efc77a1418fd2ae41155ce2515a"
+        ],
+        "final_result_hash": "5bcd0bf9b0c7561c68e989d91125c6612a5c1d7a988e1686667e6396d190683e",
+        "total_steps": 2,
+        "successful_steps": 2,
+        "failed_steps": 0,
+        "total_duration_ms": 125,
+        "settlement_status": "verified",
+        "created_at": "2026-05-09T18:40:40.422834+00:00",
+        "testnet_origin": true
+      }
+    }
+  ]
+}

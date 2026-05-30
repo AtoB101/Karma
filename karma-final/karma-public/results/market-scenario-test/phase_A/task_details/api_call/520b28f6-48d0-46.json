@@ -1,0 +1,324 @@
+{
+  "task_contract": {
+    "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+    "client_agent_id": "2621d32d-895c-467f-9fcf-338cdec56dc3",
+    "worker_agent_id": "030974c0-6f4a-4fcc-9eca-859887cb0e2a",
+    "market": "api_call",
+    "escrow_amount": 62.67,
+    "quality_threshold": 0.5,
+    "timeout_seconds": 10,
+    "expected_steps": 8,
+    "created_at": "2026-05-09T21:28:44.290170+00:00"
+  },
+  "receipt_chain": [
+    {
+      "receipt_id": "c3e3c148-06e2-4861-957e-dc3cbdf774c8",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "agent_id": "030974c0-6f4a-4fcc-9eca-859887cb0e2a",
+      "step_index": 1,
+      "tool_name": "api.authenticate",
+      "input_hash": "551d727882f518dbdeb2d6196378bdc2616df36af726509c59cb8b3228d0378a",
+      "output_hash": "bcdb6c0c7ee804a1d28ac90a1c662a4e02a69f22dbc79f598fe83ae46533c07b",
+      "started_at": "2026-05-09T21:28:44.290201+00:00",
+      "ended_at": "2026-05-09T21:28:44.497201+00:00",
+      "duration_ms": 207,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/users",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "585b4b17-6d9b-4eb1-98eb-eed7616d41c8",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "agent_id": "030974c0-6f4a-4fcc-9eca-859887cb0e2a",
+      "step_index": 2,
+      "tool_name": "api.fetch_data",
+      "input_hash": "a1bba019bad3afc9c12eb8705657a2e6177232be13c36abc43742017fec27242",
+      "output_hash": "e5c2e4cf9751a956aa21ea364d5c97b602e4276f918431ee405b96d040613ec5",
+      "started_at": "2026-05-09T21:28:44.497201+00:00",
+      "ended_at": "2026-05-09T21:28:45.597201+00:00",
+      "duration_ms": 1100,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/users",
+        "status_code": 204
+      }
+    },
+    {
+      "receipt_id": "3e85c8c4-a947-4663-8e73-752359ecc846",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "agent_id": "030974c0-6f4a-4fcc-9eca-859887cb0e2a",
+      "step_index": 3,
+      "tool_name": "api.fetch_data",
+      "input_hash": "aab2e35f6d3d61a42c02cb3b418237d582ef6a94a135eafbdd836bd732dc657b",
+      "output_hash": "dbf3a90bc849b38eff25a9842e97a97a20e2093b986279715fd83afd259f6916",
+      "started_at": "2026-05-09T21:28:45.597201+00:00",
+      "ended_at": "2026-05-09T21:28:46.697201+00:00",
+      "duration_ms": 1100,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/users",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "15bebdd0-97b0-47ce-8fe5-c13ba5e8c198",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "agent_id": "030974c0-6f4a-4fcc-9eca-859887cb0e2a",
+      "step_index": 4,
+      "tool_name": "api.fetch_data",
+      "input_hash": "0e3562da921d3a1dc3d6ad6b9cbe646264799072b6f301e38bee8f19b75136ca",
+      "output_hash": "c7d9dd1218f757918b3b762765cbdd4114ceb888d1f65b53455bd78b9f9b74bd",
+      "started_at": "2026-05-09T21:28:46.697201+00:00",
+      "ended_at": "2026-05-09T21:28:47.797201+00:00",
+      "duration_ms": 1100,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/users",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "2b76a718-566c-43cc-9d4d-fdb14e0ebe2e",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "agent_id": "030974c0-6f4a-4fcc-9eca-859887cb0e2a",
+      "step_index": 5,
+      "tool_name": "api.parse_response",
+      "input_hash": "9c70b4239b1c56f3e9acbb867df5bf8bbceaabae559f20a49582070fad38482c",
+      "output_hash": "5b950629866dd7fc55166f27ff386c6f50ad8b3afc534528907f992292d2460d",
+      "started_at": "2026-05-09T21:28:47.797201+00:00",
+      "ended_at": "2026-05-09T21:28:48.169201+00:00",
+      "duration_ms": 372,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/users",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "dd05b827-a863-482e-b5fe-28570991946d",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "agent_id": "030974c0-6f4a-4fcc-9eca-859887cb0e2a",
+      "step_index": 6,
+      "tool_name": "api.parse_response",
+      "input_hash": "4f8b6f00c6df2e57dc6dcb8adfc329d6bd15060086d4624ffeeb1b9f200bd456",
+      "output_hash": "8b83c4879dabe6d6ce1e6c1071d888eb641177c58daf42c32d39268c9a80781f",
+      "started_at": "2026-05-09T21:28:48.169201+00:00",
+      "ended_at": "2026-05-09T21:28:48.199201+00:00",
+      "duration_ms": 30,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/users",
+        "status_code": 201
+      }
+    },
+    {
+      "receipt_id": "05391557-4441-42a5-abd1-f826e6c2cbb7",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "agent_id": "030974c0-6f4a-4fcc-9eca-859887cb0e2a",
+      "step_index": 7,
+      "tool_name": "api.validate_output",
+      "input_hash": "f92832ff92fdfe1f105f0b1a630dd0db377e8e90326843c01f0de9d70934c1a4",
+      "output_hash": "c5198268b227b62ccfa84e109ebf20a68b1072c0694e4517875044ae6e6a03d9",
+      "started_at": "2026-05-09T21:28:48.199201+00:00",
+      "ended_at": "2026-05-09T21:28:48.435201+00:00",
+      "duration_ms": 236,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/users",
+        "status_code": 201
+      }
+    },
+    {
+      "receipt_id": "60b36938-5107-4545-bc5b-14bd05b149a0",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "agent_id": "030974c0-6f4a-4fcc-9eca-859887cb0e2a",
+      "step_index": 8,
+      "tool_name": "api.return_result",
+      "input_hash": "e8c45ac437be7f3fac2211a21a1c37279f6c7c46c7634320597bf10f5f4de8c7",
+      "output_hash": "af10cedf6d51c86c1d694021877cd4baac8b1ddee598b47b6e885e045cab2960",
+      "started_at": "2026-05-09T21:28:48.435201+00:00",
+      "ended_at": "2026-05-09T21:28:48.811201+00:00",
+      "duration_ms": 376,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/users",
+        "status_code": 200
+      }
+    }
+  ],
+  "evidence_bundle": {
+    "bundle_id": "9291e493-528a-44f3-a3ea-c0a19202b09c",
+    "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+    "task_contract_hash": "53442229073b5f35b9053e72d9af5423222adc649ee51e83dab85d072c0e9067",
+    "receipt_ids": [
+      "c3e3c148-06e2-4861-957e-dc3cbdf774c8",
+      "585b4b17-6d9b-4eb1-98eb-eed7616d41c8",
+      "3e85c8c4-a947-4663-8e73-752359ecc846",
+      "15bebdd0-97b0-47ce-8fe5-c13ba5e8c198",
+      "2b76a718-566c-43cc-9d4d-fdb14e0ebe2e",
+      "dd05b827-a863-482e-b5fe-28570991946d",
+      "05391557-4441-42a5-abd1-f826e6c2cbb7",
+      "60b36938-5107-4545-bc5b-14bd05b149a0"
+    ],
+    "receipt_hashes": [
+      "b20cd327245da2fa11dbd3469f3d2440cb0e50e928053f137ed8ae745b9f736f",
+      "329819e91227c65c4ac10676d11079bc09fb1e2ba5add257343112cbdbfeffa4",
+      "0ca3666c5974abeb4c490eb862766fa6c8b4529fe6561f415e60fbd7ffc013c0",
+      "12fbaa15ebaf4df7a555ff0b52da36d2d850d2e684ed1af3d18ea82decc35d7f",
+      "33d95f152fe456330c7e97ea8c90841c202701bba271be655ecfccb6e23d2929",
+      "331b89f70693f531b5eed4d94dc370656bcac29025aa91d3009ab1866e2acef8",
+      "127db056d2dae074451ade9f61d31a70b076aaea9898b8546f7a346c75acd574",
+      "376f99446e7051bfc6e88a55eaccff22f0331ef92434017575a1b9016e533222"
+    ],
+    "final_result_hash": "93c0559496ab2516cfa530914799046b105dd90e6ee09633a60ca3ce450c79c1",
+    "total_steps": 8,
+    "successful_steps": 8,
+    "failed_steps": 0,
+    "total_duration_ms": 4521,
+    "average_quality": 1.0,
+    "settlement_status": "submitted"
+  },
+  "verification_result": {
+    "verification_id": "acd4180a-b0dc-45fb-999d-50897d05121c",
+    "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+    "bundle_id": "9291e493-528a-44f3-a3ea-c0a19202b09c",
+    "decision": "release",
+    "confidence": 0.9549,
+    "checks": [
+      {
+        "name": "receipt_chain_completeness",
+        "passed": true,
+        "detail": "expected=8, actual=8"
+      },
+      {
+        "name": "step_index_continuity",
+        "passed": true,
+        "detail": "indices=[1, 2, 3, 4, 5, 6, 7, 8]"
+      },
+      {
+        "name": "task_id_consistency",
+        "passed": true
+      },
+      {
+        "name": "hash_format_validity",
+        "passed": true
+      },
+      {
+        "name": "receipt_hash_integrity",
+        "passed": true
+      },
+      {
+        "name": "execution_duration_positive",
+        "passed": true
+      },
+      {
+        "name": "output_diversity",
+        "passed": true,
+        "detail": "unique=8/8"
+      },
+      {
+        "name": "no_timeout_in_chain",
+        "passed": true
+      },
+      {
+        "name": "receipt_id_global_uniqueness",
+        "passed": true
+      },
+      {
+        "name": "quality_threshold",
+        "passed": true,
+        "detail": "avg=1.000 threshold=0.5"
+      },
+      {
+        "name": "api_call_health",
+        "passed": true,
+        "detail": "OK"
+      },
+      {
+        "name": "completion_ratio",
+        "passed": true,
+        "detail": "100.0% complete"
+      }
+    ],
+    "detected_attacks": [],
+    "verification_ms": 0.23
+  },
+  "settlement_plan": {
+    "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+    "trace_id": "trace_api_call_ada149be46843f51",
+    "decision": "release",
+    "escrow_amount": 62.67,
+    "release_to_worker": 62.67,
+    "refund_to_client": 0.0,
+    "reason": "All verification checks passed",
+    "detected_attacks": []
+  },
+  "trace_id": "trace_api_call_ada149be46843f51",
+  "operational_log": [
+    {
+      "timestamp": "2026-05-09T21:28:44.290196+00:00",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "event": "task_created",
+      "detail": {
+        "buyer": "FinTech-API-Consumer-0001",
+        "worker": "honest-worker-api_call-0003",
+        "escrow": 62.67
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:28:44.290201+00:00",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "event": "api_request_received",
+      "detail": {
+        "agent": "honest-worker-api_call-0003"
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:28:48.811201+00:00",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "event": "api_call_complete",
+      "detail": {
+        "endpoint": "/users",
+        "steps": 8,
+        "latency_ms": 4521
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:28:44.290915+00:00",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "event": "verification_complete",
+      "detail": {
+        "decision": "release",
+        "confidence": 0.9549
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:28:44.290921+00:00",
+      "task_id": "520b28f6-48d0-4602-ba4f-fba8c4376d89",
+      "event": "settlement_plan_generated",
+      "detail": {
+        "plan": "release",
+        "release": 62.67,
+        "refund": 0.0
+      }
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+{
+  "simulation_name": "karma_market_scenario_validation",
+  "phase": "C",
+  "timestamp": "2026-05-09T21:29:58.764632+00:00",
+  "config": {
+    "phase": "C",
+    "tasks_per_market": 1000,
+    "malicious_rate": 0.5,
+    "seed": 42
+  },
+  "markets": {
+    "data_labeling": {
+      "total_tasks": 800,
+      "honest_tasks": 400,
+      "malicious_tasks": 400,
+      "released": 400,
+      "held": 181,
+      "refunded": 219,
+      "disputes": 181,
+      "malicious_detection_rate": 1.0,
+      "false_positives": 0,
+      "false_negatives": 0,
+      "average_verification_ms": 0.243,
+      "p95_verification_ms": 0.282,
+      "settlement_consistency": 0.7738,
+      "trace_correlation_success": 0.5,
+      "attacks_detected": {
+        "low_quality_output": 38,
+        "repeated_output": 36,
+        "fake_execution": 38,
+        "partial_receipt_chain": 72,
+        "duplicate_receipt": 74,
+        "malformed_receipt": 36,
+        "partial_completion": 36,
+        "forged_hash": 37,
+        "cross_task_receipt_reuse": 36,
+        "timeout": 37
+      },
+      "timeout_detected": 37,
+      "duplicate_detected": 74,
+      "replay_detected": 0,
+      "api_failures_handled": 0,
+      "partial_completions_handled": 36,
+      "verdict": "PASS"
+    },
+    "api_call": {
+      "total_tasks": 800,
+      "honest_tasks": 400,
+      "malicious_tasks": 400,
+      "released": 400,
+      "held": 181,
+      "refunded": 219,
+      "disputes": 181,
+      "malicious_detection_rate": 1.0,
+      "false_positives": 0,
+      "false_negatives": 0,
+      "average_verification_ms": 0.218,
+      "p95_verification_ms": 0.256,
+      "settlement_consistency": 0.7738,
+      "trace_correlation_success": 0.5,
+      "attacks_detected": {
+        "partial_receipt_chain": 72,
+        "api_failure": 37,
+        "cross_task_receipt_reuse": 36,
+        "duplicate_receipt": 74,
+        "timeout": 37,
+        "partial_completion": 36,
+        "forged_hash": 37,
+        "fake_execution": 39,
+        "malformed_receipt": 36,
+        "repeated_output": 36
+      },
+      "timeout_detected": 37,
+      "duplicate_detected": 74,
+      "replay_detected": 0,
+      "api_failures_handled": 37,
+      "partial_completions_handled": 36,
+      "verdict": "PASS"
+    }
+  },
+  "recommendation": {
+    "first_market": "data_labeling_first",
+    "data_labeling_score": 101.7,
+    "api_call_score": 98.4,
+    "reasoning": [
+      "Data labeling has more discrete, verifiable steps per task",
+      "Quality scoring provides an additional verification dimension",
+      "Larger average escrow amounts → more economic security testing",
+      "Real-world demand for verifiable AI data labeling is well-documented"
+    ],
+    "data_labeling_advantages": [
+      "Richer verification signals (quality scores, label diversity)",
+      "Higher per-task value attracts quality workers",
+      "Clear enterprise demand (AI training data)"
+    ],
+    "api_call_advantages": [
+      "Simpler, more deterministic verification",
+      "Lower latency → faster settlement cycles",
+      "Natural fit for agent-to-agent microservices"
+    ]
+  }
+}

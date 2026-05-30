@@ -1,0 +1,324 @@
+{
+  "task_contract": {
+    "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+    "client_agent_id": "243f45fe-bc47-46ad-8970-d09d1270c935",
+    "worker_agent_id": "a3596667-9971-4b2b-b353-3e8a3781d306",
+    "market": "api_call",
+    "escrow_amount": 185.62,
+    "quality_threshold": 0.5,
+    "timeout_seconds": 20,
+    "expected_steps": 8,
+    "created_at": "2026-05-09T21:28:44.287056+00:00"
+  },
+  "receipt_chain": [
+    {
+      "receipt_id": "254338df-173d-4030-877d-868859fe1c45",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "agent_id": "a3596667-9971-4b2b-b353-3e8a3781d306",
+      "step_index": 1,
+      "tool_name": "api.authenticate",
+      "input_hash": "cd9ed692aae8a7d4f15aa9a5ee01500f5ca79f429f15e546b6cff50e300f2945",
+      "output_hash": "88b4dddf25c896bb8ecef2ecccec175be84dad2ff392b264a09c3d19b6bed0ce",
+      "started_at": "2026-05-09T21:28:44.287087+00:00",
+      "ended_at": "2026-05-09T21:28:44.409087+00:00",
+      "duration_ms": 122,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/prices",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "590bd0c6-946a-45a6-b2e4-01af47021755",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "agent_id": "a3596667-9971-4b2b-b353-3e8a3781d306",
+      "step_index": 2,
+      "tool_name": "api.fetch_data",
+      "input_hash": "d40bc1cfb1f4804e404bd341103cbca757dc4e6901cac78cc824121636bf78d7",
+      "output_hash": "707c93e7570c244490562f1324b292e97b963eea3d01a3a3b771cbca4fcc846d",
+      "started_at": "2026-05-09T21:28:44.409087+00:00",
+      "ended_at": "2026-05-09T21:28:54.086087+00:00",
+      "duration_ms": 9677,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/prices",
+        "status_code": 204
+      }
+    },
+    {
+      "receipt_id": "ba82854a-c7e2-4618-8029-93b1daea544a",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "agent_id": "a3596667-9971-4b2b-b353-3e8a3781d306",
+      "step_index": 3,
+      "tool_name": "api.fetch_data",
+      "input_hash": "99d42dca1d63487a2b8261971f4c57bb96b6e6cb9cddf2b0de2f639097654041",
+      "output_hash": "0ce2a72668d8d0abdfaac814fb62efdc80fec13e4c6351aecf9c24f7ef03ba2d",
+      "started_at": "2026-05-09T21:28:54.086087+00:00",
+      "ended_at": "2026-05-09T21:29:03.763087+00:00",
+      "duration_ms": 9677,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/prices",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "195efd72-117e-494e-91fa-f1c78141bb37",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "agent_id": "a3596667-9971-4b2b-b353-3e8a3781d306",
+      "step_index": 4,
+      "tool_name": "api.fetch_data",
+      "input_hash": "77c839c8a4b266e339b31a787803ad723b723ae5f3b3a5c930eb1b3de15f3cd2",
+      "output_hash": "f2de9abff1394da72d118de6865942d899f70df02d4179483ef2f5e23fe85638",
+      "started_at": "2026-05-09T21:29:03.763087+00:00",
+      "ended_at": "2026-05-09T21:29:13.440087+00:00",
+      "duration_ms": 9677,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/prices",
+        "status_code": 201
+      }
+    },
+    {
+      "receipt_id": "f6d9fe17-3109-4211-b73f-6e64378d2f8d",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "agent_id": "a3596667-9971-4b2b-b353-3e8a3781d306",
+      "step_index": 5,
+      "tool_name": "api.parse_response",
+      "input_hash": "1ef2e0aba46b1a41a9eb55f6060905a10e68188021c39a10641fa769f92702d7",
+      "output_hash": "f0abc4952c46e51d9e272b6669779fcc216ca05d32733d913c98b66a96067d2a",
+      "started_at": "2026-05-09T21:29:13.440087+00:00",
+      "ended_at": "2026-05-09T21:29:13.756087+00:00",
+      "duration_ms": 316,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/prices",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "f93c8859-011b-4348-8981-1f35c10750bc",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "agent_id": "a3596667-9971-4b2b-b353-3e8a3781d306",
+      "step_index": 6,
+      "tool_name": "api.parse_response",
+      "input_hash": "5a77ac3616ed521029980a838428a8ad47bbb2365711734e0e6f0d0cfd35b871",
+      "output_hash": "300ef335d06009e8548843bd9361e4ee9b167c048a1d9ef1ce8133ae39400bdc",
+      "started_at": "2026-05-09T21:29:13.756087+00:00",
+      "ended_at": "2026-05-09T21:29:13.920087+00:00",
+      "duration_ms": 164,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/prices",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "d9ee9678-8112-40ff-aba4-646336c9b657",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "agent_id": "a3596667-9971-4b2b-b353-3e8a3781d306",
+      "step_index": 7,
+      "tool_name": "api.validate_output",
+      "input_hash": "57f7ad356cc060d0c15d6562a70e7ff1a01565817ce1b2735b6a959bfe020f99",
+      "output_hash": "23bac87c5e57e008a8371beaf15aa4b9bcb948a0b8376050af3945a52906fd82",
+      "started_at": "2026-05-09T21:29:13.920087+00:00",
+      "ended_at": "2026-05-09T21:29:14.311087+00:00",
+      "duration_ms": 391,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/prices",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "708df094-2f64-472f-96e1-a522b2b8d698",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "agent_id": "a3596667-9971-4b2b-b353-3e8a3781d306",
+      "step_index": 8,
+      "tool_name": "api.return_result",
+      "input_hash": "3ab5dd8af5e275723c912f092852e43d958178d2b4853f60f06e594cc6ae8144",
+      "output_hash": "244e798234257ac0fbc1e7af012918e40dcbf3a46a7903ca302fb61470c8a69c",
+      "started_at": "2026-05-09T21:29:14.311087+00:00",
+      "ended_at": "2026-05-09T21:29:14.693087+00:00",
+      "duration_ms": 382,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/prices",
+        "status_code": 200
+      }
+    }
+  ],
+  "evidence_bundle": {
+    "bundle_id": "2e4c16e2-1b79-4e6b-b52e-f4a6ac6c2e1b",
+    "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+    "task_contract_hash": "db38ca0f4c56a4bd54b0d348c89af62943ffa2c8929f60120bc3fc98af104bb2",
+    "receipt_ids": [
+      "254338df-173d-4030-877d-868859fe1c45",
+      "590bd0c6-946a-45a6-b2e4-01af47021755",
+      "ba82854a-c7e2-4618-8029-93b1daea544a",
+      "195efd72-117e-494e-91fa-f1c78141bb37",
+      "f6d9fe17-3109-4211-b73f-6e64378d2f8d",
+      "f93c8859-011b-4348-8981-1f35c10750bc",
+      "d9ee9678-8112-40ff-aba4-646336c9b657",
+      "708df094-2f64-472f-96e1-a522b2b8d698"
+    ],
+    "receipt_hashes": [
+      "25da6fdb85f14c7ebb283ec5f3a27c2508e9779be5077fe70650cc7220e24244",
+      "d04a74727874dfbb410de138c530f3b91307ae9a8c3d705ca8f94b6f38852fc9",
+      "3a27e788791c33dc83e27950e910e940215e3ce57932b00b2237712af1dfade9",
+      "03864fa9fbd85015aa96fe286b0c690fb8d240a3d8a8965bf470657431b5bebc",
+      "00f74304bd685c65e0904e7f11e47374378d8ed5e3013adf933541585523eabb",
+      "dc3c707da681de5a9a5922f8f7b9b41b52424ccd8161cf6c83af54ede324f071",
+      "b3b001326f0c3b39d5252307439894a5f05df12e833e772bf2efb92da129025d",
+      "7f8ef9657a38d242263b80e166c4705d080922bca0cdb5a3fe94ce36522afae0"
+    ],
+    "final_result_hash": "966251424970a38a7bdc11b610d211cf729b4f5621a6e10c3246b8c0d0622658",
+    "total_steps": 8,
+    "successful_steps": 8,
+    "failed_steps": 0,
+    "total_duration_ms": 30406,
+    "average_quality": 1.0,
+    "settlement_status": "submitted"
+  },
+  "verification_result": {
+    "verification_id": "36daa93a-6c91-4882-a12e-73c7fb368cf4",
+    "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+    "bundle_id": "2e4c16e2-1b79-4e6b-b52e-f4a6ac6c2e1b",
+    "decision": "release",
+    "confidence": 0.9917,
+    "checks": [
+      {
+        "name": "receipt_chain_completeness",
+        "passed": true,
+        "detail": "expected=8, actual=8"
+      },
+      {
+        "name": "step_index_continuity",
+        "passed": true,
+        "detail": "indices=[1, 2, 3, 4, 5, 6, 7, 8]"
+      },
+      {
+        "name": "task_id_consistency",
+        "passed": true
+      },
+      {
+        "name": "hash_format_validity",
+        "passed": true
+      },
+      {
+        "name": "receipt_hash_integrity",
+        "passed": true
+      },
+      {
+        "name": "execution_duration_positive",
+        "passed": true
+      },
+      {
+        "name": "output_diversity",
+        "passed": true,
+        "detail": "unique=8/8"
+      },
+      {
+        "name": "no_timeout_in_chain",
+        "passed": true
+      },
+      {
+        "name": "receipt_id_global_uniqueness",
+        "passed": true
+      },
+      {
+        "name": "quality_threshold",
+        "passed": true,
+        "detail": "avg=1.000 threshold=0.5"
+      },
+      {
+        "name": "api_call_health",
+        "passed": true,
+        "detail": "OK"
+      },
+      {
+        "name": "completion_ratio",
+        "passed": true,
+        "detail": "100.0% complete"
+      }
+    ],
+    "detected_attacks": [],
+    "verification_ms": 0.25
+  },
+  "settlement_plan": {
+    "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+    "trace_id": "trace_api_call_6b867ad298614524",
+    "decision": "release",
+    "escrow_amount": 185.62,
+    "release_to_worker": 185.62,
+    "refund_to_client": 0.0,
+    "reason": "All verification checks passed",
+    "detected_attacks": []
+  },
+  "trace_id": "trace_api_call_6b867ad298614524",
+  "operational_log": [
+    {
+      "timestamp": "2026-05-09T21:28:44.287082+00:00",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "event": "task_created",
+      "detail": {
+        "buyer": "Social-Media-Analytics-0003",
+        "worker": "honest-worker-api_call-0024",
+        "escrow": 185.62
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:28:44.287087+00:00",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "event": "api_request_received",
+      "detail": {
+        "agent": "honest-worker-api_call-0024"
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:29:14.693087+00:00",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "event": "api_call_complete",
+      "detail": {
+        "endpoint": "/prices",
+        "steps": 8,
+        "latency_ms": 30406
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:28:44.287833+00:00",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "event": "verification_complete",
+      "detail": {
+        "decision": "release",
+        "confidence": 0.9917
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:28:44.287839+00:00",
+      "task_id": "c8497436-18b4-45b1-812a-34f402a13629",
+      "event": "settlement_plan_generated",
+      "detail": {
+        "plan": "release",
+        "release": 185.62,
+        "refund": 0.0
+      }
+    }
+  ]
+}

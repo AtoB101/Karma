@@ -1,0 +1,252 @@
+{
+  "task_contract": {
+    "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+    "client_agent_id": "a1d78199-d8ed-4649-8a82-673019977e2e",
+    "worker_agent_id": "4c82c445-30e5-4543-a925-de8562588ce9",
+    "market": "api_call",
+    "escrow_amount": 344.31,
+    "quality_threshold": 0.5,
+    "timeout_seconds": 5,
+    "expected_steps": 8,
+    "created_at": "2026-05-09T21:26:22.207249+00:00"
+  },
+  "receipt_chain": [
+    {
+      "receipt_id": "230f1e69-034d-42fd-a4ca-abcbd2c4c286",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "agent_id": "4c82c445-30e5-4543-a925-de8562588ce9",
+      "step_index": 1,
+      "tool_name": "api.authenticate",
+      "input_hash": "98c4d2babace39720bcfa6a9958a5fe385c8e074a977430e009f42841ecd9eb2",
+      "output_hash": "1e4c154524b8061513621aefaa83b9f9dc1aaa50acaea06ff3b906296a841485",
+      "started_at": "2026-05-09T21:26:22.207283+00:00",
+      "ended_at": "2026-05-09T21:26:22.500283+00:00",
+      "duration_ms": 293,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 201
+      }
+    },
+    {
+      "receipt_id": "697878c1-7c22-47a0-875f-f3685f7ddbb1",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "agent_id": "4c82c445-30e5-4543-a925-de8562588ce9",
+      "step_index": 2,
+      "tool_name": "api.fetch_data",
+      "input_hash": "03859ed4c65362de034e0c4a81f5569e1a49337f2d403539f0ec4db4fa356238",
+      "output_hash": "47c1b21fda986772b09c0f0ebc71ad28e4fd8314f49ec476d9ac70a21527de37",
+      "started_at": "2026-05-09T21:26:22.500283+00:00",
+      "ended_at": "2026-05-09T21:26:22.942283+00:00",
+      "duration_ms": 442,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 201
+      }
+    },
+    {
+      "receipt_id": "37c6bc5d-1a38-4e8e-a9bc-4734e92966be",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "agent_id": "4c82c445-30e5-4543-a925-de8562588ce9",
+      "step_index": 3,
+      "tool_name": "api.fetch_data",
+      "input_hash": "b12b4fe88a702ebe1161319c3bcd70c933091d170c0464198ae711e82337ec0d",
+      "output_hash": "7ba587a18a058c1efc3fdaaa4940fc5fb5c07ed53d3bef5466ebe2a09d127f41",
+      "started_at": "2026-05-09T21:26:22.942283+00:00",
+      "ended_at": "2026-05-09T21:26:23.384283+00:00",
+      "duration_ms": 442,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 200
+      }
+    },
+    {
+      "receipt_id": "cb8c1d76-303c-4503-94e2-0134389ae4fd",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "agent_id": "4c82c445-30e5-4543-a925-de8562588ce9",
+      "step_index": 4,
+      "tool_name": "api.fetch_data",
+      "input_hash": "f02e8b782fcf290738c8699e438dfa627b8ba60bdc2fa800c4209b8cb9a6f24e",
+      "output_hash": "46855bc3a20c647bf1059afca83b975742652d2a0fc096d76fedffb61e22d3d2",
+      "started_at": "2026-05-09T21:26:23.384283+00:00",
+      "ended_at": "2026-05-09T21:26:23.826283+00:00",
+      "duration_ms": 442,
+      "status": "success",
+      "quality_score": 1.0,
+      "metadata": {
+        "market": "api_call",
+        "endpoint": "/weather",
+        "status_code": 200
+      }
+    }
+  ],
+  "evidence_bundle": {
+    "bundle_id": "57904515-f859-496d-837a-9ab085eb43c8",
+    "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+    "task_contract_hash": "44f507ed7676758663da0fec2243ba7ff66b9843c1a9700d1968d9e7e8927370",
+    "receipt_ids": [
+      "230f1e69-034d-42fd-a4ca-abcbd2c4c286",
+      "697878c1-7c22-47a0-875f-f3685f7ddbb1",
+      "37c6bc5d-1a38-4e8e-a9bc-4734e92966be",
+      "cb8c1d76-303c-4503-94e2-0134389ae4fd"
+    ],
+    "receipt_hashes": [
+      "50a331ffae7d2c159ce78bc89cc6a0b6336562fb1ffbed42d42cec32a739df83",
+      "d9dc6759812a6facc811bca7828179056d0c119fc902de20a57e81268e85032c",
+      "7506deaa8c56be93034c6febdb28db92958112de750cd21c636cf1deb2a92f16",
+      "e414baff276150d26a991c761119ec52a361433edf7dc528887a5cfc60ac0822"
+    ],
+    "final_result_hash": "c28044ba04f1ebd7f3451de05bf770a31db3d5e8006c07cee6a0e1b44908e4ca",
+    "total_steps": 4,
+    "successful_steps": 4,
+    "failed_steps": 0,
+    "total_duration_ms": 1619,
+    "average_quality": 1.0,
+    "settlement_status": "submitted"
+  },
+  "verification_result": {
+    "verification_id": "d087edcb-be94-41cb-875c-c8eb4dffc9aa",
+    "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+    "bundle_id": "57904515-f859-496d-837a-9ab085eb43c8",
+    "decision": "refund",
+    "confidence": 0.8258,
+    "checks": [
+      {
+        "name": "receipt_chain_completeness",
+        "passed": false,
+        "detail": "expected=8, actual=4"
+      },
+      {
+        "name": "step_index_continuity",
+        "passed": true,
+        "detail": "indices=[1, 2, 3, 4]"
+      },
+      {
+        "name": "task_id_consistency",
+        "passed": true
+      },
+      {
+        "name": "hash_format_validity",
+        "passed": true
+      },
+      {
+        "name": "receipt_hash_integrity",
+        "passed": true
+      },
+      {
+        "name": "execution_duration_positive",
+        "passed": true
+      },
+      {
+        "name": "output_diversity",
+        "passed": true,
+        "detail": "unique=4/4"
+      },
+      {
+        "name": "no_timeout_in_chain",
+        "passed": true
+      },
+      {
+        "name": "receipt_id_global_uniqueness",
+        "passed": true
+      },
+      {
+        "name": "quality_threshold",
+        "passed": true,
+        "detail": "avg=1.000 threshold=0.5"
+      },
+      {
+        "name": "api_call_health",
+        "passed": true,
+        "detail": "OK"
+      },
+      {
+        "name": "completion_ratio",
+        "passed": false,
+        "detail": "50.0% complete"
+      }
+    ],
+    "detected_attacks": [
+      "partial_receipt_chain",
+      "partial_completion"
+    ],
+    "verification_ms": 0.14
+  },
+  "settlement_plan": {
+    "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+    "trace_id": "trace_api_call_b53aeb6058cff092",
+    "decision": "refund",
+    "escrow_amount": 344.31,
+    "release_to_worker": 0.0,
+    "refund_to_client": 344.31,
+    "reason": "Violation: partial_receipt_chain, partial_completion",
+    "detected_attacks": [
+      "partial_receipt_chain",
+      "partial_completion"
+    ]
+  },
+  "trace_id": "trace_api_call_b53aeb6058cff092",
+  "operational_log": [
+    {
+      "timestamp": "2026-05-09T21:26:22.207277+00:00",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "event": "task_created",
+      "detail": {
+        "buyer": "Crypto-Price-Oracle-0009",
+        "worker": "malicious-worker-api_call-0011",
+        "escrow": 344.31
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:26:22.207283+00:00",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "event": "api_request_received",
+      "detail": {
+        "agent": "malicious-worker-api_call-0011"
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:26:24.685283+00:00",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "event": "api_call_complete",
+      "detail": {
+        "endpoint": "/weather",
+        "steps": 8,
+        "latency_ms": 2478
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:26:22.207764+00:00",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "event": "attack_partial_completion",
+      "detail": {}
+    },
+    {
+      "timestamp": "2026-05-09T21:26:22.208022+00:00",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "event": "verification_complete",
+      "detail": {
+        "decision": "refund",
+        "confidence": 0.8258
+      }
+    },
+    {
+      "timestamp": "2026-05-09T21:26:22.208029+00:00",
+      "task_id": "d85195ac-d3aa-4b27-90f3-2ab5df586eff",
+      "event": "settlement_plan_generated",
+      "detail": {
+        "plan": "refund",
+        "release": 0.0,
+        "refund": 344.31
+      }
+    }
+  ]
+}
