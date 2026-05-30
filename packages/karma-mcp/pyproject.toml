@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "karma-mcp"
+version = "1.0.0"
+description = "KarmaBilateral MCP stdio server — lock / bind / settle for AI agent payments"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0",
+    "web3>=6.0",
+]
+
+[project.scripts]
+karma-mcp = "karma_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["karma_mcp*"]

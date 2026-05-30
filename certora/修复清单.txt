@@ -1,0 +1,82 @@
+Certora 提交修复清单 — Karma 5 合约验证
+============================================
+
+提交时间: 2026-05-12 01:30 GMT+7
+Job ID: 5030782
+Dashboard: https://prover.certora.com
+
+已验证可通过本地编译+上传，以下为当前环境中必须修复才能跑通的项：
+
+
+1. certora/conf/*.conf — solc 版本不兼容
+----------------------------------------------------------
+问题: 5 个 conf 文件中 "solc": "solc8.28"，Certora 云端无此版本。
+      Certora 云支持的 solc 版本有限（已知 solc8.11、solc8.9 可用），
+      合约 pragma ^0.8.24 需要 >=0.8.24 的编译器。
+修复: 改为本地 solc 路径，或确认 Certora 云是否已支持 solc8.28。
+      "solc": "/usr/local/bin/solc"
+      本机已装 solc 0.8.35 (brew install solidity)
+
+2. certora/conf/*.conf — 缺少 solc_via_ir
+----------------------------------------------------------
+问题: karma-core/contracts/core/NonCustodialAgentPayment.sol
+      编译报 "Stack too deep"，需 --via-ir 编译模式。
+      该合约 createBill 函数局部变量过多（含 PolicyConfig 等新特性）。
+修复: 5 个 conf 文件统一添加:
+      "solc_via_ir": true,
+
+3. certora/specs/AuthTokenManager.spec — import .sol 路径
+----------------------------------------------------------
+问题: import "karma-core/contracts/libraries/Types.sol" 
+      在 CVL 中解析为相对于 spec 文件的路径:
+      certora/specs/karma-core/... (不存在)
+修复: 移除 import 语句。CVL 自动继承验证合约的所有 import 类型，
+      Types.OperationType 等可直接使用，无需 import。
+      如果必须保留 import，改为相对路径:
+      import "../../karma-core/contracts/libraries/Types.sol";
+
+4. scripts/certora-verify.sh — certoraRun 参数语法
+----------------------------------------------------------
+问题: 
+  (a) certoraRun 不接受 --conf 前缀，应直接传 conf 文件路径
+  (b) "$@" 传到 run() 函数末尾，与 certoraRun 参数混在一起导致
+      "unrecognized arguments" 报错
+修复:
+  - 将 certoraRun --conf "${conf}" 改为 certoraRun "${conf}"
+  - "$@" 放在 run() 的第一个参数位置，或改为内联循环:
+    for conf in "${CONFS[@]}"; do
+      certoraRun "${conf}" "$@"
+    done
+
+5. certora/specs/NonCustodialAgentPayment.spec — using 语句
+----------------------------------------------------------
+问题: 原版使用 using INonCustodialAgentPayment as payment; 
+      但 CVL2 在某些环境下不认接口名作为类型前缀。
+      当前技术部版本已改为直接用合约函数名（无 alias），确认无误。
+
+6. certora/specs/SettlementEngine.spec — 无 Quote 规则
+----------------------------------------------------------
+问题: README 中注明 "暂不写 Quote/submitSettlement 规则"。
+      当前 spec 只有 admin/DOMAIN 检查。后续需补 EIP-712 结算验证。
+      这是设计决策，不是 bug，但应在 README 中明确。
+
+7. 通用 — 本地环境依赖
+----------------------------------------------------------
+本机缺少 Java 运行时（推荐 Java 21），导致无法执行 CVL 本地类型检查。
+所有提交均使用 --disable_local_typechecking 跳过。
+建议技术部本机安装:
+  brew install openjdk@21
+  或通过 SDKMAN 安装 Java 21。
+
+
+已成功提交的 5 个 Job:
+----------------------------------------------------------
+KYARegistry:      https://prover.certora.com/output/5030782/4d7eade4
+CircuitBreaker:   https://prover.certora.com/output/5030782/79053eeb
+AuthTokenManager: https://prover.certora.com/output/5030782/e6ca0478
+SettlementEngine: https://prover.certora.com/output/5030782/e9a0555b
+NonCustodialAgent: https://prover.certora.com/output/5030782/c30d06db
+
+
+优先级:
+  1 > 2 > 3 > 4 > 5 (6和7为建议项)
