@@ -8,9 +8,10 @@ echo "==> Karma public P0 acceptance"
 
 required_files=(
   "karma-core/contracts/core/KYARegistry.sol"
-  "karma-core/contracts/core/NonCustodialAgentPayment.sol"
+  "karma-core/contracts/_legacy/core/NonCustodialAgentPayment.sol"
+  "karma-core/contracts/core/KarmaBilateral.sol"
   "karma-core/contracts/core/AuthTokenManager.sol"
-  "karma-core/contracts/core/SettlementEngine.sol"
+  "karma-core/contracts/_legacy/core/SettlementEngine.sol"
   "sdk/client.py"
   "sdk/task.py"
   "sdk/adapters.py"
@@ -39,7 +40,7 @@ python3 -m pytest tests/integration/test_api.py -q
 
 echo "==> Optional contract smoke gate"
 if command -v forge >/dev/null 2>&1; then
-  (cd karma-core && forge test --match-path "contracts/test/SettlementEngine.t.sol")
+  (cd karma-core && forge test --match-path "contracts/_legacy/test/SettlementEngine.t.sol")
 else
   echo "SKIP forge not found; contract smoke gate skipped"
 fi
