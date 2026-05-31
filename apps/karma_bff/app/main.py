@@ -12,6 +12,7 @@ from apps.karma_bff.app import config
 from apps.karma_bff.app.db import connect, init_schema
 from apps.karma_bff.app.middleware_security import RateLimitMiddleware, SecurityHeadersMiddleware
 from apps.karma_bff.app.routes_integration import router as integration_router
+from apps.karma_bff.app.routes_bilateral import router as bilateral_router
 from apps.karma_bff.app.routes_public import router as public_router
 from apps.karma_bff.app.routes_webhooks import router as webhooks_router
 
@@ -52,6 +53,7 @@ app.add_middleware(
 )
 
 app.include_router(integration_router)
+app.include_router(bilateral_router)
 app.include_router(webhooks_router)
 app.include_router(public_router)
 

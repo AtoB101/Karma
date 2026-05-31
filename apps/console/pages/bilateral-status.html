@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>KarmaBilateral — Status</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, monospace; background: #0a0a0f; color: #c0c0d0; padding: 2rem; }
+    h1 { color: #6cf; font-size: 1.5rem; margin-bottom: 1.5rem; }
+    .card { background: #141420; border: 1px solid #2a2a3a; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; }
+    .card h2 { color: #9cf; font-size: 1rem; margin-bottom: 0.75rem; }
+    .row { display: flex; gap: 2rem; flex-wrap: wrap; }
+    .stat { flex: 1; min-width: 200px; }
+    .stat label { color: #666; font-size: 0.75rem; text-transform: uppercase; }
+    .stat .value { color: #c0d0f0; font-size: 1.25rem; font-weight: 600; }
+    .state { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+    .state-ACTIVE { background: #224; color: #6af; }
+    .state-FINALIZING { background: #422; color: #fa6; }
+    .state-SETTLED { background: #242; color: #6f6; }
+    .state-DISPUTED { background: #422; color: #f66; }
+    .state-REFUNDED { background: #224; color: #88f; }
+    .state-BURNED { background: #222; color: #666; }
+    .state-BOUND { background: #224; color: #6af; }
+    .state-MINTED { background: #242; color: #6f6; }
+    #status { min-height: 3rem; padding: 1rem; border-radius: 4px; }
+    .ok { background: #141; color: #6f6; }
+    .err { background: #411; color: #f66; }
+  </style>
+</head>
+<body>
+  <h1>🧊 KarmaBilateral — Status</h1>
+
+  <div class="card">
+    <h2>Contract</h2>
+    <div class="row">
+      <div class="stat"><label>Address</label><div class="value" id="contract-addr">—</div></div>
+      <div class="stat"><label>Network</label><div class="value">Sepolia</div></div>
+      <div class="stat"><label>USDC Locked</label><div class="value" id="usdc-locked">—</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Query Binding</h2>
+    <input type="number" id="binding-id" placeholder="Binding ID" value="1" style="padding:0.5rem;width:120px;background:#1a1a2a;color:#c0d0f0;border:1px solid #333;border-radius:4px;">
+    <button onclick="queryStatus()" style="padding:0.5rem 1rem;background:#246;color:#9cf;border:none;border-radius:4px;cursor:pointer;">Query</button>
+    <div id="status"></div>
+  </div>
+
+  <script>
+    const API = '/v1/bilateral';
+
+    async function queryStatus() {
+      const id = document.getElementById('binding-id').value;
+      const el = document.getElementById('status');
+      el.className = '';
+      el.textContent = 'Loading...';
+      try {
+        const r = await fetch(`${API}/status/${id}`);
+        if (!r.ok) throw new Error(await r.text());
+        const d = await r.json();
+        el.className = 'ok';
+        el.innerHTML = `
+          <div class="row" style="margin-top:1rem">
+            <div class="stat"><label>State</label><div class="value"><span class="state state-${d.state}">${d.state}</span></div></div>
+            <div class="stat"><label>USDC Locked</label><div class="value">${d.usdc_locked / 1e6} USDC</div></div>
+            <div class="stat"><label>Settle After</label><div class="value">${d.settle_after || '—'}</div></div>
+          </div>
+          <div class="row" style="margin-top:1rem">
+            ${d.bill_states.map(b => `
+              <div class="stat">
+                <label>Bill #${b.bill_id} (${b.owner.slice(0,6)}...)</label>
+                <div class="value">${b.amount / 1e6} USDC <span class="state state-${b.state}">${b.state}</span></div>
+              </div>`).join('')}
+          </div>
+          <div class="row" style="margin-top:1rem">
+            <div class="stat"><label>Can Settle</label><div class="value">${d.can_settle ? '✅' : '❌'}</div></div>
+            <div class="stat"><label>Can Dispute</label><div class="value">${d.can_dispute ? '✅' : '❌'}</div></div>
+            <div class="stat"><label>Can Finalize</label><div class="value">${d.can_finalize ? '✅' : '❌'}</div></div>
+          </div>`;
+      } catch(e) {
+        el.className = 'err';
+        el.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    fetch(`${API}/status/1`).then(r => r.json()).then(d => {
+      document.getElementById('usdc-locked').textContent = d.usdc_locked ? (d.usdc_locked / 1e6) + ' USDC' : '—';
+    }).catch(() => {});
+  </script>
+</body>
+</html>

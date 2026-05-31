@@ -140,6 +140,7 @@ class Settings(BaseSettings):
     # Existing Karma contract addresses
     karma_engine_address: str = ""         # KarmaSettlementEngine (legacy/EIP-712)
     karma_non_custodial_address: str = ""  # KarmaNonCustodial (M2.0 batch)
+    karma_bilateral_address: str = ""      # KarmaBilateral (current protocol)
 
     # ERC-20 token for settlement
     erc20_token_address: str = ""
