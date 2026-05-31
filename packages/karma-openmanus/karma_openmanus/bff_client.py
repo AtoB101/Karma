@@ -148,4 +148,3 @@ class KarmaBffClient:
     async def bilateral_status(self, binding_id: int) -> dict[str, Any]:
         """Query binding + bill states."""
         return await self._get_hmac(f"/v1/bilateral/status/{binding_id}")
-            return r.json()
