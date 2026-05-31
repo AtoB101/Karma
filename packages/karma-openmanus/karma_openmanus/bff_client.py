@@ -119,4 +119,33 @@ class KarmaBffClient:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             r = await client.get(f"{self._base}/public/status/{trace_id}")
             r.raise_for_status()
+
+    # ── KarmaBilateral ──────────────────────────────────────────────────────
+
+    async def bilateral_lock(self, token: str, amount: int, role: str = "buyer") -> dict[str, Any]:
+        """Lock USDC → mint Bill Token. role = buyer | agent."""
+        return await self._post_json("/v1/bilateral/lock", {
+            "token": token, "amount": amount, "role": role,
+        }, idempotency_key=f"lock-{role}-{uuid.uuid4().hex[:8]}")
+
+    async def bilateral_bind(self, buyer_bill_id: int, agent_bill_id: int, scope_hash: str) -> dict[str, Any]:
+        """Bind buyer + agent Bill Tokens → Binding."""
+        return await self._post_json("/v1/bilateral/bind", {
+            "buyer_bill_id": buyer_bill_id, "agent_bill_id": agent_bill_id,
+            "scope_hash": scope_hash,
+        }, idempotency_key=f"bind-{uuid.uuid4().hex[:8]}")
+
+    async def bilateral_settle(self, binding_id: int, proof_hash: str) -> dict[str, Any]:
+        """Submit settlement proof → FINALIZING."""
+        return await self._post_json("/v1/bilateral/settle", {
+            "binding_id": binding_id, "proof_hash": proof_hash,
+        }, idempotency_key=f"settle-{uuid.uuid4().hex[:8]}")
+
+    async def bilateral_finalize(self, binding_id: int) -> dict[str, Any]:
+        """Finalize after dispute window → SETTLED."""
+        return await self._post_json(f"/v1/bilateral/finalize/{binding_id}", {})
+
+    async def bilateral_status(self, binding_id: int) -> dict[str, Any]:
+        """Query binding + bill states."""
+        return await self._get_hmac(f"/v1/bilateral/status/{binding_id}")
             return r.json()

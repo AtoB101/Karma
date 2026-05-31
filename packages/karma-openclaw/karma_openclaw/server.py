@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 
+from karma_openclaw.bilateral_tools import register_bilateral_tools
 from karma_openclaw.guard import (
     buyer_confirm_allowed,
     require_valid_handoff,
@@ -227,6 +228,7 @@ def build_app() -> FastMCP:
     register_p0_tools(mcp)
     register_phase1_tools(mcp)
     register_phase2_tools(mcp)
+    register_bilateral_tools(mcp)
     return mcp
 
 

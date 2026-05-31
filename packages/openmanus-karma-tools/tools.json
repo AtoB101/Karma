@@ -53,6 +53,39 @@
       "description": "Read-only JSON for Web/Bot UIs (no HMAC). Same core fields as public status.",
       "method": "GET",
       "path": "/public/status/{trace_id}"
+    },
+    {
+      "name": "karma_bilateral_lock",
+      "description": "Lock USDC into KarmaBilateral and mint a Bill Token. Both buyer and agent must lock before binding.",
+      "method": "POST",
+      "path": "/v1/bilateral/lock",
+      "body": { "token": "0x...", "amount": 10000000, "role": "buyer" }
+    },
+    {
+      "name": "karma_bilateral_bind",
+      "description": "Bilaterally bind buyer + agent Bill Tokens into a Binding. Bills are frozen until settled.",
+      "method": "POST",
+      "path": "/v1/bilateral/bind",
+      "body": { "buyer_bill_id": 1, "agent_bill_id": 2, "scope_hash": "0x..." }
+    },
+    {
+      "name": "karma_bilateral_settle",
+      "description": "Submit settlement proof. Binding enters FINALIZING. After dispute window, call finalize.",
+      "method": "POST",
+      "path": "/v1/bilateral/settle",
+      "body": { "binding_id": 1, "proof_hash": "0x..." }
+    },
+    {
+      "name": "karma_bilateral_finalize",
+      "description": "Finalize settlement after dispute window closes. Burns bills and releases USDC.",
+      "method": "POST",
+      "path": "/v1/bilateral/finalize/{binding_id}"
+    },
+    {
+      "name": "karma_bilateral_status",
+      "description": "Query full binding status — state, bill states, USDC locked, action flags.",
+      "method": "GET",
+      "path": "/v1/bilateral/status/{binding_id}"
     }
   ]
 }
