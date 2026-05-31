@@ -22,9 +22,9 @@ if ! command -v slither >/dev/null 2>&1; then
   exit 1
 fi
 
-TARGET="karma-core/contracts/core/SettlementEngine.sol"
+TARGET="karma-core/contracts/_legacy/core/SettlementEngine.sol"
 if [[ ! -f "$TARGET" ]]; then
-  TARGET="contracts/core/SettlementEngine.sol"
+  TARGET="contracts/_legacy/core/SettlementEngine.sol"
 fi
 
 if [[ ! -f "$TARGET" ]]; then

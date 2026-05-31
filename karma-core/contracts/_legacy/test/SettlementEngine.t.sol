@@ -3,10 +3,10 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {SettlementEngine} from "../core/SettlementEngine.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
+import {MockERC20} from "../../test/mocks/MockERC20.sol";
 import {ReentrantERC20} from "./mocks/ReentrantERC20.sol";
-import {QuoteTypes} from "../libraries/QuoteTypes.sol";
-import {Errors} from "../libraries/Errors.sol";
+import {QuoteTypes} from "../../libraries/QuoteTypes.sol";
+import {Errors} from "../../libraries/Errors.sol";
 
 contract SettlementEngineTest is Test {
     uint256 internal constant SECP256K1N =

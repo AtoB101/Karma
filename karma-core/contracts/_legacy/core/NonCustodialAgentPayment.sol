@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {INonCustodialAgentPayment} from "../interfaces/INonCustodialAgentPayment.sol";
-import {SignatureValidator} from "../libraries/SignatureValidator.sol";
+import {SignatureValidator} from "../../libraries/SignatureValidator.sol";
 
 interface IERC20Extended {
     function balanceOf(address account) external view returns (uint256);
