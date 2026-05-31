@@ -64,3 +64,5 @@ apps/agent-service-guard/frontend/public-config.json
 apps/console/config.js
 .gas-snapshot
 *.db.bak
+dist/
+*.whl

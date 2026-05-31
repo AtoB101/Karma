@@ -112,6 +112,23 @@ def _status(bid):
 async def health():
     return {"status": "ok", "contract": KARMA, "rpc": RPC[:50]}
 
+
+@app.post("/faucet/{address}")
+async def faucet(address: str):
+    """Send 100 mUSDC to a Sepolia address. For testnet onboarding."""
+    usdc = w3.eth.contract(address=USDC, abi=[{"name":"transfer","type":"function","inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]},{"name":"balanceOf","type":"function","inputs":[{"name":"a","type":"address"}],"outputs":[{"name":"","type":"uint256"}]}])
+    bal = usdc.functions.balanceOf(account.address).call()
+    amt = 100_000_000  # 100 mUSDC
+    if bal < amt:
+        raise HTTPException(503, "Faucet dry — admin needs more mUSDC")
+    tx = usdc.functions.transfer(Web3.to_checksum_address(address), amt).build_transaction({
+        "from": account.address, "nonce": w3.eth.get_transaction_count(account.address), "gas": 100000,
+    })
+    signed = account.sign_transaction(tx)
+    h = w3.eth.send_raw_transaction(signed.raw_transaction)
+    receipt = w3.eth.wait_for_transaction_receipt(h, timeout=60)
+    return {"ok": True, "amount": "100 mUSDC", "to": address, "tx": h.hex()}
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8822"))
     uvicorn.run(app, host="0.0.0.0", port=port)
