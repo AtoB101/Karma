@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ISettlementEngine} from "../../interfaces/ISettlementEngine.sol";
-import {QuoteTypes} from "../../libraries/QuoteTypes.sol";
+import {QuoteTypes} from "../../../libraries/QuoteTypes.sol";
 
 contract ReentrantERC20 {
     mapping(address => uint256) public balanceOf;
