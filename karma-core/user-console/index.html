@@ -692,7 +692,8 @@
           <h2 id="pageHeading">总览</h2>
           <p id="pageSubheading">资金、额度、任务、收款和争议一屏掌握。</p>
         </div>
-        <div class="top-actions">
+        <div class="top-actions" style="align-items:center;gap:16px;">
+          <span id="apiStatus" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;font-family:var(--font-mono);background:rgba(255,255,255,0.04);padding:4px 12px;border-radius:20px;border:1px solid rgba(0,229,255,0.14);"><span id="apiDot" style="width:6px;height:6px;border-radius:50%;background:var(--red);"></span><span id="apiLabel">API 未连接</span></span>
           <button class="btn">切换子身份</button>
           <button class="btn">导出记录</button>
           <button class="btn primary">增加锁仓额度</button>
@@ -701,11 +702,11 @@
 
       <section id="overview" class="page active">
         <div class="grid metrics">
-          <div class="card metric"><div class="label">锁仓 USDC</div><div class="value">200.00</div><div class="hint">真实资金锚定</div></div>
-          <div class="card metric"><div class="label">可用额度</div><div class="value">120.00</div><div class="hint">可创建付款授权</div></div>
-          <div class="card metric"><div class="label">执行占用</div><div class="value">60.00</div><div class="hint">已接单任务冻结</div></div>
-          <div class="card metric"><div class="label">待收款</div><div class="value">80.00</div><div class="hint">已接单 / 待结算</div></div>
-          <div class="card metric"><div class="label">争议冻结</div><div class="value">20.00</div><div class="hint">等待仲裁推进</div></div>
+          <div class="card metric"><div class="label">锁仓 USDC</div><div class="value" id="m-locked">--</div><div class="hint">真实资金锚定</div></div>
+          <div class="card metric"><div class="label">可用额度</div><div class="value" id="m-available">--</div><div class="hint">可创建付款授权</div></div>
+          <div class="card metric"><div class="label">执行占用</div><div class="value" id="m-occupied">--</div><div class="hint">已接单任务冻结</div></div>
+          <div class="card metric"><div class="label">待收款</div><div class="value" id="m-pending">--</div><div class="hint">已接单 / 待结算</div></div>
+          <div class="card metric"><div class="label">争议冻结</div><div class="value" id="m-disputed">--</div><div class="hint">等待仲裁推进</div></div>
         </div>
 
         <div class="grid layout-2">
@@ -747,10 +748,8 @@
           </div>
           <table>
             <thead><tr><th>任务</th><th>本方角色</th><th>对方</th><th>金额</th><th>进度</th><th>状态</th><th>下一步</th></tr></thead>
-            <tbody>
-              <tr><td>AI 视频生成</td><td>付款方</td><td>Karma-ID-B21</td><td>50 USDC</td><td><div class="progress"><span style="width:40%"></span></div></td><td><span class="badge cyan">执行中</span></td><td><button class="btn">查看进度</button></td></tr>
-              <tr><td>API 数据服务</td><td>收款方</td><td>Karma-ID-A82</td><td>40 USDC</td><td><div class="progress"><span style="width:100%"></span></div></td><td><span class="badge green">可结算</span></td><td><button class="btn primary">申请结算</button></td></tr>
-              <tr><td>Agent 研究任务</td><td>付款方</td><td>Karma-ID-F77</td><td>20 USDC</td><td><div class="progress"><span style="width:20%"></span></div></td><td><span class="badge red">争议中</span></td><td><button class="btn red">提交证据</button></td></tr>
+            <tbody id="overview-tasks-body">
+              <tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:20px;">加载中...</td></tr>
             </tbody>
           </table>
         </div>
@@ -758,11 +757,11 @@
 
       <section id="center" class="page">
         <div class="grid metrics">
-          <div class="card metric"><div class="label">可付款额度</div><div class="value">120.00</div><div class="hint">可创建 Voucher</div></div>
-          <div class="card metric"><div class="label">已发出授权</div><div class="value">40.00</div><div class="hint">等待/执行中</div></div>
-          <div class="card metric"><div class="label">待收款</div><div class="value">80.00</div><div class="hint">可提交回执</div></div>
-          <div class="card metric"><div class="label">可结算</div><div class="value">40.00</div><div class="hint">可申请到账</div></div>
-          <div class="card metric"><div class="label">协议费预估</div><div class="value">0.12</div><div class="hint">结算时扣除</div></div>
+          <div class="card metric"><div class="label">可付款额度</div><div class="value" id="cp-payable">--</div><div class="hint">可创建 Voucher</div></div>
+          <div class="card metric"><div class="label">已发出授权</div><div class="value" id="cp-sent">--</div><div class="hint">等待/执行中</div></div>
+          <div class="card metric"><div class="label">待收款</div><div class="value" id="cp-receivable">--</div><div class="hint">可提交回执</div></div>
+          <div class="card metric"><div class="label">可结算</div><div class="value" id="cp-settleable">--</div><div class="hint">可申请到账</div></div>
+          <div class="card metric"><div class="label">协议费预估</div><div class="value" id="cp-fee">--</div><div class="hint">结算时扣除</div></div>
         </div>
 
         <div class="split" style="margin-top:16px;">
@@ -799,10 +798,8 @@
       <section id="tasks" class="page">
         <div class="card section">
           <div class="section-header"><div><h3>任务执行</h3><p>查看执行进度、反悔责任、交付状态和下一步动作。</p></div><button class="btn primary">新建付款授权</button></div>
-          <div class="task-list">
-            <div class="task-item"><div><b>AI 视频生成 · #1021</b><p>付款方 · 对方 Karma-ID-B21 · 金额 50 USDC · 已确认进度 40% · 当前反悔责任 20 USDC</p></div><span class="badge cyan">执行中</span></div>
-            <div class="task-item"><div><b>API 数据服务 · #2103</b><p>收款方 · 对方 Karma-ID-A82 · 金额 40 USDC · 回执已验证 · 可申请结算</p></div><span class="badge green">可结算</span></div>
-            <div class="task-item"><div><b>MCP 工具调用 · #2188</b><p>收款方 · 自动回执 7 条 · 等待买家确认或超时确认</p></div><span class="badge yellow">等待确认</span></div>
+          <div class="task-list" id="tasks-list">
+            <div class="task-item" style="text-align:center;color:var(--text-muted);">加载中...</div>
           </div>
         </div>
 
@@ -861,10 +858,8 @@
           <div class="section-header"><div><h3>账单</h3><p>账单额度是内部责任状态，只对身份主人展示。</p></div><button class="btn">导出 CSV</button></div>
           <table>
             <thead><tr><th>时间</th><th>方向</th><th>任务</th><th>对方</th><th>金额</th><th>结算结果</th><th>状态</th></tr></thead>
-            <tbody>
-              <tr><td>2026-05-13</td><td>付款</td><td>AI 视频生成</td><td>Karma-ID-B21</td><td>50</td><td>未结算</td><td><span class="badge cyan">执行中</span></td></tr>
-              <tr><td>2026-05-13</td><td>收款</td><td>API 数据服务</td><td>Karma-ID-A82</td><td>40</td><td>39.88 到账 / 0.12 协议费</td><td><span class="badge green">已结算</span></td></tr>
-              <tr><td>2026-05-12</td><td>付款</td><td>Agent 研究</td><td>Karma-ID-F77</td><td>20</td><td>冻结中</td><td><span class="badge red">争议中</span></td></tr>
+            <tbody id="bills-body">
+              <tr><td colspan="7" style="color:var(--text-muted);text-align:center;padding:20px;">加载中...</td></tr>
             </tbody>
           </table>
         </div>
@@ -872,19 +867,18 @@
 
       <section id="disputes" class="page">
         <div class="grid metrics">
-          <div class="card metric"><div class="label">争议冻结</div><div class="value">20.00</div><div class="hint">资金已锁定</div></div>
-          <div class="card metric"><div class="label">待我处理</div><div class="value">1</div><div class="hint">需要提交证据</div></div>
-          <div class="card metric"><div class="label">等待对方</div><div class="value">2</div><div class="hint">等待回应</div></div>
-          <div class="card metric"><div class="label">仲裁中</div><div class="value">1</div><div class="hint">等待裁决</div></div>
-          <div class="card metric"><div class="label">已完成</div><div class="value">5</div><div class="hint">历史争议</div></div>
+          <div class="card metric"><div class="label">争议冻结</div><div class="value" id="dp-frozen">--</div><div class="hint">资金已锁定</div></div>
+          <div class="card metric"><div class="label">待我处理</div><div class="value" id="dp-mine">--</div><div class="hint">需要提交证据</div></div>
+          <div class="card metric"><div class="label">等待对方</div><div class="value" id="dp-other">--</div><div class="hint">等待回应</div></div>
+          <div class="card metric"><div class="label">仲裁中</div><div class="value" id="dp-arbitration">--</div><div class="hint">等待裁决</div></div>
+          <div class="card metric"><div class="label">已完成</div><div class="value" id="dp-resolved">--</div><div class="hint">历史争议</div></div>
         </div>
         <div class="card section" style="margin-top:16px;">
           <div class="section-header"><div><h3>争议处理</h3><p>争议期间资金不会被任何一方拿走，裁决后自动执行。</p></div></div>
           <table>
             <thead><tr><th>任务</th><th>对方</th><th>金额</th><th>原因</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody>
-              <tr><td>#1024 Agent 研究</td><td>Karma-ID-F77</td><td>20</td><td>输出不符合要求</td><td><span class="badge red">待我提交证据</span></td><td><button class="btn red">提交证据</button></td></tr>
-              <tr><td>#2190 MCP 调用</td><td>Karma-ID-L19</td><td>12</td><td>工具返回失败</td><td><span class="badge yellow">自动规则裁决</span></td><td><button class="btn">查看</button></td></tr>
+            <tbody id="disputes-body">
+              <tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:20px;">加载中...</td></tr>
             </tbody>
           </table>
         </div>
@@ -943,6 +937,221 @@
       settings: ["设置","配置资金安全、回执规则、结算偏好、隐私和 Webhook。"]
     };
 
+    // ==================== KARMA BFF API CLIENT ====================
+        const API = {
+      // In production (nginx): /api proxies to BFF. In dev: set localStorage karma_api_base.
+      BASE: (() => {
+        try { return localStorage.getItem('karma_api_base') || '/api'; }
+        catch(e) { return '/api'; }
+      })(),
+      // Console auth: nginx injects X-Karma-Console-Secret from env in production.
+      // For local dev without nginx: set localStorage karma_console_secret to match BFF_CONSOLE_SECRET.
+      CONSOLE_SECRET: (() => {
+        try { return localStorage.getItem('karma_console_secret') || ''; }
+        catch(e) { return ''; }
+      })(),
+      TRACE_ID: localStorage.getItem('karma_trace_id') || 'trace-demo-001',
+
+      async get(path) {
+        const url = this.BASE + path;
+        const headers = {'Accept':'application/json'};
+        if (this.CONSOLE_SECRET) headers['X-Karma-Console-Secret'] = this.CONSOLE_SECRET;
+        const r = await fetch(url, {headers});
+        if (!r.ok) throw new Error('GET ' + path + ': ' + r.status);
+        return r.json();
+      },
+
+      async post(path, body) {
+        const url = this.BASE + path;
+        const bodyStr = JSON.stringify(body||{});
+        const headers = {'Content-Type':'application/json'};
+        if (this.CONSOLE_SECRET) headers['X-Karma-Console-Secret'] = this.CONSOLE_SECRET;
+        const r = await fetch(url, {method:'POST', headers, body: bodyStr});
+        if (!r.ok) {
+          const err = await r.json().catch(()=>({detail:r.statusText}));
+          throw new Error(err.detail || 'POST ' + path + ': ' + r.status);
+        }
+        return r.json();
+      },
+
+      async health() { return this.get('/health'); },
+      async publicStatus(tid) { return this.get('/public/status/'+(tid||this.TRACE_ID)); },
+      // GET for status (console auth bypasses HMAC)
+      async taskStatus(tid) { return this.get('/v1/integration/tasks/'+(tid||this.TRACE_ID)+'/status'); },
+      async createReceipt(tid, receipt) { return this.post('/v1/integration/tasks/'+(tid||this.TRACE_ID)+'/receipts', receipt); },
+      async buildEvidence(tid, payload) { return this.post('/v1/integration/tasks/'+(tid||this.TRACE_ID)+'/evidence/build', payload||{}); }
+    };
+
+// ==================== CONNECTION STATUS ====================
+    let apiOnline = false;
+    async function checkConnection() {
+      const dot = document.getElementById('apiDot');
+      const label = document.getElementById('apiLabel');
+      try {
+        await API.health();
+        apiOnline = true;
+        dot.style.background = 'var(--green)';
+        dot.style.boxShadow = '0 0 8px var(--green)';
+        label.textContent = 'API 已连接';
+        label.style.color = 'var(--green)';
+        return true;
+      } catch(e) {
+        apiOnline = false;
+        dot.style.background = 'var(--red)';
+        dot.style.boxShadow = '0 0 8px var(--red)';
+        label.textContent = 'API 离线 · ' + e.message;
+        label.style.color = 'var(--red)';
+        return false;
+      }
+    }
+
+    // ==================== DATA LOADERS ====================
+    async function loadOverview() {
+      if (!apiOnline) return;
+      try {
+        const data = await API.publicStatus();
+        document.getElementById('m-locked').textContent = '0.00';
+        document.getElementById('m-available').textContent = '0.00';
+        document.getElementById('m-occupied').textContent = data.state === 'EXECUTING' ? '--' : '0.00';
+        document.getElementById('m-pending').textContent = '0.00';
+        document.getElementById('m-disputed').textContent = '0.00';
+        
+        // Populate overview task table
+        const tbody = document.getElementById('overview-tasks-body');
+        const stateColors = {
+          'PLANNED':'purple','SNAPSHOT_RECORDED':'purple','LOCK_PENDING':'yellow',
+          'LOCKED':'cyan','EXECUTE_ALLOWED':'cyan','EXECUTING':'cyan',
+          'EVIDENCE_BUILT':'green','AWAIT_ONCHAIN':'green','SETTLED':'green'
+        };
+        const stateLabels = {
+          'PLANNED':'已规划','SNAPSHOT_RECORDED':'快照已记录','LOCK_PENDING':'待锁仓',
+          'LOCKED':'已锁仓','EXECUTE_ALLOWED':'可执行','EXECUTING':'执行中',
+          'EVIDENCE_BUILT':'证据已构建','AWAIT_ONCHAIN':'待上链','SETTLED':'已结算'
+        };
+        const progressMap = {'PLANNED':5,'SNAPSHOT_RECORDED':10,'LOCK_PENDING':20,'LOCKED':35,'EXECUTE_ALLOWED':40,'EXECUTING':60,'EVIDENCE_BUILT':85,'AWAIT_ONCHAIN':95,'SETTLED':100};
+        
+        const st = data.state || 'UNKNOWN';
+        const badgeClass = stateColors[st]||'cyan';
+        const progress = progressMap[st]||0;
+        tbody.innerHTML = `
+          <tr>
+            <td>${data.trace_id}</td>
+            <td>--</td>
+            <td>BFF</td>
+            <td>--</td>
+            <td><div class="progress"><span style="width:${progress}%"></span></div></td>
+            <td><span class="badge ${badgeClass}">${stateLabels[st]||st}</span></td>
+            <td><button class="btn" onclick="switchPage('tasks')">查看详情</button></td>
+          </tr>`;
+      } catch(e) {
+        console.error('loadOverview:', e);
+      }
+    }
+
+    async function loadTasks() {
+      if (!apiOnline) return;
+      try {
+        const data = await API.taskStatus();
+        const listEl = document.getElementById('tasks-list');
+        const task = data.task || data;
+        const stateLabels = {
+          'PLANNED':'已规划','SNAPSHOT_RECORDED':'快照已记录','LOCK_PENDING':'待锁仓',
+          'LOCKED':'已锁仓','EXECUTE_ALLOWED':'可执行','EXECUTING':'执行中',
+          'EVIDENCE_BUILT':'证据已构建','AWAIT_ONCHAIN':'待上链','SETTLED':'已结算'
+        };
+        const badgeMap = {'EXECUTING':'cyan','EVIDENCE_BUILT':'green','AWAIT_ONCHAIN':'green','SETTLED':'green','LOCK_PENDING':'yellow','LOCKED':'cyan','EXECUTE_ALLOWED':'cyan','PLANNED':'purple','SNAPSHOT_RECORDED':'purple'};
+        
+        let html = '';
+        html += `<div class="task-item"><div><b>${task.trace_id} · #${task.task_id||'--'}</b><p>状态: ${stateLabels[data.state]||data.state} · 回执数: ${data.receipt_count||0} · Bill: ${data.bill_id||'未创建'}</p></div><span class="badge ${badgeMap[data.state]||'cyan'}">${stateLabels[data.state]||data.state}</span></div>`;
+        if (data.receipt_count > 0) {
+          html += `<div class="task-item"><div><b>回执状态</b><p>已提交 ${data.receipt_count} 条回执 · 可通过 API 构建证据包</p></div><span class="badge green">${data.receipt_count} 条</span></div>`;
+        }
+        listEl.innerHTML = html || '<div class="task-item" style="text-align:center;color:var(--text-muted);">暂无任务数据</div>';
+      } catch(e) {
+        console.error('loadTasks:', e);
+      }
+    }
+
+    async function loadBills() {
+      if (!apiOnline) return;
+      try {
+        const data = await API.taskStatus();
+        const tbody = document.getElementById('bills-body');
+        const task = data.task || data;
+        const d = new Date((task.created_at||0)*1000).toISOString().split('T')[0];
+        const stateLabels = {'EXECUTING':'执行中','EVIDENCE_BUILT':'待结算','AWAIT_ONCHAIN':'待上链','SETTLED':'已结算'};
+        const badgeMap = {'EXECUTING':'cyan','EVIDENCE_BUILT':'green','AWAIT_ONCHAIN':'green','SETTLED':'green'};
+        tbody.innerHTML = `
+          <tr>
+            <td>${d}</td>
+            <td>--</td>
+            <td>${task.trace_id}</td>
+            <td>BFF API</td>
+            <td>--</td>
+            <td>${data.bill_id ? 'Bill #'+data.bill_id : '未结算'}</td>
+            <td><span class="badge ${badgeMap[data.state]||'cyan'}">${stateLabels[data.state]||data.state}</span></td>
+          </tr>`;
+      } catch(e) {
+        console.error('loadBills:', e);
+      }
+    }
+
+    async function loadDisputes() {
+      document.getElementById('dp-frozen').textContent = '0.00';
+      document.getElementById('dp-mine').textContent = '0';
+      document.getElementById('dp-other').textContent = '0';
+      document.getElementById('dp-arbitration').textContent = '0';
+      document.getElementById('dp-resolved').textContent = '0';
+      const tbody = document.getElementById('disputes-body');
+      tbody.innerHTML = '<tr><td colspan="6" style="color:var(--text-muted);text-align:center;padding:20px;">暂无争议（合约部署后将启用链上争议功能）</td></tr>';
+    }
+
+    async function loadAll() {
+      await checkConnection();
+      if (apiOnline) {
+        await Promise.allSettled([
+          loadOverview(),
+          loadTasks(),
+          loadBills(),
+          loadDisputes()
+        ]);
+      }
+    }
+
+    // ==================== FORM HANDLERS ====================
+    async function submitReceipt() {
+      if (!apiOnline) { alert('API 未连接'); return; }
+      const traceId = prompt('Trace ID:', API.TRACE_ID);
+      if (!traceId) return;
+      try {
+        const receipt = {
+          receipt_id: 'r-' + Date.now(),
+          step_index: 1,
+          tool_name: 'http_request',
+          status: 'completed',
+          trace_id: traceId
+        };
+        const result = await API.createReceipt(traceId, receipt);
+        alert('回执已提交: ' + JSON.stringify(result));
+        loadAll();
+      } catch(e) {
+        alert('提交失败: ' + e.message);
+      }
+    }
+
+    async function submitEvidence() {
+      if (!apiOnline) { alert('API 未连接'); return; }
+      const traceId = prompt('Trace ID:', API.TRACE_ID);
+      if (!traceId) return;
+      try {
+        const result = await API.buildEvidence(traceId);
+        alert('证据包已构建!\nProof Hash: ' + (result.proof_hash||'N/A'));
+        loadAll();
+      } catch(e) {
+        alert('构建失败: ' + e.message);
+      }
+    }
+
     function switchPage(page){
       document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
       document.getElementById(page).classList.add("active");
@@ -951,7 +1160,15 @@
       document.getElementById("pageHeading").textContent=titles[page][0];
       document.getElementById("pageSubheading").textContent=titles[page][1];
       window.scrollTo({top:0,behavior:"smooth"});
+      // Auto-reload data on page switch
+      if (apiOnline) {
+        if (page === 'overview') loadOverview();
+        else if (page === 'tasks') loadTasks();
+        else if (page === 'bills') loadBills();
+        else if (page === 'disputes') loadDisputes();
+      }
     }
+
     document.querySelectorAll(".nav button").forEach(btn=>{
       btn.addEventListener("click",()=>switchPage(btn.dataset.page));
     });
@@ -963,6 +1180,11 @@
         aiStatus.textContent = aiToggle.checked ? "开启" : "关闭";
       });
     }
+
+    // ==================== INIT ====================
+    loadAll();
+    // Periodic refresh every 30s
+    setInterval(loadAll, 30000);
 
   </script>
 </body>
