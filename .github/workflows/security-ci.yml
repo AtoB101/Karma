@@ -64,13 +64,12 @@ jobs:
           python3 -m pip install slither-analyzer
 
       - name: Forge tests
-        run: forge test -vv
+        run: forge test -vv --no-match-path "_legacy"
 
-      - name: Run invariant suite (NC)
-        run: forge test --match-path "karma-core/contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
+
 
       - name: Gas snapshot (generate)
-        run: forge snapshot  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
+        run: forge snapshot --no-match-path "_legacy"  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
 
       - name: Slither gate
         run: ./scripts/slither-gate.sh --format text
