@@ -5,6 +5,8 @@ import {Script, console} from "forge-std/Script.sol";
 import {KarmaBilateral}          from "../core/KarmaBilateral.sol";
 import {KarmaAttestationGateway} from "../core/KarmaAttestationGateway.sol";
 import {VerifierRegistry}        from "../core/VerifierRegistry.sol";
+import {ScoringEngine}           from "../core/ScoringEngine.sol";
+import {EvidenceChain}           from "../core/EvidenceChain.sol";
 
 /// @notice Deploy the full Karma protocol stack to Base Sepolia (or any EVM chain).
 ///
@@ -69,15 +71,26 @@ contract DeployKarmaBilateral is Script {
         // ── 1. VerifierRegistry ───────────────────────────────────────────────
         VerifierRegistry registry = new VerifierRegistry(admin);
         registry.setThresholds(verifierN, verifierM);
+        // Verifier staking uses same token (USDC) on testnet
+        // 100 USDC minimum stake, 10 USDC reward per attestation
+        registry.setStakingConfig(usdc, 100_000_000, 10_000_000);
 
-        // ── 2. KarmaBilateral ─────────────────────────────────────────────────
+        // ── 2. EvidenceChain ──────────────────────────────────────────────────
+        EvidenceChain evidence = new EvidenceChain(admin);
+
+        // ── 3. ScoringEngine ──────────────────────────────────────────────────
+        ScoringEngine scoring = new ScoringEngine(admin);
+
+        // ── 4. KarmaBilateral ─────────────────────────────────────────────────
         KarmaBilateral karma = new KarmaBilateral(admin);
         karma.setTokenAllowed(usdc, true);
         karma.setBatchThreshold(usdc, batchThreshold);
         karma.setDisputeWindow(disputeWindow);
         karma.setSettleTimeout(settleTimeout);
+        // ScoringEngine recognizes KarmaBilateral as authorized settler
+        scoring.setAuthorizedSettler(address(karma));
 
-        // ── 3. KarmaAttestationGateway ────────────────────────────────────────
+        // ── 5. KarmaAttestationGateway ────────────────────────────────────────
         KarmaAttestationGateway gateway = new KarmaAttestationGateway(
             address(registry),
             address(karma),
@@ -97,26 +110,36 @@ contract DeployKarmaBilateral is Script {
         require(gateway.bilateralContract()      == address(karma),     "bilateral not wired");
         require(address(gateway.registry())      == address(registry),  "registry not wired");
         require(registry.getRequiredThreshold()  == verifierN,          "threshold mismatch");
+        require(scoring.admin()                  == admin,              "scoring admin");
+        require(evidence.admin()                 == admin,              "evidence admin");
         require(karma.checkInvariant(usdc),                             "invariant broken at deploy");
 
         console.log("");
         console.log("=== Deployment successful ===");
         console.log("VerifierRegistry:        ", address(registry));
+        console.log("EvidenceChain:           ", address(evidence));
+        console.log("ScoringEngine:           ", address(scoring));
         console.log("KarmaBilateral:          ", address(karma));
         console.log("KarmaAttestationGateway: ", address(gateway));
         console.log("");
+        console.log("Contract addresses for SDK:");
+        console.log("  registry=", address(registry));
+        console.log("  karma=   ", address(karma));
+        console.log("  gateway= ", address(gateway));
+        console.log("  scoring= ", address(scoring));
+        console.log("  evidence=", address(evidence));
+        console.log("");
         console.log("Next steps:");
-        console.log("  1. Set env: KARMA_CONTRACT=", address(karma));
-        console.log("  2. Register verifier nodes via VerifierRegistry.registerVerifier()");
-        console.log("  3. Update packages/karma-sdk and packages/karma-mcp with contract address");
-        console.log("  4. Verify contracts on Basescan:");
+        console.log("  1. Fund verifiers with USDC for staking");
+        console.log("  2. Register verifier nodes: registry.registerVerifier(wallet, endpoint)");
+        console.log("  3. Verifiers stake: registry.stake(amount)");
+        console.log("  4. Lock -> bindWithIntent -> settle");
+        console.log("  5. Update SDK with deployed addresses");
+        console.log("  6. Verify contracts on Basescan:");
         console.log("     forge verify-contract", address(registry),  "VerifierRegistry");
+        console.log("     forge verify-contract", address(evidence), "EvidenceChain");
+        console.log("     forge verify-contract", address(scoring),  "ScoringEngine");
         console.log("     forge verify-contract", address(karma),     "KarmaBilateral");
         console.log("     forge verify-contract", address(gateway),   "KarmaAttestationGateway");
-        console.log("");
-        console.log("Protocol flows:");
-        console.log("  Standard : lock -> bind -> settle (direct, dispute window applies)");
-        console.log("  Attested : lock -> bindWithAttestation -> publishEvidence -> N*submitAttestation -> settleWithAttestation");
-        console.log("  Invariant : PASS (totalBillSupply == totalLocked == 0)");
     }
 }
