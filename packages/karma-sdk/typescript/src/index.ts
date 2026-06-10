@@ -1,143 +1,115 @@
 /**
- * @karma/sdk — Minimal TypeScript client for KarmaBilateral.sol
+ * @karma/sdk — TypeScript client for Karma Protocol (all 5 contracts)
  *
- * Three-line integration:
- *   import { KarmaBilateral } from '@karma/sdk'
- *   const k = new KarmaBilateral({ rpc, privateKey, contract: CONTRACT_ADDRESS })
- *   const billId = await k.lock(USDC_ADDRESS, 100_000_000n)
+ * Quick start:
+ *   import { KarmaBilateral, VerifierRegistry, ScoringEngine, EvidenceChain } from '@karma/sdk'
+ *
+ *   const karma  = new KarmaBilateral({ rpc, privateKey, contract: KARMA_ADDR })
+ *   const vrf    = new VerifierRegistry({ rpc, privateKey, contract: REGISTRY_ADDR })
+ *
+ *   // Lock tokens
+ *   const billId = await karma.lock(USDC_ADDRESS, 100_000_000n)
+ *
+ *   // bindWithIntent
+ *   const bindingId = await karma.bindWithIntent({
+ *     buyer: buyerAddr, seller: sellerAddr,
+ *     serviceType: "0x...", amount: 100_000_000n,
+ *     deadline: BigInt(Math.floor(Date.now()/1000) + 3600),
+ *     // ... rest of fields
+ *   }, buyerBillId, sellerBillId)
+ *
+ *   // Verifier stake
+ *   await token.approve(vrfContract, stakeAmount)
+ *   await vrf.stake(stakeAmount)
  */
 
-// ── ABI (minimal — core methods + events only) ────────────────────────────────
+import { ethers } from "ethers";
 
-const ABI = [
-  // lock
-  {
-    name: "lock", type: "function", stateMutability: "nonpayable",
-    inputs:  [{ name: "token", type: "address" }, { name: "amount", type: "uint256" }],
-    outputs: [{ name: "billId", type: "uint256" }],
-  },
-  // bind
-  {
-    name: "bind", type: "function", stateMutability: "nonpayable",
-    inputs: [
-      { name: "buyerBillId", type: "uint256" },
-      { name: "agentBillId", type: "uint256" },
-      { name: "scopeHash",   type: "bytes32"  },
-    ],
-    outputs: [{ name: "bindingId", type: "uint256" }],
-  },
-  // settle
-  {
-    name: "settle", type: "function", stateMutability: "nonpayable",
-    inputs: [
-      { name: "bindingId", type: "uint256" },
-      { name: "proofHash", type: "bytes32"  },
-    ],
-    outputs: [],
-  },
-  // unlock
-  {
-    name: "unlock", type: "function", stateMutability: "nonpayable",
-    inputs:  [{ name: "billId", type: "uint256" }],
-    outputs: [],
-  },
-  // getBill
-  {
-    name: "getBill", type: "function", stateMutability: "view",
-    inputs:  [{ name: "billId", type: "uint256" }],
-    outputs: [{
-      name: "", type: "tuple",
-      components: [
-        { name: "billId",   type: "uint256" },
-        { name: "owner",    type: "address" },
-        { name: "token",    type: "address" },
-        { name: "amount",   type: "uint256" },
-        { name: "state",    type: "uint8"   },
-        { name: "mintedAt", type: "uint256" },
-      ],
-    }],
-  },
-  // getBinding
-  {
-    name: "getBinding", type: "function", stateMutability: "view",
-    inputs:  [{ name: "bindingId", type: "uint256" }],
-    outputs: [{
-      name: "", type: "tuple",
-      components: [
-        { name: "bindingId",        type: "uint256" },
-        { name: "buyerBillId",      type: "uint256" },
-        { name: "agentBillId",      type: "uint256" },
-        { name: "scopeHash",        type: "bytes32" },
-        { name: "state",            type: "uint8"   },
-        { name: "createdAt",        type: "uint256" },
-        { name: "settleAfter",      type: "uint256" },
-        { name: "proofHash",        type: "bytes32" },
-        { name: "disputedAt",       type: "uint256" },
-        { name: "disputeInitiator", type: "address" },
-      ],
-    }],
-  },
-  // checkInvariant
-  {
-    name: "checkInvariant", type: "function", stateMutability: "view",
-    inputs:  [{ name: "token", type: "address" }],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  // ERC-20 approve (used internally)
-  {
-    name: "approve", type: "function", stateMutability: "nonpayable",
-    inputs:  [{ name: "spender", type: "address" }, { name: "amount", type: "uint256" }],
-    outputs: [{ name: "", type: "bool" }],
-  },
-  // events
-  {
-    name: "BillMinted", type: "event",
-    inputs: [
-      { name: "billId", type: "uint256", indexed: true  },
-      { name: "owner",  type: "address", indexed: true  },
-      { name: "token",  type: "address", indexed: false },
-      { name: "amount", type: "uint256", indexed: false },
-    ],
-  },
-  {
-    name: "BillsBound", type: "event",
-    inputs: [
-      { name: "bindingId",   type: "uint256", indexed: true  },
-      { name: "buyerBillId", type: "uint256", indexed: false },
-      { name: "agentBillId", type: "uint256", indexed: false },
-      { name: "scopeHash",   type: "bytes32", indexed: false },
-    ],
-  },
-  {
-    name: "BindingSettled", type: "event",
-    inputs: [
-      { name: "bindingId",   type: "uint256", indexed: true  },
-      { name: "proofHash",   type: "bytes32", indexed: false },
-      { name: "buyerAmount", type: "uint256", indexed: false },
-      { name: "agentAmount", type: "uint256", indexed: false },
-    ],
-  },
-] as const;
+// ── ABI Definitions ───────────────────────────────────────────────────────────
+
+const KARMA_BILATERAL_ABI = [
+  "function lock(address token, uint256 amount) returns (uint256 billId)",
+  "function bind(uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash) returns (uint256 bindingId)",
+  "function bindWithIntent(tuple(address buyer, address seller, bytes32 serviceType, bytes requirements, uint256 amount, uint256 penaltyRate, uint256 deadline, uint256 expiresAt, bytes32 proofSchema, bytes32[] requiredProofFields, address verifier, uint256 disputeWindow, address[] arbitrators) intent, uint256 buyerBillId, uint256 sellerBillId) returns (uint256 bindingId)",
+  "function settle(uint256 bindingId, bytes32 proofHash)",
+  "function unlock(uint256 billId)",
+  "function getBill(uint256 billId) view returns (tuple(uint256 billId, address owner, address token, uint256 amount, uint8 state, uint256 mintedAt))",
+  "function getBinding(uint256 bindingId) view returns (tuple(uint256 bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash, uint8 state, uint256 createdAt, uint256 settleAfter, bytes32 proofHash, uint256 disputedAt, address disputeInitiator))",
+  "function getIntentPackage(uint256 bindingId) view returns (tuple(address buyer, address seller, bytes32 serviceType, bytes requirements, uint256 amount, uint256 penaltyRate, uint256 deadline, uint256 expiresAt, bytes32 proofSchema, address verifier, uint256 disputeWindow))",
+  "function checkInvariant(address token) view returns (bool)",
+  "function setTokenAllowed(address token, bool allowed)",
+  "function setBatchThreshold(address token, uint256 threshold)",
+  "function setDisputeWindow(uint256 seconds_)",
+  "function setSettleTimeout(uint256 seconds_)",
+  "function setAttestationGateway(address gateway)",
+  "function admin() view returns (address)",
+  "function tokenAllowed(address) view returns (bool)",
+  "function attestationGateway() view returns (address)",
+  "event BillMinted(uint256 indexed billId, address indexed owner, address token, uint256 amount)",
+  "event BillsBound(uint256 indexed bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash)",
+  "event IntentBound(uint256 indexed bindingId, bytes32 serviceType, uint256 amount)",
+  "event BindingSettled(uint256 indexed bindingId, bytes32 proofHash, uint256 buyerAmount, uint256 agentAmount)",
+];
+
+const VERIFIER_REGISTRY_ABI = [
+  "function registerVerifier(address wallet, string calldata endpointUrl)",
+  "function deregisterVerifier(address wallet)",
+  "function setThresholds(uint256 n, uint256 m)",
+  "function setStakingConfig(address token, uint256 minStake_, uint256 reward)",
+  "function stake(uint256 amount)",
+  "function unstake(uint256 amount)",
+  "function slash(address verifier, uint256 amount)",
+  "function rewardVerifier(address verifier)",
+  "function getVerifier(address wallet) view returns (tuple(address wallet, string endpointUrl, bool active, uint256 stakeAmount, uint256 successCount, uint256 falseAttestationCount, uint256 totalEarnings, uint256 slashedAmount))",
+  "function getRequiredThreshold() view returns (uint256)",
+  "function getTotalVerifiers() view returns (uint256)",
+  "function isVerifierActive(address wallet) view returns (bool)",
+  "function admin() view returns (address)",
+  "function stakingToken() view returns (address)",
+  "function minStake() view returns (uint256)",
+  "function verificationReward() view returns (uint256)",
+];
+
+const SCORING_ENGINE_ABI = [
+  "function setAuthorizedSettler(address settler)",
+  "function registerParty(address party, uint8 partyType)",
+  "function recordSettlement(address seller, address buyer, address verifier, uint256 speedRatio)",
+  "function recordDisputeResolution(address seller, address buyer, address verifier, bool sellerWon)",
+  "function recordVerifierSlashed(address verifier)",
+  "function recordBuyerConfirmation(address buyer, uint256 speedRatio)",
+  "function getScore(address party) view returns (tuple(uint256 reputationScore, uint256 settlementCount, uint256 successRate, uint256 avgSpeed, uint256 disputeCount, uint256 disputeWinRate, uint256 slashedCount, uint256 lastUpdated))",
+  "function admin() view returns (address)",
+  "function authorizedSettler() view returns (address)",
+];
+
+const EVIDENCE_CHAIN_ABI = [
+  "function submitEvidence(tuple(bytes32 evidenceType, uint256 bindingId, address submitter, bytes data, uint256 timestamp, bool isValid, bytes32 hash))",
+  "function submitEvidenceBatch(tuple(bytes32 evidenceType, uint256 bindingId, address submitter, bytes data, uint256 timestamp, bool isValid, bytes32 hash)[] calldata items)",
+  "function invalidateEvidence(bytes32 evidenceHash)",
+  "function getEvidence(bytes32 evidenceHash) view returns (tuple(bytes32 evidenceType, uint256 bindingId, address submitter, bytes data, uint256 timestamp, bool isValid, bytes32 hash))",
+  "function getEvidenceCount(uint256 bindingId) view returns (uint256)",
+  "function admin() view returns (address)",
+];
+
+const ERC20_ABI = [
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function balanceOf(address account) view returns (uint256)",
+  "function decimals() view returns (uint8)",
+  "function symbol() view returns (string)",
+];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export const BillState = {
-  MINTED: 0, BOUND: 1, BURNED: 2,
-} as const;
-
-export const BindingState = {
-  ACTIVE: 0, PENDING: 1, SETTLED: 2, DISPUTED: 3, REFUNDED: 4,
-} as const;
-
-export type BillStateKey    = keyof typeof BillState;
-export type BindingStateKey = keyof typeof BindingState;
+export const BillState = { MINTED: 0, BOUND: 1, BURNED: 2 } as const;
+export const BindingState = { ACTIVE: 0, PENDING: 1, FINALIZING: 2, SETTLED: 3, DISPUTED: 4, REFUNDED: 5 } as const;
+export const PartyType = { SUPPLIER: 0, BUYER: 1, VERIFIER: 2 } as const;
 
 export interface BillToken {
   billId:   bigint;
-  owner:    `0x${string}`;
-  token:    `0x${string}`;
+  owner:    string;
+  token:    string;
   amount:   bigint;
-  state:    BillStateKey;
+  state:    number;
   mintedAt: bigint;
 }
 
@@ -145,282 +117,404 @@ export interface Binding {
   bindingId:        bigint;
   buyerBillId:      bigint;
   agentBillId:      bigint;
-  scopeHash:        `0x${string}`;
-  state:            BindingStateKey;
+  scopeHash:        string;
+  state:            number;
   createdAt:        bigint;
   settleAfter:      bigint;
-  proofHash:        `0x${string}`;
+  proofHash:        string;
   disputedAt:       bigint;
-  disputeInitiator: `0x${string}`;
+  disputeInitiator: string;
 }
 
-export interface KarmaBilateralOptions {
-  /** JSON-RPC endpoint (HTTP or WS) */
-  rpc:      string;
-  /** Hex private key (0x-prefixed) */
-  privateKey: string;
-  /** Deployed KarmaBilateral contract address */
-  contract: `0x${string}`;
-  /** Gas limit per transaction (default 300_000) */
-  gas?: number;
+export interface IntentPackage {
+  buyer:              string;
+  seller:             string;
+  serviceType:        string;
+  requirements:       string;
+  amount:             bigint;
+  penaltyRate:        bigint;
+  deadline:           bigint;
+  expiresAt:          bigint;
+  proofSchema:        string;
+  requiredProofFields: string[];
+  verifier:           string;
+  disputeWindow:      bigint;
+  arbitrators:        string[];
 }
 
-// ── Minimal JSON-RPC transport (no external deps) ─────────────────────────────
-
-type RpcResult = { result?: unknown; error?: { message: string } };
-
-async function rpcCall(url: string, method: string, params: unknown[]): Promise<unknown> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-  });
-  const json = (await res.json()) as RpcResult;
-  if (json.error) throw new Error(`RPC error: ${json.error.message}`);
-  return json.result;
+export interface StoredIntentPackage {
+  buyer:          string;
+  seller:         string;
+  serviceType:    string;
+  requirements:   string;
+  amount:         bigint;
+  penaltyRate:    bigint;
+  deadline:       bigint;
+  expiresAt:      bigint;
+  proofSchema:    string;
+  verifier:       string;
+  disputeWindow:  bigint;
 }
 
-// ── Tiny ABI encoder (handles address / uint256 / bytes32 / bool) ─────────────
-
-function encodeArgs(types: readonly string[], values: readonly unknown[]): string {
-  return values
-    .map((v, i) => {
-      const t = types[i]!;
-      if (t === "address") return (v as string).slice(2).toLowerCase().padStart(64, "0");
-      if (t === "bytes32") return (v as string).slice(2).toLowerCase().padEnd(64, "0");
-      if (t === "uint256" || t === "uint8" || t === "uint16") {
-        return BigInt(v as bigint | number | string).toString(16).padStart(64, "0");
-      }
-      if (t === "bool") return ((v as boolean) ? "1" : "0").padStart(64, "0");
-      throw new Error(`Unsupported ABI type: ${t}`);
-    })
-    .join("");
+export interface VerifierInfo {
+  wallet:                 string;
+  endpointUrl:            string;
+  active:                 boolean;
+  stakeAmount:            bigint;
+  successCount:           bigint;
+  falseAttestationCount:  bigint;
+  totalEarnings:          bigint;
+  slashedAmount:          bigint;
 }
 
-function selector(sig: string): string {
-  // keccak256 via subtle crypto (browser + Node 18+)
-  // For simplicity, we use a pre-computed table for our fixed function set.
-  const table: Record<string, string> = {
-    "lock(address,uint256)":                    "dd6d2174",
-    "bind(uint256,uint256,bytes32)":            "d3f7e8e5",
-    "settle(uint256,bytes32)":                  "f3e8c8e4",
-    "unlock(uint256)":                          "7eee288d",
-    "getBill(uint256)":                         "8c4ced4e",
-    "getBinding(uint256)":                      "e9b3c0a4",
-    "checkInvariant(address)":                  "3f2a4c6b",
-    "approve(address,uint256)":                 "095ea7b3",
-  };
-  const found = table[sig];
-  if (!found) throw new Error(`Unknown selector for: ${sig}`);
-  return found;
+export interface ScoringVector {
+  reputationScore:   bigint;
+  settlementCount:   bigint;
+  successRate:       bigint;
+  avgSpeed:          bigint;
+  disputeCount:      bigint;
+  disputeWinRate:    bigint;
+  slashedCount:      bigint;
+  lastUpdated:       bigint;
 }
 
-function decodeUint256(hex: string, offset = 0): bigint {
-  return BigInt("0x" + hex.slice(2 + offset * 64, 2 + (offset + 1) * 64));
+export interface Evidence {
+  evidenceType: string;
+  bindingId:    bigint;
+  submitter:    string;
+  data:         string;
+  timestamp:    bigint;
+  isValid:      boolean;
+  hash:         string;
 }
 
-function decodeAddress(hex: string, offset = 0): `0x${string}` {
-  return `0x${hex.slice(2 + offset * 64 + 24, 2 + (offset + 1) * 64)}`;
+export interface ClientOptions {
+  rpc:         string;
+  privateKey:  string;
+  contract:    string;
+  gas?:        bigint;
 }
 
-function decodeBytes32(hex: string, offset = 0): `0x${string}` {
-  return `0x${hex.slice(2 + offset * 64, 2 + (offset + 1) * 64)}`;
+// ── Base Client ───────────────────────────────────────────────────────────────
+
+class BaseClient {
+  protected wallet:  ethers.Wallet;
+  protected contract: ethers.Contract;
+
+  constructor(opts: ClientOptions, abi: any[]) {
+    const provider = new ethers.JsonRpcProvider(opts.rpc);
+    this.wallet    = new ethers.Wallet(opts.privateKey, provider);
+    this.contract  = new ethers.Contract(opts.contract, abi, this.wallet);
+  }
 }
 
-// ── Main client ───────────────────────────────────────────────────────────────
+// ── KarmaBilateral Client ─────────────────────────────────────────────────────
 
-export class KarmaBilateral {
-  private readonly rpc:      string;
-  private readonly contract: `0x${string}`;
-  private readonly gas:      number;
-  // private key stored only in memory, never logged
-  private readonly _pk:      string;
-
-  constructor(opts: KarmaBilateralOptions) {
-    this.rpc      = opts.rpc;
-    this.contract = opts.contract;
-    this.gas      = opts.gas ?? 300_000;
-    this._pk      = opts.privateKey;
+export class KarmaBilateral extends BaseClient {
+  constructor(opts: ClientOptions) {
+    super(opts, KARMA_BILATERAL_ABI);
   }
 
-  // ── Core three methods ──────────────────────────────────────────────────────
+  /** Lock ERC-20 tokens and mint a Bill Token. Sends approve first. */
+  async lock(token: string, amount: bigint): Promise<bigint> {
+    const erc20 = new ethers.Contract(token, ERC20_ABI, this.wallet);
+    const tx = await erc20.approve(this.contract.target, amount);
+    await tx.wait();
+    const tx2 = await this.contract.lock(token, amount);
+    const receipt = await tx2.wait();
+    // Parse BillMinted event
+    const log = receipt.logs.find((l: any) => {
+      try { return this.contract.interface.parseLog({ topics: l.topics as string[], data: l.data })?.name === "BillMinted"; }
+      catch { return false; }
+    });
+    if (!log) throw new Error("BillMinted event not found");
+    const parsed = this.contract.interface.parseLog({ topics: log.topics as string[], data: log.data });
+    return parsed!.args.billId;
+  }
 
-  /**
-   * Lock ERC-20 tokens and mint a Bill Token.
-   * Sends an approve tx first (can be skipped with `skipApprove: true`).
-   *
-   * @returns billId of the newly minted Bill Token
-   */
-  async lock(token: `0x${string}`, amount: bigint, skipApprove = false): Promise<bigint> {
-    if (!skipApprove) await this._approve(token, amount);
-    const data = "0x" + selector("lock(address,uint256)") +
-      encodeArgs(["address", "uint256"], [token, amount]);
-    const receipt = await this._sendTx(data);
-    return this._parseBillMinted(receipt);
+  /** Bilaterally bind a buyer Bill and an agent Bill. */
+  async bind(buyerBillId: bigint, agentBillId: bigint, scopeHash: string): Promise<bigint> {
+    const tx = await this.contract.bind(buyerBillId, agentBillId, scopeHash);
+    const receipt = await tx.wait();
+    const log = receipt.logs.find((l: any) => {
+      try { return this.contract.interface.parseLog({ topics: l.topics as string[], data: l.data })?.name === "BillsBound"; }
+      catch { return false; }
+    });
+    if (!log) throw new Error("BillsBound event not found");
+    const parsed = this.contract.interface.parseLog({ topics: log.topics as string[], data: log.data });
+    return parsed!.args.bindingId;
   }
 
   /**
-   * Bilaterally bind a buyer Bill and an agent Bill.
-   *
-   * @returns bindingId of the created Binding
+   * Bind with structured IntentPackage (new in v2).
+   * Validates: buyer/seller match bill owners, amounts match, intent not expired.
    */
-  async bind(
+  async bindWithIntent(
+    intent: IntentPackage,
     buyerBillId: bigint,
-    agentBillId: bigint,
-    scopeHash: `0x${string}`,
+    sellerBillId: bigint,
   ): Promise<bigint> {
-    const data = "0x" + selector("bind(uint256,uint256,bytes32)") +
-      encodeArgs(["uint256", "uint256", "bytes32"], [buyerBillId, agentBillId, scopeHash]);
-    const receipt = await this._sendTx(data);
-    return this._parseBindingId(receipt);
+    const tx = await this.contract.bindWithIntent(intent, buyerBillId, sellerBillId);
+    const receipt = await tx.wait();
+    const log = receipt.logs.find((l: any) => {
+      try { return this.contract.interface.parseLog({ topics: l.topics as string[], data: l.data })?.name === "IntentBound"; }
+      catch { return false; }
+    });
+    if (!log) throw new Error("IntentBound event not found");
+    const parsed = this.contract.interface.parseLog({ topics: log.topics as string[], data: log.data });
+    return parsed!.args.bindingId;
   }
 
-  /**
-   * Settle a Binding: verify proof, burn both Bills, release USDC atomically.
-   */
-  async settle(bindingId: bigint, proofHash: `0x${string}`): Promise<string> {
-    const data = "0x" + selector("settle(uint256,bytes32)") +
-      encodeArgs(["uint256", "bytes32"], [bindingId, proofHash]);
-    const receipt = await this._sendTx(data);
-    return (receipt as { transactionHash: string }).transactionHash;
+  /** Settle a Binding: verify proof, burn both Bills, release funds. */
+  async settle(bindingId: bigint, proofHash: string): Promise<string> {
+    const tx = await this.contract.settle(bindingId, proofHash);
+    const receipt = await tx.wait();
+    return receipt.hash;
   }
-
-  // ── Convenience ────────────────────────────────────────────────────────────
 
   async unlock(billId: bigint): Promise<string> {
-    const data = "0x" + selector("unlock(uint256)") +
-      encodeArgs(["uint256"], [billId]);
-    const receipt = await this._sendTx(data);
-    return (receipt as { transactionHash: string }).transactionHash;
+    const tx = await this.contract.unlock(billId);
+    const receipt = await tx.wait();
+    return receipt.hash;
   }
 
   async getBill(billId: bigint): Promise<BillToken> {
-    const data = "0x" + selector("getBill(uint256)") +
-      encodeArgs(["uint256"], [billId]);
-    const raw = await rpcCall(this.rpc, "eth_call", [
-      { to: this.contract, data },
-      "latest",
-    ]) as string;
-    const stateNum = Number(decodeUint256(raw, 4));
+    const raw = await this.contract.getBill(billId);
     return {
-      billId:   decodeUint256(raw, 0),
-      owner:    decodeAddress(raw, 1),
-      token:    decodeAddress(raw, 2),
-      amount:   decodeUint256(raw, 3),
-      state:    (Object.keys(BillState)[stateNum] ?? String(stateNum)) as BillStateKey,
-      mintedAt: decodeUint256(raw, 5),
+      billId:   raw.billId,
+      owner:    raw.owner,
+      token:    raw.token,
+      amount:   raw.amount,
+      state:    raw.state,
+      mintedAt: raw.mintedAt,
     };
   }
 
   async getBinding(bindingId: bigint): Promise<Binding> {
-    const data = "0x" + selector("getBinding(uint256)") +
-      encodeArgs(["uint256"], [bindingId]);
-    const raw = await rpcCall(this.rpc, "eth_call", [
-      { to: this.contract, data },
-      "latest",
-    ]) as string;
-    const stateNum = Number(decodeUint256(raw, 4));
+    const raw = await this.contract.getBinding(bindingId);
     return {
-      bindingId:        decodeUint256(raw, 0),
-      buyerBillId:      decodeUint256(raw, 1),
-      agentBillId:      decodeUint256(raw, 2),
-      scopeHash:        decodeBytes32(raw, 3),
-      state:            (Object.keys(BindingState)[stateNum] ?? String(stateNum)) as BindingStateKey,
-      createdAt:        decodeUint256(raw, 5),
-      settleAfter:      decodeUint256(raw, 6),
-      proofHash:        decodeBytes32(raw, 7),
-      disputedAt:       decodeUint256(raw, 8),
-      disputeInitiator: decodeAddress(raw, 9),
+      bindingId:        raw.bindingId,
+      buyerBillId:      raw.buyerBillId,
+      agentBillId:      raw.agentBillId,
+      scopeHash:        raw.scopeHash,
+      state:            raw.state,
+      createdAt:        raw.createdAt,
+      settleAfter:      raw.settleAfter,
+      proofHash:        raw.proofHash,
+      disputedAt:       raw.disputedAt,
+      disputeInitiator: raw.disputeInitiator,
     };
   }
 
-  async checkInvariant(token: `0x${string}`): Promise<boolean> {
-    const data = "0x" + selector("checkInvariant(address)") +
-      encodeArgs(["address"], [token]);
-    const raw = await rpcCall(this.rpc, "eth_call", [
-      { to: this.contract, data },
-      "latest",
-    ]) as string;
-    return raw.endsWith("1");
-  }
-
-  // ── Internal ───────────────────────────────────────────────────────────────
-
-  private async _approve(token: `0x${string}`, amount: bigint): Promise<void> {
-    const data = "0x" + selector("approve(address,uint256)") +
-      encodeArgs(["address", "uint256"], [this.contract, amount]);
-    await this._sendTxTo(token, data);
-  }
-
-  private async _sendTx(data: string): Promise<unknown> {
-    return this._sendTxTo(this.contract, data);
-  }
-
-  private async _sendTxTo(to: string, data: string): Promise<unknown> {
-    const from    = await this._getAddress();
-    const nonce   = await rpcCall(this.rpc, "eth_getTransactionCount", [from, "latest"]) as string;
-    const chainId = await rpcCall(this.rpc, "eth_chainId", []) as string;
-
-    const tx = {
-      to,
-      data,
-      nonce,
-      gas:     "0x" + this.gas.toString(16),
-      chainId,
-      value:   "0x0",
-      // Use legacy pricing for broad RPC compatibility
-      gasPrice: await rpcCall(this.rpc, "eth_gasPrice", []) as string,
+  async getIntentPackage(bindingId: bigint): Promise<StoredIntentPackage> {
+    const raw = await this.contract.getIntentPackage(bindingId);
+    return {
+      buyer:          raw.buyer,
+      seller:         raw.seller,
+      serviceType:    raw.serviceType,
+      requirements:   raw.requirements,
+      amount:         raw.amount,
+      penaltyRate:    raw.penaltyRate,
+      deadline:       raw.deadline,
+      expiresAt:      raw.expiresAt,
+      proofSchema:    raw.proofSchema,
+      verifier:       raw.verifier,
+      disputeWindow:  raw.disputeWindow,
     };
-
-    // Sign with ethers if available, otherwise expect viem/wagmi in caller
-    const signed = await this._sign(tx);
-    const txHash = await rpcCall(this.rpc, "eth_sendRawTransaction", [signed]) as string;
-    return this._waitForReceipt(txHash);
   }
 
-  private async _sign(tx: Record<string, string>): Promise<string> {
-    try {
-      // Try ethers v6
-      const { Wallet } = await import("ethers");
-      const wallet = new Wallet(this._pk);
-      return wallet.signTransaction(tx as Parameters<typeof wallet.signTransaction>[0]);
-    } catch {
-      throw new Error(
-        "ethers is required for transaction signing: npm install ethers\n" +
-        "Alternatively, pass a pre-signed raw tx via KarmaBilateral._sendRaw()"
-      );
-    }
+  async checkInvariant(token: string): Promise<boolean> {
+    return this.contract.checkInvariant(token);
   }
 
-  private async _getAddress(): Promise<string> {
-    const { Wallet } = await import("ethers");
-    return new Wallet(this._pk).address;
+  // Admin
+  async setTokenAllowed(token: string, allowed: boolean): Promise<void> {
+    const tx = await this.contract.setTokenAllowed(token, allowed);
+    await tx.wait();
   }
 
-  private async _waitForReceipt(txHash: string): Promise<unknown> {
-    for (let i = 0; i < 60; i++) {
-      const receipt = await rpcCall(this.rpc, "eth_getTransactionReceipt", [txHash]);
-      if (receipt) return receipt;
-      await new Promise(r => setTimeout(r, 2000));
-    }
-    throw new Error(`Transaction not mined after 120s: ${txHash}`);
+  async setDisputeWindow(seconds: bigint): Promise<void> {
+    const tx = await this.contract.setDisputeWindow(seconds);
+    await tx.wait();
   }
 
-  private _parseBillMinted(receipt: unknown): bigint {
-    // BillMinted topic0 = keccak256("BillMinted(uint256,address,address,uint256)")
-    const TOPIC = "0x" + "BillMinted".padEnd(64, "0"); // placeholder; real impl uses event decode
-    const logs = (receipt as { logs: Array<{ topics: string[]; data: string }> }).logs;
-    if (!logs?.length) throw new Error("BillMinted event not found in receipt");
-    // topic[1] is indexed billId (uint256)
-    return BigInt(logs[0]!.topics[1]!);
-  }
-
-  private _parseBindingId(receipt: unknown): bigint {
-    const logs = (receipt as { logs: Array<{ topics: string[]; data: string }> }).logs;
-    if (!logs?.length) throw new Error("BillsBound event not found in receipt");
-    return BigInt(logs[0]!.topics[1]!);
-  }
+  async admin(): Promise<string> { return this.contract.admin(); }
+  async attestationGateway(): Promise<string> { return this.contract.attestationGateway(); }
 }
 
-// ── Re-export ABI for consumers who need it ───────────────────────────────────
-export { ABI as KARMA_BILATERAL_ABI };
+// ── VerifierRegistry Client ───────────────────────────────────────────────────
+
+export class VerifierRegistry extends BaseClient {
+  constructor(opts: ClientOptions) {
+    super(opts, VERIFIER_REGISTRY_ABI);
+  }
+
+  async registerVerifier(wallet: string, endpointUrl: string): Promise<void> {
+    const tx = await this.contract.registerVerifier(wallet, endpointUrl);
+    await tx.wait();
+  }
+
+  async deregisterVerifier(wallet: string): Promise<void> {
+    const tx = await this.contract.deregisterVerifier(wallet);
+    await tx.wait();
+  }
+
+  /** Stake tokens to become an active verifier. Must approve token first. */
+  async stake(amount: bigint): Promise<void> {
+    const stakingTokenAddr = await this.contract.stakingToken();
+    const erc20 = new ethers.Contract(stakingTokenAddr, ERC20_ABI, this.wallet);
+    const approveTx = await erc20.approve(this.contract.target, amount);
+    await approveTx.wait();
+    const tx = await this.contract.stake(amount);
+    await tx.wait();
+  }
+
+  async unstake(amount: bigint): Promise<void> {
+    const tx = await this.contract.unstake(amount);
+    await tx.wait();
+  }
+
+  /** Admin: slash a verifier for bad behavior */
+  async slash(verifier: string, amount: bigint): Promise<void> {
+    const tx = await this.contract.slash(verifier, amount);
+    await tx.wait();
+  }
+
+  /** Admin: reward a verifier for successful attestation */
+  async rewardVerifier(verifier: string): Promise<void> {
+    const tx = await this.contract.rewardVerifier(verifier);
+    await tx.wait();
+  }
+
+  async getVerifier(wallet: string): Promise<VerifierInfo> {
+    const raw = await this.contract.getVerifier(wallet);
+    return {
+      wallet:                raw.wallet,
+      endpointUrl:           raw.endpointUrl,
+      active:                raw.active,
+      stakeAmount:           raw.stakeAmount,
+      successCount:          raw.successCount,
+      falseAttestationCount: raw.falseAttestationCount,
+      totalEarnings:         raw.totalEarnings,
+      slashedAmount:         raw.slashedAmount,
+    };
+  }
+
+  async isVerifierActive(wallet: string): Promise<boolean> {
+    return this.contract.isVerifierActive(wallet);
+  }
+
+  async getRequiredThreshold(): Promise<bigint> { return this.contract.getRequiredThreshold(); }
+  async getTotalVerifiers(): Promise<bigint> { return this.contract.getTotalVerifiers(); }
+  async admin(): Promise<string> { return this.contract.admin(); }
+  async stakingToken(): Promise<string> { return this.contract.stakingToken(); }
+  async minStake(): Promise<bigint> { return this.contract.minStake(); }
+  async verificationReward(): Promise<bigint> { return this.contract.verificationReward(); }
+}
+
+// ── ScoringEngine Client ──────────────────────────────────────────────────────
+
+export class ScoringEngine extends BaseClient {
+  constructor(opts: ClientOptions) {
+    super(opts, SCORING_ENGINE_ABI);
+  }
+
+  async getScore(party: string): Promise<ScoringVector> {
+    const raw = await this.contract.getScore(party);
+    return {
+      reputationScore:  raw.reputationScore,
+      settlementCount:  raw.settlementCount,
+      successRate:      raw.successRate,
+      avgSpeed:         raw.avgSpeed,
+      disputeCount:     raw.disputeCount,
+      disputeWinRate:   raw.disputeWinRate,
+      slashedCount:     raw.slashedCount,
+      lastUpdated:      raw.lastUpdated,
+    };
+  }
+
+  /** Admin: record settlement for scoring */
+  async recordSettlement(seller: string, buyer: string, verifier: string, speedRatio: bigint): Promise<void> {
+    const tx = await this.contract.recordSettlement(seller, buyer, verifier, speedRatio);
+    await tx.wait();
+  }
+
+  /** Admin: record dispute resolution outcome */
+  async recordDisputeResolution(seller: string, buyer: string, verifier: string, sellerWon: boolean): Promise<void> {
+    const tx = await this.contract.recordDisputeResolution(seller, buyer, verifier, sellerWon);
+    await tx.wait();
+  }
+
+  async admin(): Promise<string> { return this.contract.admin(); }
+  async authorizedSettler(): Promise<string> { return this.contract.authorizedSettler(); }
+}
+
+// ── EvidenceChain Client ──────────────────────────────────────────────────────
+
+export class EvidenceChain extends BaseClient {
+  constructor(opts: ClientOptions) {
+    super(opts, EVIDENCE_CHAIN_ABI);
+  }
+
+  async submitEvidence(evidence: Evidence): Promise<string> {
+    const tx = await this.contract.submitEvidence(evidence);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  }
+
+  async submitEvidenceBatch(items: Evidence[]): Promise<string> {
+    const tx = await this.contract.submitEvidenceBatch(items);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  }
+
+  /** Admin: invalidate a previously submitted evidence */
+  async invalidateEvidence(evidenceHash: string): Promise<string> {
+    const tx = await this.contract.invalidateEvidence(evidenceHash);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  }
+
+  async getEvidence(evidenceHash: string): Promise<Evidence> {
+    const raw = await this.contract.getEvidence(evidenceHash);
+    return {
+      evidenceType: raw.evidenceType,
+      bindingId:    raw.bindingId,
+      submitter:    raw.submitter,
+      data:         raw.data,
+      timestamp:    raw.timestamp,
+      isValid:      raw.isValid,
+      hash:         raw.hash,
+    };
+  }
+
+  async getEvidenceCount(bindingId: bigint): Promise<bigint> {
+    return this.contract.getEvidenceCount(bindingId);
+  }
+
+  async admin(): Promise<string> { return this.contract.admin(); }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** One-shot: lock tokens on both sides and bind with intent */
+export async function quickBind(
+  karma: KarmaBilateral,
+  token: string,
+  buyerPk: string,
+  sellerPk: string,
+  intent: IntentPackage,
+  rpc: string,
+): Promise<{ buyerBillId: bigint; sellerBillId: bigint; bindingId: bigint }> {
+  const buyerKarma = new KarmaBilateral({ rpc, privateKey: buyerPk, contract: karma.contract.target as string });
+  const sellerKarma = new KarmaBilateral({ rpc, privateKey: sellerPk, contract: karma.contract.target as string });
+
+  const buyerBillId  = await buyerKarma.lock(token, intent.amount);
+  const sellerBillId = await sellerKarma.lock(token, intent.amount);
+
+  const bindingId = await buyerKarma.bindWithIntent(intent, buyerBillId, sellerBillId);
+  return { buyerBillId, sellerBillId, bindingId };
+}
+
+// ── Re-export ABIs ────────────────────────────────────────────────────────────
+export { KARMA_BILATERAL_ABI, VERIFIER_REGISTRY_ABI, SCORING_ENGINE_ABI, EVIDENCE_CHAIN_ABI, ERC20_ABI };
