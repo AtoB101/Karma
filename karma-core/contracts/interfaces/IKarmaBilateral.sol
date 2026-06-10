@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Types} from "../libraries/Types.sol";
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  IKarmaBilateral — Public interface for KarmaBilateral.sol
 //
@@ -62,6 +64,7 @@ interface IKarmaBilateral {
     event BillMinted(uint256 indexed billId, address indexed owner, address token, uint256 amount);
     event BillBurned(uint256 indexed billId, address indexed owner, uint256 amount, string reason);
     event BillsBound(uint256 indexed bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash);
+    event IntentBound(uint256 indexed bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 intentHash);
     event BindingSettled(uint256 indexed bindingId, bytes32 proofHash, uint256 buyerAmount, uint256 agentAmount);
     event BindingRefunded(uint256 indexed bindingId, uint256 buyerAmount, uint256 agentAmount);
     event DisputeRaised(uint256 indexed bindingId, address indexed initiator);
@@ -89,6 +92,19 @@ interface IKarmaBilateral {
     /// @param  scopeHash    keccak256 of the task scope / service agreement
     /// @return bindingId    ID of the created Binding
     function bind(uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash)
+        external
+        returns (uint256 bindingId);
+
+    /// @notice Bind using a structured IntentPackage — the canonical AI-agent flow.
+    /// @param  intent       Full service intent struct
+    /// @param  buyerBillId  Buyer's locked Bill Token
+    /// @param  agentBillId  Seller's locked Bill Token
+    /// @return bindingId    ID of the created Binding
+    function bindWithIntent(
+        Types.IntentPackage calldata intent,
+        uint256 buyerBillId,
+        uint256 agentBillId
+    )
         external
         returns (uint256 bindingId);
 

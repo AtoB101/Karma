@@ -343,7 +343,7 @@ contract KarmaBilateralAttestationTest is Test {
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAttestation(verifier1Pk, verifier1, TASK_ID, true);
 
-        (,,,, uint256 successCount,) = registry.verifiers(verifier1);
+        (,,,, uint256 successCount,,,) = registry.verifiers(verifier1);
         assertEq(successCount, 1);
     }
 
@@ -352,7 +352,7 @@ contract KarmaBilateralAttestationTest is Test {
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAttestation(verifier1Pk, verifier1, TASK_ID, false); // votes FAIL
 
-        (,,,,, uint256 falseCount) = registry.verifiers(verifier1);
+        (,,,,, uint256 falseCount,,) = registry.verifiers(verifier1);
         assertEq(falseCount, 1);
         assertEq(gateway.failAttestationCount(TASK_ID), 1);
     }

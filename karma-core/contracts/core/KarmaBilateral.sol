@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import {Types} from "../libraries/Types.sol";
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  KarmaBilateral — Bilateral Lock + Bill Token + KarmaFSM + Threshold Batch
 //                   + Single Commitment Principle (SCP)
@@ -99,6 +101,11 @@ contract KarmaBilateral {
     error IdentityAlreadyRegistered(address addr);
     error IdentityNotFound(address addr);
     error SubAgentLimitReached(address master);
+
+    // IntentPackage errors
+    error IntentPartyMismatch(string party);
+    error IntentAmountMismatch(uint256 intent, uint256 buyer, uint256 agent);
+    error IntentExpired(uint256 expiredAt);
     error SubAgentAlreadyAdded(address sub);
     error AllowanceExceedsFreeBalance(uint256 total, uint256 free);
     error SubAgentNotFound(address sub);
@@ -194,6 +201,7 @@ contract KarmaBilateral {
 
     mapping(uint256 => BillToken) public bills;
     mapping(uint256 => Binding)   public bindings;
+    mapping(uint256 => Types.IntentPackage) public intentPackages; // intent per binding
 
     mapping(address => uint256[]) private _ownerBills;
     mapping(address => bool)      public tokenAllowed;
@@ -271,6 +279,7 @@ contract KarmaBilateral {
     event AutoArbitrationThresholdUpdated(uint256 amount);
     event SettleTimeoutUpdated(uint256 seconds_);
     event AttestationBindingRegistered(uint256 indexed bindingId, bytes32 indexed taskId);
+    event IntentBound(uint256 indexed bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 intentHash);
     // Layer 1 events
     event SettleSubmitted(uint256 indexed bindingId, bytes32 proofHash, uint256 finalizeAfter);
     event SettleFinalized(uint256 indexed bindingId, bytes32 proofHash);
@@ -455,6 +464,83 @@ contract KarmaBilateral {
 
         emit BillsBound(bindingId, buyerBillId, agentBillId, scopeHash);
         emit AttestationBindingRegistered(bindingId, taskId);
+    }
+
+    /// @notice Bind using a structured IntentPackage instead of raw scopeHash.
+    ///         The intent defines buyer, seller, service type, amount, deadline,
+    ///         required proof fields, verifier, and dispute parameters.
+    ///         This is the canonical bind for AI-agent commerce — the intent IS
+    ///         the contract.
+    function bindWithIntent(
+        Types.IntentPackage calldata intent,
+        uint256 buyerBillId,
+        uint256 agentBillId
+    )
+        external
+        nonReentrant
+        returns (uint256 bindingId)
+    {
+        BillToken storage buyerBill = _requireBill(buyerBillId);
+        BillToken storage agentBill = _requireBill(agentBillId);
+
+        // ═══ Basic bill ownership/state checks ═══
+        if (buyerBill.owner != msg.sender) revert NotBillOwner(buyerBillId);
+        _requireBillState(buyerBillId, buyerBill.state, BillState.MINTED);
+        _requireBillState(agentBillId, agentBill.state, BillState.MINTED);
+        if (buyerBill.token != agentBill.token) revert TokenNotAllowed();
+        if (buyerBill.owner == agentBill.owner) revert BuyerAgentSameAddress();
+
+        // ═══ Intent validation ═══
+        if (intent.buyer != buyerBill.owner) revert IntentPartyMismatch("buyer");
+        if (intent.seller != agentBill.owner) revert IntentPartyMismatch("seller");
+        if (intent.amount != buyerBill.amount || intent.amount != agentBill.amount)
+            revert IntentAmountMismatch(intent.amount, buyerBill.amount, agentBill.amount);
+        if (intent.expiresAt < block.timestamp) revert IntentExpired(intent.expiresAt);
+        if (intent.serviceType == bytes32(0)) revert ZeroAmount();
+
+        buyerBill.state = BillState.BOUND;
+        agentBill.state = BillState.BOUND;
+
+        bytes32 intentHash = keccak256(abi.encode(intent));
+
+        unchecked { bindingId = ++_bindingCounter; }
+        bindings[bindingId] = Binding({
+            bindingId:        bindingId,
+            buyerBillId:      buyerBillId,
+            agentBillId:      agentBillId,
+            scopeHash:        intentHash,
+            state:            BindingState.ACTIVE,
+            createdAt:        block.timestamp,
+            settleAfter:      block.timestamp + disputeWindowSeconds,
+            proofHash:        bytes32(0),
+            settleSubmittedAt: 0,
+            disputedAt:       0,
+            disputeInitiator: address(0)
+        });
+
+        // Store the full intent on-chain for verification + audit
+        intentPackages[bindingId] = intent;
+
+        // If intent specifies a verifier, register attestation requirement
+        if (intent.verifier != address(0)) {
+            requiresAttestation[bindingId] = true;
+            bindingTaskId[bindingId] = intentHash;
+        }
+
+        address token    = buyerBill.token;
+        uint256 buyerAmt = buyerBill.amount;
+        uint256 agentAmt = agentBill.amount;
+        pendingBatchAmount[token] += buyerAmt + agentAmt;
+
+        _moveFreeTobound(buyerBill.owner, buyerAmt);
+        _moveFreeTobound(agentBill.owner, agentAmt);
+
+        if (batchThreshold[token] > 0 && pendingBatchAmount[token] >= batchThreshold[token]) {
+            bindings[bindingId].state = BindingState.PENDING;
+        }
+
+        emit BillsBound(bindingId, buyerBillId, agentBillId, intentHash);
+        emit IntentBound(bindingId, buyerBillId, agentBillId, intentHash);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -980,6 +1066,10 @@ contract KarmaBilateral {
 
     function getBinding(uint256 bindingId) external view returns (Binding memory) {
         return bindings[bindingId];
+    }
+
+    function getIntentPackage(uint256 bindingId) external view returns (Types.IntentPackage memory) {
+        return intentPackages[bindingId];
     }
 
     function getArbitration(uint256 bindingId) external view returns (ArbitrationRecord memory) {
