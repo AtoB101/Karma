@@ -9,3 +9,12 @@ solc_version = "0.8.28"
 optimizer = true
 optimizer_runs = 1000
 via_ir = true
+
+# Allow forge-std self-tests to read/write their fixture files
+# Tests at `test/fixtures/` resolve to project root; use real directories (not symlinks).
+fs_permissions = [
+    { access = "read-write", path = "test/fixtures/" },
+]
+
+# RPC config for forge-std StdChains test (must match forge 1.5.1 default)
+eth_rpc_url = "https://ethereum.reth.rs/rpc"

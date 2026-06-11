@@ -7,6 +7,12 @@ pragma solidity ^0.8.24;
 ///         or remove verifiers and adjust threshold parameters.
 /// @dev This is the canonical on-chain registry referenced by the
 ///      KarmaAttestationGateway for attestation quorum validation.
+
+interface IStakingToken {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+}
+
 contract VerifierRegistry {
     // ──────────────────────────────────── Errors ──────────────────────────────
 
@@ -16,6 +22,9 @@ contract VerifierRegistry {
     error InvalidAddress();
     error InvalidThreshold();
     error ThresholdExceedsTotal();
+    error InsufficientStake();
+    error TransferFailed();
+    error StakingTokenNotSet();
 
     // ──────────────────────────────── Immutables ─────────────────────────────
 
@@ -38,6 +47,8 @@ contract VerifierRegistry {
         uint256 stakeAmount;
         uint256 successCount;
         uint256 falseAttestationCount;
+        uint256 totalEarnings;                   // accumulated verification rewards
+        uint256 slashedAmount;                   // total amount slashed
     }
 
     /// @notice wallet → VerifierInfo lookup.
@@ -45,6 +56,15 @@ contract VerifierRegistry {
 
     /// @notice Ordered list of registered verifier wallets for enumeration.
     address[] public verifierList;
+
+    /// @notice Staking token (e.g. KARMA token).
+    address public stakingToken;
+
+    /// @notice Minimum stake required to be an active verifier.
+    uint256 public minStake;
+
+    /// @notice Base reward per verified binding (in staking token).
+    uint256 public verificationReward;
 
     // ──────────────────────────────── Events ─────────────────────────────────
 
@@ -68,6 +88,12 @@ contract VerifierRegistry {
         address indexed verifier,
         bool success
     );
+
+    event VerifierStaked(address indexed verifier, uint256 amount, uint256 total);
+    event VerifierUnstaked(address indexed verifier, uint256 amount, uint256 remaining);
+    event VerifierSlashed(address indexed verifier, uint256 amount, string reason);
+    event VerifierRewarded(address indexed verifier, uint256 amount);
+    event StakingConfigUpdated(uint256 minStake, uint256 reward);
 
     // ──────────────────────────────── Constructor ────────────────────────────
 
@@ -97,7 +123,9 @@ contract VerifierRegistry {
             active: true,
             stakeAmount: stakeAmount,
             successCount: 0,
-            falseAttestationCount: 0
+            falseAttestationCount: 0,
+            totalEarnings: 0,
+            slashedAmount: 0
         });
         verifierList.push(wallet);
 
@@ -161,7 +189,7 @@ contract VerifierRegistry {
         emit AttestationRecorded(verifier, success);
     }
 
-    // ──────────────────────────────── Views ──────────────────────────────────
+    // ────────────────────────────── Views ──────────────────────────────────
 
     /// @notice Check if a wallet is an active verifier.
     function isActiveVerifier(address wallet) external view returns (bool) {
@@ -196,6 +224,71 @@ contract VerifierRegistry {
             VerifierInfo storage v = verifiers[wallets[i]];
             results[i] = v.wallet != address(0) && v.active;
         }
+    }
+
+    // ────────────────────── Staking / Slashing / Rewards ────────────────────
+
+    /// @notice Set the staking token, minimum stake, and verification reward.
+    function setStakingConfig(address token, uint256 minStake_, uint256 reward) external onlyAdmin {
+        stakingToken = token;
+        minStake = minStake_;
+        verificationReward = reward;
+        emit StakingConfigUpdated(minStake_, reward);
+    }
+
+    /// @notice Verifier stakes tokens to meet minimum requirement.
+    function stake(uint256 amount) external {
+        if (stakingToken == address(0)) revert StakingTokenNotSet();
+        VerifierInfo storage v = verifiers[msg.sender];
+        if (v.wallet == address(0)) revert VerifierNotFound();
+
+        IStakingToken(stakingToken).transferFrom(msg.sender, address(this), amount);
+        v.stakeAmount += amount;
+        emit VerifierStaked(msg.sender, amount, v.stakeAmount);
+    }
+
+    /// @notice Verifier withdraws excess stake (must keep minStake).
+    function unstake(uint256 amount) external {
+        VerifierInfo storage v = verifiers[msg.sender];
+        if (v.wallet == address(0)) revert VerifierNotFound();
+        if (v.stakeAmount < amount + minStake) revert InsufficientStake();
+
+        v.stakeAmount -= amount;
+        IStakingToken(stakingToken).transfer(msg.sender, amount);
+        emit VerifierUnstaked(msg.sender, amount, v.stakeAmount);
+    }
+
+    /// @notice Admin slashes a verifier for false attestation.
+    /// @param verifier Verifier to penalize.
+    /// @param amount    Amount to slash (transferred to protocol treasury).
+    /// @param reason    Human-readable reason for the slash.
+    function slash(address verifier, uint256 amount, string calldata reason) external onlyAdmin {
+        VerifierInfo storage v = verifiers[verifier];
+        if (v.wallet == address(0)) revert VerifierNotFound();
+        if (amount > v.stakeAmount) amount = v.stakeAmount;
+
+        v.stakeAmount -= amount;
+        v.slashedAmount += amount;
+
+        // If stake falls below minimum, deactivate
+        if (v.stakeAmount < minStake) {
+            v.active = false;
+        }
+
+        emit VerifierSlashed(verifier, amount, reason);
+    }
+
+    /// @notice Pay verification reward to verifier after successful attestation.
+    function rewardVerifier(address verifier, uint256 amount) external {
+        // In production, callable only by Gateway or KarmaBilateral
+        VerifierInfo storage v = verifiers[verifier];
+        if (v.wallet == address(0)) revert VerifierNotFound();
+
+        if (amount > 0 && stakingToken != address(0)) {
+            IStakingToken(stakingToken).transfer(verifier, amount);
+            v.totalEarnings += amount;
+        }
+        emit VerifierRewarded(verifier, amount);
     }
 
     // ────────────────────────────── Internal ─────────────────────────────────

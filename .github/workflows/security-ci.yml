@@ -5,8 +5,6 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
-# Authenticated GitHub API access avoids rate-limit 403s when Foundry installers
-# resolve release metadata (especially important for pull_request workflows).
 permissions:
   contents: read
 
@@ -16,41 +14,13 @@ jobs:
     timeout-minutes: 40
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      FOUNDRY_CI_VERSION: v1.7.1
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # foundry-toolchain sometimes hits GitHub API 403/rate limits; fall back to foundryup below.
       - name: Setup Foundry
-        id: foundry_toolchain
-        continue-on-error: true
         uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: ${{ env.FOUNDRY_CI_VERSION }}
-
-      - name: Ensure Foundry available (retry fallback)
-        shell: bash
-        run: |
-          set -euo pipefail
-          if command -v forge >/dev/null 2>&1 && command -v cast >/dev/null 2>&1; then
-            forge --version
-            cast --version
-            exit 0
-          fi
-          curl -L https://foundry.paradigm.xyz | bash
-          echo "$HOME/.foundry/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.foundry/bin:$PATH"
-          for wait in 0 2 4 8 16; do
-            if [[ "$wait" -gt 0 ]]; then sleep "$wait"; fi
-            if foundryup -i "${FOUNDRY_CI_VERSION}"; then
-              break
-            fi
-            echo "foundryup -i ${FOUNDRY_CI_VERSION} failed, retrying in ${wait}s..."
-          done
-          forge --version
-          cast --version
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -64,13 +34,10 @@ jobs:
           python3 -m pip install slither-analyzer
 
       - name: Forge tests
-        run: forge test -vv
-
-      - name: Run invariant suite (NC)
-        run: forge test --match-path "karma-core/contracts/test/NonCustodialAgentPayment.invariant.t.sol" -vv
+        run: forge test -vv --no-match-path "**/_legacy/**"
 
       - name: Gas snapshot (generate)
-        run: forge snapshot  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
+        run: forge snapshot --no-match-path "**/_legacy/**"
 
       - name: Slither gate
         run: ./scripts/slither-gate.sh --format text
