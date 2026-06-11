@@ -64,12 +64,12 @@ jobs:
           python3 -m pip install slither-analyzer
 
       - name: Forge tests
-        run: forge test -vv --no-match-path "_legacy"
+        run: forge test -vv --no-match-path "**/_legacy/**"
 
 
 
       - name: Gas snapshot (generate)
-        run: forge snapshot --no-match-path "_legacy"  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
+        run: forge snapshot --no-match-path "**/_legacy/**"  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
 
       - name: Slither gate
         run: ./scripts/slither-gate.sh --format text

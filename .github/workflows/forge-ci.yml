@@ -57,10 +57,10 @@ jobs:
         run: forge build
 
       - name: Run fast unit/integration tests
-        run: forge test -vv --no-match-path "_legacy"
+        run: forge test -vv --no-match-path "**/_legacy/**"
 
       - name: Gas snapshot (generate)
-        run: forge snapshot --no-match-path "_legacy"  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
+        run: forge snapshot --no-match-path "**/_legacy/**"  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
 
       - name: Run proof/evidence CI gates (M4.1)
         run: ./scripts/ci-proof-gates.sh
@@ -117,10 +117,10 @@ jobs:
         run: forge build
 
       - name: Run all tests
-        run: forge test -vv --no-match-path "_legacy"
+        run: forge test -vv --no-match-path "**/_legacy/**"
 
       - name: Gas snapshot (generate)
-        run: forge snapshot --no-match-path "_legacy"  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
+        run: forge snapshot --no-match-path "**/_legacy/**"  # --diff removed: .gas-snapshot baseline no longer committed (generated artifact)
 
       - name: Run proof/evidence CI gates (M4.1)
         run: ./scripts/ci-proof-gates.sh
