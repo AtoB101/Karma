@@ -28,7 +28,10 @@ def build_card(
                 input_schema=inp,
                 output_schema=s.get("output_schema", {"type": "object", "properties": {}}),
             ))
-    ext = AgentCardKarmaExt(contract_address=contract_address, network=network)
+    ext = AgentCardKarmaExt(
+        contract_address=contract_address or "0x496d178a5D32E9410E52bD5800602BDEe81B2A91",
+        network=network,
+    )
     card = AgentCard(
         name=name,
         description=description,

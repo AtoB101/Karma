@@ -1,15 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Karma Console — Agent Responsibility Network</title>
   <style>
-    /* ============================================================
-       KARMA CYBER CONSOLE v3.0 — 赛博责任操作台
-       设计语言: 霓虹荧光 · 3D棱角切面 · 玻璃质感 · 动态扫描线
-       Base: karma_console_ai_toggle_full.html (2026-05-14)
-       ============================================================ */
     :root {
       --bg-deep: #020408;
       --bg-side: #040c18;
@@ -49,7 +44,6 @@
       position: relative;
     }
 
-    /* ── 背景: 网格 + 扫描线 ── */
     body::before {
       content: "";
       position: fixed; inset: 0; pointer-events: none; z-index: 0;
@@ -71,7 +65,6 @@
       100% { background-position: 0 4px; }
     }
 
-    /* ── 滚动条 ── */
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: #040c18; }
     ::-webkit-scrollbar-thumb {
@@ -79,20 +72,18 @@
       border-radius: 10px;
     }
 
-    /* ── 主布局 ── */
     .app {
       position: relative; z-index: 1;
       display: grid;
-      grid-template-columns: 292px 1fr;
+      grid-template-columns: 300px 1fr;
       height: 100vh;
     }
 
-    /* ── 侧边栏 ── */
     .sidebar {
       background: rgba(4, 10, 20, 0.88);
       backdrop-filter: blur(22px);
       border-right: 1px solid var(--line);
-      padding: 22px 18px;
+      padding: 28px 22px;
       display: flex; flex-direction: column;
       min-width: 0;
       position: relative;
@@ -107,17 +98,17 @@
     }
 
     .brand {
-      display: flex; align-items: center; gap: 12px;
-      padding: 6px 8px 20px;
+      display: flex; align-items: center; gap: 14px;
+      padding: 6px 8px 24px;
       border-bottom: 1px solid var(--line);
     }
 
     .logo {
-      width: 46px; height: 46px;
+      width: 48px; height: 48px;
       clip-path: polygon(30% 0, 100% 0, 100% 70%, 70% 100%, 0 100%, 0 30%);
       display: grid; place-items: center;
       background: linear-gradient(135deg, var(--cyan), var(--green));
-      color: #020810; font-weight: 950;
+      color: #020810; font-weight: 950; font-size: 20px;
       box-shadow: 0 0 28px rgba(0, 229, 255, 0.35);
       animation: logoGlow 3s ease-in-out infinite;
     }
@@ -126,13 +117,12 @@
       50% { box-shadow: 0 0 42px rgba(0, 229, 255, 0.55); }
     }
 
-    .brand h1 { margin: 0; font-size: 20px; letter-spacing: 0.2px; }
-    .brand p { margin: 3px 0 0; color: var(--text-muted); font-size: 12px; }
+    .brand h1 { margin: 0; font-size: 22px; letter-spacing: 0.2px; }
+    .brand p { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
 
-    /* ── 身份卡片 ── */
     .identity-box {
-      margin: 18px 3px 14px;
-      padding: 15px;
+      margin: 24px 3px 20px;
+      padding: 18px;
       clip-path: polygon(0 8px, 8px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 6px 100%, 0 calc(100% - 6px));
       border: 1px solid var(--line);
       background: linear-gradient(180deg, rgba(12, 28, 48, 0.82), rgba(5, 14, 24, 0.82));
@@ -140,7 +130,7 @@
 
     .id-top {
       display: flex; justify-content: space-between; align-items: center;
-      color: var(--text-muted); font-size: 12px; margin-bottom: 10px;
+      color: var(--text-muted); font-size: 12px; margin-bottom: 12px;
     }
 
     .status {
@@ -161,11 +151,11 @@
       50% { box-shadow: 0 0 20px var(--green); }
     }
 
-    .id-main { font-size: 14px; font-weight: 900; margin-bottom: 6px; font-family: var(--font-mono); }
+    .id-main { font-size: 15px; font-weight: 900; margin-bottom: 8px; font-family: var(--font-mono); }
     .id-sub { font-size: 12px; color: var(--cyan); font-family: var(--font-mono); }
-    .id-meta { margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .id-meta { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .mini {
-      padding: 9px;
+      padding: 10px;
       clip-path: polygon(0 5px, 5px 0, calc(100% - 3px) 0, 100% 3px, 100% calc(100% - 5px), calc(100% - 5px) 100%, 3px 100%, 0 calc(100% - 3px));
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid rgba(0, 229, 255, 0.08);
@@ -173,17 +163,16 @@
     .mini b { display: block; font-size: 13px; }
     .mini span { font-size: 11px; color: var(--text-muted); }
 
-    /* ── 导航 ── */
     .nav {
-      display: flex; flex-direction: column; gap: 8px;
-      margin-top: 8px; overflow: auto; padding-right: 2px;
+      display: flex; flex-direction: column; gap: 10px;
+      margin-top: 12px; overflow: auto; padding-right: 4px;
     }
 
     .nav button {
       all: unset;
       cursor: pointer;
       display: flex; align-items: center; gap: 12px;
-      padding: 13px 14px;
+      padding: 14px 16px;
       clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
       color: var(--text-muted);
       transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -219,28 +208,25 @@
       font-size: 12px;
     }
 
-    /* ── 侧边栏底部 ── */
     .side-warning {
       margin-top: auto;
-      padding: 14px;
+      padding: 16px;
       border: 1px solid rgba(0, 255, 136, 0.16);
       clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
       background: rgba(0, 255, 136, 0.045);
     }
-    .side-warning b { display: block; margin-bottom: 6px; font-size: 13px; color: var(--green); }
-    .side-warning p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.55; }
+    .side-warning b { display: block; margin-bottom: 8px; font-size: 13px; color: var(--green); }
+    .side-warning p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
 
-    /* ── 主内容区 ── */
     .main {
-      height: 100vh; overflow: auto; padding: 24px;
+      height: 100vh; overflow: auto; padding: 32px;
     }
 
-    /* ── 顶部栏 ── */
     .topbar {
       position: sticky; top: 0; z-index: 10;
-      margin: -24px -24px 22px;
-      padding: 18px 24px;
-      display: flex; justify-content: space-between; align-items: center; gap: 18px;
+      margin: -32px -32px 40px;
+      padding: 14px 32px;
+      display: flex; flex-direction: column; gap: 10px;
       background: rgba(3, 8, 14, 0.82);
       backdrop-filter: blur(20px);
       border-bottom: 1px solid var(--line);
@@ -254,18 +240,38 @@
       box-shadow: 0 0 10px var(--cyan);
     }
 
-    .page-title h2 { margin: 0; font-size: 26px; letter-spacing: -0.4px; }
-    .page-title p { margin: 5px 0 0; color: var(--text-muted); font-size: 13px; }
+    .topbar-row {
+      display: flex; justify-content: space-between; align-items: center; gap: 18px;
+    }
 
-    .top-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .api-strip {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    }
+    .api-strip input[type="text"],
+    .api-strip input[type="password"] {
+      flex: 1; min-width: 120px; padding: 6px 8px; font-size: 11px;
+    }
+    .api-strip .btn { padding: 6px 10px; font-size: 11px; }
+    .api-strip select { padding: 6px 26px 6px 8px; font-size: 11px; }
+    .api-strip label { font-size: 11px; }
 
-    /* ── 按钮系统 ── */
+    .api-status {
+      font-size: 11px; color: var(--text-muted); white-space: nowrap;
+      font-family: var(--font-mono);
+    }
+    .api-status.err { color: var(--red); text-shadow: 0 0 6px rgba(255, 78, 106, 0.3); }
+
+    .page-title h2 { margin: 0; font-size: 28px; letter-spacing: -0.4px; }
+    .page-title p { margin: 6px 0 0; color: var(--text-muted); font-size: 14px; }
+
+    .top-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
     .btn {
       border: 1px solid rgba(0, 229, 255, 0.22);
       background: rgba(0, 229, 255, 0.06);
       color: var(--text);
       clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
-      padding: 12px 15px;
+      padding: 12px 16px;
       font-weight: 900; font-size: 13px;
       cursor: pointer;
       transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
@@ -292,7 +298,6 @@
     .btn.primary:active {
       box-shadow: 0 0 30px rgba(0, 229, 255, 0.7), 0 0 60px rgba(0, 255, 136, 0.5), 0 0 90px rgba(0, 229, 255, 0.3);
       transform: scale(0.94);
-      transition: all 0.05s ease;
     }
     .btn.red {
       border-color: rgba(255, 78, 106, 0.28);
@@ -313,7 +318,6 @@
       color: #fff0cc;
     }
 
-    /* ── 页面切换动画 ── */
     .page { display: none; animation: fadeIn 0.22s cubic-bezier(0.4, 0, 0.2, 1); }
     .page.active { display: block; }
     @keyframes fadeIn {
@@ -321,9 +325,8 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
-    /* ── 网格 ── */
-    .grid { display: grid; gap: 16px; }
-    .metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .grid { display: grid; gap: 24px; }
+    .metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; }
     .card {
       background: var(--card);
       border: 1px solid var(--line);
@@ -351,8 +354,8 @@
 
     .metric {
       position: relative;
-      padding: 18px;
-      min-height: 120px;
+      padding: 24px 22px;
+      min-height: 130px;
       overflow: hidden;
     }
     .metric::after {
@@ -363,36 +366,34 @@
       background: rgba(0, 229, 255, 0.06);
       clip-path: polygon(30% 0, 100% 0, 100% 70%, 70% 100%, 0 100%, 0 30%);
     }
-    .metric .label { position: relative; z-index: 1; color: var(--text-muted); font-size: 13px; margin-bottom: 16px; letter-spacing: 0.2px; }
+    .metric .label { position: relative; z-index: 1; color: var(--text-muted); font-size: 13px; margin-bottom: 18px; letter-spacing: 0.2px; }
     .metric .value {
-      position: relative; z-index: 1; font-size: 25px; font-weight: 950;
+      position: relative; z-index: 1; font-size: 26px; font-weight: 950;
       font-family: var(--font-mono);
       background: linear-gradient(135deg, #fff, var(--cyan));
       -webkit-background-clip: text; background-clip: text; color: transparent;
       filter: drop-shadow(0 0 4px rgba(0, 229, 255, 0.2));
     }
-    .metric .hint { position: relative; z-index: 1; margin-top: 8px; color: var(--text-dim); font-size: 12px; }
+    .metric .hint { position: relative; z-index: 1; margin-top: 10px; color: var(--text-dim); font-size: 12px; }
 
-    /* ── 双列布局 ── */
-    .layout-2 { grid-template-columns: 1.08fr 0.92fr; margin-top: 16px; }
-    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .section { padding: 20px; }
+    .layout-2 { grid-template-columns: 1.08fr 0.92fr; margin-top: 24px; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+    .section { padding: 28px; }
     .section-header {
       display: flex; justify-content: space-between; align-items: flex-start;
-      gap: 14px; margin-bottom: 16px;
+      gap: 14px; margin-bottom: 20px;
     }
-    .section-header h3 { margin: 0; font-size: 18px; }
-    .section-header p { margin: 5px 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+    .section-header h3 { margin: 0; font-size: 19px; }
+    .section-header p { margin: 6px 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
 
-    /* ── 快捷操作卡片 ── */
     .quick {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      gap: 16px;
     }
     .action-card {
       cursor: pointer;
-      padding: 18px;
+      padding: 22px;
       clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
       border: 1px solid rgba(0, 229, 255, 0.13);
       background: linear-gradient(180deg, rgba(0, 229, 255, 0.06), rgba(255, 255, 255, 0.02));
@@ -407,12 +408,11 @@
       box-shadow: 0 0 20px rgba(0, 229, 255, 0.3), 0 0 40px rgba(168, 85, 247, 0.15);
       transform: scale(0.96);
     }
-    .action-card b { display: block; margin-bottom: 8px; font-size: 15px; }
+    .action-card b { display: block; margin-bottom: 10px; font-size: 15px; }
     .action-card span { color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 
-    /* ── 表格 ── */
     table { width: 100%; border-collapse: separate; border-spacing: 0; }
-    th, td { padding: 14px 12px; border-bottom: 1px solid rgba(0, 229, 255, 0.08); text-align: left; font-size: 13px; white-space: nowrap; }
+    th, td { padding: 16px 14px; border-bottom: 1px solid rgba(0, 229, 255, 0.08); text-align: left; font-size: 13px; white-space: nowrap; }
     th {
       color: var(--cyan); font-size: 11px; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.8px;
@@ -468,9 +468,8 @@
       box-shadow: 0 0 8px rgba(0, 229, 255, 0.3);
     }
 
-    /* ── 流程卡片 ── */
     .flow-card {
-      padding: 20px;
+      padding: 28px;
       clip-path: polygon(0 10px, 10px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 6px 100%, 0 calc(100% - 6px));
       border: 1px solid var(--line);
       background: linear-gradient(180deg, rgba(10, 24, 42, 0.92), rgba(5, 14, 22, 0.90));
@@ -485,11 +484,10 @@
       background: var(--cyan);
       box-shadow: 0 0 10px var(--cyan);
     }
-    .flow-card h3 { margin: 0 0 8px; font-size: 20px; }
-    .flow-card p { margin: 0 0 18px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
+    .flow-card h3 { margin: 0 0 10px; font-size: 20px; }
+    .flow-card p { margin: 0 0 20px; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
 
-    /* ── 表单 ── */
-    .form { display: grid; gap: 12px; }
+    .form { display: grid; gap: 14px; }
     label { display: block; color: var(--text-muted); font-size: 12px; font-weight: 900; margin-bottom: 7px; letter-spacing: 0.3px; }
     input, select, textarea {
       width: 100%;
@@ -498,7 +496,7 @@
       color: var(--text);
       background: rgba(3, 10, 18, 0.7);
       clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
-      padding: 12px 13px;
+      padding: 12px 14px;
       font-size: 13px;
       font-family: inherit;
       transition: all 0.2s ease;
@@ -516,11 +514,10 @@
       background-position: right 12px center;
       padding-right: 36px;
     }
-    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
-    /* ── 通知 ── */
     .notice {
-      padding: 13px 14px;
+      padding: 14px 16px;
       clip-path: polygon(0 6px, 6px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 4px 100%, 0 calc(100% - 4px));
       background: rgba(0, 255, 136, 0.06);
       border: 1px solid rgba(0, 255, 136, 0.18);
@@ -538,10 +535,9 @@
       color: #ffd8df;
     }
 
-    /* ── 任务列表 ── */
-    .task-list { display: grid; gap: 12px; }
+    .task-list { display: grid; gap: 16px; }
     .task-item {
-      padding: 16px;
+      padding: 18px;
       clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
       border: 1px solid rgba(0, 229, 255, 0.12);
       background: rgba(255, 255, 255, 0.03);
@@ -555,40 +551,37 @@
       border-color: var(--line-bright);
       box-shadow: 0 0 14px rgba(0, 229, 255, 0.08);
     }
-    .task-item b { display: block; margin-bottom: 6px; }
+    .task-item b { display: block; margin-bottom: 6px; font-size: 14px; }
     .task-item p { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 
-    /* ── 时间线 ── */
-    .timeline { display: grid; gap: 14px; padding-left: 8px; }
-    .time-row { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: start; }
+    .timeline { display: grid; gap: 18px; padding-left: 8px; }
+    .time-row { display: grid; grid-template-columns: 28px 1fr; gap: 14px; align-items: start; }
     .node {
-      width: 18px; height: 18px; margin-top: 2px;
+      width: 20px; height: 20px; margin-top: 2px;
       clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
       background: var(--cyan);
       box-shadow: 0 0 14px rgba(0, 229, 255, 0.45);
     }
     .time-row div:last-child {
-      padding-bottom: 14px;
+      padding-bottom: 16px;
       border-bottom: 1px solid rgba(0, 229, 255, 0.08);
     }
-    .time-row b { font-size: 13px; }
-    .time-row p { margin: 5px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+    .time-row b { font-size: 14px; }
+    .time-row p { margin: 6px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
 
-    /* ── 设置网格 ── */
-    .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
     .setting {
-      padding: 18px;
+      padding: 22px;
       clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
       border: 1px solid rgba(0, 229, 255, 0.12);
       background: rgba(255, 255, 255, 0.025);
     }
-    .setting h4 { margin: 0 0 8px; }
+    .setting h4 { margin: 0 0 10px; }
     .setting p { margin: 0 0 14px; color: var(--text-muted); font-size: 12px; line-height: 1.55; }
 
-    /* ── AI Toggle ── */
     .toggle-wrap {
       display: flex; align-items: center; justify-content: space-between;
-      gap: 14px; padding: 14px;
+      gap: 14px; padding: 16px;
       clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid rgba(0, 229, 255, 0.12);
@@ -625,26 +618,44 @@
       background: #020810;
     }
     .ai-auth-panel {
-      margin-top: 12px; padding: 14px;
+      margin-top: 14px; padding: 16px;
       clip-path: polygon(0 8px, 8px 0, calc(100% - 5px) 0, 100% 5px, 100% calc(100% - 8px), calc(100% - 8px) 100%, 5px 100%, 0 calc(100% - 5px));
       border: 1px solid rgba(0, 255, 136, 0.14);
       background: rgba(0, 255, 136, 0.04);
     }
 
-    /* ── 响应式 ── */
-    @media (max-width: 1180px) {
-      body { overflow: auto; }
-      .app { grid-template-columns: 1fr; height: auto; }
-      .main { height: auto; }
+    .settlement-preview {
+      background: rgba(3, 10, 18, 0.7);
+      border: 1px solid rgba(0, 229, 255, 0.14);
+      clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px);
+      padding: 16px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.6;
+      max-height: 300px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin: 0;
+    }
+
+    .section-mt { margin-top: 24px; }
+
+    @media (max-width: 900px) {
+      .app { grid-template-columns: 1fr; }
+      .main { overflow: visible; }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .layout-2, .split, .settings-grid { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      body::before, body::after { display: none; }
     }
-    @media (max-width: 720px) {
-      .topbar { flex-direction: column; align-items: stretch; }
+    @media (max-width: 600px) {
+      .topbar-row { flex-direction: column; align-items: stretch; }
       .metrics, .quick, .form-row { grid-template-columns: 1fr; }
       th, td { white-space: normal; }
       .main { padding: 16px; }
-      .topbar { margin: -16px -16px 18px; padding: 16px; }
+      .topbar { margin: -16px -16px 24px; padding: 16px; }
     }
   </style>
 </head>
@@ -654,143 +665,188 @@
       <div class="brand">
         <div class="logo">K</div>
         <div>
-          <h1>Karma Console</h1>
-          <p>Responsibility Operating Desk</p>
+          <h1 data-i18n="brand.title">Karma Console</h1>
+          <p data-i18n="brand.tagline">赛博责任操作台</p>
         </div>
       </div>
 
       <div class="identity-box">
-        <div class="id-top"><span>当前身份</span><span class="status">正常</span></div>
-        <div class="id-main">Karma-ID-82F7X9</div>
-        <div class="id-sub">0xA8F2...91F0 · Main SBT</div>
+        <div class="id-top"><span data-i18n="id.current">当前身份</span><span class="status" data-i18n="id.status">正常</span></div>
+        <div class="id-main">worker-001</div>
+        <div class="id-sub">SBT · Main</div>
         <div class="id-meta">
-          <div class="mini"><b>Buyer-ID</b><span>付款子身份</span></div>
-          <div class="mini"><b>Seller-ID</b><span>收款子身份</span></div>
+          <div class="mini"><b>Buyer-ID</b><span data-i18n="id.buyer_sub">付款子身份</span></div>
+          <div class="mini"><b>Seller-ID</b><span data-i18n="id.seller_sub">收款子身份</span></div>
         </div>
       </div>
 
       <nav class="nav">
-        <button class="active" data-page="overview"><span class="icon">◎</span>总览</button>
-        <button data-page="center"><span class="icon">⇄</span>收付中心</button>
-        <button data-page="tasks"><span class="icon">▣</span>任务执行</button>
-        <button data-page="receipts"><span class="icon">R</span>回执证明</button>
-        <button data-page="bills"><span class="icon">≋</span>账单</button>
-        <button data-page="disputes"><span class="icon">⚖</span>争议</button>
-        <button data-page="identity"><span class="icon">ID</span>身份</button>
-        <button data-page="settings"><span class="icon">⚙</span>设置</button>
+        <button class="active" data-page="overview"><span class="icon">◎</span><span data-i18n="nav.overview">总览</span></button>
+        <button data-page="center"><span class="icon">⇄</span><span data-i18n="nav.center">收付中心</span></button>
+        <button data-page="tasks"><span class="icon">▣</span><span data-i18n="nav.tasks">任务执行</span></button>
+        <button data-page="receipts"><span class="icon">R</span><span data-i18n="nav.receipts">回执证明</span></button>
+        <button data-page="bills"><span class="icon">≋</span><span data-i18n="nav.bills">账单</span></button>
+        <button data-page="disputes"><span class="icon">⚖</span><span data-i18n="nav.disputes">争议</span></button>
+        <button data-page="identity"><span class="icon">ID</span><span data-i18n="nav.identity">身份</span></button>
+        <button data-page="settings"><span class="icon">⚙</span><span data-i18n="nav.settings">设置</span></button>
       </nav>
 
       <div class="side-warning">
-        <b>资金安全规则</b>
-        <p>管理员只能暂停，不能改账、不能提现。所有责任额度永远 1:1 锚定 USDC。</p>
+        <b data-i18n="side.rule_title">资金安全规则</b>
+        <p data-i18n="side.rule_body">管理员只能暂停，不能改账、不能提现。所有责任额度永远 1:1 锚定 USDC。</p>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
-        <div class="page-title">
-          <h2 id="pageHeading">总览</h2>
-          <p id="pageSubheading">资金、额度、任务、收款和争议一屏掌握。</p>
+        <div class="api-strip">
+          <label style="display:flex;align-items:center;gap:4px;border:none;background:transparent;white-space:nowrap">
+            <span data-i18n="api.lang">语言</span>
+            <select id="cyberLang" style="padding:4px 20px 4px 6px;font-size:11px">
+              <option value="zh-CN">中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="es">Español</option>
+              <option value="fr">Français</option>
+              <option value="de">Deutsch</option>
+              <option value="pt-BR">Português (BR)</option>
+            </select>
+          </label>
+          <input data-cfg="api_base" data-i18n-placeholder="api.base" type="text" placeholder="https://karma-network.ai" style="min-width:100px" />
+          <input data-cfg="api_key" data-i18n-placeholder="api.key" type="password" placeholder="API Key" autocomplete="off" style="min-width:80px" />
+          <input data-cfg="identity_id" data-i18n-placeholder="api.identity" type="text" placeholder="身份 ID" autocomplete="off" style="min-width:80px" />
+          <button type="button" class="btn" data-action="save-cfg" data-i18n="api.save">保存连接</button>
+          <button type="button" class="btn primary" data-action="refresh-api" data-i18n="api.refresh">从 API 刷新</button>
+          <span class="api-status" data-api-status>—</span>
+          <span data-wallet-status style="margin-left:8px;font-size:11px;color:var(--text-muted);font-family:var(--font-mono)"></span>
         </div>
-        <div class="top-actions">
-          <button class="btn">切换子身份</button>
-          <button class="btn">导出记录</button>
-          <button class="btn primary">增加锁仓额度</button>
+        <div class="topbar-row">
+          <div class="page-title">
+            <h2 id="pageHeading">总览</h2>
+            <p id="pageSubheading">资金、额度、任务、收款和争议一屏掌握。</p>
+          </div>
+          <div class="top-actions">
+            <button type="button" class="btn" data-i18n="top.sub">切换子身份</button>
+            <button type="button" class="btn" data-i18n="top.export">导出记录</button>
+            <button type="button" class="btn primary" data-i18n="top.lock">增加锁仓额度</button>
+            <button type="button" class="btn yellow" data-action="connect-wallet">🦊 Connect Wallet</button>
+          </div>
         </div>
       </header>
 
       <section id="overview" class="page active">
         <div class="grid metrics">
-          <div class="card metric"><div class="label">锁仓 USDC</div><div class="value">200.00</div><div class="hint">真实资金锚定</div></div>
-          <div class="card metric"><div class="label">可用额度</div><div class="value">120.00</div><div class="hint">可创建付款授权</div></div>
-          <div class="card metric"><div class="label">执行占用</div><div class="value">60.00</div><div class="hint">已接单任务冻结</div></div>
-          <div class="card metric"><div class="label">待收款</div><div class="value">80.00</div><div class="hint">已接单 / 待结算</div></div>
-          <div class="card metric"><div class="label">争议冻结</div><div class="value">20.00</div><div class="hint">等待仲裁推进</div></div>
+          <div class="card metric"><div class="label" data-i18n="m.locked">锁仓 USDC</div><div class="value" data-bind="total_locked_usdc">—</div><div class="hint" data-i18n="m.locked_hint">真实资金锚定</div></div>
+          <div class="card metric"><div class="label" data-i18n="m.available">可用额度</div><div class="value" data-bind="available_credits">—</div><div class="hint" data-i18n="m.available_hint">可创建付款授权</div></div>
+          <div class="card metric"><div class="label" data-i18n="m.exec">执行占用</div><div class="value" data-bind="in_progress_bucket">—</div><div class="hint" data-i18n="m.exec_hint">已接单任务冻结</div></div>
+          <div class="card metric"><div class="label" data-i18n="m.pending">待收款</div><div class="value" data-bind="pending_settlement_credits">—</div><div class="hint" data-i18n="m.pending_hint">已接单 / 待结算</div></div>
+          <div class="card metric"><div class="label" data-i18n="m.dispute">争议冻结</div><div class="value" data-bind="disputed_credits">—</div><div class="hint" data-i18n="m.dispute_hint">等待仲裁推进</div></div>
         </div>
 
         <div class="grid layout-2">
           <div class="card section">
             <div class="section-header">
               <div>
-                <h3>快捷操作</h3>
-                <p>不区分固定买家/卖家，同一个身份在不同任务里可以付款，也可以收款。</p>
+                <h3 data-i18n="quick.title">快捷操作</h3>
+                <p data-i18n="quick.desc">不区分固定买家/卖家，同一个身份在不同任务里可以付款，也可以收款。</p>
               </div>
             </div>
             <div class="quick">
-              <div class="action-card" onclick="switchPage('center')"><b>创建付款授权</b><span>给卖家一个一次性 Voucher，卖家验证后开工。</span></div>
-              <div class="action-card" onclick="switchPage('center')"><b>验证收款授权</b><span>输入买家 Voucher，确认额度已锁定。</span></div>
-              <div class="action-card" onclick="switchPage('receipts')"><b>提交执行回执</b><span>上传 evidence hash、runtime log hash 和进度。</span></div>
-              <div class="action-card" onclick="switchPage('disputes')"><b>处理争议</b><span>提交证据、接受方案或请求仲裁。</span></div>
+              <div class="action-card" data-go="center"><b data-i18n="quick.pay">创建付款授权</b><span data-i18n="quick.pay_desc">给卖家一个一次性 Voucher，卖家验证后开工。</span></div>
+              <div class="action-card" data-go="center"><b data-i18n="quick.receive">验证收款授权</b><span data-i18n="quick.receive_desc">输入买家 Voucher，确认额度已锁定。</span></div>
+              <div class="action-card" data-go="receipts"><b data-i18n="quick.receipt">提交执行回执</b><span data-i18n="quick.receipt_desc">上传 evidence hash、runtime log hash 和进度。</span></div>
+              <div class="action-card" data-go="disputes"><b data-i18n="quick.dispute">处理争议</b><span data-i18n="quick.dispute_desc">提交证据、接受方案或请求仲裁。</span></div>
             </div>
           </div>
 
           <div class="card section">
             <div class="section-header">
               <div>
-                <h3>责任状态流</h3>
-                <p>责任成立前灵活，责任成立后不可后台篡改。</p>
+                <h3 data-i18n="flow.title">责任状态流</h3>
+                <p data-i18n="flow.desc">责任成立前灵活，责任成立后不可后台篡改。</p>
               </div>
             </div>
             <div class="timeline">
-              <div class="time-row"><span class="node"></span><div><b>USDC 已锁仓</b><p>200 USDC 已锁入 Vault，生成 200 内部责任额度。</p></div></div>
-              <div class="time-row"><span class="node"></span><div><b>任务额度已冻结</b><p>60 USDC 正在执行，不能重复授权给其他任务。</p></div></div>
-              <div class="time-row"><span class="node"></span><div><b>回执等待确认</b><p>3 条 Execution Receipt 已提交，等待自动验证或买家确认。</p></div></div>
-              <div class="time-row"><span class="node"></span><div><b>结算后销毁</b><p>USDC 结算时，同额内部责任额度同步销毁。</p></div></div>
+              <div class="time-row"><span class="node"></span><div><b data-i18n="flow.locked">USDC 已锁仓</b><p data-i18n="flow.locked_desc">USDC 已锁入 Vault，生成内部责任额度。</p></div></div>
+              <div class="time-row"><span class="node"></span><div><b data-i18n="flow.frozen">任务额度已冻结</b><p data-i18n="flow.frozen_desc">执行中额度不能重复授权给其他任务。</p></div></div>
+              <div class="time-row"><span class="node"></span><div><b data-i18n="flow.receipt">回执等待确认</b><p data-i18n="flow.receipt_desc">Execution Receipt 已提交，等待验证或买家确认。</p></div></div>
+              <div class="time-row"><span class="node"></span><div><b data-i18n="flow.settle">结算后销毁</b><p data-i18n="flow.settle_desc">USDC 结算时，同额内部责任额度同步销毁。</p></div></div>
             </div>
           </div>
         </div>
 
-        <div class="card section" style="margin-top:16px;">
+        <div class="card section section-mt">
           <div class="section-header">
-            <div><h3>最近需要处理</h3><p>只显示用户下一步需要做什么。</p></div>
-            <button class="btn">查看全部</button>
+            <div>
+              <h3 data-i18n="sync.title">任务同步</h3>
+              <p data-i18n="sync.desc">输入任务 ID（逗号分隔），自动从 API 拉取 Settlement 数据。</p>
+            </div>
+          </div>
+          <div class="api-strip" style="margin-bottom:0">
+            <input data-cfg="task_ids" type="text" placeholder="task_id_1, task_id_2" autocomplete="off" style="flex:1;min-width:200px;padding:10px 12px;font-size:13px" />
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);white-space:nowrap">
+              <input type="checkbox" data-cfg="auto_sync" />
+              <span data-i18n="auto_sync">自动同步</span>
+            </label>
+            <button type="button" class="btn primary" data-action="karma-refresh-now" data-i18n="api.sync_now">同步</button>
+            <span style="font-size:11px;color:var(--text-dim)"><span data-i18n="last_sync">上次</span> <span data-bind="console_last_sync">—</span></span>
+          </div>
+        </div>
+
+        <div class="card section section-mt">
+          <div class="section-header">
+            <div><h3 data-i18n="preview.title">API 数据预览</h3><p><code>GET /v1/settlement/{task_id}</code> <span data-i18n="preview.desc">返回 JSON（需 API Key 与权限）</span></p></div>
+          </div>
+          <pre class="settlement-preview" data-settlement-preview>—</pre>
+        </div>
+
+        <div class="card section section-mt">
+          <div class="section-header">
+            <div><h3 data-i18n="tasks.title">最近需要处理</h3><p data-i18n="tasks.desc">只显示用户下一步需要做什么。</p></div>
+            <button type="button" class="btn" data-i18n="tasks.view_all">查看全部</button>
           </div>
           <table>
-            <thead><tr><th>任务</th><th>本方角色</th><th>对方</th><th>金额</th><th>进度</th><th>状态</th><th>下一步</th></tr></thead>
-            <tbody>
-              <tr><td>AI 视频生成</td><td>付款方</td><td>Karma-ID-B21</td><td>50 USDC</td><td><div class="progress"><span style="width:40%"></span></div></td><td><span class="badge cyan">执行中</span></td><td><button class="btn">查看进度</button></td></tr>
-              <tr><td>API 数据服务</td><td>收款方</td><td>Karma-ID-A82</td><td>40 USDC</td><td><div class="progress"><span style="width:100%"></span></div></td><td><span class="badge green">可结算</span></td><td><button class="btn primary">申请结算</button></td></tr>
-              <tr><td>Agent 研究任务</td><td>付款方</td><td>Karma-ID-F77</td><td>20 USDC</td><td><div class="progress"><span style="width:20%"></span></div></td><td><span class="badge red">争议中</span></td><td><button class="btn red">提交证据</button></td></tr>
-            </tbody>
+            <thead><tr><th data-i18n="th.task">任务</th><th data-i18n="th.role">角色</th><th data-i18n="th.counterparty">对方</th><th data-i18n="th.amount">金额</th><th data-i18n="th.progress">进度</th><th data-i18n="th.status">状态</th><th data-i18n="th.next">下一步</th><th data-i18n="th.receipts">回执数</th></tr></thead>
+            <tbody data-sync-table="tasks"></tbody>
           </table>
         </div>
       </section>
 
       <section id="center" class="page">
         <div class="grid metrics">
-          <div class="card metric"><div class="label">可付款额度</div><div class="value">120.00</div><div class="hint">可创建 Voucher</div></div>
-          <div class="card metric"><div class="label">已发出授权</div><div class="value">40.00</div><div class="hint">等待/执行中</div></div>
-          <div class="card metric"><div class="label">待收款</div><div class="value">80.00</div><div class="hint">可提交回执</div></div>
-          <div class="card metric"><div class="label">可结算</div><div class="value">40.00</div><div class="hint">可申请到账</div></div>
-          <div class="card metric"><div class="label">协议费预估</div><div class="value">0.12</div><div class="hint">结算时扣除</div></div>
+          <div class="card metric"><div class="label" data-i18n="center.payable">可付款额度</div><div class="value" data-bind="center_payable">—</div><div class="hint" data-i18n="center.payable_hint">可创建 Voucher</div></div>
+          <div class="card metric"><div class="label" data-i18n="center.issued">已发出授权</div><div class="value" data-bind="center_issued">—</div><div class="hint" data-i18n="center.issued_hint">等待/执行中</div></div>
+          <div class="card metric"><div class="label" data-i18n="center.receivable">待收款</div><div class="value" data-bind="center_receivable">—</div><div class="hint" data-i18n="center.receivable_hint">可提交回执</div></div>
+          <div class="card metric"><div class="label" data-i18n="center.settleable">可结算</div><div class="value" data-bind="center_settleable">—</div><div class="hint" data-i18n="center.settleable_hint">可申请到账</div></div>
+          <div class="card metric"><div class="label" data-i18n="center.fee">协议费预估</div><div class="value" data-bind="center_fee">—</div><div class="hint" data-i18n="center.fee_hint">结算时扣除</div></div>
         </div>
 
-        <div class="split" style="margin-top:16px;">
+        <div class="split">
           <div class="flow-card">
-            <h3>我要付款</h3>
-            <p>创建一次性授权，卖家验证后会锁定对应额度。</p>
+            <h3 data-i18n="pay.title">我要付款</h3>
+            <p data-i18n="pay.desc">创建一次性授权，卖家验证后会锁定对应额度。（完整 Voucher 需服务端签名 / EIP-712）</p>
             <div class="form">
-              <div><label>收款方 Karma ID</label><input value="Karma-ID-B21"></div>
+              <div><label data-i18n="pay.seller_id">收款方 Karma ID</label><input placeholder="Karma-ID-xxx"></div>
               <div class="form-row">
-                <div><label>金额</label><input value="50"></div>
-                <div><label>有效期</label><select><option>24 小时</option><option>48 小时</option><option>7 天</option></select></div>
+                <div><label data-i18n="pay.amount">金额 (USDC)</label><input type="number" placeholder="50"></div>
+                <div><label data-i18n="pay.validity">有效期</label><select><option data-i18n="pay.24h">24 小时</option><option data-i18n="pay.48h">48 小时</option><option data-i18n="pay.7d">7 天</option></select></div>
               </div>
-              <div><label>任务类型</label><select><option>AI 工作流 / Agent 任务</option><option>API 调用</option><option>MCP 工具调用</option><option>文件交付</option></select></div>
-              <div><label>任务说明</label><textarea>生成一条 30 秒 AI 产品介绍视频，包含脚本、配音和成片。</textarea></div>
-              <div class="notice">卖家接单后，这 50 USDC 对应额度会被锁定，不能再用于其他任务。</div>
-              <button class="btn primary">生成付款授权 Voucher</button>
+              <div><label data-i18n="pay.task_desc">任务说明</label><textarea placeholder="描述任务内容..."></textarea></div>
+              <div class="notice" data-i18n="pay.notice">卖家接单后，对应额度会被锁定，不能再用于其他任务。</div>
+              <button type="button" class="btn primary" data-action="create-voucher" data-i18n="pay.btn">生成付款授权 Voucher</button>
             </div>
           </div>
 
           <div class="flow-card">
-            <h3>我要收款</h3>
-            <p>输入买家提供的 Voucher，确认额度已锁定后再开工。</p>
+            <h3 data-i18n="recv.title">我要收款</h3>
+            <p data-i18n="recv.desc">输入买家提供的 Voucher，确认额度已锁定后再开工。</p>
             <div class="form">
-              <div><label>买家 Voucher</label><input value="KRM-8F2X-91QZ"></div>
-              <button class="btn primary">验证授权</button>
-              <div class="notice">验证结果：真实 · 金额 100 USDC · 买家 Karma-ID-A82 · 已锁定 · 可开工。</div>
-              <div><label>接单方式</label><select><option>接单后立即执行</option><option>接单后等待手动开始</option><option>由 Agent Runtime 自动开始</option></select></div>
-              <button class="btn">接单并开始任务</button>
+              <div><label data-i18n="recv.voucher">买家 Voucher</label><input data-voucher-input placeholder="KRM-XXXX-XXXX"></div>
+              <button type="button" class="btn primary" data-action="verify-voucher" data-i18n="recv.btn">验证授权</button>
+              <div class="notice" data-voucher-result style="display:none"></div>
+              <div><label data-i18n="recv.mode">接单方式</label><select><option data-i18n="recv.mode1">接单后立即执行</option><option data-i18n="recv.mode2">接单后等待手动开始</option><option data-i18n="recv.mode3">由 Agent Runtime 自动开始</option></select></div>
+              <button type="button" class="btn" data-action="accept-voucher" data-i18n="recv.accept">接单并开始任务</button>
             </div>
           </div>
         </div>
@@ -798,32 +854,37 @@
 
       <section id="tasks" class="page">
         <div class="card section">
-          <div class="section-header"><div><h3>任务执行</h3><p>查看执行进度、反悔责任、交付状态和下一步动作。</p></div><button class="btn primary">新建付款授权</button></div>
-          <div class="task-list">
-            <div class="task-item"><div><b>AI 视频生成 · #1021</b><p>付款方 · 对方 Karma-ID-B21 · 金额 50 USDC · 已确认进度 40% · 当前反悔责任 20 USDC</p></div><span class="badge cyan">执行中</span></div>
-            <div class="task-item"><div><b>API 数据服务 · #2103</b><p>收款方 · 对方 Karma-ID-A82 · 金额 40 USDC · 回执已验证 · 可申请结算</p></div><span class="badge green">可结算</span></div>
-            <div class="task-item"><div><b>MCP 工具调用 · #2188</b><p>收款方 · 自动回执 7 条 · 等待买家确认或超时确认</p></div><span class="badge yellow">等待确认</span></div>
+          <div class="section-header"><div><h3 data-i18n="task.page_title">任务执行</h3><p data-i18n="task.page_desc">查看执行进度、反悔责任、交付状态和下一步动作。</p></div><button type="button" class="btn primary" data-go="center" data-i18n="task.new_auth">新建付款授权</button></div>
+          <div class="api-strip" style="margin-bottom:16px">
+            <span style="font-size:12px;color:var(--text-muted);white-space:nowrap" data-i18n="api.lookup">查询结算任务</span>
+            <input data-cfg="task_id" type="text" placeholder="task_id" autocomplete="off" style="flex:1;min-width:120px" />
+            <button type="button" class="btn" data-action="fetch-settlement" data-i18n="api.fetch_settlement">拉取 Settlement</button>
+          </div>
+          <div class="task-list" data-task-list>
+            <div class="task-item"><div><b data-i18n="task.loading">等待加载...</b><p data-i18n="task.loading_desc">输入 Task ID 并点击「拉取 Settlement」</p></div><span class="badge yellow">Idle</span></div>
           </div>
         </div>
 
-        <div class="split" style="margin-top:16px;">
+        <div class="split">
           <div class="flow-card">
-            <h3>提交进度</h3>
+            <h3 data-i18n="task.settle_ops">结算操作</h3>
             <div class="form">
-              <div><label>任务 ID</label><input value="#2103"></div>
-              <div class="form-row">
-                <div><label>完成进度</label><select><option>10%</option><option>30%</option><option selected>50%</option><option>100%</option></select></div>
-                <div><label>验证类型</label><select><option>Agent Runtime</option><option>API 回执</option><option>MCP Trace</option><option>文件哈希</option></select></div>
+              <div><label>Task ID</label><input data-action-task-select placeholder="task_id"></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button type="button" class="btn" data-action="settlement-start">Start</button>
+                <button type="button" class="btn" data-action="settlement-pending">Pending</button>
+                <button type="button" class="btn primary" data-action="settlement-submit">Submit</button>
+                <button type="button" class="btn" data-action="settlement-buyer-accept">Buyer Accept</button>
+                <button type="button" class="btn red" data-action="settlement-fail">Fail</button>
+                <button type="button" class="btn red" data-action="settlement-dispute">Dispute</button>
               </div>
-              <div><label>进度说明</label><textarea>核心 API 已完成调用，返回结果已写入 evidence bundle。</textarea></div>
-              <button class="btn primary">提交进度回执</button>
+              <div class="notice" data-settlement-action-result style="display:none"></div>
             </div>
           </div>
           <div class="flow-card">
-            <h3>反悔责任预览</h3>
-            <p>买家中途取消时，只按已确认进度结算。</p>
-            <div class="notice warn">任务金额：50 USDC<br>已确认进度：40%<br>当前反悔责任：20 USDC<br>取消可释放：30 USDC</div>
-            <button class="btn red">中途取消并承担责任</button>
+            <h3 data-i18n="task.history">状态转换历史</h3>
+            <p data-i18n="task.history_desc">最近 50 条 Settlement 状态变更记录。</p>
+            <pre class="settlement-preview" data-settlement-transitions>—</pre>
           </div>
         </div>
       </section>
@@ -831,40 +892,39 @@
       <section id="receipts" class="page">
         <div class="split">
           <div class="flow-card">
-            <h3>提交 Execution Receipt</h3>
-            <p>回执必须绑定任务、身份、证据哈希、日志哈希和签名。</p>
+            <h3 data-i18n="receipt.submit_title">提交 Execution Receipt</h3>
+            <p data-i18n="receipt.submit_desc">回执必须绑定任务、身份、证据哈希、日志哈希和签名。</p>
             <div class="form">
-              <div><label>Task ID</label><input value="task_1021"></div>
-              <div><label>Evidence Hash</label><input value="0x9a82...e11f"></div>
-              <div><label>Runtime Log Hash</label><input value="0x7f21...909c"></div>
-              <div><label>Output Digest</label><input value="0x4c9b...27aa"></div>
-              <button class="btn primary">提交回执</button>
+              <div><label data-i18n="receipt.task_id">Task ID</label><input data-receipt-task-id placeholder="task_id"></div>
+              <div><label data-i18n="receipt.evidence">Evidence Hash</label><input data-receipt-evidence placeholder="0x..."></div>
+              <div><label data-i18n="receipt.log">Runtime Log Hash</label><input data-receipt-log placeholder="0x..."></div>
+              <div><label data-i18n="receipt.output">Output Digest</label><input data-receipt-output placeholder="0x..."></div>
+              <button type="button" class="btn primary" data-action="submit-receipt" data-i18n="receipt.btn">提交回执</button>
+              <div class="notice" data-receipt-result style="display:none"></div>
             </div>
           </div>
 
           <div class="flow-card">
-            <h3>回执验证规则</h3>
-            <div class="notice">
-              系统拒绝：无签名、无哈希、重复 receipt、时间戳异常、进度倒退、超过 100%、任务类型不匹配的回执。
+            <h3 data-i18n="receipt.list_title">回执列表</h3>
+            <p data-i18n="receipt.list_desc">输入 Task ID 后加载该任务的所有回执。</p>
+            <div class="form">
+              <div style="display:flex;gap:8px">
+                <input data-receipt-list-task placeholder="task_id" style="flex:1" />
+                <button type="button" class="btn" data-action="load-receipts" data-i18n="receipt.load">加载</button>
+              </div>
             </div>
-            <div class="task-list" style="margin-top:14px;">
-              <div class="task-item"><div><b>#R-10082</b><p>API response hash · status 200 · provider signature valid</p></div><span class="badge green">Valid</span></div>
-              <div class="task-item"><div><b>#R-10083</b><p>MCP tool trace · waiting verifier</p></div><span class="badge yellow">Pending</span></div>
-              <div class="task-item"><div><b>#R-10084</b><p>Repeated receipt id</p></div><span class="badge red">Rejected</span></div>
-            </div>
+            <div class="task-list" data-receipt-list style="margin-top:18px;"></div>
           </div>
         </div>
       </section>
 
       <section id="bills" class="page">
         <div class="card section">
-          <div class="section-header"><div><h3>账单</h3><p>账单额度是内部责任状态，只对身份主人展示。</p></div><button class="btn">导出 CSV</button></div>
+          <div class="section-header"><div><h3 data-i18n="page.bills.title">账单</h3><p data-i18n="page.bills.sub">账单额度是内部责任状态，只对身份主人展示。</p></div><button type="button" class="btn" data-i18n="bills.export">导出 CSV</button></div>
           <table>
-            <thead><tr><th>时间</th><th>方向</th><th>任务</th><th>对方</th><th>金额</th><th>结算结果</th><th>状态</th></tr></thead>
-            <tbody>
-              <tr><td>2026-05-13</td><td>付款</td><td>AI 视频生成</td><td>Karma-ID-B21</td><td>50</td><td>未结算</td><td><span class="badge cyan">执行中</span></td></tr>
-              <tr><td>2026-05-13</td><td>收款</td><td>API 数据服务</td><td>Karma-ID-A82</td><td>40</td><td>39.88 到账 / 0.12 协议费</td><td><span class="badge green">已结算</span></td></tr>
-              <tr><td>2026-05-12</td><td>付款</td><td>Agent 研究</td><td>Karma-ID-F77</td><td>20</td><td>冻结中</td><td><span class="badge red">争议中</span></td></tr>
+            <thead><tr><th data-i18n="bills.th.time">时间</th><th data-i18n="bills.th.dir">方向</th><th data-i18n="bills.th.task">任务</th><th data-i18n="bills.th.counter">对方</th><th data-i18n="bills.th.amount">金额</th><th data-i18n="bills.th.result">结算结果</th><th data-i18n="bills.th.status">状态</th></tr></thead>
+            <tbody data-sync-table="bills">
+              <tr><td colspan="7" style="color:var(--text-muted)" data-i18n="bills.empty">配置任务 ID 后自动填充账单数据。</td></tr>
             </tbody>
           </table>
         </div>
@@ -872,20 +932,15 @@
 
       <section id="disputes" class="page">
         <div class="grid metrics">
-          <div class="card metric"><div class="label">争议冻结</div><div class="value">20.00</div><div class="hint">资金已锁定</div></div>
-          <div class="card metric"><div class="label">待我处理</div><div class="value">1</div><div class="hint">需要提交证据</div></div>
-          <div class="card metric"><div class="label">等待对方</div><div class="value">2</div><div class="hint">等待回应</div></div>
-          <div class="card metric"><div class="label">仲裁中</div><div class="value">1</div><div class="hint">等待裁决</div></div>
-          <div class="card metric"><div class="label">已完成</div><div class="value">5</div><div class="hint">历史争议</div></div>
+          <div class="card metric"><div class="label" data-i18n="disp.frozen">争议冻结</div><div class="value" data-bind="disputed_credits">—</div><div class="hint" data-i18n="disp.frozen_hint">资金已锁定</div></div>
+          <div class="card metric"><div class="label" data-i18n="disp.mine">待我处理</div><div class="value" data-bind="disputes_mine">—</div><div class="hint" data-i18n="disp.mine_hint">需要提交证据</div></div>
+          <div class="card metric"><div class="label" data-i18n="disp.arb">仲裁中</div><div class="value" data-bind="disputes_arb">—</div><div class="hint" data-i18n="disp.arb_hint">等待裁决</div></div>
         </div>
-        <div class="card section" style="margin-top:16px;">
-          <div class="section-header"><div><h3>争议处理</h3><p>争议期间资金不会被任何一方拿走，裁决后自动执行。</p></div></div>
+        <div class="card section section-mt">
+          <div class="section-header"><div><h3 data-i18n="disp.handle_title">争议处理</h3><p data-i18n="disp.handle_desc">争议期间资金不会被任何一方拿走，裁决后自动执行。</p></div></div>
           <table>
-            <thead><tr><th>任务</th><th>对方</th><th>金额</th><th>原因</th><th>状态</th><th>操作</th></tr></thead>
-            <tbody>
-              <tr><td>#1024 Agent 研究</td><td>Karma-ID-F77</td><td>20</td><td>输出不符合要求</td><td><span class="badge red">待我提交证据</span></td><td><button class="btn red">提交证据</button></td></tr>
-              <tr><td>#2190 MCP 调用</td><td>Karma-ID-L19</td><td>12</td><td>工具返回失败</td><td><span class="badge yellow">自动规则裁决</span></td><td><button class="btn">查看</button></td></tr>
-            </tbody>
+            <thead><tr><th data-i18n="disp.th.task">任务</th><th data-i18n="disp.th.counter">对方</th><th data-i18n="disp.th.amount">金额</th><th data-i18n="disp.th.reason">原因</th><th data-i18n="disp.th.status">状态</th><th data-i18n="disp.th.action">操作</th></tr></thead>
+            <tbody data-sync-table="disputes"></tbody>
           </table>
         </div>
       </section>
@@ -893,38 +948,37 @@
       <section id="identity" class="page">
         <div class="split">
           <div class="flow-card">
-            <h3>主身份</h3>
-            <p>Karma Identity SBT 是责任身份，不可交易、不可转让。</p>
-            <div class="notice">主身份：Karma-ID-82F7X9<br>绑定钱包：0xA8F2...91F0<br>法律身份：未绑定<br>状态：正常</div>
-            <div class="form" style="margin-top:14px;">
-              <button class="btn">更换展示编号</button>
-              <button class="btn">绑定法律身份</button>
+            <h3 data-i18n="id.main_title">主身份</h3>
+            <p data-i18n="id.main_desc">Karma Identity SBT 是责任身份，不可交易、不可转让。</p>
+            <div class="notice"><span data-i18n="id.main_title">主身份</span>：<b data-bind="id_main_display">—</b><br><span data-i18n="id.api_status">API 状态</span>：<span data-bind="health_status">—</span><br><span data-i18n="id.api_version">API 版本</span>：<span data-bind="api_version">—</span></div>
+            <div class="form" style="margin-top:16px;">
+              <button type="button" class="btn" data-i18n="id.change_num">更换展示编号</button>
+              <button type="button" class="btn" data-i18n="id.bind_legal">绑定法律身份</button>
             </div>
           </div>
           <div class="flow-card">
-            <h3>子身份</h3>
-            <p>最多 2 个。子身份隐藏业务场景，最终责任仍属于主身份。</p>
-            <div class="task-list">
-              <div class="task-item"><div><b>Buyer Sub-ID</b><p>Karma-ID-82F7X9-B · 用于付款任务</p></div><span class="badge cyan">启用</span></div>
-              <div class="task-item"><div><b>Seller Sub-ID</b><p>Karma-ID-82F7X9-S · 用于收款任务</p></div><span class="badge green">启用</span></div>
+            <h3 data-i18n="id.safety_title">安全模式</h3>
+            <p data-i18n="id.safety_desc">Runtime Safety Mode 控制全局资金操作权限。</p>
+            <div class="notice">Safety Mode：<b data-bind="safety_enabled">—</b><br><span data-bind="safety_detail">—</span></div>
+            <div class="task-list" style="margin-top:16px;">
+              <div class="task-item"><div><b data-i18n="id.buyer_sub">Buyer Sub-ID</b><p data-i18n="id.buyer_sub_desc">用于付款任务</p></div><span class="badge cyan" data-i18n="id.enabled">启用</span></div>
+              <div class="task-item"><div><b data-i18n="id.seller_sub">Seller Sub-ID</b><p data-i18n="id.seller_sub_desc">用于收款任务</p></div><span class="badge green" data-i18n="id.enabled">启用</span></div>
             </div>
-            <button class="btn" style="margin-top:14px;">管理子身份</button>
           </div>
         </div>
       </section>
 
       <section id="settings" class="page">
         <div class="card section">
-          <div class="section-header"><div><h3>设置</h3><p>资金安全、回执规则、结算偏好、隐私和 Webhook。</p></div></div>
+          <div class="section-header"><div><h3 data-i18n="page.settings.title">设置</h3><p data-i18n="page.settings.sub">配置资金安全、回执规则、结算偏好、隐私和 Webhook。</p></div></div>
           <div class="settings-grid">
-            <div class="setting"><h4>资金安全</h4><p>设置单笔任务上限、每日授权上限、释放额度确认方式。</p><div class="form-row"><input value="单笔上限：100 USDC"><input value="每日上限：500 USDC"></div></div>
-            <div class="setting"><h4>回执规则</h4><p>决定 API / MCP / Agent 任务如何自动验证。</p><select><option>优先自动验证，失败后人工确认</option></select></div>
-            <div class="setting"><h4>结算偏好</h4><p>任务完成后自动结算或手动确认结算。</p><select><option>买家确认后自动结算</option><option>任务完成后手动结算</option></select></div>
-            <div class="setting"><h4>隐私设置</h4><p>展示编号轮换、子身份使用和证据披露权限。</p><select><option>默认半隐私，仅争议时披露必要证据</option></select></div>
-            <div class="setting"><h4>通知</h4><p>任务接单、回执提交、争议、结算到账时提醒。</p><select><option>应用内 + 邮件 + Webhook</option></select></div>
-            <div class="setting"><h4>开发者 Webhook</h4><p>Agent 平台自动接收任务状态、回执验证和结算结果。</p><input value="https://api.example.com/karma/webhook"></div>
-            <div class="setting"><h4>AI Agent 自动授权中心</h4><p>用户设置好规则后，可用一个开关控制是否允许 AI 代理自动请求授权、提交回执并实时同步任务状态。</p><div class="toggle-wrap"><div class="toggle-copy"><b>开启授权 AI 代理</b><span>开启后，AI 只能在你设置的额度、任务类型和风控规则内自动操作。</span></div><label class="switch"><input type="checkbox" id="aiAgentToggle"><span class="slider"></span></label></div><div class="ai-auth-panel"><div class="notice">当前状态：<b id="aiAgentStatus">关闭</b><br>AI 代理不能读取私钥，不能提高额度，不能修改已成立责任账单，不能绕过状态机结算。</div><div class="form" style="margin-top:14px;"><label>单次 AI 最大自动授权额度</label><input value="20 USDC"><label>每日 AI 自动授权总额度</label><input value="100 USDC"><label>AI 自动操作范围</label><select><option selected>自动请求授权 + 自动提交回执 + 实时同步状态</option><option>只允许自动提交回执</option><option>只允许实时同步状态</option><option>全部关闭</option></select><label>Execution Receipt 模式</label><select><option selected>Agent Runtime 自动提交</option><option>MCP Trace 自动提交</option><option>API 回执自动提交</option><option>手动提交</option></select><label>高风险任务确认模式</label><select><option selected>超过额度 / 未知 Agent / 外部合约请求时必须人工确认</option><option>所有 AI 授权都必须人工确认</option><option>完全自动，但受额度限制</option></select><label>实时状态同步</label><select><option selected>开启：同步任务、回执、进度、结算和争议状态</option><option>关闭</option></select><div class="notice warn">安全边界：AI 代理只能请求授权和提交回执；任何超出规则的金额、未知 Agent、未知合约、跨链请求，都必须人工二次确认。</div><button class="btn primary">保存 AI Agent 授权规则</button></div></div></div>
-
+            <div class="setting"><h4 data-i18n="set.safety">资金安全</h4><p data-i18n="set.safety_desc">设置单笔任务上限、每日授权上限、释放额度确认方式。</p><div class="form-row"><input value="单笔上限：100 USDC"><input value="每日上限：500 USDC"></div></div>
+            <div class="setting"><h4 data-i18n="set.receipt_rules">回执规则</h4><p data-i18n="set.receipt_rules_desc">决定 API / MCP / Agent 任务如何自动验证。</p><select><option>优先自动验证，失败后人工确认</option></select></div>
+            <div class="setting"><h4 data-i18n="set.settle_pref">结算偏好</h4><p data-i18n="set.settle_pref_desc">任务完成后自动结算或手动确认结算。</p><select><option>买家确认后自动结算</option><option>任务完成后手动结算</option></select></div>
+            <div class="setting"><h4 data-i18n="set.privacy">隐私设置</h4><p data-i18n="set.privacy_desc">展示编号轮换、子身份使用和证据披露权限。</p><select><option>默认半隐私，仅争议时披露必要证据</option></select></div>
+            <div class="setting"><h4 data-i18n="set.notify">通知</h4><p data-i18n="set.notify_desc">任务接单、回执提交、争议、结算到账时提醒。</p><select><option>应用内 + 邮件 + Webhook</option></select></div>
+            <div class="setting"><h4 data-i18n="set.webhook">开发者 Webhook</h4><p data-i18n="set.webhook_desc">Agent 平台自动接收任务状态、回执验证和结算结果。</p><input value="https://api.example.com/karma/webhook"></div>
+            <div class="setting"><h4 data-i18n="set.ai_title">AI Agent 自动授权中心</h4><p data-i18n="set.ai_desc">用户设置好规则后，可用一个开关控制是否允许 AI 代理自动请求授权、提交回执并实时同步任务状态。</p><div class="toggle-wrap"><div class="toggle-copy"><b data-i18n="set.ai_toggle">开启授权 AI 代理</b><span data-i18n="set.ai_toggle_desc">开启后，AI 只能在你设置的额度、任务类型和风控规则内自动操作。</span></div><label class="switch"><input type="checkbox" id="aiAgentToggle"><span class="slider"></span></label></div><div class="ai-auth-panel"><div class="notice"><span data-i18n="set.ai_status">当前状态</span>：<b id="aiAgentStatus" data-i18n="set.ai_off">关闭</b><br>AI 代理不能读取私钥，不能提高额度，不能修改已成立责任账单，不能绕过状态机结算。</div><div class="form" style="margin-top:14px;"><label data-i18n="set.ai_max_single">单次 AI 最大自动授权额度</label><input value="20 USDC"><label data-i18n="set.ai_max_daily">每日 AI 自动授权总额度</label><input value="100 USDC"><label data-i18n="set.ai_scope">AI 自动操作范围</label><select><option selected data-i18n="set.ai_scope1">自动请求授权 + 自动提交回执 + 实时同步状态</option><option data-i18n="set.ai_scope2">只允许自动提交回执</option><option data-i18n="set.ai_scope3">只允许实时同步状态</option><option data-i18n="set.ai_scope4">全部关闭</option></select><label data-i18n="set.ai_receipt_mode">Execution Receipt 模式</label><select><option selected data-i18n="set.ai_receipt1">Agent Runtime 自动提交</option><option data-i18n="set.ai_receipt2">MCP Trace 自动提交</option><option data-i18n="set.ai_receipt3">API 回执自动提交</option><option data-i18n="set.ai_receipt4">手动提交</option></select><label data-i18n="set.ai_risk">高风险任务确认模式</label><select><option selected data-i18n="set.ai_risk1">超过额度 / 未知 Agent / 外部合约请求时必须人工确认</option><option data-i18n="set.ai_risk2">所有 AI 授权都必须人工确认</option><option data-i18n="set.ai_risk3">完全自动，但受额度限制</option></select><label data-i18n="set.ai_sync">实时状态同步</label><select><option selected data-i18n="set.ai_sync1">开启：同步任务、回执、进度、结算和争议状态</option><option data-i18n="set.ai_sync2">关闭</option></select><div class="notice warn" data-i18n="set.ai_warn">安全边界：AI 代理只能请求授权和提交回执；任何超出规则的金额、未知 Agent、未知合约、跨链请求，都必须人工二次确认。</div><button type="button" class="btn primary" data-action="save-ai-rules" data-i18n="set.ai_save">保存 AI Agent 授权规则</button></div></div></div>
           </div>
         </div>
       </section>
@@ -932,38 +986,38 @@
   </div>
 
   <script>
-    const titles = {
-      overview: ["总览","资金、额度、任务、收款和争议一屏掌握。"],
-      center: ["收付中心","同一个身份既可以付款，也可以收款。"],
-      tasks: ["任务执行","查看任务进度、执行回执、反悔责任和结算状态。"],
-      receipts: ["回执证明","提交和验证 Execution Receipt、Evidence Hash 与 Runtime Log。"],
-      bills: ["账单","查看付款、收款、冻结、退款和结算记录。"],
-      disputes: ["争议","提交证据、查看冻结资金、请求仲裁或接受方案。"],
-      identity: ["身份","管理 Karma Identity SBT、展示编号和子身份。"],
-      settings: ["设置","配置资金安全、回执规则、结算偏好、隐私和 Webhook。"]
-    };
-
-    function switchPage(page){
-      document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
-      document.getElementById(page).classList.add("active");
-      document.querySelectorAll(".nav button").forEach(b=>b.classList.remove("active"));
-      document.querySelector(`.nav button[data-page="${page}"]`).classList.add("active");
-      document.getElementById("pageHeading").textContent=titles[page][0];
-      document.getElementById("pageSubheading").textContent=titles[page][1];
-      window.scrollTo({top:0,behavior:"smooth"});
-    }
-    document.querySelectorAll(".nav button").forEach(btn=>{
-      btn.addEventListener("click",()=>switchPage(btn.dataset.page));
-    });
-
-    const aiToggle = document.getElementById("aiAgentToggle");
-    const aiStatus = document.getElementById("aiAgentStatus");
-    if (aiToggle && aiStatus) {
-      aiToggle.addEventListener("change", () => {
-        aiStatus.textContent = aiToggle.checked ? "开启" : "关闭";
-      });
-    }
-
+    window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+    window.KARMA_API_KEY = window.KARMA_API_KEY || "";
+    window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
+  </script>
+  <script src="../../scripts/ethers-5.7.2.min.js"></script>
+  <script src="../../scripts/karma-web3.js"></script>
+  <script src="../../scripts/i18n-cyber.js?v=4"></script>
+  <script src="../../scripts/karma-public-api.js?v=4"></script>
+  <script src="../../scripts/cyber-console.js?v=4"></script>
+  <script src="../../scripts/console-sync.js?v=4"></script>
+  <script>
+    (function() {
+      var walletBtn = document.querySelector('[data-action="connect-wallet"]');
+      var statusEl = document.querySelector('[data-wallet-status]');
+      if (!walletBtn) return;
+      if (window.karmaWeb3) {
+        window.karmaWeb3.setConnectCallback(function(account, err) {
+          if (account) {
+            var short = account.slice(0, 6) + '...' + account.slice(-4);
+            walletBtn.textContent = '\uD83D\uDD12 ' + short;
+            walletBtn.classList.remove('yellow');
+            walletBtn.classList.add('primary');
+            if (statusEl) statusEl.textContent = 'Wallet: ' + account;
+          } else if (err) {
+            if (statusEl) statusEl.textContent = 'Wallet: ' + err;
+          }
+        });
+        walletBtn.addEventListener('click', function() {
+          window.karmaWeb3.connect();
+        });
+      }
+    })();
   </script>
 </body>
 </html>
