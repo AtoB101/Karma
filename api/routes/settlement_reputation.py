@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.middleware.auth import get_current_agent_id
 from db.session import get_db
 from services.settlement_reputation import (
     SettlementReputationError,
@@ -64,7 +65,10 @@ class GateCheckRequest(BaseModel):
 
 
 @router.post("/attestations/seal")
-async def seal_attestation(body: SealRequest) -> dict[str, Any]:
+async def seal_attestation(
+    body: SealRequest,
+    _actor: str = Depends(get_current_agent_id),
+) -> dict[str, Any]:
     try:
         return seal_settlement_attestation(
             task_id=body.task_id,
@@ -114,9 +118,11 @@ async def verify_commitment(body: VerifyCommitmentRequest) -> dict[str, Any]:
 
 @router.post("/attestations/{attestation_id}/decrypt")
 async def decrypt_attestation_route(
-    attestation_id: str, body: DecryptRequest
+    attestation_id: str,
+    body: DecryptRequest,
+    _actor: str = Depends(get_current_agent_id),
 ) -> dict[str, Any]:
-    """Decrypt audit pack — production must gate by authz (parties/regulator)."""
+    """Decrypt audit pack — always requires authenticated actor (parties/regulator)."""
     try:
         return decrypt_attestation(attestation_id, role=body.role)
     except SettlementReputationError as exc:
@@ -145,5 +151,7 @@ async def check_settle_gates(body: GateCheckRequest) -> dict[str, Any]:
 
 
 @router.get("/agents/{agent_id}/public-reputation")
-async def get_public_reputation(agent_id: str) -> dict[str, Any]:
-    return public_agent_reputation(agent_id)
+async def get_public_reputation(
+    agent_id: str, include_agent_id: bool = False
+) -> dict[str, Any]:
+    return public_agent_reputation(agent_id, include_agent_id=include_agent_id)

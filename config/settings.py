@@ -300,9 +300,19 @@ class Settings(BaseSettings):
 
     def cors_allow_origins_list(self) -> list[str]:
         raw = (self.cors_allow_origins or "").strip()
+        env = (self.app_env or "").lower()
         if raw:
-            return [o.strip() for o in raw.split(",") if o.strip()]
-        if (self.app_env or "").lower() in ("development", "dev", "local", "test"):
+            origins = [o.strip() for o in raw.split(",") if o.strip()]
+            # Reject wildcard CORS outside local/dev/test — adversarial open-origin.
+            if any(o == "*" for o in origins) and env not in (
+                "development",
+                "dev",
+                "local",
+                "test",
+            ):
+                return []
+            return origins
+        if env in ("development", "dev", "local", "test"):
             return ["*"]
         return []
 

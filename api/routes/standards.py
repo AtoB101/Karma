@@ -3,8 +3,10 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from api.middleware.auth import get_current_agent_id
 
 from services.accept_fulfillment import (
     AcceptFulfillmentError,
@@ -595,8 +597,9 @@ async def get_important_fields_capture(capture_id: str) -> dict[str, Any]:
 async def get_capture_session_key(
     capture_id: str,
     role: Literal["buyer", "seller", "protocol"] = "buyer",
+    _actor: str = Depends(get_current_agent_id),
 ) -> dict[str, Any]:
-    """Issue role-bound AES session key (serve only over TLS+auth)."""
+    """Issue role-bound AES session key — always requires authenticated actor."""
     try:
         return issue_session_key(capture_id, role=role)
     except CaptureError as exc:
@@ -604,8 +607,11 @@ async def get_capture_session_key(
 
 
 @router.post("/important-fields/encrypt")
-async def encrypt_important_fields(body: EncryptRequest) -> dict[str, Any]:
-    """Encrypt fields under role-specific capture session key (trusted-agent helper)."""
+async def encrypt_important_fields(
+    body: EncryptRequest,
+    _actor: str = Depends(get_current_agent_id),
+) -> dict[str, Any]:
+    """Encrypt fields under role-specific capture session key (authenticated helper)."""
     try:
         return encrypt_for_capture(body.capture_id, body.fields, role=body.role)
     except CaptureError as exc:
