@@ -360,6 +360,58 @@ async def fulfill_intent(
         )
     resolved_scene = inferred_scene
 
+    # P2 seller boundary gate — security before efficiency
+    from services.agent_boundary import get_agent_boundary
+    from services.agent_boundary_verify import (
+        BoundaryVerifyError,
+        assert_seller_boundary_for_fulfill,
+    )
+
+    seller_row = await db.get(AgentModel, seller_id)
+    seller_boundary = get_agent_boundary(seller_id)
+    try:
+        seller_verify = assert_seller_boundary_for_fulfill(
+            boundary=seller_boundary,
+            scene_id=resolved_scene,
+            identity_class=getattr(seller_row, "identity_class", None) if seller_row else None,
+            p1_ready=bool(getattr(seller_row, "p1_ready", False)) if seller_row else False,
+            stored_boundary_hash=getattr(seller_row, "boundary_hash", None) if seller_row else None,
+        )
+        timeline.append({
+            "stage": "seller_boundary_verify",
+            "ok": True,
+            "scene_id": resolved_scene,
+            "p1_ready": bool(getattr(seller_row, "p1_ready", False)) if seller_row else False,
+            "gaps": seller_verify.get("gaps") or [],
+        })
+    except BoundaryVerifyError as exc:
+        timeline.append({
+            "stage": "seller_boundary_verify",
+            "ok": False,
+            "scene_id": resolved_scene,
+            "gaps": exc.gaps,
+            "error": str(exc),
+        })
+        raise HTTPException(
+            403,
+            {
+                "error": "seller_boundary_verify_failed",
+                "detail": str(exc),
+                "gaps": exc.gaps,
+                "scene_id": resolved_scene,
+                "seller_identity_id": seller_id,
+                "security_note_zh": (
+                    "卖方边界未通过 P2 核验：未声明场景、确认策略被放宽、或 P1 未就绪。"
+                    "安全优先，拒绝履约。"
+                ),
+                "next_steps": [
+                    f"GET /v1/agents/{seller_id}/boundary/verify?scene_id={resolved_scene}",
+                    f"GET /v1/agents/{seller_id}/p1-status",
+                    "商家需 connect-from-template + responsibility_ack 后重试",
+                ],
+            },
+        ) from exc
+
     if not require_owner_confirmation and not allow_demo_confirmation_bypass():
         raise HTTPException(
             403,

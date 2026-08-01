@@ -38,19 +38,28 @@ Agent **不必逐步点流程**；只在必须确认点问一句 Yes/No。确认
 
 ## 场景目录
 
-| scene_id | 中文 |
-|----------|------|
-| `ride_hailing` | 叫车 |
-| `food_delivery` | 外卖 |
-| `hotel_booking` | 酒店 |
-| `flight_booking` | 机票 |
-| `b2b_procurement` | 企业采购 |
-| `data_api_billing` | API/数据计费 |
-| `api_tool_call` | 单次工具调用 |
-| `logistics_delivery` | 物流 |
-| `software_development` | 软件开发 |
+| scene_id | 中文 | 备注 |
+|----------|------|------|
+| `ride_hailing` | 叫车 | |
+| `food_delivery` | 外卖 | |
+| `hotel_booking` | 酒店 | |
+| `flight_booking` | 机票 | |
+| `b2b_procurement` | 企业采购 | |
+| `data_api_billing` | API/数据计费 | |
+| `api_tool_call` | 单次工具调用 | |
+| `logistics_delivery` | 物流 | |
+| `software_development` | 软件开发 | |
+| `design_creative` | 设计/创意 | |
+| `consulting_advisory` | 咨询顾问 | |
+| `content_creation` | 内容创作 | |
+| `manufacturing` | 制造/代工 | |
+| `real_estate_services` | 房产服务 | |
+| `financial_services` | 金融服务（非托管） | high_risk |
+| `marketing_advertising` | 营销广告 | |
+| `education_training` | 教育培训 | |
+| `healthcare_medical` | 医疗健康（非诊疗） | high_risk |
 
-与 Important Fields / onboarding `industry_id` 对齐。Discovery `task_type`（如 `commerce.food`）会映射到对应 `scene_id`。
+与 Important Fields / onboarding `industry_id` **全量对齐**（P2）。高风险场景禁止静默回落全局默认。
 
 ## Agent UX 链路
 

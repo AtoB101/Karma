@@ -57,6 +57,9 @@ curl -s $KARMA_API/v1/standards/agent-boundary
 # 某 agent 边界（对端必读）
 curl -s $KARMA_API/v1/agents/$AGENT_ID/boundary
 
+# P2 对端核验（目录对齐 / 场景覆盖 / 反放宽）
+curl -s "$KARMA_API/v1/agents/$AGENT_ID/boundary/verify?scene_id=food_delivery"
+
 # 模板接入（返回 boundary）
 curl -s -X POST $KARMA_API/v1/agents/connect-from-template \
   -H 'content-type: application/json' \
@@ -65,8 +68,14 @@ curl -s -X POST $KARMA_API/v1/agents/connect-from-template \
 
 Discovery 候选卡上附带 `boundary` digest（`scene_ids` / `must_confirm_steps` / `boundary_complete`）。
 
+## P2 强制（安全优先）
+
+详见 `docs/AGENT_BOUNDARY_P2_ENFORCEMENT_V1.md`：确认边界目录重算、ack↔hash 绑定、履约 scene 门闩、高风险行业独立策略。
+
 ## 相关标准
 
 - Onboarding：`docs/AGENT_ONBOARDING_TEMPLATE_V1.md`
+- P1 入驻：`docs/AGENT_P1_ONBOARDING_V1.md`
+- P2 强制：`docs/AGENT_BOUNDARY_P2_ENFORCEMENT_V1.md`
 - 人工确认：`docs/HUMAN_CONFIRMATION_POLICY_V1.md`
 - 重要字段：`docs/IMPORTANT_FIELDS_STANDARD_V1.md`

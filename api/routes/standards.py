@@ -206,6 +206,9 @@ async def get_agent_boundary_standard() -> dict[str, Any]:
         "related_standards": cat.get("related_standards"),
         "catalog_path": "packages/evidence-schema/agent-boundary.v1.json",
         "doc": "docs/AGENT_BOUNDARY_STANDARD_V1.md",
+        "enforcement_doc": "docs/AGENT_BOUNDARY_P2_ENFORCEMENT_V1.md",
+        "verify_path": "/v1/agents/{id}/boundary/verify",
+        "enforcement_zh": cat.get("enforcement_zh"),
     }
 
 

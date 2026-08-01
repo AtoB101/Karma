@@ -1,7 +1,7 @@
 """Karma agent directory — connect ⇒ immediately discoverable (P1-hardened)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -208,10 +208,44 @@ async def connect_agent(
                     owner_identity_id=owner_for_boundary,
                     responsibility_acknowledged=responsibility_acknowledged,
                 )
+        prev_hash = (
+            (getattr(row, "boundary_hash", None) or "").strip()
+            or str((row.onboarding_meta or {}).get("boundary_hash") or "").strip()
+            or None
+        )
         save_agent_boundary(row.agent_id, boundary)
         bhash = boundary_content_hash(boundary)
-        row.boundary_hash = bhash
         meta = dict(row.onboarding_meta or {})
+        # Security (P2): boundary mutation invalidates prior responsibility ack
+        # unless caller already supplied a fresh ack bound to the new hash.
+        if prev_hash and bhash and prev_hash != bhash:
+            ack = meta.get("responsibility_ack")
+            ack_hash = (
+                str(ack.get("boundary_hash") or "").strip()
+                if isinstance(ack, dict)
+                else ""
+            )
+            fresh_ack = (
+                isinstance(ack, dict)
+                and ack.get("acknowledged")
+                and ack_hash
+                and ack_hash == bhash
+            )
+            if isinstance(ack, dict) and ack.get("acknowledged") and not fresh_ack:
+                meta["responsibility_ack"] = {
+                    **ack,
+                    "acknowledged": False,
+                    "invalidated_reason": "boundary_changed",
+                    "invalidated_at": datetime.now(timezone.utc)
+                    .replace(microsecond=0)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                    "previous_boundary_hash": prev_hash,
+                }
+                row.p1_ready = False
+            elif not fresh_ack:
+                row.p1_ready = False
+        row.boundary_hash = bhash
         meta["boundary_hash"] = bhash
         meta["owner_identity_id"] = owner_for_boundary
         if identity_class:
@@ -223,15 +257,14 @@ async def connect_agent(
 
 
 async def refresh_p1_ready(db: AsyncSession, agent_id: str) -> dict[str, Any]:
-    """Re-evaluate P1 against records and persist ``p1_ready`` on the agent row."""
+    """Re-evaluate P1 against records and persist ``p1_ready`` only (no hash heal)."""
     from services.agent_p1_readiness import evaluate_p1_readiness
 
     status = await evaluate_p1_readiness(db, agent_id)
     row = await db.get(AgentModel, agent_id)
     if row:
+        # Do NOT overwrite boundary_hash with live hash — drift must stay visible
         row.p1_ready = bool(status.get("p1_ready"))
-        if status.get("boundary_hash"):
-            row.boundary_hash = status["boundary_hash"]
         await db.flush()
     return status
 

@@ -564,10 +564,8 @@ async def get_agent_p1_status(agent_id: str, db: AsyncSession = Depends(get_db))
     if not row:
         raise HTTPException(404, f"Agent {agent_id} not found")
     status = await evaluate_p1_readiness(db, agent_id)
-    # Persist refreshed flag for discovery filters
+    # Persist readiness flag only — never heal boundary_hash from live (P2 anti-drift)
     row.p1_ready = bool(status.get("p1_ready"))
-    if status.get("boundary_hash"):
-        row.boundary_hash = status["boundary_hash"]
     await db.commit()
     return status
 
@@ -579,26 +577,43 @@ async def get_agent_boundary_card(agent_id: str, db: AsyncSession = Depends(get_
     if not row:
         raise HTTPException(404, f"Agent {agent_id} not found")
     boundary = get_agent_boundary(agent_id)
+    ephemeral = False
     if not boundary:
-        # Lazy materialize so older connects still expose a readable boundary
+        # Ephemeral materialize only — do not persist (avoids silent hash/ack drift)
         boundary = materialize_agent_boundary(
             agent_id=row.agent_id,
             name=row.name,
             karma_role=row.role,
-            profile_id=(get_profile_card(agent_id) or {}).get("profile_id"),
+            profile_id=getattr(row, "identity_class", None)
+            or (get_profile_card(agent_id) or {}).get("profile_id"),
             capabilities=list(row.capabilities or []),
             profile_card=get_profile_card(agent_id),
-            owner_identity_id=row.agent_id,
+            owner_identity_id=getattr(row, "owner_identity_id", None) or row.agent_id,
         )
-        from services.agent_boundary import save_agent_boundary
-
-        save_agent_boundary(row.agent_id, boundary)
+        ephemeral = True
     return {
         "agent_id": agent_id,
         "agent": _to_identity(row),
         "boundary": boundary,
+        "ephemeral": ephemeral,
+        "boundary_hash": getattr(row, "boundary_hash", None),
         "profile_card": get_profile_card(agent_id),
     }
+
+
+@router.get("/{agent_id}/boundary/verify")
+async def verify_agent_boundary_route(
+    agent_id: str,
+    scene_id: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """P2: verify published boundary against catalogs (anti-forgery / scene coverage)."""
+    row = await db.get(AgentModel, agent_id)
+    if not row:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    from services.agent_boundary_verify import verify_agent_boundary
+
+    return await verify_agent_boundary(db, agent_id, scene_id=scene_id)
 
 
 @router.get("", response_model=list[AgentIdentity])
