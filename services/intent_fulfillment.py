@@ -32,10 +32,22 @@ from core.settlement.engine import canonical_task_status
 from db.models.orm import AgentModel, CapacityModel, TaskContractModel, VoucherModel
 from db.stores.settlement_store import PostgresSettlementStore
 from services.agent_directory import agent_row_to_card, connect_agent, ensure_directory_merchants
-from services.agent_trust import apply_trust_rerank, record_worker_settlement_outcome
+from services.agent_trust import (
+    apply_trust_rerank,
+    record_seller_non_confirm_reputation,
+    record_worker_settlement_outcome,
+)
 from services.capacity_resolution import apply_capacity_resolution
 from services.identity_agents import ensure_agent_for_identity
 from services.agent_automation_policy import get_automation_policy
+from services.accept_fulfillment import (
+    arm_post_confirm_liability,
+    check_interaction_seller_timeout,
+    record_seller_confirm,
+    scene_accept_ttl_seconds,
+    seller_requires_forced_confirm,
+    seller_risk_profile,
+)
 from services.human_confirmation_policy import (
     ConfirmationPolicyError,
     allow_demo_confirmation_bypass,
@@ -697,10 +709,66 @@ async def fulfill_intent(
             expected_interaction_ref=interaction_ref,
         )
 
-    # P4 seller accept_order — OWNER_CONFIRM scenes (B2B / finance / healthcare / …)
-    if require_owner_confirmation and seller_must_confirm_accept(resolved_scene):
+    # P4/P6 seller accept_order — OWNER_CONFIRM or forced confirm for repeat no-shows
+    breach_liability: dict[str, Any] | None = None
+    seller_risk = seller_risk_profile(seller_id, scene_id=resolved_scene)
+    force_seller_confirm = seller_requires_forced_confirm(seller_id, resolved_scene)
+    must_seller_confirm = (
+        require_owner_confirmation
+        and (seller_must_confirm_accept(resolved_scene) or force_seller_confirm)
+    )
+
+    # P6: prior timeout on this interaction → cancel (do not create voucher)
+    timeout_hit = check_interaction_seller_timeout(
+        seller_id=seller_id,
+        interaction_ref=interaction_ref,
+        scene_id=resolved_scene,
+        session_id=seller_confirmation_session_id,
+    )
+    if timeout_hit:
+        delta = float(
+            ((timeout_hit.get("recorded") or {}).get("reputation_delta"))
+            or ((timeout_hit.get("event") or {}).get("reputation_delta"))
+            or -2.0
+        )
+        try:
+            await record_seller_non_confirm_reputation(
+                db, seller_agent_id=seller_id, delta=delta
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("P6 reputation update failed for seller timeout")
+        timeline.append({
+            "stage": "seller_accept_timeout",
+            "ok": False,
+            "cancelled": True,
+            "seller_risk": timeout_hit.get("profile") or seller_risk,
+        })
+        return {
+            "status": "cancelled_seller_timeout",
+            "flow": "intent → … → seller accept TTL → cancelled",
+            "scene_id": resolved_scene,
+            "high_risk": high_risk,
+            "intent": query.to_dict(),
+            "discovery": {"recommended": recommended, "candidates": ranked},
+            "buyer_identity_id": buyer_identity_id,
+            "seller_identity_id": seller_id,
+            "amount": pay_amount,
+            "seller_risk": timeout_hit.get("profile") or seller_risk,
+            "timeout": timeout_hit,
+            "important_fields_capture_id": (
+                (fields_lock or {}).get("capture_id")
+                if fields_lock
+                else important_fields_capture_id
+            ),
+            "timeline": timeline,
+            "next_steps": timeout_hit.get("next_steps_zh")
+            or ["重新发现匹配其他商家 / 重新发起意向"],
+            "detail": "seller accept_order timed out — intent cancelled",
+        }
+
+    if must_seller_confirm:
         seller_policy_auto = False
-        if not high_risk:
+        if not high_risk and not force_seller_confirm:
             seller_saved = await get_automation_policy(db, seller_id)
             if (
                 seller_saved is not None
@@ -723,6 +791,43 @@ async def fulfill_intent(
             applied_seller = False
             if seller_confirmation_session_id:
                 try:
+                    # If session expired since last poll, cancel path
+                    try:
+                        sess_pub = get_confirmation_session(seller_confirmation_session_id)
+                        if sess_pub.get("status") in {"EXPIRED", "CANCELLED"}:
+                            raise ConfirmationPolicyError("confirmation session EXPIRED")
+                    except ConfirmationPolicyError as exp_exc:
+                        if "EXPIRED" in str(exp_exc):
+                            again = check_interaction_seller_timeout(
+                                seller_id=seller_id,
+                                interaction_ref=interaction_ref,
+                                scene_id=resolved_scene,
+                                session_id=seller_confirmation_session_id,
+                            )
+                            if again:
+                                try:
+                                    await record_seller_non_confirm_reputation(
+                                        db,
+                                        seller_agent_id=seller_id,
+                                        delta=float(
+                                            ((again.get("recorded") or {}).get("reputation_delta"))
+                                            or -2.0
+                                        ),
+                                    )
+                                except Exception:  # noqa: BLE001
+                                    pass
+                                return {
+                                    "status": "cancelled_seller_timeout",
+                                    "scene_id": resolved_scene,
+                                    "seller_identity_id": seller_id,
+                                    "timeout": again,
+                                    "seller_risk": again.get("profile") or seller_risk,
+                                    "timeline": timeline
+                                    + [{"stage": "seller_accept_timeout", "ok": False}],
+                                    "next_steps": again.get("next_steps_zh")
+                                    or ["重新发现匹配"],
+                                }
+                        raise
                     assert_step_allowed(
                         scene_id=resolved_scene,
                         role="seller",
@@ -734,16 +839,29 @@ async def fulfill_intent(
                         consume=True,
                         expected_interaction_ref=interaction_ref,
                     )
+                    confirmed = record_seller_confirm(
+                        seller_id=seller_id,
+                        scene_id=resolved_scene,
+                        interaction_ref=interaction_ref,
+                        session_id=seller_confirmation_session_id,
+                        amount=pay_amount,
+                    )
+                    breach_liability = confirmed.get("breach_liability")
                     timeline.append({
                         "stage": "seller_confirmation",
                         "ok": True,
                         "scene_id": resolved_scene,
                         "step": "accept_order",
+                        "liability_armed": True,
+                        "seller_risk": confirmed.get("profile") or seller_risk,
                     })
                     applied_seller = True
                 except ConfirmationPolicyError:
                     applied_seller = False
             if not applied_seller:
+                accept_ttl = scene_accept_ttl_seconds(
+                    resolved_scene, seller_id=seller_id
+                )
                 seller_sess = create_confirmation_session(
                     scene_id=resolved_scene,
                     role="seller",
@@ -752,6 +870,7 @@ async def fulfill_intent(
                     context=confirm_ctx,
                     interaction_ref=interaction_ref,
                     policy_auto_allowed=seller_policy_auto,
+                    ttl_seconds=accept_ttl,
                 )
                 if not seller_sess.get("skipped"):
                     timeline.append({
@@ -760,11 +879,14 @@ async def fulfill_intent(
                         "scene_id": resolved_scene,
                         "step": "accept_order",
                         "awaiting": True,
+                        "ttl_seconds": accept_ttl,
+                        "seller_risk": seller_risk,
                     })
                     return {
                         "status": "awaiting_seller_confirmation",
                         "flow": (
-                            "intent → buyer confirm → IF → seller Yes/No → voucher → settle"
+                            "intent → buyer confirm → IF → seller Yes/No (TTL) "
+                            "→ liability → voucher → settle"
                         ),
                         "scene_id": resolved_scene,
                         "high_risk": high_risk,
@@ -775,6 +897,8 @@ async def fulfill_intent(
                         "amount": pay_amount,
                         "confirmation": seller_sess,
                         "confirmation_session_id": confirmation_session_id,
+                        "seller_accept_ttl_seconds": accept_ttl,
+                        "seller_risk": seller_risk,
                         "important_fields_capture_id": (
                             (fields_lock or {}).get("capture_id")
                             if fields_lock
@@ -788,23 +912,56 @@ async def fulfill_intent(
                             '{"confirm": true, "actor_agent_id": "<seller_identity_id>"}',
                             "POST /v1/orchestration/fulfill-intent again with "
                             "seller_confirmation_session_id",
+                            f"若超过 {accept_ttl}s 未确认 → 自动取消并记入未确认记录",
                         ],
                     }
+                # POLICY_AUTO skip path — still arm liability (accepted by policy)
+                breach_liability = arm_post_confirm_liability(
+                    seller_id=seller_id,
+                    scene_id=resolved_scene,
+                    amount=pay_amount,
+                    interaction_ref=interaction_ref,
+                )
                 timeline.append({
                     "stage": "seller_confirmation",
                     "ok": True,
                     "scene_id": resolved_scene,
                     "step": "accept_order",
                     "reason": "auto",
+                    "liability_armed": True,
                 })
         else:
+            breach_liability = arm_post_confirm_liability(
+                seller_id=seller_id,
+                scene_id=resolved_scene,
+                amount=pay_amount,
+                interaction_ref=interaction_ref,
+            )
             timeline.append({
                 "stage": "seller_confirmation",
                 "ok": True,
                 "scene_id": resolved_scene,
                 "step": "accept_order",
                 "reason": "already_confirmed_or_auto",
+                "liability_armed": True,
             })
+    else:
+        # Daily commerce POLICY_AUTO sellers — arm lighter liability on accept
+        breach_liability = arm_post_confirm_liability(
+            seller_id=seller_id,
+            scene_id=resolved_scene,
+            amount=pay_amount,
+            interaction_ref=interaction_ref,
+        )
+        timeline.append({
+            "stage": "seller_confirmation",
+            "ok": True,
+            "scene_id": resolved_scene,
+            "step": "accept_order",
+            "reason": "policy_auto_scene",
+            "liability_armed": True,
+            "seller_risk": seller_risk,
+        })
 
     # Ensure agents exist for contract/settlement IDs
     await ensure_agent_for_identity(db, buyer_identity_id, role="buyer")
@@ -867,6 +1024,12 @@ async def fulfill_intent(
             or (fields_lock or {}).get("fields_hash"),
             "status": (fields_lock or {}).get("status"),
             "required": must_if,
+        },
+        "breach_liability": breach_liability,
+        "seller_risk": {
+            "verification_tier": seller_risk.get("verification_tier"),
+            "non_confirm_count": seller_risk.get("non_confirm_count"),
+            "bond_multiplier": seller_risk.get("bond_multiplier"),
         },
     }
     contract = TaskContract(
@@ -1045,6 +1208,8 @@ async def fulfill_intent(
         "important_fields_capture_id": (fields_lock or {}).get("capture_id"),
         "important_fields_hash": (fields_lock or {}).get("protocol_fields_hash")
         or (fields_lock or {}).get("fields_hash"),
+        "breach_liability": breach_liability,
+        "seller_risk": seller_risk,
         "timeline": timeline,
         "next_steps": (
             []

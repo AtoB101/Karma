@@ -12,7 +12,8 @@
 | 主人确认 Yes/No | **~80%** | 已加固；会话落盘单机可测，多实例仍需 Redis/DB |
 | Important Fields 进履约脊柱 | **~80%** | fulfill 强制 MATCHED（商务场景）；生产应双方真实密文提交 |
 | Voucher → 结算 SETTLED | **~70%** | 脊柱可通；`auto_complete` 为合成完单，非线下验真 |
-| 卖方确认 / 物理验真 / OpenClaw | **~35%** | 旁路可选，未强制 |
+| 卖方确认 TTL / 违约责任 (P6) | **~70%** | 超时取消+未确认档案+责任金；交付验真仍待 P7 |
+| 物理验真 / OpenClaw | **~35%** | 旁路可选，未强制 |
 | 生产多实例 / 链上结算默认 | **~40%** | 仍有 sidecar/demo 软默认 |
 | **真实场景可测试闭环（本脚本）** | **~75%** | 可本地无 Docker 跑通 5 大场景 |
 | **生产级商业闭环** | **~55–60%** | 差持久化集群、真实交付证明、强制卖方门闩、链上默认 |
@@ -27,7 +28,8 @@
   → fulfill-intent → awaiting_owner_confirmation
   → 主人 decide confirm=true
   → Important Fields 三方 MATCHED（开发可用 auto_lock）
-  → voucher accept → settlement → SETTLED
+  → 卖方确认（OWNER_CONFIRM 场景）/ 超时取消（P6）
+  → 确认后武装违约责任 → voucher accept → settlement → SETTLED
 ```
 
 场景：`food_delivery` / `ride_hailing` / `hotel_booking` / `flight_booking` / `b2b_procurement`
@@ -55,6 +57,6 @@ HTTP 联调（需自行起 API + DB，见 `docs/GETTING_STARTED.md`）时，等�
 
 1. 确认会话 / IF capture **多实例持久化**（Redis/DB）  
 2. fulfill 默认走**真实买方验收**，弱化合成 `auto_complete`  
-3. 卖方 `accept_order` / 物理验真强制门闩  
+3. 物理验真强制门闩（P7）；P6 已覆盖接单 TTL / 未确认档案 / 违约责任金  
 4. Discovery **仅** Karma 已连接且 `boundary_complete` 的商家（关掉 demo 商家默认）  
 5. 链上结算与生产 env 硬默认对齐  

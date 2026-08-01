@@ -297,12 +297,18 @@ def evaluate_candidate_priority(
 
 def priority_sort_key(item: dict[str, Any]) -> tuple:
     """Lexicographic priority order — security & problem-fit before raw score."""
+    accept = item.get("accept_risk") or {}
+    # Higher verification_tier_rank first; demoted / high non-confirm last
+    demote = 1 if accept.get("discovery_demote") else 0
     return (
         0 if item.get("eligible", True) else 1,
         0 if item.get("p1_ready") else 1,
         0 if item.get("boundary_complete") else 1,
         0 if item.get("scene_covered") else 1,
         -int(item.get("trust_tier_rank") or 0),
+        demote,
+        -int(accept.get("verification_tier_rank") or 3),
+        int(accept.get("non_confirm_count") or 0),
         -float(item.get("score") or 0),
         -float((item.get("trust") or {}).get("settled_volume") or 0),
         -float((item.get("trust") or {}).get("reputation_score") or 0),
@@ -345,6 +351,16 @@ def apply_priority_ranking(
         )
         if drop_ineligible and not pri["eligible"]:
             continue
+        # P6: soft demote sellers with repeated non-confirm / elevated verification
+        accept_risk: dict[str, Any] = {}
+        try:
+            from services.accept_fulfillment import accept_enrichment_for_discovery
+
+            if aid:
+                accept_risk = accept_enrichment_for_discovery(aid, sid)
+        except Exception:  # noqa: BLE001
+            accept_risk = {}
+
         item = dict(c)
         item.update(
             {
@@ -365,6 +381,7 @@ def apply_priority_ranking(
                 "trust_tier": pri["trust_tier"],
                 "trust_tier_rank": pri["trust_tier_rank"],
                 "trust_evidence": pri["trust_evidence"],
+                "accept_risk": accept_risk,
                 "scene_id": sid,
                 "match_reasons": list(c.get("match_reasons") or [])
                 + list(pri["priority_reasons"]),
@@ -375,6 +392,7 @@ def apply_priority_ranking(
                         "boundary_complete",
                         "scene_covered",
                         "trust_tier",
+                        "accept_risk",
                         "composite_score",
                     ],
                     "p1_ready": pri["p1_ready"],
@@ -382,6 +400,7 @@ def apply_priority_ranking(
                     "scene_covered": pri["scene_covered"],
                     "trust_tier": pri["trust_tier"],
                     "high_risk_scene": pri["high_risk_scene"],
+                    "accept_risk": accept_risk,
                 },
             }
         )
