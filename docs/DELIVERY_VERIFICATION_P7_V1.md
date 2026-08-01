@@ -77,7 +77,7 @@ POST /v1/delivery-verification/sessions
 | P5 | 锁定「验什么」 |
 | P6 | 接单后武装违约责任 |
 | **P7** | 交付是否真发生、货是否对、凭证是否可核 |
-| P8 | 结算与信誉沉淀 |
+| P8 | 差异化结算 + 加密可查证明 + 场景信誉（见 `SETTLEMENT_REPUTATION_P8_V1.md`） |
 
 ## 相关
 

@@ -271,6 +271,37 @@ def _scene_id_from_settlement(state: SettlementState) -> str | None:
     return None
 
 
+def _seal_p8_attestation(state: SettlementState, *, scene_id: str | None, agent_auto: bool = False) -> dict | None:
+    """P8: seal encrypted public attestation + scene reputation after SETTLED."""
+    sid = (scene_id or _scene_id_from_settlement(state) or "").strip()
+    if not sid or not state.worker_agent_id:
+        return None
+    try:
+        from services.delivery_verification import get_verification_for_task
+        from services.settlement_reputation import seal_settlement_attestation
+
+        dv = get_verification_for_task(state.task_id)
+        spec = getattr(state, "progress_rule_spec", None) or {}
+        capture_id = None
+        if isinstance(spec, dict):
+            if_meta = spec.get("important_fields") or {}
+            capture_id = if_meta.get("capture_id")
+        return seal_settlement_attestation(
+            task_id=state.task_id,
+            scene_id=sid,
+            buyer_agent_id=state.client_agent_id,
+            seller_agent_id=state.worker_agent_id,
+            amount=float(state.released_amount or state.escrow_amount or 0),
+            currency="USDC",
+            outcome="SETTLED",
+            capture_id=capture_id,
+            delivery_verification_id=(dv or {}).get("verification_id"),
+            agent_auto_verified=agent_auto,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _assert_p7_delivery_gate(task_id: str, state: SettlementState, *, stage: str) -> dict:
     """P7: physical/ticket sessions must be VERIFIED before deliver/settle release."""
     from services.delivery_verification import (
@@ -661,15 +692,18 @@ async def buyer_accept_settlement(
     )
     await mark_voucher_used_if_linked(db, task_id)
     await _sync_payment_intents_after_settled(db, task_id)
+    settle_scene_final = settle_scene or _scene_id_from_settlement(state) or "api_tool_call"
     if state.worker_agent_id:
-        from services.agent_trust import record_worker_settlement_outcome
+        from services.settlement_reputation import apply_settle_reputation
 
-        await record_worker_settlement_outcome(
+        await apply_settle_reputation(
             db,
-            worker_agent_id=state.worker_agent_id,
+            seller_agent_id=state.worker_agent_id,
+            scene_id=settle_scene_final,
+            amount=float(state.released_amount or state.escrow_amount or 0),
             success=True,
-            volume=float(state.released_amount or state.escrow_amount or 0),
         )
+    p8_attest = _seal_p8_attestation(state, scene_id=settle_scene_final, agent_auto=False)
     await db.flush()
     from services.openclaw_webhook import emit_openclaw_event
 
@@ -683,8 +717,16 @@ async def buyer_accept_settlement(
             "status": state.status.value if hasattr(state.status, "value") else str(state.status),
             "escrow_amount": float(state.escrow_amount),
             "settled_amount": float(state.released_amount or 0),
+            "attestation_id": (p8_attest or {}).get("attestation_id"),
+            "outcome_commitment": (p8_attest or {}).get("outcome_commitment"),
         },
     )
+    # Attach P8 public attestation on response via arbitration_notes extension field unused —
+    # clients should GET /v1/settlement-reputation/tasks/{id}/attestation
+    if p8_attest and hasattr(state, "arbitration_notes"):
+        state.arbitration_notes = (
+            f"{state.arbitration_notes or ''}; p8_attestation={p8_attest.get('attestation_id')}"
+        ).strip("; ")
     return state
 
 
@@ -715,6 +757,29 @@ async def auto_confirm_settlement(
     require_buyer_or_worker(request, state)
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
+    # P7/P8: auto-confirm still requires delivery verification when session/scene demands it
+    _assert_p7_delivery_gate(task_id, state, stage="auto-confirm")
+    scene_for_auto = _scene_id_from_settlement(state) or "api_tool_call"
+    from services.settlement_reputation import agent_auto_verify_decision
+
+    auto_dec = agent_auto_verify_decision(
+        scene_id=scene_for_auto,
+        task_id=task_id,
+        delivery_verified=True,
+    )
+    # High-risk / OWNER_CONFIRM delayed scenes must not silently settle via this path
+    if not auto_dec.get("allowed") and scene_for_auto in {
+        "financial_services",
+        "healthcare_medical",
+    }:
+        raise HTTPException(
+            409,
+            {
+                "error": "auto_confirm_forbidden_for_scene",
+                "scene_id": scene_for_auto,
+                "detail": auto_dec.get("reason_zh"),
+            },
+        )
     state.arbitration_notes = f"auto-confirmed after {state.confirm_window_hours}h window"
     state.updated_at = now
     state = await _apply_transition(db=db, store=store, state=state,
@@ -732,7 +797,22 @@ async def auto_confirm_settlement(
         escrow_amount=state.escrow_amount, settled_amount=state.escrow_amount, refunded_amount=0.0)
     await mark_voucher_used_if_linked(db, task_id)
     await _sync_payment_intents_after_settled(db, task_id)
+    if state.worker_agent_id:
+        from services.settlement_reputation import apply_settle_reputation
+
+        await apply_settle_reputation(
+            db,
+            seller_agent_id=state.worker_agent_id,
+            scene_id=scene_for_auto,
+            amount=float(state.released_amount or state.escrow_amount or 0),
+            success=True,
+        )
+    p8_attest = _seal_p8_attestation(state, scene_id=scene_for_auto, agent_auto=True)
     await db.flush()
+    if p8_attest and hasattr(state, "arbitration_notes"):
+        state.arbitration_notes = (
+            f"{state.arbitration_notes or ''}; p8_attestation={p8_attest.get('attestation_id')}"
+        ).strip("; ")
     return state
 
 
