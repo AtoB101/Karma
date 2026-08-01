@@ -21,7 +21,12 @@
       "submitted_at",
       "signature"
     ],
-    "match_rule": "buyer.fields_hash == seller.fields_hash → MATCHED; else COUNTERED with field-level diff"
+    "match_rule": "buyer.fields_hash == seller.fields_hash == protocol.fields_hash → MATCHED (sealed); else COUNTERED with field-level diff",
+    "precision": {
+      "amount": "decimal string; NFC-irrelevant; trailing zeros stripped (18.50 == 18.5)",
+      "datetime": "ISO-8601 → UTC second precision YYYY-MM-DDTHH:MM:SSZ",
+      "text": "Unicode NFC + trim before hash"
+    }
   },
   "submission_envelope": {
     "schema_version": "karma-important-fields-v1",
@@ -2042,9 +2047,10 @@
       "FAILED"
     ],
     "protocol_capture": "During interaction, protocol extracts ImportantFields and locks protocol_fields_hash + HMAC",
-    "wire": "Parties submit karma1 AES-256-GCM ciphertext only (no plaintext on secure path)",
+    "wire": "Parties submit karma2 AES-256-GCM ciphertext only (HKDF per capture+role; AAD=capture|scene|role|protocol_hash; no plaintext on secure path)",
     "seal_requires": "triple match: buyer_hash == seller_hash == protocol_hash",
     "anti_abuse": "per-capture nonce replay rejection + attempt budget",
+    "anti_collusion": "distinct submitter_agent_id per role; optional buyer_agent_id/seller_agent_id bind; MATCHED immutable",
     "on_chain": "scopeHash / IntentPackage commit to fields_hash + capture_id",
     "verify_rule": "After delivery, evidence MUST cover required_proof_fields; acceptance checks ONLY locked acceptance_criteria"
   },

@@ -11,10 +11,10 @@ fraud rules, or dispute weighting — those belong in the private risk engine re
 - `daily_commerce`（叫车 / 酒店 / 外卖 / 机票）
 - `b2b_digital`（企业采购 / API·数据计费 / 单次工具调用）
 
-- Docs: `docs/IMPORTANT_FIELDS_STANDARD_V1.md`
+- Docs: `docs/IMPORTANT_FIELDS_STANDARD_V1.md` · `docs/IMPORTANT_FIELDS_P5_V1.md`
 - HTTP: `GET /v1/standards/important-fields`（`?group=daily_commerce`）
-- Secure path: protocol **capture** → AES-GCM `karma1.` submit → **triple match**
-  (`buyer == seller == protocol`) via `POST …/match-secure`
+- Secure path (P5): protocol **capture** → role-bound AES-GCM `karma2.` submit → **triple match**
+  (`buyer == seller == protocol`, sealed) via `POST …/match-secure`
 
 ## Agent onboarding templates
 

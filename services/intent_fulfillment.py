@@ -618,6 +618,8 @@ async def fulfill_intent(
                 fields_lock = require_matched_capture(
                     capture_id=important_fields_capture_id,
                     scene_id=resolved_scene,
+                    interaction_ref=interaction_ref,
+                    expected_amount=pay_amount,
                 )
             elif (
                 auto_lock_important_fields
@@ -631,6 +633,8 @@ async def fulfill_intent(
                     scene_id=resolved_scene,
                     fields=fields,
                     interaction_ref=interaction_ref,
+                    buyer_agent_id=buyer_identity_id or "demo-buyer",
+                    seller_agent_id=seller_id or "demo-seller",
                 )
             else:
                 raise CaptureError("MATCHED important_fields_capture_id required")
@@ -668,9 +672,11 @@ async def fulfill_intent(
                 "important_fields_example": example,
                 "timeline": timeline,
                 "next_steps": [
-                    "POST /v1/standards/important-fields/captures with extracted fields",
-                    "buyer+seller POST …/submit-encrypted (karma1. ciphertext)",
-                    "POST …/match-secure → status MATCHED",
+                    "POST /v1/standards/important-fields/captures with extracted fields "
+                    "(bind buyer_agent_id + seller_agent_id)",
+                    "GET …/session-key?role=buyer|seller (TLS+auth)",
+                    "buyer+seller POST …/submit-encrypted (karma2. ciphertext + submitter_agent_id)",
+                    "POST …/match-secure → status MATCHED (sealed)",
                     "retry fulfill-intent with important_fields_capture_id "
                     "(or auto_lock_important_fields=true in development, non-high-risk)",
                 ],

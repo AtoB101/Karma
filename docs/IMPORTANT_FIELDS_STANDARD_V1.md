@@ -114,30 +114,32 @@ INTERACTION → PROTOCOL_CAPTURED → (buyer/seller encrypted submit) → MATCHE
 ```
 
 ```bash
-# 1) 协议在交互中抓取并锁定（返回 capture_id + protocol_fields_hash）
+# 1) 协议在交互中抓取并锁定（可绑定买卖双方 agent，防串谋）
 curl -s -X POST $KARMA_API/v1/standards/important-fields/captures \
   -H 'content-type: application/json' \
-  -d '{"scene_id":"ride_hailing","interaction_ref":"a2a:task-1","extracted_fields":{...}}'
+  -d '{"scene_id":"ride_hailing","interaction_ref":"a2a:task-1","extracted_fields":{...},"buyer_agent_id":"…","seller_agent_id":"…"}'
 
-# 2) 双方领取会话密钥（须 TLS；生产应再加鉴权）
-curl -s $KARMA_API/v1/standards/important-fields/captures/$CAP/session-key
+# 2) 双方领取**角色**会话密钥（须 TLS；生产应再加鉴权）
+curl -s "$KARMA_API/v1/standards/important-fields/captures/$CAP/session-key?role=buyer"
 
-# 3) 加密后提交（明文会被拒绝）
+# 3) 加密后提交（明文会被拒绝；submitter 必须与角色绑定一致且两侧不同）
 curl -s -X POST $KARMA_API/v1/standards/important-fields/submit-encrypted \
-  -d '{"capture_id":"'"$CAP"'","role":"buyer","ciphertext":"karma1.…","nonce":"…"}'
+  -d '{"capture_id":"'"$CAP"'","role":"buyer","ciphertext":"karma2.…","nonce":"…","submitter_agent_id":"…"}'
 
-# 4) 三方比对：buyer_hash == seller_hash == protocol_hash
+# 4) 三方比对：buyer_hash == seller_hash == protocol_hash → MATCHED 封存
 curl -s -X POST $KARMA_API/v1/standards/important-fields/match-secure \
   -d '{"capture_id":"'"$CAP"'"}'
 ```
 
-安全要点：
+安全要点（详见 `docs/IMPORTANT_FIELDS_P5_V1.md`）：
 
 | 机制 | 作用 |
 |------|------|
 | Protocol capture + HMAC | 交互中锁定权威字段视图 |
-| AES-256-GCM `karma1.` 信封 | 线路上为加密字符；AAD 绑定 `capture_id` |
-| Triple match | 单方被篡改 → 与协议不一致 → 拒绝，而非无意义重试风暴 |
+| AES-256-GCM `karma2.` | 按 capture+role 分密钥；AAD 绑定 scene/role/protocol_hash |
+| 高精度规范化 | 金额/时间/文本规范化后再 hash，降低假 MATCH / 假 COUNTER |
+| Triple match + seal | 单方篡改 → COUNTERED；MATCHED 不可再改 |
+| 防串谋 | 双侧 `submitter_agent_id` 必须不同；可选当事人绑定 |
 | Nonce + attempt budget | 防重放、防拥堵刷接口 |
 
 `POST /important-fields/match`（明文双边比对）仅保留作开发调试，生产请用 `match-secure`。

@@ -5,11 +5,19 @@ Machine-readable catalog:
 
 Both buyer and seller agents should read the catalog, submit the same
 ImportantFields for a scene, and only seal/on-chain when fields_hash matches.
+
+P5: high-precision canonicalization so formatting noise cannot create false
+matches or false COUNTERED — amount/datetime/string normalization is mandatory
+before hash.
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import re
+import unicodedata
+from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -24,6 +32,9 @@ CATALOG_PATH = (
 HASH_EXCLUDE = frozenset(
     {"party_role", "submitter_agent_id", "submitted_at", "signature", "fields_hash"}
 )
+
+_AMOUNT_RE = re.compile(r"^[0-9]+(\.[0-9]{1,6})?$")
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 class ImportantFieldsError(ValueError):
@@ -116,8 +127,105 @@ def _is_empty(value: Any) -> bool:
     return False
 
 
+def normalize_amount_string(val: Any) -> str | None:
+    """High-precision money string: Decimal normalize, strip trailing zeros."""
+    if isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        return None  # must be string on the wire
+    if not isinstance(val, str):
+        return None
+    s = val.strip()
+    if not _AMOUNT_RE.match(s):
+        return None
+    try:
+        d = Decimal(s)
+    except InvalidOperation:
+        return None
+    # Normalize without scientific notation; strip trailing zeros
+    norm = format(d.normalize(), "f")
+    if "." in norm:
+        norm = norm.rstrip("0").rstrip(".")
+    return norm or "0"
+
+
+def normalize_datetime_utc(val: Any) -> str | None:
+    """Parse ISO-8601 → ``YYYY-MM-DDTHH:MM:SSZ`` (second precision)."""
+    if not isinstance(val, str) or not val.strip():
+        return None
+    s = val.strip().replace(" ", "T")
+    try:
+        if s.endswith("Z"):
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        else:
+            dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def normalize_text(val: Any) -> str | None:
+    if not isinstance(val, str):
+        return None
+    # Unicode NFC + trim — precision without PII expansion
+    return unicodedata.normalize("NFC", val).strip()
+
+
+def _validate_leaf(path: str, val: Any, spec: dict[str, Any], errors: list[str]) -> None:
+    fmt = spec.get("format")
+    typ = spec.get("type")
+    if path == "amount" or (typ == "string" and path.endswith("amount")):
+        if isinstance(val, (int, float)) and not isinstance(val, bool):
+            errors.append(f"{path} must be a decimal string, not number")
+            return
+        if normalize_amount_string(val) is None:
+            errors.append(f"{path} must match decimal string pattern ^[0-9]+(\\.[0-9]{{1,6}})?$")
+            return
+    if fmt == "date-time":
+        if normalize_datetime_utc(val) is None:
+            errors.append(f"{path} must be ISO-8601 datetime (UTC Z)")
+            return
+    if fmt == "date":
+        if not isinstance(val, str) or not _DATE_RE.match(val.strip()):
+            errors.append(f"{path} must be YYYY-MM-DD")
+            return
+    if typ == "string" and isinstance(val, str):
+        text = normalize_text(val) or ""
+        min_len = spec.get("minLength")
+        max_len = spec.get("maxLength")
+        if min_len is not None and len(text) < int(min_len):
+            errors.append(f"{path} shorter than minLength {min_len}")
+        if max_len is not None and len(text) > int(max_len):
+            errors.append(f"{path} longer than maxLength {max_len}")
+    if "enum" in spec and isinstance(val, str) and val not in spec["enum"]:
+        errors.append(f"{path} must be one of {spec['enum']}")
+    if "const" in spec and val != spec["const"]:
+        errors.append(f"{path} must be {spec['const']!r}")
+    # Nested object required keys
+    props = spec.get("properties")
+    if isinstance(props, dict) and isinstance(val, dict):
+        for pk, pspec in props.items():
+            if not isinstance(pspec, dict):
+                continue
+            if pspec.get("required") is False:
+                continue
+            # treat nested property as required when listed under properties
+            # unless explicitly optional
+            child = val.get(pk)
+            child_path = f"{path}.{pk}"
+            if _is_empty(child) and pspec.get("optional") is not True:
+                # only enforce when nested key is in a "required" array if present
+                continue
+            if child is not None and not _is_empty(child):
+                _validate_leaf(child_path, child, pspec, errors)
+
+
 def validate_fields(scene_id: str, fields: dict[str, Any]) -> list[str]:
-    """Return list of validation errors (empty = ok)."""
+    """Return list of validation errors (empty = ok). High-precision checks."""
     errors: list[str] = []
     if not isinstance(fields, dict):
         return ["fields must be an object"]
@@ -131,11 +239,14 @@ def validate_fields(scene_id: str, fields: dict[str, Any]) -> list[str]:
         if _is_empty(val):
             errors.append(f"missing required common field: {path}")
             continue
-        if path == "amount" and isinstance(val, (int, float)):
-            errors.append("amount must be a decimal string, not number")
         if path == "acceptance_criteria":
-            if not isinstance(val, list) or not all(isinstance(x, str) and x.strip() for x in val):
+            if not isinstance(val, list) or not all(
+                isinstance(x, str) and (normalize_text(x) or "") for x in val
+            ):
                 errors.append("acceptance_criteria must be a non-empty string array")
+                continue
+        else:
+            _validate_leaf(path, val, req, errors)
         if path == "currency" and isinstance(val, str):
             allowed = set((req.get("enum") or []))
             if allowed and val not in allowed:
@@ -147,15 +258,17 @@ def validate_fields(scene_id: str, fields: dict[str, Any]) -> list[str]:
         if _is_empty(val):
             errors.append(f"missing required scene field: {path}")
             continue
-        if "const" in req and val != req["const"]:
-            errors.append(f"{path} must be {req['const']!r}")
-        if "enum" in req and isinstance(val, str) and val not in req["enum"]:
-            errors.append(f"{path} must be one of {req['enum']}")
+        _validate_leaf(path, val, req, errors)
+        # Nested required property keys only when explicitly listed
+        props = req.get("properties") or {}
+        required_keys = req.get("required")
+        if isinstance(val, dict) and props and isinstance(required_keys, list):
+            for pk in required_keys:
+                if pk in props and _is_empty(val.get(pk)):
+                    errors.append(f"missing required nested field: {path}.{pk}")
 
-    # Encourage proof field coverage for seal readiness
     proofs = fields.get("required_proof_fields")
     if proofs is None:
-        # soft default from scene — not an error, but note via empty check later
         pass
     elif not isinstance(proofs, list) or not proofs:
         errors.append("required_proof_fields must be a non-empty array when provided")
@@ -167,26 +280,40 @@ def strip_for_hash(fields: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in fields.items() if k not in HASH_EXCLUDE}
 
 
-def canonicalize(value: Any) -> Any:
-    """Deterministic JSON-ready structure (sorted keys, drop nulls in objects)."""
+def canonicalize(value: Any, *, path: str = "") -> Any:
+    """Deterministic JSON-ready structure with high-precision leaf normalization."""
     if value is None:
         return None
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
         if isinstance(value, float) and value.is_integer():
             return int(value)
         return value
     if isinstance(value, str):
-        return value
+        # Path-aware normalization for precision
+        leaf = path.split(".")[-1] if path else ""
+        if leaf == "amount" or path.endswith(".amount") or path == "amount":
+            amt = normalize_amount_string(value)
+            return amt if amt is not None else normalize_text(value)
+        if leaf.endswith("_at") or leaf in {"deadline_at", "check_in", "check_out", "depart_at"}:
+            dt = normalize_datetime_utc(value)
+            if dt is not None:
+                return dt
+        if leaf in {"date", "check_in_date", "check_out_date"} or (
+            len(value.strip()) == 10 and _DATE_RE.match(value.strip())
+        ):
+            return value.strip()
+        return normalize_text(value)
     if isinstance(value, list):
-        return [canonicalize(v) for v in value]
+        return [canonicalize(v, path=path) for v in value]
     if isinstance(value, dict):
         out: dict[str, Any] = {}
         for key in sorted(value.keys()):
             if key in HASH_EXCLUDE:
                 continue
-            item = canonicalize(value[key])
+            child_path = f"{path}.{key}" if path else key
+            item = canonicalize(value[key], path=child_path)
             if item is None:
                 continue
             out[key] = item
@@ -275,9 +402,9 @@ def example_for_scene(scene_id: str) -> dict[str, Any]:
         "submission_hint": {
             "secure_flow_zh": [
                 "1. 协议在交互中抓取字段 → POST /captures",
-                "2. 双方领取 session-key，本地 AES-GCM 加密（karma1. 信封）",
-                "3. POST /submit-encrypted（仅密文 + nonce）",
-                "4. POST /match-secure → 必须 buyer==seller==protocol 三方一致",
+                "2. 双方领取 session-key?role=，本地 AES-GCM 加密（karma2. 信封）",
+                "3. POST /submit-encrypted（仅密文 + nonce + submitter_agent_id）",
+                "4. POST /match-secure → 必须 buyer==seller==protocol 三方一致并封存",
             ],
             "buyer": {"party_role": "buyer", "fields_example_only": out},
             "seller": {"party_role": "seller", "fields_example_only": out},

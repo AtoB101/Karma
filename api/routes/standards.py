@@ -75,11 +75,22 @@ class CaptureRequest(BaseModel):
     extracted_fields: dict[str, Any] = Field(description="ImportantFields extracted by protocol")
     source: str = Field(default="protocol_extract", max_length=64)
     ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+    buyer_agent_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Optional bind: only this agent may submit as buyer",
+    )
+    seller_agent_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Optional bind: only this agent may submit as seller",
+    )
 
 
 class EncryptRequest(BaseModel):
     capture_id: str = Field(min_length=1, max_length=128)
     fields: dict[str, Any]
+    role: Literal["buyer", "seller", "protocol"] = "buyer"
 
 
 class SecureSubmitRequest(BaseModel):
@@ -87,6 +98,11 @@ class SecureSubmitRequest(BaseModel):
     role: Literal["buyer", "seller"]
     ciphertext: str = Field(min_length=16, max_length=200_000)
     nonce: str = Field(min_length=8, max_length=128)
+    submitter_agent_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Required when capture bound parties; must differ across roles",
+    )
 
 
 class FinalizeRequest(BaseModel):
@@ -324,10 +340,15 @@ async def get_important_fields_standard(
         "security_model": {
             "protocol_capture": True,
             "triple_match": "buyer_hash == seller_hash == protocol_hash",
-            "wire": "karma1 AES-256-GCM ciphertext only on secure path",
+            "wire": "karma2 AES-256-GCM (HKDF per capture+role; AAD binds scene/role/protocol_hash)",
+            "anti_collusion": (
+                "distinct submitter_agent_id per role; optional buyer/seller bind; "
+                "MATCHED sealed immutable"
+            ),
+            "precision": "amount/datetime/text normalized before fields_hash",
             "apis": [
                 "POST /v1/standards/important-fields/captures",
-                "GET /v1/standards/important-fields/captures/{capture_id}/session-key",
+                "GET /v1/standards/important-fields/captures/{capture_id}/session-key?role=",
                 "POST /v1/standards/important-fields/encrypt",
                 "POST /v1/standards/important-fields/submit-encrypted",
                 "POST /v1/standards/important-fields/match-secure",
@@ -389,7 +410,7 @@ async def match_important_fields(body: MatchRequest) -> dict[str, Any]:
 
 @router.post("/important-fields/captures")
 async def create_important_fields_capture(body: CaptureRequest) -> dict[str, Any]:
-    """Protocol captures/locks ImportantFields from the live interaction."""
+    """Protocol captures/locks ImportantFields from the live interaction (P5)."""
     try:
         return capture_from_interaction(
             scene_id=body.scene_id,
@@ -397,6 +418,8 @@ async def create_important_fields_capture(body: CaptureRequest) -> dict[str, Any
             extracted_fields=body.extracted_fields,
             source=body.source,
             ttl_seconds=body.ttl_seconds,
+            buyer_agent_id=body.buyer_agent_id,
+            seller_agent_id=body.seller_agent_id,
         )
     except CaptureError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -411,32 +434,36 @@ async def get_important_fields_capture(capture_id: str) -> dict[str, Any]:
 
 
 @router.get("/important-fields/captures/{capture_id}/session-key")
-async def get_capture_session_key(capture_id: str) -> dict[str, Any]:
-    """Issue AES session key for client-side encryption (serve only over TLS+auth)."""
+async def get_capture_session_key(
+    capture_id: str,
+    role: Literal["buyer", "seller", "protocol"] = "buyer",
+) -> dict[str, Any]:
+    """Issue role-bound AES session key (serve only over TLS+auth)."""
     try:
-        return issue_session_key(capture_id)
+        return issue_session_key(capture_id, role=role)
     except CaptureError as exc:
         raise HTTPException(404, str(exc)) from exc
 
 
 @router.post("/important-fields/encrypt")
 async def encrypt_important_fields(body: EncryptRequest) -> dict[str, Any]:
-    """Encrypt fields under capture session key (trusted-agent helper)."""
+    """Encrypt fields under role-specific capture session key (trusted-agent helper)."""
     try:
-        return encrypt_for_capture(body.capture_id, body.fields)
+        return encrypt_for_capture(body.capture_id, body.fields, role=body.role)
     except CaptureError as exc:
         raise HTTPException(400, str(exc)) from exc
 
 
 @router.post("/important-fields/submit-encrypted")
 async def submit_encrypted_important_fields(body: SecureSubmitRequest) -> dict[str, Any]:
-    """Buyer/seller submit karma1 ciphertext only (plaintext rejected)."""
+    """Buyer/seller submit karma2 ciphertext only (plaintext rejected; anti-collusion)."""
     try:
         return submit_encrypted(
             capture_id=body.capture_id,
             role=body.role,
             ciphertext=body.ciphertext,
             nonce=body.nonce,
+            submitter_agent_id=body.submitter_agent_id,
         )
     except CaptureError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -444,7 +471,7 @@ async def submit_encrypted_important_fields(body: SecureSubmitRequest) -> dict[s
 
 @router.post("/important-fields/match-secure")
 async def match_secure_important_fields(body: FinalizeRequest) -> dict[str, Any]:
-    """Triple match: buyer == seller == protocol capture (after encrypted submits)."""
+    """Triple match: buyer == seller == protocol capture; MATCHED is sealed."""
     try:
         return finalize_triple_match(body.capture_id)
     except CaptureError as exc:
