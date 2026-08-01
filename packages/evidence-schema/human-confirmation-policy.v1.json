@@ -592,12 +592,19 @@
     "on_no": "停止该步，不接单、不锁款、不上链承诺",
     "never_ask_for": ["纯查询", "轨迹同步", "已授权配额内API调用", "证据哈希上传（非付款）"]
   },
+  "p4_runtime_zh": {
+    "buyer_fulfill_steps": "日常 [accept_order]；酒店/机票/B2B/高风险 [select_offer, accept_order]",
+    "seller_accept": "OWNER_CONFIRM 场景暂停 awaiting_seller_confirmation",
+    "security": "忽略客户端 policy_auto；TTL；interaction_ref；未知 scene 拒回落；高风险禁止关确认"
+  },
   "api": [
     "GET /v1/standards/confirmation-policy",
     "GET /v1/standards/confirmation-policy/scenes/{scene_id}",
     "POST /v1/confirmations/plan",
     "POST /v1/confirmations/sessions",
     "POST /v1/confirmations/sessions/{id}/decide",
-    "GET /v1/confirmations/sessions/{id}"
+    "GET /v1/confirmations/sessions/{id}",
+    "POST /v1/confirmations/assert",
+    "POST /v1/orchestration/fulfill-intent（buyer/seller confirmation sessions）"
   ]
 }

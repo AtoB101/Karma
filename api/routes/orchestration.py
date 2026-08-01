@@ -24,9 +24,10 @@ class FulfillIntentRequest(BaseModel):
     negotiate_a2a: bool = True
     auto_complete: bool = False
     buyer_signature: str = "0xintent_fulfillment"
-    # Real-world: pause until owner Yes on accept_order (money/irreversible)
+    # Real-world: pause until owner Yes on required buyer/seller steps
     require_owner_confirmation: bool = True
     confirmation_session_id: str | None = Field(default=None, max_length=128)
+    seller_confirmation_session_id: str | None = Field(default=None, max_length=128)
     # Deprecated client hint — server ignores; POLICY_AUTO comes from saved automation-policy
     policy_auto_allowed: bool = False
     # Optional; must match intent-inferred scene or request is rejected
@@ -53,8 +54,9 @@ async def fulfill_intent_route(
     settlement lock/start → optional auto evidence + settle.
 
     Without a CONFIRMED confirmation session, returns
-    ``status=awaiting_owner_confirmation`` with ``owner_prompt_zh``.
-    Use ``require_owner_confirmation=false`` only for demos.
+    ``status=awaiting_owner_confirmation`` or ``awaiting_seller_confirmation``
+    with ``owner_prompt_zh``. Use ``require_owner_confirmation=false`` only for demos
+    (forbidden for high-risk scenes).
     """
     validate_public_url_segment("buyer_identity_id", body.buyer_identity_id)
     if body.seller_identity_id:
@@ -73,6 +75,7 @@ async def fulfill_intent_route(
         buyer_signature=body.buyer_signature,
         require_owner_confirmation=body.require_owner_confirmation,
         confirmation_session_id=body.confirmation_session_id,
+        seller_confirmation_session_id=body.seller_confirmation_session_id,
         policy_auto_allowed=body.policy_auto_allowed,
         scene_id=body.scene_id,
         confirmation_context=body.confirmation_context,

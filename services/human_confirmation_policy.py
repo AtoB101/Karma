@@ -12,7 +12,7 @@ import json
 import secrets
 import threading
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -30,6 +30,26 @@ _STORE_PATH = (
 _LOCK = threading.Lock()
 _SESSIONS: dict[str, "ConfirmationSession"] = {}
 _LOADED = False
+
+# Session lifetime — PENDING/CONFIRMED expire; USED stays for audit of prior steps
+SESSION_TTL_SECONDS = 30 * 60
+
+# Reality: daily commerce folds select_offer into one checkout Yes/No.
+# B2B / high-risk / lodging / tickets keep separate select → accept.
+_MULTI_STEP_BUYER_SCENES = frozenset(
+    {
+        "b2b_procurement",
+        "manufacturing",
+        "financial_services",
+        "healthcare_medical",
+        "software_development",
+        "design_creative",
+        "consulting_advisory",
+        "real_estate_services",
+        "hotel_booking",
+        "flight_booking",
+    }
+)
 
 
 class ConfirmationPolicyError(ValueError):
@@ -64,6 +84,17 @@ _TASK_TYPE_TO_SCENE: dict[str, str] = {
     "data.api": "data_api_billing",
     "logistics": "logistics_delivery",
     "software": "software_development",
+    "design": "design_creative",
+    "consulting": "consulting_advisory",
+    "content": "content_creation",
+    "manufacturing": "manufacturing",
+    "real_estate": "real_estate_services",
+    "finance": "financial_services",
+    "financial": "financial_services",
+    "marketing": "marketing_advertising",
+    "education": "education_training",
+    "healthcare": "healthcare_medical",
+    "medical": "healthcare_medical",
 }
 
 
@@ -84,6 +115,24 @@ def task_type_to_scene_id(task_type: str | None) -> str:
         return "flight_booking"
     if "procure" in tt or "b2b" in tt:
         return "b2b_procurement"
+    if "financ" in tt or "对账" in tt:
+        return "financial_services"
+    if "health" in tt or "medical" in tt or "陪诊" in tt:
+        return "healthcare_medical"
+    if "manufactur" in tt or "代工" in tt:
+        return "manufacturing"
+    if "real_estate" in tt or "房产" in tt:
+        return "real_estate_services"
+    if "consult" in tt:
+        return "consulting_advisory"
+    if "design" in tt or "创意" in tt:
+        return "design_creative"
+    if "market" in tt or "广告" in tt:
+        return "marketing_advertising"
+    if "educat" in tt or "培训" in tt:
+        return "education_training"
+    if "content" in tt or "内容" in tt:
+        return "content_creation"
     if tt.startswith("api.") or "mcp" in tt or "tool" in tt:
         return "api_tool_call"
     if "data" in tt:
@@ -92,8 +141,40 @@ def task_type_to_scene_id(task_type: str | None) -> str:
         return "logistics_delivery"
     if "software" in tt or "dev" in tt:
         return "software_development"
-    # Unknown → use global defaults via fallback scene wrapper
-    return tt if tt in (load_policy_catalog().get("scenes") or {}) else "api_tool_call"
+    # Known catalog scene id passthrough; unknown → api_tool_call (never invent high-risk)
+    scenes = load_policy_catalog().get("scenes") or {}
+    return tt if tt in scenes else "api_tool_call"
+
+
+def is_high_risk_scene(scene_id: str | None) -> bool:
+    if not scene_id:
+        return False
+    scene = (load_policy_catalog().get("scenes") or {}).get(scene_id) or {}
+    return bool(scene.get("high_risk"))
+
+
+def require_known_scene(scene_id: str) -> dict[str, Any]:
+    """Return scene policy or raise — no silent global fallback for unknown ids."""
+    cat = load_policy_catalog()
+    scene = (cat.get("scenes") or {}).get(scene_id)
+    if not scene:
+        raise ConfirmationPolicyError(
+            f"unknown confirmation scene_id '{scene_id}' — refuse silent global fallback"
+        )
+    return {"scene_id": scene_id, **scene, "fallback": False}
+
+
+def buyer_fulfill_confirm_steps(scene_id: str) -> list[str]:
+    """Buyer steps that fulfill must gate, in order (reality-tuned)."""
+    if scene_id in _MULTI_STEP_BUYER_SCENES or is_high_risk_scene(scene_id):
+        return ["select_offer", "accept_order"]
+    return ["accept_order"]
+
+
+def seller_must_confirm_accept(scene_id: str) -> bool:
+    """True when seller accept_order is OWNER_CONFIRM (not POLICY_AUTO/AUTO)."""
+    gate = resolve_gate(scene_id=scene_id, role="seller", step="accept_order")
+    return gate.get("mode") == "OWNER_CONFIRM"
 
 
 def list_policy_scenes() -> list[dict[str, Any]]:
@@ -111,15 +192,19 @@ def list_policy_scenes() -> list[dict[str, Any]]:
     return out
 
 
-def get_scene_policy(scene_id: str) -> dict[str, Any]:
+def get_scene_policy(scene_id: str, *, allow_fallback: bool = True) -> dict[str, Any]:
     cat = load_policy_catalog()
     scene = (cat.get("scenes") or {}).get(scene_id)
     if not scene:
-        # fallback to global defaults wrapped
+        if not allow_fallback:
+            raise ConfirmationPolicyError(
+                f"unknown confirmation scene_id '{scene_id}' — refuse silent global fallback"
+            )
+        # Soft fallback only for planning/display of typos — fulfill uses require_known_scene
         return {
             "scene_id": scene_id,
             "title_zh": scene_id,
-            "reality_note_zh": "使用全局默认确认策略",
+            "reality_note_zh": "使用全局默认确认策略（未知 scene，勿用于高风险成交）",
             "buyer": (cat.get("global_defaults") or {}).get("buyer") or {},
             "seller": (cat.get("global_defaults") or {}).get("seller") or {},
             "owner_prompt_templates_zh": {},
@@ -255,6 +340,7 @@ class ConfirmationSession:
     context: dict[str, Any] = field(default_factory=dict)
     status: str = "PENDING"  # PENDING | CONFIRMED | REJECTED | USED | EXPIRED
     created_at: str = ""
+    expires_at: str | None = None
     decided_at: str | None = None
     decision_note: str | None = None
     interaction_ref: str | None = None
@@ -271,6 +357,7 @@ class ConfirmationSession:
             "context": self.context,
             "status": self.status,
             "created_at": self.created_at,
+            "expires_at": self.expires_at,
             "decided_at": self.decided_at,
             "decision_note": self.decision_note,
             "interaction_ref": self.interaction_ref,
@@ -303,6 +390,7 @@ def _ensure_sessions_loaded() -> None:
                             context=dict(body.get("context") or {}),
                             status=str(body.get("status") or "PENDING"),
                             created_at=str(body.get("created_at") or ""),
+                            expires_at=body.get("expires_at"),
                             decided_at=body.get("decided_at"),
                             decision_note=body.get("decision_note"),
                             interaction_ref=body.get("interaction_ref"),
@@ -332,6 +420,35 @@ def reset_confirmation_sessions() -> None:
             _STORE_PATH.unlink(missing_ok=True)
 
 
+def _parse_iso(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _expire_if_needed_unlocked(sess: ConfirmationSession) -> bool:
+    """Mark PENDING/CONFIRMED expired when past TTL. Returns True if now EXPIRED."""
+    if sess.status not in {"PENDING", "CONFIRMED"}:
+        return sess.status == "EXPIRED"
+    exp = _parse_iso(sess.expires_at)
+    if exp is None and sess.created_at:
+        created = _parse_iso(sess.created_at)
+        if created:
+            exp = created + timedelta(seconds=SESSION_TTL_SECONDS)
+    if exp is None:
+        return False
+    now = datetime.now(timezone.utc)
+    if exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if now > exp:
+        sess.status = "EXPIRED"
+        return True
+    return False
+
+
 def create_confirmation_session(
     *,
     scene_id: str,
@@ -342,6 +459,12 @@ def create_confirmation_session(
     interaction_ref: str | None = None,
     policy_auto_allowed: bool = False,
 ) -> dict[str, Any]:
+    # Refuse unknown scene ids — no silent global fallback (security)
+    if scene_id not in (load_policy_catalog().get("scenes") or {}):
+        raise ConfirmationPolicyError(
+            f"unknown confirmation scene_id '{scene_id}' — refuse silent global fallback"
+        )
+
     gate = resolve_gate(
         scene_id=scene_id,
         role=role,
@@ -369,6 +492,10 @@ def create_confirmation_session(
         except (TypeError, ValueError):
             max_amount = None
     sid = "cfm_" + secrets.token_hex(12)
+    created = _iso_now()
+    expires = (
+        datetime.now(timezone.utc) + timedelta(seconds=SESSION_TTL_SECONDS)
+    ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     sess = ConfirmationSession(
         session_id=sid,
         scene_id=scene_id,
@@ -378,7 +505,8 @@ def create_confirmation_session(
         prompt_zh=prompt,
         context=ctx,
         status="PENDING",
-        created_at=_iso_now(),
+        created_at=created,
+        expires_at=expires,
         interaction_ref=interaction_ref,
         max_amount=max_amount,
     )
@@ -393,9 +521,11 @@ def get_confirmation_session(session_id: str) -> dict[str, Any]:
     _ensure_sessions_loaded()
     with _LOCK:
         sess = _SESSIONS.get(session_id)
-    if not sess:
-        raise ConfirmationPolicyError(f"unknown confirmation session: {session_id}")
-    return sess.public()
+        if not sess:
+            raise ConfirmationPolicyError(f"unknown confirmation session: {session_id}")
+        if _expire_if_needed_unlocked(sess):
+            _persist_sessions_unlocked()
+        return sess.public()
 
 
 def decide_confirmation_session(
@@ -412,6 +542,9 @@ def decide_confirmation_session(
         sess = _SESSIONS.get(session_id)
         if not sess:
             raise ConfirmationPolicyError(f"unknown confirmation session: {session_id}")
+        if _expire_if_needed_unlocked(sess):
+            _persist_sessions_unlocked()
+            raise ConfirmationPolicyError("confirmation session EXPIRED")
         if sess.status != "PENDING":
             raise ConfirmationPolicyError(f"session already {sess.status}")
         if actor_agent_id != sess.owner_agent_id:
@@ -439,10 +572,12 @@ def assert_step_allowed(
     expected_owner_agent_id: str | None = None,
     amount: float | None = None,
     consume: bool = True,
+    expected_interaction_ref: str | None = None,
 ) -> dict[str, Any]:
     """Gate helper for orchestration: AUTO ok; OWNER_CONFIRM requires CONFIRMED session.
 
-    Binds owner + amount; consumes session (USED) so it cannot be replayed.
+    Binds owner + amount + optional interaction_ref; consumes session (USED) so it
+    cannot be replayed. Expires PENDING/CONFIRMED past TTL.
     """
     _ensure_sessions_loaded()
     gate = resolve_gate(
@@ -461,6 +596,9 @@ def assert_step_allowed(
         sess_obj = _SESSIONS.get(confirmation_session_id)
         if not sess_obj:
             raise ConfirmationPolicyError(f"unknown confirmation session: {confirmation_session_id}")
+        if _expire_if_needed_unlocked(sess_obj):
+            _persist_sessions_unlocked()
+            raise ConfirmationPolicyError("confirmation session EXPIRED")
         if sess_obj.status != "CONFIRMED":
             raise ConfirmationPolicyError(
                 f"confirmation session status is {sess_obj.status}, need CONFIRMED"
@@ -473,6 +611,12 @@ def assert_step_allowed(
             raise ConfirmationPolicyError("confirmation session does not match scene/role/step")
         if expected_owner_agent_id and sess_obj.owner_agent_id != expected_owner_agent_id:
             raise ConfirmationPolicyError("confirmation session owner does not match buyer")
+        if (
+            expected_interaction_ref
+            and sess_obj.interaction_ref
+            and sess_obj.interaction_ref != expected_interaction_ref
+        ):
+            raise ConfirmationPolicyError("confirmation session interaction_ref mismatch")
         if amount is not None and sess_obj.max_amount is not None:
             if float(amount) > float(sess_obj.max_amount) + 1e-6:
                 raise ConfirmationPolicyError(
@@ -490,3 +634,66 @@ def assert_step_allowed(
         "session": out_sess,
         "consumed": bool(consume),
     }
+
+
+def step_already_satisfied(
+    *,
+    scene_id: str,
+    role: str,
+    step: str,
+    owner_agent_id: str,
+    interaction_ref: str | None = None,
+    policy_auto_allowed: bool = False,
+) -> bool:
+    """True if step is AUTO under policy or a USED session already covered it.
+
+    CONFIRMED (not yet consumed) does **not** count — caller must assert/consume
+    to prevent replay across fulfill resumes.
+    """
+    gate = resolve_gate(
+        scene_id=scene_id,
+        role=role,
+        step=step,
+        policy_auto_allowed=policy_auto_allowed,
+    )
+    if not gate["needs_owner_confirmation"]:
+        return True
+    _ensure_sessions_loaded()
+    with _LOCK:
+        for sess in _SESSIONS.values():
+            if _expire_if_needed_unlocked(sess):
+                continue
+            if (
+                sess.scene_id == scene_id
+                and sess.role == role.lower()
+                and sess.step == step
+                and sess.owner_agent_id == owner_agent_id
+                and sess.status == "USED"
+            ):
+                if interaction_ref and sess.interaction_ref and sess.interaction_ref != interaction_ref:
+                    continue
+                return True
+    return False
+
+
+def next_required_confirm_step(
+    *,
+    scene_id: str,
+    role: str,
+    steps: list[str],
+    owner_agent_id: str,
+    interaction_ref: str | None = None,
+    policy_auto_allowed: bool = False,
+) -> str | None:
+    """First step in ``steps`` that still needs a fresh owner Yes."""
+    for step in steps:
+        if not step_already_satisfied(
+            scene_id=scene_id,
+            role=role,
+            step=step,
+            owner_agent_id=owner_agent_id,
+            interaction_ref=interaction_ref,
+            policy_auto_allowed=policy_auto_allowed,
+        ):
+            return step
+    return None

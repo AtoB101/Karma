@@ -51,6 +51,7 @@ class AssertRequest(BaseModel):
     expected_owner_agent_id: str | None = Field(default=None, max_length=128)
     amount: float | None = Field(default=None, gt=0)
     consume: bool = True
+    expected_interaction_ref: str | None = Field(default=None, max_length=256)
 
 
 @router.post("/plan")
@@ -70,8 +71,13 @@ async def plan_owner_confirmations(body: PlanRequest) -> dict[str, Any]:
 
 @router.post("/sessions")
 async def create_owner_confirmation_session(body: CreateSessionRequest) -> dict[str, Any]:
-    """Create a Yes/No prompt for the owner; AUTO steps return skipped."""
+    """Create a Yes/No prompt for the owner; AUTO steps return skipped.
+
+    Client ``policy_auto_allowed`` is ignored — only Core/fulfill may enable
+    POLICY_AUTO after verifying a saved automation-policy (anti-bypass).
+    """
     try:
+        _ = body.policy_auto_allowed  # intentionally ignored
         return create_confirmation_session(
             scene_id=body.scene_id,
             role=body.role,
@@ -79,7 +85,7 @@ async def create_owner_confirmation_session(body: CreateSessionRequest) -> dict[
             owner_agent_id=body.owner_agent_id,
             context=body.context,
             interaction_ref=body.interaction_ref,
-            policy_auto_allowed=body.policy_auto_allowed,
+            policy_auto_allowed=False,
         )
     except ConfirmationPolicyError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -124,6 +130,7 @@ async def assert_confirmation_gate(body: AssertRequest) -> dict[str, Any]:
             expected_owner_agent_id=body.expected_owner_agent_id,
             amount=body.amount,
             consume=body.consume,
+            expected_interaction_ref=body.expected_interaction_ref,
         )
     except ConfirmationPolicyError as exc:
         raise HTTPException(403, str(exc)) from exc
