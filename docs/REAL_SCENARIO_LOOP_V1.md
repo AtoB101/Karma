@@ -14,6 +14,7 @@
 | Voucher → 结算 SETTLED | **~70%** | 脊柱可通；`auto_complete` 为合成完单，非线下验真 |
 | 卖方确认 TTL / 违约责任 (P6) | **~70%** | 超时取消+未确认档案+责任金 |
 | 交付验真 (P7) | **~65%** | 三方物流+防伪标签+30min 默认确认；票务 stub；issuer API 后期 |
+| 结算信誉 (P8) | **~70%** | 行业差异化结算+加密可查证明+Agent 代验；链上 attestation 后期 |
 | OpenClaw / 链上默认 | **~35%** | 旁路可选，未强制 |
 | 生产多实例 / 链上结算默认 | **~40%** | 仍有 sidecar/demo 软默认 |
 | **真实场景可测试闭环（本脚本）** | **~75%** | 可本地无 Docker 跑通 5 大场景 |
@@ -31,7 +32,8 @@
   → Important Fields 三方 MATCHED（开发可用 auto_lock）
   → 卖方确认（OWNER_CONFIRM 场景）/ 超时取消（P6）
   → 确认后武装违约责任 → voucher accept
-  → 交付验真 VERIFIED（实物三方 / 票务回执 / 数字回执）→ settlement → SETTLED
+  → 交付验真 VERIFIED（实物三方 / 票务回执 / 数字回执）
+  → settlement → SETTLED + P8 加密可查 attestation / 场景信誉
 ```
 
 场景：`food_delivery` / `ride_hailing` / `hotel_booking` / `flight_booking` / `b2b_procurement`

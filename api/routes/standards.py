@@ -20,6 +20,12 @@ from services.delivery_verification import (
     load_delivery_catalog,
     scene_policy as delivery_scene_policy,
 )
+from services.settlement_reputation import (
+    SettlementReputationError,
+    list_settle_scenes,
+    load_settle_catalog,
+    scene_settle_policy,
+)
 from services.important_fields_capture import (
     CaptureError,
     capture_from_interaction,
@@ -409,6 +415,42 @@ async def get_delivery_verification_scene(scene_id: str) -> dict[str, Any]:
         raise HTTPException(404, str(exc)) from exc
     return {
         "schema_version": "karma-delivery-verification-v1",
+        "scene_id": scene_id,
+        "policy": pol,
+    }
+
+
+@router.get("/settlement-reputation")
+async def get_settlement_reputation_standard() -> dict[str, Any]:
+    """P8: industry settle policies + encrypted public attestations."""
+    try:
+        cat = load_settle_catalog()
+    except (FileNotFoundError, SettlementReputationError) as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "design_goals_zh": cat.get("design_goals_zh"),
+        "public_attestation": cat.get("public_attestation"),
+        "reputation_profiles": cat.get("reputation_profiles"),
+        "global_defaults": cat.get("global_defaults"),
+        "scenes": list_settle_scenes(),
+        "api": cat.get("api"),
+        "related_standards": cat.get("related_standards"),
+        "catalog_path": "packages/evidence-schema/settlement-reputation.v1.json",
+        "doc": "docs/SETTLEMENT_REPUTATION_P8_V1.md",
+    }
+
+
+@router.get("/settlement-reputation/scenes/{scene_id}")
+async def get_settlement_reputation_scene(scene_id: str) -> dict[str, Any]:
+    try:
+        pol = scene_settle_policy(scene_id)
+    except SettlementReputationError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "schema_version": "karma-settlement-reputation-v1",
         "scene_id": scene_id,
         "policy": pol,
     }

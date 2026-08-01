@@ -48,6 +48,7 @@ from api.routes import (
     standards,
     confirmations,
     delivery_verification,
+    settlement_reputation,
 )
 
 logger = structlog.get_logger(__name__)
@@ -365,6 +366,12 @@ app.include_router(
     delivery_verification.router,
     prefix="/v1/delivery-verification",
     tags=["DeliveryVerification"],
+    dependencies=_rate_limited_rw,
+)
+app.include_router(
+    settlement_reputation.router,
+    prefix="/v1/settlement-reputation",
+    tags=["SettlementReputation"],
     dependencies=_rate_limited_rw,
 )
 

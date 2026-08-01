@@ -48,6 +48,14 @@ fraud rules, or dispute weighting — those belong in the private risk engine re
 - HTTP: `GET /v1/standards/delivery-verification`
 - Sessions: `POST /v1/delivery-verification/sessions` → ship / intake / deliver / buyer-confirm
 
+## Settlement & reputation (P8)
+
+`settlement-reputation.v1.json` — 行业差异化结算 + 加密可查证明 + Agent 智能代验 + 场景信誉。
+
+- Docs: `docs/SETTLEMENT_REPUTATION_P8_V1.md`
+- HTTP: `GET /v1/standards/settlement-reputation`
+- Attest: `POST /v1/settlement-reputation/attestations/seal`（公开承诺 + karma2 密文）
+
 ## Agent boundary standard
 
 `agent-boundary.v1.json` — 每个已连接 agent 的 **能力 / 责任 / 确认** 三边界。

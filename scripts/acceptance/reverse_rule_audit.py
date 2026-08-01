@@ -684,6 +684,70 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if not (ROOT / "docs/DELIVERY_VERIFICATION_P7_V1.md").is_file():
         _fail("missing docs/DELIVERY_VERIFICATION_P7_V1.md", failures)
 
+    # P8 settlement reputation — scene policies, encrypted attestations, agent auto-verify
+    p8cat = ROOT / "packages/evidence-schema/settlement-reputation.v1.json"
+    if not p8cat.is_file():
+        _fail("missing settlement-reputation.v1.json", failures)
+    else:
+        p8t = p8cat.read_text(encoding="utf-8")
+        if "karma-settlement-reputation-v1" not in p8t:
+            _fail("settlement-reputation catalog missing schema_version marker", failures)
+        for needle in (
+            "agent_auto_verify",
+            "outcome_commitment",
+            "instant_on_verified",
+            "delayed_explicit",
+            "invoice_accept",
+            "reputation_profiles",
+            "regulator",
+        ):
+            if needle not in p8t:
+                _fail(f"settlement-reputation catalog missing {needle}", failures)
+
+    p8svc = _read("services/settlement_reputation.py")
+    for needle in (
+        "seal_settlement_attestation",
+        "verify_outcome_commitment",
+        "decrypt_attestation",
+        "agent_auto_verify_decision",
+        "assert_settle_gates",
+        "public_agent_reputation",
+        "karma2.",
+    ):
+        if needle not in p8svc:
+            _fail(f"settlement_reputation missing P8 piece: {needle}", failures)
+
+    p8routes = _read("api/routes/settlement_reputation.py")
+    for needle in (
+        "/attestations/seal",
+        "verify-commitment",
+        "agent-auto-verify",
+        "public-reputation",
+        "decrypt",
+    ):
+        if needle not in p8routes:
+            _fail(f"settlement_reputation routes missing {needle}", failures)
+
+    app = _read("api/app.py")
+    if 'prefix="/v1/settlement-reputation"' not in app:
+        _fail("api/app.py missing /v1/settlement-reputation router", failures)
+
+    standards = _read("api/routes/standards.py")
+    if "/settlement-reputation" not in standards:
+        _fail("standards routes missing settlement-reputation API", failures)
+
+    settle = _read("api/routes/settlement.py")
+    for needle in (
+        "_seal_p8_attestation",
+        "apply_settle_reputation",
+        "auto_confirm_forbidden_for_scene",
+    ):
+        if needle not in settle:
+            _fail(f"settlement missing P8 piece: {needle}", failures)
+
+    if not (ROOT / "docs/SETTLEMENT_REPUTATION_P8_V1.md").is_file():
+        _fail("missing docs/SETTLEMENT_REPUTATION_P8_V1.md", failures)
+
 
 def main() -> int:
     failures: list[str] = []

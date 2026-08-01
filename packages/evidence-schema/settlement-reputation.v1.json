@@ -1,0 +1,249 @@
+{
+  "schema_version": "karma-settlement-reputation-v1",
+  "title": "Karma Settlement & Reputation Standard (P8)",
+  "title_zh": "Karma 结算信誉标准（P8）",
+  "description_zh": "按行业差异化真实结算流程；Agent 在验真通过后智能代验以节省用户时间。结算结果对公「可核验」——公开承诺哈希 + 加密密文可查，禁止明文 PII 公开展示。满足监管审计回溯，同时绝对保护用户隐私。",
+  "design_goals_zh": [
+    "分场景结算：外卖即时、B2B 发票窗、金融延迟显式确认",
+    "Agent 智能验证：P7 VERIFIED + 策略允许时代用户完成验收，减少打扰",
+    "公开透明但不明文：outcome_commitment / scope_hash 公开；明细仅 karma2 密文",
+    "监管可审计：regulator 角色密钥可解密审计包；公开侧只有承诺",
+    "信誉可回溯：场景化信誉增量写入证明，发现排序可消费",
+    "与 P4/P6/P7 门闩对齐：确认、违约责任武装、交付验真"
+  ],
+  "public_attestation": {
+    "envelope": "karma2.",
+    "kdf": "HKDF-SHA256 domain settle|v1|attestation_id|role",
+    "aad": "attestation_id|task_id|scene_id|scope_hash|outcome",
+    "public_fields": [
+      "attestation_id",
+      "task_id_commitment",
+      "scene_id",
+      "outcome",
+      "outcome_commitment",
+      "scope_hash",
+      "proof_hash",
+      "reputation_delta_commitment",
+      "settled_at",
+      "policy_mode",
+      "agent_auto_verified"
+    ],
+    "private_roles": ["parties", "regulator", "protocol"],
+    "note_zh": "任何人可核验承诺是否匹配；只有持角色密钥方可解密明细（买方/卖方/监管）"
+  },
+  "reputation_profiles": {
+    "daily_commerce": {
+      "success_base": 3.0,
+      "volume_factor": 0.03,
+      "dispute_penalty": 10.0,
+      "note_zh": "高频小额：小幅加分，争议惩罚适中"
+    },
+    "b2b": {
+      "success_base": 6.0,
+      "volume_factor": 0.04,
+      "dispute_penalty": 18.0,
+      "note_zh": "企业单：履约加分更高，争议更重"
+    },
+    "professional": {
+      "success_base": 5.0,
+      "volume_factor": 0.04,
+      "dispute_penalty": 15.0,
+      "note_zh": "专业服务：中等加分"
+    },
+    "high_risk": {
+      "success_base": 4.0,
+      "volume_factor": 0.02,
+      "dispute_penalty": 25.0,
+      "require_explicit_buyer": true,
+      "note_zh": "金融/医疗：强制显式确认，争议重罚"
+    },
+    "digital": {
+      "success_base": 2.0,
+      "volume_factor": 0.02,
+      "dispute_penalty": 12.0,
+      "note_zh": "API/数据：轻量加分"
+    }
+  },
+  "global_defaults": {
+    "require_p7_verified": true,
+    "require_p6_liability_when_armed": false,
+    "require_success_receipt": true,
+    "seal_attestation_on_settle": true,
+    "agent_auto_verify": false,
+    "settle_delay_seconds": 0,
+    "invoice_window_seconds": 0,
+    "reputation_profile": "professional",
+    "audit_retention_note_zh": "密文审计包与公开承诺长期可回溯；明文永不进公开索引"
+  },
+  "scenes": {
+    "food_delivery": {
+      "mode": "instant_on_verified",
+      "confirm": "POLICY_AUTO",
+      "agent_auto_verify": true,
+      "require_p7_verified": true,
+      "reputation_profile": "daily_commerce",
+      "reality_note_zh": "外卖：P7 验真通过后 Agent 可代验收即时结算，节省用户时间"
+    },
+    "ride_hailing": {
+      "mode": "instant_on_verified",
+      "confirm": "POLICY_AUTO",
+      "agent_auto_verify": true,
+      "require_p7_verified": true,
+      "reputation_profile": "daily_commerce",
+      "reality_note_zh": "叫车：行程验真后短路径结算"
+    },
+    "hotel_booking": {
+      "mode": "confirm_on_checkout",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "settle_delay_seconds": 0,
+      "reputation_profile": "daily_commerce",
+      "reality_note_zh": "酒店：离店/回执验真后仍需主人确认结算"
+    },
+    "flight_booking": {
+      "mode": "ticket_issued_settle",
+      "confirm": "POLICY_AUTO",
+      "agent_auto_verify": true,
+      "require_p7_verified": true,
+      "reputation_profile": "daily_commerce",
+      "reality_note_zh": "机票：出票凭证验真后可 Agent 代验结算"
+    },
+    "logistics_delivery": {
+      "mode": "pod_then_settle",
+      "confirm": "POLICY_AUTO",
+      "agent_auto_verify": true,
+      "require_p7_verified": true,
+      "reputation_profile": "b2b",
+      "reality_note_zh": "物流：POD+默认/确认后结算"
+    },
+    "b2b_procurement": {
+      "mode": "invoice_accept",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "invoice_window_seconds": 86400,
+      "reputation_profile": "b2b",
+      "reality_note_zh": "采购：收货验真后发票确认窗；须企业主人确认"
+    },
+    "manufacturing": {
+      "mode": "invoice_accept",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "invoice_window_seconds": 172800,
+      "reputation_profile": "b2b",
+      "reality_note_zh": "制造：质检通过后较长发票/验收窗"
+    },
+    "data_api_billing": {
+      "mode": "metered_instant",
+      "confirm": "POLICY_AUTO",
+      "agent_auto_verify": true,
+      "require_p7_verified": false,
+      "reputation_profile": "digital",
+      "reality_note_zh": "计量 API：回执+字段覆盖即可 Agent 结算"
+    },
+    "api_tool_call": {
+      "mode": "metered_instant",
+      "confirm": "POLICY_AUTO",
+      "agent_auto_verify": true,
+      "require_p7_verified": false,
+      "reputation_profile": "digital",
+      "reality_note_zh": "单次工具：数字轻量即时结算"
+    },
+    "software_development": {
+      "mode": "milestone_accept",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "invoice_window_seconds": 86400,
+      "reputation_profile": "professional",
+      "reality_note_zh": "软件：交付物哈希验收后主人确认结算"
+    },
+    "design_creative": {
+      "mode": "milestone_accept",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "reputation_profile": "professional",
+      "reality_note_zh": "设计：交付验收后确认结算"
+    },
+    "consulting_advisory": {
+      "mode": "milestone_accept",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "reputation_profile": "professional",
+      "reality_note_zh": "咨询：报告验收后确认"
+    },
+    "content_creation": {
+      "mode": "milestone_accept",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "reputation_profile": "professional",
+      "reality_note_zh": "内容：成片验收后确认"
+    },
+    "real_estate_services": {
+      "mode": "confirm_on_checkout",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "reputation_profile": "professional",
+      "reality_note_zh": "房产服务：完成回执后主人确认"
+    },
+    "financial_services": {
+      "mode": "delayed_explicit",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "settle_delay_seconds": 3600,
+      "silent_default": false,
+      "reputation_profile": "high_risk",
+      "reality_note_zh": "金融：延迟+显式确认；禁止 Agent 静默代结算；监管密文可审计"
+    },
+    "healthcare_medical": {
+      "mode": "delayed_explicit",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "settle_delay_seconds": 3600,
+      "silent_default": false,
+      "reputation_profile": "high_risk",
+      "reality_note_zh": "医疗：强制显式确认；隐私明细仅当事人与监管可解密"
+    },
+    "marketing_advertising": {
+      "mode": "milestone_accept",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "reputation_profile": "professional",
+      "reality_note_zh": "投放报告验收后确认结算"
+    },
+    "education_training": {
+      "mode": "confirm_on_checkout",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "reputation_profile": "professional",
+      "reality_note_zh": "课程完成凭证后确认结算"
+    }
+  },
+  "api": [
+    "GET /v1/standards/settlement-reputation",
+    "GET /v1/standards/settlement-reputation/scenes/{scene_id}",
+    "POST /v1/settlement-reputation/attestations/seal",
+    "GET /v1/settlement-reputation/attestations/{id}/public",
+    "POST /v1/settlement-reputation/attestations/verify-commitment",
+    "POST /v1/settlement-reputation/attestations/{id}/decrypt",
+    "POST /v1/settlement-reputation/agent-auto-verify",
+    "GET /v1/settlement-reputation/agents/{id}/public-reputation"
+  ],
+  "related_standards": [
+    "human-confirmation-policy.v1.json",
+    "accept-fulfillment.v1.json",
+    "delivery-verification.v1.json",
+    "important-fields-standard.v1.json",
+    "discovery-priority.v1.json"
+  ]
+}
