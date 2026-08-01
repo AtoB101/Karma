@@ -39,6 +39,10 @@ class FulfillIntentBody(BaseModel):
     amount: float | None = None
     auto_complete: bool = False
     negotiate_a2a: bool = True
+    require_owner_confirmation: bool = True
+    confirmation_session_id: str | None = None
+    policy_auto_allowed: bool = False
+    scene_id: str | None = None
 
 router = APIRouter()
 
@@ -133,7 +137,13 @@ async def fulfill_intent_via_karma(body: FulfillIntentBody):
         "auto_complete": body.auto_complete,
         "negotiate_a2a": body.negotiate_a2a,
         "auto_fund_capacity": True,
+        "require_owner_confirmation": body.require_owner_confirmation,
+        "policy_auto_allowed": body.policy_auto_allowed,
     }
+    if body.confirmation_session_id:
+        payload["confirmation_session_id"] = body.confirmation_session_id
+    if body.scene_id:
+        payload["scene_id"] = body.scene_id
     headers = {"Content-Type": "application/json"}
     if config.KARMA_API_KEY:
         headers["Authorization"] = f"Bearer {config.KARMA_API_KEY}"
