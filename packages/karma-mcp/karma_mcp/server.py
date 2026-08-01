@@ -204,14 +204,18 @@ def karma_fulfill_intent(
     buyer_identity_id: str,
     amount: float = 0.0,
     auto_complete: bool = False,
+    confirmation_session_id: str = "",
+    require_owner_confirmation: bool = True,
 ) -> dict[str, Any]:
     """
-    End-to-end: understand intent → discover merchant → negotiate → voucher →
-    settlement start → optional auto evidence+settle.
+    End-to-end: understand intent → discover → owner Yes/No (when required) →
+    negotiate → voucher → settlement start → optional auto evidence+settle.
 
     This is the primary assistant tool for "user asked me to do X".
-    Prefer auto_complete=false in production (human/seller confirms delivery);
-    use auto_complete=true for demos.
+    In production, first call often returns status=awaiting_owner_confirmation
+    with owner_prompt_zh — show that to the owner, then decide via
+    /v1/confirmations/sessions/{id}/decide and retry with confirmation_session_id.
+    Use require_owner_confirmation=false only for demos.
     """
     import httpx
 
@@ -221,9 +225,12 @@ def karma_fulfill_intent(
         "auto_complete": auto_complete,
         "negotiate_a2a": True,
         "auto_fund_capacity": True,
+        "require_owner_confirmation": require_owner_confirmation,
     }
     if amount and amount > 0:
         payload["amount"] = amount
+    if confirmation_session_id:
+        payload["confirmation_session_id"] = confirmation_session_id
 
     headers: dict[str, str] = {"Content-Type": "application/json"}
     api_key = os.getenv("KARMA_API_KEY", "")

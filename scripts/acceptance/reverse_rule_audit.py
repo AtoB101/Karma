@@ -186,6 +186,118 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if 'startswith("karma1.")' not in capture and "startswith('karma1.')" not in capture:
         _fail("submit path must require karma1. ciphertext prefix", failures)
 
+    onboarding = ROOT / "packages/evidence-schema/agent-onboarding-template.v1.json"
+    if not onboarding.is_file():
+        _fail("missing agent-onboarding-template.v1.json", failures)
+    else:
+        ob = onboarding.read_text(encoding="utf-8")
+        if "karma-agent-onboarding-v1" not in ob:
+            _fail("onboarding catalog missing schema_version marker", failures)
+        for profile in ("user", "merchant", "enterprise"):
+            if f'"{profile}"' not in ob:
+                _fail(f"onboarding catalog missing profile {profile}", failures)
+    standards = _read("api/routes/standards.py")
+    if "/onboarding" not in standards or "materialize_onboarding" not in standards:
+        _fail("standards routes missing onboarding template APIs", failures)
+    agents = _read("api/routes/agents.py")
+    if "connect-from-template" not in agents:
+        _fail("agents routes missing connect-from-template", failures)
+
+    # Human confirmation policy — real-scene AUTO vs OWNER_CONFIRM split
+    conf_catalog = ROOT / "packages/evidence-schema/human-confirmation-policy.v1.json"
+    if not conf_catalog.is_file():
+        _fail("missing human-confirmation-policy.v1.json", failures)
+    else:
+        conf_text = conf_catalog.read_text(encoding="utf-8")
+        if "karma-human-confirmation-v1" not in conf_text:
+            _fail("confirmation policy missing schema_version marker", failures)
+        for scene in (
+            "ride_hailing",
+            "food_delivery",
+            "hotel_booking",
+            "flight_booking",
+            "b2b_procurement",
+        ):
+            if f'"{scene}"' not in conf_text:
+                _fail(f"confirmation policy missing scene {scene}", failures)
+        for mode in ("AUTO", "OWNER_CONFIRM", "POLICY_AUTO"):
+            if mode not in conf_text:
+                _fail(f"confirmation policy missing gate mode {mode}", failures)
+
+    standards = _read("api/routes/standards.py")
+    if "/confirmation-policy" not in standards:
+        _fail("standards routes missing confirmation-policy APIs", failures)
+
+    conf_routes = _read("api/routes/confirmations.py")
+    for needle in ("/plan", "/sessions", "/decide", "assert_step_allowed"):
+        if needle not in conf_routes:
+            _fail(f"confirmations routes missing {needle}", failures)
+
+    app = _read("api/app.py")
+    if 'prefix="/v1/confirmations"' not in app:
+        _fail("api/app.py missing /v1/confirmations router", failures)
+
+    fulfill = _read("services/intent_fulfillment.py")
+    for needle in (
+        "awaiting_owner_confirmation",
+        "require_owner_confirmation",
+        "assert_step_allowed",
+        "task_type_to_scene_id",
+        "allow_demo_confirmation_bypass",
+        "expected_owner_agent_id",
+        "get_automation_policy",
+        "does not match intent-inferred scene",
+    ):
+        if needle not in fulfill:
+            _fail(f"intent_fulfillment missing confirmation gate: {needle}", failures)
+
+    conf_svc = _read("services/human_confirmation_policy.py")
+    for needle in (
+        'actor_agent_id is required',
+        'status = "USED"',
+        "exceeds confirmed max_amount",
+        "only the owner_agent_id may decide",
+    ):
+        if needle not in conf_svc:
+            _fail(f"human_confirmation_policy missing anti-bypass: {needle}", failures)
+
+    # Agent boundary — every connected agent publishes capability/responsibility/confirmation
+    boundary_cat = ROOT / "packages/evidence-schema/agent-boundary.v1.json"
+    if not boundary_cat.is_file():
+        _fail("missing agent-boundary.v1.json", failures)
+    else:
+        bt = boundary_cat.read_text(encoding="utf-8")
+        if "karma-agent-boundary-v1" not in bt:
+            _fail("agent-boundary catalog missing schema_version marker", failures)
+        for part in ("capability_boundary", "responsibility_boundary", "confirmation_boundary"):
+            if part not in bt:
+                _fail(f"agent-boundary catalog missing {part}", failures)
+
+    standards = _read("api/routes/standards.py")
+    if "/agent-boundary" not in standards:
+        _fail("standards routes missing agent-boundary API", failures)
+
+    agents = _read("api/routes/agents.py")
+    if "/boundary" not in agents and '"{agent_id}/boundary"' not in agents:
+        if '/{agent_id}/boundary' not in agents:
+            _fail("agents routes missing GET /{agent_id}/boundary", failures)
+
+    directory = _read("services/agent_directory.py")
+    for needle in ("ensure_boundary", "agent_boundary", "boundary_digest"):
+        if needle not in directory:
+            _fail(f"agent_directory missing boundary wiring: {needle}", failures)
+
+    boundary_svc = _read("services/agent_boundary.py")
+    for needle in (
+        "materialize_agent_boundary",
+        "capability_boundary",
+        "responsibility_boundary",
+        "confirmation_boundary",
+        "boundary_complete",
+    ):
+        if needle not in boundary_svc:
+            _fail(f"agent_boundary service missing {needle}", failures)
+
 
 def main() -> int:
     failures: list[str] = []

@@ -1,0 +1,45 @@
+{
+  "schema_version": "karma-agent-boundary-v1",
+  "title": "Karma Agent Boundary Standard",
+  "title_zh": "Karma Agent 边界标准（能力 / 责任 / 确认）",
+  "description_zh": "每个接入 Karma 的 agent 必须对外可读地界定：能力边界、责任边界、人工确认边界。对端据此发现与成交；主人只在必须确认点答 Yes/No；其余自动执行，保证高效交付。",
+  "design_goals_zh": [
+    "以现实场景为标准：叫车/外卖/酒店/机票/采购/API 等，先分清哪些必须人确认、哪些可自动",
+    "能力边界：做什么、覆盖哪里、收费/SLA、明确不做清单（service_specs）",
+    "责任边界：谁对交付与证据负责、是否允许转委托、资金不托管",
+    "确认边界：按场景角色列出 must_confirm / auto_ok，Agent 只问是否确认",
+    "流程畅通：边界清晰 → 发现匹配准 → 确认点少而准 → 自动履约与证明 → 增效"
+  ],
+  "boundary_parts": {
+    "capability_boundary": "能做什么 / 不能做什么 / 服务指标（与 onboarding service_specs 对齐）",
+    "responsibility_boundary": "交付与证据责任归属、委托限制、合规旗标",
+    "confirmation_boundary": "哪些步骤必须主人确认、哪些可自动（与 human-confirmation-policy 对齐）"
+  },
+  "completeness_rules_zh": {
+    "user": "具备 discovery/fulfill 能力 + 确认边界（买方）即可 complete",
+    "merchant": "必须有 scene_ids + service_specs 硬指标 + boundaries 不做清单 + 卖方确认边界",
+    "enterprise": "同 merchant，并声明 trade_side / compliance_flags",
+    "plain_connect": "仅 capabilities 时标记 boundary_complete=false，对端可见缺口；建议改走 connect-from-template"
+  },
+  "public_card_fields": [
+    "agent_id",
+    "profile_id",
+    "scene_ids",
+    "boundary_complete",
+    "capability_boundary",
+    "responsibility_boundary",
+    "confirmation_boundary",
+    "efficiency_note_zh"
+  ],
+  "api": [
+    "GET /v1/standards/agent-boundary",
+    "GET /v1/agents/{id}/boundary",
+    "POST /v1/agents/connect-from-template（写入完整边界）",
+    "POST /v1/agents/connect（写入边界摘要；incomplete 可见）"
+  ],
+  "related_standards": [
+    "packages/evidence-schema/agent-onboarding-template.v1.json",
+    "packages/evidence-schema/human-confirmation-policy.v1.json",
+    "packages/evidence-schema/important-fields-standard.v1.json"
+  ]
+}

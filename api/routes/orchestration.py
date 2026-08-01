@@ -1,6 +1,8 @@
 """Assistant orchestration — intent to delivery in one call."""
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +24,14 @@ class FulfillIntentRequest(BaseModel):
     negotiate_a2a: bool = True
     auto_complete: bool = False
     buyer_signature: str = "0xintent_fulfillment"
+    # Real-world: pause until owner Yes on accept_order (money/irreversible)
+    require_owner_confirmation: bool = True
+    confirmation_session_id: str | None = Field(default=None, max_length=128)
+    # Deprecated client hint — server ignores; POLICY_AUTO comes from saved automation-policy
+    policy_auto_allowed: bool = False
+    # Optional; must match intent-inferred scene or request is rejected
+    scene_id: str | None = Field(default=None, max_length=128)
+    confirmation_context: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/fulfill-intent")
@@ -33,11 +43,12 @@ async def fulfill_intent_route(
     """
     Full assistant spine:
 
-    discover merchant → A2A negotiate (if endpoint) → real voucher →
+    discover → owner Yes/No (when required) → A2A negotiate → voucher →
     settlement lock/start → optional auto evidence + settle.
 
-    Use ``auto_complete=true`` for demos / trusted automation to finish
-    delivery+receipt+buyer-accept in one shot.
+    Without a CONFIRMED confirmation session, returns
+    ``status=awaiting_owner_confirmation`` with ``owner_prompt_zh``.
+    Use ``require_owner_confirmation=false`` only for demos.
     """
     validate_public_url_segment("buyer_identity_id", body.buyer_identity_id)
     if body.seller_identity_id:
@@ -54,6 +65,11 @@ async def fulfill_intent_route(
         negotiate_a2a=body.negotiate_a2a,
         auto_complete=body.auto_complete,
         buyer_signature=body.buyer_signature,
+        require_owner_confirmation=body.require_owner_confirmation,
+        confirmation_session_id=body.confirmation_session_id,
+        policy_auto_allowed=body.policy_auto_allowed,
+        scene_id=body.scene_id,
+        confirmation_context=body.confirmation_context,
     )
     await db.commit()
     return result

@@ -16,6 +16,30 @@ fraud rules, or dispute weighting — those belong in the private risk engine re
 - Secure path: protocol **capture** → AES-GCM `karma1.` submit → **triple match**
   (`buyer == seller == protocol`) via `POST …/match-secure`
 
+## Agent onboarding templates
+
+`agent-onboarding-template.v1.json` — **用户 / 商家 / 企业**接入模板（行业细分与 scene 对齐）。
+
+- Docs: `docs/AGENT_ONBOARDING_TEMPLATE_V1.md`
+- HTTP: `GET /v1/standards/onboarding`
+- Auto-connect: `POST /v1/agents/connect-from-template`
+
+## Human confirmation policy
+
+`human-confirmation-policy.v1.json` — 按现实场景拆分 **AUTO / OWNER_CONFIRM / POLICY_AUTO**。
+
+- Docs: `docs/HUMAN_CONFIRMATION_POLICY_V1.md`
+- HTTP: `GET /v1/standards/confirmation-policy`
+- Sessions: `POST /v1/confirmations/sessions` → owner Yes/No → fulfill continues
+
+## Agent boundary standard
+
+`agent-boundary.v1.json` — 每个已连接 agent 的 **能力 / 责任 / 确认** 三边界。
+
+- Docs: `docs/AGENT_BOUNDARY_STANDARD_V1.md`
+- HTTP: `GET /v1/standards/agent-boundary`
+- Per agent: `GET /v1/agents/{id}/boundary`（discovery 卡附带 digest）
+
 Align runtime tooling with:
 
 - `trusted_agent_runtime/` (hashing + structural verification)

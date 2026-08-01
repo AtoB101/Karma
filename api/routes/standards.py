@@ -15,6 +15,24 @@ from services.important_fields_capture import (
     issue_session_key,
     submit_encrypted,
 )
+from services.agent_onboarding_template import (
+    OnboardingError,
+    get_industry,
+    get_profile,
+    list_industries,
+    list_profiles,
+    load_onboarding_catalog,
+    materialize_onboarding,
+    suggest_industries_for_text,
+)
+from services.agent_boundary import load_boundary_catalog
+from services.human_confirmation_policy import (
+    ConfirmationPolicyError,
+    get_scene_policy,
+    list_policy_scenes,
+    load_policy_catalog,
+    plan_confirmations,
+)
 from services.important_fields_standard import (
     ImportantFieldsError,
     example_for_scene,
@@ -66,6 +84,169 @@ class SecureSubmitRequest(BaseModel):
 
 class FinalizeRequest(BaseModel):
     capture_id: str = Field(min_length=1, max_length=128)
+
+
+class MaterializeOnboardingRequest(BaseModel):
+    profile_id: Literal["user", "merchant", "enterprise"]
+    answers: dict[str, Any] = Field(default_factory=dict)
+    extra_capabilities: list[str] = Field(default_factory=list, max_length=64)
+    agent_id: str | None = Field(default=None, max_length=128)
+    self_description: str | None = Field(
+        default=None,
+        max_length=4000,
+        description="Optional free text; used to suggest industries when merchant/enterprise omit industry_ids",
+    )
+
+
+class SuggestIndustriesRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    limit: int = Field(default=5, ge=1, le=18)
+
+
+# --- Onboarding templates (register before parameterized IF routes) ---
+
+
+@router.get("/onboarding")
+async def get_onboarding_standard() -> dict[str, Any]:
+    """Agent-readable connect templates: user / merchant / enterprise + industries."""
+    cat = load_onboarding_catalog()
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title": cat.get("title"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "design_goals_zh": cat.get("design_goals_zh"),
+        "profiles": list_profiles(),
+        "industry_count": len(list_industries()),
+        "recommended_agent_flow_zh": cat.get("recommended_agent_flow_zh"),
+        "agent_read_apis": cat.get("agent_read_apis"),
+        "catalog_path": "packages/evidence-schema/agent-onboarding-template.v1.json",
+    }
+
+
+@router.get("/onboarding/profiles")
+async def get_onboarding_profiles() -> dict[str, Any]:
+    return {"schema_version": "karma-agent-onboarding-v1", "profiles": list_profiles()}
+
+
+@router.get("/onboarding/profiles/{profile_id}")
+async def get_onboarding_profile(profile_id: str) -> dict[str, Any]:
+    try:
+        return {"schema_version": "karma-agent-onboarding-v1", "profile": get_profile(profile_id)}
+    except OnboardingError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.get("/onboarding/industries")
+async def get_onboarding_industries(
+    group: str | None = None,
+    audience: str | None = None,
+) -> dict[str, Any]:
+    rows = list_industries(group=group, audience=audience)
+    return {
+        "schema_version": "karma-agent-onboarding-v1",
+        "count": len(rows),
+        "group": group,
+        "audience": audience,
+        "industries": rows,
+    }
+
+
+@router.get("/onboarding/industries/{industry_id}")
+async def get_onboarding_industry(industry_id: str) -> dict[str, Any]:
+    try:
+        return {"schema_version": "karma-agent-onboarding-v1", "industry": get_industry(industry_id)}
+    except OnboardingError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@router.post("/onboarding/suggest-industries")
+async def suggest_onboarding_industries(body: SuggestIndustriesRequest) -> dict[str, Any]:
+    return {
+        "schema_version": "karma-agent-onboarding-v1",
+        "suggestions": suggest_industries_for_text(body.text, limit=body.limit),
+    }
+
+
+@router.post("/onboarding/materialize")
+async def materialize_onboarding_payload(body: MaterializeOnboardingRequest) -> dict[str, Any]:
+    """Agent fills answers (or auto-suggests industries) → standardized connect payload."""
+    answers = dict(body.answers or {})
+    if body.profile_id in {"merchant", "enterprise"} and not answers.get("industry_ids") and body.self_description:
+        suggestions = suggest_industries_for_text(body.self_description, limit=3)
+        answers["industry_ids"] = [s["industry_id"] for s in suggestions]
+        if not answers.get("capability_summary"):
+            answers["capability_summary"] = body.self_description.strip()[:500]
+        if not answers.get("boundaries"):
+            answers["boundaries"] = "以模板场景为界；未声明场景不接单。"
+    try:
+        return materialize_onboarding(
+            profile_id=body.profile_id,
+            answers=answers,
+            extra_capabilities=body.extra_capabilities,
+            agent_id=body.agent_id,
+        )
+    except OnboardingError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/agent-boundary")
+async def get_agent_boundary_standard() -> dict[str, Any]:
+    """Every connected agent must publish capability / responsibility / confirmation boundaries."""
+    cat = load_boundary_catalog()
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "design_goals_zh": cat.get("design_goals_zh"),
+        "boundary_parts": cat.get("boundary_parts"),
+        "completeness_rules_zh": cat.get("completeness_rules_zh"),
+        "public_card_fields": cat.get("public_card_fields"),
+        "api": cat.get("api"),
+        "related_standards": cat.get("related_standards"),
+        "catalog_path": "packages/evidence-schema/agent-boundary.v1.json",
+        "doc": "docs/AGENT_BOUNDARY_STANDARD_V1.md",
+    }
+
+
+@router.get("/confirmation-policy")
+async def get_confirmation_policy_standard() -> dict[str, Any]:
+    """Human vs auto gates by real-world scene — agents only ask owner when required."""
+    cat = load_policy_catalog()
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "design_goals_zh": cat.get("design_goals_zh"),
+        "gate_modes": cat.get("gate_modes"),
+        "lifecycle_steps": cat.get("lifecycle_steps"),
+        "agent_ux_zh": cat.get("agent_ux_zh"),
+        "scenes": list_policy_scenes(),
+        "api": cat.get("api"),
+        "catalog_path": "packages/evidence-schema/human-confirmation-policy.v1.json",
+    }
+
+
+@router.get("/confirmation-policy/scenes/{scene_id}")
+async def get_confirmation_policy_scene(scene_id: str) -> dict[str, Any]:
+    try:
+        scene = get_scene_policy(scene_id)
+    except ConfirmationPolicyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    plan_buyer = plan_confirmations(scene_id=scene_id, role="buyer")
+    plan_seller = plan_confirmations(scene_id=scene_id, role="seller")
+    return {
+        "schema_version": "karma-human-confirmation-v1",
+        "scene": scene,
+        "buyer_plan": {
+            "must_confirm_steps": [x["step"] for x in plan_buyer["must_confirm"]],
+            "auto_ok_steps": [x["step"] for x in plan_buyer["auto_ok"]],
+        },
+        "seller_plan": {
+            "must_confirm_steps": [x["step"] for x in plan_seller["must_confirm"]],
+            "auto_ok_steps": [x["step"] for x in plan_seller["auto_ok"]],
+        },
+    }
 
 
 @router.get("/important-fields")

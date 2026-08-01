@@ -1,0 +1,338 @@
+{
+  "schema_version": "karma-human-confirmation-v1",
+  "title": "Karma Human Confirmation Policy",
+  "title_zh": "Karma 人工确认策略（现实场景分流）",
+  "description_zh": "把链路拆成：可自动执行 vs 必须主人确认。Agent 只在必须确认点向主人询问「是否确认」；确认后即可接单/执行。",
+  "design_goals_zh": [
+    "符合叫车/外卖/酒店/机票/采购等现实习惯：钱、身份、不可逆承诺要人确认；匹配、出票执行、轨迹回传可自动",
+    "提高效率：主人不必逐步点流程，只需在关键门闩上 Yes/No",
+    "与 Important Fields 三方锁定、onboarding service_specs、settlement 对齐"
+  ],
+  "gate_modes": {
+    "AUTO": "协议/Agent 可直接执行，无需打扰主人",
+    "OWNER_CONFIRM": "必须主人明确确认（Yes）后才能继续；Agent 只问是否确认",
+    "POLICY_AUTO": "若 automation-policy / 预授权满足则可自动，否则降级为 OWNER_CONFIRM",
+    "COUNTERPARTY_OR_OWNER": "对端确认或主人确认其一即可（场景相关）"
+  },
+  "lifecycle_steps": [
+    "onboarding_publish",
+    "discover",
+    "select_offer",
+    "lock_important_fields",
+    "accept_order",
+    "execute_service",
+    "submit_delivery_proof",
+    "buyer_accept_settle",
+    "cancel",
+    "dispute_or_refund",
+    "price_change_or_surge"
+  ],
+  "global_defaults": {
+    "buyer": {
+      "discover": "AUTO",
+      "select_offer": "OWNER_CONFIRM",
+      "lock_important_fields": "OWNER_CONFIRM",
+      "accept_order": "OWNER_CONFIRM",
+      "execute_service": "AUTO",
+      "submit_delivery_proof": "AUTO",
+      "buyer_accept_settle": "OWNER_CONFIRM",
+      "cancel": "OWNER_CONFIRM",
+      "dispute_or_refund": "OWNER_CONFIRM",
+      "price_change_or_surge": "OWNER_CONFIRM"
+    },
+    "seller": {
+      "onboarding_publish": "OWNER_CONFIRM",
+      "discover": "AUTO",
+      "select_offer": "AUTO",
+      "lock_important_fields": "OWNER_CONFIRM",
+      "accept_order": "POLICY_AUTO",
+      "execute_service": "AUTO",
+      "submit_delivery_proof": "AUTO",
+      "buyer_accept_settle": "AUTO",
+      "cancel": "OWNER_CONFIRM",
+      "dispute_or_refund": "OWNER_CONFIRM",
+      "price_change_or_surge": "OWNER_CONFIRM"
+    }
+  },
+  "scenes": {
+    "ride_hailing": {
+      "title_zh": "叫车/网约车",
+      "reality_note_zh": "用户确认目的地与预估价后才叫车；司机接单可自动（平台派单）；行程中轨迹自动；支付常预授权自动；取消/改价需确认。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "POLICY_AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认叫车？{pickup} → {dropoff}，预估 {amount} {currency}，接驾约 {eta} 分钟",
+        "accept_order": "是否确认发出行程并锁价？",
+        "price_change_or_surge": "价格变为 {amount} {currency}（原 {prev_amount}），是否仍确认？",
+        "cancel": "是否确认取消行程？（可能产生取消费）",
+        "buyer_accept_settle": "行程已完成，是否确认支付结算 {amount} {currency}？"
+      },
+      "auto_ok_examples_zh": ["司机匹配与导航", "行程轨迹/完单证明回传", "预授权额度内自动结算"]
+    },
+    "food_delivery": {
+      "title_zh": "点外卖",
+      "reality_note_zh": "用户确认购物车、地址与金额后下单；商家接单可在营业时间内自动；配送轨迹自动；拒单/退款需人确认。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "POLICY_AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认下单？商家 {merchant}，送达 {address}，合计 {amount} {currency}，约 {eta} 分钟",
+        "accept_order": "是否确认支付并锁定订单？",
+        "cancel": "是否确认取消订单？",
+        "dispute_or_refund": "是否确认发起退款/售后？"
+      },
+      "auto_ok_examples_zh": ["菜单浏览与库存查询", "骑手匹配与轨迹", "送达证明上传", "预授权内结算"]
+    },
+    "hotel_booking": {
+      "title_zh": "订酒店",
+      "reality_note_zh": "预订涉及入住日期与较大金额，必须主人确认；酒店确认房态可自动；取消/改期必须确认；入住本身在线下。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认预订？{property} {check_in}–{check_out}，{room_type}，{amount} {currency}",
+        "accept_order": "是否确认锁价并支付/预授权？",
+        "cancel": "是否确认取消？将按取消政策执行",
+        "buyer_accept_settle": "是否确认入住无争议并结算？"
+      },
+      "auto_ok_examples_zh": ["房态查询", "确认号生成（接单策略开启时）", "入住凭证回传"]
+    },
+    "flight_booking": {
+      "title_zh": "订机票",
+      "reality_note_zh": "出票绑定旅客身份与不可逆费用，必须主人确认；支付后出票可自动；退改签必须确认。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "POLICY_AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认购票？{flight} {from}->{to} {depart}，旅客已核验，{amount} {currency}",
+        "accept_order": "是否确认出票并扣款/预授权？",
+        "cancel": "是否确认退票/改签？（按航司客规）"
+      },
+      "auto_ok_examples_zh": ["航班查询", "出票与票号回传（已确认后）", "行程通知"]
+    },
+    "b2b_procurement": {
+      "title_zh": "企业采购",
+      "reality_note_zh": "PO/报价/收货/付款在现实中几乎都要人确认；物流轨迹与质检报告上传可自动。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认该报价/供应商？金额 {amount}，交期 {lead_time_days} 天",
+        "accept_order": "是否确认下达/接受 PO {po_number}？",
+        "buyer_accept_settle": "是否确认收货合格并付款结算？",
+        "cancel": "是否确认取消采购？"
+      },
+      "auto_ok_examples_zh": ["目录与库存查询", "ASN/物流轨迹", "质检报告哈希上传"]
+    },
+    "data_api_billing": {
+      "title_zh": "数据调用/API计费",
+      "reality_note_zh": "配额内调用应自动；开通订阅/超限加价需确认；账单结算可预授权自动。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "POLICY_AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否开通 API？单价 {unit_price}/{meter_unit}，配额 {quota}，账期 {period}",
+        "price_change_or_surge": "将超配额，超限价 {overage_price}，是否确认继续？",
+        "accept_order": "是否确认预授权并开始计量？"
+      },
+      "auto_ok_examples_zh": ["配额内请求", "用量日志哈希", "成功率监控", "预授权内结算"]
+    },
+    "api_tool_call": {
+      "title_zh": "单次 API/MCP 工具调用",
+      "reality_note_zh": "小额工具调用可在政策内全自动；首次授权或超额需确认。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "POLICY_AUTO",
+        "lock_important_fields": "POLICY_AUTO",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "POLICY_AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否允许调用 {tool}？费用 {amount} {currency}",
+        "accept_order": "是否确认本次工具调用？"
+      },
+      "auto_ok_examples_zh": ["政策内重复小额调用", "回执哈希上传", "自动结算"]
+    },
+    "logistics_delivery": {
+      "title_zh": "物流配送",
+      "reality_note_zh": "下单寄件需确认地址与费用；运力调度与轨迹自动；签收异常需确认。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "POLICY_AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认寄件？{pickup}->{dropoff}，{service_level}，{amount} {currency}",
+        "accept_order": "是否确认锁单并支付运费？"
+      },
+      "auto_ok_examples_zh": ["运力匹配", "轨迹与签收凭证"]
+    },
+    "software_development": {
+      "title_zh": "软件开发",
+      "reality_note_zh": "立项与验收必须人确认；编码/测试/开PR可自动；合并与放款需确认。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认外包给 {seller}？范围摘要已锁定，金额 {amount}",
+        "accept_order": "是否确认立项并锁定资金？",
+        "buyer_accept_settle": "交付物已提交，是否确认验收并结算？"
+      },
+      "auto_ok_examples_zh": ["仓库读写与CI", "PR/测试报告哈希提交"]
+    }
+  },
+  "default_scene_fallback": "global_defaults",
+  "agent_ux_zh": {
+    "principle": "Agent 只在 OWNER_CONFIRM（或 POLICY_AUTO 未满足）时打扰主人，问一句是否确认",
+    "on_yes": "写入 confirmation session → 继续接单/锁字段/执行/结算",
+    "on_no": "停止该步，不接单、不锁款、不上链承诺",
+    "never_ask_for": ["纯查询", "轨迹同步", "已授权配额内API调用", "证据哈希上传（非付款）"]
+  },
+  "api": [
+    "GET /v1/standards/confirmation-policy",
+    "GET /v1/standards/confirmation-policy/scenes/{scene_id}",
+    "POST /v1/confirmations/plan",
+    "POST /v1/confirmations/sessions",
+    "POST /v1/confirmations/sessions/{id}/decide",
+    "GET /v1/confirmations/sessions/{id}"
+  ]
+}

@@ -46,6 +46,7 @@ from api.routes import (
     discovery,
     orchestration,
     standards,
+    confirmations,
 )
 
 logger = structlog.get_logger(__name__)
@@ -68,6 +69,7 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/agents/",
     "/v1/identities/",
     "/v1/verifiers/",
+    "/v1/confirmations/",
     "/runtime/",
 )
 STATE_TRANSITION_SEGMENTS = (
@@ -352,6 +354,12 @@ app.include_router(
 )
 # Public catalog — both buyer/seller agents read without auth
 app.include_router(standards.router, prefix="/v1/standards", tags=["Standards"])
+app.include_router(
+    confirmations.router,
+    prefix="/v1/confirmations",
+    tags=["Confirmations"],
+    dependencies=_rate_limited_rw,
+)
 
 
 @app.get("/health")
@@ -375,6 +383,34 @@ async def info():
             "note": (
                 "Protocol captures fields during interaction; parties submit AES-GCM ciphertext; "
                 "MATCHED only when buyer_hash == seller_hash == protocol_hash."
+            ),
+        },
+        "agent_onboarding_template": {
+            "catalog": "/v1/standards/onboarding",
+            "connect": "/v1/agents/connect-from-template",
+            "doc": "docs/AGENT_ONBOARDING_TEMPLATE_V1.md",
+            "note": (
+                "Profiles: user|merchant|enterprise. Agents read industry templates and "
+                "auto-fill capabilities/hours/targets/description before connect."
+            ),
+        },
+        "human_confirmation_policy": {
+            "catalog": "/v1/standards/confirmation-policy",
+            "plan": "/v1/confirmations/plan",
+            "sessions": "/v1/confirmations/sessions",
+            "doc": "docs/HUMAN_CONFIRMATION_POLICY_V1.md",
+            "note": (
+                "Split AUTO vs OWNER_CONFIRM by real scene. Agent only asks owner Yes/No; "
+                "fulfill-intent pauses at awaiting_owner_confirmation until confirmed."
+            ),
+        },
+        "agent_boundary_standard": {
+            "catalog": "/v1/standards/agent-boundary",
+            "agent_boundary": "/v1/agents/{id}/boundary",
+            "doc": "docs/AGENT_BOUNDARY_STANDARD_V1.md",
+            "note": (
+                "Every connected agent publishes capability + responsibility + confirmation "
+                "boundaries so counterparties know what can auto-run vs needs owner Yes/No."
             ),
         },
         "verify_auth": {
