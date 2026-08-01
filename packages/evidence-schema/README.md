@@ -24,6 +24,14 @@ fraud rules, or dispute weighting — those belong in the private risk engine re
 - HTTP: `GET /v1/standards/onboarding`
 - Auto-connect: `POST /v1/agents/connect-from-template`
 
+## Human confirmation policy
+
+`human-confirmation-policy.v1.json` — 按现实场景拆分 **AUTO / OWNER_CONFIRM / POLICY_AUTO**。
+
+- Docs: `docs/HUMAN_CONFIRMATION_POLICY_V1.md`
+- HTTP: `GET /v1/standards/confirmation-policy`
+- Sessions: `POST /v1/confirmations/sessions` → owner Yes/No → fulfill continues
+
 Align runtime tooling with:
 
 - `trusted_agent_runtime/` (hashing + structural verification)

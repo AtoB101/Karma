@@ -25,6 +25,13 @@ from services.agent_onboarding_template import (
     materialize_onboarding,
     suggest_industries_for_text,
 )
+from services.human_confirmation_policy import (
+    ConfirmationPolicyError,
+    get_scene_policy,
+    list_policy_scenes,
+    load_policy_catalog,
+    plan_confirmations,
+)
 from services.important_fields_standard import (
     ImportantFieldsError,
     example_for_scene,
@@ -180,6 +187,46 @@ async def materialize_onboarding_payload(body: MaterializeOnboardingRequest) -> 
         )
     except OnboardingError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/confirmation-policy")
+async def get_confirmation_policy_standard() -> dict[str, Any]:
+    """Human vs auto gates by real-world scene — agents only ask owner when required."""
+    cat = load_policy_catalog()
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "design_goals_zh": cat.get("design_goals_zh"),
+        "gate_modes": cat.get("gate_modes"),
+        "lifecycle_steps": cat.get("lifecycle_steps"),
+        "agent_ux_zh": cat.get("agent_ux_zh"),
+        "scenes": list_policy_scenes(),
+        "api": cat.get("api"),
+        "catalog_path": "packages/evidence-schema/human-confirmation-policy.v1.json",
+    }
+
+
+@router.get("/confirmation-policy/scenes/{scene_id}")
+async def get_confirmation_policy_scene(scene_id: str) -> dict[str, Any]:
+    try:
+        scene = get_scene_policy(scene_id)
+    except ConfirmationPolicyError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    plan_buyer = plan_confirmations(scene_id=scene_id, role="buyer")
+    plan_seller = plan_confirmations(scene_id=scene_id, role="seller")
+    return {
+        "schema_version": "karma-human-confirmation-v1",
+        "scene": scene,
+        "buyer_plan": {
+            "must_confirm_steps": [x["step"] for x in plan_buyer["must_confirm"]],
+            "auto_ok_steps": [x["step"] for x in plan_buyer["auto_ok"]],
+        },
+        "seller_plan": {
+            "must_confirm_steps": [x["step"] for x in plan_seller["must_confirm"]],
+            "auto_ok_steps": [x["step"] for x in plan_seller["auto_ok"]],
+        },
+    }
 
 
 @router.get("/important-fields")

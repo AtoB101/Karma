@@ -46,6 +46,7 @@ from api.routes import (
     discovery,
     orchestration,
     standards,
+    confirmations,
 )
 
 logger = structlog.get_logger(__name__)
@@ -68,6 +69,7 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/agents/",
     "/v1/identities/",
     "/v1/verifiers/",
+    "/v1/confirmations/",
     "/runtime/",
 )
 STATE_TRANSITION_SEGMENTS = (
@@ -352,6 +354,12 @@ app.include_router(
 )
 # Public catalog — both buyer/seller agents read without auth
 app.include_router(standards.router, prefix="/v1/standards", tags=["Standards"])
+app.include_router(
+    confirmations.router,
+    prefix="/v1/confirmations",
+    tags=["Confirmations"],
+    dependencies=_rate_limited_rw,
+)
 
 
 @app.get("/health")
@@ -384,6 +392,16 @@ async def info():
             "note": (
                 "Profiles: user|merchant|enterprise. Agents read industry templates and "
                 "auto-fill capabilities/hours/targets/description before connect."
+            ),
+        },
+        "human_confirmation_policy": {
+            "catalog": "/v1/standards/confirmation-policy",
+            "plan": "/v1/confirmations/plan",
+            "sessions": "/v1/confirmations/sessions",
+            "doc": "docs/HUMAN_CONFIRMATION_POLICY_V1.md",
+            "note": (
+                "Split AUTO vs OWNER_CONFIRM by real scene. Agent only asks owner Yes/No; "
+                "fulfill-intent pauses at awaiting_owner_confirmation until confirmed."
             ),
         },
         "verify_auth": {

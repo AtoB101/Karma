@@ -1,14 +1,13 @@
 """Service-level tests for intent fulfillment (no full FastAPI app import)."""
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime
-
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from db.models.orm import Base
+from services import human_confirmation_policy as hcp
+from services.human_confirmation_policy import decide_confirmation_session
 from services.intent_fulfillment import fulfill_intent
 
 
@@ -23,6 +22,13 @@ async def db_session(tmp_path):
     await engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _reset_confirmations():
+    hcp.reset_confirmation_sessions()
+    yield
+    hcp.reset_confirmation_sessions()
+
+
 @pytest.mark.asyncio
 async def test_fulfill_intent_auto_complete_settles(db_session, monkeypatch):
     monkeypatch.setenv("INTENT_FULFILL_DISABLE_DEMO_MERCHANTS", "0")
@@ -35,6 +41,7 @@ async def test_fulfill_intent_auto_complete_settles(db_session, monkeypatch):
         auto_complete=True,
         negotiate_a2a=False,
         auto_fund_capacity=True,
+        require_owner_confirmation=False,
     )
     await db_session.commit()
     assert result["status"] == "settled"
@@ -59,8 +66,43 @@ async def test_fulfill_intent_stops_at_in_progress(db_session, monkeypatch):
         amount=8.0,
         auto_complete=False,
         negotiate_a2a=False,
+        require_owner_confirmation=False,
     )
     await db_session.commit()
     assert result["status"] == "in_progress"
     assert result["next_steps"]
     assert any(t["stage"] == "settlement_in_progress" for t in result["timeline"])
+
+
+@pytest.mark.asyncio
+async def test_fulfill_pauses_for_owner_confirmation(db_session, monkeypatch):
+    monkeypatch.setenv("INTENT_FULFILL_DISABLE_DEMO_MERCHANTS", "0")
+    monkeypatch.setenv("A2A_REGISTRY_URL", "")
+    paused = await fulfill_intent(
+        db_session,
+        requirement_text="帮我点一份披萨外卖 12 USDC",
+        buyer_identity_id="buyer-confirm-1",
+        amount=12.0,
+        auto_complete=False,
+        negotiate_a2a=False,
+        require_owner_confirmation=True,
+    )
+    assert paused["status"] == "awaiting_owner_confirmation"
+    assert paused["scene_id"] == "food_delivery"
+    assert paused["owner_prompt_zh"]
+    sid = paused["confirmation"]["session_id"]
+    decide_confirmation_session(sid, confirm=True, actor_agent_id="buyer-confirm-1")
+
+    result = await fulfill_intent(
+        db_session,
+        requirement_text="帮我点一份披萨外卖 12 USDC",
+        buyer_identity_id="buyer-confirm-1",
+        amount=12.0,
+        auto_complete=True,
+        negotiate_a2a=False,
+        require_owner_confirmation=True,
+        confirmation_session_id=sid,
+    )
+    await db_session.commit()
+    assert result["status"] == "settled"
+    assert any(t["stage"] == "owner_confirmation" and t["ok"] for t in result["timeline"])

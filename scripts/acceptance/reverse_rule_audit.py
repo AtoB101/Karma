@@ -203,6 +203,50 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if "connect-from-template" not in agents:
         _fail("agents routes missing connect-from-template", failures)
 
+    # Human confirmation policy — real-scene AUTO vs OWNER_CONFIRM split
+    conf_catalog = ROOT / "packages/evidence-schema/human-confirmation-policy.v1.json"
+    if not conf_catalog.is_file():
+        _fail("missing human-confirmation-policy.v1.json", failures)
+    else:
+        conf_text = conf_catalog.read_text(encoding="utf-8")
+        if "karma-human-confirmation-v1" not in conf_text:
+            _fail("confirmation policy missing schema_version marker", failures)
+        for scene in (
+            "ride_hailing",
+            "food_delivery",
+            "hotel_booking",
+            "flight_booking",
+            "b2b_procurement",
+        ):
+            if f'"{scene}"' not in conf_text:
+                _fail(f"confirmation policy missing scene {scene}", failures)
+        for mode in ("AUTO", "OWNER_CONFIRM", "POLICY_AUTO"):
+            if mode not in conf_text:
+                _fail(f"confirmation policy missing gate mode {mode}", failures)
+
+    standards = _read("api/routes/standards.py")
+    if "/confirmation-policy" not in standards:
+        _fail("standards routes missing confirmation-policy APIs", failures)
+
+    conf_routes = _read("api/routes/confirmations.py")
+    for needle in ("/plan", "/sessions", "/decide", "assert_step_allowed"):
+        if needle not in conf_routes:
+            _fail(f"confirmations routes missing {needle}", failures)
+
+    app = _read("api/app.py")
+    if 'prefix="/v1/confirmations"' not in app:
+        _fail("api/app.py missing /v1/confirmations router", failures)
+
+    fulfill = _read("services/intent_fulfillment.py")
+    for needle in (
+        "awaiting_owner_confirmation",
+        "require_owner_confirmation",
+        "assert_step_allowed",
+        "task_type_to_scene_id",
+    ):
+        if needle not in fulfill:
+            _fail(f"intent_fulfillment missing confirmation gate: {needle}", failures)
+
 
 def main() -> int:
     failures: list[str] = []
