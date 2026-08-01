@@ -40,8 +40,15 @@ from services.human_confirmation_policy import (
     ConfirmationPolicyError,
     allow_demo_confirmation_bypass,
     assert_step_allowed,
+    buyer_fulfill_confirm_steps,
     create_confirmation_session,
+    get_confirmation_session,
+    is_high_risk_scene,
+    next_required_confirm_step,
     plan_confirmations,
+    require_known_scene,
+    seller_must_confirm_accept,
+    step_already_satisfied,
     task_type_to_scene_id,
 )
 from services.important_fields_capture import (
@@ -307,6 +314,7 @@ async def fulfill_intent(
     buyer_signature: str = "0xintent_fulfillment",
     require_owner_confirmation: bool = True,
     confirmation_session_id: str | None = None,
+    seller_confirmation_session_id: str | None = None,
     policy_auto_allowed: bool = False,
     scene_id: str | None = None,
     confirmation_context: dict[str, Any] | None = None,
@@ -316,15 +324,15 @@ async def fulfill_intent(
     auto_lock_important_fields: bool = False,
 ) -> dict[str, Any]:
     """
-    Run discover → owner confirm → Important Fields MATCHED → negotiate →
-    voucher → settlement (+ optional full settle).
+    Run discover → buyer confirm(s) → Important Fields → seller confirm (when
+    required) → negotiate → voucher → settlement (+ optional full settle).
 
-    Real-world gates:
-    - buyer OWNER_CONFIRM on accept_order → ``awaiting_owner_confirmation``
-    - commerce/B2B scenes require Important Fields triple MATCHED →
+    Real-world gates (P4):
+    - buyer steps from scene policy (daily: accept_order; B2B/high-risk:
+      select_offer → accept_order) → ``awaiting_owner_confirmation``
+    - seller OWNER_CONFIRM scenes → ``awaiting_seller_confirmation``
+    - commerce/B2B/high-risk IF triple MATCHED →
       ``awaiting_important_fields_match`` (or auto-lock in demo envs)
-
-    Returns a stage timeline so assistants can show progress and resume.
     """
     timeline: list[dict[str, Any]] = []
     query = parse_intent_for_discovery(requirement_text, amount=amount)
@@ -370,6 +378,10 @@ async def fulfill_intent(
             f"scene_id '{requested_scene}' does not match intent-inferred scene '{inferred_scene}'",
         )
     resolved_scene = inferred_scene
+    try:
+        require_known_scene(resolved_scene)
+    except ConfirmationPolicyError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     # P2 seller boundary gate — security before efficiency
     from services.agent_boundary import get_agent_boundary
@@ -423,15 +435,20 @@ async def fulfill_intent(
             },
         ) from exc
 
-    if not require_owner_confirmation and not allow_demo_confirmation_bypass():
-        raise HTTPException(
-            403,
-            "require_owner_confirmation=false is only allowed in development/test environments",
-        )
+    high_risk = is_high_risk_scene(resolved_scene)
+    if not require_owner_confirmation:
+        if high_risk or not allow_demo_confirmation_bypass():
+            raise HTTPException(
+                403,
+                "require_owner_confirmation=false is forbidden for high-risk scenes "
+                "and outside development/test environments",
+            )
 
     # POLICY_AUTO only when a saved automation-policy covers this amount (ignore client bool)
+    # High-risk scenes never get POLICY_AUTO shortcuts
     effective_policy_auto = False
-    if require_owner_confirmation:
+    _ = policy_auto_allowed
+    if require_owner_confirmation and not high_risk:
         saved_policy = await get_automation_policy(db, buyer_identity_id)
         if (
             saved_policy is not None
@@ -443,65 +460,121 @@ async def fulfill_intent(
             and float(pay_amount) <= float(getattr(saved_policy, "single_limit", 0) or 0) + 1e-9
         ):
             effective_policy_auto = True
-        # Client-supplied policy_auto_allowed is intentionally ignored (anti-bypass)
-        _ = policy_auto_allowed
 
-    # Owner Yes/No gate — validate first without consuming (IF gate may still pause)
+    interaction_ref = f"fulfill:{buyer_identity_id}:{seller_id}"
+    confirm_ctx = {
+        "amount": pay_amount,
+        "currency": "USDC",
+        "merchant": recommended.get("name") or seller_id,
+        "seller": recommended.get("name") or seller_id,
+        **(confirmation_context or {}),
+    }
+    confirm_ctx["amount"] = pay_amount
+    buyer_steps = buyer_fulfill_confirm_steps(resolved_scene)
+    deferred_accept_session: str | None = None
+
+    # P4 buyer multi-step confirmation (reality-tuned per scene)
     if require_owner_confirmation:
-        confirm_ctx = {
-            "amount": pay_amount,
-            "currency": "USDC",
-            "merchant": recommended.get("name") or seller_id,
-            "seller": recommended.get("name") or seller_id,
-            **(confirmation_context or {}),
-        }
-        confirm_ctx["amount"] = pay_amount
-        try:
-            gate_ok = assert_step_allowed(
+        for step in buyer_steps:
+            if step_already_satisfied(
                 scene_id=resolved_scene,
                 role="buyer",
-                step="accept_order",
-                confirmation_session_id=confirmation_session_id,
+                step=step,
+                owner_agent_id=buyer_identity_id,
+                interaction_ref=interaction_ref,
                 policy_auto_allowed=effective_policy_auto,
-                expected_owner_agent_id=buyer_identity_id,
-                amount=pay_amount,
-                consume=False,
-            )
-            timeline.append({
-                "stage": "owner_confirmation",
-                "ok": True,
-                "scene_id": resolved_scene,
-                "step": "accept_order",
-                "reason": gate_ok.get("reason"),
-                "policy_auto": effective_policy_auto,
-            })
-        except ConfirmationPolicyError:
+            ):
+                timeline.append({
+                    "stage": "owner_confirmation",
+                    "ok": True,
+                    "scene_id": resolved_scene,
+                    "step": step,
+                    "reason": "already_confirmed_or_auto",
+                })
+                continue
+
+            applied = False
+            if confirmation_session_id:
+                try:
+                    pub = get_confirmation_session(confirmation_session_id)
+                    if pub.get("step") == step and pub.get("status") == "CONFIRMED":
+                        # Final money step: defer consume until IF passes
+                        consume_now = step != "accept_order"
+                        gate_ok = assert_step_allowed(
+                            scene_id=resolved_scene,
+                            role="buyer",
+                            step=step,
+                            confirmation_session_id=confirmation_session_id,
+                            policy_auto_allowed=effective_policy_auto,
+                            expected_owner_agent_id=buyer_identity_id,
+                            amount=pay_amount,
+                            consume=consume_now,
+                            expected_interaction_ref=interaction_ref,
+                        )
+                        if step == "accept_order":
+                            deferred_accept_session = confirmation_session_id
+                        timeline.append({
+                            "stage": "owner_confirmation",
+                            "ok": True,
+                            "scene_id": resolved_scene,
+                            "step": step,
+                            "reason": gate_ok.get("reason"),
+                            "policy_auto": effective_policy_auto,
+                        })
+                        applied = True
+                except ConfirmationPolicyError:
+                    applied = False
+
+            if applied:
+                continue
+
             sess = create_confirmation_session(
                 scene_id=resolved_scene,
                 role="buyer",
-                step="accept_order",
+                step=step,
                 owner_agent_id=buyer_identity_id,
                 context=confirm_ctx,
-                interaction_ref=f"fulfill:{buyer_identity_id}:{seller_id}",
+                interaction_ref=interaction_ref,
                 policy_auto_allowed=effective_policy_auto,
             )
+            if sess.get("skipped"):
+                timeline.append({
+                    "stage": "owner_confirmation",
+                    "ok": True,
+                    "scene_id": resolved_scene,
+                    "step": step,
+                    "reason": "auto",
+                })
+                continue
             conf_plan = plan_confirmations(
                 scene_id=resolved_scene,
                 role="buyer",
                 policy_auto_allowed=effective_policy_auto,
                 context=confirm_ctx,
             )
+            next_step = next_required_confirm_step(
+                scene_id=resolved_scene,
+                role="buyer",
+                steps=buyer_steps,
+                owner_agent_id=buyer_identity_id,
+                interaction_ref=interaction_ref,
+                policy_auto_allowed=effective_policy_auto,
+            )
             timeline.append({
                 "stage": "owner_confirmation",
                 "ok": False,
                 "scene_id": resolved_scene,
-                "step": "accept_order",
+                "step": step,
                 "awaiting": True,
             })
             return {
                 "status": "awaiting_owner_confirmation",
-                "flow": "intent → discover → owner Yes/No → IF lock → voucher → settle",
+                "flow": (
+                    "intent → discover → buyer Yes/No (per scene) → IF lock → "
+                    "seller Yes/No (when required) → voucher → settle"
+                ),
                 "scene_id": resolved_scene,
+                "high_risk": high_risk,
                 "intent": query.to_dict(),
                 "discovery": {
                     "recommended": recommended,
@@ -514,6 +587,8 @@ async def fulfill_intent(
                 "confirmation_plan": {
                     "must_confirm_steps": [x["step"] for x in conf_plan["must_confirm"]],
                     "auto_ok_steps": [x["step"] for x in conf_plan["auto_ok"]],
+                    "buyer_fulfill_steps": buyer_steps,
+                    "next_required_step": next_step or step,
                     "summary_zh": conf_plan["summary_zh"],
                     "agent_ux_zh": conf_plan["agent_ux_zh"],
                 },
@@ -528,12 +603,14 @@ async def fulfill_intent(
                 ],
             }
 
-    # Important Fields triple-match gate (real commerce / B2B)
+    # Important Fields triple-match gate (real commerce / B2B / high-risk)
     must_if = (
         scene_requires_important_fields(resolved_scene)
         if require_important_fields_match is None
         else bool(require_important_fields_match)
     )
+    if high_risk:
+        must_if = True
     fields_lock: dict[str, Any] | None = None
     if must_if:
         try:
@@ -542,14 +619,18 @@ async def fulfill_intent(
                     capture_id=important_fields_capture_id,
                     scene_id=resolved_scene,
                 )
-            elif auto_lock_important_fields and allow_demo_confirmation_bypass():
+            elif (
+                auto_lock_important_fields
+                and allow_demo_confirmation_bypass()
+                and not high_risk
+            ):
                 fields = dict(important_fields or example_for_scene(resolved_scene)["fields"])
                 if "amount" in fields:
                     fields["amount"] = f"{pay_amount:.2f}"
                 fields_lock = auto_triple_lock_fields(
                     scene_id=resolved_scene,
                     fields=fields,
-                    interaction_ref=f"fulfill:{buyer_identity_id}:{seller_id}",
+                    interaction_ref=interaction_ref,
                 )
             else:
                 raise CaptureError("MATCHED important_fields_capture_id required")
@@ -577,6 +658,7 @@ async def fulfill_intent(
                 "status": "awaiting_important_fields_match",
                 "flow": "intent → discover → owner confirm → IF triple-match → voucher → settle",
                 "scene_id": resolved_scene,
+                "high_risk": high_risk,
                 "intent": query.to_dict(),
                 "discovery": {"recommended": recommended, "candidates": ranked},
                 "buyer_identity_id": buyer_identity_id,
@@ -590,23 +672,133 @@ async def fulfill_intent(
                     "buyer+seller POST …/submit-encrypted (karma1. ciphertext)",
                     "POST …/match-secure → status MATCHED",
                     "retry fulfill-intent with important_fields_capture_id "
-                    "(or auto_lock_important_fields=true in development)",
+                    "(or auto_lock_important_fields=true in development, non-high-risk)",
                 ],
                 "detail": str(exc),
             }
 
-    # Consume owner confirmation only after IF gate passes
-    if require_owner_confirmation and confirmation_session_id:
+    # Consume final buyer accept_order only after IF gate passes
+    if require_owner_confirmation and deferred_accept_session:
         assert_step_allowed(
             scene_id=resolved_scene,
             role="buyer",
             step="accept_order",
-            confirmation_session_id=confirmation_session_id,
+            confirmation_session_id=deferred_accept_session,
             policy_auto_allowed=effective_policy_auto,
             expected_owner_agent_id=buyer_identity_id,
             amount=pay_amount,
             consume=True,
+            expected_interaction_ref=interaction_ref,
         )
+
+    # P4 seller accept_order — OWNER_CONFIRM scenes (B2B / finance / healthcare / …)
+    if require_owner_confirmation and seller_must_confirm_accept(resolved_scene):
+        seller_policy_auto = False
+        if not high_risk:
+            seller_saved = await get_automation_policy(db, seller_id)
+            if (
+                seller_saved is not None
+                and bool(getattr(seller_saved, "responsibility_acknowledged", False))
+                and (
+                    bool(getattr(seller_saved, "auto_enabled", False))
+                    or bool(getattr(seller_saved, "preauth_enabled", False))
+                )
+                and float(pay_amount) <= float(getattr(seller_saved, "single_limit", 0) or 0) + 1e-9
+            ):
+                seller_policy_auto = True
+        if not step_already_satisfied(
+            scene_id=resolved_scene,
+            role="seller",
+            step="accept_order",
+            owner_agent_id=seller_id,
+            interaction_ref=interaction_ref,
+            policy_auto_allowed=seller_policy_auto,
+        ):
+            applied_seller = False
+            if seller_confirmation_session_id:
+                try:
+                    assert_step_allowed(
+                        scene_id=resolved_scene,
+                        role="seller",
+                        step="accept_order",
+                        confirmation_session_id=seller_confirmation_session_id,
+                        policy_auto_allowed=seller_policy_auto,
+                        expected_owner_agent_id=seller_id,
+                        amount=pay_amount,
+                        consume=True,
+                        expected_interaction_ref=interaction_ref,
+                    )
+                    timeline.append({
+                        "stage": "seller_confirmation",
+                        "ok": True,
+                        "scene_id": resolved_scene,
+                        "step": "accept_order",
+                    })
+                    applied_seller = True
+                except ConfirmationPolicyError:
+                    applied_seller = False
+            if not applied_seller:
+                seller_sess = create_confirmation_session(
+                    scene_id=resolved_scene,
+                    role="seller",
+                    step="accept_order",
+                    owner_agent_id=seller_id,
+                    context=confirm_ctx,
+                    interaction_ref=interaction_ref,
+                    policy_auto_allowed=seller_policy_auto,
+                )
+                if not seller_sess.get("skipped"):
+                    timeline.append({
+                        "stage": "seller_confirmation",
+                        "ok": False,
+                        "scene_id": resolved_scene,
+                        "step": "accept_order",
+                        "awaiting": True,
+                    })
+                    return {
+                        "status": "awaiting_seller_confirmation",
+                        "flow": (
+                            "intent → buyer confirm → IF → seller Yes/No → voucher → settle"
+                        ),
+                        "scene_id": resolved_scene,
+                        "high_risk": high_risk,
+                        "intent": query.to_dict(),
+                        "discovery": {"recommended": recommended, "candidates": ranked},
+                        "buyer_identity_id": buyer_identity_id,
+                        "seller_identity_id": seller_id,
+                        "amount": pay_amount,
+                        "confirmation": seller_sess,
+                        "confirmation_session_id": confirmation_session_id,
+                        "important_fields_capture_id": (
+                            (fields_lock or {}).get("capture_id")
+                            if fields_lock
+                            else important_fields_capture_id
+                        ),
+                        "owner_prompt_zh": seller_sess.get("prompt_zh"),
+                        "timeline": timeline,
+                        "next_steps": [
+                            "show owner_prompt_zh to seller owner (Yes/No only)",
+                            f"POST /v1/confirmations/sessions/{seller_sess.get('session_id')}/decide "
+                            '{"confirm": true, "actor_agent_id": "<seller_identity_id>"}',
+                            "POST /v1/orchestration/fulfill-intent again with "
+                            "seller_confirmation_session_id",
+                        ],
+                    }
+                timeline.append({
+                    "stage": "seller_confirmation",
+                    "ok": True,
+                    "scene_id": resolved_scene,
+                    "step": "accept_order",
+                    "reason": "auto",
+                })
+        else:
+            timeline.append({
+                "stage": "seller_confirmation",
+                "ok": True,
+                "scene_id": resolved_scene,
+                "step": "accept_order",
+                "reason": "already_confirmed_or_auto",
+            })
 
     # Ensure agents exist for contract/settlement IDs
     await ensure_agent_for_identity(db, buyer_identity_id, role="buyer")

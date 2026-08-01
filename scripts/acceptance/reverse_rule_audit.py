@@ -450,6 +450,42 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if "scene_id" not in intent or "p1_ready" not in intent:
         _fail("intent_discovery missing scene_id / p1_ready preservation for P3", failures)
 
+    # P4 human confirmation — multi-step buyer, seller gate, TTL, anti-bypass
+    hcp = _read("services/human_confirmation_policy.py")
+    for needle in (
+        "buyer_fulfill_confirm_steps",
+        "seller_must_confirm_accept",
+        "SESSION_TTL_SECONDS",
+        "expected_interaction_ref",
+        "require_known_scene",
+        "is_high_risk_scene",
+        "step_already_satisfied",
+    ):
+        if needle not in hcp:
+            _fail(f"human_confirmation_policy missing P4 piece: {needle}", failures)
+
+    fulfill = _read("services/intent_fulfillment.py")
+    for needle in (
+        "awaiting_seller_confirmation",
+        "seller_confirmation_session_id",
+        "buyer_fulfill_confirm_steps",
+        "high_risk",
+    ):
+        if needle not in fulfill:
+            _fail(f"intent_fulfillment missing P4 piece: {needle}", failures)
+
+    conf_routes = _read("api/routes/confirmations.py")
+    if "intentionally ignored" not in conf_routes and "policy_auto_allowed=False" not in conf_routes:
+        _fail("confirmations create must ignore client policy_auto_allowed", failures)
+
+    orch = _read("api/routes/orchestration.py")
+    if "seller_confirmation_session_id" not in orch:
+        _fail("orchestration missing seller_confirmation_session_id", failures)
+
+    settle = _read("api/routes/settlement.py")
+    if "buyer_accept_settle_confirmation_required" not in settle:
+        _fail("settlement buyer-accept missing P4 settle confirmation gate", failures)
+
 
 def main() -> int:
     failures: list[str] = []

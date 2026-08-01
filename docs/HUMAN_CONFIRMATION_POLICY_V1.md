@@ -103,6 +103,15 @@ curl -s -X POST $KARMA_API/v1/confirmations/sessions/cfm_xxx/decide \
 
 ## fulfill-intent 门闩
 
+## P4 运行时强制（摘要）
+
+详见 `docs/HUMAN_CONFIRMATION_P4_V1.md`：
+
+- 买方按场景多步（日常一次结账确认；酒店/机票/B2B 先选后锁）  
+- 卖方 `OWNER_CONFIRM` 场景暂停 `awaiting_seller_confirmation`  
+- 会话 TTL / interaction_ref / 忽略客户端 policy_auto / 未知场景拒回落  
+- 高风险禁止关闭确认与 demo 自动锁字段  
+
 默认 `require_owner_confirmation=true`：
 
 1. discover 完成后检查买方 `accept_order` 门闩  

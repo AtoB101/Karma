@@ -483,8 +483,18 @@ async def open_dispute(task_id: str, body: DisputeRequest, request: Request, db:
 
 
 @router.post("/{task_id}/buyer-accept", response_model=SettlementState)
-async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """P0: full release to seller after delivery — requires at least one successful execution receipt."""
+async def buyer_accept_settlement(
+    task_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    confirmation_session_id: str | None = None,
+    scene_id: str | None = None,
+):
+    """P0: full release to seller after delivery — requires at least one successful execution receipt.
+
+    P4: when scene policy marks ``buyer_accept_settle`` as OWNER_CONFIRM, require a
+    CONFIRMED confirmation session (skipped for AUTO/POLICY_AUTO or demo env).
+    """
     validate_public_url_segment("task_id", task_id)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
@@ -495,6 +505,71 @@ async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSessi
         raise HTTPException(409, "buyer accept requires delivered status")
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
+
+    # P4 settle confirmation gate (reality: hotel/B2B/high-risk need owner Yes)
+    from services.human_confirmation_policy import (
+        ConfirmationPolicyError,
+        allow_demo_confirmation_bypass,
+        assert_step_allowed,
+        create_confirmation_session,
+        is_high_risk_scene,
+        resolve_gate,
+    )
+
+    # Only hard-require when caller names a scene whose mode is OWNER_CONFIRM
+    # (or high-risk). POLICY_AUTO settle remains seamless without a session.
+    settle_scene = (scene_id or "").strip()
+    if settle_scene:
+        settle_gate = resolve_gate(
+            scene_id=settle_scene, role="buyer", step="buyer_accept_settle"
+        )
+        must_settle_confirm = (
+            settle_gate.get("mode") == "OWNER_CONFIRM" or is_high_risk_scene(settle_scene)
+        )
+        if must_settle_confirm and not (
+            allow_demo_confirmation_bypass() and not is_high_risk_scene(settle_scene)
+        ):
+            try:
+                assert_step_allowed(
+                    scene_id=settle_scene,
+                    role="buyer",
+                    step="buyer_accept_settle",
+                    confirmation_session_id=confirmation_session_id,
+                    policy_auto_allowed=False,
+                    expected_owner_agent_id=state.client_agent_id,
+                    amount=float(state.escrow_amount or 0),
+                    consume=True,
+                )
+            except ConfirmationPolicyError as exc:
+                sess = create_confirmation_session(
+                    scene_id=settle_scene,
+                    role="buyer",
+                    step="buyer_accept_settle",
+                    owner_agent_id=state.client_agent_id,
+                    context={
+                        "amount": float(state.escrow_amount or 0),
+                        "currency": "USDC",
+                    },
+                    interaction_ref=f"settle:{task_id}",
+                    policy_auto_allowed=False,
+                )
+                raise HTTPException(
+                    403,
+                    {
+                        "error": "buyer_accept_settle_confirmation_required",
+                        "detail": str(exc),
+                        "scene_id": settle_scene,
+                        "confirmation": sess,
+                        "owner_prompt_zh": sess.get("prompt_zh"),
+                        "next_steps": [
+                            f"POST /v1/confirmations/sessions/{sess.get('session_id')}/decide "
+                            '{"confirm": true, "actor_agent_id": "<buyer>"}',
+                            f"POST /v1/settlement/{task_id}/buyer-accept"
+                            f"?confirmation_session_id={sess.get('session_id')}"
+                            f"&scene_id={settle_scene}",
+                        ],
+                    },
+                ) from exc
 
     await ensure_success_execution_receipt_before_seller_payout(
         db, task_id, settled_amount=float(state.escrow_amount)

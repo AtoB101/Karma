@@ -366,6 +366,13 @@ FULFILL_IF_REQUIRED_SCENES = frozenset(
         "data_api_billing",
         "logistics_delivery",
         "software_development",
+        "design_creative",
+        "consulting_advisory",
+        "manufacturing",
+        "real_estate_services",
+        "financial_services",
+        "healthcare_medical",
+        "education_training",
     }
 )
 

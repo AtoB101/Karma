@@ -223,40 +223,50 @@ async def _run_scene(scene_id: str, spec: dict) -> dict:
         await db.flush()
         await refresh_p1_ready(db, buyer_row.agent_id)
 
-        # --- 3) Fulfill → awaiting owner confirmation ---
-        paused = await fulfill_intent(
-            db,
-            requirement_text=spec["requirement"],
-            buyer_identity_id=buyer_id,
-            amount=spec["amount"],
-            seller_identity_id=merchant_id,
-            negotiate_a2a=False,
-            auto_complete=False,
-            require_owner_confirmation=True,
-            auto_lock_important_fields=True,
-        )
-        if paused.get("status") != "awaiting_owner_confirmation":
-            raise AssertionError(f"{scene_id}: expected awaiting_owner_confirmation, got {paused.get('status')}")
-        sid = paused["confirmation"]["session_id"]
-        decide_confirmation_session(sid, confirm=True, actor_agent_id=buyer_id)
-
-        # --- 4) Resume → IF auto-lock (demo) → settle ---
-        settled = await fulfill_intent(
-            db,
-            requirement_text=spec["requirement"],
-            buyer_identity_id=buyer_id,
-            amount=spec["amount"],
-            seller_identity_id=merchant_id,
-            negotiate_a2a=False,
-            auto_complete=True,
-            require_owner_confirmation=True,
-            confirmation_session_id=sid,
-            auto_lock_important_fields=True,
-        )
+        # --- 3/4) Fulfill with P4 multi-step buyer (+ seller when required) ---
+        buyer_sid: str | None = None
+        seller_sid: str | None = None
+        settled: dict | None = None
+        for _round in range(8):
+            result = await fulfill_intent(
+                db,
+                requirement_text=spec["requirement"],
+                buyer_identity_id=buyer_id,
+                amount=spec["amount"],
+                seller_identity_id=merchant_id,
+                negotiate_a2a=False,
+                auto_complete=True,
+                require_owner_confirmation=True,
+                confirmation_session_id=buyer_sid,
+                seller_confirmation_session_id=seller_sid,
+                auto_lock_important_fields=True,
+            )
+            status = result.get("status")
+            if status == "awaiting_owner_confirmation":
+                buyer_sid = result["confirmation"]["session_id"]
+                decide_confirmation_session(
+                    buyer_sid, confirm=True, actor_agent_id=buyer_id
+                )
+                continue
+            if status == "awaiting_seller_confirmation":
+                seller_sid = result["confirmation"]["session_id"]
+                decide_confirmation_session(
+                    seller_sid, confirm=True, actor_agent_id=merchant_id
+                )
+                continue
+            if status == "awaiting_important_fields_match":
+                raise AssertionError(
+                    f"{scene_id}: IF gate not auto-locked in demo: {result.get('detail')}"
+                )
+            settled = result
+            break
         await db.commit()
 
-        if settled.get("status") != "settled":
-            raise AssertionError(f"{scene_id}: expected settled, got {settled.get('status')} timeline={settled.get('timeline')}")
+        if not settled or settled.get("status") != "settled":
+            raise AssertionError(
+                f"{scene_id}: expected settled, got {(settled or {}).get('status')} "
+                f"timeline={(settled or {}).get('timeline')}"
+            )
         stages = [t["stage"] for t in settled.get("timeline") or []]
         for need in ("discover", "owner_confirmation", "important_fields_lock", "voucher_accepted", "settled"):
             if need not in stages:

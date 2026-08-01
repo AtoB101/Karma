@@ -208,3 +208,66 @@ def test_assert_binds_owner_and_amount():
         consume=True,
     )
     assert ok["allowed"] is True
+
+
+def test_p4_buyer_steps_reality_split():
+    from services.human_confirmation_policy import (
+        buyer_fulfill_confirm_steps,
+        is_high_risk_scene,
+        seller_must_confirm_accept,
+    )
+
+    assert buyer_fulfill_confirm_steps("food_delivery") == ["accept_order"]
+    assert buyer_fulfill_confirm_steps("ride_hailing") == ["accept_order"]
+    assert buyer_fulfill_confirm_steps("hotel_booking") == ["select_offer", "accept_order"]
+    assert buyer_fulfill_confirm_steps("b2b_procurement") == ["select_offer", "accept_order"]
+    assert buyer_fulfill_confirm_steps("financial_services") == ["select_offer", "accept_order"]
+    assert is_high_risk_scene("financial_services") is True
+    assert is_high_risk_scene("food_delivery") is False
+    assert seller_must_confirm_accept("b2b_procurement") is True
+    assert seller_must_confirm_accept("food_delivery") is False
+
+
+def test_unknown_scene_refused_on_create():
+    with pytest.raises(ConfirmationPolicyError, match="unknown confirmation scene"):
+        create_confirmation_session(
+            scene_id="not_a_real_scene",
+            role="buyer",
+            step="accept_order",
+            owner_agent_id="o1",
+        )
+
+
+def test_interaction_ref_binding_and_ttl_fields():
+    created = create_confirmation_session(
+        scene_id="b2b_procurement",
+        role="seller",
+        step="accept_order",
+        owner_agent_id="seller-1",
+        context={"amount": 100},
+        interaction_ref="fulfill:b:s",
+    )
+    assert created.get("expires_at")
+    decide_confirmation_session(created["session_id"], confirm=True, actor_agent_id="seller-1")
+    with pytest.raises(ConfirmationPolicyError, match="interaction_ref"):
+        assert_step_allowed(
+            scene_id="b2b_procurement",
+            role="seller",
+            step="accept_order",
+            confirmation_session_id=created["session_id"],
+            expected_owner_agent_id="seller-1",
+            amount=100.0,
+            expected_interaction_ref="fulfill:other",
+            consume=False,
+        )
+    ok = assert_step_allowed(
+        scene_id="b2b_procurement",
+        role="seller",
+        step="accept_order",
+        confirmation_session_id=created["session_id"],
+        expected_owner_agent_id="seller-1",
+        amount=100.0,
+        expected_interaction_ref="fulfill:b:s",
+        consume=True,
+    )
+    assert ok["consumed"] is True
