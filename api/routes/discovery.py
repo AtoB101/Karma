@@ -14,6 +14,11 @@ from db.models.orm import AgentModel, IdentityProfileModel
 from db.session import get_db
 from services.agent_directory import agent_row_to_card, ensure_directory_merchants
 from services.agent_trust import apply_trust_rerank
+from services.discovery_priority import (
+    get_scene_priority_policy,
+    ranking_metadata,
+    resolve_scene_id,
+)
 from services.intent_discovery import (
     build_discovery_plan,
     parse_intent_for_discovery,
@@ -70,8 +75,12 @@ class DiscoverIntentRequest(BaseModel):
     include_local_agents: bool = True
     include_did_projections: bool = True
     include_demo_merchants: bool | None = None  # default: only in dev/test
-    require_p1_ready: bool = False  # when true, drop non-P1-ready merchants
+    require_p1_ready: bool | None = None  # default: scene policy / False
+    require_scene_coverage: bool | None = None  # default: scene policy
     apply_trust_ranking: bool = True
+    enforce_scene_policy: bool | None = None  # default: True for high-risk / B2B scenes
+    drop_ineligible: bool | None = None  # default: follow enforce_scene_policy
+    scene_id: str | None = None  # optional override; must match intent-inferred when set
 
 
 def _identity_to_card(row: IdentityProfileModel) -> dict[str, Any]:
@@ -114,13 +123,41 @@ async def discover_for_intent(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Discover Karma-connected agents that can fulfill a requirement, then rank by
-    capability match + reputation / success rate / settlement volume.
+    Discover agents that can solve the requirement, ranked by P3 priority:
+    P1 readiness → boundary complete → scene coverage → verifiable trust tier → score.
     """
     try:
         query = parse_intent_for_discovery(body.requirement_text, amount=body.amount)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+    inferred_scene = query.scene_id
+    if body.scene_id and body.scene_id.strip() and body.scene_id.strip() != inferred_scene:
+        raise HTTPException(
+            400,
+            f"scene_id '{body.scene_id}' does not match intent-inferred scene '{inferred_scene}'",
+        )
+    scene_id = resolve_scene_id(scene_id=body.scene_id, task_type=query.task_type)
+    query.scene_id = scene_id
+    scene_policy = get_scene_priority_policy(scene_id)
+
+    # Scene-aware defaults: high-risk / B2B enforce policy; daily commerce soft-prefer
+    enforce_default = bool(
+        scene_policy.get("high_risk")
+        or scene_policy.get("require_p1_ready")
+        or scene_policy.get("require_boundary_complete")
+    )
+    enforce_scene_policy = (
+        enforce_default if body.enforce_scene_policy is None else bool(body.enforce_scene_policy)
+    )
+    drop_ineligible = (
+        enforce_scene_policy if body.drop_ineligible is None else bool(body.drop_ineligible)
+    )
+    require_p1 = (
+        bool(scene_policy.get("require_p1_ready"))
+        if body.require_p1_ready is None
+        else bool(body.require_p1_ready)
+    )
 
     cards: list[dict[str, Any]] = []
     include_demo = (
@@ -135,7 +172,7 @@ async def discover_for_intent(
         for row in result.scalars().all():
             cards.append(agent_row_to_card(row))
 
-    if body.include_did_projections and not body.require_p1_ready:
+    if body.include_did_projections and not require_p1:
         # DID-only projections lack service_specs — exclude when requiring P1
         result = await db.execute(
             select(IdentityProfileModel).where(
@@ -157,7 +194,7 @@ async def discover_for_intent(
         aid = str(c.get("agent_id") or "")
         if not aid or aid in seen:
             continue
-        if body.require_p1_ready and not c.get("p1_ready"):
+        if require_p1 and not c.get("p1_ready"):
             # Buyers (identity_class=user) may still appear; filter seller-like
             ic = c.get("identity_class")
             if ic in {None, "merchant", "enterprise"} or "karma_settle" in (c.get("capabilities") or []):
@@ -168,7 +205,15 @@ async def discover_for_intent(
 
     ranked = rank_candidates(unique, query, limit=max(body.limit * 3, 30))
     if body.apply_trust_ranking:
-        ranked = await apply_trust_rerank(db, ranked, limit=body.limit)
+        ranked = await apply_trust_rerank(
+            db,
+            ranked,
+            limit=body.limit,
+            scene_id=scene_id,
+            task_type=query.task_type,
+            drop_ineligible=drop_ineligible,
+            enforce_scene_policy=enforce_scene_policy,
+        )
     else:
         ranked = ranked[: body.limit]
 
@@ -177,19 +222,16 @@ async def discover_for_intent(
         candidates=ranked,
         buyer_identity_id=body.buyer_identity_id,
     )
-    plan["ranking"] = {
-        "mode": "capability+trust" if body.apply_trust_ranking else "capability",
-        "signals": [
-            "skill_match",
-            "reputation_score",
-            "success_rate",
-            "settled_volume",
-            "dispute_rate",
-            "p1_ready",
-            "boundary_complete",
-        ],
-        "include_demo_merchants": include_demo,
-        "require_p1_ready": body.require_p1_ready,
-    }
+    meta = ranking_metadata(
+        scene_id=scene_id,
+        apply_priority=body.apply_trust_ranking,
+        enforce_scene_policy=enforce_scene_policy,
+        require_p1_ready=require_p1,
+        drop_ineligible=drop_ineligible,
+    )
+    meta["include_demo_merchants"] = include_demo
+    if body.require_scene_coverage is True:
+        meta["scene_policy"]["require_scene_coverage"] = True
+    plan["ranking"] = meta
     await db.commit()
     return plan

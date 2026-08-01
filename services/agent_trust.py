@@ -159,48 +159,33 @@ async def apply_trust_rerank(
     candidates: list[dict[str, Any]],
     *,
     limit: int | None = None,
+    scene_id: str | None = None,
+    task_type: str | None = None,
+    drop_ineligible: bool = False,
+    enforce_scene_policy: bool = False,
 ) -> list[dict[str, Any]]:
-    """Rerank capability-matched candidates by trust (reputation × success × volume)."""
+    """Rerank by P3 priority: P1 → boundary → scene → trust_tier → score.
+
+    Default ``drop_ineligible=False`` / ``enforce_scene_policy=False`` keeps
+    backward-compatible soft ranking (prefer proven partners without hard-dropping
+    cold demo merchants). Discovery API can tighten per scene.
+    """
     if not candidates:
         return []
+    from services.discovery_priority import apply_priority_ranking, resolve_scene_id
+
     ids = [str(c.get("agent_id") or "") for c in candidates]
     stats_map = await load_trust_stats_batch(db, ids)
-    enriched: list[dict[str, Any]] = []
-    for c in candidates:
-        aid = str(c.get("agent_id") or "")
-        stats = stats_map.get(aid) or AgentTrustStats(agent_id=aid)
-        bonus, trust_reasons = compute_trust_bonus(stats)
-        # Soft-penalize agents that have not published complete capability/confirm boundaries
-        if c.get("boundary_complete") is False:
-            bonus = round(bonus - 1.5, 3)
-            trust_reasons = list(trust_reasons) + ["boundary_incomplete"]
-        # P1 readiness: identity/owner/capability/responsibility verified against records
-        if c.get("p1_ready") is True:
-            bonus = round(bonus + 2.0, 3)
-            trust_reasons = list(trust_reasons) + ["p1_ready"]
-        elif c.get("p1_ready") is False:
-            bonus = round(bonus - 2.0, 3)
-            trust_reasons = list(trust_reasons) + ["p1_not_ready"]
-        capability_score = float(c.get("score") or 0.0)
-        final = round(capability_score + bonus, 3)
-        item = dict(c)
-        item["capability_score"] = capability_score
-        item["trust_bonus"] = bonus
-        item["trust"] = stats.to_dict()
-        item["score"] = final
-        item["match_reasons"] = list(c.get("match_reasons") or []) + trust_reasons
-        enriched.append(item)
-    enriched.sort(
-        key=lambda x: (
-            -float(x["score"]),
-            -float((x.get("trust") or {}).get("settled_volume") or 0),
-            -float((x.get("trust") or {}).get("reputation_score") or 0),
-            x.get("agent_id") or "",
-        )
+    sid = resolve_scene_id(scene_id=scene_id, task_type=task_type)
+    return apply_priority_ranking(
+        candidates,
+        stats_map,
+        scene_id=sid,
+        task_type=task_type,
+        limit=limit,
+        drop_ineligible=drop_ineligible,
+        enforce_scene_policy=enforce_scene_policy,
     )
-    if limit is not None:
-        return enriched[:limit]
-    return enriched
 
 
 async def ensure_reputation_row(
