@@ -172,19 +172,32 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
         "submit_encrypted",
         "MAX_ATTEMPTS_PER_CAPTURE",
         "nonce already used",
-        "karma1.",
+        "karma2.",
+        "submitter_agent_id",
+        "anti-collusion",
+        "sealed MATCHED",
     ):
         if needle not in capture:
             _fail(f"important_fields_capture missing guard: {needle}", failures)
 
     crypto = _read("services/important_fields_crypto.py")
-    for needle in ("AESGCM", "capture_session_key", "PREFIX", "karma1."):
+    for needle in (
+        "AESGCM",
+        "capture_session_key",
+        "PREFIX_V2",
+        "karma2.",
+        "HKDF",
+        "build_aad",
+        "KARMA_IMPORTANT_FIELDS_KEY",
+    ):
         if needle not in crypto:
             _fail(f"important_fields_crypto missing {needle}", failures)
 
-    # Secure submit must reject plaintext envelopes
-    if 'startswith("karma1.")' not in capture and "startswith('karma1.')" not in capture:
-        _fail("submit path must require karma1. ciphertext prefix", failures)
+    # Secure submit must reject plaintext envelopes (karma2 preferred; karma1 legacy decrypt)
+    if "karma2." not in capture:
+        _fail("submit path must require karma2. ciphertext prefix", failures)
+    if "startswith(\"karma2.\")" not in capture and "startswith('karma2.')" not in capture:
+        _fail("submit path must check karma2. ciphertext prefix", failures)
 
     onboarding = ROOT / "packages/evidence-schema/agent-onboarding-template.v1.json"
     if not onboarding.is_file():
@@ -485,6 +498,51 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     settle = _read("api/routes/settlement.py")
     if "buyer_accept_settle_confirmation_required" not in settle:
         _fail("settlement buyer-accept missing P4 settle confirmation gate", failures)
+
+    # P5 Important Fields lock — high-precision crypto + triple match + anti-collusion
+    std = _read("services/important_fields_standard.py")
+    for needle in (
+        "normalize_amount_string",
+        "normalize_datetime_utc",
+        "normalize_text",
+    ):
+        if needle not in std:
+            _fail(f"important_fields_standard missing P5 precision: {needle}", failures)
+
+    capture = _read("services/important_fields_capture.py")
+    for needle in (
+        "buyer_agent_id",
+        "seller_agent_id",
+        "require_matched_capture",
+        "expected_amount",
+        "interaction_ref",
+        "FULFILL_IF_REQUIRED_SCENES",
+    ):
+        if needle not in capture:
+            _fail(f"important_fields_capture missing P5 piece: {needle}", failures)
+
+    standards = _read("api/routes/standards.py")
+    for needle in (
+        "submitter_agent_id",
+        "buyer_agent_id",
+        "seller_agent_id",
+        "karma2",
+        'role: Literal["buyer", "seller", "protocol"]',
+    ):
+        if needle not in standards:
+            _fail(f"standards routes missing P5 piece: {needle}", failures)
+
+    fulfill = _read("services/intent_fulfillment.py")
+    for needle in (
+        "expected_amount=pay_amount",
+        "interaction_ref=interaction_ref",
+        "karma2.",
+    ):
+        if needle not in fulfill:
+            _fail(f"intent_fulfillment missing P5 IF bind: {needle}", failures)
+
+    if not (ROOT / "docs/IMPORTANT_FIELDS_P5_V1.md").is_file():
+        _fail("missing docs/IMPORTANT_FIELDS_P5_V1.md", failures)
 
 
 def main() -> int:
