@@ -34,9 +34,16 @@
   "api": [
     "GET /v1/standards/agent-boundary",
     "GET /v1/agents/{id}/boundary",
+    "GET /v1/agents/{id}/boundary/verify?scene_id=",
     "POST /v1/agents/connect-from-template（写入完整边界）",
     "POST /v1/agents/connect（写入边界摘要；incomplete 可见）"
   ],
+  "enforcement_zh": {
+    "confirmation": "confirmation_boundary 必须以 human-confirmation-policy 目录重算；禁止发布比策略更松的 must_confirm",
+    "ack_binding": "责任签认 bound 到 boundary_hash；边界变更使 ack 失效，p1-status 不得用 live hash 治愈漂移",
+    "fulfill": "履约前核验卖方 p1_ready + scene 覆盖 + 确认边界未放宽；高风险行业不得静默回落全局默认",
+    "verify": "对端 GET /boundary/verify 核验，勿仅信任自报 boundary_complete"
+  },
   "related_standards": [
     "packages/evidence-schema/agent-onboarding-template.v1.json",
     "packages/evidence-schema/human-confirmation-policy.v1.json",

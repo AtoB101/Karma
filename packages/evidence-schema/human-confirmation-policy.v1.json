@@ -318,6 +318,271 @@
         "buyer_accept_settle": "交付物已提交，是否确认验收并结算？"
       },
       "auto_ok_examples_zh": ["仓库读写与CI", "PR/测试报告哈希提交"]
+    },
+    "design_creative": {
+      "title_zh": "设计/创意",
+      "reality_note_zh": "选题与验收必须人确认；草稿迭代与资产哈希上传可自动；放款需确认。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认委托设计？范围 {scope}，金额 {amount} {currency}",
+        "accept_order": "是否确认立项并锁定预算？",
+        "buyer_accept_settle": "成稿已提交，是否确认验收并结算？"
+      },
+      "auto_ok_examples_zh": ["素材检索", "草稿版本哈希", "交付包上传"]
+    },
+    "consulting_advisory": {
+      "title_zh": "咨询顾问",
+      "reality_note_zh": "立项与报告验收必须人确认；调研采集与草稿可自动；不替代持牌意见。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认咨询委托？主题 {topic}，金额 {amount}",
+        "accept_order": "是否确认启动并锁定费用？",
+        "buyer_accept_settle": "报告已提交，是否确认验收结算？"
+      },
+      "auto_ok_examples_zh": ["资料整理", "访谈纪要哈希", "报告草稿上传"]
+    },
+    "content_creation": {
+      "title_zh": "内容创作",
+      "reality_note_zh": "选题/发布与付款需人确认；撰稿/剪辑与素材哈希可自动。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认内容订单？平台 {channel}，金额 {amount}",
+        "accept_order": "是否确认制作并锁定预算？",
+        "buyer_accept_settle": "成片已交，是否确认验收结算？"
+      },
+      "auto_ok_examples_zh": ["脚本草稿", "成片哈希上传", "发布回执"]
+    },
+    "manufacturing": {
+      "title_zh": "制造/代工",
+      "reality_note_zh": "PO/样品/量产与付款在现实中几乎都要人确认；产线进度与质检报告可自动。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认代工报价？数量 {qty}，交期 {lead_time_days} 天，金额 {amount}",
+        "accept_order": "是否确认下达/接受生产 PO？",
+        "buyer_accept_settle": "是否确认收货合格并付款？"
+      },
+      "auto_ok_examples_zh": ["产能查询", "产线进度", "质检报告哈希"]
+    },
+    "real_estate_services": {
+      "title_zh": "房产服务",
+      "reality_note_zh": "看房预约可半自动；签约/定金/佣金必须人确认；不托管交易资金。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认该房源服务？{property}，费用 {amount} {currency}",
+        "accept_order": "是否确认锁约并支付服务费/定金指引？",
+        "cancel": "是否确认取消看房/服务？"
+      },
+      "auto_ok_examples_zh": ["房源检索", "看房日程同步", "服务凭证哈希"]
+    },
+    "financial_services": {
+      "title_zh": "金融服务（非托管）",
+      "reality_note_zh": "高风险：开户/授权/付款指令必须主人确认；对账报表可自动；资金永不托管；禁止静默放宽确认。",
+      "high_risk": true,
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认该金融服务？范围 {scope}，费用 {amount}（资金不托管）",
+        "accept_order": "是否确认授权执行本指令？金额 {amount} {currency}",
+        "buyer_accept_settle": "是否确认账单无误并结算服务费？"
+      },
+      "auto_ok_examples_zh": ["只读对账", "报表哈希上传", "合规披露回执"]
+    },
+    "marketing_advertising": {
+      "title_zh": "营销广告",
+      "reality_note_zh": "投放预算与素材终审必须人确认；投放执行与报表可自动。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认投放？预算 {amount} {currency}，渠道 {channel}",
+        "accept_order": "是否确认启动投放并锁定预算？",
+        "price_change_or_surge": "预算将调整为 {amount}，是否仍确认？"
+      },
+      "auto_ok_examples_zh": ["素材上传", "投放报表哈希", "消耗监控"]
+    },
+    "education_training": {
+      "title_zh": "教育培训",
+      "reality_note_zh": "报名/付款必须人确认；课表同步与完课证明可自动。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认报名？课程 {course}，金额 {amount}",
+        "accept_order": "是否确认缴费并锁定名额？",
+        "cancel": "是否确认退课/取消？"
+      },
+      "auto_ok_examples_zh": ["课表同步", "出勤记录", "完课证明哈希"]
+    },
+    "healthcare_medical": {
+      "title_zh": "医疗健康（非诊疗）",
+      "reality_note_zh": "高风险：仅非诊疗陪诊/预约类；挂号/改约/付款必须主人确认；禁止临床决策自动化；需 non_clinical_only。",
+      "high_risk": true,
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认该非诊疗服务？{service}，时间 {slot}，费用 {amount}",
+        "accept_order": "是否确认预约并支付服务费？（不含诊疗决策）",
+        "cancel": "是否确认取消预约？"
+      },
+      "auto_ok_examples_zh": ["号源查询", "行程提醒", "服务完成凭证哈希"]
     }
   },
   "default_scene_fallback": "global_defaults",

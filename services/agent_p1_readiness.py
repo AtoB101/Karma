@@ -244,6 +244,7 @@ async def evaluate_p1_readiness(
         "responsibility_acknowledged": False,
         "responsibility_attestation_valid": False,
         "boundary_hash_consistent": False,
+        "ack_bound_to_live_boundary": False,
         "reputation_initialized": False,
         "ownership_consistent": False,
     }
@@ -331,6 +332,8 @@ async def evaluate_p1_readiness(
             owner_identity_id=owner_id or agent_id,
         )
     live_hash = boundary_content_hash(boundary)
+    # Expose live vs stored separately — never treat live as authoritative overwrite
+    details["live_boundary_hash"] = live_hash
     details["boundary_hash"] = live_hash
     details["stored_boundary_hash"] = stored_hash
     if boundary and boundary.get("boundary_complete"):
@@ -354,9 +357,26 @@ async def evaluate_p1_readiness(
             checks["responsibility_attestation_valid"] = True
         else:
             gaps.append("responsibility_attestation_valid")
+        # Security: ack must bind to the *current* live boundary hash
+        ack_hash = str(ack.get("boundary_hash") or "").strip()
+        details["ack_boundary_hash"] = ack_hash or None
+        if (
+            ack_hash
+            and live_hash
+            and ack_hash == live_hash
+            and stored_hash
+            and ack_hash == stored_hash
+        ):
+            checks["ack_bound_to_live_boundary"] = True
+        else:
+            gaps.append("ack_bound_to_live_boundary")
+            details["ack_hash_drift"] = True
+            if ack.get("invalidated_reason"):
+                details["ack_invalidated_reason"] = ack.get("invalidated_reason")
     else:
         gaps.append("responsibility_acknowledged")
         gaps.append("responsibility_attestation_valid")
+        gaps.append("ack_bound_to_live_boundary")
 
     # Ownership consistency: meta owner matches column
     meta_owner = (meta.get("owner_identity_id") or "").strip() or None

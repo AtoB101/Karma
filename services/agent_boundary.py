@@ -43,6 +43,23 @@ _CAP_TO_SCENE: dict[str, str] = {
     "api.labeling": "api_tool_call",
     "logistics_delivery": "logistics_delivery",
     "software_development": "software_development",
+    "design_creative": "design_creative",
+    "consulting_advisory": "consulting_advisory",
+    "content_creation": "content_creation",
+    "manufacturing": "manufacturing",
+    "real_estate_services": "real_estate_services",
+    "financial_services": "financial_services",
+    "marketing_advertising": "marketing_advertising",
+    "education_training": "education_training",
+    "healthcare_medical": "healthcare_medical",
+}
+
+# Lower rank = stricter (harder for agent to skip owner). Looser = higher rank.
+_GATE_STRICTNESS: dict[str, int] = {
+    "OWNER_CONFIRM": 0,
+    "COUNTERPARTY_OR_OWNER": 1,
+    "POLICY_AUTO": 2,
+    "AUTO": 3,
 }
 
 
@@ -77,16 +94,82 @@ def _ensure_loaded() -> None:
         _LOADED = True
 
 
-def save_agent_boundary(agent_id: str, boundary: dict[str, Any]) -> None:
-    """Persist boundary after re-assessing completeness (never trust caller flags)."""
-    _ensure_loaded()
+def gate_mode_rank(mode: str | None) -> int:
+    return _GATE_STRICTNESS.get((mode or "").strip().upper(), 0)
+
+
+def confirmation_is_looser_than_catalog(
+    published: dict[str, Any] | None,
+    *,
+    scene_ids: list[str],
+    conf_role: str,
+) -> tuple[bool, list[str]]:
+    """True when published confirmation omits must-confirm or upgrades steps to AUTO."""
+    catalog = _confirmation_block(scene_ids=scene_ids, conf_role=conf_role)
+    pub = published or {}
+    issues: list[str] = []
+    cat_must = set(catalog.get("must_confirm_steps") or [])
+    pub_must = set(pub.get("must_confirm_steps") or [])
+    missing_must = sorted(cat_must - pub_must)
+    if missing_must:
+        issues.append(f"missing_must_confirm:{','.join(missing_must)}")
+    cat_auto = set(catalog.get("auto_ok_steps") or [])
+    pub_auto = set(pub.get("auto_ok_steps") or [])
+    # Steps that catalog keeps as must/policy but published lists as plain auto
+    illicit_auto = sorted((pub_auto - cat_auto) & cat_must)
+    if illicit_auto:
+        issues.append(f"illicit_auto_ok:{','.join(illicit_auto)}")
+    return (len(issues) > 0, issues)
+
+
+def canonicalize_confirmation_boundary(
+    boundary: dict[str, Any],
+    *,
+    reject_looser: bool = True,
+) -> dict[str, Any]:
+    """Re-derive confirmation_boundary from catalog; never trust client looser modes."""
     row = dict(boundary)
+    scenes = list(row.get("scene_ids") or [])
+    conf_in = dict(row.get("confirmation_boundary") or {})
+    conf_role = (
+        conf_in.get("role")
+        or karma_role_to_confirmation_role(str(row.get("karma_role") or "worker"))
+    )
+    if (row.get("profile_id") or "").lower() == "user":
+        conf_role = "buyer"
+    if reject_looser and conf_in:
+        looser, issues = confirmation_is_looser_than_catalog(
+            conf_in, scene_ids=scenes, conf_role=conf_role
+        )
+        if looser:
+            raise AgentBoundaryError(
+                "confirmation_boundary is looser than catalog (security): "
+                + "; ".join(issues)
+            )
+    row["confirmation_boundary"] = _confirmation_block(
+        scene_ids=scenes, conf_role=conf_role
+    )
+    return row
+
+
+def save_agent_boundary(
+    agent_id: str,
+    boundary: dict[str, Any],
+    *,
+    reject_looser_confirmation: bool = True,
+) -> dict[str, Any]:
+    """Persist boundary after catalog re-canonicalize (never trust caller flags/modes)."""
+    _ensure_loaded()
+    row = canonicalize_confirmation_boundary(
+        dict(boundary),
+        reject_looser=reject_looser_confirmation,
+    )
     row["agent_id"] = agent_id
     cap = row.get("capability_boundary") or {}
+    conf_role = (row.get("confirmation_boundary") or {}).get("role") or "seller"
     complete, gaps = _assess_complete(
         profile_id=row.get("profile_id"),
-        conf_role=(row.get("confirmation_boundary") or {}).get("role")
-        or karma_role_to_confirmation_role(str(row.get("karma_role") or "worker")),
+        conf_role=conf_role,
         scene_ids=list(row.get("scene_ids") or []),
         service_specs=dict(cap.get("service_specs") or {}),
         do_not=str(cap.get("do_not") or ""),
@@ -110,6 +193,7 @@ def save_agent_boundary(agent_id: str, boundary: dict[str, Any]) -> None:
             json.dumps(_CACHE, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+    return row
 
 
 def get_agent_boundary(agent_id: str) -> dict[str, Any] | None:
@@ -327,6 +411,33 @@ def boundary_digest(boundary: dict[str, Any] | None) -> dict[str, Any] | None:
         "primary_scene_id": conf.get("primary_scene_id"),
         "confirmation_role": conf.get("role"),
     }
+
+
+def seller_covers_scene(boundary: dict[str, Any] | None, scene_id: str) -> bool:
+    """Whether seller boundary declares this scene (scene_ids or service_specs)."""
+    if not boundary or not scene_id:
+        return False
+    sid = scene_id.strip()
+    scenes = {str(x) for x in (boundary.get("scene_ids") or [])}
+    if sid in scenes:
+        return True
+    specs = (boundary.get("capability_boundary") or {}).get("service_specs") or {}
+    return sid in specs
+
+
+def scene_in_do_not(boundary: dict[str, Any] | None, scene_id: str) -> bool:
+    """Heuristic: do_not text explicitly refuses this scene id token."""
+    if not boundary or not scene_id:
+        return False
+    do_not = str((boundary.get("capability_boundary") or {}).get("do_not") or "").lower()
+    token = scene_id.strip().lower()
+    if not do_not or not token:
+        return False
+    # Explicit refuse markers near scene token
+    markers = ("不做", "不接", "拒绝", "除外", "禁止", "not ", "no ")
+    if token in do_not:
+        return any(m in do_not for m in markers)
+    return False
 
 
 def materialize_from_onboarding_result(

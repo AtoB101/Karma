@@ -118,6 +118,7 @@ def test_save_and_get_boundary():
 
 
 def test_save_rejects_forged_complete_flag():
+    # Catalog-aligned confirmation but forged complete + empty scenes
     forged = {
         "schema_version": "karma-agent-boundary-v1",
         "agent_id": "forge-1",
@@ -132,10 +133,54 @@ def test_save_rejects_forged_complete_flag():
             "do_not": "",
         },
         "responsibility_boundary": {"acknowledged": True},
-        "confirmation_boundary": {"role": "seller"},
+        "confirmation_boundary": ab._confirmation_block(
+            scene_ids=[], conf_role="seller"
+        ),
     }
     ab.save_agent_boundary("forge-1", forged)
     loaded = ab.get_agent_boundary("forge-1")
     assert loaded is not None
     assert loaded["boundary_complete"] is False
     assert "scene_ids" in loaded["completeness_gaps"]
+
+
+def test_save_rejects_looser_confirmation():
+    b = materialize_agent_boundary(
+        agent_id="forge-loose",
+        karma_role="worker",
+        profile_id="merchant",
+        capabilities=["order_food"],
+        scene_ids=["food_delivery"],
+        profile_card={
+            "industry_ids": ["food_delivery"],
+            "service_specs": {
+                "food_delivery": {"service_content": ["简餐"], "boundaries": "不做冷链"}
+            },
+            "boundaries": "不做冷链",
+        },
+    )
+    # Strip must_confirm to forge a looser card
+    b["confirmation_boundary"] = {
+        **b["confirmation_boundary"],
+        "must_confirm_steps": [],
+        "auto_ok_steps": list(
+            set(b["confirmation_boundary"]["must_confirm_steps"])
+            | set(b["confirmation_boundary"]["auto_ok_steps"])
+        ),
+    }
+    with pytest.raises(ab.AgentBoundaryError, match="looser"):
+        ab.save_agent_boundary("forge-loose", b)
+
+
+def test_seller_covers_scene():
+    b = materialize_agent_boundary(
+        agent_id="cov-1",
+        capabilities=["order_food"],
+        scene_ids=["food_delivery"],
+        profile_card={
+            "service_specs": {"food_delivery": {"service_content": ["x"]}},
+            "boundaries": "不做跨境",
+        },
+    )
+    assert ab.seller_covers_scene(b, "food_delivery") is True
+    assert ab.seller_covers_scene(b, "flight_booking") is False

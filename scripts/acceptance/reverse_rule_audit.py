@@ -338,6 +338,67 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if "owner_identity_id" not in directory or "refresh_p1_ready" not in directory:
         _fail("agent_directory missing P1 owner bind / refresh_p1_ready", failures)
 
+    # P2 boundary enforcement — catalog re-canonicalize / verify / fulfill gate / ack bind
+    p2 = ROOT / "services/agent_boundary_verify.py"
+    if not p2.is_file():
+        _fail("missing services/agent_boundary_verify.py", failures)
+    else:
+        p2t = p2.read_text(encoding="utf-8")
+        for needle in (
+            "verify_agent_boundary",
+            "assert_seller_boundary_for_fulfill",
+            "confirmation_not_looser",
+            "scene_covered",
+        ):
+            if needle not in p2t:
+                _fail(f"agent_boundary_verify missing {needle}", failures)
+
+    boundary_svc = _read("services/agent_boundary.py")
+    for needle in (
+        "canonicalize_confirmation_boundary",
+        "confirmation_is_looser_than_catalog",
+        "seller_covers_scene",
+    ):
+        if needle not in boundary_svc:
+            _fail(f"agent_boundary missing P2 piece: {needle}", failures)
+
+    agents = _read("api/routes/agents.py")
+    if "/boundary/verify" not in agents:
+        _fail("agents routes missing GET /{agent_id}/boundary/verify", failures)
+    if "heal" in agents.lower() and "boundary_hash" in agents:
+        # soft: ensure p1-status does not assign live hash onto row.boundary_hash
+        pass
+    if 'row.boundary_hash = status["boundary_hash"]' in agents or "row.boundary_hash = status.get(\"boundary_hash\")" in agents:
+        _fail("p1-status must not heal boundary_hash from live status", failures)
+
+    directory = _read("services/agent_directory.py")
+    if "boundary_changed" not in directory:
+        _fail("agent_directory missing ack invalidation on boundary_changed", failures)
+    if 'row.boundary_hash = status["boundary_hash"]' in directory:
+        _fail("refresh_p1_ready must not heal boundary_hash from live status", failures)
+
+    fulfill = _read("services/intent_fulfillment.py")
+    if "assert_seller_boundary_for_fulfill" not in fulfill:
+        _fail("intent_fulfillment missing P2 seller boundary gate", failures)
+
+    p1t = _read("services/agent_p1_readiness.py")
+    if "ack_bound_to_live_boundary" not in p1t:
+        _fail("agent_p1_readiness missing ack_bound_to_live_boundary check", failures)
+
+    conf_pol = ROOT / "packages/evidence-schema/human-confirmation-policy.v1.json"
+    if conf_pol.is_file():
+        ct = conf_pol.read_text(encoding="utf-8")
+        for sid in (
+            "financial_services",
+            "healthcare_medical",
+            "design_creative",
+            "manufacturing",
+        ):
+            if f'"{sid}"' not in ct:
+                _fail(f"confirmation policy missing scene {sid}", failures)
+        if '"high_risk": true' not in ct and '"high_risk":true' not in ct:
+            _fail("confirmation policy missing high_risk scene markers", failures)
+
 
 def main() -> int:
     failures: list[str] = []
