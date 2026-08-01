@@ -5,11 +5,13 @@ import copy
 
 import pytest
 
+from services import important_fields_standard as ifs
 from services.important_fields_standard import (
     ImportantFieldsError,
     example_for_scene,
     fields_hash,
     get_scene,
+    list_scene_groups,
     list_scenes,
     load_catalog,
     match_submissions,
@@ -17,23 +19,52 @@ from services.important_fields_standard import (
 )
 
 
-def test_catalog_has_eleven_market_scenes():
+@pytest.fixture(autouse=True)
+def _reload_catalog():
+    ifs.load_catalog.cache_clear()
+    yield
+    ifs.load_catalog.cache_clear()
+
+
+def test_catalog_groups_cover_market_daily_b2b():
     cat = load_catalog()
-    scenes = list_scenes(include_extensions=False)
     assert cat["schema_version"] == "karma-important-fields-v1"
-    assert len(scenes) == 11
-    ids = [s["scene_id"] for s in scenes]
-    assert ids[0] == "software_development"
-    assert ids[-1] == "healthcare_medical"
-    assert "legal_compliance" not in ids
+    groups = list_scene_groups()["counts"]
+    assert groups["market_vertical"] == 11
+    assert groups["daily_commerce"] == 4
+    assert groups["b2b_digital"] == 3
+    assert groups["all_primary"] == 18
+
+    market = [s["scene_id"] for s in list_scenes(group="market_vertical")]
+    assert market[0] == "software_development"
+    assert market[-1] == "healthcare_medical"
+
+    daily = {s["scene_id"] for s in list_scenes(group="daily_commerce")}
+    assert daily == {"ride_hailing", "hotel_booking", "food_delivery", "flight_booking"}
+
+    b2b = {s["scene_id"] for s in list_scenes(group="b2b_digital")}
+    assert b2b == {"b2b_procurement", "data_api_billing", "api_tool_call"}
 
 
 def test_extensions_include_legal_and_custom():
-    scenes = list_scenes(include_extensions=True)
+    scenes = list_scenes(include_extensions=True, group="extension")
     ids = {s["scene_id"] for s in scenes}
-    assert "legal_compliance" in ids
-    assert "custom_service" in ids
-    assert len(scenes) == 13
+    assert ids == {"legal_compliance", "custom_service"}
+
+
+def test_daily_examples_validate_and_match():
+    for scene_id in ("ride_hailing", "hotel_booking", "food_delivery", "flight_booking"):
+        fields = example_for_scene(scene_id)["fields"]
+        assert validate_fields(scene_id, fields) == []
+        result = match_submissions(scene_id, fields, copy.deepcopy(fields))
+        assert result["status"] == "MATCHED", scene_id
+
+
+def test_b2b_api_billing_and_procurement():
+    for scene_id in ("b2b_procurement", "data_api_billing", "api_tool_call"):
+        ex = example_for_scene(scene_id)
+        assert validate_fields(scene_id, ex["fields"]) == []
+        assert len(ex["fields_hash"]) == 64
 
 
 def test_example_validates_and_stable_hash():
@@ -82,3 +113,10 @@ def test_financial_requires_no_custody_ack():
     fields["scene"]["no_custody_ack"] = False
     errors = validate_fields("financial_services", fields)
     assert any("no_custody_ack" in e for e in errors)
+
+
+def test_flight_aligns_verifier_proof_fields():
+    scene = get_scene("flight_booking")
+    assert scene.get("service_type") == "flight_booking"
+    proofs = set(scene["default_required_proof_fields"])
+    assert {"flight_number", "departure_time", "arrival_time"} <= proofs

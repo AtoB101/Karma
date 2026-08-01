@@ -11,6 +11,7 @@ from services.important_fields_standard import (
     example_for_scene,
     fields_hash,
     get_scene,
+    list_scene_groups,
     list_scenes,
     load_catalog,
     match_submissions,
@@ -33,8 +34,11 @@ class MatchRequest(BaseModel):
 
 
 @router.get("/important-fields")
-async def get_important_fields_standard(include_extensions: bool = False) -> dict[str, Any]:
-    """Full Important Fields catalog (11 market scenes + optional extensions)."""
+async def get_important_fields_standard(
+    include_extensions: bool = False,
+    group: str | None = None,
+) -> dict[str, Any]:
+    """Important Fields catalog (market + daily commerce + B2B; filter with ?group=)."""
     cat = load_catalog()
     return {
         "schema_version": cat.get("schema_version"),
@@ -42,22 +46,29 @@ async def get_important_fields_standard(include_extensions: bool = False) -> dic
         "title_zh": cat.get("title_zh"),
         "description": cat.get("description"),
         "description_zh": cat.get("description_zh"),
+        "scene_groups": list_scene_groups(),
         "canonicalization": cat.get("canonicalization"),
         "submission_envelope": cat.get("submission_envelope"),
         "common_fields": cat.get("common_fields"),
         "lifecycle": cat.get("lifecycle"),
         "agent_read_apis": cat.get("agent_read_apis"),
-        "scenes": list_scenes(include_extensions=include_extensions),
+        "scenes": list_scenes(include_extensions=include_extensions, group=group),
         "catalog_path": "packages/evidence-schema/important-fields-standard.v1.json",
     }
 
 
 @router.get("/important-fields/scenes")
-async def list_important_field_scenes(include_extensions: bool = False) -> dict[str, Any]:
+async def list_important_field_scenes(
+    include_extensions: bool = False,
+    group: str | None = None,
+) -> dict[str, Any]:
+    scenes = list_scenes(include_extensions=include_extensions, group=group)
     return {
         "schema_version": "karma-important-fields-v1",
-        "count": len(list_scenes(include_extensions=include_extensions)),
-        "scenes": list_scenes(include_extensions=include_extensions),
+        "group": group,
+        "count": len(scenes),
+        "groups": list_scene_groups(),
+        "scenes": scenes,
     }
 
 

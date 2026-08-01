@@ -40,24 +40,49 @@ def load_catalog() -> dict[str, Any]:
     return data
 
 
-def list_scenes(*, include_extensions: bool = False) -> list[dict[str, Any]]:
+def _scene_summary(s: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "scene_id": s["scene_id"],
+        "group": s.get("group"),
+        "service_category": s.get("service_category"),
+        "service_type": s.get("service_type"),
+        "on_chain_enum": s.get("on_chain_enum"),
+        "title_en": s.get("title_en"),
+        "title_zh": s.get("title_zh"),
+        "market_summary_zh": s.get("market_summary_zh") or s.get("note_zh"),
+        "risk_tier": s.get("risk_tier"),
+        "location_mode": s.get("location_mode"),
+    }
+
+
+def list_scenes(
+    *,
+    include_extensions: bool = False,
+    group: str | None = None,
+) -> list[dict[str, Any]]:
+    """List scenes. group: market_vertical | daily_commerce | b2b_digital | extension."""
     cat = load_catalog()
     scenes = list(cat.get("scenes") or [])
-    if include_extensions:
+    if include_extensions or (group == "extension"):
         scenes.extend(cat.get("extensions") or [])
-    return [
-        {
-            "scene_id": s["scene_id"],
-            "service_category": s.get("service_category"),
-            "on_chain_enum": s.get("on_chain_enum"),
-            "title_en": s.get("title_en"),
-            "title_zh": s.get("title_zh"),
-            "market_summary_zh": s.get("market_summary_zh") or s.get("note_zh"),
-            "risk_tier": s.get("risk_tier"),
-            "location_mode": s.get("location_mode"),
-        }
-        for s in scenes
-    ]
+    if group:
+        scenes = [s for s in scenes if s.get("group") == group]
+    return [_scene_summary(s) for s in scenes]
+
+
+def list_scene_groups() -> dict[str, Any]:
+    cat = load_catalog()
+    return {
+        "schema_version": cat.get("schema_version"),
+        "groups": cat.get("scene_groups") or {},
+        "counts": {
+            "market_vertical": len(list_scenes(group="market_vertical")),
+            "daily_commerce": len(list_scenes(group="daily_commerce")),
+            "b2b_digital": len(list_scenes(group="b2b_digital")),
+            "extension": len(list_scenes(include_extensions=True, group="extension")),
+            "all_primary": len(list_scenes(include_extensions=False)),
+        },
+    }
 
 
 def get_scene(scene_id: str, *, include_extensions: bool = True) -> dict[str, Any]:

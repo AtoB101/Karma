@@ -371,7 +371,11 @@ async def info():
             "scenes": "/v1/standards/important-fields/scenes",
             "match": "/v1/standards/important-fields/match",
             "doc": "docs/IMPORTANT_FIELDS_STANDARD_V1.md",
-            "note": "11 market scenes; both agents submit ImportantFields; MATCHED hash required before evidence seal/on-chain.",
+            "note": (
+                "Scenes: market_vertical(11) + daily_commerce(ride/hotel/food/flight) "
+                "+ b2b_digital(procurement/API billing). Both agents submit ImportantFields; "
+                "MATCHED hash required before evidence seal/on-chain."
+            ),
         },
         "verify_auth": {
             "enforcement": bool(settings.auth_enforce_protected_routes),
