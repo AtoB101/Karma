@@ -780,6 +780,20 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if "Reject wildcard CORS outside local/dev/test" not in settings_py:
         _fail("cors_allow_origins_list must reject wildcard outside local/dev/test", failures)
 
+    # One-click vertical agent connect
+    agents_py = _read("api/routes/agents.py")
+    for needle in ("/one-click-connect", "OneClickConnectRequest", "mint_agent_api_key"):
+        if needle not in agents_py:
+            _fail(f"agents routes missing one-click piece: {needle}", failures)
+    if "verify_minted_api_key" not in _read("api/middleware/auth.py"):
+        _fail("auth middleware must verify one-click minted API keys", failures)
+    if not (ROOT / "services/agent_one_click.py").is_file():
+        _fail("missing services/agent_one_click.py", failures)
+    if not (ROOT / "docs/AGENT_ONE_CLICK_CONNECT_V1.md").is_file():
+        _fail("missing docs/AGENT_ONE_CLICK_CONNECT_V1.md", failures)
+    if "one_click_agent_connect" not in _read("sdk/integrations/__init__.py"):
+        _fail("sdk.integrations missing one_click_agent_connect helper", failures)
+
 
 def main() -> int:
     failures: list[str] = []

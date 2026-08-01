@@ -168,6 +168,43 @@ async def discover_and_connect(
     return agent
 
 
+async def one_click_agent_connect(
+    *,
+    side: str,
+    vertical: Optional[str] = None,
+    display_name: Optional[str] = None,
+    self_description: Optional[str] = None,
+    runtime_url: Optional[str] = None,
+    headers: Optional[dict[str, str]] = None,
+    timeout: float = 30.0,
+) -> dict[str, Any]:
+    """
+    Directory one-click connect for vertical agents (buyer/seller).
+
+    Calls ``POST /v1/agents/one-click-connect`` and returns the JSON body
+    (agent + scene_ids + credentials.api_key + next_steps). Distinct from
+    OpenClaw ``discover_and_connect`` which wraps an already-keyed runtime.
+    """
+    import httpx
+
+    url = (runtime_url or discover_runtime_url() or DEFAULT_LOCAL_RUNTIME).rstrip("/")
+    payload: dict[str, Any] = {"side": side, "mint_api_key": True}
+    if vertical:
+        payload["vertical"] = vertical
+    if display_name:
+        payload["display_name"] = display_name
+    if self_description:
+        payload["self_description"] = self_description
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(
+            f"{url}/v1/agents/one-click-connect",
+            json=payload,
+            headers=headers or {},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Connection manifest (for console / UI)
 # ═══════════════════════════════════════════════════════════════════

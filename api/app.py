@@ -402,10 +402,12 @@ async def info():
         "agent_onboarding_template": {
             "catalog": "/v1/standards/onboarding",
             "connect": "/v1/agents/connect-from-template",
-            "doc": "docs/AGENT_ONBOARDING_TEMPLATE_V1.md",
+            "one_click": "/v1/agents/one-click-connect",
+            "verticals": "/v1/agents/one-click-verticals",
+            "doc": "docs/AGENT_ONE_CLICK_CONNECT_V1.md",
             "note": (
-                "Profiles: user|merchant|enterprise. Agents read industry templates and "
-                "auto-fill capabilities/hours/targets/description before connect."
+                "Profiles: user|merchant|enterprise. One-click: side+vertical → P1 connect "
+                "+ bootstrap API key. Or materialize industry templates then connect-from-template."
             ),
         },
         "human_confirmation_policy": {
@@ -429,12 +431,14 @@ async def info():
         },
         "agent_p1_onboarding": {
             "connect": "/v1/agents/connect-from-template",
+            "one_click": "/v1/agents/one-click-connect",
+            "verticals": "/v1/agents/one-click-verticals",
             "challenge": "/v1/agents/connect-challenge",
             "verify": "/v1/agents/{id}/p1-status",
-            "doc": "docs/AGENT_P1_ONBOARDING_V1.md",
+            "doc": "docs/AGENT_ONE_CLICK_CONNECT_V1.md",
             "note": (
-                "P1: identity_class + owner bind + service_specs + responsibility ack; "
-                "counterparties verify against existing records via p1-status (anti-forgery)."
+                "P1 + one-click: vertical agents (hotel/food/ecommerce/CS/enterprise) connect "
+                "in one call; counterparties verify via p1-status (anti-forgery)."
             ),
         },
         "real_scenario_loop": {

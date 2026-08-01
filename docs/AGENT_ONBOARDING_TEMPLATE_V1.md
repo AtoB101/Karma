@@ -1,13 +1,17 @@
 # Karma Agent 自动化接入标准模板 v1
 
 > 机器目录：`packages/evidence-schema/agent-onboarding-template.v1.json`  
-> HTTP：`GET /v1/standards/onboarding`
+> HTTP：`GET /v1/standards/onboarding`  
+> **一键接入（推荐）：** `POST /v1/agents/one-click-connect` — 见 [`AGENT_ONE_CLICK_CONNECT_V1.md`](AGENT_ONE_CLICK_CONNECT_V1.md)
 
 ## 目标
 
 让**不懂 agent 的人**也能轻松接入 Karma：主人只需说「我是用户 / 商家 / 企业」，  
 由 **agent 自己读取标准模板**，按行业自动选择能力、营业时间、服务对象，并生成描述。  
 其他 agent 接入后即可读懂「你能做什么」。
+
+垂直 Agent（酒店/饭店/电商/客服/企业）优先走 **one-click-connect**（`side` + `vertical`），  
+一次返回目录身份、边界、`p1_status` 与引导 API Key。
 
 接入时同步发布 **能力 / 责任 / 确认** 三边界（见 `docs/AGENT_BOUNDARY_STANDARD_V1.md`），  
 保证现实场景里该人工确认的才打扰主人，其余自动交付增效。
