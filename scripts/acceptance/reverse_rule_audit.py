@@ -618,6 +618,72 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if not (ROOT / "docs/ACCEPT_FULFILLMENT_P6_V1.md").is_file():
         _fail("missing docs/ACCEPT_FULFILLMENT_P6_V1.md", failures)
 
+    # P7 delivery verification — physical triple / tagged photo / silent buyer
+    p7cat = ROOT / "packages/evidence-schema/delivery-verification.v1.json"
+    if not p7cat.is_file():
+        _fail("missing delivery-verification.v1.json", failures)
+    else:
+        p7t = p7cat.read_text(encoding="utf-8")
+        if "karma-delivery-verification-v1" not in p7t:
+            _fail("delivery-verification catalog missing schema_version marker", failures)
+        for needle in (
+            "physical_triple",
+            "ticket_stub",
+            "digital_light",
+            "buyer_silent_confirm_seconds",
+            "capture_time_system_tag",
+            "wrong_item_at_intake",
+            "logistics_bps",
+        ):
+            if needle not in p7t:
+                _fail(f"delivery-verification catalog missing {needle}", failures)
+
+    p7svc = _read("services/delivery_verification.py")
+    for needle in (
+        "issue_capture_challenge",
+        "logistics_intake",
+        "logistics_deliver",
+        "buyer_silent_default",
+        "apply_silent_buyer_default",
+        "require_verified_for_settle",
+        "tag_hmac",
+        "WRONG_ITEM",
+    ):
+        if needle not in p7svc:
+            _fail(f"delivery_verification missing P7 piece: {needle}", failures)
+
+    dv_routes = _read("api/routes/delivery_verification.py")
+    for needle in (
+        "/sessions",
+        "logistics-intake",
+        "logistics-deliver",
+        "capture-challenge",
+        "expire-silent-buyers",
+        "buyer-confirm",
+    ):
+        if needle not in dv_routes:
+            _fail(f"delivery_verification routes missing {needle}", failures)
+
+    app = _read("api/app.py")
+    if 'prefix="/v1/delivery-verification"' not in app:
+        _fail("api/app.py missing /v1/delivery-verification router", failures)
+
+    standards = _read("api/routes/standards.py")
+    if "/delivery-verification" not in standards:
+        _fail("standards routes missing delivery-verification API", failures)
+
+    settle = _read("api/routes/settlement.py")
+    for needle in (
+        "_assert_p7_delivery_gate",
+        "delivery_verification_required",
+        "require_verified_for_settle",
+    ):
+        if needle not in settle:
+            _fail(f"settlement missing P7 gate: {needle}", failures)
+
+    if not (ROOT / "docs/DELIVERY_VERIFICATION_P7_V1.md").is_file():
+        _fail("missing docs/DELIVERY_VERIFICATION_P7_V1.md", failures)
+
 
 def main() -> int:
     failures: list[str] = []

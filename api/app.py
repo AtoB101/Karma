@@ -47,6 +47,7 @@ from api.routes import (
     orchestration,
     standards,
     confirmations,
+    delivery_verification,
 )
 
 logger = structlog.get_logger(__name__)
@@ -358,6 +359,12 @@ app.include_router(
     confirmations.router,
     prefix="/v1/confirmations",
     tags=["Confirmations"],
+    dependencies=_rate_limited_rw,
+)
+app.include_router(
+    delivery_verification.router,
+    prefix="/v1/delivery-verification",
+    tags=["DeliveryVerification"],
     dependencies=_rate_limited_rw,
 )
 

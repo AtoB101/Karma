@@ -40,6 +40,14 @@ fraud rules, or dispute weighting — those belong in the private risk engine re
 - HTTP: `GET /v1/standards/accept-fulfillment`
 - Sweep: `POST /v1/confirmations/expire-pending-seller-accepts`
 
+## Delivery verification (P7)
+
+`delivery-verification.v1.json` — 交付验真：线下三方物流 + 防伪照片、票务回执 stub、数字轻量。
+
+- Docs: `docs/DELIVERY_VERIFICATION_P7_V1.md`
+- HTTP: `GET /v1/standards/delivery-verification`
+- Sessions: `POST /v1/delivery-verification/sessions` → ship / intake / deliver / buyer-confirm
+
 ## Agent boundary standard
 
 `agent-boundary.v1.json` — 每个已连接 agent 的 **能力 / 责任 / 确认** 三边界。

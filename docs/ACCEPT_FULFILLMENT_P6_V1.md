@@ -53,7 +53,7 @@ decide(confirm=true) → fulfill-intent + seller_confirmation_session_id
 | P4 | 是否确认接单 |
 | P5 | 锁定成交字段 |
 | **P6** | 接单时限、未确认档案、确认后违约责任 |
-| P7 | 交付验真对照已锁字段与责任条款 |
+| P7 | 交付验真（三方物流/防伪照片/票务回执）见 `DELIVERY_VERIFICATION_P7_V1.md` |
 
 ## 相关
 
