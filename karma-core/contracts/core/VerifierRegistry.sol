@@ -33,6 +33,10 @@ contract VerifierRegistry {
 
     // ──────────────────────────────── Storage ────────────────────────────────
 
+    /// @notice Callers authorized for recordAttestation / rewardVerifier
+    ///         (typically KarmaAttestationGateway; optionally KarmaBilateral).
+    mapping(address => bool) public authorizedCallers;
+
     /// @notice Default N (required valid attestations).
     uint256 public defaultThreshold = 3;
 
@@ -94,6 +98,7 @@ contract VerifierRegistry {
     event VerifierSlashed(address indexed verifier, uint256 amount, string reason);
     event VerifierRewarded(address indexed verifier, uint256 amount);
     event StakingConfigUpdated(uint256 minStake, uint256 reward);
+    event AuthorizedCallerUpdated(address indexed caller, bool allowed);
 
     // ──────────────────────────────── Constructor ────────────────────────────
 
@@ -104,6 +109,14 @@ contract VerifierRegistry {
     }
 
     // ────────────────────────────── Admin Functions ──────────────────────────
+
+    /// @notice Authorize or revoke a contract that may call privileged write paths.
+    /// @dev Production: authorize KarmaAttestationGateway (and optionally Bilateral).
+    function setAuthorizedCaller(address caller, bool allowed) external onlyAdmin {
+        if (caller == address(0)) revert InvalidAddress();
+        authorizedCallers[caller] = allowed;
+        emit AuthorizedCallerUpdated(caller, allowed);
+    }
 
     /// @notice Register a new verifier node.
     /// @param wallet Verifier's Ethereum address.
@@ -177,10 +190,9 @@ contract VerifierRegistry {
     /// @notice Record an attestation result for a verifier (called by Gateway).
     /// @param verifier Verifier wallet address.
     /// @param success Whether the attestation was valid.
-    function recordAttestation(address verifier, bool success) external {
+    function recordAttestation(address verifier, bool success) external onlyAuthorizedCaller {
         VerifierInfo storage v = verifiers[verifier];
         if (v.wallet == address(0)) revert VerifierNotFound();
-        // In production this would be callable only by the Gateway contract.
         if (success) {
             v.successCount += 1;
         } else {
@@ -279,8 +291,7 @@ contract VerifierRegistry {
     }
 
     /// @notice Pay verification reward to verifier after successful attestation.
-    function rewardVerifier(address verifier, uint256 amount) external {
-        // In production, callable only by Gateway or KarmaBilateral
+    function rewardVerifier(address verifier, uint256 amount) external onlyAuthorizedCaller {
         VerifierInfo storage v = verifiers[verifier];
         if (v.wallet == address(0)) revert VerifierNotFound();
 
@@ -305,6 +316,12 @@ contract VerifierRegistry {
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert Unauthorized();
+        _;
+    }
+
+    /// @dev Admin retains operational access; Gateway (etc.) must be authorized explicitly.
+    modifier onlyAuthorizedCaller() {
+        if (msg.sender != admin && !authorizedCallers[msg.sender]) revert Unauthorized();
         _;
     }
 }

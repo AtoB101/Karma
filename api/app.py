@@ -43,6 +43,8 @@ from api.routes import (
     payment_intents,
     evidence,
     verifier_network,
+    discovery,
+    orchestration,
 )
 
 logger = structlog.get_logger(__name__)
@@ -340,6 +342,13 @@ app.include_router(security.router,   prefix="/v1/security",   tags=["Security"]
 app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_security_always_auth + [Depends(make_rate_limit_dep("write_sensitive"))])
 app.include_router(openclaw.router, prefix="/v1/openclaw", tags=["OpenClaw"], dependencies=_protected_dependencies)
 app.include_router(verifier_network.router, prefix="/v1/verifiers", tags=["VerifierNetwork"], dependencies=_protected_dependencies)
+app.include_router(discovery.router, prefix="/v1/discovery", tags=["Discovery"], dependencies=_protected_dependencies)
+app.include_router(
+    orchestration.router,
+    prefix="/v1/orchestration",
+    tags=["Orchestration"],
+    dependencies=_rate_limited_rw,
+)
 
 
 @app.get("/health")

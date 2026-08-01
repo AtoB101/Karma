@@ -6,13 +6,50 @@ Enables agents to discover each other, negotiate tasks, and settle via Karma.
 ## Quick Start
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
 uvicorn main:app --reload --port 8080
 ```
+
+## Assistant flow (intent → discover → deliver)
+
+```
+User → Assistant Agent
+         │  POST /a2a/discover  { requirement_text }
+         ▼
+   Ranked merchants (local catalog + A2A registry)
+         │  negotiate skill on recommended.endpoint
+         ▼
+   A2A task (EIP-712) → handoff/voucher → Karma evidence → settle
+```
+
+Core API:
+- `POST /v1/discovery/intent` — discover only
+- `POST /v1/orchestration/fulfill-intent` — **full spine** (discover→negotiate→voucher→settle)
+- `POST /v1/trade/orders/launch-from-intent` — trade preauth path (needs Runtime Key)
+
+Bridge: `POST /a2a/fulfill` proxies to Karma orchestration.
+MCP: `karma_discover_for_intent`, `karma_fulfill_intent`.
+
+## Security & identity (2026-08)
+
+1. **EIP-712 on all write ops** — `POST /a2a/task`, confirm/submit/cancel/handoff require
+   `auth` (`agent`, `signature`, `nonce`, `deadline`) using domain `KarmaA2A` / type `A2ATaskOp`
+   (same EIP-712 encoding style as on-chain Karma auth). Set `A2A_REQUIRE_EIP712=0` only for local demos.
+2. **DID SSOT** — set `A2A_DID_AGENT_ADDRESS` (+ optional `A2A_ON_CHAIN_DID`).
+   `AgentCard.agent_id` becomes `did:karma:0x…` (read-only projection of on-chain DID).
+3. **Event-sourced tasks** — `_task_store` replaced by SQLite event log
+   (`A2A_TASK_STORE_PATH`, default `data/a2a_tasks.sqlite3`). `GET /a2a/task/{id}/events` exposes the log.
+4. **Attestation discovery** — AgentCard may advertise `karma_attestation` plus
+   `karma.verifier_registry` / `karma.attestation_gateway` **addresses**.
+   Privileged methods `recordAttestation` / `rewardVerifier` are **not** published as skills;
+   on-chain they are restricted to authorized Gateway callers.
 
 ## Components
 
 - `a2a_server.py` — A2A HTTP Server (Agent Card + Task endpoints)
+- `eip712_auth.py` — EIP-712 typed-data sign/verify for write ops
+- `task_store.py` — Persistent event-sourced task store
+- `identity.py` — DID → agent_id projection helpers
 - `card_builder.py` — Dynamic Agent Card generation
 - `handoff_bridge.py` — A2A Task → Karma Voucher translation
 - `registry_client.py` — A2A Registry client

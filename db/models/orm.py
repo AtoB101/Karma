@@ -273,11 +273,15 @@ class VoucherEventModel(Base):
 class IdentityProfileModel(Base):
     __tablename__ = "identity_profiles"
 
-    identity_id:            Mapped[str]      = mapped_column(String(64), primary_key=True)
+    identity_id:            Mapped[str]      = mapped_column(String(128), primary_key=True)
     display_id:             Mapped[str]      = mapped_column(String(64), nullable=False, unique=True)
     legal_identity_status:  Mapped[str]      = mapped_column(String(32), nullable=False, default="unbound")
     status:                 Mapped[str]      = mapped_column(String(32), nullable=False, default="active")
     bound_wallet_address:   Mapped[str|None] = mapped_column(String(128), nullable=True)
+    did_agent_address:      Mapped[str|None] = mapped_column(String(64), nullable=True)
+    on_chain_did:           Mapped[str|None] = mapped_column(String(66), nullable=True, unique=True)
+    projection_readonly:    Mapped[bool]     = mapped_column(Boolean, default=False)
+    projection_source:      Mapped[str|None] = mapped_column(String(32), nullable=True)
     created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

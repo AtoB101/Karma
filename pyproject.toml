@@ -16,8 +16,8 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
     "httpx>=0.27.0",
 
-    # MCP Python SDK (used by packages/karma-openclaw bridge; keeps acceptance suite importable)
-    "mcp>=1.8.0",
+    # MCP Python SDK v1 FastMCP API (v2 renames to MCPServer; pin until packages migrate)
+    "mcp>=1.8.0,<2",
 
     # Database
     "sqlalchemy[asyncio]>=2.0.0",

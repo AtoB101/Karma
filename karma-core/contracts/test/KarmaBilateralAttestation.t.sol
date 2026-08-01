@@ -68,6 +68,8 @@ contract KarmaBilateralAttestationTest is Test {
 
         // 4. Wire KarmaBilateral to accept gateway as the attestation caller
         karma.setAttestationGateway(address(gateway));
+        // 5. Authorize Gateway for VerifierRegistry privileged writes
+        registry.setAuthorizedCaller(address(gateway), true);
         vm.stopPrank();
 
         // Fund participants

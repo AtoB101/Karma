@@ -13,6 +13,11 @@ from core.schemas import IdentityProfile, SubIdentity, SubIdentityStatus, SubIde
 from db.models.orm import IdentityProfileModel, SubIdentityModel, VoucherModel
 from db.session import get_db
 from services.agent_automation_policy import get_automation_policy, policy_to_dict, upsert_automation_policy
+from services.identity_projection import (
+    identity_id_from_did_agent,
+    is_did_projection_identity_id,
+    project_from_on_chain_did,
+)
 
 router = APIRouter()
 
@@ -28,6 +33,71 @@ class InitProfileRequest(BaseModel):
     wallet_address: str | None = Field(default=None, max_length=128)
 
 
+class ProjectFromDidRequest(BaseModel):
+    """Project IdentityProfile + AgentCard.agent_id from on-chain DID (SSOT)."""
+    did_agent_address: str = Field(..., min_length=42, max_length=42)
+    on_chain_did: str = Field(..., min_length=66, max_length=66)
+    # Optional: caller-attested verifyDID result (RPC verification can be layered later)
+    did_valid: bool = True
+
+
+@router.post("/project-from-did", response_model=IdentityProfile)
+async def project_identity_from_did(
+    body: ProjectFromDidRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create or refresh a read-only IdentityProfile projection from on-chain DID.
+
+    identity_id is derived as ``did:karma:{agent_address}`` and must not be chosen
+    independently. AgentCard.agent_id uses the same projection string.
+    """
+    if not body.did_valid:
+        raise HTTPException(400, "on-chain DID is not valid (verifyDID=false)")
+    try:
+        projection = project_from_on_chain_did(
+            did_agent_address=body.did_agent_address,
+            on_chain_did=body.on_chain_did,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    row = await db.get(IdentityProfileModel, projection.identity_id)
+    if row is None:
+        # Also reject conflicting on_chain_did bound to another identity
+        existing_did = await db.execute(
+            select(IdentityProfileModel).where(IdentityProfileModel.on_chain_did == projection.on_chain_did)
+        )
+        if existing_did.scalar_one_or_none():
+            raise HTTPException(409, "on_chain_did already projected to another identity")
+        row = IdentityProfileModel(
+            identity_id=projection.identity_id,
+            display_id=_new_display_id(),
+            legal_identity_status="did_bound",
+            status="active",
+            bound_wallet_address=projection.did_agent_address,
+            did_agent_address=projection.did_agent_address,
+            on_chain_did=projection.on_chain_did,
+            projection_readonly=True,
+            projection_source="kya_did",
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(row)
+    else:
+        if row.projection_readonly and row.on_chain_did and row.on_chain_did != projection.on_chain_did:
+            raise HTTPException(409, "identity already bound to a different on_chain_did")
+        row.did_agent_address = projection.did_agent_address
+        row.on_chain_did = projection.on_chain_did
+        row.bound_wallet_address = projection.did_agent_address
+        row.projection_readonly = True
+        row.projection_source = "kya_did"
+        row.legal_identity_status = "did_bound"
+        row.updated_at = datetime.utcnow()
+    await db.flush()
+    return _profile_to_schema(row)
+
+
 @router.post("/{identity_id}/profile/init", response_model=IdentityProfile)
 async def init_identity_profile(
     identity_id: str,
@@ -38,12 +108,27 @@ async def init_identity_profile(
     if row:
         return _profile_to_schema(row)
 
+    # If identity_id looks like a DID projection, keep wallet aligned
+    did_agent = None
+    if is_did_projection_identity_id(identity_id):
+        from services.identity_projection import agent_address_from_identity_id
+
+        did_agent = agent_address_from_identity_id(identity_id)
+        if body.wallet_address and body.wallet_address.lower() != did_agent:
+            raise HTTPException(
+                400,
+                "wallet_address must match DID projection agent address for did:karma: identities",
+            )
+
     row = IdentityProfileModel(
         identity_id=identity_id,
         display_id=_new_display_id(),
-        legal_identity_status="unbound",
+        legal_identity_status="unbound" if not did_agent else "did_bound",
         status="active",
-        bound_wallet_address=body.wallet_address,
+        bound_wallet_address=body.wallet_address or did_agent,
+        did_agent_address=did_agent,
+        projection_readonly=bool(did_agent),
+        projection_source="kya_did" if did_agent else None,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
     )
@@ -65,10 +150,32 @@ async def rotate_display_id(identity_id: str, db: AsyncSession = Depends(get_db)
     row = await db.get(IdentityProfileModel, identity_id)
     if not row:
         raise HTTPException(404, f"Identity profile {identity_id} not found")
+    # display_id is the only mutable presentation field on DID projections
     row.display_id = _new_display_id()
     row.updated_at = datetime.utcnow()
     await db.flush()
     return _profile_to_schema(row)
+
+
+@router.get("/{identity_id}/agent-card-id")
+async def get_agent_card_id_projection(identity_id: str, db: AsyncSession = Depends(get_db)):
+    """Return AgentCard.agent_id projection for this identity (DID SSOT)."""
+    row = await db.get(IdentityProfileModel, identity_id)
+    if not row:
+        raise HTTPException(404, f"Identity profile {identity_id} not found")
+    agent_card_id = row.identity_id
+    if row.did_agent_address:
+        agent_card_id = identity_id_from_did_agent(row.did_agent_address)
+        if row.projection_readonly and agent_card_id != row.identity_id:
+            raise HTTPException(409, "identity_id diverges from DID projection")
+    return {
+        "identity_id": row.identity_id,
+        "agent_card_agent_id": agent_card_id,
+        "did_agent_address": getattr(row, "did_agent_address", None),
+        "on_chain_did": getattr(row, "on_chain_did", None),
+        "projection_readonly": bool(getattr(row, "projection_readonly", False)),
+        "source": getattr(row, "projection_source", None) or "legacy",
+    }
 
 
 @router.post("/{identity_id}/sub-identities", response_model=SubIdentity, status_code=201)
@@ -146,6 +253,10 @@ def _profile_to_schema(row: IdentityProfileModel) -> IdentityProfile:
         legal_identity_status=row.legal_identity_status,
         status=row.status,
         bound_wallet_address=getattr(row, "bound_wallet_address", None),
+        did_agent_address=getattr(row, "did_agent_address", None),
+        on_chain_did=getattr(row, "on_chain_did", None),
+        projection_readonly=bool(getattr(row, "projection_readonly", False)),
+        projection_source=getattr(row, "projection_source", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
