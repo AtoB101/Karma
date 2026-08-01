@@ -21,12 +21,16 @@ async def connect_agent(
     capabilities: list[str] | None = None,
     public_key: str | None = None,
     profile_card: dict[str, Any] | None = None,
+    agent_boundary: dict[str, Any] | None = None,
+    ensure_boundary: bool = True,
 ) -> AgentModel:
     """
     Upsert an agent into the Karma directory.
 
     After connect, the agent appears in GET /v1/agents and discovery ranking.
     Initializes a cold-start reputation row so trust filters have a baseline.
+    Always persists an agent boundary card (capability / responsibility /
+    confirmation) so counterparties know what can be automated vs owner-confirmed.
     """
     caps = list(capabilities or [])
     # Settlement-capable agents should advertise karma_settle for discovery
@@ -89,6 +93,36 @@ async def connect_agent(
         from services.agent_profile_store import save_profile_card
 
         save_profile_card(row.agent_id, profile_card)
+
+    if agent_boundary is not None or ensure_boundary:
+        from services.agent_boundary import (
+            get_agent_boundary,
+            materialize_agent_boundary,
+            save_agent_boundary,
+        )
+
+        boundary = agent_boundary
+        if boundary is None:
+            # Keep a richer existing boundary if present; else build from caps/card
+            existing_b = get_agent_boundary(row.agent_id)
+            if existing_b and existing_b.get("boundary_complete") and profile_card is None:
+                boundary = existing_b
+            else:
+                boundary = materialize_agent_boundary(
+                    agent_id=row.agent_id,
+                    name=row.name,
+                    karma_role=row.role,
+                    profile_id=(profile_card or {}).get("profile_id") if profile_card else None,
+                    capabilities=list(row.capabilities or []),
+                    scene_ids=list((profile_card or {}).get("industry_ids") or [])
+                    if profile_card
+                    else None,
+                    profile_card=profile_card,
+                    owner_identity_id=row.agent_id,
+                )
+        else:
+            boundary = {**boundary, "agent_id": row.agent_id}
+        save_agent_boundary(row.agent_id, boundary)
     return row
 
 
@@ -112,10 +146,21 @@ async def ensure_directory_merchants(
 
 
 def agent_row_to_card(row: AgentModel) -> dict[str, Any]:
-    return {
+    from services.agent_boundary import boundary_digest, get_agent_boundary
+    from services.agent_profile_store import get_profile_card
+
+    boundary = get_agent_boundary(row.agent_id)
+    digest = boundary_digest(boundary)
+    profile = get_profile_card(row.agent_id)
+    description = (
+        (profile or {}).get("description")
+        or (boundary or {}).get("capability_boundary", {}).get("capability_summary")
+        or f"Karma {row.role} agent"
+    )
+    card: dict[str, Any] = {
         "agent_id": row.agent_id,
         "name": row.name,
-        "description": f"Karma {row.role} agent",
+        "description": description,
         "capabilities": row.capabilities or [],
         "skills": [{"id": c, "name": c} for c in (row.capabilities or [])],
         "endpoint": row.endpoint_url,
@@ -128,3 +173,8 @@ def agent_row_to_card(row: AgentModel) -> dict[str, Any]:
         "is_active": bool(row.is_active),
         "registered_at": (row.registered_at or datetime.utcnow()).isoformat(),
     }
+    if digest:
+        card["boundary"] = digest
+        card["scene_ids"] = digest.get("scene_ids") or []
+        card["boundary_complete"] = digest.get("boundary_complete")
+    return card

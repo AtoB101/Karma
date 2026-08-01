@@ -247,6 +247,43 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
         if needle not in fulfill:
             _fail(f"intent_fulfillment missing confirmation gate: {needle}", failures)
 
+    # Agent boundary — every connected agent publishes capability/responsibility/confirmation
+    boundary_cat = ROOT / "packages/evidence-schema/agent-boundary.v1.json"
+    if not boundary_cat.is_file():
+        _fail("missing agent-boundary.v1.json", failures)
+    else:
+        bt = boundary_cat.read_text(encoding="utf-8")
+        if "karma-agent-boundary-v1" not in bt:
+            _fail("agent-boundary catalog missing schema_version marker", failures)
+        for part in ("capability_boundary", "responsibility_boundary", "confirmation_boundary"):
+            if part not in bt:
+                _fail(f"agent-boundary catalog missing {part}", failures)
+
+    standards = _read("api/routes/standards.py")
+    if "/agent-boundary" not in standards:
+        _fail("standards routes missing agent-boundary API", failures)
+
+    agents = _read("api/routes/agents.py")
+    if "/boundary" not in agents and '"{agent_id}/boundary"' not in agents:
+        if '/{agent_id}/boundary' not in agents:
+            _fail("agents routes missing GET /{agent_id}/boundary", failures)
+
+    directory = _read("services/agent_directory.py")
+    for needle in ("ensure_boundary", "agent_boundary", "boundary_digest"):
+        if needle not in directory:
+            _fail(f"agent_directory missing boundary wiring: {needle}", failures)
+
+    boundary_svc = _read("services/agent_boundary.py")
+    for needle in (
+        "materialize_agent_boundary",
+        "capability_boundary",
+        "responsibility_boundary",
+        "confirmation_boundary",
+        "boundary_complete",
+    ):
+        if needle not in boundary_svc:
+            _fail(f"agent_boundary service missing {needle}", failures)
+
 
 def main() -> int:
     failures: list[str] = []

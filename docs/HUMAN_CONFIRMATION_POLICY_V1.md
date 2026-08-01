@@ -5,6 +5,8 @@
 
 ## 目标
 
+与 **Agent Boundary**（`docs/AGENT_BOUNDARY_STANDARD_V1.md`）配套：确认策略写入每个 agent 的 `confirmation_boundary`，对端可读。
+
 把叫车 / 外卖 / 酒店 / 机票 / 采购 / API 等现实链路拆成：
 
 | 类型 | 含义 | 主人负担 |

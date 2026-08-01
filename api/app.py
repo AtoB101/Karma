@@ -404,6 +404,15 @@ async def info():
                 "fulfill-intent pauses at awaiting_owner_confirmation until confirmed."
             ),
         },
+        "agent_boundary_standard": {
+            "catalog": "/v1/standards/agent-boundary",
+            "agent_boundary": "/v1/agents/{id}/boundary",
+            "doc": "docs/AGENT_BOUNDARY_STANDARD_V1.md",
+            "note": (
+                "Every connected agent publishes capability + responsibility + confirmation "
+                "boundaries so counterparties know what can auto-run vs needs owner Yes/No."
+            ),
+        },
         "verify_auth": {
             "enforcement": bool(settings.auth_enforce_protected_routes),
             "post_verify_requires_credentials_when_enforcement_on": True,

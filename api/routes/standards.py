@@ -25,6 +25,7 @@ from services.agent_onboarding_template import (
     materialize_onboarding,
     suggest_industries_for_text,
 )
+from services.agent_boundary import load_boundary_catalog
 from services.human_confirmation_policy import (
     ConfirmationPolicyError,
     get_scene_policy,
@@ -187,6 +188,25 @@ async def materialize_onboarding_payload(body: MaterializeOnboardingRequest) -> 
         )
     except OnboardingError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/agent-boundary")
+async def get_agent_boundary_standard() -> dict[str, Any]:
+    """Every connected agent must publish capability / responsibility / confirmation boundaries."""
+    cat = load_boundary_catalog()
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "design_goals_zh": cat.get("design_goals_zh"),
+        "boundary_parts": cat.get("boundary_parts"),
+        "completeness_rules_zh": cat.get("completeness_rules_zh"),
+        "public_card_fields": cat.get("public_card_fields"),
+        "api": cat.get("api"),
+        "related_standards": cat.get("related_standards"),
+        "catalog_path": "packages/evidence-schema/agent-boundary.v1.json",
+        "doc": "docs/AGENT_BOUNDARY_STANDARD_V1.md",
+    }
 
 
 @router.get("/confirmation-policy")

@@ -379,9 +379,9 @@ def materialize_onboarding(
             "risk_tiers": risk_tiers,
         },
         "next_steps_zh": [
-            "POST /v1/agents/connect-from-template（或 /v1/agents/connect）写入目录",
-            "其他 agent 可通过 discovery 按 capabilities / scene 发现你",
-            "成交前走 Important Fields 协议抓取 + 加密三方一致",
+            "POST /v1/agents/connect-from-template 写入目录并发布能力/责任/确认边界",
+            "其他 agent 可通过 discovery + GET /v1/agents/{id}/boundary 读懂你",
+            "成交前：主人只在 must_confirm 点 Yes/No；字段走 Important Fields 三方锁定",
         ],
     }
 
