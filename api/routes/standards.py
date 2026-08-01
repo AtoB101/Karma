@@ -6,6 +6,14 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from services.accept_fulfillment import (
+    AcceptFulfillmentError,
+    compute_breach_compensation,
+    list_accept_scenes,
+    load_accept_catalog,
+    scene_policy,
+    seller_risk_profile,
+)
 from services.important_fields_capture import (
     CaptureError,
     capture_from_interaction,
@@ -296,6 +304,72 @@ async def get_discovery_priority_standard() -> dict[str, Any]:
         "catalog_path": "packages/evidence-schema/discovery-priority.v1.json",
         "doc": "docs/DISCOVERY_PRIORITY_V1.md",
     }
+
+
+@router.get("/accept-fulfillment")
+async def get_accept_fulfillment_standard() -> dict[str, Any]:
+    """P6: seller accept TTL, non-confirm ledger, post-confirm breach liability."""
+    try:
+        cat = load_accept_catalog()
+    except (FileNotFoundError, AcceptFulfillmentError) as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "design_goals_zh": cat.get("design_goals_zh"),
+        "global_defaults": cat.get("global_defaults"),
+        "scenes": list_accept_scenes(),
+        "api": cat.get("api"),
+        "related_standards": cat.get("related_standards"),
+        "catalog_path": "packages/evidence-schema/accept-fulfillment.v1.json",
+        "doc": "docs/ACCEPT_FULFILLMENT_P6_V1.md",
+    }
+
+
+@router.get("/accept-fulfillment/scenes/{scene_id}")
+async def get_accept_fulfillment_scene(scene_id: str) -> dict[str, Any]:
+    try:
+        pol = scene_policy(scene_id)
+    except AcceptFulfillmentError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "schema_version": "karma-accept-fulfillment-v1",
+        "scene_id": scene_id,
+        "policy": pol,
+    }
+
+
+@router.get("/accept-fulfillment/sellers/{seller_id}/risk")
+async def get_seller_accept_risk(
+    seller_id: str,
+    scene_id: str = "api_tool_call",
+) -> dict[str, Any]:
+    return {
+        "schema_version": "karma-accept-fulfillment-v1",
+        "profile": seller_risk_profile(seller_id, scene_id=scene_id),
+    }
+
+
+class BreachQuoteRequest(BaseModel):
+    seller_id: str = Field(min_length=1, max_length=128)
+    scene_id: str = Field(min_length=1, max_length=128)
+    amount: float = Field(gt=0)
+    breach_fraction: float = Field(default=1.0, ge=0, le=1)
+
+
+@router.post("/accept-fulfillment/breach-quote")
+async def quote_breach_compensation(body: BreachQuoteRequest) -> dict[str, Any]:
+    """Estimate post-confirm breach compensation (includes bond multiplier)."""
+    try:
+        return compute_breach_compensation(
+            seller_id=body.seller_id,
+            scene_id=body.scene_id,
+            amount=body.amount,
+            breach_fraction=body.breach_fraction,
+        )
+    except AcceptFulfillmentError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
 
 @router.get("/discovery-priority/scenes/{scene_id}")

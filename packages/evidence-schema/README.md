@@ -32,6 +32,14 @@ fraud rules, or dispute weighting — those belong in the private risk engine re
 - HTTP: `GET /v1/standards/confirmation-policy`
 - Sessions: `POST /v1/confirmations/sessions` → owner Yes/No → fulfill continues
 
+## Accept & fulfillment (P6)
+
+`accept-fulfillment.v1.json` — 卖方接单 TTL、未确认档案、确认后违约责任金。
+
+- Docs: `docs/ACCEPT_FULFILLMENT_P6_V1.md`
+- HTTP: `GET /v1/standards/accept-fulfillment`
+- Sweep: `POST /v1/confirmations/expire-pending-seller-accepts`
+
 ## Agent boundary standard
 
 `agent-boundary.v1.json` — 每个已连接 agent 的 **能力 / 责任 / 确认** 三边界。

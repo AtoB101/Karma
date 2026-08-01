@@ -345,6 +345,7 @@ class ConfirmationSession:
     decision_note: str | None = None
     interaction_ref: str | None = None
     max_amount: float | None = None
+    cancel_reason: str | None = None
 
     def public(self) -> dict[str, Any]:
         return {
@@ -362,6 +363,7 @@ class ConfirmationSession:
             "decision_note": self.decision_note,
             "interaction_ref": self.interaction_ref,
             "max_amount": self.max_amount,
+            "cancel_reason": self.cancel_reason,
             "can_proceed": self.status == "CONFIRMED",
         }
 
@@ -399,6 +401,7 @@ def _ensure_sessions_loaded() -> None:
                                 if body.get("max_amount") is not None
                                 else None
                             ),
+                            cancel_reason=body.get("cancel_reason"),
                         )
             except Exception:  # noqa: BLE001
                 pass
@@ -458,6 +461,7 @@ def create_confirmation_session(
     context: dict[str, Any] | None = None,
     interaction_ref: str | None = None,
     policy_auto_allowed: bool = False,
+    ttl_seconds: int | None = None,
 ) -> dict[str, Any]:
     # Refuse unknown scene ids — no silent global fallback (security)
     if scene_id not in (load_policy_catalog().get("scenes") or {}):
@@ -493,8 +497,10 @@ def create_confirmation_session(
             max_amount = None
     sid = "cfm_" + secrets.token_hex(12)
     created = _iso_now()
+    ttl = int(ttl_seconds) if ttl_seconds is not None else SESSION_TTL_SECONDS
+    ttl = max(60, min(ttl, 7 * 24 * 3600))
     expires = (
-        datetime.now(timezone.utc) + timedelta(seconds=SESSION_TTL_SECONDS)
+        datetime.now(timezone.utc) + timedelta(seconds=ttl)
     ).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     sess = ConfirmationSession(
         session_id=sid,
@@ -514,7 +520,12 @@ def create_confirmation_session(
     with _LOCK:
         _SESSIONS[sid] = sess
         _persist_sessions_unlocked()
-    return {"skipped": False, **sess.public(), "gate": gate}
+    return {
+        "skipped": False,
+        **sess.public(),
+        "gate": gate,
+        "ttl_seconds": ttl,
+    }
 
 
 def get_confirmation_session(session_id: str) -> dict[str, Any]:
@@ -525,6 +536,53 @@ def get_confirmation_session(session_id: str) -> dict[str, Any]:
             raise ConfirmationPolicyError(f"unknown confirmation session: {session_id}")
         if _expire_if_needed_unlocked(sess):
             _persist_sessions_unlocked()
+        return sess.public()
+
+
+def list_pending_seller_accept_sessions(*, limit: int = 100) -> list[dict[str, Any]]:
+    """PENDING (or just-expired) seller accept_order sessions for P6 sweep."""
+    _ensure_sessions_loaded()
+    out: list[dict[str, Any]] = []
+    with _LOCK:
+        for sess in _SESSIONS.values():
+            if sess.role != "seller" or sess.step != "accept_order":
+                continue
+            if sess.status not in {"PENDING", "EXPIRED"}:
+                continue
+            _expire_if_needed_unlocked(sess)
+            if sess.status in {"PENDING", "EXPIRED"}:
+                out.append(sess.public())
+            if len(out) >= limit:
+                break
+        _persist_sessions_unlocked()
+    return out
+
+
+def mark_session_expired_cancelled(
+    session_id: str,
+    *,
+    reason: str = "seller_accept_timeout",
+) -> dict[str, Any]:
+    """Annotate an EXPIRED seller accept session as cancelled (P6 timeout path)."""
+    _ensure_sessions_loaded()
+    with _LOCK:
+        sess = _SESSIONS.get(session_id)
+        if not sess:
+            raise ConfirmationPolicyError(f"unknown confirmation session: {session_id}")
+        _expire_if_needed_unlocked(sess)
+        if sess.status not in {"EXPIRED", "CANCELLED"}:
+            # Force-expire if still pending past deadline
+            if sess.status == "PENDING":
+                sess.status = "EXPIRED"
+            else:
+                raise ConfirmationPolicyError(
+                    f"session status {sess.status} cannot mark timeout cancel"
+                )
+        sess.status = "CANCELLED"
+        sess.cancel_reason = reason
+        sess.decision_note = sess.decision_note or reason
+        sess.decided_at = sess.decided_at or _iso_now()
+        _persist_sessions_unlocked()
         return sess.public()
 
 

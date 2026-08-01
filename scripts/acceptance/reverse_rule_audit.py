@@ -544,6 +544,80 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if not (ROOT / "docs/IMPORTANT_FIELDS_P5_V1.md").is_file():
         _fail("missing docs/IMPORTANT_FIELDS_P5_V1.md", failures)
 
+    # P6 accept fulfillment — seller TTL cancel, non-confirm ledger, liability
+    p6cat = ROOT / "packages/evidence-schema/accept-fulfillment.v1.json"
+    if not p6cat.is_file():
+        _fail("missing accept-fulfillment.v1.json", failures)
+    else:
+        p6t = p6cat.read_text(encoding="utf-8")
+        if "karma-accept-fulfillment-v1" not in p6t:
+            _fail("accept-fulfillment catalog missing schema_version marker", failures)
+        for needle in (
+            "seller_accept_ttl_seconds",
+            "non_confirm_thresholds",
+            "post_confirm_breach",
+            "bond_multiplier",
+            "reputation_delta_on_timeout",
+        ):
+            if needle not in p6t:
+                _fail(f"accept-fulfillment catalog missing {needle}", failures)
+
+    p6svc = _read("services/accept_fulfillment.py")
+    for needle in (
+        "record_seller_non_confirm",
+        "arm_post_confirm_liability",
+        "process_expired_seller_session",
+        "seller_risk_profile",
+        "check_interaction_seller_timeout",
+        "expire_pending_seller_accepts",
+    ):
+        if needle not in p6svc:
+            _fail(f"accept_fulfillment missing P6 piece: {needle}", failures)
+
+    hcp = _read("services/human_confirmation_policy.py")
+    for needle in (
+        "ttl_seconds",
+        "list_pending_seller_accept_sessions",
+        "mark_session_expired_cancelled",
+    ):
+        if needle not in hcp:
+            _fail(f"human_confirmation_policy missing P6 piece: {needle}", failures)
+
+    fulfill = _read("services/intent_fulfillment.py")
+    for needle in (
+        "cancelled_seller_timeout",
+        "breach_liability",
+        "seller_accept_ttl_seconds",
+        "record_seller_non_confirm_reputation",
+        "seller_requires_forced_confirm",
+    ):
+        if needle not in fulfill:
+            _fail(f"intent_fulfillment missing P6 piece: {needle}", failures)
+
+    standards = _read("api/routes/standards.py")
+    if "/accept-fulfillment" not in standards:
+        _fail("standards routes missing accept-fulfillment API", failures)
+
+    conf_routes = _read("api/routes/confirmations.py")
+    for needle in (
+        "expire-pending-seller-accepts",
+        "process_expired_seller_session",
+        "record_seller_non_confirm",
+    ):
+        if needle not in conf_routes:
+            _fail(f"confirmations routes missing P6 piece: {needle}", failures)
+
+    trust = _read("services/agent_trust.py")
+    if "record_seller_non_confirm_reputation" not in trust:
+        _fail("agent_trust missing P6 non-confirm reputation hook", failures)
+
+    disc = _read("services/discovery_priority.py")
+    if "accept_risk" not in disc:
+        _fail("discovery_priority missing P6 accept_risk demotion", failures)
+
+    if not (ROOT / "docs/ACCEPT_FULFILLMENT_P6_V1.md").is_file():
+        _fail("missing docs/ACCEPT_FULFILLMENT_P6_V1.md", failures)
+
 
 def main() -> int:
     failures: list[str] = []

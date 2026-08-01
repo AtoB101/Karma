@@ -61,7 +61,7 @@ fulfill-intent + important_fields_capture_id
 |----|------|
 | P4 | 主人确认「是否成交」 |
 | **P5** | 加密锁定「成交字段」并三方封存 |
-| P6 | 接单履约对照已锁定字段 |
+| P6 | 接单时限 / 违约责任 / 对照已锁定字段履约（见 `ACCEPT_FULFILLMENT_P6_V1.md`） |
 
 ## 相关
 

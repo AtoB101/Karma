@@ -1,0 +1,289 @@
+{
+  "schema_version": "karma-accept-fulfillment-v1",
+  "title": "Karma Accept & Fulfillment Standard (P6)",
+  "title_zh": "Karma 接单履约标准（P6）",
+  "description_zh": "卖方确认接单有时限；超时自动取消并记入未确认记录。多次超时/拒接提升验证档与违约责任金；卖方确认后即武装违约赔偿责任。信誉仅小幅下调，避免一票否决，但可影响发现排序。",
+  "design_goals_zh": [
+    "真实场景：外卖/叫车短时限；酒店/机票中时限；B2B/专业服务长时限",
+    "超时自动取消，避免买家干等；可重新发现匹配",
+    "长期多次未确认 → 更强验证 + 更高违约责任金 + 轻微信誉扣分",
+    "确认接单后违约责任生效，对照已锁定 Important Fields 履约",
+    "高风险场景（金融/医疗）禁止软超时绕过，责任金更高"
+  ],
+  "global_defaults": {
+    "seller_accept_ttl_seconds": 1800,
+    "on_timeout": "cancel_intent",
+    "reputation_delta_on_timeout": -2.0,
+    "reputation_delta_on_reject": -3.0,
+    "max_reputation_hit_per_event": 5.0,
+    "non_confirm_thresholds": [
+      {
+        "count": 3,
+        "verification_tier": "elevated",
+        "bond_multiplier": 1.5,
+        "force_owner_confirm": true,
+        "ttl_scale": 0.75,
+        "note_zh": "三次未确认：强制人工确认、责任金×1.5"
+      },
+      {
+        "count": 7,
+        "verification_tier": "strict",
+        "bond_multiplier": 2.5,
+        "force_owner_confirm": true,
+        "ttl_scale": 0.5,
+        "note_zh": "七次未确认：严格验证、责任金×2.5、更短接单窗"
+      },
+      {
+        "count": 15,
+        "verification_tier": "restricted",
+        "bond_multiplier": 4.0,
+        "force_owner_confirm": true,
+        "ttl_scale": 0.35,
+        "discovery_demote": true,
+        "note_zh": "十五次未确认：限制档、责任金×4、发现排序明显靠后"
+      }
+    ],
+    "post_confirm_breach": {
+      "liability_armed": true,
+      "base_bond_bps": 500,
+      "compensation_bps_of_amount": 1000,
+      "cure_period_seconds": 0,
+      "note_zh": "确认接单后即武装违约责任；补偿默认订单金额 10%"
+    },
+    "verification_tiers": {
+      "normal": {"rank": 3, "title_zh": "常规"},
+      "elevated": {"rank": 2, "title_zh": "加强验证"},
+      "strict": {"rank": 1, "title_zh": "严格验证"},
+      "restricted": {"rank": 0, "title_zh": "限制接单"}
+    }
+  },
+  "scenes": {
+    "food_delivery": {
+      "group": "daily_commerce",
+      "seller_accept_ttl_seconds": 300,
+      "on_timeout": "cancel_and_rediscover",
+      "reputation_delta_on_timeout": -2.0,
+      "reputation_delta_on_reject": -2.0,
+      "post_confirm_breach": {
+        "base_bond_bps": 300,
+        "compensation_bps_of_amount": 800,
+        "cure_period_seconds": 600
+      },
+      "reality_note_zh": "商家短时未接单应自动取消并重新匹配，避免餐凉/骑手空跑"
+    },
+    "ride_hailing": {
+      "group": "daily_commerce",
+      "seller_accept_ttl_seconds": 120,
+      "on_timeout": "cancel_and_rediscover",
+      "reputation_delta_on_timeout": -2.0,
+      "reputation_delta_on_reject": -3.0,
+      "post_confirm_breach": {
+        "base_bond_bps": 400,
+        "compensation_bps_of_amount": 1000,
+        "cure_period_seconds": 300
+      },
+      "reality_note_zh": "司机未接单极短超时；确认后爽约需违约责任"
+    },
+    "hotel_booking": {
+      "group": "daily_commerce",
+      "seller_accept_ttl_seconds": 900,
+      "on_timeout": "cancel_intent",
+      "post_confirm_breach": {
+        "base_bond_bps": 800,
+        "compensation_bps_of_amount": 1500,
+        "cure_period_seconds": 3600
+      },
+      "reality_note_zh": "酒店确认后超售/拒住按已锁字段承担更高补偿"
+    },
+    "flight_booking": {
+      "group": "daily_commerce",
+      "seller_accept_ttl_seconds": 900,
+      "on_timeout": "cancel_intent",
+      "post_confirm_breach": {
+        "base_bond_bps": 1000,
+        "compensation_bps_of_amount": 2000,
+        "cure_period_seconds": 1800
+      },
+      "reality_note_zh": "出票确认后变更成本高，违约补偿比例更高"
+    },
+    "logistics_delivery": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 1800,
+      "on_timeout": "cancel_and_rediscover",
+      "post_confirm_breach": {
+        "base_bond_bps": 600,
+        "compensation_bps_of_amount": 1200,
+        "cure_period_seconds": 7200
+      },
+      "reality_note_zh": "运力未确认超时改派；确认后丢件/延误按验收标准追责"
+    },
+    "b2b_procurement": {
+      "group": "b2b_digital",
+      "seller_accept_ttl_seconds": 86400,
+      "on_timeout": "cancel_intent",
+      "reputation_delta_on_timeout": -3.0,
+      "reputation_delta_on_reject": -4.0,
+      "post_confirm_breach": {
+        "base_bond_bps": 1000,
+        "compensation_bps_of_amount": 2000,
+        "cure_period_seconds": 86400
+      },
+      "reality_note_zh": "PO 确认窗可较长；确认后交货违约责任金显著提高"
+    },
+    "data_api_billing": {
+      "group": "b2b_digital",
+      "seller_accept_ttl_seconds": 600,
+      "on_timeout": "cancel_intent",
+      "post_confirm_breach": {
+        "base_bond_bps": 500,
+        "compensation_bps_of_amount": 1000,
+        "cure_period_seconds": 0
+      },
+      "reality_note_zh": "计量 API 接单应快；确认后可用性违约按计量补偿"
+    },
+    "api_tool_call": {
+      "group": "b2b_digital",
+      "seller_accept_ttl_seconds": 300,
+      "on_timeout": "cancel_and_rediscover",
+      "post_confirm_breach": {
+        "base_bond_bps": 300,
+        "compensation_bps_of_amount": 800,
+        "cure_period_seconds": 0
+      },
+      "reality_note_zh": "单次工具调用短时限；超时重试其他提供者"
+    },
+    "software_development": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 172800,
+      "on_timeout": "cancel_intent",
+      "reputation_delta_on_timeout": -3.0,
+      "post_confirm_breach": {
+        "base_bond_bps": 1200,
+        "compensation_bps_of_amount": 2500,
+        "cure_period_seconds": 259200
+      },
+      "reality_note_zh": "接单确认后里程碑违约可进入 cure 再索赔"
+    },
+    "design_creative": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 86400,
+      "on_timeout": "cancel_intent",
+      "post_confirm_breach": {
+        "base_bond_bps": 800,
+        "compensation_bps_of_amount": 1500,
+        "cure_period_seconds": 86400
+      },
+      "reality_note_zh": "设计接单确认后延期/未交稿按锁定验收追责"
+    },
+    "consulting_advisory": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 86400,
+      "on_timeout": "cancel_intent",
+      "post_confirm_breach": {
+        "base_bond_bps": 800,
+        "compensation_bps_of_amount": 1500,
+        "cure_period_seconds": 86400
+      },
+      "reality_note_zh": "咨询确认排期后爽约影响客户日程，需违约责任"
+    },
+    "content_creation": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 43200,
+      "on_timeout": "cancel_and_rediscover",
+      "post_confirm_breach": {
+        "base_bond_bps": 500,
+        "compensation_bps_of_amount": 1200,
+        "cure_period_seconds": 43200
+      },
+      "reality_note_zh": "内容档期确认后未交付按验收标准索赔"
+    },
+    "manufacturing": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 172800,
+      "on_timeout": "cancel_intent",
+      "reputation_delta_on_timeout": -4.0,
+      "reputation_delta_on_reject": -4.0,
+      "post_confirm_breach": {
+        "base_bond_bps": 1500,
+        "compensation_bps_of_amount": 3000,
+        "cure_period_seconds": 259200
+      },
+      "reality_note_zh": "制造接单后违约成本高；多次未确认必须严格验证"
+    },
+    "real_estate_services": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 86400,
+      "on_timeout": "cancel_intent",
+      "post_confirm_breach": {
+        "base_bond_bps": 1000,
+        "compensation_bps_of_amount": 2000,
+        "cure_period_seconds": 86400
+      },
+      "reality_note_zh": "看房/服务确认后放鸽子计入未履约与责任金"
+    },
+    "financial_services": {
+      "group": "market_vertical",
+      "high_risk": true,
+      "seller_accept_ttl_seconds": 3600,
+      "on_timeout": "cancel_intent",
+      "force_owner_confirm": true,
+      "reputation_delta_on_timeout": -4.0,
+      "reputation_delta_on_reject": -5.0,
+      "post_confirm_breach": {
+        "base_bond_bps": 2000,
+        "compensation_bps_of_amount": 3000,
+        "cure_period_seconds": 0
+      },
+      "reality_note_zh": "高风险：禁止静默自动接单；确认后违约责任金高"
+    },
+    "marketing_advertising": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 43200,
+      "on_timeout": "cancel_intent",
+      "post_confirm_breach": {
+        "base_bond_bps": 700,
+        "compensation_bps_of_amount": 1500,
+        "cure_period_seconds": 43200
+      },
+      "reality_note_zh": "投放排期确认后未执行按锁定投放字段索赔"
+    },
+    "education_training": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 43200,
+      "on_timeout": "cancel_and_rediscover",
+      "post_confirm_breach": {
+        "base_bond_bps": 600,
+        "compensation_bps_of_amount": 1200,
+        "cure_period_seconds": 86400
+      },
+      "reality_note_zh": "课程确认后缺席/取消按责任条款补偿学员"
+    },
+    "healthcare_medical": {
+      "group": "market_vertical",
+      "high_risk": true,
+      "seller_accept_ttl_seconds": 1800,
+      "on_timeout": "cancel_intent",
+      "force_owner_confirm": true,
+      "reputation_delta_on_timeout": -5.0,
+      "reputation_delta_on_reject": -5.0,
+      "post_confirm_breach": {
+        "base_bond_bps": 2500,
+        "compensation_bps_of_amount": 3500,
+        "cure_period_seconds": 0
+      },
+      "reality_note_zh": "医疗高风险：短时确认窗；确认后爽约必须高责任金"
+    }
+  },
+  "api": [
+    "GET /v1/standards/accept-fulfillment",
+    "GET /v1/standards/accept-fulfillment/scenes/{scene_id}",
+    "GET /v1/standards/accept-fulfillment/sellers/{seller_id}/risk",
+    "POST /v1/confirmations/expire-pending-seller-accepts"
+  ],
+  "related_standards": [
+    "human-confirmation-policy.v1.json",
+    "important-fields-standard.v1.json",
+    "discovery-priority.v1.json",
+    "agent-boundary.v1.json"
+  ]
+}

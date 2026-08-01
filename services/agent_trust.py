@@ -237,3 +237,20 @@ async def record_worker_settlement_outcome(
     row.last_updated = datetime.utcnow()
     await db.flush()
     return row
+
+
+async def record_seller_non_confirm_reputation(
+    db: AsyncSession,
+    *,
+    seller_agent_id: str,
+    delta: float,
+) -> ReputationModel:
+    """P6: slight reputation hit for seller accept timeout / reject (not a ban)."""
+    row = await ensure_reputation_row(db, seller_agent_id, role="worker")
+    # Clamp to small hits — catalog already caps per event
+    d = max(-5.0, min(0.0, float(delta)))
+    row.score = max(0.0, float(row.score or 0) + d)
+    row.consecutive_successes = 0
+    row.last_updated = datetime.utcnow()
+    await db.flush()
+    return row
