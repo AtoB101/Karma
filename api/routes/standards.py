@@ -14,6 +14,12 @@ from services.accept_fulfillment import (
     scene_policy,
     seller_risk_profile,
 )
+from services.delivery_verification import (
+    DeliveryVerificationError,
+    list_delivery_scenes,
+    load_delivery_catalog,
+    scene_policy as delivery_scene_policy,
+)
 from services.important_fields_capture import (
     CaptureError,
     capture_from_interaction,
@@ -370,6 +376,42 @@ async def quote_breach_compensation(body: BreachQuoteRequest) -> dict[str, Any]:
         )
     except AcceptFulfillmentError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/delivery-verification")
+async def get_delivery_verification_standard() -> dict[str, Any]:
+    """P7: delivery verification — physical triple / ticket stub / digital light."""
+    try:
+        cat = load_delivery_catalog()
+    except (FileNotFoundError, DeliveryVerificationError) as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "design_goals_zh": cat.get("design_goals_zh"),
+        "verification_modes": cat.get("verification_modes"),
+        "global_defaults": cat.get("global_defaults"),
+        "lifecycle_states": cat.get("lifecycle_states"),
+        "scenes": list_delivery_scenes(),
+        "api": cat.get("api"),
+        "related_standards": cat.get("related_standards"),
+        "catalog_path": "packages/evidence-schema/delivery-verification.v1.json",
+        "doc": "docs/DELIVERY_VERIFICATION_P7_V1.md",
+    }
+
+
+@router.get("/delivery-verification/scenes/{scene_id}")
+async def get_delivery_verification_scene(scene_id: str) -> dict[str, Any]:
+    try:
+        pol = delivery_scene_policy(scene_id)
+    except DeliveryVerificationError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {
+        "schema_version": "karma-delivery-verification-v1",
+        "scene_id": scene_id,
+        "policy": pol,
+    }
 
 
 @router.get("/discovery-priority/scenes/{scene_id}")

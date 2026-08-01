@@ -1,0 +1,341 @@
+{
+  "schema_version": "karma-delivery-verification-v1",
+  "title": "Karma Delivery Verification Standard (P7)",
+  "title_zh": "Karma 交付验真标准（P7）",
+  "description_zh": "对照已锁定 Important Fields 验收交付。线下实物：卖方发出 → 物流核验接件（错件共担）→ 物流送达凭证（系统防伪标签照片）→ 买方确认；物流送达后买方 30 分钟未确认且三方链路正确则默认确认。票务/酒店：邮件回执与确认号（可后期接卖方识别系统）。数据/API：沿用字段与回执验真。",
+  "design_goals_zh": [
+    "安全优先：验收只对照 P5 锁定的 acceptance_criteria 与 required_proof_fields",
+    "线下实物防掉包：双照片（发货+送达）+ 捕获时系统标签 + 可选 geo/封签哈希",
+    "物流责任：接件时核验货品与锁定字段一致；错件拒收并共担损失",
+    "防买方恶意拖延：物流 POD 后 30 分钟静默 → 校验卖方+物流正确后默认确认",
+    "分场景验真：实物三方 / 票务回执 / 行程轨迹 / 数字轻量",
+    "与 P6 违约责任金衔接：验真失败按 breach_fraction 索赔"
+  ],
+  "verification_modes": {
+    "physical_triple": {
+      "title_zh": "线下实物三方验真",
+      "parties": ["seller", "logistics", "buyer"],
+      "description_zh": "发出→接件核验→送达凭证→买方确认/默认确认"
+    },
+    "ticket_stub": {
+      "title_zh": "票务/酒店回执验真",
+      "parties": ["seller", "buyer"],
+      "description_zh": "邮件回执/确认号/票号哈希；issuer API 可后期接入"
+    },
+    "ride_track": {
+      "title_zh": "行程轨迹验真",
+      "parties": ["seller", "buyer"],
+      "description_zh": "起终点/轨迹哈希与锁定行程对照"
+    },
+    "digital_light": {
+      "title_zh": "数字/API 轻量验真",
+      "parties": ["seller", "protocol"],
+      "description_zh": "SUCCESS 回执 + 锁定字段覆盖即可"
+    }
+  },
+  "global_defaults": {
+    "buyer_silent_confirm_seconds": 1800,
+    "require_matched_if_capture": true,
+    "require_success_receipt": true,
+    "proof_coverage": "required_proof_fields",
+    "acceptance_source": "locked_acceptance_criteria",
+    "media_tag": {
+      "mode": "capture_time_system_tag",
+      "fields": ["task_id", "party_role", "nonce", "captured_at", "geo_hash", "hmac"],
+      "algo": "HMAC-SHA256",
+      "note_zh": "拍摄挑战下发后客户端叠加标签再上传；服务端校验 HMAC 防翻拍挪用"
+    },
+    "dual_photo": {
+      "enabled": true,
+      "ship_proof_type": "ship_photo_tagged",
+      "deliver_proof_type": "delivery_photo_tagged"
+    },
+    "loss_share": {
+      "wrong_item_at_intake": {
+        "logistics_bps": 5000,
+        "seller_bps": 5000,
+        "note_zh": "物流接件未核验出错件则双方各担 50%（可按场景覆盖）"
+      },
+      "fake_pod": {
+        "logistics_bps": 7000,
+        "seller_bps": 3000,
+        "note_zh": "伪造送达凭证：物流主责"
+      },
+      "buyer_false_reject": {
+        "buyer_bps": 3000,
+        "note_zh": "买方恶意拒收且验真通过：可记争议并影响信誉"
+      }
+    },
+    "extra_methods_available": [
+      "capture_time_system_tag",
+      "dual_photo",
+      "geo_fence_dropoff",
+      "seal_qr_nfc_coc_hash",
+      "temperature_attest",
+      "id_check_high_value",
+      "email_receipt_stub",
+      "route_track_hash",
+      "usage_log_hash"
+    ]
+  },
+  "scenes": {
+    "food_delivery": {
+      "mode": "physical_triple",
+      "group": "daily_commerce",
+      "buyer_silent_confirm_seconds": 1800,
+      "required_events": [
+        "seller_shipped",
+        "logistics_intake_ok",
+        "logistics_delivered",
+        "proof:delivery_photo_tagged"
+      ],
+      "extra_methods": ["dual_photo", "capture_time_system_tag", "geo_fence_dropoff"],
+      "reality_note_zh": "外卖：商家出餐→骑手接单核验→送达拍照；买方 30 分钟未确认默认收货"
+    },
+    "logistics_delivery": {
+      "mode": "physical_triple",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 1800,
+      "required_events": [
+        "seller_shipped",
+        "logistics_intake_ok",
+        "logistics_delivered",
+        "proof:delivery_photo_tagged",
+        "proof:recipient_ack_or_silent"
+      ],
+      "extra_methods": [
+        "dual_photo",
+        "capture_time_system_tag",
+        "geo_fence_dropoff",
+        "seal_qr_nfc_coc_hash"
+      ],
+      "reality_note_zh": "快递/货运：封签/交接哈希防掉包；错件接件共担"
+    },
+    "b2b_procurement": {
+      "mode": "physical_triple",
+      "group": "b2b_digital",
+      "buyer_silent_confirm_seconds": 7200,
+      "required_events": [
+        "seller_shipped",
+        "logistics_intake_ok",
+        "logistics_delivered",
+        "proof:goods_receipt",
+        "proof:qa_or_quantity"
+      ],
+      "extra_methods": [
+        "dual_photo",
+        "capture_time_system_tag",
+        "seal_qr_nfc_coc_hash",
+        "id_check_high_value"
+      ],
+      "loss_share": {
+        "wrong_item_at_intake": {"logistics_bps": 4000, "seller_bps": 6000}
+      },
+      "reality_note_zh": "企业采购：ASN/收货/质检；高价值可要求交接身份核验；静默窗更长"
+    },
+    "manufacturing": {
+      "mode": "physical_triple",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 86400,
+      "required_events": [
+        "seller_shipped",
+        "logistics_intake_ok",
+        "logistics_delivered",
+        "proof:goods_receipt",
+        "proof:qa_report_hash"
+      ],
+      "extra_methods": ["dual_photo", "seal_qr_nfc_coc_hash", "id_check_high_value"],
+      "reality_note_zh": "制造交付：质检报告哈希必填；静默默认需更长审视窗"
+    },
+    "ride_hailing": {
+      "mode": "ride_track",
+      "group": "daily_commerce",
+      "buyer_silent_confirm_seconds": 900,
+      "required_events": [
+        "seller_trip_completed",
+        "proof:route_or_odometer",
+        "proof:fare_final"
+      ],
+      "extra_methods": ["route_track_hash", "geo_fence_dropoff"],
+      "reality_note_zh": "叫车：行程完成+轨迹/里程与锁定起终点对照；短静默窗"
+    },
+    "hotel_booking": {
+      "mode": "ticket_stub",
+      "group": "daily_commerce",
+      "buyer_silent_confirm_seconds": null,
+      "required_events": [
+        "seller_issued_confirmation",
+        "proof:email_receipt_or_confirmation_code"
+      ],
+      "stubs": ["email_receipt", "confirmation_code", "booking_ref"],
+      "issuer_verify": "deferred",
+      "reality_note_zh": "酒店：确认号/邮件回执；后期可接 OTA/PMS 核验；结算确认仍可 OWNER_CONFIRM"
+    },
+    "flight_booking": {
+      "mode": "ticket_stub",
+      "group": "daily_commerce",
+      "buyer_silent_confirm_seconds": null,
+      "required_events": [
+        "seller_issued_confirmation",
+        "proof:ticket_number_or_pnr",
+        "proof:email_receipt_ref"
+      ],
+      "stubs": ["email_receipt", "pnr", "ticket_number_hash"],
+      "issuer_verify": "deferred",
+      "reality_note_zh": "机票：PNR/票号/邮件回执；航司识别系统后期接入"
+    },
+    "data_api_billing": {
+      "mode": "digital_light",
+      "group": "b2b_digital",
+      "buyer_silent_confirm_seconds": 0,
+      "required_events": [
+        "execution_receipt_success",
+        "proof_fields_covered"
+      ],
+      "extra_methods": ["usage_log_hash"],
+      "reality_note_zh": "计量 API：usage/invoice 字段覆盖 + SUCCESS 回执"
+    },
+    "api_tool_call": {
+      "mode": "digital_light",
+      "group": "b2b_digital",
+      "buyer_silent_confirm_seconds": 0,
+      "required_events": [
+        "execution_receipt_success",
+        "proof_fields_covered"
+      ],
+      "reality_note_zh": "单次工具调用：request/response hash + 状态即可"
+    },
+    "software_development": {
+      "mode": "digital_light",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 86400,
+      "required_events": [
+        "execution_receipt_success",
+        "proof:deliverable_hash",
+        "proof_fields_covered"
+      ],
+      "reality_note_zh": "软件交付物哈希对照验收标准；买方审视窗较长"
+    },
+    "design_creative": {
+      "mode": "digital_light",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 86400,
+      "required_events": [
+        "execution_receipt_success",
+        "proof:deliverable_hash",
+        "proof_fields_covered"
+      ],
+      "reality_note_zh": "设计交付物哈希 + 验收清单"
+    },
+    "consulting_advisory": {
+      "mode": "digital_light",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 86400,
+      "required_events": [
+        "execution_receipt_success",
+        "proof:deliverable_hash"
+      ],
+      "reality_note_zh": "咨询报告哈希交付"
+    },
+    "content_creation": {
+      "mode": "digital_light",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 43200,
+      "required_events": [
+        "execution_receipt_success",
+        "proof:deliverable_hash"
+      ],
+      "reality_note_zh": "内容成片/文稿哈希"
+    },
+    "real_estate_services": {
+      "mode": "ticket_stub",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 3600,
+      "required_events": [
+        "seller_issued_confirmation",
+        "proof:service_completion_ref"
+      ],
+      "stubs": ["appointment_ack", "completion_code"],
+      "reality_note_zh": "看房/服务完成码或回执；可后续接门禁/登记系统"
+    },
+    "financial_services": {
+      "mode": "digital_light",
+      "group": "market_vertical",
+      "high_risk": true,
+      "buyer_silent_confirm_seconds": null,
+      "required_events": [
+        "execution_receipt_success",
+        "proof_fields_covered",
+        "buyer_explicit_accept"
+      ],
+      "reality_note_zh": "高风险：禁止静默默认确认；必须买方显式验收"
+    },
+    "healthcare_medical": {
+      "mode": "digital_light",
+      "group": "market_vertical",
+      "high_risk": true,
+      "buyer_silent_confirm_seconds": null,
+      "required_events": [
+        "execution_receipt_success",
+        "proof_fields_covered",
+        "buyer_explicit_accept"
+      ],
+      "reality_note_zh": "医疗高风险：禁止静默默认；凭证+显式确认"
+    },
+    "marketing_advertising": {
+      "mode": "digital_light",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 43200,
+      "required_events": [
+        "execution_receipt_success",
+        "proof:campaign_report_hash"
+      ],
+      "reality_note_zh": "投放报告哈希对照锁定投放字段"
+    },
+    "education_training": {
+      "mode": "ticket_stub",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 3600,
+      "required_events": [
+        "seller_issued_confirmation",
+        "proof:attendance_or_completion_ref"
+      ],
+      "stubs": ["attendance_code", "certificate_ref"],
+      "reality_note_zh": "课程出勤/结业凭证"
+    }
+  },
+  "lifecycle_states": [
+    "CREATED",
+    "AWAITING_SELLER_SHIP",
+    "AWAITING_LOGISTICS_INTAKE",
+    "IN_TRANSIT",
+    "AWAITING_LOGISTICS_DELIVER",
+    "AWAITING_BUYER_RECEIPT",
+    "BUYER_CONFIRMED",
+    "BUYER_SILENT_DEFAULT",
+    "VERIFIED",
+    "REJECTED",
+    "WRONG_ITEM",
+    "DISPUTED",
+    "FAILED"
+  ],
+  "api": [
+    "GET /v1/standards/delivery-verification",
+    "GET /v1/standards/delivery-verification/scenes/{scene_id}",
+    "POST /v1/delivery-verification/sessions",
+    "POST /v1/delivery-verification/{id}/seller-ship",
+    "POST /v1/delivery-verification/{id}/logistics-intake",
+    "POST /v1/delivery-verification/{id}/capture-challenge",
+    "POST /v1/delivery-verification/{id}/proofs",
+    "POST /v1/delivery-verification/{id}/logistics-deliver",
+    "POST /v1/delivery-verification/{id}/buyer-confirm",
+    "POST /v1/delivery-verification/expire-silent-buyers",
+    "GET /v1/delivery-verification/{id}"
+  ],
+  "related_standards": [
+    "important-fields-standard.v1.json",
+    "accept-fulfillment.v1.json",
+    "human-confirmation-policy.v1.json",
+    "evidence.schema.json"
+  ]
+}

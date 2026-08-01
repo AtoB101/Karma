@@ -262,6 +262,57 @@ async def start_settlement(task_id: str, request: Request, db: AsyncSession = De
     )
 
 
+def _scene_id_from_settlement(state: SettlementState) -> str | None:
+    spec = getattr(state, "progress_rule_spec", None) or {}
+    if isinstance(spec, dict):
+        sid = spec.get("scene_id")
+        if isinstance(sid, str) and sid.strip():
+            return sid.strip()
+    return None
+
+
+def _assert_p7_delivery_gate(task_id: str, state: SettlementState, *, stage: str) -> dict:
+    """P7: physical/ticket sessions must be VERIFIED before deliver/settle release."""
+    from services.delivery_verification import (
+        DeliveryVerificationError,
+        get_verification_for_task,
+        require_verified_for_settle,
+        scene_policy,
+    )
+
+    scene_id = _scene_id_from_settlement(state)
+    sess = get_verification_for_task(task_id)
+    if sess is None and not scene_id:
+        return {"ok": True, "skipped": True, "reason": "no_scene_or_session"}
+    mode = (sess or {}).get("mode") or scene_policy(scene_id or "api_tool_call").get("mode")
+    # digital without session: allow (auto_complete / receipt path)
+    if mode in {"digital_light", "ride_track"} and sess is None:
+        return {"ok": True, "skipped": True, "reason": "digital_no_session", "mode": mode}
+    try:
+        return require_verified_for_settle(
+            task_id=task_id,
+            scene_id=scene_id,
+            allow_missing_session_for_digital=True,
+        )
+    except DeliveryVerificationError as exc:
+        raise HTTPException(
+            409,
+            {
+                "error": "delivery_verification_required",
+                "stage": stage,
+                "detail": str(exc),
+                "scene_id": scene_id,
+                "mode": mode,
+                "verification": sess,
+                "next_steps": [
+                    "POST /v1/delivery-verification/sessions",
+                    "seller-ship → logistics-intake → capture-challenge → logistics-deliver",
+                    "buyer-confirm (or wait silent default after POD)",
+                ],
+            },
+        ) from exc
+
+
 @router.post("/{task_id}/submit", response_model=SettlementState)
 async def submit_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("task_id", task_id)
@@ -272,6 +323,8 @@ async def submit_settlement(task_id: str, request: Request, db: AsyncSession = D
     if not state:
         raise HTTPException(404)
     require_worker(request, state)
+    # P7 gate: if a delivery-verification session exists for physical scenes, must be VERIFIED
+    _assert_p7_delivery_gate(task_id, state, stage="submit")
     out = await _apply_transition(
         db=db,
         store=store,
@@ -505,6 +558,16 @@ async def buyer_accept_settlement(
         raise HTTPException(409, "buyer accept requires delivered status")
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
+
+    # P7: delivery verification must be VERIFIED when session/scene requires it
+    settle_scene_hint = (scene_id or "").strip() or _scene_id_from_settlement(state)
+    if settle_scene_hint and not getattr(state, "progress_rule_spec", None):
+        # attach hint for gate when progress_rule_spec missing
+        try:
+            state.progress_rule_spec = {"scene_id": settle_scene_hint}  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
+    _assert_p7_delivery_gate(task_id, state, stage="buyer-accept")
 
     # P4 settle confirmation gate (reality: hotel/B2B/high-risk need owner Yes)
     from services.human_confirmation_policy import (
