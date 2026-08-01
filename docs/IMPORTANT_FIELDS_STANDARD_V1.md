@@ -104,17 +104,45 @@ curl -s -X POST $KARMA_API/v1/standards/important-fields/match \
 
 另加各场景 `scene.*` 必填项（见 JSON 目录）。
 
-## 4. 匹配与上链
+## 4. 协议抓取 + 加密提交 + 三方一致（推荐生产路径）
+
+仅双方各自提交还不够：交互过程中**协议自身也要抓取并锁定**重要字段。  
+双方密文提交后，必须与协议抓取一致，才能 `MATCHED`——防止中间人篡改单方字段造成反复失败与拥堵；线路上只见加密字符。
 
 ```
-PROPOSED → COUNTERED* → MATCHED → SEALED → FULFILLED → SETTLED
+INTERACTION → PROTOCOL_CAPTURED → (buyer/seller encrypted submit) → MATCHED → SEALED → …
 ```
 
-1. 双方按同一 `scene_id` 提交 `fields`
-2. 服务端 `fields_hash = SHA-256(canonical_json(fields))`
-3. 相等 → `MATCHED`；否则 `COUNTERED` + 字段 diff
-4. Seal 后写入证据包，并作为 `scopeHash` / Intent 文档承诺上链
-5. 履约后证据必须覆盖 `required_proof_fields`；验收只对照已锁定的 `acceptance_criteria`
+```bash
+# 1) 协议在交互中抓取并锁定（返回 capture_id + protocol_fields_hash）
+curl -s -X POST $KARMA_API/v1/standards/important-fields/captures \
+  -H 'content-type: application/json' \
+  -d '{"scene_id":"ride_hailing","interaction_ref":"a2a:task-1","extracted_fields":{...}}'
+
+# 2) 双方领取会话密钥（须 TLS；生产应再加鉴权）
+curl -s $KARMA_API/v1/standards/important-fields/captures/$CAP/session-key
+
+# 3) 加密后提交（明文会被拒绝）
+curl -s -X POST $KARMA_API/v1/standards/important-fields/submit-encrypted \
+  -d '{"capture_id":"'"$CAP"'","role":"buyer","ciphertext":"karma1.…","nonce":"…"}'
+
+# 4) 三方比对：buyer_hash == seller_hash == protocol_hash
+curl -s -X POST $KARMA_API/v1/standards/important-fields/match-secure \
+  -d '{"capture_id":"'"$CAP"'"}'
+```
+
+安全要点：
+
+| 机制 | 作用 |
+|------|------|
+| Protocol capture + HMAC | 交互中锁定权威字段视图 |
+| AES-256-GCM `karma1.` 信封 | 线路上为加密字符；AAD 绑定 `capture_id` |
+| Triple match | 单方被篡改 → 与协议不一致 → 拒绝，而非无意义重试风暴 |
+| Nonce + attempt budget | 防重放、防拥堵刷接口 |
+
+`POST /important-fields/match`（明文双边比对）仅保留作开发调试，生产请用 `match-secure`。
+
+Seal 后写入证据包（`fields_hash` + `capture_id`），并作为 `scopeHash` 上链；履约验收只对照已锁定的 `acceptance_criteria`。
 
 ## 5. 与现有协议的关系
 

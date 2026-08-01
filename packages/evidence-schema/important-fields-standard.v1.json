@@ -2,8 +2,8 @@
   "schema_version": "karma-important-fields-v1",
   "title": "Karma Important Fields Standard (Market + Daily + B2B)",
   "title_zh": "Karma 重要字段标准版（市场垂类 + 日常刚需 + B2B）",
-  "description": "Both buyer and seller agents MUST submit the same ImportantFields payload for a scene. Only when canonical fields_hash matches on both sides may the commitment be sealed into an evidence bundle and bound on-chain (scopeHash / IntentPackage).",
-  "description_zh": "买卖双方 agent 必须按场景提交同一套 ImportantFields。仅当双方 canonical fields_hash 一致时，才可封存为证据包并上链。",
+  "description": "Protocol captures ImportantFields during interaction. Buyer and seller submit AES-GCM ciphertext. MATCHED only when buyer_hash == seller_hash == protocol_hash.",
+  "description_zh": "交互中由协议抓取并锁定重要字段；双方以加密字符提交；仅当买方、卖方与协议三方 hash 一致时才可封存上链。",
   "source_of_truth": {
     "on_chain_enum": "karma-core/contracts/libraries/Types.sol::ServiceCategory",
     "intent_package": "Types.IntentPackage",
@@ -2022,21 +2022,31 @@
     "GET /v1/standards/important-fields/scenes?group=daily_commerce",
     "GET /v1/standards/important-fields/{scene_id}",
     "GET /v1/standards/important-fields/{scene_id}/example",
-    "POST /v1/standards/important-fields/canonicalize",
-    "POST /v1/standards/important-fields/match"
+    "POST /v1/standards/important-fields/captures",
+    "GET /v1/standards/important-fields/captures/{capture_id}/session-key",
+    "POST /v1/standards/important-fields/encrypt",
+    "POST /v1/standards/important-fields/submit-encrypted",
+    "POST /v1/standards/important-fields/match-secure"
   ],
   "lifecycle": {
     "states": [
-      "PROPOSED",
-      "COUNTERED",
+      "INTERACTION",
+      "PROTOCOL_CAPTURED",
+      "BUYER_SUBMITTED",
+      "SELLER_SUBMITTED",
       "MATCHED",
       "SEALED",
       "FULFILLED",
-      "SETTLED"
+      "SETTLED",
+      "COUNTERED",
+      "FAILED"
     ],
-    "seal_requires": "MATCHED + optional dual signatures over fields_hash",
-    "on_chain": "scopeHash / IntentPackage.fullDocumentHash / deliverySpecHash+qualitySpecHash commit to fields_hash",
-    "verify_rule": "After delivery, evidence bundle MUST cover required_proof_fields; acceptance checks ONLY locked acceptance_criteria"
+    "protocol_capture": "During interaction, protocol extracts ImportantFields and locks protocol_fields_hash + HMAC",
+    "wire": "Parties submit karma1 AES-256-GCM ciphertext only (no plaintext on secure path)",
+    "seal_requires": "triple match: buyer_hash == seller_hash == protocol_hash",
+    "anti_abuse": "per-capture nonce replay rejection + attempt budget",
+    "on_chain": "scopeHash / IntentPackage commit to fields_hash + capture_id",
+    "verify_rule": "After delivery, evidence MUST cover required_proof_fields; acceptance checks ONLY locked acceptance_criteria"
   },
   "scene_groups": {
     "market_vertical": "11 ServiceCategory market verticals",

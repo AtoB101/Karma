@@ -273,14 +273,14 @@ def example_for_scene(scene_id: str) -> dict[str, Any]:
         "fields_hash": fields_hash(out),
         "canonical_json": canonical_json(out),
         "submission_hint": {
-            "buyer": {
-                "party_role": "buyer",
-                "fields": out,
-            },
-            "seller": {
-                "party_role": "seller",
-                "fields": out,
-            },
-            "note_zh": "双方提交的 fields 必须完全一致（hash 相等）才能 MATCHED 并上链",
+            "secure_flow_zh": [
+                "1. 协议在交互中抓取字段 → POST /captures",
+                "2. 双方领取 session-key，本地 AES-GCM 加密（karma1. 信封）",
+                "3. POST /submit-encrypted（仅密文 + nonce）",
+                "4. POST /match-secure → 必须 buyer==seller==protocol 三方一致",
+            ],
+            "buyer": {"party_role": "buyer", "fields_example_only": out},
+            "seller": {"party_role": "seller", "fields_example_only": out},
+            "note_zh": "生产路径禁止明文对碰；示例 fields 仅供对齐结构",
         },
     }
