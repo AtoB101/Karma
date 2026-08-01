@@ -32,6 +32,12 @@ class FulfillIntentRequest(BaseModel):
     # Optional; must match intent-inferred scene or request is rejected
     scene_id: str | None = Field(default=None, max_length=128)
     confirmation_context: dict[str, Any] = Field(default_factory=dict)
+    # Important Fields: default required for commerce/B2B scenes
+    require_important_fields_match: bool | None = None
+    important_fields_capture_id: str | None = Field(default=None, max_length=128)
+    important_fields: dict[str, Any] = Field(default_factory=dict)
+    # Demo/dev only: protocol auto capture+dual-submit+MATCH (blocked outside demo envs)
+    auto_lock_important_fields: bool = False
 
 
 @router.post("/fulfill-intent")
@@ -70,6 +76,10 @@ async def fulfill_intent_route(
         policy_auto_allowed=body.policy_auto_allowed,
         scene_id=body.scene_id,
         confirmation_context=body.confirmation_context,
+        require_important_fields_match=body.require_important_fields_match,
+        important_fields_capture_id=body.important_fields_capture_id,
+        important_fields=body.important_fields or None,
+        auto_lock_important_fields=body.auto_lock_important_fields,
     )
     await db.commit()
     return result

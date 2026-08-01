@@ -247,9 +247,16 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
         "expected_owner_agent_id",
         "get_automation_policy",
         "does not match intent-inferred scene",
+        "awaiting_important_fields_match",
+        "auto_triple_lock_fields",
+        "require_matched_capture",
     ):
         if needle not in fulfill:
             _fail(f"intent_fulfillment missing confirmation gate: {needle}", failures)
+
+    scenario_loop = ROOT / "scripts/acceptance/real_commerce_scenario_loop.py"
+    if not scenario_loop.is_file():
+        _fail("missing real_commerce_scenario_loop.py", failures)
 
     conf_svc = _read("services/human_confirmation_policy.py")
     for needle in (
