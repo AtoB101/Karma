@@ -37,5 +37,9 @@ negotiates, then relies on voucher/evidence/settle for delivery guarantees.
 | Intent parse | `services/intent_discovery.py`, A2A `intent_discovery.py` |
 | Discover | `POST /v1/discovery/intent`, `POST /a2a/discover`, MCP `karma_discover_for_intent` |
 | Launch without known seller | `POST /v1/trade/orders/launch-from-intent` |
-| Negotiate | A2A task lifecycle + EIP-712 |
-| Deliver rails | voucher handoff → evidence → bilateral settle / attestation |
+| **Full spine (preferred)** | `POST /v1/orchestration/fulfill-intent` / MCP `karma_fulfill_intent` / A2A `POST /a2a/fulfill` |
+| Negotiate | A2A task lifecycle + EIP-712 (auto when merchant has endpoint) |
+| Deliver rails | real voucher accept → settlement IN_PROGRESS → optional auto receipt + settle |
+
+`fulfill-intent` closes the previous gaps: auto-negotiate (or inline), **real** voucher+accept,
+settlement lock/start, and with `auto_complete=true` evidence receipt + buyer-accept to `SETTLED`.

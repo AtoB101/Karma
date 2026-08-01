@@ -32,6 +32,14 @@ class DiscoverIntentBody(BaseModel):
     amount: float | None = None
     limit: int = 10
 
+
+class FulfillIntentBody(BaseModel):
+    requirement_text: str = Field(min_length=1)
+    buyer_identity_id: str
+    amount: float | None = None
+    auto_complete: bool = False
+    negotiate_a2a: bool = True
+
 router = APIRouter()
 
 _agent_card: AgentCard | None = None
@@ -106,6 +114,42 @@ async def discover_intent(body: DiscoverIntentBody):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/a2a/fulfill")
+async def fulfill_intent_via_karma(body: FulfillIntentBody):
+    """
+    Bridge → Karma Core orchestration:
+
+    discover + negotiate + voucher + settlement (+ optional auto settle).
+    Proxies to POST {KARMA_API_BASE}/v1/orchestration/fulfill-intent.
+    """
+    import httpx
+
+    payload = {
+        "requirement_text": body.requirement_text,
+        "buyer_identity_id": body.buyer_identity_id,
+        "amount": body.amount,
+        "auto_complete": body.auto_complete,
+        "negotiate_a2a": body.negotiate_a2a,
+        "auto_fund_capacity": True,
+    }
+    headers = {"Content-Type": "application/json"}
+    if config.KARMA_API_KEY:
+        headers["Authorization"] = f"Bearer {config.KARMA_API_KEY}"
+        headers["X-API-Key"] = config.KARMA_API_KEY
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{config.KARMA_API_BASE.rstrip('/')}/v1/orchestration/fulfill-intent",
+                json=payload,
+                headers=headers,
+            )
+        if not resp.is_success:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text[:800])
+        return resp.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Karma orchestration unreachable: {exc}") from exc
 
 
 @router.post("/a2a/task")

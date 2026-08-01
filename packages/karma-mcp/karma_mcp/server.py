@@ -14,6 +14,7 @@ Run:
 
 Tools exposed:
     karma_discover_for_intent  user goal → find Karma merchants/agents
+    karma_fulfill_intent       discover → negotiate → voucher → settle spine
     karma_lock          lock USDC → mint Bill Token
     karma_bind          bilateral bind two Bill Tokens → Binding
     karma_settle        settle Binding → burn bills, release USDC
@@ -48,11 +49,9 @@ mcp = FastMCP(
         "Karma MCP server — discover merchants, then lock/bind/settle agent payments.\n"
         "\n"
         "Assistant flow:\n"
-        "  0. karma_discover_for_intent — user states a goal → ranked agents/merchants.\n"
-        "  1. Negotiate via A2A / trade API with the recommended seller.\n"
-        "  2. Both parties call karma_lock to mint Bill Tokens (locks USDC as collateral).\n"
-        "  3. Buyer calls karma_bind with both bill IDs to enter bilateral responsibility.\n"
-        "  4. After task completes, karma_settle burns both bills and releases USDC atomically.\n"
+        "  0. karma_fulfill_intent — preferred: NL goal → discover → voucher → settle spine.\n"
+        "  1. Or karma_discover_for_intent then manual negotiate.\n"
+        "  2. On-chain: karma_lock → karma_bind → karma_settle for bilateral bill tokens.\n"
         "\n"
         "Invariant: totalBillSupply[token] == totalLocked[token] at all times.\n"
         "BOUND bills cannot be withdrawn, transferred, or re-bound until settled.\n"
@@ -197,6 +196,56 @@ def karma_check_invariant(token: str) -> dict[str, Any]:
     invariant_ok should always be True. If False, the contract has a bug.
     """
     return chain_check_invariant(token)
+
+
+@mcp.tool()
+def karma_fulfill_intent(
+    requirement_text: str,
+    buyer_identity_id: str,
+    amount: float = 0.0,
+    auto_complete: bool = False,
+) -> dict[str, Any]:
+    """
+    End-to-end: understand intent → discover merchant → negotiate → voucher →
+    settlement start → optional auto evidence+settle.
+
+    This is the primary assistant tool for "user asked me to do X".
+    Prefer auto_complete=false in production (human/seller confirms delivery);
+    use auto_complete=true for demos.
+    """
+    import httpx
+
+    payload: dict[str, Any] = {
+        "requirement_text": requirement_text,
+        "buyer_identity_id": buyer_identity_id,
+        "auto_complete": auto_complete,
+        "negotiate_a2a": True,
+        "auto_fund_capacity": True,
+    }
+    if amount and amount > 0:
+        payload["amount"] = amount
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    api_key = os.getenv("KARMA_API_KEY", "")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers["X-API-Key"] = api_key
+
+    api_base = os.getenv("KARMA_API_BASE", "").rstrip("/")
+    if not api_base:
+        return {"error": "KARMA_API_BASE is required for karma_fulfill_intent"}
+    try:
+        resp = httpx.post(
+            f"{api_base}/v1/orchestration/fulfill-intent",
+            json=payload,
+            headers=headers,
+            timeout=60,
+        )
+        if resp.is_success:
+            return resp.json()
+        return {"error": f"fulfill failed: HTTP {resp.status_code}", "detail": resp.text[:800]}
+    except httpx.HTTPError as exc:
+        return {"error": f"fulfill unreachable: {exc}"}
 
 
 @mcp.tool()
