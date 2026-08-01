@@ -139,14 +139,15 @@ async def connect_from_template(
         suggestions = suggest_industries_for_text(body.self_description, limit=3)
         answers["industry_ids"] = [s["industry_id"] for s in suggestions]
         answers.setdefault("capability_summary", body.self_description.strip()[:500])
-        answers.setdefault("boundaries", "以模板场景为界；未声明场景不接单。")
         answers.setdefault("service_targets", ["consumer", "agent"])
-        answers.setdefault("business_hours", {"24_7": True, "timezone": "UTC"})
         answers.setdefault("service_area", {"mode": "hybrid", "regions": ["global"]})
         if body.profile_id == "enterprise":
             answers.setdefault("enterprise_type", "other")
             answers.setdefault("trade_side", ["sell"])
             answers.setdefault("compliance_flags", {"no_fund_custody": True, "non_clinical_only": True})
+    if body.profile_id in {"merchant", "enterprise"}:
+        # Bootstrap hard metrics from catalog examples when agent has not filled yet
+        answers.setdefault("use_example_service_specs", True)
     if body.profile_id == "user":
         answers.setdefault("display_name", answers.get("display_name") or "Karma User Agent")
         answers.setdefault("preferred_currency", "USDC")

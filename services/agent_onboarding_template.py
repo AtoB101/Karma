@@ -152,6 +152,66 @@ def _compliance_checks(profile_id: str, answers: dict[str, Any]) -> list[str]:
     return errors
 
 
+def _dig(obj: Any, path: str) -> Any:
+    cur = obj
+    for part in path.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return None
+        cur = cur[part]
+    return cur
+
+
+def _validate_service_specs(industry_ids: list[str], service_specs: Any) -> list[str]:
+    """Enforce per-industry hard metrics (content/type/area/pricing/hours/SLA)."""
+    errors: list[str] = []
+    if not isinstance(service_specs, dict) or not service_specs:
+        return ["service_specs required: map of industry_id → hard service metrics"]
+    for iid in industry_ids:
+        ind = get_industry(iid)
+        spec = service_specs.get(iid)
+        if not isinstance(spec, dict):
+            errors.append(f"service_specs.{iid} missing or not an object")
+            continue
+        for req in ind.get("required_service_spec") or []:
+            path = req.get("path")
+            if not path:
+                continue
+            # top-level business_hours / boundaries may live at answers level OR inside spec
+            val = _dig(spec, path)
+            if val is None or val == "" or val == []:
+                errors.append(f"service_specs.{iid}.{path} required ({req.get('description_zh') or path})")
+                continue
+            if req.get("const") is not None and val != req["const"]:
+                errors.append(f"service_specs.{iid}.{path} must be {req['const']!r}")
+            if path.endswith("currency") or "price" in path or path.endswith("fare") or path.endswith("_fee") or path.endswith("per_km") or path.endswith("per_minute") or path.endswith("unit_price") or path.endswith("rate_or_fixed") or path.endswith("base_fare") or path.endswith("amount") or "nightly_rate" in path:
+                if isinstance(val, (int, float)):
+                    errors.append(f"service_specs.{iid}.{path} must be decimal string, not number")
+        # business_hours sanity
+        hours = spec.get("business_hours")
+        if isinstance(hours, dict):
+            if not hours.get("timezone"):
+                errors.append(f"service_specs.{iid}.business_hours.timezone required")
+            if not hours.get("24_7") and not hours.get("weekly"):
+                errors.append(f"service_specs.{iid}.business_hours needs 24_7 or weekly")
+    # unknown keys warning as errors for strictness on declared industries only
+    for key in service_specs:
+        if key not in industry_ids:
+            errors.append(f"service_specs contains industry not in industry_ids: {key}")
+    return errors
+
+
+def apply_example_service_specs(industry_ids: list[str], service_specs: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Fill missing industry specs from catalog examples (agent bootstrap aid)."""
+    out = dict(service_specs or {})
+    for iid in industry_ids:
+        if iid in out and isinstance(out[iid], dict) and out[iid]:
+            continue
+        example = get_industry(iid).get("example_service_spec")
+        if isinstance(example, dict):
+            out[iid] = dict(example)
+    return out
+
+
 def materialize_onboarding(
     *,
     profile_id: str,
@@ -164,10 +224,53 @@ def materialize_onboarding(
         raise OnboardingError("profile_id must be user|merchant|enterprise")
     answers = dict(answers or {})
     profile = get_profile(profile_id)
+
+    service_specs: dict[str, Any] = {}
+    if profile_id != "user":
+        industry_ids_pre = [str(x) for x in (answers.get("industry_ids") or [])]
+        # Bootstrap hard metrics from catalog examples when allowed / missing
+        if answers.get("use_example_service_specs") or not answers.get("service_specs"):
+            answers["service_specs"] = apply_example_service_specs(
+                industry_ids_pre,
+                answers.get("service_specs") if isinstance(answers.get("service_specs"), dict) else None,
+            )
+        service_specs = dict(answers.get("service_specs") or {})
+        # Derive profile-level fields from first industry hard spec when omitted
+        if industry_ids_pre:
+            first = service_specs.get(industry_ids_pre[0]) or {}
+            if not answers.get("business_hours") and isinstance(first.get("business_hours"), dict):
+                answers["business_hours"] = first["business_hours"]
+            if not answers.get("service_area"):
+                area = first.get("service_area")
+                if isinstance(area, dict):
+                    answers["service_area"] = area
+                elif first.get("service_area.mode") or first.get("service_area"):
+                    pass
+                else:
+                    # digital default for pure online industries
+                    answers.setdefault("service_area", {"mode": "digital", "regions": ["global"]})
+            if not answers.get("boundaries"):
+                parts = []
+                for iid in industry_ids_pre:
+                    b = (service_specs.get(iid) or {}).get("boundaries")
+                    if b:
+                        parts.append(str(b))
+                if parts:
+                    answers["boundaries"] = "；".join(parts)
+
     errors = _validate_answers(profile_id, answers)
     errors.extend(_compliance_checks(profile_id, answers))
+    if profile_id != "user":
+        errors.extend(
+            _validate_service_specs(
+                [str(x) for x in (answers.get("industry_ids") or [])],
+                answers.get("service_specs"),
+            )
+        )
     if errors:
         raise OnboardingError("; ".join(errors))
+    if profile_id != "user":
+        service_specs = dict(answers.get("service_specs") or {})
 
     caps: list[str] = []
     auto = profile.get("agent_auto_fill") or {}
@@ -180,6 +283,7 @@ def materialize_onboarding(
         service_area = {"mode": "digital", "regions": [answers.get("home_region") or "global"]}
         boundaries = "不对外售卖服务；仅作为需求方代理。"
         capability_summary = "发现商家、锁定重要字段、履约结算"
+        service_specs = {}
     else:
         caps.extend(auto.get("always_capabilities") or [])
         industry_ids = [str(x) for x in answers.get("industry_ids") or []]
@@ -190,8 +294,16 @@ def materialize_onboarding(
         service_area = answers.get("service_area") or {"mode": "digital", "regions": ["global"]}
         capability_summary = str(answers.get("capability_summary") or "").strip()
         boundaries = str(answers.get("boundaries") or "").strip()
-        if not capability_summary or not boundaries:
-            raise OnboardingError("merchant/enterprise require capability_summary and boundaries")
+        if not capability_summary:
+            # derive from service_content across specs
+            bits = []
+            for iid in industry_ids:
+                sc = (service_specs.get(iid) or {}).get("service_content")
+                if isinstance(sc, list):
+                    bits.extend(str(x) for x in sc)
+            capability_summary = "、".join(bits) if bits else "见 service_specs"
+        if not boundaries:
+            raise OnboardingError("merchant/enterprise require boundaries (or per-industry boundaries in service_specs)")
         titles = "、".join(get_industry(i).get("title_zh") or i for i in industry_ids)
         tpl = auto.get("description_template_zh") or "{display_name}"
         description = tpl.format(
@@ -238,6 +350,7 @@ def materialize_onboarding(
         "service_targets": service_targets,
         "business_hours": business_hours,
         "service_area": service_area,
+        "service_specs": service_specs,
         "description": description,
         "capability_summary": capability_summary if profile_id != "user" else capability_summary,
         "boundaries": boundaries,
@@ -246,6 +359,7 @@ def materialize_onboarding(
         "trade_side": answers.get("trade_side") if profile_id == "enterprise" else None,
         "preferred_currency": answers.get("preferred_currency") or "USDC",
         "language": answers.get("language") or "zh-CN",
+        "hard_metrics_note_zh": "service_specs 为接入边界硬指标；单笔成交另走 Important Fields 三方锁定",
     }
 
     return {

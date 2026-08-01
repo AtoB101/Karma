@@ -3,12 +3,12 @@
   "title": "Karma Agent Onboarding Template",
   "title_zh": "Karma Agent 自动化接入标准模板",
   "description": "Agents read this template before connect. User profile is minimal; merchant/enterprise pick industry templates so other agents know capabilities without manual field-by-field owner input.",
-  "description_zh": "接入前 agent 先读取本模板。用户侧极简；商家/企业按行业模板自动填写能力、服务对象、营业时间与描述，便于其他 agent 发现与协作。",
+  "description_zh": "接入前 agent 读取本模板。用户极简；商家/企业必须按行业客观标准填写 service_specs（服务内容/类型/地点/收费/营业时间/SLA）。",
   "design_goals_zh": [
-    "不懂 agent 的主人只需选角色（用户/商家/企业）与行业大类",
-    "agent 比主人更清楚自己的能力边界，由 agent 对照模板自填",
-    "接入后目录字段标准化，其他 agent 可立即读懂能做什么",
-    "与 Important Fields 场景 scene_id 对齐，避免两套标准"
+    "主人只选身份；硬性服务指标由 agent 对照行业客观标准自填",
+    "每个行业模板规定：服务内容、类型、时间地点、收费标准、服务时间、SLA硬指标",
+    "接入后其他 agent 可读 profile_card.service_specs 明确边界",
+    "与 Important Fields scene_id 对齐：接入定边界，成交定单次验收"
   ],
   "profiles": {
     "user": {
@@ -89,7 +89,8 @@
           "important_fields_submit",
           "a2a_negotiate"
         ],
-        "description_template_zh": "{display_name}：{industry_titles}服务商。服务对象：{service_targets}。营业时间：{business_hours}。能力：{capability_summary}。边界：{boundaries}。"
+        "description_template_zh": "{display_name}：{industry_titles}。服务对象：{service_targets}。营业/服务时间：{business_hours}。收费与SLA见 service_specs。能力：{capability_summary}。边界：{boundaries}。",
+        "must_copy_example_service_spec_if_unknown": true
       },
       "required_fields": [
         {
@@ -168,6 +169,12 @@
           "path": "boundaries",
           "type": "string",
           "description_zh": "不做/边界（agent 自写）"
+        },
+        {
+          "path": "service_specs",
+          "type": "object",
+          "description_zh": "按 industry_id 填写的硬性服务规格（必填）。key=industry_id，value=该行业 required_service_spec 对应对象。",
+          "minProperties": 1
         }
       ],
       "optional_fields": [
@@ -215,7 +222,8 @@
           "a2a_negotiate",
           "b2b_ready"
         ],
-        "description_template_zh": "{display_name}（{enterprise_type}）：面向{service_targets}，场景{industry_titles}。组织能力：{capability_summary}。合规边界：{boundaries}。服务时间：{business_hours}。"
+        "description_template_zh": "{display_name}：{industry_titles}。服务对象：{service_targets}。营业/服务时间：{business_hours}。收费与SLA见 service_specs。能力：{capability_summary}。边界：{boundaries}。",
+        "must_copy_example_service_spec_if_unknown": true
       },
       "required_fields": [
         {
@@ -297,6 +305,12 @@
               "type": "string"
             }
           }
+        },
+        {
+          "path": "service_specs",
+          "type": "object",
+          "description_zh": "按 industry_id 填写的硬性服务规格（必填）。key=industry_id，value=该行业 required_service_spec 对应对象。",
+          "minProperties": 1
         }
       ],
       "optional_fields": [
@@ -344,15 +358,173 @@
       "enterprise_fit": false,
       "consumer_fit": true,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "服务城市/区域 geo",
-        "车型档位",
-        "是否接受预约单"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "日常叫车：上车点、下车点、预约时间、车型与一口价/预估价；验收看出发到达与完单证明。"
+      "market_summary_zh": "日常叫车：上车点、下车点、预约时间、车型与一口价/预估价；验收看出发到达与完单证明。",
+      "objective_standard_zh": "对标网约车市场常见履约：覆盖城市、车型、应答时效、计价方式、取消窗口。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string",
+          "description_zh": "服务内容（如：即时叫车/预约车/接送机）",
+          "examples": [
+            [
+              "即时叫车",
+              "预约用车",
+              "接送机"
+            ]
+          ]
+        },
+        {
+          "path": "vehicle_classes",
+          "type": "array",
+          "items": "string",
+          "enum": [
+            "economy",
+            "comfort",
+            "xl",
+            "luxury"
+          ],
+          "description_zh": "可接单车型档位"
+        },
+        {
+          "path": "service_area.cities",
+          "type": "array",
+          "items": "string",
+          "description_zh": "服务城市（行政区或城市名）",
+          "examples": [
+            [
+              "上海",
+              "苏州"
+            ]
+          ]
+        },
+        {
+          "path": "service_area.geo_hash_prefixes",
+          "type": "array",
+          "items": "string",
+          "description_zh": "可选 geo 覆盖前缀"
+        },
+        {
+          "path": "sla.pickup_eta_max_minutes",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60,
+          "typical": 10,
+          "description_zh": "接驾最长等待（分钟）硬指标"
+        },
+        {
+          "path": "sla.trip_completion_proof_required",
+          "type": "boolean",
+          "const": true,
+          "description_zh": "必须提供完单证明"
+        },
+        {
+          "path": "pricing.model",
+          "type": "string",
+          "enum": [
+            "metered",
+            "quoted_fixed",
+            "quoted_range"
+          ],
+          "description_zh": "计价模式"
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string",
+          "enum": [
+            "USDC",
+            "USDT",
+            "USD",
+            "CNY",
+            "EUR"
+          ]
+        },
+        {
+          "path": "pricing.base_fare",
+          "type": "string",
+          "description_zh": "起步价（十进制字符串）"
+        },
+        {
+          "path": "pricing.per_km",
+          "type": "string",
+          "description_zh": "每公里单价"
+        },
+        {
+          "path": "pricing.per_minute",
+          "type": "string",
+          "description_zh": "每分钟单价（可选填0）"
+        },
+        {
+          "path": "pricing.cancel_fee_after_minutes",
+          "type": "integer",
+          "description_zh": "超时取消起收费分钟数"
+        },
+        {
+          "path": "business_hours",
+          "type": "object",
+          "description_zh": "接单营业时间",
+          "properties": {
+            "timezone": "string",
+            "weekly": "string",
+            "24_7": "boolean"
+          }
+        },
+        {
+          "path": "accept_scheduled_rides",
+          "type": "boolean",
+          "description_zh": "是否接受预约单"
+        },
+        {
+          "path": "boundaries",
+          "type": "string",
+          "description_zh": "不做清单（跨城/宠物/搬运等）"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "即时叫车",
+          "预约用车"
+        ],
+        "vehicle_classes": [
+          "economy",
+          "comfort"
+        ],
+        "service_area": {
+          "cities": [
+            "上海"
+          ],
+          "geo_hash_prefixes": [
+            "wtw"
+          ]
+        },
+        "sla": {
+          "pickup_eta_max_minutes": 10,
+          "trip_completion_proof_required": true
+        },
+        "pricing": {
+          "model": "metered",
+          "currency": "CNY",
+          "base_fare": "14.00",
+          "per_km": "2.70",
+          "per_minute": "0.60",
+          "cancel_fee_after_minutes": 5
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Sun 00:00-24:00",
+          "24_7": true
+        },
+        "accept_scheduled_rides": true,
+        "boundaries": "不做跨省长途包车；不承运危险品。"
+      }
     },
     {
       "industry_id": "food_delivery",
@@ -375,14 +547,116 @@
       "enterprise_fit": false,
       "consumer_fit": true,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "配送半径或区域",
-        "平均送达时效"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "外卖：商家、菜品/订单明细哈希、送达地址与时效；验收看出餐/送达时间与完单状态。"
+      "market_summary_zh": "外卖：商家、菜品/订单明细哈希、送达地址与时效；验收看出餐/送达时间与完单状态。",
+      "objective_standard_zh": "对标外卖平台：配送半径、送达SLA、起送价、配送费、出餐时效、营业时段。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string",
+          "examples": [
+            [
+              "餐饮外卖配送",
+              "到店自取转配送"
+            ]
+          ]
+        },
+        {
+          "path": "cuisine_or_categories",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "service_area.cities",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "service_area.radius_km",
+          "type": "number",
+          "typical": 3.0,
+          "description_zh": "最大配送半径（公里）"
+        },
+        {
+          "path": "sla.deliver_max_minutes",
+          "type": "integer",
+          "typical": 45,
+          "description_zh": "下单到送达最长分钟数"
+        },
+        {
+          "path": "sla.prep_max_minutes",
+          "type": "integer",
+          "typical": 20,
+          "description_zh": "出餐最长分钟数"
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.min_order_amount",
+          "type": "string",
+          "description_zh": "起送价"
+        },
+        {
+          "path": "pricing.delivery_fee",
+          "type": "string",
+          "description_zh": "基础配送费"
+        },
+        {
+          "path": "pricing.free_delivery_over",
+          "type": "string",
+          "description_zh": "满额免配（无则填0）"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "餐饮外卖配送"
+        ],
+        "cuisine_or_categories": [
+          "简餐",
+          "面食",
+          "饮品"
+        ],
+        "service_area": {
+          "cities": [
+            "上海"
+          ],
+          "radius_km": 3.5
+        },
+        "sla": {
+          "deliver_max_minutes": 45,
+          "prep_max_minutes": 20
+        },
+        "pricing": {
+          "currency": "CNY",
+          "min_order_amount": "20.00",
+          "delivery_fee": "5.00",
+          "free_delivery_over": "50.00"
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Sun 10:00-21:30",
+          "24_7": false
+        },
+        "boundaries": "不做生鲜冷链长距离；恶劣天气可延长SLA并需买方确认。"
+      }
     },
     {
       "industry_id": "flight_booking",
@@ -405,14 +679,120 @@
       "enterprise_fit": false,
       "consumer_fit": true,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "航司/票务范围",
-        "是否支持改签协助"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "机票：航班号、航段、旅客、舱位；验收看出票与实际起飞/到达（可对接 verifier node）。"
+      "market_summary_zh": "机票：航班号、航段、旅客、舱位；验收看出票与实际起飞/到达（可对接 verifier node）。",
+      "objective_standard_zh": "对标机票代理：航线范围、出票时效、舱位、改签退票规则、报价有效期。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string",
+          "examples": [
+            [
+              "国内机票出票",
+              "国际机票出票"
+            ]
+          ]
+        },
+        {
+          "path": "route_scope",
+          "type": "string",
+          "enum": [
+            "domestic",
+            "international",
+            "both"
+          ]
+        },
+        {
+          "path": "airports_or_regions",
+          "type": "array",
+          "items": "string",
+          "description_zh": "主要机场/区域"
+        },
+        {
+          "path": "cabin_classes",
+          "type": "array",
+          "items": "string",
+          "enum": [
+            "economy",
+            "premium_economy",
+            "business",
+            "first"
+          ]
+        },
+        {
+          "path": "sla.ticket_issue_max_minutes",
+          "type": "integer",
+          "typical": 60,
+          "description_zh": "支付后出票最长分钟数"
+        },
+        {
+          "path": "sla.quote_validity_minutes",
+          "type": "integer",
+          "typical": 15,
+          "description_zh": "报价有效分钟数"
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.service_fee_per_ticket",
+          "type": "string",
+          "description_zh": "出票服务费/人"
+        },
+        {
+          "path": "pricing.refund_change_policy_summary",
+          "type": "string",
+          "description_zh": "退改签规则摘要（硬性披露）"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "国内机票出票"
+        ],
+        "route_scope": "domestic",
+        "airports_or_regions": [
+          "PEK",
+          "PVG",
+          "CAN",
+          "CTU"
+        ],
+        "cabin_classes": [
+          "economy",
+          "business"
+        ],
+        "sla": {
+          "ticket_issue_max_minutes": 60,
+          "quote_validity_minutes": 15
+        },
+        "pricing": {
+          "currency": "CNY",
+          "service_fee_per_ticket": "20.00",
+          "refund_change_policy_summary": "按航司客规；出票后自愿退改收取航司手续费+服务费"
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Sun 08:00-22:00",
+          "24_7": false
+        },
+        "boundaries": "不承诺值机选座结果；不办理签证。"
+      }
     },
     {
       "industry_id": "hotel_booking",
@@ -435,15 +815,153 @@
       "enterprise_fit": false,
       "consumer_fit": true,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "覆盖城市",
-        "房型范围",
-        "取消政策摘要"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "订房：酒店、入离店日期、房型、入住人；验收看入住/离店记录与取消政策。"
+      "market_summary_zh": "订房：酒店、入离店日期、房型、入住人；验收看入住/离店记录与取消政策。",
+      "objective_standard_zh": "对标在线酒店：覆盖城市、房型、入离店标准时点、取消档位、房价区间。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string",
+          "examples": [
+            [
+              "酒店预订",
+              "民宿预订",
+              "协议企业订房"
+            ]
+          ]
+        },
+        {
+          "path": "property_types",
+          "type": "array",
+          "items": "string",
+          "enum": [
+            "hotel",
+            "motel",
+            "apartment",
+            "homestay",
+            "resort"
+          ]
+        },
+        {
+          "path": "service_area.cities",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "room_types_offered",
+          "type": "array",
+          "items": "string",
+          "description_zh": "可售房型"
+        },
+        {
+          "path": "sla.standard_check_in_local_time",
+          "type": "string",
+          "typical": "14:00",
+          "description_zh": "标准入住本地时间"
+        },
+        {
+          "path": "sla.standard_check_out_local_time",
+          "type": "string",
+          "typical": "12:00",
+          "description_zh": "标准离店本地时间"
+        },
+        {
+          "path": "sla.confirmation_max_minutes",
+          "type": "integer",
+          "typical": 30,
+          "description_zh": "出确认号最长分钟数"
+        },
+        {
+          "path": "pricing.model",
+          "type": "string",
+          "enum": [
+            "per_night",
+            "package"
+          ]
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.nightly_rate_min",
+          "type": "string"
+        },
+        {
+          "path": "pricing.nightly_rate_max",
+          "type": "string"
+        },
+        {
+          "path": "pricing.cancellation_tiers",
+          "type": "array",
+          "items": "string",
+          "description_zh": "取消政策档位摘要",
+          "examples": [
+            [
+              "免费取消至入住前18:00",
+              "不可退"
+            ]
+          ]
+        },
+        {
+          "path": "business_hours",
+          "type": "object",
+          "description_zh": "订房服务时间"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "酒店预订",
+          "含早房"
+        ],
+        "property_types": [
+          "hotel",
+          "apartment"
+        ],
+        "service_area": {
+          "cities": [
+            "上海",
+            "杭州"
+          ]
+        },
+        "room_types_offered": [
+          "king_standard",
+          "twin_standard"
+        ],
+        "sla": {
+          "standard_check_in_local_time": "14:00",
+          "standard_check_out_local_time": "12:00",
+          "confirmation_max_minutes": 30
+        },
+        "pricing": {
+          "model": "per_night",
+          "currency": "CNY",
+          "nightly_rate_min": "280.00",
+          "nightly_rate_max": "1280.00",
+          "cancellation_tiers": [
+            "免费取消至入住日前18:00",
+            "特价不可退"
+          ]
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Sun 08:00-22:00",
+          "24_7": false
+        },
+        "boundaries": "不承接无证经营房源；不承诺签证/入境结果。"
+      }
     },
     {
       "industry_id": "b2b_procurement",
@@ -466,15 +984,119 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "可供应类目",
-        "最小起订量",
-        "交期能力"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "企业间采购：SKU/PO、数量、交期、收货与质检；验收看到货数量、质检与入库凭证。"
+      "market_summary_zh": "企业间采购：SKU/PO、数量、交期、收货与质检；验收看到货数量、质检与入库凭证。",
+      "objective_standard_zh": "对标企业采购履约：可供应类目、MOQ、交期、质检标准、账期/付款条件、收货地。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "supply_categories",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sla.lead_time_max_days",
+          "type": "integer",
+          "typical": 14,
+          "description_zh": "标准交期上限（天）"
+        },
+        {
+          "path": "sla.moq",
+          "type": "integer",
+          "description_zh": "最小起订量"
+        },
+        {
+          "path": "sla.qa_standard",
+          "type": "string",
+          "examples": [
+            "AQL-1.5",
+            "ISO-自检"
+          ]
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.payment_terms",
+          "type": "string",
+          "enum": [
+            "on_delivery",
+            "net_15",
+            "net_30",
+            "milestone"
+          ]
+        },
+        {
+          "path": "pricing.quote_validity_days",
+          "type": "integer",
+          "typical": 7
+        },
+        {
+          "path": "service_area.ship_from_regions",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "service_area.ship_to_regions",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "电子配件供应",
+          "按PO发货"
+        ],
+        "supply_categories": [
+          "连接器",
+          "线束"
+        ],
+        "sla": {
+          "lead_time_max_days": 14,
+          "moq": 100,
+          "qa_standard": "AQL-1.5"
+        },
+        "pricing": {
+          "currency": "USDC",
+          "payment_terms": "net_15",
+          "quote_validity_days": 7
+        },
+        "service_area": {
+          "ship_from_regions": [
+            "CN-GD"
+          ],
+          "ship_to_regions": [
+            "CN",
+            "US"
+          ]
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Fri 09:00-18:00",
+          "24_7": false
+        },
+        "boundaries": "不做无规格定制样品外的开模承诺；不代持客户资金。"
+      }
     },
     {
       "industry_id": "data_api_billing",
@@ -497,15 +1119,109 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "API 标识",
-        "计费单位",
-        "SLA 成功率"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "企业或 agent 调用数据/API：endpoint、计量单位、单价、配额与账单周期；验收看用量凭证与响应成功率。"
+      "market_summary_zh": "企业或 agent 调用数据/API：endpoint、计量单位、单价、配额与账单周期；验收看用量凭证与响应成功率。",
+      "objective_standard_zh": "对标API计量计费：endpoint、计量单位、单价、配额、SLA成功率、账期、超限价。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "api_base_or_id",
+          "type": "string"
+        },
+        {
+          "path": "meter_unit",
+          "type": "string",
+          "enum": [
+            "request",
+            "token",
+            "row",
+            "mb",
+            "seat_day",
+            "other"
+          ]
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.unit_price",
+          "type": "string"
+        },
+        {
+          "path": "pricing.overage_unit_price",
+          "type": "string"
+        },
+        {
+          "path": "sla.quota_per_period",
+          "type": "string",
+          "description_zh": "账期内配额"
+        },
+        {
+          "path": "sla.success_rate_bps_min",
+          "type": "integer",
+          "typical": 9900,
+          "description_zh": "成功率下限（bps，9900=99%）"
+        },
+        {
+          "path": "sla.max_latency_ms_p95",
+          "type": "integer",
+          "typical": 800
+        },
+        {
+          "path": "billing_period",
+          "type": "string",
+          "enum": [
+            "monthly",
+            "daily",
+            "per_call_batch"
+          ]
+        },
+        {
+          "path": "business_hours",
+          "type": "object",
+          "description_zh": "支持/计费服务时间（API本身可7x24）"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "KYC enrichment API 计量调用"
+        ],
+        "api_base_or_id": "https://api.example.com/v1/kyc",
+        "meter_unit": "request",
+        "pricing": {
+          "currency": "USDC",
+          "unit_price": "0.0025",
+          "overage_unit_price": "0.0030"
+        },
+        "sla": {
+          "quota_per_period": "100000",
+          "success_rate_bps_min": 9900,
+          "max_latency_ms_p95": 800
+        },
+        "billing_period": "monthly",
+        "business_hours": {
+          "timezone": "UTC",
+          "weekly": "Mon-Fri 00:00-24:00",
+          "24_7": true
+        },
+        "boundaries": "不提供原始证件存储；不保证第三方源数据司法效力。"
+      }
     },
     {
       "industry_id": "api_tool_call",
@@ -528,14 +1244,76 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "工具名列表",
-        "最大时延"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "单次或小批量工具调用（testnet L1 刚需）：工具名、入参哈希、成功判定；适合 agent 间即时付费调用。"
+      "market_summary_zh": "单次或小批量工具调用（testnet L1 刚需）：工具名、入参哈希、成功判定；适合 agent 间即时付费调用。",
+      "objective_standard_zh": "对标单次工具调用：工具名、成功判定、时延上限、单价、可用时段。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "tools",
+          "type": "array",
+          "items": "string",
+          "description_zh": "可调用工具名列表"
+        },
+        {
+          "path": "sla.max_latency_ms",
+          "type": "integer",
+          "typical": 3000
+        },
+        {
+          "path": "sla.success_rule",
+          "type": "string"
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.price_per_call",
+          "type": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "MCP/API 单次工具调用"
+        ],
+        "tools": [
+          "weather.forecast",
+          "fx.rate"
+        ],
+        "sla": {
+          "max_latency_ms": 3000,
+          "success_rule": "status=success and schema_ok"
+        },
+        "pricing": {
+          "currency": "USDC",
+          "price_per_call": "0.05"
+        },
+        "business_hours": {
+          "timezone": "UTC",
+          "24_7": true
+        },
+        "boundaries": "不做长任务批处理；单次调用无状态持久化承诺。"
+      }
     },
     {
       "industry_id": "software_development",
@@ -558,14 +1336,114 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "技术栈",
-        "交付形态 PR/release"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "外包开发、bugfix、集成、代码交付；验收看仓库/PR/测试与约定里程碑。"
+      "market_summary_zh": "外包开发、bugfix、集成、代码交付；验收看仓库/PR/测试与约定里程碑。",
+      "objective_standard_zh": "对标软件外包：技术栈、交付形态、响应/交付周期、人天或固定价、验收DoD。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "tech_stack",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "deliverable_types",
+          "type": "array",
+          "items": "string",
+          "enum": [
+            "pr",
+            "release",
+            "repo_snapshot",
+            "patch",
+            "spec_impl"
+          ]
+        },
+        {
+          "path": "sla.response_max_hours",
+          "type": "integer",
+          "typical": 24
+        },
+        {
+          "path": "sla.delivery_window_days",
+          "type": "integer",
+          "typical": 7
+        },
+        {
+          "path": "pricing.model",
+          "type": "string",
+          "enum": [
+            "fixed",
+            "daily_rate",
+            "hourly"
+          ]
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.rate_or_fixed",
+          "type": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "service_area.mode",
+          "type": "string",
+          "const": "digital"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "功能开发",
+          "缺陷修复",
+          "PR交付"
+        ],
+        "tech_stack": [
+          "python",
+          "fastapi",
+          "typescript"
+        ],
+        "deliverable_types": [
+          "pr",
+          "patch"
+        ],
+        "sla": {
+          "response_max_hours": 24,
+          "delivery_window_days": 7
+        },
+        "pricing": {
+          "model": "fixed",
+          "currency": "USDC",
+          "rate_or_fixed": "150.00"
+        },
+        "business_hours": {
+          "timezone": "UTC",
+          "weekly": "Mon-Fri 09:00-18:00",
+          "24_7": false
+        },
+        "service_area": {
+          "mode": "digital"
+        },
+        "boundaries": "不做无测试保障的紧急热修承诺；不含生产运维值守。"
+      }
     },
     {
       "industry_id": "design_creative",
@@ -588,12 +1466,87 @@
       "enterprise_fit": true,
       "consumer_fit": true,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "品牌、UI、平面、视频脚本等；验收看尺寸/格式/修改轮次与授权范围。"
+      "market_summary_zh": "品牌、UI、平面、视频脚本等；验收看尺寸/格式/修改轮次与授权范围。",
+      "objective_standard_zh": "对标设计交付：资产类型、格式尺寸、修改轮次、交期、报价。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "asset_types",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "format_specs",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sla.revision_rounds_included",
+          "type": "integer",
+          "typical": 2
+        },
+        {
+          "path": "sla.delivery_max_days",
+          "type": "integer",
+          "typical": 5
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.package_price",
+          "type": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "视觉设计",
+          "海报/UI导出"
+        ],
+        "asset_types": [
+          "banner",
+          "ui_kit"
+        ],
+        "format_specs": [
+          "SVG",
+          "PNG 1600x900"
+        ],
+        "sla": {
+          "revision_rounds_included": 2,
+          "delivery_max_days": 5
+        },
+        "pricing": {
+          "currency": "USDC",
+          "package_price": "80.00"
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Fri 10:00-19:00",
+          "24_7": false
+        },
+        "boundaries": "不含拍摄制作；超出轮次另计。"
+      }
     },
     {
       "industry_id": "logistics_delivery",
@@ -616,12 +1569,93 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "快递、同城配送、外卖履约；验收看取送地点、时效与签收证明。"
+      "market_summary_zh": "快递、同城配送、外卖履约；验收看取送地点、时效与签收证明。",
+      "objective_standard_zh": "对标同城/快递：取送范围、时效产品、计重计费、签收标准。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "service_levels",
+          "type": "array",
+          "items": "string",
+          "enum": [
+            "same_day",
+            "next_day",
+            "standard",
+            "express"
+          ]
+        },
+        {
+          "path": "service_area.cities",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sla.same_day_cutoff_local_time",
+          "type": "string",
+          "typical": "14:00"
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.base_fee",
+          "type": "string"
+        },
+        {
+          "path": "pricing.per_kg",
+          "type": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "同城配送",
+          "文件/小件"
+        ],
+        "service_levels": [
+          "same_day",
+          "next_day"
+        ],
+        "service_area": {
+          "cities": [
+            "上海"
+          ]
+        },
+        "sla": {
+          "same_day_cutoff_local_time": "14:00"
+        },
+        "pricing": {
+          "currency": "CNY",
+          "base_fee": "12.00",
+          "per_kg": "2.00"
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Sun 09:00-20:00",
+          "24_7": false
+        },
+        "boundaries": "不承运违禁品；单票≤20kg。"
+      }
     },
     {
       "industry_id": "consulting_advisory",
@@ -644,12 +1678,99 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "战略/技术/合规顾问；验收看交付物（报告/纪要）与工时或里程碑。"
+      "market_summary_zh": "战略/技术/合规顾问；验收看交付物（报告/纪要）与工时或里程碑。",
+      "objective_standard_zh": "对标顾问服务：主题范围、工时上限、交付物、响应时效、费率。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "engagement_mode",
+          "type": "string",
+          "enum": [
+            "fixed_deliverable",
+            "hourly",
+            "retainer"
+          ]
+        },
+        {
+          "path": "sla.hours_cap_per_engagement",
+          "type": "number",
+          "typical": 10
+        },
+        {
+          "path": "sla.response_max_hours",
+          "type": "integer",
+          "typical": 48
+        },
+        {
+          "path": "deliverable_docs",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.rate_or_fixed",
+          "type": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "service_area.mode",
+          "type": "string",
+          "enum": [
+            "digital",
+            "hybrid"
+          ]
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "产品咨询",
+          "工作坊"
+        ],
+        "engagement_mode": "fixed_deliverable",
+        "sla": {
+          "hours_cap_per_engagement": 10,
+          "response_max_hours": 48
+        },
+        "deliverable_docs": [
+          "recommendations_report",
+          "workshop_notes"
+        ],
+        "pricing": {
+          "currency": "USDC",
+          "rate_or_fixed": "500.00"
+        },
+        "business_hours": {
+          "timezone": "UTC",
+          "weekly": "Mon-Fri 09:00-17:00",
+          "24_7": false
+        },
+        "service_area": {
+          "mode": "digital"
+        },
+        "boundaries": "不含落地开发实现；不构成法律意见。"
+      }
     },
     {
       "industry_id": "content_creation",
@@ -672,12 +1793,97 @@
       "enterprise_fit": true,
       "consumer_fit": true,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "文案、翻译、短视频脚本、AI 生成内容；验收看字数/语言/原创与格式。"
+      "market_summary_zh": "文案、翻译、短视频脚本、AI 生成内容；验收看字数/语言/原创与格式。",
+      "objective_standard_zh": "对标内容交付：类型、语言、篇幅规格、交期、千字/篇单价。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "content_types",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "languages",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sla.length_spec",
+          "type": "string",
+          "typical": "1000-1500 words"
+        },
+        {
+          "path": "sla.delivery_max_hours",
+          "type": "integer",
+          "typical": 48
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.unit",
+          "type": "string",
+          "enum": [
+            "per_piece",
+            "per_thousand_words",
+            "per_minute_video"
+          ]
+        },
+        {
+          "path": "pricing.unit_price",
+          "type": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "翻译",
+          "文案"
+        ],
+        "content_types": [
+          "translation",
+          "article"
+        ],
+        "languages": [
+          "zh-CN",
+          "en"
+        ],
+        "sla": {
+          "length_spec": "1000-1500 words",
+          "delivery_max_hours": 48
+        },
+        "pricing": {
+          "currency": "USDC",
+          "unit": "per_piece",
+          "unit_price": "15.00"
+        },
+        "business_hours": {
+          "timezone": "UTC",
+          "weekly": "Mon-Sun 09:00-21:00",
+          "24_7": false
+        },
+        "boundaries": "不做法律/医疗诊断内容背书。"
+      }
     },
     {
       "industry_id": "manufacturing",
@@ -700,12 +1906,91 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "打样、小批量代工；验收看规格、数量、质检与交期。"
+      "market_summary_zh": "打样、小批量代工；验收看规格、数量、质检与交期。",
+      "objective_standard_zh": "对标生产代工：SKU能力、MOQ、交期、质检、报价有效期、发货地。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sku_capabilities",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sla.moq",
+          "type": "integer",
+          "typical": 500
+        },
+        {
+          "path": "sla.lead_time_max_days",
+          "type": "integer",
+          "typical": 30
+        },
+        {
+          "path": "sla.qa_standard",
+          "type": "string"
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.unit_price_from",
+          "type": "string"
+        },
+        {
+          "path": "service_area.factory_regions",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "注塑外壳代工"
+        ],
+        "sku_capabilities": [
+          "ABS enclosure"
+        ],
+        "sla": {
+          "moq": 500,
+          "lead_time_max_days": 30,
+          "qa_standard": "AQL-1.0"
+        },
+        "pricing": {
+          "currency": "USDC",
+          "unit_price_from": "1.20"
+        },
+        "service_area": {
+          "factory_regions": [
+            "CN-GD"
+          ]
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Sat 08:30-17:30",
+          "24_7": false
+        },
+        "boundaries": "不含模具知识产权转让除非书面约定。"
+      }
     },
     {
       "industry_id": "real_estate_services",
@@ -728,12 +2013,89 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "看房陪同、租赁撮合、物业服务预约；验收看时间地点与完成凭证。"
+      "market_summary_zh": "看房陪同、租赁撮合、物业服务预约；验收看时间地点与完成凭证。",
+      "objective_standard_zh": "对标房产服务：服务种类、城市、预约到场时效、佣金/服务费。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "service_kinds",
+          "type": "array",
+          "items": "string",
+          "enum": [
+            "viewing",
+            "lease_brokerage",
+            "inspection",
+            "property_mgmt_task",
+            "other"
+          ]
+        },
+        {
+          "path": "service_area.cities",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sla.on_site_punctuality_max_late_minutes",
+          "type": "integer",
+          "typical": 15
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.service_fee",
+          "type": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "带看",
+          "租赁撮合协助"
+        ],
+        "service_kinds": [
+          "viewing",
+          "lease_brokerage"
+        ],
+        "service_area": {
+          "cities": [
+            "上海"
+          ]
+        },
+        "sla": {
+          "on_site_punctuality_max_late_minutes": 15
+        },
+        "pricing": {
+          "currency": "CNY",
+          "service_fee": "40.00"
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Sun 10:00-20:00",
+          "24_7": false
+        },
+        "boundaries": "不提供投资回报承诺；不代持定金。"
+      }
     },
     {
       "industry_id": "financial_services",
@@ -756,14 +2118,95 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "必须确认不托管资金",
-        "服务账期类型"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "对账、报表整理、支付指令协助等非托管服务；不含代客持有资金。验收看报表哈希与核对结果。"
+      "market_summary_zh": "对账、报表整理、支付指令协助等非托管服务；不含代客持有资金。验收看报表哈希与核对结果。",
+      "objective_standard_zh": "对标非托管金融运营：服务种类、账期、交付物、不托管资金硬约束、费率。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "service_kinds",
+          "type": "array",
+          "items": "string",
+          "enum": [
+            "reconciliation",
+            "reporting",
+            "invoice_ops",
+            "compliance_pack",
+            "other"
+          ]
+        },
+        {
+          "path": "sla.report_delivery_max_days_after_period",
+          "type": "integer",
+          "typical": 5
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.package_price",
+          "type": "string"
+        },
+        {
+          "path": "compliance.no_fund_custody",
+          "type": "boolean",
+          "const": true
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "service_area.mode",
+          "type": "string",
+          "const": "digital"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "月度对账",
+          "例外清单"
+        ],
+        "service_kinds": [
+          "reconciliation",
+          "reporting"
+        ],
+        "sla": {
+          "report_delivery_max_days_after_period": 5
+        },
+        "pricing": {
+          "currency": "USDC",
+          "package_price": "200.00"
+        },
+        "compliance": {
+          "no_fund_custody": true
+        },
+        "business_hours": {
+          "timezone": "UTC",
+          "weekly": "Mon-Fri 09:00-18:00",
+          "24_7": false
+        },
+        "service_area": {
+          "mode": "digital"
+        },
+        "boundaries": "绝不托管客户资金或私钥；不提供投资建议。"
+      }
     },
     {
       "industry_id": "marketing_advertising",
@@ -786,12 +2229,90 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "投放执行、活动页、增长实验；验收看投放时段、素材与约定 KPI 证据。"
+      "market_summary_zh": "投放执行、活动页、增长实验；验收看投放时段、素材与约定 KPI 证据。",
+      "objective_standard_zh": "对标投放执行：渠道、预算上限、投放窗口、KPI、服务费/媒体费分列。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "channels",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sla.reporting_cadence",
+          "type": "string",
+          "enum": [
+            "daily",
+            "weekly",
+            "campaign_end"
+          ]
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.service_fee",
+          "type": "string"
+        },
+        {
+          "path": "pricing.media_budget_cap_typical",
+          "type": "string"
+        },
+        {
+          "path": "kpi_examples",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "信息流投放执行",
+          "周报"
+        ],
+        "channels": [
+          "meta",
+          "google"
+        ],
+        "sla": {
+          "reporting_cadence": "weekly"
+        },
+        "pricing": {
+          "currency": "USDC",
+          "service_fee": "300.00",
+          "media_budget_cap_typical": "250.00"
+        },
+        "kpi_examples": [
+          "CTR>=1.0%",
+          "CPC可追踪"
+        ],
+        "business_hours": {
+          "timezone": "UTC",
+          "weekly": "Mon-Fri 09:00-18:00",
+          "24_7": false
+        },
+        "boundaries": "不保证投放效果绝对值；媒体费与服务费分列结算。"
+      }
     },
     {
       "industry_id": "education_training",
@@ -814,12 +2335,87 @@
       "enterprise_fit": true,
       "consumer_fit": true,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "课程、辅导、工作坊；验收看课时、出席与材料交付。"
+      "market_summary_zh": "课程、辅导、工作坊；验收看课时、出席与材料交付。",
+      "objective_standard_zh": "对标培训：课程主题、课时、单场时长、人数上限、费用、平台/地点。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "course_topics",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sla.session_duration_minutes",
+          "type": "integer",
+          "typical": 120
+        },
+        {
+          "path": "sla.max_seats",
+          "type": "integer",
+          "typical": 30
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.price_per_session",
+          "type": "string"
+        },
+        {
+          "path": "delivery_mode",
+          "type": "string",
+          "enum": [
+            "online",
+            "onsite",
+            "hybrid"
+          ]
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "工作坊",
+          "录播材料"
+        ],
+        "course_topics": [
+          "Karma ImportantFields for Agents"
+        ],
+        "sla": {
+          "session_duration_minutes": 120,
+          "max_seats": 30
+        },
+        "pricing": {
+          "currency": "USDC",
+          "price_per_session": "120.00"
+        },
+        "delivery_mode": "online",
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Sat-Sun 13:00-18:00",
+          "24_7": false
+        },
+        "boundaries": "不含一对一辅导延时；不颁发学历证书。"
+      }
     },
     {
       "industry_id": "healthcare_medical",
@@ -842,14 +2438,97 @@
       "enterprise_fit": true,
       "consumer_fit": false,
       "onboarding_prompts_zh": [
-        "确认你实际能交付的 scene_id 列表",
-        "填写营业/服务时间（UTC 或本地+时区）",
-        "填写服务对象（C端用户 / B端企业 / 两者）",
-        "用 1–3 句描述能力边界（不做清单也要写清）",
-        "必须确认非诊疗",
-        "服务城市"
+        "填写服务内容 service_content",
+        "填写服务类型/档位（场景枚举）",
+        "填写服务地点/覆盖区域",
+        "填写收费标准（计价模型+金额字符串）",
+        "填写服务/营业时间 business_hours",
+        "填写 SLA 硬指标（时效/配额/MOQ等）",
+        "填写 boundaries 不做清单"
       ],
-      "market_summary_zh": "预约陪诊、健康管理咨询、远程分诊协助等非诊疗承诺服务；敏感数据仅存哈希。不替代执业医疗。"
+      "market_summary_zh": "预约陪诊、健康管理咨询、远程分诊协助等非诊疗承诺服务；敏感数据仅存哈希。不替代执业医疗。",
+      "objective_standard_zh": "对标非诊疗健康服务：服务种类、城市、到场时效、费用；强制非诊疗声明。",
+      "required_service_spec": [
+        {
+          "path": "service_content",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "service_kinds",
+          "type": "array",
+          "items": "string",
+          "enum": [
+            "appointment_assist",
+            "companion_care",
+            "wellness_coaching",
+            "records_organizing",
+            "other"
+          ]
+        },
+        {
+          "path": "service_area.cities",
+          "type": "array",
+          "items": "string"
+        },
+        {
+          "path": "sla.on_site_punctuality_max_late_minutes",
+          "type": "integer",
+          "typical": 15
+        },
+        {
+          "path": "pricing.currency",
+          "type": "string"
+        },
+        {
+          "path": "pricing.service_fee",
+          "type": "string"
+        },
+        {
+          "path": "compliance.non_clinical_only",
+          "type": "boolean",
+          "const": true
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        }
+      ],
+      "example_service_spec": {
+        "service_content": [
+          "门诊陪诊协助",
+          "挂号排队导航"
+        ],
+        "service_kinds": [
+          "companion_care",
+          "appointment_assist"
+        ],
+        "service_area": {
+          "cities": [
+            "上海"
+          ]
+        },
+        "sla": {
+          "on_site_punctuality_max_late_minutes": 15
+        },
+        "pricing": {
+          "currency": "CNY",
+          "service_fee": "60.00"
+        },
+        "compliance": {
+          "non_clinical_only": true
+        },
+        "business_hours": {
+          "timezone": "Asia/Shanghai",
+          "weekly": "Mon-Sun 07:00-18:00",
+          "24_7": false
+        },
+        "boundaries": "不提供诊疗/处方/用药建议；不替代医护人员。"
+      }
     }
   ],
   "connect_materialization": {
@@ -867,6 +2546,7 @@
         "service_targets",
         "business_hours",
         "service_area",
+        "service_specs",
         "description",
         "boundaries",
         "compliance_flags?"
@@ -878,11 +2558,11 @@
       ]
     },
     "rules_zh": [
-      "capabilities = 模板 always_capabilities ∪ 各 industry suggested_capabilities ∪ agent 自报额外能力",
-      "description 用 profile description_template_zh 渲染，禁止空描述接入商家/企业",
-      "user 不要求 industry_ids",
-      "含 financial_services 则 compliance_flags.no_fund_custody 必须为 true",
-      "含 healthcare_medical 则 compliance_flags.non_clinical_only 必须为 true"
+      "商家/企业每个 industry_id 必须提供 service_specs[industry_id]，覆盖 required_service_spec 路径",
+      "金额类字段必须为十进制字符串",
+      "business_hours 必须含 timezone，且 24_7 或 weekly 其一",
+      "financial_services / healthcare_medical 合规 const 字段必须为 true",
+      "profile_card 对外暴露 service_specs，供其他 agent 判断边界"
     ]
   },
   "agent_read_apis": [
