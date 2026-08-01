@@ -301,9 +301,42 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
         "responsibility_boundary",
         "confirmation_boundary",
         "boundary_complete",
+        "responsibility_acknowledged",
     ):
         if needle not in boundary_svc:
             _fail(f"agent_boundary service missing {needle}", failures)
+
+    # P1 onboarding — identity / owner / ack / anti-hijack / p1-status
+    p1 = ROOT / "services/agent_p1_readiness.py"
+    if not p1.is_file():
+        _fail("missing services/agent_p1_readiness.py", failures)
+    else:
+        p1t = p1.read_text(encoding="utf-8")
+        for needle in (
+            "evaluate_p1_readiness",
+            "ensure_owner_identity",
+            "verify_responsibility_attestation",
+            "boundary_content_hash",
+            "anti-forgery",
+        ):
+            if needle not in p1t:
+                _fail(f"agent_p1_readiness missing {needle}", failures)
+
+    agents = _read("api/routes/agents.py")
+    for needle in ("/p1-status", "connect-challenge", "responsibility_ack", "owner_identity_id"):
+        if needle not in agents:
+            _fail(f"agents routes missing P1 piece: {needle}", failures)
+    directory = _read("services/agent_directory.py")
+    if "anti-hijack" not in directory and "bound to another owner" not in directory:
+        _fail("agent_directory missing anti-hijack owner bind guard", failures)
+
+    mig = ROOT / "db/migrations/0031_agent_p1_onboarding.py"
+    if not mig.is_file():
+        _fail("missing migration 0031_agent_p1_onboarding.py", failures)
+
+    directory = _read("services/agent_directory.py")
+    if "owner_identity_id" not in directory or "refresh_p1_ready" not in directory:
+        _fail("agent_directory missing P1 owner bind / refresh_p1_ready", failures)
 
 
 def main() -> int:

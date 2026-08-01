@@ -413,6 +413,16 @@ async def info():
                 "boundaries so counterparties know what can auto-run vs needs owner Yes/No."
             ),
         },
+        "agent_p1_onboarding": {
+            "connect": "/v1/agents/connect-from-template",
+            "challenge": "/v1/agents/connect-challenge",
+            "verify": "/v1/agents/{id}/p1-status",
+            "doc": "docs/AGENT_P1_ONBOARDING_V1.md",
+            "note": (
+                "P1: identity_class + owner bind + service_specs + responsibility ack; "
+                "counterparties verify against existing records via p1-status (anti-forgery)."
+            ),
+        },
         "real_scenario_loop": {
             "script": "scripts/acceptance/real_commerce_scenario_loop.sh",
             "doc": "docs/REAL_SCENARIO_LOOP_V1.md",

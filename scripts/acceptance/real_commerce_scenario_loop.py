@@ -104,7 +104,20 @@ async def _run_scene(scene_id: str, spec: dict) -> dict:
     merchant_id = f"merchant-{scene_id}"
 
     async with Session() as db:
-        # --- 1) Merchant connect-from-template (capability + boundary) ---
+        from services.agent_directory import refresh_p1_ready
+        from services.agent_p1_readiness import (
+            attest_responsibility_ack,
+            boundary_content_hash,
+            canonical_responsibility_ack,
+            ensure_owner_identity,
+        )
+
+        owner_merchant = f"owner-{merchant_id}"
+        owner_buyer = f"owner-{buyer_id}"
+        await ensure_owner_identity(db, owner_merchant, display_hint=spec["merchant_name"])
+        await ensure_owner_identity(db, owner_buyer, display_hint=f"用户-{scene_id}")
+
+        # --- 1) Merchant P1 connect ---
         mat = materialize_onboarding(
             profile_id="merchant",
             answers={
@@ -122,7 +135,7 @@ async def _run_scene(scene_id: str, spec: dict) -> dict:
         connect = mat["agent_connect"]
         card = mat["profile_card"]
         caps = list(connect.get("capabilities") or [])
-        caps.append(f"onboarding:merchant")
+        caps.append("onboarding:merchant")
         caps.append(f"industry:{spec['industry_id']}")
         row = await connect_agent(
             db,
@@ -132,17 +145,47 @@ async def _run_scene(scene_id: str, spec: dict) -> dict:
             capabilities=caps,
             profile_card=card,
             ensure_boundary=True,
+            identity_class="merchant",
+            owner_identity_id=owner_merchant,
+            responsibility_acknowledged=True,
         )
+        bhash = boundary_content_hash(get_agent_boundary(row.agent_id)) or ""
+        ack = attest_responsibility_ack(
+            {
+                **canonical_responsibility_ack(
+                    agent_id=row.agent_id,
+                    owner_identity_id=owner_merchant,
+                    identity_class="merchant",
+                    boundary_hash=bhash,
+                    acknowledged_at="2026-08-01T00:00:00Z",
+                ),
+                "acknowledged": True,
+            }
+        )
+        meta = dict(row.onboarding_meta or {})
+        meta.update(
+            {
+                "responsibility_ack": ack,
+                "boundary_hash": bhash,
+                "used_example_service_specs": True,
+                "owner_identity_id": owner_merchant,
+            }
+        )
+        row.onboarding_meta = meta
+        row.boundary_hash = bhash
+        await db.flush()
+        p1 = await refresh_p1_ready(db, row.agent_id)
         boundary = get_agent_boundary(row.agent_id)
         assert boundary and boundary.get("boundary_complete") is True, boundary
+        assert p1.get("p1_ready") is True, p1
 
-        # --- 2) Buyer user agent ---
+        # --- 2) Buyer user agent (P1) ---
         buyer_mat = materialize_onboarding(
             profile_id="user",
             answers={"display_name": f"用户-{scene_id}"},
             agent_id=buyer_id,
         )
-        await connect_agent(
+        buyer_row = await connect_agent(
             db,
             agent_id=buyer_id,
             name=buyer_mat["agent_connect"]["name"],
@@ -150,7 +193,35 @@ async def _run_scene(scene_id: str, spec: dict) -> dict:
             capabilities=list(buyer_mat["agent_connect"].get("capabilities") or []),
             profile_card=buyer_mat["profile_card"],
             ensure_boundary=True,
+            identity_class="user",
+            owner_identity_id=owner_buyer,
+            responsibility_acknowledged=True,
         )
+        bb = boundary_content_hash(get_agent_boundary(buyer_row.agent_id)) or ""
+        back = attest_responsibility_ack(
+            {
+                **canonical_responsibility_ack(
+                    agent_id=buyer_row.agent_id,
+                    owner_identity_id=owner_buyer,
+                    identity_class="user",
+                    boundary_hash=bb,
+                    acknowledged_at="2026-08-01T00:00:00Z",
+                ),
+                "acknowledged": True,
+            }
+        )
+        bmeta = dict(buyer_row.onboarding_meta or {})
+        bmeta.update(
+            {
+                "responsibility_ack": back,
+                "boundary_hash": bb,
+                "owner_identity_id": owner_buyer,
+            }
+        )
+        buyer_row.onboarding_meta = bmeta
+        buyer_row.boundary_hash = bb
+        await db.flush()
+        await refresh_p1_ready(db, buyer_row.agent_id)
 
         # --- 3) Fulfill → awaiting owner confirmation ---
         paused = await fulfill_intent(
@@ -199,6 +270,7 @@ async def _run_scene(scene_id: str, spec: dict) -> dict:
             "capture_id": settled.get("important_fields_capture_id"),
             "fields_hash": settled.get("important_fields_hash"),
             "boundary_complete": boundary.get("boundary_complete"),
+            "p1_ready": p1.get("p1_ready"),
             "must_confirm_steps": (boundary.get("confirmation_boundary") or {}).get("must_confirm_steps"),
             "auto_ok_steps": (boundary.get("confirmation_boundary") or {}).get("auto_ok_steps"),
         }

@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.settings import settings
 from db.models.orm import AgentModel, IdentityProfileModel
 from db.session import get_db
 from services.agent_directory import agent_row_to_card, ensure_directory_merchants
@@ -18,6 +19,11 @@ from services.intent_discovery import (
     parse_intent_for_discovery,
     rank_candidates,
 )
+
+
+def _demo_merchants_default() -> bool:
+    env = (settings.app_env or "").lower()
+    return env in ("development", "dev", "local", "test")
 
 router = APIRouter()
 
@@ -63,7 +69,8 @@ class DiscoverIntentRequest(BaseModel):
     registry_url: str | None = None
     include_local_agents: bool = True
     include_did_projections: bool = True
-    include_demo_merchants: bool = True
+    include_demo_merchants: bool | None = None  # default: only in dev/test
+    require_p1_ready: bool = False  # when true, drop non-P1-ready merchants
     apply_trust_ranking: bool = True
 
 
@@ -116,8 +123,11 @@ async def discover_for_intent(
         raise HTTPException(400, str(exc)) from exc
 
     cards: list[dict[str, Any]] = []
+    include_demo = (
+        _demo_merchants_default() if body.include_demo_merchants is None else body.include_demo_merchants
+    )
 
-    if body.include_demo_merchants:
+    if include_demo:
         await ensure_directory_merchants(db, _DEMO_MERCHANTS)
 
     if body.include_local_agents:
@@ -125,7 +135,8 @@ async def discover_for_intent(
         for row in result.scalars().all():
             cards.append(agent_row_to_card(row))
 
-    if body.include_did_projections:
+    if body.include_did_projections and not body.require_p1_ready:
+        # DID-only projections lack service_specs — exclude when requiring P1
         result = await db.execute(
             select(IdentityProfileModel).where(
                 IdentityProfileModel.status == "active",
@@ -146,6 +157,12 @@ async def discover_for_intent(
         aid = str(c.get("agent_id") or "")
         if not aid or aid in seen:
             continue
+        if body.require_p1_ready and not c.get("p1_ready"):
+            # Buyers (identity_class=user) may still appear; filter seller-like
+            ic = c.get("identity_class")
+            if ic in {None, "merchant", "enterprise"} or "karma_settle" in (c.get("capabilities") or []):
+                if ic != "user":
+                    continue
         seen.add(aid)
         unique.append(c)
 
@@ -162,7 +179,17 @@ async def discover_for_intent(
     )
     plan["ranking"] = {
         "mode": "capability+trust" if body.apply_trust_ranking else "capability",
-        "signals": ["skill_match", "reputation_score", "success_rate", "settled_volume", "dispute_rate"],
+        "signals": [
+            "skill_match",
+            "reputation_score",
+            "success_rate",
+            "settled_volume",
+            "dispute_rate",
+            "p1_ready",
+            "boundary_complete",
+        ],
+        "include_demo_merchants": include_demo,
+        "require_p1_ready": body.require_p1_ready,
     }
     await db.commit()
     return plan
