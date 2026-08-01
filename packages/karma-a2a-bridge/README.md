@@ -22,8 +22,13 @@ User → Assistant Agent
    A2A task (EIP-712) → handoff/voucher → Karma evidence → settle
 ```
 
-Core API mirror: `POST /v1/discovery/intent` and `POST /v1/trade/orders/launch-from-intent`.
-MCP: `karma_discover_for_intent`.
+Core API:
+- `POST /v1/discovery/intent` — discover only
+- `POST /v1/orchestration/fulfill-intent` — **full spine** (discover→negotiate→voucher→settle)
+- `POST /v1/trade/orders/launch-from-intent` — trade preauth path (needs Runtime Key)
+
+Bridge: `POST /a2a/fulfill` proxies to Karma orchestration.
+MCP: `karma_discover_for_intent`, `karma_fulfill_intent`.
 
 ## Security & identity (2026-08)
 
