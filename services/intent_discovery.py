@@ -3,12 +3,17 @@
 User NL → structured discovery query → rank AgentCards / Karma agents that can fulfill
 the job. Settlement/verify/delivery stay on existing Karma rails; this module owns
 the *find the right counterparty* step.
+
+P3 priority (scene coverage / P1 / boundary / verifiable trust) is applied after
+capability match via ``services.discovery_priority`` / ``apply_trust_rerank``.
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from typing import Any
+
+from services.human_confirmation_policy import task_type_to_scene_id
 
 
 # skill_id / capability tags used on AgentCards and /v1/agents.capabilities
@@ -41,6 +46,7 @@ class IntentDiscoveryQuery:
     capabilities: list[str]
     skills: list[str]
     task_type: str
+    scene_id: str = "api_tool_call"
     amount: float | None = None
     preferred_tokens: list[str] = field(default_factory=lambda: ["USDC"])
     require_karma_settle: bool = True
@@ -52,6 +58,7 @@ class IntentDiscoveryQuery:
             "capabilities": self.capabilities,
             "skills": self.skills,
             "task_type": self.task_type,
+            "scene_id": self.scene_id,
             "amount": self.amount,
             "preferred_tokens": self.preferred_tokens,
             "require_karma_settle": self.require_karma_settle,
@@ -95,11 +102,13 @@ def parse_intent_for_discovery(
         m = re.search(r"(\d+(?:\.\d+)?)\s*(?:USDC|u|元|美元)?", text, re.I)
         parsed_amount = float(m.group(1)) if m else None
 
+    scene_id = task_type_to_scene_id(task_type)
     return IntentDiscoveryQuery(
         requirement_text=text,
         capabilities=caps,
         skills=skills,
         task_type=task_type,
+        scene_id=scene_id,
         amount=parsed_amount,
     )
 
@@ -167,7 +176,7 @@ def rank_candidates(
         score, reasons = score_agent_card(card, query)
         if score <= 0:
             continue
-        ranked.append({
+        item = {
             "agent_id": card.get("agent_id") or card.get("identity_id"),
             "name": card.get("name"),
             "description": card.get("description", ""),
@@ -176,9 +185,20 @@ def rank_candidates(
             "skills": card.get("skills") or [],
             "karma": card.get("karma") or {},
             "score": round(score, 3),
+            "capability_score": round(score, 3),
             "match_reasons": reasons,
             "source": card.get("_source", "registry"),
-        })
+            # Preserve P1/P2 signals for priority ranking (must not drop)
+            "p1_ready": card.get("p1_ready"),
+            "boundary_complete": card.get("boundary_complete"),
+            "boundary": card.get("boundary"),
+            "boundary_hash": card.get("boundary_hash"),
+            "scene_ids": card.get("scene_ids")
+            or (card.get("boundary") or {}).get("scene_ids"),
+            "identity_class": card.get("identity_class"),
+            "owner_identity_id": card.get("owner_identity_id"),
+        }
+        ranked.append(item)
     ranked.sort(key=lambda x: (-x["score"], x.get("agent_id") or ""))
     return ranked[:limit]
 
@@ -213,11 +233,29 @@ def build_discovery_plan(
             "a2a_skill": (query.skills[0] if query.skills else None),
         }
 
+    why = None
+    if recommended:
+        pri = recommended.get("priority") or {}
+        why = {
+            "scene_id": recommended.get("scene_id") or query.scene_id,
+            "p1_ready": recommended.get("p1_ready"),
+            "boundary_complete": recommended.get("boundary_complete"),
+            "scene_covered": recommended.get("scene_covered"),
+            "trust_tier": recommended.get("trust_tier") or pri.get("trust_tier"),
+            "score": recommended.get("score"),
+            "trust_evidence": recommended.get("trust_evidence"),
+            "note_zh": (
+                "推荐依据：先能覆盖本场景并界定边界，再看可验证履约记录与系统评分；"
+                "安全与问题匹配优先于单纯热度。"
+            ),
+        }
+
     return {
         "intent": query.to_dict(),
         "candidates": candidates,
         "recommended": recommended,
+        "recommendation_why": why,
         "next_steps": next_steps,
         "trade_launch_hint": launch_hint,
-        "flow": "discover → negotiate → voucher/intent → evidence → settle",
+        "flow": "discover → priority match → owner confirm → IF lock → voucher → evidence → settle",
     }

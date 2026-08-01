@@ -1,0 +1,277 @@
+{
+  "schema_version": "karma-discovery-priority-v1",
+  "title": "Karma Discovery Priority Standard",
+  "title_zh": "Karma 发现匹配优先级标准",
+  "description_zh": "帮用户找到真正能解决问题的商家，帮企业找到靠谱合作方。排序以安全可验证记录与边界覆盖为基础，不同服务采用不同门槛。好的履约质量积累系统评分与信誉，才能长久。",
+  "design_goals_zh": [
+    "安全优先：P1 就绪与边界完整优先于纯能力字符串匹配",
+    "能解决问题：scene 覆盖 / service_specs 声明优先于泛化商家",
+    "可验证信誉：结算笔数、成功率、争议率、系统 reputation.score 作为排序基础",
+    "分场景门槛：外卖可适度冷启动；采购/金融/医疗提高 P1 与履约记录要求",
+    "优先级顺序固定且可解释，对端可复验"
+  ],
+  "priority_order": [
+    {
+      "tier": 1,
+      "key": "eligible",
+      "title_zh": "资格门闩",
+      "description_zh": "未声明能力匹配或场景明确拒绝的候选直接剔除（或排到最后）"
+    },
+    {
+      "tier": 2,
+      "key": "p1_ready",
+      "title_zh": "身份与责任可核验",
+      "description_zh": "P1 就绪（身份类别、主人绑定、责任签认、边界哈希）优先"
+    },
+    {
+      "tier": 3,
+      "key": "boundary_complete",
+      "title_zh": "能力/责任/确认边界完整",
+      "description_zh": "完整边界代表对端可读、履约可预期"
+    },
+    {
+      "tier": 4,
+      "key": "scene_covered",
+      "title_zh": "本服务场景覆盖",
+      "description_zh": "scene_ids / service_specs 覆盖本次意图场景者优先"
+    },
+    {
+      "tier": 5,
+      "key": "trust_record",
+      "title_zh": "可验证履约记录档",
+      "description_zh": "按场景门槛划分 trust_tier（proven / emerging / cold），proven 优先"
+    },
+    {
+      "tier": 6,
+      "key": "composite_score",
+      "title_zh": "能力匹配分 + 系统信任加分",
+      "description_zh": "capability_score + trust_bonus（含场景权重）；同分再比 settled_volume / reputation_score"
+    }
+  ],
+  "trust_tiers": {
+    "proven": {
+      "rank": 3,
+      "title_zh": "有可验证履约记录且达标",
+      "description_zh": "settled_count 与 success_rate 达到场景门槛"
+    },
+    "emerging": {
+      "rank": 2,
+      "title_zh": "有少量记录但未达 proven",
+      "description_zh": "有结算或任务记录，尚未满足场景最低笔数/成功率"
+    },
+    "cold": {
+      "rank": 1,
+      "title_zh": "冷启动",
+      "description_zh": "尚无可验证结算记录；仅在场景允许 cold_start 时靠前"
+    }
+  },
+  "global_defaults": {
+    "require_p1_ready": false,
+    "require_boundary_complete": false,
+    "require_scene_coverage": false,
+    "allow_cold_start": true,
+    "min_settled_count_for_proven": 3,
+    "min_success_rate_for_proven": 0.8,
+    "max_dispute_rate": 0.25,
+    "trust_weight": 1.0,
+    "scene_coverage_bonus": 3.0,
+    "boundary_incomplete_penalty": 1.5,
+    "p1_ready_bonus": 2.0,
+    "p1_not_ready_penalty": 2.0,
+    "preferred_identity_classes": ["merchant", "enterprise"]
+  },
+  "scenes": {
+    "food_delivery": {
+      "title_zh": "外卖",
+      "reality_note_zh": "需能出餐/配送；允许优质冷启动商家，但完整边界与好评优先。",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 2,
+      "min_success_rate_for_proven": 0.75,
+      "trust_weight": 1.0,
+      "require_scene_coverage": false,
+      "scene_coverage_bonus": 3.5
+    },
+    "ride_hailing": {
+      "title_zh": "叫车",
+      "reality_note_zh": "需运力覆盖；接单记录与取消/争议率关键。",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.8,
+      "trust_weight": 1.05,
+      "scene_coverage_bonus": 3.5
+    },
+    "hotel_booking": {
+      "title_zh": "酒店",
+      "reality_note_zh": "金额与日期敏感；优先完整边界与可核验商家。",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.85,
+      "trust_weight": 1.1,
+      "prefer_p1_ready": true,
+      "scene_coverage_bonus": 4.0
+    },
+    "flight_booking": {
+      "title_zh": "机票",
+      "reality_note_zh": "出票不可逆；优先 P1 与场景覆盖。",
+      "allow_cold_start": false,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.9,
+      "trust_weight": 1.15,
+      "prefer_p1_ready": true,
+      "require_scene_coverage": true,
+      "scene_coverage_bonus": 4.5
+    },
+    "b2b_procurement": {
+      "title_zh": "企业采购",
+      "reality_note_zh": "企业找靠谱供应方：P1、完整边界、履约记录门槛更高。",
+      "allow_cold_start": false,
+      "min_settled_count_for_proven": 5,
+      "min_success_rate_for_proven": 0.9,
+      "max_dispute_rate": 0.15,
+      "trust_weight": 1.3,
+      "require_p1_ready": true,
+      "require_boundary_complete": true,
+      "require_scene_coverage": true,
+      "prefer_identity_classes": ["merchant", "enterprise"],
+      "scene_coverage_bonus": 5.0
+    },
+    "data_api_billing": {
+      "title_zh": "数据/API 计费",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 5,
+      "min_success_rate_for_proven": 0.9,
+      "trust_weight": 1.1,
+      "scene_coverage_bonus": 3.0
+    },
+    "api_tool_call": {
+      "title_zh": "单次工具调用",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 1,
+      "min_success_rate_for_proven": 0.7,
+      "trust_weight": 0.9,
+      "scene_coverage_bonus": 2.0
+    },
+    "logistics_delivery": {
+      "title_zh": "物流",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 5,
+      "min_success_rate_for_proven": 0.85,
+      "trust_weight": 1.15,
+      "scene_coverage_bonus": 4.0
+    },
+    "software_development": {
+      "title_zh": "软件开发",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.85,
+      "trust_weight": 1.2,
+      "prefer_p1_ready": true,
+      "scene_coverage_bonus": 4.0
+    },
+    "design_creative": {
+      "title_zh": "设计创意",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.8,
+      "trust_weight": 1.05,
+      "scene_coverage_bonus": 3.5
+    },
+    "consulting_advisory": {
+      "title_zh": "咨询",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.85,
+      "trust_weight": 1.15,
+      "prefer_p1_ready": true,
+      "scene_coverage_bonus": 4.0
+    },
+    "content_creation": {
+      "title_zh": "内容创作",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.8,
+      "trust_weight": 1.0,
+      "scene_coverage_bonus": 3.0
+    },
+    "manufacturing": {
+      "title_zh": "制造代工",
+      "allow_cold_start": false,
+      "min_settled_count_for_proven": 5,
+      "min_success_rate_for_proven": 0.9,
+      "max_dispute_rate": 0.12,
+      "trust_weight": 1.35,
+      "require_p1_ready": true,
+      "require_boundary_complete": true,
+      "require_scene_coverage": true,
+      "prefer_identity_classes": ["merchant", "enterprise"],
+      "scene_coverage_bonus": 5.0
+    },
+    "real_estate_services": {
+      "title_zh": "房产服务",
+      "allow_cold_start": false,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.85,
+      "trust_weight": 1.2,
+      "prefer_p1_ready": true,
+      "require_scene_coverage": true,
+      "scene_coverage_bonus": 4.5
+    },
+    "financial_services": {
+      "title_zh": "金融服务（非托管）",
+      "high_risk": true,
+      "reality_note_zh": "高风险：必须 P1 + 完整边界 + 场景覆盖；冷启动不得优先推荐。",
+      "allow_cold_start": false,
+      "min_settled_count_for_proven": 5,
+      "min_success_rate_for_proven": 0.95,
+      "max_dispute_rate": 0.08,
+      "trust_weight": 1.5,
+      "require_p1_ready": true,
+      "require_boundary_complete": true,
+      "require_scene_coverage": true,
+      "prefer_identity_classes": ["enterprise", "merchant"],
+      "scene_coverage_bonus": 6.0
+    },
+    "marketing_advertising": {
+      "title_zh": "营销广告",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.8,
+      "trust_weight": 1.05,
+      "scene_coverage_bonus": 3.5
+    },
+    "education_training": {
+      "title_zh": "教育培训",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 3,
+      "min_success_rate_for_proven": 0.85,
+      "trust_weight": 1.1,
+      "prefer_p1_ready": true,
+      "scene_coverage_bonus": 3.5
+    },
+    "healthcare_medical": {
+      "title_zh": "医疗健康（非诊疗）",
+      "high_risk": true,
+      "reality_note_zh": "高风险非诊疗服务：必须 P1 + 边界 + 场景覆盖；禁止仅靠能力字符串靠前。",
+      "allow_cold_start": false,
+      "min_settled_count_for_proven": 5,
+      "min_success_rate_for_proven": 0.95,
+      "max_dispute_rate": 0.08,
+      "trust_weight": 1.5,
+      "require_p1_ready": true,
+      "require_boundary_complete": true,
+      "require_scene_coverage": true,
+      "prefer_identity_classes": ["enterprise", "merchant"],
+      "scene_coverage_bonus": 6.0
+    }
+  },
+  "api": [
+    "GET /v1/standards/discovery-priority",
+    "GET /v1/standards/discovery-priority/scenes/{scene_id}",
+    "POST /v1/discovery/intent（ranking.mode=priority+capability+trust）"
+  ],
+  "related_standards": [
+    "packages/evidence-schema/agent-boundary.v1.json",
+    "packages/evidence-schema/human-confirmation-policy.v1.json",
+    "packages/evidence-schema/agent-onboarding-template.v1.json"
+  ]
+}

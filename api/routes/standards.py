@@ -26,6 +26,13 @@ from services.agent_onboarding_template import (
     suggest_industries_for_text,
 )
 from services.agent_boundary import load_boundary_catalog
+from services.discovery_priority import (
+    PRIORITY_SCHEMA,
+    DiscoveryPriorityError,
+    get_scene_priority_policy,
+    list_priority_scenes,
+    load_priority_catalog,
+)
 from services.human_confirmation_policy import (
     ConfirmationPolicyError,
     get_scene_policy,
@@ -249,6 +256,50 @@ async def get_confirmation_policy_scene(scene_id: str) -> dict[str, Any]:
             "must_confirm_steps": [x["step"] for x in plan_seller["must_confirm"]],
             "auto_ok_steps": [x["step"] for x in plan_seller["auto_ok"]],
         },
+    }
+
+
+@router.get("/discovery-priority")
+async def get_discovery_priority_standard() -> dict[str, Any]:
+    """P3: priority order to find merchants/partners who can solve the job reliably."""
+    try:
+        cat = load_priority_catalog()
+    except (FileNotFoundError, DiscoveryPriorityError) as exc:
+        raise HTTPException(500, str(exc)) from exc
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "design_goals_zh": cat.get("design_goals_zh"),
+        "priority_order": cat.get("priority_order"),
+        "trust_tiers": cat.get("trust_tiers"),
+        "global_defaults": cat.get("global_defaults"),
+        "scenes": list_priority_scenes(),
+        "api": cat.get("api"),
+        "related_standards": cat.get("related_standards"),
+        "catalog_path": "packages/evidence-schema/discovery-priority.v1.json",
+        "doc": "docs/DISCOVERY_PRIORITY_V1.md",
+    }
+
+
+@router.get("/discovery-priority/scenes/{scene_id}")
+async def get_discovery_priority_scene(scene_id: str) -> dict[str, Any]:
+    policy = get_scene_priority_policy(scene_id)
+    return {
+        "schema_version": PRIORITY_SCHEMA,
+        "scene_id": scene_id,
+        "policy": policy,
+        "priority_order": [
+            "eligible",
+            "p1_ready",
+            "boundary_complete",
+            "scene_covered",
+            "trust_tier",
+            "composite_score",
+        ],
+        "note_zh": (
+            "该场景的发现门槛与权重；高风险场景默认强制 P1/边界/场景覆盖。"
+        ),
     }
 
 

@@ -399,6 +399,57 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
         if '"high_risk": true' not in ct and '"high_risk":true' not in ct:
             _fail("confirmation policy missing high_risk scene markers", failures)
 
+    # P3 discovery priority — scene-aware selection order on verifiable trust
+    p3cat = ROOT / "packages/evidence-schema/discovery-priority.v1.json"
+    if not p3cat.is_file():
+        _fail("missing discovery-priority.v1.json", failures)
+    else:
+        p3t = p3cat.read_text(encoding="utf-8")
+        if "karma-discovery-priority-v1" not in p3t:
+            _fail("discovery-priority catalog missing schema_version marker", failures)
+        for needle in (
+            "priority_order",
+            "trust_tiers",
+            "p1_ready",
+            "scene_covered",
+            "financial_services",
+            "b2b_procurement",
+        ):
+            if needle not in p3t:
+                _fail(f"discovery-priority catalog missing {needle}", failures)
+
+    p3svc = ROOT / "services/discovery_priority.py"
+    if not p3svc.is_file():
+        _fail("missing services/discovery_priority.py", failures)
+    else:
+        p3st = p3svc.read_text(encoding="utf-8")
+        for needle in (
+            "apply_priority_ranking",
+            "priority_sort_key",
+            "trust_evidence_digest",
+            "classify_trust_tier",
+            "get_scene_priority_policy",
+        ):
+            if needle not in p3st:
+                _fail(f"discovery_priority missing {needle}", failures)
+
+    standards = _read("api/routes/standards.py")
+    if "/discovery-priority" not in standards:
+        _fail("standards routes missing discovery-priority API", failures)
+
+    discovery = _read("api/routes/discovery.py")
+    for needle in ("enforce_scene_policy", "ranking_metadata", "scene_id"):
+        if needle not in discovery:
+            _fail(f"discovery route missing P3 piece: {needle}", failures)
+
+    trust = _read("services/agent_trust.py")
+    if "apply_priority_ranking" not in trust and "discovery_priority" not in trust:
+        _fail("agent_trust.apply_trust_rerank not wired to discovery_priority", failures)
+
+    intent = _read("services/intent_discovery.py")
+    if "scene_id" not in intent or "p1_ready" not in intent:
+        _fail("intent_discovery missing scene_id / p1_ready preservation for P3", failures)
+
 
 def main() -> int:
     failures: list[str] = []

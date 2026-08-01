@@ -334,14 +334,25 @@ async def fulfill_intent(
 
     cards = await _collect_candidate_cards(db)
     ranked = rank_candidates(cards, query, limit=30)
-    ranked = await apply_trust_rerank(db, ranked, limit=10)
+    ranked = await apply_trust_rerank(
+        db,
+        ranked,
+        limit=10,
+        scene_id=query.scene_id,
+        task_type=query.task_type,
+        # Soft prefer at fulfill discover; hard P2 seller verify still runs below
+        drop_ineligible=False,
+        enforce_scene_policy=False,
+    )
     plan = build_discovery_plan(query=query, candidates=ranked, buyer_identity_id=buyer_identity_id)
     timeline.append({
         "stage": "discover",
         "ok": True,
         "candidates": len(ranked),
-        "ranking": "capability+trust",
+        "ranking": "priority+capability+trust",
+        "scene_id": query.scene_id,
         "top_trust": (ranked[0].get("trust") if ranked else None),
+        "top_priority": (ranked[0].get("priority") if ranked else None),
     })
 
     seller_id = seller_identity_id or (plan["recommended"]["agent_id"] if plan["recommended"] else None)
