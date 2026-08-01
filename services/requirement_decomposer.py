@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
+
+from services.intent_discovery import parse_intent_for_discovery
 
 
 def decompose_buyer_requirement(
@@ -23,32 +24,25 @@ def decompose_buyer_requirement(
     """
     Produce a task spec from natural language + optional structured overrides.
 
-    Future: plug LLM agent here; output shape remains stable for the pipeline.
+    Includes discovery tags (capabilities/skills) so assistants can find merchants
+    when seller is not pre-selected. Future: plug LLM agent here; output shape stable.
     """
     text = (requirement_text or "").strip()
     if not text:
         raise ValueError("requirement_text is required")
 
-    parsed_amount = amount
+    discovery = parse_intent_for_discovery(text, amount=amount)
+
+    parsed_amount = amount if amount is not None else discovery.amount
     if parsed_amount is None:
-        m = re.search(r"(\d+(?:\.\d+)?)\s*(?:USDC|u|元|美元)?", text, re.I)
-        parsed_amount = float(m.group(1)) if m else 10.0
+        parsed_amount = 10.0
 
     parsed_precision = task_precision
     if parsed_precision is None:
         m = re.search(r"(?:精度|precision)[^\d]*(\d+(?:\.\d+)?)", text, re.I)
         parsed_precision = float(m.group(1)) if m else 1.0
 
-    parsed_type = (task_type or "").strip()
-    if not parsed_type:
-        if re.search(r"caption|字幕|视频", text, re.I):
-            parsed_type = "api.caption"
-        elif re.search(r"translat|翻译", text, re.I):
-            parsed_type = "api.translate"
-        elif re.search(r"label|标注", text, re.I):
-            parsed_type = "api.labeling"
-        else:
-            parsed_type = "api.generic"
+    parsed_type = (task_type or "").strip() or discovery.task_type
 
     steps = _extract_steps(text)
     title = text.split("\n")[0][:120] if text else "Karma trade order"
@@ -76,8 +70,11 @@ def decompose_buyer_requirement(
             },
             "required": ["deliverable_hash"],
         },
-        "decomposition_version": "rule_v1",
+        "decomposition_version": "rule_v2_discovery",
         "requirement_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        # Discovery surface for assistant agents
+        "discovery_capabilities": discovery.capabilities,
+        "discovery_skills": discovery.skills,
     }
     return spec
 

@@ -10,6 +10,21 @@ pip install -e ".[dev]"
 uvicorn main:app --reload --port 8080
 ```
 
+## Assistant flow (intent → discover → deliver)
+
+```
+User → Assistant Agent
+         │  POST /a2a/discover  { requirement_text }
+         ▼
+   Ranked merchants (local catalog + A2A registry)
+         │  negotiate skill on recommended.endpoint
+         ▼
+   A2A task (EIP-712) → handoff/voucher → Karma evidence → settle
+```
+
+Core API mirror: `POST /v1/discovery/intent` and `POST /v1/trade/orders/launch-from-intent`.
+MCP: `karma_discover_for_intent`.
+
 ## Security & identity (2026-08)
 
 1. **EIP-712 on all write ops** — `POST /a2a/task`, confirm/submit/cancel/handoff require

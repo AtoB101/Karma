@@ -24,3 +24,18 @@
 
 - SQLite append-only `task_events` + `task_snapshots`.
 - Rebuild state from events; expose `GET /a2a/task/{id}/events`.
+
+---
+
+## Product spine: intent → discover → interact → verify → deliver
+
+Target user journey: assistant understands NL intent, discovers a Karma merchant/agent,
+negotiates, then relies on voucher/evidence/settle for delivery guarantees.
+
+| Step | Surface |
+|------|---------|
+| Intent parse | `services/intent_discovery.py`, A2A `intent_discovery.py` |
+| Discover | `POST /v1/discovery/intent`, `POST /a2a/discover`, MCP `karma_discover_for_intent` |
+| Launch without known seller | `POST /v1/trade/orders/launch-from-intent` |
+| Negotiate | A2A task lifecycle + EIP-712 |
+| Deliver rails | voucher handoff → evidence → bilateral settle / attestation |

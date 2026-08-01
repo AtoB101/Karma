@@ -34,6 +34,86 @@ class LaunchTradeOrderRequest(TradeLaunchBodyBase):
     buyer_signature: str = Field(default="0xtrade_pipeline_buyer_sig")
 
 
+class LaunchFromIntentRequest(BaseModel):
+    """Discover a seller from requirement text, then launch the trade pipeline."""
+    buyer_identity_id: str
+    requirement_text: str = Field(min_length=1, max_length=32000)
+    seller_identity_id: str | None = None  # optional override; else auto-discover
+    amount: float | None = Field(default=None, gt=0)
+    task_precision: float | None = Field(default=None, ge=0)
+    task_type: str | None = None
+    chain_anchor_hash: str | None = None
+    buyer_signature: str = Field(default="0xtrade_pipeline_buyer_sig")
+    discovery_limit: int = Field(default=5, ge=1, le=20)
+
+
+@router.post("/orders/launch-from-intent", status_code=201)
+async def launch_trade_order_from_intent(
+    body: LaunchFromIntentRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    """
+    Assistant-friendly path: user states a goal → discover Karma merchant/agent → launch trade.
+
+    If ``seller_identity_id`` is omitted, ranks local agents / DID projections / A2A registry
+    via the same matcher as ``POST /v1/discovery/intent``.
+    """
+    from api.routes.discovery import DiscoverIntentRequest, discover_for_intent
+
+    validate_public_url_segment("buyer_identity_id", body.buyer_identity_id)
+    require_ledger_identity(request, body.buyer_identity_id)
+    normalized_key = require_idempotency_key_if_configured(idempotency_key)
+
+    seller_id = body.seller_identity_id
+    discovery_plan = None
+    if not seller_id:
+        discovery_plan = await discover_for_intent(
+            DiscoverIntentRequest(
+                requirement_text=body.requirement_text,
+                buyer_identity_id=body.buyer_identity_id,
+                amount=body.amount,
+                limit=body.discovery_limit,
+            ),
+            db,
+        )
+        recommended = discovery_plan.get("recommended")
+        if not recommended:
+            raise HTTPException(
+                404,
+                "no matching agent/merchant found for this intent; register merchants with "
+                "matching capabilities or pass seller_identity_id",
+            )
+        seller_id = recommended["agent_id"]
+
+    validate_public_url_segment("seller_identity_id", seller_id)
+    result = await launch_preauth_trade_order(
+        db,
+        buyer_identity_id=body.buyer_identity_id,
+        seller_identity_id=seller_id,
+        requirement_text=body.requirement_text,
+        buyer_signature=body.buyer_signature,
+        amount=body.amount,
+        task_precision=body.task_precision,
+        task_type=body.task_type,
+        chain_anchor_hash=body.chain_anchor_hash,
+        launch_idempotency_key=normalized_key,
+    )
+    await db.commit()
+    result = dict(result)
+    result["discovered_seller_identity_id"] = seller_id
+    if discovery_plan is not None:
+        result["discovery"] = {
+            "intent": discovery_plan.get("intent"),
+            "recommended": discovery_plan.get("recommended"),
+            "candidates": discovery_plan.get("candidates"),
+        }
+    if result.get("idempotent_replay"):
+        return result
+    return result
+
+
 @router.post("/orders/launch", status_code=201)
 async def launch_trade_order(
     body: LaunchTradeOrderRequest,

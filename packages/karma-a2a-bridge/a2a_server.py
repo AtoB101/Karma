@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 from models import (
     AgentCard,
     A2ATaskRequest,
@@ -21,7 +22,15 @@ from eip712_auth import (
     require_eip712,
     verify_a2a_task_op,
 )
+from intent_discovery import discover_for_intent
 import config
+
+
+class DiscoverIntentBody(BaseModel):
+    requirement_text: str = Field(min_length=1)
+    buyer_identity_id: str | None = None
+    amount: float | None = None
+    limit: int = 10
 
 router = APIRouter()
 
@@ -80,6 +89,23 @@ def _verify_write_auth(
 @router.get("/.well-known/agent-card.json")
 async def serve_agent_card():
     return get_agent_card().model_dump()
+
+
+@router.post("/a2a/discover")
+async def discover_intent(body: DiscoverIntentBody):
+    """
+    Assistant entrypoint on the A2A bridge:
+    user requirement → find merchants/agents that can fulfill it under Karma.
+    """
+    try:
+        return discover_for_intent(
+            body.requirement_text,
+            amount=body.amount,
+            buyer_identity_id=body.buyer_identity_id,
+            limit=body.limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/a2a/task")

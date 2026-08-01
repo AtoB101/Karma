@@ -13,6 +13,7 @@ Run:
     karma-mcp
 
 Tools exposed:
+    karma_discover_for_intent  user goal → find Karma merchants/agents
     karma_lock          lock USDC → mint Bill Token
     karma_bind          bilateral bind two Bill Tokens → Binding
     karma_settle        settle Binding → burn bills, release USDC
@@ -44,12 +45,14 @@ from karma_mcp.chain import (
 mcp = FastMCP(
     "karma-mcp",
     instructions=(
-        "KarmaBilateral MCP server — bilateral lock, bind, and settle for AI agent payments.\n"
+        "Karma MCP server — discover merchants, then lock/bind/settle agent payments.\n"
         "\n"
-        "Protocol:\n"
-        "  1. Both parties call karma_lock to mint Bill Tokens (locks USDC as collateral).\n"
-        "  2. Buyer calls karma_bind with both bill IDs to enter bilateral responsibility.\n"
-        "  3. After task completes, karma_settle burns both bills and releases USDC atomically.\n"
+        "Assistant flow:\n"
+        "  0. karma_discover_for_intent — user states a goal → ranked agents/merchants.\n"
+        "  1. Negotiate via A2A / trade API with the recommended seller.\n"
+        "  2. Both parties call karma_lock to mint Bill Tokens (locks USDC as collateral).\n"
+        "  3. Buyer calls karma_bind with both bill IDs to enter bilateral responsibility.\n"
+        "  4. After task completes, karma_settle burns both bills and releases USDC atomically.\n"
         "\n"
         "Invariant: totalBillSupply[token] == totalLocked[token] at all times.\n"
         "BOUND bills cannot be withdrawn, transferred, or re-bound until settled.\n"
@@ -196,10 +199,70 @@ def karma_check_invariant(token: str) -> dict[str, Any]:
     return chain_check_invariant(token)
 
 
+@mcp.tool()
+def karma_discover_for_intent(
+    requirement_text: str,
+    buyer_identity_id: str = "",
+    amount: float = 0.0,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """
+    Understand a user's goal and discover Karma agents/merchants that can fulfill it.
+
+    Call this first when the user describes a task (e.g. order food, book a flight).
+    Returns ranked candidates + a trade_launch_hint. Then negotiate via A2A and
+    settle with karma_lock / karma_bind / karma_settle (or the trade/voucher API).
+
+    Uses KARMA_API_BASE (+ optional KARMA_API_KEY). Falls back to A2A bridge
+    /a2a/discover when A2A_BRIDGE_URL is set.
+    """
+    import httpx
+
+    payload: dict[str, Any] = {
+        "requirement_text": requirement_text,
+        "limit": limit,
+    }
+    if buyer_identity_id:
+        payload["buyer_identity_id"] = buyer_identity_id
+    if amount and amount > 0:
+        payload["amount"] = amount
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    api_key = os.getenv("KARMA_API_KEY", "")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers["X-API-Key"] = api_key
+
+    api_base = os.getenv("KARMA_API_BASE", "").rstrip("/")
+    if api_base:
+        try:
+            resp = httpx.post(
+                f"{api_base}/v1/discovery/intent",
+                json=payload,
+                headers=headers,
+                timeout=15,
+            )
+            if resp.is_success:
+                return resp.json()
+        except httpx.HTTPError:
+            pass
+
+    bridge = os.getenv("A2A_BRIDGE_URL", "http://localhost:8080").rstrip("/")
+    try:
+        resp = httpx.post(f"{bridge}/a2a/discover", json=payload, timeout=15)
+        if resp.is_success:
+            return resp.json()
+        return {"error": f"discover failed: HTTP {resp.status_code}", "detail": resp.text[:500]}
+    except httpx.HTTPError as exc:
+        return {"error": f"discover unreachable: {exc}"}
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    _require_env()
+    # Discovery-only assistants may run without chain keys; settlement tools still need them.
+    if os.getenv("KARMA_MCP_DISCOVERY_ONLY", "0").strip().lower() not in {"1", "true", "yes"}:
+        _require_env()
     mcp.run(transport="stdio")
 
 
@@ -208,7 +271,8 @@ def _require_env() -> None:
     if missing:
         raise EnvironmentError(
             f"Missing required environment variables: {', '.join(missing)}\n"
-            "Set KARMA_RPC_URL, KARMA_PRIVATE_KEY, and KARMA_CONTRACT before running karma-mcp."
+            "Set KARMA_RPC_URL, KARMA_PRIVATE_KEY, and KARMA_CONTRACT before running karma-mcp.\n"
+            "Or set KARMA_MCP_DISCOVERY_ONLY=1 to expose discover without chain keys."
         )
 
 
