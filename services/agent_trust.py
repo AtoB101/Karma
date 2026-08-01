@@ -170,6 +170,10 @@ async def apply_trust_rerank(
         aid = str(c.get("agent_id") or "")
         stats = stats_map.get(aid) or AgentTrustStats(agent_id=aid)
         bonus, trust_reasons = compute_trust_bonus(stats)
+        # Soft-penalize agents that have not published complete capability/confirm boundaries
+        if c.get("boundary_complete") is False:
+            bonus = round(bonus - 1.5, 3)
+            trust_reasons = list(trust_reasons) + ["boundary_incomplete"]
         capability_score = float(c.get("score") or 0.0)
         final = round(capability_score + bonus, 3)
         item = dict(c)

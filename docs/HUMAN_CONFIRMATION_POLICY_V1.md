@@ -100,7 +100,15 @@ curl -s -X POST $KARMA_API/v1/confirmations/sessions/cfm_xxx/decide \
 2. 未确认 → **不创建 voucher**，返回 `awaiting_owner_confirmation`  
 3. 已确认会话 → 继续 negotiate → voucher → settle  
 
-演示可传 `require_owner_confirmation=false`（生产勿用）。
+### 防绕过（已加固）
+
+- `decide` **必须**带 `actor_agent_id`，且等于会话 `owner_agent_id`
+- `assert` / fulfill 绑定 **owner + amount**，确认后会话标记 **USED**（不可重放）
+- 客户端 `policy_auto_allowed` **无效**；仅当身份下存在已确认的 automation-policy/preauth 且额度覆盖时才 POLICY_AUTO
+- 客户端 `scene_id` 必须与意图推断场景一致，否则 400
+- `require_owner_confirmation=false` **仅** `APP_ENV` ∈ development/dev/local/test 可用
+
+演示可传 `require_owner_confirmation=false`（非开发环境会被 403）。
 
 ## API
 

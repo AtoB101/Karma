@@ -27,7 +27,9 @@ class FulfillIntentRequest(BaseModel):
     # Real-world: pause until owner Yes on accept_order (money/irreversible)
     require_owner_confirmation: bool = True
     confirmation_session_id: str | None = Field(default=None, max_length=128)
+    # Deprecated client hint — server ignores; POLICY_AUTO comes from saved automation-policy
     policy_auto_allowed: bool = False
+    # Optional; must match intent-inferred scene or request is rejected
     scene_id: str | None = Field(default=None, max_length=128)
     confirmation_context: dict[str, Any] = Field(default_factory=dict)
 

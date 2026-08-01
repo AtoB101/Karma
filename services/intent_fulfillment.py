@@ -35,8 +35,10 @@ from services.agent_directory import agent_row_to_card, connect_agent, ensure_di
 from services.agent_trust import apply_trust_rerank, record_worker_settlement_outcome
 from services.capacity_resolution import apply_capacity_resolution
 from services.identity_agents import ensure_agent_for_identity
+from services.agent_automation_policy import get_automation_policy
 from services.human_confirmation_policy import (
     ConfirmationPolicyError,
+    allow_demo_confirmation_bypass,
     assert_step_allowed,
     create_confirmation_session,
     plan_confirmations,
@@ -335,7 +337,39 @@ async def fulfill_intent(
         raise HTTPException(404, "no matching agent/merchant found for this intent")
     recommended = plan["recommended"] or {"agent_id": seller_id}
     skill = (query.skills[0] if query.skills else "generic_task")
-    resolved_scene = (scene_id or "").strip() or task_type_to_scene_id(query.task_type)
+
+    # Scene is derived from intent — clients cannot loosen confirmation via scene_id
+    inferred_scene = task_type_to_scene_id(query.task_type)
+    requested_scene = (scene_id or "").strip()
+    if requested_scene and requested_scene != inferred_scene:
+        raise HTTPException(
+            400,
+            f"scene_id '{requested_scene}' does not match intent-inferred scene '{inferred_scene}'",
+        )
+    resolved_scene = inferred_scene
+
+    if not require_owner_confirmation and not allow_demo_confirmation_bypass():
+        raise HTTPException(
+            403,
+            "require_owner_confirmation=false is only allowed in development/test environments",
+        )
+
+    # POLICY_AUTO only when a saved automation-policy covers this amount (ignore client bool)
+    effective_policy_auto = False
+    if require_owner_confirmation:
+        saved_policy = await get_automation_policy(db, buyer_identity_id)
+        if (
+            saved_policy is not None
+            and bool(getattr(saved_policy, "responsibility_acknowledged", False))
+            and (
+                bool(getattr(saved_policy, "auto_enabled", False))
+                or bool(getattr(saved_policy, "preauth_enabled", False))
+            )
+            and float(pay_amount) <= float(getattr(saved_policy, "single_limit", 0) or 0) + 1e-9
+        ):
+            effective_policy_auto = True
+        # Client-supplied policy_auto_allowed is intentionally ignored (anti-bypass)
+        _ = policy_auto_allowed
 
     # Owner Yes/No gate — money / irreversible commit (accept_order)
     if require_owner_confirmation:
@@ -346,13 +380,18 @@ async def fulfill_intent(
             "seller": recommended.get("name") or seller_id,
             **(confirmation_context or {}),
         }
+        # Force amount in context to the pay_amount being fulfilled (anti-tamper)
+        confirm_ctx["amount"] = pay_amount
         try:
             gate_ok = assert_step_allowed(
                 scene_id=resolved_scene,
                 role="buyer",
                 step="accept_order",
                 confirmation_session_id=confirmation_session_id,
-                policy_auto_allowed=policy_auto_allowed,
+                policy_auto_allowed=effective_policy_auto,
+                expected_owner_agent_id=buyer_identity_id,
+                amount=pay_amount,
+                consume=True,
             )
             timeline.append({
                 "stage": "owner_confirmation",
@@ -360,6 +399,7 @@ async def fulfill_intent(
                 "scene_id": resolved_scene,
                 "step": "accept_order",
                 "reason": gate_ok.get("reason"),
+                "policy_auto": effective_policy_auto,
             })
         except ConfirmationPolicyError:
             sess = create_confirmation_session(
@@ -369,12 +409,12 @@ async def fulfill_intent(
                 owner_agent_id=buyer_identity_id,
                 context=confirm_ctx,
                 interaction_ref=f"fulfill:{buyer_identity_id}:{seller_id}",
-                policy_auto_allowed=policy_auto_allowed,
+                policy_auto_allowed=effective_policy_auto,
             )
             conf_plan = plan_confirmations(
                 scene_id=resolved_scene,
                 role="buyer",
-                policy_auto_allowed=policy_auto_allowed,
+                policy_auto_allowed=effective_policy_auto,
                 context=confirm_ctx,
             )
             timeline.append({
@@ -408,7 +448,7 @@ async def fulfill_intent(
                 "next_steps": [
                     "show owner_prompt_zh to owner (Yes/No only)",
                     f"POST /v1/confirmations/sessions/{sess.get('session_id')}/decide "
-                    '{"confirm": true}',
+                    '{"confirm": true, "actor_agent_id": "<buyer_identity_id>"}',
                     "POST /v1/orchestration/fulfill-intent again with "
                     "confirmation_session_id",
                 ],

@@ -38,8 +38,8 @@ class CreateSessionRequest(BaseModel):
 
 class DecideRequest(BaseModel):
     confirm: bool
+    actor_agent_id: str = Field(min_length=1, max_length=128)
     note: str | None = Field(default=None, max_length=1000)
-    actor_agent_id: str | None = Field(default=None, max_length=128)
 
 
 class AssertRequest(BaseModel):
@@ -48,6 +48,9 @@ class AssertRequest(BaseModel):
     step: str
     confirmation_session_id: str | None = None
     policy_auto_allowed: bool = False
+    expected_owner_agent_id: str | None = Field(default=None, max_length=128)
+    amount: float | None = Field(default=None, gt=0)
+    consume: bool = True
 
 
 @router.post("/plan")
@@ -106,14 +109,21 @@ async def decide_owner_confirmation_session(session_id: str, body: DecideRequest
 
 @router.post("/assert")
 async def assert_confirmation_gate(body: AssertRequest) -> dict[str, Any]:
-    """Orchestration helper: is this step allowed to proceed now?"""
+    """Orchestration helper: is this step allowed to proceed now?
+
+    Client ``policy_auto_allowed`` is ignored — only Core/fulfill may enable POLICY_AUTO
+    after verifying a saved automation-policy.
+    """
     try:
         return assert_step_allowed(
             scene_id=body.scene_id,
             role=body.role,
             step=body.step,
             confirmation_session_id=body.confirmation_session_id,
-            policy_auto_allowed=body.policy_auto_allowed,
+            policy_auto_allowed=False,
+            expected_owner_agent_id=body.expected_owner_agent_id,
+            amount=body.amount,
+            consume=body.consume,
         )
     except ConfirmationPolicyError as exc:
         raise HTTPException(403, str(exc)) from exc

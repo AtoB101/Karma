@@ -226,6 +226,16 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def allow_demo_confirmation_bypass() -> bool:
+    """Demo-only flags (require_owner_confirmation=false) allowed in local/test envs."""
+    try:
+        from config.settings import settings
+
+        return (settings.app_env or "").lower() in ("development", "dev", "local", "test")
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @dataclass
 class ConfirmationSession:
     session_id: str
@@ -235,11 +245,12 @@ class ConfirmationSession:
     owner_agent_id: str
     prompt_zh: str
     context: dict[str, Any] = field(default_factory=dict)
-    status: str = "PENDING"  # PENDING | CONFIRMED | REJECTED | EXPIRED
+    status: str = "PENDING"  # PENDING | CONFIRMED | REJECTED | USED | EXPIRED
     created_at: str = ""
     decided_at: str | None = None
     decision_note: str | None = None
     interaction_ref: str | None = None
+    max_amount: float | None = None
 
     def public(self) -> dict[str, Any]:
         return {
@@ -255,6 +266,7 @@ class ConfirmationSession:
             "decided_at": self.decided_at,
             "decision_note": self.decision_note,
             "interaction_ref": self.interaction_ref,
+            "max_amount": self.max_amount,
             "can_proceed": self.status == "CONFIRMED",
         }
 
@@ -294,6 +306,12 @@ def create_confirmation_session(
         prompt = str(prompt).format(**ctx)
     except Exception:  # noqa: BLE001
         pass
+    max_amount = None
+    if "amount" in ctx and ctx.get("amount") is not None:
+        try:
+            max_amount = float(ctx["amount"])
+        except (TypeError, ValueError):
+            max_amount = None
     sid = "cfm_" + secrets.token_hex(12)
     sess = ConfirmationSession(
         session_id=sid,
@@ -306,6 +324,7 @@ def create_confirmation_session(
         status="PENDING",
         created_at=_iso_now(),
         interaction_ref=interaction_ref,
+        max_amount=max_amount,
     )
     with _LOCK:
         _SESSIONS[sid] = sess
@@ -327,13 +346,15 @@ def decide_confirmation_session(
     note: str | None = None,
     actor_agent_id: str | None = None,
 ) -> dict[str, Any]:
+    if not actor_agent_id or not str(actor_agent_id).strip():
+        raise ConfirmationPolicyError("actor_agent_id is required to decide a confirmation session")
     with _LOCK:
         sess = _SESSIONS.get(session_id)
         if not sess:
             raise ConfirmationPolicyError(f"unknown confirmation session: {session_id}")
         if sess.status != "PENDING":
             raise ConfirmationPolicyError(f"session already {sess.status}")
-        if actor_agent_id and actor_agent_id != sess.owner_agent_id:
+        if actor_agent_id != sess.owner_agent_id:
             raise ConfirmationPolicyError("only the owner_agent_id may decide this session")
         sess.status = "CONFIRMED" if confirm else "REJECTED"
         sess.decided_at = _iso_now()
@@ -354,8 +375,14 @@ def assert_step_allowed(
     step: str,
     confirmation_session_id: str | None = None,
     policy_auto_allowed: bool = False,
+    expected_owner_agent_id: str | None = None,
+    amount: float | None = None,
+    consume: bool = True,
 ) -> dict[str, Any]:
-    """Gate helper for orchestration: AUTO ok; OWNER_CONFIRM requires CONFIRMED session."""
+    """Gate helper for orchestration: AUTO ok; OWNER_CONFIRM requires CONFIRMED session.
+
+    Binds owner + amount; consumes session (USED) so it cannot be replayed.
+    """
     gate = resolve_gate(
         scene_id=scene_id,
         role=role,
@@ -368,11 +395,35 @@ def assert_step_allowed(
         raise ConfirmationPolicyError(
             f"step {step} requires owner confirmation session for scene {scene_id}"
         )
-    sess = get_confirmation_session(confirmation_session_id)
-    if sess["status"] != "CONFIRMED":
-        raise ConfirmationPolicyError(
-            f"confirmation session status is {sess['status']}, need CONFIRMED"
-        )
-    if sess["scene_id"] != scene_id or sess["step"] != step or sess["role"] != role.lower():
-        raise ConfirmationPolicyError("confirmation session does not match scene/role/step")
-    return {"allowed": True, "gate": gate, "reason": "owner_confirmed", "session": sess}
+    with _LOCK:
+        sess_obj = _SESSIONS.get(confirmation_session_id)
+        if not sess_obj:
+            raise ConfirmationPolicyError(f"unknown confirmation session: {confirmation_session_id}")
+        if sess_obj.status != "CONFIRMED":
+            raise ConfirmationPolicyError(
+                f"confirmation session status is {sess_obj.status}, need CONFIRMED"
+            )
+        if (
+            sess_obj.scene_id != scene_id
+            or sess_obj.step != step
+            or sess_obj.role != role.lower()
+        ):
+            raise ConfirmationPolicyError("confirmation session does not match scene/role/step")
+        if expected_owner_agent_id and sess_obj.owner_agent_id != expected_owner_agent_id:
+            raise ConfirmationPolicyError("confirmation session owner does not match buyer")
+        if amount is not None and sess_obj.max_amount is not None:
+            if float(amount) > float(sess_obj.max_amount) + 1e-6:
+                raise ConfirmationPolicyError(
+                    f"amount {amount} exceeds confirmed max_amount {sess_obj.max_amount}"
+                )
+        if consume:
+            sess_obj.status = "USED"
+            sess_obj.decided_at = sess_obj.decided_at or _iso_now()
+        out_sess = sess_obj.public()
+    return {
+        "allowed": True,
+        "gate": gate,
+        "reason": "owner_confirmed",
+        "session": out_sess,
+        "consumed": bool(consume),
+    }

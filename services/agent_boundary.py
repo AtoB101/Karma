@@ -78,9 +78,33 @@ def _ensure_loaded() -> None:
 
 
 def save_agent_boundary(agent_id: str, boundary: dict[str, Any]) -> None:
+    """Persist boundary after re-assessing completeness (never trust caller flags)."""
     _ensure_loaded()
+    row = dict(boundary)
+    row["agent_id"] = agent_id
+    cap = row.get("capability_boundary") or {}
+    complete, gaps = _assess_complete(
+        profile_id=row.get("profile_id"),
+        conf_role=(row.get("confirmation_boundary") or {}).get("role")
+        or karma_role_to_confirmation_role(str(row.get("karma_role") or "worker")),
+        scene_ids=list(row.get("scene_ids") or []),
+        service_specs=dict(cap.get("service_specs") or {}),
+        do_not=str(cap.get("do_not") or ""),
+        capabilities=list(cap.get("capabilities") or []),
+    )
+    row["boundary_complete"] = complete
+    row["completeness_gaps"] = gaps
+    if complete:
+        row["efficiency_note_zh"] = (
+            "能力/责任/确认边界已界定：Agent 只在 must_confirm 步骤询问主人是否确认；"
+            "auto_ok 步骤自动执行，保证交付畅通与增效。"
+        )
+    else:
+        row["efficiency_note_zh"] = (
+            "边界不完整：对端可见缺口。建议走 connect-from-template 补齐 service_specs 与不做清单。"
+        )
     with _LOCK:
-        _CACHE[agent_id] = dict(boundary)
+        _CACHE[agent_id] = row
         _STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
         _STORE_PATH.write_text(
             json.dumps(_CACHE, ensure_ascii=False, indent=2) + "\n",

@@ -243,9 +243,23 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
         "require_owner_confirmation",
         "assert_step_allowed",
         "task_type_to_scene_id",
+        "allow_demo_confirmation_bypass",
+        "expected_owner_agent_id",
+        "get_automation_policy",
+        "does not match intent-inferred scene",
     ):
         if needle not in fulfill:
             _fail(f"intent_fulfillment missing confirmation gate: {needle}", failures)
+
+    conf_svc = _read("services/human_confirmation_policy.py")
+    for needle in (
+        'actor_agent_id is required',
+        'status = "USED"',
+        "exceeds confirmed max_amount",
+        "only the owner_agent_id may decide",
+    ):
+        if needle not in conf_svc:
+            _fail(f"human_confirmation_policy missing anti-bypass: {needle}", failures)
 
     # Agent boundary — every connected agent publishes capability/responsibility/confirmation
     boundary_cat = ROOT / "packages/evidence-schema/agent-boundary.v1.json"

@@ -101,9 +101,47 @@ async def connect_agent(
             save_agent_boundary,
         )
 
-        boundary = agent_boundary
-        if boundary is None:
-            # Keep a richer existing boundary if present; else build from caps/card
+        if agent_boundary is not None and profile_card is None and not agent_boundary.get("capability_boundary"):
+            # Reject hollow forged envelopes — rebuild from live agent state
+            boundary = materialize_agent_boundary(
+                agent_id=row.agent_id,
+                name=row.name,
+                karma_role=row.role,
+                capabilities=list(row.capabilities or []),
+                owner_identity_id=row.agent_id,
+            )
+        elif agent_boundary is not None:
+            # Re-materialize from provided card fields then re-assess on save
+            boundary = materialize_agent_boundary(
+                agent_id=row.agent_id,
+                name=row.name,
+                karma_role=row.role,
+                profile_id=agent_boundary.get("profile_id")
+                or ((profile_card or {}).get("profile_id") if profile_card else None),
+                capabilities=list(
+                    (agent_boundary.get("capability_boundary") or {}).get("capabilities")
+                    or row.capabilities
+                    or []
+                ),
+                scene_ids=list(agent_boundary.get("scene_ids") or []),
+                profile_card=profile_card
+                or {
+                    "profile_id": agent_boundary.get("profile_id"),
+                    "industry_ids": agent_boundary.get("scene_ids") or [],
+                    "service_specs": (agent_boundary.get("capability_boundary") or {}).get(
+                        "service_specs"
+                    )
+                    or {},
+                    "boundaries": (agent_boundary.get("capability_boundary") or {}).get("do_not")
+                    or "",
+                    "compliance_flags": (agent_boundary.get("responsibility_boundary") or {}).get(
+                        "compliance_flags"
+                    )
+                    or {},
+                },
+                owner_identity_id=row.agent_id,
+            )
+        else:
             existing_b = get_agent_boundary(row.agent_id)
             if existing_b and existing_b.get("boundary_complete") and profile_card is None:
                 boundary = existing_b
@@ -120,8 +158,6 @@ async def connect_agent(
                     profile_card=profile_card,
                     owner_identity_id=row.agent_id,
                 )
-        else:
-            boundary = {**boundary, "agent_id": row.agent_id}
         save_agent_boundary(row.agent_id, boundary)
     return row
 

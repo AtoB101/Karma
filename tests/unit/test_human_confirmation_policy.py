@@ -90,6 +90,7 @@ def test_session_decide_and_assert():
     )
     assert created["skipped"] is False
     assert created["status"] == "PENDING"
+    assert created["max_amount"] == 28.0
     assert "是否确认" in created["prompt_zh"]
 
     with pytest.raises(ConfirmationPolicyError):
@@ -98,6 +99,8 @@ def test_session_decide_and_assert():
             role="buyer",
             step="accept_order",
             confirmation_session_id=created["session_id"],
+            expected_owner_agent_id="owner-1",
+            amount=28.0,
         )
 
     decided = decide_confirmation_session(
@@ -111,8 +114,23 @@ def test_session_decide_and_assert():
         role="buyer",
         step="accept_order",
         confirmation_session_id=created["session_id"],
+        expected_owner_agent_id="owner-1",
+        amount=28.0,
+        consume=True,
     )
     assert ok["allowed"] is True
+    assert ok["consumed"] is True
+
+    # Single-use: cannot replay
+    with pytest.raises(ConfirmationPolicyError, match="USED"):
+        assert_step_allowed(
+            scene_id="ride_hailing",
+            role="buyer",
+            step="accept_order",
+            confirmation_session_id=created["session_id"],
+            expected_owner_agent_id="owner-1",
+            amount=28.0,
+        )
 
 
 def test_auto_step_skips_session():
@@ -137,3 +155,56 @@ def test_wrong_actor_cannot_decide():
         decide_confirmation_session(
             created["session_id"], confirm=True, actor_agent_id="intruder"
         )
+
+
+def test_decide_requires_actor_agent_id():
+    created = create_confirmation_session(
+        scene_id="food_delivery",
+        role="buyer",
+        step="accept_order",
+        owner_agent_id="owner-b",
+        context={"amount": 10},
+    )
+    with pytest.raises(ConfirmationPolicyError, match="actor_agent_id is required"):
+        decide_confirmation_session(created["session_id"], confirm=True)
+
+
+def test_assert_binds_owner_and_amount():
+    created = create_confirmation_session(
+        scene_id="food_delivery",
+        role="buyer",
+        step="accept_order",
+        owner_agent_id="buyer-x",
+        context={"amount": 12},
+    )
+    decide_confirmation_session(created["session_id"], confirm=True, actor_agent_id="buyer-x")
+    with pytest.raises(ConfirmationPolicyError, match="owner"):
+        assert_step_allowed(
+            scene_id="food_delivery",
+            role="buyer",
+            step="accept_order",
+            confirmation_session_id=created["session_id"],
+            expected_owner_agent_id="buyer-other",
+            amount=12.0,
+            consume=False,
+        )
+    with pytest.raises(ConfirmationPolicyError, match="exceeds confirmed"):
+        assert_step_allowed(
+            scene_id="food_delivery",
+            role="buyer",
+            step="accept_order",
+            confirmation_session_id=created["session_id"],
+            expected_owner_agent_id="buyer-x",
+            amount=50.0,
+            consume=False,
+        )
+    ok = assert_step_allowed(
+        scene_id="food_delivery",
+        role="buyer",
+        step="accept_order",
+        confirmation_session_id=created["session_id"],
+        expected_owner_agent_id="buyer-x",
+        amount=12.0,
+        consume=True,
+    )
+    assert ok["allowed"] is True

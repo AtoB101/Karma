@@ -113,3 +113,27 @@ def test_save_and_get_boundary():
     assert loaded is not None
     assert loaded["agent_id"] == "store-1"
     assert loaded["scene_ids"] == ["ride_hailing"]
+
+
+def test_save_rejects_forged_complete_flag():
+    forged = {
+        "schema_version": "karma-agent-boundary-v1",
+        "agent_id": "forge-1",
+        "profile_id": "merchant",
+        "karma_role": "worker",
+        "scene_ids": [],
+        "boundary_complete": True,
+        "completeness_gaps": [],
+        "capability_boundary": {
+            "capabilities": ["karma_settle"],
+            "service_specs": {},
+            "do_not": "",
+        },
+        "responsibility_boundary": {"acknowledged": True},
+        "confirmation_boundary": {"role": "seller"},
+    }
+    ab.save_agent_boundary("forge-1", forged)
+    loaded = ab.get_agent_boundary("forge-1")
+    assert loaded is not None
+    assert loaded["boundary_complete"] is False
+    assert "scene_ids" in loaded["completeness_gaps"]
