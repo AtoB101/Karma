@@ -523,6 +523,15 @@ async def buyer_accept_settlement(task_id: str, request: Request, db: AsyncSessi
     )
     await mark_voucher_used_if_linked(db, task_id)
     await _sync_payment_intents_after_settled(db, task_id)
+    if state.worker_agent_id:
+        from services.agent_trust import record_worker_settlement_outcome
+
+        await record_worker_settlement_outcome(
+            db,
+            worker_agent_id=state.worker_agent_id,
+            success=True,
+            volume=float(state.released_amount or state.escrow_amount or 0),
+        )
     await db.flush()
     from services.openclaw_webhook import emit_openclaw_event
 
