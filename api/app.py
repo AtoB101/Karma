@@ -45,6 +45,7 @@ from api.routes import (
     verifier_network,
     discovery,
     orchestration,
+    standards,
 )
 
 logger = structlog.get_logger(__name__)
@@ -349,6 +350,8 @@ app.include_router(
     tags=["Orchestration"],
     dependencies=_rate_limited_rw,
 )
+# Public catalog — both buyer/seller agents read without auth
+app.include_router(standards.router, prefix="/v1/standards", tags=["Standards"])
 
 
 @app.get("/health")
@@ -363,6 +366,13 @@ async def info():
         "version": "0.1.0",
         "docs": "/docs",
         "schemas": "/v1/schemas",
+        "important_fields_standard": {
+            "catalog": "/v1/standards/important-fields",
+            "scenes": "/v1/standards/important-fields/scenes",
+            "match": "/v1/standards/important-fields/match",
+            "doc": "docs/IMPORTANT_FIELDS_STANDARD_V1.md",
+            "note": "11 market scenes; both agents submit ImportantFields; MATCHED hash required before evidence seal/on-chain.",
+        },
         "verify_auth": {
             "enforcement": bool(settings.auth_enforce_protected_routes),
             "post_verify_requires_credentials_when_enforcement_on": True,

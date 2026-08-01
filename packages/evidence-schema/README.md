@@ -3,7 +3,16 @@
 `evidence.schema.json` is a **public, structural** JSON Schema. It intentionally **does not** encode private scoring,
 fraud rules, or dispute weighting — those belong in the private risk engine repository.
 
+## Important Fields Standard (market scenes)
+
+`important-fields-standard.v1.json` — **双方 agent 可读**的 11 场景重要字段标准版。
+
+- Docs: `docs/IMPORTANT_FIELDS_STANDARD_V1.md`
+- HTTP: `GET /v1/standards/important-fields`
+- Match: `POST /v1/standards/important-fields/match`（双方 hash 一致才可封包上链）
+
 Align runtime tooling with:
 
 - `trusted_agent_runtime/` (hashing + structural verification)
 - On-chain `proofHash` / bill semantics in `karma-core/contracts/core/NonCustodialAgentPayment.sol`
+- `Types.ServiceCategory` in `karma-core/contracts/libraries/Types.sol`

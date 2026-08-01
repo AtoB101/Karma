@@ -1,0 +1,675 @@
+{
+  "schema_version": "karma-important-fields-v1",
+  "title": "Karma Important Fields Standard (Market Scenes)",
+  "title_zh": "Karma 重要字段标准版（市场场景）",
+  "description": "Both buyer and seller agents MUST submit the same ImportantFields payload for a scene. Only when canonical fields_hash matches on both sides may the commitment be sealed into an evidence bundle and bound on-chain (scopeHash / IntentPackage).",
+  "description_zh": "买卖双方 agent 必须按场景提交同一套 ImportantFields。仅当双方 canonical fields_hash 一致时，才可封存为证据包并上链。",
+  "source_of_truth": {
+    "on_chain_enum": "karma-core/contracts/libraries/Types.sol::ServiceCategory",
+    "intent_package": "Types.IntentPackage",
+    "notes": "Scenes 1–11 below map to ServiceCategory.SoftwareDevelopment … HealthcareMedical. LegalCompliance and CustomService use the extension profile."
+  },
+  "canonicalization": {
+    "algorithm": "sha256",
+    "encoding": "utf-8",
+    "json": "RFC8785-like: UTF-8, object keys sorted lexicographically, no insignificant whitespace, arrays keep order, numbers as JSON numbers (no leading zeros), datetimes as ISO-8601 UTC with trailing Z, null omitted only if field optional and unset",
+    "hash_input": "canonical_json(fields_for_hash)",
+    "fields_for_hash_exclude": [
+      "party_role",
+      "submitter_agent_id",
+      "submitted_at",
+      "signature"
+    ],
+    "match_rule": "buyer.fields_hash == seller.fields_hash → MATCHED; else COUNTERED with field-level diff"
+  },
+  "submission_envelope": {
+    "schema_version": "karma-important-fields-v1",
+    "scene_id": "string — one of scenes[].scene_id",
+    "party_role": "buyer | seller",
+    "submitter_agent_id": "did:karma:0x… or agent_id",
+    "submitted_at": "ISO-8601 UTC",
+    "fields": "ImportantFields object (common + scene)",
+    "fields_hash": "optional client-side hint; server recomputes",
+    "signature": "optional EIP-712 / Ed25519 over fields_hash"
+  },
+  "common_fields": {
+    "description": "Required for every scene unless marked optional.",
+    "required": [
+      {
+        "path": "time.deadline_at",
+        "type": "string",
+        "format": "date-time",
+        "description_zh": "硬截止时间（UTC）",
+        "market_note": "双方必须一致；超时进入争议/违约路径"
+      },
+      {
+        "path": "task_requirements",
+        "type": "string",
+        "minLength": 8,
+        "maxLength": 8000,
+        "description_zh": "任务要求（自然语言 + 可核验要点）"
+      },
+      {
+        "path": "acceptance_criteria",
+        "type": "array",
+        "items": { "type": "string", "minLength": 2, "maxLength": 500 },
+        "minItems": 1,
+        "maxItems": 32,
+        "description_zh": "验收标准列表；完成后只按这些条款验"
+      },
+      {
+        "path": "amount",
+        "type": "string",
+        "pattern": "^[0-9]+(\\.[0-9]{1,6})?$",
+        "description_zh": "成交金额（十进制字符串，避免浮点误差）"
+      },
+      {
+        "path": "currency",
+        "type": "string",
+        "enum": ["USDC", "USDT", "USD", "EUR", "CNY"],
+        "description_zh": "结算币种"
+      }
+    ],
+    "optional": [
+      {
+        "path": "time.start_at",
+        "type": "string",
+        "format": "date-time",
+        "description_zh": "约定开始/履约起始时间"
+      },
+      {
+        "path": "location",
+        "type": "object",
+        "description_zh": "地点；纯数字交付可省略或 place=on_chain/digital",
+        "properties": {
+          "place": { "type": "string", "maxLength": 512 },
+          "geo_hash": { "type": "string", "maxLength": 32 },
+          "address_hash": { "type": "string", "description": "SHA-256 of full address if PII must not be plaintext" },
+          "region": { "type": "string", "maxLength": 64 }
+        }
+      },
+      {
+        "path": "buyer_agent_id",
+        "type": "string",
+        "description_zh": "买方 agent id（双方提交时必须相同）"
+      },
+      {
+        "path": "seller_agent_id",
+        "type": "string",
+        "description_zh": "卖方 agent id（双方提交时必须相同）"
+      },
+      {
+        "path": "dispute_window_seconds",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2592000,
+        "description_zh": "争议窗口秒数"
+      },
+      {
+        "path": "acceptance_window_seconds",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2592000,
+        "description_zh": "交付后验收窗口秒数"
+      },
+      {
+        "path": "deliverables",
+        "type": "array",
+        "items": { "type": "string" },
+        "description_zh": "可交付物清单（名称或内容哈希）"
+      },
+      {
+        "path": "required_proof_fields",
+        "type": "array",
+        "items": { "type": "string" },
+        "description_zh": "完成后证据包必须覆盖的字段名"
+      },
+      {
+        "path": "scene",
+        "type": "object",
+        "description_zh": "场景专属字段（见各 scene.required_scene_fields）"
+      }
+    ]
+  },
+  "scenes": [
+    {
+      "scene_id": "software_development",
+      "service_category": "SoftwareDevelopment",
+      "on_chain_enum": 1,
+      "title_en": "Software Development",
+      "title_zh": "软件开发",
+      "market_summary_zh": "外包开发、bugfix、集成、代码交付；验收看仓库/PR/测试与约定里程碑。",
+      "risk_tier": "L3",
+      "location_mode": "digital",
+      "required_scene_fields": [
+        { "path": "scene.repo_or_project_ref", "type": "string", "description_zh": "仓库 URL 或项目标识" },
+        { "path": "scene.deliverable_type", "type": "string", "enum": ["pr", "release", "repo_snapshot", "patch", "spec_impl"], "description_zh": "交付形态" },
+        { "path": "scene.definition_of_done", "type": "array", "items": { "type": "string" }, "description_zh": "完成定义（测试通过、lint、文档等）" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.tech_stack", "type": "array", "items": { "type": "string" } },
+        { "path": "scene.milestone_ids", "type": "array", "items": { "type": "string" } },
+        { "path": "scene.branch_or_tag", "type": "string" },
+        { "path": "scene.test_command", "type": "string" }
+      ],
+      "default_required_proof_fields": [
+        "deliverable_hash",
+        "test_report_hash",
+        "repo_commit_or_pr"
+      ],
+      "example_fields": {
+        "time": { "start_at": "2026-08-02T00:00:00Z", "deadline_at": "2026-08-09T16:00:00Z" },
+        "location": { "place": "digital" },
+        "task_requirements": "Implement POST /v1/agreements match gate; add unit tests; open PR against main.",
+        "acceptance_criteria": [
+          "PR opened against agreed branch",
+          "unit tests for hash match/mismatch pass",
+          "no secrets in diff"
+        ],
+        "amount": "150.00",
+        "currency": "USDC",
+        "acceptance_window_seconds": 86400,
+        "dispute_window_seconds": 172800,
+        "required_proof_fields": ["deliverable_hash", "test_report_hash", "repo_commit_or_pr"],
+        "scene": {
+          "repo_or_project_ref": "https://github.com/example/karma",
+          "deliverable_type": "pr",
+          "definition_of_done": ["pytest green", "ruff/format clean"],
+          "tech_stack": ["python", "fastapi"],
+          "branch_or_tag": "main"
+        }
+      }
+    },
+    {
+      "scene_id": "design_creative",
+      "service_category": "DesignCreative",
+      "on_chain_enum": 2,
+      "title_en": "Design & Creative",
+      "title_zh": "设计创意",
+      "market_summary_zh": "品牌、UI、平面、视频脚本等；验收看尺寸/格式/修改轮次与授权范围。",
+      "risk_tier": "L2",
+      "location_mode": "digital",
+      "required_scene_fields": [
+        { "path": "scene.asset_type", "type": "string", "enum": ["logo", "ui_kit", "banner", "illustration", "video", "other"], "description_zh": "资产类型" },
+        { "path": "scene.format_specs", "type": "array", "items": { "type": "string" }, "description_zh": "格式与尺寸规格" },
+        { "path": "scene.revision_rounds", "type": "integer", "minimum": 0, "maximum": 20, "description_zh": "含价内修改轮次" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.brand_refs", "type": "array", "items": { "type": "string" } },
+        { "path": "scene.license_grant", "type": "string", "enum": ["work_for_hire", "exclusive", "non_exclusive", "personal_use"] },
+        { "path": "scene.color_mode", "type": "string" }
+      ],
+      "default_required_proof_fields": [
+        "final_asset_hash",
+        "preview_hash",
+        "format_checklist"
+      ],
+      "example_fields": {
+        "time": { "deadline_at": "2026-08-05T12:00:00Z" },
+        "location": { "place": "digital" },
+        "task_requirements": "Design a landing hero for Karma agent marketplace; dark-teal brand; export PNG+SVG.",
+        "acceptance_criteria": [
+          "Includes SVG + 1600x900 PNG",
+          "Uses provided brand teal #0F6B6B",
+          "Within 2 revision rounds"
+        ],
+        "amount": "80.00",
+        "currency": "USDC",
+        "required_proof_fields": ["final_asset_hash", "preview_hash", "format_checklist"],
+        "scene": {
+          "asset_type": "banner",
+          "format_specs": ["SVG", "PNG 1600x900"],
+          "revision_rounds": 2,
+          "license_grant": "work_for_hire",
+          "color_mode": "RGB"
+        }
+      }
+    },
+    {
+      "scene_id": "logistics_delivery",
+      "service_category": "LogisticsDelivery",
+      "on_chain_enum": 3,
+      "title_en": "Logistics & Delivery",
+      "title_zh": "物流配送",
+      "market_summary_zh": "快递、同城配送、外卖履约；验收看取送地点、时效与签收证明。",
+      "risk_tier": "L2",
+      "location_mode": "physical",
+      "required_scene_fields": [
+        { "path": "scene.pickup", "type": "object", "description_zh": "取件地", "properties": { "place": { "type": "string" }, "geo_hash": { "type": "string" }, "window_start": { "type": "string", "format": "date-time" }, "window_end": { "type": "string", "format": "date-time" } } },
+        { "path": "scene.dropoff", "type": "object", "description_zh": "送达地", "properties": { "place": { "type": "string" }, "geo_hash": { "type": "string" }, "window_start": { "type": "string", "format": "date-time" }, "window_end": { "type": "string", "format": "date-time" } } },
+        { "path": "scene.parcel_ref", "type": "string", "description_zh": "包裹/订单引用（可哈希）" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.carrier", "type": "string" },
+        { "path": "scene.service_level", "type": "string", "enum": ["same_day", "next_day", "standard", "express"] },
+        { "path": "scene.weight_kg", "type": "string" },
+        { "path": "scene.temperature_control", "type": "boolean" }
+      ],
+      "default_required_proof_fields": [
+        "pickup_proof",
+        "delivery_proof",
+        "delivered_at",
+        "recipient_ack"
+      ],
+      "example_fields": {
+        "time": { "start_at": "2026-08-02T02:00:00Z", "deadline_at": "2026-08-02T08:00:00Z" },
+        "location": { "place": "route", "region": "CN-SH" },
+        "task_requirements": "Same-day delivery from warehouse A to office B; signature required.",
+        "acceptance_criteria": [
+          "Picked up within pickup window",
+          "Delivered before deadline_at",
+          "Recipient signature or photo POD"
+        ],
+        "amount": "25.00",
+        "currency": "USDC",
+        "required_proof_fields": ["pickup_proof", "delivery_proof", "delivered_at", "recipient_ack"],
+        "scene": {
+          "pickup": { "place": "Warehouse A, Pudong", "geo_hash": "wtw3s", "window_start": "2026-08-02T02:00:00Z", "window_end": "2026-08-02T03:00:00Z" },
+          "dropoff": { "place": "Office B, Jing'an", "geo_hash": "wtw2d", "window_start": "2026-08-02T05:00:00Z", "window_end": "2026-08-02T08:00:00Z" },
+          "parcel_ref": "PKG-20260802-001",
+          "service_level": "same_day"
+        }
+      }
+    },
+    {
+      "scene_id": "consulting_advisory",
+      "service_category": "ConsultingAdvisory",
+      "on_chain_enum": 4,
+      "title_en": "Consulting & Advisory",
+      "title_zh": "咨询顾问",
+      "market_summary_zh": "战略/技术/合规顾问；验收看交付物（报告/纪要）与工时或里程碑。",
+      "risk_tier": "L3",
+      "location_mode": "hybrid",
+      "required_scene_fields": [
+        { "path": "scene.engagement_mode", "type": "string", "enum": ["fixed_deliverable", "hourly", "retainer"], "description_zh": "计费方式" },
+        { "path": "scene.deliverable_docs", "type": "array", "items": { "type": "string" }, "description_zh": "约定交付文档类型" },
+        { "path": "scene.scope_boundaries", "type": "string", "description_zh": "范围边界（不做清单）" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.hours_cap", "type": "number" },
+        { "path": "scene.meeting_count", "type": "integer" },
+        { "path": "scene.confidentiality", "type": "boolean" }
+      ],
+      "default_required_proof_fields": [
+        "report_hash",
+        "meeting_notes_hash",
+        "hours_log_hash"
+      ],
+      "example_fields": {
+        "time": { "start_at": "2026-08-03T01:00:00Z", "deadline_at": "2026-08-17T01:00:00Z" },
+        "location": { "place": "remote/zoom" },
+        "task_requirements": "Advise on agent settlement UX; deliver 10-page recommendations + 1 workshop.",
+        "acceptance_criteria": [
+          "Written report ≥8 pages covering 3 options",
+          "One 60-minute workshop completed",
+          "Action list with owners"
+        ],
+        "amount": "500.00",
+        "currency": "USDC",
+        "required_proof_fields": ["report_hash", "meeting_notes_hash", "hours_log_hash"],
+        "scene": {
+          "engagement_mode": "fixed_deliverable",
+          "deliverable_docs": ["recommendations_report", "workshop_notes"],
+          "scope_boundaries": "No custom code implementation; advisory only",
+          "meeting_count": 1
+        }
+      }
+    },
+    {
+      "scene_id": "content_creation",
+      "service_category": "ContentCreation",
+      "on_chain_enum": 5,
+      "title_en": "Content Creation",
+      "title_zh": "内容创作",
+      "market_summary_zh": "文案、翻译、短视频脚本、AI 生成内容；验收看字数/语言/原创与格式。",
+      "risk_tier": "L2",
+      "location_mode": "digital",
+      "required_scene_fields": [
+        { "path": "scene.content_type", "type": "string", "enum": ["article", "translation", "script", "social_post", "ai_text", "ai_image", "other"], "description_zh": "内容类型" },
+        { "path": "scene.language", "type": "string", "description_zh": "目标语言，如 zh-CN / en" },
+        { "path": "scene.length_spec", "type": "string", "description_zh": "篇幅规格（字数/时长/张数）" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.source_lang", "type": "string" },
+        { "path": "scene.tone", "type": "string" },
+        { "path": "scene.seo_keywords", "type": "array", "items": { "type": "string" } },
+        { "path": "scene.originality_required", "type": "boolean" }
+      ],
+      "default_required_proof_fields": [
+        "content_hash",
+        "length_check",
+        "language_check"
+      ],
+      "example_fields": {
+        "time": { "deadline_at": "2026-08-04T10:00:00Z" },
+        "location": { "place": "digital" },
+        "task_requirements": "Translate product README from EN to zh-CN; keep code blocks unchanged.",
+        "acceptance_criteria": [
+          "1000-1500 Chinese words",
+          "Code fences untouched",
+          "Terminology glossary applied"
+        ],
+        "amount": "15.00",
+        "currency": "USDC",
+        "required_proof_fields": ["content_hash", "length_check", "language_check"],
+        "scene": {
+          "content_type": "translation",
+          "language": "zh-CN",
+          "length_spec": "1000-1500 words",
+          "source_lang": "en",
+          "originality_required": true
+        }
+      }
+    },
+    {
+      "scene_id": "manufacturing",
+      "service_category": "Manufacturing",
+      "on_chain_enum": 6,
+      "title_en": "Manufacturing",
+      "title_zh": "生产制造",
+      "market_summary_zh": "打样、小批量代工；验收看规格、数量、质检与交期。",
+      "risk_tier": "L3",
+      "location_mode": "physical",
+      "required_scene_fields": [
+        { "path": "scene.sku_or_part", "type": "string", "description_zh": "SKU/零件号" },
+        { "path": "scene.quantity", "type": "integer", "minimum": 1, "description_zh": "数量" },
+        { "path": "scene.spec_hash", "type": "string", "description_zh": "规格书/图纸内容哈希" },
+        { "path": "scene.qa_standard", "type": "string", "description_zh": "质检标准引用" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.sample_first", "type": "boolean" },
+        { "path": "scene.incoterms", "type": "string" },
+        { "path": "scene.factory_region", "type": "string" }
+      ],
+      "default_required_proof_fields": [
+        "qa_report_hash",
+        "quantity_count",
+        "ship_or_handover_proof"
+      ],
+      "example_fields": {
+        "time": { "deadline_at": "2026-09-01T00:00:00Z" },
+        "location": { "place": "Factory Shenzhen", "region": "CN-GD" },
+        "task_requirements": "Produce 500 ABS enclosures per drawing rev C; AQL 1.0.",
+        "acceptance_criteria": [
+          "Quantity ≥500 accepted units",
+          "QA report against AQL 1.0",
+          "Dimensions within ±0.2mm"
+        ],
+        "amount": "3200.00",
+        "currency": "USDC",
+        "required_proof_fields": ["qa_report_hash", "quantity_count", "ship_or_handover_proof"],
+        "scene": {
+          "sku_or_part": "ENC-ABS-C",
+          "quantity": 500,
+          "spec_hash": "sha256:example-spec",
+          "qa_standard": "AQL-1.0",
+          "sample_first": true,
+          "incoterms": "FOB"
+        }
+      }
+    },
+    {
+      "scene_id": "real_estate_services",
+      "service_category": "RealEstateServices",
+      "on_chain_enum": 7,
+      "title_en": "Real Estate Services",
+      "title_zh": "房产服务",
+      "market_summary_zh": "看房陪同、租赁撮合、物业服务预约；验收看时间地点与完成凭证。",
+      "risk_tier": "L3",
+      "location_mode": "physical",
+      "required_scene_fields": [
+        { "path": "scene.property_ref", "type": "string", "description_zh": "房源/物业引用（可哈希）" },
+        { "path": "scene.service_kind", "type": "string", "enum": ["viewing", "lease_brokerage", "inspection", "property_mgmt_task", "other"], "description_zh": "服务种类" },
+        { "path": "scene.appointment_at", "type": "string", "format": "date-time", "description_zh": "预约到场时间" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.unit_area_sqm", "type": "number" },
+        { "path": "scene.lease_term_months", "type": "integer" },
+        { "path": "scene.attendees", "type": "array", "items": { "type": "string" } }
+      ],
+      "default_required_proof_fields": [
+        "checkin_proof",
+        "completion_notes_hash",
+        "appointment_kept"
+      ],
+      "example_fields": {
+        "time": { "start_at": "2026-08-06T06:00:00Z", "deadline_at": "2026-08-06T08:00:00Z" },
+        "location": { "place": "Shanghai Jing'an Unit 1203", "region": "CN-SH", "geo_hash": "wtw2d" },
+        "task_requirements": "Agent accompanies buyer for 60-minute property viewing; provide condition checklist.",
+        "acceptance_criteria": [
+          "On-site within 15 minutes of appointment_at",
+          "Checklist covering water/electric/noise completed",
+          "Photos hash submitted"
+        ],
+        "amount": "40.00",
+        "currency": "USDC",
+        "required_proof_fields": ["checkin_proof", "completion_notes_hash", "appointment_kept"],
+        "scene": {
+          "property_ref": "PROP-SHA-1203",
+          "service_kind": "viewing",
+          "appointment_at": "2026-08-06T06:00:00Z"
+        }
+      }
+    },
+    {
+      "scene_id": "financial_services",
+      "service_category": "FinancialServices",
+      "on_chain_enum": 8,
+      "title_en": "Financial Services",
+      "title_zh": "金融服务",
+      "market_summary_zh": "对账、报表整理、支付指令协助等非托管服务；不含代客持有资金。验收看报表哈希与核对结果。",
+      "risk_tier": "L4",
+      "location_mode": "digital",
+      "required_scene_fields": [
+        { "path": "scene.service_kind", "type": "string", "enum": ["reconciliation", "reporting", "invoice_ops", "compliance_pack", "other"], "description_zh": "金融运营服务种类" },
+        { "path": "scene.period_start", "type": "string", "format": "date", "description_zh": "账期起" },
+        { "path": "scene.period_end", "type": "string", "format": "date", "description_zh": "账期止" },
+        { "path": "scene.no_custody_ack", "type": "boolean", "const": true, "description_zh": "必须确认不托管客户资金" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.ledger_refs", "type": "array", "items": { "type": "string" } },
+        { "path": "scene.materiality_threshold", "type": "string" }
+      ],
+      "default_required_proof_fields": [
+        "report_hash",
+        "recon_diff_hash",
+        "period_coverage"
+      ],
+      "example_fields": {
+        "time": { "deadline_at": "2026-08-10T15:00:00Z" },
+        "location": { "place": "digital" },
+        "task_requirements": "Reconcile July USDC inflows vs invoices; deliver exception list.",
+        "acceptance_criteria": [
+          "Covers 2026-07-01 to 2026-07-31",
+          "Exception list with amounts",
+          "No custody of funds"
+        ],
+        "amount": "200.00",
+        "currency": "USDC",
+        "required_proof_fields": ["report_hash", "recon_diff_hash", "period_coverage"],
+        "scene": {
+          "service_kind": "reconciliation",
+          "period_start": "2026-07-01",
+          "period_end": "2026-07-31",
+          "no_custody_ack": true,
+          "materiality_threshold": "1.00"
+        }
+      }
+    },
+    {
+      "scene_id": "marketing_advertising",
+      "service_category": "MarketingAdvertising",
+      "on_chain_enum": 9,
+      "title_en": "Marketing & Advertising",
+      "title_zh": "营销广告",
+      "market_summary_zh": "投放执行、活动页、增长实验；验收看投放时段、素材与约定 KPI 证据。",
+      "risk_tier": "L3",
+      "location_mode": "digital",
+      "required_scene_fields": [
+        { "path": "scene.channel", "type": "string", "description_zh": "渠道（如 meta/google/xhs）" },
+        { "path": "scene.campaign_window", "type": "object", "properties": { "start_at": { "type": "string", "format": "date-time" }, "end_at": { "type": "string", "format": "date-time" } }, "description_zh": "投放窗口" },
+        { "path": "scene.kpi", "type": "array", "items": { "type": "string" }, "description_zh": "可核验 KPI 描述" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.budget_cap", "type": "string" },
+        { "path": "scene.creative_refs", "type": "array", "items": { "type": "string" } },
+        { "path": "scene.geo_targets", "type": "array", "items": { "type": "string" } }
+      ],
+      "default_required_proof_fields": [
+        "campaign_report_hash",
+        "spend_proof",
+        "kpi_snapshot"
+      ],
+      "example_fields": {
+        "time": { "start_at": "2026-08-02T00:00:00Z", "deadline_at": "2026-08-09T00:00:00Z" },
+        "location": { "place": "digital", "region": "US" },
+        "task_requirements": "Run 7-day Meta traffic campaign for Karma docs; weekly report.",
+        "acceptance_criteria": [
+          "Campaign live full window",
+          "Spend ≤ budget_cap",
+          "Report includes CTR/CPC/spend"
+        ],
+        "amount": "300.00",
+        "currency": "USDC",
+        "required_proof_fields": ["campaign_report_hash", "spend_proof", "kpi_snapshot"],
+        "scene": {
+          "channel": "meta",
+          "campaign_window": { "start_at": "2026-08-02T00:00:00Z", "end_at": "2026-08-09T00:00:00Z" },
+          "kpi": ["CTR >= 1.0%", "CPC tracked daily"],
+          "budget_cap": "250.00",
+          "geo_targets": ["US"]
+        }
+      }
+    },
+    {
+      "scene_id": "education_training",
+      "service_category": "EducationTraining",
+      "on_chain_enum": 10,
+      "title_en": "Education & Training",
+      "title_zh": "教育培训",
+      "market_summary_zh": "课程、辅导、工作坊；验收看课时、出席与材料交付。",
+      "risk_tier": "L2",
+      "location_mode": "hybrid",
+      "required_scene_fields": [
+        { "path": "scene.course_title", "type": "string", "description_zh": "课程/培训标题" },
+        { "path": "scene.session_count", "type": "integer", "minimum": 1, "description_zh": "课时/场次" },
+        { "path": "scene.session_duration_minutes", "type": "integer", "minimum": 15, "description_zh": "单场时长（分钟）" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.level", "type": "string" },
+        { "path": "scene.materials_included", "type": "boolean" },
+        { "path": "scene.platform", "type": "string" }
+      ],
+      "default_required_proof_fields": [
+        "attendance_proof",
+        "session_recording_or_notes_hash",
+        "materials_hash"
+      ],
+      "example_fields": {
+        "time": { "start_at": "2026-08-08T13:00:00Z", "deadline_at": "2026-08-08T15:00:00Z" },
+        "location": { "place": "online/zoom" },
+        "task_requirements": "2-hour workshop: building Karma ImportantFields submissions for agents.",
+        "acceptance_criteria": [
+          "Live session ≥110 minutes",
+          "Slides + sample JSON delivered",
+          "Q&A notes shared"
+        ],
+        "amount": "120.00",
+        "currency": "USDC",
+        "required_proof_fields": ["attendance_proof", "session_recording_or_notes_hash", "materials_hash"],
+        "scene": {
+          "course_title": "Karma ImportantFields for Agents",
+          "session_count": 1,
+          "session_duration_minutes": 120,
+          "materials_included": true,
+          "platform": "zoom"
+        }
+      }
+    },
+    {
+      "scene_id": "healthcare_medical",
+      "service_category": "HealthcareMedical",
+      "on_chain_enum": 11,
+      "title_en": "Healthcare & Medical Services",
+      "title_zh": "医疗健康服务",
+      "market_summary_zh": "预约陪诊、健康管理咨询、远程分诊协助等非诊疗承诺服务；敏感数据仅存哈希。不替代执业医疗。",
+      "risk_tier": "L4",
+      "location_mode": "hybrid",
+      "required_scene_fields": [
+        { "path": "scene.service_kind", "type": "string", "enum": ["appointment_assist", "companion_care", "wellness_coaching", "records_organizing", "other"], "description_zh": "服务种类（非诊疗承诺）" },
+        { "path": "scene.appointment_at", "type": "string", "format": "date-time", "description_zh": "服务时间" },
+        { "path": "scene.non_clinical_ack", "type": "boolean", "const": true, "description_zh": "确认不构成诊疗/处方" },
+        { "path": "scene.facility_or_region", "type": "string", "description_zh": "机构或服务区域" }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.patient_ref_hash", "type": "string", "description_zh": "患者标识哈希（禁止明文）" },
+        { "path": "scene.special_needs", "type": "string" }
+      ],
+      "default_required_proof_fields": [
+        "attendance_proof",
+        "service_notes_hash",
+        "time_window_kept"
+      ],
+      "example_fields": {
+        "time": { "start_at": "2026-08-07T01:30:00Z", "deadline_at": "2026-08-07T04:00:00Z" },
+        "location": { "place": "Hospital East Gate", "region": "CN-SH", "geo_hash": "wtw3j" },
+        "task_requirements": "Companion assist for outpatient registration and queue navigation; no clinical advice.",
+        "acceptance_criteria": [
+          "On-site by appointment_at",
+          "Registration completed",
+          "Non-clinical scope respected"
+        ],
+        "amount": "60.00",
+        "currency": "USDC",
+        "required_proof_fields": ["attendance_proof", "service_notes_hash", "time_window_kept"],
+        "scene": {
+          "service_kind": "companion_care",
+          "appointment_at": "2026-08-07T01:30:00Z",
+          "non_clinical_ack": true,
+          "facility_or_region": "Hospital East Campus",
+          "patient_ref_hash": "sha256:patient-ref"
+        }
+      }
+    }
+  ],
+  "extensions": [
+    {
+      "scene_id": "legal_compliance",
+      "service_category": "LegalCompliance",
+      "on_chain_enum": 12,
+      "title_zh": "法律合规（扩展场景）",
+      "note_zh": "不在 11 个首发市场场景内，但链上枚举已有；字段模板接近 consulting_advisory，另加强管辖与文件清单。",
+      "required_scene_fields": [
+        { "path": "scene.matter_type", "type": "string" },
+        { "path": "scene.jurisdiction", "type": "string" },
+        { "path": "scene.document_list", "type": "array", "items": { "type": "string" } },
+        { "path": "scene.not_legal_advice_ack", "type": "boolean", "description_zh": "若非持牌意见需声明" }
+      ],
+      "default_required_proof_fields": ["opinion_or_memo_hash", "document_checklist"]
+    },
+    {
+      "scene_id": "custom_service",
+      "service_category": "CustomService",
+      "on_chain_enum": 13,
+      "title_zh": "自定义服务（扩展）",
+      "note_zh": "必须仍提交 common_fields；scene 下用自由键，但 acceptance_criteria 与 required_proof_fields 不得为空。",
+      "required_scene_fields": [
+        { "path": "scene.custom_type", "type": "string" },
+        { "path": "scene.custom_spec_hash", "type": "string" }
+      ],
+      "default_required_proof_fields": ["custom_completion_hash"]
+    }
+  ],
+  "agent_read_apis": [
+    "GET /v1/standards/important-fields",
+    "GET /v1/standards/important-fields/{scene_id}",
+    "GET /v1/standards/important-fields/{scene_id}/example",
+    "POST /v1/standards/important-fields/canonicalize"
+  ],
+  "lifecycle": {
+    "states": ["PROPOSED", "COUNTERED", "MATCHED", "SEALED", "FULFILLED", "SETTLED"],
+    "seal_requires": "MATCHED + optional dual signatures over fields_hash",
+    "on_chain": "scopeHash / IntentPackage.fullDocumentHash / deliverySpecHash+qualitySpecHash commit to fields_hash",
+    "verify_rule": "After delivery, evidence bundle MUST cover required_proof_fields; acceptance checks ONLY locked acceptance_criteria"
+  }
+}
