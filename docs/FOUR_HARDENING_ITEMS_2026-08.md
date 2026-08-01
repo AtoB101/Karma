@@ -43,3 +43,10 @@ negotiates, then relies on voucher/evidence/settle for delivery guarantees.
 
 `fulfill-intent` closes the previous gaps: auto-negotiate (or inline), **real** voucher+accept,
 settlement lock/start, and with `auto_complete=true` evidence receipt + buyer-accept to `SETTLED`.
+
+### Discoverability + trust ranking
+
+- `POST /v1/agents/connect` — agent upserts into Karma directory ⇒ immediately discoverable
+- Discovery ranks: skill match → then reputation / success_rate / settled_volume / dispute_rate
+- Settlement success updates reputation (`record_worker_settlement_outcome`) as “好评” proxy
+- `GET /v1/agents/{id}/trust` — inspect trust signals before handing work

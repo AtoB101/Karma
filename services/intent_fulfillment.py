@@ -31,6 +31,8 @@ from core.schemas import (
 from core.settlement.engine import canonical_task_status
 from db.models.orm import AgentModel, CapacityModel, TaskContractModel, VoucherModel
 from db.stores.settlement_store import PostgresSettlementStore
+from services.agent_directory import agent_row_to_card, connect_agent, ensure_directory_merchants
+from services.agent_trust import apply_trust_rerank, record_worker_settlement_outcome
 from services.capacity_resolution import apply_capacity_resolution
 from services.identity_agents import ensure_agent_for_identity
 from services.intent_discovery import (
@@ -61,22 +63,50 @@ def _hash_hex(data: Any) -> str:
     return raw
 
 
+_DEMO_MERCHANTS = [
+    {
+        "agent_id": "merchant-food-demo",
+        "name": "Demo Food Merchant",
+        "capabilities": ["order_food", "karma_settle"],
+        "endpoint": os.getenv("A2A_DEMO_FOOD_ENDPOINT", ""),
+    },
+    {
+        "agent_id": "merchant-flight-demo",
+        "name": "Demo Flight Merchant",
+        "capabilities": ["book_flight", "karma_settle"],
+        "endpoint": os.getenv("A2A_DEMO_FLIGHT_ENDPOINT", ""),
+    },
+    {
+        "agent_id": "merchant-hotel-demo",
+        "name": "Demo Hotel Merchant",
+        "capabilities": ["book_hotel", "karma_settle"],
+        "endpoint": os.getenv("A2A_DEMO_HOTEL_ENDPOINT", ""),
+    },
+    {
+        "agent_id": "merchant-data-demo",
+        "name": "Demo Data Worker",
+        "capabilities": [
+            "data_processing",
+            "karma_settle",
+            "api.translate",
+            "api.caption",
+            "api.labeling",
+        ],
+        "endpoint": "",
+    },
+]
+
+
 async def _collect_candidate_cards(db: AsyncSession) -> list[dict[str, Any]]:
+    """All Karma-connected directory agents (connect ⇒ discoverable)."""
+    if os.getenv("INTENT_FULFILL_DISABLE_DEMO_MERCHANTS", "0") not in {"1", "true"}:
+        await ensure_directory_merchants(db, _DEMO_MERCHANTS)
+
     cards: list[dict[str, Any]] = []
     result = await db.execute(select(AgentModel).where(AgentModel.is_active == True))  # noqa: E712
     for row in result.scalars().all():
-        cards.append({
-            "agent_id": row.agent_id,
-            "name": row.name,
-            "description": f"Karma {row.role} agent",
-            "capabilities": row.capabilities or [],
-            "skills": [{"id": c, "name": c} for c in (row.capabilities or [])],
-            "endpoint": row.endpoint_url,
-            "karma": {"supports_voucher": True, "supports_evidence": True, "accepted_tokens": ["USDC"]},
-            "_source": "karma_agents",
-        })
+        cards.append(agent_row_to_card(row))
 
-    # Merge external registry if configured
     registry_url = os.getenv("A2A_REGISTRY_URL", "").strip()
     if registry_url:
         try:
@@ -90,50 +120,20 @@ async def _collect_candidate_cards(db: AsyncSession) -> list[dict[str, Any]]:
                     remote = data if isinstance(data, list) else data.get("agents", [])
                     for c in remote:
                         c["_source"] = "a2a_registry"
+                        # Also upsert into directory so future discovery is local-first
+                        aid = str(c.get("agent_id") or "")
+                        if aid:
+                            await connect_agent(
+                                db,
+                                agent_id=aid,
+                                name=str(c.get("name") or aid),
+                                role="worker",
+                                endpoint_url=c.get("endpoint") or c.get("endpoint_url"),
+                                capabilities=list(c.get("capabilities") or []),
+                            )
                         cards.append(c)
         except httpx.HTTPError:
             pass
-
-    # Demo merchants so empty DBs still discover
-    if os.getenv("INTENT_FULFILL_DISABLE_DEMO_MERCHANTS", "0") not in {"1", "true"}:
-        cards.extend([
-            {
-                "agent_id": "merchant-food-demo",
-                "name": "Demo Food Merchant",
-                "capabilities": ["order_food", "karma_settle"],
-                "skills": [{"id": "order_food"}],
-                "endpoint": os.getenv("A2A_DEMO_FOOD_ENDPOINT", ""),
-                "karma": {"supports_voucher": True, "supports_evidence": True},
-                "_source": "demo_catalog",
-            },
-            {
-                "agent_id": "merchant-flight-demo",
-                "name": "Demo Flight Merchant",
-                "capabilities": ["book_flight", "karma_settle"],
-                "skills": [{"id": "book_flight"}],
-                "endpoint": os.getenv("A2A_DEMO_FLIGHT_ENDPOINT", ""),
-                "karma": {"supports_voucher": True, "supports_evidence": True},
-                "_source": "demo_catalog",
-            },
-            {
-                "agent_id": "merchant-hotel-demo",
-                "name": "Demo Hotel Merchant",
-                "capabilities": ["book_hotel", "karma_settle"],
-                "skills": [{"id": "book_hotel"}],
-                "endpoint": os.getenv("A2A_DEMO_HOTEL_ENDPOINT", ""),
-                "karma": {"supports_voucher": True, "supports_evidence": True},
-                "_source": "demo_catalog",
-            },
-            {
-                "agent_id": "merchant-data-demo",
-                "name": "Demo Data Worker",
-                "capabilities": ["data_processing", "karma_settle", "api.translate", "api.caption", "api.labeling"],
-                "skills": [{"id": "api.translate"}, {"id": "api.caption"}, {"id": "api.labeling"}],
-                "endpoint": "",
-                "karma": {"supports_voucher": True, "supports_evidence": True},
-                "_source": "demo_catalog",
-            },
-        ])
     return cards
 
 
@@ -302,9 +302,16 @@ async def fulfill_intent(
         raise HTTPException(400, "amount must be > 0")
 
     cards = await _collect_candidate_cards(db)
-    ranked = rank_candidates(cards, query, limit=10)
+    ranked = rank_candidates(cards, query, limit=30)
+    ranked = await apply_trust_rerank(db, ranked, limit=10)
     plan = build_discovery_plan(query=query, candidates=ranked, buyer_identity_id=buyer_identity_id)
-    timeline.append({"stage": "discover", "ok": True, "candidates": len(ranked)})
+    timeline.append({
+        "stage": "discover",
+        "ok": True,
+        "candidates": len(ranked),
+        "ranking": "capability+trust",
+        "top_trust": (ranked[0].get("trust") if ranked else None),
+    })
 
     seller_id = seller_identity_id or (plan["recommended"]["agent_id"] if plan["recommended"] else None)
     if not seller_id:
@@ -514,7 +521,13 @@ async def fulfill_intent(
             refunded_amount=0.0,
         )
         await mark_voucher_used_if_linked(db, task_id=task_id)
-        timeline.append({"stage": "settled", "ok": True})
+        await record_worker_settlement_outcome(
+            db,
+            worker_agent_id=seller_id,
+            success=True,
+            volume=pay_amount,
+        )
+        timeline.append({"stage": "settled", "ok": True, "reputation_updated": True})
         final_status = "settled"
 
     return {

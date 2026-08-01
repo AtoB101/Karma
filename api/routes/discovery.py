@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import AgentModel, IdentityProfileModel
 from db.session import get_db
+from services.agent_directory import agent_row_to_card, ensure_directory_merchants
+from services.agent_trust import apply_trust_rerank
 from services.intent_discovery import (
     build_discovery_plan,
     parse_intent_for_discovery,
@@ -19,33 +21,50 @@ from services.intent_discovery import (
 
 router = APIRouter()
 
+_DEMO_MERCHANTS = [
+    {
+        "agent_id": "merchant-food-demo",
+        "name": "Demo Food Merchant",
+        "capabilities": ["order_food", "karma_settle"],
+        "endpoint": "",
+    },
+    {
+        "agent_id": "merchant-flight-demo",
+        "name": "Demo Flight Merchant",
+        "capabilities": ["book_flight", "karma_settle"],
+        "endpoint": "",
+    },
+    {
+        "agent_id": "merchant-hotel-demo",
+        "name": "Demo Hotel Merchant",
+        "capabilities": ["book_hotel", "karma_settle"],
+        "endpoint": "",
+    },
+    {
+        "agent_id": "merchant-data-demo",
+        "name": "Demo Data Worker",
+        "capabilities": [
+            "data_processing",
+            "karma_settle",
+            "api.translate",
+            "api.caption",
+            "api.labeling",
+        ],
+        "endpoint": "",
+    },
+]
+
 
 class DiscoverIntentRequest(BaseModel):
     requirement_text: str = Field(min_length=1, max_length=32000)
     buyer_identity_id: str | None = None
     amount: float | None = Field(default=None, gt=0)
     limit: int = Field(default=10, ge=1, le=50)
-    # Optional external A2A registry; empty → skip
     registry_url: str | None = None
     include_local_agents: bool = True
     include_did_projections: bool = True
-
-
-def _agent_row_to_card(row: AgentModel) -> dict[str, Any]:
-    return {
-        "agent_id": row.agent_id,
-        "name": row.name,
-        "description": f"Karma {row.role} agent",
-        "capabilities": row.capabilities or [],
-        "skills": [{"id": c, "name": c} for c in (row.capabilities or [])],
-        "endpoint": row.endpoint_url,
-        "karma": {
-            "supports_voucher": True,
-            "supports_evidence": True,
-            "accepted_tokens": ["USDC"],
-        },
-        "_source": "karma_agents",
-    }
+    include_demo_merchants: bool = True
+    apply_trust_ranking: bool = True
 
 
 def _identity_to_card(row: IdentityProfileModel) -> dict[str, Any]:
@@ -88,10 +107,8 @@ async def discover_for_intent(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Assistant entrypoint: understand user requirement → find Karma agents/merchants.
-
-    Returns ranked candidates + a trade_launch_hint so the assistant can continue into
-    A2A negotiate → voucher → evidence → settle without the user naming a seller.
+    Discover Karma-connected agents that can fulfill a requirement, then rank by
+    capability match + reputation / success rate / settlement volume.
     """
     try:
         query = parse_intent_for_discovery(body.requirement_text, amount=body.amount)
@@ -100,10 +117,13 @@ async def discover_for_intent(
 
     cards: list[dict[str, Any]] = []
 
+    if body.include_demo_merchants:
+        await ensure_directory_merchants(db, _DEMO_MERCHANTS)
+
     if body.include_local_agents:
         result = await db.execute(select(AgentModel).where(AgentModel.is_active == True))  # noqa: E712
         for row in result.scalars().all():
-            cards.append(_agent_row_to_card(row))
+            cards.append(agent_row_to_card(row))
 
     if body.include_did_projections:
         result = await db.execute(
@@ -120,7 +140,6 @@ async def discover_for_intent(
     if registry_url:
         cards.extend(await _fetch_registry_cards(registry_url, query.capabilities, body.limit * 2))
 
-    # Dedupe by agent_id
     seen: set[str] = set()
     unique: list[dict[str, Any]] = []
     for c in cards:
@@ -130,10 +149,20 @@ async def discover_for_intent(
         seen.add(aid)
         unique.append(c)
 
-    ranked = rank_candidates(unique, query, limit=body.limit)
+    ranked = rank_candidates(unique, query, limit=max(body.limit * 3, 30))
+    if body.apply_trust_ranking:
+        ranked = await apply_trust_rerank(db, ranked, limit=body.limit)
+    else:
+        ranked = ranked[: body.limit]
+
     plan = build_discovery_plan(
         query=query,
         candidates=ranked,
         buyer_identity_id=body.buyer_identity_id,
     )
+    plan["ranking"] = {
+        "mode": "capability+trust" if body.apply_trust_ranking else "capability",
+        "signals": ["skill_match", "reputation_score", "success_rate", "settled_volume", "dispute_rate"],
+    }
+    await db.commit()
     return plan

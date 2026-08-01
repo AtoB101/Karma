@@ -189,7 +189,7 @@ def build_discovery_plan(
 ) -> dict[str, Any]:
     recommended = candidates[0] if candidates else None
     next_steps = [
-        "review_candidates",
+        "review_trust_signals",
         "a2a_negotiate_with_recommended",
         "confirm_task_eip712",
         "create_or_accept_voucher",
