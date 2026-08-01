@@ -13,7 +13,8 @@ fraud rules, or dispute weighting — those belong in the private risk engine re
 
 - Docs: `docs/IMPORTANT_FIELDS_STANDARD_V1.md`
 - HTTP: `GET /v1/standards/important-fields`（`?group=daily_commerce`）
-- Match: `POST /v1/standards/important-fields/match`（双方 hash 一致才可封包上链）
+- Secure path: protocol **capture** → AES-GCM `karma1.` submit → **triple match**
+  (`buyer == seller == protocol`) via `POST …/match-secure`
 
 Align runtime tooling with:
 

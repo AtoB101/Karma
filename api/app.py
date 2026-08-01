@@ -369,12 +369,12 @@ async def info():
         "important_fields_standard": {
             "catalog": "/v1/standards/important-fields",
             "scenes": "/v1/standards/important-fields/scenes",
-            "match": "/v1/standards/important-fields/match",
+            "captures": "/v1/standards/important-fields/captures",
+            "match_secure": "/v1/standards/important-fields/match-secure",
             "doc": "docs/IMPORTANT_FIELDS_STANDARD_V1.md",
             "note": (
-                "Scenes: market_vertical(11) + daily_commerce(ride/hotel/food/flight) "
-                "+ b2b_digital(procurement/API billing). Both agents submit ImportantFields; "
-                "MATCHED hash required before evidence seal/on-chain."
+                "Protocol captures fields during interaction; parties submit AES-GCM ciphertext; "
+                "MATCHED only when buyer_hash == seller_hash == protocol_hash."
             ),
         },
         "verify_auth": {
