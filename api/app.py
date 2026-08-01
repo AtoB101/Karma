@@ -413,6 +413,14 @@ async def info():
                 "boundaries so counterparties know what can auto-run vs needs owner Yes/No."
             ),
         },
+        "real_scenario_loop": {
+            "script": "scripts/acceptance/real_commerce_scenario_loop.sh",
+            "doc": "docs/REAL_SCENARIO_LOOP_V1.md",
+            "note": (
+                "Runnable offline loop: connect → owner confirm → Important Fields MATCHED → "
+                "voucher → SETTLED for food/ride/hotel/flight/procurement."
+            ),
+        },
         "verify_auth": {
             "enforcement": bool(settings.auth_enforce_protected_routes),
             "post_verify_requires_credentials_when_enforcement_on": True,
