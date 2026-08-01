@@ -56,6 +56,8 @@ def test_merchant_template_boundary_complete():
     assert boundary["capability_boundary"]["service_specs"]["food_delivery"]
     assert boundary["capability_boundary"]["do_not"]
     assert boundary["responsibility_boundary"]["compliance_flags"]["no_fund_custody"] is True
+    # acknowledged defaults false until P1 ack is recorded
+    assert boundary["responsibility_boundary"]["acknowledged"] is False
     conf = boundary["confirmation_boundary"]
     assert conf["role"] == "seller"
     assert "accept_order" in (conf["must_confirm_steps"] + conf["policy_auto_steps"] + conf["auto_ok_steps"])

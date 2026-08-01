@@ -42,6 +42,7 @@ async def test_fulfill_intent_auto_complete_settles(db_session, monkeypatch):
         negotiate_a2a=False,
         auto_fund_capacity=True,
         require_owner_confirmation=False,
+        auto_lock_important_fields=True,
     )
     await db_session.commit()
     assert result["status"] == "settled"
@@ -67,6 +68,7 @@ async def test_fulfill_intent_stops_at_in_progress(db_session, monkeypatch):
         auto_complete=False,
         negotiate_a2a=False,
         require_owner_confirmation=False,
+        require_important_fields_match=False,
     )
     await db_session.commit()
     assert result["status"] == "in_progress"
@@ -102,7 +104,10 @@ async def test_fulfill_pauses_for_owner_confirmation(db_session, monkeypatch):
         negotiate_a2a=False,
         require_owner_confirmation=True,
         confirmation_session_id=sid,
+        auto_lock_important_fields=True,
     )
     await db_session.commit()
     assert result["status"] == "settled"
     assert any(t["stage"] == "owner_confirmation" and t["ok"] for t in result["timeline"])
+    assert any(t["stage"] == "important_fields_lock" and t["ok"] for t in result["timeline"])
+    assert result["important_fields_capture_id"]

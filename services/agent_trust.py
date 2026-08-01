@@ -174,6 +174,13 @@ async def apply_trust_rerank(
         if c.get("boundary_complete") is False:
             bonus = round(bonus - 1.5, 3)
             trust_reasons = list(trust_reasons) + ["boundary_incomplete"]
+        # P1 readiness: identity/owner/capability/responsibility verified against records
+        if c.get("p1_ready") is True:
+            bonus = round(bonus + 2.0, 3)
+            trust_reasons = list(trust_reasons) + ["p1_ready"]
+        elif c.get("p1_ready") is False:
+            bonus = round(bonus - 2.0, 3)
+            trust_reasons = list(trust_reasons) + ["p1_not_ready"]
         capability_score = float(c.get("score") or 0.0)
         final = round(capability_score + bonus, 3)
         item = dict(c)

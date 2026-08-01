@@ -161,6 +161,11 @@ def _dig(obj: Any, path: str) -> Any:
     return cur
 
 
+def validate_service_specs_for_industries(industry_ids: list[str], service_specs: Any) -> list[str]:
+    """Public wrapper — used by P1 readiness to re-verify merchant specs against records."""
+    return _validate_service_specs(industry_ids, service_specs)
+
+
 def _validate_service_specs(industry_ids: list[str], service_specs: Any) -> list[str]:
     """Enforce per-industry hard metrics (content/type/area/pricing/hours/SLA)."""
     errors: list[str] = []

@@ -36,6 +36,12 @@ class AgentModel(Base):
     capabilities:  Mapped[list]     = mapped_column(JSON, default=list)
     is_active:     Mapped[bool]     = mapped_column(Boolean, default=True)
     registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # P1 onboarding — identity class, owner bind, readiness (anti-forgery / counterparty verify)
+    identity_class:     Mapped[str|None] = mapped_column(String(32), nullable=True)
+    owner_identity_id:  Mapped[str|None] = mapped_column(String(128), nullable=True, index=True)
+    boundary_hash:      Mapped[str|None] = mapped_column(String(80), nullable=True)
+    p1_ready:           Mapped[bool]     = mapped_column(Boolean, default=False)
+    onboarding_meta:    Mapped[dict]     = mapped_column(JSON, default=dict)
 
 
 # ---------------------------------------------------------------------------

@@ -353,3 +353,62 @@ def capture_from_interaction(
         "integrity": "AES-GCM AAD(capture_id) + protocol HMAC",
     }
     return out
+
+
+# Scenes that must lock Important Fields before voucher/settle on the fulfill spine
+FULFILL_IF_REQUIRED_SCENES = frozenset(
+    {
+        "ride_hailing",
+        "food_delivery",
+        "hotel_booking",
+        "flight_booking",
+        "b2b_procurement",
+        "data_api_billing",
+        "logistics_delivery",
+        "software_development",
+    }
+)
+
+
+def scene_requires_important_fields(scene_id: str) -> bool:
+    return scene_id in FULFILL_IF_REQUIRED_SCENES
+
+
+def require_matched_capture(*, capture_id: str, scene_id: str) -> dict[str, Any]:
+    """Assert an existing capture is MATCHED for the given scene."""
+    pub = get_capture_public(capture_id)
+    if pub.get("scene_id") != scene_id:
+        raise CaptureError(
+            f"capture scene {pub.get('scene_id')} does not match required scene {scene_id}"
+        )
+    if pub.get("status") != "MATCHED":
+        raise CaptureError(
+            f"important fields capture status is {pub.get('status')}, need MATCHED"
+        )
+    return pub
+
+
+def auto_triple_lock_fields(
+    *,
+    scene_id: str,
+    fields: dict[str, Any],
+    interaction_ref: str,
+) -> dict[str, Any]:
+    """Test/demo helper: protocol capture + both parties encrypt-submit + triple MATCHED.
+
+    Production callers should capture/submit out-of-band and pass capture_id instead.
+    """
+    created = capture_from_interaction(
+        scene_id=scene_id,
+        interaction_ref=interaction_ref,
+        extracted_fields=fields,
+        source="fulfill_auto_lock",
+    )
+    cid = created["capture_id"]
+    for role, nonce in (("buyer", "auto-buyer-" + secrets.token_hex(4)), ("seller", "auto-seller-" + secrets.token_hex(4))):
+        ct = encrypt_for_capture(cid, fields)["ciphertext"]
+        submit_encrypted(capture_id=cid, role=role, ciphertext=ct, nonce=nonce)
+    matched = finalize_triple_match(cid)
+    if not matched.get("triple_match"):
+        raise CaptureError("auto_triple_lock_fields failed to MATCH")
+    return matched

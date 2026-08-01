@@ -12,6 +12,9 @@
 接入时同步发布 **能力 / 责任 / 确认** 三边界（见 `docs/AGENT_BOUNDARY_STANDARD_V1.md`），  
 保证现实场景里该人工确认的才打扰主人，其余自动交付增效。
 
+P1 安全入驻（身份 / 主人绑定 / 履约规格 / 责任签认 / 防伪造）见  
+`docs/AGENT_P1_ONBOARDING_V1.md`；对端核验 `GET /v1/agents/{id}/p1-status`。
+
 行业模板与 **Important Fields `scene_id`** 对齐（叫车/酒店/外卖/机票、B2B 采购、API 计费等）。
 
 ## 三种身份

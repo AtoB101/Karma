@@ -214,8 +214,13 @@ def materialize_agent_boundary(
     owner_identity_id: str | None = None,
     responsibility_notes_zh: str | None = None,
     allows_delegation: bool = False,
+    responsibility_acknowledged: bool = False,
 ) -> dict[str, Any]:
-    """Build the public boundary card for a connected agent."""
+    """Build the public boundary card for a connected agent.
+
+    ``responsibility_acknowledged`` defaults False — must be set only after a
+    verified P1 responsibility ack (anti-forgery).
+    """
     caps = list(capabilities or [])
     card = dict(profile_card or {})
     scenes = list(scene_ids or [])
@@ -257,7 +262,7 @@ def materialize_agent_boundary(
 
     responsibility_boundary = {
         "owner_identity_id": owner_identity_id or agent_id,
-        "acknowledged": True,
+        "acknowledged": bool(responsibility_acknowledged),
         "boundary_id": f"rb_{agent_id}",
         "allows_delegation": bool(allows_delegation),
         "compliance_flags": compliance,
@@ -328,6 +333,8 @@ def materialize_from_onboarding_result(
     materialized: dict[str, Any],
     *,
     agent_id: str,
+    owner_identity_id: str | None = None,
+    responsibility_acknowledged: bool = False,
 ) -> dict[str, Any]:
     connect = materialized.get("agent_connect") or {}
     card = materialized.get("profile_card") or {}
@@ -340,5 +347,6 @@ def materialize_from_onboarding_result(
         capabilities=list(connect.get("capabilities") or []),
         scene_ids=list(hints.get("scene_ids") or card.get("industry_ids") or []),
         profile_card=card,
-        owner_identity_id=agent_id,
+        owner_identity_id=owner_identity_id or agent_id,
+        responsibility_acknowledged=responsibility_acknowledged,
     )

@@ -2,12 +2,16 @@
 
 Agents should only bother the owner at OWNER_CONFIRM (or POLICY_AUTO when
 policy is missing). After owner says yes, accept/execute may proceed.
+
+Sessions persist to ``.karma_data/confirmation_sessions.json`` for single-node
+scenario runs (multi-instance still needs Redis/DB).
 """
 from __future__ import annotations
 
+import json
 import secrets
 import threading
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -19,9 +23,13 @@ CATALOG_PATH = (
     / "evidence-schema"
     / "human-confirmation-policy.v1.json"
 )
+_STORE_PATH = (
+    Path(__file__).resolve().parents[1] / ".karma_data" / "confirmation_sessions.json"
+)
 
 _LOCK = threading.Lock()
 _SESSIONS: dict[str, "ConfirmationSession"] = {}
+_LOADED = False
 
 
 class ConfirmationPolicyError(ValueError):
@@ -271,9 +279,57 @@ class ConfirmationSession:
         }
 
 
+def _ensure_sessions_loaded() -> None:
+    global _LOADED
+    if _LOADED:
+        return
+    with _LOCK:
+        if _LOADED:
+            return
+        if _STORE_PATH.is_file():
+            try:
+                raw = json.loads(_STORE_PATH.read_text(encoding="utf-8"))
+                if isinstance(raw, dict):
+                    for sid, body in raw.items():
+                        if not isinstance(body, dict):
+                            continue
+                        _SESSIONS[str(sid)] = ConfirmationSession(
+                            session_id=str(body.get("session_id") or sid),
+                            scene_id=str(body.get("scene_id") or ""),
+                            role=str(body.get("role") or "buyer"),
+                            step=str(body.get("step") or ""),
+                            owner_agent_id=str(body.get("owner_agent_id") or ""),
+                            prompt_zh=str(body.get("prompt_zh") or ""),
+                            context=dict(body.get("context") or {}),
+                            status=str(body.get("status") or "PENDING"),
+                            created_at=str(body.get("created_at") or ""),
+                            decided_at=body.get("decided_at"),
+                            decision_note=body.get("decision_note"),
+                            interaction_ref=body.get("interaction_ref"),
+                            max_amount=(
+                                float(body["max_amount"])
+                                if body.get("max_amount") is not None
+                                else None
+                            ),
+                        )
+            except Exception:  # noqa: BLE001
+                pass
+        _LOADED = True
+
+
+def _persist_sessions_unlocked() -> None:
+    _STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {sid: asdict(sess) for sid, sess in _SESSIONS.items()}
+    _STORE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def reset_confirmation_sessions() -> None:
+    global _LOADED
     with _LOCK:
         _SESSIONS.clear()
+        _LOADED = True
+        if _STORE_PATH.is_file():
+            _STORE_PATH.unlink(missing_ok=True)
 
 
 def create_confirmation_session(
@@ -326,12 +382,15 @@ def create_confirmation_session(
         interaction_ref=interaction_ref,
         max_amount=max_amount,
     )
+    _ensure_sessions_loaded()
     with _LOCK:
         _SESSIONS[sid] = sess
+        _persist_sessions_unlocked()
     return {"skipped": False, **sess.public(), "gate": gate}
 
 
 def get_confirmation_session(session_id: str) -> dict[str, Any]:
+    _ensure_sessions_loaded()
     with _LOCK:
         sess = _SESSIONS.get(session_id)
     if not sess:
@@ -348,6 +407,7 @@ def decide_confirmation_session(
 ) -> dict[str, Any]:
     if not actor_agent_id or not str(actor_agent_id).strip():
         raise ConfirmationPolicyError("actor_agent_id is required to decide a confirmation session")
+    _ensure_sessions_loaded()
     with _LOCK:
         sess = _SESSIONS.get(session_id)
         if not sess:
@@ -359,6 +419,7 @@ def decide_confirmation_session(
         sess.status = "CONFIRMED" if confirm else "REJECTED"
         sess.decided_at = _iso_now()
         sess.decision_note = note
+        _persist_sessions_unlocked()
         out = sess.public()
     out["next_zh"] = (
         "主人已确认，Agent 可继续接单/锁字段/执行/结算"
@@ -383,6 +444,7 @@ def assert_step_allowed(
 
     Binds owner + amount; consumes session (USED) so it cannot be replayed.
     """
+    _ensure_sessions_loaded()
     gate = resolve_gate(
         scene_id=scene_id,
         role=role,
@@ -419,6 +481,7 @@ def assert_step_allowed(
         if consume:
             sess_obj.status = "USED"
             sess_obj.decided_at = sess_obj.decided_at or _iso_now()
+            _persist_sessions_unlocked()
         out_sess = sess_obj.public()
     return {
         "allowed": True,

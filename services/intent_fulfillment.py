@@ -44,6 +44,13 @@ from services.human_confirmation_policy import (
     plan_confirmations,
     task_type_to_scene_id,
 )
+from services.important_fields_capture import (
+    CaptureError,
+    auto_triple_lock_fields,
+    require_matched_capture,
+    scene_requires_important_fields,
+)
+from services.important_fields_standard import example_for_scene
 from services.intent_discovery import (
     build_discovery_plan,
     parse_intent_for_discovery,
@@ -303,14 +310,19 @@ async def fulfill_intent(
     policy_auto_allowed: bool = False,
     scene_id: str | None = None,
     confirmation_context: dict[str, Any] | None = None,
+    require_important_fields_match: bool | None = None,
+    important_fields_capture_id: str | None = None,
+    important_fields: dict[str, Any] | None = None,
+    auto_lock_important_fields: bool = False,
 ) -> dict[str, Any]:
     """
-    Run discover → negotiate → voucher → settlement (+ optional full settle).
+    Run discover → owner confirm → Important Fields MATCHED → negotiate →
+    voucher → settlement (+ optional full settle).
 
-    Real-world gate: before accepting/locking an order, buyer OWNER_CONFIRM steps
-    pause with status ``awaiting_owner_confirmation`` until the owner says Yes.
-    Pass a CONFIRMED ``confirmation_session_id`` (or ``require_owner_confirmation=False``
-    for demos) to proceed.
+    Real-world gates:
+    - buyer OWNER_CONFIRM on accept_order → ``awaiting_owner_confirmation``
+    - commerce/B2B scenes require Important Fields triple MATCHED →
+      ``awaiting_important_fields_match`` (or auto-lock in demo envs)
 
     Returns a stage timeline so assistants can show progress and resume.
     """
@@ -371,7 +383,7 @@ async def fulfill_intent(
         # Client-supplied policy_auto_allowed is intentionally ignored (anti-bypass)
         _ = policy_auto_allowed
 
-    # Owner Yes/No gate — money / irreversible commit (accept_order)
+    # Owner Yes/No gate — validate first without consuming (IF gate may still pause)
     if require_owner_confirmation:
         confirm_ctx = {
             "amount": pay_amount,
@@ -380,7 +392,6 @@ async def fulfill_intent(
             "seller": recommended.get("name") or seller_id,
             **(confirmation_context or {}),
         }
-        # Force amount in context to the pay_amount being fulfilled (anti-tamper)
         confirm_ctx["amount"] = pay_amount
         try:
             gate_ok = assert_step_allowed(
@@ -391,7 +402,7 @@ async def fulfill_intent(
                 policy_auto_allowed=effective_policy_auto,
                 expected_owner_agent_id=buyer_identity_id,
                 amount=pay_amount,
-                consume=True,
+                consume=False,
             )
             timeline.append({
                 "stage": "owner_confirmation",
@@ -426,7 +437,7 @@ async def fulfill_intent(
             })
             return {
                 "status": "awaiting_owner_confirmation",
-                "flow": "intent → discover → (pause) owner Yes/No → voucher → settle",
+                "flow": "intent → discover → owner Yes/No → IF lock → voucher → settle",
                 "scene_id": resolved_scene,
                 "intent": query.to_dict(),
                 "discovery": {
@@ -453,6 +464,86 @@ async def fulfill_intent(
                     "confirmation_session_id",
                 ],
             }
+
+    # Important Fields triple-match gate (real commerce / B2B)
+    must_if = (
+        scene_requires_important_fields(resolved_scene)
+        if require_important_fields_match is None
+        else bool(require_important_fields_match)
+    )
+    fields_lock: dict[str, Any] | None = None
+    if must_if:
+        try:
+            if important_fields_capture_id:
+                fields_lock = require_matched_capture(
+                    capture_id=important_fields_capture_id,
+                    scene_id=resolved_scene,
+                )
+            elif auto_lock_important_fields and allow_demo_confirmation_bypass():
+                fields = dict(important_fields or example_for_scene(resolved_scene)["fields"])
+                if "amount" in fields:
+                    fields["amount"] = f"{pay_amount:.2f}"
+                fields_lock = auto_triple_lock_fields(
+                    scene_id=resolved_scene,
+                    fields=fields,
+                    interaction_ref=f"fulfill:{buyer_identity_id}:{seller_id}",
+                )
+            else:
+                raise CaptureError("MATCHED important_fields_capture_id required")
+            timeline.append({
+                "stage": "important_fields_lock",
+                "ok": True,
+                "capture_id": fields_lock.get("capture_id"),
+                "fields_hash": fields_lock.get("protocol_fields_hash")
+                or fields_lock.get("fields_hash"),
+                "status": fields_lock.get("status"),
+            })
+        except (CaptureError, Exception) as exc:  # noqa: BLE001
+            example = None
+            try:
+                example = example_for_scene(resolved_scene)
+            except Exception:  # noqa: BLE001
+                example = None
+            timeline.append({
+                "stage": "important_fields_lock",
+                "ok": False,
+                "awaiting": True,
+                "error": str(exc),
+            })
+            return {
+                "status": "awaiting_important_fields_match",
+                "flow": "intent → discover → owner confirm → IF triple-match → voucher → settle",
+                "scene_id": resolved_scene,
+                "intent": query.to_dict(),
+                "discovery": {"recommended": recommended, "candidates": ranked},
+                "buyer_identity_id": buyer_identity_id,
+                "seller_identity_id": seller_id,
+                "amount": pay_amount,
+                "confirmation_session_id": confirmation_session_id,
+                "important_fields_example": example,
+                "timeline": timeline,
+                "next_steps": [
+                    "POST /v1/standards/important-fields/captures with extracted fields",
+                    "buyer+seller POST …/submit-encrypted (karma1. ciphertext)",
+                    "POST …/match-secure → status MATCHED",
+                    "retry fulfill-intent with important_fields_capture_id "
+                    "(or auto_lock_important_fields=true in development)",
+                ],
+                "detail": str(exc),
+            }
+
+    # Consume owner confirmation only after IF gate passes
+    if require_owner_confirmation and confirmation_session_id:
+        assert_step_allowed(
+            scene_id=resolved_scene,
+            role="buyer",
+            step="accept_order",
+            confirmation_session_id=confirmation_session_id,
+            policy_auto_allowed=effective_policy_auto,
+            expected_owner_agent_id=buyer_identity_id,
+            amount=pay_amount,
+            consume=True,
+        )
 
     # Ensure agents exist for contract/settlement IDs
     await ensure_agent_for_identity(db, buyer_identity_id, role="buyer")
@@ -503,10 +594,18 @@ async def fulfill_intent(
     progress_spec = {
         "source": "intent_fulfillment",
         "discovery_skills": query.skills,
+        "scene_id": resolved_scene,
         "a2a_negotiation": {
             "mode": negotiation.get("mode"),
             "task_id": negotiation.get("task_id"),
             "ok": negotiation.get("ok"),
+        },
+        "important_fields": {
+            "capture_id": (fields_lock or {}).get("capture_id"),
+            "fields_hash": (fields_lock or {}).get("protocol_fields_hash")
+            or (fields_lock or {}).get("fields_hash"),
+            "status": (fields_lock or {}).get("status"),
+            "required": must_if,
         },
     }
     contract = TaskContract(
@@ -667,7 +766,7 @@ async def fulfill_intent(
 
     return {
         "status": final_status,
-        "flow": "intent → discover → owner confirm → negotiate → voucher → evidence → settle",
+        "flow": "intent → discover → owner confirm → IF lock → negotiate → voucher → evidence → settle",
         "scene_id": resolved_scene,
         "intent": query.to_dict(),
         "discovery": {
@@ -682,6 +781,9 @@ async def fulfill_intent(
         "receipt_id": receipt_id,
         "amount": pay_amount,
         "confirmation_session_id": confirmation_session_id,
+        "important_fields_capture_id": (fields_lock or {}).get("capture_id"),
+        "important_fields_hash": (fields_lock or {}).get("protocol_fields_hash")
+        or (fields_lock or {}).get("fields_hash"),
         "timeline": timeline,
         "next_steps": (
             []
