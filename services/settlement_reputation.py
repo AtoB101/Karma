@@ -374,6 +374,11 @@ def compute_scene_reputation_delta(
     }
 
 
+def _agent_rep_key(agent_id: str) -> str:
+    """Disk/index key — commitment only; never persist raw agent_id."""
+    return _sha256_hex(f"agent|{agent_id}")
+
+
 def record_scene_reputation(
     *,
     agent_id: str,
@@ -382,8 +387,15 @@ def record_scene_reputation(
     success: bool,
 ) -> dict[str, Any]:
     _ensure_loaded()
+    key = _agent_rep_key(agent_id)
     with _LOCK:
-        entry = dict(_SCENE_REP.get(agent_id) or {"agent_id": agent_id, "scenes": {}})
+        entry = dict(
+            _SCENE_REP.get(key)
+            or {"agent_commitment": key, "scenes": {}}
+        )
+        # Drop legacy plaintext agent_id if present from older store versions
+        entry.pop("agent_id", None)
+        entry["agent_commitment"] = key
         scenes = dict(entry.get("scenes") or {})
         sc = dict(
             scenes.get(scene_id)
@@ -402,19 +414,27 @@ def record_scene_reputation(
         scenes[scene_id] = sc
         entry["scenes"] = scenes
         entry["updated_at"] = _utcnow_iso()
-        _SCENE_REP[agent_id] = entry
+        _SCENE_REP[key] = entry
+        # Migrate away from legacy plaintext keys
+        if agent_id in _SCENE_REP:
+            _SCENE_REP.pop(agent_id, None)
         _persist_unlocked()
     return public_agent_reputation(agent_id)
 
 
-def public_agent_reputation(agent_id: str) -> dict[str, Any]:
-    """Public reputation view — aggregates + commitments, no PII."""
+def public_agent_reputation(
+    agent_id: str, *, include_agent_id: bool = False
+) -> dict[str, Any]:
+    """Public reputation view — aggregates + commitments, no PII by default."""
     _ensure_loaded()
+    agent_commitment = _agent_rep_key(agent_id)
     with _LOCK:
-        entry = _SCENE_REP.get(agent_id) or {"scenes": {}}
+        entry = (
+            _SCENE_REP.get(agent_commitment)
+            or _SCENE_REP.get(agent_id)  # legacy plaintext key
+            or {"scenes": {}}
+        )
         scenes = dict(entry.get("scenes") or {})
-    # Commit agent_id so public index doesn't require raw id in all contexts
-    agent_commitment = _sha256_hex(f"agent|{agent_id}")
     scene_public = []
     total_settled = 0
     total_success = 0
@@ -440,15 +460,18 @@ def public_agent_reputation(agent_id: str) -> dict[str, Any]:
                 ),
             }
         )
-    return {
+    out: dict[str, Any] = {
         "agent_commitment": agent_commitment,
-        "agent_id": agent_id,  # directory still needs id; omit in stricter public export
         "total_settled": total_settled,
         "total_success": total_success,
         "success_rate": round(total_success / total_settled, 4) if total_settled else None,
         "scenes": scene_public,
         "privacy_note_zh": "公开侧为聚合与承诺哈希；明细金额/身份仅密文可查",
     }
+    # Directory/lookup may opt in; default public export omits raw agent_id
+    if include_agent_id:
+        out["agent_id"] = agent_id
+    return out
 
 
 def seal_settlement_attestation(
@@ -560,6 +583,8 @@ def seal_settlement_attestation(
         role="protocol",
     )
 
+    # Persist commitments + ciphertext only — no plaintext amount / party ids
+    # (adversarial disk scrape must not recover private settle detail).
     record = {
         "attestation_id": att_id,
         "task_id": task_id,
@@ -569,7 +594,6 @@ def seal_settlement_attestation(
         "scope_hash": scope,
         "proof_hash": proof,
         "reputation_delta_commitment": rep["reputation_delta_commitment"],
-        "reputation_delta": rep["delta"],  # internal only — stripped from public()
         "policy_mode": pol.get("mode"),
         "agent_auto_verified": bool(agent_auto_verified),
         "settled_at": _utcnow_iso(),
@@ -579,8 +603,8 @@ def seal_settlement_attestation(
             "protocol": cipher_protocol,
         },
         "outcome_body": outcome_body,
-        "seller_agent_id": seller_agent_id,
-        "buyer_agent_id": buyer_agent_id,
+        "buyer_commitment": outcome_body["buyer_commitment"],
+        "seller_commitment": outcome_body["seller_commitment"],
     }
     _ensure_loaded()
     with _LOCK:

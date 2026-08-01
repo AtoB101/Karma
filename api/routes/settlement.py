@@ -610,9 +610,9 @@ async def buyer_accept_settlement(
         resolve_gate,
     )
 
-    # Only hard-require when caller names a scene whose mode is OWNER_CONFIRM
-    # (or high-risk). POLICY_AUTO settle remains seamless without a session.
-    settle_scene = (scene_id or "").strip()
+    # Hard-require OWNER_CONFIRM / high-risk using settlement scene (query OR stored).
+    # Omitting scene_id must not bypass the gate (adversarial soft-spot closed).
+    settle_scene = (settle_scene_hint or "").strip()
     if settle_scene:
         settle_gate = resolve_gate(
             scene_id=settle_scene, role="buyer", step="buyer_accept_settle"

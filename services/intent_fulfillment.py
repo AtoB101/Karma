@@ -1133,6 +1133,35 @@ async def fulfill_intent(
 
     final_status = "in_progress"
     receipt_id = None
+    # Soft-path kill-switch: auto_complete skips P7 delivery + buyer-accept and
+    # can mint SETTLED without real fulfillment. Allowed only in demo/test envs.
+    if auto_complete and not allow_demo_confirmation_bypass():
+        timeline.append(
+            {
+                "stage": "auto_complete_blocked",
+                "ok": False,
+                "error": "auto_complete forbidden outside development/test",
+            }
+        )
+        return {
+            "status": "auto_complete_forbidden",
+            "flow": "intent → discover → owner confirm → IF lock → voucher → evidence → settle",
+            "scene_id": resolved_scene,
+            "high_risk": high_risk,
+            "task_id": task_id,
+            "voucher_id": voucher.voucher_id,
+            "amount": pay_amount,
+            "timeline": timeline,
+            "detail": (
+                "auto_complete=true is a demo shortcut that skips delivery verification "
+                "and buyer-accept; refused when APP_ENV is not development/dev/local/test"
+            ),
+            "next_steps": [
+                "seller submits delivery evidence",
+                "POST /v1/delivery-verification/... until VERIFIED",
+                "POST /v1/settlement/{task_id}/buyer-accept (with scene_id)",
+            ],
+        }
     if auto_complete:
         state = await apply_settlement_transition(
             db=db, store=store, state=state, target_status=TaskStatus.DELIVERED,

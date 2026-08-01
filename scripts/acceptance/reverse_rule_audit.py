@@ -748,6 +748,29 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if not (ROOT / "docs/SETTLEMENT_REPUTATION_P8_V1.md").is_file():
         _fail("missing docs/SETTLEMENT_REPUTATION_P8_V1.md", failures)
 
+    # Adversarial hardenings — soft-path / privacy / auth kill-switches
+    settle = _read("api/routes/settlement.py")
+    if "settle_scene = (settle_scene_hint" not in settle:
+        _fail("buyer-accept must gate on settle_scene_hint (omit scene_id bypass closed)", failures)
+    fulfill = _read("services/intent_fulfillment.py")
+    if "auto_complete_forbidden" not in fulfill:
+        _fail("intent_fulfillment missing auto_complete_forbidden prod kill-switch", failures)
+    p8svc = _read("services/settlement_reputation.py")
+    if "include_agent_id" not in p8svc:
+        _fail("public_agent_reputation must support include_agent_id privacy default", failures)
+    if '"buyer_agent_id": buyer_agent_id' in p8svc and "buyer_commitment" not in p8svc:
+        _fail("P8 persist must not keep plaintext buyer_agent_id without commitments", failures)
+    p8routes = _read("api/routes/settlement_reputation.py")
+    if "get_current_agent_id" not in p8routes:
+        _fail("settlement_reputation decrypt/seal must require get_current_agent_id", failures)
+    standards = _read("api/routes/standards.py")
+    if "get_current_agent_id" not in standards or "get_capture_session_key" not in standards:
+        _fail("important-fields session-key must require get_current_agent_id", failures)
+    if not (ROOT / "tests/unit/test_adversarial_p1_p8.py").is_file():
+        _fail("missing tests/unit/test_adversarial_p1_p8.py", failures)
+    if not (ROOT / "scripts/acceptance/adversarial_fullchain_suite.py").is_file():
+        _fail("missing scripts/acceptance/adversarial_fullchain_suite.py", failures)
+
 
 def main() -> int:
     failures: list[str] = []
