@@ -132,6 +132,61 @@ def check_acceptance_scripts_executable(failures: list[str]) -> None:
             _fail(f"missing acceptance script {rel}", failures)
 
 
+def check_important_fields_secure_path(failures: list[str]) -> None:
+    """KSA-IF: protocol capture + encrypted submit + triple match must stay wired."""
+    catalog = ROOT / "packages/evidence-schema/important-fields-standard.v1.json"
+    if not catalog.is_file():
+        _fail("missing important-fields-standard.v1.json", failures)
+    else:
+        text = catalog.read_text(encoding="utf-8")
+        if "karma-important-fields-v1" not in text:
+            _fail("important-fields catalog missing schema_version marker", failures)
+        for scene in (
+            "ride_hailing",
+            "hotel_booking",
+            "food_delivery",
+            "flight_booking",
+            "b2b_procurement",
+            "data_api_billing",
+        ):
+            if f'"scene_id": "{scene}"' not in text and f'"scene_id":"{scene}"' not in text:
+                _fail(f"important-fields catalog missing scene {scene}", failures)
+
+    app = _read("api/app.py")
+    if 'prefix="/v1/standards"' not in app:
+        _fail("api/app.py missing /v1/standards router", failures)
+
+    standards = _read("api/routes/standards.py")
+    for needle in (
+        "match-secure",
+        "submit-encrypted",
+        "/important-fields/captures",
+        "finalize_triple_match",
+    ):
+        if needle not in standards:
+            _fail(f"standards route missing secure path piece: {needle}", failures)
+
+    capture = _read("services/important_fields_capture.py")
+    for needle in (
+        "finalize_triple_match",
+        "submit_encrypted",
+        "MAX_ATTEMPTS_PER_CAPTURE",
+        "nonce already used",
+        "karma1.",
+    ):
+        if needle not in capture:
+            _fail(f"important_fields_capture missing guard: {needle}", failures)
+
+    crypto = _read("services/important_fields_crypto.py")
+    for needle in ("AESGCM", "capture_session_key", "PREFIX", "karma1."):
+        if needle not in crypto:
+            _fail(f"important_fields_crypto missing {needle}", failures)
+
+    # Secure submit must reject plaintext envelopes
+    if 'startswith("karma1.")' not in capture and "startswith('karma1.')" not in capture:
+        _fail("submit path must require karma1. ciphertext prefix", failures)
+
+
 def main() -> int:
     failures: list[str] = []
     checks = [
@@ -147,6 +202,7 @@ def main() -> int:
         check_openclaw_manus_packages,
         check_testnet_stack_files,
         check_acceptance_scripts_executable,
+        check_important_fields_secure_path,
     ]
     for fn in checks:
         fn(failures)
