@@ -771,6 +771,15 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if not (ROOT / "scripts/acceptance/adversarial_fullchain_suite.py").is_file():
         _fail("missing scripts/acceptance/adversarial_fullchain_suite.py", failures)
 
+    # Whole-project adversarial (platform, not only P1–P8)
+    if not (ROOT / "tests/unit/test_adversarial_whole_project.py").is_file():
+        _fail("missing tests/unit/test_adversarial_whole_project.py", failures)
+    if not (ROOT / "scripts/acceptance/adversarial_whole_project_suite.py").is_file():
+        _fail("missing scripts/acceptance/adversarial_whole_project_suite.py", failures)
+    settings_py = _read("config/settings.py")
+    if "Reject wildcard CORS outside local/dev/test" not in settings_py:
+        _fail("cors_allow_origins_list must reject wildcard outside local/dev/test", failures)
+
 
 def main() -> int:
     failures: list[str] = []
