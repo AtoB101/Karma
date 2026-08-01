@@ -250,8 +250,16 @@ contract KarmaAttestationGateway {
             failAttestationCount[taskId] += 1;
         }
 
-        // 6. Notify the registry for reputation tracking.
+        // 6. Notify the registry for reputation tracking (authorized caller only).
         registry.recordAttestation(msg.sender, valid);
+
+        // 7. Pay verification reward on successful attestation when configured.
+        if (valid) {
+            uint256 reward = registry.verificationReward();
+            if (reward > 0 && registry.stakingToken() != address(0)) {
+                registry.rewardVerifier(msg.sender, reward);
+            }
+        }
 
         emit AttestationSubmitted(taskId, msg.sender, valid);
         accepted = true;

@@ -136,6 +136,8 @@ contract DeployKarmaBilateral is Script {
 
         // ── 6. Wire ───────────────────────────────────────────────────────────
         karma.setAttestationGateway(address(gateway));
+        // Privilege: only Gateway may recordAttestation / rewardVerifier
+        registry.setAuthorizedCaller(address(gateway), true);
 
         vm.stopBroadcast();
 
@@ -145,6 +147,7 @@ contract DeployKarmaBilateral is Script {
         require(karma.attestationGateway()    == address(gateway), "gateway not wired");
         require(gateway.bilateralContract()   == address(karma),  "bilateral not wired");
         require(address(gateway.registry())   == address(registry), "registry not wired");
+        require(registry.authorizedCallers(address(gateway)),     "gateway not authorized on registry");
         require(registry.getRequiredThreshold() == verifierN,     "threshold mismatch");
         require(scoring.admin()               == admin,           "scoring admin");
         require(evidence.admin()              == admin,           "evidence admin");

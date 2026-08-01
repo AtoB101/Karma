@@ -52,18 +52,21 @@ const KARMA_BILATERAL_ABI = [
 ];
 
 const VERIFIER_REGISTRY_ABI = [
-  "function registerVerifier(address wallet, string calldata endpointUrl)",
-  "function deregisterVerifier(address wallet)",
-  "function setThresholds(uint256 n, uint256 m)",
+  "function registerVerifier(address wallet, string calldata endpointUrl, uint256 stakeAmount)",
+  "function removeVerifier(address wallet)",
+  "function setThresholds(uint256 threshold, uint256 totalVerifiers)",
   "function setStakingConfig(address token, uint256 minStake_, uint256 reward)",
+  "function setAuthorizedCaller(address caller, bool allowed)",
+  "function authorizedCallers(address caller) view returns (bool)",
   "function stake(uint256 amount)",
   "function unstake(uint256 amount)",
-  "function slash(address verifier, uint256 amount)",
-  "function rewardVerifier(address verifier)",
-  "function getVerifier(address wallet) view returns (tuple(address wallet, string endpointUrl, bool active, uint256 stakeAmount, uint256 successCount, uint256 falseAttestationCount, uint256 totalEarnings, uint256 slashedAmount))",
+  "function slash(address verifier, uint256 amount, string calldata reason)",
+  "function rewardVerifier(address verifier, uint256 amount)",
+  "function recordAttestation(address verifier, bool success)",
+  "function verifiers(address wallet) view returns (address wallet, string endpointUrl, bool active, uint256 stakeAmount, uint256 successCount, uint256 falseAttestationCount, uint256 totalEarnings, uint256 slashedAmount)",
+  "function isActiveVerifier(address wallet) view returns (bool)",
   "function getRequiredThreshold() view returns (uint256)",
   "function getTotalVerifiers() view returns (uint256)",
-  "function isVerifierActive(address wallet) view returns (bool)",
   "function admin() view returns (address)",
   "function stakingToken() view returns (address)",
   "function minStake() view returns (uint256)",
@@ -349,13 +352,24 @@ export class VerifierRegistry extends BaseClient {
     super(opts, VERIFIER_REGISTRY_ABI);
   }
 
-  async registerVerifier(wallet: string, endpointUrl: string): Promise<void> {
-    const tx = await this.contract.registerVerifier(wallet, endpointUrl);
+  async registerVerifier(wallet: string, endpointUrl: string, stakeAmount: bigint = 0n): Promise<void> {
+    const tx = await this.contract.registerVerifier(wallet, endpointUrl, stakeAmount);
     await tx.wait();
   }
 
+  async removeVerifier(wallet: string): Promise<void> {
+    const tx = await this.contract.removeVerifier(wallet);
+    await tx.wait();
+  }
+
+  /** @deprecated Use removeVerifier */
   async deregisterVerifier(wallet: string): Promise<void> {
-    const tx = await this.contract.deregisterVerifier(wallet);
+    return this.removeVerifier(wallet);
+  }
+
+  /** Admin: authorize Gateway (etc.) for recordAttestation / rewardVerifier */
+  async setAuthorizedCaller(caller: string, allowed: boolean): Promise<void> {
+    const tx = await this.contract.setAuthorizedCaller(caller, allowed);
     await tx.wait();
   }
 
@@ -375,19 +389,28 @@ export class VerifierRegistry extends BaseClient {
   }
 
   /** Admin: slash a verifier for bad behavior */
-  async slash(verifier: string, amount: bigint): Promise<void> {
-    const tx = await this.contract.slash(verifier, amount);
+  async slash(verifier: string, amount: bigint, reason: string = ""): Promise<void> {
+    const tx = await this.contract.slash(verifier, amount, reason);
     await tx.wait();
   }
 
-  /** Admin: reward a verifier for successful attestation */
-  async rewardVerifier(verifier: string): Promise<void> {
-    const tx = await this.contract.rewardVerifier(verifier);
+  /**
+   * Authorized caller only (Gateway/admin): pay verification reward.
+   * Not discoverable as a public agent skill — privileged registry write.
+   */
+  async rewardVerifier(verifier: string, amount: bigint): Promise<void> {
+    const tx = await this.contract.rewardVerifier(verifier, amount);
+    await tx.wait();
+  }
+
+  /** Authorized caller only (Gateway/admin): record attestation outcome. */
+  async recordAttestation(verifier: string, success: boolean): Promise<void> {
+    const tx = await this.contract.recordAttestation(verifier, success);
     await tx.wait();
   }
 
   async getVerifier(wallet: string): Promise<VerifierInfo> {
-    const raw = await this.contract.getVerifier(wallet);
+    const raw = await this.contract.verifiers(wallet);
     return {
       wallet:                raw.wallet,
       endpointUrl:           raw.endpointUrl,
@@ -401,7 +424,7 @@ export class VerifierRegistry extends BaseClient {
   }
 
   async isVerifierActive(wallet: string): Promise<boolean> {
-    return this.contract.isVerifierActive(wallet);
+    return this.contract.isActiveVerifier(wallet);
   }
 
   async getRequiredThreshold(): Promise<bigint> { return this.contract.getRequiredThreshold(); }

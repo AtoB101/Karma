@@ -46,6 +46,11 @@ def _profile_to_schema(row: IdentityProfileModel) -> IdentityProfile:
         display_id=row.display_id,
         legal_identity_status=row.legal_identity_status,
         status=row.status,
+        bound_wallet_address=getattr(row, "bound_wallet_address", None),
+        did_agent_address=getattr(row, "did_agent_address", None),
+        on_chain_did=getattr(row, "on_chain_did", None),
+        projection_readonly=bool(getattr(row, "projection_readonly", False)),
+        projection_source=getattr(row, "projection_source", None),
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

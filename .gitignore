@@ -66,3 +66,7 @@ apps/console/config.js
 *.db.bak
 dist/
 *.whl
+
+# A2A bridge local event store
+packages/karma-a2a-bridge/data/
+*.sqlite3

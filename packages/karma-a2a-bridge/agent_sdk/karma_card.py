@@ -28,9 +28,17 @@ def build_card(
                 input_schema=inp,
                 output_schema=s.get("output_schema", {"type": "object", "properties": {}}),
             ))
+    import os
     ext = AgentCardKarmaExt(
         contract_address=contract_address or "0x496d178a5D32E9410E52bD5800602BDEe81B2A91",
+        verifier_registry=os.getenv("KARMA_VERIFIER_REGISTRY", ""),
+        attestation_gateway=os.getenv("KARMA_ATTESTATION_GATEWAY", ""),
+        supports_attestation=bool(
+            os.getenv("KARMA_VERIFIER_REGISTRY") or os.getenv("KARMA_ATTESTATION_GATEWAY")
+        ),
         network=network,
+        did_agent_address=os.getenv("A2A_DID_AGENT_ADDRESS", ""),
+        on_chain_did=os.getenv("A2A_ON_CHAIN_DID", ""),
     )
     card = AgentCard(
         name=name,

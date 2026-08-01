@@ -638,6 +638,11 @@ class IdentityProfile(BaseModel):
     legal_identity_status: str = "unbound"
     status: str = "active"
     bound_wallet_address: Optional[str] = None
+    # On-chain DID SSOT → IdentityProfile is a read-only projection
+    did_agent_address: Optional[str] = None
+    on_chain_did: Optional[str] = None
+    projection_readonly: bool = False
+    projection_source: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
