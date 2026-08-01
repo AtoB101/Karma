@@ -299,7 +299,7 @@ def test_require_matched_binds_interaction_and_amount():
         seller_agent_id="s1",
     )
     cid = created["capture_id"]
-    for role, agent, nonce in (("buyer", "b1", "nb"), ("seller", "s1", "ns")):
+    for role, agent, nonce in (("buyer", "b1", "nonce-b1"), ("seller", "s1", "nonce-s1")):
         ct = encrypt_for_capture(cid, fields, role=role)["ciphertext"]
         submit_encrypted(
             capture_id=cid,
