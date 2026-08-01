@@ -1,6 +1,8 @@
 """Karma API — Agents"""
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
@@ -12,6 +14,8 @@ from core.schemas import AgentIdentity, AgentRole
 from db.session import get_db
 from db.models.orm import AgentModel
 from services.agent_directory import connect_agent
+from services.agent_onboarding_template import OnboardingError, materialize_onboarding, suggest_industries_for_text
+from services.agent_profile_store import get_profile_card
 from services.agent_trust import ensure_reputation_row, load_trust_stats_batch
 from services.signing import signing_service
 from services.text_safety import validate_safe_storage_text, validate_safe_storage_text_optional
@@ -73,6 +77,16 @@ class ConnectAgentRequest(BaseModel):
         return v
 
 
+class ConnectFromTemplateRequest(BaseModel):
+    """Auto-connect using Karma onboarding templates (agent-filled answers)."""
+
+    profile_id: Literal["user", "merchant", "enterprise"]
+    answers: dict[str, Any] = Field(default_factory=dict)
+    extra_capabilities: list[str] = Field(default_factory=list, max_length=64)
+    agent_id: str | None = Field(default=None, max_length=128)
+    self_description: str | None = Field(default=None, max_length=4000)
+
+
 def _to_identity(row: AgentModel) -> AgentIdentity:
     return AgentIdentity(
         agent_id=row.agent_id,
@@ -108,6 +122,80 @@ async def connect_agent_route(
     )
     await db.commit()
     return _to_identity(row)
+
+
+@router.post("/connect-from-template")
+async def connect_from_template(
+    body: ConnectFromTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(register_agent_rate_limit),
+):
+    """
+    Standardized auto-connect: agent reads onboarding template, fills answers,
+    materializes capabilities/description, then joins the directory.
+    """
+    answers = dict(body.answers or {})
+    if body.profile_id in {"merchant", "enterprise"} and not answers.get("industry_ids") and body.self_description:
+        suggestions = suggest_industries_for_text(body.self_description, limit=3)
+        answers["industry_ids"] = [s["industry_id"] for s in suggestions]
+        answers.setdefault("capability_summary", body.self_description.strip()[:500])
+        answers.setdefault("boundaries", "以模板场景为界；未声明场景不接单。")
+        answers.setdefault("service_targets", ["consumer", "agent"])
+        answers.setdefault("business_hours", {"24_7": True, "timezone": "UTC"})
+        answers.setdefault("service_area", {"mode": "hybrid", "regions": ["global"]})
+        if body.profile_id == "enterprise":
+            answers.setdefault("enterprise_type", "other")
+            answers.setdefault("trade_side", ["sell"])
+            answers.setdefault("compliance_flags", {"no_fund_custody": True, "non_clinical_only": True})
+    if body.profile_id == "user":
+        answers.setdefault("display_name", answers.get("display_name") or "Karma User Agent")
+        answers.setdefault("preferred_currency", "USDC")
+
+    try:
+        materialized = materialize_onboarding(
+            profile_id=body.profile_id,
+            answers=answers,
+            extra_capabilities=body.extra_capabilities,
+            agent_id=body.agent_id,
+        )
+    except OnboardingError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    connect = materialized["agent_connect"]
+    card = materialized["profile_card"]
+    # Discovery tags derived from template
+    caps = list(connect.get("capabilities") or [])
+    caps.append(f"onboarding:{body.profile_id}")
+    for sid in materialized.get("discovery_hints", {}).get("scene_ids") or []:
+        tag = f"industry:{sid}"
+        if tag not in caps:
+            caps.append(tag)
+
+    try:
+        role = AgentRole(connect["role"])
+    except ValueError:
+        role = AgentRole.WORKER
+
+    row = await connect_agent(
+        db,
+        agent_id=connect.get("agent_id") or body.agent_id,
+        name=connect["name"],
+        role=role.value,
+        endpoint_url=connect.get("endpoint_url"),
+        capabilities=caps,
+        profile_card=card,
+    )
+    await db.commit()
+    return {
+        "agent": _to_identity(row),
+        "profile_card": card,
+        "discovery_hints": materialized.get("discovery_hints"),
+        "materialized": {
+            "capabilities": caps,
+            "description": card.get("description"),
+        },
+        "note_zh": "已按标准模板接入；其他 agent 可通过 capabilities / profile-card 了解你能做什么",
+    }
 
 
 @router.post("", response_model=AgentIdentity, status_code=201)
@@ -149,6 +237,18 @@ async def get_agent_trust(agent_id: str, db: AsyncSession = Depends(get_db)):
         "agent": _to_identity(row),
         "trust": (stats.get(agent_id).to_dict() if stats.get(agent_id) else {}),
     }
+
+
+@router.get("/{agent_id}/profile-card")
+async def get_agent_profile_card(agent_id: str, db: AsyncSession = Depends(get_db)):
+    """Onboarding profile card (industry, hours, targets, description) for discovery."""
+    row = await db.get(AgentModel, agent_id)
+    if not row:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    card = get_profile_card(agent_id)
+    if not card:
+        raise HTTPException(404, f"No onboarding profile_card for {agent_id}")
+    return {"agent_id": agent_id, "agent": _to_identity(row), "profile_card": card}
 
 
 @router.get("", response_model=list[AgentIdentity])

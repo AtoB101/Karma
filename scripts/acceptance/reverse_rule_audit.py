@@ -186,6 +186,23 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if 'startswith("karma1.")' not in capture and "startswith('karma1.')" not in capture:
         _fail("submit path must require karma1. ciphertext prefix", failures)
 
+    onboarding = ROOT / "packages/evidence-schema/agent-onboarding-template.v1.json"
+    if not onboarding.is_file():
+        _fail("missing agent-onboarding-template.v1.json", failures)
+    else:
+        ob = onboarding.read_text(encoding="utf-8")
+        if "karma-agent-onboarding-v1" not in ob:
+            _fail("onboarding catalog missing schema_version marker", failures)
+        for profile in ("user", "merchant", "enterprise"):
+            if f'"{profile}"' not in ob:
+                _fail(f"onboarding catalog missing profile {profile}", failures)
+    standards = _read("api/routes/standards.py")
+    if "/onboarding" not in standards or "materialize_onboarding" not in standards:
+        _fail("standards routes missing onboarding template APIs", failures)
+    agents = _read("api/routes/agents.py")
+    if "connect-from-template" not in agents:
+        _fail("agents routes missing connect-from-template", failures)
+
 
 def main() -> int:
     failures: list[str] = []

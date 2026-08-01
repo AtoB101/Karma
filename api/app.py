@@ -377,6 +377,15 @@ async def info():
                 "MATCHED only when buyer_hash == seller_hash == protocol_hash."
             ),
         },
+        "agent_onboarding_template": {
+            "catalog": "/v1/standards/onboarding",
+            "connect": "/v1/agents/connect-from-template",
+            "doc": "docs/AGENT_ONBOARDING_TEMPLATE_V1.md",
+            "note": (
+                "Profiles: user|merchant|enterprise. Agents read industry templates and "
+                "auto-fill capabilities/hours/targets/description before connect."
+            ),
+        },
         "verify_auth": {
             "enforcement": bool(settings.auth_enforce_protected_routes),
             "post_verify_requires_credentials_when_enforcement_on": True,

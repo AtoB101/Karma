@@ -9,6 +9,7 @@
 
 # Local reports and sync outputs (never commit secrets here)
 /results/
+.karma_data/
 
 # Secrets and local env (never commit real keys)
 # Catch-all for all .env variants; whitelist examples only

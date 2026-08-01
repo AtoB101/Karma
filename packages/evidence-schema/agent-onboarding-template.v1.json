@@ -1,0 +1,905 @@
+{
+  "schema_version": "karma-agent-onboarding-v1",
+  "title": "Karma Agent Onboarding Template",
+  "title_zh": "Karma Agent 自动化接入标准模板",
+  "description": "Agents read this template before connect. User profile is minimal; merchant/enterprise pick industry templates so other agents know capabilities without manual field-by-field owner input.",
+  "description_zh": "接入前 agent 先读取本模板。用户侧极简；商家/企业按行业模板自动填写能力、服务对象、营业时间与描述，便于其他 agent 发现与协作。",
+  "design_goals_zh": [
+    "不懂 agent 的主人只需选角色（用户/商家/企业）与行业大类",
+    "agent 比主人更清楚自己的能力边界，由 agent 对照模板自填",
+    "接入后目录字段标准化，其他 agent 可立即读懂能做什么",
+    "与 Important Fields 场景 scene_id 对齐，避免两套标准"
+  ],
+  "profiles": {
+    "user": {
+      "profile_id": "user",
+      "title_zh": "用户（需求方）",
+      "title_en": "User / Buyer",
+      "karma_role": "client",
+      "selection_burden": "minimal",
+      "owner_choices_zh": [
+        "确认以用户身份接入（几乎无需其他选择）"
+      ],
+      "agent_auto_fill": {
+        "capabilities": [
+          "karma_discover_for_intent",
+          "karma_fulfill_intent",
+          "important_fields_submit",
+          "karma_settle"
+        ],
+        "default_scenes_interest": [
+          "ride_hailing",
+          "hotel_booking",
+          "food_delivery",
+          "flight_booking",
+          "api_tool_call"
+        ],
+        "description_template_zh": "用户侧助手：代为发现 Karma 商家、提交加密重要字段、完成履约与结算；不对外售卖服务。"
+      },
+      "required_fields": [
+        {
+          "path": "display_name",
+          "type": "string",
+          "description_zh": "展示名（可由 agent 生成）"
+        },
+        {
+          "path": "preferred_currency",
+          "type": "string",
+          "enum": [
+            "USDC",
+            "USDT",
+            "USD",
+            "CNY",
+            "EUR"
+          ],
+          "default": "USDC"
+        }
+      ],
+      "optional_fields": [
+        {
+          "path": "home_region",
+          "type": "string",
+          "description_zh": "常用地区"
+        },
+        {
+          "path": "language",
+          "type": "string",
+          "default": "zh-CN"
+        },
+        {
+          "path": "endpoint_url",
+          "type": "string",
+          "description_zh": "可选 A2A/MCP 回调"
+        }
+      ]
+    },
+    "merchant": {
+      "profile_id": "merchant",
+      "title_zh": "商家（服务方）",
+      "title_en": "Merchant / Seller",
+      "karma_role": "worker",
+      "selection_burden": "template_guided",
+      "owner_choices_zh": [
+        "选择商家身份",
+        "选择 1+ 个行业/场景模板（或让 agent 自选匹配项）"
+      ],
+      "agent_auto_fill": {
+        "always_capabilities": [
+          "karma_settle",
+          "important_fields_submit",
+          "a2a_negotiate"
+        ],
+        "description_template_zh": "{display_name}：{industry_titles}服务商。服务对象：{service_targets}。营业时间：{business_hours}。能力：{capability_summary}。边界：{boundaries}。"
+      },
+      "required_fields": [
+        {
+          "path": "display_name",
+          "type": "string",
+          "description_zh": "商家/店铺名"
+        },
+        {
+          "path": "industry_ids",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description_zh": "行业模板 id（= scene_id）"
+        },
+        {
+          "path": "service_targets",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "consumer",
+              "business",
+              "agent"
+            ]
+          },
+          "description_zh": "服务对象"
+        },
+        {
+          "path": "business_hours",
+          "type": "object",
+          "description_zh": "营业时间",
+          "properties": {
+            "timezone": {
+              "type": "string"
+            },
+            "weekly": {
+              "type": "string"
+            },
+            "24_7": {
+              "type": "boolean"
+            }
+          }
+        },
+        {
+          "path": "service_area",
+          "type": "object",
+          "description_zh": "服务范围",
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "digital",
+                "physical",
+                "hybrid"
+              ]
+            },
+            "regions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "geo_notes": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "path": "capability_summary",
+          "type": "string",
+          "description_zh": "能力摘要（agent 自写）"
+        },
+        {
+          "path": "boundaries",
+          "type": "string",
+          "description_zh": "不做/边界（agent 自写）"
+        }
+      ],
+      "optional_fields": [
+        {
+          "path": "endpoint_url",
+          "type": "string"
+        },
+        {
+          "path": "avg_ticket_amount",
+          "type": "string"
+        },
+        {
+          "path": "languages",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "path": "verification_preference",
+          "type": "string",
+          "enum": [
+            "auto",
+            "buyer_confirm",
+            "external_verifier"
+          ]
+        }
+      ]
+    },
+    "enterprise": {
+      "profile_id": "enterprise",
+      "title_zh": "企业（组织侧）",
+      "title_en": "Enterprise",
+      "karma_role": "worker",
+      "selection_burden": "template_guided",
+      "owner_choices_zh": [
+        "选择企业身份",
+        "选择企业类型与行业模板",
+        "声明主要是采购方、供应方或双边"
+      ],
+      "agent_auto_fill": {
+        "always_capabilities": [
+          "karma_settle",
+          "important_fields_submit",
+          "a2a_negotiate",
+          "b2b_ready"
+        ],
+        "description_template_zh": "{display_name}（{enterprise_type}）：面向{service_targets}，场景{industry_titles}。组织能力：{capability_summary}。合规边界：{boundaries}。服务时间：{business_hours}。"
+      },
+      "required_fields": [
+        {
+          "path": "display_name",
+          "type": "string"
+        },
+        {
+          "path": "enterprise_type",
+          "type": "string",
+          "enum": [
+            "supplier",
+            "buyer_org",
+            "platform",
+            "api_provider",
+            "integrator",
+            "manufacturer",
+            "logistics_operator",
+            "other"
+          ]
+        },
+        {
+          "path": "trade_side",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "sell",
+              "buy"
+            ]
+          }
+        },
+        {
+          "path": "industry_ids",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        {
+          "path": "service_targets",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "consumer",
+              "business",
+              "agent"
+            ]
+          }
+        },
+        {
+          "path": "business_hours",
+          "type": "object"
+        },
+        {
+          "path": "service_area",
+          "type": "object"
+        },
+        {
+          "path": "capability_summary",
+          "type": "string"
+        },
+        {
+          "path": "boundaries",
+          "type": "string"
+        },
+        {
+          "path": "compliance_flags",
+          "type": "object",
+          "properties": {
+            "no_fund_custody": {
+              "type": "boolean"
+            },
+            "non_clinical_only": {
+              "type": "boolean"
+            },
+            "data_residency": {
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "optional_fields": [
+        {
+          "path": "endpoint_url",
+          "type": "string"
+        },
+        {
+          "path": "org_id",
+          "type": "string"
+        },
+        {
+          "path": "invoice_currency",
+          "type": "string",
+          "enum": [
+            "USDC",
+            "USDT",
+            "USD",
+            "CNY",
+            "EUR"
+          ]
+        }
+      ]
+    }
+  },
+  "industries": [
+    {
+      "industry_id": "ride_hailing",
+      "scene_id": "ride_hailing",
+      "group": "daily_commerce",
+      "title_zh": "网约车/叫车",
+      "title_en": "Ride Hailing",
+      "service_category": "LogisticsDelivery",
+      "service_type": "ride_hailing",
+      "risk_tier": "L2",
+      "suggested_capabilities": [
+        "ride_hailing",
+        "book_ride",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "user"
+      ],
+      "enterprise_fit": false,
+      "consumer_fit": true,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "服务城市/区域 geo",
+        "车型档位",
+        "是否接受预约单"
+      ],
+      "market_summary_zh": "日常叫车：上车点、下车点、预约时间、车型与一口价/预估价；验收看出发到达与完单证明。"
+    },
+    {
+      "industry_id": "food_delivery",
+      "scene_id": "food_delivery",
+      "group": "daily_commerce",
+      "title_zh": "点外卖",
+      "title_en": "Food Delivery",
+      "service_category": "LogisticsDelivery",
+      "service_type": "food_delivery",
+      "risk_tier": "L1",
+      "suggested_capabilities": [
+        "food_delivery",
+        "order_food",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "user"
+      ],
+      "enterprise_fit": false,
+      "consumer_fit": true,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "配送半径或区域",
+        "平均送达时效"
+      ],
+      "market_summary_zh": "外卖：商家、菜品/订单明细哈希、送达地址与时效；验收看出餐/送达时间与完单状态。"
+    },
+    {
+      "industry_id": "flight_booking",
+      "scene_id": "flight_booking",
+      "group": "daily_commerce",
+      "title_zh": "订机票",
+      "title_en": "Flight Booking",
+      "service_category": "LogisticsDelivery",
+      "service_type": "flight_booking",
+      "risk_tier": "L2",
+      "suggested_capabilities": [
+        "flight_booking",
+        "book_flight",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "user"
+      ],
+      "enterprise_fit": false,
+      "consumer_fit": true,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "航司/票务范围",
+        "是否支持改签协助"
+      ],
+      "market_summary_zh": "机票：航班号、航段、旅客、舱位；验收看出票与实际起飞/到达（可对接 verifier node）。"
+    },
+    {
+      "industry_id": "hotel_booking",
+      "scene_id": "hotel_booking",
+      "group": "daily_commerce",
+      "title_zh": "订酒店/住宿",
+      "title_en": "Hotel Booking",
+      "service_category": "RealEstateServices",
+      "service_type": "hotel_checkin",
+      "risk_tier": "L2",
+      "suggested_capabilities": [
+        "hotel_booking",
+        "book_hotel",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "user"
+      ],
+      "enterprise_fit": false,
+      "consumer_fit": true,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "覆盖城市",
+        "房型范围",
+        "取消政策摘要"
+      ],
+      "market_summary_zh": "订房：酒店、入离店日期、房型、入住人；验收看入住/离店记录与取消政策。"
+    },
+    {
+      "industry_id": "b2b_procurement",
+      "scene_id": "b2b_procurement",
+      "group": "b2b_digital",
+      "title_zh": "企业采购（B2B）",
+      "title_en": "B2B Procurement",
+      "service_category": "Manufacturing",
+      "service_type": "b2b_procurement",
+      "risk_tier": "L3",
+      "suggested_capabilities": [
+        "b2b_procurement",
+        "fulfill_po",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "可供应类目",
+        "最小起订量",
+        "交期能力"
+      ],
+      "market_summary_zh": "企业间采购：SKU/PO、数量、交期、收货与质检；验收看到货数量、质检与入库凭证。"
+    },
+    {
+      "industry_id": "data_api_billing",
+      "scene_id": "data_api_billing",
+      "group": "b2b_digital",
+      "title_zh": "数据调用 / API 计费",
+      "title_en": "Data / API Metered Billing",
+      "service_category": "CustomService",
+      "service_type": "data_api_billing",
+      "risk_tier": "L1",
+      "suggested_capabilities": [
+        "data_api_billing",
+        "metered_api",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "API 标识",
+        "计费单位",
+        "SLA 成功率"
+      ],
+      "market_summary_zh": "企业或 agent 调用数据/API：endpoint、计量单位、单价、配额与账单周期；验收看用量凭证与响应成功率。"
+    },
+    {
+      "industry_id": "api_tool_call",
+      "scene_id": "api_tool_call",
+      "group": "b2b_digital",
+      "title_zh": "单次 API / MCP 工具调用",
+      "title_en": "Single API / MCP Tool Call",
+      "service_category": "CustomService",
+      "service_type": "api_tool_call",
+      "risk_tier": "L1",
+      "suggested_capabilities": [
+        "api_tool_call",
+        "mcp_tool",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "工具名列表",
+        "最大时延"
+      ],
+      "market_summary_zh": "单次或小批量工具调用（testnet L1 刚需）：工具名、入参哈希、成功判定；适合 agent 间即时付费调用。"
+    },
+    {
+      "industry_id": "software_development",
+      "scene_id": "software_development",
+      "group": "market_vertical",
+      "title_zh": "软件开发",
+      "title_en": "Software Development",
+      "service_category": "SoftwareDevelopment",
+      "service_type": null,
+      "risk_tier": "L3",
+      "suggested_capabilities": [
+        "software_development",
+        "code_delivery",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "技术栈",
+        "交付形态 PR/release"
+      ],
+      "market_summary_zh": "外包开发、bugfix、集成、代码交付；验收看仓库/PR/测试与约定里程碑。"
+    },
+    {
+      "industry_id": "design_creative",
+      "scene_id": "design_creative",
+      "group": "market_vertical",
+      "title_zh": "设计创意",
+      "title_en": "Design & Creative",
+      "service_category": "DesignCreative",
+      "service_type": null,
+      "risk_tier": "L2",
+      "suggested_capabilities": [
+        "design_creative",
+        "creative_delivery",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": true,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）"
+      ],
+      "market_summary_zh": "品牌、UI、平面、视频脚本等；验收看尺寸/格式/修改轮次与授权范围。"
+    },
+    {
+      "industry_id": "logistics_delivery",
+      "scene_id": "logistics_delivery",
+      "group": "market_vertical",
+      "title_zh": "物流配送",
+      "title_en": "Logistics & Delivery",
+      "service_category": "LogisticsDelivery",
+      "service_type": null,
+      "risk_tier": "L2",
+      "suggested_capabilities": [
+        "logistics_delivery",
+        "parcel_delivery",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）"
+      ],
+      "market_summary_zh": "快递、同城配送、外卖履约；验收看取送地点、时效与签收证明。"
+    },
+    {
+      "industry_id": "consulting_advisory",
+      "scene_id": "consulting_advisory",
+      "group": "market_vertical",
+      "title_zh": "咨询顾问",
+      "title_en": "Consulting & Advisory",
+      "service_category": "ConsultingAdvisory",
+      "service_type": null,
+      "risk_tier": "L3",
+      "suggested_capabilities": [
+        "consulting_advisory",
+        "advisory",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）"
+      ],
+      "market_summary_zh": "战略/技术/合规顾问；验收看交付物（报告/纪要）与工时或里程碑。"
+    },
+    {
+      "industry_id": "content_creation",
+      "scene_id": "content_creation",
+      "group": "market_vertical",
+      "title_zh": "内容创作",
+      "title_en": "Content Creation",
+      "service_category": "ContentCreation",
+      "service_type": null,
+      "risk_tier": "L2",
+      "suggested_capabilities": [
+        "content_creation",
+        "ai_text",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": true,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）"
+      ],
+      "market_summary_zh": "文案、翻译、短视频脚本、AI 生成内容；验收看字数/语言/原创与格式。"
+    },
+    {
+      "industry_id": "manufacturing",
+      "scene_id": "manufacturing",
+      "group": "market_vertical",
+      "title_zh": "生产制造",
+      "title_en": "Manufacturing",
+      "service_category": "Manufacturing",
+      "service_type": null,
+      "risk_tier": "L3",
+      "suggested_capabilities": [
+        "manufacturing",
+        "make_to_order",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）"
+      ],
+      "market_summary_zh": "打样、小批量代工；验收看规格、数量、质检与交期。"
+    },
+    {
+      "industry_id": "real_estate_services",
+      "scene_id": "real_estate_services",
+      "group": "market_vertical",
+      "title_zh": "房产服务",
+      "title_en": "Real Estate Services",
+      "service_category": "RealEstateServices",
+      "service_type": null,
+      "risk_tier": "L3",
+      "suggested_capabilities": [
+        "real_estate_services",
+        "property_service",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）"
+      ],
+      "market_summary_zh": "看房陪同、租赁撮合、物业服务预约；验收看时间地点与完成凭证。"
+    },
+    {
+      "industry_id": "financial_services",
+      "scene_id": "financial_services",
+      "group": "market_vertical",
+      "title_zh": "金融服务",
+      "title_en": "Financial Services",
+      "service_category": "FinancialServices",
+      "service_type": null,
+      "risk_tier": "L4",
+      "suggested_capabilities": [
+        "financial_services",
+        "recon_reporting",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "必须确认不托管资金",
+        "服务账期类型"
+      ],
+      "market_summary_zh": "对账、报表整理、支付指令协助等非托管服务；不含代客持有资金。验收看报表哈希与核对结果。"
+    },
+    {
+      "industry_id": "marketing_advertising",
+      "scene_id": "marketing_advertising",
+      "group": "market_vertical",
+      "title_zh": "营销广告",
+      "title_en": "Marketing & Advertising",
+      "service_category": "MarketingAdvertising",
+      "service_type": null,
+      "risk_tier": "L3",
+      "suggested_capabilities": [
+        "marketing_advertising",
+        "campaign_ops",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）"
+      ],
+      "market_summary_zh": "投放执行、活动页、增长实验；验收看投放时段、素材与约定 KPI 证据。"
+    },
+    {
+      "industry_id": "education_training",
+      "scene_id": "education_training",
+      "group": "market_vertical",
+      "title_zh": "教育培训",
+      "title_en": "Education & Training",
+      "service_category": "EducationTraining",
+      "service_type": null,
+      "risk_tier": "L2",
+      "suggested_capabilities": [
+        "education_training",
+        "workshop",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": true,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）"
+      ],
+      "market_summary_zh": "课程、辅导、工作坊；验收看课时、出席与材料交付。"
+    },
+    {
+      "industry_id": "healthcare_medical",
+      "scene_id": "healthcare_medical",
+      "group": "market_vertical",
+      "title_zh": "医疗健康服务",
+      "title_en": "Healthcare & Medical Services",
+      "service_category": "HealthcareMedical",
+      "service_type": null,
+      "risk_tier": "L4",
+      "suggested_capabilities": [
+        "healthcare_medical",
+        "companion_care",
+        "karma_settle"
+      ],
+      "audience": [
+        "merchant",
+        "enterprise"
+      ],
+      "enterprise_fit": true,
+      "consumer_fit": false,
+      "onboarding_prompts_zh": [
+        "确认你实际能交付的 scene_id 列表",
+        "填写营业/服务时间（UTC 或本地+时区）",
+        "填写服务对象（C端用户 / B端企业 / 两者）",
+        "用 1–3 句描述能力边界（不做清单也要写清）",
+        "必须确认非诊疗",
+        "服务城市"
+      ],
+      "market_summary_zh": "预约陪诊、健康管理咨询、远程分诊协助等非诊疗承诺服务；敏感数据仅存哈希。不替代执业医疗。"
+    }
+  ],
+  "connect_materialization": {
+    "output": {
+      "agent_connect": [
+        "agent_id?",
+        "name",
+        "role",
+        "endpoint_url?",
+        "capabilities"
+      ],
+      "profile_card": [
+        "profile_id",
+        "industry_ids",
+        "service_targets",
+        "business_hours",
+        "service_area",
+        "description",
+        "boundaries",
+        "compliance_flags?"
+      ],
+      "discovery_hints": [
+        "scene_ids",
+        "group_tags",
+        "risk_tiers"
+      ]
+    },
+    "rules_zh": [
+      "capabilities = 模板 always_capabilities ∪ 各 industry suggested_capabilities ∪ agent 自报额外能力",
+      "description 用 profile description_template_zh 渲染，禁止空描述接入商家/企业",
+      "user 不要求 industry_ids",
+      "含 financial_services 则 compliance_flags.no_fund_custody 必须为 true",
+      "含 healthcare_medical 则 compliance_flags.non_clinical_only 必须为 true"
+    ]
+  },
+  "agent_read_apis": [
+    "GET /v1/standards/onboarding",
+    "GET /v1/standards/onboarding/profiles",
+    "GET /v1/standards/onboarding/profiles/{profile_id}",
+    "GET /v1/standards/onboarding/industries",
+    "GET /v1/standards/onboarding/industries/{industry_id}",
+    "POST /v1/standards/onboarding/materialize",
+    "POST /v1/agents/connect-from-template"
+  ],
+  "recommended_agent_flow_zh": [
+    "1. 主人说：接入 Karma，我是商家/用户/企业",
+    "2. agent GET /v1/standards/onboarding 读取标准",
+    "3. agent 按自身能力匹配 industries，生成 answers",
+    "4. POST materialize 得到标准化 connect 载荷与描述",
+    "5. POST /v1/agents/connect-from-template 一键接入",
+    "6. 其他 agent 通过 discovery 读取 capabilities + profile_card 即可协作"
+  ]
+}

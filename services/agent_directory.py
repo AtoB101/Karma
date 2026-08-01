@@ -20,6 +20,7 @@ async def connect_agent(
     endpoint_url: str | None = None,
     capabilities: list[str] | None = None,
     public_key: str | None = None,
+    profile_card: dict[str, Any] | None = None,
 ) -> AgentModel:
     """
     Upsert an agent into the Karma directory.
@@ -84,6 +85,10 @@ async def connect_agent(
         row.agent_id,
         role="client" if row.role == "client" else "worker",
     )
+    if profile_card is not None:
+        from services.agent_profile_store import save_profile_card
+
+        save_profile_card(row.agent_id, profile_card)
     return row
 
 
