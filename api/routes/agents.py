@@ -18,9 +18,10 @@ from db.models.orm import AgentModel
 from services.agent_boundary import (
     get_agent_boundary,
     materialize_agent_boundary,
-    materialize_from_onboarding_result,
 )
 from services.agent_directory import connect_agent, refresh_p1_ready
+from services.agent_bootstrap_credentials import mint_agent_api_key
+from services.agent_one_click import build_next_steps, list_vertical_aliases, resolve_one_click
 from services.agent_onboarding_template import OnboardingError, materialize_onboarding, suggest_industries_for_text
 from services.agent_p1_readiness import (
     attest_responsibility_ack,
@@ -133,6 +134,40 @@ class ConnectChallengeRequest(BaseModel):
     agent_id: str = Field(min_length=1, max_length=128)
     owner_identity_id: str = Field(min_length=1, max_length=128)
     identity_class: Literal["user", "merchant", "enterprise"]
+
+
+class OneClickConnectRequest(BaseModel):
+    """Minimal vertical agent connect — side + vertical → full P1 template connect."""
+
+    side: Literal["buyer", "seller"]
+    vertical: str | None = Field(
+        default=None,
+        max_length=64,
+        description="hotel|food|ecommerce|customer_service|enterprise|ride|flight|api|…",
+    )
+    display_name: str | None = Field(default=None, max_length=256)
+    self_description: str | None = Field(default=None, max_length=4000)
+    owner_identity_id: str | None = Field(default=None, max_length=128)
+    agent_id: str | None = Field(default=None, max_length=128)
+    endpoint_url: str | None = Field(default=None, max_length=2048)
+    public_key: str | None = Field(default=None, max_length=512)
+    ownership_proof: OwnershipProof | None = None
+    responsibility_ack: ResponsibilityAckBody | None = None
+    answers: dict[str, Any] = Field(default_factory=dict)
+    mint_api_key: bool = True
+    allow_example_specs: bool = True
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def _safe_display(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        return validate_safe_storage_text(str(v), field="display_name")
+
+    @field_validator("self_description", mode="before")
+    @classmethod
+    def _safe_desc(cls, v: object) -> str | None:
+        return validate_safe_storage_text_optional(None if v is None else str(v), field="self_description")
 
 
 def _to_identity(row: AgentModel) -> AgentIdentity:
@@ -310,21 +345,17 @@ async def connect_agent_route(
     }
 
 
-@router.post("/connect-from-template")
-async def connect_from_template(
+async def _connect_from_template_core(
+    db: AsyncSession,
     body: ConnectFromTemplateRequest,
-    db: AsyncSession = Depends(get_db),
-    _rl: None = Depends(register_agent_rate_limit),
-):
-    """
-    P1 standardized connect: identity class + owner bind + hard service_specs +
-    non-forgeable responsibility ack. Counterparties verify via GET …/p1-status.
-    """
+    *,
+    connect_path: str = "template",
+) -> dict[str, Any]:
+    """Shared P1 template connect used by /connect-from-template and /one-click-connect."""
     answers = dict(body.answers or {})
     identity_class = body.profile_id
     owner_id = (body.owner_identity_id or answers.get("owner_identity_id") or "").strip()
     if not owner_id:
-        # Default owner to stable agent_id or generated placeholder for demo only
         if is_prod_like_env():
             raise HTTPException(400, "owner_identity_id is required for P1 connect-from-template")
         owner_id = body.agent_id or f"owner-{identity_class}-{secrets.token_hex(4)}"
@@ -358,7 +389,6 @@ async def connect_from_template(
                     "(allow_example_specs only in development)",
                 )
         else:
-            # Dev convenience: still allow examples unless explicitly disabled
             if "use_example_service_specs" not in answers and not answers.get("service_specs"):
                 answers["use_example_service_specs"] = True
                 used_examples = True
@@ -367,11 +397,9 @@ async def connect_from_template(
         answers.setdefault("display_name", answers.get("display_name") or "Karma User Agent")
         answers.setdefault("preferred_currency", "USDC")
 
-    # Responsibility ack required
     if body.responsibility_ack is None:
         if is_prod_like_env():
             raise HTTPException(400, "responsibility_ack is required")
-        # Dev default: explicit ack true so local scenarios still reach p1_ready
         ack_body = ResponsibilityAckBody(acknowledged=True)
     else:
         ack_body = body.responsibility_ack
@@ -409,15 +437,6 @@ async def connect_from_template(
         proof=body.ownership_proof,
     )
 
-    # Pre-materialize boundary to compute hash for ack binding
-    pre_boundary = materialize_from_onboarding_result(
-        {
-            **materialized,
-            "agent_connect": {**connect, "capabilities": caps, "agent_id": provisional_id},
-        },
-        agent_id=provisional_id,
-    )
-    # Force owner into boundary
     pre_boundary = materialize_agent_boundary(
         agent_id=provisional_id,
         name=connect["name"],
@@ -443,7 +462,7 @@ async def connect_from_template(
         agent_id=connect.get("agent_id") or body.agent_id,
         name=connect["name"],
         role=role.value,
-        endpoint_url=connect.get("endpoint_url"),
+        endpoint_url=connect.get("endpoint_url") or None,
         capabilities=caps,
         public_key=body.public_key,
         profile_card=card,
@@ -452,7 +471,7 @@ async def connect_from_template(
         owner_identity_id=owner_id,
         responsibility_acknowledged=True,
         onboarding_meta={
-            "connect_path": "template",
+            "connect_path": connect_path,
             "identity_class": identity_class,
             "owner_identity_id": owner_id,
             "used_example_service_specs": used_examples,
@@ -460,7 +479,6 @@ async def connect_from_template(
             "boundary_hash": bhash,
         },
     )
-    # Re-bind ack to final agent_id/hash if id was server-generated
     final_boundary = get_agent_boundary(row.agent_id)
     final_hash = boundary_content_hash(final_boundary) or bhash
     if row.agent_id != provisional_id or final_hash != bhash:
@@ -480,7 +498,6 @@ async def connect_from_template(
 
     p1 = await refresh_p1_ready(db, row.agent_id)
     boundary = get_agent_boundary(row.agent_id) or final_boundary
-    await db.commit()
     return {
         "agent": _to_identity(row),
         "profile_card": card,
@@ -500,6 +517,123 @@ async def connect_from_template(
         "note_zh": (
             "P1 接入完成：身份类别、主人绑定、履约能力与责任签认已落库。"
             "对端请 GET /p1-status 核验后再成交。"
+        ),
+    }
+
+
+@router.post("/connect-from-template")
+async def connect_from_template(
+    body: ConnectFromTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(register_agent_rate_limit),
+):
+    """
+    P1 standardized connect: identity class + owner bind + hard service_specs +
+    non-forgeable responsibility ack. Counterparties verify via GET …/p1-status.
+    """
+    out = await _connect_from_template_core(db, body, connect_path="template")
+    await db.commit()
+    return out
+
+
+@router.get("/one-click-verticals")
+async def list_one_click_verticals() -> dict[str, Any]:
+    """List friendly vertical aliases for one-click connect."""
+    return {
+        "schema_version": "karma-agent-one-click-v1",
+        "verticals": list_vertical_aliases(),
+        "sides": ["buyer", "seller"],
+        "connect": "POST /v1/agents/one-click-connect",
+    }
+
+
+@router.post("/one-click-connect")
+async def one_click_connect(
+    body: OneClickConnectRequest,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(register_agent_rate_limit),
+):
+    """
+    One-click vertical agent connect.
+
+    Minimal input: ``side`` + ``vertical`` (hotel/food/ecommerce/customer_service/…).
+    Materializes industry template, P1 connect, boundary, and optional bootstrap API key.
+    """
+    try:
+        resolved = resolve_one_click(
+            side=body.side,
+            vertical=body.vertical,
+            self_description=body.self_description,
+            display_name=body.display_name,
+            answers=body.answers,
+        )
+    except OnboardingError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    answers = dict(resolved["answers"])
+    if body.endpoint_url:
+        answers["endpoint_url"] = body.endpoint_url
+
+    tmpl = ConnectFromTemplateRequest(
+        profile_id=resolved["profile_id"],
+        answers=answers,
+        agent_id=body.agent_id,
+        self_description=body.self_description,
+        owner_identity_id=body.owner_identity_id,
+        public_key=body.public_key,
+        ownership_proof=body.ownership_proof,
+        responsibility_ack=body.responsibility_ack,
+        allow_example_specs=body.allow_example_specs,
+    )
+    core = await _connect_from_template_core(db, tmpl, connect_path="one_click")
+    agent = core["agent"]
+    agent_id = agent.agent_id if hasattr(agent, "agent_id") else agent["agent_id"]
+    scene_ids = list(
+        (core.get("discovery_hints") or {}).get("scene_ids")
+        or resolved.get("scene_ids")
+        or []
+    )
+
+    credentials: dict[str, Any] = {
+        "api_key": None,
+        "api_key_hint": None,
+        "runtime_key": None,
+        "runtime_key_hint": (
+            "Optional: POST /runtime/create-key with wallet personal_sign for voucher/receipt path"
+        ),
+    }
+    if body.mint_api_key:
+        minted = mint_agent_api_key(str(agent_id))
+        credentials["api_key"] = minted["api_key"]
+        credentials["api_key_hint"] = minted["api_key_hint"]
+
+    await db.commit()
+    return {
+        "schema_version": "karma-agent-one-click-v1",
+        "side": resolved["side"],
+        "vertical": resolved.get("vertical"),
+        "profile_id": resolved["profile_id"],
+        "scene_ids": scene_ids,
+        "agent": agent,
+        "profile_card": core.get("profile_card"),
+        "boundary": core.get("boundary"),
+        "boundary_hash": core.get("boundary_hash"),
+        "p1_ready": core.get("p1_ready"),
+        "p1_status": core.get("p1_status"),
+        "verification_url": core.get("verification_url"),
+        "credentials": credentials,
+        "env_snippet": {
+            "KARMA_AGENT_ID": str(agent_id),
+            "KARMA_API_KEY": credentials.get("api_key") or "<set from credentials.api_key>",
+            "KARMA_RUNTIME_URL": "http://127.0.0.1:8000",
+        },
+        "next_steps": build_next_steps(
+            agent_id=str(agent_id), side=resolved["side"], scene_ids=scene_ids
+        ),
+        "discovery_hints": core.get("discovery_hints"),
+        "note_zh": (
+            "一键接入完成：已按垂直场景落库身份/边界/责任签认，并签发引导 API Key（仅此一次明文）。"
+            "对端 GET /p1-status 核验后再成交。"
         ),
     }
 

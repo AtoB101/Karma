@@ -120,6 +120,15 @@ def _validate_api_key(api_key: str) -> Optional[str]:
     if expected is not None:
         return agent_id if hmac.compare_digest(secret, expected) else None
 
+    # One-click bootstrap keys (hash store) — valid in all envs once minted.
+    try:
+        from services.agent_bootstrap_credentials import verify_minted_api_key
+
+        if verify_minted_api_key(agent_id, secret):
+            return agent_id
+    except Exception:  # noqa: BLE001
+        pass
+
     # Backward-compatible development fallback only (explicit opt-in).
     env = (settings.app_env or "").lower()
     if (
