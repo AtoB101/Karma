@@ -4,6 +4,15 @@
 
 ## 0. 环境（共用）
 
+**本地智能体↔智能体落地（推荐先跑）：** 见 [`AGENT_TO_AGENT_TEST.md`](./AGENT_TO_AGENT_TEST.md)
+
+```bash
+cp deploy/.env.local-openclaw.example .env
+set -a && source .env && set +a
+KARMA_START_API=true bash scripts/acceptance/local_dual_agent_gate.sh
+# 期望：LOCAL DUAL-AGENT GATE: PASS · launch status=execution_started
+```
+
 ```bash
 export KARMA_RUNTIME_URL=http://127.0.0.1:8000
 export AUTH_ENFORCE_PROTECTED_ROUTES=false   # 本地实测可关；生产必须 true
@@ -11,26 +20,28 @@ export LEDGER_REQUIRE_PARTY_ACTOR=false      # 本地 pytest/脚本可关
 export TRADE_LAUNCH_REQUIRE_EIP712=false     # 路径 A 本地兼容
 # 配合 OPENCLAW_LOCAL_PHASE1_AUTO_RELAX=true 放宽 progress/receipt 签名校验（见 deploy/.env.local-openclaw.example）
 # 完整模板：deploy/.env.local-openclaw.example
-# 测试网：
+# 测试网（邀请制 / 生产形）：deploy/.env.testnet-claw-manus.example
 # export SETTLEMENT_MODE=testnet
-# export chain_anchor_hash=0x<64 hex>  # launch 时必填
+# export CHAIN_ANCHOR_HASH=0x<64 hex>  # launch 时必填
 ```
 
-启动 API：`uvicorn api.app:app --host 0.0.0.0 --port 8000`（或 deploy 栈）。
+启动 API：`uvicorn api.app:app --host 0.0.0.0 --port 8000`（或 `KARMA_START_API=true`）。
 
-买方/卖方各准备：
+买方/卖方可由种子脚本一键准备：
 
-- `identity_id`、API Key（`X-Karma-Api-Key`）
-- `PUT /v1/identities/{id}/automation-policy`：`preauth_enabled`、`auto_enabled`、`auto_execute_pipeline=true`、`responsibility_acknowledged`
-- 有效 **Runtime Key**
-- 买方 `available_credits` 充足；卖方 `auto_accept_incoming` + 信任买方
+```bash
+python3 scripts/seed_phase1_dual_agents.py   # → .env.phase1.local
+```
 
-全链路离链门 + 测试网包装（推荐先跑）：
+手动准备时需：`identity_id`、API Key、automation-policy（含 `auto_execute_pipeline`）、Runtime Key、买方 capacity、卖方信任买方。
+
+全链路离链门 + 测试网包装：
 
 ```bash
 bash scripts/acceptance/full_chain_audit_gate.sh          # 无 RPC
-cp deploy/.env.testnet-claw-manus.example .env.testnet.local  # 填 Key 后
-bash scripts/acceptance/testnet_claw_manus_gate.sh        # 需运行中的 API
+# 公开测试网（勿用 local-openclaw 的 relax 模板硬套）：
+cp deploy/.env.testnet-claw-manus.example .env.testnet.local
+bash scripts/acceptance/testnet_claw_manus_gate.sh
 ```
 
 详见 [`public-testing/FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md`](public-testing/FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md)。
@@ -39,7 +50,9 @@ bash scripts/acceptance/testnet_claw_manus_gate.sh        # 需运行中的 API
 
 ```bash
 # 路径 A — 无 EIP-712（deploy/.env.local-openclaw.example）
-python3 scripts/acceptance/phase1_claw_manus_smoke.py --buyer-id <buyer> --seller-id <seller>
+python3 scripts/acceptance/phase1_claw_manus_smoke.py \
+  --buyer-id "$KARMA_BUYER_IDENTITY_ID" --seller-id "$KARMA_SELLER_IDENTITY_ID" \
+  --require-execution-started
 
 # 路径 B — EIP-712 代签（deploy/.env.local-eip712.example）
 python3 scripts/acceptance/phase1_eip712_launch_smoke.py --buyer-id <buyer> --seller-id <seller>

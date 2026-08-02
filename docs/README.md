@@ -14,6 +14,7 @@ Start at the root [README.md](../README.md) for the repo map.
 | [AGENT_INTEGRATION.md](./AGENT_INTEGRATION.md) | Agent / runtime integration |
 | [AGENT_ONE_CLICK_CONNECT_V1.md](./AGENT_ONE_CLICK_CONNECT_V1.md) | One-click vertical connect |
 | [PILOT_E2E_PATH.md](./PILOT_E2E_PATH.md) | **Canonical Sepolia Bilateral E2E** (lock→finalize) |
+| [AGENT_TO_AGENT_TEST.md](./AGENT_TO_AGENT_TEST.md) | **Agent↔agent land** (Phase-1 launch → execution_started) |
 
 ## Protocol plates (P1–P8)
 

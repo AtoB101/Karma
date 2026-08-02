@@ -35,12 +35,17 @@ echo " Runtime: ${KARMA_RUNTIME_URL}"
 echo "========================================"
 
 echo ""
-echo "== [1/5] Off-chain full-chain audit (no RPC) =="
+echo "== [1/6] Off-chain full-chain audit (no RPC) =="
 bash scripts/acceptance/full_chain_audit_gate.sh
 
 echo ""
 echo "== [2/6] Public testnet preflight =="
-bash scripts/acceptance/public_testnet_preflight.sh
+if [[ "${SKIP_PUBLIC_PREFLIGHT:-false}" == "true" || "${KARMA_LOCAL_A2A:-false}" == "true" ]]; then
+  echo "SKIP  public preflight (SKIP_PUBLIC_PREFLIGHT / KARMA_LOCAL_A2A)"
+  echo "      For local A2A use: bash scripts/acceptance/local_dual_agent_gate.sh"
+else
+  bash scripts/acceptance/public_testnet_preflight.sh
+fi
 
 echo ""
 echo "== [3/6] API health =="
@@ -78,20 +83,20 @@ fi
 echo ""
 echo "== [6/6] Optional on-chain hybrid (Sepolia) =="
 if [[ "${RUN_TESTNET_ONCHAIN:-false}" == "true" ]]; then
-  if [[ -z "${TESTNET_RPC_URL:-}" || -z "${NONCUSTODIAL_AGENT_PAYMENT_ADDRESS:-}" ]]; then
-    echo "ERR  RUN_TESTNET_ONCHAIN=true requires TESTNET_RPC_URL and NONCUSTODIAL_AGENT_PAYMENT_ADDRESS" >&2
+  if [[ -z "${TESTNET_RPC_URL:-}" || -z "${KARMA_BILATERAL_ADDRESS:-}" ]]; then
+    echo "ERR  RUN_TESTNET_ONCHAIN=true requires TESTNET_RPC_URL and KARMA_BILATERAL_ADDRESS" >&2
     exit 1
   fi
   if [[ -f requirements-testnet.txt ]]; then
     python3 -m pip install -q -r requirements-testnet.txt 2>/dev/null || true
   fi
-  if [[ -f scripts/testnet_full_flow.py ]]; then
-    python3 scripts/testnet_full_flow.py --send
+  if [[ -f scripts/testnet/testnet_full_flow.py ]]; then
+    python3 scripts/testnet/testnet_full_flow.py --amount "${TESTNET_AMOUNT:-100}"
   else
-    echo "WARN  scripts/testnet_full_flow.py not found"
+    echo "WARN  scripts/testnet/testnet_full_flow.py not found"
   fi
 else
-  echo "SKIP  set RUN_TESTNET_ONCHAIN=true for scripts/testnet_full_flow.py --send"
+  echo "SKIP  set RUN_TESTNET_ONCHAIN=true for scripts/testnet/testnet_full_flow.py"
 fi
 
 echo ""
