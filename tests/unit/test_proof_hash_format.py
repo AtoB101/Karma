@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from trusted_agent_runtime.proof_hash_format import (
+from evidence_runtime.proof_hash_format import (
     assert_canonical_karma_proof_hash,
     is_canonical_karma_proof_hash,
     normalize_karma_proof_hash,

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from trusted_agent_runtime.demo_payload import build_demo_offchain_bundle
-from trusted_agent_runtime.evidence_adapter import EvidenceAdapter, new_receipt_id, receipt_record_hash, task_contract_hash
-from trusted_agent_runtime.hashing import karma_proof_hash_pointer
-from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
-from trusted_agent_runtime.schemas import EvidenceBundle, ExecutionReceipt, TaskContract, VerificationResult
-from trusted_agent_runtime.settlement_adapter import SettlementAdapter
-from trusted_agent_runtime.verification import verify_evidence_bundle_structural
+from evidence_runtime.demo_payload import build_demo_offchain_bundle
+from evidence_runtime.evidence_adapter import EvidenceAdapter, new_receipt_id, receipt_record_hash, task_contract_hash
+from evidence_runtime.hashing import karma_proof_hash_pointer
+from evidence_runtime.receipt_store import InMemoryReceiptStore
+from evidence_runtime.schemas import EvidenceBundle, ExecutionReceipt, TaskContract, VerificationResult
+from evidence_runtime.settlement_adapter import SettlementAdapter
+from evidence_runtime.verification import verify_evidence_bundle_structural
 
 
 class TrustedAgentRuntimeTests(unittest.TestCase):

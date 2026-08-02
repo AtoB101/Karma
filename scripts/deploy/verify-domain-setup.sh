@@ -49,5 +49,5 @@ done
 
 echo "==> Manual checks"
 echo "1) https://${WWW_DOMAIN}/"
-echo "2) https://${APP_DOMAIN}/apps/agent-service-guard/frontend/studio/index.html"
+echo "2) https://${APP_DOMAIN}/apps/console/index.html"
 echo "3) Browser console should have no 4xx/5xx for JS/CSS"

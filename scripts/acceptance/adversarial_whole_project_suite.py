@@ -134,16 +134,16 @@ def main() -> int:
     )
 
     # D) Structural stress (no live API)
-    if (ROOT / "scripts/stress_trusted_agent_runtime.py").is_file():
+    if (ROOT / "scripts/stress_evidence_runtime.py").is_file():
         suites.append(
             _run(
                 [
                     sys.executable,
-                    "scripts/stress_trusted_agent_runtime.py",
+                    "scripts/stress_evidence_runtime.py",
                     "--agents",
                     "30",
                 ],
-                label="D1 stress_trusted_agent_runtime --agents 30",
+                label="D1 stress_evidence_runtime --agents 30",
             )
         )
 

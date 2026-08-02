@@ -1,4 +1,4 @@
-"""P2: ensure trusted_agent_runtime avoids deprecated naive UTC helpers."""
+"""P2: ensure evidence_runtime avoids deprecated naive UTC helpers."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from pathlib import Path
 
 
 class TestDatetimePolicy(unittest.TestCase):
-    def test_no_datetime_utcnow_in_trusted_agent_runtime(self) -> None:
-        root = Path(__file__).resolve().parents[1] / "trusted_agent_runtime"
+    def test_no_datetime_utcnow_in_evidence_runtime(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "evidence_runtime"
         pattern = re.compile(r"\butcnow\s*\(")
         hits: list[str] = []
         for path in sorted(root.rglob("*.py")):

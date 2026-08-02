@@ -38,7 +38,7 @@ async def main():
 # asyncio.run(main())
 ```
 
-Tool names and paths follow `packages/openmanus-karma-tools/tools.json` (also bundled under `karma_openmanus/data/tools.json` for offline reference).
+Tool names and paths follow `karma_openmanus/data/tools.json`.
 
 ## Direct Runtime API (phase 1 trade / payment codes)
 

@@ -83,5 +83,5 @@ python3 -m pytest tests/integration/test_runtime_e2e.py -v
 
 - `docs/runtime-key-guide.md`
 - `docs/API_AUTH.md` — `/v1/verify` 与强制认证、`/runtime` 头、可选结算门禁说明
-- `docs/execution-receipt-standard.md`  
+- `docs/EXECUTION_RECEIPT_STANDARD_V2.md`  
 - `docs/voucher-api-standard.md`  

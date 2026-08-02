@@ -83,7 +83,7 @@ where = ["."]
 include = [
     "agents*", "api*", "apps*", "config*", "core*",
     "db*", "karma*", "sdk*", "services*", "worker*",
-    "trusted_agent_runtime*",
+    "evidence_runtime*",
     "decentralized_verifier*",
 ]
 

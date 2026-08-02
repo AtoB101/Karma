@@ -1,24 +1,10 @@
 """
-Karma — On-Chain Settlement Adapter
-=====================================
-Connects the off-chain SettlementEngine to the existing Karma contracts:
-  - KarmaSettlementEngine  (legacy, EIP-712 quote + submitSettlement)
-  - KarmaNonCustodial      (M2.0, batch + bill model)
+Karma — On-Chain Settlement Adapter (KarmaBilateral)
 
-Design decisions based on contract analysis:
-  - Both contracts have NO on-chain dispute/refund methods.
-  - Dispute/refund decisions remain off-chain (private runtime).
-  - On-chain action = payment transfer only (release or skip).
-  - Evidence hash is embedded in scopeHash field of the EIP-712 Quote.
-  - This adapter uses the Legacy Engine path (EIP-712 sign + submit).
+Connects the off-chain settlement state machine to the active protocol contract:
+  KarmaBilateral — lock → mint Bill (1:1) → bind → settle → finalizeSettle
 
-Flow:
-    lock_funds()           → validates pre-conditions (balance, allowance, nonce)
-    submit_evidence_hash() → records bundle hash off-chain (no on-chain call needed for legacy engine)
-    release_payment()      → builds EIP-712 Quote, signs, calls submitSettlement()
-    refund_payment()       → no on-chain action; off-chain state only
-    open_dispute()         → no on-chain action; off-chain state only
-    get_onchain_status()   → reads tx receipt from chain
+Legacy KarmaSettlementEngine / NonCustodialAgentPayment paths are removed.
 """
 from __future__ import annotations
 
@@ -26,41 +12,112 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Optional
 
 import structlog
 
 from config.settings import settings
-from core.schemas import EvidenceBundle, SettlementState, TaskContract, VerificationDecision, VerificationResult
+from core.schemas import EvidenceBundle, TaskContract, VerificationDecision, VerificationResult
 
 logger = structlog.get_logger(__name__)
 
-# EIP-712 typed data for Quote (matches KarmaSettlementEngine)
-QUOTE_TYPES = {
-    "Quote": [
-        {"name": "quoteId",   "type": "bytes32"},
-        {"name": "payer",     "type": "address"},
-        {"name": "payee",     "type": "address"},
-        {"name": "token",     "type": "address"},
-        {"name": "amount",    "type": "uint256"},
-        {"name": "nonce",     "type": "uint256"},
-        {"name": "deadline",  "type": "uint256"},
-        {"name": "scopeHash", "type": "bytes32"},
-    ]
-}
-
-EIP712_DOMAIN_NAME    = "KarmaSettlementEngine"
-EIP712_DOMAIN_VERSION = "1"
+# Minimal ABI for KarmaBilateral core surface (lock / bind / settle / views).
+KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
+    {
+        "name": "lock",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "token", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+        "outputs": [{"name": "billId", "type": "uint256"}],
+    },
+    {
+        "name": "bind",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "buyerBillId", "type": "uint256"},
+            {"name": "agentBillId", "type": "uint256"},
+            {"name": "scopeHash", "type": "bytes32"},
+        ],
+        "outputs": [{"name": "bindingId", "type": "uint256"}],
+    },
+    {
+        "name": "settle",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "proofHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "finalizeSettle",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
+        "name": "dispute",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
+        "name": "unlock",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "billId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
+        "name": "tokenAllowed",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "token", "type": "address"}],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
+        "name": "getBinding",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple",
+                "components": [
+                    {"name": "bindingId", "type": "uint256"},
+                    {"name": "buyerBillId", "type": "uint256"},
+                    {"name": "agentBillId", "type": "uint256"},
+                    {"name": "scopeHash", "type": "bytes32"},
+                    {"name": "state", "type": "uint8"},
+                    {"name": "createdAt", "type": "uint256"},
+                    {"name": "settleAfter", "type": "uint256"},
+                    {"name": "proofHash", "type": "bytes32"},
+                    {"name": "disputedAt", "type": "uint256"},
+                    {"name": "disputeInitiator", "type": "address"},
+                ],
+            }
+        ],
+    },
+]
 
 
 @dataclass
 class ChainTxResult:
     tx_hash: str
     block_number: int
-    status: str          # "confirmed" | "failed"
+    status: str  # "confirmed" | "failed"
     gas_used: int
-    quote_id: Optional[str] = None
+    quote_id: Optional[str] = None  # retained for API compat; unused on bilateral
+    binding_id: Optional[int] = None
+    bill_id: Optional[int] = None
     error: Optional[str] = None
 
 
@@ -75,24 +132,25 @@ class OnchainStatus:
 
 class OnChainSettlementAdapter:
     """
-    Adapter between the Karma runtime and existing Karma smart contracts.
+    Adapter between Karma runtime and KarmaBilateral.
 
-    Uses the KarmaSettlementEngine (legacy/EIP-712) path:
-    - Payer signs a Quote with EIP-712
-    - submitSettlement() transfers tokens from payer to payee on-chain
-    - Evidence bundle hash is embedded in scopeHash
-
-    Refund and dispute remain off-chain decisions — the contract
-    has no refund/dispute methods, so these are handled purely
-    by the settlement state machine.
+    - lock_funds() validates token allowlist / balance / allowance (and optionally locks)
+    - release_payment() calls settle(bindingId, proofHash)
+    - refund / dispute remain off-chain decisions unless binding_id is supplied for dispute()
     """
 
     def __init__(self):
         self._w3 = None
         self._account = None
-        self._engine_contract = None
+        self._bilateral_contract = None
         self._erc20_contract = None
         self._chain_id: Optional[int] = None
+
+    def _bilateral_address(self) -> str:
+        addr = (settings.karma_bilateral_address or "").strip()
+        if not addr:
+            raise RuntimeError("KARMA_BILATERAL_ADDRESS not set")
+        return addr
 
     def _get_web3(self):
         if self._w3 is not None:
@@ -100,6 +158,7 @@ class OnChainSettlementAdapter:
         if not settings.testnet_rpc_url:
             raise RuntimeError("TESTNET_RPC_URL not set — cannot connect to chain")
         from web3 import Web3
+
         self._w3 = Web3(Web3.HTTPProvider(settings.testnet_rpc_url))
         if not self._w3.is_connected():
             raise RuntimeError(f"Cannot connect to RPC: {settings.testnet_rpc_url}")
@@ -113,22 +172,19 @@ class OnChainSettlementAdapter:
         if not settings.testnet_private_key:
             raise RuntimeError("TESTNET_PRIVATE_KEY not set")
         from eth_account import Account
+
         self._account = Account.from_key(settings.testnet_private_key)
         return self._account
 
-    def _get_engine(self):
-        if self._engine_contract is not None:
-            return self._engine_contract
-        if not settings.karma_engine_address:
-            raise RuntimeError("KARMA_ENGINE_ADDRESS not set")
+    def _get_bilateral(self):
+        if self._bilateral_contract is not None:
+            return self._bilateral_contract
         w3 = self._get_web3()
-        abi_path = Path(__file__).parent.parent / "abi" / "KarmaSettlementEngine.json"
-        abi = json.loads(abi_path.read_text())
-        self._engine_contract = w3.eth.contract(
-            address=w3.to_checksum_address(settings.karma_engine_address),
-            abi=abi,
+        self._bilateral_contract = w3.eth.contract(
+            address=w3.to_checksum_address(self._bilateral_address()),
+            abi=KARMA_BILATERAL_ABI,
         )
-        return self._engine_contract
+        return self._bilateral_contract
 
     def _get_erc20(self):
         if self._erc20_contract is not None:
@@ -137,14 +193,30 @@ class OnChainSettlementAdapter:
             raise RuntimeError("ERC20_TOKEN_ADDRESS not set")
         w3 = self._get_web3()
         erc20_abi = [
-            {"name": "balanceOf",  "type": "function", "stateMutability": "view",
-             "inputs": [{"name": "account", "type": "address"}],
-             "outputs": [{"name": "", "type": "uint256"}]},
-            {"name": "allowance",  "type": "function", "stateMutability": "view",
-             "inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}],
-             "outputs": [{"name": "", "type": "uint256"}]},
-            {"name": "decimals",   "type": "function", "stateMutability": "view",
-             "inputs": [], "outputs": [{"name": "", "type": "uint8"}]},
+            {
+                "name": "balanceOf",
+                "type": "function",
+                "stateMutability": "view",
+                "inputs": [{"name": "account", "type": "address"}],
+                "outputs": [{"name": "", "type": "uint256"}],
+            },
+            {
+                "name": "allowance",
+                "type": "function",
+                "stateMutability": "view",
+                "inputs": [
+                    {"name": "owner", "type": "address"},
+                    {"name": "spender", "type": "address"},
+                ],
+                "outputs": [{"name": "", "type": "uint256"}],
+            },
+            {
+                "name": "decimals",
+                "type": "function",
+                "stateMutability": "view",
+                "inputs": [],
+                "outputs": [{"name": "", "type": "uint8"}],
+            },
         ]
         self._erc20_contract = w3.eth.contract(
             address=w3.to_checksum_address(settings.erc20_token_address),
@@ -152,70 +224,93 @@ class OnChainSettlementAdapter:
         )
         return self._erc20_contract
 
+    def _send_tx(self, fn) -> ChainTxResult:
+        w3 = self._get_web3()
+        account = self._get_account()
+        chain_id = self._chain_id or w3.eth.chain_id
+        tx = fn.build_transaction(
+            {
+                "from": account.address,
+                "nonce": w3.eth.get_transaction_count(account.address),
+                "chainId": chain_id,
+            }
+        )
+        signed = account.sign_transaction(tx)
+        raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+        tx_hash = w3.eth.send_raw_transaction(raw)
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+        hx = receipt.transactionHash.hex()
+        if not hx.startswith("0x"):
+            hx = "0x" + hx
+        return ChainTxResult(
+            tx_hash=hx,
+            block_number=receipt.blockNumber,
+            status="confirmed" if receipt.status == 1 else "failed",
+            gas_used=receipt.gasUsed,
+        )
+
     # ------------------------------------------------------------------
     # Public adapter methods
     # ------------------------------------------------------------------
 
     def lock_funds(self, task_contract: TaskContract) -> dict[str, Any]:
         """
-        Validate that on-chain pre-conditions are met before task execution.
-        The Legacy Engine has no explicit lock — funds are transferred on settle.
-        This method verifies: balance, allowance, nonce, engine not paused, token allowed.
-        Returns a status dict; raises on hard failures.
+        Validate bilateral pre-conditions (token allowlist, balance, allowance).
+        Does not always broadcast lock() — callers that already locked off-chain
+        capacity only need these checks. When ``task_contract.onchain_do_lock``
+        is true, broadcasts lock() and returns bill_id.
         """
         w3 = self._get_web3()
         account = self._get_account()
-        engine = self._get_engine()
+        bilateral = self._get_bilateral()
         erc20 = self._get_erc20()
 
-        amount_wei = int(task_contract.escrow_amount)  # assumed base units; caller adjusts for decimals
+        amount_wei = int(task_contract.escrow_amount)
         payer = account.address
-        engine_addr = settings.karma_engine_address
+        bilateral_addr = self._bilateral_address()
+        token = w3.to_checksum_address(settings.erc20_token_address)
 
-        paused        = engine.functions.paused().call()
-        token_allowed = engine.functions.tokenAllowed(
-            w3.to_checksum_address(settings.erc20_token_address)
-        ).call()
-        nonce    = engine.functions.nonces(w3.to_checksum_address(payer)).call()
-        balance  = erc20.functions.balanceOf(w3.to_checksum_address(payer)).call()
+        token_allowed = bilateral.functions.tokenAllowed(token).call()
+        balance = erc20.functions.balanceOf(w3.to_checksum_address(payer)).call()
         allowance = erc20.functions.allowance(
             w3.to_checksum_address(payer),
-            w3.to_checksum_address(engine_addr),
+            w3.to_checksum_address(bilateral_addr),
         ).call()
 
         errors = []
-        if paused:
-            errors.append("Engine is paused")
         if not token_allowed:
-            errors.append("Token not allowed by engine")
+            errors.append("Token not allowed by KarmaBilateral")
         if balance < amount_wei:
             errors.append(f"Insufficient balance: need {amount_wei}, have {balance}")
         if allowance < amount_wei:
             errors.append(f"Insufficient allowance: need {amount_wei}, approved {allowance}")
-
         if errors:
             raise ValueError(f"Lock pre-checks failed: {errors}")
 
-        result = {
-            "task_id":      task_contract.task_id,
-            "payer":        payer,
-            "amount_wei":   amount_wei,
-            "nonce":        nonce,
-            "balance":      balance,
-            "allowance":    allowance,
-            "paused":       paused,
-            "token_allowed":token_allowed,
-            "status":       "pre_checks_passed",
+        result: dict[str, Any] = {
+            "task_id": task_contract.task_id,
+            "payer": payer,
+            "amount_wei": amount_wei,
+            "balance": balance,
+            "allowance": allowance,
+            "token_allowed": token_allowed,
+            "contract": "KarmaBilateral",
+            "contract_address": bilateral_addr,
+            "status": "pre_checks_passed",
         }
+
+        do_lock = bool(getattr(task_contract, "onchain_do_lock", False))
+        if do_lock:
+            tx_result = self._send_tx(bilateral.functions.lock(token, amount_wei))
+            result["status"] = "locked"
+            result["tx_hash"] = tx_result.tx_hash
+            result["bill_id"] = getattr(task_contract, "onchain_buyer_bill_id", None)
+
         logger.info("lock_funds_ok", task_id=task_contract.task_id, amount=amount_wei)
         return result
 
     def submit_evidence_hash(self, task_id: str, bundle: EvidenceBundle) -> str:
-        """
-        Compute and store the evidence bundle hash.
-        For the Legacy Engine, the hash is embedded in scopeHash during release.
-        Returns the keccak256 hex hash of the bundle.
-        """
+        """Compute evidence bundle digest used as settle proofHash input."""
         bundle_data = bundle.model_dump(mode="json")
         raw = json.dumps(bundle_data, sort_keys=True, separators=(",", ":"), default=str).encode()
         bundle_hash = "0x" + hashlib.sha256(raw).hexdigest()
@@ -230,173 +325,59 @@ class OnChainSettlementAdapter:
         amount_wei: int,
     ) -> ChainTxResult:
         """
-        Build EIP-712 Quote with evidence hash in scopeHash, sign, and call
-        submitSettlement() on the existing KarmaSettlementEngine contract.
-        This transfers tokens from payer to payee on-chain.
+        Call KarmaBilateral.settle(bindingId, proofHash).
+
+        ``task_contract.onchain_binding_id`` must be set (bind already completed).
         """
         if verification.decision != VerificationDecision.RELEASE:
             raise ValueError(f"Cannot release: decision is {verification.decision}")
 
-        w3        = self._get_web3()
-        account   = self._get_account()
-        engine    = self._get_engine()
-        chain_id  = self._chain_id or w3.eth.chain_id
+        binding_id = getattr(task_contract, "onchain_binding_id", None)
+        if binding_id is None:
+            raise ValueError(
+                "Cannot settle: task_contract.onchain_binding_id is required for KarmaBilateral"
+            )
 
-        payer  = w3.to_checksum_address(account.address)
-        payee  = w3.to_checksum_address(settings.payee_address)
-        token  = w3.to_checksum_address(settings.erc20_token_address)
-        engine_addr = w3.to_checksum_address(settings.karma_engine_address)
+        w3 = self._get_web3()
+        bilateral = self._get_bilateral()
+        proof_hex = self.submit_evidence_hash(task_contract.task_id, bundle)
+        proof_bytes = bytes.fromhex(proof_hex[2:] if proof_hex.startswith("0x") else proof_hex)
 
-        nonce    = engine.functions.nonces(payer).call()
-        now      = int(time.time())
-        deadline = now + settings.settlement_ttl_seconds
-
-        # Embed evidence hash + task_id in scopeHash for on-chain auditability
-        scope_str  = f"{settings.settlement_scope}:{task_contract.task_id}:{bundle.bundle_id}"
-        scope_hash = w3.keccak(text=scope_str)
-
-        # Build quoteId from task identity
-        quote_id_raw = w3.keccak(text=f"quote:{payer}:{payee}:{task_contract.task_id}:{now}")
-
-        quote = {
-            "quoteId":   quote_id_raw,
-            "payer":     payer,
-            "payee":     payee,
-            "token":     token,
-            "amount":    amount_wei,
-            "nonce":     nonce,
-            "deadline":  deadline,
-            "scopeHash": scope_hash,
-        }
-
-        domain = {
-            "name":              EIP712_DOMAIN_NAME,
-            "version":           EIP712_DOMAIN_VERSION,
-            "chainId":           chain_id,
-            "verifyingContract": engine_addr,
-        }
-
-        # Sign EIP-712
-        structured_data = {
-            "types": {
-                "EIP712Domain": [
-                    {"name": "name",              "type": "string"},
-                    {"name": "version",           "type": "string"},
-                    {"name": "chainId",           "type": "uint256"},
-                    {"name": "verifyingContract", "type": "address"},
-                ],
-                **QUOTE_TYPES,
-            },
-            "domain": domain,
-            "primaryType": "Quote",
-            "message": {
-                **quote,
-                "quoteId":   quote_id_raw.hex(),
-                "scopeHash": scope_hash.hex(),
-                "amount":    amount_wei,
-                "nonce":     nonce,
-                "deadline":  deadline,
-            },
-        }
-        signed = account.sign_typed_data(full_message=structured_data)
-        v, r, s = signed.v, signed.r, signed.s
-
-        # Submit on-chain
-        tx = engine.functions.submitSettlement(
-            (
-                quote_id_raw,
-                payer,
-                payee,
-                token,
-                amount_wei,
-                nonce,
-                deadline,
-                scope_hash,
-            ),
-            v,
-            r.to_bytes(32, "big"),
-            s.to_bytes(32, "big"),
-        ).build_transaction({
-            "from":  payer,
-            "nonce": w3.eth.get_transaction_count(payer),
-            "chainId": chain_id,
-        })
-
-        signed_tx = account.sign_transaction(tx)
-        tx_hash   = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-        receipt   = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-
-        status = "confirmed" if receipt.status == 1 else "failed"
-        result = ChainTxResult(
-            tx_hash=receipt.transactionHash.hex(),
-            block_number=receipt.blockNumber,
-            status=status,
-            gas_used=receipt.gasUsed,
-            quote_id=quote_id_raw.hex(),
-        )
-
+        result = self._send_tx(bilateral.functions.settle(int(binding_id), proof_bytes))
+        result.binding_id = int(binding_id)
+        result.quote_id = f"binding:{binding_id}"
         logger.info(
-            "release_payment_submitted",
+            "bilateral_settle_submitted",
             task_id=task_contract.task_id,
-            tx_hash=result.tx_hash,
-            status=status,
-            block=result.block_number,
+            binding_id=binding_id,
+            amount_wei=amount_wei,
+            tx=result.tx_hash,
         )
         return result
 
-    def refund_payment(
-        self,
-        task_id: str,
-        verification: VerificationResult,
-    ) -> dict[str, Any]:
-        """
-        The KarmaSettlementEngine has no on-chain refund method.
-        Refund decisions are enforced off-chain: funds simply never move.
-        This method records the decision and returns a status dict.
-        """
-        logger.info(
-            "refund_decision_offchain",
-            task_id=task_id,
-            decision=verification.decision,
-            notes="No on-chain refund call — KarmaSettlementEngine has no refund method. "
-                  "Funds remain with payer as submitSettlement was never called.",
-        )
+    def refund_payment(self, task_id: str, verification: VerificationResult) -> dict:
+        """Refund remains an off-chain decision unless an unlock/timeout path is wired."""
+        _ = verification
         return {
+            "status": "offchain_only",
+            "action": "refund",
             "task_id": task_id,
-            "action":  "refund",
-            "status":  "offchain_only",
-            "note":    "Existing contract has no refund method. Escrow never transferred.",
+            "note": "Use unlock(MINTED) or refundOnTimeout(binding) on KarmaBilateral when applicable",
         }
 
-    def open_dispute(
-        self,
-        task_id: str,
-        bundle_hash: str,
-    ) -> dict[str, Any]:
-        """
-        The KarmaSettlementEngine has no on-chain dispute method.
-        Disputes are handled off-chain by the private runtime.
-        This method records the dispute intent.
-        """
-        logger.info(
-            "dispute_opened_offchain",
-            task_id=task_id,
-            bundle_hash=bundle_hash,
-        )
+    def open_dispute(self, task_id: str, bundle_hash: str) -> dict:
+        """Dispute recording; on-chain dispute() requires binding_id in a follow-up call path."""
         return {
-            "task_id":     task_id,
-            "action":      "dispute",
+            "status": "offchain_only",
+            "action": "dispute",
+            "task_id": task_id,
             "bundle_hash": bundle_hash,
-            "status":      "offchain_only",
-            "note":        "Existing contract has no dispute method. Dispute handled by private runtime.",
+            "note": "Call KarmaBilateral.dispute(bindingId) when binding is FINALIZING/ACTIVE",
         }
 
     def get_onchain_status(self, tx_hash: str) -> OnchainStatus:
-        """
-        Query the chain for transaction status by tx hash.
-        """
-        w3 = self._get_web3()
         try:
+            w3 = self._get_web3()
             receipt = w3.eth.get_transaction_receipt(tx_hash)
             if receipt is None:
                 return OnchainStatus(task_id="", tx_hash=tx_hash, block_number=None, confirmed=False)
@@ -407,19 +388,17 @@ class OnChainSettlementAdapter:
                 confirmed=receipt.status == 1,
             )
         except Exception as e:
-            return OnchainStatus(task_id="", tx_hash=tx_hash, block_number=None, confirmed=False, error=str(e))
+            return OnchainStatus(
+                task_id="", tx_hash=tx_hash, block_number=None, confirmed=False, error=str(e)
+            )
 
-
-# ---------------------------------------------------------------------------
-# Settlement mode router
-# ---------------------------------------------------------------------------
 
 class SettlementRouter:
     """
     Routes settlement actions based on SETTLEMENT_MODE:
       offchain — database state only
-      testnet  — real on-chain via existing Karma contracts
-      hybrid   — off-chain verification, on-chain payment only on release
+      testnet  — real on-chain via KarmaBilateral
+      hybrid   — off-chain verification, on-chain settle on RELEASE
     """
 
     def __init__(self):
@@ -438,7 +417,6 @@ class SettlementRouter:
         return self.mode in ("testnet", "hybrid")
 
     def should_submit_onchain(self, decision: VerificationDecision) -> bool:
-        """Only submit on-chain when mode is testnet/hybrid AND decision is RELEASE."""
         return self.is_onchain() and decision == VerificationDecision.RELEASE
 
     def lock_funds(self, task_contract: TaskContract) -> dict[str, Any]:
@@ -476,5 +454,4 @@ class SettlementRouter:
         return self._chain().get_onchain_status(tx_hash)
 
 
-# Singleton
 settlement_router = SettlementRouter()

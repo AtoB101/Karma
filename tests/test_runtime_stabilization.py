@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import unittest
 
-from trusted_agent_runtime.demo_payload import build_demo_offchain_bundle
-from trusted_agent_runtime.evidence_adapter import EvidenceAdapter, new_receipt_id, receipt_record_hash
-from trusted_agent_runtime.operational_controls import OperationalControls
-from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
-from trusted_agent_runtime.recovery import describe_receipt_chain_gaps
-from trusted_agent_runtime.schemas import EvidenceBundle, ExecutionReceipt, TaskContract, VerificationResult
-from trusted_agent_runtime.settlement_adapter import SettlementAdapter
-from trusted_agent_runtime.settlement_idempotency import SettlementIdempotencyBook
-from trusted_agent_runtime.verification import verify_evidence_bundle_structural
+from evidence_runtime.demo_payload import build_demo_offchain_bundle
+from evidence_runtime.evidence_adapter import EvidenceAdapter, new_receipt_id, receipt_record_hash
+from evidence_runtime.operational_controls import OperationalControls
+from evidence_runtime.receipt_store import InMemoryReceiptStore
+from evidence_runtime.recovery import describe_receipt_chain_gaps
+from evidence_runtime.schemas import EvidenceBundle, ExecutionReceipt, TaskContract, VerificationResult
+from evidence_runtime.settlement_adapter import SettlementAdapter
+from evidence_runtime.settlement_idempotency import SettlementIdempotencyBook
+from evidence_runtime.verification import verify_evidence_bundle_structural
 
 
 class RuntimeStabilizationTests(unittest.TestCase):
@@ -70,8 +70,10 @@ class RuntimeStabilizationTests(unittest.TestCase):
             controls=OperationalControls(pause_payout=True),
         )
         fns = [c["function"] for c in plan["recommended_calls"]]
-        self.assertNotIn("requestBillPayout", fns)
-        self.assertIn("createBill", fns)
+        self.assertNotIn("settle", fns)
+        self.assertNotIn("finalizeSettle", fns)
+        self.assertIn("lockBuyer", fns)
+        self.assertIn("bind", fns)
 
     def test_freeze_agent_blocks_verification(self) -> None:
         p = build_demo_offchain_bundle(trace_id="t-freeze-agent")

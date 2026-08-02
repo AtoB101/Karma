@@ -6,7 +6,7 @@ cross-reference constraints for bundles, receipts, and tasks.
 
 Every verifier node runs these independently — no private state, no DB, no network.
 
-Derived from the public-safe subset of trusted_agent_runtime/verification.py.
+Derived from the public-safe subset of evidence_runtime/verification.py.
 """
 from __future__ import annotations
 

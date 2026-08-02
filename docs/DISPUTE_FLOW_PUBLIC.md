@@ -1,17 +1,20 @@
 # Dispute flow (public)
 
-## Public responsibilities
+## On-chain (KarmaBilateral)
 
-- Capture **dispute intents** with references to `bill_id`, evidence URIs, and signatures suitable for audit.  
-- Surface **review status** and **public-facing reasons** returned by operator services.  
-- Never expose private classifier weights, internal codes, or proprietary fraud features in static frontends or public SDKs.
+- During `FINALIZING`, a party may call `dispute(bindingId)`.
+- Admin / configured resolver may `resolveDispute(bindingId, buyerShareBps)`.
+- Timeout recovery: `refundOnTimeout(bindingId)` when settle never completes.
 
-## On-chain vs off-chain
+See `karma-core/contracts/core/KarmaBilateral.sol` for exact gates.
 
-On-chain dispute transitions are enforced by `NonCustodialAgentPayment` (see contract source).  
-Off-chain review and reputation updates must be performed by **private services** behind authenticated internal APIs.
+## Off-chain
 
-## API sketch
+- Capture dispute intents with binding / bill references, evidence digests, and signatures.
+- Surface review status and public-facing reasons only.
+- Do not expose private classifier weights or fraud features in public SDKs or console.
 
-`POST /api/public/disputes/create` in `openapi/karma-public-console-api.yaml` describes a public-safe create call.  
-Private adjudication endpoints must **not** be mounted on public hosts.
+## API
+
+Public settlement / dispute routes live under `/v1/settlement` (see `docs/API_REFERENCE.md` and OpenAPI).  
+Private adjudication engines stay off public hosts.

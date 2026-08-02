@@ -1,7 +1,7 @@
 # AP2 ↔ Karma Evidence 字段映射（Phase 3）
 
 > **版本：** `agents-to-payments/ap2-mandate/v1` ↔ `karma.ta.evidence_bundle.v1`  
-> **实现：** `trusted_agent_runtime/ap2_adapter.py`
+> **实现：** `evidence_runtime/ap2_adapter.py`
 
 ## 1. 三层 Mandate 模型
 
@@ -18,7 +18,7 @@
 | `karma_evidence_digest` | `SHA-256(canonical_json(bundle))` | 往返转换不得改变 |
 | `mandate_digest` | `SHA-256(canonical_json(mandate \\ {mandate_signature}))` | AP2 侧完整性 |
 
-Canonical JSON：`sort_keys=True`, `separators=(",", ":")`（见 `trusted_agent_runtime/hashing.py`）。
+Canonical JSON：`sort_keys=True`, `separators=(",", ":")`（见 `evidence_runtime/hashing.py`）。
 
 ## 3. EvidenceBundle ↔ AP2 映射表
 

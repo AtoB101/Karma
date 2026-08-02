@@ -11,7 +11,7 @@ bash scripts/acceptance/phase3_ap2_gate.sh
 | # | 项 | 路径 | 状态 |
 |---|-----|------|------|
 | 3.1 | 字段映射文档 | `docs/AP2_EVIDENCE_PROFILE-zh.md` | ☑ |
-| 3.2 | AP2 适配器 | `trusted_agent_runtime/ap2_adapter.py` | ☑ |
+| 3.2 | AP2 适配器 | `evidence_runtime/ap2_adapter.py` | ☑ |
 | 3.3 | SD-JWT 导出 | `services/evidence_export.py` | ☑ |
 | 3.4 | Payment Intent API | `api/routes/payment_intents.py` | ☑ |
 | 3.5 | Human-not-present | `human_not_present_allowed` + `services/human_not_present_policy.py` | ☑ |
@@ -22,7 +22,7 @@ bash scripts/acceptance/phase3_ap2_gate.sh
 - [x] 单测：bundle ↔ AP2 JSON 往返（`tests/unit/test_ap2_adapter.py`）
 - [x] 集成：PaymentIntent 创建 → 绑定 task → settlement 同步 `settled`（`tests/integration/test_phase3_payment_intent.py`）
 - [x] SD-JWT 公开验证命令（见 `docs/AP2_EVIDENCE_PROFILE-zh.md` §6）
-- [x] `docs/API_ROADMAP_V01.md` M5 状态更新
+- [x] `docs/FOCUS_ROADMAP.md` M5 状态更新
 
 ## 手动冒烟（可选）
 

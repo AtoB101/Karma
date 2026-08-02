@@ -115,7 +115,7 @@ pytest tests/test_karma_bff_smoke.py -q
 | 3 | 链 webhook 或 dev simulate | `EXECUTE_ALLOWED` |
 | 4 | `append_execution_receipt` | 收据写入 |
 
-工具定义：`packages/openmanus-karma-tools/tools.json`
+工具定义：`packages/karma-openmanus/karma_openmanus/data/tools.json`
 
 ### B2 — Runtime 阶段一（新增 `KarmaRuntimeClient`）
 
@@ -176,6 +176,6 @@ Runtime 工具清单：`packages/karma-openmanus/karma_openmanus/data/runtime_to
 ## 参考
 
 - `docs/CONSOLE_PHASE1_TRADITIONAL_PREAUTH-zh.md`
-- `docs/TESTNET_PHASE1_TRADE_ACCEPTANCE-zh.md`
+- `docs/public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md`
 - `docs/OPENCLAW_OPERATOR_CHECKLIST-zh.md`
 - `examples/phase1-live-test/README.md`

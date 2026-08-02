@@ -1,6 +1,6 @@
 # One-click deploy (Railway · Fly.io · Vercel)
 
-Lower-friction paths to run **Karma Public API** and the **static marketing site** on managed hosts.  
+Lower-friction paths to run **Karma Public API** and the **static console** on managed hosts.  
 Production still requires you to set secrets, attach Postgres/Redis, and run migrations (wired below where possible).
 
 **Upstream GitHub repo (used in deploy links):** `https://github.com/AtoB101/Karma` — forks should replace this in their own README / docs fork.
@@ -11,11 +11,11 @@ Production still requires you to set secrets, attach Postgres/Redis, and run mig
 |----------|--------|
 | **Railway** (API) | [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/github?repositories[]=https://github.com/AtoB101/Karma) |
 | **Fly.io** (API) | [![Deploy to Fly.io](https://fly.io/button.svg)](https://fly.io/launch?template=https://github.com/AtoB101/Karma) |
-| **Vercel** (static `apps/website`) | [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAtoB101%2FKarma&root-directory=apps%2Fwebsite) |
+| **Vercel** (static `apps/console`) | [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAtoB101%2FKarma&root-directory=apps%2Fconsole) |
 
 - **Railway:** opens **New project → GitHub** with this repo pre-filled when the `repositories[]` query is honored. After deploy, add **PostgreSQL** + **Redis** plugins and env vars (see below). `railway.toml` supplies Dockerfile path, health check, and `preDeployCommand` migrations.
 - **Fly.io:** `fly launch` flow reads **`fly.toml`** at repo root; set `fly secrets` before first deploy. Edit `app = "karma-api-replace-me"` in `fly.toml` if the launcher does not rename it for you.
-- **Vercel:** clone flow sets **`root-directory=apps/website`** so only the marketing static tree is deployed.
+- **Vercel:** clone flow sets **`root-directory=apps/console`** so the operator console static tree is deployed.
 
 ### Railway Marketplace template (optional)
 
@@ -28,7 +28,7 @@ If maintainers **publish a Railway Template** (workspace → Templates → publi
 | `deploy/Dockerfile.paas` | API image: `pip install .`, `uvicorn`, honors `PORT` |
 | `railway.toml` | Railway: Dockerfile build, `/health` check, **pre-deploy migrations** |
 | `fly.toml` | Fly Machines: same Dockerfile, **release_command** migrations, `PORT=8080` |
-| `apps/website/vercel.json` | Vercel static headers / clean URLs for the marketing site |
+| `apps/console/` | Static operator console (Vercel root directory) |
 
 **Celery worker**, **MinIO**, and **private risk runtime** are not in these templates—add a second service or use managed object storage (S3-compatible) per your security model.
 
@@ -69,7 +69,7 @@ When `APP_ENV=production`, the API **refuses to start** unless the `RUNTIME_REQU
 **Console authorization gate (6 steps):** policy → Runtime Key → voucher/settlement (manual) → automation-readiness → handoff-confirm → export handoff. OpenClaw: `KARMA_OPENCLAW_REQUIRE_SERVER_ATTESTATION=true`.
 
 Operator checklist (Chinese, one page): `docs/OPENCLAW_OPERATOR_CHECKLIST-zh.md`.  
-Public / private repo landing: `docs/PUBLIC_REPO_LANDING-zh.md`, `docs/PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md`.
+Public / private repo landing: `docs/README.md`, `README.md`.
 
 ---
 
@@ -97,17 +97,15 @@ Public / private repo landing: `docs/PUBLIC_REPO_LANDING-zh.md`, `docs/PRIVATE_R
 
 ---
 
-## Vercel (static marketing site)
+## Vercel (static console)
 
-The API is **not** suited to Vercel Serverless as-is (long-lived FastAPI + WebSockets/Celery patterns). Deploy **only** the static site:
+The API is **not** suited to Vercel Serverless as-is (long-lived FastAPI + WebSockets/Celery patterns). Deploy **only** the static console:
 
 1. [vercel.com/new](https://vercel.com/new) → Import this repository.
-2. **Root Directory:** `apps/website`
+2. **Root Directory:** `apps/console`
 3. Framework preset: **Other** (static HTML/CSS).
 4. Build command: leave empty or `echo "static"`.
-5. Output directory: `.` (default when root is `apps/website`).
-
-`apps/website/vercel.json` adds basic security headers. Update links in HTML if the developer portal is hosted elsewhere.
+5. Output directory: `.` (default when root is `apps/console`).
 
 ---
 

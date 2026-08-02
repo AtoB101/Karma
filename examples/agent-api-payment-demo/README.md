@@ -1,15 +1,14 @@
 # Agent API Payment Demo (Public Mock)
 
-This example demonstrates a public-safe payment flow for API-style services:
+Public-safe payment flow sketch for API-style services:
 
-1. Create protected service.
-2. Share payment link.
-3. Buyer creates protected order.
-4. Seller submits delivery and evidence hash.
-5. Buyer confirms or opens dispute.
+1. Create protected service / agent.
+2. Share payment / order link.
+3. Buyer creates order under capacity limits.
+4. Seller submits delivery + evidence hash.
+5. Buyer confirms or opens dispute → Bilateral settle path.
 
-Use frontend:
+UI: `apps/console/`  
+Integration: `docs/integration-guide.md`, `docs/SETTLEMENT_FLOW_PUBLIC.md`
 
-- `apps/agent-service-guard/frontend/index.html`
-
-This example does not expose private scoring/anti-fraud/arbitration internals.
+Does not expose private scoring / anti-fraud internals.

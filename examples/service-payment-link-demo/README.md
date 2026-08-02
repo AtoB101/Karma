@@ -1,9 +1,8 @@
 # Service payment link demo (reference)
 
-The interactive HTML demos under `apps/agent-service-guard/frontend/` were consolidated into a **single portal** (`index.html`) plus **Studio** (`studio/`).
+Interactive Guard UI demos were removed. Use:
 
-For payment-link and order-flow examples, refer to:
-
-- `apps/agent-service-guard/api/public-interfaces.json` — public request/response shapes
+- `apps/console/` — operator console
 - `docs/integration-guide.md` — integration narrative
-- Repository `examples/` for other contract-level samples
+- `docs/SETTLEMENT_FLOW_PUBLIC.md` — Bilateral settlement
+- Other samples under `examples/`

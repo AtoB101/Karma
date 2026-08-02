@@ -10,8 +10,8 @@ import base64
 import json
 from typing import Any, Mapping
 
-from trusted_agent_runtime.ap2_adapter import AP2_SCHEMA_VERSION, evidence_digest, to_ap2_mandate
-from trusted_agent_runtime.hashing import canonical_json_bytes, sha256_hex
+from evidence_runtime.ap2_adapter import AP2_SCHEMA_VERSION, evidence_digest, to_ap2_mandate
+from evidence_runtime.hashing import canonical_json_bytes, sha256_hex
 
 SD_JWT_TYP = "karma-sd-jwt+v1"
 

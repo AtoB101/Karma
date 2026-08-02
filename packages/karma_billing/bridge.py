@@ -408,12 +408,13 @@ def create_bridge(
     -------
     AnchoringBridge
     """
-    # Lazy import: only needed when actually connecting to Solana
+    # Lazy import: Solana anchoring lives outside this monorepo (optional extra).
     try:
         from karma_solana.merkle_anchor import IncrementalMerkleAnchor as _IMAnchor
     except ImportError:
         raise ImportError(
-            "karma_solana is not installed. Install with: pip install karma-solana"
+            "karma_solana is not available in this repository. "
+            "Provide a merkle_anchor implementation or install an external karma-solana package."
         )
 
     anchor = _IMAnchor(

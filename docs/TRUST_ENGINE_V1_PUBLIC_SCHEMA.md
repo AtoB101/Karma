@@ -1,9 +1,9 @@
 # Trust Engine V1 Public Schema (Public-Safe)
 
-This document defines only public contract-level fields and status markers.
+Public contract-level fields and status markers only.
 
-It intentionally does **not** include private scoring weights, anti-fraud
-thresholds, evidence weighting internals, or arbitration tie-break constants.
+Does **not** include private scoring weights, anti-fraud thresholds, evidence
+weighting internals, or arbitration tie-break constants.
 
 ## Evidence fields (required)
 
@@ -20,5 +20,7 @@ thresholds, evidence weighting internals, or arbitration tie-break constants.
 
 ## Public boundary
 
-- Public repo defines field presence, API contract, and interoperability shape.
-- Private repo owns internal scoring formulas, anti-cheat thresholds, and dispute policy tuning.
+- Public repo: field presence, API contract, interoperability shape, Bilateral settle mapping.
+- Private systems (if any): scoring formulas, anti-cheat thresholds, dispute policy tuning.
+
+See also: `docs/EVIDENCE_BUNDLE_STANDARD.md`, `docs/SETTLEMENT_FLOW_PUBLIC.md`.

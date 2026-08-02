@@ -12,7 +12,7 @@ from db.models.orm import EvidenceBundleModel
 from db.session import get_db
 from services.evidence_export import bundle_to_evidence_object, verify_evidence_digest, verify_sd_jwt_export
 from services.path_param_safety import validate_public_url_segment
-from trusted_agent_runtime.ap2_adapter import (
+from evidence_runtime.ap2_adapter import (
     evidence_digest,
     from_ap2_mandate,
     to_ap2_mandate,

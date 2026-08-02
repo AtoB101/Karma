@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from services.evidence_export import export_sd_jwt_disclosure, verify_sd_jwt_export
-from trusted_agent_runtime.schemas import EvidenceBundle
+from evidence_runtime.schemas import EvidenceBundle
 
 
 def test_sd_jwt_export_roundtrip():
