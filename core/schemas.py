@@ -297,6 +297,10 @@ class TaskContract(BaseModel):
     onchain_agent_bill_id: Optional[int] = Field(
         default=None, description="Agent Bill Token id after lock()"
     )
+    onchain_scope_hash: Optional[str] = Field(
+        default=None,
+        description="Optional 0x-prefixed bytes32 scope for bind(); defaults to sha256(task_id)",
+    )
     onchain_do_lock: bool = Field(
         default=False,
         description="When true, on-chain adapter may broadcast lock() during lock_funds()",

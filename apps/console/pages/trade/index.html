@@ -65,9 +65,12 @@
         <label>需求描述（自然语言，Agent 将拆解为任务/金额/精密度）<br />
           <textarea data-f="requirement_text" rows="4" style="width: 100%; margin-top: 0.35rem" placeholder="例如：为卖家 seller-001 生成字幕任务，金额 20 USDC，精度 1.5，48小时内交付"></textarea>
         </label>
-        <p style="margin-top: 0.65rem">
-          <button type="button" class="btn" data-launch-order>发起订单（全流程）</button>
+        <p style="margin-top: 0.65rem; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center">
+          <button type="button" class="btn" data-connect-wallet>Connect wallet</button>
+          <button type="button" class="btn" data-launch-order>发起订单（EIP-712 签名）</button>
+          <span class="sub" data-wallet-status>钱包未连接</span>
         </p>
+        <p class="sub">需要 MetaMask（或兼容注入钱包）。将调用 signing-preview → eth_signTypedData_v4 → launch。</p>
         <pre class="out qr" data-pipeline-out>—</pre>
       </section>
 
@@ -80,7 +83,7 @@
           <label>任务类型<br /><input data-f="task_type" type="text" value="api.caption" /></label>
           <label>任务精密度<br /><input data-f="task_precision" type="number" step="0.1" value="1" /></label>
           <label>时效（秒）<br /><input data-f="ttl_seconds" type="number" value="3600" /></label>
-          <label>买方签名（占位/EIP-712）<br /><input data-f="buyer_signature" type="text" value="0xdev_buyer_sig" style="width: 100%" /></label>
+          <label>买方签名（EIP-712，可由钱包填写）<br /><input data-f="buyer_signature" type="text" value="" placeholder="0x… 或使用上方 Connect + 发起订单" style="width: 100%" /></label>
           <label>链上锚定哈希（可选）<br /><input data-f="chain_anchor_hash" type="text" placeholder="0x…" style="width: 100%" /></label>
         </div>
         <p style="margin-top: 0.65rem">

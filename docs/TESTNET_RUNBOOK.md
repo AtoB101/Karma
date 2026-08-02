@@ -26,7 +26,10 @@ On settle, the adapter submits a `bytes32` proof derived from the evidence diges
 
 1. Structural verify offline: `evidence_runtime.verification`
 2. Build plan: `SettlementAdapter.build_offchain_plan` → expected calls `lockBuyer/lockAgent/bind/settle/finalizeSettle`
-3. With `SETTLEMENT_MODE=testnet`, use `services.chain.settlement_adapter.OnChainSettlementAdapter` (requires `onchain_binding_id` for settle)
+3. With `SETTLEMENT_MODE=testnet`, use `services.chain.settlement_adapter.OnChainSettlementAdapter`:
+   - `lock_funds` / `bind_bills` / `release_payment` (settle) / `finalize_settle`
+   - `refund_payment` → `refundOnTimeout` or `unlock`; `open_dispute` → `dispute(binding, evidence)`
+4. CLI helpers: `scripts/testnet/testnet_{lock,release,finalize,refund,dispute,full_flow}.py`
 
 ## Verify gates
 

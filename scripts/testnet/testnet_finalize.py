@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Open an on-chain dispute on a FINALIZING binding.
+Call KarmaBilateral.finalizeSettle(bindingId) after the dispute window.
 
 Usage:
-    python scripts/testnet/testnet_dispute.py \\
-      --task-id <id> --binding-id <n> --bundle-hash 0x...
+    python scripts/testnet/testnet_finalize.py --task-id <id> --binding-id <n>
 """
 from __future__ import annotations
 
@@ -17,10 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="KarmaBilateral dispute")
-    parser.add_argument("--task-id", required=True)
+    parser = argparse.ArgumentParser(description="KarmaBilateral finalizeSettle")
+    parser.add_argument("--task-id", default="testnet-finalize")
     parser.add_argument("--binding-id", type=int, required=True)
-    parser.add_argument("--bundle-hash", required=True, help="0x-prefixed 32-byte evidence hash")
     args = parser.parse_args()
 
     from core.schemas import TaskContract
@@ -29,8 +27,8 @@ def main() -> None:
     contract = TaskContract(
         task_id=args.task_id,
         client_agent_id="testnet-client",
-        title="Testnet dispute",
-        description="KarmaBilateral dispute",
+        title="Testnet finalize",
+        description="KarmaBilateral finalizeSettle",
         expected_output_schema={},
         expected_step_count=1,
         escrow_amount=0.0,
@@ -39,10 +37,11 @@ def main() -> None:
     )
 
     adapter = OnChainSettlementAdapter()
-    result = adapter.open_dispute(args.task_id, args.bundle_hash, task_contract=contract)
-    print("[ok] dispute:")
-    for k, v in result.items():
-        print(f"  {k}: {v}")
+    tx = adapter.finalize_settle(contract)
+    print("[ok] finalizeSettle:")
+    print(f"  tx_hash: {tx.tx_hash}")
+    print(f"  binding_id: {tx.binding_id}")
+    print(f"  status: {tx.status}")
 
 
 if __name__ == "__main__":

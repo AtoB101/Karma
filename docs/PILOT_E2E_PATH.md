@@ -8,6 +8,12 @@ Canonical path for external builders on the invite Sepolia pilot.
 HTTP capacity / vouchers / console writes are the **operator/off-chain** companion path
 (see [CONSOLE_LAST_MILE-zh.md](./public-testing/CONSOLE_LAST_MILE-zh.md)). They do not replace on-chain finalize.
 
+**Runtime adapter:** `services/chain/settlement_adapter.py` broadcasts the same lifecycle when
+`SETTLEMENT_MODE=testnet|hybrid` and `TaskContract.onchain_*` handles are set
+(`bind_bills` → `release_payment`/`settle` → `finalize_settle`; refund/dispute on-chain when binding present).
+
+**Ops scripts:** `scripts/testnet/testnet_{lock,release,finalize,refund,dispute,full_flow}.py`
+
 ---
 
 ## Out of pilot scope
