@@ -36,6 +36,7 @@ Start at the root [README.md](../README.md) for the repo map.
 | [EXECUTION_RECEIPT_STANDARD_V2.md](./EXECUTION_RECEIPT_STANDARD_V2.md) | Receipts (binding-based) |
 | [EXECUTION_RECEIPT_STANDARD.md](./EXECUTION_RECEIPT_STANDARD.md) | Receipts V1 (legacy schema note) |
 | [EVIDENCE_BUNDLE_STANDARD.md](./EVIDENCE_BUNDLE_STANDARD.md) | Evidence bundles |
+| [TRUST_ENGINE_V1_PUBLIC_SCHEMA.md](./TRUST_ENGINE_V1_PUBLIC_SCHEMA.md) | Public-safe evidence field markers (CI gate) |
 | [TESTNET_RUNBOOK.md](./TESTNET_RUNBOOK.md) | Testnet Bilateral ops |
 | [TESTNET_DEVELOPER_QUICKSTART.md](./TESTNET_DEVELOPER_QUICKSTART.md) | Testnet onboarding |
 
