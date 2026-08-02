@@ -80,6 +80,33 @@ _ABI = [
         ],
         "outputs": [],
     },
+    # finalizeSettle (after dispute window)
+    {
+        "name": "finalizeSettle",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    # dispute (within FINALIZING window)
+    {
+        "name": "dispute",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "evidenceHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    },
+    # refundOnTimeout
+    {
+        "name": "refundOnTimeout",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
     # unlock (pre-bind withdrawal)
     {
         "name": "unlock",
@@ -87,6 +114,13 @@ _ABI = [
         "stateMutability": "nonpayable",
         "inputs": [{"name": "billId", "type": "uint256"}],
         "outputs": [],
+    },
+    {
+        "name": "finalizeAfter",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "uint256"}],
     },
     # views
     {
@@ -187,7 +221,14 @@ _ABI = [
 # ── Bill / Binding state constants ────────────────────────────────────────────
 
 BILL_STATE  = {0: "MINTED", 1: "BOUND", 2: "BURNED"}
-BINDING_STATE = {0: "ACTIVE", 1: "PENDING", 2: "SETTLED", 3: "DISPUTED", 4: "REFUNDED"}
+BINDING_STATE = {
+    0: "ACTIVE",
+    1: "PENDING",
+    2: "FINALIZING",
+    3: "SETTLED",
+    4: "DISPUTED",
+    5: "REFUNDED",
+}
 
 
 @dataclass
@@ -224,7 +265,8 @@ class KarmaBilateral:
         k = KarmaBilateral(rpc_url, private_key, contract_address)
         bill_id    = k.lock(usdc_address, 100_000_000)
         binding_id = k.bind(buyer_bill_id, agent_bill_id, scope_hash)
-        k.settle(binding_id, proof_hash)
+        k.settle(binding_id, proof_hash)          # → FINALIZING
+        k.finalize_settle(binding_id)             # after dispute window → SETTLED
     """
 
     def __init__(
@@ -294,7 +336,7 @@ class KarmaBilateral:
 
     def settle(self, binding_id: int, proof_hash: bytes | str) -> TxReceipt:
         """
-        Settle a Binding: verify proof, burn both Bills, release USDC.
+        Submit settlement proof. Binding enters FINALIZING; USDC is not released yet.
 
         Args:
             binding_id: Binding to settle (must be ACTIVE or PENDING)
@@ -306,11 +348,33 @@ class KarmaBilateral:
         proof = _to_bytes32(proof_hash)
         return self._send(self._contract.functions.settle(binding_id, proof))
 
+    def finalize_settle(self, binding_id: int) -> TxReceipt:
+        """Finalize after the dispute window; burns bills and releases USDC."""
+        return self._send(self._contract.functions.finalizeSettle(binding_id))
+
+    # Alias used in docs / TypeScript naming
+    finalizeSettle = finalize_settle
+
+    def dispute(self, binding_id: int, evidence_hash: bytes | str) -> TxReceipt:
+        """Challenge a FINALIZING binding within the dispute window."""
+        evidence = _to_bytes32(evidence_hash)
+        return self._send(self._contract.functions.dispute(binding_id, evidence))
+
+    def refund_on_timeout(self, binding_id: int) -> TxReceipt:
+        """Refund when settle timeout elapses without a valid settlement."""
+        return self._send(self._contract.functions.refundOnTimeout(binding_id))
+
+    refundOnTimeout = refund_on_timeout
+
     # ── Convenience methods ───────────────────────────────────────────────────
 
     def unlock(self, bill_id: int) -> TxReceipt:
         """Withdraw a MINTED (unbound) Bill Token and reclaim locked funds."""
         return self._send(self._contract.functions.unlock(bill_id))
+
+    def finalize_after(self, binding_id: int) -> int:
+        """Unix timestamp when finalizeSettle becomes available (0 if not FINALIZING)."""
+        return int(self._contract.functions.finalizeAfter(binding_id).call())
 
     def get_bill(self, bill_id: int) -> BillToken:
         raw = self._contract.functions.getBill(bill_id).call()

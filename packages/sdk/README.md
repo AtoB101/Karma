@@ -1,13 +1,27 @@
-# @karma-network/sdk (scaffold)
+# @karma-network/sdk
 
-TypeScript SDK for public KARMA HTTP APIs and wallet helpers.
+TypeScript **HTTP** client for Karma public API (`KarmaPublicSdk`).
 
-**Status:** scaffold only — implement `registerAgent`, `enableSettlement`, `createBill`, `submitEvidence`,
-`getSettlementStatus`, `openDispute`, `verifyEvidence`, `connectWallet`, and `getAgentReputation` against
-`openapi/karma-public-console-api.yaml`.
+Covers capacity lock/release, vouchers, settlement transitions, disputes, receipts,
+and typed execution-receipt extension helpers. Targets `openapi/` public surfaces.
 
-Rules:
+**On-chain Bilateral** (lock/bind/settle/finalizeSettle) lives in
+[`packages/karma-sdk`](../karma-sdk/) — use that for Sepolia pilot bill tokens.
 
-- Every mutating HTTP call must support **request signing** (HMAC or wallet-signed payload per deployment).
-- Evidence bundles must include **integrity hashes** compatible with the public schema.
-- **No private scoring** in this package.
+**Wallet connect / EIP-712 browser signing** is not bundled here yet; console Trade
+still accepts operator-supplied signatures (real MetaMask path is a P0 follow-up).
+
+## Usage
+
+```ts
+import { KarmaPublicSdk } from "@karma-network/sdk";
+
+const sdk = new KarmaPublicSdk({
+  runtimeUrl: "http://127.0.0.1:8000",
+  apiKey: process.env.KARMA_API_KEY,
+});
+
+await sdk.lockUsdc("buyer-1", 100);
+```
+
+Pilot overview: [`docs/PILOT_E2E_PATH.md`](../../docs/PILOT_E2E_PATH.md).

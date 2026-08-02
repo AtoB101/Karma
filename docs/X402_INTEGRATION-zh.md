@@ -1,7 +1,7 @@
 # x402 机器支付集成（Phase 2）
 
 > **基线：** `main` @ Phase 2 PR  
-> **路线图：** [`KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md`](KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md) §5
+> **路线图：** [`INTEGRATIONS.md`](INTEGRATIONS.md) · [`FOCUS_ROADMAP.md`](FOCUS_ROADMAP.md)
 
 ## 目标
 

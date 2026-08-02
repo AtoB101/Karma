@@ -1,34 +1,30 @@
 # karma-sdk
 
-Minimal client for **KarmaBilateral** — the bilateral lock + Bill Token protocol.
+Minimal client for **KarmaBilateral** — bilateral lock + Bill Token protocol.
 
-Three methods. No middleware. No HTTP server required.
+Canonical pilot path: [`docs/PILOT_E2E_PATH.md`](../../docs/PILOT_E2E_PATH.md).
 
 ---
 
 ## Python
 
 ```bash
-pip install karma-sdk          # requires: web3>=6
+pip install -e packages/karma-sdk/python   # requires: web3>=6
 ```
 
 ```python
 from karma_sdk import KarmaBilateral
 
 k = KarmaBilateral(
-    rpc_url="https://mainnet.base.org",
+    rpc_url="https://sepolia.infura.io/v3/YOUR_KEY",
     private_key="0x...",
     contract_address="0xKARMA_BILATERAL_ADDRESS",
 )
 
-# 1. Lock 100 USDC → mint Bill Token
 bill_id = k.lock(USDC_ADDRESS, 100_000_000)
-
-# 2. Bind buyer bill + agent bill → enter BOUND state
 binding_id = k.bind(buyer_bill_id, agent_bill_id, scope_hash)
-
-# 3. Settle → burn bills, release USDC atomically
-k.settle(binding_id, proof_hash)
+k.settle(binding_id, proof_hash)       # → FINALIZING
+k.finalize_settle(binding_id)          # after dispute window → SETTLED
 ```
 
 ---
@@ -36,7 +32,7 @@ k.settle(binding_id, proof_hash)
 ## TypeScript
 
 ```bash
-npm install @karma/sdk ethers   # ethers v6 peer dep
+cd packages/karma-sdk/typescript && npm install && npm run build
 ```
 
 ```typescript
@@ -44,47 +40,42 @@ import { KarmaBilateral } from '@karma/sdk'
 import { parseUnits } from 'ethers'
 
 const k = new KarmaBilateral({
-  rpc:        'https://mainnet.base.org',
+  rpc:        'https://sepolia.infura.io/v3/YOUR_KEY',
   privateKey: '0x...',
   contract:   '0xKARMA_BILATERAL_ADDRESS',
 })
 
-// 1. Lock 100 USDC → mint Bill Token
 const billId = await k.lock(USDC_ADDRESS, parseUnits('100', 6))
-
-// 2. Bind buyer bill + agent bill → enter BOUND state
 const bindingId = await k.bind(buyerBillId, agentBillId, scopeHash)
-
-// 3. Settle → burn bills, release USDC atomically
-await k.settle(bindingId, proofHash)
+await k.settle(bindingId, proofHash)         // → FINALIZING
+await k.finalizeSettle(bindingId)            // after dispute window → SETTLED
 ```
 
 ---
 
-## Bill Token lifecycle
+## Bill / binding lifecycle
 
 ```
-lock()   →  MINTED  (can unlock before bind)
-bind()   →  BOUND   (frozen — cannot withdraw, cannot re-bind)
-settle() →  BURNED  (USDC released atomically)
+lock()            → Bill MINTED
+bind()            → Bills BOUND, Binding ACTIVE
+settle()          → Binding FINALIZING (dispute window open; USDC still locked)
+finalizeSettle()  → Binding SETTLED; bills BURNED; USDC released
+dispute()         → Binding DISPUTED (within window)
+refundOnTimeout() → Binding REFUNDED (settle timeout)
+unlock()          → reclaim MINTED unbound bill
 ```
 
-Global invariant enforced by contract at all times:
-
-```
-totalBillSupply[token] == totalLocked[token]
-```
+Invariant: `totalBillSupply[token] == totalLocked[token]`.
 
 ---
 
-## Additional methods
+## Methods
 
 | Method | Description |
-|---|---|
-| `unlock(billId)` | Withdraw a MINTED (unbound) bill |
-| `getBill(billId)` | Read Bill Token state |
-| `getBinding(bindingId)` | Read Binding state |
-| `checkInvariant(token)` | Verify 1:1 supply/locked parity on-chain |
+|--------|-------------|
+| `lock` / `bind` / `settle` / `finalizeSettle` | Happy path |
+| `dispute` / `refundOnTimeout` / `unlock` | Branches |
+| `getBill` / `getBinding` / `finalizeAfter` / `checkInvariant` | Views |
 
 ---
 
@@ -92,14 +83,7 @@ totalBillSupply[token] == totalLocked[token]
 
 ```
 packages/karma-sdk/
-├── python/
-│   ├── karma_sdk/
-│   │   ├── __init__.py
-│   │   └── client.py
-│   └── pyproject.toml
-├── typescript/
-│   ├── src/index.ts
-│   ├── package.json
-│   └── tsconfig.json
+├── python/karma_sdk/
+├── typescript/src/
 └── README.md
 ```

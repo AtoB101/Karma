@@ -7,20 +7,11 @@
  *   const karma  = new KarmaBilateral({ rpc, privateKey, contract: KARMA_ADDR })
  *   const vrf    = new VerifierRegistry({ rpc, privateKey, contract: REGISTRY_ADDR })
  *
- *   // Lock tokens
+ *   // Lock → bind → settle → finalizeSettle
  *   const billId = await karma.lock(USDC_ADDRESS, 100_000_000n)
- *
- *   // bindWithIntent
- *   const bindingId = await karma.bindWithIntent({
- *     buyer: buyerAddr, seller: sellerAddr,
- *     serviceType: "0x...", amount: 100_000_000n,
- *     deadline: BigInt(Math.floor(Date.now()/1000) + 3600),
- *     // ... rest of fields
- *   }, buyerBillId, sellerBillId)
- *
- *   // Verifier stake
- *   await token.approve(vrfContract, stakeAmount)
- *   await vrf.stake(stakeAmount)
+ *   const bindingId = await karma.bind(buyerBillId, agentBillId, scopeHash)
+ *   await karma.settle(bindingId, proofHash)       // FINALIZING
+ *   await karma.finalizeSettle(bindingId)          // after dispute window
  */
 
 import { ethers } from "ethers";
@@ -32,7 +23,11 @@ const KARMA_BILATERAL_ABI = [
   "function bind(uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash) returns (uint256 bindingId)",
   "function bindWithIntent(tuple(address buyer, address seller, bytes32 serviceType, bytes requirements, uint256 amount, uint256 penaltyRate, uint256 deadline, uint256 expiresAt, bytes32 proofSchema, bytes32[] requiredProofFields, address verifier, uint256 disputeWindow, address[] arbitrators) intent, uint256 buyerBillId, uint256 sellerBillId) returns (uint256 bindingId)",
   "function settle(uint256 bindingId, bytes32 proofHash)",
+  "function finalizeSettle(uint256 bindingId)",
+  "function dispute(uint256 bindingId, bytes32 evidenceHash)",
+  "function refundOnTimeout(uint256 bindingId)",
   "function unlock(uint256 billId)",
+  "function finalizeAfter(uint256 bindingId) view returns (uint256)",
   "function getBill(uint256 billId) view returns (tuple(uint256 billId, address owner, address token, uint256 amount, uint8 state, uint256 mintedAt))",
   "function getBinding(uint256 bindingId) view returns (tuple(uint256 bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash, uint8 state, uint256 createdAt, uint256 settleAfter, bytes32 proofHash, uint256 disputedAt, address disputeInitiator))",
   "function getIntentPackage(uint256 bindingId) view returns (tuple(address buyer, address seller, bytes32 serviceType, bytes requirements, uint256 amount, uint256 penaltyRate, uint256 deadline, uint256 expiresAt, bytes32 proofSchema, address verifier, uint256 disputeWindow))",
@@ -268,9 +263,30 @@ export class KarmaBilateral extends BaseClient {
     return parsed!.args.bindingId;
   }
 
-  /** Settle a Binding: verify proof, burn both Bills, release funds. */
+  /** Submit settlement proof → FINALIZING (USDC not released yet). */
   async settle(bindingId: bigint, proofHash: string): Promise<string> {
     const tx = await this.contract.settle(bindingId, proofHash);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  }
+
+  /** Finalize after dispute window; burns bills and releases USDC. */
+  async finalizeSettle(bindingId: bigint): Promise<string> {
+    const tx = await this.contract.finalizeSettle(bindingId);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  }
+
+  /** Challenge a FINALIZING binding within the dispute window. */
+  async dispute(bindingId: bigint, evidenceHash: string): Promise<string> {
+    const tx = await this.contract.dispute(bindingId, evidenceHash);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  }
+
+  /** Refund when settle timeout elapses without a valid settlement. */
+  async refundOnTimeout(bindingId: bigint): Promise<string> {
+    const tx = await this.contract.refundOnTimeout(bindingId);
     const receipt = await tx.wait();
     return receipt.hash;
   }
@@ -279,6 +295,11 @@ export class KarmaBilateral extends BaseClient {
     const tx = await this.contract.unlock(billId);
     const receipt = await tx.wait();
     return receipt.hash;
+  }
+
+  /** Unix timestamp when finalizeSettle becomes available (0 if not FINALIZING). */
+  async finalizeAfter(bindingId: bigint): Promise<bigint> {
+    return this.contract.finalizeAfter(bindingId);
   }
 
   async getBill(billId: bigint): Promise<BillToken> {

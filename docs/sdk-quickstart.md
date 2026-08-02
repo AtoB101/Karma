@@ -2,6 +2,9 @@
 
 本仓库提供 **Python** 与 **Node / TypeScript** 两种 Runtime SDK，面向 `/runtime` 网关。
 
+**链上 Bilateral（Sepolia 试点主路径）：** 见 [`PILOT_E2E_PATH.md`](./PILOT_E2E_PATH.md) 与 `packages/karma-sdk`。  
+HTTP 公共 API TS 客户端：`packages/sdk`（`KarmaPublicSdk`）。
+
 ## 1. 安装
 
 **Python（本仓库 editable 安装）**
