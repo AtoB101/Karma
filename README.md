@@ -20,6 +20,7 @@ Non-custodial bilateral escrow + evidence layer for AI agent commerce.
 | TS HTTP SDK | `packages/sdk` |
 | On-chain TS/Python client | `packages/karma-sdk` |
 | Tests / acceptance | `tests/` + `scripts/acceptance/` |
+| **Pilot E2E (Sepolia)** | [`docs/PILOT_E2E_PATH.md`](docs/PILOT_E2E_PATH.md) |
 
 **Do not use:** legacy NonCustodialAgentPayment / SettlementEngine narratives in old docs — active path is Bilateral.
 

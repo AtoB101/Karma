@@ -1,7 +1,7 @@
 # Open Wallet 签名集成（Phase 1）
 
 > **最近更新：** 2026-05-18（基线 `main` @ `81d20b0`）  
-> **路线图：** [`KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md`](KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md)
+> **路线图：** [`INTEGRATIONS.md`](INTEGRATIONS.md) · [`FOCUS_ROADMAP.md`](FOCUS_ROADMAP.md)
 
 ## 目标
 

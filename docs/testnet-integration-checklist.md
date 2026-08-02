@@ -57,7 +57,7 @@ Reference payload example:
 - [x] Reorg/retry-safe polling strategy is defined (idempotency-key based)
 - [x] Non-custodial flow messaging remains accurate in UI (confirm/receipt flow)
 - [x] CircuitBreaker: 24h emergency resume timelock enforced
-- [x] SettlementEngine: 1h unpause timelock enforced
+- [x] KarmaBilateral: dispute window + finalizeSettle path (see `docs/PILOT_E2E_PATH.md`)
 - [x] Reentrancy protection: nonReentrant on 6 entry points
 - [x] Invariant: active + reserved == locked (128k fuzz calls, 0 reverts)
 - [x] settleBatch capped at MAX_BATCH_SIZE=50

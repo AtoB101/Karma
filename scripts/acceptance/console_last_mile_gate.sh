@@ -36,6 +36,9 @@ grep -q 'data-console-action' "$CONSOLE/pages/receiving/index.html"
 
 python3 -m pytest -q tests/unit/test_console_last_mile.py
 
+# Live HTTP write sequence matching console Payments/Receiving buttons (ASGI in-process).
+python3 -m pytest -q tests/unit/test_console_live_write_smoke.py
+
 if command -v node >/dev/null 2>&1; then
   for js in console-bootstrap.js console-connect.js console-actions.js karma-public-api.js; do
     node --check "$CONSOLE/scripts/$js"

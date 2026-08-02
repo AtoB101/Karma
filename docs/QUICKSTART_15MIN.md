@@ -1,6 +1,8 @@
 # 15-Minute KarmaBilateral Quickstart (Sepolia Testnet)
 
-Follow this guide to complete a full lock → bind → settle cycle in 15 minutes.
+Follow this guide to complete a full `lock → bind → settle → finalizeSettle` cycle.
+
+**Canonical path:** [`PILOT_E2E_PATH.md`](./PILOT_E2E_PATH.md) (addresses, branches, out-of-scope).
 
 ## Prerequisites
 
@@ -77,10 +79,10 @@ KarmaBilateral has a **30-minute settle delay** (configurable) and a **24-hour d
 ```python
 # Wait for settle delay, then:
 k.settle(binding_id, PROOF_HASH)
-# State → FINALIZING (dispute window opens)
+# State → FINALIZING (dispute window opens; USDC still locked)
 
-# After dispute window:
-k.finalizeSettle(binding_id)
+# After dispute window (testnet default 120s):
+k.finalize_settle(binding_id)   # alias: k.finalizeSettle(...)
 # State → SETTLED, bills burned, USDC released
 ```
 

@@ -312,6 +312,6 @@ This enables backward compatibility for legacy NCPA bills migrating to KarmaBila
 
 - [Migration NCPA → Bilateral](./MIGRATION_NCPA_TO_BILATERAL.md)
 - [Evidence Bundle Standard](./EVIDENCE_BUNDLE_STANDARD.md)
-- [Proof Layer](./PROOF_LAYER.md)
+- [Evidence Bundle Standard](./EVIDENCE_BUNDLE_STANDARD.md)
 - [Execution Receipt Standard V1](./EXECUTION_RECEIPT_STANDARD.md)
 - [KarmaBilateral contract](../karma-core/contracts/core/KarmaBilateral.sol)

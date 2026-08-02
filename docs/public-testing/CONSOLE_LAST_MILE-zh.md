@@ -40,10 +40,14 @@ cp apps/console/config.example.js apps/console/config.js
 ## 验收
 
 ```bash
+# 静态接线 + 与 Console 按钮同序的 HTTP 写冒烟（ASGI 进程内）
 bash scripts/acceptance/console_last_mile_gate.sh
 ```
 
+写冒烟单测：`tests/unit/test_console_live_write_smoke.py`（capacity → settlement → receipt → buyer-accept）。
+
 上线前另跑：`full_chain_audit_gate.sh`、`testnet_claw_manus_gate.sh`（live API）。
+链上 Bilateral 试点路径：[`../PILOT_E2E_PATH.md`](../PILOT_E2E_PATH.md)。
 
 ## CORS
 
