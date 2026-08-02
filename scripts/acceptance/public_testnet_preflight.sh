@@ -89,9 +89,27 @@ if [[ -z "${REDIS_URL:-}" && -z "${RATE_LIMIT_REDIS_URL:-}" ]]; then
   _warn_if "Redis URL unset — rate limit may be in-process only"
 fi
 
-if [[ "${RUN_TESTNET_ONCHAIN:-false}" == "true" ]]; then
+if [[ "${RUN_TESTNET_ONCHAIN:-false}" == "true" || "${SETTLEMENT_MODE:-}" == "testnet" || "${SETTLEMENT_MODE:-}" == "hybrid" ]]; then
   _check "TESTNET_RPC_URL" "${TESTNET_RPC_URL:-}"
-  _check "NONCUSTODIAL_AGENT_PAYMENT_ADDRESS" "${NONCUSTODIAL_AGENT_PAYMENT_ADDRESS:-}"
+  _check "KARMA_BILATERAL_ADDRESS" "${KARMA_BILATERAL_ADDRESS:-}"
+  _check "ERC20_TOKEN_ADDRESS" "${ERC20_TOKEN_ADDRESS:-}"
+  if [[ -z "${TESTNET_PRIVATE_KEY:-}" ]]; then
+    _warn_if "TESTNET_PRIVATE_KEY unset — cannot broadcast lock/bind/settle"
+  fi
+fi
+
+if [[ "${PUBLIC_TESTNET_STRICT:-false}" == "true" ]]; then
+  _check "SECURITY_ONCALL_PRIMARY" "${SECURITY_ONCALL_PRIMARY:-}"
+  _check "SECURITY_ONCALL_BACKUP" "${SECURITY_ONCALL_BACKUP:-}"
+  if [[ "${RATE_LIMIT_REDIS_FAIL_CLOSED:-false}" != "true" ]]; then
+    echo "FAIL  RATE_LIMIT_REDIS_FAIL_CLOSED must be true when PUBLIC_TESTNET_STRICT=true" >&2
+    fail=$((fail + 1))
+  else
+    echo "OK    RATE_LIMIT_REDIS_FAIL_CLOSED"
+  fi
+  if [[ "${TRADE_LAUNCH_REQUIRE_EIP712:-false}" != "true" ]]; then
+    _warn_if "TRADE_LAUNCH_REQUIRE_EIP712 is not true — wallet signing not enforced"
+  fi
 fi
 
 echo ""

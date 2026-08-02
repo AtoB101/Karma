@@ -301,30 +301,96 @@
     }
   }
 
+  function setWalletStatus(text) {
+    var el = $("[data-wallet-status]");
+    if (el) el.textContent = text;
+  }
+
+  async function connectWallet() {
+    if (!window.ethereum) {
+      setWalletStatus("未检测到 MetaMask / window.ethereum");
+      throw new Error("Wallet not available");
+    }
+    var accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+    var account = accounts && accounts[0];
+    if (!account) throw new Error("No wallet account");
+    setWalletStatus("已连接 " + account.slice(0, 6) + "…" + account.slice(-4));
+    return account;
+  }
+
+  async function signTradeLaunchTypedData(typedData, account) {
+    if (!window.ethereum) throw new Error("Wallet not available");
+    // eth_signTypedData_v4 expects [address, JSON string of typed data]
+    var payload = typeof typedData === "string" ? typedData : JSON.stringify(typedData);
+    return window.ethereum.request({
+      method: "eth_signTypedData_v4",
+      params: [account, payload],
+    });
+  }
+
+  async function resolveBuyerSignature(launchPayload, idemKey) {
+    var manual = field("buyer_signature");
+    if (manual && !/^0x(dev|trade_console)/i.test(manual)) {
+      return manual;
+    }
+    var account = await connectWallet();
+    var a = client();
+    var previewBody = {
+      buyer_identity_id: launchPayload.buyer_identity_id,
+      seller_identity_id: launchPayload.seller_identity_id,
+      requirement_text: launchPayload.requirement_text,
+      amount: launchPayload.amount,
+      task_precision: launchPayload.task_precision,
+      task_type: launchPayload.task_type,
+      chain_anchor_hash: launchPayload.chain_anchor_hash,
+    };
+    var preview;
+    if (a && a.tradeLaunchSigningPreview) {
+      preview = await a.tradeLaunchSigningPreview(previewBody, idemKey);
+    } else {
+      var res = await fetch(apiBase() + "/v1/trade/orders/launch/signing-preview", {
+        method: "POST",
+        headers: headers({ "Idempotency-Key": idemKey }),
+        body: JSON.stringify(previewBody),
+      });
+      preview = await res.json();
+      if (!res.ok) throw new Error(JSON.stringify(preview));
+    }
+    if (!preview || !preview.typed_data) {
+      throw new Error("signing-preview missing typed_data");
+    }
+    var sig = await signTradeLaunchTypedData(preview.typed_data, account);
+    if ($("[data-f=buyer_signature]")) $("[data-f=buyer_signature]").value = sig;
+    return sig;
+  }
+
   async function launchOrder() {
     saveCfg();
     syncWindowCfg();
     var out = $("[data-pipeline-out]");
     if (out) out.textContent = "发起中…";
+    var idemKey = launchIdempotencyKey();
     var payload = {
       buyer_identity_id: identityId(),
       seller_identity_id: field("seller_identity_id"),
       requirement_text: field("requirement_text") || field("task_type"),
-      buyer_signature: field("buyer_signature") || "0xtrade_console",
       amount: field("amount") ? Number(field("amount")) : null,
       task_precision: field("task_precision") ? Number(field("task_precision")) : null,
       task_type: field("task_type") || null,
       chain_anchor_hash: field("chain_anchor_hash") || null,
     };
     try {
+      if (!payload.buyer_identity_id) throw new Error("请填写当前 Identity（买方）");
+      if (!payload.seller_identity_id) throw new Error("请填写卖方 Identity");
+      payload.buyer_signature = await resolveBuyerSignature(payload, idemKey);
       var a = client();
       var body;
       if (a && a.launchTradeOrder) {
-        body = await a.launchTradeOrder(payload, launchIdempotencyKey());
+        body = await a.launchTradeOrder(payload, idemKey);
       } else {
         var res = await fetch(apiBase() + "/v1/trade/orders/launch", {
           method: "POST",
-          headers: headers({ "Idempotency-Key": launchIdempotencyKey() }),
+          headers: headers({ "Idempotency-Key": idemKey }),
           body: JSON.stringify(payload),
         });
         body = await res.json();
@@ -340,6 +406,11 @@
   function bind() {
     loadCfg();
     $("[data-save-cfg]")?.addEventListener("click", saveCfg);
+    $("[data-connect-wallet]")?.addEventListener("click", function () {
+      connectWallet().catch(function (e) {
+        setWalletStatus("连接失败: " + (e.message || e));
+      });
+    });
     $("[data-create-payment-code]")?.addEventListener("click", function () {
       createPaymentCode("manual");
     });

@@ -290,6 +290,11 @@
     return jsonPost("/v1/trade/orders/launch", body, extra);
   }
 
+  async function tradeLaunchSigningPreview(body, idempotencyKey) {
+    const extra = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : null;
+    return jsonPost("/v1/trade/orders/launch/signing-preview", body, extra);
+  }
+
   global.cyberKarmaApi = {
     apiBase,
     karmaFetch,
@@ -331,6 +336,7 @@
     rejectPaymentCode,
     getVoucherEvents,
     launchTradeOrder,
+    tradeLaunchSigningPreview,
     jsonPost,
     jsonPut,
   };

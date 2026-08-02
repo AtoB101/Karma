@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -21,7 +20,7 @@ from core.schemas import EvidenceBundle, TaskContract, VerificationDecision, Ver
 
 logger = structlog.get_logger(__name__)
 
-# Minimal ABI for KarmaBilateral core surface (lock / bind / settle / views).
+# Minimal ABI for KarmaBilateral core surface.
 KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
     {
         "name": "lock",
@@ -65,6 +64,16 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
         "name": "dispute",
         "type": "function",
         "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "evidenceHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "refundOnTimeout",
+        "type": "function",
+        "stateMutability": "nonpayable",
         "inputs": [{"name": "bindingId", "type": "uint256"}],
         "outputs": [],
     },
@@ -74,6 +83,13 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
         "stateMutability": "nonpayable",
         "inputs": [{"name": "billId", "type": "uint256"}],
         "outputs": [],
+    },
+    {
+        "name": "finalizeAfter",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [{"name": "", "type": "uint256"}],
     },
     {
         "name": "tokenAllowed",
@@ -106,7 +122,44 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
             }
         ],
     },
+    {
+        "name": "BillMinted",
+        "type": "event",
+        "inputs": [
+            {"name": "billId", "type": "uint256", "indexed": True},
+            {"name": "owner", "type": "address", "indexed": True},
+            {"name": "token", "type": "address", "indexed": False},
+            {"name": "amount", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "BillsBound",
+        "type": "event",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256", "indexed": True},
+            {"name": "buyerBillId", "type": "uint256", "indexed": False},
+            {"name": "agentBillId", "type": "uint256", "indexed": False},
+            {"name": "scopeHash", "type": "bytes32", "indexed": False},
+        ],
+    },
 ]
+
+
+def _to_bytes32(value: str | bytes) -> bytes:
+    if isinstance(value, bytes):
+        raw = value
+    else:
+        hex_str = value[2:] if value.startswith("0x") else value
+        raw = bytes.fromhex(hex_str)
+    if len(raw) != 32:
+        raise ValueError(f"Expected 32-byte hash, got {len(raw)} bytes")
+    return raw
+
+
+def scope_hash_for_task(task_id: str, explicit: str | bytes | None = None) -> bytes:
+    if explicit is not None and explicit != "":
+        return _to_bytes32(explicit)
+    return hashlib.sha256(task_id.encode("utf-8")).digest()
 
 
 @dataclass
@@ -115,7 +168,7 @@ class ChainTxResult:
     block_number: int
     status: str  # "confirmed" | "failed"
     gas_used: int
-    quote_id: Optional[str] = None  # retained for API compat; unused on bilateral
+    quote_id: Optional[str] = None
     binding_id: Optional[int] = None
     bill_id: Optional[int] = None
     error: Optional[str] = None
@@ -134,9 +187,12 @@ class OnChainSettlementAdapter:
     """
     Adapter between Karma runtime and KarmaBilateral.
 
-    - lock_funds() validates token allowlist / balance / allowance (and optionally locks)
-    - release_payment() calls settle(bindingId, proofHash)
-    - refund / dispute remain off-chain decisions unless binding_id is supplied for dispute()
+    - lock_funds() validates allowlist / balance / allowance; optionally broadcasts lock()
+    - bind_bills() pairs buyer + agent bills → binding_id
+    - release_payment() calls settle(bindingId, proofHash) → FINALIZING
+    - finalize_settle() burns bills / releases USDC after dispute window
+    - refund_payment() → refundOnTimeout(binding) or unlock(bill)
+    - open_dispute() → dispute(bindingId, evidenceHash)
     """
 
     def __init__(self):
@@ -249,6 +305,12 @@ class OnChainSettlementAdapter:
             gas_used=receipt.gasUsed,
         )
 
+    def _binding_id(self, task_contract: TaskContract | None) -> int | None:
+        if task_contract is None:
+            return None
+        raw = getattr(task_contract, "onchain_binding_id", None)
+        return int(raw) if raw is not None else None
+
     # ------------------------------------------------------------------
     # Public adapter methods
     # ------------------------------------------------------------------
@@ -256,9 +318,9 @@ class OnChainSettlementAdapter:
     def lock_funds(self, task_contract: TaskContract) -> dict[str, Any]:
         """
         Validate bilateral pre-conditions (token allowlist, balance, allowance).
-        Does not always broadcast lock() — callers that already locked off-chain
-        capacity only need these checks. When ``task_contract.onchain_do_lock``
-        is true, broadcasts lock() and returns bill_id.
+        When ``task_contract.onchain_do_lock`` is true, broadcasts lock() and
+        returns the minted bill_id (also sets task_contract.onchain_buyer_bill_id
+        when previously unset).
         """
         w3 = self._get_web3()
         account = self._get_account()
@@ -302,15 +364,71 @@ class OnChainSettlementAdapter:
         do_lock = bool(getattr(task_contract, "onchain_do_lock", False))
         if do_lock:
             tx_result = self._send_tx(bilateral.functions.lock(token, amount_wei))
+            bill_id = None
+            try:
+                logs = bilateral.events.BillMinted().process_receipt(
+                    w3.eth.get_transaction_receipt(tx_result.tx_hash)
+                )
+                if logs:
+                    bill_id = int(logs[0]["args"]["billId"])
+            except Exception as exc:  # pragma: no cover - best-effort parse
+                logger.warning("bill_minted_parse_failed", error=str(exc))
+            if bill_id is not None and getattr(task_contract, "onchain_buyer_bill_id", None) is None:
+                task_contract.onchain_buyer_bill_id = bill_id
             result["status"] = "locked"
             result["tx_hash"] = tx_result.tx_hash
-            result["bill_id"] = getattr(task_contract, "onchain_buyer_bill_id", None)
+            result["bill_id"] = bill_id or getattr(task_contract, "onchain_buyer_bill_id", None)
+            result["block_number"] = tx_result.block_number
 
         logger.info("lock_funds_ok", task_id=task_contract.task_id, amount=amount_wei)
         return result
 
+    def bind_bills(
+        self,
+        task_contract: TaskContract,
+        scope_hash: str | bytes | None = None,
+    ) -> ChainTxResult:
+        """Broadcast bind(buyerBillId, agentBillId, scopeHash); store binding on contract."""
+        buyer_bill = getattr(task_contract, "onchain_buyer_bill_id", None)
+        agent_bill = getattr(task_contract, "onchain_agent_bill_id", None)
+        if buyer_bill is None or agent_bill is None:
+            raise ValueError(
+                "Cannot bind: task_contract.onchain_buyer_bill_id and "
+                "onchain_agent_bill_id are required"
+            )
+        bilateral = self._get_bilateral()
+        scope = scope_hash_for_task(
+            task_contract.task_id,
+            scope_hash or getattr(task_contract, "onchain_scope_hash", None),
+        )
+        tx = self._send_tx(
+            bilateral.functions.bind(int(buyer_bill), int(agent_bill), scope)
+        )
+        binding_id = None
+        try:
+            w3 = self._get_web3()
+            logs = bilateral.events.BillsBound().process_receipt(
+                w3.eth.get_transaction_receipt(tx.tx_hash)
+            )
+            if logs:
+                binding_id = int(logs[0]["args"]["bindingId"])
+        except Exception as exc:  # pragma: no cover
+            logger.warning("bills_bound_parse_failed", error=str(exc))
+        if binding_id is None:
+            raise RuntimeError("bind succeeded but BillsBound event not found")
+        task_contract.onchain_binding_id = binding_id
+        tx.binding_id = binding_id
+        tx.quote_id = f"binding:{binding_id}"
+        logger.info(
+            "bilateral_bind_ok",
+            task_id=task_contract.task_id,
+            binding_id=binding_id,
+            tx=tx.tx_hash,
+        )
+        return tx
+
     def submit_evidence_hash(self, task_id: str, bundle: EvidenceBundle) -> str:
-        """Compute evidence bundle digest used as settle proofHash input."""
+        """Compute evidence bundle digest used as settle proofHash / dispute evidenceHash."""
         bundle_data = bundle.model_dump(mode="json")
         raw = json.dumps(bundle_data, sort_keys=True, separators=(",", ":"), default=str).encode()
         bundle_hash = "0x" + hashlib.sha256(raw).hexdigest()
@@ -325,23 +443,23 @@ class OnChainSettlementAdapter:
         amount_wei: int,
     ) -> ChainTxResult:
         """
-        Call KarmaBilateral.settle(bindingId, proofHash).
+        Call KarmaBilateral.settle(bindingId, proofHash) → FINALIZING.
 
         ``task_contract.onchain_binding_id`` must be set (bind already completed).
+        Call finalize_settle() after the dispute window to release USDC.
         """
         if verification.decision != VerificationDecision.RELEASE:
             raise ValueError(f"Cannot release: decision is {verification.decision}")
 
-        binding_id = getattr(task_contract, "onchain_binding_id", None)
+        binding_id = self._binding_id(task_contract)
         if binding_id is None:
             raise ValueError(
                 "Cannot settle: task_contract.onchain_binding_id is required for KarmaBilateral"
             )
 
-        w3 = self._get_web3()
         bilateral = self._get_bilateral()
         proof_hex = self.submit_evidence_hash(task_contract.task_id, bundle)
-        proof_bytes = bytes.fromhex(proof_hex[2:] if proof_hex.startswith("0x") else proof_hex)
+        proof_bytes = _to_bytes32(proof_hex)
 
         result = self._send_tx(bilateral.functions.settle(int(binding_id), proof_bytes))
         result.binding_id = int(binding_id)
@@ -355,24 +473,108 @@ class OnChainSettlementAdapter:
         )
         return result
 
-    def refund_payment(self, task_id: str, verification: VerificationResult) -> dict:
-        """Refund remains an off-chain decision unless an unlock/timeout path is wired."""
+    def finalize_settle(self, task_contract: TaskContract) -> ChainTxResult:
+        """Call finalizeSettle(bindingId) after dispute window; burns bills / releases USDC."""
+        binding_id = self._binding_id(task_contract)
+        if binding_id is None:
+            raise ValueError(
+                "Cannot finalize: task_contract.onchain_binding_id is required"
+            )
+        bilateral = self._get_bilateral()
+        result = self._send_tx(bilateral.functions.finalizeSettle(int(binding_id)))
+        result.binding_id = int(binding_id)
+        result.quote_id = f"binding:{binding_id}"
+        logger.info(
+            "bilateral_finalize_ok",
+            task_id=task_contract.task_id,
+            binding_id=binding_id,
+            tx=result.tx_hash,
+        )
+        return result
+
+    def refund_payment(
+        self,
+        task_id: str,
+        verification: VerificationResult,
+        task_contract: TaskContract | None = None,
+    ) -> dict:
+        """
+        On-chain refund when handles are present:
+          - binding_id → refundOnTimeout(bindingId)
+          - else buyer bill only → unlock(billId)
+        Otherwise returns offchain_only with guidance.
+        """
         _ = verification
+        binding_id = self._binding_id(task_contract)
+        buyer_bill = (
+            getattr(task_contract, "onchain_buyer_bill_id", None) if task_contract else None
+        )
+
+        if binding_id is None and buyer_bill is None:
+            return {
+                "status": "offchain_only",
+                "action": "refund",
+                "task_id": task_id,
+                "note": (
+                    "Set onchain_binding_id for refundOnTimeout, or onchain_buyer_bill_id "
+                    "for unlock(MINTED)"
+                ),
+            }
+
+        bilateral = self._get_bilateral()
+
+        if binding_id is not None:
+            tx = self._send_tx(bilateral.functions.refundOnTimeout(int(binding_id)))
+            return {
+                "status": "confirmed" if tx.status == "confirmed" else "failed",
+                "action": "refundOnTimeout",
+                "task_id": task_id,
+                "binding_id": int(binding_id),
+                "tx_hash": tx.tx_hash,
+                "block_number": tx.block_number,
+                "gas_used": tx.gas_used,
+            }
+
+        tx = self._send_tx(bilateral.functions.unlock(int(buyer_bill)))
         return {
-            "status": "offchain_only",
-            "action": "refund",
+            "status": "confirmed" if tx.status == "confirmed" else "failed",
+            "action": "unlock",
             "task_id": task_id,
-            "note": "Use unlock(MINTED) or refundOnTimeout(binding) on KarmaBilateral when applicable",
+            "bill_id": int(buyer_bill),
+            "tx_hash": tx.tx_hash,
+            "block_number": tx.block_number,
+            "gas_used": tx.gas_used,
         }
 
-    def open_dispute(self, task_id: str, bundle_hash: str) -> dict:
-        """Dispute recording; on-chain dispute() requires binding_id in a follow-up call path."""
+    def open_dispute(
+        self,
+        task_id: str,
+        bundle_hash: str,
+        task_contract: TaskContract | None = None,
+    ) -> dict:
+        """On-chain dispute(bindingId, evidenceHash) when binding_id is present."""
+        binding_id = self._binding_id(task_contract)
+        if binding_id is None:
+            return {
+                "status": "offchain_only",
+                "action": "dispute",
+                "task_id": task_id,
+                "bundle_hash": bundle_hash,
+                "note": "Set task_contract.onchain_binding_id to call KarmaBilateral.dispute",
+            }
+
+        bilateral = self._get_bilateral()
+        evidence = _to_bytes32(bundle_hash)
+        tx = self._send_tx(bilateral.functions.dispute(int(binding_id), evidence))
         return {
-            "status": "offchain_only",
+            "status": "confirmed" if tx.status == "confirmed" else "failed",
             "action": "dispute",
             "task_id": task_id,
+            "binding_id": int(binding_id),
             "bundle_hash": bundle_hash,
-            "note": "Call KarmaBilateral.dispute(bindingId) when binding is FINALIZING/ACTIVE",
+            "tx_hash": tx.tx_hash,
+            "block_number": tx.block_number,
+            "gas_used": tx.gas_used,
         }
 
     def get_onchain_status(self, tx_hash: str) -> OnchainStatus:
@@ -424,6 +626,15 @@ class SettlementRouter:
             return {"status": "offchain", "note": "Settlement mode is offchain — no chain call"}
         return self._chain().lock_funds(task_contract)
 
+    def bind_bills(
+        self,
+        task_contract: TaskContract,
+        scope_hash: str | bytes | None = None,
+    ) -> Optional[ChainTxResult]:
+        if not self.is_onchain():
+            return None
+        return self._chain().bind_bills(task_contract, scope_hash=scope_hash)
+
     def submit_evidence_hash(self, task_id: str, bundle: EvidenceBundle) -> str:
         return self._chain().submit_evidence_hash(task_id, bundle)
 
@@ -438,15 +649,30 @@ class SettlementRouter:
             return None
         return self._chain().release_payment(task_contract, verification, bundle, amount_wei)
 
-    def refund_payment(self, task_id: str, verification: VerificationResult) -> dict:
+    def finalize_settle(self, task_contract: TaskContract) -> Optional[ChainTxResult]:
         if not self.is_onchain():
-            return {"status": "offchain"}
-        return self._chain().refund_payment(task_id, verification)
+            return None
+        return self._chain().finalize_settle(task_contract)
 
-    def open_dispute(self, task_id: str, bundle_hash: str) -> dict:
+    def refund_payment(
+        self,
+        task_id: str,
+        verification: VerificationResult,
+        task_contract: TaskContract | None = None,
+    ) -> dict:
         if not self.is_onchain():
             return {"status": "offchain"}
-        return self._chain().open_dispute(task_id, bundle_hash)
+        return self._chain().refund_payment(task_id, verification, task_contract=task_contract)
+
+    def open_dispute(
+        self,
+        task_id: str,
+        bundle_hash: str,
+        task_contract: TaskContract | None = None,
+    ) -> dict:
+        if not self.is_onchain():
+            return {"status": "offchain"}
+        return self._chain().open_dispute(task_id, bundle_hash, task_contract=task_contract)
 
     def get_onchain_status(self, tx_hash: str) -> Optional[OnchainStatus]:
         if not self.is_onchain() or not tx_hash:

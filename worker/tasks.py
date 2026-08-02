@@ -221,24 +221,50 @@ def run_onchain_settlement(
             amount_wei = int(contract.escrow_amount)
             tx_result = settlement_router.release_payment(contract, result, bundle, amount_wei)
             if tx_result:
-                # Persist tx_hash to DB
-                asyncio.run(_persist_chain_result(task_id, tx_result, bundle_hash, settings.settlement_mode))
-                logger.info(f"On-chain release complete: task={task_id} tx={tx_result.tx_hash}")
+                # Persist tx_hash to DB (settle → FINALIZING; finalizeSettle is a follow-up)
+                asyncio.run(
+                    _persist_chain_result(
+                        task_id,
+                        tx_result,
+                        bundle_hash,
+                        settings.settlement_mode,
+                        contract=contract,
+                        onchain_status="finalizing",
+                    )
+                )
+                logger.info(f"On-chain settle submitted: task={task_id} tx={tx_result.tx_hash}")
                 return {
                     "task_id":      task_id,
                     "tx_hash":      tx_result.tx_hash,
                     "block_number": tx_result.block_number,
                     "status":       tx_result.status,
+                    "onchain_status": "finalizing",
+                    "binding_id":   tx_result.binding_id,
                     "bundle_hash":  bundle_hash,
+                    "note":         "Call finalizeSettle after dispute window",
                 }
-        elif result.decision in ("refund", "hold"):
-            refund_info = settlement_router.refund_payment(task_id, result)
-            asyncio.run(_persist_offchain_result(task_id, bundle_hash, "refund", settings.settlement_mode))
+        elif result.decision in (VerificationDecision.REFUND, VerificationDecision.HOLD):
+            refund_info = settlement_router.refund_payment(
+                task_id, result, task_contract=contract
+            )
+            status = "refunded" if refund_info.get("status") == "confirmed" else "refund"
+            asyncio.run(
+                _persist_chain_or_offchain_result(
+                    task_id, bundle_hash, status, settings.settlement_mode, refund_info, contract
+                )
+            )
             return {"task_id": task_id, "action": "refund", **refund_info}
 
-        elif result.decision == "dispute":
-            dispute_info = settlement_router.open_dispute(task_id, bundle_hash)
-            asyncio.run(_persist_offchain_result(task_id, bundle_hash, "disputed", settings.settlement_mode))
+        elif result.decision == VerificationDecision.DISPUTE:
+            dispute_info = settlement_router.open_dispute(
+                task_id, bundle_hash, task_contract=contract
+            )
+            status = "disputed" if dispute_info.get("status") == "confirmed" else "dispute_pending"
+            asyncio.run(
+                _persist_chain_or_offchain_result(
+                    task_id, bundle_hash, status, settings.settlement_mode, dispute_info, contract
+                )
+            )
             return {"task_id": task_id, "action": "dispute", **dispute_info}
 
     except Exception as exc:
@@ -246,7 +272,15 @@ def run_onchain_settlement(
         raise self.retry(exc=exc)
 
 
-async def _persist_chain_result(task_id: str, tx_result, bundle_hash: str, mode: str) -> None:
+async def _persist_chain_result(
+    task_id: str,
+    tx_result,
+    bundle_hash: str,
+    mode: str,
+    *,
+    contract=None,
+    onchain_status: str | None = None,
+) -> None:
     """Write tx_hash and chain fields back to settlements table."""
     from db.session import AsyncSessionLocal
     from db.models.orm import SettlementModel
@@ -260,12 +294,21 @@ async def _persist_chain_result(task_id: str, tx_result, bundle_hash: str, mode:
         if row:
             from config.settings import settings
             row.tx_hash             = tx_result.tx_hash
-            row.onchain_status      = tx_result.status
+            row.onchain_status      = onchain_status or tx_result.status
             row.chain_id            = settings.testnet_chain_id
             row.contract_address    = settings.karma_bilateral_address or settings.karma_engine_address
             row.evidence_bundle_hash= bundle_hash
             row.quote_id            = tx_result.quote_id
             row.settlement_mode     = mode
+            if contract is not None:
+                if getattr(contract, "onchain_binding_id", None) is not None:
+                    row.onchain_binding_id = int(contract.onchain_binding_id)
+                if getattr(contract, "onchain_buyer_bill_id", None) is not None:
+                    row.onchain_buyer_bill_id = int(contract.onchain_buyer_bill_id)
+                if getattr(contract, "onchain_agent_bill_id", None) is not None:
+                    row.onchain_agent_bill_id = int(contract.onchain_agent_bill_id)
+            elif getattr(tx_result, "binding_id", None) is not None:
+                row.onchain_binding_id = int(tx_result.binding_id)
             await session.commit()
 
 
@@ -284,6 +327,48 @@ async def _persist_offchain_result(task_id: str, bundle_hash: str, onchain_statu
             row.onchain_status       = onchain_status
             row.settlement_mode      = mode
             await session.commit()
+
+
+async def _persist_chain_or_offchain_result(
+    task_id: str,
+    bundle_hash: str,
+    onchain_status: str,
+    mode: str,
+    info: dict,
+    contract=None,
+) -> None:
+    """Persist refund/dispute outcomes (on-chain tx or offchain-only note)."""
+    from db.session import AsyncSessionLocal
+    from db.models.orm import SettlementModel
+    from sqlalchemy import select
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(SettlementModel).where(SettlementModel.task_id == task_id)
+        )
+        row = result.scalar_one_or_none()
+        if not row:
+            return
+        from config.settings import settings
+
+        row.evidence_bundle_hash = bundle_hash
+        row.onchain_status = onchain_status
+        row.settlement_mode = mode
+        if info.get("tx_hash"):
+            row.tx_hash = info["tx_hash"]
+            row.chain_id = settings.testnet_chain_id
+            row.contract_address = settings.karma_bilateral_address or settings.karma_engine_address
+        if info.get("binding_id") is not None:
+            row.onchain_binding_id = int(info["binding_id"])
+            row.quote_id = f"binding:{info['binding_id']}"
+        if contract is not None:
+            if getattr(contract, "onchain_buyer_bill_id", None) is not None:
+                row.onchain_buyer_bill_id = int(contract.onchain_buyer_bill_id)
+            if getattr(contract, "onchain_agent_bill_id", None) is not None:
+                row.onchain_agent_bill_id = int(contract.onchain_agent_bill_id)
+            if getattr(contract, "onchain_binding_id", None) is not None:
+                row.onchain_binding_id = int(contract.onchain_binding_id)
+        await session.commit()
 
 
 @app.task(name="worker.tasks.expire_stale_payment_intents")

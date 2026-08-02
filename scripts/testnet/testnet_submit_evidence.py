@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Compute and display the evidence bundle hash that will be embedded
-in the EIP-712 scopeHash when release_payment() is called.
+Compute the evidence bundle hash used as KarmaBilateral settle proofHash /
+dispute evidenceHash.
 
 Usage:
     python scripts/testnet/testnet_submit_evidence.py --task-id <id> --bundle-id <id>

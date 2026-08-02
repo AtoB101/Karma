@@ -2,6 +2,11 @@
 
 This checklist is blocking for broad public test rollout.
 
+**Automated env checks (partial):** with `PUBLIC_TESTNET_STRICT=true`,
+`scripts/acceptance/public_testnet_preflight.sh` enforces Redis fail-closed,
+PostgreSQL `DATABASE_URL`, on-call env vars, and Bilateral RPC addresses when
+`SETTLEMENT_MODE=testnet|hybrid`. Remaining boxes below still need human sign-off.
+
 ## Gate A — Identity and Access
 - [ ] `APP_ENV=production`
 - [ ] `APP_SECRET_KEY` is rotated and non-default

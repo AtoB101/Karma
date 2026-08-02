@@ -14,9 +14,17 @@ def test_karma_public_api_exports_write_helpers():
         "settlementDispute",
         "createPaymentCode",
         "launchTradeOrder",
+        "tradeLaunchSigningPreview",
         "lockCapacity",
     ):
         assert name in text, f"missing cyberKarmaApi helper {name}"
+
+
+def test_console_trade_uses_eip712_typed_data_v4():
+    trade_js = (ROOT / "apps/console/scripts/console-trade.js").read_text(encoding="utf-8")
+    assert "eth_signTypedData_v4" in trade_js
+    assert "tradeLaunchSigningPreview" in trade_js or "signing-preview" in trade_js
+    assert "0xtrade_console" not in trade_js or "resolveBuyerSignature" in trade_js
 
 
 def test_console_actions_binds_data_attribute():

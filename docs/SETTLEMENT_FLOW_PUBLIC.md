@@ -31,3 +31,6 @@ They must not invent a second escrow model — chain Bilateral is authoritative 
 ## Not in this repo
 
 Legacy `NonCustodialAgentPayment` / `SettlementEngine` paths and createBill scripts were removed.
+
+Runtime adapter (`services/chain/settlement_adapter.py`) broadcasts `bind` / `settle` / `finalizeSettle` /
+`dispute` / `refundOnTimeout` when `SETTLEMENT_MODE=testnet|hybrid` and `TaskContract.onchain_*` ids are set.

@@ -142,9 +142,39 @@ async def test_mock_testnet_refund_flow():
         notes="Refund: hash mismatch",
     )
     adapter = OnChainSettlementAdapter()
+    # Without binding/bill handles → guidance only
     result = adapter.refund_payment("task-refund-001", verification)
     assert result["action"] == "refund"
     assert result["status"] == "offchain_only"
+
+    tx_hash = "0x" + "ee" * 32
+    mock_w3 = make_mock_web3(tx_hash=tx_hash)
+    mock_acc = make_mock_account()
+    mock_bilateral = make_mock_bilateral()
+    mock_bilateral.functions.refundOnTimeout.return_value.build_transaction.return_value = {
+        "from": "0x" + "aa" * 20,
+        "nonce": 0,
+        "chainId": 11155111,
+    }
+    adapter._w3 = mock_w3
+    adapter._account = mock_acc
+    adapter._bilateral_contract = mock_bilateral
+    adapter._chain_id = 11155111
+    contract = TaskContract(
+        task_id="task-refund-001",
+        client_agent_id="c",
+        title="T",
+        description="D",
+        expected_output_schema={},
+        expected_step_count=1,
+        escrow_amount=10.0,
+        deadline_at=datetime.utcnow() + timedelta(hours=1),
+        onchain_binding_id=42,
+    )
+    onchain = adapter.refund_payment("task-refund-001", verification, task_contract=contract)
+    assert onchain["status"] == "confirmed"
+    assert onchain["action"] == "refundOnTimeout"
+    assert mock_bilateral.functions.refundOnTimeout.called
 
 
 @pytest.mark.asyncio
@@ -153,6 +183,37 @@ async def test_mock_testnet_dispute_flow():
     result = adapter.open_dispute("task-dispute-001", "0x" + "dd" * 32)
     assert result["action"] == "dispute"
     assert result["status"] == "offchain_only"
+
+    tx_hash = "0x" + "ef" * 32
+    mock_w3 = make_mock_web3(tx_hash=tx_hash)
+    mock_acc = make_mock_account()
+    mock_bilateral = make_mock_bilateral()
+    mock_bilateral.functions.dispute.return_value.build_transaction.return_value = {
+        "from": "0x" + "aa" * 20,
+        "nonce": 0,
+        "chainId": 11155111,
+    }
+    adapter._w3 = mock_w3
+    adapter._account = mock_acc
+    adapter._bilateral_contract = mock_bilateral
+    adapter._chain_id = 11155111
+    contract = TaskContract(
+        task_id="task-dispute-001",
+        client_agent_id="c",
+        title="T",
+        description="D",
+        expected_output_schema={},
+        expected_step_count=1,
+        escrow_amount=10.0,
+        deadline_at=datetime.utcnow() + timedelta(hours=1),
+        onchain_binding_id=42,
+    )
+    onchain = adapter.open_dispute(
+        "task-dispute-001", "0x" + "dd" * 32, task_contract=contract
+    )
+    assert onchain["status"] == "confirmed"
+    assert onchain["action"] == "dispute"
+    assert mock_bilateral.functions.dispute.called
 
 
 @pytest.mark.asyncio
