@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from trusted_agent_runtime.schemas import TaskContract
+from evidence_runtime.schemas import TaskContract
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,4 @@
-"""Canonical `proofHash` string format for `NonCustodialAgentPayment.createBill` (Trusted Agent hybrid).
+"""Canonical `proofHash` string format for `KarmaBilateral.settle` (Trusted Agent hybrid).
 
 On-chain type is ``string``; the public stack uses a deterministic UTF-8 pointer so operators
 and scripts can validate env/config before burning gas.
@@ -47,7 +47,7 @@ def validate_karma_proof_hash_for_create_bill(proof_hash: str) -> tuple[bool, st
     if s.startswith("0x") and len(s) == 66:
         return (
             False,
-            "proofHash looks like a raw bytes32 hex string; createBill expects a UTF-8 **pointer** string, "
+            "proofHash looks like a raw bytes32 hex string; settle expects a UTF-8 **pointer** string, "
             f"typically `{_PREFIX}<64-hex>` from hybrid artifacts (not 0x…).",
         )
 
@@ -84,7 +84,7 @@ def assert_canonical_karma_proof_hash(proof_hash: str) -> str:
         raise ValueError(
             msg
             + "\n\nExpected: karma-ta:v1/sha256/<64 lowercase hex>\n"
-            + "Generate: run `python3 scripts/testnet_full_flow.py --output-dir <dir>` and copy "
+            + "Generate: run `python3 evidence_runtime hashing helpers --output-dir <dir>` and copy "
             + "`hybrid_settlement_result.json` → `karma_proof_hash` into `KARMA_PROOF_HASH`."
         )
     return normalize_karma_proof_hash(proof_hash)

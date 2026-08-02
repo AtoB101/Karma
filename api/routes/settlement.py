@@ -157,7 +157,7 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
         status=TaskStatus.DRAFT,
         settlement_mode=_s.settlement_mode,
         chain_id=_s.testnet_chain_id if _s.settlement_mode != "offchain" else None,
-        contract_address=_s.karma_engine_address or None,
+        contract_address=_s.karma_bilateral_address or _s.karma_engine_address or None,
         voucher_id=voucher_id,
         delivery_deadline_at=delivery_deadline_at,
         progress_rule_spec=progress_rule_spec,

@@ -36,7 +36,7 @@
     },
     {
       "name": "karma_build_evidence_and_settlement_plan",
-      "description": "Structural evidence bundle + offchain settlement plan mapping to NonCustodialAgentPayment.",
+      "description": "Structural evidence bundle + offchain settlement plan mapping to KarmaBilateral.",
       "method": "POST",
       "path": "/v1/integration/tasks/{trace_id}/evidence/build"
     },

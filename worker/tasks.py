@@ -262,7 +262,7 @@ async def _persist_chain_result(task_id: str, tx_result, bundle_hash: str, mode:
             row.tx_hash             = tx_result.tx_hash
             row.onchain_status      = tx_result.status
             row.chain_id            = settings.testnet_chain_id
-            row.contract_address    = settings.karma_engine_address
+            row.contract_address    = settings.karma_bilateral_address or settings.karma_engine_address
             row.evidence_bundle_hash= bundle_hash
             row.quote_id            = tx_result.quote_id
             row.settlement_mode     = mode

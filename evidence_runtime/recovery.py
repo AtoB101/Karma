@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from trusted_agent_runtime.evidence_adapter import receipt_record_hash
-from trusted_agent_runtime.schemas import ExecutionReceipt
+from evidence_runtime.evidence_adapter import receipt_record_hash
+from evidence_runtime.schemas import ExecutionReceipt
 
 
 def describe_receipt_chain_gaps(chain: list[ExecutionReceipt]) -> list[str]:

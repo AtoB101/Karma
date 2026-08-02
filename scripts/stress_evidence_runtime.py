@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 4 — local structural stress for Trusted Agent Runtime (no testnet txs)."""
+"""Phase 4 — local structural stress for Evidence Runtime (no testnet txs)."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from trusted_agent_runtime.stress_runner import StressConfig, run_stress
+from evidence_runtime.stress_runner import StressConfig, run_stress
 
 
 def main() -> None:

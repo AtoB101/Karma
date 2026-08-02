@@ -263,7 +263,7 @@ def test_wp_openclaw_webhook_signs_body():
 
 
 def test_wp_ap2_adapter_roundtrip_surface():
-    from trusted_agent_runtime.ap2_adapter import (
+    from evidence_runtime.ap2_adapter import (
         evidence_digest,
         from_ap2_mandate,
         to_ap2_mandate,

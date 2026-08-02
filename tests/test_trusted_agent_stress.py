@@ -4,8 +4,8 @@ import json
 import unittest
 from pathlib import Path
 
-from trusted_agent_runtime.schemas import ExecutionReceipt, TaskContract
-from trusted_agent_runtime.stress_runner import (
+from evidence_runtime.schemas import ExecutionReceipt, TaskContract
+from evidence_runtime.stress_runner import (
     StressConfig,
     _duplicate_extra_count,
     _replay_event_count,
@@ -124,7 +124,7 @@ class TrustedAgentStressTests(unittest.TestCase):
         subprocess.check_call(
             [
                 sys.executable,
-                str(Path(__file__).resolve().parents[1] / "scripts" / "stress_trusted_agent_runtime.py"),
+                str(Path(__file__).resolve().parents[1] / "scripts" / "stress_evidence_runtime.py"),
                 "--agents",
                 "30",
                 "--malicious-rate",

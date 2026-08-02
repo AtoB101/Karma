@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from trusted_agent_runtime.hashing import canonical_json_bytes, sha256_hex
-from trusted_agent_runtime.schemas import ExecutionReceipt
+from evidence_runtime.hashing import canonical_json_bytes, sha256_hex
+from evidence_runtime.schemas import ExecutionReceipt
 
 
 def _receipt_fingerprint(receipt: ExecutionReceipt) -> str:

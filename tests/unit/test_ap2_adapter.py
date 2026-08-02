@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from trusted_agent_runtime.ap2_adapter import (
+from evidence_runtime.ap2_adapter import (
     evidence_digest,
     from_ap2_mandate,
     to_ap2_mandate,
     verify_ap2_digest_consistency,
 )
-from trusted_agent_runtime.schemas import EvidenceBundle
+from evidence_runtime.schemas import EvidenceBundle
 
 
 def _sample_bundle() -> EvidenceBundle:

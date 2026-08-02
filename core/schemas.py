@@ -287,6 +287,20 @@ class TaskContract(BaseModel):
         default=None,
         description="SHA-256 of canonical JSON — set by runtime on creation",
     )
+    # Optional on-chain bilateral handles (KarmaBilateral)
+    onchain_binding_id: Optional[int] = Field(
+        default=None, description="KarmaBilateral bindingId after bind()"
+    )
+    onchain_buyer_bill_id: Optional[int] = Field(
+        default=None, description="Buyer Bill Token id after lock()"
+    )
+    onchain_agent_bill_id: Optional[int] = Field(
+        default=None, description="Agent Bill Token id after lock()"
+    )
+    onchain_do_lock: bool = Field(
+        default=False,
+        description="When true, on-chain adapter may broadcast lock() during lock_funds()",
+    )
 
 
 # ---------------------------------------------------------------------------

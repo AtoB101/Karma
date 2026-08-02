@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
 
-from trusted_agent_runtime.evidence_adapter import EvidenceAdapter, new_receipt_id, receipt_record_hash, task_contract_hash
-from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
-from trusted_agent_runtime.schemas import ExecutionReceipt, TaskContract
-from trusted_agent_runtime.verification import verify_evidence_bundle_structural
+from evidence_runtime.evidence_adapter import EvidenceAdapter, new_receipt_id, receipt_record_hash, task_contract_hash
+from evidence_runtime.receipt_store import InMemoryReceiptStore
+from evidence_runtime.schemas import ExecutionReceipt, TaskContract
+from evidence_runtime.verification import verify_evidence_bundle_structural
 
 
 def _utc() -> str:

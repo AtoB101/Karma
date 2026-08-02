@@ -15,7 +15,7 @@ Complete in this sequence unless a dependency blocks you:
 5. Implement **wallet signature login** on console (reuse patterns from Agent Guard where possible).  
 6. Implement **Receiving / Payments** core console views (read-only chain state first, then actions).  
 7. Create **public API routes** (contract-first: extend `openapi/karma-v1.yaml` before code).  
-8. Freeze **Evidence Bundle** public schema (align with `trusted_agent_runtime` + on-chain `proofHash` semantics).  
+8. Freeze **Evidence Bundle** public schema (align with `evidence_runtime` + on-chain `proofHash` semantics).  
 9. Publish **SDK** (versioned package; narrow surface).  
 10. Publish **CLI** (`karma-agent` or equivalent; align with README Quick Start when ready).  
 11. Ship **Docker** local deployment template (`docker compose` + documented env).  

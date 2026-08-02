@@ -43,7 +43,7 @@ code{{background:#f3f4f6;padding:0.1rem 0.35rem;border-radius:4px}}</style></hea
 <h1>Secure lock-in</h1>
 <p><strong>Trace</strong>: <code>{tid}</code></p>
 <p><strong>State</strong>: <code>{st}</code></p>
-<p>This page does <strong>not</strong> collect private keys. Connect your wallet only in a wallet you trust, then execute <code>lockFunds</code> / <code>createBill</code> per <code>docs/TESTNET_RUNBOOK.md</code>.</p>
+<p>This page does <strong>not</strong> collect private keys. Connect your wallet only in a wallet you trust, then execute <code>lock → bind → settle (KarmaBilateral)</code> per <code>docs/TESTNET_RUNBOOK.md</code>.</p>
 <h2>Order snapshot (summary)</h2>
 <pre style="white-space:pre-wrap;background:#111827;color:#e5e7eb;padding:1rem;border-radius:8px;font-size:0.85rem">{snap_html}</pre>
 <h2>Task</h2>

@@ -27,5 +27,5 @@ def sha256_bytes32_hex(data: bytes) -> str:
 
 
 def karma_proof_hash_pointer(bundle_digest_hex: str) -> str:
-    """Maps bundle digest into a compact `proofHash` string for `NonCustodialAgentPayment.createBill`."""
+    """Maps bundle digest into a compact `proofHash` string for `KarmaBilateral.settle`."""
     return f"karma-ta:v1/sha256/{bundle_digest_hex.lower()}"

@@ -137,10 +137,11 @@ class Settings(BaseSettings):
     # Wallet used to sign and submit transactions (NEVER commit a real key)
     testnet_private_key: str = ""
 
-    # Existing Karma contract addresses
-    karma_engine_address: str = ""         # KarmaSettlementEngine (legacy/EIP-712)
-    karma_non_custodial_address: str = ""  # KarmaNonCustodial (M2.0 batch)
-    karma_bilateral_address: str = ""      # KarmaBilateral (current protocol)
+    # Active Karma contract address (KarmaBilateral)
+    karma_bilateral_address: str = ""
+    # Deprecated aliases — prefer karma_bilateral_address
+    karma_engine_address: str = ""         # legacy alias; unused by bilateral adapter
+    karma_non_custodial_address: str = ""  # removed NCPA; kept for env compat only
 
     # ERC-20 token for settlement
     erc20_token_address: str = ""

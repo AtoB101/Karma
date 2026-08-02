@@ -8,7 +8,7 @@
 
 ## On-chain vs off-chain
 
-On-chain dispute transitions are enforced by `NonCustodialAgentPayment` (see contract source).  
+On-chain dispute transitions are enforced by `KarmaBilateral` (see contract source).  
 Off-chain review and reputation updates must be performed by **private services** behind authenticated internal APIs.
 
 ## API sketch

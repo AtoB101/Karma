@@ -2,7 +2,7 @@
 
 Canonical on-chain settlement for bills is implemented in:
 
-- `karma-core/contracts/core/NonCustodialAgentPayment.sol`
+- `karma-core/contracts/core/KarmaBilateral.sol`
 
 High-level public states (informative — refer to source for exact enums):
 

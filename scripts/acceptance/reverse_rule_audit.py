@@ -26,8 +26,8 @@ def _fail(msg: str, failures: list[str]) -> None:
     failures.append(msg)
 
 
-def check_no_utcnow_in_trusted_agent(failures: list[str]) -> None:
-    tar = ROOT / "trusted_agent_runtime"
+def check_no_utcnow_in_evidence_runtime(failures: list[str]) -> None:
+    tar = ROOT / "evidence_runtime"
     pat = re.compile(r"\butcnow\s*\(")
     for path in sorted(tar.rglob("*.py")):
         if pat.search(path.read_text(encoding="utf-8")):
@@ -91,7 +91,7 @@ def check_x402_url_safety(failures: list[str]) -> None:
 
 
 def check_ap2_adapter(failures: list[str]) -> None:
-    ap2 = _read("trusted_agent_runtime/ap2_adapter.py")
+    ap2 = _read("evidence_runtime/ap2_adapter.py")
     for fn in ("to_ap2_mandate", "from_ap2_mandate", "evidence_digest"):
         if f"def {fn}" not in ap2:
             _fail(f"Phase 3: ap2_adapter missing {fn}", failures)
@@ -798,7 +798,7 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     checks = [
-        check_no_utcnow_in_trusted_agent,
+        check_no_utcnow_in_evidence_runtime,
         check_security_admin_always_auth,
         check_receipt_task_guard,
         check_settlement_guards,

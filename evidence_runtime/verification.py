@@ -13,11 +13,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from trusted_agent_runtime.evidence_adapter import receipt_record_hash, task_contract_hash
-from trusted_agent_runtime.hashing import canonical_json_bytes, sha256_hex
-from trusted_agent_runtime.operational_controls import OperationalControls
-from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
-from trusted_agent_runtime.schemas import EvidenceBundle, TaskContract, VerificationResult
+from evidence_runtime.evidence_adapter import receipt_record_hash, task_contract_hash
+from evidence_runtime.hashing import canonical_json_bytes, sha256_hex
+from evidence_runtime.operational_controls import OperationalControls
+from evidence_runtime.receipt_store import InMemoryReceiptStore
+from evidence_runtime.schemas import EvidenceBundle, TaskContract, VerificationResult
 
 
 def verify_evidence_bundle_structural(

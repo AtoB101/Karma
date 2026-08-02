@@ -11,8 +11,8 @@ from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from trusted_agent_runtime.hashing import canonical_json_bytes, sha256_hex
-from trusted_agent_runtime.schemas import EvidenceBundle as TaEvidenceBundle
+from evidence_runtime.hashing import canonical_json_bytes, sha256_hex
+from evidence_runtime.schemas import EvidenceBundle as TaEvidenceBundle
 
 AP2_SCHEMA_VERSION = "agents-to-payments/ap2-mandate/v1"
 KARMA_EVIDENCE_SCHEMA = "karma.ta.evidence_bundle.v1"

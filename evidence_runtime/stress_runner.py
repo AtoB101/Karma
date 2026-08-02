@@ -14,12 +14,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
-from trusted_agent_runtime.evidence_adapter import EvidenceAdapter, receipt_record_hash, task_contract_hash
-from trusted_agent_runtime.hashing import canonical_json_bytes, sha256_hex
-from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
-from trusted_agent_runtime.schemas import ExecutionReceipt, TaskContract
-from trusted_agent_runtime.settlement_adapter import SettlementAdapter
-from trusted_agent_runtime.verification import verify_evidence_bundle_structural
+from evidence_runtime.evidence_adapter import EvidenceAdapter, receipt_record_hash, task_contract_hash
+from evidence_runtime.hashing import canonical_json_bytes, sha256_hex
+from evidence_runtime.receipt_store import InMemoryReceiptStore
+from evidence_runtime.schemas import ExecutionReceipt, TaskContract
+from evidence_runtime.settlement_adapter import SettlementAdapter
+from evidence_runtime.verification import verify_evidence_bundle_structural
 
 BASE_UTC = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 AttackKind = Literal["none", "duplicate_id", "replay", "timeout", "malformed", "forged_chain"]

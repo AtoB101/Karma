@@ -1,3 +1,18 @@
+# Testnet Runbook (KarmaBilateral)
+
+> **Active path:** `KarmaBilateral` — `lock` → `bind` → `settle` → `finalizeSettle`.
+> Legacy NonCustodialAgentPayment / createBill flows are **removed** from this repository.
+
+Set `KARMA_BILATERAL_ADDRESS`, `ERC20_TOKEN_ADDRESS`, and buyer/agent keys.
+Evidence digests use `evidence_runtime` (`karma-ta:v1/sha256/...` pointers) as `proofHash` inputs.
+
+For local off-chain plan objects, see `evidence_runtime.settlement_adapter.SettlementAdapter`.
+
+---
+
+
+## Historical notes (deprecated NCPA)
+
 # Testnet runbook — Trusted Agent hybrid (Phase 3)
 
 This runbook describes the **minimal real testnet path** on top of the existing

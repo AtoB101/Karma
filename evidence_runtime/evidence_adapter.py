@@ -6,9 +6,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from trusted_agent_runtime.hashing import canonical_json_bytes, karma_proof_hash_pointer, sha256_hex
-from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
-from trusted_agent_runtime.schemas import EvidenceBundle, ExecutionReceipt, TaskContract
+from evidence_runtime.hashing import canonical_json_bytes, karma_proof_hash_pointer, sha256_hex
+from evidence_runtime.receipt_store import InMemoryReceiptStore
+from evidence_runtime.schemas import EvidenceBundle, ExecutionReceipt, TaskContract
 
 
 def task_contract_hash(task: TaskContract) -> str:

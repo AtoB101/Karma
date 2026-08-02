@@ -18,12 +18,12 @@ _ROOT = Path(__file__).resolve().parents[3]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from trusted_agent_runtime.demo_payload import build_demo_offchain_bundle
-from trusted_agent_runtime.evidence_adapter import EvidenceAdapter
-from trusted_agent_runtime.receipt_store import InMemoryReceiptStore
-from trusted_agent_runtime.schemas import ExecutionReceipt, TaskContract
-from trusted_agent_runtime.settlement_adapter import SettlementAdapter
-from trusted_agent_runtime.verification import verify_evidence_bundle_structural
+from evidence_runtime.demo_payload import build_demo_offchain_bundle
+from evidence_runtime.evidence_adapter import EvidenceAdapter
+from evidence_runtime.receipt_store import InMemoryReceiptStore
+from evidence_runtime.schemas import ExecutionReceipt, TaskContract
+from evidence_runtime.settlement_adapter import SettlementAdapter
+from evidence_runtime.verification import verify_evidence_bundle_structural
 
 router = APIRouter(prefix="/v1/integration", tags=["integration"])
 
@@ -137,7 +137,7 @@ def buyer_lock_intent(
             "state": "LOCK_PENDING",
             "buyer_lock_page_url": lock_url,
             "instructions": "Buyer opens URL in mobile or desktop browser and connects wallet; funds move only via Karma contracts.",
-            "karma_docs": "See docs/TESTNET_RUNBOOK.md for NonCustodialAgentPayment lockFunds/createBill flow.",
+            "karma_docs": "See README + KarmaBilateral: lock → bind → settle → finalizeSettle.",
         }
 
     return _idem(idempotency_key, f"buyer_lock_intent:{trace_id}", go)
@@ -241,7 +241,7 @@ def build_evidence(
         bundle = adapter.build_evidence_bundle(task, ids)
         proof = adapter.map_to_karma_proof_hash(bundle)
         vr = verify_evidence_bundle_structural(task, bundle, store)
-        from trusted_agent_runtime.evidence_adapter import task_contract_hash
+        from evidence_runtime.evidence_adapter import task_contract_hash
 
         scope_hex = "0x" + task_contract_hash(task)
         plan = SettlementAdapter().build_offchain_plan(
