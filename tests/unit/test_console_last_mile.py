@@ -29,3 +29,10 @@ def test_payments_page_wires_live_buttons():
     html = (ROOT / "apps/console/pages/payments/index.html").read_text(encoding="utf-8")
     assert 'data-console-action="capacity-lock"' in html
     assert "console-actions.js" in html
+    assert "agent-service-guard" not in html
+
+
+def test_overview_has_no_dead_guard_or_website_links():
+    html = (ROOT / "apps/console/index.html").read_text(encoding="utf-8")
+    assert "agent-service-guard" not in html
+    assert "../website/index.html" not in html

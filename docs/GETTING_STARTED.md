@@ -114,7 +114,8 @@ You've just produced:
 
 These three primitives form Karma's proof layer. From here you can explore:
 
-- **[Proof Primitives](./PROOF_LAYER.md)** — deeper dive on receipts, bundles, and verification
+- **[Evidence Bundle Standard](./EVIDENCE_BUNDLE_STANDARD.md)** — receipts, bundles, and verification
+- **[Pilot E2E Path](./PILOT_E2E_PATH.md)** — Sepolia Bilateral lock→finalize
 - **[Integrations](./INTEGRATIONS.md)** — x402, AP2, MCP, OpenClaw
 - **[API Reference](./API_REFERENCE.md)** — full endpoint docs
 - **[Advanced Workflows](./)** — settlement, dispute, decentralized verification (experimental)

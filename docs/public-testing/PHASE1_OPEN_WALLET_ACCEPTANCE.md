@@ -2,7 +2,8 @@
 
 > 最近更新：2026-05-18  
 > 基线：`main` @ [`81d20b0`](https://github.com/AtoB101/Karma/commit/81d20b0)（#86–#88）  
-> 路线图：[`KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md`](../KARMA_ECOSYSTEM_INTEGRATION_ROADMAP-zh.md) Phase 1  
+> 路线图：[`INTEGRATIONS.md`](../INTEGRATIONS.md) · [`FOCUS_ROADMAP.md`](../FOCUS_ROADMAP.md) Phase 1  
+
 > 操作文档：[`OPEN_WALLET_SIGNING-zh.md`](../OPEN_WALLET_SIGNING-zh.md) · OpenClaw：[`PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md`](../PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md)
 
 ## 范围

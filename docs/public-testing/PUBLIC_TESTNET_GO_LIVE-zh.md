@@ -136,16 +136,15 @@ bash scripts/acceptance/testnet_claw_manus_gate.sh
 | Phase 2 x402 | 10/10 | 100% |
 | Phase 3 AP2 | 9/9 | 100% |
 
-Sentinel 原「2 项非阻塞失败」已在 `f60d8cf` / #94 修复，并由 `tests/unit/test_sentinel_nonblocking_regressions.py` 锁定（见 [`OPTIMIZATION_BACKLOG_POST_AUDIT-zh.md`](OPTIMIZATION_BACKLOG_POST_AUDIT-zh.md)）。
+Sentinel 原「2 项非阻塞失败」已在 `f60d8cf` / #94 修复，并由 `tests/unit/test_sentinel_nonblocking_regressions.py` 锁定。
 
 ---
 
 ## 6. 攻击面与合约（公开引用）
 
-- 攻击矩阵：[`attack-testing-roadmap.md`](attack-testing-roadmap.md)  
-- 压力摘要：[`STRESS_ATTACK_ACCEPTANCE_2026-05-17.md`](STRESS_ATTACK_ACCEPTANCE_2026-05-17.md)  
-- 测试网预授权：[`TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md`](TESTNET_PREAUTH_ACCEPTANCE_2026-05-17.md)  
-- 链上 hybrid：[`TESTNET_RUNBOOK.md`](../TESTNET_RUNBOOK.md)  
+- 全链路对抗：[`../ADVERSARIAL_FULLCHAIN_AUDIT_V1.md`](../ADVERSARIAL_FULLCHAIN_AUDIT_V1.md)  
+- 压力流程：[`../STRESS_TEST_RUNBOOK.md`](../STRESS_TEST_RUNBOOK.md)  
+- 链上 Bilateral：[`../TESTNET_RUNBOOK.md`](../TESTNET_RUNBOOK.md) · [`../PILOT_E2E_PATH.md`](../PILOT_E2E_PATH.md)  
 - Forge 不变量：`active + reserved == locked`（128k calls, 0 revert — 部署地址须与 manifest 一致）
 
 ---
@@ -169,5 +168,5 @@ Sentinel 原「2 项非阻塞失败」已在 `f60d8cf` / #94 修复，并由 `te
 
 - [`FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md`](FULL_CHAIN_AUDIT_ACCEPTANCE-zh.md)  
 - [`PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md`](../PHASE1_CLAW_MANUS_LIVE_ACCEPTANCE-zh.md)  
-- [`PRODUCTION_PRELAUNCH_CHECKLIST-zh.md`](../PRODUCTION_PRELAUNCH_CHECKLIST-zh.md)  
-- Karma2 私仓缺口：同步包内 `docs/PHASE1-3_PRIVATE_GAP_CHECKLIST-zh.md`
+- [`../SECURITY_RELEASE_GATES.md`](../SECURITY_RELEASE_GATES.md)  
+- [`../PILOT_E2E_PATH.md`](../PILOT_E2E_PATH.md)

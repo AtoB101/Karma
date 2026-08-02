@@ -83,4 +83,5 @@ POST /v1/delivery-verification/sessions
 
 - `docs/IMPORTANT_FIELDS_P5_V1.md`
 - `docs/ACCEPT_FULFILLMENT_P6_V1.md`
-- `docs/PROOF_LAYER.md`
+- `docs/EVIDENCE_BUNDLE_STANDARD.md`
+- `docs/EXECUTION_RECEIPT_STANDARD_V2.md`
