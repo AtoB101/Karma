@@ -176,6 +176,6 @@ Runtime 工具清单：`packages/karma-openmanus/karma_openmanus/data/runtime_to
 ## 参考
 
 - `docs/CONSOLE_PHASE1_TRADITIONAL_PREAUTH-zh.md`
-- `docs/TESTNET_PHASE1_TRADE_ACCEPTANCE-zh.md`
+- `docs/public-testing/PHASE1_OPEN_WALLET_ACCEPTANCE.md`
 - `docs/OPENCLAW_OPERATOR_CHECKLIST-zh.md`
 - `examples/phase1-live-test/README.md`

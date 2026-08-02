@@ -22,7 +22,7 @@ bash scripts/acceptance/phase3_ap2_gate.sh
 - [x] 单测：bundle ↔ AP2 JSON 往返（`tests/unit/test_ap2_adapter.py`）
 - [x] 集成：PaymentIntent 创建 → 绑定 task → settlement 同步 `settled`（`tests/integration/test_phase3_payment_intent.py`）
 - [x] SD-JWT 公开验证命令（见 `docs/AP2_EVIDENCE_PROFILE-zh.md` §6）
-- [x] `docs/API_ROADMAP_V01.md` M5 状态更新
+- [x] `docs/FOCUS_ROADMAP.md` M5 状态更新
 
 ## 手动冒烟（可选）
 

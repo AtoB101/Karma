@@ -1,35 +1,21 @@
-# Migration Note: Payload Contract v1-public-testnet-prep
+# Migration note — payload `v1-public-testnet-prep`
 
-Change Type: Non-breaking
+## Migration Summary
 
-## Scope
+Public wallet-signature payload version for testnet integration prep.
+Aligned with `docs/wallet-signature-payload-examples.json` and `docs/integration-guide.md`.
 
-Public payload contract baseline for Phase 2 testnet preparation.
+## Required Actions
 
-## Who needs to migrate
+- Keep `Payload Version: v1-public-testnet-prep` in sync across integration docs and examples JSON.
+- Use `apps/console` as the public web surface (Agent Guard templates removed).
+- Validate with `python3 scripts/phase2-public-contract-gate.py`.
 
-- External integrators consuming:
-  - `docs/wallet-signature-payload-examples.json`
-  - `apps/agent-service-guard/templates/wallet-signature-payload-template.json`
-- Internal public-repo maintainers validating integration docs.
+## Compatibility Impact
 
-## Required actions
+Non-breaking for existing example shapes (`buyer_authorize_payment`, `seller_delivery_attestation`).
+On-chain settlement path is **KarmaBilateral** only.
 
-1. Ensure integration code reads payload version `v1-public-testnet-prep`.
-2. Align docs/runtime examples with:
-   - buyer authorization payload shape
-   - seller delivery attestation payload shape
-3. Keep private-engine boundary endpoints unchanged:
-   - `/risk/check`
-   - `/dispute/recommend-resolution`
-   - `/score/seller`
+## Rollback Plan
 
-## Compatibility
-
-- Backward compatibility: yes (non-breaking baseline release).
-- No private scoring/anti-fraud/arbitration internals are disclosed.
-
-## Validation checklist
-
-- [x] `python3 scripts/phase2-public-contract-gate.py` passes
-- [x] `python3 scripts/agent-service-guard-smoke.py` passes
+Revert examples JSON `version` and integration-guide version markers together; re-run phase2 gate.

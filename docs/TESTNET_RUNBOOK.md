@@ -1,159 +1,39 @@
 # Testnet Runbook (KarmaBilateral)
 
-> **Active path:** `KarmaBilateral` — `lock` → `bind` → `settle` → `finalizeSettle`.
-> Legacy NonCustodialAgentPayment / createBill flows are **removed** from this repository.
-
-Set `KARMA_BILATERAL_ADDRESS`, `ERC20_TOKEN_ADDRESS`, and buyer/agent keys.
-Evidence digests use `evidence_runtime` (`karma-ta:v1/sha256/...` pointers) as `proofHash` inputs.
-
-For local off-chain plan objects, see `evidence_runtime.settlement_adapter.SettlementAdapter`.
-
----
-
-
-## Historical notes (deprecated NCPA)
-
-# Testnet runbook — Trusted Agent hybrid (Phase 3)
-
-This runbook describes the **minimal real testnet path** on top of the existing
-`NonCustodialAgentPayment` contract. It does **not** add new escrow contracts.
+Active path only: **`lock → bind → settle → finalizeSettle`**.
 
 ## Prerequisites
 
-1. **Deploy or obtain** a `NonCustodialAgentPayment` instance and an **ERC20** token on your testnet (e.g. Sepolia) with balances for **buyer** and **seller** keys.
-2. Python **web3** stack (not required for Phase-2-only flows):
-
-   ```bash
-   pip install -r requirements-testnet.txt
-   ```
-
-3. Copy `.env.testnet.example` to a **local gitignored** `.env` and fill values **without committing keys**.
-
-## Environment variables
+1. Deployed `KarmaBilateral` + allowlisted ERC-20 (e.g. Sepolia USDC/test token).
+2. Buyer and agent wallets with token balances and approvals to the Bilateral contract.
+3. Env (local, gitignored):
 
 | Variable | Purpose |
 |----------|---------|
-| `TESTNET_RPC_URL` | HTTPS JSON-RPC endpoint |
-| `NONCUSTODIAL_AGENT_PAYMENT_ADDRESS` | Existing Karma core contract |
-| `ERC20_TOKEN_ADDRESS` | Token used for `lockFunds` / `createBill` |
-| `TESTNET_BUYER_PRIVATE_KEY` | Buyer wallet (funds `createBill`, `confirmBill`) |
-| `TESTNET_SELLER_PRIVATE_KEY` | Seller wallet (must `lockFunds` for bond capacity) |
-| `TESTNET_SELLER_ADDRESS` | Seller **address** (must differ from buyer) |
-| `BILL_AMOUNT_WEI` | Bill principal (default `1000000`) |
-| `BUYER_LOCK_WEI` / `SELLER_LOCK_WEI` | Optional lock overrides (defaults scale from amount + `sellerBondBps`) |
-| `BILL_DEADLINE_UNIX` | Optional Unix deadline for `createBill` |
-| `SETTLEMENT_MODE` | `hybrid` or `testnet` (informational; scripts always perform on-chain steps when `--send` is used) |
+| `TESTNET_RPC_URL` | JSON-RPC |
+| `KARMA_BILATERAL_ADDRESS` | Bilateral contract |
+| `ERC20_TOKEN_ADDRESS` | Settlement token |
+| `TESTNET_PRIVATE_KEY` | Operator / signer for adapter scripts |
+| `SETTLEMENT_MODE` | `offchain` \| `hybrid` \| `testnet` |
 
-For **stepwise** scripts you also need:
+## Evidence / proofHash
 
-| Variable | Scripts |
-|----------|---------|
-| `KARMA_PROOF_HASH` | `testnet_create_bill.py` (string passed to `createBill`) |
-| `KARMA_SCOPE_HEX` | `testnet_create_bill.py` (`0x` + 64 hex = 32-byte `scopeHash`) |
+Use `evidence_runtime` to build bundles and digests.  
+Canonical pointer form: `karma-ta:v1/sha256/<64 hex>` (see `evidence_runtime/proof_hash_format.py`).  
+On settle, the adapter submits a `bytes32` proof derived from the evidence digest.
 
-### `KARMA_PROOF_HASH` string format (hybrid / Trusted Agent)
+## Recommended local sequence
 
-`createBill` takes `proofHash` as a Solidity **`string`** (UTF-8), not `bytes32`. For the **Trusted Agent** path the repo emits a deterministic pointer:
+1. Structural verify offline: `evidence_runtime.verification`
+2. Build plan: `SettlementAdapter.build_offchain_plan` → expected calls `lockBuyer/lockAgent/bind/settle/finalizeSettle`
+3. With `SETTLEMENT_MODE=testnet`, use `services.chain.settlement_adapter.OnChainSettlementAdapter` (requires `onchain_binding_id` for settle)
 
-```text
-karma-ta:v1/sha256/<64 lowercase hexadecimal characters>
-```
-
-Copy the value from `hybrid_settlement_result.json` → **`karma_proof_hash`** into `KARMA_PROOF_HASH`.
-
-**Common failures (“encoding mismatch”, or reading `amount=0` / `status=0`):**
-
-- Using a raw **`0x…` 32-byte** hex string as the entire `proofHash` (hybrid uses the pointer above; `0x…` is for **`KARMA_SCOPE_HEX`** / `scopeHash`).
-- Putting **`0x`** on the digest **tail** after `karma-ta:v1/sha256/` — the tail must be **64 bare hex chars**, no prefix.
-- **Trailing newline/whitespace** from `.env` or shell `export` — strip or paste from JSON without quotes.
-- **Wrong `billId`**: `bills(0)` is uninitialized (`amount == 0`, `status == 0`); use the id from **`BillCreated`** / script stdout (`nextBillId` starts at **1**).
-
-`scripts/testnet_create_bill.py` validates this format by default (`--skip-proof-format-check` only for deliberate non-karma pointers such as `ipfs://…`).
-
-### Gas budgets (wallets / manual caps)
-
-`createBill` touches policy checks, storage, and a UTF-8 `string proofHash`; on **Sepolia** a successful path has been observed at roughly **760k–770k gas used**. If a wallet or script caps gas at ~**300k**, the transaction will **revert out-of-gas** (not `CapacityInsufficient`). Prefer **automatic gas estimation**, or set an explicit gas limit **≥ ~850k** for `createBill` only. Reference points from one closed-loop run: `createBill` ≈761k gas, `confirmBill` ≈53k, `requestBillPayout` ≈121k (chain-dependent; treat as order-of-magnitude).
-
-Repo Python helpers (`trusted_agent_runtime/testnet_client.py`) use `estimate_gas` with a headroom multiplier; failures here are usually from **MetaMask / hardware wallet UI limits**, not from the Python path.
-
-### `CapacityInsufficient` on `createBill` (selector `0x56daf627`)
-
-On-chain, `createBill` **only** checks that both parties still have enough **unreserved active** capacity:
-
-- `buyer.active >= bill principal`
-- `seller.active >= sellerBond(principal)` (from `sellerBondBps`)
-
-So this error usually means **insufficient `lockFunds` headroom** or **funds already reserved** by another **pending** bill — not “corruption” from earlier **reverted** `createBill` attempts (those roll back all state for that transaction).
-
-**Typical fixes (no redeploy required):**
-
-1. Inspect state: `python3 scripts/testnet_print_capacity.py` (uses `TESTNET_RPC_URL`, contract address, buyer key or `--buyer-address`, seller, token, `BILL_AMOUNT_WEI`).
-2. Raise `BUYER_LOCK_WEI` / `SELLER_LOCK_WEI` before locking, or run additional `scripts/testnet_lock.py` for the side that is short on **active**.
-3. If a bill is stuck in **Pending**, the buyer can call `cancelBill(billId)` on-chain (or wait past the deadline and call `expireBill`) to move principal and bond back from **reserved** to **active**, then create a new bill.
-4. `scripts/testnet_create_bill.py` runs a **capacity preflight** by default (skip with `--skip-capacity-preflight` only if you intentionally want the node to surface the revert).
-
-**Fresh wallet + new deployment** is still a valid **reset** for operators who prefer a clean ledger, but it is not required to fix a normal capacity shortfall.
-
-Generate them from the hybrid artifact file:
-
-- `hybrid_settlement_result.json` → fields `karma_proof_hash`, `karma_scope_hex`
-
-## One-shot hybrid (recommended)
-
-Writes off-chain JSON + optional on-chain tx log:
+## Verify gates
 
 ```bash
-# Off-chain artifacts only
-python3 scripts/testnet_full_flow.py --output-dir results/trusted-agent-hybrid
-
-# + on-chain sequence (requires env + token balances)
-set -a && source .env && set +a
-python3 scripts/testnet_full_flow.py --output-dir results/trusted-agent-hybrid --send
+bash scripts/run_public_acceptance_tests.sh -q
+bash scripts/acceptance/full_chain_audit_gate.sh
+python3 scripts/stress_evidence_runtime.py --agents 100 --seed 42 --output-dir /tmp/stress
 ```
 
-Optional **`--trace-id`** sets the correlation id on `task`, receipts, bundle, verification, settlement plan, and each `tx_writeback_record` (default: `trace-<task_id>`).
-
-## Repeated small-value runs (10–50)
-
-For operational burn-in after stabilization checks pass locally:
-
-```bash
-python3 scripts/testnet_repetition_suite.py --runs 10 --output-root results/ta-repetition
-# With live txs (same env as one-shot --send):
-set -a && source .env && set +a
-python3 scripts/testnet_repetition_suite.py --runs 10 --output-root results/ta-repetition --send
-```
-
-Writes `repetition_summary.json` under `--output-root` plus one subdirectory per run (`run-0000`, …) each containing the usual hybrid JSON artifacts.
-
-After each run the suite also appends one JSON line per run to **`operational_log.jsonl`** (same directory) with: `exit_code`, artifact trace fields, `verification_decision`, settlement plan counts, `tx_hashes` (when `--send`), and **`trace_correlation_ok`** when a task `trace_id` is present.
-
-### Operational validation checklist (real `--send`)
-
-1. Run `python3 scripts/testnet_repetition_suite.py --runs 10 --output-root results/ta-repetition --send` with a funded local `.env`.
-2. Open `repetition_summary.json`: all `exit_code` should be `0`; `aggregates.total_onchain_transactions_recorded` should scale with runs (same steps per run).
-3. For each run folder: `verification_result.json` → `STRUCT_OK`; `hybrid_settlement_result.json` → `trace_id` matches `task_contract.json`.
-4. Scan `operational_log.jsonl`: no `trace_correlation_mismatches`; `idempotency_key_unique` always true.
-5. Optional replay guard: re-run the suite with the same `--output-root` on a fresh directory and compare tx hashes / bill ids off-chain — on-chain idempotency remains contract-enforced; the adapter keys in `settlement_step_keys` are for operator-side dedupe.
-
-Outputs:
-
-- `hybrid_settlement_result.json` — merges `offchain_plan`, bundle digest, and (with `--send`) `onchain_transactions` with **`tx_hash`**, **`chain_id`**, **`contract_address`**, **`settlement_status`**, **`onchain_status`**, `block_number`.
-- `hybrid_tx_log.jsonl` — append-only JSON lines (same records).
-
-## Stepwise scripts (debug / CI partial gates)
-
-```bash
-python3 scripts/testnet_lock.py --party buyer --amount 10000000 --tx-log results/tx.jsonl
-python3 scripts/testnet_lock.py --party seller --amount 5000000 --tx-log results/tx.jsonl
-python3 scripts/testnet_print_capacity.py   # read-only: buyer/seller active vs BILL_AMOUNT_WEI
-export KARMA_PROOF_HASH='...' KARMA_SCOPE_HEX='0x...'
-python3 scripts/testnet_create_bill.py --tx-log results/tx.jsonl
-python3 scripts/testnet_confirm.py --bill-id <id> --tx-log results/tx.jsonl
-python3 scripts/testnet_payout.py --bill-id <id> --tx-log results/tx.jsonl
-```
-
-## Safety
-
-- Never commit populated `TESTNET_*_PRIVATE_KEY` values.
-- Use **disposable test wallets** and small token amounts.
+Legacy NCPA createBill / confirmBill / requestBillPayout scripts are **not** in this repository.

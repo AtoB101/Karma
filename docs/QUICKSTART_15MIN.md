@@ -104,5 +104,5 @@ k.finalizeSettle(binding_id)
 
 - [Full Documentation](docs/)
 - [API Reference](docs/API_REFERENCE.md)
-- [Migration Guide](docs/MIGRATION_NCPA_TO_BILATERAL.md)
-- [Test Report](docs/TEST_REPORT_2026-05-31.md)
+- [Migration Guide](docs/SETTLEMENT_FLOW_PUBLIC.md)
+- [Test Report](docs/STRESS_TEST_RUNBOOK.md)

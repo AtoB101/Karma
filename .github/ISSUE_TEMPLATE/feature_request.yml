@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Keep proposals within the **public** settlement / evidence scope.
-        Private scoring, outreach, and commercial workflows belong in the private repository (see `docs/PRIVATE_REPO_EXECUTION_CHECKLIST-zh.md`).
+        Keep proposals within the **public** settlement / evidence scope (KarmaBilateral + P1–P8).
+        See `docs/README.md` and the root `README.md` for the current developer map.
   - type: textarea
     id: problem
     attributes:

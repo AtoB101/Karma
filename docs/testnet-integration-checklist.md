@@ -47,7 +47,7 @@ Out of scope (private engine):
 
 Reference payload example:
 
-- `apps/agent-service-guard/templates/wallet-signature-payload.example.json`
+- ``apps/console`/templates/wallet-signature-payload.example.json`
 
 ## C) Public contract integration checks
 
@@ -64,7 +64,7 @@ Reference payload example:
 
 ## D) Evidence and dispute flow checks
 
-- [x] Evidence bundle schema matches public standard (`docs/evidence-bundle-standard.md`)
+- [x] Evidence bundle schema matches public standard (`docs/EVIDENCE_BUNDLE_STANDARD.md`)
 - [x] `evidence_hash` is generated and persisted (SHA-256 via model_dump mode='json')
 - [x] Dispute open/resolve status transitions are deterministic (3 resolution paths)
 - [x] Public reason codes are shown, private logic not exposed

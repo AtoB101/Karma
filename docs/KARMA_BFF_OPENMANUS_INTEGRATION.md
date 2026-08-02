@@ -45,4 +45,4 @@ See `packages/openmanus-karma-tools/tools.json` for tool definitions to register
 ## 操作端（只读状态）
 
 - **Console**（`apps/console/`）：首页 / Receiving / Payments 已嵌入 **只读** 状态块，脚本 `scripts/karma-bff-readonly.js`。在页面内联脚本中设置 `window.KARMA_BFF_PUBLIC_BASE = "https://your-bff"` 后点「同步」。
-- **Agent Guard Studio**（`apps/agent-service-guard/frontend/studio/`）：总览区「OpenManus · Karma BFF 状态」面板；配置 `karma-bff-config.js` 中的 `KARMA_BFF_PUBLIC_BASE`。CSP 已允许 `127.0.0.1:8820` / `localhost:8820` / `https:` 的 `connect-src` 用于开发；生产请收紧为你的 BFF 域名。
+- **Console / BFF：** 使用 `apps/console` 与 `apps/karma_bff`；OpenManus 通过 `packages/karma-openmanus` 调用 BFF `/v1/integration/*`。开发时 CSP/`connect-src` 需允许你的 BFF 源。
