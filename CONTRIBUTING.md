@@ -38,17 +38,15 @@ Contract / static analysis may use `forge test` and repo scripts as documented i
 
 ## Contract changes that affect the private runtime
 
-If your PR changes **`openapi/karma-v1.yaml`**, **`core/schemas.py`** verify/apply-verification payloads, or related HTTP contracts, add the trigger line from **`docs/SYNC_PRIVATE_RUNTIME.md`** to the PR description (and changelog when applicable) so private Karma2 can bump **`PUBLIC_BASELINE_*`** and run contract tests. See that file for the exact sentence and playbook link.
+If your PR changes **`openapi/karma-v1.yaml`**, **`core/schemas.py`** verify/apply-verification payloads, or related HTTP contracts, note the contract impact in the PR description so private runtime baselines can be bumped.
 
-## Payload contract PRs (Karma Guard / Phase 2)
+## Payload contract PRs (Phase 2)
 
-If your PR adds **`Change Type: Breaking`** to `docs/agent-service-guard-changelog.md`,
-CI requires:
+If your PR introduces a **breaking** wallet-payload or public API contract change:
 
-- `docs/migrations/<payload-version>.md` with the sections enforced by
-  `scripts/phase2-public-contract-gate.py`
-- A PR description section with heading **`## Migration Impact`** or
-  **`### Migration Impact`** (rollout, integrator steps; link the migration doc)
+- add/update `docs/migrations/<payload-version>.md`
+- keep `docs/wallet-signature-payload-examples.json` `version` in sync with `docs/integration-guide.md`
+- include a PR description section **`## Migration Impact`** (rollout + integrator steps)
 
 ## Developer certificate and licensing of contributions
 

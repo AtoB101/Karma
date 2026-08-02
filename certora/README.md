@@ -1,6 +1,7 @@
 # Certora formal verification (Karma core)
 
-These specs target the five core contracts under `karma-core/contracts/core/`. They are written for **CVL 2** (function-style `methods` entries, `sig:` where needed, envfree call discipline).
+These specs target core contracts under `karma-core/contracts/core/` that still have CVL coverage.
+Legacy NonCustodial / SettlementEngine specs were removed with the `_legacy` contracts.
 
 ## Prerequisites
 
@@ -11,13 +12,11 @@ These specs target the five core contracts under `karma-core/contracts/core/`. T
 
 ### Option A — JSON conf (recommended)
 
-From the repo root (requires `CERTORAKEY`):
-
 ```bash
 certoraRun --conf certora/conf/KYARegistry.conf
 ```
 
-Repeat with `CircuitBreaker.conf`, `AuthTokenManager.conf`, `SettlementEngine.conf`, `NonCustodialAgentPayment.conf`.
+Repeat with `CircuitBreaker.conf`, `AuthTokenManager.conf`.
 
 ### Option B — CLI without conf file
 
@@ -27,25 +26,14 @@ certoraRun karma-core/contracts/core/KYARegistry.sol:KYARegistry \
   --solc solc8.28
 ```
 
-Repeat for each contract, swapping the Solidity path, contract name, and spec file:
+| Contract           | Spec                                  |
+|--------------------|---------------------------------------|
+| `KYARegistry`      | `certora/specs/KYARegistry.spec`      |
+| `CircuitBreaker`   | `certora/specs/CircuitBreaker.spec`   |
+| `AuthTokenManager` | `certora/specs/AuthTokenManager.spec` |
 
-| Contract                 | Spec                                      |
-|--------------------------|-------------------------------------------|
-| `KYARegistry`            | `certora/specs/KYARegistry.spec`          |
-| `CircuitBreaker`         | `certora/specs/CircuitBreaker.spec`       |
-| `AuthTokenManager`       | `certora/specs/AuthTokenManager.spec`     |
-| `SettlementEngine`       | `certora/specs/SettlementEngine.spec`     |
-| `NonCustodialAgentPayment` | `certora/specs/NonCustodialAgentPayment.spec` |
-
-## Foundry / IR
-
-This repo enables `via_ir` in Foundry. If the Prover fails on IR-only code paths, re-run with Certora’s documented flags for your CLI version (often a disable-IR or alternate build mode). Specs here avoid deep `Quote` parametric rules so `SettlementEngine` stays lightweight.
+Active settlement path for product work is `KarmaBilateral.sol` (add CVL coverage in a follow-up).
 
 ## Audit posture
 
-Passing Certora jobs prove **the stated CVL properties** only. They complement but do not replace independent third-party review, operational security, and economic threat modeling.
-
-## Troubleshooting
-
-- **`AuthTokenManager.spec` import**: specs use `import "karma-core/contracts/libraries/Types.sol";` (repo-root resolution). If your Certora CLI expects another root, change that line to a path relative to the spec file, e.g. `import "../../karma-core/contracts/libraries/Types.sol";`.
-- **`SettlementEngine` depth**: this batch intentionally omits parametric `QuoteTypes.Quote` / `submitSettlement` rules to reduce version-specific CVL friction; extend when your toolchain accepts the struct in `methods` cleanly.
+Passing Certora jobs prove **the stated CVL properties** only. They complement but do not replace independent third-party review.

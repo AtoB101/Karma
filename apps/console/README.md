@@ -4,7 +4,8 @@ Static **operational shell** for Receiving, Payments, Agents, Evidence, and Disp
 
 ## Principles
 
-- **Website** (`apps/website`) does not connect wallets.  
+- Marketing/brochure pages were removed; this console is the public web surface.  
+
 - **Console** is where Connect Wallet and bill/evidence/dispute UX live.  
 - **Cyber Console** stores API base / key / identity in `localStorage` (dev convenience); do not use shared machines for production secrets.
 - Production may host Console at `https://app.karma-network.ai` with `/console` rewrites.
@@ -36,4 +37,4 @@ Ensure the Karma API allows **CORS** from your static origin (`CORS_ALLOW_ORIGIN
 
 Write operations (HMAC, OpenManus tools) stay **server-side** only.
 
-For WalletConnect-based sign-in (demo), the repository also ships `apps/agent-service-guard/frontend/web3-login.html` — wire your deployment to land users in Console after auth.
+Wallet / auth wiring for production deployments should land users in this Console after sign-in.

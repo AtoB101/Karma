@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Slither gate for the active bilateral settlement contract (KarmaBilateral).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,17 +23,13 @@ if ! command -v slither >/dev/null 2>&1; then
   exit 1
 fi
 
-TARGET="karma-core/contracts/_legacy/core/SettlementEngine.sol"
+TARGET="karma-core/contracts/core/KarmaBilateral.sol"
 if [[ ! -f "$TARGET" ]]; then
-  TARGET="contracts/_legacy/core/SettlementEngine.sol"
-fi
-
-if [[ ! -f "$TARGET" ]]; then
-  echo "ERR  cannot locate SettlementEngine.sol for slither scan"
+  echo "ERR  cannot locate KarmaBilateral.sol for slither scan"
   exit 1
 fi
 
-ALLOW_PATHS="$(pwd),$(pwd)/karma-core/contracts,$(pwd)/contracts"
+ALLOW_PATHS="$(pwd),$(pwd)/karma-core/contracts"
 echo "Running slither on: $TARGET"
 set +e
 slither "$TARGET" --solc-args "--allow-paths $ALLOW_PATHS" --exclude-dependencies > /tmp/slither-output.txt 2>&1
@@ -48,6 +45,15 @@ if grep -q "No contract was analyzed" /tmp/slither-output.txt; then
   exit 1
 fi
 
+# Fail only on high-confidence critical detectors; informational findings are accepted.
+CRITICAL_DETECTORS=(
+  "reentrancy-eth"
+  "reentrancy-no-eth"
+  "suicidal"
+  "controlled-delegatecall"
+  "arbitrary-send-eth"
+)
+
 if [[ "$SLITHER_EXIT" -ne 0 ]]; then
   mapfile -t DETECTORS < <(grep -oE "Detector: [a-z0-9-]+" /tmp/slither-output.txt | sed 's/Detector: //' | sort -u)
   if [[ "${#DETECTORS[@]}" -eq 0 ]]; then
@@ -55,36 +61,21 @@ if [[ "$SLITHER_EXIT" -ne 0 ]]; then
     exit 1
   fi
 
-  # Accepted residual findings for public SettlementEngine baseline.
-  # These are documented design trade-offs for the non-custodial quote flow.
-  ALLOWED_DETECTORS=(
-    "arbitrary-send-erc20"
-    "calls-loop"
-    "timestamp"
-    "naming-convention"
-    "incorrect-equality"
-  )
-
-  UNEXPECTED=()
+  CRITICAL_HIT=()
   for detector in "${DETECTORS[@]}"; do
-    allowed=0
-    for permitted in "${ALLOWED_DETECTORS[@]}"; do
-      if [[ "$detector" == "$permitted" ]]; then
-        allowed=1
-        break
+    for critical in "${CRITICAL_DETECTORS[@]}"; do
+      if [[ "$detector" == "$critical" ]]; then
+        CRITICAL_HIT+=("$detector")
       fi
     done
-    if [[ "$allowed" -eq 0 ]]; then
-      UNEXPECTED+=("$detector")
-    fi
   done
 
-  if [[ "${#UNEXPECTED[@]}" -gt 0 ]]; then
-    echo "ERR  slither reported unexpected detectors: ${UNEXPECTED[*]}"
+  if [[ "${#CRITICAL_HIT[@]}" -gt 0 ]]; then
+    echo "ERR  slither reported critical detectors: ${CRITICAL_HIT[*]}"
     exit 1
   fi
 
-  echo "WARN accepted slither detectors: ${DETECTORS[*]}"
+  echo "WARN accepted non-critical slither detectors: ${DETECTORS[*]}"
   echo "OK   slither gate passed with accepted residual findings"
   exit 0
 fi

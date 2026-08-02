@@ -1,6 +1,6 @@
 # Docker examples
 
-`docker-compose.example.yml` runs an **nginx** static host over the repository root so `/` serves `apps/website`.
+`docker-compose.example.yml` runs an **nginx** static host over the repository root so `/` serves `apps/console`.
 
 ```bash
 docker compose -f docker/docker-compose.example.yml up --build

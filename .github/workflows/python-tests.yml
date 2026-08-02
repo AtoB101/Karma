@@ -1,7 +1,7 @@
 # Python API + Runtime — 全量测试（单元 + 集成 + 信任运行时）
 #
 # 与 Makefile 中 ``forge test`` 互补：本 Job 运行 ``scripts/run_public_acceptance_tests.sh``
-#（``tests/`` + OpenManus/OpenClaw 包测试 + ``karma-final/karma-public`` 镜像隔离 pytest）。
+#（``tests/`` + OpenManus/OpenClaw 包测试）。
 name: Python tests
 
 on:

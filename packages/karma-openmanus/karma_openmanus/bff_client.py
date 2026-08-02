@@ -19,7 +19,7 @@ def _now_ts() -> str:
 
 class KarmaBffClient:
     """
-    Call Karma BFF routes defined in ``openmanus-karma-tools/tools.json``.
+    Call Karma BFF routes defined in ``karma_openmanus/data/tools.json``.
 
     Parameters
     ----------

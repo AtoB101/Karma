@@ -61,17 +61,10 @@ if [[ -s /tmp/security_guard_literals.txt ]]; then
   exit 1
 fi
 
-# WalletConnect runtime config must never be committed (generate on server / CI).
-tracked_cfg="$(git ls-files apps/agent-service-guard/frontend/public-config.json 2>/dev/null || true)"
-if [[ -n "$tracked_cfg" ]]; then
-  echo "ERR  apps/agent-service-guard/frontend/public-config.json is tracked; remove from git — generate at deploy time"
-  exit 1
-fi
-
-# Local run outputs under results/ must never be tracked (may contain signed payloads / addresses).
-tracked_results="$(git ls-files 'results/' 2>/dev/null || true)"
+# Local run outputs under results/ / karma-final must never be tracked.
+tracked_results="$(git ls-files 'results/' 'karma-final/' 2>/dev/null || true)"
 if [[ -n "$tracked_results" ]]; then
-  echo "ERR  tracked files under results/ — remove from git (see .gitignore):"
+  echo "ERR  tracked result artifacts — remove from git (see .gitignore):"
   echo "$tracked_results"
   exit 1
 fi

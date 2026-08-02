@@ -1,22 +1,16 @@
-# Simple workflow for deploying static content to GitHub Pages
+# Deploy console static content to GitHub Pages
 name: Deploy static content to Pages
 
 on:
-  # Runs on pushes targeting the default branch
   push:
     branches: ["main"]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
   group: "pages"
   cancel-in-progress: false
@@ -32,17 +26,15 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
-      - name: Prepare public static site (marketing + console + developer portal)
+      - name: Prepare public static site (console)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p _site/apps
-          cp -R apps/website _site/apps/website
           cp -R apps/console _site/apps/console
-          cp -R apps/developer-portal _site/apps/developer-portal
           printf '%s\n' '<!doctype html><html lang="en"><head><meta charset="utf-8">' \
-            '<meta http-equiv="refresh" content="0; url=apps/website/index.html">' \
-            '<title>KARMA</title></head><body><p><a href="apps/website/index.html">Continue to KARMA</a></p></body></html>' \
+            '<meta http-equiv="refresh" content="0; url=apps/console/index.html">' \
+            '<title>KARMA</title></head><body><p><a href="apps/console/index.html">Continue to KARMA Console</a></p></body></html>' \
             > _site/index.html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

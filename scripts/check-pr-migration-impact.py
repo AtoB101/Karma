@@ -15,7 +15,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CHANGELOG = "docs/agent-service-guard-changelog.md"
+# Payload / API breaking-change notes (optional). Missing file ⇒ no gate.
+CHANGELOG = "docs/migrations/CHANGELOG.md"
 MIGRATION_HEADING = re.compile(r"^#{1,3}\s*Migration Impact\s*$", re.IGNORECASE | re.MULTILINE)
 
 

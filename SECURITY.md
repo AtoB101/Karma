@@ -84,7 +84,7 @@ Use the **private reporting channel above** only for vulnerabilities that should
 
 ## Public tool surface (whitelist)
 
-Reserved high-trust engine routes documented for Agent Guard are limited to: `POST /risk/check`, `POST /dispute/recommend-resolution`, `POST /score/seller` (see `apps/agent-service-guard/api/README.md`). Public adapters must not add parallel “shadow” settlement or evidence engines.
+High-trust private engine routes (risk / dispute recommend / seller score) stay out of the public adapters. Public adapters must not add parallel “shadow” settlement or evidence engines.
 
 ## DateTime policy (Python)
 
