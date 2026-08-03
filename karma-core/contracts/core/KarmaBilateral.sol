@@ -240,6 +240,12 @@ contract KarmaBilateral {
     mapping(uint256 => bytes32) public bindingTaskId;
     mapping(uint256 => bool)    public requiresAttestation;
 
+    // ── karma-economy fee sink (immutable fee bps live in economy) ───────────
+    /// @notice karma-economy Treasury (informational / legacy notify path).
+    address public treasury;
+    /// @notice karma-economy FeeBridge — preferred fee + GMV recording path.
+    address public feeBridge;
+
     // ── SCP per-address balances ─────────────────────────────────────────────
     mapping(address => uint256) public freeBalance;
     mapping(address => uint256) public boundBalance;
@@ -273,6 +279,8 @@ contract KarmaBilateral {
     event TokenAllowed(address indexed token, bool allowed);
     event InvariantChecked(address indexed token, uint256 supply, uint256 locked);
     event AttestationGatewayUpdated(address indexed gateway);
+    event TreasuryUpdated(address indexed treasury);
+    event FeeBridgeUpdated(address indexed feeBridge);
     event DisputeWindowUpdated(uint256 seconds_);
     event OptimisticDisputeWindowUpdated(uint256 seconds_);
     event EvidenceWindowUpdated(uint256 seconds_);
@@ -1201,6 +1209,18 @@ contract KarmaBilateral {
         emit AttestationGatewayUpdated(gateway);
     }
 
+    /// @notice One-time/operational wiring to karma-economy Treasury.
+    /// @dev Does not add a new owner role; reuses existing admin.
+    function setTreasury(address treasury_) external onlyAdmin {
+        treasury = treasury_;
+        emit TreasuryUpdated(treasury_);
+    }
+
+    function setFeeBridge(address feeBridge_) external onlyAdmin {
+        feeBridge = feeBridge_;
+        emit FeeBridgeUpdated(feeBridge_);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     //  INTERNAL — settlement execution helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -1229,15 +1249,25 @@ contract KarmaBilateral {
 
         pendingBatchAmount[token] -= (buyerAmount + agentAmount);
 
-        _transfer(token, buyerOwner, buyerAmount);
-        _transfer(token, agentOwner, agentAmount);
+        uint256 totalPool = buyerAmount + agentAmount;
+        uint256 fee = _collectEconomyFee(bindingId, token, buyerOwner, agentOwner, agentOwner, totalPool);
+        uint256 agentPayout = agentAmount > fee ? agentAmount - fee : 0;
+        // If fee exceeds agent side (edge), take residual from buyer side.
+        uint256 buyerPayout = buyerAmount;
+        if (agentAmount < fee) {
+            uint256 rest = fee - agentAmount;
+            buyerPayout = buyerAmount > rest ? buyerAmount - rest : 0;
+        }
+
+        if (buyerPayout > 0) _transfer(token, buyerOwner, buyerPayout);
+        if (agentPayout > 0) _transfer(token, agentOwner, agentPayout);
 
         _checkInvariant(token);
         _checkPerAddressInvariant(buyerOwner);
         _checkPerAddressInvariant(agentOwner);
 
         emit SettleFinalized(bindingId, proofHash);
-        emit BindingSettled(bindingId, proofHash, buyerAmount, agentAmount);
+        emit BindingSettled(bindingId, proofHash, buyerPayout, agentPayout);
     }
 
     /// @dev Execute refund: burn both bills, return USDC to respective owners.
@@ -1321,6 +1351,62 @@ contract KarmaBilateral {
     function _transfer(address token, address to, uint256 amount) internal {
         bool ok = IERC20Min(token).transfer(to, amount);
         if (!ok) revert TransferFailed();
+    }
+
+    /// @dev Forward fee to karma-economy FeeBridge. Returns 0 when unset / free mode.
+    function _collectEconomyFee(
+        uint256 bindingId,
+        address token,
+        address buyer,
+        address seller,
+        address developer,
+        uint256 amountUsdc
+    ) internal returns (uint256 fee) {
+        if (feeBridge == address(0) || amountUsdc == 0) return 0;
+
+        // quoteFee(address,uint256)
+        (bool qOk, bytes memory qRet) = feeBridge.staticcall(
+            abi.encodeWithSelector(bytes4(keccak256("quoteFee(address,uint256)")), developer, amountUsdc)
+        );
+        if (qOk && qRet.length >= 32) {
+            fee = abi.decode(qRet, (uint256));
+        }
+        if (fee == 0) {
+            // Record zero-fee GMV for cold-start analytics.
+            (bool rOk,) = feeBridge.call(
+                abi.encodeWithSelector(
+                    bytes4(keccak256("collectAndRecord(bytes32,address,address,address,uint256,uint256)")),
+                    bytes32(bindingId),
+                    buyer,
+                    seller,
+                    developer,
+                    amountUsdc,
+                    uint256(0)
+                )
+            );
+            rOk; // best-effort mirror
+            return 0;
+        }
+        if (fee > amountUsdc) fee = amountUsdc;
+
+        // Approve + collect
+        (bool aOk,) = token.call(
+            abi.encodeWithSelector(bytes4(keccak256("approve(address,uint256)")), feeBridge, fee)
+        );
+        if (!aOk) revert TransferFailed();
+
+        (bool cOk,) = feeBridge.call(
+            abi.encodeWithSelector(
+                bytes4(keccak256("collectAndRecord(bytes32,address,address,address,uint256,uint256)")),
+                bytes32(bindingId),
+                buyer,
+                seller,
+                developer,
+                amountUsdc,
+                fee
+            )
+        );
+        if (!cOk) revert TransferFailed();
     }
 
     function _checkInvariant(address token) internal {
