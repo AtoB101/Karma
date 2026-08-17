@@ -1,0 +1,10 @@
+%% Binding state machine
+stateDiagram-v2
+  [*] --> ACTIVE: bind
+  ACTIVE --> FINALIZING: settle
+  FINALIZING --> SETTLED: finalizeSettle
+  FINALIZING --> DISPUTED: dispute
+  DISPUTED --> SETTLED: resolveDispute
+  ACTIVE --> REFUNDED: refundOnTimeout
+  SETTLED --> [*]
+  REFUNDED --> [*]

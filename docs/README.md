@@ -3,6 +3,13 @@
 Active protocol: **KarmaBilateral** (`lock → bind → settle → finalizeSettle`) + off-chain P1–P8 plates.  
 Start at the root [README.md](../README.md) for the repo map.
 
+## Angel / product briefing pack
+
+| Doc | Purpose |
+|-----|---------|
+| [investor/README.md](./investor/README.md) | **公开产品图集入口**（架构 / 状态机 / 能力矩阵 / 验证） |
+| [investor/pitch.html](./investor/pitch.html) | 浏览器打开即可路演的幻灯页 |
+
 ## Start here
 
 | Doc | Purpose |

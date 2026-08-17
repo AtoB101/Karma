@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Karma · Angel Briefing</title>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+  </script>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a222c;
+      --text: #e8eef4;
+      --muted: #9aa8b5;
+      --accent: #3d9cf0;
+      --ok: #3ecf8e;
+      --warn: #e6b84d;
+      --no: #e06c75;
+      --line: #2a3542;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text);
+      font-family: "IBM Plex Sans", "Noto Sans SC", system-ui, sans-serif; }
+    .deck { max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    .slide { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+      padding: 1.75rem 1.75rem 1.5rem; margin: 0 0 1.25rem; scroll-margin-top: 1rem; }
+    h1 { font-size: 1.85rem; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+    h2 { font-size: 1.35rem; margin: 0 0 1rem; color: var(--accent); }
+    h3 { font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
+    p, li { color: var(--muted); line-height: 1.55; }
+    .tagline { color: var(--text); font-size: 1.15rem; margin: 0.75rem 0 0; }
+    .hero-brand { font-size: 2.4rem; font-weight: 700; color: var(--text); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+    th, td { border-bottom: 1px solid var(--line); padding: 0.55rem 0.4rem; text-align: left; vertical-align: top; }
+    th { color: var(--text); }
+    .ok { color: var(--ok); font-weight: 600; }
+    .warn { color: var(--warn); font-weight: 600; }
+    .no { color: var(--no); font-weight: 600; }
+    .nav { position: sticky; top: 0; z-index: 5; background: rgba(15,20,25,0.92);
+      backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+      padding: 0.65rem 1rem; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .nav a { color: var(--muted); text-decoration: none; font-size: 0.82rem; padding: 0.25rem 0.5rem;
+      border: 1px solid var(--line); border-radius: 999px; }
+    .nav a:hover { color: var(--text); border-color: var(--accent); }
+    .mermaid { background: #10161d; border-radius: 8px; padding: 0.75rem; overflow-x: auto; }
+    .footnote { font-size: 0.8rem; color: #6d7b88; margin-top: 1rem; }
+    code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.85em; color: #c5d4e0; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 800px) { .grid2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <nav class="nav">
+    <a href="#s0">封面</a>
+    <a href="#s1">问题</a>
+    <a href="#s2">循环</a>
+    <a href="#s3">架构</a>
+    <a href="#s4">状态机</a>
+    <a href="#s5">能力</a>
+    <a href="#s6">验证</a>
+    <a href="#s7">生态</a>
+    <a href="#s8">路线</a>
+  </nav>
+  <main class="deck">
+
+    <section class="slide" id="s0">
+      <div class="hero-brand">Karma</div>
+      <p class="tagline">AI Agent 商务的非托管双边托管 + 证据结算轨</p>
+      <p>Lock USDC → Bill Token → Bind → Proof → Settle → Release</p>
+      <p><strong style="color:var(--text)">Math settles, not humans.</strong></p>
+      <p class="footnote">公开产品图集 · 不含估值/条款私密数字 · 详见 docs/investor/</p>
+    </section>
+
+    <section class="slide" id="s1">
+      <h2>01 · 问题与切入</h2>
+      <div class="grid2">
+        <div>
+          <h3>痛点</h3>
+          <ul>
+            <li>Agent 协作缺可强制结算</li>
+            <li>中心化托管不可信 / 不可组合</li>
+            <li>纯支付缺少争议与证据闭环</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Karma 做什么</h3>
+          <ul>
+            <li>双边锁定 USDC（皮肤入局）</li>
+            <li>证据驱动放款</li>
+            <li>补齐 x402 / AP2 / OpenClaw 的 Proof 列</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="s2">
+      <h2>02 · 核心循环</h2>
+      <pre class="mermaid">
+flowchart LR
+  A[lock USDC] --> B[Bill Token]
+  B --> C[bind]
+  C --> D[evidence / proofHash]
+  D --> E[settle]
+  E --> F{dispute?}
+  F -->|no| G[finalize]
+  G --> H[burn + release]
+  F -->|yes| I[resolve]
+  I --> H
+      </pre>
+    </section>
+
+    <section class="slide" id="s3">
+      <h2>03 · 系统分层</h2>
+      <pre class="mermaid">
+flowchart TB
+  C[Console / SDK / OpenClaw] --> API[Public FastAPI]
+  API --> S[services + evidence_runtime]
+  S --> B[KarmaBilateral]
+  API -.-> P[Private risk engine]
+  B -.-> E[Optional FeeBridge]
+      </pre>
+      <p>公开仓可审计结算核；高敏风控在私有域；经济层可选旁路、默认可零费率。</p>
+    </section>
+
+    <section class="slide" id="s4">
+      <h2>04 · Binding 状态机</h2>
+      <pre class="mermaid">
+stateDiagram-v2
+  [*] --> ACTIVE
+  ACTIVE --> FINALIZING: settle
+  FINALIZING --> SETTLED: finalize
+  FINALIZING --> DISPUTED: dispute
+  DISPUTED --> SETTLED: resolve
+  ACTIVE --> REFUNDED: timeout
+      </pre>
+    </section>
+
+    <section class="slide" id="s5">
+      <h2>05 · 已实现 vs 未实现</h2>
+      <table>
+        <tr><th>能力</th><th>状态</th></tr>
+        <tr><td>Bilateral lock/bind/settle/finalize + 争议</td><td class="ok">✅ Sepolia</td></tr>
+        <tr><td>公开 API + Console 实写</td><td class="ok">✅</td></tr>
+        <tr><td>OpenClaw / x402 / AP2 / EIP-712</td><td class="ok">✅</td></tr>
+        <tr><td>Forge / Echidna / Certora 基线</td><td class="ok">✅</td></tr>
+        <tr><td>TEE / ZK settle</td><td class="no">❌ stub</td></tr>
+        <tr><td>Solana / 多链</td><td class="no">❌ 延后</td></tr>
+        <tr><td>Mainnet 生产等价</td><td class="no">❌</td></tr>
+        <tr><td>代币飞轮 / 默认收费</td><td class="warn">⚠️ 非 V1 主叙事</td></tr>
+        <tr><td>Console 内置钱包签名</td><td class="no">❌ follow-up</td></tr>
+      </table>
+    </section>
+
+    <section class="slide" id="s6">
+      <h2>06 · 验证金字塔</h2>
+      <pre class="mermaid">
+flowchart TB
+  A[Forge Unit] --> B[Forge Invariant]
+  B --> C[Slither]
+  C --> D[Echidna 100k]
+  D --> E[Certora 6/6]
+      </pre>
+      <p>对抗全链门禁与发布门：<code>scripts/acceptance/*</code> · <code>SECURITY.md</code></p>
+    </section>
+
+    <section class="slide" id="s7">
+      <h2>07 · 测试网与生态</h2>
+      <p>Sepolia <code>KarmaBilateral</code>:</p>
+      <p><code>0x496d178a5D32E9410E52bD5800602BDEe81B2A91</code></p>
+      <ul>
+        <li>settle delay 60s · dispute window 120s（测试配置）</li>
+        <li>集成：Open Wallet、x402、AP2、OpenClaw、OpenManus、MCP</li>
+        <li>姿态：受控公测，非 Mainnet 等价</li>
+      </ul>
+    </section>
+
+    <section class="slide" id="s8">
+      <h2>08 · 天使轮买什么</h2>
+      <ul>
+        <li><strong style="color:var(--text)">主网硬化</strong>：外部审计 + 赏金 + 值守</li>
+        <li><strong style="color:var(--text)">真实 Pilot GMV</strong>：邀请制小额 USDC 成交</li>
+        <li><strong style="color:var(--text)">接入密度</strong>：头部 Agent 运行时深集成</li>
+        <li><strong style="color:var(--text)">关闭产品缺口</strong>：钱包签名等</li>
+      </ul>
+      <p>先结算标准轨，再谈收费；有 GMV 后再开经济层。</p>
+      <p class="footnote">融资条款请用 99 模板私下填写，勿提交真实数字到公开仓库。</p>
+    </section>
+
+  </main>
+</body>
+</html>

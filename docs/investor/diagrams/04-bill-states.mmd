@@ -1,0 +1,7 @@
+%% Bill token states
+stateDiagram-v2
+  [*] --> MINTED: lock
+  MINTED --> BOUND: bind
+  MINTED --> BURNED: unlock
+  BOUND --> BURNED: settle / refund / resolve
+  BURNED --> [*]

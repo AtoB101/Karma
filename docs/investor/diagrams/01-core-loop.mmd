@@ -1,0 +1,15 @@
+%% Karma core settlement loop — export via https://mermaid.live
+flowchart LR
+  A[双方 lock USDC] --> B[铸造 Bill Token 1:1]
+  B --> C[bind 绑定交易对]
+  C --> D[交付 + 证据 proofHash]
+  D --> E[settle 进入 FINALIZING]
+  E --> F{争议窗内争议?}
+  F -->|否| G[finalizeSettle]
+  G --> H[Burn Bills · 释放 USDC · SETTLED]
+  F -->|是| I[DISPUTED]
+  I --> J[resolveDispute / 仲裁]
+  J --> H
+  C --> K[超时未结算]
+  K --> L[refundOnTimeout]
+  L --> M[退回各自锁定]

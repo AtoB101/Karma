@@ -1,0 +1,7 @@
+%% Verification pyramid
+flowchart TB
+  L1[Forge Unit] --> L2[Forge Invariant]
+  L2 --> L3[Slither]
+  L3 --> L4[Echidna 100k]
+  L4 --> L5[Certora 6/6]
+  ADV[Adversarial / acceptance gates] -.-> L1

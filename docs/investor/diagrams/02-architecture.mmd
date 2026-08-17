@@ -1,0 +1,21 @@
+%% System architecture
+flowchart TB
+  subgraph Clients["接入层"]
+    OC[OpenClaw / OpenManus]
+    SDK[Python / TS SDK]
+    CON[Operator Console]
+  end
+  subgraph PublicAPI["公开 API"]
+    V1["/v1/* + /runtime"]
+  end
+  subgraph Services["服务层"]
+    SVC[services + evidence_runtime]
+  end
+  subgraph Chain["karma-core"]
+    KB[KarmaBilateral]
+  end
+  subgraph Private["私有域"]
+    ENG[Risk engine]
+  end
+  Clients --> PublicAPI --> Services --> Chain
+  V1 -.-> ENG
