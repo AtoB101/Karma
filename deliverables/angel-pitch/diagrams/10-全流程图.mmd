@@ -1,0 +1,56 @@
+flowchart TB
+  subgraph Intent["① 意图与接入"]
+    BA[Buyer Agent / 人类]
+    SA[Seller / Worker Agent]
+    RT[OpenClaw / OpenManus / SDK]
+    BA --> RT
+    SA --> RT
+  end
+
+  subgraph Offchain["② 链下商务层 Public API"]
+    CAP[Capacity 锁仓额度]
+    VOU[Voucher / PaymentCode]
+    TRD[Trade + EIP-712 签名]
+    X402[x402 支付可选]
+    AP2[AP2 Intent 可选]
+    REC[Receipt / Evidence Bundle]
+    SETAPI["/v1/settlement 状态机"]
+    RT --> CAP
+    RT --> VOU
+    RT --> TRD
+    RT --> X402
+    RT --> AP2
+    CAP --> SETAPI
+    VOU --> SETAPI
+    TRD --> SETAPI
+    X402 --> REC
+    AP2 --> REC
+    REC --> SETAPI
+  end
+
+  subgraph Onchain["③ 链上 Bilateral"]
+    LOCK[lock USDC → Bill]
+    BIND[bind 交易对]
+    SETTLE[settle proofHash]
+    WIN{争议窗}
+    FIN[finalizeSettle]
+    DIS[dispute / resolve]
+    REF[refundOnTimeout]
+    SETAPI --> LOCK
+    LOCK --> BIND
+    BIND --> SETTLE
+    SETTLE --> WIN
+    WIN -->|无争议| FIN
+    WIN -->|有争议| DIS
+    DIS --> FIN
+    BIND --> REF
+  end
+
+  subgraph Outcome["④ 结果"]
+    USDC[释放 / 退回 USDC]
+    REP[P8 结算声誉]
+    FIN --> USDC
+    REF --> USDC
+    FIN --> REP
+    DIS --> REP
+  end

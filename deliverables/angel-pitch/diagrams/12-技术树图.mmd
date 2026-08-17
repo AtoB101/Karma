@@ -1,0 +1,35 @@
+flowchart TB
+  ROOT[Karma 技术树]
+
+  ROOT --> V1[V1 结算核 ✅]
+  ROOT --> V15[V1.5 集成面 ✅]
+  ROOT --> V2[V2 扩展 ⏳]
+  ROOT --> ECO[经济旁路 ⚠️]
+  ROOT --> DEF[明确延后 ❌]
+
+  V1 --> V1A[KarmaBilateral 生命周期]
+  V1 --> V1B[EIP-712 + 防重放]
+  V1 --> V1C[Bill 守恒不变量]
+  V1 --> V1D[争议窗 / 退款]
+  V1 --> V1E[CircuitBreaker]
+  V1 --> V1F[Auth / KYA / Evidence / Scoring / Verifier / SBT]
+
+  V15 --> V15A[Console 实写]
+  V15 --> V15B[Open Wallet]
+  V15 --> V15C[x402]
+  V15 --> V15D[AP2 export]
+  V15 --> V15E[OpenClaw / OpenManus / MCP]
+  V15 --> V15F[P1–P8 标准面]
+
+  V2 --> V2A[TEE settle]
+  V2 --> V2B[ZK settle]
+  V2 --> V2C[KYA 策略深化]
+  V2 --> V2D[P7 票务扩展]
+
+  ECO --> ECOA[FeeBridge 钩子]
+  ECO --> ECOB[Treasury / revenueMode]
+  ECO --> ECOC[协议代币飞轮]
+
+  DEF --> DEFA[Solana / 多链]
+  DEF --> DEFB[Mainnet 生产等价]
+  DEF --> DEFC[Console 内置钱包签名]

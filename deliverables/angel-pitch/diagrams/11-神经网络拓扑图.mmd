@@ -1,0 +1,68 @@
+flowchart LR
+  subgraph L1["输入层 · Agents"]
+    A1[Buyer Agent]
+    A2[Seller Agent]
+    A3[Verifier Node]
+    A4[Operator Console]
+  end
+
+  subgraph L2["协议适配层"]
+    B1[OpenClaw]
+    B2[x402]
+    B3[AP2]
+    B4[MCP / A2A]
+    B5[EIP-712 Trade]
+  end
+
+  subgraph L3["Karma 核心层"]
+    C1[Capacity / Voucher]
+    C2[Evidence Runtime]
+    C3[Settlement FSM]
+    C4[Attestation Gateway]
+  end
+
+  subgraph L4["信任与执行层"]
+    D1[KarmaBilateral]
+    D2[EvidenceChain]
+    D3[Scoring / VerifierRegistry]
+    D4[CircuitBreaker]
+  end
+
+  subgraph L5["输出层 · 经济结果"]
+    E1[USDC 放款]
+    E2[声誉快照]
+    E3[FeeBridge 可选]
+    E4[审计证明]
+  end
+
+  A1 --> B1
+  A1 --> B5
+  A2 --> B1
+  A2 --> B2
+  A3 --> B4
+  A4 --> B5
+  A1 --> B3
+  A2 --> B3
+
+  B1 --> C1
+  B1 --> C2
+  B2 --> C2
+  B3 --> C1
+  B3 --> C3
+  B4 --> C4
+  B5 --> C1
+  B5 --> C3
+
+  C1 --> D1
+  C2 --> D2
+  C2 --> D1
+  C3 --> D1
+  C4 --> D3
+  C3 --> D4
+  C4 --> D1
+
+  D1 --> E1
+  D1 --> E3
+  D2 --> E4
+  D3 --> E2
+  D4 --> E4
