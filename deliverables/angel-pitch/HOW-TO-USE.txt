@@ -1,14 +1,22 @@
-Karma 天使轮路演幻灯（样板）
-==========================
+Karma 天使材料下载说明
+====================
 
-打开：
-  双击 Karma-Angel-Pitch-Deck.html
-  （或用 Chrome / Edge 打开）
+1) 路演幻灯（文字+图一体化）
+   - Karma-Angel-Pitch-Deck.pdf   ← 推荐直接发给投资人
+   - Karma-Angel-Pitch-Deck.html  ← 浏览器全屏翻页
 
-操作：
-  ← → / 空格     翻页
-  F              全屏
-  P              打印 / 另存为 PDF
+2) 工程图 / 流程图 / 验证图（单独图集）
+   - 图集-工程流程图验证图.html   ← 浏览器打开，一页看全图
+   - Diagrams-工程流程图验证图.zip ← 只下图
+   - diagrams/ 文件夹：
+       00-结算主轨视觉图.png
+       01-工程架构图.png / .svg
+       02-结算流程图.png / .svg
+       03-Binding状态图.png / .svg
+       04-Bill状态图.png / .svg
+       05-验证金字塔图.png / .svg
 
-这是「文字 + 图」一体化的幻灯样板，不是 Markdown 资料夹。
-融资条款数字请用 TERMS-template.html 私下填写，勿公开上传。
+3) 私下条款模板
+   - TERMS-template.html（勿公开上传真实数字）
+
+PPT 用法：把 diagrams/*.png 或 *.svg 直接拖进 Keynote / PowerPoint。
