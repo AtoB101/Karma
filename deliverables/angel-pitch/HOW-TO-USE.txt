@@ -1,0 +1,14 @@
+Karma 天使轮路演幻灯（样板）
+==========================
+
+打开：
+  双击 Karma-Angel-Pitch-Deck.html
+  （或用 Chrome / Edge 打开）
+
+操作：
+  ← → / 空格     翻页
+  F              全屏
+  P              打印 / 另存为 PDF
+
+这是「文字 + 图」一体化的幻灯样板，不是 Markdown 资料夹。
+融资条款数字请用 TERMS-template.html 私下填写，勿公开上传。
