@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Karma MiniApp</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #0b1220; --panel: #141e2e; --line: #2a3a52; --text: #eef3fa;
+      --muted: #9eb0c7; --accent: #2bb7a9; --danger: #ef6b6b;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+    header strong { color: var(--accent); }
+    nav { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    nav button { background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; }
+    nav button.active { color: var(--text); border-color: var(--accent); }
+    main { padding: 14px 16px 90px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 0 0 12px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    textarea, input { width: 100%; background: #0f1726; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+    button.primary { background: var(--accent); color: #04221f; border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 700; width: 100%; margin-top: 8px; }
+    button.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; color: var(--muted); }
+    iframe { width: 100%; min-height: 70vh; border: 0; border-radius: 12px; background: #fff; }
+    .offer { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-top: 8px; }
+    .ok { color: #3dcf8e; } .bad { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <header>
+    <div><strong>Karma</strong> <span class="muted">MiniApp</span></div>
+    <div class="muted" id="who">未登录</div>
+  </header>
+  <nav>
+    <button class="active" data-tab="chat">Chat</button>
+    <button data-tab="activity">Activity</button>
+    <button data-tab="identity">Identity</button>
+    <button data-tab="wallet">Wallet/Rewards</button>
+  </nav>
+  <main>
+    <section id="tab-chat">
+      <div class="card">
+        <div class="muted">用一句话描述需求（服务端抽取 Intent → Discovery）</div>
+        <textarea id="chatText" rows="3" placeholder="例如：帮我用 100 USDC 买一组 API 数据"></textarea>
+        <button class="primary" id="btnIntent">发送</button>
+      </div>
+      <div class="card" id="offersBox"><div class="muted">Offers 会显示在这里</div></div>
+    </section>
+    <section id="tab-activity" hidden>
+      <div class="card"><div class="muted">当前订单</div><pre id="orderView">暂无</pre></div>
+      <div class="card">
+        <button class="primary" id="btnSign">双方签名（演示）</button>
+        <button class="primary" id="btnPolicy">Policy 检查</button>
+        <button class="primary" id="btnLock">Lock</button>
+        <button class="primary" id="btnEvidence">提交 Evidence</button>
+        <button class="primary" id="btnVerify">VerificationEngine</button>
+        <button class="primary" id="btnSettle">Settle（需 PASS）</button>
+      </div>
+      <div class="card"><pre id="verifyView"></pre></div>
+    </section>
+    <section id="tab-identity" hidden>
+      <div class="card">
+        <div class="muted">SIWE：粘贴钱包地址 → challenge → 用钱包签名后 verify（演示可跳过真实钱包，用 session 绑定态）</div>
+        <input id="wallet" placeholder="0x..." />
+        <button class="primary" id="btnChallenge">获取 SIWE Challenge</button>
+        <textarea id="siweMsg" rows="5" readonly></textarea>
+        <input id="siweSig" placeholder="signature 0x..." />
+        <button class="primary" id="btnSiweVerify">Verify SIWE + 创建 Identity</button>
+        <button class="primary" id="btnBindTg">用 initData 绑定 Telegram</button>
+        <pre id="identView"></pre>
+      </div>
+    </section>
+    <section id="tab-wallet" hidden>
+      <div class="card">
+        <div class="muted">经济面嵌入 karma8（主仓不实现国库/费率）。Verification 永不在此页执行。</div>
+        <iframe id="economyFrame" title="karma8 economy"></iframe>
+      </div>
+    </section>
+  </main>
+  <script>
+    const API = localStorage.getItem('KARMA_API') || (location.origin.includes('8000') ? '' : 'http://127.0.0.1:8000');
+    const tg = window.Telegram && window.Telegram.WebApp;
+    if (tg) { tg.ready(); tg.expand(); }
+
+    const state = { sessionId: null, identity: null, order: null, challenge: null, offers: [] };
+
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+      if (state.sessionId) headers['Authorization'] = 'Bearer ' + state.sessionId;
+      const res = await fetch(API + path, { ...opts, headers });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || JSON.stringify(data) || res.statusText);
+      return data;
+    }
+
+    function initData() {
+      return (tg && tg.initData) ? tg.initData : (localStorage.getItem('DEV_INIT_DATA') || '');
+    }
+
+    async function bootSession() {
+      const raw = initData();
+      if (!raw) {
+        document.getElementById('who').textContent = '无 initData（开发可设 DEV_INIT_DATA）';
+        return;
+      }
+      const s = await api('/v1/telegram/session', { method: 'POST', body: JSON.stringify({ init_data: raw }) });
+      state.sessionId = s.session_id;
+      document.getElementById('who').textContent = s.bound ? ('Identity ' + s.identity_id) : ('TG ' + s.telegram_user_id + ' 未绑定');
+    }
+
+    document.querySelectorAll('nav button').forEach(btn => {
+      btn.onclick = async () => {
+        document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        ['chat','activity','identity','wallet'].forEach(t => {
+          document.getElementById('tab-' + t).hidden = t !== btn.dataset.tab;
+        });
+        if (btn.dataset.tab === 'wallet') {
+          try {
+            const surf = await api('/v1/economy/surface');
+            document.getElementById('economyFrame').src = surf.embed_url;
+          } catch (e) {
+            document.getElementById('economyFrame').removeAttribute('src');
+            alert(e.message);
+          }
+        }
+      };
+    });
+
+    document.getElementById('btnIntent').onclick = async () => {
+      try {
+        const data = await api('/v1/chat/intent', { method: 'POST', body: JSON.stringify({ text: document.getElementById('chatText').value }) });
+        state.offers = data.offers || [];
+        const box = document.getElementById('offersBox');
+        box.innerHTML = '<div class="muted">Intent scene: ' + data.intent.scene_id + ' · amount ' + data.intent.amount_usdc + '</div>';
+        state.offers.forEach(o => {
+          const el = document.createElement('div');
+          el.className = 'offer';
+          el.innerHTML = '<b>' + o.title + '</b><div class="muted">' + o.offer_id + ' · ' + o.amount_usdc + ' USDC · rank ' + o._rank_score + '</div>';
+          const b = document.createElement('button');
+          b.className = 'primary';
+          b.textContent = '下单';
+          b.onclick = async () => {
+            const order = await api('/v1/commerce/orders', { method: 'POST', body: JSON.stringify({ intent: data.intent, offer_id: o.offer_id }) });
+            state.order = order;
+            document.getElementById('orderView').textContent = JSON.stringify(order, null, 2);
+            alert('订单已创建 ' + order.order_id);
+          };
+          el.appendChild(b);
+          box.appendChild(el);
+        });
+      } catch (e) { alert(e.message); }
+    };
+
+    function requireOrder() {
+      if (!state.order) throw new Error('先创建订单');
+      return state.order.order_id;
+    }
+    function showOrder(o) { state.order = o; document.getElementById('orderView').textContent = JSON.stringify(o, null, 2); }
+
+    document.getElementById('btnSign').onclick = async () => {
+      try {
+        const id = requireOrder();
+        await api('/v1/commerce/orders/sign', { method: 'POST', body: JSON.stringify({ order_id: id, role: 'buyer', signature: '0xbuyer' }) });
+        const o = await api('/v1/commerce/orders/sign', { method: 'POST', body: JSON.stringify({ order_id: id, role: 'seller', signature: '0xseller' }) });
+        showOrder(o);
+      } catch (e) { alert(e.message); }
+    };
+    document.getElementById('btnPolicy').onclick = async () => {
+      try { showOrder(await api('/v1/commerce/orders/policy-check', { method: 'POST', body: JSON.stringify({ order_id: requireOrder() }) })); }
+      catch (e) { alert(e.message); }
+    };
+    document.getElementById('btnLock').onclick = async () => {
+      try { showOrder(await api('/v1/settlement/lock', { method: 'POST', body: JSON.stringify({ order_id: requireOrder(), binding_id: 1 }) })); }
+      catch (e) { alert(e.message); }
+    };
+    document.getElementById('btnEvidence').onclick = async () => {
+      try {
+        const o = state.order;
+        const evidence = { proof_hash: (o.intent && o.intent.expected_proof_hash) || '0xproof', amount_usdc: o.amount_usdc, independent_attestation: true };
+        showOrder(await api('/v1/evidence/bundles', { method: 'POST', body: JSON.stringify({ order_id: o.order_id, evidence }) }));
+      } catch (e) { alert(e.message); }
+    };
+    document.getElementById('btnVerify').onclick = async () => {
+      try {
+        const v = await api('/v1/verification/runs', { method: 'POST', body: JSON.stringify({ order_id: requireOrder() }) });
+        document.getElementById('verifyView').innerHTML = '<span class="' + (v.settle_allowed ? 'ok' : 'bad') + '">' + v.status + '</span>\n' + JSON.stringify(v, null, 2);
+        if (v.settle_allowed) {
+          const o = await api('/v1/commerce/orders/' + requireOrder());
+          showOrder(o);
+        }
+      } catch (e) { alert(e.message); }
+    };
+    document.getElementById('btnSettle').onclick = async () => {
+      try { showOrder(await api('/v1/settlement/finalize', { method: 'POST', body: JSON.stringify({ order_id: requireOrder() }) })); }
+      catch (e) { alert(e.message); }
+    };
+
+    document.getElementById('btnChallenge').onclick = async () => {
+      try {
+        const ch = await api('/v1/auth/siwe/challenge', { method: 'POST', body: JSON.stringify({ address: document.getElementById('wallet').value }) });
+        state.challenge = ch;
+        document.getElementById('siweMsg').value = ch.message;
+      } catch (e) { alert(e.message); }
+    };
+    document.getElementById('btnSiweVerify').onclick = async () => {
+      try {
+        const id = await api('/v1/auth/siwe/verify', { method: 'POST', body: JSON.stringify({ nonce: state.challenge.nonce, signature: document.getElementById('siweSig').value, address: document.getElementById('wallet').value }) });
+        state.identity = id;
+        document.getElementById('identView').textContent = JSON.stringify(id, null, 2);
+      } catch (e) { alert(e.message); }
+    };
+    document.getElementById('btnBindTg').onclick = async () => {
+      try {
+        if (!state.identity) throw new Error('先 SIWE verify');
+        const raw = initData();
+        const bound = await api('/v1/telegram/bind', { method: 'POST', body: JSON.stringify({ init_data: raw, identity_id: state.identity.identity_id }) });
+        document.getElementById('identView').textContent = JSON.stringify(bound, null, 2);
+        document.getElementById('who').textContent = 'Identity ' + bound.identity_id;
+      } catch (e) { alert(e.message); }
+    };
+
+    bootSession().catch(e => document.getElementById('who').textContent = e.message);
+  </script>
+</body>
+</html>
