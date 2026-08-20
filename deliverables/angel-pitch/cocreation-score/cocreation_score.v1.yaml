@@ -1,0 +1,86 @@
+# Cocreation score config — drop into scoring system
+# Source of truth narrative: docs/COCREATION_SCORE_V1.md
+
+cocreation:
+  version: 1
+  roles:
+    - BUILDER
+    - EXPERT
+    - SCENE_OWNER
+    - VERIFIER
+    - SUPPLIER
+    - BUYER
+
+  identity:
+    require_wallet: true
+    require_track_for_boost: true
+    soulbound_nft: ContributionNFT
+
+  event_weights:
+    ADAPTER_SHIP: 500
+    SCENE_SPEC: 800
+    VERIFY_RULE: 600
+    TEMPLATE_LIVE: 300
+    DISPUTE_HELP: 400
+    AUDIT_PASS: 1000
+    SETTLE_OK: 20          # align ScoringEngine.SETTLE_WEIGHT
+    ATTEST_OK: 20
+    NEGATIVE_FRAUD: -1000
+    NEGATIVE_SYBIL: -500
+    NEGATIVE_MALICIOUS_DISPUTE: -100  # align PENALTY_WEIGHT scale
+
+  quality_multiplier:
+    submitted: 0.25
+    accepted: 0.70
+    testnet_live: 1.00
+    prod_gmv: 1.25
+    default_standard_30d: 1.50
+
+  track_multiplier:
+    daily_commerce: 1.0
+    digital: 1.0
+    b2b: 1.2
+    professional: 1.2
+    high_risk: 1.5
+
+  formula:
+    c_event: "W_base * Q * T"
+    r_contrib: "min(10000, 10000 * log1p(C_active) / log1p(C_ref))"
+    C_ref: 5000
+
+  score_mix:
+    BUILDER:
+      settle: 0.25
+      contrib: 0.60
+      stake: 0.15
+    EXPERT:
+      settle: 0.20
+      contrib: 0.70
+      stake: 0.10
+    VERIFIER:
+      accuracy: 0.55
+      volume: 0.25
+      stake: 0.20
+
+  decay:
+    hot_days: 90
+    warm_days: 365
+    hot: 1.0
+    warm: 0.5
+    cold: 0.2
+    negative_decay: false
+
+  economy_bridge:
+    developer_pool_pct: 40
+    verifier_pool_pct: 20
+    gmv_leg_bps: 7000
+    nft_leg_bps: 3000
+    revenue_mode_default: false
+    mint_threshold_weight: 200
+    fee_bridge_developer_attribution: true
+
+  anti_abuse:
+    self_deal_gmv_count: false
+    high_risk_requires_owner_confirm: true
+    duplicate_spec_penalty: true
+    conflict_of_interest_disclosure: true

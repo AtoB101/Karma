@@ -1,0 +1,45 @@
+flowchart TB
+  subgraph ID["身份 Identity"]
+    W[Wallet]
+    R[Roles: BUILDER / EXPERT / VERIFIER]
+    TR[Tracks 赛道绑定]
+    SBT[ContributionNFT Soulbound]
+    W --> R --> TR --> SBT
+  end
+
+  subgraph CON["贡献 Contribution"]
+    E1[SCENE_SPEC 行业标准]
+    E2[ADAPTER_SHIP 垂直适配]
+    E3[VERIFY_RULE 验证规则]
+    E4[TEMPLATE_LIVE 真实 settle]
+    C["C = W_base × Q × T"]
+    E1 --> C
+    E2 --> C
+    E3 --> C
+    E4 --> C
+  end
+
+  subgraph SCORE["计分 Score"]
+    RS[R_settle P8/ScoringEngine]
+    RC[R_contrib 归一化]
+    RK[R_stake 可选]
+    SC["Score = mix by role"]
+    RS --> SC
+    RC --> SC
+    RK --> SC
+  end
+
+  subgraph INC["激励 Incentive"]
+    NFT[mint NFT weight]
+    P40[DeveloperPool 40%: 70%GMV + 30%NFT]
+    P20[VerifierPool 20%: accuracy]
+    COLD[冷启动: 记分不计费]
+    NFT --> P40
+    SC --> P20
+    SC --> COLD
+  end
+
+  SBT --> CON
+  C --> RC
+  C --> NFT
+  SC --> INC
