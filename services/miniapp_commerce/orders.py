@@ -127,6 +127,8 @@ def apply_policy(order_id: str, policy: dict[str, Any]) -> MiniAppOrder:
 
     amount = float(order.amount_usdc or 0)
     single = float(policy.get("single_limit_usdc") or 1e18)
+    daily = float(policy.get("daily_limit_usdc") or 1e18)
+    spent_today = float(policy.get("spent_today_usdc") or 0)
     if policy.get("infinite_approve") is True:
         raise PermissionError("infinite USDC approve forbidden")
     if amount > single:
@@ -134,6 +136,11 @@ def apply_policy(order_id: str, policy: dict[str, Any]) -> MiniAppOrder:
         order.policy_result = {"ok": False, "reason": "single_limit_exceeded"}
         _touch(order, "policy_rejected")
         raise PermissionError("single_limit_exceeded")
+    if spent_today + amount > daily:
+        order.status = OrderStatus.REJECTED
+        order.policy_result = {"ok": False, "reason": "daily_limit_exceeded"}
+        _touch(order, "policy_rejected")
+        raise PermissionError("daily_limit_exceeded")
 
     allowed_agents = policy.get("allowed_agents") or []
     if allowed_agents and order.seller_identity_id and order.seller_identity_id not in allowed_agents:
@@ -146,7 +153,13 @@ def apply_policy(order_id: str, policy: dict[str, Any]) -> MiniAppOrder:
     self_deal = bool(
         order.buyer_wallet and order.seller_wallet and order.buyer_wallet == order.seller_wallet
     )
-    order.policy_result = {"ok": True, "self_deal": self_deal}
+    order.policy_result = {
+        "ok": True,
+        "self_deal": self_deal,
+        "single_limit_usdc": str(single),
+        "daily_limit_usdc": str(daily),
+        "spent_today_usdc": str(spent_today),
+    }
     order.status = OrderStatus.POLICY_CHECKED
     _touch(order, "policy_ok")
     return order

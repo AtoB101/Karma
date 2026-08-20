@@ -6,7 +6,10 @@ from pydantic import BaseModel, Field
 
 from services.economy_surface import surface_payload
 from services.identity_gateway import store
-from services.miniapp_commerce import intent_discovery, orders
+from services.miniapp_commerce import intent_discovery, orders, pipeline
+from services.miniapp_registry import store as registry
+from services.miniapp_trust import reputation as rep_svc
+from services.miniapp_trust import risk_dispute
 from services.telegram import SessionError, get_session
 from services.verification_engine import (
     assert_pass_for_settle,
@@ -23,6 +26,33 @@ def _require_session(authorization: str | None):
         return get_session(authorization.split(" ", 1)[1].strip())
     except SessionError as exc:
         raise HTTPException(401, str(exc)) from exc
+
+
+def _offer_catalog() -> list[dict]:
+    registry.seed_demo_if_empty()
+    catalog = registry.offers_as_discovery_catalog()
+    return catalog or intent_discovery.DEFAULT_OFFER_CATALOG
+
+
+def _resolve_offer(offer_id: str | None, offer: dict | None) -> dict | None:
+    if offer:
+        return offer
+    if not offer_id:
+        return None
+    reg = registry.get_offer(offer_id)
+    if reg:
+        return {
+            "offer_id": reg.offer_id,
+            "title": reg.title,
+            "seller_identity_id": reg.owner_identity_id,
+            "seller_wallet": reg.seller_wallet,
+            "builder_address": reg.builder_address,
+            "agent_id": reg.agent_id,
+            "capability_id": reg.capability_id,
+            "amount_usdc": reg.price_usdc,
+            "category": reg.category,
+        }
+    return next((o for o in _offer_catalog() if o.get("offer_id") == offer_id), None)
 
 
 class IntentBody(BaseModel):
@@ -61,6 +91,48 @@ class SettleBody(BaseModel):
     order_id: str
 
 
+class QuoteBody(BaseModel):
+    offer_id: str
+    amount_usdc: str | None = None
+    terms: dict = Field(default_factory=dict)
+
+
+class NegotiateBody(BaseModel):
+    quote_id: str
+
+
+class ProposeBody(BaseModel):
+    negotiation_id: str
+    role: str = Field(pattern="^(buyer|seller)$")
+    amount_usdc: str
+    note: str = ""
+
+
+class AgreeBody(BaseModel):
+    negotiation_id: str
+    amount_usdc: str
+
+
+class IntentPackageBody(BaseModel):
+    order_id: str
+
+
+class SignIntentBody(BaseModel):
+    intent_id: str
+    role: str = Field(pattern="^(buyer|seller)$")
+    signature: str
+
+
+class DisputeBody(BaseModel):
+    order_id: str
+    reason: str
+
+
+class ResolveDisputeBody(BaseModel):
+    dispute_id: str
+    resolution: dict
+
+
 @router.post("/chat/intent")
 def chat_intent(body: IntentBody, authorization: str | None = Header(default=None)):
     _require_session(authorization)
@@ -68,7 +140,7 @@ def chat_intent(body: IntentBody, authorization: str | None = Header(default=Non
         intent = intent_discovery.parse_chat_intent(body.text, default_amount=body.amount_usdc)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    offers = intent_discovery.rank_offers(intent, intent_discovery.DEFAULT_OFFER_CATALOG)
+    offers = intent_discovery.rank_offers(intent, _offer_catalog())
     return {"intent": intent, "offers": offers}
 
 
@@ -76,7 +148,73 @@ def chat_intent(body: IntentBody, authorization: str | None = Header(default=Non
 def discovery_offers(scene_id: str | None = None, authorization: str | None = Header(default=None)):
     _require_session(authorization)
     intent = {"scene_id": scene_id or "digital", "amount_usdc": "100"}
-    return {"offers": intent_discovery.rank_offers(intent, intent_discovery.DEFAULT_OFFER_CATALOG)}
+    return {"offers": intent_discovery.rank_offers(intent, _offer_catalog())}
+
+
+@router.post("/commerce/quotes")
+def create_quote(body: QuoteBody, authorization: str | None = Header(default=None)):
+    sess = _require_session(authorization)
+    if not sess.identity_id:
+        raise HTTPException(400, "bind identity before quoting")
+    offer = _resolve_offer(body.offer_id, None)
+    if not offer:
+        raise HTTPException(404, "offer not found")
+    q = pipeline.create_quote(
+        offer_id=body.offer_id,
+        buyer_identity_id=sess.identity_id,
+        seller_identity_id=str(offer.get("seller_identity_id") or "kid_unknown_seller"),
+        amount_usdc=body.amount_usdc or str(offer.get("amount_usdc") or "0"),
+        terms=body.terms,
+    )
+    return {
+        "quote_id": q.quote_id,
+        "offer_id": q.offer_id,
+        "amount_usdc": q.amount_usdc,
+        "status": q.status,
+        "expires_at": q.expires_at,
+        "terms": q.terms,
+    }
+
+
+@router.post("/commerce/negotiations")
+def start_negotiation(body: NegotiateBody, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    try:
+        n = pipeline.start_negotiation(body.quote_id)
+    except KeyError as exc:
+        raise HTTPException(404, "quote not found") from exc
+    return {"negotiation_id": n.negotiation_id, "quote_id": n.quote_id, "status": n.status}
+
+
+@router.post("/commerce/negotiations/propose")
+def propose_negotiation(body: ProposeBody, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    try:
+        n = pipeline.propose(
+            body.negotiation_id, role=body.role, amount_usdc=body.amount_usdc, note=body.note
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "negotiation not found") from exc
+    return {
+        "negotiation_id": n.negotiation_id,
+        "status": n.status,
+        "messages": n.messages,
+    }
+
+
+@router.post("/commerce/negotiations/agree")
+def agree_negotiation(body: AgreeBody, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    try:
+        n = pipeline.agree(body.negotiation_id, amount_usdc=body.amount_usdc)
+    except KeyError as exc:
+        raise HTTPException(404, "negotiation not found") from exc
+    return {
+        "negotiation_id": n.negotiation_id,
+        "status": n.status,
+        "agreed_amount_usdc": n.agreed_amount_usdc,
+        "quote_id": n.quote_id,
+    }
 
 
 @router.post("/commerce/orders")
@@ -84,14 +222,9 @@ def create_order(body: CreateOrderBody, authorization: str | None = Header(defau
     sess = _require_session(authorization)
     if not sess.identity_id:
         raise HTTPException(400, "bind identity before creating orders")
-    offer = body.offer
+    offer = _resolve_offer(body.offer_id, body.offer)
     if body.offer_id and not offer:
-        offer = next(
-            (o for o in intent_discovery.DEFAULT_OFFER_CATALOG if o.get("offer_id") == body.offer_id),
-            None,
-        )
-        if not offer:
-            raise HTTPException(404, "offer not found")
+        raise HTTPException(404, "offer not found")
     order = orders.create_order(
         buyer_identity_id=sess.identity_id,
         intent=body.intent,
@@ -106,6 +239,12 @@ def create_order(body: CreateOrderBody, authorization: str | None = Header(defau
             seller_wallet=offer.get("seller_wallet"),
         )
         order = orders.get_order(order.order_id)
+        pipeline.create_bill(
+            order_id=order.order_id,
+            buyer_wallet=order.buyer_wallet,
+            seller_wallet=order.seller_wallet,
+            amount_usdc=order.amount_usdc,
+        )
     return _order_json(order)
 
 
@@ -118,6 +257,15 @@ def get_order(order_id: str, authorization: str | None = Header(default=None)):
     return _order_json(order)
 
 
+@router.get("/commerce/orders")
+def list_my_orders(authorization: str | None = Header(default=None)):
+    sess = _require_session(authorization)
+    if not sess.identity_id:
+        return {"orders": []}
+    items = orders.list_orders_for_identity(sess.identity_id)
+    return {"orders": [_order_json(o) for o in items]}
+
+
 @router.post("/commerce/orders/sign")
 def sign_order(body: SignBody, authorization: str | None = Header(default=None)):
     _require_session(authorization)
@@ -128,6 +276,65 @@ def sign_order(body: SignBody, authorization: str | None = Header(default=None))
     return _order_json(order)
 
 
+@router.post("/commerce/intent-packages")
+def create_intent_package(body: IntentPackageBody, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    order = orders.get_order(body.order_id)
+    if not order:
+        raise HTTPException(404, "order not found")
+    if not order.buyer_wallet or not order.seller_wallet:
+        raise HTTPException(400, "buyer and seller wallets required")
+    pkg = pipeline.build_intent_package(
+        order_id=order.order_id,
+        buyer_wallet=order.buyer_wallet,
+        seller_wallet=order.seller_wallet,
+        amount_usdc=order.amount_usdc,
+        scope={"intent": order.intent, "offer": order.offer},
+    )
+    return {
+        "intent_id": pkg.intent_id,
+        "order_id": pkg.order_id,
+        "typed_data": pkg.typed_data,
+        "digest": pkg.digest,
+        "status": pkg.status,
+    }
+
+
+@router.post("/commerce/intent-packages/sign")
+def sign_intent_package(body: SignIntentBody, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    try:
+        pkg = pipeline.sign_intent(body.intent_id, role=body.role, signature=body.signature)
+    except KeyError as exc:
+        raise HTTPException(404, "intent not found") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "intent_id": pkg.intent_id,
+        "status": pkg.status,
+        "buyer_signature": pkg.buyer_signature,
+        "seller_signature": pkg.seller_signature,
+        "digest": pkg.digest,
+    }
+
+
+@router.get("/commerce/bills/{order_id}")
+def get_bill(order_id: str, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    b = pipeline.get_bill_by_order(order_id)
+    if not b:
+        raise HTTPException(404, "bill not found")
+    return {
+        "bill_id": b.bill_id,
+        "order_id": b.order_id,
+        "amount_usdc": b.amount_usdc,
+        "status": b.status,
+        "binding_id": b.binding_id,
+        "buyer_wallet": b.buyer_wallet,
+        "seller_wallet": b.seller_wallet,
+    }
+
+
 @router.post("/commerce/orders/policy-check")
 def policy_check(body: LockBody, authorization: str | None = Header(default=None)):
     sess = _require_session(authorization)
@@ -135,7 +342,7 @@ def policy_check(body: LockBody, authorization: str | None = Header(default=None
     if not order:
         raise HTTPException(404, "order not found")
     ident = store.get_by_id(sess.identity_id) if sess.identity_id else None
-    policy = ident.payment_policy if ident else {"single_limit_usdc": "500"}
+    policy = ident.payment_policy if ident else {"single_limit_usdc": "500", "daily_limit_usdc": "2000"}
     try:
         order = orders.apply_policy(body.order_id, policy)
     except PermissionError as exc:
@@ -153,9 +360,8 @@ def settlement_lock(body: LockBody, authorization: str | None = Header(default=N
     if not order:
         raise HTTPException(404, "order not found")
     if order.status.value == "SIGNED":
-        # auto policy if not done
         ident = store.get_by_id(order.buyer_identity_id)
-        policy = ident.payment_policy if ident else {"single_limit_usdc": "500"}
+        policy = ident.payment_policy if ident else {"single_limit_usdc": "500", "daily_limit_usdc": "2000"}
         try:
             orders.apply_policy(body.order_id, policy)
         except PermissionError as exc:
@@ -164,13 +370,17 @@ def settlement_lock(body: LockBody, authorization: str | None = Header(default=N
         order = orders.mark_locked(body.order_id, binding_id=body.binding_id)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    try:
+        pipeline.update_bill(body.order_id, status="locked", binding_id=body.binding_id)
+    except KeyError:
+        pass
     return {
         **_order_json(order),
         "bilateral": {
             "action": "lock",
             "note": "Client/relayer submits Bilateral.lock; binding_id optional until confirmed",
             "builder_address": order.builder_address,
-            "fee_bridge_order_id": f"bytes32(bindingId) when settled",
+            "fee_bridge_order_id": "bytes32(bindingId) when settled",
         },
     }
 
@@ -187,20 +397,55 @@ def submit_evidence(body: EvidenceBody, authorization: str | None = Header(defau
     return _order_json(order)
 
 
+@router.post("/risk/assess")
+def risk_assess(body: LockBody, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    order = orders.get_order(body.order_id)
+    if not order:
+        raise HTTPException(404, "order not found")
+    self_deal = bool(order.buyer_wallet and order.seller_wallet and order.buyer_wallet == order.seller_wallet)
+    a = risk_dispute.assess_risk(
+        order_id=order.order_id,
+        intent={**order.intent, "amount_usdc": order.amount_usdc},
+        evidence=order.evidence,
+        self_deal=self_deal,
+    )
+    return {
+        "assessment_id": a.assessment_id,
+        "order_id": a.order_id,
+        "score": a.score,
+        "flags": a.flags,
+        "hold": a.hold,
+    }
+
+
 @router.post("/verification/runs")
 def verification_runs(body: VerifyBody, authorization: str | None = Header(default=None)):
-    """★ Core VerificationEngine — must PASS before settle."""
+    """★ Core VerificationEngine — must PASS before settle. Risk hold blocks settle path."""
     _require_session(authorization)
     order = orders.get_order(body.order_id)
     if not order:
         raise HTTPException(404, "order not found")
     if not order.evidence:
         raise HTTPException(409, "evidence required")
+
+    self_deal = bool(order.buyer_wallet and order.seller_wallet and order.buyer_wallet == order.seller_wallet)
+    risk = risk_dispute.latest_risk(order.order_id) or risk_dispute.assess_risk(
+        order_id=order.order_id,
+        intent={**order.intent, "amount_usdc": order.amount_usdc},
+        evidence=order.evidence,
+        self_deal=self_deal,
+    )
+    # Only forward risk flags into VerificationEngine when hold — informational flags must not block settle.
+    flags = list(body.risk_flags or [])
+    if risk.hold:
+        flags = flags + list(risk.flags) + ["risk_hold"]
+
     run = run_verification(
         order_id=order.order_id,
         intent=order.intent,
         evidence=order.evidence,
-        risk_flags=body.risk_flags,
+        risk_flags=flags or None,
     )
     if run.status.value == "PASS":
         orders.mark_verified(order.order_id, run_id=run.run_id)
@@ -211,7 +456,8 @@ def verification_runs(body: VerifyBody, authorization: str | None = Header(defau
         "reasons": run.reasons,
         "evidence_hash": run.evidence_hash,
         "intent_hash": run.intent_hash,
-        "settle_allowed": run.status.value == "PASS",
+        "settle_allowed": run.status.value == "PASS" and not risk.hold,
+        "risk": {"score": risk.score, "flags": risk.flags, "hold": risk.hold},
     }
 
 
@@ -227,7 +473,10 @@ def settlement_finalize(body: SettleBody, authorization: str | None = Header(def
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
 
-    # Self-deal: still settle on-chain possible, but Mirror won't credit developer GMV (karma8)
+    risk = risk_dispute.latest_risk(body.order_id)
+    if risk and risk.hold:
+        raise HTTPException(403, "risk hold — cannot settle")
+
     self_deal = bool(order.buyer_wallet and order.seller_wallet and order.buyer_wallet == order.seller_wallet)
     developer = order.builder_address or order.seller_wallet
     try:
@@ -235,9 +484,30 @@ def settlement_finalize(body: SettleBody, authorization: str | None = Header(def
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 
+    try:
+        pipeline.update_bill(body.order_id, status="settled", binding_id=order.binding_id)
+    except KeyError:
+        pass
+
+    agent_id = (order.offer or {}).get("agent_id")
+    rec = rep_svc.record_settlement(
+        order_id=order.order_id,
+        buyer_identity_id=order.buyer_identity_id,
+        seller_identity_id=order.seller_identity_id,
+        agent_id=agent_id,
+        amount_usdc=order.amount_usdc,
+        verification_run_id=run.run_id,
+        public_proof={
+            "binding_id": order.binding_id,
+            "verification_run_id": run.run_id,
+            "self_deal": self_deal,
+        },
+    )
+
     return {
         **_order_json(order),
         "verification_run_id": run.run_id,
+        "execution_record_id": rec.record_id,
         "fee_bridge": {
             "collectAndRecord": {
                 "orderId": "bytes32(bindingId)" if order.binding_id is not None else None,
@@ -253,15 +523,94 @@ def settlement_finalize(body: SettleBody, authorization: str | None = Header(def
     }
 
 
+@router.post("/disputes")
+def open_dispute(body: DisputeBody, authorization: str | None = Header(default=None)):
+    sess = _require_session(authorization)
+    if not orders.get_order(body.order_id):
+        raise HTTPException(404, "order not found")
+    d = risk_dispute.open_dispute(
+        order_id=body.order_id,
+        opened_by=sess.identity_id or str(sess.telegram_user_id),
+        reason=body.reason,
+    )
+    try:
+        pipeline.update_bill(body.order_id, status="disputed")
+    except KeyError:
+        pass
+    return {
+        "dispute_id": d.dispute_id,
+        "order_id": d.order_id,
+        "status": d.status,
+        "reason": d.reason,
+    }
+
+
+@router.post("/disputes/resolve")
+def resolve_dispute(body: ResolveDisputeBody, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    try:
+        d = risk_dispute.resolve_dispute(body.dispute_id, resolution=body.resolution)
+    except KeyError as exc:
+        raise HTTPException(404, "dispute not found") from exc
+    return {
+        "dispute_id": d.dispute_id,
+        "status": d.status,
+        "resolution": d.resolution,
+    }
+
+
+@router.get("/disputes")
+def list_disputes(order_id: str | None = None, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    items = risk_dispute.list_disputes(order_id)
+    return {
+        "disputes": [
+            {
+                "dispute_id": d.dispute_id,
+                "order_id": d.order_id,
+                "status": d.status,
+                "reason": d.reason,
+                "opened_by": d.opened_by,
+            }
+            for d in items
+        ]
+    }
+
+
+@router.get("/miniapp/reputation/{identity_id}")
+def get_reputation(identity_id: str, authorization: str | None = Header(default=None)):
+    _require_session(authorization)
+    return rep_svc.reputation_of(identity_id)
+
+
+@router.get("/activity/history")
+def activity_history(authorization: str | None = Header(default=None)):
+    sess = _require_session(authorization)
+    items = rep_svc.list_history(identity_id=sess.identity_id)
+    return {
+        "history": [
+            {
+                "record_id": h.record_id,
+                "order_id": h.order_id,
+                "amount_usdc": h.amount_usdc,
+                "status": h.status,
+                "at": h.created_at,
+                "public_proof": h.public_proof,
+            }
+            for h in items
+        ]
+    }
+
+
 @router.get("/economy/surface")
 def economy_surface(address: str | None = None, authorization: str | None = Header(default=None)):
-    # Session optional for public config; preferred with auth
     if authorization:
         _require_session(authorization)
     return surface_payload(address)
 
 
 def _order_json(order) -> dict:
+    bill = pipeline.get_bill_by_order(order.order_id)
     return {
         "order_id": order.order_id,
         "status": order.status.value,
@@ -279,4 +628,6 @@ def _order_json(order) -> dict:
         "policy_result": order.policy_result,
         "signatures": order.signatures,
         "history": order.history,
+        "bill_id": bill.bill_id if bill else None,
+        "bill_status": bill.status if bill else None,
     }

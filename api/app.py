@@ -51,6 +51,8 @@ from api.routes import (
     settlement_reputation,
     telegram_miniapp_auth,
     telegram_miniapp_commerce,
+    telegram_miniapp_registry,
+    telegram_miniapp_bot,
 )
 
 logger = structlog.get_logger(__name__)
@@ -386,6 +388,18 @@ app.include_router(
     telegram_miniapp_commerce.router,
     prefix="/v1",
     tags=["TelegramMiniAppCommerce"],
+    dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
+)
+app.include_router(
+    telegram_miniapp_registry.router,
+    prefix="/v1",
+    tags=["TelegramMiniAppRegistry"],
+    dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
+)
+app.include_router(
+    telegram_miniapp_bot.router,
+    prefix="/v1",
+    tags=["TelegramMiniAppBot"],
     dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
 )
 

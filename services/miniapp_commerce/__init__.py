@@ -1,3 +1,3 @@
-from services.miniapp_commerce import intent_discovery, orders
+from services.miniapp_commerce import eip712, intent_discovery, orders, pipeline
 
-__all__ = ["intent_discovery", "orders"]
+__all__ = ["eip712", "intent_discovery", "orders", "pipeline"]
