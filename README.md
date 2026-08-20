@@ -4,6 +4,9 @@ Non-custodial bilateral escrow + evidence layer for AI agent commerce.
 
 **Core loop:** Lock USDC → mint Bill Token (1:1) → bind buyer + agent bills → verify delivery → settle / finalize → burn bills, release USDC.
 
+> Karma 不是一个人写完所有行业细节的产品，而是让 AI 在受控范围内参与经济的结算舞台；  
+> 我们用身份与长期收益绑定垂直开发者和专业人士，一起把每个赛道的细枝末节打磨成可验证标准。
+
 ---
 
 ## Where to start (developers)
