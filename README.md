@@ -25,6 +25,7 @@ Non-custodial bilateral escrow + evidence layer for AI agent commerce.
 | Tests / acceptance | `tests/` + `scripts/acceptance/` |
 | **Pilot E2E (Sepolia)** | [`docs/PILOT_E2E_PATH.md`](docs/PILOT_E2E_PATH.md) |
 | **Agent↔agent test** | [`docs/AGENT_TO_AGENT_TEST.md`](docs/AGENT_TO_AGENT_TEST.md) |
+| **Telegram MiniApp MVP** | [`apps/telegram_miniapp/`](apps/telegram_miniapp/) · [`docs/TELEGRAM_MINIAPP_MVP.md`](docs/TELEGRAM_MINIAPP_MVP.md) |
 
 **Do not use:** legacy NonCustodialAgentPayment / SettlementEngine narratives in old docs — active path is Bilateral.
 
