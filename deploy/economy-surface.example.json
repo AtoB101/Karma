@@ -1,0 +1,34 @@
+{
+  "chainId": 11155111,
+  "rpcUrl": null,
+  "enableRevenueMode": false,
+  "feeBpsColdStart": 0,
+  "feeBpsConstant": 20,
+  "splitRatios": [40, 30, 20, 10],
+  "gmvWeightBps": 7000,
+  "nftWeightBps": 3000,
+  "mintThresholdWeight": 200,
+  "contracts": {
+    "treasury": null,
+    "feeBridge": null,
+    "settlementMirror": null,
+    "stake": null,
+    "governor": null,
+    "developerPool": null,
+    "stakerPool": null,
+    "contributionNft": null,
+    "contributorRegistry": null,
+    "contributionLedger": null,
+    "cocreationScoreView": null,
+    "karmaToken": null,
+    "usdc": null,
+    "karmaBilateral": null
+  },
+  "embed": {
+    "economyHost": "https://economy.example.com",
+    "miniappUrl": "https://economy.example.com/?view=miniapp",
+    "tabs": ["status", "wallet", "rewards", "contrib"],
+    "includesVerificationEngine": false
+  },
+  "notes": "Fill from karma8 deployments/<network>.json. BFF GET /v1/economy/surface mirrors this shape. ABI: karma8 frontend/src/lib/abis.ts"
+}

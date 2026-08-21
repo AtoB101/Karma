@@ -245,6 +245,9 @@ contract KarmaBilateral {
     address public treasury;
     /// @notice karma-economy FeeBridge — preferred fee + GMV recording path.
     address public feeBridge;
+    /// @notice Optional BUILDER attribution per binding (FeeBridge.developer).
+    /// @dev Zero address → fall back to seller (agent bill owner) at settle.
+    mapping(uint256 => address) public bindingDeveloper;
 
     // ── SCP per-address balances ─────────────────────────────────────────────
     mapping(address => uint256) public freeBalance;
@@ -281,6 +284,7 @@ contract KarmaBilateral {
     event AttestationGatewayUpdated(address indexed gateway);
     event TreasuryUpdated(address indexed treasury);
     event FeeBridgeUpdated(address indexed feeBridge);
+    event BindingDeveloperUpdated(uint256 indexed bindingId, address indexed developer);
     event DisputeWindowUpdated(uint256 seconds_);
     event OptimisticDisputeWindowUpdated(uint256 seconds_);
     event EvidenceWindowUpdated(uint256 seconds_);
@@ -1221,6 +1225,27 @@ contract KarmaBilateral {
         emit FeeBridgeUpdated(feeBridge_);
     }
 
+    /// @notice Set BUILDER attribution for FeeBridge.developer on settle.
+    /// @dev Callable by admin or either bill owner. Must be set before settle.
+    function setBindingDeveloper(uint256 bindingId, address developer) external {
+        Binding storage b = bindings[bindingId];
+        if (b.bindingId == 0) revert BindingNotFound(bindingId);
+        if (
+            b.state != BindingState.ACTIVE
+                && b.state != BindingState.PENDING
+                && b.state != BindingState.FINALIZING
+        ) {
+            revert WrongBindingState(bindingId, BindingState.ACTIVE, b.state);
+        }
+        BillToken storage buyerBill = bills[b.buyerBillId];
+        BillToken storage agentBill = bills[b.agentBillId];
+        if (msg.sender != admin && msg.sender != buyerBill.owner && msg.sender != agentBill.owner) {
+            revert Unauthorized();
+        }
+        bindingDeveloper[bindingId] = developer;
+        emit BindingDeveloperUpdated(bindingId, developer);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     //  INTERNAL — settlement execution helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -1250,7 +1275,11 @@ contract KarmaBilateral {
         pendingBatchAmount[token] -= (buyerAmount + agentAmount);
 
         uint256 totalPool = buyerAmount + agentAmount;
-        uint256 fee = _collectEconomyFee(bindingId, token, buyerOwner, agentOwner, agentOwner, totalPool);
+        address developer = bindingDeveloper[bindingId];
+        if (developer == address(0)) {
+            developer = agentOwner; // default: seller; MiniApp should set builder via setBindingDeveloper
+        }
+        uint256 fee = _collectEconomyFee(bindingId, token, buyerOwner, agentOwner, developer, totalPool);
         uint256 agentPayout = agentAmount > fee ? agentAmount - fee : 0;
         // If fee exceeds agent side (edge), take residual from buyer side.
         uint256 buyerPayout = buyerAmount;

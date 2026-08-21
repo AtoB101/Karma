@@ -10,6 +10,7 @@ from services.miniapp_commerce import intent_discovery, orders, pipeline
 from services.miniapp_registry import store as registry
 from services.miniapp_trust import reputation as rep_svc
 from services.miniapp_trust import risk_dispute
+from services.settlement_bridge import fee_bridge_settle_plan
 from services.telegram import SessionError, get_session
 from services.verification_engine import (
     assert_pass_for_settle,
@@ -374,13 +375,22 @@ def settlement_lock(body: LockBody, authorization: str | None = Header(default=N
         pipeline.update_bill(body.order_id, status="locked", binding_id=body.binding_id)
     except KeyError:
         pass
+    developer = order.builder_address or order.seller_wallet
     return {
         **_order_json(order),
         "bilateral": {
             "action": "lock",
-            "note": "Client/relayer submits Bilateral.lock; binding_id optional until confirmed",
+            "note": "Client/relayer submits Bilateral.lock; then setBindingDeveloper before settle",
             "builder_address": order.builder_address,
-            "fee_bridge_order_id": "bytes32(bindingId) when settled",
+            "setBindingDeveloper": {
+                "method": "setBindingDeveloper(uint256,address)",
+                "binding_id": order.binding_id,
+                "developer": developer,
+                "required": bool(order.builder_address),
+            },
+            "fee_bridge_order_id": (
+                f"bytes32({order.binding_id})" if order.binding_id is not None else "bytes32(bindingId) when settled"
+            ),
         },
     }
 
@@ -478,7 +488,9 @@ def settlement_finalize(body: SettleBody, authorization: str | None = Header(def
         raise HTTPException(403, "risk hold — cannot settle")
 
     self_deal = bool(order.buyer_wallet and order.seller_wallet and order.buyer_wallet == order.seller_wallet)
-    developer = order.builder_address or order.seller_wallet
+    if order.binding_id is None:
+        raise HTTPException(409, "binding_id required before settle")
+
     try:
         order = orders.mark_settled(body.order_id)
     except ValueError as exc:
@@ -504,21 +516,28 @@ def settlement_finalize(body: SettleBody, authorization: str | None = Header(def
         },
     )
 
+    settle_plan = fee_bridge_settle_plan(
+        binding_id=int(order.binding_id),
+        buyer=order.buyer_wallet,
+        seller=order.seller_wallet,
+        builder_address=order.builder_address,
+        amount_usdc=order.amount_usdc,
+        proof_hash=(order.evidence or {}).get("proof_hash"),
+    )
+
     return {
         **_order_json(order),
         "verification_run_id": run.run_id,
         "execution_record_id": rec.record_id,
-        "fee_bridge": {
-            "collectAndRecord": {
-                "orderId": "bytes32(bindingId)" if order.binding_id is not None else None,
-                "binding_id": order.binding_id,
-                "buyer": order.buyer_wallet,
-                "seller": order.seller_wallet,
-                "developer": developer,
-                "amountUsdc": order.amount_usdc,
-                "note": "Cold start fee=0 still records GMV; buyer==seller skips developer GMV credit in Mirror",
-                "self_deal": self_deal,
-            }
+        "self_deal": self_deal,
+        "settle_plan": settle_plan,
+        "fee_bridge": settle_plan["fee_bridge"],
+        "on_chain": {
+            "bilateral_settle": settle_plan["steps"],
+            "note": (
+                "Call Bilateral.settle after Verify PASS; contract quotes fee then "
+                "collectAndRecord with exact fee. Do not invent feeUsdc off-chain."
+            ),
         },
     }
 

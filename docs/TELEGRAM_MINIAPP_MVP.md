@@ -1,6 +1,9 @@
 # Telegram MiniApp ↔ karma8 alignment (main repo)
 
-Source of truth: karma8 `integrations/telegram-miniapp/KARMA_MAIN_HANDOFF.md` + V1.0 product flow.
+Source of truth:
+- karma8 `integrations/telegram-miniapp/KARMA_MAIN_HANDOFF.md`
+- karma8 `USER_OPS_CHECKLIST.md`
+- Main ops: [`MAIN_OPS_CHECKLIST.md`](./MAIN_OPS_CHECKLIST.md)
 
 ## Boundary
 
@@ -13,17 +16,18 @@ Source of truth: karma8 `integrations/telegram-miniapp/KARMA_MAIN_HANDOFF.md` + 
 
 **Do not** implement in main: fee bps setters, treasury split, ContributionNFT mint thresholds.
 
-karma8 待办清单见：[`KARMA8_REMAINING_CHECKLIST.md`](./KARMA8_REMAINING_CHECKLIST.md)。
-
 ## Settlement wiring
 
-1. `KarmaBilateral.setTreasury` / `setFeeBridge` (PR #141)
-2. settle → `quoteFee` + `collectAndRecord` (fee=0 still records GMV)
-3. `FeeBridge.core == Bilateral`
-4. `developer` = BUILDER attribution (`order.builder_address`)
-5. `orderId` = `bytes32(bindingId)`
-6. Verification **PASS** required before finalize; Risk **hold** blocks settle
-7. `buyer==seller` → Mirror skips developer GMV (karma8)
+1. `KarmaBilateral.setTreasury` / `setFeeBridge` (PR #141) — ops: `deploy/wire_feebridge.sh`
+2. Optional `setBindingDeveloper(bindingId, builder)` → FeeBridge.developer
+3. settle → internal `quoteFee` + `collectAndRecord` (**fee must equal quote**)
+4. Cold-start `enableRevenueMode=false` → fee=0 **still** `collectAndRecord` (GMV)
+5. `FeeBridge.core == Bilateral`
+6. `orderId = bytes32(bindingId)` (unique, no replay)
+7. Verification **PASS** required before finalize; Risk **hold** blocks settle
+8. `buyer==seller` → `self_deal`; Mirror skips developer GMV (karma8)
+
+BFF returns `settle_plan` on `POST /v1/settlement/finalize` (see `services/settlement_bridge`).
 
 ## Env
 
@@ -32,14 +36,16 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_BOT_USERNAME=
 TELEGRAM_WEBHOOK_SECRET=
 TELEGRAM_MINIAPP_URL=
-KARMA8_ECONOMY_HOST=https://<economy-host>
+KARMA8_ECONOMY_HOST=https://economy.<domain>
+MINIAPP_ORIGIN=https://web.telegram.org,https://webk.telegram.org,https://webz.telegram.org,https://<miniapp>
 TREASURY= FEE_BRIDGE= SETTLEMENT_MIRROR= STAKE=
 DEVELOPER_POOL= STAKER_POOL= CONTRIBUTION_NFT=
 CONTRIBUTOR_REGISTRY= CONTRIBUTION_LEDGER= COCREATION_SCORE_VIEW=
 KARMA_TOKEN= USDC= KARMA_BILATERAL=
 ```
 
-ABI: karma8 `frontend/src/lib/abis.ts`.
+Addresses: karma8 `deployments/<network>.json`. ABI: `frontend/src/lib/abis.ts`.
+Surface template: `deploy/economy-surface.example.json`.
 
 ## API surface (main)
 
