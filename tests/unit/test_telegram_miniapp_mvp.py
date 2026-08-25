@@ -273,8 +273,18 @@ def test_daily_limit_policy(client):
     sid, init_data = _session(client)
     sid, identity_id, _ = _bind_wallet(client, sid, init_data)
     h = {"Authorization": f"Bearer {sid}"}
+    # Unauthenticated policy update must be rejected
+    unauth = client.post(
+        "/v1/identity/policy",
+        json={
+            "identity_id": identity_id,
+            "policy": {"single_limit_usdc": "1000", "daily_limit_usdc": "30", "spent_today_usdc": "0"},
+        },
+    )
+    assert unauth.status_code == 401
     client.post(
         "/v1/identity/policy",
+        headers=h,
         json={
             "identity_id": identity_id,
             "policy": {"single_limit_usdc": "1000", "daily_limit_usdc": "30", "spent_today_usdc": "0"},
