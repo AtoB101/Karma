@@ -1,0 +1,54 @@
+# Karma — VPS 自动部署（push 到 main 触发：测试 → SSH 到服务器滚动更新）
+# 所需 GitHub Secrets（repo 级或 vps 环境）：
+#   VPS_HOST      服务器 IP
+#   VPS_SSH_USER  部署用户（如 deploy）
+#   VPS_SSH_KEY   私钥（PEM，对应服务器 authorized_keys）
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install project (dev extras)
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e ".[dev]"
+          python3 -m pip install -e packages/karma-openclaw
+      - name: Unit tests (deploy gate)
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/unit -q --tb=short
+      - name: App import smoke check
+        run: |
+          set -euo pipefail
+          python3 -c "import api.app; print('api.app import OK')"
+
+  deploy:
+    needs: test
+    if: ${{ vars.VPS_DEPLOY_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Rolling deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_SSH_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            bash /opt/karma/deploy.sh

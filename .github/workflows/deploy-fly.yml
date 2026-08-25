@@ -14,8 +14,7 @@
 name: Deploy to Fly.io
 
 on:
-  push:
-    branches: ["main"]
+  # 已切换到 VPS 部署（deploy-vps.yml 自动触发）；本工作流保留手动触发备用
   workflow_dispatch:
 
 permissions:
