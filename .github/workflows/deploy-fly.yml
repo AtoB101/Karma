@@ -43,6 +43,7 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           python3 -m pip install -e ".[dev]"
+          python3 -m pip install -e packages/karma-openclaw
 
       - name: Unit tests (deploy gate)
         run: |
