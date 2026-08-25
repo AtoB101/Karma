@@ -20,7 +20,7 @@ RATE_LIMITS = {
     "verify":       (10,  60),    # 10 verifications / 60s
     "register":     (5,   60),    # 5 auth token exchanges / 60s
     "register_agent": (5, 60),    # 5 agent registrations / 60s (stress-test MEDIUM)
-    "write_sensitive": (30, 60),  # 30 sensitive writes / 60s
+    "write_sensitive": (100, 60),  # 100 sensitive writes / 60s
     "state_transition": (20, 60), # 20 state transitions / 60s
 }
 
@@ -59,7 +59,14 @@ async def _memory_rate_limit(client_id: str, limit_key: str, max_requests: int, 
 async def get_redis() -> aioredis.Redis:
     global _redis
     if _redis is None:
-        _redis = await aioredis.from_url(settings.redis_url, decode_responses=True)
+        # socket timeouts ensure a down/unreachable Redis fails fast instead of
+        # hanging the request forever; callers fall back to memory rate limiting.
+        _redis = await aioredis.from_url(
+            settings.redis_url,
+            decode_responses=True,
+            socket_connect_timeout=1.0,
+            socket_timeout=1.0,
+        )
     return _redis
 
 

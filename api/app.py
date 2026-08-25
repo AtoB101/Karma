@@ -53,6 +53,7 @@ from api.routes import (
     telegram_miniapp_commerce,
     telegram_miniapp_registry,
     telegram_miniapp_bot,
+    identity_card,
 )
 
 logger = structlog.get_logger(__name__)
@@ -76,6 +77,8 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/identities/",
     "/v1/verifiers/",
     "/v1/confirmations/",
+    "/v1/identity/",
+    "/v1/trust/",
     "/runtime/",
 )
 STATE_TRANSITION_SEGMENTS = (
@@ -112,6 +115,13 @@ REQUEST_LATENCY = Histogram(
 async def lifespan(app: FastAPI):
     logger.info("karma_api_starting", env=settings.app_env)
     await init_db()
+    # 注册 Bot 命令菜单
+    try:
+        from services.telegram.bot import setup_bot_commands
+        result = setup_bot_commands()
+        logger.info("bot_commands_registered", ok=result.get("ok"))
+    except Exception as exc:
+        logger.warning("bot_commands_setup_failed", error=str(exc))
     yield
     logger.info("karma_api_shutdown")
 
@@ -402,6 +412,11 @@ app.include_router(
     tags=["TelegramMiniAppBot"],
     dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
 )
+app.include_router(
+    identity_card.router,
+    tags=["IdentityCard"],
+    dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
+)
 
 
 @app.get("/health")
@@ -509,3 +524,14 @@ async def info():
             "block_buyer_worker_payment_cycle": bool(settings.settlement_block_buyer_worker_payment_cycle),
         },
     }
+
+
+# Serve Telegram MiniApp static files same-origin (must be mounted last so API
+# routes take precedence; html=True serves index.html at "/").
+from pathlib import Path  # noqa: E402
+
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+_miniapp_dir = Path(__file__).resolve().parent.parent / "apps" / "telegram_miniapp"
+if _miniapp_dir.is_dir():
+    app.mount("/", StaticFiles(directory=str(_miniapp_dir), html=True), name="miniapp")
