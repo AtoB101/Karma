@@ -1,0 +1,117 @@
+# Deploy Public API to Fly.io (main only)
+#
+# 流程：test → fly deploy → 幂等 setWebhook
+# Secrets 全部走 GitHub Environments（environment: production-fly）：
+#   FLY_API_TOKEN            — flyctl deploy token（fly tokens create deploy -a <app>）
+#   TELEGRAM_BOT_TOKEN       — Bot API token（setWebhook 用）
+#   TELEGRAM_WEBHOOK_SECRET  — Telegram secret_token（API 侧 verify_webhook_secret 校验）
+# Variables（GitHub Variables，非机密）：
+#   FLY_APP_NAME             — fly.toml 中的 app 名（默认 karma-api-replace-me）
+#   APP_PUBLIC_URL           — 自定义域名；缺省用 https://<FLY_APP_NAME>.fly.dev
+#
+# 注意：合约 forge 测试由 forge-ci.yml 单独把关；本工作流只部署 Python API。
+
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-fly-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLY_APP_NAME: ${{ vars.FLY_APP_NAME || 'karma-api-replace-me' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install project (dev extras)
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -e ".[dev]"
+
+      - name: Unit tests (deploy gate)
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/unit -q --tb=short
+
+      - name: App import smoke check
+        run: |
+          set -euo pipefail
+          python3 -c "import api.app; print('api.app import OK')"
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production-fly
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly.io
+        run: fly deploy --remote-only --wait-timeout 300
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Wait for health check
+        run: |
+          set -euo pipefail
+          BASE_URL="${APP_PUBLIC_URL:-https://${FLY_APP_NAME}.fly.dev}"
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 5 "${BASE_URL}/health" >/dev/null 2>&1; then
+              echo "health OK: ${BASE_URL}/health"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "health check failed: ${BASE_URL}/health" >&2
+          exit 1
+        env:
+          APP_PUBLIC_URL: ${{ vars.APP_PUBLIC_URL }}
+
+      # setWebhook 本身是幂等的；这里先 getWebhookInfo 对比，仅在 URL 变化时调用，
+      # 避免 Telegram 侧触发 pending_updates 丢弃（drop_pending_updates=false）。
+      - name: Idempotent setWebhook (Telegram Bot API)
+        run: |
+          set -euo pipefail
+          : "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is required}"
+          : "${TELEGRAM_WEBHOOK_SECRET:?TELEGRAM_WEBHOOK_SECRET is required}"
+
+          BASE_URL="${APP_PUBLIC_URL:-https://${FLY_APP_NAME}.fly.dev}"
+          WEBHOOK_URL="${BASE_URL}/v1/telegram/bot/webhook"
+
+          CURRENT="$(curl -fsS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo" | jq -r '.result.url // ""')"
+          if [ "${CURRENT}" = "${WEBHOOK_URL}" ]; then
+            echo "Webhook already set to ${WEBHOOK_URL} — skipping (idempotent no-op)."
+            exit 0
+          fi
+
+          echo "Webhook currently: '${CURRENT}' -> setting to ${WEBHOOK_URL}"
+          RESP="$(curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg url "${WEBHOOK_URL}" --arg st "${TELEGRAM_WEBHOOK_SECRET}" \
+              '{url: $url, secret_token: $st, drop_pending_updates: false,
+                allowed_updates: ["message", "edited_message"]}')" )"
+          echo "${RESP}" | jq .
+          echo "${RESP}" | jq -e '.ok == true' >/dev/null
+        env:
+          APP_PUBLIC_URL: ${{ vars.APP_PUBLIC_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
