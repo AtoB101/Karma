@@ -29,6 +29,7 @@ app.conf.update(
         "worker.tasks.run_settlement":     {"queue": "settlement"},
         "worker.tasks.update_reputation":  {"queue": "reputation"},
         "worker.tasks.expire_stale_payment_intents": {"queue": "settlement"},
+        "worker.tasks.sweep_timed_out_escrows":      {"queue": "settlement"},
         "worker.tasks.auto_verify_bundle":           {"queue": "verification"},
         "worker.tasks.check_challenge_expiry":        {"queue": "verification"},
         "worker.tasks.update_verifier_reputation":    {"queue": "reputation"},
@@ -37,6 +38,10 @@ app.conf.update(
     beat_schedule={
         "expire-stale-payment-intents-hourly": {
             "task": "worker.tasks.expire_stale_payment_intents",
+            "schedule": 3600.0,
+        },
+        "sweep-timed-out-escrows-hourly": {
+            "task": "worker.tasks.sweep_timed_out_escrows",
             "schedule": 3600.0,
         },
         "check-challenge-expiry-every-5-min": {
@@ -393,3 +398,26 @@ def expire_stale_payment_intents() -> dict[str, int]:
     count = asyncio.run(_run())
     logger.info("expire_stale_payment_intents complete", extra={"expired_count": count})
     return {"expired_count": count}
+
+
+@app.task(name="worker.tasks.sweep_timed_out_escrows")
+def sweep_timed_out_escrows() -> dict:
+    """Hourly beat: refund orders stuck in escrow past the timeout (P2-8).
+
+    超时退款 sweep——LOCKED/EXECUTED/EVIDENCE_SUBMITTED 停滞超过
+    ESCROW_TIMEOUT_SWEEP_HOURS 的订单自动保守退款；争议中的订单跳过。
+    """
+    from config.settings import settings
+
+    if not settings.escrow_timeout_sweep_enabled:
+        return {"refunded_count": 0, "enabled": False}
+
+    from services.miniapp_commerce.timeout_sweep import sweep_timed_out_escrows as _sweep
+
+    result = _sweep()
+    return {
+        "refunded_count": len(result["refunded"]),
+        "skipped_disputed": result.get("skipped_disputed", 0),
+        "scanned": result.get("scanned", 0),
+        "enabled": True,
+    }

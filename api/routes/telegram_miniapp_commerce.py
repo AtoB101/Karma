@@ -30,6 +30,32 @@ def _require_session(authorization: str | None):
         raise HTTPException(401, str(exc)) from exc
 
 
+def _require_arbitrator(sess) -> None:
+    """仲裁员鉴权：/disputes/resolve 只允许白名单内的仲裁员调用。
+
+    SECURITY: 之前任何持有有效登录会话的用户都能裁决争议资金走向，
+    等于把仲裁权开放给全部登录用户。白名单来自 ARBITRATOR_ACTOR_IDS
+    （生产环境强制非空，见 config/settings.py 校验），开发环境回退到
+    admin_actor_ids；两者都为空时：
+    - 生产/非 dev 环境：拒绝（fail-closed）
+    - 开发环境：放行但记录告警（保持本地 E2E 可跑）
+    """
+    from config.settings import settings
+
+    allow = settings.arbitrator_actor_id_set()
+    if not allow:
+        env = (settings.app_env or "").lower()
+        if env in ("development", "dev", "local", "test"):
+            return  # dev convenience; production is blocked by settings validation
+        raise HTTPException(403, "dispute resolution requires ARBITRATOR_ACTOR_IDS to be configured")
+    candidates = [
+        *( [sess.identity_id] if getattr(sess, "identity_id", None) else [] ),
+        str(getattr(sess, "telegram_user_id", "") or ""),
+    ]
+    if not any(c and c in allow for c in candidates):
+        raise HTTPException(403, "dispute resolution requires a whitelisted arbitrator")
+
+
 def _offer_catalog() -> list[dict]:
     registry.seed_demo_if_empty()
     catalog = registry.offers_as_discovery_catalog()
@@ -662,7 +688,8 @@ def resolve_dispute(body: ResolveDisputeBody, authorization: str | None = Header
     - refund -> 订单 REFUNDED + 账单 refunded
     - 其他（release/reject 等）-> 账单恢复 locked，履约状态恢复，可继续正常结算
     """
-    _require_session(authorization)
+    sess = _require_session(authorization)
+    _require_arbitrator(sess)
     try:
         d = risk_dispute.resolve_dispute(body.dispute_id, resolution=body.resolution)
     except KeyError as exc:

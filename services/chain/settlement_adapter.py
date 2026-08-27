@@ -321,7 +321,18 @@ class OnChainSettlementAdapter:
         When ``task_contract.onchain_do_lock`` is true, broadcasts lock() and
         returns the minted bill_id (also sets task_contract.onchain_buyer_bill_id
         when previously unset).
+
+        SECURITY: the server hot wallet (TESTNET_PRIVATE_KEY) is only allowed
+        to be the escrow payer when CHAIN_ALLOW_HOT_WALLET_PAYER=true (dev /
+        testnet MVP). For production funds the payer must be the user signing
+        client-side — a compromised backend must never control escrow capital.
         """
+        if not settings.chain_allow_hot_wallet_payer:
+            raise RuntimeError(
+                "CHAIN_ALLOW_HOT_WALLET_PAYER=false: backend hot wallet may not lock "
+                "escrow funds — funds must be locked by the user's own signature "
+                "(client_only/external signing backend)"
+            )
         w3 = self._get_web3()
         account = self._get_account()
         bilateral = self._get_bilateral()

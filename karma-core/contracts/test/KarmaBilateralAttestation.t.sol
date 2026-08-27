@@ -24,9 +24,15 @@ contract KarmaBilateralAttestationTest is Test {
     uint256 internal verifier1Pk = 0xBEEF01;
     uint256 internal verifier2Pk = 0xBEEF02;
     uint256 internal verifier3Pk = 0xBEEF03;
+    uint256 internal verifier4Pk = 0xBEEF04;
+    uint256 internal verifier5Pk = 0xBEEF05;
+    uint256 internal verifier6Pk = 0xBEEF06;
     address internal verifier1;
     address internal verifier2;
     address internal verifier3;
+    address internal verifier4;
+    address internal verifier5;
+    address internal verifier6;
 
     uint256 internal constant BUYER_LOCK = 100_000_000;
     uint256 internal constant AGENT_LOCK =  50_000_000;
@@ -232,6 +238,102 @@ contract KarmaBilateralAttestationTest is Test {
         gateway.settleWithAttestation(TASK_ID, bindingId, wrongProof);
     }
 
+    function test_settleWithAttestation_revertsIfTaskBindingMismatch() public {
+        // SECURITY regression: cross-task settlement attack.
+        // Attacker publishes evidence for their OWN task, obtains quorum on it,
+        // then tries to settle a VICTIM's binding using that consensus.
+        // Before the fix, all gates only inspected the attacker's taskId and
+        // the victim's binding was settled instantly, bypassing its Layer-1
+        // dispute window.
+        (, , uint256 victimBindingId) = _setupAttestationBinding();
+
+        // Attacker's own task, fully attested, window closed
+        bytes32 attackerTask = keccak256("attacker-task");
+        bytes32 attackerProof = keccak256("attacker-evidence");
+        gateway.publishEvidence(attackerTask, attackerProof, "ipfs://attacker");
+        _submitAllAttestations(attackerTask);
+        vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
+        assertTrue(gateway.canSettleTask(attackerTask));
+
+        // Attempt to settle the victim's binding with the attacker's task
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                KarmaAttestationGateway.TaskBindingMismatch.selector,
+                attackerTask,
+                victimBindingId,
+                TASK_ID
+            )
+        );
+        gateway.settleWithAttestation(attackerTask, victimBindingId, attackerProof);
+
+        // Victim's binding must still be untouched
+        assertEq(
+            uint8(karma.getBinding(victimBindingId).state),
+            uint8(KarmaBilateral.BindingState.ACTIVE)
+        );
+    }
+
+    function test_settleWithAttestation_revertsIfFailedAttestationsBlock() public {
+        // SECURITY regression: fail votes must gate settlement.
+        // With 3 FAIL attestations (>= required threshold), settlement is
+        // blocked even though nothing else is wrong.
+        _registerExtraVerifiers();
+
+        (, , uint256 bindingId) = _setupAttestationBinding();
+        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
+
+        // 3 verifiers condemn the evidence
+        _submitAttestation(verifier1Pk, verifier1, TASK_ID, false);
+        _submitAttestation(verifier2Pk, verifier2, TASK_ID, false);
+        _submitAttestation(verifier3Pk, verifier3, TASK_ID, false);
+        assertEq(gateway.failAttestationCount(TASK_ID), 3);
+
+        vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                KarmaAttestationGateway.FailedAttestationsBlock.selector, 3, 3
+            )
+        );
+        gateway.settleWithAttestation(TASK_ID, bindingId, EVIDENCE);
+
+        assertFalse(gateway.canSettleTask(TASK_ID));
+    }
+
+    function test_settleWithAttestation_succeedsDespiteMinorityFailVotes() public {
+        // 3 valid + 1 fail: minority condemnation must NOT block settlement.
+        _registerExtraVerifiers();
+
+        (, , uint256 bindingId) = _setupAttestationBinding();
+        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
+
+        _submitAllAttestations(TASK_ID);
+        _submitAttestation(verifier4Pk, verifier4, TASK_ID, false); // 1 fail vote
+        assertEq(gateway.failAttestationCount(TASK_ID), 1);
+
+        vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
+        assertTrue(gateway.canSettleTask(TASK_ID));
+
+        gateway.settleWithAttestation(TASK_ID, bindingId, EVIDENCE);
+
+        assertEq(
+            uint8(karma.getBinding(bindingId).state),
+            uint8(KarmaBilateral.BindingState.SETTLED)
+        );
+        assertTrue(karma.checkInvariant(address(usdc)));
+    }
+
+    function test_setChallengeWindowDuration_revertsIfBelowMinimum() public {
+        // SECURITY regression: arbitrator must not be able to zero the window.
+        vm.prank(arbitrator);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                KarmaAttestationGateway.ChallengeWindowTooShort.selector, 1 hours, 0
+            )
+        );
+        gateway.setChallengeWindowDuration(0);
+    }
+
     function test_settleWithAttestation_revertsIfChallengeNotResolved() public {
         (, , uint256 bindingId) = _setupAttestationBinding();
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
@@ -396,5 +498,17 @@ contract KarmaBilateralAttestationTest is Test {
         _submitAttestation(verifier1Pk, verifier1, taskId, true);
         _submitAttestation(verifier2Pk, verifier2, taskId, true);
         _submitAttestation(verifier3Pk, verifier3, taskId, true);
+    }
+
+    /// @dev Registers 3 additional verifiers (4/5/6) for mixed-vote scenarios.
+    function _registerExtraVerifiers() internal {
+        verifier4 = vm.addr(verifier4Pk);
+        verifier5 = vm.addr(verifier5Pk);
+        verifier6 = vm.addr(verifier6Pk);
+        vm.startPrank(admin);
+        registry.registerVerifier(verifier4, "https://v4.karma.network", 0);
+        registry.registerVerifier(verifier5, "https://v5.karma.network", 0);
+        registry.registerVerifier(verifier6, "https://v6.karma.network", 0);
+        vm.stopPrank();
     }
 }

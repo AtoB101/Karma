@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     auth_allow_dev_key_fallback: bool = False
     # Comma-separated privileged actor IDs allowed to use brake-only admin controls.
     admin_actor_ids: str = ""
+    # Comma-separated actor IDs (karma identity_id or telegram user id) allowed to
+    # resolve disputes via /miniapp/disputes/resolve. Empty in production is rejected;
+    # in development an empty list falls back to admin_actor_ids for convenience.
+    arbitrator_actor_ids: str = ""
     debug: bool = False
 
     # Comma-separated browser origins for CORS, e.g. "https://app.example.com,https://console.example.com".
@@ -69,6 +73,10 @@ class Settings(BaseSettings):
     escrow_max_amount: float = 10000.0
     dispute_window_hours: int = 72
     arbitration_timeout_hours: int = 168
+    # P2-8: hourly sweep refunds orders stuck in LOCKED/EXECUTED/EVIDENCE_SUBMITTED
+    # longer than escrow_timeout_sweep_hours (aligned with on-chain settleTimeout = 7d).
+    escrow_timeout_sweep_enabled: bool = True
+    escrow_timeout_sweep_hours: int = 168
 
     # Verification
     verification_min_steps: int = 1
@@ -136,6 +144,12 @@ class Settings(BaseSettings):
 
     # Wallet used to sign and submit transactions (NEVER commit a real key)
     testnet_private_key: str = ""
+
+    # SECURITY (KSA-fund-006): when false, the backend hot wallet (TESTNET_PRIVATE_KEY)
+    # may NOT act as the escrow payer — lock funds must come from user-signed
+    # transactions (client_only / external signing). Allowed true only for
+    # dev/testnet MVP; rejected in production by the settings validator.
+    chain_allow_hot_wallet_payer: bool = True
 
     # Active Karma contract address (KarmaBilateral)
     karma_bilateral_address: str = ""
@@ -253,6 +267,16 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "RUNTIME_DAILY_SPEND_PERSIST must be true when APP_ENV is production",
                 )
+            if not (self.arbitrator_actor_ids or "").strip():
+                raise ValueError(
+                    "ARBITRATOR_ACTOR_IDS must list at least one dispute arbitrator when "
+                    "APP_ENV is production (dispute resolution cannot be open to any session)",
+                )
+            if self.chain_allow_hot_wallet_payer:
+                raise ValueError(
+                    "CHAIN_ALLOW_HOT_WALLET_PAYER must be false when APP_ENV is production "
+                    "(backend hot wallet must never be the escrow payer for real funds)",
+                )
             if not self.receipt_require_signature:
                 raise ValueError(
                     "RECEIPT_REQUIRE_SIGNATURE must be true when APP_ENV is production",
@@ -338,6 +362,13 @@ class Settings(BaseSettings):
         if not raw:
             return set()
         return {item.strip() for item in raw.split(",") if item.strip()}
+
+    def arbitrator_actor_id_set(self) -> set[str]:
+        raw = (self.arbitrator_actor_ids or "").strip()
+        if raw:
+            return {item.strip() for item in raw.split(",") if item.strip()}
+        # Development convenience: fall back to admin allowlist when unset.
+        return self.admin_actor_id_set()
 
 
 @lru_cache()

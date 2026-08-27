@@ -302,3 +302,60 @@ def test_daily_limit_policy(client):
     denied = client.post("/v1/commerce/orders/policy-check", headers=h, json={"order_id": oid})
     assert denied.status_code == 403
     assert "daily_limit" in denied.json()["detail"]
+
+
+# ── /disputes/resolve arbitrator gate ────────────────────────────────────────
+
+class _FakeSession:
+    def __init__(self, identity_id=None, telegram_user_id=None):
+        self.identity_id = identity_id
+        self.telegram_user_id = telegram_user_id
+
+
+class TestDisputeArbitratorGate:
+    """_require_arbitrator: /disputes/resolve must only be callable by whitelisted arbitrators."""
+
+    def test_whitelisted_identity_passes(self, monkeypatch):
+        from api.routes import telegram_miniapp_commerce as route
+        from config.settings import settings
+
+        monkeypatch.setattr(settings, "arbitrator_actor_ids", "arb-1, arb-2")
+        route._require_arbitrator(_FakeSession(identity_id="arb-1"))
+
+    def test_whitelisted_telegram_user_id_passes(self, monkeypatch):
+        from api.routes import telegram_miniapp_commerce as route
+        from config.settings import settings
+
+        monkeypatch.setattr(settings, "arbitrator_actor_ids", "777001")
+        route._require_arbitrator(_FakeSession(telegram_user_id=777001))
+
+    def test_non_whitelisted_session_rejected(self, monkeypatch):
+        from fastapi import HTTPException
+
+        from api.routes import telegram_miniapp_commerce as route
+        from config.settings import settings
+
+        monkeypatch.setattr(settings, "arbitrator_actor_ids", "arb-1")
+        with pytest.raises(HTTPException) as exc:
+            route._require_arbitrator(_FakeSession(identity_id="mallory", telegram_user_id=666))
+        assert exc.value.status_code == 403
+
+    def test_empty_whitelist_rejects_outside_dev(self, monkeypatch):
+        from fastapi import HTTPException
+
+        from api.routes import telegram_miniapp_commerce as route
+        from config.settings import settings
+
+        monkeypatch.setattr(settings, "arbitrator_actor_ids", "")
+        monkeypatch.setattr(settings, "app_env", "production")
+        with pytest.raises(HTTPException) as exc:
+            route._require_arbitrator(_FakeSession(identity_id="anyone"))
+        assert exc.value.status_code == 403
+
+    def test_empty_whitelist_allows_dev_env(self, monkeypatch):
+        from api.routes import telegram_miniapp_commerce as route
+        from config.settings import settings
+
+        monkeypatch.setattr(settings, "arbitrator_actor_ids", "")
+        monkeypatch.setattr(settings, "app_env", "development")
+        route._require_arbitrator(_FakeSession(identity_id="local-dev"))

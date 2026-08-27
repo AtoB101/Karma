@@ -28,6 +28,8 @@ def _prod_kwargs(**overrides):
         trade_launch_require_eip712=True,
         karma_signing_backend="client_only",
         x402_payment_backend="sepolia",
+        arbitrator_actor_ids="arb-1",
+        chain_allow_hot_wallet_payer=False,
     )
     base.update(overrides)
     return base
@@ -50,6 +52,8 @@ def test_production_accepts_full_gates():
         ("openclaw_relax_delivery_signatures", True),
         ("openclaw_local_phase1_auto_relax", True),
         ("x402_payment_backend", "mock"),
+        ("arbitrator_actor_ids", ""),
+        ("chain_allow_hot_wallet_payer", True),
     ],
 )
 def test_production_rejects_disabled_gate(field, value):

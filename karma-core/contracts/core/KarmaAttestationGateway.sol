@@ -51,6 +51,18 @@ contract KarmaAttestationGateway {
     error NotArbitrator();
     error InvalidAddress();
     error TaskNotFound();
+    error TaskBindingMismatch(bytes32 taskId, uint256 bindingId, bytes32 bindingTaskId);
+    error FailedAttestationsBlock(uint256 failCount, uint256 required);
+    error ChallengeWindowTooShort(uint256 minimum, uint256 provided);
+
+    /// @dev Hard floor for the challenge window. Prevents the arbitrator key
+    ///      from zeroing out the challenge window and settling instantly.
+    uint256 public constant MIN_CHALLENGE_WINDOW = 1 hours;
+
+    /// @dev A task is considered condemned when at least `requiredThreshold`
+    ///      verifiers submitted STRUCT_FAIL. Settlement is then permanently
+    ///      blocked for that task.
+    uint256 public constant FAILED_ATTESTATION_BLOCK = 1;
 
     // ═══════════════════════════ State ═══════════════════════════════════════
 
@@ -278,10 +290,14 @@ contract KarmaAttestationGateway {
     ///         and the challenge window closes without dispute.
     ///
     ///         Gating conditions (any failure reverts):
-    ///         1. Evidence has been published for taskId.
-    ///         2. Sufficient valid attestations (N-of-M quorum reached).
-    ///         3. Challenge window has ended.
-    ///         4. No challenge raised, OR challenge was overruled.
+    ///         0. Evidence has been published for taskId.
+    ///         1. taskId is the task bound to bindingId in KarmaBilateral
+    ///            (prevents cross-task settlement attacks).
+    ///         2. No condemnation: fewer than the required threshold verifiers
+    ///            submitted STRUCT_FAIL.
+    ///         3. Sufficient valid attestations (N-of-M quorum reached).
+    ///         4. Challenge window has ended.
+    ///         5. No challenge raised, OR challenge was overruled.
     ///
     ///         On success, calls KarmaBilateral.settle(bindingId, proofHash).
     ///         KarmaBilateral.settle() accepts this call because msg.sender == attestationGateway.
@@ -293,9 +309,29 @@ contract KarmaAttestationGateway {
         // ── Gate 0: Evidence published ─────────────────────────────────
         if (taskEvidence[taskId] == bytes32(0)) revert TaskNotFound();
 
+        // ── Gate 0.5: taskId must be the task bound to this binding ──
+        // SECURITY: without this check, an attacker could publish evidence for
+        // their own task, obtain quorum on it, and use that consensus to settle
+        // a *victim's* binding — completely bypassing the victim's Layer-1
+        // dispute window. The binding's task association is the ground truth.
+        bytes32 boundTaskId = IKarmaBilateral(bilateralContract).bindingTaskId(bindingId);
+        if (boundTaskId != taskId) {
+            revert TaskBindingMismatch(taskId, bindingId, boundTaskId);
+        }
+
         // ── Gate 1: proofHash must match published evidence ────────────
         // The evidence hash committed at publishEvidence time is the ground truth.
         if (taskEvidence[taskId] != proofHash) revert InvalidSignature(); // reuse: hash mismatch
+
+        // ── Gate 1.5: condemnation by failed attestations ──────────────
+        // SECURITY: valid quorum alone must not unlock settlement when a
+        // comparable number of verifiers flagged the evidence as FAIL.
+        {
+            uint256 required_ = registry.getRequiredThreshold();
+            if (failAttestationCount[taskId] >= (required_ * FAILED_ATTESTATION_BLOCK)) {
+                revert FailedAttestationsBlock(failAttestationCount[taskId], required_);
+            }
+        }
 
         // ── Gate 2: Attestation quorum ─────────────────────────────────
         uint256 required = registry.getRequiredThreshold();
@@ -359,9 +395,14 @@ contract KarmaAttestationGateway {
     // ═══════════════════════════ Admin ═══════════════════════════════════════
 
     /// @notice Update the default challenge window duration.
-    /// @param _duration New duration in seconds.
+    ///         Enforces a hard floor (MIN_CHALLENGE_WINDOW) so the arbitrator
+    ///         key cannot zero the window and enable instant settlement.
+    /// @param _duration New duration in seconds (>= MIN_CHALLENGE_WINDOW).
     function setChallengeWindowDuration(uint256 _duration) external {
         if (msg.sender != arbitrator) revert NotArbitrator();
+        if (_duration < MIN_CHALLENGE_WINDOW) {
+            revert ChallengeWindowTooShort(MIN_CHALLENGE_WINDOW, _duration);
+        }
         challengeWindowDuration = _duration;
         emit ChallengeWindowDurationUpdated(_duration);
     }
@@ -385,6 +426,7 @@ contract KarmaAttestationGateway {
         if (taskEvidence[taskId] == bytes32(0)) return false;
         if (taskEvidence[taskId] != proofHash) return false;
         if (validAttestationCount[taskId] < registry.getRequiredThreshold()) return false;
+        if (failAttestationCount[taskId] >= registry.getRequiredThreshold()) return false;
         if (block.timestamp < challengeEnd[taskId]) return false;
         if (challenged[taskId]) {
             if (!challengeResolved[taskId]) return false;
@@ -397,6 +439,7 @@ contract KarmaAttestationGateway {
     function canSettleTask(bytes32 taskId) external view returns (bool) {
         if (taskEvidence[taskId] == bytes32(0)) return false;
         if (validAttestationCount[taskId] < registry.getRequiredThreshold()) return false;
+        if (failAttestationCount[taskId] >= registry.getRequiredThreshold()) return false;
         if (block.timestamp < challengeEnd[taskId]) return false;
         if (challenged[taskId]) {
             if (!challengeResolved[taskId]) return false;
