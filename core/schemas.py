@@ -822,6 +822,7 @@ class SecurityOpsAlertType(str, Enum):
     AUTH_FAILURE_BASELINE_DRIFT = "auth_failure_baseline_drift"
     RATE_LIMIT_BASELINE_DRIFT = "rate_limit_baseline_drift"
     PRIVATE_RUNTIME_ERROR_BASELINE_DRIFT = "private_runtime_error_baseline_drift"
+    PRIVILEGED_ACTION_SPIKE = "privileged_action_spike"
 
 
 class SecurityOpsAlert(BaseModel):
@@ -871,6 +872,9 @@ class SecurityOpsSummary(BaseModel):
     settlement_transition_denied_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_denied_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_denied_by_guard_stage: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    arbitrator_action_count: int = 0
+    admin_control_action_count: int = 0
+    privileged_action_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
 
 
 class SecurityOpsBaselineReference(BaseModel):

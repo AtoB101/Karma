@@ -335,3 +335,49 @@ async def test_security_ops_middleware_tracks_failed_auth(client):
         settings.auth_api_keys = original_keys
         settings.auth_enforce_protected_routes = original_enforce
         clear_security_events()
+
+
+def test_security_ops_tracks_privileged_actions_and_alerts():
+    """红队报告 KARMA-RT-2026-08-27-001 §5：
+    仲裁员 resolve 与管理员控制操作必须进入安全监控，突增触发告警。"""
+    clear_security_events()
+    try:
+        for _ in range(3):
+            record_security_event(
+                SecurityMonitoringEventType.ARBITRATOR_ACTION,
+                metadata={
+                    "path": "/v1/disputes/resolve",
+                    "actor_id": "arb-1",
+                    "route_group": "arbitration",
+                    "dispute_id": f"dispute-{_}",
+                    "outcome": "refund",
+                },
+            )
+        for _ in range(3):
+            record_security_event(
+                SecurityMonitoringEventType.ADMIN_CONTROL_ACTION,
+                metadata={
+                    "path": "/v1/admin/controls/safety-mode",
+                    "actor_id": "admin-1",
+                    "route_group": "admin",
+                    "action": "safety-mode",
+                    "enabled": True,
+                },
+            )
+
+        report = build_security_ops_alert_report(
+            window_minutes=30,
+            privileged_action_threshold=3,
+            alert_cooldown_minutes=0,
+        )
+        assert report.summary.arbitrator_action_count == 3
+        assert report.summary.admin_control_action_count == 3
+        assert report.summary.privileged_action_by_actor
+        assert any(
+            item.alert_type.value == "privileged_action_spike" for item in report.alerts
+        ), "privileged action spike alert expected"
+        assert any(
+            "privileged" in action for action in report.recommended_actions
+        ), "recommended action for privileged spike expected"
+    finally:
+        clear_security_events()

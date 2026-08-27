@@ -12,6 +12,7 @@ from services.miniapp_commerce import intent_discovery, orders, pipeline
 from services.miniapp_registry import store as registry
 from services.miniapp_trust import reputation as rep_svc
 from services.miniapp_trust import risk_dispute
+from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from services.telegram import SessionError, get_session
 from services.verification_engine import (
     assert_pass_for_settle,
@@ -690,12 +691,25 @@ def resolve_dispute(body: ResolveDisputeBody, authorization: str | None = Header
     """
     sess = _require_session(authorization)
     _require_arbitrator(sess)
+    actor_id = str(getattr(sess, "identity_id", "") or getattr(sess, "telegram_user_id", "") or "unknown")
     try:
         d = risk_dispute.resolve_dispute(body.dispute_id, resolution=body.resolution)
     except KeyError as exc:
         raise HTTPException(404, "dispute not found") from exc
 
     outcome = str((body.resolution or {}).get("action") or (body.resolution or {}).get("outcome") or "").lower()
+    # 高敏感操作审计（红队报告 KARMA-RT-2026-08-27-001 §5）：
+    # 仲裁员裁决能直接决定争议资金归属，每次调用必须可追溯、可告警。
+    record_security_event(
+        SecurityMonitoringEventType.ARBITRATOR_ACTION,
+        metadata={
+            "path": "/v1/disputes/resolve",
+            "actor_id": actor_id,
+            "route_group": "arbitration",
+            "dispute_id": body.dispute_id,
+            "outcome": outcome or "unknown",
+        },
+    )
     if "refund" in outcome:
         try:
             orders.mark_refunded(d.order_id)
