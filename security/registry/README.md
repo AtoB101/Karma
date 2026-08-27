@@ -28,6 +28,12 @@
 6. 后端服务密钥（热钱包）→ lock_funds/release/refund（P1-6 守卫 + 合约二次校验）
 7. admin 密钥 → 参数/费率/仲裁（多签部署断言 P1-5；freeze 时效待 Phase 2）
 8. admin 不作为（不仲裁、不解冻）→ 超时兜底路径（P2-7/P2-8 已补）
+9. **JWT 信任根泄露（红队 §A1）** → 伪造任意 agent_id/伪 admin（P0，待 KMS 化）
+10. **Sybil 刷分（红队 §A4）** → 高信誉身份骗取真实 escrow（P1，待 SBT 铸造门槛）
+11. **仲裁凭据被盗批量滥用（红队 §A2）** → 大额争议判给攻击方（已补审计/告警）
+12. **admin 多签单点（红队 §A3）** → setFeeBridge 吸血 10%（多签阈值待固化）
+
+> 红队评估全文：`security/redteam/2026-08-27-redteam-assessment.md`
 
 ## 资金状态超时表（摘要）
 

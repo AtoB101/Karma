@@ -211,6 +211,11 @@ contract_functions:
     affected_asset: 授权额度
     emergency_action: block
     audit_event: AuthorizationAccepted
+    notes: >
+      已知记账语义问题（红队报告 KARMA-RT-2026-08-27-001 §A6）：accept 不要求
+      from 名下真有绑定资金支撑，收款方会凭空多出"幽灵 freeBalance"，totalLockedByAddr
+      被污染。无法直接提现（unlock 需 bill），但未来"余额直付"类功能可能误用——
+      新增资金函数时必须检查幽灵余额不可作为支付来源（对应 INV-10 扩展）。
 
   - contract: KarmaBilateral
     function: cancelAuthorization
@@ -492,15 +497,16 @@ backend_functions:
     audit_event: backend.open_dispute
 
   - module: api/routes/telegram_miniapp_commerce.py
-    function: POST /v1/miniapp/commerce/disputes/resolve
+    function: POST /v1/disputes/resolve
     caller: 仲裁员
     required_role: arbitrator whitelist (P1-3, fail-closed)
     risk_level: CRITICAL
     affected_asset: 订单资金分配
     affected_wallet: buyer, agent
     emergency_action: block
-    audit_event: backend.disputes.resolve
+    audit_event: backend.disputes.resolve + SecurityOps ARBITRATOR_ACTION
     guards: [_require_arbitrator 白名单, 争议状态校验]
+    notes: 仲裁员凭据是三大信任根之一（红队报告 §A2），每次调用已埋安全监控审计事件
 
   - module: services/miniapp_commerce/timeout_sweep.py
     function: sweep_timed_out_orders
@@ -579,3 +585,41 @@ fund_states:
     timeout: freeze_duration（自动到期）
     on_expiry: 回到冻结前状态 → 走既有超时路径
     notes: 冻结期间仅允许查询/审计/退款/仲裁，禁止 payout；到期自动解冻，防止 freeze 成为资金黑洞
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 信任根登记（红队报告 KARMA-RT-2026-08-27-001 §4）
+# 资金安全的真实边界不是 Solidity 合约，而是下列凭据。任一被攻破即资金损失，
+# 与合约无关。新增加密凭据时必须在此登记。
+# ─────────────────────────────────────────────────────────────────────────────
+trust_roots:
+  - id: TR-1
+    name: APP_SECRET_KEY
+    usage: JWT HS256 签发/验签（api/middleware/auth.py）
+    compromise_impact: 伪造任意 agent_id → 伪 admin → 控制资金状态机
+    severity: P0-CRITICAL
+    mitigation_status: 待办（建议 KMS 化 + admin 操作二次校验）
+    audit_coverage: 部分（本轮新增 admin 操作审计，JWT 签发本身无审计）
+
+  - id: TR-2
+    name: 仲裁员会话凭据
+    usage: /v1/disputes/resolve 白名单仲裁员鉴权
+    compromise_impact: 直接决定争议资金归属（refund/释放）
+    severity: P0-CRITICAL
+    mitigation_status: 白名单已封（P1-3）；凭据被盗后的审计/告警本轮已补
+    audit_coverage: 已补（ARBITRATOR_ACTION 事件 + 突增告警）
+
+  - id: TR-3
+    name: admin 多签私钥
+    usage: 链上参数控制 / resolveDispute / setFeeBridge / setAttestationGateway
+    compromise_impact: setFeeBridge 吸血 10%（无法直接提 escrow）
+    severity: P1-HIGH
+    mitigation_status: 部署脚本 mainnet guard 要求多签；阈值需 N/N 或 2/3
+    audit_coverage: 链上参数变更需发出事件；链下 admin 控制操作已补审计
+
+  - id: TR-4
+    name: 后端热钱包私钥
+    usage: 链上结算/退款交易签名（TESTNET_PRIVATE_KEY / x402 key）
+    compromise_impact: 提交未经授权交易（合约二次校验兜底）
+    severity: P1-HIGH
+    mitigation_status: 生产已禁 CHAIN_ALLOW_HOT_WALLET_PAYER（P1-6）
+    audit_coverage: 合约层守卫 + 交易记录可查
