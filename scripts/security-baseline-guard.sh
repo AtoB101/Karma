@@ -70,3 +70,5 @@ if [[ -n "$tracked_results" ]]; then
 fi
 
 echo "OK   security baseline guard passed."
+
+python3 "$ROOT_DIR/security/registry/check_registry.py"

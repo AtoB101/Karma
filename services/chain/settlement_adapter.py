@@ -142,6 +142,23 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
             {"name": "scopeHash", "type": "bytes32", "indexed": False},
         ],
     },
+    {
+        "name": "freezeGlobal",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "duration", "type": "uint256"},
+            {"name": "reason", "type": "string"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "isGlobalFrozen",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
 ]
 
 
@@ -221,6 +238,11 @@ class OnChainSettlementAdapter:
         self._chain_id = self._w3.eth.chain_id
         logger.info("web3_connected", chain_id=self._chain_id, rpc=settings.testnet_rpc_url)
         return self._w3
+
+    def emergency_freeze_global(self, duration_seconds: int, reason: str) -> ChainTxResult:
+        """Control Plane → on-chain freezeGlobal. Caller must be freezeOperator/admin."""
+        bilateral = self._get_bilateral()
+        return self._send_tx(bilateral.functions.freezeGlobal(int(duration_seconds), reason))
 
     def _get_account(self):
         if self._account is not None:

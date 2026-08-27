@@ -7,6 +7,7 @@ import {KarmaAttestationGateway} from "../core/KarmaAttestationGateway.sol";
 import {VerifierRegistry}        from "../core/VerifierRegistry.sol";
 import {ScoringEngine}           from "../core/ScoringEngine.sol";
 import {EvidenceChain}           from "../core/EvidenceChain.sol";
+import {CircuitBreaker}          from "../core/CircuitBreaker.sol";
 import {MockERC20}               from "../test/mocks/MockERC20.sol";
 
 /// @notice Deploy the full Karma protocol stack to Base Sepolia (or any EVM chain).
@@ -151,6 +152,9 @@ contract DeployKarmaBilateral is Script {
         karma.setSettleTimeout(settleTimeout);
         scoring.setAuthorizedSettler(address(karma));
 
+        CircuitBreaker breaker = new CircuitBreaker(admin);
+        karma.setCircuitBreaker(address(breaker));
+
         // ── 5. KarmaAttestationGateway ────────────────────────────────────────
         KarmaAttestationGateway gateway = new KarmaAttestationGateway(
             address(registry),
@@ -176,6 +180,7 @@ contract DeployKarmaBilateral is Script {
         require(registry.getRequiredThreshold() == verifierN,     "threshold mismatch");
         require(scoring.admin()               == admin,           "scoring admin");
         require(evidence.admin()              == admin,           "evidence admin");
+        require(karma.circuitBreaker()        == address(breaker), "breaker not wired");
         require(karma.checkInvariant(paymentToken),               "invariant broken at deploy");
 
         // ── Output ────────────────────────────────────────────────────────────
@@ -185,6 +190,7 @@ contract DeployKarmaBilateral is Script {
         console.log("REGISTRY  ", address(registry));
         console.log("EVIDENCE  ", address(evidence));
         console.log("SCORING   ", address(scoring));
+        console.log("BREAKER   ", address(breaker));
         console.log("KARMA     ", address(karma));
         console.log("GATEWAY   ", address(gateway));
         console.log("");

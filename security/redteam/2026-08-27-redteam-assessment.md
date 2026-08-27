@@ -170,8 +170,7 @@
 
 - 密钥轮换 SOP（KMS 化）
 - admin/arbitrator 二次认证（step-up auth）
-- 链上 Emergency Freeze（Phase 2）
-- Security Control Plane 持久化审计（当前为内存环形缓冲，重启即丢）
+- Security Control Plane 审计持久化（当前仍为内存；freeze 意图已接入 `security_control_plane`）
 - TEE/ZK 实现的正式验证
 - Sybil 检测（SBT mint 门槛 + 组合信号监控）
 
