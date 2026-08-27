@@ -32,6 +32,10 @@ class TradeLaunchBodyBase(BaseModel):
 
 class LaunchTradeOrderRequest(TradeLaunchBodyBase):
     buyer_signature: str = Field(default="0xtrade_pipeline_buyer_sig")
+    # Deadline the buyer signed (returned by /orders/launch/signing-preview).
+    # Optional; bounded to now+TTL server-side. Required for reproducible EIP-712
+    # verification when more than a second elapses between preview and launch.
+    deadline_unix: int | None = Field(default=None, gt=0)
 
 
 class LaunchFromIntentRequest(BaseModel):
@@ -143,6 +147,7 @@ async def launch_trade_order(
         task_type=body.task_type,
         chain_anchor_hash=body.chain_anchor_hash,
         launch_idempotency_key=normalized_key,
+        deadline_unix=body.deadline_unix,
     )
     await db.commit()
     if result.get("idempotent_replay"):

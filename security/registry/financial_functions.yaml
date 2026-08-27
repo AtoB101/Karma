@@ -1,0 +1,581 @@
+# Karma Financial Function Registry
+# 资金函数登记表 — 任何能影响资金/资金状态/结算资格/recipient/amount/authorization/payout/
+# contract configuration 的函数都必须登记在此。
+# 新增资金相关函数时必须同步登记（CI 校验见 security/registry/check_registry.py）。
+#
+# risk_level: LOW | MEDIUM | HIGH | CRITICAL
+#   资金释放、权限升级、合约升级类函数必须为 CRITICAL
+#
+# emergency_action: Phase 2 Emergency Freeze 落地后该函数在冻结期间的行为
+#   block          — 冻结期间直接 revert
+#   allow_refund   — 冻结期间仍允许（退款/仲裁/查询路径，用户资金出路不被冻结封死）
+#   unaffected     — 与资金状态无关
+
+schema_version: 1
+updated: 2026-08-27
+
+contract_functions:
+
+  # ── KarmaBilateral.sol ──────────────────────────────────────────────
+
+  - contract: KarmaBilateral
+    function: lock
+    signature: lock(address token, uint256 amount)
+    caller: 任意用户（锁定自己的资金）
+    required_role: fund_owner
+    risk_level: HIGH
+    affected_asset: token (ERC20)
+    affected_amount: amount
+    affected_wallet: msg.sender
+    state: "FREE → BOUND"
+    allowed_transition: [lock]
+    emergency_action: allow_refund        # 冻结期间允许锁定（资金仍归用户），不允许被挪用
+    audit_event: FundsLocked
+    notes: 非托管入口，资金始终在合约内记账
+
+  - contract: KarmaBilateral
+    function: bind
+    signature: bind(uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash)
+    caller: 双方 bill owner
+    required_role: both_bill_owners
+    risk_level: HIGH
+    affected_asset: bill token pair
+    affected_amount: bill amounts
+    affected_wallet: buyer, agent
+    state: "BILLED → BOUND"
+    allowed_transition: [bind, bindWithAttestation, bindWithIntent]
+    emergency_action: block
+    audit_event: BillsBound
+
+  - contract: KarmaBilateral
+    function: bindWithAttestation
+    caller: 双方 bill owner
+    required_role: both_bill_owners
+    risk_level: HIGH
+    affected_asset: bill token pair
+    state: "BILLED → BOUND (attested)"
+    emergency_action: block
+    audit_event: BillsBoundAttested
+
+  - contract: KarmaBilateral
+    function: bindWithIntent
+    caller: 双方 bill owner
+    required_role: both_bill_owners
+    risk_level: HIGH
+    affected_asset: bill token pair
+    state: "BILLED → BOUND (intent package)"
+    emergency_action: block
+    audit_event: BillsBoundWithIntent
+
+  - contract: KarmaBilateral
+    function: settle
+    signature: settle(uint256 bindingId, bytes32 proofHash)
+    caller: bill owner / gateway
+    required_role: bill_owner | attestation_gateway
+    risk_level: CRITICAL
+    affected_asset: escrowed token
+    affected_amount: bill amount - fee
+    affected_wallet: agent (收款方)
+    state: "BOUND → SETTLED"
+    allowed_transition: [settle]
+    emergency_action: block                 # 资金释放主路径，冻结期间禁止
+    audit_event: Settled
+    guards: [challenge_window, dispute_state, binding_state, nonReentrant]
+
+  - contract: KarmaBilateral
+    function: finalizeSettle
+    caller: 任何人（trustless 定时终结）
+    required_role: anyone (time-gated)
+    risk_level: CRITICAL
+    affected_asset: escrowed token
+    affected_wallet: agent
+    state: "SETTLE_PENDING → SETTLED"
+    allowed_transition: [finalizeSettle]
+    emergency_action: block
+    audit_event: SettlementFinalized
+    guards: [settle_window_elapsed, nonReentrant]
+
+  - contract: KarmaBilateral
+    function: settleWithTEE
+    caller: bill owner (TEE 证明路径)
+    required_role: bill_owner + TEE attestation
+    risk_level: CRITICAL
+    affected_asset: escrowed token
+    affected_wallet: agent
+    state: "BOUND → SETTLED"
+    emergency_action: block
+    audit_event: SettledWithTEE
+
+  - contract: KarmaBilateral
+    function: settleWithZKProof
+    caller: bill owner (ZK 证明路径)
+    required_role: bill_owner + ZK proof
+    risk_level: CRITICAL
+    affected_asset: escrowed token
+    affected_wallet: agent
+    state: "BOUND → SETTLED"
+    emergency_action: block
+    audit_event: SettledWithZKProof
+
+  - contract: KarmaBilateral
+    function: dispute
+    signature: dispute(uint256 bindingId, bytes32 evidenceHash)
+    caller: buyer 或 agent
+    required_role: binding_party
+    risk_level: HIGH
+    affected_asset: escrowed token
+    state: "BOUND → DISPUTED"
+    allowed_transition: [dispute]
+    emergency_action: allow_refund         # 争议是保护路径，冻结期间仍开放
+    audit_event: DisputeRaised
+    guards: [dispute_window]
+
+  - contract: KarmaBilateral
+    function: submitArbitrationEvidence
+    caller: 争议双方
+    required_role: binding_party
+    risk_level: MEDIUM
+    affected_asset: none (证据)
+    state: "DISPUTED (不变，附加证据)"
+    emergency_action: allow_refund
+    audit_event: ArbitrationEvidenceSubmitted
+
+  - contract: KarmaBilateral
+    function: autoResolveArbitration
+    caller: 任何人（超时自动规则）
+    required_role: anyone (time-gated)
+    risk_level: CRITICAL
+    affected_asset: escrowed token
+    affected_wallet: buyer, agent (按比例分账)
+    state: "DISPUTED → REFUNDED/SPLIT"
+    allowed_transition: [autoResolveArbitration]
+    emergency_action: allow_refund         # 防资金冻结的兜底路径，冻结期间仍开放
+    audit_event: ArbitrationAutoResolved
+    guards: [large_dispute_timeout, auto_rules]
+
+  - contract: KarmaBilateral
+    function: resolveDispute
+    signature: resolveDispute(uint256 bindingId, uint16 buyerShareBps)
+    caller: admin
+    required_role: admin (多签)
+    risk_level: CRITICAL
+    affected_asset: escrowed token
+    affected_wallet: buyer, agent (按 buyerShareBps 分账)
+    state: "DISPUTED → REFUNDED/SPLIT"
+    allowed_transition: [resolveDispute]
+    emergency_action: allow_refund
+    audit_event: DisputeResolved
+    guards: [buyerShareBps ≤ 10000, LargeDisputeRequiresAdmin + timeout fallback]
+
+  - contract: KarmaBilateral
+    function: refundOnTimeout
+    caller: 买家
+    required_role: buyer
+    risk_level: CRITICAL
+    affected_asset: escrowed token
+    affected_wallet: buyer (退款收款方)
+    state: "BOUND → REFUNDED"
+    allowed_transition: [refundOnTimeout]
+    emergency_action: allow_refund         # 超时退款是核心不变量路径，冻结期间必须保持开放
+    audit_event: RefundedOnTimeout
+    guards: [settle_timeout_elapsed]
+
+  - contract: KarmaBilateral
+    function: unlock
+    caller: bill owner
+    required_role: bill_owner
+    risk_level: HIGH
+    affected_asset: bill token
+    affected_wallet: bill owner
+    state: "BILLED(未绑定) → 释放"
+    allowed_transition: [unlock]
+    emergency_action: allow_refund
+    audit_event: BillUnlocked
+
+  - contract: KarmaBilateral
+    function: authorize
+    caller: master agent
+    required_role: master_agent
+    risk_level: HIGH
+    affected_asset: 授权额度
+    affected_amount: allowance
+    state: "授权状态机"
+    emergency_action: block
+    audit_event: AuthorizationCreated
+
+  - contract: KarmaBilateral
+    function: accept
+    caller: 被授权方
+    required_role: authorizee
+    risk_level: MEDIUM
+    affected_asset: 授权额度
+    emergency_action: block
+    audit_event: AuthorizationAccepted
+
+  - contract: KarmaBilateral
+    function: cancelAuthorization
+    caller: master agent
+    required_role: master_agent
+    risk_level: MEDIUM
+    affected_asset: 授权额度
+    emergency_action: allow_refund
+    audit_event: AuthorizationCanceled
+
+  - contract: KarmaBilateral
+    function: registerIdentity
+    caller: master agent
+    required_role: anyone (self)
+    risk_level: LOW
+    affected_asset: none (身份)
+    emergency_action: unaffected
+    audit_event: IdentityRegistered
+
+  - contract: KarmaBilateral
+    function: addSubAgent
+    caller: master agent
+    required_role: master_agent
+    risk_level: MEDIUM
+    affected_asset: 授权边界（新增可动用主账户额度的钱包）
+    emergency_action: block
+    audit_event: SubAgentAdded
+
+  - contract: KarmaBilateral
+    function: removeSubAgent
+    caller: master agent
+    required_role: master_agent
+    risk_level: MEDIUM
+    affected_asset: 授权边界
+    emergency_action: allow_refund
+    audit_event: SubAgentRemoved
+
+  - contract: KarmaBilateral
+    function: setSubAgentAllowance
+    caller: master agent
+    required_role: master_agent
+    risk_level: HIGH
+    affected_asset: 子代理可动用额度
+    affected_amount: allowance
+    emergency_action: block
+    audit_event: SubAgentAllowanceSet
+
+  # admin 配置函数 — 全部影响资金规则
+  - contract: KarmaBilateral
+    function: setTokenAllowed
+    caller: admin
+    required_role: admin (多签)
+    risk_level: HIGH
+    affected_asset: 可锁定资产类型
+    emergency_action: block
+    audit_event: TokenAllowedChanged
+
+  - contract: KarmaBilateral
+    function: setBatchThreshold
+    caller: admin
+    required_role: admin (多签)
+    risk_level: MEDIUM
+    affected_asset: 批量结算阈值
+    emergency_action: block
+    audit_event: BatchThresholdChanged
+
+  - contract: KarmaBilateral
+    function: setDisputeWindow
+    caller: admin
+    required_role: admin (多签)
+    risk_level: HIGH
+    affected_asset: 争议窗口（资金规则）
+    emergency_action: block
+    audit_event: DisputeWindowChanged
+    guards: [窗口下限校验]
+
+  - contract: KarmaBilateral
+    function: setOptimisticDisputeWindow
+    caller: admin
+    required_role: admin (多签)
+    risk_level: HIGH
+    affected_asset: 乐观结算窗口
+    emergency_action: block
+    audit_event: OptimisticDisputeWindowChanged
+
+  - contract: KarmaBilateral
+    function: setEvidenceWindow
+    caller: admin
+    required_role: admin (多签)
+    risk_level: MEDIUM
+    affected_asset: 证据窗口
+    emergency_action: block
+    audit_event: EvidenceWindowChanged
+
+  - contract: KarmaBilateral
+    function: setAutoArbitrationThreshold
+    caller: admin
+    required_role: admin (多签)
+    risk_level: HIGH
+    affected_asset: 自动仲裁金额阈值
+    affected_amount: threshold
+    emergency_action: block
+    audit_event: AutoArbitrationThresholdChanged
+
+  - contract: KarmaBilateral
+    function: setSettleTimeout
+    caller: admin
+    required_role: admin (多签)
+    risk_level: HIGH
+    affected_asset: 结算超时（资金规则）
+    emergency_action: block
+    audit_event: SettleTimeoutChanged
+    guards: [MIN_SETTLE_TIMEOUT 下限]
+
+  - contract: KarmaBilateral
+    function: setLargeDisputeTimeout
+    caller: admin
+    required_role: admin (多签)
+    risk_level: HIGH
+    affected_asset: 大额争议超时
+    emergency_action: block
+    audit_event: LargeDisputeTimeoutChanged
+
+  - contract: KarmaBilateral
+    function: setAttestationGateway
+    caller: admin
+    required_role: admin (多签)
+    risk_level: CRITICAL
+    affected_asset: 结算权限授予（gateway 可代结算）
+    emergency_action: block
+    audit_event: AttestationGatewayChanged
+
+  - contract: KarmaBilateral
+    function: setTreasury
+    caller: admin
+    required_role: admin (多签)
+    risk_level: CRITICAL
+    affected_asset: 费用接收地址
+    affected_wallet: treasury
+    emergency_action: block
+    audit_event: TreasuryChanged
+
+  - contract: KarmaBilateral
+    function: setFeeBridge
+    caller: admin
+    required_role: admin (多签)
+    risk_level: CRITICAL
+    affected_asset: fee 抽取地址
+    affected_wallet: feeBridge
+    emergency_action: block
+    audit_event: FeeBridgeChanged
+    guards: [fee 硬顶截断，feeBridge 无法 100% 抽取]
+
+  - contract: KarmaBilateral
+    function: checkInvariant / checkPerAddressInvariant
+    caller: 任何人
+    required_role: anyone (view)
+    risk_level: LOW
+    affected_asset: none (审计)
+    emergency_action: unaffected
+    audit_event: none
+    notes: 链上不变量自检入口，Security Control Plane 定期轮询
+
+  # ── KarmaAttestationGateway.sol ─────────────────────────────────────
+
+  - contract: KarmaAttestationGateway
+    function: publishEvidence
+    caller: 注册 verifier
+    required_role: verifier
+    risk_level: MEDIUM
+    affected_asset: none (证据)
+    emergency_action: unaffected
+    audit_event: EvidencePublished
+
+  - contract: KarmaAttestationGateway
+    function: submitAttestation
+    caller: 注册 verifier
+    required_role: verifier
+    risk_level: HIGH
+    affected_asset: quorum 计数（间接决定结算资格）
+    emergency_action: block
+    audit_event: AttestationSubmitted
+    guards: [failAttestationCount 计入, verifier 权重]
+
+  - contract: KarmaAttestationGateway
+    function: settleWithAttestation
+    caller: 任何人（满足 canSettle 时触发 Bilateral.settle）
+    required_role: anyone (quorum-gated)
+    risk_level: CRITICAL
+    affected_asset: escrowed token
+    affected_wallet: agent
+    state: "BOUND → SETTLED"
+    emergency_action: block
+    audit_event: SettledWithAttestation
+    guards: [bindingTaskId==taskId (P0-1), failAttestationCount 门控 (P0-2), challenge window, quorum]
+
+  - contract: KarmaAttestationGateway
+    function: raiseChallenge
+    caller: 注册 verifier
+    required_role: verifier
+    risk_level: MEDIUM
+    affected_asset: 结算资格（阻断）
+    emergency_action: allow_refund         # challenge 是保护路径
+    audit_event: ChallengeRaised
+
+  - contract: KarmaAttestationGateway
+    function: resolveChallenge
+    caller: admin
+    required_role: admin (多签)
+    risk_level: HIGH
+    affected_asset: 结算资格
+    emergency_action: allow_refund
+    audit_event: ChallengeResolved
+
+  - contract: KarmaAttestationGateway
+    function: setChallengeWindowDuration
+    caller: admin
+    required_role: admin (多签)
+    risk_level: HIGH
+    affected_asset: challenge 窗口（资金规则）
+    emergency_action: block
+    audit_event: ChallengeWindowDurationChanged
+    guards: [MIN_CHALLENGE_WINDOW 下限]
+
+backend_functions:
+
+  - module: services/chain/settlement_adapter.py
+    function: OnChainSettlementAdapter.lock_funds
+    caller: API 订单锁款路由 / SettlementRouter
+    required_role: backend service (keyed)
+    risk_level: CRITICAL
+    affected_asset: USDC (链上)
+    affected_amount: 订单金额
+    affected_wallet: escrow payer
+    emergency_action: block
+    audit_event: backend.lock_funds
+    guards: [MAINNET 禁止 hot-wallet payer (P1-6), 金额=订单金额, nonce 管理]
+
+  - module: services/chain/settlement_adapter.py
+    function: OnChainSettlementAdapter.release_payment
+    caller: Verification Engine 决策 PASS 后
+    required_role: backend service (keyed) + verification decision
+    risk_level: CRITICAL
+    affected_asset: USDC
+    affected_wallet: agent
+    emergency_action: block
+    audit_event: backend.release_payment
+    guards: [verification decision, 争议状态互斥, 幂等 key, 合约层二次校验]
+    notes: 后端只能"提交"结算交易，最终由合约守卫判定 — 后端被攻破 ≠ 资金可动
+
+  - module: services/chain/settlement_adapter.py
+    function: OnChainSettlementAdapter.finalize_settle
+    caller: 后端结算流程
+    required_role: backend service (keyed)
+    risk_level: CRITICAL
+    affected_asset: USDC
+    affected_wallet: agent
+    emergency_action: block
+    audit_event: backend.finalize_settle
+
+  - module: services/chain/settlement_adapter.py
+    function: OnChainSettlementAdapter.refund_payment
+    caller: 超时 sweep / 争议退款流程
+    required_role: backend service (keyed)
+    risk_level: CRITICAL
+    affected_asset: USDC
+    affected_wallet: buyer
+    emergency_action: allow_refund
+    audit_event: backend.refund_payment
+    guards: [合约 refundOnTimeout 守卫]
+
+  - module: services/chain/settlement_adapter.py
+    function: OnChainSettlementAdapter.open_dispute
+    caller: commerce dispute 路由
+    required_role: session (buyer/agent)
+    risk_level: HIGH
+    affected_asset: USDC (状态阻断)
+    emergency_action: allow_refund
+    audit_event: backend.open_dispute
+
+  - module: api/routes/telegram_miniapp_commerce.py
+    function: POST /v1/miniapp/commerce/disputes/resolve
+    caller: 仲裁员
+    required_role: arbitrator whitelist (P1-3, fail-closed)
+    risk_level: CRITICAL
+    affected_asset: 订单资金分配
+    affected_wallet: buyer, agent
+    emergency_action: block
+    audit_event: backend.disputes.resolve
+    guards: [_require_arbitrator 白名单, 争议状态校验]
+
+  - module: services/miniapp_commerce/timeout_sweep.py
+    function: sweep_timed_out_orders
+    caller: Celery beat 定时 + CLI
+    required_role: system worker
+    risk_level: CRITICAL
+    affected_asset: USDC (超时退款)
+    affected_wallet: buyer
+    emergency_action: allow_refund
+    audit_event: backend.timeout_sweep
+    guards: [LOCKED 状态 + 超时判定 + 幂等]
+
+invariants:
+  - id: INV-1
+    rule: 没有合法结算条件，用户资金不得释放
+    enforced_by: settle/finalizeSettle/settleWith* 守卫链
+    test: forge invariant suite
+  - id: INV-2
+    rule: Verification Result 不得单独授权资金释放
+    enforced_by: gateway 只产出 quorum 状态，结算仍需合约条件链
+    test: test forge — 伪造 attestation 单独不触发 payout
+  - id: INV-3
+    rule: 非法状态转换必须失败
+    enforced_by: _requireBillState / Binding 状态机
+    test: forge 状态跳跃矩阵
+  - id: INV-4
+    rule: 同一 Bill/Settlement 不得重复结算
+    enforced_by: 终态检查 + nonReentrant
+    test: forge double-settle
+  - id: INV-5
+    rule: 未经授权 Actor 不得移动用户资金
+    enforced_by: caller 角色检查
+    test: forge 未授权调用矩阵
+  - id: INV-6
+    rule: Recipient 不匹配必须失败
+    enforced_by: bill/binding 绑定关系
+    test: forge recipient 篡改
+  - id: INV-7
+    rule: Amount 不匹配必须失败
+    enforced_by: bill amount 锁定于 lock 时
+    test: forge amount 篡改
+  - id: INV-8
+    rule: Nonce/Signature 不合法必须失败
+    enforced_by: EIP-712 签名域 + nonce
+    test: forge replay / nonce reuse
+  - id: INV-9
+    rule: Dispute 状态下不得执行普通 Settlement
+    enforced_by: settle 的 dispute 状态互斥
+    test: forge dispute 阻断
+  - id: INV-10
+    rule: Backend 被完全攻破时，不得直接取得用户锁定资金
+    enforced_by: 非托管 + 合约守卫（后端仅能提交交易，无提款权限）
+    test: Phase 4 全失陷模拟
+
+fund_states:
+  - state: CREATED
+    timeout: 无资金
+    on_expiry: n/a
+  - state: LOCKED   # bill minted, 未绑定
+    timeout: unlock 由 owner 主动
+    on_expiry: owner unlock / registry 清理
+  - state: BOUND
+    timeout: settle_timeout
+    on_expiry: refundOnTimeout → 买家全额退款
+  - state: SETTLE_PENDING
+    timeout: finalize 窗口
+    on_expiry: finalizeSettle（任何人）
+  - state: DISPUTED
+    timeout: large_dispute_timeout / auto 规则
+    on_expiry: autoResolveArbitration → 按规则分账/退款
+  - state: SETTLED
+    terminal: true
+  - state: REFUNDED
+    terminal: true
+  - state: FROZEN     # Phase 2 新增
+    timeout: freeze_duration（自动到期）
+    on_expiry: 回到冻结前状态 → 走既有超时路径
+    notes: 冻结期间仅允许查询/审计/退款/仲裁，禁止 payout；到期自动解冻，防止 freeze 成为资金黑洞
