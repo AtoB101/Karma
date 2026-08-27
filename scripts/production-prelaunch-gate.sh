@@ -38,6 +38,12 @@ defaults = {
     "TRADE_LAUNCH_REQUIRE_EIP712": "true",
     "KARMA_SIGNING_BACKEND": "client_only",
     "X402_PAYMENT_BACKEND": "sepolia",
+    # Production settings now require a non-empty dispute-arbitrator whitelist
+    # (fail-closed /disputes/resolve); supply a gate-check placeholder.
+    "ARBITRATOR_ACTOR_IDS": "gate-arbitrator",
+    # Production forbids a backend hot wallet as escrow payer; force the
+    # secure default so local .env files cannot flip this gate.
+    "CHAIN_ALLOW_HOT_WALLET_PAYER": "false",
 }
 for k, v in defaults.items():
     os.environ.setdefault(k, v)

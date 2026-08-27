@@ -40,6 +40,7 @@ def build_sign_context(
     task_precision: float,
     launch_idempotency_key: str | None,
     chain_anchor_hash: str | None,
+    deadline_unix: int | None = None,
 ) -> TradeLaunchSignContext:
     fp = requirement_fingerprint(
         buyer_identity_id=buyer_identity_id,
@@ -65,7 +66,7 @@ def build_sign_context(
             launch_idempotency_key=launch_idempotency_key,
             requirement_fp=fp,
         ),
-        deadline_unix=default_launch_deadline_unix(),
+        deadline_unix=int(deadline_unix) if deadline_unix else default_launch_deadline_unix(),
         chain_id=chain_id,
         verifying_contract=vc,
         chain_anchor_hash=chain_anchor_hash,
@@ -268,6 +269,7 @@ async def verify_trade_launch_commitment(
     buyer_signature: str,
     launch_idempotency_key: str | None,
     chain_anchor_hash: str | None,
+    deadline_unix: int | None = None,
 ) -> tuple[TradeLaunchSignContext, str, dict[str, Any]] | None:
     """
     Verify TradeLaunch EIP-712 when enabled.
@@ -276,6 +278,17 @@ async def verify_trade_launch_commitment(
     """
     if not settings.trade_launch_require_eip712:
         return None
+
+    now = int(__import__("time").time())
+    if deadline_unix is not None:
+        # Client signed the deadline returned by signing-preview. Accept it, but
+        # bound it: must not be expired, and must not exceed now+TTL (prevents a
+        # single signature staying valid forever).
+        ttl = int(getattr(settings, "trade_launch_signature_ttl_seconds", 600) or 600)
+        if deadline_unix <= now:
+            raise HTTPException(status_code=403, detail="trade launch signature expired (deadline_unix passed)")
+        if deadline_unix > now + ttl:
+            raise HTTPException(status_code=403, detail="deadline_unix exceeds signature TTL")
 
     ctx = build_sign_context(
         buyer_identity_id=buyer_identity_id,
@@ -286,6 +299,7 @@ async def verify_trade_launch_commitment(
         task_precision=task_precision,
         launch_idempotency_key=launch_idempotency_key,
         chain_anchor_hash=chain_anchor_hash,
+        deadline_unix=deadline_unix,
     )
     wallet = await get_bound_wallet(db, buyer_identity_id)
     if not wallet:
@@ -322,6 +336,7 @@ async def assert_buyer_signature_for_launch(
     buyer_signature: str,
     launch_idempotency_key: str | None,
     chain_anchor_hash: str | None,
+    deadline_unix: int | None = None,
 ) -> dict[str, Any] | None:
     """Backward-compatible wrapper; returns attestation dict when EIP-712 enforced."""
     result = await verify_trade_launch_commitment(
@@ -335,6 +350,7 @@ async def assert_buyer_signature_for_launch(
         buyer_signature=buyer_signature,
         launch_idempotency_key=launch_idempotency_key,
         chain_anchor_hash=chain_anchor_hash,
+        deadline_unix=deadline_unix,
     )
     if result is None:
         return None
