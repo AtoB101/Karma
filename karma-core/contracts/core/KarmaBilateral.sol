@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Types} from "../libraries/Types.sol";
-import {ICircuitBreaker} from "../interfaces/ICircuitBreaker.sol";
+import {IEmergencyFreeze} from "../interfaces/IEmergencyFreeze.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  KarmaBilateral — Bilateral Lock + Bill Token + KarmaFSM + Threshold Batch
@@ -71,6 +71,7 @@ contract KarmaBilateral {
     error PerAddressInvariantBroken(address addr, uint256 free, uint256 bound, uint256 minted);
     error Reentrancy();
     error Unauthorized();
+    error FundsFrozen(uint8 scope, uint256 until);
     error InvalidAddress();
     error InvalidSplit();
     error AttestationRequired(uint256 bindingId);
@@ -111,10 +112,6 @@ contract KarmaBilateral {
     error AllowanceExceedsFreeBalance(uint256 total, uint256 free);
     error SubAgentNotFound(address sub);
     error SubAgentHasBoundBalance(address sub, uint256 bound);
-    // Emergency freeze (Phase 2)
-    error FundsFrozen(uint8 scope, uint256 until); // 1 global 2 agent 3 bill 4 binding 5 breaker
-    error FreezeDurationInvalid(uint256 duration);
-    error FreezeOperatorZero();
 
     // ═══════════════════════════ State Machines ══════════════════════════════
 
@@ -200,6 +197,7 @@ contract KarmaBilateral {
     // ═══════════════════════════ Storage ═════════════════════════════════════
 
     address public immutable admin;
+    address public emergencyGuard;
 
     uint256 private _billCounter;
     uint256 private _bindingCounter;
@@ -242,16 +240,6 @@ contract KarmaBilateral {
     ///         this timeout, anyone may trigger conservative auto-resolution —
     ///         funds can never be frozen indefinitely by admin inaction.
     uint256 public largeDisputeTimeoutSeconds = 7 days;
-
-    /// @notice Hard ceiling so freeze cannot become a perpetual lock.
-    uint256 public constant MAX_FREEZE_DURATION = 7 days;
-
-    address public freezeOperator;
-    address public circuitBreaker;
-    uint256 public globalFreezeUntil;
-    mapping(address => uint256) public agentFreezeUntil;
-    mapping(uint256 => uint256) public billFreezeUntil;
-    mapping(uint256 => uint256) public bindingFreezeUntil;
 
     /// @dev Hard ceiling on feeBridge-quoted fees, in basis points (10%).
     ///      SECURITY: the feeBridge address is admin-controlled; a malicious
@@ -332,23 +320,13 @@ contract KarmaBilateral {
     event SubAgentAdded(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
     event SubAgentDeactivated(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
     event SubAgentAllowanceUpdated(address indexed masterWallet, address indexed subWallet, uint256 allowance);
-    event CircuitBreakerUpdated(address indexed breaker);
-    event FreezeOperatorUpdated(address indexed operator);
-    event GlobalFrozen(address indexed actor, uint256 until, string reason);
-    event GlobalUnfrozen(address indexed actor);
-    event AgentFrozen(address indexed agent, uint256 until, string reason);
-    event AgentUnfrozen(address indexed agent);
-    event BillFrozen(uint256 indexed billId, uint256 until, string reason);
-    event BillUnfrozen(uint256 indexed billId);
-    event BindingFrozen(uint256 indexed bindingId, uint256 until, string reason);
-    event BindingUnfrozen(uint256 indexed bindingId);
+    event EmergencyGuardUpdated(address indexed guard);
 
     // ═══════════════════════════ Constructor ═════════════════════════════════
 
     constructor(address admin_) {
         if (admin_ == address(0)) revert ZeroAddress();
         admin = admin_;
-        freezeOperator = admin_;
     }
 
     // ═══════════════════════════ Modifiers ═══════════════════════════════════
@@ -365,158 +343,20 @@ contract KarmaBilateral {
         _;
     }
 
-    modifier onlyFreezeAuthority() {
-        if (msg.sender != admin && msg.sender != freezeOperator) revert Unauthorized();
-        _;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  EMERGENCY FREEZE — Control Plane / admin. Auto-expires. Refunds remain.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function setCircuitBreaker(address breaker) external onlyAdmin {
-        circuitBreaker = breaker;
-        emit CircuitBreakerUpdated(breaker);
-    }
-
-    function setFreezeOperator(address operator) external onlyAdmin {
-        if (operator == address(0)) revert FreezeOperatorZero();
-        freezeOperator = operator;
-        emit FreezeOperatorUpdated(operator);
-    }
-
-    function freezeGlobal(uint256 duration, string calldata reason) external onlyFreezeAuthority {
-        uint256 until = _freezeUntil(duration);
-        globalFreezeUntil = until;
-        emit GlobalFrozen(msg.sender, until, reason);
-    }
-
-    function unfreezeGlobal() external onlyFreezeAuthority {
-        globalFreezeUntil = 0;
-        emit GlobalUnfrozen(msg.sender);
-    }
-
-    function freezeAgent(address agent_, uint256 duration, string calldata reason) external onlyFreezeAuthority {
-        if (agent_ == address(0)) revert ZeroAddress();
-        uint256 until = _freezeUntil(duration);
-        agentFreezeUntil[agent_] = until;
-        emit AgentFrozen(agent_, until, reason);
-    }
-
-    function unfreezeAgent(address agent_) external onlyFreezeAuthority {
-        agentFreezeUntil[agent_] = 0;
-        emit AgentUnfrozen(agent_);
-    }
-
-    function freezeBill(uint256 billId, uint256 duration, string calldata reason) external onlyFreezeAuthority {
-        _requireBill(billId);
-        uint256 until = _freezeUntil(duration);
-        billFreezeUntil[billId] = until;
-        emit BillFrozen(billId, until, reason);
-    }
-
-    function unfreezeBill(uint256 billId) external onlyFreezeAuthority {
-        billFreezeUntil[billId] = 0;
-        emit BillUnfrozen(billId);
-    }
-
-    function freezeBinding(uint256 bindingId, uint256 duration, string calldata reason) external onlyFreezeAuthority {
-        _requireBinding(bindingId);
-        uint256 until = _freezeUntil(duration);
-        bindingFreezeUntil[bindingId] = until;
-        emit BindingFrozen(bindingId, until, reason);
-    }
-
-    function unfreezeBinding(uint256 bindingId) external onlyFreezeAuthority {
-        bindingFreezeUntil[bindingId] = 0;
-        emit BindingUnfrozen(bindingId);
-    }
-
-    function isGlobalFrozen() public view returns (bool) {
-        return _untilActive(globalFreezeUntil) || _breakerGlobalPaused();
-    }
-
-    function payoutBlocked(uint256 bindingId) public view returns (bool blocked, uint8 scope, uint256 until) {
-        return _payoutBlocked(bindingId);
-    }
-
-    function _freezeUntil(uint256 duration) internal view returns (uint256) {
-        if (duration == 0 || duration > MAX_FREEZE_DURATION) revert FreezeDurationInvalid(duration);
-        return block.timestamp + duration;
-    }
-
-    function _untilActive(uint256 until) internal view returns (bool) {
-        return until != 0 && block.timestamp < until;
-    }
-
-    function _breakerGlobalPaused() internal view returns (bool) {
-        if (circuitBreaker == address(0)) return false;
-        return ICircuitBreaker(circuitBreaker).isGlobalPaused();
-    }
-
-    function _breakerAgentPaused(address agent_) internal view returns (bool) {
-        if (circuitBreaker == address(0) || agent_ == address(0)) return false;
-        return ICircuitBreaker(circuitBreaker).isAgentPaused(agent_);
-    }
-
-    function _payoutBlocked(uint256 bindingId) internal view returns (bool, uint8, uint256) {
-        if (_untilActive(globalFreezeUntil)) return (true, 1, globalFreezeUntil);
-        if (_breakerGlobalPaused()) return (true, 5, type(uint256).max);
-        if (bindingId == 0) return (false, 0, 0);
-        if (_untilActive(bindingFreezeUntil[bindingId])) {
-            return (true, 4, bindingFreezeUntil[bindingId]);
-        }
-        Binding storage b = bindings[bindingId];
-        if (b.bindingId == 0) return (false, 0, 0);
-        if (_untilActive(billFreezeUntil[b.buyerBillId])) {
-            return (true, 3, billFreezeUntil[b.buyerBillId]);
-        }
-        if (_untilActive(billFreezeUntil[b.agentBillId])) {
-            return (true, 3, billFreezeUntil[b.agentBillId]);
-        }
-        address buyerOwner = bills[b.buyerBillId].owner;
-        address agentOwner = bills[b.agentBillId].owner;
-        if (_untilActive(agentFreezeUntil[buyerOwner])) {
-            return (true, 2, agentFreezeUntil[buyerOwner]);
-        }
-        if (_untilActive(agentFreezeUntil[agentOwner])) {
-            return (true, 2, agentFreezeUntil[agentOwner]);
-        }
-        if (_breakerAgentPaused(buyerOwner) || _breakerAgentPaused(agentOwner)) {
-            return (true, 5, type(uint256).max);
-        }
-        return (false, 0, 0);
+    function setEmergencyGuard(address guard) external onlyAdmin {
+        emergencyGuard = guard;
+        emit EmergencyGuardUpdated(guard);
     }
 
     function _requirePayoutNotFrozen(uint256 bindingId) internal view {
-        (bool blocked, uint8 scope, uint256 until) = _payoutBlocked(bindingId);
-        if (blocked) revert FundsFrozen(scope, until);
+        address guard = emergencyGuard;
+        if (guard == address(0) || bindingId == 0) return;
+        Binding storage b = bindings[bindingId];
+        (bool blocked, uint8 scope, uint256 until_) = IEmergencyFreeze(guard).payoutBlocked(
+            bindingId, b.buyerBillId, b.agentBillId, bills[b.buyerBillId].owner, bills[b.agentBillId].owner
+        );
+        if (blocked) revert FundsFrozen(scope, until_);
     }
-
-    function _requireBindNotFrozen(address buyerOwner, address agentOwner, uint256 buyerBillId, uint256 agentBillId)
-        internal
-        view
-    {
-        if (_untilActive(globalFreezeUntil) || _breakerGlobalPaused()) {
-            revert FundsFrozen(1, globalFreezeUntil);
-        }
-        if (_untilActive(agentFreezeUntil[buyerOwner]) || _breakerAgentPaused(buyerOwner)) {
-            revert FundsFrozen(2, agentFreezeUntil[buyerOwner]);
-        }
-        if (_untilActive(agentFreezeUntil[agentOwner]) || _breakerAgentPaused(agentOwner)) {
-            revert FundsFrozen(2, agentFreezeUntil[agentOwner]);
-        }
-        if (_untilActive(billFreezeUntil[buyerBillId])) {
-            revert FundsFrozen(3, billFreezeUntil[buyerBillId]);
-        }
-        if (_untilActive(billFreezeUntil[agentBillId])) {
-            revert FundsFrozen(3, billFreezeUntil[agentBillId]);
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  CORE — lock / bind / bindWithAttestation
-    // ─────────────────────────────────────────────────────────────────────────
 
     // ─────────────────────────────────────────────────────────────────────────
     //  CORE — lock / bind / bindWithAttestation
@@ -573,7 +413,6 @@ contract KarmaBilateral {
         _requireBillState(agentBillId, agentBill.state, BillState.MINTED);
         if (buyerBill.token != agentBill.token) revert TokenNotAllowed();
         if (buyerBill.owner == agentBill.owner) revert BuyerAgentSameAddress();
-        _requireBindNotFrozen(buyerBill.owner, agentBill.owner, buyerBillId, agentBillId);
 
         buyerBill.state = BillState.BOUND;
         agentBill.state = BillState.BOUND;
@@ -630,7 +469,6 @@ contract KarmaBilateral {
         _requireBillState(agentBillId, agentBill.state, BillState.MINTED);
         if (buyerBill.token != agentBill.token) revert TokenNotAllowed();
         if (buyerBill.owner == agentBill.owner) revert BuyerAgentSameAddress();
-        _requireBindNotFrozen(buyerBill.owner, agentBill.owner, buyerBillId, agentBillId);
 
         buyerBill.state = BillState.BOUND;
         agentBill.state = BillState.BOUND;
@@ -692,7 +530,6 @@ contract KarmaBilateral {
         _requireBillState(agentBillId, agentBill.state, BillState.MINTED);
         if (buyerBill.token != agentBill.token) revert TokenNotAllowed();
         if (buyerBill.owner == agentBill.owner) revert BuyerAgentSameAddress();
-        _requireBindNotFrozen(buyerBill.owner, agentBill.owner, buyerBillId, agentBillId);
 
         // ═══ Intent validation ═══
         if (intent.buyer != buyerBill.owner) revert IntentPartyMismatch("buyer");
@@ -775,7 +612,6 @@ contract KarmaBilateral {
         if (b.state != BindingState.ACTIVE && b.state != BindingState.PENDING) {
             revert WrongBindingState(bindingId, BindingState.ACTIVE, b.state);
         }
-        _requirePayoutNotFrozen(bindingId);
 
         BillToken storage buyerBill = bills[b.buyerBillId];
         BillToken storage agentBill = bills[b.agentBillId];
@@ -784,7 +620,6 @@ contract KarmaBilateral {
             // ── Attested path: gateway already enforced N-of-M quorum + challenge window.
             //    Bypass Layer 1 dispute window and settle immediately.
             if (msg.sender != attestationGateway) revert AttestationRequired(bindingId);
-            _requirePayoutNotFrozen(bindingId);
             _executeSettle(bindingId, b, buyerBill, agentBill, proofHash);
         } else {
             // ── Standard path: Layer 1 optimistic settlement.
@@ -815,7 +650,6 @@ contract KarmaBilateral {
         if (b.state != BindingState.FINALIZING) {
             revert WrongBindingState(bindingId, BindingState.FINALIZING, b.state);
         }
-        _requirePayoutNotFrozen(bindingId);
 
         uint256 windowEnd = b.settleSubmittedAt + disputeWindow;
         if (block.timestamp < windowEnd) {
@@ -957,8 +791,8 @@ contract KarmaBilateral {
         bool agentSubmitted = arb.agentSubmittedAt != 0;
 
         if (agentSubmitted && !buyerSubmitted) {
+            // Agent wins: finalize the settlement
             emit ArbitrationAutoResolved(bindingId, false, 0);
-            _requirePayoutNotFrozen(bindingId);
             _executeSettle(bindingId, b, buyerBill, agentBill, b.proofHash);
         } else if (buyerSubmitted && !agentSubmitted) {
             // Buyer wins: full refund
@@ -969,8 +803,8 @@ contract KarmaBilateral {
             emit ArbitrationAutoResolved(bindingId, true, 10_000);
             _executeRefund(bindingId, b, buyerBill, agentBill);
         } else {
+            // Both submitted: 50/50 split
             emit ArbitrationAutoResolved(bindingId, false, 5_000);
-            _requirePayoutNotFrozen(bindingId);
             _executeSplit(bindingId, b, buyerBill, agentBill, 5_000);
         }
     }
@@ -1004,10 +838,11 @@ contract KarmaBilateral {
         bytes32 proofHash,
         bytes calldata teeAttestation
     ) external nonReentrant {
+        // Suppress unused variable warnings for stub
         bindingId;
         proofHash;
         teeAttestation;
-        _requirePayoutNotFrozen(bindingId);
+        // TODO: Layer 2 implementation
         revert TEENotImplemented();
     }
 
@@ -1042,7 +877,7 @@ contract KarmaBilateral {
         bindingId;
         proofHash;
         zkProof;
-        _requirePayoutNotFrozen(bindingId);
+        // TODO: Layer 3 implementation
         revert ZKNotImplemented();
     }
 
@@ -1074,9 +909,6 @@ contract KarmaBilateral {
         BillToken storage agentBill = bills[b.agentBillId];
 
         emit DisputeResolved(bindingId, buyerShareBps);
-        if (buyerShareBps < 10_000) {
-            _requirePayoutNotFrozen(bindingId);
-        }
         _executeSplit(bindingId, b, buyerBill, agentBill, buyerShareBps);
     }
 
@@ -1527,6 +1359,7 @@ contract KarmaBilateral {
         BillToken storage agentBill,
         uint256 buyerShareBps
     ) internal {
+        if (buyerShareBps < 10_000) _requirePayoutNotFrozen(bindingId);
         address token       = buyerBill.token;
         address buyerOwner  = buyerBill.owner;
         address agentOwner  = agentBill.owner;

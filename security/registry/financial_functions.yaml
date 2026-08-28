@@ -33,7 +33,7 @@ contract_functions:
     audit_event: FundsLocked
     notes: 非托管入口，资金始终在合约内记账
 
-  - contract: KarmaBilateral
+  - contract: EmergencyFreeze
     function: freezeGlobal
     signature: freezeGlobal(uint256 duration, string reason)
     caller: admin / freezeOperator (Control Plane)
@@ -45,7 +45,7 @@ contract_functions:
     audit_event: GlobalFrozen
     guards: [MAX_FREEZE_DURATION=7d, auto-expiry]
 
-  - contract: KarmaBilateral
+  - contract: EmergencyFreeze
     function: freezeAgent
     caller: freeze_authority
     required_role: freeze_authority
@@ -53,7 +53,7 @@ contract_functions:
     emergency_action: unaffected
     audit_event: AgentFrozen
 
-  - contract: KarmaBilateral
+  - contract: EmergencyFreeze
     function: freezeBill
     caller: freeze_authority
     required_role: freeze_authority
@@ -61,7 +61,7 @@ contract_functions:
     emergency_action: unaffected
     audit_event: BillFrozen
 
-  - contract: KarmaBilateral
+  - contract: EmergencyFreeze
     function: freezeBinding
     caller: freeze_authority
     required_role: freeze_authority

@@ -3,11 +3,13 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {KarmaBilateral} from "../core/KarmaBilateral.sol";
+import {EmergencyFreeze} from "../core/EmergencyFreeze.sol";
 import {CircuitBreaker} from "../core/CircuitBreaker.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
 contract FinancialFreezeTest is Test {
     KarmaBilateral internal karma;
+    EmergencyFreeze internal freeze;
     CircuitBreaker internal breaker;
     MockERC20 internal usdc;
 
@@ -25,11 +27,13 @@ contract FinancialFreezeTest is Test {
     function setUp() public {
         vm.startPrank(admin);
         karma = new KarmaBilateral(admin);
+        freeze = new EmergencyFreeze(admin);
         breaker = new CircuitBreaker(admin);
         usdc = new MockERC20();
         karma.setTokenAllowed(address(usdc), true);
-        karma.setCircuitBreaker(address(breaker));
-        karma.setFreezeOperator(operator);
+        freeze.setCircuitBreaker(address(breaker));
+        freeze.setFreezeOperator(operator);
+        karma.setEmergencyGuard(address(freeze));
         vm.stopPrank();
 
         usdc.mint(buyer, 1_000_000_000);
@@ -55,13 +59,15 @@ contract FinancialFreezeTest is Test {
         uint256 bindingId = _bind();
 
         vm.prank(operator);
-        karma.freezeGlobal(1 hours, "critical");
-        assertTrue(karma.isGlobalFrozen());
+        freeze.freezeGlobal(7 days, "critical");
+        assertTrue(freeze.isGlobalFrozen());
 
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer);
-        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.FundsFrozen.selector, uint8(1), karma.globalFreezeUntil()));
         karma.settle(bindingId, PROOF);
+        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.FundsFrozen.selector, uint8(1), freeze.globalFreezeUntil()));
+        karma.finalizeSettle(bindingId);
 
         vm.prank(buyer);
         karma.unlock(unbound);
@@ -71,9 +77,9 @@ contract FinancialFreezeTest is Test {
     function test_freezeExpiresAutomatically() public {
         uint256 bindingId = _bind();
         vm.prank(admin);
-        karma.freezeGlobal(1 hours, "temp");
+        freeze.freezeGlobal(1 hours, "temp");
         vm.warp(block.timestamp + 1 hours + 1);
-        assertFalse(karma.isGlobalFrozen());
+        assertFalse(freeze.isGlobalFrozen());
 
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
@@ -84,7 +90,7 @@ contract FinancialFreezeTest is Test {
         karma.setSettleTimeout(1 hours);
         uint256 bindingId = _bind();
         vm.prank(admin);
-        karma.freezeGlobal(7 days, "incident");
+        freeze.freezeGlobal(7 days, "incident");
         vm.warp(block.timestamp + 1 hours + 1);
         vm.prank(buyer);
         karma.refundOnTimeout(bindingId);
@@ -97,20 +103,22 @@ contract FinancialFreezeTest is Test {
         breaker.emergencyPause("scp");
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer);
-        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.FundsFrozen.selector, uint8(5), type(uint256).max));
         karma.settle(bindingId, PROOF);
+        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.FundsFrozen.selector, uint8(5), type(uint256).max));
+        karma.finalizeSettle(bindingId);
     }
 
     function test_nonAdminCannotFreeze() public {
         vm.prank(stranger);
-        vm.expectRevert(KarmaBilateral.Unauthorized.selector);
-        karma.freezeGlobal(1 hours, "nope");
+        vm.expectRevert(EmergencyFreeze.Unauthorized.selector);
+        freeze.freezeGlobal(1 hours, "nope");
     }
 
     function test_freezeDurationCap() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.FreezeDurationInvalid.selector, uint256(8 days)));
-        karma.freezeGlobal(8 days, "too long");
+        vm.expectRevert(abi.encodeWithSelector(EmergencyFreeze.FreezeDurationInvalid.selector, uint256(8 days)));
+        freeze.freezeGlobal(8 days, "too long");
     }
 
     function test_bindingFreezeBlocksFinalize() public {
@@ -120,7 +128,7 @@ contract FinancialFreezeTest is Test {
         karma.settle(bindingId, PROOF);
 
         vm.prank(admin);
-        karma.freezeBinding(bindingId, 7 days, "investigate");
+        freeze.freezeBinding(bindingId, 7 days, "investigate");
 
         vm.warp(block.timestamp + karma.disputeWindow() + 1);
         vm.expectRevert();
@@ -130,9 +138,9 @@ contract FinancialFreezeTest is Test {
     function test_unfreezeRestoresPayout() public {
         uint256 bindingId = _bind();
         vm.prank(admin);
-        karma.freezeGlobal(1 hours, "pause");
+        freeze.freezeGlobal(1 hours, "pause");
         vm.prank(admin);
-        karma.unfreezeGlobal();
+        freeze.unfreezeGlobal();
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);

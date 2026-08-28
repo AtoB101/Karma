@@ -143,6 +143,13 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
         ],
     },
     {
+        "name": "emergencyGuard",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "address"}],
+    },
+    {
         "name": "freezeGlobal",
         "type": "function",
         "stateMutability": "nonpayable",
@@ -240,9 +247,28 @@ class OnChainSettlementAdapter:
         return self._w3
 
     def emergency_freeze_global(self, duration_seconds: int, reason: str) -> ChainTxResult:
-        """Control Plane → on-chain freezeGlobal. Caller must be freezeOperator/admin."""
+        """Control Plane → EmergencyFreeze.freezeGlobal via Bilateral.emergencyGuard()."""
+        w3 = self._get_web3()
         bilateral = self._get_bilateral()
-        return self._send_tx(bilateral.functions.freezeGlobal(int(duration_seconds), reason))
+        guard = bilateral.functions.emergencyGuard().call()
+        if int(guard, 16) == 0:
+            raise RuntimeError("emergencyGuard not set on KarmaBilateral")
+        freeze = w3.eth.contract(
+            address=w3.to_checksum_address(guard),
+            abi=[
+                {
+                    "name": "freezeGlobal",
+                    "type": "function",
+                    "stateMutability": "nonpayable",
+                    "inputs": [
+                        {"name": "duration", "type": "uint256"},
+                        {"name": "reason", "type": "string"},
+                    ],
+                    "outputs": [],
+                }
+            ],
+        )
+        return self._send_tx(freeze.functions.freezeGlobal(int(duration_seconds), reason))
 
     def _get_account(self):
         if self._account is not None:
