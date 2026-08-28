@@ -584,7 +584,13 @@ def verification_runs(body: VerifyBody, authorization: str | None = Header(defau
 @router.post("/settlement/finalize")
 def settlement_finalize(body: SettleBody, authorization: str | None = Header(default=None)):
     """Finalize only if Verification PASS. Bilateral settle → FeeBridge.collectAndRecord."""
+    from services.ops_boundary import OpsFundsBoundaryError, assert_offchain_payout_marks_allowed
+
     _require_session(authorization)
+    try:
+        assert_offchain_payout_marks_allowed("offchain_mark_settled")
+    except OpsFundsBoundaryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     order = orders.get_order(body.order_id)
     if not order:
         raise HTTPException(404, "order not found")
@@ -689,6 +695,8 @@ def resolve_dispute(body: ResolveDisputeBody, authorization: str | None = Header
     - refund -> 订单 REFUNDED + 账单 refunded
     - 其他（release/reject 等）-> 账单恢复 locked，履约状态恢复，可继续正常结算
     """
+    from services.ops_boundary import offchain_payout_marks_allowed
+
     sess = _require_session(authorization)
     _require_arbitrator(sess)
     actor_id = str(getattr(sess, "identity_id", "") or getattr(sess, "telegram_user_id", "") or "unknown")
@@ -710,30 +718,40 @@ def resolve_dispute(body: ResolveDisputeBody, authorization: str | None = Header
             "outcome": outcome or "unknown",
         },
     )
-    if "refund" in outcome:
-        try:
-            orders.mark_refunded(d.order_id)
-        except (KeyError, ValueError) as exc:
-            raise HTTPException(409, str(exc)) from exc
-        try:
-            pipeline.update_bill(d.order_id, status="refunded")
-        except KeyError:
-            pass
-        _notify(d.order_id, f"订单 {d.order_id} 争议已解决：仲裁退款，资金退回买方。")
+    funds_effect = "recorded_only"
+    if offchain_payout_marks_allowed():
+        if "refund" in outcome:
+            try:
+                orders.mark_refunded(d.order_id)
+            except (KeyError, ValueError) as exc:
+                raise HTTPException(409, str(exc)) from exc
+            try:
+                pipeline.update_bill(d.order_id, status="refunded")
+            except KeyError:
+                pass
+            funds_effect = "offchain_marked_refunded"
+            _notify(d.order_id, f"订单 {d.order_id} 争议已解决：仲裁退款，资金退回买方。")
+        else:
+            try:
+                orders.restore_fulfillment(d.order_id)
+            except (KeyError, ValueError):
+                pass
+            try:
+                pipeline.update_bill(d.order_id, status="locked")
+            except KeyError:
+                pass
+            funds_effect = "offchain_restored"
+            _notify(d.order_id, f"订单 {d.order_id} 争议已解决：资金继续托管，订单恢复进行。")
     else:
-        try:
-            orders.restore_fulfillment(d.order_id)
-        except (KeyError, ValueError):
-            pass
-        try:
-            pipeline.update_bill(d.order_id, status="locked")
-        except KeyError:
-            pass
-        _notify(d.order_id, f"订单 {d.order_id} 争议已解决：资金继续托管，订单恢复进行。")
+        _notify(
+            d.order_id,
+            f"订单 {d.order_id} 仲裁结论已记录，资金仍以链上状态为准，需用户钱包提交对应交易。",
+        )
     return {
         "dispute_id": d.dispute_id,
         "status": d.status,
         "resolution": d.resolution,
+        "funds_effect": funds_effect,
     }
 
 

@@ -151,6 +151,14 @@ class Settings(BaseSettings):
     # dev/testnet MVP; rejected in production by the settings validator.
     chain_allow_hot_wallet_payer: bool = True
 
+    # When false, the ops/hot wallet may not broadcast bind/settle/finalize/refund/
+    # unlock/dispute. Freeze/pause remain allowed. Production must keep this false.
+    chain_allow_ops_submit_funds: bool = True
+
+    # When false, MiniApp/admin APIs must not mark orders settled/refunded as if
+    # funds moved. Production must keep this false — ledger follows chain, not ops.
+    ops_allow_offchain_payout_marks: bool = True
+
     # Active Karma contract address (KarmaBilateral)
     karma_bilateral_address: str = ""
     # Deprecated aliases — prefer karma_bilateral_address
@@ -276,6 +284,16 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "CHAIN_ALLOW_HOT_WALLET_PAYER must be false when APP_ENV is production "
                     "(backend hot wallet must never be the escrow payer for real funds)",
+                )
+            if self.chain_allow_ops_submit_funds:
+                raise ValueError(
+                    "CHAIN_ALLOW_OPS_SUBMIT_FUNDS must be false when APP_ENV is production "
+                    "(ops keys may freeze/pause only; users sign funds transactions)",
+                )
+            if self.ops_allow_offchain_payout_marks:
+                raise ValueError(
+                    "OPS_ALLOW_OFFCHAIN_PAYOUT_MARKS must be false when APP_ENV is production "
+                    "(ops must not mark user funds settled or refunded off-chain)",
                 )
             if not self.receipt_require_signature:
                 raise ValueError(

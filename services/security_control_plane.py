@@ -93,6 +93,16 @@ def classify_and_maybe_freeze(
                 "reason": reason,
             },
         )
+        from services.runtime_safety import set_runtime_operational_pauses
+
+        set_runtime_operational_pauses(
+            pause_new_lock=True,
+            pause_new_authorization=True,
+            pause_new_task=True,
+            pause_new_settlement=True,
+            reason=f"control-plane freeze: {reason}",
+            actor_id=actor_id,
+        )
         if submit_on_chain:
             try:
                 from services.chain.settlement_adapter import OnChainSettlementAdapter
@@ -121,6 +131,16 @@ def clear_control_plane_state() -> None:
                 "scope": None,
             }
         )
+    from services.runtime_safety import set_runtime_operational_pauses
+
+    set_runtime_operational_pauses(
+        pause_new_lock=False,
+        pause_new_authorization=False,
+        pause_new_task=False,
+        pause_new_settlement=False,
+        reason="control-plane state cleared",
+        actor_id="system",
+    )
 
 
 def funds_overview() -> dict[str, Any]:

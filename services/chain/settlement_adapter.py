@@ -17,6 +17,7 @@ import structlog
 
 from config.settings import settings
 from core.schemas import EvidenceBundle, TaskContract, VerificationDecision, VerificationResult
+from services.ops_boundary import assert_ops_may_submit_funds
 
 logger = structlog.get_logger(__name__)
 
@@ -448,6 +449,7 @@ class OnChainSettlementAdapter:
         scope_hash: str | bytes | None = None,
     ) -> ChainTxResult:
         """Broadcast bind(buyerBillId, agentBillId, scopeHash); store binding on contract."""
+        assert_ops_may_submit_funds("bind")
         buyer_bill = getattr(task_contract, "onchain_buyer_bill_id", None)
         agent_bill = getattr(task_contract, "onchain_agent_bill_id", None)
         if buyer_bill is None or agent_bill is None:
@@ -507,6 +509,7 @@ class OnChainSettlementAdapter:
         ``task_contract.onchain_binding_id`` must be set (bind already completed).
         Call finalize_settle() after the dispute window to release USDC.
         """
+        assert_ops_may_submit_funds("settle")
         if verification.decision != VerificationDecision.RELEASE:
             raise ValueError(f"Cannot release: decision is {verification.decision}")
 
@@ -534,6 +537,7 @@ class OnChainSettlementAdapter:
 
     def finalize_settle(self, task_contract: TaskContract) -> ChainTxResult:
         """Call finalizeSettle(bindingId) after dispute window; burns bills / releases USDC."""
+        assert_ops_may_submit_funds("finalizeSettle")
         binding_id = self._binding_id(task_contract)
         if binding_id is None:
             raise ValueError(
@@ -563,6 +567,7 @@ class OnChainSettlementAdapter:
           - else buyer bill only → unlock(billId)
         Otherwise returns offchain_only with guidance.
         """
+        assert_ops_may_submit_funds("refund")
         _ = verification
         binding_id = self._binding_id(task_contract)
         buyer_bill = (
@@ -612,6 +617,7 @@ class OnChainSettlementAdapter:
         task_contract: TaskContract | None = None,
     ) -> dict:
         """On-chain dispute(bindingId, evidenceHash) when binding_id is present."""
+        assert_ops_may_submit_funds("dispute")
         binding_id = self._binding_id(task_contract)
         if binding_id is None:
             return {

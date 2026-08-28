@@ -30,6 +30,8 @@ def _prod_kwargs(**overrides):
         x402_payment_backend="sepolia",
         arbitrator_actor_ids="arb-1",
         chain_allow_hot_wallet_payer=False,
+        chain_allow_ops_submit_funds=False,
+        ops_allow_offchain_payout_marks=False,
     )
     base.update(overrides)
     return base
@@ -54,6 +56,8 @@ def test_production_accepts_full_gates():
         ("x402_payment_backend", "mock"),
         ("arbitrator_actor_ids", ""),
         ("chain_allow_hot_wallet_payer", True),
+        ("chain_allow_ops_submit_funds", True),
+        ("ops_allow_offchain_payout_marks", True),
     ],
 )
 def test_production_rejects_disabled_gate(field, value):

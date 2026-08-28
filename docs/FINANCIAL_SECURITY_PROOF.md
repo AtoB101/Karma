@@ -56,7 +56,8 @@ Dynamic HTTP `scripts/attack_simulation.py` remains a **backend** suite, not a r
 ## H. Remaining risks
 
 - JWT `APP_SECRET_KEY` / arbitrator session / admin multisig (red-team A1–A3) — keys, not escrow bugs.
-- Control Plane freeze **on-chain submit** needs `freezeOperator` key + RPC; default API path records freeze off-chain unless `submit_on_chain=true`.
+- Control Plane freeze **on-chain submit** needs `freezeOperator` key + RPC; default API path records freeze off-chain unless `submit_on_chain=true`. Off-chain freeze now also pauses new lock/settlement at the runtime layer.
+- Production ops boundary: `CHAIN_ALLOW_OPS_SUBMIT_FUNDS=false` and `OPS_ALLOW_OFFCHAIN_PAYOUT_MARKS=false` — ops may freeze/pause only; user wallets sign funds txs; APIs must not mark settled/refunded as if money moved.
 - TEE/ZK still stubs (must stay revert until formally verified).
 - Dashboard locked/pending counts are not yet a live indexer of `totalLocked` (shows Control Plane freeze + alerts).
 - Audit ring buffer still in-process memory (restart loses events) unless a store is added later.

@@ -1,4 +1,8 @@
-"""Karma API — brake-only administrative controls."""
+"""Karma API — brake-only administrative controls.
+
+Ops may pause, freeze, risk-mark, and expire unpaid intents.
+Ops must never lock, settle, refund, or otherwise move user funds.
+"""
 from __future__ import annotations
 
 from datetime import datetime
