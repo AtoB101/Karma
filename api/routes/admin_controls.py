@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import get_current_agent_id
@@ -149,6 +149,37 @@ async def mark_identity_risk(
         },
     )
     return _profile_to_schema(row)
+
+
+class EmergencyFreezeRequest(BaseModel):
+    reason: str
+    duration_seconds: int = Field(default=3600, ge=60, le=7 * 24 * 3600)
+    scope: str = "global"
+    submit_on_chain: bool = False
+
+
+@router.post("/controls/emergency-freeze")
+async def admin_emergency_freeze(
+    body: EmergencyFreezeRequest,
+    admin_actor_id: str = Depends(require_admin_actor),
+) -> dict:
+    from services.security_control_plane import classify_and_maybe_freeze
+
+    incident = classify_and_maybe_freeze(
+        classification="admin_emergency_freeze",
+        severity="critical",
+        actor_id=admin_actor_id,
+        reason=body.reason,
+        freeze_scope=body.scope if body.scope in {"global", "agent", "bill", "binding"} else "global",
+        duration_seconds=body.duration_seconds,
+        submit_on_chain=body.submit_on_chain,
+    )
+    return {
+        "incident_id": incident.incident_id,
+        "freeze_requested": incident.freeze_requested,
+        "on_chain_submitted": incident.on_chain_submitted,
+        "detail": incident.detail,
+    }
 
 
 @router.post("/maintenance/expire-payment-intents")

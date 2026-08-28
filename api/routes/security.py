@@ -275,6 +275,14 @@ async def get_runtime_safety_mode() -> RuntimeSafetyModeState:
     return get_runtime_safety_mode_state()
 
 
+@router.get("/funds-overview")
+async def get_funds_security_overview() -> dict:
+    """Financial Security Dashboard payload (Control Plane, not a funds mover)."""
+    from services.security_control_plane import funds_overview
+
+    return funds_overview()
+
+
 @router.post("/runtime/safety-mode", response_model=RuntimeSafetyModeState)
 async def update_runtime_safety_mode(body: UpdateRuntimeSafetyModeRequest) -> RuntimeSafetyModeState:
     return set_runtime_safety_mode(
@@ -462,5 +470,15 @@ async def get_security_ops_alerts(
             enabled=True,
             reason="auto brake: settlement transition denied rate critical alert",
             actor_id=auto_brake_actor_id,
+        )
+        from services.security_control_plane import classify_and_maybe_freeze
+
+        classify_and_maybe_freeze(
+            classification="settlement_transition_denied_rate",
+            severity="critical",
+            actor_id=auto_brake_actor_id or "system",
+            reason="auto freeze: settlement transition denied rate critical",
+            freeze_scope="global",
+            submit_on_chain=False,
         )
     return report

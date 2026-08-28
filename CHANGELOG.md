@@ -35,6 +35,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Security
 
+- On-chain Emergency Freeze wired into `KarmaBilateral` (global/agent/bill/binding + `CircuitBreaker`), INV-1..10 forge tests, off-chain compromise matrix, Control Plane freeze API, funds-security console view, proof report `docs/FINANCIAL_SECURITY_PROOF.md`.
 - Documented 2026-05-17 stress/attack (3,143 tests) and testnet pre-auth (353 tests) results in `docs/public-testing/`.
 
 ## [2026-05-18] — Phase 1 Open Wallet + OpenClaw local (on `main` @ `81d20b0`)

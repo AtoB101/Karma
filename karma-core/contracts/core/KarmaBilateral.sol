@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Types} from "../libraries/Types.sol";
+import {IEmergencyFreeze} from "../interfaces/IEmergencyFreeze.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  KarmaBilateral — Bilateral Lock + Bill Token + KarmaFSM + Threshold Batch
@@ -70,6 +71,7 @@ contract KarmaBilateral {
     error PerAddressInvariantBroken(address addr, uint256 free, uint256 bound, uint256 minted);
     error Reentrancy();
     error Unauthorized();
+    error FundsFrozen(uint8 scope, uint256 until);
     error InvalidAddress();
     error InvalidSplit();
     error AttestationRequired(uint256 bindingId);
@@ -195,6 +197,7 @@ contract KarmaBilateral {
     // ═══════════════════════════ Storage ═════════════════════════════════════
 
     address public immutable admin;
+    address public emergencyGuard;
 
     uint256 private _billCounter;
     uint256 private _bindingCounter;
@@ -317,6 +320,7 @@ contract KarmaBilateral {
     event SubAgentAdded(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
     event SubAgentDeactivated(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
     event SubAgentAllowanceUpdated(address indexed masterWallet, address indexed subWallet, uint256 allowance);
+    event EmergencyGuardUpdated(address indexed guard);
 
     // ═══════════════════════════ Constructor ═════════════════════════════════
 
@@ -337,6 +341,21 @@ contract KarmaBilateral {
     modifier onlyAdmin() {
         if (msg.sender != admin) revert Unauthorized();
         _;
+    }
+
+    function setEmergencyGuard(address guard) external onlyAdmin {
+        emergencyGuard = guard;
+        emit EmergencyGuardUpdated(guard);
+    }
+
+    function _requirePayoutNotFrozen(uint256 bindingId) internal view {
+        address guard = emergencyGuard;
+        if (guard == address(0) || bindingId == 0) return;
+        Binding storage b = bindings[bindingId];
+        (bool blocked, uint8 scope, uint256 until_) = IEmergencyFreeze(guard).payoutBlocked(
+            bindingId, b.buyerBillId, b.agentBillId, bills[b.buyerBillId].owner, bills[b.agentBillId].owner
+        );
+        if (blocked) revert FundsFrozen(scope, until_);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1264,6 +1283,7 @@ contract KarmaBilateral {
         BillToken storage agentBill,
         bytes32 proofHash
     ) internal {
+        _requirePayoutNotFrozen(bindingId);
         address token       = buyerBill.token;
         address buyerOwner  = buyerBill.owner;
         address agentOwner  = agentBill.owner;
@@ -1339,6 +1359,7 @@ contract KarmaBilateral {
         BillToken storage agentBill,
         uint256 buyerShareBps
     ) internal {
+        if (buyerShareBps < 10_000) _requirePayoutNotFrozen(bindingId);
         address token       = buyerBill.token;
         address buyerOwner  = buyerBill.owner;
         address agentOwner  = agentBill.owner;

@@ -33,6 +33,51 @@ contract_functions:
     audit_event: FundsLocked
     notes: 非托管入口，资金始终在合约内记账
 
+  - contract: EmergencyFreeze
+    function: freezeGlobal
+    signature: freezeGlobal(uint256 duration, string reason)
+    caller: admin / freezeOperator (Control Plane)
+    required_role: freeze_authority
+    risk_level: CRITICAL
+    affected_asset: all escrow
+    state: "any → FROZEN (timed)"
+    emergency_action: unaffected
+    audit_event: GlobalFrozen
+    guards: [MAX_FREEZE_DURATION=7d, auto-expiry]
+
+  - contract: EmergencyFreeze
+    function: freezeAgent
+    caller: freeze_authority
+    required_role: freeze_authority
+    risk_level: CRITICAL
+    emergency_action: unaffected
+    audit_event: AgentFrozen
+
+  - contract: EmergencyFreeze
+    function: freezeBill
+    caller: freeze_authority
+    required_role: freeze_authority
+    risk_level: HIGH
+    emergency_action: unaffected
+    audit_event: BillFrozen
+
+  - contract: EmergencyFreeze
+    function: freezeBinding
+    caller: freeze_authority
+    required_role: freeze_authority
+    risk_level: CRITICAL
+    emergency_action: unaffected
+    audit_event: BindingFrozen
+
+  - contract: CircuitBreaker
+    function: emergencyPause
+    caller: admin
+    required_role: admin
+    risk_level: CRITICAL
+    emergency_action: unaffected
+    audit_event: GlobalCircuitBreakerTriggered
+    notes: Wired into KarmaBilateral payout/bind guards via setCircuitBreaker
+
   - contract: KarmaBilateral
     function: bind
     signature: bind(uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash)
@@ -523,43 +568,43 @@ invariants:
   - id: INV-1
     rule: 没有合法结算条件，用户资金不得释放
     enforced_by: settle/finalizeSettle/settleWith* 守卫链
-    test: forge invariant suite
+    test: forge FinancialInvariants.t.sol::test_INV1_cannotSettleBeforeDelay
   - id: INV-2
     rule: Verification Result 不得单独授权资金释放
     enforced_by: gateway 只产出 quorum 状态，结算仍需合约条件链
-    test: test forge — 伪造 attestation 单独不触发 payout
+    test: forge FinancialInvariants.t.sol::test_INV2_teeAndZkNeverRelease
   - id: INV-3
     rule: 非法状态转换必须失败
     enforced_by: _requireBillState / Binding 状态机
-    test: forge 状态跳跃矩阵
+    test: forge FinancialInvariants.t.sol::test_INV3_cannotFinalizeFromActive
   - id: INV-4
     rule: 同一 Bill/Settlement 不得重复结算
     enforced_by: 终态检查 + nonReentrant
-    test: forge double-settle
+    test: forge FinancialInvariants.t.sol::test_INV4_doubleFinalizeReverts
   - id: INV-5
     rule: 未经授权 Actor 不得移动用户资金
     enforced_by: caller 角色检查
-    test: forge 未授权调用矩阵
+    test: forge FinancialInvariants.t.sol::test_INV5_strangerCannotSettleOrUnlock
   - id: INV-6
     rule: Recipient 不匹配必须失败
     enforced_by: bill/binding 绑定关系
-    test: forge recipient 篡改
+    test: forge FinancialInvariants.t.sol::test_INV6_unlockPaysOriginalOwnerOnly
   - id: INV-7
     rule: Amount 不匹配必须失败
     enforced_by: bill amount 锁定于 lock 时
-    test: forge amount 篡改
+    test: forge FinancialInvariants.t.sol::test_INV7_billAmountImmutable
   - id: INV-8
     rule: Nonce/Signature 不合法必须失败
     enforced_by: EIP-712 签名域 + nonce
-    test: forge replay / nonce reuse
+    test: forge FinancialInvariants.t.sol::test_INV8_replaySettleAfterSettledFails
   - id: INV-9
     rule: Dispute 状态下不得执行普通 Settlement
     enforced_by: settle 的 dispute 状态互斥
-    test: forge dispute 阻断
+    test: forge FinancialInvariants.t.sol::test_INV9_disputeBlocksFinalize
   - id: INV-10
     rule: Backend 被完全攻破时，不得直接取得用户锁定资金
     enforced_by: 非托管 + 合约守卫（后端仅能提交交易，无提款权限）
-    test: Phase 4 全失陷模拟
+    test: forge FinancialInvariants.t.sol::test_INV10_backendKeyCannotExtractEscrow + OffchainCompromise.t.sol
 
 fund_states:
   - state: CREATED
@@ -581,10 +626,10 @@ fund_states:
     terminal: true
   - state: REFUNDED
     terminal: true
-  - state: FROZEN     # Phase 2 新增
-    timeout: freeze_duration（自动到期）
+  - state: FROZEN
+    timeout: freeze_duration（自动到期，上限 7 天）
     on_expiry: 回到冻结前状态 → 走既有超时路径
-    notes: 冻结期间仅允许查询/审计/退款/仲裁，禁止 payout；到期自动解冻，防止 freeze 成为资金黑洞
+    notes: Phase 2 已落地。冻结期间禁止 settle/finalize/bind/非全额退款分账；允许查询、unlock 未绑定账单、refundOnTimeout、争议取证。CircuitBreaker.emergencyPause 同步接入 payout 守卫。
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 信任根登记（红队报告 KARMA-RT-2026-08-27-001 §4）
