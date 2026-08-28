@@ -1,0 +1,18 @@
+# 将 KARMA_DOMAIN 替换为真实域名（部署脚本会自动替换）
+{$KARMA_DOMAIN} {
+	reverse_proxy karma-api:8000
+
+	# 基础安全头
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		--Server
+	}
+
+	# 限流（粗粒度网络层兜底，应用层已有精细限流）
+	request_body {
+		max_size 10MB
+	}
+}

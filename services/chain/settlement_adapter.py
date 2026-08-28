@@ -142,6 +142,30 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
             {"name": "scopeHash", "type": "bytes32", "indexed": False},
         ],
     },
+    {
+        "name": "emergencyGuard",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "address"}],
+    },
+    {
+        "name": "freezeGlobal",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "duration", "type": "uint256"},
+            {"name": "reason", "type": "string"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "isGlobalFrozen",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
 ]
 
 
@@ -221,6 +245,30 @@ class OnChainSettlementAdapter:
         self._chain_id = self._w3.eth.chain_id
         logger.info("web3_connected", chain_id=self._chain_id, rpc=settings.testnet_rpc_url)
         return self._w3
+
+    def emergency_freeze_global(self, duration_seconds: int, reason: str) -> ChainTxResult:
+        """Control Plane → EmergencyFreeze.freezeGlobal via Bilateral.emergencyGuard()."""
+        w3 = self._get_web3()
+        bilateral = self._get_bilateral()
+        guard = bilateral.functions.emergencyGuard().call()
+        if int(guard, 16) == 0:
+            raise RuntimeError("emergencyGuard not set on KarmaBilateral")
+        freeze = w3.eth.contract(
+            address=w3.to_checksum_address(guard),
+            abi=[
+                {
+                    "name": "freezeGlobal",
+                    "type": "function",
+                    "stateMutability": "nonpayable",
+                    "inputs": [
+                        {"name": "duration", "type": "uint256"},
+                        {"name": "reason", "type": "string"},
+                    ],
+                    "outputs": [],
+                }
+            ],
+        )
+        return self._send_tx(freeze.functions.freezeGlobal(int(duration_seconds), reason))
 
     def _get_account(self):
         if self._account is not None:
@@ -321,7 +369,18 @@ class OnChainSettlementAdapter:
         When ``task_contract.onchain_do_lock`` is true, broadcasts lock() and
         returns the minted bill_id (also sets task_contract.onchain_buyer_bill_id
         when previously unset).
+
+        SECURITY: the server hot wallet (TESTNET_PRIVATE_KEY) is only allowed
+        to be the escrow payer when CHAIN_ALLOW_HOT_WALLET_PAYER=true (dev /
+        testnet MVP). For production funds the payer must be the user signing
+        client-side — a compromised backend must never control escrow capital.
         """
+        if not settings.chain_allow_hot_wallet_payer:
+            raise RuntimeError(
+                "CHAIN_ALLOW_HOT_WALLET_PAYER=false: backend hot wallet may not lock "
+                "escrow funds — funds must be locked by the user's own signature "
+                "(client_only/external signing backend)"
+            )
         w3 = self._get_web3()
         account = self._get_account()
         bilateral = self._get_bilateral()

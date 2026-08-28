@@ -41,6 +41,11 @@ class PolicyUpdateRequest(BaseModel):
     policy: dict
 
 
+class CreateSubIdentityRequest(BaseModel):
+    parent_identity_id: str
+    wallet: str
+
+
 def _session_or_401(authorization: str | None):
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "missing session bearer token")
@@ -57,6 +62,11 @@ def telegram_session(body: SessionRequest):
     try:
         verified = validate_init_data(body.init_data)
     except InitDataError as exc:
+        import logging
+
+        logging.getLogger("karma.api").warning(
+            "telegram_session_rejected reason=%s init_data_len=%d", exc, len(body.init_data or "")
+        )
         raise HTTPException(401, f"initData invalid: {exc}") from exc
 
     ident = store.get_by_telegram(verified.user.id)
@@ -154,6 +164,10 @@ def telegram_bind(body: BindTelegramRequest, authorization: str | None = Header(
     if authorization:
         bind_identity(sess.session_id, identity_id=ident.identity_id, wallet=ident.wallet)
 
+    # 操作台绑定成功 → 清除 Bot 聊天侧的等待绑定状态（后续消息按正常需求处理）
+    from services.telegram import concierge
+    concierge.clear_bind_pending(verified.user.id)
+
     return {
         "identity_id": ident.identity_id,
         "wallet": ident.wallet,
@@ -163,7 +177,18 @@ def telegram_bind(body: BindTelegramRequest, authorization: str | None = Header(
 
 
 @router.post("/identity/policy")
-def update_policy(body: PolicyUpdateRequest):
+def update_policy(body: PolicyUpdateRequest, authorization: str | None = Header(default=None)):
+    """
+    Update payment policy for the authenticated identity.
+
+    Requires a valid MiniApp session (Bearer token). The session must be bound
+    to an identity, and the caller may only modify their own policy.
+    """
+    sess = _session_or_401(authorization)
+    if not sess.identity_id:
+        raise HTTPException(403, "session has no bound identity; bind a wallet first")
+    if body.identity_id != sess.identity_id:
+        raise HTTPException(403, "cannot modify policy of another identity")
     try:
         ident = store.update_policy(body.identity_id, body.policy)
     except KeyError as exc:
@@ -171,3 +196,91 @@ def update_policy(body: PolicyUpdateRequest):
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"identity_id": ident.identity_id, "payment_policy": ident.payment_policy}
+
+
+@router.post("/identities/sub")
+def create_sub_identity(body: CreateSubIdentityRequest, authorization: str | None = Header(default=None)):
+    """主身份创建子身份，绑定独立钱包地址；消费由主身份承担。"""
+    sess = _session_or_401(authorization)
+    if not sess.identity_id:
+        raise HTTPException(403, "session has no bound identity")
+    if body.parent_identity_id != sess.identity_id:
+        raise HTTPException(403, "cannot create sub-identity for another identity")
+    try:
+        ident = store.create_sub_identity(body.parent_identity_id, body.wallet)
+    except KeyError as exc:
+        raise HTTPException(404, "parent identity not found") from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {
+        "identity_id": ident.identity_id,
+        "wallet": ident.wallet,
+        "parent_identity_id": ident.parent_identity_id,
+        "invite_code": ident.invite_code,
+        "payment_policy": ident.payment_policy,
+    }
+
+
+class TestSeedRequest(BaseModel):
+    identity_id: str
+    twofa_code: str
+    as_seller: bool = False
+    offer_title: str = "数据抓取服务（按次）"
+    offer_price_usdc: str = "15"
+
+
+@router.post("/telegram/test/seed")
+def test_seed(body: TestSeedRequest):
+    """dev/test only：种子测试身份（含 2FA 码），供 Bot 端「ID+2FA」快速绑定实测。"""
+    import os
+
+    if (os.getenv("KARMA_ENV") or "dev").lower() not in {"dev", "test", "local"}:
+        raise HTTPException(403, "dev only")
+
+    from eth_account import Account
+
+    from services.miniapp_registry import store as registry
+
+    wallet = Account.create().address
+    ident = store.seed_identity(body.identity_id, wallet, twofa_code=body.twofa_code)
+
+    offer = None
+    if body.as_seller and not any(
+        o.owner_identity_id == body.identity_id for o in registry.list_offers()
+    ):
+        biz = registry.register_business(
+            owner_identity_id=body.identity_id,
+            legal_name=f"Karma 商家 {body.identity_id[-4:]}",
+            country="SG",
+        )
+        registry.verify_business(biz.business_id, level="verified")
+        cap = registry.register_capability(
+            owner_identity_id=body.identity_id,
+            name="数据抓取",
+            category="digital",
+            description="定制化数据抓取与交付",
+            evidence_requirements=["proof_hash"],
+        )
+        agt = registry.register_agent(
+            owner_identity_id=body.identity_id,
+            endpoint="https://agent.karma.test/api",
+            capabilities=["digital"],
+            business_id=biz.business_id,
+            wallet=wallet,
+        )
+        offer = registry.publish_offer(
+            owner_identity_id=body.identity_id,
+            agent_id=agt.agent_id,
+            capability_id=cap.capability_id,
+            title=body.offer_title,
+            price_usdc=body.offer_price_usdc,
+            category="digital",
+            seller_wallet=wallet,
+        )
+
+    return {
+        "identity_id": ident.identity_id,
+        "twofa_code": ident.twofa_code,
+        "wallet": ident.wallet,
+        "offer_id": offer.offer_id if offer else None,
+    }

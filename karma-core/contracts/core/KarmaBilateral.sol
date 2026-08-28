@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Types} from "../libraries/Types.sol";
+import {IEmergencyFreeze} from "../interfaces/IEmergencyFreeze.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  KarmaBilateral — Bilateral Lock + Bill Token + KarmaFSM + Threshold Batch
@@ -70,6 +71,7 @@ contract KarmaBilateral {
     error PerAddressInvariantBroken(address addr, uint256 free, uint256 bound, uint256 minted);
     error Reentrancy();
     error Unauthorized();
+    error FundsFrozen(uint8 scope, uint256 until);
     error InvalidAddress();
     error InvalidSplit();
     error AttestationRequired(uint256 bindingId);
@@ -195,6 +197,7 @@ contract KarmaBilateral {
     // ═══════════════════════════ Storage ═════════════════════════════════════
 
     address public immutable admin;
+    address public emergencyGuard;
 
     uint256 private _billCounter;
     uint256 private _bindingCounter;
@@ -231,6 +234,18 @@ contract KarmaBilateral {
 
     /// @notice Hard timeout — buyer may refund if settle never called.
     uint256 public settleTimeoutSeconds = 7 days;
+
+    /// @notice Max wall-clock time a large dispute (>= autoArbitrationThreshold)
+    ///         can sit unresolved waiting for admin. After evidence window +
+    ///         this timeout, anyone may trigger conservative auto-resolution —
+    ///         funds can never be frozen indefinitely by admin inaction.
+    uint256 public largeDisputeTimeoutSeconds = 7 days;
+
+    /// @dev Hard ceiling on feeBridge-quoted fees, in basis points (10%).
+    ///      SECURITY: the feeBridge address is admin-controlled; a malicious
+    ///      bridge could otherwise quoteFee() up to 100% of the pool. This cap
+    ///      is hardcoded and cannot be changed by anyone, including admin.
+    uint256 public constant MAX_FEE_BPS = 1_000;
 
     // ── Arbitration ──────────────────────────────────────────────────────────
     mapping(uint256 => ArbitrationRecord) public arbitrations;
@@ -290,6 +305,8 @@ contract KarmaBilateral {
     event EvidenceWindowUpdated(uint256 seconds_);
     event AutoArbitrationThresholdUpdated(uint256 amount);
     event SettleTimeoutUpdated(uint256 seconds_);
+    event LargeDisputeTimeoutUpdated(uint256 seconds_);
+    event FeeCappedToHardCeiling(uint256 indexed bindingId, uint256 quotedFee, uint256 cappedFee);
     event AttestationBindingRegistered(uint256 indexed bindingId, bytes32 indexed taskId);
     event IntentBound(uint256 indexed bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 intentHash);
     // Layer 1 events
@@ -307,6 +324,7 @@ contract KarmaBilateral {
     event SubAgentAdded(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
     event SubAgentDeactivated(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
     event SubAgentAllowanceUpdated(address indexed masterWallet, address indexed subWallet, uint256 allowance);
+    event EmergencyGuardUpdated(address indexed guard);
 
     // ═══════════════════════════ Constructor ═════════════════════════════════
 
@@ -327,6 +345,21 @@ contract KarmaBilateral {
     modifier onlyAdmin() {
         if (msg.sender != admin) revert Unauthorized();
         _;
+    }
+
+    function setEmergencyGuard(address guard) external onlyAdmin {
+        emergencyGuard = guard;
+        emit EmergencyGuardUpdated(guard);
+    }
+
+    function _requirePayoutNotFrozen(uint256 bindingId) internal view {
+        address guard = emergencyGuard;
+        if (guard == address(0) || bindingId == 0) return;
+        Binding storage b = bindings[bindingId];
+        (bool blocked, uint8 scope, uint256 until_) = IEmergencyFreeze(guard).payoutBlocked(
+            bindingId, b.buyerBillId, b.agentBillId, bills[b.buyerBillId].owner, bills[b.agentBillId].owner
+        );
+        if (blocked) revert FundsFrozen(scope, until_);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -718,8 +751,11 @@ contract KarmaBilateral {
     ///           - Neither submitted             → buyer wins  → full refund (conservative)
     ///           - Both submitted                → 50/50 split
     ///
-    ///         If totalPool >= autoArbitrationThreshold, reverts with LargeDisputeRequiresAdmin.
-    ///         In that case, admin must call resolveDispute(bindingId, buyerShareBps).
+    ///         If totalPool >= autoArbitrationThreshold, reverts with
+    ///         LargeDisputeRequiresAdmin UNTIL evidence window +
+    ///         largeDisputeTimeoutSeconds elapses. After that timeout, the same
+    ///         conservative auto-resolution rules apply — admin inaction can
+    ///         never freeze funds indefinitely.
     ///
     ///         Anyone may trigger after the evidence window closes.
     function autoResolveArbitration(uint256 bindingId)
@@ -743,9 +779,14 @@ contract KarmaBilateral {
         BillToken storage agentBill = bills[b.agentBillId];
         uint256 totalPool = buyerBill.amount + agentBill.amount;
 
-        // Large disputes require admin (DAO governance in future)
+        // Large disputes normally require admin (DAO governance in future).
+        // SECURITY: after evidence window + largeDisputeTimeoutSeconds with no
+        // admin resolution, anyone may trigger the same conservative
+        // auto-resolution rules — funds are never frozen indefinitely.
         if (totalPool >= autoArbitrationThreshold) {
-            revert LargeDisputeRequiresAdmin(bindingId, totalPool);
+            if (block.timestamp < windowEnd + largeDisputeTimeoutSeconds) {
+                revert LargeDisputeRequiresAdmin(bindingId, totalPool);
+            }
         }
 
         arb.resolved = true;
@@ -1207,6 +1248,15 @@ contract KarmaBilateral {
         emit SettleTimeoutUpdated(seconds_);
     }
 
+    /// @notice Set the large-dispute timeout (time after evidence window that
+    ///         a large DISPUTED binding waits for admin before anyone may
+    ///         trigger conservative auto-resolution). Hard floor: 24 hours.
+    function setLargeDisputeTimeout(uint256 seconds_) external onlyAdmin {
+        if (seconds_ < 24 hours) revert InvalidSplit(); // reuse: invalid parameter
+        largeDisputeTimeoutSeconds = seconds_;
+        emit LargeDisputeTimeoutUpdated(seconds_);
+    }
+
     function setAttestationGateway(address gateway) external onlyAdmin {
         if (gateway == address(0)) revert InvalidAddress();
         attestationGateway = gateway;
@@ -1258,6 +1308,7 @@ contract KarmaBilateral {
         BillToken storage agentBill,
         bytes32 proofHash
     ) internal {
+        _requirePayoutNotFrozen(bindingId);
         address token       = buyerBill.token;
         address buyerOwner  = buyerBill.owner;
         address agentOwner  = agentBill.owner;
@@ -1337,6 +1388,7 @@ contract KarmaBilateral {
         BillToken storage agentBill,
         uint256 buyerShareBps
     ) internal {
+        if (buyerShareBps < 10_000) _requirePayoutNotFrozen(bindingId);
         address token       = buyerBill.token;
         address buyerOwner  = buyerBill.owner;
         address agentOwner  = agentBill.owner;
@@ -1417,6 +1469,15 @@ contract KarmaBilateral {
             return 0;
         }
         if (fee > amountUsdc) fee = amountUsdc;
+
+        // SECURITY: hard ceiling on the feeBridge quote (10% of pool).
+        // The bridge address is admin-controlled; without this cap a
+        // repointed/malicious bridge could drain 100% of every settlement.
+        uint256 feeCeiling = (amountUsdc * MAX_FEE_BPS) / 10_000;
+        if (fee > feeCeiling) {
+            emit FeeCappedToHardCeiling(bindingId, fee, feeCeiling);
+            fee = feeCeiling;
+        }
 
         // Approve + collect
         (bool aOk,) = token.call(

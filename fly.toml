@@ -15,6 +15,14 @@ primary_region = "iad"
 
 [env]
   PORT = "8080"
+  # --- Non-secret defaults (secrets go to `fly secrets set`, never here) ---
+  # Telegram MiniApp (WalletConnect 方案)：MiniApp 由 Bot 托管或独立静态托管
+  TELEGRAM_BOT_USERNAME = "KarmaBot"
+  # TELEGRAM_MINIAPP_URL = "https://t.me/KarmaBot/app"
+  # WalletConnect：默认使用官方 relay（wss://relay.walletconnect.org）
+  # WC v2 不支持自建 bridge 替换 relay；自建时需 fork relayer 并在此覆盖
+  WC_BRIDGE_URL = "wss://relay.walletconnect.org"
+  KARMA_ENV = "production"
 
 [http_service]
   internal_port = 8080

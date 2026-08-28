@@ -72,3 +72,4 @@ dist/
 # A2A bridge local event store
 packages/karma-a2a-bridge/data/
 *.sqlite3
+mvp_data/

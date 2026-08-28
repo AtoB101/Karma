@@ -38,6 +38,10 @@ class SecurityMonitoringEventType(str, Enum):
     VERIFY_REQUEST = "verify_request"
     PRIVATE_RUNTIME_ERROR = "private_runtime_error"
     SETTLEMENT_TRANSITION_AUDIT = "settlement_transition_audit"
+    # 高敏感操作审计（红队报告 KARMA-RT-2026-08-27-001）
+    # 仲裁员 resolve 争议 / 管理员切换安全模式与运营暂停——一旦发生即应可追溯、可告警。
+    ARBITRATOR_ACTION = "arbitrator_action"
+    ADMIN_CONTROL_ACTION = "admin_control_action"
 
 
 @dataclass
@@ -290,6 +294,11 @@ def _build_recommended_actions(
         actions.append("Review rejected settlement transitions by path/actor and investigate workflow misuse.")
     if SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_RATE in alert_types:
         actions.append("Enable emergency brake controls and investigate irreversibility guard violations immediately.")
+    if SecurityOpsAlertType.PRIVILEGED_ACTION_SPIKE in alert_types:
+        actions.append(
+            "Investigate arbitrator/admin-control action spike: rotate affected session credentials "
+            "and review privileged actor audit trail immediately."
+        )
     if escalation.level == SecurityOpsEscalationLevel.PAGE:
         actions.append("Page on-call security owner and open incident channel immediately.")
     return actions
@@ -306,6 +315,7 @@ def build_security_ops_alert_report(
     settlement_transition_denied_threshold: int = 5,
     settlement_transition_denied_rate_threshold: float = 0.2,
     settlement_transition_min_requests: int = 10,
+    privileged_action_threshold: int = 5,
     dimension_limit: int = 5,
     alert_cooldown_minutes: int = 10,
     failed_auth_threshold_overrides: str | None = None,
@@ -327,6 +337,9 @@ def build_security_ops_alert_report(
     verify_request_count = counts.get(SecurityMonitoringEventType.VERIFY_REQUEST.value, 0)
     private_runtime_error_count = counts.get(SecurityMonitoringEventType.PRIVATE_RUNTIME_ERROR.value, 0)
     settlement_transition_total_count = counts.get(SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT.value, 0)
+    arbitrator_action_count = counts.get(SecurityMonitoringEventType.ARBITRATOR_ACTION.value, 0)
+    admin_control_action_count = counts.get(SecurityMonitoringEventType.ADMIN_CONTROL_ACTION.value, 0)
+    privileged_action_count = arbitrator_action_count + admin_control_action_count
     settlement_transition_denied_count = sum(
         1
         for event in events
@@ -705,6 +718,55 @@ def build_security_ops_alert_report(
                 )
             )
 
+    # 高敏感操作突增告警（红队报告 KARMA-RT-2026-08-27-001 §5）
+    # 仲裁员 resolve / 管理员控制操作属于"能直接决定资金归属"的动作，
+    # 窗口内突增可能预示凭据被盗后的批量滥用，须立即告警。
+    if privileged_action_count >= privileged_action_threshold:
+        candidate_alerts.append(
+            SecurityOpsAlert(
+                severity=SecurityOpsAlertSeverity.HIGH,
+                alert_type=SecurityOpsAlertType.PRIVILEGED_ACTION_SPIKE,
+                message=(
+                    "privileged (arbitrator/admin-control) actions spiked to "
+                    f"{privileged_action_count} within {window_minutes}m"
+                ),
+                metadata={
+                    "privileged_action_count": privileged_action_count,
+                    "arbitrator_action_count": arbitrator_action_count,
+                    "admin_control_action_count": admin_control_action_count,
+                    "threshold": privileged_action_threshold,
+                    "window_minutes": window_minutes,
+                },
+            )
+        )
+
+    privileged_by_actor_counter: Counter[str] = Counter()
+    for event in events:
+        if event.event_type not in (
+            SecurityMonitoringEventType.ARBITRATOR_ACTION,
+            SecurityMonitoringEventType.ADMIN_CONTROL_ACTION,
+        ):
+            continue
+        raw_actor = event.metadata.get("actor_id")
+        key = str(raw_actor).strip() if raw_actor else "anonymous"
+        privileged_by_actor_counter[key] += 1
+    for actor, count in privileged_by_actor_counter.items():
+        if count >= privileged_action_threshold:
+            candidate_alerts.append(
+                SecurityOpsAlert(
+                    severity=SecurityOpsAlertSeverity.MEDIUM,
+                    alert_type=SecurityOpsAlertType.PRIVILEGED_ACTION_SPIKE,
+                    message=f"privileged actions spiked for actor {actor}: {count}",
+                    metadata={
+                        "scope_type": "actor",
+                        "scope_key": actor,
+                        "privileged_action_count": count,
+                        "threshold": privileged_action_threshold,
+                        "window_minutes": window_minutes,
+                    },
+                )
+            )
+
     if baseline.sample_count >= baseline_min_sample_count and baseline.failed_auth_avg > 0:
         drift_threshold = baseline.failed_auth_avg * baseline_drift_multiplier
         if failed_auth_count >= drift_threshold:
@@ -906,6 +968,28 @@ def build_security_ops_alert_report(
                 limit=dimension_limit,
                 default_key="route",
             ),
+            arbitrator_action_count=arbitrator_action_count,
+            admin_control_action_count=admin_control_action_count,
+            privileged_action_by_actor=[
+                SecurityOpsDimensionCount(
+                    key=actor,
+                    count=count,
+                    last_seen_at=max(
+                        (
+                            event.created_at
+                            for event in events
+                            if event.event_type
+                            in (
+                                SecurityMonitoringEventType.ARBITRATOR_ACTION,
+                                SecurityMonitoringEventType.ADMIN_CONTROL_ACTION,
+                            )
+                            and str(event.metadata.get("actor_id", "")).strip() == actor
+                        ),
+                        default=None,
+                    ),
+                )
+                for actor, count in privileged_by_actor_counter.most_common(dimension_limit)
+            ],
         ),
         alerts=alerts,
         suppressed_alert_count=suppressed_alert_count,

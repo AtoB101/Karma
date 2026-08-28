@@ -64,6 +64,9 @@ async def _seed_party(db, identity: str, wallet: str, *, seller: bool = False):
 async def test_launch_with_eip712_signature(client: AsyncClient, db_session, monkeypatch):
     monkeypatch.setattr(settings, "trade_launch_require_eip712", True)
     monkeypatch.setattr(settings, "ledger_require_party_actor", False)
+    # The launch flow under test does not supply a chain anchor; force the
+    # off-chain mode regardless of the host's SETTLEMENT_MODE env.
+    monkeypatch.setattr(settings, "settlement_mode", "offchain")
 
     acct = Account.create()
     wallet = acct.address
@@ -109,6 +112,9 @@ async def test_launch_with_eip712_signature(client: AsyncClient, db_session, mon
             "requirement_text": "caption 字幕 15 USDC 精度 1.2",
             "buyer_signature": sig,
             "task_type": "api.caption",
+            # Reproduce the exact typed-data the preview produced (deadline is
+            # part of the signed message; the server recomputes it otherwise).
+            "deadline_unix": preview["deadline_unix"],
         },
         headers={"Idempotency-Key": "trade-eip712-launch-key"},
     )

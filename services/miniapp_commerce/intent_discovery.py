@@ -69,7 +69,8 @@ def rank_offers(
         out = dict(item)
         out["_rank_score"] = round(score, 4)
         scored.append((score, out))
-    scored.sort(key=lambda x: x[0], reverse=True)
+    # 同分 tie-break：新上架优先（旧 offer 不应长期挤占推荐位）
+    scored.sort(key=lambda x: (x[0], x[1].get("created_at") or 0), reverse=True)
     return [x[1] for x in scored]
 
 

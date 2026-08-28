@@ -111,6 +111,7 @@ async def launch_preauth_trade_order(
     task_type: str | None = None,
     chain_anchor_hash: str | None = None,
     launch_idempotency_key: str | None = None,
+    deadline_unix: int | None = None,
 ) -> dict[str, Any]:
     validate_launch_parties(
         buyer_identity_id=buyer_identity_id,
@@ -187,6 +188,7 @@ async def launch_preauth_trade_order(
         buyer_signature=buyer_signature,
         launch_idempotency_key=launch_idempotency_key,
         chain_anchor_hash=chain_anchor_hash,
+        deadline_unix=deadline_unix,
     )
 
     task_id = spec["task_id"]

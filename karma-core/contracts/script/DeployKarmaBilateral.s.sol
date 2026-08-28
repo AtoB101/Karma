@@ -7,6 +7,8 @@ import {KarmaAttestationGateway} from "../core/KarmaAttestationGateway.sol";
 import {VerifierRegistry}        from "../core/VerifierRegistry.sol";
 import {ScoringEngine}           from "../core/ScoringEngine.sol";
 import {EvidenceChain}           from "../core/EvidenceChain.sol";
+import {CircuitBreaker}          from "../core/CircuitBreaker.sol";
+import {EmergencyFreeze}         from "../core/EmergencyFreeze.sol";
 import {MockERC20}               from "../test/mocks/MockERC20.sol";
 
 /// @notice Deploy the full Karma protocol stack to Base Sepolia (or any EVM chain).
@@ -54,6 +56,18 @@ contract DeployKarmaBilateral is Script {
     address internal constant BASE_USDC        = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
     address internal constant BASE_SEPOLIA_USDC = 0x036CbD53842c5426634e7929541eC2318f3dCF7e;
 
+    /// @dev Known testnet chain IDs. Unknown chains are treated as mainnet
+    ///      (fail-safe) so a typo cannot bypass the multisig guard.
+    function _isTestnet(uint256 chainId) internal pure returns (bool) {
+        return chainId == 84532      // Base Sepolia
+            || chainId == 11155111   // Ethereum Sepolia
+            || chainId == 11155420   // OP Sepolia
+            || chainId == 421614     // Arbitrum Sepolia
+            || chainId == 80002      // Polygon Amoy
+            || chainId == 97         // BSC Testnet
+            || chainId == 31337;     // local foundry
+    }
+
     function run() external {
         uint256 deployerKey   = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address admin         = vm.envOr("ADMIN_ADDRESS",      vm.addr(deployerKey));
@@ -61,6 +75,19 @@ contract DeployKarmaBilateral is Script {
         bool    useMock       = vm.envOr("USE_MOCK_TOKEN",     false);
         address testProvider  = vm.envOr("TEST_PROVIDER",      address(0));
         address testBuyer     = vm.envOr("TEST_BUYER",         address(0));
+
+        // ── MAINNET GUARD ────────────────────────────────────────────────────
+        // SECURITY: admin is immutable after deploy and holds fee-bridge
+        // control, dispute arbitration, and gateway repointing rights. On any
+        // non-testnet chain it MUST be a contract wallet (Safe / multisig) —
+        // a single EOA key compromises the whole system.
+        if (!_isTestnet(block.chainid)) {
+            require(admin.code.length > 0,
+                "MAINNET GUARD: ADMIN_ADDRESS must be a multisig contract (e.g. Safe), not an EOA");
+            require(arbitrator.code.length > 0,
+                "MAINNET GUARD: ARBITRATOR_ADDRESS must be a multisig contract, not an EOA");
+            console.log("[MAINNET GUARD] admin + arbitrator verified as contract wallets");
+        }
 
         uint256 batchThreshold  = vm.envOr("BATCH_THRESHOLD",    uint256(1_000_000_000));
         uint256 disputeWindow   = vm.envOr("DISPUTE_WINDOW",     uint256(1_800));
@@ -126,6 +153,11 @@ contract DeployKarmaBilateral is Script {
         karma.setSettleTimeout(settleTimeout);
         scoring.setAuthorizedSettler(address(karma));
 
+        CircuitBreaker breaker = new CircuitBreaker(admin);
+        EmergencyFreeze freeze = new EmergencyFreeze(admin);
+        freeze.setCircuitBreaker(address(breaker));
+        karma.setEmergencyGuard(address(freeze));
+
         // ── 5. KarmaAttestationGateway ────────────────────────────────────────
         KarmaAttestationGateway gateway = new KarmaAttestationGateway(
             address(registry),
@@ -151,6 +183,8 @@ contract DeployKarmaBilateral is Script {
         require(registry.getRequiredThreshold() == verifierN,     "threshold mismatch");
         require(scoring.admin()               == admin,           "scoring admin");
         require(evidence.admin()              == admin,           "evidence admin");
+        require(karma.emergencyGuard()        == address(freeze), "freeze guard not wired");
+        require(freeze.circuitBreaker()       == address(breaker), "breaker not wired");
         require(karma.checkInvariant(paymentToken),               "invariant broken at deploy");
 
         // ── Output ────────────────────────────────────────────────────────────
@@ -160,6 +194,8 @@ contract DeployKarmaBilateral is Script {
         console.log("REGISTRY  ", address(registry));
         console.log("EVIDENCE  ", address(evidence));
         console.log("SCORING   ", address(scoring));
+        console.log("BREAKER   ", address(breaker));
+        console.log("FREEZE    ", address(freeze));
         console.log("KARMA     ", address(karma));
         console.log("GATEWAY   ", address(gateway));
         console.log("");

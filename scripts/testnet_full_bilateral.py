@@ -107,7 +107,7 @@ def t_bind():
     bid = karma.events.BillsBound().process_receipt(r)[0]["args"]["bindingId"]
     b = karma.functions.getBinding(bid).call()
     assert b[4] == 0, f"Expected ACTIVE(0), got {b[4]}"  # ACTIVE
-    assert b[7] == 0, f"Expected settleAfter > 0, got {b[7]}"
+    assert b[7] == 0, f"Expected settleAfter == 0 before settlement, got {b[7]}"  # settleAfter
 test("Bind", t_bind)
 
 # 3. SettleDelay revert
@@ -177,8 +177,9 @@ def t_happy_path():
     b = karma.functions.getBinding(bid2).call()
     assert b[4] == 2, f"Expected SETTLED(2)"
     buyer_after = usdc.functions.balanceOf(BUYER).call()
+    agent_after = usdc.functions.balanceOf(AGENT).call()
     assert buyer_after == buyer_before + AMT2, f"Buyer did not get USDC back"
-    assert agent_after == agent_before + AMT2 - (agent_before - agent_after) or True
+    assert agent_after == agent_before + AMT2, f"Agent did not get USDC back: {agent_after} != {agent_before + AMT2}"
     assert karma.functions.checkInvariant(USDC).call()
 test("Full happy path (lock→bind→settle→finalize)", t_happy_path)
 

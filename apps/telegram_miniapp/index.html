@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Karma MiniApp</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- WalletConnect EthereumProvider（UMD 单文件，兼容无框架栈；全局名 window.WalletConnectEthereumProvider） -->
+  <script src="https://unpkg.com/@walletconnect/ethereum-provider@2.17.2/dist/index.umd.js"></script>
+  <!-- ethers v5（仅本地测试钱包签名用；上线前随 TEST_WALLETS 面板一并移除） -->
+  <script src="https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js"></script>
   <style>
     :root {
       --bg: #0b1220; --panel: #141e2e; --line: #2a3a52; --text: #eef3fa;
@@ -70,7 +74,21 @@
     </section>
     <section id="tab-identity" hidden>
       <div class="card">
-        <div class="muted">SIWE → Identity → Telegram bind</div>
+        <div class="muted">测试钱包一键登录（本地签名，仅供实测；上线前移除）</div>
+        <button class="primary test-wallet-btn" data-wallet="W1">W1 买方</button>
+        <button class="primary test-wallet-btn" data-wallet="W2">W2 卖方</button>
+        <button class="primary test-wallet-btn" data-wallet="W3">W3 仲裁</button>
+        <pre id="testWalletView"></pre>
+      </div>
+      <div class="card">
+        <div class="muted">WalletConnect 连接 → SIWE 自动签名 → Identity → Telegram 绑定</div>
+        <button class="primary" id="btnWcConnect">连接钱包（WalletConnect）</button>
+        <button class="ghost" id="btnWcDisconnect">断开钱包</button>
+        <div class="muted" id="wcStatus">未连接钱包</div>
+        <pre id="wcView"></pre>
+      </div>
+      <div class="card">
+        <div class="muted">手动 SIWE 流程（调试用）</div>
         <input id="wallet" placeholder="0x..." />
         <button class="primary" id="btnChallenge">获取 SIWE Challenge</button>
         <textarea id="siweMsg" rows="5" readonly></textarea>
@@ -111,13 +129,16 @@
     </section>
   </main>
   <script>
-    const API = localStorage.getItem('KARMA_API') || (location.origin.includes('8000') ? '' : 'http://127.0.0.1:8000');
+    // 同源相对路径：MiniApp 与 API 同域部署，避免硬编码 127.0.0.1:8000（生产/代理环境会失效）
+    const API = '';
+    try { localStorage.removeItem('KARMA_API'); } catch (_) {}
     const tg = window.Telegram && window.Telegram.WebApp;
     if (tg) { tg.ready(); tg.expand(); }
 
     const state = {
       sessionId: null, identity: null, order: null, challenge: null, offers: [],
-      biz: null, agent: null, capability: null, lastOffer: null, quote: null
+      biz: null, agent: null, capability: null, lastOffer: null, quote: null,
+      wcProvider: null, wcAddress: null
     };
     const TABS = ['chat','activity','identity','merchant','developer','wallet'];
 
@@ -126,7 +147,11 @@
       if (state.sessionId) headers['Authorization'] = 'Bearer ' + state.sessionId;
       const res = await fetch(API + path, { ...opts, headers });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || JSON.stringify(data) || res.statusText);
+      if (!res.ok) {
+        const err = new Error(data.detail || JSON.stringify(data) || res.statusText);
+        err.status = res.status;
+        throw err;
+      }
       return data;
     }
 
@@ -143,7 +168,157 @@
       const s = await api('/v1/telegram/session', { method: 'POST', body: JSON.stringify({ init_data: raw }) });
       state.sessionId = s.session_id;
       document.getElementById('who').textContent = s.bound ? ('Identity ' + s.identity_id) : ('TG ' + s.telegram_user_id + ' 未绑定');
+      await restoreIdentity();
     }
+
+    // 会话恢复：GET /v1/telegram/me 恢复 identity 状态；401 时重走一次 /v1/telegram/session 再试
+    async function restoreIdentity() {
+      let me;
+      try {
+        me = await api('/v1/telegram/me');
+      } catch (e) {
+        if (e.status !== 401) throw e;
+        const raw = initData();
+        if (!raw) throw e;
+        const s = await api('/v1/telegram/session', { method: 'POST', body: JSON.stringify({ init_data: raw }) });
+        state.sessionId = s.session_id;
+        me = await api('/v1/telegram/me');
+      }
+      if (me.identity) {
+        state.identity = me.identity;
+        document.getElementById('who').textContent = 'Identity ' + me.identity.identity_id;
+        if (me.identity.wallet) document.getElementById('wallet').value = me.identity.wallet;
+      }
+    }
+
+    // ── WalletConnect + SIWE 自动签名 ──────────────────────────────────────
+    const SEPOLIA_CHAIN_ID = 11155111;
+    // 到 https://cloud.walletconnect.com 创建项目获取 projectId；上线前替换此占位符
+    const WC_PROJECT_ID = window.KARMA_WC_PROJECT_ID || 'REPLACE_WITH_WALLETCONNECT_PROJECT_ID';
+
+    function normalizeChainId(cid) {
+      if (typeof cid === 'string' && cid.includes(':')) return Number(cid.split(':')[1]);
+      return Number(cid);
+    }
+
+    function renderWcStatus() {
+      const el = document.getElementById('wcStatus');
+      if (!state.wcProvider || !state.wcAddress) { el.textContent = '未连接钱包'; return; }
+      const cid = normalizeChainId(state.wcProvider.chainId);
+      el.textContent = state.wcAddress + ' · chainId ' + cid +
+        (cid === SEPOLIA_CHAIN_ID ? ' (Sepolia)' : ' ⚠ 请切换到 Sepolia (11155111)');
+    }
+
+    async function getWcProvider() {
+      if (state.wcProvider) return state.wcProvider;
+      const ns = window.WalletConnectEthereumProvider || {};
+      const EthereumProvider = ns.EthereumProvider || ns.default || ns;
+      if (typeof EthereumProvider.init !== 'function') {
+        throw new Error('WalletConnect SDK 未加载（检查 CDN 可达性）');
+      }
+      const provider = await EthereumProvider.init({
+        projectId: WC_PROJECT_ID,
+        chains: [SEPOLIA_CHAIN_ID],
+        showQrModal: true,
+        metadata: { name: 'Karma MiniApp', description: 'Karma AI Agent settlement', url: location.origin, icons: [] }
+      });
+      // Telegram WebView 中 deep link 常被拦截：展示 URI 作为兜底（用其他设备扫码或复制到钱包）
+      provider.on('display_uri', (uri) => {
+        document.getElementById('wcView').textContent = 'WalletConnect URI（可复制到钱包或用其他设备扫码）:\n' + uri;
+      });
+      provider.on('accountsChanged', (accs) => {
+        if (accs && accs[0]) { state.wcAddress = accs[0]; document.getElementById('wallet').value = accs[0]; }
+        renderWcStatus();
+      });
+      provider.on('chainChanged', () => renderWcStatus());
+      provider.on('disconnect', () => { state.wcProvider = null; state.wcAddress = null; renderWcStatus(); });
+      state.wcProvider = provider;
+      return provider;
+    }
+
+    async function bindTelegram() {
+      if (!state.identity) throw new Error('先 SIWE verify');
+      const raw = initData();
+      if (!raw) throw new Error('无 initData，无法绑定 Telegram');
+      const bound = await api('/v1/telegram/bind', { method: 'POST', body: JSON.stringify({ init_data: raw, identity_id: state.identity.identity_id }) });
+      document.getElementById('identView').textContent = JSON.stringify(bound, null, 2);
+      document.getElementById('who').textContent = 'Identity ' + bound.identity_id;
+      return bound;
+    }
+
+    // 连接成功后自动走：GET challenge → personal_sign → POST verify → Telegram 绑定
+    async function connectWalletAndSiwe() {
+      const log = document.getElementById('wcView');
+      try {
+        log.textContent = '正在初始化 WalletConnect…';
+        const provider = await getWcProvider();
+        let accounts = (provider.accounts && provider.accounts.length) ? provider.accounts : await provider.enable();
+        const address = accounts[0];
+        if (!address) throw new Error('钱包未返回账户地址');
+        const cid = normalizeChainId(provider.chainId);
+        if (cid !== SEPOLIA_CHAIN_ID) throw new Error('请将钱包切换到 Sepolia 网络（chainId 11155111），当前: ' + provider.chainId);
+        state.wcAddress = address;
+        document.getElementById('wallet').value = address;
+        renderWcStatus();
+
+        log.textContent = '钱包已连接，正在请求 SIWE 签名…';
+        const ch = await api('/v1/auth/siwe/challenge', { method: 'POST', body: JSON.stringify({ address: address }) });
+        state.challenge = ch;
+        document.getElementById('siweMsg').value = ch.message;
+        const signature = await provider.request({ method: 'personal_sign', params: [ch.message, address] });
+        document.getElementById('siweSig').value = signature;
+        const id = await api('/v1/auth/siwe/verify', { method: 'POST', body: JSON.stringify({ nonce: ch.nonce, signature: signature, address: address }) });
+        state.identity = id;
+        document.getElementById('identView').textContent = JSON.stringify(id, null, 2);
+        await bindTelegram();
+        log.textContent = '✔ SIWE 验证通过，Identity ' + id.identity_id + ' 已绑定 Telegram';
+      } catch (e) {
+        log.textContent = '✖ ' + (e.message || e);
+      }
+    }
+
+    // ── 测试钱包一键登录（本地 SIWE 签名，仅实测用；上线前移除本段与 TEST_WALLETS 面板）──
+    // 私钥来源：scripts/sepolia_multisig_test.py（Sepolia 测试网，仓库内本就明文，无真实资金）
+    const TEST_WALLETS = {
+      W1: { label: '买方',  address: '0x3295c96a2993C366B3dB27B6ac81f85801D75f51', key: 'a3bd6e441963f0b097458d5658884633eaeb1dec8e0142e4f23ce64ebe10b3df' },
+      W2: { label: '卖方',  address: '0x16fE563a56E6566809597e4aF9a1608d3e55Dd7F', key: '0c85cad5f38c90311e4b1a069e95b76954988222492ccb418c8f115af3f56d94' },
+      W3: { label: '仲裁',  address: '0x7Ed437E5786AB0d217D52937da4fF4790998d94C', key: '2f9cf6d82fb25f2cf8d4ccfd34bd54b0d8ad5dda0e3b0b99a4280a14dde4690a' },
+    };
+
+    async function loginTestWallet(tag) {
+      const log = document.getElementById('testWalletView');
+      const w = TEST_WALLETS[tag];
+      try {
+        if (!window.ethers) throw new Error('ethers 未加载（检查 CDN 可达性）');
+        log.textContent = '正在获取 SIWE challenge…';
+        const ch = await api('/v1/auth/siwe/challenge', { method: 'POST', body: JSON.stringify({ address: w.address }) });
+        state.challenge = ch;
+        document.getElementById('wallet').value = w.address;
+        document.getElementById('siweMsg').value = ch.message;
+        const wallet = new ethers.Wallet(w.key);  // signMessage = EIP-191 personal_sign
+        const signature = await wallet.signMessage(ch.message);
+        document.getElementById('siweSig').value = signature;
+        const id = await api('/v1/auth/siwe/verify', { method: 'POST', body: JSON.stringify({ nonce: ch.nonce, signature: signature, address: w.address }) });
+        state.identity = id;
+        document.getElementById('identView').textContent = JSON.stringify(id, null, 2);
+        await bindTelegram();
+        log.textContent = '✔ ' + tag + '（' + w.label + '）登录成功，Identity ' + id.identity_id + ' 已绑定 Telegram';
+      } catch (e) {
+        log.textContent = '✖ ' + (e.message || e);
+      }
+    }
+
+    document.querySelectorAll('.test-wallet-btn').forEach(btn => {
+      btn.onclick = () => loginTestWallet(btn.dataset.wallet);
+    });
+
+    document.getElementById('btnWcConnect').onclick = connectWalletAndSiwe;
+    document.getElementById('btnWcDisconnect').onclick = async () => {
+      try { if (state.wcProvider) await state.wcProvider.disconnect(); } catch (_) {}
+      state.wcProvider = null;
+      state.wcAddress = null;
+      renderWcStatus();
+    };
 
     document.querySelectorAll('nav button').forEach(btn => {
       btn.onclick = async () => {
@@ -279,13 +454,7 @@
       } catch (e) { alert(e.message); }
     };
     document.getElementById('btnBindTg').onclick = async () => {
-      try {
-        if (!state.identity) throw new Error('先 SIWE verify');
-        const raw = initData();
-        const bound = await api('/v1/telegram/bind', { method: 'POST', body: JSON.stringify({ init_data: raw, identity_id: state.identity.identity_id }) });
-        document.getElementById('identView').textContent = JSON.stringify(bound, null, 2);
-        document.getElementById('who').textContent = 'Identity ' + bound.identity_id;
-      } catch (e) { alert(e.message); }
+      try { await bindTelegram(); } catch (e) { alert(e.message); }
     };
 
     document.getElementById('btnBiz').onclick = async () => {

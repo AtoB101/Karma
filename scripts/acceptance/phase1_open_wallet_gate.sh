@@ -36,6 +36,10 @@ defaults = {
     "KARMA_SIGNING_BACKEND": "client_only",
     "TRADE_LAUNCH_RECORD_RUNTIME_DAILY_SPEND": "true",
     "X402_PAYMENT_BACKEND": "sepolia",
+    # Production settings require a non-empty dispute-arbitrator whitelist
+    # (fail-closed /disputes/resolve) and forbid hot-wallet escrow payers.
+    "ARBITRATOR_ACTOR_IDS": "gate-arbitrator",
+    "CHAIN_ALLOW_HOT_WALLET_PAYER": "false",
 }
 for k, v in defaults.items():
     os.environ.setdefault(k, v)

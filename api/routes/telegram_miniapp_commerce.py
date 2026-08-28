@@ -1,6 +1,8 @@
 """MiniApp commerce + verification + settlement orchestration routes."""
 from __future__ import annotations
 
+import threading
+
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -10,6 +12,7 @@ from services.miniapp_commerce import intent_discovery, orders, pipeline
 from services.miniapp_registry import store as registry
 from services.miniapp_trust import reputation as rep_svc
 from services.miniapp_trust import risk_dispute
+from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from services.settlement_bridge import fee_bridge_settle_plan
 from services.telegram import SessionError, get_session
 from services.verification_engine import (
@@ -29,10 +32,56 @@ def _require_session(authorization: str | None):
         raise HTTPException(401, str(exc)) from exc
 
 
+def _require_arbitrator(sess) -> None:
+    """仲裁员鉴权：/disputes/resolve 只允许白名单内的仲裁员调用。
+
+    SECURITY: 之前任何持有有效登录会话的用户都能裁决争议资金走向，
+    等于把仲裁权开放给全部登录用户。白名单来自 ARBITRATOR_ACTOR_IDS
+    （生产环境强制非空，见 config/settings.py 校验），开发环境回退到
+    admin_actor_ids；两者都为空时：
+    - 生产/非 dev 环境：拒绝（fail-closed）
+    - 开发环境：放行但记录告警（保持本地 E2E 可跑）
+    """
+    from config.settings import settings
+
+    allow = settings.arbitrator_actor_id_set()
+    if not allow:
+        env = (settings.app_env or "").lower()
+        if env in ("development", "dev", "local", "test"):
+            return  # dev convenience; production is blocked by settings validation
+        raise HTTPException(403, "dispute resolution requires ARBITRATOR_ACTOR_IDS to be configured")
+    candidates = [
+        *( [sess.identity_id] if getattr(sess, "identity_id", None) else [] ),
+        str(getattr(sess, "telegram_user_id", "") or ""),
+    ]
+    if not any(c and c in allow for c in candidates):
+        raise HTTPException(403, "dispute resolution requires a whitelisted arbitrator")
+
+
 def _offer_catalog() -> list[dict]:
     registry.seed_demo_if_empty()
     catalog = registry.offers_as_discovery_catalog()
     return catalog or intent_discovery.DEFAULT_OFFER_CATALOG
+
+
+def _notify(order_id: str, text: str) -> None:
+    """订单事件后台推送给买卖双方（Bot sendMessage）。
+
+    Telegram API 在当前网络下响应慢（可达 10s/次），同步推送会阻塞商业主流程，
+    因此改为 daemon 线程执行：API 立即返回，推送失败静默不影响交易。
+    """
+    def _worker() -> None:
+        try:
+            from services.telegram import concierge
+
+            concierge.notify_order_event(order_id, text)
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        threading.Thread(target=_worker, daemon=True).start()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _resolve_offer(offer_id: str | None, offer: dict | None) -> dict | None:
@@ -132,6 +181,22 @@ class DisputeBody(BaseModel):
 class ResolveDisputeBody(BaseModel):
     dispute_id: str
     resolution: dict
+
+
+class FulfillmentBody(BaseModel):
+    order_id: str
+
+
+class DeliverBody(BaseModel):
+    order_id: str
+    evidence: dict
+
+
+def _require_seller(sess, order) -> None:
+    """商家侧履约操作鉴权：仅订单卖方可操作（无卖方身份的订单放行，MVP 兼容）。"""
+    seller = order.seller_identity_id
+    if seller and seller != "kid_unknown_seller" and sess.identity_id and sess.identity_id != seller:
+        raise HTTPException(403, "only the seller may operate this order")
 
 
 @router.post("/chat/intent")
@@ -274,6 +339,56 @@ def sign_order(body: SignBody, authorization: str | None = Header(default=None))
         order = orders.sign_order(body.order_id, role=body.role, signature=body.signature)
     except KeyError as exc:
         raise HTTPException(404, "order not found") from exc
+    if order.status.value == "SIGNED":
+        _notify(body.order_id, f"订单 {body.order_id} 双方签名完成，下一步锁定资金进入托管。")
+    return _order_json(order)
+
+
+@router.post("/commerce/orders/accept")
+def accept_order(body: FulfillmentBody, authorization: str | None = Header(default=None)):
+    """商家接单：等待接单 -> 已接单。"""
+    sess = _require_session(authorization)
+    order = orders.get_order(body.order_id)
+    if not order:
+        raise HTTPException(404, "order not found")
+    _require_seller(sess, order)
+    try:
+        order = orders.accept_order(body.order_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    _notify(body.order_id, f"订单 {body.order_id} 商家已接单，等待签名与资金锁定后开始处理。")
+    return _order_json(order)
+
+
+@router.post("/commerce/orders/start")
+def start_order(body: FulfillmentBody, authorization: str | None = Header(default=None)):
+    """商家开始处理：已接单 -> 处理中（要求资金已锁定）。"""
+    sess = _require_session(authorization)
+    order = orders.get_order(body.order_id)
+    if not order:
+        raise HTTPException(404, "order not found")
+    _require_seller(sess, order)
+    try:
+        order = orders.start_processing(body.order_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    _notify(body.order_id, f"订单 {body.order_id} 商家开始处理中，完成后将提交交付结果。")
+    return _order_json(order)
+
+
+@router.post("/commerce/orders/deliver")
+def deliver_order(body: DeliverBody, authorization: str | None = Header(default=None)):
+    """商家交付：处理中 -> 等待交付验收。同时提交 evidence bundle 进入验证。"""
+    sess = _require_session(authorization)
+    order = orders.get_order(body.order_id)
+    if not order:
+        raise HTTPException(404, "order not found")
+    _require_seller(sess, order)
+    try:
+        order = orders.deliver_order(body.order_id, body.evidence)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    _notify(body.order_id, f"订单 {body.order_id} 商家已提交交付结果，等待验证验收（证据已存证）。")
     return _order_json(order)
 
 
@@ -376,6 +491,10 @@ def settlement_lock(body: LockBody, authorization: str | None = Header(default=N
     except KeyError:
         pass
     developer = order.builder_address or order.seller_wallet
+    _notify(
+        body.order_id,
+        f"订单 {body.order_id} 资金已锁定进入托管（binding {body.binding_id}），等待商家交付。",
+    )
     return {
         **_order_json(order),
         "bilateral": {
@@ -459,6 +578,7 @@ def verification_runs(body: VerifyBody, authorization: str | None = Header(defau
     )
     if run.status.value == "PASS":
         orders.mark_verified(order.order_id, run_id=run.run_id)
+        _notify(order.order_id, f"订单 {order.order_id} 交付验收通过（run {run.run_id[:12]}…），资金即将结算放款。")
     return {
         "run_id": run.run_id,
         "order_id": run.order_id,
@@ -487,6 +607,11 @@ def settlement_finalize(body: SettleBody, authorization: str | None = Header(def
     if risk and risk.hold:
         raise HTTPException(403, "risk hold — cannot settle")
 
+    # 开争议必须阻止结算：存在未决争议（status=open）时拒绝放款
+    open_disputes = [d for d in risk_dispute.list_disputes(body.order_id) if d.status == "open"]
+    if open_disputes:
+        raise HTTPException(403, f"open dispute ({open_disputes[0].dispute_id}) — cannot settle until resolved")
+
     self_deal = bool(order.buyer_wallet and order.seller_wallet and order.buyer_wallet == order.seller_wallet)
     if order.binding_id is None:
         raise HTTPException(409, "binding_id required before settle")
@@ -495,6 +620,11 @@ def settlement_finalize(body: SettleBody, authorization: str | None = Header(def
         order = orders.mark_settled(body.order_id)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+
+    _notify(
+        body.order_id,
+        f"订单 {body.order_id} 已结算，{order.amount_usdc} USDC 已释放给商家（含公开证明 run {run.run_id[:12]}…）。",
+    )
 
     try:
         pipeline.update_bill(body.order_id, status="settled", binding_id=order.binding_id)
@@ -547,15 +677,22 @@ def open_dispute(body: DisputeBody, authorization: str | None = Header(default=N
     sess = _require_session(authorization)
     if not orders.get_order(body.order_id):
         raise HTTPException(404, "order not found")
+    if orders.get_order(body.order_id).status.value == "SETTLED":
+        raise HTTPException(409, "order already settled — open dispute rejected")
     d = risk_dispute.open_dispute(
         order_id=body.order_id,
         opened_by=sess.identity_id or str(sess.telegram_user_id),
         reason=body.reason,
     )
     try:
+        orders.mark_disputed(body.order_id)
+    except (KeyError, ValueError):
+        pass
+    try:
         pipeline.update_bill(body.order_id, status="disputed")
     except KeyError:
         pass
+    _notify(body.order_id, f"订单 {body.order_id} 已开启争议：{body.reason}。等待仲裁处理。")
     return {
         "dispute_id": d.dispute_id,
         "order_id": d.order_id,
@@ -566,11 +703,52 @@ def open_dispute(body: DisputeBody, authorization: str | None = Header(default=N
 
 @router.post("/disputes/resolve")
 def resolve_dispute(body: ResolveDisputeBody, authorization: str | None = Header(default=None)):
-    _require_session(authorization)
+    """仲裁解决争议：按结局回写订单与账单。
+
+    - refund -> 订单 REFUNDED + 账单 refunded
+    - 其他（release/reject 等）-> 账单恢复 locked，履约状态恢复，可继续正常结算
+    """
+    sess = _require_session(authorization)
+    _require_arbitrator(sess)
+    actor_id = str(getattr(sess, "identity_id", "") or getattr(sess, "telegram_user_id", "") or "unknown")
     try:
         d = risk_dispute.resolve_dispute(body.dispute_id, resolution=body.resolution)
     except KeyError as exc:
         raise HTTPException(404, "dispute not found") from exc
+
+    outcome = str((body.resolution or {}).get("action") or (body.resolution or {}).get("outcome") or "").lower()
+    # 高敏感操作审计（红队报告 KARMA-RT-2026-08-27-001 §5）：
+    # 仲裁员裁决能直接决定争议资金归属，每次调用必须可追溯、可告警。
+    record_security_event(
+        SecurityMonitoringEventType.ARBITRATOR_ACTION,
+        metadata={
+            "path": "/v1/disputes/resolve",
+            "actor_id": actor_id,
+            "route_group": "arbitration",
+            "dispute_id": body.dispute_id,
+            "outcome": outcome or "unknown",
+        },
+    )
+    if "refund" in outcome:
+        try:
+            orders.mark_refunded(d.order_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+        try:
+            pipeline.update_bill(d.order_id, status="refunded")
+        except KeyError:
+            pass
+        _notify(d.order_id, f"订单 {d.order_id} 争议已解决：仲裁退款，资金退回买方。")
+    else:
+        try:
+            orders.restore_fulfillment(d.order_id)
+        except (KeyError, ValueError):
+            pass
+        try:
+            pipeline.update_bill(d.order_id, status="locked")
+        except KeyError:
+            pass
+        _notify(d.order_id, f"订单 {d.order_id} 争议已解决：资金继续托管，订单恢复进行。")
     return {
         "dispute_id": d.dispute_id,
         "status": d.status,
@@ -633,6 +811,8 @@ def _order_json(order) -> dict:
     return {
         "order_id": order.order_id,
         "status": order.status.value,
+        "fulfillment_status": order.fulfillment_status.value,
+        "fulfillment_label": orders.fulfillment_label(order),
         "buyer_identity_id": order.buyer_identity_id,
         "seller_identity_id": order.seller_identity_id,
         "builder_address": order.builder_address,

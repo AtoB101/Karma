@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>资金安全 · KARMA Console</title>
+    <link rel="stylesheet" href="../../styles/console.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">KARMA · Funds Security</div>
+      <nav>
+        <a href="dashboard.html">📊 仪表盘</a>
+        <a class="active" href="security-funds.html">🔐 资金安全</a>
+        <a href="mvvs-dashboard.html">🛡️ MVVS</a>
+        <a href="cyber/index.html">Cyber</a>
+      </nav>
+    </header>
+    <main>
+      <h1>资金安全视图</h1>
+      <p class="sub">链上合约负责钱不能乱动；本页是 Control Plane：发现、告警、触发 Freeze。数据来自 <code>GET /v1/security/funds-overview</code>。</p>
+      <section class="panel">
+        <label>API base <input id="apiBase" type="text" placeholder="http://127.0.0.1:8000" /></label>
+        <label>API key <input id="apiKey" type="password" autocomplete="off" /></label>
+        <button type="button" class="btn" id="refresh">Refresh</button>
+        <span id="status" class="sub">—</span>
+      </section>
+      <div class="grid cols-2" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem;margin:1rem 0">
+        <div class="panel"><div class="sub">Frozen</div><div id="frozen">—</div></div>
+        <div class="panel"><div class="sub">Critical alerts</div><div id="critical">—</div></div>
+        <div class="panel"><div class="sub">High risk</div><div id="high">—</div></div>
+        <div class="panel"><div class="sub">Unauthorized</div><div id="unauth">—</div></div>
+        <div class="panel"><div class="sub">Failed settlement</div><div id="failSettle">—</div></div>
+        <div class="panel"><div class="sub">Invalid transition</div><div id="badState">—</div></div>
+        <div class="panel"><div class="sub">Incidents</div><div id="incidents">—</div></div>
+        <div class="panel"><div class="sub">Generated</div><div id="gen">—</div></div>
+      </div>
+      <section class="panel">
+        <h2>Active incidents / Fund lifecycle notes</h2>
+        <pre id="body" style="white-space:pre-wrap">—</pre>
+      </section>
+    </main>
+    <script>
+      const ls = (k, v) => (v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v));
+      const apiBase = document.getElementById("apiBase");
+      const apiKey = document.getElementById("apiKey");
+      apiBase.value = ls("karma_cyber_api_base") || "http://127.0.0.1:8000";
+      apiKey.value = ls("karma_cyber_api_key") || "";
+      document.getElementById("refresh").onclick = async () => {
+        ls("karma_cyber_api_base", apiBase.value);
+        ls("karma_cyber_api_key", apiKey.value);
+        const status = document.getElementById("status");
+        status.textContent = "loading…";
+        try {
+          const headers = {};
+          if (apiKey.value) headers.Authorization = "Bearer " + apiKey.value;
+          const r = await fetch(apiBase.value.replace(/\/$/, "") + "/v1/security/funds-overview", { headers });
+          const data = await r.json();
+          if (!r.ok) throw new Error(JSON.stringify(data));
+          document.getElementById("frozen").textContent = data.frozen_funds && data.frozen_funds.reason ? data.frozen_funds.reason : "not frozen";
+          document.getElementById("critical").textContent = data.critical_alerts;
+          document.getElementById("high").textContent = data.high_risk_events;
+          document.getElementById("unauth").textContent = data.unauthorized_attempts;
+          document.getElementById("failSettle").textContent = data.failed_settlement;
+          document.getElementById("badState").textContent = data.invalid_state_transition;
+          document.getElementById("incidents").textContent = (data.active_incidents || []).length;
+          document.getElementById("gen").textContent = data.generated_at || "—";
+          document.getElementById("body").textContent = JSON.stringify(data, null, 2);
+          status.textContent = "ok " + r.status;
+        } catch (e) {
+          status.textContent = String(e);
+        }
+      };
+    </script>
+  </body>
+</html>

@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any
 
+from services import persist_json
+
 
 _LOCK = Lock()
 
@@ -83,6 +85,51 @@ def _id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_hex(8)}"
 
 
+def _persist() -> None:
+    from dataclasses import asdict
+
+    persist_json.save(
+        "registry",
+        {
+            "businesses": [asdict(b) for b in _BUSINESS.values()],
+            "agents": [asdict(a) for a in _AGENTS.values()],
+            "capabilities": [asdict(c) for c in _CAPS.values()],
+            "offers": [asdict(o) for o in _OFFERS.values()],
+        },
+    )
+
+
+def _load() -> None:
+    data = persist_json.load("registry")
+    for d in data.get("businesses", []):
+        try:
+            b = Business(**d)
+        except TypeError:
+            continue
+        _BUSINESS[b.business_id] = b
+    for d in data.get("agents", []):
+        try:
+            a = AgentRecord(**d)
+        except TypeError:
+            continue
+        _AGENTS[a.agent_id] = a
+    for d in data.get("capabilities", []):
+        try:
+            c = Capability(**d)
+        except TypeError:
+            continue
+        _CAPS[c.capability_id] = c
+    for d in data.get("offers", []):
+        try:
+            o = Offer(**d)
+        except TypeError:
+            continue
+        _OFFERS[o.offer_id] = o
+
+
+_load()
+
+
 def register_business(*, owner_identity_id: str, legal_name: str, country: str = "", metadata: dict | None = None) -> Business:
     b = Business(
         business_id=_id("biz"),
@@ -94,6 +141,7 @@ def register_business(*, owner_identity_id: str, legal_name: str, country: str =
     )
     with _LOCK:
         _BUSINESS[b.business_id] = b
+        _persist()
     return b
 
 
@@ -101,6 +149,7 @@ def verify_business(business_id: str, *, level: str = "verified") -> Business:
     with _LOCK:
         b = _BUSINESS[business_id]
         b.verification_level = level
+        _persist()
         return b
 
 
@@ -127,6 +176,7 @@ def register_agent(
     )
     with _LOCK:
         _AGENTS[a.agent_id] = a
+        _persist()
     return a
 
 
@@ -151,6 +201,7 @@ def register_capability(
     )
     with _LOCK:
         _CAPS[c.capability_id] = c
+        _persist()
     return c
 
 
@@ -190,6 +241,7 @@ def publish_offer(
     )
     with _LOCK:
         _OFFERS[o.offer_id] = o
+        _persist()
     return o
 
 
@@ -245,6 +297,7 @@ def bump_agent_reputation(agent_id: str, *, delta: float, settled: bool = False)
             a.settled_count += 1
             # crude success rate EMA
             a.success_rate = 0.8 * a.success_rate + 0.2 * 1.0
+        _persist()
         return a
 
 
@@ -272,6 +325,7 @@ def offers_as_discovery_catalog() -> list[dict[str, Any]]:
                     "settled_count": (agent.settled_count if agent else 0),
                     "success_rate": (agent.success_rate if agent else 0.5),
                     "contribution_score": (agent.contribution_score if agent else 0),
+                    "created_at": o.created_at,
                     "sla": o.sla,
                 }
             )
@@ -345,3 +399,4 @@ def reset_for_tests() -> None:
         _AGENTS.clear()
         _CAPS.clear()
         _OFFERS.clear()
+        persist_json.delete("registry")
