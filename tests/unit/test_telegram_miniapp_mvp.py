@@ -157,9 +157,13 @@ def test_verification_pass_required_before_settle(client):
     settled = client.post("/v1/settlement/finalize", headers=h, json={"order_id": oid})
     assert settled.status_code == 200, settled.text
     assert settled.json()["status"] == "SETTLED"
-    assert settled.json()["fee_bridge"]["collectAndRecord"]["developer"]
-    assert settled.json()["fee_bridge"]["collectAndRecord"]["binding_id"] == 7
+    fb = settled.json()["fee_bridge"]["collectAndRecord"]
+    assert fb["developer"]
+    assert fb["orderId"] == "0x" + (7).to_bytes(32, "big").hex()
+    assert fb["feeUsdc"] == "MUST_EQUAL_quoteFee_RESULT"
     assert settled.json().get("execution_record_id")
+    assert settled.json()["settle_plan"]["steps"][1]["method"].startswith("settle")
+    assert settled.json()["self_deal"] is False
 
     rep = client.get(f"/v1/miniapp/reputation/{identity_id}", headers=h)
     assert rep.status_code == 200
