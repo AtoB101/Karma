@@ -131,3 +131,20 @@ async def test_record_outcome_improves_score(db_session):
     await db_session.commit()
     assert row.successful_tasks == 1
     assert row.score > 100.0
+
+
+@pytest.mark.asyncio
+async def test_self_deal_does_not_farm_reputation(db_session):
+    await connect_agent(db_session, agent_id="w1", name="W", role="worker", capabilities=["karma_settle"])
+    await db_session.commit()
+    row = await record_worker_settlement_outcome(
+        db_session,
+        worker_agent_id="w1",
+        success=True,
+        volume=50,
+        buyer_agent_id="w1",
+    )
+    await db_session.commit()
+    assert row.successful_tasks == 0
+    assert row.wash_trade_flags >= 2
+    assert row.score < 100.0

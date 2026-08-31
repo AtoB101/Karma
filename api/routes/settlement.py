@@ -702,6 +702,8 @@ async def buyer_accept_settlement(
             scene_id=settle_scene_final,
             amount=float(state.released_amount or state.escrow_amount or 0),
             success=True,
+            buyer_agent_id=state.client_agent_id,
+            exclude_task_id=task_id,
         )
     p8_attest = _seal_p8_attestation(state, scene_id=settle_scene_final, agent_auto=False)
     await db.flush()
@@ -806,6 +808,8 @@ async def auto_confirm_settlement(
             scene_id=scene_for_auto,
             amount=float(state.released_amount or state.escrow_amount or 0),
             success=True,
+            buyer_agent_id=state.client_agent_id,
+            exclude_task_id=task_id,
         )
     p8_attest = _seal_p8_attestation(state, scene_id=scene_for_auto, agent_auto=True)
     await db.flush()

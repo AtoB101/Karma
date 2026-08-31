@@ -804,6 +804,8 @@ async def apply_settle_reputation(
     amount: float,
     success: bool = True,
     disputed: bool = False,
+    buyer_agent_id: str | None = None,
+    exclude_task_id: str | None = None,
 ) -> dict[str, Any]:
     """Update global reputation (existing) + scene ledger (P8)."""
     from services.agent_trust import record_worker_settlement_outcome  # noqa: PLC0415
@@ -817,6 +819,8 @@ async def apply_settle_reputation(
         success=success and not disputed,
         disputed=disputed,
         volume=amount,
+        buyer_agent_id=buyer_agent_id,
+        exclude_task_id=exclude_task_id,
     )
     # Scene ledger is written by seal_settlement_attestation to avoid double-count
     return {

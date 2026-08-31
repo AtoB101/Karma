@@ -12,6 +12,7 @@ from config.settings import settings
 KIND_DISPUTE = "dispute"
 KIND_DEFAULT = "default"
 KIND_FRAUD = "fraud"
+KIND_WASH = "wash"
 
 
 def _now() -> datetime:
@@ -78,12 +79,14 @@ def evaluate_pack_eligibility(
     disputed_tasks: int,
     last_incident_at: datetime | None,
     last_incident_kind: str | None = None,
+    wash_trade_flags: int = 0,
     now: datetime | None = None,
 ) -> PackEligibility:
     min_score = float(settings.reputation_pack_min_score)
     min_ok = int(settings.reputation_pack_min_successes)
     rehab_days = int(settings.reputation_rehab_days)
     div_min = float(settings.reputation_dividend_min_score)
+    wash_block_at = int(settings.reputation_wash_flag_pack_block)
     now = now or _now()
     reasons: list[str] = []
     path: str | None = None
@@ -109,7 +112,16 @@ def evaluate_pack_eligibility(
                 f"incident_{last_incident_kind or 'open'}_within_{rehab_days}d"
             )
 
-    eligible = score >= min_score and successful_tasks >= min_ok and clean_rehab
+    flags = int(wash_trade_flags or 0)
+    wash_ok = True
+    if flags >= wash_block_at:
+        if clean_rehab and incident is not None:
+            wash_ok = True
+        else:
+            wash_ok = False
+            reasons.append(f"wash_flags_{flags}")
+
+    eligible = score >= min_score and successful_tasks >= min_ok and clean_rehab and wash_ok
     if eligible:
         if incident is None and disputed_tasks == 0:
             path = "undisputed"

@@ -17,6 +17,7 @@ from services.reputation_pack import (
     KIND_DEFAULT,
     KIND_DISPUTE,
     KIND_FRAUD,
+    KIND_WASH,
     dividend_points_for_pack,
     evaluate_pack_eligibility,
     evidence_hash,
@@ -44,6 +45,7 @@ def _elig_payload(agent_id: str, row: ReputationModel) -> dict:
         disputed_tasks=int(row.disputed_tasks or 0),
         last_incident_at=row.last_incident_at,
         last_incident_kind=row.last_incident_kind,
+        wash_trade_flags=int(row.wash_trade_flags or 0),
     )
     digest = evidence_hash(
         agent_id=agent_id,
@@ -60,6 +62,7 @@ def _elig_payload(agent_id: str, row: ReputationModel) -> dict:
         "dividend_weight": float(row.dividend_weight or 0),
         "evidence_hash": digest,
         "score_e2": score_to_e2(float(row.score or 0)),
+        "wash_trade_flags": int(row.wash_trade_flags or 0),
         **elig.to_dict(),
     }
 
@@ -83,12 +86,14 @@ async def get_reputation_rewards(agent_id: str, db: AsyncSession = Depends(get_d
         disputed_tasks=int(row.disputed_tasks or 0),
         last_incident_at=row.last_incident_at,
         last_incident_kind=row.last_incident_kind,
+        wash_trade_flags=int(row.wash_trade_flags or 0),
     )
     return {
         "agent_id": agent_id,
         "dividend_weight": float(row.dividend_weight or 0),
         "fee_waiver": False,
         "dividend_eligible": elig.dividend_eligible_offchain and bool(row.onchain_packed_at),
+        "wash_trade_flags": int(row.wash_trade_flags or 0),
         "note_zh": "高信誉获得平台分红权重，不减免交易手续费。",
     }
 
@@ -105,13 +110,16 @@ async def slash_reputation(
     if not row:
         raise HTTPException(404, f"No reputation record for agent {agent_id}")
     kind = (body.kind or KIND_DEFAULT).strip().lower()
-    if kind not in {KIND_DEFAULT, KIND_DISPUTE, KIND_FRAUD}:
-        raise HTTPException(400, "kind must be dispute, default, or fraud")
+    if kind not in {KIND_DEFAULT, KIND_DISPUTE, KIND_FRAUD, KIND_WASH}:
+        raise HTTPException(400, "kind must be dispute, default, fraud, or wash")
     row.last_incident_at = datetime.utcnow()
     row.last_incident_kind = kind
     if kind == KIND_DISPUTE:
         row.disputed_tasks = int(row.disputed_tasks or 0) + 1
         row.score = max(0.0, float(row.score or 0) - 15.0)
+    elif kind == KIND_WASH:
+        row.wash_trade_flags = int(row.wash_trade_flags or 0) + 1
+        row.score = max(0.0, float(row.score or 0) - 8.0)
     else:
         row.score = max(0.0, float(row.score or 0) - 8.0)
     row.consecutive_successes = 0

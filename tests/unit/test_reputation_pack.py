@@ -66,3 +66,29 @@ def test_insufficient_successes_blocks():
     )
     assert elig.eligible is False
     assert any("successes_below" in r for r in elig.reasons)
+
+
+def test_wash_flags_block_pack():
+    elig = evaluate_pack_eligibility(
+        score=400,
+        successful_tasks=20,
+        disputed_tasks=0,
+        last_incident_at=None,
+        wash_trade_flags=3,
+    )
+    assert elig.eligible is False
+    assert any("wash_flags" in r for r in elig.reasons)
+
+
+def test_wash_flags_rehab_after_90_days():
+    elig = evaluate_pack_eligibility(
+        score=400,
+        successful_tasks=20,
+        disputed_tasks=0,
+        last_incident_at=datetime.utcnow() - timedelta(days=91),
+        last_incident_kind="wash",
+        wash_trade_flags=5,
+        now=datetime.utcnow(),
+    )
+    assert elig.eligible is True
+    assert elig.path == "rehab_90d"

@@ -1213,6 +1213,8 @@ async def fulfill_intent(
             worker_agent_id=seller_id,
             success=True,
             volume=pay_amount,
+            buyer_agent_id=buyer_identity_id,
+            exclude_task_id=task_id,
         )
         timeline.append({"stage": "settled", "ok": True, "reputation_updated": True})
         final_status = "settled"

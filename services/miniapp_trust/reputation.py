@@ -4,10 +4,12 @@ from __future__ import annotations
 import secrets
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from threading import Lock
 from typing import Any
 
 from services.miniapp_registry import store as registry
+from services.wash_trade import TradeEdge, evaluate_wash_signals
 
 
 @dataclass
@@ -29,6 +31,13 @@ _HISTORY: list[ExecutionRecord] = []
 _REP: dict[str, float] = {}  # identity_id -> score
 
 
+def _amount(raw: str) -> float:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def record_settlement(
     *,
     order_id: str,
@@ -38,7 +47,29 @@ def record_settlement(
     amount_usdc: str,
     verification_run_id: str | None,
     public_proof: dict | None = None,
+    buyer_wallet: str | None = None,
+    seller_wallet: str | None = None,
 ) -> ExecutionRecord:
+    proof = dict(public_proof or {})
+    with _LOCK:
+        edges = [
+            TradeEdge(
+                buyer_id=h.buyer_identity_id,
+                seller_id=h.seller_identity_id or "",
+                amount=_amount(h.amount_usdc),
+                at=datetime.utcfromtimestamp(h.created_at),
+            )
+            for h in _HISTORY
+        ]
+    verdict = evaluate_wash_signals(
+        buyer_id=buyer_identity_id,
+        seller_id=seller_identity_id,
+        amount=_amount(amount_usdc),
+        history=edges,
+        buyer_wallet=buyer_wallet,
+        seller_wallet=seller_wallet,
+    )
+    proof["wash"] = verdict.to_dict()
     rec = ExecutionRecord(
         record_id="exe_" + secrets.token_hex(6),
         order_id=order_id,
@@ -49,15 +80,16 @@ def record_settlement(
         status="SETTLED",
         verification_run_id=verification_run_id,
         created_at=int(time.time()),
-        public_proof=dict(public_proof or {}),
+        public_proof=proof,
     )
     with _LOCK:
         _HISTORY.append(rec)
-        for iid, delta in ((buyer_identity_id, 1.0), (seller_identity_id, 2.0)):
-            if not iid:
-                continue
-            _REP[iid] = float(_REP.get(iid, 50.0) + delta)
-    if agent_id:
+        if verdict.credit:
+            for iid, delta in ((buyer_identity_id, 1.0), (seller_identity_id, 2.0)):
+                if not iid:
+                    continue
+                _REP[iid] = float(_REP.get(iid, 50.0) + delta)
+    if verdict.credit and agent_id:
         registry.bump_agent_reputation(agent_id, delta=2.0, settled=True)
     return rec
 

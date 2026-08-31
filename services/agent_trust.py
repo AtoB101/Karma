@@ -32,6 +32,7 @@ class AgentTrustStats:
     settled_count: int = 0
     settled_volume: float = 0.0
     dispute_rate: float = 0.0
+    wash_trade_flags: int = 0
     cold_start: bool = True
 
     def to_dict(self) -> dict[str, Any]:
@@ -44,6 +45,7 @@ class AgentTrustStats:
             "settled_count": self.settled_count,
             "settled_volume": round(self.settled_volume, 4),
             "dispute_rate": round(self.dispute_rate, 4),
+            "wash_trade_flags": self.wash_trade_flags,
             "cold_start": self.cold_start,
             # “好评” proxy until a reviews table exists
             "positive_feedback_proxy": round(self.success_rate * max(self.settled_count, 0), 4),
@@ -78,6 +80,11 @@ def compute_trust_bonus(stats: AgentTrustStats) -> tuple[float, list[str]]:
         bonus -= 0.5  # slight preference for proven agents
         reasons.append("cold_start")
 
+    if stats.wash_trade_flags:
+        penalty = min(float(stats.wash_trade_flags) * 0.8, 5.0)
+        bonus -= penalty
+        reasons.append(f"wash_penalty:{penalty:.2f}")
+
     return round(bonus, 3), reasons
 
 
@@ -103,6 +110,7 @@ async def load_trust_stats_batch(
             disputed_tasks=int(row.disputed_tasks or 0),
             success_rate=sr,
             dispute_rate=dr,
+            wash_trade_flags=int(row.wash_trade_flags or 0),
             cold_start=int(row.total_tasks or 0) == 0,
         )
 
@@ -218,9 +226,36 @@ async def record_worker_settlement_outcome(
     success: bool,
     disputed: bool = False,
     volume: float = 0.0,
+    buyer_agent_id: str | None = None,
+    exclude_task_id: str | None = None,
+    buyer_wallet: str | None = None,
+    seller_wallet: str | None = None,
 ) -> ReputationModel:
     """Update public reputation after a settlement outcome (好评/差评 proxy)."""
+    from services.reputation_pack import KIND_WASH
+    from services.wash_trade import inspect_settlement_wash
+
     row = await ensure_reputation_row(db, worker_agent_id, role="worker")
+    if success and not disputed:
+        verdict = await inspect_settlement_wash(
+            db,
+            buyer_id=buyer_agent_id,
+            seller_id=worker_agent_id,
+            amount=float(volume or 0),
+            exclude_task_id=exclude_task_id,
+            buyer_wallet=buyer_wallet,
+            seller_wallet=seller_wallet,
+        )
+        if not verdict.credit:
+            if verdict.flags_delta:
+                row.wash_trade_flags = int(row.wash_trade_flags or 0) + int(verdict.flags_delta)
+                row.last_incident_at = datetime.utcnow()
+                row.last_incident_kind = KIND_WASH
+                row.score = max(0.0, float(row.score or 0) - (5.0 * verdict.flags_delta))
+                row.consecutive_successes = 0
+            row.last_updated = datetime.utcnow()
+            await db.flush()
+            return row
     row.total_tasks = int(row.total_tasks or 0) + 1
     if disputed:
         row.disputed_tasks = int(row.disputed_tasks or 0) + 1
