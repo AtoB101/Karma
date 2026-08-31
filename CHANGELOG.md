@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Reputation pack-to-chain: `KarmaReputationAnchor` (non-transferable score + dividend weight, no fee waiver); 90-day rehab after slash; admin `GET/POST /v1/reputation/{id}/pack*` and `POST .../slash`.
 - Console last mile: live API writes on Payments/Receiving/Disputes/Evidence (`console-actions.js`, extended `karma-public-api.js`); `CONSOLE_LAST_MILE-zh.md`, `console_last_mile_gate.sh`.
 - Testnet Docker stack (`deploy/docker-compose.testnet.yml`, `.env.testnet-stack.example`, `TESTNET_STACK-zh.md`).
 - PaymentIntent expiry: admin `POST /v1/admin/maintenance/expire-payment-intents`, Celery beat hourly, `scripts/maintenance/expire_payment_intents.py`.

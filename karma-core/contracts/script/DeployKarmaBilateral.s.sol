@@ -9,6 +9,7 @@ import {ScoringEngine}           from "../core/ScoringEngine.sol";
 import {EvidenceChain}           from "../core/EvidenceChain.sol";
 import {CircuitBreaker}          from "../core/CircuitBreaker.sol";
 import {EmergencyFreeze}         from "../core/EmergencyFreeze.sol";
+import {KarmaReputationAnchor}   from "../core/KarmaReputationAnchor.sol";
 import {MockERC20}               from "../test/mocks/MockERC20.sol";
 
 /// @notice Deploy the full Karma protocol stack to Base Sepolia (or any EVM chain).
@@ -158,6 +159,8 @@ contract DeployKarmaBilateral is Script {
         freeze.setCircuitBreaker(address(breaker));
         karma.setEmergencyGuard(address(freeze));
 
+        KarmaReputationAnchor reputationAnchor = new KarmaReputationAnchor(admin);
+
         // ── 5. KarmaAttestationGateway ────────────────────────────────────────
         KarmaAttestationGateway gateway = new KarmaAttestationGateway(
             address(registry),
@@ -185,6 +188,7 @@ contract DeployKarmaBilateral is Script {
         require(evidence.admin()              == admin,           "evidence admin");
         require(karma.emergencyGuard()        == address(freeze), "freeze guard not wired");
         require(freeze.circuitBreaker()       == address(breaker), "breaker not wired");
+        require(reputationAnchor.admin()      == admin,           "reputation anchor admin");
         require(karma.checkInvariant(paymentToken),               "invariant broken at deploy");
 
         // ── Output ────────────────────────────────────────────────────────────
@@ -196,6 +200,7 @@ contract DeployKarmaBilateral is Script {
         console.log("SCORING   ", address(scoring));
         console.log("BREAKER   ", address(breaker));
         console.log("FREEZE    ", address(freeze));
+        console.log("REP_ANCHOR", address(reputationAnchor));
         console.log("KARMA     ", address(karma));
         console.log("GATEWAY   ", address(gateway));
         console.log("");
@@ -212,6 +217,8 @@ contract DeployKarmaBilateral is Script {
         console.log(address(karma));
         console.log("GATEWAY=");
         console.log(address(gateway));
+        console.log("KARMA_REPUTATION_ANCHOR_ADDRESS=");
+        console.log(address(reputationAnchor));
         console.log("");
         console.log("=== Verify on Basescan ===");
         console.log("chain 84532 --etherscan-api-key $BASESCAN_API_KEY");

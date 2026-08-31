@@ -119,6 +119,12 @@ class Settings(BaseSettings):
     reputation_initial_score: float = 100.0
     reputation_min_score: float = 0.0
     reputation_max_score: float = 1000.0
+    # Pack off-chain score onto KarmaReputationAnchor (not a fee waiver).
+    reputation_pack_min_score: float = 200.0
+    reputation_pack_min_successes: int = 5
+    reputation_rehab_days: int = 90
+    reputation_dividend_min_score: float = 300.0
+    karma_reputation_anchor_address: str = ""
 
     # Celery
     celery_broker_url: str = "redis://localhost:6379/3"

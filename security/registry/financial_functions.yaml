@@ -631,6 +631,34 @@ fund_states:
     on_expiry: 回到冻结前状态 → 走既有超时路径
     notes: Phase 2 已落地。冻结期间禁止 settle/finalize/bind/非全额退款分账；允许查询、unlock 未绑定账单、refundOnTimeout、争议取证。CircuitBreaker.emergencyPause 同步接入 payout 守卫。
 
+  - contract: KarmaReputationAnchor
+    function: pack
+    caller: packer / admin
+    required_role: packer
+    risk_level: MEDIUM
+    affected_asset: none (non-transferable reputation anchor + dividend weight)
+    emergency_action: unaffected
+    audit_event: ReputationPacked
+    notes: 链下达标积分打包上链；不减免 FeeBridge 手续费
+
+  - contract: KarmaReputationAnchor
+    function: slash
+    caller: packer / admin
+    required_role: packer
+    risk_level: MEDIUM
+    affected_asset: none (on-chain packed score)
+    emergency_action: unaffected
+    audit_event: ReputationSlashed
+
+  - contract: KarmaReputationAnchor
+    function: setPacker
+    caller: admin
+    required_role: admin (多签)
+    risk_level: HIGH
+    affected_asset: none (packer 权限)
+    emergency_action: block
+    audit_event: PackerUpdated
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 信任根登记（红队报告 KARMA-RT-2026-08-27-001 §4）
 # 资金安全的真实边界不是 Solidity 合约，而是下列凭据。任一被攻破即资金损失，

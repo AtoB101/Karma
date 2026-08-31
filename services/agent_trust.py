@@ -226,6 +226,8 @@ async def record_worker_settlement_outcome(
         row.disputed_tasks = int(row.disputed_tasks or 0) + 1
         row.consecutive_successes = 0
         row.score = max(0.0, float(row.score) - 15.0)
+        row.last_incident_at = datetime.utcnow()
+        row.last_incident_kind = "dispute"
     elif success:
         row.successful_tasks = int(row.successful_tasks or 0) + 1
         row.consecutive_successes = int(row.consecutive_successes or 0) + 1
@@ -234,6 +236,8 @@ async def record_worker_settlement_outcome(
     else:
         row.consecutive_successes = 0
         row.score = max(0.0, float(row.score) - 8.0)
+        row.last_incident_at = datetime.utcnow()
+        row.last_incident_kind = "default"
     row.last_updated = datetime.utcnow()
     await db.flush()
     return row
@@ -251,6 +255,8 @@ async def record_seller_non_confirm_reputation(
     d = max(-5.0, min(0.0, float(delta)))
     row.score = max(0.0, float(row.score or 0) + d)
     row.consecutive_successes = 0
+    row.last_incident_at = datetime.utcnow()
+    row.last_incident_kind = "default"
     row.last_updated = datetime.utcnow()
     await db.flush()
     return row
