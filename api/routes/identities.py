@@ -95,6 +95,9 @@ async def project_identity_from_did(
         row.legal_identity_status = "did_bound"
         row.updated_at = datetime.utcnow()
     await db.flush()
+    from services.identity_reputation import open_identity_ledger
+
+    await open_identity_ledger(db, projection.identity_id, identity_class="agent")
     return _profile_to_schema(row)
 
 
@@ -106,6 +109,9 @@ async def init_identity_profile(
 ):
     row = await db.get(IdentityProfileModel, identity_id)
     if row:
+        from services.identity_reputation import open_identity_ledger
+
+        await open_identity_ledger(db, identity_id)
         return _profile_to_schema(row)
 
     # If identity_id looks like a DID projection, keep wallet aligned
@@ -134,6 +140,9 @@ async def init_identity_profile(
     )
     db.add(row)
     await db.flush()
+    from services.identity_reputation import open_identity_ledger
+
+    await open_identity_ledger(db, identity_id)
     return _profile_to_schema(row)
 
 

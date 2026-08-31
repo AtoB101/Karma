@@ -34,6 +34,7 @@ from db.stores.settlement_store import PostgresSettlementStore
 from services.agent_directory import agent_row_to_card, connect_agent, ensure_directory_merchants
 from services.agent_trust import (
     apply_trust_rerank,
+    record_buyer_settlement_outcome,
     record_seller_non_confirm_reputation,
     record_worker_settlement_outcome,
 )
@@ -1214,6 +1215,14 @@ async def fulfill_intent(
             success=True,
             volume=pay_amount,
             buyer_agent_id=buyer_identity_id,
+            exclude_task_id=task_id,
+        )
+        await record_buyer_settlement_outcome(
+            db,
+            buyer_agent_id=buyer_identity_id,
+            seller_agent_id=seller_id,
+            success=True,
+            volume=pay_amount,
             exclude_task_id=task_id,
         )
         timeline.append({"stage": "settled", "ok": True, "reputation_updated": True})

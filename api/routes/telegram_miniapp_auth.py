@@ -1,8 +1,11 @@
 """Telegram + MiniApp auth routes: initData session, SIWE, bind."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from db.session import get_db
 
 from services.identity_gateway import siwe, store
 from services.telegram import (
@@ -121,17 +124,21 @@ def siwe_challenge(body: SiweChallengeRequest):
 
 
 @router.post("/auth/siwe/verify")
-def siwe_verify(body: SiweVerifyRequest):
+async def siwe_verify(body: SiweVerifyRequest, db: AsyncSession = Depends(get_db)):
     try:
         ch = siwe.verify_challenge(nonce=body.nonce, signature=body.signature, address=body.address)
     except siwe.SiweError as exc:
         raise HTTPException(401, str(exc)) from exc
     ident = store.get_or_create_by_wallet(ch.address)
+    from services.identity_reputation import open_identity_ledger
+
+    await open_identity_ledger(db, ident.identity_id, identity_class=ident.identity_class)
     return {
         "identity_id": ident.identity_id,
         "wallet": ident.wallet,
         "status": ident.status,
         "payment_policy": ident.payment_policy,
+        "reputation_opened": True,
     }
 
 

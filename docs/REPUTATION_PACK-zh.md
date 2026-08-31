@@ -1,5 +1,14 @@
 # 链下积分 → 链上信誉资产
 
+领取 Karma 身份卡（用户 / 商家 / 企业）就是信誉账本的起点。认证发卡、成交记分、刷量拦截、违约降分、达标打包上链是同一条闭环，不是另一套积分。
+
+```
+认证 Karma → 身份卡 → 开立账本(score=100)
+        → 真实成交(+分) / 刷量假成交(不计分+flag) / 违约欺诈(降分)
+        → 达标 pack 上链（分红权重，不减免手续费）
+        → 身份卡再次出示时带上同一本账
+```
+
 无争议完成交易会在链下累计可变积分。积分达到阈值后，由 packer **打包上链**，成为不可转让的信誉锚点（`KarmaReputationAnchor`）。这是平台内的无形资产：高信誉用户/商家可以形成信誉品牌，但 **不减免 Bilateral / FeeBridge 手续费**。达标后获得的是 **平台分红权重** 与其它非手续费奖励。大家珍惜自身信誉，系统才能正循环。
 
 ## 规则
@@ -29,6 +38,7 @@ v1 把「同类问题」落成最近一次 incident 种类（`dispute` / `defaul
 
 ## API
 
+- `GET /v1/identity/{id}/card`（出示身份卡即开账，返回 `reputation`）
 - `GET /v1/reputation/{id}/pack-eligibility`
 - `GET /v1/reputation/{id}/rewards`（`fee_waiver` 恒为 `false`）
 - `POST /v1/reputation/{id}/pack`（管理员；可选 `submit_on_chain`）

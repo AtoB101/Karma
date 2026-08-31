@@ -125,6 +125,15 @@ async def connect_agent(
         row.agent_id,
         role="client" if row.role == "client" else "worker",
     )
+    owner_id = (row.owner_identity_id or owner_identity_id or "").strip()
+    if owner_id and owner_id != row.agent_id:
+        from services.identity_reputation import open_identity_ledger
+
+        await open_identity_ledger(
+            db,
+            owner_id,
+            identity_class=identity_class or row.identity_class,
+        )
     if profile_card is not None:
         from services.agent_profile_store import save_profile_card
 

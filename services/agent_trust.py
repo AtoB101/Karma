@@ -232,9 +232,11 @@ async def record_worker_settlement_outcome(
     seller_wallet: str | None = None,
 ) -> ReputationModel:
     """Update public reputation after a settlement outcome (好评/差评 proxy)."""
+    from services.identity_reputation import open_identity_ledger
     from services.reputation_pack import KIND_WASH
     from services.wash_trade import inspect_settlement_wash
 
+    await open_identity_ledger(db, worker_agent_id, identity_class="business")
     row = await ensure_reputation_row(db, worker_agent_id, role="worker")
     if success and not disputed:
         verdict = await inspect_settlement_wash(
@@ -273,6 +275,61 @@ async def record_worker_settlement_outcome(
         row.score = max(0.0, float(row.score) - 8.0)
         row.last_incident_at = datetime.utcnow()
         row.last_incident_kind = "default"
+    row.last_updated = datetime.utcnow()
+    await db.flush()
+    return row
+
+
+async def record_buyer_settlement_outcome(
+    db: AsyncSession,
+    *,
+    buyer_agent_id: str,
+    seller_agent_id: str | None,
+    success: bool,
+    disputed: bool = False,
+    volume: float = 0.0,
+    exclude_task_id: str | None = None,
+) -> ReputationModel | None:
+    """Buyer side of the same ledger: genuine completes count; wash does not."""
+    from services.identity_reputation import open_identity_ledger
+    from services.reputation_pack import KIND_WASH
+    from services.wash_trade import inspect_settlement_wash
+
+    if not buyer_agent_id:
+        return None
+    if seller_agent_id and buyer_agent_id == seller_agent_id:
+        return None
+    row = await open_identity_ledger(db, buyer_agent_id, identity_class="user")
+    if success and not disputed:
+        verdict = await inspect_settlement_wash(
+            db,
+            buyer_id=buyer_agent_id,
+            seller_id=seller_agent_id,
+            amount=float(volume or 0),
+            exclude_task_id=exclude_task_id,
+        )
+        if not verdict.credit:
+            if verdict.flags_delta:
+                row.wash_trade_flags = int(row.wash_trade_flags or 0) + max(1, int(verdict.flags_delta) // 2)
+                row.last_incident_at = datetime.utcnow()
+                row.last_incident_kind = KIND_WASH
+                row.score = max(0.0, float(row.score or 0) - 3.0)
+                row.consecutive_successes = 0
+            row.last_updated = datetime.utcnow()
+            await db.flush()
+            return row
+        row.total_tasks = int(row.total_tasks or 0) + 1
+        row.successful_tasks = int(row.successful_tasks or 0) + 1
+        row.consecutive_successes = int(row.consecutive_successes or 0) + 1
+        bump = 2.0 + min(max(volume, 0.0), 100.0) * 0.02
+        row.score = min(1000.0, float(row.score or 0) + bump)
+    elif disputed:
+        row.total_tasks = int(row.total_tasks or 0) + 1
+        row.disputed_tasks = int(row.disputed_tasks or 0) + 1
+        row.consecutive_successes = 0
+        row.score = max(0.0, float(row.score or 0) - 5.0)
+        row.last_incident_at = datetime.utcnow()
+        row.last_incident_kind = "dispute"
     row.last_updated = datetime.utcnow()
     await db.flush()
     return row

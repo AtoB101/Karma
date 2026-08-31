@@ -19,6 +19,9 @@ def _norm_wallet(addr: str) -> str:
 async def _ensure_profile(db: AsyncSession, karma_identity_id: str) -> IdentityProfileModel:
     row = await db.get(IdentityProfileModel, karma_identity_id)
     if row:
+        from services.identity_reputation import open_identity_ledger
+
+        await open_identity_ledger(db, karma_identity_id.strip())
         return row
     row = IdentityProfileModel(
         identity_id=karma_identity_id,
@@ -31,6 +34,9 @@ async def _ensure_profile(db: AsyncSession, karma_identity_id: str) -> IdentityP
     )
     db.add(row)
     await db.flush()
+    from services.identity_reputation import open_identity_ledger
+
+    await open_identity_ledger(db, karma_identity_id.strip())
     return row
 
 
