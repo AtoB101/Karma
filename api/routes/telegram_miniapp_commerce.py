@@ -639,6 +639,8 @@ def settlement_finalize(body: SettleBody, authorization: str | None = Header(def
         agent_id=agent_id,
         amount_usdc=order.amount_usdc,
         verification_run_id=run.run_id,
+        buyer_wallet=order.buyer_wallet,
+        seller_wallet=order.seller_wallet,
         public_proof={
             "binding_id": order.binding_id,
             "verification_run_id": run.run_id,

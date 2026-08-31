@@ -365,3 +365,17 @@ for that conjunction.
 ## ONE SENTENCE CONCLUSION
 
 Karma 现在是「链下可变积分 + 链上结算 proofHash」，**不是**真正的链上信誉资产基础设施。
+
+---
+
+## 20. Follow-up implementation (this branch)
+
+Product loop landed as a **dedicated** contract (not `KarmaBilateral`, EIP-170): `KarmaReputationAnchor`.
+
+- Off-chain: undisputed settle → score; default/fraud/dispute → `last_incident_*` + slash path.
+- Pack when score/successes pass threshold and 90-day rehab is clean.
+- On-chain: non-transferable `scoreE2` + `rewardWeight`; **explicitly no fee waiver**.
+- Dividends: `isDividendEligible` / `GET /v1/reputation/{id}/rewards`.
+- Still missing vs §19 full claim: ScoringEngine still unwired from Bilateral; MiniApp ledger still separate; third-party portable VC; Sybil.
+
+See `docs/REPUTATION_PACK-zh.md`.

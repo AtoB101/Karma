@@ -14,8 +14,11 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.middleware.auth import require_auth_if_enabled
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from db.session import get_db
 from services.identity_gateway import state_machine, store
+from services.identity_reputation import attach_card_reputation
 
 router = APIRouter()
 
@@ -117,24 +120,39 @@ def revoke_credential_route(identity_id: str, credential_id: str, body: RevokeBo
 # ── Karma Identity Card ────────────────────────────────────
 
 @router.get("/v1/identity/{identity_id}/card")
-def get_card_route(
+async def get_card_route(
     identity_id: str,
     scope: str = Query(default="basic", pattern="^(basic|full)$"),
     audience: str = Query(default="agent", max_length=64),
+    db: AsyncSession = Depends(get_db),
 ):
     _check_identity_id(identity_id)
     try:
-        return store.identity_card(identity_id, audience=audience, scope=scope)
+        card = store.identity_card(identity_id, audience=audience, scope=scope)
     except KeyError:
         raise HTTPException(404, "identity not found")
+    main_id = card.get("identity_id") or identity_id
+    return await attach_card_reputation(
+        db,
+        card,
+        identity_id=main_id,
+        identity_class=card.get("identity_class"),
+    )
 
 
 @router.put("/v1/identity/{identity_id}/class")
-def set_class_route(identity_id: str, body: SetClassBody):
+async def set_class_route(
+    identity_id: str,
+    body: SetClassBody,
+    db: AsyncSession = Depends(get_db),
+):
     _check_identity_id(identity_id)
     try:
         store.set_identity_class(identity_id, body.identity_class, actor="api")
         ident = store.get_by_id(identity_id)
+        from services.identity_reputation import open_identity_ledger
+
+        await open_identity_ledger(db, identity_id, identity_class=body.identity_class)
         # 脱敏返回：不含 twofa_code / 完整 wallet / payment_policy
         return {
             "identity_id": ident.identity_id,

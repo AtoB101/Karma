@@ -804,9 +804,14 @@ async def apply_settle_reputation(
     amount: float,
     success: bool = True,
     disputed: bool = False,
+    buyer_agent_id: str | None = None,
+    exclude_task_id: str | None = None,
 ) -> dict[str, Any]:
     """Update global reputation (existing) + scene ledger (P8)."""
-    from services.agent_trust import record_worker_settlement_outcome  # noqa: PLC0415
+    from services.agent_trust import (  # noqa: PLC0415
+        record_buyer_settlement_outcome,
+        record_worker_settlement_outcome,
+    )
 
     rep = compute_scene_reputation_delta(
         scene_id=scene_id, success=success, disputed=disputed, volume=amount
@@ -817,7 +822,19 @@ async def apply_settle_reputation(
         success=success and not disputed,
         disputed=disputed,
         volume=amount,
+        buyer_agent_id=buyer_agent_id,
+        exclude_task_id=exclude_task_id,
     )
+    if buyer_agent_id:
+        await record_buyer_settlement_outcome(
+            db,
+            buyer_agent_id=buyer_agent_id,
+            seller_agent_id=seller_agent_id,
+            success=success and not disputed,
+            disputed=disputed,
+            volume=amount,
+            exclude_task_id=exclude_task_id,
+        )
     # Scene ledger is written by seal_settlement_attestation to avoid double-count
     return {
         "global_score": float(getattr(row, "score", 0) or 0),

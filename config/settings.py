@@ -119,6 +119,19 @@ class Settings(BaseSettings):
     reputation_initial_score: float = 100.0
     reputation_min_score: float = 0.0
     reputation_max_score: float = 1000.0
+    # Pack off-chain score onto KarmaReputationAnchor (not a fee waiver).
+    reputation_pack_min_score: float = 200.0
+    reputation_pack_min_successes: int = 5
+    reputation_rehab_days: int = 90
+    reputation_dividend_min_score: float = 300.0
+    karma_reputation_anchor_address: str = ""
+    # Wash / fake-volume heuristics (do not grant pack credit).
+    reputation_wash_min_amount: float = 1.0
+    reputation_wash_pair_window_hours: int = 24
+    reputation_wash_pair_max: int = 4
+    reputation_wash_burst_window_minutes: int = 60
+    reputation_wash_burst_max: int = 8
+    reputation_wash_flag_pack_block: int = 3
 
     # Celery
     celery_broker_url: str = "redis://localhost:6379/3"
