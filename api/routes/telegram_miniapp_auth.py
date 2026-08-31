@@ -1,11 +1,10 @@
 """Telegram + MiniApp auth routes: initData session, SIWE, bind."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
+import logging
 
-from db.session import get_db
+from fastapi import APIRouter, Header, HTTPException
+from pydantic import BaseModel, Field
 
 from services.identity_gateway import siwe, store
 from services.telegram import (
@@ -18,6 +17,7 @@ from services.telegram import (
 )
 
 router = APIRouter()
+_log = logging.getLogger("karma.api")
 
 
 class SessionRequest(BaseModel):
@@ -57,6 +57,19 @@ def _session_or_401(authorization: str | None):
         return get_session(sid)
     except SessionError as exc:
         raise HTTPException(401, str(exc)) from exc
+
+
+async def _open_reputation_ledger_best_effort(identity_id: str, identity_class: str | None) -> None:
+    """Open the reputation book without failing SIWE if the API DB is unavailable."""
+    try:
+        from db.session import AsyncSessionLocal
+        from services.identity_reputation import open_identity_ledger
+
+        async with AsyncSessionLocal() as session:
+            await open_identity_ledger(session, identity_id, identity_class=identity_class)
+            await session.commit()
+    except Exception:
+        _log.debug("reputation ledger not opened at SIWE for %s", identity_id, exc_info=True)
 
 
 @router.post("/telegram/session")
@@ -124,15 +137,13 @@ def siwe_challenge(body: SiweChallengeRequest):
 
 
 @router.post("/auth/siwe/verify")
-async def siwe_verify(body: SiweVerifyRequest, db: AsyncSession = Depends(get_db)):
+async def siwe_verify(body: SiweVerifyRequest):
     try:
         ch = siwe.verify_challenge(nonce=body.nonce, signature=body.signature, address=body.address)
     except siwe.SiweError as exc:
         raise HTTPException(401, str(exc)) from exc
     ident = store.get_or_create_by_wallet(ch.address)
-    from services.identity_reputation import open_identity_ledger
-
-    await open_identity_ledger(db, ident.identity_id, identity_class=ident.identity_class)
+    await _open_reputation_ledger_best_effort(ident.identity_id, ident.identity_class)
     return {
         "identity_id": ident.identity_id,
         "wallet": ident.wallet,
