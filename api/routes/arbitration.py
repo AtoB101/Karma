@@ -42,6 +42,7 @@ from db.models.orm import (
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
 from services.capacity_resolution import apply_capacity_resolution
+from services.settlement_chain_guard import assert_settlement_chain_finality
 from services.settlement_voucher import mark_voucher_used_if_linked
 
 router = APIRouter()
@@ -492,7 +493,14 @@ async def cast_vote(case_id: str, body: CastArbitrationVoteRequest, db: AsyncSes
 
 @router.post("/cases/{case_id}/execute", response_model=SettlementState)
 async def execute_arbitration_case(case_id: str, db: AsyncSession = Depends(get_db)):
-    case_row = await db.get(ArbitrationCaseModel, case_id)
+    # Row-level lock: serializes concurrent execution of the same case so a
+    # DECIDED case cannot be settled/refunded twice (double-spend guard).
+    _case_res = await db.execute(
+        select(ArbitrationCaseModel)
+        .where(ArbitrationCaseModel.case_id == case_id)
+        .with_for_update()
+    )
+    case_row = _case_res.scalar_one_or_none()
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
     if case_row.status != ArbitrationCaseStatus.DECIDED.value:
@@ -529,6 +537,8 @@ async def execute_arbitration_case(case_id: str, db: AsyncSession = Depends(get_
 
     if not can_transition(state.status, target):
         raise HTTPException(409, f"invalid settlement transition: {state.status.value} -> {target.value}")
+
+    assert_settlement_chain_finality(state, target)
 
     state.status = target
     state.released_amount = settled_amount

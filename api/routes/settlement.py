@@ -31,6 +31,7 @@ from services.runtime_safety import (
 )
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from services.settlement_voucher import mark_voucher_used_if_linked
+from services.settlement_chain_guard import assert_settlement_chain_finality
 from services.path_param_safety import validate_public_url_segment
 from services.settlement_party_access import (
     require_buyer,
@@ -948,6 +949,9 @@ async def _apply_transition(
     actor_id: str | None,
 ) -> SettlementState:
     from_status = state.status
+    # Fail closed: in testnet/hybrid mode, a terminal fund-moving transition must carry
+    # on-chain finality before the off-chain ledger may record it (false-settlement guard).
+    assert_settlement_chain_finality(state, target_status)
     if not can_transition(from_status, target_status):
         detail = f"invalid status transition: {from_status.value} -> {target_status.value}"
         await _record_transition_audit(

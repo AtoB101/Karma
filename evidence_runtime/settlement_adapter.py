@@ -25,7 +25,15 @@ def _bilateral_calls(
     deadline_unix: int,
     pause_payout: bool = False,
 ) -> list[dict[str, Any]]:
-    """Canonical recommended call sequence for KarmaBilateral."""
+    """Canonical recommended call sequence for KarmaBilateral.
+
+    Note on field semantics: ``function`` is a logical plan-step name (used by
+    callers for idempotency keys), while ``onchain`` is the real KarmaBilateral
+    function selector. The buyer and agent both call the same ``lock(token, amount)``
+    (there is no ``lockBuyer``/``lockAgent`` on the contract); the ``party``/``seller``
+    keys on the agent step are plan-only metadata and must not be forwarded as
+    contract arguments when broadcasting.
+    """
     _ = deadline_unix  # retained for plan metadata / client TTL
     calls: list[dict[str, Any]] = [
         {

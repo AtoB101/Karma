@@ -4,12 +4,28 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import CapacityState
 from db.models.orm import CapacityModel
 from services.capacity_ledger import assert_capacity_invariants
 from services.runtime_safety import audit_capacity_anchor_and_maybe_trip
+
+
+async def _get_capacity_for_update(db: AsyncSession, identity_id: str) -> CapacityModel | None:
+    """
+    Fetch the capacity row with a row-level ``SELECT ... FOR UPDATE`` lock so that
+    concurrent settlement/arbitration resolutions serialize on the same ledger row
+    and cannot double-decrement ``reserved/disputed`` credits (double-spend).
+
+    On SQLite the lock is a no-op (SQLite has no row-level locking); in production
+    PostgreSQL this is the authoritative guard against concurrent double release.
+    """
+    result = await db.execute(
+        select(CapacityModel).where(CapacityModel.identity_id == identity_id).with_for_update()
+    )
+    return result.scalar_one_or_none()
 
 
 async def move_reserved_to_disputed(
@@ -19,7 +35,7 @@ async def move_reserved_to_disputed(
     escrow_amount: float,
 ) -> None:
     """P0: when a dispute opens, escrow moves from reserved → disputed bucket."""
-    cap = await db.get(CapacityModel, buyer_identity_id)
+    cap = await _get_capacity_for_update(db, buyer_identity_id)
     if not cap:
         raise HTTPException(409, "buyer has no capacity ledger; cannot open dispute")
     if cap.reserved_credits + 1e-9 < escrow_amount:
@@ -28,7 +44,6 @@ async def move_reserved_to_disputed(
     cap.disputed_credits += escrow_amount
     cap.updated_at = datetime.utcnow()
     _assert_capacity(cap)
-    await audit_capacity_anchor_and_maybe_trip(db=db)
     await audit_capacity_anchor_and_maybe_trip(db=db)
 
 
@@ -44,7 +59,7 @@ async def apply_capacity_resolution(
     Release escrow from reserved OR disputed (post-dispute path),
     burn settled bill credits, and credit released (refunded) USDC-side ledger.
     """
-    cap = await db.get(CapacityModel, buyer_identity_id)
+    cap = await _get_capacity_for_update(db, buyer_identity_id)
     if not cap:
         return
     if cap.total_bill_credits + 1e-9 < escrow_amount:

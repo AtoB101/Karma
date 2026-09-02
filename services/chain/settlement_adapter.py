@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -19,6 +20,10 @@ from config.settings import settings
 from core.schemas import EvidenceBundle, TaskContract, VerificationDecision, VerificationResult
 
 logger = structlog.get_logger(__name__)
+
+# Serialize nonce assignment for the hot wallet. Without this, concurrent
+# _send_tx calls could read the same nonce and one tx would be dropped/replaced.
+_NONCE_SEND_LOCK = threading.Lock()
 
 # Minimal ABI for KarmaBilateral core surface.
 KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
@@ -332,16 +337,19 @@ class OnChainSettlementAdapter:
         w3 = self._get_web3()
         account = self._get_account()
         chain_id = self._chain_id or w3.eth.chain_id
-        tx = fn.build_transaction(
-            {
-                "from": account.address,
-                "nonce": w3.eth.get_transaction_count(account.address),
-                "chainId": chain_id,
-            }
-        )
-        signed = account.sign_transaction(tx)
-        raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
-        tx_hash = w3.eth.send_raw_transaction(raw)
+        # Use the pending nonce (accounts for in-flight txs) and serialize
+        # nonce read → sign → broadcast so concurrent sends cannot collide.
+        with _NONCE_SEND_LOCK:
+            tx = fn.build_transaction(
+                {
+                    "from": account.address,
+                    "nonce": w3.eth.get_transaction_count(account.address, "pending"),
+                    "chainId": chain_id,
+                }
+            )
+            signed = account.sign_transaction(tx)
+            raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+            tx_hash = w3.eth.send_raw_transaction(raw)
         receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
         hx = receipt.transactionHash.hex()
         if not hx.startswith("0x"):

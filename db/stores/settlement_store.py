@@ -24,7 +24,15 @@ class PostgresSettlementStore(SettlementStore):
         self.session = session
 
     async def save(self, state: SettlementState) -> None:
-        existing = await self.session.get(SettlementModel, state.settlement_id)
+        # Row-level lock on the settlement row so concurrent transitions serialize and
+        # cannot both pass the can_transition check (double-settlement guard). On SQLite
+        # this is a no-op; in PostgreSQL it is the authoritative concurrency control.
+        result = await self.session.execute(
+            select(SettlementModel)
+            .where(SettlementModel.settlement_id == state.settlement_id)
+            .with_for_update()
+        )
+        existing = result.scalar_one_or_none()
         row_data = self._to_row(state)
         if existing:
             existing_status = canonical_task_status(existing.status)
