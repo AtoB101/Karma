@@ -49,8 +49,9 @@
       var t = el(document.body, "[data-cfg=task_ids]");
       var a = el(document.body, "[data-cfg=auto_sync]");
       if (b) localStorage.setItem(LS_BASE, b.value.trim());
-      if (k) localStorage.setItem(LS_KEY, k.value.trim());
-      if (i) localStorage.setItem(LS_ID, i.value.trim());
+      // Security: keep API key / identity in session-only storage, not localStorage.
+      if (k) sessionStorage.setItem(LS_KEY, k.value.trim());
+      if (i) sessionStorage.setItem(LS_ID, i.value.trim());
       if (t) localStorage.setItem(LS_TASKS, t.value.trim());
       if (a) localStorage.setItem(LS_AUTO, a.checked ? "1" : "");
     } catch (_) {}
@@ -403,8 +404,8 @@
       var i = el(document.body, "[data-cfg=identity_id]");
       var t = el(document.body, "[data-cfg=task_ids]");
       if (b && !b.value.trim()) b.value = localStorage.getItem(LS_BASE) || "";
-      if (k && !k.value.trim()) k.value = localStorage.getItem(LS_KEY) || "";
-      if (i && !i.value.trim()) i.value = localStorage.getItem(LS_ID) || "";
+      if (k && !k.value.trim()) k.value = sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY) || "";
+      if (i && !i.value.trim()) i.value = sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID) || "";
       if (t && !t.value.trim()) t.value = localStorage.getItem(LS_TASKS) || "";
     } catch (_) {}
   }
