@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="../../styles/cyber-console.css" />
   </head>
   <body>
+    <div class="bg"></div>
+    <div class="grid-overlay"></div>
+    <canvas id="particles"></canvas>
     <div class="app">
       <aside class="sidebar">
         <div class="brand">
@@ -60,26 +63,25 @@
                   <option value="pt-BR">Português (BR)</option>
                 </select>
               </label>
-              <input data-cfg="api_base" data-i18n-placeholder="api.base" type="text" placeholder="http://127.0.0.1:8000" />
-              <input data-cfg="api_key" data-i18n-placeholder="api.key" type="password" placeholder="API Key" autocomplete="off" />
-              <input data-cfg="identity_id" data-i18n-placeholder="api.identity" type="text" placeholder="Identity ID" autocomplete="off" />
-              <button type="button" class="btn" data-action="save-cfg" data-i18n="api.save">保存连接</button>
-              <button type="button" class="btn primary" data-action="refresh-api" data-i18n="api.refresh">从 API 刷新额度</button>
-              <span class="api-status" data-api-status>—</span>
-            </div>
-            <div class="api-strip" style="margin-top: 6px">
-              <span data-i18n="api.task_batch" style="font-size: 12px; color: var(--text-dim); white-space: nowrap">任务列表（逗号分隔）</span>
-              <input data-cfg="task_ids" type="text" placeholder="task_id_1, task_id_2" autocomplete="off" style="flex: 1; min-width: 180px" />
-              <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); white-space: nowrap">
-                <input type="checkbox" data-cfg="auto_sync" />
-                <span>自动同步</span>
-              </label>
-              <span style="font-size: 11px; color: var(--text-dim)">上次 <span data-bind="console_last_sync">—</span></span>
-            </div>
-            <div class="api-strip" style="margin-bottom: 0">
-              <span data-i18n="api.lookup" style="font-size: 12px; color: var(--text-dim); white-space: nowrap">查询结算任务</span>
-              <input data-cfg="task_id" data-i18n-placeholder="api.task_id" type="text" placeholder="task_id" autocomplete="off" />
-              <button type="button" class="btn" data-action="fetch-settlement" data-i18n="api.fetch_settlement">拉取 Settlement</button>
+              <button type="button" class="btn primary" data-wallet-connect>🔗 连接钱包</button>
+              <button type="button" class="btn" data-wallet-disconnect>断开</button>
+              <span class="api-status" data-wallet-status>—</span>
+              <span class="identity-chip" id="top-identity-chip">未连接</span>
+              <details class="conn-settings">
+                <summary>⚙ 连接设置</summary>
+                <div class="conn-settings-body">
+                  <input data-cfg="api_base" data-i18n-placeholder="api.base" type="text" placeholder="http://127.0.0.1:8000" style="min-width:200px" />
+                  <input data-cfg="identity_id" data-i18n-placeholder="api.identity" type="text" placeholder="Identity ID" autocomplete="off" style="min-width:160px" />
+                  <input data-cfg="task_ids" type="text" placeholder="task_id_1, task_id_2" autocomplete="off" style="flex:1; min-width:180px" />
+                  <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-dim); white-space:nowrap"><input type="checkbox" data-cfg="auto_sync" /><span>自动同步</span></label>
+                  <button type="button" class="btn" data-action="save-cfg" data-i18n="api.save">保存连接</button>
+                  <button type="button" class="btn primary" data-action="refresh-api" data-i18n="api.refresh">刷新额度</button>
+                  <input data-cfg="task_id" data-i18n-placeholder="api.task_id" type="text" placeholder="查询结算 task_id" autocomplete="off" style="min-width:160px" />
+                  <button type="button" class="btn" data-action="fetch-settlement" data-i18n="api.fetch_settlement">拉取 Settlement</button>
+                  <span class="api-status" data-api-status>—</span>
+                  <span style="font-size:11px; color:var(--text-dim)">上次 <span data-bind="console_last_sync">—</span></span>
+                </div>
+              </details>
             </div>
             <div class="topbar-row">
               <div class="page-title">
@@ -204,13 +206,24 @@
           <div class="split">
             <div class="flow-card">
               <h3>我要付款</h3>
-              <p>创建一次性授权，卖家验证后会锁定对应额度。（完整 Voucher 需服务端签名 / EIP-712）</p>
-              <div class="notice warn">此页为产品示意；生产环境请通过已认证客户端调用 <code>POST /v1/vouchers</code>。</div>
+              <p>创建一次性的时效付款码，卖家验证后锁定对应额度，验证通过再开工。</p>
+              <div class="field" style="margin-top:12px"><label>卖方 Identity</label><input id="pc-seller" type="text" placeholder="seller-identity-001" /></div>
+              <div class="field"><label>金额（USDC）</label><input id="pc-amount" type="number" step="0.01" value="20" /></div>
+              <div class="field"><label>任务类型</label><input id="pc-tasktype" type="text" value="api.caption" /></div>
+              <button type="button" class="btn primary" id="btn-create-paycode" style="margin-top:8px">生成付款码（钱包签名）</button>
+              <pre class="out" id="pc-out" style="margin-top:12px; max-height:220px; overflow:auto">—</pre>
             </div>
             <div class="flow-card">
               <h3>我要收款</h3>
-              <p>输入买家 Voucher，确认额度已锁定后再开工。</p>
-              <div class="notice">调用 <code>POST /v1/vouchers/{id}/verify</code> 与 <code>.../accept</code>（需卖家身份 API Key）。</div>
+              <p>输入买家付款码 Voucher ID，验码确认额度已锁定后接单，或直接拒绝。</p>
+              <div class="field" style="margin-top:12px"><label>Voucher ID</label><input id="pc-voucher" type="text" placeholder="voucher_id" /></div>
+              <div class="field"><label>我的卖方 Identity</label><input id="pc-seller-id" type="text" placeholder="seller-identity-001" /></div>
+              <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap">
+                <button type="button" class="btn" id="btn-read-paycode">验码</button>
+                <button type="button" class="btn primary" id="btn-accept-paycode">接单</button>
+                <button type="button" class="btn" id="btn-reject-paycode">拒绝</button>
+              </div>
+              <pre class="out" id="pc-recv-out" style="margin-top:12px; max-height:220px; overflow:auto">—</pre>
             </div>
           </div>
         </section>
@@ -219,38 +232,99 @@
           <div class="card section">
             <div class="section-header">
               <div>
-                <h3>任务执行</h3>
-                <p>使用上方「查询结算任务」从 API 拉取真实 <code>SettlementState</code>。</p>
+                <h3>任务执行 · 结算流转</h3>
+                <p>真实走通 create → pending → lock → start → submit → buyer-accept（需先建任务合同）。</p>
               </div>
             </div>
+            <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:12px">
+              <div class="field"><label>Task ID</label><input id="st-taskid" type="text" placeholder="task-demo-001" /></div>
+              <div class="field"><label>托管金额（USDC）</label><input id="st-amount" type="number" step="0.01" value="50" /></div>
+              <div class="field"><label>买方（client_agent_id）</label><input id="st-buyer" type="text" placeholder="buyer-identity-001" /></div>
+              <div class="field"><label>卖方（worker_agent_id）</label><input id="st-worker" type="text" placeholder="worker-001" /></div>
+            </div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:12px">
+              <button type="button" class="btn" data-st-step="contract">① 建合同</button>
+              <button type="button" class="btn" data-st-step="create">② create</button>
+              <button type="button" class="btn" data-st-step="pending">③ pending</button>
+              <button type="button" class="btn" data-st-step="lock">④ lock</button>
+              <button type="button" class="btn" data-st-step="start">⑤ start</button>
+              <button type="button" class="btn" data-st-step="submit">⑥ submit</button>
+              <button type="button" class="btn primary" data-st-step="buyer-accept">⑦ 批准结算</button>
+              <button type="button" class="btn" data-st-step="dispute">争议</button>
+            </div>
+            <pre class="out" id="st-out" style="margin-top:12px; max-height:260px; overflow:auto">—</pre>
           </div>
         </section>
 
         <section id="receipts" class="page">
-          <div class="flow-card">
-            <h3>Execution Receipt</h3>
-            <p>调用公开 API <code>POST /v1/receipts</code>（需 worker 身份与签名策略）。</p>
+          <div class="card section">
+            <div class="section-header">
+              <div>
+                <h3>回执证明（Execution Receipt）</h3>
+                <p>查询某个任务的执行回执链，验证交付的真实证据。</p>
+              </div>
+            </div>
+            <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
+              <div class="field" style="flex:1; min-width:200px"><label>Task ID</label><input id="rc-taskid" type="text" placeholder="task-demo-001" /></div>
+              <button type="button" class="btn primary" id="btn-list-receipts">查询回执</button>
+            </div>
+            <pre class="out" id="rc-out" style="margin-top:12px; max-height:280px; overflow:auto">—</pre>
           </div>
         </section>
 
         <section id="bills" class="page">
           <div class="card section">
-            <h3>账单</h3>
-            <p>账单与链上流水对齐后，可由索引服务或报表 API 提供；此处保留布局。</p>
+            <div class="section-header">
+              <div>
+                <h3>账单 · 锁仓额度明细</h3>
+                <p>真实读取当前身份的 capacity 账本：总锁仓、可用、执行占用、待结算、争议冻结。</p>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:12px" id="bill-metrics">
+              <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">总锁仓 USDC</div><div class="value" data-bind="b_total_locked">—</div></div>
+              <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">可用额度</div><div class="value" data-bind="b_available">—</div></div>
+              <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">执行占用</div><div class="value" data-bind="b_in_progress">—</div></div>
+              <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">待结算</div><div class="value" data-bind="b_pending">—</div></div>
+              <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">争议冻结</div><div class="value" data-bind="b_disputed">—</div></div>
+              <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">已释放</div><div class="value" data-bind="b_released">—</div></div>
+            </div>
+            <button type="button" class="btn" id="btn-refresh-bills" style="margin-top:12px">刷新账单</button>
           </div>
         </section>
 
         <section id="disputes" class="page">
           <div class="card section">
-            <h3>争议</h3>
-            <p>调用 <code>POST /v1/settlement/{task_id}/dispute</code> 等路由（需对应参与方 API Key）。</p>
+            <div class="section-header">
+              <div>
+                <h3>争议仲裁</h3>
+                <p>对任务开争议 / 查看结算流转审计。</p>
+              </div>
+            </div>
+            <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
+              <div class="field" style="flex:1; min-width:200px"><label>Task ID</label><input id="dp-taskid" type="text" placeholder="task-demo-001" /></div>
+              <div class="field" style="flex:1; min-width:200px"><label>争议原因</label><input id="dp-reason" type="text" placeholder="交付不符合约定" /></div>
+              <button type="button" class="btn" id="btn-dp-status">查状态</button>
+              <button type="button" class="btn" id="btn-dp-transitions">流转审计</button>
+              <button type="button" class="btn red" id="btn-dp-open">开争议</button>
+            </div>
+            <pre class="out" id="dp-out" style="margin-top:12px; max-height:280px; overflow:auto">—</pre>
           </div>
         </section>
 
         <section id="identity" class="page">
-          <div class="flow-card">
-            <h3>主身份</h3>
-            <p>当前控制台以 <code>identity_id</code> 与 Karma API 对齐；SBT 链上展示在集成钱包后完成。</p>
+          <div class="card section">
+            <div class="section-header">
+              <div>
+                <h3>Karma 身份卡</h3>
+                <p>读取当前身份的最小披露身份卡（连接钱包后自动获取 identity_id）。</p>
+              </div>
+            </div>
+            <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
+              <div class="field" style="flex:1; min-width:200px"><label>Identity ID</label><input id="id-card-id" type="text" placeholder="kid_xxx（连钱包自动填）" /></div>
+              <button type="button" class="btn primary" id="btn-id-card">读取身份卡</button>
+            </div>
+            <div class="id-card" id="id-card-view" style="margin-top:14px; display:none"></div>
+            <pre class="out" id="id-out" style="margin-top:12px; max-height:280px; overflow:auto">—</pre>
           </div>
         </section>
 
@@ -258,26 +332,22 @@
           <div class="card section">
             <div class="section-header">
               <div>
-                <h3>设置</h3>
-                <p>连接参数保存在浏览器 localStorage（请勿在共享电脑保存生产密钥）。</p>
+                <h3>设置 · AI Agent 自动授权</h3>
+                <p>保存服务端自动授权策略（单笔/日限额 + 权限），再用钱包签名铸造 Runtime Key。</p>
               </div>
             </div>
-            <div class="settings-grid">
-              <div class="setting">
-                <h4>AI Agent 自动授权中心</h4>
-                <p>演示开关，不与后端耦合。</p>
-                <div class="toggle-wrap">
-                  <div>
-                    <b>开启授权 AI 代理</b><span style="display: block; font-size: 11px; color: var(--text-dim)">仅 UI 示意</span>
-                  </div>
-                  <label class="switch">
-                    <input type="checkbox" id="aiAgentToggle" />
-                    <span class="slider"></span>
-                  </label>
-                </div>
-                <div class="notice" style="margin-top: 12px">当前状态：<b id="aiAgentStatus">关闭</b></div>
-              </div>
+            <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:12px">
+              <div class="field"><label>Identity ID</label><input id="ag-identity" type="text" placeholder="kid_xxx（连钱包自动填）" /></div>
+              <div class="field"><label>单笔限额（USDC）</label><input id="ag-single" type="number" value="100" /></div>
+              <div class="field"><label>日限额（USDC）</label><input id="ag-daily" type="number" value="500" /></div>
+              <div class="field"><label>权限（逗号分隔）</label><input id="ag-perms" value="request_voucher,submit_receipt,update_progress,request_settlement,sync_task_status" /></div>
             </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px">
+              <button type="button" class="btn" id="btn-ag-save">保存授权策略</button>
+              <button type="button" class="btn" id="btn-ag-get">读取策略</button>
+              <button type="button" class="btn primary" id="btn-ag-mint">钱包签名铸造 Runtime Key</button>
+            </div>
+            <pre class="out" id="ag-out" style="margin-top:12px; max-height:280px; overflow:auto">—</pre>
           </div>
         </section>
       </main>
@@ -289,7 +359,41 @@
     </script>
     <script src="../../scripts/i18n-cyber.js"></script>
     <script src="../../scripts/karma-public-api.js"></script>
+    <script src="../../scripts/console-wallet-auth.js"></script>
+    <script src="../../scripts/cyber-actions.js"></script>
     <script src="../../scripts/cyber-console.js"></script>
     <script src="../../scripts/console-sync.js"></script>
+    <script>
+      // 官网同款粒子网络背景
+      (function () {
+        var canvas = document.getElementById('particles');
+        if (!canvas) return;
+        var ctx = canvas.getContext('2d');
+        var W, H, pts = [];
+        var COLORS = ['34,211,238', '139,92,246', '232,121,249'];
+        function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+        window.addEventListener('resize', resize);
+        resize();
+        for (var i = 0; i < Math.min(70, window.innerWidth / 18); i++) {
+          pts.push({ x: Math.random() * W, y: Math.random() * H, vx: (Math.random() - 0.5) * 0.4, vy: (Math.random() - 0.5) * 0.4, r: Math.random() * 1.6 + 0.6, c: COLORS[Math.floor(Math.random() * COLORS.length)] });
+        }
+        (function tick() {
+          ctx.clearRect(0, 0, W, H);
+          for (var i = 0; i < pts.length; i++) {
+            var p = pts[i];
+            p.x += p.vx; p.y += p.vy;
+            if (p.x < 0 || p.x > W) p.vx *= -1;
+            if (p.y < 0 || p.y > H) p.vy *= -1;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(' + p.c + ',0.6)'; ctx.fill();
+            for (var j = i + 1; j < pts.length; j++) {
+              var q = pts[j], dx = p.x - q.x, dy = p.y - q.y, d = Math.sqrt(dx * dx + dy * dy);
+              if (d < 120) { ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.strokeStyle = 'rgba(34,211,238,' + ((1 - d / 120) * 0.12) + ')'; ctx.stroke(); }
+            }
+          }
+          requestAnimationFrame(tick);
+        })();
+      })();
+    </script>
   </body>
 </html>

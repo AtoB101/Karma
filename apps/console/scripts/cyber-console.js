@@ -29,10 +29,11 @@
         el("[data-cfg=api_base]").value =
           localStorage.getItem(LS_BASE) || window.KARMA_API_BASE || "http://127.0.0.1:8000";
       if (el("[data-cfg=api_key]"))
-        el("[data-cfg=api_key]").value = localStorage.getItem(LS_KEY) || window.KARMA_API_KEY || "";
+        el("[data-cfg=api_key]").value =
+          sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY) || window.KARMA_API_KEY || "";
       if (el("[data-cfg=identity_id]"))
         el("[data-cfg=identity_id]").value =
-          localStorage.getItem(LS_ID) || window.KARMA_IDENTITY_ID || "worker-001";
+          sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID) || window.KARMA_IDENTITY_ID || "worker-001";
       if (el("[data-cfg=task_ids]"))
         el("[data-cfg=task_ids]").value = localStorage.getItem(LS_TASKS) || "";
       if (el("[data-cfg=auto_sync]")) el("[data-cfg=auto_sync]").checked = localStorage.getItem(LS_AUTO) === "1";
@@ -47,8 +48,9 @@
     const auto = el("[data-cfg=auto_sync]")?.checked;
     try {
       localStorage.setItem(LS_BASE, base);
-      localStorage.setItem(LS_KEY, key);
-      localStorage.setItem(LS_ID, id);
+      // Security: API key / identity are session-only, never persisted long-term.
+      sessionStorage.setItem(LS_KEY, key);
+      sessionStorage.setItem(LS_ID, id);
       localStorage.setItem(LS_TASKS, tasks);
       if (auto !== undefined) localStorage.setItem(LS_AUTO, auto ? "1" : "");
     } catch (_) {}

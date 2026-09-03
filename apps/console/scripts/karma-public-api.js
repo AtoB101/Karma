@@ -13,6 +13,11 @@
 
   function headers() {
     const h = { Accept: "application/json" };
+    const token = String(global.KARMA_ACCESS_TOKEN || "").trim();
+    if (token) {
+      h["Authorization"] = "Bearer " + token;
+      return h;
+    }
     const key = String(global.KARMA_API_KEY || "").trim();
     if (key) h["X-Karma-Api-Key"] = key;
     return h;

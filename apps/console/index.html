@@ -34,6 +34,11 @@
       </div>
       <h1>Overview</h1>
       <p class="sub">Receiving and Payments are the two primary modules; other areas support operations and audit.</p>
+      <p style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+        <button type="button" class="btn" data-wallet-connect>🔗 连接钱包</button>
+        <button type="button" class="btn" data-wallet-disconnect>断开</button>
+        <span class="sub" data-wallet-status>—</span>
+      </p>
       <section class="panel" data-karma-console-root data-console-connect data-sync-interval-ms="12000">
         <h2 style="font-size: 1rem; margin-bottom: 0.35rem">Karma API · live state</h2>
         <p class="sub" style="margin: 0 0 0.65rem">
@@ -137,6 +142,7 @@
     <script src="scripts/console-bootstrap.js"></script>
     <script src="scripts/testnet-banner.js"></script>
     <script src="scripts/karma-public-api.js"></script>
+    <script src="scripts/console-wallet-auth.js"></script>
     <script src="scripts/console-connect.js"></script>
     <script src="scripts/karma-openclaw-connect.js"></script>
     <script src="scripts/console-sync.js"></script>

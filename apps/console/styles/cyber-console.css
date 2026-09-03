@@ -1,34 +1,57 @@
 /* Karma Console — cyber operations shell (extends user-provided design) */
 :root {
+  --bg: #05070d;
+  --cyan: #22d3ee;
+  --violet: #8b5cf6;
+  --magenta: #e879f9;
+  --grid: rgba(34, 211, 238, 0.05);
   --bg-base: #070b12;
   --bg-side: rgba(4, 8, 16, 0.92);
   --bg-card: rgba(12, 18, 28, 0.78);
-  --border-glow: rgba(0, 210, 255, 0.35);
-  --neon-cyan: #00e0ff;
+  --border-glow: rgba(34, 211, 238, 0.35);
+  --neon-cyan: #22d3ee;
   --neon-mint: #1effbc;
-  --neon-purple: #b77eff;
+  --neon-purple: #8b5cf6;
   --text-main: #eef5ff;
   --text-dim: #8aa7c4;
   --shadow-card: 0 20px 35px -12px rgba(0, 0, 0, 0.5);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-  background: radial-gradient(circle at 20% 30%, #0a1120, #03060c);
+  background: var(--bg);
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC", monospace;
   color: var(--text-main);
   min-height: 100vh;
   overflow: hidden;
 }
-body::before {
-  content: "";
+/* 官网同款背景层：霓虹渐变 + 网格 + 粒子网络 */
+.bg {
   position: fixed;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(0, 224, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 224, 255, 0.03) 1px, transparent 1px);
-  background-size: 40px 40px;
-  pointer-events: none;
   z-index: 0;
+  background:
+    radial-gradient(900px 600px at 15% -10%, rgba(139, 92, 246, 0.16), transparent 60%),
+    radial-gradient(800px 600px at 90% 10%, rgba(34, 211, 238, 0.12), transparent 60%),
+    radial-gradient(900px 700px at 50% 110%, rgba(232, 121, 249, 0.08), transparent 60%),
+    var(--bg);
+}
+.grid-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 100%);
+  pointer-events: none;
+}
+#particles {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
 }
 .app {
   display: grid;
@@ -448,4 +471,44 @@ textarea { min-height: 80px; resize: vertical; }
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+/* 顶部连接区：折叠设置 + 身份 chip */
+.identity-chip {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--neon-mint);
+  background: rgba(30, 255, 188, 0.08);
+  border: 1px solid rgba(30, 255, 188, 0.3);
+  border-radius: 100px;
+  padding: 6px 12px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conn-settings { margin-left: auto; }
+.conn-settings summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 16px;
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  border-radius: 40px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0f0ff;
+  user-select: none;
+}
+.conn-settings summary::-webkit-details-marker { display: none; }
+.conn-settings summary:hover { background: rgba(34, 211, 238, 0.1); }
+.conn-settings[open] summary { background: rgba(34, 211, 238, 0.12); border-color: var(--neon-cyan); }
+.conn-settings-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 12px;
+  background: rgba(0, 30, 48, 0.55);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-radius: 18px;
 }

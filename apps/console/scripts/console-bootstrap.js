@@ -13,11 +13,11 @@
         if (b) global.KARMA_API_BASE = b;
       }
       if (!global.KARMA_API_KEY) {
-        var k = localStorage.getItem(LS_KEY);
+        var k = sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY);
         if (k) global.KARMA_API_KEY = k;
       }
       if (!global.KARMA_IDENTITY_ID) {
-        var i = localStorage.getItem(LS_ID);
+        var i = sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID);
         if (i) global.KARMA_IDENTITY_ID = i;
       }
     } catch (_) {}
