@@ -149,7 +149,7 @@ async def create_voucher(body: CreateVoucherRequest, request: Request, db: Async
                 task_description_hash=voucher.task_description_hash,
                 progress_rule_hash=voucher.progress_rule_hash,
                 evidence_requirement_hash=voucher.evidence_requirement_hash,
-                expiry_time=voucher.expiry_time,
+                expiry_time=_as_utc(voucher.expiry_time).replace(tzinfo=None),
                 nonce=voucher.nonce,
                 buyer_signature=voucher.buyer_signature,
                 status=voucher.status.value,

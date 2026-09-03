@@ -2,8 +2,15 @@
 
 One command: python scripts/e2e_smoke.py
 
-Happy path (no capacity enforcement): contract -> settlement lifecycle -> receipt -> buyer-accept -> settled.
-Dispute path (capacity + voucher): capacity lock -> contract -> voucher accept -> settle -> dispute -> disputed.
+Coverage:
+  happy path  : contract -> settlement lifecycle -> receipt -> buyer-accept -> settled
+  payment code: create
+  dispute + arbitration closed loop: capacity lock -> voucher accept -> dispute
+                -> pool join x3 -> case create -> assign-auto -> vote x3 -> execute -> refunded
+
+Identities are seeded via /v1/identities/{id}/profile/init, so a fresh DB works.
+Two buyers keep capacity state clean: one without capacity (settle happy path),
+one with capacity (payment-code + dispute/arbitration).
 
 Exit 0 = all green; exit 1 = failure (prints which step).
 """
@@ -32,21 +39,29 @@ def step(name, r, want=(200, 201)):
     return body if ok else None
 
 
+def seed_identity(identity_id: str) -> None:
+    """Ensure an identity exists (idempotent; fresh-DB safe)."""
+    httpx.post(f"{BASE}/v1/identities/{identity_id}/profile/init", json={}, timeout=15)
+
+
 def main():
-    buyer = "kid_6458cbab317b7835417ab371"
-    seller = "kid_1c9ed7fab7d8affdb41b8b47"
     h = "aa" * 32
     deadline = (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat()
 
-    # ---- Happy path: settlement full lifecycle (no capacity row -> dev leniency) ----
+    seller = "kid_e2e_seller_" + uuid.uuid4().hex[:8]
+    seed_identity(seller)
+
+    # ---- Happy path: buyer WITHOUT capacity (buyer-accept short-circuits on no capacity row) ----
+    buyer_happy = "kid_e2e_happy_" + uuid.uuid4().hex[:8]
+    seed_identity(buyer_happy)
     tid = "e2e-smoke-" + uuid.uuid4().hex[:8]
     step("contract.create", httpx.post(f"{BASE}/v1/contracts", json={
-        "task_id": tid, "client_agent_id": buyer, "title": "E2E smoke",
+        "task_id": tid, "client_agent_id": buyer_happy, "title": "E2E smoke",
         "description": "x", "expected_output_schema": {}, "expected_step_count": 2,
         "escrow_amount": 5.0, "currency": "USD", "deadline_at": deadline,
     }, timeout=15))
     step("settle.create", httpx.post(f"{BASE}/v1/settlement/create", json={
-        "task_id": tid, "client_agent_id": buyer, "escrow_amount": 5.0,
+        "task_id": tid, "client_agent_id": buyer_happy, "escrow_amount": 5.0,
         "currency": "USD", "worker_agent_id": seller,
     }, timeout=15))
     step("settle.pending", httpx.post(f"{BASE}/v1/settlement/{tid}/pending", json={}, timeout=15))
@@ -70,7 +85,13 @@ def main():
         FAILURES.append("settle.buyer-accept.status")
         print(f"      expected status=settled, got {settled.get('status')}")
 
-    # ---- Payment code ----
+    # ---- Buyer WITH capacity (payment-code + dispute/arbitration) ----
+    buyer = "kid_e2e_credit_" + uuid.uuid4().hex[:8]
+    seed_identity(buyer)
+    step("capacity.lock", httpx.post(f"{BASE}/v1/capacity/{buyer}/lock",
+         json={"amount": 30.0}, timeout=15))
+
+    # payment code
     step("payment-code.create", httpx.post(f"{BASE}/v1/payment-codes", json={
         "buyer_identity_id": buyer, "seller_identity_id": seller,
         "amount": 2.0, "bill_credit_amount": 2.0, "currency": "USDC",
@@ -79,9 +100,7 @@ def main():
         "buyer_signature": "0xtest", "payment_mode": "manual", "ttl_seconds": 3600,
     }, timeout=15))
 
-    # ---- Dispute path (capacity + voucher) ----
-    step("capacity.lock", httpx.post(f"{BASE}/v1/capacity/{buyer}/lock",
-         json={"amount": 30.0}, timeout=15))
+    # dispute + arbitration closed loop
     tid2 = "e2e-smoke-disp-" + uuid.uuid4().hex[:8]
     step("dispute.contract", httpx.post(f"{BASE}/v1/contracts", json={
         "task_id": tid2, "client_agent_id": buyer, "title": "smoke dispute",
@@ -113,7 +132,25 @@ def main():
         FAILURES.append("dispute.open.status")
         print(f"      expected status=disputed, got {disp.get('status')}")
 
-    step("arbitration.pool", httpx.get(f"{BASE}/v1/arbitration/pool", timeout=15))
+    # arbitration pool: 3 arbitrators join
+    arb_ids = [f"arb-{i}-{uuid.uuid4().hex[:4]}" for i in range(3)]
+    for a in arb_ids:
+        step(f"arb.pool.join.{a[:6]}", httpx.post(f"{BASE}/v1/arbitration/pool/join", json={
+            "arbitrator_identity_id": a, "stake_amount": 0.0}, timeout=15))
+    case = step("arb.case.create", httpx.post(f"{BASE}/v1/arbitration/cases", json={
+        "task_id": tid2, "opened_by": buyer, "reason": "smoke arbitration",
+        "required_arbitrators": 3}, timeout=15))
+    cid = case.get("case_id") if case else None
+    assign = step("arb.assign-auto", httpx.post(f"{BASE}/v1/arbitration/cases/{cid}/assign-auto",
+         json={"count": 3}, timeout=15))
+    assigned = [a["arbitrator_identity_id"] for a in assign] if isinstance(assign, list) else []
+    for a in assigned:
+        step(f"arb.vote.{a[:6]}", httpx.post(f"{BASE}/v1/arbitration/cases/{cid}/vote", json={
+            "arbitrator_identity_id": a, "decision": "buyer_wins"}, timeout=15))
+    execd = step("arb.execute", httpx.post(f"{BASE}/v1/arbitration/cases/{cid}/execute", json={}, timeout=15))
+    if execd and execd.get("status") != "refunded":
+        FAILURES.append("arb.execute.status")
+        print(f"      expected status=refunded, got {execd.get('status')}")
 
     if FAILURES:
         print(f"\nRESULT: FAIL ({len(FAILURES)} step(s)): {FAILURES}")
