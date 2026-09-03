@@ -91,7 +91,8 @@
               <div class="top-actions">
                 <button type="button" class="btn" data-i18n="top.sub">切换子身份</button>
                 <button type="button" class="btn" data-i18n="top.export">导出记录</button>
-                <button type="button" class="btn primary" data-i18n="top.lock">增加锁仓额度</button>
+                <input id="lock-amount" type="number" step="0.01" value="10" placeholder="USDC" style="width:88px" />
+                <button type="button" class="btn primary" data-action="lock-capacity" data-i18n="top.lock">增加锁仓额度</button>
               </div>
             </div>
           </div>
