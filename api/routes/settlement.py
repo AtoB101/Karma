@@ -230,7 +230,7 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
             "settlement must be moved to pending before lock (settlement_lock_requires_pending)",
         )
     state.worker_agent_id = body.worker_agent_id
-    return await _apply_transition(
+    new_state = await _apply_transition(
         db=db,
         store=store,
         state=state,
@@ -239,6 +239,27 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
     )
+    # On-chain (testnet/hybrid): on acceptance, auto-lock buyer escrow + seller
+    # penalty + bind. The task self-skips when SETTLEMENT_MODE=offchain.
+    escrow_wei = _settlement_escrow_wei(state)
+    if escrow_wei > 0:
+        from worker.tasks import lock_and_bind_onchain
+        lock_and_bind_onchain.delay(task_id, escrow_wei)
+    return new_state
+
+
+def _settlement_escrow_wei(state) -> int:
+    """Settlement escrow amount as an integer wei value for the on-chain lock.
+
+    Off-chain escrow is tracked in USD float; the on-chain KarmaBilateral works in
+    the token's raw units (6-decimal stablecoin). Callers should already have a
+    wei-consistent escrow_amount when SETTLEMENT_MODE is testnet/hybrid; otherwise
+    this returns 0 and the on-chain lock is skipped.
+    """
+    try:
+        return int(state.escrow_amount or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 @router.post("/{task_id}/start", response_model=SettlementState)

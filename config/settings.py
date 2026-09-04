@@ -151,12 +151,20 @@ class Settings(BaseSettings):
     #   hybrid   — off-chain receipts/verification, on-chain payment + hash
     settlement_mode: str = "offchain"
 
+    # Default seller penalty stake (bps) when locking on-chain at acceptance
+    # (seller locks escrow_amount * penalty_bps / 10000 as collateral).
+    settlement_default_penalty_bps: int = 1000
+
     # Testnet RPC
     testnet_rpc_url: str = ""
     testnet_chain_id: int = 11155111  # Sepolia default
 
     # Wallet used to sign and submit transactions (NEVER commit a real key)
     testnet_private_key: str = ""
+
+    # Seller/agent signer for the bilateral lock (penalty stake). When unset,
+    # the bilateral lock+bind falls back to the buyer hot wallet (dev only).
+    agent_testnet_private_key: str = ""
 
     # SECURITY (KSA-fund-006): when false, the backend hot wallet (TESTNET_PRIVATE_KEY)
     # may NOT act as the escrow payer — lock funds must come from user-signed

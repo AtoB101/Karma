@@ -103,10 +103,19 @@ async def submit_for_verification(
     ))
 
     # Trigger async settlement + reputation update via Celery
-    from worker.tasks import run_settlement, update_reputation
+    from worker.tasks import run_settlement, update_reputation, run_onchain_settlement
     run_settlement.delay(
         result.task_id,
         result.model_dump(mode="json"),
+    )
+    # On-chain settlement (testnet/hybrid): settle / refund / dispute on-chain.
+    # The task self-skips when SETTLEMENT_MODE=offchain; settle needs the binding
+    # created earlier by lock_and_bind_onchain (settlement acceptance).
+    run_onchain_settlement.delay(
+        result.task_id,
+        result.model_dump(mode="json"),
+        body.bundle.model_dump(mode="json"),
+        body.contract.model_dump(mode="json"),
     )
 
     return result
