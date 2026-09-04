@@ -1,17 +1,16 @@
 """Dual-agent autonomous settlement driver (Hermes buyer / Claw seller).
 
-Drives a real bilateral transaction through the BFF (`apps/karma_bff`), the same
-endpoints the karma-openclaw MCP tools call, so it proves the full
-agent -> BFF -> API -> KarmaBilateral chain.
+Drives a real bilateral transaction through the main API `/v1/bilateral/*`
+endpoints (the same endpoints the karma-openclaw MCP tools call), proving the
+agent -> API -> KarmaBilateral chain.
 
 Prereqs:
-  - BFF running:  uvicorn apps.karma_bff.app.main:app --port 8020
   - Karma API + worker + Redis + seeded buyer/seller (see team/reports/...-integration-ready.md)
   - BUYER_API_KEY / SELLER_API_KEY in env (from .env.phase1.local)
 
 Usage:
-  BUYER_API_KEY=karma_buyer-... SELLER_API_KEY=karma_seller-... \
-  KARMA_RUNTIME_URL=http://127.0.0.1:8020 \
+  BUYER_API_KEY=*** SELLER_API_KEY=*** \
+  KARMA_RUNTIME_URL=http://127.0.0.1:8010 \
   python scripts/e2e_dual_agent_bff.py
 """
 import os
