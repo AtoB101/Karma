@@ -21,7 +21,7 @@ import hashlib
 
 from karma_openclaw.http_client import api_post, api_get
 
-RUNTIME = os.environ.get("KARMA_RUNTIME_URL", "http://127.0.0.1:8020").rstrip("/")
+RUNTIME = os.environ.get("KARMA_RUNTIME_URL", "http://127.0.0.1:8010").rstrip("/")
 USDC = "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF"
 AMOUNT = 100_000_000      # buyer locks 100 USDC
 PENALTY = 10_000_000      # seller locks 10 USDC (10%)

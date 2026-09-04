@@ -32,6 +32,7 @@ from api.routes import (
     progress,
     identities,
     arbitration,
+    bilateral,
     responsibility,
     security,
     admin_controls,
@@ -356,6 +357,7 @@ app.include_router(receipts.router,   prefix="/v1/receipts",   tags=["Receipts"]
 app.include_router(bundles.router,    prefix="/v1/bundles",    tags=["Bundles"], dependencies=_protected_dependencies)
 app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verification"], dependencies=_protected_dependencies)
 app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_rate_limited_rw)
+app.include_router(bilateral.router, tags=["Bilateral"])
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)
 app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_security_always_auth + [Depends(make_rate_limit_dep("write_sensitive"))])
