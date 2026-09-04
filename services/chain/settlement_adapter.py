@@ -99,6 +99,26 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
         "outputs": [{"name": "", "type": "bool"}],
     },
     {
+        "name": "getBill",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "billId", "type": "uint256"}],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple",
+                "components": [
+                    {"name": "billId", "type": "uint256"},
+                    {"name": "owner", "type": "address"},
+                    {"name": "token", "type": "address"},
+                    {"name": "amount", "type": "uint256"},
+                    {"name": "state", "type": "uint8"},
+                    {"name": "mintedAt", "type": "uint256"},
+                ],
+            }
+        ],
+    },
+    {
         "name": "getBinding",
         "type": "function",
         "stateMutability": "view",
@@ -116,6 +136,7 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
                     {"name": "createdAt", "type": "uint256"},
                     {"name": "settleAfter", "type": "uint256"},
                     {"name": "proofHash", "type": "bytes32"},
+                    {"name": "settleSubmittedAt", "type": "uint256"},
                     {"name": "disputedAt", "type": "uint256"},
                     {"name": "disputeInitiator", "type": "address"},
                 ],
@@ -125,6 +146,7 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
     {
         "name": "BillMinted",
         "type": "event",
+        "anonymous": False,
         "inputs": [
             {"name": "billId", "type": "uint256", "indexed": True},
             {"name": "owner", "type": "address", "indexed": True},
@@ -135,6 +157,7 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
     {
         "name": "BillsBound",
         "type": "event",
+        "anonymous": False,
         "inputs": [
             {"name": "bindingId", "type": "uint256", "indexed": True},
             {"name": "buyerBillId", "type": "uint256", "indexed": False},
@@ -498,6 +521,73 @@ class OnChainSettlementAdapter:
         task_contract.onchain_agent_bill_id = bill_id
         logger.info("agent_penalty_locked", task_id=task_contract.task_id, bill_id=bill_id, penalty_wei=penalty_wei)
         return {"status": "locked", "bill_id": bill_id, "tx_hash": tx_result.tx_hash}
+
+    # ------------------------------------------------------------------
+    # Direct bilateral primitives (used by the /v1/bilateral API routes)
+    # ------------------------------------------------------------------
+
+    def lock_direct(self, token: str, amount: int, role: str = "buyer") -> int:
+        """Lock `amount` of `token` as buyer or agent; return the minted bill id."""
+        w3 = self._get_web3()
+        bilateral = self._get_bilateral()
+        account = self._get_account() if role == "buyer" else self._get_agent_account()
+        tx_result = self._send_tx(
+            bilateral.functions.lock(w3.to_checksum_address(token), int(amount)),
+            account=account,
+        )
+        logs = bilateral.events.BillMinted().process_receipt(
+            w3.eth.get_transaction_receipt(tx_result.tx_hash)
+        )
+        if not logs:
+            raise RuntimeError("lock succeeded but BillMinted event not found")
+        return int(logs[0]["args"]["billId"])
+
+    def bind_direct(self, buyer_bill: int, agent_bill: int, scope_hash: str) -> int:
+        """Bind two bills (buyer calls bind); return the binding id."""
+        w3 = self._get_web3()
+        bilateral = self._get_bilateral()
+        tx_result = self._send_tx(
+            bilateral.functions.bind(int(buyer_bill), int(agent_bill), _to_bytes32(scope_hash)),
+            account=self._get_account(),
+        )
+        logs = bilateral.events.BillsBound().process_receipt(
+            w3.eth.get_transaction_receipt(tx_result.tx_hash)
+        )
+        if not logs:
+            raise RuntimeError("bind succeeded but BillsBound event not found")
+        return int(logs[0]["args"]["bindingId"])
+
+    def settle_direct(self, binding_id: int, proof_hash: str) -> ChainTxResult:
+        """Submit settlement proof (buyer or agent may call)."""
+        bilateral = self._get_bilateral()
+        return self._send_tx(
+            bilateral.functions.settle(int(binding_id), _to_bytes32(proof_hash)),
+            account=self._get_account(),
+        )
+
+    def binding_status(self, binding_id: int) -> dict:
+        """Read a binding + its two bills for the status endpoint."""
+        import time
+        bilateral = self._get_bilateral()
+        b = bilateral.functions.getBinding(int(binding_id)).call()
+        bb = bilateral.functions.getBill(int(b[1])).call()
+        ab = bilateral.functions.getBill(int(b[2])).call()
+        now = int(time.time())
+        state = int(b[4])
+        settle_after = int(b[6]) if state == 0 else 0  # ACTIVE -> settleAfter
+        return {
+            "binding_id": int(b[0]),
+            "state": state,
+            "buyer_bill_id": int(b[1]),
+            "agent_bill_id": int(b[2]),
+            "buyer_bill": {"bill_id": int(bb[0]), "owner": bb[1], "amount": int(bb[3]), "state": int(bb[4])},
+            "agent_bill": {"bill_id": int(ab[0]), "owner": ab[1], "amount": int(ab[3]), "state": int(ab[4])},
+            "usdc_locked": int(bb[3]) + int(ab[3]),
+            "settle_after": settle_after,
+            "can_settle": state in (0, 1) and settle_after <= now,
+            "can_dispute": state == 2,
+            "can_finalize": state == 2,
+        }
 
     def bind_bills(
         self,
