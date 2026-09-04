@@ -10,6 +10,7 @@ import {EvidenceChain}           from "../core/EvidenceChain.sol";
 import {CircuitBreaker}          from "../core/CircuitBreaker.sol";
 import {EmergencyFreeze}         from "../core/EmergencyFreeze.sol";
 import {KarmaReputationAnchor}   from "../core/KarmaReputationAnchor.sol";
+import {KarmaIdentityRegistry}   from "../core/KarmaIdentityRegistry.sol";
 import {MockERC20}               from "../test/mocks/MockERC20.sol";
 
 /// @notice Deploy the full Karma protocol stack to Base Sepolia (or any EVM chain).
@@ -160,6 +161,7 @@ contract DeployKarmaBilateral is Script {
         karma.setEmergencyGuard(address(freeze));
 
         KarmaReputationAnchor reputationAnchor = new KarmaReputationAnchor(admin);
+        KarmaIdentityRegistry identityRegistry = new KarmaIdentityRegistry(address(karma));
 
         // ── 5. KarmaAttestationGateway ────────────────────────────────────────
         KarmaAttestationGateway gateway = new KarmaAttestationGateway(
@@ -189,6 +191,7 @@ contract DeployKarmaBilateral is Script {
         require(karma.emergencyGuard()        == address(freeze), "freeze guard not wired");
         require(freeze.circuitBreaker()       == address(breaker), "breaker not wired");
         require(reputationAnchor.admin()      == admin,           "reputation anchor admin");
+        require(identityRegistry.bilateral()   == address(karma), "identity registry not wired");
         require(karma.checkInvariant(paymentToken),               "invariant broken at deploy");
 
         // ── Output ────────────────────────────────────────────────────────────
@@ -201,6 +204,7 @@ contract DeployKarmaBilateral is Script {
         console.log("BREAKER   ", address(breaker));
         console.log("FREEZE    ", address(freeze));
         console.log("REP_ANCHOR", address(reputationAnchor));
+        console.log("IDENTITY   ", address(identityRegistry));
         console.log("KARMA     ", address(karma));
         console.log("GATEWAY   ", address(gateway));
         console.log("");

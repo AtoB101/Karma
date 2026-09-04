@@ -52,6 +52,10 @@ app.conf.update(
             "task": "worker.tasks.update_verifier_reputation",
             "schedule": 3600.0,
         },
+        "finalize-onchain-settlements-every-5-min": {
+            "task": "worker.tasks.finalize_onchain_settlement",
+            "schedule": 300.0,
+        },
     },
 )
 
@@ -223,7 +227,7 @@ def run_onchain_settlement(
         bundle_hash = settlement_router.submit_evidence_hash(task_id, bundle)
 
         if result.decision == VerificationDecision.RELEASE:
-            amount_wei = int(contract.escrow_amount)
+            amount_wei = int(contract.escrow_amount * (10 ** settings.settlement_token_decimals))
             tx_result = settlement_router.release_payment(contract, result, bundle, amount_wei)
             if tx_result:
                 # Persist tx_hash to DB (settle → FINALIZING; finalizeSettle is a follow-up)
@@ -374,6 +378,98 @@ async def _persist_chain_or_offchain_result(
             if getattr(contract, "onchain_binding_id", None) is not None:
                 row.onchain_binding_id = int(contract.onchain_binding_id)
         await session.commit()
+
+
+@app.task(name="worker.tasks.lock_and_bind_onchain", bind=True, max_retries=3, default_retry_delay=15)
+def lock_and_bind_onchain(self, task_id: str, escrow_wei: int, seller_penalty_wei: int = 0):
+    """On settlement acceptance (接单): lock buyer escrow + seller penalty on-chain
+    and bind the two bills into a binding. Seller penalty defaults to
+    escrow_wei * SETTLEMENT_DEFAULT_PENALTY_BPS / 10000."""
+    import asyncio
+    from config.settings import settings
+    from core.schemas import TaskContract
+    from services.chain.settlement_adapter import settlement_router
+
+    if not settlement_router.is_onchain():
+        return {"skipped": True, "mode": settings.settlement_mode}
+
+    contract = TaskContract.model_construct(
+        task_id=task_id,
+        escrow_amount=float(escrow_wei),
+        onchain_do_lock=True,
+    )
+    try:
+        result = asyncio.run(_lock_and_bind(contract, seller_penalty_wei))
+        logger.info(f"lock_and_bind_onchain ok: task={task_id} binding={result.get('binding_id')}")
+        return {"task_id": task_id, **result}
+    except Exception as exc:
+        logger.error(f"lock_and_bind_onchain failed: task={task_id} error={exc}")
+        raise self.retry(exc=exc)
+
+
+async def _lock_and_bind(contract, seller_penalty_wei: int) -> dict:
+    from config.settings import settings
+    from services.chain.settlement_adapter import settlement_router
+
+    escrow_wei = int(contract.escrow_amount)
+    if seller_penalty_wei <= 0:
+        seller_penalty_wei = (escrow_wei * settings.settlement_default_penalty_bps) // 10_000
+
+    buyer = settlement_router.lock_funds(contract)
+    agent = settlement_router.lock_agent_penalty(contract, seller_penalty_wei)
+    bind = settlement_router.bind_bills(contract)
+    return {
+        "buyer_bill_id": getattr(contract, "onchain_buyer_bill_id", None),
+        "agent_bill_id": getattr(contract, "onchain_agent_bill_id", None),
+        "binding_id": bind.binding_id,
+        "tx_hash": bind.tx_hash,
+        "buyer": buyer,
+        "agent": agent,
+    }
+
+
+@app.task(name="worker.tasks.finalize_onchain_settlement")
+def finalize_onchain_settlement() -> dict:
+    """Beat: auto-finalize bindings whose dispute window has closed, releasing
+    the buyer's payment to the seller."""
+    import asyncio
+    from config.settings import settings
+    from services.chain.settlement_adapter import settlement_router
+
+    if not settlement_router.is_onchain():
+        return {"finalized": 0, "mode": settings.settlement_mode}
+
+    count = asyncio.run(_finalize_due_bindings())
+    logger.info("finalize_onchain_settlement complete", extra={"finalized": count})
+    return {"finalized": count}
+
+
+async def _finalize_due_bindings() -> int:
+    import time as _time
+    from db.session import AsyncSessionLocal
+    from db.models.orm import SettlementModel
+    from sqlalchemy import select
+    from services.chain.settlement_adapter import settlement_router
+
+    now = int(_time.time())
+    finalized = 0
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(SettlementModel).where(SettlementModel.onchain_status == "finalizing")
+        )
+        rows = result.scalars().all()
+        ids = [r.onchain_binding_id for r in rows if r.onchain_binding_id is not None]
+    for binding_id in ids:
+        try:
+            due = settlement_router.finalize_after(int(binding_id))
+            if due != 0 and due <= now:
+                tx = settlement_router.finalize_binding(int(binding_id))
+                if tx.status == "confirmed":
+                    finalized += 1
+        except Exception as exc:  # window open / not finalizing / RPC — skip
+            logger.warning("finalize_binding_skipped", binding_id=binding_id, error=str(exc))
+            continue
+    return finalized
 
 
 @app.task(name="worker.tasks.expire_stale_payment_intents")

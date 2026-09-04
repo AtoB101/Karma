@@ -108,6 +108,18 @@ async def submit_for_verification(
         result.task_id,
         result.model_dump(mode="json"),
     )
+    # On-chain settlement (testnet/hybrid): settle / refund / dispute on-chain.
+    # Guarded by is_onchain() so offchain/test runs never touch the Celery broker;
+    # settle needs the binding created earlier by lock_and_bind_onchain.
+    from services.chain.settlement_adapter import settlement_router
+    if settlement_router.is_onchain():
+        from worker.tasks import run_onchain_settlement
+        run_onchain_settlement.delay(
+            result.task_id,
+            result.model_dump(mode="json"),
+            body.bundle.model_dump(mode="json"),
+            body.contract.model_dump(mode="json"),
+        )
 
     return result
 

@@ -222,6 +222,7 @@ class OnChainSettlementAdapter:
     def __init__(self):
         self._w3 = None
         self._account = None
+        self._agent_account = None
         self._bilateral_contract = None
         self._erc20_contract = None
         self._chain_id: Optional[int] = None
@@ -280,6 +281,30 @@ class OnChainSettlementAdapter:
         self._account = Account.from_key(settings.testnet_private_key)
         return self._account
 
+    def _get_agent_account(self):
+        """Seller/agent signer for the penalty stake — must differ from the buyer.
+
+        KarmaBilateral.bind() reverts with BuyerAgentSameAddress when buyer == agent,
+        so the agent signer cannot fall back to the buyer hot wallet.
+        """
+        if self._agent_account is not None:
+            return self._agent_account
+        key = settings.agent_testnet_private_key
+        if not key:
+            raise RuntimeError(
+                "AGENT_TESTNET_PRIVATE_KEY not set — bilateral bind needs distinct "
+                "buyer/seller signers"
+            )
+        from eth_account import Account
+
+        self._agent_account = Account.from_key(key)
+        if self._agent_account.address == self._get_account().address:
+            raise RuntimeError(
+                "AGENT_TESTNET_PRIVATE_KEY must differ from TESTNET_PRIVATE_KEY "
+                "(KarmaBilateral.bind() reverts when buyer == agent)"
+            )
+        return self._agent_account
+
     def _get_bilateral(self):
         if self._bilateral_contract is not None:
             return self._bilateral_contract
@@ -328,9 +353,10 @@ class OnChainSettlementAdapter:
         )
         return self._erc20_contract
 
-    def _send_tx(self, fn) -> ChainTxResult:
+    def _send_tx(self, fn, account=None) -> ChainTxResult:
         w3 = self._get_web3()
-        account = self._get_account()
+        if account is None:
+            account = self._get_account()
         chain_id = self._chain_id or w3.eth.chain_id
         tx = fn.build_transaction(
             {
@@ -442,6 +468,37 @@ class OnChainSettlementAdapter:
         logger.info("lock_funds_ok", task_id=task_contract.task_id, amount=amount_wei)
         return result
 
+    def lock_agent_penalty(self, task_contract: TaskContract, penalty_wei: int) -> dict:
+        """Lock the seller's penalty stake from the agent signer; set onchain_agent_bill_id."""
+        if penalty_wei <= 0:
+            return {"status": "skipped", "note": "zero penalty — no seller stake"}
+        w3 = self._get_web3()
+        bilateral = self._get_bilateral()
+        erc20 = self._get_erc20()
+        account = self._get_agent_account()
+        token = w3.to_checksum_address(settings.erc20_token_address)
+        payer = w3.to_checksum_address(account.address)
+
+        allowance = erc20.functions.allowance(payer, bilateral.address).call()
+        if allowance < penalty_wei:
+            self._send_tx(erc20.functions.approve(bilateral.address, penalty_wei), account=account)
+
+        tx_result = self._send_tx(bilateral.functions.lock(token, penalty_wei), account=account)
+        bill_id = None
+        try:
+            logs = bilateral.events.BillMinted().process_receipt(
+                w3.eth.get_transaction_receipt(tx_result.tx_hash)
+            )
+            if logs:
+                bill_id = int(logs[0]["args"]["billId"])
+        except Exception as exc:  # pragma: no cover
+            logger.warning("agent_bill_minted_parse_failed", error=str(exc))
+        if bill_id is None:
+            raise RuntimeError("seller lock succeeded but BillMinted event not found")
+        task_contract.onchain_agent_bill_id = bill_id
+        logger.info("agent_penalty_locked", task_id=task_contract.task_id, bill_id=bill_id, penalty_wei=penalty_wei)
+        return {"status": "locked", "bill_id": bill_id, "tx_hash": tx_result.tx_hash}
+
     def bind_bills(
         self,
         task_contract: TaskContract,
@@ -539,17 +596,26 @@ class OnChainSettlementAdapter:
             raise ValueError(
                 "Cannot finalize: task_contract.onchain_binding_id is required"
             )
+        return self.finalize_binding(binding_id)
+
+    def finalize_binding(self, binding_id: int) -> ChainTxResult:
+        """Auto-finalize a binding by id (beat task). Reverts on-chain if the
+        dispute window is still open or the binding is not FINALIZING."""
         bilateral = self._get_bilateral()
         result = self._send_tx(bilateral.functions.finalizeSettle(int(binding_id)))
         result.binding_id = int(binding_id)
         result.quote_id = f"binding:{binding_id}"
         logger.info(
             "bilateral_finalize_ok",
-            task_id=task_contract.task_id,
             binding_id=binding_id,
             tx=result.tx_hash,
         )
         return result
+
+    def finalize_after(self, binding_id: int) -> int:
+        """Timestamp when finalizeSettle becomes callable; 0 if not FINALIZING."""
+        bilateral = self._get_bilateral()
+        return int(bilateral.functions.finalizeAfter(int(binding_id)).call())
 
     def refund_payment(
         self,

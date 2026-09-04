@@ -237,8 +237,10 @@ contract KarmaBilateralTest is Test {
         assertEq(uint8(b.state), uint8(KarmaBilateral.BindingState.SETTLED));
         assertEq(b.proofHash, PROOF);
 
-        assertEq(usdc.balanceOf(buyer), buyerBefore + BUYER_LOCK);
-        assertEq(usdc.balanceOf(agent), agentBefore + AGENT_LOCK);
+        // Buyer's lock is the payment (transferred to seller); seller gets
+        // their stake back plus the buyer's payment.
+        assertEq(usdc.balanceOf(buyer), buyerBefore);
+        assertEq(usdc.balanceOf(agent), agentBefore + BUYER_LOCK + AGENT_LOCK);
     }
 
     function test_settle_billsAreBurned() public {

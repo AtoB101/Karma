@@ -230,7 +230,7 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
             "settlement must be moved to pending before lock (settlement_lock_requires_pending)",
         )
     state.worker_agent_id = body.worker_agent_id
-    return await _apply_transition(
+    new_state = await _apply_transition(
         db=db,
         store=store,
         state=state,
@@ -239,6 +239,33 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
     )
+    # On-chain (testnet/hybrid): on acceptance, auto-lock buyer escrow + seller
+    # penalty + bind. Guarded by is_onchain() so offchain/test runs never touch
+    # the Celery broker.
+    escrow_wei = _settlement_escrow_wei(state)
+    if escrow_wei > 0:
+        from services.chain.settlement_adapter import settlement_router
+        if settlement_router.is_onchain():
+            from worker.tasks import lock_and_bind_onchain
+            lock_and_bind_onchain.delay(task_id, escrow_wei)
+    return new_state
+
+
+def _settlement_escrow_wei(state) -> int:
+    """Convert the off-chain USD escrow amount to the token's raw wei units.
+
+    Off-chain escrow is tracked in USD float; the on-chain KarmaBilateral works in
+    the token's raw units (6-decimal stablecoin). Returns 0 when the amount is
+    unset or non-numeric (the on-chain lock is then skipped).
+    """
+    from config.settings import settings
+    try:
+        usd = float(state.escrow_amount or 0)
+    except (TypeError, ValueError):
+        return 0
+    if usd <= 0:
+        return 0
+    return int(usd * (10 ** settings.settlement_token_decimals))
 
 
 @router.post("/{task_id}/start", response_model=SettlementState)
