@@ -155,6 +155,10 @@ class Settings(BaseSettings):
     # (seller locks escrow_amount * penalty_bps / 10000 as collateral).
     settlement_default_penalty_bps: int = 1000
 
+    # Token decimals for on-chain settlement (USDC = 6). Off-chain escrow is in
+    # USD float; the on-chain boundary converts USD -> wei via 10**decimals.
+    settlement_token_decimals: int = 6
+
     # Testnet RPC
     testnet_rpc_url: str = ""
     testnet_chain_id: int = 11155111  # Sepolia default

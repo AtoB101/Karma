@@ -282,15 +282,27 @@ class OnChainSettlementAdapter:
         return self._account
 
     def _get_agent_account(self):
-        """Seller/agent signer for the penalty stake (falls back to the buyer hot wallet)."""
+        """Seller/agent signer for the penalty stake — must differ from the buyer.
+
+        KarmaBilateral.bind() reverts with BuyerAgentSameAddress when buyer == agent,
+        so the agent signer cannot fall back to the buyer hot wallet.
+        """
         if self._agent_account is not None:
             return self._agent_account
-        key = settings.agent_testnet_private_key or settings.testnet_private_key
+        key = settings.agent_testnet_private_key
         if not key:
-            raise RuntimeError("AGENT_TESTNET_PRIVATE_KEY (or TESTNET_PRIVATE_KEY) not set")
+            raise RuntimeError(
+                "AGENT_TESTNET_PRIVATE_KEY not set — bilateral bind needs distinct "
+                "buyer/seller signers"
+            )
         from eth_account import Account
 
         self._agent_account = Account.from_key(key)
+        if self._agent_account.address == self._get_account().address:
+            raise RuntimeError(
+                "AGENT_TESTNET_PRIVATE_KEY must differ from TESTNET_PRIVATE_KEY "
+                "(KarmaBilateral.bind() reverts when buyer == agent)"
+            )
         return self._agent_account
 
     def _get_bilateral(self):

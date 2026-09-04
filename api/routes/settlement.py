@@ -249,17 +249,20 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
 
 
 def _settlement_escrow_wei(state) -> int:
-    """Settlement escrow amount as an integer wei value for the on-chain lock.
+    """Convert the off-chain USD escrow amount to the token's raw wei units.
 
     Off-chain escrow is tracked in USD float; the on-chain KarmaBilateral works in
-    the token's raw units (6-decimal stablecoin). Callers should already have a
-    wei-consistent escrow_amount when SETTLEMENT_MODE is testnet/hybrid; otherwise
-    this returns 0 and the on-chain lock is skipped.
+    the token's raw units (6-decimal stablecoin). Returns 0 when the amount is
+    unset or non-numeric (the on-chain lock is then skipped).
     """
+    from config.settings import settings
     try:
-        return int(state.escrow_amount or 0)
+        usd = float(state.escrow_amount or 0)
     except (TypeError, ValueError):
         return 0
+    if usd <= 0:
+        return 0
+    return int(usd * (10 ** settings.settlement_token_decimals))
 
 
 @router.post("/{task_id}/start", response_model=SettlementState)

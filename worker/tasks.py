@@ -227,7 +227,7 @@ def run_onchain_settlement(
         bundle_hash = settlement_router.submit_evidence_hash(task_id, bundle)
 
         if result.decision == VerificationDecision.RELEASE:
-            amount_wei = int(contract.escrow_amount)
+            amount_wei = int(contract.escrow_amount * (10 ** settings.settlement_token_decimals))
             tx_result = settlement_router.release_payment(contract, result, bundle, amount_wei)
             if tx_result:
                 # Persist tx_hash to DB (settle → FINALIZING; finalizeSettle is a follow-up)
