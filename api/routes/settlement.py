@@ -240,11 +240,14 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
         actor_id=_resolve_actor_id(request),
     )
     # On-chain (testnet/hybrid): on acceptance, auto-lock buyer escrow + seller
-    # penalty + bind. The task self-skips when SETTLEMENT_MODE=offchain.
+    # penalty + bind. Guarded by is_onchain() so offchain/test runs never touch
+    # the Celery broker.
     escrow_wei = _settlement_escrow_wei(state)
     if escrow_wei > 0:
-        from worker.tasks import lock_and_bind_onchain
-        lock_and_bind_onchain.delay(task_id, escrow_wei)
+        from services.chain.settlement_adapter import settlement_router
+        if settlement_router.is_onchain():
+            from worker.tasks import lock_and_bind_onchain
+            lock_and_bind_onchain.delay(task_id, escrow_wei)
     return new_state
 
 
