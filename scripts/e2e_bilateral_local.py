@@ -78,22 +78,23 @@ def main():
     tx("admin", token.functions.mint(addr["buyer"], 10 * AMOUNT))
     tx("admin", token.functions.mint(addr["agent"], 10 * AMOUNT))
 
+    PENALTY = AMOUNT // 10  # seller stakes 10% penalty, not the full order
     # approve
     tx("buyer", token.functions.approve(kb.address, AMOUNT))
-    tx("agent", token.functions.approve(kb.address, AMOUNT))
+    tx("agent", token.functions.approve(kb.address, PENALTY))
 
     b_before = token.functions.balanceOf(addr["buyer"]).call()
     a_before = token.functions.balanceOf(addr["agent"]).call()
 
-    # 1. lock both sides
+    # 1. asymmetric lock: buyer locks full order, seller locks penalty only
     r = tx("buyer", kb.functions.lock(token.address, AMOUNT))
     buyer_bill = _bill_id(r, kb, "BillMinted")
-    r = tx("agent", kb.functions.lock(token.address, AMOUNT))
+    r = tx("agent", kb.functions.lock(token.address, PENALTY))
     agent_bill = _bill_id(r, kb, "BillMinted")
 
-    # invariant: both bills locked -> contract holds 2*AMOUNT
+    # escrow holds buyer's full payment + seller's penalty
     escrow_after_lock = token.functions.balanceOf(kb.address).call()
-    assert escrow_after_lock == 2 * AMOUNT, f"escrow should hold 2*AMOUNT, has {escrow_after_lock}"
+    assert escrow_after_lock == AMOUNT + PENALTY, f"escrow should hold AMOUNT+PENALTY, has {escrow_after_lock}"
 
     # 2. bind
     scope = Web3.keccak(text="karma-e2e-scope")
@@ -113,10 +114,11 @@ def main():
     a_after = token.functions.balanceOf(addr["agent"]).call()
     escrow_after = token.functions.balanceOf(kb.address).call()
 
-    # no feeBridge => fee 0, each side gets its own amount back, escrow drained to 0
+    # no feeBridge => fee 0. Buyer's full amount is the payment to the seller;
+    # seller's penalty returns to them. Escrow drained to 0.
     assert escrow_after == 0, f"escrow should be drained, has {escrow_after}"
-    assert b_after == b_before, f"buyer should be back to {b_before}, has {b_after}"
-    assert a_after == a_before, f"agent should be back to {a_before}, has {a_after}"
+    assert b_after == b_before - AMOUNT, f"buyer should have paid {AMOUNT}, delta={b_before - b_after}"
+    assert a_after == a_before + AMOUNT, f"seller should have received {AMOUNT}, delta={a_after - a_before}"
 
     # invariant: supply == locked == 0 after both bills burned
     supply = kb.functions.totalBillSupply(token.address).call()

@@ -499,7 +499,8 @@ contract KarmaBilateral {
         // ═══ Intent validation ═══
         if (intent.buyer != buyerBill.owner) revert IntentPartyMismatch("buyer");
         if (intent.seller != agentBill.owner) revert IntentPartyMismatch("seller");
-        if (intent.amount != buyerBill.amount || intent.amount != agentBill.amount)
+        uint256 sellerStake = (intent.amount * intent.penaltyRate) / 10_000;
+        if (intent.amount != buyerBill.amount || sellerStake != agentBill.amount)
             revert IntentAmountMismatch(intent.amount, buyerBill.amount, agentBill.amount);
         if (intent.expiresAt < block.timestamp) revert IntentExpired(intent.expiresAt);
         if (intent.serviceType == bytes32(0)) revert ZeroAmount();
@@ -760,9 +761,9 @@ contract KarmaBilateral {
             emit ArbitrationAutoResolved(bindingId, false, 0);
             _executeSettle(bindingId, b, buyerBill, agentBill, b.proofHash);
         } else if (buyerSubmitted && !agentSubmitted) {
-            // Buyer wins: full refund
+            // Buyer wins: refund + seller's penalty forfeited (100% to buyer)
             emit ArbitrationAutoResolved(bindingId, true, 10_000);
-            _executeRefund(bindingId, b, buyerBill, agentBill);
+            _executeSplit(bindingId, b, buyerBill, agentBill, 10_000);
         } else if (!buyerSubmitted && !agentSubmitted) {
             // Neither submitted: conservative refund
             emit ArbitrationAutoResolved(bindingId, true, 10_000);
@@ -1183,23 +1184,21 @@ contract KarmaBilateral {
             developer = agentOwner; // default: seller; MiniApp should set builder via setBindingDeveloper
         }
         uint256 fee = _collectEconomyFee(bindingId, token, buyerOwner, agentOwner, developer, totalPool);
-        uint256 agentPayout = agentAmount > fee ? agentAmount - fee : 0;
-        // If fee exceeds agent side (edge), take residual from buyer side.
-        uint256 buyerPayout = buyerAmount;
-        if (agentAmount < fee) {
-            uint256 rest = fee - agentAmount;
-            buyerPayout = buyerAmount > rest ? buyerAmount - rest : 0;
-        }
+        // Buyer's locked amount is the payment to the seller; the seller's
+        // locked amount is their stake/collateral returned on success. Fee is
+        // charged to the seller's proceeds (capped at MAX_FEE_BPS of the pool).
+        uint256 sellerPayout = totalPool > fee ? totalPool - fee : 0;
+        uint256 buyerPayout = 0;
 
         if (buyerPayout > 0) _transfer(token, buyerOwner, buyerPayout);
-        if (agentPayout > 0) _transfer(token, agentOwner, agentPayout);
+        if (sellerPayout > 0) _transfer(token, agentOwner, sellerPayout);
 
         _checkInvariant(token);
         _checkPerAddressInvariant(buyerOwner);
         _checkPerAddressInvariant(agentOwner);
 
         emit SettleFinalized(bindingId, proofHash);
-        emit BindingSettled(bindingId, proofHash, buyerPayout, agentPayout);
+        emit BindingSettled(bindingId, proofHash, buyerPayout, sellerPayout);
     }
 
     /// @dev Execute refund: burn both bills, return USDC to respective owners.

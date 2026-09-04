@@ -189,9 +189,9 @@ contract KarmaBilateralAttestationTest is Test {
         assertEq(uint8(b.state), uint8(KarmaBilateral.BindingState.SETTLED));
         assertEq(b.proofHash, EVIDENCE);
 
-        // USDC released
-        assertEq(usdc.balanceOf(buyer), buyerBefore + BUYER_LOCK);
-        assertEq(usdc.balanceOf(agent), agentBefore + AGENT_LOCK);
+        // Buyer's lock is the payment to seller; seller gets stake + payment back
+        assertEq(usdc.balanceOf(buyer), buyerBefore);
+        assertEq(usdc.balanceOf(agent), agentBefore + BUYER_LOCK + AGENT_LOCK);
 
         // Invariant holds
         assertTrue(karma.checkInvariant(address(usdc)));
