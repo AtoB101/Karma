@@ -1,7 +1,7 @@
 """Karma API — Authorization vouchers."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, model_validator
@@ -28,6 +28,13 @@ from services.path_param_safety import validate_public_url_segment
 from services.text_safety import validate_json_strings_safe, validate_safe_storage_text
 
 router = APIRouter()
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """Normalize a possibly-naive datetime to aware UTC for comparison."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 class CreateVoucherRequest(BaseModel):
@@ -88,7 +95,7 @@ async def create_voucher(body: CreateVoucherRequest, request: Request, db: Async
     require_ledger_identity(request, body.buyer_identity_id)
     if body.amount <= 0 or body.bill_credit_amount <= 0:
         raise HTTPException(400, "amount and bill_credit_amount must be > 0")
-    if body.expiry_time <= datetime.utcnow():
+    if _as_utc(body.expiry_time) <= datetime.now(timezone.utc):
         raise HTTPException(400, "expiry_time must be in the future")
 
     cap = await db.get(CapacityModel, body.buyer_identity_id)
@@ -142,7 +149,7 @@ async def create_voucher(body: CreateVoucherRequest, request: Request, db: Async
                 task_description_hash=voucher.task_description_hash,
                 progress_rule_hash=voucher.progress_rule_hash,
                 evidence_requirement_hash=voucher.evidence_requirement_hash,
-                expiry_time=voucher.expiry_time,
+                expiry_time=_as_utc(voucher.expiry_time).replace(tzinfo=None),
                 nonce=voucher.nonce,
                 buyer_signature=voucher.buyer_signature,
                 status=voucher.status.value,
@@ -204,8 +211,8 @@ async def verify_voucher(voucher_id: str, body: VerifyVoucherRequest, request: R
         raise HTTPException(404, f"Voucher {voucher_id} not found")
     require_ledger_identity(request, body.seller_identity_id)
 
-    now = datetime.utcnow()
-    is_expired = row.expiry_time <= now
+    now = datetime.now(timezone.utc)
+    is_expired = _as_utc(row.expiry_time) <= now
     is_used = row.status in {VoucherStatus.USED.value, VoucherStatus.CANCELLED.value}
     seller_matches = row.seller_identity_id == body.seller_identity_id
     amount_matches = body.expected_amount is None or abs(row.amount - body.expected_amount) < 1e-9

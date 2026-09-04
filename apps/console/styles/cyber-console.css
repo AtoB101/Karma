@@ -10,7 +10,7 @@
   --bg-card: rgba(12, 18, 28, 0.78);
   --border-glow: rgba(34, 211, 238, 0.35);
   --neon-cyan: #22d3ee;
-  --neon-mint: #1effbc;
+  --neon-mint: #e879f9;
   --neon-purple: #8b5cf6;
   --text-main: #eef5ff;
   --text-dim: #8aa7c4;
@@ -157,20 +157,20 @@ body {
   transform: translateX(4px);
 }
 .nav button.active {
-  background: linear-gradient(95deg, rgba(0, 224, 255, 0.2), rgba(30, 255, 188, 0.08));
+  background: linear-gradient(95deg, rgba(0, 224, 255, 0.2), rgba(232, 121, 249, 0.08));
   color: var(--neon-cyan);
   border-right: 2px solid var(--neon-cyan);
 }
 .icon { width: 28px; }
 .side-warning {
   margin-top: auto;
-  background: rgba(30, 255, 188, 0.08);
-  border: 1px solid rgba(30, 255, 188, 0.3);
+  background: rgba(232, 121, 249, 0.08);
+  border: 1px solid rgba(232, 121, 249, 0.3);
   border-radius: 18px;
   padding: 14px;
   font-size: 12px;
 }
-.side-warning b { display: block; margin-bottom: 6px; color: #b3ffdf; }
+.side-warning b { display: block; margin-bottom: 6px; color: #f0abfc; }
 .main {
   overflow-y: auto;
   padding: 24px 28px;
@@ -249,7 +249,7 @@ body {
   transform: translateY(-1px);
 }
 .btn.primary {
-  background: linear-gradient(105deg, #00b8ff, #00e6a0);
+  background: linear-gradient(105deg, #22d3ee, #8b5cf6);
   border: none;
   color: #0a0c12;
   font-weight: 700;
@@ -335,7 +335,7 @@ th { color: #8bc6ff; font-weight: 600; }
   font-size: 12px;
   font-weight: 600;
 }
-.badge.green { background: rgba(30, 255, 188, 0.12); color: #bcffe4; }
+.badge.green { background: rgba(232, 121, 249, 0.12); color: #f5d0fe; }
 .badge.cyan { background: rgba(0, 224, 255, 0.12); color: #caf5ff; }
 .badge.yellow { background: rgba(255, 210, 90, 0.12); color: #ffe1a0; }
 .badge.red { background: rgba(255, 90, 122, 0.12); color: #ffbecb; }
@@ -439,7 +439,7 @@ textarea { min-height: 80px; resize: vertical; }
   transition: 0.2s;
 }
 .switch input:checked + .slider {
-  background: linear-gradient(135deg, #00b4ff, #00e6a0);
+  background: linear-gradient(135deg, #22d3ee, #8b5cf6);
 }
 .switch input:checked + .slider:before {
   transform: translateX(24px);
@@ -477,8 +477,8 @@ textarea { min-height: 80px; resize: vertical; }
   font-family: monospace;
   font-size: 12px;
   color: var(--neon-mint);
-  background: rgba(30, 255, 188, 0.08);
-  border: 1px solid rgba(30, 255, 188, 0.3);
+  background: rgba(232, 121, 249, 0.08);
+  border: 1px solid rgba(232, 121, 249, 0.3);
   border-radius: 100px;
   padding: 6px 12px;
   max-width: 280px;

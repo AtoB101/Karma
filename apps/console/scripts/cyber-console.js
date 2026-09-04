@@ -119,6 +119,22 @@
     }
   }
 
+  async function lockCapacityAction() {
+    const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
+    const amount = Number(el("#lock-amount")?.value || 0);
+    if (!id) { setApiStatus("请先连接钱包或填写 Identity ID", true); return; }
+    if (!amount || amount <= 0) { setApiStatus("请填写锁仓金额", true); return; }
+    setApiStatus("锁仓中…", false);
+    try {
+      const r = await window.cyberKarmaApi.lockCapacity(id, amount);
+      setApiStatus("锁仓成功 · " + amount + " USDC", false);
+      refreshCapacity();
+      return r;
+    } catch (e) {
+      setApiStatus(String(e.message || e), true);
+    }
+  }
+
   function switchPage(page) {
     document.querySelectorAll(".page").forEach(function (p) {
       p.classList.remove("active");
@@ -174,6 +190,10 @@
     el("[data-action=fetch-settlement]")?.addEventListener("click", function () {
       saveCfg();
       fetchSettlement();
+    });
+    el("[data-action=lock-capacity]")?.addEventListener("click", function () {
+      saveCfg();
+      lockCapacityAction();
     });
   }
 
