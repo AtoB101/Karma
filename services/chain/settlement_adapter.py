@@ -526,8 +526,18 @@ class OnChainSettlementAdapter:
     # Direct bilateral primitives (used by the /v1/bilateral API routes)
     # ------------------------------------------------------------------
 
+    def _require_hot_wallet_allowed(self):
+        """Production gate: the backend hot wallet must not drive on-chain settlement."""
+        from config.settings import settings
+        if not settings.chain_allow_hot_wallet_payer:
+            raise RuntimeError(
+                "CHAIN_ALLOW_HOT_WALLET_PAYER=false: the backend hot wallet may not "
+                "drive on-chain settlement — clients must sign their own transactions"
+            )
+
     def lock_direct(self, token: str, amount: int, role: str = "buyer") -> int:
         """Lock `amount` of `token` as buyer or agent; return the minted bill id."""
+        self._require_hot_wallet_allowed()
         w3 = self._get_web3()
         bilateral = self._get_bilateral()
         account = self._get_account() if role == "buyer" else self._get_agent_account()
@@ -544,6 +554,7 @@ class OnChainSettlementAdapter:
 
     def bind_direct(self, buyer_bill: int, agent_bill: int, scope_hash: str) -> int:
         """Bind two bills (buyer calls bind); return the binding id."""
+        self._require_hot_wallet_allowed()
         w3 = self._get_web3()
         bilateral = self._get_bilateral()
         tx_result = self._send_tx(
@@ -559,6 +570,7 @@ class OnChainSettlementAdapter:
 
     def settle_direct(self, binding_id: int, proof_hash: str) -> ChainTxResult:
         """Submit settlement proof (buyer or agent may call)."""
+        self._require_hot_wallet_allowed()
         bilateral = self._get_bilateral()
         return self._send_tx(
             bilateral.functions.settle(int(binding_id), _to_bytes32(proof_hash)),
