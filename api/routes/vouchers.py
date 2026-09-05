@@ -54,6 +54,7 @@ class CreateVoucherRequest(BaseModel):
     seller_sub_identity_id: str | None = None
     progress_rule_spec: dict | None = None
     buyer_wallet_address: str | None = None
+    profile_id: str | None = None
 
     @model_validator(mode="after")
     def _reject_unsafe_embedded_text(self) -> "CreateVoucherRequest":
@@ -158,6 +159,7 @@ async def create_voucher(body: CreateVoucherRequest, request: Request, db: Async
                 accepted_at=voucher.accepted_at,
                 created_at=voucher.created_at,
                 progress_rule_spec=voucher.progress_rule_spec,
+                profile_id=body.profile_id,
             )
         )
         await db.flush()
@@ -304,6 +306,7 @@ def _to_schema(row: VoucherModel) -> AuthorizationVoucher:
         status=VoucherStatus(row.status),
         buyer_sub_identity_id=row.buyer_sub_identity_id,
         seller_sub_identity_id=row.seller_sub_identity_id,
+        profile_id=getattr(row, "profile_id", None),
         accepted_at=row.accepted_at,
         created_at=row.created_at,
         progress_rule_spec=row.progress_rule_spec,

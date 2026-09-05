@@ -139,6 +139,7 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
     voucher_id = body.voucher_id
     delivery_deadline_at = body.delivery_deadline_at
     progress_rule_spec = None
+    profile_id = body.profile_id
     escrow_amount = body.escrow_amount
     if voucher_id:
         vrow = await db.get(VoucherModel, voucher_id)
@@ -151,13 +152,15 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
         if abs(vrow.bill_credit_amount - body.escrow_amount) > 1e-6:
             raise HTTPException(409, "escrow_amount must equal voucher bill_credit_amount when voucher_id is set")
         progress_rule_spec = vrow.progress_rule_spec
+        if vrow.profile_id and not profile_id:
+            profile_id = vrow.profile_id
 
     state = SettlementState(
         task_id=body.task_id,
         escrow_amount=escrow_amount,
         currency=body.currency,
         client_agent_id=body.client_agent_id,
-        profile_id=body.profile_id,
+        profile_id=profile_id,
         status=TaskStatus.DRAFT,
         settlement_mode=_s.settlement_mode,
         chain_id=_s.testnet_chain_id if _s.settlement_mode != "offchain" else None,

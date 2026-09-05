@@ -307,6 +307,8 @@ async def runtime_request_voucher(
     v = body.voucher
     if v.buyer_identity_id != ctx.karma_identity_id:
         raise HTTPException(status_code=403, detail="voucher buyer_identity_id must match runtime key identity")
+    if ctx.profile_id and not v.profile_id:
+        v = v.model_copy(update={"profile_id": ctx.profile_id})
     check_replay_nonce(key_id=ctx.key_id, endpoint="request-voucher", nonce=body.client_nonce)
     daily_used = await get_daily_used_async(db, ctx.key_id)
     check_single_and_daily_limits(
