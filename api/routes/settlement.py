@@ -59,6 +59,7 @@ class CreateSettlementRequest(BaseModel):
     currency: str = "USD"
     voucher_id: str | None = None
     delivery_deadline_at: datetime | None = None
+    profile_id: str | None = None
 
 
 class LockRequest(BaseModel):
@@ -129,6 +130,8 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
     validate_public_url_segment("client_agent_id", body.client_agent_id)
     if body.voucher_id:
         validate_public_url_segment("voucher_id", body.voucher_id)
+    if body.profile_id:
+        validate_public_url_segment("profile_id", body.profile_id)
     require_buyer_on_create(request, body.client_agent_id)
     await ensure_task_contract_exists(db, body.task_id)
     from config.settings import settings as _s
@@ -154,6 +157,7 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
         escrow_amount=escrow_amount,
         currency=body.currency,
         client_agent_id=body.client_agent_id,
+        profile_id=body.profile_id,
         status=TaskStatus.DRAFT,
         settlement_mode=_s.settlement_mode,
         chain_id=_s.testnet_chain_id if _s.settlement_mode != "offchain" else None,

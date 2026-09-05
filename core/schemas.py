@@ -379,6 +379,10 @@ class ExecutionReceipt(BaseModel):
     receipt_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     task_id: str = Field(description="Parent task this receipt belongs to")
     agent_id: str = Field(description="Agent that executed this step")
+    profile_id: Optional[str] = Field(
+        default=None,
+        description="Identity role profile this receipt belongs to (P1 multi-profile)",
+    )
     step_index: int = Field(ge=1, description="Sequential step number (1-based)")
     tool_name: str = Field(description="Name of the tool that was called")
     input_hash: str = Field(description="SHA-256 of the tool input payload")
@@ -501,6 +505,10 @@ class SettlementState(BaseModel):
     status: TaskStatus = TaskStatus.DRAFT
     client_agent_id: str
     worker_agent_id: Optional[str] = None
+    profile_id: Optional[str] = Field(
+        default=None,
+        description="Identity role profile this settlement belongs to (P1 multi-profile)",
+    )
     released_amount: Optional[float] = None
     refunded_amount: Optional[float] = None
     dispute_reason: Optional[str] = None
@@ -566,6 +574,10 @@ class SettlementTransitionAudit(BaseModel):
 class CapacityState(BaseModel):
     """USDC-anchored bill credit capacity for one identity."""
     identity_id: str
+    profile_id: Optional[str] = Field(
+        default=None,
+        description="Identity role profile this capacity belongs to (P1 multi-profile)",
+    )
     total_locked_usdc: float = 0.0
     total_bill_credits: float = 0.0
     available_credits: float = 0.0
