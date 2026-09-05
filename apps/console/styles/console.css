@@ -49,6 +49,18 @@ nav a.active {
   color: var(--accent);
   font-weight: 700;
 }
+.identity-switcher select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  max-width: 280px;
+}
+.identity-switcher select:focus {
+  outline: 1px solid var(--accent);
+}
 main {
   flex: 1;
   padding: 1.25rem 1rem 2rem;
