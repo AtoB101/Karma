@@ -24,6 +24,7 @@ router = APIRouter()
 
 class AmountRequest(BaseModel):
     amount: float = Field(gt=0.0)
+    profile_id: str | None = None
 
 
 @router.get("/{identity_id}", response_model=CapacityState)
@@ -38,6 +39,8 @@ async def get_capacity(identity_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/{identity_id}/lock", response_model=CapacityState)
 async def lock_usdc(identity_id: str, body: AmountRequest, request: Request, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("identity_id", identity_id)
+    if body.profile_id:
+        validate_public_url_segment("profile_id", body.profile_id)
     require_ledger_identity(request, identity_id)
     assert_runtime_operation_allowed("new_lock")
 
@@ -52,6 +55,7 @@ async def lock_usdc(identity_id: str, body: AmountRequest, request: Request, db:
     if not row:
         row = CapacityModel(
             identity_id=identity_id,
+            profile_id=body.profile_id,
             total_locked_usdc=0.0,
             total_bill_credits=0.0,
             available_credits=0.0,
@@ -65,6 +69,8 @@ async def lock_usdc(identity_id: str, body: AmountRequest, request: Request, db:
             updated_at=datetime.utcnow(),
         )
         db.add(row)
+    if body.profile_id:
+        row.profile_id = body.profile_id
     row.total_locked_usdc += body.amount
     row.total_bill_credits += body.amount
     row.available_credits += body.amount
@@ -80,12 +86,16 @@ async def lock_usdc(identity_id: str, body: AmountRequest, request: Request, db:
 @router.post("/{identity_id}/release", response_model=CapacityState)
 async def release_unused(identity_id: str, body: AmountRequest, request: Request, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("identity_id", identity_id)
+    if body.profile_id:
+        validate_public_url_segment("profile_id", body.profile_id)
     require_ledger_identity(request, identity_id)
     assert_runtime_operation_allowed("release_unused_capacity")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     row = await db.get(CapacityModel, identity_id)
     if not row:
         raise HTTPException(404, f"Capacity for {identity_id} not found")
+    if body.profile_id:
+        row.profile_id = body.profile_id
     state_before = _to_schema(row)
     try:
         assert_can_release_locked_funds(state_before, body.amount)
@@ -108,6 +118,7 @@ async def release_unused(identity_id: str, body: AmountRequest, request: Request
 def _to_schema(row: CapacityModel) -> CapacityState:
     return CapacityState(
         identity_id=row.identity_id,
+        profile_id=row.profile_id,
         total_locked_usdc=row.total_locked_usdc,
         total_bill_credits=row.total_bill_credits,
         available_credits=row.available_credits,

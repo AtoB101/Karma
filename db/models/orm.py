@@ -106,6 +106,7 @@ class ReceiptModel(Base):
     receipt_id:    Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
     task_id:       Mapped[str]      = mapped_column(String(64), ForeignKey("task_contracts.task_id"), nullable=False)
     agent_id:      Mapped[str]      = mapped_column(String(64), nullable=False)
+    profile_id:    Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
     step_index:    Mapped[int]      = mapped_column(Integer, nullable=False)
     tool_name:     Mapped[str]      = mapped_column(String(256), nullable=False)
     input_hash:    Mapped[str]      = mapped_column(String(64), nullable=False)
@@ -184,6 +185,7 @@ class SettlementModel(Base):
     status:            Mapped[str]        = mapped_column(String(32), nullable=False)
     client_agent_id:   Mapped[str]        = mapped_column(String(64), nullable=False)
     worker_agent_id:   Mapped[str|None]   = mapped_column(String(64))
+    profile_id:        Mapped[str|None]   = mapped_column(String(64), nullable=True, index=True)
     released_amount:   Mapped[float|None] = mapped_column(Float)
     refunded_amount:   Mapped[float|None] = mapped_column(Float)
     dispute_reason:    Mapped[str|None]   = mapped_column(Text)
@@ -236,6 +238,7 @@ class CapacityModel(Base):
     __tablename__ = "capacity"
 
     identity_id:                  Mapped[str]      = mapped_column(String(64), primary_key=True)
+    profile_id:                   Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
     total_locked_usdc:            Mapped[float]    = mapped_column(Float, default=0.0)
     total_bill_credits:           Mapped[float]    = mapped_column(Float, default=0.0)
     available_credits:            Mapped[float]    = mapped_column(Float, default=0.0)
@@ -720,6 +723,7 @@ class RuntimeKeyModel(Base):
     secret_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     wallet_address: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    profile_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     permissions: Mapped[list] = mapped_column(JSON, nullable=False)
     single_limit: Mapped[float] = mapped_column(Float, nullable=False)
     daily_limit: Mapped[float] = mapped_column(Float, nullable=False)

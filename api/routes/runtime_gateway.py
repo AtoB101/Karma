@@ -89,11 +89,14 @@ class CreateRuntimeKeyBody(BaseModel):
     expire_time: datetime
     agent_name: str
     agent_binding: Optional[str] = None
+    profile_id: Optional[str] = None
 
 
 @router.post("/create-key")
 async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("karma_identity_id", body.karma_identity_id)
+    if body.profile_id:
+        validate_public_url_segment("profile_id", body.profile_id)
     msg = build_create_key_message(
         karma_identity_id=body.karma_identity_id,
         wallet_address=body.wallet_address,
@@ -134,6 +137,7 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
         db=db,
         wallet_address=body.wallet_address,
         karma_identity_id=body.karma_identity_id,
+        profile_id=body.profile_id,
         permissions=body.permissions,
         single_limit=body.single_limit,
         daily_limit=body.daily_limit,
@@ -210,6 +214,7 @@ async def runtime_list_keys(body: ListRuntimeKeysBody, db: AsyncSession = Depend
     out = [
         {
             "key_id": r.key_id,
+            "profile_id": r.profile_id,
             "permissions": r.permissions,
             "expire_time": r.expire_at.isoformat(),
             "status": r.status,
@@ -265,10 +270,11 @@ async def runtime_capacity(ctx: RuntimeKeyContext = Depends(get_runtime_context)
     validate_public_url_segment("identity_id", ctx.karma_identity_id)
     row = await db.get(CapacityModel, ctx.karma_identity_id)
     if not row:
-        state = CapacityState(identity_id=ctx.karma_identity_id)
+        state = CapacityState(identity_id=ctx.karma_identity_id, profile_id=ctx.profile_id)
     else:
         state = CapacityState(
             identity_id=row.identity_id,
+            profile_id=ctx.profile_id or row.profile_id,
             total_locked_usdc=row.total_locked_usdc,
             total_bill_credits=row.total_bill_credits,
             available_credits=row.available_credits,
@@ -367,6 +373,8 @@ async def runtime_submit_receipt(
     validate_public_url_segment("receipt_id", receipt.receipt_id)
     if receipt.agent_id != ctx.karma_identity_id:
         raise HTTPException(status_code=403, detail="receipt agent_id must match runtime key identity")
+    if ctx.profile_id and not receipt.profile_id:
+        receipt = receipt.model_copy(update={"profile_id": ctx.profile_id})
 
     await assert_task_automation_ready(
         db, task_id=receipt.task_id, karma_identity_id=ctx.karma_identity_id
