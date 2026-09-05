@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.middleware.auth import resolve_agent_id_from_auth_headers
+from api.middleware.auth import resolve_actor_id_with_dev_fallback
 from db.models.orm import IdentityDisclosureModel, IdentityRoleProfile, SettlementModel
 from db.session import get_db
 from services.path_param_safety import validate_public_url_segment
@@ -48,10 +48,7 @@ def _serialize_disclosure(row: IdentityDisclosureModel) -> dict:
 
 
 def _resolve_actor_id(request: Request) -> str | None:
-    return resolve_agent_id_from_auth_headers(
-        authorization=request.headers.get("authorization"),
-        api_key=request.headers.get("x-karma-api-key"),
-    )
+    return resolve_actor_id_with_dev_fallback(request)
 
 
 async def _get_profile(db: AsyncSession, profile_id: str) -> IdentityRoleProfile:

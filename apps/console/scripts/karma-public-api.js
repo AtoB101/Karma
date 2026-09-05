@@ -20,6 +20,8 @@
     }
     const key = String(global.KARMA_API_KEY || "").trim();
     if (key) h["X-Karma-Api-Key"] = key;
+    const id = String(global.KARMA_IDENTITY_ID || "").trim();
+    if (id) h["X-Karma-Identity-Id"] = id;
     return h;
   }
 
@@ -123,6 +125,45 @@
 
   async function createRoleProfile(payload) {
     return jsonPost("/v1/identity/role-profiles", payload);
+  }
+
+  async function grantDisclosure(profileId, body) {
+    return jsonPost("/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/disclosures", body);
+  }
+
+  async function listDisclosures(profileId) {
+    return karmaFetch(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/disclosures",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function revokeDisclosure(profileId, disclosureId) {
+    return karmaFetch(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/disclosures/" + encodeURIComponent(disclosureId),
+      { method: "DELETE", headers: headers() }
+    );
+  }
+
+  async function getProfileLedger(profileId) {
+    return karmaFetch(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/ledger",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function submitKyc(profileId, payload) {
+    return jsonPost(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/kyc",
+      { kyc_payload: payload }
+    );
+  }
+
+  async function verifyKyc(profileId, decision) {
+    return jsonPost(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/kyc/verify",
+      { decision: decision }
+    );
   }
 
   async function getRuntimeSafetyMode() {
@@ -325,6 +366,12 @@
     listAgents,
     listRoleProfiles,
     createRoleProfile,
+    grantDisclosure,
+    listDisclosures,
+    revokeDisclosure,
+    getProfileLedger,
+    submitKyc,
+    verifyKyc,
     getRuntimeSafetyMode,
     getOpenclawHandoffDraft,
     getOpenclawAutomationReadiness,

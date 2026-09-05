@@ -57,6 +57,7 @@ from api.routes import (
     identity_card,
     identity_role_profiles,
     identity_disclosures,
+    identity_kyc,
 )
 
 logger = structlog.get_logger(__name__)
@@ -431,6 +432,12 @@ app.include_router(
     identity_disclosures.router,
     prefix="/v1/identity/role-profiles",
     tags=["IdentityDisclosures"],
+    dependencies=_protected_dependencies,
+)
+app.include_router(
+    identity_kyc.router,
+    prefix="/v1/identity/role-profiles",
+    tags=["IdentityKyc"],
     dependencies=_protected_dependencies,
 )
 
