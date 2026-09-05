@@ -56,6 +56,7 @@ from api.routes import (
     telegram_miniapp_bot,
     identity_card,
     identity_role_profiles,
+    identity_disclosures,
 )
 
 logger = structlog.get_logger(__name__)
@@ -424,6 +425,12 @@ app.include_router(
     identity_role_profiles.router,
     prefix="/v1/identity/role-profiles",
     tags=["IdentityRoleProfiles"],
+    dependencies=_protected_dependencies,
+)
+app.include_router(
+    identity_disclosures.router,
+    prefix="/v1/identity/role-profiles",
+    tags=["IdentityDisclosures"],
     dependencies=_protected_dependencies,
 )
 
