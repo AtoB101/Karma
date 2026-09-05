@@ -873,6 +873,11 @@ class SettlementRouter:
             return {"status": "offchain", "note": "Settlement mode is offchain — no chain call"}
         return self._chain().lock_funds(task_contract)
 
+    def lock_agent_penalty(self, task_contract: TaskContract, penalty_wei: int) -> dict:
+        if not self.is_onchain():
+            return {"status": "offchain", "note": "Settlement mode is offchain — no chain call"}
+        return self._chain().lock_agent_penalty(task_contract, penalty_wei)
+
     def bind_bills(
         self,
         task_contract: TaskContract,

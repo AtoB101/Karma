@@ -619,6 +619,10 @@ class AuthorizationVoucher(BaseModel):
     status: VoucherStatus = VoucherStatus.CREATED
     buyer_sub_identity_id: Optional[str] = None
     seller_sub_identity_id: Optional[str] = None
+    profile_id: Optional[str] = Field(
+        default=None,
+        description="Identity role profile this voucher belongs to (P1 multi-profile)",
+    )
     accepted_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     progress_rule_spec: Optional[dict[str, Any]] = Field(

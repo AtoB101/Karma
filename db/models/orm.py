@@ -277,6 +277,7 @@ class VoucherModel(Base):
     voucher_id:                 Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
     buyer_identity_id:          Mapped[str]      = mapped_column(String(64), nullable=False)
     seller_identity_id:         Mapped[str]      = mapped_column(String(64), nullable=False)
+    profile_id:                 Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
     amount:                     Mapped[float]    = mapped_column(Float, nullable=False)
     currency:                   Mapped[str]      = mapped_column(String(8), default="USDC")
     bill_credit_amount:         Mapped[float]    = mapped_column(Float, nullable=False)

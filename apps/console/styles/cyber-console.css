@@ -512,3 +512,41 @@ textarea { min-height: 80px; resize: vertical; }
   border: 1px solid rgba(34, 211, 238, 0.25);
   border-radius: 18px;
 }
+
+.profile-switcher select {
+  width: 100%;
+  margin-top: 8px;
+  background: rgba(255,255,255,0.04);
+  color: inherit;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.confidential-badge {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 9999;
+  background: rgba(185,28,28,0.92);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+}
+body.confidential [data-bind="total_locked_usdc"],
+body.confidential [data-bind="available_credits"],
+body.confidential [data-bind="in_progress_bucket"],
+body.confidential [data-bind="pending_settlement_credits"],
+body.confidential [data-bind="disputed_credits"],
+body.confidential [data-bind="b_total_locked"],
+body.confidential [data-bind="b_available"],
+body.confidential [data-bind="b_in_progress"],
+body.confidential [data-bind="b_pending"],
+body.confidential [data-bind="b_disputed"],
+body.confidential [data-bind="b_released"] {
+  filter: blur(6px);
+  user-select: none;
+}
