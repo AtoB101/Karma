@@ -116,6 +116,15 @@
     return karmaFetch("/v1/agents" + q, { method: "GET", headers: headers() });
   }
 
+  async function listRoleProfiles(ownerIdentityId) {
+    var q = ownerIdentityId ? "?owner_identity_id=" + encodeURIComponent(ownerIdentityId) : "";
+    return karmaFetch("/v1/identity/role-profiles" + q, { method: "GET", headers: headers() });
+  }
+
+  async function createRoleProfile(payload) {
+    return jsonPost("/v1/identity/role-profiles", payload);
+  }
+
   async function getRuntimeSafetyMode() {
     return karmaFetch("/v1/security/runtime/safety-mode", { method: "GET", headers: headers() });
   }
@@ -314,6 +323,8 @@
     getBundleForTask,
     listSettlementTransitions,
     listAgents,
+    listRoleProfiles,
+    createRoleProfile,
     getRuntimeSafetyMode,
     getOpenclawHandoffDraft,
     getOpenclawAutomationReadiness,
