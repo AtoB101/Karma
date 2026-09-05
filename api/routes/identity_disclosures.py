@@ -18,9 +18,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.middleware.auth import resolve_actor_id_with_dev_fallback
 from db.models.orm import IdentityDisclosureModel, IdentityRoleProfile, SettlementModel
 from db.session import get_db
+from services.identity_actor import resolve_actor_identity_id
 from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
@@ -47,10 +47,6 @@ def _serialize_disclosure(row: IdentityDisclosureModel) -> dict:
     }
 
 
-def _resolve_actor_id(request: Request) -> str | None:
-    return resolve_actor_id_with_dev_fallback(request)
-
-
 async def _get_profile(db: AsyncSession, profile_id: str) -> IdentityRoleProfile:
     row = await db.get(IdentityRoleProfile, profile_id)
     if not row:
@@ -58,8 +54,8 @@ async def _get_profile(db: AsyncSession, profile_id: str) -> IdentityRoleProfile
     return row
 
 
-def _require_owner(request: Request, profile: IdentityRoleProfile) -> None:
-    actor = _resolve_actor_id(request)
+async def _require_owner(db: AsyncSession, request: Request, profile: IdentityRoleProfile) -> None:
+    actor = await resolve_actor_identity_id(db, request)
     if not actor or actor != profile.owner_identity_id:
         raise HTTPException(403, "only the profile owner can manage disclosures")
 
@@ -73,7 +69,7 @@ async def create_disclosure(
 ):
     validate_public_url_segment("profile_id", profile_id)
     profile = await _get_profile(db, profile_id)
-    _require_owner(request, profile)
+    await _require_owner(db, request, profile)
 
     if body.scope == "transaction":
         if not body.task_id:
@@ -104,7 +100,7 @@ async def list_disclosures(
 ):
     validate_public_url_segment("profile_id", profile_id)
     profile = await _get_profile(db, profile_id)
-    _require_owner(request, profile)
+    await _require_owner(db, request, profile)
 
     result = await db.execute(
         select(IdentityDisclosureModel)
@@ -125,7 +121,7 @@ async def revoke_disclosure(
     validate_public_url_segment("profile_id", profile_id)
     validate_public_url_segment("disclosure_id", disclosure_id)
     profile = await _get_profile(db, profile_id)
-    _require_owner(request, profile)
+    await _require_owner(db, request, profile)
 
     row = await db.get(IdentityDisclosureModel, disclosure_id)
     if not row or row.profile_id != profile_id:
@@ -159,7 +155,7 @@ async def get_profile_ledger(
 ):
     validate_public_url_segment("profile_id", profile_id)
     profile = await _get_profile(db, profile_id)
-    actor = _resolve_actor_id(request)
+    actor = await resolve_actor_identity_id(db, request)
 
     allowed: list[str] | None = None  # None => all transactions
     if profile.visibility == "private":
