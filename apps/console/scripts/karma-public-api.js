@@ -25,6 +25,18 @@
     return h;
   }
 
+  function activeProfileId() {
+    try {
+      if (global.KarmaIdentitySwitcher && global.KarmaIdentitySwitcher.getActiveProfileId) {
+        var p = global.KarmaIdentitySwitcher.getActiveProfileId();
+        if (p) return p;
+      }
+      return sessionStorage.getItem("karma_console_active_profile") || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
   async function karmaFetch(path, init) {
     const url = apiBase() + path;
     const res = await fetch(url, init);
@@ -125,6 +137,13 @@
 
   async function createRoleProfile(payload) {
     return jsonPost("/v1/identity/role-profiles", payload);
+  }
+
+  async function getIdentityCard(identityId) {
+    return karmaFetch(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/card?scope=basic",
+      { method: "GET", headers: headers() }
+    );
   }
 
   async function grantDisclosure(profileId, body) {
@@ -250,12 +269,18 @@
 
   async function lockCapacity(identityId, amount) {
     const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/capacity/" + id + "/lock", { amount: Number(amount) });
+    const body = { amount: Number(amount) };
+    const pid = activeProfileId();
+    if (pid) body.profile_id = pid;
+    return jsonPost("/v1/capacity/" + id + "/lock", body);
   }
 
   async function releaseCapacity(identityId, amount) {
     const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/capacity/" + id + "/release", { amount: Number(amount) });
+    const body = { amount: Number(amount) };
+    const pid = activeProfileId();
+    if (pid) body.profile_id = pid;
+    return jsonPost("/v1/capacity/" + id + "/release", body);
   }
 
   async function createSettlement(payload) {
@@ -366,6 +391,7 @@
     listAgents,
     listRoleProfiles,
     createRoleProfile,
+    getIdentityCard,
     grantDisclosure,
     listDisclosures,
     revokeDisclosure,
@@ -402,6 +428,7 @@
     tradeLaunchSigningPreview,
     jsonPost,
     jsonPut,
+    activeProfileId,
   };
   global.karmaRuntimeApi = { runtimeCreateKey, runtimeListKeys, runtimeRevokeKey, karmaFetch, headers };
 })(window);

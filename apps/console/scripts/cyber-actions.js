@@ -230,6 +230,15 @@
     if (!f.id) { out('#ag-out', '请填 Identity ID 或先连接钱包', true); return; }
     a.getAutomationPolicy(f.id).then(function (r) { out('#ag-out', r, false); }).catch(function (e) { out('#ag-out', (e && (e.message || e.detail)) || e, true); });
   }
+  function activeProfileId() {
+    try {
+      if (window.KarmaIdentitySwitcher && window.KarmaIdentitySwitcher.getActiveProfileId) {
+        var p = window.KarmaIdentitySwitcher.getActiveProfileId();
+        if (p) return p;
+      }
+      return sessionStorage.getItem('karma_console_active_profile') || '';
+    } catch (_) { return ''; }
+  }
   async function mintKey() {
     var f = agFields(); var a = api();
     if (!a) return;
@@ -242,7 +251,7 @@
       var msg = buildCreateKeyMsg({ karma_identity_id: f.id, wallet_address: wallet, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: 'console-agent' });
       var sig = await global.ethereum.request({ method: 'personal_sign', params: [msg, wallet] });
       var rt = global.karmaRuntimeApi;
-      var r = await rt.runtimeCreateKey({ wallet_address: wallet, karma_identity_id: f.id, wallet_signature: sig, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: 'console-agent' });
+      var r = await rt.runtimeCreateKey({ wallet_address: wallet, karma_identity_id: f.id, wallet_signature: sig, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: 'console-agent', profile_id: activeProfileId() || undefined });
       out('#ag-out', r, false);
     } catch (e) { out('#ag-out', (e && (e.message || e.detail)) || e, true); }
   }
