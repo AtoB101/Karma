@@ -44,6 +44,29 @@ class AgentModel(Base):
     onboarding_meta:    Mapped[dict]     = mapped_column(JSON, default=dict)
 
 
+class IdentityRoleProfile(Base):
+    """One identity card -> many role profiles (class + KYC + visibility).
+
+    Each profile is an isolated identity context with its own class
+    (individual / merchant / enterprise / verifier / arbitrator), KYC status
+    and visibility (enterprise defaults to private so fund flows stay
+    confidential). Complements the existing DID IdentityProfileModel and the
+    transaction-role SubIdentityModel — this is the identity-role dimension.
+    """
+    __tablename__ = "identity_role_profiles"
+
+    profile_id:        Mapped[str]         = mapped_column(String(64), primary_key=True, default=_uuid)
+    owner_identity_id: Mapped[str]         = mapped_column(String(64), nullable=False, index=True)
+    class_:            Mapped[str]         = mapped_column("class", String(32), nullable=False, default="individual")
+    kyc_status:        Mapped[str]         = mapped_column(String(32), nullable=False, default="none")
+    visibility:        Mapped[str]         = mapped_column(String(16), nullable=False, default="public")
+    display_name:      Mapped[str | None]  = mapped_column(String(256))
+    kyc_payload:       Mapped[dict]        = mapped_column(JSON, default=dict)
+    status:            Mapped[str]         = mapped_column(String(16), nullable=False, default="active")
+    created_at:        Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:        Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------

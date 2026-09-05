@@ -577,6 +577,26 @@ class OnChainSettlementAdapter:
             account=self._get_account(),
         )
 
+    def relay_signed_tx(self, raw_tx_hex: str) -> ChainTxResult:
+        """Broadcast a client-signed raw transaction (relay model, no hot wallet).
+
+        The client builds + signs lock/bind/settle with their own key; the backend
+        only relays it. This is the production client-signing path (R1).
+        """
+        w3 = self._get_web3()
+        raw = raw_tx_hex[2:] if raw_tx_hex.startswith("0x") else raw_tx_hex
+        tx_hash = w3.eth.send_raw_transaction(bytes.fromhex(raw))
+        receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+        hx = tx_hash.hex()
+        if not hx.startswith("0x"):
+            hx = "0x" + hx
+        return ChainTxResult(
+            tx_hash=hx,
+            block_number=receipt.blockNumber,
+            status="confirmed" if receipt.status == 1 else "failed",
+            gas_used=receipt.gasUsed,
+        )
+
     def binding_status(self, binding_id: int) -> dict:
         """Read a binding + its two bills for the status endpoint."""
         import time

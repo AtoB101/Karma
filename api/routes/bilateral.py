@@ -40,6 +40,10 @@ class SettleRequest(BaseModel):
     proof_hash: str = Field(description="0x-prefixed 32-byte hex proof hash")
 
 
+class RelayRequest(BaseModel):
+    raw_tx: str = Field(description="0x-prefixed client-signed raw transaction")
+
+
 @router.post("/lock")
 async def lock(body: LockRequest, _auth=Depends(require_auth_if_enabled)):
     try:
@@ -87,3 +91,18 @@ async def finalize(binding_id: int, _auth=Depends(require_auth_if_enabled)):
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"on-chain finalize failed: {e}") from e
     return _chain().binding_status(binding_id)
+
+
+@router.post("/relay")
+async def relay(body: RelayRequest, _auth=Depends(require_auth_if_enabled)):
+    """Relay a client-signed raw transaction (production client-signing path)."""
+    try:
+        result = _chain().relay_signed_tx(body.raw_tx)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"relay failed: {e}") from e
+    return {
+        "tx_hash": result.tx_hash,
+        "status": result.status,
+        "block_number": result.block_number,
+        "gas_used": result.gas_used,
+    }
