@@ -62,6 +62,51 @@
     return (name + " · " + cls + lock).trim();
   }
 
+  function consoleRoot() {
+    var path = window.location.pathname || "";
+    var idx = path.indexOf("/apps/console/");
+    if (idx >= 0) return path.slice(0, idx + "/apps/console/".length);
+    return "";
+  }
+
+  function renderClassHint() {
+    var wrap = document.querySelector("[data-identity-switcher]");
+    if (!wrap) return;
+    var old = wrap.querySelector("[data-class-hint]");
+    if (old) old.remove();
+    var p = getActiveProfile();
+    if (!p) return;
+    var cls = p["class"] || "";
+    var hint = document.createElement("span");
+    hint.setAttribute("data-class-hint", "");
+    hint.className = "class-hint";
+    var href = null;
+    var text = cls;
+    if (cls === "verifier") {
+      text = "🛡️ 验证者面板";
+      href = consoleRoot() + "pages/verifier-explorer.html";
+    } else if (cls === "arbitrator") {
+      text = "⚖️ 争议仲裁";
+      href = consoleRoot() + "pages/disputes/index.html";
+    } else if (cls === "enterprise") {
+      text = "🔒 企业涉密";
+    } else if (cls === "merchant") {
+      text = "🏪 商家";
+    } else if (cls === "individual") {
+      text = "👤 个人";
+    }
+    if (href) {
+      var a = document.createElement("a");
+      a.href = href;
+      a.textContent = text;
+      a.className = "class-hint-link";
+      hint.appendChild(a);
+    } else {
+      hint.textContent = text;
+    }
+    wrap.appendChild(hint);
+  }
+
   function render(profiles) {
     var header = document.querySelector("header.top");
     if (!header) return;
@@ -102,6 +147,7 @@
     // Insert before the nav so it sits beside the brand on the left.
     var nav = header.querySelector("nav");
     header.insertBefore(wrap, nav || null);
+    renderClassHint();
   }
 
   async function refresh() {
