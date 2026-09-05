@@ -29,6 +29,9 @@ jobs:
       - name: Build
         run: forge build
 
+      - name: Contract size gate (EIP-170)
+        run: ./scripts/check-contract-size.sh
+
       - name: Run fast unit/integration tests
         run: forge test -vv --no-match-path "**/_legacy/**"
 
@@ -62,6 +65,9 @@ jobs:
 
       - name: Build
         run: forge build
+
+      - name: Contract size gate (EIP-170)
+        run: ./scripts/check-contract-size.sh
 
       - name: Run all tests
         run: forge test -vv --no-match-path "**/_legacy/**"
