@@ -209,9 +209,37 @@
     applyConfidential();
   }
 
+  function claimCard() {
+    var id = (window.KARMA_IDENTITY_ID || "").trim();
+    var outEl = document.getElementById("auth-out");
+    var view = document.getElementById("auth-card-view");
+    if (!id) {
+      if (outEl) outEl.textContent = "请先连接钱包完成认证（点「连接钱包 · 认证」）。";
+      return;
+    }
+    if (outEl) outEl.textContent = "领取中…";
+    api().getIdentityCard(id).then(function (card) {
+      if (outEl) outEl.textContent = JSON.stringify(card, null, 2);
+      if (view) {
+        view.style.display = "block";
+        view.innerHTML =
+          '<div style="display:flex;gap:18px;flex-wrap:wrap">' +
+          '<div><b style="font-size:11px;color:var(--text-dim)">Identity ID</b><div style="font-family:monospace">' + (card.identity_id || id) + '</div></div>' +
+          '<div><b style="font-size:11px;color:var(--text-dim)">Class</b><div style="font-family:monospace">' + (card.identity_class || "—") + '</div></div>' +
+          '<div><b style="font-size:11px;color:var(--text-dim)">Verification</b><div style="font-family:monospace">' + (card.verification_status || "—") + '</div></div>' +
+          '<div><b style="font-size:11px;color:var(--text-dim)">Status</b><div style="font-family:monospace">' + (card.status || "—") + '</div></div>' +
+          '</div>';
+      }
+    }).catch(function (e) {
+      if (outEl) outEl.textContent = "领取失败: " + (e.message || e);
+    });
+  }
+
   function init() {
     refresh();
     renderManage();
+    var claimBtn = document.getElementById("btn-claim-card");
+    if (claimBtn) claimBtn.addEventListener("click", claimCard);
     document.addEventListener("karma-wallet-connected", refresh);
     document.addEventListener("karma-profile-switched", function () {
       if (window.KarmaConsoleSync && window.KarmaConsoleSync.refreshAll) {

@@ -16,6 +16,7 @@
     bills: ["page.bills.title", "page.bills.sub"],
     disputes: ["page.disputes.title", "page.disputes.sub"],
     identity: ["page.identity.title", "page.identity.sub"],
+    auth: ["page.auth.title", "page.auth.sub"],
     settings: ["page.settings.title", "page.settings.sub"],
   };
 

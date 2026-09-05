@@ -39,6 +39,7 @@
           <button data-page="bills"><span class="icon">≋</span><span data-i18n="nav.bills">账单</span></button>
           <button data-page="disputes"><span class="icon">⚖</span><span data-i18n="nav.disputes">争议</span></button>
           <button data-page="identity"><span class="icon">ID</span><span data-i18n="nav.identity">身份</span></button>
+          <button data-page="auth"><span class="icon">🔑</span><span data-i18n="nav.auth">认证</span></button>
           <button data-page="settings"><span class="icon">⚙</span><span data-i18n="nav.settings">设置</span></button>
         </nav>
         <div class="side-warning">
@@ -326,6 +327,24 @@
             </div>
             <div class="id-card" id="id-card-view" style="margin-top:14px; display:none"></div>
             <pre class="out" id="id-out" style="margin-top:12px; max-height:280px; overflow:auto">—</pre>
+          </div>
+        </section>
+
+        <section id="auth" class="page">
+          <div class="card section">
+            <div class="section-header">
+              <div>
+                <h3>认证 · 领取身份卡</h3>
+                <p>连接钱包完成 SIWE 认证，领取你的 master 身份卡。</p>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+              <button type="button" class="btn primary" data-wallet-connect>🔗 连接钱包 · 认证</button>
+              <button type="button" class="btn" id="btn-claim-card">🎫 领取身份卡</button>
+              <span class="api-status" data-wallet-status>—</span>
+            </div>
+            <div class="id-card" id="auth-card-view" style="margin-top:14px; display:none"></div>
+            <pre class="out" id="auth-out" style="margin-top:12px; max-height:280px; overflow:auto">—</pre>
           </div>
         </section>
 
