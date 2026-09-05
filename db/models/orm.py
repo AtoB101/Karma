@@ -67,6 +67,25 @@ class IdentityRoleProfile(Base):
     updated_at:        Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class IdentityDisclosureModel(Base):
+    """P3 — authorized disclosure for private (enterprise) role profiles.
+
+    A private profile's ledger is hidden by default. The owner grants a specific
+    authorized party access to either a single transaction (``scope=transaction``,
+    ``task_id`` set) or the whole ledger (``scope=ledger``).
+    """
+    __tablename__ = "identity_disclosures"
+
+    disclosure_id:          Mapped[str]         = mapped_column(String(64), primary_key=True, default=_uuid)
+    profile_id:             Mapped[str]         = mapped_column(String(64), nullable=False, index=True)
+    authorized_identity_id: Mapped[str]         = mapped_column(String(128), nullable=False, index=True)
+    task_id:                Mapped[str | None]  = mapped_column(String(64), nullable=True, index=True)
+    scope:                  Mapped[str]         = mapped_column(String(16), nullable=False, default="transaction")
+    status:                 Mapped[str]         = mapped_column(String(16), nullable=False, default="active")
+    created_at:             Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------
