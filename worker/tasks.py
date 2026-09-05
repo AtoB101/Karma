@@ -56,6 +56,10 @@ app.conf.update(
             "task": "worker.tasks.finalize_onchain_settlement",
             "schedule": 300.0,
         },
+        "reconcile-onchain-status-every-10-min": {
+            "task": "worker.tasks.reconcile_onchain_status",
+            "schedule": 600.0,
+        },
     },
 )
 
@@ -470,6 +474,75 @@ async def _finalize_due_bindings() -> int:
             logger.warning("finalize_binding_skipped", binding_id=binding_id, error=str(exc))
             continue
     return finalized
+
+
+@app.task(name="worker.tasks.reconcile_onchain_status")
+def reconcile_onchain_status() -> dict:
+    """Beat: reconcile DB onchain_status against the chain; flag drift.
+
+    For settlements that have an onchain_binding_id and are not yet terminal,
+    read the live binding state from KarmaBilateral and rewrite onchain_status
+    when the DB drifted (e.g. the chain already finalized but the DB still says
+    'finalizing').
+    """
+    import asyncio
+    from config.settings import settings
+    from services.chain.settlement_adapter import settlement_router
+
+    if not settlement_router.is_onchain():
+        return {"reconciled": 0, "mode": settings.settlement_mode}
+
+    result = asyncio.run(_reconcile_onchain_status())
+    logger.info("reconcile_onchain_status complete", extra=result)
+    return result
+
+
+async def _reconcile_onchain_status() -> dict:
+    from db.session import AsyncSessionLocal
+    from db.models.orm import SettlementModel
+    from sqlalchemy import select
+    from services.chain.settlement_adapter import settlement_router
+
+    # BindingState -> onchain_status label (mirrors worker.tasks persistence)
+    STATE_MAP = {
+        0: "active",
+        1: "pending",
+        2: "finalizing",
+        3: "settled",
+        4: "disputed",
+        5: "refunded",
+    }
+    reconciled = 0
+    drift = 0
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(SettlementModel).where(
+                SettlementModel.onchain_binding_id.is_not(None),
+                SettlementModel.onchain_status.not_in(["settled", "refunded"]),
+            )
+        )
+        rows = result.scalars().all()
+        for row in rows:
+            try:
+                st = settlement_router.binding_status(int(row.onchain_binding_id))
+            except Exception as e:  # noqa: BLE001
+                logger.warning("reconcile_skip", binding_id=row.onchain_binding_id, error=str(e))
+                continue
+            chain_state = STATE_MAP.get(st["state"], "unknown")
+            old_status = row.onchain_status
+            if chain_state != (old_status or ""):
+                drift += 1
+                row.onchain_status = chain_state
+                logger.warning(
+                    "onchain_status_drift",
+                    task_id=row.task_id,
+                    db_status=old_status,
+                    chain_status=chain_state,
+                )
+                reconciled += 1
+        if reconciled:
+            await session.commit()
+    return {"reconciled": reconciled, "drift": drift}
 
 
 @app.task(name="worker.tasks.expire_stale_payment_intents")
