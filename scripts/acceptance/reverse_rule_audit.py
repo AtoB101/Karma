@@ -78,7 +78,7 @@ def check_openapi_verify_external(failures: list[str]) -> None:
 
 
 def check_migrations_head(failures: list[str]) -> None:
-    mig = ROOT / "db/migrations"
+    mig = ROOT / "db/migrations/versions"
     need = ("0027_phase3_payment_intents.py", "0028_human_not_present_policy.py", "0026_x402_funding_source.py")
     for name in need:
         if not (mig / name).is_file():
@@ -343,7 +343,7 @@ def check_important_fields_secure_path(failures: list[str]) -> None:
     if "anti-hijack" not in directory and "bound to another owner" not in directory:
         _fail("agent_directory missing anti-hijack owner bind guard", failures)
 
-    mig = ROOT / "db/migrations/0031_agent_p1_onboarding.py"
+    mig = ROOT / "db/migrations/versions/0031_agent_p1_onboarding.py"
     if not mig.is_file():
         _fail("missing migration 0031_agent_p1_onboarding.py", failures)
 
