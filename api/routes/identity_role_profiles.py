@@ -8,7 +8,10 @@ Karma — Identity Role Profile API (P1: one card, many identities)
 - class ∈ {individual, merchant, enterprise, verifier, arbitrator}
 - kyc_status ∈ {none, pending, verified, rejected}
 - visibility ∈ {public, private}；enterprise 默认 private（资金流保密），其余默认 public
-- 对特定授权方开放某几笔明细（authorized disclosure）属于 P2/P3，暂不实现
+
+鉴权 / 可见性（P3 补齐）：
+- create/update 仅 owner；list/get 对非 owner 只返回 public 档案并脱敏
+  （剥掉 owner_identity_id 与 kyc_payload）。
 
 区别于已存在的：
 - IdentityProfileModel（identity_profiles，DID/法律身份）
@@ -20,13 +23,14 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
+from services.identity_actor import resolve_actor_identity_id
 from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
@@ -68,27 +72,37 @@ class RoleProfileUpdate(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-def _serialize(row: IdentityRoleProfile) -> dict:
-    return {
+def _serialize(row: IdentityRoleProfile, *, full: bool = False) -> dict:
+    """`full=True` only for the owner — exposes owner_identity_id + kyc_payload."""
+    data = {
         "profile_id": row.profile_id,
-        "owner_identity_id": row.owner_identity_id,
         "class": row.class_,
         "kyc_status": row.kyc_status,
         "visibility": row.visibility,
         "display_name": row.display_name,
-        "kyc_payload": row.kyc_payload or {},
         "status": row.status,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
+    if full:
+        data["owner_identity_id"] = row.owner_identity_id
+        data["kyc_payload"] = row.kyc_payload or {}
+    return data
 
 
 @router.post("", status_code=201)
 async def create_role_profile(
     body: RoleProfileCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """创建一个角色身份档案；未显式指定 visibility 时按 class 取默认值。"""
+    """创建一个角色身份档案；仅 owner（认证身份 == owner_identity_id）可创建。"""
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor:
+        raise HTTPException(403, "authentication required to create a role profile")
+    if actor != body.owner_identity_id:
+        raise HTTPException(403, "owner_identity_id must match the authenticated identity")
+
     visibility = body.visibility or _default_visibility(body.class_)
     row = IdentityRoleProfile(
         owner_identity_id=body.owner_identity_id,
@@ -102,7 +116,7 @@ async def create_role_profile(
     db.add(row)
     await db.flush()
     await db.refresh(row)
-    return _serialize(row)
+    return _serialize(row, full=True)
 
 
 @router.get("")
@@ -111,9 +125,13 @@ async def list_role_profiles(
     class_: str | None = Query(default=None, alias="class", pattern=_CLASS_PATTERN),
     limit: int = Query(default=100, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
+    request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """按 owner / class 过滤的角色身份档案列表。"""
+    """按 owner / class 过滤。非 owner（或匿名）只看到 public 档案，且脱敏。"""
+    actor = await resolve_actor_identity_id(db, request)
+    is_owner = bool(actor) and (owner_identity_id is None or actor == owner_identity_id)
+
     base_q = select(IdentityRoleProfile)
     count_q = select(func.count(IdentityRoleProfile.profile_id))
     if owner_identity_id:
@@ -122,6 +140,9 @@ async def list_role_profiles(
     if class_:
         base_q = base_q.where(IdentityRoleProfile.class_ == class_)
         count_q = count_q.where(IdentityRoleProfile.class_ == class_)
+    if not is_owner:
+        base_q = base_q.where(IdentityRoleProfile.visibility == "public")
+        count_q = count_q.where(IdentityRoleProfile.visibility == "public")
 
     total = (await db.execute(count_q)).scalar() or 0
     rows = (
@@ -131,30 +152,44 @@ async def list_role_profiles(
             .limit(limit)
         )
     ).scalars().all()
-    return {"profiles": [_serialize(r) for r in rows], "total": total}
+    return {"profiles": [_serialize(r, full=is_owner) for r in rows], "total": total}
 
 
 @router.get("/{profile_id}")
-async def get_role_profile(profile_id: str, db: AsyncSession = Depends(get_db)):
-    """按 profile_id 读取单个角色身份档案。"""
+async def get_role_profile(
+    profile_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """按 profile_id 读取。私有档案仅 owner 可见；非 owner 只拿脱敏视图。"""
     validate_public_url_segment("profile_id", profile_id)
     row = await db.get(IdentityRoleProfile, profile_id)
     if not row:
         raise HTTPException(404, "role profile not found")
-    return _serialize(row)
+
+    actor = await resolve_actor_identity_id(db, request)
+    is_owner = bool(actor) and actor == row.owner_identity_id
+    if row.visibility == "private" and not is_owner:
+        raise HTTPException(404, "role profile not found")
+    return _serialize(row, full=is_owner)
 
 
 @router.put("/{profile_id}")
 async def update_role_profile(
     profile_id: str,
     body: RoleProfileUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """部分更新：仅更新请求中显式提供的字段。"""
+    """部分更新；仅 owner。"""
     validate_public_url_segment("profile_id", profile_id)
     row = await db.get(IdentityRoleProfile, profile_id)
     if not row:
         raise HTTPException(404, "role profile not found")
+
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor or actor != row.owner_identity_id:
+        raise HTTPException(403, "only the profile owner can update it")
 
     data = body.model_dump(exclude_unset=True)
     if "class_" in data:
@@ -173,4 +208,4 @@ async def update_role_profile(
 
     await db.flush()
     await db.refresh(row)
-    return _serialize(row)
+    return _serialize(row, full=True)

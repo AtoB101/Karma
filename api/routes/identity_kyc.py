@@ -7,7 +7,7 @@ kyc_status ∈ {none, pending, verified, rejected}，流转：
 - pending → rejected   (验证方拒绝)
 - rejected → pending   (owner 重新提交)
 
-验证方 = 任一已认证的非 owner 身份（简化版；严格的 verifier 角色授权留后续）。
+验证方必须是 verifier 类档案（class=verifier），且不得是 owner 本人。
 """
 from __future__ import annotations
 
@@ -15,11 +15,12 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.middleware.auth import resolve_actor_id_with_dev_fallback
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
+from services.identity_actor import resolve_actor_identity_id
 from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
@@ -41,10 +42,6 @@ class VerifyKycBody(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
 
 
-def _resolve_actor_id(request: Request) -> str | None:
-    return resolve_actor_id_with_dev_fallback(request)
-
-
 async def _get_profile(db: AsyncSession, profile_id: str) -> IdentityRoleProfile:
     row = await db.get(IdentityRoleProfile, profile_id)
     if not row:
@@ -52,10 +49,29 @@ async def _get_profile(db: AsyncSession, profile_id: str) -> IdentityRoleProfile
     return row
 
 
-def _require_owner(request: Request, profile: IdentityRoleProfile) -> None:
-    actor = _resolve_actor_id(request)
+async def _require_owner(db: AsyncSession, request: Request, profile: IdentityRoleProfile) -> None:
+    actor = await resolve_actor_identity_id(db, request)
     if not actor or actor != profile.owner_identity_id:
         raise HTTPException(403, "only the profile owner can manage KYC")
+
+
+async def _require_verifier(db: AsyncSession, request: Request, profile: IdentityRoleProfile) -> str:
+    """验证方 = 已认证、非 owner、且持有 verifier 类档案。返回 actor identity。"""
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor:
+        raise HTTPException(403, "authentication required to verify KYC")
+    if actor == profile.owner_identity_id:
+        raise HTTPException(403, "owner cannot verify its own KYC")
+
+    result = await db.execute(
+        select(IdentityRoleProfile).where(
+            IdentityRoleProfile.owner_identity_id == actor,
+            IdentityRoleProfile.class_ == "verifier",
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(403, "only a verifier-class profile can verify KYC")
+    return actor
 
 
 def _serialize_kyc(profile: IdentityRoleProfile) -> dict:
@@ -76,7 +92,7 @@ async def submit_kyc(
 ):
     validate_public_url_segment("profile_id", profile_id)
     profile = await _get_profile(db, profile_id)
-    _require_owner(request, profile)
+    await _require_owner(db, request, profile)
 
     current = profile.kyc_status or "none"
     if "pending" not in _TRANSITIONS.get(current, set()):
@@ -99,11 +115,7 @@ async def verify_kyc(
     validate_public_url_segment("profile_id", profile_id)
     profile = await _get_profile(db, profile_id)
 
-    actor = _resolve_actor_id(request)
-    if not actor:
-        raise HTTPException(403, "authentication required to verify KYC")
-    if actor == profile.owner_identity_id:
-        raise HTTPException(403, "owner cannot verify its own KYC")
+    actor = await _require_verifier(db, request, profile)
 
     current = profile.kyc_status or "none"
     if body.decision not in _TRANSITIONS.get(current, set()):
