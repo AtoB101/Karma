@@ -14,6 +14,15 @@
     return global.cyberKarmaApi;
   }
 
+  function activeProfileId() {
+    try {
+      var sw = global.KarmaIdentitySwitcher;
+      return sw && sw.getActiveProfileId ? sw.getActiveProfileId() : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
   function el(root, sel) {
     return (root || document).querySelector(sel);
   }
@@ -179,6 +188,12 @@
           tr.appendChild(tdErr);
           return;
         }
+        var apid = activeProfileId();
+        if (apid && s && s.profile_id && s.profile_id !== apid) {
+          tr.style.display = "none";
+          tr.setAttribute("data-profile-filtered", "1");
+          return;
+        }
         var rc = Array.isArray(rcpts) ? rcpts.length : 0;
         addCell(tid);
         tr.setAttribute("data-task-row", tid);
@@ -296,6 +311,8 @@
       taskIds.forEach(function (tid, i) {
         var s = states[i];
         if (!s || String(s.status) !== "disputed") return;
+        var apid = activeProfileId();
+        if (apid && s.profile_id && s.profile_id !== apid) return;
         any = true;
         var tr = document.createElement("tr");
         [tid, String(s.status), s.dispute_reason || "—", fmtNum(s.escrow_amount), identityId || "—"].forEach(function (t) {
@@ -458,6 +475,11 @@
   }
 
   global.KarmaConsoleSync = { refreshAll: refreshAll, startAuto: startAuto, stopAuto: stopAuto, bind: bind };
+
+  // Re-filter the task/dispute tables when the active identity role profile changes.
+  document.addEventListener("karma-profile-switched", function () {
+    refreshAll().catch(function () {});
+  });
 
   document.addEventListener("DOMContentLoaded", function () {
     var root = document.querySelector("[data-karma-console-root]");
