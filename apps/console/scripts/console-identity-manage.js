@@ -61,8 +61,10 @@
       '<button type="button" class="btn" data-im-create>创建档案</button>' +
       '<button type="button" class="btn" data-im-grant>授权披露</button>' +
       '<button type="button" class="btn" data-im-kyc>提交 KYC</button>' +
+      '<button type="button" class="btn" data-im-card>查看身份卡</button>' +
       '<span class="sub" data-im-status></span>' +
-      '</p>';
+      '</p>' +
+      '<pre class="out" data-im-card-out style="margin-top:0.5rem;max-height:200px;overflow:auto;display:none"></pre>';
 
     main.appendChild(sec);
     bind(sec);
@@ -78,6 +80,9 @@
     });
     el("[data-im-kyc]", sec).addEventListener("click", function () {
       submitKyc(sec).catch(function () {});
+    });
+    el("[data-im-card]", sec).addEventListener("click", function () {
+      viewCard(sec).catch(function () {});
     });
   }
 
@@ -139,6 +144,32 @@
     try {
       await a.submitKyc(pid, { source: "console", note: "console submit" });
       status("已提交（pending）", true);
+    } catch (e) {
+      status("失败: " + (e.message || e), false);
+    }
+  }
+
+  async function viewCard(sec) {
+    var a = api();
+    if (!a || !a.getIdentityCard) {
+      status("缺少 API 客户端", false);
+      return;
+    }
+    var id = String(global.KARMA_IDENTITY_ID || "").trim();
+    if (!id) {
+      status("请先连接钱包", false);
+      return;
+    }
+    status("读取身份卡…", null);
+    try {
+      var card = await a.getIdentityCard(id);
+      var cls = card.identity_class || card["class"] || "—";
+      status("身份卡已读取（class=" + cls + "）", true);
+      var out = el("[data-im-card-out]", sec);
+      if (out) {
+        out.textContent = JSON.stringify(card, null, 2);
+        out.style.display = "block";
+      }
     } catch (e) {
       status("失败: " + (e.message || e), false);
     }
