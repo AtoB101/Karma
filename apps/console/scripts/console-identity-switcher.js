@@ -105,9 +105,9 @@
   }
 
   async function refresh() {
+    var profiles = [];
     try {
       var a = api();
-      var profiles = [];
       if (a && a.listRoleProfiles) {
         var body = await a.listRoleProfiles(identityId());
         profiles = (body && body.profiles) || [];
@@ -115,10 +115,11 @@
       try {
         sessionStorage.setItem(SS_PROFILES, JSON.stringify(profiles));
       } catch (_) {}
-      render(profiles);
-    } catch (_) {
-      render([]);
-    }
+    } catch (_) {}
+    render(profiles);
+    document.dispatchEvent(
+      new CustomEvent("karma-profiles-loaded", { detail: { profiles: profiles } })
+    );
   }
 
   global.KarmaIdentitySwitcher = {

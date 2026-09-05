@@ -61,6 +61,25 @@ nav a.active {
 .identity-switcher select:focus {
   outline: 1px solid var(--accent);
 }
+.confidential-badge {
+  position: fixed;
+  top: 0.75rem;
+  right: 1rem;
+  z-index: 9999;
+  background: rgba(185, 28, 28, 0.92);
+  color: #fff;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+body.confidential [data-bind="total_locked_usdc"],
+body.confidential [data-bind="available_credits"] {
+  filter: blur(6px);
+  user-select: none;
+}
 main {
   flex: 1;
   padding: 1.25rem 1rem 2rem;
