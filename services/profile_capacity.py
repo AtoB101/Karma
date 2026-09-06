@@ -1,0 +1,125 @@
+"""Per-profile quota allocation under the master identity capacity.
+
+Master ``capacity`` (keyed by identity_id) is the total locked USDC anchor; each
+role profile gets its own ``profile_capacity`` row (allocation + usage). This
+enables 个人/商家/企业 各自在授权额度内行事、总账对齐、可随时调整。
+"""
+from __future__ import annotations
+
+from datetime import datetime
+
+from fastapi import HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from db.models.orm import CapacityModel, IdentityRoleProfile, ProfileCapacityModel
+
+
+def _in_use(row: ProfileCapacityModel) -> float:
+    return (
+        (row.in_progress_credits or 0.0)
+        + (row.pending_settlement_credits or 0.0)
+        + (row.disputed_credits or 0.0)
+    )
+
+
+def _serialize(row: ProfileCapacityModel) -> dict:
+    return {
+        "profile_id": row.profile_id,
+        "owner_identity_id": row.owner_identity_id,
+        "allocated_credits": row.allocated_credits,
+        "available_credits": row.available_credits,
+        "in_progress_credits": row.in_progress_credits,
+        "pending_settlement_credits": row.pending_settlement_credits,
+        "disputed_credits": row.disputed_credits,
+        "released_credits": row.released_credits,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
+async def allocate(
+    db: AsyncSession,
+    *,
+    identity_id: str,
+    allocations: dict[str, float],
+) -> list[dict]:
+    """Set per-profile allocations for an identity. Total must not exceed master locked."""
+    total = 0.0
+    for profile_id, amount in allocations.items():
+        if amount < 0:
+            raise HTTPException(400, f"negative allocation for {profile_id}")
+        total += amount
+
+    cap = await db.get(CapacityModel, identity_id)
+    if not cap:
+        raise HTTPException(409, "no master capacity — lock USDC first")
+    if total > (cap.total_locked_usdc or 0.0) + 1e-9:
+        raise HTTPException(
+            409,
+            f"total allocation {total} exceeds master locked {cap.total_locked_usdc}",
+        )
+
+    out: list[dict] = []
+    for profile_id, amount in allocations.items():
+        profile = await db.get(IdentityRoleProfile, profile_id)
+        if not profile or profile.owner_identity_id != identity_id:
+            raise HTTPException(404, f"profile {profile_id} not found for this identity")
+
+        row = await db.get(ProfileCapacityModel, profile_id)
+        if row is None:
+            row = ProfileCapacityModel(
+                profile_id=profile_id,
+                owner_identity_id=identity_id,
+                allocated_credits=amount,
+                available_credits=amount,
+            )
+            db.add(row)
+        else:
+            used = _in_use(row)
+            if amount + 1e-9 < used:
+                raise HTTPException(
+                    409,
+                    f"cannot reduce {profile_id} below in-use credits {used}",
+                )
+            row.allocated_credits = amount
+            row.available_credits = amount - used
+            row.updated_at = datetime.utcnow()
+        out.append(_serialize(row))
+
+    await db.flush()
+    return out
+
+
+async def get_allocations(db: AsyncSession, *, identity_id: str) -> list[dict]:
+    result = await db.execute(
+        select(ProfileCapacityModel)
+        .where(ProfileCapacityModel.owner_identity_id == identity_id)
+        .order_by(ProfileCapacityModel.profile_id)
+    )
+    return [_serialize(r) for r in result.scalars().all()]
+
+
+async def get_profile_capacity(db: AsyncSession, *, profile_id: str) -> ProfileCapacityModel | None:
+    return await db.get(ProfileCapacityModel, profile_id)
+
+
+async def spend_profile_credits(
+    db: AsyncSession,
+    *,
+    profile_id: str,
+    amount: float,
+) -> ProfileCapacityModel:
+    """Reserve ``amount`` from a profile's available credits (in_progress)."""
+    row = await get_profile_capacity(db, profile_id=profile_id)
+    if row is None:
+        raise HTTPException(409, f"profile {profile_id} has no allocation")
+    if amount > (row.available_credits or 0.0) + 1e-9:
+        raise HTTPException(
+            409,
+            f"insufficient profile credits: need {amount}, available {row.available_credits}",
+        )
+    row.available_credits -= amount
+    row.in_progress_credits += amount
+    row.updated_at = datetime.utcnow()
+    await db.flush()
+    return row

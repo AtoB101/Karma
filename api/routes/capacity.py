@@ -11,7 +11,9 @@ from core.schemas import CapacityState
 from config.settings import settings
 from db.models.orm import CapacityModel
 from db.session import get_db
+from services import profile_capacity as profile_capacity_service
 from services.capacity_ledger import assert_can_release_locked_funds, assert_capacity_invariants
+from services.identity_actor import resolve_actor_identity_id
 from services.ledger_party_access import require_ledger_identity
 from services.path_param_safety import validate_public_url_segment
 from services.runtime_safety import (
@@ -25,6 +27,11 @@ router = APIRouter()
 class AmountRequest(BaseModel):
     amount: float = Field(gt=0.0)
     profile_id: str | None = None
+
+
+class AllocateBody(BaseModel):
+    """profile_id -> allocated_credits 的额度分配（总和不超 master 锁仓）。"""
+    allocations: dict[str, float] = Field(default_factory=dict)
 
 
 @router.get("/{identity_id}", response_model=CapacityState)
@@ -113,6 +120,25 @@ async def release_unused(identity_id: str, body: AmountRequest, request: Request
     await audit_capacity_anchor_and_maybe_trip(db=db)
     await db.flush()
     return state
+
+
+@router.get("/{identity_id}/allocations")
+async def get_allocations(identity_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("identity_id", identity_id)
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor or actor != identity_id:
+        raise HTTPException(403, "only the identity owner can view allocations")
+    return {"allocations": await profile_capacity_service.get_allocations(db, identity_id=identity_id)}
+
+
+@router.put("/{identity_id}/allocations")
+async def set_allocations(identity_id: str, body: AllocateBody, request: Request, db: AsyncSession = Depends(get_db)):
+    validate_public_url_segment("identity_id", identity_id)
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor or actor != identity_id:
+        raise HTTPException(403, "only the identity owner can set allocations")
+    rows = await profile_capacity_service.allocate(db, identity_id=identity_id, allocations=body.allocations)
+    return {"allocations": rows}
 
 
 def _to_schema(row: CapacityModel) -> CapacityState:
