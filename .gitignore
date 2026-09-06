@@ -3,6 +3,16 @@
 /out/
 /broadcast/
 
+# Virtual environments (any name: .venv, .venv-cto, venv, ...)
+.venv/
+.venv-*/
+venv/
+
+# Logs
+*.log
+*.log.err
+*.log.[0-9]*
+
 # Local forge / demo outputs (do not commit)
 /deployment.json
 /abis.json
