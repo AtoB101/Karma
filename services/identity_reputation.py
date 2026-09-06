@@ -79,6 +79,8 @@ def reputation_card_view(row: ReputationModel) -> dict[str, Any]:
         wash_trade_flags=int(row.wash_trade_flags or 0),
     )
     return {
+        "agent_id": row.agent_id,
+        "profile_id": row.profile_id,
         "score": float(row.score or 0),
         "role": row.role,
         "total_tasks": int(row.total_tasks or 0),
