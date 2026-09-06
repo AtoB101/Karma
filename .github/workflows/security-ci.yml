@@ -1,4 +1,4 @@
-name: Security CI
+﻿name: Security CI
 
 on:
   pull_request:
@@ -22,7 +22,9 @@ jobs:
           submodules: recursive
 
       - name: Setup Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@v1.9.1
+        with:
+          version: v1.8.1
 
       - name: Setup Python
         uses: actions/setup-python@v5
