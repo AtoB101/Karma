@@ -1,4 +1,4 @@
-.PHONY: build test test-python test-gas deploy demo simulate verify proof clean karma-bff-smoke
+.PHONY: build test test-python test-gas deploy demo simulate verify proof clean karma-bff-smoke dev up down
 
 # Python: 单元 + 集成（含 Runtime /runtime 端到端，见 tests/integration/test_runtime_e2e.py）
 # 与 .github/workflows/python-tests.yml 对齐：主仓 tests/ + karma-openclaw 冒烟
@@ -46,6 +46,15 @@ full: simulate verify proof
 frontend:
 	@echo "Starting frontend on http://localhost:8787"
 	python3 -m http.server 8787
+
+# ── 一键本地开发 ──
+dev:
+	bash scripts/dev.sh up
+
+up: dev
+
+down:
+	bash scripts/dev.sh down
 
 clean:
 	rm -rf out cache deployment.json abis.json results/
