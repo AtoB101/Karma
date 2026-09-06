@@ -149,6 +149,13 @@
     return karmaFetch("/v1/identity/role-profiles" + q, { method: "GET", headers: headers() });
   }
 
+  async function getRoleProfile(profileId) {
+    return karmaFetch(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId),
+      { method: "GET", headers: headers() }
+    );
+  }
+
   async function createRoleProfile(payload) {
     return jsonPost("/v1/identity/role-profiles", payload);
   }
@@ -406,6 +413,7 @@
     listSettlementTransitions,
     listAgents,
     listRoleProfiles,
+    getRoleProfile,
     createRoleProfile,
     getIdentityCard,
     grantDisclosure,

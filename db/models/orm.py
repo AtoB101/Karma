@@ -784,6 +784,7 @@ class ReputationModel(Base):
     __tablename__ = "reputation"
 
     agent_id:           Mapped[str]   = mapped_column(String(64), ForeignKey("agents.agent_id"), primary_key=True)
+    profile_id:         Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
     role:               Mapped[str]   = mapped_column(String(32), nullable=False)
     score:              Mapped[float] = mapped_column(Float, default=100.0)
     total_tasks:        Mapped[int]   = mapped_column(Integer, default=0)

@@ -124,6 +124,7 @@
       '<button type="button" class="btn" id="pm-grant">授权披露</button>' +
       '<button type="button" class="btn" id="pm-kyc">提交 KYC</button>' +
       '<button type="button" class="btn" id="pm-card">查看身份卡</button>' +
+      '<button type="button" class="btn" id="pm-reputation">查看声誉</button>' +
       '<span class="api-status" id="pm-status"></span>' +
       '</div>' +
       '<pre class="out" id="pm-out" style="margin-top:12px;max-height:240px;overflow:auto;display:none"></pre>';
@@ -150,6 +151,7 @@
     $("#pm-grant", sec).addEventListener("click", grant);
     $("#pm-kyc", sec).addEventListener("click", submitKyc);
     $("#pm-card", sec).addEventListener("click", viewCard);
+    $("#pm-reputation", sec).addEventListener("click", viewReputation);
   }
 
   async function createProfile() {
@@ -192,6 +194,18 @@
     status("读取身份卡…", null);
     try { var card = await api().getIdentityCard(id); status("已读取", true); out(card); }
     catch (e) { status("失败: " + (e.message || e), false); }
+  }
+
+  async function viewReputation() {
+    var pid = activeProfileId();
+    if (!pid) { status("请先在侧边栏选择档案", false); return; }
+    status("读取声誉…", null);
+    try {
+      var p = await api().getRoleProfile(pid);
+      var rep = p.reputation || {};
+      status("声誉已读取（score=" + (rep.score != null ? rep.score : "—") + "）", true);
+      out(rep);
+    } catch (e) { status("失败: " + (e.message || e), false); }
   }
 
   async function refresh() {

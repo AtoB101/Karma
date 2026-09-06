@@ -112,3 +112,55 @@ async def attach_card_reputation(
     out = dict(card)
     out["reputation"] = reputation_card_view(row)
     return out
+
+
+async def ensure_profile_reputation(
+    db: AsyncSession,
+    *,
+    profile_id: str,
+    owner_identity_id: str,
+    identity_class: str | None = None,
+) -> ReputationModel:
+    """Open a per-profile reputation book (每个身份的独立历史/成功率/违约)."""
+    pid = (profile_id or "").strip()
+    if not pid:
+        raise ValueError("profile_id required")
+    role = role_for_identity_class(identity_class)
+    agent = await db.get(AgentModel, pid)
+    if agent is None:
+        agent = AgentModel(
+            agent_id=pid,
+            name=_stub_name(pid, identity_class),
+            role=role,
+            public_key=STUB_PUBLIC_KEY,
+            endpoint_url=None,
+            capabilities=["karma_settle"] if role == "worker" else [],
+            is_active=True,
+            registered_at=datetime.utcnow(),
+            identity_class=(identity_class or "user"),
+            owner_identity_id=owner_identity_id,
+            p1_ready=False,
+            onboarding_meta={"source": "profile_reputation"},
+        )
+        db.add(agent)
+        await db.flush()
+    row = await ensure_reputation_row(db, pid, role=role)
+    if row.profile_id != pid:
+        row.profile_id = pid
+        await db.flush()
+    return row
+
+
+async def attach_profile_reputation(
+    db: AsyncSession,
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    row = await ensure_profile_reputation(
+        db,
+        profile_id=profile["profile_id"],
+        owner_identity_id=profile.get("owner_identity_id", ""),
+        identity_class=profile.get("class"),
+    )
+    out = dict(profile)
+    out["reputation"] = reputation_card_view(row)
+    return out
