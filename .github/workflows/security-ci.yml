@@ -38,10 +38,10 @@ jobs:
           python3 -m pip install slither-analyzer
 
       - name: Forge tests
-        run: forge test -vv --no-match-path "lib/**"
+        run: forge test -vv --no-match-path "**/forge-std/**"
 
       - name: Gas snapshot (generate)
-        run: forge snapshot --no-match-path "lib/**"
+        run: forge snapshot --no-match-path "**/forge-std/**"
 
       - name: Slither gate
         run: ./scripts/slither-gate.sh --format text
