@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
@@ -50,6 +51,36 @@ async def _sync_payment_intents_after_settled(db: AsyncSession, task_id: str) ->
     from services.payment_intent_service import mark_intents_settled_for_task
 
     await mark_intents_settled_for_task(db, task_id)
+
+
+async def _release_profile_credits_if_bound(db: AsyncSession, state: Any) -> None:
+    """最后一环：结算后释放档案冻结额度 + 回写档案声誉。"""
+    profile_id = getattr(state, "profile_id", None)
+    if not profile_id:
+        return
+    from services import profile_capacity
+
+    await profile_capacity.release_profile_credits(
+        db,
+        profile_id=profile_id,
+        settled_amount=float(state.released_amount or state.escrow_amount or 0),
+        refunded_amount=float(state.refunded_amount or 0),
+    )
+
+    from db.models.orm import IdentityRoleProfile
+    from services.identity_reputation import record_profile_settlement_outcome
+
+    profile = await db.get(IdentityRoleProfile, profile_id)
+    if profile is not None:
+        await record_profile_settlement_outcome(
+            db,
+            profile_id=profile_id,
+            owner_identity_id=profile.owner_identity_id,
+            identity_class=profile.class_,
+            success=float(state.released_amount or state.escrow_amount or 0) > 0,
+            disputed=bool(getattr(state, "disputed_credits", 0) or 0),
+            volume=float(state.released_amount or state.escrow_amount or 0),
+        )
 
 
 class CreateSettlementRequest(BaseModel):
@@ -724,6 +755,7 @@ async def buyer_accept_settlement(
         settled_amount=state.escrow_amount,
         refunded_amount=0.0,
     )
+    await _release_profile_credits_if_bound(db, state)
     await mark_voucher_used_if_linked(db, task_id)
     await _sync_payment_intents_after_settled(db, task_id)
     settle_scene_final = settle_scene or _scene_id_from_settlement(state) or "api_tool_call"
@@ -831,6 +863,7 @@ async def auto_confirm_settlement(
         route_path=str(request.url.path), actor_id=_resolve_actor_id(request))
     await apply_capacity_resolution(db=db, buyer_identity_id=state.client_agent_id,
         escrow_amount=state.escrow_amount, settled_amount=state.escrow_amount, refunded_amount=0.0)
+    await _release_profile_credits_if_bound(db, state)
     await mark_voucher_used_if_linked(db, task_id)
     await _sync_payment_intents_after_settled(db, task_id)
     if state.worker_agent_id:

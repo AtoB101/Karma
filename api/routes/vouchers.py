@@ -103,6 +103,14 @@ async def create_voucher(body: CreateVoucherRequest, request: Request, db: Async
     if not cap or cap.available_credits < body.bill_credit_amount:
         raise HTTPException(409, "insufficient buyer available credits")
 
+    # Per-profile quota enforcement (P1: 每个身份在授权额度内行事)
+    if body.profile_id:
+        from services import profile_capacity
+
+        await profile_capacity.spend_profile_credits(
+            db, profile_id=body.profile_id, amount=body.bill_credit_amount
+        )
+
     await _validate_sub_identity_binding(
         db=db,
         parent_identity_id=body.buyer_identity_id,

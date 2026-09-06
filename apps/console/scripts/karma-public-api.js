@@ -65,6 +65,20 @@
     return karmaFetch("/v1/capacity/" + id, { method: "GET", headers: headers() });
   }
 
+  async function getAllocations(identityId) {
+    return karmaFetch(
+      "/v1/capacity/" + encodeURIComponent(identityId) + "/allocations",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function setAllocations(identityId, allocations) {
+    return jsonPut(
+      "/v1/capacity/" + encodeURIComponent(identityId) + "/allocations",
+      { allocations: allocations }
+    );
+  }
+
   async function getSettlement(taskId) {
     const id = encodeURIComponent(taskId);
     return karmaFetch("/v1/settlement/" + id, { method: "GET", headers: headers() });
@@ -133,6 +147,13 @@
   async function listRoleProfiles(ownerIdentityId) {
     var q = ownerIdentityId ? "?owner_identity_id=" + encodeURIComponent(ownerIdentityId) : "";
     return karmaFetch("/v1/identity/role-profiles" + q, { method: "GET", headers: headers() });
+  }
+
+  async function getRoleProfile(profileId) {
+    return karmaFetch(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId),
+      { method: "GET", headers: headers() }
+    );
   }
 
   async function createRoleProfile(payload) {
@@ -380,6 +401,8 @@
     karmaFetch,
     headers,
     getCapacity,
+    getAllocations,
+    setAllocations,
     getSettlement,
     getHealth,
     getV1Info,
@@ -390,6 +413,7 @@
     listSettlementTransitions,
     listAgents,
     listRoleProfiles,
+    getRoleProfile,
     createRoleProfile,
     getIdentityCard,
     grantDisclosure,

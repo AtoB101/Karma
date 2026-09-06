@@ -271,6 +271,26 @@ class CapacityModel(Base):
     updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ProfileCapacityModel(Base):
+    """Per-profile quota allocation under a master identity capacity.
+
+    The master ``capacity`` row (keyed by identity_id) is the total locked USDC anchor;
+    each role profile gets its own allocation (``allocated_credits``) and usage
+    breakdown, so 个人/商家/企业 各自在授权额度内行事、互不混淆、总账对齐。
+    """
+    __tablename__ = "profile_capacity"
+
+    profile_id:                   Mapped[str]      = mapped_column(String(64), primary_key=True)
+    owner_identity_id:            Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
+    allocated_credits:            Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    available_credits:            Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    in_progress_credits:          Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    pending_settlement_credits:   Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    disputed_credits:             Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    released_credits:             Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class VoucherModel(Base):
     __tablename__ = "vouchers"
 
@@ -764,6 +784,7 @@ class ReputationModel(Base):
     __tablename__ = "reputation"
 
     agent_id:           Mapped[str]   = mapped_column(String(64), ForeignKey("agents.agent_id"), primary_key=True)
+    profile_id:         Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
     role:               Mapped[str]   = mapped_column(String(32), nullable=False)
     score:              Mapped[float] = mapped_column(Float, default=100.0)
     total_tasks:        Mapped[int]   = mapped_column(Integer, default=0)

@@ -171,7 +171,12 @@ async def get_role_profile(
     is_owner = bool(actor) and actor == row.owner_identity_id
     if row.visibility == "private" and not is_owner:
         raise HTTPException(404, "role profile not found")
-    return _serialize(row, full=is_owner)
+    data = _serialize(row, full=is_owner)
+    if is_owner:
+        from services.identity_reputation import attach_profile_reputation
+
+        data = await attach_profile_reputation(db, data)
+    return data
 
 
 @router.put("/{profile_id}")
