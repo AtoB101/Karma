@@ -16,5 +16,5 @@ fs_permissions = [
     { access = "read-write", path = "test/fixtures/" },
 ]
 
-# RPC config for forge-std StdChains test (must match forge 1.5.1 default)
-eth_rpc_url = "https://ethereum.reth.rs/rpc"
+# RPC config for forge-std StdChains test (public mainnet RPC; reth.rs is dead -> 504)
+eth_rpc_url = "https://eth.llamarpc.com"
