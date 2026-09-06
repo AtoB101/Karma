@@ -65,6 +65,20 @@
     return karmaFetch("/v1/capacity/" + id, { method: "GET", headers: headers() });
   }
 
+  async function getAllocations(identityId) {
+    return karmaFetch(
+      "/v1/capacity/" + encodeURIComponent(identityId) + "/allocations",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function setAllocations(identityId, allocations) {
+    return jsonPut(
+      "/v1/capacity/" + encodeURIComponent(identityId) + "/allocations",
+      { allocations: allocations }
+    );
+  }
+
   async function getSettlement(taskId) {
     const id = encodeURIComponent(taskId);
     return karmaFetch("/v1/settlement/" + id, { method: "GET", headers: headers() });
@@ -380,6 +394,8 @@
     karmaFetch,
     headers,
     getCapacity,
+    getAllocations,
+    setAllocations,
     getSettlement,
     getHealth,
     getV1Info,

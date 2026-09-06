@@ -235,9 +235,92 @@
     });
   }
 
+  function renderAllocation() {
+    var page = document.getElementById("identity");
+    if (!page || page.querySelector("[data-profile-alloc]")) return;
+    var sec = document.createElement("div");
+    sec.className = "card section";
+    sec.setAttribute("data-profile-alloc", "");
+    sec.innerHTML =
+      '<div class="section-header"><div><h3>额度分配</h3><p>给每个身份单独授权额度，总和不超过总锁仓；每个身份在授权额度内行事。</p></div>' +
+      '<button type="button" class="btn" id="pm-alloc-refresh">刷新</button></div>' +
+      '<div id="pm-alloc-list" style="margin-top:12px"></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">' +
+      '<button type="button" class="btn primary" id="pm-alloc-save">保存分配</button>' +
+      '<span class="api-status" id="pm-alloc-status"></span>' +
+      '</div>';
+    page.appendChild(sec);
+    $("#pm-alloc-refresh", sec).addEventListener("click", refreshAllocation);
+    $("#pm-alloc-save", sec).addEventListener("click", saveAllocation);
+    refreshAllocation();
+  }
+
+  function currentProfiles() {
+    try {
+      return JSON.parse(sessionStorage.getItem("karma_console_profiles") || "[]");
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function refreshAllocation() {
+    var id = (window.KARMA_IDENTITY_ID || "").trim();
+    var list = $("#pm-alloc-list");
+    if (!list) return;
+    if (!id) { list.textContent = "请先连接钱包"; return; }
+    var profiles = currentProfiles();
+    if (!profiles.length) { list.textContent = "还没有身份档案，请先在「身份档案管理」创建"; return; }
+    var a = api();
+    var allocs = {};
+    try {
+      var body = await a.getAllocations(id);
+      (body.allocations || []).forEach(function (x) { allocs[x.profile_id] = x; });
+    } catch (_) {}
+    list.innerHTML = "";
+    profiles.forEach(function (p) {
+      var cur = allocs[p.profile_id];
+      var used = cur ? ((cur.in_progress_credits || 0) + (cur.pending_settlement_credits || 0) + (cur.disputed_credits || 0)) : 0;
+      var row = document.createElement("div");
+      row.style.cssText = "display:grid;grid-template-columns:1fr 120px 1fr;gap:10px;align-items:center;margin-bottom:8px";
+      var label = document.createElement("label");
+      label.textContent = (p.display_name || p.profile_id) + " · " + (p["class"] || "");
+      var input = document.createElement("input");
+      input.type = "number"; input.step = "0.01"; input.min = "0"; input.style.width = "100%";
+      input.dataset.allocProfile = p.profile_id;
+      if (cur) input.value = String(cur.allocated_credits);
+      input.placeholder = "额度";
+      var usage = document.createElement("span");
+      usage.className = "sub";
+      usage.textContent = cur ? ("已用 " + used + " / 可用 " + (cur.available_credits || 0)) : "未分配";
+      row.appendChild(label); row.appendChild(input); row.appendChild(usage);
+      list.appendChild(row);
+    });
+  }
+
+  async function saveAllocation() {
+    var id = (window.KARMA_IDENTITY_ID || "").trim();
+    var status = $("#pm-alloc-status");
+    if (!id) { status.textContent = "请先连接钱包"; status.style.color = "#f87171"; return; }
+    var allocations = {};
+    document.querySelectorAll("[data-alloc-profile]").forEach(function (inp) {
+      var v = parseFloat(inp.value);
+      if (!isNaN(v) && v > 0) allocations[inp.dataset.allocProfile] = v;
+    });
+    if (!Object.keys(allocations).length) { status.textContent = "请至少填一个档案额度"; status.style.color = "#f87171"; return; }
+    status.textContent = "保存中…"; status.style.color = "";
+    try {
+      await api().setAllocations(id, allocations);
+      status.textContent = "已保存"; status.style.color = "var(--accent,#4ade80)";
+      refreshAllocation();
+    } catch (e) {
+      status.textContent = "失败: " + (e.message || e); status.style.color = "#f87171";
+    }
+  }
+
   function init() {
     refresh();
     renderManage();
+    renderAllocation();
     var claimBtn = document.getElementById("btn-claim-card");
     if (claimBtn) claimBtn.addEventListener("click", claimCard);
     document.addEventListener("karma-wallet-connected", refresh);
