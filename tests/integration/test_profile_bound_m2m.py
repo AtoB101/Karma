@@ -112,6 +112,13 @@ async def test_profile_id_flows_through_m2m_flow(client: AsyncClient, monkeypatc
     )
 
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 120.0})
+    # 分配档案额度：voucher 创建会按档案额度校验（每个身份在授权额度内行事）
+    alloc = await client.put(
+        f"/v1/capacity/{buyer}/allocations",
+        json={"allocations": {pid: 60.0}},
+        headers={"X-Karma-Identity-Id": buyer},
+    )
+    assert alloc.status_code == 200, alloc.text
 
     task_id = f"task-pf-{uuid.uuid4().hex[:12]}"
     await post_minimal_contract(client, task_id=task_id, client_agent_id=buyer, escrow_amount=35.0)
@@ -175,3 +182,10 @@ async def test_profile_id_flows_through_m2m_flow(client: AsyncClient, monkeypatc
     )
     assert bar.status_code == 200, bar.text
     assert bar.json().get("status") == "settled"
+
+    # 7. 最后一环：结算后释放档案额度（in_progress → released）
+    ag = await client.get(f"/v1/capacity/{buyer}/allocations", headers={"X-Karma-Identity-Id": buyer})
+    assert ag.status_code == 200
+    row = [a for a in ag.json()["allocations"] if a["profile_id"] == pid]
+    assert row and row[0]["in_progress_credits"] == 0.0
+    assert row[0]["released_credits"] >= 35.0

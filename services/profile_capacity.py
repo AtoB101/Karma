@@ -123,3 +123,39 @@ async def spend_profile_credits(
     row.updated_at = datetime.utcnow()
     await db.flush()
     return row
+
+
+async def release_profile_credits(
+    db: AsyncSession,
+    *,
+    profile_id: str,
+    settled_amount: float,
+    refunded_amount: float = 0.0,
+) -> ProfileCapacityModel | None:
+    """Settle/release a profile's in-progress credits (最后一环：结算回写额度).
+
+    On finalize: ``in_progress`` → ``released`` (settled portion) and, for any
+    refunded portion, back to ``available``. No-op if the profile has no row.
+    """
+    row = await get_profile_capacity(db, profile_id=profile_id)
+    if row is None:
+        return None
+    settled = max(0.0, float(settled_amount))
+    refunded = max(0.0, float(refunded_amount))
+    total = settled + refunded
+    in_progress = row.in_progress_credits or 0.0
+    if total > in_progress + 1e-9:
+        # never release more than was reserved; clamp defensively
+        total = in_progress
+        if total <= 0:
+            return row
+        scale = total / (settled + refunded) if (settled + refunded) > 0 else 0.0
+        settled = round(settled * scale, 8)
+        refunded = round(refunded * scale, 8)
+    row.in_progress_credits -= total
+    row.released_credits = (row.released_credits or 0.0) + settled
+    if refunded > 0:
+        row.available_credits = (row.available_credits or 0.0) + refunded
+    row.updated_at = datetime.utcnow()
+    await db.flush()
+    return row

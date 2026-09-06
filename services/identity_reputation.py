@@ -164,3 +164,45 @@ async def attach_profile_reputation(
     out = dict(profile)
     out["reputation"] = reputation_card_view(row)
     return out
+
+
+async def record_profile_settlement_outcome(
+    db: AsyncSession,
+    *,
+    profile_id: str,
+    owner_identity_id: str,
+    identity_class: str | None = None,
+    success: bool = True,
+    disputed: bool = False,
+    volume: float = 0.0,
+) -> ReputationModel | None:
+    """最后一环：结算后把成交/违约回写到该档案的声誉账本。"""
+    pid = (profile_id or "").strip()
+    if not pid:
+        return None
+    row = await ensure_profile_reputation(
+        db,
+        profile_id=pid,
+        owner_identity_id=owner_identity_id,
+        identity_class=identity_class,
+    )
+    row.total_tasks = int(row.total_tasks or 0) + 1
+    if disputed:
+        row.disputed_tasks = int(row.disputed_tasks or 0) + 1
+        row.consecutive_successes = 0
+        row.score = max(0.0, float(row.score or 0) - 15.0)
+        row.last_incident_at = datetime.utcnow()
+        row.last_incident_kind = "dispute"
+    elif success:
+        row.successful_tasks = int(row.successful_tasks or 0) + 1
+        row.consecutive_successes = int(row.consecutive_successes or 0) + 1
+        bump = 5.0 + min(max(volume, 0.0), 100.0) * 0.05
+        row.score = min(1000.0, float(row.score or 0) + bump)
+    else:
+        row.consecutive_successes = 0
+        row.score = max(0.0, float(row.score or 0) - 8.0)
+        row.last_incident_at = datetime.utcnow()
+        row.last_incident_kind = "default"
+    row.last_updated = datetime.utcnow()
+    await db.flush()
+    return row
