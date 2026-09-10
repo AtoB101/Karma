@@ -722,6 +722,17 @@ document.querySelectorAll('.card').forEach(card => {
     card.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100) + '%');
   });
 });
+
+// ---- console entry resolution ----
+// 生产环境：官网与操作台同源，/console/pages/cyber/index.html 直接可用。
+// 本地预览（127.0.0.1 / localhost）下官网挂在 /karma-core/docs/public/，
+// 同源根路径下并不存在操作台，直接点击会 ERR_CONNECTION_CLOSED，故回退到线上操作台。
+if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+  document.querySelectorAll('a[href="/console/pages/cyber/index.html"]').forEach(function (a) {
+    a.setAttribute('href', 'https://karma-network.ai/console/pages/cyber/index.html');
+  });
+}
+
 </script>
 </body>
 </html>
