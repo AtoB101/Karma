@@ -13,9 +13,28 @@
 
   function headers() {
     const h = { Accept: "application/json" };
+    const token = String(global.KARMA_ACCESS_TOKEN || "").trim();
+    if (token) {
+      h["Authorization"] = "Bearer " + token;
+      return h;
+    }
     const key = String(global.KARMA_API_KEY || "").trim();
     if (key) h["X-Karma-Api-Key"] = key;
+    const id = String(global.KARMA_IDENTITY_ID || "").trim();
+    if (id) h["X-Karma-Identity-Id"] = id;
     return h;
+  }
+
+  function activeProfileId() {
+    try {
+      if (global.KarmaIdentitySwitcher && global.KarmaIdentitySwitcher.getActiveProfileId) {
+        var p = global.KarmaIdentitySwitcher.getActiveProfileId();
+        if (p) return p;
+      }
+      return sessionStorage.getItem("karma_console_active_profile") || "";
+    } catch (_) {
+      return "";
+    }
   }
 
   async function karmaFetch(path, init) {
@@ -44,6 +63,20 @@
   async function getCapacity(identityId) {
     const id = encodeURIComponent(identityId);
     return karmaFetch("/v1/capacity/" + id, { method: "GET", headers: headers() });
+  }
+
+  async function getAllocations(identityId) {
+    return karmaFetch(
+      "/v1/capacity/" + encodeURIComponent(identityId) + "/allocations",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function setAllocations(identityId, allocations) {
+    return jsonPut(
+      "/v1/capacity/" + encodeURIComponent(identityId) + "/allocations",
+      { allocations: allocations }
+    );
   }
 
   async function getSettlement(taskId) {
@@ -109,6 +142,68 @@
   async function listAgents(role) {
     var q = role ? "?role=" + encodeURIComponent(role) : "";
     return karmaFetch("/v1/agents" + q, { method: "GET", headers: headers() });
+  }
+
+  async function listRoleProfiles(ownerIdentityId) {
+    var q = ownerIdentityId ? "?owner_identity_id=" + encodeURIComponent(ownerIdentityId) : "";
+    return karmaFetch("/v1/identity/role-profiles" + q, { method: "GET", headers: headers() });
+  }
+
+  async function getRoleProfile(profileId) {
+    return karmaFetch(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId),
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function createRoleProfile(payload) {
+    return jsonPost("/v1/identity/role-profiles", payload);
+  }
+
+  async function getIdentityCard(identityId) {
+    return karmaFetch(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/card?scope=basic",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function grantDisclosure(profileId, body) {
+    return jsonPost("/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/disclosures", body);
+  }
+
+  async function listDisclosures(profileId) {
+    return karmaFetch(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/disclosures",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function revokeDisclosure(profileId, disclosureId) {
+    return karmaFetch(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/disclosures/" + encodeURIComponent(disclosureId),
+      { method: "DELETE", headers: headers() }
+    );
+  }
+
+  async function getProfileLedger(profileId) {
+    return karmaFetch(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/ledger",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function submitKyc(profileId, payload) {
+    return jsonPost(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/kyc",
+      { kyc_payload: payload }
+    );
+  }
+
+  async function verifyKyc(profileId, decision) {
+    return jsonPost(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/kyc/verify",
+      { decision: decision }
+    );
   }
 
   async function getRuntimeSafetyMode() {
@@ -195,12 +290,18 @@
 
   async function lockCapacity(identityId, amount) {
     const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/capacity/" + id + "/lock", { amount: Number(amount) });
+    const body = { amount: Number(amount) };
+    const pid = activeProfileId();
+    if (pid) body.profile_id = pid;
+    return jsonPost("/v1/capacity/" + id + "/lock", body);
   }
 
   async function releaseCapacity(identityId, amount) {
     const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/capacity/" + id + "/release", { amount: Number(amount) });
+    const body = { amount: Number(amount) };
+    const pid = activeProfileId();
+    if (pid) body.profile_id = pid;
+    return jsonPost("/v1/capacity/" + id + "/release", body);
   }
 
   async function createSettlement(payload) {
@@ -300,6 +401,8 @@
     karmaFetch,
     headers,
     getCapacity,
+    getAllocations,
+    setAllocations,
     getSettlement,
     getHealth,
     getV1Info,
@@ -309,6 +412,16 @@
     getBundleForTask,
     listSettlementTransitions,
     listAgents,
+    listRoleProfiles,
+    getRoleProfile,
+    createRoleProfile,
+    getIdentityCard,
+    grantDisclosure,
+    listDisclosures,
+    revokeDisclosure,
+    getProfileLedger,
+    submitKyc,
+    verifyKyc,
     getRuntimeSafetyMode,
     getOpenclawHandoffDraft,
     getOpenclawAutomationReadiness,
@@ -339,6 +452,7 @@
     tradeLaunchSigningPreview,
     jsonPost,
     jsonPut,
+    activeProfileId,
   };
   global.karmaRuntimeApi = { runtimeCreateKey, runtimeListKeys, runtimeRevokeKey, karmaFetch, headers };
 })(window);

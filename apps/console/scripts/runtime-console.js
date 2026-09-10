@@ -48,6 +48,18 @@ function collectPermissions() {
   return boxes.filter((b) => b.checked).map((b) => b.name);
 }
 
+function activeProfileId() {
+  try {
+    if (window.KarmaIdentitySwitcher && window.KarmaIdentitySwitcher.getActiveProfileId) {
+      const p = window.KarmaIdentitySwitcher.getActiveProfileId();
+      if (p) return p;
+    }
+    return sessionStorage.getItem("karma_console_active_profile") || "";
+  } catch (_) {
+    return "";
+  }
+}
+
 function wire() {
   const api = window.karmaRuntimeApi;
   if (!api) return;
@@ -110,6 +122,7 @@ function wire() {
       daily_limit: Number($("[data-k=daily_limit]").value || 0),
       expire_time: expireIso,
       agent_name: $("[data-agent-name]").value.trim() || "console-agent",
+      profile_id: activeProfileId() || undefined,
     };
     const data = await api.runtimeCreateKey(payload);
     lastRuntimeKey = data.runtime_key;

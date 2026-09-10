@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, field_validator
@@ -52,6 +53,36 @@ async def _sync_payment_intents_after_settled(db: AsyncSession, task_id: str) ->
     await mark_intents_settled_for_task(db, task_id)
 
 
+async def _release_profile_credits_if_bound(db: AsyncSession, state: Any) -> None:
+    """最后一环：结算后释放档案冻结额度 + 回写档案声誉。"""
+    profile_id = getattr(state, "profile_id", None)
+    if not profile_id:
+        return
+    from services import profile_capacity
+
+    await profile_capacity.release_profile_credits(
+        db,
+        profile_id=profile_id,
+        settled_amount=float(state.released_amount or state.escrow_amount or 0),
+        refunded_amount=float(state.refunded_amount or 0),
+    )
+
+    from db.models.orm import IdentityRoleProfile
+    from services.identity_reputation import record_profile_settlement_outcome
+
+    profile = await db.get(IdentityRoleProfile, profile_id)
+    if profile is not None:
+        await record_profile_settlement_outcome(
+            db,
+            profile_id=profile_id,
+            owner_identity_id=profile.owner_identity_id,
+            identity_class=profile.class_,
+            success=float(state.released_amount or state.escrow_amount or 0) > 0,
+            disputed=bool(getattr(state, "disputed_credits", 0) or 0),
+            volume=float(state.released_amount or state.escrow_amount or 0),
+        )
+
+
 class CreateSettlementRequest(BaseModel):
     task_id: str
     client_agent_id: str
@@ -59,6 +90,7 @@ class CreateSettlementRequest(BaseModel):
     currency: str = "USD"
     voucher_id: str | None = None
     delivery_deadline_at: datetime | None = None
+    profile_id: str | None = None
 
 
 class LockRequest(BaseModel):
@@ -129,6 +161,8 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
     validate_public_url_segment("client_agent_id", body.client_agent_id)
     if body.voucher_id:
         validate_public_url_segment("voucher_id", body.voucher_id)
+    if body.profile_id:
+        validate_public_url_segment("profile_id", body.profile_id)
     require_buyer_on_create(request, body.client_agent_id)
     await ensure_task_contract_exists(db, body.task_id)
     from config.settings import settings as _s
@@ -136,6 +170,7 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
     voucher_id = body.voucher_id
     delivery_deadline_at = body.delivery_deadline_at
     progress_rule_spec = None
+    profile_id = body.profile_id
     escrow_amount = body.escrow_amount
     if voucher_id:
         vrow = await db.get(VoucherModel, voucher_id)
@@ -148,12 +183,15 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
         if abs(vrow.bill_credit_amount - body.escrow_amount) > 1e-6:
             raise HTTPException(409, "escrow_amount must equal voucher bill_credit_amount when voucher_id is set")
         progress_rule_spec = vrow.progress_rule_spec
+        if vrow.profile_id and not profile_id:
+            profile_id = vrow.profile_id
 
     state = SettlementState(
         task_id=body.task_id,
         escrow_amount=escrow_amount,
         currency=body.currency,
         client_agent_id=body.client_agent_id,
+        profile_id=profile_id,
         status=TaskStatus.DRAFT,
         settlement_mode=_s.settlement_mode,
         chain_id=_s.testnet_chain_id if _s.settlement_mode != "offchain" else None,
@@ -230,7 +268,7 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
             "settlement must be moved to pending before lock (settlement_lock_requires_pending)",
         )
     state.worker_agent_id = body.worker_agent_id
-    return await _apply_transition(
+    new_state = await _apply_transition(
         db=db,
         store=store,
         state=state,
@@ -239,6 +277,33 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
     )
+    # On-chain (testnet/hybrid): on acceptance, auto-lock buyer escrow + seller
+    # penalty + bind. Guarded by is_onchain() so offchain/test runs never touch
+    # the Celery broker.
+    escrow_wei = _settlement_escrow_wei(state)
+    if escrow_wei > 0:
+        from services.chain.settlement_adapter import settlement_router
+        if settlement_router.is_onchain():
+            from worker.tasks import lock_and_bind_onchain
+            lock_and_bind_onchain.delay(task_id, escrow_wei)
+    return new_state
+
+
+def _settlement_escrow_wei(state) -> int:
+    """Convert the off-chain USD escrow amount to the token's raw wei units.
+
+    Off-chain escrow is tracked in USD float; the on-chain KarmaBilateral works in
+    the token's raw units (6-decimal stablecoin). Returns 0 when the amount is
+    unset or non-numeric (the on-chain lock is then skipped).
+    """
+    from config.settings import settings
+    try:
+        usd = float(state.escrow_amount or 0)
+    except (TypeError, ValueError):
+        return 0
+    if usd <= 0:
+        return 0
+    return int(usd * (10 ** settings.settlement_token_decimals))
 
 
 @router.post("/{task_id}/start", response_model=SettlementState)
@@ -690,6 +755,7 @@ async def buyer_accept_settlement(
         settled_amount=state.escrow_amount,
         refunded_amount=0.0,
     )
+    await _release_profile_credits_if_bound(db, state)
     await mark_voucher_used_if_linked(db, task_id)
     await _sync_payment_intents_after_settled(db, task_id)
     settle_scene_final = settle_scene or _scene_id_from_settlement(state) or "api_tool_call"
@@ -797,6 +863,7 @@ async def auto_confirm_settlement(
         route_path=str(request.url.path), actor_id=_resolve_actor_id(request))
     await apply_capacity_resolution(db=db, buyer_identity_id=state.client_agent_id,
         escrow_amount=state.escrow_amount, settled_amount=state.escrow_amount, refunded_amount=0.0)
+    await _release_profile_credits_if_bound(db, state)
     await mark_voucher_used_if_linked(db, task_id)
     await _sync_payment_intents_after_settled(db, task_id)
     if state.worker_agent_id:

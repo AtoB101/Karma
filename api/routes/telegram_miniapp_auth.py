@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from api.middleware.auth import create_access_token
 from services.identity_gateway import siwe, store
 from services.telegram import (
     InitDataError,
@@ -144,12 +145,18 @@ async def siwe_verify(body: SiweVerifyRequest):
         raise HTTPException(401, str(exc)) from exc
     ident = store.get_or_create_by_wallet(ch.address)
     await _open_reputation_ledger_best_effort(ident.identity_id, ident.identity_class)
+    # Console wallet login: issue a short-lived JWT bound to this identity so the
+    # frontend can call protected routes (capacity/settlement/payment-codes) without
+    # a plaintext API key. Reuses create_access_token (15m expiry, sub=identity_id).
+    access_token = create_access_token(subject=ident.identity_id)
     return {
         "identity_id": ident.identity_id,
         "wallet": ident.wallet,
         "status": ident.status,
         "payment_policy": ident.payment_policy,
         "reputation_opened": True,
+        "access_token": access_token,
+        "token_type": "bearer",
     }
 
 

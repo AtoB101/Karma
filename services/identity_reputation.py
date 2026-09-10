@@ -79,6 +79,8 @@ def reputation_card_view(row: ReputationModel) -> dict[str, Any]:
         wash_trade_flags=int(row.wash_trade_flags or 0),
     )
     return {
+        "agent_id": row.agent_id,
+        "profile_id": row.profile_id,
         "score": float(row.score or 0),
         "role": row.role,
         "total_tasks": int(row.total_tasks or 0),
@@ -112,3 +114,97 @@ async def attach_card_reputation(
     out = dict(card)
     out["reputation"] = reputation_card_view(row)
     return out
+
+
+async def ensure_profile_reputation(
+    db: AsyncSession,
+    *,
+    profile_id: str,
+    owner_identity_id: str,
+    identity_class: str | None = None,
+) -> ReputationModel:
+    """Open a per-profile reputation book (每个身份的独立历史/成功率/违约)."""
+    pid = (profile_id or "").strip()
+    if not pid:
+        raise ValueError("profile_id required")
+    role = role_for_identity_class(identity_class)
+    agent = await db.get(AgentModel, pid)
+    if agent is None:
+        agent = AgentModel(
+            agent_id=pid,
+            name=_stub_name(pid, identity_class),
+            role=role,
+            public_key=STUB_PUBLIC_KEY,
+            endpoint_url=None,
+            capabilities=["karma_settle"] if role == "worker" else [],
+            is_active=True,
+            registered_at=datetime.utcnow(),
+            identity_class=(identity_class or "user"),
+            owner_identity_id=owner_identity_id,
+            p1_ready=False,
+            onboarding_meta={"source": "profile_reputation"},
+        )
+        db.add(agent)
+        await db.flush()
+    row = await ensure_reputation_row(db, pid, role=role)
+    if row.profile_id != pid:
+        row.profile_id = pid
+        await db.flush()
+    return row
+
+
+async def attach_profile_reputation(
+    db: AsyncSession,
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    row = await ensure_profile_reputation(
+        db,
+        profile_id=profile["profile_id"],
+        owner_identity_id=profile.get("owner_identity_id", ""),
+        identity_class=profile.get("class"),
+    )
+    out = dict(profile)
+    out["reputation"] = reputation_card_view(row)
+    return out
+
+
+async def record_profile_settlement_outcome(
+    db: AsyncSession,
+    *,
+    profile_id: str,
+    owner_identity_id: str,
+    identity_class: str | None = None,
+    success: bool = True,
+    disputed: bool = False,
+    volume: float = 0.0,
+) -> ReputationModel | None:
+    """最后一环：结算后把成交/违约回写到该档案的声誉账本。"""
+    pid = (profile_id or "").strip()
+    if not pid:
+        return None
+    row = await ensure_profile_reputation(
+        db,
+        profile_id=pid,
+        owner_identity_id=owner_identity_id,
+        identity_class=identity_class,
+    )
+    row.total_tasks = int(row.total_tasks or 0) + 1
+    if disputed:
+        row.disputed_tasks = int(row.disputed_tasks or 0) + 1
+        row.consecutive_successes = 0
+        row.score = max(0.0, float(row.score or 0) - 15.0)
+        row.last_incident_at = datetime.utcnow()
+        row.last_incident_kind = "dispute"
+    elif success:
+        row.successful_tasks = int(row.successful_tasks or 0) + 1
+        row.consecutive_successes = int(row.consecutive_successes or 0) + 1
+        bump = 5.0 + min(max(volume, 0.0), 100.0) * 0.05
+        row.score = min(1000.0, float(row.score or 0) + bump)
+    else:
+        row.consecutive_successes = 0
+        row.score = max(0.0, float(row.score or 0) - 8.0)
+        row.last_incident_at = datetime.utcnow()
+        row.last_incident_kind = "default"
+    row.last_updated = datetime.utcnow()
+    await db.flush()
+    return row

@@ -149,8 +149,10 @@ contract KarmaBilateralAdvancedTest is Test {
         vm.prank(admin);
         karma.setTokenAllowed(address(rt), true);
 
-        rt.mint(buyer, type(uint256).max);
-        rt.mint(agent, type(uint256).max);
+        // Reasonable balances avoid overflow now that settle pays buyer's
+        // lock to the seller (seller balance += payment + stake).
+        rt.mint(buyer, 1_000_000_000);
+        rt.mint(agent, 1_000_000_000);
         vm.prank(buyer);
         rt.approve(address(karma), type(uint256).max);
         vm.prank(agent);
@@ -558,7 +560,8 @@ contract KarmaBilateralAdvancedTest is Test {
         vm.warp(block.timestamp + karma.evidenceWindow() + 1);
         karma.autoResolveArbitration(bindingId);
 
-        assertEq(uint8(karma.getBinding(bindingId).state), uint8(KarmaBilateral.BindingState.REFUNDED));
+        // Buyer wins: full refund + seller's penalty forfeited → SETTLED (100% to buyer)
+        assertEq(uint8(karma.getBinding(bindingId).state), uint8(KarmaBilateral.BindingState.SETTLED));
         assertEq(uint8(karma.getBill(bb).state), uint8(KarmaBilateral.BillState.BURNED));
         assertEq(uint8(karma.getBill(ab).state), uint8(KarmaBilateral.BillState.BURNED));
     }

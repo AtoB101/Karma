@@ -29,8 +29,9 @@
     applyInputsToWindow(root);
     try {
       localStorage.setItem(LS_BASE, global.KARMA_API_BASE || "");
-      localStorage.setItem(LS_KEY, global.KARMA_API_KEY || "");
-      localStorage.setItem(LS_ID, global.KARMA_IDENTITY_ID || "");
+      // Security: never persist API key / identity to long-lived storage.
+      sessionStorage.setItem(LS_KEY, global.KARMA_API_KEY || "");
+      sessionStorage.setItem(LS_ID, global.KARMA_IDENTITY_ID || "");
     } catch (_) {}
   }
 

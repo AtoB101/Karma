@@ -126,6 +126,7 @@ def get_daily_used(key_id: str) -> float:
 class RuntimeKeyContext:
     key_id: str
     karma_identity_id: str
+    profile_id: str | None
     wallet_address: str
     permissions: list[str]
     single_limit: float
@@ -158,6 +159,7 @@ async def load_active_context(*, db: AsyncSession, token: str) -> RuntimeKeyCont
     return RuntimeKeyContext(
         key_id=row.key_id,
         karma_identity_id=row.karma_identity_id,
+        profile_id=row.profile_id,
         wallet_address=row.wallet_address,
         permissions=list(row.permissions or []),
         single_limit=float(row.single_limit),
@@ -179,6 +181,7 @@ async def create_runtime_key_record(
     expire_at: datetime,
     agent_name: str,
     agent_binding: str | None,
+    profile_id: str | None = None,
 ) -> tuple[str, RuntimeKeyModel]:
     if single_limit <= 0 or daily_limit <= 0:
         raise HTTPException(status_code=400, detail="single_limit and daily_limit must be > 0")
@@ -194,6 +197,7 @@ async def create_runtime_key_record(
         secret_hash=sh,
         wallet_address=wallet_address.strip(),
         karma_identity_id=karma_identity_id.strip(),
+        profile_id=(profile_id or "").strip() or None,
         permissions=perms,
         single_limit=single_limit,
         daily_limit=daily_limit,

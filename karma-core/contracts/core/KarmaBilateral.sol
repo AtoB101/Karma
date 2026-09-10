@@ -99,19 +99,10 @@ contract KarmaBilateral {
     error AuthorizationAlreadyAccepted(uint256 authId);
     error AuthorizationExpired(uint256 authId);
     error NotAuthorizationRecipient(uint256 authId);
-    // KarmaIdentity
-    error IdentityAlreadyRegistered(address addr);
-    error IdentityNotFound(address addr);
-    error SubAgentLimitReached(address master);
-
     // IntentPackage errors
     error IntentPartyMismatch(string party);
     error IntentAmountMismatch(uint256 intent, uint256 buyer, uint256 agent);
     error IntentExpired(uint256 expiredAt);
-    error SubAgentAlreadyAdded(address sub);
-    error AllowanceExceedsFreeBalance(uint256 total, uint256 free);
-    error SubAgentNotFound(address sub);
-    error SubAgentHasBoundBalance(address sub, uint256 bound);
 
     // ═══════════════════════════ State Machines ══════════════════════════════
 
@@ -129,8 +120,6 @@ contract KarmaBilateral {
         DISPUTED,     // dispute raised, awaiting arbitration
         REFUNDED      // cancelled / refunded — terminal
     }
-
-    enum SubAgentStatus { ACTIVE, INACTIVE }
 
     // ═══════════════════════════ Data Structures ═════════════════════════════
 
@@ -176,22 +165,6 @@ contract KarmaBilateral {
         bool    accepted;
         uint256 createdAt;
         uint256 expiresAt;
-    }
-
-    struct SubAgent {
-        address    subWallet;
-        bytes32    subAgentId;
-        address    master;
-        uint256    allowance;
-        SubAgentStatus status;
-        uint256    addedAt;
-        uint256    removedAt;
-    }
-
-    struct KarmaIdentity {
-        address masterWallet;
-        bytes32 masterAgentId;
-        bool    registered;
     }
 
     // ═══════════════════════════ Storage ═════════════════════════════════════
@@ -275,13 +248,6 @@ contract KarmaBilateral {
     mapping(uint256 => Authorization) public authorizations;
     mapping(address => uint256[])     private _pendingAuths;
 
-    // ── KarmaIdentity ────────────────────────────────────────────────────────
-    mapping(address => KarmaIdentity) public identities;
-    mapping(address => bytes32[])     private _masterSubAgentIds;
-    mapping(bytes32 => SubAgent)      public subAgentById;
-    mapping(address => address)       public subAgentMaster;
-    mapping(address => uint8)         public activeSubAgents;
-
     // ── Reentrancy guard ─────────────────────────────────────────────────────
     uint256 private _status = 1;
 
@@ -319,11 +285,6 @@ contract KarmaBilateral {
     event AuthorizationCreated(uint256 indexed authId, address indexed from, address indexed to, uint256 amount);
     event AuthorizationAccepted(uint256 indexed authId, address indexed from, address indexed to);
     event AuthorizationCancelled(uint256 indexed authId, address indexed from);
-    // KarmaIdentity events
-    event IdentityRegistered(address indexed masterWallet, bytes32 masterAgentId);
-    event SubAgentAdded(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
-    event SubAgentDeactivated(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
-    event SubAgentAllowanceUpdated(address indexed masterWallet, address indexed subWallet, uint256 allowance);
     event EmergencyGuardUpdated(address indexed guard);
 
     // ═══════════════════════════ Constructor ═════════════════════════════════
@@ -538,7 +499,8 @@ contract KarmaBilateral {
         // ═══ Intent validation ═══
         if (intent.buyer != buyerBill.owner) revert IntentPartyMismatch("buyer");
         if (intent.seller != agentBill.owner) revert IntentPartyMismatch("seller");
-        if (intent.amount != buyerBill.amount || intent.amount != agentBill.amount)
+        uint256 sellerStake = (intent.amount * intent.penaltyRate) / 10_000;
+        if (intent.amount != buyerBill.amount || sellerStake != agentBill.amount)
             revert IntentAmountMismatch(intent.amount, buyerBill.amount, agentBill.amount);
         if (intent.expiresAt < block.timestamp) revert IntentExpired(intent.expiresAt);
         if (intent.serviceType == bytes32(0)) revert ZeroAmount();
@@ -799,9 +761,9 @@ contract KarmaBilateral {
             emit ArbitrationAutoResolved(bindingId, false, 0);
             _executeSettle(bindingId, b, buyerBill, agentBill, b.proofHash);
         } else if (buyerSubmitted && !agentSubmitted) {
-            // Buyer wins: full refund
+            // Buyer wins: refund + seller's penalty forfeited (100% to buyer)
             emit ArbitrationAutoResolved(bindingId, true, 10_000);
-            _executeRefund(bindingId, b, buyerBill, agentBill);
+            _executeSplit(bindingId, b, buyerBill, agentBill, 10_000);
         } else if (!buyerSubmitted && !agentSubmitted) {
             // Neither submitted: conservative refund
             emit ArbitrationAutoResolved(bindingId, true, 10_000);
@@ -1036,80 +998,6 @@ contract KarmaBilateral {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  KARMA IDENTITY — master + max 3 active sub-agents
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function registerIdentity(bytes32 masterAgentId) external {
-        if (identities[msg.sender].registered) revert IdentityAlreadyRegistered(msg.sender);
-        identities[msg.sender] = KarmaIdentity({
-            masterWallet:  msg.sender,
-            masterAgentId: masterAgentId,
-            registered:    true
-        });
-        emit IdentityRegistered(msg.sender, masterAgentId);
-    }
-
-    function addSubAgent(address subWallet, bytes32 subAgentId) external {
-        _requireIdentity(msg.sender);
-        if (subWallet == address(0))                 revert ZeroAddress();
-        if (subAgentId == bytes32(0))                revert ZeroAmount();
-        if (activeSubAgents[msg.sender] >= 3)        revert SubAgentLimitReached(msg.sender);
-        if (subAgentMaster[subWallet] != address(0)) revert SubAgentAlreadyAdded(subWallet);
-        if (subAgentById[subAgentId].addedAt != 0)   revert SubAgentAlreadyAdded(subWallet);
-
-        subAgentById[subAgentId] = SubAgent({
-            subWallet:  subWallet,
-            subAgentId: subAgentId,
-            master:     msg.sender,
-            allowance:  0,
-            status:     SubAgentStatus.ACTIVE,
-            addedAt:    block.timestamp,
-            removedAt:  0
-        });
-
-        _masterSubAgentIds[msg.sender].push(subAgentId);
-        subAgentMaster[subWallet] = msg.sender;
-        activeSubAgents[msg.sender] += 1;
-
-        emit SubAgentAdded(msg.sender, subWallet, subAgentId);
-    }
-
-    function removeSubAgent(address subWallet) external {
-        _requireIdentity(msg.sender);
-        bytes32 subAgentId = _findActiveSubAgentId(msg.sender, subWallet);
-        SubAgent storage sa = subAgentById[subAgentId];
-
-        if (boundBalance[subWallet] != 0) {
-            revert SubAgentHasBoundBalance(subWallet, boundBalance[subWallet]);
-        }
-
-        sa.status    = SubAgentStatus.INACTIVE;
-        sa.allowance = 0;
-        sa.removedAt = block.timestamp;
-        activeSubAgents[msg.sender] -= 1;
-
-        emit SubAgentDeactivated(msg.sender, subWallet, subAgentId);
-    }
-
-    function setSubAgentAllowance(address subWallet, uint256 allowance) external {
-        _requireIdentity(msg.sender);
-        bytes32 subAgentId = _findActiveSubAgentId(msg.sender, subWallet);
-        subAgentById[subAgentId].allowance = allowance;
-
-        uint256 totalAllowance = 0;
-        bytes32[] storage ids = _masterSubAgentIds[msg.sender];
-        uint256 len = ids.length;
-        for (uint256 i = 0; i < len; i++) {
-            SubAgent storage sa = subAgentById[ids[i]];
-            if (sa.status == SubAgentStatus.ACTIVE) totalAllowance += sa.allowance;
-        }
-        if (totalAllowance > freeBalance[msg.sender]) {
-            revert AllowanceExceedsFreeBalance(totalAllowance, freeBalance[msg.sender]);
-        }
-        emit SubAgentAllowanceUpdated(msg.sender, subWallet, allowance);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     //  VIEW FUNCTIONS
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -1152,41 +1040,6 @@ contract KarmaBilateral {
 
     function getAuthorization(uint256 authId) external view returns (Authorization memory) {
         return authorizations[authId];
-    }
-
-    function getIdentity(address master) external view returns (KarmaIdentity memory) {
-        return identities[master];
-    }
-
-    function getSubAgents(address master) external view returns (SubAgent[] memory active) {
-        bytes32[] storage ids = _masterSubAgentIds[master];
-        uint256 len = ids.length;
-        uint256 count = 0;
-        for (uint256 i = 0; i < len; i++) {
-            if (subAgentById[ids[i]].status == SubAgentStatus.ACTIVE) count++;
-        }
-        active = new SubAgent[](count);
-        uint256 j = 0;
-        for (uint256 i = 0; i < len; i++) {
-            if (subAgentById[ids[i]].status == SubAgentStatus.ACTIVE) {
-                active[j++] = subAgentById[ids[i]];
-            }
-        }
-    }
-
-    function getSubAgentHistory(address master) external view returns (SubAgent[] memory history) {
-        bytes32[] storage ids = _masterSubAgentIds[master];
-        uint256 len = ids.length;
-        history = new SubAgent[](len);
-        for (uint256 i = 0; i < len; i++) history[i] = subAgentById[ids[i]];
-    }
-
-    function getMaster(bytes32 subAgentId) external view returns (address) {
-        return subAgentById[subAgentId].master;
-    }
-
-    function getMasterOf(address subWallet) external view returns (address) {
-        return subAgentMaster[subWallet];
     }
 
     /// @notice Return the timestamp when finalizeSettle() becomes callable.
@@ -1331,23 +1184,21 @@ contract KarmaBilateral {
             developer = agentOwner; // default: seller; MiniApp should set builder via setBindingDeveloper
         }
         uint256 fee = _collectEconomyFee(bindingId, token, buyerOwner, agentOwner, developer, totalPool);
-        uint256 agentPayout = agentAmount > fee ? agentAmount - fee : 0;
-        // If fee exceeds agent side (edge), take residual from buyer side.
-        uint256 buyerPayout = buyerAmount;
-        if (agentAmount < fee) {
-            uint256 rest = fee - agentAmount;
-            buyerPayout = buyerAmount > rest ? buyerAmount - rest : 0;
-        }
+        // Buyer's locked amount is the payment to the seller; the seller's
+        // locked amount is their stake/collateral returned on success. Fee is
+        // charged to the seller's proceeds (capped at MAX_FEE_BPS of the pool).
+        uint256 sellerPayout = totalPool > fee ? totalPool - fee : 0;
+        uint256 buyerPayout = 0;
 
         if (buyerPayout > 0) _transfer(token, buyerOwner, buyerPayout);
-        if (agentPayout > 0) _transfer(token, agentOwner, agentPayout);
+        if (sellerPayout > 0) _transfer(token, agentOwner, sellerPayout);
 
         _checkInvariant(token);
         _checkPerAddressInvariant(buyerOwner);
         _checkPerAddressInvariant(agentOwner);
 
         emit SettleFinalized(bindingId, proofHash);
-        emit BindingSettled(bindingId, proofHash, buyerPayout, agentPayout);
+        emit BindingSettled(bindingId, proofHash, buyerPayout, sellerPayout);
     }
 
     /// @dev Execute refund: burn both bills, return USDC to respective owners.
@@ -1547,27 +1398,5 @@ contract KarmaBilateral {
         Authorization storage auth = authorizations[authId];
         if (auth.createdAt == 0) revert AuthorizationNotFound(authId);
         return auth;
-    }
-
-    function _requireIdentity(address addr) internal view returns (KarmaIdentity storage) {
-        KarmaIdentity storage id = identities[addr];
-        if (!id.registered) revert IdentityNotFound(addr);
-        return id;
-    }
-
-    function _findActiveSubAgentId(address master, address subWallet)
-        internal
-        view
-        returns (bytes32)
-    {
-        bytes32[] storage ids = _masterSubAgentIds[master];
-        uint256 len = ids.length;
-        for (uint256 i = 0; i < len; i++) {
-            SubAgent storage sa = subAgentById[ids[i]];
-            if (sa.subWallet == subWallet && sa.status == SubAgentStatus.ACTIVE) {
-                return ids[i];
-            }
-        }
-        revert SubAgentNotFound(subWallet);
     }
 }

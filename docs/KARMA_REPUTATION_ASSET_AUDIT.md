@@ -140,7 +140,7 @@ Verification **can** gate MiniApp/HTTP settle. It does **not** update `ScoringEn
 
 ### 7.1 Data structures that actually exist
 
-**Postgres `reputation`** (`db/models/orm.py` `ReputationModel`, migration `db/migrations/0001_initial.py`):
+**Postgres `reputation`** (`db/models/orm.py` `ReputationModel`, migration `db/migrations/versions/0001_initial.py`):
 
 - PK `agent_id`  
 - Fields: `role`, `score`, `total_tasks`, `successful_tasks`, `disputed_tasks`, `arbitration_wins`, `arbitration_losses`, `consecutive_successes`, `wash_trade_flags`, `last_updated`  

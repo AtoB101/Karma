@@ -16,6 +16,7 @@
     bills: ["page.bills.title", "page.bills.sub"],
     disputes: ["page.disputes.title", "page.disputes.sub"],
     identity: ["page.identity.title", "page.identity.sub"],
+    auth: ["page.auth.title", "page.auth.sub"],
     settings: ["page.settings.title", "page.settings.sub"],
   };
 
@@ -29,10 +30,11 @@
         el("[data-cfg=api_base]").value =
           localStorage.getItem(LS_BASE) || window.KARMA_API_BASE || "http://127.0.0.1:8000";
       if (el("[data-cfg=api_key]"))
-        el("[data-cfg=api_key]").value = localStorage.getItem(LS_KEY) || window.KARMA_API_KEY || "";
+        el("[data-cfg=api_key]").value =
+          sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY) || window.KARMA_API_KEY || "";
       if (el("[data-cfg=identity_id]"))
         el("[data-cfg=identity_id]").value =
-          localStorage.getItem(LS_ID) || window.KARMA_IDENTITY_ID || "worker-001";
+          sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID) || window.KARMA_IDENTITY_ID || "worker-001";
       if (el("[data-cfg=task_ids]"))
         el("[data-cfg=task_ids]").value = localStorage.getItem(LS_TASKS) || "";
       if (el("[data-cfg=auto_sync]")) el("[data-cfg=auto_sync]").checked = localStorage.getItem(LS_AUTO) === "1";
@@ -47,8 +49,9 @@
     const auto = el("[data-cfg=auto_sync]")?.checked;
     try {
       localStorage.setItem(LS_BASE, base);
-      localStorage.setItem(LS_KEY, key);
-      localStorage.setItem(LS_ID, id);
+      // Security: API key / identity are session-only, never persisted long-term.
+      sessionStorage.setItem(LS_KEY, key);
+      sessionStorage.setItem(LS_ID, id);
       localStorage.setItem(LS_TASKS, tasks);
       if (auto !== undefined) localStorage.setItem(LS_AUTO, auto ? "1" : "");
     } catch (_) {}
@@ -117,6 +120,22 @@
     }
   }
 
+  async function lockCapacityAction() {
+    const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
+    const amount = Number(el("#lock-amount")?.value || 0);
+    if (!id) { setApiStatus("请先连接钱包或填写 Identity ID", true); return; }
+    if (!amount || amount <= 0) { setApiStatus("请填写锁仓金额", true); return; }
+    setApiStatus("锁仓中…", false);
+    try {
+      const r = await window.cyberKarmaApi.lockCapacity(id, amount);
+      setApiStatus("锁仓成功 · " + amount + " USDC", false);
+      refreshCapacity();
+      return r;
+    } catch (e) {
+      setApiStatus(String(e.message || e), true);
+    }
+  }
+
   function switchPage(page) {
     document.querySelectorAll(".page").forEach(function (p) {
       p.classList.remove("active");
@@ -172,6 +191,10 @@
     el("[data-action=fetch-settlement]")?.addEventListener("click", function () {
       saveCfg();
       fetchSettlement();
+    });
+    el("[data-action=lock-capacity]")?.addEventListener("click", function () {
+      saveCfg();
+      lockCapacityAction();
     });
   }
 

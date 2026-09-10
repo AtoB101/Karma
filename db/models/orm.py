@@ -44,6 +44,48 @@ class AgentModel(Base):
     onboarding_meta:    Mapped[dict]     = mapped_column(JSON, default=dict)
 
 
+class IdentityRoleProfile(Base):
+    """One identity card -> many role profiles (class + KYC + visibility).
+
+    Each profile is an isolated identity context with its own class
+    (individual / merchant / enterprise / verifier / arbitrator), KYC status
+    and visibility (enterprise defaults to private so fund flows stay
+    confidential). Complements the existing DID IdentityProfileModel and the
+    transaction-role SubIdentityModel — this is the identity-role dimension.
+    """
+    __tablename__ = "identity_role_profiles"
+
+    profile_id:        Mapped[str]         = mapped_column(String(64), primary_key=True, default=_uuid)
+    owner_identity_id: Mapped[str]         = mapped_column(String(64), nullable=False, index=True)
+    class_:            Mapped[str]         = mapped_column("class", String(32), nullable=False, default="individual")
+    kyc_status:        Mapped[str]         = mapped_column(String(32), nullable=False, default="none")
+    visibility:        Mapped[str]         = mapped_column(String(16), nullable=False, default="public")
+    display_name:      Mapped[str | None]  = mapped_column(String(256))
+    kyc_payload:       Mapped[dict]        = mapped_column(JSON, default=dict)
+    status:            Mapped[str]         = mapped_column(String(16), nullable=False, default="active")
+    created_at:        Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:        Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class IdentityDisclosureModel(Base):
+    """P3 — authorized disclosure for private (enterprise) role profiles.
+
+    A private profile's ledger is hidden by default. The owner grants a specific
+    authorized party access to either a single transaction (``scope=transaction``,
+    ``task_id`` set) or the whole ledger (``scope=ledger``).
+    """
+    __tablename__ = "identity_disclosures"
+
+    disclosure_id:          Mapped[str]         = mapped_column(String(64), primary_key=True, default=_uuid)
+    profile_id:             Mapped[str]         = mapped_column(String(64), nullable=False, index=True)
+    authorized_identity_id: Mapped[str]         = mapped_column(String(128), nullable=False, index=True)
+    task_id:                Mapped[str | None]  = mapped_column(String(64), nullable=True, index=True)
+    scope:                  Mapped[str]         = mapped_column(String(16), nullable=False, default="transaction")
+    status:                 Mapped[str]         = mapped_column(String(16), nullable=False, default="active")
+    created_at:             Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ---------------------------------------------------------------------------
 # Task Contract
 # ---------------------------------------------------------------------------
@@ -83,6 +125,7 @@ class ReceiptModel(Base):
     receipt_id:    Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
     task_id:       Mapped[str]      = mapped_column(String(64), ForeignKey("task_contracts.task_id"), nullable=False)
     agent_id:      Mapped[str]      = mapped_column(String(64), nullable=False)
+    profile_id:    Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
     step_index:    Mapped[int]      = mapped_column(Integer, nullable=False)
     tool_name:     Mapped[str]      = mapped_column(String(256), nullable=False)
     input_hash:    Mapped[str]      = mapped_column(String(64), nullable=False)
@@ -161,6 +204,7 @@ class SettlementModel(Base):
     status:            Mapped[str]        = mapped_column(String(32), nullable=False)
     client_agent_id:   Mapped[str]        = mapped_column(String(64), nullable=False)
     worker_agent_id:   Mapped[str|None]   = mapped_column(String(64))
+    profile_id:        Mapped[str|None]   = mapped_column(String(64), nullable=True, index=True)
     released_amount:   Mapped[float|None] = mapped_column(Float)
     refunded_amount:   Mapped[float|None] = mapped_column(Float)
     dispute_reason:    Mapped[str|None]   = mapped_column(Text)
@@ -213,6 +257,7 @@ class CapacityModel(Base):
     __tablename__ = "capacity"
 
     identity_id:                  Mapped[str]      = mapped_column(String(64), primary_key=True)
+    profile_id:                   Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
     total_locked_usdc:            Mapped[float]    = mapped_column(Float, default=0.0)
     total_bill_credits:           Mapped[float]    = mapped_column(Float, default=0.0)
     available_credits:            Mapped[float]    = mapped_column(Float, default=0.0)
@@ -226,12 +271,33 @@ class CapacityModel(Base):
     updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ProfileCapacityModel(Base):
+    """Per-profile quota allocation under a master identity capacity.
+
+    The master ``capacity`` row (keyed by identity_id) is the total locked USDC anchor;
+    each role profile gets its own allocation (``allocated_credits``) and usage
+    breakdown, so 个人/商家/企业 各自在授权额度内行事、互不混淆、总账对齐。
+    """
+    __tablename__ = "profile_capacity"
+
+    profile_id:                   Mapped[str]      = mapped_column(String(64), primary_key=True)
+    owner_identity_id:            Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
+    allocated_credits:            Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    available_credits:            Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    in_progress_credits:          Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    pending_settlement_credits:   Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    disputed_credits:             Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    released_credits:             Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class VoucherModel(Base):
     __tablename__ = "vouchers"
 
     voucher_id:                 Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
     buyer_identity_id:          Mapped[str]      = mapped_column(String(64), nullable=False)
     seller_identity_id:         Mapped[str]      = mapped_column(String(64), nullable=False)
+    profile_id:                 Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
     amount:                     Mapped[float]    = mapped_column(Float, nullable=False)
     currency:                   Mapped[str]      = mapped_column(String(8), default="USDC")
     bill_credit_amount:         Mapped[float]    = mapped_column(Float, nullable=False)
@@ -697,6 +763,7 @@ class RuntimeKeyModel(Base):
     secret_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     wallet_address: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    profile_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     permissions: Mapped[list] = mapped_column(JSON, nullable=False)
     single_limit: Mapped[float] = mapped_column(Float, nullable=False)
     daily_limit: Mapped[float] = mapped_column(Float, nullable=False)
@@ -717,6 +784,7 @@ class ReputationModel(Base):
     __tablename__ = "reputation"
 
     agent_id:           Mapped[str]   = mapped_column(String(64), ForeignKey("agents.agent_id"), primary_key=True)
+    profile_id:         Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
     role:               Mapped[str]   = mapped_column(String(32), nullable=False)
     score:              Mapped[float] = mapped_column(Float, default=100.0)
     total_tasks:        Mapped[int]   = mapped_column(Integer, default=0)

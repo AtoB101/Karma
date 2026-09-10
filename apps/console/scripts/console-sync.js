@@ -14,6 +14,15 @@
     return global.cyberKarmaApi;
   }
 
+  function activeProfileId() {
+    try {
+      var sw = global.KarmaIdentitySwitcher;
+      return sw && sw.getActiveProfileId ? sw.getActiveProfileId() : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
   function el(root, sel) {
     return (root || document).querySelector(sel);
   }
@@ -49,8 +58,9 @@
       var t = el(document.body, "[data-cfg=task_ids]");
       var a = el(document.body, "[data-cfg=auto_sync]");
       if (b) localStorage.setItem(LS_BASE, b.value.trim());
-      if (k) localStorage.setItem(LS_KEY, k.value.trim());
-      if (i) localStorage.setItem(LS_ID, i.value.trim());
+      // Security: keep API key / identity in session-only storage, not localStorage.
+      if (k) sessionStorage.setItem(LS_KEY, k.value.trim());
+      if (i) sessionStorage.setItem(LS_ID, i.value.trim());
       if (t) localStorage.setItem(LS_TASKS, t.value.trim());
       if (a) localStorage.setItem(LS_AUTO, a.checked ? "1" : "");
     } catch (_) {}
@@ -178,6 +188,12 @@
           tr.appendChild(tdErr);
           return;
         }
+        var apid = activeProfileId();
+        if (apid && s && s.profile_id && s.profile_id !== apid) {
+          tr.style.display = "none";
+          tr.setAttribute("data-profile-filtered", "1");
+          return;
+        }
         var rc = Array.isArray(rcpts) ? rcpts.length : 0;
         addCell(tid);
         tr.setAttribute("data-task-row", tid);
@@ -295,6 +311,8 @@
       taskIds.forEach(function (tid, i) {
         var s = states[i];
         if (!s || String(s.status) !== "disputed") return;
+        var apid = activeProfileId();
+        if (apid && s.profile_id && s.profile_id !== apid) return;
         any = true;
         var tr = document.createElement("tr");
         [tid, String(s.status), s.dispute_reason || "—", fmtNum(s.escrow_amount), identityId || "—"].forEach(function (t) {
@@ -403,8 +421,8 @@
       var i = el(document.body, "[data-cfg=identity_id]");
       var t = el(document.body, "[data-cfg=task_ids]");
       if (b && !b.value.trim()) b.value = localStorage.getItem(LS_BASE) || "";
-      if (k && !k.value.trim()) k.value = localStorage.getItem(LS_KEY) || "";
-      if (i && !i.value.trim()) i.value = localStorage.getItem(LS_ID) || "";
+      if (k && !k.value.trim()) k.value = sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY) || "";
+      if (i && !i.value.trim()) i.value = sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID) || "";
       if (t && !t.value.trim()) t.value = localStorage.getItem(LS_TASKS) || "";
     } catch (_) {}
   }
@@ -457,6 +475,11 @@
   }
 
   global.KarmaConsoleSync = { refreshAll: refreshAll, startAuto: startAuto, stopAuto: stopAuto, bind: bind };
+
+  // Re-filter the task/dispute tables when the active identity role profile changes.
+  document.addEventListener("karma-profile-switched", function () {
+    refreshAll().catch(function () {});
+  });
 
   document.addEventListener("DOMContentLoaded", function () {
     var root = document.querySelector("[data-karma-console-root]");

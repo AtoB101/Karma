@@ -89,6 +89,9 @@ def test_siwe_and_telegram_bind(client):
     )
     assert ver.status_code == 200
     identity_id = ver.json()["identity_id"]
+    # Console wallet login must issue a short-lived JWT for protected routes.
+    assert ver.json().get("access_token")
+    assert ver.json().get("token_type") == "bearer"
     bind = client.post(
         "/v1/telegram/bind",
         headers={"Authorization": f"Bearer {sid}"},

@@ -1,7 +1,7 @@
 """Karma API — Authorization vouchers."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, model_validator
@@ -30,6 +30,13 @@ from services.text_safety import validate_json_strings_safe, validate_safe_stora
 router = APIRouter()
 
 
+def _as_utc(dt: datetime) -> datetime:
+    """Normalize a possibly-naive datetime to aware UTC for comparison."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 class CreateVoucherRequest(BaseModel):
     buyer_identity_id: str
     seller_identity_id: str
@@ -47,6 +54,7 @@ class CreateVoucherRequest(BaseModel):
     seller_sub_identity_id: str | None = None
     progress_rule_spec: dict | None = None
     buyer_wallet_address: str | None = None
+    profile_id: str | None = None
 
     @model_validator(mode="after")
     def _reject_unsafe_embedded_text(self) -> "CreateVoucherRequest":
@@ -88,12 +96,20 @@ async def create_voucher(body: CreateVoucherRequest, request: Request, db: Async
     require_ledger_identity(request, body.buyer_identity_id)
     if body.amount <= 0 or body.bill_credit_amount <= 0:
         raise HTTPException(400, "amount and bill_credit_amount must be > 0")
-    if body.expiry_time <= datetime.utcnow():
+    if _as_utc(body.expiry_time) <= datetime.now(timezone.utc):
         raise HTTPException(400, "expiry_time must be in the future")
 
     cap = await db.get(CapacityModel, body.buyer_identity_id)
     if not cap or cap.available_credits < body.bill_credit_amount:
         raise HTTPException(409, "insufficient buyer available credits")
+
+    # Per-profile quota enforcement (P1: 每个身份在授权额度内行事)
+    if body.profile_id:
+        from services import profile_capacity
+
+        await profile_capacity.spend_profile_credits(
+            db, profile_id=body.profile_id, amount=body.bill_credit_amount
+        )
 
     await _validate_sub_identity_binding(
         db=db,
@@ -142,7 +158,7 @@ async def create_voucher(body: CreateVoucherRequest, request: Request, db: Async
                 task_description_hash=voucher.task_description_hash,
                 progress_rule_hash=voucher.progress_rule_hash,
                 evidence_requirement_hash=voucher.evidence_requirement_hash,
-                expiry_time=voucher.expiry_time,
+                expiry_time=_as_utc(voucher.expiry_time).replace(tzinfo=None),
                 nonce=voucher.nonce,
                 buyer_signature=voucher.buyer_signature,
                 status=voucher.status.value,
@@ -151,6 +167,7 @@ async def create_voucher(body: CreateVoucherRequest, request: Request, db: Async
                 accepted_at=voucher.accepted_at,
                 created_at=voucher.created_at,
                 progress_rule_spec=voucher.progress_rule_spec,
+                profile_id=body.profile_id,
             )
         )
         await db.flush()
@@ -204,8 +221,8 @@ async def verify_voucher(voucher_id: str, body: VerifyVoucherRequest, request: R
         raise HTTPException(404, f"Voucher {voucher_id} not found")
     require_ledger_identity(request, body.seller_identity_id)
 
-    now = datetime.utcnow()
-    is_expired = row.expiry_time <= now
+    now = datetime.now(timezone.utc)
+    is_expired = _as_utc(row.expiry_time) <= now
     is_used = row.status in {VoucherStatus.USED.value, VoucherStatus.CANCELLED.value}
     seller_matches = row.seller_identity_id == body.seller_identity_id
     amount_matches = body.expected_amount is None or abs(row.amount - body.expected_amount) < 1e-9
@@ -297,6 +314,7 @@ def _to_schema(row: VoucherModel) -> AuthorizationVoucher:
         status=VoucherStatus(row.status),
         buyer_sub_identity_id=row.buyer_sub_identity_id,
         seller_sub_identity_id=row.seller_sub_identity_id,
+        profile_id=getattr(row, "profile_id", None),
         accepted_at=row.accepted_at,
         created_at=row.created_at,
         progress_rule_spec=row.progress_rule_spec,

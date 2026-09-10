@@ -1,34 +1,57 @@
 /* Karma Console — cyber operations shell (extends user-provided design) */
 :root {
+  --bg: #05070d;
+  --cyan: #22d3ee;
+  --violet: #8b5cf6;
+  --magenta: #e879f9;
+  --grid: rgba(34, 211, 238, 0.05);
   --bg-base: #070b12;
   --bg-side: rgba(4, 8, 16, 0.92);
   --bg-card: rgba(12, 18, 28, 0.78);
-  --border-glow: rgba(0, 210, 255, 0.35);
-  --neon-cyan: #00e0ff;
-  --neon-mint: #1effbc;
-  --neon-purple: #b77eff;
+  --border-glow: rgba(34, 211, 238, 0.35);
+  --neon-cyan: #22d3ee;
+  --neon-mint: #e879f9;
+  --neon-purple: #8b5cf6;
   --text-main: #eef5ff;
   --text-dim: #8aa7c4;
   --shadow-card: 0 20px 35px -12px rgba(0, 0, 0, 0.5);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-  background: radial-gradient(circle at 20% 30%, #0a1120, #03060c);
+  background: var(--bg);
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", "PingFang SC", monospace;
   color: var(--text-main);
   min-height: 100vh;
   overflow: hidden;
 }
-body::before {
-  content: "";
+/* 官网同款背景层：霓虹渐变 + 网格 + 粒子网络 */
+.bg {
   position: fixed;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(0, 224, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 224, 255, 0.03) 1px, transparent 1px);
-  background-size: 40px 40px;
-  pointer-events: none;
   z-index: 0;
+  background:
+    radial-gradient(900px 600px at 15% -10%, rgba(139, 92, 246, 0.16), transparent 60%),
+    radial-gradient(800px 600px at 90% 10%, rgba(34, 211, 238, 0.12), transparent 60%),
+    radial-gradient(900px 700px at 50% 110%, rgba(232, 121, 249, 0.08), transparent 60%),
+    var(--bg);
+}
+.grid-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 30%, transparent 100%);
+  pointer-events: none;
+}
+#particles {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
 }
 .app {
   display: grid;
@@ -134,20 +157,20 @@ body::before {
   transform: translateX(4px);
 }
 .nav button.active {
-  background: linear-gradient(95deg, rgba(0, 224, 255, 0.2), rgba(30, 255, 188, 0.08));
+  background: linear-gradient(95deg, rgba(0, 224, 255, 0.2), rgba(232, 121, 249, 0.08));
   color: var(--neon-cyan);
   border-right: 2px solid var(--neon-cyan);
 }
 .icon { width: 28px; }
 .side-warning {
   margin-top: auto;
-  background: rgba(30, 255, 188, 0.08);
-  border: 1px solid rgba(30, 255, 188, 0.3);
+  background: rgba(232, 121, 249, 0.08);
+  border: 1px solid rgba(232, 121, 249, 0.3);
   border-radius: 18px;
   padding: 14px;
   font-size: 12px;
 }
-.side-warning b { display: block; margin-bottom: 6px; color: #b3ffdf; }
+.side-warning b { display: block; margin-bottom: 6px; color: #f0abfc; }
 .main {
   overflow-y: auto;
   padding: 24px 28px;
@@ -226,7 +249,7 @@ body::before {
   transform: translateY(-1px);
 }
 .btn.primary {
-  background: linear-gradient(105deg, #00b8ff, #00e6a0);
+  background: linear-gradient(105deg, #22d3ee, #8b5cf6);
   border: none;
   color: #0a0c12;
   font-weight: 700;
@@ -312,7 +335,7 @@ th { color: #8bc6ff; font-weight: 600; }
   font-size: 12px;
   font-weight: 600;
 }
-.badge.green { background: rgba(30, 255, 188, 0.12); color: #bcffe4; }
+.badge.green { background: rgba(232, 121, 249, 0.12); color: #f5d0fe; }
 .badge.cyan { background: rgba(0, 224, 255, 0.12); color: #caf5ff; }
 .badge.yellow { background: rgba(255, 210, 90, 0.12); color: #ffe1a0; }
 .badge.red { background: rgba(255, 90, 122, 0.12); color: #ffbecb; }
@@ -416,7 +439,7 @@ textarea { min-height: 80px; resize: vertical; }
   transition: 0.2s;
 }
 .switch input:checked + .slider {
-  background: linear-gradient(135deg, #00b4ff, #00e6a0);
+  background: linear-gradient(135deg, #22d3ee, #8b5cf6);
 }
 .switch input:checked + .slider:before {
   transform: translateX(24px);
@@ -448,4 +471,82 @@ textarea { min-height: 80px; resize: vertical; }
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+/* 顶部连接区：折叠设置 + 身份 chip */
+.identity-chip {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--neon-mint);
+  background: rgba(232, 121, 249, 0.08);
+  border: 1px solid rgba(232, 121, 249, 0.3);
+  border-radius: 100px;
+  padding: 6px 12px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conn-settings { margin-left: auto; }
+.conn-settings summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 16px;
+  border: 1px solid rgba(34, 211, 238, 0.4);
+  border-radius: 40px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0f0ff;
+  user-select: none;
+}
+.conn-settings summary::-webkit-details-marker { display: none; }
+.conn-settings summary:hover { background: rgba(34, 211, 238, 0.1); }
+.conn-settings[open] summary { background: rgba(34, 211, 238, 0.12); border-color: var(--neon-cyan); }
+.conn-settings-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 12px;
+  background: rgba(0, 30, 48, 0.55);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  border-radius: 18px;
+}
+
+.profile-switcher select {
+  width: 100%;
+  margin-top: 8px;
+  background: rgba(255,255,255,0.04);
+  color: inherit;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+.confidential-badge {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  z-index: 9999;
+  background: rgba(185,28,28,0.92);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+}
+body.confidential [data-bind="total_locked_usdc"],
+body.confidential [data-bind="available_credits"],
+body.confidential [data-bind="in_progress_bucket"],
+body.confidential [data-bind="pending_settlement_credits"],
+body.confidential [data-bind="disputed_credits"],
+body.confidential [data-bind="b_total_locked"],
+body.confidential [data-bind="b_available"],
+body.confidential [data-bind="b_in_progress"],
+body.confidential [data-bind="b_pending"],
+body.confidential [data-bind="b_disputed"],
+body.confidential [data-bind="b_released"] {
+  filter: blur(6px);
+  user-select: none;
 }

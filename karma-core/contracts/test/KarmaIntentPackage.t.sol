@@ -28,7 +28,8 @@ contract KarmaIntentPackageTest is Test {
     address internal badActor  = makeAddr("badActor");
     address internal stranger  = makeAddr("stranger");
 
-    uint256 internal constant PRICE = 100_000_000; // 100 USDC
+    uint256 internal constant PRICE  = 100_000_000; // 100 USDC (buyer locks full order)
+    uint256 internal constant PENALTY = 10_000_000; // 10 USDC (seller locks penalty = 10%)
 
     // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -94,7 +95,7 @@ contract KarmaIntentPackageTest is Test {
         uint256 buyerBill = karma.lock(address(usdc), amount);
         // Lock seller
         vm.prank(_seller);
-        uint256 agentBill = karma.lock(address(usdc), amount);
+        uint256 agentBill = karma.lock(address(usdc), (amount * 1000) / 10_000);
 
         // Bind with intent
         Types.IntentPackage memory intent = _buildIntent(_buyer, _seller, _verifier, amount);
@@ -189,7 +190,7 @@ contract KarmaIntentPackageTest is Test {
         vm.prank(buyer);
         uint256 bBill = karma.lock(address(usdc), PRICE);
         vm.prank(seller);
-        uint256 aBill = karma.lock(address(usdc), PRICE);
+        uint256 aBill = karma.lock(address(usdc), PENALTY);
 
         // Intent says buyer is stranger, but bill belongs to buyer
         Types.IntentPackage memory intent = _buildIntent(stranger, seller, address(0), PRICE);
@@ -202,7 +203,7 @@ contract KarmaIntentPackageTest is Test {
         vm.prank(buyer);
         uint256 bBill = karma.lock(address(usdc), PRICE);
         vm.prank(seller);
-        uint256 aBill = karma.lock(address(usdc), PRICE);
+        uint256 aBill = karma.lock(address(usdc), PENALTY);
 
         // Intent says seller is stranger, but bill belongs to seller
         Types.IntentPackage memory intent = _buildIntent(buyer, stranger, address(0), PRICE);
@@ -215,13 +216,13 @@ contract KarmaIntentPackageTest is Test {
         vm.prank(buyer);
         uint256 bBill = karma.lock(address(usdc), PRICE);
         vm.prank(seller);
-        uint256 aBill = karma.lock(address(usdc), PRICE);
+        uint256 aBill = karma.lock(address(usdc), PENALTY);
 
         // Intent says 50, bills have 100
         Types.IntentPackage memory intent = _buildIntent(buyer, seller, address(0), 50_000_000);
         vm.prank(buyer);
         vm.expectRevert(
-            abi.encodeWithSelector(KarmaBilateral.IntentAmountMismatch.selector, 50_000_000, PRICE, PRICE)
+            abi.encodeWithSelector(KarmaBilateral.IntentAmountMismatch.selector, 50_000_000, PRICE, PENALTY)
         );
         karma.bindWithIntent(intent, bBill, aBill);
     }
@@ -230,7 +231,7 @@ contract KarmaIntentPackageTest is Test {
         vm.prank(buyer);
         uint256 bBill = karma.lock(address(usdc), PRICE);
         vm.prank(seller);
-        uint256 aBill = karma.lock(address(usdc), PRICE);
+        uint256 aBill = karma.lock(address(usdc), PENALTY);
 
         Types.IntentPackage memory intent = _buildIntent(buyer, seller, address(0), PRICE);
         intent.expiresAt = block.timestamp - 1; // already expired
@@ -255,7 +256,7 @@ contract KarmaIntentPackageTest is Test {
         vm.prank(buyer);
         uint256 bBill = karma.lock(address(usdc), PRICE);
         vm.prank(seller);
-        uint256 aBill = karma.lock(address(usdc), PRICE);
+        uint256 aBill = karma.lock(address(usdc), PENALTY);
 
         Types.IntentPackage memory intent = _buildIntent(buyer, seller, address(0), PRICE);
         // stranger tries to bind buyer's bill
@@ -268,7 +269,7 @@ contract KarmaIntentPackageTest is Test {
         vm.prank(buyer);
         uint256 bBill = karma.lock(address(usdc), PRICE);
         vm.prank(seller);
-        uint256 aBill = karma.lock(address(usdc), PRICE);
+        uint256 aBill = karma.lock(address(usdc), PENALTY);
 
         Types.IntentPackage memory intent = _buildIntent(buyer, seller, address(0), PRICE);
         intent.serviceType = bytes32(0);
@@ -287,7 +288,7 @@ contract KarmaIntentPackageTest is Test {
         vm.prank(buyer);
         uint256 bBill = karma.lock(address(usdc), PRICE);
         vm.prank(seller);
-        uint256 aBill = karma.lock(address(usdc), PRICE);
+        uint256 aBill = karma.lock(address(usdc), PENALTY);
 
         // Agent creates intent pretending to do "flight_booking" but buyer locked for "food_delivery"
         // The buyer is the one calling bindWithIntent, so agent can't inject a fake intent.
@@ -310,7 +311,7 @@ contract KarmaIntentPackageTest is Test {
         vm.prank(buyer);
         uint256 bBill = karma.lock(address(usdc), PRICE);
         vm.prank(seller);
-        uint256 aBill = karma.lock(address(usdc), PRICE);
+        uint256 aBill = karma.lock(address(usdc), PENALTY);
 
         Types.IntentPackage memory intent = _buildIntent(buyer, seller, address(0), PRICE);
         vm.prank(buyer);
@@ -353,7 +354,7 @@ contract KarmaIntentPackageTest is Test {
         vm.prank(buyer);
         uint256 bBill = karma.lock(address(usdc), PRICE);
         vm.prank(seller);
-        uint256 aBill = karma.lock(address(usdc), PRICE);
+        uint256 aBill = karma.lock(address(usdc), PENALTY);
 
         Types.IntentPackage memory intent = _buildIntent(buyer, seller, address(0), PRICE);
         vm.prank(buyer);

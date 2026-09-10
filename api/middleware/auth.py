@@ -195,6 +195,26 @@ def resolve_agent_id_from_auth_headers(
     return None
 
 
+DEV_ACTOR_HEADER = "X-Karma-Identity-Id"
+
+
+def resolve_actor_id_with_dev_fallback(request: Request) -> Optional[str]:
+    """Resolve actor via auth headers; in dev (auth enforcement off), fall back to the
+    ``X-Karma-Identity-Id`` header so ownership checks stay testable without a wallet.
+    The dev header is ignored whenever auth enforcement is on."""
+    actor = resolve_agent_id_from_auth_headers(
+        authorization=request.headers.get("Authorization"),
+        api_key=request.headers.get("X-Karma-Api-Key"),
+    )
+    if actor:
+        return actor
+    if not settings.auth_enforce_protected_routes:
+        dev_id = request.headers.get(DEV_ACTOR_HEADER)
+        if dev_id and dev_id.strip():
+            return dev_id.strip()
+    return None
+
+
 def resolve_verify_submitter_id(request: Request) -> str:
     """
     Identity for ``POST /v1/verify``.
