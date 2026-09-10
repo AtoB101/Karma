@@ -24,11 +24,42 @@
     return document.querySelector(sel);
   }
 
+  function isLocalPage() {
+    const h = window.location.hostname;
+    return h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "";
+  }
+
+  /** A base saved during local development must not follow us onto a real host. */
+  function isForeignLocalhost(base) {
+    if (isLocalPage()) return false;
+    try {
+      const host = new URL(base, window.location.href).hostname;
+      return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Effective API base for this page: a saved override, else window.KARMA_API_BASE
+   * ("" = same-origin), else the local dev API on localhost and this origin in production.
+   */
+  function displayBase() {
+    let stored = "";
+    try {
+      stored = localStorage.getItem(LS_BASE) || "";
+    } catch (_) {}
+    if (stored && !isForeignLocalhost(stored)) return stored;
+    const raw = window.KARMA_API_BASE;
+    if (raw === undefined || raw === null || String(raw).trim() === "") {
+      return isLocalPage() ? "http://127.0.0.1:8000" : window.location.origin;
+    }
+    return String(raw).trim();
+  }
+
   function loadCfgIntoInputs() {
     try {
-      if (el("[data-cfg=api_base]"))
-        el("[data-cfg=api_base]").value =
-          localStorage.getItem(LS_BASE) || window.KARMA_API_BASE || "http://127.0.0.1:8000";
+      if (el("[data-cfg=api_base]")) el("[data-cfg=api_base]").value = displayBase();
       if (el("[data-cfg=api_key]"))
         el("[data-cfg=api_key]").value =
           sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY) || window.KARMA_API_KEY || "";
@@ -210,7 +241,8 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     loadCfgIntoInputs();
-    window.KARMA_API_BASE = el("[data-cfg=api_base]")?.value?.trim();
+    const baseVal = el("[data-cfg=api_base]")?.value?.trim();
+    if (baseVal) window.KARMA_API_BASE = baseVal;
     window.KARMA_API_KEY = el("[data-cfg=api_key]")?.value?.trim();
     window.KARMA_IDENTITY_ID = el("[data-cfg=identity_id]")?.value?.trim();
     const mainId = el(".id-main");

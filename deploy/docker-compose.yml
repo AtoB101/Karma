@@ -14,7 +14,7 @@ services:
       - PORT=8000
       - KARMA_ENV=production
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 30s
