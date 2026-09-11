@@ -1,3 +1,8 @@
+> **[LEGACY CONSOLE REMOVED]** This document describes the old multi-page console
+> (Receiving / Payments / Agents / Evidence / Disputes / Trade / Dashboard / MVVS /
+> Verifier Explorer / OpenClaw Connect). Those pages were deleted; the public console
+> is now the single-page Cyber Console at `apps/console/pages/cyber/index.html`.
+
 # 公开测试网（Sepolia）上线签字页
 
 > **审计基线（Sentinel）：** Karma `main` @ `02eb650` · Karma2 `main` @ `e706031`  

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Static gate: Console last-mile wiring (API client + action scripts + page hooks).
+# Static gate: Cyber Console wiring (API client + console scripts + page hooks).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -7,42 +7,37 @@ cd "$ROOT"
 
 CONSOLE="$ROOT/apps/console"
 required=(
-  scripts/console-bootstrap.js
-  scripts/console-connect.js
-  scripts/console-actions.js
+  index.html
+  pages/cyber/index.html
   scripts/karma-public-api.js
-  pages/payments/index.html
-  pages/receiving/index.html
-  pages/trade/index.html
+  scripts/console-sync.js
+  scripts/console-wallet-auth.js
+  scripts/cyber-actions.js
+  scripts/cyber-console.js
+  scripts/cyber-globe-bg.js
+  scripts/cyber-identity.js
+  scripts/i18n-cyber.js
+  styles/cyber-console.css
 )
 
 for f in "${required[@]}"; do
   [[ -f "$CONSOLE/$f" ]] || { echo "MISSING $CONSOLE/$f"; exit 1; }
 done
 
-for path in \
-  "$CONSOLE/index.html" \
-  "$CONSOLE/pages/payments/index.html" \
-  "$CONSOLE/pages/receiving/index.html" \
-  "$CONSOLE/pages/disputes/index.html" \
-  "$CONSOLE/pages/evidence/index.html" \
-  "$CONSOLE/pages/trade/index.html"; do
-  grep -q 'console-bootstrap.js' "$path" || { echo "Page missing console-bootstrap.js: $path"; exit 1; }
-done
-
 grep -q 'settlementLock' "$CONSOLE/scripts/karma-public-api.js"
-grep -q 'data-console-action' "$CONSOLE/pages/payments/index.html"
-grep -q 'data-console-action' "$CONSOLE/pages/receiving/index.html"
+grep -q 'karmaResolveApiBase' "$CONSOLE/scripts/karma-public-api.js"
+grep -q 'cyber-console.css' "$CONSOLE/pages/cyber/index.html"
+grep -q 'pages/cyber/index.html' "$CONSOLE/index.html"
 
 python3 -m pytest -q tests/unit/test_console_last_mile.py
 
-# Live HTTP write sequence matching console Payments/Receiving buttons (ASGI in-process).
+# Live HTTP write sequence matching the Cyber Console buttons (ASGI in-process).
 python3 -m pytest -q tests/unit/test_console_live_write_smoke.py
 
 if command -v node >/dev/null 2>&1; then
-  for js in console-bootstrap.js console-connect.js console-actions.js karma-public-api.js; do
+  for js in karma-public-api.js console-sync.js console-wallet-auth.js cyber-actions.js cyber-console.js; do
     node --check "$CONSOLE/scripts/$js"
   done
 fi
 
-echo "OK   console last-mile gate finished"
+echo "OK   cyber console gate finished"

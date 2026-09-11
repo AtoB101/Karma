@@ -1,3 +1,8 @@
+> **[LEGACY CONSOLE REMOVED]** This document describes the old multi-page console
+> (Receiving / Payments / Agents / Evidence / Disputes / Trade / Dashboard / MVVS /
+> Verifier Explorer / OpenClaw Connect). Those pages were deleted; the public console
+> is now the single-page Cyber Console at `apps/console/pages/cyber/index.html`.
+
 # Karma BFF ↔ OpenManus — integration spec
 
 ## Auth (integration caller = OpenManus server or your orchestrator)

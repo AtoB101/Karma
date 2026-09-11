@@ -1,3 +1,8 @@
+> **[LEGACY CONSOLE REMOVED]** This document describes the old multi-page console
+> (Receiving / Payments / Agents / Evidence / Disputes / Trade / Dashboard / MVVS /
+> Verifier Explorer / OpenClaw Connect). Those pages were deleted; the public console
+> is now the single-page Cyber Console at `apps/console/pages/cyber/index.html`.
+
 # Console 最后一公里 — 前后端真实交互
 
 > 静态 Console（`apps/console/`）已接通 Karma HTTP API：读状态轮询 + 写操作按钮。
