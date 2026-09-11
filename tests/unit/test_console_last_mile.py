@@ -228,6 +228,10 @@ def test_locking_and_allocating_are_one_click_after_siwe():
     # SIWE auto-creates the card's own ledger agent. Counting it made step 3 read
     # 「1 个 agent 已接入」the moment the wallet connected.
     assert "a.agent_id !== a.owner_identity_id" in console, "自身台账 agent 不算已接入"
+    # The guide counts onboarded agents, so onboarding has to tell it to re-read.
+    assert "karma-agent-connected" in console, "the guide must refresh when an agent is onboarded"
+    agents = (CONSOLE / "scripts/cyber-agents.js").read_text(encoding="utf-8")
+    assert "karma-agent-connected" in agents, "onboarding must announce the new agent"
 
     identity = (CONSOLE / "scripts/cyber-identity.js").read_text(encoding="utf-8")
     assert "pm-alloc-remain" in identity, "额度分配 must show the remaining quota"

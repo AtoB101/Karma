@@ -287,6 +287,8 @@
     });
     const btn = document.querySelector('.nav button[data-page="' + page + '"]');
     if (btn) btn.classList.add("active");
+    // 回到总览就重算起步引导：接入 agent、锁仓、授权都可能发生在别的页面。
+    if (page === "overview") renderLaunchGuide().catch(function () {});
     const h = el("#pageHeading");
     const sub = el("#pageSubheading");
     if (h && sub && pages[page]) {
@@ -422,6 +424,7 @@
     "karma-capacity-changed",
     "karma-locked",
     "karma-alloc-changed",
+    "karma-agent-connected",
   ].forEach(function (name) {
     document.addEventListener(name, function () {
       renderLaunchGuide().catch(function () {});

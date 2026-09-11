@@ -552,6 +552,8 @@
       renderConnectResult(res);
       refreshAgents();
       loadProfilesIntoSelect();
+      // 起步引导的第 3 步数的是「真正接入的 agent」，接入成功后要让它立刻更新。
+      document.dispatchEvent(new CustomEvent("karma-agent-connected", { detail: { agent_id: res.agent.agent_id } }));
     } catch (e) {
       setWizardStatus("接入失败：" + (e.message || e), true);
       if (out) out.textContent = String(e.message || e);
