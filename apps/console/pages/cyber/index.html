@@ -246,15 +246,16 @@
               <div class="field"><label>卖方（worker_agent_id）</label><input id="st-worker" type="text" placeholder="worker-001" /></div>
             </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:12px">
-              <button type="button" class="btn" data-st-step="contract">① 建合同</button>
-              <button type="button" class="btn" data-st-step="create">② create</button>
-              <button type="button" class="btn" data-st-step="pending">③ pending</button>
-              <button type="button" class="btn" data-st-step="lock">④ lock</button>
-              <button type="button" class="btn" data-st-step="start">⑤ start</button>
-              <button type="button" class="btn" data-st-step="submit">⑥ submit</button>
-              <button type="button" class="btn primary" data-st-step="buyer-accept">⑦ 批准结算</button>
-              <button type="button" class="btn" data-st-step="dispute">争议</button>
+              <button type="button" class="btn" data-st-step="contract">① 建合同 · 买方</button>
+              <button type="button" class="btn" data-st-step="create">② create · 买方</button>
+              <button type="button" class="btn" data-st-step="pending">③ pending · 买方</button>
+              <button type="button" class="btn" data-st-step="lock">④ lock · 买方</button>
+              <button type="button" class="btn" data-st-step="start">⑤ start · 卖方</button>
+              <button type="button" class="btn" data-st-step="submit">⑥ submit · 卖方</button>
+              <button type="button" class="btn primary" data-st-step="buyer-accept">⑦ 批准结算 · 买方</button>
+              <button type="button" class="btn" data-st-step="dispute">争议 · 买卖双方</button>
             </div>
+            <p style="font-size:12px;color:var(--text-dim);margin-top:8px">每一步都按身份强制校验：①–④ 与 ⑦ 必须由买方（client_agent_id）执行，⑤ ⑥ 必须由被指派的卖方（worker_agent_id）执行。用错身份会被拒绝。</p>
             <pre class="out" id="st-out" style="margin-top:12px; max-height:260px; overflow:auto">—</pre>
           </div>
         </section>
