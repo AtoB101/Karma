@@ -201,3 +201,39 @@ def test_capacity_release_stays_a_master_operation():
         assert "profile_id" not in block.group(0), f"{fn} must not send profile_id"
     console = (CONSOLE / "scripts/cyber-console.js").read_text(encoding="utf-8")
     assert "activeProfileId" in console, "释放 must refuse to run in a sub-identity view"
+
+
+def test_locking_and_allocating_are_one_click_after_siwe():
+    """连接钱包后：锁仓有快捷金额，额度分配有剩余额度和一键按钮。
+
+    Both writes resolve their actor from the SIWE bearer token alone
+    (POST /v1/capacity/{id}/lock and PUT /v1/capacity/{id}/allocations), so the
+    console can finish either one from a single click — no second signature and
+    no second screen. The 起步引导 is what tells the owner the two moves exist.
+    """
+    html = CYBER.read_text(encoding="utf-8")
+    assert 'id="lock-amount"' in html, "the manual amount box must stay"
+    assert 'data-lock-preset="50"' in html and 'data-lock-preset="100"' in html
+    assert 'id="launch-guide"' in html, "the owner needs a next-step card right after SIWE"
+    for step in ("launch-lock-state", "launch-alloc-state", "launch-sdk-state"):
+        assert step in html, f"the guide is missing {step}"
+
+    console = CONSOLE_JS.read_text(encoding="utf-8")
+    assert "data-lock-preset" in console, "快捷锁仓 chips must be wired"
+    assert "lockPreset" in console and "renderLaunchGuide" in console
+    for name in ("karma-wallet-connected", "karma-session-restored", "karma-capacity-changed"):
+        assert name in console, "the guide must follow the session, not a manual refresh"
+    # A preset click must lock by itself, so the amount has to reach the action.
+    assert "lockCapacityAction(amountOverride)" in console
+
+    identity = (CONSOLE / "scripts/cyber-identity.js").read_text(encoding="utf-8")
+    assert "pm-alloc-remain" in identity, "额度分配 must show the remaining quota"
+    assert "pm-alloc-even" in identity and "pm-alloc-clear" in identity
+    assert "allocRemaining" in identity
+    # The form is submitted as a whole snapshot: an emptied row has to be sent as
+    # 0, otherwise the server keeps its old quota and 清零 silently does nothing.
+    assert "? v : 0" in identity, "empty allocation rows must be submitted as 0"
+    assert "sub-switch-grant" in identity and "focusAllocRow" in identity, "子身份面板 needs 一键授权"
+
+    css = (CONSOLE / "styles/cyber-console.css").read_text(encoding="utf-8")
+    assert ".lock-quick .chip" in css and ".sub-switch-grant" in css

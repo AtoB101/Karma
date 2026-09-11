@@ -109,7 +109,7 @@
   }
 
   async function refreshCapacity() {
-    const id = el("[data-cfg=identity_id]")?.value?.trim();
+    const id = el("[data-cfg=identity_id]")?.value?.trim() || String(window.KARMA_IDENTITY_ID || "").trim();
     if (!id) {
       setApiStatus("Identity ID empty", true);
       return;
@@ -129,6 +129,7 @@
         if (node) node.textContent = fmtNum(row[1]);
       });
       setApiStatus(window.CYBER_I18N.t("api.status_ok") + " · capacity @" + new Date().toLocaleTimeString(), false);
+      document.dispatchEvent(new CustomEvent("karma-capacity-changed", { detail: c }));
     } catch (e) {
       setApiStatus(String(e.message || e), true);
     }
@@ -152,20 +153,85 @@
     }
   }
 
-  async function lockCapacityAction() {
+  async function lockCapacityAction(amountOverride) {
     const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
-    const amount = Number(el("#lock-amount")?.value || 0);
+    const amount =
+      amountOverride === undefined || amountOverride === null
+        ? Number(el("#lock-amount")?.value || 0)
+        : Number(amountOverride);
     if (!id) { setApiStatus("请先连接钱包或填写 Identity ID", true); return; }
     if (!amount || amount <= 0) { setApiStatus("请填写锁仓金额", true); return; }
     setApiStatus("锁仓中…", false);
     try {
       const r = await window.cyberKarmaApi.lockCapacity(id, amount);
       setApiStatus("锁仓成功 · " + amount + " USDC", false);
-      refreshCapacity();
+      await refreshCapacity();
+      document.dispatchEvent(new CustomEvent("karma-locked", { detail: { amount: amount } }));
       return r;
     } catch (e) {
       setApiStatus(String(e.message || e), true);
     }
+  }
+
+  /** 一键锁仓：点快捷金额就直接锁，不用再点一次按钮。 */
+  function lockPreset(amount) {
+    const input = el("#lock-amount");
+    if (input) input.value = String(amount);
+    return lockCapacityAction(amount);
+  }
+
+  /**
+   * 起步引导 — 连接钱包后只需要三步。卡片在有身份卡之前不出现，
+   * 每一步显示实时状态，而不是一条用户无法确认的待办。
+   */
+  async function renderLaunchGuide() {
+    const card = el("#launch-guide");
+    if (!card) return;
+    const id =
+      (el("[data-cfg=identity_id]")?.value || "").trim() || String(window.KARMA_IDENTITY_ID || "").trim();
+    if (!id) { card.hidden = true; return; }
+    card.hidden = false;
+    const set = function (sel, txt) { const n = el(sel); if (n) n.textContent = txt; };
+
+    let cap = null;
+    try { cap = await window.cyberKarmaApi.getCapacity(id); } catch (_) {}
+    const locked = cap ? Number(cap.total_locked_usdc || 0) : 0;
+    set("#launch-lock-state", locked > 0 ? "已锁仓 " + fmtNum(locked) + " USDC" : "还没有锁仓");
+
+    let profiles = [];
+    try {
+      const pb = await window.cyberKarmaApi.listRoleProfiles(id);
+      profiles = (pb && pb.profiles) || [];
+    } catch (_) {}
+    let allocs = [];
+    try {
+      const rb = await window.cyberKarmaApi.getAllocations(id);
+      allocs = (rb && rb.allocations) || [];
+    } catch (_) {}
+    const funded = allocs.filter(function (a) { return Number(a.allocated_credits || 0) > 0; });
+    if (!profiles.length) {
+      set("#launch-alloc-state", "还没有子身份档案，先到「身份」页创建");
+    } else if (locked <= 0) {
+      set("#launch-alloc-state", profiles.length + " 个子身份 · 先完成第 1 步");
+    } else {
+      set("#launch-alloc-state", funded.length + " / " + profiles.length + " 个子身份已授权额度");
+    }
+
+    let agents = [];
+    try {
+      const ab = await window.cyberKarmaApi.listMyAgents();
+      agents = (ab && ab.agents) || [];
+    } catch (_) {}
+    set("#launch-sdk-state", agents.length ? agents.length + " 个 agent 已接入" : "还没有 agent 接入");
+  }
+
+  function bindLaunchGuide() {
+    document.querySelectorAll("[data-lock-preset]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const v = Number(btn.getAttribute("data-lock-preset"));
+        if (v > 0) lockPreset(v);
+      });
+    });
   }
 
   async function releaseCapacityAction() {
@@ -338,7 +404,23 @@
     });
     bindActions();
     bindAiToggle();
+    bindLaunchGuide();
     switchPage("overview");
     setApiStatus(window.CYBER_I18N.t("api.status_idle"), false);
+    renderLaunchGuide().catch(function () {});
+  });
+
+  /* 起步引导跟着会话走：连接钱包、恢复会话、锁仓、授权额度都会改变当前处于第几步。 */
+  window.KarmaLaunchGuide = { refresh: renderLaunchGuide };
+  [
+    "karma-wallet-connected",
+    "karma-session-restored",
+    "karma-capacity-changed",
+    "karma-locked",
+    "karma-alloc-changed",
+  ].forEach(function (name) {
+    document.addEventListener(name, function () {
+      renderLaunchGuide().catch(function () {});
+    });
   });
 })();

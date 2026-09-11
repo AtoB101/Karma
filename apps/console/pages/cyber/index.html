@@ -99,6 +99,11 @@
                   <div class="sub-switch-panel" id="sub-switch-panel" role="menu" hidden></div>
                 </div>
                 <button type="button" class="btn" data-i18n="top.export">导出记录</button>
+                <div class="lock-quick" role="group" aria-label="快捷锁仓金额">
+                  <button type="button" class="chip" data-lock-preset="50">+50</button>
+                  <button type="button" class="chip" data-lock-preset="100">+100</button>
+                  <button type="button" class="chip" data-lock-preset="500">+500</button>
+                </div>
                 <input id="lock-amount" type="number" step="0.01" value="10" placeholder="USDC" style="width:88px" />
                 <button type="button" class="btn primary" data-action="lock-capacity" data-i18n="top.lock">增加锁仓额度</button>
               </div>
@@ -132,6 +137,36 @@
               <div class="label" data-i18n="m.dispute">争议冻结</div>
               <div class="value" data-bind="disputed_credits">—</div>
               <div class="hint" data-i18n="m.dispute_hint">等待仲裁推进</div>
+            </div>
+          </div>
+          <div class="card section" id="launch-guide" hidden>
+            <div class="section-header">
+              <div>
+                <h3>起步 · 3 步让 agent 跑起来</h3>
+                <p>连接钱包后：锁仓资金 → 给子身份授权额度 → 把 SDK 交给 agent。锁仓是台账 1:1 锚定，不产生链上转账，未使用可随时释放。</p>
+              </div>
+              <span class="api-status" id="launch-guide-status"></span>
+            </div>
+            <div class="launch-steps">
+              <div class="launch-step" data-launch-step="lock">
+                <b>1 · 锁仓 USDC</b>
+                <span id="launch-lock-state">—</span>
+                <div class="lock-quick">
+                  <button type="button" class="chip" data-lock-preset="50">锁 50</button>
+                  <button type="button" class="chip" data-lock-preset="100">锁 100</button>
+                  <button type="button" class="chip" data-lock-preset="500">锁 500</button>
+                </div>
+              </div>
+              <div class="launch-step" data-launch-step="alloc">
+                <b>2 · 授权子身份额度</b>
+                <span id="launch-alloc-state">—</span>
+                <button type="button" class="btn" data-go="identity">去授权</button>
+              </div>
+              <div class="launch-step" data-launch-step="sdk">
+                <b>3 · 交给 agent</b>
+                <span id="launch-sdk-state">—</span>
+                <button type="button" class="btn" data-go="agents">去接入</button>
+              </div>
             </div>
           </div>
           <div class="layout-2">

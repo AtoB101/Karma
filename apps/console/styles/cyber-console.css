@@ -761,3 +761,60 @@ body.confidential [data-bind="b_released"] {
   #agents .ag-grid,
   #agents .ag-spec-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- 快捷锁仓 / 起步引导 ---------- */
+.lock-quick { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.lock-quick .chip {
+  border: 1px solid var(--border-glow);
+  background: rgba(34, 211, 238, 0.08);
+  color: var(--text-main);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lock-quick .chip:hover { background: rgba(34, 211, 238, 0.2); }
+.lock-quick .chip:active { transform: translateY(1px); }
+
+#launch-guide[hidden] { display: none !important; }
+#launch-guide .launch-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+#launch-guide .launch-step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(34, 211, 238, 0.05);
+  border: 1px solid rgba(34, 211, 238, 0.16);
+}
+#launch-guide .launch-step b { font-size: 13px; }
+#launch-guide .launch-step span { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+
+/* 子身份面板：一行 = 切换 + 一键授权 */
+.sub-switch-row { display: flex; gap: 6px; align-items: center; }
+.sub-switch-row .sub-switch-item { flex: 1; min-width: 0; }
+.sub-switch-grant {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-glow);
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sub-switch-grant:hover { color: var(--text-main); background: rgba(34, 211, 238, 0.14); }
+
+@media (max-width: 1100px) {
+  #launch-guide .launch-steps { grid-template-columns: 1fr; }
+}
