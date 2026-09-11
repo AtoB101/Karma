@@ -291,7 +291,12 @@
               <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">争议冻结</div><div class="value" data-bind="b_disputed">—</div></div>
               <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">已释放</div><div class="value" data-bind="b_released">—</div></div>
             </div>
-            <button type="button" class="btn" id="btn-refresh-bills" style="margin-top:12px">刷新账单</button>
+            <div class="bills-actions" style="margin-top:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+              <button type="button" class="btn" id="btn-refresh-bills">刷新账单</button>
+              <input id="release-amount" type="number" min="0" step="0.01" placeholder="释放金额 USDC" style="width:130px" />
+              <button type="button" class="btn" data-action="release-capacity" id="btn-release-capacity">释放未使用额度</button>
+              <span class="ag-hint" id="release-status">只能释放未被任务占用的可用额度（台账 1:1 锚定，不涉及链上转账）。</span>
+            </div>
           </div>
         </section>
 

@@ -168,6 +168,32 @@
     }
   }
 
+  async function releaseCapacityAction() {
+    const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
+    const amount = Number(el("#release-amount")?.value || 0);
+    const note = el("#release-status");
+    const say = function (msg, isErr) {
+      if (note) {
+        note.textContent = msg;
+        note.classList.toggle("err", !!isErr);
+      }
+      setApiStatus(msg, isErr);
+    };
+    if (!id) { say("请先连接钱包或填写 Identity ID", true); return; }
+    if (!amount || amount <= 0) { say("请填写释放金额", true); return; }
+    say("释放中…", false);
+    try {
+      await window.cyberKarmaApi.releaseCapacity(id, amount);
+      say("已释放 " + amount + " USDC", false);
+      refreshCapacity();
+      // The bills ledger (released_credits) is rendered by cyber-actions.js.
+      const bills = document.getElementById("btn-refresh-bills");
+      if (bills) bills.click();
+    } catch (e) {
+      say(String(e.message || e), true);
+    }
+  }
+
   function switchPage(page) {
     document.querySelectorAll(".page").forEach(function (p) {
       p.classList.remove("active");
@@ -227,6 +253,10 @@
     el("[data-action=lock-capacity]")?.addEventListener("click", function () {
       saveCfg();
       lockCapacityAction();
+    });
+    el("[data-action=release-capacity]")?.addEventListener("click", function () {
+      saveCfg();
+      releaseCapacityAction();
     });
   }
 
