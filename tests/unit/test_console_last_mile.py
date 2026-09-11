@@ -95,3 +95,19 @@ def test_language_picker_labels_come_from_the_pack_registry():
     js = CONSOLE_JS.read_text(encoding="utf-8")
     assert "SHIPPED_LANGS" in js, "the picker must read SHIPPED_LANGS, not a local copy"
     assert "LANG_LABELS" in js, "the picker must read LANG_LABELS, not a local copy"
+
+
+def test_identity_card_translates_the_ledger_enums():
+    """The card used to print identity_class: "user" and verification_status raw.
+
+    Those are ledger words (user/business/agent, unverified/basic/enhanced) and
+    are not the public role-profile list, so the card showed a value that matched
+    nothing else in the product.
+    """
+    js = (CONSOLE / "scripts/cyber-identity.js").read_text(encoding="utf-8")
+    for cls in ("user", "business", "agent"):
+        assert re.search(r"\b%s:\s*\"" % cls, js), f"card view must label identity_class {cls}"
+    for state in ("unverified", "basic", "enhanced"):
+        assert re.search(r"\b%s:\s*\"" % state, js), f"card view must label verification_status {state}"
+    assert "card.identity_class ||" not in js, "the card still prints the raw identity_class"
+    assert "card.verification_status ||" not in js, "the card still prints the raw verification_status"

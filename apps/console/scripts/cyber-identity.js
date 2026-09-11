@@ -22,6 +22,13 @@
     return (root || document).querySelector(sel);
   }
 
+  /** Card fields are server-controlled strings; escape them before interpolating. */
+  function escapeHtml(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
   function activeProfileId() {
     try { return sessionStorage.getItem(SS_PROFILE) || ""; } catch (_) { return ""; }
   }
@@ -231,6 +238,34 @@
     applyConfidential();
   }
 
+  /* The card speaks two private vocabularies that mean nothing to a user:
+     identity_class is user/business/agent (the ledger's axis, not the public
+     role list individual/merchant/enterprise/...), verification_status is
+     unverified/basic/enhanced, and status is the account state. Printing them
+     raw made the card read like a debug dump. */
+  var CARD_CLASS_LABELS = {
+    user: "个人",
+    business: "商户",
+    enterprise: "企业",
+    agent: "智能体",
+  };
+  var CARD_VERIFICATION_LABELS = {
+    unverified: "未认证",
+    basic: "已认证 · 基础",
+    enhanced: "已认证 · 增强",
+  };
+  var CARD_STATUS_LABELS = {
+    active: "正常",
+    restricted: "受限",
+    suspended: "已暂停",
+    disabled: "已停用",
+  };
+
+  function cardLabel(map, value) {
+    if (!value) return "—";
+    return map[value] || value;
+  }
+
   function claimCard() {
     var id = (window.KARMA_IDENTITY_ID || "").trim();
     var outEl = document.getElementById("auth-out");
@@ -246,11 +281,13 @@
         view.style.display = "block";
         view.innerHTML =
           '<div style="display:flex;gap:18px;flex-wrap:wrap">' +
-          '<div><b style="font-size:11px;color:var(--text-dim)">Identity ID</b><div style="font-family:monospace">' + (card.identity_id || id) + '</div></div>' +
-          '<div><b style="font-size:11px;color:var(--text-dim)">Class</b><div style="font-family:monospace">' + (card.identity_class || "—") + '</div></div>' +
-          '<div><b style="font-size:11px;color:var(--text-dim)">Verification</b><div style="font-family:monospace">' + (card.verification_status || "—") + '</div></div>' +
-          '<div><b style="font-size:11px;color:var(--text-dim)">Status</b><div style="font-family:monospace">' + (card.status || "—") + '</div></div>' +
-          '</div>';
+          '<div><b style="font-size:11px;color:var(--text-dim)">身份 ID</b><div style="font-family:monospace">' + escapeHtml(card.identity_id || id) + '</div></div>' +
+          '<div><b style="font-size:11px;color:var(--text-dim)">类别</b><div>' + escapeHtml(cardLabel(CARD_CLASS_LABELS, card.identity_class)) + '</div></div>' +
+          '<div><b style="font-size:11px;color:var(--text-dim)">认证状态</b><div>' + escapeHtml(cardLabel(CARD_VERIFICATION_LABELS, card.verification_status)) + '</div></div>' +
+          '<div><b style="font-size:11px;color:var(--text-dim)">账户状态</b><div>' + escapeHtml(cardLabel(CARD_STATUS_LABELS, card.status)) + '</div></div>' +
+          '<div><b style="font-size:11px;color:var(--text-dim)">钱包（脱敏）</b><div style="font-family:monospace">' + escapeHtml(card.wallet || "—") + '</div></div>' +
+          '</div>' +
+          '<p style="margin-top:12px;color:var(--text-dim);font-size:12px">这张身份卡是你在 Karma 的通行证：认证一次即可出示给任意接入 Karma 的 agent 基础设施，用于收付验证与结算。卡内不含私钥、助记词或完整钱包地址。</p>';
       }
     }).catch(function (e) {
       if (outEl) outEl.textContent = "领取失败: " + (e.message || e);
