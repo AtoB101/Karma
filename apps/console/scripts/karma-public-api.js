@@ -5,10 +5,18 @@
  *   window.KARMA_API_KEY = "karma_worker-001_secret"; // optional in dev
  */
 (function (global) {
+  /**
+   * Resolve the API base URL for every console page.
+   *   unset (undefined / null) -> local dev API
+   *   explicitly ""            -> same-origin (site reverse proxy in production)
+   */
+  function karmaResolveApiBase(raw) {
+    if (raw === undefined || raw === null) return "http://127.0.0.1:8000";
+    return String(raw).trim().replace(/\/+$/, "");
+  }
+
   function apiBase() {
-    return String(global.KARMA_API_BASE || "http://127.0.0.1:8000")
-      .trim()
-      .replace(/\/$/, "");
+    return karmaResolveApiBase(global.KARMA_API_BASE);
   }
 
   function headers() {

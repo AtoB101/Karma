@@ -18,9 +18,9 @@
   function apiBase() {
     var a = client();
     if (a && a.apiBase) return a.apiBase();
-    return String($("[data-cfg=api_base]")?.value || localStorage.getItem(LS_BASE) || "http://127.0.0.1:8000")
-      .trim()
-      .replace(/\/$/, "");
+    var stored = $("[data-cfg=api_base]")?.value?.trim() || localStorage.getItem(LS_BASE) || window.KARMA_API_BASE;
+    if (stored === undefined || stored === null) stored = "http://127.0.0.1:8000";
+    return String(stored).trim().replace(/\/+$/, "");
   }
 
   function apiKey() {

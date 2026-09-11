@@ -8,9 +8,9 @@
 
   function hydrateFromStorage() {
     try {
-      if (!global.KARMA_API_BASE) {
+      if (global.KARMA_API_BASE === undefined || global.KARMA_API_BASE === null) {
         var b = localStorage.getItem(LS_BASE);
-        if (b) global.KARMA_API_BASE = b;
+        if (b && !isForeignLocalhost(b)) global.KARMA_API_BASE = b;
       }
       if (!global.KARMA_API_KEY) {
         var k = sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY);
@@ -21,7 +21,24 @@
         if (i) global.KARMA_IDENTITY_ID = i;
       }
     } catch (_) {}
-    if (!global.KARMA_API_BASE) global.KARMA_API_BASE = "http://127.0.0.1:8000";
+    if (global.KARMA_API_BASE === undefined || global.KARMA_API_BASE === null) {
+      global.KARMA_API_BASE = "http://127.0.0.1:8000";
+    }
+  }
+
+  /**
+   * A base persisted during local development must not be reused once the console is
+   * served from a real host, otherwise every API call hits the visitor's own machine.
+   */
+  function isForeignLocalhost(base) {
+    try {
+      var pageHost = global.location.hostname;
+      if (pageHost === "localhost" || pageHost === "127.0.0.1" || pageHost === "::1") return false;
+      var host = new URL(base, global.location.href).hostname;
+      return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0";
+    } catch (_) {
+      return false;
+    }
   }
 
   hydrateFromStorage();

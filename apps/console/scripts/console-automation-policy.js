@@ -9,9 +9,11 @@
   }
 
   function apiBase() {
-    return String(window.KARMA_API_BASE || $("[data-cfg=api_base]")?.value || "http://127.0.0.1:8000")
-      .trim()
-      .replace(/\/$/, "");
+    if (window.karmaResolveApiBase) return window.karmaResolveApiBase(window.KARMA_API_BASE);
+    var raw = window.KARMA_API_BASE;
+    if (raw === undefined || raw === null) raw = $("[data-cfg=api_base]")?.value;
+    if (raw === undefined || raw === null) raw = "http://127.0.0.1:8000";
+    return String(raw).trim().replace(/\/+$/, "");
   }
 
   function apiKey() {

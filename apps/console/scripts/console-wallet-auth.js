@@ -22,9 +22,9 @@
   var SS_TOKEN = "karma_console_access_token";
 
   function apiBase() {
-    return String(global.KARMA_API_BASE || "http://127.0.0.1:8000")
-      .trim()
-      .replace(/\/$/, "");
+    if (global.karmaResolveApiBase) return global.karmaResolveApiBase(global.KARMA_API_BASE);
+    if (global.KARMA_API_BASE === undefined || global.KARMA_API_BASE === null) return "http://127.0.0.1:8000";
+    return String(global.KARMA_API_BASE).trim().replace(/\/+$/, "");
   }
 
   function el(sel, root) {

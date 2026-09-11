@@ -1,5 +1,5 @@
-# Karma — VPS 部署（Docker Compose）
-# 用法见 deploy/vps/README.md；机密一律放服务器上 /opt/karma/.env，绝不入库
+# Karma - VPS Docker Compose (nginx反向代理, 无Caddy)
+# 用法: docker compose --env-file /opt/karma/.env -f deploy/docker-compose.yml up -d --build
 services:
   app:
     build:
@@ -13,8 +13,8 @@ services:
     environment:
       - PORT=8000
       - KARMA_ENV=production
-    expose:
-      - "8000"
+    ports:
+      - "127.0.0.1:8000:8000"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 30s
@@ -27,23 +27,6 @@ services:
         max-size: "20m"
         max-file: "5"
 
-  # 反向代理 + 自动 HTTPS（域名解析到本机后自动签发 Let's Encrypt 证书）
-  caddy:
-    image: caddy:2-alpine
-    container_name: karma-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - app
-    logging: *logging
-
-  # PostgreSQL — 第3步数据层生产化时启用（依赖已在 pyproject 里）
   postgres:
     image: postgres:16-alpine
     container_name: karma-postgres
@@ -63,7 +46,6 @@ services:
       retries: 5
     logging: *logging
 
-  # Redis — 限流/缓存后端（可选，缺失时自动降级内存实现）
   redis:
     image: redis:7-alpine
     container_name: karma-redis
@@ -76,7 +58,5 @@ services:
     logging: *logging
 
 volumes:
-  caddy_data:
-  caddy_config:
   postgres_data:
   redis_data:
