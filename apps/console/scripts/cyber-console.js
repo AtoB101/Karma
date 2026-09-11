@@ -228,28 +228,31 @@
     });
   }
 
+  /** Fallbacks for a cached i18n script that predates SHIPPED_LANGS. */
   const LANG_LABELS = { "zh-CN": "\u4e2d\u6587", en: "English" };
   const LANG_ORDER = ["zh-CN", "en"];
 
   /**
-   * Only offer languages that actually have a string pack. The picker used to
-   * list seven; five of them had no pack, so choosing them silently rendered
-   * English while the control claimed otherwise.
+   * Offer the shipped languages, and only those.
+   *
+   * ja/ko/es/fr/de/pt-BR do have packs, but each covers 32 of the 224 keys, so
+   * picking one leaves the page mostly English behind a localized label. The list
+   * is read from i18n-cyber.js rather than hard-coded here so it cannot drift
+   * away from the packs the page can actually render.
    */
   function syncLangOptions(sel) {
-    const packs = Object.keys(window.CYBER_I18N.PACKS || {});
-    const ordered = LANG_ORDER.filter(function (c) {
+    const i18n = window.CYBER_I18N || {};
+    const packs = Object.keys(i18n.PACKS || {});
+    const labels = i18n.LANG_LABELS || LANG_LABELS;
+    const shipped = (i18n.SHIPPED_LANGS || LANG_ORDER).filter(function (c) {
       return packs.indexOf(c) >= 0;
-    }).concat(
-      packs.filter(function (c) {
-        return LANG_ORDER.indexOf(c) < 0;
-      })
-    );
+    });
+    if (!shipped.length) return;
     sel.innerHTML = "";
-    ordered.forEach(function (code) {
+    shipped.forEach(function (code) {
       const opt = document.createElement("option");
       opt.value = code;
-      opt.textContent = LANG_LABELS[code] || code;
+      opt.textContent = labels[code] || code;
       sel.appendChild(opt);
     });
   }

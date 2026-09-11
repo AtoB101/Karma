@@ -681,6 +681,29 @@
     "pt-BR": merge(en, overrides["pt-BR"]),
   };
 
+  /**
+   * Languages the picker is allowed to offer.
+   *
+   * The ja/ko/es/fr/de/pt-BR packs are real but partial: each overrides 31-32 of
+   * the 224 keys, so selecting one leaves most of the page in English under a
+   * localized label, which reads as a broken product. A language joins this list
+   * only once its pack covers every key in `en`; until then `t()` can still fall
+   * back to it, it just is not advertised in the picker.
+   */
+  const SHIPPED_LANGS = ["zh-CN", "en"];
+
+  /** Endonyms for every pack, so the control never shows a bare locale code. */
+  const LANG_LABELS = {
+    "zh-CN": "\u4e2d\u6587",
+    en: "English",
+    ja: "\u65e5\u672c\u8a9e",
+    ko: "\ud55c\uad6d\uc5b4",
+    es: "Espa\u00f1ol",
+    fr: "Fran\u00e7ais",
+    de: "Deutsch",
+    "pt-BR": "Portugu\u00eas (BR)",
+  };
+
   /** Explicit choice wins; otherwise follow the browser, because most of the
    *  console copy is Chinese and defaulting to English mixes the two. */
   function getLang() {
@@ -733,5 +756,14 @@
     });
   }
 
-  global.CYBER_I18N = { PACKS, getLang, setLang, t, applyCyberI18n, STORAGE_KEY };
+  global.CYBER_I18N = {
+    PACKS,
+    SHIPPED_LANGS,
+    LANG_LABELS,
+    getLang,
+    setLang,
+    t,
+    applyCyberI18n,
+    STORAGE_KEY,
+  };
 })(window);
