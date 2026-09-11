@@ -158,6 +158,12 @@
         if (msg.indexOf('only the assigned worker') >= 0) msg = '该步骤只能由被指派的卖方执行（403）';
         else if (msg.indexOf('only the settlement buyer') >= 0) msg = '该步骤只能由买方执行（403）';
         else if (msg.indexOf('buyer or assigned worker') >= 0) msg = '该步骤只能由买方或被指派的卖方执行（403）';
+        else if (msg.indexOf('successful execution receipt is required') >= 0) {
+          msg = '结算被拦住：这条任务还没有「成功的执行回执」。\n' +
+            '执行回执必须由卖方 agent 用它自己的运行密钥（Ed25519）签名后提交到 /v1/receipts，' +
+            'Karma 会校验签名与哈希，操作台只能查询、不能代签。\n' +
+            '先让卖方 agent 提交回执（本页「回执证明」可查到），再回到这里批准结算。';
+        }
       }
       out('#st-out', msg, true);
     }
