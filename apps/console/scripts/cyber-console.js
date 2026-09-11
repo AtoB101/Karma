@@ -215,6 +215,10 @@
     try {
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (_) {}
+    // Panels that only matter on one page (账单明细, 子身份过滤) refresh here.
+    try {
+      document.dispatchEvent(new CustomEvent("karma-page-shown", { detail: { page: page } }));
+    } catch (_) {}
   }
 
   /** Exposed for `onclick` / action cards in static HTML */

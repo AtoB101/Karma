@@ -134,3 +134,16 @@ def test_agent_handoff_panel_exists():
     assert "pyFloatStr" in js and "pyUtcIso" in js
     agents = (CONSOLE / "scripts/cyber-agents.js").read_text(encoding="utf-8")
     assert "data-agent-handoff" in agents, "every onboarded agent needs a 交给 agent button"
+
+
+def test_bills_page_exposes_the_sub_identity_view():
+    """主身份总账 ↔ 子身份明细：records stay separate, the sum stays one card."""
+    html = CYBER.read_text(encoding="utf-8")
+    assert 'id="bill-scope"' in html, "the bills page needs a 视角 selector"
+    assert 'id="bill-ledger"' in html, "the bills page needs a per-profile ledger host"
+    js = (CONSOLE / "scripts/cyber-actions.js").read_text(encoding="utf-8")
+    for needle in ("listRoleProfiles", "getProfileLedger", "getAllocations", "#bill-ledger"):
+        assert needle in js, f"the bills view is missing {needle}"
+    # The per-profile numbers come from the allocation rows, not from arithmetic on
+    # the master row, so a sub-identity can never show the master's balance.
+    assert "allocated_credits" in js and "in_progress_credits" in js

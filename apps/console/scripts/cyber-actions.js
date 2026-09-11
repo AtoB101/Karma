@@ -181,19 +181,179 @@
       .catch(function (e) { out('#rc-out', (e && (e.message || e.detail)) || e, true); });
   }
 
-  function refreshBills() {
+  /* ---- 账单：主身份总账 ↔ 子身份明细 ----
+   *
+   * The capacity row is the master anchor; profile_capacity splits it per role
+   * profile and settlements carry profile_id, so an owner can see one sub-identity's
+   * money without losing the fact that everything rolls up to one identity card.
+   */
+
+  var BILL_PROFILES = [];
+
+  function billSet(k, v) {
+    var n = document.querySelector('[data-bind=' + k + ']');
+    if (n) n.textContent = (v == null || isNaN(Number(v))) ? '—' : Number(v).toFixed(2);
+  }
+
+  function billNum(v) {
+    var n = Number(v);
+    return isNaN(n) ? 0 : n;
+  }
+
+  function billEsc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function billProfileLabel(p) {
+    return (p.display_name || p.profile_id) + ' · ' + (p['class'] || '') + (p.visibility === 'private' ? ' 🔒' : '');
+  }
+
+  function billScope() {
+    var sel = $('#bill-scope');
+    return sel ? sel.value : '';
+  }
+
+  async function loadBillProfiles() {
+    var sel = $('#bill-scope');
+    var id = identity();
+    if (!sel || !id) return [];
+    try {
+      var body = await api().listRoleProfiles(id);
+      BILL_PROFILES = (body && body.profiles) || [];
+    } catch (_) {
+      BILL_PROFILES = [];
+    }
+    var keep = sel.value;
+    sel.innerHTML = '<option value="">全部（主身份总账）</option>';
+    BILL_PROFILES.forEach(function (p) {
+      var o = document.createElement('option');
+      o.value = p.profile_id;
+      o.textContent = billProfileLabel(p);
+      sel.appendChild(o);
+    });
+    if (keep) sel.value = keep;
+    return BILL_PROFILES;
+  }
+
+  function allocationFor(allocations, profileId) {
+    for (var i = 0; i < allocations.length; i++) {
+      if (allocations[i] && allocations[i].profile_id === profileId) return allocations[i];
+    }
+    return null;
+  }
+
+  function ledgerTable(rows) {
+    if (!rows.length) return '<p class="ag-hint">该子身份还没有收付记录。</p>';
+    var head = '<tr><th>Task</th><th>金额</th><th>状态</th><th>付款方 agent</th><th>收款方 agent</th><th>已放款</th><th>已退款</th><th>时间</th></tr>';
+    var body = rows
+      .map(function (t) {
+        return (
+          '<tr><td><code>' + billEsc(t.task_id) + '</code></td>' +
+          '<td>' + billEsc(t.currency || '') + ' ' + billEsc(billNum(t.escrow_amount).toFixed(2)) + '</td>' +
+          '<td>' + billEsc(t.status) + '</td>' +
+          '<td>' + billEsc(t.client_agent_id || '—') + '</td>' +
+          '<td>' + billEsc(t.worker_agent_id || '—') + '</td>' +
+          '<td>' + (t.released_amount == null ? '—' : billEsc(billNum(t.released_amount).toFixed(2))) + '</td>' +
+          '<td>' + (t.refunded_amount == null ? '—' : billEsc(billNum(t.refunded_amount).toFixed(2))) + '</td>' +
+          '<td>' + billEsc(String(t.created_at || '').slice(0, 19).replace('T', ' ')) + '</td></tr>'
+        );
+      })
+      .join('');
+    return '<table><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+  }
+
+  async function refreshBills() {
     var id = identity(); var a = api();
-    if (!a) return;
-    if (!id) return;
-    a.getCapacity(id).then(function (c) {
-      function set(k, v) { var n = document.querySelector('[data-bind=' + k + ']'); if (n) n.textContent = (v == null || isNaN(Number(v))) ? '—' : Number(v).toFixed(2); }
-      set('b_total_locked', c.total_locked_usdc);
-      set('b_available', c.available_credits);
-      set('b_in_progress', (c.in_progress_credits || 0) + (c.reserved_credits || 0));
-      set('b_pending', c.pending_settlement_credits);
-      set('b_disputed', c.disputed_credits);
-      set('b_released', c.released_credits);
-    }).catch(function () {});
+    var host = $('#bill-ledger');
+    if (!a || !id) {
+      if (host) host.innerHTML = '<p class="ag-hint">请先连接钱包完成认证。</p>';
+      return;
+    }
+    var scope = billScope();
+    if (host) host.innerHTML = '<p class="ag-hint">读取中…</p>';
+
+    var profiles = BILL_PROFILES.length ? BILL_PROFILES : await loadBillProfiles();
+    var allocations = [];
+    try {
+      var allocBody = await a.getAllocations(id);
+      allocations = (allocBody && allocBody.allocations) || [];
+    } catch (_) {}
+    var cap = null;
+    try { cap = await a.getCapacity(id); } catch (_) {}
+
+    var hint = $('#bill-scope-hint');
+    if (hint) {
+      hint.textContent = scope
+        ? '子身份明细 · 主体身份卡 ' + id + '（本视角只统计该子身份的收付）'
+        : '主体身份卡 ' + id + ' —— 所有子身份的记录都汇总到这张卡，各子身份明细互不混淆。';
+    }
+
+    if (!scope) {
+      if (cap) {
+        billSet('b_total_locked', cap.total_locked_usdc);
+        billSet('b_available', cap.available_credits);
+        billSet('b_in_progress', billNum(cap.in_progress_credits) + billNum(cap.reserved_credits));
+        billSet('b_pending', cap.pending_settlement_credits);
+        billSet('b_disputed', cap.disputed_credits);
+        billSet('b_released', cap.released_credits);
+      }
+      if (!host) return;
+      if (!profiles.length) {
+        host.innerHTML = '<p class="ag-hint">还没有子身份档案。到「身份」页创建档案后，这里会按子身份拆开显示。</p>';
+        return;
+      }
+      var rows = [];
+      for (var i = 0; i < profiles.length; i++) {
+        var p = profiles[i];
+        var alloc = allocationFor(allocations, p.profile_id);
+        var txCount = 0;
+        try {
+          var led = await a.getProfileLedger(p.profile_id);
+          txCount = ((led && led.transactions) || []).length;
+        } catch (_) {}
+        rows.push(
+          '<tr><td>' + billEsc(p.display_name || p.profile_id) + '<br><code style="font-size:11px">' + billEsc(p.profile_id) + '</code></td>' +
+          '<td>' + billEsc(p['class'] || '—') + '</td>' +
+          '<td>' + (alloc ? billNum(alloc.allocated_credits).toFixed(2) : '未分配') + '</td>' +
+          '<td>' + (alloc ? billNum(alloc.available_credits).toFixed(2) : '—') + '</td>' +
+          '<td>' + (alloc ? billNum(alloc.in_progress_credits).toFixed(2) : '—') + '</td>' +
+          '<td>' + (alloc ? billNum(alloc.pending_settlement_credits).toFixed(2) : '—') + '</td>' +
+          '<td>' + (alloc ? billNum(alloc.disputed_credits).toFixed(2) : '—') + '</td>' +
+          '<td>' + txCount + '</td></tr>'
+        );
+      }
+      host.innerHTML =
+        '<table><thead><tr><th>子身份</th><th>类别</th><th>已分配</th><th>可用</th><th>执行占用</th><th>待结算</th><th>争议冻结</th><th>收付笔数</th></tr></thead><tbody>' +
+        rows.join('') + '</tbody></table>';
+      return;
+    }
+
+    var alloc = allocationFor(allocations, scope);
+    if (alloc) {
+      billSet('b_total_locked', alloc.allocated_credits);
+      billSet('b_available', alloc.available_credits);
+      billSet('b_in_progress', alloc.in_progress_credits);
+      billSet('b_pending', alloc.pending_settlement_credits);
+      billSet('b_disputed', alloc.disputed_credits);
+      billSet('b_released', alloc.released_credits);
+    } else if (cap) {
+      billSet('b_total_locked', 0);
+      billSet('b_available', 0);
+      billSet('b_in_progress', 0);
+      billSet('b_pending', 0);
+      billSet('b_disputed', 0);
+      billSet('b_released', 0);
+    }
+    if (!host) return;
+    try {
+      var led = await a.getProfileLedger(scope);
+      var note = alloc ? '' : '<p class="ag-hint">该子身份还没有分配额度（到「身份」页 → 额度分配）。</p>';
+      host.innerHTML = note + ledgerTable((led && led.transactions) || []);
+    } catch (e) {
+      host.innerHTML = '<p class="err">读取失败：' + billEsc(e.message || e) + '</p>';
+    }
   }
 
   function disputeStatus() {
@@ -327,6 +487,19 @@
 
     var lr = $('#btn-list-receipts'); if (lr) lr.addEventListener('click', listReceipts);
     var rb = $('#btn-refresh-bills'); if (rb) rb.addEventListener('click', refreshBills);
+    var bs = $('#bill-scope');
+    if (bs) bs.addEventListener('change', function () { refreshBills(); });
+    document.addEventListener('karma-page-shown', function (ev) {
+      var page = ev && ev.detail && ev.detail.page;
+      if (page !== 'bills') return;
+      loadBillProfiles().then(refreshBills).catch(function () {});
+    });
+    document.addEventListener('karma-wallet-connected', function () {
+      loadBillProfiles().then(refreshBills).catch(function () {});
+    });
+    document.addEventListener('karma-profile-switched', function () {
+      loadBillProfiles().then(refreshBills).catch(function () {});
+    });
     var ds = $('#btn-dp-status'); if (ds) ds.addEventListener('click', disputeStatus);
     var dt = $('#btn-dp-transitions'); if (dt) dt.addEventListener('click', disputeTransitions);
     var do_ = $('#btn-dp-open'); if (do_) do_.addEventListener('click', openDispute);

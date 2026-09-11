@@ -685,6 +685,20 @@ body.confidential [data-bind="b_released"] {
 #agents #ag-handoff .ag-secret { flex-wrap: wrap; }
 #agents #ag-handoff .tag.ok { border-color: rgba(74, 222, 128, 0.45); color: #7ee2a8; }
 
+/* 账单：主身份总账 ↔ 子身份明细 */
+#bills .bills-scope select {
+  border: 1px solid rgba(0, 224, 255, 0.35);
+  background: rgba(6, 12, 20, 0.72);
+  color: inherit;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  max-width: 340px;
+}
+#bills #bill-ledger table { font-size: 12px; }
+#bills #bill-ledger code { font-size: 11px; color: var(--text-dim); }
+#bills #bill-ledger { overflow-x: auto; }
+
 @media (max-width: 1100px) {
   #agents .ag-flow { grid-template-columns: repeat(2, 1fr); }
   #agents .ag-grid,

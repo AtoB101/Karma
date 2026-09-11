@@ -288,6 +288,12 @@
               <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">争议冻结</div><div class="value" data-bind="b_disputed">—</div></div>
               <div class="metric" style="padding:14px;background:rgba(34,211,238,0.04);border-radius:14px"><div class="label">已释放</div><div class="value" data-bind="b_released">—</div></div>
             </div>
+            <div class="bills-scope" style="margin-top:14px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+              <label style="font-size:12px;color:var(--text-dim)">视角</label>
+              <select id="bill-scope"><option value="">全部（主身份总账）</option></select>
+              <span class="ag-hint" id="bill-scope-hint">所有子身份的记录都汇总到这张主体身份卡，各子身份明细互不混淆。</span>
+            </div>
+            <div id="bill-ledger" style="margin-top:14px"></div>
             <div class="bills-actions" style="margin-top:12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap">
               <button type="button" class="btn" id="btn-refresh-bills">刷新账单</button>
               <input id="release-amount" type="number" min="0" step="0.01" placeholder="释放金额 USDC" style="width:130px" />
