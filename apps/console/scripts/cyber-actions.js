@@ -105,6 +105,23 @@
     var a = api();
     if (!a) { out('#st-out', 'API 客户端未加载', true); return; }
     if (!tid) { out('#st-out', '请填 Task ID', true); return; }
+    var me = identity();
+    /* Each transition is bound to one economic party; the API answers a bare 403
+     * when the signed-in identity is not it, so say which identity is required. */
+    var party = {
+      contract: [buyer, '买方（client_agent_id）'],
+      create: [buyer, '买方（client_agent_id）'],
+      pending: [buyer, '买方（client_agent_id）'],
+      lock: [buyer, '买方（client_agent_id）'],
+      start: [worker, '被指派的卖方（worker_agent_id）'],
+      submit: [worker, '被指派的卖方（worker_agent_id）'],
+      'buyer-accept': [buyer, '买方（client_agent_id）'],
+    }[step];
+    if (party && party[0] && me && party[0] !== me) {
+      out('#st-out', '该步骤只能由' + party[1] + '执行：' + party[0] +
+        '\n当前登录身份：' + me + '\n请用对应身份登录后再操作。', true);
+      return;
+    }
     try {
       var r;
       if (step === 'contract') {
@@ -136,7 +153,13 @@
       }
       out('#st-out', r, false);
     } catch (e) {
-      out('#st-out', (e && (e.message || e.detail)) || e, true);
+      var msg = (e && (e.message || e.detail)) || e;
+      if (typeof msg === 'string') {
+        if (msg.indexOf('only the assigned worker') >= 0) msg = '该步骤只能由被指派的卖方执行（403）';
+        else if (msg.indexOf('only the settlement buyer') >= 0) msg = '该步骤只能由买方执行（403）';
+        else if (msg.indexOf('buyer or assigned worker') >= 0) msg = '该步骤只能由买方或被指派的卖方执行（403）';
+      }
+      out('#st-out', msg, true);
     }
   }
 
