@@ -10,20 +10,39 @@ services:
     restart: unless-stopped
     env_file:
       - /opt/karma/.env
-    # Mount the UTC-normalising ORM shim from the repo so the fix survives
-    # `docker compose up` without a full image rebuild (the VPS has 1.6 GB RAM).
+    # Source + durable state are bind-mounted; see the comments inline.
     volumes:
-      - ../db/models/orm.py:/app/db/models/orm.py:ro
+      # --- Application source ------------------------------------------------
+      # The VPS has 1.6 GB of RAM and must never run `docker build` (an image
+      # build here previously OOM-killed the box), so the image carries the
+      # *dependencies* and the repo supplies the *code*. These are exactly the
+      # top-level packages the app imports from /app, so
+      #   git pull && docker compose up -d --no-build app
+      # is the complete deploy. Read-only: the app never writes to its own tree.
+      - ../agents:/app/agents:ro
+      - ../api:/app/api:ro
+      - ../config:/app/config:ro
+      - ../core:/app/core:ro
+      - ../db:/app/db:ro
+      - ../decentralized_verifier:/app/decentralized_verifier:ro
+      - ../evidence_runtime:/app/evidence_runtime:ro
+      - ../sdk:/app/sdk:ro
+      - ../services:/app/services:ro
+      # --- Durable state -----------------------------------------------------
+      # Platform Ed25519 signing key (settings.ed25519_*_key_path -> ./keys/*.pem).
+      # Without this mount it lives in the container layer, so every recreate
+      # silently rotated the platform key and invalidated earlier attestations
+      # and public_key comparisons.
+      - /opt/karma/keys:/app/keys
       # Identity / session JSON store: services/persist_json.py writes to
-      # <repo>/mvp_data, i.e. /app/mvp_data inside the container. Without this
-      # bind mount the whole store lives in the container layer and every
-      # `docker compose up` (which recreates the container) wipes every
-      # wallet-bound identity. Keep it on the host.
+      # <repo>/mvp_data, i.e. /app/mvp_data inside the container. Every
+      # `docker compose up` recreates the container, so without this bind mount
+      # each recreate wipes every wallet-bound identity.
       - /opt/karma/mvp_data:/app/mvp_data
-      # Agent bootstrap API keys, agent boundaries/profile cards, confirmation
-      # sessions and field captures all live in <repo>/.karma_data. Same problem
-      # as mvp_data: without this mount a recreate silently invalidates every
-      # minted agent API key.
+      # Agent bootstrap API keys, custody-held agent keys, agent boundaries /
+      # profile cards, confirmation sessions and field captures all live in
+      # <repo>/.karma_data. Same problem as mvp_data: without this mount a
+      # recreate silently invalidates every minted agent API key.
       - /opt/karma/karma_data:/app/.karma_data
     environment:
       - PORT=8000
