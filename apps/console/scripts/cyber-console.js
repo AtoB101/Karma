@@ -190,7 +190,6 @@
     const id =
       (el("[data-cfg=identity_id]")?.value || "").trim() || String(window.KARMA_IDENTITY_ID || "").trim();
     if (!id) { card.hidden = true; return; }
-    card.hidden = false;
     const set = function (sel, txt) { const n = el(sel); if (n) n.textContent = txt; };
 
     let cap = null;
@@ -223,6 +222,8 @@
       agents = (ab && ab.agents) || [];
     } catch (_) {}
     set("#launch-sdk-state", agents.length ? agents.length + " 个 agent 已接入" : "还没有 agent 接入");
+    // 先把三步状态算完再显示，否则卡片会先闪一下「—」再变成真实数字。
+    card.hidden = false;
   }
 
   function bindLaunchGuide() {
