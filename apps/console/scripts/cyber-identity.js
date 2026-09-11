@@ -35,6 +35,32 @@
   function setActiveProfileId(id) {
     try { id ? sessionStorage.setItem(SS_PROFILE, id) : sessionStorage.removeItem(SS_PROFILE); } catch (_) {}
   }
+  function getProfiles() {
+    try {
+      var raw = sessionStorage.getItem(SS_PROFILES);
+      var arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (_) { return []; }
+  }
+  function profileLabel(p) {
+    if (!p) return "";
+    return (p.display_name || p.profile_id) + " · " + (p["class"] || "") + (p.visibility === "private" ? " 🔒" : "");
+  }
+  /** i18n with an inline fallback, so a stale cached pack never shows a raw key. */
+  function tr(key, fallback) {
+    try {
+      var i18n = window.CYBER_I18N;
+      if (i18n && i18n.t) {
+        var v = i18n.t(key);
+        if (v && v !== key) return v;
+      }
+    } catch (_) {}
+    return fallback;
+  }
+  function shortId(id) {
+    var s = String(id || "");
+    return s.length > 18 ? s.slice(0, 10) + "…" + s.slice(-6) : s;
+  }
   function getActiveProfile() {
     var id = activeProfileId();
     if (!id) return null;
@@ -46,6 +72,110 @@
       }
     } catch (_) {}
     return null;
+  }
+
+  // ---- 顶部「主体 / 视角」状态栏 + 切换面板 ----
+  /* The topbar states on every page which master card owns the records and which
+     sub-identity the console is filtering by. Without it a filtered list is
+     indistinguishable from an empty account, and a user cannot tell whether a
+     write acted as the master or as a sub-identity. */
+  function renderScopeBar() {
+    var masterEl = document.getElementById("sub-scope-master");
+    var activeEl = document.getElementById("sub-scope-active");
+    var master = String((window.KARMA_IDENTITY_ID || "")).trim();
+    if (masterEl) {
+      masterEl.textContent = master ? shortId(master) : tr("scope.none", "未连接");
+      masterEl.title = master;
+    }
+    var pid = activeProfileId();
+    var p = getActiveProfile();
+    if (activeEl) {
+      activeEl.textContent = pid ? (p ? profileLabel(p) : shortId(pid)) : tr("scope.master_all", "主体（全部）");
+      activeEl.title = pid;
+    }
+    document.body.classList.toggle("sub-scope-filtered", !!pid);
+  }
+
+  function renderSubPanel() {
+    var panel = document.getElementById("sub-switch-panel");
+    if (!panel) return;
+    var profiles = getProfiles();
+    var pid = activeProfileId();
+    panel.innerHTML = "";
+    var rows = [{ id: "", label: tr("scope.master_all", "主体（全部）") }];
+    profiles.forEach(function (p) { rows.push({ id: p.profile_id, label: profileLabel(p) }); });
+    rows.forEach(function (r) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "sub-switch-item" + (r.id === pid ? " active" : "");
+      b.setAttribute("role", "menuitem");
+      b.setAttribute("data-profile-option", r.id);
+      b.textContent = r.label;
+      b.addEventListener("click", function () { setActiveProfile(r.id); closeSubPanel(); });
+      panel.appendChild(b);
+    });
+    if (!profiles.length) {
+      var empty = document.createElement("p");
+      empty.className = "sub-switch-empty";
+      empty.textContent = tr("scope.empty", "还没有子身份档案，可在「身份」页创建。");
+      panel.appendChild(empty);
+    }
+  }
+
+  function closeSubPanel() {
+    var panel = document.getElementById("sub-switch-panel");
+    var btn = document.getElementById("btn-switch-sub");
+    if (panel) panel.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+  function openSubPanel() {
+    var panel = document.getElementById("sub-switch-panel");
+    var btn = document.getElementById("btn-switch-sub");
+    if (!panel) return;
+    renderSubPanel();
+    panel.hidden = false;
+    if (btn) btn.setAttribute("aria-expanded", "true");
+  }
+  function toggleSubPanel() {
+    var panel = document.getElementById("sub-switch-panel");
+    if (!panel) return;
+    if (panel.hidden) openSubPanel(); else closeSubPanel();
+  }
+
+  /* Single entry point: every control that changes the scope goes through here,
+     so the sidebar select, the topbar panel, the bills dropdown and the task
+     tables can never disagree about which identity the console is showing. */
+  function setActiveProfile(id) {
+    var next = id || "";
+    setActiveProfileId(next);
+    var side = $("[data-profile-switcher] select");
+    if (side && side.value !== next) side.value = next;
+    var billScope = document.getElementById("bill-scope");
+    if (billScope && billScope.value !== next) billScope.value = next;
+    applyConfidential();
+    renderScopeBar();
+    renderSubPanel();
+    document.dispatchEvent(new CustomEvent("karma-profile-switched", { detail: { profile_id: next } }));
+  }
+
+  function bindSwitchUI() {
+    var btn = document.getElementById("btn-switch-sub");
+    if (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        toggleSubPanel();
+      });
+    }
+    document.addEventListener("click", function (ev) {
+      var panel = document.getElementById("sub-switch-panel");
+      if (!panel || panel.hidden) return;
+      if (panel.contains(ev.target)) return;
+      if (btn && btn.contains(ev.target)) return;
+      closeSubPanel();
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") closeSubPanel();
+    });
   }
 
   // ---- 切换器（侧边栏 identity-box）----
@@ -76,9 +206,7 @@
       sel.appendChild(o);
     }
     sel.addEventListener("change", function () {
-      setActiveProfileId(sel.value);
-      applyConfidential();
-      document.dispatchEvent(new CustomEvent("karma-profile-switched", { detail: { profile_id: sel.value } }));
+      setActiveProfile(sel.value);
     });
 
     wrap.appendChild(sel);
@@ -224,6 +352,8 @@
     if (!window.KARMA_ACCESS_TOKEN && !window.KARMA_API_KEY) {
       renderSwitcher(profiles);
       applyConfidential();
+      renderScopeBar();
+      renderSubPanel();
       return;
     }
     try {
@@ -236,6 +366,8 @@
     } catch (_) {}
     renderSwitcher(profiles);
     applyConfidential();
+    renderScopeBar();
+    renderSubPanel();
   }
 
   /* The card speaks two private vocabularies that mean nothing to a user:
@@ -377,18 +509,34 @@
   }
 
   function init() {
+    bindSwitchUI();
+    renderScopeBar();
+    renderSubPanel();
     refresh();
     renderManage();
     renderAllocation();
     var claimBtn = document.getElementById("btn-claim-card");
     if (claimBtn) claimBtn.addEventListener("click", claimCard);
     document.addEventListener("karma-wallet-connected", refresh);
+    document.addEventListener("karma-session-restored", refresh);
     document.addEventListener("karma-profile-switched", function () {
       if (window.KarmaConsoleSync && window.KarmaConsoleSync.refreshAll) {
         window.KarmaConsoleSync.refreshAll().catch(function () {});
       }
     });
   }
+
+  /* The console scope is a single source of truth; every module reads it through
+     this object instead of touching sessionStorage directly. */
+  window.KarmaIdentitySwitcher = {
+    getActiveProfileId: activeProfileId,
+    setActiveProfileId: setActiveProfile,
+    getActiveProfile: getActiveProfile,
+    getProfiles: getProfiles,
+    profileLabel: profileLabel,
+    render: function () { renderScopeBar(); renderSubPanel(); },
+    refresh: refresh,
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

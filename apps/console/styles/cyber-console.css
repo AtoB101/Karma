@@ -232,6 +232,63 @@ body {
 .page-title h2 { font-size: 24px; font-weight: 700; letter-spacing: -0.3px; }
 .page-title p { font-size: 13px; color: var(--text-dim); margin-top: 4px; }
 .top-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+/* ---- 子身份视角：顶部「主体身份卡 › 当前视角」状态栏 + 切换面板 ---- */
+.sub-scope-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding: 5px 12px;
+  border-radius: 40px;
+  background: rgba(0, 20, 32, 0.6);
+  border: 1px solid var(--border-glow);
+  font-size: 11px;
+  color: var(--text-dim);
+  width: fit-content;
+}
+.sub-scope-bar code { font-family: monospace; font-size: 11px; color: #b3e4ff; }
+.sub-scope-bar b { font-weight: 700; color: var(--neon-cyan); }
+.sub-scope-arrow { opacity: 0.6; }
+body.sub-scope-filtered .sub-scope-bar { border-color: rgba(232, 121, 249, 0.55); }
+body.sub-scope-filtered .sub-scope-bar b { color: var(--neon-mint); }
+
+.sub-switch-wrap { position: relative; }
+.sub-switch-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 240px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(6, 12, 22, 0.98);
+  border: 1px solid var(--border-glow);
+  box-shadow: 0 18px 32px -14px rgba(0, 0, 0, 0.8);
+}
+.sub-switch-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.sub-switch-item:hover { background: rgba(0, 224, 255, 0.12); border-color: var(--border-glow); }
+.sub-switch-item.active { background: rgba(139, 92, 246, 0.18); border-color: rgba(139, 92, 246, 0.6); }
+.sub-switch-empty { padding: 10px 12px; font-size: 11px; color: var(--text-dim); }
+
+/* 视角筛选提示：说清隐藏了多少条，避免空表被当成坏页面 */
+.scope-note { margin: 8px 0 0; font-size: 11px; color: #6c8aac; }
+.btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; transform: none; }
 .btn {
   border: 1px solid rgba(0, 224, 255, 0.4);
   background: rgba(0, 224, 255, 0.06);
@@ -684,6 +741,20 @@ body.confidential [data-bind="b_released"] {
 #agents #ag-handoff .ag-snippet pre { max-height: 280px; }
 #agents #ag-handoff .ag-secret { flex-wrap: wrap; }
 #agents #ag-handoff .tag.ok { border-color: rgba(74, 222, 128, 0.45); color: #7ee2a8; }
+
+/* 账单：主身份总账 ↔ 子身份明细 */
+#bills .bills-scope select {
+  border: 1px solid rgba(0, 224, 255, 0.35);
+  background: rgba(6, 12, 20, 0.72);
+  color: inherit;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  max-width: 340px;
+}
+#bills #bill-ledger table { font-size: 12px; }
+#bills #bill-ledger code { font-size: 11px; color: var(--text-dim); }
+#bills #bill-ledger { overflow-x: auto; }
 
 @media (max-width: 1100px) {
   #agents .ag-flow { grid-template-columns: repeat(2, 1fr); }
