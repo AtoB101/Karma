@@ -678,6 +678,13 @@ body.confidential [data-bind="b_released"] {
 }
 #agents .ag-next { margin-top: 12px; font-size: 12px; }
 #agents .ag-next ol { margin: 6px 0 0 18px; color: var(--text-dim); line-height: 1.7; }
+
+/* 交付包 —— the one artifact an owner hands to an agent runtime */
+#agents #ag-handoff-card[hidden] { display: none !important; }
+#agents #ag-handoff .ag-snippet pre { max-height: 280px; }
+#agents #ag-handoff .ag-secret { flex-wrap: wrap; }
+#agents #ag-handoff .tag.ok { border-color: rgba(74, 222, 128, 0.45); color: #7ee2a8; }
+
 @media (max-width: 1100px) {
   #agents .ag-flow { grid-template-columns: repeat(2, 1fr); }
   #agents .ag-grid,

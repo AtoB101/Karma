@@ -111,3 +111,26 @@ def test_identity_card_translates_the_ledger_enums():
         assert re.search(r"\b%s:\s*\"" % state, js), f"card view must label verification_status {state}"
     assert "card.identity_class ||" not in js, "the card still prints the raw identity_class"
     assert "card.verification_status ||" not in js, "the card still prints the raw verification_status"
+
+
+def test_agent_handoff_panel_exists():
+    """The 交付包 is what an owner hands to an agent: env + runtime key + checks."""
+    html = CYBER.read_text(encoding="utf-8")
+    assert "../../scripts/cyber-handoff.js" in html, "the console must load the handoff module"
+    assert 'id="ag-handoff-card"' in html, "the console must render a handoff panel"
+    js = (CONSOLE / "scripts/cyber-handoff.js").read_text(encoding="utf-8")
+    for needle in (
+        "data-agent-handoff",
+        "KARMA_AGENT_ID",
+        "KARMA_API_KEY",
+        "KARMA_RUNTIME_URL",
+        "KARMA_RUNTIME_KEY",
+        "p1-status",
+        "ownerRevokeAgent",
+    ):
+        assert needle in js, f"the handoff module is missing {needle}"
+    # The Runtime Key signature must be rebuilt the way Python formats floats and
+    # UTC timestamps, otherwise the mint 403s (see the same fix in cyber-actions).
+    assert "pyFloatStr" in js and "pyUtcIso" in js
+    agents = (CONSOLE / "scripts/cyber-agents.js").read_text(encoding="utf-8")
+    assert "data-agent-handoff" in agents, "every onboarded agent needs a 交给 agent button"
