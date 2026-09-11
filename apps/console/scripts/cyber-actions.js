@@ -206,10 +206,30 @@
     }).catch(function (e) { out('#id-out', (e && (e.message || e.detail)) || e, true); });
   }
 
+  /* The server rebuilds the signed string from the parsed request, so the client
+   * must reproduce Python's formatting exactly: str(float) for the limits and
+   * datetime.isoformat() for an aware UTC timestamp. Signing a JS Date.toISOString()
+   * ('…123Z') or a bare '100' recovered a different signer and always 403'd. */
+  function pyFloatStr(n) {
+    var v = Number(n);
+    if (!isFinite(v)) return String(n);
+    return Number.isInteger(v) ? v.toFixed(1) : String(v);
+  }
+
+  function pyUtcIso(ms) {
+    var iso = new Date(ms).toISOString(); // 2026-09-18T10:35:00.123Z
+    var m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?Z$/.exec(iso);
+    if (!m) return iso;
+    var frac = (m[2] || '').padEnd(6, '0');
+    // Python omits the fraction entirely when it is zero.
+    return frac === '000000' ? m[1] + '+00:00' : m[1] + '.' + frac + '+00:00';
+  }
+
   function buildCreateKeyMsg(f) {
     var perms = (f.permissions || []).slice().sort().join(',');
     return ['Karma Runtime Key Create', 'karma_identity_id:' + f.karma_identity_id, 'wallet_address:' + f.wallet_address,
-      'permissions:' + perms, 'single_limit:' + f.single_limit, 'daily_limit:' + f.daily_limit, 'expire_time:' + f.expire_time,
+      'permissions:' + perms, 'single_limit:' + pyFloatStr(f.single_limit), 'daily_limit:' + pyFloatStr(f.daily_limit),
+      'expire_time:' + f.expire_time,
       'agent_name:' + (f.agent_name || 'console-agent'), 'agent_binding:' + (f.agent_binding || '')].join('\n');
   }
   function agFields() {
@@ -253,7 +273,7 @@
     try {
       var accounts = await provider.request({ method: 'eth_requestAccounts' });
       var wallet = accounts[0];
-      var expireIso = new Date(Date.now() + 7 * 86400e3).toISOString();
+      var expireIso = pyUtcIso(Date.now() + 7 * 86400e3);
       var msg = buildCreateKeyMsg({ karma_identity_id: f.id, wallet_address: wallet, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: 'console-agent' });
       var sig = await provider.request({ method: 'personal_sign', params: [msg, wallet] });
       var rt = global.karmaRuntimeApi;
