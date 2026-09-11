@@ -105,6 +105,8 @@
     var rows = [{ id: "", label: tr("scope.master_all", "主体（全部）") }];
     profiles.forEach(function (p) { rows.push({ id: p.profile_id, label: profileLabel(p) }); });
     rows.forEach(function (r) {
+      var row = document.createElement("div");
+      row.className = "sub-switch-row";
       var b = document.createElement("button");
       b.type = "button";
       b.className = "sub-switch-item" + (r.id === pid ? " active" : "");
@@ -112,7 +114,25 @@
       b.setAttribute("data-profile-option", r.id);
       b.textContent = r.label;
       b.addEventListener("click", function () { setActiveProfile(r.id); closeSubPanel(); });
-      panel.appendChild(b);
+      row.appendChild(b);
+      if (r.id) {
+        var g = document.createElement("button");
+        g.type = "button";
+        g.className = "sub-switch-grant";
+        g.setAttribute("data-grant-profile", r.id);
+        g.title = "给这个子身份授权额度";
+        g.textContent = "授权额度";
+        g.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          var target = r.id;
+          closeSubPanel();
+          setActiveProfile(target);
+          if (window.cyberSwitchPage) window.cyberSwitchPage("identity");
+          focusAllocRow(target);
+        });
+        row.appendChild(g);
+      }
+      panel.appendChild(row);
     });
     if (!profiles.length) {
       var empty = document.createElement("p");
@@ -442,16 +462,22 @@
     sec.className = "card section";
     sec.setAttribute("data-profile-alloc", "");
     sec.innerHTML =
-      '<div class="section-header"><div><h3>额度分配</h3><p>给每个身份单独授权额度，总和不超过总锁仓；每个身份在授权额度内行事。</p></div>' +
-      '<button type="button" class="btn" id="pm-alloc-refresh">刷新</button></div>' +
+      '<div class="section-header"><div><h3>额度分配</h3><p>给每个子身份单独授权额度，总和不超过总锁仓；每个子身份在授权额度内行事，账单互不混淆。</p></div>' +
+      '<div style="display:flex;gap:8px;align-items:center">' +
+      '<span class="sub" id="pm-alloc-remain">—</span>' +
+      '<button type="button" class="btn" id="pm-alloc-refresh">刷新</button></div></div>' +
       '<div id="pm-alloc-list" style="margin-top:12px"></div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">' +
+      '<button type="button" class="btn" id="pm-alloc-even">平均分配</button>' +
+      '<button type="button" class="btn" id="pm-alloc-clear">清零</button>' +
       '<button type="button" class="btn primary" id="pm-alloc-save">保存分配</button>' +
       '<span class="api-status" id="pm-alloc-status"></span>' +
       '</div>';
     page.appendChild(sec);
     $("#pm-alloc-refresh", sec).addEventListener("click", refreshAllocation);
     $("#pm-alloc-save", sec).addEventListener("click", saveAllocation);
+    $("#pm-alloc-even", sec).addEventListener("click", function () { evenAllocation(); });
+    $("#pm-alloc-clear", sec).addEventListener("click", function () { clearAllocation(); });
     refreshAllocation();
   }
 
@@ -462,6 +488,9 @@
       return [];
     }
   }
+
+  /** 主体身份卡的总锁仓，额度分配的上限。 */
+  var masterLockedCredits = 0;
 
   async function refreshAllocation() {
     var id = (window.KARMA_IDENTITY_ID || "").trim();
@@ -476,42 +505,127 @@
       var body = await a.getAllocations(id);
       (body.allocations || []).forEach(function (x) { allocs[x.profile_id] = x; });
     } catch (_) {}
+    // 剩余额度按总锁仓算，前端先拦一次，别把后端的 409 留给用户。
+    try {
+      var cap = await a.getCapacity(id);
+      masterLockedCredits = Number((cap && cap.total_locked_usdc) || 0);
+    } catch (_) {}
     list.innerHTML = "";
     profiles.forEach(function (p) {
       var cur = allocs[p.profile_id];
       var used = cur ? ((cur.in_progress_credits || 0) + (cur.pending_settlement_credits || 0) + (cur.disputed_credits || 0)) : 0;
       var row = document.createElement("div");
-      row.style.cssText = "display:grid;grid-template-columns:1fr 120px 1fr;gap:10px;align-items:center;margin-bottom:8px";
+      row.style.cssText = "display:grid;grid-template-columns:minmax(140px,1.2fr) 110px auto minmax(120px,1fr);gap:10px;align-items:center;margin-bottom:8px";
       var label = document.createElement("label");
-      label.textContent = (p.display_name || p.profile_id) + " · " + (p["class"] || "");
+      label.textContent = (p.display_name || p.profile_id) + " · " + (p["class"] || "") + (used > 0 ? "（占用 " + used + "）" : "");
       var input = document.createElement("input");
       input.type = "number"; input.step = "0.01"; input.min = "0"; input.style.width = "100%";
       input.dataset.allocProfile = p.profile_id;
       if (cur) input.value = String(cur.allocated_credits);
       input.placeholder = "额度";
+      input.addEventListener("input", updateAllocRemain);
+      var quick = document.createElement("span");
+      quick.className = "lock-quick";
+      [50, 100].forEach(function (v) {
+        var c = document.createElement("button");
+        c.type = "button"; c.className = "chip"; c.textContent = "+" + v;
+        c.addEventListener("click", function () {
+          input.value = String(Number(input.value || 0) + v);
+          updateAllocRemain();
+        });
+        quick.appendChild(c);
+      });
+      var fill = document.createElement("button");
+      fill.type = "button"; fill.className = "chip"; fill.textContent = "填满";
+      fill.addEventListener("click", function () {
+        input.value = String(allocRemaining() + Number(input.value || 0));
+        updateAllocRemain();
+      });
+      quick.appendChild(fill);
       var usage = document.createElement("span");
       usage.className = "sub";
       usage.textContent = cur ? ("已用 " + used + " / 可用 " + (cur.available_credits || 0)) : "未分配";
-      row.appendChild(label); row.appendChild(input); row.appendChild(usage);
+      row.appendChild(label); row.appendChild(input); row.appendChild(quick); row.appendChild(usage);
       list.appendChild(row);
     });
+    updateAllocRemain();
+  }
+
+  function allocInputs() {
+    return Array.prototype.slice.call(document.querySelectorAll("[data-alloc-profile]"));
+  }
+
+  function allocSum() {
+    return allocInputs().reduce(function (s, inp) {
+      var v = parseFloat(inp.value);
+      return s + (isNaN(v) ? 0 : v);
+    }, 0);
+  }
+
+  /** 还没被子身份认领的额度（按输入框实时算）。 */
+  function allocRemaining() {
+    return Math.max(0, masterLockedCredits - allocSum());
+  }
+
+  function updateAllocRemain() {
+    var n = $("#pm-alloc-remain");
+    if (!n) return;
+    var sum = allocSum();
+    var over = sum > masterLockedCredits + 1e-9;
+    n.textContent =
+      "已分配 " + sum.toFixed(2) + " / 总锁仓 " + masterLockedCredits.toFixed(2) +
+      " · 剩余 " + Math.max(0, masterLockedCredits - sum).toFixed(2);
+    n.style.color = over ? "#f87171" : "";
+  }
+
+  function evenAllocation() {
+    var inputs = allocInputs();
+    if (!inputs.length || masterLockedCredits <= 0) return;
+    var each = Math.floor((masterLockedCredits / inputs.length) * 100) / 100;
+    inputs.forEach(function (inp) { inp.value = String(each); });
+    updateAllocRemain();
+  }
+
+  function clearAllocation() {
+    allocInputs().forEach(function (inp) { inp.value = ""; });
+    updateAllocRemain();
+  }
+
+  /** 从子身份面板一键跳到这一行的额度输入框。 */
+  function focusAllocRow(profileId) {
+    var inp = document.querySelector('[data-alloc-profile="' + profileId + '"]');
+    if (!inp) return;
+    try { inp.scrollIntoView({ block: "center" }); } catch (_) {}
+    try { inp.focus(); } catch (_) {}
   }
 
   async function saveAllocation() {
     var id = (window.KARMA_IDENTITY_ID || "").trim();
     var status = $("#pm-alloc-status");
     if (!id) { status.textContent = "请先连接钱包"; status.style.color = "#f87171"; return; }
+    var sum = allocSum();
+    if (sum > masterLockedCredits + 1e-9) {
+      status.textContent =
+        "超出总锁仓：已分配 " + sum.toFixed(2) + " > 总锁仓 " + masterLockedCredits.toFixed(2) + "，请下调后再保存";
+      status.style.color = "#f87171";
+      updateAllocRemain();
+      return;
+    }
+    // 整张表一起提交：后端按提交的档案逐条设置，漏掉的档案会保持原值，
+    // 所以空着的行必须显式提交 0，否则「清零」不生效。
     var allocations = {};
     document.querySelectorAll("[data-alloc-profile]").forEach(function (inp) {
       var v = parseFloat(inp.value);
-      if (!isNaN(v) && v > 0) allocations[inp.dataset.allocProfile] = v;
+      allocations[inp.dataset.allocProfile] = !isNaN(v) && v > 0 ? v : 0;
     });
-    if (!Object.keys(allocations).length) { status.textContent = "请至少填一个档案额度"; status.style.color = "#f87171"; return; }
+    if (!Object.keys(allocations).length) { status.textContent = "还没有可分配的档案"; status.style.color = "#f87171"; return; }
+    if (sum <= 0 && !window.confirm("这会把所有子身份的额度清零，确定？")) return;
     status.textContent = "保存中…"; status.style.color = "";
     try {
       await api().setAllocations(id, allocations);
       status.textContent = "已保存"; status.style.color = "var(--accent,#4ade80)";
-      refreshAllocation();
+      await refreshAllocation();
+      document.dispatchEvent(new CustomEvent("karma-alloc-changed"));
     } catch (e) {
       status.textContent = "失败: " + (e.message || e); status.style.color = "#f87171";
     }
