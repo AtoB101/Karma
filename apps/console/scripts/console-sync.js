@@ -136,6 +136,30 @@
     return (wid || "—") + " / " + (cid || "—");
   }
 
+  /* A filtered list that renders empty is indistinguishable from a broken page.
+     Say which sub-identity the console is scoped to and how many rows were
+     hidden, so a scope filter never reads as "no data". */
+  function renderScopeNote(tbody, total, hidden) {
+    var table = tbody && tbody.closest ? tbody.closest("table") : null;
+    var host = table ? table.parentNode : null;
+    if (!host) return;
+    var note = host.querySelector("[data-profile-scope-note]");
+    var apid = activeProfileId();
+    if (!apid) {
+      if (note) note.remove();
+      return;
+    }
+    if (!note) {
+      note = document.createElement("p");
+      note.setAttribute("data-profile-scope-note", "");
+      note.className = "scope-note";
+      host.appendChild(note);
+    }
+    note.textContent =
+      "当前只显示子身份 " + String(apid).slice(0, 12) + "… 的记录：共 " + total +
+      " 条，已隐藏 " + hidden + " 条属于其它子身份/主体身份的记录；顶部「切换子身份」选「主体（全部）」可查看全部。";
+  }
+
   function renderTasksTbody(tbody, identityId, taskIds) {
     if (!tbody) return;
     if (!taskIds.length) {
@@ -150,6 +174,13 @@
       return;
     }
     tbody.innerHTML = "";
+    var hiddenCount = 0;
+    var pending = taskIds.length;
+    function settled() {
+      if (pending <= 0) return;
+      pending -= 1;
+      if (pending === 0) renderScopeNote(tbody, taskIds.length, hiddenCount);
+    }
     taskIds.forEach(function (tid) {
       var tr = document.createElement("tr");
       var tdLoad = document.createElement("td");
@@ -186,12 +217,17 @@
           tdErr.colSpan = 8;
           tdErr.textContent = tid + ": " + s._err;
           tr.appendChild(tdErr);
+          settled();
           return;
         }
         var apid = activeProfileId();
-        if (apid && s && s.profile_id && s.profile_id !== apid) {
+        // 子身份视角只认自己名下的任务：没有结算记录、或结算未标 profile_id
+        // 的任务属于主体身份卡，一律不在子身份视角里出现。
+        if (apid && (!s || s.profile_id !== apid)) {
+          hiddenCount += 1;
           tr.style.display = "none";
           tr.setAttribute("data-profile-filtered", "1");
+          settled();
           return;
         }
         var rc = Array.isArray(rcpts) ? rcpts.length : 0;
@@ -222,6 +258,7 @@
               : "—";
         addCell(nxt);
         addCell(String(rc));
+        settled();
       });
     });
   }
@@ -308,11 +345,15 @@
     ).then(function (states) {
       tbody.innerHTML = "";
       var any = false;
+      var hiddenCount = 0;
       taskIds.forEach(function (tid, i) {
         var s = states[i];
         if (!s || String(s.status) !== "disputed") return;
         var apid = activeProfileId();
-        if (apid && s.profile_id && s.profile_id !== apid) return;
+        if (apid && s.profile_id !== apid) {
+          hiddenCount += 1;
+          return;
+        }
         any = true;
         var tr = document.createElement("tr");
         [tid, String(s.status), s.dispute_reason || "—", fmtNum(s.escrow_amount), identityId || "—"].forEach(function (t) {
@@ -326,6 +367,7 @@
         tbody.innerHTML =
           '<tr><td colspan="5" style="color:var(--muted)">No disputed tasks in the current ID list.</td></tr>';
       }
+      renderScopeNote(tbody, taskIds.length, hiddenCount);
     });
   }
 

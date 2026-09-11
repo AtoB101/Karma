@@ -181,6 +181,18 @@
     };
     if (!id) { say("请先连接钱包或填写 Identity ID", true); return; }
     if (!amount || amount <= 0) { say("请填写释放金额", true); return; }
+    const activePid =
+      window.cyberKarmaApi && window.cyberKarmaApi.activeProfileId
+        ? window.cyberKarmaApi.activeProfileId()
+        : "";
+    if (activePid) {
+      say(
+        "当前视角是子身份 " + String(activePid).slice(0, 12) + "…：释放额度属于主体身份卡的操作，" +
+          "请先在顶部「切换子身份」里选「主体（全部）」；子身份的额度请到「身份」页 →「额度分配」下调。",
+        true
+      );
+      return;
+    }
     say("释放中…", false);
     try {
       await window.cyberKarmaApi.releaseCapacity(id, amount);
@@ -269,6 +281,9 @@
     sel.addEventListener("change", function () {
       window.CYBER_I18N.setLang(sel.value);
       window.CYBER_I18N.applyCyberI18n();
+      if (window.KarmaIdentitySwitcher && window.KarmaIdentitySwitcher.render) {
+        window.KarmaIdentitySwitcher.render();
+      }
     });
   }
 

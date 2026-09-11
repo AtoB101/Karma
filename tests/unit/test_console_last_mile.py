@@ -147,3 +147,47 @@ def test_bills_page_exposes_the_sub_identity_view():
     # The per-profile numbers come from the allocation rows, not from arithmetic on
     # the master row, so a sub-identity can never show the master's balance.
     assert "allocated_credits" in js and "in_progress_credits" in js
+
+
+def test_sub_identity_scope_has_a_single_source_of_truth():
+    """One switcher drives every surface: switcher → bills → tasks → receipts.
+
+    The console used to keep a sidebar switcher, a bills dropdown and a topbar
+    button that each wrote their own state, so "which identity am I acting as"
+    had no single answer. The topbar now always names the master card and the
+    active view, and the same scope object answers for every module.
+    """
+    html = CYBER.read_text(encoding="utf-8")
+    for node in ('id="sub-scope-bar"', 'id="sub-scope-master"', 'id="sub-scope-active"',
+                 'id="btn-switch-sub"', 'id="sub-switch-panel"'):
+        assert node in html, f"the topbar is missing {node}"
+
+    identity_js = (CONSOLE / "scripts/cyber-identity.js").read_text(encoding="utf-8")
+    assert "window.KarmaIdentitySwitcher" in identity_js
+    for name in ("getActiveProfileId", "setActiveProfileId", "getProfiles"):
+        assert name in identity_js, f"the switcher must expose {name}"
+
+    # The bills dropdown is the same scope as the sidebar/topbar selector.
+    actions = (CONSOLE / "scripts/cyber-actions.js").read_text(encoding="utf-8")
+    assert "KarmaIdentitySwitcher" in actions
+    # 回执 also obeys the scope instead of leaking another sub-identity's rows.
+    assert "listReceiptsForTask" in actions and "getSettlement" in actions
+
+    # Task/dispute filters are strict: unattributed rows stay with the master card.
+    sync = (CONSOLE / "scripts/console-sync.js").read_text(encoding="utf-8")
+    assert "s.profile_id !== apid" in sync
+    assert "data-profile-scope-note" in sync
+
+
+def test_capacity_release_stays_a_master_operation():
+    """POST /capacity/{id}/release only stamps the master row and moves master
+    credits; a sub-identity's quota moves with PUT /allocations. Sending a
+    profile_id therefore released the wrong pool, so the client never sends one
+    and refuses the action while a sub-identity scope is active."""
+    text = (CONSOLE / "scripts/karma-public-api.js").read_text(encoding="utf-8")
+    for fn in ("lockCapacity", "releaseCapacity"):
+        block = re.search(r"async function %s\(.*?\n  \}" % fn, text, re.S)
+        assert block, f"missing {fn}"
+        assert "profile_id" not in block.group(0), f"{fn} must not send profile_id"
+    console = (CONSOLE / "scripts/cyber-console.js").read_text(encoding="utf-8")
+    assert "activeProfileId" in console, "释放 must refuse to run in a sub-identity view"

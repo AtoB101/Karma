@@ -335,20 +335,25 @@
     });
   }
 
+  /*
+   * Lock / release act on the master capacity row only.
+   *
+   * POST /v1/capacity/{id}/lock and /release accept an optional profile_id, but
+   * the server only uses it to *stamp* the master row (see api/routes/capacity.py):
+   * the credits still come from and return to the master pool, and per-profile
+   * allocations move with PUT /allocations. Sending a sub-identity id here bought
+   * nothing and quietly branded the master ledger row with a sub-identity, so the
+   * console never sends one. Release is refused client-side while a sub-identity
+   * scope is active.
+   */
   async function lockCapacity(identityId, amount) {
     const id = encodeURIComponent(identityId);
-    const body = { amount: Number(amount) };
-    const pid = activeProfileId();
-    if (pid) body.profile_id = pid;
-    return jsonPost("/v1/capacity/" + id + "/lock", body);
+    return jsonPost("/v1/capacity/" + id + "/lock", { amount: Number(amount) });
   }
 
   async function releaseCapacity(identityId, amount) {
     const id = encodeURIComponent(identityId);
-    const body = { amount: Number(amount) };
-    const pid = activeProfileId();
-    if (pid) body.profile_id = pid;
-    return jsonPost("/v1/capacity/" + id + "/release", body);
+    return jsonPost("/v1/capacity/" + id + "/release", { amount: Number(amount) });
   }
 
   async function createSettlement(payload) {

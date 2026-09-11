@@ -177,8 +177,21 @@
     if (!a) return;
     if (!tid) { out('#rc-out', '请填 Task ID', true); return; }
     out('#rc-out', '查询中…', false);
-    a.listReceiptsForTask(tid).then(function (r) { out('#rc-out', r, false); })
-      .catch(function (e) { out('#rc-out', (e && (e.message || e.detail)) || e, true); });
+    // 回执按子身份隔离：任务归属其它子身份时不出数据，只说明原因，避免串账。
+    var pid = activeProfileId();
+    var guard = pid && a.getSettlement
+      ? a.getSettlement(tid).then(function (s) {
+          if (s && s.profile_id && s.profile_id !== pid) {
+            return '当前视角是子身份 ' + String(pid).slice(0, 12) + '…，该任务属于 ' + String(s.profile_id).slice(0, 12) + '…。切回「主体（全部）」可查看全部回执。';
+          }
+          return null;
+        }).catch(function () { return null; })
+      : Promise.resolve(null);
+    return guard.then(function (blocked) {
+      if (blocked) { out('#rc-out', blocked, true); return; }
+      a.listReceiptsForTask(tid).then(function (r) { out('#rc-out', r, false); })
+        .catch(function (e) { out('#rc-out', (e && (e.message || e.detail)) || e, true); });
+    });
   }
 
   /* ---- 账单：主身份总账 ↔ 子身份明细 ----
@@ -225,7 +238,7 @@
     } catch (_) {
       BILL_PROFILES = [];
     }
-    var keep = sel.value;
+    var keep = sel.value || activeProfileId();
     sel.innerHTML = '<option value="">全部（主身份总账）</option>';
     BILL_PROFILES.forEach(function (p) {
       var o = document.createElement('option');
@@ -234,6 +247,14 @@
       sel.appendChild(o);
     });
     if (keep) sel.value = keep;
+    if (keep && sel.value !== keep) {
+      // The stored scope no longer exists (profile deleted / another account):
+      // fall back to the master view instead of showing a phantom filter.
+      if (window.KarmaIdentitySwitcher && window.KarmaIdentitySwitcher.setActiveProfileId) {
+        window.KarmaIdentitySwitcher.setActiveProfileId('');
+      }
+      sel.value = '';
+    }
     return BILL_PROFILES;
   }
 
@@ -288,6 +309,22 @@
       hint.textContent = scope
         ? '子身份明细 · 主体身份卡 ' + id + '（本视角只统计该子身份的收付）'
         : '主体身份卡 ' + id + ' —— 所有子身份的记录都汇总到这张卡，各子身份明细互不混淆。';
+    }
+
+    // 释放额度是主体身份卡的操作（服务端只动 master 台账，不碰子身份额度分配），
+    // 所以在子身份视角下关掉按钮，并指向真正能下调子身份额度的入口。
+    var relBtn = $('#btn-release-capacity');
+    var relInput = $('#release-amount');
+    var relHint = $('#release-status');
+    if (relBtn && relInput) {
+      relBtn.disabled = !!scope;
+      relInput.disabled = !!scope;
+      if (relHint) {
+        relHint.textContent = scope
+          ? '当前视角是子身份 ' + String(scope).slice(0, 12) + '…：释放额度属于主体身份卡，请先在顶部切回「主体（全部）」；子身份的额度请到「身份」页 →「额度分配」下调。'
+          : '只能释放未被任务占用的可用额度（台账 1:1 锚定，不涉及链上转账）。';
+        relHint.classList.toggle('err', !!scope);
+      }
     }
 
     if (!scope) {
@@ -488,7 +525,12 @@
     var lr = $('#btn-list-receipts'); if (lr) lr.addEventListener('click', listReceipts);
     var rb = $('#btn-refresh-bills'); if (rb) rb.addEventListener('click', refreshBills);
     var bs = $('#bill-scope');
-    if (bs) bs.addEventListener('change', function () { refreshBills(); });
+    if (bs) bs.addEventListener('change', function () {
+      // 统一入口：账单视角就是全站子身份视角，切一次两边都跟着动。
+      var sw = window.KarmaIdentitySwitcher;
+      if (sw && sw.setActiveProfileId) { sw.setActiveProfileId(bs.value); return; }
+      refreshBills();
+    });
     document.addEventListener('karma-page-shown', function (ev) {
       var page = ev && ev.detail && ev.detail.page;
       if (page !== 'bills') return;
