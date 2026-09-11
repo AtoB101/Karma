@@ -10,6 +10,10 @@ services:
     restart: unless-stopped
     env_file:
       - /opt/karma/.env
+    # Mount the UTC-normalising ORM shim from the repo so the fix survives
+    # `docker compose up` without a full image rebuild (the VPS has 1.6 GB RAM).
+    volumes:
+      - ../db/models/orm.py:/app/db/models/orm.py:ro
     environment:
       - PORT=8000
       - KARMA_ENV=production
