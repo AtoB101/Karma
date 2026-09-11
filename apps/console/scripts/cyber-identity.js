@@ -211,6 +211,14 @@
   async function refresh() {
     var profiles = [];
     var a = api();
+    // Role profiles are a protected read. Without a session the API answers
+    // 401 by design, so skip it until the user signs in instead of logging a
+    // needless 401 on every fresh visit.
+    if (!window.KARMA_ACCESS_TOKEN && !window.KARMA_API_KEY) {
+      renderSwitcher(profiles);
+      applyConfidential();
+      return;
+    }
     try {
       if (a && a.listRoleProfiles) {
         var oid = (window.KARMA_IDENTITY_ID || "").trim();
