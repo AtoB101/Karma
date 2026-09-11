@@ -161,6 +161,10 @@
 
   var discovered = [];
 
+  /** The provider that signed this session, so every console action signs with
+   *  the same wallet the user actually picked (not a hard-coded window.ethereum). */
+  var activeProviderRef = null;
+
   function onAnnounce(ev) {
     var d = ev && ev.detail;
     if (!d || !d.info || !d.provider) return;
@@ -506,6 +510,7 @@
   }
 
   async function signIn(provider, account, walletName) {
+    activeProviderRef = provider;
     setStatus("获取登录挑战…", null);
     var ch = await siweJson("/v1/auth/siwe/challenge", { address: account });
 
@@ -710,7 +715,17 @@
     restore();
   }
 
+  /** Best available wallet provider: the one used this session, else the first
+   *  discoverable wallet, else the legacy injected provider. */
+  function activeProvider() {
+    if (activeProviderRef && typeof activeProviderRef.request === "function") return activeProviderRef;
+    var list = entries();
+    if (list.length && list[0].provider) return list[0].provider;
+    return global.ethereum && typeof global.ethereum.request === "function" ? global.ethereum : null;
+  }
+
   global.KarmaWalletAuth = {
+    activeProvider: activeProvider,
     connect: connect,
     connectWith: connectWith,
     disconnect: disconnect,

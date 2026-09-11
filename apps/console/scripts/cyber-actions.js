@@ -220,15 +220,15 @@
   function savePolicy() {
     var f = agFields(); var a = api();
     if (!a) return;
-    if (!f.id) { out('#ag-out', '请填 Identity ID 或先连接钱包', true); return; }
+    if (!f.id) { out('#set-out', '请填 Identity ID 或先连接钱包', true); return; }
     a.putAutomationPolicy(f.id, { auto_enabled: true, single_limit: f.single, daily_limit: f.daily, permissions: f.perms, high_risk_mode: 'always', responsibility_acknowledged: true, preauth_enabled: false, allowed_task_types: [], trusted_counterparty_ids: [], payment_code_ttl_seconds: 3600, auto_accept_incoming: false, auto_execute_pipeline: false, human_not_present_allowed: false })
-      .then(function (r) { out('#ag-out', r, false); }).catch(function (e) { out('#ag-out', (e && (e.message || e.detail)) || e, true); });
+      .then(function (r) { out('#set-out', r, false); }).catch(function (e) { out('#set-out', (e && (e.message || e.detail)) || e, true); });
   }
   function getPolicy() {
     var f = agFields(); var a = api();
     if (!a) return;
-    if (!f.id) { out('#ag-out', '请填 Identity ID 或先连接钱包', true); return; }
-    a.getAutomationPolicy(f.id).then(function (r) { out('#ag-out', r, false); }).catch(function (e) { out('#ag-out', (e && (e.message || e.detail)) || e, true); });
+    if (!f.id) { out('#set-out', '请填 Identity ID 或先连接钱包', true); return; }
+    a.getAutomationPolicy(f.id).then(function (r) { out('#set-out', r, false); }).catch(function (e) { out('#set-out', (e && (e.message || e.detail)) || e, true); });
   }
   function activeProfileId() {
     try {
@@ -242,18 +242,24 @@
   async function mintKey() {
     var f = agFields(); var a = api();
     if (!a) return;
-    if (!f.id) { out('#ag-out', '请填 Identity ID 或先连接钱包', true); return; }
-    if (!global.ethereum || !global.ethereum.request) { out('#ag-out', '需先连接钱包（MetaMask）', true); return; }
+    if (!f.id) { out('#set-out', '请填 Identity ID 或先连接钱包', true); return; }
+    var provider =
+      (global.KarmaWalletAuth && global.KarmaWalletAuth.activeProvider && global.KarmaWalletAuth.activeProvider()) ||
+      global.ethereum;
+    if (!provider || !provider.request) {
+      out('#set-out', '未检测到可用钱包，请先用页面右上角「连接钱包」完成认证', true);
+      return;
+    }
     try {
-      var accounts = await global.ethereum.request({ method: 'eth_requestAccounts' });
+      var accounts = await provider.request({ method: 'eth_requestAccounts' });
       var wallet = accounts[0];
       var expireIso = new Date(Date.now() + 7 * 86400e3).toISOString();
       var msg = buildCreateKeyMsg({ karma_identity_id: f.id, wallet_address: wallet, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: 'console-agent' });
-      var sig = await global.ethereum.request({ method: 'personal_sign', params: [msg, wallet] });
+      var sig = await provider.request({ method: 'personal_sign', params: [msg, wallet] });
       var rt = global.karmaRuntimeApi;
       var r = await rt.runtimeCreateKey({ wallet_address: wallet, karma_identity_id: f.id, wallet_signature: sig, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: 'console-agent', profile_id: activeProfileId() || undefined });
-      out('#ag-out', r, false);
-    } catch (e) { out('#ag-out', (e && (e.message || e.detail)) || e, true); }
+      out('#set-out', r, false);
+    } catch (e) { out('#set-out', (e && (e.message || e.detail)) || e, true); }
   }
 
   document.addEventListener('DOMContentLoaded', function () {

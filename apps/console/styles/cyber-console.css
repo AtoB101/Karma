@@ -630,6 +630,11 @@ body.confidential [data-bind="b_released"] {
   margin-bottom: 10px;
   background: rgba(10, 16, 26, 0.6);
 }
+#agents .agent-row.self {
+  background: rgba(10, 16, 26, 0.35);
+  border-style: dashed;
+  border-color: rgba(138, 167, 196, 0.22);
+}
 #agents .agent-row-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 #agents .agent-row-main code { font-size: 11px; color: var(--text-dim); }
 #agents .agent-row-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
