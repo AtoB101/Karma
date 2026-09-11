@@ -115,6 +115,7 @@
     var actions = isSelfAgent
       ? ""
       : '<div class="agent-row-actions">' +
+        '<button type="button" class="btn primary" data-agent-handoff="' + esc(a.agent_id) + '">📦 交给 agent</button>' +
         '<input type="number" min="0" step="0.01" placeholder="授权额度 USDC" data-alloc-live="' +
         esc(a.scope_profile_id || "") + '" data-agent="' + esc(a.agent_id) + '" />' +
         '<button type="button" class="btn" data-agent-alloc="' + esc(a.agent_id) + '">授权额度</button>' +
@@ -547,6 +548,7 @@
       var res = await api().ownerConnect(payload);
       setWizardStatus("接入成功 · " + res.agent.agent_id);
       if (out) out.textContent = JSON.stringify(res, null, 2);
+      rememberAgentKey(res);
       renderConnectResult(res);
       refreshAgents();
       loadProfilesIntoSelect();
@@ -554,6 +556,20 @@
       setWizardStatus("接入失败：" + (e.message || e), true);
       if (out) out.textContent = String(e.message || e);
     }
+  }
+
+  /**
+   * The bootstrap API key is plaintext exactly once. Keep it for this tab so the
+   * 交付包 panel can build the agent's env without asking the owner to re-connect.
+   */
+  function rememberAgentKey(res) {
+    try {
+      var creds = (res && res.credentials) || {};
+      var agentId = res && res.agent && res.agent.agent_id;
+      if (!agentId || !creds.api_key) return;
+      var bag = window.KarmaAgentKeys || (window.KarmaAgentKeys = {});
+      bag[agentId] = creds.api_key;
+    } catch (_) {}
   }
 
   function renderConnectResult(res) {
@@ -657,4 +673,6 @@
   } else {
     init();
   }
+
+  window.KarmaAgents = { refresh: refreshAgents };
 })();

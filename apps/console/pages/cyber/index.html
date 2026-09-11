@@ -381,6 +381,17 @@
             <div id="ag-list" style="margin-top:12px"></div>
           </div>
 
+          <div class="card section" id="ag-handoff-card" style="margin-top:20px" hidden>
+            <div class="section-header">
+              <div>
+                <h3>交给 Agent · 交付包</h3>
+                <p>把这份包交给 agent 运行时即可接入：环境变量 + 运行时密钥 + 自检命令。全程不涉及你的钱包私钥或助记词。</p>
+              </div>
+              <button type="button" class="btn" id="ag-handoff-close">收起</button>
+            </div>
+            <div id="ag-handoff" style="margin-top:12px"></div>
+          </div>
+
           <div class="card section" style="margin-top:20px">
             <div class="section-header">
               <div>
@@ -446,6 +457,7 @@
     <script src="../../scripts/cyber-identity.js"></script>
     <script src="../../scripts/console-sync.js"></script>
     <script src="../../scripts/cyber-agents.js"></script>
+    <script src="../../scripts/cyber-handoff.js"></script>
     <script src="../../scripts/cyber-globe-bg.js"></script>
   </body>
 </html>
