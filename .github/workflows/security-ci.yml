@@ -1,4 +1,4 @@
-name: Security CI
+﻿name: Security CI
 
 on:
   pull_request:
@@ -22,7 +22,9 @@ jobs:
           submodules: recursive
 
       - name: Setup Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@v1.9.1
+        with:
+          version: v1.8.1
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -36,10 +38,10 @@ jobs:
           python3 -m pip install slither-analyzer
 
       - name: Forge tests
-        run: forge test -vv --no-match-path "**/_legacy/**"
+        run: forge test -vv --no-match-path "**/forge-std/**"
 
       - name: Gas snapshot (generate)
-        run: forge snapshot --no-match-path "**/_legacy/**"
+        run: forge snapshot --no-match-path "**/forge-std/**"
 
       - name: Slither gate
         run: ./scripts/slither-gate.sh --format text

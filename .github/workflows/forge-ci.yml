@@ -1,4 +1,4 @@
-name: Forge CI
+﻿name: Forge CI
 
 on:
   push:
@@ -21,7 +21,9 @@ jobs:
           submodules: recursive
 
       - name: Setup Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@v1.9.1
+        with:
+          version: v1.8.1
 
       - name: Install dependencies
         run: forge install --no-commit
@@ -29,11 +31,14 @@ jobs:
       - name: Build
         run: forge build
 
+      - name: Contract size gate (EIP-170)
+        run: ./scripts/check-contract-size.sh
+
       - name: Run fast unit/integration tests
-        run: forge test -vv --no-match-path "**/_legacy/**"
+        run: forge test -vv --no-match-path "**/forge-std/**"
 
       - name: Gas snapshot (generate)
-        run: forge snapshot --no-match-path "**/_legacy/**"
+        run: forge snapshot --no-match-path "**/forge-std/**"
 
       - name: Run proof/evidence CI gates (M4.1)
         run: ./scripts/ci-proof-gates.sh
@@ -55,7 +60,9 @@ jobs:
           submodules: recursive
 
       - name: Setup Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: foundry-rs/foundry-toolchain@v1.9.1
+        with:
+          version: v1.8.1
 
       - name: Install dependencies
         run: forge install --no-commit
@@ -63,11 +70,14 @@ jobs:
       - name: Build
         run: forge build
 
+      - name: Contract size gate (EIP-170)
+        run: ./scripts/check-contract-size.sh
+
       - name: Run all tests
-        run: forge test -vv --no-match-path "**/_legacy/**"
+        run: forge test -vv --no-match-path "**/forge-std/**"
 
       - name: Gas snapshot (generate)
-        run: forge snapshot --no-match-path "**/_legacy/**"
+        run: forge snapshot --no-match-path "**/forge-std/**"
 
       - name: Run proof/evidence CI gates (M4.1)
         run: ./scripts/ci-proof-gates.sh
