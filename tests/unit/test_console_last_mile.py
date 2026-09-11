@@ -178,6 +178,16 @@ def test_sub_identity_scope_has_a_single_source_of_truth():
     assert "s.profile_id !== apid" in sync
     assert "data-profile-scope-note" in sync
 
+    # The master id is known the moment SIWE returns, so it must be drawn before
+    # the protected profile read — otherwise the bar lags the 已连接 status.
+    block = re.search(r"async function refresh\(\)\s*\{.*?\n  \}", identity_js, re.S)
+    assert block, "cyber-identity.js must keep its refresh()"
+    body = block.group(0)
+    assert body.index("renderScopeBar") < body.index("listRoleProfiles")
+    # 额度分配 is built from the profile list, so it must be rebuilt whenever
+    # that list changes; a new sub-identity otherwise had no row to type into.
+    assert body.count("refreshAllocation") >= 2, "refresh() must rebuild the allocation rows"
+
 
 def test_capacity_release_stays_a_master_operation():
     """POST /capacity/{id}/release only stamps the master row and moves master
