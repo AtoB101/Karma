@@ -65,8 +65,23 @@
     return String(a).slice(0, 6) + "…" + String(a).slice(-4);
   }
 
-  function errText(e) {
-    if (!e) return "未知错误";
+  /**
+   * Announce a console event on BOTH document and window. The console is not
+   * consistent about where it listens (console-sync/cyber-identity bind to
+   * document), so dispatching on a single target silently drops listeners.
+   */
+  function emitEvent(name, detail) {
+    var ev;
+    try {
+      ev = new CustomEvent(name, { detail: detail });
+    } catch (_) {
+      try { ev = new Event(name); } catch (_) { return; }
+    }
+    try { document.dispatchEvent(ev); } catch (_) {}
+    try { global.dispatchEvent(ev); } catch (_) {}
+  }
+
+  function errText(e) {    if (!e) return "未知错误";
     if (e.code === 4001) return "你取消了授权";
     if (e.code === -32002) return "钱包里已有一个待处理的请求";
     if (e.code === 4902) return "钱包里没有这条链";
@@ -516,7 +531,7 @@
 
     setStatus("已连接 · " + shortAddr(account) + (identityId ? " · " + identityId : ""), true);
     try {
-      global.dispatchEvent(new CustomEvent("karma-wallet-connected", { detail: v }));
+      emitEvent("karma-wallet-connected", v);
     } catch (_) {}
     return { wallet: account, identityId: identityId, verify: v };
   }
@@ -598,7 +613,7 @@
       chip.style.color = "";
     }
     try {
-      global.dispatchEvent(new Event("karma-wallet-disconnected"));
+      emitEvent("karma-wallet-disconnected");
     } catch (_) {}
   }
 
@@ -623,7 +638,7 @@
         setStatus("会话已过期 · 请重新连接钱包", false);
       }
       try {
-        global.dispatchEvent(new CustomEvent("karma-session-restored", { detail: s }));
+        emitEvent("karma-session-restored", s);
       } catch (_) {}
     }
 
@@ -672,7 +687,7 @@
     if (st !== "none") {
       setStatus("会话已过期 · 请重新连接钱包", false);
       try {
-        global.dispatchEvent(new Event("karma-session-expired"));
+        emitEvent("karma-session-expired");
       } catch (_) {}
     }
     return false;

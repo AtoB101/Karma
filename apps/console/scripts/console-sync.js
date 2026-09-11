@@ -356,6 +356,17 @@
       setText(document.body, "[data-bind=api_version]", "—");
     }
 
+    // Protected reads need a session token or an API key. Without one the API
+    // correctly answers 401, which would just spam the browser console on a
+    // fresh visit, so skip them until the user signs in.
+    var authed = !!(global.KARMA_ACCESS_TOKEN || global.KARMA_API_KEY);
+    if (!authed) {
+      try {
+        document.dispatchEvent(new CustomEvent("karma-console-sync-done"));
+      } catch (_) {}
+      return;
+    }
+
     if (identityId) {
       try {
         setText(document.body, "[data-bind=sync_capacity_error]", "");
@@ -479,6 +490,14 @@
   // Re-filter the task/dispute tables when the active identity role profile changes.
   document.addEventListener("karma-profile-switched", function () {
     refreshAll().catch(function () {});
+  });
+
+  // A wallet just signed in, or a stored session was restored: pull this
+  // identity's data straight away instead of waiting for a manual refresh.
+  ["karma-wallet-connected", "karma-session-restored"].forEach(function (name) {
+    document.addEventListener(name, function () {
+      refreshAll().catch(function () {});
+    });
   });
 
   document.addEventListener("DOMContentLoaded", function () {

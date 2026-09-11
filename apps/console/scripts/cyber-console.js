@@ -65,7 +65,7 @@
           sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY) || window.KARMA_API_KEY || "";
       if (el("[data-cfg=identity_id]"))
         el("[data-cfg=identity_id]").value =
-          sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID) || window.KARMA_IDENTITY_ID || "worker-001";
+          sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID) || window.KARMA_IDENTITY_ID || "";
       if (el("[data-cfg=task_ids]"))
         el("[data-cfg=task_ids]").value = localStorage.getItem(LS_TASKS) || "";
       if (el("[data-cfg=auto_sync]")) el("[data-cfg=auto_sync]").checked = localStorage.getItem(LS_AUTO) === "1";
