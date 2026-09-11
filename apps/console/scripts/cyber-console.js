@@ -228,9 +228,36 @@
     });
   }
 
+  const LANG_LABELS = { "zh-CN": "\u4e2d\u6587", en: "English" };
+  const LANG_ORDER = ["zh-CN", "en"];
+
+  /**
+   * Only offer languages that actually have a string pack. The picker used to
+   * list seven; five of them had no pack, so choosing them silently rendered
+   * English while the control claimed otherwise.
+   */
+  function syncLangOptions(sel) {
+    const packs = Object.keys(window.CYBER_I18N.PACKS || {});
+    const ordered = LANG_ORDER.filter(function (c) {
+      return packs.indexOf(c) >= 0;
+    }).concat(
+      packs.filter(function (c) {
+        return LANG_ORDER.indexOf(c) < 0;
+      })
+    );
+    sel.innerHTML = "";
+    ordered.forEach(function (code) {
+      const opt = document.createElement("option");
+      opt.value = code;
+      opt.textContent = LANG_LABELS[code] || code;
+      sel.appendChild(opt);
+    });
+  }
+
   function bindLang() {
     const sel = el("#cyberLang");
     if (!sel) return;
+    syncLangOptions(sel);
     sel.value = window.CYBER_I18N.getLang();
     sel.addEventListener("change", function () {
       window.CYBER_I18N.setLang(sel.value);
