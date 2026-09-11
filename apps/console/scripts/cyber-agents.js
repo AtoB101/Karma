@@ -47,38 +47,92 @@
   }
 
   function pathKey(path) {
-    return "spec::" + String(path || "").replace(/\./g, "__");
+    return "spec-" + String(path || "").replace(/\./g, "-");
   }
 
   // ---------- 我的 Agent ----------
 
+  /** Human-readable names for the P1 readiness gate keys. */
+  var GAP_LABELS = {
+    directory_active: "目录未激活",
+    identity_class_set: "身份类别未设置",
+    owner_identity_bound: "未绑定主人身份",
+    owner_identity_active: "主人身份未激活",
+    public_key_bound: "未绑定公钥",
+    public_key_not_platform_default: "使用的是平台默认公钥",
+    profile_card_present: "缺少能力档案",
+    service_specs_valid: "履约硬指标不合规",
+    boundary_complete: "责任边界不完整",
+    responsibility_acknowledged: "未签认责任",
+    responsibility_attestation_valid: "责任签认无效",
+    boundary_hash_consistent: "边界哈希不一致",
+    ack_bound_to_live_boundary: "签认未绑定当前边界",
+    reputation_initialized: "声誉台账未初始化",
+    ownership_consistent: "归属不一致",
+  };
+
+  function gapText(gaps) {
+    return (gaps || [])
+      .map(function (g) {
+        return GAP_LABELS[g] || g;
+      })
+      .join("、");
+  }
+
   function renderAgentRow(a) {
+    // The ledger agent SIWE creates for the card itself is not an onboarded
+    // agent: it has no profile card / boundary, so P1 badges would be pure
+    // noise. Present it for what it is.
+    var isSelfAgent = a.agent_id === a.owner_identity_id;
     var ready = a.p1_ready === true;
-    var cls = ready ? "ok" : "warn";
-    var gaps = (a.p1_gaps || []).join(", ");
-    var keyTag = a.key_custody === "server_side_revocable"
-      ? '<span class="tag">密钥托管·可吊销</span>'
-      : '<span class="tag muted">外部密钥</span>';
-    return (
-      '<div class="agent-row">' +
-      '<div class="agent-row-main">' +
-      '<b>' + esc(a.name || a.agent_id) + "</b>" +
-      '<code>' + esc(a.agent_id) + "</code>" +
-      '<span class="tag">' + esc(a.identity_class || "—") + "</span>" +
-      '<span class="tag ' + cls + '">' + (ready ? "P1 就绪" : "P1 未就绪") + "</span>" +
-      keyTag +
-      "</div>" +
-      '<div class="agent-row-sub">' +
+    var gaps = gapText(a.p1_gaps);
+
+    var tags = '<span class="tag">' + esc(a.identity_class || "—") + "</span>";
+    if (isSelfAgent) {
+      tags += '<span class="tag muted">身份代理 · 自动创建</span>';
+    } else if (ready) {
+      tags += '<span class="tag ok">P1 就绪</span>';
+    } else {
+      tags += '<span class="tag warn">P1 未就绪</span>';
+    }
+    tags +=
+      a.key_custody === "server_side_revocable"
+        ? '<span class="tag">密钥托管·可吊销</span>'
+        : '<span class="tag muted">外部密钥</span>';
+
+    var sub =
       "角色 " + esc(a.role || "—") +
-      " · 接入路径 " + esc(a.connect_path || "—") +
-      " · 档案 " + esc(a.scope_profile_id || "未绑定") +
-      (gaps ? " · <span class=\"err\">缺 " + esc(gaps) + "</span>" : "") +
+      " · 接入路径 " + esc(a.connect_path || (isSelfAgent ? "siwe" : "—")) +
+      " · 档案 " + esc(a.scope_profile_id || "未绑定");
+    if (!isSelfAgent && !ready && gaps) {
+      sub += ' · <span class="err">待补齐：' + esc(gaps) + "</span>";
+    }
+
+    var actions = "";
+    if (!isSelfAgent) {
+      actions =
+        '<div class="agent-row-actions">' +
+        '<input type="number" min="0" step="0.01" placeholder="授权额度 USDC" data-alloc-live="' +
+        esc(a.scope_profile_id || "") + '" data-agent="' + esc(a.agent_id) + '" />' +
+        '<button type="button" class="btn" data-agent-alloc="' + esc(a.agent_id) + '">授权额度</button>' +
+        '<button type="button" class="btn red" data-agent-revoke="' + esc(a.agent_id) + '">停用并销毁密钥</button>' +
+        "</div>";
+    } else {
+      actions =
+        '<div class="agent-row-actions"><span class="ag-hint">' +
+        "这是你在 Karma 的付款代理身份，无需接入配置；连接商家 agent 时会自动使用。" +
+        "</span></div>";
+    }
+
+    return (
+      '<div class="agent-row' + (isSelfAgent ? " self" : "") + '">' +
+      '<div class="agent-row-main">' +
+      "<b>" + esc(a.name || a.agent_id) + "</b>" +
+      "<code>" + esc(a.agent_id) + "</code>" +
+      tags +
       "</div>" +
-      '<div class="agent-row-actions">' +
-      '<input type="number" min="0" step="0.01" placeholder="授权额度 USDC" data-alloc-live="' + esc(a.scope_profile_id || "") + '" data-agent="' + esc(a.agent_id) + '" />' +
-      '<button type="button" class="btn" data-agent-alloc="' + esc(a.agent_id) + '">授权额度</button>' +
-      '<button type="button" class="btn red" data-agent-revoke="' + esc(a.agent_id) + '">停用并销毁密钥</button>' +
-      "</div>" +
+      '<div class="agent-row-sub">' + sub + "</div>" +
+      actions +
       "</div>"
     );
   }
