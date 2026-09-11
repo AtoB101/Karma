@@ -87,42 +87,39 @@
     var ready = a.p1_ready === true;
     var gaps = gapText(a.p1_gaps);
 
-    var tags = '<span class="tag">' + esc(a.identity_class || "—") + "</span>";
-    if (isSelfAgent) {
-      tags += '<span class="tag muted">身份代理 · 自动创建</span>';
-    } else if (ready) {
-      tags += '<span class="tag ok">P1 就绪</span>';
-    } else {
-      tags += '<span class="tag warn">P1 未就绪</span>';
+    // The card's own agent carries the internal ledger class ("user") and has no
+    // runtime key of its own, so neither the class tag nor a custody tag applies.
+    var tags = isSelfAgent
+      ? '<span class="tag">身份代理 · 自动创建</span>'
+      : '<span class="tag">' + esc(a.identity_class || "—") + "</span>";
+    if (!isSelfAgent) {
+      tags += ready
+        ? '<span class="tag ok">P1 就绪</span>'
+        : '<span class="tag warn">P1 未就绪</span>';
+      tags +=
+        a.key_custody === "server_side_revocable"
+          ? '<span class="tag">密钥托管·可吊销</span>'
+          : '<span class="tag muted">外部密钥</span>';
     }
-    tags +=
-      a.key_custody === "server_side_revocable"
-        ? '<span class="tag">密钥托管·可吊销</span>'
-        : '<span class="tag muted">外部密钥</span>';
 
-    var sub =
-      "角色 " + esc(a.role || "—") +
-      " · 接入路径 " + esc(a.connect_path || (isSelfAgent ? "siwe" : "—")) +
-      " · 档案 " + esc(a.scope_profile_id || "未绑定");
+    var sub = isSelfAgent
+      ? "这是你身份卡自带的付款代理账本 — 连接商家 agent 时自动使用，无需配置。"
+      : "角色 " + esc(a.role || "—") +
+        " · 接入路径 " + esc(a.connect_path || "—") +
+        " · 档案 " + esc(a.scope_profile_id || "未绑定");
     if (!isSelfAgent && !ready && gaps) {
       sub += ' · <span class="err">待补齐：' + esc(gaps) + "</span>";
     }
 
-    var actions = "";
-    if (!isSelfAgent) {
-      actions =
-        '<div class="agent-row-actions">' +
+    // Only onboarded agents get inline controls; the self agent is not configurable.
+    var actions = isSelfAgent
+      ? ""
+      : '<div class="agent-row-actions">' +
         '<input type="number" min="0" step="0.01" placeholder="授权额度 USDC" data-alloc-live="' +
         esc(a.scope_profile_id || "") + '" data-agent="' + esc(a.agent_id) + '" />' +
         '<button type="button" class="btn" data-agent-alloc="' + esc(a.agent_id) + '">授权额度</button>' +
         '<button type="button" class="btn red" data-agent-revoke="' + esc(a.agent_id) + '">停用并销毁密钥</button>' +
         "</div>";
-    } else {
-      actions =
-        '<div class="agent-row-actions"><span class="ag-hint">' +
-        "这是你在 Karma 的付款代理身份，无需接入配置；连接商家 agent 时会自动使用。" +
-        "</span></div>";
-    }
 
     return (
       '<div class="agent-row' + (isSelfAgent ? " self" : "") + '">' +
