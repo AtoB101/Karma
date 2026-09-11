@@ -346,6 +346,10 @@
   async function refresh() {
     var profiles = [];
     var a = api();
+    // The master identity is known as soon as SIWE returns, so draw the topbar
+    // before the protected (network-bound) profile read. Otherwise the scope bar
+    // still says 未连接 while the status line already says 已连接.
+    renderScopeBar();
     // Role profiles are a protected read. Without a session the API answers
     // 401 by design, so skip it until the user signs in instead of logging a
     // needless 401 on every fresh visit.
@@ -354,6 +358,7 @@
       applyConfidential();
       renderScopeBar();
       renderSubPanel();
+      refreshAllocation();
       return;
     }
     try {
@@ -368,6 +373,10 @@
     applyConfidential();
     renderScopeBar();
     renderSubPanel();
+    // 额度分配 reads the profile list from sessionStorage, so it has to be
+    // rebuilt whenever that list changes — otherwise a freshly created
+    // sub-identity never gets an allocation row and stays at 未分配.
+    refreshAllocation();
   }
 
   /* The card speaks two private vocabularies that mean nothing to a user:
