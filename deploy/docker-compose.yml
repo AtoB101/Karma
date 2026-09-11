@@ -14,6 +14,12 @@ services:
     # `docker compose up` without a full image rebuild (the VPS has 1.6 GB RAM).
     volumes:
       - ../db/models/orm.py:/app/db/models/orm.py:ro
+      # Identity / session JSON store: services/persist_json.py writes to
+      # <repo>/mvp_data, i.e. /app/mvp_data inside the container. Without this
+      # bind mount the whole store lives in the container layer and every
+      # `docker compose up` (which recreates the container) wipes every
+      # wallet-bound identity. Keep it on the host.
+      - /opt/karma/mvp_data:/app/mvp_data
     environment:
       - PORT=8000
       - KARMA_ENV=production

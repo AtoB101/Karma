@@ -19,6 +19,17 @@
     return karmaResolveApiBase(global.KARMA_API_BASE);
   }
 
+  // Restore the SIWE session token issued by console-wallet-auth.js so console
+  // scripts that run before the wallet layer settles still send Authorization.
+  try {
+    if (!global.KARMA_ACCESS_TOKEN) {
+      global.KARMA_ACCESS_TOKEN = sessionStorage.getItem("karma_console_access_token") || "";
+    }
+    if (!global.KARMA_IDENTITY_ID) {
+      global.KARMA_IDENTITY_ID = sessionStorage.getItem("karma_console_identity") || "";
+    }
+  } catch (_) {}
+
   function headers() {
     const h = { Accept: "application/json" };
     const token = String(global.KARMA_ACCESS_TOKEN || "").trim();
