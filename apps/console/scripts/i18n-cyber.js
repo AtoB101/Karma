@@ -681,10 +681,15 @@
     "pt-BR": merge(en, overrides["pt-BR"]),
   };
 
+  /** Explicit choice wins; otherwise follow the browser, because most of the
+   *  console copy is Chinese and defaulting to English mixes the two. */
   function getLang() {
     try {
       const s = localStorage.getItem(STORAGE_KEY);
       if (s && PACKS[s]) return s;
+    } catch (_) {}
+    try {
+      if (String(navigator.language || "").toLowerCase().indexOf("zh") === 0) return "zh-CN";
     } catch (_) {}
     return "en";
   }
