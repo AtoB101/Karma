@@ -4,13 +4,32 @@ Karma — Database Models (SQLAlchemy async)
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey,
     Integer, String, Text, UniqueConstraint,
 )
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class UTCDateTime(TypeDecorator):
+    """DateTime that stores tz-aware values as naive UTC.
+
+    The schema uses ``timestamp without time zone`` columns and asyncpg refuses to
+    bind an aware datetime to them ("can't subtract offset-naive and offset-aware
+    datetimes"). Anything that arrives aware - e.g. an ISO string with a ``Z`` or
+    ``+00:00`` offset produced by a browser - is normalised to naive UTC here.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):  # noqa: ANN001
+        if isinstance(value, datetime) and value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
 
 
 class Base(DeclarativeBase):
@@ -35,7 +54,7 @@ class AgentModel(Base):
     endpoint_url:  Mapped[str|None] = mapped_column(String(512))
     capabilities:  Mapped[list]     = mapped_column(JSON, default=list)
     is_active:     Mapped[bool]     = mapped_column(Boolean, default=True)
-    registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    registered_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
     # P1 onboarding — identity class, owner bind, readiness (anti-forgery / counterparty verify)
     identity_class:     Mapped[str|None] = mapped_column(String(32), nullable=True)
     owner_identity_id:  Mapped[str|None] = mapped_column(String(128), nullable=True, index=True)
@@ -63,8 +82,8 @@ class IdentityRoleProfile(Base):
     display_name:      Mapped[str | None]  = mapped_column(String(256))
     kyc_payload:       Mapped[dict]        = mapped_column(JSON, default=dict)
     status:            Mapped[str]         = mapped_column(String(16), nullable=False, default="active")
-    created_at:        Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at:        Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at:        Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:        Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class IdentityDisclosureModel(Base):
@@ -82,8 +101,8 @@ class IdentityDisclosureModel(Base):
     task_id:                Mapped[str | None]  = mapped_column(String(64), nullable=True, index=True)
     scope:                  Mapped[str]         = mapped_column(String(16), nullable=False, default="transaction")
     status:                 Mapped[str]         = mapped_column(String(16), nullable=False, default="active")
-    created_at:             Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at:             Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at:             Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -102,9 +121,9 @@ class TaskContractModel(Base):
     expected_step_count:    Mapped[int]      = mapped_column(Integer, nullable=False)
     escrow_amount:          Mapped[float]    = mapped_column(Float, nullable=False)
     currency:               Mapped[str]      = mapped_column(String(8), default="USD")
-    deadline_at:            Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    deadline_at:            Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     contract_hash:          Mapped[str|None] = mapped_column(String(64))
-    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     receipts:   Mapped[list[ReceiptModel]]    = relationship("ReceiptModel",    back_populates="contract", lazy="selectin")
     progress_receipts: Mapped[list[ProgressReceiptModel]] = relationship(
@@ -130,8 +149,8 @@ class ReceiptModel(Base):
     tool_name:     Mapped[str]      = mapped_column(String(256), nullable=False)
     input_hash:    Mapped[str]      = mapped_column(String(64), nullable=False)
     output_hash:   Mapped[str]      = mapped_column(String(64), nullable=False)
-    started_at:    Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    ended_at:      Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    started_at:    Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    ended_at:      Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     duration_ms:   Mapped[int]      = mapped_column(Integer, nullable=False)
     status:        Mapped[str]      = mapped_column(String(16), nullable=False)
     error_message: Mapped[str|None] = mapped_column(Text)
@@ -159,11 +178,11 @@ class ProgressReceiptModel(Base):
     claimed_value_percent: Mapped[float]  = mapped_column(Float, nullable=False)
     evidence_hash:       Mapped[str]      = mapped_column(String(128), nullable=False)
     runtime_log_hash:    Mapped[str]      = mapped_column(String(128), nullable=False)
-    timestamp:           Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    timestamp:           Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     seller_signature:    Mapped[str]      = mapped_column(Text, nullable=False)
     validation_method:   Mapped[str]      = mapped_column(String(64), nullable=False)
     confirmation_status: Mapped[str]      = mapped_column(String(16), nullable=False, default="pending")
-    confirmed_at:        Mapped[datetime|None] = mapped_column(DateTime)
+    confirmed_at:        Mapped[datetime|None] = mapped_column(UTCDateTime)
 
     contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="progress_receipts")
 
@@ -187,7 +206,7 @@ class EvidenceBundleModel(Base):
     agent_signature:     Mapped[str|None] = mapped_column(Text)
     storage_path:        Mapped[str|None] = mapped_column(String(512))
     settlement_status:   Mapped[str]      = mapped_column(String(32), default="submitted")
-    created_at:          Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:          Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -209,9 +228,9 @@ class SettlementModel(Base):
     refunded_amount:   Mapped[float|None] = mapped_column(Float)
     dispute_reason:    Mapped[str|None]   = mapped_column(Text)
     arbitration_notes: Mapped[str|None]   = mapped_column(Text)
-    created_at:        Mapped[datetime]   = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at:        Mapped[datetime]   = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    released_at:       Mapped[datetime|None] = mapped_column(DateTime)
+    created_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    released_at:       Mapped[datetime|None] = mapped_column(UTCDateTime)
 
     # On-chain fields (populated when settlement_mode != offchain)
     settlement_mode:      Mapped[str]       = mapped_column(String(16), default="offchain")
@@ -225,7 +244,7 @@ class SettlementModel(Base):
     onchain_buyer_bill_id: Mapped[int|None] = mapped_column(Integer, nullable=True)
     onchain_agent_bill_id: Mapped[int|None] = mapped_column(Integer, nullable=True)
     voucher_id:           Mapped[str|None]  = mapped_column(String(64), nullable=True)
-    delivery_deadline_at: Mapped[datetime|None] = mapped_column(DateTime, nullable=True)
+    delivery_deadline_at: Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
     progress_rule_spec:   Mapped[dict|None] = mapped_column(JSON, nullable=True)
     funding_source:       Mapped[str]        = mapped_column(String(16), nullable=False, default="internal")
 
@@ -246,7 +265,7 @@ class SettlementTransitionAuditModel(Base):
     route_path:          Mapped[str | None] = mapped_column(String(256))
     actor_id:            Mapped[str | None] = mapped_column(String(64))
     metadata_:           Mapped[dict] = mapped_column("metadata", JSON, default=dict)
-    created_at:          Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:          Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +287,7 @@ class CapacityModel(Base):
     pending_settlement_credits:   Mapped[float]    = mapped_column(Float, default=0.0)
     burned_credits:               Mapped[float]    = mapped_column(Float, default=0.0)
     released_credits:             Mapped[float]    = mapped_column(Float, default=0.0)
-    updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at:                   Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ProfileCapacityModel(Base):
@@ -288,7 +307,7 @@ class ProfileCapacityModel(Base):
     pending_settlement_credits:   Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
     disputed_credits:             Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
     released_credits:             Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
-    updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at:                   Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class VoucherModel(Base):
@@ -305,20 +324,20 @@ class VoucherModel(Base):
     task_description_hash:      Mapped[str]      = mapped_column(String(128), nullable=False)
     progress_rule_hash:         Mapped[str]      = mapped_column(String(128), nullable=False)
     evidence_requirement_hash:  Mapped[str]      = mapped_column(String(128), nullable=False)
-    expiry_time:                Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expiry_time:                Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     nonce:                      Mapped[str]      = mapped_column(String(128), nullable=False)
     buyer_signature:            Mapped[str]      = mapped_column(Text, nullable=False)
     status:                     Mapped[str]      = mapped_column(String(16), nullable=False, default="created")
     buyer_sub_identity_id:      Mapped[str|None] = mapped_column(String(64))
     seller_sub_identity_id:     Mapped[str|None] = mapped_column(String(64))
-    accepted_at:                Mapped[datetime|None] = mapped_column(DateTime)
-    created_at:                 Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    accepted_at:                Mapped[datetime|None] = mapped_column(UTCDateTime)
+    created_at:                 Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
     progress_rule_spec:         Mapped[dict|None] = mapped_column(JSON, nullable=True)
     task_precision:             Mapped[float|None] = mapped_column(Float, nullable=True)
     payment_mode:               Mapped[str]      = mapped_column(String(16), nullable=False, default="manual")
     chain_anchor_hash:          Mapped[str|None] = mapped_column(String(128), nullable=True)
     rejection_reason:           Mapped[str|None] = mapped_column(Text, nullable=True)
-    rejected_at:                Mapped[datetime|None] = mapped_column(DateTime, nullable=True)
+    rejected_at:                Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
     rejected_by_identity_id:    Mapped[str|None] = mapped_column(String(64), nullable=True)
     task_id:                    Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
 
@@ -338,7 +357,7 @@ class VoucherEventModel(Base):
     actor_identity_id:     Mapped[str|None] = mapped_column(String(64), nullable=True)
     target_identity_id:    Mapped[str|None] = mapped_column(String(64), nullable=True)
     payload:               Mapped[dict]     = mapped_column(JSON, nullable=False, default=dict)
-    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -357,8 +376,8 @@ class IdentityProfileModel(Base):
     on_chain_did:           Mapped[str|None] = mapped_column(String(66), nullable=True, unique=True)
     projection_readonly:    Mapped[bool]     = mapped_column(Boolean, default=False)
     projection_source:      Mapped[str|None] = mapped_column(String(32), nullable=True)
-    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class SubIdentityModel(Base):
@@ -369,8 +388,8 @@ class SubIdentityModel(Base):
     sub_identity_type:    Mapped[str]      = mapped_column(String(32), nullable=False)
     alias:                Mapped[str]      = mapped_column(String(64), nullable=False)
     status:               Mapped[str]      = mapped_column(String(16), nullable=False, default="active")
-    created_at:           Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    deleted_at:           Mapped[datetime|None] = mapped_column(DateTime)
+    created_at:           Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    deleted_at:           Mapped[datetime|None] = mapped_column(UTCDateTime)
 
     __table_args__ = (
         UniqueConstraint("parent_identity_id", "alias", name="uq_sub_identity_alias_per_parent"),
@@ -387,8 +406,8 @@ class ArbitrationPoolMemberModel(Base):
     arbitrator_identity_id: Mapped[str]      = mapped_column(String(64), primary_key=True)
     stake_amount:           Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
     status:                 Mapped[str]      = mapped_column(String(16), nullable=False, default="active")
-    joined_at:              Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    joined_at:              Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ArbitrationCaseModel(Base):
@@ -403,9 +422,9 @@ class ArbitrationCaseModel(Base):
     required_arbitrators:   Mapped[int]      = mapped_column(Integer, nullable=False, default=3)
     decided_outcome:        Mapped[str|None] = mapped_column(String(16))
     final_partial_percent:  Mapped[float|None] = mapped_column(Float)
-    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    executed_at:            Mapped[datetime|None] = mapped_column(DateTime)
+    created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    executed_at:            Mapped[datetime|None] = mapped_column(UTCDateTime)
 
 
 class ArbitrationAssignmentModel(Base):
@@ -414,7 +433,7 @@ class ArbitrationAssignmentModel(Base):
     assignment_id:            Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
     case_id:                  Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
     arbitrator_identity_id:   Mapped[str]      = mapped_column(String(64), nullable=False)
-    assigned_at:              Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    assigned_at:              Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
     status:                   Mapped[str]      = mapped_column(String(16), nullable=False, default="assigned")
 
     __table_args__ = (
@@ -435,7 +454,7 @@ class ArbitrationMaterialPackageModel(Base):
     package_hash:           Mapped[str]      = mapped_column(String(128), nullable=False)
     storage_uri:            Mapped[str|None] = mapped_column(String(512))
     format_version:         Mapped[str]      = mapped_column(String(32), nullable=False, default="arbitration-material-v1")
-    submitted_at:           Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    submitted_at:           Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("case_id", "package_hash", name="uq_arbitration_material_hash_per_case"),
@@ -451,7 +470,7 @@ class ArbitrationVoteModel(Base):
     decision:               Mapped[str]      = mapped_column(String(16), nullable=False)
     partial_percent:        Mapped[float|None] = mapped_column(Float)
     rationale:              Mapped[str|None] = mapped_column(Text)
-    voted_at:               Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    voted_at:               Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("case_id", "arbitrator_identity_id", name="uq_arbitration_vote"),
@@ -466,7 +485,7 @@ class ArbitrationCaseEventModel(Base):
     event_type:             Mapped[str]      = mapped_column(String(32), nullable=False)
     detail:                 Mapped[str]      = mapped_column(Text, nullable=False)
     metadata_:              Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
-    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -484,7 +503,7 @@ class ResponsibilityEdgeModel(Base):
     task_id:               Mapped[str|None] = mapped_column(String(64))
     voucher_id:            Mapped[str|None] = mapped_column(String(64))
     metadata_:             Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
-    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("voucher_id", name="uq_responsibility_edge_voucher"),
@@ -502,7 +521,7 @@ class ResponsibilitySignalModel(Base):
     related_edge_hashes:   Mapped[list]     = mapped_column(JSON, nullable=False, default=list)
     task_id:               Mapped[str|None] = mapped_column(String(64))
     detail:                Mapped[str]      = mapped_column(Text, nullable=False)
-    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
 
 class ResponsibilityScanRunModel(Base):
@@ -513,7 +532,7 @@ class ResponsibilityScanRunModel(Base):
     execution_mode:        Mapped[str]      = mapped_column(String(16), nullable=False, default="sync")
     scan_mode:             Mapped[str]      = mapped_column(String(16), nullable=False, default="full")
     base_scan_id:          Mapped[str|None] = mapped_column(String(64))
-    incremental_since_at:  Mapped[datetime|None] = mapped_column(DateTime)
+    incremental_since_at:  Mapped[datetime|None] = mapped_column(UTCDateTime)
     requested_identity_ids: Mapped[list|None] = mapped_column(JSON)
     window_hours:          Mapped[int]      = mapped_column(Integer, nullable=False, default=24)
     max_hops:              Mapped[int]      = mapped_column(Integer, nullable=False, default=4)
@@ -522,20 +541,20 @@ class ResponsibilityScanRunModel(Base):
     retry_backoff_seconds: Mapped[int]      = mapped_column(Integer, nullable=False, default=30)
     current_attempt:       Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     claimed_by:            Mapped[str|None] = mapped_column(String(64))
-    claimed_at:            Mapped[datetime|None] = mapped_column(DateTime)
-    lease_expires_at:      Mapped[datetime|None] = mapped_column(DateTime)
-    last_heartbeat_at:     Mapped[datetime|None] = mapped_column(DateTime)
-    started_at:            Mapped[datetime|None] = mapped_column(DateTime)
-    next_retry_at:         Mapped[datetime|None] = mapped_column(DateTime)
+    claimed_at:            Mapped[datetime|None] = mapped_column(UTCDateTime)
+    lease_expires_at:      Mapped[datetime|None] = mapped_column(UTCDateTime)
+    last_heartbeat_at:     Mapped[datetime|None] = mapped_column(UTCDateTime)
+    started_at:            Mapped[datetime|None] = mapped_column(UTCDateTime)
+    next_retry_at:         Mapped[datetime|None] = mapped_column(UTCDateTime)
     last_error:            Mapped[str|None] = mapped_column(Text)
-    cancelled_at:          Mapped[datetime|None] = mapped_column(DateTime)
+    cancelled_at:          Mapped[datetime|None] = mapped_column(UTCDateTime)
     cancel_reason:         Mapped[str|None] = mapped_column(Text)
-    dead_lettered_at:      Mapped[datetime|None] = mapped_column(DateTime)
+    dead_lettered_at:      Mapped[datetime|None] = mapped_column(UTCDateTime)
     dead_letter_reason:    Mapped[str|None] = mapped_column(Text)
     total_identities:      Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     flagged_identities:    Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
-    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    completed_at:          Mapped[datetime|None] = mapped_column(DateTime)
+    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    completed_at:          Mapped[datetime|None] = mapped_column(UTCDateTime)
 
 
 class ResponsibilityScanFindingModel(Base):
@@ -549,7 +568,7 @@ class ResponsibilityScanFindingModel(Base):
     signal_count:          Mapped[int]      = mapped_column(Integer, nullable=False)
     cycle_paths_detected:  Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     detail:                Mapped[str]      = mapped_column(Text, nullable=False)
-    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
 
 class ResponsibilityScanEventModel(Base):
@@ -560,7 +579,7 @@ class ResponsibilityScanEventModel(Base):
     event_type:            Mapped[str]      = mapped_column(String(32), nullable=False)
     detail:                Mapped[str]      = mapped_column(Text, nullable=False)
     metadata_:             Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
-    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -577,9 +596,9 @@ class SecurityThresholdPolicyModel(Base):
     config:                Mapped[dict]     = mapped_column(JSON, nullable=False, default=dict)
     note:                  Mapped[str|None] = mapped_column(Text)
     created_by:            Mapped[str|None] = mapped_column(String(64))
-    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    activated_at:          Mapped[datetime|None] = mapped_column(DateTime)
-    archived_at:           Mapped[datetime|None] = mapped_column(DateTime)
+    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    activated_at:          Mapped[datetime|None] = mapped_column(UTCDateTime)
+    archived_at:           Mapped[datetime|None] = mapped_column(UTCDateTime)
     parent_policy_id:      Mapped[str|None] = mapped_column(String(64))
 
 
@@ -594,8 +613,8 @@ class SecurityPolicyChangeRequestModel(Base):
     rollout_percent:          Mapped[int|None] = mapped_column(Integer)
     note:                     Mapped[str|None] = mapped_column(Text)
     requested_by:             Mapped[str|None] = mapped_column(String(64))
-    requested_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    applied_at:               Mapped[datetime|None] = mapped_column(DateTime)
+    requested_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    applied_at:               Mapped[datetime|None] = mapped_column(UTCDateTime)
     required_approvals:       Mapped[int]      = mapped_column(Integer, nullable=False, default=2)
     dry_run_report:           Mapped[dict|None] = mapped_column(JSON)
 
@@ -612,7 +631,7 @@ class SecurityPolicyChangeApprovalModel(Base):
     approver_id:              Mapped[str]      = mapped_column(String(64), nullable=False)
     decision:                 Mapped[str]      = mapped_column(String(16), nullable=False)
     comment:                  Mapped[str|None] = mapped_column(Text)
-    created_at:               Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at:               Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("request_id", "approver_id", name="uq_security_policy_change_approver"),
@@ -633,7 +652,7 @@ class VerificationResultModel(Base):
     confidence:      Mapped[float]    = mapped_column(Float, nullable=False)
     checks:          Mapped[list]     = mapped_column(JSON, nullable=False)
     notes:           Mapped[str|None] = mapped_column(Text)
-    verified_at:     Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    verified_at:     Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -658,7 +677,7 @@ class AgentAutomationPolicyModel(Base):
     high_risk_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="always")
     responsibility_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by_actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
     preauth_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     allowed_task_types: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
@@ -687,12 +706,12 @@ class PaymentIntentModel(Base):
     amount: Mapped[str] = mapped_column(String(64), nullable=False)
     chain_id: Mapped[int] = mapped_column(Integer, nullable=False)
     policy_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     voucher_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ap2_mandate_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class TradeOrderModel(Base):
@@ -711,8 +730,8 @@ class TradeOrderModel(Base):
     status_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     launch_idempotency_key: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True, unique=True)
     pipeline_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v2")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class OpenclawHandoffAttestationModel(Base):
@@ -729,7 +748,7 @@ class OpenclawHandoffAttestationModel(Base):
     policy_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     handoff_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
     readiness_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint(
@@ -748,7 +767,7 @@ class RuntimeKeyDailySpendModel(Base):
     key_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     spend_date: Mapped[str] = mapped_column(String(10), primary_key=True)
     amount_used: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class RuntimeKeyModel(Base):
@@ -767,12 +786,12 @@ class RuntimeKeyModel(Base):
     permissions: Mapped[list] = mapped_column(JSON, nullable=False)
     single_limit: Mapped[float] = mapped_column(Float, nullable=False)
     daily_limit: Mapped[float] = mapped_column(Float, nullable=False)
-    expire_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expire_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     agent_name: Mapped[str] = mapped_column(String(256), nullable=False)
     agent_binding: Mapped[str | None] = mapped_column(String(512), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
 
 
 # ---------------------------------------------------------------------------
@@ -795,10 +814,10 @@ class ReputationModel(Base):
     # Private fields stored here but only read by private runtime
     consecutive_successes: Mapped[int] = mapped_column(Integer, default=0)
     wash_trade_flags:      Mapped[int] = mapped_column(Integer, default=0)
-    last_updated: Mapped[datetime]     = mapped_column(DateTime, default=datetime.utcnow)
-    last_incident_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_updated: Mapped[datetime]     = mapped_column(UTCDateTime, default=datetime.utcnow)
+    last_incident_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     last_incident_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    onchain_packed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    onchain_packed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     onchain_packed_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     onchain_pack_tx: Mapped[str | None] = mapped_column(String(128), nullable=True)
     dividend_weight: Mapped[float] = mapped_column(Float, default=0.0)
