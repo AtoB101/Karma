@@ -221,7 +221,10 @@
       const ab = await window.cyberKarmaApi.listMyAgents();
       agents = (ab && ab.agents) || [];
     } catch (_) {}
-    set("#launch-sdk-state", agents.length ? agents.length + " 个 agent 已接入" : "还没有 agent 接入");
+    // SIWE 会给身份卡自动建一个自身台账 agent（agent_id === owner_identity_id），
+    // 它不是用户接入的 agent；把它算进来会让第 3 步在刚连接时就显示「已接入」。
+    const onboarded = agents.filter(function (a) { return a.agent_id !== a.owner_identity_id; });
+    set("#launch-sdk-state", onboarded.length ? onboarded.length + " 个 agent 已接入" : "还没有 agent 接入");
     // 先把三步状态算完再显示，否则卡片会先闪一下「—」再变成真实数字。
     card.hidden = false;
   }

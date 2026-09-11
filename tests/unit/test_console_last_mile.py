@@ -225,6 +225,9 @@ def test_locking_and_allocating_are_one_click_after_siwe():
         assert name in console, "the guide must follow the session, not a manual refresh"
     # A preset click must lock by itself, so the amount has to reach the action.
     assert "lockCapacityAction(amountOverride)" in console
+    # SIWE auto-creates the card's own ledger agent. Counting it made step 3 read
+    # 「1 个 agent 已接入」the moment the wallet connected.
+    assert "a.agent_id !== a.owner_identity_id" in console, "自身台账 agent 不算已接入"
 
     identity = (CONSOLE / "scripts/cyber-identity.js").read_text(encoding="utf-8")
     assert "pm-alloc-remain" in identity, "额度分配 must show the remaining quota"
