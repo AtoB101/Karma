@@ -81,6 +81,16 @@ def mint_agent_api_key(agent_id: str) -> dict[str, str]:
     }
 
 
+def has_minted_api_key(agent_id: str) -> bool:
+    """Whether a bootstrap key exists for this agent (hash only — secret re-shown never)."""
+    aid = (agent_id or "").strip()
+    if not aid:
+        return False
+    _ensure_loaded()
+    with _LOCK:
+        return aid in _KEYS
+
+
 def verify_minted_api_key(agent_id: str, secret: str) -> bool:
     _ensure_loaded()
     with _LOCK:

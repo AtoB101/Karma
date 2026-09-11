@@ -550,3 +550,131 @@ body.confidential [data-bind="b_released"] {
   filter: blur(6px);
   user-select: none;
 }
+
+
+/* ---------- Agent 接入页 (#agents) ---------- */
+#agents .ag-flow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 14px;
+}
+#agents .ag-step {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(34, 211, 238, 0.05);
+  border: 1px solid rgba(34, 211, 238, 0.16);
+}
+#agents .ag-step b { display: block; font-size: 13px; margin-bottom: 4px; }
+#agents .ag-step span { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+#agents .ag-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+#agents .field { display: flex; flex-direction: column; gap: 6px; }
+#agents .field label { font-size: 12px; color: var(--text-dim); }
+#agents .field input,
+#agents .field select,
+#agents .field textarea {
+  background: rgba(6, 12, 20, 0.85);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  border-radius: 10px;
+  color: var(--text-main);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+}
+#agents .field textarea { resize: vertical; }
+#agents .ag-spec-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0 10px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(34, 211, 238, 0.2);
+}
+#agents .ag-spec-head b { font-size: 14px; }
+#agents .ag-spec-head span { font-size: 12px; color: var(--text-dim); }
+#agents .ag-spec-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+#agents .ag-inline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+#agents .ag-inline input[type="text"] { flex: 1; min-width: 140px; }
+#agents .ag-check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+#agents .ag-hint { font-size: 11px; color: #6c8aac; }
+#agents .ag-spec-field code { font-size: 10px; color: var(--text-dim); }
+#agents .muted { font-size: 12px; color: var(--text-dim); }
+#agents .err { color: #ff8a9a; }
+#agents .tag {
+  display: inline-block;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(34, 211, 238, 0.12);
+  color: #caf5ff;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+#agents .tag.ok { background: rgba(74, 222, 128, 0.14); color: #bbf7d0; }
+#agents .tag.warn { background: rgba(255, 210, 90, 0.14); color: #ffe1a0; }
+#agents .tag.muted { background: rgba(138, 167, 196, 0.14); color: var(--text-dim); }
+#agents .agent-row {
+  border: 1px solid rgba(34, 211, 238, 0.14);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  background: rgba(10, 16, 26, 0.6);
+}
+#agents .agent-row-main { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#agents .agent-row-main code { font-size: 11px; color: var(--text-dim); }
+#agents .agent-row-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
+#agents .agent-row-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+#agents .agent-row-actions input {
+  width: 150px;
+  background: rgba(6, 12, 20, 0.85);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  border-radius: 10px;
+  color: var(--text-main);
+  padding: 7px 10px;
+  font-size: 12px;
+}
+#agents .ag-result {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  background: rgba(74, 222, 128, 0.05);
+}
+#agents .ag-result-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#agents .ag-secret { margin-top: 12px; }
+#agents .ag-secret-label { font-size: 11px; color: var(--text-dim); margin-bottom: 6px; }
+#agents .ag-secret code {
+  display: inline-block;
+  max-width: 100%;
+  word-break: break-all;
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(6, 12, 20, 0.9);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+}
+#agents .ag-snippet { margin-top: 12px; }
+#agents .ag-snippet pre {
+  font-size: 11px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(6, 12, 20, 0.9);
+  overflow: auto;
+}
+#agents .ag-next { margin-top: 12px; font-size: 12px; }
+#agents .ag-next ol { margin: 6px 0 0 18px; color: var(--text-dim); line-height: 1.7; }
+@media (max-width: 1100px) {
+  #agents .ag-flow { grid-template-columns: repeat(2, 1fr); }
+  #agents .ag-grid,
+  #agents .ag-spec-grid { grid-template-columns: 1fr; }
+}

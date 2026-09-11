@@ -277,6 +277,34 @@
     return karmaFetch("/v1/openclaw/handoff-events" + (qs ? "?" + qs : ""), { method: "GET", headers: headers() });
   }
 
+  async function listOnboardingIndustries() {
+    return karmaFetch("/v1/standards/onboarding/industries", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  }
+
+  async function getOnboardingIndustry(industryId) {
+    return karmaFetch("/v1/standards/onboarding/industries/" + encodeURIComponent(industryId), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+  }
+
+  /** Agents owned by the authenticated identity card (P1 readiness included). */
+  async function listMyAgents() {
+    return karmaFetch("/v1/agents/mine", { method: "GET", headers: headers() });
+  }
+
+  /** Owner-console connect: Karma custody-holds the agent key server-side. */
+  async function ownerConnect(payload) {
+    return jsonPost("/v1/agents/owner-connect", payload);
+  }
+
+  async function ownerRevokeAgent(agentId) {
+    return jsonPost("/v1/agents/owner-revoke", { agent_id: agentId });
+  }
+
   function jsonPost(path, payload, extraHeaders) {
     const h = { ...headers(), "Content-Type": "application/json" };
     if (extraHeaders) {
@@ -431,6 +459,11 @@
     getBundleForTask,
     listSettlementTransitions,
     listAgents,
+    listMyAgents,
+    listOnboardingIndustries,
+    getOnboardingIndustry,
+    ownerConnect,
+    ownerRevokeAgent,
     listRoleProfiles,
     getRoleProfile,
     createRoleProfile,

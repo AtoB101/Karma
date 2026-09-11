@@ -1,11 +1,12 @@
 """Karma API — Agents (P1: identity / responsibility / capability / anti-forgery)."""
 from __future__ import annotations
 
+import json
 import secrets
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,11 +21,19 @@ from services.agent_boundary import (
     materialize_agent_boundary,
 )
 from services.agent_directory import connect_agent, refresh_p1_ready
-from services.agent_bootstrap_credentials import mint_agent_api_key
+from services.agent_bootstrap_credentials import has_minted_api_key, mint_agent_api_key
+from services.agent_key_store import (
+    AgentSigner,
+    has_agent_key,
+    mint_agent_signer,
+    new_agent_id,
+    revoke_agent_key,
+)
 from services.agent_one_click import build_next_steps, list_vertical_aliases, resolve_one_click
 from services.agent_onboarding_template import OnboardingError, materialize_onboarding, suggest_industries_for_text
 from services.agent_p1_readiness import (
     attest_responsibility_ack,
+    responsibility_ack_stable_message,
     boundary_content_hash,
     canonical_connect_challenge,
     canonical_responsibility_ack,
@@ -36,6 +45,7 @@ from services.agent_p1_readiness import (
 from services.agent_profile_store import get_profile_card
 from services.agent_trust import ensure_reputation_row, load_trust_stats_batch
 from services.human_confirmation_policy import allow_demo_confirmation_bypass
+from services.identity_actor import resolve_actor_identity_id
 from services.signing import signing_service
 from services.text_safety import validate_safe_storage_text, validate_safe_storage_text_optional
 
@@ -168,6 +178,47 @@ class OneClickConnectRequest(BaseModel):
     @classmethod
     def _safe_desc(cls, v: object) -> str | None:
         return validate_safe_storage_text_optional(None if v is None else str(v), field="self_description")
+
+
+class OwnerConnectRequest(BaseModel):
+    """Owner-console one-click connect.
+
+    Same vertical resolution as ``/one-click-connect`` but the caller is the
+    **authenticated identity card holder**, not the agent process. Karma mints
+    and custody-binds the agent's operational Ed25519 key server-side, so the
+    owner never has to handle an agent private key in the browser.
+    """
+
+    side: Literal["buyer", "seller"]
+    vertical: str | None = Field(default=None, max_length=64)
+    display_name: str | None = Field(default=None, max_length=256)
+    self_description: str | None = Field(default=None, max_length=4000)
+    owner_identity_id: str | None = Field(default=None, max_length=128)
+    agent_id: str | None = Field(default=None, max_length=128)
+    endpoint_url: str | None = Field(default=None, max_length=2048)
+    scope_profile_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description="Optional identity role profile this agent spends under",
+    )
+    answers: dict[str, Any] = Field(default_factory=dict)
+    mint_api_key: bool = True
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def _safe_display(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        return validate_safe_storage_text(str(v), field="display_name")
+
+    @field_validator("self_description", mode="before")
+    @classmethod
+    def _safe_desc(cls, v: object) -> str | None:
+        return validate_safe_storage_text_optional(None if v is None else str(v), field="self_description")
+
+
+class OwnerRevokeRequest(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=128)
 
 
 def _to_identity(row: AgentModel) -> AgentIdentity:
@@ -350,6 +401,7 @@ async def _connect_from_template_core(
     body: ConnectFromTemplateRequest,
     *,
     connect_path: str = "template",
+    owner_signer: AgentSigner | None = None,
 ) -> dict[str, Any]:
     """Shared P1 template connect used by /connect-from-template and /one-click-connect."""
     answers = dict(body.answers or {})
@@ -429,12 +481,34 @@ async def _connect_from_template_core(
         role = AgentRole.WORKER
 
     provisional_id = connect.get("agent_id") or body.agent_id or f"agent-{secrets.token_hex(6)}"
+    public_key = body.public_key
+    ownership_proof = body.ownership_proof
+    if owner_signer is not None and not ownership_proof:
+        # Server-side custody path: Karma holds this agent's operational key, so
+        # proof-of-possession is produced here rather than by the client.
+        public_key = owner_signer.public_key_b64
+        nonce = secrets.token_hex(16)
+        issued_at = _iso_now()
+        challenge = canonical_connect_challenge(
+            agent_id=provisional_id,
+            owner_identity_id=owner_id,
+            identity_class=identity_class,
+            nonce=nonce,
+            issued_at=issued_at,
+        )
+        canonical = json.dumps(challenge, sort_keys=True, separators=(",", ":")).encode()
+        ownership_proof = OwnershipProof(
+            nonce=nonce,
+            issued_at=issued_at,
+            signature=owner_signer.sign_bytes(canonical),
+            public_key=public_key,
+        )
     _require_ownership_proof_if_prod(
         agent_id=provisional_id,
         owner_identity_id=owner_id,
         identity_class=identity_class,
-        public_key=body.public_key,
-        proof=body.ownership_proof,
+        public_key=public_key,
+        proof=ownership_proof,
     )
 
     pre_boundary = materialize_agent_boundary(
@@ -449,12 +523,31 @@ async def _connect_from_template_core(
         responsibility_acknowledged=True,
     )
     bhash = boundary_content_hash(pre_boundary) or ""
+
+    def _ack_for(aid: str, boundary_hash: str) -> ResponsibilityAckBody:
+        """Re-sign the responsibility ack whenever Karma custody-holds the key."""
+        if owner_signer is None:
+            return ack_body
+        return ResponsibilityAckBody(
+            acknowledged=True,
+            signature=owner_signer.sign_bytes(
+                responsibility_ack_stable_message(
+                    agent_id=aid,
+                    owner_identity_id=owner_id,
+                    identity_class=identity_class,
+                    boundary_hash=boundary_hash,
+                )
+            ),
+            signer_public_key=owner_signer.public_key_b64,
+            mode="owner_ed25519",
+        )
+
     ack_record = _build_responsibility_ack_record(
         agent_id=provisional_id,
         owner_identity_id=owner_id,
         identity_class=identity_class,
         boundary_hash=bhash,
-        ack_body=ack_body,
+        ack_body=_ack_for(provisional_id, bhash),
     )
 
     row = await connect_agent(
@@ -464,7 +557,7 @@ async def _connect_from_template_core(
         role=role.value,
         endpoint_url=connect.get("endpoint_url") or None,
         capabilities=caps,
-        public_key=body.public_key,
+        public_key=public_key,
         profile_card=card,
         ensure_boundary=True,
         identity_class=identity_class,
@@ -474,6 +567,7 @@ async def _connect_from_template_core(
             "connect_path": connect_path,
             "identity_class": identity_class,
             "owner_identity_id": owner_id,
+            "scope_profile_id": answers.get("scope_profile_id"),
             "used_example_service_specs": used_examples,
             "responsibility_ack": ack_record,
             "boundary_hash": bhash,
@@ -487,7 +581,7 @@ async def _connect_from_template_core(
             owner_identity_id=owner_id,
             identity_class=identity_class,
             boundary_hash=final_hash,
-            ack_body=ack_body,
+            ack_body=_ack_for(row.agent_id, final_hash),
         )
         meta = dict(row.onboarding_meta or {})
         meta["responsibility_ack"] = ack_record
@@ -635,6 +729,196 @@ async def one_click_connect(
             "一键接入完成：已按垂直场景落库身份/边界/责任签认，并签发引导 API Key（仅此一次明文）。"
             "对端 GET /p1-status 核验后再成交。"
         ),
+    }
+
+
+@router.post("/owner-connect")
+async def owner_connect(
+    body: OwnerConnectRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(register_agent_rate_limit),
+):
+    """
+    身份卡持有人一键接入自己的 agent（操作台主链路）。
+
+    - 只有已认证的身份卡本人可调用（SIWE JWT 或 API Key）
+    - Karma 生成并托管该 agent 的 Ed25519 运行密钥（服务端 0600，可随时吊销）；
+      这把密钥与主人的钱包私钥/助记词没有任何关系
+    - 完成 P1 接入：身份类别 + 主人绑定 + 真实 service_specs + 责任签认
+    - bootstrap API Key 仅此一次明文返回
+    """
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor:
+        raise HTTPException(
+            403,
+            "authentication required: connect a wallet to obtain an identity card first",
+        )
+    owner_id = (body.owner_identity_id or actor).strip()
+    if owner_id != actor:
+        raise HTTPException(403, "owner_identity_id must match the authenticated identity")
+
+    try:
+        resolved = resolve_one_click(
+            side=body.side,
+            vertical=body.vertical,
+            self_description=body.self_description,
+            display_name=body.display_name,
+            answers=body.answers,
+        )
+    except OnboardingError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    answers = dict(resolved["answers"])
+    if body.endpoint_url:
+        answers["endpoint_url"] = body.endpoint_url
+    if body.scope_profile_id:
+        from db.models.orm import IdentityRoleProfile
+
+        profile_row = await db.get(IdentityRoleProfile, body.scope_profile_id)
+        if profile_row is None or profile_row.owner_identity_id != owner_id:
+            raise HTTPException(404, "scope_profile_id not found for this identity")
+        answers["scope_profile_id"] = body.scope_profile_id
+
+    agent_id = (body.agent_id or "").strip() or new_agent_id("agent")
+    signer, key_info = mint_agent_signer(agent_id)
+
+    tmpl = ConnectFromTemplateRequest(
+        profile_id=resolved["profile_id"],
+        answers=answers,
+        agent_id=agent_id,
+        self_description=body.self_description,
+        owner_identity_id=owner_id,
+        public_key=key_info["public_key"],
+        responsibility_ack=ResponsibilityAckBody(acknowledged=True),
+    )
+    try:
+        core = await _connect_from_template_core(
+            db, tmpl, connect_path="owner_console", owner_signer=signer
+        )
+    except Exception:
+        # Never leave an orphan key behind for an agent that was not created.
+        try:
+            revoke_agent_key(agent_id)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+
+    agent = core["agent"]
+    final_id = agent.agent_id if hasattr(agent, "agent_id") else agent["agent_id"]
+    if str(final_id) != agent_id:
+        # Core chose a different id (should not happen once we pass one explicitly).
+        revoke_agent_key(agent_id)
+        signer, key_info = mint_agent_signer(str(final_id))
+        agent_id = str(final_id)
+
+    scene_ids = list(
+        (core.get("discovery_hints") or {}).get("scene_ids") or resolved.get("scene_ids") or []
+    )
+
+    credentials: dict[str, Any] = {
+        "api_key": None,
+        "api_key_hint": None,
+        "agent_public_key": key_info["public_key"],
+        "key_custody": "server_side_revocable",
+        "revoke": "POST /v1/agents/owner-revoke",
+    }
+    if body.mint_api_key:
+        minted = mint_agent_api_key(str(agent_id))
+        credentials["api_key"] = minted["api_key"]
+        credentials["api_key_hint"] = minted["api_key_hint"]
+
+    await db.commit()
+    return {
+        "schema_version": "karma-agent-owner-connect-v1",
+        "side": resolved["side"],
+        "vertical": resolved.get("vertical"),
+        "profile_id": resolved["profile_id"],
+        "scene_ids": scene_ids,
+        "agent": agent,
+        "profile_card": core.get("profile_card"),
+        "boundary": core.get("boundary"),
+        "boundary_hash": core.get("boundary_hash"),
+        "p1_ready": core.get("p1_ready"),
+        "p1_status": core.get("p1_status"),
+        "verification_url": core.get("verification_url"),
+        "credentials": credentials,
+        "env_snippet": {
+            "KARMA_AGENT_ID": str(agent_id),
+            "KARMA_API_KEY": credentials.get("api_key") or "<set from credentials.api_key>",
+            "KARMA_RUNTIME_URL": "https://karma-network.ai",
+        },
+        "next_steps": build_next_steps(
+            agent_id=str(agent_id), side=resolved["side"], scene_ids=scene_ids
+        ),
+        "discovery_hints": core.get("discovery_hints"),
+        "note_zh": (
+            "接入完成：身份卡 → agent 已绑定，责任签认与履约边界已落库。"
+            "API Key 仅此一次明文返回；对端可 GET /p1-status 核验。"
+        ),
+    }
+
+
+@router.get("/mine")
+async def list_my_agents(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """已认证身份卡名下的 agent 清单（含 P1 就绪度与密钥托管状态）。"""
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor:
+        raise HTTPException(403, "authentication required")
+    rows = (
+        await db.execute(
+            select(AgentModel)
+            .where(AgentModel.owner_identity_id == actor)
+            .order_by(AgentModel.registered_at.desc())
+        )
+    ).scalars().all()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        meta = dict(getattr(row, "onboarding_meta", None) or {})
+        item = _to_identity(row).model_dump()
+        item.update(
+            {
+                "identity_class": getattr(row, "identity_class", None),
+                "owner_identity_id": getattr(row, "owner_identity_id", None),
+                "scope_profile_id": meta.get("scope_profile_id"),
+                "connect_path": meta.get("connect_path"),
+                "key_custody": "server_side_revocable" if has_agent_key(row.agent_id) else "external",
+                "api_key_minted": has_minted_api_key(row.agent_id),
+                "boundary_hash": getattr(row, "boundary_hash", None),
+            }
+        )
+        p1 = await evaluate_p1_readiness(db, row.agent_id)
+        item["p1_ready"] = p1.get("p1_ready")
+        item["p1_gaps"] = p1.get("gaps") or []
+        out.append(item)
+    return {"owner_identity_id": actor, "agents": out, "total": len(out)}
+
+
+@router.post("/owner-revoke")
+async def owner_revoke_agent(
+    body: OwnerRevokeRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """吊销 agent：停用目录条目 + 销毁 Karma 托管的运行密钥。"""
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor:
+        raise HTTPException(403, "authentication required")
+    row = await db.get(AgentModel, body.agent_id)
+    if row is None or (getattr(row, "owner_identity_id", None) or "") != actor:
+        raise HTTPException(404, "agent not found for this identity")
+    row.is_active = False
+    await db.flush()
+    key_revoked = revoke_agent_key(body.agent_id)
+    await db.commit()
+    return {
+        "agent_id": body.agent_id,
+        "is_active": False,
+        "agent_key_revoked": key_revoked,
+        "note_zh": "agent 已停用；Karma 托管的运行密钥已销毁，API Key 不再可通过鉴权。",
     }
 
 

@@ -40,6 +40,7 @@
           <button data-page="disputes"><span class="icon">⚖</span><span data-i18n="nav.disputes">争议</span></button>
           <button data-page="identity"><span class="icon">ID</span><span data-i18n="nav.identity">身份</span></button>
           <button data-page="auth"><span class="icon">🔑</span><span data-i18n="nav.auth">认证</span></button>
+          <button data-page="agents"><span class="icon">◈</span><span data-i18n="nav.agents">Agent 接入</span></button>
           <button data-page="settings"><span class="icon">⚙</span><span data-i18n="nav.settings">设置</span></button>
         </nav>
         <div class="side-warning">
@@ -348,6 +349,64 @@
           </div>
         </section>
 
+        <section id="agents" class="page">
+          <div class="card section">
+            <div class="section-header">
+              <div>
+                <h3>Agent 接入 · 一张身份卡打通全部基础设施</h3>
+                <p>认证一次 → 身份卡 → 锁定资金 → 给角色档案授权额度 → agent 接入；之后 Karma 负责这个 agent 的收付验证与结算。</p>
+              </div>
+            </div>
+            <div class="ag-flow">
+              <div class="ag-step"><b>1 · 绑定钱包</b><span>SIWE 认证，领取你的身份卡</span></div>
+              <div class="ag-step"><b>2 · 锁定资金</b><span>USDC 1:1 锚定，未使用可随时释放</span></div>
+              <div class="ag-step"><b>3 · 授权额度</b><span>按角色档案分配可用额度</span></div>
+              <div class="ag-step"><b>4 · 接入 Agent</b><span>Karma 签发凭据并负责结算</span></div>
+            </div>
+          </div>
+
+          <div class="card section" style="margin-top:20px">
+            <div class="section-header">
+              <div>
+                <h3>我的 Agent</h3>
+                <p>当前身份卡名下的 agent、P1 就绪度、密钥托管状态；可直接给绑定档案授权额度。</p>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <span class="api-status" id="ag-list-status"></span>
+                <button type="button" class="btn" id="ag-list-refresh">刷新</button>
+              </div>
+            </div>
+            <div id="ag-list" style="margin-top:12px"></div>
+          </div>
+
+          <div class="card section" style="margin-top:20px">
+            <div class="section-header">
+              <div>
+                <h3>接入一个 Agent</h3>
+                <p>选行业 → 填硬指标 → 一键接入。agent 的运行密钥由 Karma 服务端生成并托管（可随时吊销），全程不涉及你的钱包私钥 / 助记词。</p>
+              </div>
+            </div>
+            <div class="ag-grid">
+              <div class="field"><label>方向</label><select id="ag-side"><option value="seller">我要收款（卖家 agent）</option><option value="buyer">我要付款（买家 agent）</option></select></div>
+              <div class="field"><label>行业</label><select id="ag-vertical" disabled><option value="">读取行业目录…</option></select></div>
+              <div class="field"><label>Agent 名称</label><input id="ag-name" type="text" placeholder="如 上海中央厨房配送 agent" /></div>
+              <div class="field"><label>回调地址（可选）</label><input id="ag-endpoint" type="text" placeholder="https://your-agent.example.com/karma" /></div>
+              <div class="field"><label>绑定角色档案</label><select id="ag-scope"><option value="">（暂不绑定档案）</option></select></div>
+              <div class="field"><label>无档案时自动创建</label><select id="ag-class"><option value="merchant">merchant（商家）</option><option value="enterprise">enterprise（企业）</option></select></div>
+            </div>
+            <div id="ag-spec-wrap"><div id="ag-spec-form"></div></div>
+            <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+              <button type="button" class="btn primary" id="ag-connect">⚡ 一键接入 Agent</button>
+              <span class="api-status" id="ag-wizard-status"></span>
+            </div>
+            <div class="ag-result" id="ag-result" style="display:none"></div>
+            <details style="margin-top:12px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">原始响应</summary>
+              <pre class="out" id="ag-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
+            </details>
+          </div>
+        </section>
+
         <section id="settings" class="page">
           <div class="card section">
             <div class="section-header">
@@ -384,6 +443,7 @@
     <script src="../../scripts/cyber-console.js"></script>
     <script src="../../scripts/cyber-identity.js"></script>
     <script src="../../scripts/console-sync.js"></script>
+    <script src="../../scripts/cyber-agents.js"></script>
     <script src="../../scripts/cyber-globe-bg.js"></script>
   </body>
 </html>
