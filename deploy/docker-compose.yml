@@ -20,6 +20,11 @@ services:
       # `docker compose up` (which recreates the container) wipes every
       # wallet-bound identity. Keep it on the host.
       - /opt/karma/mvp_data:/app/mvp_data
+      # Agent bootstrap API keys, agent boundaries/profile cards, confirmation
+      # sessions and field captures all live in <repo>/.karma_data. Same problem
+      # as mvp_data: without this mount a recreate silently invalidates every
+      # minted agent API key.
+      - /opt/karma/karma_data:/app/.karma_data
     environment:
       - PORT=8000
       - KARMA_ENV=production
