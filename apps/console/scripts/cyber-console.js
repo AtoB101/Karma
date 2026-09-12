@@ -466,6 +466,16 @@
         '确认后这里会出现真实的 Bill。</p>';
       return;
     }
+    const stake = (info && info.stake) || {};
+    const stakePercent = (Number(stake.required_bps || 0) / 100).toFixed(0);
+    const stakeLine =
+      '<p class="ag-hint">卖家质押池：空闲 ' +
+      fmtNum(stake.idle_usdc) +
+      " USDC · 已被订单锁定 " +
+      fmtNum(stake.reserved_usdc) +
+      " USDC · 每单默认质押 " +
+      stakePercent +
+      "% 客单价（例：100 USDC 的单需 30 USDC，接单时由 Karma 规则自动从池里锁定，不用每单签名）</p>";
     const rows = bills
       .map(function (b) {
         const link = chain.explorer_url
@@ -485,7 +495,7 @@
       })
       .join("");
     host.innerHTML =
-      '<h4 style="margin:0 0 8px">链上锁仓记录（真实 USDC）</h4>' + rows;
+      '<h4 style="margin:0 0 8px">链上锁仓记录（真实 USDC）</h4>' + stakeLine + rows;
     host.querySelectorAll("[data-unlock-bill]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         const billId = btn.getAttribute("data-unlock-bill");

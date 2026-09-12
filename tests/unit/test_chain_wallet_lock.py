@@ -13,8 +13,9 @@ import pytest
 from eth_utils import keccak
 
 from config.settings import settings
-from db.models.orm import CapacityModel
+from db.models.orm import CapacityModel, ChainLockModel
 from services.chain import wallet_lock
+from services import seller_stake
 from services.chain.wallet_lock import (
     BILL_BURNED_TOPIC,
     BILL_MINTED_TOPIC,
@@ -207,6 +208,9 @@ async def _credit_flow(
     tx_hash: str,
     signed_in: set[str] | None = None,
     receipt_owner: str = WALLET,
+    bill_id: int = 7,
+    amount_wei: int = 25_000_000,
+    identity_id: str = "identity-chain-test",
 ):
     monkeypatch.setattr(settings, "chain_wallet_lock_enabled", True)
     monkeypatch.setattr(settings, "karma_bilateral_address", CONTRACT)
@@ -216,10 +220,12 @@ async def _credit_flow(
     monkeypatch.setattr(
         wallet_lock,
         "fetch_receipt",
-        lambda tx: minted_receipt(owner=receipt_owner, tx_hash=tx),
+        lambda tx: minted_receipt(
+            owner=receipt_owner, tx_hash=tx, bill_id=bill_id, amount_wei=amount_wei
+        ),
     )
     return await client.post(
-        "/v1/capacity/identity-chain-test/claim-bill", json={"tx_hash": tx_hash}
+        f"/v1/capacity/{identity_id}/claim-bill", json={"tx_hash": tx_hash}
     )
 
 
@@ -285,6 +291,98 @@ async def test_claim_bill_rejects_a_reverted_transaction(client, monkeypatch):
     )
     assert resp.status_code == 409
     assert "reverted" in resp.json()["detail"]
+
+
+# ------------------------------------------------------ seller stake rule (30%)
+
+
+def test_default_seller_stake_is_thirty_percent_of_the_order():
+    assert seller_stake.required_stake_usdc(100.0) == pytest.approx(30.0)
+    assert seller_stake.required_stake_usdc(33.33) == pytest.approx(9.999)
+    assert seller_stake.required_stake_usdc(0) == 0.0
+    assert seller_stake.orders_covered(100.0, 100.0) == 3
+    assert seller_stake.orders_covered(29.0, 100.0) == 0
+
+
+def _bill(bill_id: str, amount_usdc: float, *, state: str = "idle"):
+    row = ChainLockModel(
+        bill_id=bill_id,
+        identity_id="seller-1",
+        wallet_address=WALLET,
+        chain_id=11155111,
+        contract_address=CONTRACT,
+        token_address=TOKEN,
+        amount_wei=str(int(amount_usdc * 1_000_000)),
+        amount_usdc=amount_usdc,
+        lock_tx_hash="0x" + bill_id.rjust(64, "0"),
+        state="locked",
+        stake_state=state,
+    )
+    return row
+
+
+def test_pool_picks_the_smallest_bill_that_still_covers_the_stake():
+    rows = [_bill("1", 10.0), _bill("2", 60.0), _bill("3", 25.0)]
+    picked = seller_stake.select_stake_bill(rows, 30.0)
+    assert picked.bill_id == "2", "should keep the 60 and the 25, not burn a big bill"
+    assert seller_stake.select_stake_bill(rows, 5.0).bill_id == "1"
+    assert seller_stake.select_stake_bill(rows, 70.0) is None
+    # A bill already reserved by another order is not selectable again.
+    rows.append(_bill("4", 30.0, state="reserved"))
+    assert seller_stake.select_stake_bill(rows, 30.0).bill_id == "2"
+
+
+@pytest.mark.asyncio
+async def test_karma_reserves_the_stake_automatically_per_order(client, monkeypatch):
+    await _credit_flow(
+        client, monkeypatch, tx_hash="0x" + "51" * 32, bill_id=7, amount_wei=25_000_000
+    )
+    await _credit_flow(
+        client, monkeypatch, tx_hash="0x" + "52" * 32, bill_id=8, amount_wei=60_000_000
+    )
+
+    # A 100 USDC order needs 30 USDC of stake: the 60 bill covers it.
+    first = await client.post(
+        "/v1/capacity/identity-chain-test/stake/reserve",
+        json={"order_amount": 100, "task_id": "task-1"},
+    )
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["bill_id"] == "8"
+    assert body["required_usdc"] == pytest.approx(30.0)
+
+    # Retrying the same order must not consume a second bill.
+    again = await client.post(
+        "/v1/capacity/identity-chain-test/stake/reserve",
+        json={"order_amount": 100, "task_id": "task-1"},
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["already_reserved"] is True
+
+    state = await client.get("/v1/capacity/identity-chain-test/chain")
+    stake = state.json()["stake"]
+    assert stake["required_bps"] == 3000
+    assert stake["pool_total_usdc"] == pytest.approx(85.0)
+    assert stake["idle_usdc"] == pytest.approx(25.0)
+    assert stake["reserved_usdc"] == pytest.approx(60.0)
+    assert stake["reserved"][0]["task_id"] == "task-1"
+
+    # Only 25 USDC is free, so a second 100 USDC order is refused with the gap.
+    short = await client.post(
+        "/v1/capacity/identity-chain-test/stake/reserve",
+        json={"order_amount": 100, "task_id": "task-2"},
+    )
+    assert short.status_code == 409
+    assert "stake pool is short" in short.json()["detail"]
+
+    released = await client.post(
+        "/v1/capacity/identity-chain-test/stake/release", json={"task_id": "task-1"}
+    )
+    assert released.status_code == 200, released.text
+    assert released.json()["released_bill_id"] == "8"
+
+    state2 = await client.get("/v1/capacity/identity-chain-test/chain")
+    assert state2.json()["stake"]["idle_usdc"] == pytest.approx(85.0)
 
 
 # --------------------------------------------------------------- console wiring
