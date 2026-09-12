@@ -148,10 +148,31 @@
     setApiStatus("…", false);
     try {
       const c = await window.cyberKarmaApi.getCapacity(id);
+      /* v2 是非托管的：钱一直留在用户自己钱包里，capacity 台账（v1 锁仓）永远是 0。
+         总览这几个数字如果只读台账，用户锁完 10 USDC 看到的还是 0.00 —— 会以为没生效。
+         以链上授权（escrow commits）为准，台账只作为回退。 */
+      let locked = Number(c.total_locked_usdc || 0);
+      let available = Number(c.available_credits || 0);
+      let inProgress = Number(c.in_progress_credits || 0) + Number(c.reserved_credits || 0);
+      let info = null;
+      try {
+        info = await loadEscrowInfo(id, true);
+      } catch (_) {
+        info = null;
+      }
+      const esc = (info && info.escrow) || {};
+      const committed = Number((info && info.committed_usdc) || 0);
+      if (esc.enabled && committed > 0) {
+        const reserved = Number((info && info.reserved_usdc) || 0);
+        const spent = Number((info && info.spent_usdc) || 0);
+        locked = Math.max(locked, committed);
+        available = Math.max(0, committed - reserved - spent);
+        inProgress = reserved;
+      }
       const map = [
-        ["[data-bind=total_locked_usdc]", c.total_locked_usdc],
-        ["[data-bind=available_credits]", c.available_credits],
-        ["[data-bind=in_progress_bucket]", (c.in_progress_credits || 0) + (c.reserved_credits || 0)],
+        ["[data-bind=total_locked_usdc]", locked],
+        ["[data-bind=available_credits]", available],
+        ["[data-bind=in_progress_bucket]", inProgress],
         ["[data-bind=pending_settlement_credits]", c.pending_settlement_credits],
         ["[data-bind=disputed_credits]", c.disputed_credits],
       ];
@@ -163,9 +184,9 @@
       setApiStatus(
         window.CYBER_I18N.t("api.status_refreshed") +
           " · 总锁仓 " +
-          fmtNum(c.total_locked_usdc) +
+          fmtNum(locked) +
           " · 可用 " +
-          fmtNum(c.available_credits || 0) +
+          fmtNum(available) +
           " · @" +
           new Date().toLocaleTimeString(),
         false

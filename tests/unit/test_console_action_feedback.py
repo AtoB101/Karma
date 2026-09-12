@@ -38,8 +38,22 @@ def test_capacity_refresh_reports_the_numbers():
     js = CONSOLE_JS.read_text(encoding="utf-8")
     assert "api.status_refreshed" in js
     tail = js[js.index("api.status_refreshed") : js.index("api.status_refreshed") + 400]
-    assert "总锁仓" in tail and "fmtNum(c.total_locked_usdc)" in tail, (
+    assert "总锁仓" in tail and "fmtNum(locked)" in tail, (
         "刷新完要直接写出总锁仓数字，用户才知道锁进去没有"
     )
     i18n = I18N_JS.read_text(encoding="utf-8")
     assert i18n.count('"api.status_refreshed"') >= 2, "中英文都要有这条文案"
+
+
+def test_overview_numbers_follow_the_v2_allowance():
+    """v2 是非托管的：钱留在用户钱包，capacity 台账恒为 0。
+
+    实测：用户在线上锁了 10 USDC（链上 approve + commit 都成功、后端也登记了），
+    总览「锁仓 USDC」却还是 0.00 —— 因为那几个数字只读 v1 台账。
+    """
+    js = CONSOLE_JS.read_text(encoding="utf-8")
+    block = js[js.index("async function refreshCapacity(") : js.index("async function releaseCapacityAction(")]
+    assert "loadEscrowInfo(id, true)" in block, "刷新额度必须同时问链上授权"
+    assert "committed_usdc" in block
+    assert "Math.max(locked, committed)" in block, "台账和链上授权取大者，别被台账骗到"
+    assert '["[data-bind=total_locked_usdc]", locked]' in block
