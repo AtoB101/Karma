@@ -356,6 +356,31 @@
     return jsonPost("/v1/capacity/" + id + "/release", { amount: Number(amount) });
   }
 
+  /*
+   * Real on-chain deposits.
+   *
+   * The wallet signs `approve` + `lock` itself and the server only verifies the
+   * receipt, so no key ever reaches Karma. `claimBill` credits the ledger from
+   * the on-chain BillMinted event and is idempotent per transaction.
+   */
+  async function getChainLockState(identityId) {
+    const id = encodeURIComponent(identityId);
+    return karmaFetch("/v1/capacity/" + id + "/chain", { method: "GET", headers: headers() });
+  }
+
+  async function claimBill(identityId, txHash) {
+    const id = encodeURIComponent(identityId);
+    return jsonPost("/v1/capacity/" + id + "/claim-bill", { tx_hash: String(txHash) });
+  }
+
+  async function claimUnlock(identityId, billId, txHash) {
+    const id = encodeURIComponent(identityId);
+    return jsonPost("/v1/capacity/" + id + "/claim-unlock", {
+      bill_id: String(billId),
+      tx_hash: String(txHash),
+    });
+  }
+
   async function createSettlement(payload) {
     return jsonPost("/v1/settlement/create", payload);
   }
@@ -490,6 +515,9 @@
     postAuthToken,
     lockCapacity,
     releaseCapacity,
+    getChainLockState,
+    claimBill,
+    claimUnlock,
     createSettlement,
     settlementPending,
     settlementLock,

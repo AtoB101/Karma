@@ -12,8 +12,10 @@ from config.settings import settings
 from db.models.orm import CapacityModel
 from db.session import get_db
 from services import profile_capacity as profile_capacity_service
+from services.chain import wallet_lock
 from services.capacity_ledger import assert_can_release_locked_funds, assert_capacity_invariants
 from services.identity_actor import resolve_actor_identity_id
+from services.identity_wallet_binding import get_bound_wallet
 from services.ledger_party_access import require_ledger_identity
 from services.path_param_safety import validate_public_url_segment
 from services.runtime_safety import (
@@ -139,6 +141,132 @@ async def set_allocations(identity_id: str, body: AllocateBody, request: Request
         raise HTTPException(403, "only the identity owner can set allocations")
     rows = await profile_capacity_service.allocate(db, identity_id=identity_id, allocations=body.allocations)
     return {"allocations": rows}
+
+
+class ClaimBillBody(BaseModel):
+    """A ``KarmaBilateral.lock()`` transaction the user signed in their wallet."""
+
+    tx_hash: str = Field(min_length=66, max_length=66)
+
+
+class ClaimUnlockBody(BaseModel):
+    """A ``KarmaBilateral.unlock(billId)`` transaction the user signed."""
+
+    bill_id: str = Field(min_length=1, max_length=80)
+    tx_hash: str = Field(min_length=66, max_length=66)
+
+
+@router.get("/{identity_id}/chain")
+async def get_chain_lock_state(identity_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """On-chain deposit surface for the Console: config, recorded bills, totals.
+
+    ``ledger_locked_usdc`` is what the identity can actually spend right now;
+    ``onchain_locked_usdc`` is the USDC those credits are anchored to. They are
+    reported separately so the Console can be honest about which mode a deposit
+    used (a ledger-only dev deposit has no on-chain backing).
+    """
+    validate_public_url_segment("identity_id", identity_id)
+    require_ledger_identity(request, identity_id)
+
+    rows = await wallet_lock.list_locks(db, identity_id)
+    cap = await db.get(CapacityModel, identity_id)
+    locked_rows = [r for r in rows if r.state == "locked"]
+    return {
+        "identity_id": identity_id,
+        "chain": wallet_lock.chain_config(),
+        "wallet": await get_bound_wallet(db, identity_id),
+        "ledger_locked_usdc": float(cap.total_locked_usdc) if cap else 0.0,
+        "onchain_locked_usdc": sum(float(r.amount_usdc) for r in locked_rows),
+        "onchain_released_usdc": sum(float(r.amount_usdc) for r in rows if r.state == "released"),
+        "bills": [
+            {
+                "bill_id": r.bill_id,
+                "amount_usdc": float(r.amount_usdc),
+                "amount_wei": r.amount_wei,
+                "wallet_address": r.wallet_address,
+                "state": r.state,
+                "lock_tx_hash": r.lock_tx_hash,
+                "unlock_tx_hash": r.unlock_tx_hash,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.post("/{identity_id}/claim-bill", response_model=CapacityState)
+async def claim_bill(
+    identity_id: str,
+    body: ClaimBillBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Credit a wallet-signed on-chain lock to this identity (idempotent).
+
+    The amount is read from the on-chain ``BillMinted`` event, so the client
+    cannot choose how many credits it gets; replaying a transaction is a no-op.
+    """
+    validate_public_url_segment("identity_id", identity_id)
+    require_ledger_identity(request, identity_id)
+    assert_runtime_operation_allowed("new_lock")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
+
+    wallets = await wallet_lock.allowed_wallets(db, identity_id)
+    try:
+        row = await wallet_lock.claim_lock_bill(
+            db, identity_id=identity_id, tx_hash=body.tx_hash, wallets=wallets
+        )
+    except wallet_lock.WalletLockError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    # First proven lock binds the wallet to the identity profile, so later
+    # on-chain actions (seller stake, withdrawals) verify against the same wallet.
+    from db.models.orm import IdentityProfileModel
+
+    profile = await db.get(IdentityProfileModel, identity_id)
+    if profile is not None and not (profile.bound_wallet_address or "").strip():
+        profile.bound_wallet_address = row.wallet_address
+        profile.updated_at = datetime.utcnow()
+
+    capacity = await db.get(CapacityModel, identity_id)
+    state = _to_schema(capacity)
+    _validate(state)
+    await audit_capacity_anchor_and_maybe_trip(db=db)
+    await db.flush()
+    return state
+
+
+@router.post("/{identity_id}/claim-unlock", response_model=CapacityState)
+async def claim_unlock(
+    identity_id: str,
+    body: ClaimUnlockBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Release ledger credits after the user withdraws an unbound bill on-chain."""
+    validate_public_url_segment("identity_id", identity_id)
+    require_ledger_identity(request, identity_id)
+    assert_runtime_operation_allowed("release_unused_capacity")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
+
+    wallets = await wallet_lock.allowed_wallets(db, identity_id)
+    try:
+        await wallet_lock.claim_unlock(
+            db,
+            identity_id=identity_id,
+            bill_id=body.bill_id,
+            tx_hash=body.tx_hash,
+            wallets=wallets,
+        )
+    except wallet_lock.WalletLockError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    capacity = await db.get(CapacityModel, identity_id)
+    state = _to_schema(capacity)
+    _validate(state)
+    await audit_capacity_anchor_and_maybe_trip(db=db)
+    await db.flush()
+    return state
 
 
 def _to_schema(row: CapacityModel) -> CapacityState:

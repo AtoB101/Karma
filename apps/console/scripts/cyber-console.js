@@ -153,6 +153,154 @@
     }
   }
 
+  /* ------------------------------------------------------------------
+   * 链上锁仓（用户钱包签名，Karma 全程不接触私钥/助记词）
+   *
+   * 用户钱包自己签 approve + lock 两笔交易，后端只读交易回执、按链上
+   * BillMinted 事件入账。选择器是 KarmaBilateral.sol / ERC-20 精确签名的
+   * keccak 前 4 字节，由 tests/unit/test_chain_wallet_lock.py 对齐校验。
+   * ------------------------------------------------------------------ */
+  const CHAIN_SELECTORS = {
+    approve: "0x095ea7b3", // approve(address,uint256)
+    allowance: "0xdd62ed3e", // allowance(address,address)
+    lock: "0x282d3fdf", // lock(address,uint256)
+    unlock: "0x6198e339", // unlock(uint256)
+  };
+
+  let chainCache = { id: "", payload: null };
+
+  function pad32(hex) {
+    return String(hex).replace(/^0x/, "").toLowerCase().padStart(64, "0");
+  }
+
+  /** 人类金额 → 代币最小单位，走字符串运算，避免浮点误差。 */
+  function toBaseUnits(amount, decimals) {
+    const text = String(amount).trim();
+    const m = /^(\d+)(?:\.(\d*))?$/.exec(text);
+    if (!m) throw new Error("金额格式不正确：" + text);
+    const frac = (m[2] || "").slice(0, decimals).padEnd(decimals, "0");
+    return BigInt(m[1] + frac);
+  }
+
+  function walletProvider() {
+    const auth = window.KarmaWalletAuth;
+    if (!auth || typeof auth.activeProvider !== "function") return null;
+    try {
+      return auth.activeProvider();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function rpc(provider, method, params) {
+    return provider.request({ method: method, params: params || [] });
+  }
+
+  async function loadChainInfo(id, force) {
+    if (!force && chainCache.id === id && chainCache.payload) return chainCache.payload;
+    const payload = await window.cyberKarmaApi.getChainLockState(id);
+    chainCache = { id: id, payload: payload };
+    return payload;
+  }
+
+  async function ensureChainId(provider, chainId) {
+    const want = "0x" + Number(chainId).toString(16);
+    let current = "";
+    try {
+      current = String((await rpc(provider, "eth_chainId")) || "").toLowerCase();
+    } catch (_) {}
+    if (current === want) return;
+    try {
+      await rpc(provider, "wallet_switchEthereumChain", [{ chainId: want }]);
+    } catch (_) {
+      throw new Error("请先把钱包切到 chainId " + chainId + " 的网络再重试（钱包里还没有这条链时需要先添加）");
+    }
+  }
+
+  async function waitReceipt(provider, txHash, timeoutMs) {
+    const deadline = Date.now() + (timeoutMs || 180000);
+    while (Date.now() < deadline) {
+      const receipt = await rpc(provider, "eth_getTransactionReceipt", [txHash]).catch(function () {
+        return null;
+      });
+      if (receipt && receipt.blockNumber) return receipt;
+      await new Promise(function (res) {
+        setTimeout(res, 2500);
+      });
+    }
+    throw new Error("等待链上确认超时，交易已提交：" + txHash + "（稍后刷新账单会自动入账）");
+  }
+
+  async function onchainLock(id, amount, info) {
+    const chain = (info && info.chain) || {};
+    const provider = walletProvider();
+    if (!provider) throw new Error("未检测到钱包：请先点「连接钱包」");
+    await ensureChainId(provider, chain.chain_id);
+    const accounts = await rpc(provider, "eth_accounts");
+    const from = accounts && accounts[0];
+    if (!from) throw new Error("钱包还没有授权账户，请重新连接钱包");
+
+    const decimals = Number(chain.token_decimals || 6);
+    const units = toBaseUnits(amount, decimals);
+    const token = chain.token_address;
+    const contract = chain.contract_address;
+
+    setApiStatus("检查 USDC 授权额度…", false);
+    const allowance = await rpc(provider, "eth_call", [
+      {
+        to: token,
+        data: CHAIN_SELECTORS.allowance + pad32(from) + pad32(contract),
+      },
+      "latest",
+    ]);
+    if (BigInt(allowance || "0x0") < units) {
+      setApiStatus("第 1 / 2 步：在钱包里授权 " + amount + " USDC（只授权本次金额）…", false);
+      const approveTx = await rpc(provider, "eth_sendTransaction", [
+        {
+          from: from,
+          to: token,
+          data: CHAIN_SELECTORS.approve + pad32(contract) + pad32(units.toString(16)),
+        },
+      ]);
+      await waitReceipt(provider, approveTx, 180000);
+    }
+
+    setApiStatus("第 2 / 2 步：在钱包里确认锁仓 " + amount + " USDC…", false);
+    const lockTx = await rpc(provider, "eth_sendTransaction", [
+      {
+        from: from,
+        to: contract,
+        data: CHAIN_SELECTORS.lock + pad32(token) + pad32(units.toString(16)),
+      },
+    ]);
+    await waitReceipt(provider, lockTx, 240000);
+
+    setApiStatus("链上已确认，正在入账…", false);
+    const state = await window.cyberKarmaApi.claimBill(id, lockTx);
+    return { state: state, txHash: lockTx, billId: units.toString() };
+  }
+
+  async function onchainUnlock(id, billId) {
+    const info = await loadChainInfo(id);
+    const chain = (info && info.chain) || {};
+    const provider = walletProvider();
+    if (!provider) throw new Error("未检测到钱包：请先点「连接钱包」");
+    await ensureChainId(provider, chain.chain_id);
+    const accounts = await rpc(provider, "eth_accounts");
+    const from = accounts && accounts[0];
+    if (!from) throw new Error("钱包还没有授权账户，请重新连接钱包");
+    const tx = await rpc(provider, "eth_sendTransaction", [
+      {
+        from: from,
+        to: chain.contract_address,
+        data: CHAIN_SELECTORS.unlock + pad32(BigInt(billId).toString(16)),
+      },
+    ]);
+    await waitReceipt(provider, tx, 240000);
+    const state = await window.cyberKarmaApi.claimUnlock(id, String(billId), tx);
+    return { state: state, txHash: tx };
+  }
+
   async function lockCapacityAction(amountOverride) {
     const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
     const amount =
@@ -161,12 +309,42 @@
         : Number(amountOverride);
     if (!id) { setApiStatus("请先连接钱包或填写 Identity ID", true); return; }
     if (!amount || amount <= 0) { setApiStatus("请填写锁仓金额", true); return; }
-    setApiStatus("锁仓中…", false);
+
+    let info = null;
+    try {
+      info = await loadChainInfo(id);
+    } catch (_) {
+      info = null;
+    }
+    if (info && info.chain && info.chain.enabled) {
+      if (!walletProvider()) {
+        setApiStatus("链上锁仓需要钱包签名：请先点「连接钱包」，再回来锁仓", true);
+        return;
+      }
+      try {
+        const r = await onchainLock(id, amount, info);
+        setApiStatus("锁仓成功 · " + amount + " USDC 已上链并入账", false);
+        await refreshCapacity();
+        document.dispatchEvent(
+          new CustomEvent("karma-locked", { detail: { amount: amount, onchain: true } })
+        );
+        refreshChainBills(true).catch(function () {});
+        return r;
+      } catch (e) {
+        setApiStatus(String(e.message || e), true);
+        return;
+      }
+    }
+
+    // 链上未配置：保留台账模式，但必须明确标注，不能假装是真钱。
+    setApiStatus("台账模式锁仓中…（未配置链上合约，不产生真实转账）", false);
     try {
       const r = await window.cyberKarmaApi.lockCapacity(id, amount);
-      setApiStatus("锁仓成功 · " + amount + " USDC", false);
+      setApiStatus("已记账 · " + amount + " USDC（台账模式 · 无链上资金）", false);
       await refreshCapacity();
-      document.dispatchEvent(new CustomEvent("karma-locked", { detail: { amount: amount } }));
+      document.dispatchEvent(
+        new CustomEvent("karma-locked", { detail: { amount: amount, onchain: false } })
+      );
       return r;
     } catch (e) {
       setApiStatus(String(e.message || e), true);
@@ -195,7 +373,26 @@
     let cap = null;
     try { cap = await window.cyberKarmaApi.getCapacity(id); } catch (_) {}
     const locked = cap ? Number(cap.total_locked_usdc || 0) : 0;
-    set("#launch-lock-state", locked > 0 ? "已锁仓 " + fmtNum(locked) + " USDC" : "还没有锁仓");
+    let chainInfo = null;
+    try {
+      chainInfo = await loadChainInfo(id);
+    } catch (_) {
+      chainInfo = null;
+    }
+    const chainOn = !!(chainInfo && chainInfo.chain && chainInfo.chain.enabled);
+    if (locked <= 0) {
+      set("#launch-lock-state", chainOn ? "还没有锁仓（点击下面金额，钱包会签 2 笔交易）" : "还没有锁仓");
+    } else if (chainOn) {
+      const onchain = Number(chainInfo.onchain_locked_usdc || 0);
+      const gap = locked - onchain;
+      set(
+        "#launch-lock-state",
+        "链上锁仓 " + fmtNum(onchain) + " USDC" +
+          (gap > 1e-9 ? " · 另有 " + fmtNum(gap) + " 为台账额度（无链上资金）" : " · 已 100% 链上锚定")
+      );
+    } else {
+      set("#launch-lock-state", "已锁仓 " + fmtNum(locked) + " USDC（台账模式：未配置链上合约）");
+    }
 
     let profiles = [];
     try {
@@ -237,6 +434,80 @@
       });
     });
   }
+
+  /**
+   * 链上锁仓记录 — 每笔真实 USDC 一个 Bill，可直接提取（unlock）。
+   * 台账模式的锁仓不会出现在这里，这正是要让人一眼看清的地方。
+   */
+  async function refreshChainBills(force) {
+    const host = el("#chain-bills");
+    if (!host) return;
+    const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
+    if (!id) { host.innerHTML = ""; return; }
+    let info = null;
+    try {
+      info = await loadChainInfo(id, !!force);
+    } catch (_) {
+      info = null;
+    }
+    const chain = (info && info.chain) || {};
+    if (!chain.enabled) {
+      const missing = (chain.missing_config || []).join("、");
+      host.innerHTML =
+        '<p class="ag-hint">链上锁仓未启用' +
+        (missing ? "（缺少配置：" + missing + "）" : "") +
+        '：当前锁仓走台账模式，没有真实 USDC 进入合约。</p>';
+      return;
+    }
+    const bills = (info && info.bills) || [];
+    if (!bills.length) {
+      host.innerHTML =
+        '<p class="ag-hint">还没有链上锁仓记录。点「增加锁仓额度」后，钱包会先签 approve、再签 lock，' +
+        '确认后这里会出现真实的 Bill。</p>';
+      return;
+    }
+    const rows = bills
+      .map(function (b) {
+        const link = chain.explorer_url
+          ? '<a href="' + chain.explorer_url + '/tx/' + b.lock_tx_hash + '" target="_blank" rel="noopener">交易</a>'
+          : "";
+        const state = b.state === "locked" ? "锁仓中" : "已提取";
+        const btn =
+          b.state === "locked"
+            ? '<button type="button" class="btn" data-unlock-bill="' + b.bill_id + '">提取</button>'
+            : "";
+        return (
+          '<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;' +
+          'padding:8px 10px;border:1px solid rgba(34,211,238,0.18);border-radius:10px;margin-bottom:6px">' +
+          "<span>Bill #" + b.bill_id + " · " + fmtNum(b.amount_usdc) + " USDC · " + state + "</span>" +
+          '<span style="display:flex;gap:10px;align-items:center">' + link + btn + "</span></div>"
+        );
+      })
+      .join("");
+    host.innerHTML =
+      '<h4 style="margin:0 0 8px">链上锁仓记录（真实 USDC）</h4>' + rows;
+    host.querySelectorAll("[data-unlock-bill]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const billId = btn.getAttribute("data-unlock-bill");
+        btn.disabled = true;
+        setApiStatus("请在钱包里确认提取（unlock）…", false);
+        onchainUnlock(id, billId)
+          .then(function () {
+            setApiStatus("已提取 Bill #" + billId + " 的 USDC", false);
+            return refreshCapacity();
+          })
+          .then(function () {
+            return refreshChainBills(true);
+          })
+          .catch(function (e) {
+            setApiStatus(String(e.message || e), true);
+            btn.disabled = false;
+          });
+      });
+    });
+  }
+
+  window.KarmaChainBills = { refresh: refreshChainBills };
 
   async function releaseCapacityAction() {
     const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
@@ -428,6 +699,12 @@
   ].forEach(function (name) {
     document.addEventListener(name, function () {
       renderLaunchGuide().catch(function () {});
+      refreshChainBills().catch(function () {});
     });
+  });
+
+  // 账单页才需要链上明细；切过去时刷新一次，避免总览页多发请求。
+  document.addEventListener("karma-page-shown", function (ev) {
+    if (ev && ev.detail && ev.detail.page === "bills") refreshChainBills().catch(function () {});
   });
 })();
