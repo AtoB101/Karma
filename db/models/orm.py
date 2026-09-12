@@ -332,6 +332,10 @@ class ChainLockModel(Base):
     block_number:     Mapped[int|None] = mapped_column(Integer, nullable=True)
     state:            Mapped[str]      = mapped_column(String(16), nullable=False, default="locked")
     unlock_tx_hash:   Mapped[str|None] = mapped_column(String(80), nullable=True)
+    # Seller stake pool: an idle bill can be reserved by one accepted order.
+    stake_state:       Mapped[str]           = mapped_column(String(16), nullable=False, default="idle")
+    stake_task_id:     Mapped[str|None]      = mapped_column(String(64), nullable=True, index=True)
+    stake_reserved_at: Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
     created_at:       Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:       Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

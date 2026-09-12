@@ -16,6 +16,7 @@ from services.chain import wallet_lock
 from services.capacity_ledger import assert_can_release_locked_funds, assert_capacity_invariants
 from services.identity_actor import resolve_actor_identity_id
 from services.identity_wallet_binding import get_bound_wallet
+from services import seller_stake
 from services.ledger_party_access import require_ledger_identity
 from services.path_param_safety import validate_public_url_segment
 from services.runtime_safety import (
@@ -156,6 +157,63 @@ class ClaimUnlockBody(BaseModel):
     tx_hash: str = Field(min_length=66, max_length=66)
 
 
+class StakeRequestBody(BaseModel):
+    """Karma rule input: 30% of this order value is staked from the seller pool."""
+
+    order_amount: float = Field(gt=0.0)
+    task_id: str = Field(min_length=1, max_length=64)
+
+
+class StakeReleaseBody(BaseModel):
+    task_id: str = Field(min_length=1, max_length=64)
+
+
+@router.post("/{identity_id}/stake/reserve")
+async def reserve_seller_stake(
+    identity_id: str,
+    body: StakeRequestBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reserve the automatic seller stake for one accepted order.
+
+    Default is ``SETTLEMENT_DEFAULT_PENALTY_BPS`` (30%) of the order value, taken
+    from the seller's pre-locked pool and cumulative across orders. Sellers never
+    post margin by hand; a short pool is refused with the exact shortfall.
+    """
+    validate_public_url_segment("identity_id", identity_id)
+    validate_public_url_segment("task_id", body.task_id)
+    require_ledger_identity(request, identity_id)
+    result = await seller_stake.reserve_stake(
+        db,
+        seller_identity_id=identity_id,
+        order_amount=body.order_amount,
+        task_id=body.task_id,
+    )
+    if not result.get("ok"):
+        raise HTTPException(409, result.get("reason", "seller stake unavailable"))
+    return result
+
+
+@router.post("/{identity_id}/stake/release")
+async def release_seller_stake(
+    identity_id: str,
+    body: StakeReleaseBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a reserved stake bill to the pool."""
+    validate_public_url_segment("identity_id", identity_id)
+    validate_public_url_segment("task_id", body.task_id)
+    require_ledger_identity(request, identity_id)
+    result = await seller_stake.release_stake(
+        db, seller_identity_id=identity_id, task_id=body.task_id
+    )
+    if not result.get("ok"):
+        raise HTTPException(409, result.get("reason", "no reserved stake"))
+    return result
+
+
 @router.get("/{identity_id}/chain")
 async def get_chain_lock_state(identity_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """On-chain deposit surface for the Console: config, recorded bills, totals.
@@ -175,6 +233,7 @@ async def get_chain_lock_state(identity_id: str, request: Request, db: AsyncSess
         "identity_id": identity_id,
         "chain": wallet_lock.chain_config(),
         "wallet": await get_bound_wallet(db, identity_id),
+        "stake": await seller_stake.stake_summary(db, identity_id=identity_id),
         "ledger_locked_usdc": float(cap.total_locked_usdc) if cap else 0.0,
         "onchain_locked_usdc": sum(float(r.amount_usdc) for r in locked_rows),
         "onchain_released_usdc": sum(float(r.amount_usdc) for r in rows if r.state == "released"),
