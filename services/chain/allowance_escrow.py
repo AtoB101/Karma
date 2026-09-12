@@ -553,12 +553,44 @@ def _assert_receipt_ok(receipt: Any) -> None:
         raise WalletLockError("this transaction reverted — nothing was committed")
 
 
-def _assert_receipt_target(receipt: Any) -> None:
-    """The transaction must have gone to *our* escrow, not some look-alike."""
+def _escrow_emitted(receipt: Any, signature: str) -> bool:
+    """True when *our* escrow address itself emitted ``signature`` in this receipt."""
+    want = configured_address().lower()
+    if not want:
+        return False
+    topic = _topic(signature)
+    for log in _field(receipt, "logs", []) or []:
+        address = _hexstr(_field(log, "address", "")).lower()
+        if address != want:
+            continue
+        topics = list(_field(log, "topics", []) or [])
+        if topics and _hexstr(topics[0]).lower() == topic:
+            return True
+    return False
+
+
+def _assert_receipt_target(receipt: Any, *signatures: str) -> None:
+    """The transaction must have reached *our* escrow, not some look-alike.
+
+    A plain wallet calls the escrow directly, so ``receipt.to`` *is* the escrow.
+    Smart-account wallets (MetaMask Delegation Toolkit, Safe, ERC-4337 bundlers)
+    instead route the very same call through a forwarder: ``receipt.to`` becomes
+    the forwarder while the escrow is still the contract that emitted the event.
+    Accept either shape, but in the forwarded case insist the event came *from our
+    address*, so a look-alike contract cannot forge a commitment.
+    """
     want = configured_address()
+    if not want:
+        return
     got = _hexstr(_field(receipt, "to", "")).lower()
-    if want and got and got != want.lower():
-        raise WalletLockError("this transaction was not sent to the Karma escrow")
+    if got and got == want.lower():
+        return
+    if any(_escrow_emitted(receipt, signature) for signature in signatures):
+        return
+    raise WalletLockError(
+        "this transaction did not reach the Karma escrow — no Karma event was "
+        "emitted, so there is nothing to credit"
+    )
 
 
 def _assert_owner_allowed(owner: str, wallets: set[str]) -> None:
@@ -631,7 +663,7 @@ async def claim_commit(
     """
     receipt = fetch_receipt(tx_hash)
     _assert_receipt_ok(receipt)
-    _assert_receipt_target(receipt)
+    _assert_receipt_target(receipt, COMMITTED_SIG)
     event = parse_commit_receipt(receipt)
     _assert_owner_allowed(event.owner, wallets)
     _assert_token_allowed(event.token_address)
@@ -692,7 +724,7 @@ async def claim_revoke(
 
     receipt = fetch_receipt(tx_hash)
     _assert_receipt_ok(receipt)
-    _assert_receipt_target(receipt)
+    _assert_receipt_target(receipt, REVOKED_SIG)
     event = parse_revoke_receipt(receipt)
     if str(event.bill_id) != str(bill_id):
         raise WalletLockError("this transaction revokes a different bill")

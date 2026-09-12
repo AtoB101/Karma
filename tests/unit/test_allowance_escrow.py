@@ -259,6 +259,71 @@ def test_foreign_target_is_refused(monkeypatch):
         escrow._assert_receipt_target(commit_receipt(to=other))
 
 
+DELEGATION_MANAGER = "0xdb9b1e94b5b69df7e401ddbede43491141047db3"
+
+
+def forwarded_commit_receipt(
+    *,
+    bill_id: int = 42,
+    owner: str = WALLET,
+    amount_wei: int = 50_000_000,
+    tx_hash: str = "0x" + "ab" * 32,
+    emitter: str = CONTRACT,
+) -> dict:
+    """A commit() that a smart-account wallet routed through a forwarder.
+
+    MetaMask's Delegation Toolkit (and Safe / ERC-4337 bundlers) never call the
+    escrow directly: ``receipt.to`` is the forwarder, while the escrow is still
+    the contract that emits ``BillCommitted``.
+    """
+    return {
+        "status": 1,
+        "to": DELEGATION_MANAGER,
+        "transactionHash": tx_hash,
+        "blockNumber": 11697300,
+        "logs": [
+            {
+                "address": emitter,
+                "topics": [
+                    "0x" + keccak(text=escrow.EVENTS[0]).hex(),
+                    "0x" + _word(bill_id),
+                    "0x" + _addr_word(owner),
+                    "0x" + _addr_word(OPERATOR),
+                ],
+                "data": "0x" + _addr_word(TOKEN) + _word(amount_wei),
+            }
+        ],
+    }
+
+
+def test_forwarded_smart_account_transaction_is_accepted(monkeypatch):
+    """The live 409: MetaMask routed commit() through the DelegationManager."""
+    monkeypatch.setattr(settings, "allowance_escrow_address", CONTRACT)
+    receipt = forwarded_commit_receipt()
+    escrow._assert_receipt_target(receipt, escrow.COMMITTED_SIG)
+    event = escrow.parse_commit_receipt(receipt)
+    assert event.owner == WALLET
+    assert event.bill_id == 42
+    assert event.amount_wei == 50_000_000
+
+
+def test_forwarded_event_from_a_look_alike_is_still_refused(monkeypatch):
+    """Only *our* escrow address counts — a copy-cat cannot forge a commitment."""
+    monkeypatch.setattr(settings, "allowance_escrow_address", CONTRACT)
+    fake = forwarded_commit_receipt(emitter="0x" + "12" * 20)
+    with pytest.raises(WalletLockError):
+        escrow._assert_receipt_target(fake, escrow.COMMITTED_SIG)
+
+
+def test_forwarded_call_without_a_karma_event_is_refused(monkeypatch):
+    """Forwarded, but the escrow never emitted BillCommitted — nothing to credit."""
+    monkeypatch.setattr(settings, "allowance_escrow_address", CONTRACT)
+    forwarded = forwarded_commit_receipt()
+    forwarded["logs"][0]["topics"][0] = "0x" + "55" * 32
+    with pytest.raises(WalletLockError):
+        escrow._assert_receipt_target(forwarded, escrow.COMMITTED_SIG)
+
+
 # --------------------------------------------------------------- configuration
 
 
@@ -553,6 +618,31 @@ async def test_claim_commit_rejects_a_foreign_token(client, monkeypatch):
     )
     assert resp.status_code == 409
     assert "different token" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_claim_commit_accepts_a_forwarded_smart_account_wallet(
+    client, db_session, monkeypatch
+):
+    """End to end: the exact shape MetaMask's delegation path produced live."""
+    monkeypatch.setattr(settings, "chain_allowance_escrow_enabled", True)
+    monkeypatch.setattr(settings, "allowance_escrow_address", CONTRACT)
+    monkeypatch.setattr(settings, "erc20_token_address", TOKEN)
+    monkeypatch.setattr(settings, "testnet_rpc_url", "https://example.invalid")
+    monkeypatch.setattr(wallet_lock, "_wallets_of", lambda identity_id: {WALLET})
+    monkeypatch.setattr(
+        escrow,
+        "fetch_receipt",
+        lambda tx: forwarded_commit_receipt(tx_hash=tx, bill_id=77),
+    )
+    resp = await client.post(
+        "/v1/escrow/identity-escrow-test/claim-commit",
+        json={"tx_hash": "0x" + "77" * 32},
+    )
+    assert resp.status_code == 200, resp.text
+    commit = resp.json()["commit"]
+    assert commit["bill_id"] == "77"
+    assert commit["amount_usdc"] == pytest.approx(50.0)
 
 
 # --------------------------------------------------------- console wiring rules
