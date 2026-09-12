@@ -919,6 +919,25 @@ def finalize_settlement(*, binding_id: int) -> dict[str, Any]:
     return {"binding_id": int(binding_id), "finalize_tx_hash": tx, "paid_usdc": paid_usdc}
 
 
+_BINDING_FIELDS = [
+    c["name"] for c in next(f for f in _ABI_FUNCTIONS if f.get("name") == "getBinding")["outputs"][0]["components"]
+]
+
+
+def binding_state(*, binding_id: int) -> int | None:
+    """读合约自己记的绑定状态 —— 唯一的事实来源。
+
+    用来对账「我们没等到回执、但交易其实上链了」的那一单：receipt 等待超时
+    只说明我们没看见，不代表链上没有发生。链说了算。
+    """
+    if not escrow_enabled():
+        return None
+    w3 = _web3()
+    contract = _contract(w3)
+    raw = contract.functions.getBinding(int(binding_id)).call()
+    return int(dict(zip(_BINDING_FIELDS, raw, strict=False))["state"])
+
+
 def finalize_breach(*, binding_id: int) -> dict[str, Any]:
     """Slash the seller stake to the buyer (resolver-only on-chain)."""
     if not escrow_enabled():
