@@ -42,10 +42,16 @@
     // 签名：钱包 personal_sign（dev legacy 模式不强制 EIP-712；生产走 EIP-712）
     var sig = '0xconsole_legacy';
     try {
-      if (global.ethereum && global.ethereum.request) {
-        var accounts = await global.ethereum.request({ method: 'eth_requestAccounts' });
+      /* 用 KarmaWalletAuth 认出来的那个钱包（含只有 sendAsync 的老插件），
+         而不是死盯着 window.ethereum.request。 */
+      var wallet =
+        global.KarmaWalletAuth && global.KarmaWalletAuth.activeProvider
+          ? global.KarmaWalletAuth.activeProvider()
+          : global.ethereum;
+      if (wallet && typeof wallet.request === 'function') {
+        var accounts = await wallet.request({ method: 'eth_requestAccounts' });
         var msg = 'Karma Payment Code\nbuyer:' + buyer + '\nseller:' + seller + '\namount:' + amount;
-        sig = await global.ethereum.request({ method: 'personal_sign', params: [msg, accounts[0]] });
+        sig = await wallet.request({ method: 'personal_sign', params: [msg, accounts[0]] });
       }
     } catch (_) {}
 
