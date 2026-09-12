@@ -206,15 +206,18 @@ async def open_order(
         raise HTTPException(422, "stake_usdc must be positive (or set SETTLEMENT_DEFAULT_PENALTY_BPS)")
 
     try:
-        result = escrow.open_order(
+        # bind + submit is one unit: if submit cannot land, the reservation is
+        # released instead of being stranded on-chain with no row to match it.
+        result = escrow.open_and_submit_order(
             buyer_bill_id=buyer_bill.bill_id,
             seller_bill_id=seller_bill.bill_id,
             amount_usdc=body.amount_usdc,
             stake_usdc=stake,
             scope=body.scope or settings.settlement_scope,
             task_id=body.task_id,
+            proof=body.proof,
         )
-        submitted = escrow.submit_settlement(binding_id=result["binding_id"], proof=body.proof)
+        submitted = result
     except wallet_lock.WalletLockError as exc:
         raise HTTPException(409, str(exc)) from exc
 
