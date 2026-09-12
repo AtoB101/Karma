@@ -34,6 +34,12 @@
     (global.navigator && global.navigator.userAgent) || ""
   );
 
+  /* 微信 / QQ / 微博 / 飞书 / 钉钉这类内置浏览器会拦掉自定义协议和 App 跳转，
+     钱包唤起链接点下去就是没反应。单独认出来，给一句人话提示＋复制链接兜底。 */
+  var APP_BROWSER = /micromessenger|weibo|feishu|lark|dingtalk|douyin|toutiao|alipayclient/i.test(
+    (global.navigator && global.navigator.userAgent) || ""
+  );
+
   /* ------------------------------------------------------------------ utils */
 
   function apiBase() {
@@ -332,6 +338,15 @@
     ".kw-empty{margin:6px 0 14px;padding:12px 14px;border-radius:12px;border:1px dashed rgba(255,190,120,.34);background:rgba(255,190,120,.07);color:#ffd9a8;font-size:12.5px}",
     ".kw-note{display:block;padding:0 20px 18px;color:#7d8bb5;font-size:11.5px}",
     ".kw-hint{color:#9aa8cc;font-size:12px;margin:0 0 8px}",
+    ".kw-open-wallet{text-decoration:none;border-color:rgba(110,231,168,.34)}",
+    ".kw-open-wallet .kw-tag{color:#6ee7a8}",
+    ".kw-app{margin:0 0 14px;padding:11px 13px;border-radius:12px;border:1px solid rgba(255,190,120,.34);background:rgba(255,190,120,.08);color:#ffd9a8;font-size:12.5px}",
+    ".kw-app-copy{margin-top:9px;padding:7px 12px;border-radius:9px;border:1px solid rgba(255,190,120,.42);background:rgba(255,190,120,.13);color:#ffd9a8;font-size:12px;cursor:pointer}",
+    ".kw-more{margin:0 0 14px}",
+    ".kw-more>summary{cursor:pointer;color:#9aa8cc;font-size:12px;padding:7px 0;list-style:none}",
+    ".kw-more>summary::-webkit-details-marker{display:none}",
+    ".kw-more>summary:before{content:'▸ '}",
+    ".kw-more[open]>summary:before{content:'▾ '}",
     "@media(max-width:520px){.kw-grid{grid-template-columns:1fr}}"
   ].join("");
 
@@ -365,6 +380,8 @@
     document.body.appendChild(node);
     node.addEventListener("click", function (ev) {
       if (ev.target === node || ev.target.closest("[data-kw-close]")) closeModal();
+      var copy = ev.target.closest("[data-kw-copy]");
+      if (copy) copyText(copy.getAttribute("data-kw-copy") || consoleUrl(), copy);
     });
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "Escape") closeModal();
@@ -397,12 +414,54 @@
     });
   }
 
+  function copyText(text, btn) {
+    function done() {
+      if (!btn) return;
+      var old = btn.textContent;
+      btn.textContent = "✓ 已复制，去钱包里粘贴打开";
+      setTimeout(function () {
+        btn.textContent = old;
+      }, 1800);
+    }
+    function fallback() {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        done();
+      } catch (_) {}
+    }
+    try {
+      if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
+        global.navigator.clipboard.writeText(text).then(done, fallback);
+        return;
+      }
+    } catch (_) {}
+    fallback();
+  }
+
   function renderBody() {
     var body = document.querySelector("[data-kw-body]");
     if (!body) return;
     var list = entries();
     var url = consoleUrl();
     var html = "";
+
+    if (APP_BROWSER) {
+      html +=
+        '<div class="kw-app"><div>你正在微信 / QQ 这类内置浏览器里打开本页，' +
+        "它们会拦掉钱包 App 的跳转 —— 点了钱包没反应就是这个原因。" +
+        "请点右上角「…」→「在浏览器打开」，再回来点对应钱包即可。" +
+        '<br><button type="button" class="kw-app-copy" data-kw-copy="' +
+        esc(url) +
+        '">复制本页链接（粘贴到手机钱包内置浏览器）</button></div></div>';
+    }
 
     if (list.length) {
       html += '<p class="kw-sec">已检测到的钱包</p><div class="kw-list">';
@@ -418,16 +477,22 @@
           icon +
           '</span><span class="kw-name">' +
           esc(e.info.name) +
-          '</span><span class="kw-tag">已安装</span></button>';
+          '</span><span class="kw-tag">点此连接</span></button>';
       });
       html += "</div>";
     } else {
       html +=
-        '<div class="kw-empty">当前浏览器没有检测到钱包插件。' +
-        "请先安装任一钱包，或在手机钱包里打开本页。</div>";
-      html += '<p class="kw-sec">安装钱包（浏览器插件）</p><div class="kw-grid">';
+        '<div class="kw-empty">' +
+        (MOBILE_UA
+          ? "你在手机上打开本页：点下面任一钱包，会直接唤起钱包 App，并在它内置的浏览器里载入本页。"
+          : "当前浏览器没有检测到钱包插件。电脑上可安装插件，手机上可点下面的钱包唤起 App。") +
+        "</div>";
+    }
+
+    function installGrid() {
+      var out = '<div class="kw-grid">';
       CATALOG.slice(0, 6).forEach(function (w) {
-        html +=
+        out +=
           '<a class="kw-inst" href="' +
           esc(w.install) +
           '" target="_blank" rel="noopener noreferrer"><span class="kw-ico">' +
@@ -436,28 +501,62 @@
           esc(w.name) +
           "</span></a>";
       });
-      html += "</div>";
+      return out + "</div>";
     }
 
+    /* 手机上唯一能真正连上的路径是「让钱包打开本页」——手机浏览器里没有插件可点，
+       所以手机上它排最前、做成一整行的大按钮，插件安装收进折叠项。桌面反过来：
+       插件才是马上能用起来的那条路，手机唤起只是备选。之前手机上先把插件下载链接
+       摆最前，用户点 MetaMask 只会跳到插件下载页，既没唤起 App 也没连上钱包。 */
     var mobile = CATALOG.filter(function (w) {
       return w.deep;
     });
-    html += '<p class="kw-sec">手机钱包打开（让钱包内置浏览器载入本页）</p>';
-    if (!MOBILE_UA) {
-      html += '<p class="kw-hint">用手机扫描或点击后，页面会在钱包 App 内打开并自动可连。</p>';
+
+    var mobileSection =
+      '<p class="kw-sec">' +
+      (MOBILE_UA ? "用手机钱包打开本页" : "手机钱包：唤起 App 打开本页") +
+      "</p>";
+    if (MOBILE_UA) {
+      mobileSection += '<div class="kw-list">';
+      mobile.forEach(function (w) {
+        mobileSection +=
+          '<a class="kw-item kw-open-wallet" href="' +
+          esc(w.deep(url)) +
+          '"><span class="kw-ico">' +
+          w.icon +
+          '</span><span class="kw-name">' +
+          esc(w.name) +
+          '</span><span class="kw-tag">打开</span></a>';
+      });
+      mobileSection += "</div>";
+      mobileSection +=
+        '<p class="kw-hint">点了没反应 = 这个钱包没装在手机上，先去应用商店安装。' +
+        "装好后它会用钱包内置浏览器打开本页，再点右上角「连接钱包」授权即可。</p>";
+    } else {
+      mobileSection +=
+        '<p class="kw-hint">用手机点一下，本页会在钱包 App 的内置浏览器里打开，' +
+        "再点「连接钱包」授权即可。</p>";
+      mobileSection += '<div class="kw-chips">';
+      mobile.forEach(function (w) {
+        mobileSection +=
+          '<a class="kw-inst kw-chip" href="' +
+          esc(w.deep(url)) +
+          '"><span>' +
+          w.icon +
+          "</span><span>" +
+          esc(w.name) +
+          "</span></a>";
+      });
+      mobileSection += "</div>";
     }
-    html += '<div class="kw-chips">';
-    mobile.forEach(function (w) {
-      html +=
-        '<a class="kw-inst kw-chip" href="' +
-        esc(w.deep(url)) +
-        '"><span>' +
-        w.icon +
-        "</span><span>" +
-        esc(w.name) +
-        "</span></a>";
-    });
-    html += "</div>";
+
+    var installsSection = MOBILE_UA
+      ? '<details class="kw-more"><summary>在电脑上使用？安装浏览器插件</summary>' +
+        installGrid() +
+        "</details>"
+      : '<p class="kw-sec">安装钱包（浏览器插件）</p>' + installGrid();
+
+    html += MOBILE_UA ? mobileSection + installsSection : installsSection + mobileSection;
 
     var s = readSession();
     if (s.wallet && tokenState() !== "ok") {
@@ -599,9 +698,9 @@
 
   function connect() {
     var list = entries();
-    if (list.length === 1 && !MOBILE_UA) {
-      return connectWith(list[0]);
-    }
+    /* 已经能看见钱包就别再让人挑一次：钱包 App 的内置浏览器里只有它自己，
+       手机上也一样——多弹一层选择框只会让人觉得「点了没反应」。 */
+    if (list.length === 1) return connectWith(list[0]);
     openModal();
     return Promise.resolve(null);
   }
@@ -648,7 +747,23 @@
     }
 
     var list = entries();
-    if (!list.length) return;
+    if (!list.length) {
+      if (!s.wallet) {
+        setStatus(
+          MOBILE_UA
+            ? "未连接 · 点「连接钱包」用手机钱包打开本页"
+            : "未检测到钱包 · 点「连接钱包」安装插件或用手机钱包打开",
+          null
+        );
+      }
+      return;
+    }
+    if (!s.wallet) {
+      setStatus(
+        "已检测到 " + ((list[0].info && list[0].info.name) || "钱包") + " · 点「连接钱包」授权登录",
+        null
+      );
+    }
 
     var provider = list[0].provider;
     var current = "";
