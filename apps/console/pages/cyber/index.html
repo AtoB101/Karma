@@ -64,6 +64,9 @@
               <button type="button" class="btn primary" data-wallet-connect>🔗 连接钱包</button>
               <button type="button" class="btn" data-wallet-disconnect>断开</button>
               <span class="api-status" data-wallet-status>—</span>
+              <!-- 操作结果（锁仓 / 授权额度 / 释放 / 刷新）必须写在看得见的地方：
+                   以前它藏在下面「连接设置」折叠面板里，用户点完锁仓什么都没看到。 -->
+              <span class="api-status" data-api-status>—</span>
               <span class="identity-chip" id="top-identity-chip">未连接</span>
               <details class="conn-settings">
                 <summary>⚙ 连接设置</summary>
@@ -76,7 +79,6 @@
                   <button type="button" class="btn primary" data-action="refresh-api" data-i18n="api.refresh">刷新额度</button>
                   <input data-cfg="task_id" data-i18n-placeholder="api.task_id" type="text" placeholder="查询结算 task_id" autocomplete="off" style="min-width:160px" />
                   <button type="button" class="btn" data-action="fetch-settlement" data-i18n="api.fetch_settlement">拉取 Settlement</button>
-                  <span class="api-status" data-api-status>—</span>
                   <span style="font-size:11px; color:var(--text-dim)">上次 <span data-bind="console_last_sync">—</span></span>
                 </div>
               </details>
