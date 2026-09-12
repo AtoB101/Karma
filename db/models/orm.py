@@ -340,6 +340,65 @@ class ChainLockModel(Base):
     updated_at:       Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class AllowanceCommitModel(Base):
+    """One on-chain ``KarmaAllowanceEscrow.commit()`` receipt (v2, non-custodial).
+
+    Nothing is deposited: the wallet keeps its USDC and only grants the escrow an
+    ERC-20 allowance, so ``amount_usdc`` is a *responsibility ceiling* rather than
+    a balance Karma holds. ``bill_id`` / ``commit_tx_hash`` are unique, which is
+    what makes replaying a transaction a no-op.
+    """
+    __tablename__ = "allowance_commits"
+
+    bill_id:          Mapped[str]        = mapped_column(String(80), primary_key=True)
+    identity_id:      Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
+    wallet_address:   Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
+    chain_id:         Mapped[int]        = mapped_column(Integer, nullable=False, default=0)
+    contract_address: Mapped[str]        = mapped_column(String(64), nullable=False, default="")
+    token_address:    Mapped[str]        = mapped_column(String(64), nullable=False, default="")
+    operator:         Mapped[str]        = mapped_column(String(64), nullable=False, default="")
+    amount_wei:       Mapped[str]        = mapped_column(String(80), nullable=False, default="0")
+    amount_usdc:      Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    spent_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    reserved_usdc:    Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    backed:           Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
+    commit_tx_hash:   Mapped[str]        = mapped_column(String(80), nullable=False, unique=True)
+    revoke_tx_hash:   Mapped[str|None]   = mapped_column(String(80), nullable=True)
+    block_number:     Mapped[int|None]   = mapped_column(Integer, nullable=True)
+    state:            Mapped[str]        = mapped_column(String(16), nullable=False, default="open")
+    last_synced_at:   Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
+    created_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EscrowBindingModel(Base):
+    """One bound buyer/seller pair: the order Karma settles wallet-to-wallet.
+
+    ``state`` mirrors the contract (active/finalizing/settled/slashed/cancelled).
+    A row here records *intent and proof*; the transfer itself is executed by the
+    contract, straight from the payer's wallet to the payee's.
+    """
+    __tablename__ = "escrow_bindings"
+
+    binding_id:        Mapped[str]        = mapped_column(String(80), primary_key=True)
+    buyer_identity_id: Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
+    seller_identity_id: Mapped[str|None]  = mapped_column(String(64), nullable=True, index=True)
+    buyer_bill_id:     Mapped[str]        = mapped_column(String(80), nullable=False)
+    seller_bill_id:    Mapped[str]        = mapped_column(String(80), nullable=False)
+    scope_hash:        Mapped[str]        = mapped_column(String(80), nullable=False, default="")
+    task_id:           Mapped[str|None]   = mapped_column(String(64), nullable=True, index=True)
+    amount_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    stake_usdc:        Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    state:             Mapped[str]        = mapped_column(String(16), nullable=False, default="active")
+    proof_hash:        Mapped[str|None]   = mapped_column(String(80), nullable=True)
+    bind_tx_hash:      Mapped[str|None]   = mapped_column(String(80), nullable=True, unique=True)
+    submit_tx_hash:    Mapped[str|None]   = mapped_column(String(80), nullable=True)
+    finalize_tx_hash:  Mapped[str|None]   = mapped_column(String(80), nullable=True)
+    pull_after:        Mapped[int|None]   = mapped_column(Integer, nullable=True)
+    created_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class VoucherModel(Base):
     __tablename__ = "vouchers"
 

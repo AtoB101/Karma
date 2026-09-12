@@ -381,6 +381,38 @@
     });
   }
 
+  /*
+   * v2 allowance escrow — the money never leaves the user's wallet.
+   *
+   * The wallet signs `approve` + `commit` once; the server verifies the receipt
+   * and records the commitment. Everything after that (binding an order,
+   * submitting a proof, pulling the payment) is Karma's rules running on top of
+   * that allowance, and the payer can revoke it at any time with one more
+   * signature of their own.
+   */
+  async function getEscrowState(identityId) {
+    const id = encodeURIComponent(identityId);
+    return karmaFetch("/v1/escrow/" + id, { method: "GET", headers: headers() });
+  }
+
+  async function claimCommit(identityId, txHash) {
+    const id = encodeURIComponent(identityId);
+    return jsonPost("/v1/escrow/" + id + "/claim-commit", { tx_hash: String(txHash) });
+  }
+
+  async function claimEscrowRevoke(identityId, billId, txHash) {
+    const id = encodeURIComponent(identityId);
+    return jsonPost("/v1/escrow/" + id + "/claim-revoke", {
+      bill_id: String(billId),
+      tx_hash: String(txHash),
+    });
+  }
+
+  async function syncEscrow(identityId) {
+    const id = encodeURIComponent(identityId);
+    return jsonPost("/v1/escrow/" + id + "/sync", {});
+  }
+
   async function createSettlement(payload) {
     return jsonPost("/v1/settlement/create", payload);
   }
@@ -518,6 +550,10 @@
     getChainLockState,
     claimBill,
     claimUnlock,
+    getEscrowState,
+    claimCommit,
+    claimEscrowRevoke,
+    syncEscrow,
     createSettlement,
     settlementPending,
     settlementLock,

@@ -58,6 +58,7 @@ from api.routes import (
     identity_role_profiles,
     identity_disclosures,
     identity_kyc,
+    escrow,
 )
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +72,7 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/verify",
     "/v1/progress/",
     "/v1/capacity/",
+    "/v1/escrow/",
     "/v1/receipts",
     "/v1/bundles",
     "/v1/responsibility/",
@@ -188,6 +190,8 @@ def _route_group_for_path(path: str) -> str:
         return "vouchers"
     if path.startswith("/v1/capacity"):
         return "capacity"
+    if path.startswith("/v1/escrow"):
+        return "settlement"
     if path.startswith("/v1/progress"):
         return "progress"
     return "other"
@@ -324,6 +328,7 @@ app.include_router(identities.router, prefix="/v1/identities", tags=["Identities
 app.include_router(arbitration.router, prefix="/v1/arbitration", tags=["Arbitration"], dependencies=_protected_dependencies)
 app.include_router(responsibility.router, prefix="/v1/responsibility", tags=["Responsibility"], dependencies=_protected_dependencies)
 app.include_router(capacity.router,   prefix="/v1/capacity",   tags=["Capacity"], dependencies=_protected_dependencies)
+app.include_router(escrow.router,     prefix="/v1/escrow",     tags=["Escrow"],   dependencies=_protected_dependencies)
 app.include_router(vouchers.router,   prefix="/v1/vouchers",   tags=["Vouchers"], dependencies=_rate_limited_rw)
 app.include_router(
     payment_codes.router,

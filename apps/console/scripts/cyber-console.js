@@ -301,6 +301,105 @@
     return { state: state, txHash: tx };
   }
 
+  /* ------------------------------------------------------------------
+   * v2 授权额度（allowance escrow）— 资金始终留在用户自己的钱包里
+   *
+   * 用户只签一次 approve + commit：approve 给结算合约一个额度，commit 把
+   * 「我承诺最多支付 X」登记上链，钱不转账。之后 agent 接单、验证、划转全
+   * 部按 Karma 规则自动执行，用户不需要再签任何一笔；用户随时可以自己签
+   * revoke 撤销，或在钱包里把 approve 改成 0 —— 那之后任何划转都不成立。
+   *
+   * 选择器是 KarmaAllowanceEscrow.sol / ERC-20 精确签名的 keccak 前 4 字节，
+   * 由 tests/unit/test_allowance_escrow.py 对齐校验。
+   * ------------------------------------------------------------------ */
+  const ESCROW_SELECTORS = {
+    approve: "0x095ea7b3", // approve(address,uint256)
+    allowance: "0xdd62ed3e", // allowance(address,address)
+    commit: "0xd6e9d0c4", // commit(address,uint256,address)
+    revoke: "0x20c5429b", // revoke(uint256)
+  };
+  const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+
+  let escrowCache = { id: "", payload: null };
+
+  async function loadEscrowInfo(id, force) {
+    if (!force && escrowCache.id === id && escrowCache.payload) return escrowCache.payload;
+    const payload = await window.cyberKarmaApi.getEscrowState(id);
+    escrowCache = { id: id, payload: payload };
+    return payload;
+  }
+
+  async function onchainCommit(id, amount, info) {
+    const escrow = (info && info.escrow) || {};
+    const provider = walletProvider();
+    if (!provider) throw new Error("未检测到钱包：请先点「连接钱包」");
+    await ensureChainId(provider, escrow.chain_id);
+    const accounts = await rpc(provider, "eth_accounts");
+    const from = accounts && accounts[0];
+    if (!from) throw new Error("钱包还没有授权账户，请重新连接钱包");
+
+    const decimals = Number(escrow.token_decimals || 6);
+    const units = toBaseUnits(amount, decimals);
+    const token = escrow.token_address;
+    const contract = escrow.contract_address;
+    const operator = escrow.operator_address || ZERO_ADDR;
+
+    const allowance = await rpc(provider, "eth_call", [
+      { to: token, data: ESCROW_SELECTORS.allowance + pad32(from) + pad32(contract) },
+      "latest",
+    ]);
+    if (BigInt(allowance || "0x0") < units) {
+      setApiStatus("第 1 / 2 步：在钱包里确认授权额度（只授权，不转账）…", false);
+      const approveTx = await rpc(provider, "eth_sendTransaction", [
+        {
+          from: from,
+          to: token,
+          data: ESCROW_SELECTORS.approve + pad32(contract) + pad32(units.toString(16)),
+        },
+      ]);
+      await waitReceipt(provider, approveTx, 180000);
+    }
+
+    setApiStatus("第 2 / 2 步：在钱包里确认承诺 " + amount + " USDC 的支付额度…", false);
+    const commitTx = await rpc(provider, "eth_sendTransaction", [
+      {
+        from: from,
+        to: contract,
+        data: ESCROW_SELECTORS.commit + pad32(token) + pad32(units.toString(16)) + pad32(operator),
+      },
+    ]);
+    await waitReceipt(provider, commitTx, 240000);
+
+    setApiStatus("已上链，正在登记授权…", false);
+    const state = await window.cyberKarmaApi.claimCommit(id, commitTx);
+    return {
+      state: state,
+      txHash: commitTx,
+      billId: (state && state.commit && state.commit.bill_id) || "",
+    };
+  }
+
+  async function onchainEscrowRevoke(id, billId) {
+    const info = await loadEscrowInfo(id);
+    const escrow = (info && info.escrow) || {};
+    const provider = walletProvider();
+    if (!provider) throw new Error("未检测到钱包：请先点「连接钱包」");
+    await ensureChainId(provider, escrow.chain_id);
+    const accounts = await rpc(provider, "eth_accounts");
+    const from = accounts && accounts[0];
+    if (!from) throw new Error("钱包还没有授权账户，请重新连接钱包");
+    const tx = await rpc(provider, "eth_sendTransaction", [
+      {
+        from: from,
+        to: escrow.contract_address,
+        data: ESCROW_SELECTORS.revoke + pad32(BigInt(billId).toString(16)),
+      },
+    ]);
+    await waitReceipt(provider, tx, 240000);
+    const state = await window.cyberKarmaApi.claimEscrowRevoke(id, String(billId), tx);
+    return { state: state, txHash: tx };
+  }
+
   async function lockCapacityAction(amountOverride) {
     const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
     const amount =
@@ -315,6 +414,32 @@
       info = await loadChainInfo(id);
     } catch (_) {
       info = null;
+    }
+    let escrowInfo = null;
+    try {
+      escrowInfo = await loadEscrowInfo(id);
+    } catch (_) {
+      escrowInfo = null;
+    }
+    /* v2 优先：资金不转账，只是授权额度；没有 v2 时才回落到 v1 锁仓。 */
+    if (escrowInfo && escrowInfo.escrow && escrowInfo.escrow.enabled) {
+      if (!walletProvider()) {
+        setApiStatus("授权额度需要钱包签名：请先点「连接钱包」，再回来授权", true);
+        return;
+      }
+      try {
+        const r = await onchainCommit(id, amount, escrowInfo);
+        setApiStatus("已授权 " + amount + " USDC 支付额度 · 资金仍在你的钱包里", false);
+        await refreshCapacity();
+        document.dispatchEvent(
+          new CustomEvent("karma-locked", { detail: { amount: amount, onchain: true, escrow: true } })
+        );
+        refreshEscrowCommits(true).catch(function () {});
+        return r;
+      } catch (e) {
+        setApiStatus(String(e.message || e), true);
+        return;
+      }
     }
     if (info && info.chain && info.chain.enabled) {
       if (!walletProvider()) {
@@ -381,7 +506,12 @@
     }
     const chainOn = !!(chainInfo && chainInfo.chain && chainInfo.chain.enabled);
     if (locked <= 0) {
-      set("#launch-lock-state", chainOn ? "还没有锁仓（点击下面金额，钱包会签 2 笔交易）" : "还没有锁仓");
+      set(
+        "#launch-lock-state",
+        chainOn
+          ? "还没有授权额度（点击下面金额，钱包会签 2 笔交易；钱不转走，仍在你钱包里）"
+          : "还没有锁仓"
+      );
     } else if (chainOn) {
       const onchain = Number(chainInfo.onchain_locked_usdc || 0);
       const gap = locked - onchain;
@@ -517,7 +647,97 @@
     });
   }
 
+  /**
+   * 支付授权记录（v2）— 钱一直留在用户钱包里，这里显示的是「承诺额度」。
+   *
+   * 每行都从链上回读：额度不足（用户把 approve 调小了、或余额不够）时会
+   * 明确标成「额度不足」，不会假装这笔钱还在。
+   */
+  async function refreshEscrowCommits(force) {
+    const host = el("#escrow-commits");
+    if (!host) return;
+    const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
+    if (!id) { host.innerHTML = ""; return; }
+    let info = null;
+    try {
+      info = await loadEscrowInfo(id, !!force);
+    } catch (_) {
+      info = null;
+    }
+    const escrow = (info && info.escrow) || {};
+    if (!escrow.enabled) {
+      const missing = (escrow.missing_config || []).join("、");
+      host.innerHTML =
+        '<h4 style="margin:0 0 8px">支付授权（资金留在你的钱包）</h4>' +
+        '<p class="ag-hint">授权额度模式未启用' +
+        (missing ? "（缺少配置：" + missing + "）" : "") +
+        "：当前走链上锁仓模式。</p>";
+      return;
+    }
+    const commits = (info && info.commits) || [];
+    const live = commits.filter(function (c) { return c.state !== "revoked"; });
+    const spent = Number((info && info.spent_usdc) || 0);
+    const reserved = live.reduce(function (a, c) { return a + Number(c.reserved_usdc || 0); }, 0);
+    const head =
+      '<h4 style="margin:0 0 8px">支付授权（资金留在你的钱包）</h4>' +
+      '<p class="ag-hint">已承诺 ' + fmtNum((info && info.committed_usdc) || 0) + " USDC · 已支付 " + fmtNum(spent) +
+      " USDC · 已被订单锁定 " + fmtNum(reserved) + " USDC · 争议窗口 " +
+      Number(escrow.dispute_window_seconds || 0) + " 秒" +
+      (escrow.can_server_settle
+        ? " · Karma 结算账户已就位（验证通过后自动划转，无需你再签名）"
+        : " · 结算账户未配置：暂时需要 agent 自行提交结算") +
+      "</p>";
+    if (!commits.length) {
+      host.innerHTML = head +
+        '<p class="ag-hint">还没有授权额度。点「增加锁仓额度」后，钱包会签 approve + commit 两笔，' +
+        "钱不会转走，只是允许 Karma 在你验证通过后最多划走这么多。</p>";
+      return;
+    }
+    const rows = commits
+      .map(function (c) {
+        const link = escrow.explorer_url
+          ? '<a href="' + escrow.explorer_url + "/tx/" + c.commit_tx_hash + '" target="_blank" rel="noopener">交易</a>'
+          : "";
+        const stateText =
+          c.state === "revoked"
+            ? "已撤销"
+            : c.backed
+              ? "有效"
+              : "额度不足（钱包余额或授权不足）";
+        const btn =
+          c.state === "revoked"
+            ? ""
+            : '<button type="button" class="btn" data-revoke-commit="' + c.bill_id + '">撤销授权</button>';
+        return (
+          '<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;' +
+          'padding:8px 10px;border:1px solid rgba(34,211,238,0.18);border-radius:10px;margin-bottom:6px">' +
+          "<span>承诺 #" + c.bill_id + " · 额度 " + fmtNum(c.amount_usdc) + " USDC · 已用 " +
+          fmtNum(c.spent_usdc) + " · 可用 " + fmtNum(c.available_usdc) + " · " + stateText + "</span>" +
+          '<span style="display:flex;gap:10px;align-items:center">' + link + btn + "</span></div>"
+        );
+      })
+      .join("");
+    host.innerHTML = head + rows;
+    host.querySelectorAll("[data-revoke-commit]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const billId = btn.getAttribute("data-revoke-commit");
+        btn.disabled = true;
+        setApiStatus("请在钱包里确认撤销授权…", false);
+        onchainEscrowRevoke(id, billId)
+          .then(function () {
+            setApiStatus("已撤销承诺 #" + billId, false);
+            return refreshEscrowCommits(true);
+          })
+          .catch(function (e) {
+            setApiStatus(String(e.message || e), true);
+            btn.disabled = false;
+          });
+      });
+    });
+  }
+
   window.KarmaChainBills = { refresh: refreshChainBills };
+  window.KarmaEscrow = { refresh: refreshEscrowCommits };
 
   async function releaseCapacityAction() {
     const id = (el("[data-cfg=identity_id]")?.value || "").trim() || window.KARMA_IDENTITY_ID || "";
@@ -695,6 +915,7 @@
     switchPage("overview");
     setApiStatus(window.CYBER_I18N.t("api.status_idle"), false);
     renderLaunchGuide().catch(function () {});
+    refreshEscrowCommits().catch(function () {});
   });
 
   /* 起步引导跟着会话走：连接钱包、恢复会话、锁仓、授权额度都会改变当前处于第几步。 */
@@ -710,11 +931,15 @@
     document.addEventListener(name, function () {
       renderLaunchGuide().catch(function () {});
       refreshChainBills().catch(function () {});
+      refreshEscrowCommits().catch(function () {});
     });
   });
 
   // 账单页才需要链上明细；切过去时刷新一次，避免总览页多发请求。
   document.addEventListener("karma-page-shown", function (ev) {
-    if (ev && ev.detail && ev.detail.page === "bills") refreshChainBills().catch(function () {});
+    if (ev && ev.detail && ev.detail.page === "bills") {
+      refreshChainBills().catch(function () {});
+      refreshEscrowCommits().catch(function () {});
+    }
   });
 })();
