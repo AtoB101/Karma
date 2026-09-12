@@ -170,3 +170,42 @@ async def test_a_settled_binding_is_never_pulled_twice(db_session, monkeypatch):
     assert len(await autosettle.settle_due(db_session)) == 1
     assert await autosettle.settle_due(db_session) == []
     assert calls == [16]
+
+
+@pytest.mark.asyncio
+async def test_settling_a_sub_identity_order_clears_its_quota(db_session, monkeypatch):
+    """子身份额度的闭环：这一单占的额度，钱划走后必须结清（in_progress → released）。
+
+    否则每成一单，那个子身份的可用额度就永久少一截，几次之后 agent 会被自己
+    的额度卡死。
+    """
+    from db.models.orm import ProfileCapacityModel
+
+    monkeypatch.setattr(
+        autosettle.escrow,
+        "finalize_settlement",
+        lambda *, binding_id: {"finalize_tx_hash": "0xabc"},
+    )
+    db_session.add(
+        ProfileCapacityModel(
+            profile_id="prof-quota-1",
+            owner_identity_id="kid_buyer",
+            allocated_credits=50.0,
+            available_credits=20.0,
+            in_progress_credits=30.0,
+        )
+    )
+    row = binding("21", pull_after=int(time.time()) - 1)
+    row.buyer_profile_id = "prof-quota-1"
+    db_session.add(row)
+    await db_session.commit()
+
+    assert len(await autosettle.settle_due(db_session)) == 1
+
+    pc = await db_session.get(ProfileCapacityModel, "prof-quota-1")
+    assert pc.in_progress_credits == 0.0
+    assert pc.released_credits == 30.0
+    assert pc.available_credits == 20.0
+
+    await db_session.delete(pc)
+    await db_session.commit()

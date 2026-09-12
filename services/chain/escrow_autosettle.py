@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.settings import settings
 from db.models.orm import EscrowBindingModel
 from db.session import AsyncSessionLocal
+from services import profile_capacity
 from services.chain import allowance_escrow as escrow
 from services.chain import wallet_lock
 
@@ -93,6 +94,22 @@ async def settle_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
         row.state = SETTLED_STATE
         row.finalize_tx_hash = result.get("finalize_tx_hash")
         row.updated_at = datetime.now(UTC)
+        if row.buyer_profile_id:
+            # 这一单占的是某个子身份的额度：钱划走了就把它结清。纯台账动作，
+            # 失败不影响已经落链的结算，所以只记日志不抛。
+            try:
+                await profile_capacity.release_profile_credits(
+                    db,
+                    profile_id=row.buyer_profile_id,
+                    settled_amount=float(row.amount_usdc),
+                )
+            except Exception as exc:  # noqa: BLE001 - bookkeeping, not money
+                logger.warning(
+                    "escrow_autosettle_profile_release_failed",
+                    binding_id=row.binding_id,
+                    profile_id=row.buyer_profile_id,
+                    error=str(exc),
+                )
         # The money already moved on-chain, so the binding row is committed
         # first. Re-reading the bills is bookkeeping and stays best-effort: a
         # wobbly RPC must not cost us the record of a real settlement.

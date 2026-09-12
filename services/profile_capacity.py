@@ -13,6 +13,26 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import CapacityModel, IdentityRoleProfile, ProfileCapacityModel
+from services.chain import allowance_escrow as escrow
+
+
+async def master_ceiling_usdc(db: AsyncSession, *, identity_id: str) -> float:
+    """我到底压了多少钱在这张身份卡上（子身份额度分配的上限）。
+
+    v1 是把 USDC 真锁进 ``KarmaBilateral`` 合约，``capacity`` 台账因此有
+    ``total_locked_usdc``。v2 是非托管的：钱始终在用户自己钱包里，只给了托管
+    合约一份授权额度，所以上限就是**当前有效的 commit 之和**。两条路的共同点是
+    「钱包真实押上的责任」，子身份额度加起来永远不能超过它。
+    """
+    cap = await db.get(CapacityModel, identity_id)
+    locked = float(cap.total_locked_usdc or 0.0) if cap is not None else 0.0
+    if locked > 0.0:
+        return locked
+    commits = await escrow.list_commits(db, identity_id)
+    return round(
+        sum(float(c.amount_usdc or 0.0) for c in commits if c.state == escrow.IDLE),
+        6,
+    )
 
 
 def _in_use(row: ProfileCapacityModel) -> float:
@@ -50,13 +70,16 @@ async def allocate(
             raise HTTPException(400, f"negative allocation for {profile_id}")
         total += amount
 
-    cap = await db.get(CapacityModel, identity_id)
-    if not cap:
-        raise HTTPException(409, "no master capacity — lock USDC first")
-    if total > (cap.total_locked_usdc or 0.0) + 1e-9:
+    ceiling = await master_ceiling_usdc(db, identity_id=identity_id)
+    if ceiling <= 0.0:
         raise HTTPException(
             409,
-            f"total allocation {total} exceeds master locked {cap.total_locked_usdc}",
+            "no locked USDC — lock USDC first (v1 lock, or a v2 wallet commitment)",
+        )
+    if total > ceiling + 1e-9:
+        raise HTTPException(
+            409,
+            f"total allocation {total} exceeds locked {ceiling}",
         )
 
     out: list[dict] = []

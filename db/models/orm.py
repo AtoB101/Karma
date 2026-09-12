@@ -383,6 +383,7 @@ class EscrowBindingModel(Base):
     binding_id:        Mapped[str]        = mapped_column(String(80), primary_key=True)
     buyer_identity_id: Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
     seller_identity_id: Mapped[str|None]  = mapped_column(String(64), nullable=True, index=True)
+    buyer_profile_id:  Mapped[str|None]   = mapped_column(String(64), nullable=True, index=True)
     buyer_bill_id:     Mapped[str]        = mapped_column(String(80), nullable=False)
     seller_bill_id:    Mapped[str]        = mapped_column(String(80), nullable=False)
     scope_hash:        Mapped[str]        = mapped_column(String(80), nullable=False, default="")
