@@ -118,6 +118,9 @@
     if (/InsufficientAllowance/i.test(raw)) {
       return "授权额度不足：请在钱包里先确认第 1 步的「授权」，再点一次锁仓";
     }
+    if (/did not reach the Karma escrow|not sent to the Karma escrow/i.test(raw)) {
+      return "这笔交易没有真正落到 Karma 额度合约上，什么都没扣。请在钱包里切到 Sepolia 后重试；若连续出现，把交易哈希发给我们";
+    }
     if (/TokenNotAllowed/i.test(raw)) {
       return "这个代币合约没被额度合约允许，请联系我们处理（TokenNotAllowed）";
     }
