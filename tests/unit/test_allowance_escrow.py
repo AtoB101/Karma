@@ -315,6 +315,164 @@ def test_scope_and_proof_hashes_are_32_bytes():
         escrow.proof_hash("0x1234")
 
 
+# ------------------------------------------------------- operator nonce safety
+
+
+class _StubEth:
+    def __init__(self, nonces, chain_id=11155111, gas_price=1_000_000_000):
+        self._nonces = list(nonces)
+        self.chain_id = chain_id
+        self.gas_price = gas_price
+        self.sent = []
+
+    def get_transaction_count(self, address, tag="latest"):
+        if self._nonces:
+            return self._nonces.pop(0)
+        return 0
+
+
+class _StubW3:
+    def __init__(self, eth):
+        self.eth = eth
+
+
+class _StubAccount:
+    address = OPERATOR
+
+    def __init__(self, seen):
+        self._seen = seen
+
+    def sign_transaction(self, tx):
+        self._seen.append(tx["nonce"])
+
+        class _Signed:
+            raw_transaction = b"raw"
+
+        return _Signed()
+
+
+class _StubFn:
+    def build_transaction(self, overrides):
+        return dict(overrides)
+
+
+def test_operator_nonce_never_goes_backwards_when_the_rpc_lags(monkeypatch):
+    """The live failure: bind mined, the RPC still answered with the pre-bind
+    nonce, so submitSettlement was signed with a nonce that was already spent."""
+    monkeypatch.setattr(escrow, "_LAST_NONCE", {})
+    eth = _StubEth([17, 17])  # both "latest" and "pending" still say 17
+    assert escrow._reserve_nonce(_StubW3(eth), OPERATOR) == 17
+    # the node keeps lagging; the next signature must still move forward
+    assert escrow._reserve_nonce(_StubW3(_StubEth([17, 17])), OPERATOR) == 18
+
+
+def test_only_a_rejected_transaction_is_re_signed():
+    """A pending transaction must never be re-signed with a higher nonce, or the
+    operator pays twice."""
+    assert escrow._is_stale_nonce(Exception("nonce too low: next nonce 18, tx nonce 17"))
+    assert escrow._is_stale_nonce(Exception("nonce has already been used"))
+    assert not escrow._is_stale_nonce(Exception("already known"))
+    assert not escrow._is_stale_nonce(Exception("insufficient funds for gas * price + value"))
+
+
+def test_send_tx_re_signs_once_after_a_stale_nonce_rejection(monkeypatch):
+    eth = _StubEth([17, 17, 17, 17])
+
+    def send_raw(raw):
+        eth.sent.append(raw)
+        if len(eth.sent) == 1:
+            raise ValueError("nonce too low: next nonce 18, tx nonce 17")
+        return "0x" + "aa" * 32
+
+    eth.send_raw_transaction = send_raw
+
+    def wait(tx_hash, timeout=120):
+        class _Receipt:
+            transactionHash = "0x" + "aa" * 32
+            status = 1
+
+        return _Receipt()
+
+    eth.wait_for_transaction_receipt = wait
+    seen: list[int] = []
+    monkeypatch.setattr(escrow, "_web3", lambda: _StubW3(eth))
+    monkeypatch.setattr(escrow, "_operator_account", lambda: _StubAccount(seen))
+    monkeypatch.setattr(escrow, "_LAST_NONCE", {})
+
+    _receipt, tx_hash = escrow._send_tx(_StubFn())
+    assert len(eth.sent) == 2, "the rejected transaction must be re-signed exactly once"
+    assert seen == [17, 18], "the retry must use a fresh nonce, not the same one"
+    assert tx_hash == "0x" + "aa" * 32
+
+
+def test_a_failed_submit_releases_the_binding_instead_of_stranding_it(monkeypatch):
+    """bind landed + submit failed is exactly the orphan that had to be released
+    by hand on 2026-09-12. It must now clean up after itself."""
+    cancelled: list[dict] = []
+
+    def boom(**_kwargs):
+        raise WalletLockError("submit blew up")
+
+    monkeypatch.setattr(
+        escrow,
+        "open_order",
+        lambda **_kw: {"binding_id": 42, "bind_tx_hash": "0xbind", "scope_hash": "0x" + "11" * 32},
+    )
+    monkeypatch.setattr(escrow, "submit_settlement", boom)
+    monkeypatch.setattr(
+        escrow, "cancel_binding", lambda **kw: cancelled.append(kw) or {"binding_id": kw["binding_id"]}
+    )
+
+    with pytest.raises(WalletLockError):
+        escrow.open_and_submit_order(
+            buyer_bill_id="8",
+            seller_bill_id="9",
+            amount_usdc=30.0,
+            stake_usdc=9.0,
+            scope="s",
+            task_id="t",
+            proof="0x" + "ab" * 32,
+        )
+    assert cancelled == [{"binding_id": 42}]
+
+
+def test_open_and_submit_returns_one_merged_result(monkeypatch):
+    monkeypatch.setattr(
+        escrow,
+        "open_order",
+        lambda **_kw: {
+            "binding_id": 7,
+            "bind_tx_hash": "0xbind",
+            "scope_hash": "0x" + "22" * 32,
+            "amount_usdc": 30.0,
+            "stake_usdc": 9.0,
+        },
+    )
+    monkeypatch.setattr(
+        escrow,
+        "submit_settlement",
+        lambda **kw: {
+            "binding_id": kw["binding_id"],
+            "submit_tx_hash": "0xsubmit",
+            "proof_hash": "0x" + "33" * 32,
+            "pull_after": 123,
+        },
+    )
+    out = escrow.open_and_submit_order(
+        buyer_bill_id="a",
+        seller_bill_id="b",
+        amount_usdc=30.0,
+        stake_usdc=9.0,
+        scope="s",
+        task_id="t",
+        proof="0x" + "ab" * 32,
+    )
+    assert out["binding_id"] == 7
+    assert out["bind_tx_hash"] == "0xbind"
+    assert out["submit_tx_hash"] == "0xsubmit"
+    assert out["pull_after"] == 123
+
+
 # ------------------------------------------------------------------ api level
 
 

@@ -29,6 +29,8 @@ Security model (mirrors ``wallet_lock``)
 from __future__ import annotations
 
 import json
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -737,35 +739,96 @@ async def sync_commits(db: AsyncSession, identity_id: str) -> list[AllowanceComm
 # ----------------------------------------------------- server-side settlement
 
 
+# ------------------------------------------------------- operator nonce safety
+#
+# The operator signs two transactions back to back (bind, then submitSettlement).
+# A load-balanced public RPC can still report the pre-bind nonce a moment after
+# the bind receipt has been accepted, and the second transaction then died with
+# "nonce too low" — *after* the first one had already reserved the buyer's money
+# on-chain. These helpers make that impossible: a process-wide lock serialises
+# sends, and the nonce signed is max(chain, last-signed + 1), so a lagging RPC
+# can never hand back a stale one.
+_SEND_LOCK = threading.Lock()
+_LAST_NONCE: dict[str, int] = {}
+
+
+def _chain_nonce(w3: Any, address: str, tag: str) -> int:
+    try:
+        return int(w3.eth.get_transaction_count(address, tag))
+    except Exception:  # a flaky RPC must not stop us signing
+        return 0
+
+
+def _reserve_nonce(w3: Any, address: str) -> int:
+    """Next nonce this process may sign with, never going backwards."""
+    key = str(address).lower()
+    chain_nonce = max(_chain_nonce(w3, address, tag) for tag in ("latest", "pending"))
+    nonce = max(chain_nonce, _LAST_NONCE.get(key, -1) + 1)
+    _LAST_NONCE[key] = nonce
+    return nonce
+
+
+def _forget_nonce(address: str) -> None:
+    """Drop the cached nonce so the next send re-reads the chain (retry path)."""
+    _LAST_NONCE.pop(str(address).lower(), None)
+
+
+def _is_stale_nonce(exc: Exception) -> bool:
+    """True only when the node *rejected* the transaction outright.
+
+    "already known" is deliberately excluded: that transaction is already in the
+    mempool, so signing a second one with a higher nonce would pay twice.
+    """
+    text = str(exc).lower()
+    return "nonce too low" in text or "nonce has already been used" in text
+
+
 def _send_tx(fn, account=None):
     """Sign and send with Karma's own operational account, then wait for it."""
     w3 = _web3()
     account = account or _operator_account()
     chain_id = int(settings.testnet_chain_id or 0) or w3.eth.chain_id
-    overrides: dict[str, Any] = {
-        "from": account.address,
-        "nonce": w3.eth.get_transaction_count(account.address),
-        "chainId": chain_id,
-    }
     cap_wei = int(max(0.0, float(settings.settlement_max_gas_price_gwei or 0.0)) * 1e9)
-    if cap_wei:
-        try:
-            quoted = int(w3.eth.gas_price or 0)
-        except Exception:  # a flaky RPC must never block a settlement
-            quoted = 0
-        # Never bid above the ceiling: the operator account is small on purpose.
-        if not quoted or quoted > cap_wei:
-            overrides["maxFeePerGas"] = cap_wei
-            overrides["maxPriorityFeePerGas"] = min(cap_wei, 300_000_000)
-    tx = fn.build_transaction(overrides)
-    signed = account.sign_transaction(tx)
-    raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
-    tx_hash = w3.eth.send_raw_transaction(raw)
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-    hx = _hexstr(getattr(receipt, "transactionHash", tx_hash))
-    if not hx.startswith("0x"):
-        hx = "0x" + hx
-    return receipt, hx
+
+    last_error: Exception | None = None
+    with _SEND_LOCK:  # nonce read + broadcast is one critical section
+        for attempt in (1, 2):
+            overrides: dict[str, Any] = {
+                "from": account.address,
+                "nonce": _reserve_nonce(w3, account.address),
+                "chainId": chain_id,
+            }
+            if cap_wei:
+                try:
+                    quoted = int(w3.eth.gas_price or 0)
+                except Exception:  # a flaky RPC must never block a settlement
+                    quoted = 0
+                # Never bid above the ceiling: the operator account is small on purpose.
+                if not quoted or quoted > cap_wei:
+                    overrides["maxFeePerGas"] = cap_wei
+                    overrides["maxPriorityFeePerGas"] = min(cap_wei, 300_000_000)
+            tx = fn.build_transaction(overrides)
+            signed = account.sign_transaction(tx)
+            raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
+            try:
+                tx_hash = w3.eth.send_raw_transaction(raw)
+            except Exception as exc:
+                last_error = exc
+                if attempt == 1 and _is_stale_nonce(exc):
+                    # Do NOT drop the reservation here: _reserve_nonce then hands
+                    # out last_signed + 1, so the retry cannot repeat the nonce the
+                    # node just rejected. Forgetting it would read the same lagging
+                    # chain nonce back and fail in exactly the same way.
+                    time.sleep(0.5)
+                    continue
+                _forget_nonce(account.address)
+                raise
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            hx = _hexstr(getattr(receipt, "transactionHash", tx_hash))
+            if not hx.startswith("0x"):
+                hx = "0x" + hx
+            return receipt, hx
+    raise WalletLockError(f"could not send the settlement transaction: {last_error}")
 
 
 def scope_hash(scope: str, task_id: str) -> str:
@@ -879,3 +942,44 @@ def cancel_binding(*, binding_id: int) -> dict[str, Any]:
     contract = _contract(w3)
     receipt, tx = _send_tx(contract.functions.cancelBinding(int(binding_id)))
     return {"binding_id": int(binding_id), "cancel_tx_hash": tx, "status": int(_field(receipt, "status", 1) or 1)}
+
+
+def open_and_submit_order(
+    *,
+    buyer_bill_id: str,
+    seller_bill_id: str,
+    amount_usdc: float,
+    stake_usdc: float,
+    scope: str,
+    task_id: str,
+    proof: str,
+) -> dict[str, Any]:
+    """``bind`` then ``submitSettlement``, releasing the reservation if submit fails.
+
+    A bind that lands followed by a submit that does not would leave the buyer's
+    allowance reserved with nothing pointing at it — the orphan we previously had
+    to release by hand. Cancelling on failure keeps chain and database in step.
+    """
+    bound = open_order(
+        buyer_bill_id=buyer_bill_id,
+        seller_bill_id=seller_bill_id,
+        amount_usdc=amount_usdc,
+        stake_usdc=stake_usdc,
+        scope=scope,
+        task_id=task_id,
+    )
+    binding_id = int(bound["binding_id"])
+    try:
+        submitted = submit_settlement(binding_id=binding_id, proof=proof)
+    except Exception:
+        try:
+            cancel_binding(binding_id=binding_id)
+            logger.warning("escrow_bind_rolled_back", binding_id=binding_id)
+        except Exception as cancel_exc:  # nothing else we can do; make it loud
+            logger.error(
+                "escrow_bind_orphaned",
+                binding_id=binding_id,
+                cancel_error=str(cancel_exc),
+            )
+        raise
+    return {**bound, **submitted, "binding_id": binding_id}
