@@ -133,6 +133,30 @@ def test_parse_revoke_reads_the_bill():
     assert event.unspent_wei == 5_000_000
 
 
+def test_parse_commit_accepts_the_hexbytes_web3_actually_returns():
+    """web3 hands back HexBytes, not str — the first live claim 500'd on this."""
+    receipt = commit_receipt(bill_id=12, amount_wei=7_000_000)
+    for log in receipt["logs"]:
+        log["topics"] = [bytes.fromhex(t[2:]) for t in log["topics"]]
+        log["data"] = bytes.fromhex(log["data"][2:])
+    receipt["transactionHash"] = bytes.fromhex(receipt["transactionHash"][2:])
+    event = escrow.parse_commit_receipt(receipt)
+    assert event.bill_id == 12
+    assert event.amount_wei == 7_000_000
+    assert event.owner == WALLET
+    assert event.token_address.lower() == TOKEN
+
+
+def test_parse_revoke_accepts_hexbytes_too():
+    receipt = revoke_receipt(bill_id=13)
+    for log in receipt["logs"]:
+        log["topics"] = [bytes.fromhex(t[2:]) for t in log["topics"]]
+        log["data"] = bytes.fromhex(log["data"][2:])
+    event = escrow.parse_revoke_receipt(receipt)
+    assert event.bill_id == 13
+    assert event.owner == WALLET
+
+
 def test_reverted_receipt_is_refused():
     with pytest.raises(WalletLockError):
         escrow._assert_receipt_ok(commit_receipt(status=0))
