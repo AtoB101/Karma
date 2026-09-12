@@ -332,12 +332,13 @@ def _topic(sig: str) -> str:
     return "0x" + keccak(text=sig).hex()
 
 
-def _topic_int(topic: str) -> int:
-    return _hex_int(topic)
+def _topic_int(topic: Any) -> int:
+    # web3 hands back HexBytes, not str: normalise before parsing.
+    return _hex_int(_hexstr(topic))
 
 
-def _topic_word_addr(topic: str) -> str:
-    return _topic_address(topic)
+def _topic_word_addr(topic: Any) -> str:
+    return _topic_address(_hexstr(topic))
 
 
 def _data_words(data: str) -> list[str]:
