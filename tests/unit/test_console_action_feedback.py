@@ -57,3 +57,18 @@ def test_overview_numbers_follow_the_v2_allowance():
     assert "committed_usdc" in block
     assert "Math.max(locked, committed)" in block, "台账和链上授权取大者，别被台账骗到"
     assert '["[data-bind=total_locked_usdc]", locked]' in block
+
+
+def test_overview_refreshes_itself_after_connecting():
+    """实测：连上钱包后总览还是 0.00，非得手点一次「刷新额度」才变。
+
+    必须挂在这两个事件上；不能挂 karma-capacity-changed（那是 refreshCapacity
+    自己派发的，会绕成死循环）。
+    """
+    js = CONSOLE_JS.read_text(encoding="utf-8")
+    start = js.index('"karma-agent-connected"')
+    end = js.index('["karma-wallet-connected", "karma-session-restored"]')
+    assert "refreshCapacity()" not in js[start:end], (
+        "含 karma-capacity-changed 的那组监听里不能刷额度 —— 那个事件就是它自己派发的，会死循环"
+    )
+    assert "refreshCapacity()" in js[end : end + 400]

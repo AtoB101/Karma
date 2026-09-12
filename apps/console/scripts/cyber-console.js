@@ -1008,6 +1008,16 @@
     });
   });
 
+  /* 连上钱包（或恢复会话）之后，总览那几个数字要自己长出来 ——
+     不能让用户先手点一次「刷新额度」才知道自己锁了多少。
+     注意不能挂在 karma-capacity-changed 上：那个事件是 refreshCapacity 自己
+     派发的，挂上去会绕成死循环。 */
+  ["karma-wallet-connected", "karma-session-restored"].forEach(function (name) {
+    document.addEventListener(name, function () {
+      refreshCapacity().catch(function () {});
+    });
+  });
+
   // 账单页才需要链上明细；切过去时刷新一次，避免总览页多发请求。
   document.addEventListener("karma-page-shown", function (ev) {
     if (ev && ev.detail && ev.detail.page === "bills") {
