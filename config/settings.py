@@ -224,6 +224,16 @@ class Settings(BaseSettings):
     # Challenge window (seconds) the console advertises for new commitments.
     allowance_escrow_dispute_window: int = 120
 
+    # Automatic settlement: verify, then the money moves, without anybody
+    # pressing a button. On-chain the pull is permissionless once the challenge
+    # window has elapsed, so the only missing piece is a caller. With this on,
+    # the API process walks the due bindings and executes them itself using the
+    # operator key above (no user token, no user key). Off is the safe default
+    # for any process that must never move money on its own.
+    escrow_autosettle_enabled: bool = False
+    escrow_autosettle_interval_seconds: int = 15
+    escrow_autosettle_batch: int = 5
+
     # Payee (worker agent wallet on-chain)
     payee_address: str = ""
 

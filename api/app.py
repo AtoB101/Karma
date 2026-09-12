@@ -3,9 +3,10 @@ Karma Public API — FastAPI Application
 """
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -128,7 +129,19 @@ async def lifespan(app: FastAPI):
         logger.info("bot_commands_registered", ok=result.get("ok"))
     except Exception as exc:
         logger.warning("bot_commands_setup_failed", error=str(exc))
+    # The promise is "lock once, verify, and the money moves". On-chain the pull
+    # is permissionless once the challenge window has elapsed, so the only
+    # missing piece is a caller. With auto-settlement on, this process is it.
+    autosettle_task: asyncio.Task | None = None
+    if settings.escrow_autosettle_enabled:
+        from services.chain import escrow_autosettle
+
+        autosettle_task = asyncio.create_task(escrow_autosettle.run_forever())
     yield
+    if autosettle_task is not None:
+        autosettle_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await autosettle_task
     logger.info("karma_api_shutdown")
 
 
