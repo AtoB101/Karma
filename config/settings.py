@@ -151,9 +151,12 @@ class Settings(BaseSettings):
     #   hybrid   — off-chain receipts/verification, on-chain payment + hash
     settlement_mode: str = "offchain"
 
-    # Default seller penalty stake (bps) when locking on-chain at acceptance
-    # (seller locks escrow_amount * penalty_bps / 10000 as collateral).
-    settlement_default_penalty_bps: int = 1000
+    # Default seller penalty stake (bps) when locking on-chain at acceptance.
+    # Rule: the seller stakes 30% of the order value on every accepted order
+    # (cumulative — each accepted order locks its own bill), and may lock more at
+    # any time to raise its own credibility. The stake is locked automatically on
+    # acceptance so sellers never have to post margin by hand.
+    settlement_default_penalty_bps: int = 3000
 
     # Token decimals for on-chain settlement (USDC = 6). Off-chain escrow is in
     # USD float; the on-chain boundary converts USD -> wei via 10**decimals.
@@ -184,6 +187,15 @@ class Settings(BaseSettings):
 
     # ERC-20 token for settlement
     erc20_token_address: str = ""
+
+    # Block explorer used by the Console to link a lock/withdraw transaction.
+    chain_explorer_url: str = "https://sepolia.etherscan.io"
+
+    # Console deposits: when true (and the two addresses + RPC above are set),
+    # 「增加锁仓额度」 asks the user's wallet to sign approve + lock on-chain and
+    # the ledger is credited from the receipt. Deliberately independent of
+    # SETTLEMENT_MODE so turning on real deposits cannot change how orders settle.
+    chain_wallet_lock_enabled: bool = False
 
     # Payee (worker agent wallet on-chain)
     payee_address: str = ""

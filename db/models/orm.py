@@ -310,6 +310,32 @@ class ProfileCapacityModel(Base):
     updated_at:                   Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ChainLockModel(Base):
+    """One on-chain ``KarmaBilateral.lock()`` receipt, credited 1:1 to an identity.
+
+    This table is the only record of real USDC sitting in the contract, and the
+    ``capacity`` ledger is credited from these rows — so available credits can
+    never exceed the USDC a wallet actually deposited. ``bill_id`` /
+    ``lock_tx_hash`` are unique, which makes replaying a transaction a no-op.
+    """
+    __tablename__ = "chain_locks"
+
+    bill_id:          Mapped[str]      = mapped_column(String(80), primary_key=True)
+    identity_id:      Mapped[str]      = mapped_column(String(64), nullable=False, index=True)
+    wallet_address:   Mapped[str]      = mapped_column(String(64), nullable=False, index=True)
+    chain_id:         Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
+    contract_address: Mapped[str]      = mapped_column(String(64), nullable=False, default="")
+    token_address:    Mapped[str]      = mapped_column(String(64), nullable=False, default="")
+    amount_wei:       Mapped[str]      = mapped_column(String(80), nullable=False, default="0")
+    amount_usdc:      Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    lock_tx_hash:     Mapped[str]      = mapped_column(String(80), nullable=False, unique=True)
+    block_number:     Mapped[int|None] = mapped_column(Integer, nullable=True)
+    state:            Mapped[str]      = mapped_column(String(16), nullable=False, default="locked")
+    unlock_tx_hash:   Mapped[str|None] = mapped_column(String(80), nullable=True)
+    created_at:       Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:       Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class VoucherModel(Base):
     __tablename__ = "vouchers"
 
