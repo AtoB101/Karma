@@ -59,14 +59,63 @@ CLOSED = "closed"
 
 _ZERO = "0x0000000000000000000000000000000000000000"
 
-EVENTS = [
-    "BillCommitted(uint256,address,address,address,uint256)",
-    "BillRevoked(uint256,address,uint256)",
-    "BillsBound(uint256,uint256,uint256,bytes32,uint256,uint256)",
-    "SettleSubmitted(uint256,bytes32,uint256)",
-    "Settled(uint256,address,address,address,uint256)",
-    "StakeSlashed(uint256,address,address,address,uint256)",
-]
+# Every event Karma reads, with its real field names: the ABI below is derived
+# from this one table, so a name/signature mismatch is impossible.
+EVENT_FIELDS: dict[str, list[tuple[str, str, bool]]] = {
+    "BillCommitted": [
+        ("billId", "uint256", True),
+        ("owner", "address", True),
+        ("operator", "address", True),
+        ("token", "address", False),
+        ("amount", "uint256", False),
+    ],
+    "BillRevoked": [
+        ("billId", "uint256", True),
+        ("owner", "address", True),
+        ("unspent", "uint256", False),
+    ],
+    "BillsBound": [
+        ("bindingId", "uint256", True),
+        ("buyerBillId", "uint256", False),
+        ("sellerBillId", "uint256", False),
+        ("scopeHash", "bytes32", False),
+        ("amount", "uint256", False),
+        ("stakeAmount", "uint256", False),
+    ],
+    "SettleSubmitted": [
+        ("bindingId", "uint256", True),
+        ("proofHash", "bytes32", False),
+        ("pullAfter", "uint256", False),
+    ],
+    "Settled": [
+        ("bindingId", "uint256", True),
+        ("from", "address", False),
+        ("to", "address", False),
+        ("token", "address", False),
+        ("amount", "uint256", False),
+    ],
+    "StakeSlashed": [
+        ("bindingId", "uint256", True),
+        ("from", "address", False),
+        ("to", "address", False),
+        ("token", "address", False),
+        ("amount", "uint256", False),
+    ],
+}
+
+
+def event_signature(name: str) -> str:
+    return name + "(" + ",".join(typ for _, typ, _ in EVENT_FIELDS[name]) + ")"
+
+
+EVENTS = [event_signature(name) for name in EVENT_FIELDS]
+
+COMMITTED_SIG = event_signature("BillCommitted")
+REVOKED_SIG = event_signature("BillRevoked")
+BOUND_SIG = event_signature("BillsBound")
+SUBMITTED_SIG = event_signature("SettleSubmitted")
+SETTLED_SIG = event_signature("Settled")
+SLASHED_SIG = event_signature("StakeSlashed")
 
 _ABI_FUNCTIONS = [
     {
@@ -125,6 +174,37 @@ _ABI_FUNCTIONS = [
         "outputs": [{"name": "slashed", "type": "uint256"}],
     },
     {
+        "name": "cancelBinding",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
+        "name": "getBinding",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple",
+                "components": [
+                    {"name": "bindingId", "type": "uint256"},
+                    {"name": "buyerBillId", "type": "uint256"},
+                    {"name": "sellerBillId", "type": "uint256"},
+                    {"name": "scopeHash", "type": "bytes32"},
+                    {"name": "amount", "type": "uint256"},
+                    {"name": "stakeAmount", "type": "uint256"},
+                    {"name": "state", "type": "uint8"},
+                    {"name": "createdAt", "type": "uint256"},
+                    {"name": "settleAfter", "type": "uint256"},
+                    {"name": "proofHash", "type": "bytes32"},
+                    {"name": "closedAt", "type": "uint256"},
+                ],
+            }
+        ],
+    },    {
         "name": "getBill",
         "type": "function",
         "stateMutability": "view",
@@ -162,6 +242,13 @@ _ABI_FUNCTIONS = [
         "outputs": [{"name": "", "type": "bool"}],
     },
     {
+        "name": "checkNoCustody",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "token", "type": "address"}],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
         "name": "disputeWindowSeconds",
         "type": "function",
         "stateMutability": "view",
@@ -175,41 +262,18 @@ BILL_STATE = {0: "none", 1: "open", 2: "closed"}
 BINDING_STATE = {0: "none", 1: "active", 2: "finalizing", 3: "settled", 4: "slashed", 5: "cancelled"}
 
 
-def _event_inputs(sig: str) -> list[dict[str, Any]]:
-    """Turn ``Name(uint256,address)`` into ABI inputs (all non-indexed).
-
-    ``process_receipt`` needs the *indexed* flags to match the contract exactly,
-    so the two indexed layouts we actually use are patched in ``EVENT_INDEXED``.
-    """
-    name, rest = sig.split("(")
-    types = rest.rstrip(")").split(",")
-    indexed = EVENT_INDEXED.get(name, set())
-    params = []
-    for i, typ in enumerate(types):
-        params.append({"name": f"arg{i}", "type": typ, "indexed": i in indexed})
-    return params
-
-
-# Which positional args the contract declares as `indexed`.
-EVENT_INDEXED: dict[str, set[int]] = {
-    "BillCommitted": {0, 1, 2},   # billId, owner, operator
-    "BillRevoked": {0, 1},        # billId, owner
-    "BillsBound": {0},            # bindingId
-    "SettleSubmitted": {0},       # bindingId
-    "Settled": {0},               # bindingId
-    "StakeSlashed": {0},          # bindingId
-}
-
 _ABI_EVENTS = [
     {
-        "name": sig.split("(")[0],
+        "name": name,
         "type": "event",
         "anonymous": False,
-        "inputs": _event_inputs(sig),
+        "inputs": [
+            {"name": field, "type": typ, "indexed": indexed}
+            for field, typ, indexed in fields
+        ],
     }
-    for sig in EVENTS
+    for name, fields in EVENT_FIELDS.items()
 ]
-
 ABI = _ABI_FUNCTIONS + _ABI_EVENTS
 ABI_JSON = json.dumps(ABI)
 
@@ -358,7 +422,7 @@ def parse_commit_receipt(receipt: Any) -> CommitEvent:
     Decoded from raw topics/data on purpose: no RPC round-trip, so the
     "amount comes from the event, not the request body" rule is unit-testable.
     """
-    want = _topic(EVENTS[0])
+    want = _topic(COMMITTED_SIG)
     for log in _field(receipt, "logs", []) or []:
         topics = list(_field(log, "topics", []) or [])
         if not topics or _hexstr(topics[0]).lower() != want:
@@ -383,7 +447,7 @@ def parse_commit_receipt(receipt: Any) -> CommitEvent:
 
 
 def parse_revoke_receipt(receipt: Any) -> RevokeEvent:
-    want = _topic(EVENTS[1])
+    want = _topic(REVOKED_SIG)
     for log in _field(receipt, "logs", []) or []:
         topics = list(_field(log, "topics", []) or [])
         if not topics or _hexstr(topics[0]).lower() != want:
@@ -398,6 +462,88 @@ def parse_revoke_receipt(receipt: Any) -> RevokeEvent:
             tx_hash=_hexstr(_field(receipt, "transactionHash", "")),
         )
     raise WalletLockError("no BillRevoked event found in this transaction")
+
+def _logs_matching(receipt: Any, signature: str) -> list[Any]:
+    want = _topic(signature)
+    out = []
+    for log in _field(receipt, "logs", []) or []:
+        topics = list(_field(log, "topics", []) or [])
+        if topics and _hexstr(topics[0]).lower() == want:
+            out.append(log)
+    return out
+
+
+def _words_of(log: Any) -> list[str]:
+    return _data_words(_field(log, "data", "0x"))
+
+
+def parse_bills_bound(receipt: Any) -> dict[str, Any]:
+    """Read ``BillsBound`` without trusting ABI field names.
+
+    The first version of ``open_order`` indexed ``args["bindingId"]`` and the
+    ABI's auto-generated names made that a KeyError *after* the bind transaction
+    had already landed — leaving an on-chain reservation with no local record.
+    Decoding raw words means the transaction and the record can never diverge.
+    """
+    logs = _logs_matching(receipt, BOUND_SIG)
+    if not logs:
+        raise WalletLockError("bind() did not emit BillsBound — nothing was bound")
+    log = logs[0]
+    topics = list(_field(log, "topics", []) or [])
+    words = _words_of(log)
+    if len(words) < 5:
+        raise WalletLockError("BillsBound log is malformed")
+    return {
+        "binding_id": _topic_int(topics[1]),
+        "buyer_bill_id": _word_to_int(words[0]),
+        "seller_bill_id": _word_to_int(words[1]),
+        "scope_hash": "0x" + words[2],
+        "amount_wei": _word_to_int(words[3]),
+        "stake_wei": _word_to_int(words[4]),
+    }
+
+
+def parse_settle_submitted(receipt: Any) -> dict[str, Any]:
+    logs = _logs_matching(receipt, SUBMITTED_SIG)
+    if not logs:
+        raise WalletLockError("submitSettlement() did not emit SettleSubmitted")
+    topics = list(_field(logs[0], "topics", []) or [])
+    words = _words_of(logs[0])
+    return {
+        "binding_id": _topic_int(topics[1]),
+        "proof_hash": "0x" + (words[0] if words else ""),
+        "pull_after": _word_to_int(words[1]) if len(words) > 1 else 0,
+    }
+
+
+def parse_settled(receipt: Any) -> dict[str, Any]:
+    logs = _logs_matching(receipt, SETTLED_SIG)
+    if not logs:
+        raise WalletLockError("finalizeSettlement() did not emit Settled")
+    topics = list(_field(logs[0], "topics", []) or [])
+    words = _words_of(logs[0])
+    return {
+        "binding_id": _topic_int(topics[1]),
+        "from": "0x" + words[0][-40:].lower(),
+        "to": "0x" + words[1][-40:].lower(),
+        "token": "0x" + words[2][-40:].lower(),
+        "amount_wei": _word_to_int(words[3]),
+    }
+
+
+def parse_slashed(receipt: Any) -> dict[str, Any]:
+    logs = _logs_matching(receipt, SLASHED_SIG)
+    if not logs:
+        raise WalletLockError("finalizeBreach() did not emit StakeSlashed")
+    topics = list(_field(logs[0], "topics", []) or [])
+    words = _words_of(logs[0])
+    return {
+        "binding_id": _topic_int(topics[1]),
+        "from": "0x" + words[0][-40:].lower(),
+        "to": "0x" + words[1][-40:].lower(),
+        "token": "0x" + words[2][-40:].lower(),
+        "amount_wei": _word_to_int(words[3]),
+    }
 
 def _assert_receipt_ok(receipt: Any) -> None:
     status = _field(receipt, "status")
@@ -596,13 +742,22 @@ def _send_tx(fn, account=None):
     w3 = _web3()
     account = account or _operator_account()
     chain_id = int(settings.testnet_chain_id or 0) or w3.eth.chain_id
-    tx = fn.build_transaction(
-        {
-            "from": account.address,
-            "nonce": w3.eth.get_transaction_count(account.address),
-            "chainId": chain_id,
-        }
-    )
+    overrides: dict[str, Any] = {
+        "from": account.address,
+        "nonce": w3.eth.get_transaction_count(account.address),
+        "chainId": chain_id,
+    }
+    cap_wei = int(max(0.0, float(settings.settlement_max_gas_price_gwei or 0.0)) * 1e9)
+    if cap_wei:
+        try:
+            quoted = int(w3.eth.gas_price or 0)
+        except Exception:  # a flaky RPC must never block a settlement
+            quoted = 0
+        # Never bid above the ceiling: the operator account is small on purpose.
+        if not quoted or quoted > cap_wei:
+            overrides["maxFeePerGas"] = cap_wei
+            overrides["maxPriorityFeePerGas"] = min(cap_wei, 300_000_000)
+    tx = fn.build_transaction(overrides)
     signed = account.sign_transaction(tx)
     raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
     tx_hash = w3.eth.send_raw_transaction(raw)
@@ -667,10 +822,8 @@ def open_order(
             stake_wei,
         )
     )
-    events = contract.events.BillsBound().process_receipt(receipt)
-    if not events:
-        raise WalletLockError("bind() did not emit BillsBound — nothing was bound")
-    binding_id = int(events[0]["args"]["bindingId"])
+    bound = parse_bills_bound(receipt)
+    binding_id = int(bound["binding_id"])
     return {
         "binding_id": binding_id,
         "bind_tx_hash": bind_tx,
@@ -688,8 +841,7 @@ def submit_settlement(*, binding_id: int, proof: str) -> dict[str, Any]:
     contract = _contract(w3)
     digest = proof_hash(proof)
     receipt, tx = _send_tx(contract.functions.submitSettlement(int(binding_id), digest))
-    events = contract.events.SettleSubmitted().process_receipt(receipt)
-    pull_after = int(events[0]["args"]["pullAfter"]) if events else 0
+    pull_after = int(parse_settle_submitted(receipt)["pull_after"])
     return {"binding_id": int(binding_id), "submit_tx_hash": tx, "proof_hash": digest, "pull_after": pull_after}
 
 
@@ -700,8 +852,7 @@ def finalize_settlement(*, binding_id: int) -> dict[str, Any]:
     w3 = _web3()
     contract = _contract(w3)
     receipt, tx = _send_tx(contract.functions.finalizeSettlement(int(binding_id)))
-    events = contract.events.Settled().process_receipt(receipt)
-    paid_usdc = wei_to_usdc(int(events[0]["args"]["amount"])) if events else 0.0
+    paid_usdc = wei_to_usdc(int(parse_settled(receipt)["amount_wei"]))
     return {"binding_id": int(binding_id), "finalize_tx_hash": tx, "paid_usdc": paid_usdc}
 
 
@@ -712,6 +863,19 @@ def finalize_breach(*, binding_id: int) -> dict[str, Any]:
     w3 = _web3()
     contract = _contract(w3)
     receipt, tx = _send_tx(contract.functions.finalizeBreach(int(binding_id)))
-    events = contract.events.StakeSlashed().process_receipt(receipt)
-    slashed_usdc = wei_to_usdc(int(events[0]["args"]["amount"])) if events else 0.0
+    slashed_usdc = wei_to_usdc(int(parse_slashed(receipt)["amount_wei"]))
     return {"binding_id": int(binding_id), "breach_tx_hash": tx, "slashed_usdc": slashed_usdc}
+
+
+def cancel_binding(*, binding_id: int) -> dict[str, Any]:
+    """Release an orphaned reservation (e.g. a bind whose caller died).
+
+    Any party — or their operator — may cancel while nothing has been submitted,
+    so a reservation can never be stranded by a crashed process.
+    """
+    if not escrow_enabled():
+        raise WalletLockError(disabled_detail())
+    w3 = _web3()
+    contract = _contract(w3)
+    receipt, tx = _send_tx(contract.functions.cancelBinding(int(binding_id)))
+    return {"binding_id": int(binding_id), "cancel_tx_hash": tx, "status": int(_field(receipt, "status", 1) or 1)}

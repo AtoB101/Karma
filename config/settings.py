@@ -216,6 +216,11 @@ class Settings(BaseSettings):
     settlement_operator_address: str = ""
     settlement_operator_private_key: str = ""
 
+    # Ceiling (gwei) Karma's own settlement account will ever pay for gas. A wild
+    # fee spike must never make an automatic settlement uneconomic or drain the
+    # operator account; 0 disables the cap.
+    settlement_max_gas_price_gwei: float = 5.0
+
     # Challenge window (seconds) the console advertises for new commitments.
     allowance_escrow_dispute_window: int = 120
 

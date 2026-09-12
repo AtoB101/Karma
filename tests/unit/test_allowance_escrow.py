@@ -157,6 +157,96 @@ def test_parse_revoke_accepts_hexbytes_too():
     assert event.owner == WALLET
 
 
+def _topic_hex(signature: str) -> str:
+    return "0x" + keccak(text=signature).hex()
+
+
+def test_bills_bound_is_decoded_by_word_position_not_by_abi_name():
+    """The live 500 came from reading args["bindingId"] — decode raw words instead."""
+    receipt = {
+        "transactionHash": "0x" + "12" * 32,
+        "to": CONTRACT,
+        "status": 1,
+        "logs": [
+            {
+                "address": CONTRACT,
+                "topics": [bytes.fromhex(_topic_hex(escrow.BOUND_SIG)[2:]), bytes.fromhex(_word(21)[2:])],
+                "data": bytes.fromhex(
+                    (
+                        _word(6) + _word(7) + _word(0xAB) + _word(30_000_000) + _word(9_000_000)
+                    )
+                ),
+            }
+        ],
+    }
+    bound = escrow.parse_bills_bound(receipt)
+    assert bound["binding_id"] == 21
+    assert bound["buyer_bill_id"] == 6
+    assert bound["seller_bill_id"] == 7
+    assert bound["scope_hash"] == "0x" + _word(0xAB)
+    assert bound["amount_wei"] == 30_000_000
+    assert bound["stake_wei"] == 9_000_000
+
+
+def test_settled_and_slashed_decode_the_moved_amount():
+    receipt = {
+        "transactionHash": "0x" + "13" * 32,
+        "status": 1,
+        "logs": [
+            {
+                "address": CONTRACT,
+                "topics": [_topic_hex(escrow.SETTLED_SIG), "0x" + _word(21)],
+                "data": "0x"
+                + _addr_word(WALLET)
+                + _addr_word("0x" + "aa" * 20)
+                + _addr_word(TOKEN)
+                + _word(30_000_000),
+            }
+        ],
+    }
+    settled = escrow.parse_settled(receipt)
+    assert settled["binding_id"] == 21
+    assert settled["from"] == WALLET
+    assert settled["token"].lower() == TOKEN
+    assert settled["amount_wei"] == 30_000_000
+
+    slash = {
+        "transactionHash": "0x" + "14" * 32,
+        "status": 1,
+        "logs": [
+            {
+                "address": CONTRACT,
+                "topics": [_topic_hex(escrow.SLASHED_SIG), "0x" + _word(22)],
+                "data": "0x"
+                + _addr_word("0x" + "bb" * 20)
+                + _addr_word(WALLET)
+                + _addr_word(TOKEN)
+                + _word(9_000_000),
+            }
+        ],
+    }
+    slashed = escrow.parse_slashed(slash)
+    assert slashed["binding_id"] == 22
+    assert slashed["to"] == WALLET
+    assert slashed["amount_wei"] == 9_000_000
+
+
+def test_abi_event_field_names_are_the_real_ones():
+    """An auto-generated `arg0` name is what made a live bind crash after landing."""
+    events = {e["name"]: [i["name"] for i in e["inputs"]] for e in escrow.ABI if e.get("type") == "event"}
+    assert events["BillsBound"] == [
+        "bindingId",
+        "buyerBillId",
+        "sellerBillId",
+        "scopeHash",
+        "amount",
+        "stakeAmount",
+    ]
+    assert events["Settled"] == ["bindingId", "from", "to", "token", "amount"]
+    assert events["StakeSlashed"] == ["bindingId", "from", "to", "token", "amount"]
+    assert events["BillCommitted"] == ["billId", "owner", "operator", "token", "amount"]
+
+
 def test_reverted_receipt_is_refused():
     with pytest.raises(WalletLockError):
         escrow._assert_receipt_ok(commit_receipt(status=0))
@@ -195,6 +285,26 @@ def test_escrow_config_reports_missing_env(monkeypatch):
     assert escrow.can_server_settle() is False
     monkeypatch.setattr(settings, "settlement_operator_private_key", "0x" + "11" * 32)
     assert escrow.can_server_settle() is True
+
+
+def test_operator_gas_is_capped(monkeypatch):
+    """A fee spike must never make an automatic settlement drain the operator."""
+    assert settings.settlement_max_gas_price_gwei > 0
+    source = (ROOT / "services/chain/allowance_escrow.py").read_text(encoding="utf-8")
+    assert "settlement_max_gas_price_gwei" in source
+    assert "maxFeePerGas" in source
+    monkeypatch.setattr(settings, "settlement_max_gas_price_gwei", 0.0)
+    assert float(settings.settlement_max_gas_price_gwei) == 0.0
+
+
+def test_orphaned_reservation_can_be_released():
+    """A bind whose caller died must be recoverable, not stranded forever."""
+    source = (ROOT / "services/chain/allowance_escrow.py").read_text(encoding="utf-8")
+    assert "def cancel_binding(" in source
+    events = {e["name"] for e in escrow.ABI if e.get("type") == "event"}
+    functions = {f["name"] for f in escrow.ABI if f.get("type") == "function"}
+    assert {"cancelBinding", "getBinding", "checkNoCustody"} <= functions
+    assert "BillsBound" in events
 
 
 def test_scope_and_proof_hashes_are_32_bytes():
