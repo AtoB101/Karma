@@ -53,6 +53,9 @@ async def _armed(db_session, monkeypatch):
     monkeypatch.setattr(autosettle.escrow, "escrow_enabled", lambda: True)
     monkeypatch.setattr(autosettle.escrow, "can_server_settle", lambda: True)
     monkeypatch.setattr(autosettle.escrow, "sync_commits", _noop_sync)
+    # 默认「链上读不到」：对账只在真的读到已落定状态时才改写台账，
+    # 各用例要测对账就自己覆盖它。
+    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: None)
     yield
     autosettle.reset_backoff()
     await db_session.execute(delete(EscrowBindingModel))
@@ -206,6 +209,84 @@ async def test_settling_a_sub_identity_order_clears_its_quota(db_session, monkey
     assert pc.in_progress_credits == 0.0
     assert pc.released_credits == 30.0
     assert pc.available_credits == 20.0
+
+    await db_session.delete(pc)
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_transaction_that_landed_late_is_recorded_not_retried(
+    db_session, monkeypatch
+):
+    """回执等待超时 != 交易失败。
+
+    我们停止等待的那笔交易可以随后上链。旧代码把这当失败：钱已经 wallet→wallet
+    划走，绑定行却永远停在 finalizing，它占的子身份额度也永远不释放。链说了算。
+    """
+    from db.models.orm import ProfileCapacityModel
+
+    sent: list[int] = []
+    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: 3)
+    monkeypatch.setattr(
+        autosettle.escrow, "finalize_settlement", lambda *, binding_id: sent.append(binding_id)
+    )
+    db_session.add(
+        ProfileCapacityModel(
+            profile_id="prof-late",
+            owner_identity_id="kid_buyer",
+            allocated_credits=30.0,
+            available_credits=0.0,
+            in_progress_credits=30.0,
+        )
+    )
+    row = binding("30", pull_after=int(time.time()) - 1)
+    row.buyer_profile_id = "prof-late"
+    row.finalize_tx_hash = "0xlate"
+    db_session.add(row)
+    await db_session.commit()
+
+    settled = await autosettle.settle_due(db_session)
+
+    assert sent == [], "链上已经结算，不该再花 gas 重发一次"
+    assert settled[0]["binding_id"] == "30"
+    fresh = await db_session.get(EscrowBindingModel, "30")
+    assert fresh.state == "settled"
+    pc = await db_session.get(ProfileCapacityModel, "prof-late")
+    assert pc.in_progress_credits == 0.0
+    assert pc.released_credits == 30.0
+
+    await db_session.delete(pc)
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_binding_gives_the_quota_back(db_session, monkeypatch):
+    """链上被取消 = 钱没动，额度该退回可用，而不是记成已结算。"""
+    from db.models.orm import ProfileCapacityModel
+
+    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: 5)
+    db_session.add(
+        ProfileCapacityModel(
+            profile_id="prof-cancel",
+            owner_identity_id="kid_buyer",
+            allocated_credits=30.0,
+            available_credits=0.0,
+            in_progress_credits=30.0,
+        )
+    )
+    row = binding("31", pull_after=int(time.time()) - 1)
+    row.buyer_profile_id = "prof-cancel"
+    db_session.add(row)
+    await db_session.commit()
+
+    settled = await autosettle.settle_due(db_session)
+
+    assert settled[0]["binding_id"] == "31"
+    assert (await db_session.get(EscrowBindingModel, "31")).state == "cancelled"
+    pc = await db_session.get(ProfileCapacityModel, "prof-cancel")
+    assert pc.in_progress_credits == 0.0
+    assert pc.available_credits == 30.0
+    assert pc.released_credits == 0.0
 
     await db_session.delete(pc)
     await db_session.commit()
