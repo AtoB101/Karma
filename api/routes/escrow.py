@@ -24,9 +24,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
-from db.models.orm import AllowanceCommitModel, EscrowBindingModel
+from db.models.orm import AllowanceCommitModel, EscrowBindingModel, IdentityRoleProfile
 from db.session import get_db
-from services import seller_stake
+from services import profile_capacity, seller_stake
 from services.chain import allowance_escrow as escrow
 from services.chain import wallet_lock
 from services.identity_wallet_binding import get_bound_wallet
@@ -57,6 +57,10 @@ class OrderBody(BaseModel):
     task_id: str = Field(min_length=1, max_length=64)
     proof: str = Field(min_length=1, description="verification proof / receipt hash")
     scope: str | None = None
+    profile_id: str | None = Field(
+        default=None,
+        description="子身份（角色档案）——这一单花的是它的额度；不传则不受子身份额度约束",
+    )
 
 
 def _commit_view(row: AllowanceCommitModel) -> dict:
@@ -83,6 +87,7 @@ def _binding_view(row: EscrowBindingModel) -> dict:
         "binding_id": row.binding_id,
         "buyer_identity_id": row.buyer_identity_id,
         "seller_identity_id": row.seller_identity_id,
+        "buyer_profile_id": row.buyer_profile_id,
         "buyer_bill_id": row.buyer_bill_id,
         "seller_bill_id": row.seller_bill_id,
         "amount_usdc": float(row.amount_usdc),
@@ -199,6 +204,25 @@ async def open_order(
     seller_bill = await _resolve_bill(db, None, body.seller_bill_id, role="seller")
     seller_identity = seller_bill.identity_id
 
+    # 子身份额度：这一单如果点名了子身份，就花它的额度。先只读地查一次可用额度，
+    # 免得链上已经 bind 成功、才因为额度不够把这一单变成孤儿。没有分配过的子身份
+    # 不受约束（向后兼容：老 agent 不传 profile_id 照旧）。
+    profile_id = body.profile_id
+    profile_row = None
+    if profile_id:
+        profile = await db.get(IdentityRoleProfile, profile_id)
+        if profile is None or profile.owner_identity_id != identity_id:
+            raise HTTPException(404, f"profile {profile_id} not found for this identity")
+        profile_row = await profile_capacity.get_profile_capacity(db, profile_id=profile_id)
+        if profile_row is not None and body.amount_usdc > float(
+            profile_row.available_credits or 0.0
+        ) + 1e-9:
+            raise HTTPException(
+                409,
+                f"insufficient profile credits: need {body.amount_usdc}, "
+                f"available {profile_row.available_credits}",
+            )
+
     stake = body.stake_usdc
     if stake is None:
         stake = seller_stake.required_stake_usdc(body.amount_usdc)
@@ -221,10 +245,16 @@ async def open_order(
     except wallet_lock.WalletLockError as exc:
         raise HTTPException(409, str(exc)) from exc
 
+    if profile_id and profile_row is not None:
+        await profile_capacity.spend_profile_credits(
+            db, profile_id=profile_id, amount=float(body.amount_usdc)
+        )
+
     row = EscrowBindingModel(
         binding_id=str(result["binding_id"]),
         buyer_identity_id=identity_id,
         seller_identity_id=seller_identity,
+        buyer_profile_id=profile_id,
         buyer_bill_id=buyer_bill.bill_id,
         seller_bill_id=seller_bill.bill_id,
         scope_hash=result["scope_hash"],
@@ -285,6 +315,13 @@ async def finalize_order(
         raise HTTPException(409, str(exc)) from exc
 
     row.updated_at = datetime.utcnow()
+    if row.buyer_profile_id:
+        # 钱真的划走了，把这一单占用的子身份额度结清（in_progress → released）。
+        await profile_capacity.release_profile_credits(
+            db,
+            profile_id=row.buyer_profile_id,
+            settled_amount=float(row.amount_usdc),
+        )
     await escrow.sync_commits(db, row.buyer_identity_id)
     if row.seller_identity_id:
         await escrow.sync_commits(db, row.seller_identity_id)

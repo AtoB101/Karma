@@ -497,7 +497,13 @@
 
     let cap = null;
     try { cap = await window.cyberKarmaApi.getCapacity(id); } catch (_) {}
-    const locked = cap ? Number(cap.total_locked_usdc || 0) : 0;
+    let escrow = null;
+    try { escrow = await window.cyberKarmaApi.getEscrowState(id); } catch (_) {}
+    const ledger = cap ? Number(cap.total_locked_usdc || 0) : 0;
+    // v2 是非托管的：钱一直在用户自己钱包里，capacity 台账会是 0，
+    // 真正压在这张卡上的是钱包给出的有效 commit。两者取大，才不会被台账骗到。
+    const committed = escrow ? Number(escrow.committed_usdc || 0) : 0;
+    const locked = Math.max(ledger, committed);
     let chainInfo = null;
     try {
       chainInfo = await loadChainInfo(id);
@@ -511,6 +517,11 @@
         chainOn
           ? "还没有授权额度（点击下面金额，钱包会签 2 笔交易；钱不转走，仍在你钱包里）"
           : "还没有锁仓"
+      );
+    } else if (committed > 0 && committed >= ledger) {
+      set(
+        "#launch-lock-state",
+        "已授权额度 " + fmtNum(committed) + " USDC（非托管：USDC 一直在你钱包里，Karma 只拿到授权）"
       );
     } else if (chainOn) {
       const onchain = Number(chainInfo.onchain_locked_usdc || 0);

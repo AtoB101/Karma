@@ -297,9 +297,11 @@
 
     var profiles = BILL_PROFILES.length ? BILL_PROFILES : await loadBillProfiles();
     var allocations = [];
+    var lockedUsdc = null;
     try {
       var allocBody = await a.getAllocations(id);
       allocations = (allocBody && allocBody.allocations) || [];
+      lockedUsdc = allocBody && allocBody.locked_usdc;
     } catch (_) {}
     var cap = null;
     try { cap = await a.getCapacity(id); } catch (_) {}
@@ -329,7 +331,12 @@
 
     if (!scope) {
       if (cap) {
-        billSet('b_total_locked', cap.total_locked_usdc);
+        // v2 是非托管的：钱一直在用户自己钱包里，capacity 台账是 0，
+        // 真正压在这张卡上的是钱包给出的有效 commit（allocations 带回来的 locked_usdc）。
+        billSet(
+          'b_total_locked',
+          billNum(cap.total_locked_usdc) ? cap.total_locked_usdc : lockedUsdc
+        );
         billSet('b_available', cap.available_credits);
         billSet('b_in_progress', billNum(cap.in_progress_credits) + billNum(cap.reserved_credits));
         billSet('b_pending', cap.pending_settlement_credits);

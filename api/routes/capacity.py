@@ -131,7 +131,13 @@ async def get_allocations(identity_id: str, request: Request, db: AsyncSession =
     actor = await resolve_actor_identity_id(db, request)
     if not actor or actor != identity_id:
         raise HTTPException(403, "only the identity owner can view allocations")
-    return {"allocations": await profile_capacity_service.get_allocations(db, identity_id=identity_id)}
+    return {
+        "allocations": await profile_capacity_service.get_allocations(db, identity_id=identity_id),
+        # 子身份额度加起来的上限：v1 是锁仓台账，v2 是钱包给出的有效 commit 之和。
+        "locked_usdc": await profile_capacity_service.master_ceiling_usdc(
+            db, identity_id=identity_id
+        ),
+    }
 
 
 @router.put("/{identity_id}/allocations")
@@ -141,7 +147,12 @@ async def set_allocations(identity_id: str, body: AllocateBody, request: Request
     if not actor or actor != identity_id:
         raise HTTPException(403, "only the identity owner can set allocations")
     rows = await profile_capacity_service.allocate(db, identity_id=identity_id, allocations=body.allocations)
-    return {"allocations": rows}
+    return {
+        "allocations": rows,
+        "locked_usdc": await profile_capacity_service.master_ceiling_usdc(
+            db, identity_id=identity_id
+        ),
+    }
 
 
 class ClaimBillBody(BaseModel):

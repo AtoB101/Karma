@@ -149,3 +149,107 @@ async def test_record_profile_settlement_outcome(client: AsyncClient, db_session
     assert row.profile_id == p["profile_id"]
     assert row.successful_tasks == 1
     assert row.score > 100.0
+
+
+async def _commit(db_session, *, bill_id: str, identity_id: str, amount: float) -> None:
+    """v2 的「锁仓」：一笔钱包签过名的 commit。钱不进场，只给托管合约授权。"""
+    from db.models.orm import AllowanceCommitModel
+    from services.chain import allowance_escrow as escrow
+
+    db_session.add(
+        AllowanceCommitModel(
+            bill_id=bill_id,
+            identity_id=identity_id,
+            wallet_address="0x" + "ab" * 20,
+            amount_usdc=amount,
+            commit_tx_hash="0x" + (bill_id.encode().hex().ljust(64, "0"))[:64],
+            state=escrow.IDLE,
+        )
+    )
+    await db_session.flush()
+
+
+@pytest.mark.asyncio
+async def test_allocate_on_v2_wallet_commit_without_legacy_lock(client: AsyncClient, db_session):
+    """v2 是非托管的：钱一直在用户自己钱包里，所以不会产生 v1 的 capacity 行。
+    上限必须回落到钱包给出的有效 commit，否则子身份额度分配永远是 409。"""
+    p = await _create_profile(client)
+    await _commit(db_session, bill_id="bill-v2-alloc", identity_id="owner-1", amount=100.0)
+
+    r = await client.put(
+        "/v1/capacity/owner-1/allocations",
+        json={"allocations": {p["profile_id"]: 60.0}},
+        headers=OWNER,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["locked_usdc"] == 100.0
+    assert r.json()["allocations"][0]["available_credits"] == 60.0
+
+    r = await client.get("/v1/capacity/owner-1/allocations", headers=OWNER)
+    assert r.status_code == 200
+    assert r.json()["locked_usdc"] == 100.0
+
+    # 超过钱包真正授权的额度 -> 409
+    r = await client.put(
+        "/v1/capacity/owner-1/allocations",
+        json={"allocations": {p["profile_id"]: 140.0}},
+        headers=OWNER,
+    )
+    assert r.status_code == 409, r.text
+
+
+@pytest.mark.asyncio
+async def test_v2_order_reserves_that_sub_identitys_quota(
+    client: AsyncClient, db_session, monkeypatch
+):
+    """子身份额度不是装饰：agent 用它下单，额度被冻结；超了直接 409。"""
+    from api.routes import escrow as escrow_route
+    from services import profile_capacity
+
+    buyer_profile = await _create_profile(client)
+    await _commit(db_session, bill_id="bill-buyer", identity_id="owner-1", amount=100.0)
+    await _commit(db_session, bill_id="bill-seller", identity_id="seller-1", amount=100.0)
+    await client.put(
+        "/v1/capacity/owner-1/allocations",
+        json={"allocations": {buyer_profile["profile_id"]: 40.0}},
+        headers=OWNER,
+    )
+
+    monkeypatch.setattr(escrow_route.escrow, "can_server_settle", lambda: True)
+
+    def _fake_open(**kwargs):
+        return {
+            "binding_id": 4242,
+            "scope_hash": "0x" + "11" * 32,
+            "bind_tx_hash": "0x" + "22" * 32,
+            "submit_tx_hash": "0x" + "33" * 32,
+            "proof_hash": "0x" + "44" * 32,
+            "pull_after": 1,
+        }
+
+    monkeypatch.setattr(escrow_route.escrow, "open_and_submit_order", _fake_open)
+
+    def _order(amount: float) -> dict:
+        return {
+            "seller_bill_id": "bill-seller",
+            "buyer_bill_id": "bill-buyer",
+            "amount_usdc": amount,
+            "task_id": "task-quota-1",
+            "proof": "0x" + "55" * 32,
+            "profile_id": buyer_profile["profile_id"],
+        }
+
+    r = await client.post("/v1/escrow/owner-1/orders", json=_order(30.0), headers=OWNER)
+    assert r.status_code == 200, r.text
+    assert r.json()["binding"]["buyer_profile_id"] == buyer_profile["profile_id"]
+
+    row = await profile_capacity.get_profile_capacity(
+        db_session, profile_id=buyer_profile["profile_id"]
+    )
+    assert row.in_progress_credits == 30.0
+    assert row.available_credits == 10.0
+
+    # 同一个子身份再下 20：可用只剩 10 -> 409，而且不该走到链上
+    r = await client.post("/v1/escrow/owner-1/orders", json=_order(20.0), headers=OWNER)
+    assert r.status_code == 409, r.text
+    assert "profile credits" in r.json()["detail"]
