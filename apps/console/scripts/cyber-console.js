@@ -102,6 +102,37 @@
     n.classList.toggle("err", !!isErr);
   }
 
+  /**
+   * 把钱包/链上抛出来的英文错误翻成用户能照做的一句话。
+   * 例：insufficient funds → 不是「你没钱锁仓」，而是「手续费不够，去水龙头领点测试 ETH」。
+   */
+  function humanTxError(e) {
+    const raw = String((e && (e.message || e.shortMessage)) || e || "");
+    const code = e && (e.code || (e.error && e.error.code));
+    if (code === 4001 || code === "ACTION_REJECTED" || /user rejected|denied/i.test(raw)) {
+      return "你在钱包里取消了这次操作，没有产生任何转账";
+    }
+    if (/insufficient funds|exceeds balance/i.test(raw)) {
+      return "钱包里的测试 ETH 不够付这笔手续费（大约 0.0006 ETH）。去 Sepolia 水龙头领一点再试";
+    }
+    if (/InsufficientAllowance/i.test(raw)) {
+      return "授权额度不足：请在钱包里先确认第 1 步的「授权」，再点一次锁仓";
+    }
+    if (/TokenNotAllowed/i.test(raw)) {
+      return "这个代币合约没被额度合约允许，请联系我们处理（TokenNotAllowed）";
+    }
+    if (/Frozen|Paused/i.test(raw)) {
+      return "额度合约目前处于暂停状态，暂时不能锁仓";
+    }
+    if (/nonce/i.test(raw)) {
+      return "钱包交易序号错乱（nonce）——在钱包里刷新一下账户，或等一分钟再点一次";
+    }
+    if (/network|chain|switch/i.test(raw)) {
+      return "钱包网络不对：请把钱包切到 Sepolia 测试网再试。" + raw;
+    }
+    return raw;
+  }
+
   function fmtNum(x) {
     const n = Number(x);
     if (Number.isNaN(n)) return "—";
@@ -128,7 +159,17 @@
         const node = el(row[0]);
         if (node) node.textContent = fmtNum(row[1]);
       });
-      setApiStatus(window.CYBER_I18N.t("api.status_ok") + " · capacity @" + new Date().toLocaleTimeString(), false);
+      /* 刷新完直接把数字写出来：用户点完锁仓，最想知道的就是「锁进去没有」。 */
+      setApiStatus(
+        window.CYBER_I18N.t("api.status_refreshed") +
+          " · 总锁仓 " +
+          fmtNum(c.total_locked_usdc) +
+          " · 可用 " +
+          fmtNum(c.available_credits || 0) +
+          " · @" +
+          new Date().toLocaleTimeString(),
+        false
+      );
       document.dispatchEvent(new CustomEvent("karma-capacity-changed", { detail: c }));
     } catch (e) {
       setApiStatus(String(e.message || e), true);
@@ -437,7 +478,7 @@
         refreshEscrowCommits(true).catch(function () {});
         return r;
       } catch (e) {
-        setApiStatus(String(e.message || e), true);
+        setApiStatus(humanTxError(e), true);
         return;
       }
     }
@@ -456,7 +497,7 @@
         refreshChainBills(true).catch(function () {});
         return r;
       } catch (e) {
-        setApiStatus(String(e.message || e), true);
+        setApiStatus(humanTxError(e), true);
         return;
       }
     }
@@ -472,7 +513,7 @@
       );
       return r;
     } catch (e) {
-      setApiStatus(String(e.message || e), true);
+      setApiStatus(humanTxError(e), true);
     }
   }
 
