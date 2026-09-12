@@ -108,7 +108,6 @@
 
   async function walletProvider() {
     var p = global.KarmaWalletAuth && global.KarmaWalletAuth.activeProvider && global.KarmaWalletAuth.activeProvider();
-    p = p || global.ethereum;
     if (p && typeof p.request === "function") return p;
     return null;
   }

@@ -94,6 +94,95 @@
     return e.message || String(e);
   }
 
+  /** 最近一次失败，供「诊断信息」用：用户复制给我就能定位。 */
+  var lastError = "";
+
+  function isNetworkError(e) {
+    if (e && e.status) return false;
+    var msg = String((e && e.message) || e || "");
+    return /failed to fetch|networkerror|network request failed|load failed|typeerror/i.test(msg);
+  }
+
+  /**
+   * 人话版的失败说明。以前 signIn 抛网络类错误时（跨域被拦、插件拦截、离线）
+   * 因为拿不到 HTTP 状态码就什么都不显示，状态栏永远停在「获取登录挑战…」，
+   * 用户只看到「点了没反应」。任何一步失败都必须有话说。
+   */
+  function failText(prefix, e) {
+    if (e && e.status) {
+      var detail = (e.body && (e.body.detail || e.body.message)) || e.message;
+      return prefix + detail;
+    }
+    var text = prefix + errText(e);
+    if (isNetworkError(e)) {
+      text +=
+        "（页面连不上 Karma 接口 " +
+        apiBase() +
+        "：请确认地址栏是 https://karma-network.ai/console/ 开头，并检查广告拦截/隐私插件或代理是否拦了它）";
+    }
+    return text;
+  }
+
+  function remember(e) {
+    lastError = failText("", e);
+  }
+
+  /**
+   * 页面所处的环境。内嵌 iframe 和桌面 App 的内置浏览器都装不了钱包插件，
+   * 这两种情况下「点连接没反应」是环境造成的，必须直接告诉用户，别让人干瞪眼。
+   */
+  function pageContext() {
+    var inIframe = false;
+    try {
+      inIframe = !!(global.top && global.top !== global.self);
+    } catch (_) {
+      inIframe = true; // 跨域读不到 top，说明确实被别的页面嵌着
+    }
+    var ua = (global.navigator && global.navigator.userAgent) || "";
+    var secure = false;
+    try {
+      secure = !!(global.isSecureContext || /^https:$/.test(global.location.protocol));
+    } catch (_) {}
+    return {
+      inIframe: inIframe,
+      ua: ua,
+      embedded: /electron|codex|chatgpt|micromessenger|qqbrowser|douyin|toutiao/i.test(ua),
+      secure: secure,
+    };
+  }
+
+  function diagLines() {
+    var page = "?";
+    try {
+      page = global.location.href;
+    } catch (_) {}
+    var names = entries()
+      .map(function (x) {
+        return (x.info && x.info.name) || "钱包";
+      })
+      .join("、");
+    var ctx = pageContext();
+    var eth = null;
+    try {
+      eth = global.ethereum;
+    } catch (_) {}
+    var ethText = eth
+      ? detectLegacyName(eth) + "（有 request：" + (typeof eth.request === "function") + "）"
+      : "无";
+    return [
+      "页面：" + page,
+      "页面环境：" +
+        (ctx.inIframe ? "被别的页面内嵌（iframe）" : "独立页面") +
+        " · " +
+        (ctx.secure ? "安全上下文" : "非安全上下文"),
+      "接口：" + apiBase(),
+      "浏览器：" + (ctx.ua || "?"),
+      "插件接口 window.ethereum：" + ethText,
+      "EIP-6963 检测到钱包：" + (names || "无"),
+      "最近错误：" + (lastError || "无"),
+    ].join("\n");
+  }
+
   function b64(obj) {
     try {
       return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
@@ -200,20 +289,64 @@
     return "浏览器钱包";
   }
 
+  /**
+   * 有些钱包插件（尤其国产插件的老版本）只给 window.ethereum 挂 sendAsync / send，
+   * 没有 request。以前这类插件会被当成「没装钱包」，用户点了没反应。
+   * 这里补一层 request 适配，让它们照样能连上。
+   */
+  function asRequestProvider(p) {
+    if (!p) return null;
+    if (typeof p.request === "function") return p;
+    var send =
+      typeof p.sendAsync === "function" ? p.sendAsync : typeof p.send === "function" ? p.send : null;
+    if (!send) return null;
+    return {
+      request: function (args) {
+        return new Promise(function (resolve, reject) {
+          var payload = {
+            jsonrpc: "2.0",
+            id: Date.now(),
+            method: args && args.method,
+            params: (args && args.params) || [],
+          };
+          var done = function (err, res) {
+            if (err) return reject(err);
+            if (res && res.error) {
+              var e = new Error((res.error && res.error.message) || "钱包返回错误");
+              e.code = res.error.code;
+              return reject(e);
+            }
+            resolve(res && res.result);
+          };
+          try {
+            send.call(p, payload, done);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      },
+    };
+  }
+
   function legacyEntries() {
     var eth = global.ethereum;
     if (!eth) return [];
     var list = [];
+    var push = function (p, uuid) {
+      var provider = asRequestProvider(p);
+      if (!provider) return;
+      list.push({
+        info: { uuid: uuid, name: detectLegacyName(p), icon: "" },
+        provider: provider,
+        raw: p,
+      });
+    };
     if (Array.isArray(eth.providers) && eth.providers.length) {
       eth.providers.forEach(function (p, i) {
-        if (p && typeof p.request === "function") {
-          list.push({ info: { uuid: "legacy-" + i, name: detectLegacyName(p), icon: "" }, provider: p });
-        }
+        push(p, "legacy-" + i);
       });
     }
-    if (!list.length && typeof eth.request === "function") {
-      list.push({ info: { uuid: "legacy-single", name: detectLegacyName(eth), icon: "" }, provider: eth });
-    }
+    if (!list.length) push(eth, "legacy-single");
     return list;
   }
 
@@ -221,7 +354,7 @@
     var out = discovered.slice();
     legacyEntries().forEach(function (e) {
       for (var i = 0; i < out.length; i++) {
-        if (out[i].provider === e.provider) return;
+        if ((out[i].raw || out[i].provider) === (e.raw || e.provider)) return;
       }
       out.push(e);
     });
@@ -244,6 +377,30 @@
     } catch (_) {
       return "https://karma-network.ai/console/pages/cyber/index.html";
     }
+  }
+
+  /** 桌面端「一个钱包都没检测到」时到底该说什么 —— 三种环境三种说法。 */
+  function emptyDesktopText() {
+    var ctx = pageContext();
+    if (ctx.inIframe) {
+      return (
+        "本页现在是被别的页面嵌在小窗口里打开的，钱包插件在内嵌页面里不会生效。" +
+        "请把 " +
+        consoleUrl() +
+        " 复制到浏览器地址栏单独打开，再点「连接钱包」。"
+      );
+    }
+    if (ctx.embedded) {
+      return (
+        "你正在一个桌面 App 的内置浏览器里打开本页。这类内置浏览器装不了钱包插件，" +
+        "所以永远检测不到钱包。请把本页链接复制到 Chrome / Edge 打开，再点「连接钱包」。"
+      );
+    }
+    return (
+      "当前浏览器没检测到任何钱包插件。插件只在自己安装的那个浏览器里生效 —— " +
+      "如果你平时在别的浏览器（Chrome / Edge）里用 MetaMask，请用那个浏览器打开本页；" +
+      "也可以现在装一个。"
+    );
   }
 
   var CATALOG = [
@@ -382,6 +539,8 @@
       if (ev.target === node || ev.target.closest("[data-kw-close]")) closeModal();
       var copy = ev.target.closest("[data-kw-copy]");
       if (copy) copyText(copy.getAttribute("data-kw-copy") || consoleUrl(), copy);
+      var diag = ev.target.closest("[data-kw-diag]");
+      if (diag) copyText(diagLines(), diag);
     });
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "Escape") closeModal();
@@ -485,7 +644,7 @@
         '<div class="kw-empty">' +
         (MOBILE_UA
           ? "你在手机上打开本页：点下面任一钱包，会直接唤起钱包 App，并在它内置的浏览器里载入本页。"
-          : "当前浏览器没有检测到钱包插件。电脑上可安装插件，手机上可点下面的钱包唤起 App。") +
+          : emptyDesktopText()) +
         "</div>";
     }
 
@@ -565,6 +724,12 @@
         "重新签名一次即可继续。</div>";
     }
 
+    html +=
+      '<details class="kw-more"><summary>连不上？点这里复制诊断信息发我</summary>' +
+      '<p class="kw-hint" style="white-space:pre-wrap;word-break:break-all">' +
+      esc(diagLines()) +
+      '</p><button type="button" class="kw-app-copy" data-kw-diag>复制诊断信息</button></details>';
+
     body.innerHTML = html;
     all("[data-kw-pick]", body).forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -611,23 +776,38 @@
   async function signIn(provider, account, walletName) {
     activeProviderRef = provider;
     setStatus("获取登录挑战…", null);
-    var ch = await siweJson("/v1/auth/siwe/challenge", { address: account });
+    var ch;
+    try {
+      ch = await siweJson("/v1/auth/siwe/challenge", { address: account });
+    } catch (e) {
+      remember(e);
+      setStatus(failText("获取登录挑战失败：", e), false);
+      throw e;
+    }
 
     setStatus("请在钱包中签名…", null);
     var signature;
     try {
       signature = await provider.request({ method: "personal_sign", params: [ch.message, account] });
     } catch (e) {
+      remember(e);
       setStatus("签名已取消", false);
       throw e;
     }
 
     setStatus("验证签名…", null);
-    var v = await siweJson("/v1/auth/siwe/verify", {
-      nonce: ch.nonce,
-      signature: signature,
-      address: account,
-    });
+    var v;
+    try {
+      v = await siweJson("/v1/auth/siwe/verify", {
+        nonce: ch.nonce,
+        signature: signature,
+        address: account,
+      });
+    } catch (e) {
+      remember(e);
+      setStatus(failText("登录失败：", e), false);
+      throw e;
+    }
 
     var identityId = v.identity_id || "";
     saveSession(account, identityId, v.access_token || "", walletName);
@@ -678,10 +858,12 @@
     try {
       accounts = await provider.request({ method: "eth_requestAccounts" });
     } catch (e) {
+      remember(e);
       setStatus("连接失败：" + errText(e), false);
       return;
     }
     if (!accounts || !accounts.length) {
+      lastError = "钱包未返回账户";
       setStatus("钱包未返回账户", false);
       return;
     }
@@ -689,9 +871,9 @@
     try {
       return await signIn(provider, accounts[0], name);
     } catch (e) {
-      if (e && e.status) {
-        setStatus("登录失败：" + (e.body && (e.body.detail || e.body.message) ? e.body.detail || e.body.message : e.message), false);
-      }
+      // signIn 已经写过状态了；这里兜底，保证任何异常都不会「无声失败」。
+      remember(e);
+      setStatus(failText("登录失败：", e), false);
       throw e;
     }
   }
@@ -701,8 +883,27 @@
     /* 已经能看见钱包就别再让人挑一次：钱包 App 的内置浏览器里只有它自己，
        手机上也一样——多弹一层选择框只会让人觉得「点了没反应」。 */
     if (list.length === 1) return connectWith(list[0]);
-    openModal();
-    return Promise.resolve(null);
+    if (list.length) {
+      openModal();
+      return Promise.resolve(null);
+    }
+    /* 有人的钱包插件注入得比这段脚本执行晚一点（刚装好、刚升级完最常见）。
+       先等一拍再认一次，别把这类人直接劝去下载插件。 */
+    try {
+      global.dispatchEvent(new Event("eip6963:requestProvider"));
+    } catch (_) {}
+    setStatus("正在检测钱包插件…", null);
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        var retry = entries();
+        if (retry.length === 1) {
+          resolve(connectWith(retry[0]));
+          return;
+        }
+        openModal();
+        resolve(null);
+      }, 400);
+    });
   }
 
   function disconnect() {
@@ -836,7 +1037,7 @@
     if (activeProviderRef && typeof activeProviderRef.request === "function") return activeProviderRef;
     var list = entries();
     if (list.length && list[0].provider) return list[0].provider;
-    return global.ethereum && typeof global.ethereum.request === "function" ? global.ethereum : null;
+    return asRequestProvider(global.ethereum);
   }
 
   global.KarmaWalletAuth = {
@@ -851,6 +1052,7 @@
     tokenState: tokenState,
     ensureFreshToken: ensureFreshToken,
     bind: bind,
+    diagnose: diagLines,
     CATALOG: CATALOG,
   };
 
