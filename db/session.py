@@ -51,7 +51,7 @@ async def _migrate_missing_columns(_conn_unused=None):
                 db_cols = {c["name"] for c in inspector.get_columns(table_name)}
                 for col_name, col in orm_cols.items():
                     if col_name not in db_cols:
-                        col_type = str(col.type)
+                        col_type = _ddl_type(col.type, sync_conn.dialect)
                         stmt = f'ALTER TABLE "{table_name}" ADD COLUMN "{col_name}" {col_type}'
                         logger.info("auto_migrate adding column %s.%s (%s)", table_name, col_name, col_type)
                         try:
@@ -59,9 +59,30 @@ async def _migrate_missing_columns(_conn_unused=None):
                             sync_conn.commit()
                         except Exception:
                             sync_conn.rollback()
-                            logger.debug("auto_migrate skip %s.%s (may already exist)", table_name, col_name)
+                            logger.warning(
+                                "auto_migrate FAILED to add %s.%s as %s — the model now selects a "
+                                "column the table does not have",
+                                table_name,
+                                col_name,
+                                col_type,
+                            )
 
         await conn.run_sync(_sync_migrate)
+
+
+def _ddl_type(col_type, dialect) -> str:
+    """Render a column type for the live dialect.
+
+    ``str(col.type)`` yields generic names like "DATETIME", which Postgres
+    rejects — the ALTER failed, was swallowed as a debug log, and the app only
+    noticed when SQLAlchemy started selecting a column that was never added.
+    Compiling against the real dialect gives TIMESTAMP WITHOUT TIME ZONE,
+    DOUBLE PRECISION, ... so the column actually lands.
+    """
+    try:
+        return col_type.compile(dialect=dialect)
+    except Exception:
+        return str(col_type)
 
 
 async def init_db() -> None:
