@@ -197,6 +197,28 @@ class Settings(BaseSettings):
     # SETTLEMENT_MODE so turning on real deposits cannot change how orders settle.
     chain_wallet_lock_enabled: bool = False
 
+    # ------------------------------------------------------------------
+    # v2 non-custodial allowance escrow (KarmaAllowanceEscrow)
+    # ------------------------------------------------------------------
+    # The user keeps the USDC in their own wallet and grants the escrow a
+    # one-time ERC-20 allowance; the Bill is then a *responsibility record*
+    # ("this wallet has committed up to X"), not a deposit. Settlement pulls
+    # payer -> payee directly, so the console never asks for a private key and
+    # the user never signs again per order. Turning this on is independent of
+    # SETTLEMENT_MODE, exactly like CHAIN_WALLET_LOCK_ENABLED.
+    chain_allowance_escrow_enabled: bool = False
+    allowance_escrow_address: str = ""
+
+    # Karma's own operational account. It may bind/submit on behalf of a wallet
+    # that named it as `operator`, but it can never move funds: only the payer's
+    # own allowance gates a pull, and the payer can revoke at any time. Unset
+    # means "no server-side signing" and the agent drives the calls itself.
+    settlement_operator_address: str = ""
+    settlement_operator_private_key: str = ""
+
+    # Challenge window (seconds) the console advertises for new commitments.
+    allowance_escrow_dispute_window: int = 120
+
     # Payee (worker agent wallet on-chain)
     payee_address: str = ""
 
