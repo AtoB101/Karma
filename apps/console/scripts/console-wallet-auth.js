@@ -822,7 +822,7 @@
     saveSession(account, identityId, v.access_token || "", walletName);
     applyIdentityToUi(account, identityId);
 
-    setStatus("已连接 · " + shortAddr(account) + (identityId ? " · " + identityId : ""), true);
+    setStatus("已连接 · " + shortAddr(account) + (identityId ? " · " + displayId(identityId) : ""), true);
     try {
       emitEvent("karma-wallet-connected", v);
     } catch (_) {}

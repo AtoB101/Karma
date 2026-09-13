@@ -50,9 +50,11 @@ def test_first_screen_shows_who_you_are_and_how_much_is_locked():
         'data-action="lock-capacity"',
         'data-lock-preset="50"',
         'id="id-home-subs"',
+        'data-bind="pending_settlement_credits"',
+        'data-bind="disputed_credits"',
     ):
         assert needle in html, f"主身份抬头卡缺少 {needle}"
-    assert html.index('id="id-home"') < html.index('class="grid metrics"'), (
+    assert html.index('id="id-home"') < html.index('id="launch-guide"'), (
         "主身份抬头要在总览第一屏，而不是埋在下半页"
     )
 
