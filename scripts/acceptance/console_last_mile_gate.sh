@@ -12,6 +12,7 @@ required=(
   scripts/karma-public-api.js
   scripts/console-sync.js
   scripts/console-wallet-auth.js
+  scripts/console-entry-gate.js
   scripts/cyber-actions.js
   scripts/cyber-console.js
   scripts/cyber-globe-bg.js
@@ -35,7 +36,7 @@ python3 -m pytest -q tests/unit/test_console_last_mile.py
 python3 -m pytest -q tests/unit/test_console_live_write_smoke.py
 
 if command -v node >/dev/null 2>&1; then
-  for js in karma-public-api.js console-sync.js console-wallet-auth.js cyber-actions.js cyber-console.js; do
+  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-console.js; do
     node --check "$CONSOLE/scripts/$js"
   done
 fi

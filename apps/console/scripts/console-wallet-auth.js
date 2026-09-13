@@ -71,6 +71,15 @@
     return String(a).slice(0, 6) + "…" + String(a).slice(-4);
   }
 
+  /** 对用户显示的主身份编号（Kid1 + 6 位数字）。真正的 kid_… ID 放 title，
+   *  需要复制原值时鼠标停一下就有；KarmaDisplayId 还没加载时退回截断显示。 */
+  function displayId(realId) {
+    var d = global.KarmaDisplayId;
+    if (d && d.of) return d.of(realId, 0);
+    var s = String(realId || "");
+    return s ? s.slice(0, 12) : "";
+  }
+
   /**
    * Announce a console event on BOTH document and window. The console is not
    * consistent about where it listens (console-sync/cyber-identity bind to
@@ -835,14 +844,15 @@
         n.value = account || "";
       });
       all(".id-main").forEach(function (n) {
-        if (identityId) n.textContent = identityId;
+        if (identityId) n.textContent = displayId(identityId);
       });
       all("[data-bind=wallet_address]").forEach(function (n) {
         n.textContent = shortAddr(account);
       });
       var chip = document.getElementById("top-identity-chip");
       if (chip) {
-        chip.textContent = identityId ? identityId : "未连接";
+        chip.textContent = identityId ? displayId(identityId) : "未连接";
+        chip.title = identityId || "";
         chip.style.color = identityId ? "var(--ok, #4ade80)" : "";
       }
     } catch (_) {}
