@@ -82,8 +82,11 @@
   }
 
   function setText(root, selector, text) {
-    var n = el(root, selector) || el(document, selector);
-    if (n) n.textContent = text == null ? "—" : String(text);
+    /* 同一个数字可能同时挂在总览指标和主身份卡上：全部更新，别只更新第一个。 */
+    var nodes = els(root, selector);
+    if (!nodes.length) nodes = els(document, selector);
+    var value = text == null ? "—" : String(text);
+    nodes.forEach(function (n) { n.textContent = value; });
   }
 
   function fmtNum(x) {

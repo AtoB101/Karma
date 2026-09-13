@@ -102,6 +102,17 @@
     n.classList.toggle("err", !!isErr);
   }
 
+  /** 拼 HTML 前的转义：身份/档案名是用户自己填的，不能直接插进标签里。 */
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"\x27]/g, function (c) {
+      if (c === "&") return "&amp;";
+      if (c === "<") return "&lt;";
+      if (c === ">") return "&gt;";
+      if (c === String.fromCharCode(34)) return "&quot;";
+      return "&#39;";
+    });
+  }
+
   /**
    * 把钱包/链上抛出来的英文错误翻成用户能照做的一句话。
    * 例：insufficient funds → 不是「你没钱锁仓」，而是「手续费不够，去水龙头领点测试 ETH」。
@@ -180,8 +191,10 @@
         ["[data-bind=disputed_credits]", c.disputed_credits],
       ];
       map.forEach(function (row) {
-        const node = el(row[0]);
-        if (node) node.textContent = fmtNum(row[1]);
+        /* 同一个数字会同时出现在总览指标和主身份卡上，全部都要更新。 */
+        document.querySelectorAll(row[0]).forEach(function (node) {
+          node.textContent = fmtNum(row[1]);
+        });
       });
       /* 刷新完直接把数字写出来：用户点完锁仓，最想知道的就是「锁进去没有」。 */
       setApiStatus(
@@ -195,6 +208,7 @@
         false
       );
       document.dispatchEvent(new CustomEvent("karma-capacity-changed", { detail: c }));
+      renderIdentityHome();
     } catch (e) {
       setApiStatus(String(e.message || e), true);
     }
@@ -812,6 +826,275 @@
     });
   }
 
+  /* ── 主身份抬头卡 + 减少锁仓 ──────────────────────────────────────────
+     进来第一眼要能回答四个问题：我是谁（Kid1…）、钱包是哪个、锁了多少钱、
+     怎么加/怎么减。所有编号都用 KarmaDisplayId 显示，真 ID 藏在 title 里。 */
+
+  function currentIdentityId() {
+    const fromInput = (el("[data-cfg=identity_id]")?.value || "").trim();
+    return fromInput || String(window.KARMA_IDENTITY_ID || "").trim();
+  }
+
+  function shortWallet(addr) {
+    const s = String(addr || "").trim();
+    return s.length > 12 ? s.slice(0, 6) + "…" + s.slice(-4) : s;
+  }
+
+  function renderIdentityHome() {
+    const host = el("#id-home");
+    if (!host) return;
+    const id = currentIdentityId();
+    const did = window.KarmaDisplayId;
+    const masterEl = el("#id-home-master");
+    if (masterEl) {
+      masterEl.textContent = id && did ? did.of(id, 0) : "未连接钱包";
+      masterEl.title = id || "";
+    }
+    const walletEl = el("#id-home-wallet");
+    let wallet = "";
+    try {
+      wallet = (window.KarmaWalletAuth?.readSession() || {}).wallet || "";
+    } catch (_) {
+      wallet = "";
+    }
+    if (walletEl) walletEl.textContent = wallet ? shortWallet(wallet) : "未连接钱包";
+
+    const scopeEl = el("#id-home-scope");
+    const sw = window.KarmaIdentitySwitcher;
+    if (scopeEl) {
+      if (!id) {
+        scopeEl.textContent = "—";
+      } else if (sw && sw.getActiveProfileId && sw.getActiveProfileId()) {
+        const pid = sw.getActiveProfileId();
+        const p = sw.getActiveProfile ? sw.getActiveProfile() : null;
+        const pos = (sw.getProfiles ? sw.getProfiles() : []).findIndex(function (x) {
+          return x && x.profile_id === pid;
+        });
+        const label = did ? did.of(pid, pos + 1) : pid;
+        scopeEl.textContent = "当前视角 " + label + (p && p.display_name ? " · " + p.display_name : "");
+      } else {
+        scopeEl.textContent = "当前视角 主体（全部）";
+      }
+    }
+    renderIdentitySubs(id);
+  }
+
+  function renderIdentitySubs(masterId) {
+    const host = el("#id-home-subs");
+    if (!host) return;
+    const sw = window.KarmaIdentitySwitcher;
+    const did = window.KarmaDisplayId;
+    if (!masterId || !sw || !sw.getProfiles) {
+      host.innerHTML = "";
+      return;
+    }
+    const profiles = sw.getProfiles() || [];
+    const active = sw.getActiveProfileId ? sw.getActiveProfileId() : "";
+    if (!profiles.length) {
+      host.innerHTML =
+        '<p class="id-home-sub-note">还没有子身份。给每个 agent 建一个子身份（生活助理 / 工作助理 / 企业助理），' +
+        "额度、权限和账单互不混淆 —— 点右上「+ 新建子身份」。</p>";
+      return;
+    }
+    host.innerHTML = profiles
+      .map(function (p, i) {
+        const label = did ? did.of(p.profile_id, i + 1) : p.profile_id;
+        const isActive = p.profile_id === active;
+        return (
+          '<div class="id-home-sub-row' + (isActive ? " is-active" : "") + '">' +
+          '<span><b class="id-home-sub-id">' + esc(label) + "</b>" +
+          '<span class="id-home-sub-meta"> · ' + esc(p.display_name || p["class"] || "子身份") + "</span></span>" +
+          '<span style="display:flex;gap:8px;align-items:center">' +
+          '<button type="button" class="btn" data-home-alloc="' + esc(p.profile_id) + '">授权额度</button>' +
+          '<button type="button" class="btn' + (isActive ? "" : " primary") + '" data-home-switch="' + esc(p.profile_id) + '">' +
+          (isActive ? "已切换" : "切换到它") +
+          "</button></span></div>"
+        );
+      })
+      .join("");
+    host.querySelectorAll("[data-home-switch]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const pid = btn.getAttribute("data-home-switch");
+        sw.setActiveProfileId(pid);
+        renderIdentityHome();
+        setApiStatus("已切换到 " + (did ? did.of(pid, 1) : pid) + " 的视角", false);
+      });
+    });
+    host.querySelectorAll("[data-home-alloc]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const pid = btn.getAttribute("data-home-alloc");
+        if (sw.setActiveProfileId) sw.setActiveProfileId(pid);
+        if (window.cyberSwitchPage) window.cyberSwitchPage("identity");
+      });
+    });
+  }
+
+  function confirmBox(html) {
+    const box = el("#id-home-confirm");
+    if (!box) return null;
+    box.innerHTML = html;
+    box.hidden = false;
+    return box;
+  }
+  function closeConfirm() {
+    const box = el("#id-home-confirm");
+    if (box) {
+      box.innerHTML = "";
+      box.hidden = true;
+    }
+  }
+
+  /** 按「未使用的账单」凑出最接近的减少方案。
+   *  合约只能整笔撤销（revoke(billId) 不留部分），所以实际减少额可能略高于输入。
+   *  从最小的开始凑，溢出最少。 */
+  function planReduce(commits, want) {
+    const free = commits
+      .map(function (c) {
+        return { bill_id: c.bill_id, free: Number(c.available_usdc || 0), amount: Number(c.amount_usdc || 0) };
+      })
+      .filter(function (c) { return c.free > 0.000001; })
+      .sort(function (a, b) { return a.free - b.free; });
+    const plan = [];
+    let sum = 0;
+    for (let i = 0; i < free.length && sum + 0.000001 < want; i += 1) {
+      plan.push(free[i]);
+      sum += free[i].free;
+    }
+    return { plan: plan, total: sum };
+  }
+
+  function renderReduceConfirm(commits, want, reducible, reserved) {
+    const id = currentIdentityId();
+    const total = commits.reduce(function (a, c) { return a + Number(c.amount_usdc || 0); }, 0);
+    let html;
+    if (want > reducible + 0.000001) {
+      const p = planReduce(commits, reducible);
+      html =
+        '<div class="confirm-warn">这次只能减少 <b>' + fmtNum(reducible) + " USDC</b>，不能再多：</div>" +
+        "<div>· 已锁仓 " + fmtNum(total) + " USDC</div>" +
+        "<div>· 正在执行中的订单占用 <b>" + fmtNum(reserved) + "</b> USDC（结算前不能动）</div>" +
+        '<div class="confirm-actions">' +
+        '<button type="button" class="btn primary" id="reduce-max">改为减少 ' + fmtNum(reducible) + " USDC</button>" +
+        '<button type="button" class="btn" id="reduce-cancel">取消</button></div>' +
+        '<input type="hidden" id="reduce-plan" value="' + esc(JSON.stringify(p.plan.map(function (x) { return x.bill_id; }))) + '" />';
+    } else {
+      const p = planReduce(commits, want);
+      if (!p.plan.length) {
+        html =
+          '<div class="confirm-err">现在没有可以撤销的未使用额度，请稍后再试。</div>' +
+          '<div class="confirm-actions"><button type="button" class="btn" id="reduce-cancel">知道了</button></div>';
+      } else {
+        const rows = p.plan
+          .map(function (x) {
+            return "<div>· 承诺 #" + x.bill_id + " · 未使用 " + fmtNum(x.free) + " USDC</div>";
+          })
+          .join("");
+        html =
+          "<div>将撤销下面这些<b>未使用</b>的账单，实际减少 <b>" + fmtNum(p.total) + " USDC</b>：" +
+          (p.total > want + 0.000001 ? '<span class="confirm-warn">（账单不能拆开，所以比你要的略多）</span>' : "") +
+          "</div>" + rows +
+          "<div>锁仓 " + fmtNum(total) + " → " + fmtNum(Math.max(0, total - p.total)) + " USDC。钱包会逐笔让你签名确认。</div>" +
+          '<div class="confirm-actions">' +
+          '<button type="button" class="btn primary" id="reduce-go">确认减少</button>' +
+          '<button type="button" class="btn" id="reduce-cancel">取消</button></div>' +
+          '<input type="hidden" id="reduce-plan" value="' + esc(JSON.stringify(p.plan.map(function (x) { return x.bill_id; }))) + '" />';
+      }
+    }
+    const box = confirmBox(html);
+    if (!box) return;
+    box.querySelector("#reduce-cancel")?.addEventListener("click", closeConfirm);
+    box.querySelector("#reduce-max")?.addEventListener("click", function () {
+      renderReduceConfirm(commits, reducible, reducible, reserved);
+    });
+    box.querySelector("#reduce-go")?.addEventListener("click", function () {
+      runReduce(id, JSON.parse(box.querySelector("#reduce-plan").value || "[]"));
+    });
+  }
+
+  async function runReduce(id, billIds) {
+    if (!billIds.length) return;
+    closeConfirm();
+    for (let i = 0; i < billIds.length; i += 1) {
+      const billId = billIds[i];
+      setApiStatus("请在钱包里确认撤销承诺 #" + billId + "（第 " + (i + 1) + "/" + billIds.length + " 笔）…", false);
+      try {
+        await onchainEscrowRevoke(id, billId);
+      } catch (e) {
+        setApiStatus(humanTxError(e), true);
+        refreshEscrowCommits(true).catch(function () {});
+        return;
+      }
+    }
+    setApiStatus("已减少锁仓：撤销 " + billIds.length + " 笔账单", false);
+    await refreshEscrowCommits(true).catch(function () {});
+    refreshChainBills(true).catch(function () {});
+    refreshCapacity().catch(function () {});
+    renderIdentityHome();
+  }
+
+  async function reduceLockAction() {
+    const id = currentIdentityId();
+    if (!id) {
+      setApiStatus("请先连接钱包", true);
+      return;
+    }
+    const amount = Number(el("#lock-amount")?.value || 0);
+    if (!amount || amount <= 0) {
+      setApiStatus("请先填写要减少的锁仓金额", true);
+      return;
+    }
+    setApiStatus("正在核对链上锁仓与订单占用…", false);
+    let info;
+    try {
+      info = await loadEscrowInfo(id, true);
+    } catch (e) {
+      setApiStatus(String(e.message || e), true);
+      return;
+    }
+    const commits = ((info && info.commits) || []).filter(function (c) { return c.state !== "revoked"; });
+    const committed = Number((info && info.committed_usdc) || 0);
+    const reserved = Number((info && info.reserved_usdc) || 0);
+    const spent = Number((info && info.spent_usdc) || 0);
+    const reducible = Math.max(0, committed - reserved - spent);
+    if (committed <= 0) {
+      setApiStatus("现在没有锁仓额度可以减少", false);
+      return;
+    }
+    if (reducible <= 0.000001) {
+      confirmBox(
+        '<div class="confirm-warn">现在不能减少锁仓：' + fmtNum(committed) + " USDC 全部被订单占用或已结算。</div>" +
+          "<div>请在订单执行结算后再减仓。</div>" +
+          '<div class="confirm-actions"><button type="button" class="btn" id="reduce-cancel">知道了</button></div>'
+      );
+      el("#reduce-cancel")?.addEventListener("click", closeConfirm);
+      return;
+    }
+    renderReduceConfirm(commits, amount, reducible, reserved);
+  }
+
+  function bindIdentityHome() {
+    el("#btn-reduce-lock")?.addEventListener("click", function () {
+      reduceLockAction().catch(function (e) {
+        setApiStatus(String(e.message || e), true);
+      });
+    });
+    const switchBtn = el("#btn-switch-identity");
+    if (switchBtn) {
+      switchBtn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        const real = el("#btn-switch-sub");
+        if (real) real.click();
+      });
+    }
+    ["karma-wallet-connected", "karma-session-restored", "karma-profile-switched", "karma-capacity-changed"].forEach(
+      function (name) {
+        document.addEventListener(name, function () {
+          renderIdentityHome();
+        });
+      }
+    );
+    renderIdentityHome();
+  }
   window.KarmaChainBills = { refresh: refreshChainBills };
   window.KarmaEscrow = { refresh: refreshEscrowCommits };
 
@@ -988,6 +1271,7 @@
     bindActions();
     bindAiToggle();
     bindLaunchGuide();
+    bindIdentityHome();
     switchPage("overview");
     setApiStatus(window.CYBER_I18N.t("api.status_idle"), false);
     renderLaunchGuide().catch(function () {});

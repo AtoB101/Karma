@@ -44,7 +44,17 @@
   }
   function profileLabel(p) {
     if (!p) return "";
-    return (p.display_name || p.profile_id) + " · " + (p["class"] || "") + (p.visibility === "private" ? " 🔒" : "");
+    var pos = profilePosition(p.profile_id);
+    var did = p.profile_id && pos ? displayId(p.profile_id, pos) + " · " : "";
+    return did + (p.display_name || p.profile_id) + " · " + (p["class"] || "") + (p.visibility === "private" ? " 🔒" : "");
+  }
+  /* 子身份编号看创建顺序：第 1 个 profile 是 kid02，第 2 个是 kid03。 */
+  function profilePosition(id) {
+    var ps = getProfiles();
+    for (var i = 0; i < ps.length; i += 1) {
+      if (ps[i] && ps[i].profile_id === id) return i + 1;
+    }
+    return 0;
   }
   /** i18n with an inline fallback, so a stale cached pack never shows a raw key. */
   function tr(key, fallback) {
@@ -61,6 +71,39 @@
     var s = String(id || "");
     return s.length > 18 ? s.slice(0, 10) + "…" + s.slice(-6) : s;
   }
+
+  /* ── 对用户展示的身份编号 ─────────────────────────────────────────────
+     底座里的真 ID 是 kid_ + 24 位十六进制（合约、数据库、账本都用它，不能改）。
+     但用户记不住、也念不出来。所以对外统一显示成：
+         主身份        Kid1 + 6 位数字         （所有用户的主身份都是 Kid1 开头）
+         第 1 个子身份  kid02 + 6 位数字
+         第 2 个子身份  kid03 + 6 位数字  ……
+     6 位数字由真 ID 推导（同一身份永远同一串），只用于显示，不参与任何校验。 */
+  function digitSeed(seed) {
+    var h = 2166136261;
+    var s = String(seed || "");
+    for (var i = 0; i < s.length; i += 1) {
+      h ^= s.charCodeAt(i);
+      h = (h * 16777619) >>> 0;
+    }
+    var digits = "";
+    var x = h || 1;
+    for (var k = 0; k < 6; k += 1) {
+      x = (x * 1103515245 + 12345) >>> 0;
+      digits += String(x % 10);
+    }
+    return digits;
+  }
+  function displayId(realId, position) {
+    var id = String(realId || "").trim();
+    if (!id) return "";
+    var pos = Number(position) || 0;
+    if (pos <= 0) return "Kid1" + digitSeed(id);
+    var n = pos + 1;
+    return "kid" + (n < 10 ? "0" + n : String(n)) + digitSeed(id);
+  }
+  window.KarmaDisplayId = { of: displayId, digits: digitSeed };
+
   function getActiveProfile() {
     var id = activeProfileId();
     if (!id) return null;
@@ -84,13 +127,15 @@
     var activeEl = document.getElementById("sub-scope-active");
     var master = String((window.KARMA_IDENTITY_ID || "")).trim();
     if (masterEl) {
-      masterEl.textContent = master ? shortId(master) : tr("scope.none", "未连接");
+      masterEl.textContent = master ? displayId(master, 0) : tr("scope.none", "未连接");
       masterEl.title = master;
     }
     var pid = activeProfileId();
     var p = getActiveProfile();
     if (activeEl) {
-      activeEl.textContent = pid ? (p ? profileLabel(p) : shortId(pid)) : tr("scope.master_all", "主体（全部）");
+      activeEl.textContent = pid
+        ? (p ? displayId(pid, profilePosition(pid)) + " · " + (p.display_name || p["class"] || "") : shortId(pid))
+        : tr("scope.master_all", "主体（全部）");
       activeEl.title = pid;
     }
     document.body.classList.toggle("sub-scope-filtered", !!pid);
@@ -102,7 +147,11 @@
     var profiles = getProfiles();
     var pid = activeProfileId();
     panel.innerHTML = "";
-    var rows = [{ id: "", label: tr("scope.master_all", "主体（全部）") }];
+    var masterId = String(window.KARMA_IDENTITY_ID || "").trim();
+    var masterLabel = masterId
+      ? displayId(masterId, 0) + " · " + tr("scope.master_all", "主体（全部）")
+      : tr("scope.master_all", "主体（全部）");
+    var rows = [{ id: "", label: masterLabel }];
     profiles.forEach(function (p) { rows.push({ id: p.profile_id, label: profileLabel(p) }); });
     rows.forEach(function (r) {
       var row = document.createElement("div");

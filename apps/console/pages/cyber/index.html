@@ -10,6 +10,22 @@
     <div class="bg"></div>
     <div class="grid-overlay"></div>
     <canvas id="particles"></canvas>
+    <!-- 入口门禁：没连钱包时盖住整个操作台。没有 JS 时不会加 .gated，
+         页面照常可见 —— 宁可少一层门，也不能让用户看到空白页。 -->
+    <div class="entry-gate" id="entry-gate">
+      <div class="entry-gate-card">
+        <div class="entry-gate-logo">K</div>
+        <h2>连接钱包，进入操作台</h2>
+        <p>用钱包签名完成一次身份认证（SIWE）。Karma 只读取你的钱包地址，
+          <b>全程不会接触你的私钥、助记词</b>。</p>
+        <div class="entry-gate-actions">
+          <button type="button" class="btn primary" data-wallet-connect>🔗 连接钱包 · 认证</button>
+          <button type="button" class="btn" data-wallet-disconnect hidden>断开</button>
+        </div>
+        <div class="api-status" data-wallet-status>—</div>
+        <div class="entry-gate-hint" id="entry-gate-hint">连上后这里会显示你的主身份 ID 和钱包地址。</div>
+      </div>
+    </div>
     <div class="app">
       <aside class="sidebar">
         <div class="brand">
@@ -101,19 +117,55 @@
                   <div class="sub-switch-panel" id="sub-switch-panel" role="menu" hidden></div>
                 </div>
                 <button type="button" class="btn" data-i18n="top.export">导出记录</button>
-                <div class="lock-quick" role="group" aria-label="快捷锁仓金额">
-                  <button type="button" class="chip" data-lock-preset="50">+50</button>
-                  <button type="button" class="chip" data-lock-preset="100">+100</button>
-                  <button type="button" class="chip" data-lock-preset="500">+500</button>
-                </div>
-                <input id="lock-amount" type="number" step="0.01" value="10" placeholder="USDC" style="width:88px" />
-                <button type="button" class="btn primary" data-action="lock-capacity" data-i18n="top.lock">增加锁仓额度</button>
               </div>
             </div>
           </div>
         </header>
 
         <section id="overview" class="page active">
+          <!-- 主身份抬头：进来第一眼就是「我是谁 · 钱包 · 锁了多少 · 怎么锁」 -->
+          <div class="card section id-home" id="id-home" data-identity-home>
+            <div class="id-home-head">
+              <div class="id-home-avatar" id="id-home-avatar">K</div>
+              <div class="id-home-who">
+                <div class="id-home-line">
+                  <b id="id-home-master">未连接钱包</b>
+                  <span class="id-home-badge">主身份</span>
+                </div>
+                <div class="id-home-sub">
+                  <span id="id-home-wallet">—</span>
+                  <span class="id-home-dot">·</span>
+                  <span id="id-home-scope">主体（全部）</span>
+                </div>
+              </div>
+              <div class="id-home-actions">
+                <button type="button" class="btn" data-go="identity">+ 新建子身份</button>
+                <button type="button" class="btn primary" id="btn-switch-identity" aria-haspopup="true" aria-expanded="false">切换身份</button>
+              </div>
+            </div>
+            <div class="id-home-stats">
+              <div class="id-home-stat"><span>锁仓额度</span><b data-bind="total_locked_usdc">—</b><i>USDC</i></div>
+              <div class="id-home-stat"><span>可用</span><b data-bind="available_credits">—</b><i>USDC</i></div>
+              <div class="id-home-stat"><span>订单占用</span><b data-bind="in_progress_bucket">—</b><i>USDC</i></div>
+            </div>
+            <div class="lock-row">
+              <label class="lock-row-label" for="lock-amount">锁仓金额</label>
+              <div class="lock-quick" role="group" aria-label="快捷锁仓金额">
+                <button type="button" class="chip" data-lock-preset="50">50</button>
+                <button type="button" class="chip" data-lock-preset="100">100</button>
+                <button type="button" class="chip" data-lock-preset="500">500</button>
+              </div>
+              <input id="lock-amount" type="number" step="0.01" value="10" placeholder="USDC" />
+              <button type="button" class="btn primary" data-action="lock-capacity" data-i18n="top.lock">增加锁仓额度</button>
+              <button type="button" class="btn" id="btn-reduce-lock">减少锁仓</button>
+            </div>
+            <p class="id-home-hint">
+              锁仓 = 用你自己的钱包「授权 + 承诺」。钱一直留在你自己的钱包里，未使用的部分随时可以减少。
+              有订单正在执行时，被占用的那部分不能减，要等订单结算。
+            </p>
+            <div class="id-home-confirm" id="id-home-confirm" hidden></div>
+            <div class="id-home-subs" id="id-home-subs"></div>
+          </div>
           <div class="grid metrics">
             <div class="card metric">
               <div class="label" data-i18n="m.locked">锁仓 USDC</div>
@@ -507,6 +559,7 @@
     <script src="../../scripts/i18n-cyber.js"></script>
     <script src="../../scripts/karma-public-api.js"></script>
     <script src="../../scripts/console-wallet-auth.js"></script>
+    <script src="../../scripts/console-entry-gate.js"></script>
     <script src="../../scripts/cyber-actions.js"></script>
     <script src="../../scripts/cyber-console.js"></script>
     <script src="../../scripts/cyber-identity.js"></script>
