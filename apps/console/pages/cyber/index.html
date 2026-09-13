@@ -54,8 +54,8 @@
           <button data-page="receipts"><span class="icon">R</span><span data-i18n="nav.receipts">回执证明</span></button>
           <button data-page="bills"><span class="icon">≋</span><span data-i18n="nav.bills">账单</span></button>
           <button data-page="disputes"><span class="icon">⚖</span><span data-i18n="nav.disputes">争议</span></button>
-          <button data-page="identity"><span class="icon">ID</span><span data-i18n="nav.identity">身份</span></button>
-          <button data-page="auth"><span class="icon">🔑</span><span data-i18n="nav.auth">认证</span></button>
+          <!-- 身份 = 认证：一个入口，不再拆成两个页面。 -->
+          <button data-page="identity"><span class="icon">ID</span><span data-i18n="nav.identity">身份 · 认证</span></button>
           <button data-page="agents"><span class="icon">◈</span><span data-i18n="nav.agents">Agent 接入</span></button>
           <button data-page="settings"><span class="icon">⚙</span><span data-i18n="nav.settings">设置</span></button>
         </nav>
@@ -463,37 +463,153 @@
         </section>
 
         <section id="identity" class="page">
-          <div class="card section">
+          <!-- ① 我的主身份：连钱包就有的那张卡。身份 = 认证，两件事不再拆成两个页面。 -->
+          <div class="card section" id="idv-master">
             <div class="section-header">
               <div>
-                <h3>Karma 身份卡</h3>
-                <p>读取当前身份的最小披露身份卡（连接钱包后自动获取 identity_id）。</p>
+                <h3>我的主身份</h3>
+                <p>连接钱包后自动生成 KID 主身份。整本账、所有子身份、所有锁仓都挂在主身份下；子身份只是分工，不另立资金账户。</p>
               </div>
+              <span class="idv-badge" id="idv-master-badge">未连接钱包</span>
             </div>
-            <div style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap">
-              <div class="field" style="flex:1; min-width:200px"><label>Identity ID</label><input id="id-card-id" type="text" placeholder="kid_xxx（连钱包自动填）" /></div>
-              <button type="button" class="btn primary" id="btn-id-card">读取身份卡</button>
-            </div>
-            <div class="id-card" id="id-card-view" style="margin-top:14px; display:none"></div>
-            <pre class="out" id="id-out" style="margin-top:12px; max-height:280px; overflow:auto">—</pre>
-          </div>
-        </section>
-
-        <section id="auth" class="page">
-          <div class="card section">
-            <div class="section-header">
-              <div>
-                <h3>认证 · 领取身份卡</h3>
-                <p>连接钱包完成 SIWE 认证，领取你的 master 身份卡。</p>
-              </div>
+            <div class="idv-grid">
+              <div class="idv-kv"><b>主身份 ID</b><span id="idv-master-id">—</span></div>
+              <div class="idv-kv"><b>钱包地址</b><span id="idv-master-wallet">—</span></div>
+              <div class="idv-kv"><b>认证状态</b><span id="idv-master-verify">未认证</span></div>
+              <div class="idv-kv"><b>锁仓 / 已分配 / 可用</b><span id="idv-master-money">—</span></div>
             </div>
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
-              <button type="button" class="btn primary" data-wallet-connect>🔗 连接钱包 · 认证</button>
+              <button type="button" class="btn primary" data-wallet-connect>🔗 连接钱包</button>
+              <button type="button" class="btn" id="btn-id-card">读取身份卡</button>
               <button type="button" class="btn" id="btn-claim-card">🎫 领取身份卡</button>
+              <input id="id-card-id" type="hidden" />
               <span class="api-status" data-wallet-status>—</span>
             </div>
+            <div class="id-card" id="id-card-view" style="margin-top:14px; display:none"></div>
             <div class="id-card" id="auth-card-view" style="margin-top:14px; display:none"></div>
-            <pre class="out" id="auth-out" style="margin-top:12px; max-height:280px; overflow:auto">—</pre>
+            <pre class="out" id="id-out" style="margin-top:12px; max-height:220px; overflow:auto; display:none">—</pre>
+            <pre class="out" id="auth-out" style="display:none">—</pre>
+          </div>
+
+          <!-- ② 主身份认证：证件 + 刷脸，一条直线做完。 -->
+          <div class="card section" id="idv-verify">
+            <div class="section-header">
+              <div>
+                <h3>主身份认证 · 证件 + 刷脸</h3>
+                <p>文件在你自己的浏览器里加密后才上传：Karma 只拿到密文和摘要，看不到证件内容，全程不碰你的私钥、助记词。</p>
+              </div>
+              <span class="idv-badge" id="idv-verify-badge">未提交</span>
+            </div>
+            <ol class="idv-pipeline">
+              <li id="idv-step-doc">
+                <div class="idv-step-head"><b>① 证件</b><span id="idv-doc-state">未上传</span></div>
+                <p class="idv-hint">身份证 / 护照，拍正反面。照片不会离开这台设备 —— 只有加密后的密文才会。</p>
+                <div class="idv-row">
+                  <label class="btn idv-file">正面<input type="file" id="idv-doc-front" accept="image/*" hidden /></label>
+                  <label class="btn idv-file">反面<input type="file" id="idv-doc-back" accept="image/*" hidden /></label>
+                  <span class="idv-thumb" id="idv-doc-thumb"></span>
+                </div>
+              </li>
+              <li id="idv-step-face">
+                <div class="idv-step-head"><b>② 刷脸</b><span id="idv-face-state">未采集</span></div>
+                <p class="idv-hint">对着摄像头做一次活体自拍；电脑没有摄像头就用手机打开操作台。</p>
+                <div class="idv-row">
+                  <button type="button" class="btn" id="idv-face-open">开启摄像头</button>
+                  <button type="button" class="btn primary" id="idv-face-shot" disabled>拍一张</button>
+                  <label class="btn idv-file">用照片<input type="file" id="idv-face-file" accept="image/*" hidden /></label>
+                  <video id="idv-face-video" playsinline muted></video>
+                  <span class="idv-thumb" id="idv-face-thumb"></span>
+                </div>
+              </li>
+              <li id="idv-step-read">
+                <div class="idv-step-head"><b>③ 识别与确认</b><span id="idv-read-state">待填写</span></div>
+                <p class="idv-hint">未接入自动识别（OCR / 活体）服务：下面由你本人确认，核验方复核。证件号只保留后 4 位，完整号码不会上传。</p>
+                <div class="idv-grid">
+                  <div class="field"><label>姓名</label><input id="idv-name" type="text" /></div>
+                  <div class="field"><label>证件类型</label><select id="idv-doc-type"><option value="ID_CARD">身份证</option><option value="PASSPORT">护照</option><option value="DRIVER_LICENSE">驾照</option><option value="RESIDENCE_PERMIT">居留证</option><option value="BUSINESS_LICENSE">营业执照</option></select></div>
+                  <div class="field"><label>证件号（只取后 4 位）</label><input id="idv-doc-number" type="text" inputmode="numeric" /></div>
+                  <div class="field"><label>有效期</label><input id="idv-valid" type="text" placeholder="2030-01-01" /></div>
+                </div>
+              </li>
+              <li id="idv-step-enc">
+                <div class="idv-step-head"><b>④ 本地加密</b><span id="idv-enc-state">待加密</span></div>
+                <p class="idv-hint">AES-GCM-256，密钥由你的钱包签名在本地派生（PBKDF2）。服务端只收到密文、摘要和加密参数。</p>
+              </li>
+              <li id="idv-step-send">
+                <div class="idv-step-head"><b>⑤ 提交</b><span id="idv-send-state">待提交</span></div>
+                <label class="idv-consent"><input type="checkbox" id="idv-consent" /> 我确认以上资料真实，并同意 Karma 在加密后保存与核验</label>
+                <div class="idv-row">
+                  <button type="button" class="btn primary" id="idv-submit" disabled>提交认证</button>
+                  <button type="button" class="btn" id="idv-reset">重来</button>
+                  <span class="api-status" id="idv-status">—</span>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          <!-- ③ 子身份：每个 agent 一张卡。 -->
+          <div class="card section" id="idv-subs">
+            <div class="section-header">
+              <div>
+                <h3>子身份 · 每个 agent 一张卡</h3>
+                <p>生活助理 / 工作助理 / 企业助理各建一张。角色、权限、额度、边界、操作钱包都独立，账单互不混淆。</p>
+              </div>
+              <button type="button" class="btn primary" id="idsub-new">+ 新建子身份</button>
+            </div>
+            <div id="idsub-list" class="idv-sub-list">连接钱包后显示你的子身份</div>
+            <div id="idsub-form" hidden>
+              <div class="idv-grid">
+                <div class="field"><label>角色</label><select id="idsub-role"><option value="life">生活助理</option><option value="work">工作助理</option><option value="company">企业商业助理</option></select></div>
+                <div class="field"><label>名字</label><input id="idsub-name" type="text" placeholder="不填就用角色名" /></div>
+                <div class="field"><label>额度 USDC</label><input id="idsub-amount" type="number" min="0" step="0.01" /></div>
+                <div class="field"><label>单笔最高 USDC</label><input id="idsub-single" type="number" min="0" step="0.01" /></div>
+                <div class="field"><label>每日上限 USDC</label><input id="idsub-daily" type="number" min="0" step="0.01" /></div>
+                <div class="field"><label>人工确认</label><select id="idsub-human"><option value="above_single">超过单笔最高时找我确认</option><option value="always">每一笔都找我确认</option><option value="off">额度内全自动</option></select></div>
+              </div>
+              <div class="idv-block"><b>权限</b><div id="idsub-perms" class="idv-perms"></div></div>
+              <div class="idv-block"><b>边界</b>
+                <div class="idv-row">
+                  <label class="idv-consent"><input type="checkbox" id="idsub-ack" /> 我确认这些权限与边界，并承担该 agent 行为的责任</label>
+                </div>
+                <p class="idv-hint">取消 / 退款 / 改价 / 换商家永远要你本人确认，这条不写进这里也不能被 agent 绕过。</p>
+              </div>
+              <div class="idv-block"><b>操作钱包（可选）</b>
+                <div class="idv-row">
+                  <button type="button" class="btn" id="idsub-wallet">绑一个钱包</button>
+                  <span class="api-status" id="idsub-wallet-state">未绑定（默认用主身份钱包）</span>
+                </div>
+                <p class="idv-hint">操作钱包只代表「谁可以替这张子身份签名」，不是资金账户：钱始终走主身份钱包。</p>
+              </div>
+              <div class="idv-block"><b>刷脸确认</b>
+                <div class="idv-row">
+                  <button type="button" class="btn" id="idsub-face">拍一张人脸</button>
+                  <span class="api-status" id="idsub-face-state">未采集</span>
+                </div>
+                <p class="idv-hint">子身份的人脸只用于确认「建这张卡的是本人」，同样在本地加密后才上传。</p>
+              </div>
+              <div class="idv-row">
+                <button type="button" class="btn primary" id="idsub-create">建立子身份</button>
+                <button type="button" class="btn" id="idsub-cancel">取消</button>
+                <span class="api-status" id="idsub-status">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ④ 资金归属：一个主体，一个资金账户。 -->
+          <div class="card section" id="idv-money-rule">
+            <div class="section-header">
+              <div>
+                <h3>资金归属 · 为什么子身份不另开资金账户</h3>
+                <p>一个主体，一个资金账户：主身份钱包是唯一的资金出入口，子身份是「成本中心」，独立记账、独立额度、独立订单明细。</p>
+              </div>
+            </div>
+            <ul class="idv-rules">
+              <li><b>收</b>：所有子身份收到的钱都进主身份钱包（唯一收款地址）。</li>
+              <li><b>支</b>：所有子身份的支出都从主身份钱包已锁仓、已授权的额度里出。</li>
+              <li><b>账</b>：每笔都记在具体子身份名下，主身份是总账；切换子身份看到的收支明细互不混淆。</li>
+              <li><b>为什么</b>：链上只有一条资金路径 —— 对账简单、责任清晰、链上授权只用做一份；子身份不持有资金，就不会出现额度碎片化和多签地狱。</li>
+              <li><b>操作钱包</b>：子身份可以绑自己的钱包，那只是签名身份，不是资金账户。</li>
+            </ul>
           </div>
         </section>
 
@@ -693,6 +809,7 @@
     <script src="../../scripts/cyber-actions.js"></script>
     <script src="../../scripts/cyber-console.js"></script>
     <script src="../../scripts/cyber-identity.js"></script>
+    <script src="../../scripts/cyber-identity-verify.js"></script>
     <script src="../../scripts/console-sync.js"></script>
     <script src="../../scripts/cyber-payments.js"></script>
     <script src="../../scripts/cyber-agents.js"></script>
