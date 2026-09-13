@@ -112,3 +112,29 @@ def test_execution_receipt_signature_acceptable_when_optional_but_invalid_sig_re
         signature="not-a-valid-ed25519-signature-bytes",
     )
     assert rg.execution_receipt_signature_acceptable(r) is False
+
+def test_progress_timestamp_regressed_handles_naive_vs_aware():
+    """库里存 naive UTC、客户端发 tz-aware —— 直接比会 TypeError 500（真机复现过）。"""
+    latest_naive = datetime.utcnow() - timedelta(seconds=5)
+    newer_aware = datetime.now(timezone.utc) - timedelta(seconds=1)
+    older_aware = datetime.now(timezone.utc) - timedelta(hours=1)
+
+    assert (
+        rg.progress_timestamp_regressed(
+            new_timestamp=newer_aware, latest_timestamp=latest_naive
+        )
+        is False
+    )
+    assert (
+        rg.progress_timestamp_regressed(
+            new_timestamp=older_aware, latest_timestamp=latest_naive
+        )
+        is True
+    )
+    # 两边都是 naive 也不能抛异常
+    assert (
+        rg.progress_timestamp_regressed(
+            new_timestamp=datetime.utcnow(), latest_timestamp=latest_naive
+        )
+        is False
+    )
