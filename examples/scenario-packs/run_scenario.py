@@ -235,6 +235,10 @@ def run(scenario, wallets, *, base_url):
                 scene_id=scene_id, step="buyer_accept_settle", amount=amount
             )
             sid = fresh.get("session_id")
+        if not sid:
+            raise RuntimeError(
+                "后端要求主人确认，但没给出确认会话 ID —— 请检查确认区配置：%s" % body
+            )
         buyer.decide_confirmation(sid, confirm=True)
         ok("主人已确认  %s" % sid)
         settled = buyer.buyer_accept(task_id, scene_id=scene_id, confirmation_session_id=sid)
