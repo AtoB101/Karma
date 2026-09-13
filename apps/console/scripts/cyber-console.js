@@ -663,8 +663,11 @@
     // 它不是用户接入的 agent；把它算进来会让第 3 步在刚连接时就显示「已接入」。
     const onboarded = agents.filter(function (a) { return a.agent_id !== a.owner_identity_id; });
     set("#launch-sdk-state", onboarded.length ? onboarded.length + " 个 agent 已接入" : "还没有 agent 接入");
+    // 三步都做完了就收起这张卡，把版面让给订单状态图；缺哪一步就继续显示。
+    const allocDone = profiles.length > 0 && funded.length >= profiles.length;
+    const allDone = locked > 0 && allocDone && onboarded.length > 0;
     // 先把三步状态算完再显示，否则卡片会先闪一下「—」再变成真实数字。
-    card.hidden = false;
+    card.hidden = allDone;
   }
 
   function bindLaunchGuide() {
@@ -1348,6 +1351,11 @@
     if (sec) sec.classList.add("active");
     markNav(page, subKey);
     applyFocus(page, subKey);
+    // 订单页的视角（全部 / 我买的 / 我卖的）跟着侧栏走，不让图和侧栏各说各话。
+    if (page === "overview" && window.KarmaOrders && window.KarmaOrders.setSide) {
+      window.KarmaOrders.setSide(subKey === "buy" ? "out" : subKey === "sell" ? "in" : "all");
+      window.KarmaOrders.paintSides();
+    }
     // 回到总览就重算起步引导：接入 agent、锁仓、授权都可能发生在别的页面。
     if (page === "overview") renderLaunchGuide().catch(function () {});
     const h = el("#pageHeading");

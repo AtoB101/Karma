@@ -572,6 +572,8 @@ async def info():
                 settings.settlement_requires_success_execution_receipt_for_seller_release
             ),
             "block_buyer_worker_payment_cycle": bool(settings.settlement_block_buyer_worker_payment_cycle),
+            # 前端「订单状态图」用它判断已完成的单什么时候从图上退场。
+            "dispute_window_hours": int(settings.dispute_window_hours or 0),
         },
     }
 

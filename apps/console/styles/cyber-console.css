@@ -1415,3 +1415,74 @@ body.gated { overflow: hidden; }
 #identity [data-idv-advanced] .idv-adv-summary { cursor: pointer; font-size: 13px; color: var(--text-dim); }
 #identity [data-idv-advanced][open] .idv-adv-summary { margin-bottom: 14px; }
 #identity [data-idv-advanced] .idv-adv-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(34, 211, 238, 0.12); }
+
+/* ---------------------------------------------------------------- 订单状态图（首页） */
+/* 一笔单走到哪一步，用泳道看；已过可争议期的单自动退场，版面只留还要处理的。 */
+.order-board-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.order-sides { display: flex; gap: 6px; }
+.order-totals {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  margin-top: 14px; font-size: 12px; color: var(--text-dim);
+}
+.order-totals b { color: var(--text-main); font-variant-numeric: tabular-nums; }
+.order-board {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+@media (max-width: 1200px) { .order-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .order-board { grid-template-columns: 1fr; } }
+.order-lane {
+  display: flex; flex-direction: column; gap: 8px;
+  min-height: 120px;
+  padding: 10px;
+  border: 1px solid rgba(34, 211, 238, 0.14);
+  border-radius: 14px;
+  background: rgba(8, 14, 26, 0.6);
+}
+.order-lane[data-lane="confirm"] { border-color: rgba(250, 204, 21, 0.28); }
+.order-lane[data-lane="dispute"] { border-color: rgba(248, 113, 113, 0.32); }
+.order-lane[data-lane="done"] { opacity: 0.72; }
+.order-lane-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 11px; color: var(--text-dim); letter-spacing: 0.02em;
+}
+.order-lane-head b { color: var(--text-main); font-size: 12px; }
+.order-lane-count { font-variant-numeric: tabular-nums; }
+.order-lane-body { display: flex; flex-direction: column; gap: 8px; }
+.order-lane-empty { font-size: 11px; color: var(--text-dim); opacity: 0.6; }
+.order-card {
+  display: flex; flex-direction: column; gap: 6px;
+  width: 100%; text-align: left;
+  padding: 10px;
+  border: 1px solid rgba(120, 160, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(16, 24, 44, 0.85);
+  color: var(--text-main);
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.order-card:hover { transform: translateY(-1px); border-color: var(--border-glow); }
+.order-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.order-side-tag {
+  padding: 1px 8px; border-radius: 999px;
+  border: 1px solid rgba(120, 160, 255, 0.3);
+  color: var(--text-dim); font-size: 11px; white-space: nowrap;
+}
+.order-side-tag.is-out { color: #ffd479; border-color: rgba(255, 212, 121, 0.35); }
+.order-side-tag.is-in { color: #7ee2a8; border-color: rgba(126, 226, 168, 0.35); }
+.order-card-amount { color: var(--text-main); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.order-card-amount em { color: var(--text-dim); font-style: normal; font-size: 11px; }
+.order-card-title { color: #fff; font-weight: 600; line-height: 1.35; }
+.order-card-meta {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  color: var(--text-dim); font-size: 11px;
+}
+.order-empty {
+  margin-top: 12px; padding: 14px;
+  border: 1px dashed rgba(120, 160, 255, 0.25);
+  border-radius: 12px;
+  color: var(--text-dim); font-size: 12px; line-height: 1.6;
+}
