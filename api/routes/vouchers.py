@@ -79,6 +79,7 @@ class VerifyVoucherRequest(BaseModel):
 
 class AcceptVoucherRequest(BaseModel):
     seller_identity_id: str
+    seller_profile_id: str | None = None
 
 
 @router.post("", response_model=AuthorizationVoucher, status_code=201)
@@ -292,7 +293,13 @@ async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, request: R
         raise HTTPException(404, f"Voucher {voucher_id} not found")
     from services.voucher_lifecycle import accept_voucher_row
 
-    row = await accept_voucher_row(db, row, seller_identity_id=body.seller_identity_id, actor="api")
+    row = await accept_voucher_row(
+        db,
+        row,
+        seller_identity_id=body.seller_identity_id,
+        actor="api",
+        seller_profile_id=body.seller_profile_id,
+    )
     return _to_schema(row)
 
 

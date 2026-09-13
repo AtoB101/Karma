@@ -509,6 +509,10 @@ class SettlementState(BaseModel):
         default=None,
         description="Identity role profile this settlement belongs to (P1 multi-profile)",
     )
+    worker_profile_id: Optional[str] = Field(
+        default=None,
+        description="收款方（卖方）的角色档案 id —— 收付中心按子身份拆收入用",
+    )
     released_amount: Optional[float] = None
     refunded_amount: Optional[float] = None
     dispute_reason: Optional[str] = None

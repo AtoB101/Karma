@@ -42,6 +42,7 @@ async def accept_voucher_row(
     *,
     seller_identity_id: str,
     actor: str = "console",
+    seller_profile_id: str | None = None,
 ) -> VoucherModel:
     if row.status != VoucherStatus.CREATED.value:
         raise HTTPException(409, f"voucher already processed: {row.status}")
@@ -50,6 +51,16 @@ async def accept_voucher_row(
         raise HTTPException(409, "voucher expired")
     if row.seller_identity_id != seller_identity_id:
         raise HTTPException(403, "seller mismatch")
+
+    if seller_profile_id:
+        from db.models.orm import IdentityRoleProfile
+
+        profile = await db.get(IdentityRoleProfile, seller_profile_id)
+        if profile is None or profile.owner_identity_id != seller_identity_id:
+            raise HTTPException(
+                404, f"profile {seller_profile_id} not found for this seller"
+            )
+        row.seller_profile_id = seller_profile_id
 
     cap = await db.get(CapacityModel, row.buyer_identity_id)
     if not cap or cap.available_credits < row.bill_credit_amount:

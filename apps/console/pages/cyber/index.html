@@ -276,6 +276,64 @@
         </section>
 
         <section id="center" class="page">
+          <!-- 收付中心：主身份 = 总览 + 支出/收入明细；切子身份 = 该身份的收付明细。
+               每一行点开都有详情；确认区 / 争议区按订单状态分开列。 -->
+          <div class="card section pay-head">
+            <div class="section-header">
+              <div>
+                <h3>收付中心</h3>
+                <p id="pay-scope-note">连接钱包后，这里是你的收付台账。</p>
+              </div>
+              <div class="pay-head-actions">
+                <span class="pay-sync" id="pay-sync">—</span>
+                <button type="button" class="btn" id="pay-refresh">刷新</button>
+                <button type="button" class="btn primary" id="pay-new" aria-expanded="false">发起收付</button>
+              </div>
+            </div>
+
+            <div class="pay-stats" id="pay-stats" hidden>
+              <div class="pay-stat"><span>已收款</span><b data-bind="pay_income">—</b><i>已结算入账</i></div>
+              <div class="pay-stat"><span>已付款</span><b data-bind="pay_expense">—</b><i>已结算支出</i></div>
+              <div class="pay-stat"><span>在途占用</span><b data-bind="pay_inflight">—</b><i>执行中 / 争议冻结</i></div>
+              <div class="pay-stat"><span>待收款</span><b data-bind="pay_pending_income">—</b><i>已交付待确认</i></div>
+              <div class="pay-stat"><span>锁仓 USDC</span><b data-bind="pay_locked">—</b><i>链上承诺中</i></div>
+              <div class="pay-stat"><span>净额</span><b data-bind="pay_net">—</b><i>已收 − 已付</i></div>
+            </div>
+            <div class="pay-stats" id="pay-substats" hidden>
+              <div class="pay-stat"><span>该子身份已收</span><b data-bind="pay_sub_income">—</b><i>已结算入账</i></div>
+              <div class="pay-stat"><span>该子身份已付</span><b data-bind="pay_sub_expense">—</b><i>已结算支出</i></div>
+              <div class="pay-stat"><span>在途占用</span><b data-bind="pay_sub_inflight">—</b><i>执行中 / 争议冻结</i></div>
+            </div>
+
+            <div class="pay-tabs" role="tablist">
+              <button type="button" class="pay-tab active" data-pay-tab="out">支出明细<span class="pay-count" id="pay-count-out">0</span></button>
+              <button type="button" class="pay-tab" data-pay-tab="in">收入明细<span class="pay-count" id="pay-count-in">0</span></button>
+            </div>
+            <div class="pay-list" id="pay-list"><p class="pay-empty">…</p></div>
+          </div>
+
+          <div class="pay-zones">
+            <div class="card section pay-zone" id="pay-zone-confirm">
+              <div class="pay-zone-head"><b>确认区</b><span class="pay-count" id="pay-confirm-count">0</span></div>
+              <p class="pay-zone-hint">已交付 / 待你确认的单：确认之后真实资金才会划转。</p>
+              <div class="pay-zone-list" id="pay-confirm-list"><p class="pay-empty">暂无待确认的单。</p></div>
+            </div>
+            <div class="card section pay-zone" id="pay-zone-dispute">
+              <div class="pay-zone-head"><b>争议区</b><span class="pay-count" id="pay-dispute-count">0</span></div>
+              <p class="pay-zone-hint">进入争议 / 仲裁的单：资金冻结，等结果。</p>
+              <div class="pay-zone-list" id="pay-dispute-list"><p class="pay-empty">暂无争议中的单。</p></div>
+            </div>
+          </div>
+
+          <div class="card section pay-detail" id="pay-detail" hidden></div>
+
+          <div class="card section pay-create" id="pay-create" hidden>
+            <div class="section-header">
+              <div>
+                <h3>发起收付</h3>
+                <p>付款码是买家给卖家的一次性授权：卖家验码接单后额度被锁定，验证通过才划转，全程不碰私钥。</p>
+              </div>
+            </div>
           <div class="split">
             <div class="flow-card">
               <h3>我要付款</h3>
@@ -291,6 +349,7 @@
               <p>输入买家付款码 Voucher ID，验码确认额度已锁定后接单，或直接拒绝。</p>
               <div class="field" style="margin-top:12px"><label>Voucher ID</label><input id="pc-voucher" type="text" placeholder="voucher_id" /></div>
               <div class="field"><label>我的卖方 Identity</label><input id="pc-seller-id" type="text" placeholder="seller-identity-001" /></div>
+              <div class="field"><label>记到哪个子身份（可选）</label><select id="pc-seller-profile"><option value="">主体身份</option></select></div>
               <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap">
                 <button type="button" class="btn" id="btn-read-paycode">验码</button>
                 <button type="button" class="btn primary" id="btn-accept-paycode">接单</button>
@@ -298,6 +357,7 @@
               </div>
               <pre class="out" id="pc-recv-out" style="margin-top:12px; max-height:220px; overflow:auto">—</pre>
             </div>
+          </div>
           </div>
         </section>
 
@@ -624,6 +684,7 @@
     <script src="../../scripts/cyber-console.js"></script>
     <script src="../../scripts/cyber-identity.js"></script>
     <script src="../../scripts/console-sync.js"></script>
+    <script src="../../scripts/cyber-payments.js"></script>
     <script src="../../scripts/cyber-agents.js"></script>
     <script src="../../scripts/cyber-authorize.js"></script>
     <script src="../../scripts/cyber-handoff.js"></script>
