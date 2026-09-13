@@ -153,6 +153,17 @@
     return n.toFixed(2);
   }
 
+  /* 刚连上钱包的那一两秒，链上接口偶尔会抢在会话生效前发出去（401），
+     用户看到的就是「锁仓 0.00」——比没连上还吓人。短暂重试，最多 3 次。 */
+  let capacityRetry = 0;
+  function scheduleCapacityRetry() {
+    if (capacityRetry >= 3) return;
+    capacityRetry += 1;
+    setTimeout(function () {
+      refreshCapacity().catch(function () {});
+    }, 1200);
+  }
+
   async function refreshCapacity() {
     const id = el("[data-cfg=identity_id]")?.value?.trim() || String(window.KARMA_IDENTITY_ID || "").trim();
     if (!id) {
@@ -182,6 +193,8 @@
       } catch (_) {
         info = null;
       }
+      if (info) capacityRetry = 0;
+      else scheduleCapacityRetry();
       const esc = (info && info.escrow) || {};
       const committed = Number((info && info.committed_usdc) || 0);
       if (esc.enabled && committed > 0) {
