@@ -1,0 +1,46 @@
+{
+  "scenario_id": "01-data-api",
+  "scene_id": "data_api_billing",
+  "title_zh": "线上数据 API · 按次调用",
+  "summary_zh": "买方 agent 替主人买一次数据接口调用：配额内自动放行，交付以用量日志哈希 + SUCCESS 执行回执为准，验收即结算。这是最简单的一条链，用来验证「agent 自己花钱办事」的最小闭环。",
+  "amount_usdc": 3,
+  "task": {
+    "title": "拉取上海 30 天餐饮 POI 数据",
+    "description": "调用数据服务商的 /v1/poi/query，返回 30 天内上海餐饮类 POI 快照。按次计费 3 USDC，要求返回体含 usage 用量与成功率。"
+  },
+  "flow": {
+    "delivery_verification": "none",
+    "milestones": [
+      {
+        "title_zh": "配额校验通过",
+        "progress_percent": 30,
+        "claimed_value_percent": 30
+      },
+      {
+        "title_zh": "接口调用与计量完成",
+        "progress_percent": 100,
+        "claimed_value_percent": 100
+      }
+    ],
+    "receipts": [
+      {
+        "tool_name": "data_api.query",
+        "duration_ms": 1800
+      },
+      {
+        "tool_name": "data_api.usage_meter",
+        "duration_ms": 400
+      }
+    ]
+  },
+  "roles_zh": {
+    "buyer": "买方（调用方，主人的助理）",
+    "seller": "卖方（数据服务商 agent）",
+    "logistics": null
+  },
+  "why_karma_zh": [
+    "买方不用先付钱：钱锁在自己钱包，验收通过才划转。",
+    "卖方不用先交付后讨账：SUCCESS 回执 + 用量日志哈希就是可验证的交付。",
+    "双方都不用互相信任对方的对账单 —— 结算依据的是协议里的证据。"
+  ]
+}

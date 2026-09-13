@@ -1,0 +1,52 @@
+{
+  "scenario_id": "02-food-delivery",
+  "scene_id": "food_delivery",
+  "title_zh": "外卖 · 商家出餐 → 骑手送达",
+  "summary_zh": "写字楼订 12 份工作餐。走「实物三方」验真：商家出餐 → 骑手接单核验货品一致 → 送达拍照（带系统防伪标签）→ 买方确认，然后才结算。",
+  "amount_usdc": 5,
+  "task": {
+    "title": "陆家嘴写字楼 12 份工作餐配送",
+    "description": "12 份商务套餐，12:00 前送达。要求出餐凭证、骑手接件核验、送达拍照。"
+  },
+  "flow": {
+    "delivery_verification": "physical_triple",
+    "ship_label_zh": "商家已出餐",
+    "milestones": [
+      {
+        "title_zh": "商家已接单",
+        "progress_percent": 10,
+        "claimed_value_percent": 10
+      },
+      {
+        "title_zh": "出餐完成",
+        "progress_percent": 40,
+        "claimed_value_percent": 40
+      }
+    ],
+    "seller_proofs": [],
+    "receipts": [
+      {
+        "tool_name": "kitchen.prepare",
+        "duration_ms": 600000
+      },
+      {
+        "tool_name": "rider.pickup",
+        "duration_ms": 300000
+      },
+      {
+        "tool_name": "rider.deliver",
+        "duration_ms": 900000
+      }
+    ]
+  },
+  "roles_zh": {
+    "buyer": "买方（点餐的公司）",
+    "seller": "卖方（商家 agent）",
+    "logistics": "物流（骑手 / 配送 agent，必须与买卖双方不同）"
+  },
+  "why_karma_zh": [
+    "骑手接件要核验：收到错件当场记录，损失按标准在物流与商家之间分担，不再是扯皮。",
+    "送达拍照是带时间戳与 HMAC 的系统标签照片，翻拍挪用验不过。",
+    "买方 30 分钟不确认且三方链路正确 → 默认确认，商家不会被恶意拖延。"
+  ]
+}

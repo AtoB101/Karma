@@ -1,0 +1,46 @@
+{
+  "scenario_id": "04-hotel-booking",
+  "scene_id": "hotel_booking",
+  "title_zh": "订酒店 · 确认号回执验真",
+  "summary_zh": "订 2 晚酒店。走「票务回执」验真：卖方出确认号 / 邮件回执 → 买方确认房态无误 → 结算。酒店属于必须主人点头的场景，结算是 OWNER_CONFIRM。",
+  "amount_usdc": 6,
+  "task": {
+    "title": "上海静安 · 2 晚大床房预订",
+    "description": "入住日期与房型锁定；要求回传确认号或邮件回执。取消政策随单锁定。"
+  },
+  "flow": {
+    "delivery_verification": "ticket_stub",
+    "issue_label_zh": "酒店已出确认号",
+    "milestones": [
+      {
+        "title_zh": "房态已锁定",
+        "progress_percent": 50,
+        "claimed_value_percent": 50
+      },
+      {
+        "title_zh": "确认单已生成",
+        "progress_percent": 100,
+        "claimed_value_percent": 100
+      }
+    ],
+    "seller_proofs": [
+      "email_receipt"
+    ],
+    "receipts": [
+      {
+        "tool_name": "ota.reserve",
+        "duration_ms": 4000
+      }
+    ]
+  },
+  "roles_zh": {
+    "buyer": "买方（出行的人）",
+    "seller": "卖方（酒店 / OTA agent）",
+    "logistics": null
+  },
+  "why_karma_zh": [
+    "订酒店金额大、易扯皮，所以结算是主人确认制：agent 不能自作主张把尾款付掉。",
+    "确认号回执是可核的交付证据，后期可接 OTA / PMS 直接核验。",
+    "房态没锁住就不会进入结算，钱不会被提前划走。"
+  ]
+}
