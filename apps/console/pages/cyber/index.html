@@ -48,16 +48,54 @@
           </div>
         </div>
         <nav class="nav">
-          <button class="active" data-page="overview"><span class="icon">◎</span><span data-i18n="nav.overview">总览</span></button>
-          <button data-page="center"><span class="icon">⇄</span><span data-i18n="nav.center">收付中心</span></button>
-          <button data-page="tasks"><span class="icon">▣</span><span data-i18n="nav.tasks">任务执行</span></button>
-          <button data-page="receipts"><span class="icon">R</span><span data-i18n="nav.receipts">回执证明</span></button>
-          <button data-page="bills"><span class="icon">≋</span><span data-i18n="nav.bills">账单</span></button>
-          <button data-page="disputes"><span class="icon">⚖</span><span data-i18n="nav.disputes">争议</span></button>
-          <!-- 身份 = 认证：一个入口，不再拆成两个页面。 -->
-          <button data-page="identity"><span class="icon">ID</span><span data-i18n="nav.identity">身份 · 认证</span></button>
-          <button data-page="agents"><span class="icon">◈</span><span data-i18n="nav.agents">Agent 接入</span></button>
-          <button data-page="settings"><span class="icon">⚙</span><span data-i18n="nav.settings">设置</span></button>
+          <!-- 主功能区 + 折叠子功能：点主项切页面并展开它下面的子项，点子项直接落到那一块。 -->
+          <div class="nav-group" data-group="overview">
+            <button class="nav-main active" data-page="overview"><span class="icon">◎</span><span data-i18n="nav.overview">总览</span></button>
+          </div>
+          <div class="nav-group" data-group="center">
+            <button class="nav-main" data-page="center" aria-expanded="false"><span class="icon">⇄</span><span data-i18n="nav.center">收付中心</span><span class="nav-caret">▾</span></button>
+            <div class="nav-subs">
+              <button class="nav-sub" data-page="center" data-sub="out"><span data-i18n="sub.center.out">支出明细</span></button>
+              <button class="nav-sub" data-page="center" data-sub="in"><span data-i18n="sub.center.in">收入明细</span></button>
+              <button class="nav-sub" data-page="center" data-sub="confirm"><span data-i18n="sub.center.confirm">确认区</span></button>
+              <button class="nav-sub" data-page="center" data-sub="dispute"><span data-i18n="sub.center.dispute">争议区</span></button>
+              <button class="nav-sub" data-page="center" data-sub="new"><span data-i18n="sub.center.new">发起收付</span></button>
+            </div>
+          </div>
+          <div class="nav-group" data-group="tasks">
+            <button class="nav-main" data-page="tasks" aria-expanded="false"><span class="icon">▣</span><span data-i18n="nav.tasks">任务执行</span><span class="nav-caret">▾</span></button>
+            <div class="nav-subs">
+              <button class="nav-sub" data-page="tasks" data-sub="flow"><span data-i18n="sub.tasks.flow">结算流转</span></button>
+              <button class="nav-sub" data-page="receipts"><span data-i18n="nav.receipts">回执证明</span></button>
+            </div>
+          </div>
+          <div class="nav-group" data-group="bills">
+            <button class="nav-main" data-page="bills"><span class="icon">≋</span><span data-i18n="nav.bills">账单</span></button>
+          </div>
+          <div class="nav-group" data-group="disputes">
+            <button class="nav-main" data-page="disputes"><span class="icon">⚖</span><span data-i18n="nav.disputes">争议</span></button>
+          </div>
+          <div class="nav-group" data-group="identity">
+            <button class="nav-main" data-page="identity" aria-expanded="false"><span class="icon">ID</span><span data-i18n="nav.identity">身份 · 认证</span><span class="nav-caret">▾</span></button>
+            <div class="nav-subs">
+              <button class="nav-sub" data-page="identity" data-sub="master"><span data-i18n="sub.identity.master">我的主身份</span></button>
+              <button class="nav-sub" data-page="identity" data-sub="verify"><span data-i18n="sub.identity.verify">主身份认证</span></button>
+              <button class="nav-sub" data-page="identity" data-sub="subs"><span data-i18n="sub.identity.subs">子身份</span></button>
+              <button class="nav-sub" data-page="identity" data-sub="money"><span data-i18n="sub.identity.money">资金归属</span></button>
+            </div>
+          </div>
+          <div class="nav-group" data-group="agents">
+            <button class="nav-main" data-page="agents" aria-expanded="false"><span class="icon">◈</span><span data-i18n="nav.agents">Agent 接入</span><span class="nav-caret">▾</span></button>
+            <div class="nav-subs">
+              <button class="nav-sub" data-page="agents" data-sub="wizard"><span data-i18n="sub.agents.wizard">授权向导</span></button>
+              <button class="nav-sub" data-page="agents" data-sub="mine"><span data-i18n="sub.agents.mine">我的 Agent</span></button>
+              <button class="nav-sub" data-page="agents" data-sub="handoff"><span data-i18n="sub.agents.handoff">交给 Agent</span></button>
+              <button class="nav-sub" data-page="agents" data-sub="connect"><span data-i18n="sub.agents.connect">接入一个 Agent</span></button>
+            </div>
+          </div>
+          <div class="nav-group" data-group="settings">
+            <button class="nav-main" data-page="settings"><span class="icon">⚙</span><span data-i18n="nav.settings">设置</span></button>
+          </div>
         </nav>
         <div class="side-warning">
           <b data-i18n="side.rule_title">资金安全规则</b>
@@ -719,7 +757,7 @@
             <div class="agw-result" id="agw-result" hidden></div>
           </div>
 
-          <div class="card section" style="margin-top:20px">
+          <div class="card section" id="ag-mine" style="margin-top:20px">
             <div class="section-header">
               <div>
                 <h3>我的 Agent</h3>

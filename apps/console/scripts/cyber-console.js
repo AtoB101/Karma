@@ -1157,7 +1157,102 @@
     }
   }
 
-  function switchPage(page) {
+  /** 内容区真正的滚动容器是 .main —— window.scrollTo 在这个布局里什么都不会发生。 */
+  function scrollMainTo(node) {
+    var main = document.querySelector(".main");
+    if (!main) return;
+    if (!node) { main.scrollTop = 0; return; }
+    var delta = node.getBoundingClientRect().top - main.getBoundingClientRect().top;
+    var top = Math.max(0, main.scrollTop + delta - 72);
+    try { main.scrollTo({ top: top, behavior: "smooth" }); } catch (_) { main.scrollTop = top; }
+  }
+
+  /** 闪一下目标卡片，让人知道「右边显示的就是我刚点的那一项」。 */
+  function flashNode(node) {
+    if (!node) return;
+    node.classList.add("nav-flash");
+    window.setTimeout(function () { node.classList.remove("nav-flash"); }, 1500);
+  }
+
+  /** 子功能各自的落地位置（页面 → 子项 → 选择器）。 */
+  var SUB_TARGETS = {
+    tasks: { flow: "#tasks .card.section" },
+    identity: { master: "#idv-master", verify: "#idv-verify", subs: "#idv-subs", money: "#idv-money-rule" },
+    agents: { wizard: "#ag-wizard", mine: "#ag-mine", handoff: "#ag-handoff-card", connect: "#agents .ag-advanced" },
+  };
+
+  function landOn(node) {
+    if (!node) return;
+    var box = node.closest("details");
+    if (box) box.open = true;
+    scrollMainTo(node);
+    flashNode(node);
+  }
+
+  /** 点子功能之后：该切 tab 的切 tab，该滚过去的滚过去。 */
+  function applySub(page, sub) {
+    if (!sub) return;
+    if (page === "center") {
+      if (sub === "out" || sub === "in") {
+        var tab = document.querySelector('[data-pay-tab="' + sub + '"]');
+        if (tab) tab.click();
+        landOn(document.getElementById("pay-list"));
+        return;
+      }
+      if (sub === "confirm") return landOn(document.getElementById("pay-zone-confirm"));
+      if (sub === "dispute") return landOn(document.getElementById("pay-zone-dispute"));
+      if (sub === "new") {
+        var open = document.getElementById("pay-new");
+        // 面板已经是开着的就别再点，否则会把它关掉。
+        if (open && open.getAttribute("aria-expanded") !== "true") open.click();
+        return landOn(document.getElementById("pay-create"));
+      }
+      return;
+    }
+    var map = SUB_TARGETS[page];
+    if (map && map[sub]) landOn(document.querySelector(map[sub]));
+  }
+
+  /** 一次只展开一组：侧栏本来就窄，多开几组会把别的入口挤下去。 */
+  function openGroupOnly(group) {
+    document.querySelectorAll(".nav-group").forEach(function (g) {
+      var on = !!group && g === group && !!g.querySelector(".nav-sub");
+      g.classList.toggle("open", on);
+      var main = g.querySelector(".nav-main");
+      if (main) main.setAttribute("aria-expanded", on ? "true" : "false");
+    });
+  }
+
+  /** 高亮：有子项就亮子项，同时把父项打开并标成「正在这里面」。 */
+  function markNav(page, sub) {
+    document.querySelectorAll(".nav-main, .nav-sub").forEach(function (b) {
+      b.classList.remove("active", "parent-active");
+    });
+    var target = sub
+      ? document.querySelector('.nav-sub[data-page="' + page + '"][data-sub="' + sub + '"]')
+      : null;
+    if (!target) target = document.querySelector('.nav-main[data-page="' + page + '"]');
+    if (!target) return;
+    var group = target.closest(".nav-group");
+    // 只有真的带子项的分组才有「展开」这回事。
+    if (group && group.querySelector(".nav-sub")) {
+      openGroupOnly(group);
+    } else if (group) {
+      // 落在没有子项的页面上：把展开的组收起来，侧栏回到干净状态。
+      openGroupOnly(null);
+    }
+    if (sub) {
+      target.classList.add("active");
+      if (group) {
+        var head = group.querySelector(".nav-main");
+        if (head) head.classList.add("parent-active");
+      }
+    } else {
+      target.classList.add("active");
+    }
+  }
+
+  function switchPage(page, subKey) {
     // 「认证」已经并进「身份」：老链接 / 老按钮一律落到同一页，不留空页。
     if (page === "auth") page = "identity";
     document.querySelectorAll(".page").forEach(function (p) {
@@ -1165,11 +1260,7 @@
     });
     const sec = document.getElementById(page);
     if (sec) sec.classList.add("active");
-    document.querySelectorAll(".nav button").forEach(function (b) {
-      b.classList.remove("active");
-    });
-    const btn = document.querySelector('.nav button[data-page="' + page + '"]');
-    if (btn) btn.classList.add("active");
+    markNav(page, subKey);
     // 回到总览就重算起步引导：接入 agent、锁仓、授权都可能发生在别的页面。
     if (page === "overview") renderLaunchGuide().catch(function () {});
     const h = el("#pageHeading");
@@ -1179,12 +1270,12 @@
       sub.setAttribute("data-i18n", pages[page][1]);
       window.CYBER_I18N.applyCyberI18n();
     }
-    try {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (_) {}
+    // 有子项就滚到子项那一段，没有才回到顶部。
+    if (subKey) applySub(page, subKey);
+    else scrollMainTo(null);
     // Panels that only matter on one page (账单明细, 子身份过滤) refresh here.
     try {
-      document.dispatchEvent(new CustomEvent("karma-page-shown", { detail: { page: page } }));
+      document.dispatchEvent(new CustomEvent("karma-page-shown", { detail: { page: page, sub: subKey || null } }));
     } catch (_) {}
   }
 
@@ -1192,9 +1283,20 @@
   window.cyberSwitchPage = switchPage;
 
   function bindNav() {
-    document.querySelectorAll(".nav button").forEach(function (btn) {
+    document.querySelectorAll(".nav-main").forEach(function (btn) {
       btn.addEventListener("click", function () {
+        var group = btn.closest(".nav-group");
+        // 已经展开的这一组，再点一下就是收起来（页面不动）。
+        if (group && group.querySelector(".nav-sub") && group.classList.contains("open")) {
+          openGroupOnly(null);
+          return;
+        }
         switchPage(btn.getAttribute("data-page"));
+      });
+    });
+    document.querySelectorAll(".nav-sub").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        switchPage(btn.getAttribute("data-page"), btn.getAttribute("data-sub"));
       });
     });
   }
