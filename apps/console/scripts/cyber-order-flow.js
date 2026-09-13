@@ -478,7 +478,23 @@
     })();
   }
 
+  /** 服务类型下拉框的选项只有一个来源：上面那张 SCENES 表。别在下拉里手写第二份。 */
+  function fillSceneSelects() {
+    document.querySelectorAll("[data-scene-select]").forEach(function (sel) {
+      var keep = sel.value;
+      Object.keys(SCENES).forEach(function (id) {
+        if (sel.querySelector('option[value="' + id + '"]')) return;
+        var o = document.createElement("option");
+        o.value = id;
+        o.textContent = SCENES[id].label + " · " + (MODE_LABEL[SCENES[id].mode] || SCENES[id].mode);
+        sel.appendChild(o);
+      });
+      sel.value = keep;
+    });
+  }
+
   function bind() {
+    fillSceneSelects();
     var host = $("#" + HOST);
     if (!host) return;
     host.addEventListener("click", function (ev) {
@@ -509,5 +525,6 @@
     eventStage: EVENT_STAGE,
     buildStages: buildStages,
     sceneOf: sceneOf,
+    fillSceneSelects: fillSceneSelects,
   };
 })(window);

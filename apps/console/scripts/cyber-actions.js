@@ -55,6 +55,7 @@
       }
     } catch (_) {}
 
+    var sceneId = val('#pc-scene');
     out('#pc-out', '创建中…', false);
     try {
       var body = {
@@ -64,6 +65,7 @@
         currency: 'USDC',
         bill_credit_amount: amount,
         task_type: taskType,
+        progress_rule_spec: sceneId ? { scene_id: sceneId } : undefined,
         task_description_hash: await sha256hex(taskType + ':' + amount),
         progress_rule_hash: await sha256hex('progress'),
         evidence_requirement_hash: await sha256hex('evidence'),
@@ -141,7 +143,13 @@
         });
       } else if (step === 'create') {
         if (!buyer) { out('#st-out', '请填买方', true); return; }
-        r = await a.createSettlement({ task_id: tid, client_agent_id: buyer, escrow_amount: amount, currency: 'USDC' });
+        var scene = val('#st-scene');
+        r = await a.createSettlement({
+          task_id: tid, client_agent_id: buyer, escrow_amount: amount, currency: 'USDC',
+          // 单独点 create 也要有交付期限，不能依赖先点过「建合同」。
+          delivery_deadline_at: new Date(Date.now() + 3 * 86400e3).toISOString(),
+          progress_rule_spec: scene ? { scene_id: scene } : undefined
+        });
       } else if (step === 'lock') {
         if (!worker) { out('#st-out', '请填卖方 worker', true); return; }
         r = await a.settlementLock(tid, worker);

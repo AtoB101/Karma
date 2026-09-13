@@ -42,7 +42,7 @@ from services.settlement_party_access import (
 from services.settlement_cycle_guard import assert_lock_does_not_close_payment_cycle
 from services.settlement_receipt_release_guard import ensure_success_execution_receipt_before_seller_payout
 from services.task_contract_guard import ensure_task_contract_exists
-from services.text_safety import validate_safe_storage_text_optional
+from services.text_safety import validate_json_strings_safe, validate_safe_storage_text_optional
 
 router = APIRouter()
 
@@ -91,6 +91,23 @@ class CreateSettlementRequest(BaseModel):
     voucher_id: str | None = None
     delivery_deadline_at: datetime | None = None
     profile_id: str | None = None
+    # 这一单属于哪种生意（服务类型）。单笔订单状态图按它选阶段表；带了 voucher 就
+    # 以 voucher 上锁定的那份为准 —— 那份是买方签过名的，不能被这次调用改掉。
+    progress_rule_spec: dict | None = Field(
+        default=None,
+        description="Service scene spec ({scene_id: ...}). Ignored when voucher_id is set.",
+    )
+
+    @field_validator("progress_rule_spec")
+    @classmethod
+    def _safe_progress_spec(cls, v: dict | None) -> dict | None:
+        if v is None:
+            return None
+        validate_json_strings_safe(v, field="progress_rule_spec")
+        scene = v.get("scene_id")
+        if scene is not None and (not isinstance(scene, str) or not scene.strip()):
+            raise ValueError("progress_rule_spec.scene_id must be a non-empty string")
+        return v
 
 
 class LockRequest(BaseModel):
@@ -170,7 +187,7 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
 
     voucher_id = body.voucher_id
     delivery_deadline_at = body.delivery_deadline_at
-    progress_rule_spec = None
+    progress_rule_spec = body.progress_rule_spec
     profile_id = body.profile_id
     escrow_amount = body.escrow_amount
     if voucher_id:
