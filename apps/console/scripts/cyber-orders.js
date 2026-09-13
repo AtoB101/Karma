@@ -130,6 +130,13 @@
     return "running";
   }
 
+  function entryById(entryId) {
+    for (var i = 0; i < state.entries.length; i++) {
+      if (String(state.entries[i].entry_id) === String(entryId)) return state.entries[i];
+    }
+    return null;
+  }
+
   function visibleEntries() {
     return state.entries.filter(function (e) {
       if (!ORDER_KINDS[e.kind]) return false;
@@ -160,6 +167,14 @@
     var host = $("#order-board");
     if (!host) return;
     var rows = visibleEntries();
+    // 图看的那张单要是已经不在图上了（结算完 + 过了可争议期），把状态图一起收起来。
+    var flow = global.KarmaOrderFlow;
+    if (flow && flow.state && flow.state.open) {
+      var still = rows.filter(function (e) {
+        return String(e.entry_id) === String(flow.state.entry && flow.state.entry.entry_id);
+      }).length;
+      if (!still && flow.close) flow.close();
+    }
     var byLane = {};
     LANES.forEach(function (lane) { byLane[lane.key] = []; });
     rows.forEach(function (entry) {
@@ -296,7 +311,13 @@
       host.addEventListener("click", function (ev) {
         var card = ev.target && ev.target.closest ? ev.target.closest("[data-order-entry]") : null;
         if (!card) return;
-        // 点一张单 -> 去收付中心看它的明细与流转历史。
+        // 点一张单 -> 就地展开这一单的状态图（订单号 / 对方 / 时间 / 合同 / 阶段线）。
+        var entry = entryById(card.getAttribute("data-order-entry"));
+        if (entry && global.KarmaOrderFlow && global.KarmaOrderFlow.open) {
+          global.KarmaOrderFlow.open(entry);
+          return;
+        }
+        // 状态图模块没加载时退回老路径：去收付中心看明细。
         var dir = card.getAttribute("data-order-dir");
         if (global.cyberSwitchPage) global.cyberSwitchPage("center", dir === "in" ? "in" : "out");
       });

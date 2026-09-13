@@ -262,6 +262,8 @@
             <div class="order-board" id="order-board"></div>
             <p class="order-empty" id="order-empty" hidden></p>
           </div>
+          <!-- 点一张单 -> 这一单的完整状态图（订单号 / 对方 / 创建时间 / 合同 / 阶段线）。 -->
+          <div class="card section" id="order-flow" hidden></div>
         </section>
 
         <section id="center" class="page">
@@ -802,6 +804,7 @@
     <script src="../../scripts/console-sync.js"></script>
     <script src="../../scripts/cyber-payments.js"></script>
     <script src="../../scripts/cyber-orders.js"></script>
+    <script src="../../scripts/cyber-order-flow.js"></script>
     <script src="../../scripts/cyber-agents.js"></script>
     <script src="../../scripts/cyber-authorize.js"></script>
     <script src="../../scripts/cyber-handoff.js"></script>
