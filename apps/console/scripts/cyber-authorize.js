@@ -35,6 +35,12 @@
     { key: "update_progress", label: "更新任务进度", hint: "写进度节点" },
     { key: "request_settlement", label: "申请结算", hint: "验证通过后请求划转" },
     { key: "sync_task_status", label: "同步任务状态", hint: "读本身份相关的任务" },
+    { key: "discover_agents", label: "发现可结算的 agent", hint: "自己去找能办事的人 / 商家" },
+    {
+      key: "place_order",
+      label: "自主下单",
+      hint: "在单笔上限内自己发起委托；超了要你确认",
+    },
   ];
   var DEFAULT_PERMS = [
     "request_voucher",
@@ -42,6 +48,8 @@
     "update_progress",
     "request_settlement",
     "sync_task_status",
+    "discover_agents",
+    "place_order",
   ];
   var RUNTIME_URL = "https://karma-network.ai";
 
@@ -398,8 +406,11 @@
         "权限        " + perms.slice().sort().join(", ") + "\n" +
         "有效期至    " + String(fields.expire_time).slice(0, 10)
       ) + "</pre></div>" +
-      '<div class="ag-next"><b>③ 让 agent 先跑这一条自检</b><pre>' +
-      esc("curl -s " + RUNTIME_URL + "/runtime/permissions \\\n  -H \"X-Karma-Runtime-Key: $KARMA_RUNTIME_KEY\"") +
+      '<div class="ag-next"><b>③ 让 agent 先读边界、再干活</b><pre>' +
+      esc(
+        "curl -s " + RUNTIME_URL + "/runtime/policy \\\n  -H \"X-Karma-Runtime-Key: $KARMA_RUNTIME_KEY\"\n" +
+        "curl -s " + RUNTIME_URL + "/runtime/capacity \\\n  -H \"X-Karma-Runtime-Key: $KARMA_RUNTIME_KEY\""
+      ) +
       "</pre></div>";
     var copy = byId("agw-copy-env");
     if (copy) copy.addEventListener("click", function () { copyText(env, copy); });

@@ -17,6 +17,8 @@ from typing import Any, Callable, TypeVar
 
 import httpx
 
+DEFAULT_RUNTIME_URL = "https://karma-network.ai"
+
 T = TypeVar("T")
 
 
@@ -52,7 +54,7 @@ class KarmaRuntime:
         self,
         *,
         runtime_key: str,
-        runtime_url: str = "https://runtime.karma.network",
+        runtime_url: str = DEFAULT_RUNTIME_URL,
         expected_chain_id: int | None = None,
         timeout: float = 120.0,
         app_secret_for_hmac: str | None = None,
@@ -81,7 +83,7 @@ class KarmaRuntime:
     @classmethod
     def from_env(cls) -> "KarmaRuntime":
         key = (os.environ.get("KARMA_RUNTIME_KEY") or "").strip()
-        url = (os.environ.get("KARMA_RUNTIME_URL") or "https://runtime.karma.network").strip()
+        url = (os.environ.get("KARMA_RUNTIME_URL") or DEFAULT_RUNTIME_URL).strip()
         if not key:
             raise ValueError("KARMA_RUNTIME_KEY is not set")
         chain_raw = os.environ.get("KARMA_EXPECTED_CHAIN_ID", "").strip()
@@ -127,6 +129,98 @@ class KarmaRuntime:
     async def get_capacity(self) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self.timeout) as http:
             r = await http.get(f"{self.runtime_url}/runtime/capacity", headers=self._headers)
+        return self._parse_response(r)
+
+    async def get_policy(self) -> dict[str, Any]:
+        """读主人划的边界：单笔/每日上限、哪些自己做主、哪些要人工确认。
+
+        agent 开工前先读这一条 —— 边界全在服务端算，SDK 只是如实转达。
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
+            r = await http.get(f"{self.runtime_url}/runtime/policy", headers=self._headers)
+        return self._parse_response(r)
+
+    async def discover(
+        self,
+        *,
+        requirement_text: str,
+        amount: float | None = None,
+        limit: int = 10,
+        client_nonce: str | None = None,
+    ) -> dict[str, Any]:
+        """按一句话需求发现能办事的 agent / 商家（只读，不动钱）。"""
+        payload: dict[str, Any] = {
+            "requirement_text": requirement_text,
+            "limit": int(limit),
+            "client_nonce": client_nonce or uuid.uuid4().hex,
+        }
+        if amount is not None:
+            payload["amount"] = float(amount)
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
+            r = await http.post(
+                f"{self.runtime_url}/runtime/discover", headers=self._headers, json=payload
+            )
+        return self._parse_response(r)
+
+    async def place_order(
+        self,
+        *,
+        requirement_text: str,
+        amount: float,
+        seller_identity_id: str | None = None,
+        auto_complete: bool = False,
+        negotiate_a2a: bool = True,
+        client_nonce: str | None = None,
+        confirmation_session_id: str | None = None,
+        important_fields_capture_id: str | None = None,
+    ) -> dict[str, Any]:
+        """在主人划的额度内自己下单。
+
+        三种结果：
+
+        * 正常建单 —— 返回里有 ``task_id`` / ``voucher_id``，钱要验收通过才划转。
+        * ``status == "awaiting_owner_confirmation"`` —— 超了自动额度，已停下等你主人在
+          操作台点确认（这一步没有建单、没有扣额度）。返回里的 ``confirmation_session_id``
+          就是那一笔待确认；主人点完「确认」后，带上它重试本方法即可继续。
+        * 抛 ``RuntimeError``（HTTP 403）—— 超了单笔/每日硬上限，别重试，去问主人。
+        """
+        payload: dict[str, Any] = {
+            "requirement_text": requirement_text,
+            "amount": float(amount),
+            "negotiate_a2a": bool(negotiate_a2a),
+            "auto_complete": bool(auto_complete),
+            "client_nonce": client_nonce or uuid.uuid4().hex,
+        }
+        if seller_identity_id:
+            payload["seller_identity_id"] = seller_identity_id
+        if confirmation_session_id:
+            payload["confirmation_session_id"] = confirmation_session_id
+        if important_fields_capture_id:
+            payload["important_fields_capture_id"] = important_fields_capture_id
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
+            r = await http.post(
+                f"{self.runtime_url}/runtime/place-order", headers=self._headers, json=payload
+            )
+        return self._parse_response(r)
+
+    async def check_voucher(
+        self,
+        *,
+        voucher_id: str,
+        expected_amount: float | None = None,
+        client_nonce: str | None = None,
+    ) -> dict[str, Any]:
+        """卖方接单：核验买方的付款凭证真实、已锁定（这一步不是口头答应，是接单）。"""
+        payload: dict[str, Any] = {
+            "voucher_id": voucher_id,
+            "client_nonce": client_nonce or uuid.uuid4().hex,
+        }
+        if expected_amount is not None:
+            payload["expected_amount"] = float(expected_amount)
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
+            r = await http.post(
+                f"{self.runtime_url}/runtime/check-voucher", headers=self._headers, json=payload
+            )
         return self._parse_response(r)
 
     async def request_voucher(self, voucher: dict[str, Any], *, client_nonce: str) -> dict[str, Any]:

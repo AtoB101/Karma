@@ -471,6 +471,8 @@ async def fulfill_intent(
                 or bool(getattr(saved_policy, "preauth_enabled", False))
             )
             and float(pay_amount) <= float(getattr(saved_policy, "single_limit", 0) or 0) + 1e-9
+            # 「每一笔都找我确认」是主人的显式选择，额度再小也要问（此前这个字段没人读）。
+            and str(getattr(saved_policy, "high_risk_mode", "") or "") != "always"
         ):
             effective_policy_auto = True
 

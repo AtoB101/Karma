@@ -56,6 +56,15 @@ class ConfirmationPolicyError(ValueError):
     pass
 
 
+# 主人保存过自动授权策略、且金额在单笔额度内时，这几步可以由 agent 自己做主：
+# 「在我给的额度内，你自己挑商家、自己下单」。取消 / 争议 / 改价 / 锁重要字段
+# 永远不放开 —— 那是主人自己的事。
+AUTOMATION_POLICY_OVERRIDE_STEPS: dict[str, frozenset[str]] = {
+    "buyer": frozenset({"select_offer", "accept_order"}),
+    "seller": frozenset(),
+}
+
+
 @lru_cache(maxsize=1)
 def load_policy_catalog() -> dict[str, Any]:
     if not CATALOG_PATH.is_file():
@@ -233,10 +242,17 @@ def resolve_gate(
 
     effective = mode
     needs_owner = False
+    automation_override = False
     if mode == "AUTO":
         needs_owner = False
     elif mode == "OWNER_CONFIRM":
-        needs_owner = True
+        if policy_auto_allowed and step in AUTOMATION_POLICY_OVERRIDE_STEPS.get(role, frozenset()):
+            # 主人在操作台给过额度：额度内的下单，agent 可以自己走。
+            effective = "AUTO"
+            needs_owner = False
+            automation_override = True
+        else:
+            needs_owner = True
     elif mode == "POLICY_AUTO":
         if policy_auto_allowed:
             effective = "AUTO"
@@ -259,6 +275,7 @@ def resolve_gate(
         "mode": mode,
         "effective_mode": effective,
         "needs_owner_confirmation": needs_owner,
+        "automation_policy_override": automation_override,
         "policy_auto_allowed": policy_auto_allowed,
         "owner_prompt_template_zh": templates.get(step),
         "reality_note_zh": scene.get("reality_note_zh"),
@@ -556,6 +573,36 @@ def list_pending_seller_accept_sessions(*, limit: int = 100) -> list[dict[str, A
                 break
         _persist_sessions_unlocked()
     return out
+
+
+def list_pending_sessions_for_identity(
+    *, owner_agent_id: str, limit: int = 200
+) -> list[dict[str, Any]]:
+    """本人名下还没点头的确认 —— 操作台「确认区」就读这一份。
+
+    只返回 ``owner_agent_id`` 自己的会话：agent 超出了自动额度就会在这里出现，
+    主人在操作台上确认或拒绝之后，agent 那一边才会继续。
+    """
+    target = (owner_agent_id or "").strip()
+    if not target:
+        return []
+    _ensure_sessions_loaded()
+    out: list[dict[str, Any]] = []
+    with _LOCK:
+        expired_any = False
+        for sess in _SESSIONS.values():
+            if sess.owner_agent_id != target:
+                continue
+            if sess.status != "PENDING":
+                continue
+            if _expire_if_needed_unlocked(sess):
+                expired_any = True
+                continue
+            out.append(sess.public())
+        if expired_any:
+            _persist_sessions_unlocked()
+    out.sort(key=lambda s: str(s.get("created_at") or ""), reverse=True)
+    return out[:limit]
 
 
 def mark_session_expired_cancelled(

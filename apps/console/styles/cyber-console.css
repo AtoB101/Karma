@@ -1201,6 +1201,28 @@ body.gated { overflow: hidden; }
 .pay-zone-list .pay-row { grid-template-columns: 52px minmax(0, 1fr) auto auto; }
 .pay-zone-list .pay-time { display: none; }
 
+/* 确认区最上面那一小段：agent 等人的授权请求（点确认 / 拒绝）。 */
+.pay-auth-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 13px;
+}
+.pay-auth-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border-left: 3px solid #f6c445;
+  border-bottom: 1px solid rgba(34, 211, 238, 0.08);
+}
+.pay-auth-row b { display: block; font-size: 13px; }
+.pay-auth-row i { display: block; margin-top: 3px; font-size: 11px; font-style: normal; color: var(--text-dim); }
+.pay-auth-actions { display: flex; gap: 8px; }
+.pay-auth-busy { opacity: 0.55; }
+
 .pay-detail { margin-top: 20px; }
 .pay-detail-warn {
   margin: 10px 0 0;

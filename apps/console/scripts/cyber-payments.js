@@ -56,6 +56,7 @@
     entries: [],
     confirmation: [],
     disputes: [],
+    authorizations: [],
     totals: { matched: 0, returned: 0, scoped: 0 },
     loading: false,
     error: "",
@@ -264,6 +265,74 @@
     }
   }
 
+  /* ------------------------------------------------ 确认区 · agent 授权请求 */
+
+  /** 子身份视角只看自己那份：授权请求带着发起它的 profile_id。 */
+  function scopedAuthorizations() {
+    var list = state.authorizations || [];
+    if (!state.scope) return list;
+    return list.filter(function (sess) {
+      var ctx = (sess && sess.context) || {};
+      return String(ctx.profile_id || "") === state.scope;
+    });
+  }
+
+  function authRow(sess) {
+    var row = document.createElement("div");
+    row.className = "pay-auth-row";
+    row.setAttribute("data-pay-auth", sess.session_id);
+    var ctx = sess.context || {};
+    var amount = ctx.amount != null && ctx.amount !== "" ? money(ctx.amount) + " USDC" : "金额待定";
+    var who = ctx.merchant || ctx.seller || ctx.counterparty || "";
+    row.innerHTML =
+      "<span><b>" + esc(sess.prompt_zh || "agent 想在下单前得到你的确认") + "</b>" +
+        "<i>" + esc(amount) +
+          (who ? " · 对方 " + esc(String(who)) : "") +
+          (sess.scene_id ? " · 场景 " + esc(sess.scene_id) : "") +
+          (sess.expires_at ? " · " + esc(fmtTime(sess.expires_at)) + " 前有效" : "") +
+        "</i></span>" +
+      '<span class="pay-auth-actions">' +
+        '<button type="button" class="btn primary" data-auth-ok="' + esc(sess.session_id) + '">确认</button>' +
+        '<button type="button" class="btn" data-auth-no="' + esc(sess.session_id) + '">拒绝</button>' +
+      "</span>";
+    return row;
+  }
+
+  function renderAuthorizations(list) {
+    var host = $("#pay-auth-list");
+    var count = $("#pay-auth-count");
+    var items = list || [];
+    if (count) count.textContent = String(items.length);
+    if (!host) return;
+    if (!items.length) {
+      host.innerHTML = '<p class="pay-empty">暂时没有需要你点头的授权请求。</p>';
+      return;
+    }
+    host.innerHTML = "";
+    items.forEach(function (sess) {
+      host.appendChild(authRow(sess));
+    });
+  }
+
+  /** 主人点头 / 摇头：只有本人（owner_agent_id）能决定。 */
+  async function decideAuthorization(sessionId, confirm, btn) {
+    var a = api();
+    var id = identity();
+    if (!a || !a.decideConfirmation || !id || !sessionId) return;
+    var row = btn && btn.closest ? btn.closest(".pay-auth-row") : null;
+    if (row) row.classList.add("pay-auth-busy");
+    if (btn) btn.disabled = true;
+    try {
+      await a.decideConfirmation(sessionId, confirm, id, null);
+      setSync(confirm ? "已确认，agent 可以继续" : "已拒绝，agent 已停下");
+      await load();
+    } catch (e) {
+      setSync("操作失败：" + ((e && (e.message || e.detail)) || e));
+      if (row) row.classList.remove("pay-auth-busy");
+      if (btn) btn.disabled = false;
+    }
+  }
+
   function renderZone(hostId, countId, entries, emptyLabel) {
     var host = $("#" + hostId);
     var count = $("#" + countId);
@@ -297,7 +366,11 @@
     renderScopeNote();
     renderStats(summary);
     renderList();
-    renderZone("pay-confirm-list", "pay-confirm-count", state.confirmation, "暂无待确认的单。");
+    var auths = scopedAuthorizations();
+    renderAuthorizations(auths);
+    renderZone("pay-confirm-list", null, state.confirmation, "暂无待确认的单。");
+    var confirmCount = $("#pay-confirm-count");
+    if (confirmCount) confirmCount.textContent = String(state.confirmation.length + auths.length);
     renderZone("pay-dispute-list", "pay-dispute-count", state.disputes, "暂无争议中的单。");
     var more = $("#pay-more");
     if (more) more.hidden = state.totals.matched <= state.totals.returned;
@@ -437,6 +510,7 @@
       state.entries = [];
       state.confirmation = [];
       state.disputes = [];
+      state.authorizations = [];
       state.totals = { matched: 0, returned: 0, scoped: 0 };
       setSync("未连接");
       renderAll({});
@@ -455,6 +529,13 @@
       state.confirmation = body.confirmation || [];
       state.disputes = body.disputes || [];
       state.totals = body.totals || { matched: state.entries.length, returned: state.entries.length, scoped: state.entries.length };
+      // 确认区最上面那段：agent 超额度后挂在我名下等人点头的授权请求。
+      try {
+        var pending = await a.getPendingConfirmations(id);
+        state.authorizations = (pending && pending.pending) || [];
+      } catch (_) {
+        state.authorizations = [];
+      }
       renderAll(body.summary || {});
       setSync("已更新 " + new Date().toLocaleTimeString());
     } catch (e) {
@@ -469,6 +550,18 @@
   function bind() {
     var refresh = $("#pay-refresh");
     if (refresh) refresh.addEventListener("click", function () { load(); });
+
+    var authHost = $("#pay-auth-list");
+    if (authHost) {
+      authHost.addEventListener("click", function (ev) {
+        var btn = ev.target && ev.target.closest
+          ? ev.target.closest("[data-auth-ok], [data-auth-no]")
+          : null;
+        if (!btn) return;
+        var yes = btn.hasAttribute("data-auth-ok");
+        decideAuthorization(btn.getAttribute(yes ? "data-auth-ok" : "data-auth-no"), yes, btn);
+      });
+    }
 
     document.querySelectorAll("[data-pay-tab]").forEach(function (btn) {
       btn.addEventListener("click", function () {
