@@ -161,7 +161,15 @@
     }
     setApiStatus("…", false);
     try {
-      const c = await window.cyberKarmaApi.getCapacity(id);
+      /* 台账接口挂了（404/500/网络）时不能整张卡变「—」：
+         链上锁仓那几个数字来自 loadEscrowInfo，跟台账接口没关系。 */
+      let c = {};
+      let capError = "";
+      try {
+        c = await window.cyberKarmaApi.getCapacity(id);
+      } catch (capErr) {
+        capError = String(capErr.message || capErr);
+      }
       /* v2 是非托管的：钱一直留在用户自己钱包里，capacity 台账（v1 锁仓）永远是 0。
          总览这几个数字如果只读台账，用户锁完 10 USDC 看到的还是 0.00 —— 会以为没生效。
          以链上授权（escrow commits）为准，台账只作为回退。 */
@@ -204,7 +212,8 @@
           " · 可用 " +
           fmtNum(available) +
           " · @" +
-          new Date().toLocaleTimeString(),
+          new Date().toLocaleTimeString() +
+          (capError ? " · 台账接口异常：" + capError : ""),
         false
       );
       document.dispatchEvent(new CustomEvent("karma-capacity-changed", { detail: c }));
