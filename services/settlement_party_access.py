@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, Request
 
-from api.middleware.auth import resolve_agent_id_from_auth_headers
+from api.middleware.auth import resolve_agent_id_from_request
 from config.settings import settings
 from core.schemas import SettlementState
 
@@ -19,10 +19,7 @@ def party_binding_active() -> bool:
 
 
 def resolve_actor(request: Request) -> str | None:
-    return resolve_agent_id_from_auth_headers(
-        authorization=request.headers.get("authorization"),
-        api_key=request.headers.get("x-karma-api-key"),
-    )
+    return resolve_agent_id_from_request(request)
 
 
 def require_actor(request: Request) -> str:
