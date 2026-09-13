@@ -114,6 +114,19 @@ def test_the_gate_checks_the_new_script():
     assert "cyber-authorize.js" in loop[0], "门禁要 node --check 它"
 
 
+def test_changing_the_type_keeps_the_name_the_user_typed():
+    """用户给子身份起了名字，第 3 步选类型不该把它改掉。
+
+    只有名字还是类型标签（或空）时才跟着类型改名 —— 真机第一次跑就被这条咬过：
+    「差旅助理」选完类型变成了「企业商业助理」。"""
+    js = JS.read_text(encoding="utf-8")
+    assert "function isTypeLabel(" in js
+    assert "if (isTypeLabel(p.display_name)) profileBody.display_name = t.label;" in js
+    # SDK 回执要写本次选的类型与名字，不能用内存里可能已经过期的那份档案。
+    assert "renderSdk(res, p, fields, perms, amount, type, effectiveName)" in js
+    assert "var effectiveName = isTypeLabel(p.display_name) ? TYPES[type].label : p.display_name;" in js
+
+
 @pytest.mark.asyncio
 async def test_wizard_write_sequence_reaches_a_runtime_key(client: AsyncClient, db_session, monkeypatch):
     """照着向导按钮的顺序打一遍真实 API，最后拿到可用的 Runtime Key。"""
