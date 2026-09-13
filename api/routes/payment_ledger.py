@@ -123,7 +123,8 @@ async def _load_entry(db: AsyncSession, kind: str, ref_id: str, identity_id: str
         return ledger.voucher_entry(row, identity_id)
 
     if kind == "lock":
-        row = await db.get(AllowanceCommitModel, int(ref_id) if ref_id.isdigit() else ref_id)
+        # bill_id 是字符串主键，不能按数字查（Postgres 会直接拒绝 int 参数）。
+        row = await db.get(AllowanceCommitModel, ref_id)
         if row is None:
             raise HTTPException(404, f"锁仓凭证 {ref_id} 不存在")
         if row.identity_id != identity_id:

@@ -214,6 +214,32 @@ async def test_locks_show_up_as_pledges_and_have_their_own_detail(client, db_ses
     assert detail.status_code == 200, detail.text
     assert detail.json()["entry"]["detail"]["wallet_address"] == "0xabc"
 
+    # bill_id 是字符串主键：带前导零的单号不能被当成数字去查（线上 Postgres 会直接报错）。
+    db_session.add(
+        AllowanceCommitModel(
+            bill_id="007",
+            identity_id=BUYER,
+            wallet_address="0xabc",
+            chain_id=11155111,
+            contract_address="0xcontract",
+            token_address="0xusdc",
+            operator="0xoperator",
+            amount_wei="1000000",
+            amount_usdc=1.0,
+            spent_usdc=0.0,
+            reserved_usdc=0.0,
+            backed=True,
+            commit_tx_hash="0xfeed0007",
+            state="open",
+        )
+    )
+    await db_session.flush()
+    zero = await client.get(
+        "/v1/payments/entries/lock/007", headers={"X-Karma-Identity-Id": BUYER}
+    )
+    assert zero.status_code == 200, zero.text
+    assert zero.json()["entry"]["ref_id"] == "007"
+
 
 @pytest.mark.asyncio
 async def test_role_profile_ledger_endpoint_exists_for_the_bills_page(client, db_session):

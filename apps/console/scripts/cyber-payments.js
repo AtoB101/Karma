@@ -369,7 +369,7 @@
     );
   }
 
-  function renderDetail(entry, history) {
+  function renderDetail(entry, history, warn) {
     var host = $("#pay-detail");
     if (!host) return;
     host.hidden = false;
@@ -379,16 +379,23 @@
         '<span class="pay-detail-sub">' + esc(entry.entry_id) + "</span></div>" +
         '<button type="button" class="btn" id="pay-detail-close">关闭</button>' +
       "</div>" +
+      (warn ? '<p class="pay-detail-warn">' + esc(warn) + "</p>" : "") +
       '<div class="pay-detail-grid">' + detailRows(entry) + "</div>" +
       "<h4>状态流转 / 事件</h4>" +
       detailHistory(history);
     var close = $("#pay-detail-close");
     if (close) {
       close.addEventListener("click", function () {
-        host.hidden = true;
-        host.innerHTML = "";
+        closeDetail();
       });
     }
+  }
+
+  function closeDetail() {
+    var host = $("#pay-detail");
+    if (!host || host.hidden) return;
+    host.hidden = true;
+    host.innerHTML = "";
   }
 
   async function openDetail(entry) {
@@ -401,7 +408,9 @@
       var body = await a.getPaymentEntry(entry.kind, entry.ref_id, identity());
       renderDetail(body.entry || entry, body.history || []);
     } catch (e) {
-      renderDetail(entry, []);
+      // 详情接口失败不能被吞掉：万一拿不到流转历史，也要让人看见原因。
+      var why = (e && (e.message || e.detail)) || String(e);
+      renderDetail(entry, [], "详情接口读取失败：" + why + "（下面只是列表里已有字段）");
     }
     try {
       host.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -412,7 +421,10 @@
 
   async function load() {
     var a = api();
+    var previousScope = state.scope;
     state.scope = activeScope();
+    // 换了视角就把上一视角的详情关掉，别让子身份页面挂着主体那一单。
+    if (state.scope !== previousScope) closeDetail();
     state.error = "";
     var id = identity();
 

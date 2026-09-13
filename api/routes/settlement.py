@@ -274,8 +274,10 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
         from db.models.orm import IdentityRoleProfile
 
         profile = await db.get(IdentityRoleProfile, body.profile_id)
-        if profile is None:
-            raise HTTPException(404, f"profile {body.profile_id} not found")
+        if profile is None or profile.owner_identity_id != body.worker_agent_id:
+            raise HTTPException(
+                404, f"profile {body.profile_id} not found for worker {body.worker_agent_id}"
+            )
         state.worker_profile_id = body.profile_id
     new_state = await _apply_transition(
         db=db,
