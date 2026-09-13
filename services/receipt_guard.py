@@ -60,6 +60,14 @@ def _utc_aware(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def progress_timestamp_regressed(*, new_timestamp: datetime, latest_timestamp: datetime) -> bool:
+    """Incoming progress timestamp older than the stored one?
+
+    DB rows are naive UTC while a client may send a tz-aware ISO string; comparing
+    the two directly raises TypeError and turns a 409 into an HTTP 500.
+    """
+    return _utc_aware(new_timestamp) < _utc_aware(latest_timestamp)
+
 def execution_receipt_starts_before_prior_ended(*, started_at: datetime, prior_ended_at: datetime) -> bool:
     """
     True when the new receipt starts strictly before the prior receipt ended.

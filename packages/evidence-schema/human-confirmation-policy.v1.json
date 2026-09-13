@@ -583,6 +583,41 @@
         "cancel": "是否确认取消预约？"
       },
       "auto_ok_examples_zh": ["号源查询", "行程提醒", "服务完成凭证哈希"]
+    },
+    "cross_border_ecommerce": {
+      "title_zh": "跨境电商",
+      "reality_note_zh": "跨境涉及报关清关与较长时效：下单/锁价必须主人确认；报关与物流轨迹可自动回传；清关异常/改派/退运必须确认。",
+      "buyer": {
+        "discover": "AUTO",
+        "select_offer": "OWNER_CONFIRM",
+        "lock_important_fields": "OWNER_CONFIRM",
+        "accept_order": "OWNER_CONFIRM",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "buyer_accept_settle": "OWNER_CONFIRM",
+        "cancel": "OWNER_CONFIRM",
+        "dispute_or_refund": "OWNER_CONFIRM",
+        "price_change_or_surge": "OWNER_CONFIRM"
+      },
+      "seller": {
+        "onboarding_publish": "OWNER_CONFIRM",
+        "accept_order": "POLICY_AUTO",
+        "execute_service": "AUTO",
+        "submit_delivery_proof": "AUTO",
+        "cancel": "OWNER_CONFIRM"
+      },
+      "owner_prompt_templates_zh": {
+        "select_offer": "是否确认下单？{origin} → {destination}，合计 {amount} {currency}",
+        "accept_order": "是否确认锁单并支付/预授权？",
+        "cancel": "是否确认取消？（可能产生报关/退运费用）",
+        "dispute_or_refund": "是否确认发起清关异常处理/退款？"
+      },
+      "auto_ok_examples_zh": [
+        "报关单与箱单哈希回传",
+        "物流接件核验与轨迹",
+        "清关放行回执",
+        "送达拍照凭证"
+      ]
     }
   },
   "default_scene_fallback": "global_defaults",

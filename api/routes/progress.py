@@ -15,7 +15,10 @@ from db.models.orm import ProgressReceiptModel
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
 from services.progress_curve import validate_claimed_against_curve
-from services.receipt_guard import validate_progress_receipt_static
+from services.receipt_guard import (
+    progress_timestamp_regressed,
+    validate_progress_receipt_static,
+)
 from services.path_param_safety import validate_public_url_segment
 from services.settlement_party_access import (
     party_binding_active,
@@ -48,7 +51,11 @@ async def submit_progress_receipt(progress: ProgressReceipt, request: Request, d
     )
     latest = latest_result.scalar_one_or_none()
     if latest is not None:
-        if progress.timestamp < latest.timestamp:
+        # 客户端可能带时区（ISO 带 Z），库里存的是 naive UTC —— 直接比会 TypeError 500。
+        if progress_timestamp_regressed(
+            new_timestamp=progress.timestamp,
+            latest_timestamp=latest.timestamp,
+        ):
             raise HTTPException(409, "progress timestamp is older than latest receipt")
         if progress.progress_percent + 1e-9 < latest.progress_percent:
             raise HTTPException(409, "progress_percent rollback is not allowed")

@@ -1,0 +1,60 @@
+{
+  "scenario_id": "05-cross-border-ecommerce",
+  "scene_id": "cross_border_ecommerce",
+  "title_zh": "跨境电商 · 报关清关全链路",
+  "summary_zh": "深圳仓发 40 台设备到洛杉矶。走「实物三方 + 单证」验真：出口报关 → 物流接件核验 → 进口清关放行 → 目的地派送拍照 → 主人确认结算。",
+  "amount_usdc": 8,
+  "task": {
+    "title": "深圳仓 → 洛杉矶 DC · 40 台设备 DDP",
+    "description": "DDP 条款。要求出口报关单、物流接件核验、进口清关放行回执、目的地送达拍照。"
+  },
+  "flow": {
+    "delivery_verification": "physical_triple",
+    "ship_label_zh": "卖方已报关出货",
+    "milestones": [
+      {
+        "title_zh": "备货完成",
+        "progress_percent": 15,
+        "claimed_value_percent": 15
+      },
+      {
+        "title_zh": "出口报关单已生成",
+        "progress_percent": 30,
+        "claimed_value_percent": 30
+      },
+      {
+        "title_zh": "已交运",
+        "progress_percent": 45,
+        "claimed_value_percent": 45
+      }
+    ],
+    "seller_proofs": [
+      "customs_declaration",
+      "customs_clearance"
+    ],
+    "receipts": [
+      {
+        "tool_name": "customs.declare",
+        "duration_ms": 120000
+      },
+      {
+        "tool_name": "carrier.handover",
+        "duration_ms": 60000
+      },
+      {
+        "tool_name": "carrier.deliver",
+        "duration_ms": 86400000
+      }
+    ]
+  },
+  "roles_zh": {
+    "buyer": "买方（采购方）",
+    "seller": "卖方（出口商 agent）",
+    "logistics": "物流（跨境货代 / 承运 agent，必须与买卖双方不同）"
+  },
+  "why_karma_zh": [
+    "跨境最容易出事的是单证与货不对板：报关单、清关放行、送达拍照三段都进证据链。",
+    "时效长、金额大，所以结算是主人确认制，agent 只能在额度内自动推进执行。",
+    "清关卡住时可以走争议 / 部分结算，不必等全额才能了结。"
+  ]
+}

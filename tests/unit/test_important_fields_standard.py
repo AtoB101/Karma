@@ -30,10 +30,10 @@ def test_catalog_groups_cover_market_daily_b2b():
     cat = load_catalog()
     assert cat["schema_version"] == "karma-important-fields-v1"
     groups = list_scene_groups()["counts"]
-    assert groups["market_vertical"] == 11
+    assert groups["market_vertical"] == 12
     assert groups["daily_commerce"] == 4
     assert groups["b2b_digital"] == 3
-    assert groups["all_primary"] == 18
+    assert groups["all_primary"] == 19
 
     market = [s["scene_id"] for s in list_scenes(group="market_vertical")]
     assert market[0] == "software_development"

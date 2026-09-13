@@ -302,6 +302,21 @@
       ],
       "stubs": ["attendance_code", "certificate_ref"],
       "reality_note_zh": "课程出勤/结业凭证"
+    },
+    "cross_border_ecommerce": {
+      "mode": "physical_triple",
+      "group": "market_vertical",
+      "buyer_silent_confirm_seconds": 1800,
+      "required_events": [
+        "seller_shipped",
+        "proof:customs_declaration",
+        "logistics_intake_ok",
+        "proof:customs_clearance",
+        "logistics_delivered",
+        "proof:delivery_photo_tagged"
+      ],
+      "extra_methods": ["dual_photo", "capture_time_system_tag", "geo_fence_dropoff", "seal_qr_nfc_coc_hash"],
+      "reality_note_zh": "跨境电商：出口报关 → 物流接件核验 → 进口清关 → 目的地派送拍照；单证与货品一致性由卖方担责"
     }
   },
   "lifecycle_states": [

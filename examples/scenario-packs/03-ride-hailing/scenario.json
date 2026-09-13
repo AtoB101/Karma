@@ -1,0 +1,51 @@
+{
+  "scenario_id": "03-ride-hailing",
+  "scene_id": "ride_hailing",
+  "title_zh": "打车 · 行程轨迹验真",
+  "summary_zh": "机场到市区的一趟车。走「行程轨迹」验真：行程完成 → 轨迹/里程哈希 → 最终车费，对照锁定的起终点；短静默窗后自动结算。",
+  "amount_usdc": 4,
+  "task": {
+    "title": "虹桥机场 → 陆家嘴 用车",
+    "description": "锁定起终点与预估价；行程结束后回传轨迹哈希与最终车费。"
+  },
+  "flow": {
+    "delivery_verification": "ride_track",
+    "issue_label_zh": "行程已完成",
+    "milestones": [
+      {
+        "title_zh": "司机已接单",
+        "progress_percent": 15,
+        "claimed_value_percent": 15
+      },
+      {
+        "title_zh": "已接驾出发",
+        "progress_percent": 40,
+        "claimed_value_percent": 40
+      }
+    ],
+    "seller_proofs": [
+      "route_or_odometer",
+      "fare_final"
+    ],
+    "receipts": [
+      {
+        "tool_name": "driver.dispatch",
+        "duration_ms": 20000
+      },
+      {
+        "tool_name": "driver.trip",
+        "duration_ms": 2100000
+      }
+    ]
+  },
+  "roles_zh": {
+    "buyer": "买方（乘客）",
+    "seller": "卖方（司机 / 车队 agent）",
+    "logistics": null
+  },
+  "why_karma_zh": [
+    "预估价与实际车费对不上时，轨迹哈希可核 —— 绕路骗不了人。",
+    "司机不用等乘客付款；乘客不用怕司机绕路。",
+    "短静默窗（15 分钟）后自动结算，双方都不需要盯着手机。"
+  ]
+}
