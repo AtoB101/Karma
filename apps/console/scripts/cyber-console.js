@@ -16,7 +16,6 @@
     bills: ["page.bills.title", "page.bills.sub"],
     disputes: ["page.disputes.title", "page.disputes.sub"],
     identity: ["page.identity.title", "page.identity.sub"],
-    auth: ["page.auth.title", "page.auth.sub"],
     agents: ["page.agents.title", "page.agents.sub"],
     settings: ["page.settings.title", "page.settings.sub"],
   };
@@ -1159,6 +1158,8 @@
   }
 
   function switchPage(page) {
+    // 「认证」已经并进「身份」：老链接 / 老按钮一律落到同一页，不留空页。
+    if (page === "auth") page = "identity";
     document.querySelectorAll(".page").forEach(function (p) {
       p.classList.remove("active");
     });

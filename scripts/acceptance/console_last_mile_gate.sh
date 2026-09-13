@@ -19,6 +19,7 @@ required=(
   scripts/cyber-console.js
   scripts/cyber-globe-bg.js
   scripts/cyber-identity.js
+  scripts/cyber-identity-verify.js
   scripts/i18n-cyber.js
   styles/cyber-console.css
 )
@@ -30,6 +31,7 @@ done
 grep -q 'settlementLock' "$CONSOLE/scripts/karma-public-api.js"
 grep -q 'karmaResolveApiBase' "$CONSOLE/scripts/karma-public-api.js"
 grep -q 'cyber-console.css' "$CONSOLE/pages/cyber/index.html"
+grep -q 'cyber-identity-verify.js' "$CONSOLE/pages/cyber/index.html"
 grep -q 'pages/cyber/index.html' "$CONSOLE/index.html"
 
 python3 -m pytest -q tests/unit/test_console_last_mile.py
@@ -38,7 +40,7 @@ python3 -m pytest -q tests/unit/test_console_last_mile.py
 python3 -m pytest -q tests/unit/test_console_live_write_smoke.py
 
 if command -v node >/dev/null 2>&1; then
-  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js cyber-payments.js cyber-console.js; do
+  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js cyber-payments.js cyber-console.js cyber-identity.js cyber-identity-verify.js; do
     node --check "$CONSOLE/scripts/$js"
   done
 fi

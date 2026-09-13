@@ -82,6 +82,10 @@ class IdentityRoleProfile(Base):
     display_name:      Mapped[str | None]  = mapped_column(String(256))
     kyc_payload:       Mapped[dict]        = mapped_column(JSON, default=dict)
     status:            Mapped[str]         = mapped_column(String(16), nullable=False, default="active")
+    # 子身份自己的操作钱包（签名 / 授权）；资金仍然统一走主身份钱包，见 identity_verification。
+    bound_wallet_address: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # 子身份的默认权限与边界：生成 SDK 时预填，真正强制落在 runtime key 上。
+    spend_policy:      Mapped[dict]        = mapped_column(JSON, default=dict)
     created_at:        Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:        Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -914,3 +918,34 @@ class ReputationModel(Base):
     onchain_packed_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     onchain_pack_tx: Mapped[str | None] = mapped_column(String(128), nullable=True)
     dividend_weight: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+# ---------------------------------------------------------------------------
+# Master identity verification (证件 + 扫脸)
+# ---------------------------------------------------------------------------
+
+
+class IdentityVerificationModel(Base):
+    """主身份认证记录：只存密文包与摘要，永远不存证件 / 人脸明文。
+
+    浏览器端先用钱包签名派生的密钥做 AES-GCM 加密，服务端拿到的只有：密文包、
+    SHA-256 摘要、加密参数（算法 / KDF / 迭代 / 盐 / IV）以及用户确认过的脱敏字段。
+    核验记录本身不构成对外披露，披露要走 identity_disclosures 的显式授权。
+    """
+
+    __tablename__ = "identity_verifications"
+
+    identity_id:  Mapped[str]        = mapped_column(String(128), primary_key=True)
+    status:       Mapped[str]        = mapped_column(String(16), nullable=False, default="none")
+    level:        Mapped[str]        = mapped_column(String(16), nullable=False, default="basic")
+    doc_digest:   Mapped[str | None] = mapped_column(String(128), nullable=True)
+    face_digest:  Mapped[str | None] = mapped_column(String(128), nullable=True)
+    package_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    package_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encryption:   Mapped[dict]       = mapped_column(JSON, default=dict)
+    extracted:    Mapped[dict]       = mapped_column(JSON, default=dict)
+    reviewer_identity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    review_note:  Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    verified_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at:   Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:   Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

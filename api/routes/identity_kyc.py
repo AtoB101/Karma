@@ -21,6 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
 from services.identity_actor import resolve_actor_identity_id
+from services.identity_verification import (
+    IdentityVerificationError,
+    assert_no_plaintext_payload,
+)
 from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
@@ -97,6 +101,12 @@ async def submit_kyc(
     current = profile.kyc_status or "none"
     if "pending" not in _TRANSITIONS.get(current, set()):
         raise HTTPException(409, f"cannot submit KYC from status {current}")
+
+    # 和主身份认证同一条红线：KYC 载荷里不许出现证件 / 人脸明文。
+    try:
+        assert_no_plaintext_payload(body.kyc_payload)
+    except IdentityVerificationError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
 
     profile.kyc_status = "pending"
     profile.kyc_payload = body.kyc_payload or {}

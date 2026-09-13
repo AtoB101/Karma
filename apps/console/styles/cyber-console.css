@@ -1276,3 +1276,94 @@ body.gated { overflow: hidden; }
   .pay-status, .pay-time { grid-column: 2 / -1; }
   .pay-history-row { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* ---------- 身份 · 认证（#identity）----------
+   身份 = 认证：连钱包拿到 KID，证件 + 刷脸在本地加密后才提交；核验通过 = 身份卡生效。
+   子身份共用主身份这一个资金账户，只分角色 / 权限 / 额度 / 边界。 */
+:root { --accent: var(--cyan); }
+
+#identity .idv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+#identity .idv-kv {
+  border: 1px solid rgba(34, 211, 238, 0.16);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: rgba(8, 14, 24, 0.6);
+}
+#identity .idv-kv b { display: block; font-size: 12px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px; }
+#identity .idv-kv span { font-size: 14px; font-weight: 600; word-break: break-all; }
+#identity .field { display: flex; flex-direction: column; gap: 6px; }
+#identity .field label { font-size: 12px; color: var(--text-dim); }
+
+.idv-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--text-dim);
+  border: 1px solid rgba(138, 167, 196, 0.35);
+  background: rgba(138, 167, 196, 0.1);
+}
+.idv-badge.on { color: var(--cyan); border-color: rgba(34, 211, 238, 0.45); background: rgba(34, 211, 238, 0.1); }
+.idv-badge.bad { color: #ff8a9a; border-color: rgba(255, 138, 154, 0.45); background: rgba(255, 138, 154, 0.1); }
+
+.idv-pipeline { list-style: none; margin-top: 16px; display: grid; gap: 12px; }
+.idv-pipeline > li {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 211, 238, 0.16);
+  background: rgba(8, 14, 24, 0.5);
+}
+.idv-step-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.idv-step-head b { font-size: 14px; }
+.idv-step-head span { font-size: 12px; color: var(--text-dim); }
+.idv-hint { margin-top: 8px; font-size: 12px; line-height: 1.7; color: var(--text-dim); }
+
+.idv-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.idv-file { cursor: pointer; }
+.idv-thumb img { display: block; width: 84px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid rgba(34, 211, 238, 0.3); }
+#idv-face-video { display: none; width: 240px; border-radius: 12px; border: 1px solid rgba(34, 211, 238, 0.3); }
+
+.idv-consent, .idv-perm { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.idv-consent { margin-top: 10px; line-height: 1.6; }
+.idv-perms { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 8px; }
+#identity input[type="checkbox"] { accent-color: var(--cyan); }
+
+.idv-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(34, 211, 238, 0.12); }
+.idv-block > b { font-size: 13px; }
+
+.idv-sub-list { margin-top: 14px; display: grid; gap: 8px; font-size: 13px; color: var(--text-dim); }
+.idv-sub-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid rgba(34, 211, 238, 0.16);
+  border-radius: 10px;
+  background: rgba(8, 14, 24, 0.45);
+}
+.idv-sub-main b { font-size: 13px; color: var(--text-main); }
+.idv-sub-main span { display: block; margin-top: 2px; font-size: 11px; color: var(--text-dim); }
+.idv-sub-meta { font-size: 12px; color: var(--text-dim); }
+
+.idv-rules { margin: 14px 0 0 18px; display: grid; gap: 8px; font-size: 13px; line-height: 1.7; color: var(--text-dim); }
+.idv-rules b { color: var(--text-main); }
+
+@media (max-width: 720px) {
+  #identity .idv-grid { grid-template-columns: 1fr; }
+  .idv-pipeline > li { padding: 12px; }
+}
+
+/* 身份页的高级工具区（默认收起），避免和主流程抢注意力。 */
+#identity [data-idv-advanced] { padding: 16px 20px; }
+#identity [data-idv-advanced] .idv-adv-summary { cursor: pointer; font-size: 13px; color: var(--text-dim); }
+#identity [data-idv-advanced][open] .idv-adv-summary { margin-bottom: 14px; }
+#identity [data-idv-advanced] .idv-adv-block { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(34, 211, 238, 0.12); }

@@ -304,13 +304,33 @@
   }
 
   // ---- 档案管理（身份页）----
+  /** 身份页的高级工具区：默认收起，主流程只留「身份 · 认证」那几张卡。 */
+  function advancedHost() {
+    var page = document.getElementById("identity");
+    if (!page) return null;
+    var host = page.querySelector("[data-idv-advanced]");
+    if (!host) {
+      host = document.createElement("details");
+      host.className = "card section";
+      host.setAttribute("data-idv-advanced", "");
+      var summary = document.createElement("summary");
+      summary.className = "idv-adv-summary";
+      summary.textContent = "高级工具 · 档案 / 披露 / 额度（常规操作不需要）";
+      host.appendChild(summary);
+      page.appendChild(host);
+    }
+    return host;
+  }
+
   function renderManage() {
     var page = document.getElementById("identity");
     if (!page) return;
     if (page.querySelector("[data-profile-manage]")) return;
 
+    var host = advancedHost();
+    if (!host) return;
     var sec = document.createElement("div");
-    sec.className = "card section";
+    sec.className = "idv-adv-block";
     sec.setAttribute("data-profile-manage", "");
     sec.innerHTML =
       '<div class="section-header"><div><h3>身份档案管理</h3><p>一卡多身份：创建档案、授权披露、提交 KYC、查看身份卡。</p></div></div>' +
@@ -507,8 +527,10 @@
   function renderAllocation() {
     var page = document.getElementById("identity");
     if (!page || page.querySelector("[data-profile-alloc]")) return;
+    var host = advancedHost();
+    if (!host) return;
     var sec = document.createElement("div");
-    sec.className = "card section";
+    sec.className = "idv-adv-block";
     sec.setAttribute("data-profile-alloc", "");
     sec.innerHTML =
       '<div class="section-header"><div><h3>额度分配</h3><p>给每个子身份单独授权额度，总和不超过总锁仓；每个子身份在授权额度内行事，账单互不混淆。</p></div>' +
@@ -522,7 +544,7 @@
       '<button type="button" class="btn primary" id="pm-alloc-save">保存分配</button>' +
       '<span class="api-status" id="pm-alloc-status"></span>' +
       '</div>';
-    page.appendChild(sec);
+    host.appendChild(sec);
     $("#pm-alloc-refresh", sec).addEventListener("click", refreshAllocation);
     $("#pm-alloc-save", sec).addEventListener("click", saveAllocation);
     $("#pm-alloc-even", sec).addEventListener("click", function () { evenAllocation(); });

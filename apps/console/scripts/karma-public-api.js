@@ -179,6 +179,41 @@
     return jsonPost("/v1/identity/role-profiles", payload);
   }
 
+  async function getIdentityVerification(identityId) {
+    return karmaFetch(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/verification",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  /* 证件 + 刷脸：浏览器端加密后的密文包 + 摘要 + 脱敏字段。
+     明文字段服务端会直接 400 拒掉（services/identity_verification.py 的白名单）。 */
+  async function submitIdentityVerification(identityId, payload) {
+    return jsonPost(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/submit",
+      payload
+    );
+  }
+
+  async function verifyIdentityVerification(identityId, decision, reason) {
+    return jsonPost(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/verify",
+      { decision: decision, reason: reason || null }
+    );
+  }
+
+  /** 子身份绑操作钱包：服务端要该钱包的 personal_sign 签名。 */
+  async function bindRoleProfileWallet(profileId, payload) {
+    return jsonPost(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/bind-wallet",
+      payload
+    );
+  }
+
+  async function updateRoleProfile(profileId, payload) {
+    return jsonPut("/v1/identity/role-profiles/" + encodeURIComponent(profileId), payload);
+  }
+
   async function getIdentityCard(identityId) {
     return karmaFetch(
       "/v1/identity/" + encodeURIComponent(identityId) + "/card?scope=basic",
@@ -570,6 +605,11 @@
     getRoleProfile,
     createRoleProfile,
     getIdentityCard,
+    getIdentityVerification,
+    submitIdentityVerification,
+    verifyIdentityVerification,
+    bindRoleProfileWallet,
+    updateRoleProfile,
     grantDisclosure,
     listDisclosures,
     revokeDisclosure,
