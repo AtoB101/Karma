@@ -724,6 +724,7 @@
       }
     });
     byId("idsub-create").addEventListener("click", async function () {
+      await createSub();
     });
 
     document.addEventListener("karma-wallet-connected", function () {
