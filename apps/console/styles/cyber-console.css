@@ -138,7 +138,7 @@ body {
 .mini b { font-size: 13px; display: block; }
 .mini span { font-size: 10px; color: #7fa3c0; }
 .nav { display: flex; flex-direction: column; gap: 6px; flex: 1; }
-.nav button {
+.nav .nav-main {
   all: unset;
   display: flex;
   align-items: center;
@@ -151,17 +151,60 @@ body {
   cursor: pointer;
   transition: 0.2s;
 }
-.nav button:hover {
+.nav .nav-main:hover {
   background: rgba(0, 224, 255, 0.1);
   color: #fff;
   transform: translateX(4px);
 }
-.nav button.active {
+.nav .nav-main.active {
   background: linear-gradient(95deg, rgba(0, 224, 255, 0.2), rgba(232, 121, 249, 0.08));
   color: var(--neon-cyan);
   border-right: 2px solid var(--neon-cyan);
 }
 .icon { width: 28px; }
+
+/* 主功能区 + 折叠子功能：点主项切页面并展开，点子项直接落到右边那一段。 */
+.nav-group { display: flex; flex-direction: column; gap: 4px; }
+.nav-caret { margin-left: auto; font-size: 10px; opacity: 0.65; transition: transform 0.2s; }
+.nav-group.open .nav-caret { transform: rotate(180deg); }
+.nav .nav-main.parent-active {
+  color: var(--neon-cyan);
+  background: rgba(0, 224, 255, 0.07);
+}
+.nav-subs {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 6px 16px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(34, 211, 238, 0.22);
+}
+.nav-group.open .nav-subs { display: flex; }
+.nav .nav-sub {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #8fb0d0;
+  cursor: pointer;
+  transition: 0.18s;
+}
+.nav .nav-sub:hover { background: rgba(0, 224, 255, 0.1); color: #fff; transform: translateX(3px); }
+.nav .nav-sub.active {
+  background: linear-gradient(95deg, rgba(0, 224, 255, 0.18), rgba(232, 121, 249, 0.06));
+  color: var(--neon-cyan);
+  box-shadow: inset 2px 0 0 var(--neon-cyan);
+}
+/* 从子功能跳过去时闪一下：让人一眼看到「右边显示的就是它」 */
+@keyframes navFlash {
+  0%, 100% { box-shadow: none; }
+  30% { box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.55); }
+}
+.nav-flash { animation: navFlash 1.4s ease-out 1; }
 .side-warning {
   margin-top: auto;
   background: rgba(232, 121, 249, 0.08);
