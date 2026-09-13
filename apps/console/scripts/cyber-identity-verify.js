@@ -22,6 +22,7 @@
     face: null,
     stream: null,
     submitting: false,
+    serverStatus: "none",
     lastPackage: null,
     subFace: null,
     subWallet: "",
@@ -273,6 +274,7 @@
     try {
       var v = await api().getIdentityVerification(id);
       var status = (v && v.status) || "none";
+      state.serverStatus = status;
       if (badge) {
         badge.textContent = VERIFY_LABELS[status] || status;
         badge.className = "idv-badge" + (status === "verified" ? " on" : status === "rejected" ? " bad" : "");
@@ -310,7 +312,9 @@
       !!String(byId("idv-doc-number").value || "").trim() &&
       byId("idv-consent").checked &&
       !!identity();
-    byId("idv-submit").disabled = !ready || state.submitting;
+    // 已经交过（pending / verified）就不再放行：再点只会换回一个 409。
+    var alreadySent = state.serverStatus === "pending" || state.serverStatus === "verified";
+    byId("idv-submit").disabled = !ready || state.submitting || alreadySent;
   }
 
   async function submitVerification() {

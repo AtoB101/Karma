@@ -1330,10 +1330,11 @@ body.gated { overflow: hidden; }
 .idv-thumb img { display: block; width: 84px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid rgba(34, 211, 238, 0.3); }
 #idv-face-video { display: none; width: 240px; border-radius: 12px; border: 1px solid rgba(34, 211, 238, 0.3); }
 
-.idv-consent, .idv-perm { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.idv-consent, .idv-perm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); }
 .idv-consent { margin-top: 10px; line-height: 1.6; }
 .idv-perms { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 8px; }
-#identity input[type="checkbox"] { accent-color: var(--cyan); }
+/* 全局 input 是 width:100%，勾选框必须还原本宽，否则整行被它撑开、文字被挤到最右边。 */
+#identity input[type="checkbox"] { width: auto; margin: 0; flex: 0 0 auto; accent-color: var(--cyan); }
 
 .idv-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(34, 211, 238, 0.12); }
 .idv-block > b { font-size: 13px; }
