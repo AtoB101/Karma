@@ -175,6 +175,25 @@ async def get_optional_agent_id(
         return None
 
 
+def resolve_agent_id_from_request(request: Request) -> Optional[str]:
+    """
+    Resolve the acting identity for a request.
+
+    A Request built by the Runtime Gateway (services/runtime_synthetic_request.py) already
+    carries a *verified* actor on request.state, because the gateway authenticated the
+    Runtime Key itself. Everything else resolves from headers.
+    """
+    from services.runtime_synthetic_request import runtime_actor_id
+
+    delegated = runtime_actor_id(request)
+    if delegated:
+        return delegated
+    return resolve_agent_id_from_auth_headers(
+        authorization=request.headers.get("authorization"),
+        api_key=request.headers.get("x-karma-api-key"),
+    )
+
+
 def resolve_agent_id_from_auth_headers(
     *,
     authorization: str | None,

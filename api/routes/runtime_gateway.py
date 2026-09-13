@@ -77,11 +77,6 @@ from services.signing import signing_service
 router = APIRouter()
 
 
-def _dev_api_key(actor_id: str) -> str:
-    """Synthetic API key compatible with dev auth fallback (never for production)."""
-    return f"karma_{actor_id}_devruntimekey12"
-
-
 def _utc_iso() -> str:
     """毫秒级 UTC 时间戳，给 agent 判断数据新鲜度用。"""
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
@@ -561,8 +556,8 @@ async def runtime_request_voucher(
         daily_used=daily_used,
     )
     delegate = synthetic_request(
-        headers={"X-Karma-Api-Key": _dev_api_key(ctx.karma_identity_id)},
         path="/runtime/request-voucher",
+        actor_id=ctx.karma_identity_id,
     )
     out = await vouchers_create_route(v, delegate, db)
     await record_daily_spend_async(db, key_id=ctx.key_id, amount=float(v.amount))
@@ -593,8 +588,8 @@ async def runtime_check_voucher(
             db, task_id=task_id, karma_identity_id=ctx.karma_identity_id
         )
     delegate = synthetic_request(
-        headers={"X-Karma-Api-Key": _dev_api_key(ctx.karma_identity_id)},
         path="/runtime/check-voucher",
+        actor_id=ctx.karma_identity_id,
     )
     out = await vouchers_verify_route(
         body.voucher_id,
@@ -691,8 +686,8 @@ async def runtime_update_progress(
     )
     bound = progress.model_copy(update={"seller_signature": f"runtime:{sig}"})
     delegate = synthetic_request(
-        headers={"X-Karma-Api-Key": _dev_api_key(ctx.karma_identity_id)},
         path="/runtime/update-progress",
+        actor_id=ctx.karma_identity_id,
     )
     out = await progress_submit_route(bound, delegate, db)
     await db.commit()
@@ -728,16 +723,16 @@ async def runtime_request_settlement(
         if ctx.karma_identity_id != (state.worker_agent_id or ""):
             raise HTTPException(status_code=403, detail="submit_delivery requires worker identity")
         req = synthetic_request(
-            headers={"X-Karma-Api-Key": _dev_api_key(state.worker_agent_id or ctx.karma_identity_id)},
             path="/runtime/request-settlement",
+            actor_id=state.worker_agent_id or ctx.karma_identity_id,
         )
         out = await submit_settlement(body.task_id, req, db)
     elif body.kind == "buyer_accept":
         if ctx.karma_identity_id != state.client_agent_id:
             raise HTTPException(status_code=403, detail="buyer_accept requires buyer identity")
         req = synthetic_request(
-            headers={"X-Karma-Api-Key": _dev_api_key(state.client_agent_id)},
             path="/runtime/request-settlement",
+            actor_id=state.client_agent_id,
         )
         out = await buyer_accept_settlement(body.task_id, req, db)
     else:
@@ -746,8 +741,8 @@ async def runtime_request_settlement(
         if body.settled_value_percent is None:
             raise HTTPException(status_code=400, detail="settled_value_percent required for partial")
         req = synthetic_request(
-            headers={"X-Karma-Api-Key": _dev_api_key(state.client_agent_id)},
             path="/runtime/request-settlement",
+            actor_id=state.client_agent_id,
         )
         out = await partial_settlement(
             body.task_id,

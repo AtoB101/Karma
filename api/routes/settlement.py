@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.middleware.auth import resolve_agent_id_from_auth_headers
+from api.middleware.auth import resolve_agent_id_from_request
 from config.settings import settings
 from core.schemas import (
     ProgressConfirmationStatus,
@@ -1026,10 +1026,8 @@ async def auto_arbitrate(task_id: str, request: Request, db: AsyncSession = Depe
 
 
 def _resolve_actor_id(request: Request) -> str | None:
-    return resolve_agent_id_from_auth_headers(
-        authorization=request.headers.get("authorization"),
-        api_key=request.headers.get("x-karma-api-key"),
-    )
+    # Runtime-Gateway-delegated calls carry their verified actor on request.state.
+    return resolve_agent_id_from_request(request)
 
 
 async def _apply_transition(
