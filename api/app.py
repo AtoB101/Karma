@@ -59,6 +59,7 @@ from api.routes import (
     identity_role_profiles,
     identity_disclosures,
     identity_kyc,
+    identity_verification,
     escrow,
     payment_ledger,
 )
@@ -459,6 +460,12 @@ app.include_router(
     prefix="/v1/identity/role-profiles",
     tags=["IdentityKyc"],
     dependencies=_protected_dependencies,
+)
+app.include_router(
+    identity_verification.router,
+    prefix="/v1/identity",
+    tags=["IdentityVerification"],
+    dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
 )
 
 

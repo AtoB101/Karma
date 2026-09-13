@@ -31,7 +31,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
 from services.identity_actor import resolve_actor_identity_id
+from services.identity_verification import build_bind_wallet_message
 from services.path_param_safety import validate_public_url_segment
+from services.runtime_wallet import verify_personal_message
 
 router = APIRouter()
 
@@ -67,6 +69,8 @@ class RoleProfileUpdate(BaseModel):
     visibility: str | None = Field(default=None, pattern=_VISIBILITY_PATTERN)
     display_name: str | None = Field(default=None, max_length=256)
     kyc_payload: dict | None = None
+    # 子身份默认的权限 / 边界：生成 SDK 的授权向导会预填这些值。
+    spend_policy: dict | None = None
     status: str | None = Field(default=None, max_length=16)
 
     model_config = {"populate_by_name": True}
@@ -87,6 +91,8 @@ def _serialize(row: IdentityRoleProfile, *, full: bool = False) -> dict:
     if full:
         data["owner_identity_id"] = row.owner_identity_id
         data["kyc_payload"] = row.kyc_payload or {}
+        data["bound_wallet_address"] = getattr(row, "bound_wallet_address", None)
+        data["spend_policy"] = getattr(row, "spend_policy", None) or {}
     return data
 
 
@@ -207,10 +213,57 @@ async def update_role_profile(
         row.display_name = data["display_name"]
     if "kyc_payload" in data:
         row.kyc_payload = data["kyc_payload"]
+    if "spend_policy" in data:
+        row.spend_policy = data["spend_policy"] or {}
     if "status" in data:
         row.status = data["status"]
     row.updated_at = datetime.utcnow()
 
+    await db.flush()
+    await db.refresh(row)
+    return _serialize(row, full=True)
+
+
+class BindWalletBody(BaseModel):
+    wallet_address: str = Field(..., min_length=42, max_length=128)
+    wallet_signature: str = Field(..., min_length=130, max_length=200)
+
+
+@router.post("/{profile_id}/bind-wallet")
+async def bind_role_profile_wallet(
+    profile_id: str,
+    body: BindWalletBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """把子身份绑定到一个操作钱包（需要该钱包的 personal_sign 签名）。
+
+    这只是「谁可以代表这个子身份签名」，不是资金账户：子身份的收入与支出仍然
+    统一走主身份钱包，见操作台身份页的资金归属说明。
+    """
+    validate_public_url_segment("profile_id", profile_id)
+    row = await db.get(IdentityRoleProfile, profile_id)
+    if not row:
+        raise HTTPException(404, "role profile not found")
+
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor or actor != row.owner_identity_id:
+        raise HTTPException(403, "only the profile owner can bind a wallet")
+
+    wallet = body.wallet_address.strip()
+    message = build_bind_wallet_message(
+        profile_id=profile_id,
+        owner_identity_id=row.owner_identity_id,
+        wallet_address=wallet,
+    )
+    verify_personal_message(
+        message=message,
+        wallet_address=wallet,
+        wallet_signature=body.wallet_signature,
+    )
+
+    row.bound_wallet_address = wallet.lower()
+    row.updated_at = datetime.utcnow()
     await db.flush()
     await db.refresh(row)
     return _serialize(row, full=True)
