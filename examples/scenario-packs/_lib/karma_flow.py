@@ -8,7 +8,16 @@ Karma 场景包 · 共享客户端 —— 把一笔生意在 Karma 上跑完的�
               轻量数字（数据 API / 打车）：执行回执本身即证据
     结算       submit → 买方验收 → SETTLED（真实释放买方锁仓额度给卖方）
 
-安全边界：只用 SIWE 会话签名 + 协议内角色签名，全程不接触任何用户私钥 / 助记词。
+两套凭证，各管一段：
+
+    主人（钱包）      SIWE 会话签名 —— 下单、锁仓、指派、验收、验真
+    Agent（运行时键）  Runtime Key    —— 交回执、报进度、请求结算
+
+Runtime Key 由主人的钱包签名铸造（/runtime/create-key），它只能调 /runtime/*
+下的公开动作：动不了钱包余额、提不了现、转不了 USDC。这是设计好的安全边界。
+
+安全边界：只用 SIWE 会话签名 + Runtime Key + 协议内角色签名，
+全程不接触任何用户私钥 / 助记词 —— 钱包私钥只在本机内存里签一句话。
 """
 from __future__ import annotations
 
@@ -33,6 +42,58 @@ def iso(dt: datetime) -> str:
 
 def sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# --------------------------------------------------------------- Runtime Key
+# 这几段文案是服务端的验签原文，逐字节必须一致 ——
+# 唯一真源：services/runtime_wallet.py（tests/unit/test_scenario_pack_runtime_messages.py
+# 断言两边一模一样，改一边忘了另一边会当场变红）。
+def build_create_key_message(
+    *,
+    karma_identity_id: str,
+    wallet_address: str,
+    permissions,
+    single_limit: float,
+    daily_limit: float,
+    expire_time: datetime,
+    agent_name: str,
+    agent_binding: str | None = None,
+) -> str:
+    return "\n".join(
+        [
+            "Karma Runtime Key Create",
+            f"karma_identity_id:{karma_identity_id}",
+            f"wallet_address:{wallet_address}",
+            f"permissions:{','.join(sorted(permissions))}",
+            f"single_limit:{single_limit}",
+            f"daily_limit:{daily_limit}",
+            f"expire_time:{expire_time.isoformat()}",
+            f"agent_name:{agent_name}",
+            f"agent_binding:{agent_binding or ''}",
+        ]
+    )
+
+
+def build_list_keys_message(*, karma_identity_id: str, wallet_address: str, client_nonce: str) -> str:
+    return "\n".join(
+        [
+            "Karma Runtime Key List",
+            f"karma_identity_id:{karma_identity_id}",
+            f"wallet_address:{wallet_address}",
+            f"client_nonce:{client_nonce}",
+        ]
+    )
+
+
+def build_revoke_key_message(*, key_id: str, karma_identity_id: str, wallet_address: str) -> str:
+    return "\n".join(
+        [
+            "Karma Runtime Key Revoke",
+            f"key_id:{key_id}",
+            f"karma_identity_id:{karma_identity_id}",
+            f"wallet_address:{wallet_address}",
+        ]
+    )
 
 
 class KarmaError(RuntimeError):
@@ -62,6 +123,8 @@ class KarmaFlow:
         self.label = label
         self.identity_id: str = ""
         self.token: str = ""
+        self.runtime_key: str = ""
+        self.runtime_key_id: str = ""
         self._client = httpx.Client(base_url=self.base_url, timeout=timeout)
 
     # ------------------------------------------------------------------ 传输
@@ -94,6 +157,14 @@ class KarmaFlow:
 
     def post(self, path: str, body: Any = None, **kw) -> Any:
         return self._call("POST", path, body=body if body is not None else {}, **kw)
+
+    def put(self, path: str, body: Any = None, **kw) -> Any:
+        return self._call("PUT", path, body=body if body is not None else {}, **kw)
+
+    def _sign(self, message: str) -> str:
+        """本机钱包签一句人话；私钥不出这个进程。"""
+        sig = self.account.sign_message(_encode_defunct(message)).signature.hex()
+        return sig if sig.startswith("0x") else "0x" + sig
 
     # ------------------------------------------------------------------ 登录
     def login(self) -> str:
@@ -150,19 +221,20 @@ class KarmaFlow:
         task_id: str,
         escrow_amount: float,
         scene_id: str,
+        voucher_id: str | None = None,
         delivery_days: int = 7,
     ) -> dict:
-        return self.post(
-            "/v1/settlement/create",
-            {
-                "task_id": task_id,
-                "client_agent_id": self.identity_id,
-                "escrow_amount": escrow_amount,
-                "currency": "USDC",
-                "delivery_deadline_at": iso(utcnow() + timedelta(days=delivery_days)),
-                "progress_rule_spec": {"scene_id": scene_id},
-            },
-        )
+        body = {
+            "task_id": task_id,
+            "client_agent_id": self.identity_id,
+            "escrow_amount": escrow_amount,
+            "currency": "USDC",
+            "delivery_deadline_at": iso(utcnow() + timedelta(days=delivery_days)),
+            "progress_rule_spec": {"scene_id": scene_id},
+        }
+        if voucher_id:
+            body["voucher_id"] = voucher_id
+        return self.post("/v1/settlement/create", body)
 
     def to_pending(self, task_id: str) -> dict:
         return self.post(f"/v1/settlement/{task_id}/pending")
@@ -356,6 +428,272 @@ class KarmaFlow:
             expect=(200, 201, 403),
         )
 
+    # ------------------------------------------------- Agent 接入（Runtime Key）
+    # 这几刀就是「主人把 SDK 交给 agent」：授权额度落库 → 钱包签名铸 Runtime Key
+    # → agent 拿着 key 调 /runtime/*。key 不是私钥：提不了现、转不了 USDC、
+    # 也动不了钱包余额。
+    def save_automation_policy(
+        self,
+        *,
+        permissions: list[str],
+        single_limit: float = 50.0,
+        daily_limit: float = 200.0,
+    ) -> dict:
+        """操作台「授权」那一步的服务端落库：额度 / 权限 / 责任边界确认。"""
+        return self.put(
+            f"/v1/identities/{self.identity_id}/automation-policy",
+            {
+                "auto_enabled": True,
+                "responsibility_acknowledged": True,
+                "single_limit": single_limit,
+                "daily_limit": daily_limit,
+                "permissions": permissions,
+                "high_risk_mode": "always",
+            },
+        )
+
+    def mint_runtime_key(
+        self,
+        *,
+        permissions: list[str],
+        single_limit: float = 50.0,
+        daily_limit: float = 200.0,
+        days: int = 30,
+        agent_name: str = "",
+    ) -> dict:
+        expire = utcnow() + timedelta(days=days)
+        name = agent_name or ("scenario-" + self.identity_id.removeprefix("kid_")[:12])
+        message = build_create_key_message(
+            karma_identity_id=self.identity_id,
+            wallet_address=self.address,
+            permissions=permissions,
+            single_limit=single_limit,
+            daily_limit=daily_limit,
+            expire_time=expire,
+            agent_name=name,
+            agent_binding=None,
+        )
+        out = self.post(
+            "/runtime/create-key",
+            {
+                "wallet_address": self.address,
+                "karma_identity_id": self.identity_id,
+                "wallet_signature": self._sign(message),
+                "permissions": permissions,
+                "single_limit": single_limit,
+                "daily_limit": daily_limit,
+                "expire_time": expire.isoformat(),
+                "agent_name": name,
+            },
+            auth=False,
+        )
+        self.runtime_key = str(out.get("runtime_key") or "")
+        self.runtime_key_id = str(out.get("key_id") or "")
+        if not self.runtime_key:
+            raise RuntimeError(f"{self.label}: 铸 Runtime Key 没拿到 runtime_key：{out}")
+        return out
+
+    def list_runtime_keys(self) -> list:
+        nonce = "lk_" + secrets.token_hex(8)
+        message = build_list_keys_message(
+            karma_identity_id=self.identity_id,
+            wallet_address=self.address,
+            client_nonce=nonce,
+        )
+        out = self.post(
+            "/runtime/list-keys",
+            {
+                "wallet_address": self.address,
+                "karma_identity_id": self.identity_id,
+                "wallet_signature": self._sign(message),
+                "client_nonce": nonce,
+            },
+            auth=False,
+        )
+        return list(out.get("keys") or [])
+
+    def revoke_runtime_key(self, key_id: str) -> dict:
+        message = build_revoke_key_message(
+            key_id=key_id, karma_identity_id=self.identity_id, wallet_address=self.address
+        )
+        return self.post(
+            "/runtime/revoke-key",
+            {
+                "key_id": key_id,
+                "karma_identity_id": self.identity_id,
+                "wallet_address": self.address,
+                "wallet_signature": self._sign(message),
+            },
+            auth=False,
+        )
+
+    def ensure_runtime_key(
+        self,
+        *,
+        permissions: list[str],
+        single_limit: float = 50.0,
+        daily_limit: float = 200.0,
+    ) -> str:
+        """授权额度落库 + 铸一把 Runtime Key。明文令牌只在铸的时候返回一次。"""
+        self.save_automation_policy(
+            permissions=permissions, single_limit=single_limit, daily_limit=daily_limit
+        )
+        self.mint_runtime_key(
+            permissions=permissions, single_limit=single_limit, daily_limit=daily_limit
+        )
+        return self.runtime_key
+
+    def runtime_permissions(self) -> dict:
+        return self._rt_call("GET", "/runtime/permissions")
+
+    def _rt_call(self, method: str, path: str, body: Any = None) -> Any:
+        if not self.runtime_key:
+            raise RuntimeError(f"{self.label}: 还没有 Runtime Key，先 ensure_runtime_key()")
+        resp = self._client.request(
+            method,
+            path,
+            json=body,
+            headers={
+                "Accept": "application/json",
+                "X-Karma-Runtime-Key": self.runtime_key,
+            },
+        )
+        try:
+            data = resp.json() if resp.text else None
+        except ValueError:
+            data = {"raw": resp.text[:500]}
+        if resp.status_code not in (200, 201):
+            raise KarmaError(method, path, resp.status_code, data)
+        return data
+
+    def rt_update_progress(
+        self,
+        *,
+        task_id: str,
+        progress_percent: float,
+        claimed_value_percent: float,
+        note: str = "",
+    ) -> dict:
+        now = utcnow()
+        return self._rt_call(
+            "POST",
+            "/runtime/update-progress",
+            {
+                "progress_receipt_id": "pr_" + secrets.token_hex(12),
+                "task_id": task_id,
+                "seller_identity_id": self.identity_id,
+                "progress_percent": progress_percent,
+                "claimed_value_percent": claimed_value_percent,
+                "evidence_hash": sha256_hex(f"{task_id}:{progress_percent}:{note}"),
+                "runtime_log_hash": sha256_hex(f"{task_id}:{now.isoformat()}:log"),
+                "timestamp": iso(now),
+                "seller_signature": "",
+                "validation_method": "seller_attested",
+            },
+        )
+
+    def rt_submit_receipt(
+        self,
+        *,
+        task_id: str,
+        step_index: int,
+        tool_name: str,
+        input_payload: str,
+        output_payload: str,
+        started_at: datetime,
+        duration_ms: int = 1200,
+    ) -> dict:
+        ended_at = started_at + timedelta(milliseconds=duration_ms)
+        return self._rt_call(
+            "POST",
+            "/runtime/submit-receipt",
+            {
+                "receipt_id": "rc_" + secrets.token_hex(12),
+                "task_id": task_id,
+                "agent_id": self.identity_id,
+                "step_index": step_index,
+                "tool_name": tool_name,
+                "input_hash": sha256_hex(input_payload),
+                "output_hash": sha256_hex(output_payload),
+                "started_at": iso(started_at),
+                "ended_at": iso(ended_at),
+                "duration_ms": duration_ms,
+                "status": "success",
+                "signature": "",
+                "metadata": {},
+            },
+        )
+
+    def rt_request_settlement(self, task_id: str, kind: str, *, settled_value_percent: float | None = None) -> dict:
+        body = {
+            "task_id": task_id,
+            "kind": kind,
+            "client_nonce": "rs_" + secrets.token_hex(8),
+        }
+        if settled_value_percent is not None:
+            body["settled_value_percent"] = settled_value_percent
+        return self._rt_call("POST", "/runtime/request-settlement", body)
+
+    # ------------------------------------------------- 凭证 / 交接登记（买方 + 卖方）
+    def create_voucher(
+        self,
+        *,
+        scene_id: str,
+        seller_identity_id: str,
+        amount: float,
+        days: int = 7,
+    ) -> dict:
+        """买方开的「授权凭证」：额度凭证，也是 agent 自动执行的触发器。"""
+        nonce = "vn_" + secrets.token_hex(8)
+        message = (
+            "Karma voucher commit\n"
+            f"buyer:{self.identity_id}\nseller:{seller_identity_id}\n"
+            f"amount:{amount}\ncurrency:USDC\nnonce:{nonce}"
+        )
+        return self.post(
+            "/v1/vouchers",
+            {
+                "buyer_identity_id": self.identity_id,
+                "seller_identity_id": seller_identity_id,
+                "amount": amount,
+                "currency": "USDC",
+                "bill_credit_amount": amount,
+                "task_type": scene_id,
+                "task_description_hash": sha256_hex(f"{scene_id}:{self.identity_id}:desc"),
+                "progress_rule_hash": sha256_hex(f"{scene_id}:progress"),
+                "evidence_requirement_hash": sha256_hex(f"{scene_id}:evidence"),
+                "expiry_time": iso(utcnow() + timedelta(days=days)),
+                "nonce": nonce,
+                "buyer_signature": self._sign(message),
+                "buyer_wallet_address": self.address,
+                "progress_rule_spec": {"scene_id": scene_id},
+            },
+        )
+
+    def accept_voucher(self, voucher_id: str) -> dict:
+        """卖方接单：这一步同时写入责任图谱。"""
+        return self.post(f"/v1/vouchers/{voucher_id}/accept", {"seller_identity_id": self.identity_id})
+
+    def automation_readiness(self, *, task_id: str, role: str = "seller", for_handoff_confirm: bool = False) -> dict:
+        q = (
+            f"?task_id={task_id}&role={role}"
+            f"&karma_identity_id={self.identity_id}"
+            f"&for_handoff_confirm={'true' if for_handoff_confirm else 'false'}"
+        )
+        return self.get("/v1/openclaw/automation-readiness" + q)
+
+    def handoff_confirm(self, *, task_id: str, role: str = "seller") -> dict:
+        """Console 的「一键接入」：把这一单的自动化交接登记成服务端存证。"""
+        return self.post(
+            "/v1/openclaw/handoff-confirm",
+            {
+                "task_id": task_id,
+                "karma_identity_id": self.identity_id,
+                "role": role,
+                "trace_id": "scenario-" + secrets.token_hex(4),
+            },
+        )
+
     # ------------------------------------------------------------------ 只读
     def settlement(self, task_id: str) -> dict | None:
         resp = self._client.get(
@@ -373,6 +711,14 @@ class KarmaFlow:
 
     def capacity(self) -> dict:
         return self.get(f"/v1/capacity/{self.identity_id}")
+
+    def lock_credits(self, amount: float) -> dict:
+        """锁仓：钱压在自己钱包/托管里，换成等额 Bill 额度（1:1）。"""
+        return self.post(f"/v1/capacity/{self.identity_id}/lock", {"amount": amount})
+
+    def release_credits(self, amount: float) -> dict:
+        """减少锁仓（有责任状态的额度不能被减掉，服务端会拦住）。"""
+        return self.post(f"/v1/capacity/{self.identity_id}/release", {"amount": amount})
 
     def close(self) -> None:
         self._client.close()
