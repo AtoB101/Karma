@@ -87,11 +87,12 @@
     a.getPaymentCode(vid).then(function (r) { out('#pc-recv-out', r, false); })
       .catch(function (e) { out('#pc-recv-out', (e && (e.message || e.detail)) || e, true); });
   }
-  function acceptPayCode() {
+ function acceptPayCode() {
     var vid = val('#pc-voucher'); var seller = val('#pc-seller-id'); var a = api();
     if (!a) return;
     if (!vid || !seller) { out('#pc-recv-out', '请填 Voucher ID 和卖方 Identity', true); return; }
-    a.acceptPaymentCode(vid, seller).then(function (r) { out('#pc-recv-out', r, false); })
+    // 可选：这一单算到哪个子身份账上。带上它，收付中心才能把这笔算进该子身份的收入。
+    a.acceptPaymentCode(vid, seller, val('#pc-seller-profile')).then(function (r) { out('#pc-recv-out', r, false); })
       .catch(function (e) { out('#pc-recv-out', (e && (e.message || e.detail)) || e, true); });
   }
   function rejectPayCode() {
@@ -521,6 +522,32 @@
     } catch (e) { out('#set-out', (e && (e.message || e.detail)) || e, true); }
   }
 
+  /* 「我要收款」的子身份下拉：选项来自身份切换器里的角色档案。
+     选中的子身份会随接单一并上报，收付中心按它把这笔算进该子身份的收入。 */
+  function sellerProfiles() {
+    try {
+      var sw = window.KarmaIdentitySwitcher;
+      return (sw && sw.getProfiles && sw.getProfiles()) || [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function fillSellerProfiles() {
+    var sel = $('#pc-seller-profile');
+    if (!sel) return;
+    var keep = sel.value;
+    var list = sellerProfiles();
+    sel.innerHTML = '<option value="">主体身份</option>';
+    list.forEach(function (p) {
+      var o = document.createElement('option');
+      o.value = p.profile_id;
+      o.textContent = (p.display_name || p.profile_id) + ' · ' + (p['class'] || '');
+      sel.appendChild(o);
+    });
+    if (keep && sel.querySelector('option[value="' + keep + '"]')) sel.value = keep;
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     var c = $('#btn-create-paycode');
     if (c) c.addEventListener('click', function () { createPayCode(); });
@@ -555,6 +582,9 @@
     document.addEventListener('karma-profile-switched', function () {
       loadBillProfiles().then(refreshBills).catch(function () {});
     });
+    fillSellerProfiles();
+    document.addEventListener('karma-profile-switched', fillSellerProfiles);
+    document.addEventListener('karma-alloc-changed', fillSellerProfiles);
     var ds = $('#btn-dp-status'); if (ds) ds.addEventListener('click', disputeStatus);
     var dt = $('#btn-dp-transitions'); if (dt) dt.addEventListener('click', disputeTransitions);
     var do_ = $('#btn-dp-open'); if (do_) do_.addEventListener('click', openDispute);

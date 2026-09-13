@@ -95,6 +95,7 @@ class CreateSettlementRequest(BaseModel):
 
 class LockRequest(BaseModel):
     worker_agent_id: str
+    profile_id: str | None = None
 
 
 class BuyerRejectRequest(BaseModel):
@@ -268,6 +269,14 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
             "settlement must be moved to pending before lock (settlement_lock_requires_pending)",
         )
     state.worker_agent_id = body.worker_agent_id
+    if body.profile_id:
+        validate_public_url_segment("profile_id", body.profile_id)
+        from db.models.orm import IdentityRoleProfile
+
+        profile = await db.get(IdentityRoleProfile, body.profile_id)
+        if profile is None:
+            raise HTTPException(404, f"profile {body.profile_id} not found")
+        state.worker_profile_id = body.profile_id
     new_state = await _apply_transition(
         db=db,
         store=store,

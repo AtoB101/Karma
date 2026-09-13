@@ -60,6 +60,7 @@ from api.routes import (
     identity_disclosures,
     identity_kyc,
     escrow,
+    payment_ledger,
 )
 
 logger = structlog.get_logger(__name__)
@@ -378,6 +379,7 @@ app.include_router(receipts.router,   prefix="/v1/receipts",   tags=["Receipts"]
 app.include_router(bundles.router,    prefix="/v1/bundles",    tags=["Bundles"], dependencies=_protected_dependencies)
 app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verification"], dependencies=_protected_dependencies)
 app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_rate_limited_rw)
+app.include_router(payment_ledger.router, prefix="/v1/payments", tags=["PaymentLedger"], dependencies=_protected_dependencies)
 app.include_router(bilateral.router, tags=["Bilateral"])
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)

@@ -474,10 +474,36 @@
     });
   }
 
-  async function acceptPaymentCode(voucherId, sellerIdentityId) {
-    return jsonPost("/v1/payment-codes/" + encodeURIComponent(voucherId) + "/accept", {
-      seller_identity_id: sellerIdentityId,
+  async function acceptPaymentCode(voucherId, sellerIdentityId, sellerProfileId) {
+    var body = { seller_identity_id: sellerIdentityId };
+    // 可选：这一单算到哪个子身份账上（收付中心按它拆收入）。
+    if (sellerProfileId) body.seller_profile_id = sellerProfileId;
+    return jsonPost("/v1/payment-codes/" + encodeURIComponent(voucherId) + "/accept", body);
+  }
+
+  /** 收付中心台账：总览 / 收入明细 / 支出明细 / 确认区 / 争议区 一次拿全。 */
+  async function getPaymentLedger(params) {
+    var p = params || {};
+    var q = new URLSearchParams();
+    ["identity_id", "profile_id", "direction", "kind", "status"].forEach(function (k) {
+      if (p[k]) q.set(k, String(p[k]));
     });
+    if (p.limit) q.set("limit", String(p.limit));
+    if (p.offset) q.set("offset", String(p.offset));
+    var qs = q.toString();
+    return karmaFetch("/v1/payments/ledger" + (qs ? "?" + qs : ""), {
+      method: "GET",
+      headers: headers(),
+    });
+  }
+
+  /** 单笔详情（含状态流转 / 事件历史）。 */
+  async function getPaymentEntry(kind, refId, identityId) {
+    var q = identityId ? "?" + new URLSearchParams({ identity_id: identityId }).toString() : "";
+    return karmaFetch(
+      "/v1/payments/entries/" + encodeURIComponent(kind) + "/" + encodeURIComponent(refId) + q,
+      { method: "GET", headers: headers() }
+    );
   }
 
   async function rejectPaymentCode(voucherId, sellerIdentityId, reason) {
@@ -569,6 +595,8 @@
     acceptPaymentCode,
     rejectPaymentCode,
     getVoucherEvents,
+    getPaymentLedger,
+    getPaymentEntry,
     launchTradeOrder,
     tradeLaunchSigningPreview,
     jsonPost,

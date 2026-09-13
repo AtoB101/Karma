@@ -61,6 +61,10 @@ class OrderBody(BaseModel):
         default=None,
         description="子身份（角色档案）——这一单花的是它的额度；不传则不受子身份额度约束",
     )
+    seller_profile_id: str | None = Field(
+        default=None,
+        description="收款方（卖方）的子身份档案 —— 收付中心按它把这一单算进该子身份的收入",
+    )
 
 
 def _commit_view(row: AllowanceCommitModel) -> dict:
@@ -224,6 +228,14 @@ async def open_order(
             )
 
     stake = body.stake_usdc
+    seller_profile_id = body.seller_profile_id
+    if seller_profile_id:
+        validate_public_url_segment("seller_profile_id", seller_profile_id)
+        seller_profile = await db.get(IdentityRoleProfile, seller_profile_id)
+        if seller_profile is None or seller_profile.owner_identity_id != seller_identity:
+            raise HTTPException(
+                404, f"profile {seller_profile_id} not found for seller {seller_identity}"
+            )
     if stake is None:
         stake = seller_stake.required_stake_usdc(body.amount_usdc)
     if stake <= 0:
@@ -255,6 +267,7 @@ async def open_order(
         buyer_identity_id=identity_id,
         seller_identity_id=seller_identity,
         buyer_profile_id=profile_id,
+        seller_profile_id=seller_profile_id,
         buyer_bill_id=buyer_bill.bill_id,
         seller_bill_id=seller_bill.bill_id,
         scope_hash=result["scope_hash"],
