@@ -620,6 +620,19 @@ async def runtime_submit_receipt(
     )
     await ensure_task_contract_exists(db, receipt.task_id)
 
+    # The agent holds a Runtime Key, never the platform signing key, so the receipt it
+    # sends is unsigned. The gateway signs on its behalf ? exactly like the progress path
+    # above ? and that signature is what satisfies the RECEIPT_REQUIRE_SIGNATURE gate.
+    # Validating first would reject every agent receipt in production with
+    # "receipt signature is required".
+    receipt = receipt.model_copy(
+        update={
+            "signature": signing_service.sign_receipt(
+                receipt.model_copy(update={"signature": None})
+            )
+        }
+    )
+
     store = PostgresReceiptStore(db)
     try:
         validate_execution_receipt_static(receipt)
@@ -637,9 +650,7 @@ async def runtime_submit_receipt(
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    signed_receipt = receipt.model_copy(
-        update={"signature": signing_service.sign_receipt(receipt.model_copy(update={"signature": None}))}
-    )
+    signed_receipt = receipt
     if not verify_execution_receipt_signature(signed_receipt):
         raise HTTPException(status_code=500, detail="runtime receipt signing invariant failed")
 

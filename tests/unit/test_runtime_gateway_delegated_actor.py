@@ -1,16 +1,24 @@
 """Runtime Gateway mutators must act for the Runtime Key without a dev-only API key.
 
-Regression: the gateway delegated to inner routes with a synthetic
-``karma_<id>_devruntimekey12`` API key. That key only resolved while
-``AUTH_ALLOW_DEV_KEY_FALLBACK`` was on *and* auth enforcement was off, so in production
-every /runtime mutator (update-progress, submit-receipt, request-settlement,
-request-voucher, check-voucher) died with 401 "authentication required for this
-operation". The verified actor now travels on ``request.state``, which only in-process
-code can set, so delegation cannot be forged from outside.
+Two production-only defects on the agent channel are pinned here:
+
+1. the gateway delegated to inner routes with a synthetic
+   ``karma_<id>_devruntimekey12`` API key, which only resolved while
+   ``AUTH_ALLOW_DEV_KEY_FALLBACK`` was on *and* auth enforcement was off, so in
+   production every /runtime mutator (update-progress, submit-receipt,
+   request-settlement, request-voucher, check-voucher) died with 401
+   "authentication required for this operation";
+2. it validated an incoming receipt *before* signing it, so
+   RECEIPT_REQUIRE_SIGNATURE (on in production) rejected every agent receipt with
+   400 "receipt signature is required" — the agent holds a Runtime Key, never the
+   platform signing key.
+
+The verified actor now travels on ``request.state``, which only in-process code can
+set, so delegation cannot be forged from outside.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from eth_account import Account
@@ -190,6 +198,43 @@ async def test_runtime_key_still_cannot_act_for_another_identity(client: AsyncCl
         json=_progress_body(task_id=task_id, seller=seller, evidence="f" * 64, log="1" * 64),
     )
     assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.asyncio
+async def test_runtime_key_submits_an_unsigned_receipt(client: AsyncClient, monkeypatch):
+    """The agent has no signing key, only a Runtime Key: the gateway must sign for it."""
+    task_id = "task-runtime-delegated-receipt"
+    buyer = "buyer-runtime-receipt"
+    seller = "seller-runtime-receipt"
+
+    await _seed_in_progress_settlement(client, task_id=task_id, buyer=buyer, seller=seller)
+    runtime_key = await _mint_runtime(client, seller=seller, perms=["submit_receipt"])
+
+    monkeypatch.setattr(settings, "auth_enforce_protected_routes", True)
+    monkeypatch.setattr(settings, "auth_allow_dev_key_fallback", False)
+    monkeypatch.setattr(settings, "receipt_require_signature", True)
+
+    now = datetime.now(timezone.utc)
+    resp = await client.post(
+        "/runtime/submit-receipt",
+        headers={"X-Karma-Runtime-Key": runtime_key},
+        json={
+            "task_id": task_id,
+            "agent_id": seller,
+            "step_index": 1,
+            "tool_name": "tool.step",
+            "input_hash": "a" * 64,
+            "output_hash": "b" * 64,
+            "started_at": now.isoformat(),
+            "ended_at": (now + timedelta(milliseconds=50)).isoformat(),
+            "duration_ms": 50,
+            "status": "success",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["signature"], "the gateway must store a signed receipt"
+    assert body["agent_id"] == seller
 
 
 def test_state_key_constant_is_stable():
