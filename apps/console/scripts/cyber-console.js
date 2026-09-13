@@ -1202,15 +1202,101 @@
       if (sub === "confirm") return landOn(document.getElementById("pay-zone-confirm"));
       if (sub === "dispute") return landOn(document.getElementById("pay-zone-dispute"));
       if (sub === "new") {
-        var open = document.getElementById("pay-new");
-        // 面板已经是开着的就别再点，否则会把它关掉。
-        if (open && open.getAttribute("aria-expanded") !== "true") open.click();
-        return landOn(document.getElementById("pay-create"));
+        var panel = document.getElementById("pay-create");
+        var btn = document.getElementById("pay-new");
+        // 「发起收付」按钮是个纯开关：面板已经露出来了就别再点，否则会把刚打开的面板又关回去。
+        if (panel && panel.hidden && btn && btn.getAttribute("aria-expanded") !== "true") btn.click();
+        if (panel && !panel.hidden && btn) btn.setAttribute("aria-expanded", "true");
+        return landOn(panel);
       }
       return;
     }
+    if (page === "agents" && sub === "handoff") {
+      var box = document.getElementById("ag-handoff");
+      // 交付包要先在「我的 Agent」里点某个 agent 才会生成，别让人对着空卡片发呆。
+      if (box && !box.innerHTML.trim()) box.innerHTML = '<p class="muted">先在「我的 Agent」里点某个 agent 的「交给 Agent」，这里会生成它的交付包。</p>';
+    }
     var map = SUB_TARGETS[page];
     if (map && map[sub]) landOn(document.querySelector(map[sub]));
+  }
+
+  /**
+   * 「右边只显示点过的那一块」：点子功能 -> 同页其它功能块收起来；点主项 -> 整页视图全恢复。
+   * 侧栏选什么，右边就只显示什么，不用再自己上下找。
+   */
+  var FOCUS_BLOCKS = {
+    center: {
+      out: [".pay-head"],
+      in: [".pay-head"],
+      confirm: ["#pay-zone-confirm"],
+      dispute: ["#pay-zone-dispute"],
+      new: ["#pay-create"],
+    },
+    tasks: { flow: ["#tasks > .card.section"] },
+    identity: {
+      master: ["#idv-master"],
+      verify: ["#idv-verify"],
+      subs: ["#idv-subs"],
+      money: ["#idv-money-rule"],
+    },
+    agents: {
+      wizard: ["#ag-wizard"],
+      mine: ["#ag-mine"],
+      handoff: ["#ag-handoff-card"],
+      connect: ["#agents > .ag-advanced"],
+    },
+  };
+
+  /** 只在整页视图里露面的附属块：高级工具 / 档案管理 / 明细抽屉。 */
+  var FOCUS_EXTRAS = {
+    center: ["#pay-detail"],
+    identity: ["#identity [data-idv-advanced]", "#identity [data-profile-manage]"],
+  };
+
+  /** on=true 的那一块露出来，其余收起来。默认就带 hidden 的块（发起收付 / 交付包）要单独记一笔。 */
+  function focusBlock(node, on, subKey) {
+    if (!node.hasAttribute("data-focus-default-hidden")) {
+      node.setAttribute("data-focus-default-hidden", node.hidden ? "1" : "0");
+    }
+    node.classList.toggle("focus-hidden", !!subKey && !on);
+    if (subKey && on) {
+      if (node.getAttribute("data-focus-default-hidden") === "1") {
+        node.hidden = false;
+        node.setAttribute("data-focus-opened", "1");
+      }
+    } else if (node.getAttribute("data-focus-opened") === "1") {
+      node.hidden = true;
+      node.removeAttribute("data-focus-opened");
+    }
+  }
+
+  function applyFocus(page, subKey) {
+    var map = FOCUS_BLOCKS[page];
+    if (!map) return;
+    var keep = (subKey && map[subKey]) || null;
+    // 子项没配块：按整页视图处理，别把页面藏成空白。
+    if (!keep) { keep = []; subKey = null; }
+    var seen = [];
+    Object.keys(map).forEach(function (key) {
+      map[key].forEach(function (sel) {
+        if (seen.indexOf(sel) >= 0) return;
+        seen.push(sel);
+        var on = keep.indexOf(sel) >= 0;
+        document.querySelectorAll(sel).forEach(function (node) { focusBlock(node, on, subKey); });
+      });
+    });
+    (FOCUS_EXTRAS[page] || []).forEach(function (sel) {
+      document.querySelectorAll(sel).forEach(function (node) { focusBlock(node, false, subKey); });
+    });
+    // 确认区 / 争议区本来并排：只剩一个的时候占满整行，不留半边空位。
+    if (page === "center") {
+      var zones = document.querySelector("#center .pay-zones");
+      if (zones) {
+        var left = zones.querySelectorAll(".pay-zone:not(.focus-hidden)").length;
+        zones.classList.toggle("focus-hidden", left === 0);
+        zones.classList.toggle("single", left === 1);
+      }
+    }
   }
 
   /** 一次只展开一组：侧栏本来就窄，多开几组会把别的入口挤下去。 */
@@ -1261,6 +1347,7 @@
     const sec = document.getElementById(page);
     if (sec) sec.classList.add("active");
     markNav(page, subKey);
+    applyFocus(page, subKey);
     // 回到总览就重算起步引导：接入 agent、锁仓、授权都可能发生在别的页面。
     if (page === "overview") renderLaunchGuide().catch(function () {});
     const h = el("#pageHeading");
@@ -1286,12 +1373,10 @@
     document.querySelectorAll(".nav-main").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var group = btn.closest(".nav-group");
-        // 已经展开的这一组，再点一下就是收起来（页面不动）。
-        if (group && group.querySelector(".nav-sub") && group.classList.contains("open")) {
-          openGroupOnly(null);
-          return;
-        }
+        var wasOpen = !!(group && group.querySelector(".nav-sub") && group.classList.contains("open"));
+        // 主项 = 这一页的整页视图；已经展开的组再点一下，顺手把子项收起来。
         switchPage(btn.getAttribute("data-page"));
+        if (wasOpen) openGroupOnly(null);
       });
     });
     document.querySelectorAll(".nav-sub").forEach(function (btn) {

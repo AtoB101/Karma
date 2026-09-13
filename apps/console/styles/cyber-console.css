@@ -205,6 +205,10 @@ body {
   30% { box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.55); }
 }
 .nav-flash { animation: navFlash 1.4s ease-out 1; }
+/* 侧栏点了子功能：右边只留那一块，同页其它功能块先收起来 —— 没点的功能不该出现在眼前。 */
+.focus-hidden { display: none !important; }
+/* 确认区 / 争议区本来并排：只剩一个的时候占满整行，不留半边空位。 */
+#center .pay-zones.single { grid-template-columns: 1fr; }
 .side-warning {
   margin-top: auto;
   background: rgba(232, 121, 249, 0.08);
