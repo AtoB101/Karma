@@ -89,7 +89,7 @@ def load_scenario(pack):
 
 
 # --------------------------------------------------------------------------- 主流程
-def run(scenario, wallets, *, base_url):
+def run(scenario, wallets, *, base_url, fund=False):
     scene_id = scenario["scene_id"]
     flow = scenario.get("flow") or {}
     amount = float(scenario.get("amount_usdc") or 5)
@@ -124,8 +124,26 @@ def run(scenario, wallets, *, base_url):
     def record(name, payload=None):
         result["steps"].append({"name": name, "ok": True, "payload": payload})
 
+    # ---- 0 买方得先有钱：额度不够就先锁仓（--fund 时才替你做）
+    cap = buyer.capacity()
+    available = float(cap.get("available_credits") or 0.0)
+    # 合同锁定与凭证占用是两次独立扣减，都从 available_credits 里走。
+    needed = amount * 2
+    info("买方可用额度 %s USDC（合同 + 凭证共需 %s）" % (available, needed))
+    if available + 1e-9 < needed:
+        deficit = round(needed - available, 6)
+        if not fund:
+            raise SystemExit(
+                "买方可用额度不够（合同与凭证各占一次，共需 %s USDC）："
+                "先在操作台「锁仓」补 %s USDC，或用 --fund 让脚本锁测试额度。"
+                % (needed, deficit)
+            )
+        buyer.lock_credits(deficit)
+        ok("已按 --fund 补锁 %s USDC（测试额度，跑完记得减少锁仓）" % deficit)
+        record("test_funding", {"locked_usdc": deficit})
+
     # ---- 1 买方下单
-    step("1 · 买方下单（任务合同 + 结算单 + 指派卖方）")
+    step("1 · 买方下单（授权凭证 → 任务合同 → 结算单 → 指派卖方）")
     task = scenario.get("task") or {}
     buyer.create_contract(
         task_id=task_id,
@@ -135,7 +153,16 @@ def run(scenario, wallets, *, base_url):
         expected_steps=len(flow.get("milestones") or []) or 1,
     )
     ok("任务合同已建立")
-    st = buyer.create_settlement(task_id=task_id, escrow_amount=amount, scene_id=scene_id)
+    voucher = buyer.create_voucher(
+        scene_id=scene_id, seller_identity_id=seller.identity_id, amount=amount
+    )
+    voucher_id = str(voucher.get("voucher_id") or "")
+    ok("授权凭证已开  %s  额度=%s USDC" % (voucher_id, voucher.get("amount")))
+    accepted = seller.accept_voucher(voucher_id)
+    ok("卖方已接单（凭证 accept，责任图谱随之落账）  状态=%s" % accepted.get("status"))
+    st = buyer.create_settlement(
+        task_id=task_id, escrow_amount=amount, scene_id=scene_id, voucher_id=voucher_id
+    )
     ok("结算单已建立  状态=%s  选中的生意=%s" % (st.get("status"), scene_id))
     buyer.to_pending(task_id)
     ok("结算单进入 pending（买方已锁定付款意向）")
@@ -143,17 +170,40 @@ def run(scenario, wallets, *, base_url):
     ok("已指派卖方  %s  状态=%s" % (seller.identity_id, locked.get("status")))
     record("buyer_orders", locked)
 
-    # ---- 2 卖方开工
-    step("2 · 卖方接单开工")
+    # ---- 2 把卖方 agent 接进来
+    step("2 · 卖方把 agent 接进来（授权额度 → Runtime Key → 交接登记）")
+    seller.ensure_runtime_key(
+        permissions=[
+            "submit_receipt",
+            "update_progress",
+            "request_settlement",
+            "sync_task_status",
+        ],
+        single_limit=max(amount, 50.0),
+        daily_limit=max(amount * 5, 200.0),
+    )
+    ok("Runtime Key 已铸造（钱包签名一次，key_id=%s）" % seller.runtime_key_id)
+    perms = seller.runtime_permissions()
+    ok("agent 读到自己的权限：%s" % ",".join(perms.get("permissions") or []))
+    readiness = seller.automation_readiness(
+        task_id=task_id, role="seller", for_handoff_confirm=True
+    )
+    if not readiness.get("ready_for_handoff_confirm"):
+        info("交接前还差：%s" % "；".join(readiness.get("blockers") or []))
+    seller.handoff_confirm(task_id=task_id, role="seller")
+    ok("交接已登记（服务端存证，agent 可以开始自动执行）")
+
+    # ---- 3 卖方开工
+    step("3 · 卖方接单开工")
     started = seller.start(task_id)
     ok("卖方已开工  状态=%s" % started.get("status"))
 
     # ---- 3 进度上报
     milestones = flow.get("milestones") or []
     if milestones:
-        step("3 · 卖方上报执行进度")
+        step("4 · 卖方上报执行进度（agent 走 Runtime Key）")
         for m in milestones:
-            seller.report_progress(
+            seller.rt_update_progress(
                 task_id=task_id,
                 progress_percent=float(m.get("progress_percent", 100)),
                 claimed_value_percent=float(m.get("claimed_value_percent", 100)),
@@ -164,7 +214,7 @@ def run(scenario, wallets, *, base_url):
 
     # ---- 4 交付验真
     if dv_mode != "none":
-        step("4 · 交付验真（%s）" % dv_mode)
+        step("5 · 交付验真（%s）" % dv_mode)
         verification = buyer.dv_open(
             task_id=task_id,
             scene_id=scene_id,
@@ -199,12 +249,12 @@ def run(scenario, wallets, *, base_url):
         ok("验真通过  status=%s" % final.get("status"))
         record("delivery_verification", final)
 
-    # ---- 5 执行回执
-    step("5 · 卖方提交执行回执（结算硬前提）")
+    # ---- 6 执行回执
+    step("6 · 卖方提交执行回执（agent 走 Runtime Key；回执由 Karma 签名）")
     started_at = utcnow() - timedelta(seconds=30)
     receipts = flow.get("receipts") or [{"tool_name": "deliver"}]
     for idx, r in enumerate(receipts, start=1):
-        seller.submit_receipt(
+        seller.rt_submit_receipt(
             task_id=task_id,
             step_index=idx,
             tool_name=r.get("tool_name", "deliver"),
@@ -215,12 +265,12 @@ def run(scenario, wallets, *, base_url):
         )
         ok("回执 #%s  %s  success" % (idx, r.get("tool_name", "deliver")))
 
-    # ---- 6 交付
-    delivered = seller.submit_delivery(task_id)
+    # ---- 7 交付
+    delivered = seller.rt_request_settlement(task_id, "submit_delivery")
     ok("卖方已交付  状态=%s" % delivered.get("status"))
 
-    # ---- 7 买方验收结算
-    step("7 · 买方验收 → 结算")
+    # ---- 8 买方验收结算
+    step("8 · 买方验收 → 结算")
     try:
         settled = buyer.buyer_accept(task_id, scene_id=scene_id)
     except KarmaError as exc:
@@ -245,7 +295,7 @@ def run(scenario, wallets, *, base_url):
     ok("结算完成  状态=%s  释放=%s USDC" % (settled.get("status"), settled.get("released_amount")))
     record("settled", settled)
 
-    step("8 · 最终状态")
+    step("9 · 最终状态")
     final_state = buyer.settlement(task_id) or settled
     info("status=%s" % final_state.get("status"))
     info("escrow=%s  released=%s" % (final_state.get("escrow_amount"), final_state.get("released_amount")))
@@ -268,6 +318,11 @@ def main():
     ap.add_argument("--base", default=os.environ.get("KARMA_BASE_URL", "https://karma-network.ai"))
     ap.add_argument("--wallets", default=None, help="钱包文件 JSON（buyer/seller/logistics）")
     ap.add_argument("--json", action="store_true", help="只输出机器可读结果")
+    ap.add_argument(
+        "--fund",
+        action="store_true",
+        help="买方可用额度不足时，自动锁一笔测试额度把链路跑通（跑完请减少锁仓）",
+    )
     args = ap.parse_args()
 
     scenario = load_scenario(args.pack)
@@ -279,7 +334,7 @@ def main():
         raise SystemExit("缺少钱包：" + ", ".join(missing) + "（用 --wallets 或环境变量提供）")
 
     try:
-        result = run(scenario, wallets, base_url=args.base)
+        result = run(scenario, wallets, base_url=args.base, fund=args.fund)
     except KarmaError as exc:
         say("")
         say(FAIL + str(exc))
