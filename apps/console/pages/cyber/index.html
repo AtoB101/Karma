@@ -144,9 +144,11 @@
               </div>
             </div>
             <div class="id-home-stats">
-              <div class="id-home-stat"><span>锁仓额度</span><b data-bind="total_locked_usdc">—</b><i>USDC</i></div>
-              <div class="id-home-stat"><span>可用</span><b data-bind="available_credits">—</b><i>USDC</i></div>
-              <div class="id-home-stat"><span>订单占用</span><b data-bind="in_progress_bucket">—</b><i>USDC</i></div>
+              <div class="id-home-stat"><span data-i18n="m.locked">锁仓 USDC</span><b data-bind="total_locked_usdc">—</b><i data-i18n="m.locked_hint">真实资金锚定</i></div>
+              <div class="id-home-stat"><span data-i18n="m.available">可用额度</span><b data-bind="available_credits">—</b><i data-i18n="m.available_hint">可创建付款授权</i></div>
+              <div class="id-home-stat"><span data-i18n="m.exec">执行占用</span><b data-bind="in_progress_bucket">—</b><i data-i18n="m.exec_hint">已接单任务冻结</i></div>
+              <div class="id-home-stat"><span data-i18n="m.pending">待收款</span><b data-bind="pending_settlement_credits">—</b><i data-i18n="m.pending_hint">已接单 / 待结算</i></div>
+              <div class="id-home-stat"><span data-i18n="m.dispute">争议冻结</span><b data-bind="disputed_credits">—</b><i data-i18n="m.dispute_hint">等待仲裁推进</i></div>
             </div>
             <div class="lock-row">
               <label class="lock-row-label" for="lock-amount">锁仓金额</label>
@@ -165,33 +167,6 @@
             </p>
             <div class="id-home-confirm" id="id-home-confirm" hidden></div>
             <div class="id-home-subs" id="id-home-subs"></div>
-          </div>
-          <div class="grid metrics">
-            <div class="card metric">
-              <div class="label" data-i18n="m.locked">锁仓 USDC</div>
-              <div class="value" data-bind="total_locked_usdc">—</div>
-              <div class="hint" data-i18n="m.locked_hint">真实资金锚定</div>
-            </div>
-            <div class="card metric">
-              <div class="label" data-i18n="m.available">可用额度</div>
-              <div class="value" data-bind="available_credits">—</div>
-              <div class="hint" data-i18n="m.available_hint">可创建付款授权</div>
-            </div>
-            <div class="card metric">
-              <div class="label" data-i18n="m.exec">执行占用</div>
-              <div class="value" data-bind="in_progress_bucket">—</div>
-              <div class="hint" data-i18n="m.exec_hint">已接单任务冻结</div>
-            </div>
-            <div class="card metric">
-              <div class="label" data-i18n="m.pending">待收款</div>
-              <div class="value" data-bind="pending_settlement_credits">—</div>
-              <div class="hint" data-i18n="m.pending_hint">已接单 / 待结算</div>
-            </div>
-            <div class="card metric">
-              <div class="label" data-i18n="m.dispute">争议冻结</div>
-              <div class="value" data-bind="disputed_credits">—</div>
-              <div class="hint" data-i18n="m.dispute_hint">等待仲裁推进</div>
-            </div>
           </div>
           <div class="card section" id="launch-guide" hidden>
             <div class="section-header">
@@ -459,19 +434,103 @@
         </section>
 
         <section id="agents" class="page">
-          <div class="card section">
+          <!-- 授权向导：锁仓之后的活儿一条直线做完。
+               选身份 → 授权额度 → 定类型 → 划边界 → 生成 Karma 授权 SDK。 -->
+          <div class="card section" id="ag-wizard">
             <div class="section-header">
               <div>
-                <h3>Agent 接入 · 一张身份卡打通全部基础设施</h3>
-                <p>认证一次 → 身份卡 → 锁定资金 → 给角色档案授权额度 → agent 接入；之后 Karma 负责这个 agent 的收付验证与结算。</p>
+                <h3>给 agent 授权 · 4 步</h3>
+                <p>先连接钱包（顶部），再按 1 → 4 填完，点「生成 Karma 授权 SDK」，把结果交给你的 agent。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。</p>
+              </div>
+              <span class="api-status" id="agw-status">—</span>
+            </div>
+            <ol class="agw-steps">
+              <li><b>1 · 选身份</b><span>这个 agent 用哪个身份</span></li>
+              <li><b>2 · 授权额度</b><span>它最多能动用多少 USDC</span></li>
+              <li><b>3 · 定类型</b><span>生活 / 工作 / 企业助理</span></li>
+              <li><b>4 · 划边界</b><span>权限 · 上限 · 谁来确认</span></li>
+            </ol>
+
+            <div class="agw-block">
+              <div class="agw-block-head">
+                <b>1 · 选择接入身份</b>
+                <span>没有子身份就先建一个。一个子身份 = 一个 agent 的身份，账目互不混淆。</span>
+              </div>
+              <div class="agw-row">
+                <label class="agw-label" for="agw-identity">接入身份</label>
+                <select id="agw-identity"></select>
+                <span class="agw-note" id="agw-identity-note"></span>
+              </div>
+              <details class="agw-new-wrap">
+                <summary>＋ 新建一个子身份</summary>
+                <div class="agw-row">
+                  <input id="agw-new-name" type="text" placeholder="给它起个名字，如「差旅助理」" />
+                  <select id="agw-new-type">
+                    <option value="life">生活助理</option>
+                    <option value="work">工作助理</option>
+                    <option value="company">企业商业助理</option>
+                  </select>
+                  <button type="button" class="btn" id="agw-new">创建子身份</button>
+                  <span class="api-status" id="agw-new-status"></span>
+                </div>
+              </details>
+            </div>
+
+            <div class="agw-block">
+              <div class="agw-block-head">
+                <b>2 · 授权额度</b>
+                <span>从主身份的锁仓里划给这个子身份。填的是「它总共有多少」，不是在这基础上再加。</span>
+              </div>
+              <div class="agw-row">
+                <label class="agw-label" for="agw-amount">授权额度 (USDC)</label>
+                <input id="agw-amount" type="number" min="0" step="0.01" placeholder="如 50" />
+                <div class="agw-quick" role="group" aria-label="快捷授权额度">
+                  <button type="button" class="chip" data-agw-preset="10">10</button>
+                  <button type="button" class="chip" data-agw-preset="50">50</button>
+                  <button type="button" class="chip" data-agw-preset="100">100</button>
+                  <button type="button" class="chip" data-agw-preset="all">全部剩余</button>
+                </div>
+              </div>
+              <p class="agw-note" id="agw-amount-note">连接钱包后这里会显示还能授权多少。</p>
+            </div>
+
+            <div class="agw-block">
+              <div class="agw-block-head">
+                <b>3 · 身份类型</b>
+                <span>决定这个子身份的账目可见性：企业商业助理的明细默认隐藏金额。</span>
+              </div>
+              <div class="agw-types" id="agw-types">
+                <label class="agw-type"><input type="radio" name="agw-type" value="life" /><b>生活助理</b><span>日常采买、订阅、出行</span></label>
+                <label class="agw-type"><input type="radio" name="agw-type" value="work" /><b>工作助理</b><span>接单、交付、对外协作</span></label>
+                <label class="agw-type"><input type="radio" name="agw-type" value="company" /><b>企业商业助理</b><span>公司采购与对公结算 🔒</span></label>
               </div>
             </div>
-            <div class="ag-flow">
-              <div class="ag-step"><b>1 · 绑定钱包</b><span>SIWE 认证，领取你的身份卡</span></div>
-              <div class="ag-step"><b>2 · 锁定资金</b><span>USDC 1:1 锚定，未使用可随时释放</span></div>
-              <div class="ag-step"><b>3 · 授权额度</b><span>按角色档案分配可用额度</span></div>
-              <div class="ag-step"><b>4 · 接入 Agent</b><span>Karma 签发凭据并负责结算</span></div>
+
+            <div class="agw-block">
+              <div class="agw-block-head">
+                <b>4 · 权限与边界</b>
+                <span>agent 只在这个圈里自动跑；越界的一律停下来等你确认。</span>
+              </div>
+              <div class="agw-grid">
+                <div class="field"><label>单笔最高 (USDC)</label><input id="agw-single" type="number" min="0.01" step="0.01" value="100" /></div>
+                <div class="field"><label>每天累计上限 (USDC)</label><input id="agw-daily" type="number" min="0.01" step="0.01" value="500" /></div>
+                <div class="field"><label>什么情况找你人工确认</label>
+                  <select id="agw-human">
+                    <option value="above_single">超过单笔最高就找我确认（推荐）</option>
+                    <option value="always">每一笔都找我确认</option>
+                    <option value="off">全部自动，不用确认</option>
+                  </select>
+                </div>
+              </div>
+              <div class="agw-perms" id="agw-perms"></div>
+              <label class="agw-ack"><input type="checkbox" id="agw-ack" /> <span>我确认这个子身份是「责任主体」：它替我做的事、花的钱，由我这张身份卡负责。</span></label>
             </div>
+
+            <div class="agw-foot">
+              <button type="button" class="btn primary" id="agw-generate">⚡ 生成 Karma 授权 SDK</button>
+              <span class="api-status" id="agw-gen-status"></span>
+            </div>
+            <div class="agw-result" id="agw-result" hidden></div>
           </div>
 
           <div class="card section" style="margin-top:20px">
@@ -499,8 +558,9 @@
             <div id="ag-handoff" style="margin-top:12px"></div>
           </div>
 
-          <div class="card section" style="margin-top:20px">
-            <div class="section-header">
+          <details class="card section ag-advanced" style="margin-top:20px">
+            <summary>高级 · 把 agent 注册进 Karma 目录（可选）</summary>
+            <div class="section-header" style="margin-top:14px">
               <div>
                 <h3>接入一个 Agent</h3>
                 <p>选行业 → 填硬指标 → 一键接入。agent 的运行密钥由 Karma 服务端生成并托管（可随时吊销），全程不涉及你的钱包私钥 / 助记词。</p>
@@ -524,7 +584,7 @@
               <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">原始响应</summary>
               <pre class="out" id="ag-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
             </details>
-          </div>
+          </details>
         </section>
 
         <section id="settings" class="page">
@@ -565,6 +625,7 @@
     <script src="../../scripts/cyber-identity.js"></script>
     <script src="../../scripts/console-sync.js"></script>
     <script src="../../scripts/cyber-agents.js"></script>
+    <script src="../../scripts/cyber-authorize.js"></script>
     <script src="../../scripts/cyber-handoff.js"></script>
     <script src="../../scripts/cyber-globe-bg.js"></script>
   </body>

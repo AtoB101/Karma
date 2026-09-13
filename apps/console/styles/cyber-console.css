@@ -912,7 +912,7 @@ body.gated { overflow: hidden; }
 .id-home-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .id-home-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
@@ -924,7 +924,7 @@ body.gated { overflow: hidden; }
 }
 .id-home-stat span { font-size: 12px; color: var(--text-dim); display: block; }
 .id-home-stat b { font-size: 22px; }
-.id-home-stat i { font-size: 11px; color: var(--text-dim); font-style: normal; margin-left: 4px; }
+.id-home-stat i { display: block; margin-top: 4px; font-size: 11px; color: #6c8aac; font-style: normal; }
 
 .lock-row {
   display: flex;
@@ -973,3 +973,124 @@ body.gated { overflow: hidden; }
 .id-home-sub-id { font-weight: 600; }
 .id-home-sub-meta { font-size: 12px; color: var(--text-dim); }
 .id-home-sub-note { font-size: 12px; color: var(--text-dim); }
+
+/* ---------- 给 agent 授权向导（#ag-wizard）----------
+   锁仓之后的活儿收成一条直线：选身份 → 授权额度 → 定类型 → 划边界 → 生成 SDK。
+   子身份账目、权限、上限都在这张卡里一次说清，别再让用户在三个页面之间找。 */
+#ag-wizard .agw-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  list-style: none;
+  margin: 14px 0 4px;
+}
+#ag-wizard .agw-steps li {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.28);
+}
+#ag-wizard .agw-steps b { display: block; font-size: 13px; margin-bottom: 3px; }
+#ag-wizard .agw-steps span { font-size: 11px; color: var(--text-dim); }
+#ag-wizard .agw-block {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(34, 211, 238, 0.2);
+}
+#ag-wizard .agw-block-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+#ag-wizard .agw-block-head b { font-size: 14px; }
+#ag-wizard .agw-block-head span { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+#ag-wizard .agw-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+#ag-wizard .agw-label { font-size: 12px; color: var(--text-dim); min-width: 92px; }
+#ag-wizard .agw-row input,
+#ag-wizard .agw-row select {
+  background: rgba(6, 12, 20, 0.85);
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  border-radius: 10px;
+  color: var(--text-main);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+}
+#ag-wizard .agw-row input[type="number"] { width: 130px; }
+#ag-wizard .agw-row input[type="text"] { min-width: 200px; flex: 1; }
+#ag-wizard .agw-row select { min-width: 240px; max-width: 100%; }
+#ag-wizard .agw-note { font-size: 12px; color: #6c8aac; line-height: 1.7; margin-top: 8px; }
+#ag-wizard .agw-new-wrap { margin-top: 10px; }
+#ag-wizard .agw-new-wrap > summary { cursor: pointer; font-size: 12px; color: var(--neon-cyan); }
+#ag-wizard .agw-quick { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+#ag-wizard .agw-quick .chip {
+  border: 1px solid var(--border-glow);
+  background: rgba(34, 211, 238, 0.08);
+  color: var(--text-main);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#ag-wizard .agw-quick .chip:hover { background: rgba(34, 211, 238, 0.2); }
+#ag-wizard .agw-types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+#ag-wizard .agw-type {
+  display: block;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  background: rgba(8, 14, 24, 0.5);
+  cursor: pointer;
+}
+#ag-wizard .agw-type:has(input:checked) {
+  border-color: rgba(34, 211, 238, 0.6);
+  background: rgba(34, 211, 238, 0.1);
+}
+#ag-wizard .agw-type input { margin-right: 6px; }
+#ag-wizard .agw-type b { font-size: 13px; }
+#ag-wizard .agw-type span { display: block; margin-top: 4px; font-size: 11px; color: var(--text-dim); }
+#ag-wizard .agw-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
+#ag-wizard .agw-perms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+#ag-wizard .agw-perm {
+  display: block;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(34, 211, 238, 0.14);
+  background: rgba(8, 14, 24, 0.45);
+  cursor: pointer;
+}
+#ag-wizard .agw-perm input { margin-right: 6px; }
+#ag-wizard .agw-perm b { font-size: 12px; }
+#ag-wizard .agw-perm span { display: block; margin-top: 3px; font-size: 11px; color: var(--text-dim); }
+#ag-wizard .agw-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(232, 121, 249, 0.3);
+  background: rgba(232, 121, 249, 0.06);
+  font-size: 12px;
+  line-height: 1.7;
+  cursor: pointer;
+}
+#ag-wizard .agw-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
+#ag-wizard .agw-result {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  background: rgba(74, 222, 128, 0.05);
+}
+#ag-wizard .agw-result[hidden] { display: none; }
+#agents .ag-advanced > summary { cursor: pointer; font-size: 13px; color: var(--neon-cyan); }
+
+@media (max-width: 1100px) {
+  #ag-wizard .agw-steps,
+  #ag-wizard .agw-types,
+  #ag-wizard .agw-grid,
+  #ag-wizard .agw-perms { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 720px) {
+  #ag-wizard .agw-steps,
+  #ag-wizard .agw-types,
+  #ag-wizard .agw-grid,
+  #ag-wizard .agw-perms { grid-template-columns: 1fr; }
+}
