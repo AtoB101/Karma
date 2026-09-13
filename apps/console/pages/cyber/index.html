@@ -336,6 +336,7 @@
               <div class="field" style="margin-top:12px"><label>卖方 Identity</label><input id="pc-seller" type="text" placeholder="seller-identity-001" /></div>
               <div class="field"><label>金额（USDC）</label><input id="pc-amount" type="number" step="0.01" value="20" /></div>
               <div class="field"><label>任务类型</label><input id="pc-tasktype" type="text" value="api.caption" /></div>
+              <div class="field"><label>服务类型（决定这单的状态图长什么样）</label><select id="pc-scene" data-scene-select><option value="">通用服务</option></select></div>
               <button type="button" class="btn primary" id="btn-create-paycode" style="margin-top:8px">生成付款码（钱包签名）</button>
               <pre class="out" id="pc-out" style="margin-top:12px; max-height:220px; overflow:auto">—</pre>
             </div>
@@ -369,6 +370,7 @@
               <div class="field"><label>托管金额（USDC）</label><input id="st-amount" type="number" step="0.01" value="50" /></div>
               <div class="field"><label>买方（client_agent_id）</label><input id="st-buyer" type="text" placeholder="buyer-identity-001" /></div>
               <div class="field"><label>卖方（worker_agent_id）</label><input id="st-worker" type="text" placeholder="worker-001" /></div>
+              <div class="field"><label>服务类型（决定这单的状态图长什么样）</label><select id="st-scene" data-scene-select><option value="">通用服务</option></select></div>
             </div>
             <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:12px">
               <button type="button" class="btn" data-st-step="contract">① 建合同 · 买方</button>

@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 
 import pytest
+from httptest import post_minimal_contract
 
 from db.models.orm import SettlementModel, SettlementTransitionAuditModel
 from services import delivery_verification as dv
@@ -255,3 +256,64 @@ def test_the_ledger_never_invents_a_scene():
     route = LEDGER_ROUTE.read_text(encoding="utf-8")
     assert '"verification": _task_verification(entry)' in route
     assert "def _task_verification(entry: dict)" in route
+
+# --------------------------------------------------- 操作台要能标出这是哪种生意
+
+
+def test_the_console_can_tag_an_order_with_its_service_type():
+    """不选服务类型 -> 永远只有通用图。所以下单的地方必须能选，而且选项只有一份来源。"""
+    html = HTML.read_text(encoding="utf-8")
+    assert 'id="pc-scene" data-scene-select' in html, "发起收付要能选服务类型"
+    assert 'id="st-scene" data-scene-select' in html, "任务执行建单也要能选服务类型"
+    js = _js()
+    assert "function fillSceneSelects()" in js
+    assert 'document.querySelectorAll("[data-scene-select]")' in js, "下拉选项从 SCENES 表生成"
+    assert "fillSceneSelects();" in js, "进页面就把下拉填好"
+
+    actions = (CONSOLE / "scripts/cyber-actions.js").read_text(encoding="utf-8")
+    assert "progress_rule_spec: sceneId ? { scene_id: sceneId } : undefined" in actions, (
+        "付款码要把服务类型一起提交，否则这一单的图就退化成通用图"
+    )
+    assert "progress_rule_spec: scene ? { scene_id: scene } : undefined" in actions, (
+        "任务执行建结算单也要带上服务类型"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_settlement_keeps_the_service_scene(client):
+    """建单时给的服务类型要落到这一单上，状态图才挑得对阶段表。"""
+    await post_minimal_contract(client, task_id="task-scene-1", client_agent_id=BUYER, escrow_amount=20.0)
+    r = await client.post(
+        "/v1/settlement/create",
+        json={
+            "task_id": "task-scene-1",
+            "client_agent_id": BUYER,
+            "escrow_amount": 20.0,
+            "currency": "USDC",
+            "progress_rule_spec": {"scene_id": "food_delivery"},
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    d = await client.get(
+        "/v1/payments/entries/settlement/task-scene-1",
+        headers={"X-Karma-Identity-Id": BUYER},
+    )
+    assert d.status_code == 200, d.text
+    assert d.json()["entry"]["detail"]["scene_id"] == "food_delivery"
+
+
+@pytest.mark.asyncio
+async def test_create_settlement_rejects_an_blank_scene(client):
+    await post_minimal_contract(client, task_id="task-scene-2", client_agent_id=BUYER, escrow_amount=20.0)
+    r = await client.post(
+        "/v1/settlement/create",
+        json={
+            "task_id": "task-scene-2",
+            "client_agent_id": BUYER,
+            "escrow_amount": 20.0,
+            "currency": "USDC",
+            "progress_rule_spec": {"scene_id": "   "},
+        },
+    )
+    assert r.status_code == 422, r.text
