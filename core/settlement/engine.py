@@ -54,7 +54,12 @@ VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.PENDING: [TaskStatus.ACCEPTED, TaskStatus.CANCELLED],
     TaskStatus.ACCEPTED: [TaskStatus.IN_PROGRESS, TaskStatus.DISPUTED, TaskStatus.CANCELLED],
     TaskStatus.IN_PROGRESS: [TaskStatus.PROGRESS_SUBMITTED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.CANCELLED],
-    TaskStatus.PROGRESS_SUBMITTED: [TaskStatus.PROGRESS_CONFIRMED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED],
+    # ProgressSubmitted keeps its own edge: a step report is evidence, not a
+    # phase change, so a task with several milestones reports progress more
+    # than once while the settlement stays in this status (the receipt rows
+    # carry progress_percent / claimed_value_percent, and ``/v1/progress``
+    # rejects rollbacks and duplicate evidence hashes separately).
+    TaskStatus.PROGRESS_SUBMITTED: [TaskStatus.PROGRESS_SUBMITTED, TaskStatus.PROGRESS_CONFIRMED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED],
     TaskStatus.PROGRESS_CONFIRMED: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED, TaskStatus.AUTO_CONFIRMED],
     TaskStatus.DELIVERED: [TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.REFUNDED, TaskStatus.FROZEN],
     TaskStatus.DISPUTED: [TaskStatus.ARBITRATED, TaskStatus.FROZEN],
