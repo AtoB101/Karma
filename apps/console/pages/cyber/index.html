@@ -316,6 +316,10 @@
             <div class="card section pay-zone" id="pay-zone-confirm">
               <div class="pay-zone-head"><b>确认区</b><span class="pay-count" id="pay-confirm-count">0</span></div>
               <p class="pay-zone-hint">已交付 / 待你确认的单：确认之后真实资金才会划转。</p>
+              <!-- agent 超了单笔额度会停在这里：你点确认，它才继续；点拒绝，它当场停下。 -->
+              <div class="pay-auth-head"><b>agent 的授权请求</b><span class="pay-count" id="pay-auth-count">0</span></div>
+              <p class="pay-zone-hint">agent 超出你设的单笔额度时会停在这里等你点头，不会先花掉钱。</p>
+              <div class="pay-zone-list" id="pay-auth-list"><p class="pay-empty">暂时没有需要你点头的授权请求。</p></div>
               <div class="pay-zone-list" id="pay-confirm-list"><p class="pay-empty">暂无待确认的单。</p></div>
             </div>
             <div class="card section pay-zone" id="pay-zone-dispute">
@@ -582,6 +586,12 @@
                   </select>
                 </div>
               </div>
+              <!-- 一句话说清这份授权到底放开了什么，别让用户签完还不知道 agent 能干什么。 -->
+              <p class="ag-hint" id="agw-scope-note">
+                在单笔最高之内：agent 可以自己挑商家、自己下单、自己收款，不用每次都问你；
+                超过这个数，它会停下来等你在这个页面的「确认区」点一下。
+                取消 / 退款 / 改价永远要你亲自确认。
+              </p>
               <div class="agw-perms" id="agw-perms"></div>
               <label class="agw-ack"><input type="checkbox" id="agw-ack" /> <span>我确认这个子身份是「责任主体」：它替我做的事、花的钱，由我这张身份卡负责。</span></label>
             </div>

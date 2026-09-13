@@ -531,6 +531,20 @@
     return jsonPost("/v1/trade/orders/launch/signing-preview", body, extra);
   }
 
+  /** 确认区：agent 超出自动额度、等人点头的授权请求（只列本人名下）。 */
+  async function getPendingConfirmations(identityId) {
+    const q = new URLSearchParams({ identity_id: identityId }).toString();
+    return karmaFetch("/v1/confirmations/pending?" + q, { method: "GET", headers: headers() });
+  }
+
+  /** 主人的决定：确认 → agent 可以继续；拒绝 → 就地停住。 */
+  async function decideConfirmation(sessionId, confirm, actorAgentId, note) {
+    return jsonPost(
+      "/v1/confirmations/sessions/" + encodeURIComponent(sessionId) + "/decide",
+      { confirm: !!confirm, actor_agent_id: actorAgentId, note: note || null }
+    );
+  }
+
   global.cyberKarmaApi = {
     apiBase,
     karmaFetch,
@@ -599,6 +613,8 @@
     getPaymentEntry,
     launchTradeOrder,
     tradeLaunchSigningPreview,
+    getPendingConfirmations,
+    decideConfirmation,
     jsonPost,
     jsonPut,
     activeProfileId,
