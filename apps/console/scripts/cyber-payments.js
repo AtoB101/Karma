@@ -611,5 +611,5 @@
     if (section && section.classList.contains("active")) load();
   });
 
-  global.KarmaPayments = { load: load, state: state, openDetail: openDetail };
+  global.KarmaPayments = { load: load, state: state, openDetail: openDetail, statusLabel: statusLabel };
 })(window);

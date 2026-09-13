@@ -50,7 +50,11 @@
         <nav class="nav">
           <!-- 主功能区 + 折叠子功能：点主项切页面并展开它下面的子项，点子项直接落到那一块。 -->
           <div class="nav-group" data-group="overview">
-            <button class="nav-main active" data-page="overview"><span class="icon">◎</span><span data-i18n="nav.overview">总览</span></button>
+            <button class="nav-main active" data-page="overview" aria-expanded="false"><span class="icon">▤</span><span data-i18n="nav.overview">订单</span><span class="nav-caret">▾</span></button>
+            <div class="nav-subs">
+              <button class="nav-sub" data-page="overview" data-sub="buy"><span data-i18n="sub.orders.buy">买方订单</span></button>
+              <button class="nav-sub" data-page="overview" data-sub="sell"><span data-i18n="sub.orders.sell">卖方订单</span></button>
+            </div>
           </div>
           <div class="nav-group" data-group="center">
             <button class="nav-main" data-page="center" aria-expanded="false"><span class="icon">⇄</span><span data-i18n="nav.center">收付中心</span><span class="nav-caret">▾</span></button>
@@ -133,13 +137,14 @@
                   <button type="button" class="btn primary" data-action="refresh-api" data-i18n="api.refresh">刷新额度</button>
                   <input data-cfg="task_id" data-i18n-placeholder="api.task_id" type="text" placeholder="查询结算 task_id" autocomplete="off" style="min-width:160px" />
                   <button type="button" class="btn" data-action="fetch-settlement" data-i18n="api.fetch_settlement">拉取 Settlement</button>
+                  <pre class="settlement-preview" data-settlement-preview>—</pre>
                   <span style="font-size:11px; color:var(--text-dim)">上次 <span data-bind="console_last_sync">—</span></span>
                 </div>
               </details>
             </div>
             <div class="topbar-row">
               <div class="page-title">
-                <h2 id="pageHeading">总览</h2>
+                <h2 id="pageHeading">订单</h2>
                 <p id="pageSubheading">—</p>
                 <div class="sub-scope-bar" id="sub-scope-bar">
                   <span class="sub-scope-label" data-i18n="scope.master">主体身份卡</span>
@@ -236,80 +241,26 @@
               </div>
             </div>
           </div>
-          <div class="layout-2">
-            <div class="card section">
-              <div class="section-header">
-                <div>
-                  <h3>快捷操作</h3>
-                  <p>不区分固定买家/卖家，同一个身份在不同任务里可以付款，也可以收款。</p>
-                </div>
-              </div>
-              <div class="quick">
-                <div class="action-card" data-go="center"><b>创建付款授权</b><span>给卖家一个一次性 Voucher，卖家验证后开工。</span></div>
-                <div class="action-card" data-go="center"><b>验证收款授权</b><span>输入买家 Voucher，确认额度已锁定。</span></div>
-                <div class="action-card" data-go="receipts"><b>提交执行回执</b><span>上传 evidence hash、runtime log hash 和进度。</span></div>
-                <div class="action-card" data-go="disputes"><b>处理争议</b><span>提交证据、接受方案或请求仲裁。</span></div>
-              </div>
-            </div>
-            <div class="card section">
-              <div class="section-header">
-                <div>
-                  <h3>责任状态流</h3>
-                  <p>责任成立前灵活，责任成立后不可后台篡改。</p>
-                </div>
-              </div>
-              <div class="timeline">
-                <div class="time-row">
-                  <span class="node"></span>
-                  <div><b>USDC 已锁仓</b><p>USDC 已锁入 Vault，生成内部责任额度。</p></div>
-                </div>
-                <div class="time-row">
-                  <span class="node"></span>
-                  <div><b>任务额度已冻结</b><p>执行中额度不能重复授权给其他任务。</p></div>
-                </div>
-                <div class="time-row">
-                  <span class="node"></span>
-                  <div><b>回执等待确认</b><p>Execution Receipt 已提交，等待验证或买家确认。</p></div>
-                </div>
-                <div class="time-row">
-                  <span class="node"></span>
-                  <div><b>结算后销毁</b><p>USDC 结算时，同额内部责任额度同步销毁。</p></div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="card section" style="margin-top: 20px">
+          <!-- 订单状态图：一笔单走到哪一步一眼看见。已完成且过了可争议期的单不再占位置。 -->
+          <div class="card section" id="order-board-card">
             <div class="section-header">
               <div>
-                <h3>API 数据预览</h3>
-                <p><code>GET /v1/settlement/{task_id}</code> 返回 JSON（需 API Key 与权限）。</p>
+                <h3 data-i18n="ord.title">订单状态图</h3>
+                <p data-i18n="ord.note">每条泳道就是一个阶段：待接单 → 执行中 → 待确认 → 争议中。已完成且过了可争议期的单会从这里退场，历史去「收付中心」和「账单」看。</p>
+              </div>
+              <div class="order-board-actions">
+                <div class="order-sides" role="tablist">
+                  <button type="button" class="pay-tab active" data-order-side="all" data-i18n="ord.all">全部</button>
+                  <button type="button" class="pay-tab" data-order-side="out" data-i18n="ord.buy">我买的</button>
+                  <button type="button" class="pay-tab" data-order-side="in" data-i18n="ord.sell">我卖的</button>
+                </div>
+                <span class="pay-sync" id="order-sync">—</span>
+                <button type="button" class="btn" id="order-refresh" data-i18n="ord.refresh">刷新</button>
               </div>
             </div>
-            <pre class="settlement-preview" data-settlement-preview>—</pre>
-          </div>
-          <div class="card section" style="margin-top: 20px">
-            <div class="section-header">
-              <div>
-                <h3>最近需要处理</h3>
-                <p>下方表格由 <code>GET /v1/settlement</code> 等接口按「任务 ID 列表」自动填充（与 Overview 同步策略一致）。</p>
-              </div>
-              <button type="button" class="btn">查看全部</button>
-            </div>
-            <table>
-              <thead>
-                <tr>
-                  <th>任务</th>
-                  <th>角色</th>
-                  <th>对方</th>
-                  <th>金额</th>
-                  <th>进度</th>
-                  <th>状态</th>
-                  <th>下一步</th>
-                  <th>回执数</th>
-                </tr>
-              </thead>
-              <tbody data-sync-table="tasks"></tbody>
-            </table>
+            <div class="order-totals" id="order-totals"></div>
+            <div class="order-board" id="order-board"></div>
+            <p class="order-empty" id="order-empty" hidden></p>
           </div>
         </section>
 
@@ -850,6 +801,7 @@
     <script src="../../scripts/cyber-identity-verify.js"></script>
     <script src="../../scripts/console-sync.js"></script>
     <script src="../../scripts/cyber-payments.js"></script>
+    <script src="../../scripts/cyber-orders.js"></script>
     <script src="../../scripts/cyber-agents.js"></script>
     <script src="../../scripts/cyber-authorize.js"></script>
     <script src="../../scripts/cyber-handoff.js"></script>
