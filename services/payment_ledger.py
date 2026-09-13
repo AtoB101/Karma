@@ -78,6 +78,19 @@ KIND_LABELS = {
 _READ_LIMIT = 1000
 
 
+def scene_id_of(spec: Any) -> str | None:
+    """这一单属于哪种生意（服务类型）。
+
+    出处是 progress_rule_spec.scene_id —— 和交付验证标准里的 scene 是同一套 id。
+    认不出来就返回 None，前端会退回通用状态图，不会瞎猜。
+    """
+    if isinstance(spec, dict):
+        value = spec.get("scene_id")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def _num(value: Any) -> float:
     try:
         return float(value or 0.0)
@@ -170,6 +183,8 @@ def settlement_entry(row: SettlementModel, identity_id: str) -> dict:
         detail={
             "settlement_id": row.settlement_id,
             "settlement_mode": getattr(row, "settlement_mode", None),
+            "scene_id": scene_id_of(getattr(row, "progress_rule_spec", None)),
+            "onchain_binding_id": getattr(row, "onchain_binding_id", None),
             "voucher_id": getattr(row, "voucher_id", None),
             "dispute_reason": row.dispute_reason,
             "arbitration_notes": row.arbitration_notes,
@@ -242,6 +257,7 @@ def voucher_entry(row: VoucherModel, identity_id: str) -> dict:
         detail={
             "voucher_id": row.voucher_id,
             "task_type": row.task_type,
+            "scene_id": scene_id_of(getattr(row, "progress_rule_spec", None)) or row.task_type,
             "expiry_time": _iso(row.expiry_time),
             "accepted_at": _iso(row.accepted_at),
             "rejection_reason": getattr(row, "rejection_reason", None),

@@ -22,6 +22,7 @@ from db.models.orm import (
 )
 from db.session import get_db
 from services import payment_ledger as ledger
+from services.delivery_verification import get_verification_for_task
 from services.identity_actor import resolve_actor_identity_id
 from services.path_param_safety import validate_public_url_segment
 
@@ -154,4 +155,24 @@ async def get_payment_entry(
         history = await ledger.settlement_history(db, ref_id)
     elif kind == "voucher":
         history = await ledger.voucher_history(db, ref_id)
-    return {"identity_id": target, "entry": entry, "history": history}
+    return {
+        "identity_id": target,
+        "entry": entry,
+        "history": history,
+        "verification": _task_verification(entry),
+    }
+
+
+def _task_verification(entry: dict) -> dict | None:
+    """这一单的交付验证会话（P7）。
+
+    订单状态图靠它点亮「卖家已发货 / 已揽收 / 已送达 / 签收」这些里程碑 ——
+    没报过的事件不会亮，所以读不到就返回 None，前端照实显示「未上报」。
+    """
+    task_id = entry.get("task_id")
+    if not task_id:
+        return None
+    try:
+        return get_verification_for_task(str(task_id))
+    except Exception:  # noqa: BLE001 — 会话存储读不出来不该拖垮单笔详情
+        return None
