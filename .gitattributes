@@ -1,0 +1,5 @@
+# Shell scripts are executed verbatim (the VPS ops CLI is installed from
+# deploy/karma), so they must keep LF even on a Windows checkout with
+# core.autocrlf=true - a CRLF `#!/usr/bin/env bash` fails to run.
+*.sh text eol=lf
+deploy/karma text eol=lf

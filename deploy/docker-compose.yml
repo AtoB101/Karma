@@ -19,13 +19,22 @@ services:
       # top-level packages the app imports from /app, so
       #   git pull && docker compose up -d --no-build app
       # is the complete deploy. Read-only: the app never writes to its own tree.
+      #
+      # Every path below is relative to the repo root, so anything the app reads
+      # at runtime must be listed or the container silently serves the copy baked
+      # into the image at build time. packages/ is one of those: the evidence
+      # standards (packages/evidence-schema/*.json) are loaded per request by
+      # services/*, so omitting it left every standards change invisible in prod
+      # (e.g. the cross_border_ecommerce scene kept resolving as an unknown scene).
       - ../agents:/app/agents:ro
       - ../api:/app/api:ro
+      - ../apps:/app/apps:ro
       - ../config:/app/config:ro
       - ../core:/app/core:ro
       - ../db:/app/db:ro
       - ../decentralized_verifier:/app/decentralized_verifier:ro
       - ../evidence_runtime:/app/evidence_runtime:ro
+      - ../packages:/app/packages:ro
       - ../sdk:/app/sdk:ro
       - ../services:/app/services:ro
       # --- Durable state -----------------------------------------------------
