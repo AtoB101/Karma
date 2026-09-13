@@ -15,6 +15,7 @@ CONSOLE = ROOT / "apps" / "console"
 HTML = CONSOLE / "pages" / "cyber" / "index.html"
 JS = CONSOLE / "scripts" / "cyber-payments.js"
 CLIENT = CONSOLE / "scripts" / "karma-public-api.js"
+CSS = CONSOLE / "styles" / "cyber-console.css"
 GATE = ROOT / "scripts" / "acceptance" / "console_last_mile_gate.sh"
 
 CENTER_NODES = (
@@ -95,3 +96,13 @@ def test_gate_checks_the_new_script():
     assert "scripts/cyber-payments.js" in gate, "门禁要确认文件存在"
     loop = [ln for ln in gate.splitlines() if ln.strip().startswith("for js in")]
     assert loop and "cyber-payments.js" in loop[0], "门禁要 node --check 它"
+
+
+def test_master_and_sub_stats_blocks_are_really_hidden():
+    """`.pay-stats{display:grid}` 会盖掉 [hidden] 自带的 display:none。
+
+    少了这条显式规则，主身份页会同时显示「该子身份已收/已付」那一行（线上就是这么
+    漏出来的），所以把它钉死。
+    """
+    css = CSS.read_text(encoding="utf-8")
+    assert ".pay-stats[hidden]" in css, "统计块要在 hidden 时真正不显示"

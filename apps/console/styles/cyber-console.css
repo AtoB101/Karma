@@ -1108,6 +1108,8 @@ body.gated { overflow: hidden; }
   gap: 12px;
   margin-top: 16px;
 }
+/* display:grid 会盖掉 [hidden] 自带的 display:none，主身份/子身份统计必须显式隐藏。 */
+.pay-stats[hidden] { display: none; }
 .pay-stat {
   border: 1px solid rgba(34, 211, 238, 0.16);
   border-radius: 12px;
@@ -1200,6 +1202,15 @@ body.gated { overflow: hidden; }
 .pay-zone-list .pay-time { display: none; }
 
 .pay-detail { margin-top: 20px; }
+.pay-detail-warn {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 138, 76, 0.12);
+  border: 1px solid rgba(255, 138, 76, 0.35);
+  color: #ffb27a;
+  font-size: 12px;
+}
 .pay-detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .pay-detail-head b { font-size: 16px; }
 .pay-detail-sub { display: block; margin-top: 2px; font-size: 11px; color: #6c8aac; }
