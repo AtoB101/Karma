@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,8 +20,11 @@ from services.human_confirmation_policy import (
     create_confirmation_session,
     decide_confirmation_session,
     get_confirmation_session,
+    list_pending_sessions_for_identity,
     plan_confirmations,
 )
+from services.ledger_party_access import require_ledger_identity
+from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
 
@@ -97,6 +100,21 @@ async def create_owner_confirmation_session(body: CreateSessionRequest) -> dict[
         )
     except ConfirmationPolicyError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/pending")
+async def list_pending_owner_confirmations(
+    identity_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """操作台「确认区」：agent 超出自动额度后，挂在主人名下等人点头的单。
+
+    只列 ``identity_id`` 自己的会话 —— 别人的确认请求不会出现在这里。
+    """
+    validate_public_url_segment("identity_id", identity_id)
+    require_ledger_identity(request, identity_id)
+    sessions = list_pending_sessions_for_identity(owner_agent_id=identity_id)
+    return {"identity_id": identity_id, "pending": sessions, "count": len(sessions)}
 
 
 @router.get("/sessions/{session_id}")

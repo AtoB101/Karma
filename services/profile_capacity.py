@@ -43,7 +43,8 @@ def _in_use(row: ProfileCapacityModel) -> float:
     )
 
 
-def _serialize(row: ProfileCapacityModel) -> dict:
+def serialize_profile_capacity(row: ProfileCapacityModel) -> dict:
+    """公开的序列化口径 —— 操作台与 Runtime Gateway 必须读同一份。"""
     return {
         "profile_id": row.profile_id,
         "owner_identity_id": row.owner_identity_id,
@@ -107,7 +108,7 @@ async def allocate(
             row.allocated_credits = amount
             row.available_credits = amount - used
             row.updated_at = datetime.utcnow()
-        out.append(_serialize(row))
+        out.append(serialize_profile_capacity(row))
 
     await db.flush()
     return out
@@ -119,7 +120,7 @@ async def get_allocations(db: AsyncSession, *, identity_id: str) -> list[dict]:
         .where(ProfileCapacityModel.owner_identity_id == identity_id)
         .order_by(ProfileCapacityModel.profile_id)
     )
-    return [_serialize(r) for r in result.scalars().all()]
+    return [serialize_profile_capacity(r) for r in result.scalars().all()]
 
 
 async def get_profile_capacity(db: AsyncSession, *, profile_id: str) -> ProfileCapacityModel | None:

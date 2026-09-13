@@ -26,6 +26,10 @@ ALLOWED_PERMISSIONS = frozenset(
         "update_progress",
         "request_settlement",
         "sync_task_status",
+        # 发现：让 agent 自己去找能办事的 agent / 商家（只读）。
+        "discover_agents",
+        # 下单：在操作台设的额度内自己发起一笔委托（钱仍要过验证才划转）。
+        "place_order",
     }
 )
 
