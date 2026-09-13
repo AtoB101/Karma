@@ -1,0 +1,405 @@
+#!/usr/bin/env bash
+# Karma VPS ops CLI
+# Versioned in the repo at deploy/karma and installed to /usr/local/bin/karma.
+# Safe by default: nothing destructive happens without an explicit flag.
+set -uo pipefail
+
+DEPLOY_DIR=/opt/karma
+REPO_DIR=$DEPLOY_DIR/repo
+ENV_FILE=$DEPLOY_DIR/.env
+COMPOSE_FILE=$REPO_DIR/deploy/docker-compose.yml
+API=http://127.0.0.1:8000
+PUBLIC=https://karma-network.ai
+WEB_DEPLOY=/usr/local/bin/karma-web-deploy
+LAST_DEPLOY_SHA=$DEPLOY_DIR/last-deploy-sha
+APP_SOURCE_DIRS='agents api apps config core db decentralized_verifier evidence_runtime packages sdk services'
+
+B=$'\033[1m'; C=$'\033[1;36m'; G=$'\033[1;32m'; Y=$'\033[1;33m'; R=$'\033[1;31m'; N=$'\033[0m'
+hdr() { printf '\n%s== %s ==%s\n' "$C" "$*" "$N"; }
+ok()  { printf '%s%s%s\n' "$G" "$*" "$N"; }
+warn(){ printf '%s%s%s\n' "$Y" "$*" "$N"; }
+err() { printf '%s%s%s\n' "$R" "$*" "$N"; }
+
+need_repo() { [ -d "$REPO_DIR/.git" ] || { err "repo not found at $REPO_DIR"; exit 1; }; }
+
+# The box has 1.6 GB of RAM and a docker build has already taken it down once.
+# The image supplies dependencies; the repo supplies the code via read-only bind
+# mounts (see deploy/docker-compose.yml), so a deploy is: pull -> recreate container
+# -> republish the static console. Never a build.
+# The app runs as uid 1000 (deploy/Dockerfile.paas: USER karma) while
+# karma_data / mvp_data / keys are host bind mounts. Anything root ever wrote
+# there (an older build, a `docker exec` as root, the pre-launch cleanup) leaves
+# root-owned JSON that the app can then read but not rewrite, which surfaced as
+# `PermissionError: /app/.karma_data/agent_profile_cards.json` -> HTTP 500 on
+# owner-connect. Normalise ownership on every recreate so a deploy self-heals.
+fix_data_perms() {
+  local d
+  for d in "$DEPLOY_DIR/karma_data" "$DEPLOY_DIR/mvp_data"; do
+    [ -d "$d" ] || continue
+    chown -R 1000:1000 "$d" 2>/dev/null || true
+    find "$d" -type f ! -name '*.pem' -exec chmod 664 {} + 2>/dev/null || true
+    find "$d" -type d -exec chmod 775 {} + 2>/dev/null || true
+  done
+  # keys/ holds the platform Ed25519 signing key: fix ownership, keep mode 600.
+  if [ -d "$DEPLOY_DIR/keys" ]; then
+    chown -R 1000:1000 "$DEPLOY_DIR/keys" 2>/dev/null || true
+  fi
+  return 0
+}
+
+bring_up_app() {
+  need_repo; need_env
+  fix_data_perms
+  compose up -d --no-build --remove-orphans --force-recreate app
+}
+
+publish_web() {
+  if [ -x "$WEB_DEPLOY" ]; then
+    "$WEB_DEPLOY" --repo "$REPO_DIR"
+  else
+    warn "  $WEB_DEPLOY missing; skipped publishing site + console"
+  fi
+}
+
+record_deploy() {
+  git -C "$REPO_DIR" rev-parse HEAD > "$LAST_DEPLOY_SHA" 2>/dev/null || true
+}
+
+sync_cli() {
+  # The operator CLI is versioned at deploy/karma, so a deploy keeps $0 current.
+  # Without this the installed copy silently drifts from the repo one.
+  local src="$REPO_DIR/deploy/karma" self="${BASH_SOURCE[0]:-$0}"
+  [ -f "$src" ] || return 0
+  [ -w "$self" ] || return 0
+  cmp -s "$src" "$self" && return 0
+  if install -m 0755 "$src" "$self" 2>/dev/null; then
+    ok "  refreshed the operator CLI from deploy/karma"
+  else
+    warn "  could not refresh $self from deploy/karma"
+  fi
+}
+
+mounted_source_dirs() {
+  # Every repo dir the container reads must be bind-mounted in the compose file;
+  # anything missing silently falls back to the copy baked into the image, which
+  # is how a standards change (packages/evidence-schema) never reached production.
+  [ -f "$COMPOSE_FILE" ] || return 0
+  grep -oE '^[[:space:]]*-[[:space:]]+\.\./[A-Za-z0-9_]+:/app/[A-Za-z0-9_]+:ro' "$COMPOSE_FILE" \
+    | sed -E 's#^[[:space:]]*-[[:space:]]+\.\./([A-Za-z0-9_]+):.*#\1#' | sort -u
+}
+
+source_drift() {
+  local d missing=0 mounted
+  mounted="$(mounted_source_dirs)"
+  for d in $APP_SOURCE_DIRS; do
+    [ -d "$REPO_DIR/$d" ] || { err "  missing source dir: $d"; missing=1; }
+    if [ -f "$COMPOSE_FILE" ]; then
+      printf '%s\n' "$mounted" | grep -qx "$d" \
+        || { err "  not bind-mounted in $COMPOSE_FILE: $d (the container would use the stale image copy)"; missing=1; }
+    fi
+  done
+  return $missing
+}
+
+need_env()  { [ -f "$ENV_FILE" ] || { err ".env not found at $ENV_FILE"; exit 1; }; }
+compose()   { need_env; docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"; }
+
+usage() {
+  cat <<EOF
+${B}karma${N} — Karma VPS operator CLI
+
+${B}Observe${N}
+  karma status              containers + health + resources + code state
+  karma health              local and public health checks
+  karma logs [svc] [n]      container logs (default: app, 50 lines)
+  karma tail [svc]          follow container logs
+  karma site                nginx config test + TLS cert expiry
+  karma env-keys            list .env variable names (values masked)
+  karma code                git branch / HEAD / dirty file count / recent commits
+
+${B}Operate${N}
+  karma restart [svc]       restart one container (default: all karma-*)
+  karma up                  start the stack
+  karma down                stop the stack
+  karma deploy              pull origin/main, republish site + console, recreate app (no build)
+  karma rebuild             recreate the app container from the mounted source (no build)
+  karma rollback            move the checkout back to the last deployed commit
+  karma shell               shell inside the app container
+  karma db                  psql shell
+  karma redis               redis-cli
+  karma exec <container> <cmd...>
+
+${B}Maintain${N}
+  karma backup              snapshot code + .env + database + redis into /opt/karma/backups
+  karma backups             list existing backups
+  karma prune               remove dangling images and build cache
+
+${B}Update${N}
+  karma update              DRY RUN: fetch and show what would change
+  karma update --apply      backup -> stash local edits -> fast-forward -> recreate + restart
+
+${B}Notes${N}
+  * 'karma deploy' is the everyday path; it never builds an image.
+  * 'karma update --apply' also moves the checkout forward, and always takes a
+    backup and stashes local edits first. Both record the deployed commit to
+    $LAST_DEPLOY_SHA, which 'karma rollback' restores.
+  * A real image rebuild must happen off-box; docker build here OOM-kills the VPS.
+EOF
+}
+
+cmd_status() {
+  hdr "Containers"
+  docker ps -a --filter name=karma- --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+  hdr "Health (local)"
+  curl -fsS --max-time 5 "$API/health" && echo || err "  UNREACHABLE"
+  hdr "Health (public)"
+  curl -fsS -o /dev/null -w '  HTTP %{http_code} in %{time_total}s\n' --max-time 10 "$PUBLIC/health" || err "  unreachable"
+  hdr "Resources"
+  timeout 12 docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}' 2>/dev/null | sed '/^$/d'
+  hdr "Disk"
+  df -h / | tail -1 | awk '{printf "  %s used of %s (%s)\n", $3, $2, $5}'
+  hdr "Code state"
+  if [ -d "$REPO_DIR/.git" ]; then
+    ( cd "$REPO_DIR"
+      printf '  branch:      %s\n' "$(git rev-parse --abbrev-ref HEAD)"
+      printf '  HEAD:        %s\n' "$(git log -1 --format='%h %ad %s' --date=short)"
+      printf '  uncommitted: %s files\n' "$(git status --porcelain | wc -l)"
+      printf '  ahead of origin/main: %s\n' "$(git rev-list --count origin/main..HEAD 2>/dev/null || echo '?')" )
+  else
+    warn "  repo not found"
+  fi
+}
+
+cmd_health() {
+  hdr "Local API"
+  curl -fsS --max-time 5 "$API/health" && echo || err "  unreachable"
+  hdr "Public /health"
+  curl -fsS -o /dev/null -w '  HTTP %{http_code} in %{time_total}s\n' --max-time 10 "$PUBLIC/health" || err "  unreachable"
+  hdr "Public homepage"
+  curl -fsS -o /dev/null -w '  HTTP %{http_code} in %{time_total}s\n' --max-time 10 "$PUBLIC/" || err "  unreachable"
+  hdr "Postgres"
+  docker exec karma-postgres pg_isready -U "${POSTGRES_USER:-karma}" 2>&1 | sed 's/^/  /'
+  hdr "Redis"
+  docker exec karma-redis redis-cli ping 2>&1 | sed 's/^/  /'
+}
+
+container_for() {
+  case "${1:-app}" in
+    app|api|karma-api) echo karma-api ;;
+    db|postgres)       echo karma-postgres ;;
+    redis)             echo karma-redis ;;
+    *)                 echo "$1" ;;
+  esac
+}
+
+cmd_logs() {
+  local c n; c=$(container_for "${1:-app}"); n="${2:-50}"
+  docker logs --tail "$n" "$c" 2>&1
+}
+cmd_tail() { docker logs -f --tail 50 "$(container_for "${1:-app}")" 2>&1; }
+
+cmd_site() {
+  hdr "nginx config"
+  nginx -t 2>&1 | sed 's/^/  /'
+  hdr "TLS certificate"
+  local crt=/root/.acme.sh/karma-network.ai_ecc/fullchain.cer
+  if [ -f "$crt" ]; then
+    openssl x509 -in "$crt" -noout -subject -issuer -enddate 2>/dev/null | sed 's/^/  /'
+    local end epoch now days
+    end=$(openssl x509 -in "$crt" -noout -enddate | cut -d= -f2)
+    epoch=$(date -d "$end" +%s 2>/dev/null || echo 0)
+    now=$(date +%s)
+    days=$(( (epoch - now) / 86400 ))
+    if [ "$days" -lt 21 ]; then warn "  days until expiry: $days  (renewal due)"; else ok "  days until expiry: $days"; fi
+    echo "  NOTE: acme.sh has no reload hook; nginx reloads are manual."
+  else
+    err "  certificate not found"
+  fi
+  hdr "Active listeners"
+  ss -tlnp 2>/dev/null | grep -E ':(80|443|8000)\b' | sed 's/^/  /'
+}
+
+cmd_env_keys() {
+  need_env
+  hdr "Environment variables (values masked)"
+  sed -E 's/=.*/=***/' "$ENV_FILE" | grep -v '^$' | sed 's/^/  /'
+}
+
+cmd_code() {
+  need_repo; cd "$REPO_DIR" || exit 1
+  hdr "Git"
+  printf '  branch:      %s\n' "$(git rev-parse --abbrev-ref HEAD)"
+  printf '  HEAD:        %s\n' "$(git log -1 --format='%h %ad %s' --date=iso)"
+  printf '  remote:      %s\n' "$(git remote get-url origin)"
+  printf '  uncommitted: %s files\n' "$(git status --porcelain | wc -l)"
+  hdr "Recent commits"
+  git log --oneline -10 | sed 's/^/  /'
+}
+
+cmd_restart() {
+  if [ -n "${1:-}" ]; then
+    docker restart "$(container_for "$1")" && ok "restarted $(container_for "$1")"
+  else
+    need_repo; compose restart
+  fi
+}
+cmd_up()   { need_repo; compose up -d; }
+cmd_down() { need_repo; compose down; }
+
+cmd_rebuild() {
+  need_repo
+  warn "Recreating the app container from the mounted source (no image build)."
+  warn "This box must never run 'docker build' — it OOM-killed the VPS before."
+  source_drift || return 1
+  record_deploy
+  bring_up_app
+  cmd_wait_health
+}
+
+cmd_wait_health() {
+  hdr "Waiting for health (max 120s)"
+  local i
+  for i in $(seq 1 24); do
+    if curl -fsS --max-time 5 "$API/health" >/dev/null 2>&1; then ok "  healthy after ${i}x5s"; return 0; fi
+    sleep 5
+  done
+  err "  health check failed"
+  docker logs --tail 50 karma-api 2>&1 | sed 's/^/  /'
+  return 1
+}
+
+cmd_rollback() {
+  need_repo
+  if [ ! -f "$LAST_DEPLOY_SHA" ]; then
+    err "  no recorded deploy at $LAST_DEPLOY_SHA — nothing to roll back to"
+    return 1
+  fi
+  local target
+  target=$(cat "$LAST_DEPLOY_SHA")
+  hdr "Rolling the checkout back to $target"
+  warn "  code is bind-mounted, so a git checkout is the rollback (not an image tag)"
+  git -C "$REPO_DIR" log --oneline -1 "$target" | sed 's/^/  current target: /'
+  git -C "$REPO_DIR" reset --hard "$target" || { err "  reset failed"; return 1; }
+  bring_up_app
+  publish_web
+  cmd_wait_health
+}
+
+cmd_shell() { docker exec -it karma-api bash 2>/dev/null || docker exec -it karma-api sh; }
+cmd_db()    { docker exec -it karma-postgres psql -U "${POSTGRES_USER:-karma}" -d "${POSTGRES_DB:-karma}"; }
+cmd_redis() { docker exec -it karma-redis redis-cli; }
+cmd_exec()  { shift; docker exec -it "$@"; }
+
+cmd_backup() { bash "$DEPLOY_DIR/bin/backup.sh"; }
+cmd_backups() {
+  hdr "Backups in $DEPLOY_DIR/backups"
+  [ -d "$DEPLOY_DIR/backups" ] || { warn "  none"; return; }
+  du -sh "$DEPLOY_DIR"/backups/* 2>/dev/null | sed 's/^/  /'
+  echo
+  df -h / | tail -1 | awk '{printf "  filesystem: %s used of %s (%s)\n", $3, $2, $5}'
+}
+cmd_prune() {
+  warn "Removing dangling images and build cache"
+  docker image prune -f
+  docker builder prune -f
+  docker system df | sed 's/^/  /'
+}
+
+cmd_update() {
+  need_repo; cd "$REPO_DIR" || exit 1
+  hdr "Fetching"
+  git fetch origin 2>&1 | sed 's/^/  /'
+  local local_head remote_head dirty
+  local_head=$(git rev-parse --short HEAD)
+  remote_head=$(git rev-parse --short origin/main)
+  dirty=$(git status --porcelain | wc -l)
+  printf '  local HEAD:   %s\n' "$local_head"
+  printf '  origin/main:  %s\n' "$remote_head"
+  printf '  uncommitted:  %s files\n' "$dirty"
+
+  if [ "$local_head" = "$remote_head" ]; then
+    ok "  already up to date with origin/main"
+    return 0
+  fi
+
+  hdr "Incoming commits"
+  git log --oneline HEAD..origin/main | head -20 | sed 's/^/  /'
+
+  if [ "${1:-}" != "--apply" ]; then
+    warn ""
+    warn "DRY RUN. Nothing changed."
+    warn "Run 'karma update --apply' to: backup -> stash local edits -> fast-forward -> recreate."
+    return 0
+  fi
+
+  hdr "Backup before update"
+  cmd_backup
+
+  hdr "Stashing local edits"
+  if [ "$dirty" -gt 0 ]; then
+    git stash push -u -m "karma-update $(date +%F-%H%M%S)" && ok "  stashed ($dirty files)"
+  else
+    echo "  working tree clean, nothing to stash"
+  fi
+
+  hdr "Fast-forward to origin/main"
+  git merge --ff-only origin/main || { err "  fast-forward failed; local edits are stashed and recoverable via 'git stash list'"; return 1; }
+  sync_cli
+
+  hdr "Deploy (no image build)"
+  source_drift || return 1
+  bring_up_app
+  publish_web
+  record_deploy
+  cmd_wait_health
+  ok "update complete"
+}
+
+cmd_deploy() {
+  need_repo; cd "$REPO_DIR" || exit 1
+  hdr "Fetch origin"
+  git fetch origin 2>&1 | sed 's/^/  /'
+  local dirty
+  dirty=$(git status --porcelain | wc -l)
+  if [ "$dirty" -gt 0 ]; then
+    warn "  $dirty uncommitted file(s) in the checkout; pulling anyway with --ff-only"
+  fi
+  hdr "Fast-forward to origin/main"
+  git merge --ff-only origin/main || { err "  not a fast-forward; resolve the checkout first"; return 1; }
+  git log --oneline -1 | sed 's/^/  now at: /'
+  sync_cli
+  hdr "Publish site + console"
+  publish_web
+  hdr "Recreate app container (no build)"
+  source_drift || return 1
+  bring_up_app
+  record_deploy
+  cmd_wait_health
+  ok "deploy complete"
+}
+
+case "${1:-help}" in
+  status)   cmd_status ;;
+  health)   cmd_health ;;
+  logs)     shift; cmd_logs "$@" ;;
+  tail)     shift; cmd_tail "$@" ;;
+  site)     cmd_site ;;
+  env-keys) cmd_env_keys ;;
+  code)     cmd_code ;;
+  restart)  shift; cmd_restart "$@" ;;
+  up)       cmd_up ;;
+  down)     cmd_down ;;
+  deploy)   cmd_deploy ;;
+  rebuild)  cmd_rebuild ;;
+  rollback) cmd_rollback ;;
+  shell)    cmd_shell ;;
+  db)       cmd_db ;;
+  redis)    cmd_redis ;;
+  exec)     shift; cmd_exec "$@" ;;
+  backup)   cmd_backup ;;
+  backups)  cmd_backups ;;
+  prune)    cmd_prune ;;
+  update)   shift; cmd_update "$@" ;;
+  help|-h|--help) usage ;;
+  *) err "unknown command: $1"; echo; usage; exit 1 ;;
+esac
