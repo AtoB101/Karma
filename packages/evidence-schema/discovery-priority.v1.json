@@ -262,6 +262,16 @@
       "require_scene_coverage": true,
       "prefer_identity_classes": ["enterprise", "merchant"],
       "scene_coverage_bonus": 6.0
+    },
+    "cross_border_ecommerce": {
+      "title_zh": "跨境电商",
+      "reality_note_zh": "需有报关/清关能力与跨境履约记录；冷启动允许，但优先有稳定清关渠道的商家。",
+      "allow_cold_start": true,
+      "min_settled_count_for_proven": 5,
+      "min_success_rate_for_proven": 0.85,
+      "trust_weight": 1.2,
+      "require_scene_coverage": false,
+      "scene_coverage_bonus": 4
     }
   },
   "api": [

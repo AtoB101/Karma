@@ -227,6 +227,14 @@
       "require_p7_verified": true,
       "reputation_profile": "professional",
       "reality_note_zh": "课程完成凭证后确认结算"
+    },
+    "cross_border_ecommerce": {
+      "mode": "pod_then_settle",
+      "confirm": "OWNER_CONFIRM",
+      "agent_auto_verify": false,
+      "require_p7_verified": true,
+      "reputation_profile": "b2b",
+      "reality_note_zh": "跨境电商：P7 验真（报关+清关+送达）通过后，主人确认再结算"
     }
   },
   "api": [

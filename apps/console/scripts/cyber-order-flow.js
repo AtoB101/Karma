@@ -29,6 +29,8 @@
     logistics_intake_ok: { label: "物流已揽收", hint: "承运方验收入库" },
     logistics_delivered: { label: "已送达", hint: "承运方送达并提交凭证" },
     "proof:delivery_photo_tagged": { label: "送达拍照", hint: "带时间戳的送达照片" },
+    "proof:customs_declaration": { label: "出口报关", hint: "报关单与箱单哈希" },
+    "proof:customs_clearance": { label: "进口清关", hint: "清关放行回执" },
     "proof:recipient_ack_or_silent": { label: "签收确认", hint: "买家确认，或静默期到期默认确认" },
     seller_trip_completed: { label: "行程已完成", hint: "司机端行程结束" },
     "proof:route_or_odometer": { label: "轨迹 / 里程", hint: "路线或里程数据哈希" },
@@ -51,6 +53,7 @@
   /* 服务类型（scene）——和后端交付验证标准逐一对应，别自己加。 */
   var SCENES = {
     food_delivery: { label: "餐饮外卖", mode: "physical_triple", events: ["seller_shipped", "logistics_intake_ok", "logistics_delivered", "proof:delivery_photo_tagged"] },
+    cross_border_ecommerce: { label: "跨境电商", mode: "physical_triple", events: ["seller_shipped", "proof:customs_declaration", "logistics_intake_ok", "proof:customs_clearance", "logistics_delivered", "proof:delivery_photo_tagged"] },
     logistics_delivery: { label: "物流 / 配送", mode: "physical_triple", events: ["seller_shipped", "logistics_intake_ok", "logistics_delivered", "proof:delivery_photo_tagged", "proof:recipient_ack_or_silent"] },
     b2b_procurement: { label: "B2B 采购", mode: "physical_triple", events: ["seller_shipped", "logistics_intake_ok", "logistics_delivered", "proof:goods_receipt", "proof:qa_or_quantity"] },
     manufacturing: { label: "生产制造", mode: "physical_triple", events: ["seller_shipped", "logistics_intake_ok", "logistics_delivered", "proof:goods_receipt", "proof:qa_report_hash"] },

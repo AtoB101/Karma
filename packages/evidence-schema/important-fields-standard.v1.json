@@ -1963,6 +1963,84 @@
           "expected_output_schema_hash": "sha256:out-schema"
         }
       }
+    },
+    {
+      "scene_id": "cross_border_ecommerce",
+      "service_category": "LogisticsDelivery",
+      "on_chain_enum": 3,
+      "title_en": "Cross-border E-commerce",
+      "title_zh": "跨境电商",
+      "market_summary_zh": "跨境发货、报关清关与目的地派送；验收看报关单证、清关放行与送达凭证。",
+      "risk_tier": "L2",
+      "location_mode": "physical",
+      "required_scene_fields": [
+        {
+          "path": "scene.origin",
+          "type": "object",
+          "description_zh": "起运地（出口国/仓）",
+          "properties": {
+            "place": { "type": "string" },
+            "country": { "type": "string" },
+            "geo_hash": { "type": "string" }
+          }
+        },
+        {
+          "path": "scene.destination",
+          "type": "object",
+          "description_zh": "目的地（进口国/收货地）",
+          "properties": {
+            "place": { "type": "string" },
+            "country": { "type": "string" },
+            "geo_hash": { "type": "string" }
+          }
+        },
+        {
+          "path": "scene.parcel_ref",
+          "type": "string",
+          "description_zh": "包裹/订单引用（可哈希）"
+        }
+      ],
+      "optional_scene_fields": [
+        { "path": "scene.incoterm", "type": "string" },
+        { "path": "scene.hs_code", "type": "string" },
+        { "path": "scene.carrier", "type": "string" },
+        { "path": "scene.customs_broker", "type": "string" }
+      ],
+      "default_required_proof_fields": [
+        "customs_declaration",
+        "customs_clearance",
+        "delivery_proof",
+        "delivered_at"
+      ],
+      "example_fields": {
+        "time": {
+          "start_at": "2026-08-02T02:00:00Z",
+          "deadline_at": "2026-08-20T08:00:00Z"
+        },
+        "location": { "place": "route", "region": "CN-SH -> US-LAX" },
+        "task_requirements": "Ship 40 units from Shenzhen warehouse to Los Angeles, DDP; customs declaration and clearance required.",
+        "acceptance_criteria": [
+          "出口报关单与锁定货品一致",
+          "进口清关放行回执可核",
+          "目的地送达拍照（系统防伪标签）"
+        ],
+        "amount": "120.00",
+        "currency": "USDC",
+        "required_proof_fields": [
+          "customs_declaration",
+          "customs_clearance",
+          "delivery_proof",
+          "delivered_at"
+        ],
+        "scene": {
+          "origin": { "place": "Shenzhen Warehouse", "country": "CN", "geo_hash": "ws10q" },
+          "destination": { "place": "Los Angeles DC", "country": "US", "geo_hash": "9q5ct" },
+          "parcel_ref": "XBE-20260802-001",
+          "incoterm": "DDP",
+          "hs_code": "8517.62"
+        }
+      },
+      "group": "market_vertical"
     }
   ],
   "extensions": [

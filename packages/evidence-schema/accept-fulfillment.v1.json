@@ -272,6 +272,17 @@
         "cure_period_seconds": 0
       },
       "reality_note_zh": "医疗高风险：短时确认窗；确认后爽约必须高责任金"
+    },
+    "cross_border_ecommerce": {
+      "group": "market_vertical",
+      "seller_accept_ttl_seconds": 3600,
+      "on_timeout": "cancel_and_rediscover",
+      "post_confirm_breach": {
+        "base_bond_bps": 800,
+        "compensation_bps_of_amount": 1500,
+        "cure_period_seconds": 14400
+      },
+      "reality_note_zh": "跨境时效长，接单窗口放宽；确认后报关延误/丢件按验收标准追责"
     }
   },
   "api": [
