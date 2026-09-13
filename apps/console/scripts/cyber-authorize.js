@@ -80,6 +80,12 @@
     var t = profile && CLASS_TO_TYPE[profile["class"]];
     return TYPES[t] ? t : "work";
   }
+  /** 用户自己起的名字不能被「选类型」覆盖：只有名字还是类型标签（或空）时才改名。 */
+  function isTypeLabel(name) {
+    var n = String(name || "").trim();
+    if (!n) return true;
+    return Object.keys(TYPES).some(function (k) { return TYPES[k].label === n; });
+  }
   function selectedProfile() {
     var sel = byId("agw-identity");
     var pid = sel ? sel.value : "";
@@ -241,7 +247,11 @@
     if (!note) return;
     if (!identity()) { note.textContent = "先在顶部连接钱包。"; return; }
     var p = selectedProfile();
-    if (!p) { note.textContent = "先在第 1 步选一个子身份。"; return; }
+    if (!p) {
+      note.textContent =
+        "总锁仓 " + money(state.ceiling) + " USDC · 先在第 1 步选一个子身份，才能给它授权额度。";
+      return;
+    }
     var a = allocOf(p.profile_id);
     var mine = allocatedOf(a);
     var used = inUseOf(a);
@@ -348,12 +358,14 @@
     }
   }
 
-  function renderSdk(res, profile, fields, perms, amount) {
+  function renderSdk(res, profile, fields, perms, amount, typeKey, displayName) {
     var host = byId("agw-result");
     if (!host) return;
     var key = (res && res.runtime_key) || "";
     var did = displayIdOf(profile.profile_id, profilePos(profile.profile_id));
     var human = byId("agw-human") ? byId("agw-human").value : "above_single";
+    var label = TYPES[typeKey] ? TYPES[typeKey].label : TYPES[typeOf(profile)].label;
+    var name = displayName || profile.display_name || label;
     var apiBase = String(global.KARMA_API_BASE || "") || RUNTIME_URL;
     var env = [
       "KARMA_API_BASE=" + apiBase,
@@ -366,7 +378,7 @@
     host.innerHTML =
       '<div class="ag-result-head"><b>Karma 授权 SDK · ' + esc(did) + "</b>" +
       '<span class="tag ok">已生成</span>' +
-      '<span class="tag">' + esc(TYPES[typeOf(profile)].label) + "</span></div>" +
+      '<span class="tag">' + esc(name) + " · " + esc(label) + "</span></div>" +
       '<p class="ag-hint">把这段原样写进 agent 的环境变量。它读到身份和边界后就能开始跑；每一步收付都要过 Karma 的验证才会真正划转。</p>' +
       '<div class="ag-snippet"><div class="ag-secret-label">① 运行时凭据（明文只显示这一次，请立即保存）</div>' +
       "<pre>" + esc(env) + "</pre>" +
@@ -377,7 +389,8 @@
       '<div class="ag-snippet"><div class="ag-secret-label">② agent 读到的边界</div><pre>' +
       esc(
         "身份        " + did + "（" + profile.profile_id + "）\n" +
-        "类型        " + TYPES[typeOf(profile)].label + "\n" +
+        "名字        " + name + "\n" +
+        "类型        " + label + "\n" +
         "授权额度    " + money(amount) + " USDC\n" +
         "单笔最高    " + money(fields.single_limit) + " USDC\n" +
         "每日上限    " + money(fields.daily_limit) + " USDC\n" +
@@ -446,12 +459,16 @@
         setStatus(status, "① 写入子身份类型…");
         var t = TYPES[type] || TYPES.life;
         var h = Object.assign({}, api().headers(), { "Content-Type": "application/json" });
+        var profileBody = { "class": t.klass };
+        if (isTypeLabel(p.display_name)) profileBody.display_name = t.label;
         await api().karmaFetch("/v1/identity/role-profiles/" + encodeURIComponent(p.profile_id), {
           method: "PUT",
           headers: h,
-          body: JSON.stringify({ "class": t.klass, display_name: t.label }),
+          body: JSON.stringify(profileBody),
         });
       }
+
+      var effectiveName = isTypeLabel(p.display_name) ? TYPES[type].label : p.display_name;
 
       setStatus(status, "② 保存权限与边界…");
       await api().putAutomationPolicy(id, {
@@ -482,7 +499,7 @@
         single_limit: single,
         daily_limit: daily,
         expire_time: pyUtcIso(Date.now() + 7 * 86400e3),
-        agent_name: p.display_name || TYPES[type].label,
+        agent_name: effectiveName,
         agent_binding: "",
       };
       var sig = await provider.request({ method: "personal_sign", params: [buildCreateKeyMsg(fields), wallet] });
@@ -497,7 +514,7 @@
         agent_name: fields.agent_name,
         profile_id: p.profile_id,
       });
-      renderSdk(res, p, fields, perms, amount);
+      renderSdk(res, p, fields, perms, amount, type, effectiveName);
       setStatus(status, "✅ 已生成，交付包在下面");
       await load();
       refreshOthers();
