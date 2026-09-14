@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.middleware.auth import create_access_token
@@ -16,6 +16,7 @@ from services.telegram import (
     get_session,
     validate_init_data,
 )
+from services.wallet_funding import enforce_registration_funding_gate
 
 router = APIRouter()
 _log = logging.getLogger("karma.api")
@@ -138,11 +139,17 @@ def siwe_challenge(body: SiweChallengeRequest):
 
 
 @router.post("/auth/siwe/verify")
-async def siwe_verify(body: SiweVerifyRequest):
+async def siwe_verify(body: SiweVerifyRequest, request: Request):
     try:
         ch = siwe.verify_challenge(nonce=body.nonce, signature=body.signature, address=body.address)
     except siwe.SiweError as exc:
         raise HTTPException(401, str(exc)) from exc
+    # One wallet = one identity: the store already returns the existing identity
+    # for a known wallet (`_BY_WALLET` index). The funding gate therefore applies
+    # only to a wallet's *first* registration, so a returning user is never
+    # throttled by anyone else's unfunded signups.
+    if store.get_by_wallet(ch.address) is None:
+        await enforce_registration_funding_gate(request, ch.address)
     ident = store.get_or_create_by_wallet(ch.address)
     await _open_reputation_ledger_best_effort(ident.identity_id, ident.identity_class)
     # Console wallet login: issue a short-lived JWT bound to this identity so the
@@ -224,13 +231,22 @@ def update_policy(body: PolicyUpdateRequest, authorization: str | None = Header(
 
 
 @router.post("/identities/sub")
-def create_sub_identity(body: CreateSubIdentityRequest, authorization: str | None = Header(default=None)):
+async def create_sub_identity(
+    body: CreateSubIdentityRequest,
+    request: Request,
+    authorization: str | None = Header(default=None),
+):
     """主身份创建子身份，绑定独立钱包地址；消费由主身份承担。"""
     sess = _session_or_401(authorization)
     if not sess.identity_id:
         raise HTTPException(403, "session has no bound identity")
     if body.parent_identity_id != sess.identity_id:
         raise HTTPException(403, "cannot create sub-identity for another identity")
+    # A sub-identity binds a wallet of its own, so the same rules apply: a wallet
+    # can belong to exactly one identity (enforced in the store) and an unfunded
+    # wallet is throttled before it can mint anything.
+    if store.get_by_wallet(body.wallet) is None:
+        await enforce_registration_funding_gate(request, body.wallet)
     try:
         ident = store.create_sub_identity(body.parent_identity_id, body.wallet)
     except KeyError as exc:
