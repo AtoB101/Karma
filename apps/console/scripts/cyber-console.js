@@ -606,6 +606,12 @@
     // v2 是非托管的：钱一直在用户自己钱包里，capacity 台账会是 0，
     // 真正压在这张卡上的是钱包给出的有效 commit。两者取大，才不会被台账骗到。
     const committed = escrow ? Number(escrow.committed_usdc || 0) : 0;
+    // 链上口径：同一个钱包的多张账单共用同一条 ERC-20 授权，「已承诺」里到底有多少
+    // 真划得动要问链（backing）。这一次读不到链就先不下结论，别把「不知道」说成 0。
+    const backing = (escrow && escrow.backing) || null;
+    const chainChecked = !!(backing && backing.chain_checked);
+    const secured = chainChecked ? Number(backing.secured_usdc || 0) : 0;
+    const unsecured = chainChecked ? Number(backing.unsecured_usdc || 0) : 0;
     const locked = Math.max(ledger, committed);
     let chainInfo = null;
     try {
@@ -624,7 +630,10 @@
     } else if (committed > 0 && committed >= ledger) {
       set(
         "#launch-lock-state",
-        "已授权额度 " + fmtNum(committed) + " USDC（非托管：USDC 一直在你钱包里，Karma 只拿到授权）"
+        unsecured > 1e-9
+          ? "已授权额度 " + fmtNum(committed) + " USDC · 其中 " + fmtNum(secured) +
+            " 可划动，另 " + fmtNum(unsecured) + " 还没授权到位（先用最早的账单，再接单会被拒）"
+          : "已授权额度 " + fmtNum(committed) + " USDC（非托管：USDC 一直在你钱包里，Karma 只拿到授权）"
       );
     } else if (chainOn) {
       const onchain = Number(chainInfo.onchain_locked_usdc || 0);
@@ -797,7 +806,15 @@
     const reserved = live.reduce(function (a, c) { return a + Number(c.reserved_usdc || 0); }, 0);
     const head =
       '<h4 style="margin:0 0 8px">支付授权（资金留在你的钱包）</h4>' +
-      '<p class="ag-hint">已承诺 ' + fmtNum((info && info.committed_usdc) || 0) + " USDC · 已支付 " + fmtNum(spent) +
+      '<p class="ag-hint">已承诺 ' + fmtNum((info && info.committed_usdc) || 0) + " USDC" +
+      (info && info.backing && info.backing.chain_checked
+        ? "（链上可划动 " + fmtNum(info.backing.secured_usdc || 0) +
+          (Number(info.backing.unsecured_usdc || 0) > 1e-9
+            ? " · 未担保 " + fmtNum(info.backing.unsecured_usdc) + "，提高授权额度后可划动"
+            : "") +
+          "）"
+        : "") +
+      " · 已支付 " + fmtNum(spent) +
       " USDC · 已被订单锁定 " + fmtNum(reserved) + " USDC · 争议窗口 " +
       Number(escrow.dispute_window_seconds || 0) + " 秒" +
       (escrow.can_server_settle
@@ -816,13 +833,20 @@
           ? '<a href="' + escrow.explorer_url + "/tx/" + c.commit_tx_hash + '" target="_blank" rel="noopener">交易</a>'
           : "";
         const closed = c.state === "revoked" || c.state === "closed";
+        // 同一个钱包的账单共用一条授权额：分不到的那几张仍然 open、链上也 backed，
+        // 但结算时划不动（见 /v1/escrow 的 backing），这里必须说清楚。
+        const chainChecked = !!(info && info.backing && info.backing.chain_checked);
+        const remaining = Number(c.amount_usdc || 0) - Number(c.spent_usdc || 0);
+        const shortOfBacking = chainChecked && remaining - Number(c.secured_usdc || 0) > 1e-9;
         const stateText =
           c.state === "revoked"
             ? "已撤销"
             : c.state === "closed"
               ? "已关闭（链上已撤销）"
               : c.backed
-                ? "有效"
+                ? shortOfBacking
+                  ? "未担保（授权额度先给了更早的账单）"
+                  : "有效"
                 : "额度不足（钱包余额或授权不足）";
         const btn = closed
           ? ""

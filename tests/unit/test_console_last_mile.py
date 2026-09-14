@@ -244,3 +244,17 @@ def test_locking_and_allocating_are_one_click_after_siwe():
 
     css = (CONSOLE / "styles/cyber-console.css").read_text(encoding="utf-8")
     assert ".lock-quick .chip" in css and ".sub-switch-grant" in css
+
+
+def test_the_lock_card_shows_what_the_chain_can_actually_move():
+    """「已授权额度 170」不等于「能划走 170」：同一个钱包的账单共用一条 ERC-20 授权。
+
+    ``/v1/escrow/{id}`` 现在带 ``backing``（secured / unsecured / chain_checked），
+    操作台必须把「真划得动」和「还没担保」分开说 —— 否则用户下单被 409 拒掉时，
+    页面上还写着「已授权额度 170」，没人知道问题出在哪。
+    """
+    console = CONSOLE_JS.read_text(encoding="utf-8")
+    assert "escrow.backing" in console, "锁仓卡要读链上担保口径"
+    assert "backing.chain_checked" in console, "读不到链时不能把担保说成 0"
+    assert "可划动" in console and "未担保" in console
+    assert "额度不足（钱包余额或授权不足）" in console, "单张账单的旧提示要保留"
