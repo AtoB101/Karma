@@ -1066,24 +1066,33 @@
       }
     }
     let reCommitNote = "";
+    let reCommitError = "";
     if (reCommit >= 0.01) {
       setApiStatus("钱包里确认把多撤的 " + fmtNum(reCommit) + " USDC 重新锁仓（净减少正好是你输入的金额）…", false);
       try {
         await onchainCommit(id, reCommit, await loadEscrowInfo(id, true));
         reCommitNote = "，并把 " + fmtNum(reCommit) + " USDC 重新锁仓";
       } catch (e) {
-        setApiStatus("已经减少锁仓，但把多撤的 " + fmtNum(reCommit) + " USDC 重新锁仓没成功：" + humanTxError(e), true);
-        await refreshEscrowCommits(true).catch(function () {});
-        refreshCapacity().catch(function () {});
-        renderIdentityHome();
-        return;
+        reCommitError = humanTxError(e);
       }
     }
-    setApiStatus("已减少锁仓：撤销 " + billIds.length + " 笔账单" + reCommitNote, false);
+    /* 先刷新数字，最后再写状态栏：refreshCapacity 会把自己的「额度已刷新」
+       写进同一行，先写结论的话用户永远看不到「已减少锁仓」或者失败原因 ——
+       这正是「点了没反应 / 钱少了却不知道」的来源。 */
     await refreshEscrowCommits(true).catch(function () {});
     refreshChainBills(true).catch(function () {});
-    refreshCapacity().catch(function () {});
+    await refreshCapacity().catch(function () {});
     renderIdentityHome();
+    if (reCommitError) {
+      setApiStatus(
+        "已经减少锁仓（撤销 " + billIds.length + " 笔账单），但把多撤的 " + fmtNum(reCommit) +
+          " USDC 重新锁仓没成功：" + reCommitError + "。现在锁仓比你想要的少了 " + fmtNum(reCommit) +
+          " USDC，可以点「增加锁仓额度」补回来。",
+        true
+      );
+      return;
+    }
+    setApiStatus("已减少锁仓：撤销 " + billIds.length + " 笔账单" + reCommitNote, false);
   }
 
   async function reduceLockAction() {
