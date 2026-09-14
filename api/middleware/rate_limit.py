@@ -92,7 +92,10 @@ async def rate_limit(request: Request, limit_key: str = "default") -> None:
         r = await get_redis()
         pipe = r.pipeline()
         pipe.zremrangebyscore(redis_key, 0, window_start)
-        pipe.zadd(redis_key, {str(now): now})
+        # Unique member per request: two requests landing in the same clock tick
+        # must not overwrite each other (an undercount would loosen the limit
+        # exactly when the traffic is heaviest).
+        pipe.zadd(redis_key, {f"{now}:{secrets.token_hex(4)}": now})
         pipe.zcard(redis_key)
         pipe.expire(redis_key, window_seconds)
         results = await pipe.execute()
