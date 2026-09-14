@@ -40,7 +40,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
-from db.models.orm import AllowanceCommitModel, EscrowBindingModel
+from db.models.orm import AllowanceCommitModel, CapacityModel, EscrowBindingModel
 from services.chain.wallet_lock import (
     WalletLockError,
     _field,
@@ -766,6 +766,106 @@ async def sync_commits(db: AsyncSession, identity_id: str) -> list[AllowanceComm
         row.updated_at = datetime.utcnow()
     await db.flush()
     return rows
+
+
+async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[str, float]:
+    """把 v2 非托管承诺镜像进主身份 ``capacity`` 台账。
+
+    钱从没离开用户自己的钱包，链上只有一条 ERC-20 授权加一条 ``commit()`` 承诺。
+    操作台、Runtime Gateway、子身份额度分配读的都是 ``capacity`` 台账，所以这条
+    承诺必须被记账，否则用户「锁仓成功」之后，每一个花钱的入口（付款码 / 任务
+    合同 / agent request-voucher / 子身份额度）都会看到 0 可用额度而拒绝。
+
+    口径：一条有效承诺对台账的贡献 = ``amount_usdc - spent_usdc``（已经被 Karma
+    划走的部分不再是可用责任额度）。每行记住自己当前贡献了多少
+    （``capacity_credited_usdc``），所以这个函数是幂等的 —— 只有差额会被记一次，
+    撤销、划转之后重跑也只会把台账修回链上的真实状态。
+    """
+    rows = await list_commits(db, identity_id)
+    if not rows:
+        return {"credited_usdc": 0.0, "delta_usdc": 0.0}
+
+    live_by_bill: dict[str, float] = {}
+    live_total = 0.0
+    credited_total = 0.0
+    for row in rows:
+        if row.state == REVOKED:
+            live = 0.0
+        else:
+            live = max(0.0, float(row.amount_usdc or 0.0) - float(row.spent_usdc or 0.0))
+        live = round(live, 6)
+        live_by_bill[row.bill_id] = live
+        live_total += live
+        credited_total += float(row.capacity_credited_usdc or 0.0)
+
+    delta = round(live_total - credited_total, 6)
+    if abs(delta) < 1e-9:
+        return {"credited_usdc": round(live_total, 6), "delta_usdc": 0.0}
+
+    cap = await db.get(CapacityModel, identity_id)
+    if cap is None:
+        cap = CapacityModel(identity_id=identity_id, updated_at=datetime.utcnow())
+        db.add(cap)
+        await db.flush()
+
+    cap.available_credits = float(cap.available_credits or 0.0) + delta
+    if cap.available_credits < 0.0:
+        # 已经被订单占用的额度不能倒扣成负数：差额留在责任桶里。
+        cap.available_credits = 0.0
+    active = (
+        cap.available_credits
+        + float(cap.reserved_credits or 0.0)
+        + float(cap.in_progress_credits or 0.0)
+        + float(cap.confirmed_progress_credits or 0.0)
+        + float(cap.disputed_credits or 0.0)
+        + float(cap.pending_settlement_credits or 0.0)
+    )
+    cap.total_bill_credits = active
+    cap.total_locked_usdc = max(float(cap.total_locked_usdc or 0.0) + delta, active)
+    cap.updated_at = datetime.utcnow()
+
+    for row in rows:
+        row.capacity_credited_usdc = live_by_bill[row.bill_id]
+        row.updated_at = datetime.utcnow()
+
+    await db.flush()
+    logger.info(
+        "escrow_capacity_mirror_reconciled",
+        identity_id=identity_id,
+        delta_usdc=delta,
+        credited_usdc=round(live_total, 6),
+    )
+    return {"credited_usdc": round(live_total, 6), "delta_usdc": delta}
+
+
+async def reconcile_all_capacity_mirrors(
+    db: AsyncSession, *, limit: int = 100
+) -> list[dict[str, Any]]:
+    """Periodic self-heal for every identity that holds a live commitment.
+
+    Runs on the auto-settlement tick, so a commitment claimed before this code
+    existed, a manual DB fix-up, or a pull that landed while the API was down all
+    converge back to the chain's truth within one interval.
+    """
+    stmt = (
+        select(AllowanceCommitModel.identity_id)
+        .where(AllowanceCommitModel.state != REVOKED)
+        .group_by(AllowanceCommitModel.identity_id)
+        .limit(limit)
+    )
+    identity_ids = list((await db.execute(stmt)).scalars().all())
+    changed: list[dict[str, Any]] = []
+    for identity_id in identity_ids:
+        try:
+            result = await reconcile_capacity_mirror(db, identity_id)
+        except Exception as exc:  # noqa: BLE001 - bookkeeping must never stop the loop
+            logger.warning(
+                "escrow_capacity_mirror_failed", identity_id=identity_id, error=str(exc)
+            )
+            continue
+        if abs(float(result.get("delta_usdc") or 0.0)) > 1e-9:
+            changed.append({"identity_id": identity_id, **result})
+    return changed
 
 
 # ----------------------------------------------------- server-side settlement

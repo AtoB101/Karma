@@ -226,8 +226,14 @@ async def run_forever() -> None:
         try:
             async with AsyncSessionLocal() as db:
                 settled = await settle_due(db)
+                # 台账自愈：v2 承诺必须一直等于链上的可用责任额度，否则用户锁仓
+                # 之后会看到 0 可用额度（付款码 / 任务合同 / agent 请求凭证全被拒）。
+                mirrored = await escrow.reconcile_all_capacity_mirrors(db)
+                await db.commit()
             if settled:
                 logger.info("escrow_autosettle_tick", settled=len(settled))
+            if mirrored:
+                logger.info("escrow_capacity_mirror_tick", identities=len(mirrored))
         except asyncio.CancelledError:
             logger.info("escrow_autosettle_stopped")
             raise

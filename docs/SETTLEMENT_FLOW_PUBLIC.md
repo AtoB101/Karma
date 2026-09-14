@@ -28,6 +28,11 @@ Global invariant: `totalBillSupply[token] == totalLocked[token]`.
 Capacity / voucher ledgers under `services/` reserve bill credits before or alongside chain locks.  
 They must not invent a second escrow model — chain Bilateral is authoritative for on-chain funds.
 
+v2 allowance escrow (``KarmaAllowanceEscrow``) locks nothing: the wallet only grants an
+allowance, so the master ``capacity`` ledger is credited from the claimed ``commit()`` receipt
+(``services/chain/allowance_escrow.reconcile_capacity_mirror``) — one credit per live
+commitment, taken back on ``revoke()`` and reduced as Karma pulls the money.
+
 ## Not in this repo
 
 Legacy `NonCustodialAgentPayment` / `SettlementEngine` paths and createBill scripts were removed.
