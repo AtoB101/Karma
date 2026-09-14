@@ -1,0 +1,350 @@
+"""v2 allowance escrow —— 同一个钱包的多张账单共用一条 ERC-20 授权。
+
+合约的 ``isBacked`` 只回答「**单张**账单 ≤ 授权额」。所以「账单合计 170、钱包只授权
+50」在链上逐张看全部 backed，真到划款却只划得动 50 —— 剩下的账单会在结算那一刻变成
+收不到钱的孤儿单，而台账里的「锁仓额度」还显示着 170。
+
+这些用例钉住修复后的口径：把授权额按账单号（= 承诺时间）最早优先分下去，只有分到的
+部分才算「真划得动的钱」，也才是能记进 capacity 台账、能让 agent 花出去的额度；分不到
+的账单仍然 open，但额度和台账里都不再算它。
+"""
+from __future__ import annotations
+
+import pytest
+
+from config.settings import settings
+from db.models.orm import AllowanceCommitModel, CapacityModel
+from services.chain import allowance_escrow as escrow
+from services.chain.wallet_lock import WalletLockError
+
+IDENTITY = "identity-backing-test"
+WALLET = "0x7ed437e5786ab0d217d52937da4ff4790998d94c"
+OTHER_WALLET = "0x5acc51116f66b84802c8321f286d09014a78346f"
+TOKEN = "0x6af606f5b071bf649dc136fcd308ed0c9adf38ff"
+CONTRACT = "0x3fe45f40c19978e81296efaf63eb2ca0c79f0e66"
+OPERATOR = "0x1d147c9eefd9d1d4c4725700a05edc6ca13975cc"
+DECIMALS = 10 ** 6
+
+#: 生产台账里的形状：8 张账单合计 170，而钱包只给托管合约授权了 50。
+BILLS_170 = [
+    ("1", 25.0),
+    ("2", 20.0),
+    ("3", 30.0),
+    ("4", 15.0),
+    ("5", 20.0),
+    ("6", 25.0),
+    ("7", 10.0),
+    ("8", 25.0),
+]
+
+
+async def _seed_commits(
+    db,
+    bills,
+    *,
+    identity_id: str = IDENTITY,
+    wallet: str = WALLET,
+    state: str = escrow.IDLE,
+):
+    """记一条 v2 承诺：钱从未离开钱包，只是一条链上责任 + 一条 ERC-20 授权。"""
+    for bill_id, amount in bills:
+        db.add(
+            AllowanceCommitModel(
+                bill_id=bill_id,
+                identity_id=identity_id,
+                wallet_address=wallet,
+                chain_id=11155111,
+                contract_address=CONTRACT,
+                token_address=TOKEN,
+                operator=OPERATOR,
+                amount_wei=str(int(amount * DECIMALS)),
+                amount_usdc=float(amount),
+                backed=True,
+                commit_tx_hash="0x" + bill_id.encode("utf-8").hex().ljust(64, "0")[:64],
+                state=state,
+            )
+        )
+    await db.flush()
+
+
+def _allowance_chain(
+    monkeypatch,
+    allowance_usdc: float,
+    *,
+    readable: bool = True,
+    owner_allowances: dict | None = None,
+) -> None:
+    """装一个「配了托管合约、授权额读得到」的链。
+
+    ``readable=False`` 模拟 Sepolia RPC 抖动：链在，但这一次读不出来。
+    """
+    monkeypatch.setattr(settings, "chain_allowance_escrow_enabled", True)
+    monkeypatch.setattr(settings, "allowance_escrow_address", CONTRACT)
+    monkeypatch.setattr(settings, "erc20_token_address", TOKEN)
+    monkeypatch.setattr(settings, "testnet_rpc_url", "https://example.invalid")
+    monkeypatch.setattr(escrow, "_web3", lambda: object())
+
+    def _read(w3, token, owner, spender):
+        if not readable:
+            raise RuntimeError("sepolia rpc is down")
+        amount = (owner_allowances or {}).get(str(owner).lower(), allowance_usdc)
+        return int(round(float(amount) * DECIMALS))
+
+    monkeypatch.setattr(escrow, "_erc20_allowance_wei", _read)
+
+
+# ------------------------------------------------------------ 纯函数：分配口径
+
+
+def test_allocate_allowance_serves_the_oldest_bills_first():
+    secured = escrow.allocate_allowance(BILLS_170, 50.0)
+
+    assert secured["1"] == pytest.approx(25.0)
+    assert secured["2"] == pytest.approx(20.0)
+    # 第 3 张只剩零头，第 4 张之后一张都分不到。
+    assert secured["3"] == pytest.approx(5.0)
+    for bill_id in ("4", "5", "6", "7", "8"):
+        assert secured[bill_id] == pytest.approx(0.0)
+    assert sum(secured.values()) == pytest.approx(50.0)
+
+
+def test_allocate_allowance_never_hands_out_more_than_a_bill_can_spend():
+    """授权额比账单合计还大时，多出来的部分不能凭空变成额度。"""
+    secured = escrow.allocate_allowance(BILLS_170, 1000.0)
+    assert sum(secured.values()) == pytest.approx(170.0)
+    assert secured["1"] == pytest.approx(25.0)
+    assert secured["8"] == pytest.approx(25.0)
+
+
+def test_allocate_allowance_with_no_allowance_secures_nothing():
+    secured = escrow.allocate_allowance(BILLS_170, 0.0)
+    assert sum(secured.values()) == pytest.approx(0.0)
+    assert set(secured) == {bill_id for bill_id, _ in BILLS_170}
+
+
+def test_allocate_allowance_keeps_fractions_intact():
+    secured = escrow.allocate_allowance([("1", 0.2), ("2", 0.2)], 0.3)
+    assert secured["1"] == pytest.approx(0.2)
+    assert secured["2"] == pytest.approx(0.1)
+    assert sum(secured.values()) == pytest.approx(0.3)
+
+
+def test_assert_room_refuses_what_the_chain_cannot_fund():
+    with pytest.raises(WalletLockError) as exc:
+        escrow.assert_room("buyer", 30.0, 12.0)
+    message = str(exc.value)
+    assert "30" in message and "12" in message
+    assert "allowance" in message
+
+
+def test_assert_room_accepts_an_exact_fit():
+    escrow.assert_room("seller", 9.0, 9.0)
+    escrow.assert_room("buyer", 9.0, 12.5)
+
+
+# ------------------------------------------------------------------ 链上担保口径
+
+
+@pytest.mark.asyncio
+async def test_backing_report_is_empty_for_an_identity_without_commits(db_session):
+    report = await escrow.backing_report(db_session, IDENTITY)
+
+    assert report["committed_usdc"] == pytest.approx(0.0)
+    assert report["secured_usdc"] == pytest.approx(0.0)
+    assert report["unsecured_usdc"] == pytest.approx(0.0)
+    assert report["bills"] == {}
+
+
+@pytest.mark.asyncio
+async def test_backing_report_caps_the_committed_total_at_the_wallet_allowance(
+    db_session, monkeypatch
+):
+    """核心：账上 170、授权 50 —— 只有 50 是真划得动的。"""
+    await _seed_commits(db_session, BILLS_170)
+    _allowance_chain(monkeypatch, 50.0)
+
+    report = await escrow.backing_report(db_session, IDENTITY)
+
+    assert report["enforced"] is True
+    assert report["chain_checked"] is True
+    assert report["committed_usdc"] == pytest.approx(170.0)
+    assert report["allowance_usdc"] == pytest.approx(50.0)
+    assert report["secured_usdc"] == pytest.approx(50.0)
+    assert report["unsecured_usdc"] == pytest.approx(120.0)
+    assert report["bills"]["1"]["secured_usdc"] == pytest.approx(25.0)
+    assert report["bills"]["3"]["secured_usdc"] == pytest.approx(5.0)
+    assert report["bills"]["8"]["secured_usdc"] == pytest.approx(0.0)
+    assert sum(b["secured_usdc"] for b in report["bills"].values()) == pytest.approx(50.0)
+
+
+@pytest.mark.asyncio
+async def test_backing_report_orders_bills_numerically_not_lexically(db_session, monkeypatch):
+    """账单 10 比 9 晚，所以先到先得时 9 先拿钱（按字符串排会把 10 排到前面）。"""
+    await _seed_commits(db_session, [("10", 5.0), ("9", 5.0)])
+    _allowance_chain(monkeypatch, 5.0)
+
+    report = await escrow.backing_report(db_session, IDENTITY)
+
+    assert report["bills"]["9"]["secured_usdc"] == pytest.approx(5.0)
+    assert report["bills"]["10"]["secured_usdc"] == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_backing_report_reads_each_wallet_separately(db_session, monkeypatch):
+    """两个钱包各有自己的授权额，不能拿一个钱包的授权去担保另一个钱包的账单。"""
+    await _seed_commits(db_session, [("1", 25.0)], wallet=WALLET)
+    await _seed_commits(db_session, [("2", 30.0)], wallet=OTHER_WALLET)
+    _allowance_chain(monkeypatch, 0.0, owner_allowances={WALLET: 20.0, OTHER_WALLET: 30.0})
+
+    report = await escrow.backing_report(db_session, IDENTITY)
+
+    assert report["allowance_usdc"] == pytest.approx(50.0)
+    assert report["committed_usdc"] == pytest.approx(55.0)
+    assert report["secured_usdc"] == pytest.approx(50.0)
+    assert report["unsecured_usdc"] == pytest.approx(5.0)
+    assert report["bills"]["1"]["secured_usdc"] == pytest.approx(20.0)
+    assert report["bills"]["2"]["secured_usdc"] == pytest.approx(30.0)
+
+
+@pytest.mark.asyncio
+async def test_backing_report_refuses_to_trust_a_chain_it_could_not_read(
+    db_session, monkeypatch
+):
+    """读不到链就不能声称担保：宁可说「不知道」，也不能按台账数字放行。"""
+    await _seed_commits(db_session, [("1", 40.0)])
+    _allowance_chain(monkeypatch, 0.0, readable=False)
+
+    report = await escrow.backing_report(db_session, IDENTITY)
+
+    assert report["enforced"] is True
+    assert report["chain_checked"] is False
+    assert report["secured_usdc"] == pytest.approx(0.0)
+    assert report["unsecured_usdc"] == pytest.approx(40.0)
+    # 读不到链就一分钱都不认：这张账单的份额也是 0。
+    assert report["bills"]["1"]["secured_usdc"] == pytest.approx(0.0)
+    assert await escrow.secured_usdc_for_bill(db_session, IDENTITY, "1") == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_backing_report_falls_back_to_the_ledger_when_escrow_is_not_configured(
+    db_session, monkeypatch
+):
+    """这个部署没配托管合约：链上根本没有授权额这回事，回落到台账口径。"""
+    await _seed_commits(db_session, [("1", 40.0)])
+    monkeypatch.setattr(settings, "chain_allowance_escrow_enabled", False)
+    monkeypatch.setattr(settings, "allowance_escrow_address", "")
+    monkeypatch.setattr(settings, "erc20_token_address", "")
+    monkeypatch.setattr(settings, "testnet_rpc_url", "")
+
+    report = await escrow.backing_report(db_session, IDENTITY)
+
+    assert report["enforced"] is False
+    assert report["chain_checked"] is False
+    assert report["secured_usdc"] == pytest.approx(40.0)
+    assert report["unsecured_usdc"] == pytest.approx(0.0)
+    assert await escrow.secured_usdc_for_bill(db_session, IDENTITY, "1") == pytest.approx(40.0)
+
+
+@pytest.mark.asyncio
+async def test_secured_usdc_for_bill_only_pays_the_oldest_bills(db_session, monkeypatch):
+    await _seed_commits(db_session, BILLS_170)
+    _allowance_chain(monkeypatch, 50.0)
+
+    assert await escrow.secured_usdc_for_bill(db_session, IDENTITY, "1") == pytest.approx(25.0)
+    assert await escrow.secured_usdc_for_bill(db_session, IDENTITY, "3") == pytest.approx(5.0)
+    assert await escrow.secured_usdc_for_bill(db_session, IDENTITY, "8") == pytest.approx(0.0)
+    assert await escrow.secured_usdc_for_bill(db_session, IDENTITY, "999") == pytest.approx(0.0)
+
+
+# --------------------------------------------------------- capacity 台账镜像
+
+
+@pytest.mark.asyncio
+async def test_capacity_mirror_credits_only_the_backed_part(db_session, monkeypatch):
+    """台账不能再虚增：170 的账单只授权了 50，能花的就只有 50。"""
+    await _seed_commits(db_session, BILLS_170)
+    _allowance_chain(monkeypatch, 50.0)
+
+    result = await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+
+    assert result["credited_usdc"] == pytest.approx(50.0)
+    assert result["delta_usdc"] == pytest.approx(50.0)
+    assert result["unsecured_usdc"] == pytest.approx(120.0)
+
+    cap = await db_session.get(CapacityModel, IDENTITY)
+    assert cap.available_credits == pytest.approx(50.0)
+    assert cap.total_locked_usdc == pytest.approx(50.0)
+    assert cap.total_bill_credits == pytest.approx(50.0)
+
+    # 每行记住自己贡献了多少，所以再跑一次不会重复记账
+    again = await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+    assert again["delta_usdc"] == pytest.approx(0.0)
+    assert again["credited_usdc"] == pytest.approx(50.0)
+
+
+@pytest.mark.asyncio
+async def test_capacity_mirror_waits_out_an_unreadable_chain(db_session, monkeypatch):
+    """RPC 抖动时台账保持原样：读不到链不能放行，也不能把已锁的额度清零。"""
+    await _seed_commits(db_session, [("1", 40.0)])
+    _allowance_chain(monkeypatch, 40.0)
+    await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+
+    _allowance_chain(monkeypatch, 0.0, readable=False)
+    result = await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+
+    assert result["delta_usdc"] == pytest.approx(0.0)
+    cap = await db_session.get(CapacityModel, IDENTITY)
+    assert cap.available_credits == pytest.approx(40.0)
+    assert cap.total_locked_usdc == pytest.approx(40.0)
+
+    # 链读回来之后，对账自己纠偏
+    _allowance_chain(monkeypatch, 10.0)
+    healed = await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+    assert healed["delta_usdc"] == pytest.approx(-30.0)
+    cap = await db_session.get(CapacityModel, IDENTITY)
+    assert cap.available_credits == pytest.approx(10.0)
+
+
+@pytest.mark.asyncio
+async def test_revoked_bills_stop_eating_the_allowance(db_session, monkeypatch):
+    """撤销掉的账单不再占额度，剩下的授权额要留给还活着的账单。"""
+    await _seed_commits(db_session, [("1", 25.0)])
+    await _seed_commits(db_session, [("2", 30.0)], state=escrow.REVOKED)
+    _allowance_chain(monkeypatch, 25.0)
+
+    report = await escrow.backing_report(db_session, IDENTITY)
+
+    assert report["committed_usdc"] == pytest.approx(25.0)
+    assert report["secured_usdc"] == pytest.approx(25.0)
+    assert report["unsecured_usdc"] == pytest.approx(0.0)
+    assert "2" not in report["bills"]
+
+# ------------------------------------------------------------------ 操作台口径
+
+
+def test_fully_secured_looks_at_the_remaining_responsibility():
+    """展示用的 fully_secured 只对还活着的账单有意义，比的是剩下要付的责任额。"""
+    from api.routes import escrow as escrow_route
+
+    row = AllowanceCommitModel(
+        bill_id="1",
+        identity_id=IDENTITY,
+        wallet_address=WALLET,
+        amount_usdc=80.0,
+        spent_usdc=30.0,
+        commit_tx_hash="0x" + "aa" * 32,
+        state=escrow.IDLE,
+    )
+
+    # 划走 30 之后只剩 50 要付，授权额分到 50 就算全担保
+    view = escrow_route._commit_view(row, {"secured_usdc": 50.0})
+    assert view["secured_usdc"] == pytest.approx(50.0)
+    assert view["fully_secured"] is True
+
+    # 只分到 20：这 50 里有 30 是划不动的
+    partial = escrow_route._commit_view(row, {"secured_usdc": 20.0})
+    assert partial["fully_secured"] is False
+
+    # 已撤销的账单不再承担责任额，不该一直被标成「缺担保」
+    row.state = escrow.REVOKED
+    assert escrow_route._commit_view(row, None)["fully_secured"] is True

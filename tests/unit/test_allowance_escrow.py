@@ -563,6 +563,12 @@ async def _commit_flow(
             owner=receipt_owner, tx_hash=tx, amount_wei=amount_wei, bill_id=bill_id
         ),
     )
+    # 这些用例关心的是台账跟随链上状态（关闭 / 已划走 / 已撤销），
+    # 不是授权额分配，所以让钱包的授权额足够大：每张账单都能全额担保。
+    # 授权额不够时的分配口径见 tests/unit/test_allowance_backing.py。
+    monkeypatch.setattr(
+        escrow, "_erc20_allowance_wei", lambda w3, token, owner, spender: amount_wei
+    )
     return await client.post(
         f"/v1/escrow/{identity_id}/claim-commit", json={"tx_hash": tx_hash}
     )
