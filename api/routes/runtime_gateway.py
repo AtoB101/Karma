@@ -45,7 +45,11 @@ from services.profile_capacity import (
     master_ceiling_usdc,
     serialize_profile_capacity,
 )
-from services.receipt_guard import validate_execution_receipt_static, verify_execution_receipt_signature
+from services.receipt_guard import (
+    execution_receipt_starts_before_prior_ended,
+    validate_execution_receipt_static,
+    verify_execution_receipt_signature,
+)
 from services.receipt_templates import validate_extension_vs_task_type
 from services.task_contract_guard import ensure_task_contract_exists
 from services.runtime_key_service import (
@@ -664,7 +668,13 @@ async def runtime_submit_receipt(
                 status_code=409,
                 detail=f"receipt step_index must be sequential: expected {latest.step_index + 1}",
             )
-        if receipt.started_at < latest.ended_at:
+        # The stored ended_at comes back from the database timezone-naive while the
+        # incoming receipt is UTC-aware; compare through the shared normalizer. A raw
+        # less-than raises TypeError ("can't compare offset-naive and offset-aware
+        # datetimes") and every receipt after the first 500s.
+        if execution_receipt_starts_before_prior_ended(
+            started_at=receipt.started_at, prior_ended_at=latest.ended_at
+        ):
             raise HTTPException(status_code=409, detail="receipt timestamps out of order for task")
     try:
         await store.save(signed_receipt)

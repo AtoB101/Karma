@@ -237,5 +237,48 @@ async def test_runtime_key_submits_an_unsigned_receipt(client: AsyncClient, monk
     assert body["agent_id"] == seller
 
 
+@pytest.mark.asyncio
+async def test_runtime_key_submits_sequential_receipts(client: AsyncClient, monkeypatch):
+    """A second step receipt must compare against the stored timestamp without crashing.
+
+    The stored ``ended_at`` comes back from the database timezone-naive while the
+    incoming receipt is UTC-aware, so a raw ``<`` raised
+    ``TypeError: can't compare offset-naive and offset-aware datetimes`` -> HTTP 500
+    on every receipt after the first.
+    """
+    task_id = "task-runtime-delegated-sequential"
+    buyer = "buyer-runtime-sequential"
+    seller = "seller-runtime-sequential"
+
+    await _seed_in_progress_settlement(client, task_id=task_id, buyer=buyer, seller=seller)
+    runtime_key = await _mint_runtime(client, seller=seller, perms=["submit_receipt"])
+
+    monkeypatch.setattr(settings, "auth_enforce_protected_routes", True)
+    monkeypatch.setattr(settings, "auth_allow_dev_key_fallback", False)
+    monkeypatch.setattr(settings, "receipt_require_signature", True)
+
+    base = datetime.now(timezone.utc)
+    for step in (1, 2):
+        started = base + timedelta(seconds=step)
+        resp = await client.post(
+            "/runtime/submit-receipt",
+            headers={"X-Karma-Runtime-Key": runtime_key},
+            json={
+                "task_id": task_id,
+                "agent_id": seller,
+                "step_index": step,
+                "tool_name": f"tool.step{step}",
+                "input_hash": "a" * 64,
+                "output_hash": "b" * 64,
+                "started_at": started.isoformat(),
+                "ended_at": (started + timedelta(milliseconds=50)).isoformat(),
+                "duration_ms": 50,
+                "status": "success",
+            },
+        )
+        assert resp.status_code == 201, f"step {step}: {resp.text}"
+        assert resp.json()["step_index"] == step
+
+
 def test_state_key_constant_is_stable():
     assert RUNTIME_ACTOR_STATE_KEY == "karma_runtime_actor_id"
