@@ -112,6 +112,16 @@ async def test_publish_requires_a_certified_entity(client: AsyncClient, db_sessi
     r = await client.post("/v1/skills/mine", json={}, headers=H[STRANGER])
     assert r.status_code in (404, 405)  # 只读接口，不该接受 POST
 
+    # 目录与主体公开信息是公开可读的（尽调方不该先注册才能看）
+    r = await client.get("/v1/skills")
+    assert r.status_code == 200
+    r = await client.get("/v1/skills/mine")
+    assert r.status_code == 403  # 「我的」必须登录
+
+    # 写接口一律要身份：没有身份头 -> 403
+    r = await client.post("/v1/skills/prepare", json=_skill_body("ticker-anon"))
+    assert r.status_code == 403
+
 
 @pytest.mark.asyncio
 async def test_full_billing_loop_over_http(client: AsyncClient, db_session: AsyncSession, monkeypatch):
