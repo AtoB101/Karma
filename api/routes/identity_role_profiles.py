@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.settings import settings
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
 from services.identity_actor import resolve_actor_identity_id
@@ -96,6 +97,25 @@ def _serialize(row: IdentityRoleProfile, *, full: bool = False) -> dict:
     return data
 
 
+
+#: 这两个角色是**治理角色**：verifier 能复核别人的主体认证与开发者实名，
+#: arbitrator 能裁争议。放任自建等于谁都能给自己开一个「审批权」——
+#: 所以默认谁都不许（GOVERNANCE_VERIFIER_IDS 是运维白名单，见 config/settings.py）。
+GOVERNANCE_CLASSES = ("verifier", "arbitrator")
+
+
+def _assert_governance_class_allowed(actor: str, class_: str) -> None:
+    if class_ not in GOVERNANCE_CLASSES:
+        return
+    allowed = settings.governance_verifier_id_set()
+    if actor.strip() in allowed:
+        return
+    raise HTTPException(
+        403,
+        f"{class_} 是治理角色，不能自助开通：请由运维把身份加入 GOVERNANCE_VERIFIER_IDS 后再创建",
+    )
+
+
 @router.post("", status_code=201)
 async def create_role_profile(
     body: RoleProfileCreate,
@@ -108,6 +128,7 @@ async def create_role_profile(
         raise HTTPException(403, "authentication required to create a role profile")
     if actor != body.owner_identity_id:
         raise HTTPException(403, "owner_identity_id must match the authenticated identity")
+    _assert_governance_class_allowed(actor, body.class_)
 
     visibility = body.visibility or _default_visibility(body.class_)
     row = IdentityRoleProfile(
@@ -204,6 +225,8 @@ async def update_role_profile(
 
     data = body.model_dump(exclude_unset=True)
     if "class_" in data:
+        if data["class_"] != row.class_:
+            _assert_governance_class_allowed(actor, data["class_"])
         row.class_ = data["class_"]
     if "kyc_status" in data:
         row.kyc_status = data["kyc_status"]

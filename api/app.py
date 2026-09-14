@@ -62,6 +62,7 @@ from api.routes import (
     identity_verification,
     entity_verification,
     skill_market,
+    developers,
     escrow,
     payment_ledger,
 )
@@ -89,6 +90,8 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/verifiers/",
     "/v1/confirmations/",
     "/v1/identity/",
+    "/v1/developers/",
+    "/v1/developers",
     "/v1/skills",
     "/v1/entities",
     "/v1/trust/",
@@ -489,6 +492,18 @@ app.include_router(
     skill_market.router,
     prefix="/v1/skills",
     tags=["SkillMarket"],
+)
+# 开发者实名：本人读自己的要看身份，公开档案（已通过复核的）不需要登录。
+# 写接口鉴权在各 handler 里，写入限流由 /v1/developers 前缀兜住。
+app.include_router(
+    developers.router,
+    prefix="/v1/developers",
+    tags=["Developers"],
+)
+app.include_router(
+    developers.public_router,
+    prefix="/v1/developers",
+    tags=["Developers"],
 )
 
 

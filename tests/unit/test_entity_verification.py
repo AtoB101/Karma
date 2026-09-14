@@ -150,6 +150,11 @@ async def test_full_entity_verification_flow(client: AsyncClient, monkeypatch):
     assert r.status_code == 403
 
     # 8) 建一个 verifier 档案后可以复核
+    # verifier 是治理角色，默认不许自助开通（要运维白名单）；这里把复核方放进白名单，
+    # 「不给白名单就 403」这件事在 tests/integration/test_developer_api.py 覆盖。
+    from config.settings import settings
+
+    monkeypatch.setattr(settings, "governance_verifier_ids", reviewer)
     r = await client.post(
         "/v1/identity/role-profiles",
         json={"owner_identity_id": reviewer, "class": "verifier", "display_name": "审" },

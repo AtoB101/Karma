@@ -47,6 +47,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import EntityVerificationModel, SkillModel
+from services import developer_registry
 from services.chain import wallet_lock
 
 logger = structlog.get_logger(__name__)
@@ -322,6 +323,14 @@ async def assert_can_publish(db: AsyncSession, identity_id: str) -> EntityVerifi
     return row
 
 
+async def assert_developer_ok(db: AsyncSession, identity_id: str) -> Any:
+    """开发者实名这一关也过不去就别上架。领域错误统一翻成 SkillError，路由层只认一种。"""
+    try:
+        return await developer_registry.assert_has_verified_developer(db, identity_id)
+    except developer_registry.DeveloperError as exc:
+        raise SkillError(exc.status, exc.message) from exc
+
+
 async def find_by_slug(db: AsyncSession, slug: str) -> SkillModel | None:
     return (
         await db.execute(select(SkillModel).where(SkillModel.slug == slug))
@@ -336,6 +345,7 @@ async def prepare_publish(db: AsyncSession, *, identity_id: str, payload: dict[s
     顺便也能把内容显示给用户看 —— 签的是什么，用户自己看得见。
     """
     entity = await assert_can_publish(db, identity_id)
+    await assert_developer_ok(db, identity_id)
     normalized = normalize_payload(payload, official_domain=str(entity.official_domain))
 
     existing = await find_by_slug(db, normalized["slug"])
@@ -377,6 +387,13 @@ async def publish(
 
     wallets = await wallet_lock.allowed_wallets(db, identity_id)
     publisher = verify_publisher_signature(message=message, signature=signature, wallets=wallets)
+    # 「是不是本人」：签名钱包必须就是签过开发者协议、且复核通过的那个钱包。
+    try:
+        developer = await developer_registry.assert_can_publish(
+            db, identity_id, signer_wallet=publisher
+        )
+    except developer_registry.DeveloperError as exc:
+        raise SkillError(exc.status, exc.message) from exc
 
     if existing is None:
         row = SkillModel(owner_identity_id=identity_id, slug=normalized["slug"])
@@ -398,6 +415,7 @@ async def publish(
     row.publisher_signature = signature.strip()
     row.publisher_wallet = publisher
     row.verified_domain = str(entity.official_domain)
+    row.developer_id = developer.developer_id if developer is not None else None
     row.status = "published"
     row.published_at = datetime.utcnow()
     row.paused_at = None
@@ -529,6 +547,7 @@ def skill_view(row: SkillModel, *, owner: bool = False) -> dict[str, Any]:
         "version": int(row.version or 1),
         "manifest_digest": row.manifest_digest,
         "verified_domain": row.verified_domain,
+        "developer_id": row.developer_id,
         "status": row.status,
         "published_at": _iso(row.published_at),
         "paused_at": _iso(row.paused_at),

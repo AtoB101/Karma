@@ -14,8 +14,9 @@ from eth_account.messages import encode_defunct
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models.orm import EntityVerificationModel, IdentityProfileModel
+from db.models.orm import EntityVerificationModel, IdentityProfileModel, SkillDeveloperModel
 from services import skill_registry
+from services.developer_registry import AGREEMENT_VERSION, agreement_digest
 
 ACCOUNT = Account.create()
 KEY = ACCOUNT.key.hex()
@@ -50,6 +51,25 @@ async def _bind_wallet(db: AsyncSession, identity_id: str) -> None:
             legal_identity_status="unbound",
             status="active",
             bound_wallet_address=WALLET,
+        )
+    )
+    await db.flush()
+
+
+async def _developer(db: AsyncSession, identity_id: str) -> None:
+    """上架还要过「开发者实名」：主体已认证 + 这个人签过协议 + 同一个钱包签名。"""
+    db.add(
+        SkillDeveloperModel(
+            identity_id=identity_id,
+            legal_name="示例数据科技有限公司",
+            real_name="张三",
+            role_title="数据平台负责人",
+            contact_email="zhangsan@example.com",
+            developer_role="api_owner",
+            agreement_version=AGREEMENT_VERSION,
+            agreement_digest=agreement_digest(),
+            signer_wallet=WALLET,
+            status="verified",
         )
     )
     await db.flush()
@@ -151,6 +171,7 @@ async def test_publish_requires_the_owners_own_signature(
     assert exc.value.status == 409 and "钱包" in exc.value.message
 
     await _bind_wallet(db_session, identity)
+    await _developer(db_session, identity)
 
     # 别人拿自己的私钥签 -> 403
     stranger = Account.create()
@@ -217,6 +238,7 @@ async def test_catalog_only_lists_published(db_session: AsyncSession):
     slug = f"ticker-{_tag()}"
     await _entity(db_session, identity, domain="data-example.com")
     await _bind_wallet(db_session, identity)
+    await _developer(db_session, identity)
     payload = _payload("data-example.com", slug)
     _, _, message = _prep(identity, payload, "data-example.com")
     row = await skill_registry.publish(
