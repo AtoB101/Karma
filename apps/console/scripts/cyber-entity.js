@@ -190,6 +190,10 @@
       contact_email: ((byId("ent-email") || {}).value || "").trim(),
       service_category: (byId("ent-category") || {}).value || "data_api",
       service_scope: ((byId("ent-scope") || {}).value || "").trim(),
+      // 商业注册流程要落下来的三项：对外 API 入口、文档地址、办公地点。
+      api_endpoint: ((byId("ent-api-endpoint") || {}).value || "").trim(),
+      api_docs_url: ((byId("ent-api-docs") || {}).value || "").trim(),
+      office_address: ((byId("ent-office-address") || {}).value || "").trim(),
     };
   }
 
@@ -339,6 +343,10 @@
             body.registration_no.length > 4
               ? "****" + body.registration_no.slice(-4)
               : body.registration_no,
+          office_address: body.office_address,
+          api_endpoint: body.api_endpoint,
+          api_docs_url: body.api_docs_url,
+          contact_email: body.contact_email,
         },
       });
 
@@ -347,9 +355,23 @@
         ENTITY_PATH + encodeURIComponent(id) + "/entity-verification/submit", payload
       );
       renderEntity(res);
+      await ensureEnterpriseIdentity(body.legal_name);
       say(byId("ent-status"), "已提交，等待复核（密文包 " + money(res.package_bytes / 1024) + " KB）", true);
     } catch (e) {
       say(byId("ent-status"), (e && e.message) || "提交失败", false);
+    }
+  }
+
+  /** 企业主体也要在侧栏「选择身份」里占一行：认证过了却没有身份可选是说不通的。 */
+  async function ensureEnterpriseIdentity(legalName) {
+    var c = window.KarmaCert;
+    if (!c || !c.ensureProfile) return;
+    try {
+      await c.ensureProfile("enterprise", legalName);
+      await c.refreshIdentities();
+    } catch (e) {
+      // 主体认证本身已经提交成功；这里只是让侧栏跟上，失败不该反过来吓用户。
+      say(byId("ent-status"), "主体已提交，但企业身份档案没建上：" + ((e && e.message) || e), false);
     }
   }
 

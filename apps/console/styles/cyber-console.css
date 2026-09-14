@@ -1613,3 +1613,185 @@ body.gated { overflow: hidden; }
   .of-step.is-live .of-dot::after,
   .of-step.is-warn .of-dot::after { display: none; }
 }
+
+
+/* ======================================================================
+   「选择身份」+ 三张认证页 + 字体分区（功能区 / 操作区）
+   最后加载，所以这里的规则一律压在老规则上面；改这里不会牵动上半部分的骨架。
+   ====================================================================== */
+
+:root {
+  /* 操作区（右边内容）：读字的字体，商业文档的感觉 —— 字号稳、行距松。 */
+  --font-content: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system,
+    "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+  /* 功能区（左边导航）：控制台的字体，偏窄、字距大，和右边一眼分得开。 */
+  --font-nav: "Bahnschrift", "Segoe UI Variable Display", "Segoe UI", system-ui,
+    "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  /* 标题：比正文更紧、更重，做层级而不是靠字号硬砸。 */
+  --font-display: "Segoe UI Variable Display", "Segoe UI Semibold", "Segoe UI",
+    system-ui, "PingFang SC", "Microsoft YaHei UI", sans-serif;
+}
+
+/* ---- 操作区：正文 ------------------------------------------------------ */
+body {
+  font-family: var(--font-content);
+  font-size: 13.5px;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+.main { font-family: var(--font-content); }
+.section-header h3 {
+  font-family: var(--font-display);
+  font-weight: 650;
+  font-size: 17px;
+  letter-spacing: 0.015em;
+}
+.section-header p { line-height: 1.75; letter-spacing: 0.012em; }
+.idv-hint { line-height: 1.8; letter-spacing: 0.012em; }
+.idv-step-head b { font-family: var(--font-display); letter-spacing: 0.02em; }
+.field label { letter-spacing: 0.03em; }
+.field input, .field select, .field textarea, .out, .api-status { font-family: var(--font-content); }
+/* 数字与编号仍旧用等宽：对齐才看得懂账。 */
+#idv-master-id, #idv-master-wallet, .ip-id, .id-card, code, pre.out, .idv-kv span b {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 功能区：导航与身份条 ---------------------------------------------- */
+.sidebar { font-family: var(--font-nav); }
+.brand h1 { font-family: var(--font-display); letter-spacing: 0.02em; }
+.identity-box .id-top span { letter-spacing: 0.08em; text-transform: uppercase; font-size: 11px; }
+.identity-box .id-main {
+  font-family: var(--font-nav);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.nav .nav-main {
+  font-family: var(--font-nav);
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: 0.06em;
+}
+.nav .nav-main .icon {
+  font-size: 15px;
+  letter-spacing: 0;
+  filter: saturate(1.2);
+}
+.nav .nav-sub {
+  font-family: var(--font-content);
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
+}
+.nav .nav-sub.active { font-weight: 600; letter-spacing: 0.04em; }
+
+/* ---- 「选择身份」面板 -------------------------------------------------- */
+.id-picker { margin-top: 12px; }
+.id-picker-btn {
+  all: unset;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  border-radius: 12px;
+  background: rgba(34, 211, 238, 0.06);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.id-picker-btn:hover { border-color: var(--border-glow); background: rgba(34, 211, 238, 0.12); }
+.id-picker-head { display: flex; align-items: center; justify-content: space-between; }
+.id-picker-title {
+  font-family: var(--font-nav);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.id-picker-caret { font-size: 10px; color: var(--text-dim); }
+.id-picker-now {
+  display: block;
+  margin-top: 3px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--neon-cyan);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.id-picker-panel {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: 12px;
+  background: rgba(6, 12, 22, 0.96);
+  box-shadow: var(--shadow-card);
+}
+.id-picker-item {
+  all: unset;
+  display: block;
+  padding: 9px 11px;
+  border: 1px solid rgba(34, 211, 238, 0.14);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.id-picker-item:hover { background: rgba(34, 211, 238, 0.1); border-color: var(--border-glow); }
+.id-picker-item.active {
+  background: rgba(139, 92, 246, 0.16);
+  border-color: rgba(139, 92, 246, 0.6);
+}
+.id-picker-item .ip-name {
+  display: block;
+  font-family: var(--font-content);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.id-picker-item .ip-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+}
+.id-picker-item .ip-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--neon-cyan);
+  letter-spacing: 0.02em;
+}
+.id-picker-item .ip-role {
+  font-size: 10.5px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.id-picker-empty {
+  margin: 2px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.id-picker-empty:hover { color: var(--neon-cyan); }
+
+/* ---- 主身份页头（任何认证视图下都露着）--------------------------------- */
+.card.id-hero {
+  padding: 16px 18px;
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.08), rgba(139, 92, 246, 0.06));
+  border-color: rgba(34, 211, 238, 0.28);
+}
+.card.id-hero .section-header h3 { font-size: 16px; }
+.card.id-hero .idv-grid { margin-top: 10px; }
+
+/* ---- 高级工具里的两块 ------------------------------------------------ */
+.idv-adv-inner { margin-top: 18px; padding-top: 14px; border-top: 1px dashed rgba(34, 211, 238, 0.18); }
+.idv-adv-inner:first-of-type { border-top: none; padding-top: 0; }
+.idv-adv-inner h3 { font-family: var(--font-display); font-size: 15px; }

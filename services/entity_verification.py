@@ -214,6 +214,11 @@ def sanitize_extracted_fields(extracted: dict[str, Any] | None) -> dict[str, Any
         ("official_domain", 255),
         ("register_capital", 64),
         ("established_on", 32),
+        # 商业注册流程要落下来的「看得见的结论」：办公地点、对外 API 入口、企业邮箱。
+        ("office_address", 300),
+        ("api_endpoint", 300),
+        ("api_docs_url", 300),
+        ("contact_email", 200),
     ):
         value = extracted.get(key)
         if value is None:

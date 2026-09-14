@@ -29,10 +29,11 @@
     subWalletSignature: "",
   };
 
+  /* 三种身份，和侧栏「选择身份」、三张认证页一一对应。 */
   var ROLES = {
     life: { label: "生活助理", klass: "individual" },
-    work: { label: "工作助理", klass: "individual" },
-    company: { label: "企业商业助理", klass: "enterprise" },
+    sole: { label: "个体助理", klass: "merchant" },
+    entity: { label: "企业主体", klass: "enterprise" },
   };
 
   var PERM_LABELS = {
@@ -358,6 +359,9 @@
           doc_type: byId("idv-doc-type").value,
           doc_number_mask: maskDocNumber(byId("idv-doc-number").value),
           valid_until: String(byId("idv-valid").value || "").trim(),
+          // 复核结果要有人可通知：邮箱是联系方式的必填项。
+          contact_email: String((byId("idv-email") || {}).value || "").trim(),
+          contact_phone: String((byId("idv-phone") || {}).value || "").trim(),
           consent: true,
         },
       };
