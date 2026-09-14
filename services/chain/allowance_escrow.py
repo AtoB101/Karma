@@ -774,6 +774,165 @@ async def sync_commits(db: AsyncSession, identity_id: str) -> list[AllowanceComm
     return rows
 
 
+# ------------------------------------------------------- aggregate backing
+
+#: 账单共用同一条 ERC-20 授权，合约的 ``isBacked`` 只看「单张账单 ≤ 授权额」。
+#: 所以「账单合计 170、授权只有 50」在链上逐张看全都是 backed，真到划款时只划得动 50。
+#: 下面这组函数把同一钱包、同一代币下的所有账单放在一起，按最早优先把授权额分下去，
+#: 得到「这张账单到底有多少钱是真划得动的」。
+_ERC20_ALLOWANCE_ABI = [
+    {
+        "name": "allowance",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}],
+    }
+]
+
+
+def _bill_sort_key(bill_id: str) -> tuple[int, str]:
+    """账单号升序 = 承诺时间升序（合约里的自增 id）。"""
+    try:
+        return (int(bill_id), "")
+    except (TypeError, ValueError):
+        return (2**63, str(bill_id))
+
+
+def allocate_allowance(
+    bills_oldest_first: list[tuple[str, float]], allowance_usdc: float
+) -> dict[str, float]:
+    """把**一条**共享授权额按最早优先分配给多张账单。
+
+    返回 ``{bill_id: 真正划得动的金额}``。最后那些分不到的账单拿到 0 —— 它们仍然
+    是「open」，但链上划不动，调用方必须把它们当作没有额度。
+    """
+    remaining = max(0.0, float(allowance_usdc or 0.0))
+    secured: dict[str, float] = {}
+    for bill_id, live in bills_oldest_first:
+        take = min(max(0.0, float(live or 0.0)), remaining)
+        secured[str(bill_id)] = round(take, 6)
+        remaining = round(remaining - take, 6)
+    return secured
+
+
+def assert_room(role: str, need_usdc: float, secured_usdc: float) -> None:
+    """这一单要花的钱，必须真的在链上划得动，否则不该 bind。"""
+    need = float(need_usdc or 0.0)
+    have = float(secured_usdc or 0.0)
+    if need - have > 1e-9:
+        raise WalletLockError(
+            f"insufficient on-chain backing for the {role} commitment: this order needs "
+            f"{need:g} USDC but only {have:g} USDC of the wallet's ERC-20 allowance is "
+            f"still free for it. Raise the allowance to the escrow from the {role}'s "
+            f"wallet (or release unneeded commitments) and retry."
+        )
+
+
+def _erc20_allowance_wei(w3, token: str, owner: str, spender: str) -> int:
+    erc = w3.eth.contract(
+        address=w3.to_checksum_address(token), abi=_ERC20_ALLOWANCE_ABI
+    )
+    return int(
+        erc.functions.allowance(
+            w3.to_checksum_address(owner), w3.to_checksum_address(spender)
+        ).call()
+    )
+
+
+async def backing_report(db: AsyncSession, identity_id: str) -> dict[str, Any]:
+    """这个身份记在账上的承诺，链上到底有多少是划得动的。
+
+    与 ``isBacked`` 的区别：``isBacked`` 回答「这一张账单是否 ≤ 授权额」，
+    本函数回答「这个钱包所有账单加起来是否 ≤ 授权额」。
+
+    两个标志位必须分开看，调用方靠它们决定「拦」还是「等」：
+
+    * ``enforced``      —— 这个部署真的配了托管合约，链上授权额就是硬约束；
+    * ``chain_checked`` —— 授权额**这一次**真的读到了。
+      ``enforced and not chain_checked`` 就是 RPC 抖动：读不到链不能声称担保，
+      但也不能因为一次网络错误把用户已经锁进来的额度当成 0。
+    """
+    enforced = escrow_enabled()
+    rows = await list_commits(db, identity_id)
+    groups: dict[tuple[str, str], list[AllowanceCommitModel]] = {}
+    for row in rows:
+        if row.state in _NON_LIVE_STATES:
+            continue
+        live = max(0.0, float(row.amount_usdc or 0.0) - float(row.spent_usdc or 0.0))
+        if live <= 0:
+            continue
+        groups.setdefault((row.wallet_address, row.token_address), []).append(row)
+
+    report: dict[str, Any] = {
+        "allowance_usdc": 0.0,
+        "committed_usdc": 0.0,
+        "secured_usdc": 0.0,
+        "unsecured_usdc": 0.0,
+        "enforced": enforced,
+        "chain_checked": False,
+        "bills": {},
+    }
+    live_pairs_by_group: dict[tuple[str, str], list[tuple[str, float]]] = {}
+    for key, group in groups.items():
+        live_pairs_by_group[key] = [
+            (str(r.bill_id), max(0.0, float(r.amount_usdc or 0.0) - float(r.spent_usdc or 0.0)))
+            for r in sorted(group, key=lambda r: _bill_sort_key(str(r.bill_id)))
+        ]
+        report["committed_usdc"] += sum(live for _, live in live_pairs_by_group[key])
+    report["committed_usdc"] = round(report["committed_usdc"], 6)
+
+    if not groups:
+        return report
+
+    if not enforced:
+        # 这个部署里根本没有托管合约（v2 未启用 / RPC 未配置）：链上不存在
+        # 授权额这回事，也就没有「多张账单抢同一条授权」的问题，回落到台账口径
+        # amount - spent，并用 chain_checked=False 告诉调用方「这个数不是从链上读来的」。
+        for live_pairs in live_pairs_by_group.values():
+            for bill_id, live in live_pairs:
+                report["bills"][bill_id] = {
+                    "live_usdc": round(live, 6),
+                    "secured_usdc": round(live, 6),
+                }
+        report["secured_usdc"] = report["committed_usdc"]
+        return report
+
+    w3 = _web3()
+    checked = True
+    for (wallet, token), live_pairs in live_pairs_by_group.items():
+        try:
+            allowance = wei_to_usdc(
+                _erc20_allowance_wei(w3, token, wallet, configured_address())
+            )
+        except Exception as exc:  # RPC 抖动：这一次不声称担保，绝不放行
+            logger.warning("allowance_backing_read_failed", wallet=wallet, error=str(exc))
+            checked = False
+            allowance = 0.0
+        secured = allocate_allowance(live_pairs, allowance)
+        committed = round(sum(live for _, live in live_pairs), 6)
+        secured_total = round(sum(secured.values()), 6)
+        report["allowance_usdc"] += allowance
+        report["secured_usdc"] += secured_total
+        report["unsecured_usdc"] += round(committed - secured_total, 6)
+        for bill_id, live in live_pairs:
+            report["bills"][bill_id] = {
+                "live_usdc": round(live, 6),
+                "secured_usdc": secured[bill_id],
+            }
+    report["chain_checked"] = checked
+    for key in ("allowance_usdc", "committed_usdc", "secured_usdc", "unsecured_usdc"):
+        report[key] = round(report[key], 6)
+    return report
+
+
+async def secured_usdc_for_bill(db: AsyncSession, identity_id: str, bill_id: str) -> float:
+    """单张账单真正划得动的金额（同钱包其他账单先占先得）。"""
+    report = await backing_report(db, identity_id)
+    entry = (report.get("bills") or {}).get(str(bill_id)) or {}
+    return round(float(entry.get("secured_usdc") or 0.0), 6)
+
+
 async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[str, float]:
     """把 v2 非托管承诺镜像进主身份 ``capacity`` 台账。
 
@@ -782,35 +941,54 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
     承诺必须被记账，否则用户「锁仓成功」之后，每一个花钱的入口（付款码 / 任务
     合同 / agent request-voucher / 子身份额度）都会看到 0 可用额度而拒绝。
 
-    口径：一条有效承诺对台账的贡献 = ``amount_usdc - spent_usdc``（已经被 Karma
-    划走的部分不再是可用责任额度）。每行记住自己当前贡献了多少
+    口径：一条有效承诺对台账的贡献 = **链上真划得动的部分**，即把该钱包对托管合约的
+    ERC-20 授权额按最早优先分给各账单后的份额（见 ``backing_report``）。只按
+    ``amount - spent`` 记账会虚增可花额度：账单共用一条授权，链上逐张都 backed，
+    加起来却划不动。每行记住自己当前贡献了多少
     （``capacity_credited_usdc``），所以这个函数是幂等的 —— 只有差额会被记一次，
     撤销、划转之后重跑也只会把台账修回链上的真实状态。
     """
     rows = await list_commits(db, identity_id)
     if not rows:
-        return {"credited_usdc": 0.0, "delta_usdc": 0.0}
+        return {"credited_usdc": 0.0, "delta_usdc": 0.0, "unsecured_usdc": 0.0}
 
-    live_by_bill: dict[str, float] = {}
-    live_total = 0.0
+    # 只把链上真划得动的部分记进台账。链上已关闭 / 已划光的账单贡献 0（revoke() 关掉的
+    # 是整笔未使用额度；spent == amount 本来就算 0）——这一点由 backing_report 负责。
+    report = await backing_report(db, identity_id)
+    secured_by_bill = {
+        str(bill_id): round(float(entry.get("secured_usdc") or 0.0), 6)
+        for bill_id, entry in (report.get("bills") or {}).items()
+    }
     credited_total = 0.0
     for row in rows:
-        # 链上已关闭的承诺不再承担任何责任额度：revoke() 关掉的是整笔未使用额度，
-        # 而「被划光」的账单 spent == amount 本来就算 0。若这里只认 REVOKED，一条撤销
-        # 成功但没登记上的账单会永久虚增用户锁仓，也会让「减少锁仓」被这笔链上已关闭
-        # 的账单反复拖成 execution reverted。
-        if row.state in _NON_LIVE_STATES:
-            live = 0.0
-        else:
-            live = max(0.0, float(row.amount_usdc or 0.0) - float(row.spent_usdc or 0.0))
-        live = round(live, 6)
-        live_by_bill[row.bill_id] = live
-        live_total += live
         credited_total += float(row.capacity_credited_usdc or 0.0)
+    unsecured_total = round(float(report.get("unsecured_usdc") or 0.0), 6)
+
+    # committed == 0 意味着根本没有活着的账单（都已撤销 / 已关闭）：那不是
+    # 「读不到链」，而是「本来就没东西要担保」，照常把台账归零。
+    chain_unreadable = (
+        report.get("enforced")
+        and not report.get("chain_checked")
+        and float(report.get("committed_usdc") or 0.0) > 0.0
+    )
+    if chain_unreadable:
+        # 配了托管合约却这一次读不到链（RPC 抖动）：台账保持原样。
+        # 读不到链不能放行新额度，但更不能把用户已经锁进来的额度清成 0 ——
+        # 链读回来之后下一次对账会自己纠偏。
+        return {
+            "credited_usdc": round(credited_total, 6),
+            "delta_usdc": 0.0,
+            "unsecured_usdc": unsecured_total,
+        }
+
+    live_total = 0.0
+    for row in rows:
+        live_total += secured_by_bill.get(str(row.bill_id), 0.0)
+    live_total = round(live_total, 6)
 
     delta = round(live_total - credited_total, 6)
     if abs(delta) < 1e-9:
-        return {"credited_usdc": round(live_total, 6), "delta_usdc": 0.0}
+        return {"credited_usdc": live_total, "delta_usdc": 0.0, "unsecured_usdc": unsecured_total}
 
     cap = await db.get(CapacityModel, identity_id)
     if cap is None:
@@ -835,7 +1013,7 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
     cap.updated_at = datetime.utcnow()
 
     for row in rows:
-        row.capacity_credited_usdc = live_by_bill[row.bill_id]
+        row.capacity_credited_usdc = secured_by_bill.get(str(row.bill_id), 0.0)
         row.updated_at = datetime.utcnow()
 
     await db.flush()
@@ -843,9 +1021,10 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
         "escrow_capacity_mirror_reconciled",
         identity_id=identity_id,
         delta_usdc=delta,
-        credited_usdc=round(live_total, 6),
+        credited_usdc=live_total,
+        unsecured_usdc=unsecured_total,
     )
-    return {"credited_usdc": round(live_total, 6), "delta_usdc": delta}
+    return {"credited_usdc": live_total, "delta_usdc": delta, "unsecured_usdc": unsecured_total}
 
 
 async def reconcile_all_capacity_mirrors(

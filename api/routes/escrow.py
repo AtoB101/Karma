@@ -67,7 +67,33 @@ class OrderBody(BaseModel):
     )
 
 
-def _commit_view(row: AllowanceCommitModel) -> dict:
+def _backing_view(report: dict) -> dict:
+    """链上担保口径给操作台看的那几个数。
+    ``chain_checked=False`` 表示这一次没读到链（不是「担保为 0」）。"""
+    return {
+        "allowance_usdc": report.get("allowance_usdc", 0.0),
+        "committed_usdc": report.get("committed_usdc", 0.0),
+        "secured_usdc": report.get("secured_usdc", 0.0),
+        "unsecured_usdc": report.get("unsecured_usdc", 0.0),
+        "chain_checked": bool(report.get("chain_checked")),
+    }
+
+
+async def _secured_share(db: AsyncSession, identity_id: str, bill_id: str) -> dict | None:
+    """这一张账单分到的、真正划得动的份额（同钱包其他账单先到先得）。"""
+    report = await escrow.backing_report(db, identity_id)
+    return (report.get("bills") or {}).get(str(bill_id))
+
+
+def _commit_view(row: AllowanceCommitModel, secured: dict | None = None) -> dict:
+    """backed 是合约对**单张**账单的回答；secured_usdc 才是这个钱包的授权额分到
+    这张账单上、真正划得动的钱（多张账单共用一条授权，见 backing_report）。
+
+    fully_secured 只对还活着的账单有意义，而且要比的是**剩下的责任额**
+    （amount - spent）—— 已经被 Karma 划走的部分不需要再有授权去担保。
+    """
+    secured_usdc = round(float((secured or {}).get("secured_usdc") or 0.0), 6)
+    live_usdc = max(0.0, float(row.amount_usdc or 0.0) - float(row.spent_usdc or 0.0))
     return {
         "bill_id": row.bill_id,
         "amount_usdc": float(row.amount_usdc),
@@ -80,6 +106,11 @@ def _commit_view(row: AllowanceCommitModel) -> dict:
         "operator": row.operator,
         "state": row.state,
         "backed": bool(row.backed),
+        "secured_usdc": secured_usdc,
+        "fully_secured": bool(
+            (row.state != escrow.IDLE or live_usdc <= 0.0)
+            or secured_usdc + 1e-9 >= live_usdc
+        ),
         "commit_tx_hash": row.commit_tx_hash,
         "revoke_tx_hash": row.revoke_tx_hash,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -116,6 +147,10 @@ async def get_escrow_state(identity_id: str, request: Request, db: AsyncSession 
     commits = await escrow.list_commits(db, identity_id)
     bindings = await escrow.list_bindings(db, identity_id)
     live = [c for c in commits if c.state == escrow.IDLE]
+    # 链上担保口径：多张账单共用同一条 ERC-20 授权，isBacked 只回答单张账单，
+    # 所以必须把授权额按账单分下去，才知道「锁仓额度」里有多少真划得动。
+    backing = await escrow.backing_report(db, identity_id)
+    secured_by_bill = backing.get("bills") or {}
     return {
         "identity_id": identity_id,
         "escrow": escrow.escrow_config(),
@@ -124,7 +159,8 @@ async def get_escrow_state(identity_id: str, request: Request, db: AsyncSession 
         "committed_usdc": round(sum(float(c.amount_usdc) for c in live), 6),
         "spent_usdc": round(sum(float(c.spent_usdc or 0.0) for c in commits), 6),
         "reserved_usdc": round(sum(float(c.reserved_usdc or 0.0) for c in live), 6),
-        "commits": [_commit_view(c) for c in commits],
+        "backing": _backing_view(backing),
+        "commits": [_commit_view(c, secured_by_bill.get(str(c.bill_id))) for c in commits],
         "bindings": [_binding_view(b) for b in bindings],
     }
 
@@ -152,7 +188,11 @@ async def claim_commit(
 
     await escrow.reconcile_capacity_mirror(db, identity_id)
     await db.flush()
-    return {"identity_id": identity_id, "commit": _commit_view(row), "idempotent": True}
+    return {
+        "identity_id": identity_id,
+        "commit": _commit_view(row, await _secured_share(db, identity_id, row.bill_id)),
+        "idempotent": True,
+    }
 
 
 @router.post("/{identity_id}/claim-revoke")
@@ -172,7 +212,10 @@ async def claim_revoke(
         raise HTTPException(409, str(exc)) from exc
     await escrow.reconcile_capacity_mirror(db, identity_id)
     await db.flush()
-    return {"identity_id": identity_id, "commit": _commit_view(row)}
+    return {
+        "identity_id": identity_id,
+        "commit": _commit_view(row, await _secured_share(db, identity_id, row.bill_id)),
+    }
 
 
 @router.post("/{identity_id}/sync")
@@ -189,7 +232,13 @@ async def sync_escrow(identity_id: str, request: Request, db: AsyncSession = Dep
     except wallet_lock.WalletLockError as exc:
         raise HTTPException(409, str(exc)) from exc
     await escrow.reconcile_capacity_mirror(db, identity_id)
-    return {"identity_id": identity_id, "commits": [_commit_view(r) for r in rows]}
+    backing = await escrow.backing_report(db, identity_id)
+    secured_by_bill = backing.get("bills") or {}
+    return {
+        "identity_id": identity_id,
+        "backing": _backing_view(backing),
+        "commits": [_commit_view(r, secured_by_bill.get(str(r.bill_id))) for r in rows],
+    }
 
 
 @router.post("/{identity_id}/orders")
@@ -243,6 +292,26 @@ async def open_order(
         stake = seller_stake.required_stake_usdc(body.amount_usdc)
     if stake <= 0:
         raise HTTPException(422, "stake_usdc must be positive (or set SETTLEMENT_DEFAULT_PENALTY_BPS)")
+
+    # 链上担保校验：账单可以记账，但钱必须在链上真划得动。同一个钱包的多张账单共用
+    # 一条 ERC-20 授权，合约的 isBacked 只回答单张，所以这里按「授权额分到这张账单
+    # 上的份额 − 已被其他订单占用的部分」判断，免得链上 bind 成功、结算时才发现划不动，
+    # 留下一张收不到钱的孤儿单。
+    buyer_room = await escrow.secured_usdc_for_bill(
+        db, identity_id, buyer_bill.bill_id
+    ) - float(buyer_bill.reserved_usdc or 0.0)
+    try:
+        escrow.assert_room("buyer", body.amount_usdc, buyer_room)
+    except wallet_lock.WalletLockError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    seller_room = await escrow.secured_usdc_for_bill(
+        db, seller_identity, seller_bill.bill_id
+    ) - float(seller_bill.reserved_usdc or 0.0)
+    try:
+        escrow.assert_room("seller", stake, seller_room)
+    except wallet_lock.WalletLockError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
     try:
         # bind + submit is one unit: if submit cannot land, the reservation is
