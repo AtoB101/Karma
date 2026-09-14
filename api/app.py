@@ -60,6 +60,8 @@ from api.routes import (
     identity_disclosures,
     identity_kyc,
     identity_verification,
+    entity_verification,
+    skill_market,
     escrow,
     payment_ledger,
 )
@@ -87,6 +89,8 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/verifiers/",
     "/v1/confirmations/",
     "/v1/identity/",
+    "/v1/skills",
+    "/v1/entities",
     "/v1/trust/",
     "/runtime/",
 )
@@ -465,6 +469,24 @@ app.include_router(
     identity_verification.router,
     prefix="/v1/identity",
     tags=["IdentityVerification"],
+    dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
+)
+app.include_router(
+    entity_verification.router,
+    prefix="/v1/identity",
+    tags=["EntityVerification"],
+    dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
+)
+app.include_router(
+    entity_verification.public_router,
+    prefix="/v1/entities",
+    tags=["Entities"],
+    dependencies=_protected_dependencies,
+)
+app.include_router(
+    skill_market.router,
+    prefix="/v1/skills",
+    tags=["SkillMarket"],
     dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
 )
 

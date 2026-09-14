@@ -951,3 +951,167 @@ class IdentityVerificationModel(Base):
     verified_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     created_at:   Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:   Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ---------------------------------------------------------------------------
+# Data-API economy: verified subjects, published skills, metered usage
+#
+# 数据 API 是 Karma 第一个真正商业化的品类：调用方与提供方都是「有主体」的公司，
+# 单笔金额小、频次高。所以这一层要回答三件事：
+#   1. 这家公司是不是真的（主体资质 + 官网控制权）—— entity_verifications
+#   2. 这个技能是不是本人上架的（主体认证 + 钱包签名 + 域名归属）—— skills
+#   3. 累计到多少才划一次钱（小额高频累计，到阈值才结算）—— usage_meters / charges / settlements
+# ---------------------------------------------------------------------------
+
+
+class EntityVerificationModel(Base):
+    """主体资质认证：数据 API 提供方上架前必须先过的关。
+
+    与 ``identity_verifications``（自然人证件 + 扫脸）分开：这里认证的是**主体**
+    （企业 / 个体工商户）以及它对**官网**的控制权。资质原件同样只存密文包 + 摘要，
+    服务端永远拿不到明文 —— 与自然人认证同一套加密约定。
+    """
+
+    __tablename__ = "entity_verifications"
+
+    identity_id:      Mapped[str]        = mapped_column(String(128), primary_key=True)
+    status:           Mapped[str]        = mapped_column(String(16), nullable=False, default="none")
+    subject_type:     Mapped[str]        = mapped_column(String(16), nullable=False, default="business")
+    legal_name:       Mapped[str]        = mapped_column(String(200), nullable=False, default="")
+    registration_no:  Mapped[str]        = mapped_column(String(64), nullable=False, default="")
+    jurisdiction:     Mapped[str]        = mapped_column(String(64), nullable=False, default="")
+    legal_rep:        Mapped[str]        = mapped_column(String(120), nullable=False, default="")
+    official_domain:  Mapped[str]        = mapped_column(String(255), nullable=False, default="", index=True)
+    contact_email:    Mapped[str]        = mapped_column(String(200), nullable=False, default="")
+    service_category: Mapped[str]        = mapped_column(String(64), nullable=False, default="")
+    service_scope:    Mapped[str]        = mapped_column(Text, nullable=False, default="")
+    # 资质清单 [{kind, name, digest}]：只有名字与摘要，原件在密文包里。
+    certifications:   Mapped[list]       = mapped_column(JSON, default=list)
+    doc_digest:       Mapped[str | None] = mapped_column(String(128), nullable=True)
+    package_digest:   Mapped[str | None] = mapped_column(String(128), nullable=True)
+    package_cipher:   Mapped[str | None] = mapped_column(Text, nullable=True)
+    encryption:       Mapped[dict]       = mapped_column(JSON, default=dict)
+    extracted:        Mapped[dict]       = mapped_column(JSON, default=dict)
+    # 官网控制权：域名下放一份一次性 token，服务端回读比对。
+    website_token:        Mapped[str | None] = mapped_column(String(128), nullable=True)
+    website_challenge_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    website_verified_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    website_digest:       Mapped[str | None] = mapped_column(String(128), nullable=True)
+    reviewer_identity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    review_note:      Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    verified_at:      Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    submitted_at:     Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SkillModel(Base):
+    """技能 / 插件登记：一个可以被 agent 调用、按次计费的服务。
+
+    ``status`` 只有经过「主体已认证 + 上架签名由本人钱包签出 + endpoint 落在认证过的
+    官网域名下」才会变成 ``published``（见 services/skill_registry）。
+    """
+
+    __tablename__ = "skills"
+
+    skill_id:          Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    owner_identity_id: Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
+    slug:              Mapped[str]      = mapped_column(String(80), nullable=False, unique=True)
+    name:              Mapped[str]      = mapped_column(String(120), nullable=False)
+    category:          Mapped[str]      = mapped_column(String(64), nullable=False, default="data_api")
+    summary:           Mapped[str]      = mapped_column(String(300), nullable=False, default="")
+    description:       Mapped[str]      = mapped_column(Text, nullable=False, default="")
+    endpoint_url:      Mapped[str]      = mapped_column(String(500), nullable=False)
+    method:            Mapped[str]      = mapped_column(String(8), nullable=False, default="POST")
+    unit:              Mapped[str]      = mapped_column(String(32), nullable=False, default="call")
+    unit_price_usdc:   Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
+    settlement_threshold_usdc: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    default_cap_usdc:  Mapped[float | None]  = mapped_column(Float, nullable=True)
+    version:           Mapped[int]      = mapped_column(Integer, nullable=False, default=1)
+    manifest_digest:   Mapped[str]      = mapped_column(String(64), nullable=False, default="")
+    publisher_signature: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    publisher_wallet:  Mapped[str | None] = mapped_column(String(128), nullable=True)
+    verified_domain:   Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status:            Mapped[str]      = mapped_column(String(16), nullable=False, default="draft", index=True)
+    published_at:      Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    paused_at:         Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at:        Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:        Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UsageMeterModel(Base):
+    """(付款方, 技能) 的累计计费器：小额高频先记账，到阈值才生成一张结算单。
+
+    钱不在这一步动 —— 这一步只回答「这个调用方一共欠这个技能多少钱」。
+    ``cap_usdc`` 是边界：付到这个数就拒绝继续调用（相当于子身份额度）。
+    """
+
+    __tablename__ = "usage_meters"
+
+    meter_id:           Mapped[str]        = mapped_column(String(64), primary_key=True, default=_uuid)
+    skill_id:           Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
+    payer_identity_id:  Mapped[str]        = mapped_column(String(128), nullable=False, index=True)
+    provider_identity_id: Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
+    calls:              Mapped[int]        = mapped_column(Integer, nullable=False, default=0)
+    accrued_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    billed_usdc:        Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    settled_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    threshold_usdc:     Mapped[float]      = mapped_column(Float, nullable=False, default=1.0)
+    cap_usdc:           Mapped[float | None] = mapped_column(Float, nullable=True)
+    status:             Mapped[str]        = mapped_column(String(24), nullable=False, default="open")
+    last_used_at:       Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("skill_id", "payer_identity_id", name="uq_usage_meter_skill_payer"),
+    )
+
+
+class UsageChargeModel(Base):
+    """一次调用 = 一条流水。(skill_id, request_id) 唯一 —— 重放不会重复计费。"""
+
+    __tablename__ = "usage_charges"
+
+    charge_id:          Mapped[str]        = mapped_column(String(64), primary_key=True, default=_uuid)
+    request_id:         Mapped[str]        = mapped_column(String(80), nullable=False)
+    skill_id:           Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
+    payer_identity_id:  Mapped[str]        = mapped_column(String(128), nullable=False, index=True)
+    provider_identity_id: Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
+    units:              Mapped[int]        = mapped_column(Integer, nullable=False, default=1)
+    unit_price_usdc:    Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    amount_usdc:        Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    settlement_id:      Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    occurred_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("skill_id", "request_id", name="uq_usage_charge_skill_request"),
+    )
+
+
+class UsageSettlementModel(Base):
+    """阈值结算单：把一段累计的调用打包成一笔真实划转。
+
+    ``mode`` 说明这笔钱走哪条路：``escrow_allowance`` 走 Karma 现有的非托管授权划转
+    （调用方的锁仓 → 提供方钱包），``manual`` 表示先出账、由运营/多签合约执行。
+    """
+
+    __tablename__ = "usage_settlements"
+
+    settlement_id:      Mapped[str]        = mapped_column(String(64), primary_key=True, default=_uuid)
+    skill_id:           Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
+    payer_identity_id:  Mapped[str]        = mapped_column(String(128), nullable=False, index=True)
+    provider_identity_id: Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
+    amount_usdc:        Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    stake_usdc:         Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
+    calls:              Mapped[int]        = mapped_column(Integer, nullable=False, default=0)
+    status:             Mapped[str]        = mapped_column(String(16), nullable=False, default="open", index=True)
+    mode:               Mapped[str]        = mapped_column(String(24), nullable=False, default="escrow_allowance")
+    digest:             Mapped[str]        = mapped_column(String(64), nullable=False, default="")
+    escrow_binding_id:  Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tx_hash:            Mapped[str | None] = mapped_column(String(80), nullable=True)
+    failure_reason:     Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+    settled_at:         Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    updated_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

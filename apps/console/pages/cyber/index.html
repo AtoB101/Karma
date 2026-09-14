@@ -86,6 +86,7 @@
               <button class="nav-sub" data-page="identity" data-sub="verify"><span data-i18n="sub.identity.verify">主身份认证</span></button>
               <button class="nav-sub" data-page="identity" data-sub="subs"><span data-i18n="sub.identity.subs">子身份</span></button>
               <button class="nav-sub" data-page="identity" data-sub="money"><span data-i18n="sub.identity.money">资金归属</span></button>
+              <button class="nav-sub" data-page="identity" data-sub="entity">主体认证（企业 / API）</button>
             </div>
           </div>
           <div class="nav-group" data-group="agents">
@@ -95,6 +96,14 @@
               <button class="nav-sub" data-page="agents" data-sub="mine"><span data-i18n="sub.agents.mine">我的 Agent</span></button>
               <button class="nav-sub" data-page="agents" data-sub="handoff"><span data-i18n="sub.agents.handoff">交给 Agent</span></button>
               <button class="nav-sub" data-page="agents" data-sub="connect"><span data-i18n="sub.agents.connect">接入一个 Agent</span></button>
+            </div>
+          </div>
+          <div class="nav-group" data-group="market">
+            <button class="nav-main" data-page="market" aria-expanded="false"><span class="icon">◫</span>技能市场<span class="nav-caret">▾</span></button>
+            <div class="nav-subs">
+              <button class="nav-sub" data-page="market" data-sub="catalog">技能目录</button>
+              <button class="nav-sub" data-page="market" data-sub="mine">我的技能 · 上架</button>
+              <button class="nav-sub" data-page="market" data-sub="usage">调用计费</button>
             </div>
           </div>
           <div class="nav-group" data-group="settings">
@@ -604,6 +613,77 @@
               <li><b>操作钱包</b>：子身份可以绑自己的钱包，那只是签名身份，不是资金账户。</li>
             </ul>
           </div>
+
+          <!-- ③ 主体认证（企业 / 数据 API）：面向"公司卖接口"的正规注册流程。
+               自然人认证是"我是谁"，这里是"这家公司是谁、它控制哪个官网、卖什么"。 -->
+          <div class="card section" id="id-entity">
+            <div class="section-header">
+              <div>
+                <h3>主体认证 · 企业 / 数据 API 提供方</h3>
+                <p>要在技能市场上架接口、按次收费，必须先把主体认下来：营业执照 + 法定代表人 + <b>官网控制权</b>。资质原件在你浏览器里加密后才上传，Karma 只拿到密文与摘要。</p>
+              </div>
+              <span class="idv-badge" id="ent-badge">未认证</span>
+            </div>
+
+            <ol class="idv-pipeline">
+              <li>
+                <div class="idv-step-head"><b>① 主体信息</b><span id="ent-step-info">待填写</span></div>
+                <div class="idv-grid">
+                  <div class="field"><label>主体类型</label><select id="ent-subject"><option value="business">企业</option><option value="individual">个体工商户 / 个人开发者</option></select></div>
+                  <div class="field"><label>主体全称</label><input id="ent-legal-name" type="text" placeholder="与营业执照完全一致" /></div>
+                  <div class="field"><label>统一社会信用代码</label><input id="ent-reg-no" type="text" placeholder="91330100MA2ABCDE12" /></div>
+                  <div class="field"><label>法定代表人</label><input id="ent-legal-rep" type="text" /></div>
+                  <div class="field"><label>官网域名</label><input id="ent-domain" type="text" placeholder="data.example.com（不带 https:// 与端口）" /></div>
+                  <div class="field"><label>联系邮箱</label><input id="ent-email" type="email" placeholder="ops@example.com" /></div>
+                  <div class="field"><label>服务分类</label><select id="ent-category"><option value="data_api">数据 API</option><option value="skill_plugin">技能 / 插件</option><option value="compute">算力</option><option value="agent_service">Agent 服务</option><option value="other">其他</option></select></div>
+                  <div class="field"><label>服务范围</label><input id="ent-scope" type="text" placeholder="数据来源 / 接口类型 / 更新频率" /></div>
+                </div>
+                <div class="idv-row" style="margin-top:10px">
+                  <button type="button" class="btn" id="ent-challenge">生成官网校验文件</button>
+                  <span class="api-status" id="ent-challenge-state">未生成</span>
+                </div>
+                <div id="ent-challenge-box" hidden style="margin-top:10px">
+                  <p class="idv-hint">把下面这一行原样写进你官网的这个地址（一个纯文本文件即可），然后回来点「回读校验」：</p>
+                  <pre class="out" id="ent-challenge-line">—</pre>
+                  <p class="idv-hint" id="ent-challenge-url">—</p>
+                  <button type="button" class="btn primary" id="ent-verify-site">回读校验官网</button>
+                  <span class="api-status" id="ent-site-state">未校验</span>
+                </div>
+              </li>
+
+              <li>
+                <div class="idv-step-head"><b>② 资质清单</b><span id="ent-step-certs">至少一份营业执照</span></div>
+                <p class="idv-hint">营业执照必传；ICP 备案、数据来源授权、对公账户证明可选。每份文件单独加密上传，服务端只存摘要。</p>
+                <div class="idv-grid">
+                  <div class="field"><label>资质类型</label><select id="ent-cert-kind"><option value="BUSINESS_LICENSE">营业执照</option><option value="ICP_FILING">ICP / 备案</option><option value="DATA_SOURCE_AUTH">数据来源授权</option><option value="BANK_ACCOUNT_PROOF">对公账户证明</option><option value="OTHER">其他</option></select></div>
+                  <div class="field"><label>资质名称</label><input id="ent-cert-name" type="text" placeholder="营业执照（副本）" /></div>
+                  <div class="field"><label>选择文件</label><label class="btn idv-file">上传<input type="file" id="ent-cert-file" accept="image/*,application/pdf" hidden /></label></div>
+                  <div class="field"><label>已加入</label><span id="ent-cert-count">0 份</span></div>
+                </div>
+                <div class="idv-row" style="margin-top:10px">
+                  <button type="button" class="btn" id="ent-cert-add">加入资质清单</button>
+                  <button type="button" class="btn" id="ent-cert-clear">清空</button>
+                  <span class="api-status" id="ent-cert-state">—</span>
+                </div>
+                <ul id="ent-cert-list" class="idv-rules" style="margin-top:10px"></ul>
+              </li>
+
+              <li>
+                <div class="idv-step-head"><b>③ 本地加密并提交</b><span id="ent-step-send">待提交</span></div>
+                <p class="idv-hint">AES-GCM-256，密钥由你的钱包签名在本地派生。Karma 全程不接触私钥，也看不到资质明文。</p>
+                <label class="idv-consent"><input type="checkbox" id="ent-consent" /> 我确认以上主体信息与资质真实有效，并同意 Karma 加密保存与复核</label>
+                <div class="idv-row">
+                  <button type="button" class="btn primary" id="ent-submit">提交主体认证</button>
+                  <span class="api-status" id="ent-status">—</span>
+                </div>
+              </li>
+            </ol>
+
+            <details style="margin-top:14px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">主体认证当前状态 / 驳回原因</summary>
+              <pre class="out" id="ent-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
+            </details>
+          </div>
         </section>
 
         <section id="agents" class="page">
@@ -766,6 +846,81 @@
           </details>
         </section>
 
+        <section id="market" class="page">
+          <!-- 技能市场：数据 API 商业化。上架 = 主体已认证 + endpoint 在自己官网域名下 + 本人钱包签名。 -->
+          <div class="card section" id="mk-catalog">
+            <div class="section-header">
+              <div>
+                <h3>技能目录 · 可被 agent 调用并按次计费</h3>
+                <p>这里的每一个技能都是一个真实可调用的 endpoint。单价、累计到多少才结算，全部由提供方的钱包签名背书 —— Karma 不替任何人定价。</p>
+              </div>
+              <span class="api-status" id="mk-catalog-state">—</span>
+            </div>
+            <div class="idv-row">
+              <div class="field"><label>分类</label><select id="mk-filter-cat"><option value="">全部</option><option value="data_api">数据 API</option><option value="skill_plugin">技能 / 插件</option><option value="compute">算力</option><option value="agent_service">Agent 服务</option><option value="other">其他</option></select></div>
+              <div class="field"><label>搜索</label><input id="mk-filter-q" type="text" placeholder="行情 / 风控 / 地址…" /></div>
+              <button type="button" class="btn" id="mk-refresh">刷新目录</button>
+            </div>
+            <ul id="mk-list" class="idv-rules" style="margin-top:12px"></ul>
+            <details style="margin-top:10px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">原始响应</summary>
+              <pre class="out" id="mk-catalog-out" style="margin-top:10px;max-height:240px;overflow:auto">—</pre>
+            </details>
+          </div>
+
+          <div class="card section" id="mk-mine">
+            <div class="section-header">
+              <div>
+                <h3>我的技能 · 上架</h3>
+                <p>顺序是固定的：<b>主体认证通过 → endpoint 落在认证过的官网域名下 → 服务端生成待签声明 → 你的钱包签名 → 上架</b>。签的是什么，下面看得见。</p>
+              </div>
+              <span class="idv-badge" id="mk-mine-badge">未连接钱包</span>
+            </div>
+            <div class="idv-grid">
+              <div class="field"><label>技能标识 slug</label><input id="mk-slug" type="text" placeholder="ticker-snapshot（小写字母/数字/连字符）" /></div>
+              <div class="field"><label>技能名称</label><input id="mk-name" type="text" placeholder="行情快照 API" /></div>
+              <div class="field"><label>分类</label><select id="mk-category"><option value="data_api">数据 API</option><option value="skill_plugin">技能 / 插件</option><option value="compute">算力</option><option value="agent_service">Agent 服务</option><option value="other">其他</option></select></div>
+              <div class="field"><label>调用地址 endpoint（https）</label><input id="mk-endpoint" type="text" placeholder="https://api.你的官网.com/v1/ticker" /></div>
+              <div class="field"><label>单价（USDC / 次）</label><input id="mk-price" type="number" step="0.000001" value="0.001" /></div>
+              <div class="field"><label>累计到多少出账（USDC）</label><input id="mk-threshold" type="number" step="0.01" value="1" /></div>
+              <div class="field"><label>调用方上限（USDC，可空）</label><input id="mk-cap" type="number" step="0.01" placeholder="不填表示不设上限" /></div>
+              <div class="field"><label>计量单位</label><select id="mk-unit"><option value="call">次</option><option value="record">条</option><option value="kb">KB</option><option value="token">token</option><option value="hour">小时</option></select></div>
+            </div>
+            <div class="field" style="margin-top:10px"><label>简介（至少 8 个字，写在目录里）</label><input id="mk-summary" type="text" placeholder="按次计费的交易所行情快照，毫秒级返回" /></div>
+            <div class="field" style="margin-top:10px"><label>详细说明（可选）</label><input id="mk-description" type="text" placeholder="支持的数据源、限流、返回字段…" /></div>
+            <div class="idv-row" style="margin-top:12px">
+              <button type="button" class="btn" id="mk-prepare">① 生成待签声明</button>
+              <button type="button" class="btn primary" id="mk-publish" disabled>② 钱包签名并上架</button>
+              <span class="api-status" id="mk-status">—</span>
+            </div>
+            <pre class="out" id="mk-sign-message" style="margin-top:10px;max-height:220px;overflow:auto">① 先生成待签声明</pre>
+            <div style="margin-top:12px">
+              <button type="button" class="btn" id="mk-load-mine">刷新我的技能</button>
+            </div>
+            <ul id="mk-mine-list" class="idv-rules" style="margin-top:12px"></ul>
+          </div>
+
+          <div class="card section" id="mk-usage">
+            <div class="section-header">
+              <div>
+                <h3>调用计费 · 小额高频累计到阈值再结算</h3>
+                <p>一次调用 = 一条流水（同一个 request_id 重放不会重复计费）；累计到阈值才生成一张结算单；链上真的划走之后才会显示「已结算」。</p>
+              </div>
+              <span class="api-status" id="mk-usage-state">—</span>
+            </div>
+            <div class="idv-row">
+              <div class="field"><label>技能 slug</label><input id="mk-use-slug" type="text" placeholder="ticker-snapshot" /></div>
+              <div class="field"><label>付款方身份（留空 = 本人）</label><input id="mk-use-payer" type="text" placeholder="kid_xxx" /></div>
+              <button type="button" class="btn" id="mk-usage-refresh">读取计费详情</button>
+            </div>
+            <ul id="mk-usage-body" class="idv-rules" style="margin-top:12px"></ul>
+            <details style="margin-top:10px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">原始响应</summary>
+              <pre class="out" id="mk-usage-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
+            </details>
+          </div>
+        </section>
+
         <section id="settings" class="page">
           <div class="card section">
             <div class="section-header">
@@ -810,6 +965,7 @@
     <script src="../../scripts/cyber-agents.js"></script>
     <script src="../../scripts/cyber-authorize.js"></script>
     <script src="../../scripts/cyber-handoff.js"></script>
+    <script src="../../scripts/cyber-entity.js"></script>
     <script src="../../scripts/cyber-globe-bg.js"></script>
   </body>
 </html>
