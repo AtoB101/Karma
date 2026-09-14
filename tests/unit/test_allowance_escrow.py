@@ -722,6 +722,75 @@ async def test_mirror_follows_the_money_that_karma_pulled(client, db_session, mo
     assert again["delta_usdc"] == pytest.approx(0.0)
 
 
+class _ChainBillView:
+    """最小化的链上账单只读视图（只实现 sync_commits 用到的那两个 view）。"""
+
+    def __init__(self, state_code: int, reserved_wei: int = 0, spent_wei: int = 0):
+        self._bill = (0, WALLET, OPERATOR, TOKEN, 0, reserved_wei, spent_wei, state_code, 0)
+        self.functions = self
+
+    def getBill(self, bill_id):
+        return self
+
+    def isBacked(self, bill_id):
+        return self
+
+    def call(self):
+        return self._bill
+
+
+@pytest.mark.asyncio
+async def test_a_bill_closed_on_chain_stops_backing_the_ledger(client, db_session, monkeypatch):
+    """链上已经关掉、但撤销没登记回来的承诺，不能再算进锁仓。
+
+    真实事故：用户在操作台撤销承诺，交易上链成功之后直接关掉页面，claim-revoke
+    没发出去。台账里那笔账单还是 open —— 锁仓数字虚高，而且「减少锁仓」的方案
+    每次都带上它，点下去只有 execution reverted（WrongBillState）。
+    """
+    await _commit_flow(
+        client, monkeypatch, tx_hash="0x" + "4a" * 32, amount_wei=30_000_000, bill_id=45
+    )
+    assert (await client.get("/v1/capacity/identity-escrow-test")).json()[
+        "available_credits"
+    ] == pytest.approx(30.0)
+
+    # 链上说这笔账单已经 CLOSED（=2），服务端从没登记过撤销
+    monkeypatch.setattr(settings, "chain_allowance_escrow_enabled", True)
+    monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
+    monkeypatch.setattr(escrow, "_web3", lambda: object())
+    monkeypatch.setattr(escrow, "_contract", lambda w3: _ChainBillView(state_code=2))
+
+    sync = await client.post("/v1/escrow/identity-escrow-test/sync", json={})
+    assert sync.status_code == 200, sync.text
+    assert sync.json()["commits"][0]["state"] == "closed"
+
+    state = (await client.get("/v1/capacity/identity-escrow-test")).json()
+    assert state["available_credits"] == pytest.approx(0.0)
+    assert state["total_locked_usdc"] == pytest.approx(0.0)
+    assert state["total_bill_credits"] == pytest.approx(0.0)
+
+    # 幂等：状态已经是 closed，再跑一次不会再动台账
+    again = await escrow.reconcile_capacity_mirror(db_session, "identity-escrow-test")
+    assert again["delta_usdc"] == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_an_open_bill_keeps_backing_the_ledger(client, db_session, monkeypatch):
+    """反向保护：链上还开着（state=OPEN）的账单必须继续算额度。"""
+    await _commit_flow(
+        client, monkeypatch, tx_hash="0x" + "5a" * 32, amount_wei=40_000_000, bill_id=46
+    )
+    monkeypatch.setattr(settings, "chain_allowance_escrow_enabled", True)
+    monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
+    monkeypatch.setattr(escrow, "_web3", lambda: object())
+    monkeypatch.setattr(escrow, "_contract", lambda w3: _ChainBillView(state_code=1))
+    sync = await client.post("/v1/escrow/identity-escrow-test/sync", json={})
+    assert sync.status_code == 200, sync.text
+    assert sync.json()["commits"][0]["state"] == "open"
+    state = (await client.get("/v1/capacity/identity-escrow-test")).json()
+    assert state["available_credits"] == pytest.approx(40.0)
+
+
 # --------------------------------------------------------- console wiring rules
 
 
