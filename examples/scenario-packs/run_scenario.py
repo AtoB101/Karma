@@ -251,18 +251,35 @@ def run(scenario, wallets, *, base_url, fund=False):
 
     # ---- 6 执行回执
     step("6 · 卖方提交执行回执（agent 走 Runtime Key；回执由 Karma 签名）")
-    started_at = utcnow() - timedelta(seconds=30)
     receipts = flow.get("receipts") or [{"tool_name": "deliver"}]
-    for idx, r in enumerate(receipts, start=1):
+    # The receipt timeline must sit entirely in the past: the server only accepts
+    # receipts between now-24h and now+5min, and duration_ms has to equal
+    # ended_at-started_at. Chain the scenario's own durations backwards from "just
+    # finished" (food delivery: 10 min cooking + 5 min pickup + 15 min delivery).
+    durations = [int(r.get("duration_ms") or 1200) for r in receipts]
+    # 服务端只收 now-24h ~ now+5min 之间的回执，实物场景写的执行时长可能比这个窗口还长
+    # （跨境那单报关+清关写了 24 小时）。装不下就按比例压缩，并如实说明，别假装是原始时长。
+    window_ms = 12 * 3600 * 1000
+    if sum(durations) > window_ms:
+        scale = window_ms / float(sum(durations))
+        before = sum(durations) / 1000.0
+        durations = [max(1000, int(d * scale)) for d in durations]
+        info(
+            "执行时长合计 %.0fs 超过服务端回执窗口，已按比例压缩到 %.0fs 以跑通链路"
+            % (before, sum(durations) / 1000.0)
+        )
+    cursor = utcnow() - timedelta(milliseconds=sum(durations) + 5_000)
+    for idx, (r, duration_ms) in enumerate(zip(receipts, durations), start=1):
         seller.rt_submit_receipt(
             task_id=task_id,
             step_index=idx,
             tool_name=r.get("tool_name", "deliver"),
             input_payload="%s:%s:in" % (task_id, idx),
             output_payload="%s:%s:out" % (task_id, idx),
-            started_at=started_at + timedelta(seconds=idx * 5),
-            duration_ms=r.get("duration_ms", 1200),
+            started_at=cursor,
+            duration_ms=duration_ms,
         )
+        cursor = cursor + timedelta(milliseconds=duration_ms)
         ok("回执 #%s  %s  success" % (idx, r.get("tool_name", "deliver")))
 
     # ---- 7 交付
@@ -305,7 +322,8 @@ def run(scenario, wallets, *, base_url, fund=False):
     except KarmaError:
         pass
     result["final_status"] = final_state.get("status")
-    result["ok"] = final_state.get("status") == "SETTLED"
+    # ??? TaskStatus ???????settled??????????
+    result["ok"] = str(final_state.get("status") or "").upper() == "SETTLED"
     for fo in (buyer, seller, logistics):
         if fo is not None:
             fo.close()
