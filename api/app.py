@@ -477,17 +477,18 @@ app.include_router(
     tags=["EntityVerification"],
     dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
 )
+# 主体公开信息与技能目录是**公开可读**的：尽调方和访客不该先注册账号才能看。
+# 写接口的鉴权在各自 handler 里（resolve_actor_identity_id），写入限流由
+# security_write_rate_limit_middleware 按 /v1/skills 前缀兜住。
 app.include_router(
     entity_verification.public_router,
     prefix="/v1/entities",
     tags=["Entities"],
-    dependencies=_protected_dependencies,
 )
 app.include_router(
     skill_market.router,
     prefix="/v1/skills",
     tags=["SkillMarket"],
-    dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
 )
 
 
