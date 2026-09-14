@@ -82,11 +82,9 @@
           <div class="nav-group" data-group="identity">
             <button class="nav-main" data-page="identity" aria-expanded="false"><span class="icon">ID</span><span data-i18n="nav.identity">身份 · 认证</span><span class="nav-caret">▾</span></button>
             <div class="nav-subs">
-              <button class="nav-sub" data-page="identity" data-sub="master"><span data-i18n="sub.identity.master">我的主身份</span></button>
-              <button class="nav-sub" data-page="identity" data-sub="verify"><span data-i18n="sub.identity.verify">主身份认证</span></button>
-              <button class="nav-sub" data-page="identity" data-sub="subs"><span data-i18n="sub.identity.subs">子身份</span></button>
-              <button class="nav-sub" data-page="identity" data-sub="money"><span data-i18n="sub.identity.money">资金归属</span></button>
-              <button class="nav-sub" data-page="identity" data-sub="entity">主体认证（企业 / API）</button>
+              <button class="nav-sub" data-page="identity" data-sub="personal">个人助理认证</button>
+              <button class="nav-sub" data-page="identity" data-sub="sole">个体助理认证</button>
+              <button class="nav-sub" data-page="identity" data-sub="enterprise">企业助理认证</button>
               <button class="nav-sub" data-page="identity" data-sub="developer">开发者实名</button>
             </div>
           </div>
@@ -466,12 +464,12 @@
         </section>
 
         <section id="identity" class="page">
-          <!-- ① 我的主身份：连钱包就有的那张卡。身份 = 认证，两件事不再拆成两个页面。 -->
-          <div class="card section" id="idv-master">
+          <!-- 主身份页头：任何认证视图下都露着（不参与「点哪个子功能显示哪块」的折叠）。 -->
+          <div class="card section id-hero" id="idv-master">
             <div class="section-header">
               <div>
-                <h3>我的主身份</h3>
-                <p>连接钱包后自动生成 KID 主身份。整本账、所有子身份、所有锁仓都挂在主身份下；子身份只是分工，不另立资金账户。</p>
+                <h3>主身份 · 主体账户</h3>
+                <p>连接钱包后自动生成 KID 主身份（<b>Kid1</b> 开头）。整本账、所有子身份、所有锁仓都挂在主身份下；下面的三个助理认证，认的都是「挂在谁名下」。</p>
               </div>
               <span class="idv-badge" id="idv-master-badge">未连接钱包</span>
             </div>
@@ -494,12 +492,12 @@
             <pre class="out" id="auth-out" style="display:none">—</pre>
           </div>
 
-          <!-- ② 主身份认证：证件 + 刷脸，一条直线做完。 -->
+          <!-- ② 个人助理认证：证件 + 刷脸 + 联系方式，一条直线做完。 -->
           <div class="card section" id="idv-verify">
             <div class="section-header">
               <div>
-                <h3>主身份认证 · 证件 + 刷脸</h3>
-                <p>文件在你自己的浏览器里加密后才上传：Karma 只拿到密文和摘要，看不到证件内容，全程不碰你的私钥、助记词。</p>
+                <h3>个人助理认证 · 证件 + 刷脸 + 联系方式</h3>
+                <p>自然人认证：这是「我本人是谁」。文件在你自己的浏览器里加密后才上传 —— Karma 只拿到密文和摘要，看不到证件内容，全程不碰你的私钥、助记词。</p>
               </div>
               <span class="idv-badge" id="idv-verify-badge">未提交</span>
             </div>
@@ -532,6 +530,8 @@
                   <div class="field"><label>证件类型</label><select id="idv-doc-type"><option value="ID_CARD">身份证</option><option value="PASSPORT">护照</option><option value="DRIVER_LICENSE">驾照</option><option value="RESIDENCE_PERMIT">居留证</option><option value="BUSINESS_LICENSE">营业执照</option></select></div>
                   <div class="field"><label>证件号（只取后 4 位）</label><input id="idv-doc-number" type="text" inputmode="numeric" /></div>
                   <div class="field"><label>有效期</label><input id="idv-valid" type="text" placeholder="2030-01-01" /></div>
+                  <div class="field"><label>联系邮箱</label><input id="idv-email" type="email" placeholder="you@example.com（复核结果发这里）" /></div>
+                  <div class="field"><label>联系电话</label><input id="idv-phone" type="tel" placeholder="选填" /></div>
                 </div>
               </li>
               <li id="idv-step-enc">
@@ -550,19 +550,83 @@
             </ol>
           </div>
 
-          <!-- ③ 子身份：每个 agent 一张卡。 -->
-          <div class="card section" id="idv-subs">
+          <!-- ③ 个体助理认证：个体工商户 / 个人经营者。没有官网也能走完的正规流程。 -->
+          <div class="card section" id="id-cert-sole">
+            <div class="section-header">
+              <div>
+                <h3>个体助理认证 · 个体工商户 / 个人经营者</h3>
+                <p>一张营业执照就能开：字号、经营者、经营范围、主营产品、经营地址。资质原件只在你浏览器里加密，Karma 拿到的是密文与摘要。</p>
+              </div>
+              <span class="idv-badge" id="sole-badge">未提交</span>
+            </div>
+
+            <ol class="idv-pipeline">
+              <li>
+                <div class="idv-step-head"><b>① 主体信息</b><span id="sole-step-info">待填写</span></div>
+                <p class="idv-hint">这一块是「这个个体经营是谁、卖什么、在哪」，对外公开，买家能看到。</p>
+                <div class="idv-grid">
+                  <div class="field"><label>字号 / 主体名称 *</label><input id="sole-name" type="text" placeholder="与营业执照完全一致" /></div>
+                  <div class="field"><label>经营者姓名 *</label><input id="sole-operator" type="text" /></div>
+                  <div class="field"><label>统一社会信用代码</label><input id="sole-reg-no" type="text" placeholder="选填；填了会被复核" /></div>
+                  <div class="field"><label>登记机关 / 所属地区</label><input id="sole-region" type="text" placeholder="浙江省杭州市西湖区" /></div>
+                  <div class="field"><label>经营范围 *</label><input id="sole-scope" type="text" placeholder="与营业执照一致，例：日用百货零售" /></div>
+                  <div class="field"><label>主营产品 / 服务 *</label><input id="sole-products" type="text" placeholder="例：手冲咖啡豆、门店自提" /></div>
+                  <div class="field"><label>经营地址 *</label><input id="sole-address" type="text" placeholder="省 / 市 / 区 + 详细门牌" /></div>
+                  <div class="field"><label>联系电话</label><input id="sole-phone" type="tel" /></div>
+                  <div class="field"><label>联系邮箱 *</label><input id="sole-email" type="email" placeholder="复核结果发这里" /></div>
+                  <div class="field"><label>对外显示名</label><input id="sole-display" type="text" placeholder="不填就用字号" /></div>
+                </div>
+              </li>
+
+              <li>
+                <div class="idv-step-head"><b>② 个体资质</b><span id="sole-doc-state">至少一份营业执照</span></div>
+                <p class="idv-hint">营业执照必传；食品经营许可、特种行业许可、摊位证明可选。每份文件单独加密上传，服务端只存摘要与密文。</p>
+                <div class="idv-grid">
+                  <div class="field"><label>资质类型</label><select id="sole-doc-kind"><option value="BUSINESS_LICENSE">营业执照</option><option value="FOOD_PERMIT">食品经营许可</option><option value="SPECIAL_PERMIT">特种行业许可</option><option value="STALL_PROOF">摊位 / 场地证明</option><option value="OTHER">其他</option></select></div>
+                  <div class="field"><label>资质名称</label><input id="sole-doc-name" type="text" placeholder="营业执照（副本）" /></div>
+                  <div class="field"><label>选择文件</label><label class="btn idv-file">上传<input type="file" id="sole-doc-file" accept="image/*,application/pdf" hidden /></label></div>
+                  <div class="field"><label>已加入</label><span id="sole-doc-count">0 份</span></div>
+                </div>
+                <div class="idv-row" style="margin-top:10px">
+                  <button type="button" class="btn" id="sole-doc-add">加入资质清单</button>
+                  <button type="button" class="btn" id="sole-doc-clear">清空</button>
+                  <span class="api-status" id="sole-doc-add-state">—</span>
+                </div>
+                <ul id="sole-doc-list" class="idv-rules" style="margin-top:10px"></ul>
+              </li>
+
+              <li>
+                <div class="idv-step-head"><b>③ 本地加密并提交</b><span id="sole-step-send">待提交</span></div>
+                <p class="idv-hint">AES-GCM-256，密钥由你的钱包签名在本地派生（PBKDF2）。提交后进入复核；复核通过前，这个身份对外显示「待复核」。</p>
+                <label class="idv-consent"><input type="checkbox" id="sole-consent" /> 我确认以上资料真实，并同意 Karma 加密保存与核验</label>
+                <div class="idv-row">
+                  <button type="button" class="btn primary" id="sole-submit" disabled>提交个体助理认证</button>
+                  <button type="button" class="btn" id="sole-reset">重来</button>
+                  <span class="api-status" id="sole-status">—</span>
+                </div>
+              </li>
+            </ol>
+
+            <ul id="sole-list" class="idv-rules" style="margin-top:12px"></ul>
+          </div>
+
+          <!-- 高级工具：子身份清单 + 资金归属规则 + 身份档案管理。常规认证流程不需要天天看。 -->
+          <details class="card section" data-idv-advanced>
+            <summary class="idv-adv-summary">高级工具 · 子身份清单 / 资金归属 / 身份档案（常规认证不需要）</summary>
+
+          <!-- ④ 子身份清单：每个 agent 一张卡。 -->
+          <div class="idv-adv-inner" id="idv-subs">
             <div class="section-header">
               <div>
                 <h3>子身份 · 每个 agent 一张卡</h3>
-                <p>生活助理 / 工作助理 / 企业助理各建一张。角色、权限、额度、边界、操作钱包都独立，账单互不混淆。</p>
+                <p>生活助理 / 个体助理 / 企业主体各建一张。角色、权限、额度、边界、操作钱包都独立，账单互不混淆。</p>
               </div>
               <button type="button" class="btn primary" id="idsub-new">+ 新建子身份</button>
             </div>
             <div id="idsub-list" class="idv-sub-list">连接钱包后显示你的子身份</div>
             <div id="idsub-form" hidden>
               <div class="idv-grid">
-                <div class="field"><label>角色</label><select id="idsub-role"><option value="life">生活助理</option><option value="work">工作助理</option><option value="company">企业商业助理</option></select></div>
+                <div class="field"><label>角色</label><select id="idsub-role"><option value="life">生活助理</option><option value="sole">个体助理</option><option value="entity">企业主体</option></select></div>
                 <div class="field"><label>名字</label><input id="idsub-name" type="text" placeholder="不填就用角色名" /></div>
                 <div class="field"><label>额度 USDC</label><input id="idsub-amount" type="number" min="0" step="0.01" /></div>
                 <div class="field"><label>单笔最高 USDC</label><input id="idsub-single" type="number" min="0" step="0.01" /></div>
@@ -598,8 +662,8 @@
             </div>
           </div>
 
-          <!-- ④ 资金归属：一个主体，一个资金账户。 -->
-          <div class="card section" id="idv-money-rule">
+          <!-- ⑤ 资金归属：一个主体，一个资金账户。 -->
+          <div class="idv-adv-inner" id="idv-money-rule">
             <div class="section-header">
               <div>
                 <h3>资金归属 · 为什么子身份不另开资金账户</h3>
@@ -614,14 +678,15 @@
               <li><b>操作钱包</b>：子身份可以绑自己的钱包，那只是签名身份，不是资金账户。</li>
             </ul>
           </div>
+          </details>
 
-          <!-- ③ 主体认证（企业 / 数据 API）：面向"公司卖接口"的正规注册流程。
-               自然人认证是"我是谁"，这里是"这家公司是谁、它控制哪个官网、卖什么"。 -->
+          <!-- ③ 企业助理认证：面向"公司卖接口 / 卖服务"的正规注册流程。
+               个人认证回答"我是谁"，这里回答"这家公司是谁、它控制哪个官网、卖什么"。 -->
           <div class="card section" id="id-entity">
             <div class="section-header">
               <div>
-                <h3>主体认证 · 企业 / 数据 API 提供方</h3>
-                <p>要在技能市场上架接口、按次收费，必须先把主体认下来：营业执照 + 法定代表人 + <b>官网控制权</b>。资质原件在你浏览器里加密后才上传，Karma 只拿到密文与摘要。</p>
+                <h3>企业助理认证 · 企业主体 / 数据 API 提供方</h3>
+                <p>企业主体走正规注册：营业执照 + 法定代表人 + <b>官网控制权</b> + 办公地点 + 企业邮箱 + 官方 API 入口。资质原件在你浏览器里加密后才上传，Karma 只拿到密文与摘要。</p>
               </div>
               <span class="idv-badge" id="ent-badge">未认证</span>
             </div>
@@ -635,7 +700,10 @@
                   <div class="field"><label>统一社会信用代码</label><input id="ent-reg-no" type="text" placeholder="91330100MA2ABCDE12" /></div>
                   <div class="field"><label>法定代表人</label><input id="ent-legal-rep" type="text" /></div>
                   <div class="field"><label>官网域名</label><input id="ent-domain" type="text" placeholder="data.example.com（不带 https:// 与端口）" /></div>
-                  <div class="field"><label>联系邮箱</label><input id="ent-email" type="email" placeholder="ops@example.com" /></div>
+                  <div class="field"><label>企业邮箱</label><input id="ent-email" type="email" placeholder="ops@company.com（建议用公司域名邮箱）" /></div>
+                  <div class="field"><label>官方 API 端点</label><input id="ent-api-endpoint" type="text" placeholder="https://api.example.com/v1（没有就留空）" /></div>
+                  <div class="field"><label>API 文档地址</label><input id="ent-api-docs" type="text" placeholder="https://docs.example.com" /></div>
+                  <div class="field"><label>办公地点</label><input id="ent-office-address" type="text" placeholder="省 / 市 / 区 + 详细地址" /></div>
                   <div class="field"><label>服务分类</label><select id="ent-category"><option value="data_api">数据 API</option><option value="skill_plugin">技能 / 插件</option><option value="compute">算力</option><option value="agent_service">Agent 服务</option><option value="other">其他</option></select></div>
                   <div class="field"><label>服务范围</label><input id="ent-scope" type="text" placeholder="数据来源 / 接口类型 / 更新频率" /></div>
                 </div>
@@ -1030,6 +1098,8 @@
     <script src="../../scripts/cyber-agents.js"></script>
     <script src="../../scripts/cyber-authorize.js"></script>
     <script src="../../scripts/cyber-handoff.js"></script>
+    <script src="../../scripts/cyber-cert-shared.js"></script>
+    <script src="../../scripts/cyber-cert-sole.js"></script>
     <script src="../../scripts/cyber-entity.js"></script>
     <script src="../../scripts/cyber-developer.js"></script>
     <script src="../../scripts/cyber-globe-bg.js"></script>

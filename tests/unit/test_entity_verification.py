@@ -215,3 +215,25 @@ async def test_private_domain_is_refused(client: AsyncClient):
         headers=_h(owner),
     )
     assert r.status_code == 400, r.text
+
+
+def test_extracted_whitelist_carries_the_commercial_fields():
+    """企业认证页要落的办公地点 / 官方 API / 企业邮箱必须在白名单里，白名单外照旧丢掉。"""
+    from services.entity_verification import sanitize_extracted_fields
+
+    out = sanitize_extracted_fields(
+        {
+            "consent": True,
+            "legal_name": "示例数据科技有限公司",
+            "office_address": "杭州市西湖区文三路 1 号",
+            "api_endpoint": "https://api.example.com/v1",
+            "api_docs_url": "https://docs.example.com",
+            "contact_email": "ops@example.com",
+            "some_unknown_field": "x",
+        }
+    )
+    assert out["office_address"] == "杭州市西湖区文三路 1 号"
+    assert out["api_endpoint"] == "https://api.example.com/v1"
+    assert out["api_docs_url"] == "https://docs.example.com"
+    assert out["contact_email"] == "ops@example.com"
+    assert "some_unknown_field" not in out

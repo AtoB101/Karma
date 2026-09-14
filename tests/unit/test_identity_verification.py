@@ -318,3 +318,25 @@ async def test_sub_identity_spend_policy_is_stored_for_the_sdk_wizard(client, db
     )
     assert read.status_code == 200
     assert read.json()["spend_policy"]["permissions"] == ["request_voucher", "place_order"]
+
+
+def test_extracted_whitelist_carries_the_contact_fields():
+    """个人助理认证页要落的联系方式必须在白名单里；白名单外的键照旧丢掉。"""
+    from services.identity_verification import sanitize_extracted
+
+    out = sanitize_extracted(
+        {
+            "consent": True,
+            "full_name": "张三",
+            "contact_email": "owner@example.com",
+            "contact_phone": "13800000000",
+            "some_unknown_field": "x",
+        }
+    )
+    assert out["contact_email"] == "owner@example.com"
+    assert out["contact_phone"] == "13800000000"
+    assert "some_unknown_field" not in out
+
+    # 白名单是「允许」不是「不限长」：长度封顶照旧生效。
+    capped = sanitize_extracted({"consent": True, "contact_phone": "9" * 100})
+    assert len(capped["contact_phone"]) == 40

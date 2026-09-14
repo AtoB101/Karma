@@ -1248,7 +1248,12 @@
   /** 子功能各自的落地位置（页面 → 子项 → 选择器）。 */
   var SUB_TARGETS = {
     tasks: { flow: "#tasks .card.section" },
-    identity: { master: "#idv-master", verify: "#idv-verify", subs: "#idv-subs", money: "#idv-money-rule", entity: "#id-entity", developer: "#id-developer" },
+    identity: {
+      personal: "#idv-verify",
+      sole: "#id-cert-sole",
+      enterprise: "#id-entity",
+      developer: "#id-developer",
+    },
     market: { catalog: "#mk-catalog", mine: "#mk-mine", usage: "#mk-usage" },
     agents: { wizard: "#ag-wizard", mine: "#ag-mine", handoff: "#ag-handoff-card", connect: "#agents .ag-advanced" },
   };
@@ -1305,12 +1310,11 @@
       new: ["#pay-create"],
     },
     tasks: { flow: ["#tasks > .card.section"] },
+    // 主身份卡（#idv-master）故意不列进来：它是页头，任何认证视图下都要露着。
     identity: {
-      master: ["#idv-master"],
-      verify: ["#idv-verify"],
-      subs: ["#idv-subs"],
-      money: ["#idv-money-rule"],
-      entity: ["#id-entity"],
+      personal: ["#idv-verify"],
+      sole: ["#id-cert-sole"],
+      enterprise: ["#id-entity"],
       developer: ["#id-developer"],
     },
     market: {

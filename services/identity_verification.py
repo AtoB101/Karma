@@ -56,6 +56,9 @@ EXTRACTED_FIELD_MAX = {
     "nationality": 64,
     "birth_year": 8,
     "face_match_hint": 32,
+    # 联系方式：商业流程要走完「认下来的人怎么被联系到」，但同样只留展示用的值。
+    "contact_email": 200,
+    "contact_phone": 40,
 }
 EXTRACTED_STRING_FIELDS = tuple(EXTRACTED_FIELD_MAX)
 

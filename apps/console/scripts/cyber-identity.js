@@ -42,6 +42,20 @@
       return Array.isArray(arr) ? arr : [];
     } catch (_) { return []; }
   }
+  /* 三种身份 + 两个治理岗。侧栏「选择身份」和认证页都用这一张表，不许各写一套。 */
+  var ROLE_LABELS = {
+    individual: "生活助理",
+    merchant: "个体助理",
+    enterprise: "企业主体",
+    verifier: "复核岗",
+    arbitrator: "仲裁岗",
+  };
+  /** 主身份没有 class：它就是主体账户本身。 */
+  function roleLabel(p) {
+    if (!p) return "主体账户";
+    return ROLE_LABELS[p["class"]] || p["class"] || "子身份";
+  }
+
   function profileLabel(p) {
     if (!p) return "";
     var pos = profilePosition(p.profile_id);
@@ -217,8 +231,8 @@
   function setActiveProfile(id) {
     var next = id || "";
     setActiveProfileId(next);
-    var side = $("[data-profile-switcher] select");
-    if (side && side.value !== next) side.value = next;
+    renderIdPickerItems(getProfiles());
+    renderIdPickerNow();
     var billScope = document.getElementById("bill-scope");
     if (billScope && billScope.value !== next) billScope.value = next;
     applyConfidential();
@@ -247,41 +261,135 @@
     });
   }
 
-  // ---- 切换器（侧边栏 identity-box）----
+  // ---- 「选择身份」（侧边栏 identity-box）-------------------------------------
+  /* 一个入口把主身份和所有子身份列清楚：每条一行名字，名字下方就是它自己的子身份编号
+     （Kid1… / kid02… / kid03…）。点哪条就是切到哪个身份，不做二级确认。 */
   function renderSwitcher(profiles) {
     var box = $(".identity-box");
     if (!box) return;
-    var existing = box.querySelector("[data-profile-switcher]");
-    if (existing) existing.remove();
-
-    var wrap = document.createElement("div");
-    wrap.setAttribute("data-profile-switcher", "");
-    wrap.className = "profile-switcher";
-
-    var sel = document.createElement("select");
-    sel.setAttribute("aria-label", "身份角色档案");
-    var none = document.createElement("option");
-    none.value = "";
-    none.textContent = profiles.length ? "— 选择身份档案 —" : "（无档案）";
-    sel.appendChild(none);
-
-    var active = activeProfileId();
-    for (var i = 0; i < profiles.length; i++) {
-      var p = profiles[i];
-      var o = document.createElement("option");
-      o.value = p.profile_id;
-      o.textContent = (p.display_name || p.profile_id) + " · " + (p["class"] || "") + (p.visibility === "private" ? " 🔒" : "");
-      if (p.profile_id === active) o.selected = true;
-      sel.appendChild(o);
+    var host = box.querySelector("[data-profile-switcher]");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "id-picker";
+      host.setAttribute("data-profile-switcher", "");
+      host.innerHTML =
+        '<button type="button" class="id-picker-btn" id="id-picker-btn" aria-haspopup="listbox" aria-expanded="false">' +
+        '<span class="id-picker-head"><span class="id-picker-title">选择身份</span><span class="id-picker-caret">▾</span></span>' +
+        '<span class="id-picker-now" id="id-picker-now">—</span>' +
+        "</button>" +
+        '<div class="id-picker-panel" id="id-picker-panel" role="listbox" aria-label="选择身份" hidden></div>';
+      var sub = box.querySelector(".id-sub");
+      if (sub) sub.insertAdjacentElement("afterend", host);
+      else box.appendChild(host);
+      host.querySelector("#id-picker-btn").addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        toggleIdPicker();
+      });
+      document.addEventListener("click", function (ev) {
+        if (host.contains(ev.target)) return;
+        closeIdPicker();
+      });
+      document.addEventListener("keydown", function (ev) {
+        if (ev.key === "Escape") closeIdPicker();
+      });
     }
-    sel.addEventListener("change", function () {
-      setActiveProfile(sel.value);
+    renderIdPickerItems(profiles);
+    renderIdPickerNow();
+  }
+
+  function closeIdPicker() {
+    var panel = document.getElementById("id-picker-panel");
+    var btn = document.getElementById("id-picker-btn");
+    if (panel) panel.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  }
+  function toggleIdPicker() {
+    var panel = document.getElementById("id-picker-panel");
+    if (!panel) return;
+    var btn = document.getElementById("id-picker-btn");
+    panel.hidden = !panel.hidden;
+    if (btn) btn.setAttribute("aria-expanded", panel.hidden ? "false" : "true");
+  }
+
+  /** 主身份 + 每条子身份一行；空的时候给一条能直接去认证的出口。 */
+  function renderIdPickerItems(profiles) {
+    var panel = document.getElementById("id-picker-panel");
+    if (!panel) return;
+    var list = profiles || getProfiles();
+    var active = activeProfileId();
+    var masterId = String(window.KARMA_IDENTITY_ID || "").trim();
+    panel.innerHTML = "";
+
+    var rows = [
+      {
+        id: "",
+        name: "主身份 · 主体账户",
+        sub: masterId ? displayId(masterId, 0) : "未连接钱包",
+        role: "主体账户",
+        locked: false,
+      },
+    ];
+    list.forEach(function (p) {
+      if (!p || !p.profile_id) return;
+      rows.push({
+        id: p.profile_id,
+        name: p.display_name || roleLabel(p),
+        sub: displayId(p.profile_id, profilePosition(p.profile_id)),
+        role: roleLabel(p),
+        locked: p.visibility === "private",
+      });
     });
 
-    wrap.appendChild(sel);
-    var sub = box.querySelector(".id-sub");
-    if (sub) sub.insertAdjacentElement("afterend", wrap);
-    else box.appendChild(wrap);
+    rows.forEach(function (r) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "id-picker-item" + (r.id === active ? " active" : "");
+      b.setAttribute("role", "option");
+      b.setAttribute("data-profile-id", r.id);
+      b.setAttribute("aria-selected", r.id === active ? "true" : "false");
+      var name = document.createElement("span");
+      name.className = "ip-name";
+      name.textContent = r.name + (r.locked ? " 🔒" : "");
+      var meta = document.createElement("span");
+      meta.className = "ip-meta";
+      var idSpan = document.createElement("b");
+      idSpan.className = "ip-id";
+      idSpan.textContent = r.sub;
+      var role = document.createElement("em");
+      role.className = "ip-role";
+      role.textContent = r.role;
+      meta.appendChild(idSpan);
+      meta.appendChild(role);
+      b.appendChild(name);
+      b.appendChild(meta);
+      b.addEventListener("click", function () {
+        closeIdPicker();
+        if (r.id === active) return;
+        setActiveProfile(r.id);
+      });
+      panel.appendChild(b);
+    });
+
+    if (!list.length) {
+      var empty = document.createElement("p");
+      empty.className = "id-picker-empty";
+      empty.textContent = "还没有子身份。去「身份 · 认证」建一个：个体助理 / 企业主体。";
+      empty.addEventListener("click", function () {
+        closeIdPicker();
+        if (window.cyberSwitchPage) window.cyberSwitchPage("identity", "sole");
+      });
+      panel.appendChild(empty);
+    }
+  }
+
+  function renderIdPickerNow() {
+    var node = document.getElementById("id-picker-now");
+    if (!node) return;
+    var pid = activeProfileId();
+    var p = getActiveProfile();
+    node.textContent = pid
+      ? displayId(pid, profilePosition(pid)) + " · " + (p ? p.display_name || roleLabel(p) : "")
+      : "主体账户（全部）";
   }
 
   // ---- 涉密 ----
