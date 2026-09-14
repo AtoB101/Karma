@@ -127,3 +127,59 @@ async def test_distinct_peers_keep_distinct_budgets(no_redis):
         await rl.rate_limit(_request(peer="198.51.100.10"), "register")
     # a different client is unaffected
     await rl.rate_limit(_request(peer="198.51.100.11"), "register")
+
+
+class _FakePipeline:
+    def __init__(self, store):
+        self._store = store
+        self._ops = []
+
+    def zremrangebyscore(self, key, low, high):
+        hits = self._store.setdefault(key, {})
+        for member in [m for m, score in hits.items() if low <= score <= high]:
+            del hits[member]
+        return self
+
+    def zadd(self, key, mapping):
+        self._store.setdefault(key, {}).update(mapping)
+        return self
+
+    def zcard(self, key):
+        self._ops.append(len(self._store.get(key, {})))
+        return self
+
+    def expire(self, key, ttl):
+        return self
+
+    async def execute(self):
+        return list(self._ops)
+
+
+class _FakeRedis:
+    def __init__(self):
+        self.store = {}
+
+    def pipeline(self):
+        return _FakePipeline(self.store)
+
+
+@pytest.mark.asyncio
+async def test_requests_in_the_same_tick_do_not_overwrite_each_other(monkeypatch):
+    """Two requests inside one clock tick used to share a sorted-set member."""
+    fake = _FakeRedis()
+
+    async def _redis():
+        return fake
+
+    monkeypatch.setattr(rl, 'get_redis', _redis)
+    frozen = 1000.0
+    monkeypatch.setattr(rl.time, 'time', lambda: frozen)
+    max_requests, _ = rl.RATE_LIMITS['register']
+
+    for _ in range(max_requests):
+        await rl.rate_limit(_request(), 'register')
+    with pytest.raises(HTTPException) as exc:
+        await rl.rate_limit(_request(), 'register')
+    assert exc.value.status_code == 429
+    recorded = fake.store[f'ratelimit:register:ip:{PUBLIC_PEER}']
+    assert len(recorded) == max_requests + 1
