@@ -131,6 +131,9 @@
     if (/did not reach the Karma escrow|not sent to the Karma escrow/i.test(raw)) {
       return "这笔交易没有真正落到 Karma 额度合约上，什么都没扣。请在钱包里切到 Sepolia 后重试；若连续出现，把交易哈希发给我们";
     }
+    if (/execution reverted|WrongBillState|reverted/i.test(raw)) {
+      return "这笔承诺在链上已经是关闭状态（多半是上一次撤销已经成功、只是没登记回来），所以不能再撤。页面正在跟链上对齐，请稍等两秒再点一次「减少锁仓」";
+    }
     if (/TokenNotAllowed/i.test(raw)) {
       return "这个代币合约没被额度合约允许，请联系我们处理（TokenNotAllowed）";
     }
@@ -812,16 +815,18 @@
         const link = escrow.explorer_url
           ? '<a href="' + escrow.explorer_url + "/tx/" + c.commit_tx_hash + '" target="_blank" rel="noopener">交易</a>'
           : "";
+        const closed = c.state === "revoked" || c.state === "closed";
         const stateText =
           c.state === "revoked"
             ? "已撤销"
-            : c.backed
-              ? "有效"
-              : "额度不足（钱包余额或授权不足）";
-        const btn =
-          c.state === "revoked"
-            ? ""
-            : '<button type="button" class="btn" data-revoke-commit="' + c.bill_id + '">撤销授权</button>';
+            : c.state === "closed"
+              ? "已关闭（链上已撤销）"
+              : c.backed
+                ? "有效"
+                : "额度不足（钱包余额或授权不足）";
+        const btn = closed
+          ? ""
+          : '<button type="button" class="btn" data-revoke-commit="' + c.bill_id + '">撤销授权</button>';
         return (
           '<div style="display:flex;gap:10px;align-items:center;justify-content:space-between;' +
           'padding:8px 10px;border:1px solid rgba(34,211,238,0.18);border-radius:10px;margin-bottom:6px">' +
@@ -1013,15 +1018,21 @@
             return "<div>· 承诺 #" + x.bill_id + " · 未使用 " + fmtNum(x.free) + " USDC</div>";
           })
           .join("");
+        const over = Math.max(0, p.total - want);
+        const reCommit = over >= 0.01 ? over : 0;
+        const netReduce = p.total - reCommit;
         html =
-          "<div>将撤销下面这些<b>未使用</b>的账单，实际减少 <b>" + fmtNum(p.total) + " USDC</b>：" +
-          (p.total > want + 0.000001 ? '<span class="confirm-warn">（账单不能拆开，所以比你要的略多）</span>' : "") +
+          "<div>将撤销下面这些<b>未使用</b>的账单，减少 <b>" + fmtNum(p.total) + " USDC</b>：" +
+          (reCommit > 0
+            ? '<span class="confirm-warn">（合约只能整笔撤销：多撤的 ' + fmtNum(reCommit) + " USDC 会立刻重新锁仓，净减少正好是 " + fmtNum(netReduce) + " USDC，需要多签一次名）</span>"
+            : "") +
           "</div>" + rows +
-          "<div>锁仓 " + fmtNum(total) + " → " + fmtNum(Math.max(0, total - p.total)) + " USDC。钱包会逐笔让你签名确认。</div>" +
+          "<div>锁仓 " + fmtNum(total) + " → " + fmtNum(Math.max(0, total - netReduce)) + " USDC。钱包会逐笔让你签名确认。</div>" +
           '<div class="confirm-actions">' +
           '<button type="button" class="btn primary" id="reduce-go">确认减少</button>' +
           '<button type="button" class="btn" id="reduce-cancel">取消</button></div>' +
-          '<input type="hidden" id="reduce-plan" value="' + esc(JSON.stringify(p.plan.map(function (x) { return x.bill_id; }))) + '" />';
+          '<input type="hidden" id="reduce-plan" value="' + esc(JSON.stringify(p.plan.map(function (x) { return x.bill_id; }))) + '" />' +
+          '<input type="hidden" id="reduce-recommit" value="' + reCommit + '" />';
       }
     }
     const box = confirmBox(html);
@@ -1031,13 +1042,18 @@
       renderReduceConfirm(commits, reducible, reducible, reserved);
     });
     box.querySelector("#reduce-go")?.addEventListener("click", function () {
-      runReduce(id, JSON.parse(box.querySelector("#reduce-plan").value || "[]"));
+      runReduce(
+        id,
+        JSON.parse(box.querySelector("#reduce-plan").value || "[]"),
+        Number(box.querySelector("#reduce-recommit")?.value || 0)
+      );
     });
   }
 
-  async function runReduce(id, billIds) {
+  async function runReduce(id, billIds, reCommitAmount) {
     if (!billIds.length) return;
     closeConfirm();
+    const reCommit = Number(reCommitAmount || 0);
     for (let i = 0; i < billIds.length; i += 1) {
       const billId = billIds[i];
       setApiStatus("请在钱包里确认撤销承诺 #" + billId + "（第 " + (i + 1) + "/" + billIds.length + " 笔）…", false);
@@ -1049,7 +1065,21 @@
         return;
       }
     }
-    setApiStatus("已减少锁仓：撤销 " + billIds.length + " 笔账单", false);
+    let reCommitNote = "";
+    if (reCommit >= 0.01) {
+      setApiStatus("钱包里确认把多撤的 " + fmtNum(reCommit) + " USDC 重新锁仓（净减少正好是你输入的金额）…", false);
+      try {
+        await onchainCommit(id, reCommit, await loadEscrowInfo(id, true));
+        reCommitNote = "，并把 " + fmtNum(reCommit) + " USDC 重新锁仓";
+      } catch (e) {
+        setApiStatus("已经减少锁仓，但把多撤的 " + fmtNum(reCommit) + " USDC 重新锁仓没成功：" + humanTxError(e), true);
+        await refreshEscrowCommits(true).catch(function () {});
+        refreshCapacity().catch(function () {});
+        renderIdentityHome();
+        return;
+      }
+    }
+    setApiStatus("已减少锁仓：撤销 " + billIds.length + " 笔账单" + reCommitNote, false);
     await refreshEscrowCommits(true).catch(function () {});
     refreshChainBills(true).catch(function () {});
     refreshCapacity().catch(function () {});
@@ -1067,15 +1097,19 @@
       setApiStatus("请先填写要减少的锁仓金额", true);
       return;
     }
-    setApiStatus("正在核对链上锁仓与订单占用…", false);
+    setApiStatus("正在和链上对齐锁仓状态…", false);
     let info;
     try {
+      // 链上是唯一事实来源：用户可能上一次撤销已经上链、却直接关掉了页面，
+      // 台账里那笔承诺就还是「开」的。先回链同步一次，方案里才不会混进已经
+      // 关闭的账单（那种账单点下去只会 execution reverted）。
+      await window.cyberKarmaApi.syncEscrow(id).catch(function () {});
       info = await loadEscrowInfo(id, true);
     } catch (e) {
       setApiStatus(String(e.message || e), true);
       return;
     }
-    const commits = ((info && info.commits) || []).filter(function (c) { return c.state !== "revoked"; });
+    const commits = ((info && info.commits) || []).filter(function (c) { return c.state === "open"; });
     const committed = Number((info && info.committed_usdc) || 0);
     const reserved = Number((info && info.reserved_usdc) || 0);
     const spent = Number((info && info.spent_usdc) || 0);

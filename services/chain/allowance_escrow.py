@@ -32,11 +32,11 @@ import json
 import threading
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
@@ -58,6 +58,12 @@ logger = structlog.get_logger(__name__)
 IDLE = "open"
 REVOKED = "revoked"
 CLOSED = "closed"
+# 一条承诺不再贡献责任额度的状态：已撤销 / 链上已关闭。
+_NON_LIVE_STATES = (REVOKED, CLOSED)
+
+# 自愈：链上可能比台账先变（用户撤销了承诺却关掉了页面）。同一个身份最多每
+# 这么久回链上一次，防止被放弃的账单把锁仓数字撑大。
+_RESYNC_INTERVAL_SECONDS = 600
 
 _ZERO = "0x0000000000000000000000000000000000000000"
 
@@ -789,7 +795,11 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
     live_total = 0.0
     credited_total = 0.0
     for row in rows:
-        if row.state == REVOKED:
+        # 链上已关闭的承诺不再承担任何责任额度：revoke() 关掉的是整笔未使用额度，
+        # 而「被划光」的账单 spent == amount 本来就算 0。若这里只认 REVOKED，一条撤销
+        # 成功但没登记上的账单会永久虚增用户锁仓，也会让「减少锁仓」被这笔链上已关闭
+        # 的账单反复拖成 execution reverted。
+        if row.state in _NON_LIVE_STATES:
             live = 0.0
         else:
             live = max(0.0, float(row.amount_usdc or 0.0) - float(row.spent_usdc or 0.0))
@@ -848,15 +858,21 @@ async def reconcile_all_capacity_mirrors(
     converge back to the chain's truth within one interval.
     """
     stmt = (
-        select(AllowanceCommitModel.identity_id)
+        select(
+            AllowanceCommitModel.identity_id,
+            func.max(AllowanceCommitModel.last_synced_at),
+        )
         .where(AllowanceCommitModel.state != REVOKED)
         .group_by(AllowanceCommitModel.identity_id)
         .limit(limit)
     )
-    identity_ids = list((await db.execute(stmt)).scalars().all())
+    holders = list((await db.execute(stmt)).all())
+    resync_before = datetime.utcnow() - timedelta(seconds=_RESYNC_INTERVAL_SECONDS)
     changed: list[dict[str, Any]] = []
-    for identity_id in identity_ids:
+    for identity_id, last_synced in holders:
         try:
+            if last_synced is None or last_synced < resync_before:
+                await sync_commits(db, identity_id)
             result = await reconcile_capacity_mirror(db, identity_id)
         except Exception as exc:  # noqa: BLE001 - bookkeeping must never stop the loop
             logger.warning(
