@@ -12,12 +12,23 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.settings import settings
 from db.models.orm import SettlementModel
 
 OWNER = {"X-Karma-Identity-Id": "owner-1"}
 PARTY = {"X-Karma-Identity-Id": "party-x"}
 STRANGER = {"X-Karma-Identity-Id": "stranger"}
 VERIFIER = {"X-Karma-Identity-Id": "verifier-1"}
+
+
+@pytest.fixture(autouse=True)
+def _allow_governance_roles(monkeypatch):
+    """verifier / arbitrator 默认不许自助开通（防自助提权）。
+
+    这个文件测的是角色档案本身，所以把用到的身份放进运维白名单；
+    「不给白名单就必须 403」这件事在 tests/integration/test_developer_api.py 覆盖。
+    """
+    monkeypatch.setattr(settings, "governance_verifier_ids", "verifier-1,owner-1")
 
 
 async def _create_profile(client: AsyncClient, *, class_: str, owner: str = "owner-1") -> dict:

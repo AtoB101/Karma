@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     # resolve disputes via /miniapp/disputes/resolve. Empty in production is rejected;
     # in development an empty list falls back to admin_actor_ids for convenience.
     arbitrator_actor_ids: str = ""
+    # Comma-separated identity ids allowed to hold governance role profiles
+    # (class=verifier / arbitrator). Empty means nobody can self-create one over the
+    # API; the operational grant path is scripts/ops/grant_governance_role.py on the
+    # server. Either way an identity can never review its own filing.
+    governance_verifier_ids: str = ""
+    # When true, publishing a skill additionally requires a verified developer
+    # real-name profile whose agreement wallet is the one signing the listing.
+    skill_require_developer_verification: bool = True
     debug: bool = False
 
     # Comma-separated browser origins for CORS, e.g. "https://app.example.com,https://console.example.com".
@@ -473,6 +481,13 @@ class Settings(BaseSettings):
             return {item.strip() for item in raw.split(",") if item.strip()}
         # Development convenience: fall back to admin allowlist when unset.
         return self.admin_actor_id_set()
+
+    def governance_verifier_id_set(self) -> set[str]:
+        """谁能给自己开 verifier / arbitrator 档案：运维白名单，默认无人。"""
+        raw = (self.governance_verifier_ids or "").strip()
+        if not raw:
+            return set()
+        return {item.strip() for item in raw.split(",") if item.strip()}
 
 
 @lru_cache()

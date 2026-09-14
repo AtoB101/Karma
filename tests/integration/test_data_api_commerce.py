@@ -12,8 +12,14 @@ from eth_account import Account
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models.orm import AllowanceCommitModel, EntityVerificationModel, IdentityProfileModel
+from db.models.orm import (
+    AllowanceCommitModel,
+    EntityVerificationModel,
+    IdentityProfileModel,
+    SkillDeveloperModel,
+)
 from services.chain import allowance_escrow as escrow
+from services.developer_registry import AGREEMENT_VERSION, agreement_digest
 
 ACCOUNT = Account.create()
 KEY = ACCOUNT.key.hex()
@@ -48,6 +54,22 @@ async def _certified_seller(db: AsyncSession) -> None:
             legal_identity_status="unbound",
             status="active",
             bound_wallet_address=WALLET,
+        )
+    )
+    # 上架还要过「开发者实名」这一关（SKILL_REQUIRE_DEVELOPER_VERIFICATION 默认开启），
+    # 所以这个已认证主体下也要有一个复核通过、且用同一个钱包签过协议的人。
+    db.add(
+        SkillDeveloperModel(
+            identity_id=SELLER,
+            legal_name="示例数据科技有限公司",
+            real_name="张三",
+            role_title="数据平台负责人",
+            contact_email="zhangsan@example.com",
+            developer_role="api_owner",
+            agreement_version=AGREEMENT_VERSION,
+            agreement_digest=agreement_digest(),
+            signer_wallet=WALLET,
+            status="verified",
         )
     )
     await db.flush()

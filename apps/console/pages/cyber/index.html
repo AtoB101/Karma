@@ -87,6 +87,7 @@
               <button class="nav-sub" data-page="identity" data-sub="subs"><span data-i18n="sub.identity.subs">子身份</span></button>
               <button class="nav-sub" data-page="identity" data-sub="money"><span data-i18n="sub.identity.money">资金归属</span></button>
               <button class="nav-sub" data-page="identity" data-sub="entity">主体认证（企业 / API）</button>
+              <button class="nav-sub" data-page="identity" data-sub="developer">开发者实名</button>
             </div>
           </div>
           <div class="nav-group" data-group="agents">
@@ -684,6 +685,70 @@
               <pre class="out" id="ent-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
             </details>
           </div>
+
+          <!-- ④ 开发者实名：主体认证回答"公司是谁"，这里回答"操作这个身份的是哪个人"。
+               上架技能时签名的钱包必须就是这里签过协议的那个钱包。 -->
+          <div class="card section" id="id-developer">
+            <div class="section-header">
+              <div>
+                <h3>开发者实名 · 技能 / 插件上架人</h3>
+                <p>主体认证回答「公司是谁」，这里回答「操作这个身份的是哪个人」。填真实姓名与职务 → 签署<b>开发者协议</b>（服务端给原文、你的钱包签名）→ 复核通过后，用<b>同一个钱包</b>才能上架技能。材料选传，且只在你浏览器里加密。</p>
+              </div>
+              <span class="idv-badge" id="dev-badge">未实名</span>
+            </div>
+
+            <ol class="idv-pipeline">
+              <li>
+                <div class="idv-step-head"><b>① 实名信息</b><span id="dev-step-info">待填写</span></div>
+                <div class="idv-grid">
+                  <div class="field"><label>真实姓名</label><input id="dev-real-name" type="text" placeholder="与证件一致" /></div>
+                  <div class="field"><label>职务</label><input id="dev-role-title" type="text" placeholder="数据平台负责人" /></div>
+                  <div class="field"><label>联系邮箱</label><input id="dev-email" type="email" placeholder="you@example.com" /></div>
+                  <div class="field"><label>在公司里的角色</label><select id="dev-role"><option value="developer">开发者</option><option value="api_owner">接口负责人</option><option value="ops">运维</option><option value="founder">创始人</option><option value="other">其他</option></select></div>
+                </div>
+                <p class="idv-hint" id="dev-entity-hint">归属主体取自你已通过的主体认证：—</p>
+              </li>
+
+              <li>
+                <div class="idv-step-head"><b>② 签署开发者协议</b><span id="dev-step-sign">待生成</span></div>
+                <p class="idv-hint">协议正文由服务端给出（改版本号才会变）。下面这段就是你的钱包要签的原文 —— 签的是什么，你自己看得见。</p>
+                <pre class="out" id="dev-message" style="max-height:240px;overflow:auto">—</pre>
+                <div class="idv-row">
+                  <button type="button" class="btn" id="dev-prepare">① 生成待签协议</button>
+                  <button type="button" class="btn primary" id="dev-submit">② 钱包签名并提交</button>
+                  <span class="api-status" id="dev-status">—</span>
+                </div>
+              </li>
+
+              <li>
+                <div class="idv-step-head"><b>③ 材料（选传）</b><span id="dev-step-mats">可以跳过</span></div>
+                <p class="idv-hint">工牌 / 在职证明 / 授权书可选。与主体资质同一套加密：原件不出这台设备，服务端只拿到密文与摘要。</p>
+                <div class="idv-grid">
+                  <div class="field"><label>材料类型</label><select id="dev-mat-kind"><option value="WORK_BADGE">工牌</option><option value="EMPLOYMENT_PROOF">在职证明</option><option value="AUTHORIZATION_LETTER">授权书</option><option value="ID_CARD">身份证件</option><option value="OTHER">其他</option></select></div>
+                  <div class="field"><label>材料名称</label><input id="dev-mat-name" type="text" placeholder="工牌（正面）" /></div>
+                  <div class="field"><label>选择文件</label><label class="btn idv-file">上传<input type="file" id="dev-mat-file" accept="image/*,application/pdf" hidden /></label></div>
+                  <div class="field"><label>已加入</label><span id="dev-mat-count">0 份</span></div>
+                </div>
+                <div class="idv-row" style="margin-top:10px">
+                  <button type="button" class="btn" id="dev-mat-add">加入材料</button>
+                  <button type="button" class="btn" id="dev-mat-clear">清空</button>
+                  <span class="api-status" id="dev-mat-state">—</span>
+                </div>
+                <ul id="dev-mat-list" class="idv-rules" style="margin-top:10px"></ul>
+              </li>
+            </ol>
+
+            <div class="idv-row" style="margin-top:14px">
+              <button type="button" class="btn" id="dev-refresh">刷新我的实名档案</button>
+            </div>
+            <ul id="dev-list" class="idv-rules" style="margin-top:10px"></ul>
+
+            <details style="margin-top:14px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">开发者实名当前状态 / 驳回原因</summary>
+              <pre class="out" id="dev-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
+            </details>
+          </div>
+
         </section>
 
         <section id="agents" class="page">
@@ -966,6 +1031,7 @@
     <script src="../../scripts/cyber-authorize.js"></script>
     <script src="../../scripts/cyber-handoff.js"></script>
     <script src="../../scripts/cyber-entity.js"></script>
+    <script src="../../scripts/cyber-developer.js"></script>
     <script src="../../scripts/cyber-globe-bg.js"></script>
   </body>
 </html>

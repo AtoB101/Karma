@@ -1005,6 +1005,43 @@ class EntityVerificationModel(Base):
     updated_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class SkillDeveloperModel(Base):
+    """技能开发者实名：一个可追责的自然人 + 开发者协议签名存证。
+
+    主体认证回答「这家公司是谁」，这里回答「操作这个身份的是哪个人」。一个身份可以有
+    多个开发者档案（每人一个钱包），上架时签名钱包必须命中其中一个**已通过复核**的档案
+    —— 见 services/developer_registry.assert_can_publish。签名只能由本人钱包签出，
+    ``signer_wallet`` 是 recover 出来的地址，不是客户端自报的。
+    """
+
+    __tablename__ = "skill_developers"
+
+    developer_id:      Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
+    identity_id:       Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
+    legal_name:        Mapped[str]      = mapped_column(String(200), nullable=False, default="")
+    real_name:         Mapped[str]      = mapped_column(String(64), nullable=False, default="")
+    role_title:        Mapped[str]      = mapped_column(String(64), nullable=False, default="")
+    contact_email:     Mapped[str]      = mapped_column(String(200), nullable=False, default="")
+    developer_role:    Mapped[str]      = mapped_column(String(32), nullable=False, default="developer")
+    agreement_version: Mapped[str]      = mapped_column(String(64), nullable=False, default="")
+    agreement_digest:  Mapped[str]      = mapped_column(String(64), nullable=False, default="")
+    signer_wallet:     Mapped[str | None] = mapped_column(String(128), nullable=True)
+    signature:         Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 材料清单 [{kind, name, digest}]+ 密文包：与主体认证同一套「只存密文 + 摘要」约定。
+    materials:         Mapped[list]     = mapped_column(JSON, default=list)
+    package_digest:    Mapped[str | None] = mapped_column(String(128), nullable=True)
+    package_cipher:    Mapped[str | None] = mapped_column(Text, nullable=True)
+    encryption:        Mapped[dict]     = mapped_column(JSON, default=dict)
+    extracted:         Mapped[dict]     = mapped_column(JSON, default=dict)
+    status:            Mapped[str]      = mapped_column(String(16), nullable=False, default="none", index=True)
+    reviewer_identity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    review_note:       Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    verified_at:       Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    submitted_at:      Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at:        Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:        Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class SkillModel(Base):
     """技能 / 插件登记：一个可以被 agent 调用、按次计费的服务。
 
@@ -1032,6 +1069,8 @@ class SkillModel(Base):
     publisher_signature: Mapped[str | None] = mapped_column(String(200), nullable=True)
     publisher_wallet:  Mapped[str | None] = mapped_column(String(128), nullable=True)
     verified_domain:   Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 上架时签名钱包对应的开发者实名档案（SKILL_REQUIRE_DEVELOPER_VERIFICATION 关掉时为空）。
+    developer_id:      Mapped[str | None] = mapped_column(String(64), nullable=True)
     status:            Mapped[str]      = mapped_column(String(16), nullable=False, default="draft", index=True)
     published_at:      Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     paused_at:         Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
