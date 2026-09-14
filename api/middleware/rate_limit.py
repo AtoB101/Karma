@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import secrets
 import time
 from typing import Optional
 
@@ -140,3 +141,83 @@ register_rate_limit = make_rate_limit_dep("register")
 register_agent_rate_limit = make_rate_limit_dep("register_agent")
 write_sensitive_rate_limit = make_rate_limit_dep("write_sensitive")
 state_transition_rate_limit = make_rate_limit_dep("state_transition")
+
+
+# ---------------------------------------------------------------------------
+# Sybil controls — these must NOT key on a client-controlled header.
+#
+# ``X-Forwarded-For`` is assembled with nginx' ``$proxy_add_x_forwarded_for``,
+# which *appends* to whatever the client sent, so its value is attacker chosen
+# and unusable as a security key. ``X-Real-IP`` is overwritten by nginx with the
+# socket peer address, so it is the one header trusted here.
+#
+# ``api/middleware/rate_limit.py`` keys its general limiter on X-Forwarded-For;
+# that is a separate, already-reported finding and is deliberately not reused.
+# ---------------------------------------------------------------------------
+
+
+def real_client_ip(request: Request) -> str:
+    real = (request.headers.get("X-Real-IP") or "").strip()
+    if real:
+        return real
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+async def _count_and_bump(redis_key: str, window_seconds: int) -> int:
+    """Sliding-window counter shared by the sybil buckets.
+
+    Mirrors the general limiter's failure policy: 503 when Redis is down and
+    ``RATE_LIMIT_REDIS_FAIL_CLOSED`` is on, otherwise degrade to a process-local
+    counter rather than failing open.
+    """
+    now = time.time()
+    window_start = now - window_seconds
+    try:
+        r = await get_redis()
+        pipe = r.pipeline()
+        pipe.zremrangebyscore(redis_key, 0, window_start)
+        # Unique member: two requests landing in the same clock tick must not
+        # overwrite each other (an undercount would loosen the control).
+        pipe.zadd(redis_key, {f"{now}:{secrets.token_hex(4)}": now})
+        pipe.zcard(redis_key)
+        pipe.expire(redis_key, window_seconds)
+        results = await pipe.execute()
+        return int(results[2])
+    except Exception:
+        if settings.rate_limit_redis_fail_closed:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Rate limiting service unavailable",
+            ) from None
+        async with _memory_lock:
+            count = _memory_sliding_count(redis_key, window_seconds) + 1
+            _memory_windows.setdefault(redis_key, []).append(time.time())
+            return count
+
+
+async def enforce_zero_funding_registration_limit(request: Request) -> None:
+    """Throttle identity creation from wallets that hold no funds.
+
+    Called only when a *new* identity is about to be created for an unfunded
+    wallet (see ``services/wallet_funding.py``). A funded wallet never reaches
+    this code, so real users are never blocked by other people's spam.
+    """
+    window = max(1, int(settings.registration_zero_funding_window_seconds))
+    per_ip_max = max(0, int(settings.registration_zero_funding_max_per_ip))
+    global_max = max(0, int(settings.registration_zero_funding_max_global))
+
+    ip_count = await _count_and_bump(f"regzero:ip:{real_client_ip(request)}", window)
+    global_count = await _count_and_bump("regzero:global", window)
+
+    if (per_ip_max and ip_count > per_ip_max) or (global_max and global_count > global_max):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(
+                "This wallet holds no funds yet; unfunded registrations are rate limited "
+                f"({per_ip_max} per {window}s per IP, {global_max} platform-wide). "
+                "Fund the wallet (gas or settlement token) and retry."
+            ),
+            headers={"Retry-After": str(window)},
+        )

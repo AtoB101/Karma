@@ -108,6 +108,25 @@ class Settings(BaseSettings):
     # P1 — bind typed execution receipt extensions to voucher.task_type when a settlement links a voucher.
     receipt_template_voucher_binding: bool = True
     progress_require_signature: bool = True
+    # ── Wallet registration gate ────────────────────────────────────────────
+    # One wallet = one identity is enforced in services/identity_gateway/store.py
+    # (`_BY_WALLET` index + create_sub_identity rejection).
+    # These settings add the *funding* half of the rule: a wallet that holds no
+    # funds may still register (onboarding must not dead-end), but it is throttled
+    # on a dimension the caller cannot forge, so a script cannot mint identities
+    # from a pile of freshly generated empty wallets.
+    registration_require_funding: bool = True
+    # "Has funds" = native balance >= threshold OR settlement-token balance >= threshold.
+    # A threshold of 1 means "any nonzero balance".
+    registration_min_native_wei: int = 1
+    registration_min_token_units: int = 1
+    # Zero-funding registrations allowed per real client IP / per window.
+    registration_zero_funding_max_per_ip: int = 3
+    # Zero-funding registrations allowed platform-wide / per window (funded wallets
+    # are never counted against this, so a real user with funds is never blocked).
+    registration_zero_funding_max_global: int = 20
+    registration_zero_funding_window_seconds: int = 3600
+    registration_funding_rpc_timeout_seconds: int = 5
     # None = use openclaw_local_phase1_auto_relax + trade_launch_require_eip712 rule
     openclaw_relax_delivery_signatures: bool | None = None
     # Local OpenClaw Phase 1 template sets this true (never production)
@@ -340,6 +359,10 @@ class Settings(BaseSettings):
             if not self.runtime_daily_spend_persist:
                 raise ValueError(
                     "RUNTIME_DAILY_SPEND_PERSIST must be true when APP_ENV is production",
+                )
+            if not self.registration_require_funding:
+                raise ValueError(
+                    "REGISTRATION_REQUIRE_FUNDING must be true when APP_ENV is production",
                 )
             if not (self.arbitrator_actor_ids or "").strip():
                 raise ValueError(

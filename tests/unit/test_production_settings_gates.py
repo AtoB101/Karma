@@ -54,6 +54,7 @@ def test_production_accepts_full_gates():
         ("x402_payment_backend", "mock"),
         ("arbitrator_actor_ids", ""),
         ("chain_allow_hot_wallet_payer", True),
+        ("registration_require_funding", False),
     ],
 )
 def test_production_rejects_disabled_gate(field, value):
