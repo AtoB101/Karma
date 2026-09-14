@@ -17,6 +17,7 @@
     disputes: ["page.disputes.title", "page.disputes.sub"],
     identity: ["page.identity.title", "page.identity.sub"],
     agents: ["page.agents.title", "page.agents.sub"],
+    market: ["page.market.title", "page.market.sub"],
     settings: ["page.settings.title", "page.settings.sub"],
   };
 
@@ -1247,7 +1248,8 @@
   /** 子功能各自的落地位置（页面 → 子项 → 选择器）。 */
   var SUB_TARGETS = {
     tasks: { flow: "#tasks .card.section" },
-    identity: { master: "#idv-master", verify: "#idv-verify", subs: "#idv-subs", money: "#idv-money-rule" },
+    identity: { master: "#idv-master", verify: "#idv-verify", subs: "#idv-subs", money: "#idv-money-rule", entity: "#id-entity" },
+    market: { catalog: "#mk-catalog", mine: "#mk-mine", usage: "#mk-usage" },
     agents: { wizard: "#ag-wizard", mine: "#ag-mine", handoff: "#ag-handoff-card", connect: "#agents .ag-advanced" },
   };
 
@@ -1308,6 +1310,12 @@
       verify: ["#idv-verify"],
       subs: ["#idv-subs"],
       money: ["#idv-money-rule"],
+      entity: ["#id-entity"],
+    },
+    market: {
+      catalog: ["#mk-catalog"],
+      mine: ["#mk-mine"],
+      usage: ["#mk-usage"],
     },
     agents: {
       wizard: ["#ag-wizard"],
