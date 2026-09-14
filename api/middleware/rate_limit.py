@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import secrets
 import time
 from typing import Optional
@@ -78,17 +79,10 @@ async def rate_limit(request: Request, limit_key: str = "default") -> None:
     """
     max_requests, window_seconds = RATE_LIMITS.get(limit_key, RATE_LIMITS["default"])
 
-    # Identify client: hash API keys / forwarded header so Redis keys and MONITOR logs never store raw secrets.
-    raw_key = request.headers.get("X-Karma-Api-Key")
-    raw_fwd = request.headers.get("X-Forwarded-For")
-    if raw_key:
-        digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:40]
-        client_id = f"ak:{digest}"
-    elif raw_fwd:
-        digest = hashlib.sha256(raw_fwd.encode("utf-8")).hexdigest()[:40]
-        client_id = f"xff:{digest}"
-    else:
-        client_id = request.client.host if request.client else "anonymous"
+    # Identify the client on a dimension the caller cannot forge (see
+    # ``rate_limit_bucket``). A *configured* credential is hashed so Redis keys
+    # and MONITOR logs never store raw secrets.
+    client_id = rate_limit_bucket(request)
 
     redis_key = f"ratelimit:{limit_key}:{client_id}"
     now = time.time()
@@ -144,25 +138,90 @@ state_transition_rate_limit = make_rate_limit_dep("state_transition")
 
 
 # ---------------------------------------------------------------------------
-# Sybil controls — these must NOT key on a client-controlled header.
+# Client identity for rate limiting — the trust anchor is the *socket peer*.
 #
-# ``X-Forwarded-For`` is assembled with nginx' ``$proxy_add_x_forwarded_for``,
-# which *appends* to whatever the client sent, so its value is attacker chosen
-# and unusable as a security key. ``X-Real-IP`` is overwritten by nginx with the
-# socket peer address, so it is the one header trusted here.
+# ``X-Forwarded-For`` is assembled by nginx with ``$proxy_add_x_forwarded_for``,
+# which *appends* to whatever the caller sent: a caller can prepend any value it
+# likes, so the header as a whole is caller chosen and must never be the bucket
+# key on its own — rotating it used to mint a fresh bucket per request, which
+# silently disabled every limit below. ``X-Real-IP`` is set by nginx from
+# ``$remote_addr``.
 #
-# ``api/middleware/rate_limit.py`` keys its general limiter on X-Forwarded-For;
-# that is a separate, already-reported finding and is deliberately not reused.
+# Headers are therefore only believed when the connection itself came from a
+# trusted proxy (loopback / private range by default). Anything else — a direct
+# connection to the app port, or a proxy that does not rewrite the header — is
+# keyed on the peer address, which the caller cannot choose.
 # ---------------------------------------------------------------------------
+
+DEFAULT_TRUSTED_PROXY_CIDRS = "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+
+
+def _trusted_proxy_nets() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
+    raw = (getattr(settings, "rate_limit_trusted_proxy_cidrs", "") or "").strip() or DEFAULT_TRUSTED_PROXY_CIDRS
+    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    for item in raw.split(","):
+        entry = item.strip()
+        if not entry:
+            continue
+        try:
+            nets.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            continue  # a typo must not loosen the control
+    if not nets:
+        # Misconfiguration must not collapse every caller into one bucket.
+        nets = [ipaddress.ip_network(x) for x in DEFAULT_TRUSTED_PROXY_CIDRS.split(",")]
+    return tuple(nets)
+
+
+def _is_trusted_proxy(host: str) -> bool:
+    if not host:
+        return False
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return False  # e.g. the test client's "testclient" host
+    return any(addr in net for net in _trusted_proxy_nets())
 
 
 def real_client_ip(request: Request) -> str:
+    """The client address limits are enforced against — never caller chosen."""
+    peer = (request.client.host if request.client and request.client.host else "") or ""
+    if not _is_trusted_proxy(peer):
+        return peer or "unknown"
     real = (request.headers.get("X-Real-IP") or "").strip()
     if real:
         return real
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+    chain = [part.strip() for part in (request.headers.get("X-Forwarded-For") or "").split(",") if part.strip()]
+    if chain:
+        # The *last* entry is the one our own proxy appended; the ones before it
+        # are whatever the caller sent.
+        return chain[-1]
+    return peer or "unknown"
+
+
+def _configured_key_digests() -> set[str]:
+    """SHA-256 digests of the configured API keys (never the raw secrets)."""
+    return {
+        hashlib.sha256(key.encode("utf-8")).hexdigest()
+        for key in settings.auth_api_keys_map().values()
+        if key
+    }
+
+
+def rate_limit_bucket(request: Request) -> str:
+    """Redis bucket id for the general limiter.
+
+    A *configured* API key gets its own bucket, so several agents sharing one
+    egress IP keep their own budget. Everything else — including an invented
+    ``X-Karma-Api-Key`` or a spoofed ``X-Forwarded-For`` — falls back to the
+    unforgeable client IP, which is what makes rotating either header useless.
+    """
+    raw_key = (request.headers.get("X-Karma-Api-Key") or "").strip()
+    if raw_key:
+        digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+        if digest in _configured_key_digests():
+            return f"ak:{digest[:40]}"
+    return f"ip:{real_client_ip(request)}"
 
 
 async def _count_and_bump(redis_key: str, window_seconds: int) -> int:

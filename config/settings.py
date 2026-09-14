@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     # When true, Redis errors in rate limiting return 503 instead of failing open (DDoS risk if Redis is down).
     rate_limit_redis_fail_closed: bool = False
+    # Comma-separated CIDRs treated as reverse proxies. Forwarded headers
+    # (X-Real-IP / X-Forwarded-For) are only believed when the socket peer is in
+    # this list, so a caller cannot pick its own rate-limit bucket.
+    rate_limit_trusted_proxy_cidrs: str = "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
     # MinIO
     minio_endpoint: str = "localhost:9000"
@@ -124,7 +128,10 @@ class Settings(BaseSettings):
     registration_zero_funding_max_per_ip: int = 3
     # Zero-funding registrations allowed platform-wide / per window (funded wallets
     # are never counted against this, so a real user with funds is never blocked).
-    registration_zero_funding_max_global: int = 20
+    # Kept well above the per-IP budget: this bucket exists to blunt a scripted
+    # flood, not to cap growth — too low and a handful of empty wallets would
+    # lock onboarding for every honest new user for a whole window.
+    registration_zero_funding_max_global: int = 200
     registration_zero_funding_window_seconds: int = 3600
     registration_funding_rpc_timeout_seconds: int = 5
     # None = use openclaw_local_phase1_auto_relax + trade_launch_require_eip712 rule
