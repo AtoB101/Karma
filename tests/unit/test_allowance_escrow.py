@@ -645,6 +645,83 @@ async def test_claim_commit_accepts_a_forwarded_smart_account_wallet(
     assert commit["amount_usdc"] == pytest.approx(50.0)
 
 
+# --------------------------------------------- capacity mirror (v2 → 台账)
+
+
+@pytest.mark.asyncio
+async def test_claim_commit_credits_the_master_capacity_ledger(client, db_session, monkeypatch):
+    """锁仓之后必须真的能花：v2 承诺要被记进 capacity 台账。
+
+    没有这次记账，付款码 / 任务合同 / agent request-voucher 都会看到
+    available_credits = 0 而拒绝 —— 用户在操作台锁仓成功，却什么都干不了。
+    """
+    resp = await _commit_flow(
+        client, monkeypatch, tx_hash="0x" + "0a" * 32, amount_wei=100_000_000, bill_id=41
+    )
+    assert resp.status_code == 200, resp.text
+
+    cap = await client.get("/v1/capacity/identity-escrow-test")
+    assert cap.status_code == 200, cap.text
+    state = cap.json()
+    assert state["available_credits"] == pytest.approx(100.0)
+    assert state["total_locked_usdc"] == pytest.approx(100.0)
+    assert state["total_bill_credits"] == pytest.approx(100.0)
+
+    # 重放同一笔交易（同一个 bill）不得重复记账
+    again = await _commit_flow(
+        client, monkeypatch, tx_hash="0x" + "0a" * 32, amount_wei=100_000_000, bill_id=41
+    )
+    assert again.status_code == 200, again.text
+    state2 = (await client.get("/v1/capacity/identity-escrow-test")).json()
+    assert state2["available_credits"] == pytest.approx(100.0)
+
+
+@pytest.mark.asyncio
+async def test_claim_revoke_takes_the_credits_back(client, db_session, monkeypatch):
+    """撤销承诺之后，台账里的可用额度也要跟着退回去。"""
+    await _commit_flow(
+        client, monkeypatch, tx_hash="0x" + "1a" * 32, amount_wei=60_000_000, bill_id=42
+    )
+    monkeypatch.setattr(
+        escrow,
+        "fetch_receipt",
+        lambda tx: revoke_receipt(bill_id=42, owner=WALLET, unspent_wei=60_000_000, tx_hash=tx),
+    )
+    revoke = await client.post(
+        "/v1/escrow/identity-escrow-test/claim-revoke",
+        json={"bill_id": "42", "tx_hash": "0x" + "1b" * 32},
+    )
+    assert revoke.status_code == 200, revoke.text
+    state = (await client.get("/v1/capacity/identity-escrow-test")).json()
+    assert state["available_credits"] == pytest.approx(0.0)
+    assert state["total_locked_usdc"] == pytest.approx(0.0)
+    assert state["total_bill_credits"] == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_mirror_follows_the_money_that_karma_pulled(client, db_session, monkeypatch):
+    """已经被划走的部分不再是可用额度 —— 对账后可用额度要减掉它。"""
+    await _commit_flow(
+        client, monkeypatch, tx_hash="0x" + "2a" * 32, amount_wei=80_000_000, bill_id=43
+    )
+    row = await db_session.get(escrow.AllowanceCommitModel, "43")
+    row.spent_usdc = 30.0
+    await db_session.flush()
+
+    result = await escrow.reconcile_capacity_mirror(db_session, "identity-escrow-test")
+    assert result["delta_usdc"] == pytest.approx(-30.0)
+    assert result["credited_usdc"] == pytest.approx(50.0)
+
+    state = (await client.get("/v1/capacity/identity-escrow-test")).json()
+    assert state["available_credits"] == pytest.approx(50.0)
+    assert state["total_locked_usdc"] == pytest.approx(50.0)
+    assert state["total_bill_credits"] == pytest.approx(50.0)
+
+    # 幂等：再跑一次没有变化
+    again = await escrow.reconcile_capacity_mirror(db_session, "identity-escrow-test")
+    assert again["delta_usdc"] == pytest.approx(0.0)
+
+
 # --------------------------------------------------------- console wiring rules
 
 

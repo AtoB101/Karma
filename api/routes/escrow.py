@@ -150,6 +150,7 @@ async def claim_commit(
         profile.bound_wallet_address = row.wallet_address
         profile.updated_at = datetime.utcnow()
 
+    await escrow.reconcile_capacity_mirror(db, identity_id)
     await db.flush()
     return {"identity_id": identity_id, "commit": _commit_view(row), "idempotent": True}
 
@@ -169,6 +170,7 @@ async def claim_revoke(
         )
     except wallet_lock.WalletLockError as exc:
         raise HTTPException(409, str(exc)) from exc
+    await escrow.reconcile_capacity_mirror(db, identity_id)
     await db.flush()
     return {"identity_id": identity_id, "commit": _commit_view(row)}
 
@@ -186,6 +188,7 @@ async def sync_escrow(identity_id: str, request: Request, db: AsyncSession = Dep
         rows = await escrow.sync_commits(db, identity_id)
     except wallet_lock.WalletLockError as exc:
         raise HTTPException(409, str(exc)) from exc
+    await escrow.reconcile_capacity_mirror(db, identity_id)
     return {"identity_id": identity_id, "commits": [_commit_view(r) for r in rows]}
 
 
@@ -338,6 +341,9 @@ async def finalize_order(
     await escrow.sync_commits(db, row.buyer_identity_id)
     if row.seller_identity_id:
         await escrow.sync_commits(db, row.seller_identity_id)
+    await escrow.reconcile_capacity_mirror(db, row.buyer_identity_id)
+    if row.seller_identity_id:
+        await escrow.reconcile_capacity_mirror(db, row.seller_identity_id)
     await db.flush()
     return {"identity_id": identity_id, "binding": _binding_view(row), "result": result}
 

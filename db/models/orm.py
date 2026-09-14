@@ -367,6 +367,8 @@ class AllowanceCommitModel(Base):
     spent_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
     reserved_usdc:    Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
     backed:           Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
+    # 这条承诺目前有多少已经被记进主身份 capacity 台账（v2 非托管锁仓的镜像）。
+    capacity_credited_usdc: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     commit_tx_hash:   Mapped[str]        = mapped_column(String(80), nullable=False, unique=True)
     revoke_tx_hash:   Mapped[str|None]   = mapped_column(String(80), nullable=True)
     block_number:     Mapped[int|None]   = mapped_column(Integer, nullable=True)
