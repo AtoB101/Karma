@@ -35,6 +35,12 @@ services:
       - ../decentralized_verifier:/app/decentralized_verifier:ro
       - ../evidence_runtime:/app/evidence_runtime:ro
       - ../packages:/app/packages:ro
+      # scripts/ 不是 app 运行时导入的代码，所以最容易漏挂 —— 但运维通道
+      # （scripts/maintenance/*，例如给身份开治理角色、平台自举审批认证）
+      # 就是在容器里用 python -m scripts.maintenance.xxx 跑的。漏挂的后果是
+      # 它悄悄跑镜像里那份构建时的旧副本（或者干脆 ModuleNotFoundError），
+      # 于是「加了一个复核岗」这类动作看起来成功了，实际没落到线上这份代码。
+      - ../scripts:/app/scripts:ro
       - ../sdk:/app/sdk:ro
       - ../services:/app/services:ro
       # --- Durable state -----------------------------------------------------
