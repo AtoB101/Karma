@@ -274,10 +274,9 @@
       host.setAttribute("data-profile-switcher", "");
       host.innerHTML =
         '<button type="button" class="id-picker-btn" id="id-picker-btn" aria-haspopup="listbox" aria-expanded="false">' +
-        '<span class="id-picker-head"><span class="id-picker-title">选择身份</span><span class="id-picker-caret">▾</span></span>' +
-        '<span class="id-picker-now" id="id-picker-now">—</span>' +
+        '<span class="id-picker-head"><span class="id-picker-title">切换身份</span><span class="id-picker-caret">▾</span></span>' +
         "</button>" +
-        '<div class="id-picker-panel" id="id-picker-panel" role="listbox" aria-label="选择身份" hidden></div>';
+        '<div class="id-picker-panel" id="id-picker-panel" role="listbox" aria-label="切换身份" hidden></div>';
       var sub = box.querySelector(".id-sub");
       if (sub) sub.insertAdjacentElement("afterend", host);
       else box.appendChild(host);
@@ -383,6 +382,7 @@
   }
 
   function renderIdPickerNow() {
+    renderCurrentIdentity();
     var node = document.getElementById("id-picker-now");
     if (!node) return;
     var pid = activeProfileId();
@@ -390,6 +390,41 @@
     node.textContent = pid
       ? displayId(pid, profilePosition(pid)) + " · " + (p ? p.display_name || roleLabel(p) : "")
       : "主体账户（全部）";
+  }
+
+  /* 「当前身份」= 现在这块界面是站在谁的角度看。
+     切到子身份就写子身份（编号 + 它是什么），不是永远挂着主身份 ——
+     否则用户切完了、页面也换了，侧栏还写着主身份，看起来就像没切成功。 */
+  function renderCurrentIdentity() {
+    var master = String(window.KARMA_IDENTITY_ID || "").trim();
+    var pid = activeProfileId();
+    var p = pid ? getActiveProfile() : null;
+    var mainEl = document.querySelector(".id-main");
+    var subEl = document.querySelector(".id-sub");
+    var box = document.querySelector(".identity-box");
+    if (mainEl) {
+      mainEl.textContent = !master
+        ? "—"
+        : pid
+          ? (p ? displayId(pid, profilePosition(pid)) : shortId(pid))
+          : displayId(master, 0);
+      mainEl.title = pid || master || "";
+    }
+    if (subEl) {
+      if (!master) {
+        subEl.textContent = tr("id.sub_disconnected", "未连接钱包");
+      } else if (!pid) {
+        subEl.textContent = tr("id.sub_master", "主身份 · 主体账户");
+      } else {
+        // 有自己取的名字就用名字（「运营复核岗」），否则用类别（「复核岗」）；名字里已经含了类别就不重复写。
+        var role = p ? roleLabel(p) : "子身份";
+        var name = p && p.display_name ? String(p.display_name) : "";
+        var head = name || role;
+        var extra = name && name.indexOf(role) < 0 ? " · " + role : "";
+        subEl.textContent = head + extra + " · 挂在 " + displayId(master, 0);
+      }
+    }
+    if (box) box.classList.toggle("scoped", !!pid);
   }
 
   // ---- 涉密 ----
@@ -837,6 +872,7 @@
     getProfiles: getProfiles,
     profileLabel: profileLabel,
     render: function () { renderScopeBar(); renderSubPanel(); },
+    renderCurrent: renderCurrentIdentity,
     refresh: refresh,
   };
 

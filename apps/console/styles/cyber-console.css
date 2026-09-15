@@ -127,6 +127,9 @@ body {
   margin: 10px 0 4px;
 }
 .id-sub { font-size: 12px; color: var(--text-dim); }
+/* 切到子身份时把当前身份框染色：一眼能分出「现在不是主身份视角」。 */
+.identity-box.scoped { border-color: rgba(232, 121, 249, 0.55); }
+.identity-box.scoped .id-main { color: var(--neon-mint); }
 .id-meta { display: flex; gap: 10px; margin-top: 12px; }
 .mini {
   background: rgba(0, 224, 255, 0.08);
@@ -1685,7 +1688,7 @@ body {
 }
 .nav .nav-sub.active { font-weight: 600; letter-spacing: 0.04em; }
 
-/* ---- 「选择身份」面板 -------------------------------------------------- */
+/* ---- 「切换身份」面板 -------------------------------------------------- */
 .id-picker { margin-top: 12px; }
 .id-picker-btn {
   all: unset;
@@ -1732,6 +1735,8 @@ body {
   background: rgba(6, 12, 22, 0.96);
   box-shadow: var(--shadow-card);
 }
+/* display:flex 会盖掉 [hidden] 自带的 display:none —— 不写这一行，身份列表就一直露在侧栏里。 */
+.id-picker-panel[hidden] { display: none !important; }
 .id-picker-item {
   all: unset;
   display: block;

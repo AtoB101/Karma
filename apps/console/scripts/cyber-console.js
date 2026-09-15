@@ -91,7 +91,7 @@
     window.KARMA_API_BASE = base;
     window.KARMA_API_KEY = key;
     window.KARMA_IDENTITY_ID = id;
-    displayIdentity(el(".id-main"), id, "—");
+    renderCurrentIdentity();
     setApiStatus(window.CYBER_I18N.t("api.status_ok") + " — " + base, false);
   }
 
@@ -889,6 +889,16 @@
     return fromInput || String(window.KARMA_IDENTITY_ID || "").trim();
   }
 
+  /** 「当前身份」由身份模块统一渲染（会跟着「切换身份」变）；模块没加载时才本地兜底。 */
+  function renderCurrentIdentity() {
+    const idSwitcher = window.KarmaIdentitySwitcher;
+    if (idSwitcher && idSwitcher.renderCurrent) {
+      idSwitcher.renderCurrent();
+      return;
+    }
+    displayIdentity(el(".id-main"), currentIdentityId(), "—");
+  }
+
   /** 身份编号对外只显示 Kid1… / kid02…；真 ID 放 title，鼠标停一下就能复制。 */
   function displayIdentity(node, id, fallback) {
     if (!node) return;
@@ -1574,7 +1584,7 @@
     if (baseVal) window.KARMA_API_BASE = baseVal;
     window.KARMA_API_KEY = el("[data-cfg=api_key]")?.value?.trim();
     window.KARMA_IDENTITY_ID = el("[data-cfg=identity_id]")?.value?.trim();
-    displayIdentity(el(".id-main"), window.KARMA_IDENTITY_ID, "—");
+    renderCurrentIdentity();
 
     window.CYBER_I18N.applyCyberI18n();
     bindLang();
