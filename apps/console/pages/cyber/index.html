@@ -583,12 +583,10 @@
               </li>
               <li id="idv-step-face">
                 <div class="idv-step-head"><b>② 刷脸</b><span id="idv-face-state">未采集</span></div>
-                <p class="idv-hint">对着摄像头做一次活体自拍；电脑没有摄像头就用手机打开操作台。</p>
+                <p class="idv-hint">点「开始刷脸」会弹出一个取景框：把脸放进圆圈，<b>头顶和下巴都要在圈内</b>，位置对了会自动倒数拍摄；拍完你先看一眼，点「确认使用」才会采用。电脑没有摄像头就用手机打开操作台，或走「用照片」。</p>
                 <div class="idv-row">
-                  <button type="button" class="btn" id="idv-face-open">开启摄像头</button>
-                  <button type="button" class="btn primary" id="idv-face-shot" disabled>拍一张</button>
+                  <button type="button" class="btn primary" id="idv-face-open">开始刷脸</button>
                   <label class="btn idv-file">用照片<input type="file" id="idv-face-file" accept="image/*" hidden /></label>
-                  <video id="idv-face-video" playsinline muted></video>
                   <span class="idv-thumb" id="idv-face-thumb"></span>
                 </div>
               </li>
@@ -1201,6 +1199,7 @@
     <script src="../../scripts/cyber-console.js"></script>
     <script src="../../scripts/cyber-identity.js"></script>
 <script src="../../scripts/cyber-master-page.js"></script>
+    <script src="../../scripts/cyber-face-capture.js"></script>
     <script src="../../scripts/cyber-identity-verify.js"></script>
     <script src="../../scripts/console-sync.js"></script>
     <script src="../../scripts/cyber-payments.js"></script>
