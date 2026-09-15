@@ -229,7 +229,18 @@
   function renderMaster() {
     var id = identity();
     var s = session();
-    byId("idv-master-id").textContent = id || "—";
+    // 对外只显示 Kid1 编号；真 ID 放 title，鼠标停一下就能复制。
+    var idNode = byId("idv-master-id");
+    if (idNode) {
+      var shown = id || "";
+      try {
+        if (shown && window.KarmaDisplayId && window.KarmaDisplayId.of) {
+          shown = window.KarmaDisplayId.of(shown, 0);
+        }
+      } catch (_) {}
+      idNode.textContent = shown || "—";
+      idNode.title = id || "";
+    }
     byId("idv-master-wallet").textContent = s.wallet || "—";
     var badge = byId("idv-master-badge");
     if (badge) {
