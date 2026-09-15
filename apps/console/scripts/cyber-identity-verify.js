@@ -161,45 +161,6 @@
     });
   }
 
-  function frameToB64(video) {
-    var w = video && video.videoWidth;
-    var h = video && video.videoHeight;
-    if (!w || !h) throw new Error("摄像头还没有出画面，再试一次");
-    var scale = Math.min(1, MAX_SIDE / Math.max(w, h));
-    var canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.round(w * scale));
-    canvas.height = Math.max(1, Math.round(h * scale));
-    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-    var url = canvas.toDataURL("image/jpeg", JPEG_QUALITY);
-    return { b64: url.split(",")[1] || "", mime: "image/jpeg" };
-  }
-
-  function cameraSupported() {
-    return !!(navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function");
-  }
-
-  /** 子身份刷脸：临时开一次摄像头，抓到帧立刻关掉，视频不留在页面上。 */
-  async function grabCameraFrame() {
-    if (!cameraSupported()) throw new Error("这个浏览器或环境拿不到摄像头（要 HTTPS + 摄像头权限）");
-    var stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-    var video = document.createElement("video");
-    video.playsInline = true;
-    video.muted = true;
-    video.setAttribute("playsinline", "");
-    // 离屏也要保留真实尺寸，否则部分浏览器不渲染帧。
-    video.style.cssText = "position:fixed;left:-10000px;top:0;width:320px;height:240px;";
-    video.srcObject = stream;
-    document.body.appendChild(video);
-    try {
-      await video.play();
-      await new Promise(function (r) { setTimeout(r, 700); });
-      return frameToB64(video);
-    } finally {
-      stream.getTracks().forEach(function (t) { t.stop(); });
-      if (video.parentNode) video.parentNode.removeChild(video);
-    }
-  }
-
   function thumb(node, b64) {
     if (!node) return;
     node.innerHTML = b64
@@ -679,35 +640,22 @@
     });
 
     byId("idv-face-open").addEventListener("click", async function () {
-      var video = byId("idv-face-video");
-      try {
-        if (!cameraSupported()) throw new Error("这个浏览器拿不到摄像头");
-        state.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-        video.srcObject = state.stream;
-        video.style.display = "block";
-        await video.play();
-        byId("idv-face-shot").disabled = false;
-        byId("idv-face-state").textContent = "摄像头已开，拍一张";
-      } catch (e) {
-        byId("idv-face-state").textContent = "打不开摄像头，用「照片」那张";
-      }
-    });
-
-    byId("idv-face-shot").addEventListener("click", function () {
-      var video = byId("idv-face-video");
-      try {
-        state.face = frameToB64(video);
-      } catch (e) {
-        byId("idv-face-state").textContent = (e && e.message) || "拍照失败，再试一次";
+      var status = byId("idv-face-state");
+      var cap = window.KarmaFaceCapture;
+      if (!cap) {
+        status.textContent = "取景组件没加载，用「用照片」那张";
         return;
       }
-      byId("idv-face-state").textContent = "已拍摄";
-      thumb(byId("idv-face-thumb"), state.face.b64);
-      if (state.stream) {
-        state.stream.getTracks().forEach(function (t) { t.stop(); });
-        state.stream = null;
+      status.textContent = "正在刷脸…";
+      var shot = await cap.open({ title: "刷脸认证", facing: "user" });
+      if (!shot) {
+        // 用户取消：别把他原来那张擦掉。
+        status.textContent = state.face ? "照片已就绪" : "未采集";
+        return;
       }
-      video.style.display = "none";
+      state.face = shot;
+      status.textContent = "刷脸已采集";
+      thumb(byId("idv-face-thumb"), shot.b64);
       refreshSubmitState();
     });
 
@@ -766,12 +714,12 @@
     byId("idsub-wallet").addEventListener("click", bindSubWallet);
     byId("idsub-face").addEventListener("click", async function () {
       var status = byId("idsub-face-state");
-      try {
-        state.subFace = await grabCameraFrame();
-        say(status, "已采集", true);
-      } catch (e) {
-        say(status, (e && e.message) || "打不开摄像头：用手机打开操作台再试", false);
-      }
+      var cap = window.KarmaFaceCapture;
+      if (!cap) return say(status, "取景组件没加载", false);
+      var shot = await cap.open({ title: "子身份刷脸确认", facing: "user" });
+      if (!shot) return say(status, "已取消", false);
+      state.subFace = shot;
+      say(status, "已采集", true);
     });
     byId("idsub-create").addEventListener("click", async function () {
       await createSub();
