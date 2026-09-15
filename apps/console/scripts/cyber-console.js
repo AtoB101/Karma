@@ -1454,6 +1454,15 @@
   function switchPage(page, subKey) {
     // 「认证」已经并进「身份」：老链接 / 老按钮一律落到同一页，不留空页。
     if (page === "auth") page = "identity";
+    // 身份 · 认证：当前是哪张身份，就落在它自己的认证页（主身份与治理岗保持整体视图）。
+    // 注意：后面有一个 `const sub = el("#pageSubheading")`，这里不能叫 sub（TDZ）。
+    if (page === "identity" && !subKey) {
+      const sw = window.KarmaIdentitySwitcher;
+      if (sw && sw.certSubForActive) {
+        const activeSub = sw.certSubForActive();
+        if (activeSub) subKey = activeSub;
+      }
+    }
     document.querySelectorAll(".page").forEach(function (p) {
       p.classList.remove("active");
     });

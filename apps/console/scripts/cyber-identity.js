@@ -50,6 +50,15 @@
     verifier: "复核岗",
     arbitrator: "仲裁岗",
   };
+  /* 每个助理都有自己的认证页：生活助理→个人助理认证，依此类推。
+     切到哪个身份，身份·认证 页就只摆那一页，不再三块一起摊。 */
+  var ROLE_CERT_SUB = { individual: "personal", merchant: "sole", enterprise: "enterprise" };
+  /** 当前身份对应哪一页认证；主身份与治理岗返回空（整体视图）。 */
+  function certSubForActive() {
+    var p = getActiveProfile();
+    return p && ROLE_CERT_SUB[p["class"]] ? ROLE_CERT_SUB[p["class"]] : "";
+  }
+
   /** 主身份没有 class：它就是主体账户本身。 */
   function roleLabel(p) {
     if (!p) return "主体账户";
@@ -158,7 +167,7 @@
     var p = getActiveProfile();
     if (activeEl) {
       activeEl.textContent = pid
-        ? (p ? displayId(pid, profilePosition(pid)) + " · " + (p.display_name || p["class"] || "") : shortId(pid))
+        ? (p ? displayId(pid, profilePosition(pid)) + " · " + identityTitle(p) : shortId(pid))
         : tr("scope.master_all", "主体（全部）");
       activeEl.title = pid;
     }
@@ -249,6 +258,18 @@
     renderScopeBar();
     renderSubPanel();
     document.dispatchEvent(new CustomEvent("karma-profile-switched", { detail: { profile_id: next } }));
+    followIdentityPage();
+  }
+
+  /** 切身份 = 换页面：人已经在「身份 · 认证」页上，就直接换成这张身份自己的认证页；
+     不在这页就不动——人在看账单，不该被拽走。 */
+  function followIdentityPage() {
+    var sec = document.getElementById("identity");
+    if (!sec || !sec.classList.contains("active")) return;
+    if (typeof window.cyberSwitchPage !== "function") return;
+    var subKey = certSubForActive();
+    if (subKey) window.cyberSwitchPage("identity", subKey);
+    else window.cyberSwitchPage("identity");
   }
 
   function bindSwitchUI() {
@@ -348,11 +369,28 @@
         locked: p.visibility === "private",
       });
     });
+    /* 还没建的助理也列出来：点它就去对应的认证页。
+       否则新用户只看到一个主身份，会以为「切不过去」。 */
+    var owned = {};
+    list.forEach(function (p) { if (p && p["class"]) owned[p["class"]] = true; });
+    Object.keys(ROLE_CERT_SUB).forEach(function (klass) {
+      if (owned[klass]) return;
+      rows.push({
+        id: "",
+        name: ROLE_LABELS[klass],
+        sub: "未建立",
+        role: ROLE_LABELS[klass],
+        locked: false,
+        missing: true,
+        klass: klass,
+      });
+    });
 
     rows.forEach(function (r) {
       var b = document.createElement("button");
       b.type = "button";
-      b.className = "id-picker-item" + (r.id === active ? " active" : "");
+      b.className =
+        "id-picker-item" + (r.id === active && r.id ? " active" : "") + (r.missing ? " missing" : "");
       b.setAttribute("role", "option");
       b.setAttribute("data-profile-id", r.id);
       b.setAttribute("aria-selected", r.id === active ? "true" : "false");
@@ -373,22 +411,16 @@
       b.appendChild(meta);
       b.addEventListener("click", function () {
         closeIdPicker();
+        if (r.missing) {
+          if (window.cyberSwitchPage) window.cyberSwitchPage("identity", ROLE_CERT_SUB[r.klass]);
+          return;
+        }
         if (r.id === active) return;
         setActiveProfile(r.id);
       });
       panel.appendChild(b);
     });
 
-    if (!list.length) {
-      var empty = document.createElement("p");
-      empty.className = "id-picker-empty";
-      empty.textContent = "还没有子身份。去「身份 · 认证」建一个：个体助理 / 企业主体。";
-      empty.addEventListener("click", function () {
-        closeIdPicker();
-        if (window.cyberSwitchPage) window.cyberSwitchPage("identity", "sole");
-      });
-      panel.appendChild(empty);
-    }
   }
 
   function renderIdPickerNow() {
@@ -877,6 +909,7 @@
     getProfiles: getProfiles,
     profileLabel: profileLabel,
     identityTitle: identityTitle,
+    certSubForActive: certSubForActive,
     render: function () { renderScopeBar(); renderSubPanel(); },
     renderCurrent: renderCurrentIdentity,
     refresh: refresh,
