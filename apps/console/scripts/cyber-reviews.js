@@ -173,7 +173,11 @@
     }
     say(st, "读取中…", null);
     try {
-      var res = await api().karmaFetch(PATH + "/pending", { method: "GET" });
+      // karmaFetch 只负责 fetch，不会替你加认证头 —— 少了 headers() 就是线上 401。
+      var res = await api().karmaFetch(PATH + "/pending", {
+        method: "GET",
+        headers: api().headers(),
+      });
       state.items = (res && res.items) || [];
       state.counts = (res && res.counts) || {};
       state.verifier = (res && res.verifier_identity_id) || "";
