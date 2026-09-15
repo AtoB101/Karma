@@ -91,8 +91,7 @@
     window.KARMA_API_BASE = base;
     window.KARMA_API_KEY = key;
     window.KARMA_IDENTITY_ID = id;
-    const mainId = el(".id-main");
-    if (mainId && id) mainId.textContent = id;
+    displayIdentity(el(".id-main"), id, "—");
     setApiStatus(window.CYBER_I18N.t("api.status_ok") + " — " + base, false);
   }
 
@@ -890,6 +889,14 @@
     return fromInput || String(window.KARMA_IDENTITY_ID || "").trim();
   }
 
+  /** 身份编号对外只显示 Kid1… / kid02…；真 ID 放 title，鼠标停一下就能复制。 */
+  function displayIdentity(node, id, fallback) {
+    if (!node) return;
+    const did = window.KarmaDisplayId;
+    node.textContent = id ? (did ? did.of(id, 0) : id) : fallback;
+    node.title = id || "";
+  }
+
   function shortWallet(addr) {
     const s = String(addr || "").trim();
     return s.length > 12 ? s.slice(0, 6) + "…" + s.slice(-4) : s;
@@ -1567,8 +1574,7 @@
     if (baseVal) window.KARMA_API_BASE = baseVal;
     window.KARMA_API_KEY = el("[data-cfg=api_key]")?.value?.trim();
     window.KARMA_IDENTITY_ID = el("[data-cfg=identity_id]")?.value?.trim();
-    const mainId = el(".id-main");
-    if (mainId && window.KARMA_IDENTITY_ID) mainId.textContent = window.KARMA_IDENTITY_ID;
+    displayIdentity(el(".id-main"), window.KARMA_IDENTITY_ID, "—");
 
     window.CYBER_I18N.applyCyberI18n();
     bindLang();
