@@ -61,8 +61,8 @@ def test_first_screen_shows_who_you_are_and_how_much_is_locked():
 
 def test_display_ids_are_kid1_for_the_master_and_kid02_for_subs():
     js = IDENTITY_JS.read_text(encoding="utf-8")
-    block = js[js.index("function displayId(") : js.index("window.KarmaDisplayId")]
-    assert '"Kid1"' in block, "主身份要显示成 Kid1 开头"
+    block = js[js.index("function displayId(") : js.index("window.KarmaDisplayId = {")]
+    assert '"kid1"' in block, "主身份要显示成 kid1 开头"
     assert '"kid" + (n < 10 ? "0" + n : String(n))' in block, "子身份要显示成 kid02 / kid03"
     assert "digitSeed" in js, "6 位数字要由真 ID 推导，刷新后不变"
     assert "window.KarmaDisplayId" in js

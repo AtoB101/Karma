@@ -881,7 +881,7 @@
   }
 
   /* ── 主身份抬头卡 + 减少锁仓 ──────────────────────────────────────────
-     进来第一眼要能回答四个问题：我是谁（Kid1…）、钱包是哪个、锁了多少钱、
+     进来第一眼要能回答四个问题：我是谁（kid1…）、钱包是哪个、锁了多少钱、
      怎么加/怎么减。所有编号都用 KarmaDisplayId 显示，真 ID 藏在 title 里。 */
 
   function currentIdentityId() {
@@ -899,7 +899,7 @@
     displayIdentity(el(".id-main"), currentIdentityId(), "—");
   }
 
-  /** 身份编号对外只显示 Kid1… / kid02…；真 ID 放 title，鼠标停一下就能复制。 */
+  /** 身份编号对外只显示 kid1… / kid02…；真 ID 放 title，鼠标停一下就能复制。 */
   function displayIdentity(node, id, fallback) {
     if (!node) return;
     const did = window.KarmaDisplayId;
@@ -990,7 +990,12 @@
         const pid = btn.getAttribute("data-home-switch");
         sw.setActiveProfileId(pid);
         renderIdentityHome();
-        setApiStatus("已切换到 " + (did ? did.of(pid, 1) : pid) + " 的视角", false);
+        var posOf = 1;
+        (sw.getProfiles ? sw.getProfiles() : []).some(function (x, k) {
+          if (x && x.profile_id === pid) { posOf = k + 1; return true; }
+          return false;
+        });
+        setApiStatus("已切换到 " + (did ? did.of(pid, posOf) : pid) + " 的视角", false);
       });
     });
     host.querySelectorAll("[data-home-alloc]").forEach(function (btn) {

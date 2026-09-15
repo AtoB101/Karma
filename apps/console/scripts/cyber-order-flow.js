@@ -123,8 +123,14 @@
       " " + p(d.getHours()) + ":" + p(d.getMinutes());
   }
 
+  /** 身份编号：全站统一走 KarmaDisplayId.remote（kid…+ 后 4 位）。 */
   function shortId(id) {
     if (!id) return "—";
+    try {
+      if (global.KarmaDisplayId && global.KarmaDisplayId.remote) {
+        return global.KarmaDisplayId.remote(id) || "—";
+      }
+    } catch (_) {}
     var s = String(id);
     return s.length > 22 ? s.slice(0, 12) + "…" + s.slice(-6) : s;
   }

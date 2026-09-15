@@ -71,7 +71,7 @@
     return String(a).slice(0, 6) + "…" + String(a).slice(-4);
   }
 
-  /** 对用户显示的主身份编号（Kid1 + 6 位数字）。真正的 kid_… ID 放 title，
+  /** 对用户显示的主身份编号（kid1 + 6 位数字）。真正的 kid_… ID 放 title，
    *  需要复制原值时鼠标停一下就有；KarmaDisplayId 还没加载时退回截断显示。 */
   function displayId(realId) {
     var d = global.KarmaDisplayId;
@@ -855,11 +855,16 @@
       all("[data-bind=wallet_address]").forEach(function (n) {
         n.textContent = shortAddr(account);
       });
-      var chip = document.getElementById("top-identity-chip");
-      if (chip) {
-        chip.textContent = identityId ? displayId(identityId) : "未连接";
-        chip.title = identityId || "";
-        chip.style.color = identityId ? "var(--ok, #4ade80)" : "";
+      /* 顶栏那颗身份芯片归身份模块统一渲染（切到子身份时要跟着变）。
+         模块没加载时才本地兜底 —— 否则这里会把主身份硬写回去，
+         屏幕上就出现「侧栏 kid02…、顶栏 kid1…」两个编号，用户以为没切成功。 */
+      if (!(idSwitcher && idSwitcher.renderCurrent)) {
+        var chip = document.getElementById("top-identity-chip");
+        if (chip) {
+          chip.textContent = identityId ? displayId(identityId) : "未连接";
+          chip.title = identityId || "";
+          chip.style.color = identityId ? "var(--ok, #4ade80)" : "";
+        }
       }
     } catch (_) {}
   }

@@ -110,17 +110,21 @@
     } catch (_) {}
     return fallback;
   }
+  /** 拿不到排位的身份（别人的 ID）：降级成 kid…+ 后 4 位，前缀口径和上面一致。 */
   function shortId(id) {
     var s = String(id || "");
-    return s.length > 18 ? s.slice(0, 10) + "…" + s.slice(-6) : s;
+    if (!s) return "";
+    return window.KarmaDisplayId.remote(s);
   }
 
-  /* ── 对用户展示的身份编号 ─────────────────────────────────────────────
+  /* ── 对用户展示的身份编号（全站唯一口径，别再各处自己拼）──────────────
      底座里的真 ID 是 kid_ + 24 位十六进制（合约、数据库、账本都用它，不能改）。
-     但用户记不住、也念不出来。所以对外统一显示成：
-         主身份        Kid1 + 6 位数字         （所有用户的主身份都是 Kid1 开头）
+     但用户记不住、也念不出来。所以对外只允许下面这一套写法，全小写、统一 kid 前缀：
+         主身份        kid1 + 6 位数字          （所有用户的主身份都是 kid1 开头）
          第 1 个子身份  kid02 + 6 位数字
          第 2 个子身份  kid03 + 6 位数字  ……
+         别人的身份    kid… + 真 ID 后 4 位     （拿不到排位时的降级写法）
+     编号和名称同时出现时，一律「编号 · 名称」，不许一处编号在前、一处名字在前。
      6 位数字由真 ID 推导（同一身份永远同一串），只用于显示，不参与任何校验。 */
   function digitSeed(seed) {
     var h = 2166136261;
@@ -141,11 +145,19 @@
     var id = String(realId || "").trim();
     if (!id) return "";
     var pos = Number(position) || 0;
-    if (pos <= 0) return "Kid1" + digitSeed(id);
+    if (pos <= 0) return "kid1" + digitSeed(id);
     var n = pos + 1;
     return "kid" + (n < 10 ? "0" + n : String(n)) + digitSeed(id);
   }
-  window.KarmaDisplayId = { of: displayId, digits: digitSeed };
+  /** 别人的身份：只拿得到真 ID、拿不到排位，全站统一降级成 kid…+ 后 4 位。
+      真 ID 仍然放 title，鼠标停一下就能复制。 */
+  function remoteId(realId) {
+    var s = String(realId || "").trim();
+    if (!s) return "";
+    var hex = s.replace(/^kid_?/i, "");
+    return "kid…" + (hex.length > 4 ? hex.slice(-4) : hex);
+  }
+  window.KarmaDisplayId = { of: displayId, remote: remoteId, digits: digitSeed };
 
   function getActiveProfile() {
     var id = activeProfileId();
@@ -304,7 +316,7 @@
 
   // ---- 「选择身份」（侧边栏 identity-box）-------------------------------------
   /* 一个入口把主身份和所有子身份列清楚：每条一行名字，名字下方就是它自己的子身份编号
-     （Kid1… / kid02… / kid03…）。点哪条就是切到哪个身份，不做二级确认。 */
+     （kid1… / kid02… / kid03…）。点哪条就是切到哪个身份，不做二级确认。 */
   function renderSwitcher(profiles) {
     var box = $(".identity-box");
     if (!box) return;
@@ -365,7 +377,7 @@
         id: "",
         name: "主身份 · 主体账户",
         sub: masterId ? displayId(masterId, 0) : "未连接钱包",
-        role: "主体账户",
+        role: "主身份",
         locked: false,
       },
     ];
@@ -439,9 +451,10 @@
     if (!node) return;
     var pid = activeProfileId();
     var p = getActiveProfile();
+    var masterId = String(window.KARMA_IDENTITY_ID || "").trim();
     node.textContent = pid
       ? displayId(pid, profilePosition(pid)) + " · " + (p ? p.display_name || roleLabel(p) : "")
-      : "主体账户（全部）";
+      : (masterId ? displayId(masterId, 0) + " · " : "") + "主体账户（全部）";
   }
 
   /* 「当前身份」= 现在这块界面是站在谁的角度看。
@@ -454,13 +467,23 @@
     var mainEl = document.querySelector(".id-main");
     var subEl = document.querySelector(".id-sub");
     var box = document.querySelector(".identity-box");
+    /* 现在这块界面站在谁的角度：有子身份就是子身份，否则是主身份。 */
+    var shown = !master
+      ? ""
+      : pid
+        ? (p ? displayId(pid, profilePosition(pid)) : shortId(pid))
+        : displayId(master, 0);
     if (mainEl) {
-      mainEl.textContent = !master
-        ? "—"
-        : pid
-          ? (p ? displayId(pid, profilePosition(pid)) : shortId(pid))
-          : displayId(master, 0);
+      mainEl.textContent = shown || "—";
       mainEl.title = pid || master || "";
+    }
+    /* 顶栏那颗 chip 也归这里管：切到子身份后它必须跟着变。之前它只在连钱包时写一次，
+       于是侧栏写着 kid02…、顶栏还挂着 kid1…，同一块屏幕上两个编号，看着就像没切成功。 */
+    var chip = document.getElementById("top-identity-chip");
+    if (chip) {
+      chip.textContent = shown || "未连接";
+      chip.title = pid || master || "";
+      chip.style.color = shown ? "var(--ok, #4ade80)" : "";
     }
     if (subEl) {
       if (!master) {
