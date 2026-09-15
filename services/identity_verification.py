@@ -340,6 +340,31 @@ def empty_view(identity_id: str) -> dict[str, Any]:
     }
 
 
+BOOTSTRAP_REVIEWER_ID = "platform:bootstrap"
+
+
+def assert_can_bootstrap_approve(row: Any, *, reason: str) -> None:
+    """平台自举审批的前置校验。
+
+    只给服务器上的运维脚本用（scripts/maintenance/approve_identity_verification.py）：
+    平台起步阶段只有一个身份、它是自己唯一的复核岗，路由层那条「不能复核自己」
+    会把自己永远锁在 pending。这里放行的是**审批动作**，不是提交动作 —— 证件与
+    刷脸仍然必须由本人先在操作台真实提交，且必须写清审批理由。
+    """
+    if row is None:
+        raise IdentityVerificationError(404, "this identity has never submitted a verification")
+    if not (reason or "").strip():
+        raise IdentityVerificationError(400, "a bootstrap approval must carry an explicit reason")
+    if row.status == "verified":
+        raise IdentityVerificationError(409, "this verification is already approved")
+    if row.status != "pending":
+        raise IdentityVerificationError(409, f"cannot approve a verification in status {row.status}")
+    if not (row.doc_digest or "").strip() or not (row.face_digest or "").strip():
+        raise IdentityVerificationError(
+            409, "the submission is missing the document digest or the face digest"
+        )
+
+
 def mark_verified(row: Any, *, reviewer_identity_id: str, note: str | None) -> None:
     row.status = "verified"
     row.reviewer_identity_id = reviewer_identity_id
@@ -353,6 +378,8 @@ __all__ = [
     "VERIFY_LEVELS",
     "DOC_TYPES",
     "FORBIDDEN_KEYS",
+    "BOOTSTRAP_REVIEWER_ID",
+    "assert_can_bootstrap_approve",
     "assert_can_decide",
     "assert_can_submit",
     "assert_no_plaintext_payload",
