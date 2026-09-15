@@ -50,13 +50,23 @@
     verifier: "复核岗",
     arbitrator: "仲裁岗",
   };
-  /* 每个助理都有自己的认证页：生活助理→个人助理认证，依此类推。
-     切到哪个身份，身份·认证 页就只摆那一页，不再三块一起摊。 */
-  var ROLE_CERT_SUB = { individual: "personal", merchant: "sole", enterprise: "enterprise" };
-  /** 当前身份对应哪一页认证；主身份与治理岗返回空（整体视图）。 */
+  /* 每个身份都是自己的页面，切身份 = 换页面：
+       主身份 → 钱包 / 锁仓 / 授权；生活助理 → 它的子身份档案；
+       个体助理 / 企业主体 → 各自的认证表。 */
+  var ROLE_CERT_SUB = {
+    individual: "life",
+    merchant: "sole",
+    enterprise: "enterprise",
+    verifier: "life",
+    arbitrator: "life",
+  };
+  /** 下拉里「还没建」的那几条助理（治理岗不从这里建）。 */
+  var ASSISTANT_KLASSES = ["individual", "merchant", "enterprise"];
+  /** 当前身份落在哪一页；主身份固定落在「主身份 · 主体账户」。 */
   function certSubForActive() {
     var p = getActiveProfile();
-    return p && ROLE_CERT_SUB[p["class"]] ? ROLE_CERT_SUB[p["class"]] : "";
+    if (!p) return "master";
+    return ROLE_CERT_SUB[p["class"]] || "master";
   }
 
   /** 主身份没有 class：它就是主体账户本身。 */
@@ -373,7 +383,7 @@
        否则新用户只看到一个主身份，会以为「切不过去」。 */
     var owned = {};
     list.forEach(function (p) { if (p && p["class"]) owned[p["class"]] = true; });
-    Object.keys(ROLE_CERT_SUB).forEach(function (klass) {
+    ASSISTANT_KLASSES.forEach(function (klass) {
       if (owned[klass]) return;
       rows.push({
         id: "",

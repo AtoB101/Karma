@@ -1268,7 +1268,9 @@
   var SUB_TARGETS = {
     tasks: { flow: "#tasks .card.section" },
     identity: {
+      master: "#idv-master-page",
       personal: "#idv-verify",
+      life: "#idv-subs",
       sole: "#id-cert-sole",
       enterprise: "#id-entity",
     },
@@ -1334,9 +1336,11 @@
       new: ["#pay-create"],
     },
     tasks: { flow: ["#tasks > .card.section"] },
-    // 主身份卡（#idv-master）故意不列进来：它是页头，任何认证视图下都要露着。
+    // 主身份 = 钱包 / 锁仓 / 授权；每个子身份 = 它自己那一页。
     identity: {
+      master: ["#idv-master-page"],
       personal: ["#idv-verify"],
+      life: ["#idv-subs"],
       sole: ["#id-cert-sole"],
       enterprise: ["#id-entity"],
     },
@@ -1358,6 +1362,16 @@
       developer: ["#rv-queue"],
       kyc: ["#rv-queue"],
     },
+  };
+
+  /** 身份页每个视角写一句「这一页是干什么的」：主身份页不该顶着助理认证的说明，
+      子身份页也不该顶着主身份的。 */
+  var IDENTITY_SUB_NOTES = {
+    master: "主身份只做三件事：连接钱包 → 锁仓 USDC → 授权给身份。每个身份有自己的页面，切身份就换页面。",
+    personal: "主身份本人的实名认证：证件 + 刷脸 + 联系邮箱，通过后领到 Karma 身份卡。",
+    life: "生活助理的子身份卡：角色、权限、额度、边界、操作钱包都在这里设。",
+    sole: "个体助理认证：营业执照 + 经营范围 + 经营地址 + 联系方式。",
+    enterprise: "企业主体认证：营业执照 + 法定代表人 + 官网控制权 + 企业邮箱 + 官方 API 入口。",
   };
 
   /** 只在整页视图里露面的附属块：高级工具 / 档案管理 / 明细抽屉。 */
@@ -1483,6 +1497,11 @@
       h.setAttribute("data-i18n", pages[page][0]);
       sub.setAttribute("data-i18n", pages[page][1]);
       window.CYBER_I18N.applyCyberI18n();
+      // 身份页：说明跟着当前视角走（i18n 之后覆盖，切换语言时也不会被冲掉）。
+      if (page === "identity" && IDENTITY_SUB_NOTES[subKey]) {
+        sub.removeAttribute("data-i18n");
+        sub.textContent = IDENTITY_SUB_NOTES[subKey];
+      }
     }
     // 有子项就滚到子项那一段，没有才回到顶部。
     if (subKey) applySub(page, subKey);
