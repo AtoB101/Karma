@@ -48,6 +48,9 @@ FORBIDDEN_KEYS = {
     "id_front", "id_back", "front_image", "back_image", "document_image",
     "doc_image", "raw", "raw_image", "data_url", "base64", "base64_image",
     "id_image", "证件", "照片", "人脸照片", "证件照", "原图",
+    # 客户端密文包里装人脸/证件的字段名。它们只该出现在**密文内部**，
+    # 一旦在明文载荷里出现就是原件本体换了层皮，不看长度也要当场拒。
+    "face_frames", "face_frame", "face_b64", "doc_front_b64", "doc_back_b64",
 }
 
 # extracted 只允许这些展示字段，并且长度封顶。

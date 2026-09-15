@@ -242,8 +242,10 @@
     var badge = byId("idv-verify-badge");
     if (!id) {
       if (badge) { badge.textContent = "未连接钱包"; badge.className = "idv-badge"; }
+      refreshSubmitState();
       return;
     }
+    refreshSubmitState();
     try {
       var v = await api().getIdentityVerification(id);
       var status = (v && v.status) || "none";
@@ -263,8 +265,11 @@
           submit.textContent = "已认证";
         }
       }
+      // 状态拿到之后再说一次「还差什么」：交过的（pending / verified）不该继续催提交。
+      refreshSubmitState();
     } catch (e) {
       if (badge) badge.textContent = "状态读取失败";
+      refreshSubmitState();
     }
   }
 
@@ -277,17 +282,47 @@
     return "*".repeat(Math.min(12, digits.length - 4)) + digits.slice(-4);
   }
 
+  /**
+   * 差哪几项才能提交。
+   *
+   * 之前这里只算一个 ready，按钮静默变灰 —— 用户把资料全填了却不知道为什么点不动。
+   * 现在把「还差什么」原样列出来，灰按钮旁边必须看得见原因。
+   */
+  function submitMissing() {
+    var missing = [];
+    if (!identity()) missing.push("连接钱包");
+    if (!state.docFront) missing.push("证件正面");
+    if (!state.face) missing.push("刷脸（正/左/右/抬/低 五个角度）");
+    if (!String((byId("idv-name") || {}).value || "").trim()) missing.push("姓名");
+    if (!String((byId("idv-doc-number") || {}).value || "").trim()) missing.push("证件号（后 4 位）");
+    if (!(byId("idv-consent") || {}).checked) missing.push("勾选真实性确认");
+    return missing;
+  }
+
   function refreshSubmitState() {
-    var ready =
-      !!state.docFront &&
-      !!state.face &&
-      !!String(byId("idv-name").value || "").trim() &&
-      !!String(byId("idv-doc-number").value || "").trim() &&
-      byId("idv-consent").checked &&
-      !!identity();
+    var missing = submitMissing();
     // 已经交过（pending / verified）就不再放行：再点只会换回一个 409。
     var alreadySent = state.serverStatus === "pending" || state.serverStatus === "verified";
-    byId("idv-submit").disabled = !ready || state.submitting || alreadySent;
+    var submit = byId("idv-submit");
+    if (!submit) return;
+    submit.disabled = missing.length > 0 || state.submitting || alreadySent;
+    var why = byId("idv-need");
+    var text;
+    if (alreadySent) {
+      text = "已经提交过了 —— 等核验结果就行，同一份不用交两次。";
+    } else if (state.submitting) {
+      text = "正在提交…";
+    } else if (missing.length) {
+      text = "还差：" + missing.join(" / ");
+    } else {
+      text = "都齐了，点「提交认证」就行。";
+    }
+    // title 也带上：鼠标停在按钮上一样能看见差什么。
+    submit.title = missing.length ? "还差：" + missing.join(" / ") : "";
+    if (why) {
+      why.textContent = text;
+      why.className = "idv-need" + (!missing.length && !alreadySent && !state.submitting ? " ok" : "");
+    }
   }
 
   async function submitVerification() {
@@ -299,7 +334,11 @@
     state.submitting = true;
     refreshSubmitState();
     try {
-      say(status, "① 证件就绪，② 正在本地加密…", null);
+      say(
+        status,
+        "① 证件就绪，② 人脸 " + (faceFrames().length ? faceFrames().length + " 个角度" : "照片通道") + " 已就绪，正在本地加密…",
+        null
+      );
       var bundle = {
         v: 1,
         identity_id: id,
@@ -310,6 +349,9 @@
         doc_back_mime: state.docBack ? state.docBack.mime : "",
         face_b64: state.face ? state.face.b64 : "",
         face_mime: state.face ? state.face.mime : "",
+        // 人脸不再是「一张」：五个角度全部进密文包，复核方拿到的是一整组姿态。
+        face_source: (state.face && state.face.source) || "",
+        face_frames: faceFrames(),
       };
       var saltHex = randomHex(16);
       var signature = await signKeyMessage(keyMessage(saltHex));
@@ -334,6 +376,8 @@
           // 复核结果要有人可通知：邮箱是联系方式的必填项。
           contact_email: String((byId("idv-email") || {}).value || "").trim(),
           contact_phone: String((byId("idv-phone") || {}).value || "").trim(),
+          // 复核方一眼要能分辨：这是活体多角度采集，还是走了单张照片的兜底通道。
+          face_match_hint: faceHint(),
           consent: true,
         },
       };
@@ -350,6 +394,50 @@
     }
   }
 
+  /** 采集结果里的人脸帧：多角度采集是几帧，照片兜底通道是空数组。 */
+  function faceFrames() {
+    var face = state.face;
+    if (!face || !Array.isArray(face.frames)) return [];
+    return face.frames
+      .filter(function (f) { return f && f.b64; })
+      .map(function (f) {
+        return {
+          angle: f.angle || "",
+          label: f.label || "",
+          mime: f.mime || "image/jpeg",
+          b64: f.b64,
+          via: f.via || "camera",
+          motion: typeof f.diff === "number" ? f.diff : null,
+        };
+      });
+  }
+
+  /** 复核方的提示条：写清是哪种采集通道、采了几个角度。 */
+  function faceHint() {
+    var face = state.face;
+    if (!face) return "";
+    var frames = faceFrames();
+    if (face.source === "photo" || !frames.length) return "照片通道（非多角度采集）";
+    var labels = frames
+      .map(function (f) { return f.label || f.angle; })
+      .filter(Boolean);
+    return (frames.length + "角度采集:" + labels.join("/")).slice(0, 32);
+  }
+
+  /**
+   * 人脸摘要必须覆盖**全部角度**。
+   * 只对第一张算摘要的话，后面几张被人换掉也查不出来 —— 摘要就白做了。
+   */
+  function faceDigestInput(bundle) {
+    var frames = Array.isArray(bundle.face_frames) ? bundle.face_frames : [];
+    if (!frames.length) return String(bundle.face_b64 || "");
+    return frames
+      .map(function (f) {
+        return String((f && f.angle) || "") + ":" + String((f && f.b64) || "");
+      })
+      .join("|");
+  }
+
   /** 证件包和人脸包共用这一个加密管线：盐由调用方给，避免重复弹钱包签名。 */
   async function encryptPackageWithSalt(bundle, signatureHex, saltHex) {
     // 需要在 deriveKey 里用同一个盐，所以这里重新走一遍，避免两次签名。
@@ -362,7 +450,7 @@
       cipherB64: bufToB64(cipher),
       packageDigest: await sha256Hex(cipher),
       docDigest: await sha256Hex(new window.TextEncoder().encode(bundle.doc_front_b64 || "")),
-      faceDigest: await sha256Hex(new window.TextEncoder().encode(bundle.face_b64 || "")),
+      faceDigest: await sha256Hex(new window.TextEncoder().encode(faceDigestInput(bundle))),
       encryption: {
         algo: "AES-GCM-256",
         kdf: "PBKDF2-SHA256",
@@ -634,7 +722,9 @@
       var f = ev.target.files && ev.target.files[0];
       if (!f) return;
       state.face = await fileToScaledB64(f);
-      byId("idv-face-state").textContent = "照片已就绪";
+      // 走的是单张照片的兜底通道：复核方必须能看出来，所以这里如实打标。
+      state.face.source = "photo";
+      byId("idv-face-state").textContent = "单张照片已就绪（非多角度采集）";
       thumb(byId("idv-face-thumb"), state.face.b64);
       refreshSubmitState();
     });
@@ -643,7 +733,7 @@
       var status = byId("idv-face-state");
       var cap = window.KarmaFaceCapture;
       if (!cap) {
-        status.textContent = "取景组件没加载，用「用照片」那张";
+        status.textContent = "取景组件没加载，用下面「用照片」那张";
         return;
       }
       status.textContent = "正在刷脸…";
@@ -654,7 +744,10 @@
         return;
       }
       state.face = shot;
-      status.textContent = "刷脸已采集";
+      var got = (shot && shot.frames && shot.frames.length) || 0;
+      status.textContent = got
+        ? "刷脸已采集（" + got + " 个角度：正/左/右/抬/低）"
+        : "刷脸已采集";
       thumb(byId("idv-face-thumb"), shot.b64);
       refreshSubmitState();
     });
@@ -739,6 +832,7 @@
     });
     document.addEventListener("karma-alloc-changed", loadMasterMoney);
 
+    refreshSubmitState();
     renderMaster();
     loadVerification();
     loadMasterMoney();

@@ -9,7 +9,11 @@
  *   · 浏览器给了 FaceDetector 就做**真实**的位置/大小判定，位置对了自动倒数拍；
  *   · 没有 FaceDetector 就退化成「画面稳住了就提示可以确认」——
  *     只报我们真的量到的东西，绝不假装检测到了人脸；
- *   · 拍完先给本人看，本人点「确认使用」才交给上层去加密上传。不存在偷偷拍。
+ *   · 一场认证要采**整张脸的五个角度**（正 / 左 / 右 / 抬 / 低），不是拍一张就完事 ——
+ *     单张正面照拿别人的照片就能顶替；
+ *   · 每一张还必须和上一张有真实的姿态差：同一张照片连拍 / 对着屏幕翻拍，
+ *     16x16 灰度平均差会接近 0，这里当场拒掉并要求重拍；
+ *   · 五张采完先给本人看，本人点「确认使用」才交给上层去加密上传。不存在偷偷拍。
  *
  * 照片全程只在这台设备的浏览器内存里，不上传。
  */
@@ -20,6 +24,26 @@
   var JPEG_QUALITY = 0.72;
   var COUNT_STEP_MS = 700;
   var TICK_MS = 130;
+
+  /**
+   * 真人认证要采到整张脸的多个角度，不是拍一张就完事：
+   * 单张正面照用别人的照片就能顶替，五个角度（正/左/右/抬/低）才覆盖整张脸。
+   *
+   * 为什么不采「后脑勺」：背对镜头时画面里没有人脸，既判不了位置也留不下可核对的
+   * 生物特征，那一张只会是一团糊影 —— 抬头 + 低头已经覆盖发际线到下颌。
+   */
+  var ANGLE_STEPS = [
+    { key: "front", label: "正面", hint: "正对镜头，脸放进圈里" },
+    { key: "left", label: "向左转", hint: "头向左转约 45°（露出侧脸），脸仍要留在圈里" },
+    { key: "right", label: "向右转", hint: "头向右转约 45°（露出侧脸），脸仍要留在圈里" },
+    { key: "up", label: "抬高", hint: "脸慢慢抬高一点，额头和下巴都别出圈" },
+    { key: "down", label: "低头", hint: "下巴轻轻往下收一点，露出额头，脸别出圈" }
+  ];
+  /** 两张 16x16 灰度图的平均差：同一张照片连拍 ≈ 0，真人转头会明显更大。 */
+  var IDENTICAL_DIFF = 0.008;
+  var DIM_MEAN = 0.1;
+  /** 两个角度之间留的转身时间：这段时间不判定、不倒数。 */
+  var BETWEEN_MS = 1500;
 
   var state = null;
 
@@ -55,6 +79,13 @@
     ".kfc-actions{display:flex;gap:10px;flex-wrap:wrap;padding:14px 20px 0}",
     ".kfc-actions .btn{flex:0 1 auto}",
     ".kfc-err{margin:12px 20px 0;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,190,120,.34);background:rgba(255,190,120,.08);color:#ffd9a8;font-size:12.5px}",
+    ".kfc-steps{display:flex;gap:6px;margin:12px 20px 0}",
+    ".kfc-step{flex:1;padding:7px 4px;border-radius:10px;border:1px solid rgba(120,140,255,.18);background:rgba(255,255,255,.02);font-size:11.5px;color:#8b9ac6;text-align:center}",
+    ".kfc-step.kfc-step-on{border-color:rgba(34,211,238,.6);color:#8ee9f7;background:rgba(34,211,238,.08)}",
+    ".kfc-step.kfc-step-done{border-color:rgba(110,231,168,.55);color:#6ee7a8}",
+    ".kfc-strip{display:flex;gap:6px;margin:10px 20px 0}",
+    ".kfc-strip img.kfc-thumb{width:52px;height:64px;object-fit:cover;border-radius:8px;border:1px solid rgba(110,231,168,.5);background:#04060e}",
+    ".kfc-strip .kfc-thumb-empty{width:52px;height:64px;border-radius:8px;border:1px dashed rgba(120,140,255,.22);background:rgba(255,255,255,.02)}",
     ".kfc-note{display:block;padding:14px 20px 18px;color:#7d8bb5;font-size:11.5px}",
     "@media(max-width:520px){.kfc-modal{max-width:100%}}"
   ].join("");
@@ -104,7 +135,8 @@
           canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
           resolve({
             b64: canvas.toDataURL("image/jpeg", JPEG_QUALITY).split(",")[1] || "",
-            mime: "image/jpeg"
+            mime: "image/jpeg",
+            gray: grayFrom(img)
           });
         };
         img.src = String(reader.result);
@@ -208,6 +240,103 @@
     return null;
   }
 
+  /* ---------------------------------------------------------- 多角度采集 */
+
+  var grayCanvas = null;
+
+  /** 把画面（video 或 img）缩成 16x16 灰度，用来做「这张和上一张是不是同一张」的比对。 */
+  function grayFrom(source) {
+    if (!grayCanvas) {
+      grayCanvas = document.createElement("canvas");
+      grayCanvas.width = 16;
+      grayCanvas.height = 16;
+    }
+    var ctx = grayCanvas.getContext("2d", { willReadFrequently: true });
+    try {
+      ctx.drawImage(source, 0, 0, 16, 16);
+    } catch (_) {
+      return null;
+    }
+    var data = ctx.getImageData(0, 0, 16, 16).data;
+    var out = [];
+    for (var i = 0; i < data.length; i += 4) {
+      out.push((data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255);
+    }
+    return out;
+  }
+
+  function grayFromVideo(video) {
+    return grayFrom(video);
+  }
+
+  function grayDiff(a, b) {
+    if (!a || !b || a.length !== b.length) return null;
+    var sum = 0;
+    for (var i = 0; i < a.length; i += 1) sum += Math.abs(a[i] - b[i]);
+    return sum / a.length;
+  }
+
+  function grayMean(gray) {
+    if (!gray) return null;
+    var sum = 0;
+    for (var i = 0; i < gray.length; i += 1) sum += gray[i];
+    return sum / gray.length;
+  }
+
+  function currentStep() {
+    return state && state.angles ? state.angles[state.stepIndex] : null;
+  }
+
+  function renderSteps() {
+    var host = byId("kfc-steps");
+    if (!host || !state || !state.angles) return;
+    host.innerHTML = "";
+    state.angles.forEach(function (a, i) {
+      var el = document.createElement("div");
+      el.className = "kfc-step" + (i === state.stepIndex ? " kfc-step-on" : i < state.stepIndex ? " kfc-step-done" : "");
+      el.setAttribute("data-kfc-step", a.key);
+      el.textContent = (i < state.stepIndex ? "✓ " : "") + (i + 1) + "·" + a.label;
+      host.appendChild(el);
+    });
+  }
+
+  function renderStrip() {
+    var host = byId("kfc-strip");
+    if (!host || !state || !state.angles) return;
+    host.innerHTML = "";
+    state.angles.forEach(function (a, i) {
+      var f = (state.frames || [])[i];
+      if (f && f.b64) {
+        var img = document.createElement("img");
+        img.className = "kfc-thumb";
+        img.alt = a.label;
+        img.src = "data:image/jpeg;base64," + f.b64;
+        host.appendChild(img);
+      } else {
+        var d = document.createElement("div");
+        d.className = "kfc-thumb-empty";
+        host.appendChild(d);
+      }
+    });
+  }
+
+  /** 交给上层的采集结果：正面那张仍然放在 b64（兼容旧调用方），四张全在 frames 里。 */
+  function captureResult() {
+    var frames = (state.frames || [])
+      .filter(function (f) { return f && f.b64; })
+      .map(function (f) {
+        return { angle: f.angle, label: f.label, b64: f.b64, mime: f.mime, motion: f.diff };
+      });
+    var front = frames.length ? frames[0] : null;
+    return {
+      b64: front ? front.b64 : "",
+      mime: (front && front.mime) || "image/jpeg",
+      source: "camera",
+      frames: frames,
+      angles: (state.angles || []).map(function (a) { return a.key; })
+    };
+  }
+
   /* ---------------------------------------------------------------- 弹窗 */
 
   function build() {
@@ -221,7 +350,7 @@
       '<div class="kfc-modal">' +
       '<div class="kfc-head"><h3 id="kfc-title">刷脸认证</h3>' +
       '<button type="button" class="kfc-x" data-kfc-close aria-label="关闭">×</button></div>' +
-      '<p class="kfc-sub" id="kfc-sub">把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。照片只留在这台设备上。</p>' +
+      '<p class="kfc-sub" id="kfc-sub">把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。要采 <b>正脸 + 左右侧脸 + 抬头低头，一共 5 张</b>，照片只留在这台设备上。</p>' +
       '<div class="kfc-stage" id="kfc-stage">' +
       '<video id="kfc-video" playsinline muted autoplay></video>' +
       '<span class="kfc-edge kfc-edge-top" id="kfc-edge-top">头顶要进圈</span>' +
@@ -230,6 +359,8 @@
       '<div class="kfc-count" id="kfc-count">3</div>' +
       '<span class="kfc-flag" id="kfc-flag">预览中</span>' +
       "</div>" +
+      '<div class="kfc-steps" id="kfc-steps"></div>' +
+      '<div class="kfc-strip" id="kfc-strip"></div>' +
       '<div class="kfc-status" id="kfc-status">正在打开摄像头…</div>' +
       '<div class="kfc-err" id="kfc-err" hidden></div>' +
       '<div class="kfc-actions" id="kfc-actions"></div>' +
@@ -295,6 +426,9 @@
       });
       state.stream = null;
     }
+    // 光停 track 不够：video 上还挂着这条流，摄像头指示灯和占用的说法都说不清。
+    var video = byId("kfc-video");
+    if (video) video.srcObject = null;
   }
 
   function stopLoop() {
@@ -312,6 +446,10 @@
       if (state.countdown) {
         clearTimeout(state.countdown);
         state.countdown = null;
+      }
+      if (state.between) {
+        clearTimeout(state.between);
+        state.between = null;
       }
     }
     var node = byId("kfc-overlay");
@@ -392,16 +530,17 @@
 
   function onFaces(faces, stage, video, ring) {
     if (!faces || !faces.length) {
-      setRing("");
       stopCountdown();
-      setStatus("把脸放进圈里 —— 头顶和下巴都要在圈内");
+      if (noticeActive()) return;
+      setRing("");
+      setStatus(stepPrefix() + "把脸放进圈里；头顶和下巴都要在圈内");
       return;
     }
     var verdict = judge(faces[0].boundingBox, coverGeom(stage, video), ringBox(stage, ring));
     if (!verdict.ok) {
       setRing("warn");
       stopCountdown();
-      setStatus(verdict.msg);
+      if (!noticeActive()) setStatus(verdict.msg);
       return;
     }
     setRing("ok");
@@ -427,6 +566,22 @@
     step();
   }
 
+  /**
+   * 提示要能在屏幕上站住。
+   *
+   * 实时循环每 130ms 会重写一次状态行，直接 setStatus 的话「这张和上一张一样」会被
+   * 立刻盖掉 —— 用户只看到画面抖了一下，不知道该干嘛。
+   */
+  function flashStatus(text, kind, ms) {
+    if (!state) return;
+    state.notice = { until: Date.now() + (ms || 4000) };
+    setStatus(text, kind);
+  }
+
+  function noticeActive() {
+    return !!(state && state.notice && Date.now() < state.notice.until);
+  }
+
   function stopCountdown() {
     if (state && state.countdown) {
       clearTimeout(state.countdown);
@@ -443,52 +598,160 @@
     } else {
       state.steadyFrames = 0;
     }
+    if (noticeActive()) return;
     if (state.steadyFrames > 6) {
       setRing("ok");
-      setStatus("画面稳住了 —— 点「确认这张」", "good");
+      setStatus(stepPrefix() + "画面稳住了 —— 点「拍下这一张」", "good");
     } else {
       setRing("");
-      setStatus("把脸放进圈里 —— 头顶和下巴都要在圈内；稳住别动");
+      setStatus(liveStatusText());
     }
   }
 
   /* ------------------------------------------------------------- 拍摄 */
 
+  /** 采下当前角度的这一张。五个角度全采完才进核对界面。 */
   function shoot() {
     if (!state || state.mode !== "live") return;
     var shot;
     try {
       shot = frameToB64(byId("kfc-video"));
     } catch (e) {
-      setStatus((e && e.message) || "没抓到画面，再试一次", "bad");
+      flashStatus((e && e.message) || "没抓到画面，再试一次", "bad");
       return;
     }
-    state.shot = shot;
+    var gray = grayFromVideo(byId("kfc-video"));
+    var verdict = judgeAngle(gray);
+    if (!verdict.ok) {
+      stopCountdown();
+      flashStatus(verdict.msg, "bad");
+      return;
+    }
+    acceptFrame(shot, gray, "camera");
+  }
+
+  /**
+   * 这一张能不能算一个「新角度」。
+   *
+   * 单张正面照拿别人的照片就能顶替，所以每一张都必须和上一张有真实的姿态差：
+   * 同一张照片连拍、或对着屏幕翻拍，16x16 灰度平均差会接近 0，这里直接拒掉。
+   * 另外太暗的画面也拒 —— 那种照片复核方什么也看不出来，等于白采。
+   */
+  function judgeAngle(gray) {
+    var step = currentStep();
+    var mean = grayMean(gray);
+    if (mean !== null && mean < DIM_MEAN) {
+      return { ok: false, msg: "光线太暗了，脸看不清 —— 换个亮点的地方再拍", diff: null };
+    }
+    var prev = (state.grays || []).length ? state.grays[state.grays.length - 1] : null;
+    var diff = prev && gray ? grayDiff(prev, gray) : null;
+    if (diff !== null && diff < IDENTICAL_DIFF) {
+      return {
+        ok: false,
+        diff: diff,
+        msg:
+          "「" + (step ? step.label : "这一张") + "」和上一张几乎一模一样 —— " +
+          "请真的转头 / 抬头，别拿同一张照片顶替"
+      };
+    }
+    return { ok: true, msg: "", diff: diff };
+  }
+
+  /** 收下这一张：记编号、照亮进度条，然后决定是继续下一个角度还是进核对界面。 */
+  function acceptFrame(shot, gray, via) {
+    var step = currentStep();
+    var prev = (state.grays || []).length ? state.grays[state.grays.length - 1] : null;
+    state.frames.push({
+      angle: step ? step.key : "front",
+      label: step ? step.label : "正面",
+      b64: shot.b64,
+      mime: shot.mime || "image/jpeg",
+      via: via || "camera",
+      diff: prev && gray ? grayDiff(prev, gray) : null
+    });
+    if (gray) state.grays.push(gray);
+    state.stepIndex += 1;
+    stopCountdown();
+    renderSteps();
+    renderStrip();
+    if (state.stepIndex < state.angles.length) betweenAngles();
+    else enterReview();
+  }
+
+  /** 两张之间留一点转身时间：摄像头不关、画面照常显示，但不判定也不倒数。 */
+  function betweenAngles() {
+    if (!state) return;
+    var next = currentStep();
+    state.mode = "between";
+    setRing("");
+    setStatus("第 " + state.stepIndex + " 张已采到 ✓ 接下来：" + (next ? next.hint : "继续"), "good");
+    actions([
+      { key: "next", label: "我准备好了，直接拍", primary: true, onClick: resumeLive }
+    ]);
+    if (state.between) clearTimeout(state.between);
+    state.between = setTimeout(function () {
+      if (state && state.mode === "between") resumeLive();
+    }, BETWEEN_MS);
+  }
+
+  /** 回到实时预览，等下一个角度到位。 */
+  function resumeLive() {
+    if (!state || state.stopped) return;
+    if (state.between) {
+      clearTimeout(state.between);
+      state.between = null;
+    }
+    state.mode = "live";
+    state.steadyFrames = 0;
+    state.countdown = null;
+    state.notice = null;
+    stopCountdown();
+    var err = byId("kfc-err");
+    if (err) err.hidden = true;
+    setRing("");
+    renderLiveActions();
+    if (!state.stream) {
+      openStream().catch(function () {});
+      return;
+    }
+    setStatus(liveStatusText());
+    stopLoop();
+    tick();
+  }
+
+  /** 五个角度都采到了：停下来给本人过目，只有他点「确认使用」才算数。 */
+  function enterReview() {
+    if (!state) return;
     state.mode = "review";
     stopStream();
     stopCountdown();
+    state.shot = captureResult();
 
     var stage = byId("kfc-stage");
     stage.querySelectorAll("img.kfc-shot").forEach(function (n) { n.remove(); });
-    var img = document.createElement("img");
-    img.className = "kfc-shot";
-    img.alt = "刚拍的人脸";
-    img.src = "data:image/jpeg;base64," + shot.b64;
-    stage.insertBefore(img, stage.firstChild);
+    if (state.shot.b64) {
+      var img = document.createElement("img");
+      img.className = "kfc-shot";
+      img.alt = "刚拍的人脸（正面）";
+      img.src = "data:image/jpeg;base64," + state.shot.b64;
+      stage.insertBefore(img, stage.firstChild);
+    }
     var v = byId("kfc-video");
     if (v) v.style.display = "none";
     var ring = byId("kfc-ring");
     if (ring) ring.style.display = "none";
     var flag = byId("kfc-flag");
     if (flag) {
-      flag.textContent = "已拍 · 待确认";
+      flag.textContent = "已采 " + state.shot.frames.length + " 张 · 待确认";
       flag.classList.add("kfc-flag-live");
     }
-    setStatus("对一下：头顶和下巴都在圈内、脸清楚没糊。没问题就点「确认使用」。", "good");
+    setStatus(
+      "对一下下面这几张（正脸 / 左 / 右 / 抬高 / 低头）：脸清楚没糊、是同一个人、每张角度都不一样。没问题就点「确认使用」。",
+      "good"
+    );
     actions([
-      { key: "use", label: "确认使用", primary: true, onClick: function () { if (state) settle(state.shot); } },
-      { key: "retake", label: "重拍", onClick: retake },
-      { key: "pick", label: "改用照片", onClick: pickFile }
+      { key: "use", label: "确认使用", primary: true, onClick: function () { if (state) settle(captureResult()); } },
+      { key: "retake", label: "重拍", onClick: retake }
     ]);
   }
 
@@ -509,17 +772,33 @@
     state.steadyFrames = 0;
     state.countdown = null;
     state.shot = null;
+    state.stepIndex = 0;
+    state.frames = [];
+    state.grays = [];
+    renderSteps();
+    renderStrip();
     renderLiveActions();
     openStream().catch(function () {});
   }
 
+  /**
+   * 「本角度改用照片」：没有摄像头的人也能走完五个角度。
+   * 照片**不会**绕过角度比对 —— 拿同一张图充五张一样会被拒。
+   */
   async function onFilePicked(ev) {
     var f = ev.target.files && ev.target.files[0];
     ev.target.value = "";
     if (!f || !state) return;
+    if (state.mode === "review") return;
     try {
       var shot = await scaledFileToB64(f);
-      settle(shot);
+      var gray = shot.gray || null;
+      var verdict = judgeAngle(gray);
+      if (!verdict.ok) {
+        flashStatus(verdict.msg, "bad");
+        return;
+      }
+      acceptFrame(shot, gray, "file");
     } catch (e) {
       showError((e && e.message) || "这张图片读不出来");
     }
@@ -534,14 +813,40 @@
 
   function renderLiveActions() {
     if (!state) return;
+    var step = currentStep();
     var list = [
-      { key: "shot", label: "确认这张", primary: true, onClick: shoot },
-      { key: "pick", label: "用照片", onClick: pickFile }
+      {
+        key: "shot",
+        label: step ? "拍下这一张（" + step.label + "）" : "确认这张",
+        primary: true,
+        onClick: shoot
+      },
+      { key: "pick", label: "本角度改用照片", onClick: pickFile }
     ];
     if (state.cameras && state.cameras.length > 1) {
       list.splice(1, 0, { key: "switch", label: "切换摄像头", onClick: switchCamera });
     }
     actions(list);
+  }
+
+  /** 「第 3/5 张（向右转）· 」—— 实时预览和兜底提示都要带上它，否则用户不知道做到哪了。 */
+  function stepPrefix() {
+    if (!state || !state.angles || !state.angles.length) return "";
+    var step = currentStep();
+    if (!step) return "";
+    return "第 " + (state.stepIndex + 1) + "/" + state.angles.length + " 张（" + step.label + "）· ";
+  }
+
+  /** 实时预览时那行字：永远告诉用户「现在是第几张、要做什么动作」。 */
+  function liveStatusText() {
+    if (!state) return "";
+    var step = currentStep();
+    var what = step ? step.hint : "把脸放进圈里";
+    var framing = "头顶和下巴都要在圈内";
+    return (
+      stepPrefix() + what + "；" + framing +
+      (state.detector ? "，位置对了自动拍" : "，稳住后点「拍下这一张」")
+    );
   }
 
   async function switchCamera() {
@@ -574,11 +879,11 @@
       } else if (name === "NotReadableError" || name === "TrackStartError") {
         why = "摄像头被别的程序占着（会议软件、相机），关掉再试。";
       }
-      setStatus(why + " 也可以点下面「用照片」直接传一张。", "bad");
+      setStatus(why + " 也可以点下面「本角度改用照片」逐张传。", "bad");
       setRing("");
       showError(why);
       actions([
-        { key: "pick", label: "用照片", primary: true, onClick: pickFile },
+        { key: "pick", label: "本角度改用照片", primary: true, onClick: pickFile },
         { key: "retry", label: "再试一次", onClick: function () { byId("kfc-err").hidden = true; openStream(); } }
       ]);
       return;
@@ -586,11 +891,7 @@
     state.cameras = await listCameras();
     if (!state || state.stopped) return;
     renderLiveActions();
-    setStatus(
-      state.detector
-        ? "把脸放进圈里 —— 位置对了会自动拍"
-        : "把脸放进圈里 —— 头顶和下巴都要在圈内；稳住后点「确认这张」"
-    );
+    setStatus(liveStatusText());
     stopLoop();
     tick();
   }
@@ -610,7 +911,8 @@
       node.classList.add("kfc-open");
       byId("kfc-title").textContent = opts.title || "刷脸认证";
       byId("kfc-sub").innerHTML =
-        opts.subtitle || "把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。照片只留在这台设备上。";
+        opts.subtitle ||
+        "把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。要采 <b>正脸 + 左右侧脸 + 抬头低头，一共 5 张</b>，照片只留在这台设备上。";
       var err = byId("kfc-err");
       err.hidden = true;
       err.textContent = "";
@@ -639,8 +941,16 @@
         steadyFrames: 0,
         countdown: null,
         timer: null,
-        stopped: false
+        stopped: false,
+        angles: ANGLE_STEPS,
+        stepIndex: 0,
+        frames: [],
+        grays: [],
+        between: null,
+        notice: null
       };
+      renderSteps();
+      renderStrip();
       renderLiveActions();
       openStream().catch(function () {});
     });

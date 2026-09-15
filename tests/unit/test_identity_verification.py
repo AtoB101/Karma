@@ -340,3 +340,53 @@ def test_extracted_whitelist_carries_the_contact_fields():
     # 白名单是「允许」不是「不限长」：长度封顶照旧生效。
     capped = sanitize_extracted({"consent": True, "contact_phone": "9" * 100})
     assert len(capped["contact_phone"]) == 40
+
+
+def test_extracted_whitelist_carries_the_face_capture_hint():
+    """多角度刷脸上线后，复核方要能分辨「活体多角度」还是「单张照片兜底」。
+
+    这个提示只写采集通道和角度数，不含任何生物特征 —— 人脸本体始终只在密文包里。
+    """
+    from services.identity_verification import sanitize_extracted
+
+    multi = sanitize_extracted(
+        {"consent": True, "face_match_hint": "5角度采集:正面/向左转/向右转/抬高/低头"}
+    )
+    assert multi["face_match_hint"] == "5角度采集:正面/向左转/向右转/抬高/低头"
+
+    single = sanitize_extracted({"consent": True, "face_match_hint": "照片通道（非多角度采集）"})
+    assert single["face_match_hint"] == "照片通道（非多角度采集）"
+
+    # 白名单是「允许」不是「不限长」：超长提示照样截断。
+    capped = sanitize_extracted({"consent": True, "face_match_hint": "角" * 100})
+    assert len(capped["face_match_hint"]) == 32
+
+
+def test_a_multi_angle_bundle_still_sends_only_ciphertext():
+    """五个角度必须整体待在密文包里 —— 明文人脸帧一律拒收。"""
+    from services.identity_verification import (
+        IdentityVerificationError,
+        assert_no_plaintext_payload,
+    )
+
+    ok = {
+        "doc_digest": "a" * 64,
+        "face_digest": "b" * 64,
+        "package_digest": "c" * 64,
+        "package_cipher": "QUJD" * 400,
+        "extracted": {"consent": True, "face_match_hint": "5角度采集:正面/向左转"},
+    }
+    assert_no_plaintext_payload(ok)  # 不抛就是通过
+
+    # 客户端密文包里的帧字段名，一旦出现在明文载荷里就是原件换了层皮：不看长度也要拒。
+    for bad_key in ("face_frames", "face_b64", "doc_front_b64", "selfie"):
+        leaky = dict(ok)
+        leaky[bad_key] = [{"angle": "front", "b64": "QQ=="}]
+        with pytest.raises(IdentityVerificationError):
+            assert_no_plaintext_payload(leaky)
+
+    # 换个不在名单里的键名也不行：一整块裸 base64 本身就是原图。
+    smuggled = dict(ok)
+    smuggled["payload_blob"] = "A" * 3000
+    with pytest.raises(IdentityVerificationError):
+        assert_no_plaintext_payload(smuggled)
