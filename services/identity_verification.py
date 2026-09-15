@@ -37,6 +37,10 @@ MIN_PACKAGE_CHARS = 64
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _DATA_URL_RE = re.compile(r"^data:(image|video|application)/", re.IGNORECASE)
+# 纯 base64 长串：证件 / 资质原件的裸编码。声明字段都有长度上限（最长 2000），
+# 所以超过这个长度又整串是 base64 字符集的，只可能是原件本体换了层皮。
+_B64_BLOB_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
+_B64_BLOB_MIN_CHARS = 2048
 
 # 这些键名一旦出现，说明有明文 / 原图想蒙混过关，直接拒。
 FORBIDDEN_KEYS = {
@@ -87,6 +91,17 @@ def _walk_keys(node: Any, found: set[str]) -> set[str]:
     return found
 
 
+def _walk_pairs(node: Any):
+    """(键, 值) 深走：判定要在整棵树上做，不能只看顶层。"""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield str(key).strip().lower(), value
+            yield from _walk_pairs(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk_pairs(item)
+
+
 def _assert_no_plaintext(payload: dict[str, Any]) -> None:
     used = _walk_keys(payload, set())
     bad = sorted(used & FORBIDDEN_KEYS)
@@ -97,14 +112,25 @@ def _assert_no_plaintext(payload: dict[str, Any]) -> None:
             f"(offending keys: {', '.join(bad)})",
         )
 
-    for key, value in payload.items():
+    for key, value in _walk_pairs(payload or {}):
+        # 密文包本体当然是长 base64 —— 它是唯一的合法例外。
         if key == "package_cipher":
             continue
-        if isinstance(value, str) and _DATA_URL_RE.match(value.strip()):
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if _DATA_URL_RE.match(text):
             raise IdentityVerificationError(
                 400,
                 f"field '{key}' looks like an inline image/plaintext data URL; "
                 "encrypt client-side and send only the ciphertext package",
+            )
+        # 换层皮不算：键名随便起，只要值是一整块裸 base64，就是原件明文。
+        if len(text) >= _B64_BLOB_MIN_CHARS and _B64_BLOB_RE.match(text):
+            raise IdentityVerificationError(
+                400,
+                f"field '{key}' looks like a raw base64 document blob "
+                f"({len(text)} chars); encrypt client-side and send only the ciphertext package",
             )
 
 
