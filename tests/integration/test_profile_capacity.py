@@ -276,12 +276,18 @@ async def test_ceiling_takes_the_higher_of_ledger_lock_and_onchain_commit(client
             wallet_address="0x5acc51116f66b84802c8321f286d09014a78346f",
             amount_usdc=170.0,
             amount_wei="170000000",
-            commit_tx_hash="0x" + "a" * 64,
+            # 这个 tx 哈希必须自成一格：既有的单测用 "0x" + "aa" * 32，
+            # 和 "0x" + "a" * 64 是同一个字符串，幂等查询会长到那条用例头上。
+            commit_tx_hash="0x" + "ce" * 32,
             state="open",
             created_at=datetime.utcnow(),
         )
     )
-    await db_session.commit()
+    # 只 flush 不 commit：db_session 与 test_engine 是 session 级的共享内存库，
+    # commit 出来的行不会随用例回滚，会污染后续用例（曾经把
+    # test_claim_commit_is_idempotent 顶成红色）。flush 之后本会话的查询能看见，
+    # 用例结束 rollback 即消失。
+    await db_session.flush()
 
     body = (await client.get("/v1/capacity/owner-1/allocations", headers=OWNER)).json()
     assert body["ceiling"]["ledger_locked_usdc"] == 50.0
