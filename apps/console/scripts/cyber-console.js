@@ -18,6 +18,7 @@
     identity: ["page.identity.title", "page.identity.sub"],
     agents: ["page.agents.title", "page.agents.sub"],
     market: ["page.market.title", "page.market.sub"],
+    reviews: ["page.reviews.title", "page.reviews.sub"],
     settings: ["page.settings.title", "page.settings.sub"],
   };
 
@@ -1252,9 +1253,14 @@
       personal: "#idv-verify",
       sole: "#id-cert-sole",
       enterprise: "#id-entity",
+    },
+    market: {
+      catalog: "#mk-catalog",
+      mine: "#mk-mine",
+      usage: "#mk-usage",
       developer: "#id-developer",
     },
-    market: { catalog: "#mk-catalog", mine: "#mk-mine", usage: "#mk-usage" },
+    reviews: { all: "#rv-queue", entity: "#rv-queue", developer: "#rv-queue", kyc: "#rv-queue" },
     agents: { wizard: "#ag-wizard", mine: "#ag-mine", handoff: "#ag-handoff-card", connect: "#agents .ag-advanced" },
   };
 
@@ -1315,18 +1321,24 @@
       personal: ["#idv-verify"],
       sole: ["#id-cert-sole"],
       enterprise: ["#id-entity"],
-      developer: ["#id-developer"],
     },
     market: {
       catalog: ["#mk-catalog"],
       mine: ["#mk-mine"],
       usage: ["#mk-usage"],
+      developer: ["#id-developer"],
     },
     agents: {
       wizard: ["#ag-wizard"],
       mine: ["#ag-mine"],
       handoff: ["#ag-handoff-card"],
       connect: ["#agents > .ag-advanced"],
+    },
+    reviews: {
+      all: ["#rv-queue"],
+      entity: ["#rv-queue"],
+      developer: ["#rv-queue"],
+      kyc: ["#rv-queue"],
     },
   };
 

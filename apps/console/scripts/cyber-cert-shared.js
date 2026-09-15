@@ -63,10 +63,93 @@
     return Promise.resolve();
   }
 
+  // ---- 提交前自检 ---------------------------------------------------------
+  //
+  // 三张认证页共用：把「机器能查的」先查一遍，别让用户提交完才发现信用代码抄错一位。
+  // 只读接口，登录即可用；结论分三档，跟复核台同一套口径。
+
+  var CHECK_LABEL = {
+    pass: "已自动通过",
+    fail: "自动不通过",
+    manual: "机器判不了，需人工",
+    unavailable: "查不动 / 未接入数据源",
+  };
+  var CHECK_TONE = { pass: "ok", fail: "err", manual: "warn", unavailable: "warn" };
+
+  function esc(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function say(node, text, ok) {
+    if (!node) return;
+    node.textContent = text == null ? "\u2014" : String(text);
+    node.classList.remove("ok", "err");
+    if (ok === true) node.classList.add("ok");
+    if (ok === false) node.classList.add("err");
+  }
+
+  function precheck(kind, subject, websiteVerified) {
+    return api().jsonPost("/v1/reviews/precheck", {
+      kind: kind,
+      subject: subject || {},
+      website_verified: !!websiteVerified,
+    });
+  }
+
+  function renderPrecheck(host, result) {
+    if (!host) return;
+    var checks = (result && result.checks) || [];
+    if (!checks.length) {
+      host.innerHTML = '<li class="idv-hint">没有可自检的项。</li>';
+      return;
+    }
+    host.innerHTML = checks
+      .map(function (c) {
+        var tone = CHECK_TONE[c.status] || "warn";
+        var blocking = c.blocking && c.status === "fail";
+        return (
+          '<li class="rv-check ' + tone + '"><span class="rv-dot"></span>' +
+          "<b>" + esc(c.label || c.key) + "</b>" +
+          '<span class="rv-state">' + esc(CHECK_LABEL[c.status] || c.status) + "</span>" +
+          (blocking ? '<span class="rv-pill err">阻断：先改再提交</span>' : "") +
+          (c.note ? '<div class="rv-note">' + esc(c.note) + "</div>" : "") +
+          "</li>"
+        );
+      })
+      .join("");
+  }
+
+  /** 一个按钮的完整动作：跑自检 → 摊开每项结论 → 写一句人话总结。 */
+  async function runPrecheck(kind, subject, websiteVerified, host, status) {
+    say(status, "自检中…", null);
+    try {
+      var res = await precheck(kind, subject, websiteVerified);
+      renderPrecheck(host, res);
+      var bad = (res.blocking_failures || []).length;
+      var human = (res.needs_human || []).length;
+      if (bad) {
+        say(status, "有 " + bad + " 项要先改，改完再提交", false);
+      } else if (human) {
+        say(status, "机器能查的都过了，" + human + " 项要人工看（提交后进复核队列）", true);
+      } else {
+        say(status, "自检通过，可以提交", true);
+      }
+      return res;
+    } catch (e) {
+      say(status, (e && e.message) || "自检失败", false);
+      return null;
+    }
+  }
+
   window.KarmaCert = {
     identity: identity,
     ensureProfile: ensureProfile,
     listProfiles: listProfiles,
     refreshIdentities: refreshIdentities,
+    precheck: precheck,
+    renderPrecheck: renderPrecheck,
+    runPrecheck: runPrecheck,
   };
 })();
