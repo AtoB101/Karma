@@ -843,9 +843,15 @@
       all("[data-wallet]").forEach(function (n) {
         n.value = account || "";
       });
-      all(".id-main").forEach(function (n) {
-        if (identityId) n.textContent = displayId(identityId);
-      });
+      // 「当前身份」由身份模块统一渲染：切到子身份时这里要显示子身份，不是主身份。
+      var idSwitcher = global.KarmaIdentitySwitcher;
+      if (idSwitcher && idSwitcher.renderCurrent) {
+        idSwitcher.renderCurrent();
+      } else {
+        all(".id-main").forEach(function (n) {
+          if (identityId) n.textContent = displayId(identityId);
+        });
+      }
       all("[data-bind=wallet_address]").forEach(function (n) {
         n.textContent = shortAddr(account);
       });
