@@ -466,7 +466,7 @@ async def test_settlement_invalid_transition_rejected(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient):
+async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient, activate_identity):
     task_id = "task-progress-regret-001"
     buyer = "buyer-progress-001"
     seller = "seller-progress-001"
@@ -495,6 +495,8 @@ async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient):
         "buyer_signature": "sig-progress-001",
     })
     voucher_id = voucher.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
 
     # Settlement lifecycle to running.
@@ -544,7 +546,7 @@ async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_progress_receipt_rejects_rollback_and_duplicate_hash_pair(client: AsyncClient):
+async def test_progress_receipt_rejects_rollback_and_duplicate_hash_pair(client: AsyncClient, activate_identity):
     task_id = "task-progress-guard-001"
     buyer = "buyer-progress-guard-001"
     seller = "seller-progress-guard-001"
@@ -570,6 +572,8 @@ async def test_progress_receipt_rejects_rollback_and_duplicate_hash_pair(client:
         "nonce": "nonce-progress-guard-001",
         "buyer_signature": "sig-progress-guard-001",
     })
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{voucher.json()['voucher_id']}/accept", json={"seller_identity_id": seller})
     await client.post("/v1/settlement/create", json={
         "task_id": task_id,
@@ -659,7 +663,7 @@ async def test_manual_partial_settlement(client: AsyncClient):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(client: AsyncClient):
+async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(client: AsyncClient, activate_identity):
     task_id = "task-auto-arbitrate-001"
     buyer = "buyer-001"
     seller = "seller-001"
@@ -691,6 +695,8 @@ async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(clien
     )
     assert v.status_code == 201
     voucher_id = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
 
     await client.post(
@@ -812,7 +818,7 @@ async def test_voucher_validates_sub_identity_parent_binding(client: AsyncClient
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
+async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, activate_identity):
     task_id = "task-arb-flow-001"
     buyer_id = "buyer-arb-001"
     seller_id = "seller-arb-001"
@@ -844,6 +850,8 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
     )
     assert v.status_code == 201
     voucher_id = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller_id)
     await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller_id})
 
     await client.post(
@@ -985,7 +993,7 @@ async def test_capacity_lock_and_release(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_voucher_accept_reserves_capacity(client: AsyncClient):
+async def test_voucher_accept_reserves_capacity(client: AsyncClient, activate_identity):
     buyer = "buyer-voucher-001"
     seller = "seller-voucher-001"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 200})
@@ -1014,6 +1022,8 @@ async def test_voucher_accept_reserves_capacity(client: AsyncClient):
     assert verify.status_code == 200
     assert verify.json()["can_start"] is True
 
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     accept = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={
         "seller_identity_id": seller
     })
@@ -1026,6 +1036,8 @@ async def test_voucher_accept_reserves_capacity(client: AsyncClient):
     assert body["available_credits"] == 50
     assert body["reserved_credits"] == 150
 
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     second_accept = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={
         "seller_identity_id": seller
     })
@@ -1033,7 +1045,7 @@ async def test_voucher_accept_reserves_capacity(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_responsibility_graph_detects_mutual_exchange_from_voucher_accept(client: AsyncClient):
+async def test_responsibility_graph_detects_mutual_exchange_from_voucher_accept(client: AsyncClient, activate_identity):
     buyer = "buyer-loop-001"
     seller = "seller-loop-001"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
@@ -1055,6 +1067,8 @@ async def test_responsibility_graph_detects_mutual_exchange_from_voucher_accept(
     assert create.status_code == 201
     voucher_id = create.json()["voucher_id"]
 
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     accepted = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
     assert accepted.status_code == 200
 

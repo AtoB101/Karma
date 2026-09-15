@@ -89,7 +89,7 @@ async def _mint_key_with_profile(
 
 
 @pytest.mark.asyncio
-async def test_profile_id_flows_through_m2m_flow(client: AsyncClient, monkeypatch):
+async def test_profile_id_flows_through_m2m_flow(client: AsyncClient, monkeypatch, activate_identity):
     monkeypatch.setattr(settings, "settlement_mode", "offchain")
 
     buyer = f"pf-buy-{uuid.uuid4().hex[:8]}"
@@ -137,6 +137,8 @@ async def test_profile_id_flows_through_m2m_flow(client: AsyncClient, monkeypatc
     assert vr_get.json().get("profile_id") == pid, "voucher should inherit the runtime key profile_id"
 
     # 4. 接受 + 建 settlement（带 voucher_id）→ settlement 应继承 profile_id
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     assert (await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})).status_code == 200
     cr = await client.post(
         "/v1/settlement/create",

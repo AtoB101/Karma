@@ -35,7 +35,7 @@ def _signed_receipt_dict(
 
 
 @pytest.mark.asyncio
-async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(client: AsyncClient):
+async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(client: AsyncClient, activate_identity):
     task_id = "task-p2-bundle-hash-tamper"
     buyer = "buyer-p2-bht"
     seller = "seller-p2-bht"
@@ -65,6 +65,8 @@ async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(cli
         },
     )
     vid = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",
@@ -107,7 +109,7 @@ async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(cli
 
 
 @pytest.mark.asyncio
-async def test_auto_arbitrate_format_error_when_bundle_step_counts_inconsistent(client: AsyncClient):
+async def test_auto_arbitrate_format_error_when_bundle_step_counts_inconsistent(client: AsyncClient, activate_identity):
     task_id = "task-p2-bundle-step-bad"
     buyer = "buyer-p2-steps"
     seller = "seller-p2-steps"
@@ -136,6 +138,8 @@ async def test_auto_arbitrate_format_error_when_bundle_step_counts_inconsistent(
             "buyer_signature": "sig-p2-steps",
         },
     )
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{v.json()['voucher_id']}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",

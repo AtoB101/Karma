@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import AgentModel, ReputationModel
 from services.agent_trust import ensure_reputation_row
+from services.identity_activation import NOT_ACTIVATED_NOTE_ZH, activation_of
 from services.reputation_pack import evaluate_pack_eligibility
 
 LEDGER_META_SOURCE = "identity_card_ledger"
@@ -69,7 +70,30 @@ async def open_identity_ledger(
     return await ensure_reputation_row(db, iid, role=role)
 
 
-def reputation_card_view(row: ReputationModel) -> dict[str, Any]:
+def reputation_card_view(row: ReputationModel, *, activated: bool = True) -> dict[str, Any]:
+    """信誉卡口径：**主身份激活后才开记**。
+
+    未激活时账本行还在（历史一条不删），但不对外露分数、不计入打包资格 ——
+    这是「展示闸门」，不是「删数据」。
+    """
+    if not activated:
+        return {
+            "agent_id": row.agent_id,
+            "profile_id": row.profile_id,
+            "score": None,
+            "role": row.role,
+            "total_tasks": 0,
+            "successful_tasks": 0,
+            "disputed_tasks": 0,
+            "wash_trade_flags": 0,
+            "pack_eligible": False,
+            "pack_path": None,
+            "dividend_eligible_offchain": False,
+            "fee_waiver": False,
+            "activated": False,
+            "ledger_opened": False,
+            "note_zh": NOT_ACTIVATED_NOTE_ZH,
+        }
     elig = evaluate_pack_eligibility(
         score=float(row.score or 0),
         successful_tasks=int(row.successful_tasks or 0),
@@ -91,9 +115,10 @@ def reputation_card_view(row: ReputationModel) -> dict[str, Any]:
         "pack_path": elig.path,
         "dividend_eligible_offchain": elig.dividend_eligible_offchain,
         "fee_waiver": False,
+        "activated": True,
         "ledger_opened": True,
         "note_zh": (
-            "领取 Karma 身份卡即开立信誉账本；成交、违约、刷量都记在这本账上，"
+            "主身份认证已通过，信誉账本开记；成交、违约、刷量都记在这本账上，"
             "达标可打包上链。不减免交易手续费。"
         ),
     }
@@ -111,8 +136,11 @@ async def attach_card_reputation(
         identity_id,
         identity_class=identity_class or card.get("identity_class"),
     )
+    activation = await activation_of(db, identity_id)
     out = dict(card)
-    out["reputation"] = reputation_card_view(row)
+    out["reputation"] = reputation_card_view(row, activated=bool(activation["activated"]))
+    out["activated"] = bool(activation["activated"])
+    out["activation"] = activation
     return out
 
 

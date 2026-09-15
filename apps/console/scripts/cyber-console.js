@@ -1367,7 +1367,7 @@
   /** 身份页每个视角写一句「这一页是干什么的」：主身份页不该顶着助理认证的说明，
       子身份页也不该顶着主身份的。 */
   var IDENTITY_SUB_NOTES = {
-    master: "主身份只做三件事：连接钱包 → 锁仓 USDC → 授权给身份。每个身份有自己的页面，切身份就换页面。",
+    master: "主身份 = 账房：连接钱包 → 刷脸认证（激活）→ 锁仓 USDC → 授权给身份。左边只留身份认证和账单；订单、收付、任务、市场在各自的身份页里。",
     personal: "主身份本人的实名认证：证件 + 刷脸 + 联系邮箱，通过后领到 Karma 身份卡。",
     life: "生活助理的子身份卡：角色、权限、额度、边界、操作钱包都在这里设。",
     sole: "个体助理认证：营业执照 + 经营范围 + 经营地址 + 联系方式。",
@@ -1465,6 +1465,30 @@
     }
   }
 
+  /**
+   * 主身份 ≠ 子身份。主身份是「账房」：只做连接钱包 / 刷脸认证 / 锁仓 / 授权，
+   * 所以这个视角下侧栏只留「身份 · 认证」+「账单」+「设置」；订单、收付、任务、
+   * 争议、Agent 接入、技能市场都是某个身份干活的地方，切到子身份才展开。
+   */
+  var MASTER_SCOPE_GROUPS = ["identity", "bills", "settings"];
+
+  function applyNavScope() {
+    var sw = window.KarmaIdentitySwitcher;
+    var isMaster = true;
+    if (sw && sw.certSubForActive) {
+      try { isMaster = sw.certSubForActive() === "master"; } catch (_) { isMaster = true; }
+    }
+    document.body.classList.toggle("nav-master-scope", isMaster);
+    document.querySelectorAll(".nav-group").forEach(function (g) {
+      var name = g.getAttribute("data-group") || "";
+      var hidden = isMaster && MASTER_SCOPE_GROUPS.indexOf(name) < 0;
+      g.classList.toggle("nav-scope-hidden", hidden);
+      if (hidden) g.classList.remove("open");
+    });
+    var note = el("#nav-scope-note");
+    if (note) note.hidden = !isMaster;
+  }
+
   function switchPage(page, subKey) {
     // 「认证」已经并进「身份」：老链接 / 老按钮一律落到同一页，不留空页。
     if (page === "auth") page = "identity";
@@ -1483,6 +1507,7 @@
     const sec = document.getElementById(page);
     if (sec) sec.classList.add("active");
     markNav(page, subKey);
+    applyNavScope();
     applyFocus(page, subKey);
     // 订单页的视角（全部 / 我买的 / 我卖的）跟着侧栏走，不让图和侧栏各说各话。
     if (page === "overview" && window.KarmaOrders && window.KarmaOrders.setSide) {
@@ -1618,6 +1643,10 @@
     window.CYBER_I18N.applyCyberI18n();
     bindLang();
     bindNav();
+    applyNavScope();
+    ["karma-profile-switched", "karma-wallet-connected", "karma-session-restored"].forEach(function (name) {
+      document.addEventListener(name, applyNavScope);
+    });
     document.querySelectorAll("[data-go]").forEach(function (node) {
       node.addEventListener("click", function () {
         switchPage(node.getAttribute("data-go") || "overview");

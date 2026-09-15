@@ -44,6 +44,13 @@
           <div class="id-sub">SBT · Main</div>
         </div>
         <nav class="nav">
+          <!-- 主身份视角 = 账房：只留「身份 · 认证」+「账单」+「设置」。
+               订单 / 收付 / 任务 / 争议 / 接入 / 市场是子身份干活的地方，
+               切到某个身份才展开（见 cyber-console.js 的 applyNavScope）。 -->
+          <div class="nav-scope-note" id="nav-scope-note" hidden>
+            <b>主身份 = 账房</b>
+            <p>这里只放连接钱包、刷脸认证、锁仓、授权这几件事。订单、收付、任务、市场属于每一个身份自己的页面 —— 点上面的「选择身份」切过去就展开。</p>
+          </div>
           <!-- 主功能区 + 折叠子功能：点主项切页面并展开它下面的子项，点子项直接落到那一块。 -->
           <div class="nav-group" data-group="overview">
             <button class="nav-main active" data-page="overview" aria-expanded="false"><span class="icon">▤</span><span data-i18n="nav.overview">订单</span><span class="nav-caret">▾</span></button>
@@ -457,11 +464,15 @@
         <section id="identity" class="page">
           <!-- 主身份页（主体账户）：只做三件事 —— ① 连接钱包 ② 锁仓 USDC ③ 授权给身份。
                认证、订单、收付、记录都在「每个身份自己的页面」里：切到哪个身份，右边就换成它的页面。 -->
+          <!-- 主身份页（主体账户）= 这本账的账房。主身份只做四件事：
+               ① 连接钱包  ② 刷脸认证（决定「激活」）  ③ 锁仓 USDC  ④ 授权给身份。
+               订单 / 收付 / 任务 / 争议 / 接入 / 市场都是子身份干活的地方 ——
+               切到哪个身份，右边就换成它自己的页面。 -->
           <div class="card section id-hero" id="idv-master-page">
             <div class="section-header">
               <div>
                 <h3>主身份 · 主体账户</h3>
-                <p>主身份只做三件事：<b>连接钱包 → 锁仓 USDC → 授权给身份</b>。整本账、所有子身份、所有锁仓都挂在主身份下；每个身份有自己的认证、订单、收付和记录，切身份就换页面。</p>
+                <p>主身份只做四件事：<b>连接钱包 → 刷脸认证（激活）→ 锁仓 USDC → 授权给身份</b>。整本账、所有子身份、所有锁仓都挂在主身份下；每个身份有自己的认证、订单、收付和记录，切身份就换页面。</p>
               </div>
               <span class="idv-badge" id="idv-master-badge">未连接钱包</span>
             </div>
@@ -469,8 +480,17 @@
             <div class="idv-grid" id="idv-master">
               <div class="idv-kv"><b>主身份 ID</b><span id="idv-master-id">—</span></div>
               <div class="idv-kv"><b>钱包地址</b><span id="idv-master-wallet">—</span></div>
-              <div class="idv-kv"><b>认证状态</b><span id="idv-master-verify">未认证</span></div>
-              <div class="idv-kv"><b>锁仓 / 已分配 / 可用</b><span id="idv-master-money">—</span></div>
+              <div class="idv-kv"><b>激活状态</b><span id="idv-master-verify">未激活</span></div>
+              <div class="idv-kv"><b>锁仓 / 已授权 / 可用</b><span id="idv-master-money">—</span></div>
+            </div>
+
+            <!-- 总账单：主身份这一页的正题。数字由后端算好（已用 = 执行中 + 待结算 + 争议冻结）。 -->
+            <div class="mst-block" id="mst-total">
+              <div class="mst-block-head">
+                <b>总账单</b>
+                <span class="mst-hint">整本账只此一份；子身份的收入支出都归到主身份名下，逐步明细在各自身份页里。</span>
+              </div>
+              <div class="mst-metrics" id="mst-total-metrics"></div>
             </div>
 
             <!-- ① 连接钱包 -->
@@ -484,8 +504,7 @@
                   <input id="id-card-id" type="hidden" />
                   <span class="api-status" data-wallet-status>—</span>
                 </div>
-                <p class="id-home-hint">钱包是登录方式，也是锁仓资金唯一的出口。Karma 全程不接触私钥、助记词。
-                  主身份本人的实名身份卡（证件 + 刷脸）在左边「个人助理认证」那一页，不挤在这里。</p>
+                <p class="id-home-hint">钱包是登录方式，也是锁仓资金唯一的出口。Karma 全程不接触私钥、助记词。</p>
                 <div class="id-card" id="id-card-view" style="margin-top:14px; display:none"></div>
                 <div class="id-card" id="auth-card-view" style="margin-top:14px; display:none"></div>
                 <pre class="out" id="id-out" style="margin-top:12px; max-height:220px; overflow:auto; display:none">—</pre>
@@ -493,9 +512,25 @@
               </div>
             </div>
 
-            <!-- ② 锁仓 USDC（从订单页搬过来的，全站只有这一处入口） -->
+            <!-- ② 刷脸认证 = 激活开关。脸和证件都只在这台设备上加密，服务端拿到的是密文。 -->
+            <div class="mst-step" id="mst-step-activate">
+              <div class="mst-head"><b>② 主身份刷脸认证</b><span class="mst-state" id="mst-activate-state">未激活</span></div>
+              <div class="mst-body">
+                <div class="mst-gate" id="mst-activate-gate">
+                  <span class="mst-gate-dot" aria-hidden="true">●</span>
+                  <div class="mst-gate-text">
+                    <b id="mst-activate-title">主身份尚未激活</b>
+                    <p id="mst-activate-note">完成一次主身份本人的实名认证（证件 + 刷脸，与这个钱包地址绑定）即自动激活。</p>
+                  </div>
+                  <button type="button" class="btn primary" id="mst-activate-go">去刷脸认证 →</button>
+                </div>
+                <p class="id-home-hint">未激活期间：可以锁仓、可以给身份划额度（钱始终留在你自己的钱包里），但不能接单、不会被撮合、信誉分也不对外显示。认证通过后，信誉记录才从那一刻开始记。</p>
+              </div>
+            </div>
+
+            <!-- ③ 锁仓 USDC（全站只有这一处入口） -->
             <div class="mst-step" id="mst-step-lock">
-              <div class="mst-head"><b>② 锁仓 USDC</b><span class="mst-state" id="mst-lock-state">未锁仓</span></div>
+              <div class="mst-head"><b>③ 锁仓 USDC</b><span class="mst-state" id="mst-lock-state">未锁仓</span></div>
               <div class="mst-body">
                 <div class="lock-row">
                   <label class="lock-row-label" for="lock-amount">锁仓金额</label>
@@ -516,22 +551,17 @@
               </div>
             </div>
 
-            <!-- ③ 授权给身份：选一个子身份，划给它额度上限。 -->
+            <!-- ④ 授权给身份：每个身份一行，加额 / 减额 / 取消授权都在这行里点。 -->
             <div class="mst-step" id="mst-step-auth">
-              <div class="mst-head"><b>③ 授权给身份</b><span class="mst-state" id="mst-auth-state">未授权</span></div>
+              <div class="mst-head"><b>④ 授权给身份</b><span class="mst-state" id="mst-auth-state">未授权</span></div>
               <div class="mst-body">
-                <div class="lock-row">
-                  <label class="lock-row-label" for="mst-auth-identity">授权给</label>
-                  <select id="mst-auth-identity" class="mst-select"></select>
-                  <input id="mst-auth-amount" type="number" min="0" step="0.01" placeholder="授权额度 USDC" />
-                  <button type="button" class="btn primary" id="mst-auth-save">授权额度</button>
-                  <span class="api-status" id="mst-auth-status">—</span>
-                </div>
+                <div class="mst-alloc" id="mst-alloc-table">连接钱包后显示每个身份的额度</div>
                 <p class="id-home-hint" id="mst-auth-note">授权 = 告诉 Karma「这个身份最多能动用多少」。钱始终留在你自己的钱包里，验证通过才划转。</p>
                 <div class="id-home-confirm" id="mst-auth-confirm" hidden></div>
               </div>
             </div>
           </div>
+
           <!-- ② 个人助理认证：证件 + 刷脸 + 联系方式，一条直线做完。 -->
           <div class="card section" id="idv-verify">
             <div class="section-header">

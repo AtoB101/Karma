@@ -63,8 +63,15 @@ def test_identity_header_is_ignored_when_enforcement_is_on(monkeypatch):
 
 
 async def _seed_in_progress_settlement(
-    client: AsyncClient, *, task_id: str, buyer: str, seller: str
+    client: AsyncClient,
+    activate_identity,
+    *,
+    task_id: str,
+    buyer: str,
+    seller: str,
 ) -> None:
+    # 未激活的主身份不能接单：先让卖家完成本人实名认证。
+    await activate_identity(seller)
     lock = await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
     assert lock.status_code == 200, lock.text
     await post_minimal_contract(
@@ -156,13 +163,17 @@ def _progress_body(*, task_id: str, seller: str, evidence: str, log: str) -> dic
 
 
 @pytest.mark.asyncio
-async def test_runtime_update_progress_works_with_enforcement_on(client: AsyncClient, monkeypatch):
+async def test_runtime_update_progress_works_with_enforcement_on(
+    client: AsyncClient, monkeypatch, activate_identity
+):
     """The exact production configuration that used to 401 every progress report."""
     task_id = "task-runtime-delegated-progress"
     buyer = "buyer-runtime-delegated"
     seller = "seller-runtime-delegated"
 
-    await _seed_in_progress_settlement(client, task_id=task_id, buyer=buyer, seller=seller)
+    await _seed_in_progress_settlement(
+        client, activate_identity, task_id=task_id, buyer=buyer, seller=seller
+    )
     runtime_key = await _mint_runtime(client, seller=seller, perms=["update_progress"])
 
     monkeypatch.setattr(settings, "auth_enforce_protected_routes", True)
@@ -178,13 +189,17 @@ async def test_runtime_update_progress_works_with_enforcement_on(client: AsyncCl
 
 
 @pytest.mark.asyncio
-async def test_runtime_key_still_cannot_act_for_another_identity(client: AsyncClient, monkeypatch):
+async def test_runtime_key_still_cannot_act_for_another_identity(
+    client: AsyncClient, monkeypatch, activate_identity
+):
     """Delegation must not become impersonation."""
     task_id = "task-runtime-delegated-cross"
     buyer = "buyer-runtime-cross"
     seller = "seller-runtime-cross"
 
-    await _seed_in_progress_settlement(client, task_id=task_id, buyer=buyer, seller=seller)
+    await _seed_in_progress_settlement(
+        client, activate_identity, task_id=task_id, buyer=buyer, seller=seller
+    )
     intruder_key = await _mint_runtime(
         client, seller="seller-runtime-intruder", perms=["update_progress"]
     )
@@ -201,13 +216,17 @@ async def test_runtime_key_still_cannot_act_for_another_identity(client: AsyncCl
 
 
 @pytest.mark.asyncio
-async def test_runtime_key_submits_an_unsigned_receipt(client: AsyncClient, monkeypatch):
+async def test_runtime_key_submits_an_unsigned_receipt(
+    client: AsyncClient, monkeypatch, activate_identity
+):
     """The agent has no signing key, only a Runtime Key: the gateway must sign for it."""
     task_id = "task-runtime-delegated-receipt"
     buyer = "buyer-runtime-receipt"
     seller = "seller-runtime-receipt"
 
-    await _seed_in_progress_settlement(client, task_id=task_id, buyer=buyer, seller=seller)
+    await _seed_in_progress_settlement(
+        client, activate_identity, task_id=task_id, buyer=buyer, seller=seller
+    )
     runtime_key = await _mint_runtime(client, seller=seller, perms=["submit_receipt"])
 
     monkeypatch.setattr(settings, "auth_enforce_protected_routes", True)
@@ -238,7 +257,9 @@ async def test_runtime_key_submits_an_unsigned_receipt(client: AsyncClient, monk
 
 
 @pytest.mark.asyncio
-async def test_runtime_key_submits_sequential_receipts(client: AsyncClient, monkeypatch):
+async def test_runtime_key_submits_sequential_receipts(
+    client: AsyncClient, monkeypatch, activate_identity
+):
     """A second step receipt must compare against the stored timestamp without crashing.
 
     The stored ``ended_at`` comes back from the database timezone-naive while the
@@ -250,7 +271,9 @@ async def test_runtime_key_submits_sequential_receipts(client: AsyncClient, monk
     buyer = "buyer-runtime-sequential"
     seller = "seller-runtime-sequential"
 
-    await _seed_in_progress_settlement(client, task_id=task_id, buyer=buyer, seller=seller)
+    await _seed_in_progress_settlement(
+        client, activate_identity, task_id=task_id, buyer=buyer, seller=seller
+    )
     runtime_key = await _mint_runtime(client, seller=seller, perms=["submit_receipt"])
 
     monkeypatch.setattr(settings, "auth_enforce_protected_routes", True)

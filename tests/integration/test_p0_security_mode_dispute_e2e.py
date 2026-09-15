@@ -37,6 +37,7 @@ async def _reset_safety(client_sec: AsyncClient) -> None:
 async def test_safety_mode_blocks_new_business_allows_dispute_arbitration_and_unused_release(
     client: AsyncClient,
     client_sec: AsyncClient,
+    activate_identity,
 ):
     await _reset_safety(client_sec)
     try:
@@ -49,6 +50,8 @@ async def test_safety_mode_blocks_new_business_allows_dispute_arbitration_and_un
         v = await client.post("/v1/vouchers", json=_voucher_body(buyer=buyer, seller=seller, amount=50.0, nonce="e2e-sm-n1"))
         assert v.status_code == 201, v.text
         vid = v.json()["voucher_id"]
+        # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+        await activate_identity(seller)
         await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
 
         await client.post(

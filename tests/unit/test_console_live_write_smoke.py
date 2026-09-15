@@ -55,10 +55,12 @@ def _signed_receipt(*, task_id: str, agent_id: str) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_console_live_write_happy_path(client: AsyncClient):
+async def test_console_live_write_happy_path(client: AsyncClient, activate_identity):
     """Mirrors Payments/Receiving console actions through to settled."""
     buyer, seller = "console-smoke-buyer", "console-smoke-seller"
     tid = "task-console-live-write"
+    # 未激活的主身份不能接单：先让卖家完成本人实名认证。
+    await activate_identity(seller)
 
     # capacity-lock
     lock = await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100.0})

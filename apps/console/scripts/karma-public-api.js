@@ -79,6 +79,11 @@
     return body;
   }
 
+  /** 主身份是否已激活（= 本人实名认证是否通过）。未激活不能接单、不会被撮合。 */
+  async function getIdentityActivation(identityId) {
+    return karmaFetch(`/v1/identity/${encodeURIComponent(identityId)}/activation`, { method: "GET" });
+  }
+
   async function getCapacity(identityId) {
     const id = encodeURIComponent(identityId);
     return karmaFetch("/v1/capacity/" + id, { method: "GET", headers: headers() });
@@ -585,6 +590,7 @@
     karmaFetch,
     headers,
     getCapacity,
+    getIdentityActivation,
     getAllocations,
     setAllocations,
     getSettlement,

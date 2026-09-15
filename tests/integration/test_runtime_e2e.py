@@ -143,7 +143,7 @@ async def test_runtime_e2e_list_keys_and_revoke(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_runtime_e2e_voucher_receipt_settlement_flow(client: AsyncClient):
+async def test_runtime_e2e_voucher_receipt_settlement_flow(client: AsyncClient, activate_identity):
     """
     买方 Runtime Key：request_voucher + request_settlement(buyer_accept) + sync
     卖方 Runtime Key：submit_receipt + request_settlement(submit_delivery) + sync
@@ -193,6 +193,8 @@ async def test_runtime_e2e_voucher_receipt_settlement_flow(client: AsyncClient):
     assert vr.status_code == 201, vr.text
     voucher_id = vr.json()["voucher_id"]
 
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     acc = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
     assert acc.status_code == 200, acc.text
 

@@ -14,6 +14,7 @@ from db.models.orm import AgentModel, IdentityProfileModel
 from db.session import get_db
 from services.agent_directory import agent_row_to_card, ensure_directory_merchants
 from services.agent_trust import apply_trust_rerank
+from services.identity_activation import inactive_identities
 from services.discovery_priority import (
     get_scene_priority_policy,
     ranking_metadata,
@@ -203,6 +204,29 @@ async def discover_for_intent(
         seen.add(aid)
         unique.append(c)
 
+    # 未激活的主身份不能被撮合：它名下的 agent / DID 投影一律从候选里摘掉。
+    # 摘掉的条数写进 meta，方便前端和排查的人看懂「为什么少了几家」。
+    gate_ids: list[str] = []
+    for c in unique:
+        owner = str(c.get("owner_identity_id") or "").strip()
+        if not owner and str(c.get("_source") or "") == "identity_projection":
+            owner = str(c.get("agent_id") or "").strip()
+        if owner:
+            gate_ids.append(owner)
+    blocked = await inactive_identities(db, gate_ids)
+    dropped_unactivated = 0
+    if blocked:
+        kept: list[dict[str, Any]] = []
+        for c in unique:
+            owner = str(c.get("owner_identity_id") or "").strip()
+            if not owner and str(c.get("_source") or "") == "identity_projection":
+                owner = str(c.get("agent_id") or "").strip()
+            if owner and owner in blocked:
+                dropped_unactivated += 1
+                continue
+            kept.append(c)
+        unique = kept
+
     ranked = rank_candidates(unique, query, limit=max(body.limit * 3, 30))
     if body.apply_trust_ranking:
         ranked = await apply_trust_rerank(
@@ -230,6 +254,7 @@ async def discover_for_intent(
         drop_ineligible=drop_ineligible,
     )
     meta["include_demo_merchants"] = include_demo
+    meta["dropped_unactivated_sellers"] = dropped_unactivated
     if body.require_scene_coverage is True:
         meta["scene_policy"]["require_scene_coverage"] = True
     plan["ranking"] = meta

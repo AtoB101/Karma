@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models.orm import IdentityRoleProfile, IdentityVerificationModel
 from db.session import get_db
 from services.identity_actor import resolve_actor_identity_id
+from services.identity_activation import activation_of
 from services.identity_verification import (
     IdentityVerificationError,
     assert_can_decide,
@@ -103,6 +104,19 @@ async def get_identity_verification(
     if actor == identity_id:
         return owner_view(row)
     return public_view(row)
+
+
+@router.get("/{identity_id}/activation")
+async def get_identity_activation(
+    identity_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """主身份是否已激活 = 本人实名认证（证件 + 刷脸）是否通过。
+
+    操作台、撮合、Runtime 都读这一个口径，不各自再算一遍。
+    """
+    validate_public_url_segment("identity_id", identity_id)
+    return await activation_of(db, identity_id)
 
 
 @router.post("/{identity_id}/verification/submit")
