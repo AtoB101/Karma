@@ -61,7 +61,7 @@ def _signed_receipt_dict(
 
 
 @pytest.mark.asyncio
-async def test_p0_voucher_accept_moves_capacity(client: AsyncClient):
+async def test_p0_voucher_accept_moves_capacity(client: AsyncClient, activate_identity):
     buyer, seller = "p0-buyer-cap", "p0-seller-cap"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100.0})
     cap0 = (await client.get(f"/v1/capacity/{buyer}")).json()
@@ -72,6 +72,8 @@ async def test_p0_voucher_accept_moves_capacity(client: AsyncClient):
     assert v.status_code == 201, v.text
     vid = v.json()["voucher_id"]
 
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
 
     cap1 = (await client.get(f"/v1/capacity/{buyer}")).json()
@@ -80,19 +82,23 @@ async def test_p0_voucher_accept_moves_capacity(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_p0_voucher_double_accept_rejected(client: AsyncClient):
+async def test_p0_voucher_double_accept_rejected(client: AsyncClient, activate_identity):
     buyer, seller = "p0-buyer-dup", "p0-seller-dup"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 50.0})
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, amount=20.0, nonce="nonce-dup"))
     vid = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     r1 = await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
     assert r1.status_code == 200
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     r2 = await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
     assert r2.status_code == 409
 
 
 @pytest.mark.asyncio
-async def test_p0_buyer_accept_requires_success_receipt(client: AsyncClient):
+async def test_p0_buyer_accept_requires_success_receipt(client: AsyncClient, activate_identity):
     buyer, seller = "p0-buyer-bacc", "p0-seller-bacc"
     tid = "task-p0-bacc"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 80.0})
@@ -105,6 +111,8 @@ async def test_p0_buyer_accept_requires_success_receipt(client: AsyncClient):
     )
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, amount=30.0, nonce="nonce-bacc"))
     vid = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
 
     await client.post(
@@ -135,7 +143,7 @@ async def test_p0_buyer_accept_requires_success_receipt(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_p0_dispute_moves_reserved_to_disputed(client: AsyncClient):
+async def test_p0_dispute_moves_reserved_to_disputed(client: AsyncClient, activate_identity):
     buyer, seller = "p0-buyer-disp", "p0-seller-disp"
     tid = "task-p0-disp"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100.0})
@@ -148,6 +156,8 @@ async def test_p0_dispute_moves_reserved_to_disputed(client: AsyncClient):
     )
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, amount=35.0, nonce="nonce-disp"))
     vid = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
 
     await client.post(
@@ -171,7 +181,7 @@ async def test_p0_dispute_moves_reserved_to_disputed(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_p0_settlement_records_burn_on_buyer_accept(client: AsyncClient):
+async def test_p0_settlement_records_burn_on_buyer_accept(client: AsyncClient, activate_identity):
     buyer, seller = "p0-buyer-burn", "p0-seller-burn"
     tid = "task-p0-burn"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 60.0})
@@ -184,6 +194,8 @@ async def test_p0_settlement_records_burn_on_buyer_accept(client: AsyncClient):
     )
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, amount=25.0, nonce="nonce-burn"))
     vid = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
 
     await client.post(

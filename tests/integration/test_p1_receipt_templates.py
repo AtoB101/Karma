@@ -56,7 +56,7 @@ def _signed_receipt(
 
 
 @pytest.mark.asyncio
-async def test_p1_api_task_rejects_receipt_without_extension(client: AsyncClient):
+async def test_p1_api_task_rejects_receipt_without_extension(client: AsyncClient, activate_identity):
     buyer, seller = "p1-buyer-api", "p1-seller-api"
     tid = "task-p1-api-missing-ext"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 60.0})
@@ -70,6 +70,8 @@ async def test_p1_api_task_rejects_receipt_without_extension(client: AsyncClient
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, task_type="api.echo", nonce="nonce-p1-api-1"))
     assert v.status_code == 201, v.text
     vid = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",
@@ -83,7 +85,7 @@ async def test_p1_api_task_rejects_receipt_without_extension(client: AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_p1_api_task_accepts_signed_api_extension(client: AsyncClient):
+async def test_p1_api_task_accepts_signed_api_extension(client: AsyncClient, activate_identity):
     buyer, seller = "p1-buyer-api2", "p1-seller-api2"
     tid = "task-p1-api-with-ext"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 60.0})
@@ -96,6 +98,8 @@ async def test_p1_api_task_accepts_signed_api_extension(client: AsyncClient):
     )
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, task_type="api.echo", nonce="nonce-p1-api-2"))
     vid = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",
@@ -121,7 +125,7 @@ async def test_p1_api_task_accepts_signed_api_extension(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_p1_generic_task_rejects_typed_extension(client: AsyncClient):
+async def test_p1_generic_task_rejects_typed_extension(client: AsyncClient, activate_identity):
     buyer, seller = "p1-buyer-gen", "p1-seller-gen"
     tid = "task-p1-gen-ext"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 60.0})
@@ -134,6 +138,8 @@ async def test_p1_generic_task_rejects_typed_extension(client: AsyncClient):
     )
     v = await client.post("/v1/vouchers", json=_voucher_json(buyer=buyer, seller=seller, task_type="p1.generic", nonce="nonce-p1-gen"))
     vid = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",

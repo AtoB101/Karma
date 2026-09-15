@@ -91,12 +91,15 @@ def activate_identity(db_session):
     """
     from db.models.orm import IdentityVerificationModel
 
-    async def _activate(identity_id: str) -> None:
-        db_session.add(
-            IdentityVerificationModel(
-                identity_id=identity_id, status="verified", level="basic"
-            )
-        )
+    async def _activate(*identity_ids: str) -> None:
+        for identity_id in identity_ids:
+            # 幂等：同一用例里两次接单都调它，不能第二次直接撞主键。
+            if await db_session.get(IdentityVerificationModel, identity_id) is None:
+                db_session.add(
+                    IdentityVerificationModel(
+                        identity_id=identity_id, status="verified", level="basic"
+                    )
+                )
         await db_session.commit()
 
     return _activate

@@ -82,6 +82,7 @@ async def _run_one_trade(
     seller_rt: str,
     amount: float,
     tag: str,
+    activate_identity,
 ) -> str:
     """跑一单：voucher → accept → settlement → receipt → settle，返回 task_id."""
     task_id = f"task-{tag}-{uuid.uuid4().hex[:8]}"
@@ -96,6 +97,8 @@ async def _run_one_trade(
     voucher_id = vr.json()["voucher_id"]
     assert vr.json().get("profile_id") == profile["profile_id"], f"[{tag}] voucher 应带 profile_id"
 
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     assert (await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})).status_code == 200
 
     cr = await client.post(
@@ -138,7 +141,9 @@ async def _run_one_trade(
 
 
 @pytest.mark.asyncio
-async def test_three_profiles_isolated_ledgers(client: AsyncClient, monkeypatch):
+async def test_three_profiles_isolated_ledgers(
+    client: AsyncClient, monkeypatch, activate_identity
+):
     monkeypatch.setattr(settings, "settlement_mode", "offchain")
 
     owner = f"owner-{uuid.uuid4().hex[:8]}"
@@ -188,8 +193,7 @@ async def test_three_profiles_isolated_ledgers(client: AsyncClient, monkeypatch)
         await _run_one_trade(
             client, buyer=owner, buyer_rt=s["buyer_rt"], profile=profiles[class_],
             seller=f"{owner}-{class_}", seller_rt=s["seller_rt"],
-            amount=amounts[class_], tag=class_,
-        )
+            amount=amounts[class_], tag=class_, activate_identity=activate_identity)
 
     # ── 一键切换验证：每个档案额度/声誉互不串账 ──
     final = await client.get(f"/v1/capacity/{owner}/allocations", headers={"X-Karma-Identity-Id": owner})

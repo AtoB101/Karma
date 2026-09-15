@@ -9,7 +9,7 @@ from httptest import post_minimal_contract, post_success_execution_receipt
 
 
 @pytest.mark.asyncio
-async def test_partial_settlement_rejects_above_confirmed_claimed(client: AsyncClient):
+async def test_partial_settlement_rejects_above_confirmed_claimed(client: AsyncClient, activate_identity):
     task_id = "task-p1-partial-cap"
     buyer = "buyer-p1-partial-cap"
     seller = "seller-p1-partial-cap"
@@ -39,6 +39,8 @@ async def test_partial_settlement_rejects_above_confirmed_claimed(client: AsyncC
         },
     )
     vid = v.json()["voucher_id"]
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",
@@ -76,7 +78,7 @@ async def test_partial_settlement_rejects_above_confirmed_claimed(client: AsyncC
 
 
 @pytest.mark.asyncio
-async def test_partial_settlement_rejects_in_progress_without_confirmed_or_delivered(client: AsyncClient):
+async def test_partial_settlement_rejects_in_progress_without_confirmed_or_delivered(client: AsyncClient, activate_identity):
     """P0-9: no economic split from in_progress when there is zero confirmed progress."""
     task_id = "task-p0-partial-no-deliver"
     buyer = "buyer-p0-partial-nd"
@@ -106,6 +108,8 @@ async def test_partial_settlement_rejects_in_progress_without_confirmed_or_deliv
             "buyer_signature": "sig-p0-partial-nd",
         },
     )
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{v.json()['voucher_id']}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",
@@ -124,7 +128,7 @@ async def test_partial_settlement_rejects_in_progress_without_confirmed_or_deliv
 
 
 @pytest.mark.asyncio
-async def test_regret_rejects_mismatched_buyer_identity(client: AsyncClient):
+async def test_regret_rejects_mismatched_buyer_identity(client: AsyncClient, activate_identity):
     task_id = "task-p1-regret-buyer"
     buyer = "buyer-p1-regret"
     seller = "seller-p1-regret"
@@ -153,6 +157,8 @@ async def test_regret_rejects_mismatched_buyer_identity(client: AsyncClient):
             "buyer_signature": "sig-p1-regret-buyer",
         },
     )
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{v.json()['voucher_id']}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",
@@ -166,7 +172,7 @@ async def test_regret_rejects_mismatched_buyer_identity(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_progress_timeout_confirm_stale_pending(client: AsyncClient):
+async def test_progress_timeout_confirm_stale_pending(client: AsyncClient, activate_identity):
     task_id = "task-p1-timeout-confirm"
     buyer = "buyer-p1-tc"
     seller = "seller-p1-tc"
@@ -195,6 +201,8 @@ async def test_progress_timeout_confirm_stale_pending(client: AsyncClient):
             "buyer_signature": "sig-p1-tc",
         },
     )
+    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
+    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{v.json()['voucher_id']}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",
