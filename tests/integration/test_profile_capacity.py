@@ -253,3 +253,47 @@ async def test_v2_order_reserves_that_sub_identitys_quota(
     r = await client.post("/v1/escrow/owner-1/orders", json=_order(20.0), headers=OWNER)
     assert r.status_code == 409, r.text
     assert "profile credits" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_ceiling_takes_the_higher_of_ledger_lock_and_onchain_commit(client, db_session):
+    """上限 = max(台账锁仓, 链上授权承诺)，和操作台顶栏同一条规则。
+
+    以前是「台账有数就只认台账」，于是钱包承诺了 170、界面只认 50，
+    子身份的授权额度被凭空卡住一半还多。
+    """
+    from datetime import datetime
+
+    from db.models.orm import AllowanceCommitModel
+
+    p = await _create_profile(client)
+    await _lock(client, 50.0)
+
+    db_session.add(
+        AllowanceCommitModel(
+            bill_id="ceiling-test-commit",
+            identity_id="owner-1",
+            wallet_address="0x5acc51116f66b84802c8321f286d09014a78346f",
+            amount_usdc=170.0,
+            amount_wei="170000000",
+            commit_tx_hash="0x" + "a" * 64,
+            state="open",
+            created_at=datetime.utcnow(),
+        )
+    )
+    await db_session.commit()
+
+    body = (await client.get("/v1/capacity/owner-1/allocations", headers=OWNER)).json()
+    assert body["ceiling"]["ledger_locked_usdc"] == 50.0
+    assert body["ceiling"]["committed_usdc"] == 170.0
+    assert body["ceiling"]["ceiling_usdc"] == 170.0
+    assert body["locked_usdc"] == 170.0
+
+    # 上限真的抬起来了：120 的授权以前会被 409 掉。
+    r = await client.put(
+        "/v1/capacity/owner-1/allocations",
+        json={"allocations": {p["profile_id"]: 120.0}},
+        headers=OWNER,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["allocations"][0]["allocated_credits"] == 120.0

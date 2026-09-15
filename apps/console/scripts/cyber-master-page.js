@@ -37,6 +37,7 @@
     state.available = 0;
     state.capacity = null;
     state.activation = null;
+    state.ceiling = null;
     state.busy = false;
   }
 
@@ -141,8 +142,17 @@
       return;
     }
     var cap = state.capacity || {};
+    // 责任上限有两个来源：v1 台账锁仓、v2 钱包给托管合约的链上授权承诺，取高的那个。
+    var bd = state.ceiling || {};
+    var split = Number(bd.committed_usdc || 0) > Number(bd.ledger_locked_usdc || 0);
     var cells = [
-      ["已锁仓", state.locked, "主身份真押在这张卡上的钱"],
+      [
+        "已锁仓",
+        state.locked,
+        split
+          ? "链上授权承诺 " + money(bd.committed_usdc) + "；台账锁仓 " + money(bd.ledger_locked_usdc) + "，上限取高的那个"
+          : "主身份真押在这张卡上的钱",
+      ],
       ["已授权", state.allocated, "已划给各身份的额度上限"],
       ["已用", state.inUse, "执行中 + 待结算 + 争议冻结"],
       ["可用", state.available, "已授权里还能动用的部分"],
@@ -228,7 +238,16 @@
     var w = el("mst-wallet-state");
     if (w) w.textContent = state.wallet ? "已连接 · " + short(state.wallet) : "未连接";
     var l = el("mst-lock-state");
-    if (l) l.textContent = state.locked > 0 ? "已锁仓 " + money(state.locked) + " USDC" : "未锁仓";
+    if (l) {
+      var bd = state.ceiling || {};
+      var split = Number(bd.committed_usdc || 0) > Number(bd.ledger_locked_usdc || 0);
+      l.textContent =
+        state.locked <= 0
+          ? "未锁仓"
+          : split
+            ? "链上授权承诺 " + money(bd.committed_usdc) + " USDC（台账 " + money(bd.ledger_locked_usdc) + "）"
+            : "已锁仓 " + money(state.locked) + " USDC";
+    }
   }
 
   function renderHead() {
@@ -305,6 +324,7 @@
       state.inUse = num((body && body.in_use_usdc) || 0);
       state.available = num((body && body.available_usdc) || 0);
       state.capacity = (body && body.capacity) || null;
+      state.ceiling = (body && body.ceiling) || null;
       state.activation =
         (body && body.activation) ||
         { activated: !!(body && body.activated), status: body && body.activated ? "verified" : "none" };
