@@ -946,7 +946,7 @@
       if (tokenState() === "ok" && s.wallet) {
         applyIdentityToUi(s.wallet, s.identityId);
         setStatus(
-          "已连接 · " + shortAddr(s.wallet) + (s.identityId ? " · " + s.identityId : ""),
+          "已连接 · " + shortAddr(s.wallet) + (s.identityId ? " · " + displayId(s.identityId) : ""),
           true
         );
       } else if (s.wallet) {
