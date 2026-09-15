@@ -56,11 +56,21 @@
     return ROLE_LABELS[p["class"]] || p["class"] || "子身份";
   }
 
+  /** 对外只说人话：名字优先，没名字用类别（「生活助理」），
+     不把 individual / verifier 这种底座类名泄给用户；名字里已含类别就不重复写。 */
+  function identityTitle(p) {
+    if (!p) return "子身份";
+    var role = roleLabel(p);
+    var name = p.display_name ? String(p.display_name) : "";
+    if (!name) return role;
+    return name.indexOf(role) < 0 ? name + " · " + role : name;
+  }
+
   function profileLabel(p) {
     if (!p) return "";
     var pos = profilePosition(p.profile_id);
     var did = p.profile_id && pos ? displayId(p.profile_id, pos) + " · " : "";
-    return did + (p.display_name || p.profile_id) + " · " + (p["class"] || "") + (p.visibility === "private" ? " 🔒" : "");
+    return did + identityTitle(p) + (p.visibility === "private" ? " 🔒" : "");
   }
   /* 子身份编号看创建顺序：第 1 个 profile 是 kid02，第 2 个是 kid03。 */
   function profilePosition(id) {
@@ -416,12 +426,7 @@
       } else if (!pid) {
         subEl.textContent = tr("id.sub_master", "主身份 · 主体账户");
       } else {
-        // 有自己取的名字就用名字（「运营复核岗」），否则用类别（「复核岗」）；名字里已经含了类别就不重复写。
-        var role = p ? roleLabel(p) : "子身份";
-        var name = p && p.display_name ? String(p.display_name) : "";
-        var head = name || role;
-        var extra = name && name.indexOf(role) < 0 ? " · " + role : "";
-        subEl.textContent = head + extra + " · 挂在 " + displayId(master, 0);
+        subEl.textContent = identityTitle(p) + " · 挂在 " + displayId(master, 0);
       }
     }
     if (box) box.classList.toggle("scoped", !!pid);
@@ -871,6 +876,7 @@
     getActiveProfile: getActiveProfile,
     getProfiles: getProfiles,
     profileLabel: profileLabel,
+    identityTitle: identityTitle,
     render: function () { renderScopeBar(); renderSubPanel(); },
     renderCurrent: renderCurrentIdentity,
     refresh: refresh,

@@ -971,11 +971,12 @@
     host.innerHTML = profiles
       .map(function (p, i) {
         const label = did ? did.of(p.profile_id, i + 1) : p.profile_id;
+        const roleName = sw.identityTitle ? sw.identityTitle(p) : "子身份";
         const isActive = p.profile_id === active;
         return (
           '<div class="id-home-sub-row' + (isActive ? " is-active" : "") + '">' +
           '<span><b class="id-home-sub-id">' + esc(label) + "</b>" +
-          '<span class="id-home-sub-meta"> · ' + esc(p.display_name || p["class"] || "子身份") + "</span></span>" +
+          '<span class="id-home-sub-meta"> · ' + esc(p.display_name || roleName) + "</span></span>" +
           '<span style="display:flex;gap:8px;align-items:center">' +
           '<button type="button" class="btn" data-home-alloc="' + esc(p.profile_id) + '">授权额度</button>' +
           '<button type="button" class="btn' + (isActive ? "" : " primary") + '" data-home-switch="' + esc(p.profile_id) + '">' +
