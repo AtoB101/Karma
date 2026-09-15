@@ -1887,3 +1887,29 @@ body {
 }
 #rv-deny { color: #f5d48a; }
 #rv-deny code { color: var(--neon-cyan); }
+
+/* 主身份页：三步走 —— ① 连接钱包 ② 锁仓 USDC ③ 授权给身份，一步一行，不摊开。 */
+.mst-step {
+  border-top: 1px solid rgba(34, 211, 238, 0.14);
+  padding: 18px 2px 6px;
+  margin-top: 16px;
+}
+.mst-step:first-of-type { border-top: none; margin-top: 8px; }
+.mst-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.mst-head b { font-family: var(--font-display); font-size: 15px; letter-spacing: 0.02em; }
+.mst-state { margin-left: auto; font-size: 12px; color: var(--text-dim); }
+.mst-body { padding-left: 2px; }
+.mst-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.mst-select {
+  min-width: 240px;
+  max-width: 100%;
+  background: rgba(8, 14, 24, 0.85);
+  color: var(--text-main);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+}
+.mst-select:focus { outline: none; border-color: var(--border-glow); }
+.mst-select option { background: #0a1220; color: var(--text-main); }
+#mst-auth-amount { min-width: 180px; }
