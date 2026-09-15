@@ -1372,7 +1372,6 @@
   /** 身份页每个视角写一句「这一页是干什么的」：主身份页不该顶着助理认证的说明，
       子身份页也不该顶着主身份的。 */
   var IDENTITY_SUB_NOTES = {
-    master: "主身份 = 账房：连接钱包 → 刷脸认证（激活）→ 锁仓 USDC → 授权给身份。左边只留身份认证和账单；订单、收付、任务、市场在各自的身份页里。",
     personal: "主身份本人的实名认证：证件 + 刷脸 + 联系邮箱，通过后领到 Karma 身份卡。",
     life: "生活助理的子身份卡：角色、权限、额度、边界、操作钱包都在这里设。",
     sole: "个体助理认证：营业执照 + 经营范围 + 经营地址 + 联系方式。",
@@ -1490,8 +1489,6 @@
       g.classList.toggle("nav-scope-hidden", hidden);
       if (hidden) g.classList.remove("open");
     });
-    var note = el("#nav-scope-note");
-    if (note) note.hidden = !isMaster;
   }
 
   function switchPage(page, subKey) {

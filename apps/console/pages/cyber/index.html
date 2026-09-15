@@ -32,7 +32,6 @@
           <div class="logo">K</div>
           <div>
             <h1 data-i18n="brand.title">Karma Console</h1>
-            <p data-i18n="brand.tagline">赛博责任网络</p>
           </div>
         </div>
         <div class="identity-box">
@@ -44,13 +43,9 @@
           <div class="id-sub">SBT · Main</div>
         </div>
         <nav class="nav">
-          <!-- 主身份视角 = 账房：只留「身份 · 认证」+「账单」+「设置」。
+          <!-- 主身份视角只留「身份 · 认证」+「账单」+「设置」。
                订单 / 收付 / 任务 / 争议 / 接入 / 市场是子身份干活的地方，
                切到某个身份才展开（见 cyber-console.js 的 applyNavScope）。 -->
-          <div class="nav-scope-note" id="nav-scope-note" hidden>
-            <b>主身份 = 账房</b>
-            <p>这里只放连接钱包、刷脸认证、锁仓、授权这几件事。订单、收付、任务、市场属于每一个身份自己的页面 —— 点上面的「选择身份」切过去就展开。</p>
-          </div>
           <!-- 主功能区 + 折叠子功能：点主项切页面并展开它下面的子项，点子项直接落到那一块。 -->
           <div class="nav-group" data-group="overview">
             <button class="nav-main active" data-page="overview" aria-expanded="false"><span class="icon">▤</span><span data-i18n="nav.overview">订单</span><span class="nav-caret">▾</span></button>

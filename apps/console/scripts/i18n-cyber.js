@@ -22,7 +22,6 @@
     "api.status_err": "Error",
     "api.sync_now": "Sync",
     "brand.title": "Karma Console",
-    "brand.tagline": "Responsibility Operating Desk",
     "nav.overview": "Orders",
     "nav.center": "Payments Hub",
     "nav.tasks": "Tasks",
@@ -284,7 +283,6 @@
     "api.status_err": "错误",
     "api.sync_now": "同步",
     "brand.title": "Karma Console",
-    "brand.tagline": "赛博责任操作台",
     "nav.overview": "订单",
     "nav.center": "收付中心",
     "nav.tasks": "任务执行",
@@ -532,7 +530,6 @@
   const overrides = {
     ja: {
       "sync.title": "タスク同期",
-      "brand.tagline": "サイバー責任オペレーティングデスク",
       "nav.overview": "概要",
       "nav.center": "決済ハブ",
       "nav.tasks": "タスク",
@@ -566,7 +563,6 @@
     },
     ko: {
       "sync.title": "작업 동기화",
-      "brand.tagline": "사이버 책임 운영 데스크",
       "nav.overview": "개요",
       "nav.center": "결제 허브",
       "nav.tasks": "작업",
@@ -599,7 +595,6 @@
       "set.ai_title": "AI 에이전트 자동 인증 센터",
     },
     es: {
-      "brand.tagline": "Escritorio de responsabilidad cibernética",
       "nav.overview": "Resumen",
       "nav.center": "Centro de pagos",
       "nav.tasks": "Tareas",
@@ -632,7 +627,6 @@
       "set.ai_title": "Centro de auto-autorización AI Agent",
     },
     fr: {
-      "brand.tagline": "Bureau de responsabilité cyber",
       "nav.overview": "Vue d'ensemble",
       "nav.center": "Hub paiements",
       "nav.tasks": "Tâches",
@@ -665,7 +659,6 @@
       "set.ai_title": "Centre d'auto-autorisation AI Agent",
     },
     de: {
-      "brand.tagline": "Cyber-Verantwortungs-Operating-Desk",
       "nav.overview": "Übersicht",
       "nav.center": "Zahlungs-Hub",
       "nav.tasks": "Aufgaben",
@@ -698,7 +691,6 @@
       "set.ai_title": "KI-Agent Auto-Autorisierungs-Center",
     },
     "pt-BR": {
-      "brand.tagline": "Mesa de responsabilidade cibernética",
       "nav.overview": "Visão geral",
       "nav.center": "Central de pagamentos",
       "nav.tasks": "Tarefas",
