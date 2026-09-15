@@ -16,23 +16,34 @@ from db.models.orm import CapacityModel, IdentityRoleProfile, ProfileCapacityMod
 from services.chain import allowance_escrow as escrow
 
 
-async def master_ceiling_usdc(db: AsyncSession, *, identity_id: str) -> float:
-    """我到底压了多少钱在这张身份卡上（子身份额度分配的上限）。
+async def ceiling_breakdown(db: AsyncSession, *, identity_id: str) -> dict:
+    """责任上限的两个来源，拆开给操作台看。
 
-    v1 是把 USDC 真锁进 ``KarmaBilateral`` 合约，``capacity`` 台账因此有
-    ``total_locked_usdc``。v2 是非托管的：钱始终在用户自己钱包里，只给了托管
-    合约一份授权额度，所以上限就是**当前有效的 commit 之和**。两条路的共同点是
-    「钱包真实押上的责任」，子身份额度加起来永远不能超过它。
+    v1：USDC 真锁进 ``KarmaBilateral`` 合约，``capacity.total_locked_usdc`` 有数。
+    v2：非托管的，钱始终在用户自己钱包里，只给了托管合约一份授权额度，所以看的是
+    **当前有效的 commit 之和**。
+
+    上限取两者**较大的那个** —— 和操作台顶栏 ``Math.max(locked, committed)`` 同一条规则。
+    以前这里写成「台账有数就只认台账」，于是钱包明明承诺了 170、界面却只认 50，
+    授权额度无缘无故被卡住。子身份额度加起来永远不能超过这个上限。
     """
     cap = await db.get(CapacityModel, identity_id)
-    locked = float(cap.total_locked_usdc or 0.0) if cap is not None else 0.0
-    if locked > 0.0:
-        return locked
+    ledger_locked = float(cap.total_locked_usdc or 0.0) if cap is not None else 0.0
     commits = await escrow.list_commits(db, identity_id)
-    return round(
+    committed = round(
         sum(float(c.amount_usdc or 0.0) for c in commits if c.state == escrow.IDLE),
         6,
     )
+    return {
+        "ledger_locked_usdc": round(ledger_locked, 6),
+        "committed_usdc": committed,
+        "ceiling_usdc": round(max(ledger_locked, committed), 6),
+    }
+
+
+async def master_ceiling_usdc(db: AsyncSession, *, identity_id: str) -> float:
+    """子身份额度分配的上限（见 :func:`ceiling_breakdown`）。"""
+    return (await ceiling_breakdown(db, identity_id=identity_id))["ceiling_usdc"]
 
 
 def _in_use(row: ProfileCapacityModel) -> float:

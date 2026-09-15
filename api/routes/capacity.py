@@ -154,6 +154,9 @@ async def get_allocations(identity_id: str, request: Request, db: AsyncSession =
         "locked_usdc": await profile_capacity_service.master_ceiling_usdc(
             db, identity_id=identity_id
         ),
+        "ceiling": await profile_capacity_service.ceiling_breakdown(
+            db, identity_id=identity_id
+        ),
         "allocated_usdc": allocated,
         "in_use_usdc": in_use,
         "available_usdc": round(max(0.0, allocated - in_use), 6),
