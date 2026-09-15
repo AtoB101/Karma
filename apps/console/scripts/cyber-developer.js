@@ -211,7 +211,11 @@
       return say(status, "先连接钱包", false);
     }
     try {
-      var res = await api().karmaFetch(PATH + "/me", { method: "GET" });
+      // karmaFetch 不发认证头，漏了 headers() 线上就是 403。
+      var res = await api().karmaFetch(PATH + "/me", {
+        method: "GET",
+        headers: api().headers(),
+      });
       dev.rows = (res && res.developers) || [];
       renderList(dev.rows);
       renderDetail(res);
