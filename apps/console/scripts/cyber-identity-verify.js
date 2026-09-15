@@ -451,6 +451,9 @@
       .map(function (i) { return i.value; });
   }
 
+  /** 人脸 / KYC 状态的对外说法。 */
+  var KYC_LABELS = { none: "未采集", pending: "复核中", verified: "已通过", rejected: "未通过" };
+
   async function loadSubs() {
     var host = byId("idsub-list");
     if (!host) return;
@@ -466,16 +469,26 @@
         (a.allocations || []).forEach(function (r) { allocs[r.profile_id] = r; });
       } catch (_) {}
       host.innerHTML = "";
-      profiles.forEach(function (p) {
+      profiles.forEach(function (p, idx) {
         var row = allocs[p.profile_id];
         var el = document.createElement("div");
         el.className = "idv-sub-row";
+        // 对外只说人话：角色名 + Kid 编号，不把 verifier / individual 这种底座类名和 profile_id 写给用户看。
+        var sw = window.KarmaIdentitySwitcher;
+        var did = window.KarmaDisplayId;
+        var title = (sw && sw.identityTitle ? sw.identityTitle(p) : "") || p.display_name || "子身份";
+        var label = did && did.of ? did.of(p.profile_id, idx + 1) : "子身份" + (idx + 1);
+        var kyc = KYC_LABELS[p.kyc_status] || "未采集";
+        var wallet = String(p.bound_wallet_address || "");
+        var walletText = wallet
+          ? (wallet.length > 12 ? wallet.slice(0, 6) + "…" + wallet.slice(-4) : wallet)
+          : "未绑操作钱包";
         el.innerHTML =
-          '<div class="idv-sub-main"><b>' + esc(p.display_name || p.profile_id.slice(0, 8)) + "</b>" +
-          '<span>' + esc(p.class || "") + " · " + esc(p.profile_id.slice(0, 8)) + "</span></div>" +
+          '<div class="idv-sub-main"><b>' + esc(title) + "</b>" +
+          "<span>" + esc(label) + "</span></div>" +
           '<div class="idv-sub-meta">额度 ' + money(row ? row.allocated_credits : 0) + " USDC</div>" +
-          '<div class="idv-sub-meta">人脸 ' + esc(p.kyc_status || "none") + "</div>" +
-          '<div class="idv-sub-meta">' + esc(p.bound_wallet_address || "未绑操作钱包") + "</div>";
+          '<div class="idv-sub-meta">人脸 ' + esc(kyc) + "</div>" +
+          '<div class="idv-sub-meta">' + esc(walletText) + "</div>";
         var btn = document.createElement("button");
         btn.type = "button";
         btn.className = "btn";
