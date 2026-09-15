@@ -60,7 +60,7 @@
     node.classList.toggle("err", !!isErr);
   }
 
-  /** 身份号一律走对外写法（Kid1… / kid02…），别把 kid_ 原文写进界面。 */
+  /** 身份号一律走对外写法（kid1… / kid02…），别把 kid_ 原文写进界面。 */
   function label(profileId, index) {
     var did = global.KarmaDisplayId;
     if (did && did.of) return did.of(profileId, index);
@@ -83,10 +83,11 @@
     var list = (sw && sw.getProfiles ? sw.getProfiles() : []) || [];
     return list.filter(function (p) { return p && p.profile_id; });
   }
+  /** 编号在前、名称在后 —— 全站同一个「编号 · 名称」口径，别一处一个样。 */
   function titleOf(p, i) {
     var sw = global.KarmaIdentitySwitcher;
     var t = (sw && sw.identityTitle ? sw.identityTitle(p) : "") || p.display_name || "子身份";
-    return t + " · " + label(p.profile_id, i + 1);
+    return label(p.profile_id, i + 1) + " · " + t;
   }
 
   /** 激活态只说人话：未提交 / 审核中 / 已激活 / 已驳回。 */

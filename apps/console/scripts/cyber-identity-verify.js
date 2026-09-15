@@ -190,7 +190,7 @@
   function renderMaster() {
     var id = identity();
     var s = session();
-    // 对外只显示 Kid1 编号；真 ID 放 title，鼠标停一下就能复制。
+    // 对外只显示 kid1 编号；真 ID 放 title，鼠标停一下就能复制。
     var idNode = byId("idv-master-id");
     if (idNode) {
       var shown = id || "";
@@ -434,7 +434,7 @@
         var row = allocs[p.profile_id];
         var el = document.createElement("div");
         el.className = "idv-sub-row";
-        // 对外只说人话：角色名 + Kid 编号，不把 verifier / individual 这种底座类名和 profile_id 写给用户看。
+        // 对外只说人话：角色名 + kid 编号，不把 verifier / individual 这种底座类名和 profile_id 写给用户看。
         var sw = window.KarmaIdentitySwitcher;
         var did = window.KarmaDisplayId;
         var title = (sw && sw.identityTitle ? sw.identityTitle(p) : "") || p.display_name || "子身份";

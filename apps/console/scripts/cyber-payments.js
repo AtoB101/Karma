@@ -85,10 +85,22 @@
     return num(value).toFixed(2);
   }
 
-  function shortId(id) {
+  /** 任务号这类普通短引用：直接截断，和身份编号不是一回事。 */
+  function shortRef(id) {
     if (!id) return "—";
     var s = String(id);
     return s.length > 20 ? s.slice(0, 10) + "…" + s.slice(-4) : s;
+  }
+
+  /** 身份编号（多数是交易对方的，拿不到排位）：全站统一走 KarmaDisplayId.remote。 */
+  function shortId(id) {
+    if (!id) return "—";
+    try {
+      if (global.KarmaDisplayId && global.KarmaDisplayId.remote) {
+        return global.KarmaDisplayId.remote(id) || "—";
+      }
+    } catch (_) {}
+    return shortRef(id);
   }
 
   function myDisplayId(id) {
@@ -185,7 +197,7 @@
         "<b>" + esc(entry.title) + "</b>" +
         "<i>" + esc(entry.kind_label) +
           " · 对方 " + esc(shortId(entry.counterparty_identity_id)) +
-          (entry.task_id ? " · 任务 " + esc(shortId(entry.task_id)) : "") +
+          (entry.task_id ? " · 任务 " + esc(shortRef(entry.task_id)) : "") +
         "</i>" +
       "</span>" +
       '<span class="pay-amount">' + money(entry.amount_usdc) + " <em>USDC</em></span>" +

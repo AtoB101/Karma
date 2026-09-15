@@ -62,8 +62,14 @@
     if (ok === false) node.classList.add("err");
   }
 
+  /** 身份编号：全站统一走 KarmaDisplayId.remote（kid…+ 后 4 位）。 */
   function shortId(value) {
     var s = String(value || "");
+    try {
+      if (s && global.KarmaDisplayId && global.KarmaDisplayId.remote) {
+        return global.KarmaDisplayId.remote(s) || "—";
+      }
+    } catch (_) {}
     return s.length > 14 ? s.slice(0, 12) + "…" : s || "—";
   }
 
