@@ -17,6 +17,7 @@ from core.schemas import (
 from db.models.orm import CapacityModel, SubIdentityModel, VoucherModel
 from db.session import get_db
 from services.capacity_ledger import assert_capacity_invariants
+from services.identity_activation import assert_activated
 from services.runtime_safety import (
     assert_runtime_operation_allowed,
     audit_capacity_anchor_and_maybe_trip,
@@ -288,6 +289,8 @@ async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, request: R
     assert_runtime_operation_allowed("new_authorization")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     require_ledger_identity(request, body.seller_identity_id)
+    # 未激活的主身份不能接单：卖家得先完成本人实名认证（证件 + 刷脸）。
+    await assert_activated(db, body.seller_identity_id, action="accepting an order")
     row = await db.get(VoucherModel, voucher_id)
     if not row:
         raise HTTPException(404, f"Voucher {voucher_id} not found")

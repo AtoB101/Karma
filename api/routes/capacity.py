@@ -12,6 +12,7 @@ from config.settings import settings
 from db.models.orm import CapacityModel
 from db.session import get_db
 from services import profile_capacity as profile_capacity_service
+from services.identity_activation import activation_of
 from services.chain import wallet_lock
 from services.capacity_ledger import assert_can_release_locked_funds, assert_capacity_invariants
 from services.identity_actor import resolve_actor_identity_id
@@ -131,12 +132,34 @@ async def get_allocations(identity_id: str, request: Request, db: AsyncSession =
     actor = await resolve_actor_identity_id(db, request)
     if not actor or actor != identity_id:
         raise HTTPException(403, "only the identity owner can view allocations")
+    rows = await profile_capacity_service.get_allocations(db, identity_id=identity_id)
+    capacity = await db.get(CapacityModel, identity_id)
+    state = _to_schema(capacity) if capacity is not None else CapacityState(identity_id=identity_id)
+    activation = await activation_of(db, identity_id)
+    # 主身份页要的三行总账。口径和「已用 = in_progress + pending_settlement + disputed」
+    # 一致，免得前端自己再加一遍、又和别处对不上。
+    allocated = round(sum(float(r.get("allocated_credits") or 0.0) for r in rows), 6)
+    in_use = round(
+        sum(
+            float(r.get("in_progress_credits") or 0.0)
+            + float(r.get("pending_settlement_credits") or 0.0)
+            + float(r.get("disputed_credits") or 0.0)
+            for r in rows
+        ),
+        6,
+    )
     return {
-        "allocations": await profile_capacity_service.get_allocations(db, identity_id=identity_id),
+        "allocations": rows,
         # 子身份额度加起来的上限：v1 是锁仓台账，v2 是钱包给出的有效 commit 之和。
         "locked_usdc": await profile_capacity_service.master_ceiling_usdc(
             db, identity_id=identity_id
         ),
+        "allocated_usdc": allocated,
+        "in_use_usdc": in_use,
+        "available_usdc": round(max(0.0, allocated - in_use), 6),
+        "activated": activation["activated"],
+        "activation": activation,
+        "capacity": state.model_dump(mode="json"),
     }
 
 

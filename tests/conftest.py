@@ -82,6 +82,27 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
+def activate_identity(db_session):
+    """把一个主身份直接标成「已激活」（= 本人实名认证通过）。
+
+    生产里只有 verifier 走 ``/v1/identity/{id}/verification/verify`` 才能置位，而且
+    不允许自己批自己；测试里直接写 ``identity_verifications`` 一行，免得每个用例都要
+    先造一个复核岗身份。
+    """
+    from db.models.orm import IdentityVerificationModel
+
+    async def _activate(identity_id: str) -> None:
+        db_session.add(
+            IdentityVerificationModel(
+                identity_id=identity_id, status="verified", level="basic"
+            )
+        )
+        await db_session.commit()
+
+    return _activate
+
+
+@pytest.fixture
 async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_db():
         yield db_session
