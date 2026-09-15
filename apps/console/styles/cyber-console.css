@@ -1381,6 +1381,10 @@ body.gated { overflow: hidden; }
 
 .idv-consent, .idv-perm { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); }
 .idv-consent { margin-top: 10px; line-height: 1.6; }
+/* 灰按钮旁边的「还差什么」：默认是提醒色，凑齐了转成通过色。 */
+.idv-need { display: block; margin-top: 10px; font-size: 12.5px; line-height: 1.7; color: #ffd9a8; font-family: var(--font-content); }
+.idv-need.ok { color: var(--neon-mint, #4ade80); }
+.idv-req { color: #ff8a9a; }
 .idv-perms { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 8px; }
 /* 全局 input 是 width:100%，勾选框必须还原本宽，否则整行被它撑开、文字被挤到最右边。 */
 #identity input[type="checkbox"] { width: auto; margin: 0; flex: 0 0 auto; accent-color: var(--cyan); }

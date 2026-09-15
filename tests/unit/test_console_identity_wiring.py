@@ -144,3 +144,64 @@ def test_capture_dialog_never_pretends_to_detect_a_face():
     steady = steady[: steady.index("function shoot(")]
     assert "检测到" not in steady, "兜底路径不许写「检测到人脸」"
     assert "稳住" in steady, "兜底路径只能说自己真的量到的东西：画面稳住了"
+
+
+# ---------------------------------------------------------------------------
+# 多角度刷脸 + 灰按钮必须说得出原因
+#
+# 两条线上真实踩过的坑：
+#   1. 刷脸原本只拍一张 —— 拿别人的照片就能顶替，那叫「上传照片」，不叫认证；
+#   2. 「提交认证」按钮在资料填满时依然是灰的，而且不告诉用户差哪一项，
+#      表现和坏了没区别。两条都当门禁挡住。
+# ---------------------------------------------------------------------------
+
+
+def test_capture_dialog_collects_every_angle_of_the_face():
+    """一次认证要覆盖整张脸：正 / 左 / 右 / 抬 / 低，不是拍一张就完事。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert "ANGLE_STEPS" in js, "必须有角度表"
+    for key in ("front", "left", "right", "up", "down"):
+        assert 'key: "%s"' % key in js, "缺少角度：%s" % key
+    assert re.search(r"function captureResult\(\)", js), "必须把整组帧交给上层"
+    assert "frames:" in js, "采集结果里必须带 frames 数组"
+
+
+def test_capture_dialog_rejects_a_frame_that_repeats_the_previous_one():
+    """同一张照片连拍 / 对着屏幕翻拍必须当场拒掉，否则五张角度图等于一张。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert "IDENTICAL_DIFF" in js, "必须有「这张和上一张几乎一样」的判定阈值"
+    assert re.search(r"diff < IDENTICAL_DIFF", js), "阈值必须真的参与判定"
+    assert "别拿同一张照片顶替" in js, "拒掉时必须说清原因，不能默默不过"
+    shoot = js[js.index("function shoot(") :]
+    shoot = shoot[: shoot.index("function acceptFrame(")]
+    assert "judgeAngle(" in shoot, "shoot() 必须先过角度判定才收帧"
+
+
+def test_capture_dialog_keeps_the_camera_open_between_angles():
+    """两个角度之间只留转身时间，不该反复开关摄像头（灯闪四次很吓人）。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert "BETWEEN_MS" in js, "必须有转身间隔"
+    between = js[js.index("function betweenAngles(") :]
+    between = between[: between.index("function resumeLive(")]
+    assert "stopStream()" not in between, "转身期间不许关流"
+
+
+def test_face_digest_covers_all_angles():
+    """摘要只算第一张的话，后面几张被换掉也查不出来 —— 摘要就白做了。"""
+    js = IDENTITY_JS.read_text(encoding="utf-8")
+    assert "face_frames" in js, "提交包里必须带上全部角度"
+    assert re.search(r"function faceDigestInput\(", js), "必须有覆盖全量的摘要输入"
+    idx = js.index("function faceDigestInput(")
+    body = js[idx : idx + 700]
+    assert "join" in body, "摘要输入必须把每一帧都并进去"
+
+
+def test_submit_button_says_what_is_missing_instead_of_silently_greying_out():
+    """按钮静默变灰是线上真实踩过的坑：资料填完了却不知道为什么点不动。"""
+    js = IDENTITY_JS.read_text(encoding="utf-8")
+    assert re.search(r"function submitMissing\(\)", js), "必须能算出「还差什么」"
+    idx = js.index("function refreshSubmitState()")
+    body = js[idx : idx + 1600]
+    assert "idv-need" in body, "原因必须写到页面上（#idv-need）"
+    assert "还差" in body, "文案必须直说还差哪几项"
+    assert 'id="idv-need"' in _page_html(), "页面上必须有 #idv-need 这个位置"

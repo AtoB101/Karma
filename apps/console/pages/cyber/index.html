@@ -578,7 +578,7 @@
               </li>
               <li id="idv-step-face">
                 <div class="idv-step-head"><b>② 刷脸</b><span id="idv-face-state">未采集</span></div>
-                <p class="idv-hint">点「开始刷脸」会弹出一个取景框：把脸放进圆圈，<b>头顶和下巴都要在圈内</b>，位置对了会自动倒数拍摄；拍完你先看一眼，点「确认使用」才会采用。电脑没有摄像头就用手机打开操作台，或走「用照片」。</p>
+                <p class="idv-hint">点「开始刷脸」会弹出一个取景框，<b>不是拍一张照片就完事</b>：要按提示依次采 <b>正面 → 向左转 → 向右转 → 抬高 → 低头</b> 共 5 个角度，把脸放进圆圈（<b>头顶和下巴都要在圈内</b>），位置对了自动倒数拍摄。每一张都要和上一张有真实的姿态差 —— 拿同一张照片连拍、或对着屏幕翻拍会被当场拒掉。5 张采完你先过一眼，点「确认使用」才会采用。没有摄像头就逐张点「本角度改用照片」，或改用手机打开操作台。</p>
                 <div class="idv-row">
                   <button type="button" class="btn primary" id="idv-face-open">开始刷脸</button>
                   <label class="btn idv-file">用照片<input type="file" id="idv-face-file" accept="image/*" hidden /></label>
@@ -589,9 +589,9 @@
                 <div class="idv-step-head"><b>③ 识别与确认</b><span id="idv-read-state">待填写</span></div>
                 <p class="idv-hint">未接入自动识别（OCR / 活体）服务：下面由你本人确认，核验方复核。证件号只保留后 4 位，完整号码不会上传。</p>
                 <div class="idv-grid">
-                  <div class="field"><label>姓名</label><input id="idv-name" type="text" /></div>
+                  <div class="field"><label>姓名 <span class="idv-req">*</span></label><input id="idv-name" type="text" /></div>
                   <div class="field"><label>证件类型</label><select id="idv-doc-type"><option value="ID_CARD">身份证</option><option value="PASSPORT">护照</option><option value="DRIVER_LICENSE">驾照</option><option value="RESIDENCE_PERMIT">居留证</option><option value="BUSINESS_LICENSE">营业执照</option></select></div>
-                  <div class="field"><label>证件号（只取后 4 位）</label><input id="idv-doc-number" type="text" inputmode="numeric" /></div>
+                  <div class="field"><label>证件号（只取后 4 位）<span class="idv-req">*</span></label><input id="idv-doc-number" type="text" inputmode="numeric" /></div>
                   <div class="field"><label>有效期</label><input id="idv-valid" type="text" placeholder="2030-01-01" /></div>
                   <div class="field"><label>联系邮箱</label><input id="idv-email" type="email" placeholder="you@example.com（复核结果发这里）" /></div>
                   <div class="field"><label>联系电话</label><input id="idv-phone" type="tel" placeholder="选填" /></div>
@@ -610,6 +610,7 @@
                   <button type="button" class="btn" id="idv-reset">重来</button>
                   <span class="api-status" id="idv-status">—</span>
                 </div>
+                <p class="idv-need" id="idv-need"></p>
                 <ul id="idv-precheck-list" class="rv-checks"></ul>
               </li>
             </ol>
