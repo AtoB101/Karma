@@ -416,7 +416,7 @@
     });
     document.addEventListener("karma-page-shown", function (ev) {
       var detail = (ev && ev.detail) || {};
-      if (detail.page === "identity" && detail.sub === "developer") loadMine();
+      if (detail.page === "market" && detail.sub === "developer") loadMine();
     });
 
     renderMaterials();

@@ -697,6 +697,24 @@
     });
 
     byId("idv-submit").addEventListener("click", submitVerification);
+
+    var pc = byId("idv-precheck");
+    if (pc) {
+      pc.addEventListener("click", function () {
+        var run = (window.KarmaCert || {}).runPrecheck;
+        if (!run) return say(byId("idv-status"), "自检组件没加载", false);
+        run(
+          "personal",
+          {
+            full_name: String((byId("idv-name") || {}).value || "").trim(),
+            contact_email: String((byId("idv-email") || {}).value || "").trim(),
+          },
+          false,
+          byId("idv-precheck-list"),
+          byId("idv-status")
+        );
+      });
+    }
     byId("idv-reset").addEventListener("click", function () {
       state.docFront = null;
       state.docBack = null;

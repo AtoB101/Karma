@@ -281,6 +281,29 @@
   // ---- 提交 -----------------------------------------------------------------
 
   function refreshSubmitState() {
+    var pc = byId("sole-precheck");
+    if (pc) {
+      pc.addEventListener("click", function () {
+        var b = subjectBody();
+        var run = (window.KarmaCert || {}).runPrecheck;
+        if (!run) return say(byId("sole-status"), "自检组件没加载", false);
+        run(
+          "merchant",
+          {
+            business_name: b.business_name,
+            operator_name: b.operator_name,
+            registration_no: b.registration_no,
+            business_scope: b.business_scope,
+            business_address: b.business_address,
+            contact_email: b.contact_email,
+          },
+          false,
+          byId("sole-precheck-list"),
+          byId("sole-status")
+        );
+      });
+    }
+
     var btn = byId("sole-submit");
     if (!btn) return;
     var consent = byId("sole-consent");

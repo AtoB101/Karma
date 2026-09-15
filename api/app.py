@@ -27,6 +27,7 @@ from api.routes import (
     bundles,
     settlement,
     reputation,
+    reviews,
     verify,
     capacity,
     vouchers,
@@ -94,6 +95,7 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/developers",
     "/v1/skills",
     "/v1/entities",
+    "/v1/reviews/",
     "/v1/trust/",
     "/runtime/",
 )
@@ -390,6 +392,7 @@ app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement
 app.include_router(payment_ledger.router, prefix="/v1/payments", tags=["PaymentLedger"], dependencies=_protected_dependencies)
 app.include_router(bilateral.router, tags=["Bilateral"])
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
+app.include_router(reviews.router,   prefix="/v1/reviews",    tags=["Reviews"],   dependencies=_protected_dependencies)
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)
 app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_security_always_auth + [Depends(make_rate_limit_dep("write_sensitive"))])
 app.include_router(openclaw.router, prefix="/v1/openclaw", tags=["OpenClaw"], dependencies=_protected_dependencies)

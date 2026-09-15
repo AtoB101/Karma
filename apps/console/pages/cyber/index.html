@@ -85,7 +85,6 @@
               <button class="nav-sub" data-page="identity" data-sub="personal">个人助理认证</button>
               <button class="nav-sub" data-page="identity" data-sub="sole">个体助理认证</button>
               <button class="nav-sub" data-page="identity" data-sub="enterprise">企业助理认证</button>
-              <button class="nav-sub" data-page="identity" data-sub="developer">开发者实名</button>
             </div>
           </div>
           <div class="nav-group" data-group="agents">
@@ -102,7 +101,17 @@
             <div class="nav-subs">
               <button class="nav-sub" data-page="market" data-sub="catalog">技能目录</button>
               <button class="nav-sub" data-page="market" data-sub="mine">我的技能 · 上架</button>
+              <button class="nav-sub" data-page="market" data-sub="developer">开发者实名（谁在卖）</button>
               <button class="nav-sub" data-page="market" data-sub="usage">调用计费</button>
+            </div>
+          </div>
+          <div class="nav-group" data-group="reviews">
+            <button class="nav-main" data-page="reviews" aria-expanded="false"><span class="icon">&#9678;</span><span data-i18n="nav.reviews">复核台</span><span class="nav-caret">&#9662;</span></button>
+            <div class="nav-subs">
+              <button class="nav-sub" data-page="reviews" data-sub="all">全部待办</button>
+              <button class="nav-sub" data-page="reviews" data-sub="entity">主体认证</button>
+              <button class="nav-sub" data-page="reviews" data-sub="developer">开发者实名</button>
+              <button class="nav-sub" data-page="reviews" data-sub="kyc">子身份 KYC</button>
             </div>
           </div>
           <div class="nav-group" data-group="settings">
@@ -543,9 +552,11 @@
                 <label class="idv-consent"><input type="checkbox" id="idv-consent" /> 我确认以上资料真实，并同意 Karma 在加密后保存与核验</label>
                 <div class="idv-row">
                   <button type="button" class="btn primary" id="idv-submit" disabled>提交认证</button>
+                  <button type="button" class="btn" id="idv-precheck">提交前自检</button>
                   <button type="button" class="btn" id="idv-reset">重来</button>
                   <span class="api-status" id="idv-status">—</span>
                 </div>
+                <ul id="idv-precheck-list" class="rv-checks"></ul>
               </li>
             </ol>
           </div>
@@ -601,9 +612,12 @@
                 <label class="idv-consent"><input type="checkbox" id="sole-consent" /> 我确认以上资料真实，并同意 Karma 加密保存与核验</label>
                 <div class="idv-row">
                   <button type="button" class="btn primary" id="sole-submit" disabled>提交个体助理认证</button>
+                  <button type="button" class="btn" id="sole-precheck">提交前自检</button>
                   <button type="button" class="btn" id="sole-reset">重来</button>
                   <span class="api-status" id="sole-status">—</span>
                 </div>
+                <p class="idv-hint">自检只读、不改状态：字号、经营者、经营范围、经营地址、联系邮箱先过一遍机器能查的。</p>
+                <ul id="sole-precheck-list" class="rv-checks"></ul>
               </li>
             </ol>
 
@@ -743,8 +757,11 @@
                 <label class="idv-consent"><input type="checkbox" id="ent-consent" /> 我确认以上主体信息与资质真实有效，并同意 Karma 加密保存与复核</label>
                 <div class="idv-row">
                   <button type="button" class="btn primary" id="ent-submit">提交主体认证</button>
+                  <button type="button" class="btn" id="ent-precheck">提交前自检</button>
                   <span class="api-status" id="ent-status">—</span>
                 </div>
+                <p class="idv-hint">自检只读、不改状态：先看一遍机器能查的（信用代码校验位、邮箱 MX、官网控制权），再决定要不要提交。</p>
+                <ul id="ent-precheck-list" class="rv-checks"></ul>
               </li>
             </ol>
 
@@ -756,68 +773,7 @@
 
           <!-- ④ 开发者实名：主体认证回答"公司是谁"，这里回答"操作这个身份的是哪个人"。
                上架技能时签名的钱包必须就是这里签过协议的那个钱包。 -->
-          <div class="card section" id="id-developer">
-            <div class="section-header">
-              <div>
-                <h3>开发者实名 · 技能 / 插件上架人</h3>
-                <p>主体认证回答「公司是谁」，这里回答「操作这个身份的是哪个人」。填真实姓名与职务 → 签署<b>开发者协议</b>（服务端给原文、你的钱包签名）→ 复核通过后，用<b>同一个钱包</b>才能上架技能。材料选传，且只在你浏览器里加密。</p>
-              </div>
-              <span class="idv-badge" id="dev-badge">未实名</span>
-            </div>
-
-            <ol class="idv-pipeline">
-              <li>
-                <div class="idv-step-head"><b>① 实名信息</b><span id="dev-step-info">待填写</span></div>
-                <div class="idv-grid">
-                  <div class="field"><label>真实姓名</label><input id="dev-real-name" type="text" placeholder="与证件一致" /></div>
-                  <div class="field"><label>职务</label><input id="dev-role-title" type="text" placeholder="数据平台负责人" /></div>
-                  <div class="field"><label>联系邮箱</label><input id="dev-email" type="email" placeholder="you@example.com" /></div>
-                  <div class="field"><label>在公司里的角色</label><select id="dev-role"><option value="developer">开发者</option><option value="api_owner">接口负责人</option><option value="ops">运维</option><option value="founder">创始人</option><option value="other">其他</option></select></div>
-                </div>
-                <p class="idv-hint" id="dev-entity-hint">归属主体取自你已通过的主体认证：—</p>
-              </li>
-
-              <li>
-                <div class="idv-step-head"><b>② 签署开发者协议</b><span id="dev-step-sign">待生成</span></div>
-                <p class="idv-hint">协议正文由服务端给出（改版本号才会变）。下面这段就是你的钱包要签的原文 —— 签的是什么，你自己看得见。</p>
-                <pre class="out" id="dev-message" style="max-height:240px;overflow:auto">—</pre>
-                <div class="idv-row">
-                  <button type="button" class="btn" id="dev-prepare">① 生成待签协议</button>
-                  <button type="button" class="btn primary" id="dev-submit">② 钱包签名并提交</button>
-                  <span class="api-status" id="dev-status">—</span>
-                </div>
-              </li>
-
-              <li>
-                <div class="idv-step-head"><b>③ 材料（选传）</b><span id="dev-step-mats">可以跳过</span></div>
-                <p class="idv-hint">工牌 / 在职证明 / 授权书可选。与主体资质同一套加密：原件不出这台设备，服务端只拿到密文与摘要。</p>
-                <div class="idv-grid">
-                  <div class="field"><label>材料类型</label><select id="dev-mat-kind"><option value="WORK_BADGE">工牌</option><option value="EMPLOYMENT_PROOF">在职证明</option><option value="AUTHORIZATION_LETTER">授权书</option><option value="ID_CARD">身份证件</option><option value="OTHER">其他</option></select></div>
-                  <div class="field"><label>材料名称</label><input id="dev-mat-name" type="text" placeholder="工牌（正面）" /></div>
-                  <div class="field"><label>选择文件</label><label class="btn idv-file">上传<input type="file" id="dev-mat-file" accept="image/*,application/pdf" hidden /></label></div>
-                  <div class="field"><label>已加入</label><span id="dev-mat-count">0 份</span></div>
-                </div>
-                <div class="idv-row" style="margin-top:10px">
-                  <button type="button" class="btn" id="dev-mat-add">加入材料</button>
-                  <button type="button" class="btn" id="dev-mat-clear">清空</button>
-                  <span class="api-status" id="dev-mat-state">—</span>
-                </div>
-                <ul id="dev-mat-list" class="idv-rules" style="margin-top:10px"></ul>
-              </li>
-            </ol>
-
-            <div class="idv-row" style="margin-top:14px">
-              <button type="button" class="btn" id="dev-refresh">刷新我的实名档案</button>
-            </div>
-            <ul id="dev-list" class="idv-rules" style="margin-top:10px"></ul>
-
-            <details style="margin-top:14px">
-              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">开发者实名当前状态 / 驳回原因</summary>
-              <pre class="out" id="dev-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
-            </details>
-          </div>
-
-        </section>
+</section>
 
         <section id="agents" class="page">
           <!-- 授权向导：锁仓之后的活儿一条直线做完。
@@ -1052,6 +1008,99 @@
               <pre class="out" id="mk-usage-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
             </details>
           </div>
+                  <div class="card section" id="id-developer">
+            <div class="section-header">
+              <div>
+                <h3>开发者实名 · 技能 / 插件上架人</h3>
+                <p>主体认证回答「公司是谁」，这里回答「操作这个身份的是哪个人」。填真实姓名与职务 → 签署<b>开发者协议</b>（服务端给原文、你的钱包签名）→ 复核通过后，用<b>同一个钱包</b>才能上架技能。材料选传，且只在你浏览器里加密。</p>
+              </div>
+              <span class="idv-badge" id="dev-badge">未实名</span>
+            </div>
+
+            <ol class="idv-pipeline">
+              <li>
+                <div class="idv-step-head"><b>① 实名信息</b><span id="dev-step-info">待填写</span></div>
+                <div class="idv-grid">
+                  <div class="field"><label>真实姓名</label><input id="dev-real-name" type="text" placeholder="与证件一致" /></div>
+                  <div class="field"><label>职务</label><input id="dev-role-title" type="text" placeholder="数据平台负责人" /></div>
+                  <div class="field"><label>联系邮箱</label><input id="dev-email" type="email" placeholder="you@example.com" /></div>
+                  <div class="field"><label>在公司里的角色</label><select id="dev-role"><option value="developer">开发者</option><option value="api_owner">接口负责人</option><option value="ops">运维</option><option value="founder">创始人</option><option value="other">其他</option></select></div>
+                </div>
+                <p class="idv-hint" id="dev-entity-hint">归属主体取自你已通过的主体认证：—</p>
+              </li>
+
+              <li>
+                <div class="idv-step-head"><b>② 签署开发者协议</b><span id="dev-step-sign">待生成</span></div>
+                <p class="idv-hint">协议正文由服务端给出（改版本号才会变）。下面这段就是你的钱包要签的原文 —— 签的是什么，你自己看得见。</p>
+                <pre class="out" id="dev-message" style="max-height:240px;overflow:auto">—</pre>
+                <div class="idv-row">
+                  <button type="button" class="btn" id="dev-prepare">① 生成待签协议</button>
+                  <button type="button" class="btn primary" id="dev-submit">② 钱包签名并提交</button>
+                  <span class="api-status" id="dev-status">—</span>
+                </div>
+              </li>
+
+              <li>
+                <div class="idv-step-head"><b>③ 材料（选传）</b><span id="dev-step-mats">可以跳过</span></div>
+                <p class="idv-hint">工牌 / 在职证明 / 授权书可选。与主体资质同一套加密：原件不出这台设备，服务端只拿到密文与摘要。</p>
+                <div class="idv-grid">
+                  <div class="field"><label>材料类型</label><select id="dev-mat-kind"><option value="WORK_BADGE">工牌</option><option value="EMPLOYMENT_PROOF">在职证明</option><option value="AUTHORIZATION_LETTER">授权书</option><option value="ID_CARD">身份证件</option><option value="OTHER">其他</option></select></div>
+                  <div class="field"><label>材料名称</label><input id="dev-mat-name" type="text" placeholder="工牌（正面）" /></div>
+                  <div class="field"><label>选择文件</label><label class="btn idv-file">上传<input type="file" id="dev-mat-file" accept="image/*,application/pdf" hidden /></label></div>
+                  <div class="field"><label>已加入</label><span id="dev-mat-count">0 份</span></div>
+                </div>
+                <div class="idv-row" style="margin-top:10px">
+                  <button type="button" class="btn" id="dev-mat-add">加入材料</button>
+                  <button type="button" class="btn" id="dev-mat-clear">清空</button>
+                  <span class="api-status" id="dev-mat-state">—</span>
+                </div>
+                <ul id="dev-mat-list" class="idv-rules" style="margin-top:10px"></ul>
+              </li>
+            </ol>
+
+            <div class="idv-row" style="margin-top:14px">
+              <button type="button" class="btn" id="dev-refresh">刷新我的实名档案</button>
+            </div>
+            <ul id="dev-list" class="idv-rules" style="margin-top:10px"></ul>
+
+            <details style="margin-top:14px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">开发者实名当前状态 / 驳回原因</summary>
+              <pre class="out" id="dev-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
+            </details>
+          </div>
+
+        </section>
+
+        <section id="reviews" class="page">
+          <!-- 复核台：三条待办汇到一处。只有持 verifier 类身份档案的人进得来，
+               后端还会把「自己提交的」从自己的队列里剔掉。 -->
+          <div class="card section" id="rv-queue">
+            <div class="section-header">
+              <div>
+                <h3>复核台 · 三条待办汇到一处</h3>
+                <p>主体认证、开发者实名、子身份 KYC 都在这里，每条都先跑一遍自动核验：<b>绿=机器已确认</b>、<b>红=机器判定不通过</b>、<b>灰=机器判不了，必须人看</b>。机器只给结论，不替你下决定 —— 放行与否始终是人按的。</p>
+              </div>
+              <span class="api-status" id="rv-state">&mdash;</span>
+            </div>
+            <div class="idv-row">
+              <div class="field"><label>只看</label>
+                <select id="rv-kind">
+                  <option value="">全部</option>
+                  <option value="entity_verification">主体认证</option>
+                  <option value="developer">开发者实名</option>
+                  <option value="role_profile_kyc">子身份 KYC</option>
+                </select>
+              </div>
+              <button type="button" class="btn primary" id="rv-refresh">刷新待办</button>
+              <span class="api-status" id="rv-counts">&mdash;</span>
+            </div>
+            <p class="idv-hint" id="rv-deny" hidden></p>
+            <ul id="rv-list" class="idv-rules" style="margin-top:12px"></ul>
+            <details style="margin-top:14px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">原始响应</summary>
+              <pre class="out" id="rv-out" style="margin-top:10px;max-height:280px;overflow:auto">&mdash;</pre>
+            </details>
+          </div>
         </section>
 
         <section id="settings" class="page">
@@ -1102,6 +1151,7 @@
     <script src="../../scripts/cyber-cert-sole.js"></script>
     <script src="../../scripts/cyber-entity.js"></script>
     <script src="../../scripts/cyber-developer.js"></script>
+    <script src="../../scripts/cyber-reviews.js"></script>
     <script src="../../scripts/cyber-globe-bg.js"></script>
   </body>
 </html>

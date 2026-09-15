@@ -148,6 +148,7 @@
     }
     var out = byId("ent-out");
     if (out) out.textContent = JSON.stringify(state || {}, null, 2);
+    entity.website_verified = !!(state && state.website_verified);
     if (!state) return;
     if (state.official_domain) {
       var d = byId("ent-domain");
@@ -629,6 +630,27 @@
     }
     var sub = byId("ent-submit");
     if (sub) sub.addEventListener("click", submitEntity);
+    var pc = byId("ent-precheck");
+    if (pc) {
+      pc.addEventListener("click", function () {
+        var b = entityBody();
+        var run = (window.KarmaCert || {}).runPrecheck;
+        if (!run) return say(byId("ent-status"), "自检组件没加载", false);
+        run(
+          "entity",
+          {
+            legal_name: b.legal_name,
+            registration_no: b.registration_no,
+            official_domain: b.official_domain,
+            contact_email: b.contact_email,
+            service_scope: b.service_scope,
+          },
+          !!entity.website_verified,
+          byId("ent-precheck-list"),
+          byId("ent-status")
+        );
+      });
+    }
 
     var rc = byId("mk-refresh");
     if (rc) rc.addEventListener("click", loadCatalog);
@@ -664,7 +686,7 @@
     });
     document.addEventListener("karma-page-shown", function (ev) {
       var detail = (ev && ev.detail) || {};
-      if (detail.page === "identity" && detail.sub === "entity") loadEntity();
+      if (detail.page === "identity" && detail.sub === "enterprise") loadEntity();
       if (detail.page === "market") {
         if (detail.sub === "mine") loadMine();
         else if (detail.sub === "usage") { /* 等用户填 slug */ }
