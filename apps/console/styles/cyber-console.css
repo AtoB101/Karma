@@ -1747,6 +1747,9 @@ body {
   transition: background 0.15s, border-color 0.15s;
 }
 .id-picker-item:hover { background: rgba(34, 211, 238, 0.1); border-color: var(--border-glow); }
+/* 还没建的助理：点一下去它自己的认证页。 */
+.id-picker-item.missing { border-style: dashed; opacity: 0.75; }
+.id-picker-item.missing .ip-id { color: var(--text-dim); }
 .id-picker-item.active {
   background: rgba(139, 92, 246, 0.16);
   border-color: rgba(139, 92, 246, 0.6);
