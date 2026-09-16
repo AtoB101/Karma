@@ -88,6 +88,18 @@
    * 当前帧要和窗口里每一帧都对得上才算停住 —— 否则慢慢转头会被误判成「静止」，
    * 拍出来就是一张糊的。 */
   var STILL_DIFF = 0.12;
+  /**
+   * 等了一会儿还判不到「停稳」时，放宽到这一档。
+   *
+   * 为什么必须有这一档：画面里一直有别的动静时（有人从身后走过、摄像头在动、
+   * 编码噪声），0.12 会被顶住 —— 2026-09-16 线上实测：背景有人走过的那一步拖到
+   * 1.7 秒才拍到（其余三步都是 0.6 秒）。姿势早就到位了，再硬等只会让人觉得「又卡了」。
+   * 放宽后仍然远高于噪声底（实测 0.03~0.10），也远低于「正在转头」（0.3 以上），
+   * 所以不会把一张糊的转场照拍下来。
+   */
+  var STILL_DIFF_RELAX = 0.18;
+  /** 姿势到位之后等多久，把停稳的门槛放宽一档。 */
+  var SETTLE_RELAX_MS = 900;
   var STILL_MS = 460;
   /** 和上一张已采的帧至少要差这么多，才算「真的换了一个角度」（约 10 像素的姿态差）。 */
   var ANGLE_MIN_DIFF = 0.16;
@@ -836,6 +848,7 @@
     state.stuckShown = false;
     state.busyHinted = false;
     state.historyAt = 0;
+    state.changedSince = 0;
     state.stepStartAt = now;
     state.readyAt = now + (state.stepIndex === 0 ? GRACE_FIRST_MS : GRACE_STEP_MS);
     state.notice = null;
@@ -863,12 +876,17 @@
     // 头尾两帧都要有（说明窗口真的攒满了），而且窗口内**每一帧**都得和当前帧对得上。
     var ref = frameAgo(STILL_MS);
     var worst = ref ? stillWorstDiff(gray, ref.t) : null;
-    var still = worst !== null && worst < STILL_DIFF;
+    var bar = state.changedSince && now - state.changedSince >= SETTLE_RELAX_MS
+      ? STILL_DIFF_RELAX
+      : STILL_DIFF;
+    var still = worst !== null && worst < bar;
     var last = (state.grays || []).length ? state.grays[state.grays.length - 1] : null;
     var vsLast = last ? grayDiff(last, gray) : null;
     var changed = vsLast === null || vsLast >= ANGLE_MIN_DIFF;
 
     if (!still) {
+      // 姿势已经和上一张不一样了，就从这一刻开始给「耐心」计时：等久了会放宽门槛。
+      if (changed && !state.changedSince) state.changedSince = now;
       state.waitingTurn = false;
       state.progPin = null;
       if (!noticeActive()) {
@@ -1284,6 +1302,7 @@
         stuckShown: false,
         busyHinted: false,
         historyAt: 0,
+        changedSince: 0,
         sampledAt: 0,
         sampleCost: 0,
         startedAt: 0,
