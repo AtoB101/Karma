@@ -6,9 +6,11 @@
  * 这里换成一次性的取景弹窗：
  *
  *   · 圆形引导圈 + 「头顶和下巴都要在圈内」的明确要求；
- *   · 浏览器给了 FaceDetector 就做**真实**的位置/大小判定，位置对了自动倒数拍；
- *   · 没有 FaceDetector 就退化成「画面稳住了就提示可以确认」——
- *     只报我们真的量到的东西，绝不假装检测到了人脸；
+ *   · **全程不用按键**：用户只照屏幕上的大字转头（请向左转头 → 请向右转头 …），
+ *     系统自己判断「转到位了、也停稳了」，然后自动拍下，取景圈上的进度环闭合就是反馈；
+ *   · 判定只用我们真的量得到的两件事：画面有没有动、这一张和上一张差多少 ——
+ *     有 FaceDetector 就额外提示「脸有没有放进圈里」，没有就只报「画面稳住了」，
+ *     绝不假装检测到了人脸；
  *   · 一场认证要采**整张脸的五个角度**（正 / 左 / 右 / 抬 / 低），不是拍一张就完事 ——
  *     单张正面照拿别人的照片就能顶替；
  *   · 每一张还必须和上一张有真实的姿态差：同一张照片连拍 / 对着屏幕翻拍，
@@ -22,7 +24,6 @@
 
   var MAX_SIDE = 1280;
   var JPEG_QUALITY = 0.72;
-  var COUNT_STEP_MS = 700;
   var TICK_MS = 130;
 
   /**
@@ -31,19 +32,38 @@
    *
    * 为什么不采「后脑勺」：背对镜头时画面里没有人脸，既判不了位置也留不下可核对的
    * 生物特征，那一张只会是一团糊影 —— 抬头 + 低头已经覆盖发际线到下颌。
+   *
+   * guide 是屏幕上那句大字，用户照着做就行 —— 整个过程他不需要按任何键。
    */
   var ANGLE_STEPS = [
-    { key: "front", label: "正面", hint: "正对镜头，脸放进圈里" },
-    { key: "left", label: "向左转", hint: "头向左转约 45°（露出侧脸），脸仍要留在圈里" },
-    { key: "right", label: "向右转", hint: "头向右转约 45°（露出侧脸），脸仍要留在圈里" },
-    { key: "up", label: "抬高", hint: "脸慢慢抬高一点，额头和下巴都别出圈" },
-    { key: "down", label: "低头", hint: "下巴轻轻往下收一点，露出额头，脸别出圈" }
+    { key: "front", label: "正面", guide: "请正对镜头", hint: "正对镜头，脸放进圈里" },
+    { key: "left", label: "向左转", guide: "请向左转头", hint: "头向左转约 45°（露出侧脸），脸仍要留在圈里" },
+    { key: "right", label: "向右转", guide: "请向右转头", hint: "头向右转约 45°（露出侧脸），脸仍要留在圈里" },
+    { key: "up", label: "抬高", guide: "请把头抬高一点", hint: "脸慢慢抬高一点，额头和下巴都别出圈" },
+    { key: "down", label: "低头", guide: "请把头低一点", hint: "下巴轻轻往下收一点，露出额头，脸别出圈" }
   ];
+  /** 每个角度的大字旁边那个方向标记。 */
+  var ARROWS = { front: "◎", left: "←", right: "→", up: "↑", down: "↓" };
+
   /** 两张 16x16 灰度图的平均差：同一张照片连拍 ≈ 0，真人转头会明显更大。 */
   var IDENTICAL_DIFF = 0.008;
   var DIM_MEAN = 0.1;
-  /** 两个角度之间留的转身时间：这段时间不判定、不倒数。 */
-  var BETWEEN_MS = 1500;
+
+  /* ---- 自动采集的参数 ----------------------------------------------------
+   * 判定「停稳了」不看单帧之间的抖动，而是拿 STILL_MS 之前那一帧和当前帧比：
+   * 只有这一整段时间画面都没变，才算停住 —— 否则慢慢转头也会被误判成「静止」，
+   * 拍出来的就是一张糊的。 */
+  var STILL_DIFF = 0.008;
+  var STILL_MS = 620;
+  /** 和上一张已采的帧至少要差这么多，才算「真的换了一个角度」。 */
+  var ANGLE_MIN_DIFF = 0.02;
+  /** 某个角度一直没进展，多久之后给一个手动兜底按钮（正常流程看不到它）。 */
+  var AUTO_STUCK_MS = 7000;
+  /** 每一步开始后的宽限时间：别让用户还没站好就被拍。 */
+  var GRACE_FIRST_MS = 1800;
+  var GRACE_STEP_MS = 600;
+  /** 两个角度之间留的转身时间：这段时间不判定。 */
+  var BETWEEN_MS = 900;
 
   var state = null;
 
@@ -69,8 +89,21 @@
     ".kfc-edge-top{top:5%}",
     ".kfc-edge-bot{bottom:5%}",
     ".kfc-edge-ok{color:rgba(110,231,168,.9)}",
-    ".kfc-count{position:absolute;inset:0;display:none;align-items:center;justify-content:center;font-size:64px;font-weight:700;color:#6ee7a8;text-shadow:0 0 30px rgba(110,231,168,.6);pointer-events:none}",
-    ".kfc-count.kfc-on{display:flex}",
+    ".kfc-prog{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);height:64%;aspect-ratio:1/1.26;pointer-events:none}",
+    ".kfc-prog ellipse{fill:none;stroke:rgba(110,231,168,.95);stroke-width:3;stroke-linecap:round;transform:rotate(-90deg);transform-origin:50px 63px}",
+    ".kfc-flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}",
+    ".kfc-flash.kfc-go{animation:kfc-flash .34s ease-out}",
+    "@keyframes kfc-flash{0%{opacity:.8}100%{opacity:0}}",
+    ".kfc-guide{display:flex;align-items:center;gap:10px;margin:16px 20px 0;font-size:19px;font-weight:650;letter-spacing:.02em;color:#eef2ff}",
+    ".kfc-arrow{display:inline-flex;flex:0 0 auto;width:34px;height:34px;align-items:center;justify-content:center;border-radius:10px;border:1px solid rgba(34,211,238,.5);background:rgba(34,211,238,.12);color:#8ee9f7;font-size:19px}",
+    ".kfc-arrow[data-kfc-arrow=left]{animation:kfc-nudge-l 1.1s ease-in-out infinite}",
+    ".kfc-arrow[data-kfc-arrow=right]{animation:kfc-nudge-r 1.1s ease-in-out infinite}",
+    ".kfc-arrow[data-kfc-arrow=up]{animation:kfc-nudge-u 1.1s ease-in-out infinite}",
+    ".kfc-arrow[data-kfc-arrow=down]{animation:kfc-nudge-d 1.1s ease-in-out infinite}",
+    "@keyframes kfc-nudge-l{0%,100%{transform:translateX(0)}50%{transform:translateX(-6px)}}",
+    "@keyframes kfc-nudge-r{0%,100%{transform:translateX(0)}50%{transform:translateX(6px)}}",
+    "@keyframes kfc-nudge-u{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}",
+    "@keyframes kfc-nudge-d{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}",
     ".kfc-flag{position:absolute;left:12px;top:12px;padding:4px 10px;border-radius:999px;font-size:11px;border:1px solid rgba(34,211,238,.4);background:rgba(9,14,30,.72);color:#8ee9f7}",
     ".kfc-flag-live{border-color:rgba(255,120,120,.5);color:#ffb4b4}",
     ".kfc-status{margin:12px 20px 0;font-size:13px;color:#cbd6f5;min-height:20px}",
@@ -194,43 +227,7 @@
     return { ok: true, msg: "位置合适，别动" };
   }
 
-  /* --------------------------------------------------------- 稳定性兜底 */
-
-  /**
-   * 没有 FaceDetector 时的兜底：把画面缩成 16x16 灰度，比较相邻两帧的平均差。
-   * 这只说明「画面稳住了」，不说明圈里有人脸 —— 文案必须照实说。
-   */
-  function makeSteadyMeter() {
-    var canvas = document.createElement("canvas");
-    canvas.width = 16;
-    canvas.height = 16;
-    var ctx = canvas.getContext("2d", { willReadFrequently: true });
-    var prev = null;
-    var lastDiff = 1;
-    return {
-      feed: function (video) {
-        try {
-          ctx.drawImage(video, 0, 0, 16, 16);
-        } catch (_) {
-          return lastDiff;
-        }
-        var data = ctx.getImageData(0, 0, 16, 16).data;
-        var now = [];
-        for (var i = 0; i < data.length; i += 4) {
-          now.push((data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255);
-        }
-        if (prev) {
-          var sum = 0;
-          for (var j = 0; j < now.length; j += 1) sum += Math.abs(now[j] - prev[j]);
-          lastDiff = lastDiff * 0.6 + (sum / now.length) * 0.4;
-        }
-        prev = now;
-        return lastDiff;
-      }
-    };
-  }
-
-  /** 有 FaceDetector 就用真的；没有就 null，走稳定性兜底。 */
+  /** 有 FaceDetector 就用真的；没有就 null，只报画面稳没稳。 */
   function makeDetector() {
     try {
       if (typeof window.FaceDetector === "function") {
@@ -350,15 +347,19 @@
       '<div class="kfc-modal">' +
       '<div class="kfc-head"><h3 id="kfc-title">刷脸认证</h3>' +
       '<button type="button" class="kfc-x" data-kfc-close aria-label="关闭">×</button></div>' +
-      '<p class="kfc-sub" id="kfc-sub">把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。要采 <b>正脸 + 左右侧脸 + 抬头低头，一共 5 张</b>，照片只留在这台设备上。</p>' +
+      '<p class="kfc-sub" id="kfc-sub">把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。照屏幕上的提示转头就行 —— <b>不用按键，系统会自己拍</b>。一共 <b>正脸 + 左右侧脸 + 抬头低头 5 个角度</b>，照片只留在这台设备上。</p>' +
       '<div class="kfc-stage" id="kfc-stage">' +
       '<video id="kfc-video" playsinline muted autoplay></video>' +
       '<span class="kfc-edge kfc-edge-top" id="kfc-edge-top">头顶要进圈</span>' +
       '<span class="kfc-edge kfc-edge-bot" id="kfc-edge-bot">下巴要进圈</span>' +
       '<div class="kfc-ring" id="kfc-ring"></div>' +
-      '<div class="kfc-count" id="kfc-count">3</div>' +
+      '<svg class="kfc-prog" id="kfc-prog" viewBox="0 0 100 126" preserveAspectRatio="none">' +
+      '<ellipse id="kfc-prog-arc" cx="50" cy="63" rx="47" ry="60" stroke-dasharray="337.4" stroke-dashoffset="337.4" vector-effect="non-scaling-stroke"></ellipse>' +
+      "</svg>" +
+      '<div class="kfc-flash" id="kfc-flash"></div>' +
       '<span class="kfc-flag" id="kfc-flag">预览中</span>' +
       "</div>" +
+      '<div class="kfc-guide" id="kfc-guide"></div>' +
       '<div class="kfc-steps" id="kfc-steps"></div>' +
       '<div class="kfc-strip" id="kfc-strip"></div>' +
       '<div class="kfc-status" id="kfc-status">正在打开摄像头…</div>' +
@@ -443,10 +444,6 @@
     stopStream();
     if (state) {
       state.stopped = true;
-      if (state.countdown) {
-        clearTimeout(state.countdown);
-        state.countdown = null;
-      }
       if (state.between) {
         clearTimeout(state.between);
         state.between = null;
@@ -506,64 +503,179 @@
   function tick() {
     if (!state || state.stopped) return;
     var video = byId("kfc-video");
-    var stage = byId("kfc-stage");
-    var ring = byId("kfc-ring");
-    if (video && stage && ring && state.mode === "live" && video.videoWidth) {
-      if (state.detector) {
-        state.detector
-          .detect(video)
-          .then(function (faces) {
-            if (!state || state.stopped || state.mode !== "live") return;
-            onFaces(faces, stage, video, ring);
-          })
-          .catch(function () {
-            // 检测器在某些机器上直接抛：退化成稳定性提示，不装作还在检测。
-            if (!state) return;
-            state.detector = null;
-          });
-      } else {
-        onSteady(video);
+    if (video && state.mode === "live" && video.videoWidth) {
+      var gray = grayFromVideo(video);
+      if (gray) {
+        var motion = state.lastGray ? grayDiff(state.lastGray, gray) : 1;
+        state.lastGray = gray;
+        if (motion >= STILL_DIFF) state.lastMoveAt = Date.now();
+        onSteady(gray);
+      }
+      if (state && state.mode === "live" && state.detector && state.stepIndex === 0) hintFace(video);
+    }
+    // 看门狗：不管是因为画面一直在动、还是摄像头根本没出帧，只要这个角度卡了
+    // AUTO_STUCK_MS 还没采到，就必须给用户一条出路 —— 不能让人对着屏幕干等。
+    if (
+      state && state.mode === "live" && !state.stuckShown && state.stepStartAt &&
+      Date.now() - state.stepStartAt > AUTO_STUCK_MS
+    ) {
+      state.stuckShown = true;
+      renderLiveActions();
+      if (!noticeActive()) {
+        flashStatus("这一张一直没采到 —— 也可以手动拍这一张，或点「本角度改用照片」。", "warn", 4200);
       }
     }
-    state.timer = setTimeout(tick, TICK_MS);
+    if (state) state.timer = setTimeout(tick, TICK_MS);
   }
 
-  function onFaces(faces, stage, video, ring) {
-    if (!faces || !faces.length) {
-      stopCountdown();
-      if (noticeActive()) return;
-      setRing("");
-      setStatus(stepPrefix() + "把脸放进圈里；头顶和下巴都要在圈内");
+  /* ----------------------------------------- 自动采集（Face-ID 式，全程不用按键）
+   *
+   * 用户只做一件事：照屏幕上的大字转头。判定只用两件我们真的量得到的事：
+   *   1) 这 STILL_MS 之内画面有没有动 —— 拿 STILL_MS 之前那一帧和当前帧比；
+   *   2) 停下来之后，这一张和上一张已采的差多少 —— 够不够一个「新角度」。
+   * 满足「停稳了 + 真的换了角度」就自动拍，不需要用户按任何东西。
+   */
+
+  function pushHistory(gray) {
+    var now = Date.now();
+    state.history.push({ t: now, g: gray });
+    while (state.history.length && now - state.history[0].t > 3000) state.history.shift();
+  }
+
+  /**
+   * STILL_MS 之前采的那一帧。
+   * 只能拿它来比，才能说「这一整段时间都没动」—— 拿相邻两帧比的话，
+   * 慢慢转头也会被当成静止，拍出来就是一张糊的。
+   */
+  function frameAgo(ms) {
+    var cut = Date.now() - ms;
+    for (var i = state.history.length - 1; i >= 0; i -= 1) {
+      if (state.history[i].t <= cut) return state.history[i].g;
+    }
+    return null;
+  }
+
+  /** 取景圈上那圈进度：说的是「稳住，我正在判定」，不是「已经认出你的人脸」。 */
+  var PROG_LEN = 337.4;
+
+  function setProg(p) {
+    var arc = byId("kfc-prog-arc");
+    if (!arc) return;
+    var v = Math.max(0, Math.min(1, p || 0));
+    arc.style.strokeDasharray = String(PROG_LEN);
+    arc.style.strokeDashoffset = String(PROG_LEN * (1 - v));
+  }
+
+  /** 拍下的一瞬间闪一下：用户得知道「刚才那下确实采到了」。 */
+  function flash() {
+    var n = byId("kfc-flash");
+    if (!n) return;
+    n.classList.remove("kfc-go");
+    void n.offsetWidth;
+    n.classList.add("kfc-go");
+  }
+
+  /** 大字引导：这一张要做什么动作。 */
+  function renderGuide() {
+    var node = byId("kfc-guide");
+    if (!node) return;
+    var step = currentStep();
+    if (!step) {
+      node.textContent = "";
       return;
     }
-    var verdict = judge(faces[0].boundingBox, coverGeom(stage, video), ringBox(stage, ring));
-    if (!verdict.ok) {
-      setRing("warn");
-      stopCountdown();
-      if (!noticeActive()) setStatus(verdict.msg);
+    node.innerHTML =
+      '<span class="kfc-arrow" data-kfc-arrow="' + step.key + '">' + (ARROWS[step.key] || "") +
+      "</span><span>" + step.guide + "</span>";
+  }
+
+  /** 还没转到位时反复说的那句话。 */
+  function turnPrompt() {
+    var step = currentStep();
+    if (!step) return "照提示动一下";
+    if (step.key === "front") return "请正对镜头，把脸放进圈里，然后停住别动";
+    return "还看不出角度变化 —— " + step.guide + "，转到位后停住";
+  }
+
+  /** 进入某个角度：把上一张留下的判定状态清干净，给出这一张的引导。 */
+  function stepStart() {
+    if (!state) return;
+    var now = Date.now();
+    state.lastGray = null;
+    state.history = [];
+    state.lastMoveAt = now;
+    state.waitingTurn = false;
+    state.stuckShown = false;
+    state.stepStartAt = now;
+    state.readyAt = now + (state.stepIndex === 0 ? GRACE_FIRST_MS : GRACE_STEP_MS);
+    state.notice = null;
+    setRing("");
+    setProg(0);
+    renderGuide();
+    renderLiveActions();
+    setStatus("照上面的提示转头就行 —— 停稳就会自动拍，不用按键。");
+  }
+
+  /**
+   * 画稳没稳、以及「这一张算不算一个新角度」。
+   * 只报我们真的量到的东西：画面稳住了 / 还看不出角度变化。
+   */
+  function onSteady(gray) {
+    var now = Date.now();
+    pushHistory(gray);
+    setProg(Math.min(1, (now - (state.lastMoveAt || now)) / STILL_MS));
+
+    if (now < state.readyAt) {
+      setProg(0);
+      if (!noticeActive()) setStatus("准备好 —— 马上开始，把脸放进圈里。");
       return;
     }
+
+    var ref = frameAgo(STILL_MS);
+    var still = !!ref && grayDiff(ref, gray) < STILL_DIFF;
+    var last = (state.grays || []).length ? state.grays[state.grays.length - 1] : null;
+    var vsLast = last ? grayDiff(last, gray) : null;
+    var changed = vsLast === null || vsLast >= ANGLE_MIN_DIFF;
+
+    if (!still) {
+      state.waitingTurn = false;
+      if (!noticeActive()) {
+        setStatus(changed ? "很好，就这个角度 —— 稳住别动，马上自动拍。" : "正在跟着你动…");
+      }
+      return;
+    }
+
+    if (!changed) {
+      // 停住了，但和上一张没差别：动作还没做到位。
+      setProg(0);
+      state.waitingTurn = true;
+      if (!noticeActive()) flashStatus(turnPrompt(), "warn", 2600);
+      return;
+    }
+
+    setProg(1);
     setRing("ok");
-    if (state.countdown) return;
-    var n = 3;
-    var countNode = byId("kfc-count");
-    setStatus("位置合适，别动 —— 正在自动拍摄", "good");
-    var step = function () {
-      if (!state || state.stopped || state.mode !== "live") return;
-      if (n <= 0) {
-        if (countNode) countNode.classList.remove("kfc-on");
-        state.countdown = null;
-        shoot();
-        return;
-      }
-      if (countNode) {
-        countNode.textContent = String(n);
-        countNode.classList.add("kfc-on");
-      }
-      n -= 1;
-      state.countdown = setTimeout(step, COUNT_STEP_MS);
-    };
-    step();
+    shoot();
+  }
+
+  /** 有 FaceDetector 时的额外提示：脸有没有放进圈里。只说量到的，绝不卡流程。 */
+  function hintFace(video) {
+    var stage = byId("kfc-stage");
+    var ring = byId("kfc-ring");
+    if (!stage || !ring) return;
+    state.detector
+      .detect(video)
+      .then(function (faces) {
+        if (!state || state.stopped || state.mode !== "live" || state.stepIndex !== 0) return;
+        // 转头时、或者画面里没有正脸，它看不到是正常的 —— 那就什么都不说。
+        if (!faces || !faces.length) return;
+        var verdict = judge(faces[0].boundingBox, coverGeom(stage, video), ringBox(stage, ring));
+        if (!verdict.ok) flashStatus(verdict.msg, "warn", 1600);
+      })
+      .catch(function () {
+        // 检测器在某些机器上直接抛：干脆不用它，别装作还在看。
+        if (state) state.detector = null;
+      });
   }
 
   /**
@@ -582,35 +694,9 @@
     return !!(state && state.notice && Date.now() < state.notice.until);
   }
 
-  function stopCountdown() {
-    if (state && state.countdown) {
-      clearTimeout(state.countdown);
-      state.countdown = null;
-    }
-    var c = byId("kfc-count");
-    if (c) c.classList.remove("kfc-on");
-  }
-
-  function onSteady(video) {
-    var diff = state.meter.feed(video);
-    if (diff < 0.02) {
-      state.steadyFrames += 1;
-    } else {
-      state.steadyFrames = 0;
-    }
-    if (noticeActive()) return;
-    if (state.steadyFrames > 6) {
-      setRing("ok");
-      setStatus(stepPrefix() + "画面稳住了 —— 点「拍下这一张」", "good");
-    } else {
-      setRing("");
-      setStatus(liveStatusText());
-    }
-  }
-
   /* ------------------------------------------------------------- 拍摄 */
 
-  /** 采下当前角度的这一张。五个角度全采完才进核对界面。 */
+  /** 采下当前角度的这一张（自动判定通过时由主循环调用）。五个角度全采完才进核对界面。 */
   function shoot() {
     if (!state || state.mode !== "live") return;
     var shot;
@@ -623,10 +709,10 @@
     var gray = grayFromVideo(byId("kfc-video"));
     var verdict = judgeAngle(gray);
     if (!verdict.ok) {
-      stopCountdown();
       flashStatus(verdict.msg, "bad");
       return;
     }
+    flash();
     acceptFrame(shot, gray, "camera");
   }
 
@@ -671,30 +757,37 @@
     });
     if (gray) state.grays.push(gray);
     state.stepIndex += 1;
-    stopCountdown();
+    state.notice = null;
     renderSteps();
     renderStrip();
     if (state.stepIndex < state.angles.length) betweenAngles();
     else enterReview();
   }
 
-  /** 两张之间留一点转身时间：摄像头不关、画面照常显示，但不判定也不倒数。 */
+  /**
+   * 两张之间那一小段：摄像头不关、画面照常显示，只是暂停判定，
+   * 让用户看清「上一张采到了、下一张要做什么」。
+   */
   function betweenAngles() {
     if (!state) return;
     var next = currentStep();
     state.mode = "between";
     setRing("");
-    setStatus("第 " + state.stepIndex + " 张已采到 ✓ 接下来：" + (next ? next.hint : "继续"), "good");
-    actions([
-      { key: "next", label: "我准备好了，直接拍", primary: true, onClick: resumeLive }
-    ]);
+    setProg(0);
+    actions([]);
+    var node = byId("kfc-guide");
+    if (node) {
+      node.innerHTML = '<span class="kfc-arrow" data-kfc-arrow="done">✓</span><span>第 ' +
+        state.stepIndex + " 张已采到</span>";
+    }
+    setStatus(next ? "接下来：" + next.guide : "继续", "good");
     if (state.between) clearTimeout(state.between);
     state.between = setTimeout(function () {
       if (state && state.mode === "between") resumeLive();
     }, BETWEEN_MS);
   }
 
-  /** 回到实时预览，等下一个角度到位。 */
+  /** 回到实时预览，等下一个角度到位（这一步是自动的，用户什么都不用点）。 */
   function resumeLive() {
     if (!state || state.stopped) return;
     if (state.between) {
@@ -702,19 +795,13 @@
       state.between = null;
     }
     state.mode = "live";
-    state.steadyFrames = 0;
-    state.countdown = null;
-    state.notice = null;
-    stopCountdown();
     var err = byId("kfc-err");
     if (err) err.hidden = true;
-    setRing("");
-    renderLiveActions();
     if (!state.stream) {
       openStream().catch(function () {});
       return;
     }
-    setStatus(liveStatusText());
+    stepStart();
     stopLoop();
     tick();
   }
@@ -724,7 +811,6 @@
     if (!state) return;
     state.mode = "review";
     stopStream();
-    stopCountdown();
     state.shot = captureResult();
 
     var stage = byId("kfc-stage");
@@ -744,6 +830,13 @@
     if (flag) {
       flag.textContent = "已采 " + state.shot.frames.length + " 张 · 待确认";
       flag.classList.add("kfc-flag-live");
+    }
+    setProg(0);
+    var g = byId("kfc-guide");
+    if (g) {
+      g.innerHTML =
+        '<span class="kfc-arrow" data-kfc-arrow="done">✓</span><span>' +
+        state.shot.frames.length + " 个角度都采到了</span>";
     }
     setStatus(
       "对一下下面这几张（正脸 / 左 / 右 / 抬高 / 低头）：脸清楚没糊、是同一个人、每张角度都不一样。没问题就点「确认使用」。",
@@ -769,16 +862,23 @@
       flag.classList.remove("kfc-flag-live");
     }
     state.mode = "live";
-    state.steadyFrames = 0;
-    state.countdown = null;
     state.shot = null;
     state.stepIndex = 0;
     state.frames = [];
     state.grays = [];
+    state.history = [];
+    state.lastGray = null;
+    state.notice = null;
     renderSteps();
     renderStrip();
     renderLiveActions();
-    openStream().catch(function () {});
+    if (!state.stream) {
+      openStream().catch(function () {});
+      return;
+    }
+    stepStart();
+    stopLoop();
+    tick();
   }
 
   /**
@@ -811,42 +911,22 @@
     n.hidden = false;
   }
 
+  /**
+   * 自动采集时默认**一个按钮都不给** —— 用户照提示转头就行。
+   * 只有两种情况才给：① 某个角度一直没进展（手动兜底，说明一下）；
+   * ② 有多个摄像头可以切。
+   */
   function renderLiveActions() {
     if (!state) return;
-    var step = currentStep();
-    var list = [
-      {
-        key: "shot",
-        label: step ? "拍下这一张（" + step.label + "）" : "确认这张",
-        primary: true,
-        onClick: shoot
-      },
-      { key: "pick", label: "本角度改用照片", onClick: pickFile }
-    ];
+    var list = [];
     if (state.cameras && state.cameras.length > 1) {
-      list.splice(1, 0, { key: "switch", label: "切换摄像头", onClick: switchCamera });
+      list.push({ key: "switch", label: "切换摄像头", onClick: switchCamera });
+    }
+    if (state.stuckShown) {
+      list.push({ key: "shot", label: "没反应？手动拍这一张", primary: true, onClick: shoot });
+      list.push({ key: "pick", label: "本角度改用照片", onClick: pickFile });
     }
     actions(list);
-  }
-
-  /** 「第 3/5 张（向右转）· 」—— 实时预览和兜底提示都要带上它，否则用户不知道做到哪了。 */
-  function stepPrefix() {
-    if (!state || !state.angles || !state.angles.length) return "";
-    var step = currentStep();
-    if (!step) return "";
-    return "第 " + (state.stepIndex + 1) + "/" + state.angles.length + " 张（" + step.label + "）· ";
-  }
-
-  /** 实时预览时那行字：永远告诉用户「现在是第几张、要做什么动作」。 */
-  function liveStatusText() {
-    if (!state) return "";
-    var step = currentStep();
-    var what = step ? step.hint : "把脸放进圈里";
-    var framing = "头顶和下巴都要在圈内";
-    return (
-      stepPrefix() + what + "；" + framing +
-      (state.detector ? "，位置对了自动拍" : "，稳住后点「拍下这一张」")
-    );
   }
 
   async function switchCamera() {
@@ -855,7 +935,6 @@
     var cam = state.cameras[state.camIndex];
     state.facing = /back|rear|environment|后/i.test(cam.label || "") ? "environment" : "user";
     stopStream();
-    stopCountdown();
     try {
       var stream = await startStream(state.facing, cam.deviceId);
       if (!stream) return;
@@ -890,8 +969,7 @@
     }
     state.cameras = await listCameras();
     if (!state || state.stopped) return;
-    renderLiveActions();
-    setStatus(liveStatusText());
+    stepStart();
     stopLoop();
     tick();
   }
@@ -912,7 +990,7 @@
       byId("kfc-title").textContent = opts.title || "刷脸认证";
       byId("kfc-sub").innerHTML =
         opts.subtitle ||
-        "把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。要采 <b>正脸 + 左右侧脸 + 抬头低头，一共 5 张</b>，照片只留在这台设备上。";
+        "把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。照屏幕上的提示转头就行 —— <b>不用按键，系统会自己拍</b>。一共 <b>正脸 + 左右侧脸 + 抬头低头 5 个角度</b>，照片只留在这台设备上。";
       var err = byId("kfc-err");
       err.hidden = true;
       err.textContent = "";
@@ -937,9 +1015,6 @@
         cameras: [],
         shot: null,
         detector: makeDetector(),
-        meter: makeSteadyMeter(),
-        steadyFrames: 0,
-        countdown: null,
         timer: null,
         stopped: false,
         angles: ANGLE_STEPS,
@@ -947,7 +1022,15 @@
         frames: [],
         grays: [],
         between: null,
-        notice: null
+        notice: null,
+        // 自动采集的判定状态
+        lastGray: null,
+        lastMoveAt: 0,
+        history: [],
+        waitingTurn: false,
+        stuckShown: false,
+        stepStartAt: 0,
+        readyAt: 0
       };
       renderSteps();
       renderStrip();
