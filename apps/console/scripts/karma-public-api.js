@@ -193,6 +193,29 @@
 
   /* 证件 + 刷脸：浏览器端加密后的密文包 + 摘要 + 脱敏字段。
      明文字段服务端会直接 400 拒掉（services/identity_verification.py 的白名单）。 */
+  /* 第三方实名 / 活体服务：接了没有、开一次核验、以及主动回查结论。
+     证件与人脸**直连服务商**，这里只拿会话号和结论，Karma 不经手明文。 */
+  async function getIdentityProvider(identityId) {
+    return karmaFetch(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/provider",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function openIdentityProviderSession(identityId, payload) {
+    return jsonPost(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/provider/session",
+      payload || {}
+    );
+  }
+
+  async function syncIdentityProviderSession(identityId) {
+    return jsonPost(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/provider/sync",
+      {}
+    );
+  }
+
   async function submitIdentityVerification(identityId, payload) {
     return jsonPost(
       "/v1/identity/" + encodeURIComponent(identityId) + "/verification/submit",
@@ -612,6 +635,9 @@
     createRoleProfile,
     getIdentityCard,
     getIdentityVerification,
+    getIdentityProvider,
+    openIdentityProviderSession,
+    syncIdentityProviderSession,
     submitIdentityVerification,
     verifyIdentityVerification,
     bindRoleProfileWallet,

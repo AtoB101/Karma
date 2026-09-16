@@ -44,6 +44,35 @@ class Settings(BaseSettings):
     # When true, publishing a skill additionally requires a verified developer
     # real-name profile whose agreement wallet is the one signing the listing.
     skill_require_developer_verification: bool = True
+    # ------------------------------------------------------------------
+    # 第三方实名 / 活体服务（可选）
+    # ------------------------------------------------------------------
+    # none | mock | aliyun | tencent | persona。默认 none：不接任何服务商，主身份认证走
+    # 「本人提交密文包 + 复核台人工核验」。填了名字但密钥没配齐时，接口会**明确报缺哪一项**，
+    # 绝不静默降级成「已核验」。Karma 永远不经手证件 / 人脸明文：浏览器直连服务商，
+    # 我们只收结论与会话号。生产环境禁止 mock。
+    identity_provider: str = "none"
+    # 服务商能访问到的公网地址（用来拼回调 URL）；不填就没法接回调。
+    identity_provider_public_base_url: str = ""
+    # 回调签名密钥：mock / 自建回调用它；Persona 用它自己的 webhook secret。
+    identity_provider_callback_secret: str = ""
+    # 回调时间戳的容忍窗口（秒）：挡重放。
+    identity_provider_callback_tolerance_seconds: int = 300
+    # 阿里云实人认证（Cloud Auth）
+    identity_provider_aliyun_access_key_id: str = ""
+    identity_provider_aliyun_access_key_secret: str = ""
+    identity_provider_aliyun_scene_id: str = ""
+    identity_provider_aliyun_endpoint: str = "cloudauth.aliyuncs.com"
+    identity_provider_aliyun_region: str = "cn-hangzhou"
+    # 腾讯云慧眼（人脸核身）
+    identity_provider_tencent_secret_id: str = ""
+    identity_provider_tencent_secret_key: str = ""
+    identity_provider_tencent_rule_id: str = ""
+    identity_provider_tencent_region: str = "ap-guangzhou"
+    # Persona（海外：跨境电商用户走它）
+    identity_provider_persona_api_key: str = ""
+    identity_provider_persona_template_id: str = ""
+    identity_provider_persona_webhook_secret: str = ""
     debug: bool = False
 
     # Comma-separated browser origins for CORS, e.g. "https://app.example.com,https://console.example.com".
@@ -415,6 +444,11 @@ class Settings(BaseSettings):
             if self.openclaw_local_phase1_auto_relax:
                 raise ValueError(
                     "OPENCLAW_LOCAL_PHASE1_AUTO_RELAX must be false when APP_ENV is production",
+                )
+            if (self.identity_provider or "").strip().lower() == "mock":
+                raise ValueError(
+                    "IDENTITY_PROVIDER=mock is not allowed when APP_ENV is production "
+                    "(the mock provider has no real identity check behind it)",
                 )
             if (self.x402_payment_backend or "").strip().lower() == "mock":
                 raise ValueError(

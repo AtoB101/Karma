@@ -292,3 +292,62 @@ def test_stillness_covers_every_frame_in_the_window_not_just_the_ends():
     steady = steady[: steady.index("function hintFace(")]
     assert "stillWorstDiff(" in steady, "停稳判定必须真的用上它"
     assert "worst < STILL_DIFF" in steady, "判定必须落在阈值上"
+
+# ---------------------------------------------------------------------------
+# 官方实名核验（第三方服务商）：apps/console/scripts/cyber-identity-provider.js
+# ---------------------------------------------------------------------------
+
+PROVIDER_JS = CONSOLE / "scripts" / "cyber-identity-provider.js"
+API_JS = CONSOLE / "scripts" / "karma-public-api.js"
+
+
+def test_provider_module_is_loaded_after_the_page_it_decorates():
+    html = _page_html()
+    assert "cyber-identity-provider.js" in html, "服务商核验模块必须被加载"
+    assert html.index("cyber-identity-verify.js") < html.index("cyber-identity-provider.js"), (
+        "它要在身份页模块之后加载（那个模块负责刷新页面状态）"
+    )
+    js = PROVIDER_JS.read_text(encoding="utf-8")
+    assert re.search(r"window\.KarmaIdentityProvider\s*=\s*\{", js), "必须挂到 window"
+
+
+def test_provider_card_exists_and_the_button_really_calls_the_api():
+    html = _page_html()
+    for ident in ("idv-provider-open", "idv-provider-sync", "idv-provider-status", "idv-provider-badge"):
+        assert 'id="%s"' % ident in html, "页面上缺少 #%s" % ident
+    js = PROVIDER_JS.read_text(encoding="utf-8")
+    assert "openIdentityProviderSession" in js, "按钮必须真的去开一次服务商会话"
+    assert "syncIdentityProviderSession" in js, "必须能回查结论"
+    api_js = API_JS.read_text(encoding="utf-8")
+    for fn in ("getIdentityProvider", "openIdentityProviderSession", "syncIdentityProviderSession"):
+        assert re.search(r"function %s\(" % fn, api_js), "API 层缺少 %s" % fn
+        assert fn in api_js[api_js.index("global.cyberKarmaApi = {") :], (
+            "%s 必须导出到 window.cyberKarmaApi" % fn
+        )
+
+
+def test_provider_page_never_claims_a_pass_without_the_server():
+    """「已通过」只能由服务端返回的 applied 决定 —— 页面自己不许下结论。"""
+    js = PROVIDER_JS.read_text(encoding="utf-8")
+    body = js[js.index("function renderResult(") :]
+    body = body[: body.index("\n  /* ")]
+    assert "result.applied" in body, "通过与否必须看服务端返回的 applied"
+    assert '"verified"' in body, "还要看服务端的状态位"
+    # 打「已通过」这个角标的地方只能有一处，而且就在 renderResult 里
+    assert js.count('badge("已通过"') == body.count('badge("已通过"') >= 1, (
+        "「已通过」只允许在 renderResult 里、跟着服务端结论一起出现"
+    )
+    assert js.index('badge("已通过"') > js.index("result.applied")
+
+
+def test_provider_page_is_honest_when_nothing_is_connected():
+    js = PROVIDER_JS.read_text(encoding="utf-8")
+    assert "未接入" in js, "没接服务商时必须直说"
+    assert "人工核验" in js, "并且要告诉用户还能走复核台那条路"
+    assert "missing" in js, "密钥没配齐时要说清缺什么，不能装作可用"
+    assert re.search(r"function usable\(", js), "可不可用要有明确的判定"
+    html = _page_html()
+    assert "idv-provider-open" in html and "disabled" in html[
+        html.index('id="idv-provider-open"') - 200 : html.index('id="idv-provider-open"') + 100
+    ], "默认态必须是禁用，等服务端说可用才放开"
+

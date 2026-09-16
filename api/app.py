@@ -477,6 +477,16 @@ app.include_router(
     tags=["IdentityVerification"],
     dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
 )
+# 第三方实名 / 活体服务商的回调是**服务商自己的服务器**打过来的，它没有、也不可能有
+# Karma 的访问令牌：鉴权只能是它自己的签名（push 型），或者「由我们带密钥回查」（pull 型）。
+# 所以这条不能挂 _protected_dependencies —— 挂了就等于谁都收不到核验结果。
+# 只保留写入限流，防止它被当成无成本端点刷。
+app.include_router(
+    identity_verification.provider_router,
+    prefix="/v1/identity",
+    tags=["IdentityProviderCallback"],
+    dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
+)
 app.include_router(
     entity_verification.router,
     prefix="/v1/identity",
