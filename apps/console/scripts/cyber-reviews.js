@@ -1,8 +1,9 @@
 /**
  * 操作台 · 复核台（运营侧入口）。
  *
- * 这个页面只对**持 verifier（复核岗）类身份档案**的人有用。它把三类待办拉到一处：
- *   主体认证（entity_verification）/ 开发者实名（developer）/ 子身份 KYC（role_profile_kyc）
+ * 这个页面只对**持 verifier（复核岗）类身份档案**的人有用。它把四类待办拉到一处：
+ *   主身份认证（identity_verification）/ 主体认证（entity_verification）/
+ *   开发者实名（developer）/ 子身份 KYC（role_profile_kyc）
  * 每条待办都把**机器已经算过的结论**摊开给人看，人只看机器判不了的那部分。
  *
  * 三条不能破的线（后端各有一道，这里是前端的体面版本）：
@@ -17,6 +18,7 @@
   var PATH = "/v1/reviews";
 
   var KIND_LABEL = {
+    identity_verification: "主身份认证",
     entity_verification: "主体认证",
     developer: "开发者实名",
     role_profile_kyc: "子身份 KYC",
@@ -25,6 +27,7 @@
   // 侧栏子项 -> 队列里的分类（"" = 全部）。
   var SUB_KIND = {
     all: "",
+    identity: "identity_verification",
     entity: "entity_verification",
     developer: "developer",
     kyc: "role_profile_kyc",
@@ -150,7 +153,8 @@
     var c = state.counts || {};
     if (counts) {
       counts.textContent =
-        "待办 " + state.items.length + " 条（主体 " + (c.entity_verification || 0) +
+        "待办 " + state.items.length + " 条（主身份 " + (c.identity_verification || 0) +
+        " · 主体 " + (c.entity_verification || 0) +
         " · 开发者 " + (c.developer || 0) +
         " · 子身份 KYC " + (c.role_profile_kyc || 0) + "）" +
         (c.skipped_own ? " · 已自动跳过本人提交 " + c.skipped_own + " 条" : "");

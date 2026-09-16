@@ -344,7 +344,7 @@
     "page.market.title": "技能市场",
     "page.market.sub": "上架与调用可计费的接口",
     "page.reviews.title": "复核台",
-    "page.reviews.sub": "主体认证、开发者实名、子身份 KYC 三条待办汇到一处，机器结论摊开给你看。",
+    "page.reviews.sub": "主身份认证、主体认证、开发者实名、子身份 KYC 四条待办汇到一处，机器结论摊开给你看。",
     "nav.reviews": "复核台",
     "page.identity.title": "身份 · 认证",
     "page.identity.sub": "一次认证（证件 + 刷脸）拿到身份卡；每个 agent 一张子身份卡。",

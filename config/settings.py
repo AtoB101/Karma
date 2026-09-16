@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     # API; the operational grant path is scripts/ops/grant_governance_role.py on the
     # server. Either way an identity can never review its own filing.
     governance_verifier_ids: str = ""
+    # Comma-separated identity ids allowed through the *platform bootstrap* approval
+    # channel (scripts/maintenance/approve_identity_verification.py). That channel
+    # signs as "platform:bootstrap" and exists only because a brand-new platform has
+    # exactly one identity, which is therefore its own only reviewer.
+    # Empty means nobody: the channel must stay scoped to platform-owned identities,
+    # otherwise it is a KYC bypass back door for every user on the platform.
+    bootstrap_approve_identity_ids: str = ""
     # When true, publishing a skill additionally requires a verified developer
     # real-name profile whose agreement wallet is the one signing the listing.
     skill_require_developer_verification: bool = True
@@ -485,6 +492,17 @@ class Settings(BaseSettings):
     def governance_verifier_id_set(self) -> set[str]:
         """谁能给自己开 verifier / arbitrator 档案：运维白名单，默认无人。"""
         raw = (self.governance_verifier_ids or "").strip()
+        if not raw:
+            return set()
+        return {item.strip() for item in raw.split(",") if item.strip()}
+
+    def bootstrap_approve_identity_id_set(self) -> set[str]:
+        """自举审批只对哪些身份开放（平台自有的那一个）：默认**谁都不给**。
+
+        这条通道签的是 platform:bootstrap，一旦放开就等于绕开实名核验，
+        所以默认必须是空的；要用必须显式在服务器 .env 里点名。
+        """
+        raw = (self.bootstrap_approve_identity_ids or "").strip()
         if not raw:
             return set()
         return {item.strip() for item in raw.split(",") if item.strip()}

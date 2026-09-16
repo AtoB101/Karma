@@ -1,6 +1,6 @@
 """复核台（``/v1/reviews``）端到端：谁能进、能看到什么、以及几条不能破的线。
 
-这块是运营侧的入口：把三类待办（主体认证 / 开发者实名 / 子身份 KYC）汇到一个队列里，
+这块是运营侧的入口：把四类待办（主身份认证 / 主体认证 / 开发者实名 / 子身份 KYC）汇到一个队列里，
 每条都带上**自动核验结论**，人工只看机器判不了的那部分。
 
 必须守住的线：
@@ -18,7 +18,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
-from db.models.orm import EntityVerificationModel, IdentityRoleProfile, SkillDeveloperModel
+from db.models.orm import (
+    EntityVerificationModel,
+    IdentityRoleProfile,
+    IdentityVerificationModel,
+    SkillDeveloperModel,
+)
 from services import auto_verification
 
 VERIFIER = "reviews-verifier"
@@ -140,6 +145,40 @@ async def _pending_kyc(client: AsyncClient, owner: str) -> str:
     return profile_id
 
 
+async def _pending_identity(
+    db: AsyncSession,
+    identity_id: str,
+    *,
+    valid_until: str = "2030.1.1",
+    face_match_hint: str = "5角度采集:正面/向左转/向右转/抬高/低头",
+    status: str = "pending",
+) -> None:
+    """一份已经提交、等着人看的主身份认证（只有密文与脱敏字段）。"""
+    if await db.get(IdentityVerificationModel, identity_id) is not None:
+        return
+    db.add(
+        IdentityVerificationModel(
+            identity_id=identity_id,
+            status=status,
+            level="basic",
+            doc_digest="d" * 64,
+            face_digest="f" * 64,
+            package_digest="p" * 64,
+            package_cipher="x" * 5000,
+            extracted={
+                "full_name": "张三",
+                "doc_type": "PASSPORT",
+                "doc_number_mask": "*****5908",
+                "valid_until": valid_until,
+                "face_match_hint": face_match_hint,
+                "contact_email": "zhangsan@entity-example.test",
+                "consent": True,
+            },
+        )
+    )
+    await db.flush()
+
+
 # ------------------------------------------------------------------ 谁能进
 
 
@@ -177,14 +216,16 @@ async def test_verifier_with_a_revoked_profile_cannot_open_the_queue(
 # ------------------------------------------------------------------ 队列内容
 
 
-async def test_queue_carries_all_three_kinds_with_auto_checks(
+async def test_queue_carries_all_four_kinds_with_auto_checks(
     client: AsyncClient, db_session: AsyncSession
 ):
     await _make_verifier(client)
     entity_id = "rev-owner-entity"
     developer_owner = "rev-owner-developer"
     kyc_owner = "rev-owner-kyc"
+    identity_id = "rev-owner-identity"
 
+    await _pending_identity(db_session, identity_id)
     await _pending_entity(db_session, entity_id)
     developer_id = await _pending_developer(db_session, developer_owner)
     profile_id = await _pending_kyc(client, kyc_owner)
@@ -201,15 +242,17 @@ async def test_queue_carries_all_three_kinds_with_auto_checks(
 
     assert body["verifier_identity_id"] == VERIFIER
     by_id = {item["item_id"]: item for item in body["items"]}
+    assert identity_id in by_id
     assert entity_id in by_id
     assert developer_id in by_id
     assert profile_id in by_id
     assert "rev-owner-already-verified" not in by_id
 
-    kinds = {by_id[i]["kind"] for i in (entity_id, developer_id, profile_id)}
-    assert kinds == {"entity_verification", "developer", "role_profile_kyc"}
+    ids = (identity_id, entity_id, developer_id, profile_id)
+    kinds = {by_id[i]["kind"] for i in ids}
+    assert kinds == {"identity_verification", "entity_verification", "developer", "role_profile_kyc"}
 
-    for item_id in (entity_id, developer_id, profile_id):
+    for item_id in ids:
         item = by_id[item_id]
         assert item["auto_checks"]["checks"], item_id
         assert "ok" in item["auto_checks"]
@@ -217,6 +260,9 @@ async def test_queue_carries_all_three_kinds_with_auto_checks(
         assert item["owner_identity_id"]
         assert isinstance(item["materials"], list)
 
+    assert by_id[identity_id]["decide"]["approve_path"].endswith(
+        f"/v1/identity/{identity_id}/verification/verify"
+    )
     assert by_id[entity_id]["decide"]["approve_path"].endswith(
         f"/v1/identity/{entity_id}/entity-verification/verify"
     )
@@ -227,6 +273,7 @@ async def test_queue_carries_all_three_kinds_with_auto_checks(
         f"/v1/identity/role-profiles/{profile_id}/kyc/verify"
     )
 
+    assert body["counts"]["identity_verification"] >= 1
     assert body["counts"]["entity_verification"] >= 1
     assert body["counts"]["developer"] >= 1
     assert body["counts"]["role_profile_kyc"] >= 1
@@ -237,6 +284,7 @@ async def test_own_submissions_never_land_in_my_own_queue(
 ):
     """复核岗不能给自己放行：自己提交的待办要消失，并且被计数出来。"""
     await _make_verifier(client)
+    await _pending_identity(db_session, VERIFIER)
     await _pending_entity(db_session, VERIFIER)
     await _pending_developer(db_session, VERIFIER)
 
@@ -245,7 +293,7 @@ async def test_own_submissions_never_land_in_my_own_queue(
     body = r.json()
 
     assert all(item["owner_identity_id"] != VERIFIER for item in body["items"])
-    assert body["counts"]["skipped_own"] >= 2
+    assert body["counts"]["skipped_own"] >= 3
 
 
 async def test_items_the_machine_rejected_sort_to_the_front(

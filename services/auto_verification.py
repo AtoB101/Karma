@@ -3,6 +3,9 @@
 复核岗要判的是「这份材料是不是真的」，而不是「这个统一社会信用代码有没有抄错一位」。
 所以凡是能自动判的，都在这里判掉，复核台只显示「已自动通过 / 自动不通过 / 需要人工判断」。
 
+主身份认证（证件 + 刷脸）也走这里：证件类型 / 有效期 / 真实性承诺 / 摘要齐不齐 /
+密文包大小 / 刷脸角度数都是能机器判的，人只需要判「这份材料是不是真的」。
+
 三类检查，都是**只读**的，不改任何状态：
 
 1. 统一社会信用代码校验位（GB 32100-2015）：本地可算，抄错一位立刻现形。
@@ -22,7 +25,10 @@ import socket
 import struct
 import threading
 import time
+from datetime import date, datetime
 from typing import Any
+
+from services.identity_verification import DOC_TYPES, MAX_PACKAGE_CHARS, MIN_PACKAGE_CHARS
 
 # --------------------------------------------------------------------------
 # 统一社会信用代码（GB 32100-2015）
@@ -370,5 +376,162 @@ def precheck_personal(*, full_name: str | None, contact_email: str | None) -> di
             "status": STATUS_FAIL, "note": "联系邮箱格式不对，取不到域名",
         }),
         _row("face", "刷脸", {"status": STATUS_MANUAL, "note": "活体识别未接入自动判读，由复核岗看密文包"}, blocking=False),
+    ]
+    return _summarize(checks)
+
+
+# --------------------------------------------------------------------------
+# 主身份认证（证件 + 刷脸）
+# --------------------------------------------------------------------------
+
+
+#: 证件有效期常见写法：2028.8.26 / 2028-08-26 / 2028/08/26 / 20280826
+_VALID_UNTIL_RE = re.compile(r"^\s*(\d{4})\D{0,2}(\d{1,2})\D{0,2}(\d{1,2})\s*$")
+_LONG_TERM_RE = re.compile(r"长期|长期有效|永久|long[\s-]?term|permanent", re.IGNORECASE)
+#: 快过期的提前量：三个月内到期，值得人抬头看一眼，但不挡提交。
+EXPIRING_SOON_DAYS = 90
+
+
+def parse_document_valid_until(value: Any) -> date | None:
+    """把「证件有效期至」解析成日期。解析不出来就返回 None（不当成错误）。"""
+    raw = str(value or "").strip()
+    if not raw or _LONG_TERM_RE.search(raw):
+        return None
+    match = _VALID_UNTIL_RE.match(raw)
+    if not match:
+        return None
+    year, month, day = (int(g) for g in match.groups())
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def check_document_validity(value: Any, *, today: date | None = None) -> dict[str, Any]:
+    """证件过期是**阻断性**错误：过期的证件不能作为实名凭据，机器判得出来就不该让人去发现。"""
+    raw = str(value or "").strip()
+    if not raw:
+        return {"status": STATUS_FAIL, "note": "没有填证件有效期"}
+    if _LONG_TERM_RE.search(raw):
+        return {"status": STATUS_PASS, "note": "长期有效"}
+    parsed = parse_document_valid_until(raw)
+    if parsed is None:
+        return {"status": STATUS_MANUAL, "note": f"有效期格式认不出来（{raw}），请人工确认"}
+    now = today or date.today()
+    if parsed < now:
+        return {"status": STATUS_FAIL, "note": f"证件已于 {parsed.isoformat()} 过期"}
+    delta = (parsed - now).days
+    if delta <= EXPIRING_SOON_DAYS:
+        return {"status": STATUS_MANUAL, "note": f"{parsed.isoformat()} 到期（{delta} 天内），请人工确认"}
+    return {"status": STATUS_PASS, "note": f"有效期至 {parsed.isoformat()}"}
+
+
+def face_angle_count(hint: Any) -> int | None:
+    """从采集通道标记里数出刷脸采了几个角度。
+
+    形如 ``5角度采集:正面/向左转/向右转/抬高/低头``。数不出来返回 None ——
+    宁可说不知道，也不要猜一个数出来。
+    """
+    raw = str(hint or "").strip()
+    if not raw:
+        return None
+    match = re.search(r"(\d+)\s*角度", raw)
+    if match:
+        return int(match.group(1))
+    tail = re.split(r"[:：]", raw, maxsplit=1)[1] if re.search(r"[:：]", raw) else raw
+    parts = [p for p in re.split(r"[/、,，]", tail) if p.strip()]
+    if len(parts) > 1:
+        return len(parts)
+    return None
+
+
+def check_face_angles(hint: Any, *, required: int = 5) -> dict[str, Any]:
+    """角度数不够只标注、不阻断：可能走的是「本角度改用照片」的降级通道。"""
+    count = face_angle_count(hint)
+    if count is None:
+        return {"status": STATUS_MANUAL, "note": "没写清采集了几个角度"}
+    if count >= required:
+        return {"status": STATUS_PASS, "note": f"已采 {count} 个角度：{str(hint).strip()}"}
+    return {
+        "status": STATUS_MANUAL,
+        "note": f"只采到 {count} 个角度（少于 {required} 个）—— 可能是照片通道或旧版采集，请人工确认",
+    }
+
+
+def check_package_size(chars: Any) -> dict[str, Any]:
+    """密文包大小：太小说明没交东西，太大说明没压缩或想塞原件。"""
+    try:
+        size = int(chars or 0)
+    except (TypeError, ValueError):
+        size = 0
+    if size < MIN_PACKAGE_CHARS:
+        return {"status": STATUS_FAIL, "note": f"密文包只有 {size} 字符，像是没交材料"}
+    if size > MAX_PACKAGE_CHARS:
+        return {"status": STATUS_FAIL, "note": f"密文包 {size} 字符，超过上限 {MAX_PACKAGE_CHARS}"}
+    return {"status": STATUS_PASS, "note": f"密文包 {size} 字符（上限 {MAX_PACKAGE_CHARS}）"}
+
+
+def precheck_identity(
+    *,
+    level: str | None,
+    doc_type: str | None,
+    full_name: str | None,
+    doc_number_mask: str | None,
+    valid_until: str | None,
+    contact_email: str | None,
+    doc_digest: str | None,
+    face_digest: str | None,
+    package_cipher_chars: int | None,
+    face_match_hint: str | None,
+    consent: bool,
+) -> dict[str, Any]:
+    """主身份认证的自检清单。
+
+    只判**机器真的判得了**的：材料齐不齐、格式对不对、证件过没过期、包大小对不对。
+    「证件是不是真的」「镜头前是不是本人」机器判不了 —— 那两行如实写「未接入」，
+    不假装通过。
+    """
+    kind = str(doc_type or "").strip().upper()
+    masked = str(doc_number_mask or "").strip()
+    mail_domain = email_domain(contact_email)
+    checks = [
+        _row("doc_type", "证件类型", {
+            "status": STATUS_PASS if kind in DOC_TYPES else STATUS_FAIL,
+            "note": kind if kind in DOC_TYPES else f"证件类型不在允许范围（{kind or '空'}）",
+        }),
+        _row("full_name", "姓名", {
+            "status": STATUS_PASS if len(str(full_name or "").strip()) >= 2 else STATUS_FAIL,
+            "note": "已填写" if len(str(full_name or "").strip()) >= 2 else "姓名必填",
+        }),
+        _row("doc_number_mask", "证件号码", {
+            "status": STATUS_PASS if len(masked) >= 4 else STATUS_FAIL,
+            "note": masked if len(masked) >= 4 else "证件号码（脱敏）缺失",
+        }),
+        _row("doc_validity", "证件有效期", check_document_validity(valid_until)),
+        _row("consent", "真实性承诺", {
+            "status": STATUS_PASS if consent else STATUS_FAIL,
+            "note": "已勾选" if consent else "没有勾选真实性承诺",
+        }),
+        _row("doc_digest", "证件摘要", {
+            "status": STATUS_PASS if str(doc_digest or "").strip() else STATUS_FAIL,
+            "note": "有证件摘要" if str(doc_digest or "").strip() else "没有证件摘要，等于没交证件",
+        }),
+        _row("face_digest", "刷脸摘要", {
+            "status": STATUS_PASS if str(face_digest or "").strip() else STATUS_FAIL,
+            "note": "有刷脸摘要" if str(face_digest or "").strip() else "没有刷脸摘要，等于没刷脸",
+        }),
+        _row("package", "密文包大小", check_package_size(package_cipher_chars)),
+        _row("face_angles", "刷脸角度", check_face_angles(face_match_hint), blocking=False),
+        _row("email_mx", "联系邮箱 MX", lookup_mx(mail_domain) if mail_domain else {
+            "status": STATUS_FAIL, "note": "联系邮箱格式不对，取不到域名",
+        }),
+        _row("liveness", "活体识别", {
+            "status": STATUS_UNAVAILABLE,
+            "note": "未接入第三方实名 / 活体服务：机器判不了「证件真伪」与「镜头前是否本人」，这一条必须由人看",
+        }, blocking=False),
+        _row("level", "认证级别", {
+            "status": STATUS_MANUAL,
+            "note": f"本次提交为 {str(level or 'basic').strip()} 级",
+        }, blocking=False),
     ]
     return _summarize(checks)
