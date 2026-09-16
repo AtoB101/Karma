@@ -108,6 +108,7 @@
             <button class="nav-main" data-page="reviews" aria-expanded="false"><span class="icon">&#9678;</span><span data-i18n="nav.reviews">复核台</span><span class="nav-caret">&#9662;</span></button>
             <div class="nav-subs">
               <button class="nav-sub" data-page="reviews" data-sub="all">全部待办</button>
+              <button class="nav-sub" data-page="reviews" data-sub="identity">主身份认证</button>
               <button class="nav-sub" data-page="reviews" data-sub="entity">主体认证</button>
               <button class="nav-sub" data-page="reviews" data-sub="developer">开发者实名</button>
               <button class="nav-sub" data-page="reviews" data-sub="kyc">子身份 KYC</button>
@@ -1127,13 +1128,13 @@
         </section>
 
         <section id="reviews" class="page">
-          <!-- 复核台：三条待办汇到一处。只有持 verifier 类身份档案的人进得来，
+          <!-- 复核台：四条待办汇到一处。只有持 verifier 类身份档案的人进得来，
                后端还会把「自己提交的」从自己的队列里剔掉。 -->
           <div class="card section" id="rv-queue">
             <div class="section-header">
               <div>
-                <h3>复核台 · 三条待办汇到一处</h3>
-                <p>主体认证、开发者实名、子身份 KYC 都在这里，每条都先跑一遍自动核验：<b>绿=机器已确认</b>、<b>红=机器判定不通过</b>、<b>灰=机器判不了，必须人看</b>。机器只给结论，不替你下决定 —— 放行与否始终是人按的。</p>
+                <h3>复核台 · 四条待办汇到一处</h3>
+                <p>主身份认证（证件 + 刷脸）、主体认证、开发者实名、子身份 KYC 都在这里，每条都先跑一遍自动核验：<b>绿=机器已确认</b>、<b>红=机器判定不通过</b>、<b>灰=机器判不了，必须人看</b>。机器只给结论，不替你下决定 —— 放行与否始终是人按的。</p>
               </div>
               <span class="api-status" id="rv-state">&mdash;</span>
             </div>
@@ -1141,6 +1142,7 @@
               <div class="field"><label>只看</label>
                 <select id="rv-kind">
                   <option value="">全部</option>
+                  <option value="identity_verification">主身份认证</option>
                   <option value="entity_verification">主体认证</option>
                   <option value="developer">开发者实名</option>
                   <option value="role_profile_kyc">子身份 KYC</option>

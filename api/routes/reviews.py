@@ -1,7 +1,12 @@
 """Karma — 复核台（治理角色专用）。
 
-- ``GET  /v1/reviews/pending``  待复核队列：主体认证 / 开发者实名 / 子身份 KYC
+- ``GET  /v1/reviews/pending``  待复核队列：主身份认证 / 主体认证 / 开发者实名 / 子身份 KYC
 - ``POST /v1/reviews/precheck`` 提交前自检：把能自动判的先判掉（任何已登录身份可用）
+
+主身份认证（证件 + 刷脸）以前**不在这张队列里**，只有 ``POST /verification/verify``
+一个入口 —— 结果是「有复核岗也看不见要复核什么」。它现在是队列的第一类：
+机器先把证件类型 / 有效期 / 承诺 / 摘要 / 包大小 / 角度数判掉，人只判
+「这份材料是不是真的、镜头前是不是本人」这两件机器判不了的事。
 
 队列只对**持有 verifier 类档案**的身份开放，且**不展示自己提交的东西**：
 「不能复核自己」是路由层的硬规则，队列里混进去只会让人白点一次。
@@ -19,7 +24,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models.orm import EntityVerificationModel, IdentityRoleProfile, SkillDeveloperModel
+from db.models.orm import (
+    EntityVerificationModel,
+    IdentityRoleProfile,
+    IdentityVerificationModel,
+    SkillDeveloperModel,
+)
 from db.session import get_db
 from services import auto_verification
 from services.identity_actor import resolve_actor_identity_id
@@ -99,6 +109,75 @@ async def _entity_items(db: AsyncSession, actor: str) -> tuple[list[dict], int]:
                 "decide": {
                     "target": row.identity_id,
                     "approve_path": f"/v1/identity/{row.identity_id}/entity-verification/verify",
+                    "body_key": "decision",
+                },
+            }
+        )
+    return items, skipped
+
+
+async def _identity_items(db: AsyncSession, actor: str) -> tuple[list[dict], int]:
+    """主身份认证（证件 + 刷脸）待办。
+
+    展示的只有**脱敏字段**（服务端从来没存过明文），自动核验把机器判得了的先判掉：
+    有效期过没过、承诺有没有勾、摘要齐不齐、包大小对不对、刷脸采了几个角度。
+    证件真伪与活体这两条机器判不了，如实标注给人。
+    """
+    rows = (
+        await db.execute(
+            select(IdentityVerificationModel)
+            .where(IdentityVerificationModel.status == "pending")
+            .order_by(IdentityVerificationModel.updated_at.asc())
+            .limit(MAX_ITEMS_PER_KIND)
+        )
+    ).scalars().all()
+    items, skipped = [], 0
+    for row in rows:
+        if row.identity_id == actor:
+            skipped += 1
+            continue
+        extracted = row.extracted or {}
+        checks = await asyncio.to_thread(
+            auto_verification.precheck_identity,
+            level=row.level,
+            doc_type=extracted.get("doc_type"),
+            full_name=extracted.get("full_name"),
+            doc_number_mask=extracted.get("doc_number_mask"),
+            valid_until=extracted.get("valid_until"),
+            contact_email=extracted.get("contact_email"),
+            doc_digest=row.doc_digest,
+            face_digest=row.face_digest,
+            package_cipher_chars=len(row.package_cipher or ""),
+            face_match_hint=extracted.get("face_match_hint"),
+            consent=bool(extracted.get("consent")),
+        )
+        items.append(
+            {
+                "kind": "identity_verification",
+                "item_id": row.identity_id,
+                "owner_identity_id": row.identity_id,
+                "title": extracted.get("full_name") or row.identity_id,
+                "subtitle": " · ".join(
+                    [
+                        p
+                        for p in (
+                            extracted.get("doc_type"),
+                            extracted.get("doc_number_mask"),
+                            f"{row.level or 'basic'} 级",
+                        )
+                        if p
+                    ]
+                ),
+                "submitted_at": _iso(row.updated_at),
+                "materials": [
+                    {"name": "证件（密文包）", "kind": extracted.get("doc_type")},
+                    {"name": "刷脸（密文包）", "kind": "face"},
+                ],
+                "has_package": bool(row.package_cipher),
+                "auto_checks": checks,
+                "decide": {
+                    "target": row.identity_id,
+                    "approve_path": f"/v1/identity/{row.identity_id}/verification/verify",
                     "body_key": "decision",
                 },
             }
@@ -203,20 +282,22 @@ async def _kyc_items(db: AsyncSession, actor: str) -> tuple[list[dict], int]:
 @router.get("/pending")
 async def pending_reviews(request: Request, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     actor = await _require_verifier(db, request)
+    identity_items, identity_skipped = await _identity_items(db, actor)
     entity_items, entity_skipped = await _entity_items(db, actor)
     developer_items, developer_skipped = await _developer_items(db, actor)
     kyc_items, kyc_skipped = await _kyc_items(db, actor)
-    items = entity_items + developer_items + kyc_items
+    items = identity_items + entity_items + developer_items + kyc_items
     # 需要人看的排前面：自动核验已经全绿的往后放。
     items.sort(key=lambda i: (bool(i["auto_checks"].get("ok")), i.get("submitted_at") or ""))
     return {
         "verifier_identity_id": actor,
         "total": len(items),
         "counts": {
+            "identity_verification": len(identity_items),
             "entity_verification": len(entity_items),
             "developer": len(developer_items),
             "role_profile_kyc": len(kyc_items),
-            "skipped_own": entity_skipped + developer_skipped + kyc_skipped,
+            "skipped_own": identity_skipped + entity_skipped + developer_skipped + kyc_skipped,
         },
         "items": items,
     }

@@ -368,6 +368,28 @@ def assert_can_bootstrap_approve(row: Any, *, reason: str) -> None:
         )
 
 
+def assert_bootstrap_target_allowed(identity_id: str) -> None:
+    """自举通道**只对平台自有身份**开放。
+
+    为什么必须收口：这条通道签的是 ``platform:bootstrap``，它绕过「两个人签字」，
+    是平台起步期的过渡出口。如果不限定对象，任何拿到服务器权限的人都能给**任意用户**
+    盖章，那它就从过渡通道变成了绕开实名核验的后门。
+
+    所以白名单默认是空的（``BOOTSTRAP_APPROVE_IDENTITY_IDS`` 没配 = 谁都不批），
+    要用必须在服务器 .env 里显式点名平台自有的身份。
+    """
+    from config.settings import get_settings
+
+    allowed = get_settings().bootstrap_approve_identity_id_set()
+    target = str(identity_id or "").strip()
+    if target not in allowed:
+        raise IdentityVerificationError(
+            403,
+            "bootstrap approval is limited to platform-owned identities "
+            "(set BOOTSTRAP_APPROVE_IDENTITY_IDS on the server to name them)",
+        )
+
+
 def mark_verified(row: Any, *, reviewer_identity_id: str, note: str | None) -> None:
     row.status = "verified"
     row.reviewer_identity_id = reviewer_identity_id
@@ -382,6 +404,7 @@ __all__ = [
     "DOC_TYPES",
     "FORBIDDEN_KEYS",
     "BOOTSTRAP_REVIEWER_ID",
+    "assert_bootstrap_target_allowed",
     "assert_can_bootstrap_approve",
     "assert_can_decide",
     "assert_can_submit",

@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import pytest
 
+from config.settings import settings
 from services.identity_verification import (
     BOOTSTRAP_REVIEWER_ID,
     IdentityVerificationError,
+    assert_bootstrap_target_allowed,
     assert_can_bootstrap_approve,
     mark_verified,
 )
@@ -79,3 +81,38 @@ def test_bootstrap_refuses_a_rejected_submission():
     with pytest.raises(IdentityVerificationError) as e:
         assert_can_bootstrap_approve(_Row(status="rejected"), reason="平台自举")
     assert e.value.status == 409
+
+
+# ── 这条通道只对平台自有身份开放 ────────────────────────────────────────────
+#
+# 它签的是 platform:bootstrap，绕过「两个人签字」。不限定对象的话，任何拿到服务器
+# 权限的人都能给**任意用户**盖章 —— 那它就从过渡通道变成了绕开实名核验的后门。
+
+
+def test_bootstrap_is_closed_when_no_allowlist_is_configured(monkeypatch):
+    monkeypatch.setattr(settings, "bootstrap_approve_identity_ids", "")
+    with pytest.raises(IdentityVerificationError) as e:
+        assert_bootstrap_target_allowed("kid_5f0aa8ccf7483983a8a2a5a9")
+    assert e.value.status == 403
+
+
+def test_bootstrap_only_opens_for_the_identities_named_in_the_allowlist(monkeypatch):
+    monkeypatch.setattr(settings, "bootstrap_approve_identity_ids", "kid_platform")
+    assert_bootstrap_target_allowed("kid_platform") is None
+    with pytest.raises(IdentityVerificationError) as e:
+        assert_bootstrap_target_allowed("kid_some_other_user")
+    assert e.value.status == 403
+
+
+def test_bootstrap_allowlist_ignores_padding_and_blank_entries(monkeypatch):
+    monkeypatch.setattr(settings, "bootstrap_approve_identity_ids", " , kid_a ,  ")
+    assert_bootstrap_target_allowed("kid_a") is None
+    with pytest.raises(IdentityVerificationError):
+        assert_bootstrap_target_allowed("")
+
+
+def test_bootstrap_never_opens_for_a_blank_target(monkeypatch):
+    """白名单里塞一个空串不能变成「谁都能批」。"""
+    monkeypatch.setattr(settings, "bootstrap_approve_identity_ids", " , ")
+    with pytest.raises(IdentityVerificationError):
+        assert_bootstrap_target_allowed("")

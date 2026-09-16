@@ -10,10 +10,16 @@
 永远拿不到身份卡，操作台的所有业务闸门都打不开。这个脚本就是那个「平台自己签字」的
 出口，它**只在服务器上**存在，不走任何 HTTP 接口。
 
-它不是橡皮图章，三条硬性前置：
+它不是橡皮图章，四条硬性前置：
+0. 目标身份必须在 ``BOOTSTRAP_APPROVE_IDENTITY_IDS`` 白名单里（服务器 .env，默认空 = 谁都不批）——
+   这条通道只对**平台自有身份**开放，不限定对象它就等于绕开实名核验的后门；
 1. 本人必须先在操作台真实提交过证件 + 刷脸（identity_verifications 有 pending 行）；
 2. 提交里必须有 doc_digest 与 face_digest（少一个都不行）；
 3. 必须写明审批理由，理由会落进 review_note，审批人固定记作 platform:bootstrap。
+
+配置示例（服务器 /opt/karma/.env）：
+
+    BOOTSTRAP_APPROVE_IDENTITY_IDS=kid_5f0aa8ccf7483983a8a2a5a9
 
 正式上线后应换成第三方实名 / 活体服务回调（阿里云、腾讯云这类），由服务商判定后自动置位，
 这个脚本只作为「服务商还没接进来」这段时间的过渡通道。
@@ -51,6 +57,7 @@ async def _main() -> int:
     from services.identity_verification import (
         BOOTSTRAP_REVIEWER_ID,
         IdentityVerificationError,
+        assert_bootstrap_target_allowed,
         assert_can_bootstrap_approve,
         mark_verified,
     )
@@ -78,6 +85,13 @@ async def _main() -> int:
 
         identity_id = args.identity.strip()
         row = await db.get(IdentityVerificationModel, identity_id)
+
+        # 先过白名单：这条通道只对平台自有身份开放，否则它就是绕开实名核验的后门。
+        try:
+            assert_bootstrap_target_allowed(identity_id)
+        except IdentityVerificationError as exc:
+            print("REFUSED %s: %s" % (exc.status, exc.message))
+            return 1
 
         try:
             assert_can_bootstrap_approve(row, reason=args.reason or "")
