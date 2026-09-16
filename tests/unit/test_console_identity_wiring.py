@@ -265,3 +265,30 @@ def test_capture_has_a_way_out_when_nothing_happens():
     tick = js[js.index("function tick()") :]
     tick = tick[: tick.index("function pushHistory(")]
     assert "AUTO_STUCK_MS" in tick, "「多久没进展」的看门狗必须挂主循环，不能只挂在判定分支里"
+
+def test_stillness_check_ignores_brightness_drift():
+    """自动曝光 / 自动白平衡会让整帧明暗一直漂移。
+
+    2026-09-16 线上实测：拿**原始灰度**直接相减，整帧变亮 6% 就会被当成「画面在动」，
+    用户转完头屏住呼吸，屏幕一直不出结果 —— 就是那句「太卡了、没反应」。
+    这条门禁挡住「退回成原始灰度直接比」：比较之前必须先做亮度归一化。
+    """
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert re.search(r"function grayNorm\(", js), "必须有亮度归一化"
+    diff = js[js.index("function grayDiff(") :]
+    diff = diff[: diff.index("function grayMean(")]
+    assert "grayNorm(" in diff, "比形状之前必须先归一化掉整帧的明暗漂移"
+    assert "Math.abs" in diff, "归一化之后仍然要比两个向量差多少"
+
+
+def test_stillness_covers_every_frame_in_the_window_not_just_the_ends():
+    """只比「窗口头尾两帧」会被随机抖动骗过去：头尾偶尔刚好撞上，就被当成停稳。
+
+    当前帧必须和窗口里**每一帧**都比一遍，取最大的那个差。
+    """
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert re.search(r"function stillWorstDiff\(", js), "必须有「窗口内每一帧」的最大差判定"
+    steady = js[js.index("function onSteady(") :]
+    steady = steady[: steady.index("function hintFace(")]
+    assert "stillWorstDiff(" in steady, "停稳判定必须真的用上它"
+    assert "worst < STILL_DIFF" in steady, "判定必须落在阈值上"

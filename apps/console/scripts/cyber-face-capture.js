@@ -45,25 +45,37 @@
   /** 每个角度的大字旁边那个方向标记。 */
   var ARROWS = { front: "◎", left: "←", right: "→", up: "↑", down: "↓" };
 
-  /** 两张 16x16 灰度图的平均差：同一张照片连拍 ≈ 0，真人转头会明显更大。 */
-  var IDENTICAL_DIFF = 0.008;
+  /* ---- 比对的刻度：下面每一个 diff 都是「亮度归一化之后的平均差」------------
+   *
+   * 为什么必须归一化：摄像头有自动曝光 / 自动白平衡，整帧明暗一直在缓慢漂移。
+   * 拿**原始灰度**直接相减，整帧变亮 6% 就会被当成「画面在动」—— 用户转完头、
+   * 屏住呼吸，屏幕却一直不出结果，这就是线上那句「太卡了、没反应」。
+   * 各自减掉自己的均值、再除以自己的标准差之后，整帧的明暗/对比漂移被彻底剔掉，
+   * 只剩下「画面的形状变没变」。实测（320x240 假摄像头 + 传感器噪声 + 曝光漂移）：
+   *     同姿势带噪声：原始差 0.002 ~ 0.21（随漂移变大），归一化后恒为 0.012
+   *     换一个角度  ：原始差 0.11 ~ 0.27，               归一化后 0.70
+   * 同姿势 0.012 / 换角度 0.70，差 50 倍 —— 判定不再随光线漂移。
+   */
+  var IDENTICAL_DIFF = 0.05;
   var DIM_MEAN = 0.1;
+  /** 画面结构的下限：平平一片（镜头被挡、糊成一团）时归一化会把噪声放大，必须挡住。 */
+  var MIN_CONTRAST = 0.03;
 
   /* ---- 自动采集的参数 ----------------------------------------------------
-   * 判定「停稳了」不看单帧之间的抖动，而是拿 STILL_MS 之前那一帧和当前帧比：
-   * 只有这一整段时间画面都没变，才算停住 —— 否则慢慢转头也会被误判成「静止」，
-   * 拍出来的就是一张糊的。 */
-  var STILL_DIFF = 0.008;
-  var STILL_MS = 620;
-  /** 和上一张已采的帧至少要差这么多，才算「真的换了一个角度」。 */
-  var ANGLE_MIN_DIFF = 0.02;
+   * 判定「停稳了」不看单帧之间的抖动，而是看整整 STILL_MS 这一段：
+   * 当前帧要和窗口里每一帧都对得上才算停住 —— 否则慢慢转头会被误判成「静止」，
+   * 拍出来就是一张糊的。 */
+  var STILL_DIFF = 0.05;
+  var STILL_MS = 520;
+  /** 和上一张已采的帧至少要差这么多，才算「真的换了一个角度」（约 7 像素的姿态差）。 */
+  var ANGLE_MIN_DIFF = 0.12;
   /** 某个角度一直没进展，多久之后给一个手动兜底按钮（正常流程看不到它）。 */
   var AUTO_STUCK_MS = 7000;
   /** 每一步开始后的宽限时间：别让用户还没站好就被拍。 */
-  var GRACE_FIRST_MS = 1800;
-  var GRACE_STEP_MS = 600;
+  var GRACE_FIRST_MS = 1500;
+  var GRACE_STEP_MS = 500;
   /** 两个角度之间留的转身时间：这段时间不判定。 */
-  var BETWEEN_MS = 900;
+  var BETWEEN_MS = 800;
 
   var state = null;
 
@@ -266,11 +278,54 @@
     return grayFrom(video);
   }
 
+  /**
+   * 亮度/对比度归一化：各自减掉自己的均值、再除以自己的标准差 —— 只留下「形状」。
+   * 自动曝光 / 自动白平衡造成的整帧明暗漂移，在这一步被彻底剔掉。
+   */
+  function grayNorm(gray) {
+    if (!gray || !gray.length) return null;
+    var n = gray.length;
+    var i;
+    var mean = 0;
+    for (i = 0; i < n; i += 1) mean += gray[i];
+    mean /= n;
+    var sq = 0;
+    var d;
+    for (i = 0; i < n; i += 1) {
+      d = gray[i] - mean;
+      sq += d * d;
+    }
+    var std = Math.sqrt(sq / n);
+    var out = new Array(n);
+    for (i = 0; i < n; i += 1) out[i] = std > 1e-6 ? (gray[i] - mean) / std : 0;
+    return out;
+  }
+
+  /** 这一帧的明暗起伏有多大：接近 0 = 画面平平一片，没有可比的结构。 */
+  function grayStd(gray) {
+    if (!gray || !gray.length) return null;
+    var n = gray.length;
+    var i;
+    var mean = 0;
+    for (i = 0; i < n; i += 1) mean += gray[i];
+    mean /= n;
+    var sq = 0;
+    for (i = 0; i < n; i += 1) {
+      var d = gray[i] - mean;
+      sq += d * d;
+    }
+    return Math.sqrt(sq / n);
+  }
+
+  /** 两张画面的「形状差」：亮度归一化之后算平均绝对差。不随光线漂移变化。 */
   function grayDiff(a, b) {
     if (!a || !b || a.length !== b.length) return null;
+    var na = grayNorm(a);
+    var nb = grayNorm(b);
+    if (!na || !nb) return null;
     var sum = 0;
-    for (var i = 0; i < a.length; i += 1) sum += Math.abs(a[i] - b[i]);
-    return sum / a.length;
+    for (var i = 0; i < na.length; i += 1) sum += Math.abs(na[i] - nb[i]);
+    return sum / na.length;
   }
 
   function grayMean(gray) {
@@ -543,6 +598,25 @@
   }
 
   /**
+   * 这一整段时间（STILL_MS）里画面到底有没有变过。
+   *
+   * 只比「头尾两帧」是不够的：随机抖动偶尔会让头尾刚好撞上，一次撞上就被判成
+   * 「停稳了」，拍下来的其实是动的那一下。这里拿当前帧和窗口里**每一帧**都比，
+   * 取最大的那个差 —— 中间任何一刻动过，就还不算停稳。
+   */
+  function stillWorstDiff(gray, since) {
+    if (!state || !state.history || !state.history.length) return null;
+    var worst = null;
+    for (var i = state.history.length - 1; i >= 0; i -= 1) {
+      if (state.history[i].t < since) break;
+      var d = grayDiff(state.history[i].g, gray);
+      if (d === null) continue;
+      if (worst === null || d > worst) worst = d;
+    }
+    return worst;
+  }
+
+  /**
    * STILL_MS 之前采的那一帧。
    * 只能拿它来比，才能说「这一整段时间都没动」—— 拿相邻两帧比的话，
    * 慢慢转头也会被当成静止，拍出来就是一张糊的。
@@ -550,7 +624,7 @@
   function frameAgo(ms) {
     var cut = Date.now() - ms;
     for (var i = state.history.length - 1; i >= 0; i -= 1) {
-      if (state.history[i].t <= cut) return state.history[i].g;
+      if (state.history[i].t <= cut) return state.history[i];
     }
     return null;
   }
@@ -631,8 +705,10 @@
       return;
     }
 
+    // 头尾两帧都要有（说明窗口真的攒满了），而且窗口内**每一帧**都得和当前帧对得上。
     var ref = frameAgo(STILL_MS);
-    var still = !!ref && grayDiff(ref, gray) < STILL_DIFF;
+    var worst = ref ? stillWorstDiff(gray, ref.t) : null;
+    var still = worst !== null && worst < STILL_DIFF;
     var last = (state.grays || []).length ? state.grays[state.grays.length - 1] : null;
     var vsLast = last ? grayDiff(last, gray) : null;
     var changed = vsLast === null || vsLast >= ANGLE_MIN_DIFF;
@@ -728,6 +804,14 @@
     var mean = grayMean(gray);
     if (mean !== null && mean < DIM_MEAN) {
       return { ok: false, msg: "光线太暗了，脸看不清 —— 换个亮点的地方再拍", diff: null };
+    }
+    var contrast = grayStd(gray);
+    if (contrast !== null && contrast < MIN_CONTRAST) {
+      return {
+        ok: false,
+        diff: null,
+        msg: "画面太平了，看不出脸的轮廓 —— 别挡住镜头，把脸放进圈里再来"
+      };
     }
     var prev = (state.grays || []).length ? state.grays[state.grays.length - 1] : null;
     var diff = prev && gray ? grayDiff(prev, gray) : null;
