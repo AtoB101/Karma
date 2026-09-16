@@ -291,7 +291,7 @@ def test_stillness_covers_every_frame_in_the_window_not_just_the_ends():
     steady = js[js.index("function onSteady(") :]
     steady = steady[: steady.index("function hintFace(")]
     assert "stillWorstDiff(" in steady, "停稳判定必须真的用上它"
-    assert "worst < STILL_DIFF" in steady, "判定必须落在阈值上"
+    assert re.search(r"worst < (bar|STILL_DIFF)", steady), "判定必须落在阈值上"
 
 def test_stillness_only_counts_the_face_not_the_background():
     """人站住了，但背景里有人走动 / 树影在晃 —— 判定不能因此说「画面还在动」。
@@ -374,6 +374,27 @@ def test_first_angle_grace_starts_when_the_camera_actually_delivers_frames():
     analyze = analyze[: analyze.index("function paintProgress(")]
     assert "state.startedAt" in analyze, "必须记住「摄像头真的出画了」的那一刻"
     assert "GRACE_FIRST_MS" in analyze, "第一张的准备时间要从那一刻重新起算"
+
+
+def test_settle_waits_relax_after_a_while_so_background_motion_cannot_stall_a_shot():
+    """背景里走过去一个人，不能让这一张一直等下去。
+
+    2026-09-16 线上实测（背景有人走动 + 曝光漂移）：四步里三步 0.6 秒拍到，
+    有一步拖到 1.7 秒 —— 就是那个人正好从用户身后穿过去的时刻（还有摄像头编码噪声）。
+    姿势早就到位了，再硬等只会让人觉得「又卡了」，所以等 0.9 秒后把停稳门槛放宽一档。
+    放宽后的值必须仍然远高于噪声底（实测 0.03~0.10）、远低于「正在转头」（0.3 以上）。
+    """
+    js = FACE_JS.read_text(encoding="utf-8")
+    strict = float(re.search(r"var STILL_DIFF = ([0-9.]+)", js).group(1))
+    relaxed = re.search(r"var STILL_DIFF_RELAX = ([0-9.]+)", js)
+    assert relaxed, "必须有「等久了放宽」的那一档"
+    assert strict < float(relaxed.group(1)) <= 0.2, "放宽后的门槛要界在噪声与真动作之间"
+    assert re.search(r"var SETTLE_RELAX_MS = \d+", js), "必须有「等多久才放宽」的常量"
+    steady = js[js.index("function onSteady(") :]
+    steady = steady[: steady.index("function hintFace(")]
+    assert "SETTLE_RELAX_MS" in steady and "STILL_DIFF_RELAX" in steady, "放宽必须真的参与停稳判定"
+    assert "state.changedSince" in steady, "「耐心」要从「姿势已经变了」那一刻开始算"
+    assert re.search(r"worst < bar", steady), "判定要落在动态门槛上，不能再写死"
 
 
 # ---------------------------------------------------------------------------
