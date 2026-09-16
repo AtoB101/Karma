@@ -205,3 +205,63 @@ def test_submit_button_says_what_is_missing_instead_of_silently_greying_out():
     assert "idv-need" in body, "原因必须写到页面上（#idv-need）"
     assert "还差" in body, "文案必须直说还差哪几项"
     assert 'id="idv-need"' in _page_html(), "页面上必须有 #idv-need 这个位置"
+
+
+def test_capture_is_automatic_instead_of_button_driven():
+    """用户明确要求「像 Face ID 那样自动采集」：照提示转头，系统自己拍。
+
+    这条门禁挡住「又退回成按快门」—— 主循环必须自己调用 shoot()，
+    而且正常流程里不许出现「拍下这一张」这种要用户按的按钮。
+    """
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert re.search(r"function onSteady\(", js), "必须有自动判定"
+    steady = js[js.index("function onSteady(") :]
+    steady = steady[: steady.index("function hintFace(")]
+    assert "shoot()" in steady, "自动判定通过后必须自己拍，不能等用户按键"
+
+    live = js[js.index("function renderLiveActions()") :]
+    live = live[: live.index("function switchCamera(")]
+    assert "stuckShown" in live, "只有「一直没进展」的兜底情况才给按钮"
+    assert "拍下这一张" not in js, "自动流程里不许再有「拍下这一张」这种手动快门"
+
+
+def test_capture_waits_until_the_user_really_holds_still():
+    """慢慢转头不能被当成「停住了」，否则拍出来是一张糊的。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert "function frameAgo(" in js, "必须拿「STILL_MS 之前那一帧」比，而不是相邻两帧"
+    assert "frameAgo(STILL_MS)" in js, "判定停稳要用那个时间窗"
+    assert re.search(r"var STILL_MS = \d+", js), "停稳窗口必须是个明确的常量"
+    assert re.search(r"var ANGLE_MIN_DIFF = ", js), "「算不算一个新角度」必须有阈值"
+
+
+def test_capture_tells_the_user_what_to_do_at_every_step():
+    """大字引导是这套自动流程唯一的输入方式：每一步都得说清做什么动作。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert "function renderGuide(" in js, "必须有引导渲染"
+    for text in ("请正对镜头", "请向左转头", "请向右转头", "请把头抬高一点", "请把头低一点"):
+        assert text in js, "缺引导文案：%s" % text
+    assert "kfc-guide" in js, "引导得真的画到页面上"
+
+
+def test_capture_gives_the_user_time_to_get_ready_before_shooting():
+    """别让人还没站好就被拍下第一张。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert re.search(r"var GRACE_FIRST_MS = \d+", js), "第一步要有宽限时间"
+    assert re.search(r"var GRACE_STEP_MS = \d+", js), "后续角度也要有一点准备时间"
+    assert "state.readyAt" in js, "宽限时间必须真的参与判定"
+
+
+def test_capture_has_a_way_out_when_nothing_happens():
+    """自动判定万一卡住，用户不能被困死在里面。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert re.search(r"var AUTO_STUCK_MS = \d+", js), "必须有「多久没进展」的阈值"
+    live = js[js.index("function renderLiveActions()") :]
+    live = live[: live.index("function switchCamera(")]
+    assert "手动拍这一张" in live, "卡住时要给得出手动兜底"
+    assert "本角度改用照片" in live, "卡住时也要给得出照片兜底"
+
+    # 看门狗必须挂在主循环上：画面一直在动、或者摄像头压根没出帧，
+    # 这两种情况下 onSteady 根本判不到「停稳」，只放在那儿等于没有兜底。
+    tick = js[js.index("function tick()") :]
+    tick = tick[: tick.index("function pushHistory(")]
+    assert "AUTO_STUCK_MS" in tick, "「多久没进展」的看门狗必须挂主循环，不能只挂在判定分支里"
