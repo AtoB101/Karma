@@ -946,6 +946,10 @@ class IdentityVerificationModel(Base):
     package_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
     encryption:   Mapped[dict]       = mapped_column(JSON, default=dict)
     extracted:    Mapped[dict]       = mapped_column(JSON, default=dict)
+    # 第三方实名 / 活体服务商的核验状态（会话号、事件审计）。
+    # 只放脱敏的白名单字段：服务商那边自己发号（CertifyId / BizToken / inquiry id）、
+    # 结论、原因码；**不放**服务商回传的报文原文，也不放姓名 / 证件号。
+    provider:     Mapped[dict]       = mapped_column(JSON, default=dict)
     reviewer_identity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     review_note:  Mapped[str | None] = mapped_column(String(2000), nullable=True)
     verified_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

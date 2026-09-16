@@ -558,7 +558,24 @@
             </div>
           </div>
 
-          <!-- ② 个人助理认证：证件 + 刷脸 + 联系方式，一条直线做完。 -->
+          <!-- ② 官方实名核验（第三方服务商）：接了服务商就走这条；没接就走下面的本地采集 + 复核台。 -->
+          <div class="card section" id="idv-provider">
+            <div class="section-header">
+              <div>
+                <h3>官方实名核验 · 服务商</h3>
+                <p id="idv-provider-note">正在查询是否已接入实名 / 活体服务…</p>
+              </div>
+              <span class="idv-badge" id="idv-provider-badge">查询中</span>
+            </div>
+            <p class="idv-hint" id="idv-provider-hint"></p>
+            <div class="idv-row">
+              <button type="button" class="btn primary" id="idv-provider-open" disabled>开始官方核验</button>
+              <button type="button" class="btn" id="idv-provider-sync" hidden>我已做完，查结果</button>
+              <span class="api-status" id="idv-provider-status">—</span>
+            </div>
+          </div>
+
+          <!-- ③ 个人助理认证：证件 + 刷脸 + 联系方式，一条直线做完。 -->
           <div class="card section" id="idv-verify">
             <div class="section-header">
               <div>
@@ -1199,6 +1216,7 @@
 <script src="../../scripts/cyber-master-page.js"></script>
     <script src="../../scripts/cyber-face-capture.js"></script>
     <script src="../../scripts/cyber-identity-verify.js"></script>
+    <script src="../../scripts/cyber-identity-provider.js"></script>
     <script src="../../scripts/console-sync.js"></script>
     <script src="../../scripts/cyber-payments.js"></script>
     <script src="../../scripts/cyber-orders.js"></script>
