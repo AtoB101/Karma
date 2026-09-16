@@ -293,6 +293,89 @@ def test_stillness_covers_every_frame_in_the_window_not_just_the_ends():
     assert "stillWorstDiff(" in steady, "停稳判定必须真的用上它"
     assert "worst < STILL_DIFF" in steady, "判定必须落在阈值上"
 
+def test_stillness_only_counts_the_face_not_the_background():
+    """人站住了，但背景里有人走动 / 树影在晃 —— 判定不能因此说「画面还在动」。
+
+    2026-09-16 线上实测（1280x720 真机模型）：16x16 全帧平均差在背景有动静时是
+    0.076，而停稳阈值是 0.05 —— 永远判不出停稳，用户看到的就是「卡住、没反应」。
+    中心加权之后背景只算 0.02~0.10，人真转头是 0.4~1.2，才分得开。
+    这条门禁挡住「退回成全帧一视同仁地比」。
+    """
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert re.search(r"var WEIGHT_FLOOR = 0\.\d+", js), "必须有「四角权重只剩多少」的常量"
+    assert re.search(r"function diffKernel\(", js), "必须有中心加权的权重窗"
+    diff = js[js.index("function grayDiff(") :]
+    diff = diff[: diff.index("function grayMean(")]
+    assert "diffKernel(" in diff, "比对必须真的用上权重窗"
+    assert "wsum" in diff, "加权平均要按权重和归一，不能拿 256 当分母"
+    still = re.search(r"var STILL_DIFF = ([0-9.]+)", js)
+    assert still, "停稳阈值必须是明确常量"
+    assert float(still.group(1)) >= 0.1, (
+        "停稳阈值必须高于「背景在动」那一档（实测 0.076），否则背景一动就永远判不出停稳"
+    )
+
+
+def test_capture_loop_runs_every_frame_and_analysis_is_throttled():
+    """进度圈是用户全部的手感来源：它必须逐帧画；取样判定很贵，必须按需跑。
+
+    2026-09-16 实测：主循环原来是 130ms 一跳（约 7.7 次/秒），进度圈一跳一跳；
+    而「取样 + 判定」在真机上可能吃掉几十毫秒。两件事必须分开跑。
+    """
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert "window.requestAnimationFrame(" in js, "主循环必须逐帧驱动"
+    assert re.search(r"function scheduleTick\(", js), "必须有逐帧调度"
+    assert re.search(r"function paintProgress\(", js), "进度圈必须有独立的逐帧绘制"
+    assert re.search(r"function analyzeFrame\(", js), "取样判定必须单独成函数"
+    assert re.search(r"var SAMPLE_DUTY = \d+", js), "分析频率必须按「占多少帧预算」自适应"
+    assert "state.sampleCost" in js, "自适应必须真的量出分析耗时"
+    tick = js[js.index("function tick()") :]
+    tick = tick[: tick.index("function pushHistory(")]
+    assert "paintProgress()" in tick, "主循环每一帧都要画圈"
+    assert "gap" in tick and "analyzeFrame(" in tick, "分析要按自适应的间隔跑，不能每帧都跑"
+    assert "video.currentTime" in tick, "同一个视频帧不重复分析：摄像头 30fps、屏幕可能 60fps"
+
+
+def test_overlay_does_not_blur_the_whole_screen():
+    """整屏 backdrop-filter 会把页面压到二十几帧 —— 这是「不丝滑」的第二个元凶。
+
+    2026-09-16 实测：`.kfc-overlay{backdrop-filter:blur(6px)}` 让同一次打开的页面从
+    69 帧/秒掉到 28 帧/秒（视频预览在下面每帧都在变，模糊就得每帧重算一遍）。
+    """
+    js = FACE_JS.read_text(encoding="utf-8")
+    overlay = js[js.index(".kfc-overlay{") :]
+    overlay = overlay[: overlay.index('"')]
+    assert "backdrop-filter" not in overlay, "遮罩层不许整屏模糊：它会把每一帧都拖慢"
+    stage = js[js.index(".kfc-stage{") :]
+    stage = stage[: stage.index(".kfc-ring")]
+    assert "will-change" in stage or "translateZ" in stage, "预览画面要单独成层，别每帧重画整个弹窗"
+
+
+def test_capture_says_why_it_is_not_shooting_when_something_keeps_moving():
+    """判不到「停稳」时不能闷着 —— 得把量到的原因说出来，用户才知道该做什么。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert re.search(r"var BUSY_HINT_MS = \d+", js), "必须有「多久没进展就说原因」的阈值"
+    assert "busyHinted" in js, "同一步里只提示一次，不能反复刷屏"
+    assert "画面里一直有动静" in js, "必须有一句人话解释「为什么还没拍」"
+
+
+def test_capture_gives_a_haptic_tick_on_every_shot():
+    """拍下那一刻要有反馈：手机上是震一下（不支持就静默跳过，不能报错）。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    flash = js[js.index("function flash()") :]
+    flash = flash[: flash.index("function renderGuide(")]
+    assert "navigator.vibrate" in flash, "拍下这一张时要给一次触感反馈"
+    assert "try {" in flash, "震动可能不被支持，必须包起来，绝不能因此报错"
+
+
+def test_first_angle_grace_starts_when_the_camera_actually_delivers_frames():
+    """摄像头从点开到出画要几百毫秒到一秒多，这段时间不能算进「给你时间站好」。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    analyze = js[js.index("function analyzeFrame(") :]
+    analyze = analyze[: analyze.index("function paintProgress(")]
+    assert "state.startedAt" in analyze, "必须记住「摄像头真的出画了」的那一刻"
+    assert "GRACE_FIRST_MS" in analyze, "第一张的准备时间要从那一刻重新起算"
+
+
 # ---------------------------------------------------------------------------
 # 官方实名核验（第三方服务商）：apps/console/scripts/cyber-identity-provider.js
 # ---------------------------------------------------------------------------

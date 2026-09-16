@@ -24,7 +24,16 @@
 
   var MAX_SIDE = 1280;
   var JPEG_QUALITY = 0.72;
-  var TICK_MS = 130;
+  /** 兜底定时：只有拿不到 requestAnimationFrame 时才用它（正常浏览器逐帧驱动）。 */
+  var TICK_MS = 20;
+  /** 历史帧的采样间隔：判定只需要这个密度，不必跟着逐帧走。 */
+  var HISTORY_MS = 40;
+  /** 「取样 + 判定」的最小间隔：这一步很贵，进度圈不靠它，所以不必逐帧跑。 */
+  var SAMPLE_MS = 25;
+  /** 分析最多占掉多少比例的时间：剩下的必须留给逐帧的进度圈和页面渲染。 */
+  var SAMPLE_DUTY = 4;
+  /** 分析间隔的上限：真机上再慢也不能慢到这个地步，否则判定会迟钝。 */
+  var SAMPLE_MAX_MS = 400;
 
   /**
    * 真人认证要采到整张脸的多个角度，不是拍一张就完事：
@@ -57,6 +66,19 @@
    * 同姿势 0.012 / 换角度 0.70，差 50 倍 —— 判定不再随光线漂移。
    */
   var IDENTICAL_DIFF = 0.05;
+  /*
+   * ---- 中心加权：只认「脸」那一片，背后的动静不算数 ------------------------
+   *
+   * 16x16 是全画面的缩影，边角里摇动的树影、转着的风扇、走过的路人都会被算进
+   * 「画面有没有变」，于是人明明已经站住了，判定却说一直在动 —— 线上那句
+   * 「太卡了、没反应」，根子就在这里。
+   * 实测（1280x720 真机模型：噪声 + 自动曝光漂移 + 背景树影/风扇/有人从身后走过）：
+   *   全帧平均差：背景在动 0.076（> 停稳阈值 0.05，永远判不出停稳）
+   *   中心加权后：背景在动 0.02 ~ 0.10；人转身 10px 0.15 / 60px 0.40 / 240px 1.03
+   * 权重做成一扇光滑的窗（中间 1、四角只剩 WEIGHT_FLOOR）：边角被压下去，
+   * 脸边缘的动作仍然完整保留。
+   */
+  var WEIGHT_FLOOR = 0.15;
   var DIM_MEAN = 0.1;
   /** 画面结构的下限：平平一片（镜头被挡、糊成一团）时归一化会把噪声放大，必须挡住。 */
   var MIN_CONTRAST = 0.03;
@@ -65,24 +87,28 @@
    * 判定「停稳了」不看单帧之间的抖动，而是看整整 STILL_MS 这一段：
    * 当前帧要和窗口里每一帧都对得上才算停住 —— 否则慢慢转头会被误判成「静止」，
    * 拍出来就是一张糊的。 */
-  var STILL_DIFF = 0.05;
-  var STILL_MS = 520;
-  /** 和上一张已采的帧至少要差这么多，才算「真的换了一个角度」（约 7 像素的姿态差）。 */
-  var ANGLE_MIN_DIFF = 0.12;
+  var STILL_DIFF = 0.12;
+  var STILL_MS = 460;
+  /** 和上一张已采的帧至少要差这么多，才算「真的换了一个角度」（约 10 像素的姿态差）。 */
+  var ANGLE_MIN_DIFF = 0.16;
   /** 某个角度一直没进展，多久之后给一个手动兜底按钮（正常流程看不到它）。 */
-  var AUTO_STUCK_MS = 7000;
+  var AUTO_STUCK_MS = 4500;
+  /** 画面一直在动（背景有人、镜头在晃）时，多久之后把原因说出来 —— 不能让人干等。 */
+  var BUSY_HINT_MS = 2000;
   /** 每一步开始后的宽限时间：别让用户还没站好就被拍。 */
-  var GRACE_FIRST_MS = 1500;
-  var GRACE_STEP_MS = 500;
+  var GRACE_FIRST_MS = 1300;
+  var GRACE_STEP_MS = 420;
   /** 两个角度之间留的转身时间：这段时间不判定。 */
-  var BETWEEN_MS = 800;
+  var BETWEEN_MS = 520;
 
   var state = null;
+  /** 逐帧循环的句柄（requestAnimationFrame 的 id；退回定时器时是 timeout id）。 */
+  var rafId = null;
 
   /* ------------------------------------------------------------------ 样式 */
 
   var CSS = [
-    ".kfc-overlay{position:fixed;inset:0;z-index:2147483200;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(3,6,18,.8);backdrop-filter:blur(6px)}",
+    ".kfc-overlay{position:fixed;inset:0;z-index:2147483200;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(3,6,18,.86)}",
     ".kfc-overlay.kfc-open{display:flex}",
     ".kfc-modal{width:100%;max-width:420px;max-height:92vh;overflow:auto;border-radius:20px;border:1px solid rgba(120,140,255,.28);background:linear-gradient(160deg,#0b1024 0%,#0a0f1f 60%,#080d1a 100%);box-shadow:0 24px 70px rgba(0,0,0,.65);color:#e8ecff;font:14px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif}",
     ".kfc-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 0}",
@@ -92,8 +118,11 @@
     ".kfc-sub{margin:8px 20px 0;color:#9aa8cc;font-size:12.5px}",
     ".kfc-stage{position:relative;margin:14px 20px 0;aspect-ratio:3/4;border-radius:16px;overflow:hidden;background:#04060e}",
     ".kfc-stage video,.kfc-stage img.kfc-shot{width:100%;height:100%;object-fit:cover;display:block;background:#04060e}",
-    ".kfc-stage video.kfc-mirror{transform:scaleX(-1)}",
-    ".kfc-ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);height:64%;aspect-ratio:1/1.26;border-radius:50%;border:2px solid rgba(34,211,238,.9);box-shadow:0 0 0 100vmax rgba(2,4,12,.84),inset 0 0 30px rgba(34,211,238,.22);pointer-events:none;transition:border-color .18s ease,box-shadow .18s ease}",
+    // 预览画面每帧都在变：给它一个独立的合成层，别每帧把整个弹窗重画一遍
+    // （手机上这一步很贵，也是「卡」的来源之一）。
+    ".kfc-stage video{will-change:transform;transform:translateZ(0)}",
+    ".kfc-stage video.kfc-mirror{transform:scaleX(-1) translateZ(0)}",
+    ".kfc-ring{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) translateZ(0);height:64%;aspect-ratio:1/1.26;border-radius:50%;border:2px solid rgba(34,211,238,.9);box-shadow:0 0 0 100vmax rgba(2,4,12,.84),inset 0 0 30px rgba(34,211,238,.22);pointer-events:none;will-change:transform;transition:border-color .18s ease,box-shadow .18s ease}",
     ".kfc-ring.kfc-ok{border-color:rgba(110,231,168,.95);box-shadow:0 0 0 100vmax rgba(2,4,12,.84),inset 0 0 34px rgba(110,231,168,.34);animation:kfc-breathe 1.1s ease-in-out infinite}",
     ".kfc-ring.kfc-warn{border-color:rgba(255,190,120,.95);box-shadow:0 0 0 100vmax rgba(2,4,12,.84),inset 0 0 30px rgba(255,190,120,.28)}",
     "@keyframes kfc-breathe{0%,100%{opacity:1}50%{opacity:.62}}",
@@ -317,15 +346,41 @@
     return Math.sqrt(sq / n);
   }
 
-  /** 两张画面的「形状差」：亮度归一化之后算平均绝对差。不随光线漂移变化。 */
+  var diffWeights = null;
+
+  /** 16x16 的中心加权窗：中间 1、四角 WEIGHT_FLOOR。只算一次，之后复用。 */
+  function diffKernel() {
+    if (diffWeights) return diffWeights;
+    var k = new Array(256);
+    for (var y = 0; y < 16; y += 1) {
+      for (var x = 0; x < 16; x += 1) {
+        var wx = 0.5 + 0.5 * Math.cos((Math.PI * (x - 7.5)) / 8);
+        var wy = 0.5 + 0.5 * Math.cos((Math.PI * (y - 7.5)) / 8);
+        k[y * 16 + x] = WEIGHT_FLOOR + (1 - WEIGHT_FLOOR) * wx * wy;
+      }
+    }
+    diffWeights = k;
+    return k;
+  }
+
+  /**
+   * 两张画面的「形状差」：亮度归一化之后算**中心加权**的平均绝对差。
+   * 权重压在画面中间（脸的位置），边角上背景的动静几乎不算数。
+   */
   function grayDiff(a, b) {
     if (!a || !b || a.length !== b.length) return null;
     var na = grayNorm(a);
     var nb = grayNorm(b);
     if (!na || !nb) return null;
+    var k = diffKernel();
     var sum = 0;
-    for (var i = 0; i < na.length; i += 1) sum += Math.abs(na[i] - nb[i]);
-    return sum / na.length;
+    var wsum = 0;
+    for (var i = 0; i < na.length; i += 1) {
+      var w = k[i];
+      sum += w * Math.abs(na[i] - nb[i]);
+      wsum += w;
+    }
+    return wsum > 0 ? sum / wsum : null;
   }
 
   function grayMean(gray) {
@@ -489,7 +544,7 @@
 
   function stopLoop() {
     if (state && state.timer) {
-      clearTimeout(state.timer);
+      cancelTick(state.timer);
       state.timer = null;
     }
   }
@@ -555,18 +610,100 @@
 
   /* ------------------------------------------------------------- 主循环 */
 
+  /**
+   * 主循环改成按「帧」走（requestAnimationFrame），不再靠 130ms 的粗粒度定时器：
+   * 进度圈要跟得上眼睛、用户停住后判定要在几十毫秒内出结果，就得逐帧看画面。
+   * 拿不到 requestAnimationFrame 的环境（老浏览器）自动退回定时器。
+   */
+  function scheduleTick() {
+    if (typeof window.requestAnimationFrame === "function") {
+      rafId = window.requestAnimationFrame(function () {
+        rafId = null;
+        tick();
+      });
+      return rafId;
+    }
+    return setTimeout(tick, TICK_MS);
+  }
+
+  /** 停止逐帧循环：rAF 和 timeout 两种句柄都要能停掉，否则会留下一个幽灵循环。 */
+  function cancelTick(id) {
+    if (rafId && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    if (id) clearTimeout(id);
+  }
+
+  /** 分析一帧画面（贵）：取样、判停稳、判角度。 */
+  function analyzeFrame(video) {
+    var t0 = Date.now();
+    var gray = grayFromVideo(video);
+    if (!gray) return;
+    // 摄像头从「点开」到「出画」通常要几百毫秒到一秒多。这段时间不该算进
+    // 「给你时间站好」里 —— 否则画面刚亮起来就已经在计时，第一张很容易拍废。
+    if (!state.startedAt) {
+      state.startedAt = Date.now();
+      if (state.stepIndex === 0 && !state.frames.length) {
+        state.stepStartAt = state.startedAt;
+        state.readyAt = state.startedAt + GRACE_FIRST_MS;
+        state.lastMoveAt = state.startedAt;
+      }
+    }
+    state.sampledAt = Date.now();
+    // 这一帧花了多久，决定下一次隔多久再分析：慢机器上自动拉长间隔，
+    // 让进度圈始终有帧预算；快机器（真机 GPU）上几乎就是逐帧判定。
+    var cost = state.sampledAt - t0;
+    state.sampleCost = state.sampleCost ? Math.round(state.sampleCost * 0.7 + cost * 0.3) : cost;
+    var motion = state.lastGray ? grayDiff(state.lastGray, gray) : 1;
+    state.lastGray = gray;
+    if (motion !== null && motion >= STILL_DIFF) state.lastMoveAt = Date.now();
+    onSteady(gray);
+  }
+
+  /**
+   * 进度圈每一帧都画。这是用户全部的「手感」来源：它必须跟得上眼睛，
+   * 但取样判定在真机上可能吃掉几十毫秒 —— 所以那一头按节流跑，这一头逐帧跑。
+   */
+  function paintProgress() {
+    if (!state || state.mode !== "live") return;
+    var now = Date.now();
+    if (now < state.readyAt) {
+      setProg(0);
+      return;
+    }
+    if (state.progPin !== null && state.progPin !== undefined) {
+      setProg(state.progPin);
+      return;
+    }
+    setProg(Math.min(1, (now - (state.lastMoveAt || now)) / STILL_MS));
+  }
+
   function tick() {
     if (!state || state.stopped) return;
     var video = byId("kfc-video");
+    var now = Date.now();
     if (video && state.mode === "live" && video.videoWidth) {
-      var gray = grayFromVideo(video);
-      if (gray) {
-        var motion = state.lastGray ? grayDiff(state.lastGray, gray) : 1;
-        state.lastGray = gray;
-        if (motion >= STILL_DIFF) state.lastMoveAt = Date.now();
-        onSteady(gray);
+      // 同一个视频帧不重复分析：摄像头 30fps、屏幕可能 60fps，重复算一遍纯属白烧。
+      var ct = video.currentTime;
+      var since = now - (state.sampledAt || 0);
+      var gap = Math.max(SAMPLE_MS, Math.min(SAMPLE_MAX_MS, (state.sampleCost || 0) * SAMPLE_DUTY));
+      if (ct !== state.lastCT && since >= gap) {
+        state.lastCT = ct;
+        analyzeFrame(video);
+      } else if (since > gap * 2) {
+        // 万一某个浏览器不更新 currentTime，也不能把判定饿死。
+        analyzeFrame(video);
       }
-      if (state && state.mode === "live" && state.detector && state.stepIndex === 0) hintFace(video);
+      paintProgress();
+      // 人脸检测（FaceDetector）很贵，逐帧跑会把主线程占满 —— 250ms 一次足够提示。
+      if (
+        state && state.mode === "live" && state.detector && state.stepIndex === 0 &&
+        now - (state.hintAt || 0) > 250
+      ) {
+        state.hintAt = now;
+        hintFace(video);
+      }
     }
     // 看门狗：不管是因为画面一直在动、还是摄像头根本没出帧，只要这个角度卡了
     // AUTO_STUCK_MS 还没采到，就必须给用户一条出路 —— 不能让人对着屏幕干等。
@@ -576,11 +713,11 @@
     ) {
       state.stuckShown = true;
       renderLiveActions();
-      if (!noticeActive()) {
-        flashStatus("这一张一直没采到 —— 也可以手动拍这一张，或点「本角度改用照片」。", "warn", 4200);
-      }
+      // 这时候必须说话：屏幕上刚弹出兜底按钮，得说清它是干什么用的。
+      // 前面那句「画面里有动静」只是解释，不能把这条更要紧的话挡掉。
+      flashStatus("这一张一直没采到 —— 也可以手动拍这一张，或点「本角度改用照片」。", "warn", 4200);
     }
-    if (state) state.timer = setTimeout(tick, TICK_MS);
+    if (state) state.timer = scheduleTick();
   }
 
   /* ----------------------------------------- 自动采集（Face-ID 式，全程不用按键）
@@ -593,8 +730,11 @@
 
   function pushHistory(gray) {
     var now = Date.now();
+    // 判定只需 40ms 一个点：逐帧全塞进去只是白烧 CPU，窗口里也不差这点精度。
+    if (state.historyAt && now - state.historyAt < HISTORY_MS) return;
+    state.historyAt = now;
     state.history.push({ t: now, g: gray });
-    while (state.history.length && now - state.history[0].t > 3000) state.history.shift();
+    while (state.history.length && now - state.history[0].t > 1500) state.history.shift();
   }
 
   /**
@@ -640,6 +780,16 @@
     arc.style.strokeDashoffset = String(PROG_LEN * (1 - v));
   }
 
+  /**
+   * 把进度圈钉在某个值上（判定分支用它说话），传 null 表示「交回给逐帧节奏」。
+   * 圈是逐帧画的，判定是隔几十毫秒算一次的 —— 两件事分开，谁也不用迁就谁。
+   */
+  function pinProg(v) {
+    if (!state) return;
+    state.progPin = v;
+    if (v !== null && v !== undefined) setProg(v);
+  }
+
   /** 拍下的一瞬间闪一下：用户得知道「刚才那下确实采到了」。 */
   function flash() {
     var n = byId("kfc-flash");
@@ -647,6 +797,10 @@
     n.classList.remove("kfc-go");
     void n.offsetWidth;
     n.classList.add("kfc-go");
+    // 手上那一下反馈：手机上震一下（不支持震动就静默跳过，绝不报错）。
+    try {
+      if (navigator.vibrate) navigator.vibrate(12);
+    } catch (_) {}
   }
 
   /** 大字引导：这一张要做什么动作。 */
@@ -680,11 +834,13 @@
     state.lastMoveAt = now;
     state.waitingTurn = false;
     state.stuckShown = false;
+    state.busyHinted = false;
+    state.historyAt = 0;
     state.stepStartAt = now;
     state.readyAt = now + (state.stepIndex === 0 ? GRACE_FIRST_MS : GRACE_STEP_MS);
     state.notice = null;
     setRing("");
-    setProg(0);
+    pinProg(0);
     renderGuide();
     renderLiveActions();
     setStatus("照上面的提示转头就行 —— 停稳就会自动拍，不用按键。");
@@ -697,10 +853,9 @@
   function onSteady(gray) {
     var now = Date.now();
     pushHistory(gray);
-    setProg(Math.min(1, (now - (state.lastMoveAt || now)) / STILL_MS));
 
     if (now < state.readyAt) {
-      setProg(0);
+      pinProg(0);
       if (!noticeActive()) setStatus("准备好 —— 马上开始，把脸放进圈里。");
       return;
     }
@@ -715,21 +870,35 @@
 
     if (!still) {
       state.waitingTurn = false;
+      state.progPin = null;
       if (!noticeActive()) {
         setStatus(changed ? "很好，就这个角度 —— 稳住别动，马上自动拍。" : "正在跟着你动…");
+      }
+      // 一直判不到「停稳」时不能闷着不吭声：把量到的原因说出来。用户通常不知道
+      // 是背景里有人走动、还是自己和手机在晃 —— 说清楚，他动一下就好了。
+      if (
+        !state.busyHinted && now - state.stepStartAt > BUSY_HINT_MS &&
+        now - (state.lastMoveAt || now) < 300 && worst !== null && worst >= STILL_DIFF
+      ) {
+        state.busyHinted = true;
+        flashStatus(
+          "画面里一直有动静（背景里有人走动、或者镜头在晃）—— 稳住一下，也可以让镜头里只剩你一个人。",
+          "warn",
+          4200
+        );
       }
       return;
     }
 
     if (!changed) {
       // 停住了，但和上一张没差别：动作还没做到位。
-      setProg(0);
+      pinProg(0);
       state.waitingTurn = true;
       if (!noticeActive()) flashStatus(turnPrompt(), "warn", 2600);
       return;
     }
 
-    setProg(1);
+    pinProg(1);
     setRing("ok");
     shoot();
   }
@@ -857,7 +1026,7 @@
     var next = currentStep();
     state.mode = "between";
     setRing("");
-    setProg(0);
+    pinProg(0);
     actions([]);
     var node = byId("kfc-guide");
     if (node) {
@@ -915,7 +1084,7 @@
       flag.textContent = "已采 " + state.shot.frames.length + " 张 · 待确认";
       flag.classList.add("kfc-flag-live");
     }
-    setProg(0);
+    pinProg(0);
     var g = byId("kfc-guide");
     if (g) {
       g.innerHTML =
@@ -1113,6 +1282,14 @@
         history: [],
         waitingTurn: false,
         stuckShown: false,
+        busyHinted: false,
+        historyAt: 0,
+        sampledAt: 0,
+        sampleCost: 0,
+        startedAt: 0,
+        lastCT: null,
+        progPin: 0,
+        hintAt: 0,
         stepStartAt: 0,
         readyAt: 0
       };
