@@ -4,7 +4,7 @@
 <script>document.documentElement.classList.add('js');</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Karma Network — 面向 AI Agent 的可验证执行与结算层</title>
+<title>Karma Network — Verifiable Execution &amp; Settlement Layer for AI Agents</title>
 <meta name="description" content="Karma is the trust layer for agent commerce. Funds stay locked in the user's own wallet; what releases them is a signed execution trail, independently verifiable evidence, and collateralised arbitration. Payment rails move money; Karma proves the work was done." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -433,21 +433,21 @@ footer {
 }
 
 /* =======================================================================
-   2026-09-17 版面修订：定位改口径 + 锚点偏移 + 无 JS 兜底 + 语言切换 + 新增组件
+   2026-09-17 layout revision: repositioning + anchor offset + no-JS fallback + language switch + new components
    ======================================================================= */
 
-/* 锚点跳转不再被固定导航压住 */
+/* Anchor targets are no longer covered by the fixed nav */
 html { scroll-padding-top: 92px; }
 section[id], header[id] { scroll-margin-top: 92px; }
 
-/* 淡入只在 JS 可用时生效：无 JS / 爬虫 / 整页截图不会再看到大片空白 */
+/* Fade-in only applies when JS is available: no blank page for crawlers, no-JS or full-page capture */
 html:not(.js) .reveal { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   html.js .reveal { opacity: 1 !important; transform: none !important; }
   html { scroll-behavior: auto; }
 }
 
-/* 语言切换 */
+/* Language switch */
 .lang-toggle {
   background: transparent;
   border: 1px solid var(--line);
@@ -463,11 +463,11 @@ html:not(.js) .reveal { opacity: 1; transform: none; }
 .lang-toggle:hover { color: #fff; border-color: rgba(34,211,238,.4); }
 .nav-right { display: flex; align-items: center; gap: 12px; }
 
-/* 身份层级 / 信任链卡片：三列 */
+/* Identity tiers / trust chain cards: three columns */
 .cards.three { grid-template-columns: repeat(3, 1fr); }
 @media (max-width: 980px) { .cards.three { grid-template-columns: 1fr; } }
 
-/* 身份卡示意 */
+/* Identity card mock */
 .idcard {
   margin-top: 26px;
   border: 1px solid var(--line);
@@ -485,11 +485,11 @@ html:not(.js) .reveal { opacity: 1; transform: none; }
   padding: 5px 10px; border-radius: 999px;
 }
 
-/* 八步链路 */
+/* Eight-step track */
 .flow-track.eight { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 980px) { .flow-track.eight { grid-template-columns: repeat(2, 1fr); } }
 
-/* 状态 / 路线图三列 */
+/* Status / roadmap: three columns */
 .status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 46px; }
 @media (max-width: 980px) { .status-grid { grid-template-columns: 1fr; } }
 .status-col {
@@ -514,19 +514,19 @@ html:not(.js) .reveal { opacity: 1; transform: none; }
   content: "›"; position: absolute; left: 0; color: var(--violet); font-weight: 700;
 }
 
-/* 门禁数字 */
+/* Production gate count */
 .gates {
   margin-top: 34px; font-family: var(--mono); font-size: .84rem; color: var(--muted);
   border-left: 2px solid rgba(34,211,238,.45); padding-left: 16px; line-height: 1.9;
 }
 .gates b { color: var(--cyan); }
-/* Hero 细节修订 */
+/* Hero details */
 .hero-badge { justify-self: start; }
 .hero-grid > .terminal { margin-top: 10px; }
 .hero h1 { font-size: clamp(1.7rem, 7.2vw, 4.1rem); }
 @media (max-width: 620px) { .hero h1 br { display: none; } }
 
-/* 移动端：导航右侧按钮更紧凑 */
+/* Mobile: tighter nav buttons */
 @media (max-width: 520px) {
   .nav-right { gap: 8px; }
   .lang-toggle { padding: 6px 10px; font-size: 0.72rem; }
@@ -537,7 +537,7 @@ html:not(.js) .reveal { opacity: 1; transform: none; }
   .status-grid { margin-top: 32px; }
 }
 
-/* 窄屏导航：图标化 logo + 不折行按钮 */
+/* Narrow screens: mark-only logo + non-wrapping buttons */
 @media (max-width: 560px) {
   .logo > span:last-child { display: none; }
   .logo-mark { width: 34px; height: 34px; }
@@ -1063,9 +1063,13 @@ var I18N = {
   "foot.console": "Console",
   "foot.docs": "Docs",
   "foot.github": "GitHub",
-  "foot.status": "Status"
+  "foot.status": "Status",
+  "meta.title": "Karma Network — Verifiable Execution &amp; Settlement Layer for AI Agents",
+  "meta.desc": "Karma is the trust layer for agent commerce. Funds stay locked in the user's own wallet; what releases them is a signed execution trail, independently verifiable evidence, and collateralised arbitration. Payment rails move money; Karma proves the work was done."
  },
  "zh": {
+  "meta.title": "Karma Network — 面向 AI Agent 的可验证执行与结算层",
+  "meta.desc": "Karma 是 Agent 商业的信任层。资金始终锁定在用户自己的钱包里，能放款的是签名的执行轨迹、可独立验证的证据包，以及抵押仲裁机制。支付通道只负责转钱，Karma 负责证明事情真的做完了。",
   "nav.about": "关于",
   "nav.identity": "身份与接入",
   "nav.trust": "为何可信",
@@ -1209,6 +1213,9 @@ var I18N = {
       if (v != null) el.innerHTML = v;
     }
     document.documentElement.setAttribute('lang', lang === 'zh' ? 'zh-CN' : 'en');
+    if (dict['meta.title']) document.title = dict['meta.title'];
+    var md = document.querySelector('meta[name="description"]');
+    if (md && dict['meta.desc']) md.setAttribute('content', dict['meta.desc']);
     if (btn) btn.textContent = lang === 'zh' ? 'EN' : '中文';
   }
   var stored = null;
