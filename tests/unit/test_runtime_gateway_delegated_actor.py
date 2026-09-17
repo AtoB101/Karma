@@ -28,11 +28,13 @@ from httptest import post_minimal_contract
 
 from api.middleware.auth import resolve_agent_id_from_request
 from config.settings import settings
+from core.schemas import EvidenceBundle
 from services.runtime_synthetic_request import (
     RUNTIME_ACTOR_STATE_KEY,
     runtime_actor_id,
     synthetic_request,
 )
+from services.receipt_guard import verify_evidence_bundle_signature
 from services.runtime_wallet import build_create_key_message
 
 
@@ -305,3 +307,105 @@ async def test_runtime_key_submits_sequential_receipts(
 
 def test_state_key_constant_is_stable():
     assert RUNTIME_ACTOR_STATE_KEY == "karma_runtime_actor_id"
+
+def _bundle_body(*, task_id: str, receipt_ids: list[str]) -> dict:
+    return {
+        "task_id": task_id,
+        "task_contract_hash": "c" * 64,
+        "receipt_ids": receipt_ids,
+        "receipt_hashes": ["d" * 64 for _ in receipt_ids],
+        "final_result_hash": "e" * 64,
+        "total_steps": len(receipt_ids),
+        "successful_steps": len(receipt_ids),
+        "failed_steps": 0,
+        "total_duration_ms": 50,
+        "settlement_status": "delivered",
+    }
+
+
+@pytest.mark.asyncio
+async def test_runtime_key_submits_a_bundle_signed_by_the_gateway(
+    client: AsyncClient, monkeypatch, activate_identity
+):
+    """Agent 没有平台私钥，证据包必须由网关代签，且服务端验得通（P0-5）。
+
+    ``/v1/bundles`` 从 2026-09-17 起要求签名必填 + 强制验签；如果网关不代签，
+    生产里 agent 交证据包会一律 422/400 —— 这正是这条用例锁住的东西。
+    """
+    task_id = "task-runtime-delegated-bundle"
+    buyer = "buyer-runtime-bundle"
+    seller = "seller-runtime-bundle"
+
+    await _seed_in_progress_settlement(
+        client, activate_identity, task_id=task_id, buyer=buyer, seller=seller
+    )
+    runtime_key = await _mint_runtime(client, seller=seller, perms=["submit_receipt"])
+
+    monkeypatch.setattr(settings, "auth_enforce_protected_routes", True)
+    monkeypatch.setattr(settings, "auth_allow_dev_key_fallback", False)
+    monkeypatch.setattr(settings, "receipt_require_signature", True)
+
+    resp = await client.post(
+        "/runtime/submit-bundle",
+        headers={"X-Karma-Runtime-Key": runtime_key},
+        json=_bundle_body(task_id=task_id, receipt_ids=["r1"]),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["agent_signature"], "the gateway must sign the bundle for the agent"
+
+    # 读回时要带鉴权，所以这里按开发口径放开只读（写路径的鉴权已在上一步验过）。
+    monkeypatch.setattr(settings, "auth_enforce_protected_routes", False)
+    stored = await client.get(f"/v1/bundles/task/{task_id}")
+    assert stored.status_code == 200, stored.text
+    assert verify_evidence_bundle_signature(EvidenceBundle(**stored.json())) is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_key_bundle_cannot_act_for_another_identity(
+    client: AsyncClient, monkeypatch, activate_identity
+):
+    """网关代签不等于可以替别人的任务建包 —— 归属校验仍然生效。"""
+    task_id = "task-runtime-delegated-bundle-cross"
+    buyer = "buyer-runtime-bundle-cross"
+    seller = "seller-runtime-bundle-cross"
+
+    await _seed_in_progress_settlement(
+        client, activate_identity, task_id=task_id, buyer=buyer, seller=seller
+    )
+    intruder_key = await _mint_runtime(
+        client, seller="seller-runtime-bundle-intruder", perms=["submit_receipt"]
+    )
+
+    monkeypatch.setattr(settings, "auth_enforce_protected_routes", True)
+    monkeypatch.setattr(settings, "auth_allow_dev_key_fallback", False)
+
+    resp = await client.post(
+        "/runtime/submit-bundle",
+        headers={"X-Karma-Runtime-Key": intruder_key},
+        json=_bundle_body(task_id=task_id, receipt_ids=["r1"]),
+    )
+    assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.asyncio
+async def test_runtime_key_needs_the_submit_receipt_scope_for_bundles(
+    client: AsyncClient, monkeypatch, activate_identity
+):
+    task_id = "task-runtime-delegated-bundle-scope"
+    buyer = "buyer-runtime-bundle-scope"
+    seller = "seller-runtime-bundle-scope"
+
+    await _seed_in_progress_settlement(
+        client, activate_identity, task_id=task_id, buyer=buyer, seller=seller
+    )
+    runtime_key = await _mint_runtime(client, seller=seller, perms=["update_progress"])
+
+    resp = await client.post(
+        "/runtime/submit-bundle",
+        headers={"X-Karma-Runtime-Key": runtime_key},
+        json=_bundle_body(task_id=task_id, receipt_ids=["r1"]),
+    )
+    assert resp.status_code == 403
+    assert "permission" in resp.json().get("detail", "")
+

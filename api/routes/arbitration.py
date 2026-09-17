@@ -5,8 +5,8 @@ import hashlib
 import json
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,7 +41,14 @@ from db.models.orm import (
 )
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
+from services import arbitration_rules as arb_rules
+from services.actor_guards import require_admin_actor, require_arbitration_operator
 from services.capacity_resolution import apply_capacity_resolution
+from services.identity_actor import resolve_actor_identity_id
+from services.security_monitoring import (
+    SecurityMonitoringEventType,
+    record_security_event,
+)
 from services.settlement_voucher import mark_voucher_used_if_linked
 
 router = APIRouter()
@@ -55,11 +62,13 @@ DEFAULT_DECIDED_OVERDUE_HOURS = 12
 
 
 class JoinArbitrationPoolRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     arbitrator_identity_id: str
     stake_amount: float = Field(ge=0.0, default=0.0)
 
 
 class CreateArbitrationCaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     task_id: str
     opened_by: str
     reason: str | None = None
@@ -67,10 +76,12 @@ class CreateArbitrationCaseRequest(BaseModel):
 
 
 class AssignArbitratorsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     count: int = Field(default=3, ge=1, le=21)
 
 
 class SubmitArbitrationMaterialRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     submitted_by: str
     bundle_id: str | None = None
     progress_receipt_ids: list[str] = Field(default_factory=list)
@@ -80,6 +91,7 @@ class SubmitArbitrationMaterialRequest(BaseModel):
 
 
 class CastArbitrationVoteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     arbitrator_identity_id: str
     decision: ArbitrationVoteDecision
     partial_percent: float | None = Field(default=None, ge=0.0, le=100.0)
@@ -87,7 +99,26 @@ class CastArbitrationVoteRequest(BaseModel):
 
 
 @router.post("/pool/join", response_model=ArbitrationPoolMember)
-async def join_arbitration_pool(body: JoinArbitrationPoolRequest, db: AsyncSession = Depends(get_db)):
+async def join_arbitration_pool(
+    body: JoinArbitrationPoolRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """入池。
+
+    收紧后的三条硬规则（2026-09-17 复核前这里什么也不校验）：
+    1. 只能给自己入池 —— 不能把别人塞进仲裁池；
+    2. 入池资格走 ``ARBITRATOR_ACTOR_IDS``（除非显式开放申请）；
+    3. 质押必须 > 0，且必须由**已锁仓的真实 USDC** 背书。
+    """
+    arb_rules.require_pool_join_allowed(request)
+    await arb_rules.require_identity_binding(
+        db, request, body.arbitrator_identity_id, what="arbitration pool join"
+    )
+    await arb_rules.assert_stake_acceptable(
+        db, identity_id=body.arbitrator_identity_id, stake_amount=body.stake_amount
+    )
+
     row = await db.get(ArbitrationPoolMemberModel, body.arbitrator_identity_id)
     if not row:
         row = ArbitrationPoolMemberModel(
@@ -118,24 +149,82 @@ async def list_arbitration_pool(db: AsyncSession = Depends(get_db)):
     return [_pool_to_schema(row) for row in rows]
 
 
+async def _case_parties(db: AsyncSession, case_row: ArbitrationCaseModel) -> set[str]:
+    """案件当事人集合：立案人 + 结算买卖双方（用于读权限与回避）。"""
+    parties: set[str] = set()
+    if case_row.opened_by:
+        parties.add(case_row.opened_by)
+    state = await PostgresSettlementStore(db).get(case_row.task_id)
+    if state is not None:
+        if state.client_agent_id:
+            parties.add(state.client_agent_id)
+        if state.worker_agent_id:
+            parties.add(state.worker_agent_id)
+    return parties
+
+
+async def _require_case_reader(db: AsyncSession, case_row: ArbitrationCaseModel, request: Request) -> None:
+    """案件详情/材料/事件只对当事人与运维岗开放（争议材料不该给第三方看）。"""
+    if arb_rules.caller_is_operator(request):
+        return
+    parties = await _case_parties(db, case_row)
+    actor_identity = await resolve_actor_identity_id(db, request)
+    if actor_identity and actor_identity in parties:
+        return
+    raise HTTPException(
+        403, "only the dispute parties or arbitration operators may read this case"
+    )
+
+
 @router.post("/cases", response_model=ArbitrationCase, status_code=201)
-async def create_arbitration_case(body: CreateArbitrationCaseRequest, db: AsyncSession = Depends(get_db)):
+async def create_arbitration_case(
+    body: CreateArbitrationCaseRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    # 校验顺序：输入合法性 → 资源存在 → 授权 → 状态。授权先于状态，
+    # 免得「案件是否存在 / 结算到哪一步了」被无关身份探测出来。
+    # 人数不能由调用方自填：只能落在平台策略窗口内。
+    arb_rules.assert_panel_size_allowed(body.required_arbitrators)
+
+    settlement_store = PostgresSettlementStore(db)
+    state = await settlement_store.get(body.task_id)
+    if not state:
+        raise HTTPException(404, f"settlement {body.task_id} not found")
+
+    # 立案人必须是本案当事人（运维岗可代为立案）。
+    parties = {state.client_agent_id}
+    if state.worker_agent_id:
+        parties.add(state.worker_agent_id)
+    if body.opened_by not in parties and not arb_rules.caller_is_operator(request):
+        raise HTTPException(403, "only a party to the dispute may open an arbitration case")
+    await arb_rules.require_identity_binding(db, request, body.opened_by, what="case creation")
+
     existing = await db.execute(
         select(ArbitrationCaseModel).where(ArbitrationCaseModel.task_id == body.task_id)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(409, f"arbitration case already exists for task {body.task_id}")
 
-    settlement_store = PostgresSettlementStore(db)
-    state = await settlement_store.get(body.task_id)
-    if not state:
-        raise HTTPException(404, f"settlement {body.task_id} not found")
     if state.status not in {TaskStatus.DISPUTED, TaskStatus.ARBITRATED}:
         raise HTTPException(409, "settlement must be disputed before arbitration case creation")
 
     if state.status == TaskStatus.DISPUTED:
         if not can_transition(state.status, TaskStatus.ARBITRATED):
             raise HTTPException(409, "invalid settlement transition to arbitration")
+        from api.routes.settlement import _record_transition_audit
+
+        await _record_transition_audit(
+            db=db,
+            state=state,
+            from_status=TaskStatus.DISPUTED,
+            to_status=TaskStatus.ARBITRATED,
+            transition_allowed=True,
+            guard_stage="arbitration_case_create",
+            reason=f"arbitration case opened by {body.opened_by}",
+            route_path="/v1/arbitration/cases",
+            actor_id=await resolve_actor_identity_id(db, request) or body.opened_by,
+        )
         state.status = TaskStatus.ARBITRATED
         state.updated_at = datetime.utcnow()
         await settlement_store.save(state)
@@ -168,6 +257,7 @@ async def create_arbitration_case(body: CreateArbitrationCaseRequest, db: AsyncS
 
 @router.get("/cases/ops/report", response_model=ArbitrationCaseOpsReport)
 async def get_arbitration_case_ops_report(
+    _: str = Depends(require_admin_actor),
     window_hours: int = Query(default=24, ge=1, le=24 * 30),
     recent_events_limit: int = Query(default=50, ge=1, le=1000),
     arbitrator_limit: int = Query(default=20, ge=1, le=200),
@@ -191,6 +281,7 @@ async def get_arbitration_case_ops_report(
 
 @router.get("/cases/ops/alerts", response_model=list[ArbitrationOpsAlert])
 async def get_arbitration_case_ops_alerts(
+    _: str = Depends(require_admin_actor),
     window_hours: int = Query(default=24, ge=1, le=24 * 30),
     open_case_threshold: int = Query(default=5, ge=1, le=100000),
     voting_case_threshold: int = Query(default=5, ge=1, le=100000),
@@ -212,6 +303,7 @@ async def get_arbitration_case_ops_alerts(
 
 @router.get("/cases/ops/arbitrators", response_model=list[ArbitrationArbitratorActivitySummary])
 async def get_arbitration_case_ops_arbitrators(
+    _: str = Depends(require_admin_actor),
     window_hours: int = Query(default=24, ge=1, le=24 * 30),
     limit: int = Query(default=20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -225,6 +317,7 @@ async def get_arbitration_case_ops_arbitrators(
 
 @router.get("/cases/ops/overdue", response_model=list[ArbitrationCaseOverdueItem])
 async def get_arbitration_case_ops_overdue(
+    _: str = Depends(require_admin_actor),
     limit: int = Query(default=20, ge=1, le=200),
     open_overdue_hours: int = Query(default=24, ge=1, le=24 * 365),
     voting_overdue_hours: int = Query(default=24, ge=1, le=24 * 365),
@@ -241,15 +334,30 @@ async def get_arbitration_case_ops_overdue(
 
 
 @router.get("/cases/{case_id}", response_model=ArbitrationCase)
-async def get_arbitration_case(case_id: str, db: AsyncSession = Depends(get_db)):
+async def get_arbitration_case(case_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     row = await db.get(ArbitrationCaseModel, case_id)
     if not row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
+    await _require_case_reader(db, row, request)
     return _case_to_schema(row)
 
 
 @router.post("/cases/{case_id}/assign-auto", response_model=list[ArbitrationAssignment])
-async def assign_arbitrators(case_id: str, body: AssignArbitratorsRequest, db: AsyncSession = Depends(get_db)):
+async def assign_arbitrators(
+    case_id: str,
+    body: AssignArbitratorsRequest,
+    request: Request,
+    _: str = Depends(require_arbitration_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    """自动派庭。
+
+    收紧点（2026-09-17 复核前按入池先后取人）：
+    * 调用者必须是仲裁员/管理员白名单里的运维岗；
+    * 候选人必须 ACTIVE **且质押 > 0**；
+    * **回避当事人**：买卖双方、立案人，以及他们名下的子身份与角色档案；
+    * 派庭人数不得超过案件声明的 ``required_arbitrators``。
+    """
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
@@ -263,15 +371,27 @@ async def assign_arbitrators(case_id: str, body: AssignArbitratorsRequest, db: A
     )
     existing_ids = set(existing_result.scalars().all())
 
+    need = int(case_row.required_arbitrators or 0) - len(existing_ids)
+    if need <= 0:
+        raise HTTPException(409, "arbitration panel is already full for this case")
+    want = min(int(body.count or 0), need)
+
+    parties = await _case_parties(db, case_row)
+    conflicted = await arb_rules.conflicted_identity_ids(db, parties=parties)
+
     candidates_result = await db.execute(
         select(ArbitrationPoolMemberModel)
         .where(ArbitrationPoolMemberModel.status == ArbitrationPoolMemberStatus.ACTIVE.value)
         .order_by(ArbitrationPoolMemberModel.joined_at.asc())
     )
-    candidates = [row for row in candidates_result.scalars().all() if row.arbitrator_identity_id not in existing_ids]
-    selected = candidates[: body.count]
+    candidates = arb_rules.filter_qualified_members(
+        list(candidates_result.scalars().all()),
+        conflicted=conflicted,
+        exclude_ids=existing_ids,
+    )
+    selected = candidates[:want]
     if not selected:
-        raise HTTPException(409, "no active arbitrators available for assignment")
+        raise HTTPException(409, "no qualified arbitrators available for assignment")
 
     assignment_rows: list[ArbitrationAssignmentModel] = []
     for member in selected:
@@ -294,6 +414,10 @@ async def assign_arbitrators(case_id: str, body: AssignArbitratorsRequest, db: A
         detail="arbitrators auto-assigned to case",
         metadata={
             "assigned_count": len(assignment_rows),
+            "requested_count": want,
+            "required_arbitrators": case_row.required_arbitrators,
+            "qualified_candidates": len(candidates),
+            "recused_identity_count": len(conflicted),
             "arbitrator_identity_ids": [row.arbitrator_identity_id for row in assignment_rows],
         },
     )
@@ -301,7 +425,11 @@ async def assign_arbitrators(case_id: str, body: AssignArbitratorsRequest, db: A
 
 
 @router.get("/cases/{case_id}/assignments", response_model=list[ArbitrationAssignment])
-async def list_case_assignments(case_id: str, db: AsyncSession = Depends(get_db)):
+async def list_case_assignments(case_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    case_row = await db.get(ArbitrationCaseModel, case_id)
+    if not case_row:
+        raise HTTPException(404, f"arbitration case {case_id} not found")
+    await _require_case_reader(db, case_row, request)
     result = await db.execute(
         select(ArbitrationAssignmentModel)
         .where(ArbitrationAssignmentModel.case_id == case_id)
@@ -314,12 +442,14 @@ async def list_case_assignments(case_id: str, db: AsyncSession = Depends(get_db)
 @router.get("/cases/{case_id}/events", response_model=list[ArbitrationCaseEvent])
 async def list_case_events(
     case_id: str,
+    request: Request,
     limit: int = Query(default=200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
+    await _require_case_reader(db, case_row, request)
     result = await db.execute(
         select(ArbitrationCaseEventModel)
         .where(ArbitrationCaseEventModel.case_id == case_id)
@@ -331,12 +461,23 @@ async def list_case_events(
 
 
 @router.post("/cases/{case_id}/materials", response_model=ArbitrationMaterialPackage, status_code=201)
-async def submit_material(case_id: str, body: SubmitArbitrationMaterialRequest, db: AsyncSession = Depends(get_db)):
+async def submit_material(
+    case_id: str,
+    body: SubmitArbitrationMaterialRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
     if case_row.status in {ArbitrationCaseStatus.EXECUTED.value, ArbitrationCaseStatus.CANCELLED.value}:
         raise HTTPException(409, f"cannot submit material for case status {case_row.status}")
+
+    # 证据只能由当事人自己提交（运维岗可代为提交）。
+    parties = await _case_parties(db, case_row)
+    if body.submitted_by not in parties and not arb_rules.caller_is_operator(request):
+        raise HTTPException(403, "only a party to the dispute may submit arbitration material")
+    await arb_rules.require_identity_binding(db, request, body.submitted_by, what="material submission")
 
     normalized_hashes = sorted({h.strip().lower() for h in body.evidence_hashes if h and h.strip()})
     progress_ids = sorted({item.strip() for item in body.progress_receipt_ids if item and item.strip()})
@@ -391,7 +532,11 @@ async def submit_material(case_id: str, body: SubmitArbitrationMaterialRequest, 
 
 
 @router.get("/cases/{case_id}/materials", response_model=list[ArbitrationMaterialPackage])
-async def list_materials(case_id: str, db: AsyncSession = Depends(get_db)):
+async def list_materials(case_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    case_row = await db.get(ArbitrationCaseModel, case_id)
+    if not case_row:
+        raise HTTPException(404, f"arbitration case {case_id} not found")
+    await _require_case_reader(db, case_row, request)
     result = await db.execute(
         select(ArbitrationMaterialPackageModel)
         .where(ArbitrationMaterialPackageModel.case_id == case_id)
@@ -402,12 +547,28 @@ async def list_materials(case_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/cases/{case_id}/vote", response_model=ArbitrationCase)
-async def cast_vote(case_id: str, body: CastArbitrationVoteRequest, db: AsyncSession = Depends(get_db)):
+async def cast_vote(
+    case_id: str,
+    body: CastArbitrationVoteRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """投票。
+
+    此前只校验「这个 id 被指派过」，不校验「你就是这个 id」——
+    任何人都能冒用被指派的仲裁员身份代投。现在投票必须由**本人**（或有白名单的
+    运维岗代为操作，并留痕在事件里）发起。
+    """
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
     if case_row.status in {ArbitrationCaseStatus.DECIDED.value, ArbitrationCaseStatus.EXECUTED.value}:
         raise HTTPException(409, f"arbitration case already finalized: {case_row.status}")
+
+    actor_identity = await resolve_actor_identity_id(db, request)
+    await arb_rules.require_identity_binding(
+        db, request, body.arbitrator_identity_id, what="arbitration vote"
+    )
 
     assignment = await db.execute(
         select(ArbitrationAssignmentModel).where(
@@ -436,6 +597,11 @@ async def cast_vote(case_id: str, body: CastArbitrationVoteRequest, db: AsyncSes
         await db.flush()
     except Exception as exc:  # pragma: no cover - SQL uniqueness safeguard
         raise HTTPException(409, "duplicate vote for arbitrator in this case") from exc
+    # P1-8：投票必须能回溯到「真实的调用者」。本人投票时 voted_by == 被指派者；
+    # 运维岗代投（白名单）是唯一允许的不一致，这种情况额外落一条安全告警事件，
+    # 事后审计一眼能看出「这一票不是本人投的」。
+    voted_by = actor_identity or body.arbitrator_identity_id
+    actor_mismatch = actor_identity is not None and actor_identity != body.arbitrator_identity_id
     await _append_case_event(
         db=db,
         case_id=case_id,
@@ -443,11 +609,25 @@ async def cast_vote(case_id: str, body: CastArbitrationVoteRequest, db: AsyncSes
         detail="arbitration vote cast",
         metadata={
             "vote_id": row.vote_id,
-            "arbitrator_identity_id": row.arbitrator_identity_id,
+            "claimed_arbitrator_id": row.arbitrator_identity_id,
+            "actual_actor_id": voted_by,
+            "voted_by": voted_by,
+            "actor_mismatch": actor_mismatch,
             "decision": row.decision,
             "partial_percent": row.partial_percent,
         },
     )
+    if actor_mismatch:
+        record_security_event(
+            SecurityMonitoringEventType.ARBITRATOR_ACTION,
+            metadata={
+                "what": "arbitration_vote_on_behalf",
+                "case_id": case_id,
+                "claimed_arbitrator_id": row.arbitrator_identity_id,
+                "actual_actor_id": voted_by,
+                "decision": row.decision,
+            },
+        )
 
     votes_result = await db.execute(
         select(ArbitrationVoteModel).where(ArbitrationVoteModel.case_id == case_id)
@@ -491,7 +671,19 @@ async def cast_vote(case_id: str, body: CastArbitrationVoteRequest, db: AsyncSes
 
 
 @router.post("/cases/{case_id}/execute", response_model=SettlementState)
-async def execute_arbitration_case(case_id: str, db: AsyncSession = Depends(get_db)):
+async def execute_arbitration_case(
+    case_id: str,
+    request: Request,
+    actor: str = Depends(require_arbitration_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    """把裁决写回结算。
+
+    此前这条路径**不写** ``settlement_transition_audits``，于是同一笔结算
+    经仲裁改判后在审计链上是断的。现在每次流转都补一条审计。
+    """
+    from api.routes.settlement import _record_transition_audit
+
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
@@ -508,6 +700,17 @@ async def execute_arbitration_case(case_id: str, db: AsyncSession = Depends(get_
     if state.status == TaskStatus.DISPUTED:
         if not can_transition(state.status, TaskStatus.ARBITRATED):
             raise HTTPException(409, "cannot transition settlement to arbitration")
+        await _record_transition_audit(
+            db=db,
+            state=state,
+            from_status=TaskStatus.DISPUTED,
+            to_status=TaskStatus.ARBITRATED,
+            transition_allowed=True,
+            guard_stage="arbitration_execute",
+            reason=f"arbitration case {case_id} accepted",
+            route_path=f"/v1/arbitration/cases/{case_id}/execute",
+            actor_id=actor,
+        )
         state.status = TaskStatus.ARBITRATED
 
     if case_row.decided_outcome == ArbitrationVoteDecision.BUYER_WINS.value:
@@ -530,6 +733,17 @@ async def execute_arbitration_case(case_id: str, db: AsyncSession = Depends(get_
     if not can_transition(state.status, target):
         raise HTTPException(409, f"invalid settlement transition: {state.status.value} -> {target.value}")
 
+    await _record_transition_audit(
+        db=db,
+        state=state,
+        from_status=TaskStatus.ARBITRATED,
+        to_status=target,
+        transition_allowed=True,
+        guard_stage="arbitration_execute",
+        reason=notes,
+        route_path=f"/v1/arbitration/cases/{case_id}/execute",
+        actor_id=actor,
+    )
     state.status = target
     state.released_amount = settled_amount
     state.refunded_amount = refunded_amount

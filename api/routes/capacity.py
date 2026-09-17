@@ -4,13 +4,14 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import CapacityState
 from config.settings import settings
 from db.models.orm import CapacityModel
 from db.session import get_db
+from services import atomic_ledger
 from services import profile_capacity as profile_capacity_service
 from services.identity_activation import activation_of
 from services.chain import wallet_lock
@@ -29,12 +30,14 @@ router = APIRouter()
 
 
 class AmountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     amount: float = Field(gt=0.0)
     profile_id: str | None = None
 
 
 class AllocateBody(BaseModel):
     """profile_id -> allocated_credits 的额度分配（总和不超 master 锁仓）。"""
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     allocations: dict[str, float] = Field(default_factory=dict)
 
 
@@ -62,35 +65,46 @@ async def lock_usdc(identity_id: str, body: AmountRequest, request: Request, db:
         raise HTTPException(422, f"amount exceeds maximum {settings.escrow_max_amount} USDC")
 
     await audit_capacity_anchor_and_maybe_trip(db=db)
-    row = await db.get(CapacityModel, identity_id)
-    if not row:
-        row = CapacityModel(
-            identity_id=identity_id,
-            profile_id=body.profile_id,
-            total_locked_usdc=0.0,
-            total_bill_credits=0.0,
-            available_credits=0.0,
-            reserved_credits=0.0,
-            in_progress_credits=0.0,
-            confirmed_progress_credits=0.0,
-            disputed_credits=0.0,
-            pending_settlement_credits=0.0,
-            burned_credits=0.0,
-            released_credits=0.0,
-            updated_at=datetime.utcnow(),
-        )
-        db.add(row)
-    if body.profile_id:
-        row.profile_id = body.profile_id
-    row.total_locked_usdc += body.amount
-    row.total_bill_credits += body.amount
-    row.available_credits += body.amount
-    row.updated_at = datetime.utcnow()
+    # 并发安全：锁仓是纯增量，压成一条原子 UPDATE。
+    # 历史问题：15 个并发锁仓请求全部返回 200，账上只入账 1 笔（丢更新）。
+    await atomic_ledger.ensure_row(
+        db,
+        CapacityModel,
+        "identity_id",
+        identity_id,
+        defaults={
+            "total_locked_usdc": 0.0,
+            "total_bill_credits": 0.0,
+            "available_credits": 0.0,
+            "reserved_credits": 0.0,
+            "in_progress_credits": 0.0,
+            "confirmed_progress_credits": 0.0,
+            "disputed_credits": 0.0,
+            "pending_settlement_credits": 0.0,
+            "burned_credits": 0.0,
+            "released_credits": 0.0,
+            "updated_at": datetime.utcnow(),
+        },
+    )
+    rows = await atomic_ledger.apply_delta(
+        db,
+        CapacityModel,
+        "identity_id",
+        identity_id,
+        {
+            "total_locked_usdc": body.amount,
+            "total_bill_credits": body.amount,
+            "available_credits": body.amount,
+        },
+        extra_values={"profile_id": body.profile_id} if body.profile_id else None,
+    )
+    if rows != 1:
+        raise HTTPException(409, "capacity row missing; lock was not credited")
 
+    row = await atomic_ledger.reload(db, CapacityModel, identity_id)
     state = _to_schema(row)
     _validate(state)
     await audit_capacity_anchor_and_maybe_trip(db=db)
-    await db.flush()
     return state
 
 
@@ -105,24 +119,43 @@ async def release_unused(identity_id: str, body: AmountRequest, request: Request
     row = await db.get(CapacityModel, identity_id)
     if not row:
         raise HTTPException(404, f"Capacity for {identity_id} not found")
-    if body.profile_id:
-        row.profile_id = body.profile_id
     state_before = _to_schema(row)
     try:
         assert_can_release_locked_funds(state_before, body.amount)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 
-    row.available_credits -= body.amount
-    row.total_bill_credits -= body.amount
-    row.total_locked_usdc -= body.amount
-    row.released_credits += body.amount
-    row.updated_at = datetime.utcnow()
+    # 并发安全：减仓是「可失败」操作，把「余额够减」和「责任额度没被并发改动」
+    # 一起写进 WHERE，由数据库判定；否则两个并发请求会双双通过校验、各减一次。
+    guards = [
+        lambda C: C.available_credits >= body.amount,
+        lambda C: C.total_bill_credits >= body.amount,
+        lambda C: C.total_locked_usdc >= body.amount,
+        *atomic_ledger.responsibility_snapshot_guards(state_before),
+    ]
+    try:
+        await atomic_ledger.apply_delta_or_raise(
+            db,
+            CapacityModel,
+            "identity_id",
+            identity_id,
+            {
+                "available_credits": -body.amount,
+                "total_bill_credits": -body.amount,
+                "total_locked_usdc": -body.amount,
+                "released_credits": body.amount,
+            },
+            guards=guards,
+            extra_values={"profile_id": body.profile_id} if body.profile_id else None,
+            message="release rejected: insufficient balance or concurrent change",
+        )
+    except atomic_ledger.LedgerConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
 
+    row = await atomic_ledger.reload(db, CapacityModel, identity_id)
     state = _to_schema(row)
     _validate(state)
     await audit_capacity_anchor_and_maybe_trip(db=db)
-    await db.flush()
     return state
 
 
@@ -183,12 +216,14 @@ async def set_allocations(identity_id: str, body: AllocateBody, request: Request
 
 class ClaimBillBody(BaseModel):
     """A ``KarmaBilateral.lock()`` transaction the user signed in their wallet."""
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
 
     tx_hash: str = Field(min_length=66, max_length=66)
 
 
 class ClaimUnlockBody(BaseModel):
     """A ``KarmaBilateral.unlock(billId)`` transaction the user signed."""
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
 
     bill_id: str = Field(min_length=1, max_length=80)
     tx_hash: str = Field(min_length=66, max_length=66)
@@ -196,12 +231,14 @@ class ClaimUnlockBody(BaseModel):
 
 class StakeRequestBody(BaseModel):
     """Karma rule input: 30% of this order value is staked from the seller pool."""
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
 
     order_amount: float = Field(gt=0.0)
     task_id: str = Field(min_length=1, max_length=64)
 
 
 class StakeReleaseBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     task_id: str = Field(min_length=1, max_length=64)
 
 

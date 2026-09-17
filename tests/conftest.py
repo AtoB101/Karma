@@ -119,12 +119,21 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
 @pytest.fixture
 async def client_sec(db_session, monkeypatch):
-    """HTTP client with API key for routes that always require credentials (e.g. /v1/security)."""
+    """HTTP client with API key for routes that always require credentials (e.g. /v1/security).
+
+    这个 key 代表**平台运维**那把钥匙，所以同时把它写进三张白名单
+    （管理员 / 仲裁员 / 治理身份发放方）。否则收紧后的
+    ``/v1/security`` 与 ``/v1/admin`` 会按设计返回 403 —— 那是产品行为，
+    不是测试环境该有的样子。
+    """
     monkeypatch.setattr(
         settings,
         "auth_api_keys",
         "sec-route-default:sec-route-default-secret-abcdef12",
     )
+    monkeypatch.setattr(settings, "admin_actor_ids", "sec-route-default")
+    monkeypatch.setattr(settings, "arbitrator_actor_ids", "sec-route-default")
+    monkeypatch.setattr(settings, "governance_verifier_ids", "sec-route-default")
 
     async def override_get_db():
         yield db_session

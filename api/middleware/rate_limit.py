@@ -24,6 +24,9 @@ RATE_LIMITS = {
     "register_agent": (5, 60),    # 5 agent registrations / 60s (stress-test MEDIUM)
     "write_sensitive": (100, 60),  # 100 sensitive writes / 60s
     "state_transition": (20, 60), # 20 state transitions / 60s
+    # P2-11: 读接口此前**完全没限流**（只有 auth/verify 和敏感写有限流）。
+    # 额度给得很宽（正常页面/轮询用不满），只用来兜住脚本化爬取与放大攻击。
+    "read":         (600, 60),   # 600 reads / 60s per API key or client IP
 }
 
 _redis: Optional[aioredis.Redis] = None

@@ -10,11 +10,31 @@ from httpx import ASGITransport, AsyncClient
 from api.app import app
 from core.schemas import EvidenceBundle, TaskStatus
 from db.session import get_db
+from httptest import post_minimal_contract
+from services.receipt_canonical import evidence_bundle_signing_bytes
+from services.signing import signing_service
 
 
 @pytest.mark.asyncio
 async def test_verify_external_rejects_incomplete_mandate(client: AsyncClient, db_session):
     """KSA-AP2-001: malformed AP2 mandate must not verify."""
+    # 证据包必须有归属（P0-5）：先建一个真实结算，提交人 = 买家。
+    buyer = "ap2-sec-buyer"
+    await post_minimal_contract(
+        client, task_id="ap2-sec-task-1", client_agent_id=buyer,
+        escrow_amount=10.0, expected_step_count=3,
+    )
+    created = await client.post(
+        "/v1/settlement/create",
+        json={
+            "task_id": "ap2-sec-task-1",
+            "client_agent_id": buyer,
+            "escrow_amount": 10.0,
+            "currency": "USD",
+        },
+    )
+    assert created.status_code == 201, created.text
+
     bundle = EvidenceBundle(
         bundle_id="ap2-sec-bundle-1",
         task_id="ap2-sec-task-1",
@@ -28,8 +48,15 @@ async def test_verify_external_rejects_incomplete_mandate(client: AsyncClient, d
         total_duration_ms=1,
         settlement_status=TaskStatus.DELIVERED,
     )
-    post = await client.post("/v1/bundles", json=bundle.model_dump(mode="json"))
-    assert post.status_code == 201
+    bundle.agent_signature = signing_service.sign_bytes(
+        evidence_bundle_signing_bytes(bundle)
+    )
+    post = await client.post(
+        "/v1/bundles",
+        json=bundle.model_dump(mode="json"),
+        headers={"X-Karma-Identity-Id": buyer},
+    )
+    assert post.status_code == 201, post.text
 
     bad = await client.post(
         f"/v1/evidence/{bundle.bundle_id}/verify-external",

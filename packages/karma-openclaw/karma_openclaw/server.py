@@ -24,7 +24,7 @@ from karma_openclaw.helpers import (
     stable_sha256_hex,
     voucher_eip712_operator_notes,
 )
-from karma_openclaw.http_client import api_get, api_post
+from karma_openclaw.http_client import api_get, api_post, runtime_key, runtime_post
 from karma_openclaw.p0_tools import register_p0_tools
 from karma_openclaw.phase1_tools import register_phase1_tools
 from karma_openclaw.phase2_tools import register_phase2_tools
@@ -69,8 +69,18 @@ def build_app() -> FastMCP:
 
     @mcp.tool()
     async def karma_submit_evidence_bundle(bundle_json: str) -> dict[str, Any]:
-        """POST /v1/bundles"""
-        return await api_post("/v1/bundles", json.loads(bundle_json))
+        """提交证据包。
+
+        2026-09-17：``/v1/bundles`` 起要求 ``agent_signature`` 必填且**必须验得通**，
+        而 agent 手里只有 Runtime Key、没有平台签名私钥。所以配了
+        ``KARMA_RUNTIME_KEY`` 时走网关代签（``/runtime/submit-bundle``，网关确认
+        调用者确实是该任务的买方/卖方后才盖章）；没有 Runtime Key 时才直连
+        （仅本地开发可用的口径）。
+        """
+        payload = json.loads(bundle_json)
+        if runtime_key():
+            return await runtime_post("/runtime/submit-bundle", payload)
+        return await api_post("/v1/bundles", payload)
 
     # --- Manual auth guidance ---
 

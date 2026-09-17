@@ -11,6 +11,7 @@ from core.schemas import ProgressConfirmationStatus, ProgressReceipt, TaskStatus
 from db.models.orm import ProgressReceiptModel, ReceiptModel, TaskContractModel
 from db.stores.settlement_store import PostgresSettlementStore
 from services.openclaw_handoff_attestation import confirm_handoff_attestation
+from services.signing import signing_service
 from services.openclaw_webhook import emit_openclaw_event
 from services.voucher_events import record_voucher_event
 
@@ -66,9 +67,14 @@ async def kickoff_seller_execution(
         evidence_hash=hashlib_placeholder(f"progress-start:{task_id}"),
         runtime_log_hash=hashlib_placeholder(f"runtime-start:{task_id}"),
         timestamp=ts,
-        seller_signature="0xtrade_pipeline_progress",
+        # 以前这里写死一个假签名 "0xtrade_pipeline_progress"：开发环境靠占位白名单
+        # 糊过去，生产环境一旦真验签就露馅。现在由服务端按规范载荷真签一次。
+        seller_signature="",
         validation_method="trade_pipeline_v1",
         confirmation_status=ProgressConfirmationStatus.PENDING,
+    )
+    progress = progress.model_copy(
+        update={"seller_signature": signing_service.sign_progress(progress)}
     )
     db.add(
         ProgressReceiptModel(

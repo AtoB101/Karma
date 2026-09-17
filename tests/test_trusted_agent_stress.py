@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -116,7 +118,13 @@ class TrustedAgentStressTests(unittest.TestCase):
         import subprocess
         import sys
 
-        out = Path("/tmp/karma-stress-unitest-out")
+        # 输出目录默认跟随系统临时目录（tempfile.gettempdir()，Linux 上就是 /tmp），
+        # 可用 KARMA_STRESS_OUT_DIR 覆盖。硬编码 "/tmp" 在受限容器 / 沙箱里
+        # 会因为不可写或残留文件删不掉而假红，与测试语义无关。
+        out = Path(
+            os.environ.get("KARMA_STRESS_OUT_DIR")
+            or (Path(tempfile.gettempdir()) / "karma-stress-unitest-out")
+        )
         if out.exists():
             for p in out.glob("*"):
                 p.unlink()

@@ -18,8 +18,11 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 from config.settings import settings
 from core.hooks.hook_layer import ReceiptSigner
 from core.evidence.bundle_builder import BundleSigner
-from core.schemas import ExecutionReceipt
-from services.receipt_canonical import execution_receipt_signing_dict
+from core.schemas import ExecutionReceipt, ProgressReceipt
+from services.receipt_canonical import (
+    execution_receipt_signing_dict,
+    progress_receipt_signing_dict,
+)
 
 
 class Ed25519SigningService(ReceiptSigner, BundleSigner):
@@ -98,6 +101,12 @@ class Ed25519SigningService(ReceiptSigner, BundleSigner):
     def sign_receipt(self, receipt: ExecutionReceipt) -> str:
         payload = execution_receipt_signing_dict(receipt)
         return self.sign_dict(payload)
+
+    # --- ProgressSigner (P1-6) ---
+
+    def sign_progress(self, progress: ProgressReceipt) -> str:
+        """Sign the canonical progress payload (see services.receipt_canonical)."""
+        return self.sign_dict(progress_receipt_signing_dict(progress))
 
     # --- BundleSigner ---
 

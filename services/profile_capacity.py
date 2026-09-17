@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import CapacityModel, IdentityRoleProfile, ProfileCapacityModel
+from services import atomic_ledger
 from services.chain import allowance_escrow as escrow
 
 
@@ -102,23 +103,56 @@ async def allocate(
 
         row = await db.get(ProfileCapacityModel, profile_id)
         if row is None:
-            row = ProfileCapacityModel(
-                profile_id=profile_id,
-                owner_identity_id=identity_id,
-                allocated_credits=amount,
-                available_credits=amount,
+            await atomic_ledger.ensure_row(
+                db,
+                ProfileCapacityModel,
+                "profile_id",
+                profile_id,
+                defaults={
+                    "owner_identity_id": identity_id,
+                    "allocated_credits": 0.0,
+                    "available_credits": 0.0,
+                    "in_progress_credits": 0.0,
+                    "pending_settlement_credits": 0.0,
+                    "disputed_credits": 0.0,
+                    "released_credits": 0.0,
+                    "updated_at": datetime.utcnow(),
+                },
             )
-            db.add(row)
-        else:
-            used = _in_use(row)
-            if amount + 1e-9 < used:
-                raise HTTPException(
-                    409,
-                    f"cannot reduce {profile_id} below in-use credits {used}",
-                )
-            row.allocated_credits = amount
-            row.available_credits = amount - used
-            row.updated_at = datetime.utcnow()
+            row = await atomic_ledger.reload(db, ProfileCapacityModel, profile_id)
+        used = _in_use(row)
+        if amount + 1e-9 < used:
+            raise HTTPException(
+                409,
+                f"cannot reduce {profile_id} below in-use credits {used}",
+            )
+        # 并发安全：额度调整改成「基于快照的增量」，并把快照写进 WHERE。
+        # 这样并发发生的 spend/release 不会被这次赋值覆盖掉。
+        cur_allocated = float(row.allocated_credits or 0.0)
+        cur_available = float(row.available_credits or 0.0)
+        guards = [
+            (lambda C, _v=cur_allocated: C.allocated_credits == _v),
+            (lambda C, _v=cur_available: C.available_credits == _v),
+            (lambda C, _v=float(row.in_progress_credits or 0.0): C.in_progress_credits == _v),
+            (lambda C, _v=float(row.pending_settlement_credits or 0.0): C.pending_settlement_credits == _v),
+            (lambda C, _v=float(row.disputed_credits or 0.0): C.disputed_credits == _v),
+        ]
+        try:
+            await atomic_ledger.apply_delta_or_raise(
+                db,
+                ProfileCapacityModel,
+                "profile_id",
+                profile_id,
+                {
+                    "allocated_credits": amount - cur_allocated,
+                    "available_credits": (amount - used) - cur_available,
+                },
+                guards=guards,
+                message=f"profile {profile_id} credits changed concurrently; retry allocation",
+            )
+        except atomic_ledger.LedgerConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
+        row = await atomic_ledger.reload(db, ProfileCapacityModel, profile_id)
         out.append(serialize_profile_capacity(row))
 
     await db.flush()
@@ -153,11 +187,24 @@ async def spend_profile_credits(
             409,
             f"insufficient profile credits: need {amount}, available {row.available_credits}",
         )
-    row.available_credits -= amount
-    row.in_progress_credits += amount
-    row.updated_at = datetime.utcnow()
+    # 并发安全：占用额度必须原子，否则并发下单会超出子身份额度。
+    try:
+        await atomic_ledger.apply_delta_or_raise(
+            db,
+            ProfileCapacityModel,
+            "profile_id",
+            profile_id,
+            {"available_credits": -amount, "in_progress_credits": amount},
+            guards=[(lambda C, _need=amount: C.available_credits + 1e-9 >= _need)],
+            message=(
+                f"insufficient profile credits: need {amount}, "
+                f"available {row.available_credits}"
+            ),
+        )
+    except atomic_ledger.LedgerConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     await db.flush()
-    return row
+    return await atomic_ledger.reload(db, ProfileCapacityModel, profile_id)
 
 
 async def release_profile_credits(
@@ -187,10 +234,22 @@ async def release_profile_credits(
         scale = total / (settled + refunded) if (settled + refunded) > 0 else 0.0
         settled = round(settled * scale, 8)
         refunded = round(refunded * scale, 8)
-    row.in_progress_credits -= total
-    row.released_credits = (row.released_credits or 0.0) + settled
+    # 并发安全：结算回写必须是原子增量，且以「读到的 in_progress」为守卫，
+    # 避免并发结算把同一份额度释放两次。
+    deltas = {"in_progress_credits": -total, "released_credits": settled}
     if refunded > 0:
-        row.available_credits = (row.available_credits or 0.0) + refunded
-    row.updated_at = datetime.utcnow()
+        deltas["available_credits"] = refunded
+    try:
+        await atomic_ledger.apply_delta_or_raise(
+            db,
+            ProfileCapacityModel,
+            "profile_id",
+            profile_id,
+            deltas,
+            guards=[(lambda C, _v=in_progress: C.in_progress_credits == _v)],
+            message=f"profile {profile_id} credits changed concurrently; retry release",
+        )
+    except atomic_ledger.LedgerConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
     await db.flush()
-    return row
+    return await atomic_ledger.reload(db, ProfileCapacityModel, profile_id)

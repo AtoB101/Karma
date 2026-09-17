@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
 from db.models.orm import CapacityModel, ChainLockModel
+from services import atomic_ledger
 from services.capacity_ledger import assert_can_release_locked_funds
 
 logger = structlog.get_logger(__name__)
@@ -277,35 +278,49 @@ def fetch_receipt(tx_hash: str) -> Any:
 
 
 async def _ensure_capacity(db: AsyncSession, identity_id: str) -> CapacityModel:
-    row = await db.get(CapacityModel, identity_id)
-    if row is not None:
-        return row
-    row = CapacityModel(
-        identity_id=identity_id,
-        profile_id=None,
-        total_locked_usdc=0.0,
-        total_bill_credits=0.0,
-        available_credits=0.0,
-        reserved_credits=0.0,
-        in_progress_credits=0.0,
-        confirmed_progress_credits=0.0,
-        disputed_credits=0.0,
-        pending_settlement_credits=0.0,
-        burned_credits=0.0,
-        released_credits=0.0,
-        updated_at=datetime.utcnow(),
+    await atomic_ledger.ensure_row(
+        db,
+        CapacityModel,
+        "identity_id",
+        identity_id,
+        defaults={
+            "profile_id": None,
+            "total_locked_usdc": 0.0,
+            "total_bill_credits": 0.0,
+            "available_credits": 0.0,
+            "reserved_credits": 0.0,
+            "in_progress_credits": 0.0,
+            "confirmed_progress_credits": 0.0,
+            "disputed_credits": 0.0,
+            "pending_settlement_credits": 0.0,
+            "burned_credits": 0.0,
+            "released_credits": 0.0,
+            "updated_at": datetime.utcnow(),
+        },
     )
-    db.add(row)
+    row = await atomic_ledger.reload(db, CapacityModel, identity_id)
+    if row is None:
+        raise WalletLockError(f"capacity row for {identity_id} could not be created")
     return row
 
 
 async def _credit_capacity(db: AsyncSession, identity_id: str, amount_usdc: float) -> CapacityModel:
-    row = await _ensure_capacity(db, identity_id)
-    row.total_locked_usdc += amount_usdc
-    row.total_bill_credits += amount_usdc
-    row.available_credits += amount_usdc
-    row.updated_at = datetime.utcnow()
-    return row
+    # 并发安全：链上 lock 入账必须是原子增量，否则同一笔/并发多笔会被覆盖。
+    await _ensure_capacity(db, identity_id)
+    rows = await atomic_ledger.apply_delta(
+        db,
+        CapacityModel,
+        "identity_id",
+        identity_id,
+        {
+            "total_locked_usdc": amount_usdc,
+            "total_bill_credits": amount_usdc,
+            "available_credits": amount_usdc,
+        },
+    )
+    if rows != 1:
+        raise WalletLockError("capacity row missing; on-chain lock was not credited")
+    return await atomic_ledger.reload(db, CapacityModel, identity_id)
 
 
 async def _debit_capacity(db: AsyncSession, identity_id: str, amount_usdc: float) -> CapacityModel:
@@ -330,12 +345,29 @@ async def _debit_capacity(db: AsyncSession, identity_id: str, amount_usdc: float
         assert_can_release_locked_funds(before, amount_usdc)
     except ValueError as exc:
         raise WalletLockError(str(exc)) from exc
-    row.available_credits -= amount_usdc
-    row.total_bill_credits -= amount_usdc
-    row.total_locked_usdc -= amount_usdc
-    row.released_credits += amount_usdc
-    row.updated_at = datetime.utcnow()
-    return row
+
+    # 并发安全：解锁同样是「可失败」操作，余额与责任额度快照一起进 WHERE。
+    rows = await atomic_ledger.apply_delta(
+        db,
+        CapacityModel,
+        "identity_id",
+        identity_id,
+        {
+            "available_credits": -amount_usdc,
+            "total_bill_credits": -amount_usdc,
+            "total_locked_usdc": -amount_usdc,
+            "released_credits": amount_usdc,
+        },
+        guards=[
+            (lambda C, _need=amount_usdc: C.available_credits + 1e-9 >= _need),
+            (lambda C, _need=amount_usdc: C.total_bill_credits + 1e-9 >= _need),
+            (lambda C, _need=amount_usdc: C.total_locked_usdc + 1e-9 >= _need),
+            *atomic_ledger.responsibility_snapshot_guards(before),
+        ],
+    )
+    if rows != 1:
+        raise WalletLockError("unlock rejected: insufficient balance or concurrent change")
+    return await atomic_ledger.reload(db, CapacityModel, identity_id)
 
 
 async def _find_by_tx(db: AsyncSession, tx_hash: str) -> ChainLockModel | None:

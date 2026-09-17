@@ -50,6 +50,29 @@ def execution_receipt_bundle_digest(receipt: ExecutionReceipt) -> str:
     return _sha256(receipt.model_dump(mode="json"))
 
 
+def evidence_bundle_signing_dict(bundle: EvidenceBundle) -> dict[str, Any]:
+    """证据包签名/验签的**唯一**规范载荷（P0-5）。
+
+    字段与历史 ``EvidenceBundleBuilder`` 载荷逐字节兼容（键名沿用
+    ``contract_hash``），因此既有的、用旧载荷签出来的包仍然可验；
+    服务端 ``POST /v1/bundles`` 的强制验签用的也是这一份。
+    """
+    return {
+        "task_id": bundle.task_id,
+        "contract_hash": bundle.task_contract_hash,
+        "receipt_hashes": list(bundle.receipt_hashes),
+        "final_result_hash": bundle.final_result_hash,
+        "total_steps": bundle.total_steps,
+        "successful_steps": bundle.successful_steps,
+        "created_at": bundle.created_at.isoformat(),
+    }
+
+
+def evidence_bundle_signing_bytes(bundle: EvidenceBundle) -> bytes:
+    d = evidence_bundle_signing_dict(bundle)
+    return json.dumps(d, sort_keys=True, separators=(",", ":"), default=str).encode()
+
+
 # ---------------------------------------------------------------------------
 # Bundle Signer Interface
 # ---------------------------------------------------------------------------
@@ -149,20 +172,6 @@ class EvidenceBundleBuilder:
             task_contract.model_dump(mode="json"),
         )
 
-        bundle_payload: dict[str, Any] = {
-            "task_id": task_id,
-            "contract_hash": contract_hash,
-            "receipt_hashes": receipt_hashes,
-            "final_result_hash": final_result_hash,
-            "total_steps": len(receipts),
-            "successful_steps": successful,
-            "created_at": datetime.utcnow().isoformat(),
-        }
-
-        signature: Optional[str] = None
-        if self.signer:
-            signature = self.signer.sign_bundle(bundle_payload)
-
         bundle = EvidenceBundle(
             task_id=task_id,
             task_contract_hash=contract_hash,
@@ -173,9 +182,15 @@ class EvidenceBundleBuilder:
             successful_steps=successful,
             failed_steps=failed,
             total_duration_ms=total_ms,
-            agent_signature=signature,
+            created_at=datetime.utcnow(),
             settlement_status=TaskStatus.DELIVERED,
         )
+
+        # 2026-09-17：签名载荷收敛到唯一来源，签出来的包在服务端能被真正验签。
+        if self.signer:
+            bundle.agent_signature = self.signer.sign_bundle(
+                evidence_bundle_signing_dict(bundle)
+            )
 
         if self.object_store:
             path = await self.object_store.save_bundle(bundle, receipts)

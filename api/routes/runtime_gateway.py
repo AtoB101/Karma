@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.routes.bundles import submit_bundle as submit_bundle_route
 from api.routes.discovery import DiscoverIntentRequest, discover_for_intent
 from api.routes.progress import submit_progress_receipt as progress_submit_route
 from api.routes.settlement import (
@@ -29,6 +30,7 @@ from api.routes.vouchers import (
 )
 from config.settings import settings
 from core.schemas import (
+    EvidenceBundle,
     ExecutionReceipt,
     ProgressReceipt,
 )
@@ -45,6 +47,7 @@ from services.profile_capacity import (
     master_ceiling_usdc,
     serialize_profile_capacity,
 )
+from services.receipt_canonical import evidence_bundle_signing_bytes
 from services.receipt_guard import (
     execution_receipt_starts_before_prior_ended,
     validate_execution_receipt_static,
@@ -711,6 +714,40 @@ async def runtime_update_progress(
         actor_id=ctx.karma_identity_id,
     )
     out = await progress_submit_route(bound, delegate, db)
+    await db.commit()
+    return signed_json_response(out.model_dump(mode="json"), status_code=201)
+
+
+@router.post("/submit-bundle")
+async def runtime_submit_bundle(
+    bundle: EvidenceBundle,
+    ctx: RuntimeKeyContext = Depends(get_runtime_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """Agent 提交证据包（P0-5）。
+
+    Agent 手里只有 Runtime Key、没有平台签名私钥，而 ``/v1/bundles`` 从
+    2026-09-17 起要求签名必须验得通。所以与 ``submit-receipt`` /
+    ``update-progress`` 同一套做法：**网关确认调用者身份后代签**，再委托给
+    ``/v1/bundles`` —— 归属校验（必须是该任务的买方/卖方本人）与验签都在那
+    一条路径上完成，只有一份实现。
+    """
+    assert_permission(ctx, "submit_receipt")
+    validate_public_url_segment("bundle_id", bundle.bundle_id)
+    validate_public_url_segment("task_id", bundle.task_id)
+
+    signed = bundle.model_copy(
+        update={
+            "agent_signature": signing_service.sign_bytes(
+                evidence_bundle_signing_bytes(bundle)
+            )
+        }
+    )
+    delegate = synthetic_request(
+        path="/runtime/submit-bundle",
+        actor_id=ctx.karma_identity_id,
+    )
+    out = await submit_bundle_route(signed, delegate, db)
     await db.commit()
     return signed_json_response(out.model_dump(mode="json"), status_code=201)
 

@@ -7,7 +7,8 @@ import pytest
 from httpx import AsyncClient
 from httptest import post_minimal_contract
 
-from core.schemas import ExecutionReceipt, ToolStatus
+from core.schemas import EvidenceBundle, ExecutionReceipt, ToolStatus
+from services.receipt_canonical import evidence_bundle_signing_bytes
 from services.signing import signing_service
 
 
@@ -32,6 +33,13 @@ def _signed_receipt_dict(
     )
     r.signature = signing_service.sign_receipt(r)
     return r.model_dump(mode="json")
+
+
+def _signed_bundle_dict(**fields) -> dict:
+    """带真实签名的证据包（P0-5：建包必须签名且验得通）。"""
+    b = EvidenceBundle(**fields)
+    b.agent_signature = signing_service.sign_bytes(evidence_bundle_signing_bytes(b))
+    return b.model_dump(mode="json")
 
 
 @pytest.mark.asyncio
@@ -79,19 +87,21 @@ async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(cli
     assert rec.status_code == 201, rec.text
     rid = rec.json()["receipt_id"]
 
-    bundle = {
-        "task_id": task_id,
-        "task_contract_hash": "cc" * 32,
-        "receipt_ids": [rid],
-        "receipt_hashes": ["ff" * 32],
-        "final_result_hash": "ee" * 32,
-        "total_steps": 1,
-        "successful_steps": 1,
-        "failed_steps": 0,
-        "total_duration_ms": 80,
-        "settlement_status": "delivered",
-    }
-    bresp = await client.post("/v1/bundles", json=bundle)
+    bundle = _signed_bundle_dict(
+        task_id=task_id,
+        task_contract_hash="cc" * 32,
+        receipt_ids=[rid],
+        receipt_hashes=["ff" * 32],
+        final_result_hash="ee" * 32,
+        total_steps=1,
+        successful_steps=1,
+        failed_steps=0,
+        total_duration_ms=80,
+        settlement_status="delivered",
+    )
+    bresp = await client.post(
+        "/v1/bundles", json=bundle, headers={"X-Karma-Identity-Id": seller}
+    )
     assert bresp.status_code == 201, bresp.text
 
     await client.post(f"/v1/settlement/{task_id}/submit", json={})
@@ -156,19 +166,22 @@ async def test_auto_arbitrate_format_error_when_bundle_step_counts_inconsistent(
     er = ExecutionReceipt(**rec.json())
     good_hash = execution_receipt_bundle_digest(er)
 
-    bundle = {
-        "task_id": task_id,
-        "task_contract_hash": "11" * 32,
-        "receipt_ids": [rid],
-        "receipt_hashes": [good_hash],
-        "final_result_hash": "22" * 32,
-        "total_steps": 99,
-        "successful_steps": 1,
-        "failed_steps": 0,
-        "total_duration_ms": 80,
-        "settlement_status": "delivered",
-    }
-    assert (await client.post("/v1/bundles", json=bundle)).status_code == 201
+    bundle = _signed_bundle_dict(
+        task_id=task_id,
+        task_contract_hash="11" * 32,
+        receipt_ids=[rid],
+        receipt_hashes=[good_hash],
+        final_result_hash="22" * 32,
+        total_steps=99,
+        successful_steps=1,
+        failed_steps=0,
+        total_duration_ms=80,
+        settlement_status="delivered",
+    )
+    second_bundle = await client.post(
+        "/v1/bundles", json=bundle, headers={"X-Karma-Identity-Id": seller}
+    )
+    assert second_bundle.status_code == 201, second_bundle.text
 
     await client.post(f"/v1/settlement/{task_id}/submit", json={})
     await client.post(f"/v1/settlement/{task_id}/dispute", json={"reason": "step meta"})

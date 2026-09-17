@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +48,7 @@ public_router = APIRouter()
 
 
 class PrepareDeveloperBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     real_name: str = Field(min_length=1, max_length=64)
     role_title: str = Field(min_length=1, max_length=64)
     contact_email: str = Field(min_length=3, max_length=200)
@@ -71,6 +72,7 @@ class SubmitDeveloperBody(BaseModel):
 
 
 class ReviewDeveloperBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     decision: str = Field(..., pattern="^(verified|rejected)$")
     reason: str | None = Field(default=None, max_length=2000)
 

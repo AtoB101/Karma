@@ -4,8 +4,12 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta, timezone
 
-from core.schemas import ExecutionReceipt, ProgressReceipt
-from services.receipt_canonical import execution_receipt_signing_bytes
+from core.schemas import EvidenceBundle, ExecutionReceipt, ProgressReceipt
+from services.receipt_canonical import (
+    evidence_bundle_signing_bytes,
+    execution_receipt_signing_bytes,
+    progress_receipt_signing_bytes,
+)
 from services.receipt_templates import validate_extension_payloads
 from services.signing import signing_service
 from config.settings import settings
@@ -146,6 +150,50 @@ def execution_receipt_signature_acceptable(receipt: ExecutionReceipt) -> bool:
     return verify_execution_receipt_signature(receipt)
 
 
+_RUNTIME_BINDING_PREFIX = "runtime:"
+
+
+def is_runtime_binding_signature(signature: str | None) -> bool:
+    """``runtime:<sig>`` 是 Runtime Gateway 现场签发的绑定戳（不是客户端签名）。"""
+    return (signature or "").strip().lower().startswith(_RUNTIME_BINDING_PREFIX)
+
+
+def verify_progress_receipt_signature(progress: ProgressReceipt) -> bool:
+    """进度回执验签（P1-6）。
+
+    此前全项目**没有**这个函数：进度回执的 ``seller_signature`` 只被检查
+    「非空」，随便填一个字符串就能通过，于是「卖家签过的进度」是假的。
+    """
+    signature = (progress.seller_signature or "").strip()
+    if not signature or is_runtime_binding_signature(signature):
+        return False
+    return signing_service.verify(progress_receipt_signing_bytes(progress), signature)
+
+
+def progress_receipt_signature_acceptable(
+    progress: ProgressReceipt, *, runtime_binding_trusted: bool = False
+) -> bool:
+    """进度回执签名是否可接受。
+
+    规则（与执行回执同一套口径）：
+
+    * ``runtime:...``：只有 Runtime Gateway 现场盖章才可信 —— 走 HTTP 直连伪造
+      这个前缀一律不接受（``runtime_binding_trusted`` 由路由层根据
+      ``request.state`` 判定后传入）。
+    * 非生产环境：允许 ``sig-`` / ``0xopenclaw_`` 这类开发占位签名（空签名也放行，
+      由 ``progress_require_signature`` 决定是否强制）；**生产环境永不接受占位**。
+    * 其余情况：必须能用规范载荷验签通过。
+    """
+    signature = (progress.seller_signature or "").strip()
+    if is_runtime_binding_signature(signature):
+        return bool(runtime_binding_trusted)
+    if not _is_production_env() and (not signature or _is_dev_placeholder_signature(signature)):
+        return True
+    if not settings.progress_require_signature and not signature:
+        return True
+    return verify_progress_receipt_signature(progress)
+
+
 def validate_progress_receipt_static(progress: ProgressReceipt) -> None:
     if not _is_hex_64(progress.evidence_hash):
         raise ValueError("progress evidence_hash must be 64-char lowercase hex")
@@ -163,3 +211,38 @@ def validate_progress_receipt_static(progress: ProgressReceipt) -> None:
         raise ValueError("progress timestamp is too far in the future")
     if ts < min_past:
         raise ValueError("progress timestamp is too far in the past")
+
+def verify_evidence_bundle_signature(bundle: EvidenceBundle) -> bool:
+    """证据包验签（P0-5）。
+
+    此前全项目**没有任何证据包验签函数**，``agent_signature`` 也只被当作
+    可选字段原样落库 —— 于是"卖方签过这个包"这件事从未被验证过。
+    """
+    signature = (bundle.agent_signature or "").strip()
+    if not signature or _is_dev_placeholder_signature(signature):
+        return False
+    return signing_service.verify(evidence_bundle_signing_bytes(bundle), signature)
+
+
+def evidence_bundle_signature_acceptable(bundle: EvidenceBundle) -> bool:
+    """证据包签名是否可接受（P0-5）。
+
+    规则与执行回执同一套口径，且**生产环境永不接受占位签名**：
+
+    * 生产环境：必须能用规范载荷验签通过。
+    * 非生产环境：允许空签名或 ``sig-`` / ``0xopenclaw_`` 这类开发占位签名
+      （由 ``receipt_require_signature`` 决定是否强制非空），其余一律要验签 ——
+      也就是说，本地开发也挡得住"随便编一个字符串"的伪造。
+    """
+    signature = (bundle.agent_signature or "").strip()
+    if _is_production_env():
+        return verify_evidence_bundle_signature(bundle)
+    if not signature or _is_dev_placeholder_signature(signature):
+        return True
+    return verify_evidence_bundle_signature(bundle)
+
+
+def evidence_bundle_signature_required() -> bool:
+    """生产口径下证据包签名是否必填（P0-5）。"""
+    return bool(settings.receipt_require_signature) and not delivery_signatures_relaxed()
+

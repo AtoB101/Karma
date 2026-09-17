@@ -239,6 +239,28 @@ async def security_write_rate_limit_middleware(request: Request, call_next) -> R
 
 
 @app.middleware("http")
+async def read_rate_limit_middleware(request: Request, call_next) -> Response:
+    """P2-11：读接口的兜底限流。
+
+    2026-09-17 复核：写路径（``SENSITIVE_WRITE_PREFIXES``）有限流，读路径基本没有 ——
+    也就是任何脚本都能不限速地枚举 /v1/* 。这里给 ``GET``/``HEAD`` 的 ``/v1/*``
+    加一档很宽的额度（600/60s，按 API key 或真实客户端 IP 分桶，见
+    ``rate_limit_bucket``），正常操作台/官网流量用不满。
+    """
+    path = request.url.path
+    if request.method.upper() in ("GET", "HEAD") and path.startswith("/v1/"):
+        try:
+            await rate_limit(request, "read")
+        except HTTPException as exc:
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=exc.headers or {},
+            )
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def request_logging_middleware(request: Request, call_next) -> Response:
     request_id = str(uuid.uuid4())[:8]
     start = time.perf_counter()

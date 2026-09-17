@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy.exc import IntegrityError
 
 from core.schemas import (
@@ -39,6 +39,7 @@ def _as_utc(dt: datetime) -> datetime:
 
 
 class CreateVoucherRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     buyer_identity_id: str
     seller_identity_id: str
     amount: float
@@ -74,11 +75,13 @@ class CreateVoucherRequest(BaseModel):
 
 
 class VerifyVoucherRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     seller_identity_id: str
     expected_amount: float | None = None
 
 
 class AcceptVoucherRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     seller_identity_id: str
     seller_profile_id: str | None = None
 

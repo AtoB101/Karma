@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,7 @@ from services.settlement_party_access import (
     require_buyer,
     require_buyer_on_create,
     require_buyer_or_worker,
+    require_party_read,
     require_worker,
 )
 from services.settlement_cycle_guard import assert_lock_does_not_close_payment_cycle
@@ -84,6 +85,7 @@ async def _release_profile_credits_if_bound(db: AsyncSession, state: Any) -> Non
 
 
 class CreateSettlementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     task_id: str
     client_agent_id: str
     escrow_amount: float
@@ -111,12 +113,14 @@ class CreateSettlementRequest(BaseModel):
 
 
 class LockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     worker_agent_id: str
     profile_id: str | None = None
 
 
 class BuyerRejectRequest(BaseModel):
     """MVVS V1 — Buyer rejection with mandatory reason_code."""
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     reason_code: RejectionReason = Field(description="MVVS V1 standardized rejection code (required)")
     reason: str | None = Field(default=None, max_length=2000, description="Optional free-text detail")
 
@@ -129,6 +133,7 @@ class BuyerRejectRequest(BaseModel):
 
 
 class PartialSettlementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     settled_value_percent: float = Field(gt=0.0, le=100.0)
     reason: str | None = None
 
@@ -141,6 +146,7 @@ class PartialSettlementRequest(BaseModel):
 
 
 class RegretRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     buyer_identity_id: str | None = None
     reason: str | None = None
     reason_code: RejectionReason | None = Field(
@@ -157,6 +163,7 @@ class RegretRequest(BaseModel):
 
 
 class DisputeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     reason: str | None = None
     reason_code: RejectionReason | None = Field(
         default=None,
@@ -496,22 +503,55 @@ async def fail_settlement(task_id: str, request: Request, db: AsyncSession = Dep
 
 
 @router.get("/{task_id}", response_model=SettlementState)
-async def get_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
+async def get_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """读结算状态。
+
+    P1-7：与合同／流转同口径 —— 结算里有金额、对手方与仲裁结果，此前任何身份
+    都能读。现在默认只有当事人（买/卖）或平台运维岗能读；
+    ``TASK_RECORDS_PUBLIC_READ=true`` 可恢复公开（产品决策开关）。
+    """
     validate_public_url_segment("task_id", task_id)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
+    parties = {state.client_agent_id}
+    if state.worker_agent_id:
+        parties.add(state.worker_agent_id)
+    await require_party_read(
+        db,
+        request,
+        {p for p in parties if p},
+        public_read=bool(settings.task_records_public_read),
+    )
     return state
 
 
 @router.get("/{task_id}/transitions", response_model=list[SettlementTransitionAudit])
 async def list_settlement_transitions(
     task_id: str,
+    request: Request,
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
+    """读结算流转审计。
+
+    P1-7：此前任何身份都能读别人的流转记录（含争议理由、金额）。现在默认只有
+    当事人（买/卖）或平台运维岗能读；``TASK_RECORDS_PUBLIC_READ=true`` 可公开。
+    """
     validate_public_url_segment("task_id", task_id)
+    state = await PostgresSettlementStore(db).get(task_id)
+    if state is None:
+        raise HTTPException(404, f"Settlement {task_id} not found")
+    parties = {state.client_agent_id}
+    if state.worker_agent_id:
+        parties.add(state.worker_agent_id)
+    await require_party_read(
+        db,
+        request,
+        {p for p in parties if p},
+        public_read=bool(settings.task_records_public_read),
+    )
     result = await db.execute(
         select(SettlementTransitionAuditModel)
         .where(SettlementTransitionAuditModel.task_id == task_id)

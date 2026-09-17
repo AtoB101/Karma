@@ -7,11 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.middleware.auth import get_current_agent_id
 from config.settings import settings
 from core.schemas import IdentityProfile, RuntimeSafetyModeState
 from db.models.orm import IdentityProfileModel
 from db.session import get_db
+# 刹车闸门实现抽到了 services/actor_guards.py（/v1/security、/v1/admin、仲裁共用同一份）。
+# 这里保留同名 re-export：历史调用方 ``from api.routes.admin_controls import require_admin_actor`` 仍可用。
+from services.actor_guards import require_admin_actor
 from services.payment_intent_service import expire_stale_intents
 from services.runtime_safety import (
     get_runtime_safety_mode_state,
@@ -56,12 +58,6 @@ def _profile_to_schema(row: IdentityProfileModel) -> IdentityProfile:
         updated_at=row.updated_at,
     )
 
-
-async def require_admin_actor(agent_id: str = Depends(get_current_agent_id)) -> str:
-    allow = settings.admin_actor_id_set()
-    if not allow or agent_id not in allow:
-        raise HTTPException(status_code=403, detail="admin controls require a whitelisted actor id")
-    return agent_id
 
 
 @router.get("/controls", response_model=RuntimeSafetyModeState)

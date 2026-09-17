@@ -195,6 +195,8 @@ async def test_security_ops_alerts_endpoint_returns_report(client, monkeypatch):
         "auth_api_keys",
         "ops-alert-reader:ops-alert-reader-secret-abcdef",
     )
+    # /v1/security/ops/alerts 收紧为运维白名单：这个用例就是在扮演运维岗。
+    monkeypatch.setattr(settings, "admin_actor_ids", "ops-alert-reader")
     hdr = {"X-Karma-Api-Key": "karma_ops-alert-reader_ops-alert-reader-secret-abcdef"}
     clear_security_events()
     try:
@@ -261,6 +263,8 @@ async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client, 
         "auth_api_keys",
         "ops-alert-reader:ops-alert-reader-secret-abcdef",
     )
+    # /v1/security/ops/alerts 收紧为运维白名单：这个用例就是在扮演运维岗。
+    monkeypatch.setattr(settings, "admin_actor_ids", "ops-alert-reader")
     hdr = {"X-Karma-Api-Key": "karma_ops-alert-reader_ops-alert-reader-secret-abcdef"}
     clear_security_events()
     set_runtime_safety_mode(enabled=False, reason="test reset", actor_id="test")
@@ -313,11 +317,13 @@ async def test_security_ops_middleware_tracks_failed_auth(client):
     original_env = settings.app_env
     original_keys = settings.auth_api_keys
     original_enforce = settings.auth_enforce_protected_routes
+    original_admins = settings.admin_actor_ids
     clear_security_events()
     try:
         settings.app_env = "test"
         settings.auth_api_keys = "agent-security:secret-value-123"
         settings.auth_enforce_protected_routes = True
+        settings.admin_actor_ids = "agent-security"
 
         unauthorized = await client.post("/v1/capacity/id-security/lock", json={"amount": 10})
         assert unauthorized.status_code == 401
@@ -334,6 +340,7 @@ async def test_security_ops_middleware_tracks_failed_auth(client):
         settings.app_env = original_env
         settings.auth_api_keys = original_keys
         settings.auth_enforce_protected_routes = original_enforce
+        settings.admin_actor_ids = original_admins
         clear_security_events()
 
 

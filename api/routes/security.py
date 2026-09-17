@@ -21,6 +21,7 @@ from core.schemas import (
     SecurityThresholdPolicyStatus,
 )
 from db.session import get_db
+from services.actor_guards import require_admin_actor
 from services.security_monitoring import build_security_ops_alert_report
 from services.security_policy_center import (
     create_security_threshold_policy,
@@ -89,6 +90,7 @@ class UpdateRuntimeSafetyModeRequest(BaseModel):
 @router.post("/policies", response_model=SecurityThresholdPolicy, status_code=201)
 async def create_security_policy(
     body: CreateSecurityThresholdPolicyRequest,
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     return await create_security_threshold_policy(
@@ -125,6 +127,7 @@ async def get_security_policy(
 async def activate_security_policy(
     policy_id: str,
     emergency_override: bool = Query(default=False),
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     if not emergency_override:
@@ -143,6 +146,7 @@ async def set_security_policy_candidate(
     policy_id: str,
     body: SetSecurityThresholdPolicyCandidateRequest,
     emergency_override: bool = Query(default=False),
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     if not emergency_override:
@@ -164,6 +168,7 @@ async def set_security_policy_candidate(
 async def rollback_security_policy(
     body: RollbackSecurityThresholdPolicyRequest,
     emergency_override: bool = Query(default=False),
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     if not emergency_override:
@@ -183,6 +188,7 @@ async def rollback_security_policy(
 @router.post("/policies/changes", response_model=SecurityPolicyChangeRequest, status_code=201)
 async def create_security_policy_change(
     body: CreateSecurityPolicyChangeRequest,
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityPolicyChangeRequest:
     try:
@@ -225,6 +231,7 @@ async def get_security_policy_change(
 async def review_security_policy_change(
     request_id: str,
     body: ReviewSecurityPolicyChangeRequest,
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityPolicyChangeRequest:
     try:
@@ -242,6 +249,7 @@ async def review_security_policy_change(
 @router.post("/policies/changes/{request_id}/apply", response_model=SecurityPolicyChangeRequest)
 async def apply_security_policy_change(
     request_id: str,
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityPolicyChangeRequest:
     try:
@@ -254,6 +262,7 @@ async def apply_security_policy_change(
 @router.post("/policies/changes/dry-run", response_model=SecurityPolicyDryRunResult)
 async def dry_run_security_policy_change(
     body: CreateSecurityPolicyChangeRequest,
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityPolicyDryRunResult:
     try:
@@ -276,7 +285,9 @@ async def get_runtime_safety_mode() -> RuntimeSafetyModeState:
 
 
 @router.get("/funds-overview")
-async def get_funds_security_overview() -> dict:
+async def get_funds_security_overview(
+    _: str = Depends(require_admin_actor),
+) -> dict:
     """Financial Security Dashboard payload (Control Plane, not a funds mover)."""
     from services.security_control_plane import funds_overview
 
@@ -284,7 +295,10 @@ async def get_funds_security_overview() -> dict:
 
 
 @router.post("/runtime/safety-mode", response_model=RuntimeSafetyModeState)
-async def update_runtime_safety_mode(body: UpdateRuntimeSafetyModeRequest) -> RuntimeSafetyModeState:
+async def update_runtime_safety_mode(
+    body: UpdateRuntimeSafetyModeRequest,
+    _: str = Depends(require_admin_actor),
+) -> RuntimeSafetyModeState:
     return set_runtime_safety_mode(
         enabled=body.enabled,
         reason=body.reason,
@@ -295,6 +309,7 @@ async def update_runtime_safety_mode(body: UpdateRuntimeSafetyModeRequest) -> Ru
 @router.post("/runtime/anchor-audit", response_model=RuntimeSafetyModeState)
 async def run_runtime_anchor_audit(
     actor_id: str | None = Query(default="system"),
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> RuntimeSafetyModeState:
     return await audit_capacity_anchor_and_maybe_trip(db=db, actor_id=actor_id)
@@ -342,6 +357,7 @@ async def get_security_ops_alerts(
     policy_actor_id: str | None = Query(default=None),
     auto_brake_on_transition_critical: bool = Query(default=True),
     auto_brake_actor_id: str | None = Query(default="security-ops"),
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityOpsAlertReport:
     """

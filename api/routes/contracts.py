@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,10 @@ from config.settings import settings
 from core.schemas import TaskContract
 from db.session import get_db
 from db.models.orm import CapacityModel, TaskContractModel
+from db.stores.settlement_store import PostgresSettlementStore
+from services.actor_guards import caller_is_privileged
 from services.path_param_safety import validate_public_url_segment
+from services.settlement_party_access import actor_identity_ids, require_party_read
 from services.signing import sha256_of
 from services.text_safety import validate_json_strings_safe, validate_safe_storage_text
 
@@ -114,19 +117,59 @@ async def create_contract(
 
 
 @router.get("/{task_id}", response_model=TaskContract)
-async def get_contract(task_id: str, db: AsyncSession = Depends(get_db)):
+async def get_contract(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """读任务合同。
+
+    P1-7：此前任何身份都能读别人的合同（对手方、金额、完整需求描述）。
+    现在默认只有当事人（买方／被指派卖方）或平台运维岗能读；
+    ``TASK_RECORDS_PUBLIC_READ=true`` 可恢复成「人人可审计」。
+    """
     row = await db.get(TaskContractModel, task_id)
     if not row:
         raise HTTPException(404, f"Contract {task_id} not found")
+    await require_party_read(
+        db,
+        request,
+        _contract_party_ids(row) | await _settlement_party_ids(db, task_id),
+        public_read=bool(settings.task_records_public_read),
+    )
     return _row_to_contract(row)
+
+
+def _contract_party_ids(row: TaskContractModel) -> set[str]:
+    ids = {row.client_agent_id}
+    if getattr(row, "worker_agent_id", None):
+        ids.add(row.worker_agent_id)
+    return {i for i in ids if i}
+
+
+async def _settlement_party_ids(db: AsyncSession, task_id: str) -> set[str]:
+    """结算上的买卖双方也算当事人（合同可能还没 assign，但结算已锁定 worker）。"""
+    try:
+        state = await PostgresSettlementStore(db).get(task_id)
+    except Exception:
+        return set()
+    if state is None:
+        return set()
+    ids = {state.client_agent_id}
+    if state.worker_agent_id:
+        ids.add(state.worker_agent_id)
+    return {i for i in ids if i}
 
 
 @router.patch("/{task_id}/assign")
 async def assign_worker(
     task_id: str,
     worker_agent_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    """指派卖家。
+
+    2026-09-17 复核：这个端点此前**没有任何归属校验** —— 任何调用者都能把任意合同
+    的 worker 改成任何人（等于替别人决定「谁来交付」）。现在只有买方本人
+    （或平台运维岗）能指派，且不会悄悄覆盖一个已经存在的卖家。
+    """
     validate_public_url_segment("task_id", task_id)
     validate_public_url_segment("worker_agent_id", worker_agent_id)
     row = await db.get(TaskContractModel, task_id)
@@ -136,6 +179,14 @@ async def assign_worker(
         raise HTTPException(
             status_code=409,
             detail="worker_agent_id cannot equal contract client_agent_id (self-assignment)",
+        )
+    actor_ids = await actor_identity_ids(db, request)
+    if actor_ids and row.client_agent_id not in actor_ids and not caller_is_privileged(request):
+        raise HTTPException(403, "only the buyer may assign the worker for this contract")
+    if row.worker_agent_id and row.worker_agent_id != worker_agent_id:
+        raise HTTPException(
+            status_code=409,
+            detail="contract already has a different assigned worker",
         )
     row.worker_agent_id = worker_agent_id
     return _row_to_contract(row)

@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,7 +61,7 @@ class RoleProfileCreate(BaseModel):
     kyc_payload: dict = Field(default_factory=dict)
     status: str = Field(default="active", max_length=16)
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "forbid"}  # P2-10
 
 
 class RoleProfileUpdate(BaseModel):
@@ -74,7 +74,7 @@ class RoleProfileUpdate(BaseModel):
     spend_policy: dict | None = None
     status: str | None = Field(default=None, max_length=16)
 
-    model_config = {"populate_by_name": True}
+    model_config = {"populate_by_name": True, "extra": "forbid"}  # P2-10
 
 
 def _serialize(row: IdentityRoleProfile, *, full: bool = False) -> dict:
@@ -248,6 +248,7 @@ async def update_role_profile(
 
 
 class BindWalletBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     wallet_address: str = Field(..., min_length=42, max_length=128)
     wallet_signature: str = Field(..., min_length=130, max_length=200)
 

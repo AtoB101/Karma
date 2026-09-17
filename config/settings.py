@@ -29,6 +29,20 @@ class Settings(BaseSettings):
     # resolve disputes via /miniapp/disputes/resolve. Empty in production is rejected;
     # in development an empty list falls back to admin_actor_ids for convenience.
     arbitrator_actor_ids: str = ""
+    # ---- 仲裁规则（P0-1 收紧，2026-09-17）--------------------------------
+    # 调用者必须绑定到自己宣称的仲裁员身份（或案件当事人），运维白名单可代为操作。
+    # 关掉它等于恢复「任何登录身份都能替别人投票」，生产环境必须是 true。
+    arbitration_require_actor_binding: bool = True
+    # 仲裁池是「开放申请」还是「仅限 ARBITRATOR_ACTOR_IDS 白名单」。
+    # 两种模式下都只能给自己入池，且质押必须有真实锁仓背书。
+    arbitration_pool_open_join: bool = False
+    # 仲裁庭人数窗口：调用方不能自填人数，只能落在这个区间内。
+    arbitration_min_arbitrators: int = 3
+    arbitration_max_arbitrators: int = 21
+    # 入池质押的下限（0 表示只要求 > 0），以及是否必须由已锁仓 USDC 背书。
+    arbitration_min_stake_amount: float = 0.0
+    arbitration_require_backed_stake: bool = True
+
     # Comma-separated identity ids allowed to hold governance role profiles
     # (class=verifier / arbitrator). Empty means nobody can self-create one over the
     # API; the operational grant path is scripts/ops/grant_governance_role.py on the
@@ -134,6 +148,9 @@ class Settings(BaseSettings):
     evidence_bundle_max_receipt_entries: int = 2048
     evidence_bundle_max_json_bytes: int = 5 * 1024 * 1024
     verify_max_combined_json_bytes: int = 5 * 1024 * 1024
+    # P1-7：合同 / 结算流转这类交易明细默认只对当事人（买/卖）与平台运维岗开放。
+    # 想让任何人都能公开审计交易明细（产品决策），把它设成 true 即可，不需要改代码。
+    task_records_public_read: bool = False
     receipt_require_signature: bool = True
     receipt_max_future_skew_seconds: int = 300
     receipt_max_past_hours: int = 24 * 7
@@ -414,6 +431,11 @@ class Settings(BaseSettings):
             if not self.registration_require_funding:
                 raise ValueError(
                     "REGISTRATION_REQUIRE_FUNDING must be true when APP_ENV is production",
+                )
+            if not self.arbitration_require_actor_binding:
+                raise ValueError(
+                    "ARBITRATION_REQUIRE_ACTOR_BINDING must be true when APP_ENV is production "
+                    "(otherwise any logged-in identity can vote on someone else's dispute)",
                 )
             if not (self.arbitrator_actor_ids or "").strip():
                 raise ValueError(
