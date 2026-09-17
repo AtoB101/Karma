@@ -5,7 +5,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Karma Network — 面向 AI Agent 的可验证执行与结算层</title>
-<meta name="description" content="Karma is the trust layer for agent commerce. Funds stay locked in the user's own wallet; what releases them is a signed execution trail, independently verifiable evidence, and collateralised arbitration. Karma 不解决怎么付，解决付了之后凭什么相信对方真的做了。" />
+<meta name="description" content="Karma is the trust layer for agent commerce. Funds stay locked in the user's own wallet; what releases them is a signed execution trail, independently verifiable evidence, and collateralised arbitration. Payment rails move money; Karma proves the work was done." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -1213,8 +1213,8 @@ var I18N = {
   }
   var stored = null;
   try { stored = localStorage.getItem('karma-lang'); } catch (e) {}
-  var lang = (stored === 'zh' || stored === 'en') ? stored
-           : ((navigator.language || '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en');
+  // Official site is English-first: default to English, only follow an explicit choice.
+  var lang = (stored === 'en' || stored === 'zh') ? stored : 'en';
   apply(lang);
   if (btn) btn.addEventListener('click', function () {
     var next = (document.documentElement.getAttribute('lang') === 'zh-CN') ? 'en' : 'zh';
