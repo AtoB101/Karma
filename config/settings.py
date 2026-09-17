@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # 入池质押的下限（0 表示只要求 > 0），以及是否必须由已锁仓 USDC 背书。
     arbitration_min_stake_amount: float = 0.0
     arbitration_require_backed_stake: bool = True
+    # 抵押必须覆盖案值：仲裁员质押要**严格大于** 案值 × 这个倍数（默认 1.0，
+    # 即「被处理的订单金额必须低于抵押」）。调高就是给抵押留安全垫
+    # （例如 1.5 = 抵押至少是案值的 1.5 倍）。生产环境不允许小于 1.0。
+    arbitration_stake_coverage_multiple: float = 1.0
 
     # Comma-separated identity ids allowed to hold governance role profiles
     # (class=verifier / arbitrator). Empty means nobody can self-create one over the
@@ -441,6 +445,20 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "ARBITRATOR_ACTOR_IDS must list at least one dispute arbitrator when "
                     "APP_ENV is production (dispute resolution cannot be open to any session)",
+                )
+            try:
+                _coverage = float(self.arbitration_stake_coverage_multiple)
+            except (TypeError, ValueError):
+                _coverage = 0.0
+            if _coverage < 1.0:
+                raise ValueError(
+                    "ARBITRATION_STAKE_COVERAGE_MULTIPLE must be >= 1.0 when APP_ENV is production "
+                    "(an arbitrator must never decide a dispute worth more than their collateral)",
+                )
+            if not self.arbitration_require_backed_stake:
+                raise ValueError(
+                    "ARBITRATION_REQUIRE_BACKED_STAKE must be true when APP_ENV is production "
+                    "(a stake that is not backed by locked USDC is not a collateral)",
                 )
             if self.chain_allow_hot_wallet_payer:
                 raise ValueError(

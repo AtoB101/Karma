@@ -356,6 +356,8 @@ async def assign_arbitrators(
     * 调用者必须是仲裁员/管理员白名单里的运维岗；
     * 候选人必须 ACTIVE **且质押 > 0**；
     * **回避当事人**：买卖双方、立案人，以及他们名下的子身份与角色档案；
+    * **抵押必须覆盖案值**：质押要**严格大于**这笔争议的托管金额（2026-09-17 起）——
+      抵押 10 的人不能去裁 100 的争议，否则一次误判就把抵押打穿；
     * 派庭人数不得超过案件声明的 ``required_arbitrators``。
     """
     case_row = await db.get(ArbitrationCaseModel, case_id)
@@ -384,14 +386,22 @@ async def assign_arbitrators(
         .where(ArbitrationPoolMemberModel.status == ArbitrationPoolMemberStatus.ACTIVE.value)
         .order_by(ArbitrationPoolMemberModel.joined_at.asc())
     )
+    # 案值 = 这笔争议里真正可能被划走的托管金额；抵押盖不住它的人不能入庭。
+    case_value = await arb_rules.case_value_of(db, case_row)
     candidates = arb_rules.filter_qualified_members(
         list(candidates_result.scalars().all()),
         conflicted=conflicted,
         exclude_ids=existing_ids,
+        case_value=case_value,
     )
     selected = candidates[:want]
     if not selected:
-        raise HTTPException(409, "no qualified arbitrators available for assignment")
+        raise HTTPException(
+            409,
+            "no qualified arbitrators available for assignment: need ACTIVE members whose "
+            f"stake covers the case value {case_value:.6f} "
+            f"(stake > {case_value * arb_rules.stake_coverage_multiple():.6f})",
+        )
 
     assignment_rows: list[ArbitrationAssignmentModel] = []
     for member in selected:
@@ -417,6 +427,8 @@ async def assign_arbitrators(
             "requested_count": want,
             "required_arbitrators": case_row.required_arbitrators,
             "qualified_candidates": len(candidates),
+            "case_value": case_value,
+            "stake_coverage_multiple": arb_rules.stake_coverage_multiple(),
             "recused_identity_count": len(conflicted),
             "arbitrator_identity_ids": [row.arbitrator_identity_id for row in assignment_rows],
         },
@@ -558,6 +570,9 @@ async def cast_vote(
     此前只校验「这个 id 被指派过」，不校验「你就是这个 id」——
     任何人都能冒用被指派的仲裁员身份代投。现在投票必须由**本人**（或有白名单的
     运维岗代为操作，并留痕在事件里）发起。
+
+    另外：投票才是真正的裁决动作，所以**投之前再校验一次抵押**——派庭之后被减仓
+    或被罚没的仲裁员，不能靠一张旧的指派记录继续投票。
     """
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
@@ -578,6 +593,11 @@ async def cast_vote(
     )
     if not assignment.scalar_one_or_none():
         raise HTTPException(403, "arbitrator is not assigned to this case")
+
+    # 抵押必须仍然覆盖案值：派庭后减仓 / 罚没的仲裁员不许继续投。
+    await arb_rules.assert_arbitrator_covers_case(
+        db, case_row=case_row, identity_id=body.arbitrator_identity_id, what="arbitration vote"
+    )
 
     if body.decision == ArbitrationVoteDecision.PARTIAL and body.partial_percent is None:
         raise HTTPException(400, "partial_percent is required when decision is partial")

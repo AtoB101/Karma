@@ -948,23 +948,34 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, 
     def as_identity(identity_id: str) -> dict[str, str]:
         return {"X-Karma-Identity-Id": identity_id}
 
+    # 抵押必须盖住案值：这一单托管 100，所以仲裁员质押必须 > 100。
+    ARBITRATOR_STAKE = 150.0
+    # 先塞一个「抵押 10 却想裁 100」的人：他从入池到派庭都必须被拦在外面。
+    await client.post("/v1/capacity/arb-poor-001/lock", json={"amount": 20.0})
+    poor_join = await client.post(
+        "/v1/arbitration/pool/join",
+        json={"arbitrator_identity_id": "arb-poor-001", "stake_amount": 10.0},
+        headers=as_identity("arb-poor-001"),
+    )
+    assert poor_join.status_code == 200, poor_join.text
+
     arbitrators = ["arb-001", "arb-002", "arb-003"]
     for arbitrator in arbitrators:
-        # 质押必须有真实锁仓背书：先锁 50 USDC，再质押 10。
-        locked = await client.post(f"/v1/capacity/{arbitrator}/lock", json={"amount": 50.0})
+        # 质押必须有真实锁仓背书：先锁 500 USDC，再质押 150。
+        locked = await client.post(f"/v1/capacity/{arbitrator}/lock", json={"amount": 500.0})
         assert locked.status_code == 200
         joined = await client.post(
             "/v1/arbitration/pool/join",
-            json={"arbitrator_identity_id": arbitrator, "stake_amount": 10.0},
+            json={"arbitrator_identity_id": arbitrator, "stake_amount": ARBITRATOR_STAKE},
             headers=as_identity(arbitrator),
         )
         assert joined.status_code == 200, joined.text
 
-    # 当事人自己也入池 —— 派庭时必须被回避掉。
-    await client.post(f"/v1/capacity/{buyer_id}/lock", json={"amount": 200.0})
+    # 当事人自己也入池 —— 派庭时必须被回避掉（抵押给够，确保排除原因是「回避」而不是「钱不够」）。
+    await client.post(f"/v1/capacity/{buyer_id}/lock", json={"amount": 500.0})
     buyer_pool = await client.post(
         "/v1/arbitration/pool/join",
-        json={"arbitrator_identity_id": buyer_id, "stake_amount": 10.0},
+        json={"arbitrator_identity_id": buyer_id, "stake_amount": ARBITRATOR_STAKE},
         headers=as_identity(buyer_id),
     )
     assert buyer_pool.status_code == 200, buyer_pool.text
@@ -989,6 +1000,8 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, 
     assert len(assigned_ids) == 3
     # 回避：当事人不能坐进自己的仲裁庭。
     assert buyer_id not in assigned_ids
+    # 抵押盖不住案值的人（10 < 100）不能入庭，哪怕他先入池、排在候选队列最前面。
+    assert "arb-poor-001" not in assigned_ids
 
     # 冒名投票：不是本人就不能替被指派的仲裁员投票。
     impersonated_vote = await client.post(
@@ -997,6 +1010,29 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, 
         headers=as_identity("arb-404"),
     )
     assert impersonated_vote.status_code == 403, impersonated_vote.text
+
+    # 派庭之后把抵押减到盖不住案值：投票是真正的裁决动作，这时必须被拦住，
+    # 不能靠一张旧的指派记录硬投出去。
+    shrunk = await client.post(
+        "/v1/arbitration/pool/join",
+        json={"arbitrator_identity_id": arbitrators[2], "stake_amount": 10.0},
+        headers=as_identity(arbitrators[2]),
+    )
+    assert shrunk.status_code == 200, shrunk.text
+    undercollateralized_vote = await client.post(
+        f"/v1/arbitration/cases/{case_id}/vote",
+        json={"arbitrator_identity_id": arbitrators[2], "decision": "buyer_wins"},
+        headers=as_identity(arbitrators[2]),
+    )
+    assert undercollateralized_vote.status_code == 409, undercollateralized_vote.text
+    assert "does not cover the case value" in undercollateralized_vote.text
+    # 补足抵押后，这一票恢复正常。
+    refilled = await client.post(
+        "/v1/arbitration/pool/join",
+        json={"arbitrator_identity_id": arbitrators[2], "stake_amount": ARBITRATOR_STAKE},
+        headers=as_identity(arbitrators[2]),
+    )
+    assert refilled.status_code == 200, refilled.text
 
     material = await client.post(f"/v1/arbitration/cases/{case_id}/materials", json={
         "submitted_by": buyer_id,
@@ -1045,6 +1081,12 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, 
     event_types = [item["event_type"] for item in events.json()]
     assert "case_created" in event_types
     assert "arbitrators_assigned" in event_types
+    assigned_event = next(
+        item for item in events.json() if item["event_type"] == "arbitrators_assigned"
+    )
+    # 留痕：当时是按多大案值筛的人、筛出几个合格候选（抵押不足的被过滤掉）。
+    assert assigned_event["metadata"]["case_value"] == 100.0
+    assert assigned_event["metadata"]["qualified_candidates"] == 3
     assert "material_submitted" in event_types
     assert "vote_cast" in event_types
     assert "case_decided" in event_types

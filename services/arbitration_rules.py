@@ -24,7 +24,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
+from core.schemas import ArbitrationPoolMemberStatus
 from db.models.orm import (
+    ArbitrationPoolMemberModel,
     CapacityModel,
     IdentityRoleProfile,
     SubIdentityModel,
@@ -65,6 +67,76 @@ def min_stake_amount() -> float:
 
 def backed_stake_required() -> bool:
     return bool(settings.arbitration_require_backed_stake)
+
+
+def stake_coverage_multiple() -> float:
+    """抵押对案值的覆盖倍数。
+
+    下限锁死在 1.0：这是「被处理的订单金额必须低于抵押」这条底线本身，
+    配置只能把要求**调高**（多留安全垫），不能把仲裁员的抵押压到低于案值。
+    """
+    try:
+        value = float(settings.arbitration_stake_coverage_multiple)
+    except (TypeError, ValueError):
+        value = 1.0
+    return max(1.0, value)
+
+
+def stake_covers_case(
+    stake: float, case_value: float, *, multiple: float | None = None
+) -> bool:
+    """这个仲裁员的抵押，够不够处理这个金额的争议。
+
+    规则（2026-09-17 收紧）：**质押必须严格大于 案值 × 倍数**。
+
+    * 等号不算覆盖：抵押刚好等于案值时，一次误判就能把抵押打穿；
+    * 倍数由 ``ARBITRATION_STAKE_COVERAGE_MULTIPLE`` 控制，平台可以调高留安全垫；
+    * 案值为 0（没有托管金额）时，只要求质押 > 0。
+    """
+    ratio = stake_coverage_multiple() if multiple is None else max(0.0, float(multiple))
+    try:
+        stake_value = float(stake or 0.0)
+    except (TypeError, ValueError):
+        return False
+    if case_value is None or float(case_value) <= 0:
+        return stake_value > 0
+    return stake_value > float(case_value) * ratio + EPSILON
+
+
+async def case_value_of(db: AsyncSession, case_row: object) -> float:
+    """案件标的 = 该任务结算里被托管的总额（争议里真正可能被划走的钱）。"""
+    task_id = str(getattr(case_row, "task_id", "") or "")
+    if not task_id:
+        return 0.0
+    from db.stores.settlement_store import PostgresSettlementStore
+
+    state = await PostgresSettlementStore(db).get(task_id)
+    if state is None:
+        return 0.0
+    try:
+        return max(0.0, float(getattr(state, "escrow_amount", 0.0) or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+async def assert_arbitrator_covers_case(
+    db: AsyncSession, *, case_row: object, identity_id: str, what: str
+) -> float:
+    """仲裁员当前质押必须覆盖案值，否则不许参与这场争议。"""
+    member = await db.get(ArbitrationPoolMemberModel, identity_id)
+    try:
+        stake = float(getattr(member, "stake_amount", 0.0) or 0.0) if member else 0.0
+    except (TypeError, ValueError):
+        stake = 0.0
+    case_value = await case_value_of(db, case_row)
+    if not stake_covers_case(stake, case_value):
+        raise HTTPException(
+            409,
+            "arbitrator stake %.6f does not cover the case value %.6f "
+            "(stake must exceed case value x %.2f) for %s"
+            % (stake, case_value, stake_coverage_multiple(), what),
+        )
+    return stake
 
 
 # ---------------------------------------------------------------------------
@@ -225,20 +297,31 @@ def assert_panel_size_allowed(required: int) -> int:
 
 
 def filter_qualified_members(
-    members: Sequence[object], *, conflicted: set[str], exclude_ids: set[str] = frozenset()
+    members: Sequence[object],
+    *,
+    conflicted: set[str],
+    exclude_ids: set[str] = frozenset(),
+    case_value: float | None = None,
 ) -> list[object]:
-    """只留下：ACTIVE + 质押 > 0 + 不回避 + 未在庭。"""
+    """只留下：ACTIVE + 质押 > 0 + **抵押能覆盖案值** + 不回避 + 未在庭。"""
     floor = min_stake_amount()
     out = []
     for member in members:
         member_id = str(getattr(member, "arbitrator_identity_id", "") or "")
         if not member_id or member_id in exclude_ids or member_id in conflicted:
             continue
+        # 状态在这里再确认一次：SQL 已经筛过 ACTIVE，但一个刚被停权的仲裁员不该
+        # 因为「查询和派庭之间差了几毫秒」就坐进庭里。
+        if str(getattr(member, "status", "") or "").lower() != ArbitrationPoolMemberStatus.ACTIVE.value:
+            continue
         try:
             stake = float(getattr(member, "stake_amount", 0.0) or 0.0)
         except (TypeError, ValueError):
             continue
         if stake <= 0 or stake + EPSILON < floor:
+            continue
+        # 抵押必须覆盖案值：让抵押 10 的人去裁 100 的争议，等于让他拿 10 去赌 100。
+        if case_value is not None and not stake_covers_case(stake, case_value):
             continue
         out.append(member)
     return out
