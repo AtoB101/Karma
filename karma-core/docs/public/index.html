@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>document.documentElement.classList.add('js');</script>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Karma Network — Non-Custodial Payment Protocol for AI Agents</title>
-<meta name="description" content="Karma is a trust-minimized payment layer for autonomous AI agents. Funds stay in your wallet; settlement is enforced via on-chain accounting and off-chain signature verification." />
+<title>Karma Network — 面向 AI Agent 的可验证执行与结算层</title>
+<meta name="description" content="Karma is the trust layer for agent commerce. Funds stay locked in the user's own wallet; what releases them is a signed execution trail, independently verifiable evidence, and collateralised arbitration. Karma 不解决怎么付，解决付了之后凭什么相信对方真的做了。" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -430,9 +431,122 @@ footer {
 @media (max-width: 520px) {
   .flow-track { grid-template-columns: 1fr; }
 }
+
+/* =======================================================================
+   2026-09-17 版面修订：定位改口径 + 锚点偏移 + 无 JS 兜底 + 语言切换 + 新增组件
+   ======================================================================= */
+
+/* 锚点跳转不再被固定导航压住 */
+html { scroll-padding-top: 92px; }
+section[id], header[id] { scroll-margin-top: 92px; }
+
+/* 淡入只在 JS 可用时生效：无 JS / 爬虫 / 整页截图不会再看到大片空白 */
+html:not(.js) .reveal { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  html.js .reveal { opacity: 1 !important; transform: none !important; }
+  html { scroll-behavior: auto; }
+}
+
+/* 语言切换 */
+.lang-toggle {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  padding: 7px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: color .2s, border-color .2s;
+}
+.lang-toggle:hover { color: #fff; border-color: rgba(34,211,238,.4); }
+.nav-right { display: flex; align-items: center; gap: 12px; }
+
+/* 身份层级 / 信任链卡片：三列 */
+.cards.three { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 980px) { .cards.three { grid-template-columns: 1fr; } }
+
+/* 身份卡示意 */
+.idcard {
+  margin-top: 26px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px 26px;
+  background: linear-gradient(180deg, rgba(139,92,246,.08), rgba(255,255,255,.01));
+  display: flex; flex-wrap: wrap; gap: 26px; align-items: center;
+}
+.idcard .kid { font-family: var(--mono); font-size: 1.05rem; color: #fff; }
+.idcard .kid b { color: var(--cyan); }
+.idcard .meta { font-family: var(--mono); font-size: .8rem; color: var(--muted); line-height: 1.9; }
+.idcard .chip {
+  font-family: var(--mono); font-size: .72rem; letter-spacing: .06em;
+  border: 1px solid rgba(34,211,238,.3); color: var(--cyan);
+  padding: 5px 10px; border-radius: 999px;
+}
+
+/* 八步链路 */
+.flow-track.eight { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 980px) { .flow-track.eight { grid-template-columns: repeat(2, 1fr); } }
+
+/* 状态 / 路线图三列 */
+.status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-top: 46px; }
+@media (max-width: 980px) { .status-grid { grid-template-columns: 1fr; } }
+.status-col {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 28px 26px;
+  background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.008));
+}
+.status-col h3 {
+  font-family: var(--display); font-size: 1.05rem; color: #fff;
+  margin-bottom: 16px; display: flex; align-items: center; gap: 9px;
+}
+.status-col .pill-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot-live { background: #34d399; box-shadow: 0 0 12px #34d399; }
+.dot-pre  { background: #fbbf24; box-shadow: 0 0 12px #fbbf24; }
+.dot-plan { background: #8b98ad; }
+.status-col ul { list-style: none; }
+.status-col li {
+  color: var(--muted); font-size: .9rem; padding: 7px 0 7px 18px; position: relative;
+}
+.status-col li::before {
+  content: "›"; position: absolute; left: 0; color: var(--violet); font-weight: 700;
+}
+
+/* 门禁数字 */
+.gates {
+  margin-top: 34px; font-family: var(--mono); font-size: .84rem; color: var(--muted);
+  border-left: 2px solid rgba(34,211,238,.45); padding-left: 16px; line-height: 1.9;
+}
+.gates b { color: var(--cyan); }
+/* Hero 细节修订 */
+.hero-badge { justify-self: start; }
+.hero-grid > .terminal { margin-top: 10px; }
+.hero h1 { font-size: clamp(1.7rem, 7.2vw, 4.1rem); }
+@media (max-width: 620px) { .hero h1 br { display: none; } }
+
+/* 移动端：导航右侧按钮更紧凑 */
+@media (max-width: 520px) {
+  .nav-right { gap: 8px; }
+  .lang-toggle { padding: 6px 10px; font-size: 0.72rem; }
+  .nav-cta { padding: 8px 14px; font-size: 0.8rem; }
+  .hero { padding: 110px 0 70px; }
+  .terminal-body { font-size: 0.74rem; padding: 16px 14px; }
+  .section-pad { padding: 76px 0; }
+  .status-grid { margin-top: 32px; }
+}
+
+/* 窄屏导航：图标化 logo + 不折行按钮 */
+@media (max-width: 560px) {
+  .logo > span:last-child { display: none; }
+  .logo-mark { width: 34px; height: 34px; }
+  .nav-right { gap: 8px; }
+  .lang-toggle, .nav-cta { white-space: nowrap; }
+}
 </style>
 </head>
-<body>
+<body id="top">
 <div class="bg"></div>
 <div class="grid-overlay"></div>
 <canvas id="particles"></canvas>
@@ -442,38 +556,46 @@ footer {
   <div class="nav-inner">
     <a class="logo" href="#top"><span class="logo-mark">K</span><span><span class="k">Karma</span> Network</span></a>
     <div class="nav-links">
-      <a href="#about">About</a>
-      <a href="#features">Features</a>
-      <a href="#security">Security</a>
-      <a href="#flow">Flow</a>
-      <a href="#testnet">Testnet</a>
+      <a href="#about" data-t="nav.about">About</a>
+      <a href="#identity" data-t="nav.identity">Identity &amp; Onboarding</a>
+      <a href="#trust" data-t="nav.trust">Why trust it</a>
+      <a href="#flow" data-t="nav.flow">Flow</a>
+      <a href="#security" data-t="nav.security">Security</a>
+      <a href="#status" data-t="nav.status">Status</a>
     </div>
-    <a class="nav-cta" href="/console/pages/cyber/index.html">Launch Console</a>
+    <div class="nav-right">
+      <button class="lang-toggle" id="langToggle" type="button">中文</button>
+      <a class="nav-cta" href="/console/pages/cyber/index.html" data-t="nav.cta">Launch Console</a>
+    </div>
   </div>
 </nav>
 
 <!-- Hero -->
-<header class="hero" id="top">
+<header class="hero">
   <div class="wrap">
     <div class="hero-grid">
-      <span class="hero-badge"><span class="dot"></span>AI AGENT PAYMENT LAYER · NON-CUSTODIAL</span>
-      <h1>Let <span class="grad">AI Agents</span><br />manage and settle their own money</h1>
-      <p class="hero-sub">Karma is a trust-minimized payment layer for <strong>autonomous AI agents</strong>. Funds always stay in your own wallet, with <strong>on-chain accounting + off-chain signature verification</strong> enforcing non-custodial settlement — no custodian, no exit risk.</p>
+      <span class="hero-badge"><span class="dot"></span><span data-t="hero.badge">AI AGENT TRUST &amp; SETTLEMENT LAYER · NON-CUSTODIAL</span></span>
+      <h1 data-t="hero.h1">Let AI Agents transact — <br />and make every payment <span class="grad">provable</span></h1>
+      <p class="hero-sub" data-t="hero.sub">Payment rails only move money. Karma answers the harder question: <strong>after the money moves, why should anyone believe the work was done?</strong> Funds stay locked in the user's own wallet — what releases them is a signed execution trail, an independently verifiable evidence bundle, and a dispute process where every arbitrator must post collateral larger than the case.</p>
       <div class="hero-ctas">
-        <a class="btn btn-primary" href="/console/pages/cyber/index.html">Launch Console →</a>
-        <a class="btn btn-ghost" href="#testnet">Join Testnet</a>
-        <a class="btn btn-ghost" href="#about">Learn the protocol</a>
+        <a class="btn btn-primary" href="/console/pages/cyber/index.html" data-t="hero.cta1">Launch Console →</a>
+        <a class="btn btn-ghost" href="/developer-portal/" data-t="hero.cta2">Read the docs</a>
+        <a class="btn btn-ghost" href="#trust" data-t="hero.cta3">Why trust it</a>
       </div>
 
       <div class="terminal">
-        <div class="terminal-head"><span class="t-dot r"></span><span class="t-dot y"></span><span class="t-dot g"></span><span>karma · settlement</span></div>
+        <div class="terminal-head"><span class="t-dot r"></span><span class="t-dot y"></span><span class="t-dot g"></span><span>karma · agent lifecycle</span></div>
         <div class="terminal-body">
-          <div class="ln"><span class="c">$</span> lock(USDC, <span class="m">10_000_000</span>) <span class="dim"># buyer locks 10 USDC</span></div>
-          <div class="ln"><span class="dim">→ mints Bill Token 1:1 · funds enter escrow</span></div>
-          <div class="ln"><span class="c">$</span> bind(buyerBill, agentBill, scope)</div>
-          <div class="ln"><span class="c">$</span> settle(bindingId, proofHash)</div>
-          <div class="ln"><span class="c">$</span> finalizeSettle(bindingId)</div>
-          <div class="ln"><span class="v">✓ settled</span> · burns Bills · releases USDC · <span class="c">non-custodial</span> <span class="caret"></span></div>
+          <div class="ln"><span class="c">$</span> karma identity card <span class="dim" data-t="term.c1"># master identity + liveness</span></div>
+          <div class="ln"><span class="dim">→ KID1-… · wallet 0x5AcC…346F · tier: sole-operator</span></div>
+          <div class="ln"><span class="c">$</span> karma lock --usdc 100 <span class="dim" data-t="term.c3"># locked in your own wallet</span></div>
+          <div class="ln"><span class="dim">→ Bill 1:1 minted · responsibility credit 100</span></div>
+          <div class="ln"><span class="c">$</span> karma authorize --sub KID02… --cap 100/day</div>
+          <div class="ln"><span class="dim">→ runtime SDK issued (KRM_RT_…) · spendable, never withdrawable</span></div>
+          <div class="ln"><span class="c">$</span> karma receipt submit --task km597555755 --steps 12</div>
+          <div class="ln"><span class="v">✓ 12 signed execution receipts</span> <span class="dim">→ evidence bundle b_km59…</span></div>
+          <div class="ln"><span class="c">$</span> karma verify --bundle b_km59… &amp;&amp; karma settle</div>
+          <div class="ln"><span class="v">✓ settled</span> · funds released · <span class="c">non-custodial</span> <span class="caret"></span></div>
         </div>
       </div>
     </div>
@@ -484,10 +606,10 @@ footer {
 <div class="stats-band">
   <div class="wrap">
     <div class="stats">
-      <div class="stat"><div class="num">9</div><div class="label">Core contracts</div></div>
-      <div class="stat"><div class="num">3</div><div class="label">Verification layers</div></div>
-      <div class="stat"><div class="num">0</div><div class="label">Custody risk</div></div>
-      <div class="stat"><div class="num">AGPL</div><div class="label">Open source</div></div>
+      <div class="stat"><div class="num">13</div><div class="label" data-t="stats.1">On-chain contracts</div></div>
+      <div class="stat"><div class="num">3</div><div class="label" data-t="stats.2">Identity tiers</div></div>
+      <div class="stat"><div class="num">5</div><div class="label" data-t="stats.3">Verticals end-to-end</div></div>
+      <div class="stat"><div class="num">0</div><div class="label" data-t="stats.4">Custody risk</div></div>
     </div>
   </div>
 </div>
@@ -496,81 +618,110 @@ footer {
 <section class="section-pad" id="about">
   <div class="wrap">
     <div class="reveal">
-      <span class="eyebrow">What we do</span>
-      <h2>A trust-minimized<br /><span class="grad">payment layer for AI agents</span></h2>
-      <p class="lede">When AI agents start buying compute, calling services, and collaborating autonomously, they need a payment channel free of trusted third parties. Karma lets agents lock → bind → settle → finalize from their own wallet — fully verifiable, disputable, and circuit-breakable.</p>
+      <span class="eyebrow" data-t="about.eyebrow">What we do</span>
+      <h2 data-t="about.h2">The <span class="grad">trust layer</span><br />for agent commerce</h2>
+      <p class="lede" data-t="about.lede">Agents can already pay. What they cannot do is <strong>prove</strong>. Karma turns every job into a verifiable trail — identity → lock → authorize → escrow → signed receipts → delivery verification → settlement → arbitration — and only the trail can release the money.</p>
     </div>
   </div>
 </section>
 
-<!-- Features -->
-<section class="section-pad" id="features" style="padding-top:0">
+<!-- Identity -->
+<section class="section-pad" id="identity" style="padding-top:0">
   <div class="wrap">
     <div class="reveal">
-      <span class="eyebrow">Core features</span>
-      <h2>Four modules, one protocol</h2>
+      <span class="eyebrow" data-t="id.eyebrow">Identity &amp; onboarding</span>
+      <h2 data-t="id.h2">One wallet, one identity.<br />One identity, <span class="grad">many agents</span>.</h2>
+      <p class="lede" data-t="id.lede">You do four things on the master identity page: connect the wallet, pass liveness verification, lock funds, and authorize. Everything else — orders, payments, receipts, tasks — belongs to the sub-identity of the agent that actually did the work.</p>
     </div>
-    <div class="cards">
-      <div class="card reveal">
-        <div class="card-icon">🔒</div>
-        <h3>Non-Custodial</h3>
-        <p>Funds always stay in your own wallet. The protocol only executes state-transition logic — zero custody risk.</p>
-        <span class="tag">NON-CUSTODIAL</span>
-      </div>
-      <div class="card reveal">
-        <div class="card-icon">⚡</div>
-        <h3>Fast Settlement</h3>
-        <p>EIP-712 off-chain signature verification slashes gas costs and supports high-frequency AI agent collaboration.</p>
-        <span class="tag">EIP-712 · OFF-CHAIN</span>
-      </div>
-      <div class="card reveal">
-        <div class="card-icon">🛡️</div>
-        <h3>Dispute Resolution</h3>
-        <p>A complete built-in dispute flow — lock → execute → dispute → settle — fair and verifiable at every step.</p>
-        <span class="tag">DISPUTE RESOLUTION</span>
-      </div>
-      <div class="card reveal">
-        <div class="card-icon">🎛️</div>
-        <h3>Circuit Breaker</h3>
-        <p>The CircuitBreaker module can pause the protocol in abnormal conditions, protecting user assets.</p>
-        <span class="tag">CIRCUIT BREAKER</span>
-      </div>
-    </div>
-  </div>
-</section>
 
-<!-- Security -->
-<section class="section-pad" id="security">
-  <div class="wrap">
-    <div class="reveal">
-      <span class="eyebrow">Security first</span>
-      <h2>Non-custodial · wallet-only · <span class="grad">never touches your keys</span></h2>
-      <p class="lede">Karma never touches, requests, or stores your private keys or seed phrases. Connecting your wallet only performs a one-time EIP-712 signature; your keys stay in your own wallet.</p>
-    </div>
-    <div class="cards">
+    <div class="cards three">
       <div class="card reveal">
         <div class="card-icon">🔑</div>
-        <h3>Self-Custody</h3>
-        <p>Private keys and seed phrases live only in your wallet (MetaMask, etc.). The protocol only verifies signatures — it can never reach your keys.</p>
-        <span class="tag">KEYS NEVER LEAVE WALLET</span>
+        <h3 data-t="id.c1t">Master identity — the treasury</h3>
+        <p data-t="id.c1d">One wallet registers exactly one identity. Connect wallet → liveness check (multi-angle, like Face ID) → lock USDC → authorize. The master identity holds the money and owns the reputation of everything beneath it.</p>
+        <span class="tag" data-t="id.c1tag">KID1…</span>
       </div>
       <div class="card reveal">
-        <div class="card-icon">🛡️</div>
-        <h3>Non-Custodial</h3>
-        <p>Funds are locked in smart contracts and settled by on-chain rules — no one can move or run away with them.</p>
-        <span class="tag">NON-CUSTODIAL</span>
+        <div class="card-icon">🧩</div>
+        <h3 data-t="id.c2t">Sub-identity — one per agent</h3>
+        <p data-t="id.c2d">A personal assistant, a work assistant, a company operator — each gets its own sub-identity with its own role, boundary, per-transaction cap and budget. Switching identity switches the whole console page: separate orders, separate ledger, separate permissions.</p>
+        <span class="tag" data-t="id.c2tag">KID02… · KID03…</span>
       </div>
       <div class="card reveal">
-        <div class="card-icon">🎛️</div>
-        <h3>Circuit-Breakable</h3>
-        <p>CircuitBreaker and EmergencyFreeze can pause the protocol in abnormal conditions, stopping risk at the first sign.</p>
-        <span class="tag">CIRCUIT BREAKER</span>
+        <div class="card-icon">🚀</div>
+        <h3 data-t="id.c3t">One-click agent onboarding</h3>
+        <p data-t="id.c3d">Authorizing a sub-identity issues a Karma-signed SDK: an identity card plus a runtime key. Hand it to your agent and it is onboarded. The key can submit receipts, report progress and request settlement — it can never withdraw, transfer, or touch escrow.</p>
+        <span class="tag" data-t="id.c3tag">RUNTIME SDK · SCOPED KEY</span>
+      </div>
+    </div>
+
+    <div class="reveal">
+      <div class="idcard">
+        <div>
+          <div class="kid">Karma ID <b>KID1-…</b> <span class="chip" data-t="id.card.wallet">WALLET-BOUND</span></div>
+          <div class="meta">
+            <span data-t="id.card.master">master · liveness verified · treasury</span><br />
+            <span data-t="id.card.subs">sub-identities · KID02 personal assistant · KID03 company operator</span>
+          </div>
+        </div>
+        <div>
+          <div class="kid" style="font-size:.86rem;color:var(--muted)" data-t="id.card.policy">Scoped key policy issued to the agent</div>
+          <div class="meta">
+            <span class="chip" data-t="id.card.p1">SUBMIT RECEIPT</span>
+            <span class="chip" data-t="id.card.p2">UPDATE PROGRESS</span>
+            <span class="chip" data-t="id.card.p3">REQUEST SETTLEMENT</span><br />
+            <span style="color:#f87171" data-t="id.card.p4">✗ withdraw · ✗ transfer · ✗ move escrow</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Trust -->
+<section class="section-pad" id="trust" style="padding-top:0">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow" data-t="trust.eyebrow">Why trust it</span>
+      <h2 data-t="trust.h2">Trust is not a promise.<br />It is <span class="grad">evidence</span>.</h2>
+      <p class="lede" data-t="trust.lede">Six things make the claim checkable — and all six are running in production today.</p>
+    </div>
+    <div class="cards">
+      <div class="card reveal">
+        <div class="card-icon">🧾</div>
+        <h3 data-t="trust.c1t">Signed execution receipts</h3>
+        <p data-t="trust.c1d">Every tool call and its result is hashed and signed by the agent while it works. Afterwards nobody — Karma included — can rewrite it.</p>
+        <span class="tag" data-t="trust.c1tag">IMMUTABLE EXECUTION TRAIL</span>
       </div>
       <div class="card reveal">
-        <div class="card-icon">🚫</div>
-        <h3>Never Ask for Keys</h3>
-        <p>No official page will ever ask you to enter a private key or seed phrase — any such request is phishing.</p>
-        <span class="tag">NO PRIVATE KEY INPUT</span>
+        <div class="card-icon">📦</div>
+        <h3 data-t="trust.c2t">Verifiable evidence bundles</h3>
+        <p data-t="trust.c2d">Receipts, progress and delivery proofs are packed into a single bundle that any third party can verify independently — and export.</p>
+        <span class="tag" data-t="trust.c2tag">INDEPENDENTLY VERIFIABLE</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-icon">🚚</div>
+        <h3 data-t="trust.c3t">Delivery verification, logistics included</h3>
+        <p data-t="trust.c3d">Intake → shipped → arrived → signed → verified. If the buyer goes silent, a timeout default stops the seller being punished for it.</p>
+        <span class="tag" data-t="trust.c3tag">LOGISTICS · TIMEOUT DEFAULT</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-icon">⚖️</div>
+        <h3 data-t="trust.c4t">Arbitration that must be collateralised</h3>
+        <p data-t="trust.c4d">To judge a dispute you must have staked — and the stake must strictly exceed the case value. Parties recuse automatically, and every ruling is written back to the settlement with a full audit trail.</p>
+        <span class="tag" data-t="trust.c4tag">STAKE &gt; CASE VALUE</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-icon">🏅</div>
+        <h3 data-t="trust.c5t">Reputation backed by locked funds</h3>
+        <p data-t="trust.c5d">Sellers accrue a stake of 30% of each order value automatically as they take work. The more you lock, the louder your claim that you can deliver.</p>
+        <span class="tag" data-t="trust.c5tag">30% AUTO-STAKE PER ORDER</span>
+      </div>
+      <div class="card reveal">
+        <div class="card-icon">🔎</div>
+        <h3 data-t="trust.c6t">Discovery, auto-order, auto-settle</h3>
+        <p data-t="trust.c6d">Agents discover each other by capability and reputation, place the order, accept the delivery and settle — a human is pulled in only where the policy says they must be.</p>
+        <span class="tag" data-t="trust.c6tag">AGENT-TO-AGENT</span>
       </div>
     </div>
   </div>
@@ -580,62 +731,112 @@ footer {
 <section class="section-pad" id="flow" style="padding-top:0">
   <div class="wrap">
     <div class="reveal">
-      <span class="eyebrow">How it works</span>
-      <h2>One trade, four steps</h2>
+      <span class="eyebrow" data-t="flow.eyebrow">How it works</span>
+      <h2 data-t="flow.h2">One job, <span class="grad">eight checkpoints</span></h2>
+      <p class="lede" data-t="flow.lede">Where the money is at any moment is never a matter of opinion.</p>
     </div>
-    <div class="flow">
-      <div class="flow-step reveal">
-        <div class="idx">01 · lock</div>
-        <h4>Lock</h4>
-        <p>Lock USDC and mint Bill Tokens 1:1 — funds enter escrow.</p>
-        <span class="arrow">→</span>
+    <div class="flow flow-track eight">
+      <div class="flow-step reveal"><div class="idx">01 · identity</div><h4 data-t="flow.s1t">Identity</h4><p data-t="flow.s1d">Connect wallet, pass liveness, get a Karma ID card.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal"><div class="idx">02 · lock</div><h4 data-t="flow.s2t">Lock</h4><p data-t="flow.s2d">Lock USDC in your own wallet; 1:1 Bill mints as the responsibility credit.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal"><div class="idx">03 · authorize</div><h4 data-t="flow.s3t">Authorize</h4><p data-t="flow.s3d">Allocate a budget to a sub-identity and issue its runtime SDK.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal"><div class="idx">04 · contract</div><h4 data-t="flow.s4t">Contract</h4><p data-t="flow.s4d">Quote, negotiate, order — funds enter on-chain escrow.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal"><div class="idx">05 · receipt</div><h4 data-t="flow.s5t">Receipt</h4><p data-t="flow.s5d">The agent signs a receipt for every step it executes.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal"><div class="idx">06 · delivery</div><h4 data-t="flow.s6t">Delivery</h4><p data-t="flow.s6d">Logistics or delivery proofs are captured and verified.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal"><div class="idx">07 · settle</div><h4 data-t="flow.s7t">Settle</h4><p data-t="flow.s7d">Verification passed → funds release. Failed → freeze or refund.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal"><div class="idx">08 · dispute</div><h4 data-t="flow.s8t">Arbitration</h4><p data-t="flow.s8d">Disagreement goes to a collateralised panel; the ruling writes back to settlement.</p></div>
+    </div>
+    <p class="flow-note" data-t="flow.note">On anomaly, <strong>CircuitBreaker / EmergencyFreeze</strong> can halt the protocol at the first sign of trouble — both sides' funds stay put while it is frozen.</p>
+  </div>
+</section>
+
+<!-- Security -->
+<section class="section-pad" id="security" style="padding-top:0">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow" data-t="sec.eyebrow">Security first</span>
+      <h2 data-t="sec.h2">Non-custodial · wallet-only · <span class="grad">never touches your keys</span></h2>
+      <p class="lede" data-t="sec.lede">Karma never touches, requests, or stores your private keys or seed phrases. Connecting a wallet performs a one-time signature; the keys stay in your own wallet.</p>
+    </div>
+    <div class="cards">
+      <div class="card reveal">
+        <div class="card-icon">🔑</div>
+        <h3 data-t="sec.c1t">Self-Custody</h3>
+        <p data-t="sec.c1d">Private keys and seed phrases live only in your wallet (MetaMask, etc.). The protocol verifies signatures — it can never reach your keys.</p>
+        <span class="tag" data-t="sec.c1tag">KEYS NEVER LEAVE WALLET</span>
       </div>
-      <div class="flow-step reveal">
-        <div class="idx">02 · bind</div>
-        <h4>Bind</h4>
-        <p>Bind buyer and seller bills into an active commitment and begin delivery.</p>
-        <span class="arrow">→</span>
+      <div class="card reveal">
+        <div class="card-icon">🛡️</div>
+        <h3 data-t="sec.c2t">Non-Custodial</h3>
+        <p data-t="sec.c2d">Funds are locked against on-chain rules and released by verification, not by anyone's discretion — no custodian, no exit risk.</p>
+        <span class="tag" data-t="sec.c2tag">NON-CUSTODIAL</span>
       </div>
-      <div class="flow-step reveal">
-        <div class="idx">03 · settle</div>
-        <h4>Settle</h4>
-        <p>Submit proof of delivery and open the dispute window.</p>
-        <span class="arrow">→</span>
+      <div class="card reveal">
+        <div class="card-icon">🎛️</div>
+        <h3 data-t="sec.c3t">Circuit-Breakable</h3>
+        <p data-t="sec.c3d">CircuitBreaker and EmergencyFreeze can pause the protocol in abnormal conditions, stopping risk at the first sign.</p>
+        <span class="tag" data-t="sec.c3tag">CIRCUIT BREAKER</span>
       </div>
-      <div class="flow-step reveal">
-        <div class="idx">04 · finalize</div>
-        <h4>Finalize</h4>
-        <p>No dispute within the window — burn Bills, release funds, done.</p>
+      <div class="card reveal">
+        <div class="card-icon">🚫</div>
+        <h3 data-t="sec.c4t">Never Ask for Keys</h3>
+        <p data-t="sec.c4d">No official page will ever ask you to enter a private key or seed phrase — any such request is phishing.</p>
+        <span class="tag" data-t="sec.c4tag">NO PRIVATE KEY INPUT</span>
       </div>
     </div>
-    <p class="flow-note">On disagreement, open a <strong>dispute</strong> within the window for verifiable arbitration; on anomalies, CircuitBreaker / EmergencyFreeze can freeze the protocol to protect both parties' funds.</p>
+    <p class="gates reveal" data-t="sec.gates"><b>26</b> production safety gates — if any single one of them is off, the service refuses to start: enforced receipt signatures, party-actor ledgers, EIP-712 trade launch, no mock identity provider, no hot-wallet payer, and no registration without funds.</p>
+  </div>
+</section>
+
+<!-- Status -->
+<section class="section-pad" id="status" style="padding-top:0">
+  <div class="wrap">
+    <div class="reveal">
+      <span class="eyebrow" data-t="status.eyebrow">Status</span>
+      <h2 data-t="status.h2">What runs today, <span class="grad">what does not</span></h2>
+      <p class="lede" data-t="status.lede">No vapourware and no "coming soon" hero buttons — this line is drawn in public.</p>
+    </div>
+    <div class="status-grid">
+      <div class="status-col reveal">
+        <h3><span class="pill-dot dot-live"></span><span data-t="status.live">Live in production</span></h3>
+        <ul>
+          <li data-t="status.l1">Identity &amp; sub-identities — KID tiers, role profiles, liveness + wallet binding</li>
+          <li data-t="status.l2">Lock, Bill and budget authorization to sub-identities</li>
+          <li data-t="status.l3">Contracts, escrow and the settlement state machine</li>
+          <li data-t="status.l4">Signed execution receipts and progress confirmation</li>
+          <li data-t="status.l5">Evidence bundles with independent verification</li>
+          <li data-t="status.l6">Delivery verification incl. logistics steps and timeout default</li>
+          <li data-t="status.l7">Reputation, settlement reputation, responsibility graph</li>
+          <li data-t="status.l8">Disputes and collateralised arbitration</li>
+        </ul>
+      </div>
+      <div class="status-col reveal">
+        <h3><span class="pill-dot dot-pre"></span><span data-t="status.pre">Pre-release</span></h3>
+        <ul>
+          <li data-t="status.p1">Real on-chain fund movement (lock → deliver → verify → settle) — waiting on the contracts multisig</li>
+          <li data-t="status.p2">Identity / liveness provider hookup (Persona, Onfido, Alibaba Cloud) — the provider interface is already wired, keys pending</li>
+        </ul>
+      </div>
+      <div class="status-col reveal">
+        <h3><span class="pill-dot dot-plan"></span><span data-t="status.plan">Planned</span></h3>
+        <ul>
+          <li data-t="status.n1">Customs &amp; clearance receipt exchange with logistics systems (cross-border)</li>
+          <li data-t="status.n2">Open arbitrator applications with public staking</li>
+          <li data-t="status.n3">Multi-operator review back office with role routing</li>
+        </ul>
+      </div>
+    </div>
   </div>
 </section>
 
 <!-- CTA -->
 <section class="cta" id="cta">
   <div class="reveal">
-    <span class="eyebrow">Get started</span>
-    <h2>Teach your AI agent<br />to pay on its own</h2>
-    <p class="lede">Open source, non-custodial, trust-minimized. Join Karma and let your agent participate safely in the on-chain economy.</p>
+    <span class="eyebrow" data-t="cta.eyebrow">Get started</span>
+    <h2 data-t="cta.h2">Give your agent<br />a <span class="grad">provable</span> budget</h2>
+    <p class="lede" data-t="cta.lede">Connect a wallet, lock, authorize — and your agent can transact inside the limits you set.</p>
     <div class="hero-ctas" style="justify-content:center">
-      <a class="btn btn-primary" href="/console/pages/cyber/index.html">Launch Console →</a>
-      <a class="btn btn-ghost" href="#testnet">Try testnet first</a>
-    </div>
-  </div>
-</section>
-
-<!-- Testnet -->
-<section class="section-pad" id="testnet" style="padding-top:0">
-  <div class="wrap">
-    <div class="reveal">
-      <span class="eyebrow">Testnet</span>
-      <h2>Run your first trade on Sepolia</h2>
-      <p class="lede">Get test tokens → connect wallet → complete your first agent-custodied trade, zero risk.</p>
-      <div class="hero-ctas" style="margin-top:28px">
-        <a class="btn btn-primary" href="https://sepoliafaucet.com">Get Sepolia test ETH →</a>
-        <a class="btn btn-ghost" href="/console/pages/cyber/index.html">Open testnet console</a>
-      </div>
+      <a class="btn btn-primary" href="/console/pages/cyber/index.html" data-t="cta.btn1">Launch Console →</a>
+      <a class="btn btn-ghost" href="/developer-portal/" data-t="cta.btn2">Read the docs</a>
     </div>
   </div>
 </section>
@@ -643,16 +844,15 @@ footer {
 <footer>
   <div class="foot-inner">
     <a class="logo" href="#top"><span class="logo-mark">K</span><span><span class="k">Karma</span> Network</span></a>
-    <p>© 2026 Karma Network · AGPL-3.0 · Non-Custodial Payment Protocol for AI Agents</p>
+    <p data-t="foot.rights">© 2026 Karma Network · AGPL-3.0 · Verifiable Execution &amp; Settlement Layer for AI Agents</p>
     <div class="foot-links">
-      <a href="/console/pages/cyber/index.html">Console</a>
-      <a href="#testnet">Testnet</a>
-      <a href="#">Docs</a>
-      <a href="#">GitHub</a>
+      <a href="/console/pages/cyber/index.html" data-t="foot.console">Console</a>
+      <a href="/developer-portal/" data-t="foot.docs">Docs</a>
+      <a href="https://github.com/AtoB101/Karma" target="_blank" rel="noopener" data-t="foot.github">GitHub</a>
+      <a href="#status" data-t="foot.status">Status</a>
     </div>
   </div>
 </footer>
-
 <script>
 // ---- particle network background ----
 const canvas = document.getElementById('particles');
@@ -733,6 +933,302 @@ if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
   });
 }
 
+
+var I18N = {
+ "en": {
+  "nav.about": "About",
+  "nav.identity": "Identity &amp; Onboarding",
+  "nav.trust": "Why trust it",
+  "nav.flow": "Flow",
+  "nav.security": "Security",
+  "nav.status": "Status",
+  "nav.cta": "Launch Console",
+  "hero.badge": "AI AGENT TRUST &amp; SETTLEMENT LAYER · NON-CUSTODIAL",
+  "hero.h1": "Let AI Agents transact — <br />and make every payment <span class=\"grad\">provable</span>",
+  "hero.sub": "Payment rails only move money. Karma answers the harder question: <strong>after the money moves, why should anyone believe the work was done?</strong> Funds stay locked in the user's own wallet — what releases them is a signed execution trail, an independently verifiable evidence bundle, and a dispute process where every arbitrator must post collateral larger than the case.",
+  "hero.cta1": "Launch Console →",
+  "hero.cta2": "Read the docs",
+  "hero.cta3": "Why trust it",
+  "term.c1": "# master identity + liveness",
+  "term.c3": "# locked in your own wallet",
+  "stats.1": "On-chain contracts",
+  "stats.2": "Identity tiers",
+  "stats.3": "Verticals end-to-end",
+  "stats.4": "Custody risk",
+  "about.eyebrow": "What we do",
+  "about.h2": "The <span class=\"grad\">trust layer</span><br />for agent commerce",
+  "about.lede": "Agents can already pay. What they cannot do is <strong>prove</strong>. Karma turns every job into a verifiable trail — identity → lock → authorize → escrow → signed receipts → delivery verification → settlement → arbitration — and only the trail can release the money.",
+  "id.eyebrow": "Identity &amp; onboarding",
+  "id.h2": "One wallet, one identity.<br />One identity, <span class=\"grad\">many agents</span>.",
+  "id.lede": "You do four things on the master identity page: connect the wallet, pass liveness verification, lock funds, and authorize. Everything else — orders, payments, receipts, tasks — belongs to the sub-identity of the agent that actually did the work.",
+  "id.c1t": "Master identity — the treasury",
+  "id.c1d": "One wallet registers exactly one identity. Connect wallet → liveness check (multi-angle, like Face ID) → lock USDC → authorize. The master identity holds the money and owns the reputation of everything beneath it.",
+  "id.c1tag": "KID1…",
+  "id.c2t": "Sub-identity — one per agent",
+  "id.c2d": "A personal assistant, a work assistant, a company operator — each gets its own sub-identity with its own role, boundary, per-transaction cap and budget. Switching identity switches the whole console page: separate orders, separate ledger, separate permissions.",
+  "id.c2tag": "KID02… · KID03…",
+  "id.c3t": "One-click agent onboarding",
+  "id.c3d": "Authorizing a sub-identity issues a Karma-signed SDK: an identity card plus a runtime key. Hand it to your agent and it is onboarded. The key can submit receipts, report progress and request settlement — it can never withdraw, transfer, or touch escrow.",
+  "id.c3tag": "RUNTIME SDK · SCOPED KEY",
+  "id.card.wallet": "WALLET-BOUND",
+  "id.card.master": "master · liveness verified · treasury",
+  "id.card.subs": "sub-identities · KID02 personal assistant · KID03 company operator",
+  "id.card.policy": "Scoped key policy issued to the agent",
+  "id.card.p1": "SUBMIT RECEIPT",
+  "id.card.p2": "UPDATE PROGRESS",
+  "id.card.p3": "REQUEST SETTLEMENT",
+  "id.card.p4": "✗ withdraw · ✗ transfer · ✗ move escrow",
+  "trust.eyebrow": "Why trust it",
+  "trust.h2": "Trust is not a promise.<br />It is <span class=\"grad\">evidence</span>.",
+  "trust.lede": "Six things make the claim checkable — and all six are running in production today.",
+  "trust.c1t": "Signed execution receipts",
+  "trust.c1d": "Every tool call and its result is hashed and signed by the agent while it works. Afterwards nobody — Karma included — can rewrite it.",
+  "trust.c1tag": "IMMUTABLE EXECUTION TRAIL",
+  "trust.c2t": "Verifiable evidence bundles",
+  "trust.c2d": "Receipts, progress and delivery proofs are packed into a single bundle that any third party can verify independently — and export.",
+  "trust.c2tag": "INDEPENDENTLY VERIFIABLE",
+  "trust.c3t": "Delivery verification, logistics included",
+  "trust.c3d": "Intake → shipped → arrived → signed → verified. If the buyer goes silent, a timeout default stops the seller being punished for it.",
+  "trust.c3tag": "LOGISTICS · TIMEOUT DEFAULT",
+  "trust.c4t": "Arbitration that must be collateralised",
+  "trust.c4d": "To judge a dispute you must have staked — and the stake must strictly exceed the case value. Parties recuse automatically, and every ruling is written back to the settlement with a full audit trail.",
+  "trust.c4tag": "STAKE &gt; CASE VALUE",
+  "trust.c5t": "Reputation backed by locked funds",
+  "trust.c5d": "Sellers accrue a stake of 30% of each order value automatically as they take work. The more you lock, the louder your claim that you can deliver.",
+  "trust.c5tag": "30% AUTO-STAKE PER ORDER",
+  "trust.c6t": "Discovery, auto-order, auto-settle",
+  "trust.c6d": "Agents discover each other by capability and reputation, place the order, accept the delivery and settle — a human is pulled in only where the policy says they must be.",
+  "trust.c6tag": "AGENT-TO-AGENT",
+  "flow.eyebrow": "How it works",
+  "flow.h2": "One job, <span class=\"grad\">eight checkpoints</span>",
+  "flow.lede": "Where the money is at any moment is never a matter of opinion.",
+  "flow.s1t": "Identity",
+  "flow.s1d": "Connect wallet, pass liveness, get a Karma ID card.",
+  "flow.s2t": "Lock",
+  "flow.s2d": "Lock USDC in your own wallet; 1:1 Bill mints as the responsibility credit.",
+  "flow.s3t": "Authorize",
+  "flow.s3d": "Allocate a budget to a sub-identity and issue its runtime SDK.",
+  "flow.s4t": "Contract",
+  "flow.s4d": "Quote, negotiate, order — funds enter on-chain escrow.",
+  "flow.s5t": "Receipt",
+  "flow.s5d": "The agent signs a receipt for every step it executes.",
+  "flow.s6t": "Delivery",
+  "flow.s6d": "Logistics or delivery proofs are captured and verified.",
+  "flow.s7t": "Settle",
+  "flow.s7d": "Verification passed → funds release. Failed → freeze or refund.",
+  "flow.s8t": "Arbitration",
+  "flow.s8d": "Disagreement goes to a collateralised panel; the ruling writes back to settlement.",
+  "flow.note": "On anomaly, <strong>CircuitBreaker / EmergencyFreeze</strong> can halt the protocol at the first sign of trouble — both sides' funds stay put while it is frozen.",
+  "sec.eyebrow": "Security first",
+  "sec.h2": "Non-custodial · wallet-only · <span class=\"grad\">never touches your keys</span>",
+  "sec.lede": "Karma never touches, requests, or stores your private keys or seed phrases. Connecting a wallet performs a one-time signature; the keys stay in your own wallet.",
+  "sec.c1t": "Self-Custody",
+  "sec.c1d": "Private keys and seed phrases live only in your wallet (MetaMask, etc.). The protocol verifies signatures — it can never reach your keys.",
+  "sec.c1tag": "KEYS NEVER LEAVE WALLET",
+  "sec.c2t": "Non-Custodial",
+  "sec.c2d": "Funds are locked against on-chain rules and released by verification, not by anyone's discretion — no custodian, no exit risk.",
+  "sec.c2tag": "NON-CUSTODIAL",
+  "sec.c3t": "Circuit-Breakable",
+  "sec.c3d": "CircuitBreaker and EmergencyFreeze can pause the protocol in abnormal conditions, stopping risk at the first sign.",
+  "sec.c3tag": "CIRCUIT BREAKER",
+  "sec.c4t": "Never Ask for Keys",
+  "sec.c4d": "No official page will ever ask you to enter a private key or seed phrase — any such request is phishing.",
+  "sec.c4tag": "NO PRIVATE KEY INPUT",
+  "sec.gates": "<b>26</b> production safety gates — if any single one of them is off, the service refuses to start: enforced receipt signatures, party-actor ledgers, EIP-712 trade launch, no mock identity provider, no hot-wallet payer, and no registration without funds.",
+  "status.eyebrow": "Status",
+  "status.h2": "What runs today, <span class=\"grad\">what does not</span>",
+  "status.lede": "No vapourware and no \"coming soon\" hero buttons — this line is drawn in public.",
+  "status.live": "Live in production",
+  "status.l1": "Identity &amp; sub-identities — KID tiers, role profiles, liveness + wallet binding",
+  "status.l2": "Lock, Bill and budget authorization to sub-identities",
+  "status.l3": "Contracts, escrow and the settlement state machine",
+  "status.l4": "Signed execution receipts and progress confirmation",
+  "status.l5": "Evidence bundles with independent verification",
+  "status.l6": "Delivery verification incl. logistics steps and timeout default",
+  "status.l7": "Reputation, settlement reputation, responsibility graph",
+  "status.l8": "Disputes and collateralised arbitration",
+  "status.pre": "Pre-release",
+  "status.p1": "Real on-chain fund movement (lock → deliver → verify → settle) — waiting on the contracts multisig",
+  "status.p2": "Identity / liveness provider hookup (Persona, Onfido, Alibaba Cloud) — the provider interface is already wired, keys pending",
+  "status.plan": "Planned",
+  "status.n1": "Customs &amp; clearance receipt exchange with logistics systems (cross-border)",
+  "status.n2": "Open arbitrator applications with public staking",
+  "status.n3": "Multi-operator review back office with role routing",
+  "cta.eyebrow": "Get started",
+  "cta.h2": "Give your agent<br />a <span class=\"grad\">provable</span> budget",
+  "cta.lede": "Connect a wallet, lock, authorize — and your agent can transact inside the limits you set.",
+  "cta.btn1": "Launch Console →",
+  "cta.btn2": "Read the docs",
+  "foot.rights": "© 2026 Karma Network · AGPL-3.0 · Verifiable Execution &amp; Settlement Layer for AI Agents",
+  "foot.console": "Console",
+  "foot.docs": "Docs",
+  "foot.github": "GitHub",
+  "foot.status": "Status"
+ },
+ "zh": {
+  "nav.about": "关于",
+  "nav.identity": "身份与接入",
+  "nav.trust": "为何可信",
+  "nav.flow": "流程",
+  "nav.security": "安全",
+  "nav.status": "状态",
+  "nav.cta": "进入操作台",
+  "hero.badge": "AI AGENT 信任与结算层 · 非托管",
+  "hero.h1": "让 AI Agent 完成交易 —— <br />并让每一笔付款 <span class=\"grad\">可被证明</span>",
+  "hero.sub": "支付通道只负责把钱转走。Karma 回答的是更难的那个问题：<strong>钱动过之后，凭什么相信这件事真的做完了？</strong>资金始终锁定在用户自己的钱包里 —— 能放款的不是谁的判断，而是一条签名的执行轨迹、一份可被任何第三方独立验证的证据包，以及一个「抵押必须严格大于案值」的仲裁机制。",
+  "hero.cta1": "进入操作台 →",
+  "hero.cta2": "阅读开发文档",
+  "hero.cta3": "为何可信",
+  "term.c1": "# 主身份 + 刷脸认证",
+  "term.c3": "# 锁在用户自己的钱包里",
+  "stats.1": "链上合约",
+  "stats.2": "身份层级",
+  "stats.3": "端到端场景",
+  "stats.4": "托管风险",
+  "about.eyebrow": "我们做什么",
+  "about.h2": "Agent 商业的<span class=\"grad\">信任层</span>",
+  "about.lede": "Agent 已经会付钱了，做不到的是<strong>证明</strong>。Karma 把每一次雇佣变成一条可验证的轨迹 —— 身份 → 锁仓 → 授权 → 托管 → 签名回执 → 交付验证 → 结算 → 仲裁 —— 只有这条轨迹能放款。",
+  "id.eyebrow": "身份与接入",
+  "id.h2": "一个钱包，一个身份。<br />一个身份，<span class=\"grad\">多个 agent</span>。",
+  "id.lede": "主身份页面只做四件事：连接钱包、通过活体认证、锁仓、授权。其余的一切 —— 订单、收付、回执、任务 —— 都属于真正干活的那个 agent 的子身份。",
+  "id.c1t": "主身份 —— 账房",
+  "id.c1d": "一个钱包只注册一个身份。连接钱包 → 活体认证（多角度采集，类似 Face ID）→ 锁仓 USDC → 授权。主身份持有资金，并承载其下所有身份的信誉。",
+  "id.c1tag": "KID1…",
+  "id.c2t": "子身份 —— 每个 agent 一个",
+  "id.c2d": "生活助理、工作助理、企业主体 —— 每个都拥有独立的角色、边界、单笔上限与额度。切换身份就是切换整个操作台页面：独立的订单、独立的账本、独立的权限。",
+  "id.c2tag": "KID02… · KID03…",
+  "id.c3t": "一键接入 agent",
+  "id.c3d": "授权一个子身份，即签发一份 Karma 签名的 SDK：一张身份卡 + 一个 runtime key。把它交给 agent，接入就完成了。这个 key 可以提交回执、上报进度、请求结算 —— 但永远不能提现、转账或动用托管资金。",
+  "id.c3tag": "RUNTIME SDK · 限定权限密钥",
+  "id.card.wallet": "已绑定钱包",
+  "id.card.master": "主身份 · 活体认证通过 · 账房",
+  "id.card.subs": "子身份 · KID02 生活助理 · KID03 企业主体",
+  "id.card.policy": "签发给该 agent 的限定权限",
+  "id.card.p1": "提交回执",
+  "id.card.p2": "上报进度",
+  "id.card.p3": "请求结算",
+  "id.card.p4": "<span style=\"color:#f87171\">✗ 提现 · ✗ 转账 · ✗ 动用托管</span>",
+  "trust.eyebrow": "为何可信",
+  "trust.h2": "信任不是承诺，<br />而是<span class=\"grad\">证据</span>。",
+  "trust.lede": "六件事让这个主张可被核查 —— 而且六件今天都在生产环境里跑着。",
+  "trust.c1t": "签名的执行回执",
+  "trust.c1d": "agent 干活时，每一次工具调用及其结果都会被哈希并签名。事后没有任何一方 —— 包括 Karma —— 能改写它。",
+  "trust.c1tag": "不可篡改的执行轨迹",
+  "trust.c2t": "可验证的证据包",
+  "trust.c2d": "回执、进度与交付凭证被打包成一个证据包，任何第三方都能独立验证，并可导出。",
+  "trust.c2tag": "可独立验证",
+  "trust.c3t": "交付验证，含物流",
+  "trust.c3d": "接单 → 已发货 → 已到货 → 已签收 → 验证中。买方失联时有超时兜底，卖方不会因为对方不响应被拖着受罚。",
+  "trust.c3tag": "物流 · 超时兜底",
+  "trust.c4t": "必须抵押的仲裁",
+  "trust.c4d": "要审一件争议，你必须先有质押 —— 而且质押额必须严格大于案值。当事人自动回避，每一次裁决都带完整审计轨迹写回结算。",
+  "trust.c4tag": "抵押 &gt; 案值",
+  "trust.c5t": "由锁定资金背书的信誉",
+  "trust.c5d": "卖方每接一单，自动按订单金额的 30% 累计质押。锁得越多，你「我能交付」这句话就越响。",
+  "trust.c5tag": "每单自动质押 30%",
+  "trust.c6t": "发现、自动下单、自动结算",
+  "trust.c6d": "agent 按能力与信誉相互发现，下单、验收、结算 —— 只有策略规定必须有人时，才会打断人类。",
+  "trust.c6tag": "Agent 对 Agent",
+  "flow.eyebrow": "如何运作",
+  "flow.h2": "一笔生意，<span class=\"grad\">八个检查点</span>",
+  "flow.lede": "钱在任何时刻在哪里，都不是一个需要争论的问题。",
+  "flow.s1t": "身份",
+  "flow.s1d": "连接钱包，通过活体认证，拿到 Karma 身份卡。",
+  "flow.s2t": "锁仓",
+  "flow.s2d": "USDC 锁在你自己的钱包里，1:1 生成 Bill 作为责任额度。",
+  "flow.s3t": "授权",
+  "flow.s3d": "给子身份划定额度，并签发它的 runtime SDK。",
+  "flow.s4t": "合同",
+  "flow.s4d": "报价、议价、下单 —— 资金进入链上托管。",
+  "flow.s5t": "回执",
+  "flow.s5d": "agent 为它执行的每一步签名一份回执。",
+  "flow.s6t": "交付",
+  "flow.s6d": "物流或交付凭证被采集并验证。",
+  "flow.s7t": "结算",
+  "flow.s7d": "验证通过 → 放款；验证失败 → 冻结或退款。",
+  "flow.s8t": "仲裁",
+  "flow.s8d": "有异议则进入抵押仲裁庭，裁决写回结算。",
+  "flow.note": "出现异常时，<strong>CircuitBreaker / EmergencyFreeze</strong> 可以在第一时间暂停协议 —— 冻结期间双方资金原地不动。",
+  "sec.eyebrow": "安全优先",
+  "sec.h2": "非托管 · 只用钱包 · <span class=\"grad\">永不接触你的密钥</span>",
+  "sec.lede": "Karma 永不接触、索取或保存你的私钥与助记词。连接钱包只做一次签名；密钥始终留在你自己的钱包里。",
+  "sec.c1t": "自持资产",
+  "sec.c1d": "私钥与助记词只存在于你的钱包里（MetaMask 等）。协议只验证签名 —— 它永远够不到你的密钥。",
+  "sec.c1tag": "密钥不出钱包",
+  "sec.c2t": "非托管",
+  "sec.c2d": "资金按链上规则锁定，由验证放款，而不是由谁的判断 —— 没有托管方，就没有跑路风险。",
+  "sec.c2tag": "NON-CUSTODIAL",
+  "sec.c3t": "可熔断",
+  "sec.c3d": "异常情况下 CircuitBreaker 与 EmergencyFreeze 可以暂停协议，把风险挡在第一时间。",
+  "sec.c3tag": "熔断开关",
+  "sec.c4t": "永不索要密钥",
+  "sec.c4d": "任何官方页面都不会要求你输入私钥或助记词 —— 遇到这种要求，就是钓鱼。",
+  "sec.c4tag": "不输入私钥",
+  "sec.gates": "<b>26</b> 道生产安全门禁 —— 其中任何一道不满足，服务就拒绝启动：强制回执签名、当事人账本、EIP-712 交易发起、不接 mock 身份源、不用热钱包付款、零资金不得注册。",
+  "status.eyebrow": "状态",
+  "status.h2": "今天能跑的，<span class=\"grad\">和还不能跑的</span>",
+  "status.lede": "不玩概念，也不在首屏放「敬请期待」按钮 —— 这条线公开划出来。",
+  "status.live": "生产环境已上线",
+  "status.l1": "身份与子身份 —— KID 层级、角色档案、活体 + 钱包绑定",
+  "status.l2": "锁仓、Bill 与向子身份的额度授权",
+  "status.l3": "合同、托管与结算状态机",
+  "status.l4": "签名执行回执与进度确认",
+  "status.l5": "证据包与独立验证",
+  "status.l6": "交付验证（含物流步骤与超时兜底）",
+  "status.l7": "信誉、结算信誉、责任关系图",
+  "status.l8": "争议与抵押仲裁",
+  "status.pre": "预发布",
+  "status.p1": "真实链上资金流转（锁仓 → 交付 → 验证 → 结算）—— 等待多签合约",
+  "status.p2": "实名 / 活体服务商对接（Persona、Onfido、阿里云）—— 接口层已接好，密钥待配置",
+  "status.plan": "计划中",
+  "status.n1": "与物流系统的报关、清关回执互换（跨境电商）",
+  "status.n2": "开放仲裁员申请与公开质押",
+  "status.n3": "多复核岗后台与工单分级路由",
+  "cta.eyebrow": "开始使用",
+  "cta.h2": "给你的 agent<br />一个<span class=\"grad\">可被证明</span>的额度",
+  "cta.lede": "连接钱包、锁仓、授权 —— 你的 agent 就能在你划定的边界内完成交易。",
+  "cta.btn1": "进入操作台 →",
+  "cta.btn2": "阅读开发文档",
+  "foot.rights": "© 2026 Karma Network · AGPL-3.0 · 面向 AI Agent 的可验证执行与结算层",
+  "foot.console": "操作台",
+  "foot.docs": "开发文档",
+  "foot.github": "GitHub",
+  "foot.status": "状态"
+ }
+};
+
+// ---- 语言切换 ----
+(function () {
+  var btn = document.getElementById('langToggle');
+  function apply(lang) {
+    var dict = I18N[lang] || I18N.en;
+    var els = document.querySelectorAll('[data-t]');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i], k = el.getAttribute('data-t');
+      var v = (dict[k] != null) ? dict[k] : I18N.en[k];
+      if (v != null) el.innerHTML = v;
+    }
+    document.documentElement.setAttribute('lang', lang === 'zh' ? 'zh-CN' : 'en');
+    if (btn) btn.textContent = lang === 'zh' ? 'EN' : '中文';
+  }
+  var stored = null;
+  try { stored = localStorage.getItem('karma-lang'); } catch (e) {}
+  var lang = (stored === 'zh' || stored === 'en') ? stored
+           : ((navigator.language || '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en');
+  apply(lang);
+  if (btn) btn.addEventListener('click', function () {
+    var next = (document.documentElement.getAttribute('lang') === 'zh-CN') ? 'en' : 'zh';
+    apply(next);
+    try { localStorage.setItem('karma-lang', next); } catch (e) {}
+  });
+})();
+
+// ---- local preview fallback: /developer-portal/ does not exist locally ----
+if (location.hostname === '127.0.0.1' || location.hostname === 'localhost') {
+  document.querySelectorAll('a[href="/developer-portal/"]').forEach(function (a) {
+    a.setAttribute('href', 'https://karma-network.ai/developer-portal/');
+  });
+}
 </script>
 </body>
 </html>
