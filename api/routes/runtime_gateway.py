@@ -283,6 +283,12 @@ async def runtime_list_keys(body: ListRuntimeKeysBody, db: AsyncSession = Depend
             "single_limit": r.single_limit,
             "daily_limit": r.daily_limit,
             "created_at": r.created_at.isoformat() if r.created_at else None,
+            # 绑定状态要给用户看：绑了 agent 公钥以后，光有钥匙字符串花不了钱。
+            "agent_binding": r.agent_binding,
+            "key_binding": r.key_binding,
+            "agent_fingerprint": (
+                agent_binding_fingerprint(r.agent_public_key) if r.agent_public_key else ""
+            ),
         }
         for r in rows
     ]

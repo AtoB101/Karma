@@ -186,10 +186,23 @@
               })
               .join("\n")
           ) +
-          "</pre></div>";
+          "</pre></div>" +
+          bindingHint(state.keys);
       }
     }
     return out;
+  }
+
+  // 绑没绑 agent 公钥是用户唯一看得懂的安全状态：绑了以后，光有钥匙字符串花不了钱。
+  // 单独一段、整句文案 —— 别塞进上面那串 <pre> 里，那样翻译引擎取不到整段。
+  function bindingHint(keys) {
+    var live = (keys || []).filter(function (k) { return (k.status || "") === "active"; });
+    if (!live.length) return "";
+    var unbound = live.filter(function (k) { return (k.key_binding || "service") !== "agent"; });
+    if (!unbound.length) {
+      return '<p class="ag-hint">运行时密钥已绑定 agent 公钥：每个请求都要 agent 私钥签名，光有钥匙不能办事</p>';
+    }
+    return '<p class="ag-hint">运行时密钥还没绑定 agent 公钥：agent 首次接入时会自动绑上，绑好前光有钥匙就能用</p>';
   }
 
   function render() {

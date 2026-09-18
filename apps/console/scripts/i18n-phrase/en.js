@@ -2337,3 +2337,8 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "公钥绑定": "Public-key binding",
   "等 agent 领取时绑定 · 绑定后每个请求都要 agent 私钥签名，光有钥匙不能用": "Bound when the agent claims it · afterwards every request must be signed by the agent's private key, so the key alone is useless",
 });
+// --- dynamic-append-19: 操作台钥匙列表的绑定状态 ---
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "运行时密钥已绑定 agent 公钥：每个请求都要 agent 私钥签名，光有钥匙不能办事": "Runtime key is bound to the agent's public key: every request must be signed by the agent's private key, so the key alone gets you nothing",
+  "运行时密钥还没绑定 agent 公钥：agent 首次接入时会自动绑上，绑好前光有钥匙就能用": "The runtime key is not bound to an agent public key yet: the agent binds it automatically on first connect — until then the key alone is enough to use it",
+});

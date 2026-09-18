@@ -2339,3 +2339,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "公钥绑定": "Vinculación de clave pública",
   "等 agent 领取时绑定 · 绑定后每个请求都要 agent 私钥签名，光有钥匙不能用": "Se vincula cuando el agent la reclama · después, cada request tiene que venir firmado con la clave privada del agent: la clave sola no sirve",
 });
+// --- dynamic-append-19: 操作台钥匙列表的绑定状态 ---
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
+  "运行时密钥已绑定 agent 公钥：每个请求都要 agent 私钥签名，光有钥匙不能办事": "La clave de ejecución está vinculada a la clave pública del agent: cada request tiene que venir firmado con la clave privada del agent, así que la clave sola no sirve para nada",
+  "运行时密钥还没绑定 agent 公钥：agent 首次接入时会自动绑上，绑好前光有钥匙就能用": "La clave de ejecución todavía no está vinculada a una clave pública del agent: el agent la vincula sola la primera vez que se conecta; hasta entonces basta con la clave",
+});
