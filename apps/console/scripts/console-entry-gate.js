@@ -75,7 +75,44 @@
     if (box) box.hidden = signedIn();
   }
 
+  /**
+   * 门口也能换语言：用户还没进门，不该先被迫看一门他读不懂的语言。
+   * 转发给顶栏那个 #cyberLang，走同一条切换逻辑，避免两套实现走偏。
+   */
+  function bindLang() {
+    var sel = document.getElementById("gateLang");
+    var i18n = global.CYBER_I18N;
+    if (!sel || !i18n) return;
+    var langs = i18n.SHIPPED_LANGS || [];
+    var labels = i18n.LANG_LABELS || {};
+    if (langs.length) {
+      sel.innerHTML = "";
+      langs.forEach(function (code) {
+        var opt = document.createElement("option");
+        opt.value = code;
+        opt.textContent = labels[code] || code;
+        sel.appendChild(opt);
+      });
+    }
+    sel.value = i18n.getLang();
+    sel.addEventListener("change", function () {
+      var top = document.getElementById("cyberLang");
+      if (top) {
+        top.value = sel.value;
+        top.dispatchEvent(new Event("change", { bubbles: true }));
+        return;
+      }
+      i18n.setLang(sel.value);
+      i18n.ensureExt(sel.value, function () { i18n.applyCyberI18n(); });
+    });
+    document.addEventListener("karma-lang-changed", function (ev) {
+      var code = (ev && ev.detail && ev.detail.lang) || i18n.getLang();
+      if (sel.value !== code) sel.value = code;
+    });
+  }
+
   function bind() {
+    bindLang();
     /* 先按「没连上」处理：脚本执行到这里说明 JS 是活的，
        那么没会话就必须先过门。 */
     sync();

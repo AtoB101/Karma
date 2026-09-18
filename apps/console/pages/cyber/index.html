@@ -24,6 +24,22 @@
         </div>
         <div class="api-status" data-wallet-status>—</div>
         <div class="entry-gate-hint" id="entry-gate-hint">连上后这里会显示你的主身份 ID 和钱包地址。</div>
+        <!-- 还没进门也能先把界面换成自己读得懂的语言。 -->
+        <div class="entry-gate-lang">
+          <label class="lang-select" style="display: flex; align-items: center; gap: 8px; border: none; background: transparent">
+          <span data-i18n="api.lang">语言</span>
+          <!-- First-paint fallback; console-entry-gate.js rewrites this from
+               CYBER_I18N.SHIPPED_LANGS. Keep the two lists identical. -->
+          <select id="gateLang" class="lang-select">
+            <option value="zh-CN">中文</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+            <option value="es-AR">Español (Argentina)</option>
+            <option value="es-SV">Español (El Salvador)</option>
+          </select>
+          </label>
+        </div>
       </div>
     </div>
     <div class="app">
@@ -134,6 +150,10 @@
                 <select id="cyberLang" class="lang-select">
                   <option value="zh-CN">中文</option>
                   <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
+                  <option value="es-AR">Español (Argentina)</option>
+                  <option value="es-SV">Español (El Salvador)</option>
                 </select>
               </label>
               <button type="button" class="btn primary" data-wallet-connect>🔗 连接钱包</button>
@@ -1055,7 +1075,7 @@
               <button type="button" class="btn primary" id="mk-publish" disabled>② 钱包签名并上架</button>
               <span class="api-status" id="mk-status">—</span>
             </div>
-            <pre class="out" id="mk-sign-message" style="margin-top:10px;max-height:220px;overflow:auto">① 先生成待签声明</pre>
+            <pre class="out" id="mk-sign-message" data-i18n-phrase style="margin-top:10px;max-height:220px;overflow:auto">① 先生成待签声明</pre>
             <div style="margin-top:12px">
               <button type="button" class="btn" id="mk-load-mine">刷新我的技能</button>
             </div>

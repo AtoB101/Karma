@@ -221,15 +221,14 @@
         });
       });
       /* 刷新完直接把数字写出来：用户点完锁仓，最想知道的就是「锁进去没有」。 */
+      const i18n = window.CYBER_I18N;
       setApiStatus(
-        window.CYBER_I18N.t("api.status_refreshed") +
-          " · 总锁仓 " +
-          fmtNum(locked) +
-          " · 可用 " +
-          fmtNum(available) +
-          " · @" +
-          new Date().toLocaleTimeString() +
-          (capError ? " · 台账接口异常：" + capError : ""),
+        i18n.Tf(
+          "额度已刷新 · 总锁仓 {0} · 可用 {1} · @{2}",
+          fmtNum(locked),
+          fmtNum(available),
+          new Date().toLocaleTimeString()
+        ) + (capError ? i18n.Tf(" · 台账接口异常：{0}", capError) : ""),
         false
       );
       document.dispatchEvent(new CustomEvent("karma-capacity-changed", { detail: c }));
@@ -1491,6 +1490,10 @@
     });
   }
 
+  /** 当前页：切语言时要把这一页重画一遍（有些区块是用 T() 拼出来的，渲染一次就不再变）。 */
+  var currentPage = "overview";
+  var currentSubKey = null;
+
   function switchPage(page, subKey) {
     // 「认证」已经并进「身份」：老链接 / 老按钮一律落到同一页，不留空页。
     if (page === "auth") page = "identity";
@@ -1503,6 +1506,8 @@
         if (activeSub) subKey = activeSub;
       }
     }
+    currentPage = page;
+    currentSubKey = subKey || null;
     document.querySelectorAll(".page").forEach(function (p) {
       p.classList.remove("active");
     });
@@ -1523,6 +1528,10 @@
     if (h && sub && pages[page]) {
       h.setAttribute("data-i18n", pages[page][0]);
       sub.setAttribute("data-i18n", pages[page][1]);
+      // 标题是随页面换的，data-i18n-src 得跟着换，不然切回中文会显示上一页的标题。
+      const zhPack = (window.CYBER_I18N.PACKS || {})["zh-CN"] || {};
+      if (zhPack[pages[page][0]]) h.setAttribute("data-i18n-src", zhPack[pages[page][0]]);
+      if (zhPack[pages[page][1]]) sub.setAttribute("data-i18n-src", zhPack[pages[page][1]]);
       window.CYBER_I18N.applyCyberI18n();
       // 身份页：说明跟着当前视角走（i18n 之后覆盖，切换语言时也不会被冲掉）。
       if (page === "identity" && IDENTITY_SUB_NOTES[subKey]) {
@@ -1560,16 +1569,19 @@
   }
 
   /** Fallbacks for a cached i18n script that predates SHIPPED_LANGS. */
-  const LANG_LABELS = { "zh-CN": "\u4e2d\u6587", en: "English" };
-  const LANG_ORDER = ["zh-CN", "en"];
+  const LANG_LABELS = {
+    "zh-CN": "\u4e2d\u6587", en: "English", ja: "\u65e5\u672c\u8a9e",
+    ko: "\ud55c\uad6d\uc5b4",
+    "es-AR": "Espa\u00f1ol (Argentina)", "es-SV": "Espa\u00f1ol (El Salvador)",
+  };
+  const LANG_ORDER = ["zh-CN", "en", "ja", "ko", "es-AR", "es-SV"];
 
   /**
    * Offer the shipped languages, and only those.
    *
-   * ja/ko/es/fr/de/pt-BR do have packs, but each covers 32 of the 224 keys, so
-   * picking one leaves the page mostly English behind a localized label. The list
-   * is read from i18n-cyber.js rather than hard-coded here so it cannot drift
-   * away from the packs the page can actually render.
+   * Every code in SHIPPED_LANGS has a pack covering all 256 keys, so no option
+   * here can leave the page half-translated. The list is read from i18n-cyber.js
+   * rather than hard-coded, so it cannot drift away from the shipped packs.
    */
   function syncLangOptions(sel) {
     const i18n = window.CYBER_I18N || {};
@@ -1594,11 +1606,22 @@
     syncLangOptions(sel);
     sel.value = window.CYBER_I18N.getLang();
     sel.addEventListener("change", function () {
-      window.CYBER_I18N.setLang(sel.value);
-      window.CYBER_I18N.applyCyberI18n();
-      if (window.KarmaIdentitySwitcher && window.KarmaIdentitySwitcher.render) {
-        window.KarmaIdentitySwitcher.render();
-      }
+      const code = sel.value;
+      window.CYBER_I18N.setLang(code);
+      // 扩展包（页面/脚本里逐条接进来的文案）是懒加载的：先等它就绪再重绘，
+      // 否则第一次切到 ja/ko/es 时看到的还是上一门语言。
+      window.CYBER_I18N.ensureExt(code, function () {
+        window.CYBER_I18N.applyCyberI18n();
+        if (window.KarmaIdentitySwitcher && window.KarmaIdentitySwitcher.render) {
+          window.KarmaIdentitySwitcher.render();
+        }
+        document.dispatchEvent(new CustomEvent("karma-lang-changed", { detail: { lang: code } }));
+        // 页里有些区块是用 T() 拼出来、渲染一次就不再动的（比如订单看板上的统计行），
+        // 不重画就会留下上一门语言的残影。
+        try {
+          document.dispatchEvent(new CustomEvent("karma-page-shown", { detail: { page: currentPage, sub: currentSubKey } }));
+        } catch (_) {}
+      });
     });
   }
 
@@ -1643,6 +1666,17 @@
     renderCurrentIdentity();
 
     window.CYBER_I18N.applyCyberI18n();
+    // 首屏先用核心包渲染一次（同步、不阻塞），扩展包到位后再补一次。
+    window.CYBER_I18N.ensureExt(window.CYBER_I18N.getLang(), function () {
+      window.CYBER_I18N.applyCyberI18n();
+      if (window.KarmaIdentitySwitcher && window.KarmaIdentitySwitcher.render) {
+        window.KarmaIdentitySwitcher.render();
+      }
+      document.dispatchEvent(new CustomEvent("karma-lang-changed", { detail: { lang: window.CYBER_I18N.getLang() } }));
+      try {
+        document.dispatchEvent(new CustomEvent("karma-page-shown", { detail: { page: currentPage, sub: currentSubKey } }));
+      } catch (_) {}
+    });
     bindLang();
     bindNav();
     applyNavScope();

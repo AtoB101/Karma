@@ -56,6 +56,12 @@
 
   function api() { return global.cyberKarmaApi; }
 
+  /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
+  function T(zh) {
+    var i18n = window.CYBER_I18N;
+    return i18n && i18n.T ? i18n.T(zh) : zh;
+  }
+
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -214,11 +220,11 @@
         return ORDER_KINDS[e.kind] && (state.side === "all" || e.direction === state.side) && !laneOf(e);
       }).length;
       totals.innerHTML =
-        "<span>图上 <b>" + rows.length + "</b> 单</span>" +
+        "<span>" + esc(T("图上 {0} 单")).replace("{0}", "<b>" + rows.length + "</b>") + "</span>" +
         LANES.map(function (lane) {
           return "<span>" + esc(lane.label) + " <b>" + byLane[lane.key].length + "</b></span>";
         }).join("") +
-        (hidden ? "<span>已过可争议期、已退场 " + hidden + " 单</span>" : "");
+        (hidden ? "<span>" + esc(T("已过可争议期、已退场 {0} 单")).replace("{0}", "<b>" + hidden + "</b>") + "</span>" : "");
     }
 
     var empty = $("#order-empty");

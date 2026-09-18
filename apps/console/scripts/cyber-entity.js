@@ -46,6 +46,12 @@
     }
   }
 
+  /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
+  function T(zh) {
+    var i18n = window.CYBER_I18N;
+    return i18n && i18n.T ? i18n.T(zh) : zh;
+  }
+
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -486,7 +492,11 @@
     try {
       var res = await api().jsonPost(SKILLS_PATH + "/prepare", skillPayload());
       prepared = res;
-      if (box) box.textContent = res.message;
+      if (box) {
+        // 真内容是要拿去签名的原文，别让 i18n 动它。
+        box.removeAttribute("data-i18n-phrase");
+        box.textContent = res.message;
+      }
       var btn = byId("mk-publish");
       if (btn) btn.disabled = false;
       say(
@@ -498,7 +508,10 @@
       prepared = null;
       var pub = byId("mk-publish");
       if (pub) pub.disabled = true;
-      if (box) box.textContent = "① 先生成待签声明";
+      if (box) {
+        box.setAttribute("data-i18n-phrase", "");
+        box.textContent = T("① 先生成待签声明");
+      }
       say(byId("mk-status"), (e && e.message) || "生成失败", false);
     }
   }

@@ -24,6 +24,12 @@
 (function (global) {
   "use strict";
 
+  /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
+  function T(zh) {
+    var i18n = global.CYBER_I18N;
+    return i18n && i18n.T ? i18n.T(zh) : zh;
+  }
+
   var SS_WALLET = "karma_console_wallet";
   var SS_IDENTITY = "karma_console_identity";
   var SS_TOKEN = "karma_console_access_token";
@@ -96,10 +102,12 @@
     try { global.dispatchEvent(ev); } catch (_) {}
   }
 
-  function errText(e) {    if (!e) return "未知错误";
-    if (e.code === 4001) return "你取消了授权";
-    if (e.code === -32002) return "钱包里已有一个待处理的请求";
-    if (e.code === 4902) return "钱包里没有这条链";
+  /* 这些串会被拼进状态栏（prefix + errText）：拼完后 i18n 看到的是
+     一整条新串、查不到译文，所以在拼之前就先用 T() 翻好。 */
+  function errText(e) {    if (!e) return T("未知错误");
+    if (e.code === 4001) return T("你取消了授权");
+    if (e.code === -32002) return T("钱包里已有一个待处理的请求");
+    if (e.code === 4902) return T("钱包里没有这条链");
     return e.message || String(e);
   }
 
@@ -120,14 +128,14 @@
   function failText(prefix, e) {
     if (e && e.status) {
       var detail = (e.body && (e.body.detail || e.body.message)) || e.message;
-      return prefix + detail;
+      return T(prefix) + detail;
     }
-    var text = prefix + errText(e);
+    var text = T(prefix) + errText(e);
     if (isNetworkError(e)) {
       text +=
-        "（页面连不上 Karma 接口 " +
-        apiBase() +
-        "：请确认地址栏是 https://karma-network.ai/console/ 开头，并检查广告拦截/隐私插件或代理是否拦了它）";
+        T("（页面连不上 Karma 接口") + " " +
+        apiBase() + " " +
+        T("：请确认地址栏是 https://karma-network.ai/console/ 开头，并检查广告拦截/隐私插件或代理是否拦了它）");
     }
     return text;
   }
@@ -176,19 +184,19 @@
       eth = global.ethereum;
     } catch (_) {}
     var ethText = eth
-      ? detectLegacyName(eth) + "（有 request：" + (typeof eth.request === "function") + "）"
-      : "无";
+      ? detectLegacyName(eth) + T("（有 request：") + (typeof eth.request === "function") + "）"
+      : T("无");
     return [
-      "页面：" + page,
-      "页面环境：" +
-        (ctx.inIframe ? "被别的页面内嵌（iframe）" : "独立页面") +
+      T("页面：") + page,
+      T("页面环境：") +
+        (ctx.inIframe ? T("被别的页面内嵌（iframe）") : T("独立页面")) +
         " · " +
-        (ctx.secure ? "安全上下文" : "非安全上下文"),
-      "接口：" + apiBase(),
-      "浏览器：" + (ctx.ua || "?"),
-      "插件接口 window.ethereum：" + ethText,
-      "EIP-6963 检测到钱包：" + (names || "无"),
-      "最近错误：" + (lastError || "无"),
+        (ctx.secure ? T("安全上下文") : T("非安全上下文")),
+      T("接口：") + apiBase(),
+      T("浏览器：") + (ctx.ua || "?"),
+      T("插件接口 window.ethereum：") + ethText,
+      T("EIP-6963 检测到钱包：") + (names || T("无")),
+      T("最近错误：") + (lastError || T("无")),
     ].join("\n");
   }
 
@@ -392,23 +400,20 @@
   function emptyDesktopText() {
     var ctx = pageContext();
     if (ctx.inIframe) {
+      // 一句话就是一个字面量：拼接成多段的话，i18n 只能看到拼完的那一串，查不到译文。
       return (
-        "本页现在是被别的页面嵌在小窗口里打开的，钱包插件在内嵌页面里不会生效。" +
-        "请把 " +
+        "本页现在是被别的页面嵌在小窗口里打开的，钱包插件在内嵌页面里不会生效。请把 " +
         consoleUrl() +
         " 复制到浏览器地址栏单独打开，再点「连接钱包」。"
       );
     }
     if (ctx.embedded) {
       return (
-        "你正在一个桌面 App 的内置浏览器里打开本页。这类内置浏览器装不了钱包插件，" +
-        "所以永远检测不到钱包。请把本页链接复制到 Chrome / Edge 打开，再点「连接钱包」。"
+        "你正在一个桌面 App 的内置浏览器里打开本页。这类内置浏览器装不了钱包插件，所以永远检测不到钱包。请把本页链接复制到 Chrome / Edge 打开，再点「连接钱包」。"
       );
     }
     return (
-      "当前浏览器没检测到任何钱包插件。插件只在自己安装的那个浏览器里生效 —— " +
-      "如果你平时在别的浏览器（Chrome / Edge）里用 MetaMask，请用那个浏览器打开本页；" +
-      "也可以现在装一个。"
+      "当前浏览器没检测到任何钱包插件。插件只在自己安装的那个浏览器里生效 —— 如果你平时在别的浏览器（Chrome / Edge）里用 MetaMask，请用那个浏览器打开本页；也可以现在装一个。"
     );
   }
 
@@ -880,7 +885,7 @@
       accounts = await provider.request({ method: "eth_requestAccounts" });
     } catch (e) {
       remember(e);
-      setStatus("连接失败：" + errText(e), false);
+      setStatus(T("连接失败：") + errText(e), false);
       return;
     }
     if (!accounts || !accounts.length) {

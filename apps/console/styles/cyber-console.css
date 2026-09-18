@@ -259,6 +259,9 @@ body {
   font-size: 12px;
   cursor: pointer;
 }
+/* 语言选择器：标签不能被挤成两行（「语言」在日韩西文下会更长）。 */
+.lang-select > span { flex: 0 0 auto; white-space: nowrap; }
+.lang-select > select { flex: 0 0 auto; max-width: 100%; }
 .api-status { font-size: 12px; color: var(--neon-mint); max-width: 420px; word-break: break-all; }
 .api-status.err { color: #ff8a9a; }
 .topbar {
@@ -918,6 +921,14 @@ body.gated { overflow: hidden; }
 }
 .entry-gate .api-status { display: block; margin: 0 auto 8px; }
 .entry-gate-hint { font-size: 12px; color: #6c8aac; }
+.entry-gate-lang {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+  font-size: 12px;
+  color: #8fa6c4;
+}
+.entry-gate-lang .lang-select { font-size: 12px; }
 
 /* ───────────────────────── 主身份抬头 + 资金卡（总览第一屏） ───────────────────────── */
 .id-home { padding: 20px 22px 18px; }
