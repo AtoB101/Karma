@@ -42,6 +42,17 @@ bash deploy/vps/bootstrap.sh   # Docker + 防火墙(22/80/443) + fail2ban + swap
 karma migrate     # = docker exec -w /app karma-api alembic upgrade head
 ```
 
+**首次基线**：如果这个库的表结构是历史上 `create_all` + 启动补列建出来的
+（`alembic_version` 表不存在），`upgrade head` 会从 base 重放全部迁移，撞上
+`relation "..." already exists` 然后整个部署中止。这种情况先声明一次现状：
+
+```bash
+karma db-baseline 0047_identity_provider   # 只写版本表，不动数据与表结构
+karma migrate                              # 之后只跑更新的迁移
+```
+
+`karma migrate` 检测到没有版本表时会直接停下来并打印这两行，不会硬跑。
+
 迁移跑在 app 容器里，因为 `alembic.ini` 里的 URL 是占位值，真实 URL 由
 `db/migrations/env.py` 从 `.env` 读（容器网络里数据库主机名是 `postgres`）。
 迁移失败时脚本直接中止，不会重建容器 —— 线上仍跑旧代码，不会半新半旧。

@@ -126,6 +126,7 @@ ${B}Operate${N}
   karma rollback            move the checkout back to the last deployed commit
   karma shell               shell inside the app container
   karma migrate             apply alembic migrations (runs automatically in deploy/update)
+  karma db-baseline <rev>   stamp an un-versioned database once (create_all-era schema)
   karma db                  psql shell
   karma redis               redis-cli
   karma exec <container> <cmd...>
@@ -286,6 +287,28 @@ cmd_rollback() {
   cmd_wait_health
 }
 
+has_alembic_version() {
+  docker exec karma-postgres psql -U "${POSTGRES_USER:-karma}" -d "${POSTGRES_DB:-karma}" -tAc \
+    "select 1 from information_schema.tables where table_schema='public' and table_name='alembic_version'" \
+    2>/dev/null | grep -q 1
+}
+
+cmd_db_baseline() {
+  # 只写版本表，不动数据、不动表结构。给「表结构是 create_all 建的、从没跑过 alembic」
+  # 的库用一次：声明现状等于哪个 revision，之后 alembic 只跑更新的迁移。
+  local rev="${1:-}"
+  if [ -z "$rev" ]; then
+    err "  usage: karma db-baseline <revision>    # 例如 0047_identity_provider"
+    return 1
+  fi
+  need_repo
+  hdr "Baseline the migration version table at $rev"
+  warn "  This writes the alembic version row only; no data or schema is touched."
+  docker exec -w /app karma-api alembic stamp "$rev" || return 1
+  docker exec -w /app karma-api alembic current 2>/dev/null | sed 's/^/  now at: /'
+  return 0
+}
+
 cmd_migrate() {
   need_repo
   hdr "Apply database migrations (alembic upgrade head)"
@@ -294,6 +317,16 @@ cmd_migrate() {
   # so after the pull the checked-out migrations are already visible inside it.
   if ! docker ps --format '{{.Names}}' | grep -qx karma-api; then
     err "  karma-api is not running; start the stack before migrating"
+    return 1
+  fi
+  # 版本表缺失时 upgrade head 会从 base 重放全部迁移，撞上 "relation ... already
+  # exists" 然后整个部署卡住 —— 这个库的表结构本来就是 create_all 建的，没有迁移历史。
+  # 这种情况先基线一次，别硬来。
+  if ! has_alembic_version; then
+    err "  这个库没有 alembic 版本表：表结构是 create_all 建的，迁移历史没记录。"
+    err "  先基线一次（只写版本表）："
+    err "      karma db-baseline 0047_identity_provider"
+    err "  然后重跑 karma migrate / karma deploy。"
     return 1
   fi
   docker exec -w /app karma-api alembic upgrade head || {
@@ -414,6 +447,7 @@ case "${1:-help}" in
   down)     cmd_down ;;
   deploy)   cmd_deploy ;;
   migrate)  cmd_migrate ;;
+  db-baseline) shift; cmd_db_baseline "$@" ;;
   rebuild)  cmd_rebuild ;;
   rollback) cmd_rollback ;;
   shell)    cmd_shell ;;
