@@ -1047,9 +1047,9 @@
     if (want > reducible + 0.000001) {
       const p = planReduce(commits, reducible);
       html =
-        '<div class="confirm-warn">这次只能减少 <b>' + fmtNum(reducible) + " USDC</b>，不能再多：</div>" +
+        '<div class="confirm-warn">这次只能减少 ' + fmtNum(reducible) + " USDC，不能再多：</div>" +
         "<div>· 已锁仓 " + fmtNum(total) + " USDC</div>" +
-        "<div>· 正在执行中的订单占用 <b>" + fmtNum(reserved) + "</b> USDC（结算前不能动）</div>" +
+        "<div>· 正在执行中的订单占用 " + fmtNum(reserved) + " USDC（结算前不能动）</div>" +
         '<div class="confirm-actions">' +
         '<button type="button" class="btn primary" id="reduce-max">改为减少 ' + fmtNum(reducible) + " USDC</button>" +
         '<button type="button" class="btn" id="reduce-cancel">取消</button></div>' +
@@ -1070,7 +1070,7 @@
         const reCommit = over >= 0.01 ? over : 0;
         const netReduce = p.total - reCommit;
         html =
-          "<div>将撤销下面这些<b>未使用</b>的账单，减少 <b>" + fmtNum(p.total) + " USDC</b>：" +
+          "<div>将撤销下面这些未使用的账单，减少 " + fmtNum(p.total) + " USDC：" +
           (reCommit > 0
             ? '<span class="confirm-warn">（合约只能整笔撤销：多撤的 ' + fmtNum(reCommit) + " USDC 会立刻重新锁仓，净减少正好是 " + fmtNum(netReduce) + " USDC，需要多签一次名）</span>"
             : "") +

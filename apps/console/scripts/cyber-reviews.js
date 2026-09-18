@@ -223,8 +223,9 @@
         deny.hidden = false;
         deny.innerHTML =
           "这个身份还打不开复核队列：队列只对<b>复核岗（verifier）</b>开放。" +
-          "复核岗不能自助开通 —— 需要运维先把身份加进 <code>GOVERNANCE_VERIFIER_IDS</code>，" +
-          "再由本人建一张 <b>verifier</b> 类身份档案。";
+          "复核岗不能自助开通 —— 需要运维先把身份加进 " +
+          "<code>GOVERNANCE_VERIFIER_IDS</code>" +
+          "，再由本人建一张 verifier 类身份档案。";
       }
     }
   }

@@ -1621,6 +1621,33 @@
    * 两端的 emoji / ▤ / ⚙ / · 这类装饰符号不属于文案，去掉后再查一次。
    * 找不到就返回 null，由调用方决定怎么办。
    */
+  /**
+   * 中文标点在译文里的写法。
+   *
+   * 「读取文件失败：」这类句子在文案表里只存了不带标点的主体，末位的「：」会被
+   * 当成装饰原样贴到译文后面 —— 英文页面就冒出一个全角冒号，日文页面冒出全角逗号。
+   * 这里把这种「贴上去」的中文标点换成目标语言的写法；中文页面的原文不动。
+   * 句号在日文里本来就是「。」，所以日文只换逗号。
+   */
+  const PUNCT_MAP = {
+    en: { "。": ".", "，": ",", "、": ",", "：": ":", "；": ";", "！": "!", "？": "?", "（": "(", "）": ")" },
+    ko: { "。": ".", "，": ",", "、": ",", "：": ":", "；": ";", "！": "!", "？": "?", "（": "(", "）": ")" },
+    "es-AR": { "。": ".", "，": ",", "、": ",", "：": ":", "；": ";", "！": "!", "？": "?", "（": "(", "）": ")" },
+    "es-SV": { "。": ".", "，": ",", "、": ",", "：": ":", "；": ";", "！": "!", "？": "?", "（": "(", "）": ")" },
+    ja: { "，": "、" },
+  };
+
+  function localizePunct(s, lang) {
+    const map = PUNCT_MAP[lang];
+    if (!map || !s) return s;
+    let out = "";
+    for (let i = 0; i < s.length; i += 1) {
+      const c = s.charAt(i);
+      out += map[c] != null ? map[c] : c;
+    }
+    return out;
+  }
+
   function lookupLoose(text) {
     const t = String(text == null ? "" : text);
     let a = 0;
@@ -1631,7 +1658,8 @@
     const core = t.slice(a, b);
     const hit = lookup(core);
     if (hit == null) return null;
-    return t.slice(0, a) + hit + t.slice(b);
+    const L = getLang();
+    return localizePunct(t.slice(0, a), L) + hit + localizePunct(t.slice(b), L);
   }
 
   /** 供 JS 调用点使用：T("订单") -> 当前语言的译文（没有就返回中文原文）。 */
@@ -1772,8 +1800,13 @@
     if (!node) return;
     if (!queued) {
       queued = new Set();
+      // rAF 让翻译跟下一帧走，不抢交互；但**不能只挂 rAF**。
+      // 后台标签页 / 无渲染的页面里 rAF 根本不触发，一旦某次翻译卡在 rAF 上，
+      // queued 就永远不会被清空 —— 之后新写进 DOM 的中文全堆在集合里，永远不翻。
+      // 用户看到的就是「切了语言，这一段还是中文」，且刷新前不会自己恢复。
+      // 所以再挂一个 setTimeout 兜底，谁先到谁翻；flush 幂等，翻两遍也不会出错。
       if (typeof requestAnimationFrame === "function") requestAnimationFrame(flush);
-      else setTimeout(flush, 16);
+      setTimeout(flush, 120);
     }
     queued.add(node);
   }
