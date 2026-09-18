@@ -1,8 +1,12 @@
 # Karma — VPS 自动部署（push 到 main 触发：测试 → SSH 到服务器滚动更新）
-# 所需 GitHub Secrets（repo 级或 vps 环境）：
+# 所需 GitHub Secrets（repo 级）：
 #   VPS_HOST      服务器 IP
 #   VPS_SSH_USER  部署用户（如 deploy）
 #   VPS_SSH_KEY   私钥（PEM，对应服务器 authorized_keys）
+# 另需 repo Variable：
+#   VPS_DEPLOY_ENABLED=true   不设时 deploy 这一步会跳过（单测照跑）
+# 注意：deploy 跑的是 /opt/karma/repo 里那份检出的 deploy/vps/ci-deploy.sh，
+# 它走 `karma deploy`（不重建镜像）。服务器上没有 /opt/karma/deploy.sh 这个文件。
 name: Deploy to VPS
 
 on:
@@ -51,4 +55,4 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script_stop: true
           script: |
-            bash /opt/karma/deploy.sh
+            bash /opt/karma/repo/deploy/vps/ci-deploy.sh

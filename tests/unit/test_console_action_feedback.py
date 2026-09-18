@@ -35,14 +35,23 @@ def test_chain_errors_are_translated_into_something_the_user_can_act_on():
 
 
 def test_capacity_refresh_reports_the_numbers():
+    """刷新完必须把「总锁仓」数字直接写出来。
+
+    这条原来钉的是核心包里的 api.status_refreshed 键。后来刷新提示改成了整句模板
+    （要带数字和时间，还要控住各语言的语序），那个键就没人用了 —— 断言于是长期红着，
+    而它真正想守的东西（刷新后看得见总锁仓数字）其实一直成立。现在直接钉那句模板。
+    """
     js = CONSOLE_JS.read_text(encoding="utf-8")
-    assert "api.status_refreshed" in js
-    tail = js[js.index("api.status_refreshed") : js.index("api.status_refreshed") + 400]
-    assert "总锁仓" in tail and "fmtNum(locked)" in tail, (
-        "刷新完要直接写出总锁仓数字，用户才知道锁进去没有"
-    )
-    i18n = I18N_JS.read_text(encoding="utf-8")
-    assert i18n.count('"api.status_refreshed"') >= 2, "中英文都要有这条文案"
+    marker = "额度已刷新 · 总锁仓 {0}"
+    assert marker in js, "刷新完要报出总锁仓数字"
+    tail = js[js.index(marker) : js.index(marker) + 400]
+    assert "fmtNum(locked)" in tail, "刷新完要直接写出总锁仓数字，用户才知道锁进去没有"
+    # 这句是拼出来的（带数字/时间），五份文案表都得有；少一份，切到那门语言就掉回中文。
+    for pack in ("en", "ja", "ko", "es-AR", "es-SV"):
+        text = (ROOT / "apps/console/scripts/i18n-phrase" / (pack + ".js")).read_text(
+            encoding="utf-8"
+        )
+        assert "额度已刷新" in text, pack + " 缺「额度已刷新」，刷新提示会掉回中文"
 
 
 def test_overview_numbers_follow_the_v2_allowance():

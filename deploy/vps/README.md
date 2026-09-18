@@ -22,8 +22,16 @@ bash deploy/vps/bootstrap.sh   # Docker + 防火墙(22/80/443) + fail2ban + swap
 
 ## CI 自动部署（push 到 main）
 
-GitHub repo Secrets 配置：`VPS_HOST` / `VPS_SSH_USER` / `VPS_SSH_KEY`。
-`deploy-vps.yml`：单测 + import 冒烟 → SSH 执行 `/opt/karma/deploy.sh` 滚动更新。
+需要 repo Secrets：`VPS_HOST` / `VPS_SSH_USER` / `VPS_SSH_KEY`，
+以及 repo Variable `VPS_DEPLOY_ENABLED=true`（不设就只跑单测，deploy 那步跳过）。
+
+`deploy-vps.yml`：单测 + import 冒烟 → SSH 执行
+`/opt/karma/repo/deploy/vps/ci-deploy.sh` 滚动更新。
+
+那个脚本内部调 `karma deploy`：拉代码 → 发布静态站与操作台 → 重建容器（**不 build**）
+→ 健康检查，并自动备份 webroots 到 `/opt/karma/backups/`。
+不用 `deploy/vps/deploy.sh` 是因为它会 `--build` 重建镜像 —— 1.6G 的机器上太慢，
+而生产代码是 bind mount 进容器的，改代码不需要重新构建镜像。
 
 ## 域名要求
 

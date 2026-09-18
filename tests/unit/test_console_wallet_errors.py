@@ -37,8 +37,11 @@ def test_every_connect_step_reports_a_reason():
     sign_in = _fn("signIn", "function applyIdentityToUi")
     assert sign_in.count("setStatus(failText(") >= 2, "挑战/验签失败都要写状态栏"
     connect_with = _fn("connectWith", "function connect()")
-    assert "setStatus(\"连接失败：" in connect_with
-    assert "setStatus(\"钱包未返回账户\"" in connect_with or "钱包未返回账户" in connect_with
+    # 前缀走 T() 而不是写死中文：切语言时这句也得跟着换。原来断的是字面量
+    # setStatus("连接失败：…，代码加了 i18n 之后就一直红着 —— 行为没退，写法变了。
+    assert 'setStatus(T("连接失败：")' in connect_with, "钱包拒绝授权也要写状态栏"
+    assert "errText(e)" in connect_with, "拒绝授权要带上钱包给的原因"
+    assert "钱包未返回账户" in connect_with, "钱包返回空账户也要写状态栏"
 
 
 def test_network_error_message_names_the_api_origin():
