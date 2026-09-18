@@ -390,6 +390,31 @@
     });
   }
 
+  /* Agent pairing — the owner half. request/claim live on the agent side and are
+     deliberately not callable from here: the console approves, it never delivers. */
+  async function lookupPairing(userCode) {
+    return karmaFetch(
+      "/v1/agent-pairing/lookup?user_code=" + encodeURIComponent(String(userCode || "").trim()),
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  async function approvePairing(payload) {
+    return jsonPost("/v1/agent-pairing/approve", payload);
+  }
+
+  async function denyPairing(payload) {
+    return jsonPost("/v1/agent-pairing/deny", payload);
+  }
+
+  async function attachPairingRuntimeKey(payload) {
+    return jsonPost("/v1/agent-pairing/attach-runtime-key", payload);
+  }
+
+  async function listMyPairings() {
+    return karmaFetch("/v1/agent-pairing/mine", { method: "GET", headers: headers() });
+  }
+
   async function postAuthToken(agentId, apiKey) {
     return karmaFetch("/v1/auth/token", {
       method: "POST",
@@ -655,6 +680,11 @@
     getOpenclawHandoffAttestation,
     getAutomationPolicy,
     putAutomationPolicy,
+    lookupPairing,
+    approvePairing,
+    denyPairing,
+    attachPairingRuntimeKey,
+    listMyPairings,
     listOpenclawHandoffEvents,
     postAuthToken,
     lockCapacity,

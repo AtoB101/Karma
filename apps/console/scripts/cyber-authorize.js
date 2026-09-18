@@ -601,5 +601,14 @@
     init();
   }
 
-  global.KarmaAuthorize = { reload: load, state: state };
+  global.KarmaAuthorize = {
+    reload: load,
+    state: state,
+    // The pairing panel signs with the exact same payload this wizard does, so
+    // the signature builder has to be shared rather than re-implemented.
+    buildCreateKeyMsg: buildCreateKeyMsg,
+    pyUtcIso: pyUtcIso,
+    PERMS: PERMS,
+    DEFAULT_PERMS: DEFAULT_PERMS,
+  };
 })(window);

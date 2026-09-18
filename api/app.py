@@ -21,6 +21,7 @@ from services.security_monitoring import SecurityMonitoringEventType, record_sec
 from db.session import init_db
 from api.routes import (
     agents,
+    agent_pairing,
     auth,
     contracts,
     receipts,
@@ -369,6 +370,19 @@ _protected_dependencies = [Depends(require_auth_if_enabled)]
 _security_always_auth = [Depends(get_current_agent_id)]
 _rate_limited_rw = [Depends(require_auth_if_enabled), Depends(make_rate_limit_dep("write_sensitive"))]
 app.include_router(agents.router,     prefix="/v1/agents",     tags=["Agents"], dependencies=_protected_dependencies)
+# Agent pairing: the request/claim half has no session to check (the agent is
+# asking *for* one), the approve half is owner-authenticated like the console.
+app.include_router(
+    agent_pairing.public_router,
+    prefix="/v1/agent-pairing",
+    tags=["AgentPairing"],
+)
+app.include_router(
+    agent_pairing.owner_router,
+    prefix="/v1/agent-pairing",
+    tags=["AgentPairing"],
+    dependencies=_protected_dependencies,
+)
 app.include_router(contracts.router,  prefix="/v1/contracts",  tags=["Contracts"], dependencies=_protected_dependencies)
 app.include_router(identities.router, prefix="/v1/identities", tags=["Identities"], dependencies=_protected_dependencies)
 app.include_router(arbitration.router, prefix="/v1/arbitration", tags=["Arbitration"], dependencies=_protected_dependencies)
@@ -593,6 +607,19 @@ async def info():
             "note": (
                 "Every connected agent publishes capability + responsibility + confirmation "
                 "boundaries so counterparties know what can auto-run vs needs owner Yes/No."
+            ),
+        },
+        "agent_pairing": {
+            "request": "/v1/agent-pairing/request",
+            "claim": "/v1/agent-pairing/claim",
+            "lookup": "/v1/agent-pairing/lookup",
+            "approve": "/v1/agent-pairing/approve",
+            "revoke": "/v1/agents/owner-revoke",
+            "doc": "docs/AGENT_PAIRING_V1.md",
+            "note": (
+                "Self-service connect: the agent opens a request and shows its owner a "
+                "user_code; the owner approves in the Console; the agent collects its "
+                "credentials once with pairing_code. The owner is never asked for a key."
             ),
         },
         "agent_p1_onboarding": {

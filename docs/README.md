@@ -13,6 +13,7 @@ Start at the root [README.md](../README.md) for the repo map.
 | [integration-guide.md](./integration-guide.md) | Public integration surface |
 | [AGENT_INTEGRATION.md](./AGENT_INTEGRATION.md) | Agent / runtime integration |
 | [AGENT_ONE_CLICK_CONNECT_V1.md](./AGENT_ONE_CLICK_CONNECT_V1.md) | One-click vertical connect |
+| [AGENT_PAIRING_V1.md](./AGENT_PAIRING_V1.md) | Agent 配对接入 v1（agent 自己领凭据，一次性交付） |
 | [PILOT_E2E_PATH.md](./PILOT_E2E_PATH.md) | **Canonical Sepolia Bilateral E2E** (lock→finalize) |
 | [AGENT_TO_AGENT_TEST.md](./AGENT_TO_AGENT_TEST.md) | **Agent↔agent land** (Phase-1 launch → execution_started) |
 

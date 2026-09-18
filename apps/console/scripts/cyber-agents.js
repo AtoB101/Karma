@@ -23,49 +23,23 @@
     return (window.KARMA_IDENTITY_ID || "").trim();
   }
   /**
-   * 行业目录：后端只给了 title_zh / title_en，没有其它语言。
-   * 中文界面用中文标题；其它语言先查语言包里的行业名，查不到再回落到英文标题 ——
-   * 否则英文页会掉出一串中文行业名，日 / 韩 / 西语页会掉出一串英文。
+   * 行业目录标题、行业硬指标（service_specs）表单都收在 karma-service-spec.js 里：
+   * 「接入一个 Agent」和「配对码接入」必须渲染同一份表单，各写一套迟早会漂。
    */
+  function spec() {
+    return window.KarmaServiceSpec;
+  }
+
   function indTitle(row, fallback) {
-    var lang = "";
-    try { lang = (window.CYBER_I18N && window.CYBER_I18N.getLang()) || ""; } catch (_) {}
-    var zh = row.title_zh || "";
-    if (lang && lang !== "zh-CN") {
-      var t = "";
-      try { if (zh && window.CYBER_I18N) t = window.CYBER_I18N.T(zh); } catch (_) {}
-      if (t && t !== zh) return t;
-      return row.title_en || zh || fallback;
-    }
-    return zh || row.title_en || fallback;
+    var s = spec();
+    if (s) return s.industryTitle(row, fallback);
+    return (row && (row.title_zh || row.title_en)) || fallback;
   }
 
   function esc(v) {
     return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
-  }
-
-  /** Mirrors api/routes/agents.py + agent_onboarding_template._validate_service_specs. */
-  function isPricePath(path) {
-    var p = String(path || "");
-    return (
-      p.slice(-8) === "currency" ||
-      p.indexOf("price") !== -1 ||
-      p.slice(-4) === "fare" ||
-      p.slice(-4) === "_fee" ||
-      p.slice(-7) === "per_km" ||
-      p.slice(-11) === "per_minute" ||
-      p.slice(-10) === "unit_price" ||
-      p.slice(-14) === "rate_or_fixed" ||
-      p.slice(-9) === "base_fare" ||
-      p.slice(-6) === "amount" ||
-      p.indexOf("nightly_rate") !== -1
-    );
-  }
-
-  function pathKey(path) {
-    return "spec-" + String(path || "").replace(/\./g, "-");
   }
 
   // ---------- 我的 Agent ----------
@@ -268,67 +242,10 @@
     }
   }
 
-  function renderSpecField(req) {
-    var path = req.path;
-    var type = req.type || "string";
-    var label = req.description_zh || req.description_en || path;
-    var hint = req.description_zh && req.description_zh !== path ? path : "";
-    var key = pathKey(path);
-    var common = ' data-spec-path="' + esc(path) + '" id="' + esc(key) + '"';
-
-    if (type === "object" || path === "business_hours") {
-      return (
-        '<div class="field ag-spec-field" data-spec-object="' + esc(path) + '">' +
-        "<label>" + esc(label) + " <code>" + esc(path) + "</code></label>" +
-        '<div class="ag-inline">' +
-        '<input type="text" data-spec-part="timezone" placeholder="时区，如 Asia/Shanghai" />' +
-        '<label class="ag-check"><input type="checkbox" data-spec-part="24_7" checked /> 7×24</label>' +
-        "</div>" +
-        '<input type="text" data-spec-part="weekly" placeholder="非 7×24 时填营业时间，如 Mon-Sun 09:00-22:00" />' +
-        "</div>"
-      );
-    }
-    if (type === "array") {
-      return (
-        '<div class="field ag-spec-field">' +
-        "<label>" + esc(label) + " <code>" + esc(path) + "</code></label>" +
-        '<textarea rows="2" data-spec-type="array"' + common + ' placeholder="每行一项 / 或用逗号分隔"></textarea>' +
-        "</div>"
-      );
-    }
-    if (type === "boolean") {
-      return (
-        '<div class="field ag-spec-field">' +
-        "<label>" + esc(label) + " <code>" + esc(path) + "</code></label>" +
-        '<select data-spec-type="boolean"' + common + '><option value="true">是</option><option value="false">否</option></select>' +
-        "</div>"
-      );
-    }
-    if (type === "integer" || type === "number") {
-      var step = type === "integer" ? "1" : "0.01";
-      return (
-        '<div class="field ag-spec-field">' +
-        "<label>" + esc(label) + " <code>" + esc(path) + "</code></label>" +
-        '<input type="number" step="' + step + '" data-spec-type="' + type + '"' + common + " />" +
-        "</div>"
-      );
-    }
-    var price = isPricePath(path);
-    return (
-      '<div class="field ag-spec-field">' +
-      "<label>" + esc(label) + " <code>" + esc(path) + "</code>" +
-      (price ? ' <span class="tag muted">字符串金额</span>' : "") +
-      "</label>" +
-      '<input type="text" data-spec-type="string"' + common +
-      (price ? ' placeholder="如 3.50（必须是字符串）"' : "") + " />" +
-      (hint ? '<span class="ag-hint">' + esc(hint) + "</span>" : "") +
-      "</div>"
-    );
-  }
-
+  /** 渲染哪一个行业的硬指标由调用方决定；渲染 / 回填 / 收集都在 karma-service-spec.js。 */
   async function renderSpecForm(industryId) {
     var host = $("#ag-spec-form");
-    if (!host) return;
+    if (!host || !spec()) return;
     CURRENT = null;
     if (!industryId) {
       host.innerHTML = "";
@@ -338,133 +255,25 @@
     try {
       var body = await api().getOnboardingIndustry(industryId);
       var ind = body.industry || body;
+      spec().renderForm(host, ind);
       CURRENT = ind;
-      var reqs = ind.required_service_spec || [];
-      if (!reqs.length) {
-        host.innerHTML = '<p class="muted">该行业没有额外硬指标字段。</p>';
-        return;
-      }
-      var html = '<div class="ag-spec-head"><b>行业硬指标</b><span>' +
-        esc(indTitle(ind, industryId)) + " · 共 " + reqs.length + " 项（全部必填）</span>" +
-        '<button type="button" class="btn" id="ag-spec-example">按示例填充</button></div>' +
-        '<div class="ag-spec-grid">' + reqs.map(renderSpecField).join("") + "</div>";
-      host.innerHTML = html;
-      var btn = $("#ag-spec-example");
-      if (btn) btn.addEventListener("click", fillFromExample);
     } catch (e) {
       host.innerHTML = '<p class="err">读取失败：' + esc(e.message || e) + "</p>";
     }
   }
 
-  function setFieldValue(req, value) {
-    var path = req.path;
-    if (req.type === "object" || path === "business_hours") {
-      var box = $('[data-spec-object="' + path + '"]');
-      if (!box || !value || typeof value !== "object") return;
-      var tz = box.querySelector('[data-spec-part="timezone"]');
-      var all = box.querySelector('[data-spec-part="24_7"]');
-      var wk = box.querySelector('[data-spec-part="weekly"]');
-      if (tz && value.timezone) tz.value = value.timezone;
-      if (all && typeof value["24_7"] === "boolean") all.checked = value["24_7"];
-      if (wk && value.weekly) wk.value = Array.isArray(value.weekly) ? value.weekly.join("; ") : String(value.weekly);
-      return;
-    }
-    var node = document.getElementById(pathKey(path));
-    if (!node) return;
-    if (req.type === "array") {
-      node.value = Array.isArray(value) ? value.join("\n") : String(value == null ? "" : value);
-    } else if (req.type === "boolean") {
-      node.value = value === false ? "false" : "true";
-    } else {
-      node.value = value == null ? "" : String(value);
-    }
-  }
-
   function fillFromExample() {
-    if (!CURRENT || !CURRENT.example_service_spec) return;
-    var example = CURRENT.example_service_spec;
-    (CURRENT.required_service_spec || []).forEach(function (req) {
-      var v = dig(example, req.path);
-      if (v !== null && v !== undefined) setFieldValue(req, v);
-    });
+    var host = $("#ag-spec-form");
+    if (spec() && host) spec().fillFromExample(host);
   }
 
-  function dig(obj, path) {
-    var cur = obj;
-    var parts = String(path).split(".");
-    for (var i = 0; i < parts.length; i++) {
-      if (cur == null || typeof cur !== "object") return null;
-      cur = cur[parts[i]];
-    }
-    return cur === undefined ? null : cur;
-  }
-
-  function assign(target, path, value) {
-    var parts = String(path).split(".");
-    var cur = target;
-    for (var i = 0; i < parts.length - 1; i++) {
-      if (typeof cur[parts[i]] !== "object" || cur[parts[i]] === null) cur[parts[i]] = {};
-      cur = cur[parts[i]];
-    }
-    cur[parts[parts.length - 1]] = value;
-  }
-
-  /** Convert the rendered form into the exact service_specs contract. */
+  /** 表单 -> service_specs 契约。problems 非空就别提交，服务端也会拿同一套规则再拒一次。 */
   function collectSpec() {
-    var spec = {};
-    var problems = [];
-    if (!CURRENT) return { spec: spec, problems: ["请先选择行业"] };
-    var reqs = CURRENT.required_service_spec || [];
-    for (var i = 0; i < reqs.length; i++) {
-      var req = reqs[i];
-      var path = req.path;
-      var type = req.type || "string";
-      if (type === "object" || path === "business_hours") {
-        var box = $('[data-spec-object="' + path + '"]');
-        var hours = {};
-        if (box) {
-          var tz = box.querySelector('[data-spec-part="timezone"]').value.trim();
-          var is247 = box.querySelector('[data-spec-part="24_7"]').checked;
-          var weeklyRaw = box.querySelector('[data-spec-part="weekly"]').value.trim();
-          if (tz) hours.timezone = tz;
-          if (is247) hours["24_7"] = true;
-          if (weeklyRaw) hours.weekly = weeklyRaw.split(/[;\n]/).map(function (x) { return x.trim(); }).filter(Boolean);
-        }
-        if (!hours.timezone) problems.push(path + " 需要 timezone");
-        if (!hours["24_7"] && !hours.weekly) problems.push(path + " 需要 7×24 或营业时间");
-        if (Object.keys(hours).length) assign(spec, path, hours);
-        continue;
-      }
-      var node = document.getElementById(pathKey(path));
-      var raw = node ? String(node.value).trim() : "";
-      if (!raw) {
-        problems.push((req.description_zh || path) + " 必填");
-        continue;
-      }
-      if (type === "array") {
-        var items = raw.split(/[\n,]/).map(function (x) { return x.trim(); }).filter(Boolean);
-        if (!items.length) {
-          problems.push((req.description_zh || path) + " 至少一项");
-          continue;
-        }
-        assign(spec, path, items);
-      } else if (type === "boolean") {
-        assign(spec, path, raw === "true");
-      } else if (type === "integer") {
-        var iv = parseInt(raw, 10);
-        if (Number.isNaN(iv)) { problems.push(path + " 必须是整数"); continue; }
-        assign(spec, path, iv);
-      } else if (type === "number") {
-        var nv = Number(raw);
-        if (Number.isNaN(nv)) { problems.push(path + " 必须是数字"); continue; }
-        assign(spec, path, nv);
-      } else {
-        // Price-like paths must stay strings; the API rejects numbers outright.
-        assign(spec, path, raw);
-      }
-    }
-    return { spec: spec, problems: problems };
+    var host = $("#ag-spec-form");
+    if (spec() && CURRENT && host) return spec().collect(host);
+    return { spec: {}, problems: ["请先选择行业"] };
   }
+
 
   async function loadProfilesIntoSelect() {
     var sel = $("#ag-scope");

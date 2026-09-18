@@ -22,6 +22,9 @@ RATE_LIMITS = {
     "verify":       (10,  60),    # 10 verifications / 60s
     "register":     (5,   60),    # 5 auth token exchanges / 60s
     "register_agent": (5, 60),    # 5 agent registrations / 60s (stress-test MEDIUM)
+    # Pairing is unauthenticated by design (the agent has no key yet), so the
+    # bucket is the only thing standing between a script and the pairing store.
+    "agent_pairing": (10, 60),   # 10 pairing requests/claims / 60s
     "write_sensitive": (100, 60),  # 100 sensitive writes / 60s
     "state_transition": (20, 60), # 20 state transitions / 60s
     # P2-11: 读接口此前**完全没限流**（只有 auth/verify 和敏感写有限流）。
@@ -139,6 +142,7 @@ submit_rate_limit   = make_rate_limit_dep("submit")
 verify_rate_limit   = make_rate_limit_dep("verify")
 register_rate_limit = make_rate_limit_dep("register")
 register_agent_rate_limit = make_rate_limit_dep("register_agent")
+agent_pairing_rate_limit = make_rate_limit_dep("agent_pairing")
 write_sensitive_rate_limit = make_rate_limit_dep("write_sensitive")
 state_transition_rate_limit = make_rate_limit_dep("state_transition")
 

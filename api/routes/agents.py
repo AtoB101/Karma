@@ -732,6 +732,135 @@ async def one_click_connect(
     }
 
 
+async def connect_owner_agent(
+    db: AsyncSession,
+    *,
+    owner_identity_id: str,
+    side: str,
+    vertical: str | None = None,
+    display_name: str | None = None,
+    self_description: str | None = None,
+    endpoint_url: str | None = None,
+    scope_profile_id: str | None = None,
+    answers: dict[str, Any] | None = None,
+    agent_id: str | None = None,
+    mint_api_key: bool = True,
+) -> dict[str, Any]:
+    """Owner-side one-click connect — shared by ``/owner-connect`` and pairing approval.
+
+    The caller has already established *which* owner is acting; this only does the
+    work. Karma mints and custody-binds the agent's Ed25519 operational key
+    server-side (``services/agent_key_store.py``), so the owner never touches an
+    agent private key, and the bootstrap API key is plaintext exactly once.
+    """
+    owner_id = (owner_identity_id or "").strip()
+    if not owner_id:
+        raise HTTPException(
+            403,
+            "authentication required: connect a wallet to obtain an identity card first",
+        )
+
+    try:
+        resolved = resolve_one_click(
+            side=side,
+            vertical=vertical,
+            self_description=self_description,
+            display_name=display_name,
+            answers=answers or {},
+        )
+    except OnboardingError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    merged = dict(resolved["answers"])
+    if endpoint_url:
+        merged["endpoint_url"] = endpoint_url
+    if scope_profile_id:
+        from db.models.orm import IdentityRoleProfile
+
+        profile_row = await db.get(IdentityRoleProfile, scope_profile_id)
+        if profile_row is None or profile_row.owner_identity_id != owner_id:
+            raise HTTPException(404, "scope_profile_id not found for this identity")
+        merged["scope_profile_id"] = scope_profile_id
+
+    resolved_agent_id = (agent_id or "").strip() or new_agent_id("agent")
+    signer, key_info = mint_agent_signer(resolved_agent_id)
+
+    tmpl = ConnectFromTemplateRequest(
+        profile_id=resolved["profile_id"],
+        answers=merged,
+        agent_id=resolved_agent_id,
+        self_description=self_description,
+        owner_identity_id=owner_id,
+        public_key=key_info["public_key"],
+        responsibility_ack=ResponsibilityAckBody(acknowledged=True),
+    )
+    try:
+        core = await _connect_from_template_core(
+            db, tmpl, connect_path="owner_console", owner_signer=signer
+        )
+    except Exception:
+        # Never leave an orphan key behind for an agent that was not created.
+        try:
+            revoke_agent_key(resolved_agent_id)
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+
+    agent = core["agent"]
+    final_id = agent.agent_id if hasattr(agent, "agent_id") else agent["agent_id"]
+    if str(final_id) != resolved_agent_id:
+        # Core chose a different id (should not happen once we pass one explicitly).
+        revoke_agent_key(resolved_agent_id)
+        signer, key_info = mint_agent_signer(str(final_id))
+        resolved_agent_id = str(final_id)
+
+    scene_ids = list(
+        (core.get("discovery_hints") or {}).get("scene_ids") or resolved.get("scene_ids") or []
+    )
+
+    credentials: dict[str, Any] = {
+        "api_key": None,
+        "api_key_hint": None,
+        "agent_public_key": key_info["public_key"],
+        "key_custody": "server_side_revocable",
+        "revoke": "POST /v1/agents/owner-revoke",
+    }
+    if mint_api_key:
+        minted = mint_agent_api_key(str(resolved_agent_id))
+        credentials["api_key"] = minted["api_key"]
+        credentials["api_key_hint"] = minted["api_key_hint"]
+
+    await db.commit()
+    return {
+        "schema_version": "karma-agent-owner-connect-v1",
+        "side": resolved["side"],
+        "vertical": resolved.get("vertical"),
+        "profile_id": resolved["profile_id"],
+        "scene_ids": scene_ids,
+        "agent": agent,
+        "profile_card": core.get("profile_card"),
+        "boundary": core.get("boundary"),
+        "boundary_hash": core.get("boundary_hash"),
+        "p1_ready": core.get("p1_ready"),
+        "p1_status": core.get("p1_status"),
+        "verification_url": core.get("verification_url"),
+        "credentials": credentials,
+        "env_snippet": {
+            "KARMA_AGENT_ID": str(resolved_agent_id),
+            "KARMA_API_KEY": credentials.get("api_key") or "<set from credentials.api_key>",
+            "KARMA_RUNTIME_URL": "https://karma-network.ai",
+        },
+        "next_steps": build_next_steps(
+            agent_id=str(resolved_agent_id), side=resolved["side"], scene_ids=scene_ids
+        ),
+        "discovery_hints": core.get("discovery_hints"),
+        "note_zh": (
+            "接入完成：身份卡 → agent 已绑定，责任签认与履约边界已落库。"
+            "API Key 仅此一次明文返回；对端可 GET /p1-status 核验。"
+        ),
+    }
+
+
 @router.post("/owner-connect")
 async def owner_connect(
     body: OwnerConnectRequest,
@@ -758,105 +887,19 @@ async def owner_connect(
     if owner_id != actor:
         raise HTTPException(403, "owner_identity_id must match the authenticated identity")
 
-    try:
-        resolved = resolve_one_click(
-            side=body.side,
-            vertical=body.vertical,
-            self_description=body.self_description,
-            display_name=body.display_name,
-            answers=body.answers,
-        )
-    except OnboardingError as exc:
-        raise HTTPException(400, str(exc)) from exc
-
-    answers = dict(resolved["answers"])
-    if body.endpoint_url:
-        answers["endpoint_url"] = body.endpoint_url
-    if body.scope_profile_id:
-        from db.models.orm import IdentityRoleProfile
-
-        profile_row = await db.get(IdentityRoleProfile, body.scope_profile_id)
-        if profile_row is None or profile_row.owner_identity_id != owner_id:
-            raise HTTPException(404, "scope_profile_id not found for this identity")
-        answers["scope_profile_id"] = body.scope_profile_id
-
-    agent_id = (body.agent_id or "").strip() or new_agent_id("agent")
-    signer, key_info = mint_agent_signer(agent_id)
-
-    tmpl = ConnectFromTemplateRequest(
-        profile_id=resolved["profile_id"],
-        answers=answers,
-        agent_id=agent_id,
-        self_description=body.self_description,
+    return await connect_owner_agent(
+        db,
         owner_identity_id=owner_id,
-        public_key=key_info["public_key"],
-        responsibility_ack=ResponsibilityAckBody(acknowledged=True),
+        side=body.side,
+        vertical=body.vertical,
+        display_name=body.display_name,
+        self_description=body.self_description,
+        endpoint_url=body.endpoint_url,
+        scope_profile_id=body.scope_profile_id,
+        answers=body.answers,
+        agent_id=body.agent_id,
+        mint_api_key=body.mint_api_key,
     )
-    try:
-        core = await _connect_from_template_core(
-            db, tmpl, connect_path="owner_console", owner_signer=signer
-        )
-    except Exception:
-        # Never leave an orphan key behind for an agent that was not created.
-        try:
-            revoke_agent_key(agent_id)
-        except Exception:  # noqa: BLE001
-            pass
-        raise
-
-    agent = core["agent"]
-    final_id = agent.agent_id if hasattr(agent, "agent_id") else agent["agent_id"]
-    if str(final_id) != agent_id:
-        # Core chose a different id (should not happen once we pass one explicitly).
-        revoke_agent_key(agent_id)
-        signer, key_info = mint_agent_signer(str(final_id))
-        agent_id = str(final_id)
-
-    scene_ids = list(
-        (core.get("discovery_hints") or {}).get("scene_ids") or resolved.get("scene_ids") or []
-    )
-
-    credentials: dict[str, Any] = {
-        "api_key": None,
-        "api_key_hint": None,
-        "agent_public_key": key_info["public_key"],
-        "key_custody": "server_side_revocable",
-        "revoke": "POST /v1/agents/owner-revoke",
-    }
-    if body.mint_api_key:
-        minted = mint_agent_api_key(str(agent_id))
-        credentials["api_key"] = minted["api_key"]
-        credentials["api_key_hint"] = minted["api_key_hint"]
-
-    await db.commit()
-    return {
-        "schema_version": "karma-agent-owner-connect-v1",
-        "side": resolved["side"],
-        "vertical": resolved.get("vertical"),
-        "profile_id": resolved["profile_id"],
-        "scene_ids": scene_ids,
-        "agent": agent,
-        "profile_card": core.get("profile_card"),
-        "boundary": core.get("boundary"),
-        "boundary_hash": core.get("boundary_hash"),
-        "p1_ready": core.get("p1_ready"),
-        "p1_status": core.get("p1_status"),
-        "verification_url": core.get("verification_url"),
-        "credentials": credentials,
-        "env_snippet": {
-            "KARMA_AGENT_ID": str(agent_id),
-            "KARMA_API_KEY": credentials.get("api_key") or "<set from credentials.api_key>",
-            "KARMA_RUNTIME_URL": "https://karma-network.ai",
-        },
-        "next_steps": build_next_steps(
-            agent_id=str(agent_id), side=resolved["side"], scene_ids=scene_ids
-        ),
-        "discovery_hints": core.get("discovery_hints"),
-        "note_zh": (
-            "接入完成：身份卡 → agent 已绑定，责任签认与履约边界已落库。"
-            "API Key 仅此一次明文返回；对端可 GET /p1-status 核验。"
-        ),
-    }
 
 
 @router.get("/mine")

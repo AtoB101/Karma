@@ -1172,6 +1172,120 @@ body.gated { overflow: hidden; }
 }
 
 /* ------------------------------------------------------------------
+   配对码接入（#ag-pair）
+   与授权向导同源，但入口不同：agent 先发起，主人只做批准 + 划额度。
+   保持和 #ag-wizard 一样的密度，别让两张卡片看起来像两个产品。
+------------------------------------------------------------------ */
+#ag-pair .pair-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+#ag-pair .pair-label { font-size: 12px; color: var(--text-dim); min-width: 92px; }
+#ag-pair .pair-row input[type="text"] {
+  min-width: 200px;
+  max-width: 280px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  background: rgba(6, 12, 20, 0.7);
+  color: var(--text-main);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+#ag-pair .pair-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+#ag-pair .pair-grid .field label { display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+#ag-pair .pair-grid input,
+#ag-pair .pair-grid select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  background: rgba(6, 12, 20, 0.7);
+  color: var(--text-main);
+}
+#ag-pair .pair-request {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(34, 211, 238, 0.2);
+  background: rgba(8, 14, 24, 0.55);
+}
+#ag-pair .pair-request[hidden] { display: none; }
+#ag-pair .pair-request-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+#ag-pair .pair-request-head span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 1px;
+  color: var(--neon-cyan);
+}
+#ag-pair .pair-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#ag-pair .pair-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-dim);
+  padding: 4px 12px 4px 0;
+  white-space: nowrap;
+  vertical-align: top;
+}
+#ag-pair .pair-table td { padding: 4px 0; word-break: break-all; }
+#ag-pair .pair-hint { margin-top: 10px; font-size: 12px; line-height: 1.7; color: var(--text-dim); }
+#ag-pair .pair-perms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+#ag-pair .pair-perm {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(34, 211, 238, 0.18);
+  background: rgba(8, 14, 24, 0.5);
+  font-size: 12px;
+  cursor: pointer;
+}
+#ag-pair .pair-perm input { margin-right: 6px; }
+#ag-pair .pair-perm b { font-size: 12px; }
+#ag-pair .pair-perm span { display: block; margin-top: 3px; font-size: 11px; color: var(--text-dim); }
+#ag-pair .pair-grant-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(34, 211, 238, 0.2);
+}
+#ag-pair .pair-grant-head b { font-size: 14px; }
+#ag-pair .pair-grant-head span { font-size: 12px; color: var(--text-dim); line-height: 1.7; }
+#ag-pair #pair-grant[hidden] { display: none; }
+#ag-pair .pair-result { font-size: 13px; line-height: 1.7; }
+#ag-pair .pair-result b { display: block; margin-bottom: 4px; }
+#ag-pair .pair-result.err { color: #ff8b8b; }
+/* 行业硬指标表单：和「接入一个 Agent」共用 karma-service-spec.js 渲染的同一份 DOM。 */
+#ag-pair #pair-spec-wrap { margin-top: 4px; }
+#ag-pair .pair-hint[hidden] { display: none; }
+#ag-pair .pair-hint.err { color: #ff8b8b; }
+
+@media (max-width: 1100px) {
+  #ag-pair .pair-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #ag-pair .pair-perms { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 720px) {
+  #ag-pair .pair-grid,
+  #ag-pair .pair-perms { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------------------------------
    收付中心（#center）
    主身份：总览 + 支出/收入明细；切子身份：该身份的收付明细。
    每一行都能点开详情；确认区 / 争议区按订单状态分色。

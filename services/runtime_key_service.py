@@ -138,6 +138,7 @@ class RuntimeKeyContext:
     expire_at: datetime
     agent_name: str
     status: str
+    agent_binding: str | None = None
 
 
 def _utcnow() -> datetime:
@@ -171,6 +172,7 @@ async def load_active_context(*, db: AsyncSession, token: str) -> RuntimeKeyCont
         expire_at=exp,
         agent_name=row.agent_name,
         status=row.status,
+        agent_binding=row.agent_binding,
     )
 
 

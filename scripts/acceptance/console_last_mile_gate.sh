@@ -15,6 +15,8 @@ required=(
   scripts/console-entry-gate.js
   scripts/cyber-actions.js
   scripts/cyber-authorize.js
+  scripts/karma-service-spec.js
+  scripts/cyber-pairing.js
   scripts/cyber-payments.js
   scripts/cyber-console.js
   scripts/cyber-order-flow.js
@@ -33,6 +35,12 @@ grep -q 'settlementLock' "$CONSOLE/scripts/karma-public-api.js"
 grep -q 'karmaResolveApiBase' "$CONSOLE/scripts/karma-public-api.js"
 grep -q 'cyber-console.css' "$CONSOLE/pages/cyber/index.html"
 grep -q 'cyber-identity-verify.js' "$CONSOLE/pages/cyber/index.html"
+grep -q 'cyber-pairing.js' "$CONSOLE/pages/cyber/index.html"
+grep -q 'attachPairingRuntimeKey' "$CONSOLE/scripts/karma-public-api.js"
+# 行业硬指标表单：向导和配对接入必须共用同一份实现，不能各写一套。
+grep -q 'karma-service-spec.js' "$CONSOLE/pages/cyber/index.html"
+grep -q 'KarmaServiceSpec' "$CONSOLE/scripts/cyber-agents.js"
+grep -q 'KarmaServiceSpec' "$CONSOLE/scripts/cyber-pairing.js"
 grep -q 'pages/cyber/index.html' "$CONSOLE/index.html"
 
 python3 -m pytest -q tests/unit/test_console_last_mile.py
@@ -41,7 +49,7 @@ python3 -m pytest -q tests/unit/test_console_last_mile.py
 python3 -m pytest -q tests/unit/test_console_live_write_smoke.py
 
 if command -v node >/dev/null 2>&1; then
-  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js cyber-payments.js cyber-console.js cyber-orders.js cyber-order-flow.js cyber-identity.js cyber-identity-verify.js; do
+  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js karma-service-spec.js cyber-pairing.js cyber-payments.js cyber-console.js cyber-orders.js cyber-order-flow.js cyber-identity.js cyber-identity-verify.js; do
     node --check "$CONSOLE/scripts/$js"
   done
 fi

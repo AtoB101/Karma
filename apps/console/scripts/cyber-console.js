@@ -1285,7 +1285,13 @@
       developer: "#id-developer",
     },
     reviews: { all: "#rv-queue", entity: "#rv-queue", developer: "#rv-queue", kyc: "#rv-queue" },
-    agents: { wizard: "#ag-wizard", mine: "#ag-mine", handoff: "#ag-handoff-card", connect: "#agents .ag-advanced" },
+    agents: {
+      wizard: "#ag-wizard",
+      pair: "#ag-pair",
+      mine: "#ag-mine",
+      handoff: "#ag-handoff-card",
+      connect: "#agents .ag-advanced",
+    },
   };
 
   function landOn(node) {
@@ -1356,6 +1362,7 @@
     },
     agents: {
       wizard: ["#ag-wizard"],
+      pair: ["#ag-pair"],
       mine: ["#ag-mine"],
       handoff: ["#ag-handoff-card"],
       connect: ["#agents > .ag-advanced"],

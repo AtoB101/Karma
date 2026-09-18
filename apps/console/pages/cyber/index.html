@@ -109,6 +109,7 @@
               <button class="nav-sub" data-page="agents" data-sub="mine"><span data-i18n="sub.agents.mine">我的 Agent</span></button>
               <button class="nav-sub" data-page="agents" data-sub="handoff"><span data-i18n="sub.agents.handoff">交给 Agent</span></button>
               <button class="nav-sub" data-page="agents" data-sub="connect"><span data-i18n="sub.agents.connect">接入一个 Agent</span></button>
+              <button class="nav-sub" data-page="agents" data-sub="pair"><span data-i18n="sub.agents.pair">配对接入</span></button>
             </div>
           </div>
           <div class="nav-group" data-group="market">
@@ -974,6 +975,63 @@
             <div class="agw-result" id="agw-result" hidden></div>
           </div>
 
+          <!-- 配对码接入：agent 先发起，主人只做「批准接入 + 划额度」两个决定，
+               凭据由 Karma 直接交给持配对码的进程（本页永远不显示密钥）。 -->
+          <div class="card section" id="ag-pair" style="margin-top:20px">
+            <div class="section-header">
+              <div>
+                <h3>配对码接入</h3>
+                <p>agent 发起接入时会拿到一串配对码，把它给你；你在这里确认一次，它自己把凭据领走。你不用把密钥抄给它，它也不该向你要密钥。</p>
+              </div>
+              <span class="api-status" id="pair-status">—</span>
+            </div>
+
+            <div class="pair-row">
+              <label class="pair-label" for="pair-code">配对码</label>
+              <input id="pair-code" type="text" placeholder="K4QP-3M2X" autocomplete="off" spellcheck="false" />
+              <button type="button" class="btn" id="pair-query">查询请求</button>
+            </div>
+
+            <div id="pair-request" class="pair-request" hidden></div>
+
+            <div id="pair-decide" hidden>
+              <div class="pair-grid">
+                <div class="field"><label>方向</label><select id="pair-side"><option value="buyer">我要付款（买家 agent）</option><option value="seller">我要收款（卖家 agent）</option></select></div>
+                <div class="field"><label>行业</label><select id="pair-vertical" disabled><option value="">读取行业目录…</option></select></div>
+                <div class="field"><label>Agent 名称</label><input id="pair-name" type="text" placeholder="如 上海中央厨房配送 agent" /></div>
+                <div class="field"><label>绑定角色档案</label><select id="pair-scope"><option value="">（先连接钱包）</option></select></div>
+              </div>
+              <!-- 行业硬指标：卖方必填，和「接入一个 Agent」共用同一份表单（karma-service-spec.js）。
+                   agent 自报的那份只做预填；提交以这里看到的为准，否则它报错了主人只能吃 400。 -->
+              <p class="pair-hint" id="pair-spec-note" hidden></p>
+              <div id="pair-spec-wrap"><div id="pair-spec-form"></div></div>
+              <div class="pair-row">
+                <button type="button" class="btn primary" id="pair-approve">批准接入</button>
+                <button type="button" class="btn" id="pair-reject">拒绝</button>
+              </div>
+            </div>
+
+            <div id="pair-grant" hidden>
+              <div class="pair-grant-head">
+                <b>授权额度（可选）</b>
+                <span>批准之后 agent 只有身份、还动不了钱。在这里划一次额度并签名，钱钥匙会跟身份一起交给它。</span>
+              </div>
+              <p class="pair-hint" id="pair-grant-name"></p>
+              <div class="pair-grid">
+                <div class="field"><label>单笔上限（USDC）</label><input id="pair-single" type="number" value="50" min="1" /></div>
+                <div class="field"><label>每日上限（USDC）</label><input id="pair-daily" type="number" value="200" min="1" /></div>
+                <div class="field"><label>有效期（天）</label><input id="pair-expire-days" type="number" value="7" min="1" /></div>
+              </div>
+              <div id="pair-perms" class="pair-perms"></div>
+              <div class="pair-row">
+                <button type="button" class="btn primary" id="pair-grant-go">授权额度并交付</button>
+                <span class="api-status" id="pair-grant-status"></span>
+              </div>
+            </div>
+
+            <div id="pair-result" class="pair-result" style="margin-top:12px"></div>
+          </div>
+
           <div class="card section" id="ag-mine" style="margin-top:20px">
             <div class="section-header">
               <div>
@@ -1241,9 +1299,11 @@
     <script src="../../scripts/cyber-payments.js"></script>
     <script src="../../scripts/cyber-orders.js"></script>
     <script src="../../scripts/cyber-order-flow.js"></script>
+    <script src="../../scripts/karma-service-spec.js"></script>
     <script src="../../scripts/cyber-agents.js"></script>
     <script src="../../scripts/cyber-authorize.js"></script>
-    <script src="../../scripts/cyber-handoff.js"></script>
+ <script src="../../scripts/cyber-handoff.js"></script>
+ <script src="../../scripts/cyber-pairing.js"></script>
     <script src="../../scripts/cyber-cert-shared.js"></script>
     <script src="../../scripts/cyber-cert-sole.js"></script>
     <script src="../../scripts/cyber-entity.js"></script>
