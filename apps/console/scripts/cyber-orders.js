@@ -173,7 +173,7 @@
       '<span class="order-card-amount">' + money(entry.amount_usdc) + " <em>USDC</em></span>" +
       "</span>" +
       '<span class="order-card-title">' + esc(entry.title || entry.kind_label || "订单") + "</span>" +
-      '<span class="order-card-meta"><span>' + esc(entry.kind_label || entry.kind) + " · " + esc(statusLabel(entry)) + "</span></span>" +
+      '<span class="order-card-meta"><span>' + esc(T(entry.kind_label || entry.kind) + " · " + T(statusLabel(entry))) + "</span></span>" +
       '<span class="order-card-meta"><span>对方 ' + esc(shortId(entry.counterparty_identity_id)) + "</span><span>" +
       esc(fmtTime(entry.updated_at || entry.created_at)) + "</span></span>" +
       (entry.task_id ? '<span class="order-card-meta"><span>任务 ' + esc(shortRef(entry.task_id)) + "</span></span>" : "") +

@@ -22,6 +22,24 @@
   function identity() {
     return (window.KARMA_IDENTITY_ID || "").trim();
   }
+  /**
+   * 行业目录：后端只给了 title_zh / title_en，没有其它语言。
+   * 中文界面用中文标题；其它语言先查语言包里的行业名，查不到再回落到英文标题 ——
+   * 否则英文页会掉出一串中文行业名，日 / 韩 / 西语页会掉出一串英文。
+   */
+  function indTitle(row, fallback) {
+    var lang = "";
+    try { lang = (window.CYBER_I18N && window.CYBER_I18N.getLang()) || ""; } catch (_) {}
+    var zh = row.title_zh || "";
+    if (lang && lang !== "zh-CN") {
+      var t = "";
+      try { if (zh && window.CYBER_I18N) t = window.CYBER_I18N.T(zh); } catch (_) {}
+      if (t && t !== zh) return t;
+      return row.title_en || zh || fallback;
+    }
+    return zh || row.title_en || fallback;
+  }
+
   function esc(v) {
     return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -239,7 +257,7 @@
         html += '<optgroup label="' + esc(g) + '">';
         groups[g].forEach(function (i) {
           html += '<option value="' + esc(i.industry_id) + '">' +
-            esc(i.title_zh || i.title_en || i.industry_id) + "</option>";
+            esc(indTitle(i, i.industry_id)) + "</option>";
         });
         html += "</optgroup>";
       });
@@ -327,7 +345,7 @@
         return;
       }
       var html = '<div class="ag-spec-head"><b>行业硬指标</b><span>' +
-        esc(ind.title_zh || industryId) + " · 共 " + reqs.length + " 项（全部必填）</span>" +
+        esc(indTitle(ind, industryId)) + " · 共 " + reqs.length + " 项（全部必填）</span>" +
         '<button type="button" class="btn" id="ag-spec-example">按示例填充</button></div>' +
         '<div class="ag-spec-grid">' + reqs.map(renderSpecField).join("") + "</div>";
       host.innerHTML = html;

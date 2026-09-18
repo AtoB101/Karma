@@ -1572,7 +1572,7 @@
   const LANG_LABELS = {
     "zh-CN": "\u4e2d\u6587", en: "English", ja: "\u65e5\u672c\u8a9e",
     ko: "\ud55c\uad6d\uc5b4",
-    "es-AR": "Espa\u00f1ol (Argentina)", "es-SV": "Espa\u00f1ol (El Salvador)",
+    "es-AR": "Espa\u00f1ol (AR)", "es-SV": "Espa\u00f1ol (SV)",
   };
   const LANG_ORDER = ["zh-CN", "en", "ja", "ko", "es-AR", "es-SV"];
 

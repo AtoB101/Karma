@@ -70,6 +70,23 @@
     return global.cyberKarmaApi;
   }
 
+  /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
+  function T(zh) {
+    var i18n = window.CYBER_I18N;
+    return i18n && i18n.T ? i18n.T(zh) : zh;
+  }
+
+  /** 模板译文：Tf("{0} · 对方 {1}", a, b) —— 拼出来的整句才查得到译表。 */
+  function Tf(zh) {
+    var i18n = window.CYBER_I18N;
+    if (i18n && i18n.Tf) return i18n.Tf.apply(null, [].slice.call(arguments));
+    var out = zh;
+    for (var i = 1; i < arguments.length; i += 1) {
+      out = out.split("{" + (i - 1) + "}").join(arguments[i] == null ? "" : String(arguments[i]));
+    }
+    return out;
+  }
+
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -294,15 +311,16 @@
     row.className = "pay-auth-row";
     row.setAttribute("data-pay-auth", sess.session_id);
     var ctx = sess.context || {};
-    var amount = ctx.amount != null && ctx.amount !== "" ? money(ctx.amount) + " USDC" : "金额待定";
+    var amount = ctx.amount != null && ctx.amount !== "" ? money(ctx.amount) + " USDC" : T("金额待定");
     var who = ctx.merchant || ctx.seller || ctx.counterparty || "";
+    // 这一段是拼出来的整句（金额 · 对方 · 场景 · 有效期），必须走模板译，否则只有半句被翻。
+    var meta = amount;
+    if (who) meta = Tf("{0} · 对方 {1}", meta, String(who));
+    if (sess.scene_id) meta = Tf("{0} · 场景 {1}", meta, sess.scene_id);
+    if (sess.expires_at) meta = Tf("{0} · {1} 前有效", meta, fmtTime(sess.expires_at));
     row.innerHTML =
       "<span><b>" + esc(sess.prompt_zh || "agent 想在下单前得到你的确认") + "</b>" +
-        "<i>" + esc(amount) +
-          (who ? " · 对方 " + esc(String(who)) : "") +
-          (sess.scene_id ? " · 场景 " + esc(sess.scene_id) : "") +
-          (sess.expires_at ? " · " + esc(fmtTime(sess.expires_at)) + " 前有效" : "") +
-        "</i></span>" +
+        "<i>" + esc(meta) + "</i></span>" +
       '<span class="pay-auth-actions">' +
         '<button type="button" class="btn primary" data-auth-ok="' + esc(sess.session_id) + '">确认</button>' +
         '<button type="button" class="btn" data-auth-no="' + esc(sess.session_id) + '">拒绝</button>' +

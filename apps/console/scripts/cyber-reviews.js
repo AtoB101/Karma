@@ -51,6 +51,25 @@
     return window.cyberKarmaApi || {};
   }
 
+  /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
+  function T(zh) {
+    var i18n = window.CYBER_I18N;
+    return i18n && i18n.T ? i18n.T(zh) : zh;
+  }
+
+  /**
+   * 后端拼出来的副标题（「证件类型 · 号码 · 级别」）逐段翻。
+   * 整句查表查不到 —— 只有按分隔符拆开，每一段才在译表里。
+   */
+  function trJoined(text) {
+    return String(text == null ? "" : text)
+      .split(" · ")
+      .map(function (part) {
+        return T(part.trim());
+      })
+      .join(" · ");
+  }
+
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -100,12 +119,14 @@
     if (list.length) {
       return list
         .map(function (m) {
-          return String((m && (m.name || m.kind)) || "");
+          return T(String((m && (m.name || m.kind)) || ""));
         })
         .filter(Boolean)
-        .join("、");
+        .join(T("、"));
     }
-    return "无材料清单（密文包" + (item.has_package ? "已随附，复核岗看密文" : "未随附") + "）";
+    return item.has_package
+      ? T("无材料清单（密文包已随附，复核岗看密文）")
+      : T("无材料清单（密文包未随附）");
   }
 
   function itemHtml(item) {
@@ -128,7 +149,7 @@
           '<span class="rv-kind">' + esc(KIND_LABEL[item.kind] || item.kind) + "</span>" +
           pills.join("") +
         "</div>" +
-        '<div class="rv-sub">' + esc(item.subtitle || "—") + "</div>" +
+        '<div class="rv-sub">' + esc(trJoined(item.subtitle) || "—") + "</div>" +
         '<div class="rv-meta">' +
           "<span>编号 <code>" + esc(id) + "</code></span>" +
           "<span>提交 " + esc(item.submitted_at || "—") + "</span>" +

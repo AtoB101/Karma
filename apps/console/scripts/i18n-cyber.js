@@ -1331,15 +1331,18 @@
    */
   const SHIPPED_LANGS = ["zh-CN", "en", "ja", "ko", "es-AR", "es-SV"];
 
-  /** Endonyms for every pack, so the control never shows a bare locale code. */
-  /** 语言自称，选择器里永远不显示裸的语言代码。 */
+  /** Endonyms for every pack, so the control never shows a bare locale code.
+   *  Keep them short: the picker keeps the width it always had, so a long
+   *  label would widen the box and push it into the connect-wallet button. */
+  /** 语言自称，选择器里永远不显示裸的语言代码；宁可短一点，
+   *  也不能把语言选择框撑宽。 */
   const LANG_LABELS = {
     "zh-CN": "\u4e2d\u6587",
     en: "English",
     ja: "\u65e5\u672c\u8a9e",
     ko: "\ud55c\uad6d\uc5b4",
-    "es-AR": "Espa\u00f1ol (Argentina)",
-    "es-SV": "Espa\u00f1ol (El Salvador)",
+    "es-AR": "Espa\u00f1ol (AR)",
+    "es-SV": "Espa\u00f1ol (SV)",
   };
 
   /**
@@ -1699,8 +1702,23 @@
     }
   }
 
+  /**
+   * TEXTAREA 的正文不翻（里面是用户输入），但它的 placeholder 是界面文案，得翻。
+   * 别的 SKIP_TAGS 连 placeholder 一起跳过。
+   */
+  function skippedAttrs(el) {
+    let n = el;
+    while (n && n.nodeType === 1) {
+      if (SKIP_TAGS[n.tagName] && n.tagName !== "TEXTAREA" && !n.hasAttribute("data-i18n-phrase")) return true;
+      if (n.hasAttribute("data-i18n-skip")) return true;
+      if (n.hasAttribute("data-i18n") || n.hasAttribute("data-i18n-placeholder")) return true;
+      n = n.parentElement;
+    }
+    return false;
+  }
+
   function translateAttrs(el) {
-    if (!el || el.nodeType !== 1 || skipped(el)) return;
+    if (!el || el.nodeType !== 1 || skippedAttrs(el)) return;
     let list = ATTRS;
     if (el.tagName === "INPUT") {
       const type = (el.getAttribute("type") || "").toLowerCase();

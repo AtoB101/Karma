@@ -253,15 +253,26 @@ body {
 .lang-select {
   background: #0c1220;
   border: 1px solid rgba(0, 224, 255, 0.45);
-  border-radius: 12px;
-  padding: 8px 12px;
+  border-radius: 10px;
+  padding: 6px 8px;
   color: #e2f0ff;
   font-size: 12px;
   cursor: pointer;
 }
-/* 语言选择器：标签不能被挤成两行（「语言」在日韩西文下会更长）。 */
-.lang-select > span { flex: 0 0 auto; white-space: nowrap; }
-.lang-select > select { flex: 0 0 auto; max-width: 100%; }
+/* 语言选择器：整体收窄一圈（原来下拉框写死 116px 宽、内距 8/12）。
+   顶栏里它左边挨着「语言」、右边紧贴「连接钱包」，窄屏换成两行时
+   整块还会被挤出视口。现在改成按内容自适应 + 更小的内距和圆角：
+   中文约 76px、西语最长的 «Español (SV)» 约 96px。
+   宽度不写死是为了避免西语/韩语选项被截断成 «Español (S…»。 */
+.lang-select { flex: 0 0 auto; }
+.lang-select > span { white-space: nowrap; }
+.lang-select > select {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+  padding: 4px 6px;
+  border-radius: 8px;
+}
 .api-status { font-size: 12px; color: var(--neon-mint); max-width: 420px; word-break: break-all; }
 .api-status.err { color: #ff8a9a; }
 .topbar {
@@ -574,6 +585,10 @@ textarea { min-height: 80px; resize: vertical; }
   .app { grid-template-columns: 1fr; }
   .sidebar { display: none; }
   .main { padding: 16px; }
+  /* 顶栏靠负边距贴到 .main 内边距外面；窄屏 .main 内边距缩到 16px，
+     负边距必须跟着缩，否则顶栏比容器宽 24px，右边那条会被切掉——
+     看着就像「语言框和连接钱包挤在一起」。 */
+  .topbar { margin: -16px -16px 18px; }
   .metrics { grid-template-columns: 1fr; }
 }
 .page { display: none; }
