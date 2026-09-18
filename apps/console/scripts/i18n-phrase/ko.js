@@ -2332,3 +2332,8 @@ Object.assign(window.CYBER_I18N_PHRASE["ko"], {
   "· 正在执行中的订单占用 {0} USDC（结算前不能动）": "· 진행 중인 주문 점유 {0} USDC(결제 전에는 이동 불가)",
   "将撤销下面这些未使用的账单，减少 {0} USDC：": "다음 미사용 청구서를 취소하고 {0} USDC를 줄입니다:",
 });
+// --- dynamic-append-18: agent 公钥绑定（使用时刻硬校验） ---
+Object.assign(window.CYBER_I18N_PHRASE["ko"], {
+  "公钥绑定": "공개키 바인딩",
+  "等 agent 领取时绑定 · 绑定后每个请求都要 agent 私钥签名，光有钥匙不能用": "agent가 수령할 때 바인딩됩니다 · 바인딩 후에는 모든 요청에 agent 개인키 서명이 필요해 키만으로는 쓸 수 없습니다",
+});

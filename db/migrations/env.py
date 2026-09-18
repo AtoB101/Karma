@@ -14,7 +14,10 @@ from db.models.orm import Base
 from config.settings import settings
 
 config = context.config
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Alembic 把 URL 存进 ConfigParser，而 % 在那里是插值字符：生产库密码里带 %40 / %21，
+# 直接用原样 URL 会在 set 的时候抛 invalid interpolation syntax —— 必须先转义，
+# 否则这台机器上根本跑不了 alembic upgrade head（迁移只能靠手改库）。
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

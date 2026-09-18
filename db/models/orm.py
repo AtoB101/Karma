@@ -888,6 +888,12 @@ class RuntimeKeyModel(Base):
     expire_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     agent_name: Mapped[str] = mapped_column(String(256), nullable=False)
     agent_binding: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # 这把 key 是「服务端托管」（认 key 不认人）还是「钉死在某个 agent 公钥上」（逐请求验签）。
+    key_binding: Mapped[str | None] = mapped_column(String(16), nullable=True, default="service")
+    # agent 的 Ed25519 裸公钥（base64，32 字节）。绑定后每个请求都要它验签。
+    agent_public_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 会动钱的权限（place_order / request_settlement）→ 每请求强制 nonce。
+    nonce_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

@@ -2332,3 +2332,8 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "· 正在执行中的订单占用 {0} USDC（结算前不能动）": "· Held by orders in progress {0} USDC (locked until settlement)",
   "将撤销下面这些未使用的账单，减少 {0} USDC：": "These unused bills will be revoked, reducing {0} USDC:",
 });
+// --- dynamic-append-18: agent 公钥绑定（使用时刻硬校验） ---
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "公钥绑定": "Public-key binding",
+  "等 agent 领取时绑定 · 绑定后每个请求都要 agent 私钥签名，光有钥匙不能用": "Bound when the agent claims it · afterwards every request must be signed by the agent's private key, so the key alone is useless",
+});

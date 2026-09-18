@@ -448,7 +448,9 @@
     }
     var single = Number((byId("pair-single") || {}).value || 0);
     var daily = Number((byId("pair-daily") || {}).value || 0);
-    var days = Number((byId("pair-expire-days") || {}).value || 7);
+    // 服务端 90 天封顶（MAX_KEY_LIFETIME_DAYS）：铸不出「十年有效的钥匙」。
+    // 这里先夹住，别让用户填完、签完名才吃一个 400。
+    var days = Math.min(90, Math.max(1, Number((byId("pair-expire-days") || {}).value || 7)));
     if (!(single > 0) || !(daily > 0)) {
       setStatus(status, "单笔和每日上限都要大于 0", true);
       return;
@@ -491,9 +493,10 @@
         daily_limit: daily,
         expire_time: pyIso(Date.now() + Math.max(1, days) * 86400e3),
         agent_name: state.agentName || state.agentId,
-        // 记下这把钥匙是给哪个 agent 铸的。注意：服务端目前只在「挂进配对交付」那一步
-        // 用它防两笔配对串号，请求时并不校验 —— 所以 Runtime Key 本质是不记名令牌，别外传。
+        // 记下这把钥匙是给哪个 agent 铸的。agent_binding 是写进钱包签名消息的字段，
+        // 所以服务端能确认「用户本人授权了这个 agent」；下面还会单独传 agent_id 做交叉校验。
         agent_binding: state.agentId,
+        agent_id: state.agentId,
       };
       var sig = await provider.request({
         method: "personal_sign",
@@ -509,6 +512,7 @@
         expire_time: fields.expire_time,
         agent_name: fields.agent_name,
         agent_binding: fields.agent_binding,
+        agent_id: fields.agent_id,
         profile_id: (byId("pair-scope") || {}).value || undefined,
       });
 
@@ -522,7 +526,9 @@
           '<table class="pair-table">' +
           "<tr><th>单笔上限（USDC）</th><td>" + esc(single) + "</td></tr>" +
           "<tr><th>每日上限（USDC）</th><td>" + esc(daily) + "</td></tr>" +
-          "<tr><th>有效期（天）</th><td>" + esc(Math.max(1, days)) + "</td></tr>" +
+          "<tr><th>有效期（天）</th><td>" + esc(days) + "</td></tr>" +
+          "<tr><th>公钥绑定</th><td>" +
+          "等 agent 领取时绑定 · 绑定后每个请求都要 agent 私钥签名，光有钥匙不能用</td></tr>" +
           "</table>" +
           "<p>agent 用配对码领取时会一次拿到身份钥匙和钱钥匙，本页不显示密钥。</p>"
       );

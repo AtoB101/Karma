@@ -4,7 +4,7 @@
 # 为什么不用 deploy/vps/deploy.sh：那是首次/完整部署，会 `up -d --build` 重建镜像。
 # 这台机器只有 1.6G 内存，编译一次要很久，push 一次就编译一次不现实。
 # 生产上的代码是 bind mount 进容器的，所以这里走 `karma deploy`：
-#   拉代码 → 发布静态站与操作台 → 重建容器（不 build）→ 健康检查。
+#   拉代码 → 跑数据库迁移 → 发布静态站与操作台 → 重建容器（不 build）→ 健康检查。
 #
 # 必须在服务器上 /opt/karma/repo 这份检出里执行；脚本自己会切过去。
 set -euo pipefail

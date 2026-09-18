@@ -13,6 +13,67 @@ Runtime Key（`KRM_RT_…`）是 **Agent 工作通行证**，用于调用公开�
 - SDK：`from karma import KarmaRuntime` 或 `from sdk.runtime_client import KarmaRuntime`。
 - 环境变量：`KARMA_RUNTIME_URL`、`KARMA_RUNTIME_KEY`、可选 `KARMA_EXPECTED_CHAIN_ID`、`KARMA_APP_SECRET`（用于校验响应 HMAC）。
 
+## 绑定 agent 公钥（使用时刻硬校验）
+
+Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在额度内花你的钱。
+所以铸出 key 之后，agent 应该把自己的 Ed25519 公钥钉在这把钥匙上。
+
+1. agent 侧配好三样东西：
+
+   ```
+   KARMA_RUNTIME_KEY=KRM_RT_…
+   KARMA_AGENT_ID=<操作台里那个 agent 的 id>
+   KARMA_AGENT_PRIVATE_KEY=<base64(32 字节种子) 或 64 位 hex>
+   ```
+
+2. agent 启动时调一次：
+
+   ```python
+   rt = KarmaRuntime.from_env()
+   await rt.ensure_bound()      # 已绑就打开签名；没绑就顺手绑上
+   ```
+
+   等价写法：await rt.bind_key()；一次性的服务端调用是 POST /runtime/bind-key。
+
+3. 绑定之后**每个请求**都要带这四个头，缺一个就是 401：
+
+   | 头 | 内容 |
+   | --- | --- |
+   | X-Karma-Runtime-Key | KRM_RT_… 明文 |
+   | X-Karma-Agent-Signature | Ed25519 签名（base64） |
+   | X-Karma-Runtime-Timestamp | UTC 秒，如 2026-09-18T12:00:00Z，容忍正负 300 秒 |
+   | X-Karma-Runtime-Nonce | 每次都要不同；重复即 409 |
+
+   签名覆盖下面这段文字（时间戳规范化成 YYYY-MM-DDTHH:MM:SSZ，路径不含查询串，
+   body_sha256 对原始请求体字节取 sha256）：
+
+   ```
+   Karma Runtime Request
+   key_id:<key_id>
+   method:<METHOD>
+   path:<path>
+   timestamp:<timestamp>
+   nonce:<nonce>
+   body_sha256:<sha256 of raw body>
+   ```
+
+4. 换绑不做静默替换：已经绑过别的公钥时，必须由**当前那把私钥**签名；
+   真想换人，先吊销再铸新的（否则拿到 key 的人可以把真 agent 顶掉）。
+
+**没绑公钥的 key 行为完全不变**（服务端托管，认 key 不认人）——升级不会把已经在跑的 agent 打掉。
+绑不绑由 agent 决定；但只有绑了，「被偷走的 key 单独没用」才成立。
+
+其它硬约束：
+
+| 约束 | 值 | 为什么 |
+| --- | --- | --- |
+| key 最长有效期 | 90 天 | 「十年有效的钥匙」等于没有到期时间，出事时没有兜底 |
+| 时间戳容忍窗口 | 正负 300 秒 | 拦住原样重放 |
+| nonce_required | 含 place_order / request_settlement 时为 true | 会动钱的 key 每请求强制 nonce |
+
+POST /runtime/create-key 的返回里会带绑定声明 binding_scope 与平台签名
+binding_scope_signature（配 service_public_key 核对），agent 据此确认「这把 key 是发给我的」。
+
 ## 权限子集
 
 允许的权限名：`request_voucher`、`verify_voucher`、`submit_receipt`、`update_progress`、`request_settlement`、`sync_task_status`、`discover_agents`、`place_order`。
@@ -51,6 +112,15 @@ automation-policy（`auto_enabled`、`responsibility_acknowledged`、`single_lim
 客户端传什么都不能放宽。
 
 禁止的能力（Runtime Key **永远不能**执行）包括：提现、转 USDC、修改锁仓、提升额度、改钱包、改安全规则、删除账单、篡改已接受任务、绕过争议与结算状态机等——详见 `docs/security-boundary.md`。
+
+## 查一把钥匙现在绑没绑
+
+```
+GET /runtime/permissions
+```
+
+返回里的 key_binding 为 service（没绑）/ agent（已绑），agent_fingerprint 是绑定公钥的指纹
+（前 16 位给用户肉眼对照），nonce_required 表示这个 key 是否每请求强制 nonce。
 
 ## 吊销
 

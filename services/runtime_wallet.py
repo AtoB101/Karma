@@ -61,6 +61,33 @@ def build_create_key_message(
     return "\n".join(lines)
 
 
+def build_agent_request_message(
+    *,
+    key_id: str,
+    method: str,
+    path: str,
+    timestamp: str,
+    nonce: str,
+    body_sha256: str,
+) -> str:
+    """已绑定公钥的 key 每个请求签的就是这段文字。
+
+    时间戳是规范化后的 UTC 秒（YYYY-MM-DDTHH:MM:SSZ），路径不含查询串，
+    body_sha256 是对原始请求体字节取 sha256 —— 服务端按同样的规则重算，对不上就 401。
+    """
+    return "\n".join(
+        [
+            "Karma Runtime Request",
+            f"key_id:{key_id}",
+            f"method:{method.upper()}",
+            f"path:{path}",
+            f"timestamp:{timestamp}",
+            f"nonce:{nonce}",
+            f"body_sha256:{body_sha256}",
+        ]
+    )
+
+
 def build_revoke_key_message(*, key_id: str, karma_identity_id: str, wallet_address: str) -> str:
     return "\n".join(
         [

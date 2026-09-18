@@ -364,6 +364,7 @@
         expire_time: expireIso,
         agent_name: fields.agent_name,
         agent_binding: a.agent_id,
+        agent_id: a.agent_id,
         profile_id: a.scope_profile_id || undefined,
       });
       state.runtimeKey = (r && r.runtime_key) || "";

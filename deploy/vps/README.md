@@ -28,10 +28,23 @@ bash deploy/vps/bootstrap.sh   # Docker + 防火墙(22/80/443) + fail2ban + swap
 `deploy-vps.yml`：单测 + import 冒烟 → SSH 执行
 `/opt/karma/repo/deploy/vps/ci-deploy.sh` 滚动更新。
 
-那个脚本内部调 `karma deploy`：拉代码 → 发布静态站与操作台 → 重建容器（**不 build**）
+那个脚本内部调 `karma deploy`：拉代码 → 跑数据库迁移 → 发布静态站与操作台 → 重建容器（**不 build**）
 → 健康检查，并自动备份 webroots 到 `/opt/karma/backups/`。
 不用 `deploy/vps/deploy.sh` 是因为它会 `--build` 重建镜像 —— 1.6G 的机器上太慢，
 而生产代码是 bind mount 进容器的，改代码不需要重新构建镜像。
+
+## 数据库迁移
+
+`karma deploy` / `karma update --apply` 会在**重建容器之前**自动执行 `alembic upgrade head`，
+所以代码和表结构不会脱节。也可以单独跑：
+
+```bash
+karma migrate     # = docker exec -w /app karma-api alembic upgrade head
+```
+
+迁移跑在 app 容器里，因为 `alembic.ini` 里的 URL 是占位值，真实 URL 由
+`db/migrations/env.py` 从 `.env` 读（容器网络里数据库主机名是 `postgres`）。
+迁移失败时脚本直接中止，不会重建容器 —— 线上仍跑旧代码，不会半新半旧。
 
 ## 域名要求
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,14 +56,21 @@ from services.receipt_guard import (
 from services.receipt_templates import validate_extension_vs_task_type
 from services.task_contract_guard import ensure_task_contract_exists
 from services.runtime_key_service import (
+    MAX_KEY_LIFETIME_DAYS,
+    PublicKeyError,
     RuntimeKeyContext,
+    agent_binding_fingerprint,
     assert_permission,
+    bind_agent_public_key,
+    binding_scope,
     check_replay_nonce,
     check_single_and_daily_limits,
     create_runtime_key_record,
+    hash_binding_scope,
     list_runtime_keys_for_identity,
     load_active_context,
     revoke_runtime_key,
+    verify_signed_request,
 )
 from services.runtime_response_sign import signed_json_response
 from services.runtime_synthetic_request import synthetic_request
@@ -104,12 +111,26 @@ class CreateRuntimeKeyBody(BaseModel):
     expire_time: datetime
     agent_name: str
     agent_binding: Optional[str] = None
+    # agent 自己声明的 id（操作台铸造时提交）。它必须与 agent_binding 一致 ——
+    # agent_binding 是写进钱包签名消息的那个字段，两个不一致就等于用户没授权过这个 agent。
+    agent_id: Optional[str] = None
     profile_id: Optional[str] = None
 
 
 @router.post("/create-key")
 async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("karma_identity_id", body.karma_identity_id)
+    agent_id = (body.agent_id or "").strip() or None
+    bound_agent = (body.agent_binding or "").strip() or None
+    if agent_id and not bound_agent:
+        raise HTTPException(
+            status_code=400,
+            detail="agent_id requires agent_binding (agent_binding is the wallet-signed field)",
+        )
+    if agent_id and bound_agent and agent_id != bound_agent:
+        # 同一个东西写了两个值，说明调用方拼错了 —— 在铸造前就失败，
+        # 别铸出一把「声明与授权对象不一致」的钥匙。
+        raise HTTPException(status_code=403, detail="agent_id must match agent_binding")
     if body.profile_id:
         validate_public_url_segment("profile_id", body.profile_id)
     msg = build_create_key_message(
@@ -161,6 +182,18 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
         agent_binding=body.agent_binding,
     )
     await db.commit()
+    # 绑定声明是给 agent 的回执：告诉它这把 key 到底授权给谁。
+    # 服务端用平台 Ed25519 私钥签名，agent 侧拿 service_public_key 就能核对。
+    effective_agent_id = (body.agent_id or "").strip() or (row.agent_binding or "")
+    scope = ""
+    scope_signature = ""
+    if effective_agent_id:
+        scope = binding_scope(
+            key_id=row.key_id,
+            karma_identity_id=row.karma_identity_id,
+            agent_id=effective_agent_id,
+        )
+        scope_signature = signing_service.sign_bytes(scope.encode("utf-8"))
     return signed_json_response(
         {
             "runtime_key": token,
@@ -168,6 +201,19 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
             "permissions": row.permissions,
             "expire_time": row.expire_at.isoformat(),
             "status": row.status,
+            "agent_binding": row.agent_binding,
+            "key_binding": row.key_binding,
+            "nonce_required": row.nonce_required,
+            "max_key_lifetime_days": MAX_KEY_LIFETIME_DAYS,
+            "binding_scope": scope,
+            "binding_scope_fingerprint": hash_binding_scope(scope) if scope else "",
+            "binding_scope_signature": scope_signature,
+            "service_public_key": signing_service.get_public_key_b64(),
+            "next_step": (
+                "agent 用 POST /runtime/bind-key 绑定自己的 Ed25519 公钥；之后每个请求都要签名"
+                if effective_agent_id
+                else "未指定 agent：这把 key 走服务端托管路径（认 key 不认人）"
+            ),
         },
         status_code=201,
     )
@@ -244,17 +290,121 @@ async def runtime_list_keys(body: ListRuntimeKeysBody, db: AsyncSession = Depend
 
 
 # ---------------------------------------------------------------------------
+# Agent 自助绑定公钥 —— 「使用时刻硬校验」的开关
+# ---------------------------------------------------------------------------
+
+
+class BindKeyBody(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=128)
+    agent_public_key: str = Field(min_length=32, max_length=128)
+    client_nonce: str = Field(min_length=8, max_length=128)
+
+
+@router.post("/bind-key")
+async def runtime_bind_key(
+    body: BindKeyBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    x_karma_runtime_key: Annotated[str | None, Header(alias="X-Karma-Runtime-Key")] = None,
+    x_karma_agent_signature: Annotated[str | None, Header(alias="X-Karma-Agent-Signature")] = None,
+    x_karma_runtime_timestamp: Annotated[str | None, Header(alias="X-Karma-Runtime-Timestamp")] = None,
+    x_karma_runtime_nonce: Annotated[str | None, Header(alias="X-Karma-Runtime-Nonce")] = None,
+):
+    """把 agent 自己的 Ed25519 公钥钉在这把 Runtime Key 上。
+
+    绑定前：光有 key 就能调用（老路径）。
+    绑定后：每个请求都要带 X-Karma-Agent-Signature —— 被偷走的 key 单独没用。
+
+    换绑不做静默替换：已经绑过别的公钥时，必须由当前那把私钥签名；
+    真想换人，先吊销再铸新的。
+    """
+    token = (x_karma_runtime_key or "").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="X-Karma-Runtime-Key header is required")
+    validate_public_url_segment("agent_id", body.agent_id)
+    ctx = await load_active_context(db=db, token=token)
+    check_replay_nonce(key_id=ctx.key_id, endpoint="bind-key", nonce=body.client_nonce)
+    if ctx.agent_public_key:
+        verify_signed_request(
+            ctx=ctx,
+            method=request.method,
+            path=request.url.path,
+            body=await request.body(),
+            signature_b64=x_karma_agent_signature,
+            timestamp_header=x_karma_runtime_timestamp,
+            nonce_header=x_karma_runtime_nonce,
+        )
+    try:
+        row = await bind_agent_public_key(
+            db=db,
+            key_id=ctx.key_id,
+            agent_id=body.agent_id,
+            agent_public_key=body.agent_public_key,
+        )
+    except PublicKeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    bound_agent = (row.agent_binding or body.agent_id).strip()
+    scope = binding_scope(
+        key_id=row.key_id,
+        karma_identity_id=row.karma_identity_id,
+        agent_id=bound_agent,
+    )
+    return signed_json_response(
+        {
+            "key_id": row.key_id,
+            "agent_id": bound_agent,
+            "key_binding": row.key_binding,
+            "agent_fingerprint": (
+                agent_binding_fingerprint(row.agent_public_key) if row.agent_public_key else ""
+            ),
+            "nonce_required": row.nonce_required,
+            "binding_scope": scope,
+            "binding_scope_fingerprint": hash_binding_scope(scope),
+            "binding_scope_signature": signing_service.sign_bytes(scope.encode("utf-8")),
+            "service_public_key": signing_service.get_public_key_b64(),
+            "required_headers": [
+                "X-Karma-Runtime-Key",
+                "X-Karma-Agent-Signature",
+                "X-Karma-Runtime-Timestamp",
+                "X-Karma-Runtime-Nonce",
+            ],
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # Runtime Key authenticated agent paths
 # ---------------------------------------------------------------------------
 
 
 async def get_runtime_context(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     x_karma_runtime_key: Annotated[str | None, Header(alias="X-Karma-Runtime-Key")] = None,
+    x_karma_agent_signature: Annotated[str | None, Header(alias="X-Karma-Agent-Signature")] = None,
+    x_karma_runtime_timestamp: Annotated[str | None, Header(alias="X-Karma-Runtime-Timestamp")] = None,
+    x_karma_runtime_nonce: Annotated[str | None, Header(alias="X-Karma-Runtime-Nonce")] = None,
 ) -> RuntimeKeyContext:
-    if not (x_karma_runtime_key or "").strip():
+    """校验 Runtime Key；已绑定 agent 公钥的 key 还要逐请求验签。
+
+    老 key（没绑公钥）走原路径：只认 key 本身，行为与升级前一致 ——
+    升级不会把已经在跑的 agent 打掉。绑过的 key 少了签名 / 时间戳 / nonce 一律 401。
+    """
+    token = (x_karma_runtime_key or "").strip()
+    if not token:
         raise HTTPException(status_code=401, detail="X-Karma-Runtime-Key header is required")
-    return await load_active_context(db=db, token=x_karma_runtime_key.strip())
+    ctx = await load_active_context(db=db, token=token)
+    verify_signed_request(
+        ctx=ctx,
+        method=request.method,
+        path=request.url.path,
+        body=await request.body(),
+        signature_b64=x_karma_agent_signature,
+        timestamp_header=x_karma_runtime_timestamp,
+        nonce_header=x_karma_runtime_nonce,
+    )
+    return ctx
 
 
 @router.get("/permissions")
@@ -273,6 +423,12 @@ async def runtime_permissions(
             "single_limit": ctx.single_limit,
             "daily_limit": ctx.daily_limit,
             "daily_used": daily_used,
+            "agent_binding": ctx.agent_binding,
+            "key_binding": ctx.key_binding,
+            "agent_fingerprint": (
+                agent_binding_fingerprint(ctx.agent_public_key) if ctx.agent_public_key else ""
+            ),
+            "nonce_required": ctx.nonce_required,
             "chain_id": int(settings.testnet_chain_id or 0),
             "runtime_url": (settings.public_runtime_base_url or "").strip(),
         }

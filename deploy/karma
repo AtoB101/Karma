@@ -121,10 +121,11 @@ ${B}Operate${N}
   karma restart [svc]       restart one container (default: all karma-*)
   karma up                  start the stack
   karma down                stop the stack
-  karma deploy              pull origin/main, republish site + console, recreate app (no build)
+  karma deploy              pull origin/main, migrate, republish site + console, recreate app (no build)
   karma rebuild             recreate the app container from the mounted source (no build)
   karma rollback            move the checkout back to the last deployed commit
   karma shell               shell inside the app container
+  karma migrate             apply alembic migrations (runs automatically in deploy/update)
   karma db                  psql shell
   karma redis               redis-cli
   karma exec <container> <cmd...>
@@ -285,6 +286,24 @@ cmd_rollback() {
   cmd_wait_health
 }
 
+cmd_migrate() {
+  need_repo
+  hdr "Apply database migrations (alembic upgrade head)"
+  # The app container is the only place alembic.ini and .env agree (compose puts
+  # the API on the internal network as host "postgres"). The source is bind-mounted,
+  # so after the pull the checked-out migrations are already visible inside it.
+  if ! docker ps --format '{{.Names}}' | grep -qx karma-api; then
+    err "  karma-api is not running; start the stack before migrating"
+    return 1
+  fi
+  docker exec -w /app karma-api alembic upgrade head || {
+    err "  migration failed — nothing else was changed; the running container is untouched"
+    return 1
+  }
+  docker exec -w /app karma-api alembic current 2>/dev/null | sed 's/^/  now at: /'
+  return 0
+}
+
 cmd_shell() { docker exec -it karma-api bash 2>/dev/null || docker exec -it karma-api sh; }
 cmd_db()    { docker exec -it karma-postgres psql -U "${POSTGRES_USER:-karma}" -d "${POSTGRES_DB:-karma}"; }
 cmd_redis() { docker exec -it karma-redis redis-cli; }
@@ -347,6 +366,7 @@ cmd_update() {
   sync_cli
 
   hdr "Deploy (no image build)"
+  cmd_migrate || return 1
   source_drift || return 1
   bring_up_app
   publish_web
@@ -368,6 +388,9 @@ cmd_deploy() {
   git merge --ff-only origin/main || { err "  not a fast-forward; resolve the checkout first"; return 1; }
   git log --oneline -1 | sed 's/^/  now at: /'
   sync_cli
+  # Schema first, code second: the new columns are additive, so an old container
+  # keeps working while the migration runs, and the new code never sees a missing column.
+  cmd_migrate || return 1
   hdr "Publish site + console"
   publish_web
   hdr "Recreate app container (no build)"
@@ -390,6 +413,7 @@ case "${1:-help}" in
   up)       cmd_up ;;
   down)     cmd_down ;;
   deploy)   cmd_deploy ;;
+  migrate)  cmd_migrate ;;
   rebuild)  cmd_rebuild ;;
   rollback) cmd_rollback ;;
   shell)    cmd_shell ;;

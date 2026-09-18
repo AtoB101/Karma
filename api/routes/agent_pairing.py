@@ -29,7 +29,7 @@ from api.routes.agents import connect_owner_agent
 from db.session import get_db
 from services import agent_pairing as pairing
 from services.identity_actor import resolve_actor_identity_id
-from services.runtime_key_service import load_active_context
+from services.runtime_key_service import load_active_context, verify_signed_request
 from services.text_safety import (
     validate_json_strings_safe,
     validate_safe_storage_text,
@@ -251,6 +251,17 @@ async def attach_runtime_key(
     """
     owner = await _require_owner(db, request)
     ctx = await load_active_context(db=db, token=body.runtime_key)
+    if ctx.agent_public_key:
+        # 已绑定 agent 公钥的 key 也得逐请求验签：这条附加通道不能变成绕过签名的后门。
+        verify_signed_request(
+            ctx=ctx,
+            method=request.method,
+            path=request.url.path,
+            body=await request.body(),
+            signature_b64=request.headers.get("X-Karma-Agent-Signature"),
+            timestamp_header=request.headers.get("X-Karma-Runtime-Timestamp"),
+            nonce_header=request.headers.get("X-Karma-Runtime-Nonce"),
+        )
     if ctx.karma_identity_id != owner:
         raise HTTPException(403, "runtime key belongs to another identity")
 

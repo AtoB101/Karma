@@ -2334,3 +2334,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "· 正在执行中的订单占用 {0} USDC（结算前不能动）": "· Retenido por órdenes en curso {0} USDC (no se puede tocar antes de liquidar)",
   "将撤销下面这些未使用的账单，减少 {0} USDC：": "Se van a revocar estas facturas sin usar, reduciendo {0} USDC:",
 });
+// --- dynamic-append-18: agent 公钥绑定（使用时刻硬校验） ---
+Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
+  "公钥绑定": "Vinculación de clave pública",
+  "等 agent 领取时绑定 · 绑定后每个请求都要 agent 私钥签名，光有钥匙不能用": "Se vincula cuando el agent la reclama · después, cada request tiene que venir firmado con la clave privada del agent: la clave sola no sirve",
+});
