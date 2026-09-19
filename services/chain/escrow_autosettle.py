@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.settings import settings
 from db.models.orm import EscrowBindingModel
 from db.session import AsyncSessionLocal
-from services import profile_capacity
+from services import profile_capacity, voucher_reaper
 from services.chain import allowance_escrow as escrow
 from services.chain import wallet_lock
 
@@ -323,6 +323,9 @@ async def run_forever() -> None:
             async with AsyncSessionLocal() as db:
                 settled = await settle_due(db)
                 slashed = await breach_due(db)
+                # 过期授权码占住的额度要还回去 —— 否则用户「可用额度」被一张
+                # 没人推进的券永久吃光，链上明明还有钱却一单也开不出来。
+                reclaimed = await voucher_reaper.expire_due(db)
                 # 台账自愈：v2 承诺必须一直等于链上的可用责任额度，否则用户锁仓
                 # 之后会看到 0 可用额度（付款码 / 任务合同 / agent 请求凭证全被拒）。
                 mirrored = await escrow.reconcile_all_capacity_mirrors(db)
@@ -333,6 +336,8 @@ async def run_forever() -> None:
                 logger.info("escrow_autosettle_breach_tick", slashed=len(slashed))
             if mirrored:
                 logger.info("escrow_capacity_mirror_tick", identities=len(mirrored))
+            if reclaimed:
+                logger.info("voucher_expiry_tick", vouchers=len(reclaimed))
         except asyncio.CancelledError:
             logger.info("escrow_autosettle_stopped")
             raise

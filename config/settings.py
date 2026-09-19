@@ -334,6 +334,11 @@ class Settings(BaseSettings):
     # Quote TTL in seconds
     settlement_ttl_seconds: int = 3600
 
+    # 过期授权码的额度回收：有效期一到就把被冻住的额度退回「可用」。
+    # 关掉它等于「被接受的授权码永远冻着买方的额度」，只适合做故障演练。
+    voucher_expiry_sweep_enabled: bool = True
+    voucher_expiry_sweep_batch: int = 200
+
     # P0 — Authorization Voucher EIP-712 (buyer commitment)
     # When true, POST /v1/vouchers requires buyer_wallet_address and a valid ECDSA
     # signature over the KarmaAuthorizationVoucher typed data (see services/voucher_eip712.py).
