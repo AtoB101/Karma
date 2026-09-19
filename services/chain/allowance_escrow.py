@@ -402,6 +402,100 @@ def _operator_account():
         )
     return Account.from_key(key)
 
+# ------------------------------------------------------- revert 可读化
+
+
+_FRIENDLY_REVERTS = {
+    "WrongBindingState": "这条绑定在链上已经不是「待结算」状态（已结算/已取消/已罚没），不能重复执行",
+    "UnknownBinding": "链上没有这条绑定",
+    "SettleDelayActive": "挑战窗口还没到点，现在还不能划款",
+    "InsufficientCommitment": "链上可用锁仓额度不足，请先补足锁仓或提高对该托管合约的授权额",
+    "InsufficientAllowance": "钱包对该托管合约的 USDC 授权额不足（可能已被撤销或调低）",
+    "WrongBillState": "这张账单已经关闭（被撤销或已用尽），不能再绑定",
+    "ReservationActive": "这张账单还被一笔未完成的绑定占着，请先撤销那笔绑定",
+    "NotResolver": "只有 Karma 的争议裁决账户可以执行罚没",
+    "NotBillOperator": "调用方不是这张账单的授权操作者",
+    "NotBillOwner": "调用方不是这张账单的所有者",
+    "NotSettlementParty": "调用方不是这一单的结算当事方",
+    "SameOwner": "买方和卖方是同一个钱包，不能自己跟自己绑定",
+    "TokenMismatch": "买卖双方账单用的不是同一个代币",
+    "PullFailed": "划款失败：付款方钱包余额或授权额不足",
+    "CustodyViolation": "托管合约不应该持有任何资金（非托管不变量被打破）",
+    "ZeroAmount": "金额不能为 0",
+    "TokenNotAllowed": "这个代币不在托管合约的白名单里",
+}
+
+_REVERT_SELECTORS: dict[str, dict[str, Any]] = {}
+
+
+def _revert_selector_map() -> dict[str, dict[str, Any]]:
+    if not _REVERT_SELECTORS:
+        from web3 import Web3
+
+        for entry in _ABI_ERRORS:
+            signature = "%s(%s)" % (
+                entry["name"],
+                ",".join(i["type"] for i in (entry.get("inputs") or [])),
+            )
+            digest = Web3.keccak(text=signature).hex()
+            selector = digest if digest.startswith("0x") else "0x" + digest
+            _REVERT_SELECTORS[selector[:10].lower()] = entry
+    return _REVERT_SELECTORS
+
+
+def describe_revert(exc: BaseException) -> str | None:
+    """把合约自定义 error 解成 ``名字(参数)``。解不出来返回 None。"""
+    raw = getattr(exc, "data", None)
+    if not (isinstance(raw, str) and raw.startswith("0x") and len(raw) >= 10):
+        raw = None
+        for arg in getattr(exc, "args", ()) or ():
+            if isinstance(arg, str) and arg.startswith("0x") and len(arg) >= 10:
+                raw = arg
+                break
+    if not raw:
+        return None
+    entry = _revert_selector_map().get(raw[:10].lower())
+    if entry is None:
+        return None
+    body = raw[10:]
+    words = [body[i : i + 64] for i in range(0, len(body), 64)]
+    values: list[str] = []
+    for index, spec in enumerate(entry.get("inputs") or []):
+        word = words[index] if index < len(words) and words[index] else "0" * 64
+        kind = str(spec.get("type") or "")
+        if kind == "address":
+            values.append("0x" + word[-40:])
+        elif kind.startswith("uint") or kind.startswith("int"):
+            values.append(str(int(word, 16)))
+        elif kind == "bool":
+            values.append(str(bool(int(word, 16))))
+        else:
+            values.append("0x" + word)
+    return "%s(%s)" % (entry["name"], ", ".join(values))
+
+
+def chain_error(exc: BaseException) -> "WalletLockError":
+    """链上失败 -> 用户看得懂的一句话（附合约原文）。"""
+    detail = describe_revert(exc)
+    name = detail.split("(", 1)[0] if detail else ""
+    friendly = _FRIENDLY_REVERTS.get(name)
+    if friendly:
+        return WalletLockError(friendly + ("（合约：%s）" % detail if detail else ""))
+    if detail:
+        return WalletLockError("合约拒绝了这笔交易：%s" % detail)
+    return WalletLockError("链上交易失败：%s: %s" % (type(exc).__name__, exc))
+
+
+def _replay_revert(w3, tx: dict, receipt: Any) -> BaseException:
+    """交易已经在链上 revert 了（status=0）：回放一次把 revert 原因捞出来。"""
+    replay = {k: v for k, v in dict(tx).items() if k not in ("nonce", "chainId")}
+    try:
+        w3.eth.call(replay, block_identifier=_field(receipt, "blockNumber"))
+    except Exception as exc:  # noqa: BLE001 - 这次失败本身就是要读的信息
+        return exc
+    return WalletLockError("链上交易被 revert（合约没给出原因）")
+
+
 # ------------------------------------------------------------ receipt decode
 
 
@@ -1166,7 +1260,11 @@ def _send_tx(fn, account=None):
                 if not quoted or quoted > cap_wei:
                     overrides["maxFeePerGas"] = cap_wei
                     overrides["maxPriorityFeePerGas"] = min(cap_wei, 300_000_000)
-            tx = fn.build_transaction(overrides)
+            try:
+                tx = fn.build_transaction(overrides)
+            except Exception as exc:  # revert 常在预估 gas 这一步就炸出来
+                _forget_nonce(account.address)
+                raise chain_error(exc) from exc
             signed = account.sign_transaction(tx)
             raw = getattr(signed, "raw_transaction", None) or signed.rawTransaction
             try:
@@ -1183,6 +1281,8 @@ def _send_tx(fn, account=None):
                 _forget_nonce(account.address)
                 raise
             receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            if _field(receipt, "status") is not None and int(_field(receipt, "status")) != 1:
+                raise chain_error(_replay_revert(w3, tx, receipt))
             hx = _hexstr(getattr(receipt, "transactionHash", tx_hash))
             if not hx.startswith("0x"):
                 hx = "0x" + hx

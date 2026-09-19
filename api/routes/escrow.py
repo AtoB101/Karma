@@ -386,6 +386,9 @@ async def finalize_order(
     row = await db.get(EscrowBindingModel, binding_id)
     if row is None or identity_id not in {row.buyer_identity_id, row.seller_identity_id}:
         raise HTTPException(404, "unknown binding for this identity")
+    if row.state in ("settled", "slashed", "cancelled"):
+        # 终态：链上再调一次只会 revert，这里直接说清楚，别报成 500。
+        raise HTTPException(409, f"这条绑定已经 {row.state}，不能重复执行")
 
     try:
         if breach:
