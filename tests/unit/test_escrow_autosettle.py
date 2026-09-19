@@ -17,6 +17,11 @@ from services.chain import escrow_autosettle as autosettle
 from services.chain.wallet_lock import WalletLockError
 
 
+#: 窗口「过点」要留出余量：本机钟到点 ≠ 链上到点，正好卡边界会被合约拒掉
+#: （见 escrow_autosettle.SETTLE_DELAY_MARGIN_SECONDS）。所以测试里用「30 秒前」。
+THIRTY_SECONDS_AGO = 30
+
+
 def binding(
     binding_id: str,
     *,
@@ -90,7 +95,7 @@ async def test_settle_due_executes_the_pull_and_records_the_tx(db_session, monke
         return {"finalize_tx_hash": "0xdeadbeef"}
 
     monkeypatch.setattr(autosettle.escrow, "finalize_settlement", _finalize)
-    db_session.add(binding("7", pull_after=int(time.time()) - 1))
+    db_session.add(binding("7", pull_after=int(time.time()) - 30))
     await db_session.commit()
 
     settled = await autosettle.settle_due(db_session)
@@ -113,7 +118,7 @@ async def test_a_binding_that_cannot_settle_yet_backs_off(db_session, monkeypatc
         raise RuntimeError("execution reverted: not funded yet")
 
     monkeypatch.setattr(autosettle.escrow, "finalize_settlement", _boom)
-    db_session.add(binding("9", pull_after=int(time.time()) - 1))
+    db_session.add(binding("9", pull_after=int(time.time()) - 30))
     await db_session.commit()
 
     assert await autosettle.settle_due(db_session) == []
@@ -136,7 +141,7 @@ async def test_a_declined_pull_backs_off_too(db_session, monkeypatch):
         raise WalletLockError("allowance is not funded yet")
 
     monkeypatch.setattr(autosettle.escrow, "finalize_settlement", _refuse)
-    db_session.add(binding("12", pull_after=int(time.time()) - 1))
+    db_session.add(binding("12", pull_after=int(time.time()) - 30))
     await db_session.commit()
 
     assert await autosettle.settle_due(db_session) == []
@@ -151,7 +156,7 @@ async def test_nothing_is_executed_without_the_operator_key(db_session, monkeypa
     monkeypatch.setattr(
         autosettle.escrow, "finalize_settlement", lambda *, binding_id: called.append(binding_id)
     )
-    db_session.add(binding("14", pull_after=int(time.time()) - 1))
+    db_session.add(binding("14", pull_after=int(time.time()) - 30))
     await db_session.commit()
 
     assert await autosettle.settle_due(db_session) == []
@@ -198,7 +203,7 @@ async def test_settling_a_sub_identity_order_clears_its_quota(db_session, monkey
             in_progress_credits=30.0,
         )
     )
-    row = binding("21", pull_after=int(time.time()) - 1)
+    row = binding("21", pull_after=int(time.time()) - 30)
     row.buyer_profile_id = "prof-quota-1"
     db_session.add(row)
     await db_session.commit()
@@ -239,7 +244,7 @@ async def test_a_transaction_that_landed_late_is_recorded_not_retried(
             in_progress_credits=30.0,
         )
     )
-    row = binding("30", pull_after=int(time.time()) - 1)
+    row = binding("30", pull_after=int(time.time()) - 30)
     row.buyer_profile_id = "prof-late"
     row.finalize_tx_hash = "0xlate"
     db_session.add(row)
@@ -274,7 +279,7 @@ async def test_a_cancelled_binding_gives_the_quota_back(db_session, monkeypatch)
             in_progress_credits=30.0,
         )
     )
-    row = binding("31", pull_after=int(time.time()) - 1)
+    row = binding("31", pull_after=int(time.time()) - 30)
     row.buyer_profile_id = "prof-cancel"
     db_session.add(row)
     await db_session.commit()
@@ -290,3 +295,24 @@ async def test_a_cancelled_binding_gives_the_quota_back(db_session, monkeypatch)
 
     await db_session.delete(pc)
     await db_session.commit()
+
+@pytest.mark.asyncio
+async def test_due_bindings_leaves_the_boundary_second_to_the_chain(db_session):
+    """实测打出来的：本机钟到点 ≠ 链上到点。
+
+    卡在 settleAfter 那一秒发出去的 finalize 会被合约以 SettleDelayActive 拒掉，
+    operator 白付一笔 gas，还要等满退避周期才重试。所以窗口到点后要再等一会儿。
+    """
+    now = int(time.time())
+    db_session.add_all(
+        [
+            binding("1", pull_after=now - 30),   # 早就过点
+            binding("2", pull_after=now - 1),    # 就差一秒：让链先说时间到了
+            binding("3", pull_after=now),        # 正卡在边界
+        ]
+    )
+    await db_session.commit()
+
+    rows = await autosettle.due_bindings(db_session, now=now)
+
+    assert [r.binding_id for r in rows] == ["1"]

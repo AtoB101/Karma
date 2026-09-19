@@ -49,6 +49,11 @@ _CHAIN_DONE = {
 #: (an allowance that is not funded yet, an RPC hiccup, a revert) do not fix
 #: themselves within one tick, and the operator account pays for every retry.
 RETRY_BACKOFF_SECONDS = 120.0
+
+#: 合约要的是 ``block.timestamp >= settleAfter``，而我们判断「到点了没」用的是本机
+#: 时钟。两者差个一两秒很正常，卡在边界上发出去的 finalize 会被 SettleDelayActive
+#: 拒掉 —— 白烧一笔 operator 的手续费，这一单还要再等一整个退避周期。留一点余量。
+SETTLE_DELAY_MARGIN_SECONDS = 5
 _failed_at: dict[str, float] = {}
 
 
@@ -60,14 +65,18 @@ def reset_backoff() -> None:
 async def due_bindings(
     db: AsyncSession, *, now: int | None = None, limit: int | None = None
 ) -> list[EscrowBindingModel]:
-    """Bindings whose challenge window has elapsed and that nobody executed."""
+    """Bindings whose challenge window has elapsed and that nobody executed.
+
+    留了 ``SETTLE_DELAY_MARGIN_SECONDS`` 的余量：卡在 ``settleAfter`` 那一刻发出去
+    会被合约以 ``SettleDelayActive`` 拒掉，operator 白付一笔 gas，还要再等一整个退避。
+    """
     stamp = int(time.time()) if now is None else int(now)
     stmt = (
         select(EscrowBindingModel)
         .where(EscrowBindingModel.state == DUE_STATE)
         .where(EscrowBindingModel.pull_after.is_not(None))
         .where(EscrowBindingModel.pull_after > 0)
-        .where(EscrowBindingModel.pull_after <= stamp)
+        .where(EscrowBindingModel.pull_after + SETTLE_DELAY_MARGIN_SECONDS <= stamp)
         .order_by(EscrowBindingModel.pull_after)
         .limit(limit if limit is not None else settings.escrow_autosettle_batch)
     )
