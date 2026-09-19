@@ -348,3 +348,47 @@ class TestDefect8LockBindingPending:
             task_type="agent.f7_lockoff",
         )
         assert state["onchain_status"] is None
+
+    @pytest.mark.asyncio
+    async def test_lock_response_reflects_onchain_truth(self, client, activate_identity, monkeypatch):
+        """托管通道是**同步**绑的：响应必须带链上真相，而不是陈旧的 null。
+
+        防的是「数据库说已绑、响应说没绑」：操作台刚接完单，卡片上会显示成没上链，
+        用户以为钱没锁进去，实际链上已经占了额度。整条链跑下来只有 _reflect 那一处
+        会写这些列，所以这里用假的绑定实现把同样的效果做出来。
+        """
+        from services.chain import escrow_settlement
+
+        async def _fake_bind(db, *, task_id, buyer_identity_id, seller_identity_id, amount_usdc):
+            from sqlalchemy import select
+
+            from db.models.orm import SettlementModel
+
+            row = (
+                await db.execute(
+                    select(SettlementModel).where(SettlementModel.task_id == task_id)
+                )
+            ).scalars().first()
+            row.onchain_status = "bound"
+            row.onchain_binding_id = 4242
+            row.tx_hash = "0x" + "ab" * 32
+            await db.flush()
+            return {"status": "bound", "binding_id": "4242"}
+
+        monkeypatch.setattr(escrow_settlement, "enabled", lambda: True)
+        monkeypatch.setattr(escrow_settlement, "bind_for_task", _fake_bind)
+
+        task_id = "task-f7-lock-truth"
+        state = await _to_in_progress(
+            client,
+            activate_identity,
+            task_id=task_id,
+            buyer="buyer-f7-truth",
+            seller="seller-f7-truth",
+            task_type="agent.f7_truth",
+        )
+        assert state["onchain_status"] == "bound"
+        assert state["onchain_binding_id"] == 4242
+        got = (await client.get("/v1/settlement/" + task_id)).json()
+        assert got["onchain_status"] == "bound"
+        assert got["onchain_binding_id"] == 4242

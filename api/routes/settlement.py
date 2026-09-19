@@ -320,8 +320,13 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
     # the Celery broker.
     escrow_wei = _settlement_escrow_wei(state)
     if escrow_wei > 0:
+        from services.chain import escrow_settlement
         from services.chain.settlement_adapter import settlement_router
-        if settlement_router.is_onchain():
+
+        # 托管通道（allowance escrow）在 _apply_transition 里已经**同步**把链上 bind 做完了，
+        # 这里再投一次 Celery 就是两条路各绑一次 —— 同一笔钱会在两个托管合约里各锁一份。
+        # 只有托管通道没开、走老的 KarmaBilateral 异步路时，才轮到下面这段。
+        if settlement_router.is_onchain() and not escrow_settlement.enabled():
             from worker.tasks import lock_and_bind_onchain
 
             # 真上链绑定是异步做的（实测 20–30s），同步响应里给不出 onchain_binding_id。
@@ -1255,7 +1260,12 @@ async def _apply_transition(
         actor_id=actor_id,
     )
     await _sync_escrow_settlement(db=db, state=state, target_status=target_status)
-    return state
+    # 上面那句链上调用是**同步**的：钱在链上动了，真相由 escrow_settlement 写回数据库行
+    # （onchain_status / onchain_binding_id / tx_hash）。但它改的是 ORM 行，不是手里这个
+    # pydantic 对象 —— 直接把 state 返回出去，操作台刚接完单就会看到 onchain_status=null，
+    # 数据库里明明写着 bound。重读一次，让响应说的是链上事实。
+    refreshed = await store.get(state.task_id)
+    return refreshed or state
 
 
 async def _record_transition_audit(
