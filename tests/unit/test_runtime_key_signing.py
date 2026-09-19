@@ -954,3 +954,91 @@ async def test_console_can_list_pending_bind_requests_and_see_them_on_keys(
     info = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
     assert info.status_code == 200
     assert info.json()["pending_binding"]["agent_fingerprint"] == fingerprint
+
+
+@pytest.mark.asyncio
+async def test_console_polls_pending_binds_with_session_auth_only(client: AsyncClient, db_session):
+    """进页面就能看见「有 agent 在申请接入」：这条只认会话身份，不打钱包签名弹窗。
+
+    分工：``/runtime/list-bind-requests`` 要钱包签名（身份不可辩驳，用户主动发起）；
+    ``/runtime/list-pending-binds`` 只认会话（SIWE / X-Karma-Identity-Id），
+    好让操作台一进页面就提示 —— 看一眼提示不该惊动钱包。
+    """
+    mine, wallet = await _mint_full(
+        client, identity="kid-code-7", perms=["sync_task_status"], agent_id="agent-code-7"
+    )
+    token, key_id = mine.json()["runtime_key"], mine.json()["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x78" * 32).decode())
+    requested = await _request_bind(client, token, "agent-code-7", _pub_of(agent_key))
+    fingerprint = requested.json()["pending_binding"]["agent_fingerprint"]
+
+    # ① 没身份：403，而且路由是存在的（不是 404）
+    anon = await client.post("/runtime/list-pending-binds", json={"karma_identity_id": "kid-code-7"})
+    assert anon.status_code == 403, anon.text
+
+    # ② 会话身份与 body 里写的身份不一致 → 403：别想拿别人的身份名问出待确认请求
+    mismatch = await client.post(
+        "/runtime/list-pending-binds",
+        json={"karma_identity_id": "kid-someone-else"},
+        headers={"X-Karma-Identity-Id": "kid-code-7"},
+    )
+    assert mismatch.status_code == 403, mismatch.text
+
+    # ③ 自己的身份：只回自己名下那把 key，且不带匹配码明文（服务端只存 HMAC）
+    listed = await client.post(
+        "/runtime/list-pending-binds",
+        json={"karma_identity_id": "kid-code-7"},
+        headers={"X-Karma-Identity-Id": "kid-code-7"},
+    )
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()["requests"]
+    assert [r["key_id"] for r in rows] == [key_id]
+    assert rows[0]["agent_fingerprint"] == fingerprint
+    assert rows[0]["agent_name"] == "signing-test"
+    assert "activation_code" not in rows[0]
+    assert "pending_code_hash" not in rows[0]
+
+    # ④ 身份留空 = 用会话身份（操作台在还没拿到 identity 时也问得出来）
+    blank = await client.post(
+        "/runtime/list-pending-binds",
+        json={"karma_identity_id": ""},
+        headers={"X-Karma-Identity-Id": "kid-code-7"},
+    )
+    assert blank.status_code == 200, blank.text
+    assert [r["key_id"] for r in blank.json()["requests"]] == [key_id]
+
+    # ⑤ 另一张身份卡看不到这条请求
+    theirs, _their_wallet = await _mint_full(
+        client, identity="kid-code-8", perms=["sync_task_status"], agent_id="agent-code-8"
+    )
+    their_token = theirs.json()["runtime_key"]
+    their_key = agent_key_from_seed(base64.b64encode(b"\x79" * 32).decode())
+    await _request_bind(client, their_token, "agent-code-8", _pub_of(their_key))
+
+    other = await client.post(
+        "/runtime/list-pending-binds",
+        json={"karma_identity_id": "kid-code-8"},
+        headers={"X-Karma-Identity-Id": "kid-code-8"},
+    )
+    assert other.status_code == 200, other.text
+    theirs_ids = [r["key_id"] for r in other.json()["requests"]]
+    assert theirs_ids == [theirs.json()["key_id"]]
+    assert key_id not in theirs_ids
+
+    # ⑥ 主人确认之后，这条请求从列表里消失
+    confirmed = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(
+            key_id=key_id,
+            identity="kid-code-7",
+            acct=wallet,
+            code=requested.json()["activation_code"],
+        ),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    after = await client.post(
+        "/runtime/list-pending-binds",
+        json={"karma_identity_id": "kid-code-7"},
+        headers={"X-Karma-Identity-Id": "kid-code-7"},
+    )
+    assert after.json()["requests"] == []

@@ -2369,3 +2369,25 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "① 环境变量 · karma-agent.env": "① Variables de entorno · karma-agent.env",
   "已读取 {0} 个运行时密钥": "Se cargaron {0} claves de ejecución",
 });
+
+// --- dynamic-append-21: 接入确认（设置页常驻卡片 + 弹窗提示） ---
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
+  "接入确认 · 匹配码": "Confirmación de acceso · código de emparejamiento",
+  "agent 首次接入时会申请绑定公钥。它把收到的 8 位匹配码显示给你，你在这里输入并用钱包签名，绑定才生效；在此之前，它花钱的请求一律被拒。": "El agent pide vincular su clave pública la primera vez que se conecta. Te muestra el código de emparejamiento de 8 caracteres que recibió; escribilo acá y firmá con tu billetera para que la vinculación quede activa. Hasta entonces, todo request suyo que gaste plata se rechaza.",
+  "刷新待确认请求": "Actualizar solicitudes pendientes",
+  "连接钱包后，这里会显示待确认的接入请求。": "Cuando conectes la billetera, acá van a aparecer las solicitudes de acceso pendientes de confirmación.",
+  "暂无待确认的接入请求。agent 申请接入后会出现在这里。": "No hay ninguna solicitud de acceso esperando confirmación. Aparece acá apenas un agent pide conectarse.",
+  "正在读取待确认请求…": "Leyendo solicitudes pendientes…",
+  "读取待确认请求失败：{0}": "No se pudieron leer las solicitudes pendientes: {0}",
+  "有待确认的接入请求": "Hay una solicitud de acceso esperando confirmación",
+  "申请接入的 agent：{0}": "Agent que pide acceso: {0}",
+  "有 {0} 个 agent 正在申请接入这把密钥（还没生效）": "Solicitudes de acceso a esta clave: {0} (todavía sin efecto)",
+  "有 {0} 个接入申请已经过期（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "Solicitudes de acceso vencidas: {0} (el código de emparejamiento dura 15 minutos): hacé que el agent las pida de nuevo y te dará un código nuevo.",
+  "输入 agent 显示的匹配码": "Escribí el código que muestra el agent",
+  "有 agent 在申请接入": "Un agent está pidiendo acceso",
+  "它拿到了一串 8 位匹配码。你在操作台输入并签名确认之后，这个 agent 才能用这把密钥；确认之前，它花钱的请求一律被拒。": "Recibió un código de emparejamiento de 8 caracteres. Recién cuando lo escribas acá y firmes la confirmación este agent puede usar la clave; hasta entonces, todo request suyo que gaste plata se rechaza.",
+  "去输入匹配码": "Ir a escribir el código",
+  "稍后处理": "Más tarde",
+  "签名模块未加载，请刷新页面后再试。": "El módulo de firma no está cargado: actualizá la página y volvé a intentar.",
+  "已确认绑定，这个 agent 之后每个请求都要私钥签名。": "Vinculación confirmada. Desde ahora cada request de este agent necesita su firma con clave privada.",
+});

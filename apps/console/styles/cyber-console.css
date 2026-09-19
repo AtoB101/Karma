@@ -2176,3 +2176,73 @@ body {
 .mst-alloc-actions input:focus { outline: none; border-color: var(--border-glow); }
 .mst-alloc-actions .btn { padding: 9px 12px; font-size: 12px; }
 .mst-alloc-actions .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+
+/* ---- 接入确认（设置页）：匹配码激活 ---------------------------------- */
+/* agent 申请绑定公钥后，主人在这里输匹配码 + 钱包签名，绑定才生效。
+   卡片高亮 + 侧栏红点，都是为了「不在设置页时也能看见」。 */
+#ag-bind-requests.attention {
+  border-color: rgba(255, 93, 93, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 93, 93, 0.22);
+}
+#ag-bind-requests .ag-hint { font-size: 12px; color: #6c8aac; margin: 8px 0 0; line-height: 1.7; }
+#ag-bind-requests .ag-secret-label { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+#ag-bind-requests .ag-snippet {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(6, 12, 20, 0.55);
+  border: 1px solid rgba(34, 211, 238, 0.18);
+}
+#ag-bind-requests input[type="text"] {
+  width: 190px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 224, 255, 0.35);
+  background: rgba(6, 12, 20, 0.85);
+  color: inherit;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+#ag-bind-requests input[type="text"]:focus { outline: none; border-color: var(--border-glow); }
+#ag-bind-requests .err { font-size: 12px; color: #ff8a8a; margin: 8px 0 0; }
+
+/* 侧栏红点：有待确认的接入请求时挂在「设置」上 */
+.nav .nav-main.has-pending { position: relative; }
+.nav .nav-main.has-pending::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #ff5d5d;
+  box-shadow: 0 0 0 3px rgba(255, 93, 93, 0.16);
+}
+
+/* 提示弹窗：新接入请求出现时，把主人叫到输码框。只导流，签名仍在卡片里做。 */
+.bind-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(4, 8, 14, 0.72);
+}
+.bind-modal[hidden] { display: none; }
+.bind-modal-box {
+  width: min(460px, 100%);
+  padding: 18px;
+  border-radius: 14px;
+  background: #0d1522;
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+.bind-modal-box h4 { margin: 0 0 10px; font-size: 15px; color: var(--text-main); }
+.bind-modal-box p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.75; color: var(--text-dim); }
+.bind-modal-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }

@@ -626,5 +626,14 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 
-  global.KarmaHandoff = { open: open, close: close };
+  // 匹配码激活的签名消息只写一份：设置页那张「接入确认」卡片（cyber-bind-requests.js）
+  // 也用这几个函数，两边各抄一套的话，服务端一改就静默失配。
+  global.KarmaHandoff = {
+    open: open,
+    close: close,
+    normalizeCode: normalizeCode,
+    buildConfirmBindMsg: buildConfirmBindMsg,
+    buildRejectBindMsg: buildRejectBindMsg,
+    walletProvider: walletProvider,
+  };
 })(window);

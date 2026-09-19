@@ -2367,3 +2367,25 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "① 环境变量 · karma-agent.env": "① Environment variables · karma-agent.env",
   "已读取 {0} 个运行时密钥": "Loaded {0} runtime keys",
 });
+
+// --- dynamic-append-21: 接入确认（设置页常驻卡片 + 弹窗提示） ---
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "接入确认 · 匹配码": "Access confirmation · activation code",
+  "agent 首次接入时会申请绑定公钥。它把收到的 8 位匹配码显示给你，你在这里输入并用钱包签名，绑定才生效；在此之前，它花钱的请求一律被拒。": "An agent asks to bind its public key the first time it connects. It shows you the 8-character activation code it received; type it here and sign with your wallet, and only then does the binding take effect. Until then every request it makes to spend is refused.",
+  "刷新待确认请求": "Refresh pending requests",
+  "连接钱包后，这里会显示待确认的接入请求。": "Connect your wallet and any access request waiting for confirmation shows up here.",
+  "暂无待确认的接入请求。agent 申请接入后会出现在这里。": "No access request is waiting for confirmation. One appears here as soon as an agent asks to connect.",
+  "正在读取待确认请求…": "Loading pending requests…",
+  "读取待确认请求失败：{0}": "Could not load pending requests: {0}",
+  "有待确认的接入请求": "An access request is waiting for confirmation",
+  "申请接入的 agent：{0}": "Agent requesting access: {0}",
+  "有 {0} 个 agent 正在申请接入这把密钥（还没生效）": "Activation requests on this key: {0} (not active yet)",
+  "有 {0} 个接入申请已经过期（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "Expired activation requests: {0} (the activation code is valid for 15 minutes) — have the agent ask again and it will hand you a fresh code.",
+  "输入 agent 显示的匹配码": "Enter the activation code the agent shows you",
+  "有 agent 在申请接入": "An agent is requesting access",
+  "它拿到了一串 8 位匹配码。你在操作台输入并签名确认之后，这个 agent 才能用这把密钥；确认之前，它花钱的请求一律被拒。": "It received an 8-character activation code. Only after you type it here and sign the confirmation can this agent use the key; until then every request it makes to spend is refused.",
+  "去输入匹配码": "Enter the activation code",
+  "稍后处理": "Later",
+  "签名模块未加载，请刷新页面后再试。": "The signing module is not loaded — refresh the page and try again.",
+  "已确认绑定，这个 agent 之后每个请求都要私钥签名。": "Binding confirmed. From now on every request from this agent must be signed with its private key.",
+});

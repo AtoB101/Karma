@@ -39,6 +39,7 @@ from db.session import get_db
 from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
 from services.agent_automation_policy import get_automation_policy
+from services.identity_actor import resolve_actor_identity_id
 from services.intent_fulfillment import fulfill_intent
 from services.path_param_safety import validate_public_url_segment
 from services.profile_capacity import (
@@ -452,6 +453,12 @@ class ListBindRequestsBody(BaseModel):
     client_nonce: str
 
 
+class ListPendingBindsBody(BaseModel):
+    """操作台侧轮询用：只要会话身份，不要钱包签名。"""
+
+    karma_identity_id: str
+
+
 async def _owned_identity_key(
     db: AsyncSession, *, key_id: str, karma_identity_id: str, wallet_address: str
 ) -> RuntimeKeyModel:
@@ -615,6 +622,45 @@ async def runtime_list_bind_requests(
         requests.append(view)
     requests.sort(key=lambda v: v.get("expires_at") or "")
     return signed_json_response({"requests": requests})
+
+
+@router.post("/list-pending-binds")
+async def runtime_list_pending_binds(
+    body: ListPendingBindsBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """操作台进页面时拉「待确认接入请求」——用会话身份，不打钱包签名弹窗。
+
+    和 ``/runtime/list-bind-requests`` 的分工：那条要求钱包签名，身份不可辩驳，
+    适合用户主动发起的动作；这条只认会话（SIWE bearer / X-Karma-Identity-Id），
+    好让主人一进操作台就能看见「有 agent 在申请接入」。
+
+    只回当前会话身份名下的 key，且只给指纹 / 有效期这类展示信息 ——
+    匹配码本身在服务端只有 HMAC，这里也拿不到。
+    """
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor:
+        raise HTTPException(
+            status_code=403, detail="authentication required: connect a wallet first"
+        )
+    identity = (body.karma_identity_id or "").strip()
+    if identity and identity != actor:
+        raise HTTPException(
+            status_code=403, detail="karma_identity_id does not match the authenticated identity"
+        )
+    rows = await list_runtime_keys_for_identity(db=db, karma_identity_id=actor)
+    requests = []
+    for r in rows:
+        view = pending_binding_view(r)
+        if not view:
+            continue
+        view["agent_name"] = r.agent_name
+        view["key_binding"] = r.key_binding
+        requests.append(view)
+    requests.sort(key=lambda v: v.get("expires_at") or "")
+    return signed_json_response({"requests": requests})
+
 
 # ---------------------------------------------------------------------------
 # Runtime Key authenticated agent paths

@@ -157,6 +157,16 @@
     });
   }
 
+  // 会话鉴权版：主人一进操作台就要能看见「有 agent 在申请接入」，
+  // 不该为了看一眼提示先按一次钱包签名（那是 /runtime/list-bind-requests 的活）。
+  async function runtimeListPendingBinds(payload) {
+    return karmaFetch("/runtime/list-pending-binds", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
   async function getHealth() {
     return karmaFetch("/health", { method: "GET", headers: { Accept: "application/json" } });
   }
@@ -753,6 +763,7 @@
     runtimeConfirmBindKey,
     runtimeRejectBindKey,
     runtimeListBindRequests,
+    runtimeListPendingBinds,
     karmaFetch,
     headers,
   };

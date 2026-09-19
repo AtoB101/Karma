@@ -258,3 +258,73 @@ def test_the_lock_card_shows_what_the_chain_can_actually_move():
     assert "backing.chain_checked" in console, "读不到链时不能把担保说成 0"
     assert "可划动" in console and "未担保" in console
     assert "额度不足（钱包余额或授权不足）" in console, "单张账单的旧提示要保留"
+
+
+def test_the_console_prompts_for_the_activation_code_from_settings():
+    """匹配码激活的入口不能藏在某个 agent 的交付包里。
+
+    agent 申请绑定公钥后，主人要做的事只有一件：把 agent 显示的那串码抄进来 + 钱包签名。
+    以前这只有点开「交付包」才看得到，等于没提示 —— 所以「设置」页现在常驻一张
+    「接入确认」卡片，另有侧栏红点和一次弹窗把人叫过来。
+    """
+    html = CYBER.read_text(encoding="utf-8")
+    assert 'id="ag-bind-requests"' in html, "设置页要有接入确认卡片"
+    assert 'id="bind-requests"' in html, "卡片里要留出渲染待确认请求的位置"
+    assert 'id="btn-bind-refresh"' in html, "要有手动刷新按钮"
+    assert "cyber-bind-requests.js" in html, "页面必须加载这个模块"
+    # 签名消息只有一份实现：新模块必须排在 cyber-handoff.js 之后并复用它。
+    assert html.index('src="../../scripts/cyber-handoff.js"') < html.index(
+        'src="../../scripts/cyber-bind-requests.js"'
+    ), "新模块要排在 cyber-handoff.js 之后才有 KarmaHandoff 可用"
+
+    js = (CONSOLE / "scripts/cyber-bind-requests.js").read_text(encoding="utf-8")
+    for needle in (
+        "runtimeListPendingBinds",
+        "list-pending-binds",
+        "KarmaHandoff",
+        "buildConfirmBindMsg",
+        "buildRejectBindMsg",
+        "has-pending",
+        "bind-modal",
+        "personal_sign",
+    ):
+        assert needle in js, f"接入确认模块缺 {needle}"
+    # 服务端按同一格式重建签名消息：这里再拼一套，两边改一处就静默失配。
+    assert "Karma Runtime Key Bind Confirm" not in js
+    assert "Karma Runtime Key Bind Reject" not in js
+    # 看一眼提示不该惊动钱包：轮询走会话鉴权，签名只在点确认/拒绝时发生。
+    assert '"/runtime/confirm-bind-key"' not in js, "取数用会话版，别再打钱包签名版"
+
+    handoff = (CONSOLE / "scripts/cyber-handoff.js").read_text(encoding="utf-8")
+    for exported in ("normalizeCode", "buildConfirmBindMsg", "buildRejectBindMsg", "walletProvider"):
+        assert exported + ":" in handoff, f"KarmaHandoff 要出口 {exported}"
+
+    css = (CONSOLE / "styles/cyber-console.css").read_text(encoding="utf-8")
+    assert ".nav .nav-main.has-pending" in css and ".bind-modal" in css
+
+
+def test_every_language_pack_carries_the_activation_code_copy():
+    """六种语言都要有这一段的文案，否则切语言立刻掉回中文。"""
+    samples = (
+        "接入确认 · 匹配码",
+        "刷新待确认请求",
+        "连接钱包后，这里会显示待确认的接入请求。",
+        "暂无待确认的接入请求。agent 申请接入后会出现在这里。",
+        "正在读取待确认请求…",
+        "读取待确认请求失败：{0}",
+        "有待确认的接入请求",
+        "申请接入的 agent：{0}",
+        "有 {0} 个 agent 正在申请接入这把密钥（还没生效）",
+        "有 {0} 个接入申请已经过期（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。",
+        "输入 agent 显示的匹配码",
+        "有 agent 在申请接入",
+        "去输入匹配码",
+        "稍后处理",
+        "签名模块未加载，请刷新页面后再试。",
+        "已确认绑定，这个 agent 之后每个请求都要私钥签名。",
+    )
+    phrase_dir = CONSOLE / "scripts" / "i18n-phrase"
+    for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
+        pack = (phrase_dir / f"{lang}.js").read_text(encoding="utf-8")
+        missing = [s for s in samples if f'"{s}":' not in pack]
+        assert not missing, f"{lang} 缺译文：{missing}"

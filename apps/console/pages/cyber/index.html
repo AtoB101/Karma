@@ -1276,6 +1276,22 @@
             </div>
             <pre class="out" id="set-out" style="margin-top:12px; max-height:280px; overflow:auto">—</pre>
           </div>
+          <!-- 接入确认：agent 申请绑定公钥后，主人在这里输匹配码 + 签名，绑定才生效。
+               agent 把码显示给主人，服务端只存 HMAC —— 所以这一步只能在操作台做，
+               而且必须让主人一进页面就看得见，不能藏在某个 agent 的交付包里。
+               渲染与轮询见 scripts/cyber-bind-requests.js。 -->
+          <div class="card section" id="ag-bind-requests">
+            <div class="section-header">
+              <div>
+                <h3>接入确认 · 匹配码</h3>
+                <p>agent 首次接入时会申请绑定公钥。它把收到的 8 位匹配码显示给你，你在这里输入并用钱包签名，绑定才生效；在此之前，它花钱的请求一律被拒。</p>
+              </div>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px">
+              <button type="button" class="btn" id="btn-bind-refresh">刷新待确认请求</button>
+            </div>
+            <div id="bind-requests"><p class="ag-hint">连接钱包后，这里会显示待确认的接入请求。</p></div>
+          </div>
         </section>
       </main>
     </div>
@@ -1303,6 +1319,8 @@
     <script src="../../scripts/cyber-agents.js"></script>
     <script src="../../scripts/cyber-authorize.js"></script>
  <script src="../../scripts/cyber-handoff.js"></script>
+    <!-- 匹配码激活的签名消息由 cyber-handoff.js 出口提供，所以必须排在它后面。 -->
+    <script src="../../scripts/cyber-bind-requests.js"></script>
  <script src="../../scripts/cyber-pairing.js"></script>
     <script src="../../scripts/cyber-cert-shared.js"></script>
     <script src="../../scripts/cyber-cert-sole.js"></script>

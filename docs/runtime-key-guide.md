@@ -80,9 +80,20 @@ Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在�
 
 | 端点 | 作用 |
 | --- | --- |
-| `POST /runtime/list-bind-requests` | 拉出「agent 已申请、还没输码确认」的待确认请求 |
+| `POST /runtime/list-bind-requests` | 拉出「agent 已申请、还没输码确认」的待确认请求（要钱包签名） |
 | `POST /runtime/confirm-bind-key` | 输入匹配码 + 钱包签名 → 绑定生效 |
 | `POST /runtime/reject-bind-key` | 拒绝这次接入 → 清掉待确认请求 |
+
+还有一条**不需要钱包签名**的：
+
+| 端点 | 作用 |
+| --- | --- |
+| `POST /runtime/list-pending-binds` | 只认会话（SIWE bearer / `X-Karma-Identity-Id`），返回同名的待确认请求 |
+
+分工：`list-bind-requests` 要钱包签名，身份不可辩驳，适合用户主动发起的动作；
+`list-pending-binds` 只认会话，好让操作台一进页面（或每 60 秒轮询一次）就能提示
+「有 agent 在申请接入」，看一眼提示不该惊动钱包。返回里只有指纹 / 有效期 / 剩余试错次数，
+匹配码本身服务端只存 HMAC，两条都拿不到明文。
 
 `POST /runtime/list-keys` 与 `GET /runtime/permissions` 的返回里都带 `pending_binding`
 （没有就是 null），操作台据此显示「有 agent 正在申请接入」。
