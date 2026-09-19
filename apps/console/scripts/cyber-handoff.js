@@ -164,6 +164,16 @@
     return lines.join("\n");
   }
 
+  /** 未激活提示：{0} 是激活期限。拼成两句完整的话，才翻得到（见 i18n-phrase）。 */
+  function activationHintText(r) {
+    var head =
+      "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，" +
+      "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。";
+    var dl = r && r.activation_deadline ? String(r.activation_deadline).slice(0, 16).replace("T", " ") : "";
+    if (!dl) return head;
+    return head + "激活期限 " + dl + "（超时就废了，得重新铸一把）。";
+  }
+
   function selfCheckText(a) {
     return [
       "# ① 凭据自检：证明 API Key 有效（只有你自己能看到结果）",
@@ -210,6 +220,7 @@
                 "<span>" + esc(k.key_id) + "</span>" +
                 "<span> · </span>" +
                 "<span>" + esc(k.status || "") + "</span>" +
+                (k.activation_required ? "<span> · </span><span>" + esc("未激活（等匹配码）") + "</span>" : "") +
                 "<span> · 到期 </span>" +
                 "<span>" + esc(String(k.expire_time || "").slice(0, 10)) + "</span>" +
                 "<span> · </span>" +
@@ -249,6 +260,7 @@
         '<div class="ag-secret-label">有一个 agent 正在申请接入这把密钥（还没生效）</div>' +
         '<p class="ag-hint">让 agent 把它拿到的那串匹配码显示给你，抄进下面的框里。签名确认之后，' +
         "这个 agent 才能用这把密钥；在确认之前它花钱的请求一律被拒。</p>" +
+        '<p class="ag-hint">这把钥匙现在还没激活：没走完这一步，谁都拿它花不了钱。</p>' +
         '<p class="ag-hint">agent 公钥指纹：' + esc(pb.agent_fingerprint || "—") +
         " · 匹配码有效至 " + esc(String(pb.expires_at || "").slice(0, 16).replace("T", " ")) +
         " · 还能试 " + esc(pb.attempts_left == null ? "—" : pb.attempts_left) + " 次</p>" +
@@ -328,6 +340,7 @@
       '<div class="ag-next" style="margin-top:14px"><b>④ 交付说明</b><ol>' +
       "<li>把上面的 env 写进 agent 运行时的环境变量（或直接下载文件）。</li>" +
       "<li>agent 用 KARMA_AGENT_ID + KARMA_API_KEY 完成身份识别；用 KARMA_RUNTIME_KEY 请求付款码、提交回执、申请结算。</li>" +
+      "<li>第一次动用这把钥匙的钱之前，agent 会申请绑定自己的公钥并把 8 位匹配码给你；你到「设置 → 接入确认」输码 + 钱包签名确认，它才能真正付款（在那之前一律被拒）。</li>" +
       "<li>对方成交前会查 p1-status；这就是 Karma 对这笔收付的验证依据。</li>" +
       "<li>不再需要这个 agent 时，用下面「停用并销毁密钥」——Karma 托管的运行密钥会一并销毁。</li>" +
       "</ol></div>" +
@@ -338,6 +351,7 @@
       "</div>" +
 
       (state.note ? '<p class="ag-hint" style="margin-top:10px">' + esc(state.note) + "</p>" : "") +
+      (state.activationHint ? '<p class="ag-hint" style="margin-top:6px">' + esc(state.activationHint) + "</p>" : "") +
       (state.err ? '<p class="err" style="margin-top:10px">' + esc(state.err) + "</p>" : "");
 
     wire(a, env);
@@ -552,6 +566,9 @@
       state.note =
         "已铸造运行时密钥（" + ((r && r.key_id) || "") + "，到期 " + String((r && r.expire_time) || "").slice(0, 10) +
         "）。明文只显示这一次，请连同 env 一起交给 agent。";
+      // 未激活的钥匙说清楚「现在花不了钱 + 差哪一步 + 期限」。
+      // 单独成一个文本节点（下面 render 里那个 <p>），拼进 note 会让整段翻不到。
+      state.activationHint = activationHintText(r);
     } catch (e) {
       state.note = "";
       state.err = "铸造失败：" + (e.message || e);
@@ -583,6 +600,7 @@
     state.keys = null;
     state.note = "";
     state.err = "";
+    state.activationHint = "";
     state.apiKey = apiKeyFor(agentId);
     var c = card();
     if (c) c.hidden = false;

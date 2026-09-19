@@ -42,6 +42,12 @@ grep -q 'attachPairingRuntimeKey' "$CONSOLE/scripts/karma-public-api.js"
 grep -q 'cyber-bind-requests.js' "$CONSOLE/pages/cyber/index.html"
 grep -q 'runtimeListPendingBinds' "$CONSOLE/scripts/karma-public-api.js"
 grep -q 'list-pending-binds' "$CONSOLE/scripts/cyber-bind-requests.js"
+# 未激活的钥匙不能花钱：铸造时的标记、网关的拒用、操作台的「未激活」标注，三处都要在。
+grep -q 'PENDING_KEY_BINDING' "$ROOT/services/runtime_key_service.py"
+grep -q 'pending_activation_block' "$ROOT/api/routes/runtime_gateway.py"
+grep -q 'activation_deadline' "$ROOT/api/routes/runtime_gateway.py"
+grep -q '未激活（等匹配码）' "$CONSOLE/scripts/cyber-handoff.js"
+grep -q 'activation_required' "$CONSOLE/scripts/cyber-handoff.js"
 # 行业硬指标表单：向导和配对接入必须共用同一份实现，不能各写一套。
 grep -q 'karma-service-spec.js' "$CONSOLE/pages/cyber/index.html"
 grep -q 'KarmaServiceSpec' "$CONSOLE/scripts/cyber-agents.js"

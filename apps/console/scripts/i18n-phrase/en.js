@@ -2389,3 +2389,12 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "签名模块未加载，请刷新页面后再试。": "The signing module is not loaded — refresh the page and try again.",
   "已确认绑定，这个 agent 之后每个请求都要私钥签名。": "Binding confirmed. From now on every request from this agent must be signed with its private key.",
 });
+
+// --- dynamic-append-22: 未激活的钥匙（铸造到激活这段窗口期内不能花钱） ---
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "未激活（等匹配码）": "Not activated (waiting for the code)",
+  "这把钥匙现在还没激活：没走完这一步，谁都拿它花不了钱。": "This key is not activated yet — until this step is done, nobody can spend with it.",
+  "第一次动用这把钥匙的钱之前，agent 会申请绑定自己的公钥并把 8 位匹配码给你；你到「设置 → 接入确认」输码 + 钱包签名确认，它才能真正付款（在那之前一律被拒）。": "Before this key can move any money, the agent asks to bind its public key and hands you an 8-character activation code. Go to Settings → Access confirmation, type the code and sign with your wallet — only then can it pay; until then every spending request is refused.",
+  "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。": "This key is not activated yet, so no money can move. The agent calls /runtime/bind-key and shows you the 8-character activation code it receives; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect.",
+  "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}（超时就废了，得重新铸一把）。": "This key is not activated yet, so no money can move. The agent calls /runtime/bind-key and shows you the 8-character activation code it receives; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect. Activation deadline {0} — past it the key is dead and you have to mint a new one.",
+});

@@ -353,14 +353,21 @@ async def test_bind_key_then_every_request_must_be_signed(client: AsyncClient, d
     data = minted.json()
     token = data["runtime_key"]
     key_id = data["key_id"]
-    assert data["key_binding"] == "service"  # 铸造时还没绑公钥
+    # 铸造时指给了某个 agent → 一出生就是「未激活」：动钱的一律拒，
+    # 直到主人输码完成激活（下面的未激活用例把这条钉住）。
+    assert data["key_binding"] == "agent_pending"
+    assert data["activation_required"] is True
     assert data["binding_scope"].startswith("Karma Runtime Key Binding")
     assert data["binding_scope_signature"]
 
-    # 绑定前：老路径，不带签名也能读
+    # 还没激活：只放行「读自己的状态」，动钱的一律 403
     pre = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
     assert pre.status_code == 200
-    assert pre.json()["key_binding"] == "service"
+    assert pre.json()["key_binding"] == "agent_pending"
+    assert pre.json()["activation_required"] is True
+    blocked = await client.get("/runtime/capacity", headers={"X-Karma-Runtime-Key": token})
+    assert blocked.status_code == 403, blocked.text
+    assert "not activated" in blocked.json()["detail"]
 
     agent_key = agent_key_from_seed(base64.b64encode(b"\x44" * 32).decode())
     pub = _pub_of(agent_key)
@@ -370,16 +377,17 @@ async def test_bind_key_then_every_request_must_be_signed(client: AsyncClient, d
     assert requested.status_code == 200, requested.text
     payload = requested.json()
     assert payload["status"] == "pending_activation"
-    assert payload["key_binding"] == "service"
+    assert payload["key_binding"] == "agent_pending"  # 申请了但没激活
     code = payload["activation_code"]
     assert re.fullmatch(r"[0-9A-Z]{4}-[0-9A-Z]{4}", code)
     assert payload["activation_code_hint"]
     assert payload["pending_binding"]["agent_fingerprint"]
 
-    # 还没确认：老路径照旧能读；这时候带签名反而 403（服务端不认这把公钥）
+    # 还没确认：仍然只是「未激活」，照旧只放行读自己的状态；
+    # 这时候带签名反而 403（服务端还不认这把公钥）
     during = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
     assert during.status_code == 200
-    assert during.json()["key_binding"] == "service"
+    assert during.json()["key_binding"] == "agent_pending"
     early = await client.get(
         "/runtime/permissions",
         headers=_headers_for(token, agent_key, method="GET", path="/runtime/permissions", body=b""),
@@ -592,9 +600,10 @@ async def test_sdk_binds_its_own_key_and_then_signs_every_call(client: AsyncClie
     assert rt.signing_enabled() is False
     assert rt.pending_activation is not None
 
-    # 主人还没输码：agent 走老路径照样能读
+    # 主人还没输码：agent 还能读自己的状态，但动钱的调用服务端一律 403
     waiting = await rt.get_permissions()
-    assert waiting["key_binding"] == "service"
+    assert waiting["key_binding"] == "agent_pending"
+    assert waiting["activation_required"] is True
 
     # 主人拿 agent 给的码在操作台签名确认
     confirmed = await client.post(
@@ -703,7 +712,7 @@ async def test_wrong_activation_code_burns_attempts_and_then_the_request(
     assert requested.status_code == 200, requested.text
     payload = requested.json()
     assert payload["status"] == "pending_activation"
-    assert payload["key_binding"] == "service"  # 申请了，但还没生效
+    assert payload["key_binding"] == "agent_pending"  # 申请了，但还没生效
     code = payload["activation_code"]
     assert re.fullmatch(r"[0-9A-Z]{4}-[0-9A-Z]{4}", code)
     assert (payload["pending_binding"] or {}).get("agent_fingerprint")
@@ -789,10 +798,10 @@ async def test_confirm_bind_needs_the_owners_wallet_and_the_right_identity(
     foreign = await client.post("/runtime/confirm-bind-key", json=wrong_identity)
     assert foreign.status_code == 404
 
-    # 谁都没确认过，绑定不该生效
+    # 谁都没确认过，绑定不该生效 —— 钥匙停在未激活
     info = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
     assert info.status_code == 200
-    assert info.json()["key_binding"] == "service"
+    assert info.json()["key_binding"] == "agent_pending"
 
 
 @pytest.mark.asyncio
@@ -1042,3 +1051,160 @@ async def test_console_polls_pending_binds_with_session_auth_only(client: AsyncC
         headers={"X-Karma-Identity-Id": "kid-code-7"},
     )
     assert after.json()["requests"] == []
+
+
+# ---------------------------------------------------------------- 未激活不能花钱
+
+@pytest.mark.asyncio
+async def test_key_minted_for_an_agent_cannot_spend_before_activation(
+    client: AsyncClient, db_session
+):
+    """铸造时指给了 agent 的钥匙：没走完匹配码激活之前，动钱的调用一律 403。
+
+    补的是「铸造 → 激活」这段窗口期：以前这把钥匙和托管钥匙一样认 key 不认人，
+    抄到 key 的人就能在额度内直接花。现在它一出生就停在 agent_pending。
+    """
+    identity = "kid-lock-1"
+    agent_id = "agent-lock-1"
+    minted, wallet = await _mint_full(
+        client,
+        identity=identity,
+        perms=["place_order", "sync_task_status"],
+        agent_id=agent_id,
+    )
+    assert minted.status_code == 201, minted.text
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    assert data["key_binding"] == "agent_pending"
+    assert data["activation_required"] is True
+    assert data["activation_deadline"]
+
+    # 偷到 key 字符串的人能做的最大努力：带 key 打付款接口 —— 403
+    money = await client.post(
+        "/runtime/place-order",
+        headers={"X-Karma-Runtime-Key": token, "Content-Type": "application/json"},
+        content=b"{}",
+    )
+    assert money.status_code == 403, money.text
+    assert "not activated" in money.json()["detail"]
+
+    # 读自己的状态仍然放行：agent 需要知道差哪一步
+    info = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
+    assert info.status_code == 200
+    assert info.json()["activation_required"] is True
+    assert info.json()["activation_deadline"]
+
+    # 激活之后拒绝理由必须变：不再是「未激活」，而是「少了 agent 签名」
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x81" * 32).decode())
+    requested = await _request_bind(client, token, agent_id, _pub_of(agent_key))
+    assert requested.status_code == 200, requested.text
+    code = requested.json()["activation_code"]
+    confirmed = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity=identity, acct=wallet, code=code),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    after = await client.post(
+        "/runtime/place-order",
+        headers={"X-Karma-Runtime-Key": token, "Content-Type": "application/json"},
+        content=b"{}",
+    )
+    assert after.status_code == 401, after.text
+    assert "Signature" in after.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_activation_window_expiry_locks_the_key(client: AsyncClient, db_session):
+    """铸造后拖过激活窗口还没激活：这把钥匙直接不能再动钱（只拒用，不删行）。"""
+    from db.models.orm import RuntimeKeyModel
+
+    minted, _wallet = await _mint_full(
+        client, identity="kid-lock-2", perms=["sync_task_status"], agent_id="agent-lock-2"
+    )
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+
+    row = await db_session.get(RuntimeKeyModel, key_id)
+    row.created_at = datetime.utcnow() - timedelta(seconds=rks.ACTIVATION_WINDOW_SECONDS + 60)
+    await db_session.commit()
+
+    resp = await client.get("/runtime/capacity", headers={"X-Karma-Runtime-Key": token})
+    assert resp.status_code == 403, resp.text
+    assert "window expired" in resp.json()["detail"]
+
+    info = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
+    assert info.status_code == 200
+    assert info.json()["activation_required"] is True
+
+
+def test_pending_activation_block_boundaries():
+    """判定口径的边界：托管 key 不被误伤，未激活 key 两种理由要分清。"""
+    now = datetime.now(timezone.utc)
+    assert (
+        rks.pending_activation_block(key_binding="service", agent_public_key=None, created_at=now)
+        is None
+    )
+    assert (
+        rks.pending_activation_block(
+            key_binding="agent", agent_public_key="cHVi", created_at=now
+        )
+        is None
+    )
+    # 已激活（binding=agent 且有公钥）不该被拦
+    assert (
+        rks.pending_activation_block(
+            key_binding="agent_pending", agent_public_key="cHVi", created_at=now
+        )
+        is None
+    )
+    fresh = rks.pending_activation_block(
+        key_binding="agent_pending", agent_public_key=None, created_at=now, now=now
+    )
+    assert fresh and "not activated" in fresh
+    stale = rks.pending_activation_block(
+        key_binding="agent_pending",
+        agent_public_key=None,
+        created_at=now - timedelta(seconds=rks.ACTIVATION_WINDOW_SECONDS + 1),
+        now=now,
+    )
+    assert stale and "window expired" in stale
+
+
+@pytest.mark.asyncio
+async def test_service_keys_without_an_agent_are_untouched(client: AsyncClient, db_session):
+    """没指明 agent 的托管 key 行为不变：还是认 key 本身，不能被这次改动打掉。"""
+    minted = await _mint(
+        client, identity="kid-lock-3", perms=["sync_task_status"], agent_id=""
+    )
+    data = minted.json()
+    assert data["key_binding"] == "service"
+    assert data["activation_required"] is False
+    assert data["activation_deadline"] == ""
+
+    resp = await client.get("/runtime/capacity", headers={"X-Karma-Runtime-Key": data["runtime_key"]})
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_rejecting_does_not_turn_the_key_back_into_a_bearer_token(
+    client: AsyncClient, db_session
+):
+    """拒绝一次接入 ≠ 这把钥匙解锁：它仍然停在未激活，动钱照样 403。"""
+    minted, wallet = await _mint_full(
+        client, identity="kid-lock-4", perms=["sync_task_status"], agent_id="agent-lock-4"
+    )
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x82" * 32).decode())
+    await _request_bind(client, token, "agent-lock-4", _pub_of(agent_key))
+
+    rejected = await client.post(
+        "/runtime/reject-bind-key",
+        json=_reject_body(key_id=key_id, identity="kid-lock-4", acct=wallet),
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["key_binding"] == "agent_pending"
+
+    resp = await client.get("/runtime/capacity", headers={"X-Karma-Runtime-Key": token})
+    assert resp.status_code == 403, resp.text
+    assert "not activated" in resp.json()["detail"]

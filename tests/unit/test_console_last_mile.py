@@ -328,3 +328,59 @@ def test_every_language_pack_carries_the_activation_code_copy():
         pack = (phrase_dir / f"{lang}.js").read_text(encoding="utf-8")
         missing = [s for s in samples if f'"{s}":' not in pack]
         assert not missing, f"{lang} 缺译文：{missing}"
+
+def test_a_key_minted_for_an_agent_is_marked_not_activated_in_the_handoff():
+    """铸造给 agent 的钥匙在操作台要标成「未激活」，不能让人以为铸完就能花。
+
+    服务端把这种钥匙停在 ``agent_pending``：没输匹配码之前，动钱的调用一律 403。
+    操作台不把这件事说出来，用户就会以为是 agent 坏了。
+    """
+    handoff = (CONSOLE / "scripts/cyber-handoff.js").read_text(encoding="utf-8")
+    assert "activation_required" in handoff, "交付包要读服务端的激活标记"
+    assert "activationHintText" in handoff, "未激活提示要单独成句（拼进 note 会翻不到）"
+    assert "未激活（等匹配码）" in handoff, "密钥列表要标出未激活"
+    assert "activation_deadline" in handoff, "要把激活期限告诉用户"
+    assert "state.activationHint = \"\";" in handoff, "切换 agent 时要清掉上一把钥匙的提示"
+
+
+def test_the_backend_locks_keys_that_are_minted_for_an_agent():
+    """铸造 → 激活这段窗口期不能是不记名令牌：网关必须先拒。
+
+    这是「盗 key 也花不出钱」的一半 —— 另一半是绑定后的逐请求验签。
+    """
+    root = CONSOLE.parent.parent  # apps/console -> apps -> repo root
+    service = (root / "services/runtime_key_service.py").read_text(encoding="utf-8")
+    gateway = (root / "api/routes/runtime_gateway.py").read_text(encoding="utf-8")
+
+    assert 'PENDING_KEY_BINDING = "agent_pending"' in service
+    assert "ACTIVATION_WINDOW_SECONDS" in service
+    assert "def pending_activation_block(" in service, "拒用判定要只有一个口径"
+    # 铸造时指给 agent 的钥匙落到未激活位
+    assert "if binding_mode == \"service\" and (agent_binding or \"\").strip():" in service
+
+    assert "pending_activation_block(" in gateway, "网关要用这套判定"
+    assert "PENDING_ACTIVATION_ALLOWED_PATHS" in gateway
+    # 只放行「读自己状态」，动作端点必须拦
+    assert '"/runtime/permissions"' in gateway
+    assert "status_code=403, detail=blocked" in gateway
+    assert "activation_required" in gateway and "activation_deadline" in gateway
+
+
+def test_every_language_pack_carries_the_not_activated_copy():
+    """未激活那几句话六种语言都要有，否则切语言立刻掉回中文。"""
+    samples = (
+        "未激活（等匹配码）",
+        "这把钥匙现在还没激活：没走完这一步，谁都拿它花不了钱。",
+        "第一次动用这把钥匙的钱之前，agent 会申请绑定自己的公钥并把 8 位匹配码给你；"
+        "你到「设置 → 接入确认」输码 + 钱包签名确认，它才能真正付款（在那之前一律被拒）。",
+        "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，"
+        "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。",
+        "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，"
+        "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}（超时就废了，得重新铸一把）。",
+    )
+    phrase_dir = CONSOLE / "scripts" / "i18n-phrase"
+    for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
+        pack = (phrase_dir / f"{lang}.js").read_text(encoding="utf-8")
+        missing = [s for s in samples if f'"{s}":' not in pack and f'"{s}":' not in pack.replace("\\", "\\")]
+        assert not missing, f"{lang} 缺译文：{missing}"
+

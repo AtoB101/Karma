@@ -51,6 +51,16 @@ BIND_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 BIND_CODE_TTL_SECONDS = 900
 BIND_CODE_MAX_ATTEMPTS = 5
 
+# 铸造时就写明「这把钥匙是给某个 agent 的」时落到这个状态。
+# 它和 "agent"（公钥已绑、逐请求验签）是两回事：这个状态下 key 字符串还是不记名
+# 令牌 —— 谁抄到都能花。所以只要 key_binding=agent_pending 且还没绑上公钥，
+# 动钱的调用一律拒绝（见 api/routes/runtime_gateway.py 的 get_runtime_context）。
+PENDING_KEY_BINDING = "agent_pending"
+
+# 从铸造到完成激活的时限。超时只拒用、不删行 —— 用户能在操作台看见它，
+# 自己决定是吊销还是重新铸一把。
+ACTIVATION_WINDOW_SECONDS = 1800
+
 # In-process replay / idempotency (single worker — use Redis in multi-instance production).
 _replay: dict[str, deque[tuple[str, float]]] = defaultdict(deque)
 _DAILY: dict[str, dict[str, float]] = defaultdict(dict)  # key_id -> iso_date -> cumulative amount
@@ -255,6 +265,7 @@ class RuntimeKeyContext:
     key_binding: str = "service"
     agent_public_key: str | None = None
     nonce_required: bool = False
+    created_at: datetime | None = None
 
 
 def _utcnow() -> datetime:
@@ -402,6 +413,7 @@ async def load_active_context(
         key_binding=(row.key_binding or "service"),
         agent_public_key=(row.agent_public_key or None),
         nonce_required=bool(row.nonce_required),
+        created_at=_as_utc(row.created_at) if row.created_at else None,
     )
 
 
@@ -432,6 +444,12 @@ async def create_runtime_key_record(
     pub = normalize_agent_public_key(agent_public_key) if agent_public_key else None
     if binding_mode == "agent" and not pub:
         raise HTTPException(status_code=400, detail="key_binding=agent requires agent_public_key")
+    # 铸造时就指明了收件 agent（agent_binding 在钱包签名消息里）—— 这把钥匙
+    # 不该在激活前被任何人拿去花。以前它和托管钥匙一样「认 key 不认人」，
+    # 铸造到激活之间的窗口期里，抄到 key 的人就能直接用。现在锁死：
+    # 钥匙先落到 agent_pending，激活（用户输匹配码）之后才变 agent。
+    if binding_mode == "service" and (agent_binding or "").strip():
+        binding_mode = PENDING_KEY_BINDING
     key_id = secrets.token_hex(16)
     secret = secrets.token_hex(32)
     token = f"KRM_RT_{key_id}_{secret}"
@@ -465,6 +483,41 @@ async def _load_activatable_row(db: AsyncSession, key_id: str) -> RuntimeKeyMode
     if _utcnow() > _as_utc(row.expire_at) + timedelta(seconds=30):
         raise HTTPException(status_code=401, detail="runtime key expired")
     return row
+
+
+def activation_deadline(row: RuntimeKeyModel) -> datetime:
+    """这把钥匙必须在什么时候之前完成激活。"""
+    created = _as_utc(row.created_at) if row.created_at else _utcnow()
+    return created + timedelta(seconds=ACTIVATION_WINDOW_SECONDS)
+
+
+def pending_activation_block(
+    *,
+    key_binding: str | None,
+    agent_public_key: str | None,
+    created_at: datetime | None,
+    now: datetime | None = None,
+) -> str | None:
+    """未激活的 agent 专用钥匙：该拒就回一串给调用方看的理由，不该拒回 None。
+
+    这是「未激活不能用」的唯一判定口径，网关和测试都走这里，避免两处漂移。
+    """
+    if (key_binding or "service").strip().lower() != PENDING_KEY_BINDING:
+        return None
+    if (agent_public_key or "").strip():
+        return None
+    current = now or _utcnow()
+    created = _as_utc(created_at) if created_at else current
+    if current > created + timedelta(seconds=ACTIVATION_WINDOW_SECONDS):
+        return (
+            "runtime key activation window expired (%d minutes): revoke this key "
+            "and mint a new one" % (ACTIVATION_WINDOW_SECONDS // 60)
+        )
+    return (
+        "runtime key is not activated yet: the agent must POST /runtime/bind-key "
+        "and the owner must enter the 8-character activation code in Console "
+        "before this key can be used"
+    )
 
 
 def _clear_pending_binding(row: RuntimeKeyModel) -> None:

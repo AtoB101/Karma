@@ -167,6 +167,35 @@ GET /runtime/permissions
 `agent_fingerprint`、`expires_at`、`attempts_left`、`expired`。**它不算绑定生效**——
 此时 key 仍是服务端托管，agent 带签名调用会被拒（403）。
 
+## 铸造时指明给某个 agent 的钥匙：未激活不能花钱
+
+上面那套绑定是**事后生效**的：绑上之后光有 key 字符串花不出钱。但「铸造 → 激活」这段
+窗口期以前是敞开的 —— 钥匙还没绑任何公钥，谁抄到那串 KRM_RT_… 谁就能在额度内花。
+现在这条堵上了。
+
+铸造时 `agent_binding` 非空（这把钥匙明确是给某个 agent 的；该字段在钱包签名消息里，
+用户授权过）的钥匙，落到 `key_binding = agent_pending`：
+
+* 拿它调任何动作端点（`/runtime/place-order`、`/runtime/request-voucher`、
+  `/runtime/request-settlement`、`/runtime/capacity` …）一律 **403**，理由是
+  `runtime key is not activated yet`；
+* 只有 `GET /runtime/permissions` 放行 —— agent 得能读到 `activation_required: true` 与
+  `activation_deadline`，知道自己差哪一步；
+* 用户输码 + 钱包签名（`POST /runtime/confirm-bind-key`）后 `key_binding` 变成 `agent`，
+  之后按「逐请求验签」那一套走；
+* **激活窗口 30 分钟**（`ACTIVATION_WINDOW_SECONDS`，从铸造时刻算）。超时还没激活，
+  这把钥匙同样不能再用于动作端点（403 `activation window expired`）—— 只拒用、不删行，
+  用户能在操作台看见它，再决定吊销还是重铸；
+* 拒绝一次接入**不等于**放行：待确认位清掉了，钥匙仍停在 `agent_pending`，照样花不了钱；
+* **没指明 agent 的托管钥匙不受影响**（`key_binding = service`，认 key 不认人），
+  已经在跑的 agent 不会被这次改动打掉。
+
+换句话说：偷到 key 的人能做的最坏一件事，是让那把还没激活的钥匙不能用；他要花你的钱，
+仍然必须过你钱包那一关。
+
+`POST /runtime/create-key` 与 `POST /runtime/list-keys` 的返回里带 `activation_required`、
+`activation_deadline`；操作台的交付包卡片据此标「未激活（等匹配码）」。
+
 ## 吊销
 
 `POST /runtime/revoke-key`，携带与创建时一致的钱包签名（消息格式见服务端 `services/runtime_wallet.py`）。

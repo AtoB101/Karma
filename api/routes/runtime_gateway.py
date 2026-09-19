@@ -58,8 +58,10 @@ from services.receipt_templates import validate_extension_vs_task_type
 from services.task_contract_guard import ensure_task_contract_exists
 from services.runtime_key_service import (
     MAX_KEY_LIFETIME_DAYS,
+    PENDING_KEY_BINDING,
     PublicKeyError,
     RuntimeKeyContext,
+    activation_deadline,
     agent_binding_fingerprint,
     assert_permission,
     binding_scope,
@@ -72,6 +74,7 @@ from services.runtime_key_service import (
     list_runtime_keys_for_identity,
     load_active_context,
     normalize_activation_code,
+    pending_activation_block,
     pending_binding_view,
     reject_key_binding,
     request_key_binding,
@@ -239,12 +242,21 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
             "key_binding": row.key_binding,
             "nonce_required": row.nonce_required,
             "max_key_lifetime_days": MAX_KEY_LIFETIME_DAYS,
+            "activation_required": bool(
+                (row.key_binding or "") == PENDING_KEY_BINDING and not row.agent_public_key
+            ),
+            "activation_deadline": (
+                activation_deadline(row).isoformat()
+                if (row.key_binding or "") == PENDING_KEY_BINDING and not row.agent_public_key
+                else ""
+            ),
             "binding_scope": scope,
             "binding_scope_fingerprint": hash_binding_scope(scope) if scope else "",
             "binding_scope_signature": scope_signature,
             "service_public_key": signing_service.get_public_key_b64(),
             "next_step": (
-                "agent 用 POST /runtime/bind-key 绑定自己的 Ed25519 公钥；之后每个请求都要签名"
+                "agent 用 POST /runtime/bind-key 绑定自己的 Ed25519 公钥，"
+                "主人拿匹配码在操作台确认；激活之前这把钥匙的付款类调用一律 403"
                 if effective_agent_id
                 else "未指定 agent：这把 key 走服务端托管路径（认 key 不认人）"
             ),
@@ -325,6 +337,16 @@ async def runtime_list_keys(body: ListRuntimeKeysBody, db: AsyncSession = Depend
             ),
             # 有没有「agent 申请了、等用户输匹配码」的待确认请求。
             "pending_binding": pending_binding_view(r),
+            # 铸造时指给了 agent、但还没完成匹配码激活：这个状态下动钱的
+            # 调用一律 403，操作台据此标「未激活」。
+            "activation_required": bool(
+                (r.key_binding or "") == PENDING_KEY_BINDING and not r.agent_public_key
+            ),
+            "activation_deadline": (
+                activation_deadline(r).isoformat()
+                if (r.key_binding or "") == PENDING_KEY_BINDING and not r.agent_public_key
+                else ""
+            ),
         }
         for r in rows
     ]
@@ -667,6 +689,11 @@ async def runtime_list_pending_binds(
 # ---------------------------------------------------------------------------
 
 
+# 还没激活的钥匙也允许调这几个端点：agent 需要能读到「我还没激活」，
+# 而不是只看到一句 403 去猜。真正的动作端不在这里 —— 那些一律拒。
+PENDING_ACTIVATION_ALLOWED_PATHS = {"/runtime/permissions"}
+
+
 async def get_runtime_context(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -684,6 +711,14 @@ async def get_runtime_context(
     if not token:
         raise HTTPException(status_code=401, detail="X-Karma-Runtime-Key header is required")
     ctx = await load_active_context(db=db, token=token)
+    if request.url.path not in PENDING_ACTIVATION_ALLOWED_PATHS:
+        blocked = pending_activation_block(
+            key_binding=ctx.key_binding,
+            agent_public_key=ctx.agent_public_key,
+            created_at=ctx.created_at,
+        )
+        if blocked:
+            raise HTTPException(status_code=403, detail=blocked)
     verify_signed_request(
         ctx=ctx,
         method=request.method,
@@ -720,6 +755,17 @@ async def runtime_permissions(
             ),
             "nonce_required": ctx.nonce_required,
             "pending_binding": pending_binding_view(ctx_row) if ctx_row else None,
+            # 未激活的钥匙只能读到这里：告诉调用方还差哪一步。
+            "activation_required": bool(
+                (ctx.key_binding or "") == PENDING_KEY_BINDING and not ctx.agent_public_key
+            ),
+            "activation_deadline": (
+                activation_deadline(ctx_row).isoformat()
+                if ctx_row
+                and (ctx.key_binding or "") == PENDING_KEY_BINDING
+                and not ctx.agent_public_key
+                else ""
+            ),
             "chain_id": int(settings.testnet_chain_id or 0),
             "runtime_url": (settings.public_runtime_base_url or "").strip(),
         }
