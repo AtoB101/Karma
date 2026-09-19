@@ -61,9 +61,9 @@ from services.runtime_key_service import (
     PENDING_KEY_BINDING,
     PublicKeyError,
     RuntimeKeyContext,
-    activation_deadline,
     agent_binding_fingerprint,
     assert_permission,
+    BIND_CODE_TTL_SECONDS,
     binding_scope,
     check_replay_nonce,
     check_single_and_daily_limits,
@@ -71,6 +71,7 @@ from services.runtime_key_service import (
     create_runtime_key_record,
     display_activation_code,
     hash_binding_scope,
+    list_bound_runtime_keys,
     list_runtime_keys_for_identity,
     load_active_context,
     normalize_activation_code,
@@ -79,6 +80,7 @@ from services.runtime_key_service import (
     reject_key_binding,
     request_key_binding,
     revoke_runtime_key,
+    unbind_key_binding,
     verify_signed_request,
 )
 from services.runtime_response_sign import signed_json_response
@@ -90,6 +92,7 @@ from services.runtime_wallet import (
     build_list_keys_message,
     build_reject_bind_message,
     build_revoke_key_message,
+    build_unbind_key_message,
     verify_personal_message,
 )
 from services.identity_wallet_binding import ensure_wallet_authorized_for_runtime_key
@@ -245,18 +248,16 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
             "activation_required": bool(
                 (row.key_binding or "") == PENDING_KEY_BINDING and not row.agent_public_key
             ),
-            "activation_deadline": (
-                activation_deadline(row).isoformat()
-                if (row.key_binding or "") == PENDING_KEY_BINDING and not row.agent_public_key
-                else ""
-            ),
+            # 时间只作用在匹配码上：agent 申请那一刻起 3 分钟内要输码完成激活。
+            "activation_code_ttl_seconds": BIND_CODE_TTL_SECONDS,
             "binding_scope": scope,
             "binding_scope_fingerprint": hash_binding_scope(scope) if scope else "",
             "binding_scope_signature": scope_signature,
             "service_public_key": signing_service.get_public_key_b64(),
             "next_step": (
                 "agent 用 POST /runtime/bind-key 绑定自己的 Ed25519 公钥，"
-                "主人拿匹配码在操作台确认；激活之前这把钥匙的付款类调用一律 403"
+                "主人拿匹配码在操作台确认（码 3 分钟内有效）；"
+                "激活之前这把钥匙的付款类调用一律 403"
                 if effective_agent_id
                 else "未指定 agent：这把 key 走服务端托管路径（认 key 不认人）"
             ),
@@ -341,11 +342,6 @@ async def runtime_list_keys(body: ListRuntimeKeysBody, db: AsyncSession = Depend
             # 调用一律 403，操作台据此标「未激活」。
             "activation_required": bool(
                 (r.key_binding or "") == PENDING_KEY_BINDING and not r.agent_public_key
-            ),
-            "activation_deadline": (
-                activation_deadline(r).isoformat()
-                if (r.key_binding or "") == PENDING_KEY_BINDING and not r.agent_public_key
-                else ""
             ),
         }
         for r in rows
@@ -684,6 +680,105 @@ async def runtime_list_pending_binds(
     return signed_json_response({"requests": requests})
 
 
+class UnbindKeyBody(BaseModel):
+    key_id: str
+    karma_identity_id: str
+    wallet_address: str
+    wallet_signature: str
+    client_nonce: str = Field(min_length=8, max_length=128)
+
+
+class ListBoundKeysBody(BaseModel):
+    """设置页列「已绑 agent 的钥匙」——只认会话，不打钱包签名弹窗。"""
+
+    karma_identity_id: str
+
+
+@router.post("/list-bound-keys")
+async def runtime_list_bound_keys(
+    body: ListBoundKeysBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """设置页「取消绑定」那一栏的数据源：当前会话身份名下、已绑公钥的钥匙。
+
+    和 ``/runtime/list-keys`` 的分工：那条要钱包签名，适合用户主动发起的动作；
+    这条只认会话（SIWE bearer / X-Karma-Identity-Id），进设置页就能看见
+    「现在哪把钥匙在代表我花钱」。公钥原文不回传，只给指纹 —— 页面不需要原文。
+    """
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor:
+        raise HTTPException(
+            status_code=403, detail="authentication required: connect a wallet first"
+        )
+    identity = (body.karma_identity_id or "").strip()
+    if identity and identity != actor:
+        raise HTTPException(
+            status_code=403, detail="karma_identity_id does not match the authenticated identity"
+        )
+    rows = await list_bound_runtime_keys(db=db, karma_identity_id=actor)
+    keys = [
+        {
+            "key_id": r.key_id,
+            "agent_id": (r.agent_binding or "").strip(),
+            "agent_name": r.agent_name,
+            "agent_fingerprint": agent_binding_fingerprint(r.agent_public_key),
+            "key_binding": r.key_binding,
+            "permissions": r.permissions,
+            "single_limit": r.single_limit,
+            "daily_limit": r.daily_limit,
+            "expire_time": r.expire_at.isoformat() if r.expire_at else "",
+            "nonce_required": bool(r.nonce_required),
+        }
+        for r in rows
+        if (r.status or "").strip().lower() == "active"
+    ]
+    keys.sort(key=lambda v: ((v.get("agent_name") or ""), (v.get("key_id") or "")))
+    return signed_json_response({"keys": keys})
+
+
+@router.post("/unbind-key")
+async def runtime_unbind_key(body: UnbindKeyBody, db: AsyncSession = Depends(get_db)):
+    """主人在设置页点「取消绑定」：钱包签名一次，钥匙立刻回到「未激活」。
+
+    为什么不顺手续成托管（service）状态：那等于把钥匙变回不记名令牌 —— 谁抄到
+    谁花，而用户点这个按钮的意思恰恰是「别再让那个 agent 代表我花钱」。摘掉公钥
+    之后这把钥匙谁都花不了；要用就重新走一次激活（agent 再申请、主人再输码）。
+    """
+    await _owned_identity_key(
+        db,
+        key_id=body.key_id,
+        karma_identity_id=body.karma_identity_id,
+        wallet_address=body.wallet_address,
+    )
+    validate_public_url_segment("client_nonce", body.client_nonce)
+    msg = build_unbind_key_message(
+        key_id=body.key_id,
+        karma_identity_id=body.karma_identity_id,
+        wallet_address=body.wallet_address,
+        client_nonce=body.client_nonce,
+    )
+    verify_personal_message(
+        message=msg,
+        wallet_address=body.wallet_address,
+        wallet_signature=body.wallet_signature,
+    )
+    row = await unbind_key_binding(db=db, key_id=body.key_id)
+    await db.commit()
+    return signed_json_response(
+        {
+            "key_id": row.key_id,
+            "status": "unbound",
+            "key_binding": row.key_binding,
+            "agent_id": (row.agent_binding or "").strip(),
+            "agent_fingerprint": "",
+            "activation_required": True,
+            "activation_code_ttl_seconds": BIND_CODE_TTL_SECONDS,
+            "pending_binding": pending_binding_view(row),
+        }
+    )
+
+
 # ---------------------------------------------------------------------------
 # Runtime Key authenticated agent paths
 # ---------------------------------------------------------------------------
@@ -715,7 +810,6 @@ async def get_runtime_context(
         blocked = pending_activation_block(
             key_binding=ctx.key_binding,
             agent_public_key=ctx.agent_public_key,
-            created_at=ctx.created_at,
         )
         if blocked:
             raise HTTPException(status_code=403, detail=blocked)
@@ -759,13 +853,7 @@ async def runtime_permissions(
             "activation_required": bool(
                 (ctx.key_binding or "") == PENDING_KEY_BINDING and not ctx.agent_public_key
             ),
-            "activation_deadline": (
-                activation_deadline(ctx_row).isoformat()
-                if ctx_row
-                and (ctx.key_binding or "") == PENDING_KEY_BINDING
-                and not ctx.agent_public_key
-                else ""
-            ),
+            "activation_code_ttl_seconds": BIND_CODE_TTL_SECONDS,
             "chain_id": int(settings.testnet_chain_id or 0),
             "runtime_url": (settings.public_runtime_base_url or "").strip(),
         }

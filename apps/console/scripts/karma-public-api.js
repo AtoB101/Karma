@@ -167,6 +167,24 @@
     });
   }
 
+  // 设置页「已授权 · 一键取消绑定」：列已绑公钥的钥匙走会话鉴权（列一下不该惊动钱包），
+  // 取消绑定必须钱包签名 —— 那是主人本人的动作，不能让一个会话单独完成。
+  async function runtimeListBoundKeys(payload) {
+    return karmaFetch("/runtime/list-bound-keys", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function runtimeUnbindKey(payload) {
+    return karmaFetch("/runtime/unbind-key", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
   async function getHealth() {
     return karmaFetch("/health", { method: "GET", headers: { Accept: "application/json" } });
   }
@@ -764,6 +782,8 @@
     runtimeRejectBindKey,
     runtimeListBindRequests,
     runtimeListPendingBinds,
+    runtimeListBoundKeys,
+    runtimeUnbindKey,
     karmaFetch,
     headers,
   };

@@ -277,11 +277,12 @@ class KarmaRuntime:
         return self._pending_activation
 
     async def await_binding_activation(
-        self, *, timeout_seconds: float = 900.0, interval_seconds: float = 5.0
+        self, *, timeout_seconds: float = 180.0, interval_seconds: float = 5.0
     ) -> dict[str, Any]:
         """等主人在操作台输入匹配码。生效了就打开签名并返回权限信息。
 
-        超时抛 ``TimeoutError`` —— 匹配码 15 分钟就过期，别在这儿无声无息地等下去。
+        超时抛 ``TimeoutError`` —— 匹配码 3 分钟就过期，别在这儿无声无息地等下去。
+        过期不用重铸钥匙：让 agent 重新 ``bind_key()`` 申请一次，拿新码给主人。
         """
         deadline = time.monotonic() + max(0.0, timeout_seconds)
         while True:

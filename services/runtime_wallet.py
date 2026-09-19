@@ -161,3 +161,18 @@ def build_list_keys_message(*, karma_identity_id: str, wallet_address: str, clie
             f"client_nonce:{client_nonce}",
         ]
     )
+
+
+def build_unbind_key_message(
+    *, key_id: str, karma_identity_id: str, wallet_address: str, client_nonce: str
+) -> str:
+    """主人在设置页点「取消绑定」时签的那段文字。"""
+    return "\n".join(
+        [
+            "Karma Runtime Key Unbind",
+            f"key_id:{key_id}",
+            f"karma_identity_id:{karma_identity_id}",
+            f"wallet_address:{wallet_address}",
+            f"client_nonce:{client_nonce}",
+        ]
+    )

@@ -2350,7 +2350,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "让 agent 把它拿到的那串匹配码显示给你，抄进下面的框里。签名确认之后，这个 agent 才能用这把密钥；在确认之前它花钱的请求一律被拒。": "Pedile al agent que te muestre el código de emparejamiento que recibió y escribilo en el cuadro de abajo. Recién cuando firmes la confirmación este agent puede usar la clave; hasta entonces se rechaza todo pedido suyo que implique gastar.",
   "agent 公钥指纹：{0} · 匹配码有效至 {1} · 还能试 {2} 次": "Huella de la clave pública del agent: {0} · código válido hasta {1} · quedan {2} intentos",
   "还有 {0} 个待确认请求，处理完这个再点「读取已有密钥」。": "Hay {0} solicitudes más esperando confirmación: resolvé esta y volvé a tocar «Cargar la clave existente».",
-  "有一个 agent 的接入申请已经过期没有确认（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "La solicitud de acceso de un agent venció sin que la confirmes (el código de emparejamiento dura 15 minutos): hacé que el agent la pida de nuevo y te dará un código nuevo.",
+  "有一个 agent 的接入申请已经过期没有确认（匹配码 3 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "La solicitud de acceso de un agent venció sin que la confirmes (el código de emparejamiento dura 3 minutos): hacé que el agent la pida de nuevo y te dará un código nuevo.",
   "运行时密钥还没绑定 agent 公钥：agent 首次接入时会申请绑定，你在操作台输入它给的匹配码之后才生效；在绑定生效前光有钥匙就能用。": "La clave de ejecución todavía no está vinculada a una clave pública del agent: el agent pide la vinculación la primera vez que se conecta y recién queda activa cuando escribís en el panel el código de emparejamiento que te da. Hasta entonces basta con la clave.",
   "确认绑定（要钱包签名）": "Confirmar la vinculación (requiere firma de la billetera)",
   "拒绝这次接入": "Rechazar este acceso",
@@ -2382,7 +2382,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "有待确认的接入请求": "Hay una solicitud de acceso esperando confirmación",
   "申请接入的 agent：{0}": "Agent que pide acceso: {0}",
   "有 {0} 个 agent 正在申请接入这把密钥（还没生效）": "Solicitudes de acceso a esta clave: {0} (todavía sin efecto)",
-  "有 {0} 个接入申请已经过期（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "Solicitudes de acceso vencidas: {0} (el código de emparejamiento dura 15 minutos): hacé que el agent las pida de nuevo y te dará un código nuevo.",
+  "有 {0} 个接入申请已经过期（匹配码 3 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "Solicitudes de acceso vencidas: {0} (el código de emparejamiento dura 3 minutos): hacé que el agent las pida de nuevo y te dará un código nuevo.",
   "输入 agent 显示的匹配码": "Escribí el código que muestra el agent",
   "有 agent 在申请接入": "Un agent está pidiendo acceso",
   "它拿到了一串 8 位匹配码。你在操作台输入并签名确认之后，这个 agent 才能用这把密钥；确认之前，它花钱的请求一律被拒。": "Recibió un código de emparejamiento de 8 caracteres. Recién cuando lo escribas acá y firmes la confirmación este agent puede usar la clave; hasta entonces, todo request suyo que gaste plata se rechaza.",
@@ -2397,11 +2397,26 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "未激活（等匹配码）": "Sin activar (esperando el código)",
   "这把钥匙现在还没激活：没走完这一步，谁都拿它花不了钱。": "Esta clave todavía no está activada: hasta que completes este paso, nadie puede gastar con ella.",
   "第一次动用这把钥匙的钱之前，agent 会申请绑定自己的公钥并把 8 位匹配码给你；你到「设置 → 接入确认」输码 + 钱包签名确认，它才能真正付款（在那之前一律被拒）。": "Antes de que esta clave pueda mover plata, el agent pide vincular su clave pública y te muestra un código de emparejamiento de 8 caracteres. Andá a Ajustes → Confirmación de acceso, escribí el código y firmá con tu billetera: recién entonces puede pagar. Hasta ese momento se rechaza todo pedido suyo que gaste plata.",
-  "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。": "Esta clave todavía no está activada, así que no se puede mover plata. El agent llama a /runtime/bind-key y te muestra el código de emparejamiento de 8 caracteres que recibe; escribilo en Ajustes → Confirmación de acceso y firmá con tu billetera para que la clave empiece a valer.",
-  "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}（超时就废了，得重新铸一把）。": "Esta clave todavía no está activada, así que no se puede mover plata. El agent llama a /runtime/bind-key y te muestra el código de emparejamiento de 8 caracteres que recibe; escribilo en Ajustes → Confirmación de acceso y firmá con tu billetera para que la clave empiece a valer. Plazo de activación {0}: pasado ese momento la clave queda inutilizable y hay que emitir una nueva.",
-});
+  "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效；匹配码 3 分钟内有效，过期就让 agent 重新申请一次（钥匙不用重铸）。": "Esta clave todavía no está activada, así que no se puede mover plata. El agent llama a /runtime/bind-key y te muestra el código de emparejamiento de 8 caracteres que recibe; escribilo en Ajustes → Confirmación de acceso y firmá con tu billetera para que la clave empiece a valer. El código dura 3 minutos: si se vence, hacé que el agent lo pida de nuevo (no hace falta emitir otra clave).",
+  });
 
 // --- dynamic-append-23: 配对交付卡的激活提示 ---
 Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
-  "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}。": "Esta clave no puede mover plata hasta que se active: al recibirla, el agent pide vincular su clave pública y te muestra un código de emparejamiento de 8 caracteres; escribilo en Ajustes → Confirmación de acceso y firmá con tu billetera para que empiece a valer. Plazo de activación {0}.",
+  "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。匹配码 3 分钟内有效，过期就让 agent 重新申请一次，钥匙不用重铸。": "Esta clave no puede mover plata hasta que se active: al recibirla, el agent pide vincular su clave pública y te muestra un código de emparejamiento de 8 caracteres; escribilo en Ajustes → Confirmación de acceso y firmá con tu billetera para que empiece a valer. El código dura 3 minutos: si se vence, hacé que el agent lo pida de nuevo, sin emitir otra clave.",
+  "已授权 · 一键取消绑定": "Autorizado · Desvincular con un clic",
+  "下面是已经绑定 agent 公钥、正在代表你花钱的钥匙。点「取消绑定」+ 钱包签名，公钥立刻被摘掉：这把钥匙谁都花不了，agent 想再用得重新申请一次接入、你再输一次匹配码。想彻底作废就回上面用「停用」。": "Estas son las claves ya vinculadas a la clave pública de un agent: están gastando en tu nombre ahora mismo. Pulsá «Desvincular» + firmá con tu billetera y la clave pública se quita al instante: nadie puede gastar con esta clave y, para volver a usar ese agent, tiene que pedir la conexión otra vez y vos tenés que ingresar de nuevo el código de emparejamiento. Para anular la clave del todo, usá «Revocar» arriba.",
+  "刷新已绑定的钥匙": "Actualizar claves vinculadas",
+  "连接钱包后，这里会显示已经绑定 agent 的钥匙。": "Cuando conectes la billetera, acá van a aparecer las claves ya vinculadas a un agent.",
+  "正在代表你花钱的 agent：{0}": "Agent que gasta en tu nombre: {0}",
+  "公钥指纹：{0} · 单笔上限 {1} USDC · 每日上限 {2} USDC · 到期 {3}": "Huella de la clave pública: {0} · Límite por operación {1} USDC · Límite diario {2} USDC · Vence {3}",
+  "权限：{0}": "Permisos: {0}",
+  "钥匙 ID：{0}": "ID de la clave: {0}",
+  "取消绑定（要钱包签名）": "Desvincular (requiere firma de la billetera)",
+  "正在读取已绑定的钥匙…": "Cargando claves vinculadas…",
+  "暂时没有绑定 agent 的钥匙。agent 申请接入、你在「接入确认」输码确认之后，它才会出现在这里。": "Por ahora no hay ninguna clave vinculada a un agent. Una clave aparece acá cuando un agent pide conectarse y vos confirmás el código de emparejamiento en Confirmación de acceso.",
+  "已绑定 agent、正在代表你花钱的钥匙：{0} 把": "Claves vinculadas a un agent que gastan en tu nombre: {0}",
+  "读取已绑定的钥匙失败：{0}": "No se pudieron cargar las claves vinculadas: {0}",
+  "取消绑定后，这个 agent 立刻不能再代表你花钱（这把钥匙谁都花不了）。要用就让 agent 重新申请一次接入。确定吗？": "Después de desvincular, este agent ya no puede gastar en tu nombre (nadie puede gastar con esta clave). Para volver a usarlo, hacé que el agent pida la conexión otra vez. ¿Continuar?",
+  "已取消绑定：这把钥匙回到「未激活」，agent 想再花钱得重新申请一次接入。": "Desvinculada: esta clave vuelve a «Sin activar»; para volver a gastar, el agent tiene que pedir la conexión otra vez.",
+  "取消绑定失败：{0}": "No se pudo desvincular: {0}",
 });

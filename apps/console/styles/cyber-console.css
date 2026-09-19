@@ -2246,3 +2246,16 @@ body {
 .bind-modal-box h4 { margin: 0 0 10px; font-size: 15px; color: var(--text-main); }
 .bind-modal-box p { margin: 0 0 8px; font-size: 12.5px; line-height: 1.75; color: var(--text-dim); }
 .bind-modal-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+/* ---- 已授权 · 一键取消绑定（设置页） -------------------------------- */
+/* 已经绑了 agent 公钥的钥匙列在这里，随时可以摘掉公钥（回到「未激活」）。
+   它和「接入确认」是一对：那张卡管进得来，这张卡管退得掉。 */
+#ag-bound-keys .ag-hint { font-size: 12px; color: #6c8aac; margin: 8px 0 0; line-height: 1.7; }
+#ag-bound-keys .ag-secret-label { font-size: 12px; color: var(--text-dim); margin-bottom: 6px; }
+#ag-bound-keys .ag-snippet {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(6, 12, 20, 0.55);
+  border: 1px solid rgba(34, 211, 238, 0.18);
+}
+#ag-bound-keys .err { font-size: 12px; color: #ff8a8a; margin: 8px 0 0; }

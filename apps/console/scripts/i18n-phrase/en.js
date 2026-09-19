@@ -2348,7 +2348,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "让 agent 把它拿到的那串匹配码显示给你，抄进下面的框里。签名确认之后，这个 agent 才能用这把密钥；在确认之前它花钱的请求一律被拒。": "Ask the agent to show you the activation code it received, then type it into the box below. Only after you sign the confirmation can this agent use the key; until then every request it makes to spend is refused.",
   "agent 公钥指纹：{0} · 匹配码有效至 {1} · 还能试 {2} 次": "Agent public key fingerprint: {0} · activation code valid until {1} · {2} attempts left",
   "还有 {0} 个待确认请求，处理完这个再点「读取已有密钥」。": "There are {0} more requests waiting for confirmation — handle this one, then click “Load the existing key” again.",
-  "有一个 agent 的接入申请已经过期没有确认（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "An agent's access request expired before you confirmed it (the activation code is valid for 15 minutes): have the agent request it again and it will hand you a fresh code.",
+  "有一个 agent 的接入申请已经过期没有确认（匹配码 3 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "An agent's access request expired before you confirmed it (the activation code is valid for 3 minutes): have the agent request it again and it will hand you a fresh code.",
   "运行时密钥还没绑定 agent 公钥：agent 首次接入时会申请绑定，你在操作台输入它给的匹配码之后才生效；在绑定生效前光有钥匙就能用。": "The runtime key is not bound to an agent public key yet: the agent requests the binding on first connect, and it only takes effect after you enter the matching code it gives you in the console. Until then the key alone is enough to use it.",
   "确认绑定（要钱包签名）": "Confirm binding (wallet signature required)",
   "拒绝这次接入": "Reject this access request",
@@ -2380,7 +2380,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "有待确认的接入请求": "An access request is waiting for confirmation",
   "申请接入的 agent：{0}": "Agent requesting access: {0}",
   "有 {0} 个 agent 正在申请接入这把密钥（还没生效）": "Activation requests on this key: {0} (not active yet)",
-  "有 {0} 个接入申请已经过期（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "Expired activation requests: {0} (the activation code is valid for 15 minutes) — have the agent ask again and it will hand you a fresh code.",
+  "有 {0} 个接入申请已经过期（匹配码 3 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "Expired access requests: {0} (the activation code lasts 3 minutes) — have the agent ask again and it will hand you a fresh code.",
   "输入 agent 显示的匹配码": "Enter the activation code the agent shows you",
   "有 agent 在申请接入": "An agent is requesting access",
   "它拿到了一串 8 位匹配码。你在操作台输入并签名确认之后，这个 agent 才能用这把密钥；确认之前，它花钱的请求一律被拒。": "It received an 8-character activation code. Only after you type it here and sign the confirmation can this agent use the key; until then every request it makes to spend is refused.",
@@ -2395,11 +2395,26 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "未激活（等匹配码）": "Not activated (waiting for the code)",
   "这把钥匙现在还没激活：没走完这一步，谁都拿它花不了钱。": "This key is not activated yet — until this step is done, nobody can spend with it.",
   "第一次动用这把钥匙的钱之前，agent 会申请绑定自己的公钥并把 8 位匹配码给你；你到「设置 → 接入确认」输码 + 钱包签名确认，它才能真正付款（在那之前一律被拒）。": "Before this key can move any money, the agent asks to bind its public key and hands you an 8-character activation code. Go to Settings → Access confirmation, type the code and sign with your wallet — only then can it pay; until then every spending request is refused.",
-  "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。": "This key is not activated yet, so no money can move. The agent calls /runtime/bind-key and shows you the 8-character activation code it receives; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect.",
-  "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}（超时就废了，得重新铸一把）。": "This key is not activated yet, so no money can move. The agent calls /runtime/bind-key and shows you the 8-character activation code it receives; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect. Activation deadline {0} — past it the key is dead and you have to mint a new one.",
-});
+  "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效；匹配码 3 分钟内有效，过期就让 agent 重新申请一次（钥匙不用重铸）。": "This key is not activated yet, so no money can move. The agent calls /runtime/bind-key and shows you the 8-character activation code it receives; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect. The code is good for 3 minutes — if it runs out, just have the agent ask again (no need to mint a new key).",
+  });
 
 // --- dynamic-append-23: 配对交付卡的激活提示 ---
 Object.assign(window.CYBER_I18N_PHRASE["en"], {
-  "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}。": "This key cannot move money before it is activated: when it collects the key the agent asks to bind its public key and shows you an 8-character activation code; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect. Activation deadline {0}.",
+  "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。匹配码 3 分钟内有效，过期就让 agent 重新申请一次，钥匙不用重铸。": "This key cannot move money before it is activated: when it collects the key the agent asks to bind its public key and shows you an 8-character activation code; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect. The code is good for 3 minutes — if it runs out, have the agent ask again; no need to mint a new key.",
+  "已授权 · 一键取消绑定": "Authorized · Unbind in one click",
+  "下面是已经绑定 agent 公钥、正在代表你花钱的钥匙。点「取消绑定」+ 钱包签名，公钥立刻被摘掉：这把钥匙谁都花不了，agent 想再用得重新申请一次接入、你再输一次匹配码。想彻底作废就回上面用「停用」。": "These are the keys already bound to an agent's public key — they are spending on your behalf right now. Hit Unbind + sign with your wallet and the public key is removed immediately: nobody can spend with this key, and to use that agent again it has to ask to connect once more and you type the activation code again. To kill the key for good, use Revoke above.",
+  "刷新已绑定的钥匙": "Refresh bound keys",
+  "连接钱包后，这里会显示已经绑定 agent 的钥匙。": "Connect a wallet and the keys already bound to an agent will show up here.",
+  "正在代表你花钱的 agent：{0}": "Agent spending on your behalf: {0}",
+  "公钥指纹：{0} · 单笔上限 {1} USDC · 每日上限 {2} USDC · 到期 {3}": "Public key fingerprint: {0} · Per-transaction limit {1} USDC · Daily limit {2} USDC · Expires {3}",
+  "权限：{0}": "Permissions: {0}",
+  "钥匙 ID：{0}": "Key ID: {0}",
+  "取消绑定（要钱包签名）": "Unbind (wallet signature required)",
+  "正在读取已绑定的钥匙…": "Loading bound keys…",
+  "暂时没有绑定 agent 的钥匙。agent 申请接入、你在「接入确认」输码确认之后，它才会出现在这里。": "No key is bound to an agent right now. A key shows up here once an agent asks to connect and you confirm the activation code under Access confirmation.",
+  "已绑定 agent、正在代表你花钱的钥匙：{0} 把": "Keys bound to an agent and spending on your behalf: {0}",
+  "读取已绑定的钥匙失败：{0}": "Could not load bound keys: {0}",
+  "取消绑定后，这个 agent 立刻不能再代表你花钱（这把钥匙谁都花不了）。要用就让 agent 重新申请一次接入。确定吗？": "After unbinding, this agent can no longer spend on your behalf (nobody can spend with this key). To use it again, have the agent ask to connect once more. Continue?",
+  "已取消绑定：这把钥匙回到「未激活」，agent 想再花钱得重新申请一次接入。": "Unbound: this key is back to Not activated; to spend again the agent must ask to connect once more.",
+  "取消绑定失败：{0}": "Unbind failed: {0}",
 });

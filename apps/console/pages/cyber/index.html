@@ -1292,6 +1292,22 @@
             </div>
             <div id="bind-requests"><p class="ag-hint">连接钱包后，这里会显示待确认的接入请求。</p></div>
           </div>
+          <!-- 已授权 · 一键取消绑定：绑上公钥的钥匙一直在代表主人花钱，所以设置页必须
+               有一个随时能按的出口。点一下 + 钱包签名，公钥立刻被摘掉（服务端
+               POST /runtime/unbind-key），钥匙回到「未激活」—— 谁都花不了。
+               渲染见 scripts/cyber-unbind-keys.js。 -->
+          <div class="card section" id="ag-bound-keys">
+            <div class="section-header">
+              <div>
+                <h3>已授权 · 一键取消绑定</h3>
+                <p>下面是已经绑定 agent 公钥、正在代表你花钱的钥匙。点「取消绑定」+ 钱包签名，公钥立刻被摘掉：这把钥匙谁都花不了，agent 想再用得重新申请一次接入、你再输一次匹配码。想彻底作废就回上面用「停用」。</p>
+              </div>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px">
+              <button type="button" class="btn" id="btn-bound-refresh">刷新已绑定的钥匙</button>
+            </div>
+            <div id="bound-keys"><p class="ag-hint">连接钱包后，这里会显示已经绑定 agent 的钥匙。</p></div>
+          </div>
         </section>
       </main>
     </div>
@@ -1321,6 +1337,8 @@
  <script src="../../scripts/cyber-handoff.js"></script>
     <!-- 匹配码激活的签名消息由 cyber-handoff.js 出口提供，所以必须排在它后面。 -->
     <script src="../../scripts/cyber-bind-requests.js"></script>
+    <!-- 一键取消绑定：和接入确认同源（都用 KarmaHandoff 出口的签名消息），排在它后面。 -->
+    <script src="../../scripts/cyber-unbind-keys.js"></script>
  <script src="../../scripts/cyber-pairing.js"></script>
     <script src="../../scripts/cyber-cert-shared.js"></script>
     <script src="../../scripts/cyber-cert-sole.js"></script>

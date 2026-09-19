@@ -117,7 +117,7 @@
     if (old.length) {
       out +=
         '<p class="ag-hint" style="margin-top:10px">有 ' + esc(old.length) +
-        " 个接入申请已经过期（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。</p>";
+        " 个接入申请已经过期（匹配码 3 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。</p>";
     }
     return out;
   }
@@ -132,7 +132,7 @@
       if (old.length) {
         empty +=
           '<p class="ag-hint">有 ' + esc(old.length) +
-          " 个接入申请已经过期（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。</p>";
+          " 个接入申请已经过期（匹配码 3 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。</p>";
       }
       return empty;
     }

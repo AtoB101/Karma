@@ -44,7 +44,7 @@ Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在�
    await rt.await_binding_activation()   # 轮询到 key_binding=agent，自动打开签名
    ```
 
-   匹配码 15 分钟有效、最多试错 5 次；过期或用完就让 agent 重新申请（旧码同时作废）。
+   匹配码 3 分钟有效、最多试错 5 次；过期或用完就让 agent 重新申请（旧码同时作废）。
    主人也可以拒绝这次接入，key 本身不受影响。
 
    为什么非要这一步：Runtime Key 是不记名令牌。以前「谁先调 bind-key 谁就绑上」——
@@ -108,7 +108,7 @@ Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在�
 | key 最长有效期 | 90 天 | 「十年有效的钥匙」等于没有到期时间，出事时没有兜底 |
 | 时间戳容忍窗口 | 正负 300 秒 | 拦住原样重放 |
 | nonce_required | 含 place_order / request_settlement 时为 true | 会动钱的 key 每请求强制 nonce |
-| 匹配码有效期 | 15 分钟 | 码要人念、人敲，暴露窗口越短越好 |
+| 匹配码有效期 | 3 分钟 | 码要人念、人敲，暴露窗口越短越好；过期只是这次申请作废，钥匙不用重铸 |
 | 匹配码试错上限 | 5 次 | 8 位码（去掉 0/O/1/I）空间足够大，仍然限制暴力尝试 |
 | 绑定生效点 | 主人输入匹配码 + 钱包签名 | 「偷到 key 的人抢先绑自己的公钥」这条路被堵死 |
 
@@ -180,12 +180,12 @@ GET /runtime/permissions
   `/runtime/request-settlement`、`/runtime/capacity` …）一律 **403**，理由是
   `runtime key is not activated yet`；
 * 只有 `GET /runtime/permissions` 放行 —— agent 得能读到 `activation_required: true` 与
-  `activation_deadline`，知道自己差哪一步；
+  `activation_code_ttl_seconds`（匹配码有效期 180 秒），知道自己差哪一步；
 * 用户输码 + 钱包签名（`POST /runtime/confirm-bind-key`）后 `key_binding` 变成 `agent`，
   之后按「逐请求验签」那一套走；
-* **激活窗口 30 分钟**（`ACTIVATION_WINDOW_SECONDS`，从铸造时刻算）。超时还没激活，
-  这把钥匙同样不能再用于动作端点（403 `activation window expired`）—— 只拒用、不删行，
-  用户能在操作台看见它，再决定吊销还是重铸；
+* **没有「钥匙激活期限」这回事**：只要没输对匹配码，这把钥匙就一直不能用（不是「过期
+  就废」，是「没激活就废」）。有 3 分钟时限的只是**匹配码**（`BIND_CODE_TTL_SECONDS = 180`）：
+  码过期表示这次申请作废，让 agent 重新申请一次就会给新码，钥匙本身不用重铸；
 * 拒绝一次接入**不等于**放行：待确认位清掉了，钥匙仍停在 `agent_pending`，照样花不了钱；
 * **没指明 agent 的托管钥匙不受影响**（`key_binding = service`，认 key 不认人），
   已经在跑的 agent 不会被这次改动打掉。
@@ -193,12 +193,26 @@ GET /runtime/permissions
 换句话说：偷到 key 的人能做的最坏一件事，是让那把还没激活的钥匙不能用；他要花你的钱，
 仍然必须过你钱包那一关。
 
-`POST /runtime/create-key` 与 `POST /runtime/list-keys` 的返回里带 `activation_required`、
-`activation_deadline`；操作台的交付包卡片据此标「未激活（等匹配码）」。
+`POST /runtime/create-key` 与 `POST /runtime/list-keys` 的返回里带 `activation_required`；
+`POST /runtime/create-key` 与 `GET /runtime/permissions` 另有 `activation_code_ttl_seconds`。
+操作台的交付包卡片据此标「未激活（等匹配码）」。
 
-## 吊销
+## 吊销 / 取消绑定
 
 `POST /runtime/revoke-key`，携带与创建时一致的钱包签名（消息格式见服务端 `services/runtime_wallet.py`）。
+吊销是终局：这把钥匙从此花不了钱，也再绑不上 agent。
+
+只想把 agent 摘掉、钥匙留着，用**一键取消绑定**（操作台「设置 → 已授权 · 一键取消绑定」）：
+
+```
+POST /runtime/list-bound-keys   # 会话鉴权：列出已绑 agent 公钥的钥匙
+POST /runtime/unbind-key        # 钱包签名：摘掉公钥，钥匙回到 agent_pending
+```
+
+`unbind-key` 摘掉公钥后把 `key_binding` 置回 `agent_pending`：**这把钥匙谁都花不了**，
+要用就重新走一次接入（agent 再申请、主人再输一次匹配码）。它不会退回 `service`（托管）
+状态 —— 那等于把钥匙变回不记名令牌，谁抄到谁能花，正好和用户按这个按钮的意思相反。
+想彻底作废用 `revoke-key`。
 
 ## 相关文档
 

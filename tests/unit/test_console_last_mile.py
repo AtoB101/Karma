@@ -315,7 +315,7 @@ def test_every_language_pack_carries_the_activation_code_copy():
         "有待确认的接入请求",
         "申请接入的 agent：{0}",
         "有 {0} 个 agent 正在申请接入这把密钥（还没生效）",
-        "有 {0} 个接入申请已经过期（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。",
+        "有 {0} 个接入申请已经过期（匹配码 3 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。",
         "输入 agent 显示的匹配码",
         "有 agent 在申请接入",
         "去输入匹配码",
@@ -339,12 +339,14 @@ def test_a_key_minted_for_an_agent_is_marked_not_activated_in_the_handoff():
     assert "activation_required" in handoff, "交付包要读服务端的激活标记"
     assert "activationHintText" in handoff, "未激活提示要单独成句（拼进 note 会翻不到）"
     assert "未激活（等匹配码）" in handoff, "密钥列表要标出未激活"
-    assert "activation_deadline" in handoff, "要把激活期限告诉用户"
+    assert "activation_deadline" not in handoff, "时限只在匹配码上，钥匙本身不该有激活期限"
+    assert "匹配码 3 分钟内有效" in handoff, "要说清匹配码只有 3 分钟"
     assert "state.activationHint = \"\";" in handoff, "切换 agent 时要清掉上一把钥匙的提示"
 
     # 配对交付卡铸的是同一类钥匙（agent_binding 非空），文案也得说清楚未激活。
     pairing = (CONSOLE / "scripts/cyber-pairing.js").read_text(encoding="utf-8")
-    assert "activation_deadline" in pairing, "配对付费卡要给激活期限"
+    assert "activation_deadline" not in pairing, "配对卡也不写激活期限（只有匹配码 3 分钟）"
+    assert "匹配码 3 分钟内有效" in pairing, "配对卡要说清匹配码只有 3 分钟"
     assert "这把钥匙在激活之前动不了钱" in pairing
 
 
@@ -358,7 +360,10 @@ def test_the_backend_locks_keys_that_are_minted_for_an_agent():
     gateway = (root / "api/routes/runtime_gateway.py").read_text(encoding="utf-8")
 
     assert 'PENDING_KEY_BINDING = "agent_pending"' in service
-    assert "ACTIVATION_WINDOW_SECONDS" in service
+    assert "ACTIVATION_WINDOW_SECONDS" not in service, "钥匙本身不该再有激活期限"
+    assert "BIND_CODE_TTL_SECONDS = 180" in service, "时限只在匹配码上：3 分钟"
+    assert "def unbind_key_binding(" in service, "一键取消绑定要有服务端实现"
+    assert "def list_bound_runtime_keys(" in service
     assert "def pending_activation_block(" in service, "拒用判定要只有一个口径"
     # 铸造时指给 agent 的钥匙落到未激活位
     assert "if binding_mode == \"service\" and (agent_binding or \"\").strip():" in service
@@ -368,7 +373,10 @@ def test_the_backend_locks_keys_that_are_minted_for_an_agent():
     # 只放行「读自己状态」，动作端点必须拦
     assert '"/runtime/permissions"' in gateway
     assert "status_code=403, detail=blocked" in gateway
-    assert "activation_required" in gateway and "activation_deadline" in gateway
+    assert "activation_required" in gateway
+    assert "activation_deadline" not in gateway, "激活期限已经从回执里删掉"
+    assert "unbind_key_binding(" in gateway, "一键取消绑定要落在网关上"
+    assert "list_bound_runtime_keys(" in gateway
 
 
 def test_every_language_pack_carries_the_not_activated_copy():
@@ -379,11 +387,11 @@ def test_every_language_pack_carries_the_not_activated_copy():
         "第一次动用这把钥匙的钱之前，agent 会申请绑定自己的公钥并把 8 位匹配码给你；"
         "你到「设置 → 接入确认」输码 + 钱包签名确认，它才能真正付款（在那之前一律被拒）。",
         "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，"
-        "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。",
-        "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，"
-        "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}（超时就废了，得重新铸一把）。",
+        "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效；匹配码 3 分钟内有效，"
+        "过期就让 agent 重新申请一次（钥匙不用重铸）。",
         "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；"
-        "你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}。",
+        "你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。匹配码 3 分钟内有效，"
+        "过期就让 agent 重新申请一次，钥匙不用重铸。",
     )
     phrase_dir = CONSOLE / "scripts" / "i18n-phrase"
     for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
@@ -391,3 +399,70 @@ def test_every_language_pack_carries_the_not_activated_copy():
         missing = [s for s in samples if f'"{s}":' not in pack and f'"{s}":' not in pack.replace("\\", "\\")]
         assert not missing, f"{lang} 缺译文：{missing}"
 
+def test_the_console_can_unbind_an_agent_from_settings():
+    """接入确认管「进得来」，一键取消绑定管「退得掉」—— 两个出口都得在设置页。
+
+    钥匙绑上 agent 公钥之后就一直在代表主人花钱。没有这个按钮，用户唯一的出路是吊销
+    整把钥匙；服务端 ``/runtime/unbind-key`` 摘掉公钥让钥匙回到「未激活」，
+    ``/runtime/list-bound-keys`` 走会话鉴权把「现在谁在代表我花钱」列出来。
+    """
+    html = CYBER.read_text(encoding="utf-8")
+    assert 'id="ag-bound-keys"' in html, "设置页要有「已授权 · 一键取消绑定」卡片"
+    assert 'id="bound-keys"' in html, "卡片里要留出渲染位置"
+    assert 'id="btn-bound-refresh"' in html, "要有手动刷新按钮"
+    assert "cyber-unbind-keys.js" in html, "页面必须加载这个模块"
+    assert html.index('src="../../scripts/cyber-handoff.js"') < html.index(
+        'src="../../scripts/cyber-unbind-keys.js"'
+    ), "新模块要排在 cyber-handoff.js 之后才有 KarmaHandoff 可用"
+
+    js = (CONSOLE / "scripts" / "cyber-unbind-keys.js").read_text(encoding="utf-8")
+    for needle in (
+        "runtimeListBoundKeys",
+        "list-bound-keys",
+        "runtimeUnbindKey",
+        "KarmaHandoff",
+        "buildUnbindKeyMsg",
+        "data-unbind-key",
+        "personal_sign",
+    ):
+        assert needle in js, f"取消绑定模块缺 {needle}"
+    # 看一眼列表不该惊动钱包：取数走会话版，签名只在点「取消绑定」时发生。
+    assert '"/runtime/list-bind-requests"' not in js, "取数用会话版，别再打钱包签名版"
+    # 签名消息只有一份实现（服务端按同一格式重建）：这里再拼一套就静默失配。
+    assert "Karma Runtime Key Unbind" not in js
+
+    api = (CONSOLE / "scripts" / "karma-public-api.js").read_text(encoding="utf-8")
+    for needle in ("runtimeListBoundKeys", "runtimeUnbindKey", "/runtime/list-bound-keys", "/runtime/unbind-key"):
+        assert needle in api, f"API 客户端缺 {needle}"
+
+    handoff = (CONSOLE / "scripts" / "cyber-handoff.js").read_text(encoding="utf-8")
+    assert "buildUnbindKeyMsg: buildUnbindKeyMsg" in handoff, "KarmaHandoff 要出口取消绑定的签名消息"
+    assert "Karma Runtime Key Unbind" in handoff, "签名串要和 services/runtime_wallet.py 对齐"
+
+    css = (CONSOLE / "styles/cyber-console.css").read_text(encoding="utf-8")
+    assert "#ag-bound-keys" in css, "新卡片要有自己的样式"
+
+
+def test_every_language_pack_carries_the_unbind_copy():
+    """取消绑定那一整段六种语言都要有，否则切语言立刻掉回中文。"""
+    samples = (
+        "已授权 · 一键取消绑定",
+        "刷新已绑定的钥匙",
+        "连接钱包后，这里会显示已经绑定 agent 的钥匙。",
+        "正在读取已绑定的钥匙…",
+        "暂时没有绑定 agent 的钥匙。agent 申请接入、你在「接入确认」输码确认之后，它才会出现在这里。",
+        "已绑定 agent、正在代表你花钱的钥匙：{0} 把",
+        "正在代表你花钱的 agent：{0}",
+        "公钥指纹：{0} · 单笔上限 {1} USDC · 每日上限 {2} USDC · 到期 {3}",
+        "权限：{0}",
+        "钥匙 ID：{0}",
+        "取消绑定（要钱包签名）",
+        "取消绑定失败：{0}",
+        "取消绑定后，这个 agent 立刻不能再代表你花钱（这把钥匙谁都花不了）。要用就让 agent 重新申请一次接入。确定吗？",
+        "已取消绑定：这把钥匙回到「未激活」，agent 想再花钱得重新申请一次接入。",
+    )
+    phrase_dir = CONSOLE / "scripts" / "i18n-phrase"
+    for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
+        pack = (phrase_dir / f"{lang}.js").read_text(encoding="utf-8")
+        missing = [s for s in samples if f'"{s}":' not in pack]
+        assert not missing, f"{lang} 缺译文：{missing}"

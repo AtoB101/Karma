@@ -48,7 +48,10 @@ AGENT_SIGNATURE_TOLERANCE_SECONDS = 300
 # 匹配码：agent 申请接入后拿到这串码，用户看到它、在操作台手输一次，绑定才算生效。
 # 字母表去掉了 0/O/1/I —— 这是要人念、人敲的码，形近字符只会制造事故。
 BIND_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-BIND_CODE_TTL_SECONDS = 900
+# 码 3 分钟有效 —— 这就是全部的「激活窗口」：agent 申请接入、把码交到主人手里，
+# 主人在操作台输对码才算激活。没输对 / 没来得及输，这次申请就作废（码没了，
+# 重新申请一次即可，不用重铸钥匙）。
+BIND_CODE_TTL_SECONDS = 180
 BIND_CODE_MAX_ATTEMPTS = 5
 
 # 铸造时就写明「这把钥匙是给某个 agent 的」时落到这个状态。
@@ -56,10 +59,6 @@ BIND_CODE_MAX_ATTEMPTS = 5
 # 令牌 —— 谁抄到都能花。所以只要 key_binding=agent_pending 且还没绑上公钥，
 # 动钱的调用一律拒绝（见 api/routes/runtime_gateway.py 的 get_runtime_context）。
 PENDING_KEY_BINDING = "agent_pending"
-
-# 从铸造到完成激活的时限。超时只拒用、不删行 —— 用户能在操作台看见它，
-# 自己决定是吊销还是重新铸一把。
-ACTIVATION_WINDOW_SECONDS = 1800
 
 # In-process replay / idempotency (single worker — use Redis in multi-instance production).
 _replay: dict[str, deque[tuple[str, float]]] = defaultdict(deque)
@@ -485,38 +484,24 @@ async def _load_activatable_row(db: AsyncSession, key_id: str) -> RuntimeKeyMode
     return row
 
 
-def activation_deadline(row: RuntimeKeyModel) -> datetime:
-    """这把钥匙必须在什么时候之前完成激活。"""
-    created = _as_utc(row.created_at) if row.created_at else _utcnow()
-    return created + timedelta(seconds=ACTIVATION_WINDOW_SECONDS)
-
-
 def pending_activation_block(
-    *,
-    key_binding: str | None,
-    agent_public_key: str | None,
-    created_at: datetime | None,
-    now: datetime | None = None,
+    *, key_binding: str | None, agent_public_key: str | None
 ) -> str | None:
     """未激活的 agent 专用钥匙：该拒就回一串给调用方看的理由，不该拒回 None。
 
+    没有时间维度：这把钥匙只要没激活就一律不能用，直到主人输了码（变成 agent）
+    或者干脆吊销。时间只作用在**匹配码**上（BIND_CODE_TTL_SECONDS = 3 分钟）：
+    码过期就是这次申请作废，agent 重新申请一次即可，钥匙本身不受影响。
     这是「未激活不能用」的唯一判定口径，网关和测试都走这里，避免两处漂移。
     """
     if (key_binding or "service").strip().lower() != PENDING_KEY_BINDING:
         return None
     if (agent_public_key or "").strip():
         return None
-    current = now or _utcnow()
-    created = _as_utc(created_at) if created_at else current
-    if current > created + timedelta(seconds=ACTIVATION_WINDOW_SECONDS):
-        return (
-            "runtime key activation window expired (%d minutes): revoke this key "
-            "and mint a new one" % (ACTIVATION_WINDOW_SECONDS // 60)
-        )
     return (
         "runtime key is not activated yet: the agent must POST /runtime/bind-key "
         "and the owner must enter the 8-character activation code in Console "
-        "before this key can be used"
+        "(valid for %d minutes) before this key can be used" % (BIND_CODE_TTL_SECONDS // 60)
     )
 
 
@@ -631,6 +616,24 @@ async def reject_key_binding(*, db: AsyncSession, key_id: str) -> RuntimeKeyMode
     return row
 
 
+async def unbind_key_binding(*, db: AsyncSession, key_id: str) -> RuntimeKeyModel:
+    """主人在操作台一键取消绑定：把 agent 公钥摘掉，钥匙回到「未激活」。
+
+    为什么不退回托管（service）：那样等于把钥匙变回不记名令牌 —— 谁抄到谁花，
+    而用户点这个按钮的意思正是「别再让那个 agent 代表我花钱」。摘掉公钥之后
+    这把钥匙谁都花不了，要用就重新走一次激活（agent 再申请一次、主人再输码）。
+    """
+    row = await _load_activatable_row(db, key_id)
+    if not (row.agent_public_key or "").strip():
+        raise HTTPException(status_code=409, detail="this runtime key has no bound agent")
+    row.agent_public_key = None
+    row.key_binding = PENDING_KEY_BINDING
+    row.nonce_required = False
+    _clear_pending_binding(row)
+    await db.flush()
+    return row
+
+
 async def revoke_runtime_key(
     *,
     db: AsyncSession,
@@ -644,6 +647,14 @@ async def revoke_runtime_key(
         row.revoked_at = datetime.utcnow()
         await db.flush()
     return row
+
+
+async def list_bound_runtime_keys(
+    *, db: AsyncSession, karma_identity_id: str
+) -> list[RuntimeKeyModel]:
+    """这把身份下「已经绑了 agent 公钥」的钥匙 —— 设置页据此给一键取消绑定。"""
+    rows = await list_runtime_keys_for_identity(db=db, karma_identity_id=karma_identity_id)
+    return [r for r in rows if (r.agent_public_key or "").strip()]
 
 
 async def list_runtime_keys_for_identity(

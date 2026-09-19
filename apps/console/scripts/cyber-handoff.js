@@ -133,6 +133,17 @@
     ].join("\n");
   }
 
+  /* 一键取消绑定：摘掉 agent 公钥，钥匙回到「未激活」。服务端按同一格式重建。 */
+  function buildUnbindKeyMsg(f) {
+    return [
+      "Karma Runtime Key Unbind",
+      "key_id:" + f.key_id,
+      "karma_identity_id:" + f.karma_identity_id,
+      "wallet_address:" + f.wallet_address,
+      "client_nonce:" + f.client_nonce,
+    ].join("\n");
+  }
+
   async function walletProvider() {
     var p = global.KarmaWalletAuth && global.KarmaWalletAuth.activeProvider && global.KarmaWalletAuth.activeProvider();
     if (p && typeof p.request === "function") return p;
@@ -164,14 +175,16 @@
     return lines.join("\n");
   }
 
-  /** 未激活提示：{0} 是激活期限。拼成两句完整的话，才翻得到（见 i18n-phrase）。 */
-  function activationHintText(r) {
-    var head =
+  /**
+   * 未激活提示：时限只在匹配码上（3 分钟），钥匙本身不设到期 —— 没输对码就一直不能用。
+   * 拼成一整句（不掺变量）才翻得到，见 i18n-phrase。
+   */
+  function activationHintText() {
+    return (
       "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，" +
-      "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。";
-    var dl = r && r.activation_deadline ? String(r.activation_deadline).slice(0, 16).replace("T", " ") : "";
-    if (!dl) return head;
-    return head + "激活期限 " + dl + "（超时就废了，得重新铸一把）。";
+      "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效；匹配码 3 分钟内有效，" +
+      "过期就让 agent 重新申请一次（钥匙不用重铸）。"
+    );
   }
 
   function selfCheckText(a) {
@@ -278,7 +291,7 @@
       var stale = live.filter(function (k) { return k.pending_binding && k.pending_binding.expired; });
       if (stale.length) {
         out +=
-          '<p class="ag-hint">有一个 agent 的接入申请已经过期没有确认（匹配码 15 分钟有效）：' +
+          '<p class="ag-hint">有一个 agent 的接入申请已经过期没有确认（匹配码 3 分钟有效）：' +
           "让 agent 重新申请一次，会把新的匹配码给你。</p>";
       }
     }
@@ -568,7 +581,7 @@
         "）。明文只显示这一次，请连同 env 一起交给 agent。";
       // 未激活的钥匙说清楚「现在花不了钱 + 差哪一步 + 期限」。
       // 单独成一个文本节点（下面 render 里那个 <p>），拼进 note 会让整段翻不到。
-      state.activationHint = activationHintText(r);
+      state.activationHint = activationHintText();
     } catch (e) {
       state.note = "";
       state.err = "铸造失败：" + (e.message || e);
@@ -652,6 +665,7 @@
     normalizeCode: normalizeCode,
     buildConfirmBindMsg: buildConfirmBindMsg,
     buildRejectBindMsg: buildRejectBindMsg,
+    buildUnbindKeyMsg: buildUnbindKeyMsg,
     walletProvider: walletProvider,
   };
 })(window);

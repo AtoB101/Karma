@@ -24,6 +24,7 @@ from httpx import AsyncClient
 from services import runtime_key_service as rks
 from services.runtime_wallet import (
     build_agent_request_message,
+    build_unbind_key_message,
     build_confirm_bind_message,
     build_create_key_message,
     build_list_bind_requests_message,
@@ -1077,7 +1078,7 @@ async def test_key_minted_for_an_agent_cannot_spend_before_activation(
     token, key_id = data["runtime_key"], data["key_id"]
     assert data["key_binding"] == "agent_pending"
     assert data["activation_required"] is True
-    assert data["activation_deadline"]
+    assert data["activation_code_ttl_seconds"] == rks.BIND_CODE_TTL_SECONDS == 180
 
     # 偷到 key 字符串的人能做的最大努力：带 key 打付款接口 —— 403
     money = await client.post(
@@ -1092,7 +1093,7 @@ async def test_key_minted_for_an_agent_cannot_spend_before_activation(
     info = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
     assert info.status_code == 200
     assert info.json()["activation_required"] is True
-    assert info.json()["activation_deadline"]
+    assert info.json()["activation_code_ttl_seconds"] == rks.BIND_CODE_TTL_SECONDS
 
     # 激活之后拒绝理由必须变：不再是「未激活」，而是「少了 agent 签名」
     agent_key = agent_key_from_seed(base64.b64encode(b"\x81" * 32).decode())
@@ -1114,60 +1115,81 @@ async def test_key_minted_for_an_agent_cannot_spend_before_activation(
 
 
 @pytest.mark.asyncio
-async def test_activation_window_expiry_locks_the_key(client: AsyncClient, db_session):
-    """铸造后拖过激活窗口还没激活：这把钥匙直接不能再动钱（只拒用，不删行）。"""
+async def test_a_key_never_unlocks_itself_until_the_owner_enters_the_code(
+    client: AsyncClient, db_session
+):
+    """没输对匹配码的钥匙永远花不了钱 —— 时限只在**匹配码**上，不在钥匙上。
+
+    以前这里有一条「铸造起算 30 分钟」的激活窗口：超时拒用。现在口径更简单、也更严：
+    只要没激活，过多久都拒；3 分钟只是匹配码的有效期，码过期 = 这次申请作废，
+    agent 重新申请一次就有新码（钥匙不用重铸，也不会自己解锁）。
+    """
     from db.models.orm import RuntimeKeyModel
 
-    minted, _wallet = await _mint_full(
+    minted, wallet = await _mint_full(
         client, identity="kid-lock-2", perms=["sync_task_status"], agent_id="agent-lock-2"
     )
     data = minted.json()
     token, key_id = data["runtime_key"], data["key_id"]
+    assert data["activation_code_ttl_seconds"] == rks.BIND_CODE_TTL_SECONDS == 180
 
+    # 把铸造时间往前拨一年：没有「激活期限」这回事，照样拒
     row = await db_session.get(RuntimeKeyModel, key_id)
-    row.created_at = datetime.utcnow() - timedelta(seconds=rks.ACTIVATION_WINDOW_SECONDS + 60)
+    row.created_at = datetime.utcnow() - timedelta(days=365)
     await db_session.commit()
 
     resp = await client.get("/runtime/capacity", headers={"X-Karma-Runtime-Key": token})
     assert resp.status_code == 403, resp.text
-    assert "window expired" in resp.json()["detail"]
+    assert "not activated" in resp.json()["detail"]
+    assert "window expired" not in resp.json()["detail"]
 
     info = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
     assert info.status_code == 200
     assert info.json()["activation_required"] is True
+    assert info.json()["activation_code_ttl_seconds"] == rks.BIND_CODE_TTL_SECONDS
+
+    # 3 分钟到点没输码：这次申请作废，但钥匙仍是「未激活」，重新申请就有新码
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x83" * 32).decode())
+    requested = await _request_bind(client, token, "agent-lock-2", _pub_of(agent_key))
+    assert requested.status_code == 200, requested.text
+    first_code = requested.json()["activation_code"]
+
+    row = await db_session.get(RuntimeKeyModel, key_id)
+    row.pending_expires_at = datetime.utcnow() - timedelta(seconds=1)
+    await db_session.commit()
+
+    expired = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity="kid-lock-2", acct=wallet, code=first_code),
+    )
+    assert expired.status_code == 410, expired.text
+
+    fresh = await _request_bind(client, token, "agent-lock-2", _pub_of(agent_key))
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json()["activation_code"] != first_code
+    ok = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(
+            key_id=key_id, identity="kid-lock-2", acct=wallet, code=fresh.json()["activation_code"]
+        ),
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["key_binding"] == "agent"
 
 
 def test_pending_activation_block_boundaries():
-    """判定口径的边界：托管 key 不被误伤，未激活 key 两种理由要分清。"""
-    now = datetime.now(timezone.utc)
-    assert (
-        rks.pending_activation_block(key_binding="service", agent_public_key=None, created_at=now)
-        is None
-    )
-    assert (
-        rks.pending_activation_block(
-            key_binding="agent", agent_public_key="cHVi", created_at=now
-        )
-        is None
-    )
+    """判定口径的边界：托管 key 不被误伤，未激活 key 一律拒（不看时间）。"""
+    assert rks.pending_activation_block(key_binding="service", agent_public_key=None) is None
+    assert rks.pending_activation_block(key_binding="agent", agent_public_key="cHVi") is None
     # 已激活（binding=agent 且有公钥）不该被拦
-    assert (
-        rks.pending_activation_block(
-            key_binding="agent_pending", agent_public_key="cHVi", created_at=now
-        )
-        is None
-    )
-    fresh = rks.pending_activation_block(
-        key_binding="agent_pending", agent_public_key=None, created_at=now, now=now
-    )
-    assert fresh and "not activated" in fresh
-    stale = rks.pending_activation_block(
-        key_binding="agent_pending",
-        agent_public_key=None,
-        created_at=now - timedelta(seconds=rks.ACTIVATION_WINDOW_SECONDS + 1),
-        now=now,
-    )
-    assert stale and "window expired" in stale
+    assert rks.pending_activation_block(key_binding="agent_pending", agent_public_key="cHVi") is None
+    blocked = rks.pending_activation_block(key_binding="agent_pending", agent_public_key=None)
+    assert blocked and "not activated" in blocked
+    # 时限只在匹配码上：理由里报的分钟数就是 BIND_CODE_TTL_SECONDS
+    assert "%d minutes" % (rks.BIND_CODE_TTL_SECONDS // 60) in blocked
+    assert rks.BIND_CODE_TTL_SECONDS == 180
+    assert not hasattr(rks, "ACTIVATION_WINDOW_SECONDS"), "钥匙本身不该再有激活期限"
+    assert not hasattr(rks, "activation_deadline"), "激活期限这套判定已经删掉了"
 
 
 @pytest.mark.asyncio
@@ -1179,7 +1201,7 @@ async def test_service_keys_without_an_agent_are_untouched(client: AsyncClient, 
     data = minted.json()
     assert data["key_binding"] == "service"
     assert data["activation_required"] is False
-    assert data["activation_deadline"] == ""
+    assert data["activation_code_ttl_seconds"] == rks.BIND_CODE_TTL_SECONDS
 
     resp = await client.get("/runtime/capacity", headers={"X-Karma-Runtime-Key": data["runtime_key"]})
     assert resp.status_code == 200, resp.text
@@ -1208,3 +1230,163 @@ async def test_rejecting_does_not_turn_the_key_back_into_a_bearer_token(
     resp = await client.get("/runtime/capacity", headers={"X-Karma-Runtime-Key": token})
     assert resp.status_code == 403, resp.text
     assert "not activated" in resp.json()["detail"]
+# ---------------------------------------------------------------- 一键取消绑定
+
+
+def _unbind_body(*, key_id: str, identity: str, acct, nonce: str | None = None):
+    nonce = nonce or uuid.uuid4().hex
+    msg = build_unbind_key_message(
+        key_id=key_id,
+        karma_identity_id=identity,
+        wallet_address=acct.address,
+        client_nonce=nonce,
+    )
+    return {
+        "key_id": key_id,
+        "karma_identity_id": identity,
+        "wallet_address": acct.address,
+        "wallet_signature": acct.sign_message(encode_defunct(text=msg)).signature.hex(),
+        "client_nonce": nonce,
+    }
+
+
+def test_unbind_message_matches_the_console_builder():
+    """操作台按同一格式重建这段签名文字：前缀与字段顺序逐字钉住。"""
+    msg = build_unbind_key_message(
+        key_id="f" * 32,
+        karma_identity_id="kid_unbind",
+        wallet_address="0x" + "1" * 40,
+        client_nonce="nonce-1234",
+    )
+    assert msg.split("\n") == [
+        "Karma Runtime Key Unbind",
+        "key_id:" + "f" * 32,
+        "karma_identity_id:kid_unbind",
+        "wallet_address:0x" + "1" * 40,
+        "client_nonce:nonce-1234",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_owner_can_unbind_an_agent_and_the_key_stops_spending(
+    client: AsyncClient, db_session
+):
+    """一键取消绑定：公钥摘掉、钥匙回到未激活，agent 想再用得重新申请一次。
+
+    这是「接入确认」的出口。取消绑定**不能**把钥匙退回托管（service）—— 那等于把
+    不记名令牌还回市场，谁抄到谁能花，恰恰和用户按这个按钮的意思相反。
+    """
+    identity = "kid-unbind-1"
+    agent_id = "agent-unbind-1"
+    minted, wallet = await _mint_full(
+        client, identity=identity, perms=["place_order"], agent_id=agent_id
+    )
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x91" * 32).decode())
+    pub = _pub_of(agent_key)
+    requested = await _request_bind(client, token, agent_id, pub)
+    confirmed = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(
+            key_id=key_id, identity=identity, acct=wallet, code=requested.json()["activation_code"]
+        ),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["key_binding"] == "agent"
+
+    # 会话就能看见「现在谁在代表我花钱」，不必先按一次钱包签名
+    listed = await client.post(
+        "/runtime/list-bound-keys",
+        json={"karma_identity_id": identity},
+        headers={"X-Karma-Identity-Id": identity},
+    )
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()["keys"]
+    assert [r["key_id"] for r in rows] == [key_id]
+    assert rows[0]["agent_id"] == agent_id
+    assert rows[0]["agent_fingerprint"] == rks.agent_binding_fingerprint(pub)
+    assert "agent_public_key" not in rows[0], "只给指纹，不回公钥原文"
+
+    # 别人的会话看不到、没会话看不到
+    other_session = await client.post(
+        "/runtime/list-bound-keys",
+        json={"karma_identity_id": identity},
+        headers={"X-Karma-Identity-Id": "kid-unbind-other"},
+    )
+    assert other_session.status_code == 403, other_session.text
+    anon = await client.post("/runtime/list-bound-keys", json={"karma_identity_id": identity})
+    assert anon.status_code == 403, anon.text
+
+    # 别的身份 / 别的钱包都不能替主人摘
+    not_mine = await client.post(
+        "/runtime/unbind-key",
+        json=_unbind_body(key_id=key_id, identity="kid-unbind-other", acct=wallet),
+    )
+    assert not_mine.status_code == 404, not_mine.text
+    stranger = Account.create()
+    theirs = await client.post(
+        "/runtime/unbind-key",
+        json=_unbind_body(key_id=key_id, identity=identity, acct=stranger),
+    )
+    assert theirs.status_code == 403, theirs.text
+
+    unbound = await client.post(
+        "/runtime/unbind-key", json=_unbind_body(key_id=key_id, identity=identity, acct=wallet)
+    )
+    assert unbound.status_code == 200, unbound.text
+    assert unbound.json()["status"] == "unbound"
+    assert unbound.json()["key_binding"] == "agent_pending"
+    assert unbound.json()["activation_required"] is True
+    assert unbound.json()["agent_fingerprint"] == ""
+
+    # 摘掉公钥之后谁都花不了：连原来那把 agent 私钥带着签名也不行
+    money = await client.post(
+        "/runtime/place-order",
+        headers={"X-Karma-Runtime-Key": token, "Content-Type": "application/json"},
+        content=b"{}",
+    )
+    assert money.status_code == 403, money.text
+    assert "not activated" in money.json()["detail"]
+
+    after = await client.post(
+        "/runtime/list-bound-keys",
+        json={"karma_identity_id": identity},
+        headers={"X-Karma-Identity-Id": identity},
+    )
+    assert after.json()["keys"] == []
+
+    # 没绑过 agent 的钥匙上点这个是 409（不是静默成功）
+    again = await client.post(
+        "/runtime/unbind-key", json=_unbind_body(key_id=key_id, identity=identity, acct=wallet)
+    )
+    assert again.status_code == 409, again.text
+
+    # 钥匙没死：agent 再申请一次、主人再输一次码，就又能用
+    rebind = await _request_bind(client, token, agent_id, pub)
+    assert rebind.status_code == 200, rebind.text
+    recovered = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(
+            key_id=key_id, identity=identity, acct=wallet, code=rebind.json()["activation_code"]
+        ),
+    )
+    assert recovered.status_code == 200, recovered.text
+    assert recovered.json()["key_binding"] == "agent"
+
+
+@pytest.mark.asyncio
+async def test_unbind_never_turns_a_key_back_into_a_bearer_token(
+    client: AsyncClient, db_session
+):
+    """没绑 agent 的托管钥匙不该出现在「取消绑定」列表里 —— 它本来就不认人。"""
+    minted = await _mint(client, identity="kid-unbind-2", perms=["sync_task_status"], agent_id="")
+    data = minted.json()
+    assert data["key_binding"] == "service"
+    listed = await client.post(
+        "/runtime/list-bound-keys",
+        json={"karma_identity_id": "kid-unbind-2"},
+        headers={"X-Karma-Identity-Id": "kid-unbind-2"},
+    )
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["keys"] == []
