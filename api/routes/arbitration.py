@@ -702,7 +702,7 @@ async def execute_arbitration_case(
     此前这条路径**不写** ``settlement_transition_audits``，于是同一笔结算
     经仲裁改判后在审计链上是断的。现在每次流转都补一条审计。
     """
-    from api.routes.settlement import _record_transition_audit
+    from api.routes.settlement import _record_transition_audit, _sync_escrow_settlement
 
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
@@ -771,6 +771,11 @@ async def execute_arbitration_case(
     state.updated_at = datetime.utcnow()
     state.released_at = datetime.utcnow() if settled_amount > 0 else None
     await store.save(state)
+    # 裁决必须落到链上（2026-09-20 测试网实测发现）：这条路径此前只改数据库、从不碰链，
+    # 于是 DB 说「已退款 / 已结算」而链上的 binding 还挂着 active —— 钱一直锁在托管里，
+    # 台账和链上对不上。走 /dispute → /auto-arbitrate 那条路是有这一步的，仲裁庭改判这条路
+    # 没有，属于漏接。补上以后两条路对链上行为一致。
+    await _sync_escrow_settlement(db=db, state=state, target_status=target)
 
     await apply_capacity_resolution(
         db=db,
