@@ -15,18 +15,18 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
-from db.models.orm import EscrowBindingModel
+from db.models.orm import EscrowBindingModel, SettlementModel
 from db.session import AsyncSessionLocal
 from services import profile_capacity, voucher_reaper
 from services.chain import allowance_escrow as escrow
-from services.chain import wallet_lock
+from services.chain import escrow_settlement, wallet_lock
 
 logger = structlog.get_logger(__name__)
 
@@ -36,6 +36,9 @@ SETTLED_STATE = "settled"
 
 #: 判了违约、等窗口到点就去罚没的 binding（见 escrow_settlement.slash_for_task）
 DUE_BREACH_STATE = "breaching"
+
+#: 已 bind、钱没动，也永远等不到下一步的绑定（见 reap_stranded）
+ACTIVE_STATE = "active"
 SLASHED_STATE = "slashed"
 
 #: what the *chain* says about a binding (see allowance_escrow.BINDING_STATE)
@@ -102,6 +105,92 @@ async def due_breach_bindings(
         .limit(limit if limit is not None else settings.escrow_autosettle_batch)
     )
     return list((await db.execute(stmt)).scalars().all())
+
+
+#: 结算单落在这些状态 = 业务侧早就走完了；链上绑定却还是 active，说明当初那一步
+#: 链上动作没成功（RPC 抖了、operator 没 gas、进程被重启）。台账说「完了」，
+#: 链上说「钱还被占着」—— 必须以链上为准，把它解开。
+_TERMINAL_SETTLEMENT_STATES = ("cancelled", "failed", "expired")
+_SETTLEMENT_FINAL_TO_CHAIN_ACTION = {
+    "refunded": "slash",
+    "settled": "settle",
+}
+
+#: 刚 bind 完的绑定是 active，而结算单此刻正是 accepted —— 那是正常路径。
+#: 留一段余量，别和接单那一步的内联 sync 抢同一个绑定。
+STRANDED_GRACE_SECONDS = 60
+
+
+async def stranded_bindings(
+    db: AsyncSession, *, now: datetime | None = None, limit: int | None = None
+) -> list[EscrowBindingModel]:
+    """业务侧已经终局、链上却还占着额度的绑定。
+
+    只挑「结算单已终局」的绑定：这类绑定不可能再被正常流程推进，占着的是买卖双方
+    实实在在的授权额 —— 用户链上还有钱，可用额度却显示不足，一单也开不出来。
+    """
+    stamp = (now or datetime.utcnow()) - timedelta(seconds=STRANDED_GRACE_SECONDS)
+    stmt = (
+        select(EscrowBindingModel)
+        .where(EscrowBindingModel.state == ACTIVE_STATE)
+        .where(EscrowBindingModel.created_at <= stamp)
+        .order_by(EscrowBindingModel.created_at)
+        .limit(limit if limit is not None else settings.escrow_autosettle_batch)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _settlement_status(db: AsyncSession, task_id: str | None) -> str | None:
+    if not task_id:
+        return None
+    row = (
+        await db.execute(
+            select(SettlementModel).where(SettlementModel.task_id == task_id)
+        )
+    ).scalars().first()
+    return (row.status or "").strip().lower() if row is not None else None
+
+
+async def reap_stranded(db: AsyncSession, *, now: datetime | None = None) -> list[dict]:
+    """把「业务已终局、链上还占着」的绑定推到最后一步，把钱放出来。"""
+    if not escrow.escrow_enabled() or not escrow.can_server_settle():
+        return []
+    freed: list[dict] = []
+    for row in await stranded_bindings(db, now=now):
+        status = await _settlement_status(db, row.task_id)
+        if status is None:
+            continue
+        try:
+            if status in _TERMINAL_SETTLEMENT_STATES:
+                out = await escrow_settlement.cancel_for_task(db, task_id=row.task_id)
+            else:
+                action = _SETTLEMENT_FINAL_TO_CHAIN_ACTION.get(status)
+                if action is None:
+                    continue
+                if action == "slash":
+                    out = await escrow_settlement.slash_for_task(db, task_id=row.task_id)
+                else:
+                    out = await escrow_settlement.submit_for_task(db, task_id=row.task_id)
+        except Exception as exc:  # noqa: BLE001 - 一条解不开不能拖住别的
+            logger.warning(
+                "escrow_stranded_reap_failed",
+                binding_id=row.binding_id,
+                task_id=row.task_id,
+                settlement_status=status,
+                error=str(exc),
+            )
+            continue
+        freed.append(
+            {"binding_id": row.binding_id, "task_id": row.task_id,
+             "settlement_status": status, "result": out}
+        )
+        logger.info(
+            "escrow_stranded_reaped",
+            binding_id=row.binding_id,
+            task_id=row.task_id,
+            settlement_status=status,
+        )
+    return freed
 
 
 def _backed_off(binding_id: str) -> bool:
@@ -323,6 +412,9 @@ async def run_forever() -> None:
             async with AsyncSessionLocal() as db:
                 settled = await settle_due(db)
                 slashed = await breach_due(db)
+                # 业务侧已经终局、链上还占着额度的绑定：把它们推到最后一步，
+                # 别让用户的可用额度被一个永远不会再有人推进的绑定吃住。
+                freed = await reap_stranded(db)
                 # 过期授权码占住的额度要还回去 —— 否则用户「可用额度」被一张
                 # 没人推进的券永久吃光，链上明明还有钱却一单也开不出来。
                 reclaimed = await voucher_reaper.expire_due(db)
@@ -336,6 +428,8 @@ async def run_forever() -> None:
                 logger.info("escrow_autosettle_breach_tick", slashed=len(slashed))
             if mirrored:
                 logger.info("escrow_capacity_mirror_tick", identities=len(mirrored))
+            if freed:
+                logger.info("escrow_stranded_reap_tick", freed=len(freed))
             if reclaimed:
                 logger.info("voucher_expiry_tick", vouchers=len(reclaimed))
         except asyncio.CancelledError:

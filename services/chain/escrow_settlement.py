@@ -66,6 +66,36 @@ def enabled() -> bool:
     return bool(escrow.escrow_enabled())
 
 
+async def assert_receipt_path_exists(db: AsyncSession, *, task_id: str) -> None:
+    """锁真钱之前先问一句：这一单的执行回执，将来真的写得进来吗。
+
+    生产配置下回执必须由 Runtime 网关代签（``RECEIPT_REQUIRE_SIGNATURE=true``），
+    而网关要求这一单挂着卖方已接受的授权凭证（Voucher）。没有凭证的结算单一辈子
+    写不进回执 —— 于是买方验收被「至少要有一条成功回执」永久挡住，链上那笔预留
+    谁也解不开：买方拿不回额度，卖方也收不到钱。
+
+    钱锁进这种单子里是纯粹的损失，所以宁可现在就拒。非生产配置（回执可以不验签）
+    不受影响：那种环境下回执本来就写得进来。
+    """
+    if not (
+        settings.runtime_require_task_automation_readiness
+        and settings.receipt_require_signature
+    ):
+        return
+    row = (
+        await db.execute(select(SettlementModel).where(SettlementModel.task_id == task_id))
+    ).scalars().first()
+    if row is None or (row.voucher_id or "").strip():
+        return
+    raise EscrowSettlementError(
+        409,
+        "这一单没有授权凭证（Voucher），钱不能锁：生产配置下执行回执必须由 Runtime "
+        "网关代签，而网关要求先有卖方已接受的凭证。没有凭证，回执永远写不进来，"
+        "买方验收会被「至少要有一条成功回执」挡住，这笔预留谁都解不开。"
+        "请先在操作台开一张授权凭证并让卖方接受，再指派卖方。",
+    )
+
+
 def _proof(task_id: str, amount_usdc: float) -> str:
     """这一单的凭证摘要：跟着任务和实际释放金额走，改一个字节就对不上。"""
     return f"karma-settlement:{task_id}:{float(amount_usdc):.6f}"
@@ -183,6 +213,7 @@ async def bind_for_task(
     """接单时把买方承诺和卖方质押绑在一起（钱还没动）。"""
     if not enabled():
         return {"status": "disabled"}
+    await assert_receipt_path_exists(db, task_id=task_id)
     amount = float(amount_usdc or 0.0)
     if amount <= 0:
         return {"status": "skipped", "reason": "settlement has no escrow amount"}
