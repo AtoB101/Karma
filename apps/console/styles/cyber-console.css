@@ -2208,9 +2208,11 @@ body {
 #ag-bind-requests input[type="text"]:focus { outline: none; border-color: var(--border-glow); }
 #ag-bind-requests .err { font-size: 12px; color: #ff8a8a; margin: 8px 0 0; }
 
-/* 侧栏红点：有待确认的接入请求时挂在「设置」上 */
-.nav .nav-main.has-pending { position: relative; }
-.nav .nav-main.has-pending::after {
+/* 侧栏红点：有待确认的接入请求（红）或未读站内提醒（紫）时挂在「设置」上 */
+.nav .nav-main.has-pending,
+.nav .nav-main.has-notice { position: relative; }
+.nav .nav-main.has-pending::after,
+.nav .nav-main.has-notice::after {
   content: "";
   position: absolute;
   top: 50%;
@@ -2221,6 +2223,10 @@ body {
   border-radius: 50%;
   background: #ff5d5d;
   box-shadow: 0 0 0 3px rgba(255, 93, 93, 0.16);
+}
+.nav .nav-main.has-notice:not(.has-pending)::after {
+  background: #7c5cff;
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18);
 }
 
 /* 提示弹窗：新接入请求出现时，把主人叫到输码框。只导流，签名仍在卡片里做。 */
@@ -2259,3 +2265,9 @@ body {
   border: 1px solid rgba(34, 211, 238, 0.18);
 }
 #ag-bound-keys .err { font-size: 12px; color: #ff8a8a; margin: 8px 0 0; }
+#ag-bound-keys li { font-size: 12px; color: #9fb6cc; line-height: 1.7; }
+/* 有未读的钥匙提醒（取消绑定这类不可逆动作）时，卡片也跟着高亮一下 */
+#ag-bound-keys.attention {
+  border-color: rgba(124, 92, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.22);
+}

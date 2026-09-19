@@ -460,9 +460,86 @@ def test_every_language_pack_carries_the_unbind_copy():
         "取消绑定失败：{0}",
         "取消绑定后，这个 agent 立刻不能再代表你花钱（这把钥匙谁都花不了）。要用就让 agent 重新申请一次接入。确定吗？",
         "已取消绑定：这把钥匙回到「未激活」，agent 想再花钱得重新申请一次接入。",
+        "展开「查看最近调用」可以看这把钥匙最近做了什么（含被拒的原因）；取消绑定是不可逆动作，做完会在操作台留一条站内提醒。",
+        "查看最近调用",
+        "收起最近调用",
+        "正在读取调用记录…",
+        "还没有调用记录。agent 用这把钥匙发起动作后，这里会逐条留下痕迹。",
+        "最近调用记录（最新在前）",
+        "动作 {0} · 结果 {1}{2}{3} · 时间 {4}",
+        "成功",
+        "被拒（HTTP {0}）",
+        "异常（HTTP {0}）",
+        " · 金额 {0} USDC",
+        "站内提醒",
+        "站内提醒（{0} 条未读）",
+        "未读",
+        "知道了（不再提醒）",
+        "正在标记…",
+        "取消绑定已完成：{0} 不能再代表你花钱，这把钥匙谁都花不了。",
+        "接入已确认：{0} 现在可以在额度与权限内代表你花钱。",
+        "标记已读失败：{0}",
+        "读取调用记录失败：{0}",
+        "接口未加载，请刷新页面后再试。",
+        "有未读的钥匙提醒",
     )
     phrase_dir = CONSOLE / "scripts" / "i18n-phrase"
     for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
         pack = (phrase_dir / f"{lang}.js").read_text(encoding="utf-8")
         missing = [s for s in samples if f'"{s}":' not in pack]
         assert not missing, f"{lang} 缺译文：{missing}"
+
+
+def test_the_console_can_expand_a_bound_key_and_show_recent_calls():
+    """「最近调用」把「额度花了多少」补成「哪一次花掉/被拒」。
+
+    只给额度汇总时，主人看不到被拒的调用 —— 而那恰恰是「这个 agent 是不是在乱试」
+    的唯一线索。所以卡片要能展开，服务端要有一条会话鉴权的逐条记录出口。
+    """
+    html = CYBER.read_text(encoding="utf-8")
+    assert "展开「查看最近调用」" in html, "卡片要写明可以展开看调用记录"
+
+    js = (CONSOLE / "scripts" / "cyber-unbind-keys.js").read_text(encoding="utf-8")
+    for needle in ("runtimeKeyCalls", "key-calls", "data-key-calls", "CALL_LIMIT"):
+        assert needle in js, f"调用记录模块缺 {needle}"
+
+    api = (CONSOLE / "scripts" / "karma-public-api.js").read_text(encoding="utf-8")
+    for needle in ("runtimeKeyCalls", "runtimeListNotices", "runtimeAckNotice",
+                   "/runtime/key-calls", "/runtime/list-notices", "/runtime/ack-notice"):
+        assert needle in api, f"API 客户端缺 {needle}"
+
+    css = (CONSOLE / "styles/cyber-console.css").read_text(encoding="utf-8")
+    assert "#ag-bound-keys li" in css, "调用记录列表要可读，不能挤成一行"
+
+
+def test_unbinding_leaves_a_console_notice_the_owner_must_ack():
+    """取消绑定是不可逆动作：服务端落一条站内提醒，前端给出口 + 侧栏红点。
+
+    邮件通道要 SMTP 凭据（现网没有），所以先用站内：关掉页面再回来仍然看得见，
+    点过才消。
+    """
+    gateway = (ROOT / "api/routes/runtime_gateway.py").read_text(encoding="utf-8")
+    for needle in ("NOTICE_KEY_UNBOUND", "NOTICE_KEY_BOUND", "_notice_safe", "unread_notice_count"):
+        assert needle in gateway, f"网关缺站内提醒接线：{needle}"
+
+    notice = (ROOT / "services/console_notice.py").read_text(encoding="utf-8")
+    assert "ConsoleNoticeModel" in notice, "站内提醒要落到 ConsoleNoticeModel"
+    assert "def notice_view(" in notice
+
+    calls = (ROOT / "services/runtime_call_log.py").read_text(encoding="utf-8")
+    assert "RuntimeKeyCallLogModel" in calls
+    assert "def call_view(" in calls
+
+    migrations = sorted((ROOT / "db/migrations/versions").glob("0050_*.py"))
+    assert migrations, "新表要有迁移"
+    mig = migrations[0].read_text(encoding="utf-8")
+    for table in ("runtime_key_call_log", "console_notices"):
+        assert table in mig, f"迁移缺 {table}"
+
+    js = (CONSOLE / "scripts" / "cyber-unbind-keys.js").read_text(encoding="utf-8")
+    for needle in ("runtimeListNotices", "runtimeAckNotice", "data-ack-notices", "paintNoticeDot"):
+        assert needle in js, f"站内提醒前端缺 {needle}"
+
+    css = (CONSOLE / "styles/cyber-console.css").read_text(encoding="utf-8")
+    assert "has-notice" in css, "侧栏要有「有未读提醒」的红点样式"
+    assert "#ag-bound-keys.attention" in css, "有未读提醒时卡片要跟着高亮"

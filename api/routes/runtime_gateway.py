@@ -5,6 +5,7 @@ Mounted at ``/runtime`` (not under ``/v1``) per the public Runtime API contract.
 """
 from __future__ import annotations
 
+import functools
 from datetime import datetime
 from typing import Annotated, Literal, Optional
 
@@ -39,6 +40,15 @@ from db.session import get_db
 from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
 from services.agent_automation_policy import get_automation_policy
+from services.console_notice import (
+    NOTICE_KEY_BOUND,
+    NOTICE_KEY_UNBOUND,
+    ack_notices,
+    add_notice,
+    list_notices,
+    notice_view,
+    unread_notice_count,
+)
 from services.identity_actor import resolve_actor_identity_id
 from services.intent_fulfillment import fulfill_intent
 from services.path_param_safety import validate_public_url_segment
@@ -100,10 +110,164 @@ from services.openclaw_automation_readiness import (
     assert_task_automation_ready,
     resolve_task_id_for_voucher,
 )
+from services.runtime_call_log import call_view, list_key_calls, record_key_call
 from services.runtime_daily_spend import get_daily_used_async, record_daily_spend_async
 from services.signing import signing_service
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Agent 动作端的调用留痕（操作台「已绑定钥匙」展开后的「最近调用」）
+# ---------------------------------------------------------------------------
+
+
+def _body_amount(body: object) -> float | None:
+    """从请求体里抠金额 —— 只为展示，抠不到就是 None，不参与任何校验。"""
+    if body is None:
+        return None
+    candidate = getattr(body, "amount", None)
+    if candidate is None:
+        voucher = getattr(body, "voucher", None)
+        candidate = getattr(voucher, "amount", None) if voucher is not None else None
+    try:
+        return float(candidate) if candidate is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _detail_text(detail: object) -> str:
+    return str(detail or "")[:200]
+
+
+def _action_name(request: Request) -> str:
+    """只给动作端留痕：读路径一律返回空串，调用方据此跳过。"""
+    url = getattr(request, "url", None)
+    path = str(getattr(url, "path", "") or "")
+    if path not in LOGGED_ACTION_PATHS:
+        return ""
+    return path.rsplit("/", 1)[-1]
+
+
+async def _log_call_safe(
+    db: AsyncSession | None,
+    ctx: RuntimeKeyContext | None,
+    *,
+    endpoint: str,
+    outcome: str,
+    http_status: int,
+    amount: float | None = None,
+    detail: str = "",
+    rollback_first: bool = False,
+) -> None:
+    """旁路写一笔调用记录。写不进日志是日志的事，不能连累 agent 的请求。"""
+    if db is None or ctx is None or not endpoint:
+        return
+    try:
+        if rollback_first:
+            # 失败路径上会话里可能留着半截写入，先丢掉再记 —— 否则这一提交会把
+            # 本该回滚的东西一起落库。
+            await db.rollback()
+        await record_key_call(
+            db,
+            key_id=ctx.key_id,
+            karma_identity_id=ctx.karma_identity_id,
+            endpoint=endpoint,
+            outcome=outcome,
+            http_status=http_status,
+            amount=amount,
+            detail=detail,
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 - 留痕是旁路，吞掉
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def runtime_call_logged(endpoint: str):
+    """给动作端记一笔「哪把钥匙、什么时候、做了什么、结果如何」。
+
+    成功 / 被拒 / 异常三类都记：主人展开「最近调用」最想确认的恰恰是「有没有被拒、
+    为什么被拒」—— 只记成功等于把最有价值的一半藏起来。
+    装饰器写在 ``@router.post`` 下一行：路由注册的是包过一层之后的函数。
+    """
+
+    def decorator(fn):
+        @functools.wraps(fn)
+        async def wrapper(*args, **kwargs):
+            db = kwargs.get("db")
+            ctx = kwargs.get("ctx")
+            amount = _body_amount(kwargs.get("body"))
+            try:
+                out = await fn(*args, **kwargs)
+            except HTTPException as exc:
+                await _log_call_safe(
+                    db,
+                    ctx,
+                    endpoint=endpoint,
+                    outcome="rejected",
+                    http_status=int(exc.status_code),
+                    amount=amount,
+                    detail=_detail_text(exc.detail),
+                    rollback_first=True,
+                )
+                raise
+            except Exception as exc:  # noqa: BLE001 - 记一笔再往上抛
+                await _log_call_safe(
+                    db,
+                    ctx,
+                    endpoint=endpoint,
+                    outcome="failed",
+                    http_status=500,
+                    amount=amount,
+                    detail=type(exc).__name__,
+                    rollback_first=True,
+                )
+                raise
+            await _log_call_safe(
+                db,
+                ctx,
+                endpoint=endpoint,
+                outcome="ok",
+                http_status=int(getattr(out, "status_code", 200) or 200),
+                amount=amount,
+            )
+            return out
+
+        return wrapper
+
+    return decorator
+
+
+async def _session_owned_identity(db: AsyncSession, request: Request, claimed: str) -> str:
+    """会话必须是本人：没登录 403，替别人查也 403。"""
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor:
+        raise HTTPException(
+            status_code=403, detail="authentication required: connect a wallet first"
+        )
+    identity = str(claimed or "").strip()
+    if identity and identity != actor:
+        raise HTTPException(
+            status_code=403, detail="karma_identity_id does not match the authenticated identity"
+        )
+    return actor
+
+
+async def _notice_safe(
+    db: AsyncSession, *, karma_identity_id: str, kind: str, payload: dict
+) -> None:
+    """站内提醒是旁路：写不进去也不能让用户看到「动作失败」。"""
+    try:
+        await add_notice(db, karma_identity_id=karma_identity_id, kind=kind, payload=payload)
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _utc_iso() -> str:
@@ -571,6 +735,16 @@ async def runtime_confirm_bind_key(
         "nonce_required": row.nonce_required,
         "pending_binding": None,
     }
+    await _notice_safe(
+        db,
+        karma_identity_id=body.karma_identity_id,
+        kind=NOTICE_KEY_BOUND,
+        payload={
+            "key_id": row.key_id,
+            "agent_id": bound_agent,
+            "agent_name": row.agent_name or "",
+        },
+    )
     payload.update(_binding_receipt(row, bound_agent))
     return signed_json_response(payload)
 
@@ -765,6 +939,17 @@ async def runtime_unbind_key(body: UnbindKeyBody, db: AsyncSession = Depends(get
     )
     row = await unbind_key_binding(db=db, key_id=body.key_id)
     await db.commit()
+    # 取消绑定是不可逆动作：落一条站内提醒，主人下次进操作台仍然看得见，点过才消。
+    await _notice_safe(
+        db,
+        karma_identity_id=body.karma_identity_id,
+        kind=NOTICE_KEY_UNBOUND,
+        payload={
+            "key_id": row.key_id,
+            "agent_id": (row.agent_binding or "").strip(),
+            "agent_name": row.agent_name or "",
+        },
+    )
     return signed_json_response(
         {
             "key_id": row.key_id,
@@ -780,6 +965,81 @@ async def runtime_unbind_key(body: UnbindKeyBody, db: AsyncSession = Depends(get
 
 
 # ---------------------------------------------------------------------------
+# 操作台侧（会话鉴权）：最近调用 + 站内提醒
+# ---------------------------------------------------------------------------
+
+
+class ListKeyCallsBody(BaseModel):
+    """「已绑定钥匙」卡片展开后看最近调用 —— 只认会话，不惊动钱包。"""
+
+    karma_identity_id: str
+    key_id: str
+    limit: int = 20
+
+
+@router.post("/key-calls")
+async def runtime_key_calls(
+    body: ListKeyCallsBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """这把钥匙最近替我做了什么（成功 / 被拒 / 异常都记）。
+
+    只认会话：展开一张卡片看历史，不该弹钱包签名。别人的钥匙一律 404 ——
+    连「存在与否」都不给非本人看。
+    """
+    actor = await _session_owned_identity(db, request, body.karma_identity_id)
+    validate_public_url_segment("key_id", body.key_id)
+    row = await db.get(RuntimeKeyModel, body.key_id)
+    if not row or row.karma_identity_id != actor:
+        raise HTTPException(status_code=404, detail="runtime key not found for identity")
+    rows = await list_key_calls(db, key_id=row.key_id, limit=body.limit)
+    return signed_json_response({"key_id": row.key_id, "calls": [call_view(r) for r in rows]})
+
+
+class ListNoticesBody(BaseModel):
+    """站内提醒：主人自己的钥匙发生了什么事。"""
+
+    karma_identity_id: str
+    limit: int = 20
+    unread_only: bool = False
+
+
+@router.post("/list-notices")
+async def runtime_list_notices(
+    body: ListNoticesBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """操作台站内提醒（只给本人）。"""
+    actor = await _session_owned_identity(db, request, body.karma_identity_id)
+    rows = await list_notices(
+        db, karma_identity_id=actor, limit=body.limit, unread_only=body.unread_only
+    )
+    unread = await unread_notice_count(db, karma_identity_id=actor)
+    return signed_json_response({"notices": [notice_view(r) for r in rows], "unread": unread})
+
+
+class AckNoticeBody(BaseModel):
+    karma_identity_id: str
+    notice_ids: Optional[list[int]] = None
+
+
+@router.post("/ack-notice")
+async def runtime_ack_notice(
+    body: AckNoticeBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """点过就算读过；不给 id 就是「全部标记已读」。"""
+    actor = await _session_owned_identity(db, request, body.karma_identity_id)
+    acked = await ack_notices(db, karma_identity_id=actor, notice_ids=body.notice_ids)
+    await db.commit()
+    unread = await unread_notice_count(db, karma_identity_id=actor)
+    return signed_json_response({"acked": acked, "unread": unread})
+
+
+# ---------------------------------------------------------------------------
 # Runtime Key authenticated agent paths
 # ---------------------------------------------------------------------------
 
@@ -787,6 +1047,17 @@ async def runtime_unbind_key(body: UnbindKeyBody, db: AsyncSession = Depends(get
 # 还没激活的钥匙也允许调这几个端点：agent 需要能读到「我还没激活」，
 # 而不是只看到一句 403 去猜。真正的动作端不在这里 —— 那些一律拒。
 PENDING_ACTIVATION_ALLOWED_PATHS = {"/runtime/permissions"}
+
+# 会写调用记录的动作端。故意只列这六个：读路径（permissions / task-status）
+# 不记，否则「最近调用」会被自己刷屏。
+LOGGED_ACTION_PATHS = {
+    "/runtime/place-order",
+    "/runtime/request-voucher",
+    "/runtime/submit-receipt",
+    "/runtime/update-progress",
+    "/runtime/submit-bundle",
+    "/runtime/request-settlement",
+}
 
 
 async def get_runtime_context(
@@ -812,16 +1083,39 @@ async def get_runtime_context(
             agent_public_key=ctx.agent_public_key,
         )
         if blocked:
+            # 「未激活就想花钱」是最值得主人看见的一条记录：他手里的 403 不是网络问题。
+            await _log_call_safe(
+                db,
+                ctx,
+                endpoint=_action_name(request),
+                outcome="rejected",
+                http_status=403,
+                detail=_detail_text(blocked),
+                rollback_first=True,
+            )
             raise HTTPException(status_code=403, detail=blocked)
-    verify_signed_request(
-        ctx=ctx,
-        method=request.method,
-        path=request.url.path,
-        body=await request.body(),
-        signature_b64=x_karma_agent_signature,
-        timestamp_header=x_karma_runtime_timestamp,
-        nonce_header=x_karma_runtime_nonce,
-    )
+    try:
+        verify_signed_request(
+            ctx=ctx,
+            method=request.method,
+            path=request.url.path,
+            body=await request.body(),
+            signature_b64=x_karma_agent_signature,
+            timestamp_header=x_karma_runtime_timestamp,
+            nonce_header=x_karma_runtime_nonce,
+        )
+    except HTTPException as exc:
+        # 验签失败发生在路由函数之前（依赖先跑），装饰器那层看不见它 —— 在这里补记。
+        await _log_call_safe(
+            db,
+            ctx,
+            endpoint=_action_name(request),
+            outcome="rejected",
+            http_status=int(exc.status_code),
+            detail=_detail_text(exc.detail),
+            rollback_first=True,
+        )
+        raise
     return ctx
 
 
@@ -1063,6 +1357,7 @@ class RuntimePlaceOrderBody(BaseModel):
 
 
 @router.post("/place-order")
+@runtime_call_logged("place-order")
 async def runtime_place_order(
     body: RuntimePlaceOrderBody,
     ctx: RuntimeKeyContext = Depends(get_runtime_context),
@@ -1123,6 +1418,7 @@ class RuntimeRequestVoucherEnvelope(BaseModel):
 
 
 @router.post("/request-voucher")
+@runtime_call_logged("request-voucher")
 async def runtime_request_voucher(
     body: RuntimeRequestVoucherEnvelope,
     ctx: RuntimeKeyContext = Depends(get_runtime_context),
@@ -1190,6 +1486,7 @@ async def runtime_check_voucher(
 
 
 @router.post("/submit-receipt")
+@runtime_call_logged("submit-receipt")
 async def runtime_submit_receipt(
     receipt: ExecutionReceipt,
     ctx: RuntimeKeyContext = Depends(get_runtime_context),
@@ -1269,6 +1566,7 @@ async def runtime_submit_receipt(
 
 
 @router.post("/update-progress")
+@runtime_call_logged("update-progress")
 async def runtime_update_progress(
     progress: ProgressReceipt,
     ctx: RuntimeKeyContext = Depends(get_runtime_context),
@@ -1300,6 +1598,7 @@ async def runtime_update_progress(
 
 
 @router.post("/submit-bundle")
+@runtime_call_logged("submit-bundle")
 async def runtime_submit_bundle(
     bundle: EvidenceBundle,
     ctx: RuntimeKeyContext = Depends(get_runtime_context),
@@ -1341,6 +1640,7 @@ class RuntimeRequestSettlementBody(BaseModel):
 
 
 @router.post("/request-settlement")
+@runtime_call_logged("request-settlement")
 async def runtime_request_settlement(
     body: RuntimeRequestSettlementBody,
     ctx: RuntimeKeyContext = Depends(get_runtime_context),

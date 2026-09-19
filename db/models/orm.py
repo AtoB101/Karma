@@ -869,6 +869,47 @@ class RuntimeKeyDailySpendModel(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class RuntimeKeyCallLogModel(Base):
+    """Runtime Key 的逐条调用记录 —— 「这把钥匙最近替我做了什么」。
+
+    额度表（``runtime_key_daily_spend``）只有汇总，回答不了「钱是被哪一次调用花掉的」。
+    这张表按请求逐条落账：agent 拿钥匙调了哪个动作端、结果如何、金额多少。
+    记的是「事」，不是「钱」：写入失败绝不影响请求本身（见 services/runtime_call_log.py）。
+    """
+
+    __tablename__ = "runtime_key_call_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    endpoint: Mapped[str] = mapped_column(String(64), nullable=False)
+    method: Mapped[str] = mapped_column(String(8), nullable=False, default="POST")
+    # ok / rejected（服务端按权限、额度、nonce、状态拒了）/ failed（异常）
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="ok")
+    http_status: Mapped[int] = mapped_column(Integer, nullable=False, default=200)
+    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    detail: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, index=True)
+
+
+class ConsoleNoticeModel(Base):
+    """操作台站内提醒：主人自己的钥匙/授权发生了什么，落库留痕。
+
+    邮件通道需要 SMTP 凭据（现网没有），所以「取消绑定之后要留个提醒」这件事
+    先落在站内：注销后会写一条，进操作台就能看见红点，点过才消。
+    """
+
+    __tablename__ = "console_notices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    # key_unbound（主人亲手取消绑定）/ key_bound（agent 绑定生效）
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, index=True)
+    read_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+
+
 class RuntimeKeyModel(Base):
     """
     Stores metadata and a bcrypt hash of the secret segment of a Runtime Key.

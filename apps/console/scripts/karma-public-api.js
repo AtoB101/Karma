@@ -185,6 +185,32 @@
     });
   }
 
+  // 展开「已绑定钥匙」看最近调用：会话鉴权，只看自己名下的钥匙（别人的一律 404）。
+  async function runtimeKeyCalls(payload) {
+    return karmaFetch("/runtime/key-calls", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  // 站内提醒：取消绑定这类不可逆动作，关掉页面也留痕，点过才消。
+  async function runtimeListNotices(payload) {
+    return karmaFetch("/runtime/list-notices", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function runtimeAckNotice(payload) {
+    return karmaFetch("/runtime/ack-notice", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
   async function getHealth() {
     return karmaFetch("/health", { method: "GET", headers: { Accept: "application/json" } });
   }
@@ -784,6 +810,9 @@
     runtimeListPendingBinds,
     runtimeListBoundKeys,
     runtimeUnbindKey,
+    runtimeKeyCalls,
+    runtimeListNotices,
+    runtimeAckNotice,
     karmaFetch,
     headers,
   };

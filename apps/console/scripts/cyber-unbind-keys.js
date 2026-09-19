@@ -12,9 +12,16 @@
  * 取数走会话鉴权（POST /runtime/list-bound-keys），不打钱包签名弹窗 —— 列一下有哪些
  * 钥匙不该惊动钱包。真正的签名只发生在点「取消绑定」的时候，消息由 cyber-handoff.js
  * 出口（KarmaHandoff.buildUnbindKeyMsg），这里绝不自己再拼一套，否则两边改一处就静默失配。
+ *
+ * 卡片里还有两件事：
+ *   1. 展开某把钥匙看「最近调用」（POST /runtime/key-calls）—— 光看额度只知道自己花了
+ *      多少，看不到「哪一次被拒了、为什么被拒」。
+ *   2. 站内提醒（POST /runtime/list-notices）—— 取消绑定是不可逆动作，闪一行提示关掉就
+ *      没了；落库留痕 + 要点过才消，才担得起「不记名令牌的出口」这个位置。
  */
 (function (global) {
   var POLL_MS = 60000;
+  var CALL_LIMIT = 20;
 
   var state = {
     keys: [],
@@ -23,15 +30,36 @@
     err: "",
     authed: false,
     busy: "",
+    openKey: "",
+    calls: {},
+    callsLoading: "",
+    callsErr: "",
+    notices: [],
+    unread: 0,
+    ackBusy: false,
   };
 
   function api() { return global.karmaRuntimeApi; }
   function signer() { return global.KarmaHandoff; }
   function identity() { return String(global.KARMA_IDENTITY_ID || "").trim(); }
   function host() { return document.getElementById("bound-keys"); }
+  function i18n() { return global.CYBER_I18N; }
   function T(zh) {
-    var i18n = global.CYBER_I18N;
-    return i18n && i18n.T ? i18n.T(zh) : zh;
+    var t = i18n();
+    return t && t.T ? t.T(zh) : zh;
+  }
+  function Tf(zh) {
+    var t = i18n();
+    if (t && t.Tf) {
+      var args = [zh];
+      for (var i = 1; i < arguments.length; i += 1) args.push(arguments[i]);
+      return t.Tf.apply(t, args);
+    }
+    var out = T(zh);
+    for (var k = 1; k < arguments.length; k += 1) {
+      out = out.split("{" + (k - 1) + "}").join(arguments[k] == null ? "" : String(arguments[k]));
+    }
+    return out;
   }
   function esc(v) {
     return String(v == null ? "" : v).replace(/[&<>"']/g, function (c) {
@@ -56,11 +84,99 @@
   function num(v) {
     return v == null || v === "" ? "—" : String(v);
   }
+  function who(payload) {
+    var p = payload || {};
+    return String(p.agent_name || p.agent_id || p.key_id || "—");
+  }
+  function when(iso) {
+    return String(iso || "").replace("T", " ").slice(0, 19);
+  }
+
+  /* ---- 最近调用 ---- */
+
+  function outcomeLabel(outcome, status) {
+    if (outcome === "ok") return T("成功");
+    if (outcome === "rejected") return Tf("被拒（HTTP {0}）", status);
+    return Tf("异常（HTTP {0}）", status == null ? "—" : status);
+  }
+
+  function callLine(c) {
+    var amount = c && c.amount == null ? "" : c.amount;
+    var spare = amount === "" ? "" : Tf(" · 金额 {0} USDC", amount);
+    var detail = c && c.detail ? Tf(" · {0}", c.detail) : "";
+    var line = Tf(
+      "动作 {0} · 结果 {1}{2}{3} · 时间 {4}",
+      (c && c.endpoint) || "—",
+      outcomeLabel(c && c.outcome, c && c.http_status),
+      spare,
+      detail,
+      when(c && c.created_at) || "—"
+    );
+    return esc(line);
+  }
+
+  function callsHtml(keyId) {
+    if (state.callsLoading === keyId) {
+      return '<p class="ag-hint">' + esc(T("正在读取调用记录…")) + "</p>";
+    }
+    if (state.callsErr && state.openKey === keyId) {
+      return '<p class="err">' + esc(state.callsErr) + "</p>";
+    }
+    var list = state.calls[keyId];
+    if (!list) return "";
+    if (!list.length) {
+      return (
+        '<p class="ag-hint">' +
+        esc(T("还没有调用记录。agent 用这把钥匙发起动作后，这里会逐条留下痕迹。")) +
+        "</p>"
+      );
+    }
+    var out =
+      '<div class="ag-snippet" style="margin-top:8px">' +
+      '<div class="ag-secret-label">' + esc(T("最近调用记录（最新在前）")) + "</div>" +
+      '<ul style="margin:6px 0 0 0;padding-left:18px">';
+    for (var i = 0; i < list.length; i += 1) out += "<li>" + callLine(list[i]) + "</li>";
+    return out + "</ul></div>";
+  }
+
+  /* ---- 站内提醒 ---- */
+
+  function noticeText(n) {
+    var kind = (n && n.kind) || "";
+    if (kind === "key_unbound") {
+      return Tf("取消绑定已完成：{0} 不能再代表你花钱，这把钥匙谁都花不了。", who(n && n.payload));
+    }
+    if (kind === "key_bound") {
+      return Tf("接入已确认：{0} 现在可以在额度与权限内代表你花钱。", who(n && n.payload));
+    }
+    return Tf("钥匙事件：{0}", kind || "—");
+  }
+
+  function noticesHtml() {
+    if (!state.notices.length) return "";
+    var items = "";
+    for (var i = 0; i < state.notices.length; i += 1) {
+      var n = state.notices[i];
+      items += "<li>" + esc(noticeText(n)) + (n && n.read ? "" : " · " + esc(T("未读"))) + "</li>";
+    }
+    var unreadLabel = state.unread
+      ? Tf("站内提醒（{0} 条未读）", state.unread)
+      : T("站内提醒");
+    return (
+      '<div class="ag-snippet" style="margin-top:10px;border-left:3px solid #7c5cff">' +
+      '<div class="ag-secret-label">' + esc(unreadLabel) + "</div>" +
+      '<ul style="margin:6px 0 0 0;padding-left:18px">' + items + "</ul>" +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+      button(state.ackBusy ? T("正在标记…") : T("知道了（不再提醒）"), "data-ack-notices") +
+      "</div></div>"
+    );
+  }
 
   function rowHtml(k) {
     var keyId = esc(k.key_id);
     var name = esc(k.agent_name || k.agent_id || "—");
     var perms = permsText(k.permissions);
+    var open = state.openKey === k.key_id;
     return (
       '<div class="ag-snippet" style="margin-top:10px">' +
       '<div class="ag-secret-label">正在代表你花钱的 agent：' + name + "</div>" +
@@ -71,22 +187,27 @@
       (perms ? '<p class="ag-hint">权限：' + esc(perms) + "</p>" : "") +
       '<p class="ag-hint">钥匙 ID：' + keyId + "</p>" +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+      button(open ? T("收起最近调用") : T("查看最近调用"), 'data-key-calls="' + keyId + '"') +
       button("取消绑定（要钱包签名）", 'data-unbind-key="' + keyId + '"') +
       "</div>" +
+      (open ? callsHtml(k.key_id) : "") +
       "</div>"
     );
   }
 
   function bodyHtml() {
+    var head = noticesHtml();
     if (state.loading && !state.keys.length) {
-      return '<p class="ag-hint">正在读取已绑定的钥匙…</p>';
+      return head + '<p class="ag-hint">正在读取已绑定的钥匙…</p>';
     }
     if (!state.keys.length) {
       return (
+        head +
         '<p class="ag-hint">暂时没有绑定 agent 的钥匙。agent 申请接入、你在「接入确认」输码确认之后，它才会出现在这里。</p>'
       );
     }
     var out =
+      head +
       '<p class="ag-secret-label">已绑定 agent、正在代表你花钱的钥匙：' + esc(state.keys.length) + " 把</p>";
     for (var i = 0; i < state.keys.length; i += 1) out += rowHtml(state.keys[i]);
     return out;
@@ -100,6 +221,15 @@
     return out;
   }
 
+  /** 侧栏「设置」挂红点：取消绑定这类事不点开页面也要看得见。 */
+  function paintNoticeDot(unread) {
+    var nav = document.querySelector('.nav-main[data-page="settings"]');
+    if (!nav) return;
+    nav.classList.toggle("has-notice", unread > 0);
+    if (unread > 0) nav.setAttribute("title", T("有未读的钥匙提醒"));
+    else nav.removeAttribute("title");
+  }
+
   function render() {
     var h = host();
     if (!h) return;
@@ -108,15 +238,36 @@
     } else {
       h.innerHTML = bodyHtml() + noteHtml();
     }
+    var card = document.getElementById("ag-bound-keys");
+    if (card) card.classList.toggle("attention", state.unread > 0);
+    paintNoticeDot(state.unread);
   }
 
   /* ---- 取数（会话鉴权） ---- */
+
+  async function loadNotices() {
+    var a = api();
+    if (!a || !a.runtimeListNotices) return;
+    try {
+      var n = await a.runtimeListNotices({ karma_identity_id: identity(), limit: 20 });
+      state.notices = (n && n.notices) || [];
+      state.unread = (n && n.unread) || 0;
+    } catch (e) {
+      var status = e && e.status;
+      if (status === 401 || status === 403) {
+        state.notices = [];
+        state.unread = 0;
+      }
+    }
+  }
 
   async function poll() {
     var a = api();
     if (!a || !a.runtimeListBoundKeys) return;
     if (!identity() && !global.KARMA_ACCESS_TOKEN) {
       state.keys = [];
+      state.notices = [];
+      state.unread = 0;
       state.authed = false;
       state.loading = false;
       render();
@@ -129,11 +280,14 @@
       state.keys = (r && r.keys) || [];
       state.authed = true;
       state.err = "";
+      await loadNotices();
     } catch (e) {
       var status = e && e.status;
       if (status === 401 || status === 403) {
         // 还没连钱包 / 会话过期：这不是错误，是「先连接钱包」。
         state.keys = [];
+        state.notices = [];
+        state.unread = 0;
         state.authed = false;
         state.err = "";
       } else {
@@ -141,6 +295,63 @@
       }
     }
     state.loading = false;
+    // 展开中的钥匙如果被取消绑定 / 停用了，记录一并收起来，别留着一张空壳。
+    if (state.openKey && !state.keys.some(function (k) { return k.key_id === state.openKey; })) {
+      state.openKey = "";
+      state.callsErr = "";
+    }
+    render();
+  }
+
+  async function toggleCalls(keyId) {
+    if (state.openKey === keyId) {
+      state.openKey = "";
+      state.callsErr = "";
+      render();
+      return;
+    }
+    state.openKey = keyId;
+    state.callsErr = "";
+    if (Object.prototype.hasOwnProperty.call(state.calls, keyId)) {
+      render();
+      return;
+    }
+    var a = api();
+    if (!a || !a.runtimeKeyCalls) {
+      state.callsErr = "接口未加载，请刷新页面后再试。";
+      render();
+      return;
+    }
+    state.callsLoading = keyId;
+    render();
+    try {
+      var r = await a.runtimeKeyCalls({
+        karma_identity_id: identity(),
+        key_id: keyId,
+        limit: CALL_LIMIT,
+      });
+      state.calls[keyId] = (r && r.calls) || [];
+      state.callsErr = "";
+    } catch (e) {
+      state.callsErr = "读取调用记录失败：" + ((e && e.message) || e);
+    }
+    state.callsLoading = "";
+    render();
+  }
+
+  async function ackNotices() {
+    var a = api();
+    if (!a || !a.runtimeAckNotice || state.ackBusy) return;
+    state.ackBusy = true;
+    render();
+    try {
+      await a.runtimeAckNotice({ karma_identity_id: identity() });
+      state.notices = [];
+      state.unread = 0;
+    } catch (e) {
+      state.err = "标记已读失败：" + ((e && e.message) || e);
+    }
+    state.ackBusy = false;
     render();
   }
 
@@ -185,6 +396,7 @@
         client_nonce: nonce,
       });
       state.note = "已取消绑定：这把钥匙回到「未激活」，agent 想再花钱得重新申请一次接入。";
+      delete state.calls[keyId];
     } catch (e) {
       state.note = "";
       state.err = "取消绑定失败：" + ((e && e.message) || e);
@@ -199,6 +411,17 @@
     document.addEventListener("click", function (ev) {
       var t = ev.target;
       if (!t || !t.closest) return;
+      var callsBtn = t.closest("[data-key-calls]");
+      if (callsBtn) {
+        ev.preventDefault();
+        toggleCalls(callsBtn.getAttribute("data-key-calls"));
+        return;
+      }
+      if (t.closest("[data-ack-notices]")) {
+        ev.preventDefault();
+        ackNotices();
+        return;
+      }
       var btn = t.closest("[data-unbind-key]");
       if (btn) {
         ev.preventDefault();
@@ -207,6 +430,8 @@
       }
       if (t.closest("#btn-bound-refresh")) {
         ev.preventDefault();
+        state.calls = {};
+        state.callsErr = "";
         poll();
       }
     });
@@ -225,5 +450,9 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 
-  global.KarmaUnbindKeys = { refresh: poll, render: render };
+  global.KarmaUnbindKeys = {
+    refresh: poll,
+    render: render,
+    toggleCalls: toggleCalls,
+  };
 })(window);

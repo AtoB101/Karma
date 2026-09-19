@@ -1390,3 +1390,192 @@ async def test_unbind_never_turns_a_key_back_into_a_bearer_token(
     )
     assert listed.status_code == 200, listed.text
     assert listed.json()["keys"] == []
+
+
+# ---------------------------------------------------------------- 最近调用 + 站内提醒
+
+async def _bind_full(client: AsyncClient, *, identity: str, agent_id: str, perms: list[str], seed: bytes):
+    """铸一把钥匙、跑完匹配码激活，返回 (token, key_id, wallet, agent_key)。"""
+    minted, wallet = await _mint_full(client, identity=identity, perms=perms, agent_id=agent_id)
+    assert minted.status_code == 201, minted.text
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(seed).decode())
+    requested = await _request_bind(client, token, agent_id, _pub_of(agent_key))
+    assert requested.status_code == 200, requested.text
+    confirmed = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(
+            key_id=key_id,
+            identity=identity,
+            acct=wallet,
+            code=requested.json()["activation_code"],
+        ),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["key_binding"] == "agent"
+    return token, key_id, wallet, agent_key
+
+
+def _signed(token: str, key, path: str, payload: dict | None = None) -> dict:
+    body = json.dumps(payload or {}).encode()
+    return _headers_for(token, key, method="POST", path=path, body=body)
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_call_still_shows_up_in_recent_calls(client: AsyncClient, db_session):
+    """被拒的调用要留痕 —— 主人展开卡片最想确认的就是「为什么被拒」。
+
+    这里覆盖两条不同的失败路径，它们分别由依赖层和路由层拦下：
+    * 没带签名 → 依赖层 401（装饰器看不见，得在 get_runtime_context 里补记）；
+    * 带了签名但没这个权限 → 路由层 403（装饰器记）。
+    两条都得落进同一张表，否则「最近调用」只报喜不报忧。
+    """
+    identity = "kid-calls-1"
+    token, key_id, _wallet, agent_key = await _bind_full(
+        client,
+        identity=identity,
+        agent_id="agent-calls-1",
+        perms=["sync_task_status"],
+        seed=b"\xc1" * 32,
+    )
+
+    # 1) 偷到 key 字符串、没有私钥：连签名都拿不出来 → 401
+    unsigned = await client.post(
+        "/runtime/place-order",
+        headers={"X-Karma-Runtime-Key": token, "Content-Type": "application/json"},
+        content=b"{}",
+    )
+    assert unsigned.status_code == 401, unsigned.text
+
+    # 2) 有私钥、签名对、请求体也合法，但这把钥匙没有 request_settlement 权限 → 403
+    payload = {"task_id": "task-calls-1", "kind": "submit_delivery", "client_nonce": "nonce-calls-1"}
+    denied = await client.post(
+        "/runtime/request-settlement",
+        headers=_signed(token, agent_key, "/runtime/request-settlement", payload),
+        content=json.dumps(payload).encode(),
+    )
+    assert denied.status_code == 403, denied.text
+    assert "permission" in denied.json()["detail"].lower()
+
+    listed = await client.post(
+        "/runtime/key-calls",
+        json={"karma_identity_id": identity, "key_id": key_id, "limit": 20},
+        headers={"X-Karma-Identity-Id": identity},
+    )
+    assert listed.status_code == 200, listed.text
+    calls = listed.json()["calls"]
+    assert len(calls) >= 2, calls
+    # 最新在前：先看到的是刚才那次 403（权限不够），再往前是 401（没有签名）
+    assert [c["endpoint"] for c in calls[:2]] == ["request-settlement", "place-order"]
+    assert [c["outcome"] for c in calls[:2]] == ["rejected", "rejected"]
+    assert [c["http_status"] for c in calls[:2]] == [403, 401]
+    assert calls[0]["created_at"], "记录要带时间，否则「什么时候被拒的」无从查起"
+
+
+@pytest.mark.asyncio
+async def test_recent_calls_are_private_to_the_owner(client: AsyncClient, db_session):
+    """别人看不到、匿名看不到；拿别人的钥匙 id 来查是 404（连存在与否都不给）。"""
+    identity = "kid-calls-2"
+    token, key_id, _wallet, _agent_key = await _bind_full(
+        client,
+        identity=identity,
+        agent_id="agent-calls-2",
+        perms=["sync_task_status"],
+        seed=b"\xc2" * 32,
+    )
+    await client.post(
+        "/runtime/place-order",
+        headers={"X-Karma-Runtime-Key": token, "Content-Type": "application/json"},
+        content=b"{}",
+    )
+
+    other = await client.post(
+        "/runtime/key-calls",
+        json={"karma_identity_id": identity, "key_id": key_id},
+        headers={"X-Karma-Identity-Id": "kid-calls-other"},
+    )
+    assert other.status_code == 403, other.text
+
+    anon = await client.post("/runtime/key-calls", json={"karma_identity_id": identity, "key_id": key_id})
+    assert anon.status_code == 403, anon.text
+
+    # 自己名下没有这把钥匙（例如别人家的 key_id）→ 404，不给探测面
+    stranger_key = await client.post(
+        "/runtime/key-calls",
+        json={"karma_identity_id": identity, "key_id": "0" * 32},
+        headers={"X-Karma-Identity-Id": identity},
+    )
+    assert stranger_key.status_code == 404, stranger_key.text
+
+
+@pytest.mark.asyncio
+async def test_unbinding_leaves_a_console_notice_until_it_is_acked(client: AsyncClient, db_session):
+    """取消绑定是不可逆动作：关掉页面也得留一条提醒，点过才消。"""
+    identity = "kid-notice-1"
+    _token, key_id, wallet, _agent_key = await _bind_full(
+        client,
+        identity=identity,
+        agent_id="agent-notice-1",
+        perms=["sync_task_status"],
+        seed=b"\xc3" * 32,
+    )
+
+    before = await client.post(
+        "/runtime/list-notices",
+        json={"karma_identity_id": identity},
+        headers={"X-Karma-Identity-Id": identity},
+    )
+    assert before.status_code == 200, before.text
+    kinds = [n["kind"] for n in before.json()["notices"]]
+    assert "key_bound" in kinds, "agent 接入生效也要留一条，主人事后能对账"
+
+    unbound = await client.post(
+        "/runtime/unbind-key", json=_unbind_body(key_id=key_id, identity=identity, acct=wallet)
+    )
+    assert unbound.status_code == 200, unbound.text
+
+    after = await client.post(
+        "/runtime/list-notices",
+        json={"karma_identity_id": identity, "unread_only": True},
+        headers={"X-Karma-Identity-Id": identity},
+    )
+    assert after.status_code == 200, after.text
+    payload = after.json()
+    # 接入生效那条也还没读，所以未读是 2；最新的一条必须是刚才的取消绑定。
+    assert payload["unread"] == 2, payload
+    notice = payload["notices"][0]
+    assert notice["kind"] == "key_unbound"
+    assert notice["payload"]["key_id"] == key_id
+    assert notice["payload"]["agent_id"] == "agent-notice-1"
+
+    acked = await client.post(
+        "/runtime/ack-notice",
+        json={"karma_identity_id": identity},
+        headers={"X-Karma-Identity-Id": identity},
+    )
+    assert acked.status_code == 200, acked.text
+    assert acked.json()["acked"] == 2
+
+    quiet = await client.post(
+        "/runtime/list-notices",
+        json={"karma_identity_id": identity, "unread_only": True},
+        headers={"X-Karma-Identity-Id": identity},
+    )
+    assert quiet.json()["unread"] == 0
+    assert quiet.json()["notices"] == []
+
+
+@pytest.mark.asyncio
+async def test_notices_are_private_and_anonymous_is_refused(client: AsyncClient, db_session):
+    identity = "kid-notice-2"
+    other = await client.post(
+        "/runtime/list-notices",
+        json={"karma_identity_id": identity},
+        headers={"X-Karma-Identity-Id": "kid-notice-other"},
+    )
+    assert other.status_code == 403, other.text
+    anon = await client.post("/runtime/list-notices", json={"karma_identity_id": identity})
+    assert anon.status_code == 403, anon.text
+    anon_ack = await client.post("/runtime/ack-notice", json={"karma_identity_id": identity})
+    assert anon_ack.status_code == 403, anon_ack.text
