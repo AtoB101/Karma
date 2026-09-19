@@ -779,18 +779,30 @@ async def buyer_accept_settlement(
                     consume=True,
                 )
             except ConfirmationPolicyError as exc:
-                sess = create_confirmation_session(
-                    scene_id=settle_scene,
-                    role="buyer",
-                    step="buyer_accept_settle",
-                    owner_agent_id=state.client_agent_id,
-                    context={
-                        "amount": float(state.escrow_amount or 0),
-                        "currency": "USDC",
-                    },
-                    interaction_ref=f"settle:{task_id}",
-                    policy_auto_allowed=False,
-                )
+                try:
+                    sess = create_confirmation_session(
+                        scene_id=settle_scene,
+                        role="buyer",
+                        step="buyer_accept_settle",
+                        owner_agent_id=state.client_agent_id,
+                        context={
+                            "amount": float(state.escrow_amount or 0),
+                            "currency": "USDC",
+                        },
+                        interaction_ref=f"settle:{task_id}",
+                        policy_auto_allowed=False,
+                    )
+                except ConfirmationPolicyError as session_exc:
+                    # 场景没登记 / 策略读不到：这是「你调错了」而不是「服务器坏了」。
+                    # 之前这条会一路冒到 ASGI，用户看到 500，完全不知道差在哪。
+                    logger.warning(
+                        "settle_confirmation_session_failed",
+                        extra={"task_id": task_id, "scene_id": settle_scene, "detail": str(session_exc)},
+                    )
+                    raise HTTPException(
+                        409,
+                        f"这一单需要主人确认，但确认场景 {settle_scene!r} 没有登记：{session_exc}",
+                    ) from session_exc
                 raise HTTPException(
                     403,
                     {
