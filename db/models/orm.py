@@ -265,7 +265,7 @@ class SettlementTransitionAuditModel(Base):
     from_status:         Mapped[str | None] = mapped_column(String(32))
     to_status:           Mapped[str] = mapped_column(String(32), nullable=False)
     transition_allowed:  Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    guard_stage:         Mapped[str] = mapped_column(String(16), nullable=False, default="route")
+    guard_stage:         Mapped[str] = mapped_column(String(64), nullable=False, default="route")
     reason:              Mapped[str | None] = mapped_column(Text)
     route_path:          Mapped[str | None] = mapped_column(String(256))
     actor_id:            Mapped[str | None] = mapped_column(String(64))
