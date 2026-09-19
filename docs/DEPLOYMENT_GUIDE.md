@@ -70,6 +70,10 @@ AUTH_API_KEYS=agent-1:<强密钥>,agent-2:<强密钥>
 AUTH_ALLOW_DEV_KEY_FALLBACK=false
 ADMIN_ACTOR_IDS=<管理员 identity_id 列表>
 ARBITRATOR_ACTOR_IDS=<仲裁员 identity_id 列表>
+# 仲裁池是否对全部登录身份开放申请（抵押仍必须由已锁仓的真实 USDC 背书，
+# 且必须严格大于案值）。false 时只有 ARBITRATOR_ACTOR_IDS 里的人能入池，
+# 池子永远是空的 —— 争议立了案也凑不出仲裁庭。
+ARBITRATION_POOL_OPEN_JOIN=true
 
 # ── 数据库 / Redis / MinIO ──
 DATABASE_URL=postgresql+asyncpg://karma:<密码>@localhost:5432/karma_db
@@ -82,6 +86,10 @@ MINIO_SECRET_KEY=<非默认>
 
 # ── CORS ──
 CORS_ALLOW_ORIGINS=https://你的控制台域名
+
+# 交付后买方的确认窗口（小时）。交付时写进结算单，窗口到期后
+# POST /v1/settlement/{task_id}/auto-confirm 才能兜底放款；置 0 = 关闭自动兜底。
+SETTLEMENT_CONFIRM_WINDOW_HOURS=72
 
 # ── 结算模式：offchain | testnet | hybrid ──
 SETTLEMENT_MODE=testnet
@@ -211,6 +219,8 @@ server {
 - [ ] `RATE_LIMIT_REDIS_FAIL_CLOSED=true`
 - [ ] `RUNTIME_REQUIRE_*` 全部 true
 - [ ] `ARBITRATOR_ACTOR_IDS` 非空
+- [ ] `ARBITRATION_POOL_OPEN_JOIN=true`（否则仲裁池永远是空的，争议无人可裁）
+- [ ] `SETTLEMENT_CONFIRM_WINDOW_HOURS` > 0（否则交付后的超时兜底 /auto-confirm 不可达）
 - [ ] `CHAIN_ALLOW_HOT_WALLET_PAYER=false`（后端热钱包不碰资金）
 - [ ] `KARMA_SIGNING_BACKEND=client_only|external`
 - [ ] `RECEIPT_REQUIRE_SIGNATURE / LEDGER_REQUIRE_PARTY_ACTOR / SETTLEMENT_REQUIRE_PARTY_ACTOR` = true
