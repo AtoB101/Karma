@@ -10,20 +10,28 @@
 两张表都是纯新增：老行不受影响，业务代码在没有新行时读空列表，行为与升级前一致。
 回滚只删这两张表，不动密钥、额度与已产生的凭证。
 
-Revision ID: 0050_runtime_key_call_log_and_notices
+Revision ID: 0050_runtime_key_calls_notices
 Revises: 0049_runtime_key_bind_activation
 Create Date: 2026-09-19
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0050_runtime_key_call_log_and_notices"
+revision = "0050_runtime_key_calls_notices"
 down_revision = "0049_runtime_key_bind_activation"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
+    # alembic 自建 alembic_version 时把 version_num 定成 VARCHAR(32)，本仓库的
+    # revision id 比这长。Postgres 严格执行宽度：写入超长版本号时抛
+    # StringDataRightTruncation —— 而且是在表都建完之后，整个迁移事务回滚，
+    # 部署卡在中间，看上去像「迁移写坏了」。这里顺手放宽到 255，后来人不必
+    # 为一个列宽踩第二次。SQLite 不支持这种 ALTER，跳过（它本就不校验长度）。
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(255)")
+
     op.create_table(
         "runtime_key_call_log",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),

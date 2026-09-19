@@ -543,3 +543,33 @@ def test_unbinding_leaves_a_console_notice_the_owner_must_ack():
     css = (CONSOLE / "styles/cyber-console.css").read_text(encoding="utf-8")
     assert "has-notice" in css, "侧栏要有「有未读提醒」的红点样式"
     assert "#ag-bound-keys.attention" in css, "有未读提醒时卡片要跟着高亮"
+
+
+def test_alembic_revision_ids_fit_the_version_column():
+    """revision id 必须塞得进 alembic_version.version_num。
+
+    alembic 自建这张表时把 version_num 定成 VARCHAR(32)，Postgres 严格执行宽度：
+    超长的那一笔会在「盖章」时抛 StringDataRightTruncation —— 表全建完、事务回滚，
+    部署卡在中间，看上去像「迁移写坏了」。文件名可以很长，revision id 不行。
+
+    0043 之前的老迁移长度也超了，但它们早于线上 Postgres 基线（SQLite 不校验长度），
+    所以只盯「Postgres 实际还会跑到」的这一段。0050 起这一列已放宽到 255。
+    """
+    versions = sorted((ROOT / "db/migrations/versions").glob("*.py"))
+    blob = "\n".join(p.read_text(encoding="utf-8") for p in versions)
+    cap = 255 if "version_num TYPE VARCHAR(255)" in blob else 32
+
+    checked = 0
+    too_long = {}
+    for migration in versions:
+        match = re.search(
+            r'^revision\s*=\s*["\']([^"\']+)', migration.read_text(encoding="utf-8"), re.M
+        )
+        if not match or match.group(1)[:4] < "0043":
+            continue
+        checked += 1
+        if len(match.group(1)) > cap:
+            too_long[migration.name] = len(match.group(1))
+
+    assert checked >= 8, "Postgres 基线之后的迁移至少要能被数到"
+    assert not too_long, f"revision id 超过 {cap} 字符，线上写不进 alembic_version：{too_long}"
