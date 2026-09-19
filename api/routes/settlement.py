@@ -1,6 +1,7 @@
 """Karma API — Settlement (public state endpoints)"""
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -46,6 +47,8 @@ from services.task_contract_guard import ensure_task_contract_exists
 from services.text_safety import validate_json_strings_safe, validate_safe_storage_text_optional
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 
 async def _sync_payment_intents_after_settled(db: AsyncSession, task_id: str) -> None:
@@ -524,6 +527,14 @@ async def get_settlement(task_id: str, request: Request, db: AsyncSession = Depe
         {p for p in parties if p},
         public_read=bool(settings.task_records_public_read),
     )
+    from services.chain import escrow_settlement
+
+    if escrow_settlement.enabled():
+        try:
+            if await escrow_settlement.reconcile_task(db, task_id=task_id):
+                state = await store.get(task_id) or state
+        except Exception:  # 对账是读的附加动作，坏了也不能让读状态失败
+            logger.warning("escrow_settlement_reconcile_failed", exc_info=True)
     return state
 
 
@@ -1070,6 +1081,42 @@ def _resolve_actor_id(request: Request) -> str | None:
     return resolve_agent_id_from_request(request)
 
 
+async def _sync_escrow_settlement(*, db: AsyncSession, state: SettlementState, target_status: TaskStatus) -> None:
+    """把状态机的两个关键点接到链上（详见 services/chain/escrow_settlement.py）。
+
+    接单（→ ACCEPTED）  ：买方承诺 + 卖方质押在链上 bind 成一个 binding。
+    结算（→ SETTLED）   ：提交结算、打开挑战期，钱由 autosettle 从买方钱包直划卖方。
+    退款 / 取消         ：撤销 binding，把买方被占住的授权放回去。
+
+    链上没落定，业务状态就不许往前走 —— 这一层存在的意义就是让「已结算」在链上
+    有对应的钱，而不是数据库里的一个数字。托管未启用时整段是空操作。
+    """
+    from services.chain import escrow_settlement
+
+    if not escrow_settlement.enabled():
+        return
+    status = canonical_task_status(target_status)
+    try:
+        if status == TaskStatus.ACCEPTED:
+            await escrow_settlement.bind_for_task(
+                db,
+                task_id=state.task_id,
+                buyer_identity_id=state.client_agent_id,
+                seller_identity_id=state.worker_agent_id,
+                amount_usdc=float(state.escrow_amount or 0.0),
+            )
+        elif status == TaskStatus.SETTLED:
+            await escrow_settlement.submit_for_task(
+                db,
+                task_id=state.task_id,
+                released_amount=state.released_amount,
+            )
+        elif status in (TaskStatus.REFUNDED, TaskStatus.CANCELLED):
+            await escrow_settlement.cancel_for_task(db, task_id=state.task_id)
+    except escrow_settlement.EscrowSettlementError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+
+
 async def _apply_transition(
     *,
     db: AsyncSession,
@@ -1126,6 +1173,7 @@ async def _apply_transition(
         route_path=route_path,
         actor_id=actor_id,
     )
+    await _sync_escrow_settlement(db=db, state=state, target_status=target_status)
     return state
 
 
