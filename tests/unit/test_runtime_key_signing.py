@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -21,7 +22,14 @@ from eth_account.messages import encode_defunct
 from httpx import AsyncClient
 
 from services import runtime_key_service as rks
-from services.runtime_wallet import build_agent_request_message, build_create_key_message
+from services.runtime_wallet import (
+    build_agent_request_message,
+    build_confirm_bind_message,
+    build_create_key_message,
+    build_list_bind_requests_message,
+    build_list_keys_message,
+    build_reject_bind_message,
+)
 from sdk.runtime_client import (
     agent_key_from_seed,
     build_agent_request_message as sdk_build_agent_request_message,
@@ -274,7 +282,10 @@ def test_unbound_key_keeps_working_without_a_signature():
 
 # ---------------------------------------------------------------- 端到端
 
-async def _mint(client: AsyncClient, *, identity: str, perms: list[str], agent_id: str, **kw):
+async def _mint_full(
+    client: AsyncClient, *, identity: str, perms: list[str], agent_id: str, **kw
+):
+    """铸一把 Runtime Key，并把铸它的钱包一起交出来（确认绑定要用同一个钱包签名）。"""
     acct = Account.create()
     expire = kw.pop("expire", datetime.utcnow() + timedelta(days=7))
     msg = build_create_key_message(
@@ -299,7 +310,13 @@ async def _mint(client: AsyncClient, *, identity: str, perms: list[str], agent_i
         "agent_binding": agent_id or None,
         **kw,
     }
-    return await client.post("/runtime/create-key", json=body)
+    resp = await client.post("/runtime/create-key", json=body)
+    return resp, acct
+
+
+async def _mint(client: AsyncClient, *, identity: str, perms: list[str], agent_id: str, **kw):
+    resp, _ = await _mint_full(client, identity=identity, perms=perms, agent_id=agent_id, **kw)
+    return resp
 
 
 def _headers_for(token: str, key, *, method: str, path: str, body: bytes, **over):
@@ -326,12 +343,16 @@ def _headers_for(token: str, key, *, method: str, path: str, body: bytes, **over
 
 @pytest.mark.asyncio
 async def test_bind_key_then_every_request_must_be_signed(client: AsyncClient, db_session):
+    """两阶段绑定：agent 申请拿码 → 主人输码签名 → 之后每个请求都要验签。"""
     identity = "kid-signing-e2e-1"
     agent_id = "agent-signing-e2e-1"
-    minted = await _mint(client, identity=identity, perms=["sync_task_status"], agent_id=agent_id)
+    minted, wallet = await _mint_full(
+        client, identity=identity, perms=["sync_task_status"], agent_id=agent_id
+    )
     assert minted.status_code == 201, minted.text
     data = minted.json()
     token = data["runtime_key"]
+    key_id = data["key_id"]
     assert data["key_binding"] == "service"  # 铸造时还没绑公钥
     assert data["binding_scope"].startswith("Karma Runtime Key Binding")
     assert data["binding_scope_signature"]
@@ -342,27 +363,44 @@ async def test_bind_key_then_every_request_must_be_signed(client: AsyncClient, d
     assert pre.json()["key_binding"] == "service"
 
     agent_key = agent_key_from_seed(base64.b64encode(b"\x44" * 32).decode())
-    from cryptography.hazmat.primitives import serialization
+    pub = _pub_of(agent_key)
 
-    pub = base64.b64encode(
-        agent_key.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        )
-    ).decode()
-    bind_body = json.dumps(
-        {"agent_id": agent_id, "agent_public_key": pub, "client_nonce": uuid.uuid4().hex}
-    ).encode()
-    bound = await client.post(
-        "/runtime/bind-key",
-        content=bind_body,
-        headers={
-            "X-Karma-Runtime-Key": token,
-            "Content-Type": "application/json",
-        },
+    # 第一步：申请。拿到码，但绑定还没生效。
+    requested = await _request_bind(client, token, agent_id, pub)
+    assert requested.status_code == 200, requested.text
+    payload = requested.json()
+    assert payload["status"] == "pending_activation"
+    assert payload["key_binding"] == "service"
+    code = payload["activation_code"]
+    assert re.fullmatch(r"[0-9A-Z]{4}-[0-9A-Z]{4}", code)
+    assert payload["activation_code_hint"]
+    assert payload["pending_binding"]["agent_fingerprint"]
+
+    # 还没确认：老路径照旧能读；这时候带签名反而 403（服务端不认这把公钥）
+    during = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
+    assert during.status_code == 200
+    assert during.json()["key_binding"] == "service"
+    early = await client.get(
+        "/runtime/permissions",
+        headers=_headers_for(token, agent_key, method="GET", path="/runtime/permissions", body=b""),
     )
-    assert bound.status_code == 200, bound.text
-    assert bound.json()["key_binding"] == "agent"
-    assert bound.json()["binding_scope_signature"]
+    assert early.status_code == 403
+
+    # 码错 → 403
+    bad = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity=identity, acct=wallet, code=_wrong_code(code)),
+    )
+    assert bad.status_code == 403, bad.text
+
+    # 第二步：主人输码 + 钱包签名 → 绑定才真正落库
+    confirmed = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity=identity, acct=wallet, code=code),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["key_binding"] == "agent"
+    assert confirmed.json()["binding_scope_signature"]
 
     # 绑定后：不带签名一律 401
     unsigned = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
@@ -376,6 +414,7 @@ async def test_bind_key_then_every_request_must_be_signed(client: AsyncClient, d
     assert signed.status_code == 200, signed.text
     assert signed.json()["key_binding"] == "agent"
     assert signed.json()["agent_fingerprint"]
+    assert signed.json()["pending_binding"] is None
 
     # 换一把私钥 → 验签不过
     intruder = agent_key_from_seed(base64.b64encode(b"\x55" * 32).decode())
@@ -533,7 +572,7 @@ async def test_sdk_binds_its_own_key_and_then_signs_every_call(client: AsyncClie
 
     monkeypatch.setattr(rt_mod.httpx, "AsyncClient", _LocalAsyncClient)
 
-    minted = await _mint(
+    minted, wallet = await _mint_full(
         client, identity="kid-sdk-e2e-1", perms=["sync_task_status"], agent_id="agent-sdk-e2e-1"
     )
     assert minted.status_code == 201, minted.text
@@ -546,11 +585,372 @@ async def test_sdk_binds_its_own_key_and_then_signs_every_call(client: AsyncClie
     assert rt.has_agent_key() is True
     assert rt.signing_enabled() is False  # 还没确认服务端绑没绑，先不签名
 
-    bound = await rt.ensure_bound()
-    assert bound["key_binding"] == "agent"
+    # 申请只是拿到匹配码：这时候开签名只会吃 403，SDK 不该自作主张。
+    pending = await rt.ensure_bound()
+    assert pending["status"] == "pending_activation"
+    assert pending["activation_code"]
+    assert rt.signing_enabled() is False
+    assert rt.pending_activation is not None
+
+    # 主人还没输码：agent 走老路径照样能读
+    waiting = await rt.get_permissions()
+    assert waiting["key_binding"] == "service"
+
+    # 主人拿 agent 给的码在操作台签名确认
+    confirmed = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(
+            key_id=minted.json()["key_id"],
+            identity="kid-sdk-e2e-1",
+            acct=wallet,
+            code=pending["activation_code"],
+        ),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    bound = await rt.await_binding_activation(timeout_seconds=5, interval_seconds=0.1)
     assert rt.signing_enabled() is True
+    assert rt.pending_activation is None
+    assert bound["key_binding"] == "agent"
 
     info = await rt.get_permissions()
     assert info["key_binding"] == "agent"
-    assert info["agent_fingerprint"] == bound["agent_fingerprint"]
+    assert info["agent_fingerprint"] == confirmed.json()["agent_fingerprint"]
     assert info["key_id"] == minted.json()["key_id"]
+# ---------------------------------------------------------------- 匹配码激活
+
+def _pub_of(key) -> str:
+    from cryptography.hazmat.primitives import serialization
+
+    return base64.b64encode(
+        key.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
+    ).decode()
+
+
+def _wrong_code(code: str) -> str:
+    """一个格式合法、但一定不是这把 key 的码。"""
+    body = code.replace("-", "")
+    return body[:-1] + ("2" if body[-1] != "2" else "3")
+
+
+def _confirm_body(*, key_id: str, identity: str, acct, code: str, nonce: str | None = None):
+    nonce = nonce or uuid.uuid4().hex
+    msg = build_confirm_bind_message(
+        key_id=key_id,
+        karma_identity_id=identity,
+        wallet_address=acct.address,
+        activation_code=code,
+        client_nonce=nonce,
+    )
+    return {
+        "key_id": key_id,
+        "karma_identity_id": identity,
+        "wallet_address": acct.address,
+        "wallet_signature": acct.sign_message(encode_defunct(text=msg)).signature.hex(),
+        "activation_code": code,
+        "client_nonce": nonce,
+    }
+
+
+def _reject_body(*, key_id: str, identity: str, acct, nonce: str | None = None):
+    nonce = nonce or uuid.uuid4().hex
+    msg = build_reject_bind_message(
+        key_id=key_id,
+        karma_identity_id=identity,
+        wallet_address=acct.address,
+        client_nonce=nonce,
+    )
+    return {
+        "key_id": key_id,
+        "karma_identity_id": identity,
+        "wallet_address": acct.address,
+        "wallet_signature": acct.sign_message(encode_defunct(text=msg)).signature.hex(),
+        "client_nonce": nonce,
+    }
+
+
+async def _request_bind(client: AsyncClient, token: str, agent_id: str, pub: str, key=None, **kw):
+    payload = {
+        "agent_id": agent_id,
+        "agent_public_key": pub,
+        "client_nonce": kw.pop("nonce", uuid.uuid4().hex),
+    }
+    body = json.dumps(payload).encode()
+    if key is None:
+        headers = {"X-Karma-Runtime-Key": token, "Content-Type": "application/json"}
+    else:
+        headers = _headers_for(
+            token, key, method="POST", path="/runtime/bind-key", body=body, **kw
+        )
+    return await client.post("/runtime/bind-key", content=body, headers=headers)
+
+
+@pytest.mark.asyncio
+async def test_wrong_activation_code_burns_attempts_and_then_the_request(
+    client: AsyncClient, db_session
+):
+    """码错了要计数：试满 5 次这条请求作废，得让 agent 重新申请。"""
+    minted, wallet = await _mint_full(
+        client, identity="kid-code-1", perms=["sync_task_status"], agent_id="agent-code-1"
+    )
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x71" * 32).decode())
+
+    requested = await _request_bind(client, token, "agent-code-1", _pub_of(agent_key))
+    assert requested.status_code == 200, requested.text
+    payload = requested.json()
+    assert payload["status"] == "pending_activation"
+    assert payload["key_binding"] == "service"  # 申请了，但还没生效
+    code = payload["activation_code"]
+    assert re.fullmatch(r"[0-9A-Z]{4}-[0-9A-Z]{4}", code)
+    assert (payload["pending_binding"] or {}).get("agent_fingerprint")
+    assert payload["activation_attempts_left"] == 5
+
+    for _ in range(5):
+        bad = await client.post(
+            "/runtime/confirm-bind-key",
+            json=_confirm_body(key_id=key_id, identity="kid-code-1", acct=wallet, code=_wrong_code(code)),
+        )
+        assert bad.status_code == 403, bad.text
+
+    # 第 6 次：试错额度用完，待确认请求直接作废
+    over = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity="kid-code-1", acct=wallet, code=_wrong_code(code)),
+    )
+    assert over.status_code == 429, over.text
+
+    # 作废之后连正确的码也没用了
+    late = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity="kid-code-1", acct=wallet, code=code),
+    )
+    assert late.status_code == 409, late.text
+
+
+@pytest.mark.asyncio
+async def test_expired_activation_code_clears_the_request(client: AsyncClient, db_session):
+    from db.models.orm import RuntimeKeyModel
+
+    minted, wallet = await _mint_full(
+        client, identity="kid-code-2", perms=["sync_task_status"], agent_id="agent-code-2"
+    )
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x72" * 32).decode())
+    requested = await _request_bind(client, token, "agent-code-2", _pub_of(agent_key))
+    code = requested.json()["activation_code"]
+
+    row = await db_session.get(RuntimeKeyModel, key_id)
+    row.pending_expires_at = datetime.utcnow() - timedelta(minutes=1)
+    await db_session.commit()
+
+    resp = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity="kid-code-2", acct=wallet, code=code),
+    )
+    assert resp.status_code == 410, resp.text
+    assert "new one" in resp.json()["detail"]
+
+    again = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity="kid-code-2", acct=wallet, code=code),
+    )
+    assert again.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_confirm_bind_needs_the_owners_wallet_and_the_right_identity(
+    client: AsyncClient, db_session
+):
+    minted, wallet = await _mint_full(
+        client, identity="kid-code-3", perms=["sync_task_status"], agent_id="agent-code-3"
+    )
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x73" * 32).decode())
+    requested = await _request_bind(client, token, "agent-code-3", _pub_of(agent_key))
+    code = requested.json()["activation_code"]
+
+    # 别人的钱包签的码不作数
+    stranger = Account.create()
+    stolen = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity="kid-code-3", acct=stranger, code=code),
+    )
+    assert stolen.status_code == 403, stolen.text
+
+    # key 不属于这个身份 → 404
+    wrong_identity = _confirm_body(key_id=key_id, identity="kid-code-3", acct=wallet, code=code)
+    wrong_identity["karma_identity_id"] = "kid-someone-else"
+    foreign = await client.post("/runtime/confirm-bind-key", json=wrong_identity)
+    assert foreign.status_code == 404
+
+    # 谁都没确认过，绑定不该生效
+    info = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
+    assert info.status_code == 200
+    assert info.json()["key_binding"] == "service"
+
+
+@pytest.mark.asyncio
+async def test_reject_clears_the_request_and_the_agent_can_ask_again(
+    client: AsyncClient, db_session
+):
+    minted, wallet = await _mint_full(
+        client, identity="kid-code-4", perms=["sync_task_status"], agent_id="agent-code-4"
+    )
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x74" * 32).decode())
+    pub = _pub_of(agent_key)
+    requested = await _request_bind(client, token, "agent-code-4", pub)
+    code = requested.json()["activation_code"]
+
+    rejected = await client.post(
+        "/runtime/reject-bind-key",
+        json=_reject_body(key_id=key_id, identity="kid-code-4", acct=wallet),
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["status"] == "rejected"
+    assert rejected.json()["pending_binding"] is None
+
+    # 拒了之后旧码立刻失效
+    dead = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity="kid-code-4", acct=wallet, code=code),
+    )
+    assert dead.status_code == 409
+
+    # agent 重新申请 → 新码，且旧码不会被复用
+    again = await _request_bind(client, token, "agent-code-4", pub)
+    assert again.status_code == 200, again.text
+    assert again.json()["status"] == "pending_activation"
+    assert again.json()["activation_code"] != code
+
+    # 没有待确认请求时再点拒绝 → 409
+    await client.post(
+        "/runtime/reject-bind-key",
+        json=_reject_body(key_id=key_id, identity="kid-code-4", acct=wallet),
+    )
+    empty = await client.post(
+        "/runtime/reject-bind-key",
+        json=_reject_body(key_id=key_id, identity="kid-code-4", acct=wallet),
+    )
+    assert empty.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_confirm_then_rebind_from_the_same_key_is_idempotent(
+    client: AsyncClient, db_session
+):
+    minted, wallet = await _mint_full(
+        client, identity="kid-code-5", perms=["sync_task_status"], agent_id="agent-code-5"
+    )
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x75" * 32).decode())
+    pub = _pub_of(agent_key)
+    requested = await _request_bind(client, token, "agent-code-5", pub)
+    code = requested.json()["activation_code"]
+
+    confirmed = await client.post(
+        "/runtime/confirm-bind-key",
+        json=_confirm_body(key_id=key_id, identity="kid-code-5", acct=wallet, code=code),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["key_binding"] == "agent"
+    assert confirmed.json()["binding_scope"].startswith("Karma Runtime Key Binding")
+    assert confirmed.json()["binding_scope_signature"]
+    assert confirmed.json()["pending_binding"] is None
+
+    # agent 重启后再申请一次：同一把公钥 → 幂等，不发新码
+    again = await _request_bind(client, token, "agent-code-5", pub, key=agent_key)
+    assert again.status_code == 200, again.text
+    body = again.json()
+    assert body["status"] == "active"
+    assert "activation_code" not in body
+    assert body["key_binding"] == "agent"
+    assert body["binding_scope_signature"]
+
+    # 换一把公钥 → 409，告诉用户先吊销再铸新的
+    other = agent_key_from_seed(base64.b64encode(b"\x76" * 32).decode())
+    swap = await _request_bind(client, token, "agent-code-5", _pub_of(other), key=agent_key)
+    assert swap.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_console_can_list_pending_bind_requests_and_see_them_on_keys(
+    client: AsyncClient, db_session
+):
+    minted, wallet = await _mint_full(
+        client, identity="kid-code-6", perms=["sync_task_status"], agent_id="agent-code-6"
+    )
+    data = minted.json()
+    token, key_id = data["runtime_key"], data["key_id"]
+    agent_key = agent_key_from_seed(base64.b64encode(b"\x77" * 32).decode())
+    requested = await _request_bind(client, token, "agent-code-6", _pub_of(agent_key))
+    fingerprint = requested.json()["pending_binding"]["agent_fingerprint"]
+
+    # list-keys 上带着待确认请求
+    nonce = uuid.uuid4().hex
+    msg = build_list_keys_message(
+        karma_identity_id="kid-code-6", wallet_address=wallet.address, client_nonce=nonce
+    )
+    keys = await client.post(
+        "/runtime/list-keys",
+        json={
+            "karma_identity_id": "kid-code-6",
+            "wallet_address": wallet.address,
+            "wallet_signature": wallet.sign_message(encode_defunct(text=msg)).signature.hex(),
+            "client_nonce": nonce,
+        },
+    )
+    assert keys.status_code == 200, keys.text
+    row = [k for k in keys.json()["keys"] if k["key_id"] == key_id][0]
+    assert row["pending_binding"]["agent_fingerprint"] == fingerprint
+
+    # list-bind-requests 只认领签名那个钱包的 key
+    nonce2 = uuid.uuid4().hex
+    msg2 = build_list_bind_requests_message(
+        karma_identity_id="kid-code-6", wallet_address=wallet.address, client_nonce=nonce2
+    )
+    listed = await client.post(
+        "/runtime/list-bind-requests",
+        json={
+            "karma_identity_id": "kid-code-6",
+            "wallet_address": wallet.address,
+            "wallet_signature": wallet.sign_message(encode_defunct(text=msg2)).signature.hex(),
+            "client_nonce": nonce2,
+        },
+    )
+    assert listed.status_code == 200, listed.text
+    requests = listed.json()["requests"]
+    assert [r["key_id"] for r in requests] == [key_id]
+    assert requests[0]["agent_fingerprint"] == fingerprint
+    assert requests[0]["agent_name"] == "signing-test"
+
+    # 另一个钱包签名 → 请求本身合法，但看不到别人的 key
+    stranger = Account.create()
+    nonce3 = uuid.uuid4().hex
+    msg3 = build_list_bind_requests_message(
+        karma_identity_id="kid-code-6", wallet_address=stranger.address, client_nonce=nonce3
+    )
+    foreign = await client.post(
+        "/runtime/list-bind-requests",
+        json={
+            "karma_identity_id": "kid-code-6",
+            "wallet_address": stranger.address,
+            "wallet_signature": stranger.sign_message(encode_defunct(text=msg3)).signature.hex(),
+            "client_nonce": nonce3,
+        },
+    )
+    assert foreign.status_code == 200
+    assert foreign.json()["requests"] == []
+
+    # 而 agent 侧看 permissions 时也带着这条待确认请求
+    info = await client.get("/runtime/permissions", headers={"X-Karma-Runtime-Key": token})
+    assert info.status_code == 200
+    assert info.json()["pending_binding"]["agent_fingerprint"] == fingerprint

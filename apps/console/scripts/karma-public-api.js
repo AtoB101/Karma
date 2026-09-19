@@ -132,6 +132,31 @@
     });
   }
 
+  // agent 申请接入后要靠主人手输匹配码才生效：这三个是操作台侧的动作。
+  async function runtimeConfirmBindKey(payload) {
+    return karmaFetch("/runtime/confirm-bind-key", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function runtimeRejectBindKey(payload) {
+    return karmaFetch("/runtime/reject-bind-key", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async function runtimeListBindRequests(payload) {
+    return karmaFetch("/runtime/list-bind-requests", {
+      method: "POST",
+      headers: { ...headers(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
   async function getHealth() {
     return karmaFetch("/health", { method: "GET", headers: { Accept: "application/json" } });
   }
@@ -721,5 +746,14 @@
     jsonPut,
     activeProfileId,
   };
-  global.karmaRuntimeApi = { runtimeCreateKey, runtimeListKeys, runtimeRevokeKey, karmaFetch, headers };
+  global.karmaRuntimeApi = {
+    runtimeCreateKey,
+    runtimeListKeys,
+    runtimeRevokeKey,
+    runtimeConfirmBindKey,
+    runtimeRejectBindKey,
+    runtimeListBindRequests,
+    karmaFetch,
+    headers,
+  };
 })(window);

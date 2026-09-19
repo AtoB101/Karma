@@ -26,16 +26,32 @@ Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在�
    KARMA_AGENT_PRIVATE_KEY=<base64(32 字节种子) 或 64 位 hex>
    ```
 
-2. agent 启动时调一次：
+2. agent 启动时先「申请」——这一步只拿到一串匹配码：
 
    ```python
    rt = KarmaRuntime.from_env()
-   await rt.ensure_bound()      # 已绑就打开签名；没绑就顺手绑上
+   pending = await rt.ensure_bound()   # 还没绑：返回 status=pending_activation
+   print(pending["activation_code"])   # 例：K7Q2-M4XP —— 把这串码交给主人
    ```
 
-   等价写法：await rt.bind_key()；一次性的服务端调用是 POST /runtime/bind-key。
+   等价写法：`await rt.bind_key()`；一次性的服务端调用是 `POST /runtime/bind-key`。
+   服务端只把公钥存进「待确认」位（`pending_binding`），**绑定还没生效**。
+   重复申请（同一把公钥）是幂等的，回 `status=active`，不再发新码。
 
-3. 绑定之后**每个请求**都要带这四个头，缺一个就是 401：
+3. **主人在操作台输入这串匹配码**，绑定才真正落库。确认之后 agent 这边：
+
+   ```python
+   await rt.await_binding_activation()   # 轮询到 key_binding=agent，自动打开签名
+   ```
+
+   匹配码 15 分钟有效、最多试错 5 次；过期或用完就让 agent 重新申请（旧码同时作废）。
+   主人也可以拒绝这次接入，key 本身不受影响。
+
+   为什么非要这一步：Runtime Key 是不记名令牌。以前「谁先调 bind-key 谁就绑上」——
+   偷到 key 的人抢先绑自己的公钥，主人反而被挡在门外。现在码在 agent 手里、在主人手里
+   各一份，偷 key 的人两样都没有。
+
+4. 绑定之后**每个请求**都要带这四个头，缺一个就是 401：
 
    | 头 | 内容 |
    | --- | --- |
@@ -57,8 +73,19 @@ Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在�
    body_sha256:<sha256 of raw body>
    ```
 
-4. 换绑不做静默替换：已经绑过别的公钥时，必须由**当前那把私钥**签名；
-   真想换人，先吊销再铸新的（否则拿到 key 的人可以把真 agent 顶掉）。
+5. 换绑不做静默替换：已经绑过别的公钥时一律 409，先吊销再铸新的
+   （否则拿到 key 的人可以把真 agent 顶掉）。
+
+操作台侧（都要钱包签名，消息格式见 `services/runtime_wallet.py`）：
+
+| 端点 | 作用 |
+| --- | --- |
+| `POST /runtime/list-bind-requests` | 拉出「agent 已申请、还没输码确认」的待确认请求 |
+| `POST /runtime/confirm-bind-key` | 输入匹配码 + 钱包签名 → 绑定生效 |
+| `POST /runtime/reject-bind-key` | 拒绝这次接入 → 清掉待确认请求 |
+
+`POST /runtime/list-keys` 与 `GET /runtime/permissions` 的返回里都带 `pending_binding`
+（没有就是 null），操作台据此显示「有 agent 正在申请接入」。
 
 **没绑公钥的 key 行为完全不变**（服务端托管，认 key 不认人）——升级不会把已经在跑的 agent 打掉。
 绑不绑由 agent 决定；但只有绑了，「被偷走的 key 单独没用」才成立。
@@ -70,6 +97,9 @@ Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在�
 | key 最长有效期 | 90 天 | 「十年有效的钥匙」等于没有到期时间，出事时没有兜底 |
 | 时间戳容忍窗口 | 正负 300 秒 | 拦住原样重放 |
 | nonce_required | 含 place_order / request_settlement 时为 true | 会动钱的 key 每请求强制 nonce |
+| 匹配码有效期 | 15 分钟 | 码要人念、人敲，暴露窗口越短越好 |
+| 匹配码试错上限 | 5 次 | 8 位码（去掉 0/O/1/I）空间足够大，仍然限制暴力尝试 |
+| 绑定生效点 | 主人输入匹配码 + 钱包签名 | 「偷到 key 的人抢先绑自己的公钥」这条路被堵死 |
 
 POST /runtime/create-key 的返回里会带绑定声明 binding_scope 与平台签名
 binding_scope_signature（配 service_public_key 核对），agent 据此确认「这把 key 是发给我的」。
@@ -121,6 +151,10 @@ GET /runtime/permissions
 
 返回里的 key_binding 为 service（没绑）/ agent（已绑），agent_fingerprint 是绑定公钥的指纹
 （前 16 位给用户肉眼对照），nonce_required 表示这个 key 是否每请求强制 nonce。
+
+`pending_binding` 不为 null 表示「有 agent 申请了、主人还没输匹配码」：里面带
+`agent_fingerprint`、`expires_at`、`attempts_left`、`expired`。**它不算绑定生效**——
+此时 key 仍是服务端托管，agent 带签名调用会被拒（403）。
 
 ## 吊销
 

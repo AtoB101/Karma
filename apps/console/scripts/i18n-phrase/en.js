@@ -2342,3 +2342,28 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "运行时密钥已绑定 agent 公钥：每个请求都要 agent 私钥签名，光有钥匙不能办事": "Runtime key is bound to the agent's public key: every request must be signed by the agent's private key, so the key alone gets you nothing",
   "运行时密钥还没绑定 agent 公钥：agent 首次接入时会自动绑上，绑好前光有钥匙就能用": "The runtime key is not bound to an agent public key yet: the agent binds it automatically on first connect — until then the key alone is enough to use it",
 });
+// --- dynamic-append-20: 匹配码激活（两阶段绑定） ---
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "有一个 agent 正在申请接入这把密钥（还没生效）": "An agent is requesting access to this key (not active yet)",
+  "让 agent 把它拿到的那串匹配码显示给你，抄进下面的框里。签名确认之后，这个 agent 才能用这把密钥；在确认之前它花钱的请求一律被拒。": "Ask the agent to show you the activation code it received, then type it into the box below. Only after you sign the confirmation can this agent use the key; until then every request it makes to spend is refused.",
+  "agent 公钥指纹：{0} · 匹配码有效至 {1} · 还能试 {2} 次": "Agent public key fingerprint: {0} · activation code valid until {1} · {2} attempts left",
+  "还有 {0} 个待确认请求，处理完这个再点「读取已有密钥」。": "There are {0} more requests waiting for confirmation — handle this one, then click “Load the existing key” again.",
+  "有一个 agent 的接入申请已经过期没有确认（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "An agent's access request expired before you confirmed it (the activation code is valid for 15 minutes): have the agent request it again and it will hand you a fresh code.",
+  "运行时密钥还没绑定 agent 公钥：agent 首次接入时会申请绑定，你在操作台输入它给的匹配码之后才生效；在绑定生效前光有钥匙就能用。": "The runtime key is not bound to an agent public key yet: the agent requests the binding on first connect, and it only takes effect after you enter the matching code it gives you in the console. Until then the key alone is enough to use it.",
+  "确认绑定（要钱包签名）": "Confirm binding (wallet signature required)",
+  "拒绝这次接入": "Reject this access request",
+  "没有待确认的接入请求，先点「读取已有密钥」": "No access request is waiting for confirmation — click “Load the existing key” first",
+  "匹配码是 8 位（形如 XXXX-XXXX），请照 agent 显示的原样抄一遍": "The activation code is 8 characters (like XXXX-XXXX) — copy it exactly as the agent shows it",
+  "没有待确认的接入请求": "There is no access request waiting for confirmation",
+  "拒绝这次接入？这个 agent 拿到的匹配码会作废，密钥本身不受影响。": "Reject this access request? The activation code the agent received becomes void; the key itself is unaffected.",
+  "已确认绑定：{0}。这个 agent 之后每个请求都要私钥签名，被偷走的钥匙单独没用。": "Binding confirmed: {0}. From now on every request from this agent must be signed with its private key, so a stolen key on its own is useless.",
+  "已拒绝这次接入。要重新接入，让 agent 再申请一次。": "Access request rejected. To connect again, have the agent send a new request.",
+  "确认失败：{0}": "Confirmation failed: {0}",
+  "拒绝失败：{0}": "Rejection failed: {0}",
+  "运行时密钥用于 agent 服务器向 Karma 请求付款码 / 提交回执 / 申请结算。它绑定的权限与限额必须与「设置」页保存的自动授权策略完全一致，所以先保存策略再铸造。": "The runtime key is what the agent server uses to request payment vouchers from Karma, submit receipts and ask for settlement. Its permissions and limits must match the automation policy saved on the Settings page exactly, so save the policy before minting.",
+  "已有密钥": "Existing keys",
+  "· 到期": "· expires",
+  "主体身份卡 {0} → 本 agent {1}": "Master identity card {0} → this agent {1}",
+  "① 环境变量 · karma-agent.env": "① Environment variables · karma-agent.env",
+  "已读取 {0} 个运行时密钥": "Loaded {0} runtime keys",
+});

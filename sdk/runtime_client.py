@@ -5,6 +5,7 @@ Uses only a Runtime Key (never wallet private keys). See ``docs/runtime-key-guid
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -150,6 +151,8 @@ class KarmaRuntime:
         self._agent_key = agent_key_from_seed(seed) if (seed or "").strip() else None
         # 只有确认这把 key 已经绑了公钥才发签名：未绑的 key 带签名服务端会 403。
         self._sign_enabled = False
+        # 服务端回执里的待确认接入申请（agent 申请了但主人还没输码确认）。
+        self._pending_activation: dict[str, Any] | None = None
 
     @classmethod
     def from_env(cls) -> "KarmaRuntime":
@@ -213,9 +216,22 @@ class KarmaRuntime:
         return self._sign_enabled
 
     async def bind_key(self, *, agent_id: str | None = None) -> dict[str, Any]:
-        """把自己的 Ed25519 公钥钉在这把 Runtime Key 上。
+        """申请把自己的 Ed25519 公钥钉在这把 Runtime Key 上 —— 这一步只拿到匹配码。
 
-        绑定之后服务端每个请求都要验签：光有 key 字符串（被偷走的那一串）不再能办事。
+        返回里 ``status`` 是 ``pending_activation`` 时，绑定**还没生效**：payload 里的
+        ``activation_code`` 就是要交回主人的那串码，主人在 Karma 操作台输入并签名确认
+        之后绑定才落库。在那之前本 SDK 不会打开请求签名 —— 服务端对未绑定的 key
+        带了签名是直接 403 的。
+
+        拿到码以后有两条路：
+        * 把码显示给主人（``activation_code`` + ``activation_code_hint``）；
+        * 主人确认后用 ``await_binding_activation()`` 等它生效。
+
+        主人一直不确认的话，重新调 ``bind_key()`` 会拿到新码（旧的作废）。
+
+        ``status`` 是 ``active`` 表示这把 key 早就绑在同一把公钥上了（幂等重放，不发新码），
+        这时候直接打开签名即可。
+
         agent_id 取参数，其次 KARMA_AGENT_ID，最后问服务端这把 key 是铸给谁的。
         """
         if self._agent_key is None:
@@ -241,16 +257,63 @@ class KarmaRuntime:
             )
         out = self._parse_response(r)
         self.agent_id = target
-        self._sign_enabled = True
+        if not isinstance(out, dict):
+            raise RuntimeError("unexpected bind-key payload")
+        if str(out.get("status") or "") == "active":
+            self._sign_enabled = True
+        else:
+            # 待主人输码：绑定没生效，这时候打开签名只会让后续请求吃 403。
+            self._sign_enabled = False
+        self._pending_activation = out
         return out
 
+    @property
+    def pending_activation(self) -> dict[str, Any] | None:
+        """还没被主人确认的接入申请（含 activation_code）。没有就是 None。"""
+        if self._pending_activation is None:
+            return None
+        if str(self._pending_activation.get("status") or "") == "active":
+            return None
+        return self._pending_activation
+
+    async def await_binding_activation(
+        self, *, timeout_seconds: float = 900.0, interval_seconds: float = 5.0
+    ) -> dict[str, Any]:
+        """等主人在操作台输入匹配码。生效了就打开签名并返回权限信息。
+
+        超时抛 ``TimeoutError`` —— 匹配码 15 分钟就过期，别在这儿无声无息地等下去。
+        """
+        deadline = time.monotonic() + max(0.0, timeout_seconds)
+        while True:
+            try:
+                info = await self.get_permissions()
+            except RuntimeError:
+                # 刚好在这一轮生效：服务端开始要求签名，_parse_response 已经顺手把签名打开了，
+                # 再请求一次就带签名了。别把这种「已经生效」当成失败抛出去。
+                if not self._sign_enabled:
+                    raise
+                info = await self.get_permissions()
+            if str(info.get("key_binding") or "service") == "agent":
+                self._sign_enabled = True
+                self._pending_activation = None
+                return info
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    "binding is still pending: the key owner has not confirmed the "
+                    "activation code in the Karma console"
+                )
+            await asyncio.sleep(max(0.5, interval_seconds))
+
     async def ensure_bound(self) -> dict[str, Any]:
-        """启动时调一次：已绑就打开签名，没绑就顺手绑上。"""
+        """启动时调一次：已生效就打开签名；没绑就去申请（待确认时返回带码的 payload）。"""
         info = await self.get_permissions()
         if str(info.get("key_binding") or "service") == "agent":
             self._sign_enabled = True
             return info
-        return await self.bind_key(agent_id=str(info.get("agent_binding") or "").strip() or None)
+        out = await self.bind_key(agent_id=str(info.get("agent_binding") or "").strip() or None)
+        if str(out.get("status") or "") != "active":
+            return out
+        return await self.get_permissions()
 
     def _parse_response(self, resp: httpx.Response) -> Any:
         text = resp.text

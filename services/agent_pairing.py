@@ -506,10 +506,20 @@ def claim(*, pairing_code: str) -> dict[str, Any]:
             "store_now": True,
         },
         "env_snippet": env,
+        "runtime_key_binding": {
+            "runtime_key_id": delivery.get("runtime_key_id") or None,
+            "granted": bool(delivery.get("runtime_key")),
+            # 接入是两阶段的：agent 先申请拿到匹配码，主人输入并签名确认后才生效。
+            "step_1": "POST /runtime/bind-key with X-Karma-Runtime-Key to request activation",
+            "step_2": "show the returned activation_code to your owner",
+            "step_3": "owner enters it in the Karma console — only then is the binding live",
+            "note": "before the owner confirms, the key stays service-bound; request signing is refused",
+        },
         "next_steps": [
             "export KARMA_AGENT_ID / KARMA_API_KEY (and KARMA_RUNTIME_KEY when granted)",
             "GET /v1/agents/mine with X-Karma-Api-Key to confirm the identity resolves",
             "GET /runtime/policy with X-Karma-Runtime-Key to read the granted limits",
+            "POST /runtime/bind-key, then hand the activation code to your owner",
         ],
         "note_zh": "凭据只在这一次返回，服务端已不再保留明文；丢失就要重新配对。",
     }

@@ -13,7 +13,7 @@
  */
 (function (global) {
   var RUNTIME_URL = "https://karma-network.ai";
-  var state = { agent: null, apiKey: "", runtimeKey: "", keys: null, note: "", err: "" };
+  var state = { agent: null, apiKey: "", runtimeKey: "", keys: null, note: "", err: "", pendingKeyId: "" };
 
   function api() { return global.cyberKarmaApi; }
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -106,6 +106,33 @@
     ].join("\n");
   }
 
+  /* 匹配码激活：用户在操作台敲下 agent 显示的那串码，签名确认后绑定才生效。 */
+  function normalizeCode(v) {
+    var compact = String(v == null ? "" : v).toUpperCase().replace(/[^0-9A-Z]/g, "");
+    return compact.length === 8 ? compact.slice(0, 4) + "-" + compact.slice(4) : compact;
+  }
+
+  function buildConfirmBindMsg(f) {
+    return [
+      "Karma Runtime Key Bind Confirm",
+      "key_id:" + f.key_id,
+      "karma_identity_id:" + f.karma_identity_id,
+      "wallet_address:" + f.wallet_address,
+      "activation_code:" + f.activation_code,
+      "client_nonce:" + f.client_nonce,
+    ].join("\n");
+  }
+
+  function buildRejectBindMsg(f) {
+    return [
+      "Karma Runtime Key Bind Reject",
+      "key_id:" + f.key_id,
+      "karma_identity_id:" + f.karma_identity_id,
+      "wallet_address:" + f.wallet_address,
+      "client_nonce:" + f.client_nonce,
+    ].join("\n");
+  }
+
   async function walletProvider() {
     var p = global.KarmaWalletAuth && global.KarmaWalletAuth.activeProvider && global.KarmaWalletAuth.activeProvider();
     if (p && typeof p.request === "function") return p;
@@ -130,7 +157,8 @@
 
   function envText(a) {
     var lines = ["KARMA_AGENT_ID=" + a.agent_id];
-    lines.push("KARMA_API_KEY=" + (state.apiKey || "<粘贴接入时保存的 API Key>"));
+    // env 文件是机器读的，占位符统一用英文，避免英文页面里混进中文。
+    lines.push("KARMA_API_KEY=" + (state.apiKey || "<paste the API key you saved when the agent connected>"));
     lines.push("KARMA_RUNTIME_URL=" + RUNTIME_URL);
     if (state.runtimeKey) lines.push("KARMA_RUNTIME_KEY=" + state.runtimeKey);
     return lines.join("\n");
@@ -171,22 +199,30 @@
         out += '<p class="ag-hint">这张身份卡还没有运行时密钥。</p>';
       } else {
         out +=
-          '<div class="ag-snippet" style="margin-top:10px"><div class="ag-secret-label">已有密钥</div><pre>' +
-          esc(
-            state.keys
-              .map(function (k) {
-                return (
-                  k.key_id +
-                  " · " + (k.status || "") +
-                  " · 到期 " + String(k.expire_time || "").slice(0, 10) +
-                  " · " + ((k.permissions || []).join(",") || "—") +
-                  " · " + (k.agent_name || "—") +
-                  " · profile " + (k.profile_id || "—")
-                );
-              })
-              .join("\n")
-          ) +
-          "</pre></div>" +
+          // 每段文字都单独成节点：<pre> 里的整串会被翻译引擎跳过，
+          // 拆成元素之后「 · 到期 」这种碎片才翻得到。
+          '<div class="ag-snippet" style="margin-top:10px"><div class="ag-secret-label">已有密钥</div>' +
+          '<div class="ag-key-list">' +
+          state.keys
+            .map(function (k) {
+              return (
+                '<div class="ag-key-line">' +
+                "<span>" + esc(k.key_id) + "</span>" +
+                "<span> · </span>" +
+                "<span>" + esc(k.status || "") + "</span>" +
+                "<span> · 到期 </span>" +
+                "<span>" + esc(String(k.expire_time || "").slice(0, 10)) + "</span>" +
+                "<span> · </span>" +
+                "<span>" + esc((k.permissions || []).join(",") || "—") + "</span>" +
+                "<span> · </span>" +
+                "<span>" + esc(k.agent_name || "—") + "</span>" +
+                "<span> · profile </span>" +
+                "<span>" + esc(k.profile_id || "—") + "</span>" +
+                "</div>"
+              );
+            })
+            .join("") +
+          "</div></div>" +
           bindingHint(state.keys);
       }
     }
@@ -198,11 +234,52 @@
   function bindingHint(keys) {
     var live = (keys || []).filter(function (k) { return (k.status || "") === "active"; });
     if (!live.length) return "";
+    state.pendingKeyId = "";
+    var out = "";
+    // ① 有 agent 申请了、还没输码：这是用户在操作台唯一要做的事，放最上面。
+    var waiting = live.filter(function (k) {
+      return k.pending_binding && !k.pending_binding.expired;
+    });
+    if (waiting.length) {
+      var k = waiting[0];
+      var pb = k.pending_binding || {};
+      state.pendingKeyId = k.key_id;
+      out +=
+        '<div class="ag-snippet" style="margin-top:10px">' +
+        '<div class="ag-secret-label">有一个 agent 正在申请接入这把密钥（还没生效）</div>' +
+        '<p class="ag-hint">让 agent 把它拿到的那串匹配码显示给你，抄进下面的框里。签名确认之后，' +
+        "这个 agent 才能用这把密钥；在确认之前它花钱的请求一律被拒。</p>" +
+        '<p class="ag-hint">agent 公钥指纹：' + esc(pb.agent_fingerprint || "—") +
+        " · 匹配码有效至 " + esc(String(pb.expires_at || "").slice(0, 16).replace("T", " ")) +
+        " · 还能试 " + esc(pb.attempts_left == null ? "—" : pb.attempts_left) + " 次</p>" +
+        '<input id="ho-bind-code" type="text" inputmode="latin" autocomplete="off" spellcheck="false"' +
+        ' maxlength="9" placeholder="XXXX-XXXX" value="" />' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+        btn("确认绑定（要钱包签名）", "ho-bind-confirm", "primary") +
+        btn("拒绝这次接入", "ho-bind-reject", "red") +
+        "</div>" +
+        (waiting.length > 1
+          ? '<p class="ag-hint">还有 ' + esc(waiting.length - 1) + " 个待确认请求，处理完这个再点「读取已有密钥」。</p>"
+          : "") +
+        "</div>";
+    } else {
+      var stale = live.filter(function (k) { return k.pending_binding && k.pending_binding.expired; });
+      if (stale.length) {
+        out +=
+          '<p class="ag-hint">有一个 agent 的接入申请已经过期没有确认（匹配码 15 分钟有效）：' +
+          "让 agent 重新申请一次，会把新的匹配码给你。</p>";
+      }
+    }
+    // ② 绑定总状态：绑了以后光有钥匙字符串花不了钱。
     var unbound = live.filter(function (k) { return (k.key_binding || "service") !== "agent"; });
     if (!unbound.length) {
-      return '<p class="ag-hint">运行时密钥已绑定 agent 公钥：每个请求都要 agent 私钥签名，光有钥匙不能办事</p>';
+      out += '<p class="ag-hint">运行时密钥已绑定 agent 公钥：每个请求都要 agent 私钥签名，光有钥匙不能办事</p>';
+    } else {
+      out +=
+        '<p class="ag-hint">运行时密钥还没绑定 agent 公钥：agent 首次接入时会申请绑定，' +
+        "你在操作台输入它给的匹配码之后才生效；在绑定生效前光有钥匙就能用。</p>";
     }
-    return '<p class="ag-hint">运行时密钥还没绑定 agent 公钥：agent 首次接入时会自动绑上，绑好前光有钥匙就能用</p>';
+    return out;
   }
 
   function render() {
@@ -236,7 +313,12 @@
       "</div>" +
 
       '<div class="ag-snippet" style="margin-top:14px"><div class="ag-secret-label">③ 接入自检</div>' +
-      "<pre>" + esc(selfCheckText(a)) + "</pre>" +
+      '<div class="ag-check-lines">' +
+      selfCheckText(a)
+        .split("\n")
+        .map(function (line) { return "<div>" + (line ? esc(line) : "&nbsp;") + "</div>"; })
+        .join("") +
+      "</div>" +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
       btn("复制命令", "ho-copy-check") +
       btn("在页面运行自检", "ho-run-check") +
@@ -277,6 +359,8 @@
     bind("ho-list", function () { listKeys(); });
     bind("ho-run-check", function () { runCheck(a); });
     bind("ho-revoke", function () { revoke(a); });
+    bind("ho-bind-confirm", function () { confirmBind(); });
+    bind("ho-bind-reject", function () { rejectBind(); });
     bind("ho-refresh", function () { open(a.agent_id); });
   }
 
@@ -328,6 +412,89 @@
     } catch (e) {
       state.note = "";
       state.err = "读取失败：" + (e.message || e);
+    }
+    render();
+  }
+
+  // agent 把匹配码给主人 → 主人在这里输码 + 钱包签名 → 绑定才落库。
+  async function confirmBind() {
+    var keyId = state.pendingKeyId;
+    if (!keyId) { state.err = "没有待确认的接入请求，先点「读取已有密钥」"; render(); return; }
+    var input = document.getElementById("ho-bind-code");
+    var code = normalizeCode(input ? input.value : "");
+    if (!/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(code)) {
+      state.err = "匹配码是 8 位（形如 XXXX-XXXX），请照 agent 显示的原样抄一遍";
+      render();
+      return;
+    }
+    var prov = await walletProvider();
+    if (!prov) { state.err = "未检测到可用钱包，请先用右上角「连接钱包」认证"; render(); return; }
+    state.err = "";
+    state.note = "等待钱包签名…";
+    render();
+    try {
+      var accounts = await prov.request({ method: "eth_requestAccounts" });
+      var wallet = accounts[0];
+      var nonce = "console-" + Date.now().toString(36);
+      var msg = buildConfirmBindMsg({
+        key_id: keyId,
+        karma_identity_id: identity(),
+        wallet_address: wallet,
+        activation_code: code,
+        client_nonce: nonce,
+      });
+      var sig = await prov.request({ method: "personal_sign", params: [msg, wallet] });
+      var r = await global.karmaRuntimeApi.runtimeConfirmBindKey({
+        key_id: keyId,
+        karma_identity_id: identity(),
+        wallet_address: wallet,
+        wallet_signature: sig,
+        activation_code: code,
+        client_nonce: nonce,
+      });
+      await listKeys();
+      state.note =
+        "已确认绑定：" + ((r && r.agent_fingerprint) || "—") +
+        "。这个 agent 之后每个请求都要私钥签名，被偷走的钥匙单独没用。";
+    } catch (e) {
+      state.note = "";
+      state.err = "确认失败：" + (e.message || e);
+    }
+    render();
+  }
+
+  async function rejectBind() {
+    var keyId = state.pendingKeyId;
+    if (!keyId) { state.err = "没有待确认的接入请求"; render(); return; }
+    if (!global.confirm("拒绝这次接入？这个 agent 拿到的匹配码会作废，密钥本身不受影响。")) return;
+    var prov = await walletProvider();
+    if (!prov) { state.err = "未检测到可用钱包，请先用右上角「连接钱包」认证"; render(); return; }
+    state.err = "";
+    state.note = "等待钱包签名…";
+    render();
+    try {
+      var accounts = await prov.request({ method: "eth_requestAccounts" });
+      var wallet = accounts[0];
+      var nonce = "console-" + Date.now().toString(36);
+      var msg = buildRejectBindMsg({
+        key_id: keyId,
+        karma_identity_id: identity(),
+        wallet_address: wallet,
+        client_nonce: nonce,
+      });
+      var sig = await prov.request({ method: "personal_sign", params: [msg, wallet] });
+      await global.karmaRuntimeApi.runtimeRejectBindKey({
+        key_id: keyId,
+        karma_identity_id: identity(),
+        wallet_address: wallet,
+        wallet_signature: sig,
+        client_nonce: nonce,
+      });
+      await listKeys();
+      state.note = "已拒绝这次接入。要重新接入，让 agent 再申请一次。";
+    } catch (e) {
+      state.note = "";
+      state.err = "拒绝失败：" + (e.message || e);
     }
     render();
   }

@@ -99,6 +99,59 @@ def build_revoke_key_message(*, key_id: str, karma_identity_id: str, wallet_addr
     )
 
 
+def build_confirm_bind_message(
+    *,
+    key_id: str,
+    karma_identity_id: str,
+    wallet_address: str,
+    activation_code: str,
+    client_nonce: str,
+) -> str:
+    """用户在操作台敲下匹配码那一下签的就是这段文字 —— 把码也钉进签名里。"""
+    return "\n".join(
+        [
+            "Karma Runtime Key Bind Confirm",
+            f"key_id:{key_id}",
+            f"karma_identity_id:{karma_identity_id}",
+            f"wallet_address:{wallet_address}",
+            f"activation_code:{activation_code}",
+            f"client_nonce:{client_nonce}",
+        ]
+    )
+
+
+def build_reject_bind_message(
+    *,
+    key_id: str,
+    karma_identity_id: str,
+    wallet_address: str,
+    client_nonce: str,
+) -> str:
+    """用户拒绝这次接入时签的那段文字。"""
+    return "\n".join(
+        [
+            "Karma Runtime Key Bind Reject",
+            f"key_id:{key_id}",
+            f"karma_identity_id:{karma_identity_id}",
+            f"wallet_address:{wallet_address}",
+            f"client_nonce:{client_nonce}",
+        ]
+    )
+
+
+def build_list_bind_requests_message(
+    *, karma_identity_id: str, wallet_address: str, client_nonce: str
+) -> str:
+    """操作台拉取「待确认接入请求」时签的那段文字。"""
+    return "\n".join(
+        [
+            "Karma Runtime Key Bind List",
+            f"karma_identity_id:{karma_identity_id}",
+            f"wallet_address:{wallet_address}",
+            f"client_nonce:{client_nonce}",
+        ]
+    )
+
 def build_list_keys_message(*, karma_identity_id: str, wallet_address: str, client_nonce: str) -> str:
     return "\n".join(
         [

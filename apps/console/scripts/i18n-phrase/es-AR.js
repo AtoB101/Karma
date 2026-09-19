@@ -2344,3 +2344,28 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "运行时密钥已绑定 agent 公钥：每个请求都要 agent 私钥签名，光有钥匙不能办事": "La clave de ejecución está vinculada a la clave pública del agent: cada request tiene que venir firmado con la clave privada del agent, así que la clave sola no sirve para nada",
   "运行时密钥还没绑定 agent 公钥：agent 首次接入时会自动绑上，绑好前光有钥匙就能用": "La clave de ejecución todavía no está vinculada a una clave pública del agent: el agent la vincula sola la primera vez que se conecta; hasta entonces alcanza con la clave",
 });
+// --- dynamic-append-20: 匹配码激活（两阶段绑定） ---
+Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
+  "有一个 agent 正在申请接入这把密钥（还没生效）": "Un agent está pidiendo acceso a esta clave (todavía no está activa)",
+  "让 agent 把它拿到的那串匹配码显示给你，抄进下面的框里。签名确认之后，这个 agent 才能用这把密钥；在确认之前它花钱的请求一律被拒。": "Pedile al agent que te muestre el código de emparejamiento que recibió y escribilo en el cuadro de abajo. Recién cuando firmes la confirmación este agent puede usar la clave; hasta entonces se rechaza todo pedido suyo que implique gastar.",
+  "agent 公钥指纹：{0} · 匹配码有效至 {1} · 还能试 {2} 次": "Huella de la clave pública del agent: {0} · código válido hasta {1} · quedan {2} intentos",
+  "还有 {0} 个待确认请求，处理完这个再点「读取已有密钥」。": "Hay {0} solicitudes más esperando confirmación: resolvé esta y volvé a tocar «Cargar la clave existente».",
+  "有一个 agent 的接入申请已经过期没有确认（匹配码 15 分钟有效）：让 agent 重新申请一次，会把新的匹配码给你。": "La solicitud de acceso de un agent venció sin que la confirmes (el código de emparejamiento dura 15 minutos): hacé que el agent la pida de nuevo y te dará un código nuevo.",
+  "运行时密钥还没绑定 agent 公钥：agent 首次接入时会申请绑定，你在操作台输入它给的匹配码之后才生效；在绑定生效前光有钥匙就能用。": "La clave de ejecución todavía no está vinculada a una clave pública del agent: el agent pide la vinculación la primera vez que se conecta y recién queda activa cuando escribís en el panel el código de emparejamiento que te da. Hasta entonces basta con la clave.",
+  "确认绑定（要钱包签名）": "Confirmar la vinculación (requiere firma de la billetera)",
+  "拒绝这次接入": "Rechazar este acceso",
+  "没有待确认的接入请求，先点「读取已有密钥」": "No hay ninguna solicitud de acceso esperando confirmación: primero tocá «Cargar la clave existente»",
+  "匹配码是 8 位（形如 XXXX-XXXX），请照 agent 显示的原样抄一遍": "El código de emparejamiento tiene 8 caracteres (como XXXX-XXXX): copialo tal cual te lo muestra el agent",
+  "没有待确认的接入请求": "No hay ninguna solicitud de acceso esperando confirmación",
+  "拒绝这次接入？这个 agent 拿到的匹配码会作废，密钥本身不受影响。": "¿Rechazar este acceso? El código de emparejamiento que recibió el agent queda anulado; la clave en sí no se ve afectada.",
+  "已确认绑定：{0}。这个 agent 之后每个请求都要私钥签名，被偷走的钥匙单独没用。": "Vinculación confirmada: {0}. Desde ahora cada request de este agent tiene que venir firmado con su clave privada, así que una clave robada por sí sola no sirve.",
+  "已拒绝这次接入。要重新接入，让 agent 再申请一次。": "Acceso rechazado. Para volver a conectarlo, hacé que el agent lo pida de nuevo.",
+  "确认失败：{0}": "Falló la confirmación: {0}",
+  "拒绝失败：{0}": "Falló el rechazo: {0}",
+  "运行时密钥用于 agent 服务器向 Karma 请求付款码 / 提交回执 / 申请结算。它绑定的权限与限额必须与「设置」页保存的自动授权策略完全一致，所以先保存策略再铸造。": "La clave de ejecución es lo que usa el servidor del agent para pedir códigos de pago a Karma, enviar recibos y solicitar liquidaciones. Sus permisos y límites tienen que coincidir exactamente con la póliza de autorización automática guardada en la página «Configuración», así que guardá la póliza antes de emitirla.",
+  "已有密钥": "Claves existentes",
+  "· 到期": "· vence",
+  "主体身份卡 {0} → 本 agent {1}": "Tarjeta de identidad principal {0} → este agent {1}",
+  "① 环境变量 · karma-agent.env": "① Variables de entorno · karma-agent.env",
+  "已读取 {0} 个运行时密钥": "Se cargaron {0} claves de ejecución",
+});

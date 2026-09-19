@@ -808,6 +808,32 @@ body.confidential [data-bind="b_released"] {
 #agents #ag-handoff-card[hidden] { display: none !important; }
 #agents #ag-handoff .ag-snippet pre { max-height: 280px; }
 #agents #ag-handoff .ag-secret { flex-wrap: wrap; }
+/* 交付包里的密钥清单 / 自检命令：不用 <pre>（翻译引擎会整块跳过），
+   改成一行一个 div，中文碎片也翻得到。 */
+#agents #ag-handoff .ag-key-list,
+#agents #ag-handoff .ag-check-lines {
+  font-size: 11px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(6, 12, 20, 0.9);
+  overflow: auto;
+  max-height: 280px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.7;
+}
+#agents #ag-handoff .ag-key-line { white-space: nowrap; }
+#agents #ag-handoff #ho-bind-code {
+  width: 190px;
+  margin-top: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 224, 255, 0.35);
+  background: rgba(6, 12, 20, 0.85);
+  color: inherit;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
 #agents #ag-handoff .tag.ok { border-color: rgba(74, 222, 128, 0.45); color: #7ee2a8; }
 
 /* 账单：主身份总账 ↔ 子身份明细 */

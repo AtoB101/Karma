@@ -894,6 +894,13 @@ class RuntimeKeyModel(Base):
     agent_public_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # 会动钱的权限（place_order / request_settlement）→ 每请求强制 nonce。
     nonce_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
+    # 待确认的接入：agent 申请了绑定、但用户还没在操作台输入匹配码。
+    # 只有 pending_code_hash 对上（confirm_key_binding）才会写进 agent_public_key。
+    pending_agent_public_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pending_code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pending_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    pending_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
+    pending_requested_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

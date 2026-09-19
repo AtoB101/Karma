@@ -61,22 +61,30 @@ from services.runtime_key_service import (
     RuntimeKeyContext,
     agent_binding_fingerprint,
     assert_permission,
-    bind_agent_public_key,
     binding_scope,
     check_replay_nonce,
     check_single_and_daily_limits,
+    confirm_key_binding,
     create_runtime_key_record,
+    display_activation_code,
     hash_binding_scope,
     list_runtime_keys_for_identity,
     load_active_context,
+    normalize_activation_code,
+    pending_binding_view,
+    reject_key_binding,
+    request_key_binding,
     revoke_runtime_key,
     verify_signed_request,
 )
 from services.runtime_response_sign import signed_json_response
 from services.runtime_synthetic_request import synthetic_request
 from services.runtime_wallet import (
+    build_confirm_bind_message,
     build_create_key_message,
+    build_list_bind_requests_message,
     build_list_keys_message,
+    build_reject_bind_message,
     build_revoke_key_message,
     verify_personal_message,
 )
@@ -94,6 +102,31 @@ router = APIRouter()
 def _utc_iso() -> str:
     """毫秒级 UTC 时间戳，给 agent 判断数据新鲜度用。"""
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _binding_receipt(row: RuntimeKeyModel, agent_id: str) -> dict:
+    """绑定生效后的平台签收回执 —— agent 自己也能验证「绑的确实是我」。
+
+    agent 拿 binding_scope 原文 + 平台公钥就能验：绑定范围是平台背书的，
+    不是它自己嘴上说的。没这个回执，agent 没法证明自己真的绑上了。
+    """
+    scope = binding_scope(
+        key_id=row.key_id,
+        karma_identity_id=row.karma_identity_id,
+        agent_id=agent_id,
+    )
+    return {
+        "binding_scope": scope,
+        "binding_scope_fingerprint": hash_binding_scope(scope),
+        "binding_scope_signature": signing_service.sign_bytes(scope.encode("utf-8")),
+        "service_public_key": signing_service.get_public_key_b64(),
+        "required_headers": [
+            "X-Karma-Runtime-Key",
+            "X-Karma-Agent-Signature",
+            "X-Karma-Runtime-Timestamp",
+            "X-Karma-Runtime-Nonce",
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +322,8 @@ async def runtime_list_keys(body: ListRuntimeKeysBody, db: AsyncSession = Depend
             "agent_fingerprint": (
                 agent_binding_fingerprint(r.agent_public_key) if r.agent_public_key else ""
             ),
+            # 有没有「agent 申请了、等用户输匹配码」的待确认请求。
+            "pending_binding": pending_binding_view(r),
         }
         for r in rows
     ]
@@ -316,13 +351,20 @@ async def runtime_bind_key(
     x_karma_runtime_timestamp: Annotated[str | None, Header(alias="X-Karma-Runtime-Timestamp")] = None,
     x_karma_runtime_nonce: Annotated[str | None, Header(alias="X-Karma-Runtime-Nonce")] = None,
 ):
-    """把 agent 自己的 Ed25519 公钥钉在这把 Runtime Key 上。
+    """申请把 agent 的 Ed25519 公钥钉在这把 Runtime Key 上 —— 第一步。
 
-    绑定前：光有 key 就能调用（老路径）。
-    绑定后：每个请求都要带 X-Karma-Agent-Signature —— 被偷走的 key 单独没用。
+    申请之后绑定**还没生效**：服务端只在待确认位存下公钥，回一串 8 位匹配码。
+    agent 必须把这串码交回主人，主人在操作台手输并签名确认
+    （``POST /runtime/confirm-bind-key``）之后，绑定才真正落库。
 
-    换绑不做静默替换：已经绑过别的公钥时，必须由当前那把私钥签名；
-    真想换人，先吊销再铸新的。
+    为什么这么绕：Runtime Key 是不记名令牌。以前「谁先调 bind-key 谁就绑上」——
+    偷到 key 的人抢先绑自己的公钥，主人反而被挡在外面。现在码在 agent 手里、
+    在主人手里各一份，偷 key 的人两样都没有。
+
+    已经绑在同一把公钥上的重复申请是幂等的：不再发新码，直接回 status=active。
+    绑定生效后每个请求都必须带 X-Karma-Agent-Signature。
+
+    换绑不做静默替换：已经绑过别的公钥时一律 409，先吊销再铸新的。
     """
     token = (x_karma_runtime_key or "").strip()
     if not token:
@@ -341,7 +383,7 @@ async def runtime_bind_key(
             nonce_header=x_karma_runtime_nonce,
         )
     try:
-        row = await bind_agent_public_key(
+        row, activation_code, status = await request_key_binding(
             db=db,
             key_id=ctx.key_id,
             agent_id=body.agent_id,
@@ -351,33 +393,228 @@ async def runtime_bind_key(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await db.commit()
     bound_agent = (row.agent_binding or body.agent_id).strip()
-    scope = binding_scope(
-        key_id=row.key_id,
-        karma_identity_id=row.karma_identity_id,
-        agent_id=bound_agent,
+    payload = {
+        "key_id": row.key_id,
+        "agent_id": bound_agent,
+        "status": status,
+        "key_binding": row.key_binding,
+        "agent_fingerprint": (
+            agent_binding_fingerprint(row.agent_public_key) if row.agent_public_key else ""
+        ),
+        "nonce_required": row.nonce_required,
+        "pending_binding": pending_binding_view(row),
+    }
+    if status == "active":
+        payload.update(_binding_receipt(row, bound_agent))
+    else:
+        pending = pending_binding_view(row) or {}
+        payload.update(
+            {
+                "activation_code": activation_code,
+                "activation_expires_at": pending.get("expires_at"),
+                "activation_attempts_left": pending.get("attempts_left"),
+                "activation_code_hint": (
+                    "把这串匹配码交给这把 key 的主人，让他在 Karma 操作台输入并签名确认；"
+                    "在他确认之前绑定不生效，你调用接口会一直是服务端托管状态。"
+                ),
+                "confirm_endpoint": "/runtime/confirm-bind-key",
+            }
+        )
+    return signed_json_response(payload)
+
+
+# ---------------------------------------------------------------------------
+# 操作台侧：确认 / 拒绝 agent 的接入申请（一律要钱包签名）
+# ---------------------------------------------------------------------------
+
+
+class ConfirmBindKeyBody(BaseModel):
+    key_id: str
+    karma_identity_id: str
+    wallet_address: str
+    wallet_signature: str
+    activation_code: str = Field(min_length=1, max_length=32)
+    client_nonce: str = Field(min_length=8, max_length=128)
+
+
+class RejectBindKeyBody(BaseModel):
+    key_id: str
+    karma_identity_id: str
+    wallet_address: str
+    wallet_signature: str
+    client_nonce: str = Field(min_length=8, max_length=128)
+
+
+class ListBindRequestsBody(BaseModel):
+    karma_identity_id: str
+    wallet_address: str
+    wallet_signature: str
+    client_nonce: str
+
+
+async def _owned_identity_key(
+    db: AsyncSession, *, key_id: str, karma_identity_id: str, wallet_address: str
+) -> RuntimeKeyModel:
+    """这把 key 必须属于这个身份、并且是这个钱包的。"""
+    validate_public_url_segment("key_id", key_id)
+    validate_public_url_segment("karma_identity_id", karma_identity_id)
+    row = await db.get(RuntimeKeyModel, key_id)
+    if not row or row.karma_identity_id != karma_identity_id:
+        raise HTTPException(status_code=404, detail="runtime key not found for identity")
+    if row.wallet_address.lower() != wallet_address.strip().lower():
+        raise HTTPException(status_code=403, detail="wallet does not own this runtime key")
+    return row
+
+
+def _confirm_bind_signature_ok(
+    *,
+    key_id: str,
+    karma_identity_id: str,
+    wallet_address: str,
+    wallet_signature: str,
+    client_nonce: str,
+    candidates: list[str],
+) -> None:
+    """验「确认绑定」的钱包签名。
+
+    默认签的是显示形式 XXXX-XXXX；客户端要是签了紧凑形式（没有连字符），或者把用户
+    原样输入的字串（小写、带空格）拿去签，这里也会接着试 —— 用户不该为了一个连字符
+    看到莫名其妙的 401。
+    """
+    last: HTTPException | None = None
+    for candidate in candidates:
+        msg = build_confirm_bind_message(
+            key_id=key_id,
+            karma_identity_id=karma_identity_id,
+            wallet_address=wallet_address,
+            activation_code=candidate,
+            client_nonce=client_nonce,
+        )
+        try:
+            verify_personal_message(
+                message=msg,
+                wallet_address=wallet_address,
+                wallet_signature=wallet_signature,
+            )
+            return
+        except HTTPException as exc:
+            last = exc
+    if last is not None:
+        raise last
+
+
+@router.post("/confirm-bind-key")
+async def runtime_confirm_bind_key(
+    body: ConfirmBindKeyBody, db: AsyncSession = Depends(get_db)
+):
+    """主人在操作台敲下匹配码 + 钱包签名 —— 到这一步 agent 绑定才生效。"""
+    await _owned_identity_key(
+        db,
+        key_id=body.key_id,
+        karma_identity_id=body.karma_identity_id,
+        wallet_address=body.wallet_address,
     )
+    validate_public_url_segment("client_nonce", body.client_nonce)
+    normalized = normalize_activation_code(body.activation_code)
+    candidates: list[str] = []
+    for candidate in (
+        display_activation_code(normalized),
+        normalized,
+        (body.activation_code or "").strip(),
+    ):
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    _confirm_bind_signature_ok(
+        key_id=body.key_id,
+        karma_identity_id=body.karma_identity_id,
+        wallet_address=body.wallet_address,
+        wallet_signature=body.wallet_signature,
+        client_nonce=body.client_nonce,
+        candidates=candidates,
+    )
+    row = await confirm_key_binding(db=db, key_id=body.key_id, code=normalized)
+    await db.commit()
+    bound_agent = (row.agent_binding or "").strip()
+    payload = {
+        "key_id": row.key_id,
+        "agent_id": bound_agent,
+        "status": "active",
+        "key_binding": row.key_binding,
+        "agent_fingerprint": (
+            agent_binding_fingerprint(row.agent_public_key) if row.agent_public_key else ""
+        ),
+        "nonce_required": row.nonce_required,
+        "pending_binding": None,
+    }
+    payload.update(_binding_receipt(row, bound_agent))
+    return signed_json_response(payload)
+
+
+@router.post("/reject-bind-key")
+async def runtime_reject_bind_key(
+    body: RejectBindKeyBody, db: AsyncSession = Depends(get_db)
+):
+    """主人拒绝这次接入：清掉待确认请求。key 本身不动，agent 也没被吊销。"""
+    await _owned_identity_key(
+        db,
+        key_id=body.key_id,
+        karma_identity_id=body.karma_identity_id,
+        wallet_address=body.wallet_address,
+    )
+    validate_public_url_segment("client_nonce", body.client_nonce)
+    msg = build_reject_bind_message(
+        key_id=body.key_id,
+        karma_identity_id=body.karma_identity_id,
+        wallet_address=body.wallet_address,
+        client_nonce=body.client_nonce,
+    )
+    verify_personal_message(
+        message=msg,
+        wallet_address=body.wallet_address,
+        wallet_signature=body.wallet_signature,
+    )
+    row = await reject_key_binding(db=db, key_id=body.key_id)
+    await db.commit()
     return signed_json_response(
         {
             "key_id": row.key_id,
-            "agent_id": bound_agent,
+            "status": "rejected",
             "key_binding": row.key_binding,
-            "agent_fingerprint": (
-                agent_binding_fingerprint(row.agent_public_key) if row.agent_public_key else ""
-            ),
-            "nonce_required": row.nonce_required,
-            "binding_scope": scope,
-            "binding_scope_fingerprint": hash_binding_scope(scope),
-            "binding_scope_signature": signing_service.sign_bytes(scope.encode("utf-8")),
-            "service_public_key": signing_service.get_public_key_b64(),
-            "required_headers": [
-                "X-Karma-Runtime-Key",
-                "X-Karma-Agent-Signature",
-                "X-Karma-Runtime-Timestamp",
-                "X-Karma-Runtime-Nonce",
-            ],
+            "pending_binding": pending_binding_view(row),
         }
     )
 
+
+@router.post("/list-bind-requests")
+async def runtime_list_bind_requests(
+    body: ListBindRequestsBody, db: AsyncSession = Depends(get_db)
+):
+    """操作台拉「agent 已申请、还没输码确认」的接入请求。"""
+    validate_public_url_segment("karma_identity_id", body.karma_identity_id)
+    validate_public_url_segment("client_nonce", body.client_nonce)
+    msg = build_list_bind_requests_message(
+        karma_identity_id=body.karma_identity_id,
+        wallet_address=body.wallet_address,
+        client_nonce=body.client_nonce,
+    )
+    verify_personal_message(
+        message=msg,
+        wallet_address=body.wallet_address,
+        wallet_signature=body.wallet_signature,
+    )
+    rows = await list_runtime_keys_for_identity(db=db, karma_identity_id=body.karma_identity_id)
+    requests = []
+    for r in rows:
+        if r.wallet_address.lower() != body.wallet_address.strip().lower():
+            continue
+        view = pending_binding_view(r)
+        if not view:
+            continue
+        view["agent_name"] = r.agent_name
+        view["key_binding"] = r.key_binding
+        requests.append(view)
+    requests.sort(key=lambda v: v.get("expires_at") or "")
+    return signed_json_response({"requests": requests})
 
 # ---------------------------------------------------------------------------
 # Runtime Key authenticated agent paths
@@ -419,6 +656,7 @@ async def runtime_permissions(
     db: AsyncSession = Depends(get_db),
 ):
     daily_used = await get_daily_used_async(db, ctx.key_id)
+    ctx_row = await db.get(RuntimeKeyModel, ctx.key_id)
     return signed_json_response(
         {
             "key_id": ctx.key_id,
@@ -435,6 +673,7 @@ async def runtime_permissions(
                 agent_binding_fingerprint(ctx.agent_public_key) if ctx.agent_public_key else ""
             ),
             "nonce_required": ctx.nonce_required,
+            "pending_binding": pending_binding_view(ctx_row) if ctx_row else None,
             "chain_id": int(settings.testnet_chain_id or 0),
             "runtime_url": (settings.public_runtime_base_url or "").strip(),
         }

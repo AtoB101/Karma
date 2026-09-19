@@ -45,6 +45,12 @@ NONCE_REQUIRED_PERMISSIONS = frozenset({"place_order", "request_settlement"})
 # agent 请求签名的时间戳容忍窗口（秒）。超出直接 401，配合 nonce 去重拦住重放。
 AGENT_SIGNATURE_TOLERANCE_SECONDS = 300
 
+# 匹配码：agent 申请接入后拿到这串码，用户看到它、在操作台手输一次，绑定才算生效。
+# 字母表去掉了 0/O/1/I —— 这是要人念、人敲的码，形近字符只会制造事故。
+BIND_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+BIND_CODE_TTL_SECONDS = 900
+BIND_CODE_MAX_ATTEMPTS = 5
+
 # In-process replay / idempotency (single worker — use Redis in multi-instance production).
 _replay: dict[str, deque[tuple[str, float]]] = defaultdict(deque)
 _DAILY: dict[str, dict[str, float]] = defaultdict(dict)  # key_id -> iso_date -> cumulative amount
@@ -82,6 +88,39 @@ def binding_scope(*, key_id: str, karma_identity_id: str, agent_id: str) -> str:
             f"agent_id:{agent_id.strip()}",
         ]
     )
+
+
+def new_activation_code() -> str:
+    """生成 8 位匹配码，显示成 XXXX-XXXX（好念、好手输）。"""
+    raw = "".join(secrets.choice(BIND_CODE_ALPHABET) for _ in range(8))
+    return f"{raw[:4]}-{raw[4:]}"
+
+
+def normalize_activation_code(value: str) -> str:
+    """把用户手输的匹配码收敛成 8 位大写字母数字（容忍空格、连字符、小写）。"""
+    compact = "".join(ch for ch in (value or "").upper() if ch.isalnum())
+    if len(compact) != 8 or any(ch not in BIND_CODE_ALPHABET for ch in compact):
+        raise HTTPException(
+            status_code=400,
+            detail="activation code must be 8 characters (XXXX-XXXX)",
+        )
+    return compact
+
+
+def display_activation_code(compact: str) -> str:
+    """把 8 位紧凑码还原成给人看的 XXXX-XXXX。签名消息用这个形式。"""
+    text = (compact or "").strip().upper()
+    if len(text) == 8:
+        return f"{text[:4]}-{text[4:]}"
+    return text
+
+
+def hash_activation_code(*, key_id: str, code: str) -> str:
+    """匹配码只存 HMAC —— 库被看到也还原不出码，码只在 agent 手里。"""
+    normalized = normalize_activation_code(code)
+    return hmac.new(
+        _server_material(), f"bind_code:{key_id}:{normalized}".encode(), hashlib.sha256
+    ).hexdigest()
 
 
 class PublicKeyError(ValueError):
@@ -419,26 +458,55 @@ async def create_runtime_key_record(
     return token, row
 
 
-async def bind_agent_public_key(
-    *,
-    db: AsyncSession,
-    key_id: str,
-    agent_id: str,
-    agent_public_key: str,
-) -> RuntimeKeyModel:
-    """把一把已铸造的 key 钉死在某个 agent 的公钥上。
-
-    绑定之后，光有 key 字符串（比如被偷走的那一串）不再能办事：每个请求都要由
-    对应私钥签名。这就是「使用时刻硬校验」的落地点。
-
-    已经绑过别的公钥时不做静默替换 —— 想换就先吊销再铸新的，
-    否则拿到 key 的人可以把真 agent 顶掉。
-    """
+async def _load_activatable_row(db: AsyncSession, key_id: str) -> RuntimeKeyModel:
     row = await db.get(RuntimeKeyModel, key_id)
     if not row or row.status != "active":
         raise HTTPException(status_code=401, detail="invalid or revoked runtime key")
     if _utcnow() > _as_utc(row.expire_at) + timedelta(seconds=30):
         raise HTTPException(status_code=401, detail="runtime key expired")
+    return row
+
+
+def _clear_pending_binding(row: RuntimeKeyModel) -> None:
+    row.pending_agent_public_key = None
+    row.pending_code_hash = None
+    row.pending_expires_at = None
+    row.pending_attempts = 0
+    row.pending_requested_at = None
+
+
+def pending_binding_view(row: RuntimeKeyModel) -> dict | None:
+    """待确认的接入请求（给操作台展示、给 agent 轮询）。没有就返回 None。"""
+    pub = (row.pending_agent_public_key or "").strip()
+    if not pub:
+        return None
+    expires = _as_utc(row.pending_expires_at) if row.pending_expires_at else None
+    return {
+        "key_id": row.key_id,
+        "agent_id": row.agent_binding,
+        "agent_public_key": pub,
+        "agent_fingerprint": agent_binding_fingerprint(pub),
+        "expires_at": expires.isoformat() if expires else None,
+        "expired": bool(expires and _utcnow() > expires),
+        "attempts_left": max(0, BIND_CODE_MAX_ATTEMPTS - int(row.pending_attempts or 0)),
+    }
+
+
+async def request_key_binding(
+    *,
+    db: AsyncSession,
+    key_id: str,
+    agent_id: str,
+    agent_public_key: str,
+) -> tuple[RuntimeKeyModel, str, str]:
+    """agent 申请接入：先拿到匹配码，绑定**还没生效**。
+
+    返回 (row, activation_code, status)。status 为 active 表示这把 key 早就绑在
+    同一把公钥上了（幂等重放，不发新码）；否则是 pending_activation。
+    只有用户在操作台输入这个码（``confirm_key_binding``）之后，绑定才真正落地 ——
+    所以「偷到 key 的人抢先把自己的公钥绑上」这条路走不通：他没有用户手里的码。
+    """
+    row = await _load_activatable_row(db, key_id)
     declared = (agent_id or "").strip()
     if not declared:
         raise HTTPException(status_code=400, detail="agent_id is required")
@@ -452,9 +520,60 @@ async def bind_agent_public_key(
             status_code=409,
             detail="runtime key is already bound to another agent public key; revoke and mint a new key",
         )
+    if current and current == pub:
+        _clear_pending_binding(row)
+        await db.flush()
+        return row, "", "active"
+    code = new_activation_code()
+    row.pending_agent_public_key = pub
+    row.pending_code_hash = hash_activation_code(key_id=row.key_id, code=code)
+    row.pending_expires_at = _utcnow() + timedelta(seconds=BIND_CODE_TTL_SECONDS)
+    row.pending_attempts = 0
+    row.pending_requested_at = _utcnow()
+    await db.flush()
+    return row, code, "pending_activation"
+
+
+async def confirm_key_binding(*, db: AsyncSession, key_id: str, code: str) -> RuntimeKeyModel:
+    """用户在操作台输入匹配码 —— 到这一步绑定才生效。"""
+    row = await _load_activatable_row(db, key_id)
+    pub = (row.pending_agent_public_key or "").strip()
+    if not pub:
+        raise HTTPException(status_code=409, detail="no pending bind request for this runtime key")
+    expires = _as_utc(row.pending_expires_at) if row.pending_expires_at else _utcnow()
+    if _utcnow() > expires:
+        _clear_pending_binding(row)
+        await db.flush()
+        raise HTTPException(
+            status_code=410,
+            detail="the activation code expired — ask the agent to request a new one",
+        )
+    if int(row.pending_attempts or 0) >= BIND_CODE_MAX_ATTEMPTS:
+        _clear_pending_binding(row)
+        await db.flush()
+        raise HTTPException(
+            status_code=429,
+            detail="too many wrong activation codes — ask the agent to request a new one",
+        )
+    given = hash_activation_code(key_id=row.key_id, code=code)
+    if not hmac.compare_digest(given, row.pending_code_hash or ""):
+        row.pending_attempts = int(row.pending_attempts or 0) + 1
+        await db.flush()
+        raise HTTPException(status_code=403, detail="activation code does not match")
     row.agent_public_key = pub
     row.key_binding = "agent"
     row.nonce_required = is_nonce_required(list(row.permissions or []))
+    _clear_pending_binding(row)
+    await db.flush()
+    return row
+
+
+async def reject_key_binding(*, db: AsyncSession, key_id: str) -> RuntimeKeyModel:
+    """用户拒绝这次接入：清掉待确认状态，key 保持原样。"""
+    row = await _load_activatable_row(db, key_id)
+    if not (row.pending_agent_public_key or "").strip():
+        raise HTTPException(status_code=409, detail="no pending bind request for this runtime key")
+    _clear_pending_binding(row)
     await db.flush()
     return row
 
