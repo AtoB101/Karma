@@ -166,6 +166,10 @@ class Settings(BaseSettings):
     settlement_require_party_actor: bool = True
     # When true, POST /v1/settlement/{task_id}/lock is only allowed from PENDING (not directly from DRAFT).
     settlement_lock_requires_pending: bool = False
+    # 交付后买方的确认窗口（小时）。交付（→ DELIVERED）时把它写进结算单并算出
+    # confirm_deadline_at；窗口到期后 POST /v1/settlement/{task_id}/auto-confirm 才能
+    # 兜底放款。置 0 = 关闭自动兜底（每一单都必须有人显式验收）。
+    settlement_confirm_window_hours: int = 72
     # KSA2-006: require ≥1 successful execution receipt before any seller-side monetary release
     # (partial / regret / auto-arbitrate / buyer-accept), except pure refunds (settled_amount≈0).
     settlement_requires_success_execution_receipt_for_seller_release: bool = True

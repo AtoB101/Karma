@@ -251,6 +251,9 @@ class SettlementModel(Base):
     voucher_id:           Mapped[str|None]  = mapped_column(String(64), nullable=True)
     delivery_deadline_at: Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
     progress_rule_spec:   Mapped[dict|None] = mapped_column(JSON, nullable=True)
+    # MVVS V1 确认窗口：交付时写入，窗口到期后可走 /auto-confirm 兜底。
+    confirm_window_hours: Mapped[int|None] = mapped_column(Integer, nullable=True)
+    confirm_deadline_at:  Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
     funding_source:       Mapped[str]        = mapped_column(String(16), nullable=False, default="internal")
 
     contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="settlement")

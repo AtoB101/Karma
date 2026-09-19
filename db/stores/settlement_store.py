@@ -95,6 +95,8 @@ class PostgresSettlementStore(SettlementStore):
             "delivery_deadline_at": getattr(s, "delivery_deadline_at", None),
             "progress_rule_spec": getattr(s, "progress_rule_spec", None),
             "funding_source": getattr(s, "funding_source", "internal") or "internal",
+            "confirm_window_hours": getattr(s, "confirm_window_hours", None),
+            "confirm_deadline_at":  getattr(s, "confirm_deadline_at", None),
         }
 
     @staticmethod
@@ -131,4 +133,6 @@ class PostgresSettlementStore(SettlementStore):
             delivery_deadline_at=getattr(row, "delivery_deadline_at", None),
             progress_rule_spec=getattr(row, "progress_rule_spec", None),
             funding_source=getattr(row, "funding_source", "internal") or "internal",
+            confirm_window_hours=getattr(row, "confirm_window_hours", None),
+            confirm_deadline_at=getattr(row, "confirm_deadline_at", None),
         )

@@ -323,6 +323,14 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
         from services.chain.settlement_adapter import settlement_router
         if settlement_router.is_onchain():
             from worker.tasks import lock_and_bind_onchain
+
+            # 真上链绑定是异步做的（实测 20–30s），同步响应里给不出 onchain_binding_id。
+            # 以前这里直接返回一个 null，调用方分不清「正在绑」和「压根没绑」。
+            # 现在先把 onchain_status 置成 pending_bind 再投递，调用方据此轮询
+            # GET /v1/settlement/{task_id}，直到变成 bound（成功）或 failed（失败）。
+            # reconcile_onchain_status 这个 beat 任务会拿链上真相覆盖这一列。
+            new_state.onchain_status = "pending_bind"
+            await store.save(new_state)
             lock_and_bind_onchain.delay(task_id, escrow_wei)
     return new_state
 
@@ -459,6 +467,17 @@ async def submit_settlement(task_id: str, request: Request, db: AsyncSession = D
     require_worker(request, state)
     # P7 gate: if a delivery-verification session exists for physical scenes, must be VERIFIED
     _assert_p7_delivery_gate(task_id, state, stage="submit")
+    # MVVS V1 — 交付即开始算买方的确认窗口。窗口写进结算单（confirm_window_hours +
+    # confirm_deadline_at），到期还没人表态就由 POST /auto-confirm 兜底放款。
+    # 不写这两个字段的话，买方不表态的单子没有任何出口：既不能取消，唯一的超时兜底
+    # 又永远 409，钱会一直卡在托管里（F6 报告第 9 条）。
+    window_hours = int(getattr(settings, "settlement_confirm_window_hours", 0) or 0)
+    if window_hours > 0:
+        state.confirm_window_hours = window_hours
+        state.confirm_deadline_at = datetime.utcnow() + timedelta(hours=window_hours)
+    else:
+        state.confirm_window_hours = None
+        state.confirm_deadline_at = None
     out = await _apply_transition(
         db=db,
         store=store,
@@ -585,6 +604,44 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
     require_buyer(request, state)
     confirmed_claimed = await _confirmed_progress_percent(db, task_id)
     st = canonical_task_status(state.status)
+    settled_amount = round(state.escrow_amount * body.settled_value_percent / 100.0, 2)
+    refunded_amount = round(state.escrow_amount - settled_amount, 2)
+
+    # 幂等重放（2026-09-20 实测新增）。背景：/partial 是一条「撤绑 → 重绑 → 划款」
+    # 的同步长事务，实测要 40s 以上，客户端很容易先超时。超时后客户端重试时，服务端
+    # 其实**已经执行完了**，但旧代码会甩一句 400 "requires delivered status"（因为状态
+    # 已经变成 settled），调用方既判断不出到底成没成，文案还指错了方向。
+    # 现在：同一个比例直接回 200 + 当前状态（答案就是「成了」）；比例不同回 409 并
+    # 明确告诉这一单已经按什么比例结完了。终局单同理，不再用中间态的文案糊弄。
+    if st == TaskStatus.SETTLED:
+        done_amount = round(float(state.released_amount or 0.0), 2)
+        done_refund = round(float(state.refunded_amount or 0.0), 2)
+        if abs(done_amount - settled_amount) <= 0.01:
+            return state
+        raise HTTPException(
+            409,
+            {
+                "error": "already_settled",
+                "detail": (
+                    "this settlement is already settled and cannot be re-split; "
+                    f"released={done_amount} refunded={done_refund}"
+                ),
+                "released_amount": done_amount,
+                "refunded_amount": done_refund,
+            },
+        )
+    if st in {TaskStatus.CANCELLED, TaskStatus.REFUNDED}:
+        raise HTTPException(
+            409,
+            {
+                "error": "settlement_not_open_for_partial",
+                "detail": (
+                    f"settlement is {st.value}; "
+                    "partial settlement is not applicable to a finalized settlement"
+                ),
+            },
+        )
+
     # P0-9: splits must not exceed confirmed claimed liability; without any confirmed progress,
     # partial release is only allowed after formal delivery (submit) so settlement does not skip
     # the delivered checkpoint from in_progress.
@@ -599,11 +656,9 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
             raise HTTPException(
                 400,
                 "partial settlement with no confirmed progress requires delivered status "
-                "(POST /v1/settlement/{task_id}/submit first); otherwise confirm progress receipts "
-                "up to the intended split",
+                f"(POST /v1/settlement/{{task_id}}/submit first); this settlement is {st.value}. "
+                "Either submit the delivery first, or confirm progress receipts up to the intended split.",
             )
-    settled_amount = round(state.escrow_amount * body.settled_value_percent / 100.0, 2)
-    refunded_amount = round(state.escrow_amount - settled_amount, 2)
 
     await ensure_success_execution_receipt_before_seller_payout(db, task_id, settled_amount=settled_amount)
 
@@ -903,17 +958,23 @@ async def auto_confirm_settlement(
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
+    # 授权先于状态：没资格的人不该靠 409 文案推算出这笔单子的交付时间。
+    require_buyer_or_worker(request, state)
     if canonical_task_status(state.status) != TaskStatus.DELIVERED:
         raise HTTPException(409, f"auto-confirm requires delivered, got {state.status.value}")
     if state.confirm_window_hours is None:
-        raise HTTPException(409, "confirm_window_hours not set")
+        raise HTTPException(
+            409,
+            "this settlement has no confirm window (confirm_window_hours is null); "
+            "the buyer has to accept or reject it explicitly",
+        )
     now = datetime.utcnow()
     if state.confirm_deadline_at is None and state.updated_at:
+        # 老单兜底：交付时还没写 deadline 的行，用 updated_at 现算一次。
         state.confirm_deadline_at = state.updated_at + timedelta(hours=state.confirm_window_hours)
     if state.confirm_deadline_at and now < state.confirm_deadline_at:
         remaining = (state.confirm_deadline_at - now).total_seconds() / 3600
         raise HTTPException(409, f"confirm window not expired — {remaining:.1f}h remaining")
-    require_buyer_or_worker(request, state)
     assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     # P7/P8: auto-confirm still requires delivery verification when session/scene demands it

@@ -61,7 +61,10 @@ VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     # rejects rollbacks and duplicate evidence hashes separately).
     TaskStatus.PROGRESS_SUBMITTED: [TaskStatus.PROGRESS_SUBMITTED, TaskStatus.PROGRESS_CONFIRMED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED],
     TaskStatus.PROGRESS_CONFIRMED: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED, TaskStatus.AUTO_CONFIRMED],
-    TaskStatus.DELIVERED: [TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.REFUNDED, TaskStatus.FROZEN],
+    # AUTO_CONFIRMED 是「买方在确认窗口内没表态」的兜底出口：窗口到期后从
+    # DELIVERED 直接进入自动确认（见 api/routes/settlement.py 的 /auto-confirm）。
+    # 没有这条边，交付后的超时兜底永远 409，钱会一直卡在托管里。
+    TaskStatus.DELIVERED: [TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.REFUNDED, TaskStatus.FROZEN, TaskStatus.AUTO_CONFIRMED],
     TaskStatus.DISPUTED: [TaskStatus.ARBITRATED, TaskStatus.FROZEN],
     TaskStatus.ARBITRATED: [TaskStatus.SETTLED, TaskStatus.REFUNDED, TaskStatus.PARTIALLY_SETTLED, TaskStatus.FROZEN],
     TaskStatus.SETTLED: [TaskStatus.FROZEN],
