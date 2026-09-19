@@ -2398,3 +2398,8 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。": "This key is not activated yet, so no money can move. The agent calls /runtime/bind-key and shows you the 8-character activation code it receives; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect.",
   "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}（超时就废了，得重新铸一把）。": "This key is not activated yet, so no money can move. The agent calls /runtime/bind-key and shows you the 8-character activation code it receives; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect. Activation deadline {0} — past it the key is dead and you have to mint a new one.",
 });
+
+// --- dynamic-append-23: 配对交付卡的激活提示 ---
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}。": "This key cannot move money before it is activated: when it collects the key the agent asks to bind its public key and shows you an 8-character activation code; type it at Settings → Access confirmation and sign with your wallet, and only then does the key take effect. Activation deadline {0}.",
+});

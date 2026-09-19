@@ -2400,3 +2400,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。": "Esta clave todavía no está activada, así que no se puede mover dinero. El agent llama a /runtime/bind-key y te muestra el código de emparejamiento de 8 caracteres que recibe; escríbelo en Ajustes → Confirmación de acceso y firma con tu billetera para que la clave empiece a valer.",
   "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}（超时就废了，得重新铸一把）。": "Esta clave todavía no está activada, así que no se puede mover dinero. El agent llama a /runtime/bind-key y te muestra el código de emparejamiento de 8 caracteres que recibe; escríbelo en Ajustes → Confirmación de acceso y firma con tu billetera para que la clave empiece a valer. Plazo de activación {0}: pasado ese momento la clave queda inutilizable y hay que emitir una nueva.",
 });
+
+// --- dynamic-append-23: 配对交付卡的激活提示 ---
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
+  "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}。": "Esta clave no puede mover dinero hasta que se active: al recibirla, el agent pide vincular su clave pública y te muestra un código de emparejamiento de 8 caracteres; escríbelo en Ajustes → Confirmación de acceso y firma con tu billetera para que empiece a valer. Plazo de activación {0}.",
+});

@@ -342,6 +342,11 @@ def test_a_key_minted_for_an_agent_is_marked_not_activated_in_the_handoff():
     assert "activation_deadline" in handoff, "要把激活期限告诉用户"
     assert "state.activationHint = \"\";" in handoff, "切换 agent 时要清掉上一把钥匙的提示"
 
+    # 配对交付卡铸的是同一类钥匙（agent_binding 非空），文案也得说清楚未激活。
+    pairing = (CONSOLE / "scripts/cyber-pairing.js").read_text(encoding="utf-8")
+    assert "activation_deadline" in pairing, "配对付费卡要给激活期限"
+    assert "这把钥匙在激活之前动不了钱" in pairing
+
 
 def test_the_backend_locks_keys_that_are_minted_for_an_agent():
     """铸造 → 激活这段窗口期不能是不记名令牌：网关必须先拒。
@@ -377,6 +382,8 @@ def test_every_language_pack_carries_the_not_activated_copy():
         "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。",
         "这把钥匙还没激活，现在不能动钱。agent 用 /runtime/bind-key 申请接入后会把 8 位匹配码给你，"
         "你到「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}（超时就废了，得重新铸一把）。",
+        "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；"
+        "你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。激活期限 {0}。",
     )
     phrase_dir = CONSOLE / "scripts" / "i18n-phrase"
     for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
