@@ -1114,6 +1114,10 @@ async def _sync_escrow_settlement(*, db: AsyncSession, state: SettlementState, t
         elif status in (TaskStatus.REFUNDED, TaskStatus.CANCELLED):
             await escrow_settlement.cancel_for_task(db, task_id=state.task_id)
     except escrow_settlement.EscrowSettlementError as exc:
+        logger.warning(
+            "escrow_settlement_gate_blocked",
+            extra={"task_id": state.task_id, "target": status.value, "detail": exc.message},
+        )
         raise HTTPException(exc.status, exc.message) from exc
 
 

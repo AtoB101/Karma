@@ -361,3 +361,27 @@ async def test_route_translates_the_gate_into_a_409(db_session, chain, monkeypat
     with pytest.raises(HTTPException) as exc:
         await route._sync_escrow_settlement(db=db_session, state=view, target_status=TaskStatus.ACCEPTED)
     assert exc.value.status_code == 409
+
+@pytest.mark.asyncio
+async def test_the_api_view_exposes_the_binding_that_backs_the_money(db_session, chain):
+    """操作台/API 必须看得见「这一单的钱由哪个 binding 背书」，否则又是数字。"""
+    from db.stores.settlement_store import PostgresSettlementStore
+
+    bridge, _ = chain
+    db_session.add(settlement_row())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+    await db_session.flush()
+
+    view = await PostgresSettlementStore(db_session).get(TASK)
+
+    assert view.settlement_mode == "escrow_allowance"
+    assert view.onchain_binding_id == 101
+    assert view.onchain_buyer_bill_id == 1
+    assert view.onchain_agent_bill_id == 2
+    assert view.onchain_status == "bound"

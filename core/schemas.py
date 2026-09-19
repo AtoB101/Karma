@@ -532,6 +532,11 @@ class SettlementState(BaseModel):
     tx_hash: Optional[str] = Field(default=None, description="On-chain settlement transaction hash")
     evidence_bundle_hash: Optional[str] = Field(default=None, description="keccak256 of evidence bundle submitted on-chain")
     onchain_status: Optional[str] = Field(default=None, description="pending | confirmed | failed")
+    onchain_binding_id: Optional[int] = Field(
+        default=None, description="托管合约上的 binding id（这一单的钱由它背书）"
+    )
+    onchain_buyer_bill_id: Optional[int] = Field(default=None, description="付款方链上账单 id")
+    onchain_agent_bill_id: Optional[int] = Field(default=None, description="提供方质押账单 id")
     quote_id: Optional[str] = Field(default=None, description="EIP-712 quoteId used in settlement tx")
     voucher_id: Optional[str] = Field(default=None, description="Linked authorization voucher after seller accept")
     delivery_deadline_at: Optional[datetime] = Field(
