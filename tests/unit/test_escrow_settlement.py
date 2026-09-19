@@ -106,16 +106,21 @@ def chain(monkeypatch):
     monkeypatch.setattr(escrow, "submit_settlement", _submit_settlement)
     monkeypatch.setattr(escrow, "cancel_binding", _cancel_binding)
     monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id: None)
+    monkeypatch.setattr(escrow, "bill_available", lambda *, bill_id: _available.get(str(bill_id)))
     return bridge, calls
 
 
 # 每个用例自己往里塞账单：钱包 → 账单列表
 _commits: dict[str, list] = {}
 _report: dict[str, dict] = {}
+#: 合约自己记的「这张账单还剩多少」—— 链上的事实，可能比台账小
+_available: dict[str, float] = {}
 
 
 def arm(identity_id: str, rows: list, *, chain_checked: bool = True, secured: dict | None = None):
     _commits[identity_id] = rows
+    for r in rows:
+        _available[str(r.bill_id)] = float(secured.get(str(r.bill_id), r.amount_usdc)) if secured else float(r.amount_usdc)
     secured = secured if secured is not None else {str(r.bill_id): float(r.amount_usdc) for r in rows}
     _report[identity_id] = {
         "allowance_usdc": sum(secured.values()),
@@ -136,9 +141,11 @@ def bounds(db):
 def _reset_books():
     _commits.clear()
     _report.clear()
+    _available.clear()
     yield
     _commits.clear()
     _report.clear()
+    _available.clear()
 
 
 @pytest.mark.asyncio
@@ -385,3 +392,42 @@ async def test_the_api_view_exposes_the_binding_that_backs_the_money(db_session,
     assert view.onchain_buyer_bill_id == 1
     assert view.onchain_agent_bill_id == 2
     assert view.onchain_status == "bound"
+
+@pytest.mark.asyncio
+async def test_bind_trusts_the_chain_over_a_stale_ledger(db_session, chain):
+    """台账是回执回写出来的，两个结算挨得近时会高估 —— 以合约自己记的为准。
+
+    这条是实测打出来的：外卖单结完 30 秒又来一单，台账说还剩 11 USDC，链上其实
+    只剩 5，bind 直接 revert 成一串 hex 丢给用户。
+    """
+    bridge, calls = chain
+    arm(BUYER, [bill("1", BUYER, 50.0)])          # 台账：剩 50
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    _available["1"] = 5.0                          # 链上：只剩 5
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.bind_for_task(
+            db_session, task_id=TASK, buyer_identity_id=BUYER,
+            seller_identity_id=SELLER, amount_usdc=8.0,
+        )
+    assert exc.value.status == 409
+    assert "5.0" in exc.value.message
+    assert calls["bind"] == []
+
+
+@pytest.mark.asyncio
+async def test_bind_picks_the_bill_the_chain_can_still_cover(db_session, chain):
+    """两张账单：链上只剩 2 的那张不能用，得挑还剩 20 的那张。"""
+    bridge, calls = chain
+    arm(BUYER, [bill("1", BUYER, 10.0), bill("3", BUYER, 20.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    _available["1"] = 2.0
+    _available["3"] = 20.0
+
+    info = await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=8.0,
+    )
+
+    assert info["status"] == "bound"
+    assert calls["bind"][0][0] == "3"

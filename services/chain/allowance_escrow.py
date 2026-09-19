@@ -282,7 +282,39 @@ _ABI_EVENTS = [
     }
     for name, fields in EVENT_FIELDS.items()
 ]
-ABI = _ABI_FUNCTIONS + _ABI_EVENTS
+#: 自定义错误。不放进 ABI 的话，链上 revert 回给调用方的是一串裸 hex
+#: （`('0xcd51b4a1...', '0xcd51b4a1...')`），运维和用户都读不出到底差在哪。
+_ABI_ERRORS = [
+    {"type": "error", "name": "TokenNotAllowed", "inputs": []},
+    {"type": "error", "name": "ZeroAmount", "inputs": []},
+    {"type": "error", "name": "ZeroAddress", "inputs": []},
+    {"type": "error", "name": "TokenMismatch", "inputs": []},
+    {"type": "error", "name": "SameOwner", "inputs": []},
+    {"type": "error", "name": "PullFailed", "inputs": []},
+    {"type": "error", "name": "CustodyViolation", "inputs": []},
+    {"type": "error", "name": "NotSettlementParty", "inputs": []},
+    {"type": "error", "name": "NotResolver", "inputs": []},
+    {"type": "error", "name": "NotBillOwner", "inputs": [{"name": "billId", "type": "uint256"}]},
+    {"type": "error", "name": "NotBillOperator", "inputs": [{"name": "billId", "type": "uint256"}]},
+    {"type": "error", "name": "WrongBillState", "inputs": [{"name": "billId", "type": "uint256"}]},
+    {"type": "error", "name": "UnknownBinding", "inputs": [{"name": "bindingId", "type": "uint256"}]},
+    {"type": "error", "name": "WrongBindingState", "inputs": [{"name": "bindingId", "type": "uint256"}]},
+    {"type": "error", "name": "SettleDelayActive", "inputs": [{"name": "settleAfter", "type": "uint256"}]},
+    {"type": "error", "name": "ReservationActive", "inputs": [{"name": "reserved", "type": "uint256"}]},
+    {
+        "type": "error",
+        "name": "InsufficientAllowance",
+        "inputs": [{"name": "have", "type": "uint256"}, {"name": "need", "type": "uint256"}],
+    },
+    {
+        "type": "error",
+        "name": "InsufficientCommitment",
+        "inputs": [{"name": "available", "type": "uint256"}, {"name": "need", "type": "uint256"}],
+    },
+]
+
+
+ABI = _ABI_FUNCTIONS + _ABI_EVENTS + _ABI_ERRORS
 ABI_JSON = json.dumps(ABI)
 
 
@@ -1263,6 +1295,20 @@ def binding_state(*, binding_id: int) -> int | None:
     contract = _contract(w3)
     raw = contract.functions.getBinding(int(binding_id)).call()
     return int(dict(zip(_BINDING_FIELDS, raw, strict=False))["state"])
+
+
+def bill_available(*, bill_id: int) -> float | None:
+    """链上这张账单还剩多少可用（合约的 ``amount - reserved - spent``）。
+
+    台账（``allowance_commits``）是回执回写出来的，结算完要等一次 sync 才追上链；
+    两个结算挨得近的时候，台账会**高估**可用额度。挑账单这种事必须以链为准 ——
+    否则就会在 bind 那一步吃到 InsufficientCommitment，用户看到的是一串 hex。
+    """
+    if not escrow_enabled():
+        return None
+    w3 = _web3()
+    contract = _contract(w3)
+    return wei_to_usdc(int(contract.functions.available(int(bill_id)).call()))
 
 
 def finalize_breach(*, binding_id: int) -> dict[str, Any]:

@@ -105,30 +105,29 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
         )
     secured_by_bill = report.get("bills") or {}
     best: tuple[float, str] | None = None
+    candidates: list[float] = []
     for row in live:
         free = (
             float(row.amount_usdc or 0.0)
             - float(row.spent_usdc or 0.0)
             - float(row.reserved_usdc or 0.0)
         )
-        if free + EPSILON < need:
-            continue
         secured = float((secured_by_bill.get(str(row.bill_id)) or {}).get("secured_usdc") or 0.0)
-        if secured + EPSILON < need:
+        if free + EPSILON < need or secured + EPSILON < need:
+            candidates.append(min(free, secured))
             continue
-        if best is None or free > best[0]:
-            best = (free, str(row.bill_id))
+        # 台账只在链上确认之后才更新，两个结算挨得近时它会高估。以合约自己记的
+        # 「还剩多少」为准：挑中的账单必须真的 Bind 得动，不能拿台账去赌。
+        onchain = await asyncio.to_thread(escrow.bill_available, bill_id=int(row.bill_id))
+        if onchain is None:
+            continue
+        candidates.append(min(free, secured, onchain))
+        if onchain + EPSILON < need:
+            continue
+        if best is None or min(free, onchain) > best[0]:
+            best = (min(free, onchain), str(row.bill_id))
     if best is None:
-        have = max(
-            [
-                min(
-                    float(r.amount_usdc or 0.0) - float(r.spent_usdc or 0.0) - float(r.reserved_usdc or 0.0),
-                    float((secured_by_bill.get(str(r.bill_id)) or {}).get("secured_usdc") or 0.0),
-                )
-                for r in live
-            ]
-            or [0.0]
-        )
+        have = max(candidates) if candidates else 0.0
         raise EscrowSettlementError(
             409,
             f"{role}的可用锁仓额度不足：这一单需要 {round(need, 6)} USDC，"
