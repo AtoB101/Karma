@@ -111,7 +111,7 @@ from services.openclaw_automation_readiness import (
     resolve_task_id_for_voucher,
 )
 from services.runtime_call_log import call_view, list_key_calls, record_key_call
-from services.runtime_daily_spend import get_daily_used_async, record_daily_spend_async
+from services.runtime_daily_spend import get_daily_used_async, try_reserve_daily_spend
 from services.signing import signing_service
 
 router = APIRouter()
@@ -1410,7 +1410,11 @@ async def runtime_place_order(
     payload = dict(out) if isinstance(out, dict) else {"result": out}
     if payload.get("voucher_id"):
         # 真出了凭证才算这笔钱动用过额度（和 /runtime/request-voucher 同一本账）。
-        await record_daily_spend_async(db, key_id=ctx.key_id, amount=float(body.amount))
+        # 记账必须是原子的：“先读再算再写”会被并发绕过日上限。
+        if not await try_reserve_daily_spend(
+            db, key_id=ctx.key_id, amount=float(body.amount), daily_limit=ctx.daily_limit
+        ):
+            raise HTTPException(status_code=403, detail="amount exceeds runtime key daily_limit")
     await db.commit()
     payload["requested_by_identity_id"] = ctx.karma_identity_id
     payload["profile_id"] = ctx.profile_id
@@ -1452,7 +1456,10 @@ async def runtime_request_voucher(
         actor_id=ctx.karma_identity_id,
     )
     out = await vouchers_create_route(v, delegate, db)
-    await record_daily_spend_async(db, key_id=ctx.key_id, amount=float(v.amount))
+    if not await try_reserve_daily_spend(
+        db, key_id=ctx.key_id, amount=float(v.amount), daily_limit=ctx.daily_limit
+    ):
+        raise HTTPException(status_code=403, detail="amount exceeds runtime key daily_limit")
     await db.commit()
     return signed_json_response(out.model_dump(mode="json"), status_code=201)
 
