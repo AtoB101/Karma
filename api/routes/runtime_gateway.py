@@ -721,7 +721,15 @@ async def runtime_confirm_bind_key(
         client_nonce=body.client_nonce,
         candidates=candidates,
     )
-    row = await confirm_key_binding(db=db, key_id=body.key_id, code=normalized)
+    try:
+        row = await confirm_key_binding(db=db, key_id=body.key_id, code=normalized)
+    except HTTPException:
+        # 失败路径也必须落库。confirm_key_binding 在抛出去之前只 flush 了「错了几次」
+        # 或「这条请求过期作废」，而 get_db 会在异常上抛时把整个事务回滚 —— 于是
+        # 「试满 5 次作废」在生产上等于没写过：码可以无限试。
+        # （单测里 app 和测试共用一个 session，所以这个洞一直没被逮住。）
+        await db.commit()
+        raise
     await db.commit()
     bound_agent = (row.agent_binding or "").strip()
     payload = {

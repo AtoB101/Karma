@@ -1579,3 +1579,79 @@ async def test_notices_are_private_and_anonymous_is_refused(client: AsyncClient,
     assert anon.status_code == 403, anon.text
     anon_ack = await client.post("/runtime/ack-notice", json={"karma_identity_id": identity})
     assert anon_ack.status_code == 403, anon_ack.text
+
+
+@pytest.mark.asyncio
+async def test_wrong_code_attempts_survive_when_every_request_gets_its_own_session(
+    test_engine,
+):
+    """复刻生产的会话语义：每个请求一个新 session，异常就回滚。
+
+    为什么单独写这一条：上面那条「试满 5 次」用的 client 把 app 和测试塞进同一个
+    session，flush 出去的计数在同一事务里看得见 —— 所以「只 flush 不 commit」这个洞
+    它逮不住。真跑起来每个请求一个 session，异常一上抛事务就回滚：错几次根本不记，
+    5 次上限形同虚设，匹配码可以被无限试。
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from api.app import app
+    from db.session import get_db
+    from httpx import ASGITransport
+
+    factory = async_sessionmaker(bind=test_engine, expire_on_commit=False)
+
+    async def per_request_db():
+        async with factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[get_db] = per_request_db
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            minted, wallet = await _mint_full(
+                ac, identity="kid-code-session", perms=["sync_task_status"],
+                agent_id="agent-code-session",
+            )
+            data = minted.json()
+            token, key_id = data["runtime_key"], data["key_id"]
+            agent_key = agent_key_from_seed(base64.b64encode(b"\x75" * 32).decode())
+            requested = await _request_bind(ac, token, "agent-code-session", _pub_of(agent_key))
+            assert requested.status_code == 200, requested.text
+            code = requested.json()["activation_code"]
+
+            first = await ac.post(
+                "/runtime/confirm-bind-key",
+                json=_confirm_body(key_id=key_id, identity="kid-code-session",
+                                   acct=wallet, code=_wrong_code(code)),
+            )
+            assert first.status_code == 403, first.text
+
+            # 用**另一个** session 读：只有真的 commit 过才看得见这一次失败。
+            from db.models.orm import RuntimeKeyModel
+
+            async with factory() as probe:
+                row = await probe.get(RuntimeKeyModel, key_id)
+                attempts = int(row.pending_attempts or 0)
+            assert attempts == 1, ("错了一次之后必须真的记下来；还是 0 就说明"
+                                   "失败路径没落库，试码次数上限形同虚设: %r" % attempts)
+
+            for _ in range(4):
+                bad = await ac.post(
+                    "/runtime/confirm-bind-key",
+                    json=_confirm_body(key_id=key_id, identity="kid-code-session",
+                                       acct=wallet, code=_wrong_code(code)),
+                )
+                assert bad.status_code == 403, bad.text
+            over = await ac.post(
+                "/runtime/confirm-bind-key",
+                json=_confirm_body(key_id=key_id, identity="kid-code-session",
+                                   acct=wallet, code=_wrong_code(code)),
+            )
+            assert over.status_code == 429, over.text
+    finally:
+        app.dependency_overrides.clear()
