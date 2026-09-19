@@ -35,6 +35,7 @@
       none: "未开始",
       active: "执行中",
       finalizing: "待结算",
+      breaching: "罚没中",
       settled: "已结算",
       slashed: "已罚没",
       cancelled: "已取消",

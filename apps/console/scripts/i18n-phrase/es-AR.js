@@ -1026,6 +1026,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "卖方拒绝了这一单": "El vendedor rechazó este pedido",
   "已过期": "Vencido",
   "授权码过期未使用": "El voucher venció sin usarse",
+  "已裁定违约，争议窗口到点后罚没卖方保证金": "Incumplimiento confirmado: el depósito del vendedor se ejecuta al cerrar la ventana de disputa",
+  "罚没中": "Ejecutando la multa",
   "已罚没": "Decomisado",
   "卖方保证金被罚没": "Se decomisó el depósito del vendedor",
   "已失败": "Fallido",

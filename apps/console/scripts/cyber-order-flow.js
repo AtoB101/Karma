@@ -250,13 +250,14 @@
       cancelled: ["已取消", "这一单没成", true],
       rejected: ["已拒绝", "卖方拒绝了这一单", true],
       expired: ["已过期", "授权码过期未使用", true],
+      breaching: ["罚没中", "已裁定违约，争议窗口到点后罚没卖方保证金", true],
       slashed: ["已罚没", "卖方保证金被罚没", true],
       failed: ["已失败", "这一单失败收场", true],
       WRONG_ITEM: ["错件", "中途发现错件，按责任比例分担", true],
       REJECTED: ["买家拒收", "买家拒收，按责任比例分担", true],
     };
     var negKey = t.status;
-    if (kind === "binding" && t.status === "slashed") negKey = "slashed";
+    if (kind === "binding" && (t.status === "slashed" || t.status === "breaching")) negKey = t.status;
     if (negative[negKey]) {
       var row = negative[negKey];
       out.push(step("terminal:" + negKey, row[0], row[1], (t.hit([negKey]) !== null ? t.hit([negKey]) : entry.updated_at || entry.created_at || ""), {

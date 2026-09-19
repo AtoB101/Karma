@@ -44,6 +44,7 @@ FINALIZING = "finalizing"  # 已 submit，等 autosettle 划款
 SETTLED = "settled"        # 链上已经划完
 CANCELLED = "cancelled"    # 授权已放回
 SLASHED = "slashed"        # 卖方质押被划给买方
+BREACHING = "breaching"    # 已裁定违约，等争议窗口到点后罚没（此刻钱还没动）
 
 _DONE_STATES = (SETTLED, CANCELLED, SLASHED)
 
@@ -338,8 +339,80 @@ async def submit_for_task(
     }
 
 
+def _breach_proof(task_id: str) -> str:
+    """罚没这一单的凭证摘要。最终划多少由合约里的 stakeAmount 决定，摘要只留痕。"""
+    return f"karma-breach:{task_id}"
+
+
+async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
+    """判卖方违约：卖方质押划给买方（``finalizeBreach``，卖方钱包 → 买方钱包）。
+
+    「全额退款（REFUNDED）」的含义是「这次交付被裁定为一文不值」，所以卖方要付代价：
+    质押划给买方。链上没有一步到位的入口 —— ``finalizeBreach`` 只认 FINALIZING，
+    而且必须等争议窗口到点。所以这里先把 binding 交上去打开窗口，再由
+    ``escrow_autosettle`` 在窗口到点后真正执行罚没。
+
+    窗口开启后 binding 记成 ``breaching``：正常结算通道只看 ``finalizing``，
+    所以这一单绝不会被误当成「该付卖方」而把货款划出去。
+    """
+    if not enabled():
+        return {"status": "disabled"}
+    row = await _find_binding(db, task_id=task_id)
+    if row is None:
+        return {"status": "unbound"}
+    if row.state in _DONE_STATES or row.state == BREACHING:
+        return {"status": row.state, "binding_id": row.binding_id}
+    if row.state == FINALIZING:
+        # 窗口本来就开着（例如先被冻结过）：直接改判罚没，不重复 submit。
+        row.state = BREACHING
+        row.updated_at = datetime.utcnow()
+        await db.flush()
+        await _reflect(
+            db, task_id=task_id, binding=row, onchain_status=BREACHING, tx_hash=row.submit_tx_hash
+        )
+        logger.info("escrow_settlement_breach_rearmed", task_id=task_id, binding_id=row.binding_id)
+        return {"status": BREACHING, "binding_id": row.binding_id, "pull_after": row.pull_after}
+    if row.state != ACTIVE:
+        return {"status": row.state, "binding_id": row.binding_id}
+
+    try:
+        submitted = await asyncio.to_thread(
+            escrow.submit_settlement,
+            binding_id=int(row.binding_id),
+            proof=_breach_proof(task_id),
+        )
+    except Exception as exc:
+        logger.warning("escrow_settlement_breach_submit_failed", task_id=task_id, error=str(exc))
+        raise EscrowSettlementError(409, f"链上罚没提交失败：{exc}") from exc
+
+    row.state = BREACHING
+    row.submit_tx_hash = str(submitted.get("submit_tx_hash") or "") or None
+    row.proof_hash = str(submitted.get("proof_hash") or "") or None
+    row.pull_after = int(submitted.get("pull_after") or 0) or None
+    row.updated_at = datetime.utcnow()
+    await db.flush()
+    await _reflect(
+        db, task_id=task_id, binding=row, onchain_status=BREACHING, tx_hash=row.submit_tx_hash
+    )
+    logger.info(
+        "escrow_settlement_breach_armed",
+        task_id=task_id,
+        binding_id=row.binding_id,
+        stake_usdc=row.stake_usdc,
+        pull_after=row.pull_after,
+        tx=row.submit_tx_hash,
+    )
+    return {
+        "status": BREACHING,
+        "binding_id": row.binding_id,
+        "submit_tx_hash": row.submit_tx_hash,
+        "pull_after": row.pull_after,
+    }
+
+
 async def cancel_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
-    """退款 / 取消：把买方被占住的授权放回去，钱一步都没动过。"""
+    """取消：把买方被占住的授权放回去，钱一步都没动过。"""
+
     if not enabled():
         return {"status": "disabled"}
     row = await _find_binding(db, task_id=task_id)
@@ -377,7 +450,7 @@ async def reconcile_task(db: AsyncSession, *, task_id: str) -> dict[str, Any] | 
             tx_hash=row.finalize_tx_hash or row.submit_tx_hash or row.bind_tx_hash,
         )
         return {"status": row.state, "binding_id": row.binding_id, "tx_hash": row.finalize_tx_hash}
-    if row.state != FINALIZING:
+    if row.state not in (FINALIZING, BREACHING):
         return None
     try:
         chain_state = await asyncio.to_thread(escrow.binding_state, binding_id=int(row.binding_id))

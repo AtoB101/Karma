@@ -1086,7 +1086,8 @@ async def _sync_escrow_settlement(*, db: AsyncSession, state: SettlementState, t
 
     接单（→ ACCEPTED）  ：买方承诺 + 卖方质押在链上 bind 成一个 binding。
     结算（→ SETTLED）   ：提交结算、打开挑战期，钱由 autosettle 从买方钱包直划卖方。
-    退款 / 取消         ：撤销 binding，把买方被占住的授权放回去。
+    全额退款（REFUNDED）：卖方违约 → 罚没质押划给买方（submit 开窗 + autosettle 到点罚没）。
+    取消（CANCELLED）   ：撤销 binding，把买方被占住的授权放回去，钱一步没动。
 
     链上没落定，业务状态就不许往前走 —— 这一层存在的意义就是让「已结算」在链上
     有对应的钱，而不是数据库里的一个数字。托管未启用时整段是空操作。
@@ -1111,7 +1112,10 @@ async def _sync_escrow_settlement(*, db: AsyncSession, state: SettlementState, t
                 task_id=state.task_id,
                 released_amount=state.released_amount,
             )
-        elif status in (TaskStatus.REFUNDED, TaskStatus.CANCELLED):
+        elif status == TaskStatus.REFUNDED:
+            # 全额退款 = 这次交付被裁定为一文不值 = 卖方违约：质押划给买方。
+            await escrow_settlement.slash_for_task(db, task_id=state.task_id)
+        elif status == TaskStatus.CANCELLED:
             await escrow_settlement.cancel_for_task(db, task_id=state.task_id)
     except escrow_settlement.EscrowSettlementError as exc:
         logger.warning(

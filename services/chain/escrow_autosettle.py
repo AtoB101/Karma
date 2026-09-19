@@ -34,6 +34,10 @@ logger = structlog.get_logger(__name__)
 DUE_STATE = "finalizing"
 SETTLED_STATE = "settled"
 
+#: 判了违约、等窗口到点就去罚没的 binding（见 escrow_settlement.slash_for_task）
+DUE_BREACH_STATE = "breaching"
+SLASHED_STATE = "slashed"
+
 #: what the *chain* says about a binding (see allowance_escrow.BINDING_STATE)
 CHAIN_FINALIZING = 2
 CHAIN_SETTLED = 3
@@ -74,6 +78,23 @@ async def due_bindings(
     stmt = (
         select(EscrowBindingModel)
         .where(EscrowBindingModel.state == DUE_STATE)
+        .where(EscrowBindingModel.pull_after.is_not(None))
+        .where(EscrowBindingModel.pull_after > 0)
+        .where(EscrowBindingModel.pull_after + SETTLE_DELAY_MARGIN_SECONDS <= stamp)
+        .order_by(EscrowBindingModel.pull_after)
+        .limit(limit if limit is not None else settings.escrow_autosettle_batch)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def due_breach_bindings(
+    db: AsyncSession, *, now: int | None = None, limit: int | None = None
+) -> list[EscrowBindingModel]:
+    """判了违约、窗口已过点、还没罚没的 binding。"""
+    stamp = int(time.time()) if now is None else int(now)
+    stmt = (
+        select(EscrowBindingModel)
+        .where(EscrowBindingModel.state == DUE_BREACH_STATE)
         .where(EscrowBindingModel.pull_after.is_not(None))
         .where(EscrowBindingModel.pull_after > 0)
         .where(EscrowBindingModel.pull_after + SETTLE_DELAY_MARGIN_SECONDS <= stamp)
@@ -227,6 +248,72 @@ async def settle_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
     return settled
 
 
+async def _reconcile_breach_from_chain(
+    db: AsyncSession, row: EscrowBindingModel, slashed: list[dict]
+) -> bool:
+    """链上已经落定（罚没/结算/取消）就别再发交易，把台账补上。"""
+    state = await _onchain_state(row.binding_id)
+    if state not in _CHAIN_DONE:
+        return False
+    _failed_at.pop(row.binding_id, None)
+    slashed.append(
+        await _record_final(
+            db, row, state=_CHAIN_DONE[state], tx_hash=row.finalize_tx_hash, refunded=True
+        )
+    )
+    logger.info("escrow_autosettle_breach_reconciled", binding_id=row.binding_id, onchain_state=state)
+    return True
+
+
+async def breach_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
+    """执行到期罚没：卖方质押 -> 买方钱包。"""
+    if not escrow.escrow_enabled() or not escrow.can_server_settle():
+        return []
+    slashed: list[dict] = []
+    for row in await due_breach_bindings(db, now=now):
+        if _backed_off(row.binding_id):
+            continue
+        if await _reconcile_breach_from_chain(db, row, slashed):
+            continue
+        try:
+            result = await asyncio.to_thread(
+                escrow.finalize_breach, binding_id=int(row.binding_id)
+            )
+        except wallet_lock.WalletLockError as exc:
+            if await _reconcile_breach_from_chain(db, row, slashed):
+                continue
+            _failed_at[row.binding_id] = time.monotonic()
+            logger.warning(
+                "escrow_autosettle_breach_declined", binding_id=row.binding_id, error=str(exc)
+            )
+            continue
+        except Exception as exc:  # noqa: BLE001 - 一条罚没不能拖住其他绑定
+            if await _reconcile_breach_from_chain(db, row, slashed):
+                continue
+            _failed_at[row.binding_id] = time.monotonic()
+            logger.warning(
+                "escrow_autosettle_breach_failed", binding_id=row.binding_id, error=str(exc)
+            )
+            continue
+        _failed_at.pop(row.binding_id, None)
+        slashed.append(
+            await _record_final(
+                db,
+                row,
+                state=SLASHED_STATE,
+                tx_hash=result.get("breach_tx_hash"),
+                refunded=True,
+            )
+        )
+        logger.info(
+            "escrow_autosettle_slashed",
+            binding_id=row.binding_id,
+            tx=row.finalize_tx_hash,
+            stake_usdc=row.stake_usdc,
+        )
+    return slashed
+
+
 async def run_forever() -> None:
     """The loop the API process starts when auto-settlement is switched on."""
     interval = max(3, int(settings.escrow_autosettle_interval_seconds))
@@ -235,12 +322,15 @@ async def run_forever() -> None:
         try:
             async with AsyncSessionLocal() as db:
                 settled = await settle_due(db)
+                slashed = await breach_due(db)
                 # 台账自愈：v2 承诺必须一直等于链上的可用责任额度，否则用户锁仓
                 # 之后会看到 0 可用额度（付款码 / 任务合同 / agent 请求凭证全被拒）。
                 mirrored = await escrow.reconcile_all_capacity_mirrors(db)
                 await db.commit()
             if settled:
                 logger.info("escrow_autosettle_tick", settled=len(settled))
+            if slashed:
+                logger.info("escrow_autosettle_breach_tick", slashed=len(slashed))
             if mirrored:
                 logger.info("escrow_capacity_mirror_tick", identities=len(mirrored))
         except asyncio.CancelledError:

@@ -39,7 +39,7 @@
       delivered: "已交付待确认", disputed: "争议中", arbitrated: "已仲裁",
       settled: "已结算", refunded: "已退款", cancelled: "已取消",
     },
-    binding: { none: "未开始", active: "执行中", finalizing: "待结算", settled: "已结算", slashed: "已罚没", cancelled: "已取消" },
+    binding: { none: "未开始", active: "执行中", finalizing: "待结算", breaching: "罚没中", settled: "已结算", slashed: "已罚没", cancelled: "已取消" },
     voucher: { created: "待接单", accepted: "已接单 · 额度锁定", used: "已核销", expired: "已过期", cancelled: "已取消", rejected: "已拒绝" },
   };
 

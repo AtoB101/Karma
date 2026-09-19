@@ -1023,6 +1023,8 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "卖方拒绝了这一单": "The seller rejected this order",
   "已过期": "Expired",
   "授权码过期未使用": "The voucher expired unused",
+  "已裁定违约，争议窗口到点后罚没卖方保证金": "Breach confirmed — the seller's deposit is slashed once the dispute window closes",
+  "罚没中": "Slashing",
   "已罚没": "Slashed",
   "卖方保证金被罚没": "The seller's deposit was slashed",
   "已失败": "Failed",
