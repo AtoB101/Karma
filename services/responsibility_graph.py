@@ -143,6 +143,28 @@ async def ingest_edge(
             signals=[_signal_to_schema(row) for row in existing_signals.scalars().all()],
         )
 
+    if voucher_id:
+        # 一张 voucher 只对应一条责任边（DB 唯一约束 uq_responsibility_edge_voucher）。
+        # 同一张 voucher 再来一次时，只要 metadata / 边类型 / 任务号有一个变了，
+        # edge_hash 就不一样，上面的查重查不到，落到下面就会撞唯一约束 —— 那是 500。
+        # 这里按 voucher_id 幂等返回既有的那条边：同一张 voucher 不该长出第二条边。
+        by_voucher = await db.execute(
+            select(ResponsibilityEdgeModel).where(
+                ResponsibilityEdgeModel.voucher_id == voucher_id
+            )
+        )
+        voucher_row = by_voucher.scalar_one_or_none()
+        if voucher_row is not None:
+            voucher_signals = await db.execute(
+                select(ResponsibilitySignalModel).where(
+                    ResponsibilitySignalModel.edge_hash == voucher_row.edge_hash
+                )
+            )
+            return ResponsibilityEdgeIngestResult(
+                edge=_edge_to_schema(voucher_row),
+                signals=[_signal_to_schema(row) for row in voucher_signals.scalars().all()],
+            )
+
     edge_row = ResponsibilityEdgeModel(
         edge_hash=edge_hash,
         source_identity_id=source_identity_id,

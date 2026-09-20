@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
 from core.schemas import (
     ResponsibilityEdgeType,
@@ -10,7 +11,11 @@ from core.schemas import (
     ResponsibilityScanExecutionMode,
     ResponsibilityScanMode,
 )
-from db.models.orm import ResponsibilityScanRunModel, ResponsibilitySignalModel
+from db.models.orm import (
+    ResponsibilityEdgeModel,
+    ResponsibilityScanRunModel,
+    ResponsibilitySignalModel,
+)
 from services.responsibility_graph import (
     cancel_scan_run,
     claim_next_scan_run,
@@ -80,6 +85,51 @@ async def test_identity_score_filters_signals_by_time_window(db_session):
     score_72h = await get_identity_score(db=db_session, identity_id=identity_id, window_hours=72)
     assert score_72h.signal_count == 2
     assert score_72h.signal_type_counts["cycle_authorization"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ingest_edge_replays_same_voucher_idempotently(db_session):
+    """同一张 voucher 换一份 payload 再来一次，不能再撞唯一约束（线上那次是 500）。
+
+    uq_responsibility_edge_voucher 保证一张 voucher 只有一条责任边；
+    但查重以前只看 edge_hash，metadata / 任务号一变就是新 hash，
+    于是插入时撞约束、接口 500。现在必须按 voucher_id 幂等返回既有那条边。
+    """
+    voucher = "voucher-replay-0001"
+    first = await ingest_edge(
+        db=db_session,
+        source_identity_id="replay-a",
+        target_identity_id="replay-b",
+        edge_type=ResponsibilityEdgeType.MANUAL_LINK,
+        task_id="task-replay-1",
+        voucher_id=voucher,
+        metadata={"stage": "first"},
+    )
+    second = await ingest_edge(
+        db=db_session,
+        source_identity_id="replay-a",
+        target_identity_id="replay-b",
+        edge_type=ResponsibilityEdgeType.MANUAL_LINK,
+        task_id="task-replay-2",
+        voucher_id=voucher,
+        metadata={"stage": "second"},
+    )
+
+    assert second.edge.edge_hash == first.edge.edge_hash
+    assert second.edge.voucher_id == voucher
+
+    rows = (
+        (
+            await db_session.execute(
+                select(ResponsibilityEdgeModel).where(
+                    ResponsibilityEdgeModel.voucher_id == voucher
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
 
 
 @pytest.mark.asyncio

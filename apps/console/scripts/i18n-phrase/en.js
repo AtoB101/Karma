@@ -1605,7 +1605,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "已减少锁仓：撤销 {0} 笔账单，并把 {1} USDC 重新锁仓": "Lock reduced: revoked {0} bill(s) and re-locked {1} USDC",
   "已经减少锁仓（撤销 {0} 笔账单），但把多撤的 {1} USDC 重新锁仓没成功：{2}。现在锁仓比你想要的少了 {3} USDC，可以点「增加锁仓额度」补回来。": "The lock was reduced (revoked {0} bills), but re-locking the excess {1} USDC failed: {2}. The lock is now {3} USDC lower than you wanted — click “Add lock credit” to top it back up.",
   "已减少锁仓：撤销 {0} 笔账单": "Lock reduced: revoked {0} bill(s)",
-  "（链上可划动 {0} · 未担保 {1}，提高授权额度后可划动）": "(on-chain spendable {0} · unsecured {1}; raise the granted limit to spend it)",
+  "（链上可划动 {0} · 未担保 {1}，提高授权额度后可划动）": " (on-chain spendable {0} · unsecured {1}; raise the granted limit to spend it)",
   "已分配 {0} / 总锁仓 {1} · 剩余 {2}": "Allocated {0} / total locked {1} · remaining {2}",
   "超出总锁仓：已分配 {0} > 总锁仓 {1}，请下调后再保存": "Over the total lock: allocated {0} > total locked {1}. Lower it before saving.",
   "主身份已锁仓 {0} USDC，已授权 {1} USDC。": "The main identity has {0} USDC locked and {1} USDC granted.",
@@ -2312,8 +2312,8 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "agent 用 KARMA_AGENT_ID + KARMA_API_KEY 完成身份识别；用 KARMA_RUNTIME_KEY 请求付款码、提交回执、申请结算。": "The agent identifies itself with KARMA_AGENT_ID + KARMA_API_KEY, and uses KARMA_RUNTIME_KEY to request payment codes, submit receipts and request settlement.",
   "对方成交前会查 p1-status；这就是 Karma 对这笔收付的验证依据。": "The counterparty checks p1-status before closing the deal — that's what Karma verifies this payment against.",
   "不再需要这个 agent 时，用下面「停用并销毁密钥」——Karma 托管的运行密钥会一并销毁。": "When you no longer need this agent, use \"Disable and destroy key\" below — the Karma-custodied runtime key is destroyed with it.",
-  "这个身份还打不开复核队列：队列只对复核岗（verifier）开放。": "This identity can't open the review queue yet: the queue is open only to verifiers.",
-  "复核岗不能自助开通 —— 需要运维先把身份加进": "Verifier access can't be self-enabled — ops has to add the identity to",
+  "这个身份还打不开复核队列：队列只对": "This identity can't open the review queue yet: the queue is open only to ",
+  "开放。复核岗不能自助开通 —— 需要运维先把身份加进": ". Verifier access can't be self-enabled — ops has to add the identity to ",
   "，再由本人建一张 verifier 类身份档案。": ", then create a verifier identity profile yourself.",
   "链上锁仓未启用：当前锁仓走台账模式，没有真实 USDC 进入合约。": "On-chain locking is not enabled: locking runs in ledger mode, with no real USDC entering the contract.",
   "授权额度模式未启用：当前走链上锁仓模式。": "Granted-limit mode is not enabled: falling back to on-chain locking.",
@@ -2322,7 +2322,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "链上锁仓未启用（缺少配置：{0}）：当前锁仓走台账模式，没有真实 USDC 进入合约。": "On-chain locking is not enabled (missing config: {0}): locking runs in ledger mode, with no real USDC entering the contract.",
   "授权额度模式未启用（缺少配置：{0}）：当前走链上锁仓模式。": "Granted-limit mode is not enabled (missing config: {0}): falling back to on-chain locking.",
   "卖家质押池：空闲 {0} USDC · 已被订单锁定 {1} USDC · 每单默认质押 {2}% 客单价（例：100 USDC 的单需 30 USDC，接单时由 Karma 规则自动从池里锁定，不用每单签名）": "Seller stake pool: idle {0} USDC · locked by orders {1} USDC · default stake per order {2}% of the order value (example: a 100 USDC order needs 30 USDC; Karma's rules lock it from the pool automatically when you accept, so no signature per order)",
-  "已承诺 {0} USDC{1}· 已支付 {2} USDC · 已被订单锁定 {3} USDC · 争议窗口 {4} 秒{5}": "Committed {0} USDC{1}· paid {2} USDC · locked by orders {3} USDC · dispute window {4} s{5}",
+  "已承诺 {0} USDC{1}· 已支付 {2} USDC · 已被订单锁定 {3} USDC · 争议窗口 {4} 秒{5}": "Committed {0} USDC{1} · paid {2} USDC · locked by orders {3} USDC · dispute window {4} s{5}",
   "改为减少 {0} USDC": "Reduce {0} USDC instead",
   "（合约只能整笔撤销：多撤的 {0} USDC 会立刻重新锁仓，净减少正好是 {1} USDC，需要多签一次名）": "(the contract can only revoke whole bills: the excess {0} USDC is re-locked immediately, so the net reduction is exactly {1} USDC — this needs one extra signature)",
   "现在不能减少锁仓：{0} USDC 全部被订单占用或已结算。": "The lock can't be reduced right now: all {0} USDC is tied up in orders or already settled.",
@@ -2441,4 +2441,13 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "读取调用记录失败：{0}": "Could not load call history: {0}",
   "接口未加载，请刷新页面后再试。": "The API client is not loaded — refresh the page and try again.",
   "有未读的钥匙提醒": "There are unread key notices",
+});
+
+/* 顶栏/账单页拼出来的那几句：整句是字符串拼的，只能按模式匹配。 */
+Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
+    "（链上可划动 {0}）": " (on-chain spendable {0})",
+    "承诺 #{0} · 额度 {1} USDC · 已用 {2} · 可用 {3} · {4}": "Commitment #{0} · credit {1} USDC · used {2} · available {3} · {4}",
+    "交易": "Tx",
+    "撤销授权": "Revoke",
+    "授权 = 告诉 Karma「这个身份最多能动用多少」。钱始终留在你自己的钱包里，验证通过才划转。 主身份已锁仓 {0} USDC，已授权 {1} USDC。": "A grant tells Karma “this identity may spend up to this much”. The money always stays in your own wallet and only moves after verification passes. The master identity has {0} USDC locked and {1} USDC granted.",
 });

@@ -108,6 +108,32 @@ async def test_owner_connect_rejects_foreign_owner(db_session):
 
 
 @pytest.mark.asyncio
+async def test_owner_connect_rejects_malformed_agent_id(db_session):
+    """agent_id 必须是 [A-Za-z0-9][A-Za-z0-9-]{1,63}：kid_… 这种身份号是 400，不是 500。
+
+    它会被当成密钥文件名和 API key 的解析段，所以非法字符必须挡在铸造之前。
+    以前 AgentKeyError 直接冒到 ASGI，调用方只拿到 "Internal Server Error"。
+    """
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            r = await client.post(
+                "/v1/agents/owner-connect",
+                json=_payload(agent_id="kid_2b8b6dfca420c96a1409b8fd"),
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert r.status_code == 400, r.text
+            assert "agent_id must match" in r.json()["detail"]
+            # 没有铸出半截密钥：失败要干净。
+            assert has_agent_key("kid_2b8b6dfca420c96a1409b8fd") is False
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 async def test_owner_connect_passes_production_gates(db_session, monkeypatch):
     """With the prod gates ON (real service_specs + PoP + owner-signed ack)."""
     monkeypatch.setattr("api.routes.agents.is_prod_like_env", lambda: True)

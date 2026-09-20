@@ -2314,8 +2314,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "agent 用 KARMA_AGENT_ID + KARMA_API_KEY 完成身份识别；用 KARMA_RUNTIME_KEY 请求付款码、提交回执、申请结算。": "El agent se identifica con KARMA_AGENT_ID + KARMA_API_KEY, y usa KARMA_RUNTIME_KEY para pedir códigos de pago, enviar recibos y solicitar liquidaciones.",
   "对方成交前会查 p1-status；这就是 Karma 对这笔收付的验证依据。": "La contraparte consulta p1-status antes de cerrar la operación — eso es lo que Karma verifica en este pago.",
   "不再需要这个 agent 时，用下面「停用并销毁密钥」——Karma 托管的运行密钥会一并销毁。": "Cuando ya no necesites este agent, usa \"Desactivar y destruir clave\" abajo — la clave de ejecución custodiada por Karma se destruye junto con él.",
-  "这个身份还打不开复核队列：队列只对复核岗（verifier）开放。": "Esta identidad todavía no puede abrir la cola de revisión: la cola está abierta solo a revisores (verifier).",
-  "复核岗不能自助开通 —— 需要运维先把身份加进": "El rol de revisor no se puede habilitar por cuenta propia — operaciones tiene que agregar la identidad a",
+  "这个身份还打不开复核队列：队列只对": "Esta identidad todavía no puede abrir la cola de revisión: la cola está abierta solo a ",
+  "开放。复核岗不能自助开通 —— 需要运维先把身份加进": ". El rol de revisor no se puede habilitar por cuenta propia — operaciones tiene que agregar la identidad a ",
   "，再由本人建一张 verifier 类身份档案。": ", y después crear tú mismo un perfil de identidad de tipo verifier.",
   "链上锁仓未启用：当前锁仓走台账模式，没有真实 USDC 进入合约。": "El bloqueo on-chain no está habilitado: hoy el bloqueo corre en modo libro mayor, sin USDC real entrando al contrato.",
   "授权额度模式未启用：当前走链上锁仓模式。": "El modo de cupo asignado no está habilitado: se usa el modo de bloqueo on-chain.",
@@ -2324,7 +2324,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "链上锁仓未启用（缺少配置：{0}）：当前锁仓走台账模式，没有真实 USDC 进入合约。": "El bloqueo on-chain no está habilitado (falta configuración: {0}): hoy el bloqueo corre en modo libro mayor, sin USDC real entrando al contrato.",
   "授权额度模式未启用（缺少配置：{0}）：当前走链上锁仓模式。": "El modo de cupo asignado no está habilitado (falta configuración: {0}): se usa el modo de bloqueo on-chain.",
   "卖家质押池：空闲 {0} USDC · 已被订单锁定 {1} USDC · 每单默认质押 {2}% 客单价（例：100 USDC 的单需 30 USDC，接单时由 Karma 规则自动从池里锁定，不用每单签名）": "Pool de stake del vendedor: libre {0} USDC · bloqueado por órdenes {1} USDC · stake por defecto {2}% del valor de la orden (ejemplo: una orden de 100 USDC necesita 30 USDC; las reglas de Karma lo bloquean del pool automáticamente al aceptar, sin firma por orden)",
-  "已承诺 {0} USDC{1}· 已支付 {2} USDC · 已被订单锁定 {3} USDC · 争议窗口 {4} 秒{5}": "Comprometido {0} USDC{1}· pagado {2} USDC · bloqueado por órdenes {3} USDC · ventana de disputa {4} s{5}",
+  "已承诺 {0} USDC{1}· 已支付 {2} USDC · 已被订单锁定 {3} USDC · 争议窗口 {4} 秒{5}": "Comprometido {0} USDC{1} · pagado {2} USDC · bloqueado por órdenes {3} USDC · ventana de disputa {4} s{5}",
   "改为减少 {0} USDC": "Reducir {0} USDC en su lugar",
   "（合约只能整笔撤销：多撤的 {0} USDC 会立刻重新锁仓，净减少正好是 {1} USDC，需要多签一次名）": "(el contrato solo puede revocar facturas enteras: el excedente de {0} USDC se vuelve a bloquear al instante, así que la reducción neta es exactamente {1} USDC — hace falta una firma extra)",
   "现在不能减少锁仓：{0} USDC 全部被订单占用或已结算。": "Ahora no se puede reducir el bloqueo: los {0} USDC están todos tomados por órdenes o ya liquidados.",
@@ -2443,4 +2443,13 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "读取调用记录失败：{0}": "No se pudo leer el historial de llamadas: {0}",
   "接口未加载，请刷新页面后再试。": "El cliente de API no está cargado; actualice la página y vuelva a intentar.",
   "有未读的钥匙提醒": "Hay avisos de llave sin leer",
+});
+
+/* 顶栏/账单页拼出来的那几句：整句是字符串拼的，只能按模式匹配。 */
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
+    "（链上可划动 {0}）": " (disponible on-chain {0})",
+    "承诺 #{0} · 额度 {1} USDC · 已用 {2} · 可用 {3} · {4}": "Compromiso #{0} · cupo {1} USDC · usado {2} · disponible {3} · {4}",
+    "交易": "Transacción",
+    "撤销授权": "Revocar",
+    "授权 = 告诉 Karma「这个身份最多能动用多少」。钱始终留在你自己的钱包里，验证通过才划转。 主身份已锁仓 {0} USDC，已授权 {1} USDC。": "Un cupo le dice a Karma «esta identidad puede gastar hasta acá». El dinero siempre queda en tu billetera y solo se mueve cuando pasa la verificación. La identidad principal tiene {0} USDC bloqueados y {1} USDC asignados.",
 });

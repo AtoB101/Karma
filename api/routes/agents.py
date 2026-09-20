@@ -23,6 +23,7 @@ from services.agent_boundary import (
 from services.agent_directory import connect_agent, refresh_p1_ready
 from services.agent_bootstrap_credentials import has_minted_api_key, mint_agent_api_key
 from services.agent_key_store import (
+    AgentKeyError,
     AgentSigner,
     has_agent_key,
     mint_agent_signer,
@@ -783,7 +784,13 @@ async def connect_owner_agent(
         merged["scope_profile_id"] = scope_profile_id
 
     resolved_agent_id = (agent_id or "").strip() or new_agent_id("agent")
-    signer, key_info = mint_agent_signer(resolved_agent_id)
+    # agent_id 会变成密钥文件名和 API key 的解析段，字符集必须受限。
+    # 非法 id（例如把 kid_… 身份号当 agent_id 传进来）是调用方写错了参数，
+    # 该给 400；以前 AgentKeyError 直接冒到 ASGI，用户只看到 500。
+    try:
+        signer, key_info = mint_agent_signer(resolved_agent_id)
+    except AgentKeyError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     tmpl = ConnectFromTemplateRequest(
         profile_id=resolved["profile_id"],
