@@ -13,7 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
@@ -586,7 +586,22 @@ async def confirm_key_binding(*, db: AsyncSession, key_id: str, code: str) -> Ru
             status_code=410,
             detail="the activation code expired — ask the agent to request a new one",
         )
-    if int(row.pending_attempts or 0) >= BIND_CODE_MAX_ATTEMPTS:
+    # 扣一次试错机会必须是原子的：“读出来 +1 再写回”会被并发的请求读到同一个旧值，
+    # 8 个并发错码实测只扣掉 3 次机会，5 次上限形同虚设。
+    # 这里用带条件的 UPDATE 原子扣次数：更新 0 行 = 机会已经用光。
+    consumed = await db.execute(
+        update(RuntimeKeyModel)
+        .where(
+            RuntimeKeyModel.key_id == key_id,
+            func.coalesce(RuntimeKeyModel.pending_attempts, 0) < BIND_CODE_MAX_ATTEMPTS,
+            RuntimeKeyModel.pending_code_hash.is_not(None),
+        )
+        .values(pending_attempts=func.coalesce(RuntimeKeyModel.pending_attempts, 0) + 1)
+        # 不让 ORM 去同步这行：它会把会话里的对象置成 expired，
+        # 后面序列化再读就会撞到异步懒加载。
+        .execution_options(synchronize_session=False)
+    )
+    if consumed.rowcount != 1:
         _clear_pending_binding(row)
         await db.flush()
         raise HTTPException(
@@ -595,8 +610,7 @@ async def confirm_key_binding(*, db: AsyncSession, key_id: str, code: str) -> Ru
         )
     given = hash_activation_code(key_id=row.key_id, code=code)
     if not hmac.compare_digest(given, row.pending_code_hash or ""):
-        row.pending_attempts = int(row.pending_attempts or 0) + 1
-        await db.flush()
+        # 次数已经在上面那条 UPDATE 里叠上了，不能再在 ORM 里加一次。
         raise HTTPException(status_code=403, detail="activation code does not match")
     row.agent_public_key = pub
     row.key_binding = "agent"

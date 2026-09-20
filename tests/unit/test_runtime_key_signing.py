@@ -1655,3 +1655,16 @@ async def test_wrong_code_attempts_survive_when_every_request_gets_its_own_sessi
             assert over.status_code == 429, over.text
     finally:
         app.dependency_overrides.clear()
+
+def test_bind_code_attempts_are_consumed_atomically():
+    """试错次数必须是「带条件的原子扣减」。
+
+    线上实测（2026-09-20）：8 个并发错码只扣掉 3 次机会（剩余次数 5 → 2），
+    也就是说并发把「5 次上限」放大了。根因是读出来 +1 再写回，并发请求读到同一个旧值。
+    这里钉住实现形态：一旦有人改回 read-modify-write，并发窗口就会回来。
+    """
+    import pathlib
+
+    src = pathlib.Path("services/runtime_key_service.py").read_text(encoding="utf-8")
+    assert "func.coalesce(RuntimeKeyModel.pending_attempts, 0) < BIND_CODE_MAX_ATTEMPTS" in src
+    assert "row.pending_attempts = int(row.pending_attempts or 0) + 1" not in src
