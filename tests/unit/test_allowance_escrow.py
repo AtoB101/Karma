@@ -324,6 +324,44 @@ def test_forwarded_call_without_a_karma_event_is_refused(monkeypatch):
         escrow._assert_receipt_target(forwarded, escrow.COMMITTED_SIG)
 
 
+# ----------------------------------------------------- 合约读失败的兜底口径
+
+
+def test_bill_available_returns_none_instead_of_raising_on_a_contract_revert(monkeypatch):
+    """不属于这台合约的账单 id 会让合约 revert（UnknownBill，0x00988181）。
+
+    这个 revert 过去一路冒到 ``/v1/settlement/{task}/lock``，用户看到的是 500。
+    现在它只意味着「这张账单在这台合约上划不动」，而且读的是**指定的**那台合约。
+    """
+    monkeypatch.setattr(settings, "chain_allowance_escrow_enabled", True)
+    monkeypatch.setattr(settings, "allowance_escrow_address", CONTRACT)
+    monkeypatch.setattr(settings, "erc20_token_address", TOKEN)
+    monkeypatch.setattr(settings, "testnet_rpc_url", "https://example.invalid")
+    monkeypatch.setattr(escrow, "_web3", lambda: object())
+
+    seen: dict[str, object] = {}
+
+    class _Call:
+        def call(self):
+            raise RuntimeError("execution reverted: 0x00988181")
+
+    class _Fns:
+        def available(self, _bill_id):  # noqa: D102 - 测试替身
+            return _Call()
+
+    class _Contract:
+        functions = _Fns()
+
+    def _contract(w3, address=None):
+        seen["address"] = address
+        return _Contract()
+
+    monkeypatch.setattr(escrow, "_contract", _contract)
+
+    assert escrow.bill_available(bill_id=37, contract_address=CONTRACT) is None
+    assert seen["address"] == CONTRACT
+
+
 # --------------------------------------------------------------- configuration
 
 
@@ -498,7 +536,7 @@ def test_a_failed_submit_releases_the_binding_instead_of_stranding_it(monkeypatc
             task_id="t",
             proof="0x" + "ab" * 32,
         )
-    assert cancelled == [{"binding_id": 42}]
+    assert [c["binding_id"] for c in cancelled] == [42]
 
 
 def test_open_and_submit_returns_one_merged_result(monkeypatch):
@@ -764,7 +802,9 @@ async def test_a_bill_closed_on_chain_stops_backing_the_ledger(client, db_sessio
     monkeypatch.setattr(settings, "chain_allowance_escrow_enabled", True)
     monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
     monkeypatch.setattr(escrow, "_web3", lambda: object())
-    monkeypatch.setattr(escrow, "_contract", lambda w3: _ChainBillView(state_code=2))
+    monkeypatch.setattr(
+        escrow, "_contract", lambda w3, address=None: _ChainBillView(state_code=2)
+    )
 
     sync = await client.post("/v1/escrow/identity-escrow-test/sync", json={})
     assert sync.status_code == 200, sync.text
@@ -789,7 +829,9 @@ async def test_an_open_bill_keeps_backing_the_ledger(client, db_session, monkeyp
     monkeypatch.setattr(settings, "chain_allowance_escrow_enabled", True)
     monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
     monkeypatch.setattr(escrow, "_web3", lambda: object())
-    monkeypatch.setattr(escrow, "_contract", lambda w3: _ChainBillView(state_code=1))
+    monkeypatch.setattr(
+        escrow, "_contract", lambda w3, address=None: _ChainBillView(state_code=1)
+    )
     sync = await client.post("/v1/escrow/identity-escrow-test/sync", json={})
     assert sync.status_code == 200, sync.text
     assert sync.json()["commits"][0]["state"] == "open"

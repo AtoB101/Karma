@@ -397,6 +397,10 @@ class EscrowBindingModel(Base):
     seller_profile_id: Mapped[str|None]   = mapped_column(String(64), nullable=True)
     buyer_bill_id:     Mapped[str]        = mapped_column(String(80), nullable=False)
     seller_bill_id:    Mapped[str]        = mapped_column(String(80), nullable=False)
+    #: 这条绑定落在哪台托管合约上。合约换地址（v2 升级到 v3）之后，绑定必须回到
+    #: **它自己那台**合约上收尾（finalize / cancel）：拿旧 binding id 去新合约问，
+    #: 合约根本不认识它（UnknownBinding），钱会被一次升级永久卡死。
+    contract_address:  Mapped[str]        = mapped_column(String(64), nullable=False, default="")
     scope_hash:        Mapped[str]        = mapped_column(String(80), nullable=False, default="")
     task_id:           Mapped[str|None]   = mapped_column(String(64), nullable=True, index=True)
     amount_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)

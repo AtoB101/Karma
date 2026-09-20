@@ -325,6 +325,48 @@ def configured_address() -> str:
     return (settings.allowance_escrow_address or "").strip()
 
 
+def normalize_address(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def is_current_contract(value: str | None) -> bool:
+    """这张账单 / 这条绑定，是不是落在**当前**这台托管合约上。
+
+    账单和绑定都只属于具体某台合约：合约换地址（v2 → v3）之后，旧合约上的
+    bill id 拿到新合约里 ``available()`` 直接 revert（UnknownBill）、旧 binding
+    id 拿到新合约里 ``getBinding()`` 也是 revert（UnknownBinding）。2026-09-20
+    的实测里，前者把 ``/lock`` 打成了 500，后者足以把用户的钱永久卡死。
+
+    新订单**只能**开在当前合约上：旧合约（v2）没有「验证通过才开窗」这道闸
+    （``submitSettlement`` 谁都能调），把新单开上去等于把 F9-1 那个洞又打开。
+    """
+    configured = normalize_address(configured_address())
+    return bool(configured) and normalize_address(value) == configured
+
+
+def bill_contract(row: Any) -> str:
+    """这张账单记在哪台合约上（历史行没有地址时按当前合约处理）。"""
+    return (getattr(row, "contract_address", "") or "").strip() or configured_address()
+
+
+def bill_is_spendable(row: Any) -> bool:
+    """这张账单能不能被当前这套托管流程花掉。
+
+    没配托管合约（纯台账模式）时不存在「哪台合约」的问题 —— 那种部署里链上授权额
+    本身就不存在，看的是台账；配了就必须是**当前**这台：旧合约的账单在新合约里
+    根本不存在（``UnknownBill`` revert），而且旧合约没有「验证通过才开窗」那道闸
+    （``submitSettlement`` 谁都能调），新单开上去等于把 F9-1 的洞重新打开。
+    """
+    if not escrow_enabled():
+        return True
+    return is_current_contract(bill_contract(row))
+
+
+def binding_contract(row: Any) -> str:
+    """这条绑定该去哪台合约上收尾（历史行没有地址时按当前合约处理）。"""
+    return (getattr(row, "contract_address", "") or "").strip() or configured_address()
+
+
 def operator_address() -> str:
     return (settings.settlement_operator_address or "").strip()
 
@@ -877,10 +919,12 @@ async def sync_commits(db: AsyncSession, identity_id: str) -> list[AllowanceComm
     if not rows or not escrow_enabled():
         return rows
     w3 = _web3()
-    contract = _contract(w3)
     for row in rows:
         if row.state == REVOKED:
             continue
+        # 每条账单去**它自己那台**合约上读。合约换过地址之后，旧账单在新合约里
+        # 根本不存在（UnknownBill revert），过去这一步会一直被当成 RPC 抖动。
+        contract = _contract(w3, bill_contract(row))
         try:
             bill = contract.functions.getBill(int(row.bill_id)).call()
             reserved_wei = int(bill[5])
@@ -888,7 +932,12 @@ async def sync_commits(db: AsyncSession, identity_id: str) -> list[AllowanceComm
             state_code = int(bill[7])
             backed = contract.functions.isBacked(int(row.bill_id)).call()
         except Exception as exc:  # RPC hiccup: keep the last known values
-            logger.warning("allowance_sync_failed", bill_id=row.bill_id, error=str(exc))
+            logger.warning(
+                "allowance_sync_failed",
+                bill_id=row.bill_id,
+                contract=bill_contract(row),
+                error=str(exc),
+            )
             continue
         row.reserved_usdc = wei_to_usdc(reserved_wei)
         row.spent_usdc = wei_to_usdc(spent_wei)
@@ -978,17 +1027,30 @@ async def backing_report(db: AsyncSession, identity_id: str) -> dict[str, Any]:
     * ``chain_checked`` —— 授权额**这一次**真的读到了。
       ``enforced and not chain_checked`` 就是 RPC 抖动：读不到链不能声称担保，
       但也不能因为一次网络错误把用户已经锁进来的额度当成 0。
+
+    担保是**按合约**算的：ERC-20 授权发给具体的 spender，账单也只有它自己那台
+    合约划得动。所以当前合约上的账单进 ``bills``，旧合约上的进 ``legacy`` ——
+    它们仍在链上、仍在用户钱包里，但新订单划不动它们（旧合约连验证闸都没有），
+    不能拿来当担保。
     """
     enforced = escrow_enabled()
     rows = await list_commits(db, identity_id)
-    groups: dict[tuple[str, str], list[AllowanceCommitModel]] = {}
+
+    def _is_current(contract: str) -> bool:
+        """没配托管合约时不存在「哪台合约」的问题（链上授权额本身就不存在），
+        一律按当前口径记 —— 与契约缩窄之前的行为一致。"""
+        return (not enforced) or is_current_contract(contract)
+
+    groups: dict[tuple[str, str, str], list[AllowanceCommitModel]] = {}
     for row in rows:
         if row.state in _NON_LIVE_STATES:
             continue
         live = max(0.0, float(row.amount_usdc or 0.0) - float(row.spent_usdc or 0.0))
         if live <= 0:
             continue
-        groups.setdefault((row.wallet_address, row.token_address), []).append(row)
+        groups.setdefault(
+            (row.wallet_address, row.token_address, bill_contract(row)), []
+        ).append(row)
 
     report: dict[str, Any] = {
         "allowance_usdc": 0.0,
@@ -998,57 +1060,82 @@ async def backing_report(db: AsyncSession, identity_id: str) -> dict[str, Any]:
         "enforced": enforced,
         "chain_checked": False,
         "bills": {},
+        #: 落在**旧**托管合约上的锁仓：钱还在用户自己钱包里、还在旧合约上记着，
+        #: 只是新合约划不动它。如实报出来，前台据此提示「请重新锁仓」。
+        "legacy": {"contracts": [], "committed_usdc": 0.0, "secured_usdc": 0.0, "bills": {}},
     }
-    live_pairs_by_group: dict[tuple[str, str], list[tuple[str, float]]] = {}
+    live_pairs_by_group: dict[tuple[str, str, str], list[tuple[str, float]]] = {}
     for key, group in groups.items():
         live_pairs_by_group[key] = [
             (str(r.bill_id), max(0.0, float(r.amount_usdc or 0.0) - float(r.spent_usdc or 0.0)))
             for r in sorted(group, key=lambda r: _bill_sort_key(str(r.bill_id)))
         ]
-        report["committed_usdc"] += sum(live for _, live in live_pairs_by_group[key])
+        if _is_current(key[2]):
+            report["committed_usdc"] += sum(live for _, live in live_pairs_by_group[key])
+        else:
+            report["legacy"]["committed_usdc"] += sum(
+                live for _, live in live_pairs_by_group[key]
+            )
+            if key[2] not in report["legacy"]["contracts"]:
+                report["legacy"]["contracts"].append(key[2])
     report["committed_usdc"] = round(report["committed_usdc"], 6)
+    report["legacy"]["committed_usdc"] = round(report["legacy"]["committed_usdc"], 6)
 
     if not groups:
         return report
+
+    def _bucket(contract: str) -> dict[str, dict[str, float]]:
+        return report["bills"] if _is_current(contract) else report["legacy"]["bills"]
 
     if not enforced:
         # 这个部署里根本没有托管合约（v2 未启用 / RPC 未配置）：链上不存在
         # 授权额这回事，也就没有「多张账单抢同一条授权」的问题，回落到台账口径
         # amount - spent，并用 chain_checked=False 告诉调用方「这个数不是从链上读来的」。
-        for live_pairs in live_pairs_by_group.values():
+        for (wallet, token, contract), live_pairs in live_pairs_by_group.items():
             for bill_id, live in live_pairs:
-                report["bills"][bill_id] = {
+                _bucket(contract)[bill_id] = {
                     "live_usdc": round(live, 6),
                     "secured_usdc": round(live, 6),
                 }
         report["secured_usdc"] = report["committed_usdc"]
+        report["legacy"]["secured_usdc"] = report["legacy"]["committed_usdc"]
         return report
 
     w3 = _web3()
     checked = True
-    for (wallet, token), live_pairs in live_pairs_by_group.items():
+    for (wallet, token, contract), live_pairs in live_pairs_by_group.items():
+        current = _is_current(contract)
         try:
-            allowance = wei_to_usdc(
-                _erc20_allowance_wei(w3, token, wallet, configured_address())
-            )
+            allowance = wei_to_usdc(_erc20_allowance_wei(w3, token, wallet, contract))
         except Exception as exc:  # RPC 抖动：这一次不声称担保，绝不放行
-            logger.warning("allowance_backing_read_failed", wallet=wallet, error=str(exc))
-            checked = False
+            logger.warning(
+                "allowance_backing_read_failed",
+                wallet=wallet,
+                contract=contract,
+                current=current,
+                error=str(exc),
+            )
+            if current:
+                checked = False
             allowance = 0.0
         secured = allocate_allowance(live_pairs, allowance)
         committed = round(sum(live for _, live in live_pairs), 6)
         secured_total = round(sum(secured.values()), 6)
-        report["allowance_usdc"] += allowance
-        report["secured_usdc"] += secured_total
-        report["unsecured_usdc"] += round(committed - secured_total, 6)
         for bill_id, live in live_pairs:
-            report["bills"][bill_id] = {
+            _bucket(contract)[bill_id] = {
                 "live_usdc": round(live, 6),
                 "secured_usdc": secured[bill_id],
             }
+        if current:
+            report["allowance_usdc"] += allowance
+            report["secured_usdc"] += secured_total
+            report["unsecured_usdc"] += round(committed - secured_total, 6)
+        else:
+            report["legacy"]["secured_usdc"] += secured_total
     report["chain_checked"] = checked
     for key in ("allowance_usdc", "committed_usdc", "secured_usdc", "unsecured_usdc"):
         report[key] = round(report[key], 6)
+    report["legacy"]["secured_usdc"] = round(report["legacy"]["secured_usdc"], 6)
     return report
 
 
@@ -1320,6 +1407,7 @@ def open_order(
     stake_usdc: float,
     scope: str,
     task_id: str,
+    contract_address: str | None = None,
 ) -> dict[str, Any]:
     """Bind a buyer commitment to a seller stake and submit the proof.
 
@@ -1327,11 +1415,15 @@ def open_order(
     when committing — that is what removes the per-order signature. It can only
     ever *record* an obligation: the money moves later, from the buyer's wallet,
     and only while the buyer's own allowance stands.
+
+    ``contract_address`` 是这个订单落在哪台托管合约上：**新单只允许开在当前
+    合约**（旧合约没有 resolver-only 的验证闸），所以调用方传的是账单自己的
+    合约，必须与当前配置一致才会走到这里。
     """
     if not escrow_enabled():
         raise WalletLockError(disabled_detail())
     w3 = _web3()
-    contract = _contract(w3)
+    contract = _contract(w3, contract_address)
     amount_wei = usdc_to_wei(amount_usdc)
     stake_wei = usdc_to_wei(stake_usdc)
 
@@ -1355,24 +1447,36 @@ def open_order(
     }
 
 
-def submit_settlement(*, binding_id: int, proof: str) -> dict[str, Any]:
-    """Open the dispute window for a bound order on Karma's operational account."""
+def submit_settlement(
+    *, binding_id: int, proof: str, contract_address: str | None = None
+) -> dict[str, Any]:
+    """Open the dispute window for a bound order on Karma's operational account.
+
+    ``contract_address`` 默认当前合约；绑定开在旧合约上时（合约升级过）必须传它
+    自己那台，否则新合约不认识这个 binding id。
+    """
     if not escrow_enabled():
         raise WalletLockError(disabled_detail())
     w3 = _web3()
-    contract = _contract(w3)
+    contract = _contract(w3, contract_address)
     digest = proof_hash(proof)
     receipt, tx = _send_tx(contract.functions.submitSettlement(int(binding_id), digest))
     pull_after = int(parse_settle_submitted(receipt)["pull_after"])
     return {"binding_id": int(binding_id), "submit_tx_hash": tx, "proof_hash": digest, "pull_after": pull_after}
 
 
-def finalize_settlement(*, binding_id: int) -> dict[str, Any]:
-    """Execute the pull payer -> payee. Permissionless once the window elapsed."""
+def finalize_settlement(
+    *, binding_id: int, contract_address: str | None = None
+) -> dict[str, Any]:
+    """Execute the pull payer -> payee. Permissionless once the window elapsed.
+
+    ``contract_address`` 默认当前合约 —— 收尾旧合约上的绑定要显式传它自己那台，
+    否则一次合约升级就能把这笔钱永久卡死（新合约 UnknownBinding revert）。
+    """
     if not escrow_enabled():
         raise WalletLockError(disabled_detail())
     w3 = _web3()
-    contract = _contract(w3)
+    contract = _contract(w3, contract_address)
     receipt, tx = _send_tx(contract.functions.finalizeSettlement(int(binding_id)))
     paid_usdc = wei_to_usdc(int(parse_settled(receipt)["amount_wei"]))
     return {"binding_id": int(binding_id), "finalize_tx_hash": tx, "paid_usdc": paid_usdc}
@@ -1383,46 +1487,66 @@ _BINDING_FIELDS = [
 ]
 
 
-def binding_state(*, binding_id: int) -> int | None:
+def binding_state(*, binding_id: int, contract_address: str | None = None) -> int | None:
     """读合约自己记的绑定状态 —— 唯一的事实来源。
 
     用来对账「我们没等到回执、但交易其实上链了」的那一单：receipt 等待超时
     只说明我们没看见，不代表链上没有发生。链说了算。
+
+    ``contract_address`` 默认当前合约；旧绑定必须传它自己那台，否则新合约不认识
+    这个 binding id（``UnknownBinding`` revert）。
     """
     if not escrow_enabled():
         return None
     w3 = _web3()
-    contract = _contract(w3)
+    contract = _contract(w3, contract_address)
     raw = contract.functions.getBinding(int(binding_id)).call()
     return int(dict(zip(_BINDING_FIELDS, raw, strict=False))["state"])
 
 
-def bill_available(*, bill_id: int) -> float | None:
+def bill_available(*, bill_id: int, contract_address: str | None = None) -> float | None:
     """链上这张账单还剩多少可用（合约的 ``amount - reserved - spent``）。
 
     台账（``allowance_commits``）是回执回写出来的，结算完要等一次 sync 才追上链；
     两个结算挨得近的时候，台账会**高估**可用额度。挑账单这种事必须以链为准 ——
     否则就会在 bind 那一步吃到 InsufficientCommitment，用户看到的是一串 hex。
+
+    ``contract_address`` 默认是当前合约；账单不属于那台合约时合约会 revert
+    （``UnknownBill``），这里按「查不到 = 没有额度」返回 ``None``，绝不把一次
+    合约 revert 抛成 500 —— 旧合约的账单不该让新合约的接单流程炸掉。
     """
     if not escrow_enabled():
         return None
     w3 = _web3()
-    contract = _contract(w3)
-    return wei_to_usdc(int(contract.functions.available(int(bill_id)).call()))
+    contract = _contract(w3, contract_address)
+    try:
+        return wei_to_usdc(int(contract.functions.available(int(bill_id)).call()))
+    except Exception as exc:  # 不属于这台合约 / RPC 抖动：都当「划不动」
+        logger.warning(
+            "allowance_bill_available_failed",
+            bill_id=bill_id,
+            contract=(contract_address or configured_address()),
+            error=str(exc)[:200],
+        )
+        return None
 
 
-def finalize_breach(*, binding_id: int) -> dict[str, Any]:
+def finalize_breach(
+    *, binding_id: int, contract_address: str | None = None
+) -> dict[str, Any]:
     """Slash the seller stake to the buyer (resolver-only on-chain)."""
     if not escrow_enabled():
         raise WalletLockError(disabled_detail())
     w3 = _web3()
-    contract = _contract(w3)
+    contract = _contract(w3, contract_address)
     receipt, tx = _send_tx(contract.functions.finalizeBreach(int(binding_id)))
     slashed_usdc = wei_to_usdc(int(parse_slashed(receipt)["amount_wei"]))
     return {"binding_id": int(binding_id), "breach_tx_hash": tx, "slashed_usdc": slashed_usdc}
 
 
-def cancel_binding(*, binding_id: int) -> dict[str, Any]:
+def cancel_binding(
+    *, binding_id: int, contract_address: str | None = None
+) -> dict[str, Any]:
     """Release an orphaned reservation (e.g. a bind whose caller died).
 
     Any party — or their operator — may cancel while nothing has been submitted,
@@ -1431,7 +1555,7 @@ def cancel_binding(*, binding_id: int) -> dict[str, Any]:
     if not escrow_enabled():
         raise WalletLockError(disabled_detail())
     w3 = _web3()
-    contract = _contract(w3)
+    contract = _contract(w3, contract_address)
     receipt, tx = _send_tx(contract.functions.cancelBinding(int(binding_id)))
     return {"binding_id": int(binding_id), "cancel_tx_hash": tx, "status": int(_field(receipt, "status", 1) or 1)}
 
@@ -1445,6 +1569,7 @@ def open_and_submit_order(
     scope: str,
     task_id: str,
     proof: str,
+    contract_address: str | None = None,
 ) -> dict[str, Any]:
     """``bind`` then ``submitSettlement``, releasing the reservation if submit fails.
 
@@ -1459,13 +1584,16 @@ def open_and_submit_order(
         stake_usdc=stake_usdc,
         scope=scope,
         task_id=task_id,
+        contract_address=contract_address,
     )
     binding_id = int(bound["binding_id"])
     try:
-        submitted = submit_settlement(binding_id=binding_id, proof=proof)
+        submitted = submit_settlement(
+            binding_id=binding_id, proof=proof, contract_address=contract_address
+        )
     except Exception:
         try:
-            cancel_binding(binding_id=binding_id)
+            cancel_binding(binding_id=binding_id, contract_address=contract_address)
             logger.warning("escrow_bind_rolled_back", binding_id=binding_id)
         except Exception as cancel_exc:  # nothing else we can do; make it loud
             logger.error(

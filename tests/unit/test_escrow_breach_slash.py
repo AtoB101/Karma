@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy import delete, select
 
 from core.schemas import TaskStatus
+from config.settings import settings
 from db.models.orm import AllowanceCommitModel, EscrowBindingModel, SettlementModel
 from services.chain import allowance_escrow as escrow
 
@@ -99,7 +100,9 @@ def chain(monkeypatch):
     async def _backing_report(db, identity_id):
         return dict(_report.get(identity_id) or {"chain_checked": False, "bills": {}})
 
-    def _open_order(*, buyer_bill_id, seller_bill_id, amount_usdc, stake_usdc, scope, task_id):
+    def _open_order(
+        *, buyer_bill_id, seller_bill_id, amount_usdc, stake_usdc, scope, task_id, **_kw
+    ):
         calls["bind"].append((buyer_bill_id, seller_bill_id, amount_usdc, stake_usdc))
         return {
             "binding_id": 200 + len(calls["bind"]),
@@ -109,7 +112,7 @@ def chain(monkeypatch):
             "scope_hash": "0x" + "aa" * 32,
         }
 
-    def _submit_settlement(*, binding_id, proof):
+    def _submit_settlement(*, binding_id, proof, **_kw):
         calls["submit"].append((binding_id, proof))
         return {
             "binding_id": binding_id,
@@ -118,18 +121,22 @@ def chain(monkeypatch):
             "pull_after": int(time.time()) + 60,
         }
 
-    def _cancel_binding(*, binding_id):
+    def _cancel_binding(*, binding_id, **_kw):
         calls["cancel"].append(binding_id)
         return {"binding_id": binding_id, "cancel_tx_hash": "0xcancel%d" % len(calls["cancel"])}
 
     monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
+    # 账单要落在「当前合约」上才会被挑中（旧合约的账单属于已退役的合约）。
+    monkeypatch.setattr(settings, "allowance_escrow_address", "0x" + "11" * 20)
     monkeypatch.setattr(escrow, "list_commits", _list_commits)
     monkeypatch.setattr(escrow, "backing_report", _backing_report)
     monkeypatch.setattr(escrow, "open_order", _open_order)
     monkeypatch.setattr(escrow, "submit_settlement", _submit_settlement)
     monkeypatch.setattr(escrow, "cancel_binding", _cancel_binding)
-    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id: None)
-    monkeypatch.setattr(escrow, "bill_available", lambda *, bill_id: _available.get(str(bill_id)))
+    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: None)
+    monkeypatch.setattr(
+        escrow, "bill_available", lambda *, bill_id, **kw: _available.get(str(bill_id))
+    )
     return bridge, calls
 
 
@@ -253,7 +260,7 @@ async def test_reconcile_task_reads_the_slash_back_from_chain(db_session, chain,
     bridge, calls = chain
     row = await _open(db_session, bridge)
     await bridge.slash_for_task(db_session, task_id=TASK)
-    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id: 4)  # SLASHED
+    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: 4)  # SLASHED
 
     out = await bridge.reconcile_task(db_session, task_id=TASK)
 
@@ -335,7 +342,7 @@ def _autosettle(monkeypatch):
     autosettle.reset_backoff()
     monkeypatch.setattr(autosettle.escrow, "escrow_enabled", lambda: True)
     monkeypatch.setattr(autosettle.escrow, "can_server_settle", lambda: True)
-    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: None)
+    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id, **kw: None)
 
     async def _noop_sync(db, identity_id):
         return []
@@ -368,7 +375,7 @@ async def test_due_breach_bindings_picks_only_armed_and_elapsed(db_session, _aut
 async def test_breach_due_executes_the_slash_and_records_the_tx(db_session, _autosettle, monkeypatch):
     seen: list[int] = []
 
-    def _finalize_breach(*, binding_id: int):
+    def _finalize_breach(*, binding_id: int, **_kw):
         seen.append(binding_id)
         return {"breach_tx_hash": "0xslash", "slashed_usdc": 9.0}
 
@@ -392,7 +399,7 @@ async def test_the_normal_settle_pass_never_touches_a_breaching_binding(
     """回归钉子：breaching 的单绝不能被正常结算通道划走货款。"""
     paid: list[int] = []
     monkeypatch.setattr(
-        escrow, "finalize_settlement", lambda *, binding_id: paid.append(binding_id)
+        escrow, "finalize_settlement", lambda *, binding_id, **kw: paid.append(binding_id)
     )
     db_session.add(_binding("8", pull_after=int(time.time()) - 30))
     await db_session.commit()
@@ -407,7 +414,7 @@ async def test_the_normal_settle_pass_never_touches_a_breaching_binding(
 async def test_a_failed_slash_backs_off(db_session, _autosettle, monkeypatch):
     attempts: list[int] = []
 
-    def _boom(*, binding_id: int):
+    def _boom(*, binding_id: int, **_kw):
         attempts.append(binding_id)
         raise RuntimeError("execution reverted")
 
@@ -427,8 +434,10 @@ async def test_chain_already_slashed_is_reconciled_without_another_tx(
     db_session, _autosettle, monkeypatch
 ):
     sent: list[int] = []
-    monkeypatch.setattr(escrow, "finalize_breach", lambda *, binding_id: sent.append(binding_id))
-    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id: 4)  # SLASHED
+    monkeypatch.setattr(
+        escrow, "finalize_breach", lambda *, binding_id, **kw: sent.append(binding_id)
+    )
+    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: 4)  # SLASHED
     db_session.add(_binding("10", pull_after=int(time.time()) - 30))
     await db_session.commit()
 

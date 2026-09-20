@@ -204,10 +204,18 @@ def _backed_off(binding_id: str) -> bool:
     return last is not None and (time.monotonic() - last) < RETRY_BACKOFF_SECONDS
 
 
-async def _onchain_state(binding_id: str) -> int | None:
-    """Ask the contract. An RPC hiccup must not stall the tick, so it returns None."""
+async def _onchain_state(row: EscrowBindingModel) -> int | None:
+    """Ask the contract. An RPC hiccup must not stall the tick, so it returns None.
+
+    问的是**这条绑定自己**那台合约（合约换过地址之后，新合约不认识旧 binding id）。
+    """
+    binding_id = row.binding_id
     try:
-        return await asyncio.to_thread(escrow.binding_state, binding_id=int(binding_id))
+        return await asyncio.to_thread(
+            escrow.binding_state,
+            binding_id=int(binding_id),
+            contract_address=escrow.binding_contract(row),
+        )
     except Exception as exc:  # noqa: BLE001 - read-only, best effort
         logger.warning(
             "escrow_autosettle_state_read_failed", binding_id=binding_id, error=str(exc)
@@ -289,7 +297,7 @@ async def _reconcile_from_chain(
     我们没看见。旧代码把这当成失败，于是钱已经 wallet→wallet 划走，绑定行却永远
     停在 finalizing，它占的子身份额度也永远不释放。链说了算。
     """
-    state = await _onchain_state(row.binding_id)
+    state = await _onchain_state(row)
     if state not in _CHAIN_DONE:
         return False
     _failed_at.pop(row.binding_id, None)
@@ -321,7 +329,9 @@ async def settle_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
             continue
         try:
             result = await asyncio.to_thread(
-                escrow.finalize_settlement, binding_id=int(row.binding_id)
+                escrow.finalize_settlement,
+                binding_id=int(row.binding_id),
+                contract_address=escrow.binding_contract(row),
             )
         except wallet_lock.WalletLockError as exc:
             if await _reconcile_from_chain(db, row, settled):
@@ -356,7 +366,7 @@ async def _reconcile_breach_from_chain(
     db: AsyncSession, row: EscrowBindingModel, slashed: list[dict]
 ) -> bool:
     """链上已经落定（罚没/结算/取消）就别再发交易，把台账补上。"""
-    state = await _onchain_state(row.binding_id)
+    state = await _onchain_state(row)
     if state not in _CHAIN_DONE:
         return False
     _failed_at.pop(row.binding_id, None)
@@ -410,7 +420,9 @@ async def breach_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
             continue
         try:
             result = await asyncio.to_thread(
-                escrow.finalize_breach, binding_id=int(row.binding_id)
+                escrow.finalize_breach,
+                binding_id=int(row.binding_id),
+                contract_address=escrow.binding_contract(row),
             )
         except wallet_lock.WalletLockError as exc:
             if await _reconcile_breach_from_chain(db, row, slashed):

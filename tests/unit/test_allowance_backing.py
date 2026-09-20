@@ -22,6 +22,8 @@ WALLET = "0x7ed437e5786ab0d217d52937da4ff4790998d94c"
 OTHER_WALLET = "0x5acc51116f66b84802c8321f286d09014a78346f"
 TOKEN = "0x6af606f5b071bf649dc136fcd308ed0c9adf38ff"
 CONTRACT = "0x3fe45f40c19978e81296efaf63eb2ca0c79f0e66"
+#: 合约升级之后被留在身后的那台（v2 → v3 的真实形状）。
+RETIRED = "0x" + "77" * 20
 OPERATOR = "0x1d147c9eefd9d1d4c4725700a05edc6ca13975cc"
 DECIMALS = 10 ** 6
 
@@ -45,6 +47,7 @@ async def _seed_commits(
     identity_id: str = IDENTITY,
     wallet: str = WALLET,
     state: str = escrow.IDLE,
+    contract: str = CONTRACT,
 ):
     """记一条 v2 承诺：钱从未离开钱包，只是一条链上责任 + 一条 ERC-20 授权。"""
     for bill_id, amount in bills:
@@ -54,7 +57,7 @@ async def _seed_commits(
                 identity_id=identity_id,
                 wallet_address=wallet,
                 chain_id=11155111,
-                contract_address=CONTRACT,
+                contract_address=contract,
                 token_address=TOKEN,
                 operator=OPERATOR,
                 amount_wei=str(int(amount * DECIMALS)),
@@ -318,6 +321,69 @@ async def test_revoked_bills_stop_eating_the_allowance(db_session, monkeypatch):
     assert report["secured_usdc"] == pytest.approx(25.0)
     assert report["unsecured_usdc"] == pytest.approx(0.0)
     assert "2" not in report["bills"]
+
+
+# -------------------------------------------- 合约升级：账单属于具体某一台合约
+
+
+@pytest.mark.asyncio
+async def test_bills_left_on_a_retired_contract_do_not_back_the_current_one(
+    db_session, monkeypatch
+):
+    """2026-09-20 实测：v2 换 v3 之后旧账单还在台账里，但它们救不了新单。
+
+    钱没丢（还在用户钱包里、还在旧合约上记着），可它不能变成「可花额度」——
+    当前合约那条 ERC-20 授权额跟它没有任何关系。
+    """
+    await _seed_commits(db_session, [("1", 25.0)])
+    await _seed_commits(db_session, [("37", 40.0)], contract=RETIRED)
+    _allowance_chain(monkeypatch, 50.0)
+
+    report = await escrow.backing_report(db_session, IDENTITY)
+
+    assert report["committed_usdc"] == pytest.approx(25.0)
+    assert report["secured_usdc"] == pytest.approx(25.0)
+    assert "37" not in report["bills"]
+    # 旧合约的锁仓要如实报出来，不能让用户以为钱不见了
+    assert report["legacy"]["contracts"] == [RETIRED]
+    assert report["legacy"]["committed_usdc"] == pytest.approx(40.0)
+    assert report["legacy"]["bills"]["37"]["live_usdc"] == pytest.approx(40.0)
+    assert await escrow.secured_usdc_for_bill(db_session, IDENTITY, "37") == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_a_retired_contract_never_eats_the_current_allowance(db_session, monkeypatch):
+    """反例保护：旧账单不能先到先得地把当前合约的授权额分走（升级前它确实会）。"""
+    await _seed_commits(db_session, [("1", 30.0)])
+    await _seed_commits(db_session, [("2", 900.0)], contract=RETIRED)
+    _allowance_chain(monkeypatch, 30.0)
+
+    report = await escrow.backing_report(db_session, IDENTITY)
+
+    assert report["secured_usdc"] == pytest.approx(30.0)
+    assert await escrow.secured_usdc_for_bill(db_session, IDENTITY, "1") == pytest.approx(30.0)
+
+
+@pytest.mark.asyncio
+async def test_capacity_mirror_drops_the_credit_of_a_bill_on_a_retired_contract(
+    db_session, monkeypatch
+):
+    """合约升级把一张账单留在身后时，它撑出来的额度必须跟着消失（否则就是虚增）。"""
+    await _seed_commits(db_session, [("1", 25.0)])
+    _allowance_chain(monkeypatch, 50.0)
+    first = await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+    assert first["credited_usdc"] == pytest.approx(25.0)
+
+    row = await db_session.get(AllowanceCommitModel, "1")
+    row.contract_address = RETIRED
+    await db_session.flush()
+
+    again = await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+
+    assert again["credited_usdc"] == pytest.approx(0.0)
+    cap = await db_session.get(CapacityModel, IDENTITY)
+    assert cap.available_credits == pytest.approx(0.0)
+
 
 # ------------------------------------------------------------------ 操作台口径
 

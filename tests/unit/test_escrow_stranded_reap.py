@@ -78,7 +78,7 @@ def autosettle(monkeypatch):
     monkeypatch.setattr(mod.escrow, "escrow_enabled", lambda: True)
     monkeypatch.setattr(mod.escrow, "can_server_settle", lambda: True)
     monkeypatch.setattr(mod.escrow, "sync_commits", _noop_sync)
-    monkeypatch.setattr(mod.escrow, "binding_state", lambda *, binding_id: None)
+    monkeypatch.setattr(mod.escrow, "binding_state", lambda *, binding_id, **kw: None)
     yield mod
     mod.reset_backoff()
 

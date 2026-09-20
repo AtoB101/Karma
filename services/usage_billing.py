@@ -319,6 +319,10 @@ async def _pick_bill(db: AsyncSession, identity_id: str, need_usdc: float) -> st
     for row in rows:
         if row.state != escrow.IDLE:
             continue
+        # 旧合约上的账单在当前合约里不存在（``available()`` 直接 revert），而且
+        # 旧合约没有「验证通过才开窗」那道闸 —— 新单一律只用当前合约的账单。
+        if not escrow.bill_is_spendable(row):
+            continue
         free = float(row.amount_usdc or 0.0) - float(row.spent_usdc or 0.0) - float(
             row.reserved_usdc or 0.0
         )
@@ -430,6 +434,7 @@ async def settle_meter(
             scope=scope,
             task_id=task_id,
             proof=proof,
+            contract_address=escrow.configured_address(),
         )
     except Exception as exc:  # noqa: BLE001 - 出账已经落地，链上失败要如实记下
         row.failure_reason = f"链上提交失败：{exc}"[:500]
@@ -449,6 +454,7 @@ async def settle_meter(
         seller_identity_id=str(skill.owner_identity_id),
         buyer_bill_id=buyer_bill,
         seller_bill_id=seller_bill,
+        contract_address=escrow.configured_address(),
         scope_hash=result["scope_hash"],
         task_id=task_id,
         amount_usdc=amount,

@@ -70,12 +70,17 @@ class OrderBody(BaseModel):
 def _backing_view(report: dict) -> dict:
     """链上担保口径给操作台看的那几个数。
     ``chain_checked=False`` 表示这一次没读到链（不是「担保为 0」）。"""
+    legacy = report.get("legacy") or {}
     return {
         "allowance_usdc": report.get("allowance_usdc", 0.0),
         "committed_usdc": report.get("committed_usdc", 0.0),
         "secured_usdc": report.get("secured_usdc", 0.0),
         "unsecured_usdc": report.get("unsecured_usdc", 0.0),
         "chain_checked": bool(report.get("chain_checked")),
+        # 合约升级之后落在旧合约上的锁仓：钱还在用户钱包里，但新单划不动它。
+        # 报出来，操作台才能提示「请重新锁仓」而不是让用户以为钱不见了。
+        "legacy_committed_usdc": legacy.get("committed_usdc", 0.0),
+        "legacy_contracts": list(legacy.get("contracts") or []),
     }
 
 
@@ -96,6 +101,9 @@ def _commit_view(row: AllowanceCommitModel, secured: dict | None = None) -> dict
     live_usdc = max(0.0, float(row.amount_usdc or 0.0) - float(row.spent_usdc or 0.0))
     return {
         "bill_id": row.bill_id,
+        "contract_address": escrow.bill_contract(row),
+        # False = 这张账单在**旧**合约上：链上还在，但当前合约划不动它。
+        "spendable": escrow.bill_is_spendable(row),
         "amount_usdc": float(row.amount_usdc),
         "spent_usdc": float(row.spent_usdc or 0.0),
         "reserved_usdc": float(row.reserved_usdc or 0.0),
@@ -324,6 +332,7 @@ async def open_order(
             scope=body.scope or settings.settlement_scope,
             task_id=body.task_id,
             proof=body.proof,
+            contract_address=escrow.configured_address(),
         )
         submitted = result
     except wallet_lock.WalletLockError as exc:
@@ -342,6 +351,7 @@ async def open_order(
         seller_profile_id=seller_profile_id,
         buyer_bill_id=buyer_bill.bill_id,
         seller_bill_id=seller_bill.bill_id,
+        contract_address=escrow.configured_address(),
         scope_hash=result["scope_hash"],
         task_id=body.task_id,
         amount_usdc=float(body.amount_usdc),
@@ -392,11 +402,17 @@ async def finalize_order(
 
     try:
         if breach:
-            result = escrow.finalize_breach(binding_id=int(binding_id))
+            result = escrow.finalize_breach(
+                binding_id=int(binding_id),
+                contract_address=escrow.binding_contract(row),
+            )
             row.state = "slashed"
             row.finalize_tx_hash = result["breach_tx_hash"]
         else:
-            result = escrow.finalize_settlement(binding_id=int(binding_id))
+            result = escrow.finalize_settlement(
+                binding_id=int(binding_id),
+                contract_address=escrow.binding_contract(row),
+            )
             row.state = "settled"
             row.finalize_tx_hash = result["finalize_tx_hash"]
     except wallet_lock.WalletLockError as exc:
@@ -436,4 +452,13 @@ async def _resolve_bill(
         raise HTTPException(404, f"unknown {role} commitment for this identity")
     if row.state != escrow.IDLE:
         raise HTTPException(409, f"{role} commitment is {row.state}")
+    # 账单只属于**它自己那台**托管合约：旧合约的账单在当前合约里根本不存在
+    # （``available()`` 直接 revert），而且旧合约没有「验证通过才开窗」这道闸。
+    # 在这里挡住，用户拿到的是人话，不是链上 hex。
+    if not escrow.bill_is_spendable(row):
+        raise HTTPException(
+            409,
+            f"{role} 的锁仓账单在旧托管合约上（{escrow.bill_contract(row)}），"
+            f"当前合约是 {escrow.configured_address()}：请在操作台重新锁仓后再开单",
+        )
     return row

@@ -142,6 +142,13 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
 
     台账上「剩余额度够」不等于「链上划得动」：同一个钱包的多张账单共用一条 ERC-20
     授权额，先到先得（见 ``backing_report``）。所以这里两个口径都要过。
+
+    只认**当前**托管合约上的账单：合约换过地址（v2 → v3）之后，旧账单在新合约里
+    根本不存在 —— 拿旧 bill id 去 ``available()`` 会 revert（实测就是它把
+    ``/lock`` 打成 500 的）。而且新单也只能开在当前合约上：旧合约没有「验证通过
+    才开窗」这道闸（``submitSettlement`` 谁都能调），开上去等于把 F9-1 的洞重新
+    打开。旧合约上的锁仓不是消失了，用户在操作台重新锁一次即可 —— 这句话必须
+    说到用户耳朵里，所以下面把它单独报出来。
     """
     need = max(0.0, float(need_usdc or 0.0))
     need_minor = _minor(need)
@@ -152,6 +159,15 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
             f"{role}还没有链上锁仓额度。请在操作台「资金」里锁仓 USDC —— "
             f"授权额就是这一单能动的上限，钱始终留在自己的钱包里",
         )
+    spendable = [r for r in live if escrow.bill_is_spendable(r)]
+    if not spendable:
+        stale = sorted({escrow.bill_contract(r) for r in live})
+        raise EscrowSettlementError(
+            409,
+            f"{role}的锁仓账单在**旧**托管合约上（{', '.join(stale)}）：当前合约"
+            f"（{escrow.configured_address()}）划不动它们。请在操作台重新锁仓 USDC "
+            f"到当前合约，再接单",
+        )
     report = await escrow.backing_report(db, identity_id)
     if not report.get("chain_checked"):
         raise EscrowSettlementError(
@@ -160,7 +176,7 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
     secured_by_bill = report.get("bills") or {}
     best: tuple[int, str] | None = None
     candidates: list[int] = []
-    for row in live:
+    for row in spendable:
         free_minor = (
             _minor(row.amount_usdc) - _minor(row.spent_usdc) - _minor(row.reserved_usdc)
         )
@@ -172,7 +188,11 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
             continue
         # 台账只在链上确认之后才更新，两个结算挨得近时它会高估。以合约自己记的
         # 「还剩多少」为准：挑中的账单必须真的 Bind 得动，不能拿台账去赌。
-        onchain = await asyncio.to_thread(escrow.bill_available, bill_id=int(row.bill_id))
+        onchain = await asyncio.to_thread(
+            escrow.bill_available,
+            bill_id=int(row.bill_id),
+            contract_address=escrow.bill_contract(row),
+        )
         if onchain is None:
             continue
         onchain_minor = _minor(onchain)
@@ -207,7 +227,9 @@ async def _reflect(
         return
     model.settlement_mode = "escrow_allowance"
     model.chain_id = int(settings.testnet_chain_id or 0) or None
-    model.contract_address = (settings.allowance_escrow_address or "").strip() or None
+    # 记的是**这条绑定自己**那台合约，不是「当前配置」：合约换过地址之后，
+    # 操作台读这一行要能分辨它是新合约还是旧合约上的单子。
+    model.contract_address = escrow.binding_contract(binding) or None
     try:
         model.onchain_binding_id = int(binding.binding_id)
     except (TypeError, ValueError):
@@ -272,6 +294,10 @@ async def bind_for_task(
     buyer_bill = await _pick_bill(db, identity_id=buyer_identity_id, role="付款方", need_usdc=amount)
     seller_bill = await _pick_bill(db, identity_id=seller_identity_id, role="提供方", need_usdc=stake)
 
+    # 新单一律开在当前合约上（``_pick_bill`` 已经保证挑出来的账单属于它）。
+    # 记下这一条，之后所有链上动作都打向**它自己那台**合约，升级换地址也不会
+    # 让这笔钱收不了尾。
+    contract = escrow.configured_address()
     scope = f"{settings.settlement_scope}:task"
     try:
         bound = await asyncio.to_thread(
@@ -282,6 +308,7 @@ async def bind_for_task(
             stake_usdc=stake,
             scope=scope,
             task_id=task_id,
+            contract_address=contract,
         )
     except Exception as exc:  # 链上没绑上，业务状态就不该往前走
         logger.warning("escrow_settlement_bind_failed", task_id=task_id, error=str(exc))
@@ -293,6 +320,7 @@ async def bind_for_task(
         seller_identity_id=seller_identity_id,
         buyer_bill_id=str(buyer_bill),
         seller_bill_id=str(seller_bill),
+        contract_address=contract,
         scope_hash=str(bound.get("scope_hash") or ""),
         task_id=task_id,
         amount_usdc=amount,
@@ -326,7 +354,10 @@ async def _rebind_partial(
     db: AsyncSession, *, row: EscrowBindingModel, task_id: str, amount_usdc: float
 ) -> None:
     """部分结算：原绑定锁的是全额，链上没有「少划一点」的入口 —— 撤掉重绑。"""
-    await asyncio.to_thread(escrow.cancel_binding, binding_id=int(row.binding_id))
+    contract = escrow.binding_contract(row)
+    await asyncio.to_thread(
+        escrow.cancel_binding, binding_id=int(row.binding_id), contract_address=contract
+    )
     stake = seller_stake.required_stake_usdc(amount_usdc)
     buyer_bill = await _pick_bill(
         db, identity_id=row.buyer_identity_id, role="付款方", need_usdc=amount_usdc
@@ -342,6 +373,7 @@ async def _rebind_partial(
         stake_usdc=stake,
         scope=f"{settings.settlement_scope}:task",
         task_id=task_id,
+        contract_address=contract,
     )
     row.binding_id = str(bound["binding_id"])
     row.buyer_bill_id = str(buyer_bill)
@@ -493,6 +525,7 @@ async def submit_for_task(
             escrow.submit_settlement,
             binding_id=int(row.binding_id),
             proof=_proof(task_id, target_minor),
+            contract_address=escrow.binding_contract(row),
         )
     except Exception as exc:
         logger.warning("escrow_settlement_submit_failed", task_id=task_id, error=str(exc))
@@ -566,6 +599,7 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
             escrow.submit_settlement,
             binding_id=int(row.binding_id),
             proof=_breach_proof(task_id),
+            contract_address=escrow.binding_contract(row),
         )
     except Exception as exc:
         logger.warning("escrow_settlement_breach_submit_failed", task_id=task_id, error=str(exc))
@@ -605,7 +639,11 @@ async def cancel_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
     if row is None or row.state in _DONE_STATES or row.state != ACTIVE:
         return {"status": row.state if row is not None else "unbound"}
     try:
-        await asyncio.to_thread(escrow.cancel_binding, binding_id=int(row.binding_id))
+        await asyncio.to_thread(
+            escrow.cancel_binding,
+            binding_id=int(row.binding_id),
+            contract_address=escrow.binding_contract(row),
+        )
     except Exception as exc:
         logger.warning("escrow_settlement_cancel_failed", task_id=task_id, error=str(exc))
         raise EscrowSettlementError(409, f"链上撤销锁定失败：{exc}") from exc
@@ -658,7 +696,11 @@ async def reconcile_task(db: AsyncSession, *, task_id: str) -> dict[str, Any] | 
     if row.state not in (FINALIZING, BREACHING):
         return None
     try:
-        chain_state = await asyncio.to_thread(escrow.binding_state, binding_id=int(row.binding_id))
+        chain_state = await asyncio.to_thread(
+            escrow.binding_state,
+            binding_id=int(row.binding_id),
+            contract_address=escrow.binding_contract(row),
+        )
     except Exception as exc:  # RPC 抖动：保持现状，下次再对
         logger.warning("escrow_settlement_state_read_failed", task_id=task_id, error=str(exc))
         return None

@@ -60,7 +60,7 @@ async def _armed(db_session, monkeypatch):
     monkeypatch.setattr(autosettle.escrow, "sync_commits", _noop_sync)
     # 默认「链上读不到」：对账只在真的读到已落定状态时才改写台账，
     # 各用例要测对账就自己覆盖它。
-    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: None)
+    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id, **kw: None)
     yield
     autosettle.reset_backoff()
     await db_session.execute(delete(EscrowBindingModel))
@@ -120,7 +120,7 @@ async def test_settling_writes_the_chain_verdict_back_to_the_settlement_row(
     monkeypatch.setattr(
         autosettle.escrow,
         "finalize_settlement",
-        lambda *, binding_id: {"finalize_tx_hash": "0xf11settle"},
+        lambda *, binding_id, **kw: {"finalize_tx_hash": "0xf11settle"},
     )
     db_session.add(settlement())
     db_session.add(binding("21", pull_after=int(time.time()) - 30))
@@ -150,7 +150,9 @@ async def test_the_reconcile_tick_adopts_a_settlement_somebody_else_executed(
     别人推了、我们这边没记，账上就会永远停在 finalizing —— 对账那一遍必须把它补齐。
     """
     await _wipe_settlements(db_session)
-    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: 3)  # settled
+    monkeypatch.setattr(
+        autosettle.escrow, "binding_state", lambda *, binding_id, **kw: 3
+    )  # settled
     db_session.add(settlement())
     db_session.add(binding("23", pull_after=int(time.time()) - 30))
     await db_session.commit()
@@ -174,9 +176,13 @@ async def test_the_reconcile_tick_leaves_a_still_open_binding_alone(db_session, 
     """链上说「还在等保护期」，就不许动台账 —— 更不能顺手把钱划走。"""
     await _wipe_settlements(db_session)
     called: list[int] = []
-    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: 2)  # finalizing
     monkeypatch.setattr(
-        autosettle.escrow, "finalize_settlement", lambda *, binding_id: called.append(binding_id)
+        autosettle.escrow, "binding_state", lambda *, binding_id, **kw: 2
+    )  # finalizing
+    monkeypatch.setattr(
+        autosettle.escrow,
+        "finalize_settlement",
+        lambda *, binding_id, **kw: called.append(binding_id),
     )
     db_session.add(binding("25", pull_after=int(time.time()) + 3600))
     await db_session.commit()
@@ -192,7 +198,7 @@ async def test_the_reconcile_tick_leaves_a_still_open_binding_alone(db_session, 
 async def test_settle_due_executes_the_pull_and_records_the_tx(db_session, monkeypatch):
     seen: list[int] = []
 
-    def _finalize(*, binding_id: int):
+    def _finalize(*, binding_id: int, **_kw):
         seen.append(binding_id)
         return {"finalize_tx_hash": "0xdeadbeef"}
 
@@ -215,7 +221,7 @@ async def test_settle_due_executes_the_pull_and_records_the_tx(db_session, monke
 async def test_a_binding_that_cannot_settle_yet_backs_off(db_session, monkeypatch):
     attempts: list[int] = []
 
-    def _boom(*, binding_id: int):
+    def _boom(*, binding_id: int, **_kw):
         attempts.append(binding_id)
         raise RuntimeError("execution reverted: not funded yet")
 
@@ -238,7 +244,7 @@ async def test_a_binding_that_cannot_settle_yet_backs_off(db_session, monkeypatc
 async def test_a_declined_pull_backs_off_too(db_session, monkeypatch):
     attempts: list[int] = []
 
-    def _refuse(*, binding_id: int):
+    def _refuse(*, binding_id: int, **_kw):
         attempts.append(binding_id)
         raise WalletLockError("allowance is not funded yet")
 
@@ -256,7 +262,9 @@ async def test_nothing_is_executed_without_the_operator_key(db_session, monkeypa
     monkeypatch.setattr(autosettle.escrow, "can_server_settle", lambda: False)
     called: list[int] = []
     monkeypatch.setattr(
-        autosettle.escrow, "finalize_settlement", lambda *, binding_id: called.append(binding_id)
+        autosettle.escrow,
+        "finalize_settlement",
+        lambda *, binding_id, **kw: called.append(binding_id),
     )
     db_session.add(binding("14", pull_after=int(time.time()) - 30))
     await db_session.commit()
@@ -269,7 +277,7 @@ async def test_nothing_is_executed_without_the_operator_key(db_session, monkeypa
 async def test_a_settled_binding_is_never_pulled_twice(db_session, monkeypatch):
     calls: list[int] = []
 
-    def _finalize(*, binding_id: int):
+    def _finalize(*, binding_id: int, **_kw):
         calls.append(binding_id)
         return {"finalize_tx_hash": "0xfeed"}
 
@@ -294,7 +302,7 @@ async def test_settling_a_sub_identity_order_clears_its_quota(db_session, monkey
     monkeypatch.setattr(
         autosettle.escrow,
         "finalize_settlement",
-        lambda *, binding_id: {"finalize_tx_hash": "0xabc"},
+        lambda *, binding_id, **kw: {"finalize_tx_hash": "0xabc"},
     )
     db_session.add(
         ProfileCapacityModel(
@@ -333,9 +341,11 @@ async def test_a_transaction_that_landed_late_is_recorded_not_retried(
     from db.models.orm import ProfileCapacityModel
 
     sent: list[int] = []
-    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: 3)
+    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id, **kw: 3)
     monkeypatch.setattr(
-        autosettle.escrow, "finalize_settlement", lambda *, binding_id: sent.append(binding_id)
+        autosettle.escrow,
+        "finalize_settlement",
+        lambda *, binding_id, **kw: sent.append(binding_id),
     )
     db_session.add(
         ProfileCapacityModel(
@@ -371,7 +381,7 @@ async def test_a_cancelled_binding_gives_the_quota_back(db_session, monkeypatch)
     """链上被取消 = 钱没动，额度该退回可用，而不是记成已结算。"""
     from db.models.orm import ProfileCapacityModel
 
-    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: 5)
+    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id, **kw: 5)
     db_session.add(
         ProfileCapacityModel(
             profile_id="prof-cancel",

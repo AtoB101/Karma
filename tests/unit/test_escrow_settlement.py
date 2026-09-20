@@ -96,10 +96,14 @@ def chain(monkeypatch):
         return dict(_report.get(identity_id) or {"chain_checked": False, "bills": {}})
 
     monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
+    # 账单要落在「当前合约」上才会被挑中（旧合约的账单属于已退役的合约）。
+    monkeypatch.setattr(settings, "allowance_escrow_address", "0x" + "11" * 20)
     monkeypatch.setattr(escrow, "list_commits", _list_commits)
     monkeypatch.setattr(escrow, "backing_report", _backing_report)
 
-    def _open_order(*, buyer_bill_id, seller_bill_id, amount_usdc, stake_usdc, scope, task_id):
+    def _open_order(
+        *, buyer_bill_id, seller_bill_id, amount_usdc, stake_usdc, scope, task_id, **_kw
+    ):
         calls["bind"].append((buyer_bill_id, seller_bill_id, amount_usdc, stake_usdc))
         return {
             "binding_id": 100 + len(calls["bind"]),
@@ -109,7 +113,7 @@ def chain(monkeypatch):
             "scope_hash": "0x" + "aa" * 32,
         }
 
-    def _submit_settlement(*, binding_id, proof):
+    def _submit_settlement(*, binding_id, proof, **_kw):
         calls["submit"].append((binding_id, proof))
         return {
             "binding_id": binding_id,
@@ -118,15 +122,17 @@ def chain(monkeypatch):
             "pull_after": 1_700_000_000,
         }
 
-    def _cancel_binding(*, binding_id):
+    def _cancel_binding(*, binding_id, **_kw):
         calls["cancel"].append(binding_id)
         return {"binding_id": binding_id, "cancel_tx_hash": "0xcancel%d" % len(calls["cancel"])}
 
     monkeypatch.setattr(escrow, "open_order", _open_order)
     monkeypatch.setattr(escrow, "submit_settlement", _submit_settlement)
     monkeypatch.setattr(escrow, "cancel_binding", _cancel_binding)
-    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id: None)
-    monkeypatch.setattr(escrow, "bill_available", lambda *, bill_id: _available.get(str(bill_id)))
+    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: None)
+    monkeypatch.setattr(
+        escrow, "bill_available", lambda *, bill_id, **kw: _available.get(str(bill_id))
+    )
     return bridge, calls
 
 
@@ -351,7 +357,7 @@ async def test_reconcile_adopts_the_chain_verdict_when_we_missed_the_receipt(db_
     row.state = "finalizing"
     row.finalize_tx_hash = "0xfinal1"
     await db_session.flush()
-    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id: 3)   # settled
+    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: 3)   # settled
 
     out = await bridge.reconcile_task(db_session, task_id=TASK)
 
@@ -660,3 +666,89 @@ async def test_cancel_gives_the_vouchers_reserved_credits_back(db_session, chain
     assert (cap.available_credits, cap.reserved_credits) == (50.0, 0.0)
     voucher = await db_session.get(VoucherModel, "v-cancel")
     assert voucher.status == VoucherStatus.CANCELLED.value
+
+
+# -------------------------------------- 合约升级：绑定必须记得自己在哪台合约上
+
+RETIRED = "0x" + "77" * 20
+
+
+@pytest.mark.asyncio
+async def test_a_bill_on_a_retired_contract_can_never_open_an_order(db_session, chain):
+    """2026-09-20 实测：v2 换 v3 之后，旧账单把 ``/lock`` 打成了 500。
+
+    回来的必须是「这是旧合约的账单，请重新锁仓」这句话，而不是一串 revert 的 hex；
+    而且绝不能把旧账单挑出来去 bind。
+    """
+    bridge, calls = chain
+    stale = bill("37", BUYER, 40.0)
+    stale.contract_address = RETIRED
+    arm(BUYER, [stale])
+    arm(SELLER, [bill("4", SELLER, 1.0)])
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.bind_for_task(
+            db_session, task_id=TASK, buyer_identity_id=BUYER,
+            seller_identity_id=SELLER, amount_usdc=1.2,
+        )
+
+    assert exc.value.status == 409
+    assert "旧" in exc.value.message and "重新锁仓" in exc.value.message
+    assert RETIRED in exc.value.message      # 说清是哪台合约
+    assert calls["bind"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_binding_records_the_contract_it_was_opened_on(db_session, chain):
+    """这一行之后要在**它自己那台**合约上 submit / finalize / cancel。"""
+    bridge, _calls = chain
+    db_session.add(settlement_row())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    row = (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+    assert row.contract_address == settings.allowance_escrow_address
+
+
+@pytest.mark.asyncio
+async def test_a_binding_on_a_retired_contract_is_read_back_from_that_contract(
+    db_session, chain, monkeypatch
+):
+    """升级之后旧绑定必须在旧合约上收尾：拿它去新合约就是 UnknownBinding revert，
+    那笔钱会永久卡死（finalize 推不动、cancel 也推不动）。"""
+    bridge, _calls = chain
+    db_session.add(settlement_row())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+    row = (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+    row.contract_address = RETIRED
+    row.state = "finalizing"
+    row.bind_tx_hash = "0xbind-retired"
+    await db_session.flush()
+
+    seen: dict[str, object] = {}
+
+    def _state(*, binding_id, contract_address=None):
+        seen["binding_id"] = binding_id
+        seen["contract_address"] = contract_address
+        return 3  # SETTLED
+
+    monkeypatch.setattr(escrow, "binding_state", _state)
+
+    out = await bridge.reconcile_task(db_session, task_id=TASK)
+
+    assert out["status"] == "settled"
+    assert seen["contract_address"] == RETIRED
+    refreshed = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert refreshed.state == "settled"
