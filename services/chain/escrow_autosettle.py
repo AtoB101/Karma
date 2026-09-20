@@ -158,6 +158,11 @@ async def reap_stranded(db: AsyncSession, *, now: datetime | None = None) -> lis
         return []
     freed: list[dict] = []
     for row in await stranded_bindings(db, now=now):
+        # 先问链：钱可能早就被划走了（保护期一到，任何地址都能推 finalizeSettlement），
+        # 只是我们这边没记上。链上说落定就把台账补齐 —— 再 submit 只会换来一笔 revert。
+        if await _reconcile_from_chain(db, row, freed):
+            logger.info("escrow_stranded_reconciled_from_chain", binding_id=row.binding_id)
+            continue
         status = await _settlement_status(db, row.task_id)
         if status is None:
             continue
@@ -248,6 +253,15 @@ async def _record_final(
     if tx_hash:
         row.finalize_tx_hash = tx_hash
     row.updated_at = datetime.now(UTC)
+    # 链上落定的那一刻，账上那行也必须跟着落定：操作台读的是 settlements.onchain_status，
+    # 只改 escrow_bindings 会让页面永远停在 finalizing / breaching（F10-2）。
+    await escrow_settlement.reflect_final(
+        db,
+        task_id=row.task_id or "",
+        binding=row,
+        onchain_status=state,
+        tx_hash=row.finalize_tx_hash or row.submit_tx_hash,
+    )
     await _release_quota(db, row, refunded=refunded)
     await db.commit()
     for party in (row.buyer_identity_id, row.seller_identity_id):
@@ -355,6 +369,35 @@ async def _reconcile_breach_from_chain(
     return True
 
 
+#: 还没走到终局的 binding：链上说钱动了，账上就必须跟着走。
+_OPEN_BINDING_STATES = (ACTIVE_STATE, DUE_STATE, DUE_BREACH_STATE)
+
+
+async def reconcile_from_chain(db: AsyncSession, *, limit: int | None = None) -> list[dict]:
+    """链上已经落定的绑定，把台账补齐（状态机对齐的兜底那一遍）。
+
+    正常路径由 ``settle_due`` / ``breach_due`` 回写。这个 tick 兜的是「我们根本没走到
+    那一步」的那些：进程重启、receipt 读取超时、或者**别人**先把 ``finalizeSettlement``
+    推了（保护期一到，合约对任何地址都放行 —— autosettle 就是靠这个自动放款）。
+    链上是最终事实，账上不许停在 finalizing / breaching / active。
+    """
+    if not escrow.escrow_enabled() or not escrow.can_server_settle():
+        return []
+    aligned: list[dict] = []
+    stmt = (
+        select(EscrowBindingModel)
+        .where(EscrowBindingModel.state.in_(_OPEN_BINDING_STATES))
+        .order_by(EscrowBindingModel.created_at)
+        .limit(limit if limit is not None else settings.escrow_autosettle_batch)
+    )
+    for row in (await db.execute(stmt)).scalars().all():
+        if await _reconcile_from_chain(db, row, aligned):
+            logger.info(
+                "escrow_binding_aligned_from_chain", binding_id=row.binding_id, state=row.state
+            )
+    return aligned
+
+
 async def breach_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
     """执行到期罚没：卖方质押 -> 买方钱包。"""
     if not escrow.escrow_enabled() or not escrow.can_server_settle():
@@ -413,6 +456,8 @@ async def run_forever() -> None:
             async with AsyncSessionLocal() as db:
                 settled = await settle_due(db)
                 slashed = await breach_due(db)
+                # 链上已经落定、账上还停在半路的绑定：对齐（别人推了 finalize 也算）。
+                aligned = await reconcile_from_chain(db)
                 # 业务侧已经终局、链上还占着额度的绑定：把它们推到最后一步，
                 # 别让用户的可用额度被一个永远不会再有人推进的绑定吃住。
                 freed = await reap_stranded(db)
@@ -427,6 +472,8 @@ async def run_forever() -> None:
                 logger.info("escrow_autosettle_tick", settled=len(settled))
             if slashed:
                 logger.info("escrow_autosettle_breach_tick", slashed=len(slashed))
+            if aligned:
+                logger.info("escrow_chain_reconcile_tick", aligned=len(aligned))
             if mirrored:
                 logger.info("escrow_capacity_mirror_tick", identities=len(mirrored))
             if freed:

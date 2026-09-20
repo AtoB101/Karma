@@ -9,10 +9,19 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 from sqlalchemy import delete, select
 
-from db.models.orm import AllowanceCommitModel, EscrowBindingModel, SettlementModel
+from config.settings import settings
+from db.models.orm import (
+    AllowanceCommitModel,
+    CapacityModel,
+    EscrowBindingModel,
+    SettlementModel,
+    VoucherModel,
+)
 from services.chain import allowance_escrow as escrow
 
 TASK = "task-escrow-settlement"
@@ -38,13 +47,14 @@ def bill(bill_id: str, identity_id: str, amount: float, *, state: str = "open") 
     )
 
 
-def settlement_row(task_id: str = TASK) -> SettlementModel:
+def settlement_row(task_id: str = TASK, *, status: str = "accepted") -> SettlementModel:
+    """账上的结算行。``status`` 就是「验证结论」：放款要 settled，罚没要 refunded。"""
     return SettlementModel(
         settlement_id="stl-" + task_id,
         task_id=task_id,
         escrow_amount=30.0,
         currency="USD",
-        status="accepted",
+        status=status,
         client_agent_id=BUYER,
         worker_agent_id=SELLER,
     )
@@ -55,11 +65,15 @@ async def _clean(db_session):
     await db_session.execute(delete(EscrowBindingModel))
     await db_session.execute(delete(AllowanceCommitModel))
     await db_session.execute(delete(SettlementModel).where(SettlementModel.task_id == TASK))
+    await db_session.execute(delete(VoucherModel).where(VoucherModel.buyer_identity_id == BUYER))
+    await db_session.execute(delete(CapacityModel).where(CapacityModel.identity_id == BUYER))
     await db_session.commit()
     yield
     await db_session.execute(delete(EscrowBindingModel))
     await db_session.execute(delete(AllowanceCommitModel))
     await db_session.execute(delete(SettlementModel).where(SettlementModel.task_id == TASK))
+    await db_session.execute(delete(VoucherModel).where(VoucherModel.buyer_identity_id == BUYER))
+    await db_session.execute(delete(CapacityModel).where(CapacityModel.identity_id == BUYER))
     await db_session.commit()
 
 
@@ -69,6 +83,12 @@ def chain(monkeypatch):
     from services.chain import escrow_settlement as bridge
 
     calls: dict[str, list] = {"bind": [], "submit": [], "cancel": []}
+
+    # 回执门禁另有专门用例（test_the_receipt_gate_really_blocks_a_payout_with_no_receipt）：
+    # 这里把它关掉 —— 等价于「这一单已经有成功回执」，免得每条用例都要先造一张回执。
+    monkeypatch.setattr(
+        settings, "settlement_requires_success_execution_receipt_for_seller_release", False
+    )
     async def _list_commits(db, identity_id):
         return list(_commits.get(identity_id, []))
 
@@ -249,7 +269,7 @@ async def test_bind_is_idempotent_for_one_task(db_session, chain):
 @pytest.mark.asyncio
 async def test_settle_submits_the_binding_and_opens_the_window(db_session, chain):
     bridge, calls = chain
-    db_session.add(settlement_row())
+    db_session.add(settlement_row(status="settled"))     # 账上：验收通过
     await db_session.flush()
     arm(BUYER, [bill("1", BUYER, 50.0)])
     arm(SELLER, [bill("2", SELLER, 20.0)])
@@ -277,7 +297,7 @@ async def test_settle_submits_the_binding_and_opens_the_window(db_session, chain
 async def test_partial_settlement_rebinds_for_the_amount_actually_released(db_session, chain):
     """链上没有「少划一点」的入口，所以少结必须撤掉重绑，不能按全额划走。"""
     bridge, calls = chain
-    db_session.add(settlement_row())
+    db_session.add(settlement_row(status="settled"))
     await db_session.flush()
     arm(BUYER, [bill("1", BUYER, 50.0)])
     arm(SELLER, [bill("2", SELLER, 20.0)])
@@ -431,3 +451,212 @@ async def test_bind_picks_the_bill_the_chain_can_still_cover(db_session, chain):
 
     assert info["status"] == "bound"
     assert calls["bind"][0][0] == "3"
+
+
+# ------------------------------------------- F11：开窗之前先问账本（验证结论门禁）
+
+
+@pytest.mark.asyncio
+async def test_pay_refuses_when_the_books_have_no_settlement_at_all(db_session, chain):
+    """账上连结算行都没有 —— 没有验证结论，链上不许开结算窗口。"""
+    bridge, calls = chain
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.submit_for_task(db_session, task_id=TASK, released_amount=30.0)
+
+    assert exc.value.status == 409
+    assert calls["submit"] == []                         # 一扇窗都没打开
+
+
+@pytest.mark.asyncio
+async def test_pay_refuses_while_the_books_still_say_accepted(db_session, chain):
+    """账上还停在 accepted（交付了、验收没走完）：钱一步都不能挪。"""
+    bridge, calls = chain
+    db_session.add(settlement_row())                     # status="accepted"
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.submit_for_task(db_session, task_id=TASK, released_amount=30.0)
+
+    assert exc.value.status == 409
+    assert "accepted" in exc.value.message
+    assert calls["submit"] == []
+    row = (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+    assert row.state == "active"                         # 退回绑定期：钱还占着，但没动
+
+
+@pytest.mark.asyncio
+async def test_slash_refuses_unless_the_books_say_refunded(db_session, chain):
+    """罚没同样是动钱：账上没落成 refunded，就不许开窗去划卖方的质押。"""
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.slash_for_task(db_session, task_id=TASK)
+
+    assert exc.value.status == 409
+    assert calls["submit"] == []
+
+
+@pytest.mark.asyncio
+async def test_pay_refuses_when_the_receipt_guard_says_no(db_session, chain, monkeypatch):
+    """路由层那道回执门禁，在钱这一步也必须生效（有人绕过路由直接调这一层时）。"""
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    async def _refuse(db, *, task_id, amount_usdc):
+        raise bridge.EscrowSettlementError(409, "没有成功执行回执，钱不划")
+
+    monkeypatch.setattr(bridge, "_assert_success_receipt", _refuse)
+    with pytest.raises(bridge.EscrowSettlementError):
+        await bridge.submit_for_task(db_session, task_id=TASK, released_amount=30.0)
+    assert calls["submit"] == []
+
+
+@pytest.mark.asyncio
+async def test_the_receipt_gate_really_blocks_a_payout_with_no_receipt(db_session):
+    """真调用回执门禁（不 mock）：这一单一条成功回执都没有，就不许放款。"""
+    from services.chain import escrow_settlement as bridge
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge._assert_success_receipt(db_session, task_id=TASK, amount_usdc=30.0)
+
+    assert exc.value.status == 409
+    # 金额是 0 时这道门不管（这一层只处理「要付给卖方」的钱）。
+    await bridge._assert_success_receipt(db_session, task_id=TASK, amount_usdc=0.0)
+
+
+@pytest.mark.asyncio
+async def test_pay_refuses_when_delivery_verification_is_not_passed(db_session, chain, monkeypatch):
+    """交付验证没过（P7 门禁）：钱留在买方钱包里，链上一扇窗都不开。"""
+    from services import delivery_verification as dv
+
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    monkeypatch.setattr(dv, "get_verification_for_task", lambda task_id: {"status": "PENDING"})
+
+    def _boom(**kwargs):
+        raise dv.DeliveryVerificationError("delivery not VERIFIED (status=PENDING)")
+
+    monkeypatch.setattr(dv, "require_verified_for_settle", _boom)
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.submit_for_task(db_session, task_id=TASK, released_amount=30.0)
+
+    assert exc.value.status == 409
+    assert "验证" in exc.value.message
+    assert calls["submit"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_partial_release_is_rebound_in_chain_minor_units(db_session, chain):
+    """12.345 这种金额：链上是整数最小单位，账上是 float —— 只认链上那个口径。"""
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    await bridge.submit_for_task(db_session, task_id=TASK, released_amount=12.345)
+
+    assert calls["bind"][1][2] == 12.345                 # 重绑按最小单位换算回来
+    assert calls["submit"][0][1] == f"karma-settlement:{TASK}:12.345000"
+    row = (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+    assert round(row.amount_usdc * 10 ** 6) == 12_345_000
+
+
+@pytest.mark.asyncio
+async def test_cancel_gives_the_vouchers_reserved_credits_back(db_session, chain):
+    """取消订单 = 链上授权放开 + 账上可用额度立刻回来（F10-1）。
+
+    实测（2026-09-20）：W1 的 40.00 USDC 可用额度被 12 张「订单已取消」的授权码占着 ——
+    链上早撤销了，账上却要等授权码自己过期（默认 7 天）才回来。
+    """
+    from core.schemas import VoucherStatus
+
+    bridge, calls = chain
+    db_session.add(
+        VoucherModel(
+            voucher_id="v-cancel",
+            buyer_identity_id=BUYER,
+            seller_identity_id=SELLER,
+            amount=8.0,
+            currency="USDC",
+            bill_credit_amount=8.0,
+            task_type="f11-cancel",
+            task_description_hash="0" * 64,
+            progress_rule_hash="0" * 64,
+            evidence_requirement_hash="0" * 64,
+            expiry_time=datetime.utcnow() + timedelta(days=7),
+            nonce="v-cancel",
+            buyer_signature="0x" + "00" * 65,
+            status=VoucherStatus.ACCEPTED.value,
+        )
+    )
+    db_session.add(
+        CapacityModel(
+            identity_id=BUYER,
+            total_locked_usdc=50.0,
+            total_bill_credits=50.0,
+            available_credits=42.0,
+            reserved_credits=8.0,
+        )
+    )
+    row = settlement_row()
+    row.voucher_id = "v-cancel"
+    db_session.add(row)
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    out = await bridge.cancel_for_task(db_session, task_id=TASK)
+
+    assert out["status"] == "cancelled"
+    assert calls["cancel"] == [101]
+    assert out["voucher"]["released_usdc"] == 8.0
+    cap = await db_session.get(CapacityModel, BUYER)
+    assert (cap.available_credits, cap.reserved_credits) == (50.0, 0.0)
+    voucher = await db_session.get(VoucherModel, "v-cancel")
+    assert voucher.status == VoucherStatus.CANCELLED.value

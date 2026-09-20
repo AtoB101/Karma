@@ -18,6 +18,12 @@ SETTLED，链上一分钱没动。于是「已锁仓额度」只是台账里的�
 
 这一层只写「钱的事实」：它不做金额裁决，也不替任何人签名。operator 只能 bind /
 submit，划款与否由买方自己的 ERC-20 授权额决定，买方随时可以 revoke。
+
+钱只被「账上已经落定的验证结论」推动。合约（v3 起）里的 ``submitSettlement`` 是
+resolver-only —— 开窗这件事只由平台决定；而窗口一开，保护期到点后
+``finalizeSettlement`` 对**任何人**都放行（autosettle 正是靠这个自动放款，见
+services/chain/escrow_autosettle.py）。所以「验证到底过没过」链上问不出来，
+必须在开窗之前问账本：``assert_release_verified`` 就是那道闸。
 """
 from __future__ import annotations
 
@@ -33,10 +39,9 @@ from config.settings import settings
 from db.models.orm import AllowanceCommitModel, EscrowBindingModel, SettlementModel
 from services import seller_stake
 from services.chain import allowance_escrow as escrow
+from services.settlement_amounts import from_minor_units, to_minor_units
 
 logger = structlog.get_logger(__name__)
-
-EPSILON = 1e-9
 
 #: 台账口径：binding 的本地状态
 ACTIVE = "active"          # 已 bind，挑战期还没开（钱没动）
@@ -50,6 +55,13 @@ _DONE_STATES = (SETTLED, CANCELLED, SLASHED)
 
 #: 合约自己记的 binding 状态（见 allowance_escrow.BINDING_STATE）
 _CHAIN_FINAL = {3: SETTLED, 4: SLASHED, 5: CANCELLED}
+
+#: 钱往哪边走：放款给卖方 / 罚没卖方质押
+PAY = "pay"
+SLASH = "slash"
+
+#: 账上必须落成哪个结论，链上才允许开结算窗口
+_DECIDED_STATUS = {PAY: "settled", SLASH: "refunded"}
 
 
 class EscrowSettlementError(Exception):
@@ -96,9 +108,19 @@ async def assert_receipt_path_exists(db: AsyncSession, *, task_id: str) -> None:
     )
 
 
-def _proof(task_id: str, amount_usdc: float) -> str:
+def _minor(amount_usdc: float | None) -> int:
+    """金额一律先落到链上最小单位（整数）再比较 —— 服务端记的是 float。
+
+    实测（2026-09-20）：账上用 float 反推、再拿 EPSILON 比「少了没有」，12.345 这类
+    金额会在两个口径之间漂 —— 链上是整数，账上是浮点，对不上的那一分钱就是「账实不符」。
+    链上最小单位是唯一口径（见 services/settlement_amounts.py）。
+    """
+    return to_minor_units(float(amount_usdc or 0.0))
+
+
+def _proof(task_id: str, amount_minor: int) -> str:
     """这一单的凭证摘要：跟着任务和实际释放金额走，改一个字节就对不上。"""
-    return f"karma-settlement:{task_id}:{float(amount_usdc):.6f}"
+    return f"karma-settlement:{task_id}:{from_minor_units(int(amount_minor)):.6f}"
 
 
 async def _find_binding(db: AsyncSession, *, task_id: str) -> EscrowBindingModel | None:
@@ -122,6 +144,7 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
     授权额，先到先得（见 ``backing_report``）。所以这里两个口径都要过。
     """
     need = max(0.0, float(need_usdc or 0.0))
+    need_minor = _minor(need)
     live = await _live_bills(db, identity_id)
     if not live:
         raise EscrowSettlementError(
@@ -135,34 +158,35 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
             503, f"读不到{role}的链上授权额（RPC 抖动）。没有链上事实就不该动钱，请稍后重试"
         )
     secured_by_bill = report.get("bills") or {}
-    best: tuple[float, str] | None = None
-    candidates: list[float] = []
+    best: tuple[int, str] | None = None
+    candidates: list[int] = []
     for row in live:
-        free = (
-            float(row.amount_usdc or 0.0)
-            - float(row.spent_usdc or 0.0)
-            - float(row.reserved_usdc or 0.0)
+        free_minor = (
+            _minor(row.amount_usdc) - _minor(row.spent_usdc) - _minor(row.reserved_usdc)
         )
-        secured = float((secured_by_bill.get(str(row.bill_id)) or {}).get("secured_usdc") or 0.0)
-        if free + EPSILON < need or secured + EPSILON < need:
-            candidates.append(min(free, secured))
+        secured_minor = _minor(
+            (secured_by_bill.get(str(row.bill_id)) or {}).get("secured_usdc")
+        )
+        if free_minor < need_minor or secured_minor < need_minor:
+            candidates.append(min(free_minor, secured_minor))
             continue
         # 台账只在链上确认之后才更新，两个结算挨得近时它会高估。以合约自己记的
         # 「还剩多少」为准：挑中的账单必须真的 Bind 得动，不能拿台账去赌。
         onchain = await asyncio.to_thread(escrow.bill_available, bill_id=int(row.bill_id))
         if onchain is None:
             continue
-        candidates.append(min(free, secured, onchain))
-        if onchain + EPSILON < need:
+        onchain_minor = _minor(onchain)
+        candidates.append(min(free_minor, secured_minor, onchain_minor))
+        if onchain_minor < need_minor:
             continue
-        if best is None or min(free, onchain) > best[0]:
-            best = (min(free, onchain), str(row.bill_id))
+        if best is None or min(free_minor, onchain_minor) > best[0]:
+            best = (min(free_minor, onchain_minor), str(row.bill_id))
     if best is None:
-        have = max(candidates) if candidates else 0.0
+        have_minor = max(candidates) if candidates else 0
         raise EscrowSettlementError(
             409,
-            f"{role}的可用锁仓额度不足：这一单需要 {round(need, 6)} USDC，"
-            f"链上真正划得动的只有 {round(max(0.0, have), 6)} USDC。"
+            f"{role}的可用锁仓额度不足：这一单需要 {from_minor_units(need_minor)} USDC，"
+            f"链上真正划得动的只有 {from_minor_units(max(0, have_minor))} USDC。"
             f"请先在操作台补足锁仓（或提高对该托管合约的 USDC 授权额）再重试",
         )
     return best[1]
@@ -200,6 +224,26 @@ async def _reflect(
     if tx_hash:
         model.tx_hash = tx_hash
     model.updated_at = datetime.utcnow()
+
+
+async def reflect_final(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    binding: EscrowBindingModel,
+    onchain_status: str,
+    tx_hash: str | None = None,
+) -> None:
+    """把链上已经落定的事实写回结算单（autosettle 推完单子后调用）。
+
+    ``escrow_autosettle._record_final`` 过去只改 ``escrow_bindings.state``，而操作台
+    读的是 ``settlements.onchain_status`` —— 链上钱都划完了，页面还停在 finalizing /
+    breaching。状态机两边必须一起往前走（F10-2）。
+    """
+    if not task_id:
+        return
+    await _reflect(db, task_id=task_id, binding=binding, onchain_status=onchain_status,
+                   tx_hash=tx_hash)
 
 
 async def bind_for_task(
@@ -310,10 +354,114 @@ async def _rebind_partial(
     await db.flush()
 
 
+async def assert_release_verified(
+    db: AsyncSession, *, task_id: str, mode: str = PAY
+) -> SettlementModel:
+    """动钱之前先把「账上到底有没有一个验证结论」问清楚。
+
+    合约（v3 起）里的 ``submitSettlement`` 是 resolver-only：开窗这件事只由平台决定，
+    链上问不出「验证过没过」。而窗一开，保护期到点后 ``finalizeSettlement`` 对**任何人**
+    都放行（autosettle 就靠这个自动放款）。所以真正的门必须在这里 —— 账上没有结论，
+    链上就不许开窗：
+
+    * 放款（``PAY``）：账上必须是 ``settled``，交付验证必须 VERIFIED，且至少有一条成功执行回执；
+    * 罚没（``SLASH``）：账上必须是 ``refunded``（这次交付被裁定为一文不值）。
+
+    任何一条不满足都直接拒绝，并且**不做任何链上动作**：钱还在买方自己的钱包里，
+    买方随时可以 revoke，不需要经过我们。
+    """
+    row = (
+        await db.execute(select(SettlementModel).where(SettlementModel.task_id == task_id))
+    ).scalars().first()
+    if row is None:
+        raise EscrowSettlementError(
+            409, "这一单在账上没有结算记录：验证结论不存在，链上不能开结算窗口"
+        )
+    status = (row.status or "").strip().lower()
+    wanted = _DECIDED_STATUS.get(mode)
+    if wanted is None:
+        raise EscrowSettlementError(500, f"未知的结算动作：{mode}")
+    if status != wanted:
+        raise EscrowSettlementError(
+            409,
+            f"这一单账上还停在 {status or '未知'}，不是 {wanted}：验证结论没落定，"
+            f"链上不能开结算窗口（窗口一开，保护期一过钱就自动划走，谁也拿不回来）",
+        )
+    if mode == SLASH:
+        return row
+    _assert_delivery_verified(row)
+    await _assert_success_receipt(
+        db, task_id=task_id, amount_usdc=float(row.escrow_amount or 0.0)
+    )
+    return row
+
+
+def _assert_delivery_verified(row: SettlementModel) -> None:
+    """有交付验证会话（或有场景策略）的单子必须是 VERIFIED —— 路由层 P7 门禁的镜像。"""
+    from services.delivery_verification import (
+        DeliveryVerificationError,
+        get_verification_for_task,
+        require_verified_for_settle,
+        scene_policy,
+    )
+
+    spec = row.progress_rule_spec if isinstance(row.progress_rule_spec, dict) else {}
+    raw_scene = spec.get("scene_id")
+    scene_id = raw_scene.strip() if isinstance(raw_scene, str) and raw_scene.strip() else None
+    session = get_verification_for_task(row.task_id)
+    if session is None and not scene_id:
+        return
+    mode = (session or {}).get("mode") or scene_policy(scene_id or "api_tool_call").get("mode")
+    if session is None and mode in {"digital_light", "ride_track"}:
+        return
+    try:
+        require_verified_for_settle(
+            task_id=row.task_id, scene_id=scene_id, allow_missing_session_for_digital=True
+        )
+    except DeliveryVerificationError as exc:
+        raise EscrowSettlementError(409, f"交付验证没有完全通过：{exc}") from exc
+
+
+async def _assert_success_receipt(
+    db: AsyncSession, *, task_id: str, amount_usdc: float
+) -> None:
+    """放款必须有至少一条成功执行回执 —— 路由层同一道门禁在钱这一步的镜像。"""
+    from fastapi import HTTPException
+
+    from services.settlement_receipt_release_guard import (
+        ensure_success_execution_receipt_before_seller_payout,
+    )
+
+    try:
+        await ensure_success_execution_receipt_before_seller_payout(
+            db, task_id, settled_amount=amount_usdc
+        )
+    except HTTPException as exc:
+        raise EscrowSettlementError(409, f"没有成功执行回执，钱不划：{exc.detail}") from exc
+
+
+async def _released_amount_on_the_books(db: AsyncSession, *, task_id: str) -> float | None:
+    """账上这一单准备结给卖方的金额（``settlements.released_amount``）。
+
+    全额结清会写成托管全额，部分结算写的是实际放行的那一部分。调用方没给金额时
+    以账上为准 —— 否则自动补锅的那条路（escrow_autosettle.reap_stranded）会按
+    binding 的全额把钱划走，而账上只打算付一部分。
+    """
+    row = (
+        await db.execute(select(SettlementModel).where(SettlementModel.task_id == task_id))
+    ).scalars().first()
+    if row is None or row.released_amount is None:
+        return None
+    return float(row.released_amount)
+
+
 async def submit_for_task(
     db: AsyncSession, *, task_id: str, released_amount: float | None = None
 ) -> dict[str, Any]:
-    """验收通过：把 binding 交上去，打开挑战期，等 autosettle 真划款。"""
+    """验收通过：把 binding 交上去，打开挑战期，等 autosettle 真划款。
+
+    开窗前先过 ``assert_release_verified``：**账上没有验证结论就不开窗**。
+    """
     if not enabled():
         return {"status": "disabled"}
     row = await _find_binding(db, task_id=task_id)
@@ -324,22 +472,27 @@ async def submit_for_task(
     if row.state != ACTIVE:
         return {"status": row.state, "binding_id": row.binding_id}
 
-    target = float(row.amount_usdc)
+    await assert_release_verified(db, task_id=task_id, mode=PAY)
+    if released_amount is None:
+        released_amount = await _released_amount_on_the_books(db, task_id=task_id)
+    target_minor = _minor(row.amount_usdc)
     if released_amount is not None:
-        settled = float(released_amount)
-        if settled + EPSILON < target:
-            target = max(0.0, settled)
-    if target <= 0:
+        settled_minor = _minor(released_amount)
+        if settled_minor < target_minor:
+            target_minor = max(0, settled_minor)
+    if target_minor <= 0:
         await cancel_for_task(db, task_id=task_id)
         return {"status": "cancelled", "reason": "nothing to release"}
-    if abs(target - float(row.amount_usdc)) > EPSILON:
-        await _rebind_partial(db, row=row, task_id=task_id, amount_usdc=target)
+    if target_minor != _minor(row.amount_usdc):
+        await _rebind_partial(
+            db, row=row, task_id=task_id, amount_usdc=from_minor_units(target_minor)
+        )
 
     try:
         submitted = await asyncio.to_thread(
             escrow.submit_settlement,
             binding_id=int(row.binding_id),
-            proof=_proof(task_id, target),
+            proof=_proof(task_id, target_minor),
         )
     except Exception as exc:
         logger.warning("escrow_settlement_submit_failed", task_id=task_id, error=str(exc))
@@ -358,7 +511,7 @@ async def submit_for_task(
         "escrow_settlement_submitted",
         task_id=task_id,
         binding_id=row.binding_id,
-        amount_usdc=target,
+        amount_usdc=from_minor_units(target_minor),
         pull_after=row.pull_after,
         tx=row.submit_tx_hash,
     )
@@ -393,6 +546,8 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
         return {"status": "unbound"}
     if row.state in _DONE_STATES or row.state == BREACHING:
         return {"status": row.state, "binding_id": row.binding_id}
+    # 罚没也是「动钱」：账上必须已经把这一单裁定成 REFUNDED，才允许打开结算窗口。
+    await assert_release_verified(db, task_id=task_id, mode=SLASH)
     if row.state == FINALIZING:
         # 窗口本来就开着（例如先被冻结过）：直接改判罚没，不重复 submit。
         row.state = BREACHING
@@ -458,7 +613,26 @@ async def cancel_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
     row.updated_at = datetime.utcnow()
     await db.flush()
     await _reflect(db, task_id=task_id, binding=row, onchain_status=CANCELLED)
-    return {"status": CANCELLED, "binding_id": row.binding_id}
+    # 链上把买方的授权放开了，账上的「可用额度」也得跟着放开（F10-1）：一张没人推进的
+    # 授权码会在买方账上占着 reserved，过去只有等它自己过期（默认 7 天）才回来。
+    out: dict[str, Any] = {"status": CANCELLED, "binding_id": row.binding_id}
+    voucher = await _release_linked_voucher(db, task_id=task_id)
+    if voucher is not None:
+        out["voucher"] = voucher
+    return out
+
+
+async def _release_linked_voucher(db: AsyncSession, *, task_id: str) -> dict[str, Any] | None:
+    """取消这一单时，把它挂着的授权码占的额度立刻放回「可用」。"""
+    from services.settlement_voucher import cancel_voucher_reservation_for_task
+
+    try:
+        return await cancel_voucher_reservation_for_task(db, task_id=task_id)
+    except Exception as exc:  # noqa: BLE001 - 台账动作，不能把链上已完成的撤销判成失败
+        logger.warning(
+            "escrow_settlement_voucher_release_failed", task_id=task_id, error=str(exc)
+        )
+        return None
 
 
 async def reconcile_task(db: AsyncSession, *, task_id: str) -> dict[str, Any] | None:

@@ -524,7 +524,7 @@ async def fail_settlement(task_id: str, request: Request, db: AsyncSession = Dep
     if not state:
         raise HTTPException(404)
     require_buyer_or_worker(request, state)
-    return await _apply_transition(
+    out = await _apply_transition(
         db=db,
         store=store,
         state=state,
@@ -533,6 +533,13 @@ async def fail_settlement(task_id: str, request: Request, db: AsyncSession = Dep
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
     )
+    # 取消也要把账上的可用额度还回去（F10-1）：授权码占住的 reserved 只在「结算完成」
+    # 或「授权码过期」时才释放，取消订单两条都不走 —— 买方会看着自己的额度被冻 7 天，
+    # 而链上明明还有钱。托管没启用时同样要还，所以放在这一层，不挂在链上那一步。
+    from services.settlement_voucher import cancel_voucher_reservation_for_task
+
+    await cancel_voucher_reservation_for_task(db, task_id)
+    return out
 
 
 @router.get("/{task_id}", response_model=SettlementState)

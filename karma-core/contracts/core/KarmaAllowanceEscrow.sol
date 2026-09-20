@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title KarmaAllowanceEscrow (v2) — non-custodial bilateral settlement
+/// @title KarmaAllowanceEscrow (v3) — non-custodial bilateral settlement
+///
+/// v3 (2026-09-20): ``submitSettlement`` is resolver-gated. v2 let either party
+/// open the settlement window with an unvalidated ``proofHash``, so a seller
+/// could pull the buyer's allowance without any delivery or confirmation — the
+/// platform's verification was advisory. v3 makes "verified" a *condition*:
+/// only the resolver (Karma's verification account) can start a settlement.
 ///
 /// v1 (`KarmaBilateral`) moved the payer's USDC *into* the contract, so every
 /// later step needed the bill owner's signature again. v2 never takes custody:
@@ -267,17 +273,32 @@ contract KarmaAllowanceEscrow {
 
     // ───────────────────────────────────────────────────────────── settling
 
-    /// @notice Submit a verification proof and open the dispute window. Called by
-    ///         either party, either operator, or Karma's resolver account.
+    /// @notice Submit a verification proof and open the dispute window.
+    ///
+    ///         Only ``disputeResolver`` may call this. The resolver is the account
+    ///         that runs verification off-chain, so the on-chain rule now matches
+    ///         the product rule: **a settlement can only be started once
+    ///         verification has passed**.
+    ///
+    ///         In v2 either party (and either operator) could open the window with
+    ///         an arbitrary ``proofHash``. That let a seller pull the buyer's
+    ///         allowance with no delivery, no confirmation and no arbitration —
+    ///         every off-chain check was a convention, not a condition, and the
+    ///         only real protection was the length of the window.
+    ///
+    ///         The rule after v3:
+    ///           * verification passed  -> resolver opens the window, then
+    ///             ``finalizeSettlement`` pays out once the window elapses
+    ///             (permissionless: the destination is already fixed).
+    ///           * verification failed  -> nobody can start the pull. Parties may
+    ///             only ``cancelBinding``, which releases reservations and moves
+    ///             no money.
+    ///           * inside the window either party may still ``cancelBinding``.
     function submitSettlement(uint256 bindingId, bytes32 proofHash) external {
         Binding storage b = _requireBinding(bindingId);
         if (b.state != BindingState.ACTIVE) revert WrongBindingState(bindingId);
+        if (msg.sender != disputeResolver) revert NotResolver();
         if (block.timestamp < b.settleAfter) revert SettleDelayActive(b.settleAfter);
-        if (
-            !_canAct(bills[b.buyerBillId], msg.sender)
-                && !_canAct(bills[b.sellerBillId], msg.sender)
-                && msg.sender != disputeResolver
-        ) revert NotSettlementParty();
 
         b.state = BindingState.FINALIZING;
         b.proofHash = proofHash;

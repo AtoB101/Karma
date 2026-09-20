@@ -134,7 +134,23 @@ def chain(monkeypatch):
 
 
 async def _open(db_session, bridge):
-    """开一张 ACTIVE 的 binding（走真实 bind_for_task）。"""
+    """开一张 ACTIVE 的 binding（走真实 bind_for_task）。
+
+    账上先把这一单落成 ``refunded``：罚没要开结算窗口，而开窗的前提是「账上已经有
+    一个验证结论」（见 escrow_settlement.assert_release_verified）。
+    """
+    db_session.add(
+        SettlementModel(
+            settlement_id="stl-" + TASK,
+            task_id=TASK,
+            escrow_amount=30.0,
+            currency="USD",
+            status="refunded",
+            client_agent_id=BUYER,
+            worker_agent_id=SELLER,
+        )
+    )
+    await db_session.flush()
     arm(BUYER, [bill("1", BUYER, 50.0)])
     arm(SELLER, [bill("2", SELLER, 20.0)])
     await bridge.bind_for_task(

@@ -83,8 +83,13 @@ def _assert_capacity(cap: CapacityModel | None) -> None:
     )
 
 
-async def _release(db: AsyncSession, voucher: VoucherModel) -> float:
-    """把这张授权码占住的额度原样退回「可用」。"""
+async def release_reservation(db: AsyncSession, voucher: VoucherModel) -> float:
+    """把这张授权码占住的额度原样退回「可用」。
+
+    公开入口：除了「过期回收」，取消订单也要走这一步（见
+    ``settlement_voucher.cancel_voucher_reservation_for_task``）—— 否则一张被取消
+    的授权码会把买方的可用额度一直冻到有效期结束。
+    """
     amount = round(float(voucher.bill_credit_amount or 0.0), 6)
     if amount <= 0:
         return 0.0
@@ -121,7 +126,7 @@ async def expire_due(
     reclaimed: list[dict] = []
     for voucher in await due_vouchers(db, now=now, limit=limit):
         was_reserving = voucher.status in RESERVING_STATUS
-        released = await _release(db, voucher) if was_reserving else 0.0
+        released = await release_reservation(db, voucher) if was_reserving else 0.0
         voucher.status = VoucherStatus.EXPIRED.value
         if hasattr(voucher, "expired_at"):
             voucher.expired_at = datetime.utcnow()

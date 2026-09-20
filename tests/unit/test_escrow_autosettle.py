@@ -10,9 +10,9 @@ from __future__ import annotations
 import time
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
-from db.models.orm import EscrowBindingModel
+from db.models.orm import EscrowBindingModel, SettlementModel
 from services.chain import escrow_autosettle as autosettle
 from services.chain.wallet_lock import WalletLockError
 
@@ -84,6 +84,108 @@ async def test_due_bindings_picks_only_bindings_whose_window_elapsed(db_session)
     rows = await autosettle.due_bindings(db_session, now=now)
 
     assert [r.binding_id for r in rows] == ["1"]
+
+
+# ------------------------------- F10-2 / F11：链上落定之后，账上那行必须跟着走
+
+
+def settlement(status: str = "settled", *, task_id: str = "task-autosettle") -> SettlementModel:
+    return SettlementModel(
+        settlement_id="stl-" + task_id,
+        task_id=task_id,
+        escrow_amount=30.0,
+        currency="USD",
+        status=status,
+        client_agent_id="kid_buyer",
+        worker_agent_id="kid_seller",
+    )
+
+
+async def _wipe_settlements(db_session) -> None:
+    await db_session.execute(
+        delete(SettlementModel).where(SettlementModel.task_id == "task-autosettle")
+    )
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_settling_writes_the_chain_verdict_back_to_the_settlement_row(
+    db_session, monkeypatch
+):
+    """钱划走之后，操作台读的那一行（settlements.onchain_status）必须变成 settled。
+
+    只改 escrow_bindings 的话，链上钱都到了卖方钱包，页面还停在「结算中」—— F10-2。
+    """
+    await _wipe_settlements(db_session)
+    monkeypatch.setattr(
+        autosettle.escrow,
+        "finalize_settlement",
+        lambda *, binding_id: {"finalize_tx_hash": "0xf11settle"},
+    )
+    db_session.add(settlement())
+    db_session.add(binding("21", pull_after=int(time.time()) - 30))
+    await db_session.commit()
+
+    settled = await autosettle.settle_due(db_session)
+
+    assert len(settled) == 1
+    row = await db_session.get(EscrowBindingModel, "21")
+    assert row.state == "settled"
+    model = (
+        await db_session.execute(
+            select(SettlementModel).where(SettlementModel.task_id == "task-autosettle")
+        )
+    ).scalars().one()
+    assert model.onchain_status == "settled"
+    assert model.tx_hash == "0xf11settle"
+    await _wipe_settlements(db_session)
+
+
+@pytest.mark.asyncio
+async def test_the_reconcile_tick_adopts_a_settlement_somebody_else_executed(
+    db_session, monkeypatch
+):
+    """保护期一到，任何地址都能推 finalizeSettlement（合约故意无权限门）。
+
+    别人推了、我们这边没记，账上就会永远停在 finalizing —— 对账那一遍必须把它补齐。
+    """
+    await _wipe_settlements(db_session)
+    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: 3)  # settled
+    db_session.add(settlement())
+    db_session.add(binding("23", pull_after=int(time.time()) - 30))
+    await db_session.commit()
+
+    aligned = await autosettle.reconcile_from_chain(db_session)
+
+    assert [r["binding_id"] for r in aligned] == ["23"]
+    row = await db_session.get(EscrowBindingModel, "23")
+    assert row.state == "settled"
+    model = (
+        await db_session.execute(
+            select(SettlementModel).where(SettlementModel.task_id == "task-autosettle")
+        )
+    ).scalars().one()
+    assert model.onchain_status == "settled"
+    await _wipe_settlements(db_session)
+
+
+@pytest.mark.asyncio
+async def test_the_reconcile_tick_leaves_a_still_open_binding_alone(db_session, monkeypatch):
+    """链上说「还在等保护期」，就不许动台账 —— 更不能顺手把钱划走。"""
+    await _wipe_settlements(db_session)
+    called: list[int] = []
+    monkeypatch.setattr(autosettle.escrow, "binding_state", lambda *, binding_id: 2)  # finalizing
+    monkeypatch.setattr(
+        autosettle.escrow, "finalize_settlement", lambda *, binding_id: called.append(binding_id)
+    )
+    db_session.add(binding("25", pull_after=int(time.time()) + 3600))
+    await db_session.commit()
+
+    assert await autosettle.reconcile_from_chain(db_session) == []
+    row = await db_session.get(EscrowBindingModel, "25")
+    assert row.state == "finalizing"
+    assert called == []
+    await _wipe_settlements(db_session)
 
 
 @pytest.mark.asyncio
