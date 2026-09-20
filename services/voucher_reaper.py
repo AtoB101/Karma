@@ -17,12 +17,12 @@ from __future__ import annotations
 from datetime import datetime
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
 from core.schemas import CapacityState, VoucherStatus
-from db.models.orm import CapacityModel, VoucherModel
+from db.models.orm import CapacityModel, SettlementModel, VoucherModel
 from services import atomic_ledger
 from services.capacity_ledger import assert_capacity_invariants
 
@@ -145,3 +145,78 @@ async def expire_due(
             released_usdc=released,
         )
     return reclaimed
+
+
+#: 结算单走到这三个状态 = 这单不会再从 ``reserved`` 里拿钱了（见 core.settlement.engine）。
+#: 其余状态（accepted / delivered / disputed / arbitrated / frozen …）都还在路上。
+_TERMINAL_SETTLEMENT_STATUSES = ("settled", "refunded", "cancelled")
+
+
+async def restore_leaked_reservations(db: AsyncSession, *, limit: int = 200) -> list[dict]:
+    """把「没有任何东西占着、却还挂在 ``reserved`` 上」的额度还给「可用额度」。
+
+    占用只有一个来源：卖方接单那一刻把买方的可用额度挪进 ``reserved``
+    （``voucher_lifecycle.accept_voucher_row``）。所以这条不变式必须成立：
+
+        ``reserved == Σ (还在 accepted 的授权码的 bill_credit_amount)``
+
+    每条释放路径都带守卫（``reserved >= amount``），只要历史上出现过一次「少还一点」
+    —— 老 bug、人工修库、金额口径改过 —— 余数就永远挂在 ``reserved`` 上：链上钱一分
+    没少，用户的可用额度却少一截，而且再也没有任何东西会去动它。
+
+    线上实测（2026-09-20，W1）：``reserved`` 剩 0.055，名下一张活券、一张在途单都没有。
+
+    只在**这个身份名下没有任何在途结算单**时才动手：在途单自己也占着 ``reserved``，
+    光比券会把它占的那部分当成泄漏放出去 —— 那就是凭空多发额度。宁可不动。
+    """
+    rows = (
+        await db.execute(
+            select(CapacityModel)
+            .where(CapacityModel.reserved_credits > 1e-9)
+            .order_by(CapacityModel.identity_id)
+            .limit(limit)
+        )
+    ).scalars().all()
+    healed: list[dict] = []
+    for cap in rows:
+        inflight = (
+            await db.execute(
+                select(func.count())
+                .select_from(SettlementModel)
+                .where(SettlementModel.client_agent_id == cap.identity_id)
+                .where(SettlementModel.status.notin_(_TERMINAL_SETTLEMENT_STATUSES))
+            )
+        ).scalar_one()
+        if inflight:
+            continue
+        held = (
+            await db.execute(
+                select(func.coalesce(func.sum(VoucherModel.bill_credit_amount), 0.0))
+                .where(VoucherModel.buyer_identity_id == cap.identity_id)
+                .where(VoucherModel.status == VoucherStatus.ACCEPTED.value)
+            )
+        ).scalar_one()
+        excess = round(float(cap.reserved_credits or 0.0) - float(held or 0.0), 6)
+        if excess <= 1e-9:
+            continue
+        try:
+            await atomic_ledger.apply_delta_or_raise(
+                db,
+                CapacityModel,
+                "identity_id",
+                cap.identity_id,
+                {"reserved_credits": -excess, "available_credits": excess},
+                guards=[(lambda C, _need=excess: C.reserved_credits + 1e-9 >= _need)],
+                message="reserved credits are not held by any live voucher",
+            )
+        except atomic_ledger.LedgerConflict:
+            logger.warning(
+                "reserved_restore_declined", identity_id=cap.identity_id, excess_usdc=excess
+            )
+            continue
+        _assert_capacity(await atomic_ledger.reload(db, CapacityModel, cap.identity_id))
+        healed.append({"identity_id": cap.identity_id, "returned_usdc": excess})
+        logger.info(
+            "reserved_restored", identity_id=cap.identity_id, returned_usdc=excess
+        )
+    return healed

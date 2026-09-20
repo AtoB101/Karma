@@ -919,7 +919,10 @@ async def sync_commits(db: AsyncSession, identity_id: str) -> list[AllowanceComm
     if not rows or not escrow_enabled():
         return rows
     w3 = _web3()
-    for row in rows:
+    # 加锁顺序必须确定：并发对账（API 定时任务 / 用户操作 / 运维脚本）如果按不同顺序
+    # 更新同一批账单行，Postgres 会判 ABBA 死锁并回滚其中一方 —— 那一轮账就没对上，
+    # 用户的可用额度跟着少一截。按账单号升序加锁，两条路径就永远同一个顺序。
+    for row in sorted(rows, key=lambda r: _bill_sort_key(r.bill_id)):
         if row.state == REVOKED:
             continue
         # 每条账单去**它自己那台**合约上读。合约换过地址之后，旧账单在新合约里
@@ -1164,6 +1167,9 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
     rows = await list_commits(db, identity_id)
     if not rows:
         return {"credited_usdc": 0.0, "delta_usdc": 0.0, "unsecured_usdc": 0.0}
+    # 和 ``sync_commits`` 同一个加锁顺序（账单号升序）：两条路径在同一批行上并发跑时
+    # 才不会 ABBA。下面回写 ``capacity_credited_usdc`` 时会锁住这些行。
+    rows = sorted(rows, key=lambda r: _bill_sort_key(r.bill_id))
 
     # 只把链上真划得动的部分记进台账。链上已关闭 / 已划光的账单贡献 0（revoke() 关掉的
     # 是整笔未使用额度；spent == amount 本来就算 0）——这一点由 backing_report 负责。
@@ -1281,6 +1287,9 @@ async def reconcile_all_capacity_mirrors(
         )
         .where(AllowanceCommitModel.state != REVOKED)
         .group_by(AllowanceCommitModel.identity_id)
+        # 身份也要固定顺序：这一轮按 id 升序走，接单那条路径是买方→卖方，两边顺序
+        # 不一致时会在身份级别 ABBA（2026-09-20 线上真发生过）。
+        .order_by(AllowanceCommitModel.identity_id)
         .limit(limit)
     )
     holders = list((await db.execute(stmt)).all())
@@ -1288,9 +1297,13 @@ async def reconcile_all_capacity_mirrors(
     changed: list[dict[str, Any]] = []
     for identity_id, last_synced in holders:
         try:
-            if last_synced is None or last_synced < resync_before:
-                await sync_commits(db, identity_id)
-            result = await reconcile_capacity_mirror(db, identity_id)
+            # 每个身份一个 SAVEPOINT：某一个身份上的失败（死锁 / RPC 抖动 / 脏数据）
+            # 不能把整个事务打成 aborted —— 否则这一轮后面每个身份都跟着报
+            # "current transaction is aborted"，钱的路上一动不动，日志里只有一串 warning。
+            async with db.begin_nested():
+                if last_synced is None or last_synced < resync_before:
+                    await sync_commits(db, identity_id)
+                result = await reconcile_capacity_mirror(db, identity_id)
         except Exception as exc:  # noqa: BLE001 - bookkeeping must never stop the loop
             logger.warning(
                 "escrow_capacity_mirror_failed", identity_id=identity_id, error=str(exc)

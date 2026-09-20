@@ -259,6 +259,15 @@ async def test_secured_usdc_for_bill_only_pays_the_oldest_bills(db_session, monk
     assert await escrow.secured_usdc_for_bill(db_session, IDENTITY, "999") == pytest.approx(0.0)
 
 
+def _stub_sync(monkeypatch) -> None:
+    """扫描本身不读链：``sync_commits`` 的链上副作用由别的用例覆盖。"""
+
+    async def _noop(db, identity_id):
+        return []
+
+    monkeypatch.setattr(escrow, "sync_commits", _noop)
+
+
 # --------------------------------------------------------- capacity 台账镜像
 
 
@@ -432,6 +441,65 @@ async def test_capacity_mirror_never_eats_credits_the_chain_does_not_back(
     cap = await db_session.get(CapacityModel, IDENTITY)
     assert cap.available_credits == pytest.approx(225.0)
     assert cap.total_locked_usdc == pytest.approx(225.0)
+
+
+@pytest.mark.asyncio
+async def test_the_mirror_sweep_locks_identities_in_a_fixed_order(db_session, monkeypatch):
+    """并发对账必须按同一顺序加锁，否则 Postgres 判 ABBA 死锁。
+
+    2026-09-20 线上实测：运维脚本和 API 定时任务同时在跑，两边更新同一批账单行的顺序
+    不同 —— ``DeadlockDetectedError``，其中一方整轮被回滚，那一轮账就没对上。
+    这里钉死顺序：身份按 id 升序（账单按号升序由另两条用例覆盖）。
+    """
+    await _seed_commits(db_session, [("7", 10.0)], identity_id="identity-zz")
+    await _seed_commits(db_session, [("2", 10.0)], identity_id="identity-aa",
+                        wallet=OTHER_WALLET)
+    _allowance_chain(monkeypatch, 10.0)
+    _stub_sync(monkeypatch)
+
+    seen: list[str] = []
+    real = escrow.reconcile_capacity_mirror
+
+    async def spy(db, identity_id):
+        seen.append(identity_id)
+        return await real(db, identity_id)
+
+    monkeypatch.setattr(escrow, "reconcile_capacity_mirror", spy)
+    out = await escrow.reconcile_all_capacity_mirrors(db_session)
+
+    assert seen == ["identity-aa", "identity-zz"]
+    assert {row["identity_id"] for row in out} == {"identity-aa", "identity-zz"}
+
+
+@pytest.mark.asyncio
+async def test_one_broken_identity_does_not_stop_the_rest_of_the_sweep(
+    db_session, monkeypatch
+):
+    """某个身份上炸了，这一轮剩下的身份还得照常对上账。
+
+    生产是 Postgres：出错的事务会变成 aborted，后面每条语句都跟着报
+    "current transaction is aborted"。所以每个身份必须各自待在一个 SAVEPOINT 里
+    （``begin_nested``）—— 否则一次死锁就让整轮自愈集体哑火。
+    """
+    await _seed_commits(db_session, [("7", 10.0)], identity_id="identity-zz")
+    await _seed_commits(db_session, [("2", 10.0)], identity_id="identity-aa",
+                        wallet=OTHER_WALLET)
+    _allowance_chain(monkeypatch, 10.0)
+    _stub_sync(monkeypatch)
+
+    real = escrow.reconcile_capacity_mirror
+
+    async def flaky(db, identity_id):
+        if identity_id == "identity-aa":
+            raise RuntimeError("deadlock detected")
+        return await real(db, identity_id)
+
+    monkeypatch.setattr(escrow, "reconcile_capacity_mirror", flaky)
+    out = await escrow.reconcile_all_capacity_mirrors(db_session)
+
+    assert [row["identity_id"] for row in out] == ["identity-zz"]
+    cap = await db_session.get(CapacityModel, "identity-zz")
+    assert cap.available_credits == pytest.approx(10.0)
 
 
 # ------------------------------------------------------------------ 操作台口径

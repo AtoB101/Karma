@@ -476,6 +476,9 @@ async def run_forever() -> None:
                 # 过期授权码占住的额度要还回去 —— 否则用户「可用额度」被一张
                 # 没人推进的券永久吃光，链上明明还有钱却一单也开不出来。
                 reclaimed = await voucher_reaper.expire_due(db)
+                # 没有任何东西占着、却还挂在 reserved 上的额度：还回可用额度。
+                # （释放路径每次「少还一点」都会留下这样的余数，链上的钱一分没少。）
+                returned = await voucher_reaper.restore_leaked_reservations(db)
                 # 台账自愈：v2 承诺必须一直等于链上的可用责任额度，否则用户锁仓
                 # 之后会看到 0 可用额度（付款码 / 任务合同 / agent 请求凭证全被拒）。
                 mirrored = await escrow.reconcile_all_capacity_mirrors(db)
@@ -492,6 +495,8 @@ async def run_forever() -> None:
                 logger.info("escrow_stranded_reap_tick", freed=len(freed))
             if reclaimed:
                 logger.info("voucher_expiry_tick", vouchers=len(reclaimed))
+            if returned:
+                logger.info("voucher_reserved_restore_tick", identities=len(returned))
         except asyncio.CancelledError:
             logger.info("escrow_autosettle_stopped")
             raise

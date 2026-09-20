@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import delete
 
 from core.schemas import VoucherStatus
-from db.models.orm import CapacityModel, VoucherModel
+from db.models.orm import CapacityModel, SettlementModel, VoucherModel
 from services import voucher_reaper
 
 BUYER = "kid_reaper_buyer"
@@ -58,10 +58,12 @@ def capacity(*, available: float, reserved: float, total: float) -> CapacityMode
 async def _clean(db_session):
     await db_session.execute(delete(VoucherModel).where(VoucherModel.buyer_identity_id == BUYER))
     await db_session.execute(delete(CapacityModel).where(CapacityModel.identity_id == BUYER))
+    await db_session.execute(delete(SettlementModel).where(SettlementModel.client_agent_id == BUYER))
     await db_session.commit()
     yield
     await db_session.execute(delete(VoucherModel).where(VoucherModel.buyer_identity_id == BUYER))
     await db_session.execute(delete(CapacityModel).where(CapacityModel.identity_id == BUYER))
+    await db_session.execute(delete(SettlementModel).where(SettlementModel.client_agent_id == BUYER))
     await db_session.commit()
 
 
@@ -139,3 +141,64 @@ async def test_the_sweep_can_be_switched_off(db_session, monkeypatch):
     assert await voucher_reaper.expire_due(db_session) == []
     row = await _load(db_session, "v-off")
     assert row.status == VoucherStatus.ACCEPTED.value
+
+
+# ------------------------------------------------ 没有任何东西占着的 reserved 余数
+
+
+def settlement(task_id: str, *, status: str, escrow: float = 5.0) -> SettlementModel:
+    return SettlementModel(
+        settlement_id="s-" + task_id,
+        task_id=task_id,
+        escrow_amount=escrow,
+        currency="USDC",
+        status=status,
+        client_agent_id=BUYER,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_reservation_nobody_holds_is_given_back(db_session):
+    """释放路径「少还一点」留下的余数：没有券、没有单占着，就必须还给可用额度。
+
+    线上实测（2026-09-20，W1）：``reserved`` 剩 0.055，名下一张活券都没有，
+    而链上担保一分没少 —— 用户的可用额度凭空少一截，且再没有东西会去动它。
+    """
+    db_session.add(capacity(available=3.945, reserved=0.055, total=4.0))
+    await db_session.commit()
+
+    out = await voucher_reaper.restore_leaked_reservations(db_session)
+
+    assert out == [{"identity_id": BUYER, "returned_usdc": 0.055}]
+    cap = await db_session.get(CapacityModel, BUYER)
+    assert cap.reserved_credits == pytest.approx(0.0)
+    assert cap.available_credits == pytest.approx(4.0)
+    assert cap.total_bill_credits == pytest.approx(4.0)
+
+
+@pytest.mark.asyncio
+async def test_a_voucher_that_still_holds_its_reservation_keeps_it(db_session):
+    """活着的券就是占用的主人 —— 一个子儿都不能动。"""
+    db_session.add(capacity(available=0.0, reserved=8.0, total=8.0))
+    db_session.add(voucher("v-holding", credit=8.0, expires_in_hours=+48))
+    await db_session.commit()
+
+    assert await voucher_reaper.restore_leaked_reservations(db_session) == []
+    cap = await db_session.get(CapacityModel, BUYER)
+    assert cap.reserved_credits == pytest.approx(8.0)
+    assert cap.available_credits == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_an_inflight_settlement_blocks_the_heal(db_session):
+    """在途单自己也占着 reserved —— 光比券会把它占的那部分当泄漏放出去（凭空多发额度）。
+
+    只用「名下有没有在途单」这一个条件把关：看不懂的情况宁可不动。
+    """
+    db_session.add(capacity(available=0.0, reserved=5.0, total=5.0))
+    db_session.add(settlement("t-inflight", status="delivered"))
+    await db_session.commit()
+
+    assert await voucher_reaper.restore_leaked_reservations(db_session) == []
+    cap = await db_session.get(CapacityModel, BUYER)
+    assert cap.reserved_credits == pytest.approx(5.0)
