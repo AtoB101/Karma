@@ -385,6 +385,55 @@ async def test_capacity_mirror_drops_the_credit_of_a_bill_on_a_retired_contract(
     assert cap.available_credits == pytest.approx(0.0)
 
 
+@pytest.mark.asyncio
+async def test_capacity_mirror_heals_a_pool_that_drifted_from_the_chain(
+    db_session, monkeypatch
+):
+    """池子被别的东西改小过（历史 bug / 人工修库）时，对账要能把缺口补回来。
+
+    老的「只补差额」口径看不见这种缺口：它只比 ``capacity_credited_usdc`` 的总和，
+    而那个总和跟池子本身已经对不上，于是用户的可用额度会永远少一截。
+    """
+    await _seed_commits(db_session, [("1", 25.0)])
+    _allowance_chain(monkeypatch, 25.0)
+    await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+    cap = await db_session.get(CapacityModel, IDENTITY)
+    assert cap.available_credits == pytest.approx(25.0)
+
+    cap.available_credits = 5.0          # 错账：链上一分没变
+    cap.total_locked_usdc = 5.0
+    await db_session.flush()
+
+    out = await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+
+    assert out["delta_usdc"] == pytest.approx(20.0)
+    assert out["credited_usdc"] == pytest.approx(25.0)
+    cap = await db_session.get(CapacityModel, IDENTITY)
+    assert cap.available_credits == pytest.approx(25.0)
+    assert cap.total_locked_usdc == pytest.approx(25.0)
+
+
+@pytest.mark.asyncio
+async def test_capacity_mirror_never_eats_credits_the_chain_does_not_back(
+    db_session, monkeypatch
+):
+    """运营方直接发放的内部额度不能被对账抹掉，也不能被当成链上担保。"""
+    await _seed_commits(db_session, [("1", 25.0)])
+    _allowance_chain(monkeypatch, 25.0)
+    db_session.add(
+        CapacityModel(identity_id=IDENTITY, available_credits=225.0, total_locked_usdc=225.0)
+    )
+    await db_session.flush()
+
+    out = await escrow.reconcile_capacity_mirror(db_session, IDENTITY)
+
+    assert out["credited_usdc"] == pytest.approx(25.0)
+    assert out["delta_usdc"] == pytest.approx(0.0)
+    cap = await db_session.get(CapacityModel, IDENTITY)
+    assert cap.available_credits == pytest.approx(225.0)
+    assert cap.total_locked_usdc == pytest.approx(225.0)
+
+
 # ------------------------------------------------------------------ 操作台口径
 
 

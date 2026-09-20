@@ -1199,15 +1199,44 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
         live_total += secured_by_bill.get(str(row.bill_id), 0.0)
     live_total = round(live_total, 6)
 
-    delta = round(live_total - credited_total, 6)
-    if abs(delta) < 1e-9:
-        return {"credited_usdc": live_total, "delta_usdc": 0.0, "unsecured_usdc": unsecured_total}
-
     cap = await db.get(CapacityModel, identity_id)
     if cap is None:
         cap = CapacityModel(identity_id=identity_id, updated_at=datetime.utcnow())
         db.add(cap)
         await db.flush()
+
+    # 台账要修的不只是「链上担保变了多少」，还有「池子和担保对不上」。
+    #
+    # 池子（可用 + 预留 + 在途 + …）里有一部分不是链上担保撑出来的 —— 运营方直接
+    # 发放的内部额度（见 ``api/routes/capacity.py``）也在同一个池子里。修台账时要把
+    # 链上担保补进去，但不能把内部额度一起抹掉，也不能把链上担保叠两次。
+    #
+    # 分界线取 ``max(上一轮记下的担保, 这一次读到的担保)``：池子绝不允许低于链上担保，
+    # 所以**低于**它的那一段只能是错账（补回来），**高过**它又高过链上担保的那一段才是
+    # 内部额度（留着）。只按「上一轮记下的担保」划线，会把「链上已经担保、台账还没记」
+    # 的那一段当成内部额度，再把链上担保叠一次 —— 虚增出链上划不动的可用额度。
+    #
+    # 老实现更窄，只补 `live_total - 上一轮担保`：池子被别的东西改小过（历史 bug、人工
+    # 修库）时，差额口径看不出这个缺口，用户的可用额度会永远少一截。
+    pool = (
+        float(cap.available_credits or 0.0)
+        + float(cap.reserved_credits or 0.0)
+        + float(cap.in_progress_credits or 0.0)
+        + float(cap.confirmed_progress_credits or 0.0)
+        + float(cap.disputed_credits or 0.0)
+        + float(cap.pending_settlement_credits or 0.0)
+    )
+    backed = max(credited_total, live_total)
+    internal = max(0.0, round(pool - backed, 6))
+    delta = round(live_total + internal - pool, 6)
+
+    for row in rows:
+        row.capacity_credited_usdc = secured_by_bill.get(str(row.bill_id), 0.0)
+        row.updated_at = datetime.utcnow()
+
+    if abs(delta) < 1e-9:
+        await db.flush()
+        return {"credited_usdc": live_total, "delta_usdc": 0.0, "unsecured_usdc": unsecured_total}
 
     cap.available_credits = float(cap.available_credits or 0.0) + delta
     if cap.available_credits < 0.0:
@@ -1224,10 +1253,6 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
     cap.total_bill_credits = active
     cap.total_locked_usdc = max(float(cap.total_locked_usdc or 0.0) + delta, active)
     cap.updated_at = datetime.utcnow()
-
-    for row in rows:
-        row.capacity_credited_usdc = secured_by_bill.get(str(row.bill_id), 0.0)
-        row.updated_at = datetime.utcnow()
 
     await db.flush()
     logger.info(
