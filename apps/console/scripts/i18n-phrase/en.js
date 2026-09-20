@@ -2450,4 +2450,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
     "交易": "Tx",
     "撤销授权": "Revoke",
     "授权 = 告诉 Karma「这个身份最多能动用多少」。钱始终留在你自己的钱包里，验证通过才划转。 主身份已锁仓 {0} USDC，已授权 {1} USDC。": "A grant tells Karma “this identity may spend up to this much”. The money always stays in your own wallet and only moves after verification passes. The master identity has {0} USDC locked and {1} USDC granted.",
+    "请先用右上角「连接钱包」完成认证，再来打开复核队列。": "Verify first with Connect wallet (top right), then open the review queue.",
+    "还没认证：请先用右上角「连接钱包」完成认证。": "Not verified yet: use Connect wallet (top right) to verify.",
+    "没有权限：这个身份还不是复核岗（verifier）。": "No permission: this identity is not a Reviewer role (verifier).",
 });

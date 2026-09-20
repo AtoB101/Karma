@@ -2452,4 +2452,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
     "交易": "Transacción",
     "撤销授权": "Revocar",
     "授权 = 告诉 Karma「这个身份最多能动用多少」。钱始终留在你自己的钱包里，验证通过才划转。 主身份已锁仓 {0} USDC，已授权 {1} USDC。": "Un cupo le dice a Karma «esta identidad puede gastar hasta acá». El dinero siempre queda en tu billetera y solo se mueve cuando pasa la verificación. La identidad principal tiene {0} USDC bloqueados y {1} USDC asignados.",
+    "请先用右上角「连接钱包」完成认证，再来打开复核队列。": "Primero verifica con «Conectar billetera» (arriba a la derecha) y luego abre la cola de revisión.",
+    "还没认证：请先用右上角「连接钱包」完成认证。": "Aún no has verificado: usa «Conectar billetera» (arriba a la derecha).",
+    "没有权限：这个身份还不是复核岗（verifier）。": "Sin permiso: esta identidad todavía no es de rol revisor (verifier).",
 });

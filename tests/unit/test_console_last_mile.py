@@ -573,3 +573,28 @@ def test_alembic_revision_ids_fit_the_version_column():
 
     assert checked >= 8, "Postgres 基线之后的迁移至少要能被数到"
     assert not too_long, f"revision id 超过 {cap} 字符，线上写不进 alembic_version：{too_long}"
+
+
+def test_every_language_pack_carries_the_review_queue_copy():
+    """复核页「先连钱包」这段提示六种语言都要有。
+
+    以前没连钱包就点进复核页，页面上会挂一句服务端原文
+    「HTTP 401: Authentication required」：不是译文，也没说下一步做什么。
+    现在没会话就不发请求，只在状态行留一句能翻的话。
+    """
+    samples = (
+        "请先用右上角「连接钱包」完成认证，再来打开复核队列。",
+        "还没认证：请先用右上角「连接钱包」完成认证。",
+        "没有权限：这个身份还不是复核岗（verifier）。",
+    )
+    phrase_dir = CONSOLE / "scripts" / "i18n-phrase"
+    for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
+        pack = (phrase_dir / f"{lang}.js").read_text(encoding="utf-8")
+        missing = [s for s in samples if f'"{s}":' not in pack]
+        assert not missing, f"{lang} 缺译文：{missing}"
+
+    js = (CONSOLE / "scripts" / "cyber-reviews.js").read_text(encoding="utf-8")
+    assert "function authed()" in js, "复核页要先看会话再发请求"
+    assert "if (!authed()) {" in js, "没会话就返回，别打裸 401"
+    assert 'say(st, T("请先用右上角「连接钱包」完成认证，再来打开复核队列。"), null);' in js
+    assert "status === 401" in js and "status === 403" in js, "状态行不要再摊服务端英文原文"

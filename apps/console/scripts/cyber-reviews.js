@@ -51,6 +51,19 @@
     return window.cyberKarmaApi || {};
   }
 
+  /**
+   * 连没连钱包。会话没建起来之前不许发请求 —— 发出去只会得到一条裸 401，
+   * 页面上就挂一句「HTTP 401: Authentication required」：既不是译文，也没告诉人下一步做什么。
+   * 隔壁「接入确认」「已绑定钥匙」两张卡片用的就是这个判据，这里跟它们对齐。
+   */
+  function authed() {
+    try {
+      return !!(global.KARMA_ACCESS_TOKEN || global.KARMA_IDENTITY_ID);
+    } catch (_) {
+      return false;
+    }
+  }
+
   /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
   function T(zh) {
     var i18n = window.CYBER_I18N;
@@ -202,6 +215,14 @@
       deny.hidden = true;
       deny.innerHTML = "";
     }
+    if (!authed()) {
+      state.items = [];
+      state.counts = {};
+      state.verifier = "";
+      render();
+      say(st, T("请先用右上角「连接钱包」完成认证，再来打开复核队列。"), null);
+      return;
+    }
     say(st, "读取中…", null);
     try {
       // karmaFetch 只负责 fetch，不会替你加认证头 —— 少了 headers() 就是线上 401。
@@ -218,7 +239,12 @@
       state.items = [];
       state.counts = {};
       render();
-      say(st, (e && e.message) || "读取失败", false);
+      // 服务端的 401/403 是英文原文（HTTP 403: only a verifier-class profile …），
+      // 直接摊给用户等于没翻。按状态给一句能落到实处的话，剩下的交给译表。
+      var status = e && e.status;
+      if (status === 401) say(st, T("还没认证：请先用右上角「连接钱包」完成认证。"), false);
+      else if (status === 403) say(st, T("没有权限：这个身份还不是复核岗（verifier）。"), false);
+      else say(st, (e && e.message) || "读取失败", false);
       if (deny && e && e.status === 403) {
         deny.hidden = false;
         deny.innerHTML =
