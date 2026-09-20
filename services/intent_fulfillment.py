@@ -85,6 +85,7 @@ from services.settlement_voucher import mark_voucher_used_if_linked
 from services.signing import sha256_of, signing_service
 from services.voucher_events import record_voucher_event
 from services.voucher_lifecycle import accept_voucher_row
+from services.settlement_amounts import normalize_amount
 
 logger = logging.getLogger(__name__)
 
@@ -1195,7 +1196,7 @@ async def fulfill_intent(
         await ensure_success_execution_receipt_before_seller_payout(
             db, task_id, settled_amount=float(pay_amount)
         )
-        state.released_amount = round(pay_amount, 2)
+        state.released_amount = normalize_amount(pay_amount)
         state.refunded_amount = 0.0
         state.arbitration_notes = "intent fulfillment auto-complete — buyer accept"
         state.released_at = datetime.utcnow()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -45,6 +46,7 @@ from services.settlement_cycle_guard import assert_lock_does_not_close_payment_c
 from services.settlement_receipt_release_guard import ensure_success_execution_receipt_before_seller_payout
 from services.task_contract_guard import ensure_task_contract_exists
 from services.text_safety import validate_json_strings_safe, validate_safe_storage_text_optional
+from services.settlement_amounts import assert_token_precision, normalize_amount, split_amounts
 
 router = APIRouter()
 
@@ -200,6 +202,10 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
     progress_rule_spec = body.progress_rule_spec
     profile_id = body.profile_id
     escrow_amount = body.escrow_amount
+    # 金额只允许有一个口径：链上能表示多少小数位，账上就只能有多少。
+    if not math.isfinite(float(escrow_amount)):
+        raise HTTPException(400, "escrow_amount must be a finite number")
+    assert_token_precision(escrow_amount, field="escrow_amount")
     if voucher_id:
         vrow = await db.get(VoucherModel, voucher_id)
         if not vrow:
@@ -609,8 +615,9 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
     require_buyer(request, state)
     confirmed_claimed = await _confirmed_progress_percent(db, task_id)
     st = canonical_task_status(state.status)
-    settled_amount = round(state.escrow_amount * body.settled_value_percent / 100.0, 2)
-    refunded_amount = round(state.escrow_amount - settled_amount, 2)
+    settled_amount, refunded_amount = split_amounts(
+        state.escrow_amount, body.settled_value_percent
+    )
 
     # 幂等重放（2026-09-20 实测新增）。背景：/partial 是一条「撤绑 → 重绑 → 划款」
     # 的同步长事务，实测要 40s 以上，客户端很容易先超时。超时后客户端重试时，服务端
@@ -708,8 +715,7 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
     if body.buyer_identity_id is not None and body.buyer_identity_id != state.client_agent_id:
         raise HTTPException(403, "buyer_identity_id does not match settlement buyer (client_agent_id)")
     confirmed_percent = await _confirmed_progress_percent(db, task_id)
-    settled_amount = round(state.escrow_amount * confirmed_percent / 100.0, 2)
-    refunded_amount = round(state.escrow_amount - settled_amount, 2)
+    settled_amount, refunded_amount = split_amounts(state.escrow_amount, confirmed_percent)
 
     await ensure_success_execution_receipt_before_seller_payout(db, task_id, settled_amount=settled_amount)
 
@@ -885,7 +891,7 @@ async def buyer_accept_settlement(
         db, task_id, settled_amount=float(state.escrow_amount)
     )
 
-    state.released_amount = round(state.escrow_amount, 2)
+    state.released_amount = normalize_amount(state.escrow_amount)
     state.refunded_amount = 0.0
     state.arbitration_notes = "buyer accepted delivery — full settlement to seller"
     state.released_at = datetime.utcnow()
@@ -1011,7 +1017,7 @@ async def auto_confirm_settlement(
         target_status=TaskStatus.AUTO_CONFIRMED,
         reason=f"confirm window ({state.confirm_window_hours}h) expired",
         route_path=str(request.url.path), actor_id=_resolve_actor_id(request))
-    state.released_amount = round(state.escrow_amount, 2)
+    state.released_amount = normalize_amount(state.escrow_amount)
     state.refunded_amount = 0.0
     state.released_at = now
     state = await _apply_transition(db=db, store=store, state=state,

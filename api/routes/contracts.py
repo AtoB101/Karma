@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import math
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -18,6 +19,7 @@ from services.path_param_safety import validate_public_url_segment
 from services.settlement_party_access import actor_identity_ids, require_party_read
 from services.signing import sha256_of
 from services.text_safety import validate_json_strings_safe, validate_safe_storage_text
+from services.settlement_amounts import assert_token_precision
 
 router = APIRouter()
 
@@ -85,6 +87,13 @@ async def create_contract(
             status_code=400,
             detail=f"escrow_amount must be <= {settings.escrow_max_amount}",
         )
+    # NaN 能同时躲过上面两个比较；金额必须是有限数。
+    if not math.isfinite(float(body.escrow_amount)):
+        raise HTTPException(
+            status_code=400, detail="escrow_amount must be a finite number"
+        )
+    # 链上只有 6 位小数；多出来的位数在链上不存在，账实就会对不平。
+    assert_token_precision(body.escrow_amount, field="escrow_amount")
     cap = await db.get(CapacityModel, body.client_agent_id)
     if cap is not None and float(cap.available_credits) + 1e-9 < float(body.escrow_amount):
         raise HTTPException(

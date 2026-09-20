@@ -12,6 +12,7 @@ from core.schemas import TaskStatus
 from core.evidence.bundle_builder import execution_receipt_bundle_digest
 from db.models.orm import EvidenceBundleModel, ReceiptModel
 from db.stores.receipt_store import PostgresReceiptStore
+from services.settlement_amounts import normalize_amount, split_amounts
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -120,27 +121,25 @@ def adjust_auto_split_for_rules(
     Baseline follows confirmed progress; rules may push toward buyer when proofs are missing.
     """
     if ctx.bundle_step_counts_ok is False:
-        return 0.0, round(escrow_amount, 2), "rule: evidence bundle format error (step metadata vs receipts)"
+        return 0.0, normalize_amount(escrow_amount), "rule: evidence bundle format error (step metadata vs receipts)"
 
     integrity_bad = ctx.bundle_receipt_ids_ok is False or ctx.bundle_receipt_hashes_match is False
     if integrity_bad and confirmed_percent <= 0.0:
-        return 0.0, round(escrow_amount, 2), "rule: evidence bundle integrity failed with no confirmed progress — buyer wins"
+        return 0.0, normalize_amount(escrow_amount), "rule: evidence bundle integrity failed with no confirmed progress — buyer wins"
 
     if ctx.delivery_overdue and confirmed_percent <= 0.0:
-        return 0.0, round(escrow_amount, 2), "rule: overdue delivery with no confirmed progress"
+        return 0.0, normalize_amount(escrow_amount), "rule: overdue delivery with no confirmed progress"
 
     if not ctx.has_success_receipt and confirmed_percent <= 0.0:
-        return 0.0, round(escrow_amount, 2), "rule: no successful execution receipt and no confirmed progress"
+        return 0.0, normalize_amount(escrow_amount), "rule: no successful execution receipt and no confirmed progress"
 
     if integrity_bad and confirmed_percent < 50.0:
-        settled = round(escrow_amount * max(confirmed_percent, 0.0) / 100.0, 2)
-        refunded = round(escrow_amount - settled, 2)
+        settled, refunded = split_amounts(escrow_amount, max(confirmed_percent, 0.0))
         return settled, refunded, "rule: evidence bundle integrity failed — conservative partial split"
 
     if confirmed_percent <= 0.0:
-        return 0.0, round(escrow_amount, 2), "auto arbitration: no confirmed progress, buyer wins"
+        return 0.0, normalize_amount(escrow_amount), "auto arbitration: no confirmed progress, buyer wins"
     if confirmed_percent >= 90.0:
-        return round(escrow_amount, 2), 0.0, "auto arbitration: near-complete confirmed progress, seller wins"
-    settled = round(escrow_amount * confirmed_percent / 100.0, 2)
-    refunded = round(escrow_amount - settled, 2)
+        return normalize_amount(escrow_amount), 0.0, "auto arbitration: near-complete confirmed progress, seller wins"
+    settled, refunded = split_amounts(escrow_amount, confirmed_percent)
     return settled, refunded, f"auto arbitration: partial split by confirmed progress {confirmed_percent:.2f}%"

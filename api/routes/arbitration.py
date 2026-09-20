@@ -50,6 +50,7 @@ from services.security_monitoring import (
     record_security_event,
 )
 from services.settlement_voucher import mark_voucher_used_if_linked
+from services.settlement_amounts import normalize_amount, split_amounts
 
 router = APIRouter()
 DEFAULT_OPEN_CASE_ALERT_THRESHOLD = 5
@@ -736,18 +737,17 @@ async def execute_arbitration_case(
     if case_row.decided_outcome == ArbitrationVoteDecision.BUYER_WINS.value:
         target = TaskStatus.REFUNDED
         settled_amount = 0.0
-        refunded_amount = round(state.escrow_amount, 2)
+        refunded_amount = normalize_amount(state.escrow_amount)
         notes = "decentralized pool decision: buyer_wins"
     elif case_row.decided_outcome == ArbitrationVoteDecision.SELLER_WINS.value:
         target = TaskStatus.SETTLED
-        settled_amount = round(state.escrow_amount, 2)
+        settled_amount = normalize_amount(state.escrow_amount)
         refunded_amount = 0.0
         notes = "decentralized pool decision: seller_wins"
     else:
         target = TaskStatus.SETTLED
         partial_percent = case_row.final_partial_percent if case_row.final_partial_percent is not None else 50.0
-        settled_amount = round(state.escrow_amount * partial_percent / 100.0, 2)
-        refunded_amount = round(state.escrow_amount - settled_amount, 2)
+        settled_amount, refunded_amount = split_amounts(state.escrow_amount, partial_percent)
         notes = f"decentralized pool decision: partial {partial_percent:.2f}%"
 
     if not can_transition(state.status, target):

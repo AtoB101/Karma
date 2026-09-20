@@ -27,6 +27,7 @@ from db.session import AsyncSessionLocal
 from services import profile_capacity, voucher_reaper
 from services.chain import allowance_escrow as escrow
 from services.chain import escrow_settlement, wallet_lock
+from services.settlement_amounts import normalize_amount
 
 logger = structlog.get_logger(__name__)
 
@@ -217,8 +218,8 @@ async def _release_quota(db: AsyncSession, row: EscrowBindingModel, *, refunded:
         await profile_capacity.release_profile_credits(
             db,
             profile_id=row.buyer_profile_id,
-            settled_amount=0.0 if refunded else float(row.amount_usdc),
-            refunded_amount=float(row.amount_usdc) if refunded else 0.0,
+            settled_amount=0.0 if refunded else normalize_amount(float(row.amount_usdc)),
+            refunded_amount=normalize_amount(float(row.amount_usdc)) if refunded else 0.0,
         )
     except Exception as exc:  # noqa: BLE001 - bookkeeping, not money
         logger.warning(
