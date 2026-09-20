@@ -58,7 +58,7 @@
    */
   function authed() {
     try {
-      return !!(global.KARMA_ACCESS_TOKEN || global.KARMA_IDENTITY_ID);
+      return !!(window.KARMA_ACCESS_TOKEN || window.KARMA_IDENTITY_ID);
     } catch (_) {
       return false;
     }

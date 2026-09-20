@@ -598,3 +598,6 @@ def test_every_language_pack_carries_the_review_queue_copy():
     assert "if (!authed()) {" in js, "没会话就返回，别打裸 401"
     assert 'say(st, T("请先用右上角「连接钱包」完成认证，再来打开复核队列。"), null);' in js
     assert "status === 401" in js and "status === 403" in js, "状态行不要再摊服务端英文原文"
+    # 这个文件是 (function () { ... })()，没有 global 形参：写成 global.KARMA_ACCESS_TOKEN
+    # 会抛 ReferenceError，被 try/catch 吞掉之后永远判定「没连钱包」，连上也不再恢复。
+    assert "global.KARMA_ACCESS_TOKEN" not in js, "cyber-reviews.js 里没有 global 形参，要用 window.*"
