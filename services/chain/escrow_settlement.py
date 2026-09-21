@@ -19,6 +19,15 @@ SETTLED，链上一分钱没动。于是「已锁仓额度」只是台账里的�
                       立刻可执行，不用再等争议窗口。它只**缩短等待**：金额、质押、
                       去向都在 bind 时定死，没有这笔标记窗口到点后照样划款。
 
+方向闸（v5）          ``submitBreach`` 开罚没窗、``submitSettlement`` 开放款窗，
+                      ``slashArmed`` 把方向写死在开窗那一刻。v4 之前两条路共用
+                      ``FINALIZING``，而 ``finalizeSettlement`` 是无许可的 —— 裁定好的
+                      罚没会被任何人抢先在窗口到点时按「放款」推走（真钱实测 f14n2）。
+争议冻结（v5）        ``markDisputed``：交付被拒收 / 争议开打 -> 链上钉成 DISPUTED。
+                      当事方从此不能再 ``cancelBinding``（被裁定违约的一方不能趁仲裁
+                      把质押预留放掉，真钱实测 f14n4），出口只剩放款窗 / 罚没窗，
+                      或者裁决方亲自把「这一单没有钱要动」落下来。
+
 门槛：买方和卖方都必须**先在链上锁过仓**。没有真账单就不 bind —— 接单直接 409，
 并把缺多少说清楚。额度从此不是可以凭空记的数字。
 
@@ -64,6 +73,8 @@ _DONE_STATES = (SETTLED, CANCELLED, SLASHED)
 _CHAIN_ACTIVE = 1
 _CHAIN_FINALIZING = 2
 _CHAIN_FINAL = {3: SETTLED, 4: SLASHED, 5: CANCELLED}
+#: v5 的「争议冻结」：钱还在账单上占着，但当事方已经不能自己撤（只有 resolver 能）。
+_CHAIN_DISPUTED = 6
 
 #: **资金责任状态**：链上窗口已经打开，钱已经有了受款人（在等放款或罚没）。
 #: 台账停在其中任何一态时都不允许「取消锁仓」—— 这是状态机闸，不是时间闸：
@@ -743,24 +754,33 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
         return {"status": "unbound"}
     if row.state in _DONE_STATES or row.state == BREACHING:
         return {"status": row.state, "binding_id": row.binding_id}
+    if row.state not in (ACTIVE, FINALIZING):
+        return {"status": row.state, "binding_id": row.binding_id}
     # 罚没也是「动钱」：账上必须已经把这一单裁定成 REFUNDED，才允许打开结算窗口。
     await assert_release_verified(db, task_id=task_id, mode=SLASH)
-    if row.state == FINALIZING:
-        # 窗口本来就开着（例如先被冻结过）：直接改判罚没，不重复 submit。
-        row.state = BREACHING
+
+    # 链上是事实。三种情况分开走，一条都不许「按台账想当然」：
+    #   1) 已经终局 -> 对齐台账，罚没早就没得做了；
+    #   2) 窗口开着、方向已经是罚没 -> 只对齐台账，不重复 submit；
+    #   3) 其余（ACTIVE / 争议冻结 / 方向不对的放款窗）-> 开（或改判成）罚没窗。
+    snapshot = await chain_snapshot(row)
+    chain_state = int(snapshot["state"]) if snapshot is not None else None
+    if chain_state is not None and chain_state in _CHAIN_FINAL:
+        row.state = _CHAIN_FINAL[chain_state]
         row.updated_at = datetime.utcnow()
         await db.flush()
         await _reflect(
-            db, task_id=task_id, binding=row, onchain_status=BREACHING, tx_hash=row.submit_tx_hash
+            db, task_id=task_id, binding=row, onchain_status=row.state,
+            tx_hash=row.finalize_tx_hash or row.submit_tx_hash,
         )
-        logger.info("escrow_settlement_breach_rearmed", task_id=task_id, binding_id=row.binding_id)
-        return {"status": BREACHING, "binding_id": row.binding_id, "pull_after": row.pull_after}
-    if row.state != ACTIVE:
-        return {"status": row.state, "binding_id": row.binding_id}
-
-    if await adopt_chain_finalizing(db, row=row, task_id=task_id):
-        # 链上窗口早就开着（交易上链了、台账没记上）：改判罚没即可，不重复 submit。
+        logger.info(
+            "escrow_settlement_breach_reconciled", task_id=task_id,
+            binding_id=row.binding_id, chain_state=chain_state,
+        )
+        return {"status": row.state, "binding_id": row.binding_id, "reconciled": True}
+    if chain_state == _CHAIN_FINALIZING and bool(snapshot.get("slash_armed")):
         row.state = BREACHING
+        row.pull_after = int(snapshot.get("settle_after") or 0) or row.pull_after
         row.updated_at = datetime.utcnow()
         await db.flush()
         await _reflect(
@@ -770,8 +790,11 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
         return {"status": BREACHING, "binding_id": row.binding_id, "pull_after": row.pull_after}
 
     try:
+        # 罚没必须走 submitBreach（v5）：方向在**开窗那一刻**写死，窗口到点后能推它的
+        # 只剩 finalizeBreach。旧合约没有这个入口，submit_breach 自己会退回
+        # submitSettlement —— 那是给历史绑定收尾用的，新单一律开在 v5 上。
         submitted = await asyncio.to_thread(
-            escrow.submit_settlement,
+            escrow.submit_breach,
             binding_id=chain_binding_id(row),
             proof=_breach_proof(task_id),
             contract_address=escrow.binding_contract(row),
@@ -803,6 +826,63 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
         "submit_tx_hash": row.submit_tx_hash,
         "pull_after": row.pull_after,
     }
+
+
+async def mark_dispute_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
+    """争议开打：在链上把这一单钉成 ``DISPUTED``（v5），当事方从此不能再自己撤绑定。
+
+    争议本身不动钱 —— 两个 reservation 原地不动，链上只多一个「谁都不许自己走掉」的
+    状态。可这一步不能省：真钱实测 f14n4 里，卖方在仲裁期间自己发一笔 ``cancelBinding``
+    把质押预留放掉，等裁定下来罚没只剩 ``WrongBindingState`` —— 一键作废裁定。
+
+    旧合约没有这个入口：返回 ``unsupported``（不报错）—— 那台合约上的历史绑定只能认了。
+    链上窗口已经开着 / 已经终局时也不动作：那笔钱早就有受款人，冻结已经没意义。
+    """
+    if not enabled():
+        return {"status": "disabled"}
+    row = await _find_binding(db, task_id=task_id)
+    if row is None:
+        return {"status": "unbound"}
+    if row.state in _DONE_STATES or row.state == BREACHING:
+        return {"status": row.state, "binding_id": row.binding_id}
+    snapshot = await chain_snapshot(row)
+    chain_state = int(snapshot["state"]) if snapshot is not None else None
+    if chain_state == _CHAIN_DISPUTED:
+        return {"status": "disputed", "binding_id": row.binding_id, "already": True}
+    if chain_state is not None and chain_state != _CHAIN_ACTIVE:
+        # 窗口已经开着（或已终局）：钱有了受款人，那两态本来就不许撤，冻结是多余的。
+        return {"status": row.state, "binding_id": row.binding_id, "chain_state": chain_state}
+    try:
+        out = await asyncio.to_thread(
+            escrow.mark_disputed,
+            binding_id=chain_binding_id(row),
+            contract_address=escrow.binding_contract(row),
+        )
+    except Exception as exc:
+        after = await chain_snapshot(row)
+        after_state = int(after["state"]) if after is not None else None
+        if after_state is not None and after_state != _CHAIN_ACTIVE:
+            # 抢先了一步（窗口开着 / 已终局）：冻结轮不到我们，但争议本身不该因此失败。
+            logger.warning(
+                "escrow_settlement_mark_disputed_skipped", task_id=task_id,
+                chain_state=after_state, error=str(exc),
+            )
+            return {"status": row.state, "binding_id": row.binding_id, "chain_state": after_state}
+        logger.warning("escrow_settlement_mark_disputed_failed", task_id=task_id, error=str(exc))
+        raise EscrowSettlementError(
+            409, f"链上冻结这一单失败（不冻结，钱就可能被一方自己撤走）：{exc}"
+        ) from exc
+    if out.get("status") == "unsupported":
+        logger.warning(
+            "escrow_settlement_mark_disputed_unsupported",
+            task_id=task_id, binding_id=row.binding_id,
+        )
+    else:
+        logger.info(
+            "escrow_settlement_mark_disputed", task_id=task_id,
+            binding_id=row.binding_id, tx=out.get("mark_tx_hash"),
+        )
+    return {**out, "binding_id": row.binding_id}
 
 
 async def buyer_confirm_for_task(
@@ -916,11 +996,13 @@ async def cancel_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
             "escrow_settlement_cancel_reconciled", task_id=task_id, binding_id=row.binding_id, state=mapped
         )
         return {"status": mapped, "binding_id": row.binding_id, "reconciled": True}
-    if snapshot is not None and int(snapshot["state"]) != _CHAIN_ACTIVE:
+    if snapshot is not None and int(snapshot["state"]) not in (_CHAIN_ACTIVE, _CHAIN_DISPUTED):
         # 认不出来的状态：不许动钱，也不许把台账改错。
         raise EscrowSettlementError(
             409, f"链上这条绑定的状态读出来是 {int(snapshot['state'])}，不是任何已知状态，取消动作已中止"
         )
+    # 链上 DISPUTED（v5 争议冻结）也走这条路：合约里能解开冻结的只有 resolver，业务上
+    # 「这一单没有钱要动」的结论由平台落下来。台账状态不用改 —— 钱的位置一点没变。
 
     try:
         await asyncio.to_thread(

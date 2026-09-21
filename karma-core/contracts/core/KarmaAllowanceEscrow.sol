@@ -26,6 +26,22 @@ pragma solidity ^0.8.24;
 ///     either party can revoke is not protection for the other party, it is an
 ///     option to walk away after delivery.
 ///
+/// v5 (2026-09-21): 真钱实测暴露的两道缝，都在「链上状态机说不清一件事」上。
+///
+///   * **方向闸** —— ``FINALIZING`` 在 v4 只说明「这一单的钱要动」，说不清*往哪动*。
+///     ``finalizeSettlement``（货款划给卖方）是**无许可**的：保护期就是它的门；
+///     ``finalizeBreach``（质押划给买方）只认 resolver。于是一条「卖方违约、要罚没」
+///     的绑定，窗口一到点，任何地址都能抢先把**货款**划给卖方 —— 罚没从此再也执行
+///     不了，裁定好的方向被先到的人改写。「哪一方拿钱」必须在开窗那一刻就写死，
+///     而不是留到最后一步比手速：``submitBreach`` 开的是罚没窗（``slashArmed=true``），
+///     ``submitSettlement`` 开的是放款窗（``slashArmed=false``），两个 finalize 各自
+///     只认自己那一种窗。
+///   * **争议冻结** —— 交付被拒收、争议已经开打之后，链上那条绑定仍然是 ``ACTIVE``
+///     （争议本身不动钱）。于是被判违约的一方可以在仲裁期间自己 ``cancelBinding``，
+///     把质押的预留放掉；等裁定下来要罚没时，合约只会回 ``WrongBindingState``。
+///     ``markDisputed``（同样 resolver-only）把这一段钉成 ``DISPUTED``：不许取消，
+///     出口与 ``FINALIZING`` 完全一样的两条 —— 都必须同时把钱动掉。
+///
 /// v1 (`KarmaBilateral`) moved the payer's USDC *into* the contract, so every
 /// later step needed the bill owner's signature again. v2 never takes custody:
 ///
@@ -73,7 +89,9 @@ contract KarmaAllowanceEscrow {
     error AlreadyConfirmed(uint256 bindingId);
 
     enum BillState { NONE, OPEN, CLOSED }
-    enum BindingState { NONE, ACTIVE, FINALIZING, SETTLED, SLASHED, CANCELLED }
+    //: v5 在原六态尾部追加 ``DISPUTED``：交付被争议、钱在等仲裁结论的那一段。
+    //: 追加在尾部是为了让前六个数值一个都不变 —— v3/v4 的历史绑定照样读得出来。
+    enum BindingState { NONE, ACTIVE, FINALIZING, SETTLED, SLASHED, CANCELLED, DISPUTED }
 
     struct Bill {
         uint256 billId;
@@ -102,6 +120,10 @@ contract KarmaAllowanceEscrow {
         //: 买方的「确认放款」标记。只在 FINALIZING 可置位；置位后 finalize 不等窗口。
         bool buyerConfirmed;
         uint256 confirmedAt;
+        //: v5 的方向闸。resolver 提交时就定死这一单要往哪走：false = 放款给卖方
+        //: （finalizeSettlement），true = 罚没质押给买方（finalizeBreach）。
+        //: 两条路都停在 FINALIZING，只有这个标记能把它们分开。
+        bool slashArmed;
     }
 
     address public immutable admin;
@@ -126,6 +148,8 @@ contract KarmaAllowanceEscrow {
     event StakeSlashed(uint256 indexed bindingId, address from, address to, address token, uint256 amount);
     event BindingCancelled(uint256 indexed bindingId);
     event BuyerConfirmed(uint256 indexed bindingId, address indexed by, uint256 confirmedAt);
+    event BindingDisputed(uint256 indexed bindingId, uint256 at);
+    event BreachSubmitted(uint256 indexed bindingId, bytes32 proofHash, uint256 pullAfter);
     event DisputeWindowUpdated(uint256 seconds_);
     event SettleDelayUpdated(uint256 seconds_);
     event DisputeResolverUpdated(address indexed resolver);
@@ -273,7 +297,8 @@ contract KarmaAllowanceEscrow {
             proofHash: bytes32(0),
             closedAt: 0,
             buyerConfirmed: false,
-            confirmedAt: 0
+            confirmedAt: 0,
+            slashArmed: false
         });
         emit BillsBound(bindingId, buyerBillId, sellerBillId, scopeHash, amount, stakeAmount);
     }
@@ -299,9 +324,21 @@ contract KarmaAllowanceEscrow {
     ///         This is a *state* gate, never a clock gate: a binding whose
     ///         window has long elapsed but whose pull has not been cranked yet
     ///         is still FINALIZING and still not cancellable.
+    ///
+    ///         v5 起 ``DISPUTED`` 分段处理（``markDisputed`` 之后）：当事方**不能**
+    ///         再撤（那一段的钱在等仲裁结论，被裁定违约的一方不该能自己走掉），但
+    ///         ``disputeResolver`` 可以 —— 冻结总得有个出口，否则一方失联、进程出
+    ///         问题，这笔预留就只能永远占着账单。裁决方把「这一单没有钱要动」落下
+    ///         来，也是它份内的结论。
     function cancelBinding(uint256 bindingId) external {
         Binding storage b = _requireBinding(bindingId);
-        if (b.state != BindingState.ACTIVE) revert WrongBindingState(bindingId);
+        // v5：ACTIVE 谁都能撤（绑错了 / 没人推进的孤儿绑定）；DISPUTED 只有 resolver
+        // 能撤 —— 冻结里唯一该下结论的人是裁决方，被裁定违约的一方不能自己走掉。
+        if (b.state == BindingState.DISPUTED) {
+            if (msg.sender != disputeResolver) revert WrongBindingState(bindingId);
+        } else if (b.state != BindingState.ACTIVE) {
+            revert WrongBindingState(bindingId);
+        }
         Bill storage buyerBill = bills[b.buyerBillId];
         Bill storage sellerBill = bills[b.sellerBillId];
         if (
@@ -313,6 +350,29 @@ contract KarmaAllowanceEscrow {
         b.state = BindingState.CANCELLED;
         b.closedAt = block.timestamp;
         emit BindingCancelled(bindingId);
+    }
+
+    /// @notice 把一条绑定钉在「争议中」—— resolver-only，不动钱。
+    ///
+    ///         交付被拒收、争议开打之后，这笔钱的责任状态已经**不再是**「没人认领」：
+    ///         它在等仲裁的结论。可链上的 ``ACTIVE`` 分不出「刚绑上、谁都没推进」和
+    ///         「已经交付、正在仲裁」—— 于是被判违约的一方（卖方）可以在仲裁期间直接
+    ///         ``cancelBinding``，把质押的预留放掉；等裁定下来要罚没时，合约只剩一句
+    ///         ``WrongBindingState``。真钱实测里这一手确实走通了（f14n3 / f14n4）。
+    ///
+    ///         记这一笔就是为了堵住它：``DISPUTED`` 与 ``FINALIZING`` 一样不可取消，
+    ///         出口是同样两条要动钱的路 —— ``finalizeSettlement``（放款给卖方）或
+    ///         ``finalizeBreach``（质押罚给买方）。它不改金额、不设受款人、不入账，
+    ///         只把「这一单谁都不许自己走掉」写在链上。
+    ///
+    ///         争议本身就是「等结论」：平台必须把结论落下来（两个方向之一），
+    ///         这一点与业务状态机一致 —— ``DISPUTED`` 在那边也只有仲裁一个出口。
+    function markDisputed(uint256 bindingId) external {
+        Binding storage b = _requireBinding(bindingId);
+        if (b.state != BindingState.ACTIVE) revert WrongBindingState(bindingId);
+        if (msg.sender != disputeResolver) revert NotResolver();
+        b.state = BindingState.DISPUTED;
+        emit BindingDisputed(bindingId, block.timestamp);
     }
 
     /// @notice The buyer's own "this delivery is confirmed, pay the seller" mark.
@@ -332,9 +392,13 @@ contract KarmaAllowanceEscrow {
     ///
     ///         If the buyer says nothing, nothing changes: the window still
     ///         expires on its own and the pull goes through.
+    ///
+    ///         v5：只对**放款窗**有效。``submitBreach`` 开的是罚没窗，那不是一笔
+    ///         要给卖方的付款，买方在那里没有任何可以确认的东西。
     function buyerConfirm(uint256 bindingId) external {
         Binding storage b = _requireBinding(bindingId);
         if (b.state != BindingState.FINALIZING) revert WrongBindingState(bindingId);
+        if (b.slashArmed) revert WrongBindingState(bindingId);
         Bill storage buyerBill = bills[b.buyerBillId];
         if (!_canAct(buyerBill, msg.sender)) revert NotSettlementParty();
         if (b.buyerConfirmed) revert AlreadyConfirmed(bindingId);
@@ -369,16 +433,56 @@ contract KarmaAllowanceEscrow {
     ///           * inside the window the reservations are **frozen**: this call
     ///             is the line after which only ``finalizeSettlement`` /
     ///             ``finalizeBreach`` may close the binding (v4).
+    ///           * v5：这一次调用还把**方向**定死（放款给卖方，``slashArmed=false``）。
+    ///             窗口到点后能推它的只剩 ``finalizeSettlement``；``finalizeBreach``
+    ///             只认 ``submitBreach`` 开的窗。resolver 仍可在窗口里改判（再发一次、
+    ///             换成罚没窗），但「改判」只有 resolver 能做 —— v4 那种「谁先推谁
+    ///             决定钱往哪走」的缝没有了。
     function submitSettlement(uint256 bindingId, bytes32 proofHash) external {
         Binding storage b = _requireBinding(bindingId);
-        if (b.state != BindingState.ACTIVE) revert WrongBindingState(bindingId);
+        if (
+            b.state != BindingState.ACTIVE
+                && b.state != BindingState.DISPUTED
+                && b.state != BindingState.FINALIZING
+        ) revert WrongBindingState(bindingId);
         if (msg.sender != disputeResolver) revert NotResolver();
         if (block.timestamp < b.settleAfter) revert SettleDelayActive(b.settleAfter);
 
         b.state = BindingState.FINALIZING;
+        b.slashArmed = false;
         b.proofHash = proofHash;
         b.settleAfter = block.timestamp + disputeWindowSeconds;
         emit SettleSubmitted(bindingId, proofHash, b.settleAfter);
+    }
+
+    /// @notice 开**罚没窗**：resolver-only；窗口到点后只有 ``finalizeBreach`` 能收尾
+    ///         —— 质押从卖方钱包划给买方，货款一步不动。
+    ///
+    ///         v5 的方向闸就在这里。v4 之前 ``FINALIZING`` 只有一个含义是「有人的钱
+    ///         要动」，但**动哪个方向**要到最后一步才知道：``finalizeSettlement``
+    ///         无许可、``finalizeBreach`` 只认 resolver。真钱实测（f14n2）里，一条
+    ///         已经裁定「卖方违约」的绑定，窗口一到点就被一个跟这单毫无关系的钱包把
+    ///         整笔**货款**划给了卖方 —— 罚没从此再也执行不了，裁定被手速改写。
+    ///
+    ///         现在方向在开窗时写死：这一笔置 ``slashArmed=true``，之后
+    ///         ``finalizeSettlement`` 只会回 ``WrongBindingState``。ACTIVE 与
+    ///         DISPUTED 都能开（争议中的钱一样可以判罚没）；窗口里允许重发以改判，
+    ///         与 ``submitSettlement`` 对称。
+    function submitBreach(uint256 bindingId, bytes32 proofHash) external {
+        Binding storage b = _requireBinding(bindingId);
+        if (
+            b.state != BindingState.ACTIVE
+                && b.state != BindingState.DISPUTED
+                && b.state != BindingState.FINALIZING
+        ) revert WrongBindingState(bindingId);
+        if (msg.sender != disputeResolver) revert NotResolver();
+        if (block.timestamp < b.settleAfter) revert SettleDelayActive(b.settleAfter);
+
+        b.state = BindingState.FINALIZING;
+        b.slashArmed = true;
+        b.proofHash = proofHash;
+        b.settleAfter = block.timestamp + disputeWindowSeconds;
+        emit BreachSubmitted(bindingId, proofHash, b.settleAfter);
     }
 
     /// @notice Execute the pull: buyer wallet -> seller wallet.
@@ -392,6 +496,9 @@ contract KarmaAllowanceEscrow {
     function finalizeSettlement(uint256 bindingId) external returns (uint256 paid) {
         Binding storage b = _requireBinding(bindingId);
         if (b.state != BindingState.FINALIZING) revert WrongBindingState(bindingId);
+        // v5：这一窗是不是「放款」窗。罚没窗（submitBreach 开的）在这里一律拒绝 ——
+        // 无许可的那一半只能推已经声明过「钱归卖方」的窗。
+        if (b.slashArmed) revert WrongBindingState(bindingId);
         if (block.timestamp < b.settleAfter && !b.buyerConfirmed) revert SettleDelayActive(b.settleAfter);
 
         Bill storage buyerBill = bills[b.buyerBillId];
@@ -415,6 +522,9 @@ contract KarmaAllowanceEscrow {
     function finalizeBreach(uint256 bindingId) external returns (uint256 slashed) {
         Binding storage b = _requireBinding(bindingId);
         if (b.state != BindingState.FINALIZING) revert WrongBindingState(bindingId);
+        // v5：只认 submitBreach 开的窗。没有这一道，resolver 就能在任何一个放款窗上
+        // 把方向掰成罚没 —— 那同样是「窗口的方向没被写死」。
+        if (!b.slashArmed) revert WrongBindingState(bindingId);
         if (msg.sender != disputeResolver) revert NotResolver();
         if (block.timestamp < b.settleAfter) revert SettleDelayActive(b.settleAfter);
 
@@ -446,6 +556,13 @@ contract KarmaAllowanceEscrow {
 
     function ownerBills(address owner) external view returns (uint256[] memory) {
         return _ownerBills[owner];
+    }
+
+    /// @notice 合约版本。平台据此判断某台合约认不认 v5 的两个入口
+    ///         （``submitBreach`` / ``markDisputed``）：旧合约没有这个函数，
+    ///         ``eth_call`` 会 revert —— 那就是「不认识 v5」的意思。
+    function bindingVersion() external pure returns (uint256) {
+        return 5;
     }
 
     /// @notice Pledge still usable for new bindings.

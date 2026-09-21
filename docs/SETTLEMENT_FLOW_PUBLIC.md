@@ -33,19 +33,39 @@ allowance, so the master ``capacity`` ledger is credited from the claimed ``comm
 (``services/chain/allowance_escrow.reconcile_capacity_mirror``) — one credit per live
 commitment, taken back on ``revoke()`` and reduced as Karma pulls the money.
 
-## Allowance escrow (`KarmaAllowanceEscrow`, v3/v4)
+## Allowance escrow (`KarmaAllowanceEscrow`, v3/v4/v5)
 
 Still non-custodial: the buyer's wallet only grants an allowance, so no USDC sits in the
-contract. What v3/v4 tighten is *who may move the money* and *when the lock may be undone*.
+contract. What v3/v4/v5 tighten is *who may move the money* and *when the lock may be undone*.
 
 ```text
 bind(...)                        -> ACTIVE      (allowance reserved on both bills)
-submitSettlement(bindingId, hash)-> FINALIZING  (resolver-only; opens the challenge window)
+submitSettlement(bindingId, hash)-> FINALIZING  (resolver-only; opens a *payout* window)
+submitBreach(bindingId, hash)    -> FINALIZING  (resolver-only; opens a *slash* window)    [v5]
+markDisputed(bindingId)          -> DISPUTED    (resolver-only; freezes it, no money moves) [v5]
 buyerConfirm(bindingId)          -> FINALIZING  (buyer's own yes; skips the wait)
 finalizeSettlement(bindingId)    -> SETTLED     (pull buyer wallet -> seller wallet)
 finalizeBreach(bindingId)        -> SLASHED     (seller stake -> buyer)
-cancelBinding(bindingId)         -> CANCELLED   (allowed from ACTIVE, and only ACTIVE)
+cancelBinding(bindingId)         -> CANCELLED   (from ACTIVE by a party, DISPUTED by resolver only)
 ```
+
+- **A window carries its direction.** `FINALIZING` used to mean only "somebody's money is about
+  to move", with the direction left to whichever exit ran first. `finalizeSettlement` is
+  permissionless by design — its destination is fixed — so on a binding the resolver had already
+  ruled a breach, *any* passer-by could crank the payout window and hand the seller the goods
+  money; `finalizeBreach` could then never run again. v5 fixes the direction when the window is
+  opened: `submitBreach` arms a slash window (`finalizeSettlement` reverts on it), and
+  `submitSettlement` arms a payout window (`finalizeBreach` reverts on it, resolver included).
+  Re-ruling stays the resolver's call — it just has to open a new window to do it.
+- **`markDisputed` freezes the parties, not the money.** `ACTIVE` cannot tell "just bound, nobody
+  moved" from "delivered, under arbitration", so a seller ruled in breach could simply
+  `cancelBinding` mid-arbitration, release its own stake reservation, and leave the ruling with
+  nothing to enforce. `DISPUTED` closes that: no party may cancel, and the exits are again the two
+  that move money. The resolver keeps one extra exit — its own cancellation *is* the ruling that
+  nothing has to move — because a freeze needs a way out when a party goes silent.
+- **`bindingVersion()`** is how the platform probes a contract for the two v5 entry points.
+  Historical bindings still point at older contracts, so the probe is per address and never
+  "whatever is configured now".
 
 - **`cancelBinding` is a state gate, never a clock gate.** `ACTIVE` is the one state in
   which the binding's money has no owner-in-waiting, so releasing the reservations there

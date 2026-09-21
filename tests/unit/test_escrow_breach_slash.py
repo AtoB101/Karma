@@ -92,7 +92,13 @@ def _reset_books():
 def chain(monkeypatch):
     from services.chain import escrow_settlement as bridge
 
-    calls: dict[str, list] = {"bind": [], "submit": [], "cancel": [], "breach": []}
+    calls: dict[str, list] = {
+        "bind": [],
+        "submit": [],
+        "cancel": [],
+        "breach": [],
+        "dispute": [],
+    }
 
     async def _list_commits(db, identity_id):
         return list(_commits.get(identity_id, []))
@@ -125,6 +131,20 @@ def chain(monkeypatch):
         calls["cancel"].append(binding_id)
         return {"binding_id": binding_id, "cancel_tx_hash": "0xcancel%d" % len(calls["cancel"])}
 
+    def _submit_breach(*, binding_id, proof, **_kw):
+        calls["breach"].append((binding_id, proof))
+        return {
+            "binding_id": binding_id,
+            "submit_tx_hash": "0xbreach%d" % len(calls["breach"]),
+            "proof_hash": "0x" + "cc" * 32,
+            "pull_after": int(time.time()) + 60,
+            "slash_armed": True,
+        }
+
+    def _mark_disputed(*, binding_id, **_kw):
+        calls["dispute"].append(binding_id)
+        return {"status": "disputed", "mark_tx_hash": "0xdispute%d" % len(calls["dispute"])}
+
     monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
     # 账单要落在「当前合约」上才会被挑中（旧合约的账单属于已退役的合约）。
     monkeypatch.setattr(settings, "allowance_escrow_address", "0x" + "11" * 20)
@@ -132,6 +152,9 @@ def chain(monkeypatch):
     monkeypatch.setattr(escrow, "backing_report", _backing_report)
     monkeypatch.setattr(escrow, "open_order", _open_order)
     monkeypatch.setattr(escrow, "submit_settlement", _submit_settlement)
+    # v5：罚没不再复用 submitSettlement —— 方向在开窗那一刻写死（方向闸）。
+    monkeypatch.setattr(escrow, "submit_breach", _submit_breach)
+    monkeypatch.setattr(escrow, "mark_disputed", _mark_disputed)
     monkeypatch.setattr(escrow, "cancel_binding", _cancel_binding)
     monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: None)
     monkeypatch.setattr(escrow, "binding_snapshot", lambda *, binding_id, **kw: None)
@@ -184,16 +207,51 @@ async def test_slash_opens_the_window_and_never_leaves_it_finalizing(db_session,
     out = await bridge.slash_for_task(db_session, task_id=TASK)
 
     assert out["status"] == "breaching"
-    assert len(calls["submit"]) == 1
+    # v5：罚没走 submitBreach（方向闸），开出来的是「只能罚没」的窗口。
+    assert len(calls["breach"]) == 1
+    assert calls["submit"] == []
     assert calls["cancel"] == []
     fresh = await db_session.get(EscrowBindingModel, row.binding_id)
     assert fresh.state == "breaching"
     assert fresh.pull_after and fresh.pull_after > 0
-    assert fresh.submit_tx_hash == "0xsubmit1"
+    assert fresh.submit_tx_hash == "0xbreach1"
 
 
 @pytest.mark.asyncio
-async def test_slash_reuses_an_open_window_without_submitting_again(db_session, chain):
+async def test_slash_reuses_a_window_already_armed_for_slashing(db_session, chain, monkeypatch):
+    """链上已经是「罚没方向」的窗口：只把台账拉过来，不重复发交易。"""
+    bridge, calls = chain
+    row = await _open(db_session, bridge)
+    row.state = "finalizing"
+    row.pull_after = 1_700_000_000
+    await db_session.commit()
+    monkeypatch.setattr(
+        escrow,
+        "binding_snapshot",
+        lambda *, binding_id, **kw: {
+            "state": 2,
+            "slash_armed": True,
+            "settle_after": 1_700_000_000,
+        },
+    )
+
+    out = await bridge.slash_for_task(db_session, task_id=TASK)
+
+    assert out["status"] == "breaching"
+    assert calls["breach"] == []
+    assert calls["submit"] == []
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.state == "breaching"
+    assert fresh.pull_after == 1_700_000_000
+
+
+@pytest.mark.asyncio
+async def test_slash_redirects_a_payout_window_into_a_slash_window(db_session, chain):
+    """台账停在 finalizing（放款窗）时必须**改判**成罚没窗，光对齐台账不够。
+
+    放款窗到点后能被任何人推成「货款付给卖方」（真钱实测 f14n2 抢跑）：改判只能靠
+    v5 的 submitBreach —— 方向在开窗那一刻写死，之后能推它的只剩 finalizeBreach。
+    """
     bridge, calls = chain
     row = await _open(db_session, bridge)
     row.state = "finalizing"
@@ -203,10 +261,11 @@ async def test_slash_reuses_an_open_window_without_submitting_again(db_session, 
     out = await bridge.slash_for_task(db_session, task_id=TASK)
 
     assert out["status"] == "breaching"
+    assert len(calls["breach"]) == 1
     assert calls["submit"] == []
     fresh = await db_session.get(EscrowBindingModel, row.binding_id)
     assert fresh.state == "breaching"
-    assert fresh.pull_after == 1_700_000_000
+    assert fresh.submit_tx_hash == "0xbreach1"
 
 
 @pytest.mark.asyncio
@@ -217,13 +276,13 @@ async def test_slash_is_idempotent_and_never_touches_a_done_binding(db_session, 
 
     second = await bridge.slash_for_task(db_session, task_id=TASK)
     assert second["status"] == "breaching"
-    assert len(calls["submit"]) == 1  # 第二次没有重复开窗
+    assert len(calls["breach"]) == 1  # 第二次没有重复开窗
 
     row.state = "slashed"
     await db_session.commit()
     third = await bridge.slash_for_task(db_session, task_id=TASK)
     assert third["status"] == "slashed"
-    assert len(calls["submit"]) == 1
+    assert len(calls["breach"]) == 1
 
 
 # ------------------------------------------------- 罚没中不许被当成「该付卖方」
@@ -303,21 +362,28 @@ async def test_refunded_routes_to_slashing_and_cancelled_routes_to_release(db_se
         seen.append(("submit", task_id, buyer_confirmed))
         return {}
 
+    async def _dispute(db, *, task_id):
+        seen.append(("dispute", task_id))
+        return {}
+
     monkeypatch.setattr(bridge, "slash_for_task", _slash)
     monkeypatch.setattr(bridge, "cancel_for_task", _cancel)
     monkeypatch.setattr(bridge, "bind_for_task", _bind)
     monkeypatch.setattr(bridge, "submit_for_task", _submit)
+    monkeypatch.setattr(bridge, "mark_dispute_for_task", _dispute)
 
     state = SimpleNamespace(task_id="task-x", client_agent_id=BUYER, worker_agent_id=SELLER,
                             escrow_amount=10.0, released_amount=0.0)
 
     await routes._sync_escrow_settlement(db=db_session, state=state, target_status=TaskStatus.REFUNDED)
+    await routes._sync_escrow_settlement(db=db_session, state=state, target_status=TaskStatus.DISPUTED)
     await routes._sync_escrow_settlement(db=db_session, state=state, target_status=TaskStatus.CANCELLED)
     await routes._sync_escrow_settlement(db=db_session, state=state, target_status=TaskStatus.ACCEPTED)
     await routes._sync_escrow_settlement(db=db_session, state=state, target_status=TaskStatus.SETTLED)
 
     assert seen == [
         ("slash", "task-x"),
+        ("dispute", "task-x"),
         ("cancel", "task-x"),
         ("bind", "task-x"),
         ("submit", "task-x", False),
@@ -461,3 +527,58 @@ async def test_chain_already_slashed_is_reconciled_without_another_tx(
     assert out[0]["binding_id"] == "10"
     row = await db_session.get(EscrowBindingModel, "10")
     assert row.state == "slashed"
+
+
+# ----------------------------------------------- v5：争议冻结（谁都不许自己走掉）
+
+@pytest.mark.asyncio
+async def test_mark_dispute_pins_the_binding_on_chain(db_session, chain, monkeypatch):
+    """开争议要在链上把绑定钉成 DISPUTED —— 否则当事方能自己撤走质押（真钱实测 f14n4）。"""
+    bridge, calls = chain
+    row = await _open(db_session, bridge)
+    monkeypatch.setattr(
+        escrow,
+        "binding_snapshot",
+        lambda *, binding_id, **kw: {"state": 1, "slash_armed": False, "settle_after": 0},
+    )
+
+    out = await bridge.mark_dispute_for_task(db_session, task_id=TASK)
+
+    assert out["status"] == "disputed"
+    assert calls["dispute"] == [int(row.binding_id)]
+    # 冻结不动钱：台账还是 active，两个 reservation 一分没动
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.state == "active"
+
+
+@pytest.mark.asyncio
+async def test_mark_dispute_is_idempotent_when_chain_already_disputed(
+    db_session, chain, monkeypatch
+):
+    bridge, calls = chain
+    row = await _open(db_session, bridge)
+    monkeypatch.setattr(
+        escrow, "binding_snapshot", lambda *, binding_id, **kw: {"state": 6, "slash_armed": False}
+    )
+
+    out = await bridge.mark_dispute_for_task(db_session, task_id=TASK)
+
+    assert out["already"] is True
+    assert calls["dispute"] == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_can_unfreeze_a_disputed_binding(db_session, chain, monkeypatch):
+    """冻结要有出口：争议了结、平台裁定「这一单没有钱要动」时，取消要能走通。"""
+    bridge, calls = chain
+    row = await _open(db_session, bridge)
+    monkeypatch.setattr(
+        escrow, "binding_snapshot", lambda *, binding_id, **kw: {"state": 6, "slash_armed": False}
+    )
+
+    out = await bridge.cancel_for_task(db_session, task_id=TASK)
+
+    assert out["status"] == "cancelled"
+    assert calls["cancel"] == [int(row.binding_id)]
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.state == "cancelled"

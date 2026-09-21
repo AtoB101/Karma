@@ -311,7 +311,7 @@ contract KarmaAllowanceEscrowTest is Test {
 
         vm.warp(vm.getBlockTimestamp() + SETTLE_DELAY + 1);
         vm.prank(executor);
-        escrow.submitSettlement(bindingId, keccak256("disputed"));
+        escrow.submitBreach(bindingId, keccak256("breach"));
         vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + 1);
 
         uint256 buyerBefore = token.balanceOf(buyer);
@@ -341,7 +341,7 @@ contract KarmaAllowanceEscrowTest is Test {
 
         vm.warp(vm.getBlockTimestamp() + SETTLE_DELAY + 1);
         vm.prank(executor);
-        escrow.submitSettlement(bindingId, keccak256("disputed"));
+        escrow.submitBreach(bindingId, keccak256("breach"));
         vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + 1);
 
         uint256 buyerBefore = token.balanceOf(buyer);
@@ -349,6 +349,136 @@ contract KarmaAllowanceEscrowTest is Test {
         vm.prank(executor);
         escrow.finalizeBreach(bindingId);
         assertEq(token.balanceOf(buyer), buyerBefore, "nothing moves when the stake is gone");
+    }
+
+    /// v5 方向闸：罚没窗到点后，无许可的 ``finalizeSettlement`` 不能把**货款**划走。
+    ///
+    /// v4 里这一步是走通的（真钱实测 f14n2）：一条已经裁定「卖方违约」的绑定，窗口
+    /// 一到点就被一个跟这单毫无关系的钱包推成「货款付给卖方」，质押 0.09 罚没落空，
+    /// ``finalizeBreach`` 从此永远 ``WrongBindingState`` —— 裁定被手速改写。
+    function testSlashWindowRefusesThePermissionlessSettlement() public {
+        (uint256 buyerBill, uint256 sellerBill) = _openPair();
+        uint256 bindingId = _bind(buyerBill, sellerBill, PRICE, STAKE);
+
+        vm.warp(vm.getBlockTimestamp() + SETTLE_DELAY + 1);
+        vm.prank(executor);
+        escrow.submitBreach(bindingId, keccak256("breach"));
+        assertTrue(escrow.getBinding(bindingId).slashArmed, "window is armed for slashing");
+        vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + 1);
+
+        uint256 buyerBefore = token.balanceOf(buyer);
+        uint256 sellerBefore = token.balanceOf(seller);
+
+        vm.prank(stranger); // 合法的调用者，但方向不是他的
+        vm.expectRevert(abi.encodeWithSelector(KarmaAllowanceEscrow.WrongBindingState.selector, bindingId));
+        escrow.finalizeSettlement(bindingId);
+        assertEq(token.balanceOf(seller), sellerBefore, "no payout may leave a slash window");
+        assertEq(
+            uint8(escrow.getBinding(bindingId).state),
+            uint8(KarmaAllowanceEscrow.BindingState.FINALIZING),
+            "the window is still open"
+        );
+
+        vm.prank(executor);
+        escrow.finalizeBreach(bindingId);
+
+        assertEq(token.balanceOf(buyer), buyerBefore + STAKE, "the stake is the only thing that moves");
+        assertEq(token.balanceOf(seller), sellerBefore - STAKE);
+        assertEq(escrow.getBill(buyerBill).spent, 0, "the goods money never moved");
+        assertEq(escrow.getBill(buyerBill).reserved, 0);
+        assertEq(token.balanceOf(address(escrow)), 0);
+    }
+
+    /// 方向闸的另一半：放款窗上，连 resolver 都不能把方向掰成罚没 —— 改判要重新开窗。
+    function testPayoutWindowRefusesTheSlashEvenForTheResolver() public {
+        (uint256 buyerBill, uint256 sellerBill) = _openPair();
+        uint256 bindingId = _bind(buyerBill, sellerBill, PRICE, STAKE);
+
+        vm.warp(vm.getBlockTimestamp() + SETTLE_DELAY + 1);
+        vm.prank(executor);
+        escrow.submitSettlement(bindingId, keccak256("proof"));
+        vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + 1);
+
+        vm.prank(executor);
+        vm.expectRevert(abi.encodeWithSelector(KarmaAllowanceEscrow.WrongBindingState.selector, bindingId));
+        escrow.finalizeBreach(bindingId);
+
+        // 改判仍然是 resolver 的权利：再开一次，方向就是罚没。
+        vm.prank(executor);
+        escrow.submitBreach(bindingId, keccak256("breach"));
+        assertTrue(escrow.getBinding(bindingId).slashArmed);
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(KarmaAllowanceEscrow.WrongBindingState.selector, bindingId));
+        escrow.finalizeSettlement(bindingId);
+    }
+
+    /// v5 争议冻结：开争议之后，当事方**不能**再自己撤绑定。
+    ///
+    /// 真钱实测 f14n4 里卖方正是用这一按键，在仲裁期间把质押预留放掉，让裁定下来的
+    /// 罚没只剩一句 ``WrongBindingState`` —— 一键作废裁决。冻结要有出口：裁决方仍可撤。
+    function testMarkDisputedFreezesCancellationUntilResolver() public {
+        (uint256 buyerBill, uint256 sellerBill) = _openPair();
+        uint256 bindingId = _bind(buyerBill, sellerBill, PRICE, STAKE);
+
+        vm.prank(executor);
+        escrow.markDisputed(bindingId);
+        assertEq(
+            uint8(escrow.getBinding(bindingId).state),
+            uint8(KarmaAllowanceEscrow.BindingState.DISPUTED)
+        );
+
+        address[2] memory parties = [buyer, seller];
+        for (uint256 i = 0; i < parties.length; i++) {
+            vm.prank(parties[i]);
+            vm.expectRevert(abi.encodeWithSelector(KarmaAllowanceEscrow.WrongBindingState.selector, bindingId));
+            escrow.cancelBinding(bindingId);
+        }
+
+        // 冻结不动钱：两个预留都还占着，货款和质押都在钱包里
+        assertEq(escrow.getBill(buyerBill).reserved, PRICE);
+        assertEq(escrow.getBill(sellerBill).reserved, STAKE);
+        assertEq(token.balanceOf(buyer), 1_000e6);
+        assertEq(token.balanceOf(seller), 1_000e6);
+
+        vm.prank(executor); // 出口：裁决方落下「这一单没有钱要动」
+        escrow.cancelBinding(bindingId);
+
+        assertEq(
+            uint8(escrow.getBinding(bindingId).state),
+            uint8(KarmaAllowanceEscrow.BindingState.CANCELLED)
+        );
+        assertEq(escrow.available(buyerBill), 1_000e6);
+        assertEq(escrow.available(sellerBill), 1_000e6);
+    }
+
+    /// 争议中的钱一样可以判罚没：``submitBreach`` 从 DISPUTED 开窗，窗口到点落地。
+    function testSubmitBreachFromDisputed() public {
+        (uint256 buyerBill, uint256 sellerBill) = _openPair();
+        uint256 bindingId = _bind(buyerBill, sellerBill, PRICE, STAKE);
+
+        vm.prank(executor);
+        escrow.markDisputed(bindingId);
+        vm.warp(vm.getBlockTimestamp() + SETTLE_DELAY + 1);
+
+        vm.prank(stranger); // 开窗仍然是 resolver-only
+        vm.expectRevert(KarmaAllowanceEscrow.NotResolver.selector);
+        escrow.submitBreach(bindingId, keccak256("breach"));
+
+        uint256 buyerBefore = token.balanceOf(buyer);
+        uint256 sellerBefore = token.balanceOf(seller);
+        vm.prank(executor);
+        escrow.submitBreach(bindingId, keccak256("breach"));
+
+        vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + 1);
+        vm.prank(executor);
+        escrow.finalizeBreach(bindingId);
+
+        assertEq(token.balanceOf(buyer), buyerBefore + STAKE);
+        assertEq(token.balanceOf(seller), sellerBefore - STAKE);
+        assertEq(escrow.getBill(buyerBill).reserved, 0);
+        assertEq(escrow.getBill(sellerBill).reserved, 0);
+        assertEq(token.balanceOf(address(escrow)), 0);
     }
 
     // ────────────────────────────────────────────────────── admin surface

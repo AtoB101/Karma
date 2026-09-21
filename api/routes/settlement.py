@@ -1313,6 +1313,8 @@ async def _sync_escrow_settlement(
     结算（→ SETTLED）   ：提交结算、打开挑战期，钱由 autosettle 从买方钱包直划卖方。
     全额退款（REFUNDED）：卖方违约 → 罚没质押划给买方（submit 开窗 + autosettle 到点罚没）。
     取消（CANCELLED）   ：撤销 binding，把买方被占住的授权放回去，钱一步没动。
+    争议（→ DISPUTED）  ：链上把这一单钉成 DISPUTED —— 钱一步没动，但当事方从此不能
+                        自己 cancelBinding（被裁定违约的一方不能趁仲裁把质押预留放掉）。
 
     链上没落定，业务状态就不许往前走 —— 这一层存在的意义就是让「已结算」在链上
     有对应的钱，而不是数据库里的一个数字。托管未启用时整段是空操作。
@@ -1335,6 +1337,10 @@ async def _sync_escrow_settlement(
                 seller_identity_id=state.worker_agent_id,
                 amount_usdc=float(state.escrow_amount or 0.0),
             )
+        elif status == TaskStatus.DISPUTED:
+            # 争议不动钱，但必须在链上把「谁都别想自己走掉」立起来：否则被裁定违约的
+            # 一方可以在仲裁期间自己撤掉绑定，等罚没下来只剩 WrongBindingState。
+            await escrow_settlement.mark_dispute_for_task(db, task_id=state.task_id)
         elif status == TaskStatus.SETTLED:
             await escrow_settlement.submit_for_task(
                 db,

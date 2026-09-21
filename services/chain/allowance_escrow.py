@@ -115,6 +115,16 @@ EVENT_FIELDS: dict[str, list[tuple[str, str, bool]]] = {
         ("by", "address", True),
         ("confirmedAt", "uint256", False),
     ],
+    # v5：罚没窗的提交（方向写死的那一次）与「争议冻结」的登记。
+    "BreachSubmitted": [
+        ("bindingId", "uint256", True),
+        ("proofHash", "bytes32", False),
+        ("pullAfter", "uint256", False),
+    ],
+    "BindingDisputed": [
+        ("bindingId", "uint256", True),
+        ("at", "uint256", False),
+    ],
 }
 
 
@@ -131,6 +141,8 @@ SUBMITTED_SIG = event_signature("SettleSubmitted")
 SETTLED_SIG = event_signature("Settled")
 SLASHED_SIG = event_signature("StakeSlashed")
 BUYER_CONFIRMED_SIG = event_signature("BuyerConfirmed")
+BREACH_SUBMITTED_SIG = event_signature("BreachSubmitted")
+BINDING_DISPUTED_SIG = event_signature("BindingDisputed")
 
 _ABI_FUNCTIONS = [
     {
@@ -203,6 +215,30 @@ _ABI_FUNCTIONS = [
         "outputs": [],
     },
     {
+        "name": "submitBreach",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "proofHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "markDisputed",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
+        "name": "bindingVersion",
+        "type": "function",
+        "stateMutability": "pure",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "uint256"}],
+    },
+    {
         "name": "getBinding",
         "type": "function",
         "stateMutability": "view",
@@ -225,6 +261,7 @@ _ABI_FUNCTIONS = [
                     {"name": "closedAt", "type": "uint256"},
                     {"name": "buyerConfirmed", "type": "bool"},
                     {"name": "confirmedAt", "type": "uint256"},
+                    {"name": "slashArmed", "type": "bool"},
                 ],
             }
         ],
@@ -283,7 +320,10 @@ _ABI_FUNCTIONS = [
 
 
 BILL_STATE = {0: "none", 1: "open", 2: "closed"}
-BINDING_STATE = {0: "none", 1: "active", 2: "finalizing", 3: "settled", 4: "slashed", 5: "cancelled"}
+BINDING_STATE = {
+    0: "none", 1: "active", 2: "finalizing", 3: "settled", 4: "slashed",
+    5: "cancelled", 6: "disputed",
+}
 
 
 _ABI_EVENTS = [
@@ -741,6 +781,20 @@ def parse_settle_submitted(receipt: Any) -> dict[str, Any]:
     logs = _logs_matching(receipt, SUBMITTED_SIG)
     if not logs:
         raise WalletLockError("submitSettlement() did not emit SettleSubmitted")
+    topics = list(_field(logs[0], "topics", []) or [])
+    words = _words_of(logs[0])
+    return {
+        "binding_id": _topic_int(topics[1]),
+        "proof_hash": "0x" + (words[0] if words else ""),
+        "pull_after": _word_to_int(words[1]) if len(words) > 1 else 0,
+    }
+
+
+def parse_breach_submitted(receipt: Any) -> dict[str, Any]:
+    """v5 ``submitBreach`` 的收据：binding id / 证据哈希 / 挑战期终点。"""
+    logs = _logs_matching(receipt, BREACH_SUBMITTED_SIG)
+    if not logs:
+        raise WalletLockError("submitBreach() did not emit BreachSubmitted")
     topics = list(_field(logs[0], "topics", []) or [])
     words = _words_of(logs[0])
     return {
@@ -1590,36 +1644,41 @@ def finalize_settlement(
     return {"binding_id": int(binding_id), "finalize_tx_hash": tx, "paid_usdc": paid_usdc}
 
 
-_BINDING_FIELDS = [
-    c["name"] for c in next(f for f in _ABI_FUNCTIONS if f.get("name") == "getBinding")["outputs"][0]["components"]
-]
+_BINDING_COMPONENTS = next(
+    f for f in _ABI_FUNCTIONS if f.get("name") == "getBinding"
+)["outputs"][0]["components"]
+_BINDING_FIELDS = [c["name"] for c in _BINDING_COMPONENTS]
+_BINDING_TYPES = [c["type"] for c in _BINDING_COMPONENTS]
 
-#: v3 及更早的 ``Binding`` 元组：没有 buyerConfirmed / confirmedAt 两个尾巴。
-#: 升级到 v4 之后，历史行仍然指向旧合约 —— 拿 v4 的 ABI 去读它们，web3 会在解码
-#: 那一步直接炸，于是旧绑定的状态再也读不出来（对账、收尾全瞎）。所以旧宽度要
-#: 单独认：前 11 个字段两代完全一致。
+#: 每一代 ``Binding`` 只是尾部多一条：v3 11 个字段，v4 加 buyerConfirmed /
+#: confirmedAt 变 13，v5 再加 slashArmed 变 14。历史绑定仍然指向它自己那台旧合约，
+#: 拿新 ABI 去读它们，web3 会在解码那一步直接炸 —— 于是旧绑定的状态再也读不出来
+#: （对账、收尾全瞎）。所以退回裸 eth_call 自己解码，按返回数据的宽度挑字段表。
 _LEGACY_BINDING_FIELDS = _BINDING_FIELDS[:11]
+_V4_BINDING_FIELDS = _BINDING_FIELDS[:13]
 
 
 def _binding_dict(w3, address: str, binding_id: int) -> dict[str, Any]:
-    """读 getBinding，按合约实际返回的宽度认字段（v4 与 v3 各一套）。"""
-    raw = None
+    """读 getBinding，按合约实际返回的宽度认字段（v5 / v4 / v3 各一套）。"""
     try:
         raw = _contract(w3, address).functions.getBinding(int(binding_id)).call()
-    except Exception as exc:  # noqa: BLE001 - 旧宽度 / RPC 抖动：两种都再试一次
-        legacy_selector = w3.keccak(text="getBinding(uint256)")[:4]
-        try:
-            data = legacy_selector + int(binding_id).to_bytes(32, "big")
-            decoded = w3.codec.decode(
-                ["uint256", "uint256", "uint256", "bytes32", "uint256", "uint256",
-                 "uint8", "uint256", "uint256", "bytes32", "uint256"],
-                w3.eth.call({"to": w3.to_checksum_address(address), "data": data}),
-            )
-        except Exception as legacy_exc:  # noqa: BLE001
-            raise exc from legacy_exc
-        return dict(zip(_LEGACY_BINDING_FIELDS, decoded, strict=False))
-    fields = _BINDING_FIELDS if len(raw) == len(_BINDING_FIELDS) else _LEGACY_BINDING_FIELDS
-    return dict(zip(fields, raw, strict=False))
+    except Exception as exc:  # noqa: BLE001 - 旧宽度 / RPC 抖动：按宽度挨个再试
+        data = w3.keccak(text="getBinding(uint256)")[:4] + int(binding_id).to_bytes(32, "big")
+        payload = None
+        last: BaseException = exc
+        for width in (13, 11):
+            try:
+                payload = w3.codec.decode(
+                    _BINDING_TYPES[:width],
+                    w3.eth.call({"to": w3.to_checksum_address(address), "data": data}),
+                )
+                break
+            except Exception as legacy_exc:  # noqa: BLE001
+                last = legacy_exc
+        if payload is None:
+            raise exc from last
+        raw = payload
+    return dict(zip(_BINDING_FIELDS[: len(raw)], raw, strict=False))
 
 
 def binding_snapshot(*, binding_id: int, contract_address: str | None = None) -> dict[str, Any] | None:
@@ -1639,6 +1698,9 @@ def binding_snapshot(*, binding_id: int, contract_address: str | None = None) ->
         "state": int(row["state"]),
         "buyer_confirmed": bool(row.get("buyerConfirmed", False)),
         "confirmed_at": int(row.get("confirmedAt", 0) or 0),
+        # v5：这一窗是罚没窗（submitBreach 开的）还是放款窗。旧合约没有这个字段，
+        # 一律 False —— 「没有这个标记」对调用方就是「放款窗」，与 v4 行为一致。
+        "slash_armed": bool(row.get("slashArmed", False)),
         "settle_after": int(row.get("settleAfter", 0) or 0),
         "closed_at": int(row.get("closedAt", 0) or 0),
     }
@@ -1692,6 +1754,93 @@ def finalize_breach(
     receipt, tx = _send_tx(contract.functions.finalizeBreach(int(binding_id)))
     slashed_usdc = wei_to_usdc(int(parse_slashed(receipt)["amount_wei"]))
     return {"binding_id": int(binding_id), "breach_tx_hash": tx, "slashed_usdc": slashed_usdc}
+
+
+#: 一台合约认不认 v5。共识不会变，只缓存**肯定**的答案；否定的答案每次重问
+#: （可能只是刚才那一次 RPC 抖了），代价是一笔只读调用。
+_V5_SUPPORT: dict[str, bool] = {}
+
+
+def supports_v5(contract_address: str | None = None) -> bool:
+    """这台合约认不认 v5 的两个入口（``submitBreach`` / ``markDisputed``）。
+
+    判据是 ``bindingVersion()``：v5 才有它，旧合约没有这个函数，``eth_call`` 直接
+    revert —— 那就是「不认识 v5」。升级换地址之后历史绑定还指着旧合约，所以判据必须
+    按**地址**问，不能按「当前配置」猜。
+    """
+    # 探测本身绝不许抛：没配 RPC、合约是旧的、节点抖一下，都只是「不认识 v5」。
+    try:
+        if not escrow_enabled():
+            return False
+        address = str(contract_address or configured_address() or "").strip()
+        if not address:
+            return False
+        if _V5_SUPPORT.get(address.lower()):
+            return True
+        w3 = _web3()
+        ok = int(_contract(w3, address).functions.bindingVersion().call()) >= 5
+    except Exception:  # noqa: BLE001 - 没配置 / 旧合约没这个函数 / RPC 抖：按不支持处理
+        return False
+    if ok:
+        _V5_SUPPORT[address.lower()] = True
+    return ok
+
+
+def submit_breach(
+    *, binding_id: int, proof: str, contract_address: str | None = None
+) -> dict[str, Any]:
+    """开**罚没窗**（v5 的 ``submitBreach``）：resolver-only，窗口到点后只有
+    ``finalizeBreach`` 能推它 —— 质押从卖方划给买方，货款一步不动。
+
+    v5 之前「方向」是分不出来的：``FINALIZING`` 两条路共用，而 ``finalizeSettlement``
+    是无许可的，于是裁定好的罚没可以被任何人抢先把货款划给卖方（真钱实测 f14n2）。
+    现在方向在这里写死。
+
+    旧合约（v4 及更早）没有这个入口，退回 ``submitSettlement`` —— 那台合约本身就分不出
+    方向，退回只是让**历史**绑定还能收尾，新单不会开在它上面。
+    """
+    if not escrow_enabled():
+        raise WalletLockError(disabled_detail())
+    if not supports_v5(contract_address):
+        out = submit_settlement(binding_id=binding_id, proof=proof, contract_address=contract_address)
+        out["slash_armed"] = False
+        out["legacy_direction_blind"] = True
+        return out
+    w3 = _web3()
+    contract = _contract(w3, contract_address)
+    digest = proof_hash(proof)
+    receipt, tx = _send_tx(contract.functions.submitBreach(int(binding_id), digest))
+    pull_after = int(parse_breach_submitted(receipt)["pull_after"])
+    return {
+        "binding_id": int(binding_id),
+        "submit_tx_hash": tx,
+        "proof_hash": digest,
+        "pull_after": pull_after,
+        "slash_armed": True,
+    }
+
+
+def mark_disputed(
+    *, binding_id: int, contract_address: str | None = None
+) -> dict[str, Any]:
+    """把一条绑定钉在「争议中」（v5，resolver-only，不动钱）。
+
+    ACTIVE -> DISPUTED：钱的位置一点没变，但从此**当事方**谁都不能 ``cancelBinding``
+    —— 被裁定违约的一方不能再趁仲裁期间把质押的预留放掉（真钱实测 f14n4：卖方自己
+    一按键就把罚没变成了永远执行不了）。出口只剩 resolver 的两条：放款窗 / 罚没窗，
+    或者由 resolver 亲自把「没有钱要动」这条结论落下来。
+
+    旧合约没有这个入口，返回 ``status="unsupported"``：那台合约上的绑定只能靠
+    「别让卖方先撤」撑着，这正是 v5 要消掉的东西。
+    """
+    if not escrow_enabled():
+        raise WalletLockError(disabled_detail())
+    if not supports_v5(contract_address):
+        return {"binding_id": int(binding_id), "status": "unsupported"}
+    w3 = _web3()
+    contract = _contract(w3, contract_address)
+    _receipt, tx = _send_tx(contract.functions.markDisputed(int(binding_id)))
+    return {"binding_id": int(binding_id), "status": "disputed", "mark_tx_hash": tx}
 
 
 def buyer_confirm(
