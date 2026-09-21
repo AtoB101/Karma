@@ -15,13 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import (
     AllowanceCommitModel,
-    EscrowBindingModel,
     IdentityRoleProfile,
     SettlementModel,
     VoucherModel,
 )
 from db.session import get_db
 from services import payment_ledger as ledger
+from services.chain import escrow_settlement
 from services.delivery_verification import get_verification_for_task
 from services.identity_actor import resolve_actor_identity_id
 from services.path_param_safety import validate_public_url_segment
@@ -108,7 +108,7 @@ async def _load_entry(db: AsyncSession, kind: str, ref_id: str, identity_id: str
         return ledger.settlement_entry(row, identity_id)
 
     if kind == "binding":
-        row = await db.get(EscrowBindingModel, ref_id)
+        row = await escrow_settlement.find_binding(db, ref_id)
         if row is None:
             raise HTTPException(404, f"链上结算单 {ref_id} 不存在")
         if identity_id not in (row.buyer_identity_id, row.seller_identity_id):

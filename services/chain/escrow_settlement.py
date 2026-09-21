@@ -132,6 +132,59 @@ async def _find_binding(db: AsyncSession, *, task_id: str) -> EscrowBindingModel
     return (await db.execute(stmt)).scalars().first()
 
 
+def chain_binding_id(binding: Any) -> int:
+    """账上主键 → 链上 binding id。
+
+    本地主键**通常**就是链上 id，但换过合约之后不一定：链上 id 是每台合约各自
+    计数的（v2 用到 58，v3 从 1 重开），跨合约会重号 —— 重号的那条本地主键会被
+    写成 ``<合约地址>:<链上 id>``（见 ``local_binding_id``）。所以解析一律走这里，
+    别直接 ``int(row.binding_id)``：碰到带前缀的那几条会抛 ValueError，
+    而它通常发生在 autosettle 的某一轮里，一抛就是一整轮的钱都不动。
+    """
+    raw = getattr(binding, "binding_id", binding)
+    return int(str(raw).rsplit(":", 1)[-1])
+
+
+async def local_binding_id(
+    db: AsyncSession, *, chain_id: int, contract: str, exclude: str | None = None
+) -> str:
+    """给这一条绑定挑一个**跨合约唯一**的账上主键。
+
+    链上的 binding id 只在**一台合约内**唯一。换合约（v2 → v3）之后两边必然重号：
+    2026-09-21 实测 v3 的第 9 条撞上 v2 的第 9 条 —— 链上 ``bind`` 已经成功（买方
+    账单被占住 0.2），账上 INSERT 被主键唯一约束打回，``/v1/settlement/{task}/lock``
+    直接 500，链上留下一条谁也不认的绑定。
+
+    规则：裸 id 没被占就用裸的（``9`` 比 ``0x32b3…:9`` 好看，也顺手）；
+    被别的合约占了才加合约地址前缀。这样以后**任何一次合约升级**都不会再撞上
+    历史主键 —— 不需要每次升级都记得去改一次数据。
+    """
+    plain = str(chain_id)
+    if exclude is not None and plain == exclude:
+        return plain
+    if await db.get(EscrowBindingModel, plain) is None:
+        return plain
+    return f"{contract}:{chain_id}"
+
+
+async def find_binding(db: AsyncSession, binding_id: str) -> EscrowBindingModel | None:
+    """按账上主键取一条绑定，兼容改名前的历史引用。
+
+    退役合约的历史行主键带上了合约前缀，而老链接 / 老外部引用里存的还是裸 id，
+    直接 ``db.get`` 会取不到（调用方多半当成 404 或 None 崩掉）。先按原样查，
+    再按「后缀匹配」兜一次。
+    """
+    row = await db.get(EscrowBindingModel, binding_id)
+    if row is not None:
+        return row
+    stmt = (
+        select(EscrowBindingModel)
+        .where(EscrowBindingModel.binding_id.like("%:" + str(binding_id)))
+        .order_by(EscrowBindingModel.created_at.desc())
+    )
+    return (await db.execute(stmt)).scalars().first()
+
+
 async def _live_bills(db: AsyncSession, identity_id: str) -> list[AllowanceCommitModel]:
     rows = await escrow.list_commits(db, identity_id)
     return [r for r in rows if r.state == escrow.IDLE]
@@ -314,8 +367,11 @@ async def bind_for_task(
         logger.warning("escrow_settlement_bind_failed", task_id=task_id, error=str(exc))
         raise EscrowSettlementError(409, f"链上锁定失败：{exc}") from exc
 
+    local_id = await local_binding_id(
+        db, chain_id=int(bound["binding_id"]), contract=contract
+    )
     row = EscrowBindingModel(
-        binding_id=str(bound["binding_id"]),
+        binding_id=local_id,
         buyer_identity_id=buyer_identity_id,
         seller_identity_id=seller_identity_id,
         buyer_bill_id=str(buyer_bill),
@@ -356,7 +412,7 @@ async def _rebind_partial(
     """部分结算：原绑定锁的是全额，链上没有「少划一点」的入口 —— 撤掉重绑。"""
     contract = escrow.binding_contract(row)
     await asyncio.to_thread(
-        escrow.cancel_binding, binding_id=int(row.binding_id), contract_address=contract
+        escrow.cancel_binding, binding_id=chain_binding_id(row), contract_address=contract
     )
     stake = seller_stake.required_stake_usdc(amount_usdc)
     buyer_bill = await _pick_bill(
@@ -375,7 +431,10 @@ async def _rebind_partial(
         task_id=task_id,
         contract_address=contract,
     )
-    row.binding_id = str(bound["binding_id"])
+    # 重绑会换一个新的链上 id：本地主键跟着换，且必须仍然跨合约唯一。
+    row.binding_id = await local_binding_id(
+        db, chain_id=int(bound["binding_id"]), contract=contract, exclude=row.binding_id
+    )
     row.buyer_bill_id = str(buyer_bill)
     row.seller_bill_id = str(seller_bill)
     row.scope_hash = str(bound.get("scope_hash") or "")
@@ -523,7 +582,7 @@ async def submit_for_task(
     try:
         submitted = await asyncio.to_thread(
             escrow.submit_settlement,
-            binding_id=int(row.binding_id),
+            binding_id=chain_binding_id(row),
             proof=_proof(task_id, target_minor),
             contract_address=escrow.binding_contract(row),
         )
@@ -597,7 +656,7 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
     try:
         submitted = await asyncio.to_thread(
             escrow.submit_settlement,
-            binding_id=int(row.binding_id),
+            binding_id=chain_binding_id(row),
             proof=_breach_proof(task_id),
             contract_address=escrow.binding_contract(row),
         )
@@ -641,7 +700,7 @@ async def cancel_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
     try:
         await asyncio.to_thread(
             escrow.cancel_binding,
-            binding_id=int(row.binding_id),
+            binding_id=chain_binding_id(row),
             contract_address=escrow.binding_contract(row),
         )
     except Exception as exc:
@@ -698,7 +757,7 @@ async def reconcile_task(db: AsyncSession, *, task_id: str) -> dict[str, Any] | 
     try:
         chain_state = await asyncio.to_thread(
             escrow.binding_state,
-            binding_id=int(row.binding_id),
+            binding_id=chain_binding_id(row),
             contract_address=escrow.binding_contract(row),
         )
     except Exception as exc:  # RPC 抖动：保持现状，下次再对

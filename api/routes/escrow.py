@@ -28,7 +28,7 @@ from db.models.orm import AllowanceCommitModel, EscrowBindingModel, IdentityRole
 from db.session import get_db
 from services import profile_capacity, seller_stake
 from services.chain import allowance_escrow as escrow
-from services.chain import wallet_lock
+from services.chain import escrow_settlement, wallet_lock
 from services.identity_wallet_binding import get_bound_wallet
 from services.ledger_party_access import require_ledger_identity
 from services.path_param_safety import validate_public_url_segment
@@ -344,7 +344,9 @@ async def open_order(
         )
 
     row = EscrowBindingModel(
-        binding_id=str(result["binding_id"]),
+        binding_id=await escrow_settlement.local_binding_id(
+            db, chain_id=int(result["binding_id"]), contract=escrow.configured_address()
+        ),
         buyer_identity_id=identity_id,
         seller_identity_id=seller_identity,
         buyer_profile_id=profile_id,
@@ -393,7 +395,7 @@ async def finalize_order(
     validate_public_url_segment("binding_id", binding_id)
     require_ledger_identity(request, identity_id)
 
-    row = await db.get(EscrowBindingModel, binding_id)
+    row = await escrow_settlement.find_binding(db, binding_id)
     if row is None or identity_id not in {row.buyer_identity_id, row.seller_identity_id}:
         raise HTTPException(404, "unknown binding for this identity")
     if row.state in ("settled", "slashed", "cancelled"):
@@ -403,14 +405,14 @@ async def finalize_order(
     try:
         if breach:
             result = escrow.finalize_breach(
-                binding_id=int(binding_id),
+                binding_id=escrow_settlement.chain_binding_id(binding_id),
                 contract_address=escrow.binding_contract(row),
             )
             row.state = "slashed"
             row.finalize_tx_hash = result["breach_tx_hash"]
         else:
             result = escrow.finalize_settlement(
-                binding_id=int(binding_id),
+                binding_id=escrow_settlement.chain_binding_id(binding_id),
                 contract_address=escrow.binding_contract(row),
             )
             row.state = "settled"

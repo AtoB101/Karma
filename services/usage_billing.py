@@ -42,6 +42,7 @@ from db.models.orm import (
 )
 from services import seller_stake
 from services.chain import allowance_escrow as escrow
+from services.chain import escrow_settlement
 
 logger = structlog.get_logger(__name__)
 
@@ -448,8 +449,11 @@ async def settle_meter(
         )
         return {"settlement": settlement_view(row), "charged": False, "reason": row.failure_reason}
 
+    local_id = await escrow_settlement.local_binding_id(
+        db, chain_id=int(result["binding_id"]), contract=escrow.configured_address()
+    )
     binding = EscrowBindingModel(
-        binding_id=str(result["binding_id"]),
+        binding_id=local_id,
         buyer_identity_id=payer_identity_id,
         seller_identity_id=str(skill.owner_identity_id),
         buyer_bill_id=buyer_bill,
@@ -468,7 +472,7 @@ async def settle_meter(
         updated_at=datetime.utcnow(),
     )
     db.add(binding)
-    row.escrow_binding_id = str(result["binding_id"])
+    row.escrow_binding_id = local_id
     row.status = "submitted"
     row.failure_reason = None
     row.updated_at = datetime.utcnow()
@@ -504,7 +508,7 @@ async def reconcile_settlements(db: AsyncSession, *, limit: int = RECONCILE_BATC
     for row in rows:
         if not row.escrow_binding_id:
             continue
-        binding = await db.get(EscrowBindingModel, str(row.escrow_binding_id))
+        binding = await escrow_settlement.find_binding(db, str(row.escrow_binding_id))
         if binding is None:
             continue
         target = _BINDING_DONE.get(str(binding.state or ""))

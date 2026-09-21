@@ -330,7 +330,7 @@ async def settle_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
         try:
             result = await asyncio.to_thread(
                 escrow.finalize_settlement,
-                binding_id=int(row.binding_id),
+                binding_id=escrow_settlement.chain_binding_id(row),
                 contract_address=escrow.binding_contract(row),
             )
         except wallet_lock.WalletLockError as exc:
@@ -421,7 +421,7 @@ async def breach_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
         try:
             result = await asyncio.to_thread(
                 escrow.finalize_breach,
-                binding_id=int(row.binding_id),
+                binding_id=escrow_settlement.chain_binding_id(row),
                 contract_address=escrow.binding_contract(row),
             )
         except wallet_lock.WalletLockError as exc:
