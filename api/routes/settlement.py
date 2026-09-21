@@ -993,8 +993,47 @@ async def auto_confirm_settlement(
     if state.confirm_deadline_at and now < state.confirm_deadline_at:
         remaining = (state.confirm_deadline_at - now).total_seconds() / 3600
         raise HTTPException(409, f"confirm window not expired — {remaining:.1f}h remaining")
-    assert_runtime_operation_allowed("new_settlement")
     await audit_capacity_anchor_and_maybe_trip(db=db)
+    return await _auto_confirm_release(
+        db,
+        store=store,
+        state=state,
+        now=now,
+        actor_id=_resolve_actor_id(request),
+        route_path=str(request.url.path),
+    )
+
+
+# 后台兜底放款的操作者标识。链上 finalizeSettlement 是 permissionless 的，账上也得
+# 有个说得清的 actor：推这一下的不是买卖任何一方按的按钮，是「交付 + 验证通过 +
+# 买方沉默到期」这条规则本身。
+AUTO_CONFIRM_ACTOR_ID = "system:auto-confirm"
+# 这两类场景走的是 OWNER_CONFIRM：主人没点头，任何超时都不许替他把钱付出去。
+AUTO_CONFIRM_FORBIDDEN_SCENES = frozenset({"financial_services", "healthcare_medical"})
+
+
+async def _auto_confirm_release(
+    db: AsyncSession,
+    *,
+    store: PostgresSettlementStore,
+    state: SettlementState,
+    now: datetime,
+    actor_id: str | None,
+    route_path: str = "/v1/settlement/{task_id}/auto-confirm",
+) -> SettlementState:
+    """买方沉默到期的唯一出口：DELIVERED -> AUTO_CONFIRMED -> SETTLED，钱划给卖方。
+
+    规则（MVVS V1，买卖双方对表用同一份）：
+      * 买方确认 + 验证通过   -> 立即放行，不开窗口（走 buyer-accept，不经过这里）；
+      * 买方没确认            -> 交付时写入的 confirm_window_hours / confirm_deadline_at；
+      * 窗口到期 + 验证层通过  -> 自动放行（这个函数）；
+      * 验证层没过 / 高风险场景 -> 409，钱一步都不许动。
+
+    HTTP 路由和后台兜底（``auto_confirm_expired_settlements``）共用这一份，
+    免得两条路各写一套、只有能被手点的那条是对的。
+    """
+    task_id = state.task_id
+    assert_runtime_operation_allowed("new_settlement")
     # P7/P8: auto-confirm still requires delivery verification when session/scene demands it
     _assert_p7_delivery_gate(task_id, state, stage="auto-confirm")
     scene_for_auto = _scene_id_from_settlement(state) or "api_tool_call"
@@ -1006,10 +1045,7 @@ async def auto_confirm_settlement(
         delivery_verified=True,
     )
     # High-risk / OWNER_CONFIRM delayed scenes must not silently settle via this path
-    if not auto_dec.get("allowed") and scene_for_auto in {
-        "financial_services",
-        "healthcare_medical",
-    }:
+    if not auto_dec.get("allowed") and scene_for_auto in AUTO_CONFIRM_FORBIDDEN_SCENES:
         raise HTTPException(
             409,
             {
@@ -1023,14 +1059,14 @@ async def auto_confirm_settlement(
     state = await _apply_transition(db=db, store=store, state=state,
         target_status=TaskStatus.AUTO_CONFIRMED,
         reason=f"confirm window ({state.confirm_window_hours}h) expired",
-        route_path=str(request.url.path), actor_id=_resolve_actor_id(request))
+        route_path=route_path, actor_id=actor_id)
     state.released_amount = normalize_amount(state.escrow_amount)
     state.refunded_amount = 0.0
     state.released_at = now
     state = await _apply_transition(db=db, store=store, state=state,
         target_status=TaskStatus.SETTLED,
         reason="auto-confirmed → settled",
-        route_path=str(request.url.path), actor_id=_resolve_actor_id(request))
+        route_path=route_path, actor_id=actor_id)
     await apply_capacity_resolution(db=db, buyer_identity_id=state.client_agent_id,
         escrow_amount=state.escrow_amount, settled_amount=state.escrow_amount, refunded_amount=0.0)
     await _release_profile_credits_if_bound(db, state)
@@ -1055,6 +1091,77 @@ async def auto_confirm_settlement(
             f"{state.arbitration_notes or ''}; p8_attestation={p8_attest.get('attestation_id')}"
         ).strip("; ")
     return state
+
+
+def auto_confirm_deadline(state: SettlementState) -> datetime | None:
+    """这一单的买方确认截止时间；None = 这一单没有窗口，只能由人显式表态。"""
+    hours = int(state.confirm_window_hours or 0)
+    if hours <= 0:
+        return None
+    if state.confirm_deadline_at is not None:
+        return state.confirm_deadline_at
+    if state.updated_at is None:
+        return None
+    # 老单兜底：交付时还没写 deadline 的行，用 updated_at 现算一次（和路由里同一口径）。
+    return state.updated_at + timedelta(hours=hours)
+
+
+async def auto_confirm_expired_settlements(
+    db: AsyncSession,
+    *,
+    limit: int | None = None,
+    now: datetime | None = None,
+) -> list[str]:
+    """后台兜底：交付后买方沉默超过确认窗口、且验证层已经通过的单子，自动放行。
+
+    没有它，``POST /auto-confirm`` 就只是一扇没人敲的门：买方不表态，钱永远卡在
+    托管里，卖方也拿不到本该拿到的款。这里只负责「到期 + 验证通过」这一条，
+    验证层没过的会被 ``_auto_confirm_release`` 挡下（409），原样留给争议/仲裁那条路。
+    """
+    store = PostgresSettlementStore(db)
+    current = now or datetime.utcnow()
+    confirmed: list[str] = []
+    for state in await store.list_by_status(TaskStatus.DELIVERED):
+        if limit is not None and len(confirmed) >= limit:
+            break
+        deadline = auto_confirm_deadline(state)
+        if deadline is None or current < deadline:
+            continue
+        try:
+            # 一单一个 savepoint：这单在链上/账上走到一半炸了，回滚的是这单，
+            # 不会把同一轮里其他单子已经写好的东西一起带走。
+            async with db.begin_nested():
+                await _auto_confirm_release(
+                    db,
+                    store=store,
+                    state=state,
+                    now=current,
+                    actor_id=AUTO_CONFIRM_ACTOR_ID,
+                    route_path="/internal/auto-confirm",
+                )
+        except HTTPException as exc:
+            # 验证层没通过 / 高风险场景不许兜底：钱不动，下一轮再看。
+            logger.info(
+                "settlement_auto_confirm_held",
+                extra={"task_id": state.task_id, "status": exc.status_code, "detail": str(exc.detail)[:300]},
+            )
+            continue
+        except Exception as exc:  # noqa: BLE001 - 一单卡住不许拖住其他单
+            logger.warning(
+                "settlement_auto_confirm_failed",
+                extra={"task_id": state.task_id, "error": str(exc)},
+            )
+            continue
+        confirmed.append(state.task_id)
+        logger.info(
+            "settlement_auto_confirmed",
+            extra={
+                "task_id": state.task_id,
+                "window_hours": int(state.confirm_window_hours or 0),
+                "actor_id": AUTO_CONFIRM_ACTOR_ID,
+            },
+        )
+    return confirmed
 
 
 @router.post("/{task_id}/buyer-reject", response_model=SettlementState)

@@ -462,6 +462,9 @@ async def breach_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
 async def run_forever() -> None:
     """The loop the API process starts when auto-settlement is switched on."""
     interval = max(3, int(settings.escrow_autosettle_interval_seconds))
+    # 放款那一步在结算路由里（和 POST /auto-confirm 共用同一份实现），这里延迟导入：
+    # services 层不在导入期反过来依赖 api 包。
+    from api.routes.settlement import auto_confirm_expired_settlements
     logger.info("escrow_autosettle_started", interval_seconds=interval)
     while True:
         try:
@@ -470,6 +473,12 @@ async def run_forever() -> None:
                 slashed = await breach_due(db)
                 # 链上已经落定、账上还停在半路的绑定：对齐（别人推了 finalize 也算）。
                 aligned = await reconcile_from_chain(db)
+                # 交付后买方一直不表态、验证层又已经通过的单子：窗口到期就自动放行。
+                # 少这一段的话，SETTLEMENT_CONFIRM_WINDOW_HOURS 写的那个 72 小时
+                # 就只是个没人执行的承诺，钱一直卡在托管里（P2-4）。
+                auto_confirmed = await auto_confirm_expired_settlements(
+                    db, limit=settings.escrow_autosettle_batch
+                )
                 # 业务侧已经终局、链上还占着额度的绑定：把它们推到最后一步，
                 # 别让用户的可用额度被一个永远不会再有人推进的绑定吃住。
                 freed = await reap_stranded(db)
@@ -497,6 +506,8 @@ async def run_forever() -> None:
                 logger.info("voucher_expiry_tick", vouchers=len(reclaimed))
             if returned:
                 logger.info("voucher_reserved_restore_tick", identities=len(returned))
+            if auto_confirmed:
+                logger.info("settlement_auto_confirm_tick", settled=len(auto_confirmed))
         except asyncio.CancelledError:
             logger.info("escrow_autosettle_stopped")
             raise
