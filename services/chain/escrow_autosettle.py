@@ -474,6 +474,56 @@ async def breach_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
     return slashed
 
 
+async def align_disputed_settlements(db: AsyncSession, *, limit: int | None = None) -> list[dict]:
+    """业务还挂在争议里、链上却已经落定 —— 把冻结放掉，业务状态机跟着走。
+
+    ``_record_final`` 会在链上落定的那一刻就地补一次；这一遍兜的是「补的时候撞上
+    并发没写成」和「修这条之前就已经卡住的老账」。判据刻意选在**业务状态还停在
+    ``disputed``**：那份 ``disputed_credits`` 的冻结由开争议那一笔建立、由裁决落地
+    那一笔释放，两者都伴随业务状态进出 DISPUTED，所以这个字就是「冻结还在不在
+    账上」的凭据（详见 ``escrow_settlement.settle_chain_terminal_bookkeeping``）。
+
+    卡住的代价是真钱：操作台永久显示「争议冻结 N，等待仲裁推进」，而且
+    ``assert_can_release_locked_funds`` 会把解锁一直挡着 —— 用户锁在托管里的钱取不回来。
+    """
+    if not escrow.escrow_enabled() or not escrow.can_server_settle():
+        return []
+    stmt = (
+        select(SettlementModel)
+        .where(SettlementModel.status == "disputed")
+        .where(SettlementModel.onchain_status.in_(tuple(_CHAIN_DONE.values())))
+        .order_by(SettlementModel.updated_at)
+        .limit(limit if limit is not None else settings.escrow_autosettle_batch)
+    )
+    healed: list[dict] = []
+    for row in (await db.execute(stmt)).scalars().all():
+        try:
+            out = await escrow_settlement.settle_chain_terminal_bookkeeping(
+                db, task_id=row.task_id, onchain_status=row.onchain_status or ""
+            )
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 - 一笔补不上不能拖住别的
+            await db.rollback()
+            logger.warning(
+                "escrow_settlement_dispute_align_failed",
+                task_id=row.task_id,
+                onchain_status=row.onchain_status,
+                error=str(exc),
+            )
+            continue
+        if not out:
+            continue
+        healed.append({"task_id": row.task_id, **out})
+        logger.info(
+            "escrow_settlement_dispute_aligned",
+            task_id=row.task_id,
+            onchain_status=row.onchain_status,
+            freeze_released=out.get("freeze_released"),
+            status_hops=out.get("status_hops"),
+        )
+    return healed
+
+
 async def run_forever() -> None:
     """The loop the API process starts when auto-settlement is switched on."""
     interval = max(3, int(settings.escrow_autosettle_interval_seconds))
@@ -497,6 +547,10 @@ async def run_forever() -> None:
                 # 业务侧已经终局、链上还占着额度的绑定：把它们推到最后一步，
                 # 别让用户的可用额度被一个永远不会再有人推进的绑定吃住。
                 freed = await reap_stranded(db)
+                # 业务还挂在争议里、链上却已经落定：把 disputed 桶里那份冻结放掉，
+                # 业务状态机跟着链上走。不放掉的话，操作台永远停在「争议冻结 N」，
+                # 用户的钱也永远解不了锁。
+                dispute_healed = await align_disputed_settlements(db)
                 # 过期授权码占住的额度要还回去 —— 否则用户「可用额度」被一张
                 # 没人推进的券永久吃光，链上明明还有钱却一单也开不出来。
                 reclaimed = await voucher_reaper.expire_due(db)
@@ -517,6 +571,8 @@ async def run_forever() -> None:
                 logger.info("escrow_capacity_mirror_tick", identities=len(mirrored))
             if freed:
                 logger.info("escrow_stranded_reap_tick", freed=len(freed))
+            if dispute_healed:
+                logger.info("escrow_dispute_align_tick", healed=len(dispute_healed))
             if reclaimed:
                 logger.info("voucher_expiry_tick", vouchers=len(reclaimed))
             if returned:

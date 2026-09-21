@@ -104,6 +104,64 @@ async def apply_capacity_resolution(
     await audit_capacity_anchor_and_maybe_trip(db=db)
 
 
+async def release_dispute_freeze(
+    *,
+    db: AsyncSession,
+    buyer_identity_id: str,
+    escrow_amount: float,
+    settled: bool,
+) -> float:
+    """链上已经把这一单走完了 —— 把总账里那份「争议冻结」放掉。
+
+    争议冻结是 ``move_reserved_to_disputed`` 从 ``reserved`` 挪进 ``disputed`` 的那一笔，
+    API 侧只有 ``apply_capacity_resolution`` 一条出口。可**链上终局并不总从 API 走**：
+    裁定方在链上把绑定撤了（``cancelBinding``）、或者保护期到点后别人先推了
+    ``finalizeSettlement`` —— 这两条由 ``escrow_autosettle`` 的兜底那一遍补台账，
+    而那条路过去只写 ``onchain_status``，``disputed`` 桶就永远留在账上。
+
+    代价是真金白银的：操作台永久显示「争议冻结 N，等待仲裁推进」，而且
+    ``assert_can_release_locked_funds`` 会把解锁卡死 —— 责任状态一天不清，用户锁在
+    托管里的钱一天取不回来（2026-09-21 真钱实测：两笔各 0.2 卡在桶里出不来）。
+
+    放多少**只认账上真有的**（``disputed`` 桶，且不超过这一单的 escrow），所以重复
+    调用天然幂等，也绝不会去动别的单子占着的 ``reserved``。``settled=True`` 表示这
+    一单的钱最终付给了卖方（记 burned），否则退回买方（记 released）。
+
+    返回真正放掉的金额。并发冲突时抛 ``LedgerConflict`` —— 调用方必须当作「没放成」
+    让下一轮重试，不能当成「本来就没有」。
+    """
+    cap = await db.get(CapacityModel, buyer_identity_id)
+    if cap is None:
+        return 0.0
+    held = min(
+        max(0.0, float(escrow_amount or 0.0)),
+        max(0.0, float(cap.disputed_credits or 0.0)),
+    )
+    if held <= 1e-9:
+        return 0.0
+    deltas = {
+        "disputed_credits": -held,
+        "total_bill_credits": -held,
+        "total_locked_usdc": -held,
+        "burned_credits": held if settled else 0.0,
+        "released_credits": 0.0 if settled else held,
+    }
+    await atomic_ledger.apply_delta_or_raise(
+        db,
+        CapacityModel,
+        "identity_id",
+        buyer_identity_id,
+        deltas,
+        guards=[
+            (lambda C, _need=held: C.disputed_credits + 1e-9 >= _need),
+            (lambda C, _need=held: C.total_bill_credits + 1e-9 >= _need),
+            (lambda C, _need=held: C.total_locked_usdc + 1e-9 >= _need),
+        ],
+        message="disputed freeze changed concurrently; retry the release",
+    )
+    return held
+
+
 def _assert_capacity(cap: CapacityModel) -> None:
     try:
         assert_capacity_invariants(

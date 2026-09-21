@@ -52,8 +52,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
-from db.models.orm import AllowanceCommitModel, EscrowBindingModel, SettlementModel
-from services import seller_stake
+from core.schemas import TaskStatus
+from core.settlement.engine import VALID_TRANSITIONS, can_transition, canonical_task_status
+from db.models.orm import (
+    AllowanceCommitModel,
+    EscrowBindingModel,
+    SettlementModel,
+    SettlementTransitionAuditModel,
+)
+from services import atomic_ledger, capacity_resolution, seller_stake
 from services.chain import allowance_escrow as escrow
 from services.settlement_amounts import from_minor_units, to_minor_units
 
@@ -90,6 +97,51 @@ _CANCEL_BLOCKED_DETAIL = (
 #: 钱往哪边走：放款给卖方 / 罚没卖方质押
 PAY = "pay"
 SLASH = "slash"
+
+#: **链上终局 → 业务状态**。链上「撤销」= 一分钱没动，落 CANCELLED；链上「罚没」=
+#: 卖方质押被划给买方、货款原地不动，业务上就是 REFUNDED；链上「已结算」= 货款付给卖方。
+_CHAIN_TERMINAL_STATUS = {
+    CANCELLED: TaskStatus.CANCELLED,
+    SLASHED: TaskStatus.REFUNDED,
+    SETTLED: TaskStatus.SETTLED,
+}
+
+#: 只有业务还停在「争议中」时才认那份 ``disputed_credits`` 是**这一单**的冻结：
+#: 冻结由 ``move_reserved_to_disputed`` 在开争议时建立，由 ``apply_capacity_resolution``
+#: 在裁决落地时释放。两者都伴随业务状态进出 DISPUTED，所以这个状态字就是
+#: 「这笔冻结还在不在账上」的唯一凭据。别的状态下去动 disputed 桶，会把同账上
+#: 另一笔争议的冻结挪走。
+_DISPUTE_FROZEN_STATUS = TaskStatus.DISPUTED
+
+#: 兜底补账时的「操作人」：这动作不是人点的，是链上事实推着账本走。
+CHAIN_ALIGN_ACTOR_ID = "escrow_chain_reconcile"
+
+
+def _legal_status_path(
+    frm: TaskStatus, to: TaskStatus, *, max_hops: int = 3
+) -> list[TaskStatus] | None:
+    """在 ``VALID_TRANSITIONS`` 上找一条最短合法路径（不含起点、含终点）。
+
+    链上只给得出「撤销 / 罚没 / 已结算」三个字，而业务状态机对「争议中 → 撤销」
+    这种走法没有直边（争议只能经 ARBITRATED / FROZEN 出去）。补账不能自己发明边，
+    只能照状态机划好的路走；找不到路就老实停在原地并留下告警。
+    """
+    if frm == to:
+        return []
+    seen = {frm}
+    queue: list[list[TaskStatus]] = [[frm]]
+    while queue:
+        path = queue.pop(0)
+        if len(path) - 1 >= max_hops:
+            continue
+        for nxt in VALID_TRANSITIONS.get(path[-1], []):
+            if nxt in seen:
+                continue
+            if nxt == to:
+                return path[1:] + [nxt]
+            seen.add(nxt)
+            queue.append(path + [nxt])
+    return None
 
 #: 账上必须落成哪个结论，链上才允许开结算窗口
 _DECIDED_STATUS = {PAY: "settled", SLASH: "refunded"}
@@ -413,11 +465,154 @@ async def reflect_final(
     ``escrow_autosettle._record_final`` 过去只改 ``escrow_bindings.state``，而操作台
     读的是 ``settlements.onchain_status`` —— 链上钱都划完了，页面还停在 finalizing /
     breaching。状态机两边必须一起往前走（F10-2）。
+
+    钱那一行写了还不够：业务状态机与总账里那份争议冻结也得跟着走，见
+    :func:`settle_chain_terminal_bookkeeping`。
     """
     if not task_id:
         return
     await _reflect(db, task_id=task_id, binding=binding, onchain_status=onchain_status,
                    tx_hash=tx_hash)
+    await settle_chain_terminal_bookkeeping(
+        db, task_id=task_id, onchain_status=onchain_status
+    )
+
+
+async def settle_chain_terminal_bookkeeping(
+    db: AsyncSession, *, task_id: str, onchain_status: str
+) -> dict[str, Any]:
+    """链上终局后，业务侧的账必须跟着走：放掉争议冻结 + 推进业务状态机。
+
+    这两笔都是「链上已经有事实、账上没跟上」的漏账，而且**只在 autosettle 那条
+    兜底路径上暴露**：API 自己走完的结算路由早就用 ``apply_capacity_resolution``
+    和 ``_apply_transition`` 办过了，再进来是幂等的空操作。
+
+    真实后果（2026-09-21 真钱实测）::
+
+        f14v5n4 / f14n3 两单：业务停在 disputed，链上早已 cancelled
+        -> capacity.disputed_credits 各留 0.2，永远不会释放
+        -> 操作台永久「争议冻结 0.4，等待仲裁推进」
+        -> assert_can_release_locked_funds 永远拒绝解锁（责任状态没清）
+
+    顺序是有意的：**先放冻结、后推状态**。冻结放不掉（并发冲突）就直接返回，
+    业务状态留在 disputed —— 于是 ``escrow_autosettle.align_disputed_settlements``
+    下一轮还能按「disputed + 链上终态」把人找出来重试。反过来先推状态就等于
+    把重试的锚点自己拔掉了。
+
+    返回这一轮做了什么，交给调用方记日志；无事可做时返回 ``{}``。
+    """
+    if onchain_status not in _CHAIN_TERMINAL_STATUS:
+        return {}
+    stmt = select(SettlementModel).where(SettlementModel.task_id == task_id)
+    model = (await db.execute(stmt)).scalars().first()
+    if model is None:
+        return {}
+    try:
+        current = canonical_task_status(model.status)
+    except ValueError:
+        logger.warning(
+            "escrow_settlement_status_unparsable", task_id=task_id, status=model.status
+        )
+        return {}
+
+    if current != _DISPUTE_FROZEN_STATUS:
+        # 已经终局 = 金额口径比链上那一个状态字更细，不去覆盖它；
+        # 其它状态 = 这一单根本没有争议冻结，没账可补。两种都算无事可做。
+        return {}
+    out: dict[str, Any] = {"onchain_status": onchain_status, "from_status": current.value}
+
+    buyer_identity_id = model.client_agent_id
+    escrow_amount = float(model.escrow_amount or 0.0)
+    try:
+        released = await capacity_resolution.release_dispute_freeze(
+            db=db,
+            buyer_identity_id=buyer_identity_id,
+            escrow_amount=escrow_amount,
+            settled=onchain_status == SETTLED,
+        )
+    except atomic_ledger.LedgerConflict as exc:
+        logger.warning(
+            "escrow_settlement_dispute_freeze_conflict",
+            task_id=task_id,
+            buyer_identity_id=buyer_identity_id,
+            escrow_amount=escrow_amount,
+            error=str(exc),
+        )
+        return {**out, "freeze_released": None}
+
+    target = _CHAIN_TERMINAL_STATUS[onchain_status]
+    hops = await _align_business_status(
+        db,
+        model=model,
+        target=target,
+        reason=(
+            f"链上 binding 已终局（{onchain_status}）：争议冻结释放，"
+            "业务状态机按 VALID_TRANSITIONS 对齐到链上事实"
+        ),
+    )
+    logger.info(
+        "escrow_settlement_chain_terminal_aligned",
+        task_id=task_id,
+        onchain_status=onchain_status,
+        freeze_released=released,
+        status_hops=hops,
+    )
+    return {**out, "freeze_released": released, "status_hops": hops}
+
+
+async def _align_business_status(
+    db: AsyncSession,
+    *,
+    model: SettlementModel,
+    target: TaskStatus,
+    reason: str,
+) -> list[str]:
+    """把业务状态推到链上事实对应的那一态 —— 只走 ``VALID_TRANSITIONS`` 里有的边。
+
+    每一跳都补一条 ``settlement_transition_audits``：经仲裁庭改判那条路曾经漏写审计，
+    结果审计链是断的（见 ``api/routes/arbitration.py``），补账这条更不能再断。
+    """
+    current = canonical_task_status(model.status)
+    if current == target:
+        return []
+    path = _legal_status_path(current, target)
+    if not path:
+        logger.warning(
+            "escrow_settlement_status_path_missing",
+            task_id=model.task_id,
+            from_status=current.value,
+            to_status=target.value,
+        )
+        return []
+    hops: list[str] = []
+    for step in path:
+        if not can_transition(current, step):
+            logger.warning(
+                "escrow_settlement_status_edge_missing",
+                task_id=model.task_id,
+                from_status=current.value,
+                to_status=step.value,
+            )
+            return hops
+        db.add(
+            SettlementTransitionAuditModel(
+                settlement_id=model.settlement_id,
+                task_id=model.task_id,
+                from_status=current.value,
+                to_status=step.value,
+                transition_allowed=True,
+                guard_stage="chain_terminal",
+                reason=reason,
+                route_path=None,
+                actor_id=CHAIN_ALIGN_ACTOR_ID,
+                metadata_={"onchain_status": target.value},
+            )
+        )
+        model.status = step.value
+        model.updated_at = datetime.utcnow()
+        hops.append(step.value)
+        current = step
+    return hops
 
 
 async def bind_for_task(
