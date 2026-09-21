@@ -7,6 +7,7 @@ here exactly the way ``KarmaAllowanceEscrow`` emits it, which is what makes the
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -631,6 +632,60 @@ async def test_claim_commit_is_idempotent(client, db_session, monkeypatch):
     assert payload["escrow"]["enabled"] is True
     assert payload["committed_usdc"] == pytest.approx(100.0)
     assert len(payload["commits"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_bill_id_that_collides_across_contracts_still_credits(
+    client, db_session, monkeypatch
+):
+    """换过合约之后账单号必然重号：新合约的第 3 张不能因为旧合约的第 3 张而锁不上。
+
+    2026-09-21 实测：v3 账上已经有 bill 3，用户在新合约上又拿到 bill 3，claim-commit
+    被判成「这张账单已经属于别的交易」—— 链上明明是他的钱，台账却不认，这个用户在
+    操作台根本锁不上仓。账单号只在单台合约内唯一，所以账上主键必须跨合约唯一。
+    """
+    retired = "0x" + "11" * 20
+    db_session.add(
+        escrow.AllowanceCommitModel(
+            bill_id="3",
+            identity_id="someone-else",
+            wallet_address=WALLET,
+            chain_id=11155111,
+            contract_address=retired,
+            token_address=TOKEN,
+            operator=OPERATOR,
+            amount_wei=str(5_000_000),
+            amount_usdc=5.0,
+            spent_usdc=0.0,
+            reserved_usdc=0.0,
+            commit_tx_hash="0x" + "0f" * 32,
+            block_number=1,
+            state=escrow.IDLE,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+    )
+    await db_session.flush()
+
+    resp = await _commit_flow(client, monkeypatch, tx_hash="0x" + "3a" * 32, bill_id=3)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()["commit"]
+    assert body["bill_id"] == f"{CONTRACT}:3"
+    assert body["amount_usdc"] == pytest.approx(100.0)
+
+    # 历史那一条原样不动
+    kept = await db_session.get(escrow.AllowanceCommitModel, "3")
+    assert kept.contract_address == retired
+    assert kept.identity_id == "someone-else"
+    # 新的一条按「合约:链上 id」落库，两张账单各自独立
+    fresh = await db_session.get(escrow.AllowanceCommitModel, f"{CONTRACT}:3")
+    assert fresh is not None
+    assert fresh.identity_id == "identity-escrow-test"
+    assert fresh.amount_usdc == pytest.approx(100.0)
+
+    # 拿去问链的是链上 id，不是账上主键
+    assert escrow.chain_bill_id(fresh) == 3
+    assert escrow.chain_bill_id(kept) == 3
 
 
 @pytest.mark.asyncio

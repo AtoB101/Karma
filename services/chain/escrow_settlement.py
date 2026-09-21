@@ -263,7 +263,7 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
         # 「还剩多少」为准：挑中的账单必须真的 Bind 得动，不能拿台账去赌。
         onchain = await asyncio.to_thread(
             escrow.bill_available,
-            bill_id=int(row.bill_id),
+            bill_id=escrow.chain_bill_id(row),
             contract_address=escrow.bill_contract(row),
         )
         if onchain is None:

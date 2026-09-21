@@ -388,6 +388,42 @@ def binding_contract(row: Any) -> str:
     return (getattr(row, "contract_address", "") or "").strip() or configured_address()
 
 
+def chain_bill_id(row: Any) -> int:
+    """账上主键 -> 链上 bill id。
+
+    链上 bill id 只在**单台合约内**自增，换过合约之后两台合约必然重号（v3 的第 3 张
+    和 v4 的第 3 张是两条不同的承诺）。账上主键因此可能是 ``<合约地址>:<链上 id>``。
+    凡是拿去问链的地方一律先过这里，别直接 ``int(row.bill_id)``。
+    """
+    raw = getattr(row, "bill_id", row)
+    return int(str(raw).rsplit(":", 1)[-1])
+
+
+async def _local_bill_id(db: AsyncSession, *, chain_id: int, contract: str) -> str:
+    """给这张账单挑一个**跨合约唯一**的账上主键（与 local_binding_id 同一个道理）。
+
+    裸 id 没被占就用裸的；被别的合约占了才加合约前缀。否则用户在新合约上的第一张
+    账单只要号数撞上历史行，他的 ``commit()`` 就会被判成「这张账单已经属于别的交易」
+    —— 锁仓失败，而链上明明是他的钱。
+    """
+    plain = str(chain_id)
+    if await db.get(AllowanceCommitModel, plain) is None:
+        return plain
+    return f"{contract}:{chain_id}"
+
+
+async def _by_chain_bill(
+    db: AsyncSession, *, contract: str, chain_id: int
+) -> AllowanceCommitModel | None:
+    """按「合约 + 链上 id」找这张账单 —— 光有号数不足以下结论。"""
+    want = (contract or "").lower()
+    for key in (f"{contract}:{chain_id}", str(chain_id)):
+        row = await db.get(AllowanceCommitModel, key)
+        if row is not None and (row.contract_address or "").lower() == want:
+            return row
+    return None
+
+
 def operator_address() -> str:
     return (settings.settlement_operator_address or "").strip()
 
@@ -810,7 +846,16 @@ def _assert_token_allowed(token_address: str) -> None:
 
 
 async def _by_bill(db: AsyncSession, bill_id: str) -> AllowanceCommitModel | None:
-    return await db.get(AllowanceCommitModel, str(bill_id))
+    """按账上主键取一张账单；调用方手里可能是改名前的裸 id（旧链接 / 旧外部引用）。"""
+    row = await db.get(AllowanceCommitModel, str(bill_id))
+    if row is not None:
+        return row
+    result = await db.execute(
+        select(AllowanceCommitModel)
+        .where(AllowanceCommitModel.bill_id.like("%:" + str(bill_id)))
+        .order_by(AllowanceCommitModel.created_at.desc())
+    )
+    return result.scalars().first()
 
 
 async def _by_commit_tx(db: AsyncSession, tx_hash: str) -> AllowanceCommitModel | None:
@@ -864,10 +909,13 @@ async def claim_commit(
     _assert_owner_allowed(event.owner, wallets)
     _assert_token_allowed(event.token_address)
 
-    existing = await _by_bill(db, str(event.bill_id))
+    contract = configured_address()
+    existing = await _by_chain_bill(db, contract=contract, chain_id=event.bill_id)
     if existing is not None:
         if existing.commit_tx_hash != event.tx_hash:
-            raise WalletLockError("this bill id is already credited to another transaction")
+            raise WalletLockError(
+                "this bill id is already credited to another transaction on this contract"
+            )
         return existing
 
     existing_tx = await _by_commit_tx(db, event.tx_hash)
@@ -875,11 +923,11 @@ async def claim_commit(
         return existing_tx
 
     row = AllowanceCommitModel(
-        bill_id=str(event.bill_id),
+        bill_id=await _local_bill_id(db, chain_id=event.bill_id, contract=contract),
         identity_id=identity_id,
         wallet_address=event.owner,
         chain_id=int(settings.testnet_chain_id or 0),
-        contract_address=configured_address(),
+        contract_address=contract,
         token_address=event.token_address,
         operator=event.operator,
         amount_wei=str(event.amount_wei),
@@ -922,7 +970,7 @@ async def claim_revoke(
     _assert_receipt_ok(receipt)
     _assert_receipt_target(receipt, REVOKED_SIG)
     event = parse_revoke_receipt(receipt)
-    if str(event.bill_id) != str(bill_id):
+    if event.bill_id != chain_bill_id(row):
         raise WalletLockError("this transaction revokes a different bill")
     _assert_owner_allowed(event.owner, wallets)
     if event.owner.lower() != (row.wallet_address or "").lower():
@@ -951,11 +999,11 @@ async def sync_commits(db: AsyncSession, identity_id: str) -> list[AllowanceComm
         # 根本不存在（UnknownBill revert），过去这一步会一直被当成 RPC 抖动。
         contract = _contract(w3, bill_contract(row))
         try:
-            bill = contract.functions.getBill(int(row.bill_id)).call()
+            bill = contract.functions.getBill(chain_bill_id(row)).call()
             reserved_wei = int(bill[5])
             spent_wei = int(bill[6])
             state_code = int(bill[7])
-            backed = contract.functions.isBacked(int(row.bill_id)).call()
+            backed = contract.functions.isBacked(chain_bill_id(row)).call()
         except Exception as exc:  # RPC hiccup: keep the last known values
             logger.warning(
                 "allowance_sync_failed",
@@ -994,7 +1042,7 @@ _ERC20_ALLOWANCE_ABI = [
 def _bill_sort_key(bill_id: str) -> tuple[int, str]:
     """账单号升序 = 承诺时间升序（合约里的自增 id）。"""
     try:
-        return (int(bill_id), "")
+        return (chain_bill_id(bill_id), str(bill_id))
     except (TypeError, ValueError):
         return (2**63, str(bill_id))
 
@@ -1489,8 +1537,8 @@ def open_order(
 
     receipt, bind_tx = _send_tx(
         contract.functions.bind(
-            int(buyer_bill_id),
-            int(seller_bill_id),
+            chain_bill_id(buyer_bill_id),
+            chain_bill_id(seller_bill_id),
             scope_hash(scope, task_id),
             amount_wei,
             stake_wei,
@@ -1622,7 +1670,7 @@ def bill_available(*, bill_id: int, contract_address: str | None = None) -> floa
     w3 = _web3()
     contract = _contract(w3, contract_address)
     try:
-        return wei_to_usdc(int(contract.functions.available(int(bill_id)).call()))
+        return wei_to_usdc(int(contract.functions.available(chain_bill_id(bill_id)).call()))
     except Exception as exc:  # 不属于这台合约 / RPC 抖动：都当「划不动」
         logger.warning(
             "allowance_bill_available_failed",
