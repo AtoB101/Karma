@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import math
+
+import structlog
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -1011,6 +1013,13 @@ AUTO_CONFIRM_ACTOR_ID = "system:auto-confirm"
 # 这两类场景走的是 OWNER_CONFIRM：主人没点头，任何超时都不许替他把钱付出去。
 AUTO_CONFIRM_FORBIDDEN_SCENES = frozenset({"financial_services", "healthcare_medical"})
 
+#: 兜底放款自己的日志出口。这个路由模块用的是 stdlib logging，而进程只把 structlog
+#: 接进了日志管道 —— stdlib 的 INFO 打不出来。被按住不放的那一单必须看得见，
+#: 否则「钱为什么没到卖方」在生产里查无此据。
+_autoconfirm_log = structlog.get_logger("karma.settlement_auto_confirm")
+#: 同一单被同一句话按住时只报一次：一轮 15 秒，重复刷会把真正的问题淹掉。
+_held_reasons: dict[str, str] = {}
+
 
 async def _auto_confirm_release(
     db: AsyncSession,
@@ -1140,26 +1149,32 @@ async def auto_confirm_expired_settlements(
                     route_path="/internal/auto-confirm",
                 )
         except HTTPException as exc:
-            # 验证层没通过 / 高风险场景不许兜底：钱不动，下一轮再看。
-            logger.info(
-                "settlement_auto_confirm_held",
-                extra={"task_id": state.task_id, "status": exc.status_code, "detail": str(exc.detail)[:300]},
-            )
+            # 验证层没通过（没有成功回执 / 交付验证没过）/ 高风险场景不许兜底：
+            # 钱不动，下一轮再看 —— 但要让运维看见是谁把它按住了。
+            reason = f"{exc.status_code}:{str(exc.detail)[:200]}"
+            if _held_reasons.get(state.task_id) != reason:
+                _held_reasons[state.task_id] = reason
+                _autoconfirm_log.warning(
+                    "settlement_auto_confirm_held",
+                    task_id=state.task_id,
+                    status=exc.status_code,
+                    detail=str(exc.detail)[:300],
+                )
             continue
         except Exception as exc:  # noqa: BLE001 - 一单卡住不许拖住其他单
-            logger.warning(
+            _autoconfirm_log.warning(
                 "settlement_auto_confirm_failed",
-                extra={"task_id": state.task_id, "error": str(exc)},
+                task_id=state.task_id,
+                error=str(exc),
             )
             continue
+        _held_reasons.pop(state.task_id, None)
         confirmed.append(state.task_id)
-        logger.info(
+        _autoconfirm_log.info(
             "settlement_auto_confirmed",
-            extra={
-                "task_id": state.task_id,
-                "window_hours": int(state.confirm_window_hours or 0),
-                "actor_id": AUTO_CONFIRM_ACTOR_ID,
-            },
+            task_id=state.task_id,
+            window_hours=int(state.confirm_window_hours or 0),
+            actor_id=AUTO_CONFIRM_ACTOR_ID,
         )
     return confirmed
 
