@@ -380,8 +380,10 @@ async def _reflect(
     # 记的是**这条绑定自己**那台合约，不是「当前配置」：合约换过地址之后，
     # 操作台读这一行要能分辨它是新合约还是旧合约上的单子。
     model.contract_address = escrow.binding_contract(binding) or None
+    # 记的是**链上** id：账上主键跨合约唯一（可能是 ``<合约>:<id>``），
+    # 直接 int() 会在换过合约之后静默留空 —— 操作台就再也指不回链上那条绑定。
     try:
-        model.onchain_binding_id = int(binding.binding_id)
+        model.onchain_binding_id = chain_binding_id(binding)
     except (TypeError, ValueError):
         pass
     for attr, raw in (

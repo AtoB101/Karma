@@ -428,3 +428,29 @@ async def test_due_bindings_leaves_the_boundary_second_to_the_chain(db_session):
     rows = await autosettle.due_bindings(db_session, now=now)
 
     assert [r.binding_id for r in rows] == ["1"]
+
+@pytest.mark.asyncio
+async def test_chain_reads_use_the_chain_id_not_the_composite_ledger_key(db_session, monkeypatch):
+    """换过合约之后账上主键是 ``<合约>:<链上 id>``：问链必须先还原成链上 id。
+
+    2026-09-21 v5 真钱实测抓到的：对账那一遍直接 ``int(row.binding_id)``，于是**每一次
+    合约升级之后**，所有撞上历史号数的绑定在对账里都抛 ValueError —— 链上早就 CANCELLED
+    了，台账永远停在 active，worker 每轮刷一条
+    ``invalid literal for int() with base 10: '0x65eb…:4'``，用户被占的额度也永远回不来。
+    """
+    seen: list[int] = []
+
+    def _state(*, binding_id, **_kw):
+        seen.append(binding_id)
+        return 5  # CANCELLED
+
+    monkeypatch.setattr(autosettle.escrow, "binding_state", _state)
+    composite = "0x65eb82058F4ea707B1a0aFb2A5872eb95076b6F2:7"
+    db_session.add(binding(composite, state="active"))
+    await db_session.commit()
+
+    aligned = await autosettle.reconcile_from_chain(db_session)
+
+    assert seen == [7], "问链要用链上 id，不是带合约前缀的账上主键"
+    assert aligned[0]["binding_id"] == composite
+    assert (await db_session.get(EscrowBindingModel, composite)).state == "cancelled"

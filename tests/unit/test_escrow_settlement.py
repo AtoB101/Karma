@@ -768,6 +768,50 @@ async def test_a_binding_on_a_retired_contract_is_read_back_from_that_contract(
     assert refreshed.state == "settled"
 
 
+@pytest.mark.asyncio
+async def test_a_composite_ledger_key_still_points_at_the_chain_binding(
+    db_session, chain, monkeypatch
+):
+    """换过合约之后账上主键是 ``<合约>:<链上 id>``：对账要问的是链上 id，
+    写回结算单的 ``onchain_binding_id`` 也必须是链上 id（操作台据此指回链上）。"""
+    bridge, _calls = chain
+    db_session.add(settlement_row(status="finalizing"))
+    await db_session.flush()
+    composite = f"{settings.allowance_escrow_address}:101"
+    db_session.add(
+        EscrowBindingModel(
+            binding_id=composite,
+            buyer_identity_id=BUYER,
+            seller_identity_id=SELLER,
+            buyer_bill_id="1",
+            seller_bill_id="2",
+            scope_hash="0x" + "00" * 32,
+            task_id=TASK,
+            amount_usdc=30.0,
+            stake_usdc=9.0,
+            state="finalizing",
+            contract_address=settings.allowance_escrow_address,
+        )
+    )
+    await db_session.flush()
+
+    seen: dict[str, object] = {}
+
+    def _state(*, binding_id, contract_address=None):
+        seen["binding_id"] = binding_id
+        return 3  # SETTLED
+
+    monkeypatch.setattr(escrow, "binding_state", _state)
+
+    out = await bridge.reconcile_task(db_session, task_id=TASK)
+
+    assert out["status"] == "settled"
+    assert seen["binding_id"] == 101
+    assert (await db_session.get(EscrowBindingModel, composite)).state == "settled"
+    settlement = (await db_session.execute(select(SettlementModel))).scalars().first()
+    assert settlement.onchain_binding_id == 101
+
+
 # ─────────────────────────── v4：买方确认（缩短窗口）+ 取消的状态机闸
 
 async def _open_active(db_session, bridge) -> EscrowBindingModel:

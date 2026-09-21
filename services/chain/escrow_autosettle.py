@@ -216,12 +216,19 @@ async def _onchain_state(row: EscrowBindingModel) -> int | None:
     """Ask the contract. An RPC hiccup must not stall the tick, so it returns None.
 
     问的是**这条绑定自己**那台合约（合约换过地址之后，新合约不认识旧 binding id）。
+
+    问链的 id 一律过 ``chain_binding_id``：账上主键跨合约唯一，换过合约之后会写成
+    ``<合约地址>:<链上 id>``（见 ``escrow_settlement.local_binding_id``）。曾经这里
+    直接 ``int(row.binding_id)``，于是**每一次合约升级之后**，所有撞上历史号数的绑定
+    在对账那一遍里都抛 ValueError —— 链上早就 CANCELLED / SETTLED 了，台账永远停在
+    active，worker 每轮刷一条警告，用户的额度也永远回不来（2026-09-21 v5 实测抓到的：
+    ``invalid literal for int() with base 10: '0x65eb…:4'``）。
     """
     binding_id = row.binding_id
     try:
         return await asyncio.to_thread(
             escrow.binding_state,
-            binding_id=int(binding_id),
+            binding_id=escrow_settlement.chain_binding_id(row),
             contract_address=escrow.binding_contract(row),
         )
     except Exception as exc:  # noqa: BLE001 - read-only, best effort
