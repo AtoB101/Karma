@@ -696,6 +696,8 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
         reason="manual partial settlement applied",
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
+        # 买方本人点的放款：链上打 buyerConfirm，划款不等争议窗口（v4）。
+        buyer_confirmed=True,
     )
 
     await apply_capacity_resolution(
@@ -744,6 +746,8 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
         reason="buyer regret settlement",
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
+        # 买方本人点的放款：链上打 buyerConfirm，划款不等争议窗口（v4）。
+        buyer_confirmed=True,
     )
 
     await apply_capacity_resolution(
@@ -913,6 +917,8 @@ async def buyer_accept_settlement(
         reason="buyer accepted delivered work",
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
+        # 买方本人点的放款：链上打 buyerConfirm，划款不等争议窗口（v4）。
+        buyer_confirmed=True,
     )
     await apply_capacity_resolution(
         db=db,
@@ -1294,7 +1300,13 @@ def _resolve_actor_id(request: Request) -> str | None:
     return resolve_agent_id_from_request(request)
 
 
-async def _sync_escrow_settlement(*, db: AsyncSession, state: SettlementState, target_status: TaskStatus) -> None:
+async def _sync_escrow_settlement(
+    *,
+    db: AsyncSession,
+    state: SettlementState,
+    target_status: TaskStatus,
+    buyer_confirmed: bool = False,
+) -> None:
     """把状态机的两个关键点接到链上（详见 services/chain/escrow_settlement.py）。
 
     接单（→ ACCEPTED）  ：买方承诺 + 卖方质押在链上 bind 成一个 binding。
@@ -1304,6 +1316,10 @@ async def _sync_escrow_settlement(*, db: AsyncSession, state: SettlementState, t
 
     链上没落定，业务状态就不许往前走 —— 这一层存在的意义就是让「已结算」在链上
     有对应的钱，而不是数据库里的一个数字。托管未启用时整段是空操作。
+
+    ``buyer_confirmed`` 只有买方本人表态的那几条路会传 True（验收 / 部分结算 /
+    买方让步结算）：验证已经过了、买方也点了头，链上就打一笔 ``buyerConfirm``，
+    划款不必再等争议窗口（v4）。
     """
     from services.chain import escrow_settlement
 
@@ -1324,6 +1340,7 @@ async def _sync_escrow_settlement(*, db: AsyncSession, state: SettlementState, t
                 db,
                 task_id=state.task_id,
                 released_amount=state.released_amount,
+                buyer_confirmed=buyer_confirmed,
             )
         elif status == TaskStatus.REFUNDED:
             # 全额退款 = 这次交付被裁定为一文不值 = 卖方违约：质押划给买方。
@@ -1347,6 +1364,7 @@ async def _apply_transition(
     reason: str,
     route_path: str,
     actor_id: str | None,
+    buyer_confirmed: bool = False,
 ) -> SettlementState:
     from_status = state.status
     if not can_transition(from_status, target_status):
@@ -1394,7 +1412,9 @@ async def _apply_transition(
         route_path=route_path,
         actor_id=actor_id,
     )
-    await _sync_escrow_settlement(db=db, state=state, target_status=target_status)
+    await _sync_escrow_settlement(
+        db=db, state=state, target_status=target_status, buyer_confirmed=buyer_confirmed
+    )
     # 上面那句链上调用是**同步**的：钱在链上动了，真相由 escrow_settlement 写回数据库行
     # （onchain_status / onchain_binding_id / tx_hash）。但它改的是 ORM 行，不是手里这个
     # pydantic 对象 —— 直接把 state 返回出去，操作台刚接完单就会看到 onchain_status=null，

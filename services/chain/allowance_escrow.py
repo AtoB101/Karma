@@ -109,6 +109,12 @@ EVENT_FIELDS: dict[str, list[tuple[str, str, bool]]] = {
         ("token", "address", False),
         ("amount", "uint256", False),
     ],
+    # v4：买方在链上自己打的「确认放款」标记（finalize 不再等窗口）。
+    "BuyerConfirmed": [
+        ("bindingId", "uint256", True),
+        ("by", "address", True),
+        ("confirmedAt", "uint256", False),
+    ],
 }
 
 
@@ -124,6 +130,7 @@ BOUND_SIG = event_signature("BillsBound")
 SUBMITTED_SIG = event_signature("SettleSubmitted")
 SETTLED_SIG = event_signature("Settled")
 SLASHED_SIG = event_signature("StakeSlashed")
+BUYER_CONFIRMED_SIG = event_signature("BuyerConfirmed")
 
 _ABI_FUNCTIONS = [
     {
@@ -189,6 +196,13 @@ _ABI_FUNCTIONS = [
         "outputs": [],
     },
     {
+        "name": "buyerConfirm",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
         "name": "getBinding",
         "type": "function",
         "stateMutability": "view",
@@ -209,6 +223,8 @@ _ABI_FUNCTIONS = [
                     {"name": "settleAfter", "type": "uint256"},
                     {"name": "proofHash", "type": "bytes32"},
                     {"name": "closedAt", "type": "uint256"},
+                    {"name": "buyerConfirmed", "type": "bool"},
+                    {"name": "confirmedAt", "type": "uint256"},
                 ],
             }
         ],
@@ -293,6 +309,11 @@ _ABI_ERRORS = [
     {"type": "error", "name": "PullFailed", "inputs": []},
     {"type": "error", "name": "CustodyViolation", "inputs": []},
     {"type": "error", "name": "NotSettlementParty", "inputs": []},
+    {
+        "type": "error",
+        "name": "AlreadyConfirmed",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+    },
     {"type": "error", "name": "NotResolver", "inputs": []},
     {"type": "error", "name": "NotBillOwner", "inputs": [{"name": "billId", "type": "uint256"}]},
     {"type": "error", "name": "NotBillOperator", "inputs": [{"name": "billId", "type": "uint256"}]},
@@ -448,7 +469,8 @@ def _operator_account():
 
 
 _FRIENDLY_REVERTS = {
-    "WrongBindingState": "这条绑定在链上已经不是「待结算」状态（已结算/已取消/已罚没），不能重复执行",
+    "WrongBindingState": "这条绑定在链上已经不是这一步允许的状态（可能已提交/已结算/已取消/已罚没）",
+    "AlreadyConfirmed": "这一单买方已经确认过了（同一笔不能重复确认）",
     "UnknownBinding": "链上没有这条绑定",
     "SettleDelayActive": "挑战窗口还没到点，现在还不能划款",
     "InsufficientCommitment": "链上可用锁仓额度不足，请先补足锁仓或提高对该托管合约的授权额",
@@ -458,7 +480,7 @@ _FRIENDLY_REVERTS = {
     "NotResolver": "只有 Karma 的争议裁决账户可以执行罚没",
     "NotBillOperator": "调用方不是这张账单的授权操作者",
     "NotBillOwner": "调用方不是这张账单的所有者",
-    "NotSettlementParty": "调用方不是这一单的结算当事方",
+    "NotSettlementParty": "调用方不是这一单的结算当事方（确认放款只能是买方本人或买方账单上的操作者）",
     "SameOwner": "买方和卖方是同一个钱包，不能自己跟自己绑定",
     "TokenMismatch": "买卖双方账单用的不是同一个代币",
     "PullFailed": "划款失败：付款方钱包余额或授权额不足",
@@ -1524,12 +1546,39 @@ _BINDING_FIELDS = [
     c["name"] for c in next(f for f in _ABI_FUNCTIONS if f.get("name") == "getBinding")["outputs"][0]["components"]
 ]
 
+#: v3 及更早的 ``Binding`` 元组：没有 buyerConfirmed / confirmedAt 两个尾巴。
+#: 升级到 v4 之后，历史行仍然指向旧合约 —— 拿 v4 的 ABI 去读它们，web3 会在解码
+#: 那一步直接炸，于是旧绑定的状态再也读不出来（对账、收尾全瞎）。所以旧宽度要
+#: 单独认：前 11 个字段两代完全一致。
+_LEGACY_BINDING_FIELDS = _BINDING_FIELDS[:11]
 
-def binding_state(*, binding_id: int, contract_address: str | None = None) -> int | None:
-    """读合约自己记的绑定状态 —— 唯一的事实来源。
 
-    用来对账「我们没等到回执、但交易其实上链了」的那一单：receipt 等待超时
-    只说明我们没看见，不代表链上没有发生。链说了算。
+def _binding_dict(w3, address: str, binding_id: int) -> dict[str, Any]:
+    """读 getBinding，按合约实际返回的宽度认字段（v4 与 v3 各一套）。"""
+    raw = None
+    try:
+        raw = _contract(w3, address).functions.getBinding(int(binding_id)).call()
+    except Exception as exc:  # noqa: BLE001 - 旧宽度 / RPC 抖动：两种都再试一次
+        legacy_selector = w3.keccak(text="getBinding(uint256)")[:4]
+        try:
+            data = legacy_selector + int(binding_id).to_bytes(32, "big")
+            decoded = w3.codec.decode(
+                ["uint256", "uint256", "uint256", "bytes32", "uint256", "uint256",
+                 "uint8", "uint256", "uint256", "bytes32", "uint256"],
+                w3.eth.call({"to": w3.to_checksum_address(address), "data": data}),
+            )
+        except Exception as legacy_exc:  # noqa: BLE001
+            raise exc from legacy_exc
+        return dict(zip(_LEGACY_BINDING_FIELDS, decoded, strict=False))
+    fields = _BINDING_FIELDS if len(raw) == len(_BINDING_FIELDS) else _LEGACY_BINDING_FIELDS
+    return dict(zip(fields, raw, strict=False))
+
+
+def binding_snapshot(*, binding_id: int, contract_address: str | None = None) -> dict[str, Any] | None:
+    """一条绑定的链上快照：状态机 + 买方确认 + 两个时间戳。
+
+    旧合约（v3 之前）没有 ``buyerConfirmed`` 字段，按 False 返回 —— 「没有这个
+    标记」和「标记没置位」对调用方是同一件事：窗口照旧。
 
     ``contract_address`` 默认当前合约；旧绑定必须传它自己那台，否则新合约不认识
     这个 binding id（``UnknownBinding`` revert）。
@@ -1537,9 +1586,24 @@ def binding_state(*, binding_id: int, contract_address: str | None = None) -> in
     if not escrow_enabled():
         return None
     w3 = _web3()
-    contract = _contract(w3, contract_address)
-    raw = contract.functions.getBinding(int(binding_id)).call()
-    return int(dict(zip(_BINDING_FIELDS, raw, strict=False))["state"])
+    row = _binding_dict(w3, contract_address or configured_address(), int(binding_id))
+    return {
+        "state": int(row["state"]),
+        "buyer_confirmed": bool(row.get("buyerConfirmed", False)),
+        "confirmed_at": int(row.get("confirmedAt", 0) or 0),
+        "settle_after": int(row.get("settleAfter", 0) or 0),
+        "closed_at": int(row.get("closedAt", 0) or 0),
+    }
+
+
+def binding_state(*, binding_id: int, contract_address: str | None = None) -> int | None:
+    """读合约自己记的绑定状态 —— 唯一的事实来源。
+
+    用来对账「我们没等到回执、但交易其实上链了」的那一单：receipt 等待超时
+    只说明我们没看见，不代表链上没有发生。链说了算。
+    """
+    snapshot = binding_snapshot(binding_id=binding_id, contract_address=contract_address)
+    return None if snapshot is None else int(snapshot["state"])
 
 
 def bill_available(*, bill_id: int, contract_address: str | None = None) -> float | None:
@@ -1582,13 +1646,49 @@ def finalize_breach(
     return {"binding_id": int(binding_id), "breach_tx_hash": tx, "slashed_usdc": slashed_usdc}
 
 
+def buyer_confirm(
+    *, binding_id: int, contract_address: str | None = None
+) -> dict[str, Any]:
+    """买方在链上确认这一单：验证已过 + 买方点头 -> 放款不再等窗口（v4）。
+
+    只能用在 ``FINALIZING`` 上 —— resolver 已经提交、钱已经有了受款人。它做的是
+    **缩短等待**，不是开一个新的支付通道：金额、质押、去向都在 ``bind`` 时定死，
+    没有这笔标记，窗口到点后照样会划。
+
+    幂等：链上说这一单已经确认过就直接返回 ``already_confirmed``，不重复发交易
+    （合约第二次调用会 ``AlreadyConfirmed`` revert；那是状态，不是错误）。
+    """
+    if not escrow_enabled():
+        raise WalletLockError(disabled_detail())
+    w3 = _web3()
+    contract = _contract(w3, contract_address)
+    snapshot = binding_snapshot(binding_id=binding_id, contract_address=contract_address)
+    if snapshot is not None and snapshot.get("buyer_confirmed"):
+        return {
+            "binding_id": int(binding_id),
+            "buyer_confirmed": True,
+            "confirm_tx_hash": None,
+            "status": "already_confirmed",
+        }
+    receipt, tx = _send_tx(contract.functions.buyerConfirm(int(binding_id)))
+    return {
+        "binding_id": int(binding_id),
+        "buyer_confirmed": True,
+        "confirm_tx_hash": tx,
+        "status": "confirmed",
+    }
+
+
 def cancel_binding(
     *, binding_id: int, contract_address: str | None = None
 ) -> dict[str, Any]:
     """Release an orphaned reservation (e.g. a bind whose caller died).
 
-    Any party — or their operator — may cancel while nothing has been submitted,
-    so a reservation can never be stranded by a crashed process.
+    Only while the binding is **ACTIVE** (v4): the state machine refuses a cancel
+    once ``submitSettlement`` has landed, because at that point the money has an
+    owner-in-waiting and the only ways out are the two that also move it. So a
+    reservation can still never be stranded by a crashed process — but it can
+    also never be taken back after delivery.
     """
     if not escrow_enabled():
         raise WalletLockError(disabled_detail())

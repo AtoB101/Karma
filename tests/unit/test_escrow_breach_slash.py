@@ -134,6 +134,7 @@ def chain(monkeypatch):
     monkeypatch.setattr(escrow, "submit_settlement", _submit_settlement)
     monkeypatch.setattr(escrow, "cancel_binding", _cancel_binding)
     monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: None)
+    monkeypatch.setattr(escrow, "binding_snapshot", lambda *, binding_id, **kw: None)
     monkeypatch.setattr(
         escrow, "bill_available", lambda *, bill_id, **kw: _available.get(str(bill_id))
     )
@@ -229,14 +230,20 @@ async def test_slash_is_idempotent_and_never_touches_a_done_binding(db_session, 
 
 @pytest.mark.asyncio
 async def test_cancel_for_task_refuses_to_release_a_breaching_binding(db_session, chain):
-    """breaching 的 binding 只能走罚没通道；撤销会把它变成「不罚了」，必须拒绝。"""
+    """breaching 的 binding 只能走罚没通道；撤销会把它变成「不罚了」，必须拒绝。
+
+    v4 起这条拒绝是**硬**的：不再是「静默返回当前状态」，而是明确报 409 ——
+    调用方（路由层）要能把这笔钱拦在「还有责任」这一步上。
+    """
     bridge, calls = chain
     row = await _open(db_session, bridge)
     await bridge.slash_for_task(db_session, task_id=TASK)
 
-    out = await bridge.cancel_for_task(db_session, task_id=TASK)
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.cancel_for_task(db_session, task_id=TASK)
 
-    assert out["status"] == "breaching"
+    assert exc.value.status == 409
+    assert "责任状态" in exc.value.message
     assert calls["cancel"] == []
     fresh = await db_session.get(EscrowBindingModel, row.binding_id)
     assert fresh.state == "breaching"
@@ -292,8 +299,8 @@ async def test_refunded_routes_to_slashing_and_cancelled_routes_to_release(db_se
         seen.append(("bind", kw["task_id"]))
         return {}
 
-    async def _submit(db, *, task_id, released_amount=None):
-        seen.append(("submit", task_id))
+    async def _submit(db, *, task_id, released_amount=None, buyer_confirmed=False):
+        seen.append(("submit", task_id, buyer_confirmed))
         return {}
 
     monkeypatch.setattr(bridge, "slash_for_task", _slash)
@@ -313,8 +320,15 @@ async def test_refunded_routes_to_slashing_and_cancelled_routes_to_release(db_se
         ("slash", "task-x"),
         ("cancel", "task-x"),
         ("bind", "task-x"),
-        ("submit", "task-x"),
+        ("submit", "task-x", False),
     ]
+
+    # 买方本人表态的那条路要把标记透到链上（v4）
+    seen.clear()
+    await routes._sync_escrow_settlement(
+        db=db_session, state=state, target_status=TaskStatus.SETTLED, buyer_confirmed=True
+    )
+    assert seen == [("submit", "task-x", True)]
 
 
 # ------------------------------------------------ autosettle：到点真的划质押

@@ -163,6 +163,14 @@ async def reap_stranded(db: AsyncSession, *, now: datetime | None = None) -> lis
         if await _reconcile_from_chain(db, row, freed):
             logger.info("escrow_stranded_reconciled_from_chain", binding_id=row.binding_id)
             continue
+        # 链上窗口已经开着（submit 的交易上链了、写库断在中间）：这一单的钱有了
+        # 受款人，合约不再放行 cancelBinding（v4 的状态机闸）。先把台账拉到链上，
+        # 否则每一轮都会重发一笔注定被 WrongBindingState 拒掉的交易。
+        if await escrow_settlement.adopt_chain_finalizing(db, row=row, task_id=row.task_id):
+            logger.info(
+                "escrow_stranded_adopted_finalizing", binding_id=row.binding_id, task_id=row.task_id
+            )
+            continue
         status = await _settlement_status(db, row.task_id)
         if status is None:
             continue

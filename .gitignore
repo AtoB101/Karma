@@ -83,3 +83,4 @@ dist/
 packages/karma-a2a-bridge/data/
 *.sqlite3
 mvp_data/
+.forge-cache/

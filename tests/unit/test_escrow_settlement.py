@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 
 import pytest
@@ -82,7 +83,7 @@ def chain(monkeypatch):
     """把链换成记账本 —— 每一次「上链」都被记下来，用来断言业务步骤 == 交易笔数。"""
     from services.chain import escrow_settlement as bridge
 
-    calls: dict[str, list] = {"bind": [], "submit": [], "cancel": []}
+    calls: dict[str, list] = {"bind": [], "submit": [], "cancel": [], "confirm": []}
 
     # 回执门禁另有专门用例（test_the_receipt_gate_really_blocks_a_payout_with_no_receipt）：
     # 这里把它关掉 —— 等价于「这一单已经有成功回执」，免得每条用例都要先造一张回执。
@@ -126,10 +127,23 @@ def chain(monkeypatch):
         calls["cancel"].append(binding_id)
         return {"binding_id": binding_id, "cancel_tx_hash": "0xcancel%d" % len(calls["cancel"])}
 
+    def _buyer_confirm(*, binding_id, **_kw):
+        calls["confirm"].append(binding_id)
+        return {
+            "binding_id": binding_id,
+            "buyer_confirmed": True,
+            "confirm_tx_hash": "0xconfirm%d" % len(calls["confirm"]),
+            "status": "confirmed",
+        }
+
     monkeypatch.setattr(escrow, "open_order", _open_order)
     monkeypatch.setattr(escrow, "submit_settlement", _submit_settlement)
     monkeypatch.setattr(escrow, "cancel_binding", _cancel_binding)
     monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: None)
+    # 链上快照：默认「读不到」（等价于 RPC 抖动）。要模拟链上真的开着窗的用例
+    # 自己覆盖这一条（见 v4 那组）。
+    monkeypatch.setattr(escrow, "binding_snapshot", lambda *, binding_id, **kw: None)
+    monkeypatch.setattr(escrow, "buyer_confirm", _buyer_confirm)
     monkeypatch.setattr(
         escrow, "bill_available", lambda *, bill_id, **kw: _available.get(str(bill_id))
     )
@@ -752,3 +766,133 @@ async def test_a_binding_on_a_retired_contract_is_read_back_from_that_contract(
     assert seen["contract_address"] == RETIRED
     refreshed = await db_session.get(EscrowBindingModel, row.binding_id)
     assert refreshed.state == "settled"
+
+
+# ─────────────────────────── v4：买方确认（缩短窗口）+ 取消的状态机闸
+
+async def _open_active(db_session, bridge) -> EscrowBindingModel:
+    """开一张 ACTIVE 的绑定（钱还没动，谁都能撤）。"""
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+    return (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+
+
+@pytest.mark.asyncio
+async def test_buyer_confirm_marks_the_chain_and_makes_the_payout_due_now(db_session, chain):
+    """验证已过 + 买方自己确认 -> 划款立刻到期，不再等争议窗口。"""
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    row = await _open_active(db_session, bridge)
+    await bridge.submit_for_task(db_session, task_id=TASK, released_amount=30.0)
+    assert row.state == bridge.FINALIZING
+    assert row.pull_after == 1_700_000_000          # 链上给的窗口
+    assert row.buyer_confirmed_at is None
+
+    out = await bridge.buyer_confirm_for_task(db_session, task_id=TASK)
+
+    assert out["confirmed"] is True
+    assert calls["confirm"] == [101]
+    assert row.buyer_confirmed_at is not None
+    assert row.pull_after <= int(time.time())       # 窗口不再挡路
+
+    again = await bridge.buyer_confirm_for_task(db_session, task_id=TASK)
+    assert again["already"] is True
+    assert len(calls["confirm"]) == 1               # 不会重复发第二笔
+
+
+@pytest.mark.asyncio
+async def test_buyer_accept_path_marks_the_chain_in_the_same_request(db_session, chain):
+    """验收（buyer-accept / partial / regret）走的是同一条：开窗 + 买方确认一起做完。"""
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    row = await _open_active(db_session, bridge)
+
+    await bridge.submit_for_task(
+        db_session, task_id=TASK, released_amount=30.0, buyer_confirmed=True
+    )
+
+    assert calls["confirm"] == [101]
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.buyer_confirmed_at is not None
+    assert fresh.pull_after <= int(time.time())
+
+
+@pytest.mark.asyncio
+async def test_cancel_is_refused_once_the_money_has_an_owner_in_waiting(db_session, chain):
+    """取消的判据是**责任状态**，不是时间：窗口开着就不许撤（v4 的状态机闸）。"""
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    row = await _open_active(db_session, bridge)
+    await bridge.submit_for_task(db_session, task_id=TASK, released_amount=30.0)
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.cancel_for_task(db_session, task_id=TASK)
+
+    assert exc.value.status == 409
+    assert "责任状态" in exc.value.message
+    assert calls["cancel"] == []                    # 一笔都没发
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.state == bridge.FINALIZING         # 状态机不许被改写
+
+
+@pytest.mark.asyncio
+async def test_cancel_follows_the_chain_when_the_ledger_is_behind(db_session, chain, monkeypatch):
+    """账上写 active、链上其实已经开窗：按链上拉齐，并且拒绝这次取消。"""
+    bridge, calls = chain
+    row = await _open_active(db_session, bridge)
+    monkeypatch.setattr(
+        escrow,
+        "binding_snapshot",
+        lambda *, binding_id, **kw: {
+            "state": 2,                             # FINALIZING
+            "buyer_confirmed": False,
+            "confirmed_at": 0,
+            "settle_after": 1_700_000_060,
+            "closed_at": 0,
+        },
+    )
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.cancel_for_task(db_session, task_id=TASK)
+
+    assert exc.value.status == 409
+    assert calls["cancel"] == []
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.state == bridge.FINALIZING         # 台账按链上拉齐
+    assert fresh.pull_after == 1_700_000_060        # 窗口也跟着链上走
+
+
+@pytest.mark.asyncio
+async def test_submit_does_not_re_send_when_the_chain_already_opened_the_window(
+    db_session, chain, monkeypatch
+):
+    """submit 的交易上链了、写库断在中间：不重发，直接把台账拉到链上。"""
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    row = await _open_active(db_session, bridge)
+    monkeypatch.setattr(
+        escrow,
+        "binding_snapshot",
+        lambda *, binding_id, **kw: {
+            "state": 2,
+            "buyer_confirmed": False,
+            "confirmed_at": 0,
+            "settle_after": 1_700_000_060,
+            "closed_at": 0,
+        },
+    )
+
+    await bridge.submit_for_task(db_session, task_id=TASK, released_amount=30.0)
+
+    assert calls["submit"] == []                    # 没有第二笔 submit
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.state == bridge.FINALIZING
+    assert fresh.pull_after == 1_700_000_060

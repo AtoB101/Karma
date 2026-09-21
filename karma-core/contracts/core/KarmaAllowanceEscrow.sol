@@ -9,6 +9,23 @@ pragma solidity ^0.8.24;
 /// platform's verification was advisory. v3 makes "verified" a *condition*:
 /// only the resolver (Karma's verification account) can start a settlement.
 ///
+/// v4 (2026-09-21): the binding's *state machine* is the cancel gate, and the
+/// buyer gets their own mark.
+///
+///   * ``buyerConfirm`` — the buyer's own "pay the seller" mark. It can only be
+///     set while the binding is FINALIZING, i.e. after the resolver already
+///     authorized the pull, and it only **shortens the wait**: once set,
+///     ``finalizeSettlement`` no longer requires ``settleAfter`` to have
+///     elapsed. It can never start a payment, raise an amount, or move money on
+///     its own — every path it opens was already open, just slower.
+///   * ``cancelBinding`` — allowed **only** from ``ACTIVE``, the one state in
+///     which no money carries a responsibility. Once ``submitSettlement`` lands,
+///     the funds have an owner-in-waiting, and both reservations may only be
+///     released by the two exits that close the binding *and* move the money
+///     (``finalizeSettlement`` / ``finalizeBreach``). Deliberate: a window that
+///     either party can revoke is not protection for the other party, it is an
+///     option to walk away after delivery.
+///
 /// v1 (`KarmaBilateral`) moved the payer's USDC *into* the contract, so every
 /// later step needed the bill owner's signature again. v2 never takes custody:
 ///
@@ -53,6 +70,7 @@ contract KarmaAllowanceEscrow {
     error PullFailed();
     error CustodyViolation();
     error ReservationActive(uint256 reserved);
+    error AlreadyConfirmed(uint256 bindingId);
 
     enum BillState { NONE, OPEN, CLOSED }
     enum BindingState { NONE, ACTIVE, FINALIZING, SETTLED, SLASHED, CANCELLED }
@@ -81,6 +99,9 @@ contract KarmaAllowanceEscrow {
         uint256 settleAfter; // timestamp before which nothing may be pulled
         bytes32 proofHash;
         uint256 closedAt;
+        //: 买方的「确认放款」标记。只在 FINALIZING 可置位；置位后 finalize 不等窗口。
+        bool buyerConfirmed;
+        uint256 confirmedAt;
     }
 
     address public immutable admin;
@@ -104,6 +125,7 @@ contract KarmaAllowanceEscrow {
     event Settled(uint256 indexed bindingId, address from, address to, address token, uint256 amount);
     event StakeSlashed(uint256 indexed bindingId, address from, address to, address token, uint256 amount);
     event BindingCancelled(uint256 indexed bindingId);
+    event BuyerConfirmed(uint256 indexed bindingId, address indexed by, uint256 confirmedAt);
     event DisputeWindowUpdated(uint256 seconds_);
     event SettleDelayUpdated(uint256 seconds_);
     event DisputeResolverUpdated(address indexed resolver);
@@ -249,15 +271,37 @@ contract KarmaAllowanceEscrow {
             createdAt: block.timestamp,
             settleAfter: block.timestamp + settleDelaySeconds,
             proofHash: bytes32(0),
-            closedAt: 0
+            closedAt: 0,
+            buyerConfirmed: false,
+            confirmedAt: 0
         });
         emit BillsBound(bindingId, buyerBillId, sellerBillId, scopeHash, amount, stakeAmount);
     }
 
-    /// @notice Release both reservations before anything was submitted.
+    /// @notice Release both reservations — **only while the binding is ACTIVE**.
+    ///
+    ///         ``ACTIVE`` is the one state in which this binding's money carries
+    ///         no responsibility: no proof has been submitted, nobody has been
+    ///         told they will be paid, and the window has not started. Releasing
+    ///         the reservations there just puts "you may spend this again" back
+    ///         on both bills.
+    ///
+    ///         From ``FINALIZING`` on, the money has an owner-in-waiting: the
+    ///         resolver has already ruled that delivery is verified and the pull
+    ///         is armed. Letting either side cancel there would turn the dispute
+    ///         window into an option to walk away *after* delivery — the seller
+    ///         would have delivered and the buyer could still take the pledge
+    ///         back with no arbitration. So the state machine refuses it, and the
+    ///         only two exits left are the ones that also move the money:
+    ///         ``finalizeSettlement`` (pay the seller) or ``finalizeBreach``
+    ///         (slash the seller's stake to the buyer).
+    ///
+    ///         This is a *state* gate, never a clock gate: a binding whose
+    ///         window has long elapsed but whose pull has not been cranked yet
+    ///         is still FINALIZING and still not cancellable.
     function cancelBinding(uint256 bindingId) external {
         Binding storage b = _requireBinding(bindingId);
-        if (b.state != BindingState.ACTIVE && b.state != BindingState.FINALIZING) revert WrongBindingState(bindingId);
+        if (b.state != BindingState.ACTIVE) revert WrongBindingState(bindingId);
         Bill storage buyerBill = bills[b.buyerBillId];
         Bill storage sellerBill = bills[b.sellerBillId];
         if (
@@ -269,6 +313,35 @@ contract KarmaAllowanceEscrow {
         b.state = BindingState.CANCELLED;
         b.closedAt = block.timestamp;
         emit BindingCancelled(bindingId);
+    }
+
+    /// @notice The buyer's own "this delivery is confirmed, pay the seller" mark.
+    ///
+    ///         The buyer (bill owner, or the operator they installed on that bill
+    ///         — the same delegate that may bind for them) marks a binding that
+    ///         the resolver has already submitted. From then on
+    ///         ``finalizeSettlement`` pays out immediately instead of waiting
+    ///         for ``settleAfter``: when both sides have confirmed there is
+    ///         nothing left to dispute, so the window has no job.
+    ///
+    ///         What it can *not* do: open a settlement (resolver-only), change
+    ///         the amount or the stake (fixed at ``bind``), touch another
+    ///         binding, or outlive its own binding (FINALIZING only, and the
+    ///         binding is single-use). Marking is therefore never a new power
+    ///         over funds — it only makes an already-authorized pull faster.
+    ///
+    ///         If the buyer says nothing, nothing changes: the window still
+    ///         expires on its own and the pull goes through.
+    function buyerConfirm(uint256 bindingId) external {
+        Binding storage b = _requireBinding(bindingId);
+        if (b.state != BindingState.FINALIZING) revert WrongBindingState(bindingId);
+        Bill storage buyerBill = bills[b.buyerBillId];
+        if (!_canAct(buyerBill, msg.sender)) revert NotSettlementParty();
+        if (b.buyerConfirmed) revert AlreadyConfirmed(bindingId);
+
+        b.buyerConfirmed = true;
+        b.confirmedAt = block.timestamp;
+        emit BuyerConfirmed(bindingId, msg.sender, block.timestamp);
     }
 
     // ───────────────────────────────────────────────────────────── settling
@@ -293,7 +366,9 @@ contract KarmaAllowanceEscrow {
     ///           * verification failed  -> nobody can start the pull. Parties may
     ///             only ``cancelBinding``, which releases reservations and moves
     ///             no money.
-    ///           * inside the window either party may still ``cancelBinding``.
+    ///           * inside the window the reservations are **frozen**: this call
+    ///             is the line after which only ``finalizeSettlement`` /
+    ///             ``finalizeBreach`` may close the binding (v4).
     function submitSettlement(uint256 bindingId, bytes32 proofHash) external {
         Binding storage b = _requireBinding(bindingId);
         if (b.state != BindingState.ACTIVE) revert WrongBindingState(bindingId);
@@ -306,14 +381,18 @@ contract KarmaAllowanceEscrow {
         emit SettleSubmitted(bindingId, proofHash, b.settleAfter);
     }
 
-    /// @notice Execute the pull: buyer wallet -> seller wallet, after the window.
+    /// @notice Execute the pull: buyer wallet -> seller wallet.
     ///         Anyone may call — the window is the protection, not access control.
     ///         If the buyer revoked the allowance, this reverts and the seller is
     ///         simply not paid: an off-chain breach, never a stuck fund.
+    ///
+    ///         The window is skipped when the buyer has already marked this
+    ///         binding with ``buyerConfirm``: verified delivery + the buyer's own
+    ///         yes is exactly the case the window was there to wait out.
     function finalizeSettlement(uint256 bindingId) external returns (uint256 paid) {
         Binding storage b = _requireBinding(bindingId);
         if (b.state != BindingState.FINALIZING) revert WrongBindingState(bindingId);
-        if (block.timestamp < b.settleAfter) revert SettleDelayActive(b.settleAfter);
+        if (block.timestamp < b.settleAfter && !b.buyerConfirmed) revert SettleDelayActive(b.settleAfter);
 
         Bill storage buyerBill = bills[b.buyerBillId];
         Bill storage sellerBill = bills[b.sellerBillId];

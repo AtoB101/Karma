@@ -411,6 +411,9 @@ class EscrowBindingModel(Base):
     submit_tx_hash:    Mapped[str|None]   = mapped_column(String(80), nullable=True)
     finalize_tx_hash:  Mapped[str|None]   = mapped_column(String(80), nullable=True)
     pull_after:        Mapped[int|None]   = mapped_column(Integer, nullable=True)
+    #: 买方在链上打过「确认放款」标记的时刻（v4 ``buyerConfirm``）。有它就不必
+    #: 再等争议窗口：验证已过 + 买方自己点头，划款立刻可执行。
+    buyer_confirmed_at: Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
     created_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

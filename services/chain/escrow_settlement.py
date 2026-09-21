@@ -12,6 +12,12 @@ SETTLED，链上一分钱没动。于是「已锁仓额度」只是台账里的�
                      escrow autosettle 循环执行 ``finalizeSettlement``，钱从买方
                      钱包直接划到卖方钱包。
 退款 / 取消           ``cancelBinding``，把买方被占住的授权原样放回去，钱不动。
+                      **只在 ACTIVE**（v4）：窗口一开，钱就有了受款人，链上状态机
+                      不再放行取消 —— 取消的判据是责任状态，不是时间。
+
+买方确认（v4）        ``buyerConfirm``：验证已过 + 买方自己点头 -> ``finalizeSettlement``
+                      立刻可执行，不用再等争议窗口。它只**缩短等待**：金额、质押、
+                      去向都在 bind 时定死，没有这笔标记窗口到点后照样划款。
 
 门槛：买方和卖方都必须**先在链上锁过仓**。没有真账单就不 bind —— 接单直接 409，
 并把缺多少说清楚。额度从此不是可以凭空记的数字。
@@ -28,6 +34,7 @@ services/chain/escrow_autosettle.py）。所以「验证到底过没过」链上
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime
 from typing import Any
 
@@ -54,7 +61,20 @@ BREACHING = "breaching"    # 已裁定违约，等争议窗口到点后罚没（
 _DONE_STATES = (SETTLED, CANCELLED, SLASHED)
 
 #: 合约自己记的 binding 状态（见 allowance_escrow.BINDING_STATE）
+_CHAIN_ACTIVE = 1
+_CHAIN_FINALIZING = 2
 _CHAIN_FINAL = {3: SETTLED, 4: SLASHED, 5: CANCELLED}
+
+#: **资金责任状态**：链上窗口已经打开，钱已经有了受款人（在等放款或罚没）。
+#: 台账停在其中任何一态时都不允许「取消锁仓」—— 这是状态机闸，不是时间闸：
+#: 时间过了不等于责任消失，只有把这一单走完（放款 / 罚没）才会消失。
+_RESPONSIBILITY_STATES = (FINALIZING, BREACHING)
+
+#: 取消失败时的固定口径：区分「钱还有责任」与「链上说不上话」。
+_CANCEL_BLOCKED_DETAIL = (
+    "这一单的资金已经进入责任状态（链上结算窗口已开，钱已经有了受款人）："
+    "任何一方都不能再撤销锁定，只能按流程放款 / 罚没 / 走争议仲裁"
+)
 
 #: 钱往哪边走：放款给卖方 / 罚没卖方质押
 PAY = "pay"
@@ -263,6 +283,72 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
             f"请先在操作台补足锁仓（或提高对该托管合约的 USDC 授权额）再重试",
         )
     return best[1]
+
+
+async def chain_snapshot(binding: Any) -> dict[str, Any] | None:
+    """这条绑定在链上的快照（状态机 + 买方确认 + 时间戳）。读不到就 None。
+
+    状态机的事实只在链上。台账是我们自己写的，进程崩在「交易已上链、写库没做完」
+    之间就会落后；所以任何一次「要不要动这笔钱」的判断之前，都先问链。
+    """
+    try:
+        return await asyncio.to_thread(
+            escrow.binding_snapshot,
+            binding_id=chain_binding_id(binding),
+            contract_address=escrow.binding_contract(binding),
+        )
+    except Exception as exc:  # noqa: BLE001 - RPC 抖动 / 旧合约读不出来
+        logger.warning(
+            "escrow_binding_snapshot_read_failed",
+            binding_id=getattr(binding, "binding_id", None),
+            error=str(exc)[:200],
+        )
+        return None
+
+
+async def adopt_chain_finalizing(
+    db: AsyncSession, *, row: EscrowBindingModel, task_id: str | None = None
+) -> bool:
+    """链上窗口已经开着、台账却还写着 active：把台账拉到链上，返回 True。
+
+    这一条是状态机回溯的核心。两种来源都会走到这里：
+
+    * ``submitSettlement`` 的交易上链了、写库那一步断在中间（进程重启 / 超时）；
+    * 台账被别的路径改回去过。
+
+    不拉齐的后果是实打实的：台账以为「还没提交」，于是把它当可撤的绑定，
+    发一笔 ``cancelBinding`` —— 合约以 ``WrongBindingState`` 拒绝（钱已经有受款人），
+    而这段代码如果只是想「重来一次」，就会一遍遍重发同一个 doomed 交易。
+
+    ``SETTLED``/``SLASHED``/``CANCELLED`` 不在这里处理：那三种是终局，由
+    ``reconcile_task`` / autosettle 的 ``_reconcile_from_chain`` 回写。
+    """
+    snapshot = await chain_snapshot(row)
+    if snapshot is None or int(snapshot["state"]) != _CHAIN_FINALIZING:
+        return False
+    if row.state == FINALIZING:
+        return True  # 已经对齐，只是向调用方确认「链上确实开着窗」
+    row.state = FINALIZING
+    settle_after = int(snapshot.get("settle_after") or 0)
+    if settle_after:
+        row.pull_after = settle_after
+    row.updated_at = datetime.utcnow()
+    await db.flush()
+    await _reflect(
+        db,
+        task_id=task_id or row.task_id or "",
+        binding=row,
+        onchain_status=FINALIZING,
+        tx_hash=row.submit_tx_hash,
+    )
+    logger.warning(
+        "escrow_binding_adopted_from_chain",
+        binding_id=row.binding_id,
+        task_id=task_id or row.task_id,
+        pull_after=row.pull_after,
+        note="chain already FINALIZING; ledger was behind",
+    )
+    return True
 
 
 async def _reflect(
@@ -547,11 +633,19 @@ async def _released_amount_on_the_books(db: AsyncSession, *, task_id: str) -> fl
 
 
 async def submit_for_task(
-    db: AsyncSession, *, task_id: str, released_amount: float | None = None
+    db: AsyncSession,
+    *,
+    task_id: str,
+    released_amount: float | None = None,
+    buyer_confirmed: bool = False,
 ) -> dict[str, Any]:
     """验收通过：把 binding 交上去，打开挑战期，等 autosettle 真划款。
 
     开窗前先过 ``assert_release_verified``：**账上没有验证结论就不开窗**。
+
+    ``buyer_confirmed=True``（买方本人点了「验收」/「确认放款」走的那条路）时，
+    开窗之后紧接着在链上打一笔 ``buyerConfirm``：双方的确认都齐了，窗口没有存在
+    的理由，划款立刻可执行（``pull_after`` 直接写当下，autosettle 下一轮就划）。
     """
     if not enabled():
         return {"status": "disabled"}
@@ -579,26 +673,37 @@ async def submit_for_task(
             db, row=row, task_id=task_id, amount_usdc=from_minor_units(target_minor)
         )
 
-    try:
-        submitted = await asyncio.to_thread(
-            escrow.submit_settlement,
-            binding_id=chain_binding_id(row),
-            proof=_proof(task_id, target_minor),
-            contract_address=escrow.binding_contract(row),
-        )
-    except Exception as exc:
-        logger.warning("escrow_settlement_submit_failed", task_id=task_id, error=str(exc))
-        raise EscrowSettlementError(409, f"链上结算提交失败：{exc}") from exc
+    # 链上状态机优先：这一单可能**其实已经开过窗**了（submit 的交易上链了、
+    # 写库那一步断在中间）。再 submit 一次只会换一笔 revert，而且会把已经进入
+    # 责任状态的绑定错当成「还没提交」——那正是取消闸最不该被绕过的地方。
+    adopted = await adopt_chain_finalizing(db, row=row, task_id=task_id)
+    if adopted:
+        submitted: dict[str, Any] = {"pull_after": row.pull_after}
+    else:
+        try:
+            submitted = await asyncio.to_thread(
+                escrow.submit_settlement,
+                binding_id=chain_binding_id(row),
+                proof=_proof(task_id, target_minor),
+                contract_address=escrow.binding_contract(row),
+            )
+        except Exception as exc:
+            logger.warning("escrow_settlement_submit_failed", task_id=task_id, error=str(exc))
+            raise EscrowSettlementError(409, f"链上结算提交失败：{exc}") from exc
 
-    row.state = FINALIZING
-    row.submit_tx_hash = str(submitted.get("submit_tx_hash") or "") or None
-    row.proof_hash = str(submitted.get("proof_hash") or "") or None
-    row.pull_after = int(submitted.get("pull_after") or 0) or None
-    row.updated_at = datetime.utcnow()
-    await db.flush()
-    await _reflect(
-        db, task_id=task_id, binding=row, onchain_status=FINALIZING, tx_hash=row.submit_tx_hash
-    )
+        row.state = FINALIZING
+        row.submit_tx_hash = str(submitted.get("submit_tx_hash") or "") or None
+        row.proof_hash = str(submitted.get("proof_hash") or "") or None
+        row.pull_after = int(submitted.get("pull_after") or 0) or None
+        row.updated_at = datetime.utcnow()
+        await db.flush()
+        await _reflect(
+            db, task_id=task_id, binding=row, onchain_status=FINALIZING, tx_hash=row.submit_tx_hash
+        )
+
+    if buyer_confirmed:
+        # 买方自己的确认：窗口本来就是给「买方还没表态」留的宽限期。
+        await buyer_confirm_for_task(db, task_id=task_id, required=False)
     logger.info(
         "escrow_settlement_submitted",
         task_id=task_id,
@@ -653,6 +758,17 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
     if row.state != ACTIVE:
         return {"status": row.state, "binding_id": row.binding_id}
 
+    if await adopt_chain_finalizing(db, row=row, task_id=task_id):
+        # 链上窗口早就开着（交易上链了、台账没记上）：改判罚没即可，不重复 submit。
+        row.state = BREACHING
+        row.updated_at = datetime.utcnow()
+        await db.flush()
+        await _reflect(
+            db, task_id=task_id, binding=row, onchain_status=BREACHING, tx_hash=row.submit_tx_hash
+        )
+        logger.info("escrow_settlement_breach_rearmed", task_id=task_id, binding_id=row.binding_id)
+        return {"status": BREACHING, "binding_id": row.binding_id, "pull_after": row.pull_after}
+
     try:
         submitted = await asyncio.to_thread(
             escrow.submit_settlement,
@@ -689,14 +805,123 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
     }
 
 
+async def buyer_confirm_for_task(
+    db: AsyncSession, *, task_id: str, required: bool = True
+) -> dict[str, Any]:
+    """买方确认这一单：链上打 ``buyerConfirm``，放款不再等窗口（v4）。
+
+    「验证通过（resolver 已提交）+ 买方自己确认」是唯一一种不需要宽限期的单子：
+    宽限期本来就是留给「买方还没表态」的。
+
+    它**不改变**任何金额或去向 —— 那些在 ``bind`` 时就定死了；没有这笔标记，
+    窗口到点后照样划款。所以失败也不必让整个验收动作失败（``required=False``）：
+    交易已经在路上了，窗口会兜住。
+
+    幂等：链上/账上已经确认过就直接返回，不再发第二笔交易。
+    """
+    if not enabled():
+        return {"status": "disabled"}
+    row = await _find_binding(db, task_id=task_id)
+    if row is None:
+        return {"status": "unbound"}
+    if row.buyer_confirmed_at is not None:
+        return {"status": row.state, "binding_id": row.binding_id, "confirmed": True, "already": True}
+    if row.state != FINALIZING:
+        detail = (
+            f"这一单账上停在 {row.state}，不是 finalizing：还没有开过结算窗口，"
+            f"没有可以确认的付款"
+        )
+        if required:
+            raise EscrowSettlementError(409, detail)
+        return {"status": row.state, "binding_id": row.binding_id, "confirmed": False, "detail": detail}
+    try:
+        out = await asyncio.to_thread(
+            escrow.buyer_confirm,
+            binding_id=chain_binding_id(row),
+            contract_address=escrow.binding_contract(row),
+        )
+    except Exception as exc:
+        logger.warning("escrow_settlement_buyer_confirm_failed", task_id=task_id, error=str(exc))
+        if required:
+            raise EscrowSettlementError(409, f"链上确认放款失败：{exc}") from exc
+        return {"status": row.state, "binding_id": row.binding_id, "confirmed": False, "detail": str(exc)}
+    row.buyer_confirmed_at = datetime.utcnow()
+    # 不再等窗口：autosettle 的下一轮就够条件划款。
+    row.pull_after = int(time.time())
+    row.updated_at = datetime.utcnow()
+    await db.flush()
+    logger.info(
+        "escrow_settlement_buyer_confirmed",
+        task_id=task_id,
+        binding_id=row.binding_id,
+        tx=out.get("confirm_tx_hash"),
+        pull_after=row.pull_after,
+    )
+    return {
+        "status": FINALIZING,
+        "binding_id": row.binding_id,
+        "confirmed": True,
+        "confirm_tx_hash": out.get("confirm_tx_hash"),
+        "pull_after": row.pull_after,
+    }
+
+
 async def cancel_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
-    """取消：把买方被占住的授权放回去，钱一步都没动过。"""
+    """取消：把买方被占住的授权放回去，钱一步都没动过。
+
+    **只在 ACTIVE**。取消的判据是绑定/资金的责任状态，不是时间：只要这一单还有
+    资金处在责任状态（链上窗口已开、钱有受款人），谁都不能撤回锁定，窗口过点也
+    一样。窗口开着却允许任何一方撤销，就等于给了双方一个「交付之后还能反悔」的
+    期权 —— 卖方交付完，买方把手一撤，钱一分不动。
+
+    台账之外还要问一次链：账上写 active 不等于链上还是 active（交易上链了、写库
+    断在中间就会这样）。链上开着窗就按链上拉齐，并且拒绝这次取消。
+    """
 
     if not enabled():
         return {"status": "disabled"}
     row = await _find_binding(db, task_id=task_id)
-    if row is None or row.state in _DONE_STATES or row.state != ACTIVE:
-        return {"status": row.state if row is not None else "unbound"}
+    if row is None:
+        return {"status": "unbound"}
+    if row.state in _DONE_STATES:
+        return {"status": row.state, "binding_id": row.binding_id}
+    if row.state in _RESPONSIBILITY_STATES:
+        logger.warning(
+            "escrow_settlement_cancel_blocked_by_responsibility",
+            task_id=task_id,
+            binding_id=row.binding_id,
+            state=row.state,
+        )
+        raise EscrowSettlementError(409, _CANCEL_BLOCKED_DETAIL)
+    if row.state != ACTIVE:
+        return {"status": row.state, "binding_id": row.binding_id}
+
+    # 链上状态机优先：台账落后时以链为准。
+    if await adopt_chain_finalizing(db, row=row, task_id=task_id):
+        logger.warning(
+            "escrow_settlement_cancel_blocked_by_chain", task_id=task_id, binding_id=row.binding_id
+        )
+        raise EscrowSettlementError(409, _CANCEL_BLOCKED_DETAIL)
+    snapshot = await chain_snapshot(row)
+    mapped = _CHAIN_FINAL.get(int(snapshot["state"])) if snapshot is not None else None
+    if mapped is not None:
+        # 链上早就落定了（我们只是没记上）：对齐台账，取消这件事已经不存在了。
+        row.state = mapped
+        row.updated_at = datetime.utcnow()
+        await db.flush()
+        await _reflect(
+            db, task_id=task_id, binding=row, onchain_status=mapped, tx_hash=row.submit_tx_hash
+        )
+        logger.info(
+            "escrow_settlement_cancel_reconciled", task_id=task_id, binding_id=row.binding_id, state=mapped
+        )
+        return {"status": mapped, "binding_id": row.binding_id, "reconciled": True}
+    if snapshot is not None and int(snapshot["state"]) != _CHAIN_ACTIVE:
+        # 认不出来的状态：不许动钱，也不许把台账改错。
+        raise EscrowSettlementError(
+            409, f"链上这条绑定的状态读出来是 {int(snapshot['state'])}，不是任何已知状态，取消动作已中止"
+        )
+
     try:
         await asyncio.to_thread(
             escrow.cancel_binding,

@@ -5,8 +5,11 @@ import {Test} from "forge-std/Test.sol";
 import {KarmaAllowanceEscrow} from "../core/KarmaAllowanceEscrow.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
-/// @notice v2 non-custodial settlement: the money stays in the payer's wallet,
+/// @notice non-custodial settlement: the money stays in the payer's wallet,
 ///         the contract only records responsibility and executes the pull.
+///         v3: the resolver is the only account that may open a settlement.
+///         v4: the binding's state machine gates cancellation (no cancel once
+///         submitted) and ``buyerConfirm`` shortens the window.
 contract KarmaAllowanceEscrowTest is Test {
     KarmaAllowanceEscrow internal escrow;
     MockERC20 internal token;
@@ -28,6 +31,8 @@ contract KarmaAllowanceEscrowTest is Test {
         escrow = new KarmaAllowanceEscrow(DISPUTE_WINDOW, SETTLE_DELAY);
         token = new MockERC20();
         escrow.setTokenAllowed(address(token), true);
+        // v3 起 ``submitSettlement`` 是 resolver-only：平台的验证账户就是 executor。
+        escrow.setDisputeResolver(executor);
 
         token.mint(buyer, 1_000e6);
         token.mint(seller, 1_000e6);
@@ -316,7 +321,8 @@ contract KarmaAllowanceEscrowTest is Test {
         vm.expectRevert(KarmaAllowanceEscrow.NotResolver.selector);
         escrow.finalizeBreach(bindingId);
 
-        escrow.finalizeBreach(bindingId); // test contract is the resolver
+        vm.prank(executor); // the resolver rules the breach
+        escrow.finalizeBreach(bindingId);
 
         assertEq(token.balanceOf(buyer), buyerBefore + STAKE, "buyer is made whole from the stake");
         assertEq(token.balanceOf(seller), sellerBefore - STAKE);
@@ -340,6 +346,7 @@ contract KarmaAllowanceEscrowTest is Test {
 
         uint256 buyerBefore = token.balanceOf(buyer);
         vm.expectRevert(abi.encodeWithSelector(KarmaAllowanceEscrow.InsufficientAllowance.selector, 0, STAKE));
+        vm.prank(executor);
         escrow.finalizeBreach(bindingId);
         assertEq(token.balanceOf(buyer), buyerBefore, "nothing moves when the stake is gone");
     }
@@ -388,18 +395,27 @@ contract KarmaAllowanceEscrowTest is Test {
         escrow.setDisputeResolver(address(0));
     }
 
-    function testSubmitRequiresParty() public {
+    function testSubmitIsResolverOnly() public {
         (uint256 buyerBill, uint256 sellerBill) = _openPair();
         uint256 bindingId = _bind(buyerBill, sellerBill, PRICE, STAKE);
 
         vm.warp(vm.getBlockTimestamp() + SETTLE_DELAY + 1);
-        vm.prank(stranger);
-        vm.expectRevert(KarmaAllowanceEscrow.NotSettlementParty.selector);
-        escrow.submitSettlement(bindingId, bytes32("p"));
 
-        // the buyer herself may always submit — no operator needed
-        vm.prank(buyer);
+        // v3: neither party, nor their operator, may open the window — the
+        // default is that no money is claimable until verification has passed.
+        address[3] memory notResolver = [buyer, seller, stranger];
+        for (uint256 i = 0; i < notResolver.length; i++) {
+            vm.prank(notResolver[i]);
+            vm.expectRevert(KarmaAllowanceEscrow.NotResolver.selector);
+            escrow.submitSettlement(bindingId, bytes32("p"));
+        }
+
+        vm.prank(executor); // the resolver may
         escrow.submitSettlement(bindingId, bytes32("p"));
+        assertEq(
+            uint8(escrow.getBinding(bindingId).state),
+            uint8(KarmaAllowanceEscrow.BindingState.FINALIZING)
+        );
     }
 
     function testSubmitNotAllowedBeforeCoolOff() public {
@@ -425,5 +441,111 @@ contract KarmaAllowanceEscrowTest is Test {
         vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + 1);
         escrow.finalizeSettlement(bindingId);
         assertTrue(escrow.checkNoCustody(address(token)));
+    }
+
+    // ─────────────────────────────────────── v4: 买方确认与状态机取消闸
+
+    /// 双方都确认了就没有窗口可等：验证通过（resolver submit）+ 买方自己点头，
+    /// 划款立刻可执行，不必再等 DISPUTE_WINDOW。
+    function testBuyerConfirmReleasesWithoutWaitingForTheWindow() public {
+        (uint256 buyerBill, uint256 sellerBill) = _openPair();
+        uint256 bindingId = _bind(buyerBill, sellerBill, PRICE, STAKE);
+
+        vm.warp(vm.getBlockTimestamp() + SETTLE_DELAY + 1);
+        vm.prank(executor);
+        escrow.submitSettlement(bindingId, keccak256("proof"));
+
+        uint256 sellerBefore = token.balanceOf(seller);
+        // 窗口还没过：没有买方的确认标记，任何人来推都要被拒
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                KarmaAllowanceEscrow.SettleDelayActive.selector, vm.getBlockTimestamp() + DISPUTE_WINDOW
+            )
+        );
+        escrow.finalizeSettlement(bindingId);
+
+        vm.prank(buyer);
+        escrow.buyerConfirm(bindingId);
+
+        vm.prank(stranger); // 确认之后仍然谁都能推，窗口不再是阻碍
+        escrow.finalizeSettlement(bindingId);
+
+        assertEq(token.balanceOf(seller), sellerBefore + PRICE, "seller paid immediately");
+        assertEq(token.balanceOf(address(escrow)), 0);
+    }
+
+    function testBuyerConfirmOnlyInFinalizingAndOnlyByTheBuyer() public {
+        (uint256 buyerBill, uint256 sellerBill) = _openPair();
+        uint256 bindingId = _bind(buyerBill, sellerBill, PRICE, STAKE);
+
+        // ACTIVE：还没提交过，没有任何东西可以确认
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(KarmaAllowanceEscrow.WrongBindingState.selector, bindingId));
+        escrow.buyerConfirm(bindingId);
+
+        vm.warp(vm.getBlockTimestamp() + SETTLE_DELAY + 1);
+        vm.prank(executor);
+        escrow.submitSettlement(bindingId, bytes32("p"));
+
+        // 陌生人不行；卖方也不行 —— 确认只能是买方的意思表示
+        vm.prank(stranger);
+        vm.expectRevert(KarmaAllowanceEscrow.NotSettlementParty.selector);
+        escrow.buyerConfirm(bindingId);
+        vm.prank(seller);
+        vm.expectRevert(KarmaAllowanceEscrow.NotSettlementParty.selector);
+        escrow.buyerConfirm(bindingId);
+
+        // 买方自己在账单上装的 operator（agent / Karma 执行器）可以
+        vm.prank(executor);
+        escrow.buyerConfirm(bindingId);
+        assertTrue(escrow.getBinding(bindingId).buyerConfirmed);
+
+        // 只能确认一次
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(KarmaAllowanceEscrow.AlreadyConfirmed.selector, bindingId));
+        escrow.buyerConfirm(bindingId);
+    }
+
+    /// 取消的判据是**状态**，不是时间：一旦 submit，买方/卖方/双方 operator/resolver
+    /// 全都拿不回预留，窗口过点之后也一样。
+    function testCancelIsRefusedOnceSubmitted() public {
+        (uint256 buyerBill, uint256 sellerBill) = _openPair();
+        uint256 bindingId = _bind(buyerBill, sellerBill, PRICE, STAKE);
+
+        vm.warp(vm.getBlockTimestamp() + SETTLE_DELAY + 1);
+        vm.prank(executor);
+        escrow.submitSettlement(bindingId, bytes32("p"));
+
+        address[3] memory parties = [buyer, seller, executor];
+        for (uint256 i = 0; i < parties.length; i++) {
+            vm.prank(parties[i]);
+            vm.expectRevert(abi.encodeWithSelector(KarmaAllowanceEscrow.WrongBindingState.selector, bindingId));
+            escrow.cancelBinding(bindingId);
+        }
+
+        vm.warp(vm.getBlockTimestamp() + DISPUTE_WINDOW + 1);
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(KarmaAllowanceEscrow.WrongBindingState.selector, bindingId));
+        escrow.cancelBinding(bindingId);
+
+        assertEq(escrow.available(buyerBill), 1_000e6 - PRICE, "reservation still held");
+        assertEq(escrow.available(sellerBill), 1_000e6 - STAKE, "stake still held");
+    }
+
+    /// ACTIVE 上的取消仍然畅通：这是「绑错了 / 没人推进的孤儿绑定」的唯一出路。
+    function testCancelStillWorksWhileActive() public {
+        (uint256 buyerBill, uint256 sellerBill) = _openPair();
+        uint256 bindingId = _bind(buyerBill, sellerBill, PRICE, STAKE);
+
+        vm.prank(executor);
+        escrow.cancelBinding(bindingId);
+
+        assertEq(escrow.available(buyerBill), 1_000e6);
+        assertEq(escrow.available(sellerBill), 1_000e6);
+        assertEq(
+            uint8(escrow.getBinding(bindingId).state),
+            uint8(KarmaAllowanceEscrow.BindingState.CANCELLED)
+        );
+        assertEq(token.balanceOf(buyer), 1_000e6, "cancel never moves money");
     }
 }
