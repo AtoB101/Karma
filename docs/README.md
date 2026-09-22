@@ -76,6 +76,7 @@ Start at the root [README.md](../README.md) for the repo map.
 | Doc | Purpose |
 |-----|---------|
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Deploy |
+| [DECENTRALIZED_CONSOLE_V1.md](./DECENTRALIZED_CONSOLE_V1.md) | Console distribution + node layer (L1/L2) |
 | [FOCUS_ROADMAP.md](./FOCUS_ROADMAP.md) | Near-term focus |
 | [wallet-signature-payload-examples.json](./wallet-signature-payload-examples.json) | Wallet payload examples |
 | [testnet-integration-checklist.md](./testnet-integration-checklist.md) | Integration checklist |

@@ -1,0 +1,212 @@
+# 去中心化操作台 · L1/L2 落地说明
+
+**状态**：L1（静态包分发）与 L2（节点层）已落地并进入验收闸门。
+L3（身份/治理）只写清楚了落地路径，代码没动；L4（只读节点）只是路线图。
+
+这份文档回答一个问题：**操作台现在离「谁都能自己跑一份」还有多远，差在哪。**
+
+---
+
+## 一、为什么先做 L1/L2
+
+操作台是纯静态页面（`apps/console`，没有构建步骤），但「跟谁说话」原来写死在代码里：
+
+- `apps/console/scripts/karma-public-api.js` 的默认地址是 `http://127.0.0.1:8000`，
+  线上靠同源反代兜住；
+- `apps/console/scripts/cyber-handoff.js`、`cyber-authorize.js` 里有一个
+  `RUNTIME_URL = "https://karma-network.ai"`，**交付给 agent 的 env 和自检 curl 用的就是它**。
+
+第二条是真正的问题：用户在操作台里做的任何选择，都传不到 agent 手里。
+换句话说，就算我们放出第二台节点，用户也换不过去 —— 换了，agent 还在敲厂商的机器。
+
+所以顺序是：**先把「换节点」这件事做成真的**（L2），**再谈把静态包发到内容寻址存储上**（L1）。
+反过来做的话，IPFS 上那份页面还是只会连厂商一个地址，等于没变。
+
+---
+
+## 二、L2 · 节点层（已落地）
+
+### 代码
+
+| 文件 | 职责 |
+|---|---|
+| `apps/console/scripts/karma-nodes.js` | 节点表 / 探活 / 容灾 / 持久化（纯逻辑，无 DOM） |
+| `apps/console/scripts/cyber-node-panel.js` | 顶栏胶囊 + 下拉 + 设置页卡片（只负责画和接事件） |
+| `apps/console/scripts/karma-public-api.js` | 取地址改走节点层；请求失败时喊一声容灾 |
+| `apps/console/scripts/cyber-console.js` | 同上（`displayBase()`） |
+| `apps/console/scripts/cyber-handoff.js`、`cyber-authorize.js` | 交给 agent 的地址改走节点层 |
+
+### 唯一的「事实来源」没有变
+
+选中哪台节点，仍然记在 `localStorage["karma_cyber_api_base"]` 里 —— 和改动之前是同一个键。
+切节点就是改这个键，外加同步 `window.KARMA_API_BASE`。这样：
+
+- 其它脚本不用改口径；
+- 老用户已有的本地设置不失效；
+- 在「连接设置」里手填过自建地址的人不会被悄悄甩到别处。
+
+最后一条是特意做的：**手填的地址如果不在节点表里，会作为一个条目显示出来**
+（`legacy:<地址>`），用户看得见、能切走、能删掉。不做这一步的话，
+`current()` 会退回到列表第一条，用户手填的节点会被静默替换成「当前站点（同源）」。
+
+### 内置引导节点
+
+| id | 地址 | 说明 |
+|---|---|---|
+| `same-origin` | `""`（空串 = 同源） | 默认。本机打开时解析成 `http://127.0.0.1:8000` |
+| `official` | `https://karma-network.ai` | 官方入口，现在是镜像之一 |
+| `local` | `http://127.0.0.1:8000` | 只在页面本身跑在本机时出现（https 页面连 http 会被浏览器拦掉，露出来只会让人困惑） |
+
+用户还能自己加最多 8 台，地址必须是 `http(s)://`（`javascript:` / `data:` 一律拒绝）。
+
+### 探活与容灾
+
+- 探活打 `GET /health`（`{"status":"ok","version":"0.1.0"}`），量一次往返耗时；
+  顶栏胶囊上显示绿色/红色/灰色圆点 + 毫秒数。
+- **记录形状统一带 `tested` 字段**：`list()` 和单次 `probe()` 写进缓存的形状必须一致，
+  否则「还没测过」和「测过且通过」在界面上分不开（这个坑踩过一次）。
+- 容灾默认**关闭**，用户在设置页勾选后开启。开启时，当前节点探活失败 →
+  按顺序探其它节点，第一台能用的就切过去，并把选择记住。
+  有 15 秒最小间隔和重入锁，不会因为并发请求把节点来回甩。
+
+### 交给 agent 的地址
+
+`cyber-handoff.js` 和 `cyber-authorize.js` 里各有一个 `runtimeUrl()`：
+
+```
+KarmaNodes.effectiveBase()  →  KARMA_RUNTIME_URL=<选中的节点>
+                            →  自检 curl 里的地址
+```
+
+两边都挂在各自命名空间上（`KarmaHandoff.runtimeUrl` / `KarmaAuthorize.runtimeUrl`），
+配对面板和测试复用同一份实现，不各写一套。
+
+---
+
+## 三、L1 · 静态包分发（已落地）
+
+### 代码
+
+| 文件 | 职责 |
+|---|---|
+| `scripts/console_bundle.py` | `build` 复制干净静态包 + 逐文件 sha256 清单；`verify` 对账；`stamp` 写回 CID |
+| `scripts/publish_console_ipfs.sh` | 构建 → 自校验 → 有 `ipfs` 就 pin 并写 DNSLink，没有就打印照做能成的命令 |
+
+### 清单长什么样
+
+```json
+{
+  "schema": "karma.console.dist/v1",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "src": "apps/console",
+  "ipfs": { "cid": null, "dnslink": null, "gateway": null, "pinned_by": null },
+  "files": [{ "path": "index.html", "sha256": "…", "bytes": 1234 }],
+  "file_count": 39,
+  "total_bytes": 2196425,
+  "root_sha256": "…"
+}
+```
+
+`root_sha256` = 各文件摘要按 `"<sha>  <path>\n"` 串起来再哈希。
+**确定性的**：同一份源码，两次构建的 `root_sha256` 必然相同；只改 `generated_at` 不影响它。
+所以「我手上这份跟你发布的那份是不是同一份」是个可以当场算出来的问题。
+
+`verify` 会指出四类问题：少文件、多文件、内容被改、总摘要被改（逐个文件都对但清单被动过手脚）。
+
+### 为什么不在 VPS 上跑 IPFS
+
+`deploy/vps/ci-deploy.sh` 里写着：那台机器只有 1.6G 内存，装包压垮过一次。
+所以发布从本机 / CI 走，官方站点从此只是**镜像之一**：
+
+```
+_<domain>  TXT  "dnslink=/ipfs/<cid>"
+```
+
+配好这条 TXT 之后，任何网关（含官方站点）都能解析到这份静态包。
+
+---
+
+## 四、L3 / L4：还没做，但路已经看清楚了
+
+### L3-1 · 认证走服务商签名
+
+`services/identity_provider/` 已经有 aliyun / tencent / persona / mock 四家，
+以及回调验签（`signature.py`）。真正没做的是：操作台把 5 段流程（证件正反面、
+5 角度刷脸、6 个输入框、加密、提交）折叠成 3 步，并且**在 `IDENTITY_PROVIDER`
+没配时把那条通道明确置灰** —— 现在两条并行通道摆在一起，用户不知道该走哪条。
+
+> 线上 `IDENTITY_PROVIDER` 现在是未设置状态，服务商通道是灰的。测试网可以先配
+> `IDENTITY_PROVIDER=mock` 打通「开 session → 回调 → 验签 → 自动通过」整条链路。
+> `config/settings.py` 已经硬性禁止 mock 上生产。
+
+### L3-2 · 复核 / 仲裁：质押即开通
+
+今天要开治理岗，得进 `GOVERNANCE_VERIFIER_IDS` 白名单（`identity_role_profiles.py` 的
+`GOVERNANCE_CLASSES`）。这是中心化的。替代方案是质押：押金到位即开通岗位，
+误判按已有的 `stakeAmount` / `StakeSlashed` / `finalizeBreach` 罚没。
+`api/routes/allowance_escrow.py` 里这套已经在了，缺的是「把它接到岗位开通上」。
+
+### L4 · 只读节点
+
+把读接口做成无状态的、再加一个链上事件索引器，任何人 `docker compose up` 起一台
+只读节点就能进操作台的节点列表。这是 L2 的自然延伸 —— L2 把「换节点」做成真的，
+L4 才有意义。
+
+---
+
+## 五、诚实边界：现在还有哪些是中心化的
+
+不写清楚这一节，前面的「去中心化」就是营销词。
+
+1. **写路径仍然要会话鉴权。** 锁仓、授权、放款这些要钱包签名，但**提交**要走
+   我们这台 API 的会话令牌。会话是我们签发的 —— 换节点不能绕开这一点。
+2. **回执与调用留痕存在服务端。** 「已绑定钥匙」的最近调用记录、取消绑定的站内提醒
+   都在我们的库里。这是「事后能对账」的地基，暂时没有链上等价物。
+3. **L3-2 落地之前，治理岗还是白名单。** 也就是说「谁是复核员」现在由我们说了算。
+4. **法定 AML/KYC 只能由持牌服务商承担。** 这一条不会因为去中心化而消失，
+   L3-1 做的是把「Karma 自己存证件」换成「Karma 只验签名」。
+
+所以准确的说法是：**操作台的分发与接入已经可以去中心化，资金路径本来就在链上，
+但身份核验与写路径的会话仍然是中心化的。** 这三件事分开看，不要合并成一句口号。
+
+---
+
+## 六、自己跑一份
+
+```bash
+# 1. 拿静态包（或直接用仓库里的）
+python3 scripts/console_bundle.py build --src apps/console --out dist/console
+
+# 2. 校验它没被动过
+python3 scripts/console_bundle.py verify --dir dist/console
+
+# 3. 起一个静态服务器
+python3 -m http.server 8787 --directory dist/console
+
+# 4. 打开 http://127.0.0.1:8787/pages/cyber/index.html
+#    顶栏「节点」胶囊 → 添加你自己的节点地址 → 切过去
+```
+
+节点要能被选上，必须满足两件事：
+
+- `GET <你的地址>/health` 返回 `{"status":"ok", ...}`；
+- 允许操作台那个来源跨域取数（`CORS_ALLOW_ORIGINS`，或用同源反代
+  —— 同源是推荐做法）。
+
+---
+
+## 七、验收
+
+```bash
+bash scripts/acceptance/console_last_mile_gate.sh
+```
+
+闸门里跟这次改动有关的部分：
+
+- 逐字检查 `karma-nodes.js` / `cyber-node-panel.js` 存在、被页面加载、加载顺序在 API 客户端之前；
+- 检查 `KarmaNodes.effectiveBase` 出现在 API 客户端、页面引导、两个交付包里；
+- **反向**检查两个交付包里不再有写死的 `RUNTIME_URL = "https://karma-network.ai"`；
+- `tests/unit/test_console_nodes.py`：节点层的静态契约 + 「这两个文件里的中文必须 5 份语言包全覆盖」；
+- `tests/unit/test_console_distribution.py`：清单可复现、校验能抓出四类不一致；
+- `tests/js/test_karma_nodes.cjs`：53 项行为断言（选节点 / 探活 / 超时 / 容灾 / 自定义节点校验 / 手填地址不被替换）；
+- `tests/playwright/console_nodes_live.cjs`：真实浏览器 43 项（装了 playwright 才跑）。
