@@ -10,6 +10,8 @@ required=(
   index.html
   pages/cyber/index.html
   scripts/karma-public-api.js
+  scripts/karma-nodes.js
+  scripts/cyber-node-panel.js
   scripts/console-sync.js
   scripts/console-wallet-auth.js
   scripts/console-entry-gate.js
@@ -76,7 +78,26 @@ grep -q 'KarmaServiceSpec' "$CONSOLE/scripts/cyber-agents.js"
 grep -q 'KarmaServiceSpec' "$CONSOLE/scripts/cyber-pairing.js"
 grep -q 'pages/cyber/index.html' "$CONSOLE/index.html"
 
+# 节点层：操作台是静态的，「跟哪台节点说话」由用户自己选、自己换。
+# 少任何一块，用户就又被绑死在一台机器上。
+grep -q 'id="node-chip"' "$CONSOLE/pages/cyber/index.html"
+grep -q 'id="node-menu"' "$CONSOLE/pages/cyber/index.html"
+grep -q 'data-karma-nodes-settings' "$CONSOLE/pages/cyber/index.html"
+grep -q 'KarmaNodes.effectiveBase' "$CONSOLE/scripts/karma-public-api.js"
+grep -q 'KarmaNodes.reportFailure' "$CONSOLE/scripts/karma-public-api.js"
+grep -q 'KarmaNodes.effectiveBase' "$CONSOLE/scripts/cyber-console.js"
+# 交给 agent 的接入地址必须跟着选中的节点走，不能写死厂商域名。
+grep -q 'function runtimeUrl(' "$CONSOLE/scripts/cyber-handoff.js"
+grep -q 'function runtimeUrl(' "$CONSOLE/scripts/cyber-authorize.js"
+! grep -q 'RUNTIME_URL = "https://karma-network.ai"' "$CONSOLE/scripts/cyber-handoff.js"
+! grep -q 'RUNTIME_URL = "https://karma-network.ai"' "$CONSOLE/scripts/cyber-authorize.js"
+# 分发层：静态包要有可复验的清单，发布脚本存在于仓库里。
+[[ -f "$ROOT/scripts/console_bundle.py" ]]
+[[ -f "$ROOT/scripts/publish_console_ipfs.sh" ]]
+
 python3 -m pytest -q tests/unit/test_console_last_mile.py
+python3 -m pytest -q tests/unit/test_console_nodes.py
+python3 -m pytest -q tests/unit/test_console_distribution.py
 
 # Live HTTP write sequence matching the Cyber Console buttons (ASGI in-process).
 python3 -m pytest -q tests/unit/test_console_live_write_smoke.py
@@ -90,6 +111,19 @@ if command -v node >/dev/null 2>&1; then
   for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js karma-service-spec.js cyber-pairing.js cyber-payments.js cyber-console.js cyber-orders.js cyber-order-flow.js cyber-identity.js cyber-identity-verify.js cyber-bind-requests.js cyber-unbind-keys.js; do
     node --check "$CONSOLE/scripts/$js"
   done
+  for js in karma-nodes.js cyber-node-panel.js cyber-handoff.js; do
+    node --check "$CONSOLE/scripts/$js"
+  done
+  # 节点层的行为（选节点 / 探活 / 容灾 / 自定义节点校验）跑一遍真代码。
+  node "$ROOT/tests/js/test_karma_nodes.cjs"
+
+  # 真机验证（可选）：装了 playwright 才跑。开一个真实浏览器把节点层从头走一遍，
+  # 没装就跳过 —— 上面那些检查已经覆盖了行为，这一支只是多一层「浏览器里真的行」。
+  if node -e "require.resolve('playwright')" >/dev/null 2>&1; then
+    node "$ROOT/tests/playwright/console_nodes_live.cjs"
+  else
+    echo "(skip) 没装 playwright：真机验证跳过（npm i -D playwright）"
+  fi
 fi
 
 echo "OK   cyber console gate finished"

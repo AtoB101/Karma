@@ -8,10 +8,13 @@
     "simulate": "node scripts/simulate.cjs",
     "verify": "node scripts/verify.cjs",
     "proof": "node scripts/proof.cjs",
-    "full": "node scripts/simulate.cjs && node scripts/verify.cjs && node scripts/proof.cjs"
+    "full": "node scripts/simulate.cjs && node scripts/verify.cjs && node scripts/proof.cjs",
+    "test:console:nodes": "node tests/playwright/console_nodes_live.cjs"
   },
   "dependencies": {
     "ethers": "^6.13.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
+  }
 }
