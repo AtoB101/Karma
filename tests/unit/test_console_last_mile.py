@@ -189,6 +189,45 @@ def test_sub_identity_scope_has_a_single_source_of_truth():
     assert body.count("refreshAllocation") >= 2, "refresh() must rebuild the allocation rows"
 
 
+def test_switching_identity_always_lands_on_that_identitys_page():
+    """切身份 = 换页面：人在别的页面上切也要真的跟过去，侧栏也要有落点。
+
+    两处一起坏过：``followIdentityPage()`` 先看「是不是已经在身份页」才肯翻页，
+    人在账单页切身份就一动不动；侧栏「身份 · 认证」里又少了子身份那一项
+    （``life`` 没有落点，高亮只能退回父项，看起来像没切成功）。
+    """
+    html = CYBER.read_text(encoding="utf-8")
+    assert 'data-page="identity" data-sub="life"' in html, "侧栏缺子身份那一项，切过去没有落点"
+    js = (CONSOLE / "scripts/cyber-identity.js").read_text(encoding="utf-8")
+    block = re.search(r"function followIdentityPage\(\)\s*\{.*?\n  \}", js, re.S)
+    assert block, "cyber-identity.js must keep followIdentityPage()"
+    body = block.group(0)
+    assert 'classList.contains("active")' not in body, "「不在身份页就不翻页」把切身份卡死了"
+    assert 'cyberSwitchPage("identity"' in body, "切身份要落到这张身份自己那一页"
+    # 点当前那张卡也要落页：刚建好的子身份自动就是当前身份，点了没反应像坏了一样。
+    assert "if (r.id === active) return followIdentityPage();" in js
+    # 侧栏那一项的文字要走源文案表：五份都得有，少一份就掉回中文。
+    for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
+        pack = (CONSOLE / "scripts/i18n-phrase" / f"{lang}.js").read_text(encoding="utf-8")
+        assert '"子身份 · 每个 agent 一张卡":' in pack, f"{lang} 缺侧栏子身份那一项的译文"
+
+
+def test_pieced_together_identity_lines_translate_as_whole_sentences():
+    """拼出来的句子要自己占一个文本节点，否则整句进不了文案表。
+
+    实测（英文页面）：侧栏写着「hgf · 生活助理 · 挂在 kid1202884」，子身份行的
+    「人脸 未采集」—— 两处都是中文。原因是源文案表只按「整个文本节点」查表：
+    身份名和「挂在 …」挤在一个节点里就成了半句话，而「人脸 未采集」没有对应词条。
+    """
+    js = (CONSOLE / "scripts/cyber-identity.js").read_text(encoding="utf-8")
+    assert 'identityTitle(p) + " · 挂在 "' not in js, "「挂在 {0}」要单独成节点，不能拼进身份名里"
+    assert '"· 挂在 " + displayId(master, 0)' in js, "侧栏仍要写「· 挂在 {0}」这句原文"
+    for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
+        pack = (CONSOLE / "scripts/i18n-phrase" / f"{lang}.js").read_text(encoding="utf-8")
+        assert '"· 挂在 {0}":' in pack, f"{lang} 缺「· 挂在 {{0}}」的译文"
+        assert '"人脸 {0}":' in pack, f"{lang} 缺「人脸 {{0}}」的译文（子身份行会半中半英）"
+
+
 def test_capacity_release_stays_a_master_operation():
     """POST /capacity/{id}/release only stamps the master row and moves master
     credits; a sub-identity's quota moves with PUT /allocations. Sending a

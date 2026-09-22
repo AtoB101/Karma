@@ -1611,6 +1611,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "主身份已锁仓 {0} USDC，已授权 {1} USDC。": "The main identity has {0} USDC locked and {1} USDC granted.",
   "超了：主身份只锁了 {0} USDC，其它身份已分走 {1} USDC。先多锁一点，或先减掉别的身份的额度。": "Over the limit: the main identity only locked {0} USDC and other identities already took {1} USDC. Lock more first, or reduce the other identities' credit.",
   "减不了这么多：这个身份现在只有 {0} USDC 额度": "Cannot reduce that much: this identity only has {0} USDC of credit right now",
+  "人脸 {0}": "Face: {0}",
   "· 挂在 {0}": "· under {0}",
   "声誉已读取（score={0}）": "Reputation loaded (score={0})",
   "（占用 {0}）": "(in use {0})",

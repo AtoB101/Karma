@@ -1613,6 +1613,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "主身份已锁仓 {0} USDC，已授权 {1} USDC。": "La identidad principal tiene {0} USDC bloqueados y {1} USDC asignados.",
   "超了：主身份只锁了 {0} USDC，其它身份已分走 {1} USDC。先多锁一点，或先减掉别的身份的额度。": "Excedido: la identidad principal solo bloqueó {0} USDC y otras identidades ya tomaron {1} USDC. Bloqueá más primero o reducí el cupo de las otras identidades.",
   "减不了这么多：这个身份现在只有 {0} USDC 额度": "No se puede reducir tanto: esta identidad ahora solo tiene {0} USDC de cupo",
+  "人脸 {0}": "Rostro: {0}",
   "· 挂在 {0}": "· bajo {0}",
   "声誉已读取（score={0}）": "Reputación cargada (score={0})",
   "（占用 {0}）": "(en uso {0})",

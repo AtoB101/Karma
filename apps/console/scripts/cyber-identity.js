@@ -283,11 +283,10 @@
     followIdentityPage();
   }
 
-  /** 切身份 = 换页面：人已经在「身份 · 认证」页上，就直接换成这张身份自己的认证页；
-     不在这页就不动——人在看账单，不该被拽走。 */
+  /** 切身份 = 换页面：换成这张身份自己那一页，侧栏也跟着高亮。
+     人在哪一页切都算数——换了身份就是要看这张身份的档案，
+     留在上一张身份的页面上只会让人以为切换没生效。 */
   function followIdentityPage() {
-    var sec = document.getElementById("identity");
-    if (!sec || !sec.classList.contains("active")) return;
     if (typeof window.cyberSwitchPage !== "function") return;
     var subKey = certSubForActive();
     if (subKey) window.cyberSwitchPage("identity", subKey);
@@ -437,7 +436,9 @@
           if (window.cyberSwitchPage) window.cyberSwitchPage("identity", ROLE_CERT_SUB[r.klass]);
           return;
         }
-        if (r.id === active) return;
+        // 点的就是当前这张卡：不用重设档案（会白刷一遍），但照样落到它那一页——
+        // 人可能从别的页面切回来，点了没反应会让人以为坏了。
+        if (r.id === active) return followIdentityPage();
         setActiveProfile(r.id);
       });
       panel.appendChild(b);
@@ -491,7 +492,12 @@
       } else if (!pid) {
         subEl.textContent = tr("id.sub_master", "主身份 · 主体账户");
       } else {
-        subEl.textContent = identityTitle(p) + " · 挂在 " + displayId(master, 0);
+        // 「· 挂在 {0}」在文案表里是一条独立整句，得自己占一个文本节点才能翻到
+        // 「· under {0}」；跟身份名挤在同一个节点里就成了半句话，切语言时照样是中文。
+        subEl.textContent = identityTitle(p) + " ";
+        var under = document.createElement("span");
+        under.textContent = "· 挂在 " + displayId(master, 0);
+        subEl.appendChild(under);
       }
     }
     if (box) box.classList.toggle("scoped", !!pid);
