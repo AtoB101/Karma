@@ -239,6 +239,9 @@ body {
   background: rgba(0, 30, 48, 0.55);
   border: 1px solid rgba(0, 224, 255, 0.25);
   border-radius: 18px;
+  /* 下拉面板以这一条为锚点：`.main` 是 overflow:auto 的滚动容器，
+     面板一旦向左伸出它的边界就会被裁掉（点不到，看着像没反应）。 */
+  position: relative;
 }
 .api-strip input {
   flex: 1 1 160px;
@@ -2270,4 +2273,113 @@ body {
 #ag-bound-keys.attention {
   border-color: rgba(124, 92, 255, 0.55);
   box-shadow: 0 0 0 1px rgba(124, 92, 255, 0.22);
+}
+
+/* ---------------------------------------------------------------- 节点层
+   去中心化的接入面：顶栏一颗胶囊 + 一个下拉，设置页一张卡片。
+   绿色=可用，红色=连不上，灰色=还没测过。 */
+.node-wrap { flex: 0 0 auto; }
+.node-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 100px;
+  border: 1px solid rgba(0, 224, 255, 0.45);
+  background: #0c1220;
+  color: #e2f0ff;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 260px;
+}
+.node-chip:hover { background: rgba(34, 211, 238, 0.12); }
+.node-chip.is-down { border-color: #ff8a9a; }
+.node-chip-key { color: var(--text-dim); white-space: nowrap; }
+.node-chip-name {
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+.node-chip-ms { color: var(--text-dim); font-family: monospace; }
+.node-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: #64748b; }
+.node-dot.ok { background: #34d399; box-shadow: 0 0 6px #34d399; }
+.node-dot.down { background: #ff8a9a; box-shadow: 0 0 6px #ff8a9a; }
+.node-dot.unknown { background: #64748b; }
+.node-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: auto;
+  z-index: 60;
+  width: min(440px, 100%);
+  padding: 14px;
+  background: #0a1523;
+  border: 1px solid rgba(0, 224, 255, 0.35);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.12s ease-out;
+}
+.node-menu-head b { display: block; font-size: 13px; color: #e2f0ff; margin-bottom: 4px; }
+.node-menu-head p { margin: 0 0 10px; font-size: 11px; line-height: 1.6; color: var(--text-dim); }
+.node-menu-list, .node-settings-list { display: grid; gap: 6px; }
+.node-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+}
+.node-row.is-current { border-color: rgba(0, 224, 255, 0.45); background: rgba(0, 224, 255, 0.07); }
+.node-row-label {
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+}
+.node-row-kind, .node-row-state { font-size: 10px; color: var(--text-dim); white-space: nowrap; }
+.node-row-url {
+  font-size: 10px;
+  color: var(--text-dim);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-row-ms { font-family: monospace; font-size: 11px; color: var(--neon-mint); }
+.btn.small { padding: 4px 10px; font-size: 11px; border-radius: 8px; }
+.btn.ghost { background: transparent; }
+.node-menu-foot { display: flex; gap: 8px; margin-top: 10px; }
+.node-status { margin-top: 8px; font-size: 11px; color: var(--neon-mint); min-height: 14px; word-break: break-all; }
+.node-toast { font-size: 12px; color: #fde68a; }
+.node-auto { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #e2f0ff; margin-top: 6px; }
+.node-auto-hint { margin: 4px 0 12px; font-size: 11px; color: var(--text-dim); }
+.node-add { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
+.node-add b { flex: 0 0 100%; font-size: 12px; color: #e2f0ff; }
+.node-add input {
+  background: #0c1220;
+  border: 1px solid rgba(0, 224, 255, 0.3);
+  border-radius: 10px;
+  padding: 7px 10px;
+  color: #e2f0ff;
+  font-size: 12px;
+}
+.node-add input[data-node-add-base] { flex: 1 1 260px; }
+.node-copy { margin-top: 14px; }
+.node-copy p { margin: 0 0 6px; font-size: 12px; color: #e2f0ff; }
+.node-endpoint {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #0c1220;
+  border: 1px dashed rgba(0, 224, 255, 0.35);
+  font-size: 12px;
+  color: var(--neon-mint);
+  word-break: break-all;
+  margin-bottom: 8px;
 }

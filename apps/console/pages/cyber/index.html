@@ -165,6 +165,18 @@
                    以前它藏在下面「连接设置」折叠面板里，用户点完锁仓什么都没看到。 -->
               <span class="api-status" data-api-status>—</span>
               <span class="identity-chip" id="top-identity-chip">未连接</span>
+              <!-- 节点层：操作台只是界面，跟哪台节点说话由这里决定。
+                   逻辑在 karma-nodes.js，画面在 cyber-node-panel.js。 -->
+              <div class="node-wrap">
+                <button type="button" class="node-chip" id="node-chip" aria-haspopup="true" aria-expanded="false">
+                  <span class="node-dot unknown"></span>
+                  <span class="node-chip-key">节点</span>
+                  <span class="node-chip-name" data-node-name>—</span>
+                  <span class="node-chip-ms" data-node-ms></span>
+                </button>
+                <div class="node-menu" id="node-menu" hidden></div>
+              </div>
+              <span class="node-toast" id="node-toast" hidden></span>
               <details class="conn-settings">
                 <summary>⚙ 连接设置</summary>
                 <div class="conn-settings-body">
@@ -1257,6 +1269,9 @@
         </section>
 
         <section id="settings" class="page">
+          <!-- 接入节点：操作台是静态的，节点是它要数据的对象。放在最前面，
+               因为「连不上」时要找的就是它。渲染见 cyber-node-panel.js。 -->
+          <div class="card section" data-karma-nodes-settings></div>
           <div class="card section">
             <div class="section-header">
               <div>
@@ -1319,6 +1334,7 @@
       window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
     </script>
     <script src="../../scripts/i18n-cyber.js"></script>
+    <script src="../../scripts/karma-nodes.js"></script>
     <script src="../../scripts/karma-public-api.js"></script>
     <script src="../../scripts/console-wallet-auth.js"></script>
     <script src="../../scripts/console-entry-gate.js"></script>
@@ -1347,6 +1363,7 @@
     <script src="../../scripts/cyber-entity.js"></script>
     <script src="../../scripts/cyber-developer.js"></script>
     <script src="../../scripts/cyber-reviews.js"></script>
+    <script src="../../scripts/cyber-node-panel.js"></script>
     <script src="../../scripts/cyber-globe-bg.js"></script>
   </body>
 </html>

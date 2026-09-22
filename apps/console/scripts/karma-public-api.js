@@ -16,6 +16,13 @@
   }
 
   function apiBase() {
+    // 节点层在场时以它为准（用户在操作台里选的那台节点）；
+    // 它不在（老缓存 / 单页复用）就退回原来的口径。
+    if (global.KarmaNodes && global.KarmaNodes.effectiveBase) {
+      try {
+        return global.KarmaNodes.effectiveBase();
+      } catch (_) {}
+    }
     return karmaResolveApiBase(global.KARMA_API_BASE);
   }
 
@@ -58,7 +65,19 @@
 
   async function karmaFetch(path, init) {
     const url = apiBase() + path;
-    const res = await fetch(url, init);
+    let res;
+    try {
+      res = await fetch(url, init);
+    } catch (e) {
+      // 连不上这一台：交给节点层决定要不要换一台（用户开着自动切换时）。
+      // 换完把错照原样抛出去，调用方看到的仍是"这次请求失败了"，不会假装成功。
+      if (global.KarmaNodes && global.KarmaNodes.reportFailure) {
+        try {
+          global.KarmaNodes.reportFailure(apiBase());
+        } catch (_) {}
+      }
+      throw e;
+    }
     const text = await res.text();
     let body;
     try {

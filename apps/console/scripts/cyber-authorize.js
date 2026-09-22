@@ -51,9 +51,24 @@
     "discover_agents",
     "place_order",
   ];
-  var RUNTIME_URL = "https://karma-network.ai";
+  var FALLBACK_RUNTIME_URL = "https://karma-network.ai";
 
   var state = { profiles: [], ceiling: 0, allocations: [], typeTouched: false, busy: false };
+
+  /**
+   * 生成 SDK 时写进 env 的接入地址：跟着操作台里选的那台节点走。
+   * 写死成厂商域名的话，用户换节点以后 agent 还在敲厂商的机器 —— 白换。
+   */
+  function runtimeUrl() {
+    try {
+      if (global.KarmaNodes && global.KarmaNodes.effectiveBase) {
+        var base = String(global.KarmaNodes.effectiveBase() || "").trim().replace(/\/+$/, "");
+        if (base) return base;
+      }
+    } catch (_) {}
+    var manual = String(global.KARMA_API_BASE || "").trim().replace(/\/+$/, "");
+    return manual || FALLBACK_RUNTIME_URL;
+  }
 
   function api() { return global.cyberKarmaApi; }
   function byId(id) { return document.getElementById(id); }
@@ -374,12 +389,13 @@
     var human = byId("agw-human") ? byId("agw-human").value : "above_single";
     var label = TYPES[typeKey] ? TYPES[typeKey].label : TYPES[typeOf(profile)].label;
     var name = displayName || profile.display_name || label;
-    var apiBase = String(global.KARMA_API_BASE || "") || RUNTIME_URL;
+    // 交给 agent 的地址跟着操作台选的节点走：用户换了节点，agent 也得跟着换。
+    var apiBase = runtimeUrl();
     var env = [
       "KARMA_API_BASE=" + apiBase,
       "KARMA_IDENTITY_ID=" + identity(),
       "KARMA_PROFILE_ID=" + profile.profile_id,
-      "KARMA_RUNTIME_URL=" + RUNTIME_URL,
+      "KARMA_RUNTIME_URL=" + apiBase,
       "KARMA_RUNTIME_KEY=" + key,
     ].join("\n");
     host.hidden = false;
@@ -408,8 +424,8 @@
       ) + "</pre></div>" +
       '<div class="ag-next"><b>③ 让 agent 先读边界、再干活</b><pre>' +
       esc(
-        "curl -s " + RUNTIME_URL + "/runtime/policy \\\n  -H \"X-Karma-Runtime-Key: $KARMA_RUNTIME_KEY\"\n" +
-        "curl -s " + RUNTIME_URL + "/runtime/capacity \\\n  -H \"X-Karma-Runtime-Key: $KARMA_RUNTIME_KEY\""
+        "curl -s " + apiBase + "/runtime/policy \\\n  -H \"X-Karma-Runtime-Key: $KARMA_RUNTIME_KEY\"\n" +
+        "curl -s " + apiBase + "/runtime/capacity \\\n  -H \"X-Karma-Runtime-Key: $KARMA_RUNTIME_KEY\""
       ) +
       "</pre></div>";
     var copy = byId("agw-copy-env");
@@ -610,5 +626,7 @@
     pyUtcIso: pyUtcIso,
     PERMS: PERMS,
     DEFAULT_PERMS: DEFAULT_PERMS,
+    // SDK env 里那个接入地址：给测试复用，别各写一份。
+    runtimeUrl: runtimeUrl,
   };
 })(window);

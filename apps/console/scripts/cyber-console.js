@@ -47,6 +47,13 @@
    * ("" = same-origin), else the local dev API on localhost and this origin in production.
    */
   function displayBase() {
+    // 节点层在场时以它为准；它拿到的也是同一个 localStorage 键，
+    // 所以「连接设置」里手填的地址仍然赢。
+    if (window.KarmaNodes && window.KarmaNodes.effectiveBase) {
+      try {
+        return window.KarmaNodes.effectiveBase();
+      } catch (_) {}
+    }
     let stored = "";
     try {
       stored = localStorage.getItem(LS_BASE) || "";

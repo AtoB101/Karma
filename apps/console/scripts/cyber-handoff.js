@@ -12,8 +12,24 @@
  * custodied server-side (0600, revocable).
  */
 (function (global) {
-  var RUNTIME_URL = "https://karma-network.ai";
+  var FALLBACK_RUNTIME_URL = "https://karma-network.ai";
   var state = { agent: null, apiKey: "", runtimeKey: "", keys: null, note: "", err: "", pendingKeyId: "" };
+
+  /**
+   * 交付给 agent 的接入地址：跟着操作台里选的那台节点走。
+   *
+   * 这个地址会被写进 agent 的 env、也会出现在自检 curl 里。写死成厂商域名的话，
+   * 用户在自己的操作台里换了节点，agent 拿到的还是厂商的地址 —— 那就白换了。
+   */
+  function runtimeUrl() {
+    try {
+      if (global.KarmaNodes && global.KarmaNodes.effectiveBase) {
+        var base = String(global.KarmaNodes.effectiveBase() || "").trim().replace(/\/+$/, "");
+        if (base) return base;
+      }
+    } catch (_) {}
+    return FALLBACK_RUNTIME_URL;
+  }
 
   function api() { return global.cyberKarmaApi; }
   function $(sel, root) { return (root || document).querySelector(sel); }
@@ -170,7 +186,7 @@
     var lines = ["KARMA_AGENT_ID=" + a.agent_id];
     // env 文件是机器读的，占位符统一用英文，避免英文页面里混进中文。
     lines.push("KARMA_API_KEY=" + (state.apiKey || "<paste the API key you saved when the agent connected>"));
-    lines.push("KARMA_RUNTIME_URL=" + RUNTIME_URL);
+    lines.push("KARMA_RUNTIME_URL=" + runtimeUrl());
     if (state.runtimeKey) lines.push("KARMA_RUNTIME_KEY=" + state.runtimeKey);
     return lines.join("\n");
   }
@@ -190,10 +206,10 @@
   function selfCheckText(a) {
     return [
       "# ① 凭据自检：证明 API Key 有效（只有你自己能看到结果）",
-      'curl -s -H "X-Karma-Api-Key: $KARMA_API_KEY" ' + RUNTIME_URL + "/v1/agents/mine",
+      'curl -s -H "X-Karma-Api-Key: $KARMA_API_KEY" ' + runtimeUrl() + "/v1/agents/mine",
       "",
       "# ② 对端核验：任何人都能用，对方成交前会查这个",
-      "curl -s " + RUNTIME_URL + "/v1/agents/" + a.agent_id + "/p1-status",
+      "curl -s " + runtimeUrl() + "/v1/agents/" + a.agent_id + "/p1-status",
     ].join("\n");
   }
 
@@ -667,5 +683,7 @@
     buildRejectBindMsg: buildRejectBindMsg,
     buildUnbindKeyMsg: buildUnbindKeyMsg,
     walletProvider: walletProvider,
+    // 交付包里那个接入地址：给测试和「配对接入」面板复用，别各写一份。
+    runtimeUrl: runtimeUrl,
   };
 })(window);
