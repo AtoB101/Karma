@@ -127,6 +127,8 @@ if command -v node >/dev/null 2>&1; then
     node "$ROOT/tests/playwright/console_nodes_live.cjs"
     # 身份核验页：真浏览器里数一数几步、看一眼灰没灰、六门语言逐个切。
     node "$ROOT/tests/playwright/console_verify_route_live.cjs"
+    # 复核台那句「打不开队列」：真浏览器里走一遍 403 再逐个语言比对（L3-2 之后重写过）。
+    node "$ROOT/tests/playwright/console_reviews_copy_live.cjs"
   else
     echo "(skip) 没装 playwright：真机验证跳过（npm i -D playwright）"
   fi
