@@ -247,11 +247,16 @@
       else say(st, (e && e.message) || "读取失败", false);
       if (deny && e && e.status === 403) {
         deny.hidden = false;
-        deny.innerHTML =
-          "这个身份还打不开复核队列：队列只对<b>复核岗（verifier）</b>开放。" +
-          "复核岗不能自助开通 —— 需要运维先把身份加进 " +
-          "<code>GOVERNANCE_VERIFIER_IDS</code>" +
-          "，再由本人建一张 verifier 类身份档案。";
+        // 这句话必须跟后端的规矩一致（services/governance_stake.py）：
+        // 复核岗现在有两条路 —— 平台点名，或者平台开放申请后用**已锁仓的 USDC**质押开通；
+        // 质押开出来的岗跟着押金走，押金一走岗就停。再念「只能靠运维加名单」，
+        // 就等于告诉用户「你永远开不了」——后端已经能自助开通了。
+        deny.textContent =
+          "这个身份还打不开复核队列：队列只对复核岗（verifier）开放。" +
+          "复核岗有两条路：平台点名开通，或者平台开放申请后用已锁仓的 USDC 质押开通" +
+          " —— 押金一走，这个岗就自动停。";
+        // 翻译是排队跑的（观察器 + 队列）：不等它这一轮，切完语言会先看见中文。
+        if (window.CYBER_I18N && window.CYBER_I18N.applyPhrase) window.CYBER_I18N.applyPhrase(deny);
       }
     }
   }

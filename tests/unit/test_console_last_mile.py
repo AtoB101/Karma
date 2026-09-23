@@ -625,12 +625,21 @@ def test_every_language_pack_carries_the_review_queue_copy():
         "请先用右上角「连接钱包」完成认证，再来打开复核队列。",
         "还没认证：请先用右上角「连接钱包」完成认证。",
         "没有权限：这个身份还不是复核岗（verifier）。",
+        # L3-2 之后复核岗有了第二条入口（质押即开通），这句提示必须跟着后端走；
+        # 它还得是**一句话**，别拆成几段拼 —— 拼出来的句子查不到译表。
+        (
+            "这个身份还打不开复核队列：队列只对复核岗（verifier）开放。"
+            "复核岗有两条路：平台点名开通，或者平台开放申请后用已锁仓的 USDC 质押开通"
+            " —— 押金一走，这个岗就自动停。"
+        ),
     )
     phrase_dir = CONSOLE / "scripts" / "i18n-phrase"
     for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
         pack = (phrase_dir / f"{lang}.js").read_text(encoding="utf-8")
         missing = [s for s in samples if f'"{s}":' not in pack]
         assert not missing, f"{lang} 缺译文：{missing}"
+        # 后端那句 403 换了措辞，语言包里的 key 也得跟着换 —— 否则它在页面上是中文原文。
+        assert "GOVERNANCE_OPEN_JOIN" in pack, f"{lang} 里的治理岗提示还是旧措辞"
 
     js = (CONSOLE / "scripts" / "cyber-reviews.js").read_text(encoding="utf-8")
     assert "function authed()" in js, "复核页要先看会话再发请求"

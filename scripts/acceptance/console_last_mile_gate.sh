@@ -110,7 +110,7 @@ if command -v node >/dev/null 2>&1; then
   for pack in "$CONSOLE"/scripts/i18n-phrase/*.js; do
     node --check "$pack"
   done
-  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js karma-service-spec.js cyber-pairing.js cyber-payments.js cyber-console.js cyber-orders.js cyber-order-flow.js cyber-identity.js cyber-identity-verify.js cyber-bind-requests.js cyber-unbind-keys.js; do
+  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js karma-service-spec.js cyber-pairing.js cyber-payments.js cyber-console.js cyber-orders.js cyber-order-flow.js cyber-identity.js cyber-identity-verify.js cyber-bind-requests.js cyber-unbind-keys.js cyber-reviews.js; do
     node --check "$CONSOLE/scripts/$js"
   done
   for js in karma-nodes.js cyber-node-panel.js cyber-handoff.js; do
