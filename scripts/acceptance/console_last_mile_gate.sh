@@ -125,6 +125,19 @@ grep -q 'console_two_factors' "$ROOT/db/migrations/versions/0057_console_2fa_and
 grep -q 'def verify_code' "$ROOT/services/console_2fa.py"
 grep -q 'def activate_by_face' "$ROOT/services/face_activation.py"
 
+# L3-4：钥匙必须指名 agent（不记名钥匙整条路关掉）。铸钥匙少一个 agent 名字，
+# 服务端就 400 —— 页面上那个框是唯一入口，掉了等于用户点不出钥匙。
+grep -q 'id="ag-agent"' "$CONSOLE/pages/cyber/index.html"
+grep -q 'agent_binding: f.agent' "$CONSOLE/scripts/cyber-actions.js"
+grep -q 'agent_id: f.agent' "$CONSOLE/scripts/cyber-actions.js"
+grep -q '已停用（不记名钥匙）' "$CONSOLE/scripts/cyber-handoff.js"
+grep -q 'runtime_require_agent_binding' "$ROOT/config/settings.py"
+grep -q 'require_agent_binding' "$ROOT/services/runtime_key_service.py"
+grep -q 'require_agent_binding' "$ROOT/api/routes/runtime_gateway.py"
+# agent 侧：申请接入 + 逐请求签名 + 等主人输码，三件工具缺一不可。
+grep -q 'def karma_runtime_bind_key' "$ROOT/packages/karma-openclaw/karma_openclaw/runtime_tools.py"
+grep -q 'def sign_runtime_request' "$ROOT/packages/karma-openclaw/karma_openclaw/agent_binding.py"
+
 python3 -m pytest -q tests/unit/test_console_last_mile.py
 python3 -m pytest -q tests/unit/test_console_2fa.py
 python3 -m pytest -q tests/unit/test_face_activation.py

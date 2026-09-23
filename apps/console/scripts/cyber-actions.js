@@ -483,7 +483,7 @@
   function agFields() {
     var id = val('#ag-identity') || identity();
     var perms = (val('#ag-perms') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-    return { id: id, perms: perms, single: parseFloat(val('#ag-single')) || 0, daily: parseFloat(val('#ag-daily')) || 0 };
+    return { id: id, agent: val('#ag-agent'), perms: perms, single: parseFloat(val('#ag-single')) || 0, daily: parseFloat(val('#ag-daily')) || 0 };
   }
   function savePolicy() {
     var f = agFields(); var a = api();
@@ -511,6 +511,8 @@
     var f = agFields(); var a = api();
     if (!a) return;
     if (!f.id) { out('#set-out', '请填 Identity ID 或先连接钱包', true); return; }
+    // 钥匙必须指名 agent：不指名就是一把不记名钥匙，谁捡到谁能花。服务端也拦。
+    if (!f.agent) { out('#set-out', '请填 Agent ID：每把钥匙都要指名一个 agent。不指名就等于铸一把不记名钥匙 —— 谁捡到谁能花，所以这条路已经关掉了。', true); return; }
     var provider =
       (global.KarmaWalletAuth && global.KarmaWalletAuth.activeProvider && global.KarmaWalletAuth.activeProvider()) ||
       global.ethereum;
@@ -522,10 +524,10 @@
       var accounts = await provider.request({ method: 'eth_requestAccounts' });
       var wallet = accounts[0];
       var expireIso = pyUtcIso(Date.now() + 7 * 86400e3);
-      var msg = buildCreateKeyMsg({ karma_identity_id: f.id, wallet_address: wallet, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: 'console-agent' });
+      var msg = buildCreateKeyMsg({ karma_identity_id: f.id, wallet_address: wallet, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: f.agent, agent_binding: f.agent });
       var sig = await provider.request({ method: 'personal_sign', params: [msg, wallet] });
       var rt = global.karmaRuntimeApi;
-      var r = await rt.runtimeCreateKey({ wallet_address: wallet, karma_identity_id: f.id, wallet_signature: sig, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: 'console-agent', profile_id: activeProfileId() || undefined });
+      var r = await rt.runtimeCreateKey({ wallet_address: wallet, karma_identity_id: f.id, wallet_signature: sig, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: f.agent, agent_binding: f.agent, agent_id: f.agent, profile_id: activeProfileId() || undefined });
       out('#set-out', r, false);
     } catch (e) { out('#set-out', (e && (e.message || e.detail)) || e, true); }
   }

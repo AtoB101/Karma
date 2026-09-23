@@ -423,6 +423,11 @@ class Settings(BaseSettings):
     runtime_require_wallet_identity_binding: bool = False
     runtime_auto_bind_wallet_on_create_key: bool = True
 
+    # Runtime Key 必须绑到某个 agent：铸的时候要指名，用的时候要过匹配码激活。
+    # 打开之后不存在「不记名钥匙」—— 光拿到 KRM_RT_… 什么都做不了：
+    # 服务端只认「agent 公钥 + 逐请求签名」，而公钥要主人在操作台输码才绑得上。
+    runtime_require_agent_binding: bool = True
+
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":
         """Reject unsafe defaults in any non-development environment (production, testnet, staging)."""
@@ -465,6 +470,11 @@ class Settings(BaseSettings):
             if not self.runtime_require_wallet_identity_binding:
                 raise ValueError(
                     "RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING must be true when APP_ENV is production",
+                )
+            if not self.runtime_require_agent_binding:
+                raise ValueError(
+                    "RUNTIME_REQUIRE_AGENT_BINDING must be true when APP_ENV is production "
+                    "(otherwise a stolen KRM_RT_… is immediately spendable — no matching code needed)",
                 )
             if not self.runtime_daily_spend_persist:
                 raise ValueError(

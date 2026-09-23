@@ -1283,10 +1283,12 @@
               <div>
                 <h3>设置 · AI Agent 自动授权</h3>
                 <p>保存服务端自动授权策略（单笔/日限额 + 权限），再用钱包签名铸造 Runtime Key。</p>
+                <p>每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在下面「接入确认」里输码，它才能动钱。</p>
               </div>
             </div>
             <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:12px; margin-top:12px">
               <div class="field"><label>Identity ID</label><input id="ag-identity" type="text" placeholder="kid_5f0aa8ccf7483983a8a2a5a9（连钱包自动填）" /></div>
+              <div class="field"><label>Agent ID</label><input id="ag-agent" type="text" placeholder="claw-001" /></div>
               <div class="field"><label>单笔限额（USDC）</label><input id="ag-single" type="number" value="100" /></div>
               <div class="field"><label>日限额（USDC）</label><input id="ag-daily" type="number" value="500" /></div>
               <div class="field"><label>权限（逗号分隔）</label><input id="ag-perms" value="request_voucher,submit_receipt,update_progress,request_settlement,sync_task_status" /></div>

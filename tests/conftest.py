@@ -44,6 +44,22 @@ def event_loop():
 
 
 @pytest.fixture(autouse=True)
+def _legacy_bearer_keys_allowed_in_tests(monkeypatch) -> None:
+    """Runtime Key「必须指名 agent」这条闸门，在测试里默认放开。
+
+    生产默认是**开**的（``RUNTIME_REQUIRE_AGENT_BINDING=true``）：不指名 agent 就铸不出
+    钥匙，「服务端托管」的不记名钥匙一律拒 —— 光捡到 ``KRM_RT_…`` 什么都做不了。
+
+    但仓库里大量用例考的是网关机制本身（限额 / 结算 / 验签 / 派发），
+    它们用 ``create_runtime_key_record(agent_binding=None)`` 造一把省事的钥匙就够了。
+    这里把闸门放开，让那些用例继续考它本来要考的东西；
+    「闸门真的拦得住」由 ``tests/integration/test_console_key_to_agent_e2e.py``
+    与 ``tests/unit/test_runtime_agent_binding_gate.py`` 专门考。
+    """
+    monkeypatch.setattr(settings, "runtime_require_agent_binding", False)
+
+
+@pytest.fixture(autouse=True)
 def reset_runtime_safety_mode_between_tests() -> None:
     """Global runtime safety mode is in-process; clear it so integration tests do not leak pauses."""
     from services.runtime_safety import set_runtime_safety_mode

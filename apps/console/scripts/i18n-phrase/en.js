@@ -2567,4 +2567,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "停用钥匙": "Disable key",
   "取消绑定": "Unbind",
   "安全验证 · {0}": "Security check · {0}",
+  "每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在下面「接入确认」里输码，它才能动钱。": "Every key must name an agent. What you mint comes out not activated: the agent requests access, receives an 8-character matching code, and you type that code into Bind confirmation below — only then can it spend.",
+  "请填 Agent ID：每把钥匙都要指名一个 agent。不指名就等于铸一把不记名钥匙 —— 谁捡到谁能花，所以这条路已经关掉了。": "Enter an Agent ID: every key must name an agent. Without one the key would be a bearer key that anyone who picks it up could spend, so that path is closed.",
+  "已停用（不记名钥匙）": "Retired (bearer key)",
 });

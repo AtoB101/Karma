@@ -485,17 +485,41 @@ async def _load_activatable_row(db: AsyncSession, key_id: str) -> RuntimeKeyMode
 
 
 def pending_activation_block(
-    *, key_binding: str | None, agent_public_key: str | None
+    *,
+    key_binding: str | None,
+    agent_public_key: str | None,
+    require_agent_binding: bool = False,
 ) -> str | None:
-    """未激活的 agent 专用钥匙：该拒就回一串给调用方看的理由，不该拒回 None。
+    """未激活的钥匙：该拒就回一串给调用方看的理由，不该拒回 None。
 
     没有时间维度：这把钥匙只要没激活就一律不能用，直到主人输了码（变成 agent）
     或者干脆吊销。时间只作用在**匹配码**上（BIND_CODE_TTL_SECONDS = 3 分钟）：
     码过期就是这次申请作废，agent 重新申请一次即可，钥匙本身不受影响。
     这是「未激活不能用」的唯一判定口径，网关和测试都走这里，避免两处漂移。
+
+    ``require_agent_binding=True``（生产默认）时把 ``service`` 也算作未激活 ——
+    那是升级前的不记名钥匙：**谁拿到 KRM_RT_… 谁就能花主人的钱**。新铸的钥匙
+    不允许再是这一种；存量的老钥匙一并下线，重铸 + 输码即可恢复。
     """
-    if (key_binding or "service").strip().lower() != PENDING_KEY_BINDING:
-        return None
+    binding = (key_binding or "service").strip().lower()
+    if binding == "agent":
+        # 正常状态：绑了公钥。缺公钥的 'agent' 是脏数据，照样不放。
+        if (agent_public_key or "").strip():
+            return None
+        if not require_agent_binding:
+            return None
+        return (
+            "runtime key is marked agent-bound but carries no agent public key; "
+            "revoke it and mint a new one"
+        )
+    if binding == "service":
+        if not require_agent_binding:
+            return None
+        return (
+            "this runtime key is a bearer key minted without an agent binding, so it is no "
+            "longer usable: anyone holding KRM_RT_… could spend. Mint a new key that names "
+            "the agent, then activate it in Console with the 8-character matching code"
+        )
     if (agent_public_key or "").strip():
         return None
     return (

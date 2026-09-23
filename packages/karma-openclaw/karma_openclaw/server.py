@@ -28,6 +28,7 @@ from karma_openclaw.http_client import api_get, api_post, runtime_key, runtime_p
 from karma_openclaw.p0_tools import register_p0_tools
 from karma_openclaw.phase1_tools import register_phase1_tools
 from karma_openclaw.phase2_tools import register_phase2_tools
+from karma_openclaw.runtime_tools import register_runtime_tools
 
 
 def build_app() -> FastMCP:
@@ -35,7 +36,11 @@ def build_app() -> FastMCP:
         "karma-openclaw",
         instructions=(
             "Karma Trust Protocol — OpenClaw MCP (P0+P1). "
-            "KARMA_RUNTIME_URL + KARMA_API_KEY; optional KARMA_RUNTIME_KEY for /runtime/*. "
+            "KARMA_RUNTIME_URL + KARMA_API_KEY; KARMA_RUNTIME_KEY (+ "
+            "KARMA_AGENT_PRIVATE_KEY / KARMA_AGENT_ID) for /runtime/*. "
+            "A Runtime Key names one agent and only works after the owner enters the "
+            "8-character matching code in Karma Console — call karma_runtime_bind_key "
+            "first, hand the code to the owner, then karma_runtime_await_activation. "
             "Voucher create/accept and Runtime Key mint are MANUAL in Karma Console. "
             "Mutating tools require handoff v1 (handoff_json or KARMA_OPENCLAW_HANDOFF_PATH)."
         ),
@@ -239,6 +244,7 @@ def build_app() -> FastMCP:
     register_phase1_tools(mcp)
     register_phase2_tools(mcp)
     register_bilateral_tools(mcp)
+    register_runtime_tools(mcp)
     return mcp
 
 

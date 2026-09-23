@@ -649,3 +649,30 @@ def test_every_language_pack_carries_the_review_queue_copy():
     # 这个文件是 (function () { ... })()，没有 global 形参：写成 global.KARMA_ACCESS_TOKEN
     # 会抛 ReferenceError，被 try/catch 吞掉之后永远判定「没连钱包」，连上也不再恢复。
     assert "global.KARMA_ACCESS_TOKEN" not in js, "cyber-reviews.js 里没有 global 形参，要用 window.*"
+
+
+def test_every_language_pack_carries_the_agent_bound_key_copy():
+    """钥匙必须指名 agent —— 这段文案六种语言都要有。
+
+    L3-4 把「不记名钥匙」这条路整条关掉了：设置页多了一个 Agent ID 输入框，不填就
+    铸不出钥匙；铸出来的钥匙是「未激活」，要 agent 申请接入 + 主人输 8 位匹配码才生效。
+    语言包缺这几句，切语言立刻掉回中文。
+    """
+    samples = (
+        "每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在下面「接入确认」里输码，它才能动钱。",
+        "请填 Agent ID：每把钥匙都要指名一个 agent。不指名就等于铸一把不记名钥匙 —— 谁捡到谁能花，所以这条路已经关掉了。",
+        "已停用（不记名钥匙）",
+    )
+    phrase_dir = CONSOLE / "scripts" / "i18n-phrase"
+    for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
+        pack = (phrase_dir / f"{lang}.js").read_text(encoding="utf-8")
+        missing = [s for s in samples if f'"{s}":' not in pack]
+        assert not missing, f"{lang} 缺译文：{missing}"
+
+    html = CYBER.read_text(encoding="utf-8")
+    assert 'id="ag-agent"' in html, "设置页要有 Agent ID 输入框"
+    js = (CONSOLE / "scripts/cyber-actions.js").read_text(encoding="utf-8")
+    assert "agent_binding: f.agent" in js, "铸钥匙要把 agent 名字写进钱包签名消息"
+    assert "agent_id: f.agent" in js, "铸钥匙要指名 agent（服务端会 400 拦下来）"
+    handoff = (CONSOLE / "scripts/cyber-handoff.js").read_text(encoding="utf-8")
+    assert '"service"' in handoff and "已停用（不记名钥匙）" in handoff, "存量不记名钥匙要标出来"

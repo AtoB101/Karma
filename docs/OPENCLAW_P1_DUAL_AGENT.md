@@ -110,6 +110,17 @@ karma_validate_handoff(handoff_json=<file contents>)
 
 v0.1 仍保留：`karma_get_capacity`、`karma_lock_usdc`、证据包读写。
 
+Runtime Key 接入（钥匙必须先指名 agent，再由主人输匹配码激活）：
+
+| 工具 | 作用 |
+|------|------|
+| `karma_runtime_bind_key` | POST /runtime/bind-key，拿 8 位匹配码交回主人 |
+| `karma_runtime_await_activation` | 轮询等主人在操作台输码；生效后自动带签名调用 |
+| `karma_runtime_binding_status` | GET /runtime/permissions，看这把钥匙到哪一步 |
+
+需要 `KARMA_RUNTIME_KEY` + `KARMA_AGENT_ID` + `KARMA_AGENT_PRIVATE_KEY`（Ed25519，
+私钥不出本机）。没有匹配码过主人那一关，钥匙动不了一分钱。
+
 **故意未提供：** `create_voucher`、`accept_voucher`、`verify_voucher`、`create-key` — 请用 Console。
 
 ## 推荐双 OpenClaw 流程

@@ -2569,4 +2569,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
   "停用钥匙": "Desactivar llave",
   "取消绑定": "Desvincular",
   "安全验证 · {0}": "Verificación de seguridad · {0}",
+  "每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在下面「接入确认」里输码，它才能动钱。": "Cada llave tiene que nombrar un agent. Lo que emitís sale sin activar: el agent pide acceso, recibe un código de 8 caracteres y vos lo escribís abajo en «Confirmación de acceso» — recién ahí puede gastar.",
+  "请填 Agent ID：每把钥匙都要指名一个 agent。不指名就等于铸一把不记名钥匙 —— 谁捡到谁能花，所以这条路已经关掉了。": "Completá el Agent ID: cada llave tiene que nombrar un agent. Sin eso la llave sería al portador y cualquiera que la encuentre podría gastar, así que ese camino quedó cerrado.",
+  "已停用（不记名钥匙）": "Dada de baja (llave al portador)",
 });

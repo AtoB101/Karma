@@ -250,6 +250,9 @@
                 "<span> · </span>" +
                 "<span>" + esc(k.status || "") + "</span>" +
                 (k.activation_required ? "<span> · </span><span>" + esc("未激活（等匹配码）") + "</span>" : "") +
+                (String(k.key_binding || "") === "service"
+                  ? "<span> · </span><span>" + esc("已停用（不记名钥匙）") + "</span>"
+                  : "") +
                 "<span> · 到期 </span>" +
                 "<span>" + esc(String(k.expire_time || "").slice(0, 10)) + "</span>" +
                 "<span> · </span>" +

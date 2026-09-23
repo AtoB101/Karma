@@ -11,12 +11,16 @@ Runtime Key（`KRM_RT_…`）是 **Agent 工作通行证**，用于调用公开�
 ## Agent 只拿 Runtime Key
 
 - SDK：`from karma import KarmaRuntime` 或 `from sdk.runtime_client import KarmaRuntime`。
-- 环境变量：`KARMA_RUNTIME_URL`、`KARMA_RUNTIME_KEY`、可选 `KARMA_EXPECTED_CHAIN_ID`、`KARMA_APP_SECRET`（用于校验响应 HMAC）。
+- 环境变量：`KARMA_RUNTIME_URL`、`KARMA_RUNTIME_KEY`、`KARMA_AGENT_ID`、`KARMA_AGENT_PRIVATE_KEY`
+  （后两个从这一版起是**必填**：钥匙指名了 agent，agent 就得拿得出对应的私钥），
+  可选 `KARMA_EXPECTED_CHAIN_ID`、`KARMA_APP_SECRET`（用于校验响应 HMAC）。
 
 ## 绑定 agent 公钥（使用时刻硬校验）
 
 Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在额度内花你的钱。
-所以铸出 key 之后，agent 应该把自己的 Ed25519 公钥钉在这把钥匙上。
+所以这把钥匙从铸出来那一刻就指名了一个 agent，而且必须由这个 agent 把自己的
+Ed25519 公钥钉在钥匙上、主人再输一次 8 位匹配码确认，钥匙才真的能用 —— 这里没有
+「可选」的余地：不指名的钥匙铸不出来，没输码的钥匙一分钱都动不了。
 
 1. agent 侧配好三样东西：
 
@@ -45,7 +49,11 @@ Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在�
    ```
 
    匹配码 3 分钟有效、最多试错 5 次；过期或用完就让 agent 重新申请（旧码同时作废）。
-   主人也可以拒绝这次接入，key 本身不受影响。
+   主人也可以拒绝这次接入，key 本身不受影响（仍然停在「未激活」，照样花不了钱）。
+
+   走 OpenClaw（MCP）的话不用自己写这段：`packages/karma-openclaw` 里三件工具就够 ——
+   `karma_runtime_bind_key`（申请接入并把匹配码交回主人）、`karma_runtime_await_activation`
+   （等主人输码）、`karma_runtime_binding_status`（看这把钥匙到哪一步）。
 
    为什么非要这一步：Runtime Key 是不记名令牌。以前「谁先调 bind-key 谁就绑上」——
    偷到 key 的人抢先绑自己的公钥，主人反而被挡在门外。现在码在 agent 手里、在主人手里
@@ -98,8 +106,14 @@ Runtime Key 是**不记名令牌**：谁拿到那串 KRM_RT_…，谁就能在�
 `POST /runtime/list-keys` 与 `GET /runtime/permissions` 的返回里都带 `pending_binding`
 （没有就是 null），操作台据此显示「有 agent 正在申请接入」。
 
-**没绑公钥的 key 行为完全不变**（服务端托管，认 key 不认人）——升级不会把已经在跑的 agent 打掉。
-绑不绑由 agent 决定；但只有绑了，「被偷走的 key 单独没用」才成立。
+**每一把钥匙都必须指名一个 agent**（服务端 `runtime_require_agent_binding = true`，生产不许关）：
+铸造时 `agent_binding` 非空，铸出来就是「未激活」，谁都花不了；agent 申请接入 → 拿到 8 位匹配码 →
+主人在操作台输码 + 钱包签名，绑定才生效。于是「偷到 key 的人先抢绑自己的公钥」这条路走不通，
+「钥匙被抄走就等于钱被抄走」也不成立。
+
+**不记名钥匙（`key_binding = service`）整条路已经关掉**：升级前铸出来的这种钥匙一律 403
+（理由里写明是 bearer key），铸造口也不再接受不指名 agent 的请求（400）。存量钥匙要恢复
+只有一个办法：吊销它，重铸一把带 agent 的，再走一次「agent 申请 → 主人输码」。
 
 其它硬约束：
 
@@ -160,18 +174,20 @@ automation-policy（`auto_enabled`、`responsibility_acknowledged`、`single_lim
 GET /runtime/permissions
 ```
 
-返回里的 key_binding 为 service（没绑）/ agent（已绑），agent_fingerprint 是绑定公钥的指纹
-（前 16 位给用户肉眼对照），nonce_required 表示这个 key 是否每请求强制 nonce。
+返回里的 key_binding 有三种：agent（已生效）/ agent_pending（等主人输码）/ service
+（升级前的不记名钥匙，已停用）。agent_fingerprint 是绑定公钥的指纹（前 16 位给用户肉眼
+对照），nonce_required 表示这个 key 是否每请求强制 nonce。
 
 `pending_binding` 不为 null 表示「有 agent 申请了、主人还没输匹配码」：里面带
 `agent_fingerprint`、`expires_at`、`attempts_left`、`expired`。**它不算绑定生效**——
-此时 key 仍是服务端托管，agent 带签名调用会被拒（403）。
+此时钥匙还不认人：不带签名读不到额度，带上签名反而会被拒（403，因为服务端只认
+已绑定的公钥）。
 
 ## 铸造时指明给某个 agent 的钥匙：未激活不能花钱
 
-上面那套绑定是**事后生效**的：绑上之后光有 key 字符串花不出钱。但「铸造 → 激活」这段
-窗口期以前是敞开的 —— 钥匙还没绑任何公钥，谁抄到那串 KRM_RT_… 谁就能在额度内花。
-现在这条堵上了。
+绑定不再是「事后加固」，而是必经之路：钥匙铸出来就是 `agent_pending`，agent 申请接入 +
+主人输码之后才变成 `agent`，从那以后每个请求都要验签。以前「铸造 → 激活」这段窗口是敞开的 ——
+钥匙还没绑任何公钥，谁抄到那串 KRM_RT_… 谁就能在额度内花。现在这条堵上了。
 
 铸造时 `agent_binding` 非空（这把钥匙明确是给某个 agent 的；该字段在钱包签名消息里，
 用户授权过）的钥匙，落到 `key_binding = agent_pending`：
@@ -187,8 +203,9 @@ GET /runtime/permissions
   就废」，是「没激活就废」）。有 3 分钟时限的只是**匹配码**（`BIND_CODE_TTL_SECONDS = 180`）：
   码过期表示这次申请作废，让 agent 重新申请一次就会给新码，钥匙本身不用重铸；
 * 拒绝一次接入**不等于**放行：待确认位清掉了，钥匙仍停在 `agent_pending`，照样花不了钱；
-* **没指明 agent 的托管钥匙不受影响**（`key_binding = service`，认 key 不认人），
-  已经在跑的 agent 不会被这次改动打掉。
+* **不记名钥匙整条路已经关掉**：铸造时不指名 agent 直接 400；升级前铸出来的
+  `key_binding = service` 钥匙一律 403（理由里写明 bearer key）。要恢复就吊销重铸
+  一把带 agent 的，再走一次「agent 申请 → 主人输码」。
 
 换句话说：偷到 key 的人能做的最坏一件事，是让那把还没激活的钥匙不能用；他要花你的钱，
 仍然必须过你钱包那一关。

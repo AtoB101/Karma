@@ -10,10 +10,8 @@
     [4] 主人侧：POST /runtime/confirm-bind-key（输码 + 钱包签名）→ 绑定才落库
     [5] 生效之后：带四个头的请求 200；只带 key、不带签名的请求 401
 
-最后两条正是 openclaw 那条路的判据：``karma-openclaw`` 只会发
-``X-Karma-Runtime-Key``（见 ``packages/karma-openclaw/karma_openclaw/http_client.py``），
-所以它开箱即用的是**托管型 key**（铸 key 时没指定 agent）；绑过 agent 公钥的 key
-它签不了名，要靠 ``sdk/runtime_client.py`` 的 ``KarmaRuntime``。
+另外两支钉的是「不记名这条路是关的」：生产口径下铸钥匙必须指名 agent，
+升级前那批不记名钥匙一律拒 —— 光拿到 KRM_RT_… 什么都做不了。
 """
 from __future__ import annotations
 
@@ -30,6 +28,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 from httpx import AsyncClient
 
+from services.runtime_key_service import create_runtime_key_record
 from services.runtime_wallet import (
     build_agent_request_message,
     build_confirm_bind_message,
@@ -254,18 +253,67 @@ async def test_wrong_matching_code_is_rejected_and_does_not_activate(client: Asy
 
 
 @pytest.mark.asyncio
-async def test_service_mode_key_is_usable_by_openclaw_out_of_the_box(client: AsyncClient):
-    """操作台不指定 agent 时铸的是「托管型」钥匙：光有 key 就能用 —— openclaw 走的正是这条。"""
+async def test_production_closes_the_bearer_key_path(client: AsyncClient, db_session, monkeypatch):
+    """生产口径（RUNTIME_REQUIRE_AGENT_BINDING=true）：不记名这条路是关的。
+
+    核心就一句：钥匙不记名 = 谁捡到谁能花。所以
+    (a) 铸的时候不指名 agent → 400，根本铸不出来；
+    (b) 升级前已经铸出来的不记名钥匙 → 连「我现在到哪一步了」都不给，一律 403。
+    """
+    from config.settings import settings as cfg
+
+    monkeypatch.setattr(cfg, "runtime_require_agent_binding", True)
     account = Account.create()
     identity = f"e2e-claw-svc-{uuid.uuid4().hex[:8]}"
+    expire = datetime.utcnow() + timedelta(days=30)
 
-    minted = await _mint(client, account=account, identity=identity, agent_id=None)
-    token = str(minted["runtime_key"])
-    assert minted["activation_required"] is False
-    assert "托管" in str(minted["next_step"])
+    # (a) 不指名 agent：铸不出来。
+    msg = build_create_key_message(
+        karma_identity_id=identity,
+        wallet_address=account.address,
+        permissions=PERMISSIONS,
+        single_limit=100.0,
+        daily_limit=500.0,
+        expire_time=expire,
+        agent_name="console-agent",
+        agent_binding=None,
+    )
+    signed = account.sign_message(encode_defunct(text=msg))
+    resp = await client.post(
+        "/runtime/create-key",
+        json={
+            "wallet_address": account.address,
+            "karma_identity_id": identity,
+            "wallet_signature": signed.signature.hex(),
+            "permissions": PERMISSIONS,
+            "single_limit": 100.0,
+            "daily_limit": 500.0,
+            "expire_time": expire.isoformat(),
+            "agent_name": "console-agent",
+        },
+    )
+    assert resp.status_code == 400, resp.text
+    assert "agent_binding is required" in str(resp.json().get("detail"))
 
-    headers = _openclaw_runtime_headers(token)
-    assert headers.get("X-Karma-Runtime-Key") == token
+    # (b) 存量不记名钥匙（直接落库模拟升级前铸的那批）：一律拒。
+    token, _row = await create_runtime_key_record(
+        db=db_session,
+        wallet_address=account.address,
+        karma_identity_id=identity,
+        permissions=PERMISSIONS,
+        single_limit=100.0,
+        daily_limit=500.0,
+        expire_at=expire,
+        agent_name="legacy-console-agent",
+        agent_binding=None,
+    )
+    await db_session.commit()
 
-    resp = await client.get("/runtime/capacity", headers=headers)
-    assert resp.status_code == 200, resp.text
+    for path in ("/runtime/permissions", "/runtime/capacity"):
+        r = await client.get(path, headers={"X-Karma-Runtime-Key": token})
+        assert r.status_code == 403, (path, r.text)
+        assert "bearer key" in str(r.json().get("detail")), r.text
+
+    # openclaw 的那组头也一样进不来 —— 而它没有别的头可加。
+    oc = await client.get("/runtime/permissions", headers=_openclaw_runtime_headers(token))
+    assert oc.status_code == 403, oc.text

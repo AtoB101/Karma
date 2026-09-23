@@ -351,6 +351,16 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
         # 同一个东西写了两个值，说明调用方拼错了 —— 在铸造前就失败，
         # 别铸出一把「声明与授权对象不一致」的钥匙。
         raise HTTPException(status_code=403, detail="agent_id must match agent_binding")
+    if not bound_agent and bool(getattr(settings, "runtime_require_agent_binding", False)):
+        # 不指名就等于铸一把不记名钥匙 —— 谁捡到谁能花。这条路必须从源头堵死。
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "agent_binding is required: every runtime key must name the agent it is issued "
+                "to, and that agent must activate it in Console with the 8-character matching "
+                "code before the key can spend anything"
+            ),
+        )
     if body.profile_id:
         validate_public_url_segment("profile_id", body.profile_id)
     msg = build_create_key_message(
@@ -368,7 +378,10 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
         wallet_address=body.wallet_address,
         wallet_signature=body.wallet_signature,
     )
-    from config.settings import settings
+    # 注意：这里**不能**再写 ``from config.settings import settings`` ——
+    # 那句局部 import 会让整个函数里的 settings 变成局部名，函数开头的
+    # getattr(settings, ...) 就会在赋值前被访问（UnboundLocalError）。
+    # 模块顶部已经 import 过了，直接用。
     from services.agent_automation_policy import assert_runtime_key_matches_policy, get_automation_policy
 
     if settings.runtime_require_saved_automation_policy:
@@ -1115,10 +1128,19 @@ async def get_runtime_context(
     if not token:
         raise HTTPException(status_code=401, detail="X-Karma-Runtime-Key header is required")
     ctx = await load_active_context(db=db, token=token)
-    if request.url.path not in PENDING_ACTIVATION_ALLOWED_PATHS:
+    binding = (ctx.key_binding or "service").strip().lower()
+    # 「我现在到哪一步了」这个只读口只对**待激活**的钥匙放行（agent 靠它轮询自己的
+    # 状态），不记名钥匙连这个都不给 —— 它已经被判死刑了。
+    polling_own_status = (
+        request.url.path in PENDING_ACTIVATION_ALLOWED_PATHS and binding == PENDING_KEY_BINDING
+    )
+    if not polling_own_status:
         blocked = pending_activation_block(
             key_binding=ctx.key_binding,
             agent_public_key=ctx.agent_public_key,
+            require_agent_binding=bool(
+                getattr(settings, "runtime_require_agent_binding", False)
+            ),
         )
         if blocked:
             # 「未激活就想花钱」是最值得主人看见的一条记录：他手里的 403 不是网络问题。

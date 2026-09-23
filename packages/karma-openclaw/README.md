@@ -4,6 +4,8 @@ Stdio MCP server that attaches verifiable execution receipts and evidence bundle
 
 **P0 proof tools:** execution receipt construction, evidence bundle submission, verification and handoff validation. High-risk settlement actions (voucher create/accept, Runtime Key mint) remain manual in the Karma Console. See [Advanced OpenClaw Workflows](../../docs/OPENCLAW_P1_DUAL_AGENT.md) and [`examples/openclaw-dual-agent/`](../../examples/openclaw-dual-agent/).
 
+**Runtime Key access is agent-bound.** A `KRM_RT_…` key is a bearer token — whoever holds it could spend the owner's money — so Karma mints every key against a named agent and refuses to serve it until the owner types the 8-character matching code in the Console. From this MCP, call `karma_runtime_bind_key`, hand the returned `activation_code` to the owner, then `karma_runtime_await_activation`. Set `KARMA_RUNTIME_KEY`, `KARMA_AGENT_ID` and `KARMA_AGENT_PRIVATE_KEY` (Ed25519, stays on this machine). See [Runtime Key 指南](../../docs/runtime-key-guide.md).
+
 ---
 
 ## Install
@@ -21,6 +23,11 @@ export KARMA_RUNTIME_URL=http://localhost:8000
 export KARMA_API_KEY=***karma_worker-001_***
 export KARMA_OPENCLAW_HANDOFF_PATH=./handoff.json
 
+# /runtime/* tools (agent-bound key):
+export KARMA_RUNTIME_KEY=KRM_RT_…
+export KARMA_AGENT_ID=<the agent this key names>
+export KARMA_AGENT_PRIVATE_KEY=<base64(32 bytes) or 64-char hex>
+
 karma-openclaw-mcp
 ```
 
@@ -32,6 +39,9 @@ karma-openclaw-mcp
 | `karma_submit_evidence_bundle` | Package receipts into a verifiable bundle |
 | `karma_get_evidence_bundle` | Retrieve a previously submitted bundle |
 | `karma_validate_handoff` | Verify operator handoff for high-risk actions |
+| `karma_runtime_bind_key` | Bind this agent's Ed25519 public key; returns the matching code for the owner |
+| `karma_runtime_await_activation` | Wait for the owner to enter the code; then signs every request |
+| `karma_runtime_binding_status` | Where this key stands (pending / active / bearer) |
 | `karma_check_automation_readiness` | Check if automation policy allows this action |
 | `karma_get_settlement` | (Optional) Read settlement status |
 
