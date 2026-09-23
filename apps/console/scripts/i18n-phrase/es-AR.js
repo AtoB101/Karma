@@ -2580,3 +2580,17 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
   "第 1 步：agent 名字只能用字母、数字、点、下划线、连字符（如 claw-001）": "Paso 1: el nombre del agent solo admite letras, números, punto, guion bajo o guion (ej. claw-001)",
   "复制接入包": "Copiar el paquete de acceso",
 });
+/* --- dynamic-append-24: 「接入包」结果卡里「agent 读到的边界」那一块（逐行可翻） --- */
+Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
+  "已生成": "Generada",
+  "身份 {0}（{1}）": "Identidad   {0} ({1})",
+  "名字 {0}": "Nombre      {0}",
+  "agent {0}": "agent       {0}",
+  "类型 {0}": "Tipo        {0}",
+  "授权额度 {0} USDC": "Límite      {0} USDC",
+  "单笔最高 {0} USDC": "Por orden   {0} USDC",
+  "每日上限 {0} USDC": "Por día     {0} USDC",
+  "人工确认 {0}": "Confirmar   {0}",
+  "权限 {0}": "Permisos    {0}",
+  "有效期至 {0}": "Hasta       {0}",
+});

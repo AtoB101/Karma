@@ -381,6 +381,20 @@
     }
   }
 
+  /**
+   * 「agent 读到的边界」那一块：一行一个文本节点，并且逐行标 data-i18n-phrase。
+   *
+   * PRE 默认不翻（里面常是签名原文那种数据），所以整块塞进一个 <pre> 的结果是：
+   * 英语/韩语页面上这一整片留着中文 —— 中文页面对齐，别的语言全错位。
+   * 标了 data-i18n-phrase 之后每一行按自己的原文查表，{0} 里的值（人名、金额、
+   * 「人工确认」那句）也会跟着翻。
+   */
+  function boundary(lines) {
+    return lines.map(function (line) {
+      return '<span data-i18n-phrase>' + esc(line) + "</span>";
+    }).join("\n");
+  }
+
   function renderSdk(res, profile, fields, perms, amount, typeKey, displayName, agentId) {
     var host = byId("agw-result");
     if (!host) return;
@@ -413,18 +427,18 @@
       '<button type="button" class="btn" id="agw-download-env">下载 karma-agent.env</button>' +
       "</div></div>" +
       '<div class="ag-snippet"><div class="ag-secret-label">② agent 读到的边界</div><pre>' +
-      esc(
-        "身份        " + did + "（" + profile.profile_id + "）\n" +
-        "名字        " + name + "\n" +
-        "agent       " + agentId + "\n" +
-        "类型        " + label + "\n" +
-        "授权额度    " + money(amount) + " USDC\n" +
-        "单笔最高    " + money(fields.single_limit) + " USDC\n" +
-        "每日上限    " + money(fields.daily_limit) + " USDC\n" +
-        "人工确认    " + (HUMAN_LABELS[human] || human) + "\n" +
-        "权限        " + perms.slice().sort().join(", ") + "\n" +
-        "有效期至    " + String(fields.expire_time).slice(0, 10)
-      ) + "</pre></div>" +
+      boundary([
+        "身份        " + did + "（" + profile.profile_id + "）",
+        "名字        " + name,
+        "agent       " + agentId,
+        "类型        " + label,
+        "授权额度    " + money(amount) + " USDC",
+        "单笔最高    " + money(fields.single_limit) + " USDC",
+        "每日上限    " + money(fields.daily_limit) + " USDC",
+        "人工确认    " + (HUMAN_LABELS[human] || human),
+        "权限        " + perms.slice().sort().join(", "),
+        "有效期至    " + String(fields.expire_time).slice(0, 10),
+      ]) + "</pre></div>" +
       '<div class="ag-next"><b>③ 让 agent 先读边界、再干活</b><pre>' +
       esc(
         "curl -s " + apiBase + "/runtime/policy \\\n  -H \"X-Karma-Runtime-Key: $KARMA_RUNTIME_KEY\"\n" +

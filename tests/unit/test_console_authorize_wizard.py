@@ -302,3 +302,24 @@ async def test_wizard_write_sequence_reaches_a_runtime_key(client: AsyncClient, 
     assert sorted(body["permissions"]) == perms
     assert body["single_limit"] == 20.0
     assert body["daily_limit"] == 40.0
+
+
+def test_the_handoff_card_keeps_every_boundary_line_translatable():
+    """结果卡里「它读到的边界」那一块，必须一行一个文本节点、逐行标 data-i18n-phrase。
+
+    实测（韩语真机）：整块塞进一个 <pre> 里时，PRE 默认不翻 —— 中文页面对齐，
+    韩语/英语页面上「身份 / 授权额度 / 单笔最高 …」整片留着中文，正好在用户
+    最需要看懂的那一块。改法是把每一行拆成自己的 <span data-i18n-phrase>，
+    再把十行原文加进五门语言包（见 test_console_phrase_language_purity.py）。
+    """
+    js = (CONSOLE / "scripts/cyber-authorize.js").read_text(encoding="utf-8")
+    assert 'return \'<span data-i18n-phrase>\' + esc(line) + "</span>";' in js, \
+        "边界块要逐行包成 <span data-i18n-phrase>，否则 PRE 里整片翻不了"
+    assert "boundary([" in js, "边界块要走 boundary()，别又拼回一整块"
+    assert 'esc(\n        "身份' not in js, "别把边界块拼成一个大字符串再 esc 一次"
+    for line in ("身份        ", "名字        ", "agent       ", "类型        ",
+                 "授权额度    ", "单笔最高    ", "每日上限    ", "人工确认    ",
+                 "权限        ", "有效期至    "):
+        assert '"' + line in js, "边界块少了这一行：%r" % line
+    # 结果卡右上角那个绿标签也得有译文，不然五种语言都显中文。
+    assert '>已生成</span>' in js

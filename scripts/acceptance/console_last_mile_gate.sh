@@ -124,6 +124,16 @@ grep -q '「미활성」로' "$CONSOLE/scripts/i18n-phrase/ko.js"
 grep -q '「未アクティブ」に戻り' "$CONSOLE/scripts/i18n-phrase/ja.js"
 grep -q '未アクティブ（照合コード待ち）' "$CONSOLE/scripts/i18n-phrase/ja.js"
 [[ -f "$ROOT/tests/unit/test_console_phrase_language_purity.py" ]]
+# 结果卡的「agent 读到的边界」要一行一个文本节点：整块塞进 <pre> 时 PRE 不翻，
+# 韩语/英语页面上这十行会整片留中文（真机逐页扫出来的）。
+grep -q 'data-i18n-phrase' "$CONSOLE/scripts/cyber-authorize.js"
+grep -q 'function boundary(' "$CONSOLE/scripts/cyber-authorize.js"
+grep -q '"身份        " + did' "$CONSOLE/scripts/cyber-authorize.js"
+grep -q '"已生成":' "$CONSOLE/scripts/i18n-phrase/en.js"
+grep -q '"已生成":' "$CONSOLE/scripts/i18n-phrase/ja.js"
+grep -q '"已生成":' "$CONSOLE/scripts/i18n-phrase/ko.js"
+grep -q '"身份 {0}（{1}）":' "$CONSOLE/scripts/i18n-phrase/en.js"
+grep -q '"身份 {0}（{1}）":' "$CONSOLE/scripts/i18n-phrase/ko.js"
 # 分发层：静态包要有可复验的清单，发布脚本存在于仓库里。
 [[ -f "$ROOT/scripts/console_bundle.py" ]]
 [[ -f "$ROOT/scripts/publish_console_ipfs.sh" ]]
