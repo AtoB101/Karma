@@ -73,6 +73,10 @@ grep -q 'cyber-key-calls.js' "$CONSOLE/pages/cyber/index.html"
 grep -q 'KarmaKeyCalls' "$CONSOLE/scripts/cyber-unbind-keys.js"
 grep -q 'KarmaKeyCalls' "$CONSOLE/scripts/cyber-handoff.js"
 grep -q 'keyCallsPanel' "$CONSOLE/scripts/cyber-handoff.js"
+# 切语言要重画（拼出来的句子 DOM 翻译引擎认不出）；prune 要按宿主（别把交付包里刚展开的面板关了）。
+grep -q 'karma-lang-changed' "$CONSOLE/scripts/cyber-key-calls.js"
+grep -q 'data-key-calls-host' "$CONSOLE/scripts/cyber-key-calls.js"
+grep -q 'prune(' "$CONSOLE/scripts/cyber-handoff.js"
 grep -q 'runtimeListNotices' "$CONSOLE/scripts/cyber-unbind-keys.js"
 grep -q 'data-ack-notices' "$CONSOLE/scripts/cyber-unbind-keys.js"
 grep -q 'runtime_call_logged' "$ROOT/api/routes/runtime_gateway.py"
@@ -176,6 +180,8 @@ if command -v node >/dev/null 2>&1; then
   node "$ROOT/tests/js/test_karma_nodes.cjs"
   # 每次请求都要有截止时间：没有它，选到一台连不通的节点会把整个操作台挂住。
   node "$ROOT/tests/js/test_console_fetch.cjs"
+  # 最近调用面板：切语言重画 + prune 按宿主（都是真机上踩出来的）。
+  node "$ROOT/tests/js/test_key_calls_panel.cjs"
 
   # 真机验证（可选）：装了 playwright 才跑。开一个真实浏览器把节点层从头走一遍，
   # 没装就跳过 —— 上面那些检查已经覆盖了行为，这一支只是多一层「浏览器里真的行」。

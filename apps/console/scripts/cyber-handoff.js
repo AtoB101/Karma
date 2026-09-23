@@ -47,7 +47,7 @@
   function keyCallsActions(keyId) {
     var c = calls();
     if (!c || !c.buttonHtml) return "";
-    return '<div class="ag-key-actions">' + c.buttonHtml(keyId) + "</div>";
+    return '<div class="ag-key-actions">' + c.buttonHtml(keyId, "ag-handoff") + "</div>";
   }
   function keyCallsPanel(keyId) {
     var c = calls();
@@ -479,7 +479,8 @@
         cp.prune(
           state.keys.map(function (k) {
             return k.key_id;
-          })
+          }),
+          "ag-handoff"
         );
       }
     } catch (e) {

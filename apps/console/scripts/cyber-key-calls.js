@@ -16,6 +16,9 @@
 
   var state = {
     open: "",
+    // 当前展开的那把钥匙是哪个宿主打开的（两处宿主的清单各不相同，
+    // 用别人的清单去 prune 会把这边刚展开的面板误关）。
+    openHost: "",
     loading: "",
     err: "",
     calls: {},
@@ -83,18 +86,24 @@
     delete state.calls[keyId];
     if (state.open === keyId) {
       state.open = "";
+      state.openHost = "";
       state.err = "";
     }
   }
 
-  /** 钥匙列表刷新后调用：已经不存在的钥匙别留着展开状态，免得留一张空壳。 */
-  function prune(keyIds) {
+  /** 钥匙列表刷新后调用：已经不存在的钥匙别留着展开状态，免得留一张空壳。
+   * 只能用自己那份清单去判：交付包里展开的钥匙本来就不在「已绑定钥匙」那份清单里。
+   */
+  function prune(keyIds, hostId) {
     if (!state.open) return;
+    var host = String(hostId || "");
+    if (state.openHost && host && state.openHost !== host) return;
     var list = keyIds || [];
     for (var i = 0; i < list.length; i += 1) {
       if (list[i] === state.open) return;
     }
     state.open = "";
+    state.openHost = "";
     state.err = "";
   }
 
@@ -149,25 +158,28 @@
     return out + "</ul></div>";
   }
 
-  function buttonHtml(keyId) {
+  function buttonHtml(keyId, hostId) {
     var label = isOpen(keyId) ? T("收起最近调用") : T("查看最近调用");
     return (
-      '<button type="button" class="btn" data-key-calls="' + esc(keyId) + '">' +
+      '<button type="button" class="btn" data-key-calls="' + esc(keyId) +
+      '" data-key-calls-host="' + esc(hostId || "") + '">' +
       esc(label) +
       "</button>"
     );
   }
 
-  async function toggle(keyId) {
+  async function toggle(keyId, hostId) {
     var id = String(keyId || "");
     if (!id) return;
     if (state.open === id) {
       state.open = "";
+      state.openHost = "";
       state.err = "";
       rerenderAll();
       return;
     }
     state.open = id;
+    state.openHost = String(hostId || "");
     state.err = "";
     if (Object.prototype.hasOwnProperty.call(state.calls, id)) {
       rerenderAll();
@@ -212,7 +224,7 @@
       var btn = t.closest("[data-key-calls]");
       if (!btn) return;
       ev.preventDefault();
-      toggle(btn.getAttribute("data-key-calls"));
+      toggle(btn.getAttribute("data-key-calls"), btn.getAttribute("data-key-calls-host"));
     });
     // 切语言：数据不重拉（还是刚才那几条），只把文字重画成新语言。
     document.addEventListener("karma-lang-changed", function () {

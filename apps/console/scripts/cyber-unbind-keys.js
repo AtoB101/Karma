@@ -134,7 +134,7 @@
       (perms ? '<p class="ag-hint">权限：' + esc(perms) + "</p>" : "") +
       '<p class="ag-hint">钥匙 ID：' + keyId + "</p>" +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
-      (panel ? panel.buttonHtml(k.key_id) : "") +
+      (panel ? panel.buttonHtml(k.key_id, "ag-bound-keys") : "") +
       button("取消绑定（要钱包签名）", 'data-unbind-key="' + keyId + '"') +
       "</div>" +
       (panel ? panel.panelHtml(k.key_id) : "") +
@@ -248,7 +248,8 @@
       c.prune(
         state.keys.map(function (k) {
           return k.key_id;
-        })
+        }),
+        "ag-bound-keys"
       );
     }
     render();
