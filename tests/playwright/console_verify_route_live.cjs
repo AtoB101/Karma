@@ -330,7 +330,13 @@ async function switchLang(page, lang) {
   check("服务商卡不再灰", s.providerOff === false, s.providerOff);
   check("服务商卡 aria-disabled=false", s.providerAria === "false", s.providerAria);
   check("按钮可以点了", s.openDisabled === false, s.openDisabled);
-  check("人工复核卡退成「备用路径」", s.routeBadge === "备用路径", s.routeBadge);
+  // 刷新之后页面会沿用上次选的语言，所以「备用路径」要按当前语言去比。
+  const langNow = await page.evaluate(() => window.CYBER_I18N.getLang());
+  let wantAlt = "备用路径";
+  try {
+    wantAlt = loadPack(langNow)["备用路径"] || wantAlt;
+  } catch (e) {}
+  check("人工复核卡退成「备用路径」", s.routeBadge === wantAlt, [s.routeBadge, wantAlt, langNow]);
   check("服务商卡说清了把证件直连服务商", s.providerText.indexOf("服务商") >= 0, s.providerText.slice(0, 160));
   await shoot(page, SHOTS, "03-provider-on");
 
