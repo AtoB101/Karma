@@ -227,8 +227,19 @@
       toggle(btn.getAttribute("data-key-calls"), btn.getAttribute("data-key-calls-host"));
     });
     // 切语言：数据不重拉（还是刚才那几条），只把文字重画成新语言。
-    document.addEventListener("karma-lang-changed", function () {
+    // 语言包是懒加载的：真机上见过「事件到了、包还没到」—— 拼出来的那一行就会留上
+    // 一种语言。所以再挂一次「包就绪后重画」（就绪了会立刻回调，拉不到也会回调）。
+    document.addEventListener("karma-lang-changed", function (ev) {
+      var t = i18n();
+      var lang = (ev && ev.detail && ev.detail.lang) || (t && t.getLang ? t.getLang() : "");
       rerenderAll();
+      if (t && t.ensureExt && lang) {
+        try {
+          t.ensureExt(lang, function () {
+            rerenderAll();
+          });
+        } catch (_) {}
+      }
     });
   }
 

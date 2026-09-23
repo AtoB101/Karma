@@ -52,6 +52,7 @@ function makeEnv() {
   const sandbox = {
     KARMA_IDENTITY_ID: "kid_test",
     LANG: "zh",
+    __ext: [],
     setTimeout: setTimeout,
     console: console,
     karmaRuntimeApi: {
@@ -72,6 +73,13 @@ function makeEnv() {
     },
   };
   sandbox.CYBER_I18N = {
+    // 语言包懒加载：真机上「事件到了、包还没到」也会发生，面板要等它就绪再画一次。
+    ensureExt: function (lang, cb) {
+      sandbox.__ext.push({ lang: lang, cb: cb });
+    },
+    getLang: function () {
+      return sandbox.LANG === "zh" ? "zh-CN" : sandbox.LANG;
+    },
     T: function (zh) {
       if (sandbox.LANG === "zh") return zh;
       return Object.prototype.hasOwnProperty.call(EN, zh) ? EN[zh] : zh;
@@ -134,6 +142,12 @@ async function main() {
   check("两个宿主都被告知重画", a > 1 && b > 0, "handoff=" + a + " bound=" + b);
   html = panel.panelHtml("k1");
   check("切到英文后行也是英文", html.indexOf("Action place-order · Result Succeeded · Amount 0.3 USDC · Time 2026-09-20 09:54:18") >= 0, html.slice(0, 220));
+  // 语言包懒加载：包到了得再画一次（否则还是上一种语言）。
+  eq("切语言时登记了「包就绪后重画」", env.sandbox.__ext.length, 1);
+  const aBefore = a;
+  if (env.sandbox.__ext[0]) env.sandbox.__ext[0].cb();
+  eq("包就绪后又画了一次", a > aBefore, true);
+  eq("包就绪后不重新取数", env.calls.length, before);
   check("英文页面上不留中文", !/[\u4e00-\u9fff]/.test(html.replace(/single_limit/g, "")), html.slice(0, 220));
 
   // ④ 钥匙没了（取消绑定 / 停用）
