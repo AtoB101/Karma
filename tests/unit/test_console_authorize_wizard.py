@@ -309,12 +309,15 @@ def test_the_handoff_card_keeps_every_boundary_line_translatable():
 
     实测（韩语真机）：整块塞进一个 <pre> 里时，PRE 默认不翻 —— 中文页面对齐，
     韩语/英语页面上「身份 / 授权额度 / 单笔最高 …」整片留着中文，正好在用户
-    最需要看懂的那一块。改法是把每一行拆成自己的 <span data-i18n-phrase>，
+    最需要看懂的那一块。改法是外层 <pre> 标 data-i18n-phrase、每一行各自一个 <span>，
     再把十行原文加进五门语言包（见 test_console_phrase_language_purity.py）。
     """
     js = (CONSOLE / "scripts/cyber-authorize.js").read_text(encoding="utf-8")
-    assert 'return \'<span data-i18n-phrase>\' + esc(line) + "</span>";' in js, \
-        "边界块要逐行包成 <span data-i18n-phrase>，否则 PRE 里整片翻不了"
+    # 标记要打在 <pre> 本身：引擎从文本节点往上走，遇到 SKIP_TAGS 里没标记的那层
+    # 就整棵跳过 —— 标在里面的 <span> 上不算数（这一版就是真机上这么踩出来的）。
+    assert "\'<pre data-i18n-phrase>\' +" in js, "边界块的 <pre> 自己要标 data-i18n-phrase"
+    assert 'return "<span>" + esc(line) + "</span>";' in js, \
+        "边界块要一行一个 <span>：整块一个文本节点的话 {0} 模板锚定整串，咬不上"
     assert "boundary([" in js, "边界块要走 boundary()，别又拼回一整块"
     assert 'esc(\n        "身份' not in js, "别把边界块拼成一个大字符串再 esc 一次"
     for line in ("身份        ", "名字        ", "agent       ", "类型        ",

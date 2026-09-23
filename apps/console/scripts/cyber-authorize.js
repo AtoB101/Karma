@@ -382,16 +382,19 @@
   }
 
   /**
-   * 「agent 读到的边界」那一块：一行一个文本节点，并且逐行标 data-i18n-phrase。
+   * 「agent 读到的边界」那一块：一行一个文本节点，外层 <pre> 标 data-i18n-phrase。
    *
    * PRE 默认不翻（里面常是签名原文那种数据），所以整块塞进一个 <pre> 的结果是：
    * 英语/韩语页面上这一整片留着中文 —— 中文页面对齐，别的语言全错位。
-   * 标了 data-i18n-phrase 之后每一行按自己的原文查表，{0} 里的值（人名、金额、
-   * 「人工确认」那句）也会跟着翻。
+   * 两个条件缺一不可（真机各踩了一次）：
+   *   * 标记要打在**被跳过的那层**（<pre>）上 —— 引擎是从文本节点往上走，遇到
+   *     SKIP_TAGS 里没有标记的那一层就整棵跳过；打在里面的 <span> 上不算数。
+   *   * 每行要各自占一个文本节点 —— 整块一个节点的话，{0} 模板锚定整串，咬不上。
+   * 这样每一行按自己的原文查表，{0} 里的值（人名、金额、「人工确认」那句）也跟着翻。
    */
   function boundary(lines) {
     return lines.map(function (line) {
-      return '<span data-i18n-phrase>' + esc(line) + "</span>";
+      return "<span>" + esc(line) + "</span>";
     }).join("\n");
   }
 
@@ -426,7 +429,8 @@
       '<button type="button" class="btn primary" id="agw-copy-env">复制接入包</button>' +
       '<button type="button" class="btn" id="agw-download-env">下载 karma-agent.env</button>' +
       "</div></div>" +
-      '<div class="ag-snippet"><div class="ag-secret-label">② agent 读到的边界</div><pre>' +
+      '<div class="ag-snippet"><div class="ag-secret-label">② agent 读到的边界</div>' +
+      '<pre data-i18n-phrase>' +
       boundary([
         "身份        " + did + "（" + profile.profile_id + "）",
         "名字        " + name,
