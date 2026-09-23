@@ -170,6 +170,11 @@ _<domain>  TXT  "dnslink=/ipfs/<cid>"
    服务商接上之后自动换成「备用路径」。走哪条不用猜，也不用问客服。
 
 这两条都有测试盯着：`tests/unit/test_console_verify_route.py`（静态契约）+
+
+顺带修了一个量出来的小毛病：通道标记是脚本写进 DOM 的，而页面翻译是**排队异步**跑的 ——
+写完不等一轮，切完语言会先看见中文（线上复验里量到的）。现在写完立刻对这一个节点翻一次。
+
+这两条都有测试盯着（另有上面那个 prod 变体）：`tests/unit/test_console_verify_route.py`（静态契约）+
 `tests/playwright/console_verify_route_live.cjs`（真浏览器：数步骤、看灰没灰、
 六门语言逐个切一遍 —— 英文页里不该看见一个汉字）。
 
@@ -252,6 +257,7 @@ bash scripts/acceptance/console_last_mile_gate.sh
 - `tests/js/test_karma_nodes.cjs`：53 项行为断言（选节点 / 探活 / 超时 / 容灾 / 自定义节点校验 / 手填地址不被替换）；
 - `tests/unit/test_console_verify_route.py`：核验页只剩三步 + 服务商通道没接入时必须是灰的（+ 状态位没被折丢）；
 - `tests/playwright/console_verify_route_live.cjs`：真浏览器 27 项（数步骤 / 看灰没灰 / 六门语言逐个切、日文页按「中文原文有没有原样留下」判残留）；
+- `tests/playwright/console_verify_route_prod.cjs`：同一套断言打**线上**（需要显式给 `KARMA_PROD_URL`，闸门里不跑）—— 证明发出去的那份在真浏览器里真的长这样。
 - `tests/js/test_console_fetch.cjs`：请求必须有截止时间（挂住的请求会被中止 + 通知节点层）；
 - `tests/playwright/console_nodes_live.cjs`：真实浏览器 46 项（装了 playwright 才跑）——
   选节点 / 探活 / 容灾 / 六门语言不留中文 / 容灾提示里的节点名也跟着语言走，

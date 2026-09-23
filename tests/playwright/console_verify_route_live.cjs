@@ -224,8 +224,26 @@ async function switchLang(page, lang) {
     sel.value = l;
     sel.dispatchEvent(new Event("change", { bubbles: true }));
   }, lang);
-  await page.waitForFunction((l) => window.CYBER_I18N.getLang() === l, lang, { timeout: 15000 });
-  await page.waitForTimeout(700);
+  await page.waitForFunction((l) => window.CYBER_I18N.getLang() === l, lang, { timeout: 20000 });
+  // 翻页是异步的（观察器排队跑），固定 sleep 会量到上一门语言 —— 等它落定再断言。
+  // zh-CN 是原文语言，没有自己的语言包；那一门不用等翻译。
+  let want = null;
+  try {
+    want = loadPack(lang)["当前路径"];
+  } catch (e) {
+    want = null;
+  }
+  if (want) {
+    await page.waitForFunction(
+      (w) => {
+        const n = document.querySelector("#idv-verify-route");
+        return !!n && n.textContent.trim() === w;
+      },
+      want,
+      { timeout: 20000 }
+    );
+  }
+  await page.waitForTimeout(400);
 }
 
 (async () => {
@@ -281,6 +299,19 @@ async function switchLang(page, lang) {
     s = await page.evaluate(READ);
     const pack = loadPack(lang);
     check(lang + "：通道标记跟着语言走", s.routeBadge === pack["当前路径"], [s.routeBadge, pack["当前路径"]]);
+    await page
+      .waitForFunction(
+        (keys) => {
+          const card = document.querySelector("#idv-verify");
+          const prov = document.querySelector("#idv-provider");
+          const blob = (card ? card.textContent : "") + " | " + (prov ? prov.textContent : "");
+          return !keys.some((k) => blob.indexOf(k) >= 0);
+        },
+        Object.keys(pack).filter((k) => k.length >= 3),
+        { timeout: 20000 }
+      )
+      .catch(() => {});
+    s = await page.evaluate(READ);
     const shown = s.verifyText + " | " + s.providerText;
     const residue = packResidue(shown, pack) || (lang === "ja" ? null : CJK.test(shown) && "CJK");
     check(lang + "：核验页没有残留中文", !residue, [residue, shown.slice(0, 220)]);

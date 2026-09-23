@@ -73,7 +73,11 @@
       card.setAttribute("aria-disabled", on ? "false" : "true");
     }
     var route = byId("idv-verify-route");
-    if (route) route.textContent = on ? "备用路径" : "当前路径";
+    if (route) {
+      route.textContent = on ? "备用路径" : "当前路径";
+      // 翻译器是排队跑的（观察器 + 队列），不等它这一轮的话，切完语言会先看见中文。
+      if (window.CYBER_I18N && window.CYBER_I18N.applyPhrase) window.CYBER_I18N.applyPhrase(route);
+    }
   }
 
   function stopPolling() {
