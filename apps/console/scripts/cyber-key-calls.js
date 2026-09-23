@@ -196,7 +196,13 @@
     rerenderAll();
   }
 
-  /** 文档级点击委托：两处宿主都不用自己接一遍，也只装一次。 */
+  /**
+   * 点击委托 + 语言切换，都只装一次（两处宿主共用）。
+   *
+   * 切语言时必须自己重画：面板里那一行是拼出来的（动作 + 结果 + 金额 +
+   * 时间），DOM 翻译引擎只认得整句，认不出带变量的句子 —— 不重画就会
+   * 把上一种语言的行留在那里（切到英文还是中文行），正好犯用户最在意的那一条。
+   */
   function attach() {
     if (attached) return;
     attached = true;
@@ -207,6 +213,10 @@
       if (!btn) return;
       ev.preventDefault();
       toggle(btn.getAttribute("data-key-calls"));
+    });
+    // 切语言：数据不重拉（还是刚才那几条），只把文字重画成新语言。
+    document.addEventListener("karma-lang-changed", function () {
+      rerenderAll();
     });
   }
 

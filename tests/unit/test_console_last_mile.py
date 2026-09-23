@@ -544,6 +544,10 @@ def test_the_console_can_expand_a_bound_key_and_show_recent_calls():
     for needle in ("runtimeKeyCalls", "key-calls", "data-key-calls", "CALL_LIMIT",
                    "KarmaKeyCalls", "buttonHtml", "panelHtml", "register"):
         assert needle in js, f"调用记录模块缺 {needle}"
+    # 面板里那一行是拼出来的（带端点/时间），DOM 翻译引擎认不出整句：
+    # 不在切语言时自己重画，就会把上一种语言的行留在英文页面上。
+    assert "karma-lang-changed" in js, "切语言要重画面板，否则留上一种语言的残留"
+    assert "rerenderAll" in js, "重画要走宿主注册的回调"
 
     unbind = (CONSOLE / "scripts" / "cyber-unbind-keys.js").read_text(encoding="utf-8")
     for needle in ("KarmaKeyCalls", "buttonHtml", "panelHtml"):
