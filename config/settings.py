@@ -84,6 +84,27 @@ class Settings(BaseSettings):
     identity_provider_callback_secret: str = ""
     # 回调时间戳的容忍窗口（秒）：挡重放。
     identity_provider_callback_tolerance_seconds: int = 300
+    # ---- 操作台 · 刷脸即激活 / 追加身份同人比对（2026-09-23）------------------
+    # 主身份「刷脸一次即激活」：活体 + 多角度采集在浏览器本地完成，脸型模板用钱包签名
+    # 派生的密钥加密后才上传（Karma 只拿密文 + 摘要）。服务端按这里的尺子判定：
+    # FACE_ACTIVATION_MIN_ANGLES = 至少几个角度才算「活体采集」。
+    # 关掉这个开关，主身份就退回「本人提交密文包 + 复核台人工核验」。
+    face_activation_enabled: bool = True
+    face_activation_min_angles: int = 3
+    # 追加身份（第二张卡）的一致性尺子：本机拿首次采集的模板与这一次现采的脸比一次，
+    # 分数过线才自动开通。**判严不判宽**：宁可让人重采一次，也不放过一张别人的脸。
+    # 接了服务商之后，这条路会换成服务商的 1:1 比对（分数同样是服务商给的）。
+    face_consistency_min_score: float = 0.35
+    # ---- 操作台 · 授权 / 取消授权的第二把锁（TOTP，2026-09-23）--------------
+    # 身份绑了 2FA 之后，动额度（授权 / 减额 / 取消授权）与摘掉 agent 公钥都必须带上
+    # 一次有效验证码 —— 光偷到钥匙（会话或密钥）也动不了钱。
+    # 下面这个开关置 true 时，**没绑 2FA 的身份连授权都做不了**（先绑再授权）；
+    # 默认 false：没绑的身份照旧只有钱包签名这道锁，操作台会一直提示去绑定。
+    console_2fa_required_for_funds: bool = False
+    console_2fa_issuer: str = "Karma Network"
+    # 连续验证失败几次锁一次、锁多久（秒）。
+    console_2fa_max_failures: int = 5
+    console_2fa_lock_seconds: int = 300
     # 阿里云实人认证（Cloud Auth）
     identity_provider_aliyun_access_key_id: str = ""
     identity_provider_aliyun_access_key_secret: str = ""

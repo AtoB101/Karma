@@ -230,6 +230,81 @@ _<domain>  TXT  "dnslink=/ipfs/<cid>"
 > 三个旋钮：`GOVERNANCE_OPEN_JOIN` / `GOVERNANCE_MIN_STAKE_AMOUNT` /
 > `GOVERNANCE_REQUIRE_BACKED_STAKE`，默认全关（维持白名单这条老路）。
 
+### L3-3 · 刷脸即激活 + 追加身份同人比对 + 动额度前过 2FA（已落地 2026-09-23）
+
+这一层回答的是用户最先问的那句话：**「我刷个脸就能开张吗？」** 以及紧接着的第二句：
+**「那别人拿我的钥匙怎么办？」**
+
+**① 主身份：刷脸即激活（不再排队等人工）**
+
+- 采集在本机（`apps/console/scripts/cyber-face-capture.js`：活体 + 多角度，5 个角度），
+  **明文不出这台设备**；
+- 本机再把采集压成一个固定尺寸的**脸型描述子**（32×32 灰度、去均值除标准差，
+  `KFC-GRAY32-NCC-v1`），用钱包签名派生的密钥（PBKDF2-SHA256 → AES-GCM-256）加密后
+  连同摘要一起交上去（`cyber-face-vault.js`）；
+- 服务端（`services/face_activation.py` 的 `activate_by_face`）验签 → 验活体门槛 →
+  存模板密文 → 走**既有状态机** `pending → verified`，盖章人写
+  `platform:face-liveness:v1`（写明是刷脸判定，不是人工复核）；
+- 拿不到模板密文就还原不出这张脸：Karma 收到的只有密文 + 摘要。
+
+**② 追加身份：填标准字段 + 再刷一次脸（当场开通，不排队）**
+
+加身份要防的是「**别人拿我的身份去开新卡**」—— 这件事的判据是「是不是同一个人」，
+不是材料写得漂不漂亮。所以判据放在刷脸上（`assert_same_person`），四道复核缺一不可：
+
+| 复核 | 判据 |
+|---|---|
+| 签名 | 签名原文里带着 `profile_id` / `class` / `score` / 两个摘要，必须由**本身份绑定钱包**签 |
+| 参考模板 | 交上来的 `reference_digest` 必须等于档案里那份模板摘要（换一份就 409） |
+| 非重放 | 这一次的 `capture_digest` 不能等于首次激活那次（旧采集拿回来直接 409） |
+| 过线 | 本机算出的相似度（NCC）必须 ≥ `FACE_CONSISTENCY_MIN_SCORE`，不够 422 |
+
+四条全过 → 这张卡当场 `kyc_status=verified`，并把判定细节记进 `kyc_payload.face_consistency`
+（模式、分数、阈值、两个摘要、角度数、判定时间）。治理岗（verifier / arbitrator）
+**不会**因为「是同一个人」就免掉质押那道闸 —— 那条路仍然走 `create/update`。
+
+**③ 动额度 = 给出支配权，所以要过第二把锁（2FA / TOTP）**
+
+绑在 agent 上的运行时密钥、钱包会话，都是「谁拿到谁能使」。所以这三个动作
+（加额 / 减额 / 取消授权、停用钥匙、取消绑定）在钱包签名之外，还要过一次
+**手机验证器生成的 6 位码**：
+
+- 算法零依赖实现（`services/console_2fa.py`）：RFC 6238 TOTP-SHA1 / 30 秒步长，
+  容忍前后各一步时钟漂移；绑定 / 换恢复码 / 解绑都要过码；
+- 恢复码 8 位、一次性（用掉即焚）、只显示一次；密钥**从不回吐**给页面
+  （`GET /v1/console/2fa` 只说「绑没绑、还剩几张恢复码、锁没锁」）；
+- 连错会被临时锁定（`CONSOLE_2FA_MAX_FAILURES` / `CONSOLE_2FA_LOCK_SECONDS`）；
+  错就是错，**不管你是猜 TOTP 还是猜恢复码**都记失败 —— 恢复码的字母表里没有 0/1，
+  只按「形状像恢复码」记账会把 `000000` 这种最常见的瞎猜漏掉；
+- 三道闸门：`PUT /v1/capacity/{id}/allocations`（码走 `X-Karma-2FA-Code`）、
+  `/runtime/revoke-key` 与 `/runtime/unbind-key`（码走 body 的 `twofa_code`，
+  签名原文里拌不进新字段，拌进去两边就静默失配）；
+- 操作台侧统一收口在 `cyber-console-2fa.js` 的 `guard()`：绑了就先弹码，
+  服务端说码不对再问一次；没绑就退回「只有钱包签名一道锁」—— 这是默认姿态，
+  想全员强制就把 `CONSOLE_2FA_REQUIRED_FOR_FUNDS` 打开（没绑 409，先去绑）。
+
+数据上多两张表（迁移 `0057_console_2fa_and_face`）：`console_two_factors`、
+`identity_face_templates`。
+
+> 旋钮：`FACE_ACTIVATION_ENABLED` / `FACE_ACTIVATION_MIN_ANGLES` /
+> `FACE_CONSISTENCY_MIN_SCORE` / `CONSOLE_2FA_REQUIRED_FOR_FUNDS` /
+> `CONSOLE_2FA_ISSUER` / `CONSOLE_2FA_MAX_FAILURES` / `CONSOLE_2FA_LOCK_SECONDS`。
+
+**诚实边界（这一层挡不住什么）**
+
+- 本机比对挡的是「**拿别人的脸来加身份**」和「**拿旧采集重放**」。一个已经控制了你
+  浏览器（或装了扩展能改 JS）的攻击者可以伪造分数 —— 那一层不归这里管，归
+  **钱包签名**（他签不了）与交易风控管。真要做到 1:1 比对的强度，把第三方实名 / 活体
+  服务商接上（`IDENTITY_PROVIDER`），这条路会自动换成服务商的比对；线上现在仍是 `none`，
+  也就是说「刷脸即激活」走的是**本机活体 + 本机同人比对**这条自持路线。
+- `FACE_CONSISTENCY_MIN_SCORE` 的 0.35 是**待标定的初值**：要在真实设备上用同一个人
+  采几组、再拿不同的人采几组，看两堆分数分不分得开，再收紧或放松。
+- 2FA 是**第二把锁**，不是钱包签名的替代品：两把都要过。没绑 2FA 的身份默认只有
+  钱包签名那道锁 —— 想强制，开 `CONSOLE_2FA_REQUIRED_FOR_FUNDS`。
+- 2FA 的密钥存在服务端（`console_two_factors.secret`）。它是「手机丢了还有恢复码」的
+  代价：如果你的威胁模型是「连服务器也不信」，那把 TOTP 密钥放本机（Passkey /
+  WebAuthn）才是下一层；这一层先把「钥匙被偷了也花不动钱」兑现。
+
 ### L4 · 只读节点
 
 把读接口做成无状态的、再加一个链上事件索引器，任何人 `docker compose up` 起一台
@@ -308,6 +383,22 @@ bash scripts/acceptance/console_last_mile_gate.sh
   其中一节故意让语言包第一次返回 503，验证它还会重试并能切成目标语言。
 
 部署之后还有两条**打线上**的复验（闸门里不跑，需要手动给地址）：
+
+- `tests/unit/test_console_face_add_identity.py`：11 项 —— 刷脸即激活 / 追加身份 /
+  动额度过 2FA 的静态契约（页面接线、脚本加载顺序、**签名原文两侧逐字一致**、
+  六门语言覆盖、样式、路由与迁移、闸门条目），外加一条真机踩出来的回归：
+  新模块的 IIFE **必须显式传入 window**（`(function (global) {...})();` 语法合法、
+  `node --check` 也过，但 `global` 是 undefined，整页会静默少一个模块）；
+- `tests/unit/test_console_2fa.py`：19 项 —— RFC 6238 官方向量 / 时钟漂移 / 恢复码一次性 /
+  失败锁定（含「形状不像恢复码的乱猜也要记账」）/ 强制开关 / 绑定与解绑；
+- `tests/unit/test_face_activation.py`：20 项 —— 签名原文钉死 / 活体白名单（照片通道当不了
+  在场证据）/ 模板形状 / 激活全链 / 四道复核逐条拒；
+- `tests/integration/test_console_face_2fa_flow.py`：11 项 —— 真路由端到端：刷脸激活当场置位、
+  伪造签名 401、照片通道 400、同人过线开通、不同人 422、重放 409、没激活先加身份 409、
+  额度不带码 401 / 错码 401 / 带码 200、恢复码用掉即焚、停用运行时钥匙同样被闸；
+- `tests/playwright/console_2fa_face_live.cjs`：真浏览器 53 项 —— 点「开始刷脸激活」后状态行
+  那句动态拼出来的话逐门语言比对（日文按「中文原文有没有原样留下」判）、设置页 2FA 卡片
+  五门语言、动额度真的弹码并且请求带上了 `X-Karma-2FA-Code`、追加身份卡五门语言不留汉字。
 
 ```bash
 # 逐字节对账：线上 39 个文件跟本地源码是不是同一份

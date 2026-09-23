@@ -94,6 +94,60 @@ class IdentityRoleProfile(Base):
     updated_at:        Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class ConsoleTwoFactorModel(Base):
+    """操作台的第二把锁（TOTP，RFC 6238）：授权 / 取消授权 / 摘公钥都要过一次验证码。
+
+    只存三样东西：TOTP 密钥（base32）、**恢复码的哈希**（不是明文）、失败计数与锁定时间。
+    验证码本身不落库 —— 它是 30 秒一换的一次性口令，存下来只会变成新的秘密。
+    一条身份一行；没绑过的身份连行都没有（读取时按「未绑定」处理）。
+    """
+    __tablename__ = "console_two_factors"
+
+    identity_id:        Mapped[str]           = mapped_column(String(128), primary_key=True)
+    #: 生效中的 TOTP 密钥；NULL = 还没确认绑定（此时只有 pending_secret）。
+    secret:             Mapped[str | None]    = mapped_column(String(64), nullable=True)
+    enabled_at:         Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    #: 签发了但还没被验证码确认的密钥 —— 确认之前它什么都不是。
+    pending_secret:     Mapped[str | None]    = mapped_column(String(64), nullable=True)
+    pending_created_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    #: 恢复码只存 sha256（拌了身份 id）；用掉一张就少一张，列表长度就是剩余张数。
+    recovery_hashes:    Mapped[list]          = mapped_column(JSON, default=list)
+    failures:           Mapped[int]           = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    locked_until:       Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_used_at:       Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at:         Mapped[datetime]      = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:         Mapped[datetime]      = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class IdentityFaceTemplateModel(Base):
+    """主身份首次刷脸留下的**脸型模板密文**：追加身份时拿它做同人比对。
+
+    与证件包同一套纪律：模板在浏览器里用钱包签名派生的密钥加密，Karma 只拿到密文、
+    摘要和采集元数据（角度数 / 活体动作 / 来源）。明文脸型永远不离开用户设备，
+    服务端也算不出「这张脸是谁」—— 它只能在用户自己把模板解出来、比完、
+    签过名之后，复核这个结论。
+
+    每次追加身份都要重新比对一次；这张表只留**最初那一次**的模板，
+    想换模板只能重走一次刷脸激活（那等于重新登记本人）。
+    """
+    __tablename__ = "identity_face_templates"
+
+    identity_id:     Mapped[str]        = mapped_column(String(128), primary_key=True)
+    template_cipher: Mapped[str]        = mapped_column(Text, nullable=False)
+    template_digest: Mapped[str]        = mapped_column(String(128), nullable=False)
+    #: 模板的构造方式（版本号 / 维度 / 归一化），换算法时靠它认得出旧模板。
+    algorithm:       Mapped[str | None] = mapped_column(String(64), nullable=True)
+    encryption:      Mapped[dict]       = mapped_column(JSON, default=dict)
+    #: 采集元数据：角度数、活体动作、来源（camera / photo）—— 都脱敏，不含人脸数据。
+    liveness:        Mapped[dict]       = mapped_column(JSON, default=dict)
+    capture_digest:  Mapped[str | None] = mapped_column(String(128), nullable=True)
+    wallet_address:  Mapped[str | None] = mapped_column(String(128), nullable=True)
+    #: 这次刷脸给到的等级：目前只有 face_liveness（刷脸即激活）。
+    level:           Mapped[str]        = mapped_column(String(16), nullable=False, default="face_liveness")
+    created_at:      Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:      Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class IdentityDisclosureModel(Base):
     """P3 — authorized disclosure for private (enterprise) role profiles.
 

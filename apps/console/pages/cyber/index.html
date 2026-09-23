@@ -502,7 +502,7 @@
             <div class="section-header">
               <div>
                 <h3>主身份 · 主体账户</h3>
-                <p>主身份只做四件事：<b>连接钱包 → 刷脸认证（激活）→ 锁仓 USDC → 授权给身份</b>。整本账、所有子身份、所有锁仓都挂在主身份下；每个身份有自己的认证、订单、收付和记录，切身份就换页面。</p>
+                <p>主身份只做四件事：<b>连接钱包 → 刷脸激活 → 锁仓 USDC → 授权给身份</b>。整本账、所有子身份、所有锁仓都挂在主身份下；每个身份有自己的认证、订单、收付和记录，切身份就换页面。</p>
               </div>
               <span class="idv-badge" id="idv-master-badge">未连接钱包</span>
             </div>
@@ -542,19 +542,21 @@
               </div>
             </div>
 
-            <!-- ② 刷脸认证 = 激活开关。脸和证件都只在这台设备上加密，服务端拿到的是密文。 -->
+            <!-- ② 刷脸激活 = 激活开关。刷一次脸就够：活体 + 多角度采集在本机完成，
+                 脸型模板加密后才上传，服务端拿到的是密文与摘要（见 cyber-face-vault.js）。 -->
             <div class="mst-step" id="mst-step-activate">
-              <div class="mst-head"><b>② 主身份刷脸认证</b><span class="mst-state" id="mst-activate-state">未激活</span></div>
+              <div class="mst-head"><b>② 刷脸激活</b><span class="mst-state" id="mst-activate-state">未激活</span></div>
               <div class="mst-body">
                 <div class="mst-gate" id="mst-activate-gate">
                   <span class="mst-gate-dot" aria-hidden="true">●</span>
                   <div class="mst-gate-text">
                     <b id="mst-activate-title">主身份尚未激活</b>
-                    <p id="mst-activate-note">完成一次主身份本人的实名认证（证件 + 刷脸，与这个钱包地址绑定）即自动激活。</p>
+                    <p id="mst-activate-note">刷一次脸就激活：活体 + 5 个角度在这台设备上采集，脸型模板加密后才上传（Karma 只拿密文与摘要），判定通过当场激活，不用排队等人工。</p>
                   </div>
-                  <button type="button" class="btn primary" id="mst-activate-go">去刷脸认证 →</button>
+                  <button type="button" class="btn primary" id="mst-activate-go">开始刷脸激活 →</button>
                 </div>
-                <p class="id-home-hint">未激活期间：可以锁仓、可以给身份划额度（钱始终留在你自己的钱包里），但不能接单、不会被撮合、信誉分也不对外显示。认证通过后，信誉记录才从那一刻开始记。</p>
+                <span class="api-status" id="mst-activate-status">—</span>
+                <p class="id-home-hint">未激活期间：可以锁仓、可以给身份划额度（钱始终留在你自己的钱包里），但不能接单、不会被撮合、信誉分也不对外显示。激活通过后，信誉记录才从那一刻开始记。</p>
               </div>
             </div>
 
@@ -587,10 +589,15 @@
               <div class="mst-body">
                 <div class="mst-alloc" id="mst-alloc-table">连接钱包后显示每个身份的额度</div>
                 <p class="id-home-hint" id="mst-auth-note">授权 = 告诉 Karma「这个身份最多能动用多少」。钱始终留在你自己的钱包里，验证通过才划转。</p>
+                <p class="id-home-hint">授权 / 减额 / 取消授权都要过一次 <b>2FA 验证码</b>（设置页可绑定）：钥匙被偷了也动不了额度。</p>
                 <div class="id-home-confirm" id="mst-auth-confirm" hidden></div>
               </div>
             </div>
           </div>
+
+          <!-- 追加身份：填标准字段 → 再刷一次脸 → 与首次激活留下的模板自动比对 → 直接开通。
+               判定与边界见 cyber-add-identity.js 与 cyber-face-vault.js。 -->
+          <div class="card section" id="idv-add-identity"></div>
 
           <!-- ② 官方实名核验（第三方服务商）：接了服务商就走这条；没接就走下面的本地采集 + 复核台。 -->
           <div class="card section" id="idv-provider">
@@ -609,12 +616,13 @@
             </div>
           </div>
 
-          <!-- ③ 个人助理认证：证件 + 刷脸 + 联系方式，一条直线做完。 -->
+          <!-- ③ 个人助理认证（证件核验）：激活现在只靠刷脸（上面第 ② 步），
+               这一张留给需要更高等级的场景 —— 大额接单、企业 / 个体经营认证、平台点名时。 -->
           <div class="card section" id="idv-verify">
             <div class="section-header">
               <div>
-                <h3>个人助理认证 · 证件 + 刷脸 + 联系方式</h3>
-                <p>自然人认证：这是「我本人是谁」。文件在你自己的浏览器里加密后才上传 —— Karma 只拿到密文和摘要，看不到证件内容，全程不碰你的私钥、助记词。</p>
+                <h3>证件核验 · 需要更高等级时再补</h3>
+                <p>主身份的<b>激活只看刷脸</b>（上面第 ② 步），这里补的是证件：需要更高等级的场景（单笔金额大、企业 / 个体经营认证、平台点名）才走。文件在你自己的浏览器里加密后才上传 —— Karma 只拿到密文和摘要，看不到证件内容，全程不碰你的私钥、助记词。</p>
               </div>
               <span class="idv-badge" id="idv-verify-route">当前路径</span>
               <span class="idv-badge" id="idv-verify-badge">未提交</span>
@@ -1268,6 +1276,8 @@
           <!-- 接入节点：操作台是静态的，节点是它要数据的对象。放在最前面，
                因为「连不上」时要找的就是它。渲染见 cyber-node-panel.js。 -->
           <div class="card section" data-karma-nodes-settings></div>
+          <!-- 安全验证（2FA）：动额度 / 取消授权要过的第二把锁。渲染见 cyber-console-2fa.js。 -->
+          <div class="card section" id="k2fa-card"></div>
           <div class="card section">
             <div class="section-header">
               <div>
@@ -1354,6 +1364,12 @@
     <!-- 一键取消绑定：和接入确认同源（都用 KarmaHandoff 出口的签名消息），排在它后面。 -->
     <script src="../../scripts/cyber-unbind-keys.js"></script>
  <script src="../../scripts/cyber-pairing.js"></script>
+    <!-- 刷脸保险柜：主身份刷脸即激活 + 追加身份的同人比对（模板在本机加密 / 比对）。 -->
+    <script src="../../scripts/cyber-face-vault.js"></script>
+    <!-- 安全验证（2FA）：设置页那张卡 + 动额度前弹出的验证码。 -->
+    <script src="../../scripts/cyber-console-2fa.js"></script>
+    <!-- 追加身份：填标准字段 + 再刷一次脸，自动开通一张新身份卡。 -->
+    <script src="../../scripts/cyber-add-identity.js"></script>
     <script src="../../scripts/cyber-cert-shared.js"></script>
     <script src="../../scripts/cyber-cert-sole.js"></script>
     <script src="../../scripts/cyber-entity.js"></script>

@@ -28,6 +28,9 @@ required=(
   scripts/cyber-identity.js
   scripts/cyber-identity-verify.js
   scripts/i18n-cyber.js
+  scripts/cyber-face-vault.js
+  scripts/cyber-console-2fa.js
+  scripts/cyber-add-identity.js
   styles/cyber-console.css
 )
 
@@ -95,7 +98,37 @@ grep -q 'function runtimeUrl(' "$CONSOLE/scripts/cyber-authorize.js"
 [[ -f "$ROOT/scripts/console_bundle.py" ]]
 [[ -f "$ROOT/scripts/publish_console_ipfs.sh" ]]
 
+# L3-3：刷脸即激活 + 追加身份同人比对 + 动额度前过 2FA。
+# 激活只剩刷脸：采集 / 加密 / 比对都在本机，服务端拿密文 + 摘要直接置「已激活」；
+# 动钱的动作（加额 / 减额 / 取消授权、停用钥匙、取消绑定）都要过一次 6 位码。
+grep -q 'cyber-face-vault.js' "$CONSOLE/pages/cyber/index.html"
+grep -q 'cyber-console-2fa.js' "$CONSOLE/pages/cyber/index.html"
+grep -q 'cyber-add-identity.js' "$CONSOLE/pages/cyber/index.html"
+grep -q 'id="k2fa-card"' "$CONSOLE/pages/cyber/index.html"
+grep -q 'id="idv-add-identity"' "$CONSOLE/pages/cyber/index.html"
+grep -q 'id="mst-activate-status"' "$CONSOLE/pages/cyber/index.html"
+grep -q 'activateByFace' "$CONSOLE/scripts/cyber-face-vault.js"
+# IIFE 少了 window 参数就静默少一个模块（语法检查拦不住），这里钉结尾形状。
+for mod in cyber-face-vault.js cyber-console-2fa.js cyber-add-identity.js; do
+  tail -n 1 "$CONSOLE/scripts/$mod" | grep -q '})(window);'
+done
+grep -q 'confirmSamePerson' "$CONSOLE/scripts/cyber-add-identity.js"
+grep -q 'KarmaFaceVault' "$CONSOLE/scripts/cyber-master-page.js"
+grep -q 'Karma2FA' "$CONSOLE/scripts/karma-public-api.js"
+grep -q 'X-Karma-2FA-Code' "$CONSOLE/scripts/karma-public-api.js"
+# 服务端：额度入口与钥匙撤销 / 解绑都要复核验证码；两张新表要有迁移。
+grep -q 'require_code' "$ROOT/api/routes/capacity.py"
+grep -q 'require_code' "$ROOT/api/routes/runtime_gateway.py"
+grep -q 'face-activate' "$ROOT/api/routes/identity_verification.py"
+grep -q 'face-consistency' "$ROOT/api/routes/identity_role_profiles.py"
+grep -q 'console_two_factors' "$ROOT/db/migrations/versions/0057_console_2fa_and_face.py"
+grep -q 'def verify_code' "$ROOT/services/console_2fa.py"
+grep -q 'def activate_by_face' "$ROOT/services/face_activation.py"
+
 python3 -m pytest -q tests/unit/test_console_last_mile.py
+python3 -m pytest -q tests/unit/test_console_2fa.py
+python3 -m pytest -q tests/unit/test_face_activation.py
+python3 -m pytest -q tests/unit/test_console_face_add_identity.py
 python3 -m pytest -q tests/unit/test_console_nodes.py
 # 身份核验页只剩三步 + 服务商通道没接入时要看得出是灰的。
 python3 -m pytest -q tests/unit/test_console_verify_route.py
@@ -116,6 +149,9 @@ if command -v node >/dev/null 2>&1; then
   for js in karma-nodes.js cyber-node-panel.js cyber-handoff.js; do
     node --check "$CONSOLE/scripts/$js"
   done
+  for js in cyber-face-vault.js cyber-console-2fa.js cyber-add-identity.js; do
+    node --check "$CONSOLE/scripts/$js"
+  done
   # 节点层的行为（选节点 / 探活 / 容灾 / 自定义节点校验）跑一遍真代码。
   node "$ROOT/tests/js/test_karma_nodes.cjs"
   # 每次请求都要有截止时间：没有它，选到一台连不通的节点会把整个操作台挂住。
@@ -129,6 +165,8 @@ if command -v node >/dev/null 2>&1; then
     node "$ROOT/tests/playwright/console_verify_route_live.cjs"
     # 复核台那句「打不开队列」：真浏览器里走一遍 403 再逐个语言比对（L3-2 之后重写过）。
     node "$ROOT/tests/playwright/console_reviews_copy_live.cjs"
+    # 刷脸即激活 / 追加身份 / 动额度过 2FA：真浏览器里走一遍，六门语言逐字比对。
+    node "$ROOT/tests/playwright/console_2fa_face_live.cjs"
   else
     echo "(skip) 没装 playwright：真机验证跳过（npm i -D playwright）"
   fi

@@ -12,7 +12,9 @@ from config.settings import settings
 from db.models.orm import CapacityModel
 from db.session import get_db
 from services import atomic_ledger
+from services import console_2fa
 from services import profile_capacity as profile_capacity_service
+from services.console_2fa import TwoFactorError
 from services.identity_activation import activation_of
 from services.chain import wallet_lock
 from services.capacity_ledger import assert_can_release_locked_funds, assert_capacity_invariants
@@ -201,10 +203,25 @@ async def get_allocations(identity_id: str, request: Request, db: AsyncSession =
 
 @router.put("/{identity_id}/allocations")
 async def set_allocations(identity_id: str, body: AllocateBody, request: Request, db: AsyncSession = Depends(get_db)):
+    """授权额度：加额 / 减额 / 取消授权（置 0）都走这一条。
+
+    动额度 = 给出支配权，所以在钱包签名之外还要过一次 2FA 验证码
+    （``X-Karma-2FA-Code``）。绑了 2FA 的身份**必须**带码；没绑的按设置放行，
+    由操作台一直提示去绑定（``CONSOLE_2FA_REQUIRED_FOR_FUNDS=true`` 时连没绑也不许动）。
+    """
     validate_public_url_segment("identity_id", identity_id)
     actor = await resolve_actor_identity_id(db, request)
     if not actor or actor != identity_id:
         raise HTTPException(403, "only the identity owner can set allocations")
+    try:
+        await console_2fa.require_code(
+            db,
+            actor,
+            request.headers.get("X-Karma-2FA-Code"),
+            what="setting sub-identity allocations",
+        )
+    except TwoFactorError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
     rows = await profile_capacity_service.allocate(db, identity_id=identity_id, allocations=body.allocations)
     return {
         "allocations": rows,

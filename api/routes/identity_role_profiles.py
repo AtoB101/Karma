@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
 from services import governance_stake
+from services.face_activation import FaceError, assert_same_person
 from services.identity_actor import resolve_actor_identity_id
 from services.identity_verification import build_bind_wallet_message
 from services.path_param_safety import validate_public_url_segment
@@ -274,6 +275,82 @@ async def update_role_profile(
     await db.flush()
     await db.refresh(row)
     return _serialize(row, full=True)
+
+
+class FaceConsistencyBody(BaseModel):
+    """追加身份的「同人比对」结论：分数由本人设备算，服务端复核签名 / 参考模板 / 新鲜度 / 过线。
+
+    故意允许未知字段：夹带人脸明文要由服务层指名拒掉，而不是被静默丢掉。
+    """
+
+    model_config = {"extra": "allow"}
+
+    wallet_address: str = Field(..., min_length=10, max_length=128)
+    wallet_signature: str = Field(..., min_length=130, max_length=200)
+    reference_digest: str = Field(..., min_length=64, max_length=64)
+    capture_digest: str = Field(..., min_length=64, max_length=64)
+    score: float = Field(..., ge=0.0, le=1.0)
+    liveness: dict = Field(default_factory=dict)
+    encryption: dict = Field(default_factory=dict)
+    template_cipher: str | None = Field(default=None, max_length=2_000_000)
+
+
+@router.post("/{profile_id}/face-consistency")
+async def confirm_role_profile_same_person(
+    profile_id: str,
+    body: FaceConsistencyBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """追加身份自动开通：填完标准字段再刷一次脸，本机比出分数，服务端复核后直接置为已核验。
+
+    判据与边界见 services/face_activation.py。这里只做两件事：**复核**、然后**置位**。
+    治理岗（verifier / arbitrator）不因为「是同一个人」就免掉质押那道闸 ——
+    那条路走 create/update，规矩不变。
+    """
+    validate_public_url_segment("profile_id", profile_id)
+    row = await db.get(IdentityRoleProfile, profile_id)
+    if row is None:
+        raise HTTPException(404, "role profile not found")
+    actor = await resolve_actor_identity_id(db, request)
+    if not actor or actor != row.owner_identity_id:
+        raise HTTPException(403, "only the profile owner can confirm the same-person check")
+
+    try:
+        verdict = await assert_same_person(
+            db,
+            owner_identity_id=row.owner_identity_id,
+            profile_id=profile_id,
+            class_=row.class_,
+            wallet_address=body.wallet_address,
+            wallet_signature=body.wallet_signature,
+            reference_digest=body.reference_digest,
+            capture_digest=body.capture_digest,
+            score=body.score,
+            liveness=body.liveness,
+            encryption=body.encryption,
+            template_cipher=body.template_cipher,
+        )
+    except FaceError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+
+    row.kyc_status = "verified"
+    payload = dict(row.kyc_payload or {})
+    payload["face_consistency"] = {
+        "mode": "device_template",
+        "score": verdict["score"],
+        "threshold": verdict["threshold"],
+        "reference_digest": verdict["reference_digest"],
+        "capture_digest": verdict["capture_digest"],
+        "angles": verdict["liveness"].get("angles"),
+        "reviewer": verdict["reviewer"],
+        "checked_at": verdict["checked_at"],
+    }
+    row.kyc_payload = payload
+    row.updated_at = datetime.utcnow()
+    await db.flush()
+    await db.refresh(row)
+    return {**_serialize(row, full=True), "face_consistency": verdict}
 
 
 class BindWalletBody(BaseModel):

@@ -156,10 +156,80 @@
     );
   }
 
-  async function setAllocations(identityId, allocations) {
-    return jsonPut(
-      "/v1/capacity/" + encodeURIComponent(identityId) + "/allocations",
-      { allocations: allocations }
+  /**
+   * 授权额度（加额 / 减额 / 取消授权 = 置 0）。
+   *
+   * 动额度 = 给出支配权，所以这条要带 2FA 验证码（``X-Karma-2FA-Code``）。
+   * 没绑 2FA 的身份不带也能过（服务端按设置放行），绑了就必须带 —— 谁的码谁说了算。
+   */
+  async function putAllocations(identityId, allocations, twofaCode) {
+    const extra = twofaCode ? { "X-Karma-2FA-Code": String(twofaCode) } : null;
+    return karmaFetch("/v1/capacity/" + encodeURIComponent(identityId) + "/allocations", {
+      method: "PUT",
+      headers: Object.assign({ ...headers(), "Content-Type": "application/json" }, extra || {}),
+      body: JSON.stringify({ allocations: allocations }),
+    });
+  }
+
+  async function setAllocations(identityId, allocations, twofaCode) {
+    // 显式给了码（测试 / 上层自己收过码）就直接发；否则统一走闸门：
+    // 绑了 2FA 就先弹验证码，没绑（且节点没强制）就照旧。
+    if (twofaCode !== undefined && twofaCode !== null) {
+      return putAllocations(identityId, allocations, twofaCode);
+    }
+    const gate = global.Karma2FA;
+    if (gate && typeof gate.guard === "function") {
+      return gate.guard(function (code) { return putAllocations(identityId, allocations, code); }, "授权额度");
+    }
+    return putAllocations(identityId, allocations, "");
+  }
+
+  /* ---- 操作台的安全验证（2FA / TOTP）---------------------------------------
+     密钥从来不回吐：状态里只有「绑没绑、还剩几张恢复码、锁没锁」。 */
+
+  async function getTwoFactor() {
+    return karmaFetch("/v1/console/2fa", { method: "GET", headers: headers() });
+  }
+
+  async function enrollTwoFactor() {
+    return jsonPost("/v1/console/2fa/enroll", {});
+  }
+
+  async function activateTwoFactor(code) {
+    return jsonPost("/v1/console/2fa/activate", { code: code });
+  }
+
+  async function rotateTwoFactorRecovery(code) {
+    return jsonPost("/v1/console/2fa/recovery", { code: code });
+  }
+
+  async function disableTwoFactor(code) {
+    return jsonPost("/v1/console/2fa/disable", { code: code });
+  }
+
+  /* ---- 刷脸即激活 / 追加身份同人比对 -------------------------------------- */
+
+  /** 主身份刷脸激活：活体 + 多角度采集在本机完成，交上来的是模板密文 + 摘要。 */
+  async function submitFaceActivation(identityId, body) {
+    return jsonPost(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/face-activate",
+      body
+    );
+  }
+
+  /** 取回首次刷脸留下的模板密文（只有本人拿得到），在本地解密后跟现采的脸比对。 */
+  async function getFaceTemplate(identityId) {
+    return karmaFetch(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/face-template",
+      { method: "GET", headers: headers() }
+    );
+  }
+
+  /** 追加身份的一致性结论：分数由本机算，服务端复核签名 / 参考模板 / 新鲜度 / 过线。 */
+  async function confirmFaceConsistency(profileId, body) {
+    return jsonPost(
+      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/face-consistency",
+      body
     );
   }
 
@@ -184,11 +254,28 @@
     });
   }
 
+  /**
+   * 撤销钥匙（不可逆）。收回支配权 → 过 2FA 闸门；验证码放在 body 里
+   * （这条路由的签名原文只有那份老的，不能把码拌进签名消息，否则两边会失配）。
+   */
   async function runtimeRevokeKey(payload) {
+    const gate = global.Karma2FA;
+    if (gate && typeof gate.guard === "function") {
+      const out = await gate.guard(function (code) {
+        return runtimeRevokeKeyWith(payload, code);
+      }, "停用钥匙");
+      return out;
+    }
+    return runtimeRevokeKeyWith(payload, "");
+  }
+
+  async function runtimeRevokeKeyWith(payload, twofaCode) {
+    const body = Object.assign({}, payload || {});
+    if (twofaCode) body.twofa_code = String(twofaCode);
     return karmaFetch("/runtime/revoke-key", {
       method: "POST",
       headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   }
 
@@ -237,11 +324,25 @@
     });
   }
 
+  /** 取消绑定（不可逆）：同样过 2FA 闸门。 */
   async function runtimeUnbindKey(payload) {
+    const gate = global.Karma2FA;
+    if (gate && typeof gate.guard === "function") {
+      const out = await gate.guard(function (code) {
+        return runtimeUnbindKeyWith(payload, code);
+      }, "取消绑定");
+      return out;
+    }
+    return runtimeUnbindKeyWith(payload, "");
+  }
+
+  async function runtimeUnbindKeyWith(payload, twofaCode) {
+    const body = Object.assign({}, payload || {});
+    if (twofaCode) body.twofa_code = String(twofaCode);
     return karmaFetch("/runtime/unbind-key", {
       method: "POST",
       headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   }
 
@@ -780,6 +881,14 @@
     getIdentityActivation,
     getAllocations,
     setAllocations,
+    getTwoFactor,
+    enrollTwoFactor,
+    activateTwoFactor,
+    rotateTwoFactorRecovery,
+    disableTwoFactor,
+    submitFaceActivation,
+    getFaceTemplate,
+    confirmFaceConsistency,
     getSettlement,
     getHealth,
     getV1Info,

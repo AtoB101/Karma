@@ -115,23 +115,52 @@
 
     if (!identity()) {
       if (title) title.textContent = "先连接钱包";
-      if (note) note.textContent = "连上钱包拿到主身份号之后，再做一次本人刷脸认证就能激活。";
+      if (note) note.textContent = "连上钱包拿到主身份号之后，刷一次脸就能激活。";
       if (go) { go.hidden = false; go.textContent = "去连接钱包 →"; }
       return;
     }
-    if (go) go.textContent = "去刷脸认证 →";
+    if (go) go.textContent = "开始刷脸激活 →";
     if (activated) {
       var when = a.verified_at ? String(a.verified_at).slice(0, 10) : "";
       if (title) title.textContent = "主身份已激活";
       if (note) note.textContent = when
-        ? "认证于 " + when + " 通过。可以接单、可以被撮合，信誉记录从现在开始记。"
-        : "认证已通过。可以接单、可以被撮合，信誉记录从现在开始记。";
+        ? "刷脸激活于 " + when + " 通过。可以接单、可以被撮合，信誉记录从现在开始记。"
+        : "已激活。可以接单、可以被撮合，信誉记录从现在开始记。";
       if (go) go.hidden = true;
     } else {
       if (title) title.textContent = "主身份尚未激活";
       if (note) note.textContent =
-        "完成一次主身份本人的实名认证（证件 + 刷脸，与这个钱包地址绑定）即自动激活。";
+        "刷一次脸就激活：活体 + 5 个角度在这台设备上采集，脸型模板加密后才上传，" +
+        "判定通过当场激活，不用排队等人工。";
       if (go) go.hidden = false;
+    }
+  }
+
+  /**
+   * ② 刷脸激活：一步到位。
+   *
+   * 采集在本机（KarmaFaceCapture），比对与加密也在本机（KarmaFaceVault）——
+   * 服务端只收到模板密文、摘要和采集元数据。这里只负责发起 + 把结果显示出来。
+   */
+  async function activateByFace() {
+    var status = el("mst-activate-status");
+    var id = identity();
+    if (!id) { say(status, "请先连接钱包", true); return; }
+    var vault = global.KarmaFaceVault;
+    if (!vault || !vault.activateByFace) {
+      say(status, "刷脸模块未加载，请刷新页面后再试。", true);
+      return;
+    }
+    say(status, "正在打开取景框…");
+    try {
+      var res = await vault.activateByFace(id);
+      if (!res) { say(status, "已取消。"); return; }
+      var angles = res.liveness && res.liveness.angles ? res.liveness.angles : 0;
+      say(status, angles ? "已激活（活体 " + angles + " 个角度）" : "已激活。", true);
+      try { document.dispatchEvent(new CustomEvent("karma-capacity-changed")); } catch (_) {}
+      await load();
+    } catch (e) {
+      say(status, "激活失败：" + (e && (e.message || e.detail) || e), true);
     }
   }
 
@@ -413,8 +442,8 @@
     var go = el("mst-activate-go");
     if (go) {
       go.addEventListener("click", function () {
-        // 主身份本人的实名认证就在「个人助理认证」那一页（证件 + 刷脸）。
-        if (global.cyberSwitchPage) global.cyberSwitchPage("identity", "personal");
+        // 刷脸即激活：采集 → 本机加密 → 提交 → 当场判定，不跳去别的卡片。
+        activateByFace();
       });
     }
     ["karma-wallet-connected", "karma-session-restored", "karma-capacity-changed", "karma-alloc-changed"].forEach(

@@ -45,6 +45,7 @@ from services.identity_provider.service import (
     start_session,
     sync_active_session,
 )
+from services.face_activation import FaceError, activate_by_face, template_view
 from services.identity_activation import activation_of
 from services.identity_verification import (
     IdentityVerificationError,
@@ -93,6 +94,25 @@ class MockPushBody(BaseModel):
 class VerifyDecisionBody(BaseModel):
     decision: str = Field(..., pattern="^(verified|rejected)$")
     reason: str | None = Field(default=None, max_length=2000)
+
+
+class FaceActivateBody(BaseModel):
+    """刷脸即激活：脸型模板在浏览器里加密，服务端只收密文 + 摘要 + 采集元数据。
+
+    故意允许未知字段：任何夹带的人脸明文 / 原图字段都要在服务层被指名拒掉，
+    而不是被 pydantic 静默丢掉（丢掉会让「我传了明文」变成看不见的事实）。
+    """
+
+    model_config = {"extra": "allow"}
+
+    wallet_address: str = Field(..., min_length=10, max_length=128)
+    wallet_signature: str = Field(..., min_length=130, max_length=200)
+    capture_digest: str = Field(..., min_length=64, max_length=64)
+    template_digest: str = Field(..., min_length=64, max_length=64)
+    template_cipher: str = Field(..., min_length=64)
+    algorithm: str = Field(default="KFC-GRAY32-NCC-v1", max_length=64)
+    encryption: dict[str, Any] = Field(default_factory=dict)
+    liveness: dict[str, Any] = Field(default_factory=dict)
 
 
 def _translate(exc: IdentityVerificationError) -> HTTPException:
@@ -212,6 +232,54 @@ async def submit_identity_verification(
     await db.commit()
     await db.refresh(row)
     return owner_view(row)
+
+
+@router.post("/{identity_id}/verification/face-activate")
+async def face_activate_identity_verification(
+    identity_id: str,
+    body: FaceActivateBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """刷脸即激活：活体 + 多角度采集在本机完成，服务端复核后直接置为已激活。
+
+    这条路不提交证件 —— 证件留给「需要更高等级」的身份认证。判定与盖章都记在审计里
+    （盖的是 ``platform:face-liveness:v1``），所以事后看得出这不是人工复核。
+    """
+    validate_public_url_segment("identity_id", identity_id)
+    await _require_owner(db, request, identity_id)
+    try:
+        payload = await activate_by_face(
+            db,
+            identity_id=identity_id,
+            wallet_address=body.wallet_address,
+            wallet_signature=body.wallet_signature,
+            capture_digest=body.capture_digest,
+            template_cipher=body.template_cipher,
+            template_digest=body.template_digest,
+            algorithm=body.algorithm,
+            encryption=body.encryption,
+            liveness=body.liveness,
+        )
+    except FaceError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+    await db.commit()
+    return payload
+
+
+@router.get("/{identity_id}/verification/face-template")
+async def get_face_template(
+    identity_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """本人取回首次刷脸留下的模板密文：操作台在本机解密，用来跟现采的脸比对。
+
+    只回本人 —— 密文别人拿到也解不开，但没必要给。
+    """
+    validate_public_url_segment("identity_id", identity_id)
+    await _require_owner(db, request, identity_id)
+    return await template_view(db, identity_id)
 
 
 @router.post("/{identity_id}/verification/verify")

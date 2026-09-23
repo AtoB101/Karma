@@ -40,6 +40,8 @@ from db.session import get_db
 from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
 from services.agent_automation_policy import get_automation_policy
+from services import console_2fa
+from services.console_2fa import TwoFactorError
 from services.console_notice import (
     NOTICE_KEY_BOUND,
     NOTICE_KEY_UNBOUND,
@@ -435,6 +437,8 @@ class RevokeRuntimeKeyBody(BaseModel):
     wallet_address: str
     karma_identity_id: str
     wallet_signature: str
+    #: 2FA 验证码（绑了才有）。撤销钥匙 = 收回支配权，所以要过第二把锁。
+    twofa_code: str | None = None
 
 
 @router.post("/revoke-key")
@@ -456,6 +460,12 @@ async def runtime_revoke_key(body: RevokeRuntimeKeyBody, db: AsyncSession = Depe
         raise HTTPException(status_code=404, detail="runtime key not found for identity")
     if row.wallet_address.lower() != body.wallet_address.strip().lower():
         raise HTTPException(status_code=403, detail="wallet does not own this runtime key")
+    try:
+        await console_2fa.require_code(
+            db, body.karma_identity_id, body.twofa_code, what="revoking a runtime key"
+        )
+    except TwoFactorError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
     await revoke_runtime_key(db=db, key_id=body.key_id)
     await db.commit()
     return signed_json_response({"key_id": body.key_id, "status": "revoked"})
@@ -868,6 +878,8 @@ class UnbindKeyBody(BaseModel):
     wallet_address: str
     wallet_signature: str
     client_nonce: str = Field(min_length=8, max_length=128)
+    #: 2FA 验证码（绑了才有）。取消绑定是不可逆动作，所以要过第二把锁。
+    twofa_code: str | None = None
 
 
 class ListBoundKeysBody(BaseModel):
@@ -945,6 +957,12 @@ async def runtime_unbind_key(body: UnbindKeyBody, db: AsyncSession = Depends(get
         wallet_address=body.wallet_address,
         wallet_signature=body.wallet_signature,
     )
+    try:
+        await console_2fa.require_code(
+            db, body.karma_identity_id, body.twofa_code, what="unbinding an agent key"
+        )
+    except TwoFactorError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
     row = await unbind_key_binding(db=db, key_id=body.key_id)
     await db.commit()
     # 取消绑定是不可逆动作：落一条站内提醒，主人下次进操作台仍然看得见，点过才消。

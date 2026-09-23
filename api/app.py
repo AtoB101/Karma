@@ -31,6 +31,7 @@ from api.routes import (
     reviews,
     verify,
     capacity,
+    console_2fa,
     vouchers,
     progress,
     identities,
@@ -388,6 +389,13 @@ app.include_router(identities.router, prefix="/v1/identities", tags=["Identities
 app.include_router(arbitration.router, prefix="/v1/arbitration", tags=["Arbitration"], dependencies=_protected_dependencies)
 app.include_router(responsibility.router, prefix="/v1/responsibility", tags=["Responsibility"], dependencies=_protected_dependencies)
 app.include_router(capacity.router,   prefix="/v1/capacity",   tags=["Capacity"], dependencies=_protected_dependencies)
+# 操作台的安全验证（2FA）：只认会话，密钥不回吐。
+app.include_router(
+    console_2fa.router,
+    prefix="/v1/console/2fa",
+    tags=["Console2FA"],
+    dependencies=_protected_dependencies,
+)
 app.include_router(escrow.router,     prefix="/v1/escrow",     tags=["Escrow"],   dependencies=_protected_dependencies)
 app.include_router(vouchers.router,   prefix="/v1/vouchers",   tags=["Vouchers"], dependencies=_rate_limited_rw)
 app.include_router(
