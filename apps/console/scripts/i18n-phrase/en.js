@@ -79,7 +79,7 @@ window.CYBER_I18N_PHRASE["en"] = {
   "⑦ 批准结算还要满足一个硬前提：该任务已有至少一条「成功的执行回执」——回执由卖方 agent 用自己的运行密钥签名后提交，操作台只能查询（「回执证明」页），不能代签。": "⑦ Approving settlement has one hard precondition: the task must already carry at least one successful execution receipt — signed and submitted by the seller agent with its own runtime key. The console can only look it up (Receipts page); it can never sign on the agent's behalf.",
   "⚙ 连接设置": "⚙ Connection settings",
   "⚡ 一键接入 Agent": "⚡ Connect an agent in one click",
-  "⚡ 生成 Karma 授权 SDK": "⚡ Generate the Karma-authorized SDK",
+  "⚡ 生成接入包 · 交给 agent": "⚡ Generate the hand-off package",
   "。整本账、所有子身份、所有锁仓都挂在主身份下；每个身份有自己的认证、订单、收付和记录，切身份就换页面。": ". One ledger, every sub-identity and every lock sits under the master identity; each identity has its own verification, orders, payments and records — switch identity and the page switches with you.",
   "。机器只给结论，不替你下决定 —— 放行与否始终是人按的。": ". The machine only returns a verdict, it never decides for you — releasing funds is always a human action.",
   "。签的是什么，下面看得见。": ". You can see exactly what you are signing below.",
@@ -161,7 +161,7 @@ window.CYBER_I18N_PHRASE["en"] = {
   "保存服务端自动授权策略（单笔/日限额 + 权限），再用钱包签名铸造 Runtime Key。": "Save the server-side auto-authorization policy (per-order / daily limits + permissions), then mint the Runtime Key with a wallet signature.",
   "保存连接": "Save connection",
   "先在「我的 Agent」里点某个 agent 的「交给 Agent」，这里会生成它的交付包。": "First click “Hand off” on an agent under My agents; its delivery package is generated here.",
-  "先连接钱包（顶部），再按 1 → 4 填完，点「生成 Karma 授权 SDK」，把结果交给你的 agent。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。": "Connect your wallet (top), fill in steps 1 → 4, click “Generate the Karma-authorized SDK” and hand the result to your agent. Every sub-identity has its own credentials, orders and statements, all under the same master identity.",
+  "先连接钱包（顶部），按 1 → 4 填完，点最下面那颗按钮，就会得到一段「接入包」——把它写进 agent 的环境变量就行。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。": "Connect your wallet (top), fill in 1 → 4, then press the button at the bottom and you get a hand-off package — paste it into the agent's environment variables and you are done. Each sub-identity keeps its own credentials, orders and ledger, all under the same master identity.",
   "全程不会接触你的私钥、助记词": "Your private key and seed phrase are never touched",
   "全部": "All",
   "全部剩余": "All remaining",
@@ -2571,4 +2571,10 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在下面「接入确认」里输码，它才能动钱。": "Every key must name an agent. What you mint comes out not activated: the agent requests access, receives an 8-character matching code, and you type that code into Bind confirmation below — only then can it spend.",
   "请填 Agent ID：每把钥匙都要指名一个 agent。不指名就等于铸一把不记名钥匙 —— 谁捡到谁能花，所以这条路已经关掉了。": "Enter an Agent ID: every key must name an agent. Without one the key would be a bearer key that anyone who picks it up could spend, so that path is closed.",
   "已停用（不记名钥匙）": "Retired (bearer key)",
+  // --- dynamic-append-22: 向导「agent 名字」与接入包 ---
+  "你的 agent 叫什么": "What is your agent called?",
+  "接入包 · {0}": "Hand-off package · {0}",
+  "第 1 步：给你的 agent 起个名字（如 claw-001）—— 钥匙要指名一台 agent 才铸得出来": "Step 1: name your agent (e.g. claw-001) — a key must name an agent before it can be minted",
+  "第 1 步：agent 名字只能用字母、数字、点、下划线、连字符（如 claw-001）": "Step 1: the agent name may only use letters, digits, dot, underscore or hyphen (e.g. claw-001)",
+  "复制接入包": "Copy the hand-off package",
 });

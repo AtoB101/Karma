@@ -893,7 +893,7 @@
             <div class="section-header">
               <div>
                 <h3>给 agent 授权 · 4 步</h3>
-                <p>先连接钱包（顶部），再按 1 → 4 填完，点「生成 Karma 授权 SDK」，把结果交给你的 agent。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。</p>
+                <p>先连接钱包（顶部），按 1 → 4 填完，点最下面那颗按钮，就会得到一段「接入包」——把它写进 agent 的环境变量就行。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。</p>
               </div>
               <span class="api-status" id="agw-status">—</span>
             </div>
@@ -913,6 +913,11 @@
                 <label class="agw-label" for="agw-identity">接入身份</label>
                 <select id="agw-identity"></select>
                 <span class="agw-note" id="agw-identity-note"></span>
+              </div>
+              <div class="agw-row">
+                <label class="agw-label" for="agw-agent">你的 agent 叫什么</label>
+                <input id="agw-agent" type="text" placeholder="claw-001" autocomplete="off" spellcheck="false" />
+                <span class="agw-note">每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在下面「接入确认」里输码，它才能动钱。</span>
               </div>
               <details class="agw-new-wrap">
                 <summary>＋ 新建一个子身份</summary>
@@ -986,7 +991,7 @@
             </div>
 
             <div class="agw-foot">
-              <button type="button" class="btn primary" id="agw-generate">⚡ 生成 Karma 授权 SDK</button>
+              <button type="button" class="btn primary" id="agw-generate">⚡ 生成接入包 · 交给 agent</button>
               <span class="api-status" id="agw-gen-status"></span>
             </div>
             <div class="agw-result" id="agw-result" hidden></div>

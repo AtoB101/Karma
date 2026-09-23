@@ -81,7 +81,7 @@ window.CYBER_I18N_PHRASE["es-AR"] = {
   "⑦ 批准结算还要满足一个硬前提：该任务已有至少一条「成功的执行回执」——回执由卖方 agent 用自己的运行密钥签名后提交，操作台只能查询（「回执证明」页），不能代签。": "⑦ Aprobar la liquidación tiene una condición indispensable: la tarea ya debe tener al menos un recibo de ejecución exitoso, firmado y enviado por el agent vendedor con su propia clave de runtime. La consola solo puede consultarlo (página «Recibos»), nunca firmar en nombre del agent.",
   "⚙ 连接设置": "⚙ Ajustes de conexión",
   "⚡ 一键接入 Agent": "⚡ Conectar un agent en un clic",
-  "⚡ 生成 Karma 授权 SDK": "⚡ Generar el SDK autorizado de Karma",
+  "⚡ 生成接入包 · 交给 agent": "⚡ Generar el paquete de acceso",
   "。整本账、所有子身份、所有锁仓都挂在主身份下；每个身份有自己的认证、订单、收付和记录，切身份就换页面。": ". Un solo libro: todas las subidentidades y todos los bloqueos cuelgan de la identidad principal. Cada identidad tiene su propia verificación, pedidos, cobros y registros; al cambiar de identidad cambia la página.",
   "。机器只给结论，不替你下决定 —— 放行与否始终是人按的。": ". La máquina solo da un veredicto, nunca decide por vos: liberar fondos siempre lo hace una persona.",
   "。签的是什么，下面看得见。": ". Abajo podés ver exactamente qué vas a firmar.",
@@ -163,7 +163,7 @@ window.CYBER_I18N_PHRASE["es-AR"] = {
   "保存服务端自动授权策略（单笔/日限额 + 权限），再用钱包签名铸造 Runtime Key。": "Guardá la política de autorización automática del servidor (límites por operación y diarios + permisos) y después emití la Runtime Key con la firma de tu billetera.",
   "保存连接": "Guardar conexión",
   "先在「我的 Agent」里点某个 agent 的「交给 Agent」，这里会生成它的交付包。": "Primero tocá «Entregar» en un agent dentro de Mis agents; acá se genera su paquete de entrega.",
-  "先连接钱包（顶部），再按 1 → 4 填完，点「生成 Karma 授权 SDK」，把结果交给你的 agent。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。": "Conectá tu billetera (arriba), completá los pasos 1 → 4 y tocá «Generar el SDK autorizado de Karma» para entregarle el resultado a tu agent. Cada subidentidad tiene sus propias credenciales, pedidos y estados de cuenta, todas bajo la misma identidad principal.",
+  "先连接钱包（顶部），按 1 → 4 填完，点最下面那颗按钮，就会得到一段「接入包」——把它写进 agent 的环境变量就行。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。": "Conectá tu billetera (arriba), completá 1 → 4 y tocá el botón de abajo: obtenés un «paquete de acceso». Pegalo en las variables de entorno del agent y listo. Cada sub-identidad tiene sus propias credenciales, órdenes y movimientos, todas bajo la misma identidad principal.",
   "全程不会接触你的私钥、助记词": "Tu clave privada y tu frase semilla no se tocan nunca",
   "全部": "Todo",
   "全部剩余": "Todo lo restante",
@@ -2573,4 +2573,10 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
   "每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在下面「接入确认」里输码，它才能动钱。": "Cada llave tiene que nombrar un agent. Lo que emitís sale sin activar: el agent pide acceso, recibe un código de 8 caracteres y vos lo escribís abajo en «Confirmación de acceso» — recién ahí puede gastar.",
   "请填 Agent ID：每把钥匙都要指名一个 agent。不指名就等于铸一把不记名钥匙 —— 谁捡到谁能花，所以这条路已经关掉了。": "Completá el Agent ID: cada llave tiene que nombrar un agent. Sin eso la llave sería al portador y cualquiera que la encuentre podría gastar, así que ese camino quedó cerrado.",
   "已停用（不记名钥匙）": "Dada de baja (llave al portador)",
+  // --- dynamic-append-22: 向导「agent 名字」与接入包 ---
+  "你的 agent 叫什么": "¿Cómo se llama tu agent?",
+  "接入包 · {0}": "Paquete de acceso · {0}",
+  "第 1 步：给你的 agent 起个名字（如 claw-001）—— 钥匙要指名一台 agent 才铸得出来": "Paso 1: ponele un nombre a tu agent (ej. claw-001) — una clave debe nombrar un agent para poder emitirse",
+  "第 1 步：agent 名字只能用字母、数字、点、下划线、连字符（如 claw-001）": "Paso 1: el nombre del agent solo admite letras, números, punto, guion bajo o guion (ej. claw-001)",
+  "复制接入包": "Copiar el paquete de acceso",
 });

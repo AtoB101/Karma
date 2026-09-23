@@ -105,6 +105,13 @@ grep -q 'function runtimeUrl(' "$CONSOLE/scripts/cyber-handoff.js"
 grep -q 'function runtimeUrl(' "$CONSOLE/scripts/cyber-authorize.js"
 ! grep -q 'RUNTIME_URL = "https://karma-network.ai"' "$CONSOLE/scripts/cyber-handoff.js"
 ! grep -q 'RUNTIME_URL = "https://karma-network.ai"' "$CONSOLE/scripts/cyber-authorize.js"
+# 向导必须先问「agent 叫什么」再铸钥匙：钥匙指名了 agent 才铸得出来
+# （服务端生产口径不指名直接 400），agent 也是按这个名字等激活。
+grep -q 'id="agw-agent"' "$CONSOLE/pages/cyber/index.html"
+grep -q 'agent_binding: agentName' "$CONSOLE/scripts/cyber-authorize.js"
+grep -q 'agent_id: fields.agent_binding' "$CONSOLE/scripts/cyber-authorize.js"
+grep -q 'KARMA_AGENT_ID=' "$CONSOLE/scripts/cyber-authorize.js"
+! grep -q 'agent_binding: ""' "$CONSOLE/scripts/cyber-authorize.js"
 # 分发层：静态包要有可复验的清单，发布脚本存在于仓库里。
 [[ -f "$ROOT/scripts/console_bundle.py" ]]
 [[ -f "$ROOT/scripts/publish_console_ipfs.sh" ]]

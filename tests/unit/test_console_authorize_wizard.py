@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,6 +34,7 @@ GATE = ROOT / "scripts/acceptance/console_last_mile_gate.sh"
 WIZARD_NODES = (
     'id="ag-wizard"',
     'id="agw-identity"',
+    'id="agw-agent"',
     'id="agw-new"',
     'id="agw-new-name"',
     'id="agw-amount"',
@@ -53,7 +55,7 @@ def test_the_page_carries_the_four_step_wizard():
         assert node in html, f"授权向导缺少 {node}"
     for step in ("1 · 选身份", "2 · 授权额度", "3 · 定类型", "4 · 划边界"):
         assert step in html, f"向导缺少步骤说明 {step}"
-    assert "生成 Karma 授权 SDK" in html, "最后那一下必须说清楚是生成 SDK"
+    assert "生成接入包" in html, "最后那一下要说清楚生成的是「接入包」"
     assert "../../scripts/cyber-authorize.js" in html, "向导脚本必须被页面加载"
     # 向导要排在「我的 Agent」之前：先授权，再管理。
     assert html.index('id="ag-wizard"') < html.index('id="ag-list"')
@@ -114,6 +116,76 @@ def test_the_gate_checks_the_new_script():
     assert "cyber-authorize.js" in loop[0], "门禁要 node --check 它"
 
 
+def test_the_wizard_names_the_agent_before_it_mints():
+    """向导必须先把「agent 叫什么」收下来，再拿去铸钥匙。
+
+    真机第一次跑就撞在这上面：钥匙必须指名 agent（生产口径不指名直接 400），
+    而向导当时发的是 ``agent_binding: ""`` —— 用户按 1→4 填完、钱包也签了，
+    点「生成」只会吃一句 HTTP 400。单测那边闸门是放开的（tests/conftest.py），
+    所以只有真机 / 这条静态断言拦得住。
+    """
+    js = JS.read_text(encoding="utf-8")
+    html = HTML.read_text(encoding="utf-8")
+    assert 'id="agw-agent"' in html, "第 1 步要有「agent 叫什么」这一栏"
+    assert "你的 agent 叫什么" in html
+    assert "agent_binding: agentName" in js, "签名串要写 agent_binding"
+    assert "agent_id: fields.agent_binding" in js, "请求体要带 agent_id 做交叉校验"
+    assert 'agent_binding: ""' not in js, "空绑定铸不出来，这条老写法必须删干净"
+    assert '"KARMA_AGENT_ID=" + agentId' in js, "接入包要带 KARMA_AGENT_ID"
+    assert "renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName)" in js
+    assert "给你的 agent 起个名字" in js, "没填名字要当场说人话"
+    assert "/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(agentName)" in js
+    gate = GATE.read_text(encoding="utf-8")
+    assert "agent_binding: agentName" in gate, "门禁也要钉住这条"
+
+
+@pytest.mark.asyncio
+async def test_the_wizard_payload_survives_the_production_binding_gate(
+    client: AsyncClient, db_session, monkeypatch
+):
+    """把闸门按生产口径打开，向导现在发的那套载荷要能铸出钥匙。
+
+    载荷形状 = cyber-authorize.js 里那一份：agent_name / agent_binding / agent_id 三处同名。
+    """
+    monkeypatch.setattr(settings, "runtime_require_agent_binding", True)
+    owner = f"console-wizard-named-{uuid.uuid4().hex[:8]}"
+    agent_name = "claw-001"
+    perms = ["request_voucher", "submit_receipt"]
+    acct = Account.create()
+    expire = datetime.utcnow() + timedelta(days=7)
+    msg = build_create_key_message(
+        karma_identity_id=owner,
+        wallet_address=acct.address,
+        permissions=perms,
+        single_limit=5.0,
+        daily_limit=10.0,
+        expire_time=expire,
+        agent_name=agent_name,
+        agent_binding=agent_name,
+    )
+    signed = acct.sign_message(encode_defunct(text=msg))
+    resp = await client.post(
+        "/runtime/create-key",
+        json={
+            "wallet_address": acct.address,
+            "karma_identity_id": owner,
+            "wallet_signature": signed.signature.hex(),
+            "permissions": perms,
+            "single_limit": 5.0,
+            "daily_limit": 10.0,
+            "expire_time": expire.isoformat(),
+            "agent_name": agent_name,
+            "agent_binding": agent_name,
+            "agent_id": agent_name,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["agent_binding"] == agent_name
+    assert body["key_binding"] == "agent_pending", "指了名就是「未激活」，没输码谁都花不了"
+    assert body["activation_required"] is True
+
+
 def test_changing_the_type_keeps_the_name_the_user_typed():
     """用户给子身份起了名字，第 3 步选类型不该把它改掉。
 
@@ -123,7 +195,7 @@ def test_changing_the_type_keeps_the_name_the_user_typed():
     assert "function isTypeLabel(" in js
     assert "if (isTypeLabel(p.display_name)) profileBody.display_name = t.label;" in js
     # SDK 回执要写本次选的类型与名字，不能用内存里可能已经过期的那份档案。
-    assert "renderSdk(res, p, fields, perms, amount, type, effectiveName)" in js
+    assert "renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName)" in js
     assert "var effectiveName = isTypeLabel(p.display_name) ? TYPES[type].label : p.display_name;" in js
 
 

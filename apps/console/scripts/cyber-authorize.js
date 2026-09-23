@@ -381,7 +381,7 @@
     }
   }
 
-  function renderSdk(res, profile, fields, perms, amount, typeKey, displayName) {
+  function renderSdk(res, profile, fields, perms, amount, typeKey, displayName, agentId) {
     var host = byId("agw-result");
     if (!host) return;
     var key = (res && res.runtime_key) || "";
@@ -397,23 +397,26 @@
       "KARMA_PROFILE_ID=" + profile.profile_id,
       "KARMA_RUNTIME_URL=" + apiBase,
       "KARMA_RUNTIME_KEY=" + key,
+      "KARMA_AGENT_ID=" + agentId,
     ].join("\n");
     host.hidden = false;
     host.innerHTML =
-      '<div class="ag-result-head"><b>Karma 授权 SDK · ' + esc(did) + "</b>" +
+      '<div class="ag-result-head"><b>接入包 · ' + esc(did) + "</b>" +
       '<span class="tag ok">已生成</span>' +
       '<span class="tag">' + esc(name) + " · " + esc(label) + "</span></div>" +
       '<p class="ag-hint">把这段原样写进 agent 的环境变量。它读到身份和边界后就能开始跑；每一步收付都要过 Karma 的验证才会真正划转。</p>' +
+      '<p class="ag-hint">这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。匹配码 3 分钟内有效，过期就让 agent 重新申请一次，钥匙不用重铸。</p>' +
       '<div class="ag-snippet"><div class="ag-secret-label">① 运行时凭据（明文只显示这一次，请立即保存）</div>' +
       "<pre>" + esc(env) + "</pre>" +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-      '<button type="button" class="btn primary" id="agw-copy-env">复制 SDK</button>' +
+      '<button type="button" class="btn primary" id="agw-copy-env">复制接入包</button>' +
       '<button type="button" class="btn" id="agw-download-env">下载 karma-agent.env</button>' +
       "</div></div>" +
       '<div class="ag-snippet"><div class="ag-secret-label">② agent 读到的边界</div><pre>' +
       esc(
         "身份        " + did + "（" + profile.profile_id + "）\n" +
         "名字        " + name + "\n" +
+        "agent       " + agentId + "\n" +
         "类型        " + label + "\n" +
         "授权额度    " + money(amount) + " USDC\n" +
         "单笔最高    " + money(fields.single_limit) + " USDC\n" +
@@ -440,6 +443,17 @@
     if (!id) { setStatus(status, "请先在顶部「连接钱包」完成认证", true); return; }
     var p = selectedProfile();
     if (!p) { setStatus(status, "第 1 步：先选一个子身份（没有就新建一个）", true); return; }
+    // 钥匙必须指名一台 agent：不指名就铸不出来（服务端生产口径硬拦）。
+    // 这一步也是「偷到钥匙也花不了钱」的根：码发给这台 agent、也发给你屏幕。
+    var agentName = String((byId("agw-agent") || {}).value || "").trim();
+    if (!agentName) {
+      setStatus(status, "第 1 步：给你的 agent 起个名字（如 claw-001）—— 钥匙要指名一台 agent 才铸得出来", true);
+      return;
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(agentName)) {
+      setStatus(status, "第 1 步：agent 名字只能用字母、数字、点、下划线、连字符（如 claw-001）", true);
+      return;
+    }
     var amount = Number(byId("agw-amount").value);
     if (!isFinite(amount) || amount <= 0) { setStatus(status, "第 2 步：请填授权额度（大于 0）", true); return; }
     var single = Number(byId("agw-single").value);
@@ -526,8 +540,8 @@
         single_limit: single,
         daily_limit: daily,
         expire_time: pyUtcIso(Date.now() + 7 * 86400e3),
-        agent_name: effectiveName,
-        agent_binding: "",
+        agent_name: agentName,
+        agent_binding: agentName,
       };
       var sig = await provider.request({ method: "personal_sign", params: [buildCreateKeyMsg(fields), wallet] });
       var res = await global.karmaRuntimeApi.runtimeCreateKey({
@@ -539,9 +553,11 @@
         daily_limit: daily,
         expire_time: fields.expire_time,
         agent_name: fields.agent_name,
+        agent_binding: fields.agent_binding,
+        agent_id: fields.agent_binding,
         profile_id: p.profile_id,
       });
-      renderSdk(res, p, fields, perms, amount, type, effectiveName);
+      renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName);
       setStatus(status, "✅ 已生成，交付包在下面");
       await load();
       refreshOthers();
