@@ -1877,21 +1877,99 @@
     }
   }
 
-  function loadFile(url, done) {
-    if (loading[url] === "ok" || loading[url] === "missing") { done(); return; }
+  /** 语言包最长等多久；超过就当这次没拿到（还有一次重试）。 */
+  const PACK_FETCH_TIMEOUT = 12000;
+
+  /** 直接挂 <script src>。拿不到 fetch / Blob 时走这条，也是最后一道退路。 */
+  function loadByTag(url, done) {
     let tag;
     try {
       tag = document.createElement("script");
     } catch (_) {
-      loading[url] = "missing";
-      done();
+      done(false);
       return;
     }
     tag.src = url;
     tag.async = true;
-    tag.onload = function () { loading[url] = "ok"; done(); };
-    tag.onerror = function () { loading[url] = "missing"; done(); };
+    tag.onload = function () { done(true); };
+    tag.onerror = function () { done(false); };
     document.head.appendChild(tag);
+  }
+
+  /**
+   * 取回语言包并执行它。
+   *
+   * 为什么不再用 <script src>：线上实测过一件事 —— 同源连接被占住时
+   * （操作台自己会同时发很多请求），浏览器把「动态插入的 script」排在低优先级，
+   * 几百 KB 的语言包能挂十几秒都不回来；而同一个地址用 fetch 取，1 秒就回来了。
+   * 语言包晚到，用户看到的就是「我切了语言，界面还是中文」。
+   * fetch 走的是高优先级队列，取回来挂成 blob 执行，而且能拿到真正的失败信号
+   * （404 / 超时），不再是石头沉海底。
+   */
+  function loadByFetch(url, done) {
+    if (
+      typeof fetch !== "function" ||
+      typeof Blob !== "function" ||
+      typeof URL === "undefined" ||
+      !URL.createObjectURL
+    ) {
+      loadByTag(url, done);
+      return;
+    }
+    let settled = false;
+    let timer = null;
+    const finish = function (ok) {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      done(ok);
+    };
+    timer = setTimeout(function () { finish(false); }, PACK_FETCH_TIMEOUT);
+    fetch(url, { cache: "force-cache" })
+      .then(function (r) {
+        return r.ok ? r.text() : Promise.reject(new Error("HTTP " + r.status));
+      })
+      .then(function (code) {
+        const blobUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+        loadByTag(blobUrl, function (ok) {
+          try {
+            URL.revokeObjectURL(blobUrl);
+          } catch (_) {}
+          if (ok) {
+            finish(true);
+            return;
+          }
+          // blob 被 CSP 之类挡了：退回普通 script 再试一次。
+          loadByTag(url, finish);
+        });
+      })
+      .catch(function () { finish(false); });
+  }
+
+  /**
+   * 加载一门语言的文件，失败换一个查询串重试一次。
+   *
+   * 失败**不写进 loading 记忆**：以前这里把 "missing" 记死了，
+   * 一次网络抖动会让这个会话永远停在上一种语言，用户怎么切都没反应。
+   * 只有真的加载成功才记。
+   */
+  function loadFile(url, done, attempt) {
+    if (loading[url] === "ok") { done(); return; }
+    const n = attempt || 1;
+    const target =
+      n === 1 ? url : url + (url.indexOf("?") < 0 ? "?" : "&") + "karma_retry=" + n;
+    loadByFetch(target, function (ok) {
+      if (ok) {
+        loading[url] = "ok";
+        done();
+        return;
+      }
+      if (n < 2) {
+        loadFile(url, done, n + 1);
+        return;
+      }
+      done();
+    });
   }
 
   /**
