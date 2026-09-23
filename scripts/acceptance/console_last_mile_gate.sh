@@ -112,6 +112,18 @@ grep -q 'agent_binding: agentName' "$CONSOLE/scripts/cyber-authorize.js"
 grep -q 'agent_id: fields.agent_binding' "$CONSOLE/scripts/cyber-authorize.js"
 grep -q 'KARMA_AGENT_ID=' "$CONSOLE/scripts/cyber-authorize.js"
 ! grep -q 'agent_binding: ""' "$CONSOLE/scripts/cyber-authorize.js"
+# 源文案表纯净度：真机把韩语/西语操作台逐页点过去，扫出过两种漏法 ——
+# 韩语整句里夹着中文全角标点（「얼굴 인증만（위 ②）。」），日韩把「未激活」原样搬进句子。
+# 文案表的源文案本身是中文，所以这里只钉译文那一侧的形状。
+! grep -q '（위 ②）。' "$CONSOLE/scripts/i18n-phrase/ko.js"
+! grep -q '「未激活」로' "$CONSOLE/scripts/i18n-phrase/ko.js"
+! grep -q '「未激活」に戻り' "$CONSOLE/scripts/i18n-phrase/ja.js"
+! grep -q '未激活の間' "$CONSOLE/scripts/i18n-phrase/ja.js"
+! grep -q '未激活（照合コード待ち）' "$CONSOLE/scripts/i18n-phrase/ja.js"
+grep -q '「미활성」로' "$CONSOLE/scripts/i18n-phrase/ko.js"
+grep -q '「未アクティブ」に戻り' "$CONSOLE/scripts/i18n-phrase/ja.js"
+grep -q '未アクティブ（照合コード待ち）' "$CONSOLE/scripts/i18n-phrase/ja.js"
+[[ -f "$ROOT/tests/unit/test_console_phrase_language_purity.py" ]]
 # 分发层：静态包要有可复验的清单，发布脚本存在于仓库里。
 [[ -f "$ROOT/scripts/console_bundle.py" ]]
 [[ -f "$ROOT/scripts/publish_console_ipfs.sh" ]]
