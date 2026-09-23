@@ -22,6 +22,18 @@
     return n;
   }
 
+  /**
+   * 提示语里的「值」也放在 <code> 里（等宽，一眼认出是地址 / 节点名），
+   * 但要让它能被翻译：<code> 默认在翻译器的跳过名单里（里面常是 JSON、签名原文），
+   * 而「当前站点（同源）」这种内置节点名本身就是给人看的文案 ——
+   * 不打这个标记的话，整页都换成英文了，容灾提示里还留着一截中文。
+   */
+  function codeValue(text) {
+    var el = h("code", null, text);
+    el.setAttribute("data-i18n-phrase", "");
+    return el;
+  }
+
   function dot(health) {
     var d = h("span", "node-dot");
     d.classList.add(!health || !health.tested ? "unknown" : health.ok ? "ok" : "down");
@@ -47,7 +59,7 @@
     box.appendChild(document.createTextNode(text));
     if (value) {
       box.appendChild(document.createTextNode(" "));
-      box.appendChild(h("code", null, value));
+      box.appendChild(codeValue(value));
     }
   }
 
@@ -220,7 +232,7 @@
     el.appendChild(document.createTextNode(text));
     if (value) {
       el.appendChild(document.createTextNode(" "));
-      el.appendChild(h("code", null, value));
+      el.appendChild(codeValue(value));
     }
     el.hidden = false;
     if (toastTimer) clearTimeout(toastTimer);

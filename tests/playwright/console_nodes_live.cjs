@@ -314,6 +314,17 @@ function makeStub(onPack) {
   check("交付包用的是选中的节点", handed.handoff === "https://node.example.com", handed);
   check("SDK env 用的是选中的节点", handed.authorize === "https://node.example.com", handed);
 
+  // 容灾那句提示里带着节点名，而内置节点的名字本身就是中文（「当前站点（同源）」）。
+  // 整页换成英文之后它必须也跟着走 —— 线上就是这么抓到一处半中半英的。
+  await switchLang(page, "en");
+  const toastEn = await page.evaluate(() => {
+    if (window.CYBER_I18N) window.CYBER_I18N.applyCyberI18n();
+    const n = document.querySelector("#node-toast");
+    return n ? n.textContent.replace(/\s+/g, " ").trim() : "";
+  });
+  check("容灾提示里的节点名也跟着语言走", toastEn.length > 0 && !/[\u4e00-\u9fff]/.test(toastEn), toastEn);
+  await switchLang(page, "zh-CN");
+
   console.log("\n[9] 语言包加载：第一次拿到 503，也要自己爬起来");
   // 真事：语言包是按需取回来的，取不回来页面就会停在上一种语言 ——
   // 而以前失败会被记死（loading[url]="missing"），这个会话怎么切都没反应。
