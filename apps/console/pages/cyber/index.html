@@ -616,6 +616,7 @@
                 <h3>个人助理认证 · 证件 + 刷脸 + 联系方式</h3>
                 <p>自然人认证：这是「我本人是谁」。文件在你自己的浏览器里加密后才上传 —— Karma 只拿到密文和摘要，看不到证件内容，全程不碰你的私钥、助记词。</p>
               </div>
+              <span class="idv-badge" id="idv-verify-route">当前路径</span>
               <span class="idv-badge" id="idv-verify-badge">未提交</span>
             </div>
             <ol class="idv-pipeline">
@@ -638,7 +639,7 @@
                 </div>
               </li>
               <li id="idv-step-read">
-                <div class="idv-step-head"><b>③ 识别与确认</b><span id="idv-read-state">待填写</span></div>
+                <div class="idv-step-head"><b>③ 本地加密并提交</b><span id="idv-read-state">待填写</span></div>
                 <p class="idv-hint">未接入自动识别（OCR / 活体）服务：下面由你本人确认，核验方复核。证件号只保留后 4 位，完整号码不会上传。</p>
                 <div class="idv-grid">
                   <div class="field"><label>姓名 <span class="idv-req">*</span></label><input id="idv-name" type="text" /></div>
@@ -648,13 +649,8 @@
                   <div class="field"><label>联系邮箱</label><input id="idv-email" type="email" placeholder="you@example.com（复核结果发这里）" /></div>
                   <div class="field"><label>联系电话</label><input id="idv-phone" type="tel" placeholder="选填" /></div>
                 </div>
-              </li>
-              <li id="idv-step-enc">
-                <div class="idv-step-head"><b>④ 本地加密</b><span id="idv-enc-state">待加密</span></div>
                 <p class="idv-hint">AES-GCM-256，密钥由你的钱包签名在本地派生（PBKDF2）。服务端只收到密文、摘要和加密参数。</p>
-              </li>
-              <li id="idv-step-send">
-                <div class="idv-step-head"><b>⑤ 提交</b><span id="idv-send-state">待提交</span></div>
+                <p class="idv-hint"><span id="idv-enc-state">待加密</span> · <span id="idv-send-state">待提交</span></p>
                 <label class="idv-consent"><input type="checkbox" id="idv-consent" /> 我确认以上资料真实，并同意 Karma 在加密后保存与核验</label>
                 <div class="idv-row">
                   <button type="button" class="btn primary" id="idv-submit" disabled>提交认证</button>

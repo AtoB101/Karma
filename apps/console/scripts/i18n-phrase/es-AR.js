@@ -68,6 +68,8 @@ window.CYBER_I18N_PHRASE["es-AR"] = {
   "③ 本地加密并提交": "③ Cifrar localmente y enviar",
   "③ 材料（选传）": "③ Archivos de respaldo (opcional)",
   "③ 识别与确认": "③ Reconocimiento y confirmación",
+  "当前路径": "Ruta actual",
+  "备用路径": "Ruta alternativa",
   "③ 锁仓 USDC": "③ Bloquear USDC",
   "④ lock · 买方": "④ lock · comprador",
   "④ 授权给身份": "④ Asignar cupo a la identidad",

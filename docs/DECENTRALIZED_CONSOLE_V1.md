@@ -1,7 +1,8 @@
 # 去中心化操作台 · L1/L2 落地说明
 
-**状态**：L1（静态包分发）与 L2（节点层）已落地并进入验收闸门。
-L3（身份/治理）只写清楚了落地路径，代码没动；L4（只读节点）只是路线图。
+**状态**：L1（静态包分发）、L2（节点层）已落地并进入验收闸门；
+L3-1 里属于操作台的那半（核验页折叠成 3 步 + 服务商通道明确置灰）也已落地。
+L3 的身份面（走服务商签名 / 质押开通治理岗）与 L4（只读节点）只是路线图。
 
 这份文档回答一个问题：**操作台现在离「谁都能自己跑一份」还有多远，差在哪。**
 
@@ -151,17 +152,32 @@ _<domain>  TXT  "dnslink=/ipfs/<cid>"
 
 ---
 
-## 四、L3 / L4：还没做，但路已经看清楚了
+## 四、L3 / L4：做到哪一步了
 
 ### L3-1 · 认证走服务商签名
 
 `services/identity_provider/` 已经有 aliyun / tencent / persona / mock 四家，
-以及回调验签（`signature.py`）。真正没做的是：操作台把 5 段流程（证件正反面、
-5 角度刷脸、6 个输入框、加密、提交）折叠成 3 步，并且**在 `IDENTITY_PROVIDER`
-没配时把那条通道明确置灰** —— 现在两条并行通道摆在一起，用户不知道该走哪条。
+以及回调验签（`signature.py`）—— 这一层不用动。
 
-> 线上 `IDENTITY_PROVIDER` 现在是未设置状态，服务商通道是灰的。测试网可以先配
-> `IDENTITY_PROVIDER=mock` 打通「开 session → 回调 → 验签 → 自动通过」整条链路。
+**操作台这半已经落地（2026-09-23）**，做掉的是让用户站着猜的两件事：
+
+1. **核验从 5 段折成 3 步。** 原来的 ① 证件 ② 刷脸 ③ 识别 ④ 本地加密 ⑤ 提交
+   里，「④ 本地加密」根本不是用户要做的一步，它只是提交那一刻发生的事。
+   现在是 ① 证件 ② 刷脸 ③ 本地加密并提交，跟个体 / 企业两张认证页的写法一致；
+   被脚本写过的两个状态位（`idv-enc-state` / `idv-send-state`）折进这一步里，没丢。
+2. **两条通道不再并排摆着。** 服务商没接入（或密钥没配齐）时，那张卡加 `is-off`
+   变灰 + `aria-disabled="true"`；人工复核那张卡在页头标出「当前路径」，
+   服务商接上之后自动换成「备用路径」。走哪条不用猜，也不用问客服。
+
+这两条都有测试盯着：`tests/unit/test_console_verify_route.py`（静态契约）+
+`tests/playwright/console_verify_route_live.cjs`（真浏览器：数步骤、看灰没灰、
+六门语言逐个切一遍 —— 英文页里不该看见一个汉字）。
+
+**还没做的是另一件事：真正的自动通过。** 线上 `IDENTITY_PROVIDER` 仍是未设置状态，
+所以「开 session → 回调 → 验签 → 自动置位」这条链在生产上还没有服务商接上；
+按现在的状态，认证仍然由复核台人工核验。
+
+> 测试网可以先配 `IDENTITY_PROVIDER=mock` 把整条链路跑通。
 > `config/settings.py` 已经硬性禁止 mock 上生产。
 
 ### L3-2 · 复核 / 仲裁：质押即开通
@@ -234,6 +250,8 @@ bash scripts/acceptance/console_last_mile_gate.sh
 - `tests/unit/test_console_nodes.py`：节点层的静态契约 + 「这两个文件里的中文必须 5 份语言包全覆盖」；
 - `tests/unit/test_console_distribution.py`：清单可复现、校验能抓出四类不一致；
 - `tests/js/test_karma_nodes.cjs`：53 项行为断言（选节点 / 探活 / 超时 / 容灾 / 自定义节点校验 / 手填地址不被替换）；
+- `tests/unit/test_console_verify_route.py`：核验页只剩三步 + 服务商通道没接入时必须是灰的（+ 状态位没被折丢）；
+- `tests/playwright/console_verify_route_live.cjs`：真浏览器 27 项（数步骤 / 看灰没灰 / 六门语言逐个切、日文页按「中文原文有没有原样留下」判残留）；
 - `tests/js/test_console_fetch.cjs`：请求必须有截止时间（挂住的请求会被中止 + 通知节点层）；
 - `tests/playwright/console_nodes_live.cjs`：真实浏览器 46 项（装了 playwright 才跑）——
   选节点 / 探活 / 容灾 / 六门语言不留中文 / 容灾提示里的节点名也跟着语言走，

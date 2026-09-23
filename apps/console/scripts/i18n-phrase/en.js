@@ -66,6 +66,8 @@ window.CYBER_I18N_PHRASE["en"] = {
   "③ 本地加密并提交": "③ Encrypt locally and submit",
   "③ 材料（选传）": "③ Supporting files (optional)",
   "③ 识别与确认": "③ Recognition & confirmation",
+  "当前路径": "Current path",
+  "备用路径": "Fallback path",
   "③ 锁仓 USDC": "③ Lock USDC",
   "④ lock · 买方": "④ lock · buyer",
   "④ 授权给身份": "④ Grant a limit to the identity",

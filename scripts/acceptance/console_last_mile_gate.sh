@@ -97,6 +97,8 @@ grep -q 'function runtimeUrl(' "$CONSOLE/scripts/cyber-authorize.js"
 
 python3 -m pytest -q tests/unit/test_console_last_mile.py
 python3 -m pytest -q tests/unit/test_console_nodes.py
+# 身份核验页只剩三步 + 服务商通道没接入时要看得出是灰的。
+python3 -m pytest -q tests/unit/test_console_verify_route.py
 python3 -m pytest -q tests/unit/test_console_distribution.py
 
 # Live HTTP write sequence matching the Cyber Console buttons (ASGI in-process).
@@ -123,6 +125,8 @@ if command -v node >/dev/null 2>&1; then
   # 没装就跳过 —— 上面那些检查已经覆盖了行为，这一支只是多一层「浏览器里真的行」。
   if node -e "require.resolve('playwright')" >/dev/null 2>&1; then
     node "$ROOT/tests/playwright/console_nodes_live.cjs"
+    # 身份核验页：真浏览器里数一数几步、看一眼灰没灰、六门语言逐个切。
+    node "$ROOT/tests/playwright/console_verify_route_live.cjs"
   else
     echo "(skip) 没装 playwright：真机验证跳过（npm i -D playwright）"
   fi

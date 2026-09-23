@@ -60,6 +60,22 @@
     return !!(state.provider && state.provider.usable);
   }
 
+  /**
+   * 「走哪条」要写在脸上：服务商核验与人工复核是两条并排的通道。
+   * 服务商没接入时，那张卡必须看得出是灰的；另一张标成「当前路径」，
+   * 用户不用猜该从哪儿开始。
+   */
+  function markRoute() {
+    var on = usable();
+    var card = byId("idv-provider");
+    if (card) {
+      card.classList.toggle("is-off", !on);
+      card.setAttribute("aria-disabled", on ? "false" : "true");
+    }
+    var route = byId("idv-verify-route");
+    if (route) route.textContent = on ? "备用路径" : "当前路径";
+  }
+
   function stopPolling() {
     if (state.timer) {
       window.clearTimeout(state.timer);
@@ -71,6 +87,7 @@
   /* ------------------------------------------------------------ 渲染 */
 
   function render() {
+    markRoute();
     var provider = state.provider || {};
     var note = byId("idv-provider-note");
     var hint = byId("idv-provider-hint");

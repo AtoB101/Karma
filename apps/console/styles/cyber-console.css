@@ -1542,6 +1542,12 @@ body.gated { overflow: hidden; }
 .idv-step-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .idv-step-head b { font-size: 14px; }
 .idv-step-head span { font-size: 12px; color: var(--text-dim); }
+
+/* 服务商核验与人工复核是两条并排的通道：服务商没接入时那张卡要看得出的灰，
+   另一张在页头标「当前路径」—— 走哪条不用猜。 */
+.card.is-off { opacity: .55; filter: grayscale(.45); }
+.card.is-off .idv-badge { opacity: .9; }
+.card.is-off .btn { cursor: not-allowed; }
 .idv-hint { margin-top: 8px; font-size: 12px; line-height: 1.7; color: var(--text-dim); }
 
 .idv-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
