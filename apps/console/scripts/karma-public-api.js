@@ -63,20 +63,55 @@
     }
   }
 
+  /**
+   * 每次请求的超时。没有超时的 fetch 在「选中的节点连不上」时会把整个操作台拖住 ——
+   * 请求永远不返回，界面只能一直转圈（线上实测：换到一台连不通的节点，
+   * 十个请求挂了十几秒还没结束，用户看不出是节点的问题还是自己网断了）。
+   * 15 秒够慢网络跑完一次读，又不至于让人对着转圈发呆。
+   * 测试用 window.KARMA_FETCH_TIMEOUT_MS 把它压到几十毫秒。
+   */
+  function fetchTimeoutMs() {
+    const want = Number(global.KARMA_FETCH_TIMEOUT_MS);
+    if (isFinite(want) && want > 0) return want;
+    return 15000;
+  }
+
+  /** 连不上 / 超时：交给节点层决定要不要换一台（用户开着自动切换时）。 */
+  function reportNodeFailure() {
+    if (global.KarmaNodes && global.KarmaNodes.reportFailure) {
+      try {
+        global.KarmaNodes.reportFailure(apiBase());
+      } catch (_) {}
+    }
+  }
+
   async function karmaFetch(path, init) {
     const url = apiBase() + path;
+    const opts = Object.assign({}, init || {});
+    let timer = null;
+    if (!opts.signal) {
+      const ms = fetchTimeoutMs();
+      try {
+        if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {
+          opts.signal = AbortSignal.timeout(ms);
+        } else if (typeof AbortController === "function") {
+          const ctrl = new AbortController();
+          timer = setTimeout(function () {
+            ctrl.abort(new Error("karma fetch timeout"));
+          }, ms);
+          opts.signal = ctrl.signal;
+        }
+      } catch (_) {}
+    }
     let res;
     try {
-      res = await fetch(url, init);
+      res = await fetch(url, opts);
     } catch (e) {
-      // 连不上这一台：交给节点层决定要不要换一台（用户开着自动切换时）。
-      // 换完把错照原样抛出去，调用方看到的仍是"这次请求失败了"，不会假装成功。
-      if (global.KarmaNodes && global.KarmaNodes.reportFailure) {
-        try {
-          global.KarmaNodes.reportFailure(apiBase());
-        } catch (_) {}
-      }
+      // 换完把错照原样抛出去，调用方看到的仍是「这次请求失败了」，不会假装成功。
+      reportNodeFailure();
       throw e;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
     const text = await res.text();
     let body;
