@@ -252,6 +252,13 @@ POST /runtime/ack-notice     # 会话鉴权：点过就算读过；不给 notice
 拿别人名下的 `key_id` 来查是 404 —— 连「这把钥匙存不存在」都不给非本人看。列一下、
 看一眼历史都不该惊动钱包签名。
 
+面板只有一份实现（`apps/console/scripts/cyber-key-calls.js`，`window.KarmaKeyCalls`），两处宿主共用：
+
+- 设置页「已授权 · 一键取消绑定」里每把钥匙（`cyber-unbind-keys.js`）；
+- 「交给 Agent」交付包里那张密钥清单（`cyber-handoff.js`）—— 主人是在那儿第一次看见自己铸出来的钥匙，也应该在那儿就能看它最近做了什么。
+
+展开状态、条数上限（`CALL_LIMIT`）与文案只有一份；点击由文档级委托接，宿主只负责画自己的卡片（`KarmaKeyCalls.register(hostId, rerender)`）。钥匙没了（取消绑定 / 停用）就 `forget(keyId)`，列表刷新后 `prune(ids)` 把不在清单里的展开收起来。
+
 站内提醒目前两个来源：`key_bound`（agent 接入生效）与 `key_unbound`（主人亲手取消绑定）。
 取消绑定是不可逆动作，闪一行提示关掉就没了；落一条记录、点过才消，才对得起这个位置。
 操作台侧栏「设置」会挂紫点，卡片也会高亮。

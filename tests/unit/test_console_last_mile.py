@@ -538,9 +538,25 @@ def test_the_console_can_expand_a_bound_key_and_show_recent_calls():
     html = CYBER.read_text(encoding="utf-8")
     assert "展开「查看最近调用」" in html, "卡片要写明可以展开看调用记录"
 
-    js = (CONSOLE / "scripts" / "cyber-unbind-keys.js").read_text(encoding="utf-8")
-    for needle in ("runtimeKeyCalls", "key-calls", "data-key-calls", "CALL_LIMIT"):
+    # 面板只有一份实现（cyber-key-calls.js），两处宿主共用：设置页那张卡片
+    # + 交付包的密钥清单。各拼一套的话，改一处就静默失配。
+    js = (CONSOLE / "scripts" / "cyber-key-calls.js").read_text(encoding="utf-8")
+    for needle in ("runtimeKeyCalls", "key-calls", "data-key-calls", "CALL_LIMIT",
+                   "KarmaKeyCalls", "buttonHtml", "panelHtml", "register"):
         assert needle in js, f"调用记录模块缺 {needle}"
+
+    unbind = (CONSOLE / "scripts" / "cyber-unbind-keys.js").read_text(encoding="utf-8")
+    for needle in ("KarmaKeyCalls", "buttonHtml", "panelHtml"):
+        assert needle in unbind, f"「一键取消绑定」卡片没接上面板：{needle}"
+
+    handoff_js = (CONSOLE / "scripts" / "cyber-handoff.js").read_text(encoding="utf-8")
+    for needle in ("KarmaKeyCalls", "keyCallsActions", "keyCallsPanel", "ag-key-item"):
+        assert needle in handoff_js, f"交付包的密钥清单没接上面板：{needle}"
+
+    assert 'src="../../scripts/cyber-key-calls.js"' in html, "页面必须加载共用面板模块"
+    assert html.index("cyber-key-calls.js") < html.index("cyber-handoff.js"), (
+        "面板模块要排在两个宿主前面，否则宿主拿不到 KarmaKeyCalls"
+    )
 
     api = (CONSOLE / "scripts" / "karma-public-api.js").read_text(encoding="utf-8")
     for needle in ("runtimeKeyCalls", "runtimeListNotices", "runtimeAckNotice",

@@ -2423,6 +2423,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "已取消绑定：这把钥匙回到「未激活」，agent 想再花钱得重新申请一次接入。": "Unbound: this key is back to Not activated; to spend again the agent must ask to connect once more.",
   "取消绑定失败：{0}": "Unbind failed: {0}",
   "展开「查看最近调用」可以看这把钥匙最近做了什么（含被拒的原因）；取消绑定是不可逆动作，做完会在操作台留一条站内提醒。": "Expand Recent calls to see what this key has been doing lately, including why a request was rejected. Unbinding is irreversible, so the console keeps a notice for it.",
+  "下面「已有密钥」里每把钥匙都可以展开看「最近调用」：这把钥匙最近做了什么、哪一次被拒、为什么被拒，都在那里。": "Every key under Existing keys below can be expanded to Recent calls: what that key has been doing lately, which call was rejected and why — it is all there.",
   "查看最近调用": "Recent calls",
   "收起最近调用": "Hide recent calls",
   "正在读取调用记录…": "Loading call history…",

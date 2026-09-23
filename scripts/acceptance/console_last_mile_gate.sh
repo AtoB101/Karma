@@ -20,6 +20,7 @@ required=(
   scripts/karma-service-spec.js
   scripts/cyber-pairing.js
   scripts/cyber-bind-requests.js
+  scripts/cyber-key-calls.js
   scripts/cyber-unbind-keys.js
   scripts/cyber-payments.js
   scripts/cyber-console.js
@@ -65,7 +66,13 @@ grep -q 'activation_required' "$CONSOLE/scripts/cyber-handoff.js"
 grep -q 'runtimeKeyCalls' "$CONSOLE/scripts/karma-public-api.js"
 grep -q '/runtime/key-calls' "$CONSOLE/scripts/karma-public-api.js"
 grep -q 'runtimeAckNotice' "$CONSOLE/scripts/karma-public-api.js"
-grep -q 'data-key-calls' "$CONSOLE/scripts/cyber-unbind-keys.js"
+# 面板只有一份实现（cyber-key-calls.js），两处宿主都得用它 ——
+# 各写一套就会改一处漏一处：设置页那张卡片 + 交付包的密钥清单。
+grep -q 'data-key-calls' "$CONSOLE/scripts/cyber-key-calls.js"
+grep -q 'cyber-key-calls.js' "$CONSOLE/pages/cyber/index.html"
+grep -q 'KarmaKeyCalls' "$CONSOLE/scripts/cyber-unbind-keys.js"
+grep -q 'KarmaKeyCalls' "$CONSOLE/scripts/cyber-handoff.js"
+grep -q 'keyCallsPanel' "$CONSOLE/scripts/cyber-handoff.js"
 grep -q 'runtimeListNotices' "$CONSOLE/scripts/cyber-unbind-keys.js"
 grep -q 'data-ack-notices' "$CONSOLE/scripts/cyber-unbind-keys.js"
 grep -q 'runtime_call_logged' "$ROOT/api/routes/runtime_gateway.py"
@@ -156,7 +163,7 @@ if command -v node >/dev/null 2>&1; then
   for pack in "$CONSOLE"/scripts/i18n-phrase/*.js; do
     node --check "$pack"
   done
-  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js karma-service-spec.js cyber-pairing.js cyber-payments.js cyber-console.js cyber-orders.js cyber-order-flow.js cyber-identity.js cyber-identity-verify.js cyber-bind-requests.js cyber-unbind-keys.js cyber-reviews.js; do
+  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js karma-service-spec.js cyber-pairing.js cyber-payments.js cyber-console.js cyber-orders.js cyber-order-flow.js cyber-identity.js cyber-identity-verify.js cyber-bind-requests.js cyber-key-calls.js cyber-unbind-keys.js cyber-reviews.js; do
     node --check "$CONSOLE/scripts/$js"
   done
   for js in karma-nodes.js cyber-node-panel.js cyber-handoff.js; do

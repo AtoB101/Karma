@@ -1068,6 +1068,7 @@
               <div>
                 <h3>交给 Agent · 交付包</h3>
                 <p>把这份包交给 agent 运行时即可接入：环境变量 + 运行时密钥 + 自检命令。全程不涉及你的钱包私钥或助记词。</p>
+                <p>下面「已有密钥」里每把钥匙都可以展开看「最近调用」：这把钥匙最近做了什么、哪一次被拒、为什么被拒，都在那里。</p>
               </div>
               <button type="button" class="btn" id="ag-handoff-close">收起</button>
             </div>
@@ -1360,6 +1361,9 @@
     <script src="../../scripts/karma-service-spec.js"></script>
     <script src="../../scripts/cyber-agents.js"></script>
     <script src="../../scripts/cyber-authorize.js"></script>
+    <!-- 最近调用面板：设置页那张「已授权 · 一键取消绑定」和交付包那张密钥清单
+         用同一份实现（KarmaKeyCalls），所以必须排在两个宿主前面。 -->
+    <script src="../../scripts/cyber-key-calls.js"></script>
  <script src="../../scripts/cyber-handoff.js"></script>
     <!-- 匹配码激活的签名消息由 cyber-handoff.js 出口提供，所以必须排在它后面。 -->
     <script src="../../scripts/cyber-bind-requests.js"></script>

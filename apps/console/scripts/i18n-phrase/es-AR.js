@@ -2425,6 +2425,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "已取消绑定：这把钥匙回到「未激活」，agent 想再花钱得重新申请一次接入。": "Desvinculada: esta clave vuelve a «Sin activar»; para volver a gastar, el agent tiene que pedir la conexión otra vez.",
   "取消绑定失败：{0}": "No se pudo desvincular: {0}",
   "展开「查看最近调用」可以看这把钥匙最近做了什么（含被拒的原因）；取消绑定是不可逆动作，做完会在操作台留一条站内提醒。": "Expanda «Llamadas recientes» para ver qué hizo esta llave últimamente (incluido por qué se rechazó una solicitud). Desvincular es irreversible, así que la consola deja un aviso.",
+  "下面「已有密钥」里每把钥匙都可以展开看「最近调用」：这把钥匙最近做了什么、哪一次被拒、为什么被拒，都在那里。": "Cada llave de «Llaves existentes» se puede expandir a «Llamadas recientes»: qué hizo últimamente esa llave, qué llamada se rechazó y por qué, todo queda ahí.",
   "查看最近调用": "Llamadas recientes",
   "收起最近调用": "Ocultar llamadas recientes",
   "正在读取调用记录…": "Cargando el historial de llamadas…",

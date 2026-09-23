@@ -42,6 +42,18 @@
   function card() { return document.getElementById("ag-handoff-card"); }
   function host() { return document.getElementById("ag-handoff"); }
 
+  /** 「最近调用」面板：和设置页「已授权 · 一键取消绑定」共用 cyber-key-calls.js 一份。 */
+  function calls() { return global.KarmaKeyCalls; }
+  function keyCallsActions(keyId) {
+    var c = calls();
+    if (!c || !c.buttonHtml) return "";
+    return '<div class="ag-key-actions">' + c.buttonHtml(keyId) + "</div>";
+  }
+  function keyCallsPanel(keyId) {
+    var c = calls();
+    return c && c.panelHtml ? c.panelHtml(keyId) : "";
+  }
+
   /** The API key is plaintext exactly once, at connect; keep it for this tab. */
   function apiKeyFor(agentId) {
     var bag = global.KarmaAgentKeys || {};
@@ -244,7 +256,10 @@
           '<div class="ag-key-list">' +
           state.keys
             .map(function (k) {
+              // 每把钥匙一行，行下面就是它的「最近调用」：主人是在这张卡片上第一次
+              // 看见自己铸出来的钥匙，也应该在这儿就能看它最近做了什么。
               return (
+                '<div class="ag-key-item">' +
                 '<div class="ag-key-line">' +
                 "<span>" + esc(k.key_id) + "</span>" +
                 "<span> · </span>" +
@@ -261,6 +276,9 @@
                 "<span>" + esc(k.agent_name || "—") + "</span>" +
                 "<span> · profile </span>" +
                 "<span>" + esc(k.profile_id || "—") + "</span>" +
+                "</div>" +
+                keyCallsActions(k.key_id) +
+                keyCallsPanel(k.key_id) +
                 "</div>"
               );
             })
@@ -455,6 +473,15 @@
       });
       state.keys = (r && r.keys) || [];
       state.note = "已读取 " + state.keys.length + " 个运行时密钥";
+      // 展开中的钥匙如果不在这一次的清单里（废弃 / 换了身份卡），记录收起来。
+      var cp = calls();
+      if (cp && cp.prune) {
+        cp.prune(
+          state.keys.map(function (k) {
+            return k.key_id;
+          })
+        );
+      }
     } catch (e) {
       state.note = "";
       state.err = "读取失败：" + (e.message || e);
@@ -616,6 +643,13 @@
     try {
       await api().ownerRevokeAgent(a.agent_id);
       state.note = "已停用 " + a.agent_id;
+      // 密钥销毁了，展开中的调用记录也别留着。
+      var cr = calls();
+      if (cr && cr.forget) {
+        (state.keys || []).forEach(function (k) {
+          cr.forget(k.key_id);
+        });
+      }
       state.keys = null;
       state.runtimeKey = "";
       document.dispatchEvent(new CustomEvent("karma-agent-revoked", { detail: { agent_id: a.agent_id } }));
@@ -671,6 +705,8 @@
     document.addEventListener("karma-agent-revoked", function () {
       if (global.KarmaAgents && global.KarmaAgents.refresh) global.KarmaAgents.refresh();
     });
+    // 展开状态一变就重画这张卡片（面板归 cyber-key-calls.js 管，这里只管画）。
+    if (calls() && calls().register) calls().register("ag-handoff", render);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

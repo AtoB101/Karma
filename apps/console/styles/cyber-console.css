@@ -825,6 +825,26 @@ body.confidential [data-bind="b_released"] {
   line-height: 1.7;
 }
 #agents #ag-handoff .ag-key-line { white-space: nowrap; }
+/* 每把钥匙一块：行下面接展开的「最近调用」。 */
+#agents #ag-handoff .ag-key-item + .ag-key-item {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(34, 211, 238, 0.18);
+}
+#agents #ag-handoff .ag-key-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+#agents #ag-handoff .ag-key-actions .btn { padding: 4px 10px; font-size: 11px; }
+#agents #ag-handoff .ag-key-calls {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid rgba(34, 211, 238, 0.4);
+  background: rgba(6, 12, 20, 0.6);
+  border-radius: 6px;
+  white-space: normal;
+}
+#agents #ag-handoff .ag-key-calls .ag-secret-label { font-size: 11px; }
+#agents #ag-handoff .ag-key-calls ul { margin: 6px 0 0; padding-left: 16px; }
+#agents #ag-handoff .ag-key-calls li,
+#agents #ag-handoff .ag-key-calls .ag-hint { font-size: 11px; color: #9fb6cc; line-height: 1.7; white-space: normal; }
 #agents #ag-handoff #ho-bind-code {
   width: 190px;
   margin-top: 8px;

@@ -14,14 +14,13 @@
  * 出口（KarmaHandoff.buildUnbindKeyMsg），这里绝不自己再拼一套，否则两边改一处就静默失配。
  *
  * 卡片里还有两件事：
- *   1. 展开某把钥匙看「最近调用」（POST /runtime/key-calls）—— 光看额度只知道自己花了
- *      多少，看不到「哪一次被拒了、为什么被拒」。
+ *   1. 展开某把钥匙看「最近调用」—— 面板本身在 cyber-key-calls.js（交付包那张密钥清单
+ *      用同一份实现），这里只负责把按钮和面板摆到每把钥匙下面。
  *   2. 站内提醒（POST /runtime/list-notices）—— 取消绑定是不可逆动作，闪一行提示关掉就
  *      没了；落库留痕 + 要点过才消，才担得起「不记名令牌的出口」这个位置。
  */
 (function (global) {
   var POLL_MS = 60000;
-  var CALL_LIMIT = 20;
 
   var state = {
     keys: [],
@@ -30,10 +29,6 @@
     err: "",
     authed: false,
     busy: "",
-    openKey: "",
-    calls: {},
-    callsLoading: "",
-    callsErr: "",
     notices: [],
     unread: 0,
     ackBusy: false,
@@ -41,6 +36,8 @@
 
   function api() { return global.karmaRuntimeApi; }
   function signer() { return global.KarmaHandoff; }
+  /** 「最近调用」面板：和交付包的密钥清单共用一份实现（cyber-key-calls.js）。 */
+  function calls() { return global.KarmaKeyCalls; }
   function identity() { return String(global.KARMA_IDENTITY_ID || "").trim(); }
   function host() { return document.getElementById("bound-keys"); }
   function i18n() { return global.CYBER_I18N; }
@@ -88,56 +85,6 @@
     var p = payload || {};
     return String(p.agent_name || p.agent_id || p.key_id || "—");
   }
-  function when(iso) {
-    return String(iso || "").replace("T", " ").slice(0, 19);
-  }
-
-  /* ---- 最近调用 ---- */
-
-  function outcomeLabel(outcome, status) {
-    if (outcome === "ok") return T("成功");
-    if (outcome === "rejected") return Tf("被拒（HTTP {0}）", status);
-    return Tf("异常（HTTP {0}）", status == null ? "—" : status);
-  }
-
-  function callLine(c) {
-    var amount = c && c.amount == null ? "" : c.amount;
-    var spare = amount === "" ? "" : Tf(" · 金额 {0} USDC", amount);
-    var detail = c && c.detail ? Tf(" · {0}", c.detail) : "";
-    var line = Tf(
-      "动作 {0} · 结果 {1}{2}{3} · 时间 {4}",
-      (c && c.endpoint) || "—",
-      outcomeLabel(c && c.outcome, c && c.http_status),
-      spare,
-      detail,
-      when(c && c.created_at) || "—"
-    );
-    return esc(line);
-  }
-
-  function callsHtml(keyId) {
-    if (state.callsLoading === keyId) {
-      return '<p class="ag-hint">' + esc(T("正在读取调用记录…")) + "</p>";
-    }
-    if (state.callsErr && state.openKey === keyId) {
-      return '<p class="err">' + esc(state.callsErr) + "</p>";
-    }
-    var list = state.calls[keyId];
-    if (!list) return "";
-    if (!list.length) {
-      return (
-        '<p class="ag-hint">' +
-        esc(T("还没有调用记录。agent 用这把钥匙发起动作后，这里会逐条留下痕迹。")) +
-        "</p>"
-      );
-    }
-    var out =
-      '<div class="ag-snippet" style="margin-top:8px">' +
-      '<div class="ag-secret-label">' + esc(T("最近调用记录（最新在前）")) + "</div>" +
-      '<ul style="margin:6px 0 0 0;padding-left:18px">';
-    for (var i = 0; i < list.length; i += 1) out += "<li>" + callLine(list[i]) + "</li>";
-    return out + "</ul></div>";
-  }
 
   /* ---- 站内提醒 ---- */
 
@@ -176,7 +123,7 @@
     var keyId = esc(k.key_id);
     var name = esc(k.agent_name || k.agent_id || "—");
     var perms = permsText(k.permissions);
-    var open = state.openKey === k.key_id;
+    var panel = calls();
     return (
       '<div class="ag-snippet" style="margin-top:10px">' +
       '<div class="ag-secret-label">正在代表你花钱的 agent：' + name + "</div>" +
@@ -187,10 +134,10 @@
       (perms ? '<p class="ag-hint">权限：' + esc(perms) + "</p>" : "") +
       '<p class="ag-hint">钥匙 ID：' + keyId + "</p>" +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
-      button(open ? T("收起最近调用") : T("查看最近调用"), 'data-key-calls="' + keyId + '"') +
+      (panel ? panel.buttonHtml(k.key_id) : "") +
       button("取消绑定（要钱包签名）", 'data-unbind-key="' + keyId + '"') +
       "</div>" +
-      (open ? callsHtml(k.key_id) : "") +
+      (panel ? panel.panelHtml(k.key_id) : "") +
       "</div>"
     );
   }
@@ -296,46 +243,14 @@
     }
     state.loading = false;
     // 展开中的钥匙如果被取消绑定 / 停用了，记录一并收起来，别留着一张空壳。
-    if (state.openKey && !state.keys.some(function (k) { return k.key_id === state.openKey; })) {
-      state.openKey = "";
-      state.callsErr = "";
+    var c = calls();
+    if (c && c.prune) {
+      c.prune(
+        state.keys.map(function (k) {
+          return k.key_id;
+        })
+      );
     }
-    render();
-  }
-
-  async function toggleCalls(keyId) {
-    if (state.openKey === keyId) {
-      state.openKey = "";
-      state.callsErr = "";
-      render();
-      return;
-    }
-    state.openKey = keyId;
-    state.callsErr = "";
-    if (Object.prototype.hasOwnProperty.call(state.calls, keyId)) {
-      render();
-      return;
-    }
-    var a = api();
-    if (!a || !a.runtimeKeyCalls) {
-      state.callsErr = "接口未加载，请刷新页面后再试。";
-      render();
-      return;
-    }
-    state.callsLoading = keyId;
-    render();
-    try {
-      var r = await a.runtimeKeyCalls({
-        karma_identity_id: identity(),
-        key_id: keyId,
-        limit: CALL_LIMIT,
-      });
-      state.calls[keyId] = (r && r.calls) || [];
-      state.callsErr = "";
-    } catch (e) {
-      state.callsErr = "读取调用记录失败：" + ((e && e.message) || e);
-    }
-    state.callsLoading = "";
     render();
   }
 
@@ -396,7 +311,8 @@
         client_nonce: nonce,
       });
       state.note = "已取消绑定：这把钥匙回到「未激活」，agent 想再花钱得重新申请一次接入。";
-      delete state.calls[keyId];
+      var cc = calls();
+      if (cc && cc.forget) cc.forget(keyId);
     } catch (e) {
       state.note = "";
       state.err = "取消绑定失败：" + ((e && e.message) || e);
@@ -411,12 +327,7 @@
     document.addEventListener("click", function (ev) {
       var t = ev.target;
       if (!t || !t.closest) return;
-      var callsBtn = t.closest("[data-key-calls]");
-      if (callsBtn) {
-        ev.preventDefault();
-        toggleCalls(callsBtn.getAttribute("data-key-calls"));
-        return;
-      }
+      // 「最近调用」的点击由 cyber-key-calls.js 的文档级委托接手：两处宿主共用一份。
       if (t.closest("[data-ack-notices]")) {
         ev.preventDefault();
         ackNotices();
@@ -430,8 +341,8 @@
       }
       if (t.closest("#btn-bound-refresh")) {
         ev.preventDefault();
-        state.calls = {};
-        state.callsErr = "";
+        var c = calls();
+        if (c && c.reset) c.reset();
         poll();
       }
     });
@@ -453,6 +364,13 @@
   global.KarmaUnbindKeys = {
     refresh: poll,
     render: render,
-    toggleCalls: toggleCalls,
+    // 老名字留着：面板现在归 cyber-key-calls.js，这里转过去。
+    toggleCalls: function (keyId) {
+      var c = calls();
+      return c && c.toggle ? c.toggle(keyId) : undefined;
+    },
   };
+
+  // 展开状态一变就重画这张卡片（面板由 cyber-key-calls.js 管，这里只管画）。
+  if (calls() && calls().register) calls().register("ag-bound-keys", render);
 })(window);
