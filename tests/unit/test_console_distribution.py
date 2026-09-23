@@ -17,7 +17,14 @@ PUBLISH_SH = ROOT / "scripts" / "publish_console_ipfs.sh"
 
 sys.path.insert(0, str(ROOT))
 
-from scripts.console_bundle import BundleError, build, manifest_for, read_manifest, verify  # noqa: E402
+from scripts.console_bundle import (  # noqa: E402
+    BundleError,
+    build,
+    compare_remote,
+    manifest_for,
+    read_manifest,
+    verify,
+)
 
 
 def _build(tmp_path: Path, name: str = "console"):
@@ -165,3 +172,75 @@ def test_manifest_matches_a_fresh_walk_of_the_console():
     fresh = manifest_for(CONSOLE)
     assert fresh["root_sha256"]
     assert fresh["file_count"] > 0
+
+
+def _mirror(tmp_path: Path, name: str = "mirror"):
+    """把一份构建出来的静态包当成「线上」。base 用 file:// —— 测试不碰外网。"""
+    out, manifest = _build(tmp_path, name)
+    return out.as_uri() + "/", out, manifest
+
+
+def test_remote_matches_a_faithful_mirror(tmp_path):
+    base, _, _ = _mirror(tmp_path)
+    assert compare_remote(base, manifest_for(CONSOLE)) == []
+
+
+def test_remote_reports_a_file_that_never_got_published(tmp_path):
+    base, out, _ = _mirror(tmp_path)
+    (out / "scripts" / "karma-nodes.js").unlink()
+    problems = compare_remote(base, manifest_for(CONSOLE))
+    assert any("取不到" in p and "karma-nodes.js" in p for p in problems), problems
+
+
+def test_remote_reports_a_stale_file(tmp_path):
+    """线上还是旧版本 —— 少推一次、缓存住旧包，都属于这一类。"""
+    base, out, _ = _mirror(tmp_path)
+    target = out / "scripts" / "cyber-node-panel.js"
+    target.write_text(target.read_text(encoding="utf-8") + "\n// stale\n", encoding="utf-8")
+    problems = compare_remote(base, manifest_for(CONSOLE))
+    assert any("内容不一致" in p and "cyber-node-panel.js" in p for p in problems), problems
+
+
+def test_remote_ignores_line_ending_only_differences(tmp_path):
+    """线上是 Linux 检出的 LF、本机检出是 CRLF —— 这不是「发错了」。"""
+    base, out, _ = _mirror(tmp_path)
+    target = out / "scripts" / "cyber-console.js"
+    lf = target.read_text(encoding="utf-8").replace("\r\n", "\n")
+    target.write_bytes(lf.replace("\n", "\r\n").encode("utf-8"))
+    assert compare_remote(base, manifest_for(CONSOLE)) == []
+
+
+def test_digest_does_not_depend_on_the_checkout_line_endings(tmp_path):
+    def fake(name, nl):
+        d = tmp_path / name
+        (d / "pages" / "cyber").mkdir(parents=True)
+        (d / "scripts").mkdir()
+        (d / "pages" / "cyber" / "index.html").write_bytes(nl.join([b"<html>", b"<body>", b"</html>"]) + nl)
+        (d / "scripts" / "app.js").write_bytes(nl.join([b"var a = 1;", b"var b = 2;"]) + nl)
+        return d
+
+    crlf = manifest_for(fake("crlf", b"\r\n"))
+    lf = manifest_for(fake("lf", b"\n"))
+    assert crlf["root_sha256"] == lf["root_sha256"], "同一份源码在两台机器上必须算出同一个摘要"
+    assert crlf["files"] == lf["files"]
+
+
+def test_remote_cli_round_trip(tmp_path):
+    base, out, _ = _mirror(tmp_path)
+    env = {"PYTHONIOENCODING": "utf-8"}
+
+    def run(*args):
+        return subprocess.run(
+            [sys.executable, str(MOD), *args],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=env, timeout=120,
+        )
+
+    ok = run("remote", "--src", str(CONSOLE), "--base", base)
+    assert ok.returncode == 0, ok.stdout + ok.stderr
+    assert "一致" in ok.stdout
+
+    (out / "scripts" / "karma-nodes.js").unlink()
+    bad = run("remote", "--src", str(CONSOLE), "--base", base)
+    assert bad.returncode == 1, bad.stdout + bad.stderr
+    assert "取不到" in bad.stdout

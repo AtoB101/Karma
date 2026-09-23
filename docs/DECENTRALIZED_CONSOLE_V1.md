@@ -81,6 +81,21 @@ KarmaNodes.effectiveBase()  →  KARMA_RUNTIME_URL=<选中的节点>
 两边都挂在各自命名空间上（`KarmaHandoff.runtimeUrl` / `KarmaAuthorize.runtimeUrl`），
 配对面板和测试复用同一份实现，不各写一套。
 
+### 线上复验抓到的两件事（已修）
+
+第一次把「线上复验」跑起来（`tests/playwright/console_nodes_prod.cjs`，打真域名）
+就抓到两个真问题，都不是靠读代码看出来的：
+
+1. **选了一台连不通的节点，整个操作台会挂住。** 客户端的 `fetch` 原来没有截止时间，
+   于是请求永远不返回：实测十个请求挂了十几秒还在 pending，界面只能一直转圈 ——
+   用户分不清是节点的问题还是自己网断了。现在每次请求都带 15 秒截止
+   （`AbortSignal.timeout`），超时走和「连不上」同一条路：明确失败 + 通知节点层。
+2. **切语言可能一直切不过去。** 语言包是动态插 `<script>` 取的；同源连接被占住时，
+   浏览器把它们排在低优先级，几百 KB 的包挂十几秒都不回来 —— 而同一个地址用
+   `fetch` 取，1 秒就回来了（线上实测，不是推测）。现在改成 `fetch` 取回来挂成 blob
+   执行；并且**失败不再被记死**：以前一次抖动会让这个会话永远停在上一种语言，
+   现在会换一个查询串重试一次。
+
 ---
 
 ## 三、L1 · 静态包分发（已落地）
@@ -90,6 +105,7 @@ KarmaNodes.effectiveBase()  →  KARMA_RUNTIME_URL=<选中的节点>
 | 文件 | 职责 |
 |---|---|
 | `scripts/console_bundle.py` | `build` 复制干净静态包 + 逐文件 sha256 清单；`verify` 对账；`stamp` 写回 CID |
+| | `remote`：拿线上 / 镜像上真正发出去的那份跟本地源码对账（部署后的最后一道） |
 | `scripts/publish_console_ipfs.sh` | 构建 → 自校验 → 有 `ipfs` 就 pin 并写 DNSLink，没有就打印照做能成的命令 |
 
 ### 清单长什么样
@@ -112,6 +128,15 @@ KarmaNodes.effectiveBase()  →  KARMA_RUNTIME_URL=<选中的节点>
 所以「我手上这份跟你发布的那份是不是同一份」是个可以当场算出来的问题。
 
 `verify` 会指出四类问题：少文件、多文件、内容被改、总摘要被改（逐个文件都对但清单被动过手脚）。
+
+摘要按 **LF 规范化之后**算：Windows 检出是 CRLF、Linux 是 LF，同一份源码在两台机器上
+必须得到同一个 `root_sha256`，否则「线上那份跟我手上这份是不是同一份」在跨平台时永远对不上。
+边界也要说清楚：**CID 不是跨平台可比的**（CID 认的是真实字节），所以正式发布固定从一个平台出。
+
+`remote` 是部署后的最后一道：把线上（或任意镜像、`file://` 目录）真正发出去的那份，
+逐文件跟本地源码对账。本地 `verify` 只能证明「我这份目录跟我这份清单一致」，
+证明不了「线上那一份就是我这份」—— 少推一个文件、nginx 还发着旧包，
+都只有真的去取一遍才知道。
 
 ### 为什么不在 VPS 上跑 IPFS
 
@@ -210,3 +235,17 @@ bash scripts/acceptance/console_last_mile_gate.sh
 - `tests/unit/test_console_distribution.py`：清单可复现、校验能抓出四类不一致；
 - `tests/js/test_karma_nodes.cjs`：53 项行为断言（选节点 / 探活 / 超时 / 容灾 / 自定义节点校验 / 手填地址不被替换）；
 - `tests/playwright/console_nodes_live.cjs`：真实浏览器 43 项（装了 playwright 才跑）。
+- `tests/js/test_console_fetch.cjs`：请求必须有截止时间（挂住的请求会被中止 + 通知节点层）；
+- `tests/playwright/console_nodes_live.cjs`：真实浏览器 45 项，其中一节故意让语言包
+  第一次返回 503，验证它还会重试并能切成目标语言。
+
+部署之后还有两条**打线上**的复验（闸门里不跑，需要手动给地址）：
+
+```bash
+# 逐字节对账：线上 39 个文件跟本地源码是不是同一份
+python3 scripts/console_bundle.py remote --src apps/console --base https://karma-network.ai/console/
+
+# 真浏览器在正式站点上把节点层从头走一遍
+KARMA_PROD_URL=https://karma-network.ai/console/pages/cyber/index.html \
+  node tests/playwright/console_nodes_prod.cjs
+```

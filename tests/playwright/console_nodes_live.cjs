@@ -33,20 +33,7 @@ const SHOTS = process.env.KARMA_LIVE_SHOTS || "";
 const ID = "kid_5f0aa8ccf7483983a8a2a5a9";
 const LANGS = ["en", "ja", "ko", "es-AR", "es-SV"];
 
-// 节点层里出现过的中文原文。「有没有漏翻」不能拿「有没有汉字」当标准 ——
-// 日文里全是汉字。只比对这些整句原文还在不在。
-const NODE_SOURCES = [
-  "节点", "接入节点（去中心化）",
-  "操作台只是界面，账本与资金都在链上。这里决定它跟哪台节点要数据 —— 能上链读的一律链上读，节点只做索引与转发。",
-  "当前站点（同源）", "本机 API（127.0.0.1:8000）", "当前", "未测速", "不可用", "自定义",
-  "切换到它", "当前节点", "测速", "管理节点", "测速完成", "没有可用的备用节点", "正在测速…",
-  "已切换节点", "节点已添加", "已移除该节点", "复制接入地址", "接入地址已复制",
-  "复制失败，请手动选中下面的地址", "连不上时自动换节点",
-  "开启后，当前节点探活失败会自动切到下一个可用节点，并记住选择。",
-  "添加自定义节点", "名称（可选）", "节点地址（http:// 或 https://）", "添加",
-  "把接入地址交给你的 agent：", "当前节点连不上，已自动切到",
-  "节点地址必须以 http:// 或 https:// 开头", "这个地址已经在列表里了",
-];
+const { NODE_SOURCES } = require("./node-layer-sources.cjs");
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -136,6 +123,53 @@ async function switchLang(page, lang) {
   await page.waitForTimeout(700);
 }
 
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "*",
+  "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
+  "content-type": "application/json",
+};
+
+/** 把门禁打开：会话靠 sessionStorage 里的身份（假身份，够用）。 */
+function identityInit(id) {
+  try {
+    sessionStorage.setItem("karma_console_wallet", "0x1111111111111111111111111111111111111111");
+    sessionStorage.setItem("karma_console_identity", id);
+    sessionStorage.setItem("karma_console_access_token", "test-token");
+    localStorage.setItem("karma_cyber_api_base", "http://127.0.0.1:8099");
+  } catch (e) {}
+}
+
+/**
+ * 除本机静态服务器以外，全部本地应答 —— 跑的时候不碰外网。
+ * onPack 可选：语言包请求（i18n-phrase/*.js）先交给它决定，用来演「第一次取不到」。
+ * 它返回 true 表示已经处理，返回 false 表示照常发。
+ */
+function makeStub(onPack) {
+  return async function (route) {
+    const req = route.request();
+    const url = req.url();
+    if (onPack && /\/i18n-phrase\/[^/]+\.js/.test(url)) {
+      const handled = await onPack(route, url);
+      if (handled) return;
+    }
+    if (url.startsWith("http://127.0.0.1:" + PORT)) return route.continue();
+    if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS, body: "" });
+    if (/\/health(\?|$)/.test(url)) {
+      const u = new URL(url);
+      // 8000 这台永远连不上：容灾那一步要靠它。
+      if (u.port === "8000") return route.abort("connectionrefused");
+      await new Promise((r) => setTimeout(r, u.hostname === "karma-network.ai" ? 40 : 8));
+      return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ status: "ok", version: "0.1.0" }) });
+    }
+    return route.fulfill({
+      status: 200,
+      headers: CORS,
+      body: JSON.stringify({ ok: true, identity_id: ID, profiles: [], allocations: [] }),
+    });
+  };
+}
+
 (async () => {
   let chromium;
   try {
@@ -151,43 +185,13 @@ async function switchLang(page, lang) {
   const browser = await chromium.launch(launchOpts);
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 980 } });
 
-  await ctx.addInitScript((id) => {
-    try {
-      sessionStorage.setItem("karma_console_wallet", "0x1111111111111111111111111111111111111111");
-      sessionStorage.setItem("karma_console_identity", id);
-      sessionStorage.setItem("karma_console_access_token", "test-token");
-      localStorage.setItem("karma_cyber_api_base", "http://127.0.0.1:8099");
-    } catch (e) {}
-  }, ID);
+  await ctx.addInitScript(identityInit, ID);
 
   const page = await ctx.newPage();
   const seen = [];
   page.on("pageerror", (e) => seen.push("pageerror: " + e.message));
 
-  const CORS = {
-    "access-control-allow-origin": "*",
-    "access-control-allow-headers": "*",
-    "access-control-allow-methods": "GET,POST,PUT,DELETE,OPTIONS",
-    "content-type": "application/json",
-  };
-  await page.route("**/*", async (route) => {
-    const req = route.request();
-    const url = req.url();
-    if (url.startsWith("http://127.0.0.1:" + PORT)) return route.continue();
-    if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: CORS, body: "" });
-    if (/\/health(\?|$)/.test(url)) {
-      const u = new URL(url);
-      // 8000 这台永远连不上：容灾那一步要靠它。
-      if (u.port === "8000") return route.abort("connectionrefused");
-      await new Promise((r) => setTimeout(r, u.hostname === "karma-network.ai" ? 40 : 8));
-      return route.fulfill({ status: 200, headers: CORS, body: JSON.stringify({ status: "ok", version: "0.1.0" }) });
-    }
-    return route.fulfill({
-      status: 200,
-      headers: CORS,
-      body: JSON.stringify({ ok: true, identity_id: ID, profiles: [], allocations: [] }),
-    });
-  });
+  await page.route("**/*", makeStub(null));
 
   await page.goto(PAGE, { waitUntil: "load" });
   await page.waitForTimeout(1200);
@@ -309,6 +313,55 @@ async function switchLang(page, lang) {
   }));
   check("交付包用的是选中的节点", handed.handoff === "https://node.example.com", handed);
   check("SDK env 用的是选中的节点", handed.authorize === "https://node.example.com", handed);
+
+  console.log("\n[9] 语言包加载：第一次拿到 503，也要自己爬起来");
+  // 真事：语言包是按需取回来的，取不回来页面就会停在上一种语言 ——
+  // 而以前失败会被记死（loading[url]="missing"），这个会话怎么切都没反应。
+  // 这一节故意让第一次请求失败，看它会不会重试成功。
+  {
+    // 换一个 context：缓存是隔离的，第一次取语言包才会真的打到网络（上面那个
+    // context 里的 ja 早就被 [6] 取过、进了 HTTP 缓存，路由根本没机会上场）。
+    const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 980 } });
+    const packHits = {};
+    await ctx2.route("**/*", makeStub(async (route, url) => {
+      const lang = (url.split("/").pop() || "").replace(/\.js.*$/, "");
+      packHits[lang] = (packHits[lang] || 0) + 1;
+      if (packHits[lang] === 1) {
+        await route.fulfill({ status: 503, headers: CORS, body: "// 503 for this test\n" });
+        return true;
+      }
+      return false;
+    }));
+    await ctx2.addInitScript(identityInit, ID);
+    const p2 = await ctx2.newPage();
+    await p2.goto(PAGE, { waitUntil: "load" });
+    await p2.waitForTimeout(1200);
+    await p2.evaluate(() => {
+      const sel = document.querySelector("#cyberLang");
+      sel.value = "ja";
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const pack = loadPack("ja");
+    const wants = [pack["管理节点"], pack["添加自定义节点"], pack["测速"]].filter(Boolean);
+    const localized = await p2
+      .waitForFunction(
+        (ws) => {
+          const box = document.querySelector("[data-karma-nodes-settings]");
+          const menu = document.querySelector("#node-menu");
+          const chip = document.querySelector("#node-chip");
+          const blob = [box ? box.textContent : "", menu ? menu.textContent : "", chip ? chip.textContent : ""].join(" ");
+          return ws.some((w) => blob.indexOf(w) >= 0);
+        },
+        wants,
+        { timeout: 25000 }
+      )
+      .then(() => true)
+      .catch(() => false);
+    check("重试之后仍然换成了这门语言", localized, wants);
+    check("确实重试过（第一发是 503）", (packHits["ja"] || 0) >= 2, packHits);
+    if (SHOTS) await p2.screenshot({ path: path.join(SHOTS, "05-pack-retry.png") });
+    await ctx2.close();
+  }
 
   check("全程没有未捕获的页面错误", seen.length === 0, seen.slice(0, 4));
 

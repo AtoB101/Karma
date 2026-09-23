@@ -26,6 +26,15 @@ GitHub Pages root keep working.
 - **Everything handed to an agent points at the selected node.** The handoff env file
   and the SFK env both resolve `KARMA_RUNTIME_URL` through the node layer; there is no
   hard-coded vendor domain left in either path.
+- **Every request has a deadline.** A node that accepts the connection and then never
+  answers used to freeze the whole console (the UI just spun). `karmaFetch` now carries
+  a 15 s `AbortSignal.timeout`, and a timeout takes the same path as "cannot connect" —
+  a visible failure plus a report to the node layer, so failover can act.
+- **The phrase packs are fetched, not script-tagged.** Under same-origin connection
+  pressure the browser parks dynamically inserted `<script>` at low priority and a
+  ~250 KB pack can hang for tens of seconds; the same URL via `fetch` came back in ~1 s
+  (measured in production). Failed loads are no longer remembered, and one retry with a
+  cache-busting query follows.
 
 ## Files
 
@@ -56,6 +65,12 @@ python3 scripts/console_bundle.py verify --dir dist/console
 python3 -m http.server 8787 --directory dist/console
 ```
 
+After a deploy, check that what is actually being served is your source:
+
+```bash
+python3 scripts/console_bundle.py remote --src apps/console --base https://karma-network.ai/console/
+```
+
 Open `http://127.0.0.1:8787/pages/cyber/index.html`, then use the node chip to add and
 switch to your own node. A node qualifies when `GET <base>/health` returns
 `{"status":"ok", ...}` and it allows this origin (`CORS_ALLOW_ORIGINS`), or when it is
@@ -81,6 +96,19 @@ or serve the console behind the same origin as the API.
 bash scripts/acceptance/console_last_mile_gate.sh
 ```
 
-It also runs `tests/js/test_karma_nodes.cjs` (53 behaviour checks against the real
-`karma-nodes.js`) and, when `playwright` happens to be installed,
-`tests/playwright/console_nodes_live.cjs` (43 checks in a real browser).
+The gate also runs the behaviour suites:
+
+- `tests/js/test_karma_nodes.cjs` — 53 checks against the real `karma-nodes.js`
+- `tests/js/test_console_fetch.cjs` — request deadlines: a request that never answers
+  must be aborted and reported, not left spinning
+- `tests/playwright/console_nodes_live.cjs` — 45 checks in a real browser, including a
+  phrase pack that returns 503 on the first request and must still land on the retry
+  (needs `playwright`; skipped when it is not installed)
+
+To exercise a deployed site:
+
+```bash
+python3 scripts/console_bundle.py remote --src apps/console --base https://<your-host>/console/
+KARMA_PROD_URL=https://<your-host>/console/pages/cyber/index.html \
+  node tests/playwright/console_nodes_prod.cjs
+```

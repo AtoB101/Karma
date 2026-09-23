@@ -116,6 +116,8 @@ if command -v node >/dev/null 2>&1; then
   done
   # 节点层的行为（选节点 / 探活 / 容灾 / 自定义节点校验）跑一遍真代码。
   node "$ROOT/tests/js/test_karma_nodes.cjs"
+  # 每次请求都要有截止时间：没有它，选到一台连不通的节点会把整个操作台挂住。
+  node "$ROOT/tests/js/test_console_fetch.cjs"
 
   # 真机验证（可选）：装了 playwright 才跑。开一个真实浏览器把节点层从头走一遍，
   # 没装就跳过 —— 上面那些检查已经覆盖了行为，这一支只是多一层「浏览器里真的行」。

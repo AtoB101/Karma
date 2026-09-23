@@ -5,10 +5,11 @@
 「我手上这份操作台跟你发布的那份是不是同一份」因此变成一件可验证的事 ——
 这也是把它放到 IPFS / 任意镜像站上之后，还能被人复核的前提。
 
-三件事，各自独立：
+四件事，各自独立：
 
     build   复制一份干净的静态包，逐文件算 sha256，写出 console-dist.json
     verify  拿一个现有目录跟清单对账：少文件 / 多文件 / 内容被改，都能指出来
+    remote  拿线上/镜像上真正发出去的那份跟本地源码对账 —— 部署后的最后一道
     stamp   把发布结果（CID / 域名 / 网关）写回清单
 
 清单是确定性的：文件按路径排序，root_sha256 = 各文件摘要按固定格式串起来的 sha256。
@@ -23,6 +24,8 @@ import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urljoin
+from urllib.request import Request, urlopen
 
 SCHEMA = "karma.console.dist/v1"
 DEFAULT_SRC = "apps/console"
@@ -61,12 +64,32 @@ def iter_files(root: Path):
     return out
 
 
-def _sha256(path: Path) -> str:
+def _canonical(data: bytes) -> bytes:
+    """把行尾规范化成 LF，然后再算摘要。
+
+    静态资源的身份不该取决于检出时的换行符：Windows 检出是 CRLF、Linux 是 LF。
+    不规范化的话，同一份源码在两台机器上算出的摘要不同 —— 「线上那份跟我手上这份
+    是不是同一份」在跨平台时就永远对不上。
+
+    边界要讲清楚：摘要因此是跨平台可比的，**CID 不是**（CID 认的是真实字节）。
+    所以正式发布固定从一个平台出（CI / Linux），别今天在 Windows 发、明天在 Linux 发。
+    """
+    return data.replace(b"\r\n", b"\n")
+
+
+def _sha256_bytes(data: bytes) -> str:
     h = hashlib.sha256()
-    with path.open("rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
+    for i in range(0, len(data), 1 << 20):
+        h.update(data[i : i + (1 << 20)])
     return h.hexdigest()
+
+
+def _sha256(path: Path) -> str:
+    return _sha256_bytes(_canonical(path.read_bytes()))
+
+
+def _canonical_size(path: Path) -> int:
+    return len(_canonical(path.read_bytes()))
 
 
 def root_digest(entries) -> str:
@@ -85,7 +108,7 @@ def manifest_for(root: Path) -> dict:
     total = 0
     for rel, path in iter_files(root):
         digest = _sha256(path)
-        size = path.stat().st_size
+        size = _canonical_size(path)
         entries.append({"path": rel, "sha256": digest, "bytes": size})
         total += size
     return {
@@ -154,7 +177,7 @@ def verify(root: Path, manifest: dict) -> list:
     for rel in sorted(set(want) & set(have)):
         path = have[rel]
         digest = _sha256(path)
-        size = path.stat().st_size
+        size = _canonical_size(path)
         if digest != want[rel]["sha256"]:
             problems.append(f"内容不一致：{rel}（清单 {want[rel]['sha256'][:12]}… / 实际 {digest[:12]}…）")
         elif size != want[rel]["bytes"]:
@@ -162,6 +185,32 @@ def verify(root: Path, manifest: dict) -> list:
         entries.append({"path": rel, "sha256": digest, "bytes": size})
     if not problems and root_digest(entries) != manifest["root_sha256"]:
         problems.append("总摘要对不上：逐个文件都对，但 root_sha256 不一致（清单可能被改过）")
+    return problems
+
+
+def compare_remote(base: str, manifest: dict, timeout: float = 20.0) -> list:
+    """拿已经发出去的那份跟清单对账（线上域名 / 镜像站 / file:// 目录都行）。
+
+    这是部署后的最后一道。本地 verify 只能证明「我这份目录跟我这份清单一致」，
+    证明不了「线上那一份就是我这份」—— 少推一个文件、nginx 缓存住旧包、发布脚本
+    漏掉某个目录，都只有真的去取一遍才知道。
+    """
+    problems = []
+    root = base if base.endswith("/") else base + "/"
+    for entry in manifest["files"]:
+        url = urljoin(root, entry["path"])
+        try:
+            req = Request(url, headers={"User-Agent": "karma-console-verify/1"})
+            with urlopen(req, timeout=timeout) as resp:
+                data = resp.read()
+        except Exception as exc:  # 网络 / 404 / 权限……一律算「对不上」，别静默放过
+            problems.append(f"取不到：{entry['path']}（{exc}）")
+            continue
+        digest = _sha256_bytes(_canonical(data))
+        if digest != entry["sha256"]:
+            problems.append(
+                f"内容不一致：{entry['path']}（本地 {entry['sha256'][:12]}… / 远端 {digest[:12]}…）"
+            )
     return problems
 
 
@@ -208,6 +257,18 @@ def _cmd_stamp(args) -> int:
     return 0
 
 
+def _cmd_remote(args) -> int:
+    manifest = manifest_for(Path(args.src))
+    problems = compare_remote(args.base, manifest, timeout=args.timeout)
+    for line in problems[:40]:
+        print(f"FAIL  {line}")
+    if problems:
+        print(f"FAIL  远端对账：{len(problems)}/{manifest['file_count']} 个文件对不上")
+        return 1
+    print(f"OK  {manifest['file_count']} 个文件与本地源码一致（root_sha256 {manifest['root_sha256'][:16]}…）")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="console_bundle", description="操作台静态包的构建 / 校验")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -230,6 +291,12 @@ def main(argv=None) -> int:
     p_stamp.add_argument("--gateway", default=None)
     p_stamp.add_argument("--pinned-by", dest="pinned_by", default=None)
     p_stamp.set_defaults(func=_cmd_stamp)
+
+    p_remote = sub.add_parser("remote", help="拿线上/镜像上发出去的那份跟本地源码对账")
+    p_remote.add_argument("--src", default=DEFAULT_SRC)
+    p_remote.add_argument("--base", required=True, help="静态包根地址，如 https://karma-network.ai/console/")
+    p_remote.add_argument("--timeout", type=float, default=20.0)
+    p_remote.set_defaults(func=_cmd_remote)
 
     args = parser.parse_args(argv)
     if args.cmd == "verify" and args.manifest is None:
