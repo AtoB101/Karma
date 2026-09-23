@@ -277,6 +277,20 @@ def _utc_iso() -> str:
     return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
 
+def _effective_fingerprint(row: RuntimeKeyModel | None) -> str:
+    """公钥指纹在「已申请、还没确认」时就要给得出来 —— 操作台和 agent 都靠它肉眼对照。
+
+    确认之前公钥只存在待确认位（``pending_agent_public_key``），所以两个位置都要看。
+    这里刻意不抛：拿不到指纹是「还没绑」，不是错误。
+    """
+    if row is None:
+        return ""
+    for candidate in (row.agent_public_key, row.pending_agent_public_key):
+        if (candidate or "").strip():
+            return agent_binding_fingerprint(candidate)
+    return ""
+
+
 def _binding_receipt(row: RuntimeKeyModel, agent_id: str) -> dict:
     """绑定生效后的平台签收回执 —— agent 自己也能验证「绑的确实是我」。
 
@@ -591,9 +605,7 @@ async def runtime_bind_key(
         "agent_id": bound_agent,
         "status": status,
         "key_binding": row.key_binding,
-        "agent_fingerprint": (
-            agent_binding_fingerprint(row.agent_public_key) if row.agent_public_key else ""
-        ),
+        "agent_fingerprint": _effective_fingerprint(row),
         "nonce_required": row.nonce_required,
         "pending_binding": pending_binding_view(row),
     }
@@ -1164,9 +1176,7 @@ async def runtime_permissions(
             "daily_used": daily_used,
             "agent_binding": ctx.agent_binding,
             "key_binding": ctx.key_binding,
-            "agent_fingerprint": (
-                agent_binding_fingerprint(ctx.agent_public_key) if ctx.agent_public_key else ""
-            ),
+            "agent_fingerprint": _effective_fingerprint(ctx_row),
             "nonce_required": ctx.nonce_required,
             "pending_binding": pending_binding_view(ctx_row) if ctx_row else None,
             # 未激活的钥匙只能读到这里：告诉调用方还差哪一步。
