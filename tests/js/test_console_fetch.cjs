@@ -164,6 +164,19 @@ function makeEnv(opts) {
   eq("一切正常时不会误报节点故障", reported.length, 0);
 })();
 
+(async function testPerCallTimeoutWins() {
+  // 默认 40 毫秒会让这个 120 毫秒的响应被中止；调用方把 timeoutMs 放宽到 5 秒就不会。
+  const env = makeEnv({
+    timeoutMs: 40,
+    fetch: () =>
+      new Promise((resolve) =>
+        setTimeout(() => resolve({ ok: true, status: 200, text: () => Promise.resolve('{"slow":true}') }), 120)
+      ),
+  });
+  const body = await env.cyberKarmaApi.karmaFetch("/v1/escrow/slow", { method: "POST", timeoutMs: 5000 });
+  eq("调用方给的 timeoutMs 优先（要等链上回执的写操作放宽用）", body && body.slow, true);
+})();
+
 setTimeout(function () {
   if (failures) {
     console.error("\n" + failures + "/" + checks + " 项失败");

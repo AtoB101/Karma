@@ -234,10 +234,10 @@ bash scripts/acceptance/console_last_mile_gate.sh
 - `tests/unit/test_console_nodes.py`：节点层的静态契约 + 「这两个文件里的中文必须 5 份语言包全覆盖」；
 - `tests/unit/test_console_distribution.py`：清单可复现、校验能抓出四类不一致；
 - `tests/js/test_karma_nodes.cjs`：53 项行为断言（选节点 / 探活 / 超时 / 容灾 / 自定义节点校验 / 手填地址不被替换）；
-- `tests/playwright/console_nodes_live.cjs`：真实浏览器 43 项（装了 playwright 才跑）。
 - `tests/js/test_console_fetch.cjs`：请求必须有截止时间（挂住的请求会被中止 + 通知节点层）；
-- `tests/playwright/console_nodes_live.cjs`：真实浏览器 45 项，其中一节故意让语言包
-  第一次返回 503，验证它还会重试并能切成目标语言。
+- `tests/playwright/console_nodes_live.cjs`：真实浏览器 46 项（装了 playwright 才跑）——
+  选节点 / 探活 / 容灾 / 六门语言不留中文 / 容灾提示里的节点名也跟着语言走，
+  其中一节故意让语言包第一次返回 503，验证它还会重试并能切成目标语言。
 
 部署之后还有两条**打线上**的复验（闸门里不跑，需要手动给地址）：
 

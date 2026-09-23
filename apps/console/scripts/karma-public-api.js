@@ -68,9 +68,13 @@
    * 请求永远不返回，界面只能一直转圈（线上实测：换到一台连不通的节点，
    * 十个请求挂了十几秒还没结束，用户看不出是节点的问题还是自己网断了）。
    * 15 秒够慢网络跑完一次读，又不至于让人对着转圈发呆。
+   *
+   * 两处可以覆盖：调用方在 init 里给 timeoutMs（个别要等链上回执的写操作需要放宽），
    * 测试用 window.KARMA_FETCH_TIMEOUT_MS 把它压到几十毫秒。
    */
-  function fetchTimeoutMs() {
+  function fetchTimeoutMs(init) {
+    const perCall = init ? Number(init.timeoutMs) : NaN;
+    if (isFinite(perCall) && perCall > 0) return perCall;
     const want = Number(global.KARMA_FETCH_TIMEOUT_MS);
     if (isFinite(want) && want > 0) return want;
     return 15000;
@@ -90,7 +94,7 @@
     const opts = Object.assign({}, init || {});
     let timer = null;
     if (!opts.signal) {
-      const ms = fetchTimeoutMs();
+      const ms = fetchTimeoutMs(opts);
       try {
         if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {
           opts.signal = AbortSignal.timeout(ms);
@@ -103,6 +107,8 @@
         }
       } catch (_) {}
     }
+    // timeoutMs 是给本客户端的，别顺手塞给 fetch。
+    delete opts.timeoutMs;
     let res;
     try {
       res = await fetch(url, opts);
