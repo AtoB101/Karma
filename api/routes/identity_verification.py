@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.settings import get_settings
 from db.models.orm import IdentityRoleProfile, IdentityVerificationModel
 from db.session import get_db
+from services.governance_stake import assert_governor_active
 from services.identity_actor import resolve_actor_identity_id
 from services.identity_provider import (
     ProviderError,
@@ -123,6 +124,8 @@ async def _require_verifier(db: AsyncSession, request: Request, identity_id: str
     ).scalars().first()
     if row is None:
         raise HTTPException(403, "only a verifier-class profile can verify identity")
+    # 岗不是「开一次管一辈子」：质押开出来的岗要押金还在，押金被划走就当场失效。
+    await assert_governor_active(db, identity_id=actor, what="verifying identity verification")
     return actor
 
 

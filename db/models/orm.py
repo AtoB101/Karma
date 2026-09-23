@@ -86,6 +86,10 @@ class IdentityRoleProfile(Base):
     bound_wallet_address: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # 子身份的默认权限与边界：生成 SDK 时预填，真正强制落在 runtime key 上。
     spend_policy:      Mapped[dict]        = mapped_column(JSON, default=dict)
+    # 治理岗（verifier / arbitrator）的质押承诺额。0 = 白名单开的岗、或者还没质押。
+    # 这只是一条**承诺**：真正有没有钱在里面，每次都去 capacity.total_locked_usdc
+    # 现算（services/governance_stake.py）—— 押金被划走之后岗位立刻失效，靠的就是现算。
+    stake_amount:      Mapped[float]       = mapped_column(Float, default=0.0, nullable=False, server_default="0")
     created_at:        Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:        Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

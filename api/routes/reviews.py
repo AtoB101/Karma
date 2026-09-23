@@ -32,6 +32,7 @@ from db.models.orm import (
 )
 from db.session import get_db
 from services import auto_verification
+from services.governance_stake import assert_governor_active
 from services.identity_actor import resolve_actor_identity_id
 
 router = APIRouter()
@@ -61,6 +62,8 @@ async def _require_verifier(db: AsyncSession, request: Request) -> str:
     ).scalars().first()
     if row is None:
         raise HTTPException(403, "only a verifier-class profile can open the review queue")
+    # 复核台是整个「人工复核」的总入口，更要在任：押金走了就不该再看得到别人的材料。
+    await assert_governor_active(db, identity_id=actor, what="opening the review queue")
     return actor
 
 

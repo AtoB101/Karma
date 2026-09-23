@@ -38,6 +38,7 @@ from services.entity_verification import (
     public_view,
     website_digest,
 )
+from services.governance_stake import assert_governor_active
 from services.identity_actor import resolve_actor_identity_id
 from services.path_param_safety import validate_public_url_segment
 
@@ -107,6 +108,8 @@ async def _require_reviewer(db: AsyncSession, request: Request, identity_id: str
     ).scalars().first()
     if row is None:
         raise HTTPException(403, "only a verifier-class profile can review entity verification")
+    # 押金在则岗在：质押开出来的复核岗，押金被划走后立刻不能再批任何主体。
+    await assert_governor_active(db, identity_id=actor, what="reviewing entity verification")
     return actor
 
 

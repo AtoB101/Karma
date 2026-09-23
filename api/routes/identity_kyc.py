@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
+from services.governance_stake import assert_governor_active
 from services.identity_actor import resolve_actor_identity_id
 from services.identity_verification import (
     IdentityVerificationError,
@@ -75,6 +76,8 @@ async def _require_verifier(db: AsyncSession, request: Request, profile: Identit
     )
     if result.scalar_one_or_none() is None:
         raise HTTPException(403, "only a verifier-class profile can verify KYC")
+    # 押金在则岗在：质押开出来的 verifier，押金被划走后立刻不能再批 KYC。
+    await assert_governor_active(db, identity_id=actor, what="verifying KYC")
     return actor
 
 

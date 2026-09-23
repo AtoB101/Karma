@@ -52,6 +52,14 @@ class Settings(BaseSettings):
     # API; the operational grant path is scripts/ops/grant_governance_role.py on the
     # server. Either way an identity can never review its own filing.
     governance_verifier_ids: str = ""
+    # ---- 治理岗的第二条入口：质押即开通（默认关闭）----------------------------
+    # 打开之后，任何身份都能凭质押开 verifier / arbitrator 岗，不必等运维点名；
+    # 但质押必须是**已经锁仓的 USDC**，而且岗会跟着押金走：押金被划走（含罚没）
+    # 这个岗立刻失效，不需要再维护一张状态表（见 services/governance_stake.py）。
+    # 生产环境不允许「开放申请 + 0 下限」的组合，见下面的生产校验。
+    governance_open_join: bool = False
+    governance_min_stake_amount: float = 0.0
+    governance_require_backed_stake: bool = True
     # Comma-separated identity ids allowed through the *platform bootstrap* approval
     # channel (scripts/maintenance/approve_identity_verification.py). That channel
     # signs as "platform:bootstrap" and exists only because a brand-new platform has
@@ -469,6 +477,21 @@ class Settings(BaseSettings):
                     "ARBITRATION_REQUIRE_BACKED_STAKE must be true when APP_ENV is production "
                     "(a stake that is not backed by locked USDC is not a collateral)",
                 )
+            if self.governance_open_join:
+                try:
+                    _gov_floor = float(self.governance_min_stake_amount)
+                except (TypeError, ValueError):
+                    _gov_floor = 0.0
+                if _gov_floor <= 0:
+                    raise ValueError(
+                        "GOVERNANCE_MIN_STAKE_AMOUNT must be > 0 when GOVERNANCE_OPEN_JOIN is on "
+                        "and APP_ENV is production (a zero-stake open door makes every identity a reviewer)"
+                    )
+                if not self.governance_require_backed_stake:
+                    raise ValueError(
+                        "GOVERNANCE_REQUIRE_BACKED_STAKE must be true when GOVERNANCE_OPEN_JOIN is on "
+                        "and APP_ENV is production (a stake that is not backed by locked USDC is not collateral)"
+                    )
             if self.chain_allow_hot_wallet_payer:
                 raise ValueError(
                     "CHAIN_ALLOW_HOT_WALLET_PAYER must be false when APP_ENV is production "

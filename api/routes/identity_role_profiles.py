@@ -28,9 +28,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config.settings import settings
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
+from services import governance_stake
 from services.identity_actor import resolve_actor_identity_id
 from services.identity_verification import build_bind_wallet_message
 from services.path_param_safety import validate_public_url_segment
@@ -60,6 +60,9 @@ class RoleProfileCreate(BaseModel):
     display_name: str | None = Field(default=None, max_length=256)
     kyc_payload: dict = Field(default_factory=dict)
     status: str = Field(default="active", max_length=16)
+    # 治理岗（verifier / arbitrator）的质押承诺额。GOVERNANCE_OPEN_JOIN 打开后
+    # 靠它开通（必须低于/等于已锁仓 USDC）；白名单开的岗可以不带。
+    stake_amount: float | None = Field(default=None, ge=0)
 
     model_config = {"populate_by_name": True, "extra": "forbid"}  # P2-10
 
@@ -73,6 +76,8 @@ class RoleProfileUpdate(BaseModel):
     # 子身份默认的权限 / 边界：生成 SDK 的授权向导会预填这些值。
     spend_policy: dict | None = None
     status: str | None = Field(default=None, max_length=16)
+    # 改质押：和开通同一把尺子（低于下限 422、没有锁仓背书 409）
+    stake_amount: float | None = Field(default=None, ge=0)
 
     model_config = {"populate_by_name": True, "extra": "forbid"}  # P2-10
 
@@ -94,6 +99,7 @@ def _serialize(row: IdentityRoleProfile, *, full: bool = False) -> dict:
         data["kyc_payload"] = row.kyc_payload or {}
         data["bound_wallet_address"] = getattr(row, "bound_wallet_address", None)
         data["spend_policy"] = getattr(row, "spend_policy", None) or {}
+        data["stake_amount"] = float(getattr(row, "stake_amount", 0.0) or 0.0)
     return data
 
 
@@ -104,16 +110,32 @@ def _serialize(row: IdentityRoleProfile, *, full: bool = False) -> dict:
 GOVERNANCE_CLASSES = ("verifier", "arbitrator")
 
 
-def _assert_governance_class_allowed(actor: str, class_: str) -> None:
+async def _resolve_governance_stake(
+    db: AsyncSession, actor: str, class_: str, stake_amount: float | None
+) -> float:
+    """治理岗开通 / 换岗前的闸门，返回该记下来的质押承诺额。
+
+    - 非治理岗：与质押无关，记 0；
+    - 白名单（GOVERNANCE_VERIFIER_IDS）：平台自己承担责任的岗，放行、记 0。
+      不拿用户的押金去给平台的岗背书，也不因为押金变动牵连运维岗；
+    - GOVERNANCE_OPEN_JOIN 打开：走质押通道 —— 低于平台下限 422，
+      没有锁仓 USDC 背书 409（规矩与仲裁入池一致，见 services/governance_stake.py）；
+    - 两条路都没开：维持原样 403。
+    """
     if class_ not in GOVERNANCE_CLASSES:
-        return
-    allowed = settings.governance_verifier_id_set()
-    if actor.strip() in allowed:
-        return
-    raise HTTPException(
-        403,
-        f"{class_} 是治理角色，不能自助开通：请由运维把身份加入 GOVERNANCE_VERIFIER_IDS 后再创建",
+        return 0.0
+    if governance_stake.whitelisted(actor):
+        return 0.0
+    if not governance_stake.open_join():
+        raise HTTPException(
+            403,
+            f"{class_} 是治理角色，不能自助开通：请由运维把身份加入 GOVERNANCE_VERIFIER_IDS，"
+            "或让服务端打开 GOVERNANCE_OPEN_JOIN 后凭锁仓质押开通",
+        )
+    state = await governance_stake.assert_stake_acceptable(
+        db, identity_id=actor, stake_amount=stake_amount
     )
+    return float(state["stake_amount"])
 
 
 @router.post("", status_code=201)
@@ -128,7 +150,7 @@ async def create_role_profile(
         raise HTTPException(403, "authentication required to create a role profile")
     if actor != body.owner_identity_id:
         raise HTTPException(403, "owner_identity_id must match the authenticated identity")
-    _assert_governance_class_allowed(actor, body.class_)
+    stake_amount = await _resolve_governance_stake(db, actor, body.class_, body.stake_amount)
 
     visibility = body.visibility or _default_visibility(body.class_)
     row = IdentityRoleProfile(
@@ -139,6 +161,7 @@ async def create_role_profile(
         display_name=body.display_name,
         kyc_payload=body.kyc_payload,
         status=body.status,
+        stake_amount=stake_amount,
     )
     db.add(row)
     await db.flush()
@@ -226,8 +249,14 @@ async def update_role_profile(
     data = body.model_dump(exclude_unset=True)
     if "class_" in data:
         if data["class_"] != row.class_:
-            _assert_governance_class_allowed(actor, data["class_"])
+            row.stake_amount = await _resolve_governance_stake(
+                db, actor, data["class_"], body.stake_amount
+            )
         row.class_ = data["class_"]
+    if "stake_amount" in data and row.class_ in GOVERNANCE_CLASSES:
+        row.stake_amount = await _resolve_governance_stake(
+            db, actor, row.class_, data["stake_amount"]
+        )
     if "kyc_status" in data:
         row.kyc_status = data["kyc_status"]
     if "visibility" in data:
