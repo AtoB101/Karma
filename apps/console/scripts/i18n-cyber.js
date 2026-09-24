@@ -1512,10 +1512,24 @@
   }
 
   let PHRASE_BASE = "scripts/i18n-phrase/";
+  let PHRASE_VERSION = "";
   try {
     const cs = document.currentScript;
-    if (cs && cs.src) PHRASE_BASE = cs.src.replace(/i18n-cyber\.js(\?.*)?$/, "") + "i18n-phrase/";
+    if (cs && cs.src) {
+      PHRASE_BASE = cs.src.replace(/i18n-cyber\.js(\?.*)?$/, "") + "i18n-phrase/";
+      // 页面给 <script src> 挂了内容版本串（scripts/stamp_console_assets.py）。
+      // 语言包必须跟着用同一个 v：下面取包走的是 cache: "force-cache"，
+      // 地址不带 v 的话，页面换了、语言包还能一直吃旧的那份 ——
+      // 表现就是「新页面 + 半旧文案」，最难查的一种。
+      const m = /[?&]v=([^&#]+)/.exec(cs.src);
+      if (m) PHRASE_VERSION = m[1];
+    }
   } catch (_) {}
+
+  /** 语言包地址：带上页面的版本串，内容一变 URL 就变，缓存没有复用的机会。 */
+  function phraseUrl(lang) {
+    return PHRASE_BASE + lang + ".js" + (PHRASE_VERSION ? "?v=" + PHRASE_VERSION : "");
+  }
 
   /** 把带 {n} 的条目编译成正则；长的排前面，免得短条目先吃掉长句子。 */
   function compilePatterns(lang) {
@@ -1982,7 +1996,7 @@
     const q = waiting[lang];
     if (q) { if (cb) q.push(cb); return; }
     const cbs = waiting[lang] = cb ? [cb] : [];
-    loadFile(PHRASE_BASE + lang + ".js", function () {
+    loadFile(phraseUrl(lang), function () {
       adopt(lang);
       delete waiting[lang];
       cbs.forEach(function (f) { try { f(); } catch (_) {} });

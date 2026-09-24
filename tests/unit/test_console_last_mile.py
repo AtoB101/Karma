@@ -312,8 +312,9 @@ def test_the_console_prompts_for_the_activation_code_from_settings():
     assert 'id="btn-bind-refresh"' in html, "要有手动刷新按钮"
     assert "cyber-bind-requests.js" in html, "页面必须加载这个模块"
     # 签名消息只有一份实现：新模块必须排在 cyber-handoff.js 之后并复用它。
-    assert html.index('src="../../scripts/cyber-handoff.js"') < html.index(
-        'src="../../scripts/cyber-bind-requests.js"'
+    # 引用后面挂着 ?v=<内容摘要>（scripts/stamp_console_assets.py），所以只比路径。
+    assert html.index("../../scripts/cyber-handoff.js") < html.index(
+        "../../scripts/cyber-bind-requests.js"
     ), "新模块要排在 cyber-handoff.js 之后才有 KarmaHandoff 可用"
 
     js = (CONSOLE / "scripts/cyber-bind-requests.js").read_text(encoding="utf-8")
@@ -450,8 +451,8 @@ def test_the_console_can_unbind_an_agent_from_settings():
     assert 'id="bound-keys"' in html, "卡片里要留出渲染位置"
     assert 'id="btn-bound-refresh"' in html, "要有手动刷新按钮"
     assert "cyber-unbind-keys.js" in html, "页面必须加载这个模块"
-    assert html.index('src="../../scripts/cyber-handoff.js"') < html.index(
-        'src="../../scripts/cyber-unbind-keys.js"'
+    assert html.index("../../scripts/cyber-handoff.js") < html.index(
+        "../../scripts/cyber-unbind-keys.js"
     ), "新模块要排在 cyber-handoff.js 之后才有 KarmaHandoff 可用"
 
     js = (CONSOLE / "scripts" / "cyber-unbind-keys.js").read_text(encoding="utf-8")
@@ -557,7 +558,7 @@ def test_the_console_can_expand_a_bound_key_and_show_recent_calls():
     for needle in ("KarmaKeyCalls", "keyCallsActions", "keyCallsPanel", "ag-key-item"):
         assert needle in handoff_js, f"交付包的密钥清单没接上面板：{needle}"
 
-    assert 'src="../../scripts/cyber-key-calls.js"' in html, "页面必须加载共用面板模块"
+    assert "../../scripts/cyber-key-calls.js" in html, "页面必须加载共用面板模块"
     assert html.index("cyber-key-calls.js") < html.index("cyber-handoff.js"), (
         "面板模块要排在两个宿主前面，否则宿主拿不到 KarmaKeyCalls"
     )

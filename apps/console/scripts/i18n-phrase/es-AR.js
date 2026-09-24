@@ -2594,3 +2594,9 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
   "权限 {0}": "Permisos    {0}",
   "有效期至 {0}": "Hasta       {0}",
 });
+/* --- dynamic-append-25: 服务端闸门的英文 detail 翻成人话（karma-public-api.js 的 GATE_HINTS） --- */
+Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
+  "这把钥匙必须指名一台 agent：回到第 1 步，先给你的 agent 起个名字（如 claw-001），再点生成。": "Esta clave debe indicar un agente. Volvé al paso 1, ponele un nombre a tu agente (por ejemplo claw-001) y volvé a generar.",
+  "签名里的 agent 和这次请求声明的不是同一个：回到第 1 步重新填一次名字，再生成。": "El agente de la firma no es el que declara esta solicitud. Volvé al paso 1, escribí el nombre otra vez y generá de nuevo.",
+  "权限与边界还没保存：把第 4 步填完，再点生成。": "Los permisos y los límites todavía no están guardados. Completá el paso 4 y volvé a generar.",
+});

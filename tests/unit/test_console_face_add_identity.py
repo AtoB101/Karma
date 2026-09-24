@@ -115,8 +115,9 @@ def test_add_identity_card_is_wired():
     html = CYBER.read_text(encoding="utf-8")
     assert 'id="idv-add-identity"' in html, "身份页要有「追加身份」这张卡"
     assert "cyber-add-identity.js" in html
-    assert html.index('src="../../scripts/cyber-face-vault.js"') < html.index(
-        'src="../../scripts/cyber-add-identity.js"'
+    # 引用后面挂着 ?v=<内容摘要>（scripts/stamp_console_assets.py），所以只比路径。
+    assert html.index("../../scripts/cyber-face-vault.js") < html.index(
+        "../../scripts/cyber-add-identity.js"
     ), "追加身份要用 KarmaFaceVault，得排在它后面"
 
     js = ADD_JS.read_text(encoding="utf-8")

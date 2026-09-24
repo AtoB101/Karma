@@ -89,6 +89,43 @@
     }
   }
 
+  /**
+   * 服务端有几条「闸门」是按口径直接拒的，detail 是英文 API 原文 —— 审计和对接
+   * 要看它，但不该原样甩到用户脸上。真机踩过：在操作台点「生成」，只看到一整句
+   * 英文 HTTP 400（agent_binding is required: every runtime key must name ...），
+   * 既不知道错在哪，也不知道下一步点哪儿。
+   *
+   * 这里只改给用户看的 message；原文留在 err.detail 并打进 console.warn，
+   * 排查时一句都不会丢。文案本身是中文源文，五种语言的译文在 i18n-phrase 里。
+   */
+  const GATE_HINTS = [
+    {
+      match: "agent_binding is required",
+      hint: "这把钥匙必须指名一台 agent：回到第 1 步，先给你的 agent 起个名字（如 claw-001），再点生成。",
+    },
+    {
+      match: "agent_id requires agent_binding",
+      hint: "这把钥匙必须指名一台 agent：回到第 1 步，先给你的 agent 起个名字（如 claw-001），再点生成。",
+    },
+    {
+      match: "agent_id must match agent_binding",
+      hint: "签名里的 agent 和这次请求声明的不是同一个：回到第 1 步重新填一次名字，再生成。",
+    },
+    {
+      match: "automation policy not saved",
+      hint: "权限与边界还没保存：把第 4 步填完，再点生成。",
+    },
+  ];
+
+  /** 命中已知闸门就返回人话；不认识的服务端 detail 原样抛，不假装看得懂。 */
+  function gateHint(msg) {
+    const text = String(msg || "");
+    for (let i = 0; i < GATE_HINTS.length; i++) {
+      if (text.indexOf(GATE_HINTS[i].match) >= 0) return GATE_HINTS[i].hint;
+    }
+    return "";
+  }
+
   async function karmaFetch(path, init) {
     const url = apiBase() + path;
     const opts = Object.assign({}, init || {});
@@ -134,6 +171,15 @@
       const err = new Error("HTTP " + res.status + ": " + msg);
       err.status = res.status;
       err.body = body;
+      err.detail = msg;
+      const hint = gateHint(msg);
+      if (hint) {
+        err.serverMessage = err.message;
+        err.message = hint;
+        try {
+          console.warn("[karma] " + err.serverMessage);
+        } catch (_) {}
+      }
       throw err;
     }
     return body;

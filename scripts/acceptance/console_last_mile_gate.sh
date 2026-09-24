@@ -178,6 +178,17 @@ grep -q 'require_agent_binding' "$ROOT/api/routes/runtime_gateway.py"
 grep -q 'def karma_runtime_bind_key' "$ROOT/packages/karma-openclaw/karma_openclaw/runtime_tools.py"
 grep -q 'def sign_runtime_request' "$ROOT/packages/karma-openclaw/karma_openclaw/agent_binding.py"
 
+# 静态资源版本串：部署即换 URL。真机踩过「旧脚本 + 新口径 = 用户点生成只吃 400」，
+# 所以页面里每一条 js/css 引用都要带 ?v=<内容摘要>，落后了就在这里红。
+python3 scripts/stamp_console_assets.py --check
+# 语言包也得跟着页面的 v 取（取包走 force-cache，地址不带 v 就会新旧混着跑）。
+grep -q 'phraseUrl' "$CONSOLE/scripts/i18n-cyber.js"
+# 服务端那句英文闸门 detail → 用户看到的人话（译文在 i18n-phrase 的五门语言里）。
+grep -q 'agent_binding is required' "$CONSOLE/scripts/karma-public-api.js"
+grep -q 'GATE_HINTS' "$CONSOLE/scripts/karma-public-api.js"
+
+python3 -m pytest -q tests/unit/test_console_asset_versions.py
+python3 -m pytest -q tests/unit/test_console_gate_error_hints.py
 python3 -m pytest -q tests/unit/test_console_last_mile.py
 python3 -m pytest -q tests/unit/test_console_2fa.py
 python3 -m pytest -q tests/unit/test_face_activation.py
@@ -209,6 +220,8 @@ if command -v node >/dev/null 2>&1; then
   node "$ROOT/tests/js/test_karma_nodes.cjs"
   # 每次请求都要有截止时间：没有它，选到一台连不通的节点会把整个操作台挂住。
   node "$ROOT/tests/js/test_console_fetch.cjs"
+  # 服务端闸门的英文 detail → 用户看到的人话（认得的翻成人话，不认得的原样抛）。
+  node "$ROOT/tests/js/test_gate_error_hints.cjs"
   # 最近调用面板：切语言重画 + prune 按宿主（都是真机上踩出来的）。
   node "$ROOT/tests/js/test_key_calls_panel.cjs"
 
