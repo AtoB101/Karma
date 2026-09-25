@@ -26,6 +26,7 @@ from karma_openclaw.helpers import (
 )
 from karma_openclaw.http_client import api_get, api_post, runtime_key, runtime_post
 from karma_openclaw.p0_tools import register_p0_tools
+from karma_openclaw.pairing_tools import register_pairing_tools
 from karma_openclaw.phase1_tools import register_phase1_tools
 from karma_openclaw.phase2_tools import register_phase2_tools
 from karma_openclaw.runtime_tools import register_runtime_tools
@@ -36,6 +37,10 @@ def build_app() -> FastMCP:
         "karma-openclaw",
         instructions=(
             "Karma Trust Protocol — OpenClaw MCP (P0+P1). "
+            "No credentials yet? Call karma_pairing_start, hand the user_code to your "
+            "owner, and after they approve and read you the 8-character handoff code "
+            "from the Console call karma_pairing_claim(handoff_code=…) — credentials are "
+            "written to ~/.karma/agent.env (0600) and never echoed into the chat. "
             "KARMA_RUNTIME_URL + KARMA_API_KEY; KARMA_RUNTIME_KEY (+ "
             "KARMA_AGENT_PRIVATE_KEY / KARMA_AGENT_ID) for /runtime/*. "
             "A Runtime Key names one agent and only works after the owner enters the "
@@ -240,6 +245,7 @@ def build_app() -> FastMCP:
             extension=ext,
         )
 
+    register_pairing_tools(mcp)
     register_p0_tools(mcp)
     register_phase1_tools(mcp)
     register_phase2_tools(mcp)

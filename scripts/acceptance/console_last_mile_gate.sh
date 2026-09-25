@@ -183,6 +183,10 @@ grep -q 'require_agent_binding' "$ROOT/api/routes/runtime_gateway.py"
 # agent 侧：申请接入 + 逐请求签名 + 等主人输码，三件工具缺一不可。
 grep -q 'def karma_runtime_bind_key' "$ROOT/packages/karma-openclaw/karma_openclaw/runtime_tools.py"
 grep -q 'def sign_runtime_request' "$ROOT/packages/karma-openclaw/karma_openclaw/agent_binding.py"
+# agent 侧自助配接：自己申请 → 主人签发交接码 → 自己领凭据（只落盘 0600，不进聊天）。
+grep -q 'def karma_pairing_start' "$ROOT/packages/karma-openclaw/karma_openclaw/pairing_tools.py"
+grep -q 'def karma_pairing_claim' "$ROOT/packages/karma-openclaw/karma_openclaw/pairing_tools.py"
+grep -q 'register_pairing_tools' "$ROOT/packages/karma-openclaw/karma_openclaw/server.py"
 
 # 静态资源版本串：部署即换 URL。真机踩过「旧脚本 + 新口径 = 用户点生成只吃 400」，
 # 所以页面里每一条 js/css 引用都要带 ?v=<内容摘要>，落后了就在这里红。
@@ -193,6 +197,7 @@ grep -q 'phraseUrl' "$CONSOLE/scripts/i18n-cyber.js"
 grep -q 'agent_binding is required' "$CONSOLE/scripts/karma-public-api.js"
 grep -q 'GATE_HINTS' "$CONSOLE/scripts/karma-public-api.js"
 
+python3 -m pytest -q tests/unit/test_openclaw_pairing_tools.py
 python3 -m pytest -q tests/unit/test_console_asset_versions.py
 python3 -m pytest -q tests/unit/test_console_gate_error_hints.py
 python3 -m pytest -q tests/unit/test_console_last_mile.py

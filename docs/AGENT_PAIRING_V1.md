@@ -249,6 +249,19 @@ curl -s https://karma-network.ai/runtime/policy  -H "X-Karma-Runtime-Key: $KARMA
 MCP 不是前提：任何会发 HTTP 的 agent 都能接入（`X-Karma-Api-Key` / `X-Karma-Runtime-Key`）。
 见 [mcp-adapter-guide.md](./mcp-adapter-guide.md)。
 
+不想手写这三个请求的，`packages/karma-openclaw` 已经把它包成 MCP 工具：
+
+```text
+karma_pairing_start(agent_name="claw-001", requested_side="seller", requested_vertical="food")
+karma_pairing_status()                       # 等批准 / 等交接码 / 已交付
+karma_pairing_claim(handoff_code="K7P2-9RVX")  # 凭据只写 ~/.karma/agent.env（0600）
+karma_pairing_local_status()                 # 本机握着什么（只报指纹）
+```
+
+`karma_pairing_start` 把 `pairing_code` 落到 `~/.karma/pairing/<user_code>.json`（0600），
+返回值里没有它；`karma_pairing_claim` 返回值里没有明文凭据，只有 `sha256:…` 指纹。
+所以整个接入过程可以放心地出现在聊天记录里。
+
 ---
 
 ## 8. 相关代码

@@ -39,11 +39,33 @@ karma-openclaw-mcp
 | `karma_submit_evidence_bundle` | Package receipts into a verifiable bundle |
 | `karma_get_evidence_bundle` | Retrieve a previously submitted bundle |
 | `karma_validate_handoff` | Verify operator handoff for high-risk actions |
+| `karma_pairing_start` | **No key yet?** Ask to be connected; returns the `user_code` for your owner |
+| `karma_pairing_claim` | Collect the credentials once the owner reads you the 8-character handoff code; writes `~/.karma/agent.env` (0600), returns fingerprints only |
+| `karma_pairing_status` | Which step this pairing is on (waiting for approval / waiting for the handoff code / delivered) |
+| `karma_pairing_local_status` | What this machine holds: pending pairings + credential fingerprints |
 | `karma_runtime_bind_key` | Bind this agent's Ed25519 public key; returns the matching code for the owner |
 | `karma_runtime_await_activation` | Wait for the owner to enter the code; then signs every request |
 | `karma_runtime_binding_status` | Where this key stands (pending / active / bearer) |
 | `karma_check_automation_readiness` | Check if automation policy allows this action |
 | `karma_get_settlement` | (Optional) Read settlement status |
+
+## Onboarding with no key at all
+
+An agent that holds nothing can still get itself connected — and the credentials never
+travel through the chat:
+
+```text
+karma_pairing_start(agent_name="claw-001", requested_side="seller", requested_vertical="food")
+  -> user_code "QKFS-3J5Z" + verification_uri      # hand these two to your owner
+  ... owner approves in Karma Console, then clicks "签发交接码" / "Issue handoff code"
+karma_pairing_claim(handoff_code="<the code your owner reads to you>")
+  -> credentials written to ~/.karma/agent.env (0600); only sha256 fingerprints returned
+```
+
+Two locks, one handshake: the agent's own `pairing_code` proves it is the process that
+asked, and the owner-issued `handoff_code` (3 minutes, single use) proves the owner really
+handed the credentials over. Either one alone buys nothing, so neither code is dangerous in
+a transcript. See [Agent 配对接入 v1](../../docs/AGENT_PAIRING_V1.md).
 
 ## Quick Demo
 
