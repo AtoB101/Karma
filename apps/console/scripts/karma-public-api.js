@@ -697,6 +697,16 @@
     return jsonPost("/v1/agent-pairing/attach-runtime-key", payload);
   }
 
+  /**
+   * 签发交接码：主人念给 / 输给 agent 的那串码，3 分钟、只显示这一次。
+   *
+   * 这是「主人 -> agent」方向的第二把锁：agent 自己的配对码 PROVES 它是最初
+   * 发起的那一个进程，交接码 PROVES 主人真的把凭据交给了它。缺一个都领不走。
+   */
+  async function issuePairingHandoff(payload) {
+    return jsonPost("/v1/agent-pairing/handoff", payload);
+  }
+
   async function listMyPairings() {
     return karmaFetch("/v1/agent-pairing/mine", { method: "GET", headers: headers() });
   }
@@ -978,6 +988,7 @@
     approvePairing,
     denyPairing,
     attachPairingRuntimeKey,
+    issuePairingHandoff,
     listMyPairings,
     listOpenclawHandoffEvents,
     postAuthToken,

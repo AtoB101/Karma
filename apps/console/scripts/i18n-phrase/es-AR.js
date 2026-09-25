@@ -2600,3 +2600,19 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
   "签名里的 agent 和这次请求声明的不是同一个：回到第 1 步重新填一次名字，再生成。": "El agente de la firma no es el que declara esta solicitud. Volvé al paso 1, escribí el nombre otra vez y generá de nuevo.",
   "权限与边界还没保存：把第 4 步填完，再点生成。": "Los permisos y los límites todavía no están guardados. Completá el paso 4 y volvé a generar.",
 });
+
+/* --- dynamic-append-26: 配对「交接码」—— 操作台出码、用户交给 agent（第二把锁） --- */
+Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
+  "交接码 · 交给 agent 的第二把锁": "Código de entrega · la segunda cerradura que le das al agente",
+  "点「签发交接码」，把这串码输给你的 agent。它自己的配对码 + 这串码，缺一个都领不走凭据。": "Tocá 'Emitir código de entrega' y pasale ese código a tu agente. Sin su propio código de emparejamiento y este código, no puede retirar las credenciales.",
+  "签发交接码": "Emitir código de entrega",
+  "重新签发": "Emitir otro",
+  "签发中…": "Emitiendo...",
+  "已签发，3 分钟内有效": "Emitido, válido por 3 minutos",
+  "剩余 {0} · 交给 agent 后它就能领凭据了": "Quedan {0} · pasáselo al agente y ya puede retirar las credenciales",
+  "已过期 —— 点「重新签发」再给它一串。": "Venció: tocá 'Emitir otro' y dale un código nuevo.",
+  "复制交接码": "Copiar código de entrega",
+  "交接码已签发（还在有效期内）。忘了那串码就点「重新签发」。": "Ya hay un código de entrega emitido (todavía válido). Si lo olvidaste, tocá 'Emitir otro'.",
+  "接下来点「签发交接码」，把它交给你的 agent —— 没有这串码，它领不走凭据。": "Ahora tocá 'Emitir código de entrega' y pasáselo a tu agente: sin este código no puede retirar las credenciales.",
+  "已交付 —— 最后一步：签发交接码交给 agent": "Entregado: último paso, emití el código de entrega y pasáselo al agente",
+});

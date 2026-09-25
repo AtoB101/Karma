@@ -4,16 +4,28 @@ A foreign agent asks to be connected, the wallet owner approves it in the
 console, and the agent picks its credentials up by polling with the code it was
 handed. Nobody copies a secret between two windows by hand.
 
-Three codes live in a pairing record and they are **not** interchangeable:
+Four codes live in a pairing record and they are **not** interchangeable:
 
 ``pairing_code``  held by the agent only; proves the poller is the same process
                   that opened the request. Returned once, at request time, and
                   persisted only as a SHA-256 hash.
 ``user_code``     short and human-typed (``K4QP-3M2X``) so the owner can match
                   the request on screen. Alone it grants nothing.
+``handoff_code``  issued in the console by the owner and read off the screen
+                  (``7P2K-9RVX``, 3 minutes). It travels owner -> agent — the
+                  one direction a chat transcript *can* carry — which is
+                  exactly why it must never be sufficient on its own: without
+                  the agent's ``pairing_code`` it redeems nothing, and without
+                  it the ``pairing_code`` redeems nothing either.
 ``delivery``      minted credentials, held server-side until the agent claims
                   them and wiped on claim — the one-shot rule the rest of the
                   platform already follows for bootstrap keys.
+
+The two short codes are the two halves of one handshake, and they run in
+opposite directions: at activation the agent shows *its* code to the owner, at
+pairing the owner hands *theirs* to the agent. Neither half is a secret, so
+nothing that ends up in a chat transcript or a screen recording is worth
+stealing — the credentials themselves only ever move server -> agent.
 
 Escrow of the pending payload is deliberate: Karma already custodies the
 agent's Ed25519 signer server-side (``services/agent_key_store.py``), so a
@@ -46,6 +58,10 @@ MAX_RECORDS = 500
 #: No I/L/O/0/1: the owner may be reading this off a screen and typing it.
 _CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 _USER_CODE_LEN = 8
+#: 交接码：主人在操作台看到、亲手交给 agent 的那串码。和激活码一样 3 分钟。
+HANDOFF_TTL_SECONDS = 180
+#: 连猜错这么多次就把这次配对就地作废（8 位码 × 31 字符表，本来就猜不动）。
+HANDOFF_MAX_ATTEMPTS = 5
 _DEFAULT_BASE_URL = "https://karma-network.ai"
 
 _LOCK = threading.Lock()
@@ -164,6 +180,58 @@ def _new_user_code() -> str:
             return code
 
 
+def normalize_handoff_code(value: str) -> str:
+    """``7p2k-9rvx`` / ``7P2K 9RVX`` / ``7P2K9RVX`` 都是同一串码。"""
+    raw = "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+    if len(raw) != _USER_CODE_LEN:
+        return ""
+    if any(ch not in _CODE_ALPHABET for ch in raw):
+        return ""
+    return raw[:4] + "-" + raw[4:]
+
+
+def _handoff_key(value: str) -> str:
+    return normalize_handoff_code(value).replace("-", "")
+
+
+def _new_handoff_code() -> str:
+    return normalize_handoff_code(
+        "".join(secrets.choice(_CODE_ALPHABET) for _ in range(_USER_CODE_LEN))
+    )
+
+
+def _issue_handoff_unlocked(row: dict[str, Any]) -> str:
+    """签发（或重签）交接码：明文只交给调用方一次，落库只存 SHA-256。"""
+    code = _new_handoff_code()
+    now = _utcnow()
+    row["handoff_code_sha256"] = _sha256_hex(_handoff_key(code))
+    row["handoff_issued_at"] = _iso(now)
+    row["handoff_expires_at"] = _iso(now + timedelta(seconds=HANDOFF_TTL_SECONDS))
+    row["handoff_used_at"] = None
+    row["handoff_failures"] = 0
+    return code
+
+
+def _handoff_state(row: dict[str, Any]) -> str:
+    """``none`` / ``active`` / ``expired`` / ``used`` —— 只回状态，永不回码。"""
+    if row.get("handoff_used_at"):
+        return "used"
+    if not str(row.get("handoff_code_sha256") or ""):
+        return "none"
+    exp = _parse_iso(str(row.get("handoff_expires_at") or ""))
+    if exp is None or _utcnow() > exp:
+        return "expired"
+    return "active"
+
+
+def _verify_handoff(row: dict[str, Any], handoff_code: str | None) -> bool:
+    given = _handoff_key(handoff_code or "")
+    expected = str(row.get("handoff_code_sha256") or "")
+    if not given or not expected:
+        return False
+    return hmac.compare_digest(_sha256_hex(given), expected)
+
+
 def _public_base_url() -> str:
     try:
         from config.settings import settings
@@ -251,6 +319,9 @@ def _public_view(row: dict[str, Any]) -> dict[str, Any]:
         "has_api_key": bool(delivery.get("api_key")),
         "has_runtime_key": bool(delivery.get("runtime_key")),
         "runtime_key_id": delivery.get("runtime_key_id") or "",
+        # 交接码只回状态：明文只在「签发交接码」那一条响应里出现一次。
+        "handoff_state": _handoff_state(row),
+        "handoff_expires_at": row.get("handoff_expires_at"),
         "deny_reason": row.get("deny_reason") or "",
     }
 
@@ -311,6 +382,11 @@ def create_request(
             "agent_id": None,
             "approved_at": None,
             "claimed_at": None,
+            "handoff_code_sha256": "",
+            "handoff_issued_at": None,
+            "handoff_expires_at": None,
+            "handoff_used_at": None,
+            "handoff_failures": 0,
             "deny_reason": "",
             "delivery": {},
         }
@@ -326,14 +402,18 @@ def create_request(
         "expires_in_seconds": DEFAULT_TTL_SECONDS,
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
         "claim_endpoint": "/v1/agent-pairing/claim",
+        "claim_requires": ["pairing_code", "handoff_code"],
         "instructions_zh": (
-            "把 user_code 告诉你的主人，请他在 Karma 操作台 · Agent 接入 · 配对 里批准；"
-            "然后用 pairing_code 轮询 claim 端点领取凭据（只发一次，拿到就存好）。"
+            "① 把 user_code 告诉你的主人，请他在 Karma 操作台 · Agent 接入 · 配对 里批准；"
+            "② 请他在操作台点「签发交接码」，把那串码输入给你；"
+            "③ 用 pairing_code + handoff_code 轮询 claim 端点领取凭据"
+            "（只发一次，拿到就存好）。两个码缺一不可。"
         ),
         "instructions_en": (
-            "Show the user_code to your owner and ask them to approve it in the Karma "
-            "console (Agents · Pairing). Then poll the claim endpoint with pairing_code; "
-            "credentials are delivered exactly once."
+            "1) Show the user_code to your owner and ask them to approve it in the Karma "
+            "console (Agents · Pairing). 2) Ask them to issue a handoff code there and give "
+            "it to you. 3) Poll the claim endpoint with pairing_code + handoff_code. Both "
+            "codes are required; credentials are delivered exactly once."
         ),
     }
 
@@ -411,6 +491,31 @@ def approve(
         return _public_view(row)
 
 
+def issue_handoff(*, user_code: str, owner_identity_id: str) -> dict[str, Any]:
+    """主人的「签发交接码」—— 交给 agent 的第二把锁，3 分钟、只显示这一次。
+
+    重签就是重签：旧码当场作废。主人可以先把 Runtime Key 挂好、再签发，
+    顺序不会被 agent 抢跑。
+    """
+    _ensure_loaded()
+    with _LOCK:
+        _purge_expired_unlocked()
+        row = _find_by_user_code(user_code)
+        if row is None:
+            raise HTTPException(404, "pairing code not found — check it with the agent and retry")
+        status = str(row.get("status") or "")
+        if status != "approved":
+            raise HTTPException(409, f"pairing is {status} — approve it first")
+        if (owner_identity_id or "").strip() != str(row.get("owner_identity_id") or ""):
+            raise HTTPException(403, "this pairing belongs to another identity")
+        code = _issue_handoff_unlocked(row)
+        _persist_unlocked()
+        view = _public_view(row)
+        # 明文只在这一条响应里出现一次：操作台要把它显示给主人。
+        view["handoff_code"] = code
+        return view
+
+
 def deny(*, user_code: str, owner_identity_id: str, reason: str = "") -> dict[str, Any]:
     _ensure_loaded()
     with _LOCK:
@@ -461,8 +566,8 @@ def attach_runtime_key(
         return _public_view(row)
 
 
-def claim(*, pairing_code: str) -> dict[str, Any]:
-    """Agent side. Credentials are handed over once and then gone."""
+def claim(*, pairing_code: str, handoff_code: str | None = None) -> dict[str, Any]:
+    """Agent side. Two factors, then credentials — handed over once and then gone."""
     _ensure_loaded()
     with _LOCK:
         _purge_expired_unlocked()
@@ -485,12 +590,63 @@ def claim(*, pairing_code: str) -> dict[str, Any]:
                 "message_en": "This pairing has nothing left to deliver.",
             }
 
+        # ── 第二把锁：主人屏幕上的交接码 ──────────────────────────────────
+        # pairing_code 只在申请时返回过一次（磁盘上只有哈希）。就算它被偷，
+        # 光靠它也**领不走任何东西**：还得有主人在操作台亲口交给你的那串码。
+        # 反过来，交接码即使出现在聊天记录里也没用 —— 单独一串换不到凭据。
+        state = _handoff_state(row)
+        if state in {"none", "expired"}:
+            return {
+                "status": "awaiting_handoff",
+                "handoff_state": state,
+                "handoff_expires_at": row.get("handoff_expires_at"),
+                "expires_at": row.get("expires_at"),
+                "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                "message_zh": (
+                    "交接码过期了，请主人在操作台重新签发。"
+                    if state == "expired"
+                    else "主人还没签发交接码。请让他在操作台点「签发交接码」，"
+                    "再把那串码输入给你。"
+                ),
+                "message_en": (
+                    "The handoff code expired — ask your owner to reissue it in the console."
+                    if state == "expired"
+                    else "Your owner has not issued a handoff code yet. Ask them to issue "
+                    "one in the console and hand it to you."
+                ),
+            }
+        if not str(handoff_code or "").strip():
+            return {
+                "status": "awaiting_handoff",
+                "handoff_state": state,
+                "handoff_expires_at": row.get("handoff_expires_at"),
+                "expires_at": row.get("expires_at"),
+                "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                "message_zh": "把主人在操作台看到的交接码用 handoff_code 参数传进来。",
+                "message_en": "Pass the handoff code your owner read to you as handoff_code.",
+            }
+        if not _verify_handoff(row, handoff_code):
+            row["handoff_failures"] = int(row.get("handoff_failures") or 0) + 1
+            if row["handoff_failures"] >= HANDOFF_MAX_ATTEMPTS:
+                # 连着猜错：就地作废这次配对，凭据一并销毁。
+                row["status"] = "expired"
+                row["delivery"] = {}
+                row["handoff_code_sha256"] = ""
+                _persist_unlocked()
+                raise HTTPException(
+                    403, "too many wrong handoff codes — pairing expired, start over"
+                )
+            _persist_unlocked()
+            raise HTTPException(403, "handoff code mismatch")
+
         delivery = dict(row.get("delivery") or {})
         env = _env_snippet(row)
         row["status"] = "claimed"
         row["claimed_at"] = _iso(_utcnow())
-        # One shot: the plaintext leaves the store the moment it is handed over.
+        # One shot: the plaintext and the handoff code both die here.
         row["delivery"] = {}
+        row["handoff_code_sha256"] = ""
+        row["handoff_used_at"] = row["claimed_at"]
         _persist_unlocked()
 
     return {
@@ -498,6 +654,7 @@ def claim(*, pairing_code: str) -> dict[str, Any]:
         "status": "approved",
         "agent_id": row.get("agent_id"),
         "owner_identity_id": row.get("owner_identity_id"),
+        "handoff": {"required": True, "consumed": True},
         "credentials": {
             "api_key": delivery.get("api_key"),
             "agent_public_key": delivery.get("agent_public_key"),

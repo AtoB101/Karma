@@ -2598,3 +2598,19 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "签名里的 agent 和这次请求声明的不是同一个：回到第 1 步重新填一次名字，再生成。": "The agent in the signature is not the one this request declares: go back to step 1, retype the name, then generate again.",
   "权限与边界还没保存：把第 4 步填完，再点生成。": "Permissions and boundaries are not saved yet: finish step 4, then hit generate.",
 });
+
+/* --- dynamic-append-26: 配对「交接码」—— 操作台出码、用户交给 agent（第二把锁） --- */
+Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
+  "交接码 · 交给 agent 的第二把锁": "Handoff code · the second lock you hand to the agent",
+  "点「签发交接码」，把这串码输给你的 agent。它自己的配对码 + 这串码，缺一个都领不走凭据。": "Hit 'Issue handoff code' and type that code into your agent. Without both its own pairing code and this one, it cannot collect the credentials.",
+  "签发交接码": "Issue handoff code",
+  "重新签发": "Issue a new one",
+  "签发中…": "Issuing...",
+  "已签发，3 分钟内有效": "Issued, valid for 3 minutes",
+  "剩余 {0} · 交给 agent 后它就能领凭据了": "{0} left · hand it to your agent and it can collect the credentials",
+  "已过期 —— 点「重新签发」再给它一串。": "Expired: hit 'Issue a new one' and give it a fresh code.",
+  "复制交接码": "Copy handoff code",
+  "交接码已签发（还在有效期内）。忘了那串码就点「重新签发」。": "A handoff code is already issued (still valid). If you forgot it, hit 'Issue a new one'.",
+  "接下来点「签发交接码」，把它交给你的 agent —— 没有这串码，它领不走凭据。": "Next, hit 'Issue handoff code' and give it to your agent: without this code it cannot collect the credentials.",
+  "已交付 —— 最后一步：签发交接码交给 agent": "Delivered: last step, issue a handoff code and give it to the agent",
+});

@@ -1,7 +1,11 @@
 # Agent 配对接入 v1（自助接入）
 
-让你的 agent 自己走进 Karma：agent 发起 → 主人在操作台批准 → agent 自己把凭据领走。
+让你的 agent 自己走进 Karma：agent 发起 → 主人在操作台批准 → 主人在操作台**签发一串交接码** →
+把交接码交给 agent → agent 自己把凭据领走。
+
 全程没有「把密钥复制给 agent」这一步，也没有「agent 向用户索要密钥」这个动作。
+两个短码方向相反、互相咬合：**配对码**证明「你就是当初申请的那一个进程」，
+**交接码**证明「主人真的把凭据交到了你手上」—— 缺一个都领不走。
 
 ---
 
@@ -24,17 +28,28 @@
 
 ---
 
-## 2. 三个码
+## 2. 四个码 · 两把锁
 
-| 码 | 谁持有 | 作用 | 存储 |
-|----|--------|------|------|
-| `pairing_code` | agent | 轮询领取凭据的凭证 | 只存 SHA-256 |
-| `user_code` | 屏幕上，给人念/给人看 | 主人在操作台里对上号（如 `K4QP-3M2X`） | 明文（单独给到它也没有任何权限） |
-| 交付内容 | 服务端暂存 | API Key（+ 可选的 Runtime Key） | 领取后立刻清除，只发一次 |
+| 码 | 谁持有 | 方向 | 作用 | 存储 |
+|----|--------|------|------|------|
+| `pairing_code` | agent | agent → 服务端 | 轮询领取凭据的凭证（申请时只回一次） | 只存 SHA-256 |
+| `user_code` | 屏幕上 | agent → 主人 | 主人在操作台里对上号（如 `K4QP-3M2X`） | 明文（单独给到它也没有任何权限） |
+| `handoff_code` | 操作台屏幕上 | **主人 → agent** | 证明「主人真的把凭据交给了这个进程」 | 只存 SHA-256，3 分钟 |
+| 交付内容 | 服务端暂存 | — | API Key（+ 可选的 Runtime Key） | 领取后立刻清除，只发一次 |
 
-`user_code` 用 `ABCDEFGHJKMNPQRSTUVWXYZ23456789`（去掉 I/L/O/0/1），因为它可能是主人从
-屏幕上读出来手敲的。**光有 `user_code` 什么也做不了**：它不能换到任何凭据，只能让主人
-看到「谁在申请接入」。
+`user_code` 和 `handoff_code` 都用 `ABCDEFGHJKMNPQRSTUVWXYZ23456789`（去掉 I/L/O/0/1），
+因为两者都是**人从一块屏幕读到另一处**的短码（`user_code` 是 agent 屏幕 → 主人，`handoff_code`
+是操作台屏幕 → agent）。
+
+**两把锁各管一半，缺一个都领不走凭据：**
+
+- 只有 `pairing_code`（它申请时拿到的）：`claim` 回 `status=awaiting_handoff`，没有凭据。
+- 只有 `handoff_code`（比如聊天记录被人看到）：它换不到任何东西 —— 还要对上 `pairing_code`。
+- 两个都对：凭据发出去，两串码同时作废。
+
+正因为「单独一串码换不到任何东西」，这两串码**就算出现在聊天记录、截图、日志里也不要紧**；
+`pairing_code` 明文只在 `request` 的响应里出现一次，`handoff_code` 明文只在 `handoff`
+的响应里出现一次，两者落库都只有 SHA-256。
 
 ---
 
@@ -52,7 +67,12 @@ agent                          Karma API                      主人（操作台
   |                                |<-- POST /v1/agent-pairing/approve --|  批准：建 agent 身份 + 铸造 bootstrap API Key
   |                                |<-- POST /v1/agent-pairing/attach-runtime-key --  （可选）挂上刚签发的 Runtime Key
   |                                |                                     |
-  |-- POST /v1/agent-pairing/claim -->                                  |
+  |-- POST /v1/agent-pairing/claim -->                                  |  只有 pairing_code：还不够
+  |<-- {"status":"awaiting_handoff","handoff_state":"none"} ------------|
+  |                                |<-- POST /v1/agent-pairing/handoff --|  主人点「签发交接码」
+  |                                |--- 200 {handoff_code, 3 分钟有效} -->|  明文只在这一条响应里
+  |  主人在屏幕上看到，读给 / 输给 agent ------------------------------->|
+  |-- POST /v1/agent-pairing/claim {pairing_code, handoff_code} ------>  |
   |<-- credentials（api_key[, runtime_key]）+ env_snippet ---------------|  ← 只有这一次
   |-- POST /v1/agent-pairing/claim -->                                  |
   |<-- {"status":"claimed"}（没有任何凭据）------------------------------|
@@ -111,12 +131,19 @@ agent 侧发起。返回体里的 `pairing_code` **只出现这一次**。
 ### 4.2 `POST /v1/agent-pairing/claim`（公开，限流 10 次/分钟）
 
 ```json
-{"pairing_code": "..."}
+{"pairing_code": "...", "handoff_code": "K4QP-3M2X"}
 ```
 
 - `status=pending`：主人还没批。返回 `poll_interval_seconds`，按它轮询即可。
-- `status=approved`：**凭据在这里返回，且只返回这一次**。
+- `status=awaiting_handoff`：批准了，但第二把锁还没对上。带 `handoff_state`
+  （`none` 没签发 / `expired` 过期了 / `active` 签了但没传码），按 `poll_interval_seconds`
+  继续轮询；主人签发之后带上 `handoff_code` 再来。
+- `status=approved`：**凭据在这里返回，且只返回这一次**，并带
+  `"handoff": {"required": true, "consumed": true}`。
 - `status=claimed|denied|expired`：没有凭据可交。
+
+`handoff_code` 对不上返回 403；**连着错 5 次**（`HANDOFF_MAX_ATTEMPTS`）就地作废这次配对
+（`status=expired`、交付内容清空），只能重新申请。
 
 `approved` 的返回体：
 
@@ -149,6 +176,7 @@ agent 侧发起。返回体里的 `pairing_code` **只出现这一次**。
 | `POST` | `/v1/agent-pairing/approve` | 批准：建 agent 身份 + 铸造 bootstrap API Key，放进这次配对的交付里。**响应里不含密钥**。 |
 | `POST` | `/v1/agent-pairing/deny` | 拒绝：清空交付内容。 |
 | `POST` | `/v1/agent-pairing/attach-runtime-key` | 把已经签发的 Runtime Key 挂进这次配对（校验归属身份 + agent 绑定）。 |
+| `POST` | `/v1/agent-pairing/handoff` | **签发交接码**（批准后才可签）：3 分钟有效、明文只在响应里出现一次、重签当场作废旧码。 |
 | `GET` | `/v1/agent-pairing/mine` | 本身份名下发生过的配对（含状态与「有没有凭据」）。 |
 
 ---
@@ -157,6 +185,11 @@ agent 侧发起。返回体里的 `pairing_code` **只出现这一次**。
 
 - **一次性**：凭据只在第一次 `claim` 返回；返回后服务端立即清除该次配对的明文。
   第二次 `claim` 只会拿到 `{"status": "claimed"}`。
+- **两把锁（见 §2）**：光有 `pairing_code` 领不走凭据，还必须带上主人当场签发的
+  `handoff_code`；光有 `handoff_code` 也换不到东西。所以 key 被「捡到」不等于被「领走」——
+  捡到的人既没有 agent 那半串，也没在主人操作台上点过「签发」。
+- **交接码 3 分钟 + 5 次尝试上限**：`HANDOFF_TTL_SECONDS = 180`，超时即失效、重签作废旧码；
+  连错 5 次作废整次配对。窗口故意做短：主人把码读给 agent 是即时动作，不需要长窗口。
 - **身份绑定**：`approve` 用的是已认证的主身份；`attach-runtime-key` 会核对 Runtime Key
   的 `karma_identity_id` 是否就是这个主人，且 `agent_binding` 与配对里的 agent 一致。
 - **额度仍然是服务端硬约束**：`Runtime Key` 自带 `permissions[]` / `single_limit` /
@@ -171,9 +204,10 @@ agent 侧发起。返回体里的 `pairing_code` **只出现这一次**。
 - **过期**：`user_code` 默认 15 分钟（`DEFAULT_TTL_SECONDS`）。过期后既不能批准，
   也不能领取，凭据被清空。
 - **限流**：公开的两个端点各 10 次/分钟（按客户端 IP），`request` 还有每 IP 10 个未处理请求的上限。
-- **不落密钥**：`pairing_code` 只存 SHA-256（与 `services/agent_bootstrap_credentials.py`
-  同一口径）；控制台侧响应永远不含 `api_key` / `runtime_key`，有专门的测试钉住这一点
-  （`tests/unit/test_agent_pairing.py`）。
+- **不落密钥**：`pairing_code` 与 `handoff_code` 都只存 SHA-256（与
+  `services/agent_bootstrap_credentials.py` 同一口径）；控制台侧的
+  `lookup` / `mine` 响应永远含 `handoff_state`、永不含 `handoff_code` 明文，也不含
+  `api_key` / `runtime_key`，有专门的测试钉住这一点（`tests/unit/test_agent_pairing.py`）。
 
 ---
 
@@ -197,12 +231,17 @@ curl -s -X POST https://karma-network.ai/v1/agent-pairing/request \
   -H 'Content-Type: application/json' \
   -d '{"agent_name":"OpenClaw 采购助手","platform":"openclaw","requested_side":"seller","requested_vertical":"food"}'
 
-# 2. 主人批准后，用 pairing_code 领凭据（只成功一次）
+# 2. 主人批准后，先用 pairing_code 探一次 —— 会拿到 awaiting_handoff
 curl -s -X POST https://karma-network.ai/v1/agent-pairing/claim \
   -H 'Content-Type: application/json' \
   -d '{"pairing_code":"<上一步的 pairing_code>"}'
 
-# 3. 用拿到的凭据自检
+# 3. 主人点「签发交接码」并把那串码给你，再带上它领凭据（只成功一次）
+curl -s -X POST https://karma-network.ai/v1/agent-pairing/claim \
+  -H 'Content-Type: application/json' \
+  -d '{"pairing_code":"<上一步的 pairing_code>","handoff_code":"<主人给你的那串>"}'
+
+# 4. 用拿到的凭据自检
 curl -s https://karma-network.ai/v1/agents/mine -H "X-Karma-Api-Key: $KARMA_API_KEY"
 curl -s https://karma-network.ai/runtime/policy  -H "X-Karma-Runtime-Key: $KARMA_RUNTIME_KEY"
 ```
@@ -216,7 +255,7 @@ MCP 不是前提：任何会发 HTTP 的 agent 都能接入（`X-Karma-Api-Key` 
 
 | 位置 | 作用 |
 |------|------|
-| `services/agent_pairing.py` | 配对存储与状态机（request → approve → claim，一次性交付） |
+| `services/agent_pairing.py` | 配对存储与状态机（request → approve → handoff → claim，两把锁 + 一次性交付） |
 | `api/routes/agent_pairing.py` | 公开端点 + 主人端点，`api/app.py` 里分成两个 router 挂载 |
 | `api/routes/agents.py::connect_owner_agent` | 与 `/v1/agents/owner-connect` 共用的建 agent 逻辑 |
 | `apps/console/scripts/cyber-pairing.js` | 操作台「配对接入」面板 |

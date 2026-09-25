@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=eeeb7bd26b72" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=1d4dd8cad585" />
   </head>
   <body>
     <div class="bg"></div>
@@ -1051,6 +1051,21 @@
               </div>
             </div>
 
+            <!-- 交接码：主人 -> agent 方向的第二把锁。agent 自己的配对码证明「它就是当初
+                 发起的那一个进程」，这串码证明「主人真的把凭据交到了它手上」。缺一个都
+                 领不走 —— 所以这串码就算出现在聊天记录里也不要紧。 -->
+            <div id="pair-handoff" hidden>
+              <div class="pair-grant-head">
+                <b>交接码 · 交给 agent 的第二把锁</b>
+                <span>点「签发交接码」，把这串码输给你的 agent。它自己的配对码 + 这串码，缺一个都领不走凭据。</span>
+              </div>
+              <div class="pair-row">
+                <button type="button" class="btn primary" id="pair-handoff-go">签发交接码</button>
+                <span class="api-status" id="pair-handoff-status"></span>
+              </div>
+              <div id="pair-handoff-code" class="pair-handoff-code" hidden></div>
+            </div>
+
             <div id="pair-result" class="pair-result" style="margin-top:12px"></div>
           </div>
 
@@ -1349,7 +1364,7 @@
     </script>
     <script src="../../scripts/i18n-cyber.js?v=82f13dac7583"></script>
     <script src="../../scripts/karma-nodes.js?v=3e8631a9ab01"></script>
-    <script src="../../scripts/karma-public-api.js?v=77184b8c54ff"></script>
+    <script src="../../scripts/karma-public-api.js?v=da71ad7246b1"></script>
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=41a9ac4c9bec"></script>
@@ -1374,7 +1389,7 @@
     <script src="../../scripts/cyber-bind-requests.js?v=4b3dd8f031fd"></script>
     <!-- 一键取消绑定：和接入确认同源（都用 KarmaHandoff 出口的签名消息），排在它后面。 -->
     <script src="../../scripts/cyber-unbind-keys.js?v=417e6bdeece4"></script>
- <script src="../../scripts/cyber-pairing.js?v=8b6740fb7776"></script>
+ <script src="../../scripts/cyber-pairing.js?v=75dd8c7acfdc"></script>
     <!-- 刷脸保险柜：主身份刷脸即激活 + 追加身份的同人比对（模板在本机加密 / 比对）。 -->
     <script src="../../scripts/cyber-face-vault.js?v=4637f8de8da2"></script>
     <!-- 安全验证（2FA）：设置页那张卡 + 动额度前弹出的验证码。 -->

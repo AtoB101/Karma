@@ -83,6 +83,12 @@ class PairRequestBody(BaseModel):
 
 class PairClaimBody(BaseModel):
     pairing_code: str = Field(min_length=8, max_length=256)
+    #: 主人在操作台看到、亲手交给 agent 的那串码 —— 第二把锁（3 分钟）。
+    handoff_code: str | None = Field(default=None, max_length=32)
+
+
+class PairHandoffBody(BaseModel):
+    user_code: str = Field(min_length=4, max_length=16)
 
 
 class PairApproveBody(BaseModel):
@@ -147,7 +153,7 @@ async def claim_pairing(
     _rl: None = Depends(agent_pairing_rate_limit),
 ):
     """Poll for approval. Credentials are delivered once, then never again."""
-    return pairing.claim(pairing_code=body.pairing_code)
+    return pairing.claim(pairing_code=body.pairing_code, handoff_code=body.handoff_code)
 
 
 @owner_router.get("/lookup")
@@ -221,9 +227,26 @@ async def approve_pairing(
         "boundary_hash": result.get("boundary_hash"),
         "note_zh": (
             "已批准：agent 身份已建好，API Key 已放进这次配对的交付里，"
-            "等它用 pairing_code 自己来领取（只发一次）。控制台不再显示这串密钥。"
+            "等它自己来领取（只发一次）。控制台不再显示这串密钥。"
+            "接下来点「签发交接码」，把那串码交给你的 agent —— 它自己的 pairing_code "
+            "加上这串码，两个都对，凭据才会发出去。"
         ),
     }
+
+
+@owner_router.post("/handoff")
+async def issue_pairing_handoff(
+    body: PairHandoffBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """签发交接码（主人 -> agent 方向的第二把锁）。
+
+    批准之后才能签发；3 分钟有效、只在这条响应里出现一次（服务端只留 SHA-256），
+    重签会当场作废旧码。agent 光有 pairing_code 领不走凭据，必须有它。
+    """
+    owner = await _require_owner(db, request)
+    return pairing.issue_handoff(user_code=body.user_code, owner_identity_id=owner)
 
 
 @owner_router.post("/deny")

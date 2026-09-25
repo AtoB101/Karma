@@ -45,6 +45,12 @@ grep -q 'cyber-console.css' "$CONSOLE/pages/cyber/index.html"
 grep -q 'cyber-identity-verify.js' "$CONSOLE/pages/cyber/index.html"
 grep -q 'cyber-pairing.js' "$CONSOLE/pages/cyber/index.html"
 grep -q 'attachPairingRuntimeKey' "$CONSOLE/scripts/karma-public-api.js"
+# 交接码（第二把锁）：操作台出码、主人交给 agent —— 缺一个都领不走凭据。
+grep -q 'issuePairingHandoff' "$CONSOLE/scripts/karma-public-api.js"
+grep -q 'id="pair-handoff-go"' "$CONSOLE/pages/cyber/index.html"
+grep -q 'issueHandoff' "$CONSOLE/scripts/cyber-pairing.js"
+grep -q 'handoff_code_sha256' "$ROOT/services/agent_pairing.py"
+grep -q 'HANDOFF_TTL_SECONDS = 180' "$ROOT/services/agent_pairing.py"
 # 接入确认：设置页那张卡片 + 会话鉴权取数，少一个主人就看不见待确认请求。
 grep -q 'cyber-bind-requests.js' "$CONSOLE/pages/cyber/index.html"
 grep -q 'runtimeListPendingBinds' "$CONSOLE/scripts/karma-public-api.js"

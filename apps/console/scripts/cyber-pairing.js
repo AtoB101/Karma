@@ -24,7 +24,11 @@
     industryLoad: null,
     industry: null,
     specToken: 0,
+    // 交接码到期时间（毫秒）。倒计时用完就把它变成「重新签发」。
+    handoffExpiresAt: 0,
   };
+
+  var handoffTimer = null;
 
   function api() { return global.cyberKarmaApi; }
   function byId(id) { return document.getElementById(id); }
@@ -224,6 +228,114 @@
     var vn = byId("pair-name");
     if (vn && !vn.value) vn.value = v.agent_name || "";
     renderPerms();
+    // 批准之后 agent 还是领不走：还得有主人签发的交接码（第二把锁）。
+    renderHandoff(v);
+  }
+
+  /* ------------------------------------------ 交接码：主人 -> agent 的第二把锁 */
+
+  function copyText(text, btn) {
+    var done = function () {
+      if (!btn) return;
+      var old = btn.textContent;
+      btn.textContent = "已复制";
+      setTimeout(function () { btn.textContent = old; }, 1500);
+    };
+    try {
+      if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
+        global.navigator.clipboard.writeText(text).then(done, done);
+        return;
+      }
+    } catch (_) {}
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    } catch (_) {}
+    done();
+  }
+
+  function stopHandoffTimer() {
+    if (handoffTimer) {
+      clearInterval(handoffTimer);
+      handoffTimer = null;
+    }
+  }
+
+  /** 剩下的秒数：过期就把按钮改成「重新签发」，别让人对着死码等。 */
+  function renderHandoffCountdown() {
+    var left = byId("pair-handoff-left");
+    if (!left) return;
+    var ms = (state.handoffExpiresAt || 0) - Date.now();
+    if (!(ms > 0)) {
+      stopHandoffTimer();
+      left.textContent = "已过期 —— 点「重新签发」再给它一串。";
+      left.classList.add("err");
+      var btn = byId("pair-handoff-go");
+      if (btn) btn.textContent = "重新签发";
+      return;
+    }
+    var total = Math.ceil(ms / 1000);
+    var mm = String(Math.floor(total / 60)).padStart(2, "0");
+    var ss = String(total % 60).padStart(2, "0");
+    left.textContent = "剩余 " + mm + ":" + ss + " · 交给 agent 后它就能领凭据了";
+  }
+
+  function renderHandoff(view) {
+    var block = byId("pair-handoff");
+    var box = byId("pair-handoff-code");
+    if (!block || !box) return;
+    var v = view || {};
+    show(block, true);
+    stopHandoffTimer();
+    state.handoffExpiresAt = v.handoff_expires_at ? Date.parse(v.handoff_expires_at) : 0;
+    var code = v.handoff_code || "";
+    var btn = byId("pair-handoff-go");
+    if (code) {
+      box.hidden = false;
+      box.innerHTML =
+        '<div class="code" id="pair-handoff-text">' + esc(code) + "</div>" +
+        '<div class="meta" id="pair-handoff-left"></div>' +
+        '<div class="pair-row"><button type="button" class="btn" id="pair-handoff-copy">' +
+        "复制交接码</button></div>";
+      var copy = byId("pair-handoff-copy");
+      if (copy) copy.addEventListener("click", function () { copyText(code, copy); });
+      renderHandoffCountdown();
+      handoffTimer = setInterval(renderHandoffCountdown, 1000);
+      if (btn) btn.textContent = "重新签发";
+      return;
+    }
+    // 没有明文（刷新过页面 / 还没签发）：只报状态，绝不假装还能看到那串码。
+    if ((v.handoff_state || "") === "active") {
+      box.hidden = false;
+      box.innerHTML =
+        '<div class="meta">交接码已签发（还在有效期内）。忘了那串码就点「重新签发」。</div>';
+    } else {
+      box.hidden = true;
+      box.innerHTML = "";
+    }
+    if (btn) btn.textContent = "签发交接码";
+  }
+
+  async function issueHandoff() {
+    var status = byId("pair-handoff-status");
+    if (!state.code) return;
+    if (state.busy) return;
+    state.busy = true;
+    setStatus(status, "签发中…");
+    try {
+      var view = await api().issuePairingHandoff({ user_code: state.code });
+      state.view = Object.assign({}, state.view, view);
+      renderHandoff(view);
+      setStatus(status, "已签发，3 分钟内有效");
+    } catch (e) {
+      setStatus(status, e && e.message ? e.message : String(e), true);
+    } finally {
+      state.busy = false;
+    }
   }
 
   /* ------------------------------------------ 行业硬指标（与「接入一个 Agent」共用表单） */
@@ -328,11 +440,20 @@
       state.view = await api().lookupPairing(code);
       renderRequest();
       var pending = state.view.status === "pending";
+      var approved = state.view.status === "approved";
       show(byId("pair-decide"), pending);
-      show(byId("pair-grant"), false);
+      show(byId("pair-grant"), approved);
+      if (approved) {
+        // 刷新回来也能接着走：还能补挂 Runtime Key，也能重签交接码。
+        state.agentId = state.view.agent_id || "";
+        state.agentName = state.view.agent_name || "";
+        renderApproved();
+      } else {
+        show(byId("pair-handoff"), false);
+      }
       renderResult("");
       if (pending) await prefillDecision();
-      setStatus(status, pending ? "等待你批准" : "这条请求已处理");
+      setStatus(status, pending ? "等待你批准" : approved ? "已批准，等 agent 领取" : "这条请求已处理");
     } catch (e) {
       state.view = null;
       renderRequest();
@@ -398,7 +519,8 @@
       renderApproved();
       renderResult(
         "<b>已批准接入</b><p>" + esc(state.agentId) + "</p>" +
-          "<p>API Key 已经放进这次配对，等它自己来领（只发一次，本页不会显示这串密钥）。</p>"
+          "<p>API Key 已经放进这次配对，等它自己来领（只发一次，本页不会显示这串密钥）。</p>" +
+          "<p>接下来点「签发交接码」，把它交给你的 agent —— 没有这串码，它领不走凭据。</p>"
       );
       setStatus(status, "已批准，等 agent 领取");
       document.dispatchEvent(new CustomEvent("karma-agent-connected", { detail: { agent_id: state.agentId } }));
@@ -541,7 +663,8 @@
           ) +
           "</p>"
       );
-      setStatus(status, "已交付，等 agent 领取");
+      renderHandoff(state.view);
+      setStatus(status, "已交付 —— 最后一步：签发交接码交给 agent");
     } catch (e) {
       setStatus(status, e && e.message ? e.message : String(e), true);
     } finally {
@@ -577,6 +700,8 @@
     if (r) r.addEventListener("click", reject);
     var g = byId("pair-grant-go");
     if (g) g.addEventListener("click", grant);
+    var h = byId("pair-handoff-go");
+    if (h) h.addEventListener("click", issueHandoff);
     var codeInput = byId("pair-code");
     if (codeInput) {
       codeInput.addEventListener("keydown", function (ev) {

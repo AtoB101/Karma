@@ -97,6 +97,23 @@ async def _open_request(client, **over) -> dict:
     return r.json()
 
 
+async def _issue_handoff(client, user_code: str) -> str:
+    """批准之后请主人签发交接码，返回那串明文（只在签发响应里出现一次）。"""
+    r = await client.post(
+        "/v1/agent-pairing/handoff",
+        json={"user_code": user_code},
+        headers={"X-Karma-Identity-Id": OWNER},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["handoff_state"] == "active"
+    code = body["handoff_code"]
+    assert code
+    # 明文不许落库：磁盘上只有 SHA-256。
+    assert code not in str(pairing._RECORDS)  # noqa: SLF001
+    return code
+
+
 @pytest.mark.asyncio
 async def test_request_is_public_and_hands_out_one_time_codes(db_session):
     client = await _client(db_session)
@@ -193,13 +210,35 @@ async def test_full_flow_delivers_the_bootstrap_key_exactly_once(db_session, mon
             assert "KARMA_API_KEY" not in approved.text
             assert f"karma_{agent_id}_" not in approved.text
 
-            claimed = await client.post(
+            # 只有 agent 自己那串 pairing_code 已经不够了 —— 第二把锁还没发。
+            half = await client.post(
                 "/v1/agent-pairing/claim", json={"pairing_code": opened["pairing_code"]}
+            )
+            assert half.status_code == 200, half.text
+            assert half.json()["status"] == "awaiting_handoff"
+            assert half.json()["handoff_state"] == "none"
+            assert "credentials" not in half.json()
+
+            handoff_code = await _issue_handoff(client, opened["user_code"])
+
+            # 操作台只看得到「签没签、还剩多久」，永远看不到那串码本身。
+            recheck = await client.get(
+                "/v1/agent-pairing/lookup",
+                params={"user_code": opened["user_code"]},
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert recheck.json()["handoff_state"] == "active"
+            assert handoff_code not in recheck.text
+
+            claimed = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": handoff_code},
             )
             assert claimed.status_code == 200, claimed.text
             payload = claimed.json()
             assert payload["status"] == "approved"
             assert payload["agent_id"] == agent_id
+            assert payload["handoff"] == {"required": True, "consumed": True}
             api_key = payload["credentials"]["api_key"]
             assert api_key and validate_api_key_for_agent(agent_id, api_key)
             assert payload["env_snippet"]["KARMA_API_KEY"] == api_key
@@ -361,8 +400,10 @@ async def test_runtime_key_can_only_be_attached_by_its_own_identity(db_session):
             assert attached.json()["has_runtime_key"] is True
             assert own_token not in attached.text
 
+            handoff_code = await _issue_handoff(client, opened["user_code"])
             claimed = await client.post(
-                "/v1/agent-pairing/claim", json={"pairing_code": opened["pairing_code"]}
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": handoff_code},
             )
             payload = claimed.json()
             assert payload["credentials"]["runtime_key"] == own_token
@@ -443,6 +484,9 @@ def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
     assert 'id="pair-code"' in html
     assert 'id="pair-approve"' in html
     assert 'id="pair-grant-go"' in html
+    # 交接码那一块：没有它，主人就没法把第二把锁交给 agent。
+    assert 'id="pair-handoff"' in html
+    assert 'id="pair-handoff-go"' in html
 
     console_js = (CONSOLE / "scripts" / "cyber-console.js").read_text(encoding="utf-8")
     assert 'pair: "#ag-pair"' in console_js
@@ -452,8 +496,17 @@ def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
 def test_the_pairing_panel_never_asks_the_owner_for_a_secret():
     """方向不能反：这一页只批准请求，不接受任何「把密钥填进来」。"""
     js = PAIRING_JS.read_text(encoding="utf-8")
-    for call in ("lookupPairing", "approvePairing", "denyPairing", "attachPairingRuntimeKey"):
+    for call in (
+        "lookupPairing",
+        "approvePairing",
+        "denyPairing",
+        "attachPairingRuntimeKey",
+        "issuePairingHandoff",
+    ):
         assert call in js, call
+    # 签发与倒计时的渲染都得在面板脚本里，不能在别处再抄一份。
+    for needle in ("renderHandoff", "issueHandoff", "handoffExpiresAt"):
+        assert needle in js, needle
     for banned in ("privateKey", "private_key", "mnemonic", "seedPhrase", "seed_phrase"):
         assert banned not in js, banned
     # The agent's own secret must never be asked for on screen either.
@@ -517,8 +570,261 @@ def test_every_language_pack_carries_the_pairing_copy():
         "行业硬指标还差 {0} 项",
         "请先选择行业 —— 硬指标是按行业定的",
         "硬指标表单未加载，请刷新页面",
+        # 交接码（第二把锁）：五门语言都要有，否则切语言就掉回中文。
+        "交接码 · 交给 agent 的第二把锁",
+        "签发交接码",
+        "复制交接码",
+        "剩余 {0} · 交给 agent 后它就能领凭据了",
     )
     for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
         pack = (PHRASE_DIR / f"{lang}.js").read_text(encoding="utf-8")
         missing = [s for s in samples if f'"{s}":' not in pack]
         assert not missing, f"{lang} 缺译文：{missing}"
+
+
+@pytest.mark.asyncio
+async def test_handoff_needs_an_owner_session_and_an_approved_pairing(db_session):
+    """签发交接码是主人的动作：没登录、没批准、不是自己的配对，都要被挡住。"""
+    client = await _client(db_session)
+    try:
+        async with client:
+            opened = await _open_request(client)
+
+            # 批准之前没有交接码可签。
+            early = await client.post(
+                "/v1/agent-pairing/handoff",
+                json={"user_code": opened["user_code"]},
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert early.status_code == 409, early.text
+
+            # 没有主人会话也不行 —— 否则任何人都能给自己签发第二把锁。
+            anon = await client.post(
+                "/v1/agent-pairing/handoff", json={"user_code": opened["user_code"]}
+            )
+            assert anon.status_code == 403, anon.text
+
+            approved = await client.post(
+                "/v1/agent-pairing/approve",
+                json={
+                    "user_code": opened["user_code"],
+                    "side": "seller",
+                    "vertical": "food",
+                    "answers": {
+                        "industry_ids": ["food_delivery"],
+                        "service_specs": _food_specs(),
+                    },
+                },
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert approved.status_code == 200, approved.text
+
+            # 别人的配对，签不动。
+            foreign = await client.post(
+                "/v1/agent-pairing/handoff",
+                json={"user_code": opened["user_code"]},
+                headers={"X-Karma-Identity-Id": OTHER},
+            )
+            assert foreign.status_code == 403, foreign.text
+
+            ok = await client.post(
+                "/v1/agent-pairing/handoff",
+                json={"user_code": opened["user_code"]},
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert ok.status_code == 200, ok.text
+            assert ok.json()["handoff_code"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_reissuing_the_handoff_code_kills_the_old_one(db_session):
+    """重签就是重签：旧码当场作废，免得两串码同时在世上流转。"""
+    client = await _client(db_session)
+    try:
+        async with client:
+            opened = await _open_request(client)
+            approved = await client.post(
+                "/v1/agent-pairing/approve",
+                json={
+                    "user_code": opened["user_code"],
+                    "side": "seller",
+                    "vertical": "food",
+                    "answers": {
+                        "industry_ids": ["food_delivery"],
+                        "service_specs": _food_specs(),
+                    },
+                },
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert approved.status_code == 200, approved.text
+
+            first = await _issue_handoff(client, opened["user_code"])
+            second = await _issue_handoff(client, opened["user_code"])
+            assert first != second
+
+            stale = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": first},
+            )
+            assert stale.status_code == 403, stale.text
+
+            fresh = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": second},
+            )
+            assert fresh.status_code == 200, fresh.text
+            assert fresh.json()["credentials"]["api_key"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_expired_handoff_code_delivers_nothing(db_session, monkeypatch):
+    """交接码过期就只剩「重新签发」，agent 拿不到凭据。"""
+    monkeypatch.setattr(pairing, "HANDOFF_TTL_SECONDS", -1)
+    client = await _client(db_session)
+    try:
+        async with client:
+            opened = await _open_request(client)
+            approved = await client.post(
+                "/v1/agent-pairing/approve",
+                json={
+                    "user_code": opened["user_code"],
+                    "side": "seller",
+                    "vertical": "food",
+                    "answers": {
+                        "industry_ids": ["food_delivery"],
+                        "service_specs": _food_specs(),
+                    },
+                },
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert approved.status_code == 200, approved.text
+
+            issued = await client.post(
+                "/v1/agent-pairing/handoff",
+                json={"user_code": opened["user_code"]},
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert issued.status_code == 200, issued.text
+            code = issued.json()["handoff_code"]
+
+            claimed = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": code},
+            )
+            assert claimed.status_code == 200, claimed.text
+            body = claimed.json()
+            assert body["status"] == "awaiting_handoff"
+            assert body["handoff_state"] == "expired"
+            assert "credentials" not in body
+
+            # 配对本身还没过期：主人重新签发就能救回来。
+            again = await client.post(
+                "/v1/agent-pairing/handoff",
+                json={"user_code": opened["user_code"]},
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert again.status_code == 200, again.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_five_wrong_handoff_codes_expire_the_pairing(db_session):
+    """连着猜错交接码：就地作废这次配对，凭据一并销毁，只能重新申请。"""
+    client = await _client(db_session)
+    try:
+        async with client:
+            opened = await _open_request(client)
+            approved = await client.post(
+                "/v1/agent-pairing/approve",
+                json={
+                    "user_code": opened["user_code"],
+                    "side": "seller",
+                    "vertical": "food",
+                    "answers": {
+                        "industry_ids": ["food_delivery"],
+                        "service_specs": _food_specs(),
+                    },
+                },
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert approved.status_code == 200, approved.text
+            good = await _issue_handoff(client, opened["user_code"])
+            wrong = "ZZZZ-ZZZZ" if good != "ZZZZ-ZZZZ" else "YYYY-YYYY"
+
+            for i in range(4):
+                bad = await client.post(
+                    "/v1/agent-pairing/claim",
+                    json={"pairing_code": opened["pairing_code"], "handoff_code": wrong},
+                )
+                assert bad.status_code == 403, (i, bad.text)
+
+            # 第 5 次：配对作废。
+            last = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": wrong},
+            )
+            assert last.status_code == 403, last.text
+            assert "expired" in last.text
+
+            # 就算现在拿着正确的那串码，也领不到东西了。
+            after = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": good},
+            )
+            assert after.status_code == 200, after.text
+            assert after.json()["status"] == "expired"
+            assert "credentials" not in after.json()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_the_plaintext_handoff_code_never_lands_on_disk(db_session):
+    """交接码和 pairing_code 一样：磁盘上只留哈希，明文只回一次。"""
+    client = await _client(db_session)
+    try:
+        async with client:
+            opened = await _open_request(client)
+            approved = await client.post(
+                "/v1/agent-pairing/approve",
+                json={
+                    "user_code": opened["user_code"],
+                    "side": "seller",
+                    "vertical": "food",
+                    "answers": {
+                        "industry_ids": ["food_delivery"],
+                        "service_specs": _food_specs(),
+                    },
+                },
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert approved.status_code == 200, approved.text
+            code = await _issue_handoff(client, opened["user_code"])
+
+            dumped = str(pairing._RECORDS)  # noqa: SLF001
+            assert code not in dumped
+            assert code.replace("-", "") not in dumped
+            # 再看一眼落盘的那份 JSON。
+            blob = Path(pairing._STORE_PATH).read_text(encoding="utf-8")  # noqa: SLF001
+            assert code not in blob
+            assert code.replace("-", "") not in blob
+
+            # 领取之后连状态都变成 used，重放只剩 claimed。
+            claimed = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": code},
+            )
+            assert claimed.status_code == 200, claimed.text
+            replay = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": code},
+            )
+            assert replay.json()["status"] == "claimed"
+            assert "credentials" not in replay.json()
+    finally:
+        app.dependency_overrides.clear()

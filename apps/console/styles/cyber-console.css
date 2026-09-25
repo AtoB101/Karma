@@ -2502,3 +2502,23 @@ body {
 #idv-add-identity .aid-note.aid-ok { color: var(--neon-cyan); }
 #idv-add-identity .aid-note.aid-bad { color: #ff8a9a; }
 #idv-add-identity .aid-hint { margin: 10px 0 0; font-size: 11.5px; line-height: 1.7; color: #6c8aac; }
+
+/* 交接码：主人在操作台看到、亲手交给 agent 的那串码。要大到能照着念，
+   所以按「一遍看清」来排，而不是按普通提示文案。 */
+.pair-handoff-code {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px dashed var(--neon-cyan, #4bd6ff);
+  border-radius: 12px;
+  background: rgba(75, 214, 255, 0.08);
+}
+.pair-handoff-code .code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 30px;
+  line-height: 1.2;
+  letter-spacing: 6px;
+  font-weight: 700;
+  color: var(--neon-cyan, #4bd6ff);
+}
+.pair-handoff-code .meta { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--text-dim, #9fb4c8); }
+.pair-handoff-code .meta.err { color: #ff8a9a; }
