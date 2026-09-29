@@ -33,6 +33,20 @@ allowance, so the master ``capacity`` ledger is credited from the claimed ``comm
 (``services/chain/allowance_escrow.reconcile_capacity_mirror``) — one credit per live
 commitment, taken back on ``revoke()`` and reduced as Karma pulls the money.
 
+**The capacity mirror has its own invariant, checked after every money move:**
+
+```text
+total_bill_credits == active          (credits outstanding == credits tied up)
+total_locked_usdc  >= active          (the USDC side is never short of the credit side)
+```
+
+``services/capacity_ledger.capacity_conservation_gap()`` is the single source of truth for it, and
+``heal_capacity_conservation()`` repairs a broken row **in place** — it can only ever *raise*
+``total_locked_usdc``, never lower it, so healing can never hand out spendable capacity. Every
+money entry point (``capacity_resolution`` / ``voucher_lifecycle`` / ``voucher_reaper``) heals
+before it asserts, so a stale session snapshot on the mirror (a write-back that misses a
+concurrent ``reserved`` move) cannot be inherited as a hard 500 on the next dispute/accept.
+
 ## Allowance escrow (`KarmaAllowanceEscrow`, v3/v4/v5)
 
 Still non-custodial: the buyer's wallet only grants an allowance, so no USDC sits in the

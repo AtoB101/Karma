@@ -18,6 +18,9 @@
 - 卖方收付中心必须看得见这一单，binding 状态跟链上一致，且带 bind / submit / finalize 三笔 tx；
 - 买方额度账本必须跟着动：`reserved` 下单加、结算放回、`burned` 核销；
   争议时进 `disputed`，裁决落地后放回。
+- **账本守恒式不能破**：`total_bill_credits == active` 且 `total_locked_usdc >= active`，
+  在「下单后 / 结算后 / 争议冻结后 / 裁决后」四个时点各断一次
+  （`Report.conserved()`）。这条是 2026-09-29 那个「开争议 500」的直接对应物。
 
 ## 三个脚本
 
