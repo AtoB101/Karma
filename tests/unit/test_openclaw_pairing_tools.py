@@ -151,7 +151,7 @@ async def test_start_surfaces_the_server_reason(monkeypatch):
 # --------------------------------------------------------------- 领取
 
 
-async def test_claim_without_a_handoff_code_asks_the_owner_for_it(monkeypatch):
+async def test_claim_relays_the_handoff_ask_the_server_reports(monkeypatch):
     _install(monkeypatch, [
         _request_payload(),
         {
@@ -168,6 +168,23 @@ async def test_claim_without_a_handoff_code_asks_the_owner_for_it(monkeypatch):
     assert out["status"] == "awaiting_handoff"
     assert out["handoff_state"] == "none"
     assert "签发交接码" in out["ask_owner"]
+
+
+async def test_claim_lets_the_server_explain_the_hold(monkeypatch):
+    """服务端的话是权威：它说为什么卡住，agent 就照搬，不自己编。"""
+    _install(monkeypatch, [
+        _request_payload(),
+        {
+            "status": "awaiting_handoff",
+            "handoff_state": "none",
+            "message_zh": "这次部署仍要求交接码：请主人在操作台签发后再试。",
+            "expires_at": "2026-09-25T12:00:00Z",
+            "poll_interval_seconds": 3,
+        },
+    ])
+    await pt.karma_pairing_start("claw-001")
+    out = await pt.karma_pairing_claim()
+    assert out["ask_owner"] == "这次部署仍要求交接码：请主人在操作台签发后再试。"
     # 没交接码就没凭据、更不写盘。
     assert not pt.agent_env_path().exists()
 

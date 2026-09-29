@@ -275,6 +275,11 @@ async def karma_pairing_status(user_code: str = "") -> dict[str, Any]:
             if payload.get("handoff_state") == "expired"
             else "你在操作台点过「签发交接码」，把屏幕上那串 8 位码念给我。"
         )
+        # 服务端才是权威：它知道这次为什么卡住（老版本还要求交接码、或者别的闸）。
+        # 有它自己的话就照搬，别让 agent 用一份写死的猜测去指挥主人。
+        server_says = str(payload.get("message_zh") or "").strip()
+        if server_says:
+            out["ask_owner"] = server_says
     return out
 
 
@@ -376,6 +381,10 @@ async def karma_pairing_claim(
             out["ask_owner"] = "你在操作台点过「签发交接码」，把屏幕上那串 8 位码念给我。"
         else:
             out["ask_owner"] = "你在操作台签发的交接码还有效，把那串码念给我。"
+        # 服务端是权威：旧部署还在要求交接码时，它会给出真正的原因，照搬即可。
+        server_says = str(payload.get("message_zh") or "").strip()
+        if server_says:
+            out["ask_owner"] = server_says
         return out
 
     if status != "approved":
