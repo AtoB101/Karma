@@ -235,6 +235,8 @@ if command -v node >/dev/null 2>&1; then
   node "$ROOT/tests/js/test_gate_error_hints.cjs"
   # 最近调用面板：切语言重画 + prune 按宿主（都是真机上踩出来的）。
   node "$ROOT/tests/js/test_key_calls_panel.cjs"
+  # 站内提醒：每一份词表都要有那句带变量的整句，切了语言不许再留中文。
+  node "$ROOT/tests/js/test_console_notices.cjs"
 
   # 真机验证（可选）：装了 playwright 才跑。开一个真实浏览器把节点层从头走一遍，
   # 没装就跳过 —— 上面那些检查已经覆盖了行为，这一支只是多一层「浏览器里真的行」。

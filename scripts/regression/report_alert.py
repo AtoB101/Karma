@@ -21,7 +21,24 @@ import os
 import sys
 from datetime import datetime, timezone
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+def _repo_root() -> str:
+    """脚本会被 ``docker cp`` 到 ``/tmp`` 里跑，那个位置推不出仓库根。
+
+    ``/tmp/../..`` 一层层推上去是 ``/``，于是 ``import services`` 会摸到
+    site-packages 里那个同名包（真机上就是这样：``ImportError: cannot import name
+    'console_notice'``，报警静默失败）。先认环境变量，再试脚本旁边，最后回落到容器
+    里的 ``/app``。
+    """
+    env = (os.environ.get("KARMA_REPO_ROOT") or "").strip()
+    if env and os.path.isdir(env):
+        return env
+    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if os.path.isdir(os.path.join(here, "services")):
+        return here
+    return "/app"
+
+
+REPO_ROOT = _repo_root()
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
