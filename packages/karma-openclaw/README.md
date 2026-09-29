@@ -57,15 +57,17 @@ travel through the chat:
 ```text
 karma_pairing_start(agent_name="claw-001", requested_side="seller", requested_vertical="food")
   -> user_code "QKFS-3J5Z" + verification_uri      # hand these two to your owner
-  ... owner approves in Karma Console, then clicks "签发交接码" / "Issue handoff code"
-karma_pairing_claim(handoff_code="<the code your owner reads to you>")
+  ... owner reviews it in Karma Console, sets the allowance, and approves — that is the delivery
+karma_pairing_claim()
   -> credentials written to ~/.karma/agent.env (0600); only sha256 fingerprints returned
 ```
 
-Two locks, one handshake: the agent's own `pairing_code` proves it is the process that
-asked, and the owner-issued `handoff_code` (3 minutes, single use) proves the owner really
-handed the credentials over. Either one alone buys nothing, so neither code is dangerous in
-a transcript. See [Agent 配对接入 v1](../../docs/AGENT_PAIRING_V1.md).
+The direction is fixed: the agent produces the code, the owner types it in, approval releases
+the credentials. The agent's own `pairing_code` (256-bit, returned once, stored as SHA-256) is
+the only thing that redeems them — so a `user_code` on a screenshot, or a whole chat transcript,
+is worth nothing. If the owner wants one more hand-to-hand confirmation they can *optionally*
+issue a `handoff_code` (3 minutes, single use); then — and only then — the claim has to carry
+it too. See [Agent 配对接入 v1](../../docs/AGENT_PAIRING_V1.md).
 
 ## Quick Demo
 

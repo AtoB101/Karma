@@ -520,9 +520,9 @@
       renderResult(
         "<b>已批准接入</b><p>" + esc(state.agentId) + "</p>" +
           "<p>API Key 已经放进这次配对，等它自己来领（只发一次，本页不会显示这串密钥）。</p>" +
-          "<p>接下来点「签发交接码」，把它交给你的 agent —— 没有这串码，它领不走凭据。</p>"
+          "<p>已批准，凭据等 agent 自己来领 —— 它下一次轮询就能拿到，你不用再给它任何码。</p>"
       );
-      setStatus(status, "已批准，等 agent 领取");
+      setStatus(status, "已批准并交付，等 agent 领取");
       document.dispatchEvent(new CustomEvent("karma-agent-connected", { detail: { agent_id: state.agentId } }));
     } catch (e) {
       // 服务端的 400 要原样摆在页面上（比如硬指标哪一项不合规），别只塞进状态栏。
@@ -664,7 +664,7 @@
           "</p>"
       );
       renderHandoff(state.view);
-      setStatus(status, "已交付 —— 最后一步：签发交接码交给 agent");
+      setStatus(status, "已交付 —— agent 会在下一次轮询领走凭据");
     } catch (e) {
       setStatus(status, e && e.message ? e.message : String(e), true);
     } finally {

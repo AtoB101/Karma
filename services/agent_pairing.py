@@ -4,28 +4,29 @@ A foreign agent asks to be connected, the wallet owner approves it in the
 console, and the agent picks its credentials up by polling with the code it was
 handed. Nobody copies a secret between two windows by hand.
 
-Four codes live in a pairing record and they are **not** interchangeable:
+Codes in a pairing record (none of them is interchangeable):
 
 ``pairing_code``  held by the agent only; proves the poller is the same process
                   that opened the request. Returned once, at request time, and
-                  persisted only as a SHA-256 hash.
+                  persisted only as a SHA-256 hash. It is the one thing that
+                  actually redeems the credentials.
 ``user_code``     short and human-typed (``K4QP-3M2X``) so the owner can match
                   the request on screen. Alone it grants nothing.
-``handoff_code``  issued in the console by the owner and read off the screen
-                  (``7P2K-9RVX``, 3 minutes). It travels owner -> agent — the
-                  one direction a chat transcript *can* carry — which is
-                  exactly why it must never be sufficient on its own: without
-                  the agent's ``pairing_code`` it redeems nothing, and without
-                  it the ``pairing_code`` redeems nothing either.
+``handoff_code``  **optional** hardening. Issued in the console by the owner
+                  and read off the screen (``7P2K-9RVX``, 3 minutes). Only when
+                  the owner chooses to issue one does ``claim`` have to carry
+                  it — a hand-to-hand confirmation. Not issuing one is the
+                  default: approval itself is the delivery.
 ``delivery``      minted credentials, held server-side until the agent claims
                   them and wiped on claim — the one-shot rule the rest of the
                   platform already follows for bootstrap keys.
 
-The two short codes are the two halves of one handshake, and they run in
-opposite directions: at activation the agent shows *its* code to the owner, at
-pairing the owner hands *theirs* to the agent. Neither half is a secret, so
-nothing that ends up in a chat transcript or a screen recording is worth
-stealing — the credentials themselves only ever move server -> agent.
+The direction is fixed: the agent produces the code, the owner types it into
+the console, and approval releases the credentials. The console never produces
+a code that the owner has to relay back to the agent — that reversed direction
+would put a transcript-readable step on the critical path for no gain. Nothing
+a bystander can copy (``user_code``, a transcript, a screenshot) redeems
+anything; the credentials themselves only ever move server -> agent.
 
 Escrow of the pending payload is deliberate: Karma already custodies the
 agent's Ed25519 signer server-side (``services/agent_key_store.py``), so a
@@ -402,18 +403,20 @@ def create_request(
         "expires_in_seconds": DEFAULT_TTL_SECONDS,
         "poll_interval_seconds": POLL_INTERVAL_SECONDS,
         "claim_endpoint": "/v1/agent-pairing/claim",
-        "claim_requires": ["pairing_code", "handoff_code"],
+        "claim_requires": ["pairing_code"],
+        "claim_requires_if_owner_issued_handoff": ["handoff_code"],
         "instructions_zh": (
-            "① 把 user_code 告诉你的主人，请他在 Karma 操作台 · Agent 接入 · 配对 里批准；"
-            "② 请他在操作台点「签发交接码」，把那串码输入给你；"
-            "③ 用 pairing_code + handoff_code 轮询 claim 端点领取凭据"
-            "（只发一次，拿到就存好）。两个码缺一不可。"
+            "① 把 user_code 告诉你的主人，请他在 Karma 操作台 · Agent 接入 · 配对 里"
+            "核对、划额度、批准（批准就是交付）；"
+            "② 用 pairing_code 轮询 claim 端点领取凭据（只发一次，拿到就存好）；"
+            "③ 只有主人额外点过「签发交接码」时，才要把 handoff_code 一起带上。"
         ),
         "instructions_en": (
-            "1) Show the user_code to your owner and ask them to approve it in the Karma "
-            "console (Agents · Pairing). 2) Ask them to issue a handoff code there and give "
-            "it to you. 3) Poll the claim endpoint with pairing_code + handoff_code. Both "
-            "codes are required; credentials are delivered exactly once."
+            "1) Show the user_code to your owner and ask them to review it, set the "
+            "allowance and approve in the Karma console (Agents · Pairing) — approval is "
+            "the delivery. 2) Poll the claim endpoint with pairing_code; credentials are "
+            "delivered exactly once. 3) Only if the owner additionally issued a handoff "
+            "code do you need to send handoff_code too."
         ),
     }
 
@@ -590,32 +593,39 @@ def claim(*, pairing_code: str, handoff_code: str | None = None) -> dict[str, An
                 "message_en": "This pairing has nothing left to deliver.",
             }
 
-        # ── 第二把锁：主人屏幕上的交接码 ──────────────────────────────────
-        # pairing_code 只在申请时返回过一次（磁盘上只有哈希）。就算它被偷，
-        # 光靠它也**领不走任何东西**：还得有主人在操作台亲口交给你的那串码。
-        # 反过来，交接码即使出现在聊天记录里也没用 —— 单独一串换不到凭据。
-        state = _handoff_state(row)
-        if state in {"none", "expired"}:
-            return {
-                "status": "awaiting_handoff",
-                "handoff_state": state,
-                "handoff_expires_at": row.get("handoff_expires_at"),
-                "expires_at": row.get("expires_at"),
-                "poll_interval_seconds": POLL_INTERVAL_SECONDS,
-                "message_zh": (
-                    "交接码过期了，请主人在操作台重新签发。"
-                    if state == "expired"
-                    else "主人还没签发交接码。请让他在操作台点「签发交接码」，"
-                    "再把那串码输入给你。"
-                ),
-                "message_en": (
-                    "The handoff code expired — ask your owner to reissue it in the console."
-                    if state == "expired"
-                    else "Your owner has not issued a handoff code yet. Ask them to issue "
-                    "one in the console and hand it to you."
-                ),
-            }
-        if not str(handoff_code or "").strip():
+        # ── 交付 ────────────────────────────────────────────────────────
+        # 方向只有一个：**agent 出配对码 → 主人在操作台输入、核对、划额度、签名批准**。
+        # 批准这一步本身就是交付动作，主人不需要再产生任何码念回给 agent —— 否则
+        # 「谁给谁码」就反了，而且把一次能被偷听的转述塞进了必经之路。
+        #
+        # 防重放靠的是 pairing_code：它 256 位、只在申请时回过一次、磁盘上只有哈希。
+        # 别人光知道 user_code 领不走任何东西，因为他没有 pairing_code。
+        #
+        # 「交接码」保留成主人**主动加**的第二把锁（操作台那个按钮还在）：只有他点过
+        # 「签发交接码」，claim 才必须带上它。没点过就是批准即交付。
+        if str(row.get("handoff_code_sha256") or ""):
+            state = _handoff_state(row)
+            if state in {"none", "expired"}:
+                return {
+                    "status": "awaiting_handoff",
+                    "handoff_state": state,
+                    "handoff_expires_at": row.get("handoff_expires_at"),
+                    "expires_at": row.get("expires_at"),
+                    "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                    "message_zh": (
+                        "交接码过期了，请主人在操作台重新签发。"
+                        if state == "expired"
+                        else "主人还没签发交接码。请让他在操作台点「签发交接码」，"
+                        "再把那串码输入给你。"
+                    ),
+                    "message_en": (
+                        "The handoff code expired — ask your owner to reissue it in the console."
+                        if state == "expired"
+                        else "Your owner has not issued a handoff code yet. Ask them to issue "
+                        "one in the console and hand it to you."
+                    ),
+                }
+        if str(row.get("handoff_code_sha256") or "") and not str(handoff_code or "").strip():
             return {
                 "status": "awaiting_handoff",
                 "handoff_state": state,
@@ -625,7 +635,7 @@ def claim(*, pairing_code: str, handoff_code: str | None = None) -> dict[str, An
                 "message_zh": "把主人在操作台看到的交接码用 handoff_code 参数传进来。",
                 "message_en": "Pass the handoff code your owner read to you as handoff_code.",
             }
-        if not _verify_handoff(row, handoff_code):
+        if str(row.get("handoff_code_sha256") or "") and not _verify_handoff(row, handoff_code):
             row["handoff_failures"] = int(row.get("handoff_failures") or 0) + 1
             if row["handoff_failures"] >= HANDOFF_MAX_ATTEMPTS:
                 # 连着猜错：就地作废这次配对，凭据一并销毁。
@@ -641,6 +651,7 @@ def claim(*, pairing_code: str, handoff_code: str | None = None) -> dict[str, An
 
         delivery = dict(row.get("delivery") or {})
         env = _env_snippet(row)
+        handoff_required = bool(str(row.get("handoff_code_sha256") or ""))
         row["status"] = "claimed"
         row["claimed_at"] = _iso(_utcnow())
         # One shot: the plaintext and the handoff code both die here.
@@ -654,7 +665,7 @@ def claim(*, pairing_code: str, handoff_code: str | None = None) -> dict[str, An
         "status": "approved",
         "agent_id": row.get("agent_id"),
         "owner_identity_id": row.get("owner_identity_id"),
-        "handoff": {"required": True, "consumed": True},
+        "handoff": {"required": handoff_required, "consumed": True},
         "credentials": {
             "api_key": delivery.get("api_key"),
             "agent_public_key": delivery.get("agent_public_key"),

@@ -210,35 +210,16 @@ async def test_full_flow_delivers_the_bootstrap_key_exactly_once(db_session, mon
             assert "KARMA_API_KEY" not in approved.text
             assert f"karma_{agent_id}_" not in approved.text
 
-            # 只有 agent 自己那串 pairing_code 已经不够了 —— 第二把锁还没发。
-            half = await client.post(
-                "/v1/agent-pairing/claim", json={"pairing_code": opened["pairing_code"]}
-            )
-            assert half.status_code == 200, half.text
-            assert half.json()["status"] == "awaiting_handoff"
-            assert half.json()["handoff_state"] == "none"
-            assert "credentials" not in half.json()
-
-            handoff_code = await _issue_handoff(client, opened["user_code"])
-
-            # 操作台只看得到「签没签、还剩多久」，永远看不到那串码本身。
-            recheck = await client.get(
-                "/v1/agent-pairing/lookup",
-                params={"user_code": opened["user_code"]},
-                headers={"X-Karma-Identity-Id": OWNER},
-            )
-            assert recheck.json()["handoff_state"] == "active"
-            assert handoff_code not in recheck.text
-
+            # 方向只有一个：**批准就是交付**。agent 拿自己那串 pairing_code 直接领，
+            # 主人不必再生一串码念回去（那样「谁给谁码」就反了）。
             claimed = await client.post(
-                "/v1/agent-pairing/claim",
-                json={"pairing_code": opened["pairing_code"], "handoff_code": handoff_code},
+                "/v1/agent-pairing/claim", json={"pairing_code": opened["pairing_code"]}
             )
             assert claimed.status_code == 200, claimed.text
             payload = claimed.json()
             assert payload["status"] == "approved"
             assert payload["agent_id"] == agent_id
-            assert payload["handoff"] == {"required": True, "consumed": True}
+            assert payload["handoff"] == {"required": False, "consumed": True}
             api_key = payload["credentials"]["api_key"]
             assert api_key and validate_api_key_for_agent(agent_id, api_key)
             assert payload["env_snippet"]["KARMA_API_KEY"] == api_key
@@ -258,6 +239,52 @@ async def test_full_flow_delivers_the_bootstrap_key_exactly_once(db_session, mon
                 headers={"X-Karma-Identity-Id": OWNER},
             )
             assert replay.status_code == 409, replay.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+
+@pytest.mark.asyncio
+async def test_an_owner_issued_handoff_still_gates_the_claim(db_session):
+    """主人主动点过「签发交接码」时，claim 就必须带上它 —— 这是可选的第二把锁。"""
+    client = await _client(db_session)
+    try:
+        async with client:
+            opened = await _open_request(client)
+            approved = await client.post(
+                "/v1/agent-pairing/approve",
+                json={
+                    "user_code": opened["user_code"],
+                    "side": "seller",
+                    "vertical": "food",
+                    "answers": {
+                        "industry_ids": ["food_delivery"],
+                        "service_specs": _food_specs(),
+                    },
+                },
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert approved.status_code == 200, approved.text
+
+            # 主人还没点「签发交接码」之前，claim 本来是一样的 —— 但一旦他点过，
+            # 没带码就领不走：那道可选的锁真的在闸。
+            code = await _issue_handoff(client, opened["user_code"])
+            gated = await client.post(
+                "/v1/agent-pairing/claim", json={"pairing_code": opened["pairing_code"]}
+            )
+            assert gated.status_code == 200, gated.text
+            assert gated.json()["status"] == "awaiting_handoff"
+            assert "credentials" not in gated.json()
+
+            # 带上主人给的码才放行，回执里也如实标出「这次是有锁的」。
+            ok = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"], "handoff_code": code},
+            )
+            assert ok.status_code == 200, ok.text
+            assert ok.json()["status"] == "approved"
+            assert ok.json()["handoff"] == {"required": True, "consumed": True}
+            assert ok.json()["credentials"]["api_key"]
     finally:
         app.dependency_overrides.clear()
 
@@ -575,6 +602,12 @@ def test_every_language_pack_carries_the_pairing_copy():
         "签发交接码",
         "复制交接码",
         "剩余 {0} · 交给 agent 后它就能领凭据了",
+        # 方向反转后新增/改写的文案，五门语言同样不能掉回中文。
+        "再加一道锁 · 交接码（可选）",
+        "不签发也行 —— 批准之后 agent 会在下一次轮询自动领走凭据。如果想多一道手递手的确认，就点「签发交接码」，把这串码输给 agent：签发了就必须带上它，否则领不走。",
+        "已批准，凭据等 agent 自己来领 —— 它下一次轮询就能拿到，你不用再给它任何码。",
+        "已批准并交付，等 agent 领取",
+        "已交付 —— agent 会在下一次轮询领走凭据",
     )
     for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
         pack = (PHRASE_DIR / f"{lang}.js").read_text(encoding="utf-8")

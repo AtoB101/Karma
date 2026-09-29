@@ -13,20 +13,33 @@ from karma_openclaw.agent_binding import (
     runtime_key_id,
     sign_runtime_request,
 )
+from karma_openclaw.agent_env import credential, invalidate_agent_env
+
+DEFAULT_RUNTIME_URL = "http://localhost:8000"
 
 
 def runtime_base_url() -> str:
-    return os.environ.get("KARMA_RUNTIME_URL", "http://localhost:8000").strip().rstrip("/")
+    """节点地址：环境变量 > 凭据文件 > localhost。
+
+    最后那个 localhost 兜底只在完全没配过时才会用到，而且会失败 —— 所以
+    ``karma-connect install`` 默认把 KARMA_RUNTIME_URL 一起写进宿主配置。
+    """
+    value = credential("KARMA_RUNTIME_URL") or DEFAULT_RUNTIME_URL
+    return value.rstrip("/")
 
 
 def api_key() -> str | None:
-    k = os.environ.get("KARMA_API_KEY", "").strip()
-    return k or None
+    return credential("KARMA_API_KEY") or None
 
 
 def runtime_key() -> str | None:
-    k = os.environ.get("KARMA_RUNTIME_KEY", "").strip()
-    return k or None
+    return credential("KARMA_RUNTIME_KEY") or None
+
+
+def refresh_credentials() -> None:
+    """刚写完 / 刚发现凭据文件变了时调用：丢掉缓存并重探签名模式。"""
+    invalidate_agent_env()
+    reset_signing_mode()
 
 
 def api_headers() -> dict[str, str]:

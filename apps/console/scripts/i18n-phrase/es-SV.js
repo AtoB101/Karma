@@ -690,6 +690,11 @@ window.CYBER_I18N_PHRASE["es-SV"] = {
   "已授权额度 {0} USDC": "Cupo asignado {0} USDC",
   "· 台账接口异常：{0}": "· error de la API del libro: {0}",
   "已过可争议期、已退场 {0} 单": "{0} fuera del tablero por plazo de disputa vencido",
+  "再加一道锁 · 交接码（可选）": "Cerradura extra · código de entrega (opcional)",
+  "不签发也行 —— 批准之后 agent 会在下一次轮询自动领走凭据。如果想多一道手递手的确认，就点「签发交接码」，把这串码输给 agent：签发了就必须带上它，否则领不走。": "Podés omitirlo — una vez que aprobás, el agent retira la credencial en su próxima consulta. Si querés una confirmación más, hecha a mano, tocá «emitir código de entrega» y escribí ese código en tu agent: una vez emitido pasa a ser obligatorio, si no, no puede retirarla.",
+  "已批准，凭据等 agent 自己来领 —— 它下一次轮询就能拿到，你不用再给它任何码。": "Aprobado: la credencial espera a que el agent la retire. La obtiene en su próxima consulta; no tenés que darle ningún código.",
+  "已批准并交付，等 agent 领取": "Aprobado y entregado — esperando que el agent lo retire",
+  "已交付 —— agent 会在下一次轮询领走凭据": "Entregado — el agent retira la credencial en su próxima consulta",
 };
 
 // dynamic-append: runtime-composed sentences / status lines

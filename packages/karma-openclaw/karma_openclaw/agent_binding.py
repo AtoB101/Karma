@@ -52,15 +52,24 @@ def agent_key_from_seed(seed: str):
 
 
 def agent_key_from_env() -> Any | None:
-    """The agent's Ed25519 key, or None when ``KARMA_AGENT_PRIVATE_KEY`` is unset."""
-    seed = (os.environ.get("KARMA_AGENT_PRIVATE_KEY") or "").strip()
+    """The agent's Ed25519 key, or None when no seed is configured.
+
+    Reads the env var first, then the on-disk credential file -- the same file
+    ``karma_pairing_claim`` writes, so a freshly paired process can sign without
+    waiting for its host to restart it.
+    """
+    from karma_openclaw.agent_env import credential
+
+    seed = credential("KARMA_AGENT_PRIVATE_KEY")
     if not seed:
         return None
     return agent_key_from_seed(seed)
 
 
 def agent_id_from_env() -> str:
-    return (os.environ.get("KARMA_AGENT_ID") or "").strip()
+    from karma_openclaw.agent_env import credential
+
+    return credential("KARMA_AGENT_ID")
 
 
 def agent_public_key_b64(key: Any) -> str:

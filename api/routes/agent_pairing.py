@@ -226,10 +226,9 @@ async def approve_pairing(
         "p1_status": result.get("p1_status"),
         "boundary_hash": result.get("boundary_hash"),
         "note_zh": (
-            "已批准：agent 身份已建好，API Key 已放进这次配对的交付里，"
-            "等它自己来领取（只发一次）。控制台不再显示这串密钥。"
-            "接下来点「签发交接码」，把那串码交给你的 agent —— 它自己的 pairing_code "
-            "加上这串码，两个都对，凭据才会发出去。"
+            "已批准并交付：agent 身份已建好，API Key 已放进这次配对的交付里，"
+            "它下一次轮询就会自己领走（只发一次）。控制台不再显示这串密钥。"
+            "你不用再给它任何码；想再加一道手递手的确认，可以额外点「签发交接码」。"
         ),
     }
 
@@ -240,10 +239,11 @@ async def issue_pairing_handoff(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """签发交接码（主人 -> agent 方向的第二把锁）。
+    """签发交接码 —— 可选加固，不是必经步骤。
 
-    批准之后才能签发；3 分钟有效、只在这条响应里出现一次（服务端只留 SHA-256），
-    重签会当场作废旧码。agent 光有 pairing_code 领不走凭据，必须有它。
+    默认批准即交付：agent 用 pairing_code 直接就能领。只有主人想再加一道手递手的
+    确认时才签发 —— 3 分钟有效、只在这条响应里出现一次（服务端只留 SHA-256），
+    重签会当场作废旧码。一旦签发，agent 领取时就必须带上它。
     """
     owner = await _require_owner(db, request)
     return pairing.issue_handoff(user_code=body.user_code, owner_identity_id=owner)

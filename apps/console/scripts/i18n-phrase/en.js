@@ -687,6 +687,11 @@ window.CYBER_I18N_PHRASE["en"] = {
   "链上锁仓 {0} USDC": "On-chain lock {0} USDC",
   "已授权额度 {0} USDC": "Granted credit {0} USDC",
   "已过可争议期、已退场 {0} 单": "{0} past the dispute window, retired",
+  "再加一道锁 · 交接码（可选）": "Extra lock · handoff code (optional)",
+  "不签发也行 —— 批准之后 agent 会在下一次轮询自动领走凭据。如果想多一道手递手的确认，就点「签发交接码」，把这串码输给 agent：签发了就必须带上它，否则领不走。": "You can skip this — once you approve, the agent picks the credential up on its next poll. If you want one more hand-to-hand confirmation, click \"issue handoff code\" and type that code into your agent: once issued it becomes required, or the claim will not go through.",
+  "已批准，凭据等 agent 自己来领 —— 它下一次轮询就能拿到，你不用再给它任何码。": "Approved — the credential is waiting for the agent to collect. It picks it up on its next poll; you do not hand it any code.",
+  "已批准并交付，等 agent 领取": "Approved and delivered — waiting for the agent to collect",
+  "已交付 —— agent 会在下一次轮询领走凭据": "Delivered — the agent collects the credential on its next poll",
 };
 
 // dynamic-append: runtime-composed sentences / status lines

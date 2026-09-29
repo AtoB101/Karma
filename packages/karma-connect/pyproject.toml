@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karma-connect"
+version = "1.0.0"
+description = "One command that wires the Karma MCP server into every agent host on this machine"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+karma-connect = "karma_connect.cli:main"
+karma-pair = "karma_connect.pair:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["karma_connect*"]

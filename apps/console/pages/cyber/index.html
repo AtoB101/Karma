@@ -1056,8 +1056,8 @@
                  领不走 —— 所以这串码就算出现在聊天记录里也不要紧。 -->
             <div id="pair-handoff" hidden>
               <div class="pair-grant-head">
-                <b>交接码 · 交给 agent 的第二把锁</b>
-                <span>点「签发交接码」，把这串码输给你的 agent。它自己的配对码 + 这串码，缺一个都领不走凭据。</span>
+                <b>再加一道锁 · 交接码（可选）</b>
+                <span>不签发也行 —— 批准之后 agent 会在下一次轮询自动领走凭据。如果想多一道手递手的确认，就点「签发交接码」，把这串码输给 agent：签发了就必须带上它，否则领不走。</span>
               </div>
               <div class="pair-row">
                 <button type="button" class="btn primary" id="pair-handoff-go">签发交接码</button>
@@ -1389,7 +1389,7 @@
     <script src="../../scripts/cyber-bind-requests.js?v=4b3dd8f031fd"></script>
     <!-- 一键取消绑定：和接入确认同源（都用 KarmaHandoff 出口的签名消息），排在它后面。 -->
     <script src="../../scripts/cyber-unbind-keys.js?v=417e6bdeece4"></script>
- <script src="../../scripts/cyber-pairing.js?v=75dd8c7acfdc"></script>
+ <script src="../../scripts/cyber-pairing.js?v=0ab4e542e441"></script>
     <!-- 刷脸保险柜：主身份刷脸即激活 + 追加身份的同人比对（模板在本机加密 / 比对）。 -->
     <script src="../../scripts/cyber-face-vault.js?v=4637f8de8da2"></script>
     <!-- 安全验证（2FA）：设置页那张卡 + 动额度前弹出的验证码。 -->

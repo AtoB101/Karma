@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """Agent 侧自助配接：自己申请接入、自己把凭据落到本机。
 
-为什么 agent 需要这两个工具：配对接入是**两把锁**（见 docs/AGENT_PAIRING_V1.md）。
+方向只有一个：**agent 出配对码 → 主人在操作台输入、核对、划额度、批准**。
+批准就是交付 —— agent 拿自己那串 ``pairing_code`` 直接领凭据，主人不必再生一串码念
+回来（那样「谁给谁码」就反了，还把一次可能被偷听的转述塞进了必经之路）。
 
-* ``pairing_code`` —— agent 申请时拿到，证明「你就是当初发起的那一个进程」；
-* ``handoff_code`` —— **主人在操作台点「签发交接码」才生成**，证明「主人真的把凭据
-  交到了你手上」。
+``pairing_code`` 是唯一的必需品：256 位、只在申请时回过一次、磁盘上只有哈希。别人
+光知道 ``user_code`` 领不走任何东西。
 
-两把缺一个都领不走凭据。所以 agent 从来不需要、也绝不能让用户把密钥粘贴进聊天框：
-它只要把 ``user_code`` 给主人，再把主人读给它的那串 8 位交接码填回 ``claim`` 即可。
+「交接码」还在，但降级成主人**主动加**的第二把锁（见 docs/AGENT_PAIRING_V1.md）：
+只有他在操作台点过「签发交接码」，claim 才必须带上它。默认不点，批准即交付。
+
+所以 agent 从来不需要、也绝不能让用户把密钥粘贴进聊天框。
 
 明文凭据只写到本机（默认 ``~/.karma/agent.env``，0600），返回值里只有指纹。
 
@@ -30,7 +33,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from karma_openclaw.http_client import api_post, runtime_base_url
+from karma_openclaw.agent_env import agent_env_path, invalidate_agent_env
+from karma_openclaw.http_client import api_post, refresh_credentials, runtime_base_url
 
 #: 服务端 claim 的轮询间隔由它自己给（默认 3 秒），这里只是兜底。
 DEFAULT_POLL_SECONDS = 3.0
@@ -46,11 +50,8 @@ def pairing_state_dir() -> Path:
     return Path.home() / ".karma" / "pairing"
 
 
-def agent_env_path() -> Path:
-    override = os.environ.get("KARMA_AGENT_ENV_PATH", "").strip()
-    if override:
-        return Path(override).expanduser()
-    return Path.home() / ".karma" / "agent.env"
+# agent_env_path 现在由 karma_openclaw.agent_env 统一定义 —— 读写用同一个解析结果，
+# 否则「写进去的」和「读回来的」可能不是同一个文件（KARMA_AGENT_ENV_PATH 覆盖时尤其）。
 
 
 def fingerprint(secret: str | None) -> str:
@@ -233,10 +234,11 @@ async def karma_pairing_start(
         "owner_steps": [
             "打开 Karma 操作台 → Agent 接入 → 配对接入",
             "输入 " + user_code + " → 核对 agent 名称/公钥指纹 → 点「批准」并划额度",
-            "点「签发交接码」，把屏幕上那串 8 位码读给我（3 分钟内有效）",
+            "点「批准」并划额度就好 —— 批准完我下一次轮询自己会把凭据领走，你不用再给我任何码",
         ],
         "next": (
-            "主人批准并签发交接码后，调 karma_pairing_claim(handoff_code=\"<他念给你的那串>\")。"
+            "主人批准后调 karma_pairing_claim()（不用带任何码）。只有主人额外点过"
+            "「签发交接码」时，才把 handoff_code 一起传进来。"
         ),
         "note": "pairing_code 只写在本机 " + str(path) + "，聊天里不出现。",
     }
@@ -269,9 +271,9 @@ async def karma_pairing_status(user_code: str = "") -> dict[str, Any]:
     }
     if payload.get("status") == "awaiting_handoff":
         out["ask_owner"] = (
-            "交接码过期了，请主人在操作台点「重新签发」。"
+            "你在操作台签发的交接码过期了 —— 重新签一次，或者不再签发（不签发就是批准即交付）。"
             if payload.get("handoff_state") == "expired"
-            else "主人在操作台点「签发交接码」之后，把那串 8 位码念给我。"
+            else "你在操作台点过「签发交接码」，把屏幕上那串 8 位码念给我。"
         )
     return out
 
@@ -296,13 +298,14 @@ async def karma_pairing_claim(
     user_code: str = "",
     wait_seconds: float = DEFAULT_WAIT_SECONDS,
 ) -> dict[str, Any]:
-    """领凭据：``pairing_code``（本机）+ ``handoff_code``（主人念给你的那串）。
+    """领凭据：``pairing_code``（本机）就够了 —— 主人一批准，凭据就等你来领。
+
+    默认直接调 ``karma_pairing_claim()``，不用带任何码。只有主人在操作台**主动点过**
+    「签发交接码」时，才需要把 ``handoff_code`` 一起传进来；那种情况下先调一次（不传码）
+    会返回 ``awaiting_handoff``，去问主人要那串码再调一次。
 
     拿到之后**只写盘、不回显**：默认写到 ``~/.karma/agent.env``（0600），返回值里
     只有 ``sha256:…`` 指纹和文件路径。所以这一步可以放心地出现在聊天记录里。
-
-    ``handoff_code`` 还没拿到时先调一次（不传码），返回 ``awaiting_handoff`` ——
-    那就去问主人要那串码，拿到再调一次。
     """
     resolved, record = _resolve_pairing_code(pairing_code, user_code)
     if not resolved:
@@ -368,11 +371,11 @@ async def karma_pairing_claim(
                 "主人还没批准。把 karma_pairing_start 给的链接/短码再发他一次。"
             )
         elif state == "expired":
-            out["ask_owner"] = "交接码过期了，请主人在操作台点「重新签发」。"
+            out["ask_owner"] = "你在操作台签发的交接码过期了 —— 重新签一次，或不签发（批准即交付）。"
         elif state == "none":
-            out["ask_owner"] = "请主人在操作台点「签发交接码」，再把那串 8 位码念给我。"
+            out["ask_owner"] = "你在操作台点过「签发交接码」，把屏幕上那串 8 位码念给我。"
         else:
-            out["ask_owner"] = "请主人把操作台上的交接码念给我。"
+            out["ask_owner"] = "你在操作台签发的交接码还有效，把那串码念给我。"
         return out
 
     if status != "approved":
@@ -398,6 +401,9 @@ async def karma_pairing_claim(
 
     path = agent_env_path()
     _write_secret(path, _env_file_text(agent_id, base_url, env))
+    # 让**正在跑的**这个进程立刻用上新凭据：不刷新的话，宿主不重启 MCP server 就白配。
+    invalidate_agent_env()
+    refresh_credentials()
 
     delivered: dict[str, Any] = {"api_key": {"present": bool(api_key), "fingerprint": fingerprint(api_key)}}
     if runtime_key:
@@ -429,8 +435,10 @@ async def karma_pairing_claim(
             "Windows 用 ACL 而不是 POSIX 权限位；这个文件在你的用户目录下，"
             "只要不共享、不提交进仓库就没人读得到。"
         )
+    out["credentials_live"] = True
     if runtime_key:
         out["next"] = (
+            "凭据已就地生效，本进程不用重启就能用。"
             "下一步是接入确认：调 karma_runtime_bind_key 拿一串 8 位匹配码交给主人，"
             "他在操作台输入并签名后这把钥匙才生效（在那之前一分钱都动不了）。"
         )
