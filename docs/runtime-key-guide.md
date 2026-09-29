@@ -81,6 +81,20 @@ Ed25519 公钥钉在钥匙上、主人再输一次 8 位匹配码确认，钥匙
    body_sha256:<sha256 of raw body>
    ```
 
+   自己实现客户端时注意三件事：`key_id` 是 `KRM_RT_<key_id>_<secret>` 中间那段；
+   `path` 只取路径、不带查询串；`body_sha256` 对**原始请求体字节**取（空 body 就是
+   `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`）。
+   不想自己拼的，直接用现成的两份实现（逐字对齐，有测试钉住）：
+   `sdk/runtime_client.py::build_agent_request_message` 与
+   `packages/karma-openclaw/karma_openclaw/agent_binding.py`。
+
+   配好了想知道「到底通没通」，跑一条自检即可 —— 它会把本机拼出的签名原文原样打印出来，
+   并区分「缺私钥 / 原文不对 / 时钟超窗 / nonce 重复 / 没激活 / 钥匙被吊销」：
+
+   ```bash
+   karma-sign-check            # 或 karma-connect sign-check
+   ```
+
 5. 换绑不做静默替换：已经绑过别的公钥时一律 409，先吊销再铸新的
    （否则拿到 key 的人可以把真 agent 顶掉）。
 

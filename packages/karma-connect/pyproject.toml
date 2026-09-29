@@ -13,6 +13,7 @@ dependencies = []
 [project.scripts]
 karma-connect = "karma_connect.cli:main"
 karma-pair = "karma_connect.pair:main"
+karma-sign-check = "karma_connect.signcheck:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

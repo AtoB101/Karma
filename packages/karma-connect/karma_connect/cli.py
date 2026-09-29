@@ -186,6 +186,18 @@ def _add_common(parser):
     parser.add_argument("--workspace", default=None, help="workspace path, enables the vscode host")
 
 
+def cmd_sign_check(args) -> int:
+    """逐请求签名的自检 —— 实现在 karma_connect.signcheck，这里只转发参数。"""
+    from karma_connect import signcheck
+
+    argv = ["--path", args.path]
+    if args.runtime_url:
+        argv += ["--runtime-url", args.runtime_url]
+    if args.json:
+        argv.append("--json")
+    return signcheck.main(argv)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="karma-connect",
@@ -205,6 +217,14 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="check that the install can work")
     _add_common(doctor)
     doctor.set_defaults(func=cmd_doctor)
+
+    sign = sub.add_parser(
+        "sign-check",
+        help="check the per-request Ed25519 signing path against a live node")
+    sign.add_argument("--runtime-url", default=None)
+    sign.add_argument("--path", default="/runtime/permissions")
+    sign.add_argument("--json", action="store_true")
+    sign.set_defaults(func=cmd_sign_check)
     return parser
 
 
