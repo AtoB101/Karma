@@ -977,7 +977,10 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
         return {"status": "unbound"}
     if row.state in _DONE_STATES or row.state == BREACHING:
         return {"status": row.state, "binding_id": row.binding_id}
-    if row.state not in (ACTIVE, FINALIZING):
+    # 争议冻结也要能开罚没窗：仲裁判卖方违约、货款全额退回买方时，钱就在这一态里。
+    # 链上 submitBreach 明确认 ACTIVE / DISPUTED / FINALIZING 三态（v5），台账把
+    # DISPUTED 挡在外面的话，裁定下来的罚没会静默空转 —— 卖方质押永远划不走。
+    if row.state not in (ACTIVE, FINALIZING, DISPUTED):
         return {"status": row.state, "binding_id": row.binding_id}
     # 罚没也是「动钱」：账上必须已经把这一单裁定成 REFUNDED，才允许打开结算窗口。
     await assert_release_verified(db, task_id=task_id, mode=SLASH)

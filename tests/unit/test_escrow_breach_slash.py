@@ -587,3 +587,32 @@ async def test_cancel_can_unfreeze_a_disputed_binding(db_session, chain, monkeyp
     assert calls["cancel"] == [int(row.binding_id)]
     fresh = await db_session.get(EscrowBindingModel, row.binding_id)
     assert fresh.state == "cancelled"
+
+@pytest.mark.asyncio
+async def test_slash_can_arm_the_breach_window_from_a_disputed_binding(
+    db_session, chain, monkeypatch
+):
+    """仲裁判卖方违约时 binding 正钉在 disputed —— 罚没窗必须照样开。
+
+    链上 submitBreach 认 ACTIVE / DISPUTED / FINALIZING（v5）。台账要是把 disputed
+    挡在门外，裁定下来的罚没会静默空转：卖方质押永远划不走，买方一分补偿拿不到。
+    """
+    bridge, calls = chain
+    row = await _open(db_session, bridge)
+    monkeypatch.setattr(
+        escrow, "binding_snapshot", lambda *, binding_id, **kw: {"state": 1, "slash_armed": False}
+    )
+    await bridge.mark_dispute_for_task(db_session, task_id=TASK)
+    assert calls["dispute"] == [int(row.binding_id)]
+    monkeypatch.setattr(
+        escrow, "binding_snapshot", lambda *, binding_id, **kw: {"state": 6, "slash_armed": False}
+    )
+
+    out = await bridge.slash_for_task(db_session, task_id=TASK)
+
+    assert out["status"] == "breaching"
+    assert len(calls["breach"]) == 1
+    assert calls["submit"] == []
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.state == "breaching"
+    assert fresh.submit_tx_hash == "0xbreach1"

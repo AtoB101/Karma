@@ -312,6 +312,33 @@ async def test_settle_submits_the_binding_and_opens_the_window(db_session, chain
     assert model.onchain_status == "finalizing"
     assert model.tx_hash == "0xsubmit1"
 
+@pytest.mark.asyncio
+async def test_settle_from_a_disputed_binding_still_opens_the_payout_window(db_session, chain):
+    """仲裁判卖方赢（货款照付）时 binding 正钉在 disputed —— 放款窗必须照样开。
+
+    链上 submitSettlement 认 ACTIVE / DISPUTED / FINALIZING（v5）。台账要是把 disputed
+    当成「这一单不能动」，裁定下来的货款就会静默卡住：卖方交付了却一分钱拿不到。
+    """
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+    row = (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+    row.state = bridge.DISPUTED          # 争议中：链上也已经钉成 DISPUTED
+    await db_session.flush()
+
+    out = await bridge.submit_for_task(db_session, task_id=TASK, released_amount=30.0)
+
+    assert out["status"] == "finalizing"
+    assert len(calls["submit"]) == 1
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.state == "finalizing"
+
 
 @pytest.mark.asyncio
 async def test_partial_settlement_rebinds_for_the_amount_actually_released(db_session, chain):
