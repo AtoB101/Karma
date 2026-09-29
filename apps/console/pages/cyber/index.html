@@ -1042,8 +1042,10 @@
               <div class="pair-grid">
                 <div class="field"><label>单笔上限（USDC）</label><input id="pair-single" type="number" value="50" min="1" /></div>
                 <div class="field"><label>每日上限（USDC）</label><input id="pair-daily" type="number" value="200" min="1" /></div>
-                <div class="field"><label>有效期（天）</label><input id="pair-expire-days" type="number" value="7" min="1" max="90" /></div>
+                <div class="field"><label>有效期（天，可留空）</label><input id="pair-expire-days" type="number" min="1" max="90" /></div>
               </div>
+              <p class="pair-hint">留空 = 长期有效</p>
+              <p class="pair-hint">超过单笔上限的支出不会自动放行：agent 会拿到「等待你确认」，你点一下才继续。</p>
               <div id="pair-perms" class="pair-perms"></div>
               <div class="pair-row">
                 <button type="button" class="btn primary" id="pair-grant-go">授权额度并交付</button>
@@ -1367,7 +1369,7 @@
     <script src="../../scripts/karma-public-api.js?v=da71ad7246b1"></script>
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
-    <script src="../../scripts/cyber-actions.js?v=41a9ac4c9bec"></script>
+    <script src="../../scripts/cyber-actions.js?v=1a2bb72d2c9a"></script>
     <script src="../../scripts/cyber-console.js?v=9e3cce3d7b85"></script>
     <script src="../../scripts/cyber-identity.js?v=67d2bc993aa6"></script>
 <script src="../../scripts/cyber-master-page.js?v=f213b05c6871"></script>
@@ -1380,16 +1382,16 @@
     <script src="../../scripts/cyber-order-flow.js?v=5d8447f9cd89"></script>
     <script src="../../scripts/karma-service-spec.js?v=157d9b6ea723"></script>
     <script src="../../scripts/cyber-agents.js?v=4bc095050eb5"></script>
-    <script src="../../scripts/cyber-authorize.js?v=9ca1ebe55f4a"></script>
+    <script src="../../scripts/cyber-authorize.js?v=473ed362beaa"></script>
     <!-- 最近调用面板：设置页那张「已授权 · 一键取消绑定」和交付包那张密钥清单
          用同一份实现（KarmaKeyCalls），所以必须排在两个宿主前面。 -->
     <script src="../../scripts/cyber-key-calls.js?v=93ba41801624"></script>
- <script src="../../scripts/cyber-handoff.js?v=d513e79d11af"></script>
+ <script src="../../scripts/cyber-handoff.js?v=76cce1318324"></script>
     <!-- 匹配码激活的签名消息由 cyber-handoff.js 出口提供，所以必须排在它后面。 -->
     <script src="../../scripts/cyber-bind-requests.js?v=4b3dd8f031fd"></script>
     <!-- 一键取消绑定：和接入确认同源（都用 KarmaHandoff 出口的签名消息），排在它后面。 -->
     <script src="../../scripts/cyber-unbind-keys.js?v=417e6bdeece4"></script>
- <script src="../../scripts/cyber-pairing.js?v=0ab4e542e441"></script>
+ <script src="../../scripts/cyber-pairing.js?v=d36fb9832229"></script>
     <!-- 刷脸保险柜：主身份刷脸即激活 + 追加身份的同人比对（模板在本机加密 / 比对）。 -->
     <script src="../../scripts/cyber-face-vault.js?v=4637f8de8da2"></script>
     <!-- 安全验证（2FA）：设置页那张卡 + 动额度前弹出的验证码。 -->

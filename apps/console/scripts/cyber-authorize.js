@@ -214,7 +214,7 @@
       "permissions:" + (f.permissions || []).slice().sort().join(","),
       "single_limit:" + pyFloatStr(f.single_limit),
       "daily_limit:" + pyFloatStr(f.daily_limit),
-      "expire_time:" + f.expire_time,
+      "expire_time:" + (f.expire_time || "never"),
       "agent_name:" + (f.agent_name || "console-agent"),
       "agent_binding:" + (f.agent_binding || ""),
     ].join("\n");
@@ -441,7 +441,7 @@
         "每日上限    " + money(fields.daily_limit) + " USDC",
         "人工确认    " + (HUMAN_LABELS[human] || human),
         "权限        " + perms.slice().sort().join(", "),
-        "有效期至    " + String(fields.expire_time).slice(0, 10),
+        "有效期至    " + (fields.expire_time ? String(fields.expire_time).slice(0, 10) : "长期有效（随时可注销）"),
       ]) + "</pre></div>" +
       '<div class="ag-next"><b>③ 让 agent 先读边界、再干活</b><pre>' +
       esc(
@@ -557,7 +557,8 @@
         permissions: perms.slice(),
         single_limit: single,
         daily_limit: daily,
-        expire_time: pyUtcIso(Date.now() + 7 * 86400e3),
+        // 不填 = 长期有效：钥匙的收口是操作台的注销按钮，不是日历。
+        expire_time: "",
         agent_name: agentName,
         agent_binding: agentName,
       };
@@ -569,7 +570,7 @@
         permissions: perms,
         single_limit: single,
         daily_limit: daily,
-        expire_time: fields.expire_time,
+        expire_time: fields.expire_time || undefined,
         agent_name: fields.agent_name,
         agent_binding: fields.agent_binding,
         agent_id: fields.agent_binding,

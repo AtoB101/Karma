@@ -570,9 +570,11 @@
     }
     var single = Number((byId("pair-single") || {}).value || 0);
     var daily = Number((byId("pair-daily") || {}).value || 0);
-    // 服务端 90 天封顶（MAX_KEY_LIFETIME_DAYS）：铸不出「十年有效的钥匙」。
-    // 这里先夹住，别让用户填完、签完名才吃一个 400。
-    var days = Math.min(90, Math.max(1, Number((byId("pair-expire-days") || {}).value || 7)));
+    // 有效期可以留空 = 长期有效。钥匙的收口是操作台的注销按钮，不是日历；
+    // 填了天数才走服务端的 90 天封顶（那道封顶只是防手滑），并且先在这里夹住，
+    // 别让用户填完、签完名才吃一个 400。
+    var rawDays = String((byId("pair-expire-days") || {}).value || "").trim();
+    var days = rawDays ? Math.min(90, Math.max(1, Number(rawDays) || 1)) : 0;
     if (!(single > 0) || !(daily > 0)) {
       setStatus(status, "单笔和每日上限都要大于 0", true);
       return;
@@ -613,7 +615,7 @@
         permissions: perms.slice(),
         single_limit: single,
         daily_limit: daily,
-        expire_time: pyIso(Date.now() + Math.max(1, days) * 86400e3),
+        expire_time: days ? pyIso(Date.now() + days * 86400e3) : "",
         agent_name: state.agentName || state.agentId,
         // 记下这把钥匙是给哪个 agent 铸的。agent_binding 是写进钱包签名消息的字段，
         // 所以服务端能确认「用户本人授权了这个 agent」；下面还会单独传 agent_id 做交叉校验。
@@ -631,7 +633,7 @@
         permissions: perms,
         single_limit: single,
         daily_limit: daily,
-        expire_time: fields.expire_time,
+        expire_time: fields.expire_time || undefined,
         agent_name: fields.agent_name,
         agent_binding: fields.agent_binding,
         agent_id: fields.agent_id,
@@ -648,20 +650,33 @@
           '<table class="pair-table">' +
           "<tr><th>单笔上限（USDC）</th><td>" + esc(single) + "</td></tr>" +
           "<tr><th>每日上限（USDC）</th><td>" + esc(daily) + "</td></tr>" +
-          "<tr><th>有效期（天）</th><td>" + esc(days) + "</td></tr>" +
+          "<tr><th>有效期（天）</th><td>" +
+          esc(days ? String(days) : "长期有效（随时可注销）") +
+          "</td></tr>" +
           "<tr><th>公钥绑定</th><td>" +
-          "等 agent 领取时绑定 · 绑定后每个请求都要 agent 私钥签名，光有钥匙不能用</td></tr>" +
+          esc(
+            state.view && state.view.public_key_fingerprint
+              ? "已钉在 agent 交来的公钥上 · 每个请求都由它本机签名，别人抄走钥匙字符串也用不了"
+              : "等 agent 领取时绑定 · 绑定后每个请求都要 agent 私钥签名，光有钥匙不能用"
+          ) +
+          "</td></tr>" +
           "</table>" +
           "<p>agent 用配对码领取时会一次拿到身份钥匙和钱钥匙，本页不显示密钥。</p>" +
-          // 这把钥匙是明确指给这个 agent 的，所以服务端会先把它锁在「未激活」：
-          // 不把这一步写出来，agent 第一次调用就会吃 403，用户只会以为坏了。
-          "<p>" +
-          esc(
-            "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；" +
-              "你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。匹配码 3 分钟内有效，" +
-              "过期就让 agent 重新申请一次，钥匙不用重铸。"
-          ) +
-          "</p>"
+          // 申请时交了公钥的（操作台上面的「公钥指纹」就是主人核对过的那把）：
+          // 批准这一步就是激活，agent 领到钥匙直接能用，不需要再输任何码。
+          (state.view && state.view.public_key_fingerprint
+            ? "<p>" +
+              esc(
+                "agent 交的公钥你已经核对过，所以这次批准就是激活：它领到钥匙就能在额度内花钱，不用再输任何码。"
+              ) +
+              "</p>"
+            : "<p>" +
+              esc(
+                "这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；" +
+                  "你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。匹配码 3 分钟内有效，" +
+                  "过期就让 agent 重新申请一次，钥匙不用重铸。"
+              ) +
+              "</p>")
       );
       renderHandoff(state.view);
       setStatus(status, "已交付 —— agent 会在下一次轮询领走凭据");

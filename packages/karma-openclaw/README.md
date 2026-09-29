@@ -4,7 +4,9 @@ Stdio MCP server that attaches verifiable execution receipts and evidence bundle
 
 **P0 proof tools:** execution receipt construction, evidence bundle submission, verification and handoff validation. High-risk settlement actions (voucher create/accept, Runtime Key mint) remain manual in the Karma Console. See [Advanced OpenClaw Workflows](../../docs/OPENCLAW_P1_DUAL_AGENT.md) and [`examples/openclaw-dual-agent/`](../../examples/openclaw-dual-agent/).
 
-**Runtime Key access is agent-bound.** A `KRM_RT_…` key is a bearer token — whoever holds it could spend the owner's money — so Karma mints every key against a named agent and refuses to serve it until the owner types the 8-character matching code in the Console. From this MCP, call `karma_runtime_bind_key`, hand the returned `activation_code` to the owner, then `karma_runtime_await_activation`. Set `KARMA_RUNTIME_KEY`, `KARMA_AGENT_ID` and `KARMA_AGENT_PRIVATE_KEY` (Ed25519, stays on this machine). See [Runtime Key 指南](../../docs/runtime-key-guide.md).
+**Runtime Key access is agent-bound.** A `KRM_RT_…` key is a bearer token — whoever holds it could spend the owner's money — so Karma mints every key against a named agent, pins it to that agent's Ed25519 public key and requires the agent to sign every `/runtime/*` request with the matching private key. The private key never leaves the agent machine, so a copied key string is useless.
+
+**Pairing activates the key by itself.** `karma_pairing_start` generates this machine's Ed25519 key on first use and sends its public key with the pairing request, so the owner's approval *is* the activation: `karma_pairing_claim` returns a key that is already live — nothing to type, no matching code. (Without a local key, or if the declared key is malformed, the older two-step path still applies: `karma_runtime_bind_key` hands the owner an 8-character `activation_code`, then `karma_runtime_await_activation`.) Keys have no fixed expiry by default; the owner revokes them in the Console. Set `KARMA_RUNTIME_KEY`, `KARMA_AGENT_ID` and `KARMA_AGENT_PRIVATE_KEY` (Ed25519, stays on this machine). See [Runtime Key 指南](../../docs/runtime-key-guide.md).
 
 ---
 
@@ -40,7 +42,7 @@ karma-openclaw-mcp
 | `karma_get_evidence_bundle` | Retrieve a previously submitted bundle |
 | `karma_validate_handoff` | Verify operator handoff for high-risk actions |
 | `karma_pairing_start` | **No key yet?** Ask to be connected; returns the `user_code` for your owner |
-| `karma_pairing_claim` | Collect the credentials once the owner reads you the 8-character handoff code; writes `~/.karma/agent.env` (0600), returns fingerprints only |
+| `karma_pairing_claim` | Collect the credentials as soon as the owner approves; writes `~/.karma/agent.env` (0600) — including the local Ed25519 seed — and returns fingerprints only |
 | `karma_pairing_status` | Which step this pairing is on (waiting for approval / waiting for the handoff code / delivered) |
 | `karma_pairing_local_status` | What this machine holds: pending pairings + credential fingerprints |
 | `karma_runtime_bind_key` | Bind this agent's Ed25519 public key; returns the matching code for the owner |

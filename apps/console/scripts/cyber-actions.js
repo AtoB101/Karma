@@ -477,7 +477,7 @@
     var perms = (f.permissions || []).slice().sort().join(',');
     return ['Karma Runtime Key Create', 'karma_identity_id:' + f.karma_identity_id, 'wallet_address:' + f.wallet_address,
       'permissions:' + perms, 'single_limit:' + pyFloatStr(f.single_limit), 'daily_limit:' + pyFloatStr(f.daily_limit),
-      'expire_time:' + f.expire_time,
+      'expire_time:' + (f.expire_time || 'never'),
       'agent_name:' + (f.agent_name || 'console-agent'), 'agent_binding:' + (f.agent_binding || '')].join('\n');
   }
   function agFields() {
@@ -523,11 +523,12 @@
     try {
       var accounts = await provider.request({ method: 'eth_requestAccounts' });
       var wallet = accounts[0];
-      var expireIso = pyUtcIso(Date.now() + 7 * 86400e3);
+      // 不填 = 长期有效。
+      var expireIso = "";
       var msg = buildCreateKeyMsg({ karma_identity_id: f.id, wallet_address: wallet, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: f.agent, agent_binding: f.agent });
       var sig = await provider.request({ method: 'personal_sign', params: [msg, wallet] });
       var rt = global.karmaRuntimeApi;
-      var r = await rt.runtimeCreateKey({ wallet_address: wallet, karma_identity_id: f.id, wallet_signature: sig, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso, agent_name: f.agent, agent_binding: f.agent, agent_id: f.agent, profile_id: activeProfileId() || undefined });
+      var r = await rt.runtimeCreateKey({ wallet_address: wallet, karma_identity_id: f.id, wallet_signature: sig, permissions: f.perms, single_limit: f.single, daily_limit: f.daily, expire_time: expireIso || undefined, agent_name: f.agent, agent_binding: f.agent, agent_id: f.agent, profile_id: activeProfileId() || undefined });
       out('#set-out', r, false);
     } catch (e) { out('#set-out', (e && (e.message || e.detail)) || e, true); }
   }

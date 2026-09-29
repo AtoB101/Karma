@@ -372,6 +372,85 @@ def test_vertical_alias_resolution_matches_the_one_click_table():
 
 
 @pytest.mark.asyncio
+async def test_a_pairing_that_declared_its_key_gets_an_activated_runtime_key(db_session):
+    """配对即激活：agent 申请接入时交了自己的公钥，主人批准 + 划额度那一下就把
+
+    Runtime Key 钉在这把公钥上了 —— agent 领到的钱钥匙已经是绑定状态，
+    不需要再来一轮「申请绑定 → 8 位匹配码 → 主人再输一次」。
+    """
+    import base64
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from services.runtime_key_service import load_active_context
+
+    key = Ed25519PrivateKey.generate()
+    pub = base64.b64encode(
+        key.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
+    ).decode()
+
+    client = await _client(db_session)
+    try:
+        async with client:
+            opened = await _open_request(client, public_key=pub)
+            approved = await client.post(
+                "/v1/agent-pairing/approve",
+                json={
+                    "user_code": opened["user_code"],
+                    "side": "seller",
+                    "vertical": "food",
+                    "display_name": "Owner Food Agent",
+                },
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert approved.status_code == 200, approved.text
+            agent_id = approved.json()["pairing"]["agent_id"]
+            assert agent_id
+
+            token, row = await create_runtime_key_record(
+                db=db_session,
+                wallet_address="0x" + "33" * 20,
+                karma_identity_id=OWNER,
+                permissions=["request_voucher"],
+                single_limit=10.0,
+                daily_limit=20.0,
+                # 不填 = 长期有效：钥匙的收口是操作台的注销按钮，不是日历。
+                expire_at=None,
+                agent_name="claw-001",
+                agent_binding=agent_id,
+            )
+            assert row.expire_at.year == 9999
+
+            attached = await client.post(
+                "/v1/agent-pairing/attach-runtime-key",
+                json={"user_code": opened["user_code"], "runtime_key": token},
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert attached.status_code == 200, attached.text
+            assert attached.json()["has_runtime_key"] is True
+
+            # 绑定在交付之前就已经落地了：不用等 agent 输码。
+            bound = await load_active_context(db=db_session, token=token)
+            assert bound.key_binding == "agent"
+            assert bound.agent_public_key == pub
+
+            claimed = await client.post(
+                "/v1/agent-pairing/claim",
+                json={"pairing_code": opened["pairing_code"]},
+            )
+            payload = claimed.json()
+            assert payload["credentials"]["runtime_key"] == token
+            assert payload["runtime_key_binding"]["activated"] is True
+            assert payload["runtime_key_binding"]["agent_fingerprint"]
+            assert payload["runtime_key_binding"]["step_2"] == ""
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 async def test_runtime_key_can_only_be_attached_by_its_own_identity(db_session):
     client = await _client(db_session)
     try:
@@ -435,6 +514,9 @@ async def test_runtime_key_can_only_be_attached_by_its_own_identity(db_session):
             payload = claimed.json()
             assert payload["credentials"]["runtime_key"] == own_token
             assert payload["env_snippet"]["KARMA_RUNTIME_KEY"] == own_token
+            # 这次配对报上来的公钥不成形（测试里的占位串），所以没被激活：
+            # 走回「申请绑定 + 8 位匹配码」。脏数据不该让主人这一下批准失败。
+            assert payload["runtime_key_binding"]["activated"] is False
     finally:
         app.dependency_overrides.clear()
 

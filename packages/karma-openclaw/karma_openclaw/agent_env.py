@@ -78,6 +78,41 @@ def invalidate_agent_env() -> None:
     load_agent_env(force=True)
 
 
+def upsert_credential(name: str, value: str) -> Path:
+    """把一对键值并进凭据文件（0600），同名行就地替换。
+
+    agent 自己的 Ed25519 私钥要先落盘再上报：进程崩了、宿主重启了，它还得在。
+    """
+    path = agent_env_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    prefix = name + "="
+    out: list = []
+    replaced = False
+    for line in lines:
+        if line.strip().startswith(prefix):
+            if not replaced:
+                out.append(prefix + value)
+                replaced = True
+            continue
+        out.append(line)
+    if not replaced:
+        out.append(prefix + value)
+    text = "\n".join(out).rstrip("\n") + "\n"
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    os.replace(tmp, path)
+    invalidate_agent_env()
+    return path
+
+
 def credential(name: str) -> str:
     """环境变量优先（宿主显式注入的压过文件），否则回落到凭据文件。"""
     value = (os.environ.get(name) or "").strip()

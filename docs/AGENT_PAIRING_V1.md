@@ -71,6 +71,7 @@ agent                          Karma API                      主人（操作台
   |                                |--- 200 (pending) ------------------>|
   |                                |<-- POST /v1/agent-pairing/approve --|  主人核对 -> 划额度 -> 批准（= 交付）
   |                                |<-- POST /v1/agent-pairing/attach-runtime-key --  （可选）挂上刚签发的 Runtime Key
+  |                                |                                     |   顺手把这把钥匙钉在 agent 申请时报上来的公钥上 —— 配对即激活
   |                                |                                     |
   |-- POST /v1/agent-pairing/claim {pairing_code} -->                   |  默认：这就够了
   |<-- credentials（api_key[, runtime_key]）+ env_snippet ---------------|  一次性；回执 handoff.required=false
@@ -200,12 +201,19 @@ agent 侧发起。返回体里的 `pairing_code` **只出现这一次**。
 - **身份绑定**：`approve` 用的是已认证的主身份；`attach-runtime-key` 会核对 Runtime Key
   的 `karma_identity_id` 是否就是这个主人，且 `agent_binding` 与配对里的 agent 一致。
 - **额度仍然是服务端硬约束**：`Runtime Key` 自带 `permissions[]` / `single_limit` /
-  `daily_limit` / `expire_time`，超限在服务端 403，不靠 agent 自律。
-- **但 `agent_binding` 不是访问控制**（现状，别误读）：它只在 `attach-runtime-key`
-  这一步用来防两笔配对串号；`/runtime/*` 的每个请求都不会校验调用方是不是被绑定的那个
-  agent。也就是说 Runtime Key 是**不记名令牌** —— 谁拿到它，谁就能在这把钥匙的
-  `permissions` / 单笔 / 当日额度内动用主人授权的钱。要做到「只许指名的 agent 用」，
-  还需要在 `api/routes/runtime_gateway.py::get_runtime_context` 增加一步调用方身份证明。
+  `daily_limit` / `expire_time`。超过单笔上限直接 403；超过主人设的「自动额度」不建单、
+  不扣钱，返回 `awaiting_owner_confirmation`，等主人在操作台点一下。
+- **期限由主人决定，默认长期有效**：`expire_time` 可以不填（长期有效），收回钥匙的手段
+  是操作台的注销（`POST /runtime/revoke-key`），立刻生效、与到期时间无关。
+- **配对即激活（这一版起）**：agent 在 `request` 里交了自己的 Ed25519 公钥，操作台
+  在批准前把这个公钥的**指纹**显示给主人核对。所以 `attach-runtime-key` 那一下就把
+  Runtime Key 钉在这把公钥上（`key_binding=agent`）—— agent 领到钥匙直接就能用，
+  不再需要「agent 申请绑定 → 出 8 位匹配码 → 主人再输一次」。
+  agent 没报公钥（或报的串不成形）时退回老路：`claim` 的回执里
+  `runtime_key_binding.activated=false`，按 8 位匹配码流程走。
+- **钥匙字符串不是全部**：绑定之后每个 `/runtime/*` 请求都要 agent 用**本机私钥**
+  签名（`X-Karma-Agent-Signature` + 时间戳 + nonce）。私钥从不离开 agent 本机，
+  所以抄到 `KRM_RT_…` 也花不出去 —— 这一步是自动的，主人不会被打扰。
 - **撤销**：`POST /v1/agents/owner-revoke` 停用 agent 并销毁 Karma 托管的运行密钥，
   与手动接入完全同一套。
 - **过期**：`user_code` 默认 15 分钟（`DEFAULT_TTL_SECONDS`）。过期后既不能批准，

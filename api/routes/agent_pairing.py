@@ -29,7 +29,13 @@ from api.routes.agents import connect_owner_agent
 from db.session import get_db
 from services import agent_pairing as pairing
 from services.identity_actor import resolve_actor_identity_id
-from services.runtime_key_service import load_active_context, verify_signed_request
+from services.runtime_key_service import (
+    PublicKeyError,
+    activate_key_binding,
+    agent_binding_fingerprint,
+    load_active_context,
+    verify_signed_request,
+)
 from services.text_safety import (
     validate_json_strings_safe,
     validate_safe_storage_text,
@@ -300,9 +306,33 @@ async def attach_runtime_key(
             "runtime key was minted for a different agent than this pairing",
         )
 
-    return pairing.attach_runtime_key(
+    # 配对即激活：agent 申请接入时就交了自己的公钥，操作台在批准前把这个公钥的
+    # 指纹显示给主人核对，所以「批准 + 划额度」本身就是那次确认 —— 不再需要
+    # 「agent 申请绑定 → 出 8 位码 → 主人再输一次码」。
+    #
+    # 绑定之后照旧逐请求验签：钥匙字符串泄漏了也花不出去，签名要 agent 本机的私钥。
+    declared_key = pairing.public_key_for_user_code(body.user_code)
+    fingerprint = ""
+    if declared_key:
+        try:
+            await activate_key_binding(
+                db=db,
+                key_id=ctx.key_id,
+                agent_id=str(record.get("agent_id") or ""),
+                agent_public_key=declared_key,
+            )
+            fingerprint = agent_binding_fingerprint(declared_key)
+        except PublicKeyError:
+            # agent 报上来的公钥不成形（不是 32 字节裸公钥）：这次不激活，钥匙照旧
+            # 挂进交付，让它走「申请绑定 + 8 位匹配码」那条老路。主人这一下批准不该
+            # 被一串脏数据打断，agent 也会从 claim 的回执里看到 activated=false。
+            fingerprint = ""
+    result = pairing.attach_runtime_key(
         user_code=body.user_code,
         owner_identity_id=owner,
         runtime_key=body.runtime_key,
         runtime_key_id=ctx.key_id,
+        activated_fingerprint=fingerprint,
     )
+    await db.commit()
+    return result

@@ -2620,4 +2620,10 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
   "交接码已签发（还在有效期内）。忘了那串码就点「重新签发」。": "Ya hay un código de entrega emitido (todavía válido). Si lo olvidaste, tocá 'Emitir otro'.",
   "接下来点「签发交接码」，把它交给你的 agent —— 没有这串码，它领不走凭据。": "Ahora tocá 'Emitir código de entrega' y pasáselo a tu agente: sin este código no puede retirar las credenciales.",
   "已交付 —— 最后一步：签发交接码交给 agent": "Entregado: último paso, emití el código de entrega y pasáselo al agente",
+  "有效期（天，可留空）": "Validez (días, opcional)",
+  "留空 = 长期有效": "En blanco = sin vencimiento",
+  "长期有效（随时可注销）": "Sin vencimiento (revocable en cualquier momento)",
+  "超过单笔上限的支出不会自动放行：agent 会拿到「等待你确认」，你点一下才继续。": "El gasto que supera el límite por operación nunca se libera solo: el agent recibe \"esperando tu confirmación\" y solo sigue cuando lo tocás.",
+  "已钉在 agent 交来的公钥上 · 每个请求都由它本机签名，别人抄走钥匙字符串也用不了": "Fijada a la clave pública que envió el agent · cada solicitud se firma en su máquina, así que copiar la clave no sirve",
+  "agent 交的公钥你已经核对过，所以这次批准就是激活：它领到钥匙就能在额度内花钱，不用再输任何码。": "Ya revisaste la clave pública que envió el agent, así que esta aprobación es la activación: al recibir la clave puede gastar dentro de los límites, sin escribir ningún código.",
 });

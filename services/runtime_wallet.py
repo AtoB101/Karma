@@ -43,10 +43,17 @@ def build_create_key_message(
     permissions: list[str],
     single_limit: float,
     daily_limit: float,
-    expire_time: datetime,
+    expire_time: datetime | str | None,
     agent_name: str,
     agent_binding: str | None,
 ) -> str:
+    # 不填到期时间 = 长期有效。写进签名消息的是固定字面量 "never"，两边都能重建。
+    if expire_time is None or (isinstance(expire_time, str) and not expire_time.strip()):
+        expire_line = "never"
+    elif isinstance(expire_time, str):
+        expire_line = expire_time.strip()
+    else:
+        expire_line = expire_time.isoformat()
     lines = [
         "Karma Runtime Key Create",
         f"karma_identity_id:{karma_identity_id}",
@@ -54,7 +61,7 @@ def build_create_key_message(
         f"permissions:{','.join(sorted(permissions))}",
         f"single_limit:{single_limit}",
         f"daily_limit:{daily_limit}",
-        f"expire_time:{expire_time.isoformat()}",
+        f"expire_time:{expire_line}",
         f"agent_name:{agent_name}",
         f"agent_binding:{agent_binding or ''}",
     ]

@@ -119,7 +119,7 @@
       "permissions:" + (f.permissions || []).slice().sort().join(","),
       "single_limit:" + pyFloatStr(f.single_limit),
       "daily_limit:" + pyFloatStr(f.daily_limit),
-      "expire_time:" + f.expire_time,
+      "expire_time:" + (f.expire_time || "never"),
       "agent_name:" + (f.agent_name || "console-agent"),
       "agent_binding:" + (f.agent_binding || ""),
     ].join("\n");
@@ -269,7 +269,7 @@
                   ? "<span> · </span><span>" + esc("已停用（不记名钥匙）") + "</span>"
                   : "") +
                 "<span> · 到期 </span>" +
-                "<span>" + esc(String(k.expire_time || "").slice(0, 10)) + "</span>" +
+                "<span>" + esc(k.expire_time ? String(k.expire_time).slice(0, 10) : "长期有效") + "</span>" +
                 "<span> · </span>" +
                 "<span>" + esc((k.permissions || []).join(",") || "—") + "</span>" +
                 "<span> · </span>" +
@@ -596,7 +596,8 @@
       render();
       var accounts = await prov.request({ method: "eth_requestAccounts" });
       var wallet = accounts[0];
-      var expireIso = pyUtcIso(Date.now() + 7 * 86400e3);
+      // 不填 = 长期有效。
+      var expireIso = "";
       var fields = {
         karma_identity_id: identity(),
         wallet_address: wallet,
@@ -615,7 +616,7 @@
         permissions: fields.permissions,
         single_limit: fields.single_limit,
         daily_limit: fields.daily_limit,
-        expire_time: expireIso,
+        expire_time: expireIso || undefined,
         agent_name: fields.agent_name,
         agent_binding: a.agent_id,
         agent_id: a.agent_id,
@@ -624,7 +625,7 @@
       state.runtimeKey = (r && r.runtime_key) || "";
       state.keys = null;
       state.note =
-        "已铸造运行时密钥（" + ((r && r.key_id) || "") + "，到期 " + String((r && r.expire_time) || "").slice(0, 10) +
+        "已铸造运行时密钥（" + ((r && r.key_id) || "") + "，到期 " + ((r && r.expire_time) ? String(r.expire_time).slice(0, 10) : "长期有效") +
         "）。明文只显示这一次，请连同 env 一起交给 agent。";
       // 未激活的钥匙说清楚「现在花不了钱 + 差哪一步 + 期限」。
       // 单独成一个文本节点（下面 render 里那个 <p>），拼进 note 会让整段翻不到。

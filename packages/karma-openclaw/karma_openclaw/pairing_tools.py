@@ -33,7 +33,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from karma_openclaw.agent_env import agent_env_path, invalidate_agent_env
+from karma_openclaw.agent_env import agent_env_path, invalidate_agent_env, read_agent_env
 from karma_openclaw.http_client import api_post, refresh_credentials, runtime_base_url
 
 #: 服务端 claim 的轮询间隔由它自己给（默认 3 秒），这里只是兜底。
@@ -176,6 +176,17 @@ async def _claim_once(pairing_code: str, handoff_code: str = "") -> dict[str, An
     return await api_post("/v1/agent-pairing/claim", body)
 
 
+def _local_public_key() -> str:
+    """本机 agent 的 Ed25519 公钥（base64）。没有私钥就现生成一把，再没有就空串。"""
+    try:
+        from karma_openclaw.agent_binding import agent_public_key_b64, ensure_local_agent_key
+
+        key = ensure_local_agent_key()
+        return agent_public_key_b64(key) if key is not None else ""
+    except Exception:  # noqa: BLE001 - 拿不到就走「领取时再绑」那条老路
+        return ""
+
+
 async def karma_pairing_start(
     agent_name: str,
     platform: str = "openclaw",
@@ -200,12 +211,16 @@ async def karma_pairing_start(
             "hint": "Give this agent a name your owner will recognise (e.g. claw-001).",
         }
     body: dict[str, Any] = {"agent_name": name, "platform": (platform or "openclaw").strip()}
+    # 一步到位：把自己的公钥一起交上去。主人在操作台核对过这个公钥的指纹之后，
+    # 「批准 + 划额度」那一下就直接把 Runtime Key 钉在这把公钥上（配对即激活）——
+    # agent 领到钥匙就能在额度内干活，不用再来一轮 8 位匹配码。
+    declared_key = (public_key or "").strip() or _local_public_key()
     for key, value in (
         ("requested_side", requested_side),
         ("requested_vertical", requested_vertical),
         ("self_description", self_description),
         ("endpoint_url", endpoint_url),
-        ("public_key", public_key),
+        ("public_key", declared_key),
     ):
         if (value or "").strip():
             body[key] = value.strip()
@@ -235,6 +250,11 @@ async def karma_pairing_start(
             "打开 Karma 操作台 → Agent 接入 → 配对接入",
             "输入 " + user_code + " → 核对 agent 名称/公钥指纹 → 点「批准」并划额度",
             "点「批准」并划额度就好 —— 批准完我下一次轮询自己会把凭据领走，你不用再给我任何码",
+            (
+                "我已经把自己的公钥一起交上去了，所以批准那一下就是激活：我领到钥匙就能在额度内干活。"
+                if declared_key
+                else "（这台机器上还没有 agent 私钥，所以走的是老路：我领取时会申请绑定，给你 8 位匹配码）"
+            ),
         ],
         "next": (
             "主人批准后调 karma_pairing_claim()（不用带任何码）。只有主人额外点过"
@@ -409,7 +429,13 @@ async def karma_pairing_claim(
         }
 
     path = agent_env_path()
-    _write_secret(path, _env_file_text(agent_id, base_url, env))
+    # 落盘时保住 agent 自己的私钥：它既不在 claim 的响应里，也不该被这一次改写冲掉。
+    text = _env_file_text(agent_id, base_url, env)
+    if "KARMA_AGENT_PRIVATE_KEY=" not in text:
+        seed = str(read_agent_env().get("KARMA_AGENT_PRIVATE_KEY") or "").strip()
+        if seed:
+            text += "KARMA_AGENT_PRIVATE_KEY=" + seed + "\n"
+    _write_secret(path, text)
     # 让**正在跑的**这个进程立刻用上新凭据：不刷新的话，宿主不重启 MCP server 就白配。
     invalidate_agent_env()
     refresh_credentials()
@@ -446,11 +472,22 @@ async def karma_pairing_claim(
         )
     out["credentials_live"] = True
     if runtime_key:
-        out["next"] = (
-            "凭据已就地生效，本进程不用重启就能用。"
-            "下一步是接入确认：调 karma_runtime_bind_key 拿一串 8 位匹配码交给主人，"
-            "他在操作台输入并签名后这把钥匙才生效（在那之前一分钱都动不了）。"
-        )
+        binding = dict(payload.get("runtime_key_binding") or {})
+        if binding.get("activated"):
+            out["next"] = (
+                "凭据已就地生效，本进程不用重启就能用。"
+                "这把钱钥匙已经绑在你交上去的公钥上了（配对即激活）：在主人划的额度内直接干活，"
+                "每个 /runtime/* 请求用 KARMA_AGENT_PRIVATE_KEY 在本机自动签名 —— 私钥不出本机，"
+                "主人那边不需要再确认任何东西。超单笔上限的支出会返回 awaiting_owner_confirmation，"
+                "等主人在操作台点一下。"
+            )
+            out["runtime_key_activated"] = True
+        else:
+            out["next"] = (
+                "凭据已就地生效，本进程不用重启就能用。"
+                "下一步是接入确认：调 karma_runtime_bind_key 拿一串 8 位匹配码交给主人，"
+                "他在操作台输入并签名后这把钥匙才生效（在那之前一分钱都动不了）。"
+            )
     return out
 
 

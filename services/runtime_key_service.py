@@ -35,9 +35,13 @@ ALLOWED_PERMISSIONS = frozenset(
     }
 )
 
-# 一把 Runtime Key 最长能用多久。铸造端只接受 90 天以内的到期时间：
-# 「十年有效的钥匙」等于没有到期时间，出事时用户没有任何兜底。
+# 调用方**主动**填了到期时间时的封顶。这只是一道防手滑（2030 打成 20300），
+# 不是安全边界：不填就是「长期有效」，见 resolve_key_expiry / NEVER_EXPIRES_AT。
 MAX_KEY_LIFETIME_DAYS = 90
+
+# 「长期有效」的存储值。收口只有一个：主人在操作台注销（POST /runtime/revoke-key）。
+# 用哨兵而不是 NULL，因为 expire_at 是非空列，而且到处都在拿它做「过期了吗」的比较。
+NEVER_EXPIRES_AT = datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
 
 # 这些权限会动钱 / 会替主人拍板 —— 对应的 key 每请求强制带 nonce 并做重放检查。
 NONCE_REQUIRED_PERMISSIONS = frozenset({"place_order", "request_settlement"})
@@ -278,10 +282,11 @@ def _as_utc(dt: datetime) -> datetime:
 
 
 def assert_key_lifetime_sane(expire_at: datetime, *, now: datetime | None = None) -> datetime:
-    """到期时间必须落在未来 90 天以内。
+    """**调用方主动填了到期时间**时才走的校验：必须在未来，且落在 90 天以内。
 
     旧代码不检查，操作台能铸出 10 年有效的钥匙 —— 那等于没有到期时间，
-    用户想收回只能靠吊销，而这把钥匙已经在外面了。
+    用户想收回只能靠吊销。现在期限本身由主人决定（不填 = 长期有效），
+    这里只挡住明显的笔误。
     """
     exp = _as_utc(expire_at)
     current = _as_utc(now or _utcnow())
@@ -293,6 +298,44 @@ def assert_key_lifetime_sane(expire_at: datetime, *, now: datetime | None = None
             detail=f"expire_time must be within {MAX_KEY_LIFETIME_DAYS} days",
         )
     return exp
+
+
+def resolve_key_expiry(expire_at: datetime | None, *, now: datetime | None = None) -> datetime:
+    """「要不要到期」的唯一入口：没填 = 长期有效。
+
+    授权的期限不该在铸钥匙那一刻靠猜一个天数决定 —— 主人随时能在操作台注销，
+    注销立刻生效。填了才按填的算，并且仍然挡住明显的笔误。
+    """
+    if expire_at is None:
+        return NEVER_EXPIRES_AT
+    return assert_key_lifetime_sane(expire_at, now=now)
+
+
+def is_never_expires(expire_at: datetime | None) -> bool:
+    """哨兵值判定。留 1 秒余量，免得序列化往返把微秒抹掉后判成「会到期」。"""
+    if expire_at is None:
+        return True
+    return _as_utc(expire_at) >= NEVER_EXPIRES_AT - timedelta(seconds=1)
+
+
+def key_is_expired(
+    expire_at: datetime | None, *, skew_seconds: int = 30, now: datetime | None = None
+) -> bool:
+    """这把钥匙现在算不算过期。长期有效的不做加法。
+
+    别写成 ``_utcnow() > _as_utc(row.expire_at) + timedelta(seconds=30)``：
+    哨兵值就在 datetime 的上界上，再加 30 秒会直接 OverflowError（真踩过）。
+    """
+    if is_never_expires(expire_at):
+        return False
+    return _as_utc(now or _utcnow()) > _as_utc(expire_at) + timedelta(seconds=skew_seconds)
+
+
+def expire_at_view(expire_at: datetime | None) -> str:
+    """给接口和操作台用：长期有效回空串 —— 别让用户看到 9999-12-31。"""
+    if is_never_expires(expire_at):
+        return ""
+    return _as_utc(expire_at).isoformat()
 
 
 def _canonical_signature_timestamp(raw: str) -> tuple[datetime, str]:
@@ -390,7 +433,7 @@ async def load_active_context(
     if not verify_runtime_secret(key_id=key_id, secret=secret, secret_hash=row.secret_hash):
         raise HTTPException(status_code=401, detail="invalid runtime key")
     exp = _as_utc(row.expire_at)
-    if _utcnow() > exp + timedelta(seconds=30):
+    if key_is_expired(row.expire_at):
         raise HTTPException(status_code=401, detail="runtime key expired")
     if require_signature and not (row.agent_public_key or "").strip():
         raise HTTPException(
@@ -424,7 +467,7 @@ async def create_runtime_key_record(
     permissions: list[str],
     single_limit: float,
     daily_limit: float,
-    expire_at: datetime,
+    expire_at: datetime | None,
     agent_name: str,
     agent_binding: str | None,
     profile_id: str | None = None,
@@ -436,7 +479,7 @@ async def create_runtime_key_record(
     if daily_limit + 1e-9 < single_limit:
         raise HTTPException(status_code=400, detail="daily_limit must be >= single_limit")
     perms = normalize_permissions(permissions)
-    expire_at = assert_key_lifetime_sane(expire_at)
+    expire_at = resolve_key_expiry(expire_at)
     binding_mode = (key_binding or "service").strip().lower()
     if binding_mode not in {"service", "agent"}:
         raise HTTPException(status_code=400, detail="key_binding must be 'service' or 'agent'")
@@ -479,7 +522,7 @@ async def _load_activatable_row(db: AsyncSession, key_id: str) -> RuntimeKeyMode
     row = await db.get(RuntimeKeyModel, key_id)
     if not row or row.status != "active":
         raise HTTPException(status_code=401, detail="invalid or revoked runtime key")
-    if _utcnow() > _as_utc(row.expire_at) + timedelta(seconds=30):
+    if key_is_expired(row.expire_at):
         raise HTTPException(status_code=401, detail="runtime key expired")
     return row
 
@@ -594,6 +637,43 @@ async def request_key_binding(
     row.pending_requested_at = _utcnow()
     await db.flush()
     return row, code, "pending_activation"
+
+
+async def activate_key_binding(
+    *,
+    db: AsyncSession,
+    key_id: str,
+    agent_id: str,
+    agent_public_key: str,
+) -> RuntimeKeyModel:
+    """主人一侧一次性把钥匙钉在 agent 公钥上 —— 省掉 8 位匹配码那一步。
+
+    配对链路里 agent 申请接入时就交了自己的公钥，操作台在批准前把这个公钥的指纹
+    显示给主人核对，所以「主人点批准」本身就是那次确认。它等价于
+    request_key_binding + confirm_key_binding，只是把「码」换成「主人核对过的指纹」。
+
+    安全性没有降级：绑定之后每个 /runtime/* 请求仍要 agent 私钥签名（光有 key
+    不能用），而 agent 私钥从未离开 agent 本机。
+    """
+    row = await _load_activatable_row(db, key_id)
+    declared = (agent_id or "").strip()
+    if not declared:
+        raise HTTPException(status_code=400, detail="agent_id is required")
+    bound = (row.agent_binding or "").strip()
+    if bound and bound != declared:
+        raise HTTPException(status_code=403, detail="runtime key was minted for a different agent")
+    pub = normalize_agent_public_key(agent_public_key)
+    current = (row.agent_public_key or "").strip()
+    if current and current != pub:
+        raise HTTPException(
+            status_code=409,
+            detail="runtime key is already bound to another agent public key; revoke and mint a new key",
+        )
+    row.key_binding = "agent"
+    row.agent_public_key = pub
+    _clear_pending_binding(row)
+    await db.flush()
+    return row
 
 
 async def confirm_key_binding(*, db: AsyncSession, key_id: str, code: str) -> RuntimeKeyModel:

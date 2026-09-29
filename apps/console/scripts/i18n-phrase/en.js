@@ -2618,4 +2618,10 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "交接码已签发（还在有效期内）。忘了那串码就点「重新签发」。": "A handoff code is already issued (still valid). If you forgot it, hit 'Issue a new one'.",
   "接下来点「签发交接码」，把它交给你的 agent —— 没有这串码，它领不走凭据。": "Next, hit 'Issue handoff code' and give it to your agent: without this code it cannot collect the credentials.",
   "已交付 —— 最后一步：签发交接码交给 agent": "Delivered: last step, issue a handoff code and give it to the agent",
+  "有效期（天，可留空）": "Valid for (days, optional)",
+  "留空 = 长期有效": "Leave blank = no expiry",
+  "长期有效（随时可注销）": "No expiry (revoke anytime)",
+  "超过单笔上限的支出不会自动放行：agent 会拿到「等待你确认」，你点一下才继续。": "Spending above the per-transaction limit is never auto-released: the agent gets \"waiting for your confirmation\" and only continues after you tap it.",
+  "已钉在 agent 交来的公钥上 · 每个请求都由它本机签名，别人抄走钥匙字符串也用不了": "Pinned to the public key the agent sent · every request is signed on its own machine, so a copied key string is useless",
+  "agent 交的公钥你已经核对过，所以这次批准就是激活：它领到钥匙就能在额度内花钱，不用再输任何码。": "You already checked the public key the agent sent, so this approval is the activation: once it collects the key it can spend within the limits - no code to type.",
 });

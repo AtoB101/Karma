@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,6 +74,7 @@ from services.runtime_key_service import (
     PublicKeyError,
     RuntimeKeyContext,
     agent_binding_fingerprint,
+    activate_key_binding,
     assert_permission,
     BIND_CODE_TTL_SECONDS,
     binding_scope,
@@ -82,7 +83,9 @@ from services.runtime_key_service import (
     confirm_key_binding,
     create_runtime_key_record,
     display_activation_code,
+    expire_at_view,
     hash_binding_scope,
+    is_never_expires,
     list_bound_runtime_keys,
     list_runtime_keys_for_identity,
     load_active_context,
@@ -328,13 +331,26 @@ class CreateRuntimeKeyBody(BaseModel):
     permissions: list[str]
     single_limit: float = Field(gt=0)
     daily_limit: float = Field(gt=0)
-    expire_time: datetime
+    # 不填 = 长期有效（到期时间不是必需的；收回钥匙靠操作台的注销按钮）。
+    expire_time: Optional[datetime] = None
     agent_name: str
     agent_binding: Optional[str] = None
     # agent 自己声明的 id（操作台铸造时提交）。它必须与 agent_binding 一致 ——
     # agent_binding 是写进钱包签名消息的那个字段，两个不一致就等于用户没授权过这个 agent。
     agent_id: Optional[str] = None
     profile_id: Optional[str] = None
+
+    @field_validator("expire_time", mode="before")
+    @classmethod
+    def _blank_expire_means_never(cls, value):
+        """空串 / 不填 = 长期有效。
+
+        老客户端可能把「有效期」输入框清空后传一个空串上来 —— 那不该是 422，
+        它的意思和「不填」完全一样。签名消息那边对应用 "never" 这个字面量。
+        """
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return value
 
 
 @router.post("/create-key")
@@ -432,7 +448,8 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
             "runtime_key": token,
             "key_id": row.key_id,
             "permissions": row.permissions,
-            "expire_time": row.expire_at.isoformat(),
+            "expire_time": expire_at_view(row.expire_at),
+            "never_expires": is_never_expires(row.expire_at),
             "status": row.status,
             "agent_binding": row.agent_binding,
             "key_binding": row.key_binding,
@@ -525,7 +542,8 @@ async def runtime_list_keys(body: ListRuntimeKeysBody, db: AsyncSession = Depend
             "key_id": r.key_id,
             "profile_id": r.profile_id,
             "permissions": r.permissions,
-            "expire_time": r.expire_at.isoformat(),
+            "expire_time": expire_at_view(r.expire_at),
+            "never_expires": is_never_expires(r.expire_at),
             "status": r.status,
             "agent_name": r.agent_name,
             "single_limit": r.single_limit,
@@ -946,7 +964,8 @@ async def runtime_list_bound_keys(
             "permissions": r.permissions,
             "single_limit": r.single_limit,
             "daily_limit": r.daily_limit,
-            "expire_time": r.expire_at.isoformat() if r.expire_at else "",
+            "expire_time": expire_at_view(r.expire_at),
+            "never_expires": is_never_expires(r.expire_at),
             "nonce_required": bool(r.nonce_required),
         }
         for r in rows
@@ -1191,7 +1210,8 @@ async def runtime_permissions(
             "key_id": ctx.key_id,
             "karma_identity_id": ctx.karma_identity_id,
             "permissions": ctx.permissions,
-            "expire_time": ctx.expire_at.isoformat(),
+            "expire_time": expire_at_view(ctx.expire_at),
+            "never_expires": is_never_expires(ctx.expire_at),
             "status": ctx.status,
             "single_limit": ctx.single_limit,
             "daily_limit": ctx.daily_limit,
@@ -1364,7 +1384,8 @@ async def runtime_policy(
                 else False,
             },
             "rules_zh": rules,
-            "expire_time": ctx.expire_at.isoformat(),
+            "expire_time": expire_at_view(ctx.expire_at),
+            "never_expires": is_never_expires(ctx.expire_at),
             "chain_id": int(settings.testnet_chain_id or 0),
             "runtime_url": (settings.public_runtime_base_url or "").strip(),
         }

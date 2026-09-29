@@ -97,6 +97,12 @@ def _http_error(status_code: int, detail: str) -> httpx.HTTPStatusError:
     return httpx.HTTPStatusError(f"{status_code}", request=resp.request, response=resp)
 
 
+def _env_text() -> str:
+    """凭据文件的正文（不存在就是空串）。"""
+    path = pt.agent_env_path()
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
 def _state_files() -> list:
     directory = pt.pairing_state_dir()
     if not directory.is_dir():
@@ -114,6 +120,10 @@ async def test_start_saves_the_pairing_code_locally_and_never_echoes_it(monkeypa
     assert calls[0]["path"] == "/v1/agent-pairing/request"
     assert calls[0]["body"]["agent_name"] == "claw-001"
     assert calls[0]["body"]["requested_side"] == "seller"
+    # 顺带把自己的公钥一起交上去：主人在操作台核对过指纹之后，批准那一下就能把
+    # Runtime Key 钉在它上面（配对即激活），不用再来一轮 8 位匹配码。
+    pub = calls[0]["body"]["public_key"]
+    assert len(pub) == 44 and pub.endswith("=")
 
     assert out["ok"] is True
     assert out["status"] == "pending_owner"
@@ -185,8 +195,11 @@ async def test_claim_lets_the_server_explain_the_hold(monkeypatch):
     await pt.karma_pairing_start("claw-001")
     out = await pt.karma_pairing_claim()
     assert out["ask_owner"] == "这次部署仍要求交接码：请主人在操作台签发后再试。"
-    # 没交接码就没凭据、更不写盘。
-    assert not pt.agent_env_path().exists()
+    # 没交接码就没凭据。本机私钥可以已经落盘（配对那一步自己生成的），
+    # 但服务端发的东西一行都不许出现。
+    text = _env_text()
+    assert "KARMA_API_KEY=" not in text
+    assert "KARMA_RUNTIME_KEY=" not in text
 
 
 async def test_claim_writes_the_env_file_and_only_reports_fingerprints(monkeypatch):
@@ -219,8 +232,34 @@ async def test_claim_writes_the_env_file_and_only_reports_fingerprints(monkeypat
     assert "Never paste this file into a chat" in text
     if os.name == "posix":
         assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
-    # 拿到 Runtime Key 时要把「还得让主人输匹配码」这一步说清楚。
+    # 服务端没说这把钥匙已经激活（回执里没有 runtime_key_binding.activated），
+    # 那就还得让主人输匹配码 —— 这一步必须说清楚，不能让 agent 以为直接能用。
     assert "karma_runtime_bind_key" in out["next"]
+
+
+async def test_claim_says_the_key_is_already_live_when_pairing_activated_it(monkeypatch):
+    """配对即激活：回执说 activated，agent 就不该再让主人输匹配码。"""
+    payload = _approved_payload()
+    payload["runtime_key_binding"] = {
+        "runtime_key_id": "c" * 32,
+        "granted": True,
+        "activated": True,
+        "agent_fingerprint": "9f1c0f2b4d5e6a7b",
+        "step_1": "nothing — already bound to the public key this pairing declared",
+        "step_2": "",
+        "step_3": "",
+        "note": "this key is live",
+    }
+    _install(monkeypatch, [_request_payload(), payload])
+    await pt.karma_pairing_start("claw-001")
+    out = await pt.karma_pairing_claim()
+
+    assert out["ok"] is True
+    assert out["runtime_key_activated"] is True
+    assert "配对即激活" in out["next"]
+    assert "karma_runtime_bind_key" not in out["next"]
+    # 私钥不会被这次写盘冲掉：agent 重新读得到自己的种子。
+    assert "KARMA_AGENT_PRIVATE_KEY=" in _env_text()
 
 
 async def test_claim_rejects_a_wrong_handoff_code(monkeypatch):
@@ -234,7 +273,9 @@ async def test_claim_rejects_a_wrong_handoff_code(monkeypatch):
     assert calls[1]["body"]["handoff_code"] == "ZZZZ-ZZZZ"
     assert out["ok"] is False
     assert out["error"] == "handoff_rejected"
-    assert not pt.agent_env_path().exists()
+    text = _env_text()
+    assert "KARMA_API_KEY=" not in text
+    assert "KARMA_RUNTIME_KEY=" not in text
 
 
 async def test_claim_reports_an_unknown_pairing(monkeypatch):

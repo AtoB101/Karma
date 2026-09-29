@@ -66,6 +66,36 @@ def agent_key_from_env() -> Any | None:
     return agent_key_from_seed(seed)
 
 
+def ensure_local_agent_key() -> Any | None:
+    """本机 agent 私钥：有就用，没有就现生成一把并落盘（0600）。
+
+    为什么由 agent 自己生成：这把私钥是「光有钥匙字符串花不了钱」的全部依据，
+    它必须只存在于 agent 本机 —— Karma 服务端从头到尾看不到它，只收到公钥，
+    用来把 Runtime Key 钉在这次的 agent 身上。
+    """
+    existing = agent_key_from_env()
+    if existing is not None:
+        return existing
+    try:
+        import base64 as _b64
+
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        from karma_openclaw.agent_env import upsert_credential
+
+        key = Ed25519PrivateKey.generate()
+        raw = key.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
+        upsert_credential("KARMA_AGENT_PRIVATE_KEY", _b64.b64encode(raw).decode())
+        return key
+    except Exception:  # noqa: BLE001 - 落不了盘就当没有，退回「领取时再绑」那条老路
+        return None
+
+
 def agent_id_from_env() -> str:
     from karma_openclaw.agent_env import credential
 

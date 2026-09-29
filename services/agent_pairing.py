@@ -443,6 +443,20 @@ def _find_by_pairing_code(pairing_code: str) -> dict[str, Any] | None:
     return None
 
 
+def public_key_for_user_code(user_code: str) -> str:
+    """这次配对申请时声明的 agent 公钥（原始 base64）。
+
+    故意不进 ``_public_view``：操作台只需要核对指纹，原串只在服务端内部做绑定用。
+    """
+    _ensure_loaded()
+    with _LOCK:
+        _purge_expired_unlocked()
+        row = _find_by_user_code(user_code)
+        if row is None:
+            raise HTTPException(404, "pairing code not found — check it with the agent and retry")
+        return str(row.get("public_key") or "").strip()
+
+
 def lookup_by_user_code(user_code: str) -> dict[str, Any]:
     """Owner-side view of a request, for the approval screen."""
     _ensure_loaded()
@@ -542,8 +556,13 @@ def attach_runtime_key(
     owner_identity_id: str,
     runtime_key: str,
     runtime_key_id: str,
+    activated_fingerprint: str = "",
 ) -> dict[str, Any]:
-    """Park an already-minted runtime key in this pairing's one-shot delivery."""
+    """Park an already-minted runtime key in this pairing's one-shot delivery.
+
+    ``activated_fingerprint`` 非空 = 这把钥匙在挂进来之前就已经绑在 agent 公钥上了
+    （主人批准那一下钉的），agent 领到就能花；空 = 还得走 8 位匹配码那一步。
+    """
     token = (runtime_key or "").strip()
     if not token:
         raise HTTPException(400, "runtime_key is required")
@@ -564,6 +583,8 @@ def attach_runtime_key(
         delivery = dict(row.get("delivery") or {})
         delivery["runtime_key"] = token
         delivery["runtime_key_id"] = (runtime_key_id or "").strip()
+        delivery["runtime_key_activated"] = bool((activated_fingerprint or "").strip())
+        delivery["runtime_key_bound_fingerprint"] = (activated_fingerprint or "").strip()
         row["delivery"] = delivery
         _persist_unlocked()
         return _public_view(row)
@@ -651,6 +672,7 @@ def claim(*, pairing_code: str, handoff_code: str | None = None) -> dict[str, An
 
         delivery = dict(row.get("delivery") or {})
         env = _env_snippet(row)
+        key_activated = bool(delivery.get("runtime_key_activated"))
         handoff_required = bool(str(row.get("handoff_code_sha256") or ""))
         row["status"] = "claimed"
         row["claimed_at"] = _iso(_utcnow())
@@ -677,17 +699,40 @@ def claim(*, pairing_code: str, handoff_code: str | None = None) -> dict[str, An
         "runtime_key_binding": {
             "runtime_key_id": delivery.get("runtime_key_id") or None,
             "granted": bool(delivery.get("runtime_key")),
-            # 接入是两阶段的：agent 先申请拿到匹配码，主人输入并签名确认后才生效。
-            "step_1": "POST /runtime/bind-key with X-Karma-Runtime-Key to request activation",
-            "step_2": "show the returned activation_code to your owner",
-            "step_3": "owner enters it in the Karma console — only then is the binding live",
-            "note": "before the owner confirms, the key stays service-bound; request signing is refused",
+            # 两条路：① 配对时就已激活（主人批准那一下把 agent 公钥钉上了）；
+            # ② 还没激活（agent 申请接入时没交公钥，只能走 8 位匹配码那一步）。
+            "activated": key_activated,
+            "agent_fingerprint": delivery.get("runtime_key_bound_fingerprint") or "",
+            "step_1": (
+                "nothing — already bound to the public key this pairing declared"
+                if key_activated
+                else "POST /runtime/bind-key with X-Karma-Runtime-Key to request activation"
+            ),
+            "step_2": (
+                "" if key_activated else "show the returned activation_code to your owner"
+            ),
+            "step_3": (
+                ""
+                if key_activated
+                else "owner enters it in the Karma console — only then is the binding live"
+            ),
+            "note": (
+                "this key is live: sign every /runtime/* call locally with your own private key "
+                "(it never leaves your machine) — your owner is not asked for anything at spend time"
+                if key_activated
+                else "before the owner confirms, the key stays service-bound; request signing is refused"
+            ),
         },
         "next_steps": [
             "export KARMA_AGENT_ID / KARMA_API_KEY (and KARMA_RUNTIME_KEY when granted)",
             "GET /v1/agents/mine with X-Karma-Api-Key to confirm the identity resolves",
             "GET /runtime/policy with X-Karma-Runtime-Key to read the granted limits",
-            "POST /runtime/bind-key, then hand the activation code to your owner",
+            (
+                "sign each /runtime/* call with your own Ed25519 key — karma-connect sign-check "
+                "prints whether the three headers are right"
+                if key_activated
+                else "POST /runtime/bind-key, then hand the activation code to your owner"
+            ),
         ],
         "note_zh": "凭据只在这一次返回，服务端已不再保留明文；丢失就要重新配对。",
     }
