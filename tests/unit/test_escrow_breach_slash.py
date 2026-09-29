@@ -546,9 +546,10 @@ async def test_mark_dispute_pins_the_binding_on_chain(db_session, chain, monkeyp
 
     assert out["status"] == "disputed"
     assert calls["dispute"] == [int(row.binding_id)]
-    # 冻结不动钱：台账还是 active，两个 reservation 一分没动
+    # 冻结不动钱：两个 reservation 一分没动，但台账得跟链上走 —— 停在 disputed，
+    # 这样取消闸（看责任状态、不看时间）才拦得住当事方自己撤走质押。
     fresh = await db_session.get(EscrowBindingModel, row.binding_id)
-    assert fresh.state == "active"
+    assert fresh.state == "disputed"
 
 
 @pytest.mark.asyncio

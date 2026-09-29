@@ -73,6 +73,9 @@ SETTLED = "settled"        # 链上已经划完
 CANCELLED = "cancelled"    # 授权已放回
 SLASHED = "slashed"        # 卖方质押被划给买方
 BREACHING = "breaching"    # 已裁定违约，等争议窗口到点后罚没（此刻钱还没动）
+#: 链上把这一单钉成了 DISPUTED（v5）：钱原地不动，但谁都别想自己撤走。
+#: 它是个「责任状态」而不是终局 —— 仲裁之后照样要能放款 / 罚没。
+DISPUTED = "disputed"
 
 _DONE_STATES = (SETTLED, CANCELLED, SLASHED)
 
@@ -86,7 +89,7 @@ _CHAIN_DISPUTED = 6
 #: **资金责任状态**：链上窗口已经打开，钱已经有了受款人（在等放款或罚没）。
 #: 台账停在其中任何一态时都不允许「取消锁仓」—— 这是状态机闸，不是时间闸：
 #: 时间过了不等于责任消失，只有把这一单走完（放款 / 罚没）才会消失。
-_RESPONSIBILITY_STATES = (FINALIZING, BREACHING)
+_RESPONSIBILITY_STATES = (FINALIZING, BREACHING, DISPUTED)
 
 #: 取消失败时的固定口径：区分「钱还有责任」与「链上说不上话」。
 _CANCEL_BLOCKED_DETAIL = (
@@ -884,7 +887,8 @@ async def submit_for_task(
         return {"status": "unbound"}
     if row.state in _DONE_STATES:
         return {"status": row.state, "binding_id": row.binding_id}
-    if row.state != ACTIVE:
+    # 争议冻结同样要能放款：仲裁判卖方赢，就是把这一单继续推到结算窗。
+    if row.state not in (ACTIVE, DISPUTED):
         return {"status": row.state, "binding_id": row.binding_id}
 
     await assert_release_verified(db, task_id=task_id, mode=PAY)
@@ -1101,6 +1105,10 @@ async def mark_dispute_for_task(db: AsyncSession, *, task_id: str) -> dict[str, 
             "escrow_settlement_mark_disputed", task_id=task_id,
             binding_id=row.binding_id, tx=out.get("mark_tx_hash"),
         )
+        # 台账也跟着链上走：本地还停在 active 的话，取消闸（看状态不看时间）就以为
+        # 这一单没人管着，操作台也会把它显示成「进行中」而不是「争议中」。
+        row.state = DISPUTED
+        row.updated_at = datetime.utcnow()
         # 链上事实要写回结算单：操作台读的是那一行。不回写的话，争议单在操作台
         # 显示成「链上一片空白」，跟账上已经冻结的 0.1 对不上。
         await _reflect(

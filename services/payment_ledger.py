@@ -55,6 +55,7 @@ BINDING_PHASE = {
     "none": PHASE_ACTIVE,
     "active": PHASE_ACTIVE,
     "finalizing": PHASE_CONFIRM,
+    "disputed": PHASE_DISPUTE,
     "settled": PHASE_CLOSED,
     "slashed": PHASE_CLOSED,
     "cancelled": PHASE_CLOSED,
