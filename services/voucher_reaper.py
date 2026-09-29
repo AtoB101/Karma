@@ -24,7 +24,11 @@ from config.settings import settings
 from core.schemas import CapacityState, VoucherStatus
 from db.models.orm import CapacityModel, SettlementModel, VoucherModel
 from services import atomic_ledger
-from services.capacity_ledger import assert_capacity_invariants
+from services.capacity_ledger import (
+    assert_capacity_invariants,
+    capacity_conservation_gap,
+    heal_capacity_conservation,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +64,21 @@ async def due_vouchers(
         .limit(limit if limit is not None else batch_size())
     )
     return list((await db.execute(stmt)).scalars().all())
+
+
+async def _assert_capacity_healed(
+    db: AsyncSession, identity_id: str, *, context: str
+) -> None:
+    """回收完之后复核守恒式：派生列被写坏就地修复，修不好才抛。
+
+    回收这条路的每一次移动都是「责任桶 -> 可用」，本来就守恒；这里只兜住历史上
+    被写坏的行（老 bug / 人工修库），免得整个回收循环被一行坏账打断。
+    """
+    cap = await atomic_ledger.reload(db, CapacityModel, identity_id)
+    if cap is not None and capacity_conservation_gap(cap) is not None:
+        await heal_capacity_conservation(db, identity_id, context=context)
+        cap = await atomic_ledger.reload(db, CapacityModel, identity_id)
+    _assert_capacity(cap)
 
 
 def _assert_capacity(cap: CapacityModel | None) -> None:
@@ -113,7 +132,9 @@ async def release_reservation(db: AsyncSession, voucher: VoucherModel) -> float:
             amount_usdc=amount,
         )
         return 0.0
-    _assert_capacity(await atomic_ledger.reload(db, CapacityModel, voucher.buyer_identity_id))
+    await _assert_capacity_healed(
+        db, voucher.buyer_identity_id, context="voucher_expiry_release"
+    )
     return amount
 
 
@@ -214,7 +235,9 @@ async def restore_leaked_reservations(db: AsyncSession, *, limit: int = 200) -> 
                 "reserved_restore_declined", identity_id=cap.identity_id, excess_usdc=excess
             )
             continue
-        _assert_capacity(await atomic_ledger.reload(db, CapacityModel, cap.identity_id))
+        await _assert_capacity_healed(
+            db, cap.identity_id, context="reserved_leak_restore"
+        )
         healed.append({"identity_id": cap.identity_id, "returned_usdc": excess})
         logger.info(
             "reserved_restored", identity_id=cap.identity_id, returned_usdc=excess

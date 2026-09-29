@@ -36,11 +36,12 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
 from db.models.orm import AllowanceCommitModel, CapacityModel, EscrowBindingModel
+from services import atomic_ledger
 from services.chain.wallet_lock import (
     WalletLockError,
     _field,
@@ -1273,6 +1274,64 @@ async def secured_usdc_for_bill(db: AsyncSession, identity_id: str, bill_id: str
     return round(float(entry.get("secured_usdc") or 0.0), 6)
 
 
+def _capacity_active_expr(available_expr):
+    """守恒式右边的 ``active``：可用 + 全部责任桶，全部由**数据库现算**。
+
+    镜像写台账时只允许把「链上担保变了多少」这个差额算进去；``active`` 与
+    ``total_locked_usdc`` 都必须由数据库拿**当前那一行**推出来 —— 不能在 Python 里用
+    上一次读到的快照拼一个绝对数写回去（见 ``_apply_capacity_delta``）。
+    """
+    return (
+        available_expr
+        + CapacityModel.reserved_credits
+        + CapacityModel.in_progress_credits
+        + CapacityModel.confirmed_progress_credits
+        + CapacityModel.disputed_credits
+        + CapacityModel.pending_settlement_credits
+    )
+
+
+async def _apply_capacity_delta(db: AsyncSession, identity_id: str, delta: float) -> None:
+    """把镜像差额记进台账 —— **一条 UPDATE**，依赖列交给数据库自己推。
+
+    这条写入只有一个要求：无论谁在它读数和写数之间动过这一行（并发的接单预留、争议
+    冻结、结算放款），写完之后那一行都必须满足守恒式
+    ``total_bill_credits == active`` 且 ``total_locked_usdc >= active``。
+
+    老写法是「读快照 -> 在 Python 里加 delta -> 整列赋值」，而它只写 available /
+    bill / locked 三列，不碰 reserved / disputed 这些责任桶。只要读到的快照和真正
+    落库的那一行之间隔着一笔预留，写回去的 ``total_bill_credits`` 就少算了那笔预留，
+    守恒式当场破掉 —— 紧接着的争议冻结会在 ``assert_capacity_invariants`` 上 500。
+    真钱实测（2026-09-29）：autosettle 那一轮的会话跨了好几次 commit，快照停在预留
+    之前，于是 ``POST /v1/settlement/{task}/dispute`` 500 "capacity invariant check
+    failed"，钱一分没动，但用户开不了争议。
+
+    相对增量 + 同一条语句里现算 active，这两条同时满足就不存在那个窗口：并发的增量
+    要么排在这条之前（这次算进去），要么排在这条之后（下一轮对账补上）。
+    """
+    if abs(delta) < 1e-9:
+        return
+    available = CapacityModel.available_credits + delta
+    # 已经被订单占用的额度不能倒扣成负数：差额留在责任桶里。
+    capped = case((available > 0.0, available), else_=0.0)
+    active = _capacity_active_expr(capped)
+    locked = CapacityModel.total_locked_usdc + delta
+    await db.execute(
+        update(CapacityModel)
+        .where(CapacityModel.identity_id == identity_id)
+        .values(
+            available_credits=capped,
+            total_bill_credits=active,
+            total_locked_usdc=case((locked > active, locked), else_=active),
+            updated_at=datetime.utcnow(),
+        )
+    )
+    await db.flush()
+    # 身份映射里那份快照已经过期：同一会话后面再读它会拿到旧值（下一次对账就会拿
+    # 旧快照算 delta）。显式取回最新那一行。
+    await atomic_ledger.reload(db, CapacityModel, identity_id)
+
+
 async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[str, float]:
     """把 v2 非托管承诺镜像进主身份 ``capacity`` 台账。
 
@@ -1302,9 +1361,17 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
         str(bill_id): round(float(entry.get("secured_usdc") or 0.0), 6)
         for bill_id, entry in (report.get("bills") or {}).items()
     }
-    credited_total = 0.0
-    for row in rows:
-        credited_total += float(row.capacity_credited_usdc or 0.0)
+    # 上一轮记下的担保合计**从数据库现算**：这批 ORM 行可能停在会话里的旧快照上
+    # （``sync_commits`` / 上一次对账之后没刷新），拿旧值当 ``backed`` 会让差额偏小，
+    # 池子被越对越少。
+    credited_total = float(
+        await db.scalar(
+            select(func.coalesce(func.sum(AllowanceCommitModel.capacity_credited_usdc), 0.0)).where(
+                AllowanceCommitModel.identity_id == identity_id
+            )
+        )
+        or 0.0
+    )
     unsecured_total = round(float(report.get("unsecured_usdc") or 0.0), 6)
 
     # committed == 0 意味着根本没有活着的账单（都已撤销 / 已关闭）：那不是
@@ -1329,7 +1396,10 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
         live_total += secured_by_bill.get(str(row.bill_id), 0.0)
     live_total = round(live_total, 6)
 
-    cap = await db.get(CapacityModel, identity_id)
+    # 读**数据库当前那一行**，不是本会话身份映射里可能已经过期的那份快照。这个函数
+    # 会被长活会话调用（autosettle 那一轮跨了好几次 commit + 一次读链），快照可能停在
+    # 几分钟前，而中间的 HTTP 请求早就把这一行改过了。
+    cap = await atomic_ledger.reload(db, CapacityModel, identity_id)
     if cap is None:
         cap = CapacityModel(identity_id=identity_id, updated_at=datetime.utcnow())
         db.add(cap)
@@ -1368,23 +1438,7 @@ async def reconcile_capacity_mirror(db: AsyncSession, identity_id: str) -> dict[
         await db.flush()
         return {"credited_usdc": live_total, "delta_usdc": 0.0, "unsecured_usdc": unsecured_total}
 
-    cap.available_credits = float(cap.available_credits or 0.0) + delta
-    if cap.available_credits < 0.0:
-        # 已经被订单占用的额度不能倒扣成负数：差额留在责任桶里。
-        cap.available_credits = 0.0
-    active = (
-        cap.available_credits
-        + float(cap.reserved_credits or 0.0)
-        + float(cap.in_progress_credits or 0.0)
-        + float(cap.confirmed_progress_credits or 0.0)
-        + float(cap.disputed_credits or 0.0)
-        + float(cap.pending_settlement_credits or 0.0)
-    )
-    cap.total_bill_credits = active
-    cap.total_locked_usdc = max(float(cap.total_locked_usdc or 0.0) + delta, active)
-    cap.updated_at = datetime.utcnow()
-
-    await db.flush()
+    await _apply_capacity_delta(db, identity_id, delta)
     logger.info(
         "escrow_capacity_mirror_reconciled",
         identity_id=identity_id,

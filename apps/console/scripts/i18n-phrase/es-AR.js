@@ -608,6 +608,7 @@ window.CYBER_I18N_PHRASE["es-AR"] = {
   "选择文件": "Elegir archivo",
   "选行业 → 填硬指标 → 一键接入。agent 的运行密钥由 Karma 服务端生成并托管（可随时吊销），全程不涉及你的钱包私钥 / 助记词。": "Elegí un rubro → completá los indicadores obligatorios → conectá en un clic. La clave de runtime del agent la genera y custodia el servidor de Karma (revocable en cualquier momento), y tu clave privada o frase semilla no participan.",
   "通用服务": "Servicios generales",
+  "部署后的资金回归没通过：{0}": "La regresión de la ruta del dinero tras el despliegue falló: {0}",
   "酒店预订 · 票务 / 确认单": "Reserva de hoteles · tickets / confirmación",
   "释放未使用额度": "Liberar cupo sin usar",
   "释放金额 USDC": "Monto a liberar USDC",

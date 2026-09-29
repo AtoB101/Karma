@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.schemas import CapacityState
 from db.models.orm import CapacityModel
 from services import atomic_ledger
-from services.capacity_ledger import assert_capacity_invariants
+from services.capacity_ledger import (
+    assert_capacity_invariants,
+    capacity_conservation_gap,
+    heal_capacity_conservation,
+)
 from services.runtime_safety import audit_capacity_anchor_and_maybe_trip
 
 
@@ -39,8 +43,9 @@ async def move_reserved_to_disputed(
     except atomic_ledger.LedgerConflict as exc:
         raise HTTPException(409, str(exc)) from exc
 
-    cap = await atomic_ledger.reload(db, CapacityModel, buyer_identity_id)
-    _assert_capacity(cap)
+    await _assert_capacity_after_write(
+        db=db, buyer_identity_id=buyer_identity_id, context="dispute_freeze"
+    )
     await audit_capacity_anchor_and_maybe_trip(db=db)
 
 
@@ -99,8 +104,9 @@ async def apply_capacity_resolution(
             "capacity: neither disputed_credits nor reserved_credits cover escrow amount",
         )
 
-    cap = await atomic_ledger.reload(db, CapacityModel, buyer_identity_id)
-    _assert_capacity(cap)
+    await _assert_capacity_after_write(
+        db=db, buyer_identity_id=buyer_identity_id, context="capacity_resolution"
+    )
     await audit_capacity_anchor_and_maybe_trip(db=db)
 
 
@@ -162,7 +168,27 @@ async def release_dispute_freeze(
     return held
 
 
-def _assert_capacity(cap: CapacityModel) -> None:
+async def _assert_capacity_after_write(
+    *, db: AsyncSession, buyer_identity_id: str, context: str
+) -> None:
+    """钱动完之后复核守恒式 —— 派生列被写坏**就地修复**，修不好才 500。
+
+    ``total_bill_credits`` / ``total_locked_usdc`` 都是同一行其它列推得出来的派生值，
+    被写坏时（并发窗口、人工修库、老 bug 留下的行）没有任何理由把用户挡在门外：每个
+    动钱的入口都会在这里 500，钱一分没动，用户却办不了事（2026-09-29 真钱实测：开争议
+    500 "capacity invariant check failed"）。先按守恒式修，再重读复核；复核仍不过才是
+    真的坏了，那时候 500 才对。
+    """
+    cap = await atomic_ledger.reload(db, CapacityModel, buyer_identity_id)
+    if cap is not None and capacity_conservation_gap(cap) is not None:
+        await heal_capacity_conservation(db, buyer_identity_id, context=context)
+        cap = await atomic_ledger.reload(db, CapacityModel, buyer_identity_id)
+    _assert_capacity(cap)
+
+
+def _assert_capacity(cap: CapacityModel | None) -> None:
+    if cap is None:
+        raise HTTPException(500, "capacity invariant check failed")
     try:
         assert_capacity_invariants(
             CapacityState(

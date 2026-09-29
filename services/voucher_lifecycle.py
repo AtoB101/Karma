@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.schemas import ResponsibilityEdgeType, VoucherStatus
 from db.models.orm import CapacityModel, VoucherModel
 from services import atomic_ledger
-from services.capacity_ledger import assert_capacity_invariants
+from services.capacity_ledger import (
+    assert_capacity_invariants,
+    capacity_conservation_gap,
+    heal_capacity_conservation,
+)
 from core.schemas import CapacityState
 from services.responsibility_graph import ingest_edge
 from services.runtime_safety import audit_capacity_anchor_and_maybe_trip
@@ -84,6 +88,13 @@ async def accept_voucher_row(
         raise HTTPException(409, str(exc)) from exc
 
     cap = await atomic_ledger.reload(db, CapacityModel, row.buyer_identity_id)
+    if cap is not None and capacity_conservation_gap(cap) is not None:
+        # 派生列被写坏（并发窗口 / 老 bug 留下的行）：先按守恒式修，别让接单这条
+        # 钱的路在自检上炸掉。修不了会在下面重新抛出。
+        await heal_capacity_conservation(
+            db, row.buyer_identity_id, context="voucher_accept"
+        )
+        cap = await atomic_ledger.reload(db, CapacityModel, row.buyer_identity_id)
     _validate_capacity_row(cap)
     await audit_capacity_anchor_and_maybe_trip(db=db)
 

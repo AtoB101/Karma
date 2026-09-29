@@ -96,6 +96,9 @@
     if (kind === "key_bound") {
       return Tf("接入已确认：{0} 现在可以在额度与权限内代表你花钱。", who(n && n.payload));
     }
+    if (kind === "money_regression_failed") {
+      return Tf("部署后的资金回归没通过：{0}", (n && n.payload && n.payload.summary) || "—");
+    }
     return Tf("钥匙事件：{0}", kind || "—");
   }
 

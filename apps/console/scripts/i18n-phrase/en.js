@@ -606,6 +606,7 @@ window.CYBER_I18N_PHRASE["en"] = {
   "选择文件": "Choose file",
   "选行业 → 填硬指标 → 一键接入。agent 的运行密钥由 Karma 服务端生成并托管（可随时吊销），全程不涉及你的钱包私钥 / 助记词。": "Pick an industry → fill in the hard numbers → connect in one click. The agent's runtime key is generated and custodied by the Karma server (revocable at any time), and your wallet private key / seed phrase is never involved.",
   "通用服务": "General services",
+  "部署后的资金回归没通过：{0}": "The post-deploy money-path regression failed: {0}",
   "酒店预订 · 票务 / 确认单": "Hotel booking · tickets / confirmation",
   "释放未使用额度": "Release unused credits",
   "释放金额 USDC": "Release amount USDC",
