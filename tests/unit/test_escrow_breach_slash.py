@@ -566,6 +566,10 @@ async def test_mark_dispute_is_idempotent_when_chain_already_disputed(
 
     assert out["already"] is True
     assert calls["dispute"] == []
+    # 重放不重复下单，但台账要跟链上对齐：旧版本留下的「链上 DISPUTED / 账上 active」
+    # 就在这一步被拉回来，否则取消闸会把这一单当成没人管着的可撤绑定。
+    fresh = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert fresh.state == "disputed"
 
 
 @pytest.mark.asyncio

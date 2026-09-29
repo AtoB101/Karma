@@ -1071,6 +1071,19 @@ async def mark_dispute_for_task(db: AsyncSession, *, task_id: str) -> dict[str, 
     snapshot = await chain_snapshot(row)
     chain_state = int(snapshot["state"]) if snapshot is not None else None
     if chain_state == _CHAIN_DISPUTED:
+        # 链上已经钉住：这是**重放**而不是新动作。但台账可能落后 —— 旧版本开的争议单
+        # 本地还停在 active，合约却早就是 DISPUTED。就地补写，别让「链上争议中 /
+        # 账上进行中」这种错位把取消闸（看责任状态）和操作台显示一起带偏。
+        if row.state != DISPUTED:
+            row.state = DISPUTED
+            row.updated_at = datetime.utcnow()
+            await db.flush()
+            await _reflect(db, task_id=task_id, binding=row, onchain_status=DISPUTED)
+            logger.warning(
+                "escrow_binding_adopted_disputed_from_chain",
+                binding_id=row.binding_id, task_id=task_id,
+                note="chain already DISPUTED; ledger was behind",
+            )
         return {"status": "disputed", "binding_id": row.binding_id, "already": True}
     if chain_state is not None and chain_state != _CHAIN_ACTIVE:
         # 窗口已经开着（或已终局）：钱有了受款人，那两态本来就不许撤，冻结是多余的。
