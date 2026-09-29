@@ -615,6 +615,24 @@ async def _align_business_status(
     return hops
 
 
+async def resolve_party_identity(db: AsyncSession, party_id: str | None) -> str:
+    """把「当事方」解析成链上账单真正挂着的那个身份。
+
+    agent 下单时 ``worker_agent_id`` 存的是 agent id（``agent-xxxx``），而锁仓账单
+    挂在它的主人身份（``kid_xxxx``）上。拿 agent id 去查账单永远是「还没有链上
+    锁仓额度」—— 主人在操作台锁过仓也接不了单。agent id 走
+    ``agents.owner_identity_id``；已经是身份 id 的原样返回。
+    """
+    from db.models.orm import AgentModel
+
+    resolved = (party_id or "").strip()
+    if not resolved:
+        return resolved
+    row = await db.get(AgentModel, resolved)
+    owner = (getattr(row, "owner_identity_id", None) or "").strip() if row else ""
+    return owner or resolved
+
+
 async def bind_for_task(
     db: AsyncSession,
     *,
@@ -638,8 +656,12 @@ async def bind_for_task(
         return {"status": "already_bound", "binding_id": existing.binding_id, "state": existing.state}
 
     stake = seller_stake.required_stake_usdc(amount)
-    buyer_bill = await _pick_bill(db, identity_id=buyer_identity_id, role="付款方", need_usdc=amount)
-    seller_bill = await _pick_bill(db, identity_id=seller_identity_id, role="提供方", need_usdc=stake)
+    # 账单挂在身份上：agent id 先解析成它的主人身份，否则「主人在操作台锁过仓」
+    # 也会被判成「还没有链上锁仓额度」。
+    buyer_owner = await resolve_party_identity(db, buyer_identity_id)
+    seller_owner = await resolve_party_identity(db, seller_identity_id)
+    buyer_bill = await _pick_bill(db, identity_id=buyer_owner, role="付款方", need_usdc=amount)
+    seller_bill = await _pick_bill(db, identity_id=seller_owner, role="提供方", need_usdc=stake)
 
     # 新单一律开在当前合约上（``_pick_bill`` 已经保证挑出来的账单属于它）。
     # 记下这一条，之后所有链上动作都打向**它自己那台**合约，升级换地址也不会

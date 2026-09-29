@@ -74,7 +74,37 @@ async def apply_settlement_transition(
         route_path=route_path,
         actor_id=actor_id,
     )
+    await sync_chain_escrow_for_transition(
+        db=db, state=state, target_status=target_status
+    )
     return state
+
+
+async def sync_chain_escrow_for_transition(
+    *,
+    db: AsyncSession,
+    state: SettlementState,
+    target_status: TaskStatus,
+    buyer_confirmed: bool = False,
+) -> None:
+    """账上状态机往前走了，链上托管必须跟着走。
+
+    这条路径专门给 trade pipeline / intent fulfillment 用（agent 下单走的就是它）。
+    以前只有 HTTP 结算路由接了链上（``api/routes/settlement._sync_escrow_settlement``），
+    于是 agent 建的单：接单没 bind、结算没 submit —— 单子在账上「settled」，
+    链上连一条 binding 都没有，钱一分没动，账本扣掉的那点额度还会被
+    ``reconcile_capacity_mirror`` 按链上事实补回来。
+
+    实现仍然只有一份：延迟导入 HTTP 路由里的那份（services 层不在导入期反向依赖 api）。
+    """
+    from api.routes.settlement import _sync_escrow_settlement
+
+    await _sync_escrow_settlement(
+        db=db,
+        state=state,
+        target_status=target_status,
+        buyer_confirmed=buyer_confirmed,
+    )
 
 
 async def record_settlement_transition_audit(

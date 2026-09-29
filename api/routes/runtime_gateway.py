@@ -1486,6 +1486,16 @@ async def runtime_place_order(
             db, key_id=ctx.key_id, amount=float(body.amount), daily_limit=ctx.daily_limit
         ):
             raise HTTPException(status_code=403, detail="amount exceeds runtime key daily_limit")
+        # 生产要求每单一条 Console「交办存证」，而操作台没有这个按钮。下单这一刻
+        # 买卖双方都已经确定，服务端把存证登记掉（留痕 actor=console:auto），
+        # 否则 agent 交付后写不进执行回执，买方验收被永久挡住。
+        from services.openclaw_handoff_attestation import auto_attest_task_handoff
+
+        payload["handoff_attestations"] = await auto_attest_task_handoff(
+            db,
+            task_id=str(payload.get("task_id") or ""),
+            identity_ids=[ctx.karma_identity_id, body.seller_identity_id or ""],
+        )
     await db.commit()
     payload["requested_by_identity_id"] = ctx.karma_identity_id
     payload["profile_id"] = ctx.profile_id

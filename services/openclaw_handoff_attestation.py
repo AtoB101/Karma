@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Iterable, Literal
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -128,6 +128,57 @@ async def confirm_handoff_attestation(
         "policy_version": row.policy_version,
         "created_at": row.created_at.isoformat(),
     }
+
+
+async def auto_attest_task_handoff(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    identity_ids: Iterable[str],
+    actor: str = "console:auto",
+) -> list[dict[str, Any]]:
+    """下单这一刻替操作台把「交办存证」登记掉。
+
+    生产口径 ``RUNTIME_REQUIRE_HANDOFF_ATTESTATION=true`` 要求每一单都有一条
+    Console 存证，而操作台从来没有这个入口 —— 结果每一个合法用户的 agent
+    交付之后都写不进执行回执，买方验收被「至少要有一条成功回执」永久挡住，
+    买方的额度拿不回来、卖方也收不到钱。
+
+    这里只在**其余就绪检查全过**（``ready_for_handoff_confirm``）时才登记：没有
+    自动授权策略、没确认责任边界、没有有效 Runtime Key、凭证没被接受、责任图谱
+    没记录 —— 一条都不会因此放行。登记仍然留痕（``attested_by_actor=console:auto``）。
+    """
+    from services.openclaw_automation_readiness import infer_role_for_task
+
+    out: list[dict[str, Any]] = []
+    for identity_id in sorted({(i or "").strip() for i in identity_ids if (i or "").strip()}):
+        role = await infer_role_for_task(db, task_id=task_id, karma_identity_id=identity_id)
+        try:
+            rec = await confirm_handoff_attestation(
+                db,
+                task_id=task_id,
+                karma_identity_id=identity_id,
+                role=role,
+                trace_id=f"auto-{task_id}",
+                attested_by_actor=actor,
+            )
+        except HTTPException as exc:
+            out.append(
+                {
+                    "karma_identity_id": identity_id,
+                    "attested": False,
+                    "detail": str(exc.detail)[:200],
+                }
+            )
+            continue
+        out.append(
+            {
+                "karma_identity_id": identity_id,
+                "attested": True,
+                "attestation_id": rec.get("attestation_id"),
+            }
+        )
+    return out
 
 
 async def assert_handoff_attested(
