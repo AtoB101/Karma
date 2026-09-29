@@ -1101,6 +1101,15 @@ async def mark_dispute_for_task(db: AsyncSession, *, task_id: str) -> dict[str, 
             "escrow_settlement_mark_disputed", task_id=task_id,
             binding_id=row.binding_id, tx=out.get("mark_tx_hash"),
         )
+        # 链上事实要写回结算单：操作台读的是那一行。不回写的话，争议单在操作台
+        # 显示成「链上一片空白」，跟账上已经冻结的 0.1 对不上。
+        await _reflect(
+            db,
+            task_id=task_id,
+            binding=row,
+            onchain_status="disputed",
+            tx_hash=out.get("mark_tx_hash"),
+        )
     return {**out, "binding_id": row.binding_id}
 
 

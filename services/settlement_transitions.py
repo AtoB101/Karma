@@ -77,7 +77,12 @@ async def apply_settlement_transition(
     await sync_chain_escrow_for_transition(
         db=db, state=state, target_status=target_status
     )
-    return state
+    # 链上事实写回的是 ORM 行，不是手里这个 pydantic 快照。不重读的话，下一次
+    # transition 的 ``store.save()`` 会拿旧快照（settlement_mode=offchain、
+    # onchain_status/onchain_binding_id=None）把刚写回的链上字段整片覆盖掉 ——
+    # agent 下单的单子会显示成「链上一片空白」，和链上的 binding 对不上。
+    refreshed = await store.get(state.task_id)
+    return refreshed or state
 
 
 async def sync_chain_escrow_for_transition(

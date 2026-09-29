@@ -22,6 +22,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import (
+    AgentModel,
     AllowanceCommitModel,
     EscrowBindingModel,
     SettlementModel,
@@ -303,13 +304,29 @@ def lock_entry(row: AllowanceCommitModel, identity_id: str) -> dict:
     )
 
 
+async def _party_id_variants(db: AsyncSession, identity_id: str) -> list[str]:
+    """本人 + 本人名下所有 agent 的 id。
+
+    agent 下单时一单的当事人记的是 **agent id**（``agent-xxxx``），钱却始终是主人
+    身份（``kid_xxxx``）的。只按身份 id 精确匹配，卖方在「收付中心」就永远看不到
+    自己 agent 挣的那一笔 —— 单子明明结算了、链上也划款了，账本却是空的。
+    """
+    ids = [identity_id]
+    rows = await db.execute(
+        select(AgentModel.agent_id).where(AgentModel.owner_identity_id == identity_id)
+    )
+    ids.extend(str(v) for v in rows.scalars().all() if v)
+    return ids
+
+
 async def _settlements_for(db: AsyncSession, identity_id: str) -> list[SettlementModel]:
+    parties = await _party_id_variants(db, identity_id)
     result = await db.execute(
         select(SettlementModel)
         .where(
             or_(
-                SettlementModel.client_agent_id == identity_id,
-                SettlementModel.worker_agent_id == identity_id,
+                SettlementModel.client_agent_id.in_(parties),
+                SettlementModel.worker_agent_id.in_(parties),
             )
         )
         .order_by(SettlementModel.created_at.desc())
@@ -319,12 +336,13 @@ async def _settlements_for(db: AsyncSession, identity_id: str) -> list[Settlemen
 
 
 async def _bindings_for(db: AsyncSession, identity_id: str) -> list[EscrowBindingModel]:
+    parties = await _party_id_variants(db, identity_id)
     result = await db.execute(
         select(EscrowBindingModel)
         .where(
             or_(
-                EscrowBindingModel.buyer_identity_id == identity_id,
-                EscrowBindingModel.seller_identity_id == identity_id,
+                EscrowBindingModel.buyer_identity_id.in_(parties),
+                EscrowBindingModel.seller_identity_id.in_(parties),
             )
         )
         .order_by(EscrowBindingModel.created_at.desc())
@@ -334,12 +352,13 @@ async def _bindings_for(db: AsyncSession, identity_id: str) -> list[EscrowBindin
 
 
 async def _vouchers_for(db: AsyncSession, identity_id: str) -> list[VoucherModel]:
+    parties = await _party_id_variants(db, identity_id)
     result = await db.execute(
         select(VoucherModel)
         .where(
             or_(
-                VoucherModel.buyer_identity_id == identity_id,
-                VoucherModel.seller_identity_id == identity_id,
+                VoucherModel.buyer_identity_id.in_(parties),
+                VoucherModel.seller_identity_id.in_(parties),
             )
         )
         .order_by(VoucherModel.created_at.desc())
