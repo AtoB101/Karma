@@ -326,6 +326,11 @@ async def test_reconcile_task_reads_the_slash_back_from_chain(db_session, chain,
     bridge, calls = chain
     row = await _open(db_session, bridge)
     await bridge.slash_for_task(db_session, task_id=TASK)
+    # 动钱那笔（finalizeBreach，卖方钱包 -> 买方钱包）已经记在台账上 —— 正常路径就是
+    # autosettle 的 breach_due 写上的。拿不到它就不许落终局：一条「已罚没」配上一笔不动钱的
+    # submitBreach，链上核对会永远对不上（见 test_reconcile_waits_for_the_money_tx_instead_of_guessing）。
+    row.finalize_tx_hash = "0xslash1"
+    await db_session.flush()
     monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: 4)  # SLASHED
 
     out = await bridge.reconcile_task(db_session, task_id=TASK)
