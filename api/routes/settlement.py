@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import resolve_agent_id_from_request
@@ -24,10 +24,17 @@ from core.schemas import (
     VoucherStatus,
 )
 from core.settlement.engine import can_transition, canonical_task_status
-from db.models.orm import ProgressReceiptModel, SettlementTransitionAuditModel, VoucherModel
+from db.models.orm import (
+    CapacityModel,
+    ProgressReceiptModel,
+    SettlementModel,
+    SettlementTransitionAuditModel,
+    VoucherModel,
+)
 from db.session import get_db
 from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
+from services import atomic_ledger
 from services.capacity_resolution import apply_capacity_resolution, move_reserved_to_disputed
 from services.auto_arbitration_rules import adjust_auto_split_for_rules, build_auto_arbitration_context
 from services.runtime_safety import (
@@ -1385,6 +1392,125 @@ async def _sync_escrow_settlement(
         raise HTTPException(exc.status, exc.message) from exc
 
 
+async def _snapshot_settlement_row(
+    db: AsyncSession, task_id: str
+) -> dict[str, Any] | None:
+    """记下结算行「本步改动前」的样子。
+
+    链上 I/O 现在跑在事务外面（见 `_apply_transition`），那一步失败时要能把业务状态
+    原样退回来，所以先在这里取一份快照。**只读、不取行锁** —— 加锁反而会把
+    `capacity <-> settlements` 那个环又拉回来。
+    """
+    row = (
+        await db.execute(select(SettlementModel).where(SettlementModel.task_id == task_id))
+    ).scalars().first()
+    if row is None:
+        return None
+    # 只取 ORM 上真有的列（`rejection_reason_code` 只活在 SettlementState 上，
+    # 不是 settlements 表的列 —— 直接 getattr 会 AttributeError）。
+    return {
+        name: getattr(row, name, None)
+        for name in (
+            "status",
+            "released_amount",
+            "refunded_amount",
+            "released_at",
+            "arbitration_notes",
+            "dispute_reason",
+        )
+    }
+
+
+async def _release_dispute_freeze_after_revert(
+    db: AsyncSession, *, buyer_identity_id: str | None, escrow_amount: float | None
+) -> None:
+    """开争议的入口在状态机之前就把 reserved 冻结成了 disputed。
+
+    链上那一步没落定、业务状态又退回去了，这份冻结也必须一起撤回 —— 否则账上会留
+    一笔没有任何争议对应的冻结，而 align_disputed_settlements 只认 status == disputed
+    的单子，永远补不回来（用户会看到「争议冻结 N」但那一单根本不在争议里）。
+    """
+    amount = float(escrow_amount or 0.0)
+    if not buyer_identity_id or amount <= 1e-9:
+        return
+    try:
+        await atomic_ledger.apply_delta_or_raise(
+            db,
+            CapacityModel,
+            "identity_id",
+            buyer_identity_id,
+            {"disputed_credits": -amount, "reserved_credits": amount},
+            guards=[(lambda C, _need=amount: C.disputed_credits + 1e-9 >= _need)],
+            message="dispute freeze changed concurrently; retry",
+        )
+    except Exception:  # noqa: BLE001 - 撤回失败不能把真正的链上错误吞掉
+        logger.warning("settlement_dispute_unfreeze_after_revert_failed", exc_info=True)
+
+
+async def _revert_chain_rejected_transition(
+    *,
+    db: AsyncSession,
+    prior: dict[str, Any] | None,
+    state: SettlementState,
+    from_status: TaskStatus,
+    target_status: TaskStatus,
+    reason: str,
+    route_path: str,
+    actor_id: str | None,
+) -> None:
+    """链上闸门没过：把已经落库的业务状态退回原样。
+
+    `_apply_transition` 现在先把这一步落库、放掉行锁，再去动链；链上失败时那一行
+    已经被提交了。不退回来的话，操作台会声称一笔链上根本不认的结算（钱没动，页面
+    却写「已结算」）。退回来之后语义与从前一致：接口报错、状态原地不动、交易可重试。
+
+    链上真落了半路也不怕：`submit_for_task` 里有 `adopt_chain_finalizing`，autosettle
+    的 `reconcile_from_chain` / `reap_stranded` 最终会把台账对齐到链上事实。
+    """
+    if prior is None:
+        return
+    try:
+        await db.rollback()
+        await db.execute(
+            update(SettlementModel)
+            .where(SettlementModel.task_id == state.task_id)
+            .values(**prior)
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 - 还原失败也不能把真正的链上错误吞掉
+        logger.warning("settlement_transition_rollback_failed", exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        return
+    if canonical_task_status(target_status) == TaskStatus.DISPUTED:
+        # 开争议那条路在状态机之前就冻了额度，状态退回去，冻结也得退。
+        await _release_dispute_freeze_after_revert(
+            db, buyer_identity_id=state.client_agent_id, escrow_amount=state.escrow_amount
+        )
+        await db.commit()
+    try:
+        await _record_transition_audit(
+            db=db,
+            state=state,
+            from_status=from_status,
+            to_status=target_status,
+            transition_allowed=False,
+            guard_stage="chain",
+            reason=f"链上闸门拒绝了这一步（{reason}）：业务状态已退回，交易可重试",
+            route_path=route_path,
+            actor_id=actor_id,
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 - 审计写不上不影响主流程
+        logger.warning("settlement_chain_reject_audit_failed", exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def _apply_transition(
     *,
     db: AsyncSession,
@@ -1412,6 +1538,8 @@ async def _apply_transition(
         )
         raise HTTPException(409, detail)
 
+    # 链上 I/O 会被放到下面的事务之外。那一步失败时要能把业务状态退回来，先取快照。
+    prior = await _snapshot_settlement_row(db, state.task_id)
     state.status = target_status
     state.updated_at = datetime.utcnow()
     try:
@@ -1442,13 +1570,37 @@ async def _apply_transition(
         route_path=route_path,
         actor_id=actor_id,
     )
-    await _sync_escrow_settlement(
-        db=db, state=state, target_status=target_status, buyer_confirmed=buyer_confirmed
-    )
-    # 上面那句链上调用是**同步**的：钱在链上动了，真相由 escrow_settlement 写回数据库行
-    # （onchain_status / onchain_binding_id / tx_hash）。但它改的是 ORM 行，不是手里这个
-    # pydantic 对象 —— 直接把 state 返回出去，操作台刚接完单就会看到 onchain_status=null，
-    # 数据库里明明写着 bound。重读一次，让响应说的是链上事实。
+    # ── 链上 I/O 不许待在事务里（2026-10-01 死锁根因）────────────────────────
+    # 这里原来是「在同一个事务里等链上回执」：submitSettlement / buyerConfirm 在
+    # Sepolia 上一等就是 40~100s。而这期间刚拿到的 settlements 行锁（store.save）
+    # 和调用方在进来之前拿的 capacity 行锁（开争议时的 move_reserved_to_disputed）
+    # 都还攥在手里不放。autosettle 的每一轮 tick 是另一个事务，两边摸同一批行的
+    # 顺序正好相反 —— Postgres 直接报 deadlock detected，三方成环
+    # （证据：outputs/concurrency/SUMMARY-2026-09-30.md 第 10.4 节）。
+    # 先把这一步落库、把行锁全部放掉，再去动链：链上等待期间这条连接不再持有
+    # 任何行锁，环就少了一条长边。链上失败时在 except 里把状态退回去。
+    await db.commit()
+    try:
+        await _sync_escrow_settlement(
+            db=db, state=state, target_status=target_status, buyer_confirmed=buyer_confirmed
+        )
+    except Exception:  # noqa: BLE001 - 链上那一步不管怎么坏的，状态都得退回去
+        await _revert_chain_rejected_transition(
+            db=db,
+            prior=prior,
+            state=state,
+            from_status=from_status,
+            target_status=target_status,
+            reason=reason,
+            route_path=route_path,
+            actor_id=actor_id,
+        )
+        raise
+    # 上面那句链上调用是**同步**的（现在跑在事务外）：钱在链上动了，真相由
+    # escrow_settlement 写回数据库行（onchain_status / onchain_binding_id / tx_hash）。
+    # 但它改的是 ORM 行，不是手里这个 pydantic 对象 —— 直接把 state 返回出去，
+    # 操作台刚接完单就会看到 onchain_status=null，数据库里明明写着 bound。
+    # 重读一次，让响应说的是链上事实。
     refreshed = await store.get(state.task_id)
     return refreshed or state
 
