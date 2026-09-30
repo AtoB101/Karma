@@ -145,8 +145,19 @@ async def rate_limit(
 # Dependency factories
 # ---------------------------------------------------------------------------
 
+# 名字里写着「写」的档位，就不该被同一条路由上的读请求吃掉。router 是**按前缀**挂
+# 依赖的（api/app.py）：/v1/settlement 上既挂着 GET /v1/settlement/{task_id}（轮询
+# 结算，一单要轮几十次），也挂着 POST .../buyer-accept，两者共用同一个
+# Depends(make_rate_limit_dep("write_sensitive"))。2026-09-30 并发压测实测：10 路并发
+# 轮询 = 120 次/60s，把写档的 100/60s 直接顶穿，轮询成片 429 —— 读被按写收费了。
+# 读自己那一档在 read_rate_limit_middleware（/v1/* 的 GET/HEAD，600/60s）。
+_WRITE_SCOPED_LIMITS = frozenset({"write_sensitive", "state_transition", "submit"})
+
+
 def make_rate_limit_dep(limit_key: str = "default"):
     async def dep(request: Request):
+        if limit_key in _WRITE_SCOPED_LIMITS and request.method.upper() in ("GET", "HEAD"):
+            return
         await rate_limit(request, limit_key)
     return dep
 

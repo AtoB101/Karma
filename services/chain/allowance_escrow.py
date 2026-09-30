@@ -1590,13 +1590,16 @@ def _is_stale_nonce(exc: Exception) -> bool:
     return "nonce too low" in text or "nonce has already been used" in text
 
 
-def _send_tx(fn, account=None):
-    """Sign and send with Karma's own operational account, then wait for it."""
-    w3 = _web3()
-    account = account or _operator_account()
-    chain_id = int(settings.testnet_chain_id or 0) or w3.eth.chain_id
-    cap_wei = int(max(0.0, float(settings.settlement_max_gas_price_gwei or 0.0)) * 1e9)
+def _broadcast_tx(fn, account, w3, chain_id: int, cap_wei: int):
+    """Reserve a nonce、签名、广播 —— 全在这一段进程锁里；**不等回执**。
 
+    锁只需要护住「nonce 的分配 + 广播顺序」这两件事。等回执是纯网络等待，
+    占着锁会把并发结算串成一条线：2026-09-30 实测 10 路并发 buyer-accept，
+    每单要 2 笔交易（submitSettlement + buyerConfirm），串行下来单个请求
+    438~462s，超过 nginx 300s 的 proxy_read_timeout，客户端全部看到 504 ——
+    钱其实是到账的，只是接口早就被掐断了。回执挪到锁外等，N 路并发就只是
+    N 笔并排的广播，而不是 N × 单笔确认时间。
+    """
     last_error: Exception | None = None
     with _SEND_LOCK:  # nonce read + broadcast is one critical section
         for attempt in (1, 2):
@@ -1634,14 +1637,26 @@ def _send_tx(fn, account=None):
                     continue
                 _forget_nonce(account.address)
                 raise
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-            if _field(receipt, "status") is not None and int(_field(receipt, "status")) != 1:
-                raise chain_error(_replay_revert(w3, tx, receipt))
-            hx = _hexstr(getattr(receipt, "transactionHash", tx_hash))
-            if not hx.startswith("0x"):
-                hx = "0x" + hx
-            return receipt, hx
+            return tx, tx_hash
     raise WalletLockError(f"could not send the settlement transaction: {last_error}")
+
+
+def _send_tx(fn, account=None):
+    """Sign and send with Karma's own operational account, then wait for it."""
+    w3 = _web3()
+    account = account or _operator_account()
+    chain_id = int(settings.testnet_chain_id or 0) or w3.eth.chain_id
+    cap_wei = int(max(0.0, float(settings.settlement_max_gas_price_gwei or 0.0)) * 1e9)
+
+    tx, tx_hash = _broadcast_tx(fn, account, w3, chain_id, cap_wei)
+    # 回执在锁外等：交易已经广播出去了，后面的人的广播不该被这一笔的确认时间堵住。
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+    if _field(receipt, "status") is not None and int(_field(receipt, "status")) != 1:
+        raise chain_error(_replay_revert(w3, tx, receipt))
+    hx = _hexstr(getattr(receipt, "transactionHash", tx_hash))
+    if not hx.startswith("0x"):
+        hx = "0x" + hx
+    return receipt, hx
 
 
 def scope_hash(scope: str, task_id: str) -> str:
