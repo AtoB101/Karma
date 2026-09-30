@@ -464,6 +464,23 @@ _TERMINAL_MONEY_STATUS = (SETTLED, SLASHED)
 #: 链上哪个事件代表「钱动了」，回查那笔交易用。
 _MONEY_EVENT = {SETTLED: "Settled", SLASHED: "StakeSlashed"}
 
+#: 回查失败后的冷却。公共 RPC 会 429（2026-10-01 L1 复跑实测：5 路并发下单，结算刚
+#: 落定的那几秒里每个 GET 都回查一次，就把 `ethereum-sepolia-rpc.publicnode.com`
+#: 刷成了 Too Many Requests）。读路径每 5 秒轮一次，不冷却等于自己把限流刷满。
+_RECOVER_COOLDOWN_SECONDS = 15.0
+_recover_failed_at: dict[str, float] = {}
+
+
+def _recover_cooling_down(row: EscrowBindingModel) -> bool:
+    key = str(row.binding_id)
+    started = _recover_failed_at.get(key)
+    if started is None:
+        return False
+    if time.monotonic() - started >= _RECOVER_COOLDOWN_SECONDS:
+        _recover_failed_at.pop(key, None)
+        return False
+    return True
+
 
 async def recover_money_tx_hash(
     row: EscrowBindingModel, *, onchain_status: str
@@ -483,6 +500,8 @@ async def recover_money_tx_hash(
     name = _MONEY_EVENT.get(onchain_status)
     if not name:
         return None
+    if _recover_cooling_down(row):
+        return None
     try:
         binding_id = chain_binding_id(row)
     except (TypeError, ValueError):
@@ -495,6 +514,7 @@ async def recover_money_tx_hash(
         from_tx=row.submit_tx_hash or row.bind_tx_hash,
     )
     if found:
+        _recover_failed_at.pop(str(row.binding_id), None)
         row.finalize_tx_hash = found
         logger.info(
             "escrow_settlement_money_tx_recovered",
@@ -503,6 +523,8 @@ async def recover_money_tx_hash(
             onchain_status=onchain_status,
             tx_hash=found,
         )
+    else:
+        _recover_failed_at[str(row.binding_id)] = time.monotonic()
     return found
 
 
@@ -1602,11 +1624,25 @@ async def reconcile_task(db: AsyncSession, *, task_id: str) -> dict[str, Any] | 
     mapped = _CHAIN_FINAL.get(chain_state) if chain_state is not None else None
     if mapped is None:
         return None
+    if mapped in _TERMINAL_MONEY_STATUS and not await recover_money_tx_hash(
+        row, onchain_status=mapped
+    ):
+        # 链上把钱划了，可我们手里没有那笔交易（回查被 RPC 限流、或还没上链）：
+        # **这一行先不动**。落下去只会是「已结算 + 开窗那笔 submitSettlement」——
+        # 操作台的「结算交易」和链上核对都照它抓回执，等于把「钱动了」记成「一分没动」。
+        # autosettle 的下一轮（带退避）会把交易查回来再落这一行；页面多停在
+        # finalizing 几秒，比显示一个错的结算交易诚实。
+        logger.warning(
+            "escrow_settlement_reconcile_without_money_tx",
+            task_id=task_id,
+            binding_id=row.binding_id,
+            onchain_status=mapped,
+        )
+        return None
     row.state = mapped
     row.updated_at = datetime.utcnow()
     await db.flush()
-    # 链上刚落定、我们还没记下那笔的时候，先回链把它找回来（见 recover_money_tx_hash）。
-    tx = await recover_money_tx_hash(row, onchain_status=mapped)
+    tx = row.finalize_tx_hash or row.submit_tx_hash
     await _reflect(db, task_id=task_id, binding=row, onchain_status=mapped, tx_hash=tx)
     logger.info("escrow_settlement_reconciled", task_id=task_id, binding_id=row.binding_id, state=mapped)
     return {"status": mapped, "binding_id": row.binding_id, "tx_hash": tx}

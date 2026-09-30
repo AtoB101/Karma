@@ -70,8 +70,12 @@ def _no_chain_event_lookups_in_unit_tests(monkeypatch) -> None:
     覆盖这个替身（`tests/unit/test_escrow_settlement.py`）。
     """
     from services.chain import allowance_escrow as _escrow
+    from services.chain import escrow_settlement as _bridge
 
     monkeypatch.setattr(_escrow, "find_binding_event_tx", lambda **_kw: None)
+    # 回查失败后的冷却表是进程内的：用例之间必须清掉，否则前一个用例的「查不到」
+    # 会让后一个用例连查都不查（考这条回查的用例会间歇性红）。
+    _bridge._recover_failed_at.clear()
 
 
 @pytest.fixture(autouse=True)

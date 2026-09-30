@@ -548,6 +548,83 @@ async def test_reconcile_recovers_the_money_tx_from_chain_logs(db_session, chain
 
 
 @pytest.mark.asyncio
+async def test_reconcile_waits_for_the_money_tx_instead_of_guessing(db_session, chain, monkeypatch):
+    """链上已经 final、可那笔交易又查不回来（RPC 限流 / 事件还没上链）：不许把 settled 落下去。
+
+    落下去就是「已结算 + 开窗那笔 submitSettlement」——操作台的结算交易和链上核对会照它
+    抓回执，等于把「钱动了」记成「一分没动」。让 autosettle 的下一轮（带退避）查回来再落；
+    页面多停在 finalizing 几秒是诚实的。
+    """
+    bridge, _calls = chain
+    db_session.add(settlement_row())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+    row = (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+    row.state = "finalizing"
+    row.submit_tx_hash = "0xsubmit1"
+    row.finalize_tx_hash = None
+    await db_session.flush()
+
+    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: 3)  # settled
+    monkeypatch.setattr(escrow, "find_binding_event_tx", lambda **_kw: None)      # 查不到
+
+    before = (
+        await db_session.execute(
+            select(SettlementModel).where(SettlementModel.task_id == TASK)
+        )
+    ).scalars().one().tx_hash
+
+    assert await bridge.reconcile_task(db_session, task_id=TASK) is None
+    assert (await db_session.get(EscrowBindingModel, row.binding_id)).state == "finalizing"
+    model = (
+        await db_session.execute(
+            select(SettlementModel).where(SettlementModel.task_id == TASK)
+        )
+    ).scalars().one()
+    assert model.onchain_status != "settled", "拿不到动钱那笔，就不许落「已结算」"
+    assert model.tx_hash == before, "不许把开窗那笔 submitSettlement 写进结算交易"
+
+
+@pytest.mark.asyncio
+async def test_the_money_tx_lookup_backs_off_after_a_failure(db_session, chain, monkeypatch):
+    """回查失败要冷却：读路径每 5 秒轮一次，不冷却就把公共 RPC 刷成 429。
+
+    2026-10-01 L1 复跑实测：10 笔结算里有 4 笔的回查被
+    `ethereum-sepolia-rpc.publicnode.com` 以 Too Many Requests 拒掉。
+    """
+    bridge, _calls = chain
+    calls = {"n": 0}
+
+    def _lookup(**_kw):
+        calls["n"] += 1
+        return None
+
+    monkeypatch.setattr(escrow, "find_binding_event_tx", _lookup)
+    row = EscrowBindingModel(
+        binding_id="900",
+        buyer_identity_id=BUYER,
+        seller_identity_id=SELLER,
+        buyer_bill_id="1",
+        seller_bill_id="2",
+        scope_hash="0x" + "00" * 32,
+        task_id=TASK,
+        amount_usdc=30.0,
+        stake_usdc=9.0,
+        state="finalizing",
+        contract_address=settings.allowance_escrow_address,
+    )
+
+    assert await bridge.recover_money_tx_hash(row, onchain_status="settled") is None
+    assert await bridge.recover_money_tx_hash(row, onchain_status="settled") is None
+    assert calls["n"] == 1, "冷却期内不该再打 RPC"
+
+
+@pytest.mark.asyncio
 async def test_route_translates_the_gate_into_a_409(db_session, chain, monkeypatch):
     from fastapi import HTTPException
     from api.routes import settlement as route
@@ -958,6 +1035,8 @@ async def test_a_binding_on_a_retired_contract_is_read_back_from_that_contract(
     row.contract_address = RETIRED
     row.state = "finalizing"
     row.bind_tx_hash = "0xbind-retired"
+    # 终局那一笔已经记在台账上（正常路径就是 autosettle 写上的）：这一条只考「问哪台合约」。
+    row.finalize_tx_hash = "0xfinal-retired"
     await db_session.flush()
 
     seen: dict[str, object] = {}
@@ -999,6 +1078,9 @@ async def test_a_composite_ledger_key_still_points_at_the_chain_binding(
             amount_usdc=30.0,
             stake_usdc=9.0,
             state="finalizing",
+            # 动钱那笔已经记在台账上（见 test_reconcile_waits_for_the_money_tx_instead_of_guessing：
+            # 拿不到它就不许落终局）：这一条只考「按链上 id 问、按链上 id 写回」。
+            finalize_tx_hash="0xfinal-composite",
             contract_address=settings.allowance_escrow_address,
         )
     )
