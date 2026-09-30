@@ -61,6 +61,20 @@ def _legacy_bearer_keys_allowed_in_tests(monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_chain_event_lookups_in_unit_tests(monkeypatch) -> None:
+    """单元测试永远不碰链。
+
+    回查终局交易（`allowance_escrow.find_binding_event_tx`，见
+    `escrow_settlement.recover_money_tx_hash`）是给「链上已落定、台账没记下那笔」
+    用的兜底。用例里没有 RPC，默认让它返回「找不到」；要考这条回查的用例自己
+    覆盖这个替身（`tests/unit/test_escrow_settlement.py`）。
+    """
+    from services.chain import allowance_escrow as _escrow
+
+    monkeypatch.setattr(_escrow, "find_binding_event_tx", lambda **_kw: None)
+
+
+@pytest.fixture(autouse=True)
 def reset_runtime_safety_mode_between_tests() -> None:
     """Global runtime safety mode is in-process; clear it so integration tests do not leak pauses."""
     from services.runtime_safety import set_runtime_safety_mode

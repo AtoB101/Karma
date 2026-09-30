@@ -141,6 +141,9 @@ def chain(monkeypatch):
     monkeypatch.setattr(escrow, "submit_settlement", _submit_settlement)
     monkeypatch.setattr(escrow, "cancel_binding", _cancel_binding)
     monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: None)
+    # 回链查终局交易（「链上落定、台账没记下那笔」时的兜底）：测试从不碰链。
+    # 要考这条回查的用例自己覆盖（见 test_reconcile_recovers_the_money_tx_from_chain_logs）。
+    monkeypatch.setattr(escrow, "find_binding_event_tx", lambda **_kw: None)
     # 链上快照：默认「读不到」（等价于 RPC 抖动）。要模拟链上真的开着窗的用例
     # 自己覆盖这一条（见 v4 那组）。
     monkeypatch.setattr(escrow, "binding_snapshot", lambda *, binding_id, **kw: None)
@@ -494,6 +497,54 @@ async def test_reconcile_adopts_the_chain_verdict_when_we_missed_the_receipt(db_
     )).scalars().one()
     assert model.onchain_status == "settled"
     assert model.tx_hash == "0xfinal1"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_recovers_the_money_tx_from_chain_logs(db_session, chain, monkeypatch):
+    """链上落定、可我们手里没有那笔交易（别人先推了 finalize，或买方自己确认放款）：
+    「结算交易」必须回链找回来 —— 不能拿开窗那笔 `submitSettlement` 顶上。
+
+    2026-10-01 L1 复跑的 8 笔红就是这个：只读对账先把 settled 落库了，
+    `settlements.tx_hash` 还指着 submit，链上核对读那笔回执当然找不到转账。
+    """
+    bridge, _calls = chain
+    db_session.add(settlement_row())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+    row = (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+    row.state = "finalizing"
+    row.submit_tx_hash = "0xsubmit1"
+    row.finalize_tx_hash = None
+    await db_session.flush()
+
+    monkeypatch.setattr(escrow, "binding_state", lambda *, binding_id, **kw: 3)  # settled
+    seen: dict[str, object] = {}
+
+    def _lookup(*, binding_id, signature, contract_address=None, from_tx=None, **_kw):
+        seen.update(binding_id=binding_id, signature=signature, from_tx=from_tx)
+        return "0xchainfinal"
+
+    monkeypatch.setattr(escrow, "find_binding_event_tx", _lookup)
+
+    out = await bridge.reconcile_task(db_session, task_id=TASK)
+
+    assert out["status"] == "settled"
+    assert seen["signature"] == escrow.event_signature("Settled"), "问错事件了"
+    assert seen["from_tx"] == "0xsubmit1", "回查要从我们自己发过的那笔开始，别扫全链"
+    model = (
+        await db_session.execute(
+            select(SettlementModel).where(SettlementModel.task_id == TASK)
+        )
+    ).scalars().one()
+    assert model.onchain_status == "settled"
+    assert model.tx_hash == "0xchainfinal", "结算交易没回链找回来，还是那笔不动钱的 submit"
+    binding = await db_session.get(EscrowBindingModel, row.binding_id)
+    assert binding.finalize_tx_hash == "0xchainfinal"
 
 
 @pytest.mark.asyncio

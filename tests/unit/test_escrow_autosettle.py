@@ -233,9 +233,20 @@ async def test_the_reconcile_tick_adopts_a_settlement_somebody_else_executed(
     monkeypatch.setattr(
         autosettle.escrow, "binding_state", lambda *, binding_id, **kw: 3
     )  # settled
+    late = binding("23", pull_after=int(time.time()) - 30)
+    late.submit_tx_hash = "0xsubmit23"
     db_session.add(settlement())
-    db_session.add(binding("23", pull_after=int(time.time()) - 30))
+    db_session.add(late)
     await db_session.commit()
+
+    # 别人推的那笔交易，台账里没有 —— 回链按 (Settled, bindingId) 找回来。
+    seen: dict[str, object] = {}
+
+    def _lookup(*, binding_id, signature, contract_address=None, from_tx=None, **_kw):
+        seen.update(binding_id=binding_id, signature=signature, from_tx=from_tx)
+        return "0xoutside"
+
+    monkeypatch.setattr(autosettle.escrow, "find_binding_event_tx", _lookup)
 
     aligned = await autosettle.reconcile_from_chain(db_session)
 
@@ -248,6 +259,11 @@ async def test_the_reconcile_tick_adopts_a_settlement_somebody_else_executed(
         )
     ).scalars().one()
     assert model.onchain_status == "settled"
+    # 关键：补齐的是「真正划钱那笔」，不是我们发给自己的 submitSettlement。
+    assert seen["signature"] == autosettle.escrow.event_signature("Settled")
+    assert seen["from_tx"] == "0xsubmit23"
+    assert row.finalize_tx_hash == "0xoutside"
+    assert model.tx_hash == "0xoutside"
     await _wipe_settlements(db_session)
 
 

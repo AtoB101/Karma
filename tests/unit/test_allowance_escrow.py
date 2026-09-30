@@ -23,6 +23,10 @@ CONSOLE_JS = ROOT / "apps/console/scripts/cyber-console.js"
 CONSOLE_API_JS = ROOT / "apps/console/scripts/karma-public-api.js"
 CONSOLE_HTML = ROOT / "apps/console/pages/cyber/index.html"
 
+#: 真实现。`tests/conftest.py` 在每个用例里把这条回查换成了「找不到」的替身
+#: （单元测试不许碰链）；考这条回查本身的用例直接用它，绕开那个替身。
+_REAL_FIND_BINDING_EVENT_TX = escrow.find_binding_event_tx
+
 CONTRACT = "0x3fe45f40c19978e81296efaf63eb2ca0c79f0e66"
 TOKEN = "0x6af606f5b071bf649dc136fcd308ed0c9adf38ff"
 WALLET = "0x7ed437e5786ab0d217d52937da4ff4790998d94c"
@@ -935,3 +939,86 @@ def test_console_api_exposes_the_escrow_helpers():
     for name in ("getEscrowState", "claimCommit", "claimEscrowRevoke", "syncEscrow"):
         assert name in text, name
     assert "/v1/escrow/" in text
+
+
+# ---------------------------------------- 终局交易回查：链上事件 -> 交易哈希
+
+
+class _LogEth:
+    def __init__(self, logs, *, block_number=1000, receipt_block=None):
+        self.logs = logs
+        self.block_number = block_number
+        self._receipt_block = receipt_block
+        self.seen: dict = {}
+
+    def get_transaction_receipt(self, tx_hash):
+        if self._receipt_block is None:
+            raise ValueError("receipt not found")
+        return {"blockNumber": self._receipt_block}
+
+    def get_logs(self, params):
+        self.seen.update(params)
+        return self.logs
+
+
+class _LogW3:
+    def __init__(self, eth):
+        self.eth = eth
+
+    def to_checksum_address(self, value):
+        return value
+
+
+def test_the_money_tx_is_looked_up_by_event_and_binding_id(monkeypatch):
+    """「链上落定、台账没记下那笔」时唯一的取证途径：按 (事件, bindingId) 查日志。
+
+    起点必须是我们自己发过的那笔（submit）所在区块 —— 不许在主网上扫全链。
+    """
+    monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
+    monkeypatch.setattr(settings, "allowance_escrow_address", "0x" + "11" * 20)
+    eth = _LogEth(
+        [
+            {"blockNumber": 900, "transactionHash": "0x" + "aa" * 32},
+            {"blockNumber": 1200, "transactionHash": "0x" + "bb" * 32},
+        ],
+        receipt_block=880,
+    )
+    monkeypatch.setattr(escrow, "_web3", lambda: _LogW3(eth))
+
+    found = _REAL_FIND_BINDING_EVENT_TX(
+        binding_id=7,
+        signature=escrow.event_signature("Settled"),
+        from_tx="0x" + "cc" * 32,
+    )
+
+    assert found == "0x" + "bb" * 32, "要拿最新那条，别拿旧事件"
+    assert eth.seen["fromBlock"] == 880, "起点该是 submit 那笔所在的区块"
+    assert eth.seen["toBlock"] == "latest"
+    assert eth.seen["topics"] == [
+        escrow._topic(escrow.event_signature("Settled")),
+        "0x" + (7).to_bytes(32, "big").hex(),
+    ]
+
+
+def test_the_money_tx_lookup_never_guesses(monkeypatch):
+    """查不到就返回 None —— 宁可不写，也不许拿一笔不动钱的交易冒充放款凭证。"""
+    monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
+    monkeypatch.setattr(settings, "allowance_escrow_address", "0x" + "11" * 20)
+
+    class _BoomEth:
+        block_number = 12345
+
+        def get_transaction_receipt(self, tx_hash):
+            raise ValueError("rpc down")
+
+        def get_logs(self, params):
+            raise ValueError("rpc down")
+
+    monkeypatch.setattr(escrow, "_web3", lambda: _LogW3(_BoomEth()))
+
+    assert (
+        _REAL_FIND_BINDING_EVENT_TX(
+            binding_id=7, signature=escrow.event_signature("Settled")
+        )
+        is None
+    )

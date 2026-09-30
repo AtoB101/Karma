@@ -458,6 +458,54 @@ def _tx_rank(value: str | None, binding: Any) -> int:
     return 3
 
 
+#: 「钱已经按合约走完了」的状态。回写到 `settlements.tx_hash` 的必须是真正动钱的那笔
+#: （`finalizeSettlement` / `finalizeBreach`）—— 见 `_reflect` 里那道闸。
+_TERMINAL_MONEY_STATUS = (SETTLED, SLASHED)
+#: 链上哪个事件代表「钱动了」，回查那笔交易用。
+_MONEY_EVENT = {SETTLED: "Settled", SLASHED: "StakeSlashed"}
+
+
+async def recover_money_tx_hash(
+    row: EscrowBindingModel, *, onchain_status: str
+) -> str | None:
+    """链上已经落定、台账却没记下那笔交易时，回链把它找回来。
+
+    两种情形会走到这里：
+
+    * `buyerConfirm`（v4）—— 买方自己那一笔就把款放了，我们不一定是执行者；
+    * 保护期一到，**别人**先推了 `finalizeSettlement`（合约对任何地址都放行）。
+
+    找不回来就返回 `None`：调用方宁可不写，也不许把 `submitSettlement` 那笔不动钱的
+    交易当成「结算交易」（2026-10-01 L1 复跑：10 笔里有 8 笔的链上核对就是这么红的）。
+    """
+    if row.finalize_tx_hash:
+        return row.finalize_tx_hash
+    name = _MONEY_EVENT.get(onchain_status)
+    if not name:
+        return None
+    try:
+        binding_id = chain_binding_id(row)
+    except (TypeError, ValueError):
+        return None
+    found = await asyncio.to_thread(
+        escrow.find_binding_event_tx,
+        binding_id=binding_id,
+        signature=escrow.event_signature(name),
+        contract_address=escrow.binding_contract(row),
+        from_tx=row.submit_tx_hash or row.bind_tx_hash,
+    )
+    if found:
+        row.finalize_tx_hash = found
+        logger.info(
+            "escrow_settlement_money_tx_recovered",
+            task_id=row.task_id,
+            binding_id=row.binding_id,
+            onchain_status=onchain_status,
+            tx_hash=found,
+        )
+    return found
+
+
 async def _reflect(
     db: AsyncSession,
     *,
@@ -494,6 +542,22 @@ async def _reflect(
             setattr(model, attr, int(raw))
         except (TypeError, ValueError):
             pass
+    if (
+        tx_hash
+        and onchain_status in _TERMINAL_MONEY_STATUS
+        and tx_hash != getattr(binding, "finalize_tx_hash", None)
+    ):
+        # 手上没有「动钱那笔」的时候（只读对账只问到链上状态、还没等到回执；或保护期
+        # 一到别人先推了终局交易），宁可不写这一格：把 submitSettlement 写上去，操作台
+        # 的「结算交易」和链上核对就成了「钱一分没动，却记成已放款」。
+        logger.warning(
+            "escrow_settlement_refused_nonfinal_tx",
+            task_id=task_id,
+            onchain_status=onchain_status,
+            tx_hash=tx_hash,
+            binding_finalize_tx=getattr(binding, "finalize_tx_hash", None),
+        )
+        tx_hash = None
     model.onchain_status = onchain_status
     if tx_hash and _tx_rank(tx_hash, binding) >= _tx_rank(model.tx_hash, binding):
         if model.tx_hash != tx_hash:
@@ -1199,7 +1263,8 @@ async def slash_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
         await db.flush()
         await _reflect(
             db, task_id=task_id, binding=row, onchain_status=row.state,
-            tx_hash=row.finalize_tx_hash or row.submit_tx_hash,
+            tx_hash=await recover_money_tx_hash(row, onchain_status=row.state)
+            or row.submit_tx_hash,
         )
         logger.info(
             "escrow_settlement_breach_reconciled", task_id=task_id,
@@ -1449,7 +1514,9 @@ async def cancel_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
             task_id=task_id,
             binding=row,
             onchain_status=mapped,
-            tx_hash=row.finalize_tx_hash or row.submit_tx_hash or row.bind_tx_hash,
+            tx_hash=await recover_money_tx_hash(row, onchain_status=mapped)
+            or row.submit_tx_hash
+            or row.bind_tx_hash,
         )
         logger.info(
             "escrow_settlement_cancel_reconciled", task_id=task_id, binding_id=row.binding_id, state=mapped
@@ -1510,12 +1577,15 @@ async def reconcile_task(db: AsyncSession, *, task_id: str) -> dict[str, Any] | 
     if row is None:
         return None
     if row.state in _DONE_STATES:
+        tx = await recover_money_tx_hash(row, onchain_status=row.state) or (
+            row.submit_tx_hash or row.bind_tx_hash
+        )
         await _reflect(
             db,
             task_id=task_id,
             binding=row,
             onchain_status=row.state,
-            tx_hash=row.finalize_tx_hash or row.submit_tx_hash or row.bind_tx_hash,
+            tx_hash=tx,
         )
         return {"status": row.state, "binding_id": row.binding_id, "tx_hash": row.finalize_tx_hash}
     if row.state not in (FINALIZING, BREACHING):
@@ -1535,7 +1605,8 @@ async def reconcile_task(db: AsyncSession, *, task_id: str) -> dict[str, Any] | 
     row.state = mapped
     row.updated_at = datetime.utcnow()
     await db.flush()
-    tx = row.finalize_tx_hash or row.submit_tx_hash
+    # 链上刚落定、我们还没记下那笔的时候，先回链把它找回来（见 recover_money_tx_hash）。
+    tx = await recover_money_tx_hash(row, onchain_status=mapped)
     await _reflect(db, task_id=task_id, binding=row, onchain_status=mapped, tx_hash=tx)
     logger.info("escrow_settlement_reconciled", task_id=task_id, binding_id=row.binding_id, state=mapped)
     return {"status": mapped, "binding_id": row.binding_id, "tx_hash": tx}

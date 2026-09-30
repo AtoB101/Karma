@@ -144,3 +144,38 @@ async def test_an_empty_row_still_gets_the_submit_tx_when_there_is_nothing_bette
     await db_session.commit()
     assert await _tx_hash(db_session) == SUBMIT_TX
 
+
+@pytest.mark.asyncio
+async def test_a_terminal_status_is_never_paired_with_a_nonfinal_tx(db_session):
+    """「已放款」这一格必须指向真正动钱的那笔 —— 手里没有就宁可不写。
+
+    2026-10-01 L1 复跑：只读对账（GET /v1/settlement/{id} → reconcile_task）先问到链上
+    state=3，可那一刻 autosettle 还没把 finalize 回写上来，于是「settled」被配上
+    submitSettlement（那笔只开保护期窗口，一分钱不动）。链上核对照它抓回执，
+    10 笔里红了 8 笔。规矩：终局状态 + 不动钱的交易 = 不写。
+    """
+    await _seed(db_session, tx_hash=None, finalize=None)
+
+    await bridge._reflect(
+        db_session,
+        task_id=TASK,
+        binding=await _binding(db_session),
+        onchain_status="settled",
+        tx_hash=SUBMIT_TX,
+    )
+    await db_session.commit()
+    assert await _tx_hash(db_session) is None, "「已结算」被配上了不动钱的 submitSettlement"
+
+    # 知道了真正动钱那笔，它当然要写上去；而且这一格从此只认它。
+    binding = await _binding(db_session)
+    binding.finalize_tx_hash = FINALIZE_TX
+    await bridge._reflect(
+        db_session,
+        task_id=TASK,
+        binding=binding,
+        onchain_status="settled",
+        tx_hash=FINALIZE_TX,
+    )
+    await db_session.commit()
+    assert await _tx_hash(db_session) == FINALIZE_TX
+

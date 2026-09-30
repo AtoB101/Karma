@@ -1841,6 +1841,78 @@ def binding_state(*, binding_id: int, contract_address: str | None = None) -> in
     return None if snapshot is None else int(snapshot["state"])
 
 
+def find_binding_event_tx(
+    *,
+    binding_id: int,
+    signature: str,
+    contract_address: str | None = None,
+    from_tx: str | None = None,
+    lookback_blocks: int = 20_000,
+) -> str | None:
+    """把这笔「不是我们发的」终局交易从链上找回来。
+
+    `finalizeSettlement` / `finalizeBreach` 故意是**无许可**的：窗口一到，
+    合约对任何地址都放行（别人先推了、我们没等到回执；或者买方用 `buyerConfirm`
+    自己把款放了）。那一刻 `escrow_bindings.finalize_tx_hash` 还是空的，台账只能拿
+    `submitSettlement` 顶上 —— 那是开保护期窗口的那一笔，**一分钱都不动**。
+    操作台的「结算交易」和链上核对都照它抓回执，于是「钱明明划了」被记成「没动」。
+
+    binding 的事件里第一个 topic 就是 binding id（`EVENT_FIELDS` 里标了 indexed），
+    所以按 (事件签名, binding id) 过滤一次就够；起点用我们自己发过的那笔（`bind` /
+    `submit`）所在区块 —— 终局必然在它之后，不用扫全链。
+
+    找不到（RPC 抖、事件没上链）就返回 `None`：调用方宁可不写，也不许把一笔不动钱
+    的交易当成放款凭证。
+    """
+    if not escrow_enabled():
+        return None
+    try:
+        w3 = _web3()
+        address = normalize_address(contract_address or configured_address())
+        if not address:
+            return None
+        start = 0
+        if from_tx:
+            try:
+                receipt = w3.eth.get_transaction_receipt(from_tx)
+                start = int(_field(receipt, "blockNumber") or 0)
+            except Exception:  # noqa: BLE001 - 读不到就退回按窗口扫
+                start = 0
+        if start <= 0:
+            start = max(0, int(w3.eth.block_number) - int(lookback_blocks))
+        logs = w3.eth.get_logs(
+            {
+                "address": w3.to_checksum_address(address),
+                "fromBlock": start,
+                "toBlock": "latest",
+                "topics": [
+                    _topic(signature),
+                    "0x" + int(binding_id).to_bytes(32, "big").hex(),
+                ],
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 - 只读，尽力而为
+        logger.warning(
+            "escrow_event_lookup_failed",
+            binding_id=binding_id,
+            signature=signature,
+            error=str(exc),
+        )
+        return None
+    newest: tuple[int, str] | None = None
+    for log in logs or []:
+        try:
+            block = int(_field(log, "blockNumber") or 0)
+        except Exception:  # noqa: BLE001
+            block = 0
+        found = _hexstr(_field(log, "transactionHash", ""))
+        if not found:
+            continue
+        if newest is None or block >= newest[0]:
+            newest = (block, found)
+    return newest[1] if newest else None
+
+
 def bill_available(*, bill_id: int, contract_address: str | None = None) -> float | None:
     """链上这张账单还剩多少可用（合约的 ``amount - reserved - spent``）。
 

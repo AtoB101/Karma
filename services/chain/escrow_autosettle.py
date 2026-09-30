@@ -42,6 +42,10 @@ DUE_BREACH_STATE = "breaching"
 ACTIVE_STATE = "active"
 SLASHED_STATE = "slashed"
 
+#: 「链上钱已经按合约走完了」的终局。回写 `settlements.tx_hash` 必须是真正动钱的那笔，
+#: 不能是开窗那笔 `submitSettlement` —— 见 `escrow_settlement._reflect` 里那道闸。
+_MONEY_MOVED_STATES = (SETTLED_STATE, SLASHED_STATE)
+
 #: what the *chain* says about a binding (see allowance_escrow.BINDING_STATE)
 CHAIN_FINALIZING = 2
 CHAIN_SETTLED = 3
@@ -336,6 +340,10 @@ async def _record_final(
     row.state = state
     if tx_hash:
         row.finalize_tx_hash = tx_hash
+    if state in _MONEY_MOVED_STATES and not row.finalize_tx_hash:
+        # 链上落定但台账没记下那笔（别人推的 finalize / 没等到回执）：先回链找回来，
+        # 再写「结算交易」。找不回来就留空 —— 下游 `_reflect` 不会把不动钱的 submit 写上去。
+        await escrow_settlement.recover_money_tx_hash(row, onchain_status=state)
     row.updated_at = datetime.now(UTC)
     # 链上落定的那一刻，账上那行也必须跟着落定：操作台读的是 settlements.onchain_status，
     # 只改 escrow_bindings 会让页面永远停在 finalizing / breaching（F10-2）。
