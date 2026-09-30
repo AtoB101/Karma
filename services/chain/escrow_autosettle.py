@@ -666,4 +666,9 @@ async def run_forever() -> None:
             raise
         except Exception as exc:  # noqa: BLE001 - a bad tick must never kill the loop
             logger.warning("escrow_autosettle_tick_failed", error=str(exc))
+            if "deadlock" in str(exc).lower():
+                # 死锁不是「这轮没活干」，是「这轮白干」。Postgres 已经回滚了这一轮，
+                # 立刻重来一次就够（等满一个 interval 只会让已经到点的单子多等一轮）。
+                await asyncio.sleep(1)
+                continue
         await asyncio.sleep(interval)

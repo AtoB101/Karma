@@ -833,7 +833,16 @@ async def materialize_pending_bind(
     """
     if not enabled():
         return None
-    stmt = select(SettlementModel).where(SettlementModel.task_id == task_id)
+    # 行锁是必须的：这个函数有两条并发入口 —— 请求路径（交付 / 验收 / 争议都先补绑）
+    # 和 autosettle 的 bind_due。只读一次「还是 pending_bind」就下手，两边会各绑一条，
+    # 同一单在链上出现两条绑定（2026-09-30 实测：binding 188 与 190 并存），
+    # 而每条 bind 都会从买方额度里占走一笔钱。FOR UPDATE 让第二条进来时读到的是
+    # 第一条已经落定的状态，直接返回 None。
+    stmt = (
+        select(SettlementModel)
+        .where(SettlementModel.task_id == task_id)
+        .with_for_update()
+    )
     model = (await db.execute(stmt)).scalars().first()
     if model is None or (model.onchain_status or "") != PENDING_BIND:
         return None
