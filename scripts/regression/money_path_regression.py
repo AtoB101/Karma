@@ -187,12 +187,26 @@ def sign_headers(key, key_id: str, method: str, path: str, body: bytes) -> dict:
     }
 
 
-async def agent_call(c, base: str, method: str, path: str, key, key_id: str, token: str, payload=None):
+async def agent_call(c, base: str, method: str, path: str, key, key_id: str, token: str,
+                      payload=None, retries: int = 5):
+    """打一次 Runtime 网关。
+
+    限流是**按客户端 IP** 分桶的（只有 ``X-Karma-Api-Key`` 这种已配置的证书
+    才会自带桶，runtime key 不参与），而状态转换这一档只有 20 次/60s。
+    一台机器上跑多路并发（尤其是第一个请求集中在几秒内）很容易撞到它，
+    而那不是资金路径的问题—— 退避一下再发就行。
+    """
     body = b"" if payload is None else json.dumps(
         payload, separators=(",", ":"), sort_keys=True).encode()
     headers = {"Content-Type": "application/json", "X-Karma-Runtime-Key": token}
     headers.update(sign_headers(key, key_id, method, path, body))
     r = await c.request(method, base + path, headers=headers, content=(body or None))
+    for attempt in range(retries):
+        if r.status_code != 429:
+            break
+        await asyncio.sleep(min(20.0, 3.0 * (attempt + 1)))
+        headers.update(sign_headers(key, key_id, method, path, body))
+        r = await c.request(method, base + path, headers=headers, content=(body or None))
     try:
         return r.status_code, r.json()
     except Exception:
