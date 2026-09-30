@@ -121,7 +121,11 @@ from services.openclaw_automation_readiness import (
 )
 from services import runtime_nonce_log as nonce_log
 from services.runtime_call_log import call_view, list_key_calls, record_key_call
-from services.runtime_daily_spend import get_daily_used_async, try_reserve_daily_spend
+from services.runtime_daily_spend import (
+    get_daily_used_async,
+    release_daily_spend,
+    try_reserve_daily_spend,
+)
 from services.signing import signing_service
 
 # ---------------------------------------------------------------------------
@@ -1556,6 +1560,15 @@ async def runtime_place_order(
         daily_limit=ctx.daily_limit,
         daily_used=daily_used,
     )
+    # 日额度先占住再下单。``fulfill_intent`` 内部会把链上那一步挪到事务外（它自己
+    # commit，见 services/settlement_transitions.py），所以「下单之后才发现超日上限」
+    # 已经回滚不掉刚落库的凭证 / 结算 / 锁仓了。这一步不 commit，跟着
+    # ``fulfill_intent`` 的第一次 commit 一起落库：它要是提前失败，整个事务回滚，
+    # 额度自然退回；要是已经出了凭证，这份占用就是应得的。
+    if not await try_reserve_daily_spend(
+        db, key_id=ctx.key_id, amount=float(body.amount), daily_limit=ctx.daily_limit
+    ):
+        raise HTTPException(status_code=403, detail="amount exceeds runtime key daily_limit")
     out = await fulfill_intent(
         db,
         requirement_text=body.requirement_text,
@@ -1573,12 +1586,6 @@ async def runtime_place_order(
     )
     payload = dict(out) if isinstance(out, dict) else {"result": out}
     if payload.get("voucher_id"):
-        # 真出了凭证才算这笔钱动用过额度（和 /runtime/request-voucher 同一本账）。
-        # 记账必须是原子的：“先读再算再写”会被并发绕过日上限。
-        if not await try_reserve_daily_spend(
-            db, key_id=ctx.key_id, amount=float(body.amount), daily_limit=ctx.daily_limit
-        ):
-            raise HTTPException(status_code=403, detail="amount exceeds runtime key daily_limit")
         # 生产要求每单一条 Console「交办存证」，而操作台没有这个按钮。下单这一刻
         # 买卖双方都已经确定，服务端把存证登记掉（留痕 actor=console:auto），
         # 否则 agent 交付后写不进执行回执，买方验收被永久挡住。
@@ -1589,6 +1596,9 @@ async def runtime_place_order(
             task_id=str(payload.get("task_id") or ""),
             identity_ids=[ctx.karma_identity_id, body.seller_identity_id or ""],
         )
+    else:
+        # 没出凭证 = 这一单没真的动用额度（例如只到「等主人确认」）——把占的额度放回去。
+        await release_daily_spend(db, key_id=ctx.key_id, amount=float(body.amount))
     await db.commit()
     payload["requested_by_identity_id"] = ctx.karma_identity_id
     payload["profile_id"] = ctx.profile_id

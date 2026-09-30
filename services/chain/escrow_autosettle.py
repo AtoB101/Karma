@@ -397,44 +397,84 @@ async def settle_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
     if not escrow.escrow_enabled() or not escrow.can_server_settle():
         return []
     settled: list[dict] = []
-    for row in await due_bindings(db, now=now):
-        if _backed_off(row.binding_id):
-            continue
-        # 先问链：可能上一轮发的交易只是慢，不是失败。
-        if await _reconcile_from_chain(db, row, settled):
-            continue
-        try:
-            result = await asyncio.to_thread(
-                escrow.finalize_settlement,
-                binding_id=escrow_settlement.chain_binding_id(row),
-                contract_address=escrow.binding_contract(row),
+    rows = [r for r in await due_bindings(db, now=now) if not _backed_off(r.binding_id)]
+    if not rows:
+        return settled
+
+    # ── 一问、一广播、一记账，三段分开 ────────────────────────────────────────
+    # 原来这里是「一笔一笔：问链 -> 发交易 -> 等回执 -> 写库」，5 笔就是 5 个区块的
+    # 串行等待（2026-10-01 实测 settle_due 74~90s，而安静时整轮只要 6s）。链上那两
+    # 段是纯网络等待、彼此无关，可以并排；DB 那一段留在本协程里顺序做。
+    # 广播本身仍然是串行的 —— nonce 的分配与广播由 allowance_escrow._broadcast_tx
+    # 的进程锁护着，等回执在锁外，所以「并排」只是并排等，不会并排抢 nonce。
+    states = await asyncio.gather(
+        *(_onchain_state(r) for r in rows), return_exceptions=True
+    )
+    pull: list[EscrowBindingModel] = []
+    for row, state in zip(rows, states):
+        if isinstance(state, BaseException):  # _onchain_state 自己吞异常，这里只是保险
+            state = None
+        if state in _CHAIN_DONE:
+            # 上一轮发的交易只是慢，不是失败：链上说落定就把台账补上。
+            _failed_at.pop(row.binding_id, None)
+            settled.append(
+                await _record_final(
+                    db,
+                    row,
+                    state=_CHAIN_DONE[state],
+                    tx_hash=row.finalize_tx_hash,
+                    refunded=state == CHAIN_CANCELLED,
+                )
             )
-        except wallet_lock.WalletLockError as exc:
-            if await _reconcile_from_chain(db, row, settled):
-                continue
-            _failed_at[row.binding_id] = time.monotonic()
-            logger.warning(
-                "escrow_autosettle_declined", binding_id=row.binding_id, error=str(exc)
+            logger.info(
+                "escrow_autosettle_reconciled",
+                binding_id=row.binding_id,
+                onchain_state=state,
             )
             continue
-        except Exception as exc:  # noqa: BLE001 - one bad binding must not stop the rest
-            if await _reconcile_from_chain(db, row, settled):
-                continue
-            _failed_at[row.binding_id] = time.monotonic()
-            logger.warning("escrow_autosettle_failed", binding_id=row.binding_id, error=str(exc))
-            continue
-        _failed_at.pop(row.binding_id, None)
-        settled.append(
-            await _record_final(
-                db, row, state=SETTLED_STATE, tx_hash=result.get("finalize_tx_hash")
-            )
+        pull.append(row)
+
+    if pull:
+        results = await asyncio.gather(
+            *(
+                asyncio.to_thread(
+                    escrow.finalize_settlement,
+                    binding_id=escrow_settlement.chain_binding_id(row),
+                    contract_address=escrow.binding_contract(row),
+                )
+                for row in pull
+            ),
+            return_exceptions=True,
         )
-        logger.info(
-            "escrow_autosettle_settled",
-            binding_id=row.binding_id,
-            tx=row.finalize_tx_hash,
-            amount_usdc=row.amount_usdc,
-        )
+        for row, result in zip(pull, results):
+            if isinstance(result, wallet_lock.WalletLockError):
+                if await _reconcile_from_chain(db, row, settled):
+                    continue
+                _failed_at[row.binding_id] = time.monotonic()
+                logger.warning(
+                    "escrow_autosettle_declined", binding_id=row.binding_id, error=str(result)
+                )
+                continue
+            if isinstance(result, BaseException):  # 一条坏不能拖住别的
+                if await _reconcile_from_chain(db, row, settled):
+                    continue
+                _failed_at[row.binding_id] = time.monotonic()
+                logger.warning(
+                    "escrow_autosettle_failed", binding_id=row.binding_id, error=str(result)
+                )
+                continue
+            _failed_at.pop(row.binding_id, None)
+            settled.append(
+                await _record_final(
+                    db, row, state=SETTLED_STATE, tx_hash=result.get("finalize_tx_hash")
+                )
+            )
+            logger.info(
+                "escrow_autosettle_settled",
+                binding_id=row.binding_id,
+                tx=row.finalize_tx_hash,
+                amount_usdc=row.amount_usdc,
+            )
     return settled
 
 

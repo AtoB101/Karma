@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timedelta
 
@@ -93,7 +94,7 @@ def chain(monkeypatch):
     async def _list_commits(db, identity_id):
         return list(_commits.get(identity_id, []))
 
-    async def _backing_report(db, identity_id):
+    async def _backing_report(db, identity_id, *, rows=None):
         return dict(_report.get(identity_id) or {"chain_checked": False, "bills": {}})
 
     monkeypatch.setattr(escrow, "escrow_enabled", lambda: True)
@@ -1103,3 +1104,42 @@ async def test_submit_does_not_re_send_when_the_chain_already_opened_the_window(
     fresh = await db_session.get(EscrowBindingModel, row.binding_id)
     assert fresh.state == bridge.FINALIZING
     assert fresh.pull_after == 1_700_000_060
+
+@pytest.mark.asyncio
+async def test_deferred_bind_reads_both_sides_in_parallel(db_session, chain, monkeypatch):
+    """两侧资格校验的链上读取必须并排 —— 一次 eth_call 实测 ~0.7~1s，串着做就是
+    place-order 时间线里 ``settlement_in_progress`` 那 ~2s（见 2026-10-01 容器内实测）。"""
+    bridge, _ = chain
+    db_session.add(settlement_row())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    # chain fixture 已经把 escrow.backing_report 换成记账本；这里再包一层「慢读」，
+    # 用它来数并发峰值，同时验证结果没被换掉。
+    real = escrow.backing_report
+    live = 0
+    peak = 0
+
+    async def _slow_report(db, identity_id, *, rows=None):
+        nonlocal live, peak
+        live += 1
+        peak = max(peak, live)
+        try:
+            await asyncio.sleep(0.3)
+            return await real(db, identity_id, rows=rows)
+        finally:
+            live -= 1
+
+    monkeypatch.setattr(escrow, "backing_report", _slow_report)
+
+    t0 = time.perf_counter()
+    info = await bridge.bind_for_task_deferred(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+    elapsed = time.perf_counter() - t0
+
+    assert info["status"] == "pending_bind"
+    assert peak >= 2, "两侧的链上读取没有并排"
+    assert elapsed < 0.55, "两侧仍是一前一后：%.2fs" % elapsed

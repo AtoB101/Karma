@@ -283,7 +283,15 @@ async def _live_bills(db: AsyncSession, identity_id: str) -> list[AllowanceCommi
     return [r for r in rows if r.state == escrow.IDLE]
 
 
-async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc: float) -> str:
+async def _pick_bill(
+    db: AsyncSession,
+    *,
+    identity_id: str,
+    role: str,
+    need_usdc: float,
+    commits: list[AllowanceCommitModel] | None = None,
+    report: dict[str, Any] | None = None,
+) -> str:
     """挑一张**真划得动**的账单。
 
     台账上「剩余额度够」不等于「链上划得动」：同一个钱包的多张账单共用一条 ERC-20
@@ -298,7 +306,13 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
     """
     need = max(0.0, float(need_usdc or 0.0))
     need_minor = _minor(need)
-    live = await _live_bills(db, identity_id)
+    # ``commits`` / ``report`` 允许调用方先把 DB 那段读好 —— 传进来之后本函数不再碰
+    # db，两侧资格校验就能把昂贵的链上读取并排跑（见 ``bind_for_task_deferred``）。
+    live = (
+        [r for r in commits if r.state == escrow.IDLE]
+        if commits is not None
+        else await _live_bills(db, identity_id)
+    )
     if not live:
         raise EscrowSettlementError(
             409,
@@ -314,7 +328,8 @@ async def _pick_bill(db: AsyncSession, *, identity_id: str, role: str, need_usdc
             f"（{escrow.configured_address()}）划不动它们。请在操作台重新锁仓 USDC "
             f"到当前合约，再接单",
         )
-    report = await escrow.backing_report(db, identity_id)
+    if report is None:
+        report = await escrow.backing_report(db, identity_id)
     if not report.get("chain_checked"):
         raise EscrowSettlementError(
             503, f"读不到{role}的链上授权额（RPC 抖动）。没有链上事实就不该动钱，请稍后重试"
@@ -824,8 +839,39 @@ async def bind_for_task_deferred(
     stake = seller_stake.required_stake_usdc(amount)
     buyer_owner = await resolve_party_identity(db, buyer_identity_id)
     seller_owner = await resolve_party_identity(db, seller_identity_id)
-    await _pick_bill(db, identity_id=buyer_owner, role="付款方", need_usdc=amount)
-    await _pick_bill(db, identity_id=seller_owner, role="提供方", need_usdc=stake)
+    # 两侧各要读一次链上授权额（一次 eth_call 实测 ~0.7~1s），串着做就是 ~2s ——
+    # 这正是 place-order 时间线里 ``settlement_in_progress`` 那一段。两侧互不依赖，
+    # 链上部分并排跑；DB 只读先在本协程里串行取完（AsyncSession 不并发安全），
+    # 之后 ``_pick_bill`` 交给它的就是纯内存 + 线程里的链上读取。
+    buyer_commits = await escrow.list_commits(db, buyer_owner)
+    seller_commits = await escrow.list_commits(db, seller_owner)
+    buyer_report, seller_report = await asyncio.gather(
+        escrow.backing_report(db, buyer_owner, rows=buyer_commits),
+        escrow.backing_report(db, seller_owner, rows=seller_commits),
+    )
+    checks = await asyncio.gather(
+        _pick_bill(
+            db,
+            identity_id=buyer_owner,
+            role="付款方",
+            need_usdc=amount,
+            commits=buyer_commits,
+            report=buyer_report,
+        ),
+        _pick_bill(
+            db,
+            identity_id=seller_owner,
+            role="提供方",
+            need_usdc=stake,
+            commits=seller_commits,
+            report=seller_report,
+        ),
+        return_exceptions=True,
+    )
+    # 两侧都可能是「额度不足」：先把买方的报出来，和串行版本一致。
+    for exc in checks:
+        if isinstance(exc, BaseException):
+            raise exc
 
     # 空壳 binding 只用来把「这台合约 + 待绑定」写进结算单，不落库（_reflect 只读它的
     # contract_address；其余字段取不到就跳过）。

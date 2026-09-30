@@ -534,3 +534,48 @@ async def test_chain_reads_use_the_chain_id_not_the_composite_ledger_key(db_sess
     assert seen == [7], "问链要用链上 id，不是带合约前缀的账上主键"
     assert aligned[0]["binding_id"] == composite
     assert (await db_session.get(EscrowBindingModel, composite)).state == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_due_pulls_run_in_parallel_not_one_block_apart(db_session, monkeypatch):
+    """5 笔并排广播只花**一个**区块的时间，不是 5 个。
+
+    2026-10-01 实测：安静时整轮 tick 只要 6s，压测中 settle_due 却要 74~90s —— 那
+    不是死锁（已归零），是 5 笔 finalize 挨个等回执、每笔一个 Sepolia 区块。链上
+    那两段是纯网络等待、彼此无关，必须并排；nonce 的分配与广播仍由进程锁串着。
+    """
+    now = int(time.time())
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add_all([binding(str(i), pull_after=now - 5) for i in (1, 2, 3, 4, 5)])
+    await db_session.commit()
+
+    async def _noop_sync(db, identity_id):
+        return []
+
+    monkeypatch.setattr(autosettle.escrow, "sync_commits", _noop_sync)
+
+    live = {"running": 0, "peak": 0}
+
+    def _finalize(*, binding_id, contract_address=None):
+        live["running"] += 1
+        live["peak"] = max(live["peak"], live["running"])
+        try:
+            time.sleep(0.3)          # 一个区块的等待
+        finally:
+            live["running"] -= 1
+        return {"binding_id": binding_id, "finalize_tx_hash": "0x" + "ab" * 32,
+                "paid_usdc": 30.0}
+
+    monkeypatch.setattr(autosettle.escrow, "finalize_settlement", _finalize)
+
+    started = time.perf_counter()
+    out = await autosettle.settle_due(db_session, now=now)
+    elapsed = time.perf_counter() - started
+
+    assert len(out) == 5
+    assert live["peak"] >= 2, "链上划款又变回一笔一笔地等了"
+    assert elapsed < 1.5, "5 笔等了 %.2fs，像是串行" % elapsed
+
+    await db_session.execute(delete(EscrowBindingModel))
+    await db_session.commit()
+

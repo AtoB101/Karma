@@ -136,3 +136,32 @@ async def try_reserve_daily_spend(
         record_daily_spend_memory(key_id=key_id, amount=amt)
         return True
     return False
+
+
+async def release_daily_spend(db: AsyncSession, *, key_id: str, amount: float) -> None:
+    """把一次没有成交的占用放回去 —— ``try_reserve_daily_spend`` 的对偶。
+
+    ``try_reserve_daily_spend`` 的注释假定调用方「抛错回滚、连带撤掉刚建出来的
+    凭证」。``fulfill_intent`` 现在会把链上那一步挪到事务外（它自己 commit），那条
+    假定不再成立：凭证可能已经落库。所以调用方改成「先占额度；没出凭证就显式放回」。
+    """
+    amt = float(amount)
+    if amt <= 0:
+        return
+    if not settings.runtime_daily_spend_persist:
+        record_daily_spend_memory(key_id=key_id, amount=-amt)
+        return
+    spend_date = _today_iso()
+    await db.execute(
+        update(RuntimeKeyDailySpendModel)
+        .where(
+            RuntimeKeyDailySpendModel.key_id == key_id,
+            RuntimeKeyDailySpendModel.spend_date == spend_date,
+            RuntimeKeyDailySpendModel.amount_used >= amt - _EPS,
+        )
+        .values(
+            amount_used=RuntimeKeyDailySpendModel.amount_used - amt,
+            updated_at=datetime.utcnow(),
+        )
+    )
+    record_daily_spend_memory(key_id=key_id, amount=-amt)

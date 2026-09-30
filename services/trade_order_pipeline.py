@@ -99,6 +99,21 @@ async def _mark_order_failed(order: TradeOrderModel, detail: str) -> None:
     order.updated_at = datetime.utcnow()
 
 
+async def _mark_order_failed_durable(db: AsyncSession, order: TradeOrderModel, detail: str) -> None:
+    """把失败态落库。
+
+    ``apply_settlement_transition`` 现在会把链上那一步挪到事务外（它自己 commit），
+    所以下面 except 里的 ``flush`` 已经不够了 —— 不显式提交，回滚会把「失败」这两
+    个字一起抹掉，订单会停在上一个已提交的状态上。
+    """
+    await _mark_order_failed(order, detail)
+    try:
+        await db.commit()
+    except Exception:  # noqa: BLE001 - 记不上失败态也不能顶掉真正的错误
+        logger.warning("trade_pipeline_mark_failed_commit_failed", exc_info=True)
+        await db.rollback()
+
+
 async def launch_preauth_trade_order(
     db: AsyncSession,
     *,
@@ -226,12 +241,10 @@ async def launch_preauth_trade_order(
         )
     except HTTPException:
         if order.status not in ("rejected", "execution_started", "failed"):
-            await _mark_order_failed(order, "pipeline aborted")
-            await db.flush()
+            await _mark_order_failed_durable(db, order, "pipeline aborted")
         raise
     except Exception as exc:
-        await _mark_order_failed(order, str(exc))
-        await db.flush()
+        await _mark_order_failed_durable(db, order, str(exc))
         logger.exception("trade pipeline failed order_id=%s", order_id)
         raise
 

@@ -1172,7 +1172,9 @@ def _erc20_allowance_wei(w3, token: str, owner: str, spender: str) -> int:
     )
 
 
-async def backing_report(db: AsyncSession, identity_id: str) -> dict[str, Any]:
+async def backing_report(
+    db: AsyncSession, identity_id: str, *, rows: list[AllowanceCommitModel] | None = None
+) -> dict[str, Any]:
     """这个身份记在账上的承诺，链上到底有多少是划得动的。
 
     与 ``isBacked`` 的区别：``isBacked`` 回答「这一张账单是否 ≤ 授权额」，
@@ -1191,7 +1193,10 @@ async def backing_report(db: AsyncSession, identity_id: str) -> dict[str, Any]:
     不能拿来当担保。
     """
     enforced = escrow_enabled()
-    rows = await list_commits(db, identity_id)
+    # 调用方可以把账单行先读好传进来：链上授权额那一段很贵（一次 eth_call 实测
+    # ~0.7~1s），传进来之后本函数就不再碰 db，调用方就能把两侧并排起来读。
+    if rows is None:
+        rows = await list_commits(db, identity_id)
 
     def _is_current(contract: str) -> bool:
         """没配托管合约时不存在「哪台合约」的问题（链上授权额本身就不存在），
