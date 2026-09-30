@@ -27,6 +27,11 @@ RATE_LIMITS = {
     "agent_pairing": (10, 60),   # 10 pairing requests/claims / 60s
     "write_sensitive": (100, 60),  # 100 sensitive writes / 60s
     "state_transition": (20, 60), # 20 state transitions / 60s
+    # /runtime/* 写路径的**预鉴权**兜底额度（按真实客户端 IP，伪造不了）。真正紧的额度
+    # 在验签之后**按 runtime key** 判（见 runtime_gateway.get_runtime_context）：中间件跑在
+    # 鉴权之前，只认得了 socket peer，用它当紧额度会让同一台机器上的多个 agent 互相
+    # 挤占同一个桶，而且 429 重试本身也在填桶、越试越出不来（2026-09-30 并发压测实测）。
+    "runtime_preauth": (120, 60),  # 120 pre-auth runtime writes / 60s per IP
     # P2-11: 读接口此前**完全没限流**（只有 auth/verify 和敏感写有限流）。
     # 额度给得很宽（正常页面/轮询用不满），只用来兜住脚本化爬取与放大攻击。
     "read":         (600, 60),   # 600 reads / 60s per API key or client IP
@@ -78,17 +83,26 @@ async def get_redis() -> aioredis.Redis:
     return _redis
 
 
-async def rate_limit(request: Request, limit_key: str = "default") -> None:
+async def rate_limit(
+    request: Request,
+    limit_key: str = "default",
+    *,
+    bucket: str | None = None,
+) -> None:
     """
     Sliding window rate limiter using Redis.
     Raises 429 if limit exceeded.
+
+    ``bucket`` 只在**调用方已经认证过身份**时才传（例如 runtime 网关验签通过后按
+    runtime key 分桶）。默认走 ``rate_limit_bucket`` —— 那层的口径是「猜不出、伪造
+    不了」，未认证的请求一律按真实客户端 IP 算。
     """
     max_requests, window_seconds = RATE_LIMITS.get(limit_key, RATE_LIMITS["default"])
 
     # Identify the client on a dimension the caller cannot forge (see
     # ``rate_limit_bucket``). A *configured* credential is hashed so Redis keys
     # and MONITOR logs never store raw secrets.
-    client_id = rate_limit_bucket(request)
+    client_id = bucket or rate_limit_bucket(request)
 
     redis_key = f"ratelimit:{limit_key}:{client_id}"
     now = time.time()
@@ -209,6 +223,38 @@ def real_client_ip(request: Request) -> str:
     return peer or "unknown"
 
 
+# 「推进状态机 / 碰资金」的路径片段。
+#
+# 中间件（api/app.py）用它挑额度档；runtime 网关在**验签之后**用同一份规则按 runtime
+# key 再判一次 —— 两处必须同口径，所以定义放在这里共用。
+STATE_TRANSITION_SEGMENTS = (
+    "/lock",
+    "/start",
+    "/submit",
+    "/fail",
+    "/partial",
+    "/regret",
+    "/dispute",
+    "/auto-arbitrate",
+    "/execute",
+    "/accept",
+    "/cancel",
+    "/retry",
+    "/requeue",
+    "/maintenance/",
+)
+
+
+def is_state_transition_write(path: str) -> bool:
+    """这条路径是不是「推进状态机 / 碰资金」的写。"""
+    return any(segment in path for segment in STATE_TRANSITION_SEGMENTS)
+
+
+def write_limit_key_for_path(path: str) -> str:
+    """敏感写该用哪一档额度。"""
+    return "state_transition" if is_state_transition_write(path) else "write_sensitive"
+
+
 def _configured_key_digests() -> set[str]:
     """SHA-256 digests of the configured API keys (never the raw secrets)."""
     return {
@@ -232,6 +278,16 @@ def rate_limit_bucket(request: Request) -> str:
         if digest in _configured_key_digests():
             return f"ak:{digest[:40]}"
     return f"ip:{real_client_ip(request)}"
+
+
+def runtime_key_bucket(token: str) -> str:
+    """按 runtime key 分桶（**只能在验签通过之后**调用）。
+
+    和 API key 一样只留摘要：Redis key 与 MONITOR 日志里永远不出现明文钥匙。
+    直接拿未经验证的 header 当桶键等于给攻击者送无限桶 —— 所以调用点只有一个，
+    在 runtime_gateway.get_runtime_context 里。
+    """
+    return "rk:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:40]
 
 
 async def _count_and_bump(redis_key: str, window_seconds: int) -> int:

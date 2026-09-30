@@ -14,6 +14,11 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.middleware.rate_limit import (
+    rate_limit,
+    runtime_key_bucket,
+    write_limit_key_for_path,
+)
 from api.routes.bundles import submit_bundle as submit_bundle_route
 from api.routes.discovery import DiscoverIntentRequest, discover_for_intent
 from api.routes.progress import submit_progress_receipt as progress_submit_route
@@ -1267,6 +1272,17 @@ async def get_runtime_context(
             rollback_first=True,
         )
         raise
+    # 验签通过了，这里是**第一次**能确定「这是哪把钥匙」。紧额度就在这一层按 key 判：
+    # 中间件那层跑在鉴权之前，只认得了 socket peer，拿它当紧额度会让同一台机器上跑的
+    # 多个 agent 互相挤占同一个桶，而且 429 重试本身也在填桶 —— 越试越出不来
+    # （2026-09-30 并发压测实测：5 个 agent 从同一出口 IP 下单，交付回执全部被 20/60s
+    # 卡死）。读路径（GET）不在这里判，走各自的读额度。
+    if request.method.upper() not in ("GET", "HEAD"):
+        await rate_limit(
+            request,
+            write_limit_key_for_path(request.url.path),
+            bucket=runtime_key_bucket(token),
+        )
     return ctx
 
 

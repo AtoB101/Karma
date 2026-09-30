@@ -16,7 +16,12 @@ from prometheus_client import Counter, Histogram, make_asgi_app
 
 from config.settings import settings
 from api.middleware.auth import get_current_agent_id, require_auth_if_enabled, resolve_agent_id_from_auth_headers
-from api.middleware.rate_limit import make_rate_limit_dep, rate_limit
+from api.middleware.rate_limit import (
+    is_state_transition_write,
+    make_rate_limit_dep,
+    rate_limit,
+    write_limit_key_for_path,
+)
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from db.session import init_db
 from api.routes import (
@@ -101,22 +106,9 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/trust/",
     "/runtime/",
 )
-STATE_TRANSITION_SEGMENTS = (
-    "/lock",
-    "/start",
-    "/submit",
-    "/fail",
-    "/partial",
-    "/regret",
-    "/dispute",
-    "/auto-arbitrate",
-    "/execute",
-    "/accept",
-    "/cancel",
-    "/retry",
-    "/requeue",
-    "/maintenance/",
-)
+# 「推进状态机 / 碰资金」的路径片段现在定义在 api.middleware.rate_limit 里共用 ——
+# runtime 网关要在**验签之后**用同一份规则按 runtime key 再判一次，两处口径必须
+# 一模一样（is_state_transition_write / write_limit_key_for_path）。
 
 # Prometheus metrics
 REQUEST_COUNT = Counter(
@@ -196,7 +188,8 @@ def _is_sensitive_write(path: str, method: str) -> bool:
 
 
 def _is_state_transition_write(path: str) -> bool:
-    return any(segment in path for segment in STATE_TRANSITION_SEGMENTS)
+    """同 api.middleware.rate_limit.is_state_transition_write（共用同一份规则）。"""
+    return is_state_transition_write(path)
 
 
 def _route_group_for_path(path: str) -> str:
@@ -228,7 +221,14 @@ async def security_write_rate_limit_middleware(request: Request, call_next) -> R
     path = request.url.path
     method = request.method.upper()
     if _is_sensitive_write(path, method):
-        limit_key = "state_transition" if _is_state_transition_write(path) else "write_sensitive"
+        if path.startswith("/runtime/"):
+            # /runtime/* 上真正紧的额度在**验签之后**按 runtime key 判（见
+            # runtime_gateway.get_runtime_context）。中间件跑在鉴权之前，只认得了 socket
+            # peer，所以这一层退成不可伪造的粗兜底：否则同一台机器上跑多个 agent 会挤
+            # 同一个桶，而且 429 重试本身也在填桶 —— 越试越出不来。
+            limit_key = "runtime_preauth"
+        else:
+            limit_key = write_limit_key_for_path(path)
         try:
             await rate_limit(request, limit_key)
         except HTTPException as exc:
