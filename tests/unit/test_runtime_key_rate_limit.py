@@ -177,3 +177,89 @@ async def test_middleware_still_caps_unauthenticated_runtime_traffic_by_ip(
     blocked = await client.post("/runtime/place-order", json={"requirement_text": "x"})
     assert blocked.status_code == 429, blocked.text
     assert "Rate limit exceeded" in blocked.json()["detail"]
+
+
+# --- 2026-09-30：验证过的 agent 钥匙也要有自己的读额度桶 -----------------------
+#
+# 实测背景：压测机（一个出口 IP）上跑的 agent 用的是**铸出来**的 agent 钥匙，而
+# rate_limit_bucket 只认 AUTH_API_KEYS 里的静态钥匙，于是所有 agent 一起挤 ip: 桶，
+# 轮询 settlement 时成片 429。口径跟写路径那次一样：验过的钥匙 -> 自己的桶。
+
+
+@pytest.fixture()
+def minted_store(tmp_path, monkeypatch):
+    """把铸钥匙的落盘位置挪到 tmp，别碰仓库里的 .karma_data。"""
+    from services import agent_bootstrap_credentials as abc
+
+    monkeypatch.setattr(abc, "_STORE_PATH", tmp_path / "agent_api_keys.json")
+    monkeypatch.setattr(abc, "_LOADED", False)
+    monkeypatch.setattr(abc, "_KEYS", {})
+    yield abc
+    monkeypatch.setattr(abc, "_LOADED", False)
+    monkeypatch.setattr(abc, "_KEYS", {})
+
+
+def _api_key_request(key: str, peer: str = PEER) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/v1/settlement/anything",
+            "headers": [(b"x-karma-api-key", key.encode())],
+            "client": (peer, 12345),
+        },
+        _empty_receive,
+    )
+
+
+def test_a_minted_agent_key_gets_its_own_bucket(minted_store):
+    minted_store._ensure_loaded()
+    key = minted_store.mint_agent_api_key("agent-readbucket1")["api_key"]
+
+    bucket = rl.rate_limit_bucket(_api_key_request(key))
+    assert bucket.startswith("ak:"), bucket
+    assert key not in bucket
+
+    other = minted_store.mint_agent_api_key("agent-readbucket2")["api_key"]
+    assert rl.rate_limit_bucket(_api_key_request(other)) != bucket
+
+
+def test_an_invented_key_still_falls_back_to_the_ip_bucket(minted_store):
+    """形状像钥匙但没铸过：只能按 IP 算，编没有收益。"""
+    minted_store._ensure_loaded()
+    minted_store.mint_agent_api_key("agent-readbucket3")
+
+    faked = "karma_agent-readbucket3_" + "z" * 24
+    assert rl.rate_limit_bucket(_api_key_request(faked)) == "ip:" + PEER
+    assert rl.rate_limit_bucket(_api_key_request("not-a-key")) == "ip:" + PEER
+
+
+def test_a_configured_key_still_gets_its_own_bucket(minted_store, monkeypatch):
+    monkeypatch.setattr(
+        rl.settings, "auth_api_keys", "ops:ops-secret-of-sufficient-length", raising=False
+    )
+    bucket = rl.rate_limit_bucket(_api_key_request("ops-secret-of-sufficient-length"))
+    assert bucket.startswith("ak:"), bucket
+
+
+@pytest.mark.asyncio
+async def test_two_minted_keys_behind_one_ip_do_not_share_the_read_budget(
+    minted_store, no_redis, monkeypatch
+):
+    minted_store._ensure_loaded()
+    monkeypatch.setitem(rl.RATE_LIMITS, "read", (2, 60))
+    key_a = minted_store.mint_agent_api_key("agent-readbudget1")["api_key"]
+    key_b = minted_store.mint_agent_api_key("agent-readbudget2")["api_key"]
+
+    req_a = _api_key_request(key_a)
+    req_b = _api_key_request(key_b)
+
+    for _ in range(2):
+        await rl.rate_limit(req_a, "read")
+    with pytest.raises(HTTPException) as exc:
+        await rl.rate_limit(req_a, "read")
+    assert exc.value.status_code == 429
+
+    # 同一个出口 IP、另一把（同样验过的）钥匙：额度是自己的。
+    await rl.rate_limit(req_b, "read")
+    await rl.rate_limit(req_b, "read")

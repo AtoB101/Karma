@@ -24,14 +24,14 @@ RATE_LIMITS = {
     "register_agent": (5, 60),    # 5 agent registrations / 60s (stress-test MEDIUM)
     # Pairing is unauthenticated by design (the agent has no key yet), so the
     # bucket is the only thing standing between a script and the pairing store.
-    "agent_pairing": (10, 60),   # 10 pairing requests/claims / 60s
+    "agent_pairing": (30, 60),   # 30 pairing requests/claims / 60s per IP
     "write_sensitive": (100, 60),  # 100 sensitive writes / 60s
     "state_transition": (20, 60), # 20 state transitions / 60s
     # /runtime/* 写路径的**预鉴权**兜底额度（按真实客户端 IP，伪造不了）。真正紧的额度
     # 在验签之后**按 runtime key** 判（见 runtime_gateway.get_runtime_context）：中间件跑在
     # 鉴权之前，只认得了 socket peer，用它当紧额度会让同一台机器上的多个 agent 互相
     # 挤占同一个桶，而且 429 重试本身也在填桶、越试越出不来（2026-09-30 并发压测实测）。
-    "runtime_preauth": (120, 60),  # 120 pre-auth runtime writes / 60s per IP
+    "runtime_preauth": (600, 60),  # 600 pre-auth runtime writes / 60s per IP
     # P2-11: 读接口此前**完全没限流**（只有 auth/verify 和敏感写有限流）。
     # 额度给得很宽（正常页面/轮询用不满），只用来兜住脚本化爬取与放大攻击。
     "read":         (600, 60),   # 600 reads / 60s per API key or client IP
@@ -264,18 +264,42 @@ def _configured_key_digests() -> set[str]:
     }
 
 
+def _verified_key_digest(raw_key: str) -> Optional[str]:
+    """SHA-256 digest of an API key the server can actually verify, else None.
+
+    两类算「验过」：AUTH_API_KEYS 里的静态钥匙（运维自用），以及一键接入流程铸出来的
+    agent 钥匙（services.agent_bootstrap_credentials，只存 sha256 哈希）。其余——包括
+    自己编造的 X-Karma-Api-Key——一律不算，所以「换着花样编钥匙骗一个新桶」没有收益。
+    """
+    digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+    if digest in _configured_key_digests():
+        return digest
+    parts = raw_key.split("_", 2)
+    if len(parts) < 3 or parts[0] != "karma":
+        return None
+    try:
+        from services.agent_bootstrap_credentials import verify_minted_api_key
+
+        if verify_minted_api_key(parts[1], parts[2]):
+            return digest
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def rate_limit_bucket(request: Request) -> str:
     """Redis bucket id for the general limiter.
 
-    A *configured* API key gets its own bucket, so several agents sharing one
-    egress IP keep their own budget. Everything else — including an invented
-    ``X-Karma-Api-Key`` or a spoofed ``X-Forwarded-For`` — falls back to the
-    unforgeable client IP, which is what makes rotating either header useless.
+    A *verified* API key gets its own bucket, so several agents running on one
+    host — or several users behind one NAT — keep their own budget. Everything
+    else (unauthenticated traffic, an invented ``X-Karma-Api-Key``, a spoofed
+    ``X-Forwarded-For``) falls back to the unforgeable client IP, which is what
+    makes rotating either header useless.
     """
     raw_key = (request.headers.get("X-Karma-Api-Key") or "").strip()
     if raw_key:
-        digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
-        if digest in _configured_key_digests():
+        digest = _verified_key_digest(raw_key)
+        if digest:
             return f"ak:{digest[:40]}"
     return f"ip:{real_client_ip(request)}"
 
