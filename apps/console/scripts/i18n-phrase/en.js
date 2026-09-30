@@ -1516,6 +1516,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "结算模式": "Settlement mode",
   "待锁定": "To be locked",
   "已接单": "Accepted",
+  "正在上链绑定": "Binding on-chain",
   "未开始": "Not started",
   "待接单": "Awaiting acceptance",
   "已接单 · 额度锁定": "Accepted · credit locked",

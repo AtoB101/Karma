@@ -396,6 +396,15 @@ async def fulfill_intent(
     if not seller_id:
         raise HTTPException(404, "no matching agent/merchant found for this intent")
     recommended = plan["recommended"] or {"agent_id": seller_id}
+    pinned_seller = (seller_identity_id or "").strip()
+    if pinned_seller and (recommended.get("agent_id") or "") != pinned_seller:
+        # 调用方点名了卖方：这一单的收款方、agent 的名字、回调地址都必须跟着**被点名的
+        # 那一个**走。过去只换了 seller_id，name / endpoint 还取自 discovery 的「推荐
+        # agent」—— 单子挂在 A 名下、联系方式写的是 B（并发压测抓到的 P5）。
+        # 候选里找得到就用它的卡片，找不到就只用 id（名字留给 ensure_agent_for_identity
+        # 按台账补齐）。
+        picked = next((c for c in ranked if (c.get("agent_id") or "") == pinned_seller), None)
+        recommended = {**(picked or {}), "agent_id": pinned_seller}
     skill = (query.skills[0] if query.skills else "generic_task")
 
     # Scene is derived from intent — clients cannot loosen confirmation via scene_id

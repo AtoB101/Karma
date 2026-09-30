@@ -1310,6 +1310,9 @@ async def _sync_escrow_settlement(
     """把状态机的两个关键点接到链上（详见 services/chain/escrow_settlement.py）。
 
     接单（→ ACCEPTED）  ：买方承诺 + 卖方质押在链上 bind 成一个 binding。
+                         bind 本身**不在请求路径里等** —— 只落一个 ``pending_bind``
+                         标记，autosettle 的 ``bind_due`` 随后补上（并发下单时
+                         同步等一个 Sepolia 区块会把整条 API 拖成 504）。
     结算（→ SETTLED）   ：提交结算、打开挑战期，钱由 autosettle 从买方钱包直划卖方。
     全额退款（REFUNDED）：卖方违约 → 罚没质押划给买方（submit 开窗 + autosettle 到点罚没）。
     取消（CANCELLED）   ：撤销 binding，把买方被占住的授权放回去，钱一步没动。
@@ -1330,14 +1333,20 @@ async def _sync_escrow_settlement(
     status = canonical_task_status(target_status)
     try:
         if status == TaskStatus.ACCEPTED:
-            await escrow_settlement.bind_for_task(
+            await escrow_settlement.bind_for_task_deferred(
                 db,
                 task_id=state.task_id,
                 buyer_identity_id=state.client_agent_id,
                 seller_identity_id=state.worker_agent_id,
                 amount_usdc=float(state.escrow_amount or 0.0),
             )
-        elif status == TaskStatus.DISPUTED:
+            return
+        # 除接单外的每一个链上动作都要操作一条真绑定。接单那一步可能是延迟绑定的
+        # （只落了 ``pending_bind`` 标记、autosettle 还没轮到），在动钱 / 动窗口之前
+        # 先把它补实 —— 否则 submit / slash / cancel 会对着一条不存在的绑定干活。
+        # ``materialize_pending_bind`` 幂等：不是待绑定的单子返回 None，不动任何东西。
+        await escrow_settlement.materialize_pending_bind(db, task_id=state.task_id)
+        if status == TaskStatus.DISPUTED:
             # 争议不动钱，但必须在链上把「谁都别想自己走掉」立起来：否则被裁定违约的
             # 一方可以在仲裁期间自己撤掉绑定，等罚没下来只剩 WrongBindingState。
             await escrow_settlement.mark_dispute_for_task(db, task_id=state.task_id)

@@ -209,6 +209,13 @@ def assert_permission(ctx: "RuntimeKeyContext", permission: str) -> None:
 
 
 def check_replay_nonce(*, key_id: str, endpoint: str, nonce: str, ttl_seconds: int = 600) -> None:
+    """进程内的 nonce 去重（同一进程内够用，跨进程不够）。
+
+    动作端（/runtime/*）现在走的是**落库**的那一层：
+    ``services/runtime_nonce_log.claim`` —— 它既跨进程防重放，也能把第一次的响应
+    原样回放给重发的调用方（客户端拿到 504 之后的那次重发）。这里留着，给不需要
+    回放、只想在同进程里挡一下的调用方用。
+    """
     if not nonce or len(nonce) > 128:
         raise HTTPException(status_code=400, detail="client_nonce is required (max 128 chars)")
     bucket = _replay[key_id]

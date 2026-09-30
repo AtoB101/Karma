@@ -370,7 +370,7 @@ async def place_order(c, cfg: Cfg, rep: Report, rt: dict, seller_id: str, owner:
     t_po = time.time()
     rep.log("po-negotiate", {"negotiation": (d or {}).get("negotiation"),
                               "recommended": ((d or {}).get("discovery") or {}).get("recommended")})
-    rep.log("po-timeline", {"stages": [(x.get("stage"), x.get("ok")) for x in ((d or {}).get("timeline") or [])]})
+    rep.log("po-timeline", {"stages": [[x.get("stage"), x.get("ms")] for x in ((d or {}).get("timeline") or [])]})
     tid, vid = (d or {}).get("task_id"), (d or {}).get("voucher_id")
     rep.log("agent-place-order", {"status": sc, "state": (d or {}).get("status"),
                                   "t_important_fields": round(t_if1 - t_if0, 2),

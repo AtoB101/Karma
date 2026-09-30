@@ -28,6 +28,7 @@ Security model (mirrors ``wallet_lock``)
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 import time
@@ -1043,15 +1044,46 @@ async def sync_commits(db: AsyncSession, identity_id: str) -> list[AllowanceComm
     rows = await list_commits(db, identity_id)
     if not rows or not escrow_enabled():
         return rows
-    w3 = _web3()
+    # 每条账单去**它自己那台**合约上读。合约换过地址之后，旧账单在新合约里根本不存在
+    # （UnknownBill revert），过去这一步会一直被当成 RPC 抖动。
+    #
     # 加锁顺序必须确定：并发对账（API 定时任务 / 用户操作 / 运维脚本）如果按不同顺序
     # 更新同一批账单行，Postgres 会判 ABBA 死锁并回滚其中一方 —— 那一轮账就没对上，
     # 用户的可用额度跟着少一截。按账单号升序加锁，两条路径就永远同一个顺序。
-    for row in sorted(rows, key=lambda r: _bill_sort_key(r.bill_id)):
-        if row.state == REVOKED:
+    #
+    # 读链这一段是**同步**的（每张账单 2 次 RPC）。以前直接跑在事件循环里：一轮
+    # autosettle tick 就把整个 API 卡住 1.5–4.7 秒（并发压测 P4 —— /health 的阻塞窗
+    # 和 escrow_autosettle_tick_slow 的时间窗逐条对齐）。整段挪进线程，读回来的还是
+    # 同一批事实，只是事件循环不再被占住。
+    ordered = sorted(rows, key=lambda r: _bill_sort_key(r.bill_id))
+    snapshots = await asyncio.to_thread(_read_bills_from_chain, ordered)
+    for row, snap in zip(ordered, snapshots):
+        if snap is None:   # REVOKED 的行不读；读不到的行保留旧值
             continue
-        # 每条账单去**它自己那台**合约上读。合约换过地址之后，旧账单在新合约里
-        # 根本不存在（UnknownBill revert），过去这一步会一直被当成 RPC 抖动。
+        row.reserved_usdc = snap[0]
+        row.spent_usdc = snap[1]
+        row.backed = snap[2]
+        row.state = CLOSED if snap[3] == 2 else IDLE
+        row.last_synced_at = datetime.utcnow()
+        row.updated_at = datetime.utcnow()
+    await db.flush()
+    return rows
+
+
+def _read_bills_from_chain(
+    rows: list[AllowanceCommitModel],
+) -> list[tuple[float, float, bool, int] | None]:
+    """同步读一批账单的链上事实（线程里跑，见 ``sync_commits``）。
+
+    返回和 ``rows`` 一一对应的列表；某一项是 ``None`` = 这张没读到（已撤销 /
+    RPC 抖），调用方保留台账里的旧值。
+    """
+    w3 = _web3()
+    out: list[tuple[float, float, bool, int] | None] = []
+    for row in rows:
+        if row.state == REVOKED:
+            out.append(None)
+            continue
         contract = _contract(w3, bill_contract(row))
         try:
             bill = contract.functions.getBill(chain_bill_id(row)).call()
@@ -1066,15 +1098,12 @@ async def sync_commits(db: AsyncSession, identity_id: str) -> list[AllowanceComm
                 contract=bill_contract(row),
                 error=str(exc),
             )
+            out.append(None)
             continue
-        row.reserved_usdc = wei_to_usdc(reserved_wei)
-        row.spent_usdc = wei_to_usdc(spent_wei)
-        row.backed = bool(backed)
-        row.state = CLOSED if state_code == 2 else IDLE
-        row.last_synced_at = datetime.utcnow()
-        row.updated_at = datetime.utcnow()
-    await db.flush()
-    return rows
+        out.append(
+            (wei_to_usdc(reserved_wei), wei_to_usdc(spent_wei), bool(backed), state_code)
+        )
+    return out
 
 
 # ------------------------------------------------------- aggregate backing
@@ -1229,23 +1258,17 @@ async def backing_report(db: AsyncSession, identity_id: str) -> dict[str, Any]:
         report["legacy"]["secured_usdc"] = report["legacy"]["committed_usdc"]
         return report
 
-    w3 = _web3()
+    # 授权额是链上事实，读法是同步 RPC。这里一次读一批，整段放到线程里：对账每一轮
+    # 都会走到这个函数，留在事件循环里就是每一轮卡住整个 API（并发压测 P4）。
+    readings = await asyncio.to_thread(
+        _read_allowances_from_chain, list(live_pairs_by_group.keys())
+    )
     checked = True
     for (wallet, token, contract), live_pairs in live_pairs_by_group.items():
         current = _is_current(contract)
-        try:
-            allowance = wei_to_usdc(_erc20_allowance_wei(w3, token, wallet, contract))
-        except Exception as exc:  # RPC 抖动：这一次不声称担保，绝不放行
-            logger.warning(
-                "allowance_backing_read_failed",
-                wallet=wallet,
-                contract=contract,
-                current=current,
-                error=str(exc),
-            )
-            if current:
-                checked = False
-            allowance = 0.0
+        allowance, ok = readings.get((wallet, token, contract), (0.0, False))
+        if not ok and current:
+            checked = False
         secured = allocate_allowance(live_pairs, allowance)
         committed = round(sum(live for _, live in live_pairs), 6)
         secured_total = round(sum(secured.values()), 6)
@@ -1265,6 +1288,34 @@ async def backing_report(db: AsyncSession, identity_id: str) -> dict[str, Any]:
         report[key] = round(report[key], 6)
     report["legacy"]["secured_usdc"] = round(report["legacy"]["secured_usdc"], 6)
     return report
+
+
+def _read_allowances_from_chain(
+    groups: list[tuple[str, str, str]],
+) -> dict[tuple[str, str, str], tuple[float, bool]]:
+    """同步读每条「钱包 + 代币 + 合约」的 ERC-20 授权额。
+
+    返回 ``{key: (allowance_usdc, 读到了吗)}``。读不到就是 ``(0.0, False)``：这一次
+    不声称担保，但也绝不因此把用户已锁进来的额度当成 0 记进台账（调用方按
+    ``chain_checked`` 决定「拦」还是「等」）。
+    """
+    w3 = _web3()
+    out: dict[tuple[str, str, str], tuple[float, bool]] = {}
+    for wallet, token, contract in groups:
+        try:
+            out[(wallet, token, contract)] = (
+                wei_to_usdc(_erc20_allowance_wei(w3, token, wallet, contract)),
+                True,
+            )
+        except Exception as exc:  # RPC 抖动：这一次不声称担保，绝不放行
+            logger.warning(
+                "allowance_backing_read_failed",
+                wallet=wallet,
+                contract=contract,
+                error=str(exc),
+            )
+            out[(wallet, token, contract)] = (0.0, False)
+    return out
 
 
 async def secured_usdc_for_bill(db: AsyncSession, identity_id: str, bill_id: str) -> float:

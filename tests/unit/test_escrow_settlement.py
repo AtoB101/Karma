@@ -173,8 +173,14 @@ def arm(identity_id: str, rows: list, *, chain_checked: bool = True, secured: di
     }
 
 
-def bounds(db):
-    return (db.execute(select(EscrowBindingModel))).scalars().all()
+async def local_bindings(db):
+    return list((await db.execute(select(EscrowBindingModel))).scalars().all())
+
+
+async def settlement_of(db) -> SettlementModel:
+    return (
+        await db.execute(select(SettlementModel).where(SettlementModel.task_id == TASK))
+    ).scalars().one()
 
 
 @pytest.fixture(autouse=True)
@@ -264,6 +270,85 @@ async def test_bind_puts_the_stake_on_the_seller_and_reflects_on_the_settlement(
     assert model.tx_hash == "0xbind1"
     assert model.onchain_buyer_bill_id == 1
     assert model.onchain_agent_bill_id == 2
+
+
+@pytest.mark.asyncio
+async def test_deferred_bind_only_marks_pending_then_materializes(db_session, chain):
+    """接单不在请求路径里等 Sepolia 区块：先落 ``pending_bind``，随后补成真绑定。
+
+    并发下单时「接单 = 等一个区块（≈12s）+ 抢同一个进程级发交易锁」会把整条 API
+    拖成 504（见 outputs/concurrency/SUMMARY）。所以接单只记账，真 bind 交给
+    autosettle 的 ``bind_due``；任何需要绑定的后续动作都会先把它补实。
+    """
+    bridge, calls = chain
+    db_session.add(settlement_row())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    info = await bridge.bind_for_task_deferred(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    assert info["status"] == "pending_bind"
+    assert calls["bind"] == []                      # 一笔交易都没发
+    assert (await local_bindings(db_session)) == []
+    model = await settlement_of(db_session)
+    assert model.onchain_status == "pending_bind"
+    assert model.settlement_mode == "escrow_allowance"
+
+    filled = await bridge.materialize_pending_bind(db_session, task_id=TASK)
+    assert filled["status"] == "bound"
+    assert calls["bind"] == [("1", "2", 30.0, 9.0)]
+    model = await settlement_of(db_session)
+    assert model.onchain_status == "bound"
+    assert model.onchain_binding_id == 101
+
+    # 补过之后就不再是待绑定：再来一次什么都不做（幂等，不会重复锁钱）。
+    assert await bridge.materialize_pending_bind(db_session, task_id=TASK) is None
+    assert calls["bind"] == [("1", "2", 30.0, 9.0)]
+
+
+@pytest.mark.asyncio
+async def test_deferred_bind_is_idempotent_once_a_binding_exists(db_session, chain):
+    """已经有绑定（或已经补过）的单子：接单那一步只回 already_bound，绝不再锁一次。"""
+    bridge, calls = chain
+    db_session.add(settlement_row())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+    again = await bridge.bind_for_task_deferred(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    assert again["status"] == "already_bound"
+    assert calls["bind"] == [("1", "2", 30.0, 9.0)]      # 只有第一次那一笔
+    assert (await settlement_of(db_session)).onchain_status == "bound"
+
+
+@pytest.mark.asyncio
+async def test_deferred_bind_still_refuses_without_a_real_onchain_lock(db_session, chain):
+    """「这单根本绑不上」必须在接单那一刻就拒 —— 别拖到 autosettle 才炸在用户看不见的地方。"""
+    bridge, _ = chain
+    db_session.add(settlement_row())
+    await db_session.flush()
+    arm(BUYER, [])
+    arm(SELLER, [])
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.bind_for_task_deferred(
+            db_session, task_id=TASK, buyer_identity_id=BUYER,
+            seller_identity_id=SELLER, amount_usdc=30.0,
+        )
+    assert exc.value.status == 409
+    assert (await settlement_of(db_session)).onchain_status != "pending_bind"
 
 
 @pytest.mark.asyncio

@@ -78,7 +78,6 @@ from services.runtime_key_service import (
     assert_permission,
     BIND_CODE_TTL_SECONDS,
     binding_scope,
-    check_replay_nonce,
     check_single_and_daily_limits,
     confirm_key_binding,
     create_runtime_key_record,
@@ -115,9 +114,79 @@ from services.openclaw_automation_readiness import (
     assert_task_automation_ready,
     resolve_task_id_for_voucher,
 )
+from services import runtime_nonce_log as nonce_log
 from services.runtime_call_log import call_view, list_key_calls, record_key_call
 from services.runtime_daily_spend import get_daily_used_async, try_reserve_daily_spend
 from services.signing import signing_service
+
+# ---------------------------------------------------------------------------
+# 重复 nonce：幂等回放（落库，见 services/runtime_nonce_log.py）
+# ---------------------------------------------------------------------------
+
+
+async def _nonce_claim(db: AsyncSession, ctx: RuntimeKeyContext, endpoint: str, nonce: str, body):
+    """这个 nonce 是不是已经来过了？
+
+    返回一个 Response = 这次请求不用再执行（原样回放第一次的结果）；返回 None =
+    没有先例，继续往下走。
+
+    为什么必须落库：调用方拿到 504 时，服务端其实**可能已经执行完了**（Sepolia 上
+    一笔 bind 就是一个区块，nginx 一超时就断开连接）。过去重发只能拿到 409
+    duplicate —— 既判断不出成没成、也不敢再发。现在重发拿回第一次的真实响应，并带
+    ``idempotent_replay`` 标记，不假装是新的一笔（并发压测 P2）。
+    """
+    verdict = await nonce_log.claim(
+        db,
+        key_id=ctx.key_id,
+        endpoint=endpoint,
+        nonce=nonce,
+        request_hash=nonce_log.request_fingerprint(body),
+    )
+    state = verdict.get("state")
+    if state == "new":
+        return None
+    if state == "replay":
+        payload = dict(verdict.get("payload") or {})
+        payload["idempotent_replay"] = True
+        return signed_json_response(
+            payload, status_code=int(verdict.get("http_status") or 200)
+        )
+    if state == "conflict":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "duplicate client_nonce with a different request body (replay protection)"
+                " —— 同一个 nonce 不能换一个请求体重发，请换一个新的 nonce"
+            ),
+        )
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "duplicate client_nonce: the first attempt is still in flight —— "
+            "稍后用同一个 nonce 重发，就能拿回它的结果"
+        ),
+    )
+
+
+async def _nonce_record(
+    db: AsyncSession,
+    ctx: RuntimeKeyContext,
+    endpoint: str,
+    nonce: str,
+    payload,
+    *,
+    status_code: int = 200,
+) -> None:
+    """把这次成功的结果记进 nonce 台账，供同 nonce 的重发原样回放。"""
+    await nonce_log.complete(
+        db,
+        key_id=ctx.key_id,
+        endpoint=endpoint,
+        nonce=nonce,
+        http_status=status_code,
+        payload=payload,
+    )
+
 
 router = APIRouter()
 
@@ -609,7 +678,9 @@ async def runtime_bind_key(
         raise HTTPException(status_code=401, detail="X-Karma-Runtime-Key header is required")
     validate_public_url_segment("agent_id", body.agent_id)
     ctx = await load_active_context(db=db, token=token)
-    check_replay_nonce(key_id=ctx.key_id, endpoint="bind-key", nonce=body.client_nonce)
+    replayed = await _nonce_claim(db, ctx, "bind-key", body.client_nonce, body)
+    if replayed is not None:
+        return replayed
     if ctx.agent_public_key:
         verify_signed_request(
             ctx=ctx,
@@ -656,6 +727,7 @@ async def runtime_bind_key(
                 "confirm_endpoint": "/runtime/confirm-bind-key",
             }
         )
+    await _nonce_record(db, ctx, "bind-key", body.client_nonce, payload)
     return signed_json_response(payload)
 
 
@@ -1407,7 +1479,9 @@ async def runtime_discover(
 ):
     """agent 找活干 / 找人干活：按一句话需求发现可结算的 agent 与商家。"""
     assert_permission(ctx, "discover_agents")
-    check_replay_nonce(key_id=ctx.key_id, endpoint="discover", nonce=body.client_nonce)
+    replayed = await _nonce_claim(db, ctx, "discover", body.client_nonce, body)
+    if replayed is not None:
+        return replayed
     out = await discover_for_intent(
         DiscoverIntentRequest(
             requirement_text=body.requirement_text,
@@ -1420,6 +1494,7 @@ async def runtime_discover(
     payload = dict(out) if isinstance(out, dict) else {"plan": out}
     payload["requested_by_identity_id"] = ctx.karma_identity_id
     payload["profile_id"] = ctx.profile_id
+    await _nonce_record(db, ctx, "discover", body.client_nonce, payload)
     return signed_json_response(payload)
 
 
@@ -1454,7 +1529,9 @@ async def runtime_place_order(
     assert_permission(ctx, "place_order")
     if body.seller_identity_id:
         validate_public_url_segment("seller_identity_id", body.seller_identity_id)
-    check_replay_nonce(key_id=ctx.key_id, endpoint="place-order", nonce=body.client_nonce)
+    replayed = await _nonce_claim(db, ctx, "place-order", body.client_nonce, body)
+    if replayed is not None:
+        return replayed
     daily_used = await get_daily_used_async(db, ctx.key_id)
     check_single_and_daily_limits(
         key_id=ctx.key_id,
@@ -1500,6 +1577,7 @@ async def runtime_place_order(
     payload["requested_by_identity_id"] = ctx.karma_identity_id
     payload["profile_id"] = ctx.profile_id
     payload["awaiting_owner_confirmation"] = payload.get("status") == "awaiting_owner_confirmation"
+    await _nonce_record(db, ctx, "place-order", body.client_nonce, payload)
     return signed_json_response(payload)
 
 
@@ -1523,7 +1601,9 @@ async def runtime_request_voucher(
         raise HTTPException(status_code=403, detail="voucher buyer_identity_id must match runtime key identity")
     if ctx.profile_id and not v.profile_id:
         v = v.model_copy(update={"profile_id": ctx.profile_id})
-    check_replay_nonce(key_id=ctx.key_id, endpoint="request-voucher", nonce=body.client_nonce)
+    replayed = await _nonce_claim(db, ctx, "request-voucher", body.client_nonce, body)
+    if replayed is not None:
+        return replayed
     daily_used = await get_daily_used_async(db, ctx.key_id)
     check_single_and_daily_limits(
         key_id=ctx.key_id,
@@ -1542,6 +1622,9 @@ async def runtime_request_voucher(
     ):
         raise HTTPException(status_code=403, detail="amount exceeds runtime key daily_limit")
     await db.commit()
+    await _nonce_record(
+        db, ctx, "request-voucher", body.client_nonce, out.model_dump(mode="json"), status_code=201
+    )
     return signed_json_response(out.model_dump(mode="json"), status_code=201)
 
 
@@ -1561,7 +1644,9 @@ async def runtime_check_voucher(
 ):
     assert_permission(ctx, "verify_voucher")
     validate_public_url_segment("voucher_id", body.voucher_id)
-    check_replay_nonce(key_id=ctx.key_id, endpoint="check-voucher", nonce=body.client_nonce)
+    replayed = await _nonce_claim(db, ctx, "check-voucher", body.client_nonce, body)
+    if replayed is not None:
+        return replayed
     task_id = await resolve_task_id_for_voucher(db, body.voucher_id)
     if task_id:
         await assert_task_automation_ready(
@@ -1578,6 +1663,7 @@ async def runtime_check_voucher(
         db,
     )
     await db.commit()
+    await _nonce_record(db, ctx, "check-voucher", body.client_nonce, out.model_dump(mode="json"))
     return signed_json_response(out.model_dump(mode="json"))
 
 
@@ -1744,7 +1830,9 @@ async def runtime_request_settlement(
 ):
     assert_permission(ctx, "request_settlement")
     validate_public_url_segment("task_id", body.task_id)
-    check_replay_nonce(key_id=ctx.key_id, endpoint="request-settlement", nonce=body.client_nonce)
+    replayed = await _nonce_claim(db, ctx, "request-settlement", body.client_nonce, body)
+    if replayed is not None:
+        return replayed
     await assert_task_automation_ready(
         db, task_id=body.task_id, karma_identity_id=ctx.karma_identity_id
     )
@@ -1786,6 +1874,9 @@ async def runtime_request_settlement(
             db,
         )
     await db.commit()
+    await _nonce_record(
+        db, ctx, "request-settlement", body.client_nonce, out.model_dump(mode="json")
+    )
     return signed_json_response(out.model_dump(mode="json"))
 
 

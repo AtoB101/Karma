@@ -86,6 +86,86 @@ async def test_due_bindings_picks_only_bindings_whose_window_elapsed(db_session)
     assert [r.binding_id for r in rows] == ["1"]
 
 
+# ------------------- F1：接单时推迟的链上绑定，由这一轮补上（不占用户请求那条路）
+
+#: 这几个用例自己往里放的结算单（只清自己造的，别动同一台库里别人的行）
+_BIND_TASKS = ["task-bind-1", "task-bind-2", "task-bind-3", "task-bind-4",
+               "task-bind-5", "task-bind-x"]
+
+
+async def _drop_bind_rows(db) -> None:
+    await db.execute(delete(SettlementModel).where(SettlementModel.task_id.in_(_BIND_TASKS)))
+    await db.commit()
+
+
+def pending(task_id: str, *, status: str = "accepted",
+            onchain_status: str = "pending_bind",
+            settlement_mode: str = "escrow_allowance") -> SettlementModel:
+    return SettlementModel(
+        settlement_id="stl-" + task_id,
+        task_id=task_id,
+        escrow_amount=30.0,
+        currency="USD",
+        status=status,
+        client_agent_id="kid_buyer",
+        worker_agent_id="kid_seller",
+        settlement_mode=settlement_mode,
+        onchain_status=onchain_status,
+    )
+
+
+@pytest.mark.asyncio
+async def test_bind_due_binds_only_standing_pending_binds(db_session, monkeypatch):
+    """只补「业务上还站着」的单子：终局的单子绝不再去占买方的额度。"""
+    await _drop_bind_rows(db_session)
+    db_session.add_all(
+        [
+            pending("task-bind-1"),                               # 该补
+            pending("task-bind-2", status="cancelled"),           # 已取消
+            pending("task-bind-3", status="refunded"),            # 钱归谁已说定
+            pending("task-bind-4", onchain_status="bound"),       # 已经绑好了
+            pending("task-bind-5", settlement_mode="offchain"),   # 不是托管通道
+        ]
+    )
+    await db_session.commit()
+
+    called: list[str] = []
+
+    async def _fake(db, *, task_id):
+        called.append(task_id)
+        return {"status": "bound", "binding_id": "77", "amount_usdc": 30.0}
+
+    monkeypatch.setattr(autosettle.escrow_settlement, "materialize_pending_bind", _fake)
+
+    out = await autosettle.bind_due(db_session)
+
+    assert called == ["task-bind-1"]
+    assert [o["task_id"] for o in out] == ["task-bind-1"]
+    await _drop_bind_rows(db_session)
+
+
+@pytest.mark.asyncio
+async def test_bind_due_backs_off_after_a_failed_attempt(db_session, monkeypatch):
+    """补绑失败（RPC 抖 / operator 没 gas）不能一轮一轮地烧 operator 的手续费。"""
+    await _drop_bind_rows(db_session)
+    db_session.add(pending("task-bind-x"))
+    await db_session.commit()
+
+    calls: list[str] = []
+
+    async def _boom(db, *, task_id):
+        calls.append(task_id)
+        raise RuntimeError("rpc hiccup")
+
+    monkeypatch.setattr(autosettle.escrow_settlement, "materialize_pending_bind", _boom)
+
+    assert await autosettle.bind_due(db_session) == []
+    assert await autosettle.bind_due(db_session) == []      # 退避期内不再重试
+    assert calls == ["task-bind-x"]
+
+    await _drop_bind_rows(db_session)
+
+
 # ------------------------------- F10-2 / F11：链上落定之后，账上那行必须跟着走
 
 

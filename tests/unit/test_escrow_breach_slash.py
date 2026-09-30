@@ -366,9 +366,15 @@ async def test_refunded_routes_to_slashing_and_cancelled_routes_to_release(db_se
         seen.append(("dispute", task_id))
         return {}
 
+    async def _materialize(db, *, task_id):
+        # 这一单没有「待绑定」标记（test 里接单走的就是假的延迟绑定），所以什么都不做。
+        return None
+
     monkeypatch.setattr(bridge, "slash_for_task", _slash)
     monkeypatch.setattr(bridge, "cancel_for_task", _cancel)
-    monkeypatch.setattr(bridge, "bind_for_task", _bind)
+    # 接单那一步是**延迟绑定**：只落标记，真 bind 由 autosettle / materialize 补。
+    monkeypatch.setattr(bridge, "bind_for_task_deferred", _bind)
+    monkeypatch.setattr(bridge, "materialize_pending_bind", _materialize)
     monkeypatch.setattr(bridge, "submit_for_task", _submit)
     monkeypatch.setattr(bridge, "mark_dispute_for_task", _dispute)
 

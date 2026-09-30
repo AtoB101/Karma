@@ -10,10 +10,11 @@ from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from config.settings import settings
-from db.models.orm import Base
+from db.models.orm import Base, RuntimeNonceLogModel
 from db.session import get_db
 from api.app import app
 from core.schemas import (
@@ -91,6 +92,14 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
     async with factory() as session:
         yield session
         await session.rollback()
+        # nonce 台账是**当场提交**的（跨进程防重放的要求，见 services/runtime_nonce_log.py），
+        # 所以它不跟着上面那句 rollback 消失。不清掉的话，下一个用例拿着同样的 nonce
+        # 会直接拿到上一个用例的「原结果」—— 那是测试互相污染，不是产品行为。
+        try:
+            await session.execute(delete(RuntimeNonceLogModel))
+            await session.commit()
+        except Exception:  # noqa: BLE001 - 清理失败不该让用例失败
+            await session.rollback()
 
 
 # ---------------------------------------------------------------------------

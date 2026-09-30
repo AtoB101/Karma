@@ -121,6 +121,11 @@ _SETTLEMENT_FINAL_TO_CHAIN_ACTION = {
 #: 留一段余量，别和接单那一步的内联 sync 抢同一个绑定。
 STRANDED_GRACE_SECONDS = 60
 
+#: 业务上「钱归谁已经说定了」的结算单：哪怕还挂着 pending_bind，也不该再去锁买方
+#: 的钱 —— 锁了也没有人会去提交 / 释放它，反而是把用户额度白占住。
+#: （正常路径上根本不会出现：任何需要绑定的动作都会先 materialize，失败就整笔回滚。）
+_DECIDED_SETTLEMENT_STATES = ("settled", "refunded", "cancelled", "failed", "expired")
+
 
 async def stranded_bindings(
     db: AsyncSession, *, now: datetime | None = None, limit: int | None = None
@@ -210,6 +215,51 @@ async def reap_stranded(db: AsyncSession, *, now: datetime | None = None) -> lis
 def _backed_off(binding_id: str) -> bool:
     last = _failed_at.get(binding_id)
     return last is not None and (time.monotonic() - last) < RETRY_BACKOFF_SECONDS
+
+
+async def bind_due(db: AsyncSession, *, limit: int | None = None) -> list[dict]:
+    """把接单时推迟的链上绑定补上（见 escrow_settlement.bind_for_task_deferred）。
+
+    接单（→ ACCEPTED）现在只在台账上落一个 ``pending_bind`` 就返回，不等 Sepolia
+    那个区块。真 bind 在这里跑：一轮最多 ``escrow_autosettle_batch`` 笔。慢还是慢在
+    等交易回执上，但这一轮不占用户请求那条路 —— 一单卡住只脏它自己，不会把并发
+    下单拖成 504。
+
+    只挑「业务上还站着」的单子：已经取消 / 失败 / 过期的单子不该再锁买方的钱。
+    真到终局（已结算 / 已退款）的那几步，``materialize_pending_bind`` 已经在请求
+    路径里把绑定补实了，所以这里不该再看到终局的单子。
+    """
+    stmt = (
+        select(SettlementModel)
+        .where(SettlementModel.onchain_status == escrow_settlement.PENDING_BIND)
+        .where(SettlementModel.settlement_mode == "escrow_allowance")
+        .where(SettlementModel.status.not_in(_DECIDED_SETTLEMENT_STATES))
+        .order_by(SettlementModel.created_at)
+        .limit(limit if limit is not None else settings.escrow_autosettle_batch)
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    bound: list[dict] = []
+    for model in rows:
+        if _backed_off(model.task_id):
+            continue
+        try:
+            out = await escrow_settlement.materialize_pending_bind(db, task_id=model.task_id)
+        except Exception as exc:  # noqa: BLE001 - 一轮里坏一笔不能拖死整轮
+            _failed_at[model.task_id] = time.monotonic()
+            logger.warning(
+                "escrow_autosettle_bind_failed", task_id=model.task_id, error=str(exc)
+            )
+            continue
+        if out:
+            bound.append({"task_id": model.task_id, "result": out})
+            logger.info(
+                "escrow_settlement_bound_deferred",
+                task_id=model.task_id,
+                binding_id=out.get("binding_id"),
+                amount_usdc=out.get("amount_usdc"),
+                tx=out.get("bind_tx_hash"),
+            )
+    return bound
 
 
 async def _onchain_state(row: EscrowBindingModel) -> int | None:
@@ -543,6 +593,10 @@ async def run_forever() -> None:
                     _tick_steps.append((_name, round(_now - _tick_last, 3)))
                     _tick_last = _now
 
+                # 接单时推迟的链上绑定：先补上，后面所有「需要 binding」的步骤
+                # （开结算窗 / 罚没 / 对账 / 收尾）才看得到它。
+                bound = await bind_due(db)
+                _lap("bind_due")
                 settled = await settle_due(db)
                 _lap("settle_due")
                 slashed = await breach_due(db)
@@ -587,6 +641,8 @@ async def run_forever() -> None:
                 logger.warning("escrow_autosettle_tick_slow",
                                total_s=round(sum(s[1] for s in _tick_steps), 3),
                                steps=_tick_steps)
+            if bound:
+                logger.info("escrow_autosettle_bind_tick", bound=len(bound))
             if settled:
                 logger.info("escrow_autosettle_tick", settled=len(settled))
             if slashed:

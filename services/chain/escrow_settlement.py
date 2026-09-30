@@ -77,6 +77,13 @@ BREACHING = "breaching"    # 已裁定违约，等争议窗口到点后罚没（
 #: 它是个「责任状态」而不是终局 —— 仲裁之后照样要能放款 / 罚没。
 DISPUTED = "disputed"
 
+#: 接单那一刻**还没**上链：钱一分没动，绑定本身等着 autosettle 去补。
+#: 接单请求过去在这里同步等一个 Sepolia 区块（实测 ≈12s），并发一上来整条 API
+#: 被拖成 504；现在只落这个标记就返回，真 bind 交给 autosettle 的 bind_due。
+#: 它既不是终局也不是责任状态：钱没被占、也没有受款人；任何需要绑定的后续动作
+#: 都会先把它补实（见 materialize_pending_bind）。
+PENDING_BIND = "pending_bind"
+
 _DONE_STATES = (SETTLED, CANCELLED, SLASHED)
 
 #: 合约自己记的 binding 状态（见 allowance_escrow.BINDING_STATE）
@@ -424,12 +431,16 @@ async def _reflect(
     binding: EscrowBindingModel,
     onchain_status: str,
     tx_hash: str | None = None,
-) -> None:
-    """把链上的事实写回结算单（操作台读的就是这一行）。"""
+) -> bool:
+    """把链上的事实写回结算单（操作台读的就是这一行）。
+
+    返回 ``False`` 表示台账上压根没有这一行 —— 这次回写**没有发生**。延迟绑定那
+    一步必须看这个返回值：以为标记落了、其实没落，这一单就永远等不到 bind。
+    """
     stmt = select(SettlementModel).where(SettlementModel.task_id == task_id)
     model = (await db.execute(stmt)).scalars().first()
     if model is None:
-        return
+        return False
     model.settlement_mode = "escrow_allowance"
     model.chain_id = int(settings.testnet_chain_id or 0) or None
     # 记的是**这条绑定自己**那台合约，不是「当前配置」：合约换过地址之后，
@@ -453,6 +464,7 @@ async def _reflect(
     if tx_hash:
         model.tx_hash = tx_hash
     model.updated_at = datetime.utcnow()
+    return True
 
 
 async def reflect_final(
@@ -723,6 +735,113 @@ async def bind_for_task(
         "amount_usdc": amount,
         "stake_usdc": stake,
     }
+
+
+async def _bind_params_from_books(
+    db: AsyncSession, *, task_id: str
+) -> dict[str, Any] | None:
+    """从结算单上取回「这一单该怎么绑」。
+
+    延迟绑定把接单拆成了两段：请求里那一段只落 ``pending_bind`` 标记，真正
+    ``bind`` 的那一段在 autosettle 里跑。两段之间传不了内存里的参数，所以第二段按
+    台账复原：结算单上的 client / worker / escrow_amount 就是当初接单时写进去的
+    那三个值。
+    """
+    stmt = select(SettlementModel).where(SettlementModel.task_id == task_id)
+    model = (await db.execute(stmt)).scalars().first()
+    if model is None:
+        return None
+    return {
+        "task_id": task_id,
+        "buyer_identity_id": model.client_agent_id,
+        "seller_identity_id": model.worker_agent_id,
+        "amount_usdc": float(model.escrow_amount or 0.0),
+    }
+
+
+async def bind_for_task_deferred(
+    db: AsyncSession,
+    *,
+    task_id: str,
+    buyer_identity_id: str,
+    seller_identity_id: str | None,
+    amount_usdc: float,
+) -> dict[str, Any]:
+    """接单时**不**在请求路径里等链上确认，只把「该绑了」记在台账上。
+
+    过去接单会同步等一个 Sepolia 区块：单笔 place-order 6.6–20s，其中 99% 花在
+    ``wait_for_transaction_receipt``；并发下所有发交易还要抢同一个进程级
+    ``_SEND_LOCK``，N 路 ≈ N×12s，超过 nginx 的 proxy_read_timeout 就是 504。
+
+    这一版把链上那一步挪到 autosettle 的 ``bind_due``：接单立刻返回，绑定随后补上。
+    便宜的资格校验仍然在这一步做完（金额 / 收款方 / 回执通路 / 双方是否真的有
+    划得动的锁仓额度）—— 「这单根本绑不上」必须在接单那一刻就把用户挡住，不能拖到
+    autosettle 补绑时才炸在用户看不见的地方。这里**唯一**省掉的是那笔等回执的交易。
+    """
+    if not enabled():
+        return {"status": "disabled"}
+    await assert_receipt_path_exists(db, task_id=task_id)
+    amount = float(amount_usdc or 0.0)
+    if amount <= 0:
+        return {"status": "skipped", "reason": "settlement has no escrow amount"}
+    if not seller_identity_id:
+        raise EscrowSettlementError(409, "接单前必须先有 worker_agent_id —— 没有收款方就没有结算")
+
+    existing = await _find_binding(db, task_id=task_id)
+    if existing is not None and existing.state not in ("cancelled",):
+        return {"status": "already_bound", "binding_id": existing.binding_id, "state": existing.state}
+
+    # 资格校验：账单要真的划得动。这一步只读链（不划钱、不等回执），两道口径和
+    # bind_for_task 完全一致 —— 接单被放行的单子，补绑时不会因为「本来就没额度」而炸。
+    stake = seller_stake.required_stake_usdc(amount)
+    buyer_owner = await resolve_party_identity(db, buyer_identity_id)
+    seller_owner = await resolve_party_identity(db, seller_identity_id)
+    await _pick_bill(db, identity_id=buyer_owner, role="付款方", need_usdc=amount)
+    await _pick_bill(db, identity_id=seller_owner, role="提供方", need_usdc=stake)
+
+    # 空壳 binding 只用来把「这台合约 + 待绑定」写进结算单，不落库（_reflect 只读它的
+    # contract_address；其余字段取不到就跳过）。
+    shell = EscrowBindingModel(
+        task_id=task_id,
+        contract_address=escrow.configured_address(),
+        state=ACTIVE,
+    )
+    wrote = await _reflect(db, task_id=task_id, binding=shell, onchain_status=PENDING_BIND)
+    if not wrote:
+        # 台账那行此刻还没落地（理论上不该发生）。宁可慢，也不能让这一单永远等不到
+        # 绑定 —— 退回原来的同步路径。
+        return await bind_for_task(
+            db,
+            task_id=task_id,
+            buyer_identity_id=buyer_identity_id,
+            seller_identity_id=seller_identity_id,
+            amount_usdc=amount,
+        )
+    logger.info("escrow_settlement_bind_deferred", task_id=task_id, amount_usdc=amount)
+    return {"status": PENDING_BIND, "amount_usdc": amount}
+
+
+async def materialize_pending_bind(
+    db: AsyncSession, *, task_id: str
+) -> dict[str, Any] | None:
+    """把延迟的绑定补成真绑定（任何「需要 binding」的后续动作之前先调这个）。
+
+    结算单停在 ``pending_bind`` 时 autosettle 的 ``bind_due`` 会补上；但用户可能在
+    下一轮 tick 之前就把这一单推到验收 / 争议 —— 那些链上动作都需要一条真绑定。
+    这里就地补，``bind_for_task`` 本身幂等（已有绑定返回 ``already_bound``）。
+    不是 ``pending_bind`` 的单子返回 ``None``，调用方照常往下走。
+    """
+    if not enabled():
+        return None
+    stmt = select(SettlementModel).where(SettlementModel.task_id == task_id)
+    model = (await db.execute(stmt)).scalars().first()
+    if model is None or (model.onchain_status or "") != PENDING_BIND:
+        return None
+    params = await _bind_params_from_books(db, task_id=task_id)
+    if params is None:
+        return None
+    logger.info("escrow_settlement_bind_materialized", task_id=task_id)
+    return await bind_for_task(db, **params)
 
 
 async def _rebind_partial(

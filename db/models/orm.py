@@ -960,6 +960,46 @@ class RuntimeKeyCallLogModel(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, index=True)
 
 
+class RuntimeNonceLogModel(Base):
+    """Runtime Key 的 nonce 台账 —— 重放保护 + 幂等回放，一行一次请求。
+
+    以前这层防线只在进程内存里（``runtime_key_service._replay``）：多 worker 部署
+    下每个 worker 各记一份，同一个 nonce 并行打到两个 worker 谁都拦不住。
+
+    更麻烦的是「客户端拿到 504 之后怎么办」。服务端其实已经执行完了（Sepolia 上
+    一笔 bind 就是一个区块，nginx 一超时就断开），调用方重发却只能拿到 409
+    duplicate —— 既判断不出成没成、也不敢再发（并发压测抓到的 P2）。
+
+    所以这一行记两件事：
+
+    * ``in_flight`` —— 有人正拿着这个 nonce 在跑，别插队；
+    * ``done``      —— 跑完了，第一次的响应原样存在这里，重发直接回放（并带一个
+                       ``idempotent_replay: true`` 标记，不假装是新的一笔）。
+
+    见 services/runtime_nonce_log.py。
+    """
+
+    __tablename__ = "runtime_nonce_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    endpoint: Mapped[str] = mapped_column(String(64), nullable=False)
+    nonce: Mapped[str] = mapped_column(String(128), nullable=False)
+    #: 请求体摘要：同一个 nonce 配不同的请求体 = 客户端拿错了 nonce，拒掉。
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    #: in_flight / done
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="in_flight")
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: 第一次执行成功的响应（JSON 文本），幂等回放时原样返回。
+    payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("key_id", "endpoint", "nonce", name="uq_runtime_nonce_log"),
+    )
+
+
 class ConsoleNoticeModel(Base):
     """操作台站内提醒：主人自己的钥匙/授权发生了什么，落库留痕。
 

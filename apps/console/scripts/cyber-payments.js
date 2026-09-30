@@ -33,6 +33,7 @@
     },
     binding: {
       none: "未开始",
+      pending_bind: "正在上链绑定",
       active: "执行中",
       finalizing: "待结算",
       disputed: "争议中",

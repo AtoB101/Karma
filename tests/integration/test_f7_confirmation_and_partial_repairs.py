@@ -351,11 +351,15 @@ class TestDefect8LockBindingPending:
 
     @pytest.mark.asyncio
     async def test_lock_response_reflects_onchain_truth(self, client, activate_identity, monkeypatch):
-        """托管通道是**同步**绑的：响应必须带链上真相，而不是陈旧的 null。
+        """托管通道的接单**不等链上确认**：响应必须如实说「正在绑」，而不是陈旧的 null。
 
-        防的是「数据库说已绑、响应说没绑」：操作台刚接完单，卡片上会显示成没上链，
-        用户以为钱没锁进去，实际链上已经占了额度。整条链跑下来只有 _reflect 那一处
-        会写这些列，所以这里用假的绑定实现把同样的效果做出来。
+        过去接单同步等一个 Sepolia 区块（实测 ≈12s，并发下所有发交易还抢同一把
+        进程级锁），N 路并发就是 N×12s —— 超过 nginx 超时全变 504。现在接单只落
+        ``pending_bind`` 标记就返回，真 bind 交给 autosettle；任何需要绑定的后续动作
+        （这里就是紧跟的 /start）会先把它补实。
+
+        防的还是那件事：操作台刚接完单，卡片上必须显示真实状态（在绑），而不是一个
+        让人以为「钱压根没锁」的 null。
         """
         from services.chain import escrow_settlement
 
@@ -375,7 +379,24 @@ class TestDefect8LockBindingPending:
             await db.flush()
             return {"status": "bound", "binding_id": "4242"}
 
+        async def _fake_deferred(db, *, task_id, buyer_identity_id, seller_identity_id,
+                                 amount_usdc):
+            """接单那一步只落标记（真 bind 在 autosettle / materialize 里）。"""
+            from sqlalchemy import select
+
+            from db.models.orm import SettlementModel
+
+            row = (
+                await db.execute(
+                    select(SettlementModel).where(SettlementModel.task_id == task_id)
+                )
+            ).scalars().first()
+            row.onchain_status = "pending_bind"
+            await db.flush()
+            return {"status": "pending_bind"}
+
         monkeypatch.setattr(escrow_settlement, "enabled", lambda: True)
+        monkeypatch.setattr(escrow_settlement, "bind_for_task_deferred", _fake_deferred)
         monkeypatch.setattr(escrow_settlement, "bind_for_task", _fake_bind)
 
         task_id = "task-f7-lock-truth"
@@ -387,8 +408,11 @@ class TestDefect8LockBindingPending:
             seller="seller-f7-truth",
             task_type="agent.f7_truth",
         )
-        assert state["onchain_status"] == "bound"
-        assert state["onchain_binding_id"] == 4242
+        # 接单那一步：如实说「正在绑」，链上 id 当然还给不出（还没绑）。
+        assert state["onchain_status"] == "pending_bind"
+        assert state["onchain_binding_id"] is None
+
+        # /start 需要一条真绑定，所以它先把延迟绑定补实 —— 到这里链上真相已经写回台账。
         got = (await client.get("/v1/settlement/" + task_id)).json()
         assert got["onchain_status"] == "bound"
         assert got["onchain_binding_id"] == 4242

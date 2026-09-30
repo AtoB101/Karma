@@ -1518,6 +1518,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "结算模式": "Modo de liquidación",
   "待锁定": "Pendiente de bloqueo",
   "已接单": "Aceptado",
+  "正在上链绑定": "Vinculando en cadena",
   "未开始": "Sin empezar",
   "待接单": "Pendiente de aceptación",
   "已接单 · 额度锁定": "Aceptado · cupo bloqueado",
