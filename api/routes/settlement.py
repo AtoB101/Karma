@@ -1341,16 +1341,29 @@ async def _sync_escrow_settlement(
                 amount_usdc=float(state.escrow_amount or 0.0),
             )
             return
-        # 除接单外的每一个链上动作都要操作一条真绑定。接单那一步可能是延迟绑定的
-        # （只落了 ``pending_bind`` 标记、autosettle 还没轮到），在动钱 / 动窗口之前
-        # 先把它补实 —— 否则 submit / slash / cancel 会对着一条不存在的绑定干活。
-        # ``materialize_pending_bind`` 幂等：不是待绑定的单子返回 None，不动任何东西。
-        await escrow_settlement.materialize_pending_bind(db, task_id=state.task_id)
+
+        async def _fill_in_deferred_bind() -> None:
+            """动链之前先把延迟的绑定补实。
+
+            接单那一步现在只落 ``pending_bind`` 标记（见 ``bind_for_task_deferred``），
+            所以 submit / slash / cancel / dispute 这些**真的会碰那条绑定**的动作，
+            进来第一件事是把它补成真绑定 —— 否则链上会对着一条不存在的绑定干活。
+            ``materialize_pending_bind`` 幂等：不是待绑定的单子返回 None，不动任何东西。
+
+            注意这里**只在这四个状态**里调，不能提前到函数顶上：
+            ``fulfill_intent`` 接单之后立刻把单子推到 ``IN_PROGRESS``，而
+            ``IN_PROGRESS`` 是白名单外的状态 —— 要是它也补绑，就等于接单当场又同步
+            等一个区块，F1 直接作废（2026-09-30 实测 place-order 又变成 18.5s）。
+            """
+            await escrow_settlement.materialize_pending_bind(db, task_id=state.task_id)
+
         if status == TaskStatus.DISPUTED:
+            await _fill_in_deferred_bind()
             # 争议不动钱，但必须在链上把「谁都别想自己走掉」立起来：否则被裁定违约的
             # 一方可以在仲裁期间自己撤掉绑定，等罚没下来只剩 WrongBindingState。
             await escrow_settlement.mark_dispute_for_task(db, task_id=state.task_id)
         elif status == TaskStatus.SETTLED:
+            await _fill_in_deferred_bind()
             await escrow_settlement.submit_for_task(
                 db,
                 task_id=state.task_id,
@@ -1359,8 +1372,10 @@ async def _sync_escrow_settlement(
             )
         elif status == TaskStatus.REFUNDED:
             # 全额退款 = 这次交付被裁定为一文不值 = 卖方违约：质押划给买方。
+            await _fill_in_deferred_bind()
             await escrow_settlement.slash_for_task(db, task_id=state.task_id)
         elif status == TaskStatus.CANCELLED:
+            await _fill_in_deferred_bind()
             await escrow_settlement.cancel_for_task(db, task_id=state.task_id)
     except escrow_settlement.EscrowSettlementError as exc:
         logger.warning(

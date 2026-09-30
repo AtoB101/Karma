@@ -377,6 +377,7 @@ async def place_order(c, cfg: Cfg, rep: Report, rt: dict, seller_id: str, owner:
                                   "t_place_order": round(t_po - t_if1, 2),
                                   "task_id": tid, "voucher_id": vid,
                                   "awaiting_owner_confirmation": (d or {}).get("awaiting_owner_confirmation"),
+                                  "idempotent_replay": bool((d or {}).get("idempotent_replay")),
                                   "err": None if tid else json.dumps(d, ensure_ascii=False)[:400]})
     if not tid:
         return None, None

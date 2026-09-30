@@ -355,8 +355,8 @@ class TestDefect8LockBindingPending:
 
         过去接单同步等一个 Sepolia 区块（实测 ≈12s，并发下所有发交易还抢同一把
         进程级锁），N 路并发就是 N×12s —— 超过 nginx 超时全变 504。现在接单只落
-        ``pending_bind`` 标记就返回，真 bind 交给 autosettle；任何需要绑定的后续动作
-        （这里就是紧跟的 /start）会先把它补实。
+        ``pending_bind`` 标记就返回，真 bind 交给 autosettle 的 ``bind_due``。
+        只有真会去碰那条绑定的四个状态（争议 / 结算 / 退款 / 取消）才会先把它补实。
 
         防的还是那件事：操作台刚接完单，卡片上必须显示真实状态（在绑），而不是一个
         让人以为「钱压根没锁」的 null。
@@ -412,7 +412,10 @@ class TestDefect8LockBindingPending:
         assert state["onchain_status"] == "pending_bind"
         assert state["onchain_binding_id"] is None
 
-        # /start 需要一条真绑定，所以它先把延迟绑定补实 —— 到这里链上真相已经写回台账。
+        # 接下来就是 /start（IN_PROGRESS）。它**不**碰链，所以**不**能去补绑 ——
+        # 要是它也补，接单当场又同步等一个区块，F1 直接作废（实测 place-order 又变 18.5s）。
+        # 真 bind 由 autosettle 的 ``bind_due`` 在下一轮补（单元用例
+        # tests/unit/test_escrow_settlement.py::test_only_chain_touching_transitions_fill_in_a_deferred_bind）。
         got = (await client.get("/v1/settlement/" + task_id)).json()
-        assert got["onchain_status"] == "bound"
-        assert got["onchain_binding_id"] == 4242
+        assert got["onchain_status"] == "pending_bind"
+        assert got["onchain_binding_id"] is None

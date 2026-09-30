@@ -522,6 +522,51 @@ async def test_route_translates_the_gate_into_a_409(db_session, chain, monkeypat
     assert exc.value.status_code == 409
 
 @pytest.mark.asyncio
+async def test_only_chain_touching_transitions_fill_in_a_deferred_bind(db_session, chain, monkeypatch):
+    """“不碰链”的状态绝不许补绑 —— 接单之后紧跟着就是 IN_PROGRESS。
+
+    ``fulfill_intent`` 的顺序是：接单（ACCEPTED，只落 ``pending_bind``）→ **立刻** IN_PROGRESS。
+    要是 IN_PROGRESS 也去补绑，等于接单当场又同步等一个 Sepolia 区块 ——
+    并发下又是 N×12s。（2026-09-30 实测：把补绑提到函数顶上之后 place-order 又变回 18.5s。）
+
+    只有真的会去碰那条绑定的四个状态（争议 / 结算 / 退款 / 取消）才补。
+    """
+    from api.routes import settlement as route
+    from core.schemas import SettlementState, TaskStatus
+    from services.chain import escrow_settlement as bridge
+
+    materialized: list = []
+
+    async def _spy(db, *, task_id):
+        materialized.append(task_id)
+        return None
+
+    async def _noop(db, **_kw):
+        return None
+
+    monkeypatch.setattr(bridge, "materialize_pending_bind", _spy)
+    for name in ("mark_dispute_for_task", "submit_for_task", "slash_for_task", "cancel_for_task"):
+        monkeypatch.setattr(bridge, name, _noop)
+
+    view = SettlementState(
+        settlement_id="stl-" + TASK,
+        task_id=TASK,
+        escrow_amount=30.0,
+        currency="USD",
+        status=TaskStatus.ACCEPTED,
+        client_agent_id=BUYER,
+        worker_agent_id=SELLER,
+    )
+
+    for status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.DELIVERED):
+        await route._sync_escrow_settlement(db=db_session, state=view, target_status=status)
+    assert materialized == [], "不碰链的状态不该去补绑：%s" % materialized
+
+    for status in (TaskStatus.DISPUTED, TaskStatus.SETTLED, TaskStatus.REFUNDED, TaskStatus.CANCELLED):
+        await route._sync_escrow_settlement(db=db_session, state=view, target_status=status)
+    assert materialized == [TASK] * 4, materialized
+
+@pytest.mark.asyncio
 async def test_the_api_view_exposes_the_binding_that_backs_the_money(db_session, chain):
     """操作台/API 必须看得见「这一单的钱由哪个 binding 背书」，否则又是数字。"""
     from db.stores.settlement_store import PostgresSettlementStore
