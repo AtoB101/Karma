@@ -534,33 +534,59 @@ async def run_forever() -> None:
     while True:
         try:
             async with AsyncSessionLocal() as db:
+                _tick_steps: list[tuple[str, float]] = []
+                _tick_last = time.perf_counter()
+
+                def _lap(_name: str) -> None:
+                    nonlocal _tick_last
+                    _now = time.perf_counter()
+                    _tick_steps.append((_name, round(_now - _tick_last, 3)))
+                    _tick_last = _now
+
                 settled = await settle_due(db)
+                _lap("settle_due")
                 slashed = await breach_due(db)
+                _lap("breach_due")
                 # 链上已经落定、账上还停在半路的绑定：对齐（别人推了 finalize 也算）。
                 aligned = await reconcile_from_chain(db)
+                _lap("reconcile_from_chain")
                 # 交付后买方一直不表态、验证层又已经通过的单子：窗口到期就自动放行。
                 # 少这一段的话，SETTLEMENT_CONFIRM_WINDOW_HOURS 写的那个 72 小时
                 # 就只是个没人执行的承诺，钱一直卡在托管里（P2-4）。
                 auto_confirmed = await auto_confirm_expired_settlements(
                     db, limit=settings.escrow_autosettle_batch
                 )
+                _lap("auto_confirm_expired_settlements")
                 # 业务侧已经终局、链上还占着额度的绑定：把它们推到最后一步，
                 # 别让用户的可用额度被一个永远不会再有人推进的绑定吃住。
                 freed = await reap_stranded(db)
+                _lap("reap_stranded")
                 # 业务还挂在争议里、链上却已经落定：把 disputed 桶里那份冻结放掉，
                 # 业务状态机跟着链上走。不放掉的话，操作台永远停在「争议冻结 N」，
                 # 用户的钱也永远解不了锁。
                 dispute_healed = await align_disputed_settlements(db)
+                _lap("align_disputed_settlements")
                 # 过期授权码占住的额度要还回去 —— 否则用户「可用额度」被一张
                 # 没人推进的券永久吃光，链上明明还有钱却一单也开不出来。
                 reclaimed = await voucher_reaper.expire_due(db)
+                _lap("voucher_reaper.expire_due")
                 # 没有任何东西占着、却还挂在 reserved 上的额度：还回可用额度。
                 # （释放路径每次「少还一点」都会留下这样的余数，链上的钱一分没少。）
                 returned = await voucher_reaper.restore_leaked_reservations(db)
+                _lap("voucher_reaper.restore_leaked")
                 # 台账自愈：v2 承诺必须一直等于链上的可用责任额度，否则用户锁仓
                 # 之后会看到 0 可用额度（付款码 / 任务合同 / agent 请求凭证全被拒）。
                 mirrored = await escrow.reconcile_all_capacity_mirrors(db)
+                _lap("reconcile_capacity_mirrors")
                 await db.commit()
+                _lap("commit")
+            _slow = sorted(_tick_steps, key=lambda s: s[1], reverse=True)
+            if _slow and _slow[0][1] >= 1.0:
+                # 一轮 tick 里哪一步慢，直接落日志：这些步骤在请求路径里是同步跑的，
+                # 慢一步就是整个 API 卡一步。
+                logger.warning("escrow_autosettle_tick_slow",
+                               total_s=round(sum(s[1] for s in _tick_steps), 3),
+                               steps=_tick_steps)
             if settled:
                 logger.info("escrow_autosettle_tick", settled=len(settled))
             if slashed:

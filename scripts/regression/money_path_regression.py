@@ -317,7 +317,8 @@ async def open_buyer_runtime(c, cfg: Cfg, rep: Report, owner: dict, account):
     return {"agent_id": agent_id, "key_id": key_id, "token": token, "key": agent_key, "name": name}
 
 
-async def place_order(c, cfg: Cfg, rep: Report, rt: dict, seller_id: str, owner: dict):
+async def place_order(c, cfg: Cfg, rep: Report, rt: dict, seller_id: str, owner: dict,
+                      client_nonce: str | None = None):
     """重要字段三方比对 → 下单 → Console 交办存证。返回 (task_id, voucher_id)。"""
     ts = datetime.now(timezone.utc)
     fields = {
@@ -332,6 +333,7 @@ async def place_order(c, cfg: Cfg, rep: Report, rt: dict, seller_id: str, owner:
                   "success_rule": "status=success and schema_ok", "mcp_server_id": "mcp:karma-runner",
                   "max_latency_ms": 3000,
                   "expected_output_schema_hash": "sha256:" + hashlib.sha256(b"out-schema").hexdigest()[:20]}}
+    t_if0 = time.time()
     r = await c.post(cfg.base + "/v1/standards/important-fields/captures", json={
         "scene_id": "api_tool_call",
         "interaction_ref": "fulfill:%s:%s" % (cfg.buyer_id, seller_id),
@@ -358,13 +360,21 @@ async def place_order(c, cfg: Cfg, rep: Report, rt: dict, seller_id: str, owner:
                       json={"capture_id": cid})).json()
     rep.log("important-fields", {"triple_match": m.get("triple_match"), "result": m.get("result")})
 
+    t_if1 = time.time()
     sc, d = await agent_call(c, cfg.base, "POST", "/runtime/place-order", rt["key"], rt["key_id"],
                              rt["token"], payload={
                                  "requirement_text": "代买一份跑腿服务", "amount": cfg.amount,
-                                 "seller_identity_id": seller_id, "client_nonce": uuid.uuid4().hex,
+                                 "seller_identity_id": seller_id,
+                                 "client_nonce": client_nonce or uuid.uuid4().hex,
                                  "important_fields_capture_id": cid})
+    t_po = time.time()
+    rep.log("po-negotiate", {"negotiation": (d or {}).get("negotiation"),
+                              "recommended": ((d or {}).get("discovery") or {}).get("recommended")})
+    rep.log("po-timeline", {"stages": [(x.get("stage"), x.get("ok")) for x in ((d or {}).get("timeline") or [])]})
     tid, vid = (d or {}).get("task_id"), (d or {}).get("voucher_id")
     rep.log("agent-place-order", {"status": sc, "state": (d or {}).get("status"),
+                                  "t_important_fields": round(t_if1 - t_if0, 2),
+                                  "t_place_order": round(t_po - t_if1, 2),
                                   "task_id": tid, "voucher_id": vid,
                                   "awaiting_owner_confirmation": (d or {}).get("awaiting_owner_confirmation"),
                                   "err": None if tid else json.dumps(d, ensure_ascii=False)[:400]})

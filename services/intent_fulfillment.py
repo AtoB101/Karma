@@ -10,6 +10,7 @@ import hashlib
 import logging
 import os
 import secrets
+import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -349,6 +350,20 @@ async def fulfill_intent(
       ``awaiting_important_fields_match`` (or auto-lock in demo envs)
     """
     timeline: list[dict[str, Any]] = []
+    _tick = time.perf_counter()
+
+    def _mark(entry: dict[str, Any]) -> None:
+        """记一个阶段，并附上「距上一阶段多少毫秒」。
+
+        下单请求到底卡在哪一段，变成响应里直接能看到的数据，
+        不用再靠猜。
+        """
+        nonlocal _tick
+        _now = time.perf_counter()
+        entry["ms"] = int(round((_now - _tick) * 1000))
+        _tick = _now
+        timeline.append(entry)
+
     query = parse_intent_for_discovery(requirement_text, amount=amount)
     pay_amount = float(amount if amount is not None else (query.amount or 10.0))
     if pay_amount <= 0:
@@ -367,7 +382,7 @@ async def fulfill_intent(
         enforce_scene_policy=False,
     )
     plan = build_discovery_plan(query=query, candidates=ranked, buyer_identity_id=buyer_identity_id)
-    timeline.append({
+    _mark({
         "stage": "discover",
         "ok": True,
         "candidates": len(ranked),
@@ -414,7 +429,7 @@ async def fulfill_intent(
             p1_ready=bool(getattr(seller_row, "p1_ready", False)) if seller_row else False,
             stored_boundary_hash=getattr(seller_row, "boundary_hash", None) if seller_row else None,
         )
-        timeline.append({
+        _mark({
             "stage": "seller_boundary_verify",
             "ok": True,
             "scene_id": resolved_scene,
@@ -422,7 +437,7 @@ async def fulfill_intent(
             "gaps": seller_verify.get("gaps") or [],
         })
     except BoundaryVerifyError as exc:
-        timeline.append({
+        _mark({
             "stage": "seller_boundary_verify",
             "ok": False,
             "scene_id": resolved_scene,
@@ -500,7 +515,7 @@ async def fulfill_intent(
                 interaction_ref=interaction_ref,
                 policy_auto_allowed=effective_policy_auto,
             ):
-                timeline.append({
+                _mark({
                     "stage": "owner_confirmation",
                     "ok": True,
                     "scene_id": resolved_scene,
@@ -529,7 +544,7 @@ async def fulfill_intent(
                         )
                         if step == "accept_order":
                             deferred_accept_session = confirmation_session_id
-                        timeline.append({
+                        _mark({
                             "stage": "owner_confirmation",
                             "ok": True,
                             "scene_id": resolved_scene,
@@ -554,7 +569,7 @@ async def fulfill_intent(
                 policy_auto_allowed=effective_policy_auto,
             )
             if sess.get("skipped"):
-                timeline.append({
+                _mark({
                     "stage": "owner_confirmation",
                     "ok": True,
                     "scene_id": resolved_scene,
@@ -576,7 +591,7 @@ async def fulfill_intent(
                 interaction_ref=interaction_ref,
                 policy_auto_allowed=effective_policy_auto,
             )
-            timeline.append({
+            _mark({
                 "stage": "owner_confirmation",
                 "ok": False,
                 "scene_id": resolved_scene,
@@ -654,7 +669,7 @@ async def fulfill_intent(
                 )
             else:
                 raise CaptureError("MATCHED important_fields_capture_id required")
-            timeline.append({
+            _mark({
                 "stage": "important_fields_lock",
                 "ok": True,
                 "capture_id": fields_lock.get("capture_id"),
@@ -668,7 +683,7 @@ async def fulfill_intent(
                 example = example_for_scene(resolved_scene)
             except Exception:  # noqa: BLE001
                 example = None
-            timeline.append({
+            _mark({
                 "stage": "important_fields_lock",
                 "ok": False,
                 "awaiting": True,
@@ -741,7 +756,7 @@ async def fulfill_intent(
             )
         except Exception:  # noqa: BLE001
             logger.exception("P6 reputation update failed for seller timeout")
-        timeline.append({
+        _mark({
             "stage": "seller_accept_timeout",
             "ok": False,
             "cancelled": True,
@@ -851,7 +866,7 @@ async def fulfill_intent(
                         amount=pay_amount,
                     )
                     breach_liability = confirmed.get("breach_liability")
-                    timeline.append({
+                    _mark({
                         "stage": "seller_confirmation",
                         "ok": True,
                         "scene_id": resolved_scene,
@@ -877,7 +892,7 @@ async def fulfill_intent(
                     ttl_seconds=accept_ttl,
                 )
                 if not seller_sess.get("skipped"):
-                    timeline.append({
+                    _mark({
                         "stage": "seller_confirmation",
                         "ok": False,
                         "scene_id": resolved_scene,
@@ -926,7 +941,7 @@ async def fulfill_intent(
                     amount=pay_amount,
                     interaction_ref=interaction_ref,
                 )
-                timeline.append({
+                _mark({
                     "stage": "seller_confirmation",
                     "ok": True,
                     "scene_id": resolved_scene,
@@ -941,7 +956,7 @@ async def fulfill_intent(
                 amount=pay_amount,
                 interaction_ref=interaction_ref,
             )
-            timeline.append({
+            _mark({
                 "stage": "seller_confirmation",
                 "ok": True,
                 "scene_id": resolved_scene,
@@ -957,7 +972,7 @@ async def fulfill_intent(
             amount=pay_amount,
             interaction_ref=interaction_ref,
         )
-        timeline.append({
+        _mark({
             "stage": "seller_confirmation",
             "ok": True,
             "scene_id": resolved_scene,
@@ -982,7 +997,7 @@ async def fulfill_intent(
             seller_row.endpoint_url = recommended["endpoint"]
 
     await _ensure_capacity(db, buyer_identity_id, pay_amount, auto_fund=auto_fund_capacity)
-    timeline.append({"stage": "capacity", "ok": True, "amount": pay_amount})
+    _mark({"stage": "capacity", "ok": True, "amount": pay_amount})
 
     negotiation: dict[str, Any]
     endpoint = (recommended.get("endpoint") or "").strip()
@@ -994,7 +1009,7 @@ async def fulfill_intent(
             buyer_id=buyer_identity_id,
             amount=pay_amount,
         )
-        timeline.append({
+        _mark({
             "stage": "negotiate",
             "ok": bool(negotiation.get("ok")),
             "mode": negotiation.get("mode"),
@@ -1008,7 +1023,7 @@ async def fulfill_intent(
             "task_id": f"inline-{uuid.uuid4().hex[:12]}",
             "skill": skill,
         }
-        timeline.append({"stage": "negotiate", "ok": True, "mode": "inline_synthetic"})
+        _mark({"stage": "negotiate", "ok": True, "mode": "inline_synthetic"})
 
     task_id = str(uuid.uuid4())
     deadline = datetime.utcnow() + timedelta(days=7)
@@ -1064,7 +1079,7 @@ async def fulfill_intent(
         )
     )
     await db.flush()
-    timeline.append({"stage": "contract", "ok": True, "task_id": task_id})
+    _mark({"stage": "contract", "ok": True, "task_id": task_id})
 
     req_hash = hashlib.sha256(requirement_text.encode("utf-8")).hexdigest()
     voucher = VoucherModel(
@@ -1096,10 +1111,10 @@ async def fulfill_intent(
         target_identity_id=seller_id,
         payload={"task_id": task_id, "source": "intent_fulfillment"},
     )
-    timeline.append({"stage": "voucher_created", "ok": True, "voucher_id": voucher.voucher_id})
+    _mark({"stage": "voucher_created", "ok": True, "voucher_id": voucher.voucher_id})
 
     await accept_voucher_row(db, voucher, seller_identity_id=seller_id, actor=ORCH_ACTOR)
-    timeline.append({"stage": "voucher_accepted", "ok": True, "voucher_id": voucher.voucher_id})
+    _mark({"stage": "voucher_accepted", "ok": True, "voucher_id": voucher.voucher_id})
 
     store = PostgresSettlementStore(db)
     state = SettlementState(
@@ -1133,14 +1148,14 @@ async def fulfill_intent(
         db=db, store=store, state=state, target_status=TaskStatus.IN_PROGRESS,
         reason="intent fulfillment: execution started", route_path=ORCH_ROUTE, actor_id=ORCH_ACTOR,
     )
-    timeline.append({"stage": "settlement_in_progress", "ok": True, "task_id": task_id})
+    _mark({"stage": "settlement_in_progress", "ok": True, "task_id": task_id})
 
     final_status = "in_progress"
     receipt_id = None
     # Soft-path kill-switch: auto_complete skips P7 delivery + buyer-accept and
     # can mint SETTLED without real fulfillment. Allowed only in demo/test envs.
     if auto_complete and not allow_demo_confirmation_bypass():
-        timeline.append(
+        _mark(
             {
                 "stage": "auto_complete_blocked",
                 "ok": False,
@@ -1171,7 +1186,7 @@ async def fulfill_intent(
             db=db, store=store, state=state, target_status=TaskStatus.DELIVERED,
             reason="intent fulfillment: auto delivery", route_path=ORCH_ROUTE, actor_id=ORCH_ACTOR,
         )
-        timeline.append({"stage": "delivered", "ok": True})
+        _mark({"stage": "delivered", "ok": True})
 
         now = datetime.utcnow()
         receipt = ExecutionReceipt(
@@ -1191,7 +1206,7 @@ async def fulfill_intent(
 
         await PostgresReceiptStore(db).save(receipt)
         receipt_id = receipt.receipt_id
-        timeline.append({"stage": "evidence_receipt", "ok": True, "receipt_id": receipt_id})
+        _mark({"stage": "evidence_receipt", "ok": True, "receipt_id": receipt_id})
 
         await ensure_success_execution_receipt_before_seller_payout(
             db, task_id, settled_amount=float(pay_amount)
@@ -1228,7 +1243,7 @@ async def fulfill_intent(
             volume=pay_amount,
             exclude_task_id=task_id,
         )
-        timeline.append({"stage": "settled", "ok": True, "reputation_updated": True})
+        _mark({"stage": "settled", "ok": True, "reputation_updated": True})
         final_status = "settled"
 
     return {
