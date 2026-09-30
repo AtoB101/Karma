@@ -424,6 +424,25 @@ async def adopt_chain_finalizing(
     return True
 
 
+#: 一笔结算在链上会依次留下三笔交易：bind -> submit -> finalize。`settlements.tx_hash`
+#: 只记一笔，而回写它的地方有三处（请求路径 / autosettle / 只读对账），各自手里那份
+#: binding 未必是最新的。旧值会把「已结算」的单子指回 ``submitSettlement`` —— 那笔一分钱
+#: 都不动，操作台的「结算交易」和链上核对都会看走眼（2026-10-01 的 L1 复跑就抓到这个：
+#: 只读对账先落地，把 autosettle 随后写上的 finalize 交易又盖回了 submit）。
+#: 所以按权威度排序，只升不降。
+def _tx_rank(value: str | None, binding: Any) -> int:
+    if not value:
+        return 0
+    if value == getattr(binding, "finalize_tx_hash", None):
+        return 3
+    if value == getattr(binding, "submit_tx_hash", None):
+        return 2
+    if value == getattr(binding, "bind_tx_hash", None):
+        return 1
+    # 认不出来的（旧合约、历史数据）按最高算：不能挡住合法的新值。
+    return 3
+
+
 async def _reflect(
     db: AsyncSession,
     *,
@@ -461,7 +480,16 @@ async def _reflect(
         except (TypeError, ValueError):
             pass
     model.onchain_status = onchain_status
-    if tx_hash:
+    if tx_hash and _tx_rank(tx_hash, binding) >= _tx_rank(model.tx_hash, binding):
+        if model.tx_hash != tx_hash:
+            # 这一行是操作台「结算交易」那一格，链上核对也照它抓回执：换了哪一笔要留痕。
+            logger.info(
+                "escrow_settlement_tx_hash_updated",
+                task_id=task_id,
+                onchain_status=onchain_status,
+                previous=model.tx_hash,
+                current=tx_hash,
+            )
         model.tx_hash = tx_hash
     model.updated_at = datetime.utcnow()
     return True
@@ -1369,8 +1397,13 @@ async def cancel_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
         row.state = mapped
         row.updated_at = datetime.utcnow()
         await db.flush()
+        # 链上已经终局：这一行该指向真正让钱动了的那笔，不是开窗那笔 submit。
         await _reflect(
-            db, task_id=task_id, binding=row, onchain_status=mapped, tx_hash=row.submit_tx_hash
+            db,
+            task_id=task_id,
+            binding=row,
+            onchain_status=mapped,
+            tx_hash=row.finalize_tx_hash or row.submit_tx_hash or row.bind_tx_hash,
         )
         logger.info(
             "escrow_settlement_cancel_reconciled", task_id=task_id, binding_id=row.binding_id, state=mapped
