@@ -467,8 +467,15 @@ async def test_the_mirror_sweep_locks_identities_in_a_fixed_order(db_session, mo
     monkeypatch.setattr(escrow, "reconcile_capacity_mirror", spy)
     out = await escrow.reconcile_all_capacity_mirrors(db_session)
 
-    assert seen == ["identity-aa", "identity-zz"]
-    assert {row["identity_id"] for row in out} == {"identity-aa", "identity-zz"}
+    # 会话级 DB（tests/conftest.py 的 sqlite ``:memory:``）是全进程共享的：别的用例
+    # commit 过的身份也会出现在这一轮扫描里。这里要钉的是**加锁顺序**，不是「全库只有
+    # 这两个」—— 后者在共享 DB 下必然是假的（CI 上被 tests/integration 留下的
+    # ``buyer-data-1`` / ``seller-data-1`` 顶爆过）。
+    assert seen == sorted(seen), "身份必须按 id 升序加锁，顺序不一致就会 ABBA 死锁"
+    assert [i for i in seen if i in ("identity-aa", "identity-zz")] == [
+        "identity-aa", "identity-zz",
+    ], "本用例自己的两个身份必须都在，且相对顺序是升序"
+    assert {"identity-aa", "identity-zz"} <= {row["identity_id"] for row in out}
 
 
 @pytest.mark.asyncio
@@ -497,7 +504,10 @@ async def test_one_broken_identity_does_not_stop_the_rest_of_the_sweep(
     monkeypatch.setattr(escrow, "reconcile_capacity_mirror", flaky)
     out = await escrow.reconcile_all_capacity_mirrors(db_session)
 
-    assert [row["identity_id"] for row in out] == ["identity-zz"]
+    # 同样：共享 DB 里可能还有别的身份，只钉「炸掉的那个被跳过、剩下的照常对上账」。
+    swept = [row["identity_id"] for row in out]
+    assert "identity-aa" not in swept, "抛异常的身份不该产出对账结果"
+    assert "identity-zz" in swept, "一个身份失败不能把这一轮剩下的身份一起带停"
     cap = await db_session.get(CapacityModel, "identity-zz")
     assert cap.available_credits == pytest.approx(10.0)
 

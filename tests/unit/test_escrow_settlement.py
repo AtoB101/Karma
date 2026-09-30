@@ -835,7 +835,13 @@ async def test_a_composite_ledger_key_still_points_at_the_chain_binding(
     assert out["status"] == "settled"
     assert seen["binding_id"] == 101
     assert (await db_session.get(EscrowBindingModel, composite)).state == "settled"
-    settlement = (await db_session.execute(select(SettlementModel))).scalars().first()
+    # 共享 DB 里还有别的用例留下的结算行，「全库第一条」不一定是本用例这一条；
+    # 按 task 取，才是这一单的链上 id 有没有写回。
+    settlement = (
+        await db_session.execute(
+            select(SettlementModel).where(SettlementModel.task_id == TASK)
+        )
+    ).scalars().one()
     assert settlement.onchain_binding_id == 101
 
 
