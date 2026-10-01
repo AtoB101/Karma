@@ -49,10 +49,15 @@ async def test_admin_operational_pause_blocks_new_task_path(client):
         assert pause.status_code == 200
         assert pause.json()["pause_new_task"] is True
 
+        # 用本用例自己的买方，并先把额度锁进去：会话级共享库里可能已经有别的用例给
+        # ``buyer-001`` 留下、且额度不够的容量行（见 tests/conftest.py 的
+        # ``_purge_shared_test_db``）。借别人的身份，这条用例就变成「谁先跑」的赌注。
+        buyer = "buyer-admin-pause-001"
+        await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 10.0})
         await post_minimal_contract(
             client,
             task_id="admin-pause-task-001",
-            client_agent_id="buyer-001",
+            client_agent_id=buyer,
             escrow_amount=10.0,
             expected_step_count=1,
         )
@@ -60,7 +65,7 @@ async def test_admin_operational_pause_blocks_new_task_path(client):
             "/v1/settlement/create",
             json={
                 "task_id": "admin-pause-task-001",
-                "client_agent_id": "buyer-001",
+                "client_agent_id": buyer,
                 "escrow_amount": 10.0,
                 "currency": "USD",
             },

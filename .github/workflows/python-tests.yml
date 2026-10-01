@@ -21,7 +21,7 @@ concurrency:
 jobs:
   pytest:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -38,6 +38,13 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/run_public_acceptance_tests.sh -q --tb=short
+
+      # 同一批用例再跑一遍**逆序**：会话级内存库是全进程共享的，跨用例的顺序依赖
+      # 只有换个顺序才会露头（正序绿、逆序红）。清表 fixture 负责堵，这一遍负责证明。
+      - name: Public acceptance gate — reverse order (order-independence guard)
+        run: |
+          set -euo pipefail
+          KARMA_TEST_ORDER=reverse bash scripts/run_public_acceptance_tests.sh -q --tb=short
 
       - name: Full-chain audit gate (phase 1-3 + reverse-rule + prod prelaunch)
         run: |

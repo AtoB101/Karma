@@ -1128,6 +1128,22 @@ def auto_confirm_deadline(state: SettlementState) -> datetime | None:
     return state.updated_at + timedelta(hours=hours)
 
 
+async def _rollback_after_auto_confirm_failure(db: AsyncSession, task_id: str) -> None:
+    """一单兜底失败后，把它可能留下的半截写退掉，别带进下一单的事务。
+
+    原来是靠 ``db.begin_nested()`` 的 savepoint 保证的；那个 savepoint 和
+    ``_apply_transition`` 里「动链前先 commit」互相打架（见调用处的长注释），只能改成
+    显式 rollback。``state`` 是 ``PostgresSettlementStore._from_row`` 拷出来的 pydantic
+    对象、不挂在 session 上，rollback 不会把它读成失效对象。
+    """
+    try:
+        await db.rollback()
+    except Exception:  # noqa: BLE001 - 连接已经坏掉时，清理不该再炸一次
+        _autoconfirm_log.warning(
+            "settlement_auto_confirm_rollback_failed", task_id=task_id
+        )
+
+
 async def auto_confirm_expired_settlements(
     db: AsyncSession,
     *,
@@ -1150,17 +1166,24 @@ async def auto_confirm_expired_settlements(
         if deadline is None or current < deadline:
             continue
         try:
-            # 一单一个 savepoint：这单在链上/账上走到一半炸了，回滚的是这单，
-            # 不会把同一轮里其他单子已经写好的东西一起带走。
-            async with db.begin_nested():
-                await _auto_confirm_release(
-                    db,
-                    store=store,
-                    state=state,
-                    now=current,
-                    actor_id=AUTO_CONFIRM_ACTOR_ID,
-                    route_path="/internal/auto-confirm",
-                )
+            # 这里不能再用 ``db.begin_nested()``：``_apply_transition`` 现在会在动链
+            # 之前先把这一步落库并 commit（2026-10-01 死锁根因，见那边的注释）。在
+            # savepoint 里再 commit，出口时 context manager 会对着一个已经结束的事务
+            # 操作，直接抛「Can't operate on closed transaction inside context
+            # manager」，再被下面的 except 吞掉 —— 整轮兜底放款集体哑火。
+            #
+            # 也不能为了隔离退回「一单一个 savepoint」：Postgres 里 RELEASE SAVEPOINT
+            # 并不释放行锁，整轮 tick 会变成一个横跨所有链上等待的大事务，正是死锁那条
+            # 长边。每单的原子性改由下面 except 里的 rollback 兜底：出事的这一单不留半截
+            # 写进下一单的事务。
+            await _auto_confirm_release(
+                db,
+                store=store,
+                state=state,
+                now=current,
+                actor_id=AUTO_CONFIRM_ACTOR_ID,
+                route_path="/internal/auto-confirm",
+            )
         except HTTPException as exc:
             # 验证层没通过（没有成功回执 / 交付验证没过）/ 高风险场景不许兜底：
             # 钱不动，下一轮再看 —— 但要让运维看见是谁把它按住了。
@@ -1173,6 +1196,7 @@ async def auto_confirm_expired_settlements(
                     status=exc.status_code,
                     detail=str(exc.detail)[:300],
                 )
+            await _rollback_after_auto_confirm_failure(db, state.task_id)
             continue
         except Exception as exc:  # noqa: BLE001 - 一单卡住不许拖住其他单
             _autoconfirm_log.warning(
@@ -1180,6 +1204,7 @@ async def auto_confirm_expired_settlements(
                 task_id=state.task_id,
                 error=str(exc),
             )
+            await _rollback_after_auto_confirm_failure(db, state.task_id)
             continue
         _held_reasons.pop(state.task_id, None)
         confirmed.append(state.task_id)

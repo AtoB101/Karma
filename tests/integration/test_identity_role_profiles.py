@@ -66,7 +66,12 @@ async def test_profile_list_get_update(client: AsyncClient):
 
     r = await client.get("/v1/identity/role-profiles?owner_identity_id=owner-1", headers=OWNER)
     assert r.status_code == 200
-    assert r.json()["total"] == 1
+    body = r.json()
+    # 不假设「全库 owner-1 名下只有这一条」：会话级共享 DB 里别的用例也可能往同一个
+    # owner 写过档案（见 tests/conftest.py 的 ``_purge_shared_test_db``）。这里只钉
+    # 「刚建的那条在列表里，且列表里都是 owner-1 的档案」。
+    assert p["profile_id"] in {row["profile_id"] for row in body["profiles"]}
+    assert {row["owner_identity_id"] for row in body["profiles"]} == {"owner-1"}
 
     r = await client.get(f"/v1/identity/role-profiles/{p['profile_id']}", headers=OWNER)
     assert r.status_code == 200

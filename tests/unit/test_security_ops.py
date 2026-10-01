@@ -270,10 +270,14 @@ async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client, 
     set_runtime_safety_mode(enabled=False, reason="test reset", actor_id="test")
     try:
         task_id = "task-transition-abuse-001"
+        # 同 test_admin_controls：用本用例自己的买方，别去借共享库里别人用过的
+        # ``buyer-001``（那行的 available_credits 可能已经被别的用例花光）。
+        buyer = "buyer-sec-ops-001"
+        await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 10.0})
         await post_minimal_contract(
             client,
             task_id=task_id,
-            client_agent_id="buyer-001",
+            client_agent_id=buyer,
             escrow_amount=10.0,
             expected_step_count=1,
         )
@@ -281,7 +285,7 @@ async def test_security_ops_endpoint_auto_brakes_on_transition_critical(client, 
             "/v1/settlement/create",
             json={
                 "task_id": task_id,
-                "client_agent_id": "buyer-001",
+                "client_agent_id": buyer,
                 "escrow_amount": 10.0,
                 "currency": "USD",
             },

@@ -10,7 +10,7 @@ from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from config.settings import settings
@@ -115,6 +115,49 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
         # 会直接拿到上一个用例的「原结果」—— 那是测试互相污染，不是产品行为。
         try:
             await session.execute(delete(RuntimeNonceLogModel))
+            await session.commit()
+        except Exception:  # noqa: BLE001 - 清理失败不该让用例失败
+            await session.rollback()
+
+
+# ---------------------------------------------------------------------------
+# Cross-test DB isolation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+async def _purge_shared_test_db(test_engine):
+    """会话级共享内存库：每个用例收尾时把自己的行清干净。
+
+    ``test_engine`` 是 session 级的 ``sqlite+aiosqlite:///:memory:``，整个进程共用
+    一张库。用例里 ``commit`` 出来的行不随 ``db_session`` 的 rollback 消失，会以
+    「谁先跑」的形式污染后面的用例 —— 本仓库真有三条用例是这样被顶红的。
+
+    这里在每个用例结束后清空 ``Base.metadata`` 下的所有表，让每个用例都从空库开始：
+    不再依赖用例之间的先后顺序，也不要求每个用例自己记得清理。
+
+    顺序：本 fixture 是 autouse，同一 scope 下先于 ``db_session`` 建立、后于它拆除，
+    清理时不会和 ``db_session`` 抢同一个连接。
+    ``tests/test_verifier_network/conftest.py`` 自带 function 级 engine，天然隔离；
+    这里解析到的是它自己的 ``test_engine``，清完随即 dispose。
+
+    外键：仓库里没有任何地方打开过 ``PRAGMA foreign_keys``（SQLite 默认关闭），
+    所以按 ``sorted_tables`` 逆序删（先子表后父表）就够，不必先关外键。
+    """
+    yield
+    factory = async_sessionmaker(bind=test_engine, expire_on_commit=False)
+    async with factory() as session:
+        try:
+            existing = set(
+                (
+                    await session.execute(
+                        text("SELECT name FROM sqlite_master WHERE type='table'")
+                    )
+                ).scalars().all()
+            )
+            for table in reversed(Base.metadata.sorted_tables):
+                if table.name in existing:
+                    await session.execute(delete(table))
             await session.commit()
         except Exception:  # noqa: BLE001 - 清理失败不该让用例失败
             await session.rollback()
