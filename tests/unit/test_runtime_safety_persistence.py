@@ -170,3 +170,29 @@ async def test_anchor_breach_trip_is_persisted(safety_factory, db_session):
     assert state.enabled is True
     assert "capacity anchor breach" in (state.reason or "")
     assert len(await _rows(safety_factory)) == 1
+
+
+def test_migration_columns_match_the_model():
+    """migration 0060 的列必须和 ORM 模型一一对应。
+
+    这条不是形式主义：0060 第一次上线时正是栽在「应用先 create_all、迁移后到」上 ——
+    CI 报了 ``DuplicateTableError: relation "runtime_safety_mode" already exists``
+    （见该迁移的说明）。两边列名再对不上，就等于在库里留一颗「模型和 schema
+    不一致」的定时炸弹，而这张表是刹车开关。
+    """
+    import re
+    from pathlib import Path
+
+    from db.models.orm import RuntimeSafetyModeModel
+
+    root = Path(__file__).resolve().parents[2]
+    src = (root / "db" / "migrations" / "versions" / "0060_runtime_safety_mode.py").read_text(
+        encoding="utf-8"
+    )
+    # 到 PRIMARY KEY 为止；不能用 ")" 切 —— 列定义里有 VARCHAR(512)。
+    body = src.split("CREATE TABLE IF NOT EXISTS runtime_safety_mode (", 1)[1].split(
+        "PRIMARY KEY", 1
+    )[0]
+    in_migration = set(re.findall(r"^\s+([a-z_]+)\s+[A-Z]", body, re.M))
+    in_model = {column.name for column in RuntimeSafetyModeModel.__table__.columns}
+    assert in_migration == in_model, (sorted(in_migration), sorted(in_model))

@@ -14,6 +14,22 @@
 （``last_anchor_audit_at`` / ``total_locked_usdc`` / ``total_bill_credits``）
 每次审计重算，不进库 —— 否则每一笔动钱的请求都会多写一次库。
 
+为什么用原生 SQL + IF NOT EXISTS
+--------------------------------
+这条迁移第一次上线时就撞上了 —— 而且是**真的红了 CI**（run 36895559445）：
+
+    部署顺序是「拉代码 → 跑迁移 → 重建容器」，但**应用自己也会建表**
+    （``db/session.py::init_db`` 走 ``Base.metadata.create_all``，在 lifespan 里
+    每次启动都跑）。只要新代码的容器先起来过一次（手动 recreate、崩溃重启、
+    机器 reboot 后自启），``runtime_safety_mode`` 就已经被 create_all 建出来了；
+    迁移再来一次 ``CREATE TABLE`` 就是
+    ``asyncpg.exceptions.DuplicateTableError: relation "runtime_safety_mode"
+    already exists``，而这一步失败会让**整次部署失败**。
+
+    ``create_all`` 和 alembic 谁先到是谁也保证不了的事（0059 的索引就是同一类
+    问题）。所以这里跟 0059 用同一个办法：原生 DDL + IF NOT EXISTS —— 表已经在
+    就跳过，不在就建，两种情况都把版本推进到 0060。
+
 不带外键、不改既有列、不迁移数据；下线时直接 drop 即可。
 写入用**独立会话当场提交**，不借业务请求的事务（那些调用点有的正处在半截业务
 写入当中，借它们的会话提交会把半截业务带上，跟着回滚又会把刹车丢掉）。
@@ -23,7 +39,6 @@ Revision ID: 0060_runtime_safety_mode
 Revises: 0059_autosettle_and_audit_indexes
 Create Date: 2026-10-01
 """
-import sqlalchemy as sa
 from alembic import op
 
 revision = "0060_runtime_safety_mode"
@@ -31,22 +46,28 @@ down_revision = "0059_autosettle_and_audit_indexes"
 branch_labels = None
 depends_on = None
 
+#: 列定义与 ``db/models/orm.py`` 的 ``RuntimeSafetyModeModel`` 逐字对应。
+#: 列名/类型两边对不上就会在这张表上留下「模型和库不一致」的隐患，改一边必须改另一边。
+CREATE_SQL = """
+CREATE TABLE IF NOT EXISTS runtime_safety_mode (
+    id INTEGER NOT NULL,
+    enabled BOOLEAN DEFAULT false NOT NULL,
+    reason VARCHAR(512),
+    triggered_by VARCHAR(128),
+    triggered_at TIMESTAMP WITHOUT TIME ZONE,
+    pause_new_lock BOOLEAN DEFAULT false NOT NULL,
+    pause_new_authorization BOOLEAN DEFAULT false NOT NULL,
+    pause_new_task BOOLEAN DEFAULT false NOT NULL,
+    pause_new_settlement BOOLEAN DEFAULT false NOT NULL,
+    updated_at TIMESTAMP WITHOUT TIME ZONE,
+    PRIMARY KEY (id)
+)
+"""
+
 
 def upgrade() -> None:
-    op.create_table(
-        "runtime_safety_mode",
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=False),
-        sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("reason", sa.String(length=512), nullable=True),
-        sa.Column("triggered_by", sa.String(length=128), nullable=True),
-        sa.Column("triggered_at", sa.DateTime(), nullable=True),
-        sa.Column("pause_new_lock", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("pause_new_authorization", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("pause_new_task", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("pause_new_settlement", sa.Boolean(), nullable=False, server_default=sa.false()),
-        sa.Column("updated_at", sa.DateTime(), nullable=True),
-    )
+    op.execute(CREATE_SQL)
 
 
 def downgrade() -> None:
-    op.drop_table("runtime_safety_mode")
+    op.execute("DROP TABLE IF EXISTS runtime_safety_mode")
