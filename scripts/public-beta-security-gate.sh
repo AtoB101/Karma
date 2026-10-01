@@ -437,9 +437,93 @@ else
 fi
 
 h "B3 alerting is delivered for sustained 429 spikes and auth failures (on-call must confirm)"
-h "B5 alert cooldown / suppression policy reviewed with on-call"
-h "B6 endpoint / route-group threshold overrides configured for critical paths"
-h "B7 active security threshold policy version pinned and documented"
+
+# B5/B6/B7 阈值策略。以前这三条一律 HUMAN。现在从**库里的 active 那一行**直判：
+#   有没有真的激活过策略（0 行 = 全站跑代码默认，没有任何按路径/路由组的收紧）、
+#   冷却窗口定没定、
+#   以及文档里钉的版本跟库里**对不对得上**（对不上就是文档和现实分叉，比没文档更危险）。
+# 判不出来的只剩「这套阈值拍得合不合理」—— 那才是人签字的活。
+if [[ -z "$_PY" ]]; then
+  h "B5/B6/B7 threshold policy not inspectable (no usable python3 here)"
+else
+  TP_DOC="docs/SECURITY_THRESHOLD_POLICY.md"
+  POL_JSON="$(docker exec karma-postgres psql -U karma -d karma -tAc \
+    "select json_build_object('policy_id',policy_id,'version',version,'config',config,'activated_at',activated_at) from security_threshold_policies where status='active' order by activated_at desc limit 1" \
+    2> /dev/null || true)"
+  if [[ -z "${POL_JSON//[[:space:]]/}" ]]; then
+    f "B6/B7 no ACTIVE security threshold policy - every scope runs on code defaults (no per-path / per-group tightening at all)"
+    h "B5 alert cooldown / suppression policy reviewed with on-call"
+  else
+    POL_FIELDS="$("$_PY" -c '
+import json, re, sys
+try:
+    row = json.loads(sys.argv[1])
+except Exception as exc:
+    print("err=unparsable:%s" % exc); raise SystemExit(0)
+cfg = row.get("config") or {}
+need = (
+    "failed_auth_threshold_overrides",
+    "rate_limit_threshold_overrides",
+    "private_runtime_error_threshold_overrides",
+    "settlement_transition_denied_threshold_overrides",
+)
+missing = [k for k in need if not str(cfg.get(k) or "").strip()]
+print("version=%s" % row.get("version"))
+print("policy_id=%s" % row.get("policy_id"))
+print("cooldown=%s" % cfg.get("alert_cooldown_minutes"))
+print("missing=%s" % ",".join(missing))
+try:
+    raw = open(sys.argv[2], encoding="utf-8").read()
+except Exception:
+    print("doc=missing"); raise SystemExit(0)
+m = re.search(r"<!--\s*karma-threshold-policy(.*?)-->", raw, re.S)
+if not m:
+    print("doc=nopin"); raise SystemExit(0)
+kv = {}
+for line in m.group(1).splitlines():
+    line = line.strip()
+    if line and not line.startswith("#") and "=" in line:
+        k, v = line.split("=", 1)
+        kv[k.strip()] = v.strip()
+print("doc=ok")
+print("pin_version=%s" % kv.get("active_version", ""))
+print("pin_id=%s" % kv.get("active_policy_id", ""))
+' "$POL_JSON" "$TP_DOC" 2> /dev/null || true)"
+    pol_err="$(printf '%s\n' "$POL_FIELDS" | sed -n 's/^err=//p')"
+    pol_ver="$(printf '%s\n' "$POL_FIELDS" | sed -n 's/^version=//p')"
+    pol_id="$(printf '%s\n' "$POL_FIELDS" | sed -n 's/^policy_id=//p')"
+    pol_cd="$(printf '%s\n' "$POL_FIELDS" | sed -n 's/^cooldown=//p')"
+    pol_missing="$(printf '%s\n' "$POL_FIELDS" | sed -n 's/^missing=//p')"
+    pol_doc="$(printf '%s\n' "$POL_FIELDS" | sed -n 's/^doc=//p')"
+    pin_ver="$(printf '%s\n' "$POL_FIELDS" | sed -n 's/^pin_version=//p')"
+    pin_id="$(printf '%s\n' "$POL_FIELDS" | sed -n 's/^pin_id=//p')"
+    if [[ -n "$pol_err" ]]; then
+      h "B5/B6/B7 the active policy row is unparsable (${pol_err})"
+    else
+      if [[ -n "$pol_missing" ]]; then
+        f "B6 critical paths carry no threshold override (missing: ${pol_missing})"
+      else
+        p "B6 critical-path threshold overrides are configured (active policy v${pol_ver})"
+      fi
+      if [[ -n "$pol_cd" && "$pol_cd" != "None" ]]; then
+        p "B5 alert cooldown is pinned in the active policy (alert_cooldown_minutes=${pol_cd})"
+      else
+        h "B5 alert cooldown / suppression policy reviewed with on-call"
+      fi
+      if [[ "$pol_doc" == "missing" ]]; then
+        f "B7 $TP_DOC is missing - the active policy is not documented anywhere"
+      elif [[ "$pol_doc" != "ok" ]]; then
+        f "B7 $TP_DOC has no machine-readable karma-threshold-policy pin block"
+      elif [[ -z "$pin_ver" || -z "$pin_id" ]]; then
+        f "B7 $TP_DOC pin block is missing active_version / active_policy_id"
+      elif [[ "$pin_ver" != "$pol_ver" || "$pin_id" != "$pol_id" ]]; then
+        f "B7 the pinned policy in $TP_DOC (v${pin_ver} ${pin_id}) disagrees with the live active policy (v${pol_ver} ${pol_id})"
+      else
+        p "B7 active threshold policy is pinned and documented (v${pol_ver} ${pol_id})"
+      fi
+    fi
+  fi
+fi
 
 # --------------------------------------------------------------------------
 # Gate C - Security Auditability
@@ -575,7 +659,46 @@ else
   f "E6a baseline drift controls not found in api/routes/security.py"
 fi
 h "E6b baseline drift strategy reviewed and the chosen values agreed with on-call"
-h "E7 policy-center rollback drill (/v1/security/policies/rollback) has been exercised"
+# E7 回滚演练。以前一律 HUMAN（「演练做没做过」）。现在判**留没留证据**：
+# 演练把结果写到 /opt/karma/state/security-policy-drill.json，这里校验「回滚成功」+ 不太旧。
+# 跟 F4 判恢复演练同一个思路：不接受「口头说练过」。
+E7_FILE="${KARMA_POLICY_DRILL_STATE:-/opt/karma/state/security-policy-drill.json}"
+if [[ ! -f "$E7_FILE" ]]; then
+  h "E7 no policy-center rollback drill on record ($E7_FILE missing) - run one and record it"
+elif [[ -z "$_PY" ]]; then
+  h "E7 $E7_FILE present but no usable python3 here to read it"
+else
+  E7_OUT="$("$_PY" -c '
+import datetime, json, sys
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print("err=unreadable:%s" % exc); raise SystemExit(0)
+age = -1
+try:
+    ts = datetime.datetime.strptime(str(d.get("at") or ""), "%Y-%m-%dT%H:%M:%SZ")
+    age = (datetime.datetime.utcnow() - ts).days
+except Exception:
+    pass
+print("ok=%s" % ("1" if d.get("rollback_ok") else "0"))
+print("age_days=%d" % age)
+print("version=%s" % (d.get("active_version") if d.get("active_version") is not None else "?"))
+' "$E7_FILE" 2> /dev/null || true)"
+  e7_ok="$(printf '%s\n' "$E7_OUT" | sed -n 's/^ok=//p')"
+  e7_age="$(printf '%s\n' "$E7_OUT" | sed -n 's/^age_days=//p')"
+  e7_ver="$(printf '%s\n' "$E7_OUT" | sed -n 's/^version=//p')"
+  if [[ -z "$e7_ok" ]]; then
+    h "E7 $E7_FILE unreadable - look by hand"
+  elif [[ "$e7_ok" != "1" ]]; then
+    f "E7 the recorded policy rollback drill did not succeed ($E7_FILE)"
+  elif [[ -z "$e7_age" || "$e7_age" -lt 0 ]]; then
+    h "E7 drill evidence has no usable timestamp ($E7_FILE)"
+  elif [[ "$e7_age" -gt 180 ]]; then
+    f "E7 policy rollback drill is ${e7_age} days old - run it again (want <= 180)"
+  else
+    p "E7 policy-center rollback drill on record (${e7_age}d ago, rolled back onto v${e7_ver})"
+  fi
+fi
 
 # --------------------------------------------------------------------------
 # 定时任务文本：F2/G2 判断「这东西到底装没装」。crontab / cron.d / /etc/crontab /

@@ -47,9 +47,11 @@ This checklist is blocking for broad public test rollout.
 | 时间 | 2026-10-02（本轮部署后实测，`--no-heavy`；重活由 CI 覆盖） |
 | 版本 | `main` |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 39 · FAIL 0 · WARN 0 · HUMAN 19**（退出码 0；比上一轮多 5 条机器判定、少 3 条待签） |
+| 结果 | **PASS 43 · FAIL 0 · WARN 0 · HUMAN 15**（退出码 0；累计比 2026-10-01 那轮多 9 条机器判定、少 7 条待签） |
 | 阻塞项 | 无。`E5b` 已消：第二值班人配好，`BACKUP` 与 `PRIMARY` 是两个不同的人（值只在服务器 `.env`） |
 | 已消项 | `G4`：告警出口接上 Telegram（运维专用 bot），最近一次真发送成功（来源 `selftest`）；`G5` 人签：运维确认收到自检消息 |
+| 已消项 | `B5`/`B6`/`B7`：**本轮发现 B6 其实是空的** —— `security_threshold_policies` 表 0 行，全站跑代码默认值。已激活 v2，在 `auth`/`runtime`/`verification`/`settlement` 四个关键路由组上单独收紧，冷却 10 分钟。闸门改为直读库里 active 那一行，并把文档钉版与库中版本**逐字段比对**（对不上就 FAIL） |
+| 已消项 | `E7`：策略中心回滚演练实做（建 v3 → 激活 → 回滚 v2，三次变更单各走一遍两人审批），结果留在 `/opt/karma/state/security-policy-drill.json`，闸门读它并要求 180 天内做过 |
 | 已消项 | `A2b`：轮换台账改成**机器可读 + 机器判定**（字段齐全 + 口径自洽 + 有人签字 + 未过期；过期直接 FAIL） |
 | 已消项 | `B1b`：Redis 可达不再记 `HUMAN` —— 直接在发布机 `docker exec karma-redis redis-cli ping` 取 `PONG`（同一个事实 `H4` 早就在判，一处 PASS 一处 HUMAN 是自相矛盾） |
 | 已消项 | `C3a`/`C3b`/`C3c`：容器日志上限（compose 里的 `max-size=20m`×`max-file=5`）、journald 留存**显式写死**（`SystemMaxUse=2G`/`SystemKeepFree=2G`/`MaxRetentionSec=90d`）、留存窗口与查询命令写进 playbook §7 |
@@ -143,9 +145,16 @@ This checklist is blocking for broad public test rollout.
 - `[人工]` Alerting exists for sustained 429 spikes and auth failures —— 待签
 - `[机器]` `/v1/security/ops/alerts` exists and is auth-protected — ✅ 2026-10-01（HTTP 401）
 - `[人工]` `/v1/security/ops/alerts` is monitored with tuned thresholds —— 待签
-- `[人工]` Alert cooldown / suppression policy is configured and reviewed with on-call —— 待签
-- `[人工]` Endpoint / route-group threshold overrides are configured for critical paths —— 待签
-- `[人工]` Active security threshold policy version is pinned and documented —— 待签
+- `[机器]` Alert cooldown / suppression policy is configured（`B5`）— ✅ 2026-10-02
+  （`alert_cooldown_minutes=10` 钉在 active 策略里。抑制的是**重复投递**，不是检测本身：
+  检测照跑、告警记录照写，只是同一签名 10 分钟内不重复推送）
+- `[机器]` Endpoint / route-group threshold overrides are configured for critical paths（`B6`）— ✅ 2026-10-02
+  （**本轮发现它其实是空的**：`security_threshold_policies` 表 0 行，全站跑的是代码默认值 ——
+  这一条以前记「待签」，真相是「没做」。现已激活 v2，在 `auth` / `runtime` / `verification` /
+  `settlement` 四个关键路由组上单独收紧，明细见 [`SECURITY_THRESHOLD_POLICY.md`](./SECURITY_THRESHOLD_POLICY.md)）
+- `[机器]` Active security threshold policy version is pinned and documented（`B7`）— ✅ 2026-10-02
+  （判据不是「文档写没写」，而是**文档里钉的版本号跟库里 active 那一行对不对得上** ——
+  对不上就 `FAIL`。文档和现实分叉比没有文档更危险）
 
 ## Gate C — Security Auditability
 
@@ -184,7 +193,11 @@ This checklist is blocking for broad public test rollout.
   它红了一整天，一直红到真的有人填进第二个人为止 —— 没有降级成一条没人看的 `HUMAN`）
 - `[机器]` Baseline drift controls exist — ✅ 2026-10-01（`baseline_window_minutes` / `baseline_drift_multiplier`）
 - `[人工]` Baseline drift strategy is reviewed —— 待签
-- `[人工]` Policy-center rollback drill (`/v1/security/policies/rollback`) has been exercised —— 待签
+- `[机器]` Policy-center rollback drill has been exercised（`E7`）— ✅ 2026-10-02
+  （2026-10-02 实做：建 v3 临时策略 → 激活 → 回滚到 v2，三次变更单各走一遍**两人审批**，
+  回滚后 active 只剩 v2 一行。结果留在 `/opt/karma/state/security-policy-drill.json`，
+  闸门读它并要求 180 天内做过。⚠️ 已知薄弱点：审批里 `approver_id` 是调用方自报的，
+  所以「两人审批」目前是流程约束、不是密码学约束）
 
 ## Gate F — Backup and Recovery
 
