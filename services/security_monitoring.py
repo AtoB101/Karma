@@ -1,13 +1,27 @@
 """
 Karma Security Monitoring
-In-memory rolling event tracker for security operations alerting.
+Rolling event tracker for security operations alerting.
+
+The event ring lives in this process; the alert report only ever looks at the last
+`window_minutes` (15 by default). A process-memory-only ring therefore loses the
+whole detection window on every container recreate -- and deploys recreate the
+container. So the ring is *also* appended to a local journal on the durable state
+mount, and ``_list_recent_events`` merges memory with the journal.
+
+Journaling is strictly best-effort: if the path is unwritable (or the disk is
+full) the module degrades to exactly the old in-memory behaviour and never raises
+into a request path.
 """
 from __future__ import annotations
 
+import json
+import os
+import uuid
 from collections import Counter, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
+from pathlib import Path
 from threading import Lock
 from typing import Any, Callable
 
@@ -31,6 +45,154 @@ _MAX_BASELINE_SNAPSHOTS = 2_000
 _BASELINE_SNAPSHOTS: deque["SecurityBaselineSnapshot"] = deque(maxlen=_MAX_BASELINE_SNAPSHOTS)
 _LAST_BASELINE_CAPTURE_AT: datetime | None = None
 
+# --- Durable journal -------------------------------------------------------
+# The event ring above is process memory: a container recreate (i.e. every
+# deploy) empties it, which silently resets the 15-minute detection window and
+# can hide a burst that straddles the restart. Append every event to a journal
+# on the same durable bind mount persist_json.py already uses, and merge it back
+# in on read. Best effort by construction: an unwritable path degrades to the
+# old memory-only behaviour instead of failing a request.
+_JOURNAL_FILENAME = "security_events.jsonl"
+_JOURNAL_MAX_BYTES = 4 * 1024 * 1024
+_JOURNAL_RETAIN_MINUTES = 60
+_JOURNAL_MAX_CONSECUTIVE_ERRORS = 5
+_JOURNAL_LOCK = Lock()
+_JOURNAL: dict[str, Any] = {"fd": None, "path": None, "size": 0, "errors": 0, "broken": False}
+
+
+def _journal_path() -> Path | None:
+    """Where the journal lives. ``KARMA_SECURITY_EVENT_JOURNAL`` wins; otherwise
+    the durable data dir persist_json.py uses (``KARMA_MVP_DATA_DIR`` or
+    ``<repo>/mvp_data``), which docker-compose bind-mounts read-write."""
+    raw = os.getenv("KARMA_SECURITY_EVENT_JOURNAL")
+    if raw:
+        return Path(raw)
+    base = os.getenv("KARMA_MVP_DATA_DIR")
+    root = Path(base) if base else (Path(__file__).resolve().parent.parent / "mvp_data")
+    return root / _JOURNAL_FILENAME
+
+
+def _journal_encode(event: "SecurityMonitoringEvent") -> str:
+    payload = {
+        "id": event.event_id,
+        "type": event.event_type.value,
+        "at": event.created_at.isoformat(),
+        "meta": event.metadata,
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str) + "\n"
+
+
+def _journal_decode(line: str) -> "SecurityMonitoringEvent | None":
+    try:
+        raw = json.loads(line)
+        return SecurityMonitoringEvent(
+            event_type=SecurityMonitoringEventType(raw["type"]),
+            created_at=datetime.fromisoformat(raw["at"]),
+            metadata=dict(raw.get("meta") or {}),
+            event_id=str(raw.get("id") or ""),
+        )
+    except Exception:
+        return None
+
+
+def _journal_close_locked() -> None:
+    fd = _JOURNAL.get("fd")
+    _JOURNAL["fd"] = None
+    if fd is not None:
+        try:
+            fd.close()
+        except Exception:
+            pass
+
+
+def _journal_rewrite_locked(path: Path) -> None:
+    """Trim the journal to the retain window, then let the caller reopen it."""
+    cutoff = datetime.utcnow() - timedelta(minutes=_JOURNAL_RETAIN_MINUTES)
+    kept: list[str] = []
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                event = _journal_decode(line)
+                if event is not None and event.created_at >= cutoff:
+                    kept.append(line if line.endswith("\n") else line + "\n")
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("".join(kept))
+        os.replace(tmp, path)
+    except Exception:
+        return
+    _JOURNAL["size"] = sum(len(item.encode("utf-8")) for item in kept)
+
+
+def _journal_open_locked() -> "Any | None":
+    path = _journal_path()
+    if path is None:
+        return None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size > _JOURNAL_MAX_BYTES:
+            _journal_rewrite_locked(path)
+        fd = open(path, "a", encoding="utf-8", newline="\n")
+    except Exception:
+        _JOURNAL["errors"] += 1
+        if _JOURNAL["errors"] >= _JOURNAL_MAX_CONSECUTIVE_ERRORS:
+            _JOURNAL["broken"] = True
+        return None
+    _JOURNAL["fd"] = fd
+    _JOURNAL["path"] = str(path)
+    try:
+        _JOURNAL["size"] = path.stat().st_size
+    except OSError:
+        _JOURNAL["size"] = 0
+    _JOURNAL["errors"] = 0
+    return fd
+
+
+def _journal_append(event: "SecurityMonitoringEvent") -> None:
+    with _JOURNAL_LOCK:
+        if _JOURNAL["broken"]:
+            return
+        fd = _JOURNAL["fd"] or _journal_open_locked()
+        if fd is None:
+            return
+        try:
+            line = _journal_encode(event)
+            fd.write(line)
+            fd.flush()
+        except Exception:
+            _journal_close_locked()
+            _JOURNAL["errors"] += 1
+            if _JOURNAL["errors"] >= _JOURNAL_MAX_CONSECUTIVE_ERRORS:
+                _JOURNAL["broken"] = True
+            return
+        _JOURNAL["size"] += len(line.encode("utf-8"))
+        if _JOURNAL["size"] > _JOURNAL_MAX_BYTES:
+            path = _journal_path()
+            _journal_close_locked()
+            if path is not None:
+                _journal_rewrite_locked(path)
+
+
+def _journal_read_recent(window_minutes: int) -> "list[SecurityMonitoringEvent]":
+    path = _journal_path()
+    if path is None:
+        return []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return []
+    cutoff = datetime.utcnow() - timedelta(minutes=window_minutes)
+    events: list[SecurityMonitoringEvent] = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        event = _journal_decode(line)
+        if event is not None and event.created_at >= cutoff:
+            events.append(event)
+    return events
+
 
 class SecurityMonitoringEventType(str, Enum):
     FAILED_AUTH = "failed_auth"
@@ -49,6 +211,9 @@ class SecurityMonitoringEvent:
     event_type: SecurityMonitoringEventType
     created_at: datetime
     metadata: dict[str, Any]
+    # Stable id so the in-memory ring and the journal can be merged without
+    # double counting the same event (the ring is the same events, just cached).
+    event_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
 @dataclass
@@ -73,6 +238,7 @@ def record_security_event(
     )
     with _LOCK:
         _EVENTS.append(event)
+    _journal_append(event)
 
 
 def clear_security_events() -> None:
@@ -82,12 +248,40 @@ def clear_security_events() -> None:
         _LAST_ALERT_EMITTED_AT.clear()
         _BASELINE_SNAPSHOTS.clear()
         _LAST_BASELINE_CAPTURE_AT = None
+    # Tests call this; production never does. Drop the journal too or the next
+    # read would resurrect exactly what the caller asked to forget.
+    with _JOURNAL_LOCK:
+        _journal_close_locked()
+        try:
+            path = _journal_path()
+            if path is not None and path.exists():
+                path.unlink()
+        except Exception:
+            pass
+        _JOURNAL["size"] = 0
+        _JOURNAL["errors"] = 0
+        _JOURNAL["broken"] = False
 
 
 def _list_recent_events(window_minutes: int) -> list[SecurityMonitoringEvent]:
     cutoff = datetime.utcnow() - timedelta(minutes=window_minutes)
     with _LOCK:
-        return [event for event in _EVENTS if event.created_at >= cutoff]
+        events = [event for event in _EVENTS if event.created_at >= cutoff]
+    persisted = _journal_read_recent(window_minutes)
+    if not persisted:
+        return events
+    # The journal is what lets a burst survive the container recreate that every
+    # deploy performs; the ring is the same events cached, hence the dedupe.
+    merged = list(events)
+    seen = {event.event_id for event in merged if event.event_id}
+    for event in persisted:
+        if event.event_id and event.event_id in seen:
+            continue
+        if event.event_id:
+            seen.add(event.event_id)
+        merged.append(event)
+    merged.sort(key=lambda item: item.created_at)
+    return merged
 
 
 def _top_dimension_counts(

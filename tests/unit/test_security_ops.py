@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
+
 import pytest
 
+import services.security_monitoring as security_monitoring
 from config.settings import settings
 from httptest import post_minimal_contract
 from services.security_monitoring import (
@@ -390,5 +393,54 @@ def test_security_ops_tracks_privileged_actions_and_alerts():
         assert any(
             "privileged" in action for action in report.recommended_actions
         ), "recommended action for privileged spike expected"
+    finally:
+        clear_security_events()
+
+def test_security_events_survive_a_container_recreate(monkeypatch, tmp_path):
+    """容器重建（每次发布都会做）会把进程内存清零，事件必须在磁盘日志里活下来。
+
+    2026-10-02 实测缺口：18:12:50Z 打尖峰 → 18:15:17Z 发布重建容器 → 18:20:00Z
+    轮询看到空报表，什么都没投。检测窗口就这么被发布清掉了。
+    """
+    monkeypatch.setenv("KARMA_SECURITY_EVENT_JOURNAL", str(tmp_path / "events.jsonl"))
+    clear_security_events()
+    try:
+        for _ in range(4):
+            record_security_event(
+                SecurityMonitoringEventType.FAILED_AUTH,
+                metadata={"path": "/v1/auth/token", "actor_id": "anonymous", "route_group": "auth"},
+            )
+        assert len(security_monitoring._list_recent_events(30)) == 4
+
+        # 模拟容器重建：进程内存清零，磁盘上的日志还在
+        monkeypatch.setattr(security_monitoring, "_EVENTS", deque(maxlen=10_000))
+
+        events = security_monitoring._list_recent_events(30)
+        assert len(events) == 4, "重建后事件必须还在，而且不能重复计数"
+        report = build_security_ops_alert_report(
+            window_minutes=30,
+            failed_auth_threshold=3,
+            alert_cooldown_minutes=0,
+        )
+        assert "auth_failure_spike" in {item.alert_type.value for item in report.alerts}
+    finally:
+        clear_security_events()
+
+
+def test_unwritable_event_journal_degrades_to_memory_only(monkeypatch, tmp_path):
+    """日志写不进去（只读挂载 / 磁盘满 / 路径不对）时该退回纯内存，
+    而不是把异常带进请求路径。"""
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x", encoding="utf-8")
+    monkeypatch.setenv("KARMA_SECURITY_EVENT_JOURNAL", str(blocker / "events.jsonl"))
+    clear_security_events()
+    try:
+        record_security_event(
+            SecurityMonitoringEventType.FAILED_AUTH,
+            metadata={"path": "/v1/auth/token", "route_group": "auth"},
+        )
+        assert len(security_monitoring._list_recent_events(15)) == 1
+        report = build_security_ops_alert_report(window_minutes=15, alert_cooldown_minutes=0)
+        assert report.summary.failed_auth_count == 1
     finally:
         clear_security_events()
