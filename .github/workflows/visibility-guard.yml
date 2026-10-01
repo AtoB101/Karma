@@ -1,8 +1,15 @@
 name: Visibility Guard
 
+# 直推 main 的提交也必须过这道闸。
+# 这份守门脚本防的是「私有路径 / 旧命名被泄进公开面」，它按 diff 工作：PR 模式下
+# 用 base_ref...HEAD，push 模式下没有 base_ref，必须改用 event.before..sha。
+# 只挂 PR 时（原状）2026-09-16 之后所有直推 main 的提交都没被扫过 —— 和
+# security-ci.yml 踩的是同一个坑（那边已经在 2026-10-01 补上 push）。
 on:
   pull_request:
     branches: ["**"]
+  push:
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -12,10 +19,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Fetch base branch
+        with:
+          # push 模式要比 before..sha，浅克隆里 before 取不到。
+          fetch-depth: 0
+      - name: Resolve diff range
+        id: range
         run: |
-          git fetch origin "${{ github.base_ref }}" --depth=1
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            echo "range=origin/${{ github.base_ref }}...HEAD" >> "$GITHUB_OUTPUT"
+          else
+            before="${{ github.event.before }}"
+            # 新建分支 / force-push 会把 before 送成全零，那不是可解析的 ref。
+            if ! git rev-parse --verify --quiet "${before}^{commit}" > /dev/null; then
+              before="HEAD~1"
+            fi
+            echo "range=${before}..${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
       - name: Run visibility guard
         run: |
           chmod +x ./scripts/visibility-guard.sh
-          ./scripts/visibility-guard.sh "origin/${{ github.base_ref }}...HEAD"
+          ./scripts/visibility-guard.sh "${{ steps.range.outputs.range }}"

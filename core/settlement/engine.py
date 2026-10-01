@@ -76,6 +76,13 @@ VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.FROZEN: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED, TaskStatus.REFUNDED, TaskStatus.CANCELLED],
 }
 
+#: Ordering used by :func:`is_post_accepted`, which is asked one question only:
+#: "is this status reached *after* the worker was locked in?" Every status from
+#: ACCEPTED onwards must therefore sort >= ``STATUS_ORDER[TaskStatus.ACCEPTED]``
+#: -- terminal and meta states included. A missing key (``.get`` falls back to 0)
+#: or a zero entry silently turns the immutable-field guard in
+#: ``db.stores.settlement_store`` *off* for that status, which is exactly the
+#: belt that is supposed to protect escrow_amount / the two parties.
 STATUS_ORDER: dict[TaskStatus, int] = {
     TaskStatus.DRAFT: 1,
     TaskStatus.PENDING: 2,
@@ -86,11 +93,14 @@ STATUS_ORDER: dict[TaskStatus, int] = {
     TaskStatus.DELIVERED: 7,
     TaskStatus.DISPUTED: 8,
     TaskStatus.ARBITRATED: 9,
-    TaskStatus.AUTO_CONFIRMED: 6,  # between PROGRESS_CONFIRMED (6) and DELIVERED (7)
-    TaskStatus.PARTIALLY_SETTLED: 9,  # between ARBITRATED (9) and SETTLED (10)
-    TaskStatus.FROZEN: 0,  # FROZEN is a meta-state, not in normal order
-    TaskStatus.REFUNDED: 10,
-    TaskStatus.CANCELLED: 10,
+    TaskStatus.AUTO_CONFIRMED: 10,
+    TaskStatus.PARTIALLY_SETTLED: 11,
+    TaskStatus.SETTLED: 12,
+    TaskStatus.REFUNDED: 12,
+    TaskStatus.CANCELLED: 12,
+    # Meta-state: freezing is only reachable from DELIVERED/ARBITRATED/... so it
+    # is post-accepted by construction; it sorts last rather than not at all.
+    TaskStatus.FROZEN: 13,
 }
 
 
