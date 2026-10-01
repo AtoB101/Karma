@@ -58,6 +58,11 @@ if [[ "${APP_ENV:-}" == "production" && "${X402_PAYMENT_BACKEND:-mock}" == "mock
   echo "FAIL  X402_PAYMENT_BACKEND=mock not allowed when APP_ENV=production" >&2
   fail=$((fail + 1))
 fi
+if [[ "${APP_ENV:-}" == "production" && "${X402_ENABLED:-true}" != "false" \
+      && "${X402_ALLOW_PRIVATE_HOSTS:-true}" != "false" ]]; then
+  echo "FAIL  X402_ALLOW_PRIVATE_HOSTS must be false when APP_ENV=production" >&2
+  fail=$((fail + 1))
+fi
 
 _check "KARMA_RUNTIME_URL" "${KARMA_RUNTIME_URL:-}"
 _check "KARMA_BUYER_IDENTITY_ID" "${KARMA_BUYER_IDENTITY_ID:-}"

@@ -36,6 +36,10 @@ defaults = {
     "KARMA_SIGNING_BACKEND": "client_only",
     "TRADE_LAUNCH_RECORD_RUNTIME_DAILY_SPEND": "true",
     "X402_PAYMENT_BACKEND": "sepolia",
+    # x402 must not borrow the settlement operator wallet (two senders on one
+    # wallet collide nonces), and the agent-facing fetch must be public-only.
+    "X402_PRIVATE_KEY": "0x" + "11" * 32,
+    "X402_ALLOW_PRIVATE_HOSTS": "false",
     # Production settings require a non-empty dispute-arbitrator whitelist
     # (fail-closed /disputes/resolve) and forbid hot-wallet escrow payers.
     "ARBITRATOR_ACTOR_IDS": "gate-arbitrator",

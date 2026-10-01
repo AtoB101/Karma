@@ -28,6 +28,8 @@ def _prod_kwargs(**overrides):
         trade_launch_require_eip712=True,
         karma_signing_backend="client_only",
         x402_payment_backend="sepolia",
+        x402_private_key="0x" + "11" * 32,
+        x402_allow_private_hosts=False,
         arbitrator_actor_ids="arb-1",
         chain_allow_hot_wallet_payer=False,
     )
@@ -64,4 +66,16 @@ def test_production_accepts_full_gates():
 def test_production_rejects_disabled_gate(field, value):
     kw = _prod_kwargs(**{field: value})
     with pytest.raises(ValueError, match="production"):
+        Settings(**kw)
+
+
+def test_production_rejects_x402_private_hosts():
+    kw = _prod_kwargs(x402_allow_private_hosts=True)
+    with pytest.raises(ValueError, match="X402_ALLOW_PRIVATE_HOSTS"):
+        Settings(**kw)
+
+
+def test_production_rejects_x402_backend_without_a_key():
+    kw = _prod_kwargs(x402_private_key="")
+    with pytest.raises(ValueError, match="X402_PRIVATE_KEY"):
         Settings(**kw)

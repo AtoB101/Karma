@@ -271,6 +271,32 @@ if [[ "$a5_bad" -eq 0 ]]; then
   p "A5 no test credentials / dev relaxations in the release env"
 fi
 
+# A6 —— x402 出网口。`/v1/x402/pay-and-fetch` 的目标 URL 是 agent 传进来的，所以
+# 这是一个「调用方指定目标」的出网口：它能打到哪，取决于这里怎么判。代码默认
+# `X402_ALLOW_PRIVATE_HOSTS=true`（本地 mock 图方便），生产必须显式关掉；关掉之后
+# url_safety 还会把域名解析一遍，拦住「域名指向 127.0.0.1 / 169.254.169.254」这类
+# 绕过 —— 原来只查字面 IP，裸域名直接放行，等于没拦。
+if [[ "$ALLOW_NON_PROD" == "true" ]]; then
+  echo "SKIP  A6 x402 outbound fetch guardrails (--allow-non-prod)"
+elif ! is_true "$(ev X402_ENABLED)"; then
+  echo "SKIP  A6 x402 disabled (X402_ENABLED=false)"
+else
+  a6_backend="$(printf '%s' "$(ev X402_PAYMENT_BACKEND)" | tr 'A-Z' 'a-z')"
+  a6_allow="$(ev X402_ALLOW_PRIVATE_HOSTS)"
+  a6_bad=0
+  if [[ "$a6_backend" == "mock" ]]; then
+    f "A6 X402_PAYMENT_BACKEND=mock in a release env (mock payments are not payments)"
+    a6_bad=1
+  fi
+  if is_true "$a6_allow" || [[ -z "$a6_allow" ]]; then
+    f "A6 X402_ALLOW_PRIVATE_HOSTS is '${a6_allow:-unset}' - must be false; unset defaults to true, and the agent-facing fetch could then reach private/loopback addresses"
+    a6_bad=1
+  fi
+  if [[ "$a6_bad" == "0" ]]; then
+    p "A6 x402 outbound fetch locked to public hosts (backend=${a6_backend})"
+  fi
+fi
+
 # --------------------------------------------------------------------------
 # Gate B - API Abuse Resistance
 # --------------------------------------------------------------------------

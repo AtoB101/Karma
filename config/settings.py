@@ -397,6 +397,12 @@ class Settings(BaseSettings):
     x402_default_max_budget_usdc: float = 10.0
     x402_hard_max_budget_usdc: float = 100.0
     x402_allow_private_hosts: bool = True
+    # Dedicated hot wallet for outbound x402 payments (one key per service
+    # agent). Deliberately NOT falling back to SETTLEMENT_OPERATOR_PRIVATE_KEY:
+    # escrow settlement signs through allowance_escrow._broadcast_tx, whose
+    # nonce comes from an in-process cache, so a second sender on the same
+    # wallet can be handed the same nonce and replace a settlement.
+    x402_private_key: str = ""
 
     # OpenClaw — optional outbound handoff webhooks (HMAC) + in-process event ring for polling
     openclaw_webhook_url: str = ""
@@ -553,9 +559,27 @@ class Settings(BaseSettings):
                     "IDENTITY_PROVIDER=mock is not allowed when APP_ENV is production "
                     "(the mock provider has no real identity check behind it)",
                 )
-            if (self.x402_payment_backend or "").strip().lower() == "mock":
+            x402_backend = (self.x402_payment_backend or "mock").strip().lower()
+            if x402_backend == "mock":
                 raise ValueError(
                     "X402_PAYMENT_BACKEND=mock is not allowed when APP_ENV is production",
+                )
+            if x402_backend in ("env", "sepolia"):
+                x402_key = (
+                    (self.x402_private_key or "").strip()
+                    or (self.karma_signing_dev_private_key or "").strip()
+                    or (self.testnet_private_key or "").strip()
+                )
+                if not x402_key:
+                    raise ValueError(
+                        "X402_PAYMENT_BACKEND=%s needs X402_PRIVATE_KEY when APP_ENV is "
+                        "production (the settlement operator key is deliberately not a "
+                        "fallback: two senders on one wallet collide nonces)" % x402_backend,
+                    )
+            if self.x402_allow_private_hosts:
+                raise ValueError(
+                    "X402_ALLOW_PRIVATE_HOSTS must be false when APP_ENV is production "
+                    "(the agent-facing fetch must not reach private/loopback addresses)",
                 )
             if not self.trade_launch_require_eip712:
                 raise ValueError(

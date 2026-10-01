@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from dataclasses import dataclass
@@ -86,7 +87,10 @@ class X402Client:
         headers: dict[str, str] | None = None,
         prefer_network: str | None = None,
     ) -> X402FetchResult:
-        safe_url = validate_x402_target_url(url, allow_private_hosts=self._allow_private)
+        # resolve_host_ips() does a DNS lookup: keep it off the event loop.
+        safe_url = await asyncio.to_thread(
+            validate_x402_target_url, url, allow_private_hosts=self._allow_private
+        )
         hdrs = dict(headers or {})
         attempts = 0
         async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=False) as client:

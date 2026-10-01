@@ -16,13 +16,26 @@ class X402PaymentExecutor(Protocol):
 
 
 def resolve_x402_private_key() -> str:
-    """Dev/testnet key for env or sepolia x402 backends."""
+    """Hot key for the env/sepolia x402 backends (one key per service agent).
+
+    ``X402_PRIVATE_KEY`` comes first. The settlement operator key is
+    deliberately *not* in this chain: escrow settlement signs through
+    ``allowance_escrow._broadcast_tx``, which hands out nonces from its own
+    in-process cache, so a second sender on the same wallet can be handed the
+    same nonce and silently replace a settlement transaction.
+    """
     from config.settings import settings
 
-    key = (settings.karma_signing_dev_private_key or settings.testnet_private_key or "").strip()
+    key = (
+        settings.x402_private_key
+        or settings.karma_signing_dev_private_key
+        or settings.testnet_private_key
+        or ""
+    ).strip()
     if not key:
         raise ValueError(
-            "x402 env/sepolia backend requires KARMA_SIGNING_DEV_PRIVATE_KEY or TESTNET_PRIVATE_KEY"
+            "x402 env/sepolia backend requires X402_PRIVATE_KEY "
+            "(dev fallback: KARMA_SIGNING_DEV_PRIVATE_KEY or TESTNET_PRIVATE_KEY)"
         )
     return key
 

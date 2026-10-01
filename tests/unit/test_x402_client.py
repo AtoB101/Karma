@@ -54,7 +54,15 @@ def test_url_blocks_private_by_default():
 
 
 @pytest.mark.asyncio
-async def test_pay_and_fetch_mock_flow():
+async def test_pay_and_fetch_mock_flow(monkeypatch):
+    import ipaddress
+
+    import sdk.x402.url_safety as url_safety
+
+    # the URL guard resolves hostnames now; keep this test off the network
+    monkeypatch.setattr(
+        url_safety, "resolve_host_ips", lambda host: [ipaddress.ip_address("93.184.216.34")]
+    )
     doc = PaymentRequiredDocument(
         x402Version=1,
         accepts=[

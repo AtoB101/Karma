@@ -106,6 +106,10 @@ This checklist is blocking for broad public test rollout.
 - `[机器]` No test credentials are present in runtime env — ✅ 2026-10-01
   （`AUTH_ALLOW_DEV_KEY_FALLBACK` / `OPENCLAW_LOCAL_PHASE1_AUTO_RELAX` /
   `OPENCLAW_RELAX_DELIVERY_SIGNATURES` 均为 false，且无 `TEST_*/DEMO_*/SEED_*` 形状的凭证变量）
+- `[机器]` x402 出网口只放行公网目标（`A6`）— ✅ 2026-10-01
+  （`X402_ALLOW_PRIVATE_HOSTS=false` 已在发布环境生效，闸门 A6 判它；`url_safety` 还会把
+  域名解析一遍再判地址，拦住「域名指向 127.0.0.1 / 169.254.169.254」这类绕过。
+  见 [`X402_INTEGRATION-zh.md`](X402_INTEGRATION-zh.md)）
 
 ## Gate B — API Abuse Resistance
 
@@ -183,6 +187,18 @@ This checklist is blocking for broad public test rollout.
   `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`，**没有端点**，所以离站推不出去。配上端点
   （或 rsync 目标）之后，每天 03:17 那轮会自动推离站，F5 才会变成机器可判的 PASS。
 
+**这一条要人给的东西只有一样：一个离站的落点。** 现在快照只落在
+`/opt/karma/backups`，和 PostgreSQL 同在一块盘（`/dev/vda3`）上 —— 盘坏了或机器丢了，
+数据库和备份一起没。落点二选一：
+
+1. **另一台机器** —— 给 `user@host:/srv/karma-backups`，外加一把能登录的 SSH key
+   （走 `rsync` / `scp`）；
+2. **任意 S3 兼容对象存储** —— 给 endpoint + 桶名，再加一对 access key
+   （阿里云 OSS / MinIO / AWS 都可以）。
+
+给到之后：`KARMA_BACKUP_OFFSITE=s3|rsync|scp` 写进 `/opt/karma/.env.ops`，每天 03:17
+那轮自动推，第二天闸门 F5 就是机器判的 PASS 了。
+
 ---
 
 ## Gate G — Alerting Delivery
@@ -194,9 +210,11 @@ Gate B 问的是「阈值和政策定没定」，Gate G 问的是**告警能不�
 - `[机器]` 轮询有调度（root crontab / systemd timer 引用了它）— ✅ 2026-10-01
 - `[机器]` 最近一轮轮询成功（15 分钟内）— ✅ 2026-10-01
 - `[机器]` 配了真实的告警出口，且**最近一次发送真的送出去了**（webhook / Telegram / SMTP）
-  — ⏳ **现在还没配，记 HUMAN**。判的是发送结果，不是「填了两行配置」：配了但从没发过 =
-  HUMAN；最近一次发送失败 = FAIL；最近一次成功 = PASS（来源记在 `last_egress_src`）
-- `[人工]` 发了一条自检告警并确认真收到（`--test`）— 待签
+  — ✅ 2026-10-01（出口 `telegram`，运维专用 bot，两轮 `--test` 实测送达）。判的是发送结果，
+  不是「填了两行配置」：配了但从没发过 = HUMAN；最近一次发送失败 = FAIL；最近一次成功 =
+  PASS（来源记在 `last_egress_src`，自检落 `selftest`）。凭证只在服务器
+  `/opt/karma/.env.ops`（600）—— 仓库是公开的，所以不入库
+- `[人工]` 发了一条自检告警并确认真收到（`--test`）— ✅ 2026-10-01 已签（运维确认收到）
 
 为什么单独开一组：之前是 —— `/v1/security/ops/alerts` 写得很好，但**服务器上没有
 prometheus、没有 grafana、没有 node_exporter，容器 env 里也没有任何 SMTP / webhook /

@@ -26,11 +26,32 @@ X402_ENABLED=true
 X402_PAYMENT_BACKEND=mock   # mock | env | sepolia
 X402_DEFAULT_MAX_BUDGET_USDC=10
 X402_HARD_MAX_BUDGET_USDC=100
-X402_ALLOW_PRIVATE_HOSTS=true   # 本地 mock；生产应 false
-KARMA_SIGNING_DEV_PRIVATE_KEY=0x...   # env / sepolia 后端
-TESTNET_RPC_URL=...                 # sepolia 后端
-ERC20_TOKEN_ADDRESS=0x...           # sepolia USDC
+X402_ALLOW_PRIVATE_HOSTS=false  # 代码默认 true（本地 mock 图方便）；生产必须 false，闸门 A6 判
+X402_PRIVATE_KEY=0x...          # env / sepolia 后端的专用热钱包（一把 service agent 一把 key）
+TESTNET_RPC_URL=...             # sepolia 后端
+ERC20_TOKEN_ADDRESS=0x...       # sepolia USDC
 ```
+
+私钥的解析顺序是 `X402_PRIVATE_KEY` → `KARMA_SIGNING_DEV_PRIVATE_KEY` →
+`TESTNET_PRIVATE_KEY`（后两个是 dev/CI 的便利）。`SETTLEMENT_OPERATOR_PRIVATE_KEY`
+**故意不在链上**：托管结算走 `allowance_escrow._broadcast_tx`，那里的 nonce 由进程内缓存
+分配（`_SEND_LOCK` + `_LAST_NONCE`），而 x402 的 `chain_executor` 是各自读
+`get_transaction_count` —— 两个发送方共用一个钱包会拿到同一个 nonce，后签的那笔会把前一笔
+顶掉，最坏情况是托管结算被静默替换。**每个 service agent 一把独立 key**，这条对 x402 同理。
+
+## 出网安全（KSA-X402-005 / SSRF）
+
+`/v1/x402/pay-and-fetch` 的目标 URL 是调用方（agent）给的，所以它是一个「调用方指定目标」
+的出网口：
+
+- `X402_ALLOW_PRIVATE_HOSTS=false`（生产强制）时，`sdk/x402/url_safety.py` 拒绝
+  `localhost` / 环回 / 私网 / 链路本地 / 保留 / 组播地址的字面 IP；
+- 裸域名**先解析再判**：域名指向 `127.0.0.1` 或云元数据 `169.254.169.254` 一律拒绝，
+  解析不出来也拒绝（原来只查字面 IP，裸域名直接放行，等于没拦）；
+- 解析放在 `asyncio.to_thread` 里做，不堵事件循环。
+
+**残留缺口要说清楚**：这里解析一次，httpx 连的时候会再解析一次，中间换了答案（DNS
+rebinding）这次检查拦不住。要彻底关掉这个口子得把连接钉在验过的 IP 上，本轮没做。
 
 ## 审计字段
 
@@ -68,10 +89,12 @@ python3 examples/x402_agent_buy_api/mock_server.py   # 另开终端
 | `X402_PAYMENT_BACKEND` | 行为 |
 |------------------------|------|
 | `mock` | 占位 tx + 签名（CI，**生产禁止**） |
-| `env` | EIP-191 签名 `PAYMENT-SIGNATURE`；`tx_hash` 为 digest |
-| `sepolia` | 真实 ERC-20 `transfer` + 签名头；见 `deploy/.env.local-x402-sepolia.example` |
+| `env` | EIP-191 签名 `PAYMENT-SIGNATURE`；`tx_hash` 是 **digest，不是链上哈希**（生产禁用） |
+| `sepolia` | 真实 ERC-20 `transfer`，等回执再返回；`tx_hash` 是**真的链上交易哈希** |
+
+> 只有 `sepolia` 的 `tx_hash` 是链上哈希。`env` 那份是 EIP-191 摘要，字段名一样但语义不同 —— 生产用 `sepolia`（`config/settings.py` 的生产校验里 `mock` 直接拒绝，`env`/`sepolia` 必须有 key）。
 
 ## 下一步
 
-- EIP-3009 `transferWithAuthorization`（完整 x402 链上路径）  
-- 生产 `X402_ALLOW_PRIVATE_HOSTS=false`
+- EIP-3009 `transferWithAuthorization`（完整 x402 链上路径，现在是 `transfer`）
+- 把 DNS 解析结果钉到连接上，堵住 rebinding（见上文「残留缺口」）

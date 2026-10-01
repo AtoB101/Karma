@@ -38,6 +38,10 @@ defaults = {
     "TRADE_LAUNCH_REQUIRE_EIP712": "true",
     "KARMA_SIGNING_BACKEND": "client_only",
     "X402_PAYMENT_BACKEND": "sepolia",
+    # x402 must not borrow the settlement operator wallet (two senders on one
+    # wallet collide nonces), and the agent-facing fetch must be public-only.
+    "X402_PRIVATE_KEY": "0x" + "11" * 32,
+    "X402_ALLOW_PRIVATE_HOSTS": "false",
     # Production settings now require a non-empty dispute-arbitrator whitelist
     # (fail-closed /disputes/resolve); supply a gate-check placeholder.
     "ARBITRATOR_ACTOR_IDS": "gate-arbitrator",
