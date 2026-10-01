@@ -234,7 +234,7 @@ else
       case "$listed_actor" in
         kid_*|[0-9]*) continue ;;
       esac
-      if ! printf '%s\n' "$key_actors" | grep -qxF "$listed_actor"; then
+      if ! grep -qxF "$listed_actor" <<< "$key_actors"; then
         f "A4c ${listed_var} names '${listed_actor}' but AUTH_API_KEYS has no key for it (dangling privileged actor)"
         a4c_bad=1
       fi
@@ -375,7 +375,7 @@ if [[ -n "$BASE_URL" ]]; then
   for probe_path in "/v1/__gate_probe_not_a_route__" "/v1/settlement/__gate_probe__/lock"; do
     if probe POST "${BASE_URL%/}${probe_path}" '{"__gate_probe__":1}'; then
       for marker in 'Traceback' 'File "' 'site-packages' '/opt/karma' 'sqlalchemy' 'asyncpg'; do
-        if printf '%s' "$PROBE_BODY" | grep -qF "$marker"; then
+        if grep -qF "$marker" <<< "$PROBE_BODY"; then
           f "D1 internal detail leaked at ${probe_path} (marker: ${marker})"
           leak=1
         fi
@@ -486,7 +486,7 @@ else
   sched_blob="$(schedule_text)"
   if [[ -z "${sched_blob//[[:space:]]/}" ]]; then
     h "F2 backup schedule not inspectable from here - confirm the timer on the host"
-  elif printf '%s' "$sched_blob" | grep -Eq 'karma-backup|ops/backup\.sh'; then
+  elif grep -qaE 'karma-backup|ops/backup\.sh' <<< "$sched_blob"; then
     p "F2 backup is scheduled (cron/systemd-timer references the backup script)"
   else
     f "F2 backup script exists but nothing schedules it - it will never run on its own"
@@ -563,19 +563,12 @@ fi
 if [[ "$ALLOW_NON_PROD" == "true" ]] || ! eq_prod "$APP_ENV_V"; then
   echo "SKIP  G2-G4 host alerting state (not a production release env)"
 else
-  sched_blob="$(schedule_text)"
-  if printf '%s' "$sched_blob" | grep -Eq 'security_alert_poller'; then
-    p "G2 alert poller is scheduled (cron/systemd-timer references it)"
-  else
-    f "G2 nothing schedules the alert poller - nobody pulls /v1/security/ops/alerts"
-  fi
-
+  # 先读「轮询本身跑没跑」，因为 G2（调度里有没有它）和 G3（最近跑成功没有）必须能
+  # 互相印证。2026-10-01 生产上出过一次自相矛盾的输出：G2 报 FAIL「没人调度」，
+  # 同一秒 G3 报 PASS「273 秒前刚跑成功」。
   ALERT_STATE="${KARMA_ALERT_STATE_PATH:-/opt/karma/state/security-alerts.json}"
-  if [[ -z "$_PY" ]]; then
-    h "G3/G4 alert poller state not inspectable (no usable python3)"
-  elif [[ ! -f "$ALERT_STATE" ]]; then
-    h "G3 the alert poller has never recorded a run ($ALERT_STATE missing)"
-  else
+  a_run=""; a_ok=""; a_eg=""
+  if [[ -n "$_PY" && -f "$ALERT_STATE" ]]; then
     ALERT_INFO="$("$_PY" - "$ALERT_STATE" <<'PYEOF' 2> /dev/null || true
 import json, sys, time
 try:
@@ -595,18 +588,43 @@ PYEOF
     a_run="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^run_age=//p')"
     a_ok="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^ok_age=//p')"
     a_eg="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^egress=//p')"
-    if [[ -z "$a_run" ]]; then
-      h "G3 alert poller state unreadable ($ALERT_STATE)"
-    elif [[ "$a_run" -gt 900 ]]; then
-      f "G3 alert poller has not run for ${a_run}s (schedule is not working)"
-    elif [[ -z "$a_ok" ]]; then
-      h "G3 last alert poll failed (see last_error in $ALERT_STATE)"
-    elif [[ "$a_ok" -gt 900 ]]; then
-      f "G3 last successful alert poll was ${a_ok}s ago"
-    else
-      p "G3 alert poller ran ${a_run}s ago and the last poll succeeded"
-    fi
+  fi
 
+  # G2 到底装没装。这里刻意**不用** `printf '%s' "$blob" | grep -q PAT` 这种写法：
+  # 脚本是 `set -o pipefail` 的，grep -q 一命中就退出，上游 printf 拿到 SIGPIPE(141)，
+  # pipefail 会把整条管道判成失败 —— 于是「找到了」被判成「没找到」。主机上实测
+  # 10 次里错 3 次，不是偶发（这就是上面那次自相矛盾的来源）。改用 herestring：
+  # 没有管道，就没有 SIGPIPE。第一次读不到时再重读一遍，别让一次读空变成一记假红。
+  sched_blob="$(schedule_text)"
+  if ! grep -qaE 'security_alert_poller' <<< "$sched_blob"; then
+    sleep 1
+    sched_blob="$(schedule_text)"
+  fi
+  if grep -qaE 'security_alert_poller' <<< "$sched_blob"; then
+    p "G2 alert poller is scheduled (cron/systemd-timer references it)"
+  elif [[ -n "$a_run" && "$a_run" -le 900 ]]; then
+    h "G2 no scheduler found, but a poll went through ${a_run}s ago - the two checks disagree, look by hand"
+  else
+    f "G2 nothing schedules the alert poller - nobody pulls /v1/security/ops/alerts"
+  fi
+
+  if [[ -z "$_PY" ]]; then
+    h "G3/G4 alert poller state not inspectable (no usable python3)"
+  elif [[ ! -f "$ALERT_STATE" ]]; then
+    h "G3 the alert poller has never recorded a run ($ALERT_STATE missing)"
+  elif [[ -z "$a_run" ]]; then
+    h "G3 alert poller state unreadable ($ALERT_STATE)"
+  elif [[ "$a_run" -gt 900 ]]; then
+    f "G3 alert poller has not run for ${a_run}s (schedule is not working)"
+  elif [[ -z "$a_ok" ]]; then
+    h "G3 last alert poll failed (see last_error in $ALERT_STATE)"
+  elif [[ "$a_ok" -gt 900 ]]; then
+    f "G3 last successful alert poll was ${a_ok}s ago"
+  else
+    p "G3 alert poller ran ${a_run}s ago and the last poll succeeded"
+  fi
+
+  if [[ -n "$_PY" && -f "$ALERT_STATE" ]]; then
     case ",$a_eg," in
       *",webhook,"*|*",telegram,"*|*",smtp,"*)
         p "G4 alert egress configured (${a_eg})" ;;
@@ -650,7 +668,8 @@ else
   fi
 
   # H4 / H5 运行态依赖：限流要 fail-closed，数据库必须不是 SQLite
-  if docker exec karma-redis redis-cli ping 2> /dev/null | grep -q PONG; then
+  redis_pong="$(docker exec karma-redis redis-cli ping 2> /dev/null || true)"
+  if [[ "$redis_pong" == *PONG* ]]; then
     p "H4 Redis reachable from the host (the limiter can fail closed)"
   else
     h "H4 cannot confirm Redis from here - check by hand"
