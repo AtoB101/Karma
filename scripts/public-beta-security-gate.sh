@@ -517,21 +517,86 @@ else
 
     BK_MANIFEST="$BK_LATEST/manifest.txt"
     if [[ ! -f "$BK_MANIFEST" ]]; then
-      h "F4 no manifest.txt next to the newest dump - cannot tell whether a restore drill ran"
+      h "F4/F5 no manifest.txt next to the newest dump - cannot tell whether a restore drill or an offsite copy ran"
     else
+      # 演练和离站**只在每天 03:17 那一轮**跑。所以「最新那份快照演练过没有」这个判据
+      # 几乎永远是「没有」：快照每小时落一份，03:17 之后每一份都是没演练过的。照它判，
+      # 闸门会每小时从绿变黄、再在 03:17 变回绿 —— 2026-10-01 实测就是这样：19:17 的
+      # cron 快照把 F4 从 PASS 顶成 HUMAN。一个按时辰变色的闸门，很快就会被当成噪声忽略。
+      #
+      # 真正该判的是**最近一次演练的结果**，而不是「最新那份有没有演练」。所以从新到旧
+      # 找第一份真的跑过演练的（skipped / pending 不算跑过 —— 没跑就是没跑），再判它
+      # 成没成、离现在多久。演练一停，26h 后立刻转红，那才是该红的时候。
+      bk_status_lines() {
+        # 输出 "<status>|<snapshot>|<age_h>"，新→旧。age 取 manifest 的 created_at
+        # （只写一次），不用目录 mtime —— 演练会碰目录 mtime，那样会把停掉的演练算成新的。
+        local field="$1" d st ca ts age
+        while read -r d; do
+          [[ -n "$d" ]] || continue
+          [[ "$(basename "$d")" =~ ^[0-9]{8}-[0-9]{6}$ ]] || continue
+          [[ -f "$d/manifest.txt" ]] || continue
+          st="$(sed -n "s/^${field}=//p" "$d/manifest.txt" | tail -1)"
+          ca="$(sed -n 's/^created_at=//p' "$d/manifest.txt" | tail -1)"
+          ts=""
+          if [[ -n "$ca" ]]; then ts="$(date -d "$ca" +%s 2> /dev/null || true)"; fi
+          if [[ -z "$ts" ]]; then ts="$(stat -c '%Y' "$d" 2> /dev/null || date +%s)"; fi
+          age=$(( ( $(date +%s) - ts ) / 3600 ))
+          printf '%s|%s|%s\n' "${st:-absent}" "$(basename "$d")" "$age"
+        done < <(ls -1dt "$BK_ROOT"/*/ 2> /dev/null | sed 's:/$::')
+      }
+
+      BK_LATEST_NAME="$(basename "$BK_LATEST")"
       V_ST="$(sed -n 's/^verify_status=//p' "$BK_MANIFEST" | tail -1)"
-      case "$V_ST" in
-        ok)     p "F4 restore drill passed on the newest snapshot (--verify, row counts identical)" ;;
-        failed) f "F4 restore drill FAILED on the newest snapshot - the backup may not be restorable" ;;
-        *)      h "F4 restore drill not run on the newest snapshot (verify_status=${V_ST:-absent})" ;;
-      esac
       O_ST="$(sed -n 's/^offsite_status=//p' "$BK_MANIFEST" | tail -1)"
-      case "$O_ST" in
-        ok)             p "F5 offsite copy of the newest snapshot succeeded" ;;
-        failed)         f "F5 offsite copy of the newest snapshot FAILED" ;;
-        not-configured) h "F5 no offsite copy configured - the snapshot sits on the same disk as the database" ;;
-        *)              h "F5 no offsite copy recorded on the newest snapshot (offsite_status=${O_ST:-absent})" ;;
-      esac
+
+      # 注意：这里先把清单收进变量，再用 herestring 过滤 —— **不要**写成
+      # `bk_status_lines ... | awk '...{exit}'`。awk 一 `exit` 就把上游掐了，
+      # 上游 printf 拿到 SIGPIPE，pipefail 再把这个赋值判成 141，set -e 直接干掉整个
+      # 闸门（实测：最新一份 verify_status=failed 时，Gate F 整段静默消失）。这跟上面
+      # G2 那次假红是同一个坑，只是这次踩在自己新写的代码上。
+      F4_ALL="$(bk_status_lines verify_status)"
+      F4_LAST="$(awk -F'|' '!f && ($1=="ok" || $1=="failed") {print; f=1}' <<< "$F4_ALL")"
+      if [[ -z "$F4_LAST" ]]; then
+        h "F4 no kept snapshot has ever been drilled (newest says verify_status=${V_ST:-absent})"
+      else
+        f4_st="$(printf '%s' "$F4_LAST" | cut -d'|' -f1)"
+        f4_snap="$(printf '%s' "$F4_LAST" | cut -d'|' -f2)"
+        f4_age="$(printf '%s' "$F4_LAST" | cut -d'|' -f3)"
+        if [[ "$f4_st" == "failed" ]]; then
+          f "F4 the most recent restore drill FAILED ($f4_snap, ${f4_age}h ago) - the backup may not be restorable"
+        elif [[ "$f4_age" -gt 26 ]]; then
+          f "F4 no successful restore drill in ${f4_age}h (last one $f4_snap) - the daily drill is not running"
+        elif [[ "$f4_snap" == "$BK_LATEST_NAME" ]]; then
+          p "F4 restore drill passed on the newest snapshot ($f4_snap, ${f4_age}h ago, row counts identical)"
+        else
+          p "F4 most recent restore drill passed ${f4_age}h ago ($f4_snap); the newest snapshot $BK_LATEST_NAME says verify_status=${V_ST:-absent} - the daily 03:17 run covers it next"
+        fi
+      fi
+
+      F5_ALL="$(bk_status_lines offsite_status)"
+      F5_LAST="$(awk -F'|' '!f && ($1=="ok" || $1=="failed" || $1=="not-configured") {print; f=1}' <<< "$F5_ALL")"
+      if [[ -z "$F5_LAST" ]]; then
+        h "F5 no offsite copy has ever been attempted (newest says offsite_status=${O_ST:-absent})"
+      else
+        f5_st="$(printf '%s' "$F5_LAST" | cut -d'|' -f1)"
+        f5_snap="$(printf '%s' "$F5_LAST" | cut -d'|' -f2)"
+        f5_age="$(printf '%s' "$F5_LAST" | cut -d'|' -f3)"
+        case "$f5_st" in
+          ok)
+            if [[ "$f5_age" -gt 26 ]]; then
+              f "F5 no successful offsite copy in ${f5_age}h (last one $f5_snap) - the offsite job is not running"
+            else
+              p "F5 most recent offsite copy succeeded ${f5_age}h ago ($f5_snap)"
+            fi
+            ;;
+          failed)
+            f "F5 the most recent offsite copy FAILED ($f5_snap, ${f5_age}h ago)" ;;
+          not-configured)
+            h "F5 no offsite target configured - the snapshot sits on the same disk as the database" ;;
+          *)
+            h "F5 unrecognised offsite status '$f5_st' ($f5_snap)" ;;
+        esac
+      fi
     fi
   fi
 fi

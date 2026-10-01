@@ -85,6 +85,33 @@ jobs:
           python3 -m py_compile scripts/ops/*.py scripts/acceptance/verify_manifest.py
           echo "all ops scripts parse"
 
+      # `set -o pipefail` + 一个会提前退出的下游（`grep -q` / `awk ... {exit}`）= 上游拿到
+      # SIGPIPE(141)，pipefail 再把整条管道判成失败：于是「找到了」被判成「没找到」，
+      # 或者 set -e 直接把整个脚本干掉。2026-10-01 一天之内踩了两次（闸门 G2 假红；
+      # Gate F 在 verify_status=failed 时整段静默消失），两次本地都复现不出来。
+      # 靠记性没用，加机器闸门。
+      - name: No pipefail/SIGPIPE traps
+        run: |
+          set -euo pipefail
+          status=0
+          for f in scripts/public-beta-security-gate.sh scripts/ops/*.sh \
+                   deploy/vps/*.sh scripts/acceptance/*.sh; do
+            [[ -f "$f" ]] || continue
+            grep -qE 'set -o pipefail|set -euo pipefail' "$f" || continue
+            # 先去掉整行注释再扫 —— 注释里正是解释这个坑的地方，它当然也长得像这个坑。
+            # 只扫真正咬过人的两种形状：`| grep -q`（命中即退）和 `| awk ... {exit}`。
+            # `| head` 属于同一类，但在别的脚本里还有几处旧账要单独过一遍，先不纳入，
+            # 免得把一条谁都看不懂的红挂上去。
+            hits="$(sed 's/^[[:space:]]*#.*$//' "$f" \
+                    | grep -nE "\|[[:space:]]*grep[[:space:]]+-[[:alnum:]]*q|\|[[:space:]]*awk.*\{[^{}]*\bexit\b" || true)"
+            if [[ -n "$hits" ]]; then
+              echo "ERR  ${f}: pipeline into a command that can exit early"
+              printf '%s\n' "$hits"
+              status=1
+            fi
+          done
+          exit "$status"
+
       - name: Ops unit tests
         run: |
           set -euo pipefail

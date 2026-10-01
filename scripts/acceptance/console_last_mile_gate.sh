@@ -156,7 +156,7 @@ grep -q 'id="mst-activate-status"' "$CONSOLE/pages/cyber/index.html"
 grep -q 'activateByFace' "$CONSOLE/scripts/cyber-face-vault.js"
 # IIFE 少了 window 参数就静默少一个模块（语法检查拦不住），这里钉结尾形状。
 for mod in cyber-face-vault.js cyber-console-2fa.js cyber-add-identity.js; do
-  tail -n 1 "$CONSOLE/scripts/$mod" | grep -q '})(window);'
+  grep -q '})(window);' <<< "$(tail -n 1 "$CONSOLE/scripts/$mod")"
 done
 grep -q 'confirmSamePerson' "$CONSOLE/scripts/cyber-add-identity.js"
 grep -q 'KarmaFaceVault' "$CONSOLE/scripts/cyber-master-page.js"
