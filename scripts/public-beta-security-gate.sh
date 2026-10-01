@@ -560,6 +560,67 @@ print("pin_id=%s" % kv.get("active_policy_id", ""))
   fi
 fi
 
+# B8 - 安全事件**落盘**（2026-10-02 新增）
+# Gate B 下面那段 ⚠️ 记过一个缺口：事件只 append 到进程内的 deque，
+# 每次发布重建容器就把最近 15 分钟的检测窗口清零（实测：尖峰跨过一次部署就整段没人看见）。
+# 修完之后这条必须**能验证**，否则「修没修」只有读代码才知道。判据是端到端的：
+# 先造一个会被记录的事件（未鉴权 401），再从发布环境里那份 journal 的最后一行
+# 把它读回来 —— 读得到、够新，才算数。
+if [[ -z "$BASE_URL" ]]; then
+  h "B8 security-event journal not verified (needs --base-url to generate an event)"
+elif [[ -z "$_PY" ]]; then
+  h "B8 security-event journal not verified (no usable python3 on this host)"
+elif ! command -v docker > /dev/null 2>&1; then
+  h "B8 security-event journal not verified (no docker CLI here)"
+elif ! docker inspect -f '{{.State.Running}}' karma-api > /dev/null 2>&1; then
+  h "B8 security-event journal not verified (karma-api container not visible here)"
+else
+  b8_journal="${KARMA_SECURITY_EVENT_JOURNAL:-/app/mvp_data/security_events.jsonl}"
+  probe GET "${BASE_URL%/}/v1/security/ops/alerts"
+  if [[ "$PROBE_CODE" == "0" ]]; then
+    h "B8 security-event journal not verified (the probe could not reach the release env)"
+  else
+    b8_raw="$(docker exec karma-api sh -c "tail -n 1 '$b8_journal' 2>/dev/null" 2> /dev/null || true)"
+    b8_out="$(printf '%s\n' "$b8_raw" | "$_PY" -c '
+import json, sys
+from datetime import datetime
+raw = sys.stdin.read().strip()
+if not raw:
+    print("EMPTY -")
+    raise SystemExit
+try:
+    item = json.loads(raw)
+except Exception:
+    print("UNPARSABLE -")
+    raise SystemExit
+try:
+    at = datetime.fromisoformat(str(item.get("at") or ""))
+except Exception:
+    print("NOTIMESTAMP -")
+    raise SystemExit
+age = int((datetime.utcnow() - at).total_seconds())
+print("%s %d" % (item.get("type") or "unknown", max(0, age)))
+' 2> /dev/null || echo "PYFAIL -")"
+    b8_type="${b8_out%% *}"
+    b8_age="${b8_out##* }"
+    case "$b8_type" in
+      EMPTY)
+        f "B8 the security-event journal is empty right after live 401 traffic - events are not reaching durable state"
+        ;;
+      UNPARSABLE | NOTIMESTAMP | PYFAIL)
+        f "B8 the security-event journal is unreadable (${b8_type}) - check ${b8_journal} inside karma-api"
+        ;;
+      *)
+        if [[ "$b8_age" =~ ^[0-9]+$ ]] && ((b8_age <= 300)); then
+          p "B8 security events reach durable state (newest ${b8_type}, ${b8_age}s ago)"
+        else
+          f "B8 the journal's newest event is ${b8_age}s old right after live traffic - events are not reaching disk"
+        fi
+        ;;
+    esac
+  fi
+fi
+
 # --------------------------------------------------------------------------
 # Gate C - Security Auditability
 # --------------------------------------------------------------------------

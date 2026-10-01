@@ -47,7 +47,7 @@ This checklist is blocking for broad public test rollout.
 | 时间 | 2026-10-02（本轮部署后实测，`--no-heavy`；重活由 CI 覆盖） |
 | 版本 | `main` |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 45 · FAIL 0 · WARN 0 · HUMAN 13**（退出码 0；累计比 2026-10-01 那轮多 11 条机器判定、少 9 条待签） |
+| 结果 | **PASS 46 · FAIL 0 · WARN 0 · HUMAN 12**（退出码 0；累计比 2026-10-01 那轮多 12 条机器判定、少 10 条待签） |
 | 阻塞项 | 无。`E5b` 已消：第二值班人配好，`BACKUP` 与 `PRIMARY` 是两个不同的人（值只在服务器 `.env`） |
 | 已消项 | `G4`：告警出口接上 Telegram（运维专用 bot），最近一次真发送成功；`G5` 改为机器判（`last_selftest_ok_ts` 粘性证据）；`B3` 改为判**真告警真的送达过**（2026-10-02 实做投递演练）。**改完当场又踩到一个「自己人打自己人」**：常规轮询收尾是重拼状态字典，漏搬了两个粘性键，自检刚写下的证据被下一轮 `*/5` 擦掉 —— 见下面第三条 |
 | 已消项 | `B5`/`B6`/`B7`：**本轮发现 B6 其实是空的** —— `security_threshold_policies` 表 0 行，全站跑代码默认值。已激活 v2，在 `auth`/`runtime`/`verification`/`settlement` 四个关键路由组上单独收紧，冷却 10 分钟。闸门改为直读库里 active 那一行，并把文档钉版与库中版本**逐字段比对**（对不上就 FAIL） |
@@ -61,6 +61,7 @@ This checklist is blocking for broad public test rollout.
 | 已消项 | `F1`–`F4` 备份与恢复：每小时快照 + 每天 03:17 恢复演练（实测 56 张表行数全一致） |
 | 已消项 | `G1`–`G3` 告警轮询：`*/5` cron + 差分 + 本机体检 |
 | 已消项 | `H1` / `H4` / `H5` / `H8`：链上三件套、Redis 可达、postgres、部署清单与链上三方对齐 |
+| 已消项 | `B8`（新增）：安全事件**落盘**了 —— 以前只在进程内存里，每次发布都把 15 分钟检测窗口清零。生产实测：重建容器**前后**报表都是 `failed_auth=8`（修之前重建后必定是 0）。机器判据是 `B8`：造一个会被记录的事件，再从发布环境里那份 journal 的最后一行读回来 |
 | 已消项 | `B3`/`G5` 的投递证据能在常规轮询里**存活**（2026-10-02 生产实测：自检写完 `last_selftest_ok_ts` 后紧接跑一次常规轮询，该值仍在（旧版会变 `never`）；随后打尖峰 → 下一轮 `*/5` 投出 3 条 `rate_limit_spike`，`last_alert_ok_ts` 与之同时在场） |
 | 待签 | `F5`–`F6` 离站副本未配 —— 只缺一个「离站落点」（另一台机器或对象存储，见 Gate F） |
 | 待签 | `A4d`（白名单里的身份号确有其人）、`E1`/`E2`（CI 回归与公开验收的人签）、`E4b`（回滚/值班手册人确认）、`E6b`（基线漂移策略评审） |
@@ -168,10 +169,10 @@ This checklist is blocking for broad public test rollout.
   （判据不是「文档写没写」，而是**文档里钉的版本号跟库里 active 那一行对不对得上** ——
   对不上就 `FAIL`。文档和现实分叉比没有文档更危险）
 
-### ⚠️ 本轮抓到的缺口：安全事件只活在进程内存里
+### 已修：安全事件曾经只活在进程内存里（2026-10-02）
 
-`services/security_monitoring.py::record_security_event` 把事件 append 到一个**进程内的
-list**（`_EVENTS`）。也就是说：
+`services/security_monitoring.py::record_security_event` 以前把事件 append 到一个**进程内的
+list**（`_EVENTS`），`build_security_ops_alert_report` 只从那个 list 取数。也就是说：
 
 - 每次部署重建 `karma-api` / 每次重启，**最近 15 分钟的检测窗口直接归零**；
 - 告警轮询是 `*/5` 的 cron，**重启恰好落在两次轮询之间，这一波的尖峰就没人看见**。
@@ -184,10 +185,32 @@ list**（`_EVENTS`）。也就是说：
 - 攻击者只要等到/促成一次发布，就能把跨窗口的持续性攻击切碎甚至抹掉；
 - 对「持续 429 尖峰」这种**本来就靠时间累积才能判**的告警，等于随时可能漏。
 
-**修法（未做，需要定口径）**：把 `_EVENTS` 落到 Redis（已经有 `REDIS_URL`，
-且限流本来就 fail-closed 依赖它），按事件类型留 60 分钟；`build_security_ops_alert_report`
-改为读写同一份存储。这与本轮已修的另一处是同一类问题：**只活在进程里的状态，
-重启就等于没发生**（刹车模式落库那次，也是同一类）。
+**修法（2026-10-02 已做）**：事件同时追加到一份本地 journal，读的时候把内存环与 journal
+按 `event_id` 合并去重。
+
+- journal 落在 `persist_json.py` 已经在用的持久化目录（`KARMA_MVP_DATA_DIR`，容器里就是
+  `/opt/karma/mvp_data:/app/mvp_data` 这个 rw bind mount），**不引入新依赖、不碰 Redis**；
+- 严格 best-effort：路径不可写 / 磁盘满 → 静默退回纯内存行为，连错 5 次后本进程放弃
+  重试，绝不把异常带进请求路径（`test_unwritable_event_journal_degrades_to_memory_only`）；
+- 保 60 分钟、上限 4 MB，超了就近截断重写；`KARMA_SECURITY_EVENT_JOURNAL` 可以覆盖路径（测试用）；
+- `clear_security_events()` 连 journal 一起清（生产没人调它，测试要干净）。
+
+**生产实测（2026-10-02，本机跑完 6 步）**：
+
+| 步骤 | 结果 |
+|---|---|
+| 造噪声前 | `failed_auth=0` |
+| 打 8 次未鉴权 GET | 8 × `401` |
+| 容器内 journal | `/app/mvp_data/security_events.jsonl` 1696B，最后一行是 `failed_auth` |
+| 重建**之前**的报表 | `failed_auth=8` |
+| `docker compose up -d --force-recreate app`（每次发布都做的那一步） | `/health` 200 |
+| 重建**之后**的报表 | **`failed_auth=8`** —— 窗口活过了重建（修之前这里必定是 0） |
+
+机器判据是 `B8`：先造一个会被记录的事件（未鉴权 401），再从发布环境里那份 journal 的
+最后一行读回来 —— 读得到且够新才算 PASS。这与本轮已修的另一处是同一类问题：**只活在进程里的
+状态，重启就等于没发生**（刹车模式落库那次，也是同一类）。
+
+---
 
 ## Gate C — Security Auditability
 
