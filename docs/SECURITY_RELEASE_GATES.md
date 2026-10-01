@@ -44,17 +44,19 @@ This checklist is blocking for broad public test rollout.
 
 | 项 | 值 |
 |---|---|
-| 时间 | 2026-10-01（`aa35401` 部署后实测，连跑 3 遍结果一致） |
+| 时间 | 2026-10-01（`ea1f2d3` 部署后实测，`--no-heavy`；重活由 CI 覆盖） |
 | 版本 | `main` |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 32 · FAIL 0 · WARN 0 · HUMAN 23**（退出码 0） |
+| 结果 | **PASS 34 · FAIL 0 · WARN 0 · HUMAN 22**（退出码 0） |
 | 阻塞项 | 无。`E5b` 已消：第二值班人配好，`BACKUP` 与 `PRIMARY` 是两个不同的人（值只在服务器 `.env`） |
+| 已消项 | `G4`：告警出口接上 Telegram（运维专用 bot），最近一次真发送成功（来源 `selftest`）；`G5` 人签：运维确认收到自检消息 |
+| 已消项 | `A6`（本轮新增）：x402 出网口只放行公网目标。生产 `X402_ALLOW_PRIVATE_HOSTS=false` + `X402_PAYMENT_BACKEND=sepolia`，真链端到端实测见 [`public-testing/PHASE2_X402_ACCEPTANCE.md`](public-testing/PHASE2_X402_ACCEPTANCE.md) |
 | 已消项 | `A4b` 警告 + `A4c` 待签：`AUTH_API_KEYS` 拆成 3 把，每个 service agent 一把（见 Gate A） |
 | 已消项 | `E5` 值班联系人已配（值只在服务器 `.env`，仓库是公开的所以不入库） |
 | 已消项 | `F1`–`F4` 备份与恢复：每小时快照 + 每天 03:17 恢复演练（实测 56 张表行数全一致） |
 | 已消项 | `G1`–`G3` 告警轮询：`*/5` cron + 差分 + 本机体检 |
 | 已消项 | `H1` / `H4` / `H5` / `H8`：链上三件套、Redis 可达、postgres、部署清单与链上三方对齐 |
-| 待签 | `F5`–`F6` 离站副本未配；`G4`–`G5` 告警出口未配（缺外部凭证） |
+| 待签 | `F5`–`F6` 离站副本未配 —— 只缺一个「离站落点」（另一台机器或对象存储，见 Gate F）；`G4`–`G5` 已消 |
 | 待签 | `H2` / `H3` / `H9`–`H12`：测试钱包、按笔锚定、私仓版本锁、OpenClaw/OpenManus/上链 smoke |
 
 **这轮修掉的两个「自己人打自己人」**（都不是业务 bug，但都会让人开始不信闸门）：
@@ -69,6 +71,14 @@ This checklist is blocking for broad public test rollout.
   （`bk_status_lines | awk '{print; exit}'`）：表现是最新快照演练失败时，Gate F 整段
   静默消失。既然一天两次，已把它变成 CI 闸门（`ops-scripts` 作业扫 `| grep -q`
   与 `| awk ... {exit}` 两种形状）。
+- **部署顺序（本轮踩的）**：`karma deploy` 的顺序是「先 `docker exec karma-api alembic
+  upgrade head`、再重建容器」，而 `docker exec` 用的是**容器创建时冻结的 env**。所以
+  「改 `.env` + 改代码」同一个 push 进来时，迁移会拿**旧 env** 跑新代码：本轮把
+  `X402_PAYMENT_BACKEND` 从 `env` 改成 `sepolia`、而新校验要求这种后端必须有
+  `X402_PRIVATE_KEY`，迁移当场 `ValidationError` 退出。校验本身是对的（它拦住了「配置没
+  到位就上线」），脚本那句「nothing else was changed; the running container is untouched」
+  也是对的 —— 线上没受影响，只是这次发布停了。修法：先按新 `.env`
+  `docker compose up -d --force-recreate app` 一次，再走部署。
 - **假红 2**：`ops-scripts`（分支保护里的必需检查）从加进来那天起就不可能变绿 ——
   `tests/conftest.py` 要 `pytest_asyncio`，而这个作业刻意只装 `pytest`，pytest 连收集
   都没开始就 exit 4。已加 `--noconftest`（这几个文件测的是独立运维脚本，不用 conftest 的 fixture）。
