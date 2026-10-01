@@ -598,6 +598,31 @@ def test_sticky_timestamps_are_not_written_when_nothing_was_actually_sent():
     assert state.get("last_egress_ok_ts") is None
 
 
+def test_a_regular_poll_cycle_does_not_erase_the_sticky_delivery_timestamps(
+        monkeypatch, tmp_path, fake_http):
+    """常规轮询用 state_out 重拼状态字典 —— 别忘了把粘性证据也搬过去。
+
+    2026-10-02 生产实测踩到：自检写完 last_selftest_ok_ts，下一轮常规轮询（每 5 分钟
+    一次）把它擦掉了，闸门 G5 于是在「系统更健康」的时候变红。这不是推演，
+    是盯着状态文件看到 selftest_ok 从 278s 变成 never 才发现的。
+    """
+    state_path = tmp_path / "state" / "security-alerts.json"
+    poller.save_state(str(state_path), {
+        "last_selftest_ok_ts": 111.0, "last_alert_ok_ts": 222.0, "seen": {}})
+    monkeypatch.setenv("KARMA_OPS_ENV", _selftest_env(
+        tmp_path,
+        ["KARMA_ALERT_API_KEY=k", "KARMA_ALERT_WEBHOOK_URL=" + fake_http + "/hook"],
+        state_path))
+    monkeypatch.setattr(poller, "fetch_report", lambda *a, **k: {"alerts": []})
+    monkeypatch.setattr(poller, "local_checks", lambda *a, **k: [])
+
+    assert poller.main([]) == 0
+
+    state = poller.load_state(str(state_path))
+    assert state["last_selftest_ok_ts"] == 111.0, "常规轮询把自检证据擦掉了"
+    assert state["last_alert_ok_ts"] == 222.0, "常规轮询把真告警证据擦掉了"
+
+
 def test_record_egress_result_does_not_call_stdout_a_delivery():
     """什么都没配的时候 deliver() 返回 ["log"] —— 那不是「发出去了」。"""
     state = {}

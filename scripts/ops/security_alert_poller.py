@@ -651,6 +651,11 @@ def run(args) -> int:
         "last_egress_error": state.get("last_egress_error"),
         "last_egress_error_ts": state.get("last_egress_error_ts"),
         "last_egress_failed": state.get("last_egress_failed"),
+        # 粘性证据也要搬过来。这个字典是**重拼**的，漏一个键就等于擦掉一条证据 ——
+        # 2026-10-02 生产实测：自检写完 last_selftest_ok_ts，下一轮常规轮询
+        # （每 5 分钟一次）把它擦掉了，闸门 G5 于是在「系统更健康」时变红。
+        "last_selftest_ok_ts": state.get("last_selftest_ok_ts"),
+        "last_alert_ok_ts": state.get("last_alert_ok_ts"),
     }
 
     exit_code = 0
