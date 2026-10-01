@@ -49,7 +49,7 @@ This checklist is blocking for broad public test rollout.
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
 | 结果 | **PASS 43 · FAIL 0 · WARN 0 · HUMAN 15**（退出码 0；累计比 2026-10-01 那轮多 9 条机器判定、少 7 条待签） |
 | 阻塞项 | 无。`E5b` 已消：第二值班人配好，`BACKUP` 与 `PRIMARY` 是两个不同的人（值只在服务器 `.env`） |
-| 已消项 | `G4`：告警出口接上 Telegram（运维专用 bot），最近一次真发送成功（来源 `selftest`）；`G5` 人签：运维确认收到自检消息 |
+| 已消项 | `G4`：告警出口接上 Telegram（运维专用 bot），最近一次真发送成功；`G5` 改为机器判（`last_selftest_ok_ts` 粘性证据）；`B3` 改为判**真告警真的送达过**（2026-10-02 实做投递演练） |
 | 已消项 | `B5`/`B6`/`B7`：**本轮发现 B6 其实是空的** —— `security_threshold_policies` 表 0 行，全站跑代码默认值。已激活 v2，在 `auth`/`runtime`/`verification`/`settlement` 四个关键路由组上单独收紧，冷却 10 分钟。闸门改为直读库里 active 那一行，并把文档钉版与库中版本**逐字段比对**（对不上就 FAIL） |
 | 已消项 | `E7`：策略中心回滚演练实做（建 v3 → 激活 → 回滚 v2，三次变更单各走一遍两人审批），结果留在 `/opt/karma/state/security-policy-drill.json`，闸门读它并要求 180 天内做过 |
 | 已消项 | `A2b`：轮换台账改成**机器可读 + 机器判定**（字段齐全 + 口径自洽 + 有人签字 + 未过期；过期直接 FAIL） |
@@ -142,7 +142,11 @@ This checklist is blocking for broad public test rollout.
 - `[机器]` `RATE_LIMIT_REDIS_FAIL_CLOSED=true` — ✅ 2026-10-01
 - `[机器]` Sensitive write paths have active limits (`write_sensitive` / `state_transition`)
   — ✅ 2026-10-01（额度已定义且中间件已挂进 `api/app.py`）
-- `[人工]` Alerting exists for sustained 429 spikes and auth failures —— 待签
+- `[机器]` Alerting is **delivered** for sustained 429 spikes and auth failures（`B3`）— ✅ 2026-10-02
+  （判据是**真的响过一次并送到人**：告警轮询器状态里的 `last_alert_ok_ts`。
+  只发自检不算 —— 自检证明管道通，不证明它会响，那是 `G5`。2026-10-02 实做：
+  35 次被拒请求 → 报表出现 3 条 `rate_limit_spike`（全局 42 次 / 按端点 `/v1/auth/token` /
+  按路由组 `auth`）→ 下一个 5 分钟轮询周期全部投递到运维 Telegram）
 - `[机器]` `/v1/security/ops/alerts` exists and is auth-protected — ✅ 2026-10-01（HTTP 401）
 - `[人工]` `/v1/security/ops/alerts` is monitored with tuned thresholds —— 待签
 - `[机器]` Alert cooldown / suppression policy is configured（`B5`）— ✅ 2026-10-02
@@ -155,6 +159,27 @@ This checklist is blocking for broad public test rollout.
 - `[机器]` Active security threshold policy version is pinned and documented（`B7`）— ✅ 2026-10-02
   （判据不是「文档写没写」，而是**文档里钉的版本号跟库里 active 那一行对不对得上** ——
   对不上就 `FAIL`。文档和现实分叉比没有文档更危险）
+
+### ⚠️ 本轮抓到的缺口：安全事件只活在进程内存里
+
+`services/security_monitoring.py::record_security_event` 把事件 append 到一个**进程内的
+list**（`_EVENTS`）。也就是说：
+
+- 每次部署重建 `karma-api` / 每次重启，**最近 15 分钟的检测窗口直接归零**；
+- 告警轮询是 `*/5` 的 cron，**重启恰好落在两次轮询之间，这一波的尖峰就没人看见**。
+
+这不是推演 —— 2026-10-02 实测踩到：18:12:50Z 打了 35 次被拒请求，报表当时确实出现 3 条
+尖峰告警；18:15:17Z 部署重建容器；下一次轮询（18:15:00Z 之后的 18:20:00Z）看到的是空的，
+`active=0`，什么都没投递。把同样的尖峰在容器稳定时重打一次，下一个轮询周期就正常送达
+（`src=alerts`）。所以链路本身是通的，**卡在「状态不落盘」**：
+
+- 攻击者只要等到/促成一次发布，就能把跨窗口的持续性攻击切碎甚至抹掉；
+- 对「持续 429 尖峰」这种**本来就靠时间累积才能判**的告警，等于随时可能漏。
+
+**修法（未做，需要定口径）**：把 `_EVENTS` 落到 Redis（已经有 `REDIS_URL`，
+且限流本来就 fail-closed 依赖它），按事件类型留 60 分钟；`build_security_ops_alert_report`
+改为读写同一份存储。这与本轮已修的另一处是同一类问题：**只活在进程里的状态，
+重启就等于没发生**（刹车模式落库那次，也是同一类）。
 
 ## Gate C — Security Auditability
 
@@ -253,7 +278,10 @@ Gate B 问的是「阈值和政策定没定」，Gate G 问的是**告警能不�
   不是「填了两行配置」：配了但从没发过 = HUMAN；最近一次发送失败 = FAIL；最近一次成功 =
   PASS（来源记在 `last_egress_src`，自检落 `selftest`）。凭证只在服务器
   `/opt/karma/.env.ops`（600）—— 仓库是公开的，所以不入库
-- `[人工]` 发了一条自检告警并确认真收到（`--test`）— ✅ 2026-10-01 已签（运维确认收到）
+- `[机器]` 自检告警真的投递出去了（`G5`）— ✅ 2026-10-02
+  （状态文件里的 `last_selftest_ok_ts` —— 粘性字段：真告警后来居上也不会把自检记录顶掉，
+  否则「系统更健康」反而会让这一条变红。2026-10-01 运维已确认收到，
+  2026-10-02 复测再次送达）
 
 为什么单独开一组：之前是 —— `/v1/security/ops/alerts` 写得很好，但**服务器上没有
 prometheus、没有 grafana、没有 node_exporter，容器 env 里也没有任何 SMTP / webhook /

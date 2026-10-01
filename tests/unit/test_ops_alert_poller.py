@@ -571,6 +571,33 @@ def test_a_successful_alert_emit_clears_an_earlier_egress_failure():
     assert state["last_egress_src"] == "alerts"
 
 
+def test_selftest_and_real_alert_keep_separate_sticky_timestamps():
+    """B3「真告警送达过」和 G5「自检送达过」是两个结论，谁都不许顶掉谁。
+
+    状态里的 last_egress_* 只记最近一次：真告警一来，自检那条就没了 ——
+    于是「系统更健康」反而会让 G5 变红。所以两条证据分开存。
+    """
+    state = {}
+    poller.record_egress_result(state, ["telegram"], [], 100.0, "selftest")
+    assert state["last_selftest_ok_ts"] == 100.0
+    assert state.get("last_alert_ok_ts") is None
+
+    poller.record_egress_result(state, ["telegram"], [], 200.0, "alerts")
+    assert state["last_alert_ok_ts"] == 200.0
+    assert state["last_selftest_ok_ts"] == 100.0, "真告警不得把自检记录顶掉"
+    assert state["last_egress_src"] == "alerts"
+
+
+def test_sticky_timestamps_are_not_written_when_nothing_was_actually_sent():
+    """["log"] 不是发送。粘性时间戳也不能被它写进去。"""
+    state = {}
+    poller.record_egress_result(state, ["log"], [], 5.0, "selftest")
+    poller.record_egress_result(state, ["log"], [], 6.0, "alerts")
+    assert state.get("last_selftest_ok_ts") is None
+    assert state.get("last_alert_ok_ts") is None
+    assert state.get("last_egress_ok_ts") is None
+
+
 def test_record_egress_result_does_not_call_stdout_a_delivery():
     """什么都没配的时候 deliver() 返回 ["log"] —— 那不是「发出去了」。"""
     state = {}

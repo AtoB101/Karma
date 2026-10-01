@@ -436,7 +436,42 @@ else
   h "B4 /v1/security/ops/alerts is auth-protected (pass --base-url to probe)"
 fi
 
-h "B3 alerting is delivered for sustained 429 spikes and auth failures (on-call must confirm)"
+# B3 告警**真的送到人**了吗。以前一律 HUMAN（「on-call 确认」）。现在判证据：
+# 状态文件里要有一次**真实告警**的成功投递（last_alert_ok_ts）。
+# 只发自检不算 —— 自检证明的是「管道通」，不是「真会响」。两件事分开判（自检是 G5）。
+ALERT_STATE_B="${KARMA_ALERT_STATE_PATH:-/opt/karma/state/security-alerts.json}"
+if [[ ! -f "$ALERT_STATE_B" ]]; then
+  h "B3 no alert-poller state on this host ($ALERT_STATE_B) - confirm delivery by hand"
+elif [[ -z "$_PY" ]]; then
+  h "B3 $ALERT_STATE_B present but no usable python3 here to read it"
+else
+  B3_OUT="$("$_PY" -c '
+import json, sys, time
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print("err=unreadable:%s" % exc); raise SystemExit(0)
+try:
+    days = int((time.time() - float(d.get("last_alert_ok_ts"))) / 86400)
+except Exception:
+    days = -1
+print("alert_days=%d" % days)
+print("err=%s" % ("1" if d.get("last_egress_error") else "0"))
+' "$ALERT_STATE_B" 2> /dev/null || true)"
+  b3_days="$(printf '%s\n' "$B3_OUT" | sed -n 's/^alert_days=//p')"
+  b3_errv="$(printf '%s\n' "$B3_OUT" | sed -n 's/^err=//p')"
+  if [[ -z "$b3_days" ]]; then
+    h "B3 $ALERT_STATE_B unreadable - look by hand"
+  elif [[ "$b3_days" -lt 0 ]]; then
+    h "B3 no real alert has ever been delivered from this host - a self-test proves the pipe, not that it fires"
+  elif [[ "$b3_errv" == "1" ]]; then
+    f "B3 the last alert egress FAILED - alerts are not reaching a human"
+  elif [[ "$b3_days" -gt 180 ]]; then
+    f "B3 the last real alert delivery was ${b3_days}d ago - run a delivery drill (want <= 180d)"
+  else
+    p "B3 a real security alert was delivered to the ops chat (${b3_days}d ago, src=alerts)"
+  fi
+fi
 
 # B5/B6/B7 阈值策略。以前这三条一律 HUMAN。现在从**库里的 active 那一行**直判：
 #   有没有真的激活过策略（0 行 = 全站跑代码默认，没有任何按路径/路由组的收紧）、
@@ -975,7 +1010,38 @@ PYEOF
   fi
 fi
 
-h "G5 a self-test alert was delivered to a human (run the poller with --test) and acknowledged"
+# G5 自检投递。以前一律 HUMAN。现在判状态文件里有没有一次成功的**自检**发送
+# （last_selftest_ok_ts —— 粘性字段，真告警来过也不会把它顶掉）。
+# 它证明「出口真的通」；「真告警响没响、送到没有」是 B3。两条各判各的。
+ALERT_STATE_G="${KARMA_ALERT_STATE_PATH:-/opt/karma/state/security-alerts.json}"
+if [[ ! -f "$ALERT_STATE_G" ]]; then
+  h "G5 no alert-poller state on this host - run: security_alert_poller.py --test"
+elif [[ -z "$_PY" ]]; then
+  h "G5 $ALERT_STATE_G present but no usable python3 here to read it"
+else
+  G5_OUT="$("$_PY" -c '
+import json, sys, time
+try:
+    d = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print("err=unreadable:%s" % exc); raise SystemExit(0)
+try:
+    days = int((time.time() - float(d.get("last_selftest_ok_ts"))) / 86400)
+except Exception:
+    days = -1
+print("selftest_days=%d" % days)
+' "$ALERT_STATE_G" 2> /dev/null || true)"
+  g5_days="$(printf '%s\n' "$G5_OUT" | sed -n 's/^selftest_days=//p')"
+  if [[ -z "$g5_days" ]]; then
+    h "G5 $ALERT_STATE_G unreadable - look by hand"
+  elif [[ "$g5_days" -lt 0 ]]; then
+    h "G5 no successful self-test delivery on record - run: security_alert_poller.py --test"
+  elif [[ "$g5_days" -gt 180 ]]; then
+    f "G5 the last self-test delivery was ${g5_days}d ago - re-run it (want <= 180d)"
+  else
+    p "G5 a self-test alert was actually delivered to the ops chat (${g5_days}d ago)"
+  fi
+fi
 
 # --------------------------------------------------------------------------
 # Gate H - Testnet Go-Live Prerequisites

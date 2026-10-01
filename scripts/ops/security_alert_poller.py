@@ -527,6 +527,14 @@ def record_egress_result(state: dict, sent: list[str], failed: list[str], now: f
     if sent and sent != ["log"]:
         state["last_egress_ok_ts"] = now
         state["last_egress_src"] = source
+        # B3 和 G5 是**两个**结论，必须各留各的证据：
+        # 「真告警送达过」和「自检送达过」。上面的 last_egress_* 只保留最近一次，
+        # 真告警一来就把自检那条顶掉 —— 于是系统更健康反而让 G5 变红。按来源各记一条
+        # 粘性时间戳，谁都不覆盖谁。
+        if source == "selftest":
+            state["last_selftest_ok_ts"] = now
+        elif source == "alerts":
+            state["last_alert_ok_ts"] = now
 
 
 # --------------------------------------------------------------------------
