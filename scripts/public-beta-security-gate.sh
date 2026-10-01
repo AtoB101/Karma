@@ -685,14 +685,34 @@ else
   echo "SKIP  H6 strong APP_SECRET_KEY / AUTH_API_KEYS (judged by A2/A4)"
   echo "SKIP  H7 on-call primary/backup (judged by E5/E5b)"
 
-  # H8 部署清单：没有它，「线上跑的是什么」只能靠人记
-  if [[ -f scripts/acceptance/verify_testnet_manifest_sample.sh ]] && \
-     ls deployment-manifest.json > /dev/null 2>&1; then
-    p "H8 deployment-manifest.json present next to verify-manifest tooling"
-  elif [[ -f scripts/acceptance/verify_testnet_manifest_sample.sh ]]; then
-    h "H8 no deployment-manifest.json - the deployed revision/addresses are not recorded as a verifiable artifact"
+  # H8 部署清单。这一条以前只问「文件在不在」—— 而现在文件在了，所以它必须再往前
+  # 走一步：**清单、发布环境、链上三方对齐**。理由很直白：清单是人写的声明，写错了比
+  # 没有更糟 —— 没有的话人会去链上查，写错了人会信它。
+  #
+  # 三方分别是：清单自己的结构 / 发布环境里的绑定变量 / 链上事实（chain_id、
+  # 合约地址上有没有代码、结算钱包有没有钱）。探不到链记 HUMAN（网络问题不是不一致），
+  # 退 3；不一致记 FAIL。
+  if [[ ! -f scripts/acceptance/verify-manifest.sh ]]; then
+    f "H8 no manifest verifier (scripts/acceptance/verify-manifest.sh missing)"
+  elif [[ ! -f deployment-manifest.json ]]; then
+    f "H8 no deployment-manifest.json - the deployed addresses are not recorded as a verifiable artifact"
+  elif [[ -z "$_PY" ]]; then
+    h "H8 deployment-manifest.json present but no usable python3 here to check it against env/chain"
   else
-    f "H8 no manifest tooling at all"
+    m_args=(--onchain)
+    if [[ -n "$ENV_EXEC_CMD" ]]; then m_args+=(--env-exec "$ENV_EXEC_CMD"); fi
+    m_rc=0
+    m_out="$(bash scripts/acceptance/verify-manifest.sh "${m_args[@]}" 2>&1)" || m_rc=$?
+    case "$m_rc" in
+      0)
+        m_n="$(printf '%s\n' "$m_out" | grep -c '^PASS' || true)"
+        p "H8 manifest matches the release env and the chain (${m_n} checks passed)" ;;
+      3)
+        h "H8 manifest present, but the chain could not be reached to compare - check by hand" ;;
+      *)
+        f "H8 the manifest disagrees with the release env / chain"
+        printf '%s\n' "$m_out" | grep '^FAIL' | sed 's/^/      /' >&2 || true ;;
+    esac
   fi
 
   h "H2 funded buyer/seller test wallets exist (money, cannot be judged from a shell)"

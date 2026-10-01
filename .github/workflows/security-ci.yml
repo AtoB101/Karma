@@ -73,7 +73,8 @@ jobs:
       - name: Shell scripts parse
         run: |
           set -euo pipefail
-          for f in scripts/ops/*.sh deploy/vps/*.sh scripts/public-beta-security-gate.sh; do
+          for f in scripts/ops/*.sh deploy/vps/*.sh scripts/acceptance/verify-manifest.sh \
+                   scripts/public-beta-security-gate.sh; do
             echo "bash -n ${f}"
             bash -n "${f}"
           done
@@ -81,7 +82,7 @@ jobs:
       - name: Python ops scripts compile
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/ops/*.py
+          python3 -m py_compile scripts/ops/*.py scripts/acceptance/verify_manifest.py
           echo "all ops scripts parse"
 
       - name: Ops unit tests
@@ -89,4 +90,5 @@ jobs:
           set -euo pipefail
           python3 -m pip install --upgrade pip
           python3 -m pip install pytest
-          python3 -m pytest -q tests/unit/test_ops_s3_put.py tests/unit/test_ops_alert_poller.py
+          python3 -m pytest -q tests/unit/test_ops_s3_put.py tests/unit/test_ops_alert_poller.py \
+                             tests/unit/test_deployment_manifest.py

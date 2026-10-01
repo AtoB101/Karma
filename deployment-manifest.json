@@ -1,0 +1,38 @@
+{
+  "manifest_version": 1,
+  "network": "sepolia",
+  "chain_id": 11155111,
+  "rpc_url": "https://ethereum-sepolia-rpc.publicnode.com",
+  "explorer_url": "https://sepolia.etherscan.io",
+  "verified_on": "2026-10-01",
+  "note": "链上事实清单：记录测试网部署了哪些合约、跑在哪个链上。地址是公开信息（链上可查），不是密钥；私钥只在服务器 .env 里，永远不进这个仓库。改合约地址时必须同步改这里，否则 verify-manifest.sh 会红。",
+  "chain_bindings": {
+    "chain_id": "TESTNET_CHAIN_ID"
+  },
+  "contracts": {
+    "erc20_token": {
+      "address": "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF",
+      "kind": "contract",
+      "env": "ERC20_TOKEN_ADDRESS",
+      "role": "结算用 ERC20（测试币）"
+    },
+    "bilateral": {
+      "address": "0x496d178a5D32E9410E52bD5800602BDEe81B2A91",
+      "kind": "contract",
+      "env": "KARMA_BILATERAL_ADDRESS",
+      "role": "双边托管 / active+reserved==locked 不变量所在"
+    },
+    "allowance_escrow": {
+      "address": "0x65eb82058F4ea707B1a0aFb2A5872eb95076b6F2",
+      "kind": "contract",
+      "env": "ALLOWANCE_ESCROW_ADDRESS",
+      "role": "allowance 托管（争议窗口期内冻结）"
+    },
+    "settlement_operator": {
+      "address": "0x1D147c9eefd9D1d4C4725700a05EDc6ca13975Cc",
+      "kind": "eoa",
+      "env": "SETTLEMENT_OPERATOR_ADDRESS",
+      "role": "结算运营钱包：不是合约，但必须有钱，否则结算是空转"
+    }
+  }
+}
