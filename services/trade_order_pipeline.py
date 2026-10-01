@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
@@ -91,6 +92,35 @@ async def _assert_pipeline_preauth(db: AsyncSession, identity_id: str, *, role: 
             400,
             detail=f"{role} needs active Runtime Key before launch (Settings → 铸造 Runtime Key)",
         )
+
+
+_TERMINAL_ORDER_STATUSES = ("rejected", "execution_started", "failed")
+
+
+async def _order_status_without_lazy_load(
+    db: AsyncSession, *, order: TradeOrderModel, order_id: str
+) -> str | None:
+    """读订单状态，但绝不触发同步懒加载。
+
+    管线中途会 ``db.rollback()``（``revert_chain_rejected_transition`` 里那一下，
+    链上闸门没过就走它），而 rollback 会**无条件**把 session 上的实例标记过期
+    —— 连主键一起。此后读 ``order.status`` 就是一次同步重载，asyncpg 直接抛
+    ``MissingGreenlet``；它发生在 ``except HTTPException`` 里，于是真正的
+    HTTPException 被换成裸 500，失败原因当场丢失（2026-10-01 生产实测）。
+
+    所以这里只认调用方传进来的 ``order_id``（不能碰 ``order`` 的任何属性），
+    先取内存里已有的值，真没有再用异步 IO 重查一次。
+    """
+    insp = sa_inspect(order)
+    cached = insp.dict.get("status")
+    if cached is not None:
+        return str(cached)
+    try:
+        row = await db.get(TradeOrderModel, order_id)
+    except Exception:  # noqa: BLE001 - session 里可能还挂着失败的事务
+        await db.rollback()
+        row = await db.get(TradeOrderModel, order_id)
+    return None if row is None else str(row.status)
 
 
 async def _mark_order_failed(order: TradeOrderModel, detail: str) -> None:
@@ -240,7 +270,8 @@ async def launch_preauth_trade_order(
             launch_attestation=launch_attestation,
         )
     except HTTPException:
-        if order.status not in ("rejected", "execution_started", "failed"):
+        current = await _order_status_without_lazy_load(db, order=order, order_id=order_id)
+        if current is None or current not in _TERMINAL_ORDER_STATUSES:
             await _mark_order_failed_durable(db, order, "pipeline aborted")
         raise
     except Exception as exc:
