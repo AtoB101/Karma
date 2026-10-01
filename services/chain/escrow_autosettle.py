@@ -18,7 +18,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
@@ -138,12 +138,26 @@ async def stranded_bindings(
 
     只挑「结算单已终局」的绑定：这类绑定不可能再被正常流程推进，占着的是买卖双方
     实实在在的授权额 —— 用户链上还有钱，可用额度却显示不足，一单也开不出来。
+
+    「结算单已终局」这个条件必须落在 SQL 里。只按 ``state`` + ``created_at`` 取固定
+    批量时，窗口会被「单子还在跑」的绑定占死：它们更老、排在前面，取回来又只会被
+    ``reap_stranded`` 跳过 —— 于是窗口一条都不前进，后面真正待收尾的绑定永远轮不到。
+    2026-10-01 生产实测：``ESCROW_AUTOSETTLE_BATCH=5`` 而 active 有 104 条，最老的 5 条
+    全是 in_progress / delivered / disputed，``reap_stranded`` 每轮耗 3 秒、连着 6 分钟
+    0 产出，10 条「结算单已结算、链上还占着」的绑定（合计 1.00 USDC 额度）一直没被解开。
     """
     stamp = (now or datetime.utcnow()) - timedelta(seconds=STRANDED_GRACE_SECONDS)
+    decided = (
+        select(SettlementModel.settlement_id)
+        .where(SettlementModel.task_id == EscrowBindingModel.task_id)
+        .where(func.lower(SettlementModel.status).in_(_DECIDED_SETTLEMENT_STATES))
+        .exists()
+    )
     stmt = (
         select(EscrowBindingModel)
         .where(EscrowBindingModel.state == ACTIVE_STATE)
         .where(EscrowBindingModel.created_at <= stamp)
+        .where(decided)
         .order_by(EscrowBindingModel.created_at)
         .limit(limit if limit is not None else settings.escrow_autosettle_batch)
     )

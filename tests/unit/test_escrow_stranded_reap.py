@@ -150,6 +150,38 @@ async def test_a_live_order_is_never_touched(db_session, autosettle, spy):
 
 
 @pytest.mark.asyncio
+async def test_a_live_binding_must_not_block_the_batch_window(
+    db_session, autosettle, spy, monkeypatch
+):
+    """窗口是「按 created_at 升序取 batch 条」：更老的「还在跑」的绑定会一直占着窗口，
+    后面真正待收尾的永远轮不到 —— 固定批量 + 只按 state 过滤就是一个会饿死的队列。
+
+    2026-10-01 生产实测：ESCROW_AUTOSETTLE_BATCH=5 而 active 有 104 条，最老的 5 条全是
+    in_progress / delivered / disputed，reap_stranded 每轮耗 3 秒、连着 6 分钟 0 产出，
+    10 条「结算单已结算、链上还占着」的绑定（合计 1.00 USDC 额度）一条都没解开。
+    """
+    from config.settings import settings
+
+    monkeypatch.setattr(settings, "escrow_autosettle_batch", 2, raising=False)
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add_all([
+        _binding("60", task_id="task-stranded-live-1", age_seconds=900),
+        _binding("61", task_id="task-stranded-live-2", age_seconds=800),
+        _binding("62", task_id="task-stranded-cancel", age_seconds=700),
+    ])
+    db_session.add_all([
+        _settlement("in_progress", task_id="task-stranded-live-1"),
+        _settlement("delivered", task_id="task-stranded-live-2"),
+        _settlement("cancelled", task_id="task-stranded-cancel"),
+    ])
+    await db_session.commit()
+
+    freed = await autosettle.reap_stranded(db_session)
+
+    assert [f["binding_id"] for f in freed] == ["62"]
+    assert spy["cancel"] == ["task-stranded-cancel"]
+
+@pytest.mark.asyncio
 async def test_a_brand_new_binding_is_left_alone(db_session, autosettle, spy):
     """刚 bind 完那一秒，结算单可能已经是终态了（业务先落库、链上稍后回写）——
     余量之内不许动，免得和接单那一步的内联 sync 抢同一个绑定。"""
