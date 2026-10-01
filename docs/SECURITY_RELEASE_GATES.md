@@ -44,11 +44,11 @@ This checklist is blocking for broad public test rollout.
 
 | 项 | 值 |
 |---|---|
-| 时间 | 2026-10-01（`f2634d5` 部署后实测，连跑 3 遍结果一致） |
+| 时间 | 2026-10-01（`aa35401` 部署后实测，连跑 3 遍结果一致） |
 | 版本 | `main` |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 31 · FAIL 1 · WARN 0 · HUMAN 23** |
-| 阻塞项 | `E5b` —— **值班第二个人还不存在**（`BACKUP` 和 `PRIMARY` 是同一个邮箱）。这是真缺口，不是脚本误报 |
+| 结果 | **PASS 32 · FAIL 0 · WARN 0 · HUMAN 23**（退出码 0） |
+| 阻塞项 | 无。`E5b` 已消：第二值班人配好，`BACKUP` 与 `PRIMARY` 是两个不同的人（值只在服务器 `.env`） |
 | 已消项 | `A4b` 警告 + `A4c` 待签：`AUTH_API_KEYS` 拆成 3 把，每个 service agent 一把（见 Gate A） |
 | 已消项 | `E5` 值班联系人已配（值只在服务器 `.env`，仓库是公开的所以不入库） |
 | 已消项 | `F1`–`F4` 备份与恢复：每小时快照 + 每天 03:17 恢复演练（实测 56 张表行数全一致） |
@@ -148,11 +148,10 @@ This checklist is blocking for broad public test rollout.
 - `[机器]` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` are configured — ✅ 2026-10-01
   （应用代码不读它们，纯「真出事先找谁」的声明。**值只写在服务器 `/opt/karma/.env`，
   不进仓库** —— 这个仓库是公开的，联系方式属于个人信息）
-- `[机器]` `SECURITY_ONCALL_BACKUP` 与 `PRIMARY` 是**两个不同的人**（`E5b`）— ❌ **2026-10-01 FAIL**
+- `[机器]` `SECURITY_ONCALL_BACKUP` 与 `PRIMARY` 是**两个不同的人**（`E5b`）— ✅ 2026-10-01
   （判据就一条：两个值一样 = 没有第二个人。真出事时「值班的人联系不上」和「没人值班」
-  是同一件事，所以这不能靠人自觉。**现在两者还是同一个邮箱，这条不是脚本误报，是真的没落地**：
-  指定第二个人、把 `SECURITY_ONCALL_BACKUP` 换成他，E5b 才会转 PASS。
-  这就是当前唯一一条阻塞项 —— 闸门宁可为它红着，也不把它降级成一条没人看的 `HUMAN`）
+  是同一件事，所以这不能靠人自觉。值仍然只写在服务器 `/opt/karma/.env`，不进仓库。
+  它红了一整天，一直红到真的有人填进第二个人为止 —— 没有降级成一条没人看的 `HUMAN`）
 - `[机器]` Baseline drift controls exist — ✅ 2026-10-01（`baseline_window_minutes` / `baseline_drift_multiplier`）
 - `[人工]` Baseline drift strategy is reviewed —— 待签
 - `[人工]` Policy-center rollback drill (`/v1/security/policies/rollback`) has been exercised —— 待签

@@ -19,7 +19,7 @@
 | 生产闸门 | ✅ 就绪 | `APP_ENV=production` 下 14+ 项强制，缺一项拒绝启动 |
 | 攻击回归 | ✅ 就绪 | KSA / KSA2 / KSA-TL / KSA-X402 / KSA-AP2 |
 | 历史压力/测试网 | ✅ 参考 | 2026-05-17：0 CRITICAL/HIGH；Sepolia 7/7 |
-| 运维前置 | 🟡 大部分就绪 | RPC、合约、Redis、PostgreSQL、密钥、部署清单已就绪（闸门 H1/H4/H5/H8）；**缺 on-call 第二人**（`E5b` 红）与测试钱包/按笔锚定的人工签字 |
+| 运维前置 | 🟢 机器项全过 | RPC、合约、Redis、PostgreSQL、密钥、部署清单、值班主备已就绪（闸门 H1/H4/H5/H8 + E5b）；只剩测试钱包/按笔锚定等人工签字 |
 | 集成实测 | 🟡 待补 | OpenClaw MCP、EIP-712 真实钱包、`testnet_claw_manus_gate.sh` |
 
 **对外表述建议：** 「Sepolia 公开测试网（邀请制/文档化限制）」— 勿称「与主网生产等价的全自动商用」。
@@ -120,7 +120,7 @@ bash scripts/acceptance/testnet_claw_manus_gate.sh
 | 4 | **Redis** 可用（生产限流 fail-closed） | SRE | ✅ 2026-10-01（闸门 H4：主机上 PONG） |
 | 5 | **PostgreSQL** 替代 SQLite | SRE | ✅ 2026-10-01（闸门 H5：`DATABASE_URL` 是 postgresql+asyncpg） |
 | 6 | `APP_SECRET_KEY`、`AUTH_API_KEYS` 强密钥 | 安全 | ✅ 2026-10-01（闸门 A2 / A4 / A4b / A4c，3 把独立钥匙） |
-| 7 | `SECURITY_ONCALL_PRIMARY` / `BACKUP` | 安全 | ❌ **未落地**：两者是同一个邮箱，没有第二个人（闸门 `E5b` 红着） |
+| 7 | `SECURITY_ONCALL_PRIMARY` / `BACKUP` | 安全 | ✅ 2026-10-01（第二值班人已配，`E5b` 机器判「主备不是同一个人」） |
 | 8 | `deployment-manifest.json` + `verify-manifest.sh` 与链上一致 | 发布 | ✅ 2026-10-01（`scripts/acceptance/verify-manifest.sh`，8 项核对：清单/环境/链上三方对齐） |
 | 9 | Karma2 `CORE_VERSION.lock` == 公开 commit（若跑私有 verify） | 私仓 | ☐ 待签（闸门 H9） |
 | 10 | OpenClaw MCP 注册 + 路径 A/B 至少一条人工签字 | 运营 | ☐ 待签（闸门 H10） |
