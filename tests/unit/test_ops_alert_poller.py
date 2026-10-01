@@ -576,3 +576,25 @@ def test_record_egress_result_does_not_call_stdout_a_delivery():
     state = {}
     poller.record_egress_result(state, ["log"], [], 5.0, "alerts")
     assert state.get("last_egress_ok_ts") is None
+
+
+def test_selftest_refreshes_the_configured_egress_list(monkeypatch, tmp_path, fake_http):
+    """自检也要把 egress 刷成「当前配了什么」。
+
+    生产上踩到的：刚配好 Telegram 就跑 --test，发送明明成功了（状态里 ok_ts 有值），
+    但 egress 还是上一次的 ['log'] —— 闸门 G4 报「no alert egress configured」。
+    原因：G4 读的是 egress，而 --test 只写了健康字段。自检本该是「配完了，验一下」的
+    那一刻，状态文件反而在这一刻最不一致，说不过去。
+    """
+    state_path = tmp_path / "state" / "security-alerts.json"
+    poller.save_state(str(state_path), {
+        "last_run_ts": time.time(), "last_ok_ts": time.time(),
+        "egress": ["log"], "active": [], "seen": {}})
+    monkeypatch.setenv("KARMA_OPS_ENV", _selftest_env(
+        tmp_path, ["KARMA_ALERT_WEBHOOK_URL=" + fake_http + "/hook"], state_path))
+
+    assert poller.main(["--test"]) == 0
+
+    state = poller.load_state(str(state_path))
+    assert state["egress"] == ["webhook"], "自检之后 egress 还是旧值，闸门会误判「没配出口」"
+    assert state["last_egress_ok_ts"] > 0

@@ -574,6 +574,11 @@ def run(args) -> int:
         if not args.dry_run:
             if failed or (sent and sent != ["log"]):
                 record_egress_result(state, sent, failed, now, "selftest")
+            # egress 记的是「当前配了什么」，不是「发出去没有」。这一项也要在这里刷新：
+            # 否则刚配好出口就跑自检时，状态文件里还留着上一轮的出口列表，闸门 G4 会拿着
+            # 过期的 egress 说「没配出口」—— 而上一行刚刚发送成功。
+            # （2026-10-01 生产上真的这么报了一次。）
+            state["egress"] = egress_targets(ops_env) or ["log"]
             try:
                 save_state(state_path, state)
             except OSError as exc:
