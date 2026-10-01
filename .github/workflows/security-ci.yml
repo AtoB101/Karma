@@ -3,6 +3,11 @@
 on:
   pull_request:
     branches: ["**"]
+  # 只挂 PR 的话，直推 main 的提交根本不进这条 workflow —— 实测 2026-09-16 之后
+  # Slither 静态分析就再没在 main 上跑过，而期间合约改过三次（v4/v5 的取消闸状态机、
+  # 买方放款确认、罚没方向防抢跑）。所以 push 到 main 也要跑。
+  push:
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
