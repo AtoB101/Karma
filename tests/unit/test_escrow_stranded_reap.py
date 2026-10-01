@@ -240,6 +240,28 @@ async def test_a_failure_on_one_binding_does_not_stop_the_others(db_session, aut
 
 
 @pytest.mark.asyncio
+async def test_an_action_landing_on_a_sibling_binding_is_not_a_reap(db_session, autosettle, monkeypatch):
+    """决定按绑定下、动作按 task 找 —— 一个 task 有多条绑定时两者会错开。
+
+    ``submit_for_task`` / ``cancel_for_task`` / ``slash_for_task`` 都走
+    ``_find_binding(task_id)``，只挑最新那条。于是「收尾」可能落在兄弟绑定上，
+    这一条一个字节都没动；不把这种情况记进 ``freed``，否则 ``reaped`` 就成了
+    会撒谎的指标（生产实测：92/161/171 每 20 秒刷一条 reaped，state 永远 active）。
+    """
+    from services.chain import escrow_autosettle as mod
+
+    async def _submit(db, *, task_id, released_amount=None):
+        return {"status": "settled", "binding_id": "999"}
+
+    monkeypatch.setattr(mod.escrow_settlement, "submit_for_task", _submit)
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add(_binding("62", task_id="task-stranded-settled"))
+    db_session.add(_settlement("settled", task_id="task-stranded-settled"))
+    await db_session.commit()
+
+    assert await autosettle.reap_stranded(db_session) == []
+
+@pytest.mark.asyncio
 async def test_no_reaping_when_escrow_is_off(db_session, autosettle, spy, monkeypatch):
     from services.chain import escrow_autosettle as mod
 

@@ -221,6 +221,24 @@ async def reap_stranded(db: AsyncSession, *, now: datetime | None = None) -> lis
             )
             await db.commit()
             continue
+        # 决定是按**这一条绑定**下的，动作却是按 task 找绑定的（submit/cancel/slash
+        # 都走 _find_binding(task_id)，只会挑最新那条）。一个 task 有多条绑定
+        # （补差重绑、历史重试留下的）时两者会错开：动作落到兄弟绑定上，这一条
+        # 一个字节都没动。这种「成功」不能记进 freed，否则 reaped 变成会撒谎的指标，
+        # 而且下一轮还会原样再来一次。
+        # 2026-10-01 生产实测：92 / 161 / 171 每 20 秒刷一条 escrow_stranded_reaped，
+        # state 永远是 active、pull_after 永远是空 —— 真正锁着的那条没人解。
+        acted_on = str((out or {}).get("binding_id") or "") if isinstance(out, dict) else ""
+        if acted_on and acted_on != str(row.binding_id):
+            logger.warning(
+                "escrow_stranded_reap_noop",
+                binding_id=row.binding_id,
+                acted_on=acted_on,
+                task_id=row.task_id,
+                settlement_status=status,
+            )
+            await db.commit()
+            continue
         freed.append(
             {"binding_id": row.binding_id, "task_id": row.task_id,
              "settlement_status": status, "result": out}
