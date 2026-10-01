@@ -436,6 +436,22 @@ h "E6b baseline drift strategy reviewed and the chosen values agreed with on-cal
 h "E7 policy-center rollback drill (/v1/security/policies/rollback) has been exercised"
 
 # --------------------------------------------------------------------------
+# 定时任务文本：F2/G2 判断「这东西到底装没装」。crontab / cron.d / /etc/crontab /
+# systemd timer 全收进来，因为「装了但用另一种方式装」也是装了。
+# --------------------------------------------------------------------------
+schedule_text() {
+  local blob=""
+  blob+="$(crontab -l 2> /dev/null || true)"$'\n'
+  if [[ -d /etc/cron.d ]]; then blob+="$(cat /etc/cron.d/* 2> /dev/null || true)"$'\n'; fi
+  if [[ -r /etc/crontab ]]; then blob+="$(cat /etc/crontab 2> /dev/null || true)"$'\n'; fi
+  if command -v systemctl > /dev/null 2>&1; then
+    blob+="$(systemctl list-timers --all --no-pager 2> /dev/null || true)"$'\n'
+    blob+="$(systemctl list-unit-files --no-pager 2> /dev/null || true)"$'\n'
+  fi
+  printf '%s' "$blob"
+}
+
+# --------------------------------------------------------------------------
 # Gate F - Backup and Recovery
 #
 # 「有备份」和「备份能用」是两件事。F3 只证明快照存在且不空；F4 证明这份 dump 真的
@@ -459,26 +475,11 @@ if [[ "$ALLOW_NON_PROD" == "true" ]] || ! eq_prod "$APP_ENV_V"; then
 else
   BK_ROOT="${KARMA_BACKUP_ROOT:-/opt/karma/backups}"
 
-  # F2 到底装没装：crontab / cron.d / /etc/crontab / systemd timer 里有没有引用它
-  sched_seen=0; sched_hit=0; sched_blob=""
-  sched_blob+="$(crontab -l 2> /dev/null || true)"$'\n'; sched_seen=1
-  if [[ -d /etc/cron.d ]]; then
-    sched_seen=1
-    sched_blob+="$(cat /etc/cron.d/* 2> /dev/null || true)"$'\n'
-  fi
-  if [[ -r /etc/crontab ]]; then
-    sched_seen=1
-    sched_blob+="$(cat /etc/crontab 2> /dev/null || true)"$'\n'
-  fi
-  if command -v systemctl > /dev/null 2>&1; then
-    sched_seen=1
-    sched_blob+="$(systemctl list-timers --all --no-pager 2> /dev/null || true)"$'\n'
-    sched_blob+="$(systemctl list-unit-files --no-pager 2> /dev/null || true)"$'\n'
-  fi
-  if printf '%s' "$sched_blob" | grep -Eq 'karma-backup|ops/backup\.sh'; then sched_hit=1; fi
-  if [[ "$sched_seen" -eq 0 ]]; then
+  # F2 到底装没装：定时任务里有没有引用它
+  sched_blob="$(schedule_text)"
+  if [[ -z "${sched_blob//[[:space:]]/}" ]]; then
     h "F2 backup schedule not inspectable from here - confirm the timer on the host"
-  elif [[ "$sched_hit" -eq 1 ]]; then
+  elif printf '%s' "$sched_blob" | grep -Eq 'karma-backup|ops/backup\.sh'; then
     p "F2 backup is scheduled (cron/systemd-timer references the backup script)"
   else
     f "F2 backup script exists but nothing schedules it - it will never run on its own"
@@ -522,6 +523,86 @@ else
 fi
 
 h "F6 an offsite copy exists in a different account/region/host and has been restored from once"
+
+# --------------------------------------------------------------------------
+# Gate G - Alerting Delivery
+#
+# B5/B6/B7 问的是「阈值和政策定没定」；这一组问的是**告警能不能到达人**。
+# 报表接口的鉴权在 B 里验过了，这里验的是「有没有人去拉、拉到之后往哪送、送没送成」。
+# 只写进 cron 日志不叫出口 —— 没有人会去看那行日志。
+# --------------------------------------------------------------------------
+echo ""
+echo "--- Gate G - Alerting Delivery"
+
+POLLER_SCRIPT="scripts/ops/security_alert_poller.py"
+if [[ ! -f "$POLLER_SCRIPT" ]]; then
+  f "G1 alert poller missing ($POLLER_SCRIPT)"
+elif [[ -z "$_PY" ]]; then
+  h "G1 $POLLER_SCRIPT present, but no usable python3 here to parse it"
+elif "$_PY" -c "import ast,sys; ast.parse(open(sys.argv[1], encoding='utf-8').read())" \
+        "$POLLER_SCRIPT" > /dev/null 2>&1; then
+  p "G1 alert poller present and parses ($POLLER_SCRIPT)"
+else
+  f "G1 $POLLER_SCRIPT does not parse"
+fi
+
+if [[ "$ALLOW_NON_PROD" == "true" ]] || ! eq_prod "$APP_ENV_V"; then
+  echo "SKIP  G2-G4 host alerting state (not a production release env)"
+else
+  sched_blob="$(schedule_text)"
+  if printf '%s' "$sched_blob" | grep -Eq 'security_alert_poller'; then
+    p "G2 alert poller is scheduled (cron/systemd-timer references it)"
+  else
+    f "G2 nothing schedules the alert poller - nobody pulls /v1/security/ops/alerts"
+  fi
+
+  ALERT_STATE="${KARMA_ALERT_STATE_PATH:-/opt/karma/state/security-alerts.json}"
+  if [[ -z "$_PY" ]]; then
+    h "G3/G4 alert poller state not inspectable (no usable python3)"
+  elif [[ ! -f "$ALERT_STATE" ]]; then
+    h "G3 the alert poller has never recorded a run ($ALERT_STATE missing)"
+  else
+    ALERT_INFO="$("$_PY" - "$ALERT_STATE" <<'PYEOF' 2> /dev/null || true
+import json, sys, time
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    print("parse_error=1"); raise SystemExit(0)
+now = time.time()
+ok_ts = data.get("last_ok_ts")
+run_ts = data.get("last_run_ts") or 0
+print("run_age=%d" % int(now - float(run_ts)))
+print("ok_age=%s" % ("" if ok_ts is None else int(now - float(ok_ts))))
+print("egress=%s" % ",".join(data.get("egress") or []))
+print("active=%d" % len(data.get("active") or []))
+PYEOF
+)"
+    a_run="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^run_age=//p')"
+    a_ok="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^ok_age=//p')"
+    a_eg="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^egress=//p')"
+    if [[ -z "$a_run" ]]; then
+      h "G3 alert poller state unreadable ($ALERT_STATE)"
+    elif [[ "$a_run" -gt 900 ]]; then
+      f "G3 alert poller has not run for ${a_run}s (schedule is not working)"
+    elif [[ -z "$a_ok" ]]; then
+      h "G3 last alert poll failed (see last_error in $ALERT_STATE)"
+    elif [[ "$a_ok" -gt 900 ]]; then
+      f "G3 last successful alert poll was ${a_ok}s ago"
+    else
+      p "G3 alert poller ran ${a_run}s ago and the last poll succeeded"
+    fi
+
+    case ",$a_eg," in
+      *",webhook,"*|*",telegram,"*|*",smtp,"*)
+        p "G4 alert egress configured (${a_eg})" ;;
+      *)
+        h "G4 no alert egress configured (${a_eg:-log}) - alerts only reach the cron log" ;;
+    esac
+  fi
+fi
+
+h "G5 a self-test alert was delivered to a human (run the poller with --test) and acknowledged"
 
 # --------------------------------------------------------------------------
 # 重活: 仓库级守门 + 回归

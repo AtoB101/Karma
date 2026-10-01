@@ -1,0 +1,23 @@
+# Karma — 安全告警出口轮询（装到 root 的 crontab）
+#
+# 安装：
+#   sudo crontab -e      # 把下面那行原样贴进去（去掉注释）
+#
+# 装完必须手工验一次：
+#   1) 出口真的通 —— 这一步会**真的发一条消息**给配好的人：
+#        sudo python3 /opt/karma/repo/scripts/ops/security_alert_poller.py --test
+#   2) 不配出口时至少确认它能拉到报表：
+#        sudo python3 /opt/karma/repo/scripts/ops/security_alert_poller.py --dry-run
+#   3) 闸门 G 项：
+#        sudo bash /opt/karma/repo/scripts/public-beta-security-gate.sh \
+#             --env-exec 'docker exec karma-api env'
+#
+# 出口配置写在 /opt/karma/.env.ops（见 scripts/ops/env.ops.example）。
+# **没配出口 = 告警只写进 /var/log/karma-alerts.log，没人会看到**，闸门 G4 会一直
+# 打印 HUMAN 等人签字。这不是「已经做完了」。
+#
+# 退出码：0 正常；4 = 本轮有新告警（有话说，不是脚本坏了）；3 = 拉取或出口失败。
+#
+# 每 5 分钟一轮。窗口 60 分钟、冷却 30 分钟，所以同一起持续事件不会刷屏。
+
+*/5 * * * * /usr/bin/python3 /opt/karma/repo/scripts/ops/security_alert_poller.py >> /var/log/karma-alerts.log 2>&1
