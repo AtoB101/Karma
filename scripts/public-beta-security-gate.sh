@@ -278,7 +278,10 @@ fi
 # 绕过 —— 原来只查字面 IP，裸域名直接放行，等于没拦。
 if [[ "$ALLOW_NON_PROD" == "true" ]]; then
   echo "SKIP  A6 x402 outbound fetch guardrails (--allow-non-prod)"
-elif ! is_true "$(ev X402_ENABLED)"; then
+elif [[ "$(printf '%s' "$(ev X402_ENABLED)" | tr 'A-Z' 'a-z')" == "false" ]]; then
+  # 注意：这里判的是「显式等于 false」而不是「不是 true」。代码里 x402_enabled 默认
+  # 就是 true，发布环境里根本没写这个变量 —— 早先按「不是 true 就 SKIP」写，生产
+  # 上直接 SKIP 掉了，等于这条闸门从没判过。
   echo "SKIP  A6 x402 disabled (X402_ENABLED=false)"
 else
   a6_backend="$(printf '%s' "$(ev X402_PAYMENT_BACKEND)" | tr 'A-Z' 'a-z')"
