@@ -152,9 +152,45 @@ def validate_api_key_for_agent(agent_id: str, api_key: str) -> bool:
     return resolved_agent_id == agent_id
 
 
+_API_KEY_PREFIX = "karma_"
+
+
+def _known_agent_ids() -> set[str]:
+    """Actor ids a ``karma_<id>_<secret>`` header may be resolved against.
+
+    Configured ``AUTH_API_KEYS`` actors plus every agent a bootstrap key was minted
+    for. Returns ids only — never a secret.
+    """
+    ids = set(settings.auth_api_keys_map().keys())
+    try:
+        from services.agent_bootstrap_credentials import known_agent_ids
+
+        ids |= known_agent_ids()
+    except Exception:  # noqa: BLE001
+        pass
+    return ids
+
+
 def _parse_api_key(api_key: str) -> Optional[tuple[str, str]]:
-    if not api_key.startswith("karma_"):
+    """Split ``karma_<agent_id>_<secret>`` without guessing where the id ends.
+
+    Neither half is delimiter-free: platform identity ids look like
+    ``kid_2b8b6dfca420c96a1409b8fd``, and minted secrets are url-safe base64. So
+    ``api_key.split("_", 2)`` collapses every ``kid_*`` identity onto the single
+    actor ``kid`` — fail-closed, but the actor named is silently wrong, and any
+    actor literally called ``kid`` becomes a shared-key alias. Resolve the actor by
+    longest-known-prefix match instead, and keep the legacy split only as the
+    last resort that the dev-key fallback path needs.
+    """
+    if not api_key.startswith(_API_KEY_PREFIX):
         return None
+    body = api_key[len(_API_KEY_PREFIX):]
+    best: Optional[str] = None
+    for agent_id in _known_agent_ids():
+        if body.startswith(agent_id + "_") and (best is None or len(agent_id) > len(best)):
+            best = agent_id
+    if best is not None:
+        return best, body[len(best) + 1:]
     parts = api_key.split("_", 2)
     if len(parts) < 3:
         return None

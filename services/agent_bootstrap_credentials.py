@@ -91,6 +91,13 @@ def has_minted_api_key(agent_id: str) -> bool:
         return aid in _KEYS
 
 
+def known_agent_ids() -> set[str]:
+    """Every agent id with a minted bootstrap key (hashes only — no secrets)."""
+    _ensure_loaded()
+    with _LOCK:
+        return set(_KEYS.keys())
+
+
 def verify_minted_api_key(agent_id: str, secret: str) -> bool:
     _ensure_loaded()
     with _LOCK:

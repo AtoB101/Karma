@@ -198,3 +198,28 @@ def test_resolve_verify_submitter_id_requires_auth_when_enforcement_on():
     finally:
         settings.auth_enforce_protected_routes = orig
 
+
+
+def test_parse_api_key_resolves_underscore_identity_ids():
+    """``kid_*`` identity ids carry '_'; the actor must not be guessed by split()."""
+    from api.middleware.auth import _parse_api_key
+
+    original_keys = settings.auth_api_keys
+    try:
+        settings.auth_api_keys = "ops-admin:ops-secret-123"
+        assert _parse_api_key("karma_ops-admin_ops-secret-123") == ("ops-admin", "ops-secret-123")
+        # a secret that itself carries '_' must survive intact
+        assert _parse_api_key("karma_ops-admin_op_s-secret") == ("ops-admin", "op_s-secret")
+
+        identity = "kid_2b8b6dfca420c96a1409b8fd"
+        settings.auth_api_keys = identity + ":sec_ret-with_underscores"
+        assert _parse_api_key("karma_" + identity + "_sec_ret-with_underscores") == (
+            identity,
+            "sec_ret-with_underscores",
+        )
+        assert validate_api_key_for_agent(identity, "karma_" + identity + "_sec_ret-with_underscores")
+        assert not validate_api_key_for_agent(identity, "karma_" + identity + "_wrong")
+        # never aliases down to the first '_'-segment
+        assert not validate_api_key_for_agent("kid", "karma_" + identity + "_sec_ret-with_underscores")
+    finally:
+        settings.auth_api_keys = original_keys
