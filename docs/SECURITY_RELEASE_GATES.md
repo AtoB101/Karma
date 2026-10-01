@@ -44,15 +44,28 @@ This checklist is blocking for broad public test rollout.
 
 | 项 | 值 |
 |---|---|
-| 时间 | 2026-10-01 |
-| 版本 | `main`（部署后再实测一遍，结论与 `340641d` 那轮一致） |
+| 时间 | 2026-10-01（`f2634d5` 部署后实测，连跑 3 遍结果一致） |
+| 版本 | `main` |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 27 · FAIL 0 · WARN 0 · HUMAN 17** |
-| 阻塞项 | 无。剩下 17 条是脚本判不了的，要人签字 |
+| 结果 | **PASS 31 · FAIL 1 · WARN 0 · HUMAN 23** |
+| 阻塞项 | `E5b` —— **值班第二个人还不存在**（`BACKUP` 和 `PRIMARY` 是同一个邮箱）。这是真缺口，不是脚本误报 |
 | 已消项 | `A4b` 警告 + `A4c` 待签：`AUTH_API_KEYS` 拆成 3 把，每个 service agent 一把（见 Gate A） |
 | 已消项 | `E5` 值班联系人已配（值只在服务器 `.env`，仓库是公开的所以不入库） |
 | 已消项 | `F1`–`F4` 备份与恢复：每小时快照 + 每天 03:17 恢复演练（实测 56 张表行数全一致） |
+| 已消项 | `G1`–`G3` 告警轮询：`*/5` cron + 差分 + 本机体检 |
+| 已消项 | `H1` / `H4` / `H5` / `H8`：链上三件套、Redis 可达、postgres、部署清单与链上三方对齐 |
 | 待签 | `F5`–`F6` 离站副本未配；`G4`–`G5` 告警出口未配（缺外部凭证） |
+| 待签 | `H2` / `H3` / `H9`–`H12`：测试钱包、按笔锚定、私仓版本锁、OpenClaw/OpenManus/上链 smoke |
+
+**这轮修掉的两个「自己人打自己人」**（都不是业务 bug，但都会让人开始不信闸门）：
+
+- **假红 1**：`set -o pipefail` + `printf '%s' "$blob" | grep -q PAT` —— grep 命中即退出，
+  上游 printf 拿到 SIGPIPE(141)，pipefail 把整条管道判成失败，于是「找到了」被判成「没找到」。
+  生产首跑时 G2 报「没人调度轮询」，同一秒 G3 报「273 秒前刚跑成功」。主机上实测 10 次错 3 次。
+  5 处（`A4c` / `D1` / `F2` / `G2` / `H4`）全改成 herestring 或变量比较。
+- **假红 2**：`ops-scripts`（分支保护里的必需检查）从加进来那天起就不可能变绿 ——
+  `tests/conftest.py` 要 `pytest_asyncio`，而这个作业刻意只装 `pytest`，pytest 连收集
+  都没开始就 exit 4。已加 `--noconftest`（这几个文件测的是独立运维脚本，不用 conftest 的 fixture）。
 
 ---
 
@@ -129,10 +142,11 @@ This checklist is blocking for broad public test rollout.
 - `[机器]` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` are configured — ✅ 2026-10-01
   （应用代码不读它们，纯「真出事先找谁」的声明。**值只写在服务器 `/opt/karma/.env`，
   不进仓库** —— 这个仓库是公开的，联系方式属于个人信息）
-- `[机器]` `SECURITY_ONCALL_BACKUP` 与 `PRIMARY` 是**两个不同的人**（`E5b`）— ❌ **当前 FAIL**
+- `[机器]` `SECURITY_ONCALL_BACKUP` 与 `PRIMARY` 是**两个不同的人**（`E5b`）— ❌ **2026-10-01 FAIL**
   （判据就一条：两个值一样 = 没有第二个人。真出事时「值班的人联系不上」和「没人值班」
   是同一件事，所以这不能靠人自觉。**现在两者还是同一个邮箱，这条不是脚本误报，是真的没落地**：
-  指定第二个人、把 `SECURITY_ONCALL_BACKUP` 换成他，E5b 才会转 PASS）
+  指定第二个人、把 `SECURITY_ONCALL_BACKUP` 换成他，E5b 才会转 PASS。
+  这就是当前唯一一条阻塞项 —— 闸门宁可为它红着，也不把它降级成一条没人看的 `HUMAN`）
 - `[机器]` Baseline drift controls exist — ✅ 2026-10-01（`baseline_window_minutes` / `baseline_drift_multiplier`）
 - `[人工]` Baseline drift strategy is reviewed —— 待签
 - `[人工]` Policy-center rollback drill (`/v1/security/policies/rollback`) has been exercised —— 待签
@@ -198,8 +212,12 @@ Sentry 配置**，没有任何东西去拉它。告警生成了，然后烂在�
 - `[机器]` H5 `DATABASE_URL` 是 postgres 而不是 SQLite
 - 见 `A2` / `A4`：H6 `APP_SECRET_KEY` 强随机、`AUTH_API_KEYS` 已配（闸门里打印 `SKIP` 并指向那边）
 - 见 `E5` / `E5b`：H7 值班主/备联系人（同上，`SKIP` 指向那边）
-- `[机器]` H8 `deployment-manifest.json` 存在 —— 没有它，「线上跑的是什么版本、用的哪个地址」
-  只能靠人记
+- `[机器]` H8 部署清单**三方对齐** —— `deployment-manifest.json` 的结构、发布环境里的绑定变量、
+  链上事实（`chain_id`、合约地址上有没有代码、结算钱包有没有钱）三者一致
+  （`scripts/acceptance/verify-manifest.sh`，实测 8 项核对全过。探不到链记 `HUMAN` 并退 3，
+  不一致记 `FAIL` 并把每条不一致打出来）。
+  这一条以前只问「文件在不在」—— 文件在不在不是重点：清单是人写的声明，**写错了比没有更糟**
+  （没有的话人会去链上查，写错了人会信它）
 - `[人工]` H9 Karma2 `CORE_VERSION.lock` 与公开 commit 对齐（私有仓库的核对）
 - `[人工]` H10 OpenClaw MCP 注册 + 一条签名通路的 A/B 实测
 - `[人工]` H11 OpenManus / `phase1_claw_manus_smoke.py` 对着活的测试网跑通
@@ -207,6 +225,13 @@ Sentry 配置**，没有任何东西去拉它。告警生成了，然后烂在�
 
 H6/H7 故意只打印 `SKIP` 而**不重复报数**：同一件事报两遍，改一处忘另一处时会出现
 「一条绿一条红」这种没法解释的输出。
+
+H8 的清单里只有**公开的链上地址**（链上可查），私钥永远不进仓库 —— 服务器 `.env` 里的
+`SETTLEMENT_OPERATOR_PRIVATE_KEY` 之类，任何时候都不许出现在这个 public 仓库里。
+
+结算运营钱包（`SETTLEMENT_OPERATOR_ADDRESS`）在清单里标的是 `eoa` 而不是 `contract`：
+它是钱包，链上本来就没有代码，写成 `contract` 会让链上核对永远红。对 EOA 查的是**余额** ——
+余额为 0 就等于结算永远发不出去，这正是一条上线前置条件。
 
 ---
 
