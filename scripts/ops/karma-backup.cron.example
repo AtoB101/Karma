@@ -1,0 +1,24 @@
+# Karma — 自动备份 + 恢复演练 + 离站（装到 root 的 crontab）
+#
+# 安装：
+#   sudo crontab -e      # 把下面两行原样贴进去（去掉注释）
+#
+# 装完必须手工验一次，别只看 cron 有没有报错：
+#   sudo /bin/bash /opt/karma/repo/scripts/ops/backup.sh --verify
+#   sudo /bin/bash /opt/karma/repo/scripts/public-beta-security-gate.sh \
+#        --env-exec 'docker exec karma-api env'
+#   —— 闸门 F3/F4/F5 三项要有结论，F4 必须是「restore drill passed」。
+#
+# 时间为什么挑 :17 —— 整点前后宝塔和 acme.sh 也在跑（root crontab 里那两条），岔开。
+#
+# 每小时一份快照（保留 48 份 = 两天），每天 03:17 那份额外做恢复演练 + 推离站。
+# 出了「昨天写坏的数据」这种事故，两天的粒度才够回溯。
+#
+# 注意：
+#   * cron 的 PATH 很短。脚本内部用的都是绝对路径，不用额外设 PATH。
+#   * 不要给这两行加 `>/dev/null`。脚本失败时打印的东西就是你唯一的告警通道。
+#   * 离站目标写在 /opt/karma/.env.ops 里（见 scripts/ops/backup.env.ops.example）。
+#     没配的话快照只落在同一块盘上，闸门 F5 会一直打印 HUMAN 等人签字。
+
+17 * * * * /bin/bash /opt/karma/repo/scripts/ops/backup.sh --keep 48 >> /var/log/karma-backup.log 2>&1
+17 3 * * * /bin/bash /opt/karma/repo/scripts/ops/backup.sh --verify --offsite --keep 48 >> /var/log/karma-backup.log 2>&1

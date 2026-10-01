@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Public beta security gate.
 #
-# 这份脚本是 docs/SECURITY_RELEASE_GATES.md（Gate A-E）里**可执行的那一半**。
+# 这份脚本是 docs/SECURITY_RELEASE_GATES.md（Gate A-F）里**可执行的那一半**。
 # 凡是能从环境变量、仓库代码、或对运行中服务做活体探测判定的条目，都在这里判，
 # 并打印 PASS / FAIL / WARN。判不了的（告警是否真的送达、演练做没做过、日志留存
 # 的合规口径、密钥轮换的时间点）打印 HUMAN —— 那些必须人签字，脚本不会替你把
@@ -434,6 +434,94 @@ else
 fi
 h "E6b baseline drift strategy reviewed and the chosen values agreed with on-call"
 h "E7 policy-center rollback drill (/v1/security/policies/rollback) has been exercised"
+
+# --------------------------------------------------------------------------
+# Gate F - Backup and Recovery
+#
+# 「有备份」和「备份能用」是两件事。F3 只证明快照存在且不空；F4 证明这份 dump 真的
+# 恢复得回去（恢复演练由 scripts/ops/backup.sh --verify 做，逐表比对行数）。
+# 只有离站副本（F5/F6）能挡住「盘坏 / 机器丢」；同盘快照挡不住。
+# --------------------------------------------------------------------------
+echo ""
+echo "--- Gate F - Backup and Recovery"
+
+BK_SCRIPT="scripts/ops/backup.sh"
+if [[ ! -f "$BK_SCRIPT" ]]; then
+  f "F1 backup script missing ($BK_SCRIPT)"
+elif ! bash -n "$BK_SCRIPT" 2> /dev/null; then
+  f "F1 $BK_SCRIPT does not parse (bash -n failed)"
+else
+  p "F1 backup script present and parses ($BK_SCRIPT)"
+fi
+
+if [[ "$ALLOW_NON_PROD" == "true" ]] || ! eq_prod "$APP_ENV_V"; then
+  echo "SKIP  F2-F5 host backup state (not a production release env)"
+else
+  BK_ROOT="${KARMA_BACKUP_ROOT:-/opt/karma/backups}"
+
+  # F2 到底装没装：crontab / cron.d / /etc/crontab / systemd timer 里有没有引用它
+  sched_seen=0; sched_hit=0; sched_blob=""
+  sched_blob+="$(crontab -l 2> /dev/null || true)"$'\n'; sched_seen=1
+  if [[ -d /etc/cron.d ]]; then
+    sched_seen=1
+    sched_blob+="$(cat /etc/cron.d/* 2> /dev/null || true)"$'\n'
+  fi
+  if [[ -r /etc/crontab ]]; then
+    sched_seen=1
+    sched_blob+="$(cat /etc/crontab 2> /dev/null || true)"$'\n'
+  fi
+  if command -v systemctl > /dev/null 2>&1; then
+    sched_seen=1
+    sched_blob+="$(systemctl list-timers --all --no-pager 2> /dev/null || true)"$'\n'
+    sched_blob+="$(systemctl list-unit-files --no-pager 2> /dev/null || true)"$'\n'
+  fi
+  if printf '%s' "$sched_blob" | grep -Eq 'karma-backup|ops/backup\.sh'; then sched_hit=1; fi
+  if [[ "$sched_seen" -eq 0 ]]; then
+    h "F2 backup schedule not inspectable from here - confirm the timer on the host"
+  elif [[ "$sched_hit" -eq 1 ]]; then
+    p "F2 backup is scheduled (cron/systemd-timer references the backup script)"
+  else
+    f "F2 backup script exists but nothing schedules it - it will never run on its own"
+  fi
+
+  BK_LATEST="$(ls -1dt "$BK_ROOT"/*/ 2> /dev/null | head -1 | sed 's:/$::')"
+  if [[ -z "$BK_LATEST" ]]; then
+    f "F3 no snapshot under $BK_ROOT"
+  else
+    BK_DUMP="$BK_LATEST/karma-db.sql.gz"
+    BK_BYTES=0
+    [[ -f "$BK_DUMP" ]] && BK_BYTES="$(stat -c '%s' "$BK_DUMP" 2> /dev/null || echo 0)"
+    BK_AGE_H=$(( ( $(date +%s) - $(stat -c '%Y' "$BK_DUMP" 2> /dev/null || date +%s) ) / 3600 ))
+    if [[ "$BK_BYTES" -lt 1024 ]]; then
+      f "F3 newest dump is empty or missing ($(basename "$BK_LATEST"): ${BK_BYTES}B)"
+    elif [[ "$BK_AGE_H" -gt 26 ]]; then
+      f "F3 newest dump is stale (${BK_AGE_H}h old, want <= 26h)"
+    else
+      p "F3 newest snapshot is fresh and non-empty ($(basename "$BK_LATEST"), ${BK_AGE_H}h old, ${BK_BYTES}B)"
+    fi
+
+    BK_MANIFEST="$BK_LATEST/manifest.txt"
+    if [[ ! -f "$BK_MANIFEST" ]]; then
+      h "F4 no manifest.txt next to the newest dump - cannot tell whether a restore drill ran"
+    else
+      V_ST="$(sed -n 's/^verify_status=//p' "$BK_MANIFEST" | tail -1)"
+      case "$V_ST" in
+        ok)     p "F4 restore drill passed on the newest snapshot (--verify, row counts identical)" ;;
+        failed) f "F4 restore drill FAILED on the newest snapshot - the backup may not be restorable" ;;
+        *)      h "F4 restore drill not run on the newest snapshot (verify_status=${V_ST:-absent})" ;;
+      esac
+      O_ST="$(sed -n 's/^offsite_status=//p' "$BK_MANIFEST" | tail -1)"
+      case "$O_ST" in
+        ok)             p "F5 offsite copy of the newest snapshot succeeded" ;;
+        failed)         f "F5 offsite copy of the newest snapshot FAILED" ;;
+        not-configured) h "F5 no offsite copy configured - the snapshot sits on the same disk as the database" ;;
+        *)              h "F5 no offsite copy recorded on the newest snapshot (offsite_status=${O_ST:-absent})" ;;
+      esac
+    fi
+  fi
+fi
+
+h "F6 an offsite copy exists in a different account/region/host and has been restored from once"
 
 # --------------------------------------------------------------------------
 # 重活: 仓库级守门 + 回归

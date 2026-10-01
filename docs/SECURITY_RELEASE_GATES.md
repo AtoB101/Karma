@@ -130,6 +130,28 @@ This checklist is blocking for broad public test rollout.
 - `[人工]` Baseline drift strategy is reviewed —— 待签
 - `[人工]` Policy-center rollback drill (`/v1/security/policies/rollback`) has been exercised —— 待签
 
+## Gate F — Backup and Recovery
+
+生产只有一台 VPS：PostgreSQL、Redis 和工作树都在 `/dev/vda3` 上。**只落在这块盘上的快照
+不算备份** —— 它和数据库一起死。所以这一组既问「有没有」，也问「能不能恢复」。
+
+- `[机器]` 备份脚本存在且能解析（`scripts/ops/backup.sh`）— ✅ 2026-10-01
+- `[机器]` 备份有调度（root crontab / systemd timer 真的引用了备份脚本）— ✅ 2026-10-01
+- `[机器]` 最近一份快照在 26h 内，且 `karma-db.sql.gz` 非空 — ✅ 2026-10-01
+- `[机器]` 最近一份快照的 dump **真的恢复得回去** — ✅ 2026-10-01
+  （`backup.sh --verify`：把 dump 恢复进一次性 `postgres:16-alpine` 容器（`--network none`），
+  再逐表比对行数。2026-10-01 实测 **56 张表行数全部一致**，一轮 6.7 秒）
+- `[人工]` 离站副本在异地/异账号，并且从它恢复过一次 — 待签
+
+两条要记住的：
+
+- `--verify` 是**恢复演练**，不是「文件在不在」。它比的是行数，不是文件大小。
+- `F5` 现在打印 `HUMAN`：`KARMA_BACKUP_OFFSITE` 还没配 —— `.env` 里只有
+  `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`，**没有端点**，所以离站推不出去。配上端点
+  （或 rsync 目标）之后，每天 03:17 那轮会自动推离站，F5 才会变成机器可判的 PASS。
+
+---
+
 ---
 
 ## 签核记录
