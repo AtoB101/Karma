@@ -6,6 +6,8 @@ Thin **Backend-for-OpenManus** service:
 - **Idempotency-Key** on mutating routes.
 - **SQLite** task state + receipts (dev default; use Postgres in production).
 - **No private keys** in this service for buyer/seller; chain txs remain wallet-side or indexer-driven webhooks.
+- **Terminal exits**: every non-terminal state can reach `FAILED`; `CANCELLED` is only reachable before
+  funds are locked. Neither moves money — see `docs/KARMA_BFF_OPENMANUS_INTEGRATION.md`.
 
 ## Run locally
 

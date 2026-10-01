@@ -76,6 +76,13 @@ VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.FROZEN: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED, TaskStatus.REFUNDED, TaskStatus.CANCELLED],
 }
 
+#: The administrative freeze override. Almost every status has an edge into it
+#: (DELIVERED / DISPUTED / ARBITRATED / SETTLED / ...), but FROZEN itself keeps
+#: out-edges back into the lifecycle, so a frozen settlement is *not* finished.
+#: Naming it is what lets :func:`is_terminal` agree with the "Terminal" labels in
+#: ``core.schemas.TaskStatus`` instead of contradicting them.
+FREEZE_OVERRIDE: TaskStatus = TaskStatus.FROZEN
+
 #: Ordering used by :func:`is_post_accepted`, which is asked one question only:
 #: "is this status reached *after* the worker was locked in?" Every status from
 #: ACCEPTED onwards must therefore sort >= ``STATUS_ORDER[TaskStatus.ACCEPTED]``
@@ -110,8 +117,22 @@ def canonical_task_status(status: TaskStatus | str) -> TaskStatus:
 
 
 def is_terminal(status: TaskStatus) -> bool:
+    """True when the settlement has left the lifecycle for good.
+
+    Derived from :data:`VALID_TRANSITIONS` so it cannot drift from the edge
+    table: a status is terminal when *every* outgoing edge is the
+    :data:`FREEZE_OVERRIDE`. That makes ``SETTLED`` / ``REFUNDED`` /
+    ``CANCELLED`` terminal (their only edge is the freeze) and keeps ``FROZEN``
+    and ``PARTIALLY_SETTLED`` non-terminal (both can still reach a money status
+    that is not a freeze).
+
+    A status with no row in the table has no outgoing edge and therefore also
+    reads as terminal -- the correct answer for ``AUTHORIZED``, which lives
+    off-task on the voucher ledger and has no settlement lifecycle at all.
+    """
     canonical = canonical_task_status(status)
-    return VALID_TRANSITIONS.get(canonical, []) == []
+    edges = VALID_TRANSITIONS.get(canonical, [])
+    return all(edge == FREEZE_OVERRIDE for edge in edges)
 
 
 def can_transition(from_status: TaskStatus, to_status: TaskStatus) -> bool:

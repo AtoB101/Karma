@@ -22,7 +22,20 @@ Send `Idempotency-Key: <unique per logical operation>` on mutating calls; same k
 
 ## Closed-loop states (server-side)
 
-`PLANNED` → `SNAPSHOT_RECORDED` → `LOCK_PENDING` → `LOCKED` → `EXECUTE_ALLOWED` → `EVIDENCE_BUILT` → (`AWAIT_ONCHAIN` — manual / indexer) → `SETTLED` (optional stub)
+`PLANNED` → `SNAPSHOT_RECORDED` → `LOCK_PENDING` → `LOCKED` → `EXECUTE_ALLOWED` → `EXECUTING` → `EVIDENCE_BUILT` → (`AWAIT_ONCHAIN` — manual / indexer) → `SETTLED`
+
+Failure / abort exits (added 2026-10-01 — before that the graph was forward-only and a
+broken trace had nowhere to go):
+
+- **any non-terminal state → `FAILED`** — `POST /v1/integration/tasks/{trace_id}/fail`
+- **`PLANNED` / `SNAPSHOT_RECORDED` / `LOCK_PENDING` → `CANCELLED`** — `POST /v1/integration/tasks/{trace_id}/cancel`,
+  reachable only *before* funds are locked; cancelling a locked task would claim
+  something the chain does not agree with.
+
+`SETTLED` / `FAILED` / `CANCELLED` are final — no transition leaves them.
+
+`FAILED` is an **orchestration verdict only**: it moves **no money**. Escrow still
+settles exclusively through chain events and the settlement API.
 
 - **OpenManus may only start heavy execution** after BFF state is **`EXECUTE_ALLOWED`** (set by **chain webhook** or **dev simulate**).
 - **Money moves on-chain only** via user wallets or your indexer; BFF never asks for seed phrases.
@@ -42,6 +55,30 @@ Send `Idempotency-Key: <unique per logical operation>` on mutating calls; same k
 ```
 
 Supported `event` values: `LOCK_CONFIRMED`, `BILL_CREATED` (both advance toward `EXECUTE_ALLOWED` in dev profile).
+
+A lock event for a trace that is already `SETTLED` / `FAILED` / `CANCELLED` is **not** silently
+ignored: the response adds `"alert": true` (`{"ignored": true, "alert": true, ...}`). Funds moved
+on-chain for a trace the BFF had already closed, so the two ledgers disagree and need a human.
+The trace is never resurrected by a webhook.
+
+## Terminal exits (orchestrator → BFF)
+
+Both require the same HMAC headers and an `Idempotency-Key`, and neither moves money.
+
+`POST /v1/integration/tasks/{trace_id}/fail`
+
+```json
+{ "reason": "tool crashed after 3 retries" }
+```
+
+`reason` is required (1–500 chars) and stored on the task row (`status_reason`), so both
+`/v1/integration/tasks/{trace_id}/status` and `/public/status/{trace_id}` show why. Replaying with a
+fresh idempotency key is a no-op that returns `{"already": true}`.
+
+`POST /v1/integration/tasks/{trace_id}/cancel`
+
+Same body. Returns `409` once funds are locked (`LOCKED` or later) or when the task is already
+terminal.
 
 ## OpenManus tools
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from apps.karma_bff.app import services
+from apps.karma_bff.app import services, state_machine
 from apps.karma_bff.app.deps import read_webhook_json
 from apps.karma_bff.app.routes_integration import _conn
 from apps.karma_bff.app.security_utils import assert_valid_trace_id
@@ -39,6 +39,18 @@ def chain_event(payload: dict[str, Any] = Depends(read_webhook_json)) -> dict[st
                 services.task_set_state(conn, trace_id, "EXECUTE_ALLOWED")
             elif st == "EXECUTE_ALLOWED":
                 return {"ok": True, "ignored": True, "reason": "already unlocked for execution", "trace_id": trace_id}
+            elif state_machine.is_terminal(st):
+                # Funds moved on-chain for a trace the BFF already closed
+                # (SETTLED / FAILED / CANCELLED). Do not resurrect it -- but do
+                # not hide the divergence either: the two ledgers now disagree
+                # and only a human can reconcile them.
+                return {
+                    "ok": True,
+                    "ignored": True,
+                    "alert": True,
+                    "reason": f"chain event {event} for terminal task {st}",
+                    "trace_id": trace_id,
+                }
             else:
                 return {"ok": True, "ignored": True, "reason": f"no transition from {st}", "trace_id": trace_id}
         else:

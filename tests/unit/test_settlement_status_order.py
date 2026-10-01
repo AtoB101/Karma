@@ -138,7 +138,41 @@ def test_settled_has_no_route_back_into_dispute():
     assert can_transition(TaskStatus.SETTLED, TaskStatus.FROZEN)
 
 
-def test_is_terminal_matches_the_edge_table():
-    """``is_terminal`` is defined by "no outgoing edge", not by the docstring."""
+def test_is_terminal_is_derived_from_the_edge_table():
+    """``is_terminal`` == "the only way out is the freeze override"."""
     for status, edges in VALID_TRANSITIONS.items():
-        assert is_terminal(status) == (edges == []), status
+        expected = all(edge == TaskStatus.FROZEN for edge in edges)
+        assert is_terminal(status) is expected, (status, edges)
+
+
+def test_money_terminal_states_read_as_terminal():
+    """The "Terminal" labels in ``core.schemas.TaskStatus`` must be honoured.
+
+    Regression: with a naive "no outgoing edge" definition, ``SETTLED`` -- whose
+    only edge is the administrative freeze -- read as *non*-terminal, so a
+    caller gating on "has this settlement finished?" would re-enter the money
+    path for a task whose funds are already released.
+    """
+    for status in (TaskStatus.SETTLED, TaskStatus.REFUNDED, TaskStatus.CANCELLED):
+        assert is_terminal(status), status
+    for status in (
+        TaskStatus.FROZEN,
+        TaskStatus.PARTIALLY_SETTLED,
+        TaskStatus.DISPUTED,
+        TaskStatus.DELIVERED,
+    ):
+        assert not is_terminal(status), status
+
+
+def test_legacy_aliases_read_as_terminal():
+    """Legacy rows must not lose the terminal answer through the mapping."""
+    for legacy in (
+        TaskStatus.RELEASED,
+        TaskStatus.SELLER_WINS,
+        TaskStatus.PARTIAL,
+        TaskStatus.BUYER_REGRET,
+        TaskStatus.FAILED,
+    ):
+        assert is_terminal(legacy), legacy
+    assert not is_terminal(TaskStatus.CREATED)
+    assert not is_terminal(TaskStatus.RUNNING)

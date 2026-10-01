@@ -139,6 +139,179 @@ class KarmaBffSmokeTests(unittest.TestCase):
         self.assertIn(b"EXECUTE_ALLOWED", r8.content)
         self.assertIn(b"tr-smoke-1", r8.content)
 
+    # -- terminal exits (failure / cancel) --------------------------------
+
+    def _post(self, path: str, body: dict, idem: str):
+        secret = os.environ["BFF_INTEGRATION_SECRET"]
+        ts, sig, raw = _sign(secret, body)
+        return self.client.post(
+            path,
+            content=raw,
+            headers={
+                "Content-Type": "application/json",
+                "X-Karma-Timestamp": ts,
+                "X-Karma-Signature": sig,
+                "Idempotency-Key": idem,
+            },
+        )
+
+    def _create(self, trace_id: str, task_id: str):
+        r = self._post(
+            "/v1/integration/tasks",
+            {"trace_id": trace_id, "task_id": task_id, "agent_id": "ag", "runtime_id": "om", "description": "d"},
+            f"idem-{trace_id}-create",
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def _drive_to_executing(self, trace_id: str, task_id: str) -> None:
+        secret = os.environ["BFF_INTEGRATION_SECRET"]
+        self._create(trace_id, task_id)
+        r = self._post(f"/v1/integration/tasks/{trace_id}/order-snapshot", {"foo": "bar"}, f"idem-{trace_id}-snap")
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self._post(f"/v1/integration/tasks/{trace_id}/buyer-lock-intent", {}, f"idem-{trace_id}-lock")
+        self.assertEqual(r.status_code, 200, r.text)
+        wh = {"trace_id": trace_id, "event": "LOCK_CONFIRMED", "bill_id": 7, "tx_hash": "0xabc"}
+        ts, sig, raw = _sign(secret, wh)
+        r = self.client.post(
+            "/v1/webhooks/chain",
+            content=raw,
+            headers={"Content-Type": "application/json", "X-Karma-Timestamp": ts, "X-Karma-Signature": sig},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        r = self._post(
+            f"/v1/integration/tasks/{trace_id}/receipts",
+            {"receipt_id": f"{task_id}-r1", "step_index": 0, "tool_name": "t", "status": "success"},
+            f"idem-{trace_id}-r1",
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["state"], "EXECUTING")
+
+    def test_cancel_exit_is_legal_before_funds_move(self) -> None:
+        self._create("tr-smoke-cancel", "task-cancel")
+        r = self._post("/v1/integration/tasks/tr-smoke-cancel/cancel", {"reason": "buyer aborted"}, "idem-cancel-1")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["state"], "CANCELLED")
+
+        # CANCELLED is final: the forward path is closed.
+        r2 = self._post("/v1/integration/tasks/tr-smoke-cancel/order-snapshot", {}, "idem-cancel-snap")
+        self.assertEqual(r2.status_code, 409, r2.text)
+
+        # A replay with a fresh idempotency key reports the outcome, not a 409.
+        r3 = self._post("/v1/integration/tasks/tr-smoke-cancel/cancel", {"reason": "buyer aborted"}, "idem-cancel-2")
+        self.assertEqual(r3.status_code, 200, r3.text)
+        self.assertTrue(r3.json()["already"])
+        self.assertEqual(r3.json()["reason"], "buyer aborted")
+
+    def test_cancel_is_refused_once_funds_are_locked(self) -> None:
+        self._drive_to_executing("tr-smoke-nodead", "task-nodead")
+        r = self._post("/v1/integration/tasks/tr-smoke-nodead/cancel", {"reason": "oops"}, "idem-nodead-cancel")
+        self.assertEqual(r.status_code, 409, r.text)
+        r2 = self.client.get("/public/status/tr-smoke-nodead")
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertEqual(r2.json()["state"], "EXECUTING")
+
+    def test_fail_exit_is_reachable_and_terminal(self) -> None:
+        self._drive_to_executing("tr-smoke-fail", "task-fail")
+        r = self._post("/v1/integration/tasks/tr-smoke-fail/fail", {"reason": "tool crashed"}, "idem-fail-1")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["state"], "FAILED")
+
+        # Terminal: no more execution evidence can be attached.
+        r2 = self._post(
+            "/v1/integration/tasks/tr-smoke-fail/receipts",
+            {"receipt_id": "task-fail-r2", "step_index": 1, "tool_name": "t", "status": "success"},
+            "idem-fail-r2",
+        )
+        self.assertEqual(r2.status_code, 409, r2.text)
+
+        # Replay keeps the recorded reason.
+        r3 = self._post("/v1/integration/tasks/tr-smoke-fail/fail", {"reason": "tool crashed"}, "idem-fail-2")
+        self.assertEqual(r3.status_code, 200, r3.text)
+        self.assertTrue(r3.json()["already"])
+        self.assertEqual(r3.json()["reason"], "tool crashed")
+
+        # The reason is readable from the public status page.
+        r4 = self.client.get("/public/status/tr-smoke-fail")
+        self.assertEqual(r4.json()["state"], "FAILED")
+
+    def test_terminal_exits_require_a_reason(self) -> None:
+        self._create("tr-smoke-noreason", "task-noreason")
+        for path in ("fail", "cancel"):
+            r = self._post(f"/v1/integration/tasks/tr-smoke-noreason/{path}", {"reason": "   "}, f"idem-nr-{path}")
+            self.assertEqual(r.status_code, 400, (path, r.text))
+
+    def test_chain_event_for_a_closed_task_raises_an_alert(self) -> None:
+        secret = os.environ["BFF_INTEGRATION_SECRET"]
+        self._create("tr-smoke-alert", "task-alert")
+        r = self._post("/v1/integration/tasks/tr-smoke-alert/cancel", {"reason": "buyer aborted"}, "idem-alert-cancel")
+        self.assertEqual(r.status_code, 200, r.text)
+        wh = {"trace_id": "tr-smoke-alert", "event": "LOCK_CONFIRMED", "bill_id": 9, "tx_hash": "0xdead"}
+        ts, sig, raw = _sign(secret, wh)
+        r2 = self.client.post(
+            "/v1/webhooks/chain",
+            content=raw,
+            headers={"Content-Type": "application/json", "X-Karma-Timestamp": ts, "X-Karma-Signature": sig},
+        )
+        self.assertEqual(r2.status_code, 200, r2.text)
+        self.assertTrue(r2.json()["ignored"])
+        self.assertTrue(r2.json()["alert"])
+        # It must not resurrect the trace.
+        r3 = self.client.get("/public/status/tr-smoke-alert")
+        self.assertEqual(r3.json()["state"], "CANCELLED")
+
+
+class BffStateGraphTests(unittest.TestCase):
+    """Graph invariants -- pure, so they run even where FastAPI is absent."""
+
+    def test_every_non_terminal_state_has_a_failure_exit(self) -> None:
+        from apps.karma_bff.app import state_machine
+
+        for state, edges in state_machine.VALID_TRANSITIONS.items():
+            if state in state_machine.TERMINAL_STATES:
+                continue
+            self.assertIn(
+                state_machine.FAILURE_STATE,
+                edges,
+                f"{state} has no way out when the orchestrator gives up",
+            )
+
+    def test_terminal_states_have_no_out_edges(self) -> None:
+        from apps.karma_bff.app import state_machine
+
+        for state in state_machine.TERMINAL_STATES:
+            self.assertEqual(state_machine.VALID_TRANSITIONS[state], set(), state)
+
+    def test_terminal_set_matches_the_empty_edge_rows(self) -> None:
+        from apps.karma_bff.app import state_machine
+
+        empty = {s for s, e in state_machine.VALID_TRANSITIONS.items() if not e}
+        self.assertEqual(empty, set(state_machine.TERMINAL_STATES))
+
+    def test_cancel_is_only_reachable_before_funds_are_locked(self) -> None:
+        from apps.karma_bff.app import state_machine
+
+        cancel = state_machine.CANCEL_STATE
+        for state in ("PLANNED", "SNAPSHOT_RECORDED", "LOCK_PENDING"):
+            self.assertTrue(state_machine.can_transition(state, cancel), state)
+        for state in (
+            "LOCKED",
+            state_machine.EXECUTE_STATE,
+            "EXECUTING",
+            "EVIDENCE_BUILT",
+            "AWAIT_ONCHAIN",
+        ):
+            self.assertFalse(state_machine.can_transition(state, cancel), state)
+
+    def test_is_terminal_agrees_with_the_table(self) -> None:
+        from apps.karma_bff.app import state_machine
+
+        for state in state_machine.VALID_TRANSITIONS:
+            self.assertEqual(
+                state_machine.is_terminal(state),
+                not state_machine.VALID_TRANSITIONS[state],
+                state,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

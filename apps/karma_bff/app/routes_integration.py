@@ -10,7 +10,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
-from apps.karma_bff.app import auth, config, services
+from apps.karma_bff.app import auth, config, services, state_machine
 from apps.karma_bff.app.deps import read_hmac_json
 from apps.karma_bff.app.security_utils import assert_valid_trace_id
 
@@ -209,6 +209,90 @@ def append_receipt(
         return {"ok": True, "trace_id": trace_id, "state": services.task_get(conn, trace_id)["state"]}
 
     return _idem(idempotency_key, f"receipt:{trace_id}:{payload.get('receipt_id')}", go)
+
+
+def _terminal_reason(payload: dict[str, Any]) -> str:
+    reason = str(payload.get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(400, "reason required")
+    if len(reason) > 500:
+        raise HTTPException(400, "reason too long (max 500 chars)")
+    return reason
+
+
+def _terminal_exit(conn, trace_id: str, target: str, reason: str) -> dict[str, Any]:
+    """Shared body for the two terminal exits (no money is moved here)."""
+    row = services.task_get(conn, trace_id)
+    if not row:
+        raise HTTPException(404, "task not found")
+    if row["state"] == target:
+        # Replayed after the caller never saw the first response: report the
+        # outcome instead of turning a retry into a 409.
+        return {
+            "ok": True,
+            "already": True,
+            "trace_id": trace_id,
+            "state": row["state"],
+            "reason": row.get("status_reason"),
+        }
+    if state_machine.is_terminal(row["state"]):
+        raise HTTPException(409, f"task already terminal ({row['state']})")
+    if not state_machine.can_transition(row["state"], target):
+        raise HTTPException(
+            409,
+            f"cannot reach {target} from {row['state']}"
+            + (" -- funds may already be locked" if target == state_machine.CANCEL_STATE else ""),
+        )
+    services.task_set_state(conn, trace_id, target, reason)
+    return {
+        "ok": True,
+        "trace_id": trace_id,
+        "state": target,
+        "reason": reason,
+    }
+
+
+@router.post("/tasks/{trace_id}/fail")
+def fail_task(
+    trace_id: str,
+    payload: dict[str, Any] = Depends(read_hmac_json),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> dict[str, Any]:
+    """Terminal failure exit -- the state machine used to have none.
+
+    Previously a broken trace had nowhere to go, so the orchestrator had to keep
+    polling a task that would never advance. This marks the off-chain lifecycle
+    finished. It moves **no money**: escrow still settles only through chain
+    events.
+    """
+    trace_id = _tid(trace_id)
+    reason = _terminal_reason(payload)
+
+    def go(conn) -> dict[str, Any]:
+        return _terminal_exit(conn, trace_id, state_machine.FAILURE_STATE, reason)
+
+    return _idem(idempotency_key, f"fail:{trace_id}", go)
+
+
+@router.post("/tasks/{trace_id}/cancel")
+def cancel_task(
+    trace_id: str,
+    payload: dict[str, Any] = Depends(read_hmac_json),
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> dict[str, Any]:
+    """Abort a trace that has not committed funds yet.
+
+    Reachable only from ``PLANNED`` / ``SNAPSHOT_RECORDED`` / ``LOCK_PENDING``
+    (see ``state_machine.VALID_TRANSITIONS``): once escrow is locked the honest
+    answer is ``/fail``, not "cancelled".
+    """
+    trace_id = _tid(trace_id)
+    reason = _terminal_reason(payload)
+
+    def go(conn) -> dict[str, Any]:
+        return _terminal_exit(conn, trace_id, state_machine.CANCEL_STATE, reason)
+
+    return _idem(idempotency_key, f"cancel:{trace_id}", go)
 
 
 @router.post("/tasks/{trace_id}/evidence/build")

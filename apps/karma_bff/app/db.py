@@ -28,6 +28,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
             snapshot_json TEXT,
             bill_id INTEGER,
             lock_tx TEXT,
+            status_reason TEXT,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         );
@@ -46,6 +47,13 @@ def init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_receipts_trace ON receipts(trace_id);
         """
     )
+    # ``CREATE TABLE IF NOT EXISTS`` never adds a column to a database that
+    # predates it, so a deployment created before ``status_reason`` existed
+    # needs an explicit, idempotent ALTER. Without it every terminal write that
+    # carries a reason fails with "no such column: status_reason".
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
+    if "status_reason" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN status_reason TEXT")
     conn.commit()
 
 

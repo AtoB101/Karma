@@ -36,7 +36,17 @@ def task_get(conn: sqlite3.Connection, trace_id: str) -> dict[str, Any] | None:
     return dict(row)
 
 
-def task_set_state(conn: sqlite3.Connection, trace_id: str, new_state: str) -> None:
+def task_set_state(
+    conn: sqlite3.Connection,
+    trace_id: str,
+    new_state: str,
+    reason: str | None = None,
+) -> None:
+    """Move a task to ``new_state``; ``reason`` is recorded on terminal exits.
+
+    The state machine is the only gate here -- callers must not pre-check it, so
+    that every write goes through the same transition table.
+    """
     row = task_get(conn, trace_id)
     if row is None:
         raise KeyError("task not found")
@@ -45,10 +55,16 @@ def task_set_state(conn: sqlite3.Connection, trace_id: str, new_state: str) -> N
         return
     if not state_machine.can_transition(old, new_state):
         raise ValueError(f"invalid transition {old} -> {new_state}")
-    conn.execute(
-        "UPDATE tasks SET state = ?, updated_at = ? WHERE trace_id = ?",
-        (new_state, _now(), trace_id),
-    )
+    if reason is None:
+        conn.execute(
+            "UPDATE tasks SET state = ?, updated_at = ? WHERE trace_id = ?",
+            (new_state, _now(), trace_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE tasks SET state = ?, status_reason = ?, updated_at = ? WHERE trace_id = ?",
+            (new_state, reason, _now(), trace_id),
+        )
     conn.commit()
 
 
