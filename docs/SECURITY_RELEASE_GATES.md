@@ -44,9 +44,10 @@ This checklist is blocking for broad public test rollout.
 | 时间 | 2026-10-01 |
 | 版本 | `main`（部署后再实测一遍，结论与 `340641d` 那轮一致） |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 19 · FAIL 1 · WARN 0 · HUMAN 13** |
-| 阻塞项 | `E5` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` 未配置（需要真人联系方式，脚本不能编） |
-| 已消项 | `A4b` 的警告已消：`AUTH_API_KEYS` 拆成 3 把，每个 service agent 一把（见 Gate A） |
+| 结果 | **PASS 20 · FAIL 0 · WARN 0 · HUMAN 13** |
+| 阻塞项 | 无。剩下 13 条是脚本判不了的，要人签字 |
+| 已消项 | `A4b` 警告 + `A4c` 待签：`AUTH_API_KEYS` 拆成 3 把，每个 service agent 一把（见 Gate A） |
+| 已消项 | `E5` 值班联系人已配（值只在服务器 `.env`，仓库是公开的所以不入库） |
 
 ---
 
@@ -120,9 +121,11 @@ This checklist is blocking for broad public test rollout.
 - `[人工]` Public acceptance script passes —— 见该 commit 的 GitHub Actions run，待签
 - `[机器]` Rollback/on-call runbook exists — ✅ 2026-10-01（`docs/SECURITY_INCIDENT_PLAYBOOK.md`）
 - `[人工]` Rollback plan and on-call runbook are confirmed —— 待签
-- `[机器]` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` are configured
-  — ❌ **2026-10-01 未配置**（`/opt/karma/.env` 里没有这两项；应用代码不读它们，
-  纯声明用。需要真人联系方式，脚本不能编）
+- `[机器]` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` are configured — ✅ 2026-10-01
+  （应用代码不读它们，纯「真出事先找谁」的声明。**值只写在服务器 `/opt/karma/.env`，
+  不进仓库** —— 这个仓库是公开的，联系方式属于个人信息。
+  注意：**目前 `BACKUP` 和 `PRIMARY` 是同一个人，还没有第二联系人**；
+  指定第二个人之后把 `SECURITY_ONCALL_BACKUP` 换掉）
 - `[机器]` Baseline drift controls exist — ✅ 2026-10-01（`baseline_window_minutes` / `baseline_drift_multiplier`）
 - `[人工]` Baseline drift strategy is reviewed —— 待签
 - `[人工]` Policy-center rollback drill (`/v1/security/policies/rollback`) has been exercised —— 待签
