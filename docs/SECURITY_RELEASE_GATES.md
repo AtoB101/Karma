@@ -222,9 +222,14 @@ python3 /opt/karma/repo/scripts/ops/security_alert_poller.py --test
   现在本地留痕排在网络调用前面。
 - **一个出口挂掉会连累其他出口**：原来是顺序调用且不接异常，webhook 一挂，Telegram 永远
   收不到。现在每个出口独立 try/except —— 多出口的意义就是冗余。
-- **失败会泄露 bot token**：Telegram 的 token 就在请求 URL 的路径里，`urllib` 的异常会把
-  整条 URL 带进 stderr 和状态文件，而这两样都会跟着备份和日志采集走。现在写出去之前统一
-  过一遍 `redact()`。
+- **失败信息里可能夹带 token 的隐患**：这条要说准确 —— 在服务器上逐条实测过，`urllib`
+  的 `HTTPError` / `URLError` / `InvalidURL` 目前**不会**把请求 URL 带进 `str(exc)`，所以
+  眼下并没有在漏。但 `HTTPError.url` 属性里躺着完整的
+  `https://api.telegram.org/bot<token>/sendMessage`，而「为了排查方便把异常打全一点」
+  （`%r`、或者顺手打印 `exc.url`）是最自然的下一次改动，那一刻 token 就会进 cron 日志，
+  而那份日志跟着备份和采集一起走。所以现在往 stderr 和状态文件写东西之前统一过一遍
+  `redact()`：按形状认 token，也按值抹掉配置里任何名字像密钥的字段。这是防下一步，不是
+  修一个已发生的泄露。
 - **`--test` 假绿**：原来无条件 `return 0`，没配出口也报成功。现在发不出去就是退出码 5。
 
 轮询脚本顺带做几条**不需要外部凭证就有用**的本机体检（和应用的告警共用同一套差分逻辑）：

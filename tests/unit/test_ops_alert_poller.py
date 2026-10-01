@@ -452,6 +452,21 @@ def test_redact_catches_a_token_that_is_not_in_the_ops_file():
     assert "HTTP Error 401" in scrubbed
 
 
+def test_redact_survives_the_obvious_next_change_of_printing_the_whole_exception():
+    """实测：现在 str(exc) 里没有 token，但 HTTPError.url 里有。
+
+    也就是说「为了排查方便把异常打全一点」这一步（%r，或者把 exc.url 打出来）会立刻
+    把 token 写进 cron 日志。这个用例锁的就是那一步 —— 别让一次调试习惯变成一次泄露。
+    """
+    token = "9001:AAFakeTokenForTestsOnly_0123456789abcd"
+    exc = urllib.error.HTTPError(
+        "https://api.telegram.org/bot%s/sendMessage" % token, 401, "Unauthorized", None, None)
+
+    assert token not in str(exc), "前提变了：str(exc) 现在带 token 了，注释要跟着改"
+    for blob in (repr(exc), "%s" % exc.url, "url=%r" % exc):
+        assert token not in poller.redact(blob, {})
+
+
 def test_redact_scrubs_config_secrets_echoed_in_errors(monkeypatch):
     ops_env = {"KARMA_ALERT_SMTP_PASSWORD": "hunter2-not-in-logs"}
     text = poller.redact("login failed: password=hunter2-not-in-logs", ops_env)

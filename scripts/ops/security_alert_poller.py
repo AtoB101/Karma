@@ -401,15 +401,23 @@ def egress_targets(ops_env: dict[str, str]) -> list[str]:
     return targets
 
 
-# Telegram 的 token 就在请求 URL 的路径里：https://api.telegram.org/bot<token>/sendMessage。
-# urllib 抛出的异常会把整条 URL 带上，而这条信息要写进 stderr（→ cron 的
-# /var/log/karma-alerts.log）和状态文件；日志又会被备份和采集带走。一次网络抖动，
-# 不该等价于一次密钥泄露 —— 所以凡是往日志/状态文件写的外部字符串，先过一遍这里。
+# 先说实话：2026-10-01 在服务器上逐条实测过，urllib 的失败信息（HTTPError / URLError /
+# InvalidURL）**不会**把请求 URL 带进 str(exc)，所以这条路径眼下不漏 token。
+# 但 HTTPError 的 .url 属性里就躺着完整的 https://api.telegram.org/bot<token>/sendMessage，
+# 而「为了排查方便，把异常打印得更全一点（%r 或者把 exc.url 打出来）」是最自然的下一次
+# 改动 —— 那一刻 token 就会进 cron 日志（/var/log/karma-alerts.log），而那份日志跟着
+# 备份和日志采集一起走。所以这里拦的不是一个已经发生的泄露，而是：凡是往日志/状态文件写
+# 的外部字符串，先过一次脱敏，让「顺手多打一点」永远不会变成一次密钥泄露。
+# 顺带把配置里名字像密钥的字段按值抹掉（webhook URL、SMTP 密码都可能把口令嵌在里面）。
 _BOT_TOKEN_IN_URL = _re.compile(r"bot\d{4,}:[A-Za-z0-9_\-]{20,}")
 
 
 def redact(text: str, ops_env: dict[str, str] | None = None) -> str:
-    """把错误信息里可能夹带的密钥抹掉，再让它进日志或状态文件。"""
+    """把错误信息里可能夹带的密钥抹掉，再让它进日志或状态文件。
+
+    两条规则：按形状认（bot<数字>:<长串>，token 不在 ops_env 里时用得上），
+    按值认（配置里名字像密钥的字段，出现即抹）。见上面那段注释里的实测结论。
+    """
     out = _BOT_TOKEN_IN_URL.sub("bot<redacted>", "%s" % text)
     for name, value in (ops_env or {}).items():
         if not isinstance(value, str) or len(value) < 8:
@@ -432,8 +440,8 @@ def deliver(ops_env: dict[str, str], subject: str, text: str, payload: dict,
        永远收不到。多出口的全部意义就是冗余。
     3. **失败要能被上层看见。** 返回 failed，让状态文件记住「上次发送失败了」，闸门 G4
        才能从「配了出口没有」变回「最近一次到底发出去没有」。
-    4. **失败原因要脱敏。** Telegram 的 token 就在请求 URL 里，而 urllib 的异常会把
-       URL 原样带出来，这条信息会进 stderr 和状态文件。见 redact()。
+    4. **失败原因要脱敏。** 这条会进 stderr（→ cron 日志）和状态文件，所以先过
+       redact()。见 redact() 上面那段：拦的是「顺手把异常打全」这个下一步，不是已发生的泄露。
     """
     targets = egress_targets(ops_env)
     timeout = int(cfg(ops_env, "timeout", DEFAULTS["timeout"]))
