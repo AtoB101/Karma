@@ -128,9 +128,11 @@ This checklist is blocking for broad public test rollout.
 - `[人工]` Rollback plan and on-call runbook are confirmed —— 待签
 - `[机器]` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` are configured — ✅ 2026-10-01
   （应用代码不读它们，纯「真出事先找谁」的声明。**值只写在服务器 `/opt/karma/.env`，
-  不进仓库** —— 这个仓库是公开的，联系方式属于个人信息。
-  注意：**目前 `BACKUP` 和 `PRIMARY` 是同一个人，还没有第二联系人**；
-  指定第二个人之后把 `SECURITY_ONCALL_BACKUP` 换掉）
+  不进仓库** —— 这个仓库是公开的，联系方式属于个人信息）
+- `[机器]` `SECURITY_ONCALL_BACKUP` 与 `PRIMARY` 是**两个不同的人**（`E5b`）— ❌ **当前 FAIL**
+  （判据就一条：两个值一样 = 没有第二个人。真出事时「值班的人联系不上」和「没人值班」
+  是同一件事，所以这不能靠人自觉。**现在两者还是同一个邮箱，这条不是脚本误报，是真的没落地**：
+  指定第二个人、把 `SECURITY_ONCALL_BACKUP` 换成他，E5b 才会转 PASS）
 - `[机器]` Baseline drift controls exist — ✅ 2026-10-01（`baseline_window_minutes` / `baseline_drift_multiplier`）
 - `[人工]` Baseline drift strategy is reviewed —— 待签
 - `[人工]` Policy-center rollback drill (`/v1/security/policies/rollback`) has been exercised —— 待签
@@ -180,6 +182,31 @@ Sentry 配置**，没有任何东西去拉它。告警生成了，然后烂在�
 最新快照超过 26h、恢复演练失败、离站拷贝失败、磁盘超 90%。
 
 ---
+
+## Gate H — Testnet Go-Live Prerequisites
+
+`docs/public-testing/PUBLIC_TESTNET_GO_LIVE-zh.md` §4 有 12 条「Go 之前全部 ☐→☑」的前置条件。
+以前它们只是文档里一排空方框：没人知道到底缺哪几条、谁去补、补成什么样算完 —— 一处漏了，
+上线当天才发现。这一组把那 12 条搬进闸门，能机器判的机器判，判不了的明确记 `HUMAN`
+并写清楚**去哪判**，不假装判过。
+
+- `[机器]` H1 链上三件套已配（`TESTNET_RPC_URL` / `ERC20_TOKEN_ADDRESS` / `KARMA_BILATERAL_ADDRESS`）
+- `[人工]` H2 买方/卖方测试钱包真的有钱（钱的事，shell 判不了）
+- `[人工]` H3 `CHAIN_ANCHOR_HASH` —— 它**本该按笔交易写入**，不是全局 env。
+  env 里有只算参考，所以机器判到 `HUMAN` 为止，让人确认「确实是按笔写」
+- `[机器]` H4 Redis 从主机可达（限流要 fail-closed，连不上就必须拒）
+- `[机器]` H5 `DATABASE_URL` 是 postgres 而不是 SQLite
+- 见 `A2` / `A4`：H6 `APP_SECRET_KEY` 强随机、`AUTH_API_KEYS` 已配（闸门里打印 `SKIP` 并指向那边）
+- 见 `E5` / `E5b`：H7 值班主/备联系人（同上，`SKIP` 指向那边）
+- `[机器]` H8 `deployment-manifest.json` 存在 —— 没有它，「线上跑的是什么版本、用的哪个地址」
+  只能靠人记
+- `[人工]` H9 Karma2 `CORE_VERSION.lock` 与公开 commit 对齐（私有仓库的核对）
+- `[人工]` H10 OpenClaw MCP 注册 + 一条签名通路的 A/B 实测
+- `[人工]` H11 OpenManus / `phase1_claw_manus_smoke.py` 对着活的测试网跑通
+- `[人工]` H12 `RUN_TESTNET_ONCHAIN` 混合上链 smoke
+
+H6/H7 故意只打印 `SKIP` 而**不重复报数**：同一件事报两遍，改一处忘另一处时会出现
+「一条绿一条红」这种没法解释的输出。
 
 ---
 

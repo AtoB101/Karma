@@ -423,6 +423,13 @@ if [[ "$ALLOW_NON_PROD" == "true" ]]; then
   echo "SKIP  E5 SECURITY_ONCALL_* (--allow-non-prod)"
 elif [[ -n "$ONCALL_P" && -n "$ONCALL_B" ]]; then
   p "E5 SECURITY_ONCALL_PRIMARY / SECURITY_ONCALL_BACKUP configured"
+  # 两个值一样 = 没有第二个人。真出事时「值班的人联系不上」和「没人值班」等价，
+  # 所以这一条也必须是机器可判的。
+  if [[ "${ONCALL_P,,}" == "${ONCALL_B,,}" ]]; then
+    f "E5b SECURITY_ONCALL_BACKUP is the same as PRIMARY - there is no second on-call"
+  else
+    p "E5b on-call primary and backup are different people"
+  fi
 else
   f "E5 SECURITY_ONCALL_PRIMARY / SECURITY_ONCALL_BACKUP must be configured"
 fi
@@ -610,6 +617,71 @@ PYEOF
 fi
 
 h "G5 a self-test alert was delivered to a human (run the poller with --test) and acknowledged"
+
+# --------------------------------------------------------------------------
+# Gate H - Testnet Go-Live Prerequisites
+#
+# docs/public-testing/PUBLIC_TESTNET_GO_LIVE-zh.md §4 的那 12 条「Go 前全部 ☐→☑」。
+# 以前它们只是文档里一排空方框：没人知道到底缺哪几条、谁去补。能机器判的放这里判，
+# 判不了的（「有钱的测试钱包」「人工签字」）明确留给人，不假装判过。
+# --------------------------------------------------------------------------
+echo ""
+echo "--- Gate H - Testnet Go-Live Prerequisites"
+
+if [[ "$ALLOW_NON_PROD" == "true" ]] || ! eq_prod "$APP_ENV_V"; then
+  echo "SKIP  H1-H12 (not a production release env)"
+else
+  # H1 链上三件套
+  h1_missing=""
+  for _v in TESTNET_RPC_URL ERC20_TOKEN_ADDRESS KARMA_BILATERAL_ADDRESS; do
+    [[ -n "$(ev "$_v")" ]] || h1_missing="${h1_missing} ${_v}"
+  done
+  if [[ -z "$h1_missing" ]]; then
+    p "H1 chain config present (TESTNET_RPC_URL / ERC20_TOKEN_ADDRESS / KARMA_BILATERAL_ADDRESS)"
+  else
+    f "H1 missing chain config:${h1_missing}"
+  fi
+
+  # H3 每次 launch 的锚定哈希。它本该由交易流程按笔写入，环境变量里有没有只算参考。
+  if [[ -n "$(ev CHAIN_ANCHOR_HASH)" ]]; then
+    p "H3 CHAIN_ANCHOR_HASH is pinned in the release env"
+  else
+    h "H3 CHAIN_ANCHOR_HASH not in env - confirm it is written per trade (it is per-launch, not global)"
+  fi
+
+  # H4 / H5 运行态依赖：限流要 fail-closed，数据库必须不是 SQLite
+  if docker exec karma-redis redis-cli ping 2> /dev/null | grep -q PONG; then
+    p "H4 Redis reachable from the host (the limiter can fail closed)"
+  else
+    h "H4 cannot confirm Redis from here - check by hand"
+  fi
+  db_url_v="$(ev DATABASE_URL)"
+  if [[ "$db_url_v" == postgres* ]]; then
+    p "H5 PostgreSQL in use (DATABASE_URL is postgresql, not SQLite)"
+  else
+    f "H5 DATABASE_URL is not postgresql ('$(printf '%s' "$db_url_v" | cut -c1-24)')"
+  fi
+
+  # H6 / H7 已经在别处机器判过，这里不重复报数，只说明去哪看
+  echo "SKIP  H6 strong APP_SECRET_KEY / AUTH_API_KEYS (judged by A2/A4)"
+  echo "SKIP  H7 on-call primary/backup (judged by E5/E5b)"
+
+  # H8 部署清单：没有它，「线上跑的是什么」只能靠人记
+  if [[ -f scripts/acceptance/verify_testnet_manifest_sample.sh ]] && \
+     ls deployment-manifest.json > /dev/null 2>&1; then
+    p "H8 deployment-manifest.json present next to verify-manifest tooling"
+  elif [[ -f scripts/acceptance/verify_testnet_manifest_sample.sh ]]; then
+    h "H8 no deployment-manifest.json - the deployed revision/addresses are not recorded as a verifiable artifact"
+  else
+    f "H8 no manifest tooling at all"
+  fi
+
+  h "H2 funded buyer/seller test wallets exist (money, cannot be judged from a shell)"
+  h "H9 Karma2 CORE_VERSION.lock matches the public commit (private-repo check)"
+  h "H10 OpenClaw MCP registration + a signed path A/B run"
+  h "H11 OpenManus / phase1_claw_manus_smoke.py passes against the live testnet"
+  h "H12 RUN_TESTNET_ONCHAIN hybrid on-chain smoke"
+fi
 
 # --------------------------------------------------------------------------
 # 重活: 仓库级守门 + 回归
