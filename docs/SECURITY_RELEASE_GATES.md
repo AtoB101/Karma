@@ -47,7 +47,7 @@ This checklist is blocking for broad public test rollout.
 | 时间 | 2026-10-02（本轮部署后实测，`--no-heavy`；重活由 CI 覆盖） |
 | 版本 | `main` |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 46 · FAIL 0 · WARN 0 · HUMAN 12**（退出码 0；累计比 2026-10-01 那轮多 12 条机器判定、少 10 条待签） |
+| 结果 | **PASS 48 · FAIL 0 · WARN 0 · HUMAN 11**（退出码 0；累计比 2026-10-01 那轮多 14 条机器判定、少 11 条待签） |
 | 阻塞项 | 无。`E5b` 已消：第二值班人配好，`BACKUP` 与 `PRIMARY` 是两个不同的人（值只在服务器 `.env`） |
 | 已消项 | `G4`：告警出口接上 Telegram（运维专用 bot），最近一次真发送成功；`G5` 改为机器判（`last_selftest_ok_ts` 粘性证据）；`B3` 改为判**真告警真的送达过**（2026-10-02 实做投递演练）。**改完当场又踩到一个「自己人打自己人」**：常规轮询收尾是重拼状态字典，漏搬了两个粘性键，自检刚写下的证据被下一轮 `*/5` 擦掉 —— 见下面第三条 |
 | 已消项 | `B5`/`B6`/`B7`：**本轮发现 B6 其实是空的** —— `security_threshold_policies` 表 0 行，全站跑代码默认值。已激活 v2，在 `auth`/`runtime`/`verification`/`settlement` 四个关键路由组上单独收紧，冷却 10 分钟。闸门改为直读库里 active 那一行，并把文档钉版与库中版本**逐字段比对**（对不上就 FAIL） |
@@ -61,10 +61,11 @@ This checklist is blocking for broad public test rollout.
 | 已消项 | `F1`–`F4` 备份与恢复：每小时快照 + 每天 03:17 恢复演练（实测 56 张表行数全一致） |
 | 已消项 | `G1`–`G3` 告警轮询：`*/5` cron + 差分 + 本机体检 |
 | 已消项 | `H1` / `H4` / `H5` / `H8`：链上三件套、Redis 可达、postgres、部署清单与链上三方对齐 |
+| 已消项 | `E1`/`E2`：回归与公开验收以前一律待签（「去看那个 commit 的 Actions run」）。仓库是公开的，Actions 运行列表**不需要 token** 就能读，所以发布机上直判：HEAD 那个 sha 的所有 run 必须 completed + 成功；还在跑记 `HUMAN`（CI 没跑完既不算过也不算挂），concluded 但不成功才记 `FAIL`；探不到（没 git/python、GitHub 不可达、被限流）一律 `HUMAN` |
 | 已消项 | `B8`（新增）：安全事件**落盘**了 —— 以前只在进程内存里，每次发布都把 15 分钟检测窗口清零。生产实测：重建容器**前后**报表都是 `failed_auth=8`（修之前重建后必定是 0）。机器判据是 `B8`：造一个会被记录的事件，再从发布环境里那份 journal 的最后一行读回来 |
 | 已消项 | `B3`/`G5` 的投递证据能在常规轮询里**存活**（2026-10-02 生产实测：自检写完 `last_selftest_ok_ts` 后紧接跑一次常规轮询，该值仍在（旧版会变 `never`）；随后打尖峰 → 下一轮 `*/5` 投出 3 条 `rate_limit_spike`，`last_alert_ok_ts` 与之同时在场） |
 | 待签 | `F5`–`F6` 离站副本未配 —— 只缺一个「离站落点」（另一台机器或对象存储，见 Gate F） |
-| 待签 | `A4d`（白名单里的身份号确有其人）、`E1`/`E2`（CI 回归与公开验收的人签）、`E4b`（回滚/值班手册人确认）、`E6b`（基线漂移策略评审） |
+| 待签 | `A4d`（白名单里的身份号确有其人）、`E4b`（回滚/值班手册人确认）、`E6b`（基线漂移策略评审） |
 | 待签 | `H2` / `H3` / `H9`–`H12`：测试钱包、按笔锚定、私仓版本锁、OpenClaw/OpenManus/上链 smoke |
 
 **这轮修掉的「自己人打自己人」**（都不是业务 bug，但都会让人开始不信闸门）：
@@ -236,8 +237,12 @@ list**（`_EVENTS`），`build_security_ops_alert_report` 只从那个 list 取�
 
 ## Gate E — Verification and Rollback
 
-- `[人工]` Security regression tests pass in CI —— 见该 commit 的 GitHub Actions run，待签
-- `[人工]` Public acceptance script passes —— 见该 commit 的 GitHub Actions run，待签
+- `[机器]` Security regression tests pass in CI（`E1`）— ✅ 2026-10-02
+  （以前一律待签。仓库公开，发布机 HEAD 那个 sha 的 Actions 运行列表
+  **不需要 token** 就能读，直判即可；还在跑记 `HUMAN`，探不到也记 `HUMAN`
+  —— 「探不到不算通过」这条规矩这里同样适用）
+- `[机器]` Public acceptance script passes（`E2`）— ✅ 2026-10-02
+  （公开验收由 CI 跑，与 `E1` 同一份 run 列表）
 - `[机器]` Rollback/on-call runbook exists — ✅ 2026-10-01（`docs/SECURITY_INCIDENT_PLAYBOOK.md`）
 - `[人工]` Rollback plan and on-call runbook are confirmed —— 待签
 - `[机器]` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` are configured — ✅ 2026-10-01

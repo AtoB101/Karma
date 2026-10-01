@@ -723,8 +723,65 @@ fi
 echo ""
 echo "--- Gate E - Verification and Rollback"
 
-h "E1 security regression tests pass in CI (see the GitHub Actions run for this commit)"
-h "E2 public acceptance script passes (run by CI; heavy local run below)"
+# E1/E2 以前一律 HUMAN（「去看那个 commit 的 Actions run」）。仓库是 **public**，
+# Actions 运行列表不需要 token 就能读，所以从发布机上可以直判：
+#   发布机 HEAD 那个 sha 的所有 run —— 全部 completed + 成功才算过；
+#   还在跑的记 HUMAN（CI 没跑完既不算过也不算挂）；completed 但结论不是成功的记 FAIL。
+# 探不到（没 git / 没 python / GitHub 不可达 / 被限流）一律 HUMAN —— 探不到不算通过。
+e_sha=""
+e1_state="unavailable"
+if [[ -n "$_PY" ]] && command -v git > /dev/null 2>&1 && git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+  e_sha="$(git rev-parse HEAD 2> /dev/null || echo '')"
+fi
+if [[ -n "$e_sha" ]]; then
+  e1_out="$(REPO_SLUG="AtoB101/Karma" E_SHA="$e_sha" "$_PY" -c '
+import json, os, urllib.request
+slug = os.environ["REPO_SLUG"]
+sha = os.environ["E_SHA"]
+url = "https://api.github.com/repos/%s/actions/runs?head_sha=%s&per_page=50" % (slug, sha)
+req = urllib.request.Request(url, headers={
+    "User-Agent": "karma-security-gate",
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+})
+try:
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        data = json.loads(resp.read().decode())
+except Exception as exc:
+    print("unavailable 0 0 0 %s" % type(exc).__name__)
+    raise SystemExit
+runs = data.get("workflow_runs") or []
+bad = pending = 0
+for run in runs:
+    if run.get("status") != "completed":
+        pending += 1
+    elif run.get("conclusion") not in ("success", "neutral", "skipped"):
+        bad += 1
+print("%s %d %d %d" % ("ok" if runs else "empty", bad, pending, len(runs)))
+' 2> /dev/null || echo "unavailable 0 0 0")"
+  read -r e1_state e1_bad e1_pending e1_total _rest <<< "$e1_out"
+fi
+e1_bad="${e1_bad:-0}"; e1_pending="${e1_pending:-0}"; e1_total="${e1_total:-0}"
+
+case "$e1_state" in
+  ok)
+    if [[ "$e1_bad" != "0" ]]; then
+      f "E1 a CI run for ${e_sha:0:8} concluded NOT successful (${e1_bad} of ${e1_total}) - https://github.com/AtoB101/Karma/actions"
+    elif [[ "$e1_pending" != "0" ]]; then
+      h "E1 CI for ${e_sha:0:8} is still running (${e1_pending} of ${e1_total} not completed) - re-run the gate once it settles"
+    else
+      p "E1 security regression tests pass in CI (${e1_total} run(s) green for ${e_sha:0:8})"
+      p "E2 public acceptance script passes (run by CI; heavy local run below)"
+    fi
+    ;;
+  empty)
+    h "E1/E2 no GitHub Actions runs found for ${e_sha:0:8} - confirm the CI result by hand"
+    ;;
+  *)
+    h "E1 security regression tests pass in CI (see the GitHub Actions run for this commit)"
+    h "E2 public acceptance script passes (run by CI; heavy local run below)"
+    ;;
+esac
 
 if [[ -f docs/SECURITY_INCIDENT_PLAYBOOK.md ]]; then
   p "E4a rollback/on-call runbook exists (docs/SECURITY_INCIDENT_PLAYBOOK.md)"
