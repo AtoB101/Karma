@@ -90,5 +90,11 @@ jobs:
           set -euo pipefail
           python3 -m pip install --upgrade pip
           python3 -m pip install pytest
-          python3 -m pytest -q tests/unit/test_ops_s3_put.py tests/unit/test_ops_alert_poller.py \
-                             tests/unit/test_deployment_manifest.py
+          # --noconftest 不是图快，是**这个作业从加进来的第一天起就没绿过**：
+          # tests/conftest.py 第一件事就是 import pytest_asyncio，而那是应用测试套件的
+          # 依赖（pip install -e ".[dev]" 才有），这个作业刻意只装 pytest。于是 pytest
+          # 连收集都没开始就 exit 4 —— 而它还是个必需检查。这几个 ops 单测是独立脚本的
+          # 单测，不用 conftest 里的任何 fixture，绕开它是正解，装整套应用依赖才是舍本逐末。
+          python3 -m pytest -q --noconftest \
+            tests/unit/test_ops_s3_put.py tests/unit/test_ops_alert_poller.py \
+            tests/unit/test_deployment_manifest.py
