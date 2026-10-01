@@ -485,7 +485,14 @@ else
     f "F2 backup script exists but nothing schedules it - it will never run on its own"
   fi
 
-  BK_LATEST="$(ls -1dt "$BK_ROOT"/*/ 2> /dev/null | head -1 | sed 's:/$::')"
+  # 只认 YYYYmmdd-HHMMSS 这种快照目录。deploy 脚本会往同一个 /opt/karma/backups 里
+  # 放 web-<ts> 的网站备份，它没有 karma-db.sql.gz —— 2026-10-01 拿它当「最新快照」
+  # 判了一次假 FAIL。一条假 FAIL 会让人开始不信闸门，和假绿灯一样糟。
+  BK_LATEST=""
+  while read -r _d; do
+    [[ -n "$_d" ]] || continue
+    if [[ "$(basename "$_d")" =~ ^[0-9]{8}-[0-9]{6}$ ]]; then BK_LATEST="$_d"; break; fi
+  done < <(ls -1dt "$BK_ROOT"/*/ 2> /dev/null | sed 's:/$::')
   if [[ -z "$BK_LATEST" ]]; then
     f "F3 no snapshot under $BK_ROOT"
   else
