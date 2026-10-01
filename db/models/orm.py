@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey,
-    Integer, String, Text, UniqueConstraint,
+    Index, Integer, String, Text, UniqueConstraint,
 )
 from sqlalchemy.types import TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -316,6 +316,13 @@ class SettlementModel(Base):
 
     contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="settlement")
 
+    # autosettle 每 15s 扫 `WHERE status='disputed' ORDER BY updated_at LIMIT n`
+    # (services/chain/escrow_autosettle.align_disputed_settlements)。没有这个复合索引
+    # 就是全表扫 + 排序，行数一涨这条对账路径就跟着涨。
+    __table_args__ = (
+        Index("ix_settlements_status_updated", "status", "updated_at"),
+    )
+
 
 class SettlementTransitionAuditModel(Base):
     __tablename__ = "settlement_transition_audits"
@@ -332,6 +339,15 @@ class SettlementTransitionAuditModel(Base):
     actor_id:            Mapped[str | None] = mapped_column(String(64))
     metadata_:           Mapped[dict] = mapped_column("metadata", JSON, default=dict)
     created_at:          Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+
+    # 迁移 0017 声明了这两个索引，但模型里一直没写 —— 于是任何走 `create_all` 建库的
+    # 环境（含测试）都不会有它们，生产上也真的没有（2026-10-01 核对：只有 pkey）。
+    # 审计表只增不减，`/v1/settlement/{id}/transitions` 又按 task_id 查，缺索引就是
+    # 一条必然随时间劣化的路径。
+    __table_args__ = (
+        Index("ix_settlement_transition_audits_task_created", "task_id", "created_at"),
+        Index("ix_settlement_transition_audits_settlement_created", "settlement_id", "created_at"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +490,13 @@ class EscrowBindingModel(Base):
     buyer_confirmed_at: Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
     created_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # autosettle 的每一次扫描都按 state 过滤、按 created_at 排序
+    # (due_bindings / due_breach_bindings / stranded_bindings / reconcile_from_chain)。
+    # `state` 此前完全没有索引。
+    __table_args__ = (
+        Index("ix_escrow_bindings_state_created", "state", "created_at"),
+    )
 
 
 class VoucherModel(Base):
