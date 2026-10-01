@@ -103,7 +103,11 @@ This checklist is blocking for broad public test rollout.
 
 - `[机器]` `APP_ENV=production` — ✅ 2026-10-01
 - `[机器]` `APP_SECRET_KEY` is rotated and non-default — ✅ 2026-10-01（非默认，长度 64）
-- `[人工]` `APP_SECRET_KEY` is rotated and non-default —— **轮换日期是谁、什么时候做的**，待签
+- `[人工]` `APP_SECRET_KEY` is rotated and non-default —— ✅ 2026-10-01 已签（**A2b**），签字人 YMZAI
+  口径与事实要分开写：**2026-10-01 = 首次建立轮换制度的基准日**，周期 **90 天**，**首次真轮换计划 2026-12-30**；
+  这条 key **从建网起从未轮换过**（回溯 12 份 `.env` 备份，指纹一致，最早 `2026-09-02 17:09`）——
+  所以在 2026-12-30 真正做完之前，台账里它一直是「未轮换」。
+  台账 / 代价 / 操作手册见 [KEY_ROTATION.md](./KEY_ROTATION.md)
 - `[机器]` `AUTH_ENFORCE_PROTECTED_ROUTES=true` — ✅ 2026-10-01
 - `[机器]` `AUTH_API_KEYS` configured — ✅ 2026-10-01（3 条）
 - `[机器]` `AUTH_API_KEYS` gives every service agent its own key — ✅ 2026-10-01

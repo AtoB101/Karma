@@ -65,6 +65,7 @@ Start at the root [README.md](../README.md) for the repo map.
 | [SECURITY_DISCLOSURE.md](./SECURITY_DISCLOSURE.md) | Vulnerability disclosure |
 | [SECURITY_INCIDENT_PLAYBOOK.md](./SECURITY_INCIDENT_PLAYBOOK.md) | Incident response |
 | [SECURITY_RELEASE_GATES.md](./SECURITY_RELEASE_GATES.md) | Release gates |
+| [KEY_ROTATION.md](./KEY_ROTATION.md) | 密钥轮换台账 + 操作手册（Gate A 的 `A2b` 凭据） |
 | [security-boundary.md](./security-boundary.md) | Public/private boundary |
 | [STRESS_TEST_RUNBOOK.md](./STRESS_TEST_RUNBOOK.md) | Stress procedures |
 | [ADVERSARIAL_FULLCHAIN_AUDIT_V1.md](./ADVERSARIAL_FULLCHAIN_AUDIT_V1.md) | Full-chain adversarial |
