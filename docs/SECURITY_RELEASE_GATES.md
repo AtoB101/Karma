@@ -301,6 +301,23 @@ H8 的清单里只有**公开的链上地址**（链上可查），私钥永远�
 它是钱包，链上本来就没有代码，写成 `contract` 会让链上核对永远红。对 EOA 查的是**余额** ——
 余额为 0 就等于结算永远发不出去，这正是一条上线前置条件。
 
+### 单 worker 是硬要求（不是省内存）
+
+`services/runtime_safety.py` 的刹车状态已经**落库**（migration `0060_runtime_safety_mode`）：
+写完当场提交、进程启动时灌回缓存、后台每 5 秒重灌一次。所以多 worker 不再是
+「刹车只拦住 1/N」，最坏也只是晚几秒全量生效。
+
+即便如此，**API 仍然必须单 worker** —— `deploy/docker-compose.yml` 里显式钉死
+`--workers 1`，`deploy/Dockerfile.api` 同步改成 1：
+
+- 还有若干进程内状态没落库：`runtime_key_service._replay` 的同进程 nonce 去重、
+  `escrow_settlement._recover_failed_at` 的回查冷却表；
+- 单机 1.6 GB 内存，多 worker 只是把 OOM 的概率乘上去。
+
+回归用例：`tests/unit/test_single_worker_pinning.py` —— 把 `--workers 4` 写回去就红。
+刹车落库本身的回归用例：`tests/unit/test_runtime_safety_persistence.py`
+（「重启之后刹车还在」「关掉也活过重启」「写库失败时刹车仍生效」）。
+
 ---
 
 ## 签核记录

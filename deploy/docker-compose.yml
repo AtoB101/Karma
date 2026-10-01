@@ -62,6 +62,11 @@ services:
     environment:
       - PORT=8000
       - KARMA_ENV=production
+    # 单 worker 是**硬要求**，不是省内存：刹车/运维暂停（services/runtime_safety.py）、
+    # nonce 的同进程去重（runtime_key_service._replay）、链上回查冷却表
+    # （escrow_settlement._recover_failed_at）都还是进程内状态。刹车状态已落库
+    # （migration 0060），多 worker 最坏只是晚几秒，但单机 1.6 GB 也经不起 4 份解释器。
+    command: ["sh", "-c", "exec uvicorn api.app:app --host 0.0.0.0 --port 8000 --workers 1"]
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

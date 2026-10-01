@@ -19,4 +19,7 @@ USER karma
 
 EXPOSE 8000
 
-CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# 单 worker 是硬要求，不是省内存（说明见 deploy/docker-compose.yml 与
+# tests/unit/test_single_worker_pinning.py）：刹车/运维暂停、nonce 同进程去重、
+# 链上回查冷却表都还是进程内状态；1.6 GB 的机器上 4 份解释器本身就是 OOM 风险。
+CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -127,6 +127,12 @@ REQUEST_LATENCY = Histogram(
 async def lifespan(app: FastAPI):
     logger.info("karma_api_starting", env=settings.app_env)
     await init_db()
+    # 刹车状态落库（migration 0060 / services/runtime_safety.py）：启动时灌一次缓存，
+    # 之后后台定期重灌 —— 容器重建/OOM 重启不再把刹车弹回「关」。
+    from services import runtime_safety
+
+    await runtime_safety.hydrate_runtime_safety_mode()
+    safety_refresh_task = asyncio.create_task(runtime_safety.run_refresher_forever())
     # 注册 Bot 命令菜单
     try:
         from services.telegram.bot import setup_bot_commands
@@ -143,6 +149,9 @@ async def lifespan(app: FastAPI):
 
         autosettle_task = asyncio.create_task(escrow_autosettle.run_forever())
     yield
+    safety_refresh_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await safety_refresh_task
     if autosettle_task is not None:
         autosettle_task.cancel()
         with suppress(asyncio.CancelledError):

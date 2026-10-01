@@ -17,8 +17,8 @@ from services.actor_guards import require_admin_actor
 from services.payment_intent_service import expire_stale_intents
 from services.runtime_safety import (
     get_runtime_safety_mode_state,
-    set_runtime_operational_pauses,
-    set_runtime_safety_mode,
+    set_runtime_operational_pauses_persisted,
+    set_runtime_safety_mode_persisted,
 )
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 
@@ -70,7 +70,7 @@ async def update_admin_safety_mode(
     body: UpdateSafetyModeRequest,
     admin_actor_id: str = Depends(require_admin_actor),
 ) -> RuntimeSafetyModeState:
-    result = set_runtime_safety_mode(
+    result = await set_runtime_safety_mode_persisted(
         enabled=body.enabled,
         reason=body.reason,
         actor_id=admin_actor_id,
@@ -95,7 +95,7 @@ async def update_admin_operational_pauses(
     body: UpdateOperationalPausesRequest,
     admin_actor_id: str = Depends(require_admin_actor),
 ) -> RuntimeSafetyModeState:
-    result = set_runtime_operational_pauses(
+    result = await set_runtime_operational_pauses_persisted(
         pause_new_lock=body.pause_new_lock,
         pause_new_authorization=body.pause_new_authorization,
         pause_new_task=body.pause_new_task,

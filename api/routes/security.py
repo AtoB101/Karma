@@ -42,7 +42,7 @@ from services.security_policy_center import (
 from services.runtime_safety import (
     audit_capacity_anchor_and_maybe_trip,
     get_runtime_safety_mode_state,
-    set_runtime_safety_mode,
+    set_runtime_safety_mode_persisted,
 )
 
 router = APIRouter()
@@ -299,7 +299,8 @@ async def update_runtime_safety_mode(
     body: UpdateRuntimeSafetyModeRequest,
     _: str = Depends(require_admin_actor),
 ) -> RuntimeSafetyModeState:
-    return set_runtime_safety_mode(
+    # 落库（migration 0060）：刹车必须活过重启，见 services/runtime_safety.py。
+    return await set_runtime_safety_mode_persisted(
         enabled=body.enabled,
         reason=body.reason,
         actor_id=body.actor_id,
@@ -482,7 +483,8 @@ async def get_security_ops_alerts(
         for alert in report.alerts
     )
     if auto_brake_on_transition_critical and should_auto_brake:
-        set_runtime_safety_mode(
+        # 自动刹车同样落库：它常常正赶上「有人要去重启服务查故障」。
+        await set_runtime_safety_mode_persisted(
             enabled=True,
             reason="auto brake: settlement transition denied rate critical alert",
             actor_id=auto_brake_actor_id,

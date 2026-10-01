@@ -1343,3 +1343,30 @@ class UsageSettlementModel(Base):
     created_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
     settled_at:         Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     updated_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+class RuntimeSafetyModeModel(Base):
+    """刹车开关的落库状态 —— 单行（``id=1``）。
+
+    以前这一份状态只在进程内存里（``services/runtime_safety.py`` 的模块级
+    ``_STATE``）：容器一重建/OOM 重启，之前手动或自动拉下的刹车就自己弹回「关」，
+    正好在最需要它的时刻失效；多 worker 时更是各记一份。
+
+    这里只存**开关本身**（enabled / reason / triggered_by / triggered_at /
+    四个 pause_*）。容量锚的遥测（``last_anchor_audit_at`` / ``total_locked_usdc``
+    / ``total_bill_credits``）每次审计都要重算，不进库 —— 否则每一笔动钱的请求
+    都会多写一次库。
+
+    见 migration ``0060_runtime_safety_mode`` 与 ``services/runtime_safety.py``。
+    """
+
+    __tablename__ = "runtime_safety_mode"
+
+    id:                  Mapped[int]        = mapped_column(Integer, primary_key=True, autoincrement=False)
+    enabled:             Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
+    reason:              Mapped[str | None] = mapped_column(String(512), nullable=True)
+    triggered_by:        Mapped[str | None] = mapped_column(String(128), nullable=True)
+    triggered_at:        Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    pause_new_lock:      Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
+    pause_new_authorization: Mapped[bool]   = mapped_column(Boolean, nullable=False, default=False)
+    pause_new_task:      Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
+    pause_new_settlement: Mapped[bool]      = mapped_column(Boolean, nullable=False, default=False)
+    updated_at:          Mapped[datetime]   = mapped_column(UTCDateTime, nullable=False, default=datetime.utcnow)
