@@ -200,8 +200,50 @@ else
   p "A4 AUTH_API_KEYS configured (${key_count} entr(y|ies))"
   if [[ "$key_count" -lt 2 ]]; then
     w "A4b only ${key_count} API key configured - confirm every service agent has its own key"
+  else
+    p "A4b ${key_count} API keys configured (one per service agent)"
   fi
-  h "A4c AUTH_API_KEYS covers every service agent (per-agent keys, not one shared key)"
+
+  # A4c —— 2026-10-01 从 HUMAN 收口成机器可判。
+  # 「每个 service agent 一把独立 key」能判的部分就三条：
+  #   1. 没有任何两个 agent 共用同一个 secret（共用 = 审计追不到人）；
+  #   2. 每把 secret 都不短（弱密钥等于没有）；
+  #   3. 运维白名单里点名的 actor 必须各有一把自己的钥匙 —— 悬空的
+  #      `ADMIN_ACTOR_IDS` 条目等于把一个没人管的 id 留成了后门。
+  # 判不出来的那部分（白名单里的身份号是不是真的对得上人）留给 A4d 人工签。
+  # 注：白名单里的 `kid_*`（身份号）和纯数字（telegram id）是另一个命名空间，
+  # 不占静态钥匙的账，跳过。
+  a4c_bad=0
+  key_actors="$(printf '%s' "$KEYS_V" | tr ',' '\n' \
+    | awk -F: 'NF >= 2 { a = $1; gsub(/^[ \t]+|[ \t]+$/, "", a); print a }' || true)"
+  dup_secrets="$(printf '%s' "$KEYS_V" | tr ',' '\n' \
+    | awk -F: 'NF >= 2 { sub(/^[^:]*:/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); print }' \
+    | sort | uniq -d || true)"
+  if [[ -n "$dup_secrets" ]]; then
+    f "A4c two service agents share the same API key secret - audit cannot tell them apart"
+    a4c_bad=1
+  fi
+  short_actors="$(printf '%s' "$KEYS_V" | tr ',' '\n' \
+    | awk -F: 'NF >= 2 { a = $1; sub(/^[^:]*:/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); if (length($0) < 24) print a }' || true)"
+  if [[ -n "$short_actors" ]]; then
+    f "A4c API key secret shorter than 24 chars: $(printf '%s' "$short_actors" | tr '\n' ' ')"
+    a4c_bad=1
+  fi
+  for listed_var in ADMIN_ACTOR_IDS ARBITRATOR_ACTOR_IDS GOVERNANCE_VERIFIER_IDS; do
+    for listed_actor in $(ev "$listed_var" | tr ',' ' '); do
+      case "$listed_actor" in
+        kid_*|[0-9]*) continue ;;
+      esac
+      if ! printf '%s\n' "$key_actors" | grep -qxF "$listed_actor"; then
+        f "A4c ${listed_var} names '${listed_actor}' but AUTH_API_KEYS has no key for it (dangling privileged actor)"
+        a4c_bad=1
+      fi
+    done
+  done
+  if [[ "$a4c_bad" == "0" ]]; then
+    p "A4c no shared secret, no short secret, every privileged actor has its own key"
+  fi
+  h "A4d 运维白名单里的身份号（kid_* / telegram id）确有其人，且与持有人对得上"
 fi
 
 # A5 - 运行环境里不该出现测试凭证

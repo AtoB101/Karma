@@ -42,13 +42,27 @@ This checklist is blocking for broad public test rollout.
 | 项 | 值 |
 |---|---|
 | 时间 | 2026-10-01 |
-| 版本 | `main @ 340641d`（部署后再实测一遍，结论与 ac041c5 一致） |
+| 版本 | `main`（部署后再实测一遍，结论与 `340641d` 那轮一致） |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 17 · FAIL 1 · WARN 1 · HUMAN 13** |
-| 阻塞项 | `E5` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` 未配置 |
-| 警告 | `A4b` 只配了 1 个 `AUTH_API_KEYS` 条目 |
+| 结果 | **PASS 19 · FAIL 1 · WARN 0 · HUMAN 13** |
+| 阻塞项 | `E5` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` 未配置（需要真人联系方式，脚本不能编） |
+| 已消项 | `A4b` 的警告已消：`AUTH_API_KEYS` 拆成 3 把，每个 service agent 一把（见 Gate A） |
 
 ---
+
+## 运维 service agent 钥匙一览（2026-10-01）
+
+生产只认这三把静态钥匙，每把只覆盖它自己那个角色，**互不隐含**。任何一把泄漏只影响
+它自己；换钥匙只改 `/opt/karma/.env` 再重建 `karma-api`，不动代码。
+
+| 钥匙（`X-Karma-Api-Key`） | 角色 | 对应白名单 | 能做什么 |
+|---|---|---|---|
+| `karma_ops-admin_…` | 平台管理员 | `ADMIN_ACTOR_IDS` | 刹车（safety-mode）、安全阈值策略、平台资金面、运维告警 |
+| `karma_ops-arbitrator_…` | 争议仲裁员 | `ARBITRATOR_ACTOR_IDS` | 仲裁派庭、执行裁决、运维报表 |
+| `karma_ops-governance_…` | 治理身份发放方 | `GOVERNANCE_VERIFIER_IDS` | 开 verifier / arbitrator 治理岗 |
+
+交接与轮换：明文写在服务器 `/opt/karma/.service-agent-keys-<时间戳>.txt`（`chmod 600`），
+`.env` 本体也是 `600`。**这三把都不要进 git、不要贴进聊天。**
 
 ## Gate A — Identity and Access
 
@@ -56,9 +70,14 @@ This checklist is blocking for broad public test rollout.
 - `[机器]` `APP_SECRET_KEY` is rotated and non-default — ✅ 2026-10-01（非默认，长度 64）
 - `[人工]` `APP_SECRET_KEY` is rotated and non-default —— **轮换日期是谁、什么时候做的**，待签
 - `[机器]` `AUTH_ENFORCE_PROTECTED_ROUTES=true` — ✅ 2026-10-01
-- `[机器]` `AUTH_API_KEYS` configured — ✅ 2026-10-01（1 条）
-- `[人工]` `AUTH_API_KEYS` configured for all service agents —— 目前**只有 1 条**，
-  确认「每个 service agent 一把独立 key」还是共用一个；共用就是审计追溯不出人。待签
+- `[机器]` `AUTH_API_KEYS` configured — ✅ 2026-10-01（3 条）
+- `[机器]` `AUTH_API_KEYS` gives every service agent its own key — ✅ 2026-10-01
+  （`ops-admin` / `ops-arbitrator` / `ops-governance` 各一把独立 secret。脚本 `A4c` 判三件事：
+  **没有两把共用同一个 secret**（共用 = 审计追不到人）、**每把 secret ≥ 24 字符**、
+  **`ADMIN_ACTOR_IDS` / `ARBITRATOR_ACTOR_IDS` / `GOVERNANCE_VERIFIER_IDS` 里点名的每个
+  非身份号 actor 都有自己的钥匙**。最后一条是硬的：悬空白名单条目直接 FAIL ——
+  一个没人管的 id 留在管理员名单里就是后门）
+- `[人工]` 运维白名单里的身份号（`kid_*` / telegram id）确有其人，且与持有人对得上 —— 待签
 - `[机器]` No test credentials are present in runtime env — ✅ 2026-10-01
   （`AUTH_ALLOW_DEV_KEY_FALLBACK` / `OPENCLAW_LOCAL_PHASE1_AUTO_RELAX` /
   `OPENCLAW_RELAX_DELIVERY_SIGNATURES` 均为 false，且无 `TEST_*/DEMO_*/SEED_*` 形状的凭证变量）
