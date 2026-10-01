@@ -47,10 +47,12 @@ This checklist is blocking for broad public test rollout.
 | 时间 | 2026-10-01 |
 | 版本 | `main`（部署后再实测一遍，结论与 `340641d` 那轮一致） |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 20 · FAIL 0 · WARN 0 · HUMAN 13** |
-| 阻塞项 | 无。剩下 13 条是脚本判不了的，要人签字 |
+| 结果 | **PASS 27 · FAIL 0 · WARN 0 · HUMAN 17** |
+| 阻塞项 | 无。剩下 17 条是脚本判不了的，要人签字 |
 | 已消项 | `A4b` 警告 + `A4c` 待签：`AUTH_API_KEYS` 拆成 3 把，每个 service agent 一把（见 Gate A） |
 | 已消项 | `E5` 值班联系人已配（值只在服务器 `.env`，仓库是公开的所以不入库） |
+| 已消项 | `F1`–`F4` 备份与恢复：每小时快照 + 每天 03:17 恢复演练（实测 56 张表行数全一致） |
+| 待签 | `F5`–`F6` 离站副本未配；`G4`–`G5` 告警出口未配（缺外部凭证） |
 
 ---
 

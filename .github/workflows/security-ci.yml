@@ -56,3 +56,37 @@ jobs:
 
       - name: Trust-engine public safety guard
         run: ./scripts/check-trust-engine-public-safety.sh
+
+  # 运维脚本是「真出事时唯一能救命的东西」，但它们以前没有任何 CI 覆盖：
+  # 备份、恢复演练、告警出口、部署入口、闸门本身，改坏了要等到线上那一刻才知道。
+  # 这里只做能离线做的部分：解析 + 单测。
+  ops-scripts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Shell scripts parse
+        run: |
+          set -euo pipefail
+          for f in scripts/ops/*.sh deploy/vps/*.sh scripts/public-beta-security-gate.sh; do
+            echo "bash -n ${f}"
+            bash -n "${f}"
+          done
+
+      - name: Python ops scripts compile
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/ops/*.py
+          echo "all ops scripts parse"
+
+      - name: Ops unit tests
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pytest
+          python3 -m pytest -q tests/unit/test_ops_s3_put.py tests/unit/test_ops_alert_poller.py

@@ -7,6 +7,9 @@
 #   拉代码 → 跑数据库迁移 → 发布静态站与操作台 → 重建容器（不 build）→ 健康检查。
 #
 # 必须在服务器上 /opt/karma/repo 这份检出里执行；脚本自己会切过去。
+#
+# CI 侧调用它的 SSH key 是**带 forced command 的**（见 docs/DEPLOY_PIPELINE.md）：
+# 这把 key 只能触发这个脚本，拿不到 shell。所以这里不做任何交互。
 set -euo pipefail
 
 REPO_DIR="/opt/karma/repo"
@@ -24,4 +27,33 @@ else
   echo "找不到 karma CLI（既没有 ${CLI_SRC}，也不在 PATH 里）"; exit 1
 fi
 
-exec bash "${CLI}" deploy
+bash "${CLI}" deploy
+
+# --------------------------------------------------------------------------
+# 部署后自证
+# --------------------------------------------------------------------------
+# 「脚本没报错」不等于「线上跑的就是这次提交」。以前这里 `exec` 掉自己，
+# 跑完就没了下文，CI 绿了但没人证明服务器真的换了版本。现在补上：
+#   1. HEAD 必须等于刚 fetch 到的 origin/main（拉取真的生效了）；
+#   2. 已跟踪文件不能有未提交改动（否则线上跑的代码不在任何提交里，回滚无从谈起）。
+# 未跟踪文件只提醒不拦：部署过程本身会生成一些。
+EXPECTED="$(git rev-parse origin/main 2> /dev/null || true)"
+ACTUAL="$(git rev-parse HEAD 2> /dev/null || true)"
+if [ -z "${EXPECTED}" ] || [ -z "${ACTUAL}" ]; then
+  echo "部署后校验失败：拿不到 origin/main 或 HEAD" >&2
+  exit 1
+fi
+if [ "${ACTUAL}" != "${EXPECTED}" ]; then
+  echo "部署后校验失败：HEAD=${ACTUAL}，origin/main=${EXPECTED}" >&2
+  echo "（拉取没生效，或者本地被改到了别的提交上）" >&2
+  exit 1
+fi
+if ! git diff --quiet; then
+  echo "部署后校验失败：/opt/karma/repo 里有未提交的已跟踪改动" >&2
+  git diff --stat >&2
+  exit 1
+fi
+if [ -n "$(git status --porcelain --untracked-files=normal | grep '^??' || true)" ]; then
+  echo "部署后提醒：工作树里有未跟踪文件（不拦部署）" >&2
+fi
+echo "deployed revision verified: ${ACTUAL}"
