@@ -23,6 +23,15 @@ This checklist is blocking for broad public test rollout.
 - `--strict` 把未签字的 `HUMAN` 也计入失败，给「全自动放行」用。
 - 退出码 `0` = 无阻塞项。
 
+两条关于「机器判的项到底算不算数」的约定：
+
+- 探针每次用**新建的临时目录**，解释器要**真能跑起来**才算数。踩过一次假绿灯：
+  Windows 上的 `python3` 是 Store 占位程序，`command -v` 找得到、一执行就
+  `Permission denied`，于是探针根本没联网，却把上一轮留在固定目录里的响应读回来
+  当成这次的结论 —— 没验过的条目报了 PASS。现在解释器逐个真跑一次再选，目录用
+  `mktemp -d`，文件读不到就是读不到。
+- 探不到不等于通过：活体探测拿不到响应的条目记 `HUMAN`（要人签），不记 `WARN`。
+
 配套：`scripts/acceptance/public_testnet_preflight.sh`（`PUBLIC_TESTNET_STRICT=true` 时
 还强制 Redis fail-closed、PostgreSQL `DATABASE_URL`、on-call 变量、Bilateral RPC 地址）。
 
@@ -33,7 +42,7 @@ This checklist is blocking for broad public test rollout.
 | 项 | 值 |
 |---|---|
 | 时间 | 2026-10-01 |
-| 版本 | `main @ ac041c5` |
+| 版本 | `main @ 340641d`（部署后再实测一遍，结论与 ac041c5 一致） |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
 | 结果 | **PASS 17 · FAIL 1 · WARN 1 · HUMAN 13** |
 | 阻塞项 | `E5` `SECURITY_ONCALL_PRIMARY` / `SECURITY_ONCALL_BACKUP` 未配置 |

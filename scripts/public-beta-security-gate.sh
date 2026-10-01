@@ -99,9 +99,18 @@ eq_prod() { [[ "${1,,}" == "production" || "${1,,}" == "prod" ]]; }
 # 环境里连不上 TLS(实测 git 也要 http.sslBackend=openssl 才行)。这个仓库本来就
 # 依赖 python3(下面还要跑 pytest), 所以不额外增加依赖。
 # --------------------------------------------------------------------------
+# 光靠 `command -v` 不够: Windows 上 python3 常常存在但一执行就
+# "Permission denied"(Microsoft Store 占位程序)。那样探针根本没跑, 读回来的
+# 是上一轮的临时文件, 会把没验过的东西报成 PASS(2026-10-01 真踩过)。
+# 所以每个候选都**真跑一次**再选。
 _PY=""
-if command -v python3 > /dev/null 2>&1; then _PY="python3"
-elif command -v python > /dev/null 2>&1; then _PY="python"
+for _cand in python3 python py; do
+  if command -v "$_cand" > /dev/null 2>&1 && "$_cand" -c 'import sys' > /dev/null 2>&1; then
+    _PY="$_cand"; break
+  fi
+done
+if [[ -z "$_PY" ]]; then
+  w "no usable python3/python on PATH - live probes (B4/C2b/D1D2) cannot run"
 fi
 
 PROBE_CODE=""; PROBE_RID=""; PROBE_BODY=""
@@ -110,8 +119,10 @@ probe() {
   PROBE_CODE=""; PROBE_RID=""; PROBE_BODY=""
   [[ -z "$_PY" ]] && return 1
   local method="$1" url="$2" data="${3:-}"
-  local tmpd="${TMPDIR:-/tmp}/karma_security_gate_probe"
-  mkdir -p "$tmpd"
+  # 每次探测一个全新的目录: 复用固定路径时, 一旦探针没跑起来就会读到上一轮的
+  # 结果, 把 stale 的 401/200 当成这次探测的结论。
+  local tmpd
+  tmpd="$(mktemp -d "${TMPDIR:-/tmp}/karma_security_gate_probe.XXXXXX")" || return 1
   "$_PY" - "$method" "$url" "$data" "$tmpd" <<'PYEOF' || true
 import io, os, sys, urllib.error, urllib.request
 method, url, data, tmpd = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -137,6 +148,7 @@ PYEOF
   PROBE_CODE="$(cat "$tmpd/code" 2> /dev/null || echo 0)"
   PROBE_RID="$(cat "$tmpd/rid" 2> /dev/null || echo "")"
   PROBE_BODY="$(cat "$tmpd/body" 2> /dev/null || echo "")"
+  rm -rf "$tmpd"
   [[ -n "$PROBE_CODE" && "$PROBE_CODE" != "0" ]]
 }
 
@@ -267,7 +279,7 @@ if [[ -n "$BASE_URL" ]]; then
       *)       w "B4 /v1/security/ops/alerts returned HTTP $PROBE_CODE (expected 401/403)" ;;
     esac
   else
-    w "B4 /v1/security/ops/alerts unreachable from this host (transport error)"
+    h "B4 /v1/security/ops/alerts not verified from this host (probe unavailable/transport error)"
   fi
 else
   h "B4 /v1/security/ops/alerts is auth-protected (pass --base-url to probe)"
@@ -302,7 +314,7 @@ if [[ -n "$BASE_URL" ]]; then
       w "C2b live response has no X-Request-Id header"
     fi
   else
-    w "C2b could not reach ${BASE_URL%/}/health (transport error)"
+    h "C2b could not reach ${BASE_URL%/}/health - X-Request-Id not verified"
   fi
 else
   h "C2b live response carries X-Request-Id (pass --base-url to probe)"
@@ -333,7 +345,7 @@ if [[ -n "$BASE_URL" ]]; then
   if [[ "$leak" -eq 0 && "$unreachable" -eq 0 ]]; then
     p "D1/D2 no stack traces, filesystem paths or driver internals leaked on error paths"
   elif [[ "$leak" -eq 0 ]]; then
-    w "D1/D2 probe(s) unreachable from this host - error surface not verified"
+    h "D1/D2 probe(s) unreachable from this host - error surface not verified"
   fi
 else
   h "D1/D2 error responses carry no internal detail (pass --base-url to probe)"
