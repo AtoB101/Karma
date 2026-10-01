@@ -44,13 +44,16 @@ This checklist is blocking for broad public test rollout.
 
 | 项 | 值 |
 |---|---|
-| 时间 | 2026-10-01（`ea1f2d3` 部署后实测，`--no-heavy`；重活由 CI 覆盖） |
+| 时间 | 2026-10-02（本轮部署后实测，`--no-heavy`；重活由 CI 覆盖） |
 | 版本 | `main` |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 34 · FAIL 0 · WARN 0 · HUMAN 22**（退出码 0） |
+| 结果 | **PASS 39 · FAIL 0 · WARN 0 · HUMAN 19**（退出码 0；比上一轮多 5 条机器判定、少 3 条待签） |
 | 阻塞项 | 无。`E5b` 已消：第二值班人配好，`BACKUP` 与 `PRIMARY` 是两个不同的人（值只在服务器 `.env`） |
 | 已消项 | `G4`：告警出口接上 Telegram（运维专用 bot），最近一次真发送成功（来源 `selftest`）；`G5` 人签：运维确认收到自检消息 |
-| 已消项 | `A6`（本轮新增）：x402 出网口只放行公网目标。生产 `X402_ALLOW_PRIVATE_HOSTS=false` + `X402_PAYMENT_BACKEND=sepolia`，真链端到端实测见 [`public-testing/PHASE2_X402_ACCEPTANCE.md`](public-testing/PHASE2_X402_ACCEPTANCE.md) |
+| 已消项 | `A2b`：轮换台账改成**机器可读 + 机器判定**（字段齐全 + 口径自洽 + 有人签字 + 未过期；过期直接 FAIL） |
+| 已消项 | `B1b`：Redis 可达不再记 `HUMAN` —— 直接在发布机 `docker exec karma-redis redis-cli ping` 取 `PONG`（同一个事实 `H4` 早就在判，一处 PASS 一处 HUMAN 是自相矛盾） |
+| 已消项 | `C3a`/`C3b`/`C3c`：容器日志上限（compose 里的 `max-size=20m`×`max-file=5`）、journald 留存**显式写死**（`SystemMaxUse=2G`/`SystemKeepFree=2G`/`MaxRetentionSec=90d`）、留存窗口与查询命令写进 playbook §7 |
+| 已消项 | `A6`（上一轮新增）：x402 出网口只放行公网目标。生产 `X402_ALLOW_PRIVATE_HOSTS=false` + `X402_PAYMENT_BACKEND=sepolia`，真链端到端实测见 [`public-testing/PHASE2_X402_ACCEPTANCE.md`](public-testing/PHASE2_X402_ACCEPTANCE.md) |
 | 已消项 | `A4b` 警告 + `A4c` 待签：`AUTH_API_KEYS` 拆成 3 把，每个 service agent 一把（见 Gate A） |
 | 已消项 | `E5` 值班联系人已配（值只在服务器 `.env`，仓库是公开的所以不入库） |
 | 已消项 | `F1`–`F4` 备份与恢复：每小时快照 + 每天 03:17 恢复演练（实测 56 张表行数全一致） |
@@ -103,7 +106,9 @@ This checklist is blocking for broad public test rollout.
 
 - `[机器]` `APP_ENV=production` — ✅ 2026-10-01
 - `[机器]` `APP_SECRET_KEY` is rotated and non-default — ✅ 2026-10-01（非默认，长度 64）
-- `[人工]` `APP_SECRET_KEY` is rotated and non-default —— ✅ 2026-10-01 已签（**A2b**），签字人 YMZAI
+- `[机器]` `APP_SECRET_KEY` rotation date is recorded（`A2b`）— ✅ 2026-10-01 已签，签字人 YMZAI
+  （脚本解析 `KEY_ROTATION.md` 里的机器可读台账：字段齐全 + 口径自洽 + 有人签字 + 未过期；
+  过期会直接 `FAIL`。**它判的是「记录是否完整自洽」，不是「签字人是不是真人」** —— 后者是 A4d）
   口径与事实要分开写：**2026-10-01 = 首次建立轮换制度的基准日**，周期 **90 天**，**首次真轮换计划 2026-12-30**；
   这条 key **从建网起从未轮换过**（回溯 12 份 `.env` 备份，指纹一致，最早 `2026-09-02 17:09`）——
   所以在 2026-12-30 真正做完之前，台账里它一直是「未轮换」。
@@ -128,8 +133,10 @@ This checklist is blocking for broad public test rollout.
 ## Gate B — API Abuse Resistance
 
 - `[机器]` Redis URL configured for the limiter — ✅ 2026-10-01（`redis://`）
-- `[人工]` Redis-backed rate limiter is reachable in production —— 脚本在应用进程外
-  探不到容器网络，需要有人在服务器上确认 `karma-redis` 连通。待签
+- `[机器]` Redis-backed rate limiter is reachable in production（`B1b`）— ✅ 2026-10-01
+  （在发布机上 `docker exec karma-redis redis-cli ping` 取到 `PONG`；够不着才退回 `HUMAN`。
+  这一条以前一直记 `HUMAN`，但**同一个事实 `H4` 早就在判** —— 一处 PASS 一处 HUMAN 是
+  自相矛盾，同一个事实只该有一个判据）
 - `[机器]` `RATE_LIMIT_REDIS_FAIL_CLOSED=true` — ✅ 2026-10-01
 - `[机器]` Sensitive write paths have active limits (`write_sensitive` / `state_transition`)
   — ✅ 2026-10-01（额度已定义且中间件已挂进 `api/app.py`）
@@ -146,7 +153,12 @@ This checklist is blocking for broad public test rollout.
   （`security_audit_middleware` + `SENSITIVE_WRITE_PREFIXES`）
 - `[机器]` Logs include actor ID, request path, method, status, request ID — ✅ 2026-10-01
   （代码层面；活体响应实测带 `X-Request-Id`）
-- `[人工]` Log retention and query access are configured for incident response —— 待签
+- `[机器]` Log retention and query access are configured for incident response
+  （`C3a` / `C3b` / `C3c`）— ✅ 2026-10-01
+  （`C3a` 容器日志有轮转上限 `max-size=20m` × `max-file=5`；`C3b` journald 的
+  `SystemMaxUse` / `SystemKeepFree` / `MaxRetentionSec` **显式写死**，不跟发行版默认走；
+  `C3c` 留存窗口与查询命令写进 [`SECURITY_INCIDENT_PLAYBOOK.md`](./SECURITY_INCIDENT_PLAYBOOK.md) §7。
+  窗口取 90 天，与密钥轮换周期同口径）
 
 ## Gate D — Error Surface Control
 

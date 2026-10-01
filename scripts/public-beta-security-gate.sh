@@ -181,7 +181,77 @@ elif [[ "${#SECRET_V}" -lt 32 ]]; then
 else
   p "A2 APP_SECRET_KEY set and non-default (len=${#SECRET_V})"
 fi
-h "A2b APP_SECRET_KEY rotation date is recorded"
+# A2b 密钥轮换台账。以前这一条一律 HUMAN —— 脚本判不出「谁、什么时候轮换的」。
+# 现在判的是**台账本身可核查**：docs/KEY_ROTATION.md 里有一段机器可读的 ledger，
+# 校验它字段齐全、口径自洽（next_due = anchor + cycle_days）、有人签字，且没到期。
+# 判不出来的仍然是「签字人是不是真人」—— 那是 A4d 的事，不混进这一条。
+ROT_LEDGER="docs/KEY_ROTATION.md"
+if [[ ! -f "$ROT_LEDGER" ]]; then
+  f "A2b key-rotation ledger missing ($ROT_LEDGER)"
+elif [[ -z "$_PY" ]]; then
+  h "A2b $ROT_LEDGER present but no usable python3 here to parse the ledger"
+else
+  rot_out="$("$_PY" - "$ROT_LEDGER" <<'PYEOF' 2> /dev/null || true
+import datetime, re, sys
+raw = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"<!--\s*karma-rotation-ledger(.*?)-->", raw, re.S)
+if not m:
+    print("err=no-machine-ledger-block"); raise SystemExit(0)
+kv = {}
+for line in m.group(1).splitlines():
+    line = line.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    k, v = line.split("=", 1)
+    kv[k.strip()] = v.strip()
+need = ("scope", "basis_date", "last_rotated", "cycle_days", "next_due", "signed_by")
+missing = [k for k in need if not kv.get(k)]
+if missing:
+    print("err=missing-fields:" + ",".join(missing)); raise SystemExit(0)
+try:
+    basis = datetime.date.fromisoformat(kv["basis_date"])
+    nxt = datetime.date.fromisoformat(kv["next_due"])
+    cyc = int(kv["cycle_days"])
+except Exception as exc:
+    print("err=unparsable-field:%s" % exc); raise SystemExit(0)
+if cyc < 1:
+    print("err=cycle-days-not-positive"); raise SystemExit(0)
+lr = kv["last_rotated"].strip().lower()
+if lr in ("never", "none", "n/a", "-"):
+    anchor, state = basis, "never-rotated"
+else:
+    try:
+        anchor = datetime.date.fromisoformat(lr)
+    except Exception:
+        print("err=last_rotated-is-neither-never-nor-a-date:%s" % kv["last_rotated"]); raise SystemExit(0)
+    if anchor > datetime.date.today():
+        print("err=last_rotated-is-in-the-future"); raise SystemExit(0)
+    state = "rotated"
+if (nxt - anchor).days != cyc:
+    print("err=next_due-is-not-cycle_days-after-anchor:%d" % (nxt - anchor).days); raise SystemExit(0)
+print("state=%s" % state)
+print("next_due=%s" % nxt.isoformat())
+print("signed_by=%s" % kv["signed_by"])
+print("days_left=%d" % (nxt - datetime.date.today()).days)
+PYEOF
+)"
+  rot_err="$(printf '%s\n' "$rot_out" | sed -n 's/^err=//p')"
+  if [[ -n "$rot_err" ]]; then
+    f "A2b key-rotation ledger is not verifiable (${rot_err})"
+  else
+    rot_state="$(printf '%s\n' "$rot_out" | sed -n 's/^state=//p')"
+    rot_next="$(printf '%s\n' "$rot_out" | sed -n 's/^next_due=//p')"
+    rot_by="$(printf '%s\n' "$rot_out" | sed -n 's/^signed_by=//p')"
+    rot_left="$(printf '%s\n' "$rot_out" | sed -n 's/^days_left=//p')"
+    if [[ -z "$rot_state" || -z "$rot_left" ]]; then
+      h "A2b ledger parsed but reported nothing usable - look by hand"
+    elif [[ "$rot_left" -lt 0 ]]; then
+      f "A2b key rotation is OVERDUE (next_due=${rot_next}, ${rot_left}d) - rotate, then append a row to docs/KEY_ROTATION.md"
+    else
+      p "A2b rotation ledger verified (state=${rot_state}, next_due=${rot_next}, ${rot_left}d left, signed_by=${rot_by})"
+    fi
+  fi
+fi
 
 ENFORCE_V="$(ev AUTH_ENFORCE_PROTECTED_ROUTES)"
 if [[ "$ALLOW_NON_PROD" == "true" ]]; then
@@ -315,7 +385,17 @@ elif [[ "$redis_url" != redis://* && "$redis_url" != rediss://* ]]; then
 else
   p "B1 Redis URL configured for the limiter (scheme=${redis_url%%:*})"
 fi
-h "B1b Redis is actually reachable from the release host (scripts cannot ping across the boundary)"
+# B1b Redis 到底连不连得上。以前这一条一律 HUMAN（「脚本在应用进程外探不到容器
+# 网络」），但**同一个事实 H4 已经在判** —— 一处 PASS 一处 HUMAN 是自相矛盾。
+# 这里直接 ping；够不着才退回 HUMAN（远端 Redis 确实需要到发布机上确认）。
+b1b_pong="$(docker exec karma-redis redis-cli ping 2> /dev/null || true)"
+if [[ "$b1b_pong" == *PONG* ]]; then
+  p "B1b Redis reachable from the release host (karma-redis redis-cli ping -> PONG)"
+elif [[ "$redis_url" == redis://127.* || "$redis_url" == redis://localhost* ]]; then
+  f "B1b the limiter points at a host-local Redis but karma-redis did not answer PONG"
+else
+  h "B1b Redis is remote or unreachable from here - confirm on the release host"
+fi
 
 FAIL_CLOSED_V="$(ev RATE_LIMIT_REDIS_FAIL_CLOSED)"
 if is_true "$FAIL_CLOSED_V"; then
@@ -390,7 +470,33 @@ if [[ -n "$BASE_URL" ]]; then
 else
   h "C2b live response carries X-Request-Id (pass --base-url to probe)"
 fi
-h "C3 log retention + query access configured for incident response"
+# C3 日志留存 + 排查时的查询入口。以前一律 HUMAN。能机器判的先判，剩下的才留给人：
+#   C3a 容器日志有没有轮转上限（没有上限迟早写满磁盘，且「留存多久」根本不可控）；
+#   C3b 系统日志（journald）的留存上限是不是**显式写死**的（跟着发行版默认走 = 口径不明）；
+#   C3c 留存窗口与查询命令有没有写进 playbook（出事时没人在现场翻命令）。
+C3_CAP=""
+if command -v docker > /dev/null 2>&1; then
+  C3_CAP="$(docker inspect -f '{{json .HostConfig.LogConfig.Config}}' karma-api 2> /dev/null || true)"
+fi
+C3_DAEMON=""
+[[ -r /etc/docker/daemon.json ]] && C3_DAEMON="$(cat /etc/docker/daemon.json 2> /dev/null || true)"
+if grep -q 'max-size' <<< "${C3_CAP}${C3_DAEMON}"; then
+  p "C3a container logs are capped (${C3_CAP:-daemon.json log-opts})"
+else
+  f "C3a container logs have no rotation cap - they will fill the disk (set logging.options max-size/max-file)"
+fi
+C3_JOURNAL=""
+[[ -r /etc/systemd/journald.conf ]] && C3_JOURNAL="$(grep -E '^[[:space:]]*(SystemMaxUse|SystemKeepFree|MaxRetentionSec)=' /etc/systemd/journald.conf 2> /dev/null || true)"
+if [[ -n "$C3_JOURNAL" ]]; then
+  p "C3b journald retention is pinned explicitly ($(printf '%s' "$C3_JOURNAL" | tr '\n' ' ' | sed 's/ *$//'))"
+else
+  h "C3b journald retention follows the distro default - pin SystemMaxUse / MaxRetentionSec"
+fi
+if grep -qiE 'log retention|日志留存' docs/SECURITY_INCIDENT_PLAYBOOK.md 2> /dev/null; then
+  p "C3c retention window + query commands are documented (docs/SECURITY_INCIDENT_PLAYBOOK.md)"
+else
+  h "C3c log retention + query access are not documented yet"
+fi
 
 # --------------------------------------------------------------------------
 # Gate D - Error Surface Control

@@ -11,6 +11,24 @@
 > 一条原则：**宁可写「还没轮换过」，也不要写「已轮换」。**
 > 台账是给未来的自己和审计看的，一条假记录比一条空白危险得多。
 
+下面这段是**机器可读的台账**，闸门 `A2b` 直接解析它：字段缺一个、`next_due` 与
+`cycle_days` 对不上、或者已经过期，`A2b` 就判 `FAIL`。**改上面的表格时，同时改这里。**
+
+```text
+<!-- karma-rotation-ledger
+scope=APP_SECRET_KEY
+basis_date=2026-10-01
+last_rotated=never
+cycle_days=90
+next_due=2026-12-30
+signed_by=YMZAI
+-->
+```
+
+字段口径：`basis_date` = 制度基准日；`last_rotated` = 最近一次**真**轮换日
+（`never` = 从未轮换 —— **不要**把基准日填进来冒充轮换日）；`next_due` 必须等于
+`last_rotated` + `cycle_days` 天（`last_rotated=never` 时以 `basis_date` 为锚）。
+
 ---
 
 ## 台账
