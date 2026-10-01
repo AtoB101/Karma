@@ -31,6 +31,7 @@ import argparse
 import datetime as _dt
 import json
 import os
+import re as _re
 import smtplib
 import ssl
 import sys
@@ -39,6 +40,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
+
+# 快照目录名：YYYYmmdd-HHMMSS（scripts/ops/backup.sh 生成）
+_SNAPSHOT_NAME = _re.compile(r"^\d{8}-\d{6}$")
 
 DEFAULTS = {
     "base_url": "http://127.0.0.1:8000",
@@ -93,10 +97,17 @@ def cfg(ops_env: dict[str, str], name: str, default=None):
 
 
 def resolve_api_key(ops_env: dict[str, str]) -> tuple[str, str]:
-    """返回 (key, 来源说明)。
+    """返回 (X-Karma-Api-Key 头里该放的串, 来源说明)。
 
-    优先 KARMA_ALERT_API_KEY。没有就去 /opt/karma/.env 的 AUTH_API_KEYS 里找
-    actor 名叫 ops-admin 的那把 —— 告警报表属于平台管理员角色，不该借用别的钥匙。
+    两种格式不是一回事，别混：
+      * AUTH_API_KEYS 配置里是 ``actor:secret``（服务端的映射表）；
+      * 客户端发的是 ``karma_<actor>_<secret>``（api/middleware/auth.py 的
+        ``_parse_api_key`` 按 ``karma_`` split("_", 2)）。
+    2026-10-01 真踩过：拿 actor:secret 去发头直接 401。而且 401 看起来像「钥匙错了」，
+    不像「格式错了」，所以这里把话说清楚。
+
+    优先 KARMA_ALERT_API_KEY（已经是完整串）。没有就去 /opt/karma/.env 的
+    AUTH_API_KEYS 里找 actor 叫 ops-admin 的那把 —— 告警报表属于平台管理员角色。
     """
     direct = cfg(ops_env, "api_key", "") or ""
     if direct:
@@ -121,8 +132,9 @@ def resolve_api_key(ops_env: dict[str, str]) -> tuple[str, str]:
         if not entry or ":" not in entry:
             continue
         actor, _, secret = entry.partition(":")
-        if actor.strip() == "ops-admin":
-            return secret.strip(), source
+        actor, secret = actor.strip(), secret.strip()
+        if actor == "ops-admin" and secret:
+            return "karma_%s_%s" % (actor, secret), source
     return "", ""
 
 
@@ -195,12 +207,15 @@ def local_checks(backup_root: str, max_age_hours: float, disk_path: str,
     checks: list[dict] = []
     now = time.time()
 
+    # 只认时间戳命名的快照。deploy 脚本会往同一个目录里放 ``web-<ts>`` 的网站备份，
+    # 那里面没有 karma-db.sql.gz —— 2026-10-01 拿它当「备份是空的」报过一次假警。
     try:
-        snapshots = sorted(
-            (os.path.join(backup_root, d) for d in os.listdir(backup_root)),
-            key=lambda p: os.path.getmtime(p),
-            reverse=True,
-        )
+        candidates = [
+            os.path.join(backup_root, d)
+            for d in os.listdir(backup_root)
+            if _SNAPSHOT_NAME.match(d)
+        ]
+        snapshots = sorted(candidates, key=os.path.getmtime, reverse=True)
     except OSError:
         snapshots = []
 

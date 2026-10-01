@@ -116,6 +116,17 @@ def _snapshot(root: Path, name: str, dump_bytes: int, manifest: str = "") -> Pat
     return snap
 
 
+def test_local_checks_ignores_non_snapshot_dirs(tmp_path):
+    """deploy 脚本会往备份目录里放 web-<ts> 的网站备份，它不是数据库快照。"""
+    (tmp_path / "web-20261001-185618").mkdir()
+    checks = poller.local_checks(str(tmp_path), 26, str(tmp_path), 90)
+    assert [c["key"] for c in checks] == ["karma_local|backup_missing"]
+
+    _snapshot(tmp_path, "20261001-180000", 5000, manifest="verify_status=ok\n")
+    checks2 = poller.local_checks(str(tmp_path), 26, str(tmp_path), 90)
+    assert checks2 == [], "真正的时间戳快照应该被认出来，web-* 目录应该被忽略"
+
+
 def test_local_checks_flags_missing_backup(tmp_path):
     checks = poller.local_checks(str(tmp_path), 26, str(tmp_path), 90)
     assert any(c["key"] == "karma_local|backup_missing" for c in checks)
@@ -192,8 +203,14 @@ def test_resolve_api_key_prefers_explicit_then_picks_ops_admin(monkeypatch, tmp_
     monkeypatch.setenv("KARMA_ENV_FILE", str(env_file))
 
     key, source = poller.resolve_api_key({})
-    assert key == "bbb"
     assert str(env_file) in source
+    # 客户端发的是 karma_<actor>_<secret>，不是配置里的 actor:secret。
+    # 2026-10-01 用错格式时服务端回的是 401「Authentication required」——
+    # 看起来像钥匙错，其实是格式错。
+    assert key == "karma_ops-admin_bbb"
+    assert key.startswith("karma_")
+    assert key.split("_", 2)[0] == "karma"
+    assert key.split("_", 2)[1] == "ops-admin"
 
     key2, source2 = poller.resolve_api_key({"KARMA_ALERT_API_KEY": "explicit"})
     assert key2 == "explicit"
