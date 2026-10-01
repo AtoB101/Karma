@@ -632,7 +632,7 @@ else
   # 互相印证。2026-10-01 生产上出过一次自相矛盾的输出：G2 报 FAIL「没人调度」，
   # 同一秒 G3 报 PASS「273 秒前刚跑成功」。
   ALERT_STATE="${KARMA_ALERT_STATE_PATH:-/opt/karma/state/security-alerts.json}"
-  a_run=""; a_ok=""; a_eg=""
+  a_run=""; a_ok=""; a_eg=""; a_eg_ok=""; a_eg_err=""; a_eg_src=""
   if [[ -n "$_PY" && -f "$ALERT_STATE" ]]; then
     ALERT_INFO="$("$_PY" - "$ALERT_STATE" <<'PYEOF' 2> /dev/null || true
 import json, sys, time
@@ -647,12 +647,21 @@ run_ts = data.get("last_run_ts") or 0
 print("run_age=%d" % int(now - float(run_ts)))
 print("ok_age=%s" % ("" if ok_ts is None else int(now - float(ok_ts))))
 print("egress=%s" % ",".join(data.get("egress") or []))
+# 出口「配了」和「发得出去」是两件事。后面三项读的是最近一次真发送的结果。
+ok_ts = data.get("last_egress_ok_ts")
+print("egress_ok_age=%s" % ("" if ok_ts is None else int(now - float(ok_ts))))
+# 折叠成一行的理由：这个值要经过按行解析，里面的换行会把后面的字段顶掉。
+print("egress_err=%s" % " ".join(str(data.get("last_egress_error") or "").split())[:160])
+print("egress_src=%s" % (data.get("last_egress_src") or ""))
 print("active=%d" % len(data.get("active") or []))
 PYEOF
 )"
     a_run="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^run_age=//p')"
     a_ok="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^ok_age=//p')"
     a_eg="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^egress=//p')"
+    a_eg_ok="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^egress_ok_age=//p')"
+    a_eg_err="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^egress_err=//p')"
+    a_eg_src="$(printf '%s\n' "$ALERT_INFO" | sed -n 's/^egress_src=//p')"
   fi
 
   # G2 到底装没装。这里刻意**不用** `printf '%s' "$blob" | grep -q PAT` 这种写法：
@@ -692,7 +701,16 @@ PYEOF
   if [[ -n "$_PY" && -f "$ALERT_STATE" ]]; then
     case ",$a_eg," in
       *",webhook,"*|*",telegram,"*|*",smtp,"*)
-        p "G4 alert egress configured (${a_eg})" ;;
+        # 以前这里只判「配了出口没有」，于是 token 写错、bot 被踢出群、出网被墙，
+        # 只要那两行配置还在，G4 就一直 PASS —— 一条都没送到人手里的假绿。
+        # 现在判的是**最近一次真发送**的结果：失败过且之后没成功过 = FAIL。
+        if [[ -n "$a_eg_err" ]]; then
+          f "G4 alert egress configured (${a_eg}) but the last send failed: ${a_eg_err}"
+        elif [[ -n "$a_eg_ok" ]]; then
+          p "G4 alert egress configured (${a_eg}) and the last send went out ${a_eg_ok}s ago (${a_eg_src:-unknown})"
+        else
+          h "G4 alert egress configured (${a_eg}) but nothing has been sent yet - run: security_alert_poller.py --test"
+        fi ;;
       *)
         h "G4 no alert egress configured (${a_eg:-log}) - alerts only reach the cron log" ;;
     esac

@@ -193,7 +193,9 @@ Gate B 问的是「阈值和政策定没定」，Gate G 问的是**告警能不�
 - `[机器]` 告警轮询脚本存在且能解析（`scripts/ops/security_alert_poller.py`）— ✅ 2026-10-01
 - `[机器]` 轮询有调度（root crontab / systemd timer 引用了它）— ✅ 2026-10-01
 - `[机器]` 最近一轮轮询成功（15 分钟内）— ✅ 2026-10-01
-- `[机器]` 配了真实的告警出口（webhook / Telegram / SMTP）— ⏳ **现在还没配，记 HUMAN**
+- `[机器]` 配了真实的告警出口，且**最近一次发送真的送出去了**（webhook / Telegram / SMTP）
+  — ⏳ **现在还没配，记 HUMAN**。判的是发送结果，不是「填了两行配置」：配了但从没发过 =
+  HUMAN；最近一次发送失败 = FAIL；最近一次成功 = PASS（来源记在 `last_egress_src`）
 - `[人工]` 发了一条自检告警并确认真收到（`--test`）— 待签
 
 为什么单独开一组：之前是 —— `/v1/security/ops/alerts` 写得很好，但**服务器上没有
@@ -202,7 +204,28 @@ Sentry 配置**，没有任何东西去拉它。告警生成了，然后烂在�
 
 「没配出口」不等于「已经做完了」：轮询脚本会把告警写进 `/var/log/karma-alerts.log`，
 而那个日志没人会去看。配了 `KARMA_ALERT_WEBHOOK_URL`、`KARMA_ALERT_TELEGRAM_*` 或
-`KARMA_ALERT_SMTP_*`（见 `scripts/ops/env.ops.example`）之后，G4 才会变成机器可判的 PASS。
+`KARMA_ALERT_SMTP_*`（见 `scripts/ops/env.ops.example`）之后，再跑一次自检：
+
+```bash
+python3 /opt/karma/repo/scripts/ops/security_alert_poller.py --test
+```
+
+自检的结果会写进状态文件（`last_egress_ok_ts` / `last_egress_src`），G4 才有东西可判 ——
+一台健康的服务器上真实告警可能几个月都不出现，光等真实告警是等不到 PASS 的。自检没发出去
+时退出码是 5，不假报成功。
+
+2026-10-01 在接 Telegram 之前回头审了一遍「出口发不出去的时候会发生什么」，修掉四件事
+（都由 `tests/unit/test_ops_alert_poller.py` 锁住）：
+
+- **出口抛异常会吞掉告警原文**：原来的顺序是「先发、后写本地日志」，任何一个出口抛异常，
+  最后那行 print 就永远执行不到 —— 出口坏掉的那一刻，恰好也是日志里什么都没有的那一刻。
+  现在本地留痕排在网络调用前面。
+- **一个出口挂掉会连累其他出口**：原来是顺序调用且不接异常，webhook 一挂，Telegram 永远
+  收不到。现在每个出口独立 try/except —— 多出口的意义就是冗余。
+- **失败会泄露 bot token**：Telegram 的 token 就在请求 URL 的路径里，`urllib` 的异常会把
+  整条 URL 带进 stderr 和状态文件，而这两样都会跟着备份和日志采集走。现在写出去之前统一
+  过一遍 `redact()`。
+- **`--test` 假绿**：原来无条件 `return 0`，没配出口也报成功。现在发不出去就是退出码 5。
 
 轮询脚本顺带做几条**不需要外部凭证就有用**的本机体检（和应用的告警共用同一套差分逻辑）：
 最新快照超过 26h、恢复演练失败、离站拷贝失败、磁盘超 90%。

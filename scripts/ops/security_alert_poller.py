@@ -22,7 +22,7 @@
   security_alert_poller.py --dry-run      只打印，不发
   security_alert_poller.py --json         结果打一行 JSON
 
-退出码: 0 正常 / 2 配置错 / 3 拉取或出口失败 / 4 本轮有新告警。
+退出码: 0 正常 / 2 配置错 / 3 拉取或出口失败 / 4 本轮有新告警 / 5 自检时出口没发出去。
 （cron 会因此给你发信；4 是「有话说」，不是「脚本坏了」。）
 """
 from __future__ import annotations
@@ -401,43 +401,82 @@ def egress_targets(ops_env: dict[str, str]) -> list[str]:
     return targets
 
 
+# Telegram 的 token 就在请求 URL 的路径里：https://api.telegram.org/bot<token>/sendMessage。
+# urllib 抛出的异常会把整条 URL 带上，而这条信息要写进 stderr（→ cron 的
+# /var/log/karma-alerts.log）和状态文件；日志又会被备份和采集带走。一次网络抖动，
+# 不该等价于一次密钥泄露 —— 所以凡是往日志/状态文件写的外部字符串，先过一遍这里。
+_BOT_TOKEN_IN_URL = _re.compile(r"bot\d{4,}:[A-Za-z0-9_\-]{20,}")
+
+
+def redact(text: str, ops_env: dict[str, str] | None = None) -> str:
+    """把错误信息里可能夹带的密钥抹掉，再让它进日志或状态文件。"""
+    out = _BOT_TOKEN_IN_URL.sub("bot<redacted>", "%s" % text)
+    for name, value in (ops_env or {}).items():
+        if not isinstance(value, str) or len(value) < 8:
+            continue
+        if _re.search(r"(?i)(token|secret|password|passwd|api_?key|credential)", name):
+            out = out.replace(value, "<redacted>")
+    return out
+
+
 def deliver(ops_env: dict[str, str], subject: str, text: str, payload: dict,
-            dry_run: bool) -> list[str]:
+            dry_run: bool) -> tuple[list[str], list[str]]:
+    """把这条告警交给**每一个**配置好的出口，返回 (发成功的出口, 失败的出口+原因)。
+
+    这里有四件事是踩过坑之后定下来的，别改回去：
+
+    1. **先落本地日志，再发。** 以前是先发后写，结果任何一个出口抛异常，cron 日志里
+       就一个字都没有 —— 出口坏掉的那一刻，恰好是你最需要留痕的那一刻。本地日志是
+       最后一道痕迹，它必须排在网络调用前面。
+    2. **一个出口失败不能挡住别的出口。** 顺序发且不接异常 = webhook 一挂，Telegram
+       永远收不到。多出口的全部意义就是冗余。
+    3. **失败要能被上层看见。** 返回 failed，让状态文件记住「上次发送失败了」，闸门 G4
+       才能从「配了出口没有」变回「最近一次到底发出去没有」。
+    4. **失败原因要脱敏。** Telegram 的 token 就在请求 URL 里，而 urllib 的异常会把
+       URL 原样带出来，这条信息会进 stderr 和状态文件。见 redact()。
+    """
     targets = egress_targets(ops_env)
     timeout = int(cfg(ops_env, "timeout", DEFAULTS["timeout"]))
-    sent: list[str] = []
 
     if dry_run:
         print("--- would send to: %s" % (", ".join(targets) or "stdout only"))
         print(text)
-        return targets
+        return list(targets), []
+
+    # 先留痕：出口全挂的时候，这条日志就是唯一的证据。
+    print(text)
 
     if not targets:
-        print(text)
-        return ["log"]
+        return ["log"], []
 
-    if "webhook" in targets:
-        http_post_json(str(cfg(ops_env, "webhook_url")), payload, timeout)
-        sent.append("webhook")
-    if "telegram" in targets:
-        send_telegram(str(cfg(ops_env, "telegram_bot_token")),
-                      str(cfg(ops_env, "telegram_chat_id")), text, timeout)
-        sent.append("telegram")
-    if "smtp" in targets:
-        to_list = [a.strip() for a in str(cfg(ops_env, "smtp_to")).split(",") if a.strip()]
-        send_smtp(
-            str(cfg(ops_env, "smtp_host")),
-            int(cfg(ops_env, "smtp_port", 587)),
-            str(cfg(ops_env, "smtp_user", "")),
-            str(cfg(ops_env, "smtp_password", "")),
-            str(cfg(ops_env, "smtp_from", "") or cfg(ops_env, "smtp_user", "")),
-            to_list, subject, text, timeout,
-        )
-        sent.append("smtp")
-
-    # 出口发出去之后，本地日志也留一份 —— 出事时「什么时候报过」要能查
-    print(text)
-    return sent
+    sent: list[str] = []
+    failed: list[str] = []
+    for name in targets:
+        try:
+            if name == "webhook":
+                http_post_json(str(cfg(ops_env, "webhook_url")), payload, timeout)
+            elif name == "telegram":
+                send_telegram(str(cfg(ops_env, "telegram_bot_token")),
+                              str(cfg(ops_env, "telegram_chat_id")), text, timeout)
+            elif name == "smtp":
+                to_list = [a.strip() for a in str(cfg(ops_env, "smtp_to")).split(",") if a.strip()]
+                send_smtp(
+                    str(cfg(ops_env, "smtp_host")),
+                    int(cfg(ops_env, "smtp_port", 587)),
+                    str(cfg(ops_env, "smtp_user", "")),
+                    str(cfg(ops_env, "smtp_password", "")),
+                    str(cfg(ops_env, "smtp_from", "") or cfg(ops_env, "smtp_user", "")),
+                    to_list, subject, text, timeout,
+                )
+            else:
+                continue
+        except Exception as exc:  # noqa: BLE001 - 一个出口坏掉不该连累其他出口
+            reason = "%s: %s" % (type(exc).__name__, redact(exc, ops_env))
+            failed.append("%s (%s)" % (name, reason))
+            sys.stderr.write("egress %s failed: %s\n" % (name, reason))
+        else:
+            sent.append(name)
+    return sent, failed
 
 
 # --------------------------------------------------------------------------
@@ -460,6 +499,26 @@ def save_state(path: str, state: dict) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(state, fh, ensure_ascii=False, indent=2, sort_keys=True)
     os.replace(tmp, path)
+
+
+# --------------------------------------------------------------------------
+# 出口健康
+# --------------------------------------------------------------------------
+def record_egress_result(state: dict, sent: list[str], failed: list[str], now: float,
+                         source: str) -> None:
+    """记下「最近一次发送尝试」的结果。闸门 G4 判的就是这个。
+
+    真实告警和 --test 自检都走这里，因为两者验的是同一条链路（同一个 deliver()）。
+    但来源要留痕（source = "alerts" | "selftest"）：一台健康的服务器上真实告警可能
+    几个月都不出现，只靠真实告警的话 G4 永远没东西可判；反过来，「自检过了」也绝不
+    该悄悄冒充「真告警送达过」。
+    """
+    state["last_egress_error"] = "; ".join(failed)[:400] or None
+    state["last_egress_error_ts"] = now if failed else None
+    state["last_egress_failed"] = failed or None
+    if sent and sent != ["log"]:
+        state["last_egress_ok_ts"] = now
+        state["last_egress_src"] = source
 
 
 # --------------------------------------------------------------------------
@@ -497,9 +556,30 @@ def run(args) -> int:
             )
         )
         payload = {"source": "karma", "kind": "alert_egress_selftest", "text": text}
-        sent = deliver(ops_env, "[Karma] 告警出口自检", text, payload, args.dry_run)
+        sent, failed = deliver(ops_env, "[Karma] 告警出口自检", text, payload, args.dry_run)
         if args.json:
-            print(json.dumps({"kind": "selftest", "egress": sent}, ensure_ascii=False))
+            print(json.dumps({"kind": "selftest", "sent": sent, "failed": failed},
+                             ensure_ascii=False))
+        # 自检的结果要落进状态文件，否则闸门 G4 没有东西可判（健康的服务器上真实告警
+        # 可能几个月不出现）。注意：没配出口时不碰历史结论 —— 尤其不能把上一次真实
+        # 发送失败这件事抹掉。
+        if not args.dry_run:
+            if failed or (sent and sent != ["log"]):
+                record_egress_result(state, sent, failed, now, "selftest")
+            try:
+                save_state(state_path, state)
+            except OSError as exc:
+                # 状态写不进去，不该让「出口通不通」这个结论作废 —— 那不是自检验的东西。
+                sys.stderr.write("warning: could not record selftest state: %s"
+                                 "\n" % redact(exc, ops_env))
+        # 自检的退出码必须是真的。以前这里一律 return 0，于是没配出口、或者 token 写错，
+        # --test 都报成功 —— 拿它当验收证据就是自欺。
+        if failed:
+            sys.stderr.write("selftest could not reach: %s\n" % "; ".join(failed))
+            return 5
+        if sent == ["log"]:
+            sys.stderr.write("selftest: no egress configured, nothing was actually sent\n")
+            return 5
         return 0
 
     # 拉取
@@ -542,6 +622,14 @@ def run(args) -> int:
         "egress": egress_targets(ops_env) or ["log"],
         "active": sorted(current),
         "seen": new_seen,
+        # 「配了出口」和「发得出去」是两件事。G4 以前只看前者，于是 token 写错、
+        # 群被踢、网络不通，统统是 PASS —— 假绿。下面几项记的是最近一次真发送的结果，
+        # 每次真正发送时整体重写，所以 last_egress_error 非空 == 上一次没发出去。
+        "last_egress_ok_ts": state.get("last_egress_ok_ts"),
+        "last_egress_src": state.get("last_egress_src"),
+        "last_egress_error": state.get("last_egress_error"),
+        "last_egress_error_ts": state.get("last_egress_error_ts"),
+        "last_egress_failed": state.get("last_egress_failed"),
     }
 
     exit_code = 0
@@ -558,11 +646,17 @@ def run(args) -> int:
             "summary": report.get("summary") or {},
             "text": text,
         }
-        sent = deliver(ops_env, subject, text, payload, args.dry_run)
+        sent, failed = deliver(ops_env, subject, text, payload, args.dry_run)
         state_out["last_emit_ts"] = now
         state_out["last_emit_egress"] = sent
+        state_out["last_emit_egress_failed"] = failed
+        record_egress_result(state_out, sent, failed, now, "alerts")
         if born:
             exit_code = 4
+        if born and not sent:
+            # 有新告警，但一条都没送出去 —— 这是投递失败，不是「有话说」。
+            sys.stderr.write("no egress delivered this alert batch, see last_egress_error\n")
+            exit_code = 3
     elif fetch_error:
         exit_code = 3
 

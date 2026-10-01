@@ -299,13 +299,14 @@ def test_fetch_report_sends_api_key_and_query(fake_http):
 
 
 def test_deliver_posts_webhook_payload(fake_http, capsys):
-    sent = poller.deliver(
+    sent, failed = poller.deliver(
         {"KARMA_ALERT_WEBHOOK_URL": fake_http + "/hook"},
         "[Karma] test", "body text",
         {"kind": "security_alerts", "text": "body text"}, dry_run=False,
     )
 
     assert sent == ["webhook"]
+    assert failed == []
     request = _Recorder.requests[0]
     assert request["path"] == "/hook"
     assert request["headers"]["content-type"] == "application/json"
@@ -314,15 +315,17 @@ def test_deliver_posts_webhook_payload(fake_http, capsys):
 
 
 def test_deliver_falls_back_to_stdout_when_no_egress_configured(capsys):
-    sent = poller.deliver({}, "[Karma] test", "only stdout", {}, dry_run=False)
+    sent, failed = poller.deliver({}, "[Karma] test", "only stdout", {}, dry_run=False)
     assert sent == ["log"]
+    assert failed == []
     assert "only stdout" in capsys.readouterr().out
 
 
 def test_deliver_dry_run_does_not_send(fake_http, capsys):
-    sent = poller.deliver({"KARMA_ALERT_WEBHOOK_URL": fake_http + "/hook"},
-                          "s", "text", {}, dry_run=True)
+    sent, failed = poller.deliver({"KARMA_ALERT_WEBHOOK_URL": fake_http + "/hook"},
+                                  "s", "text", {}, dry_run=True)
     assert sent == ["webhook"]
+    assert failed == []
     assert _Recorder.requests == []
     assert "would send to: webhook" in capsys.readouterr().out
 
@@ -359,3 +362,202 @@ def test_save_state_is_atomic_and_leaves_no_tmp(tmp_path):
     poller.save_state(path, {"a": 1})
     assert json.loads(Path(path).read_text(encoding="utf-8")) == {"a": 1}
     assert not (tmp_path / "security-alerts.json.tmp").exists()
+
+
+# --------------------------------------------------------------------------
+# 出口的失败语义
+#
+# 这一段是 2026-10-01 补的。起因：要把告警出口接到 Telegram 上，先回头审了一遍
+# 「出口发不出去的时候会发生什么」，发现四件事 —— 每一件都会让「告警能到达人」
+# 这句话在最需要它的那一刻失效。
+# --------------------------------------------------------------------------
+DEAD_WEBHOOK = "http://127.0.0.1:9/hook"  # 9 = discard，本机不会有东西在听
+
+
+def test_a_failing_egress_still_leaves_the_alert_in_the_local_log(capsys):
+    """出口发不出去时，cron 日志里必须还有这条告警的原文。
+
+    以前的顺序是「先发、后 print」，任何一个出口抛异常，最后那行 print 就永远
+    执行不到：出口坏掉的那一刻，恰好也是日志里什么都没有的那一刻。
+    """
+    sent, failed = poller.deliver({"KARMA_ALERT_WEBHOOK_URL": DEAD_WEBHOOK},
+                                  "[Karma] 1 security alert(s)", "ALERT-原文-不能丢", {},
+                                  dry_run=False)
+
+    assert sent == []
+    assert len(failed) == 1 and failed[0].startswith("webhook (")
+    assert "ALERT-原文-不能丢" in capsys.readouterr().out
+
+
+def test_one_dead_egress_does_not_block_the_other(monkeypatch):
+    """多出口的意义就是冗余：webhook 挂了不该让 Telegram 也收不到。"""
+    delivered = []
+    monkeypatch.setattr(poller, "send_telegram",
+                        lambda token, chat_id, text, timeout: delivered.append((token, chat_id)))
+
+    sent, failed = poller.deliver({
+        "KARMA_ALERT_WEBHOOK_URL": DEAD_WEBHOOK,
+        "KARMA_ALERT_TELEGRAM_BOT_TOKEN": "123456:AA" + "x" * 30,
+        "KARMA_ALERT_TELEGRAM_CHAT_ID": "-1001234567890",
+    }, "[Karma] test", "text", {}, dry_run=False)
+
+    assert sent == ["telegram"], "webhook 死了，telegram 仍然要发"
+    assert len(failed) == 1 and failed[0].startswith("webhook (")
+    assert delivered == [("123456:AA" + "x" * 30, "-1001234567890")]
+
+
+def test_telegram_failure_never_writes_the_bot_token_to_logs_or_state(monkeypatch, capsys):
+    """Telegram 的 token 就在请求 URL 的路径里，而 urllib 会把整条 URL 放进异常。
+
+    这条异常要进 stderr（→ /var/log/karma-alerts.log）和状态文件的 last_egress_error，
+    两个地方都会跟着备份、日志采集一起走。一次网络抖动不该等于一次密钥泄露。
+
+    （这里的 token 是故意写成不像真 token 的样子的：仓库是公开的，不该在源码里放一个
+    能骗过扫描器的 Telegram token 字面量。真正的兜底不是形状正则，见下一个用例。）
+    """
+    token = "seeded-by-ops-env-not-a-real-token"
+    url = "https://api.telegram.org/bot%s/sendMessage" % token
+
+    def boom(*_args, **_kwargs):
+        raise urllib.error.HTTPError(url, 401, "Unauthorized", None, None)
+
+    monkeypatch.setattr(poller, "http_post_json", boom)
+    sent, failed = poller.deliver({
+        "KARMA_ALERT_TELEGRAM_BOT_TOKEN": token,
+        "KARMA_ALERT_TELEGRAM_CHAT_ID": "-1001234567890",
+    }, "[Karma] test", "text", {}, dry_run=False)
+
+    assert sent == [] and len(failed) == 1
+    captured = capsys.readouterr()
+    for blob in (failed[0], captured.out, captured.err):
+        assert token not in blob, "token 不能出现在任何会被写进日志的地方"
+    assert "401" in failed[0], "抹掉密钥，但不能把失败原因也一起抹掉"
+
+
+def test_redact_catches_a_token_that_is_not_in_the_ops_file():
+    """兜底那一道：token 是从**环境变量**给的时候，ops_env 里没有它，抹不掉。
+
+    所以还需要一条按形状认的规则（bot<数字>:<长串>）。前缀故意用 4 位数字 ——
+    真的 Telegram token 是 8-10 位，用 4 位既能测到规则，又不会在公开仓库里留下
+    一个能骗过密钥扫描器的字面量。
+    """
+    token = "9001:AAFakeTokenForTestsOnly_0123456789abcd"
+    text = "HTTP Error 401: Unauthorized at https://api.telegram.org/bot%s/sendMessage" % token
+
+    scrubbed = poller.redact(text, {})
+
+    assert "9001:" not in scrubbed
+    assert "AAFakeTokenForTestsOnly" not in scrubbed
+    assert "bot<redacted>" in scrubbed
+    assert "HTTP Error 401" in scrubbed
+
+
+def test_redact_scrubs_config_secrets_echoed_in_errors(monkeypatch):
+    ops_env = {"KARMA_ALERT_SMTP_PASSWORD": "hunter2-not-in-logs"}
+    text = poller.redact("login failed: password=hunter2-not-in-logs", ops_env)
+    assert "hunter2-not-in-logs" not in text
+    assert "login failed" in text
+
+
+def _selftest_env(tmp_path, lines, state_path=None):
+    """写一份临时的 .env.ops。
+
+    默认把状态文件钉在 tmp_path 里：不钉的话自检会去写生产路径
+    /opt/karma/state/security-alerts.json —— 单测不该有这种副作用。
+    """
+    lines = list(lines)
+    if not any(l.startswith("KARMA_ALERT_STATE_PATH=") for l in lines):
+        lines.append("KARMA_ALERT_STATE_PATH="
+                     + str(state_path or (tmp_path / "state" / "security-alerts.json")))
+    path = tmp_path / ".env.ops"
+    path.write_text("".join(l + "\n" for l in lines), encoding="utf-8")
+    return str(path)
+
+
+def test_selftest_exit_code_is_nonzero_when_the_egress_is_not_configured(monkeypatch, tmp_path, capsys):
+    """没配出口时 --test 说「成功」，等于把自检变成一个空头支票。"""
+    monkeypatch.setenv("KARMA_OPS_ENV", _selftest_env(tmp_path, []))
+    assert poller.main(["--test"]) == 5
+    assert "nothing was actually sent" in capsys.readouterr().err
+
+
+def test_selftest_exit_code_is_nonzero_when_the_egress_is_unreachable(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("KARMA_OPS_ENV",
+                       _selftest_env(tmp_path, ["KARMA_ALERT_WEBHOOK_URL=" + DEAD_WEBHOOK]))
+    assert poller.main(["--test"]) == 5
+    assert "selftest could not reach" in capsys.readouterr().err
+
+
+def test_selftest_exit_code_is_zero_when_the_egress_accepts_it(monkeypatch, tmp_path, fake_http):
+    monkeypatch.setenv("KARMA_OPS_ENV",
+                       _selftest_env(tmp_path, ["KARMA_ALERT_WEBHOOK_URL=" + fake_http + "/hook"]))
+    assert poller.main(["--test"]) == 0
+    assert _Recorder.requests[-1]["path"] == "/hook"
+
+
+def test_selftest_records_the_result_so_the_gate_has_something_to_judge(
+        monkeypatch, tmp_path, fake_http):
+    """健康的服务器上真实告警可能几个月都不出现。
+
+    自检的结果如果不落进状态文件，G4 就永远没有东西可判 —— 配置填对了也只能一直
+    挂着 HUMAN。所以自检要落状态，同时把来源标出来（src=selftest）。
+    """
+    state_path = tmp_path / "state" / "security-alerts.json"
+    monkeypatch.setenv("KARMA_OPS_ENV", _selftest_env(
+        tmp_path, ["KARMA_ALERT_WEBHOOK_URL=" + fake_http + "/hook"], state_path))
+
+    assert poller.main(["--test"]) == 0
+
+    state = poller.load_state(str(state_path))
+    assert state["last_egress_ok_ts"] > 0
+    assert state["last_egress_src"] == "selftest", "自检不能冒充真实告警送达"
+    assert state["last_egress_error"] is None
+
+
+def test_failed_selftest_records_the_failure(monkeypatch, tmp_path):
+    state_path = tmp_path / "state" / "security-alerts.json"
+    monkeypatch.setenv("KARMA_OPS_ENV", _selftest_env(
+        tmp_path, ["KARMA_ALERT_WEBHOOK_URL=" + DEAD_WEBHOOK], state_path))
+
+    assert poller.main(["--test"]) == 5
+
+    state = poller.load_state(str(state_path))
+    assert state["last_egress_error"].startswith("webhook (")
+    assert state.get("last_egress_ok_ts") is None
+
+
+def test_selftest_without_egress_does_not_erase_an_earlier_real_failure(monkeypatch, tmp_path):
+    """什么都没验到的自检，不许把上一次真实发送失败这件事抹掉。"""
+    state_path = tmp_path / "state" / "security-alerts.json"
+    poller.save_state(str(state_path), {"last_egress_error": "webhook (URLError: down)",
+                                        "last_egress_error_ts": 1.0, "seen": {}})
+    monkeypatch.setenv("KARMA_OPS_ENV", _selftest_env(tmp_path, [], state_path))
+
+    assert poller.main(["--test"]) == 5
+    assert poller.load_state(str(state_path))["last_egress_error"] == "webhook (URLError: down)"
+
+
+def test_dry_run_selftest_writes_no_state(monkeypatch, tmp_path):
+    state_path = tmp_path / "state" / "security-alerts.json"
+    monkeypatch.setenv("KARMA_OPS_ENV", _selftest_env(
+        tmp_path, ["KARMA_ALERT_WEBHOOK_URL=" + DEAD_WEBHOOK], state_path))
+
+    assert poller.main(["--test", "--dry-run"]) == 0
+    assert poller.load_state(str(state_path)) == {}
+
+
+def test_a_successful_alert_emit_clears_an_earlier_egress_failure():
+    state = {"last_egress_error": "webhook (URLError: down)", "last_egress_error_ts": 1.0}
+    poller.record_egress_result(state, ["telegram"], [], 99.0, "alerts")
+
+    assert state["last_egress_error"] is None
+    assert state["last_egress_error_ts"] is None
+    assert state["last_egress_ok_ts"] == 99.0
+    assert state["last_egress_src"] == "alerts"
+
+
+def test_record_egress_result_does_not_call_stdout_a_delivery():
+    """什么都没配的时候 deliver() 返回 ["log"] —— 那不是「发出去了」。"""
+    state = {}
+    poller.record_egress_result(state, ["log"], [], 5.0, "alerts")
+    assert state.get("last_egress_ok_ts") is None
