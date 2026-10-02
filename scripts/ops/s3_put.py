@@ -8,7 +8,10 @@
 
 用法:
   s3_put.py --endpoint https://s3.example.com --bucket B --key K --file F \\
-            --access-key A --secret-key S [--region us-east-1] [--dry-run] [--quiet]
+            --access-key A --secret-key S [--region us-east-1] [--style path|virtual-hosted] \\
+            [--dry-run] [--quiet]
+  s3_put.py --get --endpoint https://s3.example.com --bucket B --key K --out F \\
+            --access-key A --secret-key S [--region us-east-1] [--style path|virtual-hosted]
 
 退出码: 0 成功 / 2 参数错 / 3 传输或鉴权失败。
 """
@@ -126,33 +129,56 @@ def http_date(now: _dt.datetime | None = None) -> str:
     return now.strftime("%a, %d %b %Y %H:%M:%S GMT")
 
 
-def put_object(endpoint: str, bucket: str, key: str, path: str, access_key: str,
-               secret_key: str, region: str = "us-east-1", dry_run: bool = False,
-               quiet: bool = False, timeout: int = 300) -> int:
-    with open(path, "rb") as fh:
-        payload = fh.read()
-
+def build_target(endpoint: str, bucket: str, key: str, style: str = "path") -> tuple[str, str, str]:
+    """返回 (url, object_path, host_header)。object_path / host_header 参与签名。"""
     ep = endpoint.strip()
     if "://" not in ep:
         ep = "https://" + ep
     parsed = urllib.parse.urlsplit(ep)
     base_path = parsed.path.rstrip("/")
-    if parsed.scheme == "https" and parsed.port in (None, 443):
-        host = parsed.hostname or ""
-    elif parsed.scheme == "http" and parsed.port in (None, 80):
-        host = parsed.hostname or ""
+    hostname = parsed.hostname or ""
+    port = parsed.port
+    default_port = (parsed.scheme == "https" and port == 443) or (
+        parsed.scheme == "http" and port == 80
+    )
+
+    if style == "virtual-hosted":
+        # 阿里云 OSS 对二级域名桶强制 virtual-hosted style（path style 会 403
+        # SecondLevelDomainForbidden）。bucket 名必须是合法 DNS 名。
+        vhost = "%s.%s" % (bucket, hostname)
+        if port is None or default_port:
+            host_header = vhost
+            netloc = vhost
+        else:
+            host_header = "%s:%s" % (vhost, port)
+            netloc = host_header
+        object_path = "%s/%s" % (base_path, key.lstrip("/"))
     else:
-        host = parsed.netloc
+        if parsed.scheme == "https" and port in (None, 443):
+            host_header = hostname
+        elif parsed.scheme == "http" and port in (None, 80):
+            host_header = hostname
+        else:
+            host_header = parsed.netloc
+        netloc = parsed.netloc
+        object_path = "%s/%s/%s" % (base_path, bucket, key.lstrip("/"))
 
-    object_path = "%s/%s/%s" % (base_path, bucket, key.lstrip("/"))
-    url = "%s://%s%s" % (parsed.scheme, parsed.netloc, object_path)
+    url = "%s://%s%s" % (parsed.scheme, netloc, object_path)
+    return url, object_path, host_header
 
-    # 路径风格 vs 虚拟主机风格：端点带路径（MinIO / 自建）用路径风格；否则也用路径
-    # 风格——它两边都能用，而虚拟主机风格要求 bucket 名是合法 DNS 名。
+
+def put_object(endpoint: str, bucket: str, key: str, path: str, access_key: str,
+               secret_key: str, region: str = "us-east-1", dry_run: bool = False,
+               quiet: bool = False, timeout: int = 300, style: str = "path") -> int:
+    with open(path, "rb") as fh:
+        payload = fh.read()
+
+    url, object_path, host_header = build_target(endpoint, bucket, key, style)
+
     now = _dt.datetime.now(_dt.timezone.utc)
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
     headers = {
-        "host": host,
+        "host": host_header,
         "content-type": "application/octet-stream",
         "content-length": str(len(payload)),
         "date": http_date(now),
@@ -187,25 +213,78 @@ def put_object(endpoint: str, bucket: str, key: str, path: str, access_key: str,
         return 3
 
 
+def get_object(endpoint: str, bucket: str, key: str, out_path: str, access_key: str,
+               secret_key: str, region: str = "us-east-1", quiet: bool = False,
+               timeout: int = 300, style: str = "path") -> int:
+    """从 S3 兼容端点 GET 一个对象并落盘到 out_path（F6 离站恢复演练用）。"""
+    url, object_path, host_header = build_target(endpoint, bucket, key, style)
+
+    now = _dt.datetime.now(_dt.timezone.utc)
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    headers = {
+        "host": host_header,
+        "date": http_date(now),
+    }
+    auth, signed_headers = sign_request(
+        "GET", object_path, {}, headers, b"",
+        access_key, secret_key, region, amz_date)
+
+    req = urllib.request.Request(url, method="GET")
+    for k, v in signed_headers.items():
+        req.add_header(k, v)
+    req.add_header("Authorization", auth)
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read()
+            with open(out_path, "wb") as fh:
+                fh.write(data)
+            if not quiet:
+                print("GET %s -> %d (%d bytes)" % (url, resp.status, len(data)))
+            return 0
+    except urllib.error.HTTPError as exc:
+        body = exc.read()[:2000].decode("utf-8", "replace")
+        sys.stderr.write("GET %s failed: HTTP %s\n%s\n" % (url, exc.code, body))
+        return 3
+    except Exception as exc:  # noqa: BLE001 - 传输层任何异常都算下载失败
+        sys.stderr.write("GET %s failed: %s: %s\n" % (url, type(exc).__name__, exc))
+        return 3
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="PUT a file to an S3-compatible endpoint")
+    ap = argparse.ArgumentParser(description="PUT/GET a file to/from an S3-compatible endpoint")
     ap.add_argument("--endpoint", required=True)
     ap.add_argument("--bucket", required=True)
     ap.add_argument("--key", required=True)
-    ap.add_argument("--file", required=True)
+    ap.add_argument("--file", required=False)
+    ap.add_argument("--get", action="store_true")
+    ap.add_argument("--out")
     ap.add_argument("--access-key", required=True)
     ap.add_argument("--secret-key", required=True)
     ap.add_argument("--region", default=os.environ.get("KARMA_BACKUP_S3_REGION", "us-east-1"))
+    ap.add_argument("--style", default=os.environ.get("KARMA_BACKUP_S3_STYLE", "path"),
+                    choices=("path", "virtual-hosted"))
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args(argv)
 
+    if args.get:
+        if not args.out:
+            sys.stderr.write("--get requires --out\n")
+            return 2
+        return get_object(args.endpoint, args.bucket, args.key, args.out,
+                          args.access_key, args.secret_key, args.region,
+                          quiet=args.quiet, style=args.style)
+
+    if not args.file:
+        sys.stderr.write("missing --file (PUT), or use --get --out\n")
+        return 2
     if not os.path.isfile(args.file):
         sys.stderr.write("no such file: %s\n" % args.file)
         return 2
     return put_object(args.endpoint, args.bucket, args.key, args.file,
                       args.access_key, args.secret_key, args.region,
-                      dry_run=args.dry_run, quiet=args.quiet)
+                      dry_run=args.dry_run, quiet=args.quiet, style=args.style)
 
 
 if __name__ == "__main__":

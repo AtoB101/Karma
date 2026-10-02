@@ -7,11 +7,13 @@
 #   sudo /bin/bash /opt/karma/repo/scripts/ops/backup.sh --verify
 #   sudo /bin/bash /opt/karma/repo/scripts/public-beta-security-gate.sh \
 #        --env-exec 'docker exec karma-api env'
-#   —— 闸门 F3/F4/F5 三项要有结论，F4 必须是「restore drill passed」。
+#   —— 闸门 F3/F4/F5/F6 四项要有结论：F4 必须是「restore drill passed」、
+#       F5 必须 offsite_status=ok、F6 必须 offsite_restore_status=ok。
 #
 # 时间为什么挑 :17 —— 整点前后宝塔和 acme.sh 也在跑（root crontab 里那两条），岔开。
 #
-# 每小时一份快照（保留 48 份 = 两天），每天 03:17 那份额外做恢复演练 + 推离站。
+# 每小时一份快照（保留 48 份 = 两天），每天 03:17 那份额外做恢复演练 + 推离站，
+# 并在同一条 cron 里紧接着把离站副本拉回、再恢复演练一次（--restore-offsite，F6）。
 # 出了「昨天写坏的数据」这种事故，两天的粒度才够回溯。
 #
 # 注意：
