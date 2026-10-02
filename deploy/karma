@@ -415,7 +415,8 @@ cmd_deploy() {
   local dirty
   dirty=$(git status --porcelain | wc -l)
   if [ "$dirty" -gt 0 ]; then
-    warn "  $dirty uncommitted file(s) in the checkout; pulling anyway with --ff-only"
+    warn "  $dirty uncommitted file(s) in the checkout; stashing before fast-forward"
+    git stash push -u -m "karma-deploy $(date +%F-%H%M%S)" || { err "  could not stash local edits"; return 1; }
   fi
   hdr "Fast-forward to origin/main"
   git merge --ff-only origin/main || { err "  not a fast-forward; resolve the checkout first"; return 1; }

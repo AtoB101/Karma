@@ -16,7 +16,6 @@
 #   backup.sh --verify          打完立刻做恢复演练
 #   backup.sh --verify-latest   不重新备份，演练最近一份快照
 #   backup.sh --offsite         打完把 dump/redis 推离站
-#   backup.sh --restore-offsite 从离站副本拉回并恢复演练（F6）
 #   backup.sh --json            打一行 JSON 结果（给闸门 / CI 读）
 #   backup.sh --help
 #
@@ -30,7 +29,6 @@
 #   KARMA_BACKUP_OFFSITE         none | s3 | rsync | scp        默认 none
 #   KARMA_BACKUP_OFFSITE_TARGET  rsync/scp 目标，如 user@host:/srv/karma-backups
 #   KARMA_BACKUP_S3_ENDPOINT/_BUCKET/_PREFIX/_REGION/_ACCESS_KEY/_SECRET_KEY
-#   KARMA_BACKUP_S3_STYLE        path | virtual-hosted（阿里云 OSS 用 virtual-hosted）
 #   KARMA_BACKUP_SKIP_ENV        1 = 快照里不放 env.backup
 #   KARMA_OPS_ENV                默认 /opt/karma/.env.ops（主机级运维配置，有就 source）
 #
@@ -61,7 +59,6 @@ VERIFY_IMAGE="${KARMA_BACKUP_VERIFY_IMAGE:-postgres:16-alpine}"
 DO_VERIFY=false
 VERIFY_LATEST=false
 DO_OFFSITE=false
-RESTORE_OFFSITE=false
 DO_JSON=false
 
 usage() { sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -71,7 +68,6 @@ while [[ $# -gt 0 ]]; do
     --verify)        DO_VERIFY=true ;;
     --verify-latest) VERIFY_LATEST=true ;;
     --offsite)       DO_OFFSITE=true ;;
-    --restore-offsite) RESTORE_OFFSITE=true ;;
     --json)          DO_JSON=true ;;
     --keep)          KEEP="${2:-14}"; shift ;;
     --out)           BK_ROOT="${2:-}"; shift ;;
@@ -136,9 +132,9 @@ latest_snapshot() { ls -1dt "$BK_ROOT"/*/ 2>/dev/null | head -1 | sed 's:/$::'; 
 # --------------------------------------------------------------------------
 # 恢复演练：把 dump 恢复进一次性容器，逐表比对行数
 # --------------------------------------------------------------------------
-run_verify_dir() {
-  local dump_dir="$1" ev_dir="$2" label="$3"
-  local dump="$dump_dir/karma-db.sql.gz"
+run_verify() {
+  local snap="$1"
+  local dump="$snap/karma-db.sql.gz"
   [[ -f "$dump" ]] || { warn "no dump at $dump"; return 3; }
   if ! docker image inspect "$VERIFY_IMAGE" > /dev/null 2>&1; then
     docker pull "$VERIFY_IMAGE" > /dev/null 2>&1 \
@@ -146,12 +142,12 @@ run_verify_dir() {
   fi
 
   local cname="karma-backup-verify-$$"
-  local logf="$ev_dir/${label}.restore.log"
-  say "==> restore drill: $label -> throwaway $VERIFY_IMAGE"
+  local logf="$snap/verify.restore.log"
+  say "==> restore drill: $(basename "$snap") -> throwaway $VERIFY_IMAGE"
   docker rm -f "$cname" > /dev/null 2>&1 || true
   docker run -d --name "$cname" --network none \
     -e POSTGRES_PASSWORD=verifyonly -e POSTGRES_USER="$PG_USER" -e POSTGRES_DB="$PG_DB" \
-    -v "$dump_dir:/b:ro" "$VERIFY_IMAGE" > /dev/null 2>&1 \
+    -v "$snap:/b:ro" "$VERIFY_IMAGE" > /dev/null 2>&1 \
     || { warn "cannot start verify container"; return 3; }
 
   local i ok=1
@@ -183,9 +179,9 @@ run_verify_dir() {
     return 2
   fi
 
-  local qf="$ev_dir/${label}.counts.sql"
+  local qf="$snap/verify.counts.sql"
   counts_sql "$PG_DB" > "$qf"
-  local live_txt="$ev_dir/${label}.live_rows.txt" rest_txt="$ev_dir/${label}.restored_rows.txt"
+  local live_txt="$snap/verify.live_rows.txt" rest_txt="$snap/verify.restored_rows.txt"
   run_counts "$PG_CONTAINER" "$qf" > "$live_txt"
   run_counts "$cname" "$qf" > "$rest_txt"
   docker rm -f "$cname" > /dev/null 2>&1 || true
@@ -199,13 +195,8 @@ run_verify_dir() {
     diff "$live_txt" "$rest_txt" | head -20 >&2 || true
     return 2
   fi
-  say "==> restore drill OK ($label): ${live_n} tables, every row count identical"
+  say "==> restore drill OK: ${live_n} tables, every row count identical"
   return 0
-}
-
-run_verify() {
-  local snap="$1"
-  run_verify_dir "$snap" "$snap" "verify"
 }
 
 # --------------------------------------------------------------------------
@@ -223,7 +214,6 @@ run_offsite() {
       local ep="${KARMA_BACKUP_S3_ENDPOINT:-}" bucket="${KARMA_BACKUP_S3_BUCKET:-}"
       local prefix="${KARMA_BACKUP_S3_PREFIX:-karma-backups}"
       local region="${KARMA_BACKUP_S3_REGION:-us-east-1}"
-      local style="${KARMA_BACKUP_S3_STYLE:-path}"
       local ak="${KARMA_BACKUP_S3_ACCESS_KEY:-${MINIO_ACCESS_KEY:-}}"
       local sk="${KARMA_BACKUP_S3_SECRET_KEY:-${MINIO_SECRET_KEY:-}}"
       if [[ -z "$ep" || -z "$bucket" || -z "$ak" || -z "$sk" ]]; then
@@ -236,7 +226,6 @@ run_offsite() {
         "$PY" "$SELF_DIR/s3_put.py" \
           --endpoint "$ep" --bucket "$bucket" --key "$prefix/$name/$f" \
           --file "$snap/$f" --access-key "$ak" --secret-key "$sk" --region "$region" \
-          --style "$style" \
           || { warn "s3 upload failed: $f"; return 3; }
       done
       return 0 ;;
@@ -261,45 +250,6 @@ run_offsite() {
 }
 
 # --------------------------------------------------------------------------
-# 离站恢复演练：从 OSS 拉回离站副本，恢复进一次性容器逐表比对（F6 证据）
-# --------------------------------------------------------------------------
-run_offsite_restore() {
-  local snap="$1"
-  if [[ "$OFFSITE" != "s3" ]]; then
-    warn "offsite restore drill requires KARMA_BACKUP_OFFSITE=s3 (got '$OFFSITE')"
-    return 3
-  fi
-  [[ -n "$PY" ]] || { warn "offsite restore drill needs a working python3"; return 3; }
-  local ep="${KARMA_BACKUP_S3_ENDPOINT:-}" bucket="${KARMA_BACKUP_S3_BUCKET:-}"
-  local prefix="${KARMA_BACKUP_S3_PREFIX:-karma-backups}"
-  local region="${KARMA_BACKUP_S3_REGION:-us-east-1}"
-  local style="${KARMA_BACKUP_S3_STYLE:-path}"
-  local ak="${KARMA_BACKUP_S3_ACCESS_KEY:-${MINIO_ACCESS_KEY:-}}"
-  local sk="${KARMA_BACKUP_S3_SECRET_KEY:-${MINIO_SECRET_KEY:-}}"
-  if [[ -z "$ep" || -z "$bucket" || -z "$ak" || -z "$sk" ]]; then
-    warn "s3 offsite missing config (need endpoint/bucket/access_key/secret_key)"; return 3
-  fi
-  local name f tmp; name="$(basename "$snap")"; tmp="$snap/offsite-restore"
-  rm -rf "$tmp"; mkdir -p "$tmp"
-  for f in karma-db.sql.gz redis-dump.rdb manifest.txt; do
-    say "==> offsite fetch s3://$bucket/$prefix/$name/$f"
-    "$PY" "$SELF_DIR/s3_put.py" --get \
-      --endpoint "$ep" --bucket "$bucket" --key "$prefix/$name/$f" \
-      --out "$tmp/$f" --access-key "$ak" --secret-key "$sk" --region "$region" --style "$style" \
-      || { warn "offsite download failed: $f"; return 3; }
-  done
-  local local_sha off_sha
-  local_sha="$(sha "$snap/karma-db.sql.gz")"
-  off_sha="$(sha "$tmp/karma-db.sql.gz")"
-  if [[ -n "$local_sha" && "$local_sha" != "-" && "$local_sha" == "$off_sha" ]]; then
-    say "==> offsite dump checksum matches local snapshot"
-  else
-    warn "offsite dump checksum differs (offsite=$off_sha local=$local_sha) - restoring anyway to prove usability"
-  fi
-  run_verify_dir "$tmp" "$snap" "offsite_restore"
-}
-
-# --------------------------------------------------------------------------
 # --verify-latest：只演练，不备份
 # --------------------------------------------------------------------------
 if [[ "$VERIFY_LATEST" == "true" ]]; then
@@ -316,40 +266,7 @@ if [[ "$VERIFY_LATEST" == "true" ]]; then
 fi
 
 # --------------------------------------------------------------------------
-# --restore-offsite：只演练离站副本，不重新备份
-# --------------------------------------------------------------------------
-if [[ "$RESTORE_OFFSITE" == "true" ]]; then
-  snap=""
-  while read -r d; do
-    [[ -n "$d" ]] || continue
-    [[ "$(basename "$d")" =~ ^[0-9]{8}-[0-9]{6}$ ]] || continue
-    [[ -f "$d/manifest.txt" ]] || continue
-    st="$(sed -n 's/^offsite_status=//p' "$d/manifest.txt" | tail -1)"
-    [[ "$st" == "ok" ]] || continue
-    snap="$d"; break
-  done < <(ls -1dt "$BK_ROOT"/*/ 2> /dev/null | sed 's:/$::')
-  [[ -n "$snap" ]] || die "no snapshot with offsite_status=ok under $BK_ROOT"
-  orc=0
-  set +e; run_offsite_restore "$snap"; orc=$?; set -e
-  case "$orc" in
-    0)
-      sed -i '/^offsite_restore_status=/d;/^offsite_restore_at=/d;/^offsite_restore_object=/d' "$snap/manifest.txt"
-      {
-        echo "offsite_restore_status=ok"
-        echo "offsite_restore_at=$(date -Iseconds)"
-        echo "offsite_restore_object=$(basename "$snap")/karma-db.sql.gz"
-      } >> "$snap/manifest.txt"
-      echo "OFFSITE_RESTORE ok snapshot=$snap" ;;
-    *)
-      echo "OFFSITE_RESTORE failed snapshot=$snap" >&2
-      exit 3 ;;
-  esac
-  exit 0
-fi
-
-# --------------------------------------------------------------------------
 # 打快照
-# --------------------------------------------------------------------------
 # --------------------------------------------------------------------------
 TS="$(date +%Y%m%d-%H%M%S)"
 BK="$BK_ROOT/$TS"

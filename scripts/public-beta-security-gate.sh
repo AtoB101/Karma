@@ -888,7 +888,6 @@ else
   p "F1 backup script present and parses ($BK_SCRIPT)"
 fi
 
-F6_PRINTED=""
 if [[ "$ALLOW_NON_PROD" == "true" ]] || ! eq_prod "$APP_ENV_V"; then
   echo "SKIP  F2-F5 host backup state (not a production release env)"
 else
@@ -1008,30 +1007,12 @@ else
           *)
             h "F5 unrecognised offsite status '$f5_st' ($f5_snap)" ;;
         esac
-
-      F6_ALL="$(bk_status_lines offsite_restore_status)"
-      F6_LAST="$(awk -F'|' '!f && ($1=="ok" || $1=="failed") {print; f=1}' <<< "$F6_ALL")"
-      if [[ -z "$F6_LAST" ]]; then
-        h "F6 no offsite copy has ever been restored from (confirm the copy lives in a different account/region/host)"
-      else
-        f6_st="$(printf '%s' "$F6_LAST" | cut -d'|' -f1)"
-        f6_snap="$(printf '%s' "$F6_LAST" | cut -d'|' -f2)"
-        f6_age="$(printf '%s' "$F6_LAST" | cut -d'|' -f3)"
-        if [[ "$f6_st" == "failed" ]]; then
-          f "F6 the most recent offsite restore drill FAILED ($f6_snap, ${f6_age}h ago)"
-        else
-          p "F6 offsite copy restored from once ($f6_snap, ${f6_age}h ago, row counts identical)"
-        fi
-      fi
-      F6_PRINTED=1
       fi
     fi
   fi
 fi
 
-if [[ -z "${F6_PRINTED:-}" ]]; then
-  h "F6 an offsite copy exists in a different account/region/host and has been restored from once"
-fi
+h "F6 an offsite copy exists in a different account/region/host and has been restored from once"
 
 # --------------------------------------------------------------------------
 # Gate G - Alerting Delivery
