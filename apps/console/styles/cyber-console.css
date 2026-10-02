@@ -229,7 +229,7 @@ body {
   padding: 24px 28px;
   scrollbar-width: thin;
 }
-.main::-webkit-scrollbar { width: 5px; }
+.main::-webkit-scrollbar { width: 3px; }
 .main::-webkit-scrollbar-track { background: #0e1622; }
 .main::-webkit-scrollbar-thumb { background: var(--neon-cyan); border-radius: 20px; }
 .api-strip {
