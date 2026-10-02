@@ -227,10 +227,8 @@ body {
 .main {
   overflow-y: auto;
   padding: 24px 28px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(139, 92, 246, 0.75) transparent;
 }
-.main::-webkit-scrollbar { width: 0.1px; height: 0.1px; }
+.main::-webkit-scrollbar { width: 1px; height: 1px; }
 .main::-webkit-scrollbar-track { background: transparent; }
 .main::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(34, 211, 238, 0.18), rgba(139, 92, 246, 0.85), rgba(232, 121, 249, 0.18));
@@ -243,13 +241,15 @@ body {
 }
 
 /* 所有可滚动区域统一为极细光影滚动条（身份选择页、面板、弹层都生效）。 */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(139, 92, 246, 0.75) transparent;
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(139, 92, 246, 0.75) transparent;
+  }
 }
 *::-webkit-scrollbar {
-  width: 0.1px;
-  height: 0.1px;
+  width: 1px;
+  height: 1px;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
