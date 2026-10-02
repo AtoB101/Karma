@@ -1822,8 +1822,8 @@ body.gated { overflow: hidden; }
 /* 步数少就把它们摊开铺满，步数多就横向滚动 —— 不硬塞，也不留大片空白。 */
 .of-step { position: relative; flex: 1 1 0; min-width: 96px; padding: 0 3px; text-align: center; }
 .of-step::before {
-  content: ""; position: absolute; top: 13px; left: 0; width: 100%; height: 2px;
-  border-radius: 2px; background: rgba(120, 160, 255, 0.18);
+  content: ""; position: absolute; top: 13px; left: 0; width: 100%; height: 1px;
+  border-radius: 1px; background: rgba(120, 160, 255, 0.18);
 }
 .of-step:first-child::before { left: 50%; width: 50%; }
 .of-step:last-child::before { width: 50%; }
