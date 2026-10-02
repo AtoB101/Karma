@@ -2570,6 +2570,22 @@ body {
     drop-shadow(0 0 80px rgba(139, 92, 246, 0.20))
     drop-shadow(0 0 46px rgba(255, 190, 90, 0.24));
 }
+.bg-globe .globe-image {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(76vmin, 860px);
+  height: min(76vmin, 860px);
+  transform: translate(-50%, -50%);
+  object-fit: cover;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  opacity: 0.96;
+  filter:
+    drop-shadow(0 0 34px rgba(34, 211, 238, 0.22))
+    drop-shadow(0 0 80px rgba(139, 92, 246, 0.20))
+    drop-shadow(0 0 46px rgba(255, 190, 90, 0.24));
+}
 .globe-fallback {
   position: absolute;
   left: 50%;
