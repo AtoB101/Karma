@@ -1483,6 +1483,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "已确认": "Confirmed",
   "取景组件没加载": "The camera component did not load",
   "已采集": "Captured",
+  "运营复核岗": "Operations reviewer",
   "复核岗": "Reviewer role",
   "仲裁岗": "Arbitrator role",
   "主体账户": "Business account",

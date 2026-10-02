@@ -1,6 +1,8 @@
 /**
  * Cyber console i18n — zh-CN, en, ja, ko, es-AR, es-SV.
  * Every shipped pack covers all 256 keys; fallback is locale -> en -> zh-CN -> key.
+ * Phrase packs (i18n-phrase/*.js) inherit this file's ?v=, so editing either
+ * requires re-running scripts/stamp_console_assets.py.
  */
 (function (global) {
   const STORAGE_KEY = "karma_cyber_lang";

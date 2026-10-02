@@ -1485,6 +1485,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "已确认": "Confirmado",
   "取景组件没加载": "El componente de cámara no se cargó",
   "已采集": "Capturado",
+  "运营复核岗": "Revisor de operaciones",
   "复核岗": "Rol de revisor",
   "仲裁岗": "Rol de árbitro",
   "主体账户": "Cuenta del titular",

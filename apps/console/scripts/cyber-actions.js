@@ -234,8 +234,21 @@
     });
   }
 
+  /** 治理岗这类平台默认名（“运营复核岗”）跟着当前语言翻，没翻到就原样返回。 */
+  function trName(name) {
+    var n = String(name == null ? '' : name).trim();
+    if (!n) return '';
+    try {
+      if (window.CYBER_I18N && window.CYBER_I18N.t) {
+        var v = window.CYBER_I18N.t(n);
+        if (v && v !== n) return v;
+      }
+    } catch (_) {}
+    return name;
+  }
+
   function billProfileLabel(p) {
-    return (p.display_name || p.profile_id) + ' · ' + (p['class'] || '') + (p.visibility === 'private' ? ' 🔒' : '');
+    return (trName(p.display_name) || p.profile_id) + ' · ' + (p['class'] || '') + (p.visibility === 'private' ? ' 🔒' : '');
   }
 
   function billScope() {
@@ -373,7 +386,7 @@
           txCount = ((led && led.transactions) || []).length;
         } catch (_) {}
         rows.push(
-          '<tr><td>' + billEsc(p.display_name || p.profile_id) + '<br><code style="font-size:11px">' + billEsc(p.profile_id) + '</code></td>' +
+          '<tr><td>' + billEsc(trName(p.display_name) || p.profile_id) + '<br><code style="font-size:11px">' + billEsc(p.profile_id) + '</code></td>' +
           '<td>' + billEsc(p['class'] || '—') + '</td>' +
           '<td>' + (alloc ? billNum(alloc.allocated_credits).toFixed(2) : '未分配') + '</td>' +
           '<td>' + (alloc ? billNum(alloc.available_credits).toFixed(2) : '—') + '</td>' +
@@ -553,7 +566,7 @@
     list.forEach(function (p) {
       var o = document.createElement('option');
       o.value = p.profile_id;
-      o.textContent = (p.display_name || p.profile_id) + ' · ' + (p['class'] || '');
+      o.textContent = (trName(p.display_name) || p.profile_id) + ' · ' + (p['class'] || '');
       sel.appendChild(o);
     });
     if (keep && sel.querySelector('option[value="' + keep + '"]')) sel.value = keep;

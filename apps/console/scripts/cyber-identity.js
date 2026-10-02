@@ -71,18 +71,23 @@
 
   /** 主身份没有 class：它就是主体账户本身。 */
   function roleLabel(p) {
-    if (!p) return "主体账户";
-    return ROLE_LABELS[p["class"]] || p["class"] || "子身份";
+    if (!p) return tr("主体账户", "主体账户");
+    var zh = ROLE_LABELS[p["class"]] || p["class"] || "子身份";
+    return tr(zh, zh);
   }
 
   /** 对外只说人话：名字优先，没名字用类别（「生活助理」），
-     不把 individual / verifier 这种底座类名泄给用户；名字里已含类别就不重复写。 */
+     不把 individual / verifier 这种底座类名泄给用户；名字里已含类别就不重复写。
+     先按中文源名判断「名字里已含类别」，再整段翻译，避免英文里出现
+     “Operations reviewer · Reviewer role” 这类重复。 */
   function identityTitle(p) {
-    if (!p) return "子身份";
+    if (!p) return tr("子身份", "子身份");
     var role = roleLabel(p);
     var name = p.display_name ? String(p.display_name) : "";
     if (!name) return role;
-    return name.indexOf(role) < 0 ? name + " · " + role : name;
+    var roleZh = ROLE_LABELS[p["class"]] || p["class"] || "子身份";
+    if (name.indexOf(roleZh) >= 0) return tr(name, name);
+    return tr(name, name) + " · " + role;
   }
 
   function profileLabel(p) {
@@ -454,8 +459,8 @@
     var p = getActiveProfile();
     var masterId = String(window.KARMA_IDENTITY_ID || "").trim();
     node.textContent = pid
-      ? displayId(pid, profilePosition(pid)) + " · " + (p ? p.display_name || roleLabel(p) : "")
-      : (masterId ? displayId(masterId, 0) + " · " : "") + "主体账户（全部）";
+      ? displayId(pid, profilePosition(pid)) + " · " + (p ? identityTitle(p) : "")
+      : (masterId ? displayId(masterId, 0) + " · " : "") + tr("主体账户（全部）", "主体账户（全部）");
   }
 
   /* 「当前身份」= 现在这块界面是站在谁的角度看。
