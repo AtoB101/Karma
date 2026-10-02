@@ -5,6 +5,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Karma Network — Verifiable Execution &amp; Settlement Layer for AI Agents</title>
+<link rel="icon" type="image/png" href="./assets/favicon.png?v=0da2be69f6aa" />
 <meta name="description" content="Karma is the trust layer for agent commerce. Funds stay locked in the user's own wallet; what releases them is a signed execution trail, independently verifiable evidence, and collateralised arbitration. Payment rails move money; Karma proves the work was done." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -102,12 +103,12 @@ body {
 }
 .logo-mark {
   width: 32px; height: 32px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, var(--cyan), var(--violet));
+  border-radius: 50%;
+  display: inline-block;
+  overflow: hidden;
+  background: url("./assets/globe-cyber.png?v=0dbea9890ce3") center/cover no-repeat;
   box-shadow: 0 0 22px rgba(34, 211, 238, 0.45);
-  font-size: 1rem;
+  font-size: 0;
 }
 .logo .k { background: linear-gradient(90deg, var(--cyan), var(--violet), var(--magenta)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .nav-links { display: flex; align-items: center; gap: 30px; }
@@ -554,7 +555,7 @@ html:not(.js) .reveal { opacity: 1; transform: none; }
 <!-- Nav -->
 <nav class="nav">
   <div class="nav-inner">
-    <a class="logo" href="#top"><span class="logo-mark">K</span><span><span class="k">Karma</span> Network</span></a>
+    <a class="logo" href="#top"><span class="logo-mark" aria-label="Karma"></span><span><span class="k">Karma</span> Network</span></a>
     <div class="nav-links">
       <a href="#about" data-t="nav.about">About</a>
       <a href="#identity" data-t="nav.identity">Identity &amp; Onboarding</a>
@@ -843,7 +844,7 @@ html:not(.js) .reveal { opacity: 1; transform: none; }
 
 <footer>
   <div class="foot-inner">
-    <a class="logo" href="#top"><span class="logo-mark">K</span><span><span class="k">Karma</span> Network</span></a>
+    <a class="logo" href="#top"><span class="logo-mark" aria-label="Karma"></span><span><span class="k">Karma</span> Network</span></a>
     <p data-t="foot.rights">© 2026 Karma Network · AGPL-3.0 · Verifiable Execution &amp; Settlement Layer for AI Agents</p>
     <div class="foot-links">
       <a href="/console/pages/cyber/index.html" data-t="foot.console">Console</a>
