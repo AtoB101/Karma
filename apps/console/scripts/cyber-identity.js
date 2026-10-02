@@ -389,7 +389,7 @@
       if (!p || !p.profile_id) return;
       rows.push({
         id: p.profile_id,
-        name: p.display_name || roleLabel(p),
+        name: p.display_name ? tr(p.display_name, p.display_name) : roleLabel(p),
         sub: displayId(p.profile_id, profilePosition(p.profile_id)),
         role: roleLabel(p),
         locked: p.visibility === "private",
@@ -812,7 +812,8 @@
       var row = document.createElement("div");
       row.style.cssText = "display:grid;grid-template-columns:minmax(140px,1.2fr) 110px auto minmax(120px,1fr);gap:10px;align-items:center;margin-bottom:8px";
       var label = document.createElement("label");
-      label.textContent = (p.display_name || p.profile_id) + " · " + (p["class"] || "") + (used > 0 ? "（占用 " + used + "）" : "");
+      var displayName = p.display_name ? tr(p.display_name, p.display_name) : p.profile_id;
+      label.textContent = displayName + " · " + (p["class"] || "") + (used > 0 ? "（占用 " + used + "）" : "");
       var input = document.createElement("input");
       input.type = "number"; input.step = "0.01"; input.min = "0"; input.style.width = "100%";
       input.dataset.allocProfile = p.profile_id;

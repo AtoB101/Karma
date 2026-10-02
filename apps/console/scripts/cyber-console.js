@@ -26,6 +26,18 @@
     return document.querySelector(sel);
   }
 
+  /** i18n 简写：取不到译文就返回中文原文，绝不打键名到屏幕上。 */
+  function tr(key, zh) {
+    try {
+      const i18n = window.CYBER_I18N;
+      if (i18n && i18n.t) {
+        const v = i18n.t(key, zh);
+        if (v != null && v !== key) return v;
+      }
+    } catch (_) {}
+    return zh || key;
+  }
+
   function isLocalPage() {
     const h = window.location.hostname;
     return h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "";
@@ -949,9 +961,10 @@
           return x && x.profile_id === pid;
         });
         const label = did ? did.of(pid, pos + 1) : pid;
-        scopeEl.textContent = "当前视角 " + label + (p && p.display_name ? " · " + p.display_name : "");
+        const roleTitle = (sw && sw.identityTitle) ? sw.identityTitle(p) : (p && p.display_name ? p.display_name : "");
+        scopeEl.textContent = tr("scope.active", "当前视角") + " " + label + (roleTitle ? " · " + roleTitle : "");
       } else {
-        scopeEl.textContent = "当前视角 主体（全部）";
+        scopeEl.textContent = tr("scope.active", "当前视角") + " " + tr("scope.master_all", "主体（全部）");
       }
     }
     renderIdentitySubs(id);
@@ -982,7 +995,7 @@
         return (
           '<div class="id-home-sub-row' + (isActive ? " is-active" : "") + '">' +
           '<span><b class="id-home-sub-id">' + esc(label) + "</b>" +
-          '<span class="id-home-sub-meta"> · ' + esc(p.display_name || roleName) + "</span></span>" +
+          '<span class="id-home-sub-meta"> · ' + esc(roleName) + "</span></span>" +
           '<span style="display:flex;gap:8px;align-items:center">' +
           '<button type="button" class="btn" data-home-alloc="' + esc(p.profile_id) + '">授权额度</button>' +
           '<button type="button" class="btn' + (isActive ? "" : " primary") + '" data-home-switch="' + esc(p.profile_id) + '">' +
