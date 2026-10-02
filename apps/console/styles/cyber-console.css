@@ -2541,15 +2541,22 @@ body {
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background:
-    radial-gradient(circle at 34% 28%, rgba(255, 205, 118, 0.16), rgba(255, 205, 118, 0) 52%),
-    radial-gradient(circle at 50% 50%, rgba(255, 190, 90, 0.08), rgba(255, 190, 90, 0) 62%);
-  filter: blur(6px);
+    radial-gradient(circle at 30% 26%, rgba(34, 211, 238, 0.20), rgba(34, 211, 238, 0) 52%),
+    radial-gradient(circle at 72% 22%, rgba(232, 121, 249, 0.14), rgba(232, 121, 249, 0) 48%),
+    radial-gradient(circle at 50% 78%, rgba(139, 92, 246, 0.16), rgba(139, 92, 246, 0) 55%),
+    radial-gradient(circle at 50% 50%, rgba(255, 196, 96, 0.10), rgba(255, 196, 96, 0) 62%);
+  box-shadow:
+    0 0 0 1px rgba(34, 211, 238, 0.22),
+    0 0 110px rgba(34, 211, 238, 0.18),
+    0 0 170px rgba(139, 92, 246, 0.15);
+  filter: blur(8px);
 }
 .bg-globe::after {
   content: "";
   position: absolute;
   inset: 0;
   background:
+    repeating-linear-gradient(0deg, rgba(34, 211, 238, 0.035) 0 1px, rgba(34, 211, 238, 0) 1px 4px),
     radial-gradient(circle at 50% 50%, rgba(3, 6, 12, 0.12) 0%, rgba(3, 6, 12, 0.42) 58%, rgba(3, 6, 12, 0.94) 100%);
 }
 .bg-globe canvas {
@@ -2558,7 +2565,10 @@ body {
   top: 50%;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  filter: drop-shadow(0 0 70px rgba(255, 190, 90, 0.28));
+  filter:
+    drop-shadow(0 0 34px rgba(34, 211, 238, 0.22))
+    drop-shadow(0 0 80px rgba(139, 92, 246, 0.20))
+    drop-shadow(0 0 46px rgba(255, 190, 90, 0.24));
 }
 .globe-fallback {
   position: absolute;
