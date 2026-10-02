@@ -2522,3 +2522,66 @@ body {
 }
 .pair-handoff-code .meta { margin-top: 6px; font-size: 12px; line-height: 1.6; color: var(--text-dim, #9fb4c8); }
 .pair-handoff-code .meta.err { color: #ff8a9a; }
+
+/* Karma Console — centered Earth globe background (golden light) */
+.bg-globe {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.bg-globe::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(130vmin, 1500px);
+  height: min(130vmin, 1500px);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255, 205, 118, 0.16), rgba(255, 205, 118, 0) 52%),
+    radial-gradient(circle at 50% 50%, rgba(255, 190, 90, 0.08), rgba(255, 190, 90, 0) 62%);
+  filter: blur(6px);
+}
+.bg-globe::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(3, 6, 12, 0.12) 0%, rgba(3, 6, 12, 0.42) 58%, rgba(3, 6, 12, 0.94) 100%);
+}
+.bg-globe canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  filter: drop-shadow(0 0 70px rgba(255, 190, 90, 0.28));
+}
+.globe-fallback {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(72vmin, 760px);
+  height: min(72vmin, 760px);
+  border-radius: 50%;
+  background-image: url("../../assets/earth-texture.jpg");
+  background-size: 200% 100%;
+  background-repeat: repeat-x;
+  animation: globe-pan 90s linear infinite;
+  box-shadow:
+    inset -70px -50px 150px rgba(0, 0, 0, 0.62),
+    inset 40px 26px 90px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(255, 200, 110, 0.16),
+    0 0 120px rgba(255, 180, 80, 0.34);
+  opacity: 0.55;
+  display: none;
+}
+.bg-globe.fallback .globe-fallback { display: block; }
+@keyframes globe-pan {
+  from { background-position: 0 0; }
+  to { background-position: -200% 0; }
+}

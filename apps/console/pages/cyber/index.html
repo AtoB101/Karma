@@ -4,12 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=1d4dd8cad585" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=20261003" />
   </head>
   <body>
     <div class="bg"></div>
     <div class="grid-overlay"></div>
-    <canvas id="particles"></canvas>
+    <div class="bg-globe" id="bgGlobe" aria-hidden="true"><div class="globe-fallback" aria-hidden="true"></div></div>
     <!-- 入口门禁：没连钱包时盖住整个操作台。没有 JS 时不会加 .gated，
          页面照常可见 —— 宁可少一层门，也不能让用户看到空白页。 -->
     <div class="entry-gate" id="entry-gate">
@@ -1404,6 +1404,6 @@
     <script src="../../scripts/cyber-developer.js?v=1b30aaa1ff40"></script>
     <script src="../../scripts/cyber-reviews.js?v=4a7a44e54713"></script>
     <script src="../../scripts/cyber-node-panel.js?v=95f1085ecf02"></script>
-    <script src="../../scripts/cyber-globe-bg.js?v=090d907081d4"></script>
+    <script src="../../scripts/background-globe.js?v=20261003"></script>
   </body>
 </html>
