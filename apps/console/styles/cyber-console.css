@@ -611,6 +611,16 @@ input, select, textarea {
   font-size: 13px;
   font-family: inherit;
 }
+/* 复选框 / 单选不该吃上面输入框的 width:100% + 底色，还原成小方块。 */
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--cyan, #22d3ee);
+}
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--neon-cyan);
@@ -1296,7 +1306,31 @@ body.gated { overflow: hidden; }
   background: rgba(8, 14, 24, 0.45);
   cursor: pointer;
 }
-#ag-wizard .agw-perm input { margin-right: 6px; }
+#ag-wizard .agw-perm input[type="checkbox"],
+#ag-wizard .agw-ack input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(148, 178, 255, 0.55);
+  border-radius: 3px;
+  background-color: rgba(8, 14, 24, 0.7);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+}
+#ag-wizard .agw-perm input[type="checkbox"] { margin: 1px 7px 0 0; }
+#ag-wizard .agw-ack input[type="checkbox"] { margin: 4px 0 0; }
+#ag-wizard .agw-perm input[type="checkbox"]:checked,
+#ag-wizard .agw-ack input[type="checkbox"]:checked {
+  border-color: #22d3ee;
+  background-color: #22d3ee;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.7 9.5 3.8' fill='none' stroke='%230b1024' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-size: 7px 7px;
+  background-position: center;
+  background-repeat: no-repeat;
+  box-shadow: 0 0 6px rgba(34, 211, 238, 0.5);
+}
 #ag-wizard .agw-perm b { font-size: 12px; }
 #ag-wizard .agw-perm span { display: block; margin-top: 3px; font-size: 11px; color: var(--text-dim); }
 #ag-wizard .agw-ack {
