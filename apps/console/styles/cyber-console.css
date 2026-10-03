@@ -1297,7 +1297,7 @@ body.gated { overflow: hidden; }
 #ag-wizard .agw-type b { font-size: 13px; }
 #ag-wizard .agw-type span { display: block; margin-top: 4px; font-size: 11px; color: var(--text-dim); }
 #ag-wizard .agw-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
-#ag-wizard .agw-perms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+#ag-wizard .agw-perms { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
 #ag-wizard .agw-perm {
   display: block;
   padding: 9px 11px;
@@ -1310,26 +1310,26 @@ body.gated { overflow: hidden; }
 #ag-wizard .agw-ack input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
-  width: 9px;
-  height: 9px;
+  width: 4px;
+  height: 4px;
   flex: 0 0 auto;
   border: 1px solid rgba(148, 178, 255, 0.55);
-  border-radius: 3px;
+  border-radius: 1px;
   background-color: rgba(8, 14, 24, 0.7);
   cursor: pointer;
   transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
 }
-#ag-wizard .agw-perm input[type="checkbox"] { margin: 1px 7px 0 0; }
-#ag-wizard .agw-ack input[type="checkbox"] { margin: 4px 0 0; }
+#ag-wizard .agw-perm input[type="checkbox"] { margin: 2px 6px 0 0; }
+#ag-wizard .agw-ack input[type="checkbox"] { margin: 3px 2px 0 0; }
 #ag-wizard .agw-perm input[type="checkbox"]:checked,
 #ag-wizard .agw-ack input[type="checkbox"]:checked {
   border-color: #22d3ee;
   background-color: #22d3ee;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.7 9.5 3.8' fill='none' stroke='%230b1024' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-size: 7px 7px;
+  background-size: 3px 3px;
   background-position: center;
   background-repeat: no-repeat;
-  box-shadow: 0 0 6px rgba(34, 211, 238, 0.5);
+  box-shadow: 0 0 4px rgba(34, 211, 238, 0.5);
 }
 #ag-wizard .agw-perm b { font-size: 12px; }
 #ag-wizard .agw-perm span { display: block; margin-top: 3px; font-size: 11px; color: var(--text-dim); }
