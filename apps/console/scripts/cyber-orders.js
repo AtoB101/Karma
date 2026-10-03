@@ -27,6 +27,14 @@
     { key: "dispute", label: "争议中", hint: "资金冻结，等仲裁" },
     { key: "done", label: "已完成 · 可争议期内", hint: "过了可争议期自动退场" },
   ];
+  /** 流水线短线标签：和 LANES 同序，只用于每单那条横向阶段线。 */
+  var PIPELINE_LABEL = {
+    todo: "待接单",
+    running: "执行中",
+    confirm: "待确认",
+    dispute: "争议中",
+    done: "已完成",
+  };
 
   var TODO_STATUS = { draft: 1, pending: 1, created: 1 };
   var RUNNING_STATUS = { accepted: 1, in_progress: 1, progress_confirmed: 1, active: 1, none: 1 };
@@ -163,20 +171,41 @@
     });
   }
 
-  function cardHtml(entry) {
+  /** 一张单 = 一条横向流水线：当前阶段亮灯，走过的亮蓝，没到的暗着。 */
+  function pipelineHtml(entry) {
     var mine = entry.direction === "out" ? "我买的" : "我卖的";
+    var current = laneOf(entry);
+    var idx = 0;
+    for (var i = 0; i < LANES.length; i += 1) {
+      if (LANES[i].key === current) { idx = i; break; }
+    }
+    var steps = LANES.map(function (lane, i) {
+      var cls = "of-step";
+      if (current === "done") cls += " is-done";
+      else if (i < idx) cls += " is-done";
+      else if (i === idx) cls += (lane.key === "dispute" ? " is-warn" : " is-live");
+      else cls += " is-todo";
+      return (
+        '<span class="' + cls + '"><i class="of-dot"></i>' +
+        '<span class="of-label">' + esc(PIPELINE_LABEL[lane.key] || lane.label) + "</span></span>"
+      );
+    }).join("");
+
+    var meta = esc(T(statusLabel(entry))) +
+      " · " + esc(shortId(entry.counterparty_identity_id)) +
+      " · " + esc(fmtTime(entry.updated_at || entry.created_at)) +
+      (entry.task_id ? " · " + esc(T("任务")) + " " + esc(shortRef(entry.task_id)) : "");
+
     return (
-      '<button type="button" class="order-card" data-order-entry="' + esc(entry.entry_id) + '"' +
+      '<button type="button" class="order-pipeline" data-order-entry="' + esc(entry.entry_id) + '"' +
       ' data-order-dir="' + esc(entry.direction) + '">' +
-      '<span class="order-card-top">' +
-      '<span class="order-side-tag is-' + esc(entry.direction) + '">' + esc(mine) + "</span>" +
-      '<span class="order-card-amount">' + money(entry.amount_usdc) + " <em>USDC</em></span>" +
+      '<span class="op-top">' +
+      '<span class="order-side-tag is-' + esc(entry.direction) + '">' + esc(T(mine)) + "</span>" +
+      '<span class="op-title">' + esc(entry.title || entry.kind_label || T("订单")) + "</span>" +
+      '<span class="op-amount">' + money(entry.amount_usdc) + " <em>USDC</em></span>" +
       "</span>" +
-      '<span class="order-card-title">' + esc(entry.title || entry.kind_label || "订单") + "</span>" +
-      '<span class="order-card-meta"><span>' + esc(T(entry.kind_label || entry.kind) + " · " + T(statusLabel(entry))) + "</span></span>" +
-      '<span class="order-card-meta"><span>对方 ' + esc(shortId(entry.counterparty_identity_id)) + "</span><span>" +
-      esc(fmtTime(entry.updated_at || entry.created_at)) + "</span></span>" +
-      (entry.task_id ? '<span class="order-card-meta"><span>任务 ' + esc(shortRef(entry.task_id)) + "</span></span>" : "") +
+      '<span class="op-meta">' + meta + "</span>" +
+      '<span class="op-rail">' + steps + "</span>" +
       "</button>"
     );
   }
@@ -200,19 +229,7 @@
       if (key && byLane[key]) byLane[key].push(entry);
     });
 
-    host.innerHTML = LANES.map(function (lane) {
-      var list = byLane[lane.key];
-      var body = list.length
-        ? list.map(cardHtml).join("")
-        : '<span class="order-lane-empty">' + esc(lane.hint) + "</span>";
-      return (
-        '<div class="order-lane" data-lane="' + esc(lane.key) + '">' +
-        '<div class="order-lane-head"><b>' + esc(lane.label) + "</b>" +
-        '<span class="order-lane-count">' + list.length + "</span></div>" +
-        '<div class="order-lane-body">' + body + "</div>" +
-        "</div>"
-      );
-    }).join("");
+    host.innerHTML = rows.map(pipelineHtml).join("");
 
     var totals = $("#order-totals");
     if (totals) {

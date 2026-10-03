@@ -1743,13 +1743,11 @@ body.gated { overflow: hidden; }
 }
 .order-totals b { color: var(--text-main); font-variant-numeric: tabular-nums; }
 .order-board {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   margin-top: 12px;
 }
-@media (max-width: 1200px) { .order-board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 720px) { .order-board { grid-template-columns: 1fr; } }
 .order-lane {
   display: flex; flex-direction: column; gap: 8px;
   min-height: 120px;
@@ -1803,6 +1801,26 @@ body.gated { overflow: hidden; }
   border-radius: 12px;
   color: var(--text-dim); font-size: 12px; line-height: 1.6;
 }
+/* 每单一条横向流水线：一张单就是一条线，5 单就是 5 条线，看得更清楚。 */
+.order-pipeline {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 100%; text-align: left;
+  padding: 12px 14px;
+  border: 1px solid rgba(120, 160, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(16, 24, 44, 0.85);
+  color: var(--text-main);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.order-pipeline:hover { transform: translateY(-1px); border-color: var(--border-glow); }
+.op-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.op-title { color: #fff; font-weight: 600; font-size: 13px; line-height: 1.35; min-width: 0; overflow-wrap: anywhere; }
+.op-amount { margin-left: auto; color: var(--text-main); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 13px; }
+.op-amount em { color: var(--text-dim); font-style: normal; font-size: 11px; }
+.op-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--text-dim); font-size: 11px; }
+.op-rail { display: flex; align-items: flex-start; width: 100%; margin-top: 2px; overflow-x: auto; }
+.op-rail .of-step { min-width: 84px; }
 /* ------------------------------------------------- 单笔订单状态图（动态）
    点订单图里的一张单 -> 这一块展开：上面是订单号/对方/创建时间/合同，
    下面是这笔生意的专属阶段线，走到哪一步哪一步亮蓝灯。 */
