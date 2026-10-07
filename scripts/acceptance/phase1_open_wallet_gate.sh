@@ -20,42 +20,17 @@ APP_ENV=production python3 <<'PY'
 import os
 import sys
 
-defaults = {
-    "AUTH_ENFORCE_PROTECTED_ROUTES": "true",
-    "AUTH_ALLOW_DEV_KEY_FALLBACK": "false",
-    "RATE_LIMIT_REDIS_FAIL_CLOSED": "true",
-    "RECEIPT_REQUIRE_SIGNATURE": "true",
-    "LEDGER_REQUIRE_PARTY_ACTOR": "true",
-    "SETTLEMENT_REQUIRE_PARTY_ACTOR": "true",
-    "RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY": "true",
-    "RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS": "true",
-    "RUNTIME_REQUIRE_HANDOFF_ATTESTATION": "true",
-    "RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING": "true",
-    "RUNTIME_DAILY_SPEND_PERSIST": "true",
-    "TRADE_LAUNCH_REQUIRE_EIP712": "true",
-    "KARMA_SIGNING_BACKEND": "client_only",
-    "TRADE_LAUNCH_RECORD_RUNTIME_DAILY_SPEND": "true",
-    "X402_PAYMENT_BACKEND": "sepolia",
-    # x402 must not borrow the settlement operator wallet (two senders on one
-    # wallet collide nonces), and the agent-facing fetch must be public-only.
-    "X402_PRIVATE_KEY": "0x" + "11" * 32,
-    "X402_ALLOW_PRIVATE_HOSTS": "false",
-    # Production settings require a non-empty dispute-arbitrator whitelist
-    # (fail-closed /disputes/resolve) and forbid hot-wallet escrow payers.
-    "ARBITRATOR_ACTOR_IDS": "gate-arbitrator",
-    "CHAIN_ALLOW_HOT_WALLET_PAYER": "false",
-    # Verifier node writes must carry the node's own wallet signature;
-    # without it any logged-in account could register a node, move its
-    # stake or attest on its behalf.
-    "VERIFIER_REQUIRE_NODE_SIGNATURE": "true",
-}
+# 生产必填项的唯一来源：config/production_gates.py。
+# tests/unit/test_production_gate_manifest_parity.py 会保证这张清单不漏项
+# （新增闸门没写进去 = CI 直接红），所以脚本里不要再手抄一份。
+from config.production_gates import PRODUCTION_GATE_DEFAULTS
+
+defaults = dict(PRODUCTION_GATE_DEFAULTS)
+# 这一条不是生产闸门（Settings 在 production 下不校验它），是 Phase 1 验收要求：
+# runtime daily spend 必须落库，否则「花钱不记账」的验收过不去。
+defaults["TRADE_LAUNCH_RECORD_RUNTIME_DAILY_SPEND"] = "true"
 for k, v in defaults.items():
     os.environ.setdefault(k, v)
-
-os.environ.setdefault("APP_SECRET_KEY", "gate-check-secret-min-32-chars-long!!")
-os.environ.setdefault("AUTH_API_KEYS", "gate-agent:gate-secret-minimum")
-os.environ.setdefault("MINIO_ACCESS_KEY", "gate-check-minio-access")
-os.environ.setdefault("MINIO_SECRET_KEY", "gate-check-minio-secret")
 
 from config.settings import Settings
 

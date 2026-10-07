@@ -107,7 +107,9 @@ KARMA_SIGNING_BACKEND=client_only
 # 生产建议启用 EIP-712 凭证/交易签名
 VOUCHER_REQUIRE_EIP712=true
 TRADE_LAUNCH_REQUIRE_EIP712=true
-X402_PAYMENT_BACKEND=live   # 生产不允许 mock
+X402_PAYMENT_BACKEND=sepolia   # 只能是 env | sepolia（生产禁止 mock）
+X402_ALLOW_PRIVATE_HOSTS=false
+X402_PRIVATE_KEY=<x402 专用私钥；不能借用结算运营钱包>
 
 # ── Runtime Key（生产必填）──
 RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY=true
@@ -128,6 +130,12 @@ VERIFIER_REQUIRE_NODE_SIGNATURE=true
 ED25519_PRIVATE_KEY_PATH=./keys/agent_private.pem
 ED25519_PUBLIC_KEY_PATH=./keys/agent_public.pem
 ```
+
+> 上面这组生产闸门的**唯一来源**是 `config/production_gates.py`：两处门禁脚本直接
+> `from config.production_gates import PRODUCTION_GATE_DEFAULTS`，模板/文档由
+> `tests/unit/test_production_gate_manifest_parity.py` 逐键校验（它会动态枚举 settings
+> 在 `APP_ENV=production` 下会拒绝的字段）。新增闸门时改那一个文件 + 这份清单，
+> 漏一处 CI 直接红 —— 2026-10-08 就是因为漏改门禁脚本，CI 和线上部署同时挂掉。
 
 > 生产校验：`config/settings.py` 内置 `_reject_default_secrets_in_production`，`APP_ENV=production` 时上述安全项缺失/为默认值会直接拒绝启动。请务必逐项核对。
 
