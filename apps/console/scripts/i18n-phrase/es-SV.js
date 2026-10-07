@@ -2850,3 +2850,11 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
   "节点签名没通过：请用节点钱包对页面给出的待签文字签名。": "Firma del nodo rechazada: firma con la cartera del nodo el texto que muestra la página.",
   "节点签名对不上这个节点钱包，换用节点钱包再签一次。": "La firma del nodo no coincide con esta cartera: vuelve a firmar con la cartera del nodo.",
 });
+
+// security-receipts: 授权额度 / 第二把锁（2FA）变更的站内回执行
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
+  "授权额度已变更：当前已授权合计 {0} USDC。": "Se cambiaron los límites de autorización: {0} USDC autorizados en total.",
+  "第二把锁（安全验证）已绑定：以后动资金要多输一次验证码。": "Segundo candado (verificación de seguridad) activado: mover fondos ahora pide un código más.",
+  "第二把锁（安全验证）已解绑：动资金现在只靠钱包签名。": "Segundo candado (verificación de seguridad) desactivado: mover fondos ahora depende solo de la firma de la wallet.",
+  "第二把锁的恢复码已换新：旧的那一组作废了。": "Se renovaron los códigos de recuperación del segundo candado: los anteriores quedaron sin efecto.",
+});

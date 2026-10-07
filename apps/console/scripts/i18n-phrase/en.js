@@ -2848,3 +2848,11 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "节点签名没通过：请用节点钱包对页面给出的待签文字签名。": "Node signature rejected: sign the text shown on the page with the node wallet.",
   "节点签名对不上这个节点钱包，换用节点钱包再签一次。": "The node signature doesn't match this node wallet — sign again with the node wallet.",
 });
+
+// security-receipts: 授权额度 / 第二把锁（2FA）变更的站内回执行
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "授权额度已变更：当前已授权合计 {0} USDC。": "Grant limits changed: {0} USDC granted in total.",
+  "第二把锁（安全验证）已绑定：以后动资金要多输一次验证码。": "Second lock (security check) is now on: moving funds will ask for one more code.",
+  "第二把锁（安全验证）已解绑：动资金现在只靠钱包签名。": "Second lock (security check) is off: moving funds now relies on the wallet signature only.",
+  "第二把锁的恢复码已换新：旧的那一组作废了。": "Second-lock recovery codes were renewed: the old set no longer works.",
+});

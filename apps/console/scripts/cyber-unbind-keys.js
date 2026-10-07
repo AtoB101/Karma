@@ -99,6 +99,24 @@
     if (kind === "money_regression_failed") {
       return Tf("部署后的资金回归没通过：{0}", (n && n.payload && n.payload.summary) || "—");
     }
+    // 授权额度变了 = 支配权交出去 / 收回来了。取消授权（置 0）尤其要看得见。
+    if (kind === "allocations_changed") {
+      var total = n && n.payload && n.payload.total_allocated;
+      return Tf(
+        "授权额度已变更：当前已授权合计 {0} USDC。",
+        total == null ? "—" : Number(total).toFixed(2)
+      );
+    }
+    // 第二把锁本身被改动：绑上 / 解绑 / 换恢复码。
+    if (kind === "2fa_enabled") {
+      return T("第二把锁（安全验证）已绑定：以后动资金要多输一次验证码。");
+    }
+    if (kind === "2fa_disabled") {
+      return T("第二把锁（安全验证）已解绑：动资金现在只靠钱包签名。");
+    }
+    if (kind === "2fa_recovery_rotated") {
+      return T("第二把锁的恢复码已换新：旧的那一组作废了。");
+    }
     return Tf("钥匙事件：{0}", kind || "—");
   }
 

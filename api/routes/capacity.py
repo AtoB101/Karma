@@ -13,6 +13,7 @@ from db.models.orm import CapacityModel
 from db.session import get_db
 from services import atomic_ledger
 from services import console_2fa
+from services.console_notice import NOTICE_ALLOCATIONS_CHANGED, add_notice_safe
 from services import profile_capacity as profile_capacity_service
 from services.console_2fa import TwoFactorError
 from services.identity_activation import activation_of
@@ -223,6 +224,25 @@ async def set_allocations(identity_id: str, body: AllocateBody, request: Request
     except TwoFactorError as exc:
         raise HTTPException(exc.status, exc.message) from exc
     rows = await profile_capacity_service.allocate(db, identity_id=identity_id, allocations=body.allocations)
+    await db.commit()
+    # 授权额度 = 把支配权交出去 / 收回来。改完必须留一条站内回执（取消授权尤其要看得到）。
+    await add_notice_safe(
+        db,
+        karma_identity_id=identity_id,
+        kind=NOTICE_ALLOCATIONS_CHANGED,
+        payload={
+            "allocations": [
+                {
+                    "profile_id": r.get("profile_id"),
+                    "allocated_credits": r.get("allocated_credits"),
+                }
+                for r in rows
+            ],
+            "total_allocated": round(
+                sum(float(r.get("allocated_credits") or 0.0) for r in rows), 6
+            ),
+        },
+    )
     return {
         "allocations": rows,
         "locked_usdc": await profile_capacity_service.master_ceiling_usdc(

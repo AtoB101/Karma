@@ -55,6 +55,14 @@ function liText(html) {
   return m ? m[1] : "";
 }
 
+function liTexts(html) {
+  const out = [];
+  const re = /<li>([\s\S]*?)<\/li>/g;
+  let m;
+  while ((m = re.exec(html))) out.push(m[1]);
+  return out;
+}
+
 function el() {
   return {
     innerHTML: "",
@@ -81,7 +89,7 @@ function el() {
   };
 }
 
-function makeEnv(lang, phrase) {
+function makeEnv(lang, phrase, notices) {
   const nodes = { "bound-keys": el(), "ag-bound-keys": el() };
   const nav = el();
   const sandbox = {
@@ -110,10 +118,10 @@ function makeEnv(lang, phrase) {
         return Promise.resolve({ keys: [] });
       },
       runtimeListNotices: function () {
-        return Promise.resolve({
-          unread: 1,
-          notices: [{ kind: "money_regression_failed", read: false, payload: { summary: SUMMARY } }],
-        });
+        const list = notices || [
+          { kind: "money_regression_failed", read: false, payload: { summary: SUMMARY } },
+        ];
+        return Promise.resolve({ unread: list.length, notices: list });
       },
     },
   };
@@ -138,11 +146,11 @@ function makeEnv(lang, phrase) {
   return { sandbox: sandbox, nodes: nodes, nav: nav };
 }
 
-async function rendered(lang) {
-  const env = makeEnv(lang, lang === "zh" ? {} : loadPhrase(lang));
+async function rendered(lang, notices) {
+  const env = makeEnv(lang, lang === "zh" ? {} : loadPhrase(lang), notices);
   await env.sandbox.KarmaUnbindKeys.refresh();
   const html = env.nodes["bound-keys"].innerHTML;
-  return { env: env, html: html, line: liText(html) };
+  return { env: env, html: html, line: liText(html), lines: liTexts(html) };
 }
 
 async function main() {
@@ -178,6 +186,31 @@ async function main() {
 
   // (4) 红点：未读时要挂到侧栏「设置」上
   eq("侧栏红点挂上了", !!(zh.env.nav.classList._c || {})["has-notice"], true);
+
+  // (5) 安全回执：授权额度 / 第二把锁（2FA）三类也必须画得出来，且不留中文
+  const security = [
+    { kind: "allocations_changed", read: false, payload: { total_allocated: 40.5 } },
+    { kind: "2fa_enabled", read: false, payload: {} },
+    { kind: "2fa_disabled", read: false, payload: {} },
+    { kind: "2fa_recovery_rotated", read: false, payload: {} },
+  ];
+  const zhSec = await rendered("zh", security);
+  const zhBody = zhSec.lines.join(" | ");
+  check("授权额度回执画出金额", zhBody.indexOf("40.50") >= 0, zhBody);
+  check("绑上第二把锁有回执", zhBody.indexOf("第二把锁（安全验证）已绑定") >= 0, zhBody);
+  check("解绑第二把锁有回执", zhBody.indexOf("第二把锁（安全验证）已解绑") >= 0, zhBody);
+  check("换恢复码有回执", zhBody.indexOf("第二把锁的恢复码已换新") >= 0, zhBody);
+  for (const lang of ALL) {
+    const out = await rendered(lang, security);
+    const body = out.lines.join(" | ");
+    check(lang + " 安全回执条数齐", out.lines.length === 4, body);
+    if (LATIN.indexOf(lang) >= 0) {
+      check(lang + " 安全回执不留中文", !hasCjk(body), body);
+    }
+    if (lang === "ja") {
+      check("ja 安全回执不留简体词", body.indexOf("额度") < 0 && body.indexOf("激活") < 0, body);
+    }
+  }
 
   console.log((failures ? "FAILED " : "ok  ") + "console notices: " + (checks - failures) + "/" + checks + " checks passed");
   process.exit(failures ? 1 : 0);

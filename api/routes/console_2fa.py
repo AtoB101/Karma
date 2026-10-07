@@ -18,6 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.session import get_db
 from services import console_2fa
 from services.console_2fa import TwoFactorError
+from services.console_notice import (
+    NOTICE_2FA_DISABLED,
+    NOTICE_2FA_ENABLED,
+    NOTICE_2FA_RECOVERY_ROTATED,
+    add_notice_safe,
+)
 from services.identity_actor import resolve_actor_identity_id
 
 router = APIRouter()
@@ -72,6 +78,14 @@ async def activate_two_factor(
         payload = await console_2fa.confirm_enroll(db, identity_id, body.code)
     except TwoFactorError as exc:
         raise _translate(exc) from exc
+    await db.commit()
+    # 第二把锁是资金安全的核心开关：绑上必须在站内留一条回执。
+    await add_notice_safe(
+        db,
+        karma_identity_id=identity_id,
+        kind=NOTICE_2FA_ENABLED,
+        payload={"recovery_codes_issued": len(payload.get("recovery_codes") or [])},
+    )
     return {**payload, **await console_2fa.status(db, identity_id)}
 
 
@@ -84,6 +98,13 @@ async def rotate_recovery_codes(
         payload = await console_2fa.rotate_recovery(db, identity_id, body.code)
     except TwoFactorError as exc:
         raise _translate(exc) from exc
+    await db.commit()
+    await add_notice_safe(
+        db,
+        karma_identity_id=identity_id,
+        kind=NOTICE_2FA_RECOVERY_ROTATED,
+        payload={"recovery_codes_issued": len(payload.get("recovery_codes") or [])},
+    )
     return {**payload, **await console_2fa.status(db, identity_id)}
 
 
@@ -96,4 +117,9 @@ async def disable_two_factor(
         await console_2fa.disable(db, identity_id, body.code)
     except TwoFactorError as exc:
         raise _translate(exc) from exc
+    await db.commit()
+    # 拆掉第二把锁是高风险动作：留一条回执，主人下次进操作台看得见。
+    await add_notice_safe(
+        db, karma_identity_id=identity_id, kind=NOTICE_2FA_DISABLED, payload={}
+    )
     return await console_2fa.status(db, identity_id)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import structlog
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,9 +19,44 @@ from db.models.orm import ConsoleNoticeModel
 NOTICE_KEY_BOUND = "key_bound"
 # 主人亲手取消绑定 —— 钥匙回到未激活，谁都花不了。
 NOTICE_KEY_UNBOUND = "key_unbound"
+# 授权额度（子身份额度的加 / 减 / 清零）：这是把支配权交出去或收回来，必须留痕。
+NOTICE_ALLOCATIONS_CHANGED = "allocations_changed"
+# 第二把锁（2FA）本身被改动：绑上 / 解绑 / 换恢复码。锁被拆了要第一时间让主人看见。
+NOTICE_2FA_ENABLED = "2fa_enabled"
+NOTICE_2FA_DISABLED = "2fa_disabled"
+NOTICE_2FA_RECOVERY_ROTATED = "2fa_recovery_rotated"
 
 MAX_LIMIT = 100
 DEFAULT_LIMIT = 20
+
+
+logger = structlog.get_logger(__name__)
+
+
+async def add_notice_safe(
+    db: AsyncSession,
+    *,
+    karma_identity_id: str,
+    kind: str,
+    payload: dict | None = None,
+) -> None:
+    """写一条站内提醒；**写不进去也不能让真正的动作失败**。
+
+    站内提醒是旁路：它是「主人事后看得见」的凭证，不是那道闸门。调用方必须先把
+    真正的动作 commit 掉（额度 / 2FA 已经生效），再来写这一条 —— 这样提醒写失败
+    只丢提醒，不会把已经做完的动作一起回滚。
+    """
+    try:
+        await add_notice(
+            db, karma_identity_id=karma_identity_id, kind=kind, payload=payload or {}
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 - 提醒是旁路，绝不能把主流程带坏
+        logger.warning("console_notice_write_failed", kind=kind, exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def add_notice(
