@@ -7,6 +7,7 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 直接照收客户端自报的 `kyc_status`，本人一次调用就能把企业 / 个体户档案写成「已验证」；
 KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径没有明文原件红线。
 本轮已按「为消费者负责」的口径把这三条一并堵死，相关回归 134 条全绿。资金硬保障一侧核查未见可被利用的漏洞。
+另有 **一条消费者保护缺口**：认证一旦通过就没有第三方撤销路径（见 §6 O4）。
 
 ## 1. 方法与证据
 
@@ -120,12 +121,23 @@ KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径�
   都放行，只有质押开的岗跟押金走。API 开不出 `stake_amount == 0` 的治理岗，故此路径仅限运维建档。
 - **O3（长度约束分层）** 企业 `service_scope` 等字段的约束分两层：Pydantic body 用 `max_length`，
   服务层另有 `sanitize_entity_profile` 兜底截断。两层口径一致，无需改。
+- **O4（重要，消费者保护，待产品拍板）** 企业 / 个体户认证一旦 `verified` 就是**终态**：
+  `ENTITY_TRANSITIONS["verified"] = set()`、KYC `_TRANSITIONS["verified"] = set()`，**没有任何第三方撤销路径**。
+  复核方只能在 `pending` 上判通过 / 驳回；上了 `verified` 之后，即使事后发现是假资料，
+  也没有接口能把标记降下来（`revoke` 只存在于身份卡 credential，不覆盖主体认证 / 角色档案 KYC）；
+  企业档案的 `status`（active/…）是**本人**可在 `PUT` 里改的（可自停，不可被平台停）。
+
+  对消费者而言，「认证标记永不失效」意味着一次误判永久留疤。建议补一条 **合规撤销**：
+  由**多名** verifier（或运维白名单 + 理由）触发 `verified → rejected`，写入 `review_note` 与安全事件；
+  撤销后对外列表不再显示「已验证」，在途订单按既有争议 / 冻结流程处理。
+  用**单人**撤销会有「一把 verifier key 就能打掉竞争对手认证」的 DoS 面，所以建议要求
+  两人复核或运维岗。此项涉及核心状态机与产品口径，**未擅自改动**，等拍板。
 
 ## 7. 实测快照（2026-10-08）
 
-- 提交：`c61bc0e`（fix）+ `7a53d31`（docs）；`origin/main == 7a53d31`。
-- CI：6/6 绿（Deploy to VPS / Forge CI / Python tests / Security Baseline Guard / Security CI / Visibility Guard）。
-- 生产：`REMOTE_HEAD == origin/main == 7a53d31`，未提交 0；三容器 `karma-api` / `karma-postgres` healthy、
+- 代码提交：`c61bc0e`（fix）+ 文档提交（`7a53d31` 起，含 §7 / O4 修订）。
+- CI：本批次每次推送都跑全量 6 条必需检查且全绿（Deploy to VPS / Forge CI / Python tests / Security Baseline Guard / Security CI / Visibility Guard）；`7a53d31` 与 `c2219bb` 均 6/6。
+- 生产：`REMOTE_HEAD == origin/main`（本批次拉取到 `7a53d31` 时实测）、未提交 0；三容器 `karma-api` / `karma-postgres` healthy、
   `karma-redis` up；`/health` 200；`CLI-COPY: SAME`。`karma-api` StartedAt 05:21:31+08 晚于本次提交（且
   `RestartCount=0`）——运行进程加载的就是这份修复（代码以 bind mount 进容器，uvicorn 无
   `--reload`，修改必须靠重建容器才生效）。
