@@ -121,9 +121,14 @@ KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径�
 - **O3（长度约束分层）** 企业 `service_scope` 等字段的约束分两层：Pydantic body 用 `max_length`，
   服务层另有 `sanitize_entity_profile` 兜底截断。两层口径一致，无需改。
 
-## 7. 实测快照
+## 7. 实测快照（2026-10-08）
 
-- 生产：见文末 CI / 发布快照（HEAD、容器、`/health`、CLI 一致性）。
+- 提交：`c61bc0e`（fix）+ `7a53d31`（docs）；`origin/main == 7a53d31`。
+- CI：6/6 绿（Deploy to VPS / Forge CI / Python tests / Security Baseline Guard / Security CI / Visibility Guard）。
+- 生产：`REMOTE_HEAD == origin/main == 7a53d31`，未提交 0；三容器 `karma-api` / `karma-postgres` healthy、
+  `karma-redis` up；`/health` 200；`CLI-COPY: SAME`。`karma-api` StartedAt 05:21:31+08 晚于本次提交（且
+  `RestartCount=0`）——运行进程加载的就是这份修复（代码以 bind mount 进容器，uvicorn 无
+  `--reload`，修改必须靠重建容器才生效）。
 - 回归：认证 + 治理 + 刷脸 + 操作台复核 **134 passed**（`putmp_kyc3` 65 / `putmp_kyc4` 69）。
 
 ## 8. 残留人工项（`docs/SECURITY_RELEASE_GATES.md` 的 `[人工]`）
