@@ -48,6 +48,10 @@ defaults = {
     # Production forbids a backend hot wallet as escrow payer; force the
     # secure default so local .env files cannot flip this gate.
     "CHAIN_ALLOW_HOT_WALLET_PAYER": "false",
+    # Verifier node writes must carry the node's own wallet signature;
+    # without it any logged-in account could register a node, move its
+    # stake or attest on its behalf.
+    "VERIFIER_REQUIRE_NODE_SIGNATURE": "true",
 }
 for k, v in defaults.items():
     os.environ.setdefault(k, v)

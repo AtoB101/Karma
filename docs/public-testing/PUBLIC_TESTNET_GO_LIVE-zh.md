@@ -98,6 +98,7 @@ bash scripts/acceptance/testnet_claw_manus_gate.sh
 | `RECEIPT_REQUIRE_SIGNATURE` | `true` |
 | `LEDGER_REQUIRE_PARTY_ACTOR` | `true` |
 | `SETTLEMENT_REQUIRE_PARTY_ACTOR` | `true` |
+| `VERIFIER_REQUIRE_NODE_SIGNATURE` | `true`（生产强制；节点写接口必须带节点钱包签名） |
 | `OPENCLAW_RELAX_DELIVERY_SIGNATURES` | `false` / 未设置 |
 | `OPENCLAW_LOCAL_PHASE1_AUTO_RELAX` | `false` |
 | `TRADE_LAUNCH_REQUIRE_EIP712` | `true` |
