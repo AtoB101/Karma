@@ -304,19 +304,29 @@ cmd_db_baseline() {
   need_repo
   hdr "Baseline the migration version table at $rev"
   warn "  This writes the alembic version row only; no data or schema is touched."
-  docker exec -w /app karma-api alembic stamp "$rev" || return 1
-  docker exec -w /app karma-api alembic current 2>/dev/null | sed 's/^/  now at: /'
+  compose run --rm --no-deps -w /app app alembic stamp "$rev" || return 1
+  compose run --rm --no-deps -w /app app alembic current 2>/dev/null | sed 's/^/  now at: /'
   return 0
 }
 
 cmd_migrate() {
   need_repo
   hdr "Apply database migrations (alembic upgrade head)"
-  # The app container is the only place alembic.ini and .env agree (compose puts
-  # the API on the internal network as host "postgres"). The source is bind-mounted,
-  # so after the pull the checked-out migrations are already visible inside it.
-  if ! docker ps --format '{{.Names}}' | grep -qx karma-api; then
-    err "  karma-api is not running; start the stack before migrating"
+  # alembic.ini and the compose network only exist inside an app container (host
+  # "postgres" does not resolve on the host), so the migration runs in one — but a
+  # *one-off* container, never `docker exec` into the running one. docker exec
+  # inherits the env the container was created with, so a deploy that adds a new
+  # production boot gate (Settings refuses to load unless the new .env key is set)
+  # died here forever: the refreshed /opt/karma/.env only reaches the container at
+  # the recreate that happens *after* this step. `compose run` reads the current
+  # .env, while the bind mounts still supply the freshly pulled migrations.
+  if ! docker image inspect karma-api:latest > /dev/null 2>&1; then
+    err "  image karma-api:latest is missing; build it before migrating"
+    err "  (never build during a deploy on this box: 1.6 GB of RAM)"
+    return 1
+  fi
+  if ! docker ps --format '{{.Names}}' | grep -qx karma-postgres; then
+    err "  karma-postgres is not running; start the stack before migrating"
     return 1
   fi
   # 版本表缺失时 upgrade head 会从 base 重放全部迁移，撞上 "relation ... already
@@ -329,11 +339,11 @@ cmd_migrate() {
     err "  然后重跑 karma migrate / karma deploy。"
     return 1
   fi
-  docker exec -w /app karma-api alembic upgrade head || {
+  compose run --rm --no-deps -w /app app alembic upgrade head || {
     err "  migration failed — nothing else was changed; the running container is untouched"
     return 1
   }
-  docker exec -w /app karma-api alembic current 2>/dev/null | sed 's/^/  now at: /'
+  compose run --rm --no-deps -w /app app alembic current 2>/dev/null | sed 's/^/  now at: /'
   return 0
 }
 

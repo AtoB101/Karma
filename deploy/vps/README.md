@@ -39,8 +39,14 @@ bash deploy/vps/bootstrap.sh   # Docker + 防火墙(22/80/443) + fail2ban + swap
 所以代码和表结构不会脱节。也可以单独跑：
 
 ```bash
-karma migrate     # = docker exec -w /app karma-api alembic upgrade head
+karma migrate     # = 一次性 app 容器里跑 alembic upgrade head
 ```
+
+迁移**不在**运行中的 `karma-api` 里 `docker exec`，而是 `docker compose run --rm
+--no-deps app alembic upgrade head`：`docker exec` 用的是容器创建那一刻的 env，
+所以「新增一条生产必填开关」的部署会卡死在导入 settings 那一步（新 `.env` 只有
+重建容器时才生效，而重建在这步之后）。一次性容器读的是 `/opt/karma/.env` 现值。
+`karma db-baseline` 同理。
 
 **首次基线**：如果这个库的表结构是历史上 `create_all` + 启动补列建出来的
 （`alembic_version` 表不存在），`upgrade head` 会从 base 重放全部迁移，撞上
