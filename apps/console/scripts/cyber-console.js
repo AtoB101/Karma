@@ -1576,6 +1576,7 @@
     const caps = capsValue();
     const rules = {
       arbitration: caps.can_operate_arbitration === true,
+      verifiers: caps.can_view_verifier_network === true,
     };
     document.querySelectorAll(".nav-group[data-group]").forEach(function (g) {
       const name = g.getAttribute("data-group") || "";
