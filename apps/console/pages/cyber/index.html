@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
     <link rel="icon" type="image/png" href="../../assets/favicon.png?v=0da2be69f6aa" />
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=e1cd8a8fdde5" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=5c2c3b112643" />
   </head>
   <body>
     <div class="bg"></div>
@@ -131,6 +131,17 @@
               <button class="nav-sub" data-page="reviews" data-sub="entity">主体认证</button>
               <button class="nav-sub" data-page="reviews" data-sub="developer">开发者实名</button>
               <button class="nav-sub" data-page="reviews" data-sub="kyc">子身份 KYC</button>
+            </div>
+          </div>
+          <!-- 仲裁台：只有仲裁员 / 管理员白名单里的人看得到（caps 到位后取消 hidden）。 -->
+          <div class="nav-group" data-group="arbitration" hidden>
+            <button class="nav-main" data-page="arbitration" aria-expanded="false"><span class="icon">&#9878;</span><span data-i18n="nav.arbitration">仲裁台</span><span class="nav-caret">&#9662;</span></button>
+            <div class="nav-subs">
+              <button class="nav-sub" data-page="arbitration" data-sub="overview">全景</button>
+              <button class="nav-sub" data-page="arbitration" data-sub="alerts">告警</button>
+              <button class="nav-sub" data-page="arbitration" data-sub="overdue">超期案件</button>
+              <button class="nav-sub" data-page="arbitration" data-sub="arbitrators">仲裁员活动</button>
+              <button class="nav-sub" data-page="arbitration" data-sub="actions">派庭 / 投票 / 执行</button>
             </div>
           </div>
           <div class="nav-group" data-group="settings">
@@ -1296,6 +1307,98 @@
           </div>
         </section>
 
+        <!-- 仲裁台：派庭 / 投票 / 执行裁决。执行裁决真的动钱，所以那边有二次确认；
+             这里只把机器算出来的数字摊开，结论始终是人按的。 -->
+        <section id="arbitration" class="page">
+          <div class="card section" id="arb-overview">
+            <div class="section-header">
+              <div>
+                <h3>仲裁台 · 运维中心</h3>
+                <p>争议仲裁的运营侧：先看窗口内的案件与告警，再决定派庭、投票、执行裁决。数字都是机器算的，结论是人按的 —— 告警只提示，不替你裁决。</p>
+              </div>
+              <span class="api-status" id="arb-state">&mdash;</span>
+            </div>
+            <div class="idv-row">
+              <div class="field"><label>只看最近</label>
+                <select id="arb-window">
+                  <option value="6">6 小时</option>
+                  <option value="24" selected>24 小时</option>
+                  <option value="72">72 小时</option>
+                  <option value="168">7 天</option>
+                </select>
+              </div>
+              <button type="button" class="btn primary" id="arb-refresh">刷新</button>
+              <span class="api-status" id="arb-generated">&mdash;</span>
+            </div>
+            <p class="idv-hint" id="arb-deny" hidden></p>
+            <div id="arb-stats" style="margin-top:12px"></div>
+            <h4 class="arb-sub">最近事件</h4>
+            <ul id="arb-events" class="arb-lines"></ul>
+          </div>
+
+          <div class="card section" id="arb-alerts" hidden>
+            <div class="section-header">
+              <div>
+                <h3>告警</h3>
+                <p>待派庭积压、投票积压、裁决超期风险、部分裁决激增 —— 机器只报警，不替人裁决。</p>
+              </div>
+            </div>
+            <ul id="arb-alerts-list" class="arb-lines"></ul>
+          </div>
+
+          <div class="card section" id="arb-overdue" hidden>
+            <div class="section-header">
+              <div>
+                <h3>超期案件</h3>
+                <p>卡在某个阶段太久、已经越过阈值的案子，按超期时长排在前面。</p>
+              </div>
+            </div>
+            <ul id="arb-overdue-list" class="arb-lines"></ul>
+          </div>
+
+          <div class="card section" id="arb-arbitrators" hidden>
+            <div class="section-header">
+              <div>
+                <h3>仲裁员活动</h3>
+                <p>窗口内每个仲裁员被指派、投票的次数与最近活动时间。</p>
+              </div>
+            </div>
+            <ul id="arb-arbitrators-list" class="arb-lines"></ul>
+          </div>
+
+          <div class="card section" id="arb-actions" hidden>
+            <div class="section-header">
+              <div>
+                <h3>派庭 / 投票 / 执行裁决</h3>
+                <p>先填案件编号。派庭只从已启用、且质押盖得住案值的候选人里自动选人；投票只能指名被指派到本案的仲裁员身份；执行裁决会真的动钱，只有已裁决的案子能用。</p>
+              </div>
+              <span class="api-status" id="arb-action-state">&mdash;</span>
+            </div>
+            <div class="arb-actions-row">
+              <div class="field"><label>案件编号</label><input id="arb-case" type="text" placeholder="arb-..." /></div>
+              <div class="field"><label>派庭人数</label><input id="arb-count" type="number" min="1" max="21" value="3" /></div>
+              <button type="button" class="btn" id="arb-assign">自动派庭</button>
+            </div>
+            <div class="arb-actions-row">
+              <button type="button" class="btn" id="arb-load-assignments">读取指派</button>
+              <div class="field"><label>仲裁员身份</label><select id="arb-arbitrator"><option value="">&mdash;</option></select></div>
+              <div class="field"><label>裁决</label>
+                <select id="arb-decision">
+                  <option value="buyer_wins">买方胜</option>
+                  <option value="seller_wins">卖方胜</option>
+                  <option value="partial">部分赔付</option>
+                </select>
+              </div>
+              <div class="field"><label>部分赔付比例（%）</label><input id="arb-percent" type="number" min="0" max="100" step="0.01" /></div>
+            </div>
+            <div class="arb-actions-row">
+              <div class="field" style="flex:1 1 320px"><label>理由（可选，会写进案件事件）</label><input id="arb-rationale" type="text" /></div>
+              <button type="button" class="btn primary" id="arb-vote">投出这一票</button>
+              <button type="button" class="btn red" id="arb-execute">执行裁决（真的动钱）</button>
+            </div>
+          </div>
+        </section>
+
         <section id="settings" class="page">
           <!-- 接入节点：操作台是静态的，节点是它要数据的对象。放在最前面，
                因为「连不上」时要找的就是它。渲染见 cyber-node-panel.js。 -->
@@ -1365,14 +1468,14 @@
       window.KARMA_API_KEY = window.KARMA_API_KEY || "";
       window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
     </script>
-    <script src="../../scripts/i18n-cyber.js?v=cac3f79020e2"></script>
+    <script src="../../scripts/i18n-cyber.js?v=7c0dc479e631"></script>
     <script src="../../scripts/lang-select.js?v=60b3643a2859"></script>
     <script src="../../scripts/karma-nodes.js?v=3e8631a9ab01"></script>
     <script src="../../scripts/karma-public-api.js?v=da71ad7246b1"></script>
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=2e4783ba123a"></script>
-    <script src="../../scripts/cyber-console.js?v=80f2bf25f89f"></script>
+    <script src="../../scripts/cyber-console.js?v=f75ac65619fa"></script>
     <script src="../../scripts/cyber-identity.js?v=0c43fcce65dd"></script>
 <script src="../../scripts/cyber-master-page.js?v=f213b05c6871"></script>
     <script src="../../scripts/cyber-face-capture.js?v=c4d373c18c91"></script>
@@ -1405,6 +1508,8 @@
     <script src="../../scripts/cyber-entity.js?v=a66642857fb4"></script>
     <script src="../../scripts/cyber-developer.js?v=1b30aaa1ff40"></script>
     <script src="../../scripts/cyber-reviews.js?v=4a7a44e54713"></script>
+    <!-- 仲裁台：运维全景 + 派庭 / 投票 / 执行裁决（只对仲裁员 / 管理员白名单开放）。 -->
+    <script src="../../scripts/cyber-arbitration.js?v=51b2c1535721"></script>
     <script src="../../scripts/cyber-node-panel.js?v=95f1085ecf02"></script>
     <script src="../../scripts/background-globe.js?v=64512e726378"></script>
   </body>

@@ -37,6 +37,7 @@ from api.routes import (
     verify,
     capacity,
     console_2fa,
+    console_caps,
     vouchers,
     progress,
     identities,
@@ -403,6 +404,14 @@ app.include_router(
     console_2fa.router,
     prefix="/v1/console/2fa",
     tags=["Console2FA"],
+    dependencies=_protected_dependencies,
+)
+# 操作台的能力位：只回调用者自己的布尔位，用来决定画不画某个工作面入口。
+# 真正的判定仍在那三道 require_* 上，这里不是第二道门（见 api/routes/console_caps.py）。
+app.include_router(
+    console_caps.router,
+    prefix="/v1/console/capabilities",
+    tags=["ConsoleCaps"],
     dependencies=_protected_dependencies,
 )
 app.include_router(escrow.router,     prefix="/v1/escrow",     tags=["Escrow"],   dependencies=_protected_dependencies)

@@ -19,6 +19,7 @@
     agents: ["page.agents.title", "page.agents.sub"],
     market: ["page.market.title", "page.market.sub"],
     reviews: ["page.reviews.title", "page.reviews.sub"],
+    arbitration: ["page.arbitration.title", "page.arbitration.sub"],
     settings: ["page.settings.title", "page.settings.sub"],
   };
 
@@ -1518,6 +1519,78 @@
   }
 
   /** 当前页：切语言时要把这一页重画一遍（有些区块是用 T() 拼出来的，渲染一次就不再变）。 */
+  /* ── 能力位（capabilities）───────────────────────────────────────────────
+   * 「哪几个特权工作面画给当前这个身份」。白名单只在服务器上，前端不能靠
+   * 「先打真接口、看到 403 再藏」—— 那会让每个普通用户每次开操作台都往安全
+   * 告警里塞一串 403，把 privileged_action 那条基线淹掉。
+   * 所以先问一次只回「调用者自己布尔位」的 /v1/console/capabilities：
+   * 拿到 false 就不画入口，拿到 true 才去读真数据。
+   * 判定权威仍在后端（services/actor_guards.py 那三道 require_*）：
+   * 这里画错 = 多一个点了会 403 的按钮，绝不是多一道能进的门。
+   */
+  var CAPS = { loaded: false, value: null };
+
+  function capsValue() {
+    return CAPS.value || {};
+  }
+
+  function capsAuthed() {
+    try {
+      return !!(window.KARMA_ACCESS_TOKEN || window.KARMA_IDENTITY_ID);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function capsRefresh() {
+    const apiRef = window.cyberKarmaApi;
+    if (!apiRef || !apiRef.karmaFetch || !capsAuthed()) {
+      CAPS = { loaded: false, value: null };
+      applyPrivilegedNavVisibility();
+      return Promise.resolve(null);
+    }
+    return apiRef
+      .karmaFetch("/v1/console/capabilities", { method: "GET", headers: apiRef.headers() })
+      .then(function (caps) {
+        CAPS = { loaded: true, value: caps || {} };
+        applyPrivilegedNavVisibility();
+        try {
+          document.dispatchEvent(new CustomEvent("karma-caps-ready", { detail: capsValue() }));
+        } catch (_) {}
+        return capsValue();
+      })
+      .catch(function () {
+        // 拿不到就当「没有」：宁可不画，也不要画一个只会 403 的入口。
+        CAPS = { loaded: true, value: {} };
+        applyPrivilegedNavVisibility();
+        return null;
+      });
+  }
+
+  /**
+   * 特权工作面（仲裁台 / 验证者网络）：不在白名单里就整组不画。
+   * 用 [hidden] 而不是 nav-scope-hidden —— 后者是「主身份视角」在用的类，
+   * 两个开关同时写同一个类会互相覆盖。
+   */
+  function applyPrivilegedNavVisibility() {
+    const caps = capsValue();
+    const rules = {
+      arbitration: caps.can_operate_arbitration === true,
+    };
+    document.querySelectorAll(".nav-group[data-group]").forEach(function (g) {
+      const name = g.getAttribute("data-group") || "";
+      if (!Object.prototype.hasOwnProperty.call(rules, name)) return;
+      g.hidden = !rules[name];
+      if (!rules[name]) g.classList.remove("open");
+    });
+  }
+
+  window.KarmaConsoleCaps = {
+    get: capsValue,
+    refresh: capsRefresh,
+    loaded: function () { return CAPS.loaded; },
+  };
+
   var currentPage = "overview";
   var currentSubKey = null;
 
@@ -1707,8 +1780,22 @@
     bindLang();
     bindNav();
     applyNavScope();
+    capsRefresh().catch(function () {});
     ["karma-profile-switched", "karma-wallet-connected", "karma-session-restored"].forEach(function (name) {
       document.addEventListener(name, applyNavScope);
+    });
+    // 能力位跟着会话走：连上/恢复/换身份/断开都要重拉一次，
+    // 不然换了身份还留着上一个身份的特权入口。
+    [
+      "karma-profile-switched",
+      "karma-wallet-connected",
+      "karma-session-restored",
+      "karma-wallet-disconnected",
+      "karma-session-expired",
+    ].forEach(function (name) {
+      document.addEventListener(name, function () {
+        capsRefresh().catch(function () {});
+      });
     });
     document.querySelectorAll("[data-go]").forEach(function (node) {
       node.addEventListener("click", function () {
