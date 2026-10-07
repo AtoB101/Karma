@@ -70,12 +70,20 @@ sync_cli() {
   # Without this the installed copy silently drifts from the repo one.
   local src="$REPO_DIR/deploy/karma" self="${BASH_SOURCE[0]:-$0}"
   [ -f "$src" ] || return 0
-  [ -w "$self" ] || return 0
-  cmp -s "$src" "$self" && return 0
-  if install -m 0755 "$src" "$self" 2>/dev/null; then
-    ok "  refreshed the operator CLI from deploy/karma"
-  else
-    warn "  could not refresh $self from deploy/karma"
+  if [ -w "$self" ] && ! cmp -s "$src" "$self"; then
+    install -m 0755 "$src" "$self" 2>/dev/null \
+      && ok "  refreshed the operator CLI from deploy/karma" \
+      || warn "  could not refresh $self from deploy/karma"
+  fi
+  # CI 跑的是仓库里那份（`bash /opt/karma/repo/deploy/karma deploy`），上面只会比对
+  # 仓库自己 —— 已安装的 /usr/local/bin/karma 会悄悄落后（2026-10-08 发现它还是 9 月
+  # 的副本、连 env-gates 都没有）。所以这里补一次：安装副本也要跟着走。
+  local installed=/usr/local/bin/karma
+  if [ "$self" != "$installed" ] && [ -f "$installed" ] && [ -w "$installed" ] \
+     && ! cmp -s "$src" "$installed"; then
+    install -m 0755 "$src" "$installed" 2>/dev/null \
+      && ok "  refreshed $installed from deploy/karma" \
+      || warn "  could not refresh $installed from deploy/karma"
   fi
 }
 
