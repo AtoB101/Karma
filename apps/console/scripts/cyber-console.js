@@ -21,6 +21,8 @@
     reviews: ["page.reviews.title", "page.reviews.sub"],
     arbitration: ["page.arbitration.title", "page.arbitration.sub"],
     verifiers: ["page.verifiers.title", "page.verifiers.sub"],
+    "verifier-id": ["page.verifier_id.title", "page.verifier_id.sub"],
+    "arbiter-id": ["page.arbiter_id.title", "page.arbiter_id.sub"],
     settings: ["page.settings.title", "page.settings.sub"],
   };
 

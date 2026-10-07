@@ -177,6 +177,21 @@
     return null;
   }
 
+  /* 「选择身份」里除了主身份与子身份，还挂着两个**岗位入口**：
+     验证者身份、仲裁者身份。它们不是「切到某张卡」，而是「去申请这个身份」——
+     点了就翻到那一页；身份档案一个都不动。注册代理身份（子身份）那一组行为不变：
+     点哪张卡就切到哪张卡。 */
+  var ROLE_PAGES = [
+    { page: "verifier-id", key: "nav.verifier_id", zh: "验证者身份" },
+    { page: "arbiter-id", key: "nav.arbiter_id", zh: "仲裁者身份" },
+  ];
+
+  function goRolePage(page) {
+    closeIdPicker();
+    closeSubPanel();
+    if (window.cyberSwitchPage) window.cyberSwitchPage(page);
+  }
+
   // ---- 顶部「主体 / 视角」状态栏 + 切换面板 ----
   /* The topbar states on every page which master card owns the records and which
      sub-identity the console is filtering by. Without it a filtered list is
@@ -213,7 +228,8 @@
       : tr("scope.master_all", "主体（全部）");
     var rows = [{ id: "", label: masterLabel }];
     profiles.forEach(function (p) { rows.push({ id: p.profile_id, label: profileLabel(p) }); });
-    rows.forEach(function (r) {
+
+    function addRow(r) {
       var row = document.createElement("div");
       row.className = "sub-switch-row";
       var b = document.createElement("button");
@@ -242,7 +258,34 @@
         row.appendChild(g);
       }
       panel.appendChild(row);
-    });
+    }
+
+    function addHead(key, zh) {
+      var h = document.createElement("div");
+      h.className = "sub-switch-head";
+      h.textContent = tr(key, zh);
+      panel.appendChild(h);
+    }
+
+    function addRoleRow(entry) {
+      var row = document.createElement("div");
+      row.className = "sub-switch-row";
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "sub-switch-item sub-switch-role";
+      b.setAttribute("role", "menuitem");
+      b.setAttribute("data-role-page", entry.page);
+      b.textContent = tr(entry.key, entry.zh) + "  ›";
+      b.addEventListener("click", function () { goRolePage(entry.page); });
+      row.appendChild(b);
+      panel.appendChild(row);
+    }
+
+    addRow(rows[0]);
+    addHead("pick.section_roles", "身份与岗位");
+    ROLE_PAGES.forEach(addRoleRow);
+    addHead("pick.role_agent", "注册代理身份");
+    rows.slice(1).forEach(addRow);
     if (!profiles.length) {
       var empty = document.createElement("p");
       empty.className = "sub-switch-empty";
@@ -331,9 +374,9 @@
       host.setAttribute("data-profile-switcher", "");
       host.innerHTML =
         '<button type="button" class="id-picker-btn" id="id-picker-btn" aria-haspopup="listbox" aria-expanded="false">' +
-        '<span class="id-picker-head"><span class="id-picker-title">切换身份</span><span class="id-picker-caret">▾</span></span>' +
+        '<span class="id-picker-head"><span class="id-picker-title">选择身份</span><span class="id-picker-caret">▾</span></span>' +
         "</button>" +
-        '<div class="id-picker-panel" id="id-picker-panel" role="listbox" aria-label="切换身份" hidden></div>';
+        '<div class="id-picker-panel" id="id-picker-panel" role="listbox" aria-label="选择身份" hidden></div>';
       var sub = box.querySelector(".id-sub");
       if (sub) sub.insertAdjacentElement("afterend", host);
       else box.appendChild(host);
@@ -412,7 +455,7 @@
       });
     });
 
-    rows.forEach(function (r) {
+    function addPickerRow(r) {
       var b = document.createElement("button");
       b.type = "button";
       b.className =
@@ -447,7 +490,41 @@
         setActiveProfile(r.id);
       });
       panel.appendChild(b);
-    });
+    }
+
+    function addPickerHead(key, zh) {
+      var h = document.createElement("div");
+      h.className = "id-picker-head-row";
+      h.textContent = tr(key, zh);
+      panel.appendChild(h);
+    }
+
+    function addPickerRole(entry) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "id-picker-item role-entry";
+      b.setAttribute("role", "option");
+      b.setAttribute("data-role-page", entry.page);
+      var name = document.createElement("span");
+      name.className = "ip-name";
+      name.textContent = tr(entry.key, entry.zh) + "  ›";
+      var meta = document.createElement("span");
+      meta.className = "ip-meta";
+      var hint = document.createElement("em");
+      hint.className = "ip-role";
+      hint.textContent = tr("pick.role_apply", "申请与收益口径");
+      meta.appendChild(hint);
+      b.appendChild(name);
+      b.appendChild(meta);
+      b.addEventListener("click", function () { goRolePage(entry.page); });
+      panel.appendChild(b);
+    }
+
+    addPickerRow(rows[0]);
+    addPickerHead("pick.section_roles", "身份与岗位");
+    ROLE_PAGES.forEach(addPickerRole);
+    addPickerHead("pick.role_agent", "注册代理身份");
+    rows.slice(1).forEach(addPickerRow);
 
   }
 

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
     <link rel="icon" type="image/png" href="../../assets/favicon.png?v=0da2be69f6aa" />
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=e0193575717a" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=ccd3d056e708" />
   </head>
   <body>
     <div class="bg"></div>
@@ -103,6 +103,15 @@
               <button class="nav-sub" data-page="identity" data-sub="sole">个体助理认证</button>
               <button class="nav-sub" data-page="identity" data-sub="enterprise">企业助理认证</button>
             </div>
+          </div>
+          <!-- 验证者身份 / 仲裁者身份：**自助申请页**，任何登录身份都看得到。
+               和下面那两个「台」不同 —— 仲裁台 / 验证者网络是运维工作面，按白名单显隐；
+               这两页是「怎么拿到身份」，藏起来就等于没有申请入口。 -->
+          <div class="nav-group" data-group="verifier-id">
+            <button class="nav-main" data-page="verifier-id"><span class="icon">&#9677;</span><span data-i18n="nav.verifier_id">验证者身份</span></button>
+          </div>
+          <div class="nav-group" data-group="arbiter-id">
+            <button class="nav-main" data-page="arbiter-id"><span class="icon">&#9674;</span><span data-i18n="nav.arbiter_id">仲裁者身份</span></button>
           </div>
           <div class="nav-group" data-group="agents">
             <button class="nav-main" data-page="agents" aria-expanded="false"><span class="icon">◈</span><span data-i18n="nav.agents">Agent 接入</span><span class="nav-caret">▾</span></button>
@@ -227,7 +236,7 @@
               </div>
               <div class="top-actions">
                 <div class="sub-switch-wrap">
-                  <button type="button" class="btn" id="btn-switch-sub" data-i18n="top.sub" aria-haspopup="true" aria-expanded="false">切换子身份</button>
+                  <button type="button" class="btn" id="btn-switch-sub" data-i18n="top.sub" aria-haspopup="true" aria-expanded="false">选择身份</button>
                   <div class="sub-switch-panel" id="sub-switch-panel" role="menu" hidden></div>
                 </div>
                 <button type="button" class="btn" data-i18n="top.export">导出记录</button>
@@ -254,7 +263,7 @@
               </div>
               <div class="id-home-actions">
                 <button type="button" class="btn" data-go="identity">+ 新建子身份</button>
-                <button type="button" class="btn primary" id="btn-switch-identity" aria-haspopup="true" aria-expanded="false">切换身份</button>
+                <button type="button" class="btn primary" id="btn-switch-identity" aria-haspopup="true" aria-expanded="false">选择身份</button>
               </div>
             </div>
             <div class="id-home-stats">
@@ -1282,6 +1291,113 @@
 
         </section>
 
+        <section id="verifier-id" class="page">
+          <!-- 验证者身份：把「怎么拿到节点资格 + 能拿多少钱」摊在一页上。
+               收益口径一律走 GET /v1/console/economy-policy，页面不写死任何数字。 -->
+          <div class="card section" id="vi-intro">
+            <div class="section-header">
+              <div>
+                <h3>验证者身份 · 机器节点</h3>
+                <p>验证者是一台跑在你自己机器上的节点：独立拉证据包、跑客观核验、用自己钱包签名出证。下面三件事按顺序做完，就有出证资格。</p>
+              </div>
+              <span class="api-status" id="vi-state">&mdash;</span>
+            </div>
+            <div class="role-flow">
+              <div class="role-step"><b>1 · 一把节点自己的 key</b><span>每个节点一把独立钱包，不跟主身份共用：出证签名、质押、收款都用它。</span></div>
+              <div class="role-step"><b>2 · 登记节点</b><span>把钱包地址、质押额、回执接口登记进来，节点就出现在网络里。</span></div>
+              <div class="role-step"><b>3 · 跑起来出证</b><span>节点程序拉证据包、核验、签名出证；只有计入门限的那几张出证拿钱。</span></div>
+            </div>
+          </div>
+
+          <div class="card section" id="vi-register-card">
+            <div class="section-header">
+              <div>
+                <h3>登记我的节点</h3>
+                <p>这一步只登记节点身份与质押额度，不代签、不代发 —— 出证始终由节点程序自己做。</p>
+              </div>
+              <span class="api-status" id="vi-reg-state">&mdash;</span>
+            </div>
+            <div class="idv-row">
+              <div class="field"><label>节点钱包地址</label><input id="vi-wallet" data-wallet type="text" placeholder="0x..." autocomplete="off" /></div>
+              <div class="field"><label>质押额（USDC）</label><input id="vi-stake" type="text" placeholder="100" autocomplete="off" /></div>
+              <div class="field"><label>回执接口</label><input id="vi-endpoint" type="text" placeholder="https://..." autocomplete="off" /></div>
+              <button type="button" class="btn primary" id="vi-register">登记节点</button>
+            </div>
+            <div class="rate-table" id="vi-mine"></div>
+          </div>
+
+          <div class="card section" id="vi-policy-card">
+            <div class="section-header">
+              <div>
+                <h3>收益标准与收益率</h3>
+                <p>下面是平台公布的口径。口径已定、结算侧还没接上，所以先按预告公示；口径只改服务器参数，这一页跟着变。</p>
+              </div>
+              <span class="api-status" id="vi-policy-state">&mdash;</span>
+            </div>
+            <div class="rate-table" id="vi-policy"></div>
+          </div>
+        </section>
+
+        <section id="arbiter-id" class="page">
+          <!-- 仲裁者身份：先认证、再抵押。认证 = 治理角色档案（谁在裁），
+               抵押 = 已锁仓 USDC 入池（裁错了赔得起）。两样齐了才算仲裁员。 -->
+          <div class="card section" id="ai-intro">
+            <div class="section-header">
+              <div>
+                <h3>仲裁者身份 · 先认证，再抵押</h3>
+                <p>仲裁员裁的是别人的钱，所以两件事缺一不可：认证（谁在裁）、抵押（裁错了赔得起）。</p>
+              </div>
+              <span class="api-status" id="ai-state">&mdash;</span>
+            </div>
+            <div class="role-flow">
+              <div class="role-step"><b>1 · 申请认证</b><span>仲裁员是治理角色档案；档案下来之前，抵押这一步也免谈。</span></div>
+              <div class="role-step"><b>2 · 抵押入池</b><span>质押必须由已锁仓的真实 USDC 背书；押金被划走，这个资格当场停。</span></div>
+              <div class="role-step"><b>3 · 派庭后投票</b><span>回避当事人，抵押必须覆盖案值；裁决被推翻，按立案费的倍数从抵押里罚。</span></div>
+            </div>
+          </div>
+
+          <div class="card section" id="ai-cert-card">
+            <div class="section-header">
+              <div>
+                <h3>申请认证</h3>
+                <p>认证走的是治理角色档案。当前这条路由平台点名发放；平台打开自助申请后，凭锁仓质押就能自己开通。</p>
+              </div>
+              <span class="api-status" id="ai-cert-state">&mdash;</span>
+            </div>
+            <div class="idv-row">
+              <button type="button" class="btn" id="ai-cert-apply">申请仲裁认证</button>
+            </div>
+            <div class="rate-table" id="ai-cert-body"></div>
+          </div>
+
+          <div class="card section" id="ai-stake-card">
+            <div class="section-header">
+              <div>
+                <h3>抵押入池</h3>
+                <p>只能给自己入池，不能把别人塞进来。质押要大于 0，而且必须由已锁仓的 USDC 背书。</p>
+              </div>
+              <span class="api-status" id="ai-stake-state">&mdash;</span>
+            </div>
+            <div class="idv-row">
+              <div class="field"><label>质押额（USDC）</label><input id="ai-stake" type="text" placeholder="10" autocomplete="off" /></div>
+              <button type="button" class="btn primary" id="ai-join">申请入池</button>
+              <button type="button" class="btn" id="ai-refresh">刷新状态</button>
+            </div>
+            <div class="rate-table" id="ai-mine"></div>
+          </div>
+
+          <div class="card section" id="ai-policy-card">
+            <div class="section-header">
+              <div>
+                <h3>收益与风险口径</h3>
+                <p>立案费由败诉方承担，赢家不亏；裁决被推翻，按立案费的倍数从该庭抵押里罚。</p>
+              </div>
+              <span class="api-status" id="ai-policy-state">&mdash;</span>
+            </div>
+            <div class="rate-table" id="ai-policy"></div>
+          </div>
+        </section>
+
         <section id="reviews" class="page">
           <!-- 复核台：四条待办汇到一处。只有持 verifier 类身份档案的人进得来，
                后端还会把「自己提交的」从自己的队列里剔掉。 -->
@@ -1512,15 +1628,15 @@
       window.KARMA_API_KEY = window.KARMA_API_KEY || "";
       window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
     </script>
-    <script src="../../scripts/i18n-cyber.js?v=80fc78d9fec6"></script>
+    <script src="../../scripts/i18n-cyber.js?v=ba85d9288028"></script>
     <script src="../../scripts/lang-select.js?v=60b3643a2859"></script>
     <script src="../../scripts/karma-nodes.js?v=3e8631a9ab01"></script>
     <script src="../../scripts/karma-public-api.js?v=da71ad7246b1"></script>
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=2e4783ba123a"></script>
-    <script src="../../scripts/cyber-console.js?v=f90439561293"></script>
-    <script src="../../scripts/cyber-identity.js?v=0c43fcce65dd"></script>
+    <script src="../../scripts/cyber-console.js?v=2e6ff1327ea8"></script>
+    <script src="../../scripts/cyber-identity.js?v=0ce91cfb72fa"></script>
 <script src="../../scripts/cyber-master-page.js?v=f213b05c6871"></script>
     <script src="../../scripts/cyber-face-capture.js?v=c4d373c18c91"></script>
     <script src="../../scripts/cyber-identity-verify.js?v=81de38ee426f"></script>
@@ -1556,6 +1672,9 @@
     <script src="../../scripts/cyber-arbitration.js?v=51b2c1535721"></script>
     <!-- 验证者网络：机器节点的只读看板（只对管理员 / 治理发放方白名单开放）。 -->
     <script src="../../scripts/cyber-verifier-network.js?v=35a6e121a39f"></script>
+    <!-- 验证者身份 / 仲裁者身份：两个自助申请页（节点登记、入池抵押、收益口径）。 -->
+    <script src="../../scripts/cyber-verifier-identity.js?v=725942b7c211"></script>
+    <script src="../../scripts/cyber-arbitrator-identity.js?v=0d23f437b06d"></script>
     <script src="../../scripts/cyber-node-panel.js?v=95f1085ecf02"></script>
     <script src="../../scripts/background-globe.js?v=64512e726378"></script>
   </body>

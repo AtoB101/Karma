@@ -68,6 +68,37 @@ class Settings(BaseSettings):
     # （例如 1.5 = 抵押至少是案值的 1.5 倍）。生产环境不允许小于 1.0。
     arbitration_stake_coverage_multiple: float = 1.0
 
+    # ---- 收益口径（policy preview，2026-10-08）--------------------------------
+    # 这一组数是**对外公布的收益标准**：操作台「验证者身份 / 仲裁者身份」两页把它
+    # 原样摊给申请人看（见 services/economy_policy.py + GET /v1/console/economy-policy）。
+    #
+    # 边界必须说清楚：这一层现在**只做展示**。验证者的奖励在链上
+    # ``VerifierRegistry.verificationReward``（一条固定值，还没有按案值比例走），
+    # 仲裁费在 ``arbitration_cases`` 里连字段都还没有。所以那个接口回的
+    # ``status`` 是 ``policy-preview``：口径已定、钱还没按这个口径走。
+    # 改这里的数 = 改页面上公示的数；真要改结算口径，得连同上面那几条一起改。
+    #
+    # 结算手续费（bps of GMV；真正的费率与拆分在 karma-economy 的 FeeBridge，这里只作展示）。
+    settlement_fee_bps: float = 20.0
+    # 验证者网络：案值 ≥ 这个数才启动门限核验，小额单走平台单机核验。
+    verifier_network_min_case_usdc: float = 100.0
+    # 每条**计入门限**的有效出证 = 案值 × bps，夹在 [min, max] 之间。
+    verifier_reward_bps: float = 1.0
+    verifier_reward_min_usdc: float = 0.02
+    verifier_reward_max_usdc: float = 1.0
+    # 门限 N-of-M：M 张出证里只有计入门限的那 N 张拿钱（否则等于奖励刷单）。
+    verifier_quorum_required: int = 3
+    verifier_quorum_total: int = 5
+    # 出证被判错：不付奖励，并罚没质押（链上 VerifierRegistry.slash）。
+    verifier_slash_on_false_attestation: bool = True
+    # 仲裁：立案费 = 案值 × bps，夹在 [min, max] 之间，由**败诉方**承担。
+    arbitration_fee_bps: float = 150.0
+    arbitration_fee_min_usdc: float = 0.5
+    arbitration_fee_max_usdc: float = 100.0
+    arbitration_fee_loser_pays: bool = True
+    # 整庭裁决被推翻：按立案费的这个倍数罚没该庭抵押。
+    arbitration_slash_multiple: float = 2.0
+
     # Comma-separated identity ids allowed to hold governance role profiles
     # (class=verifier / arbitrator). Empty means nobody can self-create one over the
     # API; the operational grant path is scripts/ops/grant_governance_role.py on the

@@ -1,6 +1,6 @@
 /**
  * Cyber console i18n — zh-CN, en, ja, ko, es-AR, es-SV.
- * Every shipped pack covers all 256 keys; fallback is locale -> en -> zh-CN -> key.
+ * Every shipped pack covers all 272 keys; fallback is locale -> en -> zh-CN -> key.
  * Phrase packs (i18n-phrase/*.js) inherit this file's ?v=, so editing either
  * requires re-running scripts/stamp_console_assets.py. Keep this note in sync
  * with any phrase-pack change so the deployed pack never stays on a stale URL.
@@ -95,6 +95,15 @@
     "nav.verifiers": "Verifier Network",
     "page.verifiers.title": "Verifier Network",
     "page.verifiers.sub": "Read-only view of the machine node network: registration, stake, attestations and challenges.",
+    "nav.verifier_id": "Verifier identity",
+    "nav.arbiter_id": "Arbitrator identity",
+    "page.verifier_id.title": "Verifier identity",
+    "page.verifier_id.sub": "Run a machine node: register it, stake, and earn from attestations, with the reward rules and rates published in one place.",
+    "page.arbiter_id.title": "Arbitrator identity",
+    "page.arbiter_id.sub": "Become an arbitrator: apply for certification first, then post collateral to join a panel and vote.",
+    "pick.section_roles": "Identities and roles",
+    "pick.role_agent": "Registration-agent identity",
+    "pick.role_apply": "Application and reward rules",
     "page.identity.title": "Identity & KYC",
     "page.identity.sub": "Verify once (ID + selfie), then spin up one card per agent.",
     "page.auth.title": "Authentication",
@@ -363,6 +372,15 @@
     "nav.verifiers": "验证者网络",
     "page.verifiers.title": "验证者网络",
     "page.verifiers.sub": "机器节点网络的只读看板：注册、质押、出证、挑战。",
+    "nav.verifier_id": "验证者身份",
+    "nav.arbiter_id": "仲裁者身份",
+    "page.verifier_id.title": "验证者身份",
+    "page.verifier_id.sub": "跑一台机器节点：登记、质押、出证拿钱 —— 收益口径与收益率集中公布在这一页。",
+    "page.arbiter_id.title": "仲裁者身份",
+    "page.arbiter_id.sub": "成为仲裁员：先申请认证，再抵押入池，派庭后投票。",
+    "pick.section_roles": "身份与岗位",
+    "pick.role_agent": "注册代理身份",
+    "pick.role_apply": "申请与收益口径",
     "page.identity.title": "身份 · 认证",
     "page.identity.sub": "一次认证（证件 + 刷脸）拿到身份卡；每个 agent 一张子身份卡。",
     "page.auth.title": "认证",
@@ -546,7 +564,7 @@
 
   /* ------------------------------------------------------------------
    * 完整语言包：ja / ko / es-Latam
-   * 每个包都覆盖 en 的全部 256 个键，所以切换后不会出现半英半本地语。
+   * 每个包都覆盖 en 的全部 272 个键，所以切换后不会出现半英半本地语。
    * ------------------------------------------------------------------ */
   const ja = {
     "api.lang": "言語",
@@ -635,6 +653,15 @@
     "nav.verifiers": "検証者ネットワーク",
     "page.verifiers.title": "検証者ネットワーク",
     "page.verifiers.sub": "マシンノード網の読み取り専用ビュー：登録・ステーク・アテステーション・チャレンジ。",
+    "nav.verifier_id": "検証者 ID",
+    "nav.arbiter_id": "仲裁人 ID",
+    "page.verifier_id.title": "検証者 ID",
+    "page.verifier_id.sub": "マシンノードを運用する：登録・ステーク・アテステーションで報酬。報酬基準と収益率をこのページにまとめて公開しています。",
+    "page.arbiter_id.title": "仲裁人 ID",
+    "page.arbiter_id.sub": "仲裁人になる：まず認定を申請し、担保を入れてプールに参加し、審判団の編成後に投票します。",
+    "pick.section_roles": "ID と役割",
+    "pick.role_agent": "登録エージェント ID",
+    "pick.role_apply": "申請と収益基準",
     "page.identity.title": "身元・認証",
     "page.identity.sub": "一度だけ本人確認（ID + 自撮り）を行い、エージェントごとにカードを発行します。",
     "page.auth.title": "認証",
@@ -901,6 +928,15 @@
     "nav.verifiers": "검증자 네트워크",
     "page.verifiers.title": "검증자 네트워크",
     "page.verifiers.sub": "머신 노드 네트워크 읽기 전용 보기: 등록, 스테이크, 증명, 이의 제기.",
+    "nav.verifier_id": "검증자 신원",
+    "nav.arbiter_id": "중재인 신원",
+    "page.verifier_id.title": "검증자 신원",
+    "page.verifier_id.sub": "머신 노드를 운영하세요: 등록, 스테이크, 증명으로 수익을 냅니다. 수익 기준과 수익률을 이 페이지에 모아 공개합니다.",
+    "page.arbiter_id.title": "중재인 신원",
+    "page.arbiter_id.sub": "중재인이 되기: 먼저 인증을 신청하고, 담보를 넣어 풀에 참여한 뒤 심판단 배정 후 투표합니다.",
+    "pick.section_roles": "신원과 역할",
+    "pick.role_agent": "등록 에이전트 신원",
+    "pick.role_apply": "신청과 수익 기준",
     "page.identity.title": "신원 · 인증",
     "page.identity.sub": "한 번만 본인 확인(ID + 셀피)을 하고, 에이전트마다 카드를 발급하세요.",
     "page.auth.title": "인증",
@@ -1167,6 +1203,15 @@
     "nav.verifiers": "Red de verificadores",
     "page.verifiers.title": "Red de verificadores",
     "page.verifiers.sub": "Vista de solo lectura de la red de nodos máquina: registro, stake, atestaciones y desafíos.",
+    "nav.verifier_id": "Identidad de verificador",
+    "nav.arbiter_id": "Identidad de árbitro",
+    "page.verifier_id.title": "Identidad de verificador",
+    "page.verifier_id.sub": "Operá un nodo máquina: registro, stake y atestaciones para cobrar, con las reglas y tasas de recompensa publicadas en esta página.",
+    "page.arbiter_id.title": "Identidad de árbitro",
+    "page.arbiter_id.sub": "Convertite en árbitro: primero solicitá la certificación, después dá colateral para entrar al panel y votar.",
+    "pick.section_roles": "Identidades y roles",
+    "pick.role_agent": "Identidad de agente de registro",
+    "pick.role_apply": "Solicitud y reglas de recompensa",
     "page.identity.title": "Identidad y KYC",
     "page.identity.sub": "Verifica una sola vez (documento + selfi) y luego emite una tarjeta por agente.",
     "page.auth.title": "Autenticación",
@@ -1365,7 +1410,7 @@
 
   /**
    * Languages the picker offers. Every code here has a pack that covers all
-   * 256 keys, so none of them can leave the page half-translated.
+   * 272 keys, so none of them can leave the page half-translated.
    */
   const SHIPPED_LANGS = ["zh-CN", "en", "ja", "ko", "es-AR", "es-SV"];
 

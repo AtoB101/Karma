@@ -38,6 +38,7 @@ from api.routes import (
     capacity,
     console_2fa,
     console_caps,
+    console_policy,
     vouchers,
     progress,
     identities,
@@ -412,6 +413,13 @@ app.include_router(
     console_caps.router,
     prefix="/v1/console/capabilities",
     tags=["ConsoleCaps"],
+    dependencies=_protected_dependencies,
+)
+# 操作台的收益口径：验证者 / 仲裁员两页公示的收益标准（只读，任何已登录身份可读）。
+app.include_router(
+    console_policy.router,
+    prefix="/v1/console/economy-policy",
+    tags=["ConsolePolicy"],
     dependencies=_protected_dependencies,
 )
 app.include_router(escrow.router,     prefix="/v1/escrow",     tags=["Escrow"],   dependencies=_protected_dependencies)
