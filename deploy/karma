@@ -11,6 +11,10 @@ COMPOSE_FILE=$REPO_DIR/deploy/docker-compose.yml
 API=http://127.0.0.1:8000
 PUBLIC=https://karma-network.ai
 WEB_DEPLOY=/usr/local/bin/karma-web-deploy
+# `karma deploy` runs the repo copy (`bash $REPO_DIR/deploy/karma deploy`); operators
+# type this path. They must agree - on 2026-10-08 the installed copy was still a
+# September build with no `env-gates`.
+CLI_INSTALLED=/usr/local/bin/karma
 LAST_DEPLOY_SHA=$DEPLOY_DIR/last-deploy-sha
 APP_SOURCE_DIRS='agents api apps config core db decentralized_verifier evidence_runtime packages scripts sdk services'
 
@@ -78,13 +82,44 @@ sync_cli() {
   # CI 跑的是仓库里那份（`bash /opt/karma/repo/deploy/karma deploy`），上面只会比对
   # 仓库自己 —— 已安装的 /usr/local/bin/karma 会悄悄落后（2026-10-08 发现它还是 9 月
   # 的副本、连 env-gates 都没有）。所以这里补一次：安装副本也要跟着走。
-  local installed=/usr/local/bin/karma
-  if [ "$self" != "$installed" ] && [ -f "$installed" ] && [ -w "$installed" ] \
-     && ! cmp -s "$src" "$installed"; then
-    install -m 0755 "$src" "$installed" 2>/dev/null \
-      && ok "  refreshed $installed from deploy/karma" \
-      || warn "  could not refresh $installed from deploy/karma"
+  if [ "$self" = "$CLI_INSTALLED" ] || [ ! -f "$CLI_INSTALLED" ]; then return 0; fi
+  if cmp -s "$src" "$CLI_INSTALLED"; then return 0; fi
+  # 不能写就喊出来。以前这里挂着一个 [ -w ] 条件，非 root 跑起来整段被静默跳过 ——
+  # 安装副本漂移了两周没人知道，正是这种「静默的 if」藏起来的。
+  if [ ! -w "$CLI_INSTALLED" ]; then
+    warn "  $CLI_INSTALLED is out of date and not writable by $(id -un)"
+    warn "  refresh it as root: install -m 0755 $src $CLI_INSTALLED"
+    return 0
   fi
+  install -m 0755 "$src" "$CLI_INSTALLED" 2>/dev/null \
+    && ok "  refreshed $CLI_INSTALLED from deploy/karma" \
+    || warn "  could not refresh $CLI_INSTALLED from deploy/karma"
+}
+
+cli_fingerprint() { cksum "$1" 2> /dev/null | cut -d' ' -f1,2; }
+
+# `git merge --ff-only` 会重写这个文件本身，而 bash 还在**一边解析一边执行**它。
+# bash 记的是自己那个字节偏移，文件被换掉之后它从旧偏移继续读，于是后面的代码是
+# 旧行和新行的混合体。2026-10-08 在机器上实测（5 行脚本自我改写）：
+#     LINE1-old / LINE2-old / LINE4-new / LINE5-new
+# 这就是 8ce35d8 里那个 sync_cli 修复「跑完一整个 CI 部署却什么都没做」的原因：
+# 真正执行的是 pull 之前的旧版本。所以：发现本文件被换掉，就 exec 新版本继续，
+# 不要再让解析器去读一个别人正在编辑的文件。
+reexec_if_cli_changed() {
+  local before="$1" src="$REPO_DIR/deploy/karma" depth="${KARMA_REEXEC_DEPTH:-0}"
+  [ -f "$src" ] || return 0
+  [ -n "$before" ] || return 0
+  [ "$(cli_fingerprint "$src")" = "$before" ] && return 0
+  if [ "$depth" -ge 3 ]; then
+    err "  deploy/karma changed under us $depth times; refusing to keep parsing a moving file"
+    return 1
+  fi
+  export KARMA_REEXEC_DEPTH=$((depth + 1))
+  hdr "deploy/karma was rewritten by the pull; re-executing the new copy"
+  if [ "${#KARMA_ORIG_ARGS[@]}" -gt 0 ]; then
+    exec bash "$src" "${KARMA_ORIG_ARGS[@]}"
+  fi
+  exec bash "$src"
 }
 
 mounted_source_dirs() {
@@ -450,7 +485,10 @@ cmd_update() {
   fi
 
   hdr "Fast-forward to origin/main"
-  git merge --ff-only origin/main || { err "  fast-forward failed; local edits are stashed and recoverable via 'git stash list'"; return 1; }
+  local cli_before
+  cli_before="$(cli_fingerprint "$REPO_DIR/deploy/karma")"
+  # 同一行的理由见 cmd_deploy。
+  git merge --ff-only origin/main || { err "  fast-forward failed; local edits are stashed and recoverable via 'git stash list'"; return 1; }; reexec_if_cli_changed "$cli_before" || return 1
   sync_cli
 
   hdr "Deploy (no image build)"
@@ -474,8 +512,11 @@ cmd_deploy() {
     git stash push -u -m "karma-deploy $(date +%F-%H%M%S)" || { err "  could not stash local edits"; return 1; }
   fi
   hdr "Fast-forward to origin/main"
-  git merge --ff-only origin/main || { err "  not a fast-forward; resolve the checkout first"; return 1; }
-  git log --oneline -1 | sed 's/^/  now at: /'
+  local cli_before
+  cli_before="$(cli_fingerprint "$REPO_DIR/deploy/karma")"
+  # merge 和判重必须写在**同一行**：git merge 会把 deploy/karma 整个换掉，而 bash 可能
+  # 带着旧偏移继续读 —— 分成两行写的话，「下一行」是什么就不一定了。
+  git merge --ff-only origin/main || { err "  not a fast-forward; resolve the checkout first"; return 1; }; reexec_if_cli_changed "$cli_before" || return 1
   sync_cli
   # Schema first, code second: the new columns are additive, so an old container
   # keeps working while the migration runs, and the new code never sees a missing column.
@@ -489,6 +530,12 @@ cmd_deploy() {
   cmd_wait_health
   ok "deploy complete"
 }
+
+# Tests source this file to exercise the functions above without running a command.
+if [ "${KARMA_CLI_LIB_ONLY:-}" = "1" ]; then return 0 2> /dev/null || exit 0; fi
+
+# re-exec 之后要按原样重放同一个子命令（`deploy` / `update`）。
+KARMA_ORIG_ARGS=("$@")
 
 case "${1:-help}" in
   status)   cmd_status ;;

@@ -30,6 +30,25 @@ fi
 bash "${CLI}" deploy
 
 # --------------------------------------------------------------------------
+# 安装副本同步
+# --------------------------------------------------------------------------
+# 操作者敲的 /usr/local/bin/karma 和 CI 跑的仓库那份必须一致：不一致时新命令在机器上
+# 根本不存在（2026-10-08 就是这样，安装副本还是 9 月的构建，连 env-gates 都没有）。
+# deploy/karma 里的 sync_cli 也会同步，但它本身就是**被 git pull 改写的那份脚本**，
+# 靠不住（bash 会带着旧偏移继续解析，实测见 reexec_if_cli_changed 的注释）。这个文件
+# 由 ci-deploy-entry.sh 拷到临时文件后执行，不会被改写，所以在这里兜底 —— 而且漂移
+# 没能修好就红，不再有「静默的绿」。
+INSTALLED_CLI=/usr/local/bin/karma
+if [ -f "${INSTALLED_CLI}" ] && ! cmp -s "${CLI_SRC}" "${INSTALLED_CLI}"; then
+  if install -m 0755 "${CLI_SRC}" "${INSTALLED_CLI}"; then
+    echo "refreshed ${INSTALLED_CLI} from deploy/karma"
+  else
+    echo "无法刷新 ${INSTALLED_CLI}（与 deploy/karma 不一致）" >&2
+    exit 1
+  fi
+fi
+
+# --------------------------------------------------------------------------
 # 部署后自证
 # --------------------------------------------------------------------------
 # 「脚本没报错」不等于「线上跑的就是这次提交」。以前这里 `exec` 掉自己，
