@@ -91,3 +91,72 @@ PRODUCTION_GATE_TEMPLATES: tuple[str, ...] = (
     "deploy/.env.paas.example",
     "docs/DEPLOYMENT_GUIDE.md",
 )
+
+
+def _clean_value(raw: str) -> str:
+    """取值清洗：引号里以引号为准，未加引号的 ` #` 之后算行内注释。"""
+    value = raw.strip()
+    if value[:1] in ('"', "'"):
+        quote = value[0]
+        end = value.find(quote, 1)
+        return value[1:end] if end > 0 else value
+    for marker in (" #", "\t#"):
+        cut = value.find(marker)
+        if cut >= 0:
+            value = value[:cut]
+    return value.strip()
+
+
+def parse_env(text: str) -> dict[str, str]:
+    """极简 dotenv 解析：跳过注释/空行，忽略 ``export `` 前缀，剥引号、去行内注释。"""
+    values: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        key, _, val = line.partition("=")
+        values[key.strip()] = _clean_value(val)
+    return values
+
+
+def audit_env(env_text: str) -> list[tuple[str, str, str]]:
+    """拿一份 .env 文本对清单，返回问题列表 ``(tag, key, expected)``。
+
+    tag ∈ {MISSING（缺键）, DIFF（取值不对）, EMPTY（占位项必须在场且有值）}。
+    **只回结论、从不回值** —— 这个结果会被运维 CLI（``karma env-gates``）拿去核对
+    生产 ``/opt/karma/.env``，所以这里绝不能把值带出来。
+    """
+    values = parse_env(env_text)
+    problems: list[tuple[str, str, str]] = []
+    for key, want in sorted(PRODUCTION_GATE_FLAGS.items()):
+        got = values.get(key)
+        if got is None:
+            problems.append(("MISSING", key, want))
+        elif got != want and got not in PRODUCTION_GATE_ALLOWED_VALUES.get(key, ()):
+            problems.append(("DIFF", key, want))
+    for key in sorted(PRODUCTION_GATE_PLACEHOLDERS):
+        if not values.get(key):
+            problems.append(("EMPTY", key, ""))
+    return problems
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``python -m config.production_gates < /opt/karma/.env``：TSV 报告 + 退出码。
+
+    每行 ``TAG<TAB>KEY<TAB>EXPECTED``，最后一行 ``SUMMARY<TAB>flags=N placeholders=N
+    problems=N``；有问题退出 1。``karma env-gates`` 就是拿这份 TSV 渲染给人看的。
+    """
+    import sys
+
+    problems = audit_env(sys.stdin.read())
+    for tag, key, want in problems:
+        print("%s\t%s\t%s" % (tag, key, want))
+    print("SUMMARY\tflags=%d placeholders=%d problems=%d"
+          % (len(PRODUCTION_GATE_FLAGS), len(PRODUCTION_GATE_PLACEHOLDERS), len(problems)))
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -115,6 +115,7 @@ ${B}Observe${N}
   karma tail [svc]          follow container logs
   karma site                nginx config test + TLS cert expiry
   karma env-keys            list .env variable names (values masked)
+  karma env-gates           check .env against the production gate manifest
   karma code                git branch / HEAD / dirty file count / recent commits
 
 ${B}Operate${N}
@@ -225,6 +226,42 @@ cmd_env_keys() {
   need_env
   hdr "Environment variables (values masked)"
   sed -E 's/=.*/=***/' "$ENV_FILE" | grep -v '^$' | sed 's/^/  /'
+}
+
+cmd_env_gates() {
+  # 拿生产 .env 对 config/production_gates.py 的清单。值从不回显：.env 只被喂进
+  # app 容器，容器里只回 TAG/KEY/EXPECTED 三列，渲染在宿主机做。
+  need_repo; need_env
+  hdr "Production gates ($ENV_FILE vs config/production_gates.py)"
+  if ! docker ps --format '{{.Names}}' | grep -qx karma-api; then
+    err "  karma-api is not running; the manifest check needs its python"
+    return 1
+  fi
+  local out
+  if ! out="$(docker exec -i karma-api python -m config.production_gates < "$ENV_FILE" 2>&1)"; then
+    if ! printf '%s\n' "$out" | grep -q '^SUMMARY'; then
+      err "  could not run the check inside karma-api:"
+      printf '%s\n' "$out" | sed 's/^/  /'
+      return 1
+    fi
+  fi
+  local problems=0 summary='' tag key extra
+  while IFS="$(printf '\t')" read -r tag key extra; do
+    case "$tag" in
+      MISSING) err "  missing key: $key (production requires $extra)"; problems=$((problems + 1)) ;;
+      DIFF)    err "  wrong value: $key (production requires $extra)"; problems=$((problems + 1)) ;;
+      EMPTY)   err "  must be present and non-empty: $key"; problems=$((problems + 1)) ;;
+      SUMMARY) summary="$key${extra:+ $extra}" ;;
+      "")      ;;
+      *)       warn "  $tag $key $extra" ;;
+    esac
+  done <<< "$out"
+  if [ "$problems" -eq 0 ]; then
+    ok "  .env matches the manifest ($summary)"
+    return 0
+  fi
+  err "  $problems mismatch(es): Settings() will refuse to start until fixed"
+  return 1
 }
 
 cmd_code() {
@@ -452,6 +489,7 @@ case "${1:-help}" in
   tail)     shift; cmd_tail "$@" ;;
   site)     cmd_site ;;
   env-keys) cmd_env_keys ;;
+  env-gates) cmd_env_gates ;;
   code)     cmd_code ;;
   restart)  shift; cmd_restart "$@" ;;
   up)       cmd_up ;;

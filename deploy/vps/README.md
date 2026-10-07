@@ -74,3 +74,20 @@ Telegram webhook 强制 HTTPS，需要一个域名解析到服务器（Caddy 自
 - 自动安全更新
 - `.env` 权限 600，机密永不入库
 - 部署验证后：SSH 禁密码登录、禁 root 登录
+
+## 生产闸门自检（karma env-gates）
+
+生产必填项的唯一来源是仓库里的 `config/production_gates.py`（`config/settings.py`
+在 `APP_ENV=production` 下会拒绝的每一条都登记在那里）。用同一份清单核对服务器上
+真正生效的 `.env`：
+
+```bash
+karma env-gates
+```
+
+- 缺键 / 取值不对 / 占位项（密钥、actor 白名单）为空，都会逐条列出来并返回非 0；
+- 值**从不回显**：`.env` 只被喂进 app 容器，容器里只回 `TAG / KEY / EXPECTED` 三列；
+- 想直接用：`docker exec -i karma-api python -m config.production_gates < /opt/karma/.env`；
+- 仓库侧还有一张 CI 门禁 `tests/unit/test_production_gate_manifest_parity.py`：
+  新增闸门要是漏了清单、脚本或 `.env` 模板，CI 直接红。
+

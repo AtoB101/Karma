@@ -18,6 +18,7 @@ CI 的 "Full-chain audit gate" 和线上部署（alembic 导入 settings）同�
 from __future__ import annotations
 
 import functools
+import io
 import pathlib
 import re
 
@@ -29,6 +30,8 @@ from config.production_gates import (
     PRODUCTION_GATE_PLACEHOLDERS,
     PRODUCTION_GATE_SCRIPTS,
     PRODUCTION_GATE_TEMPLATES,
+    audit_env,
+    parse_env,
 )
 from config.settings import Settings
 
@@ -157,3 +160,81 @@ def test_gate_scripts_use_the_manifest(rel_path):
         assert literal.lower() in Settings.model_fields, (
             "%s 里出现了 settings 不认识的键 %s" % (rel_path, literal)
         )
+
+# ---------------------------------------------------------------------------
+# 运维侧自查（karma env-gates 用的就是这几个函数）
+# ---------------------------------------------------------------------------
+
+
+def test_parse_env_reads_the_shapes_our_env_files_use():
+    text = (
+        "# comment\n"
+        "export A=\"x y\"\n"
+        "B='z z'\n"
+        "C=\n"
+        "D=value   # inline comment\n"
+        "E=0xabc#notacomment\n"
+        "\n"
+        "not a key value pair\n"
+    )
+    assert parse_env(text) == {
+        "A": "x y",
+        "B": "z z",
+        "C": "",
+        "D": "value",
+        "E": "0xabc#notacomment",
+    }
+
+
+def test_audit_env_accepts_the_manifest_and_flags_every_kind_of_problem():
+    good = "".join("%s=%s\n" % item for item in MANIFEST.items())
+    assert audit_env(good) == []
+
+    text = good.replace("VERIFIER_REQUIRE_NODE_SIGNATURE=true", "VERIFIER_REQUIRE_NODE_SIGNATURE=false")
+    text = text.replace("MINIO_SECRET_KEY=%s\n" % MANIFEST["MINIO_SECRET_KEY"], "")
+    text += "CHAIN_ALLOW_HOT_WALLET_PAYER=maybe\n"
+    tags = {item[0]: item[1] for item in audit_env(text)}
+    assert tags["DIFF"] in ("VERIFIER_REQUIRE_NODE_SIGNATURE", "CHAIN_ALLOW_HOT_WALLET_PAYER")
+    assert "MINIO_SECRET_KEY" in set(item[1] for item in audit_env(text))
+
+
+def test_audit_env_treats_allowed_enum_values_as_ok():
+    text = "".join("%s=%s\n" % item for item in MANIFEST.items())
+    text = text.replace("X402_PAYMENT_BACKEND=sepolia", "X402_PAYMENT_BACKEND=env")
+    text = text.replace("KARMA_SIGNING_BACKEND=client_only", "KARMA_SIGNING_BACKEND=external")
+    assert audit_env(text) == []
+
+
+def test_audit_env_never_echoes_values():
+    text = "".join("%s=%s\n" % item for item in MANIFEST.items())
+    text = text.replace("VERIFIER_REQUIRE_NODE_SIGNATURE=true", "VERIFIER_REQUIRE_NODE_SIGNATURE=super-secret-value")
+    report = repr(audit_env(text))
+    assert "super-secret-value" not in report
+
+
+def test_module_main_reports_tsv_and_exit_code(monkeypatch, capsys):
+    import config.production_gates as manifest
+
+    # 整份好清单只改一个闸门：应当只有一条 DIFF，并且退出码 1。
+    text = "".join("%s=%s\n" % item for item in MANIFEST.items())
+    text = text.replace("VERIFIER_REQUIRE_NODE_SIGNATURE=true", "VERIFIER_REQUIRE_NODE_SIGNATURE=false")
+    monkeypatch.setattr("sys.stdin", io.StringIO(text))
+    assert manifest.main([]) == 1
+    printed = capsys.readouterr().out.splitlines()
+    assert printed == [
+        "DIFF\tVERIFIER_REQUIRE_NODE_SIGNATURE\ttrue",
+        "SUMMARY\tflags=%d placeholders=%d problems=1" % (len(PRODUCTION_GATE_FLAGS), len(PRODUCTION_GATE_PLACEHOLDERS)),
+    ]
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("".join("%s=%s\n" % i for i in MANIFEST.items())))
+    assert manifest.main([]) == 0
+
+
+def test_ops_cli_reuses_the_manifest():
+    # 运维侧必须以同一份清单为准，不能自己抄一份（否则清单变了两边会脱节）。
+    text = (ROOT / "deploy/karma").read_text(encoding="utf-8")
+    assert "python -m config.production_gates" in text
+    assert re.search(r"^\s*cmd_env_gates\(\)", text, re.M)
+    assert re.search(r"^\s*env-gates\)\s+cmd_env_gates", text, re.M)
+    assert "env-gates" in text.split("${B}Observe${N}")[1].split("${B}Operate${N}")[0]
+
