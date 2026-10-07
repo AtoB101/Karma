@@ -68,6 +68,8 @@ class _Recorder(BaseHTTPRequestHandler):
     requests: list = []
     status = 200
 
+    body = b""
+
     def do_PUT(self):  # noqa: N802 - http.server 约定
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length)
@@ -78,6 +80,16 @@ class _Recorder(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def do_GET(self):  # noqa: N802 - http.server 约定
+        type(self).requests.append(
+            {"path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()}, "body": b""}
+        )
+        payload = type(self).body
+        self.send_response(type(self).status)
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def log_message(self, *args):  # 静音测试输出
         pass
 
@@ -86,6 +98,7 @@ class _Recorder(BaseHTTPRequestHandler):
 def fake_s3():
     _Recorder.requests = []
     _Recorder.status = 200
+    _Recorder.body = b""
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Recorder)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -146,6 +159,29 @@ def test_put_object_uses_template_endpoint_path_prefix(fake_s3, tmp_path):
     assert _Recorder.requests[0]["path"] == "/s3-gateway/b/k.txt"
 
 
+def test_build_target_virtual_hosted_puts_bucket_in_host():
+    url, path, host = s3_put.build_target(
+        "https://oss-cn-hongkong.aliyuncs.com",
+        "karma-backups",
+        "karma/testnet/20261001/manifest.txt",
+        style="virtual-hosted",
+    )
+    assert url == "https://karma-backups.oss-cn-hongkong.aliyuncs.com/karma/testnet/20261001/manifest.txt"
+    assert path == "/karma/testnet/20261001/manifest.txt"
+    assert host == "karma-backups.oss-cn-hongkong.aliyuncs.com"
+
+
+def test_build_target_path_style_keeps_bucket_in_path():
+    url, path, host = s3_put.build_target(
+        "https://oss-cn-hongkong.aliyuncs.com",
+        "karma-backups",
+        "karma/testnet/20261001/manifest.txt",
+    )
+    assert url == "https://oss-cn-hongkong.aliyuncs.com/karma-backups/karma/testnet/20261001/manifest.txt"
+    assert path == "/karma-backups/karma/testnet/20261001/manifest.txt"
+    assert host == "oss-cn-hongkong.aliyuncs.com"
+
+
 def test_put_object_returns_3_on_http_error(fake_s3, tmp_path):
     _Recorder.status = 403
     src = _write(tmp_path, "x.bin", b"x")
@@ -187,3 +223,48 @@ def test_dry_run_signs_but_does_not_send(fake_s3, tmp_path, capsys):
 def test_default_endpoint_without_scheme_is_https():
     parsed = urllib.parse.urlsplit("https://minio.example.com:9000")
     assert parsed.scheme == "https"
+
+
+def test_get_object_downloads_signed_get(fake_s3, tmp_path):
+    _Recorder.body = b"create table x(id int);\n"
+    out = tmp_path / "down.sql.gz"
+
+    rc = s3_put.get_object(
+        endpoint=fake_s3,
+        bucket="karma-backups",
+        key="karma/testnet/20261002/karma-db.sql.gz",
+        out_path=str(out),
+        access_key=AWS_ACCESS_KEY,
+        secret_key=AWS_SECRET_KEY,
+        quiet=True,
+    )
+
+    assert rc == 0
+    assert out.read_bytes() == b"create table x(id int);\n"
+    assert len(_Recorder.requests) == 1
+    recorded = _Recorder.requests[0]
+    assert recorded["path"] == "/karma-backups/karma/testnet/20261002/karma-db.sql.gz"
+    auth = recorded["headers"]["authorization"]
+    assert auth.startswith("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/")
+    assert recorded["headers"]["x-amz-content-sha256"] == s3_put.EMPTY_SHA256
+
+
+def test_get_object_returns_3_on_http_error(fake_s3, tmp_path):
+    _Recorder.status = 403
+    out = tmp_path / "down.bin"
+
+    rc = s3_put.get_object(
+        endpoint=fake_s3, bucket="b", key="k", out_path=str(out),
+        access_key=AWS_ACCESS_KEY, secret_key=AWS_SECRET_KEY, quiet=True,
+    )
+
+    assert rc == 3
+    assert not out.exists()
+
+
+def test_main_get_requires_out():
+    rc = s3_put.main([
+        "--get", "--endpoint", "http://127.0.0.1:9", "--bucket", "b", "--key", "k",
+        "--access-key", "a", "--secret-key", "s",
+    ])
+    assert rc == 2

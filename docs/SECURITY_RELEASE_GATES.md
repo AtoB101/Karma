@@ -64,7 +64,7 @@ This checklist is blocking for broad public test rollout.
 | 已消项 | `E1`/`E2`：回归与公开验收以前一律待签（「去看那个 commit 的 Actions run」）。仓库是公开的，Actions 运行列表**不需要 token** 就能读，所以发布机上直判：HEAD 那个 sha 的所有 run 必须 completed + 成功；还在跑记 `HUMAN`（CI 没跑完既不算过也不算挂），concluded 但不成功才记 `FAIL`；探不到（没 git/python、GitHub 不可达、被限流）一律 `HUMAN` |
 | 已消项 | `B8`（新增）：安全事件**落盘**了 —— 以前只在进程内存里，每次发布都把 15 分钟检测窗口清零。生产实测：重建容器**前后**报表都是 `failed_auth=8`（修之前重建后必定是 0）。机器判据是 `B8`：造一个会被记录的事件，再从发布环境里那份 journal 的最后一行读回来 |
 | 已消项 | `B3`/`G5` 的投递证据能在常规轮询里**存活**（2026-10-02 生产实测：自检写完 `last_selftest_ok_ts` 后紧接跑一次常规轮询，该值仍在（旧版会变 `never`）；随后打尖峰 → 下一轮 `*/5` 投出 3 条 `rate_limit_spike`，`last_alert_ok_ts` 与之同时在场） |
-| 待签 | `F5`–`F6` 离站副本未配 —— 只缺一个「离站落点」（另一台机器或对象存储，见 Gate F） |
+| 已消项 | `F5`–`F6` 离站副本已配（阿里云 OSS 香港，virtual-hosted 上传）并**从离站副本真恢复过一次**：`--offsite` 推 3 个对象，`--restore-offsite` 拉回进一次性 postgres，57 张表行数全一致 |
 | 待签 | `A4d`（白名单里的身份号确有其人）、`E4b`（回滚/值班手册人确认）、`E6b`（基线漂移策略评审） |
 | 待签 | `H2` / `H3` / `H9`–`H12`：测试钱包、按笔锚定、私仓版本锁、OpenClaw/OpenManus/上链 smoke |
 
@@ -278,26 +278,20 @@ list**（`_EVENTS`），`build_security_ops_alert_report` 只从那个 list 取�
   变色的闸门很快会被当成噪声忽略掉，和假绿灯一样糟。现在的判据：从新到旧找第一份真的
   跑过演练的（`skipped` / `pending` 不算跑过），判它成没成、离现在多久；演练一停，
   26h 后转红。离站（F5）同理。
-- `[人工]` 离站副本在异地/异账号，并且从它恢复过一次 — 待签
+- `[已消]` 离站副本在异地/异账号，并且从它恢复过一次 —— 2026-10-02 用阿里云 OSS 香港（`karma-backups` 桶，virtual-hosted）实测：`--offsite` 上传 3 个对象，`--restore-offsite` 从 OSS 拉回并恢复进一次性 postgres，57 张表行数全一致
 
 两条要记住的：
 
 - `--verify` 是**恢复演练**，不是「文件在不在」。它比的是行数，不是文件大小。
-- `F5` 现在打印 `HUMAN`：`KARMA_BACKUP_OFFSITE` 还没配 —— `.env` 里只有
-  `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`，**没有端点**，所以离站推不出去。配上端点
-  （或 rsync 目标）之后，每天 03:17 那轮会自动推离站，F5 才会变成机器可判的 PASS。
+- `F5` 现在是机器判的 PASS：`KARMA_BACKUP_OFFSITE=s3` 已写进 `/opt/karma/.env.ops`，
+  端点/桶/AK/SK 配齐，`--offsite` 实测推离站成功（`offsite_status=ok`）。`F6` 同样
+  机器判：`--restore-offsite` 从 OSS 拉回并恢复，`offsite_restore_status=ok`。
 
-**这一条要人给的东西只有一样：一个离站的落点。** 现在快照只落在
-`/opt/karma/backups`，和 PostgreSQL 同在一块盘（`/dev/vda3`）上 —— 盘坏了或机器丢了，
-数据库和备份一起没。落点二选一：
-
-1. **另一台机器** —— 给 `user@host:/srv/karma-backups`，外加一把能登录的 SSH key
-   （走 `rsync` / `scp`）；
-2. **任意 S3 兼容对象存储** —— 给 endpoint + 桶名，再加一对 access key
-   （阿里云 OSS / MinIO / AWS 都可以）。
-
-给到之后：`KARMA_BACKUP_OFFSITE=s3|rsync|scp` 写进 `/opt/karma/.env.ops`，每天 03:17
-那轮自动推，第二天闸门 F5 就是机器判的 PASS 了。
+**离站落点已经给到并接通（2026-10-02）。** 用的是阿里云 OSS 香港：
+endpoint `https://oss-cn-hongkong.aliyuncs.com`，桶 `karma-backups`，
+`KARMA_BACKUP_S3_STYLE=virtual-hosted`（OSS 对二级域名桶强制 virtual-hosted）。
+`KARMA_BACKUP_OFFSITE=s3` 已写进 `/opt/karma/.env.ops`；`--offsite` 与
+`--restore-offsite` 都已实测跑通，闸门 `F5`/`F6` 转成机器判的 PASS。
 
 ---
 
