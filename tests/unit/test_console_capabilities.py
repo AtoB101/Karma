@@ -67,6 +67,8 @@ async def test_capabilities_admin_sees_arbitration_and_verifier_network(
     assert body["can_view_verifier_network"] is True
     # 但「治理发放方」是另一个岗，管理员不隐含它。
     assert body["is_governance_verifier"] is False
+    # 复核台跟的是 verifier 类档案，不跟管理员白名单：没档案就是 False。
+    assert body["can_open_review_queue"] is False
 
 
 @pytest.mark.asyncio
@@ -86,6 +88,7 @@ async def test_capabilities_arbitrator_does_not_get_admin_or_verifier_network(
     assert body["can_operate_arbitration"] is True
     assert body["is_admin"] is False
     assert body["can_view_verifier_network"] is False
+    assert body["can_open_review_queue"] is False
 
 
 @pytest.mark.asyncio
@@ -103,6 +106,8 @@ async def test_capabilities_governance_verifier_sees_verifier_network(
     assert body["is_governance_verifier"] is True
     assert body["can_view_verifier_network"] is True
     assert body["can_operate_arbitration"] is False
+    # 治理发放方也不等于复核档案：复核台看的是 verifier 类档案。
+    assert body["can_open_review_queue"] is False
 
 
 @pytest.mark.asyncio
@@ -128,6 +133,7 @@ async def test_capabilities_plain_identity_gets_nothing_but_is_still_200(
         "can_operate_arbitration",
         "is_governance_verifier",
         "can_view_verifier_network",
+        "can_open_review_queue",
     ):
         assert body[flag] is False, flag
 
@@ -149,3 +155,41 @@ async def test_capabilities_flags_match_actor_guards_allowlists(client, restore_
     # 真接口：管理员能读仲裁运维报表（require_admin_actor）。
     report = await client.get("/v1/arbitration/cases/ops/report", headers=_keys("caps-drift"))
     assert report.status_code == 200, report.text
+
+
+
+@pytest.mark.asyncio
+async def test_capabilities_review_queue_follows_the_verifier_profile(
+    client, db_session, restore_allowlists
+):
+    """复核台入口跟的是 verifier 类档案，不是白名单 —— 口径与 _require_verifier 一致。
+
+    白名单里的人也得先有档案；反之只要档案在任，入口就得画。
+    这里连真接口一起钉：画了按钮就必须真的能进去。
+    """
+    from db.models.orm import IdentityRoleProfile
+
+    settings.auth_api_keys = "caps-rev:supersecret123456"
+    settings.admin_actor_ids = ""
+    settings.arbitrator_actor_ids = ""
+    settings.governance_verifier_ids = ""
+
+    caps = (await client.get("/v1/console/capabilities", headers=_keys("caps-rev"))).json()
+    assert caps["can_open_review_queue"] is False
+
+    db_session.add(
+        IdentityRoleProfile(
+            profile_id="irp_caps_rev",
+            owner_identity_id="caps-rev",
+            class_="verifier",
+            status="active",
+            stake_amount=0.0,
+        )
+    )
+    await db_session.commit()
+
+    caps = (await client.get("/v1/console/capabilities", headers=_keys("caps-rev"))).json()
+    assert caps["can_open_review_queue"] is True
+
+    resp = await client.get("/v1/reviews/pending", headers=_keys("caps-rev"))
+    assert resp.status_code == 200, resp.text

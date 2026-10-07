@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.settings import settings
 from db.session import get_db
 from decentralized_verifier.models import Attestation as AttestationModel
 from decentralized_verifier.models import Challenge as ChallengeModel
@@ -29,14 +30,52 @@ from decentralized_verifier.schemas import (
     ChallengeResolveRequest,
     ChallengeResponse,
     NetworkStatsResponse,
+    NodeSignMessageRequest,
+    NodeSignMessageResponse,
     VerifierListResponse,
     VerifierNodeResponse,
     VerifierRegisterRequest,
     VerifierStakeUpdateRequest,
 )
+from services import verifier_wallet
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
+
+
+def _enforce_node_signature(
+    *,
+    message: str,
+    wallet_address: str | None,
+    signature: str | None,
+    nonce: str | None,
+    endpoint: str,
+) -> None:
+    """写接口的签名闸门（开关默认关；生产强制打开，见 config/settings.py）。"""
+    verifier_wallet.enforce_node_signature(
+        enabled=settings.verifier_require_node_signature,
+        message=message,
+        wallet_address=wallet_address or "",
+        signature=signature,
+        nonce=nonce,
+        endpoint=endpoint,
+    )
+
+
+@router.post("/sign-message", response_model=NodeSignMessageResponse)
+async def node_sign_message(body: NodeSignMessageRequest):
+    """按动作回一段**待签文字**（节点自有 key 的签名校验用）。
+
+    格式只在 services/verifier_wallet.py 里定义一份：操作台和节点程序都不自己拼
+    消息，免得两边格式漂了、签名永远验不过。回的文字不含任何秘密 —— 它就是调用方
+    递进来的那几个字段。
+    """
+    payload = dict(body.payload or {})
+    return NodeSignMessageResponse(
+        kind=body.kind,
+        message=verifier_wallet.build_message(body.kind, payload),
+        nonce=str(payload.get("signature_nonce") or ""),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -50,6 +89,18 @@ async def register_verifier(
     db: AsyncSession = Depends(get_db),
 ):
     """Register a new verifier node in the network."""
+    _enforce_node_signature(
+        message=verifier_wallet.build_node_register_message(
+            wallet_address=body.wallet_address,
+            stake_amount=body.stake_amount,
+            endpoint_url=body.endpoint_url,
+            nonce=body.signature_nonce,
+        ),
+        wallet_address=body.wallet_address,
+        signature=body.signature,
+        nonce=body.signature_nonce,
+        endpoint="verifiers/register",
+    )
     # Check for duplicate wallet
     existing = await db.execute(
         select(VerifierNodeModel).where(
@@ -132,6 +183,19 @@ async def update_verifier_stake(
     if not node:
         raise HTTPException(404, f"Verifier not found: {verifier_id}")
 
+    _enforce_node_signature(
+        message=verifier_wallet.build_node_stake_message(
+            verifier_id=verifier_id,
+            wallet_address=node.wallet_address,
+            stake_amount=body.stake_amount,
+            nonce=body.signature_nonce,
+        ),
+        wallet_address=node.wallet_address,
+        signature=body.signature,
+        nonce=body.signature_nonce,
+        endpoint="verifiers/stake",
+    )
+
     node.stake_amount = body.stake_amount
     await db.commit()
     await db.refresh(node)
@@ -162,6 +226,24 @@ async def submit_attestation(
         raise HTTPException(404, f"Verifier not found: {body.verifier_id}")
     if not verifier.is_active:
         raise HTTPException(400, f"Verifier is not active: {body.verifier_id}")
+
+    _enforce_node_signature(
+        message=verifier_wallet.build_node_attestation_message(
+            verifier_id=body.verifier_id,
+            wallet_address=verifier.wallet_address,
+            task_id=body.task_id,
+            decision=body.decision,
+            bundle_id=body.bundle_id,
+            bundle_cid=body.bundle_cid,
+            checks_passed=body.checks_passed,
+            checks_total=body.checks_total,
+            nonce=body.signature_nonce,
+        ),
+        wallet_address=verifier.wallet_address,
+        signature=body.signature,
+        nonce=body.signature_nonce,
+        endpoint="verifiers/attestations",
+    )
 
     attestation = AttestationModel(
         task_id=body.task_id,
@@ -245,6 +327,20 @@ async def open_challenge(
     db: AsyncSession = Depends(get_db),
 ):
     """Open a new challenge against a task / evidence bundle."""
+    _enforce_node_signature(
+        message=verifier_wallet.build_node_challenge_message(
+            wallet_address=body.wallet_address,
+            task_id=body.task_id,
+            bundle_id=body.bundle_id,
+            reason=body.reason,
+            quorum_size=body.quorum_size,
+            nonce=body.signature_nonce,
+        ),
+        wallet_address=body.wallet_address,
+        signature=body.signature,
+        nonce=body.signature_nonce,
+        endpoint="verifiers/challenges",
+    )
     now = datetime.utcnow()
     window_end = now + timedelta(minutes=30)
 
@@ -301,6 +397,20 @@ async def resolve_challenge(
         raise HTTPException(404, f"Challenge not found: {challenge_id}")
     if challenge.status not in ("OPEN", "ACTIVE"):
         raise HTTPException(400, f"Challenge is not open: {challenge.status}")
+
+    _enforce_node_signature(
+        message=verifier_wallet.build_node_challenge_resolve_message(
+            wallet_address=body.wallet_address,
+            challenge_id=challenge_id,
+            status=body.status,
+            resolution=body.resolution,
+            nonce=body.signature_nonce,
+        ),
+        wallet_address=body.wallet_address,
+        signature=body.signature,
+        nonce=body.signature_nonce,
+        endpoint="verifiers/challenges/resolve",
+    )
 
     challenge.status = body.status
     challenge.resolution = body.resolution

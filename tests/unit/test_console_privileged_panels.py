@@ -1,4 +1,4 @@
-"""操作台的两个特权工作面：仲裁台（arbitration）与验证者网络（verifiers）。
+"""操作台的三个特权工作面：仲裁台（arbitration）、验证者网络（verifiers）与复核台（reviews）。
 
 它们只对白名单里的人开放，所以前端要做对三件事：
 
@@ -38,6 +38,13 @@ PANELS = {
         "js": "cyber-verifier-network.js",
         "cap": "can_view_verifier_network",
         "subs": ("nodes", "stats"),
+    },
+    # 复核台跟的不是白名单，而是「名下有一个 active 的 verifier 类档案」，
+    # 但对前端来说它与另两个特权工作面同规矩：入口按能力位画、不打真接口试 403。
+    "reviews": {
+        "js": "cyber-reviews.js",
+        "cap": "can_open_review_queue",
+        "subs": ("all", "identity", "entity", "developer", "kyc"),
     },
 }
 

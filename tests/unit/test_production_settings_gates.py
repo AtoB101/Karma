@@ -32,6 +32,7 @@ def _prod_kwargs(**overrides):
         x402_allow_private_hosts=False,
         arbitrator_actor_ids="arb-1",
         chain_allow_hot_wallet_payer=False,
+        verifier_require_node_signature=True,
     )
     base.update(overrides)
     return base
@@ -61,6 +62,8 @@ def test_production_accepts_full_gates():
         ("arbitration_stake_coverage_multiple", 0.5),
         # 没有真实锁仓背书的「质押」不算抵押
         ("arbitration_require_backed_stake", False),
+        # 没有节点 key 签名的写接口 = 谁登录谁能替别人登记节点 / 改质押 / 出证
+        ("verifier_require_node_signature", False),
     ],
 )
 def test_production_rejects_disabled_gate(field, value):

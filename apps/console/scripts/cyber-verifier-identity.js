@@ -19,6 +19,8 @@
 
   var POLICY_PATH = "/v1/console/economy-policy";
   var NODE_PATH = "/v1/verifiers";
+  // 待签文字的唯一定义在服务端（services/verifier_wallet.py）：页面不自己拼消息。
+  var NODE_SIGN_PATH = NODE_PATH + "/sign-message";
 
   var state = { policy: null, mine: null, wallet: "" };
 
@@ -89,6 +91,47 @@
       if (bound && bound.value) return String(bound.value).trim();
     } catch (_) {}
     return "";
+  }
+
+  function walletProvider() {
+    var auth = window.KarmaWalletAuth;
+    if (auth && typeof auth.activeProvider === "function") {
+      var provider = auth.activeProvider();
+      if (provider && typeof provider.request === "function") return provider;
+    }
+    if (window.ethereum && typeof window.ethereum.request === "function") return window.ethereum;
+    return null;
+  }
+
+  function nodeNonce() {
+    return "node-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 10);
+  }
+
+  function showSignMessage(message) {
+    var box = byId("vi-sign-msg");
+    if (!box) return;
+    box.hidden = !message;
+    box.textContent = message || "";
+  }
+
+  /**
+   * 节点自有 key 的签名：节点钱包对「待签文字」签一段 EIP-191 personal message。
+   *
+   * 只有**当前连接的钱包 == 节点钱包**时页面才能代签（私钥在钱包里，页面碰不到）；
+   * 不相等就把文字摊出来，由节点程序/节点钱包自己签好再贴回来 —— 页面不代签、
+   * 不代持私钥。
+   */
+  async function signWithConnectedWallet(message, nodeWallet) {
+    var provider = walletProvider();
+    if (!provider) return "";
+    try {
+      var accounts = await provider.request({ method: "eth_requestAccounts" });
+      var wallet = (accounts && accounts[0]) || "";
+      if (!wallet || wallet.toLowerCase() !== String(nodeWallet || "").toLowerCase()) return "";
+      return await provider.request({ method: "personal_sign", params: [message, wallet] });
+    } catch (_) {
+      return "";
+    }
   }
 
   // ---- 收益口径 -------------------------------------------------------------
@@ -196,10 +239,33 @@
     var wallet = currentWallet();
     var stake = byId("vi-stake") ? String(byId("vi-stake").value || "").trim() : "";
     var endpoint = byId("vi-endpoint") ? String(byId("vi-endpoint").value || "").trim() : "";
+    var pasted = byId("vi-signature") ? String(byId("vi-signature").value || "").trim() : "";
     if (!wallet) { say(st, T("请填节点钱包地址。"), false); return; }
     if (!stake || Number(stake) <= 0) { say(st, T("请填质押额（要大于 0）。"), false); return; }
-    say(st, T("提交中…"), null);
+    var nonce = nodeNonce();
+    var payload = {
+      wallet_address: wallet,
+      stake_amount: Number(stake),
+      endpoint_url: endpoint || null,
+      signature_nonce: nonce,
+    };
+    say(st, T("读取待签文字…"), null);
     try {
+      // 待签文字由服务端唯一生成：页面不自己拼消息，两边格式不会漂。
+      var canonical = await api().karmaFetch(NODE_SIGN_PATH, {
+        method: "POST",
+        headers: api().headers(),
+        body: JSON.stringify({ kind: "register", payload: payload }),
+      });
+      var message = (canonical && canonical.message) || "";
+      var signature = pasted;
+      if (!signature && message) signature = await signWithConnectedWallet(message, wallet);
+      if (!signature) {
+        showSignMessage(message);
+        say(st, T("请用节点钱包对下面这段文字签名，再把签名贴进「节点签名」。"), false);
+        return;
+      }
+      say(st, T("提交中…"), null);
       await api().karmaFetch(NODE_PATH + "/register", {
         method: "POST",
         headers: api().headers(),
@@ -207,13 +273,20 @@
           wallet_address: wallet,
           stake_amount: Number(stake),
           endpoint_url: endpoint || null,
+          signature: signature,
+          signature_nonce: nonce,
         }),
       });
+      showSignMessage("");
       say(st, T("登记成功：节点已经进入网络。"), true);
       await load();
     } catch (e) {
       if (e && e.status === 409) say(st, T("这个钱包已经登记过节点了。"), false);
-      else say(st, Tf("登记失败：{0}", (e && e.message) || e), false);
+      else if (e && e.status === 401) {
+        say(st, T("节点签名没通过：请用节点钱包对页面给出的待签文字签名。"), false);
+      } else if (e && e.status === 403) {
+        say(st, T("节点签名对不上这个节点钱包，换用节点钱包再签一次。"), false);
+      } else say(st, Tf("登记失败：{0}", (e && e.message) || e), false);
     }
   }
 

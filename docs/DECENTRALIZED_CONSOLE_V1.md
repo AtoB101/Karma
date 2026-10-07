@@ -305,6 +305,65 @@ _<domain>  TXT  "dnslink=/ipfs/<cid>"
   代价：如果你的威胁模型是「连服务器也不信」，那把 TOTP 密钥放本机（Passkey /
   WebAuthn）才是下一层；这一层先把「钥匙被偷了也花不动钱」兑现。
 
+### L3-4 · 操作台的三处收口（已落地 2026-10-08）
+
+这一轮只做三件事，都是「把口子对准」而不是加功能。
+
+**1）复核台改成按治理岗显隐。** 复核队列的权威判据一直是
+`api/routes/reviews.py` 的 `_require_verifier`（名下要有一个 active 的
+`class=verifier` 档案，再过一道在任判定），但前端入口一直是对所有人可见的。
+现在多了一个能力位 `can_open_review_queue`（`GET /v1/console/capabilities`），
+判定与 `_require_verifier` 逐字对齐，侧栏「复核台」跟着它显隐：
+
+- 不在名单里 → 前端安静地拿到 `false`，不画入口，**不会**去打一次注定 403 的请求
+  （那会让每个普通用户每开一次操作台就往安全告警的 `privileged_action` 基线里塞一条）；
+- 判定权威仍在后端：前端画错只是多一个点了会 403 的按钮，不是多一道能进的门。
+
+**2）`/v1/verifiers` 的写接口补上「节点自有 key 的签名校验」。** 登记节点 / 改质押 /
+出证 / 开挑战 / 裁决挑战以前只要求「有一个已登录的会话」，请求体里的 `wallet_address`
+只是一串自报地址 —— 谁登录谁就能替别人的节点动手。现在：
+
+- 签名是 EIP-191 personal message，恢复出来的地址必须等于这条请求指向的节点钱包；
+- 签名文字**只有服务端一处定义**（`services/verifier_wallet.py`）：操作台和节点程序都
+  不自己拼消息，而是跟 `POST /v1/verifiers/sign-message` 要一段待签文字 —— 两边各写
+  一份格式，迟早会漂；
+- 每条签名带一个 `signature_nonce`，服务端按（钱包, 端点, nonce）去重防重放；
+- 开关 `VERIFIER_REQUIRE_NODE_SIGNATURE` 默认**关**（测试网先跑通），
+  `APP_ENV=production` 时 `config/settings.py` 强制它为真 —— 关着就等于
+  「谁登录谁能替别人登记节点 / 改质押 / 出证」。
+
+待签文字的格式（一行一个字段，顺序固定，LF 换行；数字按 `%.6f` 去尾零，`500.0` 写成 `500`）：
+
+```
+Karma Verifier Node Register
+wallet_address:0x…
+stake_amount:500
+endpoint_url:https://…
+nonce:<一次性随机串>
+```
+
+动作名是 `Register` / `Stake` / `Attestation` / `Challenge` / `Challenge Resolve`，
+对应字段以 `build_message()` 为准。操作台里：只有**当前连接的钱包 == 节点钱包**
+时才用 `personal_sign` 代签（私钥在钱包里，页面碰不到）；否则把待签文字摊在
+`<pre id="vi-sign-msg">` 里（`PRE` 在 i18n 里本来就不翻，机器可读的原文不会被译掉），
+由节点程序或节点钱包签好再把签名贴回来。
+
+**3）侧栏功能区跟着「选择的身份」走。** 以前只有「主身份 / 其它」两档，
+现在每个身份一张功能区白名单（`cyber-console.js` 的 `ROLE_NAV_GROUPS`：
+
+`master` / `individual` / `merchant` / `enterprise` / `verifier` / `arbitrator`）。
+两条不能破的线：
+
+- **「验证者身份」「仲裁者身份」两个自助申请入口任何身份都留着** —— 把入口收掉，
+  还没开通的人就永远开不了岗；
+- 仲裁台 / 验证者网络 / 复核台三个**运维工作面**不进这张白名单，它们只走能力位的
+  `[hidden]`，谁在名单里谁才看得到。
+
+门禁：`tests/unit/test_console_identity_nav_scope.py`（每个分组至少有一个身份看得到、
+申请入口不许藏、特权工作面只归它自己的岗）、
+`tests/unit/test_console_privileged_panels.py`（三个特权工作面同规则）、
+`tests/test_verifier_network/test_node_signature.py`（签名格式 / 401 / 403 / 409 / 生产强制）。
+
 ### L4 · 只读节点
 
 把读接口做成无状态的、再加一个链上事件索引器，任何人 `docker compose up` 起一台

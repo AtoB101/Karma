@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     verifier_quorum_total: int = 5
     # 出证被判错：不付奖励，并罚没质押（链上 VerifierRegistry.slash）。
     verifier_slash_on_false_attestation: bool = True
+    # 节点自有 key 的签名校验：打开后 /v1/verifiers 的写接口（登记 / 改质押 / 出证 /
+    # 开挑战 / 裁决挑战）必须带节点钱包签出来的 signature + signature_nonce ——
+    # 光有一个登录会话不够（见 services/verifier_wallet.py）。
+    # 默认关（测试网先跑通），生产强制打开。
+    verifier_require_node_signature: bool = False
     # 仲裁：立案费 = 案值 × bps，夹在 [min, max] 之间，由**败诉方**承担。
     arbitration_fee_bps: float = 150.0
     arbitration_fee_min_usdc: float = 0.5
@@ -557,6 +562,12 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "ARBITRATION_REQUIRE_ACTOR_BINDING must be true when APP_ENV is production "
                     "(otherwise any logged-in identity can vote on someone else's dispute)",
+                )
+            if not self.verifier_require_node_signature:
+                raise ValueError(
+                    "VERIFIER_REQUIRE_NODE_SIGNATURE must be true when APP_ENV is production "
+                    "(otherwise any logged-in account can register a node, change its stake or "
+                    "attest on its behalf)",
                 )
             if not (self.arbitrator_actor_ids or "").strip():
                 raise ValueError(

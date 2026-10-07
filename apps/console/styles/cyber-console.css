@@ -2878,3 +2878,21 @@ body {
   color: var(--text-dim);
   font-size: 12px;
 }
+
+
+/* 验证者身份页：节点签名的「待签文字」。
+   原样展示、不翻译（PRE 在 i18n 里本来就跳过），所以这段永远是机器可读的原文。 */
+#vi-sign-msg {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-glow);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow: auto;
+}

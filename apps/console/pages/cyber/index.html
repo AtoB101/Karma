@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
     <link rel="icon" type="image/png" href="../../assets/favicon.png?v=0da2be69f6aa" />
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=ccd3d056e708" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=c121aa323780" />
   </head>
   <body>
     <div class="bg"></div>
@@ -132,7 +132,7 @@
               <button class="nav-sub" data-page="market" data-sub="usage">调用计费</button>
             </div>
           </div>
-          <div class="nav-group" data-group="reviews">
+          <div class="nav-group" data-group="reviews" hidden>
             <button class="nav-main" data-page="reviews" aria-expanded="false"><span class="icon">&#9678;</span><span data-i18n="nav.reviews">复核台</span><span class="nav-caret">&#9662;</span></button>
             <div class="nav-subs">
               <button class="nav-sub" data-page="reviews" data-sub="all">全部待办</button>
@@ -1321,8 +1321,11 @@
               <div class="field"><label>节点钱包地址</label><input id="vi-wallet" data-wallet type="text" placeholder="0x..." autocomplete="off" /></div>
               <div class="field"><label>质押额（USDC）</label><input id="vi-stake" type="text" placeholder="100" autocomplete="off" /></div>
               <div class="field"><label>回执接口</label><input id="vi-endpoint" type="text" placeholder="https://..." autocomplete="off" /></div>
+              <div class="field"><label>节点签名</label><input id="vi-signature" type="text" placeholder="0x…（用节点钱包签名后贴进来）" autocomplete="off" /></div>
               <button type="button" class="btn primary" id="vi-register">登记节点</button>
             </div>
+            <!-- 节点自有 key 的待签文字：原样展示（PRE 在 i18n 里本来就不翻），节点钱包签完把签名贴回上面那格。 -->
+            <pre id="vi-sign-msg" hidden></pre>
             <div class="rate-table" id="vi-mine"></div>
           </div>
 
@@ -1635,7 +1638,7 @@
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=2e4783ba123a"></script>
-    <script src="../../scripts/cyber-console.js?v=2e6ff1327ea8"></script>
+    <script src="../../scripts/cyber-console.js?v=a5c9708dab5e"></script>
     <script src="../../scripts/cyber-identity.js?v=0ce91cfb72fa"></script>
 <script src="../../scripts/cyber-master-page.js?v=f213b05c6871"></script>
     <script src="../../scripts/cyber-face-capture.js?v=c4d373c18c91"></script>
@@ -1667,13 +1670,13 @@
     <script src="../../scripts/cyber-cert-sole.js?v=c72a87d7c1f7"></script>
     <script src="../../scripts/cyber-entity.js?v=a66642857fb4"></script>
     <script src="../../scripts/cyber-developer.js?v=1b30aaa1ff40"></script>
-    <script src="../../scripts/cyber-reviews.js?v=4a7a44e54713"></script>
+    <script src="../../scripts/cyber-reviews.js?v=9f78d2263288"></script>
     <!-- 仲裁台：运维全景 + 派庭 / 投票 / 执行裁决（只对仲裁员 / 管理员白名单开放）。 -->
     <script src="../../scripts/cyber-arbitration.js?v=51b2c1535721"></script>
     <!-- 验证者网络：机器节点的只读看板（只对管理员 / 治理发放方白名单开放）。 -->
     <script src="../../scripts/cyber-verifier-network.js?v=35a6e121a39f"></script>
     <!-- 验证者身份 / 仲裁者身份：两个自助申请页（节点登记、入池抵押、收益口径）。 -->
-    <script src="../../scripts/cyber-verifier-identity.js?v=725942b7c211"></script>
+    <script src="../../scripts/cyber-verifier-identity.js?v=2ec93b930094"></script>
     <script src="../../scripts/cyber-arbitrator-identity.js?v=0d23f437b06d"></script>
     <script src="../../scripts/cyber-node-panel.js?v=95f1085ecf02"></script>
     <script src="../../scripts/background-globe.js?v=64512e726378"></script>

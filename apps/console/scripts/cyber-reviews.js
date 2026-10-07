@@ -64,10 +64,33 @@
     }
   }
 
+  /** 当前这个身份能不能开复核台（未知 = 不能，宁可不画）。 */
+  function permitted() {
+    try {
+      var caps = window.KarmaConsoleCaps;
+      if (caps && caps.get && caps.get().can_open_review_queue === true) return true;
+    } catch (_) {}
+    return false;
+  }
+
   /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
   function T(zh) {
     var i18n = window.CYBER_I18N;
     return i18n && i18n.T ? i18n.T(zh) : zh;
+  }
+
+  /**
+   * 带占位符的整句译文：{0}/{1} 由调用方填。
+   * 拼半句查不到译表 —— 数量、数字一变，整句就变成原文，所以一律用整句模板。
+   */
+  function Tf(zh) {
+    var i18n = window.CYBER_I18N;
+    if (i18n && i18n.Tf) return i18n.Tf.apply(i18n, arguments);
+    var out = T(zh);
+    for (var i = 1; i < arguments.length; i += 1) {
+      out = out.split("{" + (i - 1) + "}").join(arguments[i] == null ? "" : String(arguments[i]));
+    }
+    return out;
   }
 
   /**
@@ -153,7 +176,9 @@
         ? '<span class="rv-pill ok">机器已确认</span>'
         : '<span class="rv-pill err">机器判不通过</span>',
     ];
-    if (humans.length) pills.push('<span class="rv-pill warn">' + humans.length + " 项待人工</span>");
+    if (humans.length) {
+      pills.push('<span class="rv-pill warn">' + Tf("{0} 项待人工", humans.length) + "</span>");
+    }
 
     return (
       '<li class="rv-item" data-rv-item="' + attr(id) + '">' +
@@ -164,9 +189,9 @@
         "</div>" +
         '<div class="rv-sub">' + esc(trJoined(item.subtitle) || "—") + "</div>" +
         '<div class="rv-meta">' +
-          "<span>编号 <code>" + esc(id) + "</code></span>" +
-          "<span>提交 " + esc(item.submitted_at || "—") + "</span>" +
-          "<span>材料：" + esc(materialsText(item)) + "</span>" +
+          "<span>" + Tf("编号 {0}", "<code>" + esc(id) + "</code>") + "</span>" +
+          "<span>" + Tf("提交 {0}", esc(item.submitted_at || "—")) + "</span>" +
+          "<span>" + Tf("材料：{0}", esc(materialsText(item))) + "</span>" +
         "</div>" +
         '<ul class="rv-checks">' + checks.map(checkRow).join("") + "</ul>" +
         '<div class="rv-actions">' +
@@ -187,11 +212,15 @@
     var c = state.counts || {};
     if (counts) {
       counts.textContent =
-        "待办 " + state.items.length + " 条（主身份 " + (c.identity_verification || 0) +
-        " · 主体 " + (c.entity_verification || 0) +
-        " · 开发者 " + (c.developer || 0) +
-        " · 子身份 KYC " + (c.role_profile_kyc || 0) + "）" +
-        (c.skipped_own ? " · 已自动跳过本人提交 " + c.skipped_own + " 条" : "");
+        Tf(
+          "待办 {0} 条（主身份 {1} · 主体 {2} · 开发者 {3} · 子身份 KYC {4}）",
+          state.items.length,
+          c.identity_verification || 0,
+          c.entity_verification || 0,
+          c.developer || 0,
+          c.role_profile_kyc || 0
+        ) +
+        (c.skipped_own ? " · " + Tf("已自动跳过本人提交 {0} 条", c.skipped_own) : "");
     }
     var items = state.items.filter(function (i) {
       return !state.kind || i.kind === state.kind;
@@ -199,7 +228,7 @@
     if (!items.length) {
       host.innerHTML =
         '<li class="idv-hint">' +
-        (state.kind ? "这个分类下暂时没有待办。" : "现在没有待复核的待办。") +
+        (state.kind ? T("这个分类下暂时没有待办。") : T("现在没有待复核的待办。")) +
         "</li>";
       return;
     }
@@ -214,6 +243,21 @@
     if (deny) {
       deny.hidden = true;
       deny.innerHTML = "";
+    }
+    // 先看能力位：不是复核岗就不打真接口 —— 那只会换来一条 403，
+    // 既不是译文，也会把安全告警的 privileged_action 基线淹掉。
+    if (!permitted()) {
+      state.items = [];
+      state.counts = {};
+      render();
+      say(st, T("没有权限：这个身份还不是复核岗（verifier）。"), false);
+      if (deny) {
+        deny.hidden = false;
+        deny.textContent = T(
+          "这个身份还打不开复核队列：队列只对复核岗（verifier）开放。复核岗有两条路：平台点名开通，或者平台开放申请后用已锁仓的 USDC 质押开通 —— 押金一走，这个岗就自动停。"
+        );
+      }
+      return;
     }
     if (!authed()) {
       state.items = [];
@@ -234,7 +278,7 @@
       state.counts = (res && res.counts) || {};
       state.verifier = (res && res.verifier_identity_id) || "";
       render();
-      say(st, "已刷新 · 复核岗 " + shortId(state.verifier), true);
+      say(st, Tf("已刷新 · 复核岗 {0}", shortId(state.verifier)), true);
     } catch (e) {
       state.items = [];
       state.counts = {};
@@ -251,10 +295,9 @@
         // 复核岗现在有两条路 —— 平台点名，或者平台开放申请后用**已锁仓的 USDC**质押开通；
         // 质押开出来的岗跟着押金走，押金一走岗就停。再念「只能靠运维加名单」，
         // 就等于告诉用户「你永远开不了」——后端已经能自助开通了。
-        deny.textContent =
-          "这个身份还打不开复核队列：队列只对复核岗（verifier）开放。" +
-          "复核岗有两条路：平台点名开通，或者平台开放申请后用已锁仓的 USDC 质押开通" +
-          " —— 押金一走，这个岗就自动停。";
+        deny.textContent = T(
+          "这个身份还打不开复核队列：队列只对复核岗（verifier）开放。复核岗有两条路：平台点名开通，或者平台开放申请后用已锁仓的 USDC 质押开通 —— 押金一走，这个岗就自动停。"
+        );
         // 翻译是排队跑的（观察器 + 队列）：不等它这一轮，切完语言会先看见中文。
         if (window.CYBER_I18N && window.CYBER_I18N.applyPhrase) window.CYBER_I18N.applyPhrase(deny);
       }
@@ -279,9 +322,9 @@
     }
     if (decision === "verified" && blocking.length) {
       var ok = window.confirm(
-        "机器已经判定这几项不通过：\n" +
-          blocking.join("、") +
-          "\n\n放行前请确认你已人工核对过。仍然放行吗？"
+        Tf("机器已经判定这几项不通过：{0}", blocking.join(T("、"))) +
+          "\n\n" +
+          T("放行前请确认你已人工核对过。仍然放行吗？")
       );
       if (!ok) return say(st, "已取消，没有放行", false);
     }
@@ -341,6 +384,9 @@
       if (detail.page !== "reviews") return;
       setKind(SUB_KIND[detail.sub] != null ? SUB_KIND[detail.sub] : "");
       load();
+    });
+    document.addEventListener("karma-caps-ready", function () {
+      if (visible()) load();
     });
     document.addEventListener("karma-wallet-connected", function () {
       if (visible()) load();

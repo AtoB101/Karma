@@ -1500,22 +1500,52 @@
   }
 
   /**
-   * 主身份 ≠ 子身份。主身份是「账房」：只做连接钱包 / 刷脸认证 / 锁仓 / 授权，
-   * 所以这个视角下侧栏只留「身份 · 认证」+「账单」+「设置」；订单、收付、任务、
-   * 争议、Agent 接入、技能市场都是某个身份干活的地方，切到子身份才展开。
+   * 「选了哪个身份，就只画那个身份的功能区」—— 侧栏按**当前身份**收窄，
+   * 不再把所有工作面挤在一起。身份取的是档案的类（cyber-identity.js 的
+   * ROLE_LABELS）：master = 主身份账房，individual / merchant / enterprise =
+   * 三种助理与主体，verifier = 复核岗，arbitrator = 仲裁岗。
+   *
+   * 两条铁律：
+   *  1. 「验证者身份」「仲裁者身份」两个**自助申请入口**不参与收窄，任何身份
+   *     都留着 —— 把入口收掉，还没开通的人就永远开不了岗；
+   *  2. 仲裁台 / 验证者网络 / 复核台三个**运维工作面**不在这里判：它们走能力位
+   *     的 [hidden]（applyPrivilegedNavVisibility），谁在名单里谁才看得到。
    */
-  var MASTER_SCOPE_GROUPS = ["identity", "bills", "settings"];
+  var ROLE_NAV_GROUPS = {
+    master: ["identity", "bills", "settings"],
+    individual: ["overview", "center", "tasks", "bills", "disputes", "identity", "agents", "market", "settings"],
+    merchant: ["overview", "center", "tasks", "bills", "disputes", "identity", "agents", "market", "settings"],
+    enterprise: ["overview", "center", "tasks", "bills", "disputes", "identity", "agents", "market", "settings"],
+    verifier: ["identity", "bills", "reviews", "verifiers", "settings"],
+    arbitrator: ["identity", "bills", "disputes", "arbitration", "settings"],
+  };
+  /* 自助申请入口：任何身份都不收。 */
+  var NAV_ALWAYS_VISIBLE = ["verifier-id", "arbiter-id"];
+
+  /** 当前身份落在哪张功能区白名单上；拿不到档案就当主身份。 */
+  function activeNavRole() {
+    var sw = window.KarmaIdentitySwitcher;
+    if (sw && sw.getActiveProfile) {
+      try {
+        var profile = sw.getActiveProfile();
+        var klass = profile && profile["class"];
+        if (klass && ROLE_NAV_GROUPS[klass]) return klass;
+      } catch (_) {}
+    }
+    return "master";
+  }
 
   function applyNavScope() {
-    var sw = window.KarmaIdentitySwitcher;
-    var isMaster = true;
-    if (sw && sw.certSubForActive) {
-      try { isMaster = sw.certSubForActive() === "master"; } catch (_) { isMaster = true; }
-    }
-    document.body.classList.toggle("nav-master-scope", isMaster);
+    var role = activeNavRole();
+    var allowed = ROLE_NAV_GROUPS[role] || ROLE_NAV_GROUPS.master;
+    document.body.classList.toggle("nav-master-scope", role === "master");
     document.querySelectorAll(".nav-group").forEach(function (g) {
       var name = g.getAttribute("data-group") || "";
-      var hidden = isMaster && MASTER_SCOPE_GROUPS.indexOf(name) < 0;
+      if (NAV_ALWAYS_VISIBLE.indexOf(name) >= 0) {
+        g.classList.remove("nav-scope-hidden");
+        return;
+      }
+      var hidden = allowed.indexOf(name) < 0;
       g.classList.toggle("nav-scope-hidden", hidden);
       if (hidden) g.classList.remove("open");
     });
@@ -1571,8 +1601,8 @@
   }
 
   /**
-   * 特权工作面（仲裁台 / 验证者网络）：不在白名单里就整组不画。
-   * 用 [hidden] 而不是 nav-scope-hidden —— 后者是「主身份视角」在用的类，
+   * 特权工作面（仲裁台 / 验证者网络 / 复核台）：不在名单里就整组不画。
+   * 用 [hidden] 而不是 nav-scope-hidden —— 后者是「按身份收窄功能区」在用的类，
    * 两个开关同时写同一个类会互相覆盖。
    */
   function applyPrivilegedNavVisibility() {
@@ -1580,6 +1610,7 @@
     const rules = {
       arbitration: caps.can_operate_arbitration === true,
       verifiers: caps.can_view_verifier_network === true,
+      reviews: caps.can_open_review_queue === true,
     };
     document.querySelectorAll(".nav-group[data-group]").forEach(function (g) {
       const name = g.getAttribute("data-group") || "";
