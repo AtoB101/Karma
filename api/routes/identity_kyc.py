@@ -111,8 +111,11 @@ async def submit_kyc(
     except IdentityVerificationError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from exc
 
+    # 「复核结论」这个键只属于复核方：本人提交的载荷里带了它，等于自写一份「已通过」。
+    submitted = dict(body.kyc_payload or {})
+    submitted.pop("verification", None)
     profile.kyc_status = "pending"
-    profile.kyc_payload = body.kyc_payload or {}
+    profile.kyc_payload = submitted
     profile.updated_at = datetime.utcnow()
     await db.flush()
     return _serialize_kyc(profile)

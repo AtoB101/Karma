@@ -33,7 +33,11 @@ from db.session import get_db
 from services import governance_stake
 from services.face_activation import FaceError, assert_same_person
 from services.identity_actor import resolve_actor_identity_id
-from services.identity_verification import build_bind_wallet_message
+from services.identity_verification import (
+    IdentityVerificationError,
+    assert_no_plaintext_payload,
+    build_bind_wallet_message,
+)
 from services.path_param_safety import validate_public_url_segment
 from services.runtime_wallet import verify_personal_message
 
@@ -51,6 +55,48 @@ _VISIBILITY_PATTERN = "^(public|private)$"
 def _default_visibility(class_: str) -> str:
     """enterprise 默认私有，其余角色默认公开。"""
     return "private" if class_ == "enterprise" else "public"
+
+
+#: 「复核结论」这个键只属于复核方（``identity_kyc`` 的 verify 路由）。本人提交的
+#: KYC 载荷里带了它，等于自己写一份「已通过」；所以任何客户端写入路径都先摘掉。
+_KYC_VERDICT_KEY = "verification"
+
+
+def _without_client_verdict(payload: dict | None) -> dict:
+    data = dict(payload or {})
+    data.pop(_KYC_VERDICT_KEY, None)
+    return data
+
+
+def _sanitize_client_kyc_payload(payload: dict | None) -> dict:
+    """本人建 / 改档案时随手上传的 KYC 载荷：摘掉复核结论，并过和提交同一条明文红线。
+
+    提交路径（``identity_kyc.submit_kyc``）一直有 ``assert_no_plaintext_payload``，
+    但建 / 改档案的 ``kyc_payload`` 以前是直接入库的 —— 证件原图 / 人脸明文可以
+    绕过提交路径从这儿塞进来。这里补齐同一条红线。
+    """
+    data = _without_client_verdict(payload)
+    try:
+        assert_no_plaintext_payload(data)
+    except IdentityVerificationError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+    return data
+
+
+def _reject_self_declared_kyc(kyc_status: str | None) -> None:
+    """KYC 状态只能由认证流程写入，不能由档案本人在建/改档案时自报。
+
+    历史缺陷（2026-10-08 复核）：``POST`` 与 ``PUT`` 都直接照收请求体里的
+    ``kyc_status``，于是本人一次调用就能把档案写成 ``verified`` —— 操作台显示
+    「已验证」、对外列表也这么答，而证件一份没交、复核一个人没看。企业 / 个体户
+    的认证是消费者判断「能不能跟你做生意」的依据，这条自报必须堵死。
+    """
+    if (kyc_status or "none").strip() != "none":
+        raise HTTPException(
+            422,
+            "kyc_status 不能由本人自报：档案一律从 none 开始，认证状态只能由认证流程写入"
+            "（提交 KYC → 复核通过，或同人刷脸开通）",
+        )
 
 
 class RoleProfileCreate(BaseModel):
@@ -151,16 +197,17 @@ async def create_role_profile(
         raise HTTPException(403, "authentication required to create a role profile")
     if actor != body.owner_identity_id:
         raise HTTPException(403, "owner_identity_id must match the authenticated identity")
+    _reject_self_declared_kyc(body.kyc_status)
     stake_amount = await _resolve_governance_stake(db, actor, body.class_, body.stake_amount)
 
     visibility = body.visibility or _default_visibility(body.class_)
     row = IdentityRoleProfile(
         owner_identity_id=body.owner_identity_id,
         class_=body.class_,
-        kyc_status=body.kyc_status,
+        kyc_status="none",
         visibility=visibility,
         display_name=body.display_name,
-        kyc_payload=body.kyc_payload,
+        kyc_payload=_sanitize_client_kyc_payload(body.kyc_payload),
         status=body.status,
         stake_amount=stake_amount,
     )
@@ -259,13 +306,13 @@ async def update_role_profile(
             db, actor, row.class_, data["stake_amount"]
         )
     if "kyc_status" in data:
-        row.kyc_status = data["kyc_status"]
+        _reject_self_declared_kyc(data["kyc_status"])
     if "visibility" in data:
         row.visibility = data["visibility"]
     if "display_name" in data:
         row.display_name = data["display_name"]
     if "kyc_payload" in data:
-        row.kyc_payload = data["kyc_payload"]
+        row.kyc_payload = _sanitize_client_kyc_payload(data["kyc_payload"])
     if "spend_policy" in data:
         row.spend_policy = data["spend_policy"] or {}
     if "status" in data:
