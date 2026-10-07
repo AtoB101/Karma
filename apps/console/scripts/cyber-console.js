@@ -20,6 +20,7 @@
     market: ["page.market.title", "page.market.sub"],
     reviews: ["page.reviews.title", "page.reviews.sub"],
     arbitration: ["page.arbitration.title", "page.arbitration.sub"],
+    verifiers: ["page.verifiers.title", "page.verifiers.sub"],
     settings: ["page.settings.title", "page.settings.sub"],
   };
 

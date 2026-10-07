@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
     <link rel="icon" type="image/png" href="../../assets/favicon.png?v=0da2be69f6aa" />
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=5c2c3b112643" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=e0193575717a" />
   </head>
   <body>
     <div class="bg"></div>
@@ -142,6 +142,14 @@
               <button class="nav-sub" data-page="arbitration" data-sub="overdue">超期案件</button>
               <button class="nav-sub" data-page="arbitration" data-sub="arbitrators">仲裁员活动</button>
               <button class="nav-sub" data-page="arbitration" data-sub="actions">派庭 / 投票 / 执行</button>
+            </div>
+          </div>
+          <!-- 验证者网络：只对管理员 / 治理发放方白名单开放，只读。 -->
+          <div class="nav-group" data-group="verifiers" hidden>
+            <button class="nav-main" data-page="verifiers" aria-expanded="false"><span class="icon">&#9673;</span><span data-i18n="nav.verifiers">验证者网络</span><span class="nav-caret">&#9662;</span></button>
+            <div class="nav-subs">
+              <button class="nav-sub" data-page="verifiers" data-sub="nodes">节点明细</button>
+              <button class="nav-sub" data-page="verifiers" data-sub="stats">网络统计</button>
             </div>
           </div>
           <div class="nav-group" data-group="settings">
@@ -1399,6 +1407,42 @@
           </div>
         </section>
 
+        <!-- 验证者网络：机器节点（注册 / 质押 / 出证 / 挑战）的只读看板。
+             质押与出证由节点程序完成，这里不代签、不代发。 -->
+        <section id="verifiers" class="page">
+          <div class="card section" id="vn-stats-card">
+            <div class="section-header">
+              <div>
+                <h3>验证者网络 · 只读看板</h3>
+                <p>这是机器节点网络（注册 / 质押 / 出证 / 挑战），和「复核台」管的人不是一回事。只读：质押与出证由节点程序完成，操作台不代签、不代发。</p>
+              </div>
+              <span class="api-status" id="vn-state">&mdash;</span>
+            </div>
+            <div class="idv-row">
+              <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="vn-active-only" /> <span>只看活跃</span></label>
+              <button type="button" class="btn primary" id="vn-refresh">刷新</button>
+              <span class="api-status" id="vn-count">&mdash;</span>
+            </div>
+            <p class="idv-hint" id="vn-deny" hidden></p>
+            <div id="vn-stats" style="margin-top:12px"></div>
+          </div>
+
+          <div class="card section" id="vn-nodes" hidden>
+            <div class="section-header">
+              <div>
+                <h3>节点明细</h3>
+                <p>按声誉从高到低。出证（成功 / 总）＝ 这个节点累计提交并被采纳的出证数。</p>
+              </div>
+            </div>
+            <table class="vn-table">
+              <thead>
+                <tr><th>节点</th><th>钱包</th><th>质押（USDC）</th><th>声誉</th><th>出证（成功 / 总）</th><th>状态</th><th>端点</th></tr>
+              </thead>
+              <tbody id="vn-list"></tbody>
+            </table>
+          </div>
+        </section>
+
         <section id="settings" class="page">
           <!-- 接入节点：操作台是静态的，节点是它要数据的对象。放在最前面，
                因为「连不上」时要找的就是它。渲染见 cyber-node-panel.js。 -->
@@ -1468,14 +1512,14 @@
       window.KARMA_API_KEY = window.KARMA_API_KEY || "";
       window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
     </script>
-    <script src="../../scripts/i18n-cyber.js?v=7c0dc479e631"></script>
+    <script src="../../scripts/i18n-cyber.js?v=80fc78d9fec6"></script>
     <script src="../../scripts/lang-select.js?v=60b3643a2859"></script>
     <script src="../../scripts/karma-nodes.js?v=3e8631a9ab01"></script>
     <script src="../../scripts/karma-public-api.js?v=da71ad7246b1"></script>
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=2e4783ba123a"></script>
-    <script src="../../scripts/cyber-console.js?v=75210b228f32"></script>
+    <script src="../../scripts/cyber-console.js?v=f90439561293"></script>
     <script src="../../scripts/cyber-identity.js?v=0c43fcce65dd"></script>
 <script src="../../scripts/cyber-master-page.js?v=f213b05c6871"></script>
     <script src="../../scripts/cyber-face-capture.js?v=c4d373c18c91"></script>
@@ -1510,6 +1554,8 @@
     <script src="../../scripts/cyber-reviews.js?v=4a7a44e54713"></script>
     <!-- 仲裁台：运维全景 + 派庭 / 投票 / 执行裁决（只对仲裁员 / 管理员白名单开放）。 -->
     <script src="../../scripts/cyber-arbitration.js?v=51b2c1535721"></script>
+    <!-- 验证者网络：机器节点的只读看板（只对管理员 / 治理发放方白名单开放）。 -->
+    <script src="../../scripts/cyber-verifier-network.js?v=35a6e121a39f"></script>
     <script src="../../scripts/cyber-node-panel.js?v=95f1085ecf02"></script>
     <script src="../../scripts/background-globe.js?v=64512e726378"></script>
   </body>
