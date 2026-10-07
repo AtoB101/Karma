@@ -12,6 +12,21 @@ cd "${REPO_DIR}"
 
 echo "==> [1/5] 拉取最新代码"
 git fetch origin
+# `reset --hard` 会把工作树里所有本地改动一次性抹掉，而且一声不吭 —— 有人在盒子上
+# 手工救过火的话，这就是一次静默的数据丢失。默认停下来看清楚，要用 --force 明确丢弃。
+FORCE=0
+[ "${1:-}" = "--force" ] && FORCE=1
+DIRTY="$(git status --porcelain | wc -l | tr -d ' ')"
+if [ "${DIRTY}" != "0" ]; then
+  echo "工作树里有 ${DIRTY} 处未提交改动，reset --hard 会把它们全部丢弃：" >&2
+  git status --porcelain | sed 's/^/    /' >&2
+  if [ "${FORCE}" != "1" ]; then
+    echo "已停下。确认要丢弃就重跑：bash deploy/vps/deploy.sh --force" >&2
+    echo "（想留着就先 git stash，或 git diff > /tmp/local-$(date +%F-%H%M%S).patch）" >&2
+    exit 1
+  fi
+  echo "--force：按上面的清单丢弃。" >&2
+fi
 git reset --hard origin/main
 
 echo "==> [2/5] 重建镜像并重启"
@@ -47,3 +62,20 @@ fi
 
 echo "==> [5/5] 完成"
 docker compose -f deploy/docker-compose.yml ps
+
+# 「脚本没报错」不等于「线上跑的就是这次提交」—— ci-deploy.sh 早就有这条自证，这里
+# 之前只有一句 ps。同时把操作者敲的 /usr/local/bin/karma 对齐（首次部署后它可能压根
+# 不存在，README 却已经让人用 karma 了）。
+CLI_SRC="$(pwd)/deploy/karma"
+if [ -f "${CLI_SRC}" ] && [ "$(id -u)" -eq 0 ]; then
+  install -m 0755 "${CLI_SRC}" /usr/local/bin/karma
+  echo "installed /usr/local/bin/karma"
+fi
+
+EXPECTED="$(git rev-parse origin/main)"
+ACTUAL="$(git rev-parse HEAD)"
+if [ "${ACTUAL}" != "${EXPECTED}" ]; then
+  echo "部署后校验失败：HEAD=${ACTUAL}，origin/main=${EXPECTED}" >&2
+  exit 1
+fi
+echo "deployed revision verified: ${ACTUAL}"
