@@ -186,9 +186,20 @@
     { page: "arbiter-id", key: "nav.arbiter_id", zh: "仲裁者身份" },
   ];
 
+  /* 岗位入口 → 侧栏那张功能区白名单的键（cyber-console.js 的 ROLE_WORKSPACES）。 */
+  var ROLE_OF_PAGE = { "verifier-id": "verifier", "arbiter-id": "arbitrator" };
+
+  /* 岗位入口不是「翻到一页申请表单」：选了哪个岗位，功能区就换成那个岗位的，并落到
+     它自己的工作面（没有该岗位的能力位才落申请页）。落点交给 cyber-console.js 的
+     KarmaWorkspace 一处决定，免得这里和侧栏各说各话。 */
   function goRolePage(page) {
     closeIdPicker();
     closeSubPanel();
+    var role = ROLE_OF_PAGE[page];
+    if (role && window.KarmaWorkspace && window.KarmaWorkspace.select) {
+      window.KarmaWorkspace.select(role);
+      return;
+    }
     if (window.cyberSwitchPage) window.cyberSwitchPage(page);
   }
 
@@ -272,7 +283,9 @@
       row.className = "sub-switch-row";
       var b = document.createElement("button");
       b.type = "button";
-      b.className = "sub-switch-item sub-switch-role";
+      var onRole = window.KarmaWorkspace && window.KarmaWorkspace.role
+        && window.KarmaWorkspace.role() === ROLE_OF_PAGE[entry.page];
+      b.className = "sub-switch-item sub-switch-role" + (onRole ? " active" : "");
       b.setAttribute("role", "menuitem");
       b.setAttribute("data-role-page", entry.page);
       b.textContent = tr(entry.key, entry.zh) + "  ›";

@@ -1522,8 +1522,85 @@
   /* 自助申请入口：任何身份都不收。 */
   var NAV_ALWAYS_VISIBLE = ["verifier-id", "arbiter-id"];
 
-  /** 当前身份落在哪张功能区白名单上；拿不到档案就当主身份。 */
+  /**
+   * 「选择身份」里的两个岗位入口（验证者身份 / 仲裁者身份）不只是翻一页：选了哪个
+   * 岗位，功能区就换成那个岗位的，并落到它自己的工作面 —— 用户口径是「每个身份都有
+   * 对应的功能区和操作区，选了就该跳进去」。
+   *
+   * 还没有这个岗位的能力位的人落在 apply（申请页）：功能区一样收窄了，但那页讲的
+   * 就是怎么拿到它。能力位是异步到的，所以能力位回来之后还要再对一次落点
+   * （relandWorkspace），不然先点的人会被留在申请页。
+   */
+  var ROLE_WORKSPACES = {
+    verifier: { apply: "verifier-id", home: "verifiers", cap: "can_view_verifier_network" },
+    arbitrator: { apply: "arbiter-id", home: "arbitration", cap: "can_operate_arbitration" },
+  };
+  var WORKSPACE_KEY = "karma.workspace.role";
+
+  /** 当前选中的岗位视角（不是档案）。选回主身份 / 任一子身份时清掉。 */
+  function workspaceRole() {
+    try {
+      var r = window.sessionStorage.getItem(WORKSPACE_KEY) || "";
+      return Object.prototype.hasOwnProperty.call(ROLE_WORKSPACES, r) ? r : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function setWorkspaceRole(role) {
+    try {
+      if (role && Object.prototype.hasOwnProperty.call(ROLE_WORKSPACES, role)) {
+        window.sessionStorage.setItem(WORKSPACE_KEY, role);
+      } else {
+        window.sessionStorage.removeItem(WORKSPACE_KEY);
+      }
+    } catch (_) {}
+  }
+
+  function workspaceLanding(role) {
+    var ws = ROLE_WORKSPACES[role];
+    if (!ws) return "";
+    return capsValue()[ws.cap] === true ? ws.home : ws.apply;
+  }
+
+  /** 能力位是异步来的：先点的人可能落在了申请页，能力位一到就把他送进工作面。 */
+  function relandWorkspace() {
+    var role = workspaceRole();
+    if (!role) return;
+    var ws = ROLE_WORKSPACES[role];
+    if (workspaceLanding(role) === ws.home && currentPage === ws.apply) {
+      switchPage(ws.home);
+    }
+  }
+
+  function selectWorkspace(role) {
+    if (!Object.prototype.hasOwnProperty.call(ROLE_WORKSPACES, role)) {
+      switchPage(role);
+      return;
+    }
+    var land = workspaceLanding(role);
+    var same = workspaceRole() === role && currentPage === land;
+    setWorkspaceRole(role);
+    if (same) {
+      applyNavScope();
+      return;
+    }
+    switchPage(land);
+  }
+
+  window.KarmaWorkspace = {
+    role: workspaceRole,
+    select: selectWorkspace,
+    clear: function () {
+      setWorkspaceRole("");
+      applyNavScope();
+    },
+  };
+
+  /** 当前身份落在哪张功能区白名单上；拿了岗位就看岗位，否则看档案的类，再不行主身份。 */
   function activeNavRole() {
+    var ws = workspaceRole();
+    if (ws) return ws;
     var sw = window.KarmaIdentitySwitcher;
     if (sw && sw.getActiveProfile) {
       try {
@@ -1587,6 +1664,7 @@
       .then(function (caps) {
         CAPS = { loaded: true, value: caps || {} };
         applyPrivilegedNavVisibility();
+        relandWorkspace();
         try {
           document.dispatchEvent(new CustomEvent("karma-caps-ready", { detail: capsValue() }));
         } catch (_) {}
@@ -1816,8 +1894,13 @@
     bindNav();
     applyNavScope();
     capsRefresh().catch(function () {});
-    ["karma-profile-switched", "karma-wallet-connected", "karma-session-restored"].forEach(function (name) {
-      document.addEventListener(name, applyNavScope);
+    document.addEventListener("karma-wallet-connected", applyNavScope);
+    document.addEventListener("karma-session-restored", applyNavScope);
+    // 选回主身份或某张子身份卡 = 离开岗位视角：功能区改回按档案的类收窄，否则点了
+    // 「验证者身份」之后再去选一张子身份卡，侧栏会一直卡在验证者那一套上。
+    document.addEventListener("karma-profile-switched", function () {
+      setWorkspaceRole("");
+      applyNavScope();
     });
     // 能力位跟着会话走：连上/恢复/换身份/断开都要重拉一次，
     // 不然换了身份还留着上一个身份的特权入口。
