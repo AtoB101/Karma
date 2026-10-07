@@ -8,6 +8,31 @@ set -euo pipefail
 # 脚本头部声称的安全基线，最后要逐条核对；对不上就不许报「完成」。
 BASELINE_OK=1
 
+# sshd 的**实际生效配置**（sshd -T）：防火墙和最后的安全基线核对都要用它。一次读进来
+# 存变量，下面只用 while read 查 —— 不要写成 `sshd -T | awk ... {exit}` 或 `| grep -q`：
+# 下游提前退出会让上游吃 SIGPIPE，而本脚本有 pipefail，等于把「找到了」判成「没找到」。
+SSH_CONF="$(sshd -T 2>/dev/null || true)"
+
+conf_value() {   # conf_value <小写键名>：取这一行的值；没有就返回 1
+  local line
+  while IFS= read -r line; do
+    case "${line}" in
+      "$1 "*) printf '%s' "${line#* }"; return 0 ;;
+    esac
+  done <<< "${SSH_CONF}"
+  return 1
+}
+
+conf_is() {      # conf_is <小写键名> <值>：是否正好有「键 值」这一行
+  local line
+  while IFS= read -r line; do
+    case "${line}" in
+      "$1 $2") return 0 ;;
+    esac
+  done <<< "${SSH_CONF}"
+  return 1
+}
+
 echo "==> [1/8] 系统更新"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq && apt-get upgrade -y -qq
@@ -24,7 +49,7 @@ systemctl enable --now docker
 echo "==> [4/8] 防火墙（只开 SSH/80/443）"
 # ufw --force reset 会清掉全部规则。如果 sshd 不在 22 端口，接下来这一串会把运维
 # 直接关在门外 —— 所以按 sshd 的**实际**端口放行，而不是硬编码 22。
-SSH_PORT="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')"
+SSH_PORT="$(conf_value port || true)"
 SSH_PORT="${SSH_PORT:-22}"
 [ "${SSH_PORT}" = "22" ] || echo "注意：sshd 实际监听 ${SSH_PORT}，按实际端口放行"
 ufw --force reset
@@ -89,20 +114,19 @@ chmod 600 /opt/karma/.env.example
 # 没做的话，机器就是带着密码登录 + root 密码登录挂在公网上，而运维以为已经收紧了。
 echo ""
 echo "==> 安全基线核对（看 sshd -T 的**实际生效值**，不是配置文件里写了什么）"
-SSH_CONF="$(sshd -T 2>/dev/null || true)"
 if [ -z "${SSH_CONF}" ]; then
   echo "警告：sshd -T 读不到有效配置，无法确认安全基线" >&2
   BASELINE_OK=0
 else
   for k in passwordauthentication permitrootlogin pubkeyauthentication; do
-    v="$(printf '%s\n' "${SSH_CONF}" | awk -v k="${k}" 'tolower($1)==k {print $2; exit}')"
-    printf '  %-24s %s\n' "${k}:" "${v:-未设置}"
+    v="$(conf_value "${k}")" || v="未设置"
+    printf '  %-24s %s\n' "${k}:" "${v}"
   done
-  printf '%s\n' "${SSH_CONF}" | grep -qi '^passwordauthentication yes' \
+  conf_is passwordauthentication yes \
     && { echo "未达标：PasswordAuthentication 还是 yes（密码可被暴力破解）" >&2; BASELINE_OK=0; }
-  printf '%s\n' "${SSH_CONF}" | grep -qi '^permitrootlogin yes' \
+  conf_is permitrootlogin yes \
     && { echo "未达标：PermitRootLogin 还是 yes（root 可密码登录）" >&2; BASELINE_OK=0; }
-  printf '%s\n' "${SSH_CONF}" | grep -qi '^pubkeyauthentication no' \
+  conf_is pubkeyauthentication no \
     && { echo "未达标：PubkeyAuthentication 是 no（密钥登录被关了）" >&2; BASELINE_OK=0; }
 fi
 
