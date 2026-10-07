@@ -1051,6 +1051,11 @@ class RuntimeKeyModel(Base):
 
     key_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     secret_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    # secret_hash 是用哪一代 APP_SECRET_KEY 算的（16 位指纹）。双 key 轮换时
+    # 据此做惰性迁移：旧材料验过 → 用新材料重算并更新为当前代。
+    hash_key_version: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="legacy", server_default="legacy"
+    )
     wallet_address: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     profile_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)

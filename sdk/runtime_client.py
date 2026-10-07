@@ -336,9 +336,20 @@ class KarmaRuntime:
                     f"HTTP {resp.status_code}: {detail} — agent signing enabled, retry the call"
                 )
             raise RuntimeError(f"HTTP {resp.status_code}: {detail}")
-        sig = resp.headers.get("X-Karma-Response-Signature")
-        if self._app_secret_for_hmac and sig:
-            _verify_hmac(body_text=text, signature_header=sig, secret=self._app_secret_for_hmac)
+        if self._app_secret_for_hmac:
+            sig = resp.headers.get("X-Karma-Response-Signature")
+            sig_v2 = resp.headers.get("X-Karma-Response-Signature-V2")
+            if sig:
+                try:
+                    _verify_hmac(body_text=text, signature_header=sig, secret=self._app_secret_for_hmac)
+                except RuntimeError as primary_error:
+                    # 双 key 过渡期：主头是旧钥签的，新 SDK（持新钥）改验附加头。
+                    if sig_v2:
+                        _verify_hmac(body_text=text, signature_header=sig_v2, secret=self._app_secret_for_hmac)
+                    else:
+                        raise primary_error
+            elif sig_v2:
+                _verify_hmac(body_text=text, signature_header=sig_v2, secret=self._app_secret_for_hmac)
         return data
 
     async def _identity(self) -> str:

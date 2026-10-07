@@ -37,6 +37,26 @@ function verifyHmac(bodyText: string, sigHeader: string | null, secret: string |
   }
 }
 
+function verifyResponseHmac(
+  text: string,
+  headers: { get(name: string): string | null },
+  secret: string | undefined,
+): void {
+  if (!secret) return;
+  const primary = headers.get("x-karma-response-signature");
+  const secondary = headers.get("x-karma-response-signature-v2");
+  if (primary) {
+    try {
+      verifyHmac(text, primary, secret);
+      return;
+    } catch (err) {
+      // 双 key 过渡期：主头是旧钥签的，新 SDK（持新钥）改验附加头。
+      if (!secondary) throw err;
+    }
+  }
+  if (secondary) verifyHmac(text, secondary, secret);
+}
+
 export class KarmaRuntime {
   private readonly runtimeKey: string;
   private readonly baseUrl: string;
@@ -98,7 +118,7 @@ export class KarmaRuntime {
         const detail = typeof data === "object" && data && "detail" in data ? (data as { detail: unknown }).detail : data;
         throw new Error(`HTTP ${res.status}: ${String(detail)}`);
       }
-      verifyHmac(text, res.headers.get("x-karma-response-signature"), this.appSecret);
+      verifyResponseHmac(text, res.headers, this.appSecret);
       return data;
     } finally {
       clearTimeout(t);

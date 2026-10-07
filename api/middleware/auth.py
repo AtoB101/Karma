@@ -43,6 +43,14 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15  # 15 minutes
 
 
+def _jwt_secret_keys() -> list[str]:
+    """可用来验 JWT 的签发钥：当前钥 + （过渡期内的）上一把钥。"""
+    keys = [settings.app_secret_key]
+    if settings.secret_rotation_active():
+        keys.append(settings.app_secret_key_previous)
+    return keys
+
+
 def create_access_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     payload = {"sub": subject, "exp": expire, "iat": datetime.utcnow()}
@@ -50,20 +58,23 @@ def create_access_token(subject: str, expires_delta: Optional[timedelta] = None)
 
 
 def decode_access_token(token: str) -> dict:
-    try:
-        return jwt.decode(token, settings.app_secret_key, algorithms=[ALGORITHM])
-    except JWTError as e:
-        env = (settings.app_env or "").lower()
-        detail = (
-            f"Invalid token: {e}"
-            if env in ("development", "dev", "local", "test")
-            else "Invalid or expired token"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=detail,
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    last_error: Exception | None = None
+    for key in _jwt_secret_keys():
+        try:
+            return jwt.decode(token, key, algorithms=[ALGORITHM])
+        except JWTError as e:
+            last_error = e
+    env = (settings.app_env or "").lower()
+    detail = (
+        f"Invalid token: {last_error}"
+        if env in ("development", "dev", "local", "test")
+        else "Invalid or expired token"
+    )
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -2,9 +2,25 @@
 Karma — Global Settings (Public)
 """
 from functools import lru_cache
+from datetime import datetime, timezone
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+@lru_cache(maxsize=8)
+def _parse_iso_utc(value: str) -> datetime | None:
+    """ISO8601 UTC 解析（带缓存）；解析失败返回 None。"""
+    value = (value or "").strip()
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 class Settings(BaseSettings):
@@ -15,6 +31,11 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     app_secret_key: str = "change-me-in-production"
+    # 双 key 平滑轮换：上一把签发钥 + 过渡期硬截止（ISO8601 UTC，如 2026-11-01T00:00:00Z）。
+    # 两个都填才进入「过渡期」；任一缺失 / 已过期 = 立刻回到单 key。
+    # 急刹车：清空 APP_SECRET_KEY_PREVIOUS（或把截止时间改到过去）。
+    app_secret_key_previous: str = ""
+    app_secret_key_previous_until: str = ""
     # Comma-separated static API keys: "agent-1:supersecret,agent-2:anothersecret".
     # Required in production for secure token issuance / API-key auth.
     auth_api_keys: str = ""
@@ -445,6 +466,17 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "APP_SECRET_KEY must be set to a strong value when APP_ENV is production",
                 )
+            if (self.app_secret_key_previous or "").strip():
+                if (self.app_secret_key_previous or "").strip() == key:
+                    raise ValueError(
+                        "APP_SECRET_KEY_PREVIOUS must differ from APP_SECRET_KEY "
+                        "(rotation needs two distinct signing keys)",
+                    )
+                if self._previous_secret_deadline() is None:
+                    raise ValueError(
+                        "APP_SECRET_KEY_PREVIOUS_UNTIL must be a valid ISO8601 UTC datetime "
+                        "when APP_SECRET_KEY_PREVIOUS is set",
+                    )
             if not self.auth_enforce_protected_routes:
                 raise ValueError(
                     "AUTH_ENFORCE_PROTECTED_ROUTES must be true when APP_ENV is production",
@@ -602,6 +634,23 @@ class Settings(BaseSettings):
                     "MINIO_SECRET_KEY must be set to a non-default value in this environment",
                 )
         return self
+
+    def _previous_secret_deadline(self) -> datetime | None:
+        """解析上一把签发钥的过渡期硬截止（ISO8601 UTC）。解析失败返回 None。"""
+        return _parse_iso_utc(self.app_secret_key_previous_until)
+
+    def secret_rotation_active(self, now: datetime | None = None) -> bool:
+        """过渡期是否生效：上一把 key 非空，且硬截止时间还没到。"""
+        if not (self.app_secret_key_previous or "").strip():
+            return False
+        deadline = self._previous_secret_deadline()
+        if deadline is None:
+            return False
+        if now is None:
+            now = datetime.now(timezone.utc)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=timezone.utc)
+        return now < deadline
 
     def cors_allow_origins_list(self) -> list[str]:
         raw = (self.cors_allow_origins or "").strip()

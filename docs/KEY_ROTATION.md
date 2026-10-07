@@ -69,7 +69,8 @@ signed_by=YMZAI
 | Runtime 网关响应 HMAC（`X-Karma-Response-Signature`） | `services/runtime_response_sign.py:15` |
 | 「这把 key 授权给哪个 agent」的绑定声明指纹 | `services/runtime_key_service.py`（`hash_binding_scope`） |
 
-所以「真轮换」的代价（**截至 2026-10-01，双 key 平滑能力尚未实现**）：
+所以「真轮换」的代价（**2026-10-02 起双 key 平滑能力已实现**，见下「平滑轮换」；
+下面的代价是**没有走平滑轮换、直接换钥**时的代价）：
 
 - **在用 runtime key 全部失效**。`secret_hash` 是用这条 key 算出来的，换 key 之后
   旧 hash 一律验不过 —— 必须重铸 + 主人重新在操作台输匹配码激活。
@@ -116,9 +117,10 @@ bash /opt/karma/repo/scripts/public-beta-security-gate.sh \
 
 ---
 
-## 操作手册 B：轮换 `APP_SECRET_KEY`（贵，需要维护窗口）
+## 操作手册 B：轮换 `APP_SECRET_KEY`（**急换钥 / 未走平滑轮换时的有损路径**）
 
-**在双 key 平滑能力上线之前**，这就是有损操作，按窗口做：
+下面的步骤是「怀疑泄露、一刻都不能等」的急换钥，或「没有布置过渡期」时走的
+有损路径；能走平滑轮换时优先用下一节。
 
 ```bash
 # 0) 备份 + 记下当前 commit（出问题要能退回去）
@@ -150,20 +152,65 @@ curl -s -o /dev/null -w 'health %{http_code}\n' http://127.0.0.1:8000/health
 
 ---
 
-## 平滑轮换（**推荐，尚未实现**）
+## 平滑轮换（**推荐，2026-10-02 已实现**）
 
-把上面的「有损操作」变成「改一个值 + 重启」的升级方案：
+把上面的「有损操作」变成「改一个值 + 重启 + 看迁移率」。核心语义：
 
-- 新增 `APP_SECRET_KEY_PREVIOUS`：签发只用新的，**验签先试新、失败再试旧**；
-- `runtime key` 加**惰性迁移**：哪把 key 用旧材料验过了，就顺手用新 key 重算
-  `secret_hash` 落库（需要一列记 `hash_key_version`）。⚠️ 硬约束：hash 只能拿
-  **明文 secret** 算，而明文不落库 —— 所以**从没被再使用过的 key 无法替它迁移**，
-  过渡期结束时要先把「仍 active 且未迁移」的这批列出来（它们就是没人用的死钥匙），
-  随轮换一起吊销并**点名通知**主人。
-- 网关响应 HMAC 要分两阶段翻转（老 SDK 只认 `X-Karma-Response-Signature` 一个头），
-  过渡期主头继续用旧 key 签，新 SDK 走附加头。
-- 过渡期上限要有硬约束（建议 30 天）+ 一个急刹车：怀疑泄露时直接清掉
-  `APP_SECRET_KEY_PREVIOUS`，代价只是少量用户重新登录（JWT 只活 15 分钟）。
+- **签发只用新钥**（`APP_SECRET_KEY`），**验签先试新、失败再试旧**
+  （旧钥在 `APP_SECRET_KEY_PREVIOUS`）：
+  - JWT：`api/middleware/auth.py::decode_access_token`
+  - runtime key 的 `secret_hash`：`services/runtime_key_service.py::runtime_secret_match`
+  - 网关响应 HMAC：`services/runtime_response_sign.py::runtime_hmac_headers`
+- **runtime key 惰性迁移**：哪把 key 用旧材料验过了，就顺手用新钥重算
+  `secret_hash` 落库（`runtime_keys.hash_key_version` 从旧指纹更新为当前指纹，
+  见迁移 `0061_runtime_key_secret_rotation`）。
+- **响应头分两阶段**：过渡期主头 `X-Karma-Response-Signature` 继续用旧钥签
+  （老 SDK 不升级也不挂），新 SDK 走附加头 `X-Karma-Response-Signature-V2`
+  （当前钥）。Python SDK 与 TS SDK 都已支持先验主头、失败再验附加头。
+- **过渡期硬截止 + 急刹车**：`APP_SECRET_KEY_PREVIOUS_UNTIL` 是 ISO8601 UTC 截止，
+  到点旧钥自动作废。急刹车 = 清掉 `APP_SECRET_KEY_PREVIOUS`（代价只是少量用户
+  重新登录，JWT 只活 15 分钟）。
+
+### 操作步骤
+
+```bash
+# 0) 备份 + 记下当前 commit
+/opt/karma/repo/scripts/ops/backup.sh --verify --keep 48
+git -C /opt/karma/repo rev-parse HEAD
+cp -a /opt/karma/.env /opt/karma/.env.bak-rotate-$(date +%Y%m%d%H%M%S)
+
+# 1) 生成新钥（64 hex），旧钥抄进 PREVIOUS，并写死过渡期截止（建议 30 天）
+OLD=$(grep -E '^APP_SECRET_KEY=' /opt/karma/.env | cut -d= -f2-)
+NEW=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+UNTIL=$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)
+sed -i "s|^APP_SECRET_KEY=.*|APP_SECRET_KEY=${NEW}|" /opt/karma/.env
+sed -i "/^APP_SECRET_KEY_PREVIOUS=/d" /opt/karma/.env
+sed -i "/^APP_SECRET_KEY_PREVIOUS_UNTIL=/d" /opt/karma/.env
+printf 'APP_SECRET_KEY_PREVIOUS=%s\n' "${OLD}" >> /opt/karma/.env
+printf 'APP_SECRET_KEY_PREVIOUS_UNTIL=%s\n' "${UNTIL}" >> /opt/karma/.env
+unset OLD NEW UNTIL
+
+# 2) 重建（必须 --force-recreate，容器才会吃进新 env）
+docker compose --project-name deploy --env-file /opt/karma/.env \
+  -f /opt/karma/repo/deploy/docker-compose.yml up -d --no-build --force-recreate app
+
+# 3) 自证
+curl -s -o /dev/null -w 'health %{http_code}\n' http://127.0.0.1:8000/health
+```
+
+**收口（过渡期到期前）**：把「仍 active 但 `hash_key_version` 还是旧指纹」的钥匙
+列出来（它们是没人用的死钥匙），随轮换一起吊销并**点名通知**主人。可跑脚本里的
+`services.runtime_key_service.list_unmigrated_runtime_keys`，或直接查库：
+
+```sql
+SELECT key_id, karma_identity_id, agent_name, created_at
+  FROM runtime_keys
+ WHERE status = 'active'
+   AND hash_key_version <> :current_fingerprint;
+```
+
+**急刹车**：怀疑旧钥泄露时，直接把 `APP_SECRET_KEY_PREVIOUS` 清掉再
+`--force-recreate` 一次 —— 旧钥立刻作废，不再认任何旧 token / 旧 hash / 旧签名头。
 
 做完这一步，`2026-12-30` 那次真轮换就只是「改一个值 + 重启 + 看迁移率」。
 

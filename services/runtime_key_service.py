@@ -69,8 +69,30 @@ _replay: dict[str, deque[tuple[str, float]]] = defaultdict(deque)
 _DAILY: dict[str, dict[str, float]] = defaultdict(dict)  # key_id -> iso_date -> cumulative amount
 
 
+_RUNTIME_KEY_MATERIAL_SUFFIX = ":karma_runtime_key_v1"
+
+
 def _server_material() -> bytes:
-    return (settings.app_secret_key + ":karma_runtime_key_v1").encode()
+    return (settings.app_secret_key + _RUNTIME_KEY_MATERIAL_SUFFIX).encode()
+
+
+def _previous_server_material() -> bytes | None:
+    """双 key 过渡期内的上一把签发钥材料；过渡期结束 / 急刹车后返回 None。"""
+    if not settings.secret_rotation_active():
+        return None
+    previous = (settings.app_secret_key_previous or "").strip()
+    if not previous:
+        return None
+    return (previous + _RUNTIME_KEY_MATERIAL_SUFFIX).encode()
+
+
+def secret_key_generation(secret_key: str) -> str:
+    """签发钥的 16 位指纹：``hash_key_version`` 用它标记 secret_hash 是哪一代钥算的。"""
+    return hashlib.sha256((secret_key or "").encode("utf-8")).hexdigest()[:16]
+
+
+def current_key_generation() -> str:
+    return secret_key_generation(settings.app_secret_key)
 
 
 def hash_runtime_secret(*, key_id: str, secret: str) -> str:
@@ -78,8 +100,26 @@ def hash_runtime_secret(*, key_id: str, secret: str) -> str:
 
 
 def verify_runtime_secret(*, key_id: str, secret: str, secret_hash: str) -> bool:
-    expect = hash_runtime_secret(key_id=key_id, secret=secret)
-    return hmac.compare_digest(expect, secret_hash)
+    return runtime_secret_match(key_id=key_id, secret=secret, secret_hash=secret_hash) is not None
+
+
+def runtime_secret_match(*, key_id: str, secret: str, secret_hash: str) -> str | None:
+    """判断这把 key 的 secret_hash 是用当前钥还是上一把钥算的。
+
+    返回 ``"current"`` / ``"previous"`` / ``None``。双 key 过渡期内先用当前钥验，
+    验不过再试上一把钥（验签先试新、失败再试旧），过渡期一过就只认当前钥。
+    """
+    current_hash = hash_runtime_secret(key_id=key_id, secret=secret)
+    if hmac.compare_digest(current_hash, secret_hash):
+        return "current"
+    previous_material = _previous_server_material()
+    if previous_material is not None:
+        previous_hash = hmac.new(
+            previous_material, f"{key_id}:{secret}".encode(), hashlib.sha256
+        ).hexdigest()
+        if hmac.compare_digest(previous_hash, secret_hash):
+            return "previous"
+    return None
 
 
 def hash_binding_scope(scope: str) -> str:
@@ -437,8 +477,16 @@ async def load_active_context(
     row = await db.get(RuntimeKeyModel, key_id)
     if not row or row.status != "active":
         raise HTTPException(status_code=401, detail="invalid or revoked runtime key")
-    if not verify_runtime_secret(key_id=key_id, secret=secret, secret_hash=row.secret_hash):
+    match = runtime_secret_match(key_id=key_id, secret=secret, secret_hash=row.secret_hash)
+    if match is None:
         raise HTTPException(status_code=401, detail="invalid runtime key")
+    if match == "previous":
+        # 惰性迁移：用上一把钥验过的钥匙，顺手用当前钥重算 secret_hash 落库。
+        # 明文 secret 只在验签这一瞬拿得到 —— 从没被再使用过的 key 无法替它迁移，
+        # 过渡期结束时它们会留在 hash_key_version=旧指纹，由运维清单吊销（见 docs/KEY_ROTATION.md）。
+        row.secret_hash = hash_runtime_secret(key_id=key_id, secret=secret)
+        row.hash_key_version = current_key_generation()
+        await db.commit()
     exp = _as_utc(row.expire_at)
     if key_is_expired(row.expire_at):
         raise HTTPException(status_code=401, detail="runtime key expired")
@@ -464,6 +512,17 @@ async def load_active_context(
         nonce_required=bool(row.nonce_required),
         created_at=_as_utc(row.created_at) if row.created_at else None,
     )
+
+
+async def list_unmigrated_runtime_keys(db: AsyncSession) -> list[RuntimeKeyModel]:
+    """过渡期收口用：列出「仍 active、但 secret_hash 还没迁到当前钥」的钥匙。"""
+    result = await db.execute(
+        select(RuntimeKeyModel).where(
+            RuntimeKeyModel.status == "active",
+            RuntimeKeyModel.hash_key_version != current_key_generation(),
+        )
+    )
+    return list(result.scalars().all())
 
 
 async def create_runtime_key_record(
@@ -506,6 +565,7 @@ async def create_runtime_key_record(
     row = RuntimeKeyModel(
         key_id=key_id,
         secret_hash=sh,
+        hash_key_version=current_key_generation(),
         wallet_address=wallet_address.strip(),
         karma_identity_id=karma_identity_id.strip(),
         profile_id=(profile_id or "").strip() or None,
