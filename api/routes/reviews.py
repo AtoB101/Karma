@@ -31,7 +31,7 @@ from db.models.orm import (
     SkillDeveloperModel,
 )
 from db.session import get_db
-from services import auto_verification
+from services import auto_verification, compliance_revocation
 from services.governance_stake import assert_governor_active
 from services.identity_actor import resolve_actor_identity_id
 
@@ -344,3 +344,79 @@ async def precheck(
             contact_email=subject.get("contact_email"),
         )
     return {"kind": body.kind, **result}
+
+
+@router.get("/revocable")
+async def list_revocable(request: Request, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """哪些「已认证」可以被撤销（复核岗用）。
+
+    认证是终态，撤销要两名复核员或一名运维。这里先给出候选，并标出是否已经有人发起：
+    发起人不是自己的，就能直接确认。自己名下的认证不列（撤销自己会 403，列出来只是白点）。
+    """
+    actor = await _require_verifier(db, request)
+    pending = await compliance_revocation.open_proposals_by_target(db)
+    items: list[dict[str, Any]] = []
+    skipped_own = 0
+
+    entities = (
+        await db.execute(
+            select(EntityVerificationModel)
+            .where(EntityVerificationModel.status == "verified")
+            .order_by(EntityVerificationModel.verified_at.desc())
+            .limit(MAX_ITEMS_PER_KIND)
+        )
+    ).scalars().all()
+    for row in entities:
+        if row.identity_id == actor:
+            skipped_own += 1
+            continue
+        proposal = pending.get((compliance_revocation.TARGET_ENTITY, row.identity_id))
+        items.append(
+            {
+                "kind": compliance_revocation.TARGET_ENTITY,
+                "target_id": row.identity_id,
+                "display_name": row.legal_name,
+                "subject_type": row.subject_type,
+                "class": None,
+                "verified_at": _iso(row.verified_at),
+                "reviewer_identity_id": row.reviewer_identity_id,
+                "pending_revocation": compliance_revocation.proposal_view(proposal),
+                "can_confirm": bool(proposal and proposal.proposed_by != actor),
+            }
+        )
+
+    profiles = (
+        await db.execute(
+            select(IdentityRoleProfile)
+            .where(IdentityRoleProfile.kyc_status == "verified")
+            .order_by(IdentityRoleProfile.updated_at.desc())
+            .limit(MAX_ITEMS_PER_KIND)
+        )
+    ).scalars().all()
+    for row in profiles:
+        if row.owner_identity_id == actor:
+            skipped_own += 1
+            continue
+        proposal = pending.get((compliance_revocation.TARGET_ROLE_PROFILE_KYC, row.profile_id))
+        items.append(
+            {
+                "kind": compliance_revocation.TARGET_ROLE_PROFILE_KYC,
+                "target_id": row.profile_id,
+                "display_name": row.display_name,
+                "subject_type": None,
+                "class": row.class_,
+                "verified_at": None,
+                "reviewer_identity_id": None,
+                "pending_revocation": compliance_revocation.proposal_view(proposal),
+                "can_confirm": bool(proposal and proposal.proposed_by != actor),
+            }
+        )
+
+    return {
+        "items": items,
+        "counts": {
+            compliance_revocation.TARGET_ENTITY: len(entities),
+            compliance_revocation.TARGET_ROLE_PROFILE_KYC: len(profiles),
+        },
+        "skipped_own": skipped_own,
+    }

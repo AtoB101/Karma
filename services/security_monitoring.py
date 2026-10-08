@@ -204,6 +204,9 @@ class SecurityMonitoringEventType(str, Enum):
     # 仲裁员 resolve 争议 / 管理员切换安全模式与运营暂停——一旦发生即应可追溯、可告警。
     ARBITRATOR_ACTION = "arbitrator_action"
     ADMIN_CONTROL_ACTION = "admin_control_action"
+    # 认证撤销（2026-10-08 审计 O4）：企业 / 个体户认证一旦 verified 就是终态，撤销是唯一出口
+    # —— 谁发起、谁确认、因为什么，必须可追溯、可告警。
+    VERIFICATION_REVOKED = "verification_revoked"
 
 
 @dataclass

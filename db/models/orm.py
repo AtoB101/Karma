@@ -1199,6 +1199,30 @@ class EntityVerificationModel(Base):
     updated_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class VerificationRevocationRequestModel(Base):
+    """认证撤销的「两人复核」申请：一名复核员发起，另一名复核员确认后才生效。
+
+    为什么要落库：撤销是消费者保护动作，要可追溯（谁、什么时候、因为什么发起，
+    谁确认的），也要能抗住进程重启。单人撤销会把「一把 verifier key 打掉竞争对手
+    认证」变成可行的 DoS，所以复核员必须两人；运维白名单（brake-only admin）可以
+    单人直接执行，见 services/compliance_revocation.py。
+    """
+
+    __tablename__ = "verification_revocation_requests"
+
+    revocation_id: Mapped[str]         = mapped_column(String(64), primary_key=True, default=_uuid)
+    #: entity_verification | role_profile_kyc
+    target_kind:   Mapped[str]         = mapped_column(String(24), nullable=False)
+    target_id:     Mapped[str]         = mapped_column(String(128), nullable=False, index=True)
+    proposed_by:   Mapped[str]         = mapped_column(String(128), nullable=False)
+    reason:        Mapped[str]         = mapped_column(String(2000), nullable=False)
+    proposed_at:   Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow)
+    confirmed_by:  Mapped[str | None]  = mapped_column(String(128), nullable=True)
+    confirmed_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    #: pending | executed | expired | superseded
+    status:        Mapped[str]         = mapped_column(String(16), nullable=False, default="pending")
+
+
 class SkillDeveloperModel(Base):
     """技能开发者实名：一个可追责的自然人 + 开发者协议签名存证。
 

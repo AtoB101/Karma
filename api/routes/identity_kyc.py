@@ -8,6 +8,8 @@ kyc_status ∈ {none, pending, verified, rejected}，流转：
 - rejected → pending   (owner 重新提交)
 
 验证方必须是 verifier 类档案（class=verifier），且不得是 owner 本人。
+。``verified`` 是终态；唯一出口是合规撤销 ``verified → rejected``（复核员两人，
+  或运维白名单单人，见 services/compliance_revocation.py）。
 """
 from __future__ import annotations
 
@@ -20,7 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
+from services import compliance_revocation
 from services.governance_stake import assert_governor_active
+from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from services.identity_actor import resolve_actor_identity_id
 from services.identity_verification import (
     IdentityVerificationError,
@@ -45,6 +49,10 @@ class SubmitKycBody(BaseModel):
 class VerifyKycBody(BaseModel):
     decision: str = Field(..., pattern="^(verified|rejected)$")
     reason: str | None = Field(default=None, max_length=2000)
+
+
+class RevokeKycBody(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 async def _get_profile(db: AsyncSession, profile_id: str) -> IdentityRoleProfile:
@@ -149,3 +157,60 @@ async def verify_kyc(
     profile.updated_at = datetime.utcnow()
     await db.flush()
     return _serialize_kyc(profile)
+
+@router.post("/{profile_id}/kyc/revoke")
+async def revoke_kyc(
+    profile_id: str,
+    body: RevokeKycBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """合规撤销：把已通过的子身份 KYC 降回 rejected（唯一一条从认证终态出来的边）。
+
+    复核岗要两人（一人发起 + 另一人确认），运维白名单可单人直接执行。
+    """
+    validate_public_url_segment("profile_id", profile_id)
+    profile = await _get_profile(db, profile_id)
+    actor, privileged = await compliance_revocation.require_revoker(
+        db, request, owner_identity_id=profile.owner_identity_id, what="revoking KYC"
+    )
+    compliance_revocation.assert_can_revoke(profile.kyc_status, what="KYC")
+    reason = compliance_revocation.normalize_reason(body.reason)
+    outcome = await compliance_revocation.propose_or_confirm(
+        db,
+        target_kind=compliance_revocation.TARGET_ROLE_PROFILE_KYC,
+        target_id=profile_id,
+        actor=actor,
+        reason=reason,
+        privileged=privileged,
+    )
+    if not outcome["executed"]:
+        await db.commit()
+        return {
+            "revoked": False,
+            "state": "awaiting_second_reviewer",
+            "kyc_status": profile.kyc_status,
+            **outcome,
+        }
+
+    compliance_revocation.apply_kyc_revocation(
+        profile,
+        proposed_by=outcome["proposed_by"],
+        confirmed_by=outcome["confirmed_by"],
+        reason=outcome["reason"],
+    )
+    await db.flush()
+    await db.commit()
+    await db.refresh(profile)
+    record_security_event(
+        SecurityMonitoringEventType.VERIFICATION_REVOKED,
+        metadata={
+            "target_kind": compliance_revocation.TARGET_ROLE_PROFILE_KYC,
+            "target_id": profile_id,
+            "path": outcome["path"],
+            "proposed_by": outcome["proposed_by"],
+            "confirmed_by": outcome["confirmed_by"],
+            "reason": outcome["reason"][:200],
+        },
+    )
+    return {"revoked": True, "state": "revoked", "kyc_status": profile.kyc_status, **outcome}
