@@ -151,3 +151,39 @@ async def test_ops_allowlist_can_act_on_any_identity(db_session):
             assert ok.status_code == 200, ok.text
     finally:
         _restore(saved)
+
+@pytest.mark.asyncio
+async def test_delivery_session_rejects_cross_identity_actor(db_session):
+    """POD 会话由卖方发起：自报 seller_agent_id 不算，得是本人（G4）。"""
+    saved = _enable()
+    try:
+        async with _client(db_session) as client:
+            bad = await client.post(
+                "/v1/delivery-verification/sessions",
+                json={
+                    "task_id": "task-pod-cross-001",
+                    "scene_id": "physical_triple",
+                    "seller_agent_id": "owner1",
+                    "buyer_agent_id": "buyer1",
+                },
+                headers=H_OTHER,
+            )
+            assert bad.status_code == 403, bad.text
+    finally:
+        _restore(saved)
+
+
+@pytest.mark.asyncio
+async def test_delivery_buyer_confirm_rejects_cross_identity_actor(db_session):
+    """买方验收是放款闸门输入：自报 actor_agent_id 不算（G4）。"""
+    saved = _enable()
+    try:
+        async with _client(db_session) as client:
+            bad = await client.post(
+                "/v1/delivery-verification/vid-cross-001/buyer-confirm",
+                json={"actor_agent_id": "owner1", "confirm": True},
+                headers=H_OTHER,
+            )
+            assert bad.status_code == 403, bad.text
+    finally:
+        _restore(saved)

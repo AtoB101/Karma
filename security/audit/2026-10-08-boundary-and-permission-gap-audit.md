@@ -15,7 +15,7 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 | G1 | `/v1/identities/*` 全模块无归属校验（含改**他人** automation-policy） | 高 | **已落地（本轮）** |
 | G2 | `/v1/identity/{id}/credentials\|class` 无归属校验（MiniApp 身份库，可代他人签发 / 吊销凭证、改身份类别） | 高 | **已落地（本轮）** |
 | G3 | `GET /v1/capacity/{id}` 无归属校验（可读他人额度 / 锁仓） | 中 | **已落地（本轮）** |
-| G4 | POD 交付验证：`actor_agent_id` 自报，未绑会话身份 | 中 | 未落地 |
+| G4 | POD 交付验证：`actor_agent_id` 自报，未绑会话身份 | 中 | **已落地（本轮）** |
 | G5 | 治理岗「发给他人」/「收回」无 API（`require_governance_verifier` 零调用、`GOVERNANCE_OPEN_JOIN` 关） | 中 | 未落地 |
 | G6 | 换绑操作钱包无「刷脸 / 应急」闸门（已绑再换只验新钱包签名） | 中 | 未落地 |
 | G7 | `GET /v1/security/policies*`、`/v1/arbitration/pool`、`/v1/receipts/*` 等读接口只要登录 | 低 | 未落地 |
@@ -130,6 +130,20 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 `apply-silent-default` —— 其中 `buyer-confirm` / `verify` 是结算「买方验收」闸门的输入。
 同一仓里已有现成范式（`services/settlement_party_access.require_actor`，`progress.py` 在用），本模块没用。
 
+### G4 —— 已落地（本轮）
+
+与 G1/G2/G3 同一口径：当事人不再靠请求体**自报**，而是校验「调用者 == 当事人本人」。
+
+- `api/routes/delivery_verification.py` 的 6 个**写 / 推进**端点补 `request` + 守卫：
+  `POST /sessions`（按 `body.seller_agent_id`）、`/{id}/seller-ship`、`/{id}/logistics-intake`、
+  `/{id}/proofs`、`/{id}/logistics-deliver`、`/{id}/buyer-confirm`（均按 `body.actor_agent_id`）——
+  统一 `await require_identity_owner(db, request, actor, what=...)`（跨身份 403，运维白名单放行）。
+- 纯读端点（`GET /sessions`、`GET /{id}`、`GET /{id}/capture-challenge`）与 `verify` /
+  `apply-silent-default` 本轮未动（前者最小披露；后者属 G5 治理动作范围，另行处理）。
+- 回归：`tests/unit/test_identity_owner_binding_api.py` 追加 2 条（跨身份发起 POD 会话 403、
+  跨身份 `buyer-confirm` 403）；`test_identity_owner_binding_api.py` + `test_delivery_verification.py`
+  共 **16 passed**。
+
 ### G5（中）治理岗「发给他人」/「收回」没有 API
 
 - `services/actor_guards.require_governance_verifier`（`:90`）定义了「治理身份发放方」闸门，
@@ -212,7 +226,7 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 1. **G1 / G2 / G3**：给三处无授权路由补 owner 校验（复用 `resolve_actor_identity_id`；
    与现有 `require_ledger_identity` / `_require_owner` 同口径），并加回归测试钉住 403。
    G1 的 `automation-policy` 必须优先 —— 它是资金相邻写。
-2. **G4 / G6**：把 POD 的当事人从「自报」改成「会话身份」；换绑钱包加「已绑需刷脸 / 应急」分支。
+2. **G6**：换绑钱包加「已绑需刷脸 / 应急」分支（G4 已落地）。
 3. **G5**：接上 `require_governance_verifier` —— 开一条「治理发放方给他人开 / 收回 verifier·arbitrator 岗」
    的路由（含退岗动作），并把它接到操作台。
 4. **G7 / G8 / G9**：读接口明确口径（收紧或写「公示」并加测试）、`status` 加枚举、刷脸档案文案区分。
