@@ -412,8 +412,12 @@ def empty_view(identity_id: str) -> dict[str, Any]:
     }
 
 
-def owner_view(row: Any) -> dict[str, Any]:
-    """本人视图：不回传密文包本体（几 MB），只给长度与摘要。"""
+def owner_view(row: Any, revocation: dict[str, Any] | None = None) -> dict[str, Any]:
+    """本人视图：不回传密文包本体（几 MB），只给长度与摘要。
+
+    ``revocation`` = 已执行的合规撤销留痕（services/compliance_revocation）。认证被撤销
+    是本人必须看得见的事，所以和 ``status`` 一起回。
+    """
     cipher = row.package_cipher or ""
     return {
         "identity_id": row.identity_id,
@@ -441,14 +445,19 @@ def owner_view(row: Any) -> dict[str, Any]:
         "website_verified": bool(row.website_verified_at),
         "reviewer_identity_id": row.reviewer_identity_id,
         "review_note": row.review_note,
+        "revocation": revocation,
         "verified_at": _iso(row.verified_at),
         "submitted_at": _iso(row.submitted_at),
         "updated_at": _iso(row.updated_at),
     }
 
 
-def public_view(row: Any) -> dict[str, Any]:
-    """对外只暴露工商信息与状态 —— 这是尽调要看的部分，不含密文与联系方式。"""
+def public_view(row: Any, revocation: dict[str, Any] | None = None) -> dict[str, Any]:
+    """对外只暴露工商信息与状态 —— 这是尽调要看的部分，不含密文与联系方式。
+
+    ``revocation`` = 已执行的合规撤销留痕（时间 / 理由 / 几个人定的），**不含操作人身份**。
+    消费者有权知道「这家的认证被撤销过」，否则一次误判会永远留疤。
+    """
     return {
         "identity_id": row.identity_id,
         "status": row.status,
@@ -462,6 +471,7 @@ def public_view(row: Any) -> dict[str, Any]:
         "website_verified": bool(row.website_verified_at),
         "website_verified_at": _iso(row.website_verified_at),
         "verified_at": _iso(row.verified_at),
+        "revocation": revocation,
     }
 
 

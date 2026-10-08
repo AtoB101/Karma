@@ -52,6 +52,30 @@
     return i18n && i18n.T ? i18n.T(zh) : zh;
   }
 
+
+  /** 带占位符的整句译文：{0}/{1} 由调用方填（拼半句查不到译表）。 */
+  function Tf(zh) {
+    var i18n = window.CYBER_I18N;
+    if (i18n && i18n.Tf) return i18n.Tf.apply(i18n, arguments);
+    var out = T(zh);
+    for (var i = 1; i < arguments.length; i += 1) {
+      out = out.split("{" + (i - 1) + "}").join(arguments[i] == null ? "" : String(arguments[i]));
+    }
+    return out;
+  }
+
+  /** 合规撤销的一句话：什么时候、几个人定的、因为什么，并说明可以重新提交。 */
+  function revocationLine(rev) {
+    var when = String((rev && rev.revoked_at) || "").replace("T", " ").slice(0, 16) || "—";
+    var who = rev && rev.review === "operator" ? T("平台合规操作") : T("两名复核员确认");
+    return Tf(
+      "认证已被合规撤销（{0} · {1}）：{2}；改好资料可以重新提交。",
+      when,
+      who,
+      (rev && rev.reason) || "—"
+    );
+  }
+
   function esc(value) {
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
@@ -149,8 +173,10 @@
       none: "未认证", draft: "草稿", pending: "审核中", verified: "已认证", rejected: "已驳回",
     };
     if (badge) {
-      badge.textContent = labels[state && state.status] || "未认证";
-      badge.classList.toggle("ok", !!state && state.status === "verified");
+      var revoked = !!(state && state.revocation);
+      badge.textContent = revoked ? T("已被合规撤销") : labels[state && state.status] || "未认证";
+      badge.classList.toggle("ok", !revoked && !!state && state.status === "verified");
+      badge.classList.toggle("bad", revoked);
     }
     var out = byId("ent-out");
     if (out) out.textContent = JSON.stringify(state || {}, null, 2);
@@ -161,7 +187,10 @@
       if (d && !d.value) d.value = state.official_domain;
     }
     if (state.website_verified) say(byId("ent-site-state"), "官网已校验", true);
-    if (state.status === "rejected" && state.review_note) {
+    if (state.status === "rejected" && state.revocation) {
+      // 合规撤销：把「什么时候 / 几个人定的 / 因为什么」摊开，并说明能重新提交。
+      say(byId("ent-status"), revocationLine(state.revocation), false);
+    } else if (state.status === "rejected" && state.review_note) {
       say(byId("ent-status"), "被驳回：" + state.review_note, false);
     }
     if (state.status === "pending") say(byId("ent-status"), "已提交，等待复核", null);

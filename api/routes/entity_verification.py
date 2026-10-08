@@ -124,6 +124,16 @@ async def _load(db: AsyncSession, identity_id: str) -> EntityVerificationModel |
     return await db.get(EntityVerificationModel, identity_id)
 
 
+async def _revocation_trace(db: AsyncSession, identity_id: str) -> dict[str, Any] | None:
+    """已执行的合规撤销留痕（本人视图与公开视图共用；不含操作人身份）。"""
+    row = await compliance_revocation.latest_executed(
+        db,
+        target_kind=compliance_revocation.TARGET_ENTITY,
+        target_id=identity_id,
+    )
+    return compliance_revocation.public_revocation_view(row) if row is not None else None
+
+
 async def _assert_domain_unclaimed(
     db: AsyncSession, *, identity_id: str, domain: str
 ) -> None:
@@ -157,9 +167,10 @@ async def get_entity_verification(
         if actor == identity_id:
             return empty_view(identity_id)
         return {"identity_id": identity_id, "status": "none", "verified_at": None}
+    trace = await _revocation_trace(db, identity_id)
     if actor == identity_id:
-        return owner_view(row)
-    return public_view(row)
+        return owner_view(row, revocation=trace)
+    return public_view(row, revocation=trace)
 
 
 @router.post("/{identity_id}/entity-verification/website-challenge")
@@ -380,4 +391,23 @@ async def get_public_entity(identity_id: str, db: AsyncSession = Depends(get_db)
     row = await _load(db, identity_id)
     if row is None:
         raise HTTPException(404, "entity not found")
-    return public_view(row)
+    return public_view(row, revocation=await _revocation_trace(db, identity_id))
+
+
+@public_router.get("/{identity_id}/revocations")
+async def get_public_entity_revocations(
+    identity_id: str, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """这个主体认证被合规撤销过的全部记录（新的在前）。
+
+    公开可读：消费者与尽调方有权知道「这家的认证被撤销过几次、因为什么」，
+    而不是只在被撤销的那一瞬间看过一眼。留痕里**不含**操作人身份。
+    """
+    validate_public_url_segment("identity_id", identity_id)
+    rows = await compliance_revocation.executed_history(
+        db,
+        target_kind=compliance_revocation.TARGET_ENTITY,
+        target_id=identity_id,
+    )
+    items = [compliance_revocation.public_revocation_view(r) for r in rows]
+    return {"identity_id": identity_id, "total": len(items), "items": items}

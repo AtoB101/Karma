@@ -48,6 +48,35 @@
     });
   }
 
+  /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
+  function T(zh) {
+    var i18n = window.CYBER_I18N;
+    return i18n && i18n.T ? i18n.T(zh) : zh;
+  }
+
+  /** 带占位符的整句译文：{0} 由调用方填（拼半句查不到译表）。 */
+  function Tf(zh) {
+    var i18n = window.CYBER_I18N;
+    if (i18n && i18n.Tf) return i18n.Tf.apply(i18n, arguments);
+    var out = T(zh);
+    for (var i = 1; i < arguments.length; i += 1) {
+      out = out.split("{" + (i - 1) + "}").join(arguments[i] == null ? "" : String(arguments[i]));
+    }
+    return out;
+  }
+
+  /** 合规撤销的一句话：什么时候、几个人定的、因为什么，并说明可以重新提交。 */
+  function revocationLine(rev) {
+    var when = String((rev && rev.revoked_at) || "").replace("T", " ").slice(0, 16) || "—";
+    var who = rev && rev.review === "operator" ? T("平台合规操作") : T("两名复核员确认");
+    return Tf(
+      "认证已被合规撤销（{0} · {1}）：{2}；改好资料可以重新提交。",
+      when,
+      who,
+      (rev && rev.reason) || "—"
+    );
+  }
+
   function say(node, text, ok) {
     if (!node) return;
     node.textContent = text == null ? "—" : String(text);
@@ -180,7 +209,8 @@
     var rows = profiles || [];
     var first = rows[0] || null;
     if (badge) {
-      badge.textContent = first ? KYC_LABELS[first.kyc_status] || first.kyc_status : "未提交";
+      var revokedFirst = !!(first && (first.kyc_payload || {}).verification && (first.kyc_payload || {}).verification.kind === "compliance_revocation");
+      badge.textContent = first ? (revokedFirst ? T("已被合规撤销") : KYC_LABELS[first.kyc_status] || first.kyc_status) : "未提交";
       badge.classList.toggle("ok", !!first && first.kyc_status === "verified");
       badge.classList.toggle("bad", !!first && first.kyc_status === "rejected");
     }
@@ -195,8 +225,16 @@
         var payload = p.kyc_payload || {};
         var who = p.display_name || payload.business_name || p.profile_id;
         var where = payload.business_address ? " · " + esc(payload.business_address) : "";
-        var note = payload.verification && payload.verification.reason
-          ? "<br /><span style=\"color:#f87171\">驳回原因：" + esc(payload.verification.reason) + "</span>"
+        var verdict = payload.verification || {};
+        if (verdict.kind === "compliance_revocation") status = T("已被合规撤销");
+        var note = verdict.reason
+          ? "<br /><span style=\"color:#f87171\">" +
+            esc(
+              verdict.kind === "compliance_revocation"
+                ? revocationLine(verdict)
+                : Tf("驳回原因：{0}", verdict.reason)
+            ) +
+            "</span>"
           : "";
         return "<li><b>" + esc(who) + "</b> · " + esc(status) + where + note + "</li>";
       })

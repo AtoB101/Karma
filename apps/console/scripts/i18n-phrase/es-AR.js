@@ -2878,3 +2878,10 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "撤销申请已记录：还需要另一名复核员确认": "Solicitud de revocación registrada: aún falta la confirmación de otro revisor",
   "撤销失败": "No se pudo revocar",
 });
+// compliance-revocation: 对外 / 对本人的撤销留痕
+Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
+  "已被合规撤销": "Revocada por cumplimiento",
+  "两名复核员确认": "Confirmada por dos revisores",
+  "平台合规操作": "Acción de cumplimiento de la plataforma",
+  "认证已被合规撤销（{0} · {1}）：{2}；改好资料可以重新提交。": "Esta verificación se revocó por cumplimiento ({0} · {1}): {2}. Corrige los documentos y puedes volver a presentarla.",
+});

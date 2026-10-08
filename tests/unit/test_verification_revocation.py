@@ -393,3 +393,138 @@ async def test_revocation_emits_security_event(
     assert kw["metadata"]["target_id"] == "rev-entity-event"
     assert kw["metadata"]["confirmed_by"] == OPERATOR
     assert kw["metadata"]["path"] == "operator"
+
+
+# ---------------------------------------------------------------------------
+# 对外留痕（O4 的「消费者与被撤销方看得见」那一半）
+# ---------------------------------------------------------------------------
+
+
+def _submit_body() -> dict:
+    """重新提交一次主体认证（撤销之后改好再交，走的就是这条路）。"""
+    return {
+        "subject_type": "business",
+        "legal_name": "示例数据科技有限公司",
+        "registration_no": "91330100MA2ABCDE12",
+        "jurisdiction": "CN-ZJ",
+        "legal_rep": "张三",
+        "official_domain": DOMAIN,
+        "contact_email": "ops@example.com",
+        "service_category": "data_api",
+        "service_scope": "交易所行情与地址风控数据接口，分钟级更新，按次计费",
+        "certifications": [{"kind": "BUSINESS_LICENSE", "name": "营业执照", "digest": DIGEST_A}],
+        "doc_digest": DIGEST_A,
+        "package_digest": DIGEST_C,
+        "package_cipher": CIPHER,
+        "encryption": dict(ENC),
+        "extracted": {"consent": True, "legal_name": "示例数据科技有限公司"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_public_view_exposes_revocation_trace(client: AsyncClient, db_session: AsyncSession):
+    await _verifier(client, VERIFIER_A)
+    await _seed_entity(db_session, "rev-entity-public")
+
+    r = await client.get("/v1/entities/rev-entity-public")
+    assert r.json()["revocation"] is None, "没撤销过就不该有留痕"
+
+    await _revoke_entity(client, OPERATOR, "rev-entity-public")
+
+    r = await client.get("/v1/entities/rev-entity-public")
+    assert r.status_code == 200, r.text
+    public = r.json()
+    assert public["status"] == "rejected"
+    assert public["verified_at"] is None
+    rev = public["revocation"]
+    assert rev["reason"] == REASON
+    assert rev["review"] == "operator"
+    assert rev["can_resubmit"] is True
+    assert rev["revoked_at"]
+    # 消费者看得见「被撤销过、因为什么」，看不见「谁撤销的」
+    assert "proposed_by" not in rev and "confirmed_by" not in rev
+    assert OPERATOR not in r.text and VERIFIER_A not in r.text
+
+
+@pytest.mark.asyncio
+async def test_owner_view_carries_revocation_trace(client: AsyncClient, db_session: AsyncSession):
+    await _seed_entity(db_session, "rev-entity-owner")
+    await _revoke_entity(client, OPERATOR, "rev-entity-owner")
+
+    r = await client.get(
+        "/v1/identity/rev-entity-owner/entity-verification", headers=_h("rev-entity-owner")
+    )
+    assert r.status_code == 200, r.text
+    rev = r.json()["revocation"]
+    assert rev["reason"] == REASON and rev["review"] == "operator"
+
+
+@pytest.mark.asyncio
+async def test_public_revocation_history_keeps_every_entry(
+    client: AsyncClient, db_session: AsyncSession
+):
+    await _verifier(client, VERIFIER_A)
+    await _seed_entity(db_session, "rev-entity-history")
+    await _revoke_entity(client, OPERATOR, "rev-entity-history")
+
+    # 改好重交 → 重新认证 → 再被撤销：两次都要留痕
+    r = await client.post(
+        "/v1/identity/rev-entity-history/entity-verification/submit",
+        json=_submit_body(),
+        headers=_h("rev-entity-history"),
+    )
+    assert r.status_code == 200, r.text
+    r = await client.post(
+        "/v1/identity/rev-entity-history/entity-verification/verify",
+        json={"decision": "verified", "reason": "材料已补齐"},
+        headers=_h(VERIFIER_A),
+    )
+    assert r.status_code == 200, r.text
+    await _revoke_entity(client, OPERATOR, "rev-entity-history", reason="第二次：官网域名被转卖")
+
+    r = await client.get("/v1/entities/rev-entity-history/revocations")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 2, body
+    assert body["items"][0]["reason"] == "第二次：官网域名被转卖"
+    assert all(item["review"] == "operator" for item in body["items"])
+    # 历史里同样只有「几个人定的」，没有「哪几个人」
+    assert OPERATOR not in r.text
+
+
+@pytest.mark.asyncio
+async def test_kyc_view_exposes_revocation_trace(client: AsyncClient, db_session: AsyncSession):
+    from services import compliance_revocation
+
+    await _verifier(client, VERIFIER_A)
+    await _verifier(client, VERIFIER_B)
+    pid = await _verified_kyc_profile(client, db_session, owner="rev-owner-kyc")
+
+    r = await client.post(
+        f"/v1/identity/role-profiles/{pid}/kyc/revoke",
+        json={"reason": REASON},
+        headers=_h(VERIFIER_A),
+    )
+    assert r.json()["revoked"] is False
+    r = await client.post(
+        f"/v1/identity/role-profiles/{pid}/kyc/revoke",
+        json={"reason": REASON},
+        headers=_h(VERIFIER_B),
+    )
+    assert r.json()["revoked"] is True, r.text
+
+    row = await db_session.get(IdentityRoleProfile, pid)
+    await db_session.refresh(row)
+    view = compliance_revocation.kyc_revocation_view(row.kyc_payload)
+    assert view["reason"] == REASON
+    assert view["review"] == "two_reviewers"
+    assert view["can_resubmit"] is True
+
+    # 本人看自己的档案：载荷里带着这段留痕（操作台据此显示「已被合规撤销」）
+    r = await client.get(
+        f"/v1/identity/role-profiles/{pid}", headers=_h("rev-owner-kyc")
+    )
+    assert r.status_code == 200, r.text
+    verdict = r.json()["kyc_payload"]["verification"]
+    assert verdict["kind"] == "compliance_revocation"
+    assert verdict["path"] == "two_person"

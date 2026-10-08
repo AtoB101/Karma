@@ -95,6 +95,9 @@ def _serialize_kyc(profile: IdentityRoleProfile) -> dict:
         "kyc_status": profile.kyc_status,
         "kyc_payload": profile.kyc_payload or {},
         "updated_at": profile.updated_at.isoformat() if profile.updated_at else None,
+        # 合规撤销的留痕（时间 / 理由 / 几个人定的）—— 与公开视图同形，
+        # 不含操作人身份；不是合规撤销时是 None。
+        "revocation": compliance_revocation.kyc_revocation_view(profile.kyc_payload),
     }
 
 
@@ -198,6 +201,7 @@ async def revoke_kyc(
         proposed_by=outcome["proposed_by"],
         confirmed_by=outcome["confirmed_by"],
         reason=outcome["reason"],
+        path=outcome["path"],
     )
     await db.flush()
     await db.commit()

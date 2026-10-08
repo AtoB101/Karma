@@ -218,6 +218,82 @@ def proposal_view(row: VerificationRevocationRequestModel | None) -> dict[str, A
     }
 
 
+def review_kind(proposed_by: str | None, confirmed_by: str | None) -> str:
+    """这次撤销是几个人定的 —— 只给「几个人」，不给「哪几个人」。"""
+    if proposed_by and proposed_by == confirmed_by:
+        return "operator"
+    return "two_reviewers"
+
+
+#: 内部路径名 -> 对外口径（``two_person`` 是复核台的路由名，对外统一叫 two_reviewers）。
+_REVIEW_BY_PATH = {"operator": "operator", "two_person": "two_reviewers"}
+
+
+def public_revocation_view(row: VerificationRevocationRequestModel) -> dict[str, Any]:
+    """合规撤销的**公开**留痕：什么时候、因为什么、几个人定的。
+
+    操作人身份（``proposed_by`` / ``confirmed_by``）**不外发** —— Karma 身份号是化名的，
+    但公开出来就是把「谁撤销了我」摊在街上，报复面太大。本人视图与公开视图同形，
+    差别由调用方决定（见 ``owner_view`` / ``public_view``）。
+    """
+    at = row.confirmed_at or row.proposed_at
+    return {
+        "revoked_at": at.isoformat() if at else None,
+        "reason": row.reason,
+        "review": review_kind(row.proposed_by, row.confirmed_by),
+        "can_resubmit": True,
+    }
+
+
+async def latest_executed(
+    db: AsyncSession, *, target_kind: str, target_id: str
+) -> VerificationRevocationRequestModel | None:
+    """最近一次**已执行**的合规撤销（没有就 None）。"""
+    return (
+        await db.execute(
+            select(VerificationRevocationRequestModel)
+            .where(
+                VerificationRevocationRequestModel.target_kind == target_kind,
+                VerificationRevocationRequestModel.target_id == target_id,
+                VerificationRevocationRequestModel.status == "executed",
+            )
+            .order_by(VerificationRevocationRequestModel.confirmed_at.desc())
+        )
+    ).scalars().first()
+
+
+async def executed_history(
+    db: AsyncSession, *, target_kind: str, target_id: str, limit: int = 50
+) -> list[VerificationRevocationRequestModel]:
+    """全部已执行的合规撤销（新的在前）—— 撤销过几次都留痕。"""
+    rows = (
+        await db.execute(
+            select(VerificationRevocationRequestModel)
+            .where(
+                VerificationRevocationRequestModel.target_kind == target_kind,
+                VerificationRevocationRequestModel.target_id == target_id,
+                VerificationRevocationRequestModel.status == "executed",
+            )
+            .order_by(VerificationRevocationRequestModel.confirmed_at.desc())
+        )
+    ).scalars().all()
+    return list(rows[:limit])
+
+
+def kyc_revocation_view(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """从 KYC 载荷里取出合规撤销留痕（不是合规撤销就 None）。"""
+    verdict = (payload or {}).get("verification") or {}
+    if verdict.get("kind") != "compliance_revocation":
+        return None
+    return {
+        "revoked_at": verdict.get("verified_at"),
+        "reason": verdict.get("reason"),
+        "review": _REVIEW_BY_PATH.get(verdict.get("path"))
+        or review_kind(verdict.get("proposed_by"), verdict.get("verified_by")),
+        "can_resubmit": True,
+    }
+
+
 async def open_proposals_by_target(
     db: AsyncSession,
 ) -> dict[tuple[str, str], VerificationRevocationRequestModel]:
@@ -245,7 +321,7 @@ def apply_entity_revocation(
 
 
 def apply_kyc_revocation(
-    profile: Any, *, proposed_by: str, confirmed_by: str, reason: str
+    profile: Any, *, proposed_by: str, confirmed_by: str, reason: str, path: str
 ) -> None:
     """把子身份 KYC 从 verified 降回 rejected，结论写进载荷（与复核结论同一处）。"""
     payload = dict(profile.kyc_payload or {})
@@ -256,6 +332,7 @@ def apply_kyc_revocation(
         "proposed_by": proposed_by,
         "verified_by": confirmed_by,
         "verified_at": datetime.utcnow().isoformat(),
+        "path": path,
     }
     profile.kyc_status = "rejected"
     profile.kyc_payload = payload

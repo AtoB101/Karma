@@ -2876,3 +2876,10 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "撤销申请已记录：还需要另一名复核员确认": "Revocation request recorded: another reviewer must still confirm it",
   "撤销失败": "Revocation failed",
 });
+// compliance-revocation: 对外 / 对本人的撤销留痕
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "已被合规撤销": "Revoked for compliance",
+  "两名复核员确认": "Confirmed by two reviewers",
+  "平台合规操作": "Platform compliance action",
+  "认证已被合规撤销（{0} · {1}）：{2}；改好资料可以重新提交。": "This verification was revoked for compliance ({0} · {1}): {2}; fix the documents and you can submit again.",
+});

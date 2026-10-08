@@ -138,6 +138,12 @@ KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径�
     被撤销方按既有流程可重新提交。
   - 操作台复核台加「可撤销的认证」模式：列出可撤销项（自动跳过本人）、发起 / 确认撤销、
     理由输入框；提示文案五语齐（en / ja / ko / es-AR / es-SV）。
+  - **对外留痕（消费者这一侧）**：`public_view` / `owner_view` 都带 `revocation`（时间 / 理由 /
+    几个人定的 / 可重新提交），公开接口 `GET /v1/entities/{id}` 直接可见；
+    `GET /v1/entities/{id}/revocations` 给全部已执行的撤销历史（新的在前，撤销几次留几次）。
+    留痕**不含操作人身份**（kid 是化名，公开出来就是报复面）。操作台主体认证页与个体助理页在
+    `rejected` + 有留痕时显示「已被合规撤销（时间 · 两个人确认/平台合规操作）：理由」，
+    并写明「改好资料可以重新提交」。KYC 一侧同形，经 `_serialize_kyc.revocation` 下发。
   - 测试：`tests/unit/test_verification_revocation.py` 13 条（两人确认 / 同人 409 / 非 verified 409 /
     理由 422 / 本人 403 / 24h 过期 / 运维单人 / 安全事件）。
 
@@ -154,6 +160,10 @@ KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径�
   撤销 + 操作台套件 **87 passed**；词表语言纯净度 **17 passed**；静态资源版本串 **4 passed**；
   `node tests/js/test_console_notices.cjs` **39/39**；
   `node tests/js/test_console_reviews_revocable.cjs` **233/233**（撤销屏渲染 / 理由闸门 / 两条撤销接口 / 取消确认）。
+- 回归（对外留痕，`28c6f7a` 之后的这一批）：`tests/unit/test_verification_revocation.py` **17 passed**
+  （新增：公开视图带留痕且不含操作人身份 / 本人视图带留痕 / 撤销历史两条都在 / KYC 留痕与
+  `path=two_person` → 对外口径 `two_reviewers`）；认证 + 治理 + 刷脸 + 词表纯净度 + 版本串 **56 passed**；
+  操作台静态套件 **43 passed**；`tests/js/*.cjs` 全过。
 - 提交：`28c6f7a`（feat(auth)：合规撤销 —— 认证终态的唯一出口）、
   `9cf3962`（feat(console)：复核台加「可撤销的认证」入口）。
 - CI（`9cf3962`）：6/6 全绿 —— Deploy to VPS / Forge CI / Python tests / Security Baseline Guard / Security CI / Visibility Guard。
