@@ -20,6 +20,7 @@ from services.identity_activation import activation_of
 from services.chain import wallet_lock
 from services.capacity_ledger import assert_can_release_locked_funds, assert_capacity_invariants
 from services.identity_actor import resolve_actor_identity_id
+from services.identity_owner_access import require_identity_owner
 from services.identity_wallet_binding import get_bound_wallet
 from services import seller_stake
 from services.ledger_party_access import require_ledger_identity
@@ -45,8 +46,13 @@ class AllocateBody(BaseModel):
 
 
 @router.get("/{identity_id}", response_model=CapacityState)
-async def get_capacity(identity_id: str, db: AsyncSession = Depends(get_db)):
+async def get_capacity(
+    identity_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
     validate_public_url_segment("identity_id", identity_id)
+    await require_identity_owner(db, request, identity_id, what="this capacity ledger")
     row = await db.get(CapacityModel, identity_id)
     if not row:
         return CapacityState(identity_id=identity_id)

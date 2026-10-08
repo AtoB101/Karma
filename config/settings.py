@@ -264,6 +264,11 @@ class Settings(BaseSettings):
     # When true with AUTH_ENFORCE_PROTECTED_ROUTES, capacity lock/release and voucher create/verify/accept
     # bind the authenticated actor to the ledger identity or asserted voucher party (buyer/seller).
     ledger_require_party_actor: bool = True
+    # When true with AUTH_ENFORCE_PROTECTED_ROUTES, identity profile / sub-identity /
+    # identity-card credential + class writes, and capacity reads, bind the authenticated
+    # actor to the target identity (or the platform ops allowlist). See
+    # services/identity_owner_access.py.
+    identity_require_owner_binding: bool = True
     # P1 — bind typed execution receipt extensions to voucher.task_type when a settlement links a voucher.
     receipt_template_voucher_binding: bool = True
     progress_require_signature: bool = True
@@ -619,6 +624,12 @@ class Settings(BaseSettings):
             if not self.settlement_require_party_actor:
                 raise ValueError(
                     "SETTLEMENT_REQUIRE_PARTY_ACTOR must be true when APP_ENV is production",
+                )
+            if not self.identity_require_owner_binding:
+                raise ValueError(
+                    "IDENTITY_REQUIRE_OWNER_BINDING must be true when APP_ENV is production "
+                    "(otherwise any logged-in identity can rewrite another identity's profile, "
+                    "credentials, class or automation policy)",
                 )
             if self.openclaw_relax_delivery_signatures is True:
                 raise ValueError(

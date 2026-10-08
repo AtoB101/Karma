@@ -4,7 +4,7 @@ from __future__ import annotations
 import secrets
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from core.schemas import IdentityProfile, SubIdentity, SubIdentityStatus, SubIde
 from db.models.orm import IdentityProfileModel, SubIdentityModel, VoucherModel
 from db.session import get_db
 from services.agent_automation_policy import get_automation_policy, policy_to_dict, upsert_automation_policy
+from services.identity_owner_access import require_identity_owner
 from services.identity_projection import (
     identity_id_from_did_agent,
     is_did_projection_identity_id,
@@ -44,6 +45,7 @@ class ProjectFromDidRequest(BaseModel):
 @router.post("/project-from-did", response_model=IdentityProfile)
 async def project_identity_from_did(
     body: ProjectFromDidRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -62,6 +64,7 @@ async def project_identity_from_did(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
+    await require_identity_owner(db, request, projection.identity_id, what="this identity", also_ids={projection.did_agent_address})
     row = await db.get(IdentityProfileModel, projection.identity_id)
     if row is None:
         # Also reject conflicting on_chain_did bound to another identity
@@ -104,9 +107,11 @@ async def project_identity_from_did(
 @router.post("/{identity_id}/profile/init", response_model=IdentityProfile)
 async def init_identity_profile(
     identity_id: str,
+    request: Request,
     body: InitProfileRequest = InitProfileRequest(),
     db: AsyncSession = Depends(get_db),
 ):
+    await require_identity_owner(db, request, identity_id, what="this identity profile")
     row = await db.get(IdentityProfileModel, identity_id)
     if row:
         from services.identity_reputation import open_identity_ledger
@@ -147,7 +152,8 @@ async def init_identity_profile(
 
 
 @router.get("/{identity_id}/profile", response_model=IdentityProfile)
-async def get_identity_profile(identity_id: str, db: AsyncSession = Depends(get_db)):
+async def get_identity_profile(identity_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_identity_owner(db, request, identity_id, what="this identity profile")
     row = await db.get(IdentityProfileModel, identity_id)
     if not row:
         raise HTTPException(404, f"Identity profile {identity_id} not found")
@@ -155,7 +161,8 @@ async def get_identity_profile(identity_id: str, db: AsyncSession = Depends(get_
 
 
 @router.post("/{identity_id}/rotate-display-id", response_model=IdentityProfile)
-async def rotate_display_id(identity_id: str, db: AsyncSession = Depends(get_db)):
+async def rotate_display_id(identity_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_identity_owner(db, request, identity_id, what="this identity profile")
     row = await db.get(IdentityProfileModel, identity_id)
     if not row:
         raise HTTPException(404, f"Identity profile {identity_id} not found")
@@ -167,8 +174,9 @@ async def rotate_display_id(identity_id: str, db: AsyncSession = Depends(get_db)
 
 
 @router.get("/{identity_id}/agent-card-id")
-async def get_agent_card_id_projection(identity_id: str, db: AsyncSession = Depends(get_db)):
+async def get_agent_card_id_projection(identity_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Return AgentCard.agent_id projection for this identity (DID SSOT)."""
+    await require_identity_owner(db, request, identity_id, what="this identity")
     row = await db.get(IdentityProfileModel, identity_id)
     if not row:
         raise HTTPException(404, f"Identity profile {identity_id} not found")
@@ -188,7 +196,8 @@ async def get_agent_card_id_projection(identity_id: str, db: AsyncSession = Depe
 
 
 @router.post("/{identity_id}/sub-identities", response_model=SubIdentity, status_code=201)
-async def create_sub_identity(identity_id: str, body: CreateSubIdentityRequest, db: AsyncSession = Depends(get_db)):
+async def create_sub_identity(identity_id: str, body: CreateSubIdentityRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_identity_owner(db, request, identity_id, what="these sub-identities")
     active_count_result = await db.execute(
         select(SubIdentityModel).where(
             SubIdentityModel.parent_identity_id == identity_id,
@@ -212,7 +221,8 @@ async def create_sub_identity(identity_id: str, body: CreateSubIdentityRequest, 
 
 
 @router.get("/{identity_id}/sub-identities", response_model=list[SubIdentity])
-async def list_sub_identities(identity_id: str, db: AsyncSession = Depends(get_db)):
+async def list_sub_identities(identity_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_identity_owner(db, request, identity_id, what="these sub-identities")
     result = await db.execute(
         select(SubIdentityModel)
         .where(SubIdentityModel.parent_identity_id == identity_id)
@@ -223,7 +233,8 @@ async def list_sub_identities(identity_id: str, db: AsyncSession = Depends(get_d
 
 
 @router.delete("/{identity_id}/sub-identities/{sub_identity_id}", response_model=SubIdentity)
-async def delete_sub_identity(identity_id: str, sub_identity_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_sub_identity(identity_id: str, sub_identity_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    await require_identity_owner(db, request, identity_id, what="these sub-identities")
     row = await db.get(SubIdentityModel, sub_identity_id)
     if not row or row.parent_identity_id != identity_id:
         raise HTTPException(404, f"Sub-identity {sub_identity_id} not found for {identity_id}")
@@ -303,8 +314,9 @@ class AutomationPolicyBody(BaseModel):
 
 
 @router.get("/{identity_id}/automation-policy")
-async def get_automation_policy_route(identity_id: str, db: AsyncSession = Depends(get_db)):
+async def get_automation_policy_route(identity_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     """Return saved AI automation policy (fund limits, permissions, responsibility ack) for Console."""
+    await require_identity_owner(db, request, identity_id, what="this automation policy")
     row = await get_automation_policy(db, identity_id)
     if not row:
         return {"configured": False, "karma_identity_id": identity_id}
@@ -315,6 +327,7 @@ async def get_automation_policy_route(identity_id: str, db: AsyncSession = Depen
 async def put_automation_policy_route(
     identity_id: str,
     body: AutomationPolicyBody,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -322,6 +335,7 @@ async def put_automation_policy_route(
 
     Enabling ``auto_enabled`` requires ``responsibility_acknowledged=true``.
     """
+    await require_identity_owner(db, request, identity_id, what="this automation policy")
     row = await upsert_automation_policy(
         db,
         karma_identity_id=identity_id,
