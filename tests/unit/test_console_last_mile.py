@@ -697,3 +697,17 @@ def test_every_language_pack_carries_the_agent_bound_key_copy():
     assert "agent_id: f.agent" in js, "铸钥匙要指名 agent（服务端会 400 拦下来）"
     handoff = (CONSOLE / "scripts/cyber-handoff.js").read_text(encoding="utf-8")
     assert '"service"' in handoff and "已停用（不记名钥匙）" in handoff, "存量不记名钥匙要标出来"
+
+def test_face_opened_role_profiles_get_their_own_label():
+    """G9：同人刷脸开的档不许和「资质审过」共用一句「已通过」。
+
+    服务端在 kyc_payload 里留了 face_consistency 这个标记，操作台据此分开显示；
+    五份词表都要有那句新文案，否则切了语言又掉回中文。
+    """
+    js = (CONSOLE / "scripts/cyber-identity-verify.js").read_text(encoding="utf-8")
+    assert "p.kyc_payload && p.kyc_payload.face_consistency" in js, "操作台没读刷脸标记"
+    assert 'T("同人刷脸已核验")' in js, "刷脸开的档要单独一句文案"
+    for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
+        pack = (CONSOLE / "scripts/i18n-phrase" / f"{lang}.js").read_text(encoding="utf-8")
+        assert '"同人刷脸已核验":' in pack, f"{lang} 缺刷脸档的译文"
+

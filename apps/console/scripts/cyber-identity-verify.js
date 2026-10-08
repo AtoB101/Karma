@@ -527,7 +527,11 @@
         var did = window.KarmaDisplayId;
         var title = (sw && sw.identityTitle ? sw.identityTitle(p) : "") || p.display_name || "子身份";
         var label = did && did.of ? did.of(p.profile_id, idx + 1) : "子身份" + (idx + 1);
-        var kyc = KYC_LABELS[p.kyc_status] || "未采集";
+        // 同人刷脸开的档 ≠ 走资质复核审过的档：文案必须分得开（G9）。
+        var faceOpened = !!(p.kyc_payload && p.kyc_payload.face_consistency);
+        var kyc = p.kyc_status === "verified" && faceOpened
+          ? T("同人刷脸已核验")
+          : T(KYC_LABELS[p.kyc_status] || "未采集");
         var wallet = String(p.bound_wallet_address || "");
         var walletText = wallet
           ? (wallet.length > 12 ? wallet.slice(0, 6) + "…" + wallet.slice(-4) : wallet)
@@ -536,7 +540,7 @@
           '<div class="idv-sub-main"><b>' + esc(title) + "</b>" +
           "<span>" + esc(label) + "</span></div>" +
           '<div class="idv-sub-meta">额度 ' + money(row ? row.allocated_credits : 0) + " USDC</div>" +
-          '<div class="idv-sub-meta">人脸 ' + esc(kyc) + "</div>" +
+          '<div class="idv-sub-meta">' + esc(Tf("人脸 {0}", kyc)) + "</div>" +
           '<div class="idv-sub-meta">' + esc(walletText) + "</div>";
         var btn = document.createElement("button");
         btn.type = "button";

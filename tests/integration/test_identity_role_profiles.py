@@ -384,3 +384,30 @@ async def test_sole_proprietor_certification_still_rejects_plaintext_originals(c
     # 全程被拒，状态没被推着往前走
     row = await client.get(f"/v1/identity/role-profiles/{pid}", headers=OWNER)
     assert row.json()["kyc_status"] == "none"
+
+@pytest.mark.asyncio
+async def test_unknown_status_is_rejected(client: AsyncClient):
+    """G8：status 只认 active / disabled，别的一律 422（以前是自由字符串）。"""
+    r = await client.post(
+        "/v1/identity/role-profiles",
+        json={"owner_identity_id": "owner-1", "class": "individual", "status": "admin"},
+        headers=OWNER,
+    )
+    assert r.status_code == 422, r.text
+
+    p = await _create_profile(client, class_="individual")
+    r2 = await client.put(
+        f"/v1/identity/role-profiles/{p['profile_id']}",
+        json={"status": "root"},
+        headers=OWNER,
+    )
+    assert r2.status_code == 422, r2.text
+
+    ok = await client.put(
+        f"/v1/identity/role-profiles/{p['profile_id']}",
+        json={"status": "disabled"},
+        headers=OWNER,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["status"] == "disabled"
+

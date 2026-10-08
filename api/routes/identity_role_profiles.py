@@ -47,10 +47,13 @@ router = APIRouter()
 
 CLASS_VALUES = ("individual", "merchant", "enterprise", "verifier", "arbitrator")
 KYC_STATUS_VALUES = ("none", "pending", "verified", "rejected")
+#: 档案状态：只有 active 有实际语义（能力位按它判），disabled = 本人停用这张卡。
+STATUS_VALUES = ("active", "disabled")
 VISIBILITY_VALUES = ("public", "private")
 
 _CLASS_PATTERN = "^(individual|merchant|enterprise|verifier|arbitrator)$"
 _KYC_PATTERN = "^(none|pending|verified|rejected)$"
+_STATUS_PATTERN = "^(active|disabled)$"
 _VISIBILITY_PATTERN = "^(public|private)$"
 
 
@@ -108,7 +111,7 @@ class RoleProfileCreate(BaseModel):
     visibility: str | None = Field(default=None, pattern=_VISIBILITY_PATTERN)
     display_name: str | None = Field(default=None, max_length=256)
     kyc_payload: dict = Field(default_factory=dict)
-    status: str = Field(default="active", max_length=16)
+    status: str = Field(default="active", pattern=_STATUS_PATTERN)
     # 治理岗（verifier / arbitrator）的质押承诺额。GOVERNANCE_OPEN_JOIN 打开后
     # 靠它开通（必须低于/等于已锁仓 USDC）；白名单开的岗可以不带。
     stake_amount: float | None = Field(default=None, ge=0)
@@ -124,7 +127,7 @@ class RoleProfileUpdate(BaseModel):
     kyc_payload: dict | None = None
     # 子身份默认的权限 / 边界：生成 SDK 的授权向导会预填这些值。
     spend_policy: dict | None = None
-    status: str | None = Field(default=None, max_length=16)
+    status: str | None = Field(default=None, pattern=_STATUS_PATTERN)
     # 改质押：和开通同一把尺子（低于下限 422、没有锁仓背书 409）
     stake_amount: float | None = Field(default=None, ge=0)
 

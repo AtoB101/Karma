@@ -18,9 +18,9 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 | G4 | POD 交付验证：`actor_agent_id` 自报，未绑会话身份 | 中 | **已落地（本轮）** |
 | G5 | 治理岗「发给他人」/「收回」无 API（`require_governance_verifier` 零调用、`GOVERNANCE_OPEN_JOIN` 关） | 中 | 未落地 |
 | G6 | 换绑操作钱包无「刷脸 / 应急」闸门（已绑再换只验新钱包签名） | 中 | **已落地（本轮）** |
-| G7 | `GET /v1/security/policies*`、`/v1/arbitration/pool`、`/v1/receipts/*` 等读接口只要登录 | 低 | 未落地 |
-| G8 | `update_role_profile` 的 `status` 由本人自报、无枚举校验 | 低 | 未落地 |
-| G9 | `face-consistency` 直接把档案置 `verified`（审计 O1 的「操作台文案区分」未做） | 低 | 未落地 |
+| G7 | `GET /v1/security/policies*`、`/v1/arbitration/pool`、`/v1/receipts/*` 等读接口只要登录 | 低 | **已落地（本轮）** |
+| G8 | `update_role_profile` 的 `status` 由本人自报、无枚举校验 | 低 | **已落地（本轮）** |
+| G9 | `face-consistency` 直接把档案置 `verified`（审计 O1 的「操作台文案区分」未做） | 低 | **已落地（本轮）** |
 | G10 | 发布门槛 10 项 `[人工]` 未签（A4d/E4b/E6b/F6/H2/H3/H9/H10/H11/H12） | 人工 | 未签 |
 | G11 | KYC 侧对外公开留痕接口 | 待产品 | 待拍板 |
 
@@ -205,6 +205,29 @@ owner + **新钱包**的 personal_sign。若该档案**已经绑过一个钱包*
 `row.kyc_status = "verified"`。审计 O1 的结论：同人刷脸 ≠ 工商资质审核；建议操作台对
 刷脸开的档案显示**不同文案**，不与企业 / 个体户的「资质已审」混同。**文案区分未落地。**
 
+### G7 / G8 / G9 —— 已落地（本轮）
+
+**G7（读接口口径）**：
+
+- 收紧：`/v1/security/policies`、`/policies/{id}`、`/policies/changes`、`/policies/changes/{id}`
+  四条 **GET** 补 `require_admin_actor`（与该文件的写端点同口径）—— 限流阈值 / baseline
+  窗口 / 冷却 / 审批状态属内部运维参数，普通身份不该读。
+- 顺带修掉一个**路由遮蔽** bug：`GET /policies/changes` 声明在 `GET /policies/{policy_id}`
+  之后，被当成 `policy_id="changes"` 吃掉、永远 404；已把两条 `changes` 读路由提到前面。
+- 明确「公示口径」并用测试钉住：`/v1/arbitration/pool`、`/v1/verifiers*`、`GET /v1/receipts/*`
+  **有意**对任意已登录身份开放（去中心化成员名册 + 带签名的可验证回执），不是漏配。
+- 回归：`tests/unit/test_platform_privilege_boundaries.py` 追加 3 条（策略读管理员专属、
+  changes 列表不再被遮蔽、公示读不是运维专属）。
+
+**G8（档案 status）**：`identity_role_profiles.py` 的 `RoleProfileCreate.status` /
+`RoleProfileUpdate.status` 从自由字符串改成枚举 `^(active|disabled)$`（对齐已有的
+`class` / `kyc_status` / `visibility` 写法）；未知值 422。回归：
+`tests/integration/test_identity_role_profiles.py`。
+
+**G9（文案区分）**：操作台子身份行按 `kyc_payload.face_consistency` 区分「同人刷脸已核验」
+与走资质复核的「已通过」，不再混同；顺手把 `人脸 {0}` 这句接上源文案表（此前键在词表里、
+代码却是硬拼中文）。回归：`tests/unit/test_console_last_mile.py`。
+
 ### G10（人工）发布门槛 10 项未签
 
 `docs/SECURITY_RELEASE_GATES.md` 的 `[人工]`：A4d（运维白名单身份确有其人）、E4b（告警阈值已调）、
@@ -245,7 +268,7 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 2. **G6**：换绑钱包加「已绑需刷脸 / 应急」分支 —— 已落地（本轮）。
 3. **G5**：接上 `require_governance_verifier` —— 开一条「治理发放方给他人开 / 收回 verifier·arbitrator 岗」
    的路由（含退岗动作），并把它接到操作台。
-4. **G7 / G8 / G9**：读接口明确口径（收紧或写「公示」并加测试）、`status` 加枚举、刷脸档案文案区分。
+4. **G7 / G8 / G9**：已落地（本轮）。
 5. **G10**：人工签核；**G11**：产品拍板。
 
 —— 本报告只做盘点，未改任何代码 / 状态机。主网未动。

@@ -107,14 +107,38 @@ async def create_security_policy(
 async def list_security_policies(
     status: SecurityThresholdPolicyStatus | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[SecurityThresholdPolicy]:
     return await list_security_threshold_policies(db=db, status=status, limit=limit)
 
 
+@router.get("/policies/changes", response_model=list[SecurityPolicyChangeRequest])
+async def list_security_policy_changes(
+    status: SecurityPolicyChangeStatus | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    _: str = Depends(require_admin_actor),
+    db: AsyncSession = Depends(get_db),
+) -> list[SecurityPolicyChangeRequest]:
+    return await list_security_policy_change_requests(db=db, status=status, limit=limit)
+
+
+@router.get("/policies/changes/{request_id}", response_model=SecurityPolicyChangeRequest)
+async def get_security_policy_change(
+    request_id: str,
+    _: str = Depends(require_admin_actor),
+    db: AsyncSession = Depends(get_db),
+) -> SecurityPolicyChangeRequest:
+    try:
+        return await get_security_policy_change_request(db=db, request_id=request_id, include_approvals=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/policies/{policy_id}", response_model=SecurityThresholdPolicy)
 async def get_security_policy(
     policy_id: str,
+    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     policy = await get_security_threshold_policy(db=db, policy_id=policy_id)
@@ -205,26 +229,6 @@ async def create_security_policy_change(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-
-@router.get("/policies/changes", response_model=list[SecurityPolicyChangeRequest])
-async def list_security_policy_changes(
-    status: SecurityPolicyChangeStatus | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=500),
-    db: AsyncSession = Depends(get_db),
-) -> list[SecurityPolicyChangeRequest]:
-    return await list_security_policy_change_requests(db=db, status=status, limit=limit)
-
-
-@router.get("/policies/changes/{request_id}", response_model=SecurityPolicyChangeRequest)
-async def get_security_policy_change(
-    request_id: str,
-    db: AsyncSession = Depends(get_db),
-) -> SecurityPolicyChangeRequest:
-    try:
-        return await get_security_policy_change_request(db=db, request_id=request_id, include_approvals=True)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/policies/changes/{request_id}/review", response_model=SecurityPolicyChangeRequest)

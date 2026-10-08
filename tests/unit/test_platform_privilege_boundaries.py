@@ -155,3 +155,59 @@ async def test_console_can_still_read_safety_mode(client, ops_keys):
 async def test_anonymous_is_still_rejected(client, ops_keys):
     resp = await client.post("/v1/security/runtime/safety-mode", json={"enabled": True})
     assert resp.status_code == 401, resp.text
+
+# ---------------------------------------------------------------------------
+# 读接口：安全阈值策略（G7）—— 内部阈值 / 变更单，运维才看
+# ---------------------------------------------------------------------------
+
+POLICY_READS = (
+    "/v1/security/policies",
+    "/v1/security/policies/pol-not-found",
+    "/v1/security/policies/changes",
+    "/v1/security/policies/changes/req-not-found",
+)
+
+
+@pytest.mark.asyncio
+async def test_security_policy_reads_are_admin_only(client, ops_keys):
+    """限流阈值 / baseline 窗口 / 冷却 / 审批状态是内部运维参数，普通身份读不到。"""
+    for path in POLICY_READS:
+        denied = await client.get(path, headers=ops_keys[PLAIN])
+        assert denied.status_code == 403, (path, denied.text)
+        allowed = await client.get(path, headers=ops_keys[OPERATOR])
+        assert allowed.status_code in (200, 404), (path, allowed.status_code, allowed.text)
+
+
+@pytest.mark.asyncio
+async def test_policy_changes_list_route_is_not_shadowed(client, ops_keys):
+    """``/policies/changes`` 必须落在 ``/policies/{policy_id}`` 之前，否则永远 404。"""
+    resp = await client.get("/v1/security/policies/changes", headers=ops_keys[OPERATOR])
+    assert resp.status_code == 200, resp.text
+    assert isinstance(resp.json(), list), resp.text
+
+
+# ---------------------------------------------------------------------------
+# 公示口径（G7）：这三类读是**有意**公开给「已登录」身份的，不是漏配
+#
+#   * 仲裁池 / 验证者网络：去中心化的成员名册，网络看板要能列出来；
+#   * 执行回执：本身就是带签名的可验证凭据，谁都能拿去验。
+#
+# 这个用例把口径钉死：匿名仍要 401，而普通（非运维）身份可以读。
+# ---------------------------------------------------------------------------
+
+TRANSPARENCY_READS = (
+    "/v1/arbitration/pool",
+    "/v1/verifiers",
+    "/v1/verifiers/network/stats",
+    "/v1/receipts/task/task-public-probe",
+)
+
+
+@pytest.mark.asyncio
+async def test_transparency_reads_are_open_to_any_identity_but_not_admin_only(client, ops_keys):
+    # 匿名是否被拦由全局开关 ``AUTH_ENFORCE_PROTECTED_ROUTES`` 决定，不在这里断言；
+    # 这里只钉「不是运维专属」：普通身份读得到，就不该被 require_admin_actor 拦掉。
+    for path in TRANSPARENCY_READS:
+        ok = await client.get(path, headers=ops_keys[PLAIN])
+        assert ok.status_code == 200, (path, ok.status_code, ok.text)
+
