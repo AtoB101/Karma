@@ -41,7 +41,25 @@
     unavailable: "查不动 / 未接入数据源",
   };
 
-  var state = { items: [], counts: {}, kind: "", verifier: "" };
+  var state = {
+    items: [],
+    counts: {},
+    kind: "",
+    verifier: "",
+    // "queue" = 待办队列；"revocable" = 已认证可撤销。
+    mode: "queue",
+    revocable: [],
+    revCounts: {},
+    revSkipped: 0,
+  };
+
+  /** 可撤销候选的撤销接口：主体认证 / 子身份 KYC 各一条。 */
+  function revokePath(kind, targetId) {
+    var id = encodeURIComponent(targetId);
+    if (kind === "entity_verification") return "/v1/identity/" + id + "/entity-verification/revoke";
+    if (kind === "role_profile_kyc") return "/v1/identity/role-profiles/" + id + "/kyc/revoke";
+    return "";
+  }
 
   function byId(id) {
     return document.getElementById(id);
@@ -205,10 +223,63 @@
     );
   }
 
+  function revocableItemHtml(item) {
+    var id = String(item.target_id || "");
+    var pending = item.pending_revocation || null;
+    var pills = ['<span class="rv-pill ok">' + T("已认证") + "</span>"];
+    if (pending) pills.push('<span class="rv-pill warn">' + T("等待另一名复核员确认") + "</span>");
+    return (
+      '<li class="rv-item" data-rv-item="' + attr(id) + '">' +
+        '<div class="rv-head">' +
+          "<b>" + esc(item.display_name || id) + "</b>" +
+          '<span class="rv-kind">' + esc(KIND_LABEL[item.kind] || item.kind) + "</span>" +
+          pills.join("") +
+        "</div>" +
+        '<div class="rv-meta">' +
+          "<span>" + Tf("编号 {0}", "<code>" + esc(id) + "</code>") + "</span>" +
+          "<span>" + Tf("认证时间 {0}", esc(item.verified_at || "—")) + "</span>" +
+          (pending ? "<span>" + Tf("撤销申请人 {0}", esc(shortId(pending.proposed_by))) + "</span>" : "") +
+        "</div>" +
+        (pending && pending.reason ? '<div class="rv-sub">' + esc(pending.reason) + "</div>" : "") +
+        '<div class="rv-actions">' +
+          '<input class="rv-reason" type="text" data-rv-reason="' + attr(id) + '" ' +
+            'placeholder="撤销理由（至少 10 个字，被撤销方与消费者都会看到）" />' +
+          '<button type="button" class="btn" data-rv-revoke="' + attr(id) + '" data-rv-confirm="' +
+            (item.can_confirm ? "1" : "0") + '">' + (item.can_confirm ? T("确认撤销") : T("发起撤销")) + "</button>" +
+          '<span class="api-status" data-rv-status="' + attr(id) + '">—</span>' +
+        "</div>" +
+      "</li>"
+    );
+  }
+
   function render() {
     var host = byId("rv-list");
     var counts = byId("rv-counts");
+    var modeBtn = byId("rv-mode");
+    if (modeBtn) modeBtn.textContent = T(state.mode === "revocable" ? "返回待办" : "可撤销的认证");
     if (!host) return;
+    if (state.mode === "revocable") {
+      var rc = state.revCounts || {};
+      if (counts) {
+        counts.textContent =
+          Tf(
+            "已认证可撤销 {0} 条（主体 {1} · 子身份 KYC {2}）",
+            state.revocable.length,
+            rc.entity_verification || 0,
+            rc.role_profile_kyc || 0
+          ) +
+          (state.revSkipped ? " · " + Tf("已自动跳过本人认证 {0} 条", state.revSkipped) : "");
+      }
+      var rvItems = state.revocable.filter(function (i) {
+        return !state.kind || i.kind === state.kind;
+      });
+      if (!rvItems.length) {
+        host.innerHTML = '<li class="idv-hint">' + T("现在没有可撤销的认证。") + "</li>";
+        return;
+      }
+      host.innerHTML = rvItems.map(revocableItemHtml).join("");
+      return;
+    }
     var c = state.counts || {};
     if (counts) {
       counts.textContent =
@@ -237,7 +308,88 @@
 
   // ---- 取数 -----------------------------------------------------------------
 
+  /** 可撤销列表：认证是终态，撤销要两名复核员（一人发起 + 另一人确认）或一名运维白名单。 */
+  async function loadRevocable() {
+    var st = byId("rv-state");
+    var deny = byId("rv-deny");
+    if (deny) {
+      deny.hidden = true;
+      deny.innerHTML = "";
+    }
+    if (!permitted()) {
+      state.revocable = [];
+      state.revCounts = {};
+      render();
+      say(st, T("没有权限：这个身份还不是复核岗（verifier）。"), false);
+      return;
+    }
+    if (!authed()) {
+      state.revocable = [];
+      state.revCounts = {};
+      render();
+      say(st, T("请先用右上角「连接钱包」完成认证，再来打开复核队列。"), null);
+      return;
+    }
+    say(st, "读取中…", null);
+    try {
+      var res = await api().karmaFetch(PATH + "/revocable", {
+        method: "GET",
+        headers: api().headers(),
+      });
+      state.revocable = (res && res.items) || [];
+      state.revCounts = (res && res.counts) || {};
+      state.revSkipped = (res && res.skipped_own) || 0;
+      render();
+      say(st, Tf("已刷新 · 可撤销 {0} 条", state.revocable.length), true);
+    } catch (e) {
+      state.revocable = [];
+      state.revCounts = {};
+      render();
+      var status = e && e.status;
+      if (status === 401) say(st, T("还没认证：请先用右上角「连接钱包」完成认证。"), false);
+      else if (status === 403) say(st, T("没有权限：这个身份还不是复核岗（verifier）。"), false);
+      else say(st, (e && e.message) || "读取失败", false);
+    }
+  }
+
+  /** 撤销：发起（等第二人）或确认（另一名复核员）。 */
+  async function revoke(itemId, confirming) {
+    var item = state.revocable.filter(function (i) {
+      return String(i.target_id) === String(itemId);
+    })[0];
+    if (!item) return;
+    var path = revokePath(item.kind, item.target_id);
+    if (!path) return;
+    var st = document.querySelector('[data-rv-status="' + itemId + '"]');
+    var reasonNode = document.querySelector('[data-rv-reason="' + itemId + '"]');
+    var reason = String((reasonNode && reasonNode.value) || "").trim();
+    if (reason.length < 10) {
+      return say(st, "撤销要写理由（至少 10 个字）：被撤销方与消费者都会看到", false);
+    }
+    if (confirming) {
+      var ok = window.confirm(
+        Tf("确认撤销 {0} 的认证？撤销后对外不再显示「已验证」。", item.display_name || itemId)
+      );
+      if (!ok) return say(st, "已取消", false);
+    }
+    say(st, "提交中…", null);
+    try {
+      var res = await api().jsonPost(path, { reason: reason });
+      if (res && res.revoked) say(st, "撤销成功：认证已降为「已驳回」", true);
+      else say(st, "撤销申请已记录：还需要另一名复核员确认", true);
+      load();
+    } catch (e) {
+      say(st, (e && e.message) || "撤销失败", false);
+    }
+  }
+
+  /** 入口：按当前模式取待办队列或可撤销列表。 */
   async function load() {
+    if (state.mode === "revocable") return loadRevocable();
+    return loadQueue();
+  }
+
+  async function loadQueue() {
     var st = byId("rv-state");
     var deny = byId("rv-deny");
     if (deny) {
@@ -370,9 +522,22 @@
     var sel = byId("rv-kind");
     if (sel) sel.addEventListener("change", function () { setKind(sel.value); });
 
+    var modeBtn = byId("rv-mode");
+    if (modeBtn) {
+      modeBtn.addEventListener("click", function () {
+        state.mode = state.mode === "revocable" ? "queue" : "revocable";
+        load();
+      });
+    }
+
     var list = byId("rv-list");
     if (list) {
       list.addEventListener("click", function (ev) {
+        var rbtn = ev.target && ev.target.closest ? ev.target.closest("[data-rv-revoke]") : null;
+        if (rbtn) {
+          revoke(rbtn.getAttribute("data-rv-revoke"), rbtn.getAttribute("data-rv-confirm") === "1");
+          return;
+        }
         var btn = ev.target && ev.target.closest ? ev.target.closest("[data-rv-decide]") : null;
         if (!btn) return;
         decide(btn.getAttribute("data-rv-target"), btn.getAttribute("data-rv-decide"));

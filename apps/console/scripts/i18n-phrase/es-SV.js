@@ -2858,3 +2858,23 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "第二把锁（安全验证）已解绑：动资金现在只靠钱包签名。": "Segundo candado (verificación de seguridad) desactivado: mover fondos ahora depende solo de la firma de la wallet.",
   "第二把锁的恢复码已换新：旧的那一组作废了。": "Se renovaron los códigos de recuperación del segundo candado: los anteriores quedaron sin efecto.",
 });
+// compliance-revocation: 复核台「可撤销的认证」
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
+  "可撤销的认证": "Verificaciones revocables",
+  "返回待办": "Volver a la cola",
+  "等待另一名复核员确认": "Esperando la confirmación de otro revisor",
+  "认证时间 {0}": "Verificado el {0}",
+  "撤销申请人 {0}": "Revocación solicitada por {0}",
+  "撤销理由（至少 10 个字，被撤销方与消费者都会看到）": "Motivo de la revocación (al menos 10 caracteres; lo verán la parte revocada y los consumidores)",
+  "确认撤销": "Confirmar revocación",
+  "发起撤销": "Iniciar revocación",
+  "已认证可撤销 {0} 条（主体 {1} · 子身份 KYC {2}）": "{0} verificaciones revocables (entidades {1} · KYC de subidentidad {2})",
+  "已自动跳过本人认证 {0} 条": "{0} verificaciones propias omitidas automáticamente",
+  "现在没有可撤销的认证。": "Ahora mismo no hay verificaciones que se puedan revocar.",
+  "已刷新 · 可撤销 {0} 条": "Actualizado · {0} revocables",
+  "撤销要写理由（至少 10 个字）：被撤销方与消费者都会看到": "Hay que escribir un motivo (al menos 10 caracteres): lo verán la parte revocada y los consumidores",
+  "确认撤销 {0} 的认证？撤销后对外不再显示「已验证」。": "¿Confirmar la revocación de la verificación de {0}? Dejará de mostrarse como verificada ante el público.",
+  "撤销成功：认证已降为「已驳回」": "Revocada: la verificación ahora figura como rechazada",
+  "撤销申请已记录：还需要另一名复核员确认": "Solicitud de revocación registrada: aún falta la confirmación de otro revisor",
+  "撤销失败": "No se pudo revocar",
+});

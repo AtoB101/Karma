@@ -2856,3 +2856,23 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "第二把锁（安全验证）已解绑：动资金现在只靠钱包签名。": "Second lock (security check) is off: moving funds now relies on the wallet signature only.",
   "第二把锁的恢复码已换新：旧的那一组作废了。": "Second-lock recovery codes were renewed: the old set no longer works.",
 });
+// compliance-revocation: 复核台「可撤销的认证」
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "可撤销的认证": "Revocable verifications",
+  "返回待办": "Back to queue",
+  "等待另一名复核员确认": "Waiting for another reviewer to confirm",
+  "认证时间 {0}": "Verified at {0}",
+  "撤销申请人 {0}": "Revocation requested by {0}",
+  "撤销理由（至少 10 个字，被撤销方与消费者都会看到）": "Revocation reason (at least 10 characters; the revoked party and consumers will see it)",
+  "确认撤销": "Confirm revocation",
+  "发起撤销": "Start revocation",
+  "已认证可撤销 {0} 条（主体 {1} · 子身份 KYC {2}）": "{0} verified verifications can be revoked (entities {1} · sub-identity KYC {2})",
+  "已自动跳过本人认证 {0} 条": "{0} self-verifications skipped automatically",
+  "现在没有可撤销的认证。": "No verifications to revoke right now.",
+  "已刷新 · 可撤销 {0} 条": "Refreshed · {0} revocable",
+  "撤销要写理由（至少 10 个字）：被撤销方与消费者都会看到": "A reason is required (at least 10 characters): the revoked party and consumers will see it",
+  "确认撤销 {0} 的认证？撤销后对外不再显示「已验证」。": "Confirm revoking the verification of {0}? It will no longer show as verified to the public.",
+  "撤销成功：认证已降为「已驳回」": "Revoked: the verification is now rejected",
+  "撤销申请已记录：还需要另一名复核员确认": "Revocation request recorded: another reviewer must still confirm it",
+  "撤销失败": "Revocation failed",
+});
