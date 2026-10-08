@@ -7,7 +7,7 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 直接照收客户端自报的 `kyc_status`，本人一次调用就能把企业 / 个体户档案写成「已验证」；
 KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径没有明文原件红线。
 本轮已按「为消费者负责」的口径把这三条一并堵死，相关回归 134 条全绿。资金硬保障一侧核查未见可被利用的漏洞。
-另有 **一条消费者保护缺口**：认证一旦通过就没有第三方撤销路径（见 §6 O4）。
+另有 **一条消费者保护缺口**（认证通过后没有第三方撤销路径，见 §6 O4）—— 已在 `28c6f7a`（服务端）/ `9cf3962`（操作台）落地：复核员两人确认或运维白名单单人执行的合规撤销，`verified → rejected` 的唯一出口。
 
 ## 1. 方法与证据
 
@@ -111,7 +111,7 @@ KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径�
 
 结论：资金这一侧**非托管 + 合约条件链 + 服务端守恒 + 冻结兜底**四条腿都在，未见可被利用的空档。
 
-## 6. 观察项（未改，留给产品 / 权限口径）
+## 6. 观察项（O1–O3 未改；O4 已落地）
 
 - **O1（设计边界，非缺陷）** `POST /v1/identity/role-profiles/{pid}/face-consistency`（同人刷脸）会把档案
   直接置 `verified`。这等于「主身份已通过同人验证的追加身份」——认证强度等于主身份的同人验证，
@@ -121,17 +121,25 @@ KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径�
   都放行，只有质押开的岗跟押金走。API 开不出 `stake_amount == 0` 的治理岗，故此路径仅限运维建档。
 - **O3（长度约束分层）** 企业 `service_scope` 等字段的约束分两层：Pydantic body 用 `max_length`，
   服务层另有 `sanitize_entity_profile` 兜底截断。两层口径一致，无需改。
-- **O4（重要，消费者保护，待产品拍板）** 企业 / 个体户认证一旦 `verified` 就是**终态**：
-  `ENTITY_TRANSITIONS["verified"] = set()`、KYC `_TRANSITIONS["verified"] = set()`，**没有任何第三方撤销路径**。
-  复核方只能在 `pending` 上判通过 / 驳回；上了 `verified` 之后，即使事后发现是假资料，
-  也没有接口能把标记降下来（`revoke` 只存在于身份卡 credential，不覆盖主体认证 / 角色档案 KYC）；
-  企业档案的 `status`（active/…）是**本人**可在 `PUT` 里改的（可自停，不可被平台停）。
+- **O4（重要，消费者保护）—— 已落地** 原状：企业 / 个体户认证一旦 `verified` 就是**终态**（
+  `ENTITY_TRANSITIONS["verified"] = set()`、KYC `_TRANSITIONS["verified"] = set()`），**没有任何第三方撤销路径**：
+  复核方只能在 `pending` 上判通过 / 驳回，事后发现假资料也降不下来。
+  对消费者而言「认证标记永不失效」= 一次误判永久留疤。
 
-  对消费者而言，「认证标记永不失效」意味着一次误判永久留疤。建议补一条 **合规撤销**：
-  由**多名** verifier（或运维白名单 + 理由）触发 `verified → rejected`，写入 `review_note` 与安全事件；
-  撤销后对外列表不再显示「已验证」，在途订单按既有争议 / 冻结流程处理。
-  用**单人**撤销会有「一把 verifier key 就能打掉竞争对手认证」的 DoS 面，所以建议要求
-  两人复核或运维岗。此项涉及核心状态机与产品口径，**未擅自改动**，等拍板。
+  现已补上**唯一一条**合规撤销出口（`services/compliance_revocation.py`，接入点 `28c6f7a` / `9cf3962`）：
+
+  - 状态边只有一条：`verified → rejected`，且**只存在于该模块**；正常复核路径（`assert_can_decide`、
+    KYC `_TRANSITIONS`）看不到它 —— 撤销不会顺手把别的流转放开。
+  - **两人复核**（默认）：复核员（verifier 在任、非被撤销方本人）发起后落 `verification_revocation_requests`，
+    24h 内必须由**另一名**复核员确认；同一人「发起 + 确认」返回 409，过期作废按新申请处理。
+  - **运维白名单**（`ADMIN_ACTOR_IDS`）单人即可执行（brake-only 管理员，应急通道）。
+  - 理由必填、≥ 10 字（422），写进 `review_note` 与安全事件 `verification_revoked`；
+    撤销后 `verified_at` 清空、对外不再显示「已验证」；主体认证与子身份 KYC 两条都覆盖；
+    被撤销方按既有流程可重新提交。
+  - 操作台复核台加「可撤销的认证」模式：列出可撤销项（自动跳过本人）、发起 / 确认撤销、
+    理由输入框；提示文案五语齐（en / ja / ko / es-AR / es-SV）。
+  - 测试：`tests/unit/test_verification_revocation.py` 13 条（两人确认 / 同人 409 / 非 verified 409 /
+    理由 422 / 本人 403 / 24h 过期 / 运维单人 / 安全事件）。
 
 ## 7. 实测快照（2026-10-08）
 
@@ -142,6 +150,17 @@ KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径�
   `RestartCount=0`）——运行进程加载的就是这份修复（代码以 bind mount 进容器，uvicorn 无
   `--reload`，修改必须靠重建容器才生效）。
 - 回归：认证 + 治理 + 刷脸 + 操作台复核 **134 passed**（`putmp_kyc3` 65 / `putmp_kyc4` 69）。
+- 回归（O4 本批次）：`tests/unit/test_verification_revocation.py` **13 passed**；撤销 + 认证 + 计费 + 治理 + 刷脸 **86 passed**；
+  撤销 + 操作台套件 **87 passed**；词表语言纯净度 **17 passed**；静态资源版本串 **4 passed**；
+  `node tests/js/test_console_notices.cjs` **39/39**。
+- 提交：`28c6f7a`（feat(auth)：合规撤销 —— 认证终态的唯一出口）、
+  `9cf3962`（feat(console)：复核台加「可撤销的认证」入口）。
+- CI（`9cf3962`）：6/6 全绿 —— Deploy to VPS / Forge CI / Python tests / Security Baseline Guard / Security CI / Visibility Guard。
+- 生产（`9cf3962`）：`REMOTE_HEAD == origin/main`、未提交 0；`karma-api` / `karma-postgres` healthy、`karma-redis` up；
+  `/health` 200；`CLI-COPY: SAME`；`verification_revocation_requests` 表已存在（`information_schema` 命中 1）。
+- 生产边界实测：未认证调 `GET /v1/reviews/revocable` 与 `POST /v1/identity/{id}/entity-verification/revoke` 均 返 **401**（路由存在且有钩子，不是 404）。
+- 线上静态资源：`index.html` 已挂新版本串 `i18n-cyber.js?v=b81fa37b885f` / `cyber-reviews.js?v=38a42bda121f`；
+  语言包 `i18n-phrase/en.js?v=b81fa37b885f` 已包含新词条（`Revocable verifications` 命中 1）。
 
 ## 8. 残留人工项（`docs/SECURITY_RELEASE_GATES.md` 的 `[人工]`）
 
