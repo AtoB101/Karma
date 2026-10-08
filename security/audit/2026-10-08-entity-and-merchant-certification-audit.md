@@ -152,7 +152,8 @@ KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径�
 - 回归：认证 + 治理 + 刷脸 + 操作台复核 **134 passed**（`putmp_kyc3` 65 / `putmp_kyc4` 69）。
 - 回归（O4 本批次）：`tests/unit/test_verification_revocation.py` **13 passed**；撤销 + 认证 + 计费 + 治理 + 刷脸 **86 passed**；
   撤销 + 操作台套件 **87 passed**；词表语言纯净度 **17 passed**；静态资源版本串 **4 passed**；
-  `node tests/js/test_console_notices.cjs` **39/39**。
+  `node tests/js/test_console_notices.cjs` **39/39**；
+  `node tests/js/test_console_reviews_revocable.cjs` **233/233**（撤销屏渲染 / 理由闸门 / 两条撤销接口 / 取消确认）。
 - 提交：`28c6f7a`（feat(auth)：合规撤销 —— 认证终态的唯一出口）、
   `9cf3962`（feat(console)：复核台加「可撤销的认证」入口）。
 - CI（`9cf3962`）：6/6 全绿 —— Deploy to VPS / Forge CI / Python tests / Security Baseline Guard / Security CI / Visibility Guard。
