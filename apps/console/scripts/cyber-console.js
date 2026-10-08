@@ -1518,9 +1518,12 @@
     enterprise: ["overview", "center", "tasks", "bills", "disputes", "identity", "agents", "market", "settings"],
     verifier: ["identity", "bills", "reviews", "verifiers", "settings"],
     arbitrator: ["identity", "bills", "disputes", "arbitration", "settings"],
+    // 运营复核岗：复核岗那套工作面（和 verifier 同一张白名单）—— 它本来就是 verifier 类身份。
+    ops_reviewer: ["identity", "bills", "reviews", "verifiers", "settings"],
   };
-  /* 自助申请入口：任何身份都不收。 */
-  var NAV_ALWAYS_VISIBLE = ["verifier-id", "arbiter-id"];
+  /* 岗位入口：任何身份都不收（把入口收掉，还没开通的人就永远开不了岗）。
+     ops-reviewer = 运营复核岗，落到「复核台 / 验证者身份」由 KarmaWorkspace 一处决定。 */
+  var NAV_ALWAYS_VISIBLE = ["verifier-id", "arbiter-id", "ops-reviewer"];
 
   /**
    * 「选择身份」里的两个岗位入口（验证者身份 / 仲裁者身份）不只是翻一页：选了哪个
@@ -1534,6 +1537,9 @@
   var ROLE_WORKSPACES = {
     verifier: { apply: "verifier-id", home: "verifiers", cap: "can_view_verifier_network" },
     arbitrator: { apply: "arbiter-id", home: "arbitration", cap: "can_operate_arbitration" },
+    // 运营复核岗：有复核能力位就落「复核台」，没有就落「验证者身份」申请页
+    // （拿复核岗的路就是那条：平台点名开通，或开了 GOVERNANCE_OPEN_JOIN 后凭锁仓质押）。
+    ops_reviewer: { apply: "verifier-id", home: "reviews", cap: "can_open_review_queue" },
   };
   var WORKSPACE_KEY = "karma.workspace.role";
 
@@ -1769,8 +1775,13 @@
       btn.addEventListener("click", function () {
         var group = btn.closest(".nav-group");
         var wasOpen = !!(group && group.querySelector(".nav-sub") && group.classList.contains("open"));
+        // 岗位入口（验证者身份 / 仲裁者身份 / 运营复核岗）不只是翻一页：选了哪个岗位，
+        // 功能区就换成那个岗位的，并落到它自己的工作面 —— 落点只由 KarmaWorkspace 决定
+        // （没有该岗位的能力位才落申请页）。
+        var role = btn.getAttribute("data-workspace-role");
+        if (role && window.KarmaWorkspace) window.KarmaWorkspace.select(role);
         // 主项 = 这一页的整页视图；已经展开的组再点一下，顺手把子项收起来。
-        switchPage(btn.getAttribute("data-page"));
+        else switchPage(btn.getAttribute("data-page"));
         if (wasOpen) openGroupOnly(null);
       });
     });

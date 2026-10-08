@@ -177,31 +177,10 @@
     return null;
   }
 
-  /* 「选择身份」里除了主身份与子身份，还挂着两个**岗位入口**：
-     验证者身份、仲裁者身份。它们不是「切到某张卡」，而是「去申请这个身份」——
-     点了就翻到那一页；身份档案一个都不动。注册代理身份（子身份）那一组行为不变：
-     点哪张卡就切到哪张卡。 */
-  var ROLE_PAGES = [
-    { page: "verifier-id", key: "nav.verifier_id", zh: "验证者身份" },
-    { page: "arbiter-id", key: "nav.arbiter_id", zh: "仲裁者身份" },
-  ];
-
-  /* 岗位入口 → 侧栏那张功能区白名单的键（cyber-console.js 的 ROLE_WORKSPACES）。 */
-  var ROLE_OF_PAGE = { "verifier-id": "verifier", "arbiter-id": "arbitrator" };
-
-  /* 岗位入口不是「翻到一页申请表单」：选了哪个岗位，功能区就换成那个岗位的，并落到
-     它自己的工作面（没有该岗位的能力位才落申请页）。落点交给 cyber-console.js 的
-     KarmaWorkspace 一处决定，免得这里和侧栏各说各话。 */
-  function goRolePage(page) {
-    closeIdPicker();
-    closeSubPanel();
-    var role = ROLE_OF_PAGE[page];
-    if (role && window.KarmaWorkspace && window.KarmaWorkspace.select) {
-      window.KarmaWorkspace.select(role);
-      return;
-    }
-    if (window.cyberSwitchPage) window.cyberSwitchPage(page);
-  }
+  /* 「选择身份」只列**身份**：主身份 + 三种助理子身份。治理岗（验证者 / 仲裁者 /
+     运营复核岗）不在这里重复一遍 —— 它们的入口在侧栏主功能区，和「选了岗位就切进该
+     岗位的功能区」那套落点逻辑一起放在 cyber-console.js 的 KarmaWorkspace 里。 */
+  var GOVERNANCE_CLASSES = ["verifier", "arbitrator"];
 
   // ---- 顶部「主体 / 视角」状态栏 + 切换面板 ----
   /* The topbar states on every page which master card owns the records and which
@@ -238,7 +217,11 @@
       ? displayId(masterId, 0) + " · " + tr("scope.master_all", "主体（全部）")
       : tr("scope.master_all", "主体（全部）");
     var rows = [{ id: "", label: masterLabel }];
-    profiles.forEach(function (p) { rows.push({ id: p.profile_id, label: profileLabel(p) }); });
+    /* 治理岗（verifier / arbitrator）不进「选择身份」：入口在侧栏主功能区，不在这里重复。 */
+    profiles.forEach(function (p) {
+      if (GOVERNANCE_CLASSES.indexOf(p["class"]) >= 0) return;
+      rows.push({ id: p.profile_id, label: profileLabel(p) });
+    });
 
     function addRow(r) {
       var row = document.createElement("div");
@@ -278,25 +261,7 @@
       panel.appendChild(h);
     }
 
-    function addRoleRow(entry) {
-      var row = document.createElement("div");
-      row.className = "sub-switch-row";
-      var b = document.createElement("button");
-      b.type = "button";
-      var onRole = window.KarmaWorkspace && window.KarmaWorkspace.role
-        && window.KarmaWorkspace.role() === ROLE_OF_PAGE[entry.page];
-      b.className = "sub-switch-item sub-switch-role" + (onRole ? " active" : "");
-      b.setAttribute("role", "menuitem");
-      b.setAttribute("data-role-page", entry.page);
-      b.textContent = tr(entry.key, entry.zh) + "  ›";
-      b.addEventListener("click", function () { goRolePage(entry.page); });
-      row.appendChild(b);
-      panel.appendChild(row);
-    }
-
     addRow(rows[0]);
-    addHead("pick.section_roles", "身份与岗位");
-    ROLE_PAGES.forEach(addRoleRow);
     addHead("pick.role_agent", "注册代理身份");
     rows.slice(1).forEach(addRow);
     if (!profiles.length) {
@@ -443,6 +408,8 @@
     ];
     list.forEach(function (p) {
       if (!p || !p.profile_id) return;
+      /* 治理岗的入口在侧栏主功能区，不进「选择身份」。 */
+      if (GOVERNANCE_CLASSES.indexOf(p["class"]) >= 0) return;
       rows.push({
         id: p.profile_id,
         name: p.display_name ? tr(p.display_name, p.display_name) : roleLabel(p),
@@ -512,30 +479,7 @@
       panel.appendChild(h);
     }
 
-    function addPickerRole(entry) {
-      var b = document.createElement("button");
-      b.type = "button";
-      b.className = "id-picker-item role-entry";
-      b.setAttribute("role", "option");
-      b.setAttribute("data-role-page", entry.page);
-      var name = document.createElement("span");
-      name.className = "ip-name";
-      name.textContent = tr(entry.key, entry.zh) + "  ›";
-      var meta = document.createElement("span");
-      meta.className = "ip-meta";
-      var hint = document.createElement("em");
-      hint.className = "ip-role";
-      hint.textContent = tr("pick.role_apply", "申请与收益口径");
-      meta.appendChild(hint);
-      b.appendChild(name);
-      b.appendChild(meta);
-      b.addEventListener("click", function () { goRolePage(entry.page); });
-      panel.appendChild(b);
-    }
-
     addPickerRow(rows[0]);
-    addPickerHead("pick.section_roles", "身份与岗位");
-    ROLE_PAGES.forEach(addPickerRole);
     addPickerHead("pick.role_agent", "注册代理身份");
     rows.slice(1).forEach(addPickerRow);
 

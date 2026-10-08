@@ -8,7 +8,7 @@
 1. 侧栏分组由「当前档案的类」驱动（cyber-identity.js 的 ROLE_LABELS 取值：
    individual / merchant / enterprise / verifier / arbitrator），**不再**是
    「主身份 / 其它」两档；
-2. 「验证者身份 / 仲裁者身份」两个**自助申请入口任何身份都留着** ——
+2. 三个**岗位入口（验证者身份 / 仲裁者身份 / 运营复核岗）任何身份都留着** ——
    把入口收掉，还没开通的人就永远开不了岗；
 3. 每个侧栏分组至少有一个身份看得到；特权工作面只归它自己的岗
    （复核台 / 验证者网络 → 复核岗，仲裁台 → 仲裁岗）。
@@ -23,11 +23,12 @@ CONSOLE = ROOT / "apps/console"
 BOOT = CONSOLE / "scripts/cyber-console.js"
 PAGE = CONSOLE / "pages/cyber/index.html"
 
-ROLES = {"master", "individual", "merchant", "enterprise", "verifier", "arbitrator"}
+ROLES = {"master", "individual", "merchant", "enterprise", "verifier", "arbitrator", "ops_reviewer"}
+#: 特权工作面 → 哪些岗位的功能区里有它（运营复核岗本来就是 verifier 类身份）。
 PRIVILEGED = {
-    "reviews": "verifier",
-    "verifiers": "verifier",
-    "arbitration": "arbitrator",
+    "reviews": {"verifier", "ops_reviewer"},
+    "verifiers": {"verifier", "ops_reviewer"},
+    "arbitration": {"arbitrator"},
 }
 
 
@@ -61,11 +62,11 @@ def test_nav_scope_is_driven_by_the_role_not_a_two_way_master_flag():
 
 def test_self_service_entry_groups_are_never_scoped_away():
     js = BOOT.read_text(encoding="utf-8")
-    assert set(_always_visible(js)) == {"verifier-id", "arbiter-id"}
+    assert set(_always_visible(js)) == {"verifier-id", "arbiter-id", "ops-reviewer"}
     tags = _nav_tags(PAGE.read_text(encoding="utf-8"))
-    for group in ("verifier-id", "arbiter-id"):
+    for group in ("verifier-id", "arbiter-id", "ops-reviewer"):
         assert group in tags, f"侧栏缺 {group} 这一组"
-        assert "hidden" not in tags[group], f"{group} 是自助申请入口，不许默认藏起来"
+        assert "hidden" not in tags[group], f"{group} 是岗位入口，不许默认藏起来"
 
 
 def test_every_nav_group_is_reachable_from_some_role():
@@ -80,9 +81,9 @@ def test_every_nav_group_is_reachable_from_some_role():
 
 def test_privileged_work_areas_only_belong_to_their_own_role():
     roles = _role_groups(BOOT.read_text(encoding="utf-8"))
-    for name, owner in PRIVILEGED.items():
+    for name, owners in PRIVILEGED.items():
         for role, groups in roles.items():
-            if role == owner:
-                assert name in groups, f"{owner} 身份看不到 {name}"
+            if role in owners:
+                assert name in groups, f"{role} 身份看不到 {name}"
             else:
                 assert name not in groups, f"{role} 身份不该把 {name} 收进功能区"
