@@ -407,6 +407,31 @@ H8 的清单里只有**公开的链上地址**（链上可查），私钥永远�
 
 ---
 
+## 逐项 `[人工]` 签核清单（G10）
+
+`--strict` 下这 10 项未签 = 失败。它们脚本判不了（要么是「确有其人」这类社会事实，要么要外部账号 /
+私有仓库 / 真链），所以逐条列成表：**证据**一栏填「凭什么算过」，「签字」一栏由发布负责人本人签。
+
+> 规则：证据要能被第三人在事后复核；**含个人信息 / 私有仓库 / 联系方式的证据只填「在哪能看到」，
+> 不把内容写进这个公开仓库**（与 `SECURITY_ONCALL_*` / `AUTH_API_KEYS` 值同一口径）。
+
+| # | 条目 | 怎么算过（判据） | 去哪看 | 证据（填「在哪能看到」） | 签字 | 日期 |
+|---|---|---|---|---|---|---|
+| 1 | `A4d` 白名单身份号确有其人 | 白名单里点名的每个 `kid_*` / telegram id 都能对上**一个具体的人**；对不上的必须摘掉（空挂的管理员条目就是后门） | 服务器 `.env` 的 `ADMIN_ACTOR_IDS` / `ARBITRATOR_ACTOR_IDS` / `GOVERNANCE_VERIFIER_IDS` | | | |
+| 2 | `E4b` 告警端点确实有人看 + 阈值已调 | `/v1/security/ops/alerts` 有轮询 / 看板在盯；阈值取的是运营认可的 `B5`/`B6` active 策略值，不是「装完没人看」 | 告警轮询器状态 + 运维 Telegram / 看板 | | | |
+| 3 | `E6b` 回滚方案 + 值班手册已确认 | 主要负责人**读过并认可** `docs/SECURITY_INCIDENT_PLAYBOOK.md` 的步骤可执行、值班联系人对 | `docs/SECURITY_INCIDENT_PLAYBOOK.md` | | | |
+| 4 | `F6` 基线漂移策略已评审 | `baseline_window_minutes` / `baseline_drift_multiplier` 的取值经评审认可（多久的窗、漂多少倍算异常） | active 安全阈值策略 | | | |
+| 5 | `H2` 买方 / 卖方测试钱包真的有钱 | 链上余额 > 0 且够跑完一笔结算（钱的事 shell 判不了） | 链上地址余额 | | | |
+| 6 | `H3` `CHAIN_ANCHOR_HASH` 按笔写入 | 确认锚定哈希是**每笔交易写入**，而不是全局 env 里钉死的一个值 | 交易记录 / 锚定写入路径 | | | |
+| 7 | `H9` Karma2 `CORE_VERSION.lock` 与公开 commit 对齐 | 私有仓库的 `CORE_VERSION.lock` 指向的 commit 与对外公开的那份一致 | 私有仓库 Karma2 | | | |
+| 8 | `H10` OpenClaw MCP 注册 + 签名通路 A/B | MCP 已注册，且一条签名通路**实测走通**（A/B 两组对照） | OpenClaw / MCP 侧 | | | |
+| 9 | `H11` OpenManus smoke 对着活测试网跑通 | `phase1_claw_manus_smoke.py` 对着**活的**测试网实测通过（不是对着 mock） | CI / 手工 run 记录 | | | |
+| 10 | `H12` 混合上链 smoke | `RUN_TESTNET_ONCHAIN` 打开时混合上链 smoke 通过 | CI / 手工 run 记录 | | | |
+
+签完把本表 + 下面「签核记录」一起留档。脚本重跑 `--strict` 应显示 `HUMAN 0`（或对应项转 `[机器]`）。
+
+---
+
 ## 签核记录
 
 发布前把这一块填完并留档。`[机器]` 项由脚本给出结论，`[人工]` 项由签字人负责。
