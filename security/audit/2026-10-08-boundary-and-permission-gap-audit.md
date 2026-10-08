@@ -17,7 +17,7 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 | G3 | `GET /v1/capacity/{id}` 无归属校验（可读他人额度 / 锁仓） | 中 | **已落地（本轮）** |
 | G4 | POD 交付验证：`actor_agent_id` 自报，未绑会话身份 | 中 | **已落地（本轮）** |
 | G5 | 治理岗「发给他人」/「收回」无 API（`require_governance_verifier` 零调用、`GOVERNANCE_OPEN_JOIN` 关） | 中 | 未落地 |
-| G6 | 换绑操作钱包无「刷脸 / 应急」闸门（已绑再换只验新钱包签名） | 中 | 未落地 |
+| G6 | 换绑操作钱包无「刷脸 / 应急」闸门（已绑再换只验新钱包签名） | 中 | **已落地（本轮）** |
 | G7 | `GET /v1/security/policies*`、`/v1/arbitration/pool`、`/v1/receipts/*` 等读接口只要登录 | 低 | 未落地 |
 | G8 | `update_role_profile` 的 `status` 由本人自报、无枚举校验 | 低 | 未落地 |
 | G9 | `face-consistency` 直接把档案置 `verified`（审计 O1 的「操作台文案区分」未做） | 低 | 未落地 |
@@ -166,6 +166,22 @@ owner + **新钱包**的 personal_sign。若该档案**已经绑过一个钱包*
 口径要求是「修改 / 更换钱包地址要触发状态机应急或锁定，只有本人刷脸通过才能更换」——
 这一条**未落地**。
 
+### G6 —— 已落地（本轮）
+
+`bind-wallet` 拆成两条路，只有**换绑**（这张子身份已经绑过另一个钱包）才升级到刷脸：
+
+- **首次绑定**：规矩不变，只要新钱包自己的 `personal_sign`（证明「这个钱包愿意代表这张子身份」）。
+- **换绑**：先照旧验新钱包签名，再要求**本人刷脸通过** —— 复用 `services/face_activation.assert_same_person`
+  那一整套判据（签名 / 参考模板一致 / 非重放 / 分数过线）；签名的钱包必须是这个身份的
+  **绑定钱包（身份根）**，不是被换掉的那个操作钱包。不走刷脸 → 409，且不动已绑钱包。
+- 动作落 `SecurityMonitoringEventType.IDENTITY_WALLET_REBIND` 安全事件（可追溯 / 可告警）
+  + `NOTICE_WALLET_REBOUND` 站内回执（操作台 `cyber-unbind-keys.js` 渲染，五语词表齐全）。
+- 回归：`tests/unit/test_wallet_rebind_face_gate.py`（4 条：首次只认新钱包签名 / 无刷脸 409 且不动钱包 /
+  刷脸成功换绑并留痕 / 刷脸结论签自非根钱包 403）。相关套件（身份认证 / 刷脸 / 回执 / 词表纯净度 /
+  节点层）全绿。
+- **未做**：操作台「换绑」交互入口。当前操作台只在新建子身份时绑一次，换绑只能走 API；
+  前端刷脸换绑向导列为后续 UI 项（不影响闸门本身）。
+
 ### G7（低）若干读接口只要求「已登录」
 
 - `GET /v1/security/policies`、`/policies/{id}`、`/policies/changes`、`/policies/changes/{id}`
@@ -226,7 +242,7 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 1. **G1 / G2 / G3**：给三处无授权路由补 owner 校验（复用 `resolve_actor_identity_id`；
    与现有 `require_ledger_identity` / `_require_owner` 同口径），并加回归测试钉住 403。
    G1 的 `automation-policy` 必须优先 —— 它是资金相邻写。
-2. **G6**：换绑钱包加「已绑需刷脸 / 应急」分支（G4 已落地）。
+2. **G6**：换绑钱包加「已绑需刷脸 / 应急」分支 —— 已落地（本轮）。
 3. **G5**：接上 `require_governance_verifier` —— 开一条「治理发放方给他人开 / 收回 verifier·arbitrator 岗」
    的路由（含退岗动作），并把它接到操作台。
 4. **G7 / G8 / G9**：读接口明确口径（收紧或写「公示」并加测试）、`status` 加枚举、刷脸档案文案区分。

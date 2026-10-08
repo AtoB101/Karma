@@ -31,6 +31,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models.orm import IdentityRoleProfile
 from db.session import get_db
 from services import governance_stake
+from services.console_notice import NOTICE_WALLET_REBOUND, add_notice_safe
+from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from services.face_activation import FaceError, assert_same_person
 from services.identity_actor import resolve_actor_identity_id
 from services.identity_verification import (
@@ -404,6 +406,17 @@ class BindWalletBody(BaseModel):
     model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     wallet_address: str = Field(..., min_length=42, max_length=128)
     wallet_signature: str = Field(..., min_length=130, max_length=200)
+    # 换绑（这档案已经绑过另一个钱包）走「本人刷脸」闸门：下面这组字段是刷脸结论，
+    # 与 /face-consistency 同一套判据（见 services/face_activation.assert_same_person）。
+    # 签名的钱包必须是这个身份的**绑定钱包**（身份根），不是被换掉的那个操作钱包。
+    face_wallet_address: str | None = Field(default=None, max_length=128)
+    face_wallet_signature: str | None = Field(default=None, max_length=200)
+    face_reference_digest: str | None = Field(default=None, max_length=64)
+    face_capture_digest: str | None = Field(default=None, max_length=64)
+    face_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    face_liveness: dict | None = None
+    face_encryption: dict | None = None
+    face_template_cipher: str | None = Field(default=None, max_length=2_000_000)
 
 
 @router.post("/{profile_id}/bind-wallet")
@@ -413,7 +426,12 @@ async def bind_role_profile_wallet(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """把子身份绑定到一个操作钱包（需要该钱包的 personal_sign 签名）。
+    """把子身份绑定到一个操作钱包。
+
+    - 首次绑定：只需要该钱包的 personal_sign（证明「这个钱包确实愿意代表这张子身份」）。
+    - **换绑**（这张子身份已经绑过另一个钱包）：光有 owner 会话 / 一把签名不够 ——
+      换钱包 = 换代表权，必须**本人刷脸通过**（同一套同人比对判据），签名来自身份的绑定
+      钱包；另加新钱包自己的签名。动作本身落安全事件 + 站内回执（G6）。
 
     这只是「谁可以代表这个子身份签名」，不是资金账户：子身份的收入与支出仍然
     统一走主身份钱包，见操作台身份页的资金归属说明。
@@ -428,6 +446,10 @@ async def bind_role_profile_wallet(
         raise HTTPException(403, "only the profile owner can bind a wallet")
 
     wallet = body.wallet_address.strip()
+    previous = str(row.bound_wallet_address or "").strip().lower()
+    rebind = bool(previous) and previous != wallet.lower()
+
+    # 新钱包必须自己签（证明「控制着这个地址」）—— 首次与换绑都要过这一关。
     message = build_bind_wallet_message(
         profile_id=profile_id,
         owner_identity_id=row.owner_identity_id,
@@ -439,8 +461,62 @@ async def bind_role_profile_wallet(
         wallet_signature=body.wallet_signature,
     )
 
+    if rebind:
+        # 换绑是「把代表权挪到另一个钱包」：必须本人刷脸，单靠 owner 会话不足以放行。
+        if not body.face_wallet_address or not body.face_wallet_signature:
+            raise HTTPException(
+                409,
+                "changing the bound wallet requires a fresh face check: submit the same-person "
+                "evidence (face_wallet_address / face_wallet_signature / face_reference_digest / "
+                "face_capture_digest / face_score / face_liveness)",
+            )
+        try:
+            verdict = await assert_same_person(
+                db,
+                owner_identity_id=row.owner_identity_id,
+                profile_id=profile_id,
+                class_=row.class_,
+                wallet_address=body.face_wallet_address,
+                wallet_signature=body.face_wallet_signature,
+                reference_digest=body.face_reference_digest,
+                capture_digest=body.face_capture_digest,
+                score=body.face_score,
+                liveness=body.face_liveness,
+                encryption=body.face_encryption,
+                template_cipher=body.face_template_cipher,
+            )
+        except FaceError as exc:
+            raise HTTPException(exc.status, exc.message) from exc
+
     row.bound_wallet_address = wallet.lower()
     row.updated_at = datetime.utcnow()
     await db.flush()
     await db.refresh(row)
+
+    if rebind:
+        record_security_event(
+            SecurityMonitoringEventType.IDENTITY_WALLET_REBIND,
+            metadata={
+                "profile_id": profile_id,
+                "owner_identity_id": row.owner_identity_id,
+                "previous_wallet": previous,
+                "new_wallet": wallet.lower(),
+                "face_score": verdict["score"],
+                "face_threshold": verdict["threshold"],
+                "face_reviewer": verdict["reviewer"],
+            },
+        )
+        # 换绑是不可逆动作：先把动作 commit 掉，再落一条站内回执（提醒写失败不影响换绑）。
+        await db.commit()
+        await add_notice_safe(
+            db,
+            karma_identity_id=row.owner_identity_id,
+            kind=NOTICE_WALLET_REBOUND,
+            payload={
+                "profile_id": profile_id,
+                "previous_wallet": previous,
+                "new_wallet": wallet.lower(),
+            },
+        )
+        await db.refresh(row)
     return _serialize(row, full=True)

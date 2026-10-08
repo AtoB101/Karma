@@ -207,6 +207,8 @@ class SecurityMonitoringEventType(str, Enum):
     # 认证撤销（2026-10-08 审计 O4）：企业 / 个体户认证一旦 verified 就是终态，撤销是唯一出口
     # —— 谁发起、谁确认、因为什么，必须可追溯、可告警。
     VERIFICATION_REVOKED = "verification_revoked"
+    # 操作钱包换人代表（2026-10-08 审计 G6）：改代表权必须本人刷脸，动作本身要可追溯、可告警。
+    IDENTITY_WALLET_REBIND = "identity_wallet_rebind"
 
 
 @dataclass

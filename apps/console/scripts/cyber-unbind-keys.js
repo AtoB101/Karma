@@ -85,6 +85,11 @@
     var p = payload || {};
     return String(p.agent_name || p.agent_id || p.key_id || "—");
   }
+  function shortWallet(v) {
+    var w = String(v || "");
+    if (!w) return "—";
+    return w.length > 12 ? w.slice(0, 6) + "…" + w.slice(-4) : w;
+  }
 
   /* ---- 站内提醒 ---- */
 
@@ -116,6 +121,12 @@
     }
     if (kind === "2fa_recovery_rotated") {
       return T("第二把锁的恢复码已换新：旧的那一组作废了。");
+    }
+    // 操作钱包换了人代表这张子身份：本次更换过了本人刷脸这一关，必须留痕。
+    if (kind === "wallet_rebound") {
+      var pw = shortWallet(n && n.payload && n.payload.previous_wallet);
+      var nw = shortWallet(n && n.payload && n.payload.new_wallet);
+      return Tf("操作钱包已更换：{0} → {1}（本次更换经过本人刷脸确认）。", pw, nw);
     }
     return Tf("钥匙事件：{0}", kind || "—");
   }

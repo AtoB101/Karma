@@ -2855,6 +2855,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "第二把锁（安全验证）已绑定：以后动资金要多输一次验证码。": "Second lock (security check) is now on: moving funds will ask for one more code.",
   "第二把锁（安全验证）已解绑：动资金现在只靠钱包签名。": "Second lock (security check) is off: moving funds now relies on the wallet signature only.",
   "第二把锁的恢复码已换新：旧的那一组作废了。": "Second-lock recovery codes were renewed: the old set no longer works.",
+  "操作钱包已更换：{0} → {1}（本次更换经过本人刷脸确认）。": "Operational wallet changed: {0} → {1} (this change was verified by a face check).",
 });
 // compliance-revocation: 复核台「可撤销的认证」
 Object.assign(window.CYBER_I18N_PHRASE["en"], {
