@@ -23,6 +23,7 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 | G9 | `face-consistency` 直接把档案置 `verified`（审计 O1 的「操作台文案区分」未做） | 低 | **已落地（本轮）** |
 | G10 | 发布门槛 10 项 `[人工]` 未签（A4d/E4b/E6b/F6/H2/H3/H9/H10/H11/H12） | 人工 | 未签 |
 | G11 | KYC 侧对外公开留痕接口 | 待产品 | **已落地（本轮）** |
+| G12 | 节点质押只是「入场券」：`verifier_nodes.stake_amount` 未绑链上锁仓、无罚没 / 退出闭环 | 中 | **待办（本轮记账，未改代码）** |
 
 ## 1. 方法与证据
 
@@ -281,6 +282,33 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
   （空历史 → 撤销一次有痕 → 本人重交后载荷留痕消失但公开历史仍在 → 再撤销累计 2 条、新的在前、
   不带 operator / verifier 身份、不带载荷字段）；该文件 **18 passed**。
 
+### G12（中）节点质押目前只是「入场券」，还不构成担保（本轮记账）
+
+节点登记（`api/routes/verifier_network.py:86`）**本来就没有人工审核环节**：门槛只有三道 ——
+节点自有 key 签名（`_enforce_node_signature:46`，生产 `VERIFIER_REQUIRE_NODE_SIGNATURE=true`）、
+钱包唯一（`verifier_nodes.wallet_address` unique）、质押额；登记即 `is_active=True`
+（`decentralized_verifier/models.py:47`）当场生效，事后靠声誉分与挑战仲裁约束。也就是说
+「免人工审核节点」这一条**当前已经成立**，不需要改造。
+
+缺口在质押的**出口侧**：`verifier_nodes.stake_amount` 只是一个记数（register / `POST /{id}/stake`
+时写入），**没有和链上锁仓绑定，也没有罚没 / 划走路径**（全仓扫 `slash` 零命中）。
+因此现在的节点质押 = 入场券，不是担保 —— 节点作恶没有惩罚成本。
+
+对照：治理岗（verifier / arbitrator）已有完整闭环 —— `services/governance_stake.py` 的
+`assert_stake_acceptable:124` 要求质押由锁仓 USDC 支撑（`GOVERNANCE_REQUIRE_BACKED_STAKE`），
+`assert_governor_active:159` 让「押金走则岗停」（押金不足当场 403）。
+
+**结论 / 口径**：要去中心化、走「纯质押准入 + 免人工」，**前提是节点侧也把出口做成自动的**
+（误判罚没 → 划走质押 + 停用；退出即失效），否则等于「审核去掉 + 担保也没上」，风险高于现状。
+
+**待办（本轮只记账，未改代码）**，等测试网跑稳再按序落地：
+
+- **A**：节点入场接锁仓质押（对齐 `governance_stake` 的 `locked_capacity_of` / `stake_state`），
+  并保持 `VERIFIER_REQUIRE_NODE_SIGNATURE=true`。
+- **B**：补节点罚没 / 退出闭环（被挑战判负 → 划走质押 + `is_active=False`），把「质押即准入」闭合。
+
+—— 属资金安全核心路径（直接动钱与节点存活），故本轮不动代码。
+
 ## 4. 生产实测快照（测试网，只读）
 
 `/opt/karma/.env`（`root@47.82.74.68`，值不落仓）：
@@ -309,6 +337,7 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 3. **G5**：已落地（本轮）—— 治理发放方（白名单 ∪ 管理员）可替他人开 / 收回 verifier·arbitrator 岗。
 4. **G7 / G8 / G9**：已落地（本轮）。
 5. **G10**：人工签核；**G11**：产品拍板。
+6. **G12**：本轮只记账（见 §3）—— 「免人工审核」已成立；「纯质押准入」尚需 A（入场接锁仓）+ B（罚没 / 退出）再开。
 
 —— 主网未动；本轮所有改动都在测试网侧代码 + 回归测试。
 
@@ -331,6 +360,10 @@ G1–G9 全部落地并推送，CI 6/6 绿（`main`）：
 - **G10（人工）**：`docs/SECURITY_RELEASE_GATES.md` 的 10 项 `[人工]` 签核（A4d/E4b/E6b/F6/
   H2/H3/H9/H10/H11/H12），`--strict` 下算失败 —— 需发布负责人逐项签字。已备好逐项签核清单
   （该文档「逐项 `[人工]` 签核清单（G10）」一节，含判据 / 证据位 / 签字 / 日期列）。
+
+- **G12（待办）**：节点质押只是入场券 —— `verifier_nodes.stake_amount` 未绑链上锁仓、无罚没 /
+  退出闭环；「免人工审核」当前已成立，但「纯质押准入」需先补 A（入场接锁仓）+ B（罚没 / 退出）
+  再开。见 §3 G12。
 
 **未覆盖 / 有意保留**：
 
