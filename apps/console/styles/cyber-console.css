@@ -2149,6 +2149,15 @@ body {
   text-transform: uppercase;
   color: var(--text-dim);
 }
+.alloc-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--text-dim);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+}
 .id-picker-empty {
   margin: 2px;
   font-size: 12px;

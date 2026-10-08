@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""「选择身份」只列认证过的身份（用户口径 2026-10-09）。
+"""「选择身份」与额度分配只列认证过的身份（用户口径 2026-10-09）。
 
 身份在「身份 · 认证」里认证通过之后才进选择栏 —— 没认证的（kyc_status 是
 none / pending / rejected）和本人停用的先都收起来，列出来只会让人切过去发现什么都
@@ -47,6 +47,17 @@ def test_empty_panel_points_at_the_certification_page():
     assert 'cyberSwitchPage("identity", "master")' in js, "点提示要直达「身份 · 认证」"
     # 有档案但一张都没认证：不画空分组，只留提示。
     assert "rows.length === 1" in js and "rows.length < 2" in js
+
+
+def test_allocation_table_lists_certified_identities_too():
+    """额度分配表和「选择身份」同一条口径；例外只给「还挂着额度」的档案留。"""
+    js = JS.read_text(encoding="utf-8")
+    body = js.split("async function refreshAllocation() {", 1)[1].split("function allocInputs()", 1)[0]
+    assert "isCertifiedIdentity(p)" in body, "额度分配也要按认证状态过滤"
+    assert "allocated_credits" in body, "没认证但还挂着额度的要继续列（否则清不掉）"
+    assert "rows.forEach(" in body and "profiles.forEach(" not in body
+    assert "hintNode(" in body, "一张都没有时要给出去哪儿认证"
+    assert 'tr("未认证", "未认证")' in body, "例外行要标出来"
 
 
 def test_hint_text_is_translated_everywhere():

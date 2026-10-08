@@ -851,7 +851,19 @@
       masterLockedCredits = Number((cap && cap.total_locked_usdc) || 0);
     } catch (_) {}
     list.innerHTML = "";
-    profiles.forEach(function (p) {
+    /* 和「选择身份」同一条口径：只列「身份 · 认证」核过的身份。唯一的例外是**还挂着
+       额度**的档案 —— 它必须继续列出来，否则既看不见也清不掉；而保存是「逐条提交、
+       漏掉的保持原值」，一不留神这笔额度就被永久卡在里头。 */
+    var rows = profiles.filter(function (p) {
+      var cur = allocs[p.profile_id];
+      return isCertifiedIdentity(p) || Number((cur && cur.allocated_credits) || 0) > 0;
+    });
+    if (!rows.length) {
+      list.appendChild(hintNode("sub-switch-empty"));
+      updateAllocRemain();
+      return;
+    }
+    rows.forEach(function (p) {
       var cur = allocs[p.profile_id];
       var used = cur ? ((cur.in_progress_credits || 0) + (cur.pending_settlement_credits || 0) + (cur.disputed_credits || 0)) : 0;
       var row = document.createElement("div");
@@ -859,6 +871,13 @@
       var label = document.createElement("label");
       var displayName = p.display_name ? tr(p.display_name, p.display_name) : p.profile_id;
       label.textContent = displayName + " · " + (p["class"] || "") + (used > 0 ? "（占用 " + used + "）" : "");
+      if (!isCertifiedIdentity(p)) {
+        /* 例外行说清楚它为什么还在这儿：没认证、但还有额度没清零。 */
+        var tag = document.createElement("em");
+        tag.className = "alloc-tag";
+        tag.textContent = tr("未认证", "未认证");
+        label.appendChild(tag);
+      }
       var input = document.createElement("input");
       input.type = "number"; input.step = "0.01"; input.min = "0"; input.style.width = "100%";
       input.dataset.allocProfile = p.profile_id;
