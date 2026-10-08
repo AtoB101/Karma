@@ -33,6 +33,8 @@ from services.identity_verification import (
 from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
+#: 公开可读：KYC 合规撤销的对外留痕（尽调方 / 消费者不必先登录）。
+public_router = APIRouter()
 
 _TRANSITIONS = {
     "none": {"pending"},
@@ -218,3 +220,23 @@ async def revoke_kyc(
         },
     )
     return {"revoked": True, "state": "revoked", "kyc_status": profile.kyc_status, **outcome}
+
+
+@public_router.get("/{profile_id}/revocations")
+async def get_public_kyc_revocations(
+    profile_id: str, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """这张子身份的 KYC 被**合规撤销**过的全部记录（新的在前）。公开可读。
+
+    权威来源是 ``verification_revocation_requests`` 里已执行的行 —— 本人改好资料重新提交后，
+    档案载荷里的那段留痕会被新载荷覆盖，但这里不会丢（撤销过几次都留痕）。
+    与主体认证同形：只给「什么时候、因为什么、几个人定的」，**不含操作人身份**。
+    """
+    validate_public_url_segment("profile_id", profile_id)
+    rows = await compliance_revocation.executed_history(
+        db,
+        target_kind=compliance_revocation.TARGET_ROLE_PROFILE_KYC,
+        target_id=profile_id,
+    )
+    items = [compliance_revocation.public_revocation_view(r) for r in rows]
+    return {"profile_id": profile_id, "total": len(items), "items": items}

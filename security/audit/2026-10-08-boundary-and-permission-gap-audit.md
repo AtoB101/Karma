@@ -22,7 +22,7 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 | G8 | `update_role_profile` 的 `status` 由本人自报、无枚举校验 | 低 | **已落地（本轮）** |
 | G9 | `face-consistency` 直接把档案置 `verified`（审计 O1 的「操作台文案区分」未做） | 低 | **已落地（本轮）** |
 | G10 | 发布门槛 10 项 `[人工]` 未签（A4d/E4b/E6b/F6/H2/H3/H9/H10/H11/H12） | 人工 | 未签 |
-| G11 | KYC 侧对外公开留痕接口 | 待产品 | 待拍板 |
+| G11 | KYC 侧对外公开留痕接口 | 待产品 | **已落地（本轮）** |
 
 ## 1. 方法与证据
 
@@ -265,7 +265,21 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 
 主体认证有 `GET /v1/entities/{id}/revocations`（公开）；KYC 一侧只有 `_serialize_kyc.revocation`
 随档案下发，**没有独立公开历史接口**，且本人重新提交后旧留痕会被新载荷覆盖
-（权威记录仍在 `verification_revocation_requests` 的 executed 行）。是否补公开接口**待产品拍板**。
+（权威记录仍在 `verification_revocation_requests` 的 executed 行）。是否补公开接口**待产品拍板**
+—— 产品拍板：**补**。
+
+### G11 —— 已落地（本轮）
+
+新增 `GET /v1/identity/role-profiles/{profile_id}/revocations`（`api/routes/identity_kyc.py`
+的 `public_router`，挂载于 `api/app.py`，**无鉴权依赖**）—— 与主体认证同口径、同形状：
+
+- 直读 `verification_revocation_requests` 里该 `profile_id` 的 **executed** 行（新的在前），
+  **权威、抗覆盖**：本人改好资料重新提交后，档案载荷里那段留痕会被新载荷顶掉，但公开历史仍在。
+- 只外发「什么时候、因为什么、几个人定的、能不能重交」，**不含操作人身份**、不含档案载荷内容。
+- 没撤销过 → `{"profile_id": ..., "total": 0, "items": []}`（与 `/v1/entities/{id}/revocations` 一致）。
+- 回归：`tests/unit/test_verification_revocation.py` 追加 1 条
+  （空历史 → 撤销一次有痕 → 本人重交后载荷留痕消失但公开历史仍在 → 再撤销累计 2 条、新的在前、
+  不带 operator / verifier 身份、不带载荷字段）；该文件 **18 passed**。
 
 ## 4. 生产实测快照（测试网，只读）
 

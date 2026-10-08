@@ -528,3 +528,79 @@ async def test_kyc_view_exposes_revocation_trace(client: AsyncClient, db_session
     verdict = r.json()["kyc_payload"]["verification"]
     assert verdict["kind"] == "compliance_revocation"
     assert verdict["path"] == "two_person"
+@pytest.mark.asyncio
+async def test_public_kyc_revocation_history_is_authoritative(
+    client: AsyncClient, db_session: AsyncSession
+):
+    """G11：KYC 侧也有独立的公开留痕接口，且**不随载荷被覆盖而丢**。
+
+    本人改好资料重新提交后，档案载荷里那段 `verification` 留痕会被新载荷顶掉；
+    权威记录在 `verification_revocation_requests`，公开接口直读它。
+    """
+    await _verifier(client, VERIFIER_A)
+    await _verifier(client, VERIFIER_B)
+    owner = "rev-owner-kyc-history"
+    pid = await _verified_kyc_profile(client, db_session, owner=owner)
+
+    # 没撤销过 → 空历史（公开可读，不带任何鉴权头）
+    r = await client.get(f"/v1/identity/role-profiles/{pid}/revocations")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"profile_id": pid, "total": 0, "items": []}, r.text
+
+    # 第一次：复核岗两人撤销
+    await client.post(
+        f"/v1/identity/role-profiles/{pid}/kyc/revoke",
+        json={"reason": REASON},
+        headers=_h(VERIFIER_A),
+    )
+    r = await client.post(
+        f"/v1/identity/role-profiles/{pid}/kyc/revoke",
+        json={"reason": REASON},
+        headers=_h(VERIFIER_B),
+    )
+    assert r.json()["revoked"] is True, r.text
+
+    r = await client.get(f"/v1/identity/role-profiles/{pid}/revocations")
+    assert r.json()["total"] == 1, r.text
+    assert r.json()["items"][0]["reason"] == REASON
+    assert r.json()["items"][0]["review"] == "two_reviewers"
+
+    # 本人改好重交 → 载荷里的留痕被顶掉（档案视图不再显示），但公开历史仍在
+    r = await client.post(
+        f"/v1/identity/role-profiles/{pid}/kyc",
+        json={"kyc_payload": {"kind": "sole_proprietor", "business_name": "张三小吃店"}},
+        headers=_h(owner),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["revocation"] is None, "重新提交后载荷里不该还挂着旧留痕"
+    r = await client.post(
+        f"/v1/identity/role-profiles/{pid}/kyc/verify",
+        json={"decision": "verified", "reason": "材料已补齐"},
+        headers=_h(VERIFIER_A),
+    )
+    assert r.status_code == 200, r.text
+
+    # 第二次：发起方（A）写理由，确认方（B）点头 —— 理由以发起方那份为准
+    await client.post(
+        f"/v1/identity/role-profiles/{pid}/kyc/revoke",
+        json={"reason": "第二次：门店已转让，登记主体变更"},
+        headers=_h(VERIFIER_A),
+    )
+    r = await client.post(
+        f"/v1/identity/role-profiles/{pid}/kyc/revoke",
+        json={"reason": "第二次：门店已转让，登记主体变更"},
+        headers=_h(VERIFIER_B),
+    )
+    assert r.json()["revoked"] is True, r.text
+
+    r = await client.get(f"/v1/identity/role-profiles/{pid}/revocations")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 2, body
+    assert body["items"][0]["reason"] == "第二次：门店已转让，登记主体变更"
+    assert all(item["review"] == "two_reviewers" for item in body["items"])
+    assert all(item["can_resubmit"] is True for item in body["items"])
+    # 只有「几个人定的」，没有「哪几个人」；也不泄露 profile 载荷内容
+    for who in (VERIFIER_A, VERIFIER_B, owner):
+        assert who not in r.text
+    assert "business_name" not in r.text

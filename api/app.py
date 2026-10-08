@@ -541,6 +541,14 @@ app.include_router(
     tags=["IdentityKyc"],
     dependencies=_protected_dependencies,
 )
+# KYC 合规撤销的对外留痕是**公开可读**的：与 `/v1/entities/{id}/revocations` 同口径，
+# 尽调方 / 消费者不该先注册账号才能查「这张子身份被撤销过几次、因为什么」。
+# 只读、无写入口，鉴权不适用。
+app.include_router(
+    identity_kyc.public_router,
+    prefix="/v1/identity/role-profiles",
+    tags=["IdentityKyc"],
+)
 app.include_router(
     identity_verification.router,
     prefix="/v1/identity",

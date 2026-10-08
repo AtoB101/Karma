@@ -143,7 +143,7 @@ KYC 载荷里的「复核结论」键同样能自写，且建 / 改档案路径�
     `GET /v1/entities/{id}/revocations` 给全部已执行的撤销历史（新的在前，撤销几次留几次）。
     留痕**不含操作人身份**（kid 是化名，公开出来就是报复面）。操作台主体认证页与个体助理页在
     `rejected` + 有留痕时显示「已被合规撤销（时间 · 两个人确认/平台合规操作）：理由」，
-    并写明「改好资料可以重新提交」。KYC 一侧同形，经 `_serialize_kyc.revocation` 下发。
+    并写明「改好资料可以重新提交」。KYC 一侧同形，经 `_serialize_kyc.revocation` 下发；2026-10-08 补上独立的公开历史接口 `GET /v1/identity/role-profiles/{profile_id}/revocations`（直读 executed 行，抗载荷覆盖，见边界缺口报告 G11）。
   - 测试：`tests/unit/test_verification_revocation.py` 13 条（两人确认 / 同人 409 / 非 verified 409 /
     理由 422 / 本人 403 / 24h 过期 / 运维单人 / 安全事件）。
 
