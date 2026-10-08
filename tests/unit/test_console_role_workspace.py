@@ -5,9 +5,10 @@
 跳到它自己的地方。子身份（注册代理）本来就是切卡，这条讲的是**侧栏主功能区**里的三个
 岗位入口（「选择身份」里不再重复列它们）：
 
-* 选了验证者身份 → 功能区换成验证岗那一套，并落到**验证者网络**（没有能力位才落申请页）；
-* 选了仲裁者身份 → 落**仲裁台**同理；
-* 选了运营复核岗 → 落**复核台**（没有复核能力位落「验证者身份」申请页）；
+* 选了验证者身份 → 功能区换成验证岗那一套，并落**它自己那一页**（登记我的节点 / 我的节点）；
+* 选了仲裁者身份 → 落**它自己那一页**（认证 + 抵押）同理 —— 这两页既是申请页也是工作面，
+  以前落旁边的「验证者网络 / 仲裁台」，持证的人反而再也进不去；
+* 选了运营复核台 → 落**复核台**（没有复核能力位才落「验证者身份」申请页）；
 * 再选回主身份或任一子身份卡 → 离开岗位视角，功能区改回按档案的类收窄。
 
 落点只允许有一个来源（cyber-console.js 的 KarmaWorkspace），别人不许自己再拼一套，
@@ -45,10 +46,10 @@ def _workspaces(js: str) -> dict:
 def test_each_role_entry_has_a_workspace():
     ws = _workspaces(BOOT.read_text(encoding="utf-8"))
     assert set(ws) == {"verifier", "arbitrator", "ops_reviewer"}
-    assert ws["verifier"]["home"] == "verifiers"
+    assert ws["verifier"]["home"] == "verifier-id"
     assert ws["verifier"]["apply"] == "verifier-id"
     assert ws["verifier"]["cap"] == "can_view_verifier_network"
-    assert ws["arbitrator"]["home"] == "arbitration"
+    assert ws["arbitrator"]["home"] == "arbiter-id"
     assert ws["arbitrator"]["apply"] == "arbiter-id"
     assert ws["arbitrator"]["cap"] == "can_operate_arbitration"
     assert ws["ops_reviewer"]["home"] == "reviews"
@@ -56,12 +57,33 @@ def test_each_role_entry_has_a_workspace():
     assert ws["ops_reviewer"]["cap"] == "can_open_review_queue"
 
 
+def _always_visible(js):
+    m = re.search(r"var NAV_ALWAYS_VISIBLE = \[([^\]]*)\];", js)
+    assert m, "找不到 NAV_ALWAYS_VISIBLE"
+    return set(re.findall(r'"([^"]+)"', m.group(1)))
+
+
 def test_workspace_home_is_inside_that_role_function_area():
-    """落到工作面，前提是这个工作面本来就属于该岗位的功能区 —— 否则点进去等于空白。"""
+    """落到工作面，前提是这个工作面本来就归该岗位 —— 要么在它的功能区里，要么是
+    任意身份都留着的岗位入口页（verifier-id / arbiter-id）—— 否则点进去等于空白。"""
     js = BOOT.read_text(encoding="utf-8")
     groups = _role_groups(js)
+    always = _always_visible(js)
     for role, ws in _workspaces(js).items():
-        assert ws["home"] in groups[role], "%s 的工作面 %s 不在它的功能区里" % (role, ws["home"])
+        assert ws["home"] in groups[role] or ws["home"] in always, (
+            "%s 的工作面 %s 既不在它的功能区里，也不是常显的岗位入口页" % (role, ws["home"])
+        )
+
+
+def test_entry_pages_of_verifier_and_arbitrator_stay_reachable_for_holders():
+    """「验证者身份 / 仲裁者身份」两页本身就是岗位的工作面（登记我的节点 / 认证 + 抵押），
+    落点必须还是它们自己 —— 以前落「验证者网络 / 仲裁台」，拿到能力位的人反而进不去，
+    而侧栏里没有第二个入口能把人送回来。运营复核台没有自己的页，才按能力位分两落点。"""
+    ws = _workspaces(BOOT.read_text(encoding="utf-8"))
+    assert ws["verifier"]["home"] == ws["verifier"]["apply"] == "verifier-id"
+    assert ws["arbitrator"]["home"] == ws["arbitrator"]["apply"] == "arbiter-id"
+    assert ws["ops_reviewer"]["home"] == "reviews"
+    assert ws["ops_reviewer"]["apply"] == "verifier-id"
 
 
 def test_workspace_pages_exist_in_the_page():

@@ -1528,18 +1528,24 @@
   var NAV_ALWAYS_VISIBLE = ["verifier-id", "arbiter-id", "reviews"];
 
   /**
-   * 「选择身份」里的两个岗位入口（验证者身份 / 仲裁者身份）不只是翻一页：选了哪个
-   * 岗位，功能区就换成那个岗位的，并落到它自己的工作面 —— 用户口径是「每个身份都有
-   * 对应的功能区和操作区，选了就该跳进去」。
+   * 侧栏主功能区那三个岗位入口（验证者身份 / 仲裁者身份 / 运营复核台）不只是翻一页：
+   * 选了哪个岗位，功能区就换成那个岗位的，并落到它自己那一页 —— 用户口径是「每个身份
+   * 都有对应的功能区和操作区，选了就该跳进去」。
    *
-   * 还没有这个岗位的能力位的人落在 apply（申请页）：功能区一样收窄了，但那页讲的
-   * 就是怎么拿到它。能力位是异步到的，所以能力位回来之后还要再对一次落点
-   * （relandWorkspace），不然先点的人会被留在申请页。
+   * 落点 = 有岗位能力位 → home，没有 → apply（申请页：功能区一样收窄了，但那页讲的
+   * 就是怎么拿到它）。验证者 / 仲裁者那两页本身就是工作面，所以 home 与 apply 同页。
+   * 能力位是异步到的，所以能力位回来之后还要再对一次落点（relandWorkspace），
+   * 不然先点的人会被留在申请页。
    */
   var ROLE_WORKSPACES = {
-    verifier: { apply: "verifier-id", home: "verifiers", cap: "can_view_verifier_network" },
-    arbitrator: { apply: "arbiter-id", home: "arbitration", cap: "can_operate_arbitration" },
-    // 运营复核台：有复核能力位就落「复核台」工作面，没有就落「验证者身份」申请页
+    // 「验证者身份 / 仲裁者身份」两页既是申请页也是工作面（登记我的节点 / 认证 + 抵押），
+    // 所以落点就是自己那一页。以前落旁边的「验证者网络 / 仲裁台」，后果是持证的人
+    // 反而再也进不去这两页 —— 入口只有一个，没有第二个地方能点回来。
+    // 那两个「台」是侧栏另外两组，仍按能力位显隐（applyPrivilegedNavVisibility），
+    // 只是不再拿它们当落点；cap 留着就是记这两个岗位的能力位。
+    verifier: { apply: "verifier-id", home: "verifier-id", cap: "can_view_verifier_network" },
+    arbitrator: { apply: "arbiter-id", home: "arbiter-id", cap: "can_operate_arbitration" },
+    // 运营复核台没有自己的页：有复核能力位就落「复核台」工作面，没有就落「验证者身份」申请页
     // （拿复核岗的路就是那条：平台点名开通，或开了 GOVERNANCE_OPEN_JOIN 后凭锁仓质押）。
     ops_reviewer: { apply: "verifier-id", home: "reviews", cap: "can_open_review_queue" },
   };
@@ -1792,7 +1798,7 @@
         var group = btn.closest(".nav-group");
         var wasOpen = !!(group && group.querySelector(".nav-sub") && group.classList.contains("open"));
         // 岗位入口（验证者身份 / 仲裁者身份 / 运营复核台）不只是翻一页：选了哪个岗位，
-        // 功能区就换成那个岗位的，并落到它自己的工作面 —— 落点只由 KarmaWorkspace 决定
+        // 功能区就换成那个岗位的，并落到它自己那一页 —— 落点只由 KarmaWorkspace 决定
         // （没有该岗位的能力位才落申请页）。
         var role = btn.getAttribute("data-workspace-role");
         if (role && window.KarmaWorkspace) window.KarmaWorkspace.select(role);
