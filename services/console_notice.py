@@ -27,6 +27,9 @@ NOTICE_2FA_DISABLED = "2fa_disabled"
 NOTICE_2FA_RECOVERY_ROTATED = "2fa_recovery_rotated"
 # 操作钱包换了人代表这张子身份 —— 换绑过了本人刷脸这一关，主人必须事后看得见。
 NOTICE_WALLET_REBOUND = "wallet_rebound"
+# 治理岗（有权看别人的认证材料 / 裁争议）的发放与收回：被指派 / 被收回的一方必须看得见。
+NOTICE_GOVERNANCE_ROLE_GRANTED = "governance_role_granted"
+NOTICE_GOVERNANCE_ROLE_REVOKED = "governance_role_revoked"
 
 MAX_LIMIT = 100
 DEFAULT_LIMIT = 20

@@ -128,6 +128,13 @@
       var nw = shortWallet(n && n.payload && n.payload.new_wallet);
       return Tf("操作钱包已更换：{0} → {1}（本次更换经过本人刷脸确认）。", pw, nw);
     }
+    // 治理岗的发放 / 收回：被指派或被收回的一方必须看得见。
+    if (kind === "governance_role_granted") {
+      return Tf("治理岗已开通：{0}（由平台发放方指派）。", (n && n.payload && n.payload["class"]) || "—");
+    }
+    if (kind === "governance_role_revoked") {
+      return Tf("治理岗已收回：{0}。相关入口立即失效。", (n && n.payload && n.payload["class"]) || "—");
+    }
     return Tf("钥匙事件：{0}", kind || "—");
   }
 

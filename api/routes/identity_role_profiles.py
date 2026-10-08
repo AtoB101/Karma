@@ -28,10 +28,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models.orm import IdentityRoleProfile
+from core.schemas import ArbitrationPoolMemberStatus
+from db.models.orm import ArbitrationPoolMemberModel, IdentityRoleProfile
 from db.session import get_db
 from services import governance_stake
-from services.console_notice import NOTICE_WALLET_REBOUND, add_notice_safe
+from services.actor_guards import admin_actor_ids
+from services.console_notice import (
+    NOTICE_GOVERNANCE_ROLE_GRANTED,
+    NOTICE_GOVERNANCE_ROLE_REVOKED,
+    NOTICE_WALLET_REBOUND,
+    add_notice_safe,
+)
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from services.face_activation import FaceError, assert_same_person
 from services.identity_actor import resolve_actor_identity_id
@@ -156,6 +163,17 @@ def _serialize(row: IdentityRoleProfile, *, full: bool = False) -> dict:
 
 
 
+def _may_grant_governance(actor: str | None) -> bool:
+    """治理身份发放方：``GOVERNANCE_VERIFIER_IDS`` 白名单 ∪ 管理员白名单（G5）。
+
+    与 ``governance_stake.whitelisted`` 同一口径（身份命名空间），另收平台管理员 ——
+    运维没有道理还得先把自己加进发放方名单才能收岗。
+    """
+    if not actor:
+        return False
+    return governance_stake.whitelisted(actor) or actor in admin_actor_ids()
+
+
 #: 这两个角色是**治理角色**：verifier 能复核别人的主体认证与开发者实名，
 #: arbitrator 能裁争议。放任自建等于谁都能给自己开一个「审批权」——
 #: 所以默认谁都不许（GOVERNANCE_VERIFIER_IDS 是运维白名单，见 config/settings.py）。
@@ -196,14 +214,26 @@ async def create_role_profile(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """创建一个角色身份档案；仅 owner（认证身份 == owner_identity_id）可创建。"""
+    """创建一个角色身份档案。
+
+    - 默认**仅 owner**：认证身份必须等于 ``owner_identity_id``；
+    - 例外（G5）：``verifier`` / ``arbitrator`` 这两个治理岗可以由**治理发放方**
+      （``GOVERNANCE_VERIFIER_IDS`` 白名单 ∪ 管理员）替他人开 —— 平台指派、记 0 质押，
+      并给被指派人留一条站内回执 + 一条安全事件。别的类别一律仍要本人。
+    """
     actor = await resolve_actor_identity_id(db, request)
     if not actor:
         raise HTTPException(403, "authentication required to create a role profile")
-    if actor != body.owner_identity_id:
+    granting = actor != body.owner_identity_id
+    if granting and not (body.class_ in GOVERNANCE_CLASSES and _may_grant_governance(actor)):
         raise HTTPException(403, "owner_identity_id must match the authenticated identity")
     _reject_self_declared_kyc(body.kyc_status)
-    stake_amount = await _resolve_governance_stake(db, actor, body.class_, body.stake_amount)
+    if granting:
+        # 指派出来的治理岗不占被指派人的押金（与 assert_governor_active 的
+        # 「appointed」一档对齐）：这一档跟的是名单，不是押金。
+        stake_amount = 0.0
+    else:
+        stake_amount = await _resolve_governance_stake(db, actor, body.class_, body.stake_amount)
 
     visibility = body.visibility or _default_visibility(body.class_)
     row = IdentityRoleProfile(
@@ -219,6 +249,24 @@ async def create_role_profile(
     db.add(row)
     await db.flush()
     await db.refresh(row)
+    if granting:
+        record_security_event(
+            SecurityMonitoringEventType.GOVERNANCE_ROLE_GRANTED,
+            metadata={
+                "profile_id": row.profile_id,
+                "owner_identity_id": row.owner_identity_id,
+                "class": row.class_,
+                "granted_by": actor,
+            },
+        )
+        await db.commit()
+        await add_notice_safe(
+            db,
+            karma_identity_id=row.owner_identity_id,
+            kind=NOTICE_GOVERNANCE_ROLE_GRANTED,
+            payload={"profile_id": row.profile_id, "class": row.class_, "granted_by": actor},
+        )
+        await db.refresh(row)
     return _serialize(row, full=True)
 
 
@@ -522,4 +570,63 @@ async def bind_role_profile_wallet(
             },
         )
         await db.refresh(row)
+    return _serialize(row, full=True)
+
+
+@router.post("/{profile_id}/governance-revoke")
+async def revoke_governance_role(
+    profile_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """收回一个治理岗（verifier / arbitrator）：治理发放方或管理员专属（G5）。
+
+    收回 = 档案 ``status`` 置 ``disabled``（复核台入口与能力位都按 ``active`` 判，
+    立即失效）；``arbitrator`` 同时把仲裁池成员置 ``inactive``，不再被派庭。
+    动作落安全事件 + 给本人的站内回执。
+    """
+    validate_public_url_segment("profile_id", profile_id)
+    row = await db.get(IdentityRoleProfile, profile_id)
+    if row is None:
+        raise HTTPException(404, "role profile not found")
+    if row.class_ not in GOVERNANCE_CLASSES:
+        raise HTTPException(409, "only verifier / arbitrator profiles can be revoked this way")
+
+    actor = await resolve_actor_identity_id(db, request)
+    if not _may_grant_governance(actor):
+        raise HTTPException(403, "only a governance issuer or admin can revoke a governance role")
+
+    previous = row.status
+    row.status = "disabled"
+    row.updated_at = datetime.utcnow()
+
+    pool_revoked = False
+    if row.class_ == "arbitrator":
+        pool_row = await db.get(ArbitrationPoolMemberModel, row.owner_identity_id)
+        if pool_row is not None:
+            pool_row.status = ArbitrationPoolMemberStatus.INACTIVE.value
+            pool_row.updated_at = datetime.utcnow()
+            pool_revoked = True
+
+    await db.flush()
+    await db.refresh(row)
+    record_security_event(
+        SecurityMonitoringEventType.GOVERNANCE_ROLE_REVOKED,
+        metadata={
+            "profile_id": profile_id,
+            "owner_identity_id": row.owner_identity_id,
+            "class": row.class_,
+            "revoked_by": actor or "",
+            "previous_status": previous,
+            "arbitration_pool_inactivated": pool_revoked,
+        },
+    )
+    await db.commit()
+    await add_notice_safe(
+        db,
+        karma_identity_id=row.owner_identity_id,
+        kind=NOTICE_GOVERNANCE_ROLE_REVOKED,
+        payload={"profile_id": profile_id, "class": row.class_, "revoked_by": actor or ""},
+    )
+    await db.refresh(row)
     return _serialize(row, full=True)

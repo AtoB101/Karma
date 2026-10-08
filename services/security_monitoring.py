@@ -209,6 +209,10 @@ class SecurityMonitoringEventType(str, Enum):
     VERIFICATION_REVOKED = "verification_revoked"
     # 操作钱包换人代表（2026-10-08 审计 G6）：改代表权必须本人刷脸，动作本身要可追溯、可告警。
     IDENTITY_WALLET_REBIND = "identity_wallet_rebind"
+    # 治理岗的发放 / 收回（2026-10-08 审计 G5）：谁能复核别人的材料、谁能裁争议，
+    # 是平台最敏感的授权之一，发放与收回都必须可追溯、可告警。
+    GOVERNANCE_ROLE_GRANTED = "governance_role_granted"
+    GOVERNANCE_ROLE_REVOKED = "governance_role_revoked"
 
 
 @dataclass

@@ -6,7 +6,7 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 核对，未发现可绕过的资金漏洞（金额守恒、状态机 fail-closed、业主 / 复核员 / 质押在任、
 节点自有 key 签名、跨租户 party 绑定都在）。但**「谁能对谁做这件事」这一层，有一批路由
 没有对象级授权**：4 个模块「只要登录就能跨租户写」、若干读接口只要登录、治理岗的
-「发给他人 / 收回」只有数据模型、**没有 API 入口**。
+「发给他人 / 收回」只有数据模型、**没有 API 入口**（G1–G9 本轮已逐条补齐，见 §3）。
 
 ## 0. 风险总览
 
@@ -16,7 +16,7 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 | G2 | `/v1/identity/{id}/credentials\|class` 无归属校验（MiniApp 身份库，可代他人签发 / 吊销凭证、改身份类别） | 高 | **已落地（本轮）** |
 | G3 | `GET /v1/capacity/{id}` 无归属校验（可读他人额度 / 锁仓） | 中 | **已落地（本轮）** |
 | G4 | POD 交付验证：`actor_agent_id` 自报，未绑会话身份 | 中 | **已落地（本轮）** |
-| G5 | 治理岗「发给他人」/「收回」无 API（`require_governance_verifier` 零调用、`GOVERNANCE_OPEN_JOIN` 关） | 中 | 未落地 |
+| G5 | 治理岗「发给他人」/「收回」无 API（`require_governance_verifier` 零调用、`GOVERNANCE_OPEN_JOIN` 关） | 中 | **已落地（本轮）** |
 | G6 | 换绑操作钱包无「刷脸 / 应急」闸门（已绑再换只验新钱包签名） | 中 | **已落地（本轮）** |
 | G7 | `GET /v1/security/policies*`、`/v1/arbitration/pool`、`/v1/receipts/*` 等读接口只要登录 | 低 | **已落地（本轮）** |
 | G8 | `update_role_profile` 的 `status` 由本人自报、无枚举校验 | 低 | **已落地（本轮）** |
@@ -158,6 +158,32 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 配套的「收回岗」同样只有两种隐式方式：从 `.env` 摘掉，或抽走锁仓（质押岗靠
 `assert_governor_active` 当场失效）。**没有退岗 / 收回的管理动作。**
 
+### G5 —— 已落地（本轮）
+
+补上「治理发放方替他人开 / 收回治理岗」这条路，闸门复用 `GOVERNANCE_VERIFIER_IDS` 白名单
+（`_may_grant_governance` = `governance_stake.whitelisted` ∪ 管理员白名单）：
+
+- **替他人开岗**：`POST /v1/identity/role-profiles`（`create_role_profile`，`:207`）默认仍要
+  owner 本人；**唯一例外**是 `class_ ∈ (verifier, arbitrator)` 且调用者是治理发放方 —— 放行，
+  但**记 0 质押**（指派档跟名单不跟押金，与 `governance_stake.assert_governor_active` 的
+  `appointed` 一档对齐，不拿被指派人的押金给平台岗背书）。别的类别一律仍要本人（`individual`
+  走这条路 → 403）。指派动作落 `SecurityMonitoringEventType.GOVERNANCE_ROLE_GRANTED` 安全事件 +
+  给被指派人一条 `NOTICE_GOVERNANCE_ROLE_GRANTED` 站内回执。
+- **收回**：新增 `POST /v1/identity/role-profiles/{profile_id}/governance-revoke`（`:576`），
+  治理发放方 / 管理员专属。收回 = 档案 `status → disabled`（复核台入口与能力位都按 `active`
+  判，立即失效）；若 `class_ == arbitrator` 且仲裁池有该 owner 行，同步置 `inactive`，不再派庭。
+  落 `GOVERNANCE_ROLE_REVOKED` 安全事件 + `NOTICE_GOVERNANCE_ROLE_REVOKED` 站内回执。
+  对非治理档案调用 → 409。
+- **操作台**：`apps/console/scripts/cyber-unbind-keys.js` 的 `noticeText` 增加这两条回执的渲染
+  分支；五语词表（`en/ja/ko/es-AR/es-SV`）补齐对应译文。
+- 回归：新增 `tests/integration/test_governance_role_grant.py`（7 条：发放方替他人开 verifier 岗
+  + 回执 + 安全事件 + 记 0 质押；普通人替他人开 403；普通人给自己开 403；发放方也不能借这条路开
+  非治理类别；收回置 disabled + 回执 + 安全事件；收回仲裁岗同时从池下架；对普通档案 governance-revoke 409）。
+
+> 注：`services/actor_guards.require_governance_verifier` 仍是「定义未调用」——本轮走的是与之同口径的
+> `_may_grant_governance`。两者语义一致（白名单即治理发放方）；不在本轮把定义改写成别名以免引入
+> 无谓的调用面。
+
 ### G6（中）换绑操作钱包无「刷脸 / 应急」闸门
 
 `api/routes/identity_role_profiles.py:409-446` 的 `bind_role_profile_wallet`：只要求
@@ -266,8 +292,7 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
    与现有 `require_ledger_identity` / `_require_owner` 同口径），并加回归测试钉住 403。
    G1 的 `automation-policy` 必须优先 —— 它是资金相邻写。
 2. **G6**：换绑钱包加「已绑需刷脸 / 应急」分支 —— 已落地（本轮）。
-3. **G5**：接上 `require_governance_verifier` —— 开一条「治理发放方给他人开 / 收回 verifier·arbitrator 岗」
-   的路由（含退岗动作），并把它接到操作台。
+3. **G5**：已落地（本轮）—— 治理发放方（白名单 ∪ 管理员）可替他人开 / 收回 verifier·arbitrator 岗。
 4. **G7 / G8 / G9**：已落地（本轮）。
 5. **G10**：人工签核；**G11**：产品拍板。
 

@@ -2859,6 +2859,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "第二把锁（安全验证）已解绑：动资金现在只靠钱包签名。": "Segundo candado (verificación de seguridad) desactivado: mover fondos ahora depende solo de la firma de la wallet.",
   "第二把锁的恢复码已换新：旧的那一组作废了。": "Se renovaron los códigos de recuperación del segundo candado: los anteriores quedaron sin efecto.",
   "操作钱包已更换：{0} → {1}（本次更换经过本人刷脸确认）。": "Se cambió la cartera operativa: {0} → {1} (este cambio se confirmó con verificación facial).",
+  "治理岗已开通：{0}（由平台发放方指派）。": "Rol de gobernanza otorgado: {0} (asignado por el emisor de la plataforma).",
+  "治理岗已收回：{0}。相关入口立即失效。": "Rol de gobernanza revocado: {0}. Las entradas relacionadas dejan de funcionar de inmediato.",
 });
 // compliance-revocation: 复核台「可撤销的认证」
 Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
