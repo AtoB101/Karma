@@ -584,6 +584,7 @@ window.CYBER_I18N_PHRASE["en"] = {
   "还没有子身份可分额度。先建一个（生活助理 / 个体助理 / 企业主体），再回来这里划额度。": "No sub-identity to grant credits to. Create one first (life assistant / sole-trader assistant / enterprise entity), then come back and allocate.",
   "还没有子身份档案，可在「身份」页创建。": "No sub-identity profile yet — you can create one on the Identity page.",
   "还没有子身份，先新建一个": "No sub-identity yet — create one first",
+  "还没有已认证的子身份 —— 在「身份 · 认证」里认证通过一个，它就会出现在这里。": "No certified sub-identity yet — verify one under “Identity & KYC” and it will show up here.",
   "还没有支出记录。发起付款授权或接单后，这里会按状态列出每一笔。": "No outgoing records yet. Once you request a payment authorization or accept an order, every entry shows here by status.",
   "还没有收入记录。你作为卖方接单结算后，这里会按状态列出每一笔。": "No incoming records yet. Once you settle an order as the seller, every entry shows here by status.",
   "还没有资质 —— 企业主体至少要有营业执照。": "No documents yet — an enterprise entity needs at least a business licence.",

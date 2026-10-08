@@ -586,6 +586,7 @@ window.CYBER_I18N_PHRASE["es-SV"] = {
   "还没有子身份可分额度。先建一个（生活助理 / 个体助理 / 企业主体），再回来这里划额度。": "No hay subidentidades a las que asignar cupo. Crea una primero (asistente personal / de monotributista / titular empresa) y vuelve acá para repartir.",
   "还没有子身份档案，可在「身份」页创建。": "Todavía no hay perfiles de subidentidad; puedes crearlos en la página Identidad.",
   "还没有子身份，先新建一个": "Todavía no hay subidentidades: creá una primero",
+  "还没有已认证的子身份 —— 在「身份 · 认证」里认证通过一个，它就会出现在这里。": "Todavía no hay subidentidades certificadas: verifica una en «Identidad y KYC» y aparecerá aquí.",
   "还没有支出记录。发起付款授权或接单后，这里会按状态列出每一笔。": "Todavía no hay egresos registrados. Cuando solicites una autorización de pago o aceptes un pedido, cada movimiento aparece acá por estado.",
   "还没有收入记录。你作为卖方接单结算后，这里会按状态列出每一笔。": "Todavía no hay ingresos registrados. Cuando aceptes y liquides un pedido como vendedor, cada movimiento aparece acá por estado.",
   "还没有资质 —— 企业主体至少要有营业执照。": "Todavía no hay documentos: un titular empresa necesita al menos la licencia comercial.",

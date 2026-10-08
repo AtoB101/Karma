@@ -60,8 +60,6 @@
     verifier: "life",
     arbitrator: "life",
   };
-  /** 下拉里「还没建」的那几条助理（治理岗不从这里建）。 */
-  var ASSISTANT_KLASSES = ["individual", "merchant", "enterprise"];
   /** 当前身份落在哪一页；主身份固定落在「主身份 · 主体账户」。 */
   function certSubForActive() {
     var p = getActiveProfile();
@@ -182,6 +180,28 @@
      岗位的功能区」那套落点逻辑一起放在 cyber-console.js 的 KarmaWorkspace 里。 */
   var GOVERNANCE_CLASSES = ["verifier", "arbitrator"];
 
+  /** 「身份 · 认证」核过的身份才进「选择身份」（用户口径 2026-10-09）。
+      判据就取档案自己的两个字段：kyc_status 必须 verified、档案本身还得是 active。
+      没认证的（none / pending / rejected）和本人停用的先都收起来 —— 列出来只会让人切过去
+      发现什么都干不了。要看进度 / 去认证，走面板底部那句提示。 */
+  function isCertifiedIdentity(p) {
+    if (!p || !p.profile_id) return false;
+    if (String(p.kyc_status || "none").toLowerCase() !== "verified") return false;
+    return String(p.status || "active").toLowerCase() !== "disabled";
+  }
+
+  /*: 选择栏空着时那句话：中文是源文案（也在 i18n-phrase 里），点一下直达认证页。 */
+  var UNCERTIFIED_HINT = "还没有已认证的子身份 —— 在「身份 · 认证」里认证通过一个，它就会出现在这里。";
+  function hintNode(className) {
+    var node = document.createElement("p");
+    node.className = className;
+    node.textContent = tr("scope.empty_uncertified", UNCERTIFIED_HINT);
+    node.addEventListener("click", function () {
+      if (window.cyberSwitchPage) window.cyberSwitchPage("identity", "master");
+    });
+    return node;
+  }
+
   // ---- 顶部「主体 / 视角」状态栏 + 切换面板 ----
   /* The topbar states on every page which master card owns the records and which
      sub-identity the console is filtering by. Without it a filtered list is
@@ -220,6 +240,8 @@
     /* 治理岗（verifier / arbitrator）不进「选择身份」：入口在侧栏主功能区，不在这里重复。 */
     profiles.forEach(function (p) {
       if (GOVERNANCE_CLASSES.indexOf(p["class"]) >= 0) return;
+      /* 只有认证过的子身份进选择栏；没认证的只配在「身份 · 认证」里出现。 */
+      if (!isCertifiedIdentity(p)) return;
       rows.push({ id: p.profile_id, label: profileLabel(p) });
     });
 
@@ -262,13 +284,17 @@
     }
 
     addRow(rows[0]);
-    addHead("pick.role_agent", "注册代理身份");
-    rows.slice(1).forEach(addRow);
     if (!profiles.length) {
       var empty = document.createElement("p");
       empty.className = "sub-switch-empty";
       empty.textContent = tr("scope.empty", "还没有子身份档案，可在「身份」页创建。");
       panel.appendChild(empty);
+    } else if (rows.length === 1) {
+      /* 有档案、但一张都没认证：别把没认证的也列出来装作能切，直接说清楚去哪儿认证。 */
+      panel.appendChild(hintNode("sub-switch-empty"));
+    } else {
+      addHead("pick.role_agent", "注册代理身份");
+      rows.slice(1).forEach(addRow);
     }
   }
 
@@ -410,6 +436,8 @@
       if (!p || !p.profile_id) return;
       /* 治理岗的入口在侧栏主功能区，不进「选择身份」。 */
       if (GOVERNANCE_CLASSES.indexOf(p["class"]) >= 0) return;
+      /* 只有认证过的子身份进选择栏 —— 没认证的切过去什么都干不了。 */
+      if (!isCertifiedIdentity(p)) return;
       rows.push({
         id: p.profile_id,
         name: p.display_name ? tr(p.display_name, p.display_name) : roleLabel(p),
@@ -418,28 +446,10 @@
         locked: p.visibility === "private",
       });
     });
-    /* 还没建的助理也列出来：点它就去对应的认证页。
-       否则新用户只看到一个主身份，会以为「切不过去」。 */
-    var owned = {};
-    list.forEach(function (p) { if (p && p["class"]) owned[p["class"]] = true; });
-    ASSISTANT_KLASSES.forEach(function (klass) {
-      if (owned[klass]) return;
-      rows.push({
-        id: "",
-        name: ROLE_LABELS[klass],
-        sub: "未建立",
-        role: ROLE_LABELS[klass],
-        locked: false,
-        missing: true,
-        klass: klass,
-      });
-    });
-
     function addPickerRow(r) {
       var b = document.createElement("button");
       b.type = "button";
-      b.className =
-        "id-picker-item" + (r.id === active && r.id ? " active" : "") + (r.missing ? " missing" : "");
+      b.className = "id-picker-item" + (r.id === active && r.id ? " active" : "");
       b.setAttribute("role", "option");
       b.setAttribute("data-profile-id", r.id);
       b.setAttribute("aria-selected", r.id === active ? "true" : "false");
@@ -460,10 +470,6 @@
       b.appendChild(meta);
       b.addEventListener("click", function () {
         closeIdPicker();
-        if (r.missing) {
-          if (window.cyberSwitchPage) window.cyberSwitchPage("identity", ROLE_CERT_SUB[r.klass]);
-          return;
-        }
         // 点的就是当前这张卡：不用重设档案（会白刷一遍），但照样落到它那一页——
         // 人可能从别的页面切回来，点了没反应会让人以为坏了。
         if (r.id === active) return followIdentityPage();
@@ -480,6 +486,11 @@
     }
 
     addPickerRow(rows[0]);
+    if (rows.length < 2) {
+      /* 一张认证过的子身份都没有：不画空分组，直接把「去哪儿认证」摆出来。 */
+      panel.appendChild(hintNode("id-picker-empty"));
+      return;
+    }
     addPickerHead("pick.role_agent", "注册代理身份");
     rows.slice(1).forEach(addPickerRow);
 
