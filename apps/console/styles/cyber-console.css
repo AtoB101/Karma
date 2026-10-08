@@ -186,6 +186,8 @@ body {
   border-left: 1px solid rgba(168, 85, 247, 0.22);
 }
 .nav-group.open .nav-subs { display: flex; }
+/* 子项按能力位藏（如运营复核台的五个待办）：[hidden] 要压过上面那条 open 规则。 */
+.nav-group.open .nav-subs[hidden] { display: none; }
 .nav .nav-sub {
   all: unset;
   display: flex;

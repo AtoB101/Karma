@@ -8,7 +8,7 @@
 1. 侧栏分组由「当前档案的类」驱动（cyber-identity.js 的 ROLE_LABELS 取值：
    individual / merchant / enterprise / verifier / arbitrator），**不再**是
    「主身份 / 其它」两档；
-2. 三个**岗位入口（验证者身份 / 仲裁者身份 / 运营复核岗）任何身份都留着** ——
+2. 三个**岗位入口（验证者身份 / 仲裁者身份 / 运营复核台）任何身份都留着** ——
    把入口收掉，还没开通的人就永远开不了岗；
 3. 每个侧栏分组至少有一个身份看得到；特权工作面只归它自己的岗
    （复核台 / 验证者网络 → 复核岗，仲裁台 → 仲裁岗）。
@@ -62,9 +62,9 @@ def test_nav_scope_is_driven_by_the_role_not_a_two_way_master_flag():
 
 def test_self_service_entry_groups_are_never_scoped_away():
     js = BOOT.read_text(encoding="utf-8")
-    assert set(_always_visible(js)) == {"verifier-id", "arbiter-id", "ops-reviewer"}
+    assert set(_always_visible(js)) == {"verifier-id", "arbiter-id", "reviews"}
     tags = _nav_tags(PAGE.read_text(encoding="utf-8"))
-    for group in ("verifier-id", "arbiter-id", "ops-reviewer"):
+    for group in ("verifier-id", "arbiter-id", "reviews"):
         assert group in tags, f"侧栏缺 {group} 这一组"
         assert "hidden" not in tags[group], f"{group} 是岗位入口，不许默认藏起来"
 

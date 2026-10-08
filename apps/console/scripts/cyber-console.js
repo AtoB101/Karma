@@ -1508,8 +1508,9 @@
    * 两条铁律：
    *  1. 「验证者身份」「仲裁者身份」两个**自助申请入口**不参与收窄，任何身份
    *     都留着 —— 把入口收掉，还没开通的人就永远开不了岗；
-   *  2. 仲裁台 / 验证者网络 / 复核台三个**运维工作面**不在这里判：它们走能力位
-   *     的 [hidden]（applyPrivilegedNavVisibility），谁在名单里谁才看得到。
+   *  2. 仲裁台 / 验证者网络两个**运维工作面**不在这里判：它们走能力位
+   *     的 [hidden]（applyPrivilegedNavVisibility），谁在名单里谁才看得到；
+   *      运营复核台是岗位入口，常显，子项才按能力位收。
    */
   var ROLE_NAV_GROUPS = {
     master: ["identity", "bills", "settings"],
@@ -1518,12 +1519,13 @@
     enterprise: ["overview", "center", "tasks", "bills", "disputes", "identity", "agents", "market", "settings"],
     verifier: ["identity", "bills", "reviews", "verifiers", "settings"],
     arbitrator: ["identity", "bills", "disputes", "arbitration", "settings"],
-    // 运营复核岗：复核岗那套工作面（和 verifier 同一张白名单）—— 它本来就是 verifier 类身份。
+    // 运营复核台：复核岗那套工作面（和 verifier 同一张白名单）—— 它本来就是 verifier 类身份。
     ops_reviewer: ["identity", "bills", "reviews", "verifiers", "settings"],
   };
   /* 岗位入口：任何身份都不收（把入口收掉，还没开通的人就永远开不了岗）。
-     ops-reviewer = 运营复核岗，落到「复核台 / 验证者身份」由 KarmaWorkspace 一处决定。 */
-  var NAV_ALWAYS_VISIBLE = ["verifier-id", "arbiter-id", "ops-reviewer"];
+     reviews = 运营复核台，一个组同时是岗位入口与复核工作面；落到「复核台 / 验证者身份」
+     由 KarmaWorkspace 一处决定，下面那五个待办子项按复核能力位展开。 */
+  var NAV_ALWAYS_VISIBLE = ["verifier-id", "arbiter-id", "reviews"];
 
   /**
    * 「选择身份」里的两个岗位入口（验证者身份 / 仲裁者身份）不只是翻一页：选了哪个
@@ -1537,7 +1539,7 @@
   var ROLE_WORKSPACES = {
     verifier: { apply: "verifier-id", home: "verifiers", cap: "can_view_verifier_network" },
     arbitrator: { apply: "arbiter-id", home: "arbitration", cap: "can_operate_arbitration" },
-    // 运营复核岗：有复核能力位就落「复核台」，没有就落「验证者身份」申请页
+    // 运营复核台：有复核能力位就落「复核台」工作面，没有就落「验证者身份」申请页
     // （拿复核岗的路就是那条：平台点名开通，或开了 GOVERNANCE_OPEN_JOIN 后凭锁仓质押）。
     ops_reviewer: { apply: "verifier-id", home: "reviews", cap: "can_open_review_queue" },
   };
@@ -1685,8 +1687,13 @@
   }
 
   /**
-   * 特权工作面（仲裁台 / 验证者网络 / 复核台）：不在名单里就整组不画。
-   * 用 [hidden] 而不是 nav-scope-hidden —— 后者是「按身份收窄功能区」在用的类，
+   * 特权工作面：仲裁台 / 验证者网络不在名单里就**整组不画**。
+   *
+   * 运营复核台是例外：它同时是岗位入口 —— 组本身常显（把入口藏掉，还没开通的人就永远
+   * 开不了岗），只有下面那五个待办子项按复核能力位展开；没岗位的人点它落「验证者身份」
+   * 怎么拿到岗。所以它不吃 rules，单独处理。
+   *
+   * 两处都用 [hidden] 而不是 nav-scope-hidden —— 后者是「按身份收窄功能区」在用的类，
    * 两个开关同时写同一个类会互相覆盖。
    */
   function applyPrivilegedNavVisibility() {
@@ -1694,7 +1701,6 @@
     const rules = {
       arbitration: caps.can_operate_arbitration === true,
       verifiers: caps.can_view_verifier_network === true,
-      reviews: caps.can_open_review_queue === true,
     };
     document.querySelectorAll(".nav-group[data-group]").forEach(function (g) {
       const name = g.getAttribute("data-group") || "";
@@ -1702,6 +1708,16 @@
       g.hidden = !rules[name];
       if (!rules[name]) g.classList.remove("open");
     });
+    // 运营复核台：组常显，子项 + 折叠箭头跟着复核能力位走。
+    const desk = document.querySelector(".nav-group[data-group=\"reviews\"]");
+    if (desk) {
+      const open = caps.can_open_review_queue === true;
+      const subs = desk.querySelector(".nav-subs");
+      const caret = desk.querySelector(".nav-main .nav-caret");
+      if (subs) subs.hidden = !open;
+      if (caret) caret.hidden = !open;
+      if (!open) desk.classList.remove("open");
+    }
   }
 
   window.KarmaConsoleCaps = {
@@ -1775,7 +1791,7 @@
       btn.addEventListener("click", function () {
         var group = btn.closest(".nav-group");
         var wasOpen = !!(group && group.querySelector(".nav-sub") && group.classList.contains("open"));
-        // 岗位入口（验证者身份 / 仲裁者身份 / 运营复核岗）不只是翻一页：选了哪个岗位，
+        // 岗位入口（验证者身份 / 仲裁者身份 / 运营复核台）不只是翻一页：选了哪个岗位，
         // 功能区就换成那个岗位的，并落到它自己的工作面 —— 落点只由 KarmaWorkspace 决定
         // （没有该岗位的能力位才落申请页）。
         var role = btn.getAttribute("data-workspace-role");

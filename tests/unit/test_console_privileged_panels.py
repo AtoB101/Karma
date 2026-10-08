@@ -49,16 +49,52 @@ PANELS = {
 }
 
 
-def test_nav_groups_start_hidden_and_carry_the_page_hooks():
+#: 纯运维工作面：整组按能力位显隐（不在名单里连入口都不画）。
+CAPS_GATED_PANELS = ("arbitration", "verifiers")
+
+
+def _group_html(html, page):
+    """切出 ``data-group="<page>"`` 那一组，到下一个 nav-group 为止。"""
+    start = html.index('<div class="nav-group" data-group="%s"' % page)
+    end = html.find('<div class="nav-group"', start + 1)
+    return html[start:] if end < 0 else html[start:end]
+
+
+def test_nav_groups_carry_the_page_hooks():
     html = PAGE.read_text(encoding="utf-8")
     for page, info in PANELS.items():
-        group = re.search(r'<div class="nav-group" data-group="%s"[^>]*>' % page, html)
-        assert group, f"侧栏没有 {page} 这一组"
-        assert "hidden" in group.group(0), f"{page} 组必须默认 hidden（caps 到位后才画）"
+        group = _group_html(html, page)
+        if page in CAPS_GATED_PANELS:
+            assert re.search(r'data-group="%s"[^>]*hidden' % page, group), (
+                f"{page} 是纯运维工作面，必须默认 hidden（caps 到位后才画）"
+            )
         for sub in info["subs"]:
             assert f'data-page="{page}" data-sub="{sub}"' in html, f"缺 {page}/{sub} 子项"
         assert f'<section id="{page}" class="page">' in html, f"缺 {page} 正文 section"
         assert f'scripts/{info["js"]}' in html, f"页面没引入 {info['js']}"
+
+
+def test_operations_review_desk_is_one_entry_with_cap_gated_subs():
+    """运营复核台一个组干两件事（用户口径 2026-10-09：「改为一个，只要运营复核台就行了」）。
+
+    * 组本身**常显** —— 它是岗位入口，藏掉入口，还没开通的人就永远开不了岗；
+    * 五个待办子项 + 折叠箭头按 ``can_open_review_queue`` 展开；
+    * 侧栏里不许再有第二个复核台入口。
+    """
+    html = PAGE.read_text(encoding="utf-8")
+    group = _group_html(html, "reviews")
+    assert "hidden" not in group.split("\n")[0], "运营复核台是岗位入口，整组不许藏起来"
+    assert 'data-workspace-role="ops_reviewer"' in group, "运营复核台要走岗位入口那条路"
+    assert '<div class="nav-subs" hidden>' in group, "五个待办子项默认收起来（caps 到位才展开）"
+    assert 'class="nav-caret" hidden' in group, "子项收着的时候折叠箭头也别画"
+    assert 'data-group="ops-reviewer"' not in html, "入口只能有一个"
+    boot = BOOT.read_text(encoding="utf-8")
+    assert 'data-group=\\"reviews\\"' in boot, "boot 要单独处理运营复核台的子项显隐"
+    assert "can_open_review_queue" in boot
+    css = CSS.read_text(encoding="utf-8")
+    assert ".nav-group.open .nav-subs[hidden] { display: none; }" in css, (
+        "[hidden] 要压过 .nav-group.open .nav-subs 那条 display:flex"
+    )
 
 
 def test_panels_are_gated_by_capabilities_not_by_probing_403():
