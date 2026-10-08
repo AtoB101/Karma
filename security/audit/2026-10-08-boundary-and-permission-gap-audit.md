@@ -288,12 +288,38 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 
 ## 5. 建议落地顺序
 
-1. **G1 / G2 / G3**：给三处无授权路由补 owner 校验（复用 `resolve_actor_identity_id`；
-   与现有 `require_ledger_identity` / `_require_owner` 同口径），并加回归测试钉住 403。
-   G1 的 `automation-policy` 必须优先 —— 它是资金相邻写。
-2. **G6**：换绑钱包加「已绑需刷脸 / 应急」分支 —— 已落地（本轮）。
+1. **G1 / G2 / G3**：已落地（本轮）—— 三处无授权路由补 owner 校验（复用
+   `resolve_actor_identity_id`，与 `require_ledger_identity` / `_require_owner` 同口径）；
+   G1 的 `automation-policy`（资金相邻写）优先。
+2. **G6**：已落地（本轮）—— 换绑钱包加「已绑需刷脸」分支。
 3. **G5**：已落地（本轮）—— 治理发放方（白名单 ∪ 管理员）可替他人开 / 收回 verifier·arbitrator 岗。
 4. **G7 / G8 / G9**：已落地（本轮）。
 5. **G10**：人工签核；**G11**：产品拍板。
 
-—— 本报告只做盘点，未改任何代码 / 状态机。主网未动。
+—— 主网未动；本轮所有改动都在测试网侧代码 + 回归测试。
+
+## 6. 已落地总览（本轮，测试网）
+
+G1–G9 全部落地并推送，CI 6/6 绿（`main`）：
+
+| 提交 | 覆盖 | 内容 |
+|---|---|---|
+| `6dad72f` | G1 / G2 / G3 | 身份归属闸门 —— 堵住跨租户改 profile / 凭证 / 额度 |
+| `7c3da24` | G4 | POD 当事人从「自报」改成「会话身份」闸门 |
+| `060e3bf` | G6 | 换绑操作钱包要过**本人刷脸**闸门 |
+| `2796a6a` | — | 重打静态资源版本串（G6 漏跑 `stamp_console_assets.py`） |
+| `7f362e7` | G7 / G8 / G9 | 读接口口径收紧 + 档案 `status` 枚举 + 刷脸档文案区分 |
+| `97e7e99` | G5 | 治理岗发放 / 收回 API + 操作台回执 |
+
+**剩余（非代码）**：
+
+- **G10（人工）**：`docs/SECURITY_RELEASE_GATES.md` 的 10 项 `[人工]` 签核（A4d/E4b/E6b/F6/
+  H2/H3/H9/H10/H11/H12），`--strict` 下算失败 —— 需发布负责人逐项签字。
+- **G11（待产品）**：KYC 侧对外公开留痕接口是否补 —— 需产品拍板。
+
+**未覆盖 / 有意保留**：
+
+- `services/actor_guards.require_governance_verifier` 仍是「定义未调用」（G5 走同口径的
+  `_may_grant_governance`）。
+- POD 的 `apply-silent-default` 仍按最小披露放行（G4 注）。
+- 操作台换绑 UI 入口尚未提供（后端闸门已就位，见 G6 注）。
