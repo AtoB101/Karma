@@ -579,3 +579,48 @@ def test_a_new_sub_identity_reaches_the_picker_and_the_agent_inlet():
     )
     shared_js = (CONSOLE / "scripts" / "cyber-cert-shared.js").read_text(encoding="utf-8")
     assert "karma-capacity-changed" in shared_js, "个体 / 企业认证建完档走的是同一条广播"
+
+
+# ---------------------------------------------------------------------------
+# 子身份清单：翻译函数 + 「刷脸确认」一键开通
+#
+# 线上实测（2026-10-10）：整块清单渲染成「读取失败：T is not defined」。
+# 7f362e7 给这一页加「同人刷脸已核验」时用了 T() / Tf()，但这个模块自己没定义
+# 它们（别的操作台模块都在文件里各定义一份）；ReferenceError 被 loadSubs 的
+# try/catch 吞掉 —— 页面不报错、控制台干净，用户只看到一句「读取失败」，
+# 建好的卡一张都不显示。行为那一层由 tests/js/test_console_sub_list.cjs 真跑一遍，
+# 这里钉住静态接线（少了任何一处，那支测试也会红）。
+# ---------------------------------------------------------------------------
+
+
+def test_sub_list_translator_is_defined_in_this_module():
+    """模块用的 T / Tf 必须在本文件里有定义 —— 借全局的等于借了个空的。"""
+    js = _identity_js()
+    assert re.search(r"function T\(zh\)", js), "本模块必须自己定义 T()"
+    assert re.search(r"function Tf\(zh\)", js), "本模块必须自己定义 Tf()"
+    assert "window.CYBER_I18N" in js, "取译文要走 CYBER_I18N（拿不到就原样返回中文）"
+
+
+def test_pending_card_has_a_one_click_face_open():
+    """没开通的卡上要有「刷脸确认」：本人刷一次脸当场开通，不用把卡推倒重建。"""
+    js = _identity_js()
+    assert 'faceBtn.textContent = "刷脸确认"' in js, "清单里的按钮文案"
+    assert re.search(r"faceConfirm\(p\.profile_id, p\[\"class\"\], faceBtn\)", js), (
+        "按钮要按 (profile_id, class) 调同人比对"
+    )
+    assert "confirmSamePerson" in js, "建好的卡要复用同人比对那条路"
+    assert 'id="idsub-list-status"' in _page_html(), "结果要有落点（#idsub-list-status）"
+
+
+def test_the_face_open_copy_exists_in_every_language_pack():
+    """清单上用到的整句都要在五份词表里，否则切了语言掉回中文。"""
+    samples = (
+        "刷脸确认",
+        "正在比对这一次的脸和首次激活留下的模板…",
+        "同一个人：相似度 {0}（阈值 {1}）。这张卡已经开通。",
+        "这个身份还没有刷脸模板：先把主身份刷脸激活，再来加身份。",
+    )
+    for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
+        pack = (CONSOLE / "scripts/i18n-phrase" / (lang + ".js")).read_text(encoding="utf-8")
+        missing = [s for s in samples if ('"%s":' % s) not in pack]
+        assert not missing, "%s 缺译文：%s" % (lang, missing)

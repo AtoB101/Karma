@@ -372,10 +372,11 @@
   }
 
   /**
-   * 追加身份：再刷一次脸，跟首次留下的模板比一个分数。
+   * 同人比对：跟主身份首次留下的脸型模板比一个分数，过线就开通这张子身份。
+   * @param shotIn 可选：已经采集好的一张（不传就现场弹取景框）。
    * 返回 {score, threshold, verdict}；不出结果（取消 / 没模板）返回 null。
    */
-  async function confirmSamePerson(profileId, className) {
+  async function confirmSamePerson(profileId, className, shotIn) {
     var mod = api();
     var id = identity();
     var stored = await mod.getFaceTemplate(id);
@@ -384,7 +385,8 @@
     }
     var reference = await decryptTemplate(stored.template_cipher, stored.encryption);
 
-    var shot = await capture();
+    // 已经采过一张就直接用（建卡向导里第⑥步刚采的那一张），不让人重复拍。
+    var shot = shotIn || (await capture());
     if (!shot) return null;
     var fresh = await buildTemplate(shot);
     var score = compare(reference, fresh);

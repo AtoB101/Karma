@@ -101,6 +101,23 @@
     return (Math.round(v * 100) / 100).toFixed(2);
   }
 
+  /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
+  function T(zh) {
+    var i18n = window.CYBER_I18N;
+    return i18n && i18n.T ? i18n.T(zh) : zh;
+  }
+
+  /** 模板版：Tf("同一个人：相似度 {0}", 0.9) —— 带变量的整句才不会被拆成半中半英。 */
+  function Tf(zh) {
+    var i18n = window.CYBER_I18N;
+    if (i18n && i18n.Tf) return i18n.Tf.apply(i18n, arguments);
+    var out = String(zh == null ? "" : zh);
+    for (var i = 1; i < arguments.length; i += 1) {
+      out = out.split("{" + (i - 1) + "}").join(arguments[i] == null ? "" : String(arguments[i]));
+    }
+    return out;
+  }
+
   // ---- 本地加密管线 --------------------------------------------------------
 
   function bufToB64(buf) {
@@ -585,10 +602,61 @@
           }
         });
         el.appendChild(btn);
+        // 还没开通的卡：本人再刷一次脸当场开通 —— 不用把这张卡推倒重建。
+        if (!(p.kyc_status === "verified" && faceOpened)) {
+          var faceBtn = document.createElement("button");
+          faceBtn.type = "button";
+          faceBtn.className = "btn";
+          faceBtn.textContent = "刷脸确认";
+          faceBtn.addEventListener("click", function () {
+            faceConfirm(p.profile_id, p["class"], faceBtn);
+          });
+          el.appendChild(faceBtn);
+        }
         host.appendChild(el);
       });
     } catch (e) {
       host.textContent = "读取失败：" + (e && (e.message || e) || e);
+    }
+  }
+
+  /**
+   * 已经建好的卡：本人刷一次脸，跟主身份首次激活留下的模板比一次 —— 同一个人当场开通。
+   *
+   * 判据在脸上，不在材料上：主身份还没刷过脸（本机没有模板）时这里会把原因如实说出来
+   * （「先把主身份刷脸激活，再来加身份」），绝不把卡硬写成已核验。
+   */
+  async function faceConfirm(profileId, className, btn) {
+    var status = byId("idsub-list-status");
+    var vault = window.KarmaFaceVault;
+    if (!vault || !vault.confirmSamePerson) {
+      say(status, "刷脸模块未加载，请刷新页面后再试。", false);
+      return;
+    }
+    if (btn) btn.disabled = true;
+    say(status, "正在比对这一次的脸和首次激活留下的模板…", null);
+    try {
+      var res = await vault.confirmSamePerson(profileId, className);
+      if (!res) {
+        say(status, "已取消。", null);
+        if (btn) btn.disabled = false;
+        return;
+      }
+      var thr = res.verdict && res.verdict.threshold;
+      say(
+        status,
+        Tf(
+          "同一个人：相似度 {0}（阈值 {1}）。这张卡已经开通。",
+          Number(res.score).toFixed(4),
+          thr != null ? Number(thr).toFixed(4) : "—"
+        ),
+        true
+      );
+      try { document.dispatchEvent(new CustomEvent("karma-capacity-changed")); } catch (_) {}
+      await loadSubs();
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      say(status, String((e && (e.message || e)) || e), false);
     }
   }
 
@@ -650,33 +718,67 @@
         });
       }
 
+      var openedByFace = false;
       if (state.subFace) {
-        say(status, "⑤ 提交人脸确认…", null);
-        try {
-          var bundle = {
-            v: 1, identity_id: id, profile_id: profileId,
-            created_at: new Date().toISOString(),
-            face_b64: state.subFace.b64, face_mime: state.subFace.mime,
-          };
-          var saltHex = randomHex(16);
-          var sig = await signKeyMessage(keyMessage(saltHex));
-          var pack = await encryptPackageWithSalt(bundle, sig, saltHex);
-          await api().submitKyc(profileId, {
-            kind: "face_confirm",
-            face_digest: pack.faceDigest,
-            package_digest: pack.packageDigest,
-            package_cipher: pack.cipherB64,
-            encryption: pack.encryption,
-            consent: true,
-          });
-        } catch (faceErr) {
-          say(status, "子身份已建立，但人脸提交失败：" + (faceErr && (faceErr.message || faceErr) || faceErr), false);
-          await finishSub(status);
-          return;
+        say(status, "⑤ 核对是不是同一个人…", null);
+        // 判据放在脸上：跟主身份首次激活留下的模板比一次，同一个人就当场开通。
+        var vault = window.KarmaFaceVault;
+        var why = "";
+        if (vault && vault.confirmSamePerson) {
+          try {
+            var verdict = await vault.confirmSamePerson(profileId, role.klass, state.subFace);
+            if (verdict && verdict.score != null) {
+              openedByFace = true;
+              say(
+                status,
+                Tf(
+                  "同一个人：相似度 {0}（阈值 {1}）。这张卡已经开通。",
+                  Number(verdict.score).toFixed(4),
+                  (verdict.verdict && verdict.verdict.threshold) != null
+                    ? Number(verdict.verdict.threshold).toFixed(4)
+                    : "—"
+                ) + " · " + name,
+                true
+              );
+            }
+          } catch (faceErr) {
+            why = String((faceErr && (faceErr.message || faceErr)) || faceErr);
+          }
+        } else {
+          why = "刷脸模块未加载";
+        }
+        // 同人这条路走不通（例如主身份还没刷脸激活）——
+        // 退回待复核，并把原因如实写出来，不装作已经好了。
+        if (!openedByFace) {
+          say(status, "⑤ 先存成待复核…", null);
+          try {
+            var bundle = {
+              v: 1, identity_id: id, profile_id: profileId,
+              created_at: new Date().toISOString(),
+              face_b64: state.subFace.b64, face_mime: state.subFace.mime,
+            };
+            var saltHex = randomHex(16);
+            var sig = await signKeyMessage(keyMessage(saltHex));
+            var pack = await encryptPackageWithSalt(bundle, sig, saltHex);
+            await api().submitKyc(profileId, {
+              kind: "face_confirm",
+              face_digest: pack.faceDigest,
+              package_digest: pack.packageDigest,
+              package_cipher: pack.cipherB64,
+              encryption: pack.encryption,
+              consent: true,
+            });
+          } catch (faceErr) {
+            say(status, "子身份已建立，但人脸提交失败：" + (faceErr && (faceErr.message || faceErr) || faceErr), false);
+            await finishSub(status);
+            return;
+          }
         }
       }
 
-      say(status, "✅ 子身份已建立：" + name, true);
+      if (!openedByFace) {
+        say(status, "✅ 子身份已建立：" + name + (why ? "（" + why + "）" : ""), true);
+      }
       await finishSub(status);
     } catch (e) {
       say(status, "建立失败：" + (e && (e.message || e.detail) || e), false);

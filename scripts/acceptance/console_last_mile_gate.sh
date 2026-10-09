@@ -238,6 +238,9 @@ if command -v node >/dev/null 2>&1; then
   node "$ROOT/tests/js/test_console_notices.cjs"
   # 复核台「可撤销的认证」：切语言不许留中文、理由不写不发请求、发起 / 确认走对接口。
   node "$ROOT/tests/js/test_console_reviews_revocable.cjs"
+  # 建立子身份 · 卡片清单：整块渲染不许变成「读取失败：T is not defined」，
+  # 没开通的卡要能一键刷脸开通（都是线上真实踩过的）。
+  node "$ROOT/tests/js/test_console_sub_list.cjs"
 
   # 真机验证（可选）：装了 playwright 才跑。开一个真实浏览器把节点层从头走一遍，
   # 没装就跳过 —— 上面那些检查已经覆盖了行为，这一支只是多一层「浏览器里真的行」。
