@@ -53,7 +53,14 @@
   ];
   var FALLBACK_RUNTIME_URL = "https://karma-network.ai";
 
-  var state = { profiles: [], ceiling: 0, allocations: [], typeTouched: false, busy: false };
+  var state = {
+    profiles: [],
+    ceiling: 0,
+    allocations: [],
+    typeTouched: false,
+    busy: false,
+    selectedPerms: DEFAULT_PERMS.slice(),
+  };
 
   /**
    * 生成 SDK 时写进 env 的接入地址：跟着操作台里选的那台节点走。
@@ -224,15 +231,17 @@
 
   function renderPerms() {
     var host = byId("agw-perms");
-    if (!host || host.getAttribute("data-ready") === "1") return;
+    if (!host) return;
+    var want = state.selectedPerms.slice().sort().join(",");
+    if (host.getAttribute("data-rendered") === want) return;
     host.innerHTML = PERMS.map(function (p) {
-      var on = DEFAULT_PERMS.indexOf(p.key) !== -1;
+      var on = state.selectedPerms.indexOf(p.key) !== -1;
       return (
         '<label class="agw-perm"><input type="checkbox" data-agw-perm="' + esc(p.key) + '"' +
         (on ? " checked" : "") + " /><b>" + esc(p.label) + "</b><span>" + esc(p.hint) + "</span></label>"
       );
     }).join("");
-    host.setAttribute("data-ready", "1");
+    host.setAttribute("data-rendered", want);
   }
 
   function renderIdentities() {
@@ -263,6 +272,41 @@
     var want = typeOf(selectedProfile());
     var node = document.querySelector('input[name="agw-type"][value="' + want + '"]');
     if (node) node.checked = true;
+  }
+
+  /** 选了已有档案，就把它已经授过的额度 / 边界原样填回来，不再让用户重写一遍。 */
+  function prefillFromProfile(p) {
+    if (!p) return;
+    var alloc = allocOf(p.profile_id);
+    var existingAmount = allocatedOf(alloc);
+    var amountEl = byId("agw-amount");
+    if (amountEl && existingAmount > 0) amountEl.value = String(existingAmount);
+    var policy = (p && p.spend_policy) || {};
+    var single = Number(policy.single_limit);
+    var daily = Number(policy.daily_limit);
+    var human = policy.high_risk_mode;
+    var perms = Array.isArray(policy.permissions) ? policy.permissions : [];
+    if (isFinite(single) && single > 0) {
+      var sEl = byId("agw-single");
+      if (sEl) sEl.value = String(single);
+    }
+    if (isFinite(daily) && daily > 0) {
+      var dEl = byId("agw-daily");
+      if (dEl) dEl.value = String(daily);
+    }
+    if (human) {
+      var hEl = byId("agw-human");
+      if (hEl) {
+        for (var i = 0; i < hEl.options.length; i += 1) {
+          if (hEl.options[i].value === human) {
+            hEl.value = human;
+            break;
+          }
+        }
+      }
+    }
+    state.selectedPerms = perms.length ? perms.slice() : DEFAULT_PERMS.slice();
+    renderPerms();
   }
 
   function renderAmountNote() {
@@ -603,6 +647,7 @@
     if (sel) {
       sel.addEventListener("change", function () {
         state.typeTouched = false;
+        prefillFromProfile(selectedProfile());
         renderWizard();
       });
     }
