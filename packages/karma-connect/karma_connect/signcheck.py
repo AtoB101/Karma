@@ -55,8 +55,11 @@ def local_credentials() -> dict:
     out["has_agent_private_key"] = private is not None
     if private is not None:
         pub = private.public_key().public_bytes_raw()
-        out["agent_public_key_b64"] = base64.b64encode(pub).decode()
-        out["agent_public_key_fingerprint"] = "sha256:" + hashlib.sha256(pub).hexdigest()[:16]
+        pub_b64 = base64.b64encode(pub).decode()
+        out["agent_public_key_b64"] = pub_b64
+        # 指纹口径与操作台 / 服务端同源：canonical base64 文本的 sha256 前 16 位。
+        # 主人拿这串去和 Console 待批准卡片上的那串逐字比对，两边必须是同一个值。
+        out["agent_public_key_fingerprint"] = hashlib.sha256(pub_b64.encode()).hexdigest()[:16]
     out["agent_id"] = agent_id_from_env()
     return out
 
@@ -136,7 +139,7 @@ def _render(info: dict) -> str:
         "runtime key     : %s" % ("KRM_RT_%s_… (%d chars)" % (info["runtime_key_id"], info["runtime_key_length"])
                                   if info["has_runtime_key"] else "MISSING"),
         "agent id        : %s" % (info["agent_id"] or "MISSING"),
-        "agent private   : %s" % (info.get("agent_public_key_fingerprint") or "MISSING"),
+        "agent pubkey fp : %s" % (info.get("agent_public_key_fingerprint") or "MISSING"),
     ]
     return "\n".join(lines)
 
