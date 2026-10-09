@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
     <link rel="icon" type="image/png" href="../../assets/favicon.png?v=0da2be69f6aa" />
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=7ff06fa42109" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=d1249c9de8eb" />
   </head>
   <body>
     <div class="bg"></div>
@@ -130,10 +130,10 @@
             <button class="nav-main" data-page="agents" aria-expanded="false"><span class="icon">◈</span><span data-i18n="nav.agents">Agent 接入</span><span class="nav-caret">▾</span></button>
             <div class="nav-subs">
               <button class="nav-sub" data-page="agents" data-sub="wizard"><span data-i18n="sub.agents.wizard">授权向导</span></button>
-              <button class="nav-sub" data-page="agents" data-sub="mine"><span data-i18n="sub.agents.mine">我的 Agent</span></button>
-              <button class="nav-sub" data-page="agents" data-sub="handoff"><span data-i18n="sub.agents.handoff">交给 Agent</span></button>
-              <button class="nav-sub" data-page="agents" data-sub="connect"><span data-i18n="sub.agents.connect">接入一个 Agent</span></button>
-              <button class="nav-sub" data-page="agents" data-sub="pair"><span data-i18n="sub.agents.pair">配对接入</span></button>
+              <button class="nav-sub" data-page="agents" data-sub="mine"><span data-i18n="sub.agents.mine">我的助理 Agent</span></button>
+              <button class="nav-sub" data-page="agents" data-sub="handoff" hidden><span data-i18n="sub.agents.handoff">交给 Agent</span></button>
+              <button class="nav-sub" data-page="agents" data-sub="connect" hidden><span data-i18n="sub.agents.connect">接入一个 Agent</span></button>
+              <button class="nav-sub" data-page="agents" data-sub="pair" hidden><span data-i18n="sub.agents.pair">配对接入</span></button>
             </div>
           </div>
           <div class="nav-group" data-group="market">
@@ -1042,7 +1042,7 @@
 
           <!-- 配对码接入：agent 先发起，主人只做「批准接入 + 划额度」两个决定，
                凭据由 Karma 直接交给持配对码的进程（本页永远不显示密钥）。 -->
-          <div class="card section" id="ag-pair" style="margin-top:20px">
+          <div class="card section" id="ag-pair" style="margin-top:20px" hidden>
             <div class="section-header">
               <div>
                 <h3>配对码接入</h3>
@@ -1117,7 +1117,7 @@
           <div class="card section" id="ag-mine" style="margin-top:20px">
             <div class="section-header">
               <div>
-                <h3>我的 Agent</h3>
+                <h3 data-i18n="sub.agents.mine">我的助理 Agent</h3>
                 <p>当前身份卡名下的 agent、P1 就绪度、密钥托管状态；可直接给绑定档案授权额度。</p>
               </div>
               <div style="display:flex;gap:8px;align-items:center">
@@ -1140,7 +1140,7 @@
             <div id="ag-handoff" style="margin-top:12px"></div>
           </div>
 
-          <details class="card section ag-advanced" style="margin-top:20px">
+          <details class="card section ag-advanced" style="margin-top:20px" hidden>
             <summary>高级 · 把 agent 注册进 Karma 目录（可选）</summary>
             <div class="section-header" style="margin-top:14px">
               <div>
@@ -1646,7 +1646,7 @@
       window.KARMA_API_KEY = window.KARMA_API_KEY || "";
       window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
     </script>
-    <script src="../../scripts/i18n-cyber.js?v=e88d77ea11ff"></script>
+    <script src="../../scripts/i18n-cyber.js?v=2db23f044ea5"></script>
     <script src="../../scripts/lang-select.js?v=60b3643a2859"></script>
     <script src="../../scripts/karma-nodes.js?v=3e8631a9ab01"></script>
     <script src="../../scripts/karma-public-api.js?v=0bcc93f255af"></script>
@@ -1664,12 +1664,12 @@
     <script src="../../scripts/cyber-orders.js?v=88c6d8949e5b"></script>
     <script src="../../scripts/cyber-order-flow.js?v=5d8447f9cd89"></script>
     <script src="../../scripts/karma-service-spec.js?v=157d9b6ea723"></script>
-    <script src="../../scripts/cyber-agents.js?v=e69b28c0be11"></script>
+    <script src="../../scripts/cyber-agents.js?v=689c6a375660"></script>
     <script src="../../scripts/cyber-authorize.js?v=0c54510b6766"></script>
     <!-- 最近调用面板：设置页那张「已授权 · 一键取消绑定」和交付包那张密钥清单
          用同一份实现（KarmaKeyCalls），所以必须排在两个宿主前面。 -->
     <script src="../../scripts/cyber-key-calls.js?v=93ba41801624"></script>
- <script src="../../scripts/cyber-handoff.js?v=76cce1318324"></script>
+ <script src="../../scripts/cyber-handoff.js?v=128a6d0fae0c"></script>
     <!-- 匹配码激活的签名消息由 cyber-handoff.js 出口提供，所以必须排在它后面。 -->
     <script src="../../scripts/cyber-bind-requests.js?v=4b3dd8f031fd"></script>
     <!-- 一键取消绑定：和接入确认同源（都用 KarmaHandoff 出口的签名消息），排在它后面。 -->

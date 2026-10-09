@@ -41,6 +41,10 @@
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
+  function usd(v) {
+    var n = Number(v);
+    return isFinite(n) ? n.toFixed(2) : "";
+  }
 
   // ---------- 我的 Agent ----------
 
@@ -71,7 +75,7 @@
       .join("、");
   }
 
-  function renderAgentRow(a) {
+  function renderAgentRow(a, allocatedAmount) {
     // The ledger agent SIWE creates for the card itself is not an onboarded
     // agent: it has no profile card / boundary, so P1 badges would be pure
     // noise. Present it for what it is.
@@ -85,6 +89,11 @@
       ? '<span class="tag">身份代理 · 自动创建</span>'
       : '<span class="tag">' + esc(a.identity_class || "—") + "</span>";
     if (!isSelfAgent) {
+      if (allocatedAmount > 0) {
+        tags += '<span class="tag ok">已授权 ' + esc(usd(allocatedAmount)) + " USDC</span>";
+      } else if (ready && a.scope_profile_id) {
+        tags += '<span class="tag ok">已授权</span>';
+      }
       tags += ready
         ? '<span class="tag ok">P1 就绪</span>'
         : '<span class="tag warn">P1 未就绪</span>';
@@ -98,7 +107,8 @@
       ? "这是你身份卡自带的付款代理账本 — 连接商家 agent 时自动使用，无需配置。"
       : "角色 " + esc(a.role || "—") +
         " · 接入路径 " + esc(a.connect_path || "—") +
-        " · 档案 " + esc(a.scope_profile_id || "未绑定");
+        " · 档案 " + esc(a.scope_profile_id || "未绑定") +
+        (allocatedAmount > 0 ? " · 已授权 " + esc(usd(allocatedAmount)) + " USDC" : "");
     if (!isSelfAgent && !ready && gaps) {
       sub += ' · <span class="err">待补齐：' + esc(gaps) + "</span>";
     }
@@ -107,7 +117,7 @@
     var actions = isSelfAgent
       ? ""
       : '<div class="agent-row-actions">' +
-        '<button type="button" class="btn primary" data-agent-handoff="' + esc(a.agent_id) + '">📦 交给 agent</button>' +
+        '<button type="button" class="btn primary" data-agent-handoff="' + esc(a.agent_id) + '">⚡ 生成接入包 · 交给 agent</button>' +
         '<input type="number" min="0" step="0.01" placeholder="授权额度 USDC" data-alloc-live="' +
         esc(a.scope_profile_id || "") + '" data-agent="' + esc(a.agent_id) + '" />' +
         '<button type="button" class="btn" data-agent-alloc="' + esc(a.agent_id) + '">授权额度</button>' +
@@ -115,7 +125,8 @@
         "</div>";
 
     return (
-      '<div class="agent-row' + (isSelfAgent ? " self" : "") + '">' +
+      '<div class="agent-row' + (isSelfAgent ? " self" : "") + '"' +
+      (isSelfAgent ? "" : ' data-agent-row="' + esc(a.agent_id) + '"') + ">" +
       '<div class="agent-row-main">' +
       "<b>" + esc(a.name || a.agent_id) + "</b>" +
       "<code>" + esc(a.agent_id) + "</code>" +
@@ -140,10 +151,23 @@
     try {
       var body = await api().listMyAgents();
       var agents = body.agents || [];
+      var allocRows = [];
+      try {
+        var allocBody = await api().getAllocations(id);
+        allocRows = (allocBody && allocBody.allocations) || [];
+      } catch (_) {}
+      var allocById = {};
+      allocRows.forEach(function (row) {
+        if (row && row.profile_id) allocById[row.profile_id] = Number(row.allocated_credits || 0);
+      });
       if (!agents.length) {
         list.innerHTML = '<p class="muted">这张身份卡还没有接入任何 agent。用下面的一键接入，30 秒建一个。</p>';
       } else {
-        list.innerHTML = agents.map(renderAgentRow).join("");
+        list.innerHTML = agents
+          .map(function (a) {
+            return renderAgentRow(a, allocById[a.scope_profile_id] || 0);
+          })
+          .join("");
       }
       if (status) status.textContent = "共 " + agents.length + " 个";
     } catch (e) {
@@ -494,7 +518,15 @@
 
     document.addEventListener("click", function (ev) {
       var t = ev.target;
-      if (!t || !t.getAttribute) return;
+      if (!t || !t.getAttribute || !t.closest) return;
+      var row = t.closest("[data-agent-row]");
+      if (row && !t.closest("button, input, select, textarea, a, .agent-row-actions")) {
+        var rowAgentId = row.getAttribute("data-agent-row");
+        if (rowAgentId && window.KarmaHandoff && window.KarmaHandoff.open) {
+          window.KarmaHandoff.open(rowAgentId, true);
+        }
+        return;
+      }
       var rev = t.getAttribute("data-agent-revoke");
       if (rev) { revokeAgent(rev); return; }
       var alloc = t.getAttribute("data-agent-alloc");

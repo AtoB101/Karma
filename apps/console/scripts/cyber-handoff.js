@@ -242,7 +242,7 @@
       '<p class="ag-hint">运行时密钥用于 agent 服务器向 Karma 请求付款码 / 提交回执 / 申请结算。' +
       "它绑定的权限与限额必须与「设置」页保存的自动授权策略完全一致，所以先保存策略再铸造。</p>" +
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
-      btn("铸造本 agent 的运行时密钥", "ho-mint", "primary") +
+      btn("⚡ 生成接入包 · 交给 agent", "ho-mint", "primary") +
       btn("读取已有密钥", "ho-list") +
       "</div>";
     if (state.keys) {
@@ -662,7 +662,7 @@
     render();
   }
 
-  async function open(agentId) {
+  async function open(agentId, readKeys) {
     state.agent = null;
     state.runtimeKey = "";
     state.keys = null;
@@ -685,6 +685,7 @@
     }
     render();
     if (c && c.scrollIntoView) c.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    if (readKeys) await listKeys();
   }
 
   function close() {
@@ -699,7 +700,7 @@
       var openBtn = t.closest("[data-agent-handoff]");
       if (openBtn) {
         ev.preventDefault();
-        open(openBtn.getAttribute("data-agent-handoff"));
+        open(openBtn.getAttribute("data-agent-handoff"), true);
         return;
       }
       if (t.closest("#ag-handoff-close")) close();

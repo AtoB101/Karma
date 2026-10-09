@@ -887,6 +887,8 @@ body.confidential [data-bind="b_released"] {
   margin-bottom: 10px;
   background: rgba(10, 16, 26, 0.6);
 }
+#agents .agent-row[data-agent-row] { cursor: pointer; }
+#agents .agent-row[data-agent-row]:hover { border-color: rgba(168, 85, 247, 0.45); }
 #agents .agent-row.self {
   background: rgba(10, 16, 26, 0.35);
   border-style: dashed;
