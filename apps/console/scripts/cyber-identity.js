@@ -425,9 +425,9 @@
       host.setAttribute("data-profile-switcher", "");
       host.innerHTML =
         '<button type="button" class="id-picker-btn" id="id-picker-btn" aria-haspopup="listbox" aria-expanded="false">' +
-        '<span class="id-picker-head"><span class="id-picker-title">选择身份</span><span class="id-picker-caret">▾</span></span>' +
+        '<span class="id-picker-head"><span class="id-picker-title">选择助理身份</span><span class="id-picker-caret">▾</span></span>' +
         "</button>" +
-        '<div class="id-picker-panel" id="id-picker-panel" role="listbox" aria-label="选择身份" hidden></div>';
+        '<div class="id-picker-panel" id="id-picker-panel" role="listbox" aria-label="选择助理身份" hidden></div>';
       var sub = box.querySelector(".id-sub");
       if (sub) sub.insertAdjacentElement("afterend", host);
       else box.appendChild(host);

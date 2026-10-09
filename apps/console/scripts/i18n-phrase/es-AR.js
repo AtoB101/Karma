@@ -2890,3 +2890,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
   "平台合规操作": "Acción de cumplimiento de la plataforma",
   "认证已被合规撤销（{0} · {1}）：{2}；改好资料可以重新提交。": "Esta verificación se revocó por cumplimiento ({0} · {1}): {2}. Corrige los documentos y puedes volver a presentarla.",
 });
+
+// 选择身份 → 选择助理身份（用户口径 2026-10-09）
+Object.assign(window.CYBER_I18N_PHRASE["es-AR"], {
+  "选择助理身份": "Elegir identidad de asistente",
+});
