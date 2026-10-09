@@ -251,3 +251,80 @@ def test_gate_runs_the_face_and_2fa_checks():
     for js in ("cyber-face-vault.js", "cyber-console-2fa.js"):
         assert js in gate, f"闸门要 node --check {js}"
     assert "console_2fa_face_live.cjs" in gate, "闸门要跑真机那一支"
+
+
+# --------------------------------------------------------------------- 参考脸
+
+
+def test_master_verification_package_route_is_owner_only():
+    """主体认证留下的密文包只回本人：加子身份时在本机解开当参考脸。"""
+    ver = (ROOT / "api" / "routes" / "identity_verification.py").read_text(encoding="utf-8")
+    assert '"/{identity_id}/verification/package"' in ver, "缺「取回留底包」这条路由"
+    block = ver[ver.index('"/{identity_id}/verification/package"') :]
+    block = block[: block.index("@router.get", 10)]
+    assert "_require_owner" in block, "留底包只回本人"
+    assert "package_cipher" in block and "face_digest" in block
+
+
+def test_same_person_falls_back_to_the_master_verification_face():
+    """没有刷脸模板时，参考脸用主体认证留底的那份 —— 已经留过底的人不用再刷一次。"""
+    svc = (ROOT / "services" / "face_activation.py").read_text(encoding="utf-8")
+    assert "reference_source" in svc, "判定里要写清参考脸哪来的"
+    assert '"identity_verification"' in svc and '"face_template"' in svc
+    body = svc[svc.index("async def assert_same_person(") :]
+    body = body[: body.index("\n__all__")]
+    assert "IdentityVerificationModel" in body, "要真的去读主体认证那行记录"
+    assert 'verification.status != "verified"' in body, "没核验完的留底不能当参考脸"
+    route = (ROOT / "api" / "routes" / "identity_role_profiles.py").read_text(encoding="utf-8")
+    assert '"reference_source": verdict.get("reference_source")' in route, (
+        "结论里要把参考脸的出处一起记档"
+    )
+
+
+def test_console_opens_the_master_package_locally():
+    """操作台：本机解开留底包 → 建模板 → 当参考脸；解不开就如实说。"""
+    api_js = API_JS.read_text(encoding="utf-8")
+    assert "getVerificationPackage" in api_js, "客户端要有取留底包的接口"
+    assert "/verification/package" in api_js
+    js = FACE_JS.read_text(encoding="utf-8")
+    for needle in (
+        "referenceFromVerificationPackage",
+        "openVerificationPackage",
+        "packageKeyMessage",
+        "derivePackageKey",
+        "key_wrap",
+        "identity_verification",
+    ):
+        assert needle in js, f"刷脸保险柜缺 {needle}"
+    # 密钥原文必须跟提交那一侧逐字一致，否则永远解不开。
+    verify_js = (SCRIPTS / "cyber-identity-verify.js").read_text(encoding="utf-8")
+    assert '"Karma Identity Doc Key v1"' in verify_js and '"Karma Identity Doc Key v1"' in js
+    for line in ("karma_identity_id:", "salt:"):
+        assert line in js, f"密钥原文缺 {line}"
+
+
+def test_the_package_key_convention_matches_on_both_sides():
+    """留底包的密钥约定：提交与解开必须逐字一致，差一个字就永远解不开。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    verify_js = (SCRIPTS / "cyber-identity-verify.js").read_text(encoding="utf-8")
+    for line in ("Karma Identity Doc Key v1", "karma_identity_id:", "salt:"):
+        assert f'"{line}"' in js, f"保险柜缺密钥原文 {line}"
+        assert f'"{line}"' in verify_js, f"提交那一侧缺密钥原文 {line}"
+    # 盐按「salt hex 那串文本」参与 PBKDF2（两边的写法必须一样），迭代次数按包上写的来。
+    for src in (js, verify_js):
+        assert "PBKDF2" in src and "SHA-256" in src and "AES-GCM" in src
+    assert 'salt: te.encode(saltHex)' in js or "salt: te.encode(saltHex)" in js
+    part = js[js.index("async function derivePackageKey(") :]
+    part = part[: part.index("function resetKey()")]
+    assert 'te.encode(String(signature || ""))' in part, "签名原样参与派生（不剥 0x）"
+    assert "Number(enc.iterations)" in js, "迭代次数按包上写的来"
+    gate = (ROOT / "scripts" / "acceptance" / "console_last_mile_gate.sh").read_text(encoding="utf-8")
+    assert "test_console_face_package.cjs" in gate, "闸门要跑留底包那一支"
+
+
+def test_the_unopenable_package_copy_is_translated():
+    for lang in SHIPPED_LANGS:
+        pack = (PACK_DIR / f"{lang}.js").read_text(encoding="utf-8")
+        assert '"主体认证留底的脸解不开：请先在主身份页刷一次脸激活，再来加身份。":' in pack, (
+            f"{lang} 缺「留底包解不开」的译文"
+        )

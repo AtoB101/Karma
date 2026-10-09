@@ -135,6 +135,15 @@
     return ["Karma Identity Face Key v1", "karma_identity_id:" + identity()].join("\n");
   }
 
+  /** 主体认证密文包的密钥原文：跟 cyber-identity-verify.js 提交时逐字一致，差一个字都解不开。 */
+  function packageKeyMessage(saltHex) {
+    return [
+      "Karma Identity Doc Key v1",
+      "karma_identity_id:" + identity(),
+      "salt:" + saltHex,
+    ].join("\n");
+  }
+
   /* ------------------------------------------------------------------ 密钥 */
 
   function kdfSalt() {
@@ -165,6 +174,24 @@
     state.key = key;
     state.keyIdentity = identity();
     return key;
+  }
+
+  /**
+   * 留底包的密钥：跟提交时同一套（钱包签名 + PBKDF2(盐 = salt hex 原文)）。
+   * 这里不缓存 —— 一份留底包只解一次，不值得为它常驻一把钥匙。
+   */
+  async function derivePackageKey(signature, saltHex, iterations) {
+    var te = new global.TextEncoder();
+    var material = await global.crypto.subtle.importKey(
+      "raw", te.encode(String(signature || "")), { name: "PBKDF2" }, false, ["deriveKey"]
+    );
+    return global.crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt: te.encode(saltHex), iterations: iterations, hash: "SHA-256" },
+      material,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["decrypt"]
+    );
   }
 
   function resetKey() {
@@ -372,18 +399,36 @@
   }
 
   /**
-   * 同人比对：跟主身份首次留下的脸型模板比一个分数，过线就开通这张子身份。
+   * 同人比对：跟这个身份**档案里已有的那张脸**比一个分数，过线就开通这张子身份。
+   *
+   * 参考脸优先用「刷脸激活」留下的模板；没有模板就退到主体认证（证件 + 刷脸）那一次
+   * 留下的采集 —— 已经为这个身份留过底的人，不该为了加一张卡再刷一次脸。
    * @param shotIn 可选：已经采集好的一张（不传就现场弹取景框）。
-   * 返回 {score, threshold, verdict}；不出结果（取消 / 没模板）返回 null。
+   * 返回 {score, verdict, reference_source}；取消返回 null。
    */
   async function confirmSamePerson(profileId, className, shotIn) {
     var mod = api();
     var id = identity();
     var stored = await mod.getFaceTemplate(id);
-    if (!stored || !stored.enrolled) {
-      throw new Error(T("这个身份还没有刷脸模板：先把主身份刷脸激活，再来加身份。"));
+    var reference;
+    var referenceDigest;
+    var referenceEncryption;
+    var referenceSource;
+    if (stored && stored.enrolled) {
+      reference = await decryptTemplate(stored.template_cipher, stored.encryption);
+      referenceDigest = stored.template_digest;
+      referenceEncryption = stored.encryption || {};
+      referenceSource = "face_template";
+    } else {
+      var kept = await referenceFromVerificationPackage(mod, id);
+      reference = await buildTemplate({
+        frames: (kept.bundle && kept.bundle.face_frames) || [],
+        b64: (kept.bundle && kept.bundle.face_b64) || "",
+      });
+      referenceDigest = kept.faceDigest;
+      referenceEncryption = kept.encryption;
+      referenceSource = "identity_verification";
     }
-    var reference = await decryptTemplate(stored.template_cipher, stored.encryption);
 
     // 已经采过一张就直接用（建卡向导里第⑥步刚采的那一张），不让人重复拍。
     var shot = shotIn || (await capture());
@@ -397,7 +442,7 @@
       profileId: profileId,
       className: className,
       walletAddress: wallet,
-      referenceDigest: stored.template_digest,
+      referenceDigest: referenceDigest,
       captureDigest: captureDigest,
       score: score,
     });
@@ -405,14 +450,66 @@
     var verdict = await mod.confirmFaceConsistency(profileId, {
       wallet_address: wallet,
       wallet_signature: signature,
-      reference_digest: stored.template_digest,
+      reference_digest: referenceDigest,
       capture_digest: captureDigest,
       score: score,
       liveness: livenessOf(shot),
-      // 不刷新模板（只比对）：这里回填首次绑定时的加密参数，服务端仍然按同一套白名单校验。
-      encryption: stored.encryption || {},
+      // 不刷新模板（只比对）：这里回填参考脸那一份的加密参数，服务端仍然按同一套白名单校验。
+      encryption: referenceEncryption,
     });
-    return { score: score, verdict: verdict, template: stored };
+    return {
+      score: score,
+      verdict: verdict,
+      reference_source: referenceSource,
+      template: stored || null,
+    };
+  }
+
+  /**
+   * 参考脸的第二出处：主体认证留下的密文包。
+   *
+   * 主体认证（证件 + 刷脸）那一次的采集是加密存在服务端的，密钥由钱包签名派生 ——
+   * 服务端自己解不开，所以只能在本人的设备上解。包里那一组角度帧就是要的参考脸，
+   * face_digest 是档案里记着的同一个值：拿它当 reference_digest，参考脸换不掉。
+   */
+  async function referenceFromVerificationPackage(mod, id) {
+    var pkg = null;
+    try {
+      pkg = await mod.getVerificationPackage(id);
+    } catch (_) {
+      pkg = null;
+    }
+    return openVerificationPackage(pkg);
+  }
+
+  /** 解开一份留底包（纯函数：给包就还包里的东西，取包那一步在调用方）。 */
+  async function openVerificationPackage(pkg) {
+    var noFace = T("这个身份还没有刷脸模板：先把主身份刷脸激活，再来加身份。");
+    var unopenable = T("主体认证留底的脸解不开：请先在主身份页刷一次脸激活，再来加身份。");
+    if (!pkg || !pkg.has_package || !pkg.face_digest) throw new Error(noFace);
+    var enc = pkg.encryption || {};
+    if (String(enc.key_wrap || "") !== "wallet-signature-v1") throw new Error(unopenable);
+    var saltHex = "";
+    try {
+      saltHex = String(global.atob(String(enc.salt_b64 || "")) || "");
+    } catch (_) {
+      saltHex = "";
+    }
+    if (!saltHex) throw new Error(unopenable);
+    var signature = await sign(packageKeyMessage(saltHex));
+    var key = await derivePackageKey(signature, saltHex, Number(enc.iterations) || KDF_ITERATIONS);
+    var bundle;
+    try {
+      var plain = await global.crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: b64ToBuf(String(enc.iv_b64 || "")) },
+        key,
+        b64ToBuf(pkg.package_cipher)
+      );
+      bundle = JSON.parse(new global.TextDecoder().decode(plain));
+    } catch (_) {
+      throw new Error(unopenable);
+    }
+    return { bundle: bundle, faceDigest: pkg.face_digest, encryption: enc };
   }
 
   global.KarmaFaceVault = {
@@ -425,6 +522,7 @@
     capture: capture,
     compare: compare,
     confirmSamePerson: confirmSamePerson,
+    openVerificationPackage: openVerificationPackage,
     decryptTemplate: decryptTemplate,
     digestOfCapture: digestOfCapture,
     ensureKey: ensureKey,

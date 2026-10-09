@@ -271,6 +271,14 @@
     );
   }
 
+  /** 主体认证留下的密文包（只有本人拿得到）：本机解开后当同人比对的参考脸。 */
+  async function getVerificationPackage(identityId) {
+    return karmaFetch(
+      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/package",
+      { method: "GET", headers: headers() }
+    );
+  }
+
   /** 追加身份的一致性结论：分数由本机算，服务端复核签名 / 参考模板 / 新鲜度 / 过线。 */
   async function confirmFaceConsistency(profileId, body) {
     return jsonPost(
@@ -944,6 +952,7 @@
     disableTwoFactor,
     submitFaceActivation,
     getFaceTemplate,
+    getVerificationPackage,
     confirmFaceConsistency,
     getSettlement,
     getHealth,

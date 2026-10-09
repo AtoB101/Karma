@@ -443,6 +443,9 @@ async def confirm_role_profile_same_person(
         "reference_digest": verdict["reference_digest"],
         "capture_digest": verdict["capture_digest"],
         "angles": verdict["liveness"].get("angles"),
+        # 参考脸是哪来的：刷脸激活留下的模板（face_template），还是主体认证留底
+        # （identity_verification）。事后复盘时这条决定了「他当时凭什么开的卡」。
+        "reference_source": verdict.get("reference_source"),
         "reviewer": verdict["reviewer"],
         "checked_at": verdict["checked_at"],
     }

@@ -2506,6 +2506,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "画面太糊或者太暗，换个亮点的地方重采一次": "The picture is too blurry or too dark — move somewhere brighter and take it again.",
   "刷脸模块未加载，请刷新页面后再试。": "The face module did not load — refresh the page and try again.",
   "这台设备打不开摄像头，换一台再试。": "This device cannot open a camera — try another one.",
+  "主体认证留底的脸解不开：请先在主身份页刷一次脸激活，再来加身份。": "The face kept from your master identity verification cannot be opened: activate the master identity with a face scan first, then add more identities.",
   "这个身份还没有刷脸模板：先把主身份刷脸激活，再来加身份。": "This identity has no face template yet — activate the master identity by face first, then add identities.",
   "输入验证器里的 6 位验证码。手机丢了就输入一张恢复码（形如 A1B2-C3D4），用掉即焚。": "Enter the 6-digit code from your authenticator. If you lose the phone, enter one recovery code (like A1B2-C3D4) — each burns after use.",
   "安全验证": "Security check",

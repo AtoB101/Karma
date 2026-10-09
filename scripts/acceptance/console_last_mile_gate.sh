@@ -241,6 +241,8 @@ if command -v node >/dev/null 2>&1; then
   # 建立子身份 · 卡片清单：整块渲染不许变成「读取失败：T is not defined」，
   # 没开通的卡要能一键刷脸开通（都是线上真实踩过的）。
   node "$ROOT/tests/js/test_console_sub_list.cjs"
+  # 主体认证留底的那张脸：加子身份时要在本机解得开（解不开就说明密钥约定漂了）。
+  node "$ROOT/tests/js/test_console_face_package.cjs"
 
   # 真机验证（可选）：装了 playwright 才跑。开一个真实浏览器把节点层从头走一遍，
   # 没装就跳过 —— 上面那些检查已经覆盖了行为，这一支只是多一层「浏览器里真的行」。

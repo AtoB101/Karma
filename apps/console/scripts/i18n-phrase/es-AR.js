@@ -2508,6 +2508,7 @@ Object.assign(window.CYBER_I18N_PHRASE["es-AR"] || {}, {
   "画面太糊或者太暗，换个亮点的地方重采一次": "La imagen está muy borrosa u oscura: andá a un lugar más iluminado y tomala de nuevo.",
   "刷脸模块未加载，请刷新页面后再试。": "El módulo facial no está cargado: actualizá la página y volvé a intentarlo.",
   "这台设备打不开摄像头，换一台再试。": "Este dispositivo no puede abrir la cámara: probá con otro.",
+  "主体认证留底的脸解不开：请先在主身份页刷一次脸激活，再来加身份。": "No se pudo abrir la cara guardada en la verificación de la identidad principal: primero activá la identidad principal con una verificación facial y después agregá más identidades.",
   "这个身份还没有刷脸模板：先把主身份刷脸激活，再来加身份。": "Esta identidad todavía no tiene plantilla facial: primero activá la identidad principal con la cara y después agregá identidades.",
   "输入验证器里的 6 位验证码。手机丢了就输入一张恢复码（形如 A1B2-C3D4），用掉即焚。": "Ingresá el código de 6 dígitos de tu autenticador. Si perdés el teléfono, ingresá un código de recuperación (como A1B2-C3D4): se consume al usarlo.",
   "安全验证": "Verificación de seguridad",

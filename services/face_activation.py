@@ -417,24 +417,49 @@ async def assert_same_person(
     encryption: dict[str, Any] | None = None,
     template_cipher: str | None = None,
 ) -> dict[str, Any]:
-    """追加身份的判据。返回判定细节，调用方据此把档案置为已核验。"""
+    """追加身份的判据。返回判定细节，调用方据此把档案置为已核验。
+
+    参考脸有两个可能的出处，优先用刷脸模板，没有模板再退到主体认证的留底：
+
+    * ``face_template``：本人在操作台「刷脸激活」时留下的模板密文；
+    * ``identity_verification``：主体认证（证件 + 刷脸）那一次采集的 ``face_digest``。
+
+    第二条是为了「已经为这个身份留过底的人不该再刷一次脸」：主体认证本来就已经采过
+    五角度人脸、也已经核验通过，参考脸就是那份留底。两条路的闸门完全一样 —— 绑定钱包
+    签名 + 活体多角度采集 + 分数过线，一个都不少；参考值仍然必须是**档案里已有的那个
+    摘要**，所以参考脸换不掉。
+    """
     template = await db.get(IdentityFaceTemplateModel, owner_identity_id)
-    if template is None:
-        raise FaceError(
-            409,
-            "this identity has no face template yet: activate the master identity with a face "
-            "scan first, then add more identities",
-        )
+    reference_source = "face_template"
+    on_file_digest = ""
+    replay_digest = ""
+    if template is not None:
+        on_file_digest = str(template.template_digest or "").lower()
+        replay_digest = str(template.capture_digest or "").lower()
+    else:
+        verification = await db.get(IdentityVerificationModel, owner_identity_id)
+        if (
+            verification is None
+            or verification.status != "verified"
+            or not verification.face_digest
+        ):
+            raise FaceError(
+                409,
+                "this identity has no face on file yet: activate the master identity with a face "
+                "scan (or finish the master identity verification) first, then add more identities",
+            )
+        reference_source = "identity_verification"
+        on_file_digest = str(verification.face_digest or "").lower()
 
     reference = _digest(reference_digest, name="reference_digest")
-    if reference != str(template.template_digest or "").lower():
+    if reference != on_file_digest:
         raise FaceError(
             409,
-            "the reference face template does not match the one on file for this identity",
+            "the reference face does not match the one on file for this identity",
         )
 
     capture = _digest(capture_digest, name="capture_digest")
-    if template.capture_digest and capture == str(template.capture_digest).lower():
+    if replay_digest and capture == replay_digest:
         raise FaceError(409, "this capture is a replay of the enrollment capture")
 
     evidence = sanitize_liveness(liveness)
@@ -490,6 +515,7 @@ async def assert_same_person(
         "reference_digest": reference,
         "capture_digest": capture,
         "liveness": evidence,
+        "reference_source": reference_source,
         "reviewer": CONSISTENCY_REVIEWER,
         "checked_at": datetime.utcnow().isoformat(),
     }

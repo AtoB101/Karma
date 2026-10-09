@@ -338,13 +338,57 @@ async def test_same_person_passes_and_reports_the_evidence(db_session):
     assert verdict["reference_digest"] == TEMPLATE
 
 
-async def test_more_identities_need_a_face_template_first(db_session):
+async def test_more_identities_need_a_face_on_file_first(db_session):
+    """既没刷脸激活、也没主体认证留底：拒绝，并说清「先给主身份留一张脸」。"""
     await _bind(db_session, "kid-fresh", SIGNER.address)
     await _profile(db_session, "kid-fresh")
     with pytest.raises(face.FaceError) as err:
         await _consistent(db_session, identity_id="kid-fresh")
     assert err.value.status == 409
-    assert "no face template" in err.value.message
+    assert "no face on file" in err.value.message
+
+
+async def _master_verification(db, identity_id, *, status="verified", face="e" * 64):
+    """主体认证那一次留下的脸（没有刷脸模板，只有这条核验记录）。"""
+    db.add(
+        IdentityVerificationModel(
+            identity_id=identity_id, status=status, level="basic", face_digest=face
+        )
+    )
+    await db.flush()
+    return face
+
+
+async def test_a_verified_master_verification_face_opens_a_sub_identity(db_session):
+    """主体认证留过底的人，加子身份不用再刷一次脸 —— 参考脸就是那份留底。"""
+    await _bind(db_session, "kid-kyc", SIGNER.address)
+    face_digest = await _master_verification(db_session, "kid-kyc")
+    await _profile(db_session, "kid-kyc")
+    verdict = await _consistent(db_session, identity_id="kid-kyc", reference=face_digest)
+    assert verdict["reference_source"] == "identity_verification", "要写清参考脸哪来的"
+    assert verdict["reference_digest"] == face_digest
+
+
+async def test_an_unverified_master_face_is_not_enough(db_session):
+    """还没核验完的留底不能当参考脸 —— 否则随便一份提交就能开卡。"""
+    await _bind(db_session, "kid-kyc-pending", SIGNER.address)
+    face_digest = await _master_verification(db_session, "kid-kyc-pending", status="pending")
+    await _profile(db_session, "kid-kyc-pending")
+    with pytest.raises(face.FaceError) as err:
+        await _consistent(db_session, identity_id="kid-kyc-pending", reference=face_digest)
+    assert err.value.status == 409
+    assert "no face on file" in err.value.message
+
+
+async def test_the_master_face_cannot_be_swapped_out(db_session):
+    """留底的脸也得对得上号：拿别的摘要当参考照样拒。"""
+    await _bind(db_session, "kid-kyc-swap", SIGNER.address)
+    await _master_verification(db_session, "kid-kyc-swap")
+    await _profile(db_session, "kid-kyc-swap")
+    with pytest.raises(face.FaceError) as err:
+        await _consistent(db_session, identity_id="kid-kyc-swap", reference="f" * 64)
+    assert err.value.status == 409
+    assert "does not match" in err.value.message
 
 
 async def test_a_different_reference_template_is_refused(db_session):

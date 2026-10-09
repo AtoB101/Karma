@@ -267,6 +267,43 @@ async def face_activate_identity_verification(
     return payload
 
 
+@router.get("/{identity_id}/verification/package")
+async def get_identity_verification_package(
+    identity_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """把主体认证留下的密文包交回**本人**（操作台在本机解开，取出留底的那张脸）。
+
+    同人比对要的是「可比脸」，而模板只在刷脸激活那一步生成。主体认证（证件 + 刷脸）
+    那一次其实已经采过五角度人脸、也已经核验通过 —— 这里把那份留底交回去，让已经
+    留过底的人不必为了加一张子身份再刷一次脸。
+
+    口径与 ``face-template`` 一致：只回本人，而且拿到也解不开（密钥由钱包签名派生，
+    服务端自己也没有）。别人的身份拿不到 —— 不是本人一律 403。
+    """
+    validate_public_url_segment("identity_id", identity_id)
+    await _require_owner(db, request, identity_id)
+    row = await db.get(IdentityVerificationModel, identity_id)
+    if row is None or not row.package_cipher:
+        return {
+            "identity_id": identity_id,
+            "has_package": False,
+            "status": row.status if row else "none",
+            "face_digest": None,
+            "package_cipher": None,
+            "encryption": {},
+        }
+    return {
+        "identity_id": identity_id,
+        "has_package": True,
+        "status": row.status,
+        "face_digest": row.face_digest,
+        "package_cipher": row.package_cipher,
+        "encryption": row.encryption or {},
+    }
+
+
 @router.get("/{identity_id}/verification/face-template")
 async def get_face_template(
     identity_id: str,

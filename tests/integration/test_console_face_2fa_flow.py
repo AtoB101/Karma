@@ -22,6 +22,7 @@ from eth_account.messages import encode_defunct
 from httpx import AsyncClient
 
 from config.settings import settings
+from db.models.orm import IdentityVerificationModel
 from services import console_2fa as totp
 from services.face_activation import (
     build_face_activation_message,
@@ -109,7 +110,13 @@ async def _new_profile(client: AsyncClient, me: Who, name: str = "采购助理")
 
 
 async def _consistency(
-    client: AsyncClient, me: Who, profile_id: str, *, score: float, capture: str = FRESH_CAPTURE
+    client: AsyncClient,
+    me: Who,
+    profile_id: str,
+    *,
+    score: float,
+    capture: str = FRESH_CAPTURE,
+    reference: str = TEMPLATE,
 ):
     body = {
         "wallet_address": me.account.address,
@@ -119,12 +126,12 @@ async def _consistency(
                 profile_id=profile_id,
                 class_="individual",
                 wallet_address=me.account.address,
-                reference_digest=TEMPLATE,
+                reference_digest=reference,
                 capture_digest=capture,
                 score=score,
             )
         ),
-        "reference_digest": TEMPLATE,
+        "reference_digest": reference,
         "capture_digest": capture,
         "score": score,
         "liveness": LIVENESS,
@@ -133,6 +140,28 @@ async def _consistency(
     return await client.post(
         f"/v1/identity/role-profiles/{profile_id}/face-consistency", json=body, headers=me.headers()
     )
+
+
+MASTER_FACE = "ab" * 32
+
+
+async def _submit_master_verification(client: AsyncClient, me: Who, *, face_digest: str = MASTER_FACE):
+    """走主体认证那条路：交密文包 + 摘要（不经过刷脸激活，所以没有模板）。"""
+    r = await client.post(
+        f"/v1/identity/{me.identity}/verification/submit",
+        json={
+            "level": "basic",
+            "doc_digest": "cd" * 32,
+            "face_digest": face_digest,
+            "package_digest": "ef" * 32,
+            "package_cipher": CIPHER,
+            "encryption": ENCRYPTION,
+            "extracted": {"full_name": "Test Person", "consent": True},
+        },
+        headers=me.headers(),
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
 
 
 async def _bind_two_factor(client: AsyncClient, me: Who) -> str:
@@ -252,11 +281,61 @@ async def test_a_replayed_enrollment_capture_is_refused(client: AsyncClient, who
 
 
 async def test_adding_an_identity_before_activation_is_explained(client: AsyncClient, who: Who):
-    """还没刷脸激活：拿不到模板，要说清「先激活主身份」。"""
+    """既没刷脸激活、也没主体认证留底：拿不到参考脸，要说清「先给主身份留一张脸」。"""
     profile_id = await _new_profile(client, who)
     r = await _consistency(client, who, profile_id, score=0.99)
     assert r.status_code == 409, r.text
-    assert "face template" in r.json()["detail"]
+    assert "no face on file" in r.json()["detail"]
+
+
+# ---------------------------------------------------- 主体认证留底 = 参考脸
+
+
+async def test_master_verification_face_opens_a_sub_identity(
+    client: AsyncClient, who: Who, db_session
+):
+    """主体认证（证件 + 刷脸）留过底的人，加子身份不用再刷一次脸。
+
+    留底的那一刻还没核验完 —— 那时候不认；核验通过之后，那份留底就是参考脸。
+    """
+    face = MASTER_FACE
+    await _submit_master_verification(client, who, face_digest=face)
+    profile_id = await _new_profile(client, who)
+
+    pending = await _consistency(client, who, profile_id, score=0.9, reference=face)
+    assert pending.status_code == 409, pending.text
+    assert "no face on file" in pending.json()["detail"], "没核验完的留底不能当参考脸"
+
+    row = await db_session.get(IdentityVerificationModel, who.identity)
+    row.status = "verified"
+    row.verified_at = datetime.utcnow()
+    await db_session.commit()
+
+    ok = await _consistency(client, who, profile_id, score=0.9, reference=face)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["kyc_status"] == "verified", "过线当场开通"
+    check = ok.json()["kyc_payload"]["face_consistency"]
+    assert check["reference_source"] == "identity_verification", "要记清参考脸是哪来的"
+    assert check["reference_digest"] == face
+
+
+async def test_a_stranger_cannot_take_someone_elses_master_package(client: AsyncClient, who: Who):
+    """留底包只回本人：别人的身份连包都拿不到（更别说解开）。"""
+    await _submit_master_verification(client, who)
+    mine = await client.get(
+        f"/v1/identity/{who.identity}/verification/package", headers=who.headers()
+    )
+    assert mine.status_code == 200, mine.text
+    assert mine.json()["has_package"] is True
+    assert mine.json()["package_cipher"] == CIPHER
+    assert mine.json()["face_digest"] == MASTER_FACE
+
+    stranger = Account.from_key("0x" + "77" * 32)
+    other = await client.get(
+        f"/v1/identity/{who.identity}/verification/package",
+        headers={"X-Karma-Identity-Id": stranger.address.lower()},
+    )
+    assert other.status_code == 403, other.text
 
 
 # ------------------------------------------------------------------ 2FA 闸门
