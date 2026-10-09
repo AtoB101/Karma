@@ -2707,20 +2707,6 @@ body {
 .k2fa-box .k2fa-err.on { opacity: 1; }
 .k2fa-box .k2fa-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 
-/* ---- 追加身份（第二张卡） -------------------------------------------- */
-/* 填标准字段 → 再刷一次脸 → 和首次激活留下的模板比一次，是同一个人就开通。
-   渲染见 scripts/cyber-add-identity.js。 */
-#idv-add-identity .aid-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-#idv-add-identity .aid-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
-#idv-add-identity .aid-note { margin: 10px 0 0; font-size: 12px; line-height: 1.7; color: var(--text-dim); }
-#idv-add-identity .aid-note.aid-ok { color: var(--neon-cyan); }
-#idv-add-identity .aid-note.aid-bad { color: #ff8a9a; }
-#idv-add-identity .aid-hint { margin: 10px 0 0; font-size: 11.5px; line-height: 1.7; color: #6c8aac; }
-
 /* 交接码：主人在操作台看到、亲手交给 agent 的那串码。要大到能照着念，
    所以按「一遍看清」来排，而不是按普通提示文案。 */
 .pair-handoff-code {

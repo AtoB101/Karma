@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
     <link rel="icon" type="image/png" href="../../assets/favicon.png?v=0da2be69f6aa" />
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=5f8233ed1f57" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=427a576a9573" />
   </head>
   <body>
     <div class="bg"></div>
@@ -98,7 +98,7 @@
             <button class="nav-main" data-page="identity" aria-expanded="false"><span class="icon">ID</span><span data-i18n="nav.identity">身份 · 认证</span><span class="nav-caret">▾</span></button>
             <div class="nav-subs">
               <button class="nav-sub" data-page="identity" data-sub="master">主身份 · 主体账户</button>
-              <button class="nav-sub" data-page="identity" data-sub="life">子身份 · 每个 agent 一张卡</button>
+              <button class="nav-sub" data-page="identity" data-sub="life">建立子身份</button>
               <!-- 个人 / 个体 / 企业三种助理的认证入口统一收进「子身份」这一项的建卡向导：
                    在那一页选身份类型时一键选择，不再在这里各挂一个重复入口。 -->
             </div>
@@ -627,10 +627,6 @@
             </div>
           </div>
 
-          <!-- 追加身份：填标准字段 → 再刷一次脸 → 与首次激活留下的模板自动比对 → 直接开通。
-               判定与边界见 cyber-add-identity.js 与 cyber-face-vault.js。 -->
-          <div class="card section" id="idv-add-identity"></div>
-
           <!-- ② 官方实名核验（第三方服务商）：接了服务商就走这条；没接就走下面的本地采集 + 复核台。 -->
           <div class="card section" id="idv-provider">
             <div class="section-header">
@@ -768,11 +764,11 @@
           </div>
 
           <!-- 高级工具：子身份清单 + 资金归属规则 + 身份档案管理。常规认证流程不需要天天看。 -->
-          <!-- ④ 子身份：每个 agent 一张卡。切到哪个身份，这一页就是那个身份的档案。 -->
+          <!-- ④ 建立子身份：一张卡一个 agent。切到哪个身份，这一页就是那个身份的档案。 -->
           <div class="card section" id="idv-subs">
             <div class="section-header">
               <div>
-                <h3>子身份 · 每个 agent 一张卡</h3>
+                <h3>建立子身份</h3>
                 <p>生活助理 / 个体助理 / 企业主体各建一张。角色、权限、额度、边界、操作钱包都独立，账单互不混淆。</p>
               </div>
               <button type="button" class="btn primary" id="idsub-new">+ 新建子身份</button>
@@ -1682,8 +1678,6 @@
     <script src="../../scripts/cyber-face-vault.js?v=4637f8de8da2"></script>
     <!-- 安全验证（2FA）：设置页那张卡 + 动额度前弹出的验证码。 -->
     <script src="../../scripts/cyber-console-2fa.js?v=e5de80863f43"></script>
-    <!-- 追加身份：填标准字段 + 再刷一次脸，自动开通一张新身份卡。 -->
-    <script src="../../scripts/cyber-add-identity.js?v=f2131a7ec1ed"></script>
     <script src="../../scripts/cyber-cert-shared.js?v=0a9021432395"></script>
     <script src="../../scripts/cyber-cert-sole.js?v=a9f0c3849384"></script>
     <script src="../../scripts/cyber-entity.js?v=cf4c19df6929"></script>

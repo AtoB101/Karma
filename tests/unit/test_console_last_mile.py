@@ -209,7 +209,7 @@ def test_switching_identity_always_lands_on_that_identitys_page():
     # 侧栏那一项的文字要走源文案表：五份都得有，少一份就掉回中文。
     for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
         pack = (CONSOLE / "scripts/i18n-phrase" / f"{lang}.js").read_text(encoding="utf-8")
-        assert '"子身份 · 每个 agent 一张卡":' in pack, f"{lang} 缺侧栏子身份那一项的译文"
+        assert '"建立子身份":' in pack, f"{lang} 缺侧栏子身份那一项的译文"
 
 
 def test_pieced_together_identity_lines_translate_as_whole_sentences():

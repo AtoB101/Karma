@@ -31,7 +31,6 @@ required=(
   scripts/i18n-cyber.js
   scripts/cyber-face-vault.js
   scripts/cyber-console-2fa.js
-  scripts/cyber-add-identity.js
   styles/cyber-console.css
 )
 
@@ -144,21 +143,21 @@ grep -q '"身份 {0}（{1}）":' "$CONSOLE/scripts/i18n-phrase/ko.js"
 [[ -f "$ROOT/scripts/console_bundle.py" ]]
 [[ -f "$ROOT/scripts/publish_console_ipfs.sh" ]]
 
-# L3-3：刷脸即激活 + 追加身份同人比对 + 动额度前过 2FA。
+# L3-3：刷脸即激活 + 同人比对（保险柜）+ 动额度前过 2FA。
 # 激活只剩刷脸：采集 / 加密 / 比对都在本机，服务端拿密文 + 摘要直接置「已激活」；
 # 动钱的动作（加额 / 减额 / 取消授权、停用钥匙、取消绑定）都要过一次 6 位码。
 grep -q 'cyber-face-vault.js' "$CONSOLE/pages/cyber/index.html"
 grep -q 'cyber-console-2fa.js' "$CONSOLE/pages/cyber/index.html"
-grep -q 'cyber-add-identity.js' "$CONSOLE/pages/cyber/index.html"
 grep -q 'id="k2fa-card"' "$CONSOLE/pages/cyber/index.html"
-grep -q 'id="idv-add-identity"' "$CONSOLE/pages/cyber/index.html"
+# 「追加身份」那张卡已经并进「建立子身份」向导，不允许再露出来。
+! grep -q 'id="idv-add-identity"' "$CONSOLE/pages/cyber/index.html"
 grep -q 'id="mst-activate-status"' "$CONSOLE/pages/cyber/index.html"
 grep -q 'activateByFace' "$CONSOLE/scripts/cyber-face-vault.js"
 # IIFE 少了 window 参数就静默少一个模块（语法检查拦不住），这里钉结尾形状。
-for mod in cyber-face-vault.js cyber-console-2fa.js cyber-add-identity.js; do
+for mod in cyber-face-vault.js cyber-console-2fa.js; do
   grep -q '})(window);' <<< "$(tail -n 1 "$CONSOLE/scripts/$mod")"
 done
-grep -q 'confirmSamePerson' "$CONSOLE/scripts/cyber-add-identity.js"
+grep -q 'confirmSamePerson' "$CONSOLE/scripts/cyber-face-vault.js"
 grep -q 'KarmaFaceVault' "$CONSOLE/scripts/cyber-master-page.js"
 grep -q 'Karma2FA' "$CONSOLE/scripts/karma-public-api.js"
 grep -q 'X-Karma-2FA-Code' "$CONSOLE/scripts/karma-public-api.js"
@@ -224,7 +223,7 @@ if command -v node >/dev/null 2>&1; then
   for js in karma-nodes.js cyber-node-panel.js cyber-handoff.js; do
     node --check "$CONSOLE/scripts/$js"
   done
-  for js in cyber-face-vault.js cyber-console-2fa.js cyber-add-identity.js; do
+  for js in cyber-face-vault.js cyber-console-2fa.js; do
     node --check "$CONSOLE/scripts/$js"
   done
   # 节点层的行为（选节点 / 探活 / 容灾 / 自定义节点校验）跑一遍真代码。

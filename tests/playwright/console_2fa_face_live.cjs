@@ -1,5 +1,5 @@
 /*
- * 刷脸即激活 / 追加身份 / 动额度前过 2FA · 真机验证（L3-3）。
+ * 刷脸即激活 / 建立子身份 / 动额度前过 2FA · 真机验证（L3-3）。
  *
  * 为什么单独有一支：这三处的文案与状态都是**脚本异步写进 DOM** 的 ——
  * 静态检查只能证明字符串躺在文件里，真正会翻车的是「切了语言它还挂着中文」。
@@ -9,7 +9,7 @@
  *   [2] 五门语言逐个切：这一行必须换语言（日文除外，用「中文原文没留」当尺子）；
  *   [3] 设置页那张 2FA 卡渲染出来，五门语言同样逐字比对；
  *   [4] 动额度真的过闸：没带码 → 弹验证码 → 输码 → PUT 带着 X-Karma-2FA-Code 出去；
- *   [5] 追加身份那张卡渲染出来，五门语言不留汉字。
+ *   [5] 「建立子身份」向导渲染出来，五门语言不留汉字。
  *
  * 自带静态服务器（127.0.0.1），/v1/* 由它应答。
  *
@@ -119,7 +119,7 @@ function serve(state) {
   return new Promise((resolve) => server.listen(PORT, "127.0.0.1", () => resolve(server)));
 }
 
-/** 主身份那张卡（含 ② 刷脸激活 / 追加身份）在「身份 · 主体账户」这一页里。 */
+/** 主身份那张卡（含 ② 刷脸激活）在「身份 · 主体账户」这一页里。 */
 async function openIdentityPage(page) {
   await page.evaluate(() => {
     const btn = document.querySelector('.nav-sub[data-page="identity"][data-sub="master"]');
@@ -156,8 +156,9 @@ const READ_2FA_CARD = () => {
   return n ? n.textContent.replace(/\s+/g, " ").trim() : "";
 };
 
-const READ_ADD_CARD = () => {
-  const n = document.querySelector("#idv-add-identity");
+/** 「建立子身份」向导的第一块（类型 + 名字 + 额度 + 联系方式），六门语言都要翻。 */
+const READ_SUB_HEAD = () => {
+  const n = document.querySelector("#idsub-form .idv-block");
   return n ? n.textContent.replace(/\s+/g, " ").trim() : "";
 };
 
@@ -178,7 +179,7 @@ async function main() {
     check(lang + "：语言包里有「已激活（活体 {0} 个角度）」", !!packs[lang]["已激活（活体 {0} 个角度）"]);
     check(lang + "：语言包里有 2FA 卡片标题", !!packs[lang]["安全验证 · 2FA"]);
     check(lang + "：语言包里有验证码弹窗标题", !!packs[lang]["安全验证 · {0}"]);
-    check(lang + "：语言包里有追加身份那张卡", !!packs[lang]["追加身份 · 再刷一次脸就开通"]);
+    check(lang + "：语言包里有建立子身份向导", !!packs[lang]["① 选择身份类型"]);
   }
 
   const state = { putHeader: null, putCount: 0 };
@@ -201,7 +202,7 @@ async function main() {
 
     await page.goto(PAGE, { waitUntil: "load" });
     await page.waitForFunction(
-      () => !!window.CYBER_I18N && !!window.Karma2FA && !!window.KarmaFaceVault && !!window.KarmaAddIdentity,
+      () => !!window.CYBER_I18N && !!window.Karma2FA && !!window.KarmaFaceVault,
       null,
       { timeout: 30000 }
     );
@@ -300,27 +301,33 @@ async function main() {
     check("额度请求带上了验证码", state.putHeader === "123456", state.putHeader);
     check("额度请求只发了一次", state.putCount === 1, state.putCount);
 
-    console.log("[5] 追加身份那张卡：中文原文 + 五门语言");
+    console.log("[5] 建立子身份向导：中文原文 + 五门语言");
     await switchLang(page, "zh-CN");
-    await page.evaluate(() => window.KarmaAddIdentity.render());
-    let add = await page.evaluate(READ_ADD_CARD);
-    check("追加身份卡渲染出来了", add.indexOf("追加身份 · 再刷一次脸就开通") >= 0, add.slice(0, 120));
+    // 向导在「建立子身份」这一块里，且默认收在「+ 新建子身份」后面 —— 先落到那一页再展开。
+    await page.evaluate(() => {
+      if (window.cyberSwitchPage) window.cyberSwitchPage("identity", "life");
+      const f = document.getElementById("idsub-form");
+      if (f) f.hidden = false;
+    });
+    await page.waitForTimeout(500);
+    let sub = await page.evaluate(READ_SUB_HEAD);
+    check("建立子身份向导渲染出来了", sub.indexOf("① 选择身份类型") >= 0, sub.slice(0, 160));
 
     for (const lang of LANGS) {
       await switchLang(page, lang);
       await page.waitForFunction(
         (w) => {
-          const n = document.querySelector("#idv-add-identity");
+          const n = document.querySelector("#idsub-form .idv-block");
           return !!n && n.textContent.indexOf(w) >= 0;
         },
-        packs[lang]["追加身份 · 再刷一次脸就开通"],
+        packs[lang]["① 选择身份类型"],
         { timeout: 20000 }
       );
-      add = await page.evaluate(READ_ADD_CARD);
+      sub = await page.evaluate(READ_SUB_HEAD);
       if (lang === "ja") {
-        check("ja：追加身份卡没有残留中文原句", add.indexOf("追加身份 · 再刷一次脸就开通") < 0, add.slice(0, 160));
+        check("ja：建立子身份向导没有残留中文原句", sub.indexOf("① 选择身份类型") < 0, sub.slice(0, 160));
       } else {
-        check(lang + "：追加身份卡没有残留汉字", !CJK.test(add), add.slice(0, 200));
+        check(lang + "：建立子身份向导没有残留汉字", !CJK.test(sub), sub.slice(0, 200));
       }
     }
 

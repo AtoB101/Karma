@@ -23,7 +23,6 @@ SHIPPED_LANGS = ("en", "ja", "ko", "es-AR", "es-SV")
 
 FACE_JS = SCRIPTS / "cyber-face-vault.js"
 TWOFA_JS = SCRIPTS / "cyber-console-2fa.js"
-ADD_JS = SCRIPTS / "cyber-add-identity.js"
 MASTER_JS = SCRIPTS / "cyber-master-page.js"
 API_JS = SCRIPTS / "karma-public-api.js"
 
@@ -83,7 +82,7 @@ def test_new_console_modules_actually_bind_to_window():
     undefined，第一行 `global.KarmaX = ...` 就抛 TypeError —— 整页静默少一个模块
     （真机上就是这么踩到的）。所以这里钉死结尾形状。
     """
-    for name in ("cyber-face-vault.js", "cyber-console-2fa.js", "cyber-add-identity.js"):
+    for name in ("cyber-face-vault.js", "cyber-console-2fa.js"):
         js = (SCRIPTS / name).read_text(encoding="utf-8")
         assert "(function (global) {" in js, f"{name} 少了 IIFE 头"
         assert js.rstrip().endswith("})(window);"), f"{name} 的 IIFE 要显式传入 window"
@@ -110,20 +109,17 @@ def test_face_vault_stays_local_and_encrypted():
     assert "toDataURL" not in js, "别把照片本体传上去"
 
 
-def test_add_identity_card_is_wired():
-    """第二张卡：① 建卡 ② 再刷一次脸，比对通过就开通。"""
+def test_the_duplicate_add_identity_card_is_gone():
+    """「追加身份 · 再刷一次脸就开通」那张卡已经并进「建立子身份」向导：
+    同一件事不能在同一页说两遍。卡片、脚本、样式都不该再留。"""
     html = CYBER.read_text(encoding="utf-8")
-    assert 'id="idv-add-identity"' in html, "身份页要有「追加身份」这张卡"
-    assert "cyber-add-identity.js" in html
-    # 引用后面挂着 ?v=<内容摘要>（scripts/stamp_console_assets.py），所以只比路径。
-    assert html.index("../../scripts/cyber-face-vault.js") < html.index(
-        "../../scripts/cyber-add-identity.js"
-    ), "追加身份要用 KarmaFaceVault，得排在它后面"
-
-    js = ADD_JS.read_text(encoding="utf-8")
-    for needle in ("createRoleProfile", "confirmSamePerson", "aid-create", "aid-face", "CLASSES"):
-        assert needle in js, f"追加身份模块缺 {needle}"
-
+    assert 'id="idv-add-identity"' not in html, "重复的「追加身份」卡还在页面上"
+    assert "cyber-add-identity.js" not in html, "还在加载已删的脚本"
+    assert not (SCRIPTS / "cyber-add-identity.js").exists(), "死代码不留：文件要一起删"
+    css = CSS.read_text(encoding="utf-8")
+    assert ".aid-grid" not in css and ".aid-hint" not in css, "旧卡片的样式也一起收掉"
+    gate = (ROOT / "scripts" / "acceptance" / "console_last_mile_gate.sh").read_text(encoding="utf-8")
+    assert "cyber-add-identity.js" not in gate, "闸门里还在查这个已删的脚本"
 
 def test_activation_message_is_identical_on_both_sides():
     """签名原文只有一个出处：Python 侧与 JS 侧逐字一致，字段顺序也要一致。"""
@@ -210,11 +206,9 @@ def test_every_language_pack_carries_the_face_and_2fa_copy():
         "刷一次脸就激活：活体 + 5 个角度在这台设备上采集，脸型模板加密后才上传（Karma 只拿密文与摘要），判定通过当场激活，不用排队等人工。",
         "激活只看刷脸",
         "证件核验 · 需要更高等级时再补",
-        "追加身份 · 再刷一次脸就开通",
-        "① 先建这张卡",
-        "② 再刷脸一次 · 自动核对同一个人",
-        "待核对的卡：{0} · {1} · kyc_status={2}",
-        "同一个人：相似度 {0}（阈值 {1}）。这张卡已经开通。",
+        "建立子身份",
+        "① 选择身份类型",
+        "去完成认证",
         "安全验证",
         "安全验证 · {0}",
         "输入验证器里的 6 位验证码。手机丢了就输入一张恢复码（形如 A1B2-C3D4），用掉即焚。",
@@ -247,10 +241,6 @@ def test_css_carries_the_two_new_blocks():
         ".k2fa-secret",
         ".k2fa-inline",
         ".k2fa-codes",
-        ".aid-grid",
-        ".aid-actions",
-        ".aid-note.aid-bad",
-        ".aid-hint",
     ):
         assert cls in css, f"样式缺 {cls}"
 
@@ -258,6 +248,6 @@ def test_css_carries_the_two_new_blocks():
 def test_gate_runs_the_face_and_2fa_checks():
     gate = (ROOT / "scripts" / "acceptance" / "console_last_mile_gate.sh").read_text(encoding="utf-8")
     assert "test_console_face_add_identity.py" in gate, "闸门要跑这支"
-    for js in ("cyber-face-vault.js", "cyber-console-2fa.js", "cyber-add-identity.js"):
+    for js in ("cyber-face-vault.js", "cyber-console-2fa.js"):
         assert js in gate, f"闸门要 node --check {js}"
     assert "console_2fa_face_live.cjs" in gate, "闸门要跑真机那一支"
