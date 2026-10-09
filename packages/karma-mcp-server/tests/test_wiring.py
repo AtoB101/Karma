@@ -41,6 +41,24 @@ def _tool(server, name):
     return server._tool_manager.get_tool(name).fn
 
 
+def _verify_pairing_signature(body: dict) -> None:
+    """申请体的签名必须能用它自己报的公钥验过 —— 持有证明，不是申报。"""
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from karma_mcp_server.agent_signing import build_agent_pairing_request_message
+
+    message = build_agent_pairing_request_message(
+        agent_name=body["agent_name"],
+        public_key=body["public_key"],
+        nonce=body["nonce"],
+        timestamp=body["timestamp"],
+    )
+    Ed25519PublicKey.from_public_bytes(base64.b64decode(body["public_key"])).verify(
+        base64.b64decode(body["signature"]), message.encode("utf-8")
+    )
+
+
 def _isolate(tmp_path, monkeypatch):
     monkeypatch.setenv("KARMA_MCP_STATE_DIR", str(tmp_path / "pairings"))
     env_path = tmp_path / "agent.env"
@@ -59,6 +77,9 @@ async def test_pairing_claim_writes_credentials_without_echoing_them(tmp_path, m
         if path == "/v1/agent-pairing/request":
             assert body["agent_name"] == "小爱"
             assert body.get("public_key")  # 申请时就交公钥，配对即激活
+            # 公钥必须自证持有：带上本机私钥签的签名 + nonce + 时间戳。
+            assert body["signature"] and body["nonce"] and body["timestamp"]
+            _verify_pairing_signature(body)
             return httpx.Response(
                 200,
                 json={

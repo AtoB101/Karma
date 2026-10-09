@@ -46,6 +46,7 @@ def build_create_key_message(
     expire_time: datetime | str | None,
     agent_name: str,
     agent_binding: str | None,
+    agent_public_key_fingerprint: str | None = None,
 ) -> str:
     # 不填到期时间 = 长期有效。写进签名消息的是固定字面量 "never"，两边都能重建。
     if expire_time is None or (isinstance(expire_time, str) and not expire_time.strip()):
@@ -64,6 +65,10 @@ def build_create_key_message(
         f"expire_time:{expire_line}",
         f"agent_name:{agent_name}",
         f"agent_binding:{agent_binding or ''}",
+        # 把「这把钱钥匙是铸给哪把 agent 公钥」也钉进钱包签名里：主人签的是
+        # 「授权给这个指纹对应的 agent」，而不再只是一个可以随手改写的名字。
+        # 绑定那一刻服务端会拿 agent 交上来的公钥重算指纹，对不上直接拒绝。
+        f"agent_public_key_fingerprint:{agent_public_key_fingerprint or ''}",
     ]
     return "\n".join(lines)
 
@@ -91,6 +96,25 @@ def build_agent_request_message(
             f"timestamp:{timestamp}",
             f"nonce:{nonce}",
             f"body_sha256:{body_sha256}",
+        ]
+    )
+
+
+def build_agent_pairing_request_message(
+    *, agent_name: str, public_key: str, nonce: str, timestamp: str
+) -> str:
+    """agent 申请接入时，用它自己的 Ed25519 私钥签的这段文字。
+
+    服务端拿申请里的公钥重算同一段文字验签 —— 公钥从「申报」变成「持有证明」。
+    时间戳是规范化后的 UTC 秒（YYYY-MM-DDTHH:MM:SSZ）。
+    """
+    return "\n".join(
+        [
+            "Karma Agent Pairing Request",
+            f"agent_name:{agent_name}",
+            f"public_key:{public_key}",
+            f"nonce:{nonce}",
+            f"timestamp:{timestamp}",
         ]
     )
 

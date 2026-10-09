@@ -206,9 +206,53 @@ def normalize_agent_public_key(value: str) -> str:
 
 
 def agent_binding_fingerprint(agent_public_key: str) -> str:
-    """公钥指纹（前 16 位给用户在操作台肉眼对照）。"""
-    raw = base64.b64decode(normalize_agent_public_key(agent_public_key), validate=True)
-    return hashlib.sha256(raw).hexdigest()[:32]
+    """公钥指纹 —— 全系统唯一口径（操作台肉眼对照用，前 16 位）。
+
+    口径：先把公钥收敛成 canonical base64(raw 32 bytes)，再对**那串 base64 文本**
+    取 sha256 的前 16 位。
+
+    为什么钉死一个口径：配对卡片、钥匙列表、agent 自报的指纹必须是同一串 hex，
+    否则主人手里那个「核对依据」自相矛盾，核对就等于没核对。同一把公钥的
+    base64 / hex 两种写法也必须落到同一个值，所以先收敛再取哈希。
+    """
+    canonical = normalize_agent_public_key(agent_public_key)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+def normalize_agent_key_fingerprint_claim(value: str | None) -> str | None:
+    """主人钱包签名里写的 agent 公钥指纹：只收 16 位小写 hex，空 = 不断言。"""
+    text = (value or "").strip().lower()
+    if not text:
+        return None
+    if len(text) != 16 or any(c not in "0123456789abcdef" for c in text):
+        raise HTTPException(
+            status_code=400,
+            detail="agent_public_key_fingerprint must be 16 hex characters",
+        )
+    return text
+
+
+def assert_agent_key_matches_signed_fingerprint(
+    row: RuntimeKeyModel, agent_public_key: str
+) -> None:
+    """主人签过指纹的钥匙：绑定的公钥必须对得上，否则拒绝绑定。
+
+    铸造时主人签的字里带着 ``agent_public_key_fingerprint``，等于当场点名了「钱钥匙给哪把 agent 公钥」。绑定这一刻才拿到真实公钥，这里重算指纹比对 ——
+    对不上说明来绑的不是主人签字授权的那个 agent（或者有人换了公钥），一律拒绝。
+
+    没写过指纹的老钥匙（NULL）不受影响，行为与升级前一致。
+    """
+    wanted = (row.agent_public_key_fingerprint or "").strip().lower()
+    if not wanted:
+        return
+    if agent_binding_fingerprint(agent_public_key) != wanted:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "agent public key does not match the fingerprint the owner signed when "
+                "minting this runtime key — revoke this key and mint a new one for this agent"
+            ),
+        )
 
 
 def is_nonce_required(permissions: Iterable[str]) -> bool:
@@ -539,6 +583,8 @@ async def create_runtime_key_record(
     profile_id: str | None = None,
     key_binding: str = "service",
     agent_public_key: str | None = None,
+    #: 主人钱包签名里钉下的 agent 公钥指纹（16 位 hex）；不填 = 不约束。
+    agent_public_key_fingerprint: str | None = None,
 ) -> tuple[str, RuntimeKeyModel]:
     if single_limit <= 0 or daily_limit <= 0:
         raise HTTPException(status_code=400, detail="single_limit and daily_limit must be > 0")
@@ -575,6 +621,9 @@ async def create_runtime_key_record(
         expire_at=expire_at,
         agent_name=agent_name.strip() or "agent",
         agent_binding=(agent_binding or "").strip() or None,
+        agent_public_key_fingerprint=normalize_agent_key_fingerprint_claim(
+            agent_public_key_fingerprint
+        ),
         key_binding=binding_mode,
         agent_public_key=pub,
         nonce_required=is_nonce_required(perms),
@@ -686,6 +735,8 @@ async def request_key_binding(
     if bound and bound != declared:
         raise HTTPException(status_code=403, detail="runtime key was minted for a different agent")
     pub = normalize_agent_public_key(agent_public_key)
+    # 主人签过指纹就必须对得上：换了公钥的绑定一律不做。
+    assert_agent_key_matches_signed_fingerprint(row, pub)
     current = (row.agent_public_key or "").strip()
     if current and current != pub:
         raise HTTPException(
@@ -730,6 +781,8 @@ async def activate_key_binding(
     if bound and bound != declared:
         raise HTTPException(status_code=403, detail="runtime key was minted for a different agent")
     pub = normalize_agent_public_key(agent_public_key)
+    # 主人签过指纹就必须对得上：换了公钥的绑定一律不做。
+    assert_agent_key_matches_signed_fingerprint(row, pub)
     current = (row.agent_public_key or "").strip()
     if current and current != pub:
         raise HTTPException(
@@ -749,6 +802,8 @@ async def confirm_key_binding(*, db: AsyncSession, key_id: str, code: str) -> Ru
     pub = (row.pending_agent_public_key or "").strip()
     if not pub:
         raise HTTPException(status_code=409, detail="no pending bind request for this runtime key")
+    # 匹配码对了还不够：公钥必须就是主人签过指纹的那一把。
+    assert_agent_key_matches_signed_fingerprint(row, pub)
     expires = _as_utc(row.pending_expires_at) if row.pending_expires_at else _utcnow()
     if _utcnow() > expires:
         _clear_pending_binding(row)

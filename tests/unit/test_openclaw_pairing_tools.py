@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -18,8 +19,10 @@ import stat
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from karma_openclaw import pairing_tools as pt
+from karma_openclaw.agent_binding import build_agent_pairing_request_message
 
 USER_CODE = "QKFS-3J5Z"
 PAIRING_CODE = "pc-" + "a" * 40
@@ -124,6 +127,18 @@ async def test_start_saves_the_pairing_code_locally_and_never_echoes_it(monkeypa
     # Runtime Key 钉在它上面（配对即激活），不用再来一轮 8 位匹配码。
     pub = calls[0]["body"]["public_key"]
     assert len(pub) == 44 and pub.endswith("=")
+    # 公钥不是「申报」而是「持有证明」：请求体里必须带上用本机私钥签的签名。
+    body = calls[0]["body"]
+    assert body["signature"] and body["nonce"] and body["timestamp"]
+    message = build_agent_pairing_request_message(
+        agent_name=body["agent_name"],
+        public_key=pub,
+        nonce=body["nonce"],
+        timestamp=body["timestamp"],
+    )
+    Ed25519PublicKey.from_public_bytes(base64.b64decode(pub)).verify(
+        base64.b64decode(body["signature"]), message.encode("utf-8")
+    )
 
     assert out["ok"] is True
     assert out["status"] == "pending_owner"

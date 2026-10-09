@@ -120,6 +120,7 @@ def build_server(
                 agent_public_key_b64,
                 agent_public_key_fingerprint,
                 ensure_local_agent_key,
+                sign_pairing_request,
             )
 
             key = ensure_local_agent_key()
@@ -130,7 +131,12 @@ def build_server(
             if (self_description or "").strip():
                 body["self_description"] = self_description.strip()
             if key is not None:
-                body["public_key"] = agent_public_key_b64(key)
+                public_key = agent_public_key_b64(key)
+                body["public_key"] = public_key
+                # 申请端点现在要「持有证明」：拿本机私钥签自己的公钥。
+                body.update(
+                    sign_pairing_request(key=key, agent_name=name, public_key=public_key)
+                )
             payload = await be.request(
                 "POST", "/v1/agent-pairing/request", body=body, runtime=False
             )

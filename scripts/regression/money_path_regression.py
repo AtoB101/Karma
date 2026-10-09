@@ -57,7 +57,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from sdk.runtime_client import build_agent_request_message  # noqa: E402
+from sdk.runtime_client import (  # noqa: E402
+    build_agent_request_message,
+    sign_pairing_request,
+)
 
 PERMS = sorted([
     "discover_agents", "place_order", "request_settlement", "request_voucher",
@@ -173,6 +176,15 @@ def b64pub(key) -> str:
         serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
 
 
+def pairing_fingerprint(public_key_b64: str) -> str:
+    """与 services.runtime_key_service.agent_binding_fingerprint 同口径。
+
+    这里刻意独立实现一遍：回归脚本的价值就在于「另一条路径算出来的必须一致」，
+    直接 import 服务端函数就把这个交叉验证抵消掉了。
+    """
+    return hashlib.sha256(public_key_b64.encode("utf-8")).hexdigest()[:16]
+
+
 def sign_headers(key, key_id: str, method: str, path: str, body: bytes) -> dict:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     nonce = uuid.uuid4().hex
@@ -266,8 +278,10 @@ async def ensure_seller(c, cfg: Cfg, rep: Report, hs: dict):
                 "capability_summary": "单次 API/MCP 工具调用（回归自建）",
                 "service_targets": ["consumer", "agent"],
                 "service_area": {"mode": "hybrid", "regions": ["global"]}}
+    spub = b64pub(skey)
     r = await c.post(cfg.base + "/v1/agent-pairing/request", json={
-        "agent_name": sname, "platform": "openclaw", "public_key": b64pub(skey),
+        "agent_name": sname, "platform": "openclaw", "public_key": spub,
+        **sign_pairing_request(key=skey, agent_name=sname, public_key=spub),
         "requested_side": "seller", "self_description": "regression seller",
         "answers": sanswers})
     if r.status_code != 201:
@@ -296,8 +310,10 @@ async def open_buyer_runtime(c, cfg: Cfg, rep: Report, owner: dict, account):
     """买方 runtime key：建 → 绑定 agent → claim 激活。返回一个 dict 供后续步骤用。"""
     name = "ci-buyer-" + uuid.uuid4().hex[:6]
     agent_key = Ed25519PrivateKey.generate()
+    bpub = b64pub(agent_key)
     r = await c.post(cfg.base + "/v1/agent-pairing/request", json={
-        "agent_name": name, "platform": "openclaw", "public_key": b64pub(agent_key),
+        "agent_name": name, "platform": "openclaw", "public_key": bpub,
+        **sign_pairing_request(key=agent_key, agent_name=name, public_key=bpub),
         "requested_side": "buyer", "self_description": "regression buyer"})
     if r.status_code != 201:
         rep.log("buyer-request-failed", {"status": r.status_code, "body": r.text[:300]})
@@ -306,10 +322,12 @@ async def open_buyer_runtime(c, cfg: Cfg, rep: Report, owner: dict, account):
     r = await c.post(cfg.base + "/v1/agent-pairing/approve", headers=owner, json={
         "user_code": o["user_code"], "side": "buyer", "display_name": name})
     agent_id = r.json()["pairing"]["agent_id"]
+    bfp = pairing_fingerprint(bpub)
     msg = "\n".join(["Karma Runtime Key Create", "karma_identity_id:" + cfg.buyer_id,
                      "wallet_address:" + cfg.buyer_wallet, "permissions:" + ",".join(PERMS),
                      "single_limit:%s" % SINGLE_LIMIT, "daily_limit:%s" % DAILY_LIMIT,
-                     "expire_time:never", "agent_name:" + name, "agent_binding:" + agent_id])
+                     "expire_time:never", "agent_name:" + name, "agent_binding:" + agent_id,
+                     "agent_public_key_fingerprint:" + bfp])
     sig = account.sign_message(encode_defunct(text=msg)).signature.hex()
     if not sig.startswith("0x"):
         sig = "0x" + sig
@@ -317,7 +335,7 @@ async def open_buyer_runtime(c, cfg: Cfg, rep: Report, owner: dict, account):
         "wallet_address": cfg.buyer_wallet, "karma_identity_id": cfg.buyer_id,
         "wallet_signature": sig, "permissions": PERMS, "single_limit": SINGLE_LIMIT,
         "daily_limit": DAILY_LIMIT, "agent_name": name, "agent_binding": agent_id,
-        "agent_id": agent_id})
+        "agent_public_key_fingerprint": bfp, "agent_id": agent_id})
     if r.status_code >= 400:
         rep.log("buyer-key-failed", {"status": r.status_code, "body": r.text[:300]})
         return None

@@ -58,6 +58,7 @@ def build_create_key_message(
     expire_time: datetime,
     agent_name: str,
     agent_binding: str | None = None,
+    agent_public_key_fingerprint: str | None = None,
 ) -> str:
     return "\n".join(
         [
@@ -70,6 +71,7 @@ def build_create_key_message(
             f"expire_time:{expire_time.isoformat()}",
             f"agent_name:{agent_name}",
             f"agent_binding:{agent_binding or ''}",
+            f"agent_public_key_fingerprint:{agent_public_key_fingerprint or ''}",
         ]
     )
 

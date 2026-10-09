@@ -244,10 +244,92 @@ def _public_base_url() -> str:
 
 
 def _public_key_fingerprint(public_key: str | None) -> str:
+    """公钥指纹 —— 与 ``runtime_key_service.agent_binding_fingerprint`` **同一口径**。
+
+    主人要在操作台的配对卡片上核对的这串 hex，必须和钥匙列表、agent 自报的那串
+    逐字相同；口径只允许有一处定义（``runtime_key_service``），这里只是转发。
+
+    收敛不成 32 字节 Ed25519 裸公钥的输入返回空串 —— 宁可不显示指纹，也不显示
+    一个「永远对不上」的假值。这样的申请只能走「申请绑定 + 8 位匹配码」老路。
+    """
     key = (public_key or "").strip()
     if not key:
         return ""
-    return _sha256_hex(key)[:16]
+    try:
+        from services.runtime_key_service import agent_binding_fingerprint
+
+        return agent_binding_fingerprint(key)
+    except Exception:  # noqa: BLE001 - 形状不对：不给指纹，绑定那步会退到匹配码
+        return ""
+
+
+def _verify_declared_public_key(
+    *,
+    agent_name: str,
+    public_key: str | None,
+    signature: str | None,
+    nonce: str | None,
+    timestamp: str | None,
+) -> tuple[str, bool]:
+    """agent 申请接入时交的公钥必须**自证持有**，不能只是一句申报。
+
+    交了能收敛的 Ed25519 公钥 → 必须同时带签名（+ nonce + 时间戳）。签名覆盖
+    agent_name / public_key / nonce / 时间戳，服务端用报警公钥验签；验签不过当场
+    拒绝。否则主人核对的那串指纹可能压根不是这个请求方持有的钥匙。
+
+    返回值 ``(要落库的公钥, 是否已验签)``。老客户端不交签名仍可申请，但记为
+    ``request_signed=False``，操作台会明确标出来，且后续只能走 8 位匹配码老路。
+    """
+    raw = (public_key or "").strip()
+    sig = (signature or "").strip()
+    if not raw:
+        if sig:
+            raise HTTPException(400, "signature requires public_key")
+        return "", False
+    from services.runtime_key_service import PublicKeyError, normalize_agent_public_key
+
+    try:
+        canonical = normalize_agent_public_key(raw)
+    except PublicKeyError:
+        if sig:
+            raise HTTPException(
+                400,
+                "public_key must be a 32-byte Ed25519 key (base64 or hex) to carry a signature",
+            ) from None
+        return raw[:512], False
+    if not sig:
+        raise HTTPException(
+            400,
+            "signed public_key is required: sign your public key so the owner can tell "
+            "the request really holds that key",
+        )
+    from services.runtime_key_service import (
+        AGENT_SIGNATURE_TOLERANCE_SECONDS,
+        _canonical_signature_timestamp,
+        check_replay_nonce,
+    )
+    from services.runtime_wallet import build_agent_pairing_request_message
+    from services.signing import signing_service
+
+    sent_at, canonical_ts = _canonical_signature_timestamp(timestamp or "")
+    if abs((_utcnow() - sent_at).total_seconds()) > AGENT_SIGNATURE_TOLERANCE_SECONDS:
+        raise HTTPException(401, "pairing signature timestamp is outside the accepted window")
+    clean_nonce = (nonce or "").strip()
+    if not clean_nonce or len(clean_nonce) > 128:
+        raise HTTPException(400, "nonce is required with a signature (max 128 chars)")
+    message = build_agent_pairing_request_message(
+        agent_name=agent_name,
+        public_key=canonical,
+        nonce=clean_nonce,
+        timestamp=canonical_ts,
+    )
+    if not signing_service.verify(message.encode("utf-8"), sig, canonical):
+        raise HTTPException(401, "pairing signature verification failed")
+    # 签名过了才记 nonce：错签不该把 nonce 烧掉。
+    check_replay_nonce(
+        key_id=canonical, endpoint="/v1/agent-pairing/request", nonce=clean_nonce
+    )
+    return canonical, True
 
 
 def _pending_for_ip(ip: str) -> int:
@@ -305,6 +387,8 @@ def _public_view(row: dict[str, Any]) -> dict[str, Any]:
         "agent_name": row.get("agent_name"),
         "platform": row.get("platform"),
         "public_key_fingerprint": row.get("public_key_fingerprint") or "",
+        # 公钥是 agent 用私钥签过的（持有证明）还是只「报了」一把 —— 操作台要区分。
+        "request_signed": bool(row.get("request_signed")),
         "endpoint_url": row.get("endpoint_url") or "",
         "self_description": row.get("self_description") or "",
         "requested_side": row.get("requested_side"),
@@ -338,11 +422,22 @@ def create_request(
     requested_vertical: str | None = None,
     requested_answers: dict[str, Any] | None = None,
     request_ip: str = "",
+    signature: str | None = None,
+    signature_nonce: str | None = None,
+    signature_timestamp: str | None = None,
 ) -> dict[str, Any]:
     """Open a pairing request. The pairing code is returned exactly once."""
     name = (agent_name or "").strip()
     if not name:
         raise HTTPException(400, "agent_name is required")
+
+    stored_key, request_signed = _verify_declared_public_key(
+        agent_name=name,
+        public_key=public_key,
+        signature=signature,
+        nonce=signature_nonce,
+        timestamp=signature_timestamp,
+    )
 
     pairing_id = secrets.token_hex(16)
     pairing_code = secrets.token_urlsafe(32)
@@ -367,8 +462,9 @@ def create_request(
             "expires_at": _iso(expires),
             "agent_name": name,
             "platform": (platform or "").strip()[:64] or "custom",
-            "public_key": (public_key or "").strip()[:512],
-            "public_key_fingerprint": _public_key_fingerprint(public_key),
+            "public_key": stored_key,
+            "public_key_fingerprint": _public_key_fingerprint(stored_key),
+            "request_signed": request_signed,
             "endpoint_url": (endpoint_url or "").strip()[:2048],
             "self_description": (self_description or "").strip()[:2000],
             "requested_side": (requested_side or "").strip()[:16] or None,
@@ -398,6 +494,7 @@ def create_request(
         "pairing_id": pairing_id,
         "pairing_code": pairing_code,
         "user_code": user_code,
+        "request_signed": request_signed,
         "verification_uri": f"{_public_base_url()}/console/?pair={user_code}",
         "expires_at": _iso(expires),
         "expires_in_seconds": DEFAULT_TTL_SECONDS,

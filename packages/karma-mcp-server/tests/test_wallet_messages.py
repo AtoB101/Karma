@@ -15,6 +15,7 @@ def test_create_key_message_matches_server_format():
         expire_time=None,
         agent_name="claw-1",
         agent_binding="agent-9",
+        agent_public_key_fingerprint="a1b2c3d4e5f60718",
     )
     assert got == (
         "Karma Runtime Key Create\n"
@@ -25,7 +26,8 @@ def test_create_key_message_matches_server_format():
         "daily_limit:20.0\n"
         "expire_time:never\n"
         "agent_name:claw-1\n"
-        "agent_binding:agent-9"
+        "agent_binding:agent-9\n"
+        "agent_public_key_fingerprint:a1b2c3d4e5f60718"
     )
 
 
@@ -41,7 +43,8 @@ def test_create_key_message_blank_expire_is_never():
         agent_binding=None,
     )
     assert "expire_time:never" in got
-    assert got.endswith("agent_binding:")
+    # 没点名公钥指纹时也要留一个空行位：两边都必须重建出同一段文字。
+    assert got.endswith("agent_binding:\nagent_public_key_fingerprint:")
 
 
 def test_revoke_key_message_matches_server_format():

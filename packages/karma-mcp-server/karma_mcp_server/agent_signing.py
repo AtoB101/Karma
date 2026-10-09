@@ -49,16 +49,41 @@ def agent_public_key_b64(key: Any) -> str:
     return base64.b64encode(raw).decode()
 
 
-def agent_public_key_fingerprint(public_key_b64: str, *, length: int = 16) -> str:
-    """与后端 ``services/agent_pairing._public_key_fingerprint`` 同构（sha256 前 16 位）。
+def canonical_public_key_b64(public_key: str) -> str:
+    """收敛成 canonical base64(raw 32 bytes)；不是 32 字节裸公钥就返回空串。
 
-    主人要在操作台看到的、和聊天里 agent 报的那串必须是同一个值。服务端算的是
-    「它收到的那串 base64」，所以这里也按字符串算，不做二次编码。
+    fingerprint 必须先把 base64 / hex 两种写法收敛成同一个值，否则同一把钥匙
+    在两处会显示成两串不同的 hex，主人核对就失去意义。
     """
-    text = (public_key_b64 or "").strip()
+    text = (public_key or "").strip()
     if not text:
         return ""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:length]
+    compact = "".join(text.split())
+    if compact[:2].lower() == "0x":
+        compact = compact[2:]
+    try:
+        if len(compact) == 64 and all(c in "0123456789abcdefABCDEF" for c in compact):
+            raw = bytes.fromhex(compact)
+        else:
+            raw = base64.b64decode(compact, validate=True)
+    except Exception:  # noqa: BLE001 - 形状不对就当没有指纹
+        return ""
+    if len(raw) != 32:
+        return ""
+    return base64.b64encode(raw).decode()
+
+
+def agent_public_key_fingerprint(public_key_b64: str, *, length: int = 16) -> str:
+    """与后端 ``runtime_key_service.agent_binding_fingerprint`` 同口径（sha256 前 16 位）。
+
+    口径：先收敛成 canonical base64(raw 32 bytes)，再对**那串 base64 文本**取
+    sha256。配对卡片、key 列表、agent 自报三处必须是同一串 hex —— 差一个编码
+    方式，主人核对的就是两串对不上的数。
+    """
+    canonical = canonical_public_key_b64(public_key_b64)
+    if not canonical:
+        return ""
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:length]
 
 
 def build_agent_request_message(
@@ -97,6 +122,38 @@ def sign_runtime_request(
         "X-Karma-Agent-Signature": signature,
         "X-Karma-Runtime-Timestamp": timestamp,
         "X-Karma-Runtime-Nonce": nonce,
+    }
+
+
+def build_agent_pairing_request_message(
+    *, agent_name: str, public_key: str, nonce: str, timestamp: str
+) -> str:
+    """与 ``services/runtime_wallet.build_agent_pairing_request_message`` 逐字对齐。"""
+    return _NEWLINE.join(
+        [
+            "Karma Agent Pairing Request",
+            "agent_name:" + agent_name,
+            "public_key:" + public_key,
+            "nonce:" + nonce,
+            "timestamp:" + timestamp,
+        ]
+    )
+
+
+def sign_pairing_request(*, key: Any, agent_name: str, public_key: str) -> dict[str, str]:
+    """申请接入要带的三件套：签名 + nonce + 时间戳。
+
+    公钥从此不再是「申报」：服务端用这段签名证明申请方真的持有那把私钥。
+    """
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    nonce = uuid.uuid4().hex
+    message = build_agent_pairing_request_message(
+        agent_name=agent_name, public_key=public_key, nonce=nonce, timestamp=timestamp
+    )
+    return {
+        "signature": base64.b64encode(key.sign(message.encode("utf-8"))).decode(),
+        "nonce": nonce,
+        "timestamp": timestamp,
     }
 
 

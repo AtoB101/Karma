@@ -14,7 +14,7 @@ import json
 import os
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
 import httpx
@@ -78,6 +78,39 @@ def build_agent_request_message(
             f"body_sha256:{body_sha256}",
         ]
     )
+
+
+def build_agent_pairing_request_message(
+    *, agent_name: str, public_key: str, nonce: str, timestamp: str
+) -> str:
+    """服务端 services.runtime_wallet.build_agent_pairing_request_message 的镜像。
+
+    agent 申请接入时用它自己的 Ed25519 私钥签这段文字 —— 公钥从「申报」变成
+    「持有证明」。时间戳规范成 UTC 秒（YYYY-MM-DDTHH:MM:SSZ）。
+    """
+    return "\n".join(
+        [
+            "Karma Agent Pairing Request",
+            f"agent_name:{agent_name}",
+            f"public_key:{public_key}",
+            f"nonce:{nonce}",
+            f"timestamp:{timestamp}",
+        ]
+    )
+
+
+def sign_pairing_request(*, key: Any, agent_name: str, public_key: str) -> dict[str, str]:
+    """申请接入要带的三件套：签名 + nonce + 时间戳（附带在 /request 请求体里）。"""
+    nonce = uuid.uuid4().hex
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    message = build_agent_pairing_request_message(
+        agent_name=agent_name, public_key=public_key, nonce=nonce, timestamp=timestamp
+    )
+    return {
+        "signature": base64.b64encode(key.sign(message.encode("utf-8"))).decode(),
+        "nonce": nonce,
+        "timestamp": timestamp,
+    }
 
 
 def _sha256_hex(data: Any) -> str:

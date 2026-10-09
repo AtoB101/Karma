@@ -8,7 +8,9 @@ flow exists at all:
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import base64
+import secrets
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -82,16 +84,60 @@ async def _client(db_session):
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
 
 
-async def _open_request(client, **over) -> dict:
+def _new_agent_key():
+    """一把本机 Ed25519 私钥 + 它的 canonical base64 公钥（agent 侧的形状）。"""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate()
+    pub = base64.b64encode(
+        key.public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
+    ).decode()
+    return key, pub
+
+
+def _sign_pairing_request(*, key, agent_name: str, public_key: str) -> dict[str, str]:
+    """agent 用自己私钥签「我持有这把公钥」—— 申请端点的持有证明。"""
+    from services.runtime_wallet import build_agent_pairing_request_message
+
+    nonce = secrets.token_hex(16)
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    message = build_agent_pairing_request_message(
+        agent_name=agent_name, public_key=public_key, nonce=nonce, timestamp=timestamp
+    )
+    return {
+        "signature": base64.b64encode(key.sign(message.encode("utf-8"))).decode(),
+        "nonce": nonce,
+        "timestamp": timestamp,
+    }
+
+
+async def _open_request(client, agent_key=None, sign: bool = True, **over) -> dict:
     body = {
         "agent_name": "OpenClaw 采购助手",
         "platform": "openclaw",
-        "public_key": "ed25519:AAAA",
         "requested_side": "seller",
         "requested_vertical": "food",
         "self_description": "handles supplier orders",
     }
     body.update(over)
+    if sign:
+        from cryptography.hazmat.primitives import serialization
+
+        key = agent_key if agent_key is not None else _new_agent_key()[0]
+        pub = base64.b64encode(
+            key.public_key().public_bytes(
+                serialization.Encoding.Raw, serialization.PublicFormat.Raw
+            )
+        ).decode()
+        body["public_key"] = pub
+        body.update(
+            _sign_pairing_request(key=key, agent_name=body["agent_name"], public_key=pub)
+        )
+    else:
+        body.setdefault("public_key", "ed25519:AAAA")
     r = await client.post("/v1/agent-pairing/request", json=body)
     assert r.status_code == 201, r.text
     return r.json()
@@ -186,6 +232,8 @@ async def test_full_flow_delivers_the_bootstrap_key_exactly_once(db_session, mon
             assert view["status"] == "pending"
             assert view["agent_name"] == "OpenClaw 采购助手"
             assert view["public_key_fingerprint"]
+            # 公钥是 agent 用私钥签过的 —— 操作台据此知道这串指纹「有持有证明」。
+            assert view["request_signed"] is True
             assert "pairing_code" not in view
 
             approved = await client.post(
@@ -372,30 +420,80 @@ def test_vertical_alias_resolution_matches_the_one_click_table():
 
 
 @pytest.mark.asyncio
+async def test_pairing_rejects_a_public_key_without_a_signature(db_session):
+    """第一件锁：交了公钥就必须自证持有 —— 光「报」一把公钥不算。
+
+    没有签名，主人核对的那串指纹就无从判断是不是请求方真正持有的钥匙，
+    所以这里必须在登记之前就拒绝，而不是先收下再让主人去猜。
+    """
+    _, pub = _new_agent_key()
+    client = await _client(db_session)
+    try:
+        async with client:
+            r = await client.post(
+                "/v1/agent-pairing/request",
+                json={"agent_name": "unsigned-claw", "public_key": pub},
+            )
+            assert r.status_code == 400, r.text
+            assert "signed public_key" in r.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_pairing_rejects_a_signature_from_the_wrong_key(db_session):
+    """别人的私钥签出来的签名不算数：验签用的是报警公钥本身。"""
+    _, pub = _new_agent_key()
+    impostor, _ = _new_agent_key()
+    forged = _sign_pairing_request(key=impostor, agent_name="fake-claw", public_key=pub)
+    client = await _client(db_session)
+    try:
+        async with client:
+            r = await client.post(
+                "/v1/agent-pairing/request",
+                json={"agent_name": "fake-claw", "public_key": pub, **forged},
+            )
+        assert r.status_code == 401, r.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_an_unverifiable_public_key_is_accepted_but_marked_unsigned(db_session):
+    """老客户端（不成形公钥、不带签名）仍能申请，但操作台必须看得到「没验过」。"""
+    client = await _client(db_session)
+    try:
+        async with client:
+            opened = await _open_request(client, sign=False, public_key="ed25519:AAAA")
+            seen = await client.get(
+                "/v1/agent-pairing/lookup",
+                params={"user_code": opened["user_code"]},
+                headers={"X-Karma-Identity-Id": OWNER},
+            )
+            assert seen.status_code == 200, seen.text
+            view = seen.json()
+            assert view["request_signed"] is False
+            # 不成形的公钥不给指纹：宁可不显示，也不显示一个永远对不上的假值。
+            assert view["public_key_fingerprint"] == ""
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 async def test_a_pairing_that_declared_its_key_gets_an_activated_runtime_key(db_session):
     """配对即激活：agent 申请接入时交了自己的公钥，主人批准 + 划额度那一下就把
 
     Runtime Key 钉在这把公钥上了 —— agent 领到的钱钥匙已经是绑定状态，
     不需要再来一轮「申请绑定 → 8 位匹配码 → 主人再输一次」。
     """
-    import base64
-
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
     from services.runtime_key_service import load_active_context
 
-    key = Ed25519PrivateKey.generate()
-    pub = base64.b64encode(
-        key.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        )
-    ).decode()
+    key, pub = _new_agent_key()
 
     client = await _client(db_session)
     try:
         async with client:
-            opened = await _open_request(client, public_key=pub)
+            opened = await _open_request(client, agent_key=key)
             approved = await client.post(
                 "/v1/agent-pairing/approve",
                 json={
@@ -455,7 +553,8 @@ async def test_runtime_key_can_only_be_attached_by_its_own_identity(db_session):
     client = await _client(db_session)
     try:
         async with client:
-            opened = await _open_request(client)
+            # 老客户端那条路：公钥不成形、没有签名 —— 照收，但只能走 8 位匹配码激活。
+            opened = await _open_request(client, sign=False, public_key="ed25519:AAAA")
             approved = await client.post(
                 "/v1/agent-pairing/approve",
                 json={
@@ -602,6 +701,24 @@ def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
     assert 'pair: ["#ag-pair"]' in console_js
 
 
+def test_the_pairing_card_puts_the_fingerprint_up_front_to_be_checked():
+    """公钥指纹是批准前唯一能核对的锚点，必须单独亮出来 + 说清「不一致就拒绝」。
+
+    agent 报的公钥现在带「持有证明」（它自己签名），指纹才值得核对；老客户端不带
+    签名的申请要明确标出来 —— 否则主人会以为自己在核对一把已验证的钥匙。
+    """
+    js = PAIRING_JS.read_text(encoding="utf-8")
+    assert "function fingerprintBlock(" in js, "指纹要有独立的展示块"
+    assert "fingerprintBlock(v) +" in js, "展示块要真的挂进待批准卡片"
+    assert "request_signed" in js, "要区分「已签名」和「只是报了把公钥」"
+    assert "把这一串和你的 agent 报给你的那一串逐字核对" in js, "要教主人怎么核对"
+    assert "不一致就点「拒绝」" in js, "不一致的处置必须写清楚"
+    assert "这次申请没有带公钥签名" in js, "没验过签的申请要当场标出来"
+    # 批准之后不能再宣称「你已经核对过」——那是我们没法验证的话。
+    assert "你已经核对过" not in js
+    assert "agent 交的公钥指纹你在批准那一步核对过" in js
+
+
 def test_the_pairing_panel_never_asks_the_owner_for_a_secret():
     """方向不能反：这一页只批准请求，不接受任何「把密钥填进来」。"""
     js = PAIRING_JS.read_text(encoding="utf-8")
@@ -690,6 +807,9 @@ def test_every_language_pack_carries_the_pairing_copy():
         "已批准，凭据等 agent 自己来领 —— 它下一次轮询就能拿到，你不用再给它任何码。",
         "已批准并交付，等 agent 领取",
         "已交付 —— agent 会在下一次轮询领走凭据",
+        # 公钥指纹是主人批准前唯一能核对的锚点：这两句五门语言都不能掉。
+        "把这一串和你的 agent 报给你的那一串逐字核对，一致才批准；不一致就点「拒绝」——那说明有人在中途换了一把公钥。",
+        "这次申请没有带公钥签名：无法确认申请方真的持有它报的那把公钥。批准后它只能走「申请绑定 + 8 位匹配码」那条路激活。",
     )
     for lang in ("en", "ja", "ko", "es-AR", "es-SV"):
         pack = (PHRASE_DIR / f"{lang}.js").read_text(encoding="utf-8")

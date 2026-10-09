@@ -24,6 +24,7 @@ def build_create_key_message(
     expire_time: datetime | str | None,
     agent_name: str,
     agent_binding: str | None,
+    agent_public_key_fingerprint: str | None = None,
 ) -> str:
     """铸造 Runtime Key 时主人签的那段文字（含额度与边界）。"""
     if expire_time is None or (isinstance(expire_time, str) and not expire_time.strip()):
@@ -42,6 +43,8 @@ def build_create_key_message(
         "expire_time:" + expire_line,
         "agent_name:" + agent_name,
         "agent_binding:" + (agent_binding or ""),
+        # 主人签字时钉下的是「哪把 agent 公钥」，不再只是一个可以改的名字。
+        "agent_public_key_fingerprint:" + (agent_public_key_fingerprint or ""),
     ]
     return _NEWLINE.join(lines)
 

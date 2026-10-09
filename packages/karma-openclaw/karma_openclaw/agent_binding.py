@@ -22,7 +22,7 @@ import base64
 import hashlib
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import Any
 
 
@@ -127,6 +127,35 @@ def build_agent_request_message(
             "body_sha256:" + body_sha256,
         ]
     )
+
+
+def build_agent_pairing_request_message(
+    *, agent_name: str, public_key: str, nonce: str, timestamp: str
+) -> str:
+    """与 services/runtime_wallet.build_agent_pairing_request_message 逐字一致。"""
+    return "\n".join(
+        [
+            "Karma Agent Pairing Request",
+            "agent_name:" + agent_name,
+            "public_key:" + public_key,
+            "nonce:" + nonce,
+            "timestamp:" + timestamp,
+        ]
+    )
+
+
+def sign_pairing_request(*, key: Any, agent_name: str, public_key: str) -> dict[str, str]:
+    """申请接入要带的三件套：证明申请方真的持有这把公钥对应的私钥。"""
+    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    nonce = uuid.uuid4().hex
+    message = build_agent_pairing_request_message(
+        agent_name=agent_name, public_key=public_key, nonce=nonce, timestamp=timestamp
+    )
+    return {
+        "signature": base64.b64encode(key.sign(message.encode("utf-8"))).decode(),
+        "nonce": nonce,
+        "timestamp": timestamp,
+    }
 
 
 def sign_runtime_request(

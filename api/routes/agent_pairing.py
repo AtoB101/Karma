@@ -54,6 +54,12 @@ class PairRequestBody(BaseModel):
     agent_name: str = Field(min_length=1, max_length=256)
     platform: str = Field(default="custom", max_length=64)
     public_key: str | None = Field(default=None, max_length=512)
+    #: agent 用自己私钥签的「我持有这把公钥」证明（Ed25519，base64）。
+    #: 交了 public_key 就必须带 —— 公钥是「持有证明」，不再是「申报」。
+    signature: str | None = Field(default=None, max_length=256)
+    nonce: str | None = Field(default=None, max_length=128)
+    #: 规范化前的 ISO-8601 UTC；服务端收敛成 YYYY-MM-DDTHH:MM:SSZ 再验签。
+    timestamp: str | None = Field(default=None, max_length=64)
     endpoint_url: str | None = Field(default=None, max_length=2048)
     self_description: str | None = Field(default=None, max_length=2000)
     requested_side: Literal["buyer", "seller"] | None = None
@@ -73,7 +79,16 @@ class PairRequestBody(BaseModel):
     def _safe_platform(cls, v: str) -> str:
         return validate_safe_storage_text(v, field="platform")
 
-    @field_validator("public_key", "endpoint_url", "self_description", "requested_vertical", mode="before")
+    @field_validator(
+        "public_key",
+        "signature",
+        "nonce",
+        "timestamp",
+        "endpoint_url",
+        "self_description",
+        "requested_vertical",
+        mode="before",
+    )
     @classmethod
     def _safe_optional(cls, v: object) -> str | None:
         return validate_safe_storage_text_optional(None if v is None else str(v), field="pair_request")
@@ -150,6 +165,9 @@ async def create_pairing_request(
         requested_vertical=body.requested_vertical,
         requested_answers=body.answers,
         request_ip=client_bucket,
+        signature=body.signature,
+        signature_nonce=body.nonce,
+        signature_timestamp=body.timestamp,
     )
 
 

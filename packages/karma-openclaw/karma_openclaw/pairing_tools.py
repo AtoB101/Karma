@@ -33,6 +33,7 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from karma_openclaw.agent_binding import sign_pairing_request
 from karma_openclaw.agent_env import agent_env_path, invalidate_agent_env, read_agent_env
 from karma_openclaw.http_client import api_post, refresh_credentials, runtime_base_url
 
@@ -176,15 +177,20 @@ async def _claim_once(pairing_code: str, handoff_code: str = "") -> dict[str, An
     return await api_post("/v1/agent-pairing/claim", body)
 
 
-def _local_public_key() -> str:
-    """本机 agent 的 Ed25519 公钥（base64）。没有私钥就现生成一把，再没有就空串。"""
+def _local_agent_key():
+    """本机 agent 私钥 + 它的公钥（base64）。没有私钥就现生成一把，再没有就 (None, "")。
+
+    私钥留在本进程里：申请端点要的是「持有证明」，只有拿着私钥才签得出。
+    """
     try:
         from karma_openclaw.agent_binding import agent_public_key_b64, ensure_local_agent_key
 
         key = ensure_local_agent_key()
-        return agent_public_key_b64(key) if key is not None else ""
+        if key is None:
+            return None, ""
+        return key, agent_public_key_b64(key)
     except Exception:  # noqa: BLE001 - 拿不到就走「领取时再绑」那条老路
-        return ""
+        return None, ""
 
 
 async def karma_pairing_start(
@@ -211,19 +217,37 @@ async def karma_pairing_start(
             "hint": "Give this agent a name your owner will recognise (e.g. claw-001).",
         }
     body: dict[str, Any] = {"agent_name": name, "platform": (platform or "openclaw").strip()}
-    # 一步到位：把自己的公钥一起交上去。主人在操作台核对过这个公钥的指纹之后，
-    # 「批准 + 划额度」那一下就直接把 Runtime Key 钉在这把公钥上（配对即激活）——
-    # agent 领到钥匙就能在额度内干活，不用再来一轮 8 位匹配码。
-    declared_key = (public_key or "").strip() or _local_public_key()
     for key, value in (
         ("requested_side", requested_side),
         ("requested_vertical", requested_vertical),
         ("self_description", self_description),
         ("endpoint_url", endpoint_url),
-        ("public_key", declared_key),
     ):
         if (value or "").strip():
             body[key] = value.strip()
+    # 一步到位：把自己的公钥一起交上去，**并用本机私钥签它**。主人在操作台核对
+    # 过这串指纹之后「批准 + 划额度」那一下就把 Runtime Key 钉在这把公钥上
+    # （配对即激活），agent 领到钥匙就能在额度内干活，不用再来一轮 8 位匹配码。
+    # 签名是「持有证明」：光报一把公钥不算 —— 服务端拿它验签，证明申请方真的
+    # 持有这把公钥对应的私钥（否则主人在操作台核对的指纹可能不是它持有的那把）。
+    declared_key = (public_key or "").strip()
+    local_key, local_pub = _local_agent_key()
+    if not declared_key:
+        declared_key = local_pub
+    if declared_key:
+        if local_key is None or local_pub != declared_key:
+            return {
+                "ok": False,
+                "error": "pairing_signature_required",
+                "hint": (
+                    "Karma 现在要求 agent 用自己的私钥签自己的公钥（持有证明）：配好 "
+                    "KARMA_AGENT_PRIVATE_KEY，或者不要手动指定 public_key。"
+                ),
+            }
+        body["public_key"] = declared_key
+        body.update(
+            sign_pairing_request(key=local_key, agent_name=name, public_key=declared_key)
+        )
     try:
         payload = await api_post("/v1/agent-pairing/request", body)
     except Exception as exc:  # noqa: BLE001 — 把服务端原话带回去

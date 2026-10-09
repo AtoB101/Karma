@@ -127,16 +127,23 @@ def test_agent_public_key_accepts_the_seed_hex_the_sdk_expects():
 
 
 def test_fingerprint_is_stable_and_short():
+    """指纹口径全系统只有一个：canonical base64 文本的 sha256 前 16 位。
+
+    操作台的配对卡片 / 钥匙列表 / agent 自报都显示这一串，长度必须一致（16），
+    内容必须稳定；base64 与 hex 两种写法也要落到同一个值。
+    """
     key = agent_key_from_seed(base64.b64encode(b"\x07" * 32 + b"\x00" * 0).decode())
     from cryptography.hazmat.primitives import serialization
 
-    pub = base64.b64encode(
-        key.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        )
-    ).decode()
+    raw = key.public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+    pub = base64.b64encode(raw).decode()
     fp = rks.agent_binding_fingerprint(pub)
-    assert len(fp) == 32 and fp == rks.agent_binding_fingerprint(pub)
+    assert len(fp) == 16 and fp == rks.agent_binding_fingerprint(pub)
+    assert fp == hashlib.sha256(pub.encode("utf-8")).hexdigest()[:16]
+    # 十六进制写法是同一把钥匙，指纹必须一样 —— 否则主人核对的是两个值。
+    assert rks.agent_binding_fingerprint(raw.hex()) == fp
 
 
 # ---------------------------------------------------------------- 有效期 / nonce 策略

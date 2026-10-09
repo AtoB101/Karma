@@ -1065,6 +1065,10 @@ class RuntimeKeyModel(Base):
     expire_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     agent_name: Mapped[str] = mapped_column(String(256), nullable=False)
     agent_binding: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # 主人铸造这把钥匙时、写进钱包签名消息里的 agent 公钥指纹（16 位 hex）。
+    # 绑定那一刻拿 agent 交上来的公钥重算指纹比对：对不上 = 来绑的不是主人签字
+    # 授权的那个 agent，直接拒绝。NULL = 老钥匙，没有这层约束。
+    agent_public_key_fingerprint: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # 这把 key 是「服务端托管」（认 key 不认人）还是「钉死在某个 agent 公钥上」（逐请求验签）。
     key_binding: Mapped[str | None] = mapped_column(String(16), nullable=True, default="service")
     # agent 的 Ed25519 裸公钥（base64，32 字节）。绑定后每个请求都要它验签。

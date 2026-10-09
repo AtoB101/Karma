@@ -413,6 +413,9 @@ class CreateRuntimeKeyBody(BaseModel):
     expire_time: Optional[datetime] = None
     agent_name: str
     agent_binding: Optional[str] = None
+    # 主人签名消息里钉下的 agent 公钥指纹（16 位 hex）。填了就说明主人当场点名
+    # 了「这把钱钥匙给哪把 agent 公钥」，绑定那一刻服务端会重算指纹比对。
+    agent_public_key_fingerprint: str | None = None
     # agent 自己声明的 id（操作台铸造时提交）。它必须与 agent_binding 一致 ——
     # agent_binding 是写进钱包签名消息的那个字段，两个不一致就等于用户没授权过这个 agent。
     agent_id: Optional[str] = None
@@ -466,6 +469,7 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
         expire_time=body.expire_time,
         agent_name=body.agent_name,
         agent_binding=body.agent_binding,
+        agent_public_key_fingerprint=body.agent_public_key_fingerprint,
     )
     verify_personal_message(
         message=msg,
@@ -507,6 +511,7 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
         expire_at=body.expire_time,
         agent_name=body.agent_name,
         agent_binding=body.agent_binding,
+        agent_public_key_fingerprint=body.agent_public_key_fingerprint,
     )
     await db.commit()
     # 绑定声明是给 agent 的回执：告诉它这把 key 到底授权给谁。
