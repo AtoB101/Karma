@@ -3,6 +3,11 @@
 用户口径（2026-10）：选了哪个身份，就只显示那个身份对应的功能区 —— 不要把
 订单、收付、任务、争议、Agent 接入、技能市场、复核台、仲裁台全部挤在一起。
 
+用户口径（2026-10-10）：切到**助理身份**时，功能区只留
+订单 / 收付中心 / 任务执行 / 账单 / 争议 / Agent 接入 / 设置 这七项 ——
+身份 · 认证（建卡、主身份账房）和技能市场属于别的视角，不再画在助理页上。
+技能市场那一组因此退役：侧栏不再给任何身份显示（整页与接口都还在，只是入口撤了）。
+
 钉住三件事：
 
 1. 侧栏分组由「当前档案的类」驱动（cyber-identity.js 的 ROLE_LABELS 取值：
@@ -24,6 +29,10 @@ BOOT = CONSOLE / "scripts/cyber-console.js"
 PAGE = CONSOLE / "pages/cyber/index.html"
 
 ROLES = {"master", "individual", "merchant", "enterprise", "verifier", "arbitrator", "ops_reviewer"}
+#: 助理身份（子身份）的功能区白名单：一张卡干活要用到的七块，别的都收起来。
+ASSISTANT_GROUPS = ["overview", "center", "tasks", "bills", "disputes", "agents", "settings"]
+#: 侧栏里保留但不再给任何身份显示的分组 —— 入口退役，功能本身还在。
+PARKED_NAV_GROUPS = {"market"}
 #: 特权工作面 → 哪些岗位的功能区里有它（运营复核岗本来就是 verifier 类身份）。
 PRIVILEGED = {
     "reviews": {"verifier", "ops_reviewer"},
@@ -32,12 +41,21 @@ PRIVILEGED = {
 }
 
 
+def _js_array(js: str, name: str) -> list[str]:
+    """`var NAME = ["a", "b"];` —— 白名单可以直接写数组，也可以引用另一个常量（助理那三张共用一份）。"""
+    m = re.search(r"var " + re.escape(name) + r" = \[([^\]]*)\];", js)
+    assert m, f"找不到数组 {name}"
+    return re.findall(r'"([^"]+)"', m.group(1))
+
+
 def _role_groups(js: str) -> dict[str, list[str]]:
     block = js.split("var ROLE_NAV_GROUPS = {", 1)[1].split("};", 1)[0]
-    return {
-        m.group(1): re.findall(r'"([^"]+)"', m.group(2))
-        for m in re.finditer(r"(\w+): \[([^\]]*)\]", block)
-    }
+    block = re.sub(r"//[^\n]*", "", block)  # 注释里别误收
+    out = {}
+    for m in re.finditer(r"(\w+): (\[[^\]]*\]|\w+)", block):
+        raw = m.group(2)
+        out[m.group(1)] = re.findall(r'"([^"]+)"', raw) if raw.startswith("[") else _js_array(js, raw)
+    return out
 
 
 def _always_visible(js: str) -> list[str]:
@@ -71,12 +89,33 @@ def test_self_service_entry_groups_are_never_scoped_away():
 
 def test_every_nav_group_is_reachable_from_some_role():
     js = BOOT.read_text(encoding="utf-8")
-    reachable = set(_always_visible(js))
+    reachable = set(_always_visible(js)) | PARKED_NAV_GROUPS
     for groups in _role_groups(js).values():
         reachable |= set(groups)
     groups = set(_nav_tags(PAGE.read_text(encoding="utf-8")))
     missing = sorted(groups - reachable)
     assert not missing, f"这些侧栏分组没有任何身份看得到：{missing}"
+
+
+def test_assistant_function_area_is_exactly_the_seven_work_areas():
+    """切到助理身份：功能区只有那七项，身份 · 认证和技能市场都不许再出现。"""
+    roles = _role_groups(BOOT.read_text(encoding="utf-8"))
+    for role in ("individual", "merchant", "enterprise"):
+        assert roles[role] == ASSISTANT_GROUPS, f"{role} 的功能区不是那七项：{roles[role]}"
+        for gone in ("identity", "market", "verifier-id", "arbiter-id", "reviews"):
+            assert gone not in roles[role], f"{role} 不该把 {gone} 收进功能区"
+    # 主身份视角没动：身份 · 认证 + 账单 + 设置。
+    assert roles["master"] == ["identity", "bills", "settings"]
+
+
+def test_switching_identity_never_leaves_you_on_a_hidden_page():
+    """换身份后旧页可能已经不在新功能区里（主身份的「身份 · 认证」→ 助理身份）：
+    必须换到新功能区能到的第一页，别停在侧栏已经看不见的页上。"""
+    js = BOOT.read_text(encoding="utf-8")
+    assert "function pageInScope(" in js and "function relandHiddenPage(" in js
+    assert "ROLE_NAV_GROUPS[activeNavRole()]" in js, "落点要按新身份的白名单算"
+    block = js.split('document.addEventListener("karma-profile-switched"', 1)[1][:400]
+    assert "relandHiddenPage()" in block, "换身份时要重新落点"
 
 
 def test_privileged_work_areas_only_belong_to_their_own_role():

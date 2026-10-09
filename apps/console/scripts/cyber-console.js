@@ -1512,11 +1512,15 @@
    *     的 [hidden]（applyPrivilegedNavVisibility），谁在名单里谁才看得到；
    *      运营复核台是岗位入口，常显，子项才按能力位收。
    */
+  /* 助理身份（子身份）= 一张卡干活的地方：只留订单 / 收付中心 / 任务执行 / 账单 / 争议 /
+     Agent 接入 / 设置。身份 · 认证（建卡、主身份账房）和技能市场属于别的视角，切到助理
+     身份就不画 —— 用户口径：「不要显示其他功能，要不然都混在一起了」。 */
+  var ASSISTANT_NAV_GROUPS = ["overview", "center", "tasks", "bills", "disputes", "agents", "settings"];
   var ROLE_NAV_GROUPS = {
     master: ["identity", "bills", "settings"],
-    individual: ["overview", "center", "tasks", "bills", "disputes", "identity", "agents", "market", "settings"],
-    merchant: ["overview", "center", "tasks", "bills", "disputes", "identity", "agents", "market", "settings"],
-    enterprise: ["overview", "center", "tasks", "bills", "disputes", "identity", "agents", "market", "settings"],
+    individual: ASSISTANT_NAV_GROUPS,
+    merchant: ASSISTANT_NAV_GROUPS,
+    enterprise: ASSISTANT_NAV_GROUPS,
     verifier: ["identity", "bills", "reviews", "verifiers", "settings"],
     arbitrator: ["identity", "bills", "disputes", "arbitration", "settings"],
     // 运营复核台：复核岗那套工作面（和 verifier 同一张白名单）—— 它本来就是 verifier 类身份。
@@ -1624,6 +1628,30 @@
       } catch (_) {}
     }
     return "master";
+  }
+
+  /** 当前这一页还留在看得见的功能区里吗？ */
+  function pageInScope(page) {
+    var allowed = ROLE_NAV_GROUPS[activeNavRole()] || ROLE_NAV_GROUPS.master;
+    if (allowed.indexOf(page) >= 0) return true;
+    // 子页挂在自己的主项下（回执证明 → 任务执行）：按主项算，别把页误判成「没了」。
+    var btn = document.querySelector('.nav-group:not(.nav-scope-hidden) [data-page="' + page + '"]');
+    return !!btn;
+  }
+
+  /**
+   * 换身份后旧页可能已经不属于新功能区（例如从主身份的「身份 · 认证」切到助理身份）：
+   * 落到新功能区里的第一项，绝不把人留在已经看不见的页上 —— 那正是「混在一起」的另一面。
+   */
+  function relandHiddenPage() {
+    if (!currentPage || pageInScope(currentPage)) return;
+    var allowed = ROLE_NAV_GROUPS[activeNavRole()] || ROLE_NAV_GROUPS.master;
+    for (var i = 0; i < allowed.length; i += 1) {
+      if (document.querySelector('.nav-main[data-page="' + allowed[i] + '"]')) {
+        switchPage(allowed[i]);
+        return;
+      }
+    }
   }
 
   function applyNavScope() {
@@ -1934,6 +1962,8 @@
     document.addEventListener("karma-profile-switched", function () {
       setWorkspaceRole("");
       applyNavScope();
+      // 旧页可能已经不在新功能区里了（主身份 → 助理身份）：换到新功能区能到的第一页。
+      relandHiddenPage();
     });
     // 能力位跟着会话走：连上/恢复/换身份/断开都要重拉一次，
     // 不然换了身份还留着上一个身份的特权入口。
