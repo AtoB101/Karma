@@ -122,6 +122,7 @@
       "expire_time:" + (f.expire_time || "never"),
       "agent_name:" + (f.agent_name || "console-agent"),
       "agent_binding:" + (f.agent_binding || ""),
+      "agent_public_key_fingerprint:" + (f.agent_public_key_fingerprint || ""),
     ].join("\n");
   }
 

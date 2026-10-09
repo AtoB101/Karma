@@ -491,7 +491,8 @@
     return ['Karma Runtime Key Create', 'karma_identity_id:' + f.karma_identity_id, 'wallet_address:' + f.wallet_address,
       'permissions:' + perms, 'single_limit:' + pyFloatStr(f.single_limit), 'daily_limit:' + pyFloatStr(f.daily_limit),
       'expire_time:' + (f.expire_time || 'never'),
-      'agent_name:' + (f.agent_name || 'console-agent'), 'agent_binding:' + (f.agent_binding || '')].join('\n');
+      'agent_name:' + (f.agent_name || 'console-agent'), 'agent_binding:' + (f.agent_binding || ''),
+      'agent_public_key_fingerprint:' + (f.agent_public_key_fingerprint || '')].join('\n');
   }
   function agFields() {
     var id = val('#ag-identity') || identity();

@@ -183,6 +183,28 @@
     expired: "已过期",
   };
 
+  /* 公钥指纹是主人批准前唯一能核对的锚点：单独亮出来，并说清「不一致就拒绝」。 */
+  function fingerprintBlock(v) {
+    var fp = (v.public_key_fingerprint || "").trim();
+    if (fp && v.request_signed) {
+      return (
+        '<p class="pair-fp"><b>' + esc(fp) + "</b></p>" +
+        '<p class="pair-hint">' +
+        esc(
+          "把这一串和你的 agent 报给你的那一串逐字核对，一致才批准；不一致就点「拒绝」——那说明有人在中途换了一把公钥。"
+        ) +
+        "</p>"
+      );
+    }
+    return (
+      '<p class="pair-hint">' +
+      esc(
+        "这次申请没有带公钥签名：无法确认申请方真的持有它报的那把公钥。批准后它只能走「申请绑定 + 8 位匹配码」那条路激活。"
+      ) +
+      "</p>"
+    );
+  }
+
   function renderRequest() {
     var host = byId("pair-request");
     var v = state.view;
@@ -207,6 +229,7 @@
         return "<tr><th>" + esc(r[0]) + "</th><td>" + esc(r[1]) + "</td></tr>";
       }).join("") +
       "</table>" +
+      fingerprintBlock(v) +
       '<p class="pair-hint">只批准你认得的 agent。批准等于用你的身份为它背书，' +
       "额度用你在下面填的数为准，随时可以在「我的 Agent」里吊销。</p>";
     host.hidden = false;
@@ -621,6 +644,8 @@
         // 所以服务端能确认「用户本人授权了这个 agent」；下面还会单独传 agent_id 做交叉校验。
         agent_binding: state.agentId,
         agent_id: state.agentId,
+        // 主人在上面核对过的那串指纹：写进钱包签名，等于当面点名「授权给这把公钥」。
+        agent_public_key_fingerprint: (state.view && state.view.public_key_fingerprint) || "",
       };
       var sig = await provider.request({
         method: "personal_sign",
@@ -637,6 +662,7 @@
         agent_name: fields.agent_name,
         agent_binding: fields.agent_binding,
         agent_id: fields.agent_id,
+        agent_public_key_fingerprint: fields.agent_public_key_fingerprint || undefined,
         profile_id: (byId("pair-scope") || {}).value || undefined,
       });
 
@@ -667,7 +693,7 @@
           (state.view && state.view.public_key_fingerprint
             ? "<p>" +
               esc(
-                "agent 交的公钥你已经核对过，所以这次批准就是激活：它领到钥匙就能在额度内花钱，不用再输任何码。"
+                "agent 交的公钥指纹你在批准那一步核对过：这次批准就是激活，它领到钥匙就能在额度内花钱，不用再输任何码。"
               ) +
               "</p>"
             : "<p>" +

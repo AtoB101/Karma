@@ -2634,7 +2634,7 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "长期有效（随时可注销）": "No expiry (revoke anytime)",
   "超过单笔上限的支出不会自动放行：agent 会拿到「等待你确认」，你点一下才继续。": "Spending above the per-transaction limit is never auto-released: the agent gets \"waiting for your confirmation\" and only continues after you tap it.",
   "已钉在 agent 交来的公钥上 · 每个请求都由它本机签名，别人抄走钥匙字符串也用不了": "Pinned to the public key the agent sent · every request is signed on its own machine, so a copied key string is useless",
-  "agent 交的公钥你已经核对过，所以这次批准就是激活：它领到钥匙就能在额度内花钱，不用再输任何码。": "You already checked the public key the agent sent, so this approval is the activation: once it collects the key it can spend within the limits - no code to type.",
+  "agent 交的公钥指纹你在批准那一步核对过：这次批准就是激活，它领到钥匙就能在额度内花钱，不用再输任何码。": "You checked the agent's public key fingerprint at the approval step: this approval is the activation - once it collects the key it can spend within the limits, no code to type.",
   "待派庭": "Awaiting panel",
   "投票中": "Voting",
   "已裁决": "Decided",
@@ -2919,4 +2919,6 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "生活助理（个人）": "Life assistant (individual)",
   "个体助理（个体工商户）": "Sole-trader assistant (sole proprietorship)",
   "企业主体（公司）": "Company entity (company)",
+  "把这一串和你的 agent 报给你的那一串逐字核对，一致才批准；不一致就点「拒绝」——那说明有人在中途换了一把公钥。": "Compare this string with the one your agent reported to you, character by character. Approve only when they match; if they differ, press Reject - someone swapped in a different public key along the way.",
+  "这次申请没有带公钥签名：无法确认申请方真的持有它报的那把公钥。批准后它只能走「申请绑定 + 8 位匹配码」那条路激活。": "This request carried no signature over its public key: we cannot confirm the requester really holds the key it reported. After approval it can only activate through the bind request + 8-character matching code path.",
 });

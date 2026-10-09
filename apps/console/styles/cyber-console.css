@@ -1450,6 +1450,18 @@ body.gated { overflow: hidden; }
 }
 #ag-pair .pair-table td { padding: 4px 0; word-break: break-all; }
 #ag-pair .pair-hint { margin-top: 10px; font-size: 12px; line-height: 1.7; color: var(--text-dim); }
+/* 公钥指纹：批准前唯一能核对的锚点，单独亮出来给主人读。 */
+#ag-pair .pair-fp {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(168, 85, 247, 0.28);
+  background: rgba(8, 14, 24, 0.6);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  word-break: break-all;
+}
 #ag-pair .pair-perms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
 #ag-pair .pair-perm {
   display: block;

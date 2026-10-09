@@ -224,6 +224,9 @@
       "expire_time:" + (f.expire_time || "never"),
       "agent_name:" + (f.agent_name || "console-agent"),
       "agent_binding:" + (f.agent_binding || ""),
+      // 主人签字时就把「钱钥匙给哪把 agent 公钥」钉进签名里。
+      // 绑定那一刻服务端拿 agent 交来的公钥重算指纹，对不上直接拒绝。
+      "agent_public_key_fingerprint:" + (f.agent_public_key_fingerprint || ""),
     ].join("\n");
   }
 
