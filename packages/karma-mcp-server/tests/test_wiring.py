@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 import httpx
@@ -108,6 +109,11 @@ async def test_pairing_claim_writes_credentials_without_echoing_them(tmp_path, m
     assert status["pairing"] == "pending_owner"
     # 我们确实把公钥交上去了，状态就得如实说「交了」（服务端不回显，本地留痕）
     assert status["public_key_attached"] is True
+    # 主人要拿去核对的指纹：接入和状态两处必须是同一串，且等于存下来那把公钥的 sha256 前 16 位
+    stored_public_key = json.loads(state_files[0].read_text(encoding="utf-8"))["public_key"]
+    expected_fp = hashlib.sha256(stored_public_key.encode("utf-8")).hexdigest()[:16]
+    assert started["agent_fingerprint"] == expected_fp
+    assert status["agent_fingerprint"] == expected_fp
     assert PAIRING_CODE not in json.dumps(status, ensure_ascii=False)
     # 查状态绝不能再打网络：那一步会把一次性凭据吃掉
     assert [c["path"] for c in calls] == ["/v1/agent-pairing/request"]

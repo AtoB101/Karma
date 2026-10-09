@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from karma_mcp_server.agent_signing import (
     agent_key_from_seed,
     agent_public_key_b64,
+    agent_public_key_fingerprint,
     build_agent_request_message,
     runtime_key_id,
     sign_runtime_request,
@@ -72,3 +73,29 @@ def test_sign_headers_and_signature_verifies():
     key.public_key().verify(
         base64.b64decode(headers["X-Karma-Agent-Signature"]), msg.encode("utf-8")
     )
+
+
+def test_public_key_fingerprint_matches_the_server_formula():
+    """主人要在操作台核对的那串：必须等于后端 _public_key_fingerprint 的算法。
+
+    服务端算的是「它收到的那串 base64」的 sha256 前 16 位（services/agent_pairing.py），
+    所以这里也按字符串算 —— 差一个编码方式，主人核对的就是两串对不上的数。
+    """
+    key = Ed25519PrivateKey.generate()
+    pub_b64 = agent_public_key_b64(key)
+    assert (
+        agent_public_key_fingerprint(pub_b64)
+        == hashlib.sha256(pub_b64.encode("utf-8")).hexdigest()[:16]
+    )
+    # 那串就是操作台展示的形态：16 位 hex，不带前缀
+    fp = agent_public_key_fingerprint(pub_b64)
+    assert len(fp) == 16 and all(c in "0123456789abcdef" for c in fp)
+    # 空白容忍（服务端也会 strip 它收到的那串）
+    assert agent_public_key_fingerprint("  " + pub_b64 + "  ") == fp
+    assert agent_public_key_fingerprint("") == ""
+
+
+def test_two_different_keys_never_share_a_fingerprint():
+    a = agent_public_key_fingerprint(agent_public_key_b64(Ed25519PrivateKey.generate()))
+    b = agent_public_key_fingerprint(agent_public_key_b64(Ed25519PrivateKey.generate()))
+    assert a != b

@@ -118,6 +118,7 @@ def build_server(
                 raise KarmaToolError(ErrorClass.INVALID, "agent_name is required")
             from karma_mcp_server.agent_signing import (
                 agent_public_key_b64,
+                agent_public_key_fingerprint,
                 ensure_local_agent_key,
             )
 
@@ -141,6 +142,7 @@ def build_server(
                 payload["public_key"] = body["public_key"]
             path = save_pairing(payload)
             user_code = str(payload.get("user_code") or "")
+            public_key = str(payload.get("public_key") or "")
             return ok(
                 {
                     "status": "pending_owner",
@@ -150,12 +152,21 @@ def build_server(
                     "poll_interval_seconds": payload.get("poll_interval_seconds"),
                     "state_file": str(path),
                     "public_key_attached": key is not None,
+                    # 操作台待批准卡片上会显示同一串；agent 把这一串报给主人核对。
+                    "agent_fingerprint": agent_public_key_fingerprint(public_key),
                     "next_step": (
-                        "请主人在 Karma 操作台输入 "
+                        "请主人打开 "
+                        + str(payload.get("verification_uri") or "Karma 操作台")
+                        + " 批准这次接入（配对码 "
                         + user_code
-                        + " 并批准（批准即激活，凭据等我领取）"
+                        + " 只是用来对号，不必手输）；"
+                        "把上面的 agent_fingerprint 一起报给主人，让他和操作台上显示的那串核对"
                     ),
-                    "note": "pairing_code 只写在本机，聊天里不出现。",
+                    "note": (
+                        "pairing_code 只写在本机，聊天里不出现。指纹只能证明"
+                        "「操作台这条申请 = 本机这把公钥」，不等于主人已确认授权对象"
+                        "（授权要主人自己钱包签名）。"
+                    ),
                 }
             )
 
@@ -173,6 +184,8 @@ def build_server(
             record = load_pairing(user_code)
             if record is None:
                 return ok({"pairing": "none", "next_step": "先调用 karma_connect 发起配对"})
+            from karma_mcp_server.agent_signing import agent_public_key_fingerprint
+
             return ok(
                 {
                     "pairing": "pending_owner",
@@ -180,6 +193,9 @@ def build_server(
                     "verification_uri": record.get("verification_uri"),
                     "expires_at": record.get("expires_at"),
                     "public_key_attached": bool(record.get("public_key")),
+                    "agent_fingerprint": agent_public_key_fingerprint(
+                        str(record.get("public_key") or "")
+                    ),
                     "next_step": "主人批准后调用 karma_connect_claim 领取凭据",
                 }
             )

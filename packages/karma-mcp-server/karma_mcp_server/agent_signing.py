@@ -49,6 +49,18 @@ def agent_public_key_b64(key: Any) -> str:
     return base64.b64encode(raw).decode()
 
 
+def agent_public_key_fingerprint(public_key_b64: str, *, length: int = 16) -> str:
+    """与后端 ``services/agent_pairing._public_key_fingerprint`` 同构（sha256 前 16 位）。
+
+    主人要在操作台看到的、和聊天里 agent 报的那串必须是同一个值。服务端算的是
+    「它收到的那串 base64」，所以这里也按字符串算，不做二次编码。
+    """
+    text = (public_key_b64 or "").strip()
+    if not text:
+        return ""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:length]
+
+
 def build_agent_request_message(
     *, key_id: str, method: str, path: str, timestamp: str, nonce: str, body_sha256: str
 ) -> str:

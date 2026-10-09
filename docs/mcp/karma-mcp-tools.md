@@ -58,7 +58,7 @@
 - **前置**：无（未配对时唯一可调工具）。
 - **入参**：`agent_name: str`（必填）、`identity_hint: str | None`。
 - **流程**：返回 `user_code` + `verification_uri`（主人在 Console 输码/扫码批准）。
-- **返回**：`{status, user_code, verification_uri, expires_in_seconds, next_step}`。
+- **返回**：`{status, user_code, verification_uri, expires_at, public_key_attached, agent_fingerprint, next_step}`。`agent_fingerprint` = agent 公钥的 sha256 前 16 位，与操作台待批准卡片上显示的那串同构（`services/agent_pairing._public_key_fingerprint`），供主人核对「操作台这条申请就是聊天里这个 agent」。
 - **失败语义**：错误一律不改状态；`user_code` 过期需重新发起。
 - **安全**：不得仅凭聊天平台用户名认定身份（架构 §6）。
 
