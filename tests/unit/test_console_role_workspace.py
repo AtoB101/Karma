@@ -65,7 +65,7 @@ def _always_visible(js):
 
 def test_workspace_home_is_inside_that_role_function_area():
     """落到工作面，前提是这个工作面本来就归该岗位 —— 要么在它的功能区里，要么是
-    任意身份都留着的岗位入口页（verifier-id / arbiter-id）—— 否则点进去等于空白。"""
+    主身份 / 治理岗视角都挂着的岗位入口页（verifier-id / arbiter-id）—— 否则点进去等于空白。"""
     js = BOOT.read_text(encoding="utf-8")
     groups = _role_groups(js)
     always = _always_visible(js)

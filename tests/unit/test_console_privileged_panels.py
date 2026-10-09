@@ -77,7 +77,8 @@ def test_nav_groups_carry_the_page_hooks():
 def test_operations_review_desk_is_one_entry_with_cap_gated_subs():
     """运营复核台一个组干两件事（用户口径 2026-10-09：「改为一个，只要运营复核台就行了」）。
 
-    * 组本身**常显** —— 它是岗位入口，藏掉入口，还没开通的人就永远开不了岗；
+    * 组本身在标记里**不写死 hidden**（主身份 / 治理岗看得到；助理身份的功能区按身份收，
+      见 test_console_identity_nav_scope）—— 它是岗位入口，藏掉入口，还没开通的人就永远开不了岗；
     * 五个待办子项 + 折叠箭头按 ``can_open_review_queue`` 展开；
     * 侧栏里不许再有第二个复核台入口。
     """

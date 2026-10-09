@@ -13,8 +13,9 @@
 1. 侧栏分组由「当前档案的类」驱动（cyber-identity.js 的 ROLE_LABELS 取值：
    individual / merchant / enterprise / verifier / arbitrator），**不再**是
    「主身份 / 其它」两档；
-2. 三个**岗位入口（验证者身份 / 仲裁者身份 / 运营复核台）任何身份都留着** ——
-   把入口收掉，还没开通的人就永远开不了岗；
+2. 三个**岗位入口（验证者身份 / 仲裁者身份 / 运营复核台）挂在主身份 / 治理岗视角** ——
+   把入口收掉，还没开通的人就永远开不了岗；但助理身份的功能区不挂它们
+   （用户口径 2026-10-10：这三个入口属于主身份那一档，不是「一张卡干活的地方」）；
 3. 每个侧栏分组至少有一个身份看得到；特权工作面只归它自己的岗
    （复核台 / 验证者网络 → 复核岗，仲裁台 → 仲裁岗）。
 """
@@ -78,13 +79,30 @@ def test_nav_scope_is_driven_by_the_role_not_a_two_way_master_flag():
     assert set(_role_groups(js)) == ROLES
 
 
-def test_self_service_entry_groups_are_never_scoped_away():
+def test_job_entry_groups_are_markup_visible_but_not_in_the_assistant_area():
+    """三个岗位入口：标记里不写死 hidden（主身份 / 治理岗要看得到），但助理身份的功能区
+    收起来 —— 它们是主身份那一档的入口，不归「一张卡干活的地方」（用户口径 2026-10-10）。"""
     js = BOOT.read_text(encoding="utf-8")
     assert set(_always_visible(js)) == {"verifier-id", "arbiter-id", "reviews"}
     tags = _nav_tags(PAGE.read_text(encoding="utf-8"))
     for group in ("verifier-id", "arbiter-id", "reviews"):
         assert group in tags, f"侧栏缺 {group} 这一组"
-        assert "hidden" not in tags[group], f"{group} 是岗位入口，不许默认藏起来"
+        assert "hidden" not in tags[group], f"{group} 是岗位入口，不许在标记里写死 hidden"
+
+
+def test_assistant_area_does_not_carry_the_job_entries():
+    """选了助理身份，主功能区里不许再出现验证者身份 / 仲裁者身份 / 运营复核台。"""
+    js = BOOT.read_text(encoding="utf-8")
+    body = js.split("function applyNavScope() {", 1)[1].split("\n  }", 1)[0]
+    assert "var assistant = allowed === ASSISTANT_NAV_GROUPS;" in body
+    assert "NAV_ALWAYS_VISIBLE.indexOf(name) >= 0 && !assistant" in body, (
+        "岗位入口要分身份：助理页不挂，主身份 / 治理岗才挂"
+    )
+    assert 'classList.toggle("nav-assistant-scope", assistant)' in body
+    roles = _role_groups(js)
+    for role in ("individual", "merchant", "enterprise"):
+        for gone in _always_visible(js):
+            assert gone not in roles[role]
 
 
 def test_every_nav_group_is_reachable_from_some_role():

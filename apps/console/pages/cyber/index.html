@@ -103,12 +103,14 @@
                    在那一页选身份类型时一键选择，不再在这里各挂一个重复入口。 -->
             </div>
           </div>
-          <!-- 三个**岗位入口**：验证者身份 / 仲裁者身份 / 运营复核台。任何登录身份都看得到 ——
-               它们回答「怎么拿到这个岗位」，藏起来就等于没有入口；点了就走 KarmaWorkspace，
-               落点由它一处决定。验证者 / 仲裁者落的就是**自己那一页**（那页既是申请也是
-               工作面：登记我的节点 / 认证 + 抵押），不是旁边那两个「台」。
-               运营复核台同时是入口与工作面：组本身常显，下面那五个待办子项只在有复核能力位
-               时才展开；没岗位的人点它落「验证者身份」怎么拿到岗。
+          <!-- 三个**岗位入口**：验证者身份 / 仲裁者身份 / 运营复核台。挂在**主身份 / 治理岗**
+               视角下 —— 它们回答「怎么拿到这个岗位」，藏起来就等于没有入口；点了就走
+               KarmaWorkspace，落点由它一处决定。助理身份（子身份）的功能区是「一张卡干活的
+               地方」，这三个入口不挂（见 cyber-console.js 的 applyNavScope）。
+               验证者 / 仲裁者落的就是**自己那一页**（那页既是申请也是工作面：登记我的节点 /
+               认证 + 抵押），不是旁边那两个「台」。
+               运营复核台同时是入口与工作面：在它的视角里常显，下面那五个待办子项只在有复核
+               能力位时才展开；没岗位的人点它落「验证者身份」怎么拿到岗。
                仲裁台 / 验证者网络是纯运维工作面，按能力位整组显隐。 -->
           <div class="nav-group" data-group="verifier-id">
             <button class="nav-main" data-page="verifier-id" data-workspace-role="verifier"><span class="icon">&#9677;</span><span data-i18n="nav.verifier_id">验证者身份</span></button>
@@ -1653,7 +1655,7 @@
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=2e4783ba123a"></script>
-    <script src="../../scripts/cyber-console.js?v=fcfa9e51ff00"></script>
+    <script src="../../scripts/cyber-console.js?v=0bcfe0e972c6"></script>
     <script src="../../scripts/cyber-identity.js?v=af195621f40f"></script>
 <script src="../../scripts/cyber-master-page.js?v=f213b05c6871"></script>
     <script src="../../scripts/cyber-face-capture.js?v=75c411042b89"></script>

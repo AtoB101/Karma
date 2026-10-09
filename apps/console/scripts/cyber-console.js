@@ -1526,7 +1526,9 @@
     // 运营复核台：复核岗那套工作面（和 verifier 同一张白名单）—— 它本来就是 verifier 类身份。
     ops_reviewer: ["identity", "bills", "reviews", "verifiers", "settings"],
   };
-  /* 岗位入口：任何身份都不收（把入口收掉，还没开通的人就永远开不了岗）。
+  /* 岗位入口：主身份 / 治理岗视角都挂着（把入口收掉，还没开通的人就永远开不了岗）；
+     但**助理身份不挂** —— 助理页是「一张卡干活的地方」，这三个入口属于主身份那一档
+     （用户口径 2026-10-10，见 applyNavScope）。
      reviews = 运营复核台，一个组同时是岗位入口与复核工作面；落到「复核台 / 验证者身份」
      由 KarmaWorkspace 一处决定，下面那五个待办子项按复核能力位展开。 */
   var NAV_ALWAYS_VISIBLE = ["verifier-id", "arbiter-id", "reviews"];
@@ -1657,10 +1659,15 @@
   function applyNavScope() {
     var role = activeNavRole();
     var allowed = ROLE_NAV_GROUPS[role] || ROLE_NAV_GROUPS.master;
+    // 助理身份 = 「一张卡干活的地方」：连三个岗位入口也不挂（用户口径 2026-10-10）。
+    var assistant = allowed === ASSISTANT_NAV_GROUPS;
     document.body.classList.toggle("nav-master-scope", role === "master");
+    document.body.classList.toggle("nav-assistant-scope", assistant);
     document.querySelectorAll(".nav-group").forEach(function (g) {
       var name = g.getAttribute("data-group") || "";
-      if (NAV_ALWAYS_VISIBLE.indexOf(name) >= 0) {
+      // 岗位入口（验证者身份 / 仲裁者身份 / 运营复核台）挂在主身份 / 治理岗视角，
+      // 助理页不挂 —— 它们是主身份那一档的入口，不是「一张卡」的功能区。
+      if (NAV_ALWAYS_VISIBLE.indexOf(name) >= 0 && !assistant) {
         g.classList.remove("nav-scope-hidden");
         return;
       }
