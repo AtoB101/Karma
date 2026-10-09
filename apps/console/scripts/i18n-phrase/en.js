@@ -2893,3 +2893,26 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
 Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "选择助理身份": "Choose assistant identity",
 });
+// 认证流程收敛：建卡向导新文案（用户口径 2026-10-09）
+Object.assign(window.CYBER_I18N_PHRASE["en"], {
+  "① 选择身份类型": "① Pick the identity type",
+  "授权额度 USDC": "Authorized budget USDC",
+  "联系方式（邮箱或手机，可不填）": "Contact (email or phone, optional)",
+  "一键选类型：生活助理走下面这条直线；个体 / 企业要走各自的资质认证，选完带你过去。": "Pick a type in one step: a life assistant goes straight through below; sole traders and companies need their own qualification review, so we will take you there.",
+  "去完成认证": "Go complete the review",
+  "② 边界权限": "② Boundary limits",
+  "单笔最高 USDC": "Max per payment USDC",
+  "每日上限 USDC": "Daily cap USDC",
+  "③ 授权范围（它能替你做哪些事）": "③ Scope (what it may do for you)",
+  "④ 确认": "④ Confirm",
+  "⑤ 绑定子身份钱包地址（可选）": "⑤ Bind a sub-identity wallet address (optional)",
+  "⑥ 刷脸确认": "⑥ Face confirmation",
+  "个体助理认证走资质流程：营业执照 + 经营范围 + 经营地址 + 联系方式，复核通过后这张卡才会开通。": "The sole-trader review runs on documents: business licence + business scope + operating address + contact. This card opens only after the review passes.",
+  "企业主体认证走资质流程：营业执照 + 法定代表人 + 官网控制权 + 企业邮箱，复核通过后这张卡才会开通。": "The company review runs on documents: business licence + legal representative + website control + company mailbox. This card opens only after the review passes.",
+  "去完成个体助理认证": "Go complete the sole-trader review",
+  "去完成企业主体认证": "Go complete the company review",
+  "个体 / 企业身份要走各自的资质认证：点上面的「去完成认证」。": "Sole-trader and company identities go through their own document review - use \"Go complete the review\" above.",
+  "生活助理（个人）": "Life assistant (individual)",
+  "个体助理（个体工商户）": "Sole-trader assistant (sole proprietorship)",
+  "企业主体（公司）": "Company entity (company)",
+});

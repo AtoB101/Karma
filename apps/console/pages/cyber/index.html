@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
     <link rel="icon" type="image/png" href="../../assets/favicon.png?v=0da2be69f6aa" />
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=9ca5a55d49b0" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=5f8233ed1f57" />
   </head>
   <body>
     <div class="bg"></div>
@@ -99,9 +99,8 @@
             <div class="nav-subs">
               <button class="nav-sub" data-page="identity" data-sub="master">主身份 · 主体账户</button>
               <button class="nav-sub" data-page="identity" data-sub="life">子身份 · 每个 agent 一张卡</button>
-              <button class="nav-sub" data-page="identity" data-sub="personal">个人助理认证</button>
-              <button class="nav-sub" data-page="identity" data-sub="sole">个体助理认证</button>
-              <button class="nav-sub" data-page="identity" data-sub="enterprise">企业助理认证</button>
+              <!-- 个人 / 个体 / 企业三种助理的认证入口统一收进「子身份」这一项的建卡向导：
+                   在那一页选身份类型时一键选择，不再在这里各挂一个重复入口。 -->
             </div>
           </div>
           <!-- 三个**岗位入口**：验证者身份 / 仲裁者身份 / 运营复核台。任何登录身份都看得到 ——
@@ -780,34 +779,48 @@
             </div>
             <div id="idsub-list" class="idv-sub-list">连接钱包后显示你的子身份</div>
             <div id="idsub-form" hidden>
-              <div class="idv-grid">
-                <div class="field"><label>角色</label><select id="idsub-role"><option value="life">生活助理</option><option value="sole">个体助理</option><option value="entity">企业主体</option></select></div>
-                <div class="field"><label>名字</label><input id="idsub-name" type="text" placeholder="不填就用角色名" /></div>
-                <div class="field"><label>额度 USDC</label><input id="idsub-amount" type="number" min="0" step="0.01" /></div>
-                <div class="field"><label>单笔最高 USDC</label><input id="idsub-single" type="number" min="0" step="0.01" /></div>
-                <div class="field"><label>每日上限 USDC</label><input id="idsub-daily" type="number" min="0" step="0.01" /></div>
-                <div class="field"><label>人工确认</label><select id="idsub-human"><option value="above_single">超过单笔最高时找我确认</option><option value="always">每一笔都找我确认</option><option value="off">额度内全自动</option></select></div>
-              </div>
-              <div class="idv-block"><b>权限</b><div id="idsub-perms" class="idv-perms"></div></div>
-              <div class="idv-block"><b>边界</b>
-                <div class="idv-row">
-                  <label class="idv-consent"><input type="checkbox" id="idsub-ack" /> 我确认这些权限与边界，并承担该 agent 行为的责任</label>
+              <div class="idv-block"><b>① 选择身份类型</b>
+                <div class="idv-grid">
+                  <div class="field"><label>身份类型</label><select id="idsub-role"><option value="life">生活助理（个人）</option><option value="sole">个体助理（个体工商户）</option><option value="entity">企业主体（公司）</option></select></div>
+                  <div class="field"><label>这张卡的名字</label><input id="idsub-name" type="text" placeholder="不填就用角色名" /></div>
+                  <div class="field"><label>授权额度 USDC</label><input id="idsub-amount" type="number" min="0" step="0.01" /></div>
+                  <div class="field"><label>联系方式（邮箱或手机，可不填）</label><input id="idsub-contact" type="text" placeholder="给谁看就填谁" /></div>
                 </div>
-                <p class="idv-hint">取消 / 退款 / 改价 / 换商家永远要你本人确认，这条不写进这里也不能被 agent 绕过。</p>
-              </div>
-              <div class="idv-block"><b>操作钱包（可选）</b>
-                <div class="idv-row">
-                  <button type="button" class="btn" id="idsub-wallet">绑一个钱包</button>
-                  <span class="api-status" id="idsub-wallet-state">未绑定（默认用主身份钱包）</span>
+                <p class="idv-hint">一键选类型：生活助理走下面这条直线；个体 / 企业要走各自的资质认证，选完带你过去。</p>
+                <p class="idv-hint" id="idsub-route-hint" hidden></p>
+                <div class="idv-row" id="idsub-route-go" hidden>
+                  <button type="button" class="btn primary" id="idsub-goto-cert">去完成认证</button>
                 </div>
-                <p class="idv-hint">操作钱包只代表「谁可以替这张子身份签名」，不是资金账户：钱始终走主身份钱包。</p>
               </div>
-              <div class="idv-block"><b>刷脸确认</b>
-                <div class="idv-row">
-                  <button type="button" class="btn" id="idsub-face">拍一张人脸</button>
-                  <span class="api-status" id="idsub-face-state">未采集</span>
+              <div id="idsub-direct">
+                <div class="idv-block"><b>② 边界权限</b>
+                  <div class="idv-grid">
+                    <div class="field"><label>单笔最高 USDC</label><input id="idsub-single" type="number" min="0" step="0.01" /></div>
+                    <div class="field"><label>每日上限 USDC</label><input id="idsub-daily" type="number" min="0" step="0.01" /></div>
+                    <div class="field"><label>人工确认</label><select id="idsub-human"><option value="above_single">超过单笔最高时找我确认</option><option value="always">每一笔都找我确认</option><option value="off">额度内全自动</option></select></div>
+                  </div>
                 </div>
-                <p class="idv-hint">子身份的人脸只用于确认「建这张卡的是本人」，同样在本地加密后才上传。</p>
+                <div class="idv-block"><b>③ 授权范围（它能替你做哪些事）</b><div id="idsub-perms" class="idv-perms"></div></div>
+                <div class="idv-block"><b>④ 确认</b>
+                  <div class="idv-row">
+                    <label class="idv-consent"><input type="checkbox" id="idsub-ack" /> 我确认这些权限与边界，并承担该 agent 行为的责任</label>
+                  </div>
+                  <p class="idv-hint">取消 / 退款 / 改价 / 换商家永远要你本人确认，这条不写进这里也不能被 agent 绕过。</p>
+                </div>
+                <div class="idv-block"><b>⑤ 绑定子身份钱包地址（可选）</b>
+                  <div class="idv-row">
+                    <button type="button" class="btn" id="idsub-wallet">绑一个钱包</button>
+                    <span class="api-status" id="idsub-wallet-state">未绑定（默认用主身份钱包）</span>
+                  </div>
+                  <p class="idv-hint">操作钱包只代表「谁可以替这张子身份签名」，不是资金账户：钱始终走主身份钱包。</p>
+                </div>
+                <div class="idv-block"><b>⑥ 刷脸确认</b>
+                  <div class="idv-row">
+                    <button type="button" class="btn" id="idsub-face">拍一张人脸</button>
+                    <span class="api-status" id="idsub-face-state">未采集</span>
+                  </div>
+                  <p class="idv-hint">子身份的人脸只用于确认「建这张卡的是本人」，同样在本地加密后才上传。</p>
+                </div>
               </div>
               <div class="idv-row">
                 <button type="button" class="btn primary" id="idsub-create">建立子身份</button>
@@ -1644,17 +1657,17 @@
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=2e4783ba123a"></script>
     <script src="../../scripts/cyber-console.js?v=76ef9aad512f"></script>
-    <script src="../../scripts/cyber-identity.js?v=4403d2525071"></script>
+    <script src="../../scripts/cyber-identity.js?v=af195621f40f"></script>
 <script src="../../scripts/cyber-master-page.js?v=f213b05c6871"></script>
     <script src="../../scripts/cyber-face-capture.js?v=75c411042b89"></script>
-    <script src="../../scripts/cyber-identity-verify.js?v=efa385c5ba92"></script>
+    <script src="../../scripts/cyber-identity-verify.js?v=1aa3a48c4bec"></script>
     <script src="../../scripts/cyber-identity-provider.js?v=3d901abf66ff"></script>
     <script src="../../scripts/console-sync.js?v=95f93e9f5d26"></script>
     <script src="../../scripts/cyber-payments.js?v=1fb536a48ebf"></script>
     <script src="../../scripts/cyber-orders.js?v=88c6d8949e5b"></script>
     <script src="../../scripts/cyber-order-flow.js?v=5d8447f9cd89"></script>
     <script src="../../scripts/karma-service-spec.js?v=157d9b6ea723"></script>
-    <script src="../../scripts/cyber-agents.js?v=4bc095050eb5"></script>
+    <script src="../../scripts/cyber-agents.js?v=e69b28c0be11"></script>
     <script src="../../scripts/cyber-authorize.js?v=473ed362beaa"></script>
     <!-- 最近调用面板：设置页那张「已授权 · 一键取消绑定」和交付包那张密钥清单
          用同一份实现（KarmaKeyCalls），所以必须排在两个宿主前面。 -->
@@ -1671,7 +1684,7 @@
     <script src="../../scripts/cyber-console-2fa.js?v=e5de80863f43"></script>
     <!-- 追加身份：填标准字段 + 再刷一次脸，自动开通一张新身份卡。 -->
     <script src="../../scripts/cyber-add-identity.js?v=f2131a7ec1ed"></script>
-    <script src="../../scripts/cyber-cert-shared.js?v=7c6f8cbf2e17"></script>
+    <script src="../../scripts/cyber-cert-shared.js?v=0a9021432395"></script>
     <script src="../../scripts/cyber-cert-sole.js?v=a9f0c3849384"></script>
     <script src="../../scripts/cyber-entity.js?v=cf4c19df6929"></script>
     <script src="../../scripts/cyber-developer.js?v=1b30aaa1ff40"></script>

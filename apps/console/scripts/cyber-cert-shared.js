@@ -56,6 +56,9 @@
 
   /** 建完档案让侧栏「选择身份」立刻看到它。 */
   function refreshIdentities() {
+    // 个体 / 企业认证也会新建一张子身份卡：跟子身份页建卡走同一个广播，
+    // 否则「接入 Agent」的档案下拉拿不到它。
+    try { document.dispatchEvent(new CustomEvent("karma-capacity-changed")); } catch (_) {}
     var sw = window.KarmaIdentitySwitcher;
     if (sw && typeof sw.refresh === "function") {
       return Promise.resolve(sw.refresh()).catch(function () {});

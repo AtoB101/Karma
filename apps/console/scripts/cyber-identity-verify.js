@@ -478,6 +478,39 @@
 
   // ---- 子身份 --------------------------------------------------------------
 
+  /** 生活助理走本页这条直线；个体 / 企业要走各自的资质认证页，选完类型把入口亮出来。 */
+  var SUB_ROUTE = {
+    sole: {
+      sub: "sole",
+      hint: "个体助理认证走资质流程：营业执照 + 经营范围 + 经营地址 + 联系方式，复核通过后这张卡才会开通。",
+      cta: "去完成个体助理认证",
+    },
+    entity: {
+      sub: "enterprise",
+      hint: "企业主体认证走资质流程：营业执照 + 法定代表人 + 官网控制权 + 企业邮箱，复核通过后这张卡才会开通。",
+      cta: "去完成企业主体认证",
+    },
+  };
+
+  /** 选了类型就切形态：生活助理直接建卡，个体 / 企业跳到自己的认证流程。 */
+  function syncSubRoute() {
+    var roleKey = String((byId("idsub-role") || {}).value || "life");
+    var route = SUB_ROUTE[roleKey];
+    var direct = byId("idsub-direct");
+    var create = byId("idsub-create");
+    var hint = byId("idsub-route-hint");
+    var go = byId("idsub-route-go");
+    var cta = byId("idsub-goto-cert");
+    if (direct) direct.hidden = !!route;
+    if (create) create.hidden = !!route;
+    if (hint) {
+      hint.hidden = !route;
+      hint.textContent = route ? route.hint : "";
+    }
+    if (go) go.hidden = !route;
+    if (cta && route) cta.textContent = route.cta;
+  }
+
   function permsNode() {
     var host = byId("idsub-perms");
     if (!host || host.childElementCount) return host;
@@ -565,7 +598,12 @@
     if (!id) { say(status, "请先连接钱包", false); return; }
     var roleKey = byId("idsub-role").value;
     var role = ROLES[roleKey] || ROLES.life;
+    if (SUB_ROUTE[roleKey]) {
+      say(status, "个体 / 企业身份要走各自的资质认证：点上面的「去完成认证」。", false);
+      return;
+    }
     var name = String(byId("idsub-name").value || "").trim() || role.label;
+    var contact = String((byId("idsub-contact") || {}).value || "").trim();
     var amount = Number(byId("idsub-amount").value || 0);
     var single = Number(byId("idsub-single").value || 0);
     var daily = Number(byId("idsub-daily").value || 0);
@@ -577,11 +615,10 @@
 
     try {
       say(status, "① 建子身份…", null);
-      var created = await api().createRoleProfile({
-        owner_identity_id: id,
-        "class": role.klass,
-        display_name: name,
-      });
+      var createBody = { owner_identity_id: id, "class": role.klass, display_name: name };
+      // 联系方式是这张卡对外亮出来的资料，跟名字一起在建立时记档。
+      if (contact) createBody.kyc_payload = { contact: contact };
+      var created = await api().createRoleProfile(createBody);
       var profileId = created.profile_id;
 
       say(status, "② 写权限与边界…", null);
@@ -649,11 +686,13 @@
   async function finishSub() {
     resetSubDraft();
     byId("idsub-form").hidden = true;
-    ["idsub-name", "idsub-amount", "idsub-single", "idsub-daily"].forEach(function (k) {
+    ["idsub-name", "idsub-contact", "idsub-amount", "idsub-single", "idsub-daily"].forEach(function (k) {
       var n = byId(k);
       if (n) n.value = "";
     });
     byId("idsub-ack").checked = false;
+    // 建完一张卡，「选择助理身份」和「接入 Agent」都要立刻看到它 —— 两个模块都监听这个事件。
+    try { document.dispatchEvent(new CustomEvent("karma-capacity-changed")); } catch (_) {}
     await loadSubs();
     await loadMasterMoney();
   }
@@ -803,10 +842,17 @@
       resetSubDraft();
       byId("idsub-form").hidden = false;
       byId("idsub-status").textContent = "—";
+      syncSubRoute();
     });
     byId("idsub-cancel").addEventListener("click", function () {
       resetSubDraft();
       byId("idsub-form").hidden = true;
+    });
+    var idsubRole = byId("idsub-role");
+    if (idsubRole) idsubRole.addEventListener("change", syncSubRoute);
+    byId("idsub-goto-cert").addEventListener("click", function () {
+      var route = SUB_ROUTE[(byId("idsub-role") || {}).value || "life"];
+      if (route && window.cyberSwitchPage) window.cyberSwitchPage("identity", route.sub);
     });
     byId("idsub-wallet").addEventListener("click", bindSubWallet);
     byId("idsub-face").addEventListener("click", async function () {

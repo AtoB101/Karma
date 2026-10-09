@@ -2895,3 +2895,26 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
 Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "选择助理身份": "Elegir identidad de asistente",
 });
+// Flujo de certificación unificado: textos nuevos del asistente de creación (2026-10-09)
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
+  "① 选择身份类型": "① Elige el tipo de identidad",
+  "授权额度 USDC": "Presupuesto autorizado USDC",
+  "联系方式（邮箱或手机，可不填）": "Contacto (correo o teléfono, opcional)",
+  "一键选类型：生活助理走下面这条直线；个体 / 企业要走各自的资质认证，选完带你过去。": "Elige el tipo en un paso: el asistente personal sigue el flujo de abajo; los comercios individuales y las empresas necesitan su propia revisión de documentos y te llevamos a esa página.",
+  "去完成认证": "Ir a completar la revisión",
+  "② 边界权限": "② Límites operativos",
+  "单笔最高 USDC": "Máximo por pago USDC",
+  "每日上限 USDC": "Tope diario USDC",
+  "③ 授权范围（它能替你做哪些事）": "③ Alcance autorizado (qué puede hacer por ti)",
+  "④ 确认": "④ Confirmación",
+  "⑤ 绑定子身份钱包地址（可选）": "⑤ Vincular una dirección de billetera de la subidentidad (opcional)",
+  "⑥ 刷脸确认": "⑥ Confirmación por rostro",
+  "个体助理认证走资质流程：营业执照 + 经营范围 + 经营地址 + 联系方式，复核通过后这张卡才会开通。": "La revisión del comercio individual se basa en documentos: licencia comercial + rubro + domicilio + contacto. La tarjeta se habilita recién cuando la revisión pasa.",
+  "企业主体认证走资质流程：营业执照 + 法定代表人 + 官网控制权 + 企业邮箱，复核通过后这张卡才会开通。": "La revisión de la empresa se basa en documentos: licencia comercial + representante legal + control del sitio web + correo corporativo. La tarjeta se habilita recién cuando la revisión pasa.",
+  "去完成个体助理认证": "Ir a completar la revisión del comercio individual",
+  "去完成企业主体认证": "Ir a completar la revisión de la empresa",
+  "个体 / 企业身份要走各自的资质认证：点上面的「去完成认证」。": "Las identidades de comercio individual y de empresa pasan por su propia revisión de documentos: usa \"Ir a completar la revisión\" arriba.",
+  "生活助理（个人）": "Asistente personal (persona)",
+  "个体助理（个体工商户）": "Asistente de comercio individual (monotributo)",
+  "企业主体（公司）": "Entidad empresarial (empresa)",
+});

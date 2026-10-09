@@ -134,8 +134,9 @@ const READ = () => {
 
 async function openPersonalVerification(page) {
   await page.evaluate(() => {
-    const btn = document.querySelector('.nav-sub[data-page="identity"][data-sub="personal"]');
-    if (btn) btn.click();
+    // 侧栏不再单挂「个人助理认证」入口（已并进子身份建卡向导），
+    // 直接把这一块切到台前。
+    if (window.cyberSwitchPage) window.cyberSwitchPage("identity", "personal");
   });
   await page.waitForTimeout(1200);
 }

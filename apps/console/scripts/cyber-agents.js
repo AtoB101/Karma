@@ -486,6 +486,11 @@
       loadProfilesIntoSelect();
       refreshAgents();
     });
+    // 新建的子身份卡要能在这个下拉里直接选到，不然刚认证完还得刷新整页。
+    document.addEventListener("karma-capacity-changed", function () {
+      loadProfilesIntoSelect();
+      refreshAgents();
+    });
 
     document.addEventListener("click", function (ev) {
       var t = ev.target;

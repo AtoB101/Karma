@@ -1072,6 +1072,8 @@
     if (claimBtn) claimBtn.addEventListener("click", claimCard);
     document.addEventListener("karma-wallet-connected", refresh);
     document.addEventListener("karma-session-restored", refresh);
+    // 刚建好一张子身份卡（子身份页 / 个体 / 企业认证都算），选择院里要立刻多一行。
+    document.addEventListener("karma-capacity-changed", refresh);
     document.addEventListener("karma-profile-switched", function () {
       if (window.KarmaConsoleSync && window.KarmaConsoleSync.refreshAll) {
         window.KarmaConsoleSync.refreshAll().catch(function () {});

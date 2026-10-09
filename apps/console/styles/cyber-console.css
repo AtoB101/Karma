@@ -1727,6 +1727,8 @@ body.gated { overflow: hidden; }
 .idv-hint { margin-top: 8px; font-size: 12px; line-height: 1.7; color: var(--text-dim); }
 
 .idv-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+/* .idv-row 自己写了 display:flex，会盖掉 [hidden] 的 UA 默认值 —— 建卡向导按身份类型切换，必须显式一条。 */
+.idv-row[hidden] { display: none !important; }
 .idv-file { cursor: pointer; }
 .idv-thumb img { display: block; width: 84px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid rgba(168, 85, 247, 0.3); }
 

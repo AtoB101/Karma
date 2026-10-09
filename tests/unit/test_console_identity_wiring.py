@@ -508,3 +508,74 @@ def test_capture_budget_is_tight_enough_to_feel_instant():
     assert grace <= 300, "后续角度的准备时间不该再吃掉大半秒"
     assert still / hist >= 10, "一个停稳窗口里至少要有 10 个采样点，判定才不看运气"
     assert duty <= 2, "分析占的帧预算要压下来，判定间隔才跟得上"
+# ---------------------------------------------------------------------------
+# 认证流程收敛（2026-10-09）
+#
+# 用户口径：主体认证之后，「建子身份」的时候本来就要选一次身份类型
+# （生活 / 个体 / 企业），侧栏再各挂一个「XX助理认证」入口就是同一件事说两遍 ——
+# 功能区把重复入口收掉，剩下的都进「子身份」这一项的一键向导：
+#   选类型 → 名字 → 授权额度 → 联系方式 → 边界权限 → 授权范围 → 确认
+#   → 绑子身份钱包 → 刷脸确认；
+# 个体 / 企业在这一步把用户带到各自的资质认证页（那两张页面的流程不一样）。
+# 建好的卡要立刻出现在「选择助理身份」和「接入 Agent」里，不能等刷新。
+# ---------------------------------------------------------------------------
+
+NAV = re.compile(r'<button class="nav-sub" data-page="identity" data-sub="([a-z-]+)"')
+
+
+def test_identity_nav_no_longer_repeats_the_three_assistant_cert_entries():
+    html = _page_html()
+    subs = NAV.findall(html)
+    assert subs == ["master", "life"], f"身份 · 认证 侧栏只该剩主身份 / 子身份，实际 {subs}"
+    # 三块页面还在 —— 个体 / 企业的资质流程是「从子身份向导带过去」，不是删掉。
+    for anchor in ('id="idv-verify"', 'id="id-cert-sole"', 'id="id-entity"'):
+        assert anchor in html, f"认证页不该被删掉：{anchor}"
+
+
+def test_sub_identity_form_is_one_straight_wizard_with_contact():
+    html = _page_html()
+    assert 'id="idsub-contact"' in html, "建卡向导缺「联系方式」"
+    order = [
+        'id="idsub-role"', 'id="idsub-name"', 'id="idsub-amount"', 'id="idsub-contact"',
+        'id="idsub-single"', 'id="idsub-perms"', 'id="idsub-ack"',
+        'id="idsub-wallet"', 'id="idsub-face"', 'id="idsub-create"',
+    ]
+    seen = [html.index(m) for m in order]
+    assert seen == sorted(seen), (
+        "建卡向导的步骤顺序不对：类型 → 名字 → 额度 → 联系方式 → 边界 → 范围 → 确认 → 钱包 → 刷脸"
+    )
+    assert 'id="idsub-goto-cert"' in html, "个体 / 企业要有「去完成认证」的出口"
+    css = (CONSOLE / "styles" / "cyber-console.css").read_text(encoding="utf-8")
+    assert ".idv-row[hidden] { display: none !important; }" in css, (
+        "\u300c\u53bb\u5b8c\u6210\u8ba4\u8bc1\u300d\u90a3\u4e00\u884c\u662f .idv-row\uff08display:flex\uff09\uff0c"
+        "\u4e0d\u5199\u8fd9\u4e00\u6761 [hidden] \u538b\u4e0d\u4f4f\uff0c\u9009\u4e2a\u4f53 / \u4f01\u4e1a\u65f6\u8fd8\u4f1a\u9732\u7740"
+    )
+
+
+def test_sole_and_entity_types_route_to_their_own_certification_pages():
+    js = _identity_js()
+    assert re.search(r"var SUB_ROUTE = \{", js), "类型 → 认证页 的路由只能有一份"
+    block = js[js.index("var SUB_ROUTE = {") : js.index("function syncSubRoute()")]
+    assert re.search(r'sole:\s*\{[^}]*sub:\s*"sole"', block), "个体助理要落到个体认证页"
+    assert re.search(r'entity:\s*\{[^}]*sub:\s*"enterprise"', block), "企业主体要落到企业认证页"
+    create = js[js.index("async function createSub()") :]
+    create = create[: create.index("async function finishSub()")]
+    assert "SUB_ROUTE[roleKey]" in create, "个体 / 企业不能在这条直线上偷偷建一张空卡"
+    assert "idsub-goto-cert" in js and 'cyberSwitchPage("identity"' in js, "「去完成认证」要真的翻到那一页"
+
+
+def test_a_new_sub_identity_reaches_the_picker_and_the_agent_inlet():
+    js = _identity_js()
+    finish = js[js.index("async function finishSub()") :]
+    finish = finish[: finish.index("\n  /**")]
+    assert "karma-capacity-changed" in finish, "建完卡要广播一次，其余模块才知道名单变了"
+    identity_js = (CONSOLE / "scripts" / "cyber-identity.js").read_text(encoding="utf-8")
+    assert 'document.addEventListener("karma-capacity-changed", refresh)' in identity_js, (
+        "「选择助理身份」要监听这个事件，否则新卡要刷新页面才出现"
+    )
+    agents_js = (CONSOLE / "scripts" / "cyber-agents.js").read_text(encoding="utf-8")
+    assert 'document.addEventListener("karma-capacity-changed"' in agents_js, (
+        "「接入 Agent」的档案下拉也要跟着刷新"
+    )
+    shared_js = (CONSOLE / "scripts" / "cyber-cert-shared.js").read_text(encoding="utf-8")
+    assert "karma-capacity-changed" in shared_js, "个体 / 企业认证建完档走的是同一条广播"
