@@ -135,6 +135,10 @@ def build_server(
             )
             if not isinstance(payload, dict) or not payload.get("pairing_code"):
                 raise KarmaToolError(ErrorClass.BACKEND, "pairing request returned no pairing_code")
+            if key is not None:
+                # 服务端不回显公钥；这里本地留痕，karma_connect_status 才能如实报告
+                # 「公钥已交」—— 否则状态页会一直说没交，主人会以为白配了。
+                payload["public_key"] = body["public_key"]
             path = save_pairing(payload)
             user_code = str(payload.get("user_code") or "")
             return ok(
@@ -431,6 +435,14 @@ def build_server(
             raise KarmaToolError(
                 ErrorClass.INVALID,
                 "karma_identity_id, wallet_address and agent_name are required",
+            )
+        if not agent_binding:
+            # 后端在 runtime_require_agent_binding 开启时拒绝不记名钥匙（谁捡到谁能花）。
+            # 这里提前拦：不指名就先去跟主人要 agent id，别等后端用英文 400 打回来。
+            raise KarmaToolError(
+                ErrorClass.INVALID,
+                "agent_binding is required: 每把 Runtime Key 都必须指名它授权的 agent"
+                "（不记名钥匙会被后端拒绝）",
             )
         message = build_create_key_message(
             karma_identity_id=karma_identity_id,

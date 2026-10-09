@@ -106,6 +106,8 @@ async def test_pairing_claim_writes_credentials_without_echoing_them(tmp_path, m
     status = await _tool(server, "karma_connect_status")()
     assert status["ok"] is True
     assert status["pairing"] == "pending_owner"
+    # 我们确实把公钥交上去了，状态就得如实说「交了」（服务端不回显，本地留痕）
+    assert status["public_key_attached"] is True
     assert PAIRING_CODE not in json.dumps(status, ensure_ascii=False)
     # 查状态绝不能再打网络：那一步会把一次性凭据吃掉
     assert [c["path"] for c in calls] == ["/v1/agent-pairing/request"]
@@ -160,6 +162,7 @@ async def test_authorization_is_signed_by_owner_wallet_not_by_mcp():
         agent_name="小爱",
         karma_identity_id="ident-1",
         wallet_address=WALLET,
+        agent_binding="demo-agent",
     )
     assert preview["ok"] is True
     assert preview["step"] == "awaiting_wallet_signature"
@@ -169,6 +172,7 @@ async def test_authorization_is_signed_by_owner_wallet_not_by_mcp():
     assert "wallet_address:" + WALLET in message
     assert "permissions:place_order" in message
     assert "daily_limit:20.0" in message
+    assert "agent_binding:demo-agent" in message
     assert seen == {}  # 预览不写后端、不发网络
 
     submitted = await _tool(server, "karma_submit_authorization")(
@@ -179,6 +183,7 @@ async def test_authorization_is_signed_by_owner_wallet_not_by_mcp():
         single_limit=5.0,
         daily_limit=20.0,
         karma_identity_id="ident-1",
+        agent_binding="demo-agent",
     )
     assert submitted["ok"] is True
     assert submitted["key_id"] == "kid-new"
@@ -192,6 +197,28 @@ async def test_authorization_is_signed_by_owner_wallet_not_by_mcp():
     assert sent["single_limit"] == 5.0
     assert sent["daily_limit"] == 20.0
     assert sent["wallet_address"] == WALLET
+    assert sent["agent_binding"] == "demo-agent"
+    assert sent["agent_id"] == "demo-agent"
+
+
+async def test_authorization_without_agent_binding_fails_before_the_backend():
+    """不指名 agent 就是不记名钥匙：后端会拒，MCP 必须更早拦下来，不能白跑一次。"""
+
+    def handler(request):
+        raise AssertionError("不该发网络：本地就要拦住")
+
+    server = _make(handler)
+    out = await _tool(server, "karma_request_authorization")(
+        permissions=["place_order"],
+        single_limit=5.0,
+        daily_limit=20.0,
+        agent_name="小爱",
+        karma_identity_id="ident-1",
+        wallet_address=WALLET,
+    )
+    assert out["ok"] is False
+    assert out["error"]["class"] == "invalid"
+    assert "agent_binding" in out["error"]["message"]
 
 
 async def test_revoke_preview_then_execute():

@@ -122,7 +122,7 @@
 
 - **用途**：把用户自然语言权限意图 → **结构化策略预览** → 用户确认 → 钱包签名 → 铸造 Runtime Key。
 - **绝对禁止**：不得由 Agent 或模型自行签发资金权限；不得跳过用户确认；不得代替用户签名。
-- **入参**：`agent_name`、`permissions: [str]`、`single_limit: float`、`daily_limit: float`、`expire_time: str | None`、`agent_binding: str`、`wallet_address: str`。
+- **入参**：`agent_name`、`permissions: [str]`、`single_limit: float`、`daily_limit: float`、`expire_time: str | None`、`agent_binding: str`（**必填** —— 后端 `runtime_require_agent_binding` 拒绝不记名钥匙，MCP 提前拦）、`wallet_address: str`。
 - **返回（第一步）**：`{preview: {...}, sign_message: "<与后端 build_create_key_message 同构的待签文本>", next_step}`。
 - **返回（第二步，用户签完回传签名）**：调 `POST /runtime/create-key` → `{key_id, key_fingerprint, permissions, limits, expires_at}`（**只回指纹，绝不回 key 明文之外的任何秘密**；key 明文只在凭据文件里）。
 - **失败语义**：用户未确认 → 不产生任何后端变更；签名不匹配 → 后端 403，MCP 原样透传为 `forbidden`。
