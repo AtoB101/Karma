@@ -180,24 +180,60 @@
      岗位的功能区」那套落点逻辑一起放在 cyber-console.js 的 KarmaWorkspace 里。 */
   var GOVERNANCE_CLASSES = ["verifier", "arbitrator"];
 
-  /** 「身份 · 认证」核过的身份才进「选择身份」（用户口径 2026-10-09）。
-      判据就取档案自己的两个字段：kyc_status 必须 verified、档案本身还得是 active。
-      没认证的（none / pending / rejected）和本人停用的先都收起来 —— 列出来只会让人切过去
-      发现什么都干不了。要看进度 / 去认证，走面板底部那句提示。 */
+  /** 「个人助理认证」（证件核验）的进度：核的是主身份本人，不是一张子身份卡。
+      认证过一次的人要能在「选择身份」里认出这就是他认证的那个身份。 */
+  var masterVerifyStatus = "";
+
+  /** 「身份 · 认证」核过的身份才能**切过去**（用户口径 2026-10-09）。
+      判据取档案自己的两个字段：kyc_status 必须 verified、档案本身还得没被本人停用。
+      没认证完的不藏 —— 藏起来就成了「我明明建了这张卡，选择身份里却找不到」（线下实测
+      反馈）。列在下面、标清卡在哪一步，点一张直接去它那页认证。 */
   function isCertifiedIdentity(p) {
     if (!p || !p.profile_id) return false;
     if (String(p.kyc_status || "none").toLowerCase() !== "verified") return false;
     return String(p.status || "active").toLowerCase() !== "disabled";
   }
 
+  /** 真的有一张档案（不是以前那种「未建立」占位），而且本人没停用它。 */
+  function isExistingIdentity(p) {
+    if (!p || !p.profile_id) return false;
+    return String(p.status || "active").toLowerCase() !== "disabled";
+  }
+
+  /** 认证进度对外说法，和「身份 · 认证」页同一套词。 */
+  function kycStatusLabel(p) {
+    var s = String((p && p.kyc_status) || "none").toLowerCase();
+    if (s === "pending") return tr("复核中", "复核中");
+    if (s === "rejected") return tr("未通过", "未通过");
+    return tr("未认证", "未认证");
+  }
+
+  /** 没认证完的子身份：点一下走它自己那一页认证。 */
+  function goCertify(klass) {
+    if (window.cyberSwitchPage) {
+      window.cyberSwitchPage("identity", ROLE_CERT_SUB[klass] || "life");
+    }
+  }
+
+  /** 主身份那一行带上「个人助理认证」的进度 —— 证件核验核的就是主身份本人。 */
+  function masterVerifySuffix() {
+    if (!masterVerifyStatus) return "";
+    var label = masterVerifyStatus === "verified"
+      ? tr("已认证", "已认证")
+      : (masterVerifyStatus === "pending" ? tr("复核中", "复核中") : tr("未认证", "未认证"));
+    return " · " + tr("个人助理认证", "个人助理认证") + " " + label;
+  }
+
   /*: 选择栏空着时那句话：中文是源文案（也在 i18n-phrase 里），点一下直达认证页。 */
   var UNCERTIFIED_HINT = "还没有已认证的子身份 —— 在「身份 · 认证」里认证通过一个，它就会出现在这里。";
-  function hintNode(className) {
+  /*: 有卡、但一张都没认证完时，下面那一组的前缀。 */
+  var PENDING_HINT = "还没认证完的身份卡在下面 —— 点一张去「身份 · 认证」把它认证通过，就能切过去了。";
+  function hintNode(className, sub) {
     var node = document.createElement("p");
     node.className = className;
     node.textContent = tr("scope.empty_uncertified", UNCERTIFIED_HINT);
     node.addEventListener("click", function () {
-      if (window.cyberSwitchPage) window.cyberSwitchPage("identity", "master");
+      if (window.cyberSwitchPage) window.cyberSwitchPage("identity", sub || "master");
     });
     return node;
   }
@@ -233,15 +269,17 @@
     var pid = activeProfileId();
     panel.innerHTML = "";
     var masterId = String(window.KARMA_IDENTITY_ID || "").trim();
-    var masterLabel = masterId
+    var masterLabel = (masterId
       ? displayId(masterId, 0) + " · " + tr("scope.master_all", "主体（全部）")
-      : tr("scope.master_all", "主体（全部）");
+      : tr("scope.master_all", "主体（全部）")) + masterVerifySuffix();
     var rows = [{ id: "", label: masterLabel }];
+    var pending = [];
     /* 治理岗（verifier / arbitrator）不进「选择身份」：入口在侧栏主功能区，不在这里重复。 */
     profiles.forEach(function (p) {
       if (GOVERNANCE_CLASSES.indexOf(p["class"]) >= 0) return;
-      /* 只有认证过的子身份进选择栏；没认证的只配在「身份 · 认证」里出现。 */
-      if (!isCertifiedIdentity(p)) return;
+      if (!isExistingIdentity(p)) return;
+      /* 认证过的才给切；没认证完的收进 pending，照样列出来、点一下去认证。 */
+      if (!isCertifiedIdentity(p)) { pending.push(p); return; }
       rows.push({ id: p.profile_id, label: profileLabel(p) });
     });
 
@@ -250,13 +288,16 @@
       row.className = "sub-switch-row";
       var b = document.createElement("button");
       b.type = "button";
-      b.className = "sub-switch-item" + (r.id === pid ? " active" : "");
+      b.className = "sub-switch-item" + (r.id === pid && !r.dim ? " active" : "") + (r.dim ? " pending" : "");
       b.setAttribute("role", "menuitem");
       b.setAttribute("data-profile-option", r.id);
       b.textContent = r.label;
-      b.addEventListener("click", function () { setActiveProfile(r.id); closeSubPanel(); });
+      b.addEventListener("click", function () {
+        if (r.dim) { closeSubPanel(); goCertify(r.klass); return; }
+        setActiveProfile(r.id); closeSubPanel();
+      });
       row.appendChild(b);
-      if (r.id) {
+      if (r.id && !r.dim) {
         var g = document.createElement("button");
         g.type = "button";
         g.className = "sub-switch-grant";
@@ -289,12 +330,18 @@
       empty.className = "sub-switch-empty";
       empty.textContent = tr("scope.empty", "还没有子身份档案，可在「身份」页创建。");
       panel.appendChild(empty);
-    } else if (rows.length === 1) {
-      /* 有档案、但一张都没认证：别把没认证的也列出来装作能切，直接说清楚去哪儿认证。 */
-      panel.appendChild(hintNode("sub-switch-empty"));
-    } else {
+    } else if (rows.length > 1) {
       addHead("pick.role_agent", "注册代理身份");
       rows.slice(1).forEach(addRow);
+    } else {
+      /* 有档案、但一张都没认证完：先给出去哪儿认证这句话，下面再把卡列出来。 */
+      panel.appendChild(hintNode("sub-switch-empty"));
+    }
+    if (pending.length) {
+      if (rows.length > 1) addHead("pick.role_pending", PENDING_HINT);
+      pending.forEach(function (p) {
+        addRow({ id: "", label: profileLabel(p) + " · " + kycStatusLabel(p), dim: true, klass: p["class"] });
+      });
     }
   }
 
@@ -423,35 +470,42 @@
     var masterId = String(window.KARMA_IDENTITY_ID || "").trim();
     panel.innerHTML = "";
 
-    var rows = [
-      {
-        id: "",
-        name: "主身份 · 主体账户",
-        sub: masterId ? displayId(masterId, 0) : "未连接钱包",
-        role: "主身份",
-        locked: false,
-      },
-    ];
+    var masterRow = {
+      id: "",
+      name: "主身份 · 主体账户" + masterVerifySuffix(),
+      sub: masterId ? displayId(masterId, 0) : "未连接钱包",
+      role: "主身份",
+      locked: false,
+    };
+    var rows = [masterRow];
+    var selectable = 0;
     list.forEach(function (p) {
       if (!p || !p.profile_id) return;
       /* 治理岗的入口在侧栏主功能区，不进「选择身份」。 */
       if (GOVERNANCE_CLASSES.indexOf(p["class"]) >= 0) return;
-      /* 只有认证过的子身份进选择栏 —— 没认证的切过去什么都干不了。 */
-      if (!isCertifiedIdentity(p)) return;
+      if (!isExistingIdentity(p)) return;
+      var certified = isCertifiedIdentity(p);
+      if (certified) selectable += 1;
+      /* 没认证完的不藏：列出来、标清卡在哪一步，点一下直接去认证 —— 否则用户会以为丢卡了。 */
       rows.push({
-        id: p.profile_id,
-        name: p.display_name ? tr(p.display_name, p.display_name) : roleLabel(p),
+        id: certified ? p.profile_id : "",
+        name: (p.display_name ? tr(p.display_name, p.display_name) : roleLabel(p)) +
+          (certified ? "" : " · " + kycStatusLabel(p)),
         sub: displayId(p.profile_id, profilePosition(p.profile_id)),
         role: roleLabel(p),
         locked: p.visibility === "private",
+        pending: !certified,
+        klass: p["class"],
       });
     });
     function addPickerRow(r) {
       var b = document.createElement("button");
       b.type = "button";
-      b.className = "id-picker-item" + (r.id === active && r.id ? " active" : "");
+      b.className =
+        "id-picker-item" + (r.id === active && r.id ? " active" : "") + (r.pending ? " pending" : "");
       b.setAttribute("role", "option");
       b.setAttribute("data-profile-id", r.id);
+      b.setAttribute("data-profile-cert", r.pending ? "pending" : "ok");
       b.setAttribute("aria-selected", r.id === active ? "true" : "false");
       var name = document.createElement("span");
       name.className = "ip-name";
@@ -470,6 +524,8 @@
       b.appendChild(meta);
       b.addEventListener("click", function () {
         closeIdPicker();
+        /* 没认证完的卡切不过去：直接把人送到它那一页认证，别让人猜。 */
+        if (r.pending) return goCertify(r.klass);
         // 点的就是当前这张卡：不用重设档案（会白刷一遍），但照样落到它那一页——
         // 人可能从别的页面切回来，点了没反应会让人以为坏了。
         if (r.id === active) return followIdentityPage();
@@ -487,12 +543,16 @@
 
     addPickerRow(rows[0]);
     if (rows.length < 2) {
-      /* 一张认证过的子身份都没有：不画空分组，直接把「去哪儿认证」摆出来。 */
+      /* 一张档案都没有：不画空分组，直接把「去哪儿认证」摆出来。 */
       panel.appendChild(hintNode("id-picker-empty"));
       return;
     }
     addPickerHead("pick.role_agent", "注册代理身份");
     rows.slice(1).forEach(addPickerRow);
+    if (!selectable) {
+      /* 有卡、但一张都没认证完：上面那些点了只是去认证，再补一句说清为什么切不动。 */
+      panel.appendChild(hintNode("id-picker-empty"));
+    }
 
   }
 
@@ -712,6 +772,7 @@
     // 401 by design, so skip it until the user signs in instead of logging a
     // needless 401 on every fresh visit.
     if (!window.KARMA_ACCESS_TOKEN && !window.KARMA_API_KEY) {
+      masterVerifyStatus = "";
       renderSwitcher(profiles);
       applyConfidential();
       renderScopeBar();
@@ -720,10 +781,19 @@
       return;
     }
     try {
+      var oid = (window.KARMA_IDENTITY_ID || "").trim();
       if (a && a.listRoleProfiles) {
-        var oid = (window.KARMA_IDENTITY_ID || "").trim();
         var body = await a.listRoleProfiles(oid);
         profiles = (body && body.profiles) || [];
+      }
+      /* 「个人助理认证」（证件核验）核的是主身份本人 —— 在「选择身份」第一行标出它的进度，
+         否则认证过的人以为没生效（线下实测反馈）。拿不到就退回不标，不挡主流程。 */
+      masterVerifyStatus = "";
+      if (oid && a && a.getIdentityVerification) {
+        try {
+          var mv = await a.getIdentityVerification(oid);
+          masterVerifyStatus = String((mv && mv.status) || "").toLowerCase();
+        } catch (_) {}
       }
       try { sessionStorage.setItem(SS_PROFILES, JSON.stringify(profiles)); } catch (_) {}
     } catch (_) {}

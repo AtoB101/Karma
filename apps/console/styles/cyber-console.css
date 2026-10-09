@@ -467,6 +467,8 @@ body.sub-scope-filtered .sub-scope-bar b { color: var(--neon-mint); }
 }
 .sub-switch-item:hover { background: rgba(168, 85, 247, 0.12); border-color: var(--border-glow); }
 .sub-switch-item.active { background: rgba(100, 116, 139, 0.18); border-color: rgba(100, 116, 139, 0.6); }
+/* 有卡但没认证完：列出来（点了去认证），但看着就像「还切不了」。 */
+.sub-switch-item.pending { opacity: 0.62; color: var(--text-dim); }
 .sub-switch-empty { padding: 10px 12px; font-size: 11px; color: var(--text-dim); cursor: pointer; }
 .sub-switch-empty:hover { color: var(--neon-cyan); }
 
@@ -2117,7 +2119,9 @@ body {
   transition: background 0.15s, border-color 0.15s;
 }
 .id-picker-item:hover { background: rgba(168, 85, 247, 0.1); border-color: var(--border-glow); }
-/* 还没建的助理：点一下去它自己的认证页。 */
+/* 有卡但没认证完：可见、可点（去认证），但不是一张能切的身份。 */
+.id-picker-item.pending { opacity: 0.65; }
+.id-picker-item.pending .ip-name { color: var(--text-dim); }
 .id-picker-item.active {
   background: rgba(100, 116, 139, 0.16);
   border-color: rgba(100, 116, 139, 0.6);
