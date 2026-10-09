@@ -38,9 +38,16 @@ Ed25519 公钥钉在一起 —— 绑定之后，每个 `/runtime/*` 请求都�
 绑定有两条路，**能走第一条就走第一条**：
 
 1. **配对即激活（推荐，也是 MCP 的默认行为）**：agent 申请接入时把自己的公钥一起交上来
-   （`POST /v1/agent-pairing/request` 的 `public_key`），操作台在批准前把指纹显示给主人核对。
+   （`POST /v1/agent-pairing/request` 的 `public_key`），**并用这把私钥签一份「持有证明」**
+   （`signature` / `nonce` / `timestamp`；被签原文见
+   `services/runtime_wallet.build_agent_pairing_request_message`，时间窗 ±300 秒、nonce 防重放）。
+   操作台在批准前把指纹显示给主人核对，批准时主人钱包签名消息里的
+   `agent_public_key_fingerprint` 一行把「这把钥匙只授权给这个指纹对应的公钥」钉死，
+   绑定那一刻服务端重算比对，对不上直接 403。
    主人批准 + 划额度那一下，钥匙就已经钉在这把公钥上了 —— agent 领到就能干活，
    没有人需要再输任何码。签名照旧、每请求都有，只是它完全自动。
+   没带签名的老客户端仍可申请，但响应里 `request_signed=false`，操作台会把它标出来 ——
+   这种申请只能走下面第 2 条 8 位匹配码。
 2. **8 位匹配码（agent 没报公钥时的退路）**：agent 领到钥匙后调 `/runtime/bind-key`
    申请绑定，把返回的匹配码交给主人，主人在操作台输码确认。
 
@@ -231,7 +238,10 @@ GET /runtime/permissions
 钥匙还没绑任何公钥，谁抄到那串 KRM_RT_… 谁就能在额度内花。现在这条堵上了。
 
 铸造时 `agent_binding` 非空（这把钥匙明确是给某个 agent 的；该字段在钱包签名消息里，
-用户授权过）的钥匙，落到 `key_binding = agent_pending`：
+用户授权过）的钥匙，落到 `key_binding = agent_pending`。钱包签名消息里还可以带一行
+`agent_public_key_fingerprint`（16 位 hex，目标 agent 公钥的指纹）：写了就等于主人当场
+点名「这把钥匙只授权给这把公钥」，申请绑定 / 激活 / 输码确认三条路径都会重算指纹比对，
+对不上就 403；不写（老客户端）时该列为 NULL，行为与升级前完全一致：
 
 * 拿它调任何动作端点（`/runtime/place-order`、`/runtime/request-voucher`、
   `/runtime/request-settlement`、`/runtime/capacity` …）一律 **403**，理由是
