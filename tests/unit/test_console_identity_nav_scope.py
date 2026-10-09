@@ -6,7 +6,7 @@
 用户口径（2026-10-10）：切到**助理身份**时，功能区只留
 订单 / 收付中心 / 任务执行 / 账单 / 争议 / Agent 接入 / 设置 这七项 ——
 身份 · 认证（建卡、主身份账房）和技能市场属于别的视角，不再画在助理页上。
-技能市场那一组因此退役：侧栏不再给任何身份显示（整页与接口都还在，只是入口撤了）。
+技能市场的侧栏入口已**删掉**（整页与接口都还在，只是不再挂入口）。
 
 钉住三件事：
 
@@ -32,8 +32,6 @@ PAGE = CONSOLE / "pages/cyber/index.html"
 ROLES = {"master", "individual", "merchant", "enterprise", "verifier", "arbitrator", "ops_reviewer"}
 #: 助理身份（子身份）的功能区白名单：一张卡干活要用到的七块，别的都收起来。
 ASSISTANT_GROUPS = ["overview", "center", "tasks", "bills", "disputes", "agents", "settings"]
-#: 侧栏里保留但不再给任何身份显示的分组 —— 入口退役，功能本身还在。
-PARKED_NAV_GROUPS = {"market"}
 #: 特权工作面 → 哪些岗位的功能区里有它（运营复核岗本来就是 verifier 类身份）。
 PRIVILEGED = {
     "reviews": {"verifier", "ops_reviewer"},
@@ -107,7 +105,7 @@ def test_assistant_area_does_not_carry_the_job_entries():
 
 def test_every_nav_group_is_reachable_from_some_role():
     js = BOOT.read_text(encoding="utf-8")
-    reachable = set(_always_visible(js)) | PARKED_NAV_GROUPS
+    reachable = set(_always_visible(js))
     for groups in _role_groups(js).values():
         reachable |= set(groups)
     groups = set(_nav_tags(PAGE.read_text(encoding="utf-8")))
@@ -124,6 +122,15 @@ def test_assistant_function_area_is_exactly_the_seven_work_areas():
             assert gone not in roles[role], f"{role} 不该把 {gone} 收进功能区"
     # 主身份视角没动：身份 · 认证 + 账单 + 设置。
     assert roles["master"] == ["identity", "bills", "settings"]
+
+
+def test_the_skill_market_entry_is_gone_from_the_sidebar():
+    """技能市场的侧栏入口已删（用户口径 2026-10-10）—— 整页与接口都还在，只是不再挂入口。"""
+    html = PAGE.read_text(encoding="utf-8")
+    assert 'data-group="market"' not in html, "侧栏不该再有技能市场这一组"
+    assert 'data-page="market"' not in html, "侧栏不该再有指向技能市场的按钮"
+    for role, groups in _role_groups(BOOT.read_text(encoding="utf-8")).items():
+        assert "market" not in groups, f"{role} 的功能区还留着技能市场"
 
 
 def test_switching_identity_never_leaves_you_on_a_hidden_page():
