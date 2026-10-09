@@ -17,6 +17,14 @@
  *     16x16 灰度平均差会接近 0，这里当场拒掉并要求重拍；
  *   · 五张采完先给本人看，本人点「确认使用」才交给上层去加密上传。不存在偷偷拍。
  *
+ * 手感（2026-10-09 调）—— 苹果 / 微信那种「停住就立刻有反应」是这么来的：
+ *   · 判定密度压在 25ms 一个点、停稳窗口 320ms 一档，一个窗口里十来个点，
+ *     停住之后不用再干等；两个角度之间的纯等待从 0.52s 收到 0.24s；
+ *   · 采到一张给一声短促的提示音（右上角铃铛可关，选择记在 localStorage），
+ *     加上原来的震动 —— 眼睛盯屏幕、耳朵报进度；
+ *   · 有 FaceDetector 的机器上，五张都给取景反馈（正面用完整刻度，
+ *     转头那几张只守「别出圈」），不再是只有第一张有人管。
+ *
  * 照片全程只在这台设备的浏览器内存里，不上传。
  */
 (function () {
@@ -26,14 +34,25 @@
   var JPEG_QUALITY = 0.72;
   /** 兜底定时：只有拿不到 requestAnimationFrame 时才用它（正常浏览器逐帧驱动）。 */
   var TICK_MS = 20;
-  /** 历史帧的采样间隔：判定只需要这个密度，不必跟着逐帧走。 */
-  var HISTORY_MS = 40;
+  /** 历史帧的采样间隔。
+   *
+   * 这个值直接决定「停住之后多久出结果」：停稳窗口里的每一帧都要参与判定，
+   * 采样疏了就得等更久才攒够一个窗口。所以它跟着 STILL_MS 一起收紧，
+   * 一个窗口里至少要有 10 个点，判定才不看运气。
+   */
+  var HISTORY_MS = 25;
   /** 「取样 + 判定」的最小间隔：这一步很贵，进度圈不靠它，所以不必逐帧跑。 */
-  var SAMPLE_MS = 25;
-  /** 分析最多占掉多少比例的时间：剩下的必须留给逐帧的进度圈和页面渲染。 */
-  var SAMPLE_DUTY = 4;
+  var SAMPLE_MS = 16;
+  /** 分析最多占掉多少比例的时间：剩下的必须留给逐帧的进度圈和页面渲染。
+   *
+   * 原来是 4（分析一次、歇四倍时间）。真机上量下来这一档太保守：一次取样
+   * （16x16 灰度 + 十几次加权差）通常只有几毫秒，而 4 倍预算能把判定间隔拖到
+   * 上百毫秒 —— 用户看到的「停住了还要愣一下」主要就出在这儿。压到 2 之后，
+   * 弱机器仍留一半帧预算给进度圈，强机器基本就是逐帧判定。
+   */
+  var SAMPLE_DUTY = 2;
   /** 分析间隔的上限：真机上再慢也不能慢到这个地步，否则判定会迟钝。 */
-  var SAMPLE_MAX_MS = 400;
+  var SAMPLE_MAX_MS = 160;
 
   /**
    * 真人认证要采到整张脸的多个角度，不是拍一张就完事：
@@ -99,23 +118,97 @@
    */
   var STILL_DIFF_RELAX = 0.18;
   /** 姿势到位之后等多久，把停稳的门槛放宽一档。 */
-  var SETTLE_RELAX_MS = 900;
-  var STILL_MS = 460;
+  var SETTLE_RELAX_MS = 550;
+  /* 「停住」要停满多久。
+   *
+   * 这是整套流程里最影响手感的一个数：它既是「判定延迟」的下限（停住之后
+   * 至少要等这么久才敢拍），又要足够长、把慢慢转头这种「看着没动、其实在动」
+   * 挡在外面。460ms 是按「每步还要再宽限 0.42s + 转身 0.52s」那个旧的总节奏
+   * 定的；采样加密到 25ms 一个点之后，320ms 的窗口里已经有 12 个点撑着，
+   * 该挡的照样挡得住，而五步下来的总时长能砍掉近一半 —— 苹果 / 微信那种
+   * 「停下就立刻有反馈」靠的就是把这一段压到最短。
+   */
+  var STILL_MS = 320;
   /** 和上一张已采的帧至少要差这么多，才算「真的换了一个角度」（约 10 像素的姿态差）。 */
   var ANGLE_MIN_DIFF = 0.16;
   /** 某个角度一直没进展，多久之后给一个手动兜底按钮（正常流程看不到它）。 */
-  var AUTO_STUCK_MS = 4500;
+  var AUTO_STUCK_MS = 3000;
   /** 画面一直在动（背景有人、镜头在晃）时，多久之后把原因说出来 —— 不能让人干等。 */
-  var BUSY_HINT_MS = 2000;
+  var BUSY_HINT_MS = 1400;
   /** 每一步开始后的宽限时间：别让用户还没站好就被拍。 */
-  var GRACE_FIRST_MS = 1300;
-  var GRACE_STEP_MS = 420;
-  /** 两个角度之间留的转身时间：这段时间不判定。 */
-  var BETWEEN_MS = 520;
+  var GRACE_FIRST_MS = 900;
+  var GRACE_STEP_MS = 240;
+  /** 两个角度之间留的转身时间：这段时间不判定。
+   *
+   * 摄像头不关、预览一直在动，用户看得见上一张采到了；0.52s 的纯等待只会让
+   * 五步串起来慢得明显，0.24s 足够看清那句「第 N 张已采到」。
+   */
+  var BETWEEN_MS = 240;
 
   var state = null;
   /** 逐帧循环的句柄（requestAnimationFrame 的 id；退回定时器时是 timeout id）。 */
   var rafId = null;
+
+  /* ------------------------------------------------------------------ 提示音
+   *
+   * 苹果那声「叮」和微信 / 支付宝采到人脸那一下的反馈，是「跟手」的一部分：
+   * 眼睛盯着屏幕中间，耳朵负责告诉你「这一张成了，可以换下一个动作了」。
+   * 所以这里用 WebAudio 现场合成，不带任何音频文件（操作台是纯静态包，
+   * 塞 mp3 既增加体积、又要在无网环境里另做处理）。
+   *
+   * 三条底线：
+   *   · 关得掉 —— 右上角有一个铃铛，选择记在 localStorage，默认开；
+   *   · 静默失败 —— 浏览器不给放（没有 AudioContext / 自动播放策略拦着）就跳过，
+   *     绝不因此报错、更不能因此卡住采集；
+   *   · 只在真的发生了事情时响：采到一张（短促），五张采完（两声）。
+   */
+  var SOUND_KEY = "karma_face_sound";
+  var soundOn = true;
+  try { soundOn = localStorage.getItem(SOUND_KEY) !== "off"; } catch (_) {}
+  var audioCtx = null;
+
+  function beep(kind) {
+    if (!soundOn) return;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audioCtx) audioCtx = new AC();
+      if (audioCtx.state === "suspended" && audioCtx.resume) audioCtx.resume();
+      var t0 = audioCtx.currentTime + 0.01;
+      // 一声短促的高音＝这一张采到了；再补一声更高的＝全部采完。
+      var notes = kind === "done" ? [[784, 0], [1175, 0.1]] : [[1175, 0]];
+      notes.forEach(function (n) {
+        var osc = audioCtx.createOscillator();
+        var gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = n[0];
+        var at = t0 + n[1];
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.12, at + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.14);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(at);
+        osc.stop(at + 0.17);
+      });
+    } catch (_) {}
+  }
+
+  function renderSoundBtn() {
+    var b = byId("kfc-sound");
+    if (!b) return;
+    b.textContent = soundOn ? "🔔" : "🔕";
+    b.setAttribute("aria-pressed", soundOn ? "true" : "false");
+    b.setAttribute("aria-label", soundOn ? "提示音已开" : "提示音已关");
+    b.className = "kfc-x kfc-snd" + (soundOn ? "" : " kfc-off");
+  }
+
+  function toggleSound() {
+    soundOn = !soundOn;
+    try { localStorage.setItem(SOUND_KEY, soundOn ? "on" : "off"); } catch (_) {}
+    renderSoundBtn();
+    if (soundOn) beep("shot");
+  }
 
   /* ------------------------------------------------------------------ 样式 */
 
@@ -127,6 +220,9 @@
     ".kfc-head h3{margin:0;font-size:17px;font-weight:650;letter-spacing:.2px}",
     ".kfc-x{width:32px;height:32px;border-radius:10px;border:1px solid rgba(120,140,255,.22);background:rgba(255,255,255,.03);color:#9fb0e0;font-size:18px;line-height:1;cursor:pointer}",
     ".kfc-x:hover{background:rgba(255,255,255,.08);color:#fff}",
+    ".kfc-head-btns{display:flex;align-items:center;gap:8px}",
+    ".kfc-x.kfc-snd{font-size:15px}",
+    ".kfc-x.kfc-snd.kfc-off{opacity:.45}",
     ".kfc-sub{margin:8px 20px 0;color:#9aa8cc;font-size:12.5px}",
     ".kfc-stage{position:relative;margin:14px 20px 0;aspect-ratio:3/4;border-radius:16px;overflow:hidden;background:#04060e}",
     ".kfc-stage video,.kfc-stage img.kfc-shot{width:100%;height:100%;object-fit:cover;display:block;background:#04060e}",
@@ -278,6 +374,27 @@
     if (topGap < 0.02) return { ok: false, msg: "头再抬一点，别切到上方" };
     if (botGap < 0.02) return { ok: false, msg: "下巴也要在圈内" };
     return { ok: true, msg: "位置合适，别动" };
+  }
+
+  /**
+   * 转头过程中的「有没有明显出圈」。
+   *
+   * 侧脸 / 抬低头时人脸框的形状本来就会变（脸宽变窄、上下变长），正面那张的
+   * 「居中 + 占满 + 留白」那套刻度套上去只会误报。所以这里只守住一条最粗的线：
+   * 框的中心还大致在圈里。出圈了才说话，其余一律不打扰 —— 判定流程照旧，
+   * 提示绝不反过来卡住采集。
+   */
+  function judgeOutOfRing(face, geom, box) {
+    var x = face.x * geom.scale + geom.ox;
+    var y = face.y * geom.scale + geom.oy;
+    var w = face.width * geom.scale;
+    var h = face.height * geom.scale;
+    var dx = (x + w / 2 - box.cx) / box.rx;
+    var dy = (y + h / 2 - box.cy) / box.ry;
+    if (Math.abs(dx) > 0.85 || Math.abs(dy) > 0.9) {
+      return { ok: false, msg: "脸快出圈了 —— 转回来一点，让脸留在圈里" };
+    }
+    return { ok: true, msg: "" };
   }
 
   /** 有 FaceDetector 就用真的；没有就 null，只报画面稳没稳。 */
@@ -468,7 +585,10 @@
     node.innerHTML =
       '<div class="kfc-modal">' +
       '<div class="kfc-head"><h3 id="kfc-title">刷脸认证</h3>' +
-      '<button type="button" class="kfc-x" data-kfc-close aria-label="关闭">×</button></div>' +
+      '<div class="kfc-head-btns">' +
+      '<button type="button" class="kfc-x kfc-snd" id="kfc-sound" aria-label="提示音已开" aria-pressed="true">🔔</button>' +
+      '<button type="button" class="kfc-x" data-kfc-close aria-label="关闭">×</button>' +
+      "</div></div>" +
       '<p class="kfc-sub" id="kfc-sub">把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。照屏幕上的提示转头就行 —— <b>不用按键，系统会自己拍</b>。一共 <b>正脸 + 左右侧脸 + 抬头低头 5 个角度</b>，照片只留在这台设备上。</p>' +
       '<div class="kfc-stage" id="kfc-stage">' +
       '<video id="kfc-video" playsinline muted autoplay></video>' +
@@ -501,6 +621,7 @@
       if (ev.key === "Escape" && state) cancel();
     });
     byId("kfc-file").addEventListener("change", onFilePicked);
+    byId("kfc-sound").addEventListener("click", toggleSound);
     return node;
   }
 
@@ -708,11 +829,11 @@
         analyzeFrame(video);
       }
       paintProgress();
-      // 人脸检测（FaceDetector）很贵，逐帧跑会把主线程占满 —— 250ms 一次足够提示。
-      if (
-        state && state.mode === "live" && state.detector && state.stepIndex === 0 &&
-        now - (state.hintAt || 0) > 250
-      ) {
+      // 人脸检测（FaceDetector）很贵，逐帧跑会把主线程占满 —— 150ms 一次足够提示。
+      //
+      // 以前只在正面那一张跑：转头过程中用户拿不到任何位置反馈，脸出圈了也没人说，
+      // 只能靠「怎么还不拍」自己猜。现在五张都跑，只是判定口径分开（见 hintFace）。
+      if (state && state.mode === "live" && state.detector && now - (state.hintAt || 0) > 150) {
         state.hintAt = now;
         hintFace(video);
       }
@@ -813,6 +934,8 @@
     try {
       if (navigator.vibrate) navigator.vibrate(12);
     } catch (_) {}
+    // 耳朵那一下反馈：短促一声，等于「这一张成了，换下一个动作」。
+    beep("shot");
   }
 
   /** 大字引导：这一张要做什么动作。 */
@@ -926,13 +1049,21 @@
     var stage = byId("kfc-stage");
     var ring = byId("kfc-ring");
     if (!stage || !ring) return;
+    var step = state ? state.stepIndex : 0;
+    var def = state ? currentStep() : null;
     state.detector
       .detect(video)
       .then(function (faces) {
-        if (!state || state.stopped || state.mode !== "live" || state.stepIndex !== 0) return;
+        // 检测是异步的：回来时可能已经翻到下一个角度了，那这一条结论就不要了。
+        if (!state || state.stopped || state.mode !== "live" || state.stepIndex !== step) return;
         // 转头时、或者画面里没有正脸，它看不到是正常的 —— 那就什么都不说。
         if (!faces || !faces.length) return;
-        var verdict = judge(faces[0].boundingBox, coverGeom(stage, video), ringBox(stage, ring));
+        var geom = coverGeom(stage, video);
+        var box = ringBox(stage, ring);
+        // 正面那张用完整刻度（居中 / 占满 / 上下留白）；转头那几张只守「别出圈」。
+        var verdict = def && def.key === "front"
+          ? judge(faces[0].boundingBox, geom, box)
+          : judgeOutOfRing(faces[0].boundingBox, geom, box);
         if (!verdict.ok) flashStatus(verdict.msg, "warn", 1600);
       })
       .catch(function () {
@@ -1083,6 +1214,7 @@
     state.mode = "review";
     stopStream();
     state.shot = captureResult();
+    beep("done");
 
     var stage = byId("kfc-stage");
     stage.querySelectorAll("img.kfc-shot").forEach(function (n) { n.remove(); });
@@ -1259,6 +1391,7 @@
       var node = byId("kfc-overlay") || build();
       node.classList.add("kfc-open");
       byId("kfc-title").textContent = opts.title || "刷脸认证";
+      renderSoundBtn();
       byId("kfc-sub").innerHTML =
         opts.subtitle ||
         "把脸放进圆圈里：<b>头顶和下巴都要在圈内</b>。照屏幕上的提示转头就行 —— <b>不用按键，系统会自己拍</b>。一共 <b>正脸 + 左右侧脸 + 抬头低头 5 个角度</b>，照片只留在这台设备上。";

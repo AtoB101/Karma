@@ -455,3 +455,56 @@ def test_provider_page_is_honest_when_nothing_is_connected():
         html.index('id="idv-provider-open"') - 200 : html.index('id="idv-provider-open"') + 100
     ], "默认态必须是禁用，等服务端说可用才放开"
 
+
+# ---------------------------------------------------------------------------
+# 手感：提示音 / 每一步都给取景反馈 / 时间预算（2026-10-09）
+#
+# 用户口径：为什么不能像苹果、微信支付宝那样流畅。查下来是三件事：
+#   ① 停住之后还要干等（停稳窗口 + 采样稀疏 + 两角度之间的死等）；
+#   ② 只有正面那一张有人管取景，转头全程没有反馈；
+#   ③ 采到一张只有视觉闪一下，眼睛盯着圈的时候容易错过。
+# 三条都当门禁挡住。
+# ---------------------------------------------------------------------------
+
+
+def test_capture_plays_a_tick_when_a_frame_is_taken_and_can_be_muted():
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert re.search(r"function beep\(", js), "采到一张要有一次听觉反馈"
+    assert "AudioContext" in js, "提示音要现场合成，不依赖音频文件"
+    flash = js[js.index("function flash()") :]
+    flash = flash[: flash.index("function renderGuide(")]
+    assert 'beep("shot")' in flash, "拍下这一张要响一声"
+    assert "navigator.vibrate" in flash, "触感反馈不能被替换掉"
+    assert "kfc-sound" in js and re.search(r"function toggleSound\(", js), "提示音必须关得掉"
+    assert "karma_face_sound" in js, "关掉的选择要记住"
+    assert 'beep("done")' in js, "五张采完要有收尾的一声"
+    assert js.count('beep("') == 3, "只应有三处触发：采到一张、采完、重新打开声音那下试听"
+
+
+def test_capture_guides_the_ring_on_every_angle_not_only_the_front_one():
+    """转头那几张也要有人管：脸出圈了得说一声，不能只靠「怎么还不拍」去猜。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    tick = js[js.index("function tick()") :]
+    tick = tick[: tick.index("function pushHistory(")]
+    assert "state.detector" in tick, "取景检测要挂在主循环上"
+    assert "state.stepIndex === 0" not in tick, "提示不该只在正面那一张跑"
+    assert re.search(r"function judgeOutOfRing\(", js), "转头那张要有更粗的出圈判定"
+    hint = js[js.index("function hintFace(") :]
+    hint = hint[: hint.index("function flashStatus(")]
+    assert "judgeOutOfRing(" in hint and "judge(" in hint, "正面用完整刻度、转头用粗刻度"
+    assert "state.stepIndex !== step" in hint, "异步回来的结论要能作废（角度已经翻了）"
+
+
+def test_capture_budget_is_tight_enough_to_feel_instant():
+    """停住 → 出结果的延迟，和五步之间的死等，是「跟手」的全部来源。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    still = float(re.search(r"var STILL_MS = (\d+)", js).group(1))
+    between = float(re.search(r"var BETWEEN_MS = (\d+)", js).group(1))
+    grace = float(re.search(r"var GRACE_STEP_MS = (\d+)", js).group(1))
+    hist = float(re.search(r"var HISTORY_MS = (\d+)", js).group(1))
+    duty = int(re.search(r"var SAMPLE_DUTY = (\d+)", js).group(1))
+    assert still <= 350, "停稳窗口要压到 0.35s 以内，否则就是「停住了还要愣一下」"
+    assert between <= 300, "两个角度之间不许留超过 0.3s 的纯等待"
+    assert grace <= 300, "后续角度的准备时间不该再吃掉大半秒"
+    assert still / hist >= 10, "一个停稳窗口里至少要有 10 个采样点，判定才不看运气"
+    assert duty <= 2, "分析占的帧预算要压下来，判定间隔才跟得上"
