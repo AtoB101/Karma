@@ -1757,6 +1757,22 @@ body.gated { overflow: hidden; }
   border-radius: 10px;
   background: rgba(8, 14, 24, 0.45);
 }
+/* 参考脸拿不到时的分流块：原因一行 + 「去主身份页刷脸激活」一跳，卡不用重建。 */
+.idv-face-route {
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 138, 154, 0.35);
+  border-radius: 10px;
+  background: rgba(255, 138, 154, 0.06);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+.idv-face-route p { margin: 0 0 8px; }
+.idv-face-route .idv-face-route-lead { color: var(--text-main); }
+
 .idv-sub-main b { font-size: 13px; color: var(--text-main); }
 .idv-sub-main span { display: block; margin-top: 2px; font-size: 11px; color: var(--text-dim); }
 .idv-sub-meta { font-size: 12px; color: var(--text-dim); }

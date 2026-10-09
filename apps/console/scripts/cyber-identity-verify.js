@@ -620,6 +620,60 @@
     }
   }
 
+  /** 上一次的分流块先撤掉：重试成功时别让旧提示继续挂着。 */
+  function clearFaceRoute(status) {
+    if (!status || !status.parentNode) return;
+    var next = status.nextSibling;
+    while (next) {
+      var after = next.nextSibling;
+      if (next.nodeType === 1 && String(next.className || "").indexOf("idv-face-route") >= 0) {
+        status.parentNode.removeChild(next);
+      }
+      next = after;
+    }
+  }
+
+  /**
+   * 参考脸拿不到时的分流提示：不只说「为什么」，还把「下一步点哪」摆出来。
+   *
+   * 主体认证留过底、但那份包本机解不开（早期记录 / 换过钱包）时，卡本身没问题 ——
+   * 去主身份页刷一次脸重建可比对的脸，回来点「刷脸确认」即可，不用把卡推倒重建。
+   * 返回 true 表示这块提示已经接管，调用方不必再写一遍原始报错。
+   */
+  function faceRouteHint(status, err) {
+    var code = String((err && err.code) || "");
+    if (
+      code !== "face_on_file_missing" &&
+      code !== "face_package_legacy" &&
+      code !== "face_package_unopenable"
+    ) {
+      return false;
+    }
+    if (!status || !status.parentNode) return false;
+    clearFaceRoute(status);
+    say(status, String((err && err.message) || err), false);
+    var box = document.createElement("div");
+    box.className = "idv-face-route";
+    var how = document.createElement("p");
+    how.className = "idv-face-route-lead";
+    how.textContent = T(
+      "这张卡不用重建：去主身份页刷一次脸激活（只需一次），回来再点「刷脸确认」，同一个人就当场开通。"
+    );
+    var go = document.createElement("button");
+    go.type = "button";
+    go.className = "btn";
+    go.textContent = T("去主身份页刷脸激活 →");
+    go.addEventListener("click", function () {
+      if (window.cyberSwitchPage) window.cyberSwitchPage("identity", "master");
+      var step = document.getElementById("mst-step-activate");
+      if (step && step.scrollIntoView) step.scrollIntoView({ block: "center" });
+    });
+    box.appendChild(how);
+    box.appendChild(go);
+    status.parentNode.insertBefore(box, status.nextSibling);
+    return true;
+  }
+
   /**
    * 已经建好的卡：本人刷一次脸，跟主身份首次激活留下的模板比一次 —— 同一个人当场开通。
    *
@@ -634,6 +688,7 @@
       return;
     }
     if (btn) btn.disabled = true;
+    clearFaceRoute(status);
     say(status, "正在比对这一次的脸和首次激活留下的模板…", null);
     try {
       var res = await vault.confirmSamePerson(profileId, className);
@@ -656,12 +711,14 @@
       await loadSubs();
     } catch (e) {
       if (btn) btn.disabled = false;
+      if (faceRouteHint(status, e)) return;
       say(status, String((e && (e.message || e)) || e), false);
     }
   }
 
   async function createSub() {
     var status = byId("idsub-status");
+    clearFaceRoute(status);
     var id = identity();
     if (!id) { say(status, "请先连接钱包", false); return; }
     var roleKey = byId("idsub-role").value;
@@ -724,6 +781,7 @@
         // 判据放在脸上：跟主身份首次激活留下的模板比一次，同一个人就当场开通。
         var vault = window.KarmaFaceVault;
         var why = "";
+        var whyErr = null;
         if (vault && vault.confirmSamePerson) {
           try {
             var verdict = await vault.confirmSamePerson(profileId, role.klass, state.subFace);
@@ -743,6 +801,7 @@
             }
           } catch (faceErr) {
             why = String((faceErr && (faceErr.message || faceErr)) || faceErr);
+            whyErr = faceErr;
           }
         } else {
           why = "刷脸模块未加载";
@@ -778,6 +837,8 @@
 
       if (!openedByFace) {
         say(status, "✅ 子身份已建立：" + name + (why ? "（" + why + "）" : ""), true);
+        // 拿不到参考脸的那几种（本机解不开留底包）：把下一步摆出来，别只留一句报错。
+        if (whyErr) faceRouteHint(status, whyErr);
       }
       await finishSub(status);
     } catch (e) {

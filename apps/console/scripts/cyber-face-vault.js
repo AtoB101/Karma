@@ -482,20 +482,40 @@
     return openVerificationPackage(pkg);
   }
 
-  /** 解开一份留底包（纯函数：给包就还包里的东西，取包那一步在调用方）。 */
+  /** 带分流码的错误：操作台按 code 决定「下一步点哪」，不靠猜文案。 */
+  function faceRouteError(message, code) {
+    var err = new Error(message);
+    err.code = code;
+    return err;
+  }
+
+  /**
+   * 解开一份留底包（纯函数：给包就还包里的东西，取包那一步在调用方）。
+   *
+   * 失败时抛的错误带 code，操作台按 code 分流：
+   * - face_on_file_missing：这个身份压根没有可比对的脸；
+   * - face_package_legacy：包是早期记录（那时还不用钱包密钥封包），本机解不开；
+   * - face_package_unopenable：包在，但钥匙对不上（例如换过钱包），本机解不开。
+   * 后两种结果一样：在主身份页刷一次脸重建可比对的脸即可，卡不用推倒重建。
+   */
   async function openVerificationPackage(pkg) {
     var noFace = T("这个身份还没有刷脸模板：先把主身份刷脸激活，再来加身份。");
-    var unopenable = T("主体认证留底的脸解不开：请先在主身份页刷一次脸激活，再来加身份。");
-    if (!pkg || !pkg.has_package || !pkg.face_digest) throw new Error(noFace);
+    var legacy = T("这份留底是早期记录（那时还不用钱包密钥封包），本机解不开。");
+    var unopenable = T("留底包的钥匙对不上（例如换过钱包），本机解不开。");
+    if (!pkg || !pkg.has_package || !pkg.face_digest) {
+      throw faceRouteError(noFace, "face_on_file_missing");
+    }
     var enc = pkg.encryption || {};
-    if (String(enc.key_wrap || "") !== "wallet-signature-v1") throw new Error(unopenable);
+    if (String(enc.key_wrap || "") !== "wallet-signature-v1") {
+      throw faceRouteError(legacy, "face_package_legacy");
+    }
     var saltHex = "";
     try {
       saltHex = String(global.atob(String(enc.salt_b64 || "")) || "");
     } catch (_) {
       saltHex = "";
     }
-    if (!saltHex) throw new Error(unopenable);
+    if (!saltHex) throw faceRouteError(unopenable, "face_package_unopenable");
     var signature = await sign(packageKeyMessage(saltHex));
     var key = await derivePackageKey(signature, saltHex, Number(enc.iterations) || KDF_ITERATIONS);
     var bundle;
@@ -507,7 +527,7 @@
       );
       bundle = JSON.parse(new global.TextDecoder().decode(plain));
     } catch (_) {
-      throw new Error(unopenable);
+      throw faceRouteError(unopenable, "face_package_unopenable");
     }
     return { bundle: bundle, faceDigest: pkg.face_digest, encryption: enc };
   }
@@ -523,6 +543,7 @@
     compare: compare,
     confirmSamePerson: confirmSamePerson,
     openVerificationPackage: openVerificationPackage,
+    faceRouteError: faceRouteError,
     decryptTemplate: decryptTemplate,
     digestOfCapture: digestOfCapture,
     ensureKey: ensureKey,

@@ -322,9 +322,45 @@ def test_the_package_key_convention_matches_on_both_sides():
     assert "test_console_face_package.cjs" in gate, "闸门要跑留底包那一支"
 
 
+#: 解不开留底包时要说的话，按原因分两句；五个语言包都要有。
+UNOPENABLE_COPY = (
+    "这份留底是早期记录（那时还不用钱包密钥封包），本机解不开。",
+    "留底包的钥匙对不上（例如换过钱包），本机解不开。",
+    "这张卡不用重建：去主身份页刷一次脸激活（只需一次），回来再点「刷脸确认」，同一个人就当场开通。",
+    "去主身份页刷脸激活 →",
+)
+
+#: 保险柜抛错时带的码 —— 操作台据此分流，不靠猜文案。
+FACE_ROUTE_CODES = ("face_on_file_missing", "face_package_legacy", "face_package_unopenable")
+
+
 def test_the_unopenable_package_copy_is_translated():
+    """早期记录 / 钥匙对不上要分开说，五个语言包都得有；旧的一句式文案要退场。"""
     for lang in SHIPPED_LANGS:
         pack = (PACK_DIR / f"{lang}.js").read_text(encoding="utf-8")
-        assert '"主体认证留底的脸解不开：请先在主身份页刷一次脸激活，再来加身份。":' in pack, (
-            f"{lang} 缺「留底包解不开」的译文"
+        for src in UNOPENABLE_COPY:
+            assert f'"{src}":' in pack, f"{lang} 缺译文：{src}"
+        assert '"主体认证留底的脸解不开：请先在主身份页刷一次脸激活，再来加身份。":' not in pack, (
+            f"{lang} 还留着旧的一句式文案"
         )
+
+
+def test_the_vault_codes_why_the_package_cannot_be_opened():
+    """解不开不能只丢一句报错：错误要带 code，操作台才能决定「下一步点哪」。"""
+    js = FACE_JS.read_text(encoding="utf-8")
+    assert "function faceRouteError(" in js and "err.code = code" in js, "错误要带上 code"
+    for code in FACE_ROUTE_CODES:
+        assert f'"{code}"' in js, f"保险柜缺分流码 {code}"
+
+
+def test_the_console_offers_a_way_out_when_the_package_cannot_be_opened():
+    """分流提示：原样说出原因 + 一个「去主身份页刷脸激活」的跳转，卡不用重建。"""
+    js = (SCRIPTS / "cyber-identity-verify.js").read_text(encoding="utf-8")
+    assert "function faceRouteHint(" in js, "缺分流提示"
+    for code in FACE_ROUTE_CODES:
+        assert f'"{code}"' in js, f"分流没覆盖 {code}"
+    assert 'window.cyberSwitchPage("identity", "master")' in js, "要能跳到主身份页"
+    assert "mst-step-activate" in js, "跳过去要落在「② 刷脸激活」那一步"
+    assert 'className = "idv-face-route"' in js, "分流块要有自己的样式钩子"
+    css = CSS.read_text(encoding="utf-8")
+    assert ".idv-face-route" in css, "分流块要有样式"

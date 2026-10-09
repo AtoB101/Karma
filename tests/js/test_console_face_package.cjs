@@ -6,9 +6,11 @@
  * 所以「解不解得开」只能在真代码上验。这里按提交那一侧的约定封一份包，再让保险柜去解：
  *
  *   1. 出得来：角度帧和 face_digest 原样拿回；
- *   2. 换一把签名（不是本人）→ 解不开，而且要说人话；
- *   3. 包不是本人钱包封的（key_wrap 不对）→ 直接拒，别白弹一次钱包签名；
- *   4. 没有留底包 → 说「先给主身份留一张脸」。
+ *   2. 换一把签名（不是本人）→ 解不开（face_package_unopenable），而且要说人话；
+ *   3. 包不是本人钱包封的（key_wrap 不对）→ 直接拒（face_package_legacy），别白弹一次钱包签名；
+ *   4. 没有留底包 → face_on_file_missing，说「先给主身份留一张脸」。
+ *
+ * 三种失败都带 code：操作台据此分流到「去主身份页刷一次脸」这条出口。
  *
  * 跑法：node tests/js/test_console_face_package.cjs
  */
@@ -126,12 +128,15 @@ async function main() {
     // ---- 2. 换一把签名：解不开，要说人话 ------------------------------------
     const stranger = boot(OTHER_SIGNATURE);
     let why = "";
+    let code = "";
     try {
       await stranger.openVerificationPackage(sealed);
     } catch (e) {
       why = String((e && e.message) || e);
+      code = String((e && e.code) || "");
     }
     check("别人解不开", why.indexOf("解不开") >= 0, why);
+    check("别人解不开时带码（操作台据此分流）", code === "face_package_unopenable", code);
   }
 
   // ---- 3. 包不是本人钱包封的 ----------------------------------------------
@@ -140,24 +145,30 @@ async function main() {
     const sealed = await seal(BUNDLE, SIGNATURE, SALT_HEX);
     sealed.encryption = Object.assign({}, sealed.encryption, { key_wrap: "operator-passphrase-v1" });
     let why = "";
+    let code = "";
     try {
       await vault.openVerificationPackage(sealed);
     } catch (e) {
       why = String((e && e.message) || e);
+      code = String((e && e.code) || "");
     }
     check("非本人密钥封的包直接拒", why.indexOf("解不开") >= 0, why);
+    check("早期记录另给一个码（分流到「刷一次脸重建」）", code === "face_package_legacy", code);
   }
 
   // ---- 4. 根本没有留底包 --------------------------------------------------
   {
     const vault = boot(SIGNATURE);
     let why = "";
+    let code = "";
     try {
       await vault.openVerificationPackage({ has_package: false, face_digest: null, encryption: {} });
     } catch (e) {
       why = String((e && e.message) || e);
+      code = String((e && e.code) || "");
     }
     check("没有留底包要说清先去留一张脸", why.indexOf("还没有刷脸模板") >= 0, why);
+    check("压根没有参考脸也有码", code === "face_on_file_missing", code);
   }
 
   // ---- 5. 密钥原文只有一处出处：提交那一侧逐字相同 ----------------------
