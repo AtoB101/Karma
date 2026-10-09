@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Karma Console — Cyber</title>
     <link rel="icon" type="image/png" href="../../assets/favicon.png?v=0da2be69f6aa" />
-    <link rel="stylesheet" href="../../styles/cyber-console.css?v=d1249c9de8eb" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=dca49254d067" />
   </head>
   <body>
     <div class="bg"></div>
@@ -419,7 +419,23 @@
         </section>
 
         <section id="tasks" class="page">
-          <div class="card section">
+          <div class="card section" id="assistant-task-list">
+            <div class="section-header">
+              <div>
+                <h3>任务执行</h3>
+                <p id="assistant-task-sub">当前助理正在让 agent 执行的任务：订单、任务内容、金额和进度一目了然。</p>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <span class="api-status" id="assistant-task-status">—</span>
+                <button type="button" class="btn" id="assistant-task-refresh">刷新</button>
+              </div>
+            </div>
+            <div id="assistant-task-board" class="task-board"></div>
+            <p class="task-empty" id="assistant-task-empty" hidden></p>
+          </div>
+
+          <details class="card section" id="settlement-flow-dev" hidden>
+            <summary>开发者 · 结算流转（测试用）</summary>
             <div class="section-header">
               <div>
                 <h3>任务执行 · 结算流转</h3>
@@ -445,7 +461,7 @@
             </div>
             <p style="font-size:12px;color:var(--text-dim);margin-top:8px">每一步都按身份强制校验：①–④ 与 ⑦ 必须由买方（client_agent_id）执行，⑤ ⑥ 必须由被指派的卖方（worker_agent_id）执行。用错身份会被拒绝。<br>⑦ 批准结算还要满足一个硬前提：该任务已有至少一条「成功的执行回执」——回执由卖方 agent 用自己的运行密钥签名后提交，操作台只能查询（「回执证明」页），不能代签。</p>
             <pre class="out" id="st-out" style="margin-top:12px; max-height:260px; overflow:auto">—</pre>
-          </div>
+          </details>
         </section>
 
         <section id="receipts" class="page">
@@ -1646,7 +1662,7 @@
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=2e4783ba123a"></script>
-    <script src="../../scripts/cyber-console.js?v=0bcfe0e972c6"></script>
+    <script src="../../scripts/cyber-console.js?v=58fa5369f046"></script>
     <script src="../../scripts/cyber-identity.js?v=742feb6190e5"></script>
 <script src="../../scripts/cyber-master-page.js?v=f213b05c6871"></script>
     <script src="../../scripts/cyber-face-capture.js?v=75c411042b89"></script>
@@ -1656,6 +1672,8 @@
     <script src="../../scripts/cyber-payments.js?v=1fb536a48ebf"></script>
     <script src="../../scripts/cyber-orders.js?v=88c6d8949e5b"></script>
     <script src="../../scripts/cyber-order-flow.js?v=5d8447f9cd89"></script>
+    <!-- 助理任务执行看板：小爱等助理身份的任务页，订单 / 任务内容 / 金额 / 进度。 -->
+    <script src="../../scripts/cyber-assistant-tasks.js?v=3084609bc881"></script>
     <script src="../../scripts/karma-service-spec.js?v=157d9b6ea723"></script>
     <script src="../../scripts/cyber-agents.js?v=689c6a375660"></script>
     <script src="../../scripts/cyber-authorize.js?v=0c54510b6766"></script>

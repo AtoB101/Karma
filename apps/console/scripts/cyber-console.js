@@ -1663,6 +1663,10 @@
     var assistant = allowed === ASSISTANT_NAV_GROUPS;
     document.body.classList.toggle("nav-master-scope", role === "master");
     document.body.classList.toggle("nav-assistant-scope", assistant);
+    // 助理页的任务执行只回答「agent 正在做什么」，不露开发者结算流转测试台。
+    document.querySelectorAll('[data-page="tasks"][data-sub="flow"]').forEach(function (b) {
+      b.classList.toggle("nav-scope-hidden", assistant);
+    });
     document.querySelectorAll(".nav-group").forEach(function (g) {
       var name = g.getAttribute("data-group") || "";
       // 岗位入口（验证者身份 / 仲裁者身份 / 运营复核台）挂在主身份 / 治理岗视角，
