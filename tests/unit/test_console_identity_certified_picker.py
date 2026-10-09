@@ -1,15 +1,10 @@
 # -*- coding: utf-8 -*-
-"""「选择身份」按认证状态分流（用户口径 2026-10-09，2026-10-09 修订）。
+"""「选择身份」只显示已认证的助理（用户口径 2026-10-10 修订）。
 
-第一版把没认证的档案整个藏起来，线下实测立刻踩坑：用户建了卡、在「个人助理认证」
-里认证过，回到「选择身份」却一张都看不到，以为丢卡了。真实情况是身份档案的
-kyc_status 还停在 none（人脸那一步没交），而判据只认 verified —— 于是「明明有的
-东西找不到」。
+认证通过的（kyc_status=verified 且档案没被本人停用）才会出现在「选择助理身份」的
+选项里；未认证 / 复核中 / 未通过的直接不显示。空态仍然给出「去哪儿认证」的出口，
+避免用户想切卡却不知道先要认证。
 
-现在的口径分两层：
-  * **能切过去的**：只有认证通过的（kyc_status=verified 且档案没被本人停用）；
-  * **列出来但不给切**：有档案、没认证完的照样列在下面，标清卡在哪一步
-    （未认证 / 复核中 / 未通过），点一下直接去它那一页认证。
 以前那种「未建立」的假占位仍然不许回来。
 """
 from __future__ import annotations
@@ -33,28 +28,24 @@ def test_both_panels_share_one_certification_rule():
     assert '"verified"' in body, "判据是 kyc_status === verified"
     assert "disabled" in body, "本人停用的档案也不给切"
     assert '"none"' in body, "兜底走 none（缺字段的档案按未认证算）"
-    # 两个面板都先按「有没有这张档案」收一遍，再用认证状态决定给不给切。
+    # 两个面板都先按「有没有这张档案」收一遍，再用认证状态决定显不显示。
     assert js.count("if (!isExistingIdentity(p)) return;") == 2, (
         "两个「选择身份」面板都要先认出「真的有一张档案」"
     )
-    assert js.count("var certified = isCertifiedIdentity(p);") == 1
-    assert js.count("if (!isCertifiedIdentity(p)) { pending.push(p); return; }") == 1
+    assert js.count("if (!isCertifiedIdentity(p)) return;") == 2, (
+        "两个「选择身份」面板都要把未认证的助理挡在选择项外"
+    )
 
 
-def test_uncertified_cards_are_listed_but_not_swittchable():
+def test_uncertified_cards_are_not_shown_in_the_pickers():
     js = JS.read_text(encoding="utf-8")
-    assert "pending.push(p)" in js, "没认证完的档案要收进 pending，不许直接丢掉"
-    assert "kycStatusLabel(p)" in js, "行上要标出卡在哪一步"
-    assert "pending: !certified" in js
-    # 侧栏面板：没认证的行不给切换，点了直接去认证页。
-    assert "if (r.pending) return goCertify(r.klass);" in js
-    # 顶栏面板：dim 行点了也只去认证。
-    assert "if (r.dim) { closeSubPanel(); goCertify(r.klass); return; }" in js
-    assert "function goCertify(klass)" in js
-    assert 'window.cyberSwitchPage("identity", ROLE_CERT_SUB[klass] || "life")' in js
-    assert "klass: p[\"class\"]" in js and "dim: true" in js
-    for label in ('tr("未认证", "未认证")', 'tr("复核中", "复核中")', 'tr("未通过", "未通过")'):
-        assert label in js, "进度文案缺 %s" % label
+    assert "pending.push(p)" not in js, "选择项里不再收集未认证卡片"
+    assert "pending: !certified" not in js
+    assert "if (r.pending) return goCertify(r.klass);" not in js
+    assert "if (r.dim) { closeSubPanel(); goCertify(r.klass); return; }" not in js
+    assert "klass: p[\"class\"]" not in js
+    assert "dim: true" not in js
+    assert " + kycStatusLabel(p)" not in js, "选择项里不再显示卡在哪一步"
 
 
 def test_master_row_carries_the_personal_assistant_verification():
@@ -84,13 +75,14 @@ def test_empty_panel_points_at_the_certification_page():
     assert 'cyberSwitchPage("identity", sub || "master")' in js, "点提示要直达「身份 · 认证」"
     # 一张档案都没有：不画空分组，只留提示。
     assert "rows.length < 2" in js and "rows.length > 1" in js
-    # 有卡但一张都没认证完：先把「去哪儿认证」摆出来，再把卡列在下面。
-    assert "if (!selectable)" in js and "var selectable = 0;" in js
+    # 有卡但一张都没认证通过：直接给「去哪儿认证」的提示，不再把未认证卡片列在下面。
+    assert "var selectable = 0;" not in js
+    assert "if (!selectable)" not in js
 
 
-def test_pending_group_has_its_own_headline():
+def test_pending_group_is_not_rendered():
     js = JS.read_text(encoding="utf-8")
-    assert 'addHead("pick.role_pending", PENDING_HINT)' in js
+    assert 'addHead("pick.role_pending", PENDING_HINT)' not in js
 
 
 def test_allocation_table_lists_certified_identities_too():

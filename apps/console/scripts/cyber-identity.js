@@ -273,13 +273,12 @@
       ? displayId(masterId, 0) + " · " + tr("scope.master_all", "主体（全部）")
       : tr("scope.master_all", "主体（全部）")) + masterVerifySuffix();
     var rows = [{ id: "", label: masterLabel }];
-    var pending = [];
     /* 治理岗（verifier / arbitrator）不进「选择身份」：入口在侧栏主功能区，不在这里重复。 */
     profiles.forEach(function (p) {
       if (GOVERNANCE_CLASSES.indexOf(p["class"]) >= 0) return;
       if (!isExistingIdentity(p)) return;
-      /* 认证过的才给切；没认证完的收进 pending，照样列出来、点一下去认证。 */
-      if (!isCertifiedIdentity(p)) { pending.push(p); return; }
+      /* 只列认证通过的；未认证 / 复核中 / 未通过的助理不显示在选择项里。 */
+      if (!isCertifiedIdentity(p)) return;
       rows.push({ id: p.profile_id, label: profileLabel(p) });
     });
 
@@ -288,16 +287,15 @@
       row.className = "sub-switch-row";
       var b = document.createElement("button");
       b.type = "button";
-      b.className = "sub-switch-item" + (r.id === pid && !r.dim ? " active" : "") + (r.dim ? " pending" : "");
+      b.className = "sub-switch-item" + (r.id === pid ? " active" : "");
       b.setAttribute("role", "menuitem");
       b.setAttribute("data-profile-option", r.id);
       b.textContent = r.label;
       b.addEventListener("click", function () {
-        if (r.dim) { closeSubPanel(); goCertify(r.klass); return; }
         setActiveProfile(r.id); closeSubPanel();
       });
       row.appendChild(b);
-      if (r.id && !r.dim) {
+      if (r.id) {
         var g = document.createElement("button");
         g.type = "button";
         g.className = "sub-switch-grant";
@@ -334,14 +332,8 @@
       addHead("pick.role_agent", "注册代理身份");
       rows.slice(1).forEach(addRow);
     } else {
-      /* 有档案、但一张都没认证完：先给出去哪儿认证这句话，下面再把卡列出来。 */
+      /* 有档案、但一张都没认证通过：只给出去哪儿认证这句话。 */
       panel.appendChild(hintNode("sub-switch-empty"));
-    }
-    if (pending.length) {
-      if (rows.length > 1) addHead("pick.role_pending", PENDING_HINT);
-      pending.forEach(function (p) {
-        addRow({ id: "", label: profileLabel(p) + " · " + kycStatusLabel(p), dim: true, klass: p["class"] });
-      });
     }
   }
 
@@ -478,34 +470,28 @@
       locked: false,
     };
     var rows = [masterRow];
-    var selectable = 0;
     list.forEach(function (p) {
       if (!p || !p.profile_id) return;
       /* 治理岗的入口在侧栏主功能区，不进「选择身份」。 */
       if (GOVERNANCE_CLASSES.indexOf(p["class"]) >= 0) return;
       if (!isExistingIdentity(p)) return;
-      var certified = isCertifiedIdentity(p);
-      if (certified) selectable += 1;
-      /* 没认证完的不藏：列出来、标清卡在哪一步，点一下直接去认证 —— 否则用户会以为丢卡了。 */
+      /* 未认证的助理不进选择项：只在认证通过后出现在这里。 */
+      if (!isCertifiedIdentity(p)) return;
       rows.push({
-        id: certified ? p.profile_id : "",
-        name: (p.display_name ? tr(p.display_name, p.display_name) : roleLabel(p)) +
-          (certified ? "" : " · " + kycStatusLabel(p)),
+        id: p.profile_id,
+        name: p.display_name ? tr(p.display_name, p.display_name) : roleLabel(p),
         sub: displayId(p.profile_id, profilePosition(p.profile_id)),
         role: roleLabel(p),
         locked: p.visibility === "private",
-        pending: !certified,
-        klass: p["class"],
       });
     });
     function addPickerRow(r) {
       var b = document.createElement("button");
       b.type = "button";
-      b.className =
-        "id-picker-item" + (r.id === active && r.id ? " active" : "") + (r.pending ? " pending" : "");
+      b.className = "id-picker-item" + (r.id === active && r.id ? " active" : "");
       b.setAttribute("role", "option");
       b.setAttribute("data-profile-id", r.id);
-      b.setAttribute("data-profile-cert", r.pending ? "pending" : "ok");
+      b.setAttribute("data-profile-cert", "ok");
       b.setAttribute("aria-selected", r.id === active ? "true" : "false");
       var name = document.createElement("span");
       name.className = "ip-name";
@@ -524,8 +510,6 @@
       b.appendChild(meta);
       b.addEventListener("click", function () {
         closeIdPicker();
-        /* 没认证完的卡切不过去：直接把人送到它那一页认证，别让人猜。 */
-        if (r.pending) return goCertify(r.klass);
         // 点的就是当前这张卡：不用重设档案（会白刷一遍），但照样落到它那一页——
         // 人可能从别的页面切回来，点了没反应会让人以为坏了。
         if (r.id === active) return followIdentityPage();
@@ -549,11 +533,6 @@
     }
     addPickerHead("pick.role_agent", "注册代理身份");
     rows.slice(1).forEach(addPickerRow);
-    if (!selectable) {
-      /* 有卡、但一张都没认证完：上面那些点了只是去认证，再补一句说清为什么切不动。 */
-      panel.appendChild(hintNode("id-picker-empty"));
-    }
-
   }
 
   function renderIdPickerNow() {
