@@ -9,4 +9,5 @@ python3 -m pytest \
   tests/ \
   packages/karma-openmanus/tests \
   packages/karma-openclaw/tests \
+  packages/karma-mcp-server/tests \
   "$@"

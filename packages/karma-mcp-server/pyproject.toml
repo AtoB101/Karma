@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "karma-mcp-server"
+version = "0.1.0"
+description = "Karma universal Agent MCP server — thin access layer over the Karma backend"
+readme = "README.md"
+requires-python = ">=3.11"
+# 与仓库根 LICENSE 保持一致（AGPL-3.0）。
+license = { text = "AGPL-3.0-only" }
+dependencies = [
+    "cryptography>=42.0.0",
+    "httpx>=0.27.0",
+    "mcp>=1.8.0,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2.0", "pytest-asyncio>=0.23.0"]
+
+[project.scripts]
+karma-mcp-server = "karma_mcp_server.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["karma_mcp_server*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
