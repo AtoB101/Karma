@@ -208,6 +208,8 @@ python3 -m pytest -q tests/unit/test_console_nodes.py
 # 身份核验页只剩三步 + 服务商通道没接入时要看得出是灰的。
 python3 -m pytest -q tests/unit/test_console_verify_route.py
 python3 -m pytest -q tests/unit/test_console_distribution.py
+# 操作台 6 个签名串 builder 的行序必须跟服务端同源（少一行就是「点下去只吃 400」）。
+python3 -m pytest -q tests/unit/test_console_signed_messages_match_server.py
 
 # Live HTTP write sequence matching the Cyber Console buttons (ASGI in-process).
 python3 -m pytest -q tests/unit/test_console_live_write_smoke.py

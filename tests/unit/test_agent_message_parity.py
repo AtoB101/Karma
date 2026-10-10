@@ -90,6 +90,11 @@ def test_mcp_revoke_key_message_matches_server(server_wallet, mcp_wallet):
     kw = {"key_id": "kid-1", "karma_identity_id": "ident-1", "wallet_address": "0xabc"}
     assert mcp_wallet.build_revoke_key_message(**kw) == server_wallet.build_revoke_key_message(**kw)
 
+def test_example_pack_revoke_key_message_matches_server(server_wallet):
+    flow = _load_file("examples/scenario-packs/_lib/karma_flow.py", "_karma_flow_revoke")
+    kw = {"key_id": "kid-1", "karma_identity_id": "ident-1", "wallet_address": "0xabc"}
+    assert flow.build_revoke_key_message(**kw) == server_wallet.build_revoke_key_message(**kw)
+
 
 def test_mcp_agent_request_message_matches_server(server_wallet, mcp_signing):
     assert mcp_signing.build_agent_request_message(**REQUEST_KW) == (
@@ -109,12 +114,25 @@ def test_sdk_pairing_request_message_matches_server(server_wallet):
         server_wallet.build_agent_pairing_request_message(**PAIRING_KW)
     )
 
+def test_sdk_agent_request_message_matches_server(server_wallet):
+    sdk = importlib.import_module("sdk.runtime_client")
+    assert sdk.build_agent_request_message(**REQUEST_KW) == (
+        server_wallet.build_agent_request_message(**REQUEST_KW)
+    )
+
 
 def test_openclaw_pairing_request_message_matches_server(server_wallet):
     _add_path("packages/karma-openclaw")
     binding = importlib.import_module("karma_openclaw.agent_binding")
     assert binding.build_agent_pairing_request_message(**PAIRING_KW) == (
         server_wallet.build_agent_pairing_request_message(**PAIRING_KW)
+    )
+
+def test_openclaw_agent_request_message_matches_server(server_wallet):
+    _add_path("packages/karma-openclaw")
+    binding = importlib.import_module("karma_openclaw.agent_binding")
+    assert binding.build_agent_request_message(**REQUEST_KW) == (
+        server_wallet.build_agent_request_message(**REQUEST_KW)
     )
 
 
