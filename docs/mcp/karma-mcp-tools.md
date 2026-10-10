@@ -170,6 +170,29 @@
 
 `awaiting_owner_confirmation` = **未成交**：超自动额度时不建单不扣钱，等主人在操作台确认。MCP 必须如实转达，**不得**提示「已下单成功」。
 
+`karma_accept_payment_code`（T2 · 卖方接单）
+
+- **入参**：`voucher_id: str`（必）、`seller_identity_id: str`（必 —— 后端 `SellerActionRequest` 强制，并用它做归属校验）、`seller_profile_id: str | None`（可选，落到具体子身份卡片）。
+- **出参**：`POST /v1/payment-codes/{voucher_id}/accept` 的凭证明细。
+- **失败语义**：缺 `seller_identity_id` → MCP 先 fail-closed 报 `invalid`；不是本人身份的凭证 → 后端 403。
+
+`karma_verify_evidence`（T2）
+
+- **入参**：`evidence_id: str`（必）、`expected_digest_sha256: str`（必 —— 调用方自己算出的摘要）、`expected_schema_version: str | None`（可选）。
+- **出参**：`{evidenceId, verified, checks}`。
+- **口径**：只做「摘要是否一致」的完整性比对，**不**代表后端已作出验证裁决。
+
+`karma_get_voucher`（T0）
+
+- **入参**：`voucher_id: str`（必）、`identity_id: str | None`（可选；给了才附带 `events`，否则 `events=null` 并给 `events_note`）。
+- **出参**：`{voucher_id, voucher, events, events_note?}`。
+
+`karma_open_dispute` / `karma_request_refund`（T3 · 钱不动）
+
+- **入参**：`task_id: str`（必）、`reason: str | None`、`reason_code: str | None`（MVVS 标准拒绝码 `core/schemas.py::RejectionReason`）。
+- **出参**：`POST /v1/settlement/{task_id}/dispute` 返回的结算状态。
+- **口径**：本状态机里「退款」与「争议」**共用同一入口** —— 只冻结资金、进入仲裁；agent 只能发起，**绝不自行放款/退款**，退款只能由仲裁结果驱动。
+
 ---
 
 ## 4. 工具命名与开放注册

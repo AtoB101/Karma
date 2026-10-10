@@ -913,16 +913,30 @@ def build_server(
 
         return await _guard(_run)
 
-    async def karma_accept_payment_code(voucher_id: str) -> dict[str, Any]:
+    async def karma_accept_payment_code(
+        voucher_id: str, seller_identity_id: str, seller_profile_id: str = ""
+    ) -> dict[str, Any]:
         """卖方接受付款凭证（Tier 2）。"""
 
         async def _run() -> dict[str, Any]:
             vid = (voucher_id or "").strip()
+            seller = (seller_identity_id or "").strip()
             if not vid:
                 raise KarmaToolError(ErrorClass.INVALID, "voucher_id is required")
+            if not seller:
+                raise KarmaToolError(
+                    ErrorClass.INVALID, "seller_identity_id is required"
+                )
+            body: dict[str, Any] = {"seller_identity_id": seller}
+            profile = (seller_profile_id or "").strip()
+            if profile:
+                body["seller_profile_id"] = profile
             return ok(
                 await be.request(
-                    "POST", "/v1/payment-codes/" + vid + "/accept", body={}, runtime=False
+                    "POST",
+                    "/v1/payment-codes/" + vid + "/accept",
+                    body=body,
+                    runtime=False,
                 )
             )
 
@@ -964,15 +978,30 @@ def build_server(
 
         return await _guard(_run)
 
-    async def karma_verify_evidence(evidence_id: str) -> dict[str, Any]:
+    async def karma_verify_evidence(
+        evidence_id: str,
+        expected_digest_sha256: str,
+        expected_schema_version: str = "",
+    ) -> dict[str, Any]:
         """请求后端验证一份证据（Tier 2）。"""
 
         async def _run() -> dict[str, Any]:
             eid = (evidence_id or "").strip()
+            digest = (expected_digest_sha256 or "").strip()
             if not eid:
                 raise KarmaToolError(ErrorClass.INVALID, "evidence_id is required")
+            if not digest:
+                raise KarmaToolError(
+                    ErrorClass.INVALID, "expected_digest_sha256 is required"
+                )
+            body: dict[str, Any] = {"expectedDigestSha256": digest}
+            schema_version = (expected_schema_version or "").strip()
+            if schema_version:
+                body["expectedSchemaVersion"] = schema_version
             return ok(
-                await be.request("POST", "/v1/evidence/" + eid + "/verify", body={}, runtime=False)
+                await be.request(
+                    "POST", "/v1/evidence/" + eid + "/verify", body=body, runtime=False
+                )
             )
 
         return await _guard(_run)
@@ -1042,7 +1071,9 @@ def build_server(
 
         return await _guard(_run)
 
-    async def karma_get_voucher(voucher_id: str) -> dict[str, Any]:
+    async def karma_get_voucher(
+        voucher_id: str, identity_id: str = ""
+    ) -> dict[str, Any]:
         """查付款凭证状态与事件。只读。"""
 
         async def _run() -> dict[str, Any]:
@@ -1050,49 +1081,72 @@ def build_server(
             if not vid:
                 raise KarmaToolError(ErrorClass.INVALID, "voucher_id is required")
             base = "/v1/vouchers/" + vid
-            return ok(
-                {
-                    "voucher_id": vid,
-                    "voucher": await be.request("GET", base, runtime=False),
-                    "events": await be.request("GET", base + "/events", runtime=False),
-                }
-            )
+            ident = (identity_id or "").strip()
+            if not ident and be.has_runtime_key():
+                try:
+                    ident = (await _current_identity()).strip()
+                except Exception:  # noqa: BLE001 - events 只是附加信息，取不到就只回凭证明细
+                    ident = ""
+            out: dict[str, Any] = {
+                "voucher_id": vid,
+                "voucher": await be.request("GET", base, runtime=False),
+            }
+            if ident:
+                out["events"] = await be.request(
+                    "GET", base + "/events?identity_id=" + ident, runtime=False
+                )
+            else:
+                out["events"] = None
+                out["events_note"] = "pass identity_id to read voucher events"
+            return ok(out)
 
         return await _guard(_run)
 
-    async def karma_open_dispute(task_id: str, reason: str = "") -> dict[str, Any]:
-        """对一笔交易发起争议（Tier 3，动钱）。"""
+    async def _open_dispute(
+        task_id: str, reason: str = "", reason_code: str = ""
+    ) -> dict[str, Any]:
+        """开争议／退款诉求的共享实现（Tier 3，钱不动）。
+
+        本状态机里「退款」与「争议」共用同一后端入口：POST /v1/settlement/{task_id}/dispute。
+        资金冻结、交由仲裁台裁决；agent 只能发起，不能自行裁决、不能自行放款。
+        reason_code 用 MVVS 标准拒绝码（core/schemas.py::RejectionReason，可空）。
+        """
+
+        task = (task_id or "").strip()
+        if not task:
+            raise KarmaToolError(ErrorClass.INVALID, "task_id is required")
+        body: dict[str, Any] = {}
+        if (reason or "").strip():
+            body["reason"] = reason.strip()
+        if (reason_code or "").strip():
+            body["reason_code"] = reason_code.strip()
+        return ok(
+            await be.request(
+                "POST", "/v1/settlement/" + task + "/dispute", body=body, runtime=False
+            )
+        )
+
+    async def karma_open_dispute(
+        task_id: str, reason: str = "", reason_code: str = ""
+    ) -> dict[str, Any]:
+        """打开一笔交易发起争议（Tier 3，钱不动）。"""
 
         async def _run() -> dict[str, Any]:
-            task = (task_id or "").strip()
-            if not task:
-                raise KarmaToolError(ErrorClass.INVALID, "task_id is required")
-            body: dict[str, Any] = {}
-            if (reason or "").strip():
-                body["reason"] = reason.strip()
-            return ok(
-                await be.request(
-                    "POST", "/v1/settlement/" + task + "/dispute", body=body, runtime=False
-                )
-            )
+            return await _open_dispute(task_id, reason, reason_code)
 
         return await _guard(_run)
 
-    async def karma_request_refund(task_id: str, reason: str = "") -> dict[str, Any]:
-        """申请退款（Tier 3，动钱）。走后端争议/退款入口，由后端与链上状态机裁定。"""
+    async def karma_request_refund(
+        task_id: str, reason: str = "", reason_code: str = ""
+    ) -> dict[str, Any]:
+        """发起退款诉求（Tier 3，钱不动）。
+
+        与 karma_open_dispute 走同一条后端链路（冻结资金 + 仲裁裁决）；
+        agent 绝不自行退款、绝不自行放款 —— 退款只能由仲裁结果驱动。
+        """
 
         async def _run() -> dict[str, Any]:
-            task = (task_id or "").strip()
-            if not task:
-                raise KarmaToolError(ErrorClass.INVALID, "task_id is required")
-            body: dict[str, Any] = {}
-            if (reason or "").strip():
-                body["reason"] = reason.strip()
-            return ok(
-                await be.request(
-                    "POST", "/v1/settlement/" + task + "/dispute", body=body, runtime=False
-                )
-            )
+            return await _open_dispute(task_id, reason, reason_code)
 
         return await _guard(_run)
 
