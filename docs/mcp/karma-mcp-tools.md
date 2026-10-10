@@ -122,7 +122,8 @@
 
 - **用途**：把用户自然语言权限意图 → **结构化策略预览** → 用户确认 → 钱包签名 → 铸造 Runtime Key。
 - **绝对禁止**：不得由 Agent 或模型自行签发资金权限；不得跳过用户确认；不得代替用户签名。
-- **入参**：`agent_name`、`permissions: [str]`、`single_limit: float`、`daily_limit: float`、`expire_time: str | None`、`agent_binding: str`（**必填** —— 后端 `runtime_require_agent_binding` 拒绝不记名钥匙，MCP 提前拦）、`wallet_address: str`。
+- **入参**：`agent_name`、`permissions: [str]`、`single_limit: float`、`daily_limit: float`、`expire_time: str | None`、`agent_binding: str`（**必填** —— 后端 `runtime_require_agent_binding` 拒绝不记名钥匙，MCP 提前拦）、`wallet_address: str`（**可留空** —— 留空时 MCP 用主人身份上已绑定的钱包自动补上，用户不必把地址贴进聊天）。
+- **指纹锚**：待签文本里的 `agent_public_key_fingerprint` 由 MCP 用**本机 agent 公钥**自动填（`KARMA_AGENT_PRIVATE_KEY` → 公钥 → sha256 前 16 位，与 `services/runtime_key_service.agent_binding_fingerprint` 同口径）。主人签下的就是「这把钱钥匙铸给哪把 agent 公钥」；绑定那一刻服务端重算指纹，对不上（换公钥 / 偷 key 的人抢先绑）一律 403，必须吊销重铸。本机没有 agent 私钥时该行留空 —— 回到「签名不约束绑定公钥」的老行为，绝不因此多放行权限。
 - **返回（第一步）**：`{preview: {...}, sign_message: "<与后端 build_create_key_message 同构的待签文本>", next_step}`。
 - **返回（第二步，用户签完回传签名）**：调 `POST /runtime/create-key` → `{key_id, key_fingerprint, permissions, limits, expires_at}`（**只回指纹，绝不回 key 明文之外的任何秘密**；key 明文只在凭据文件里）。
 - **失败语义**：用户未确认 → 不产生任何后端变更；签名不匹配 → 后端 403，MCP 原样透传为 `forbidden`。

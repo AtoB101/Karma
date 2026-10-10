@@ -332,3 +332,154 @@ def test_cli_refuses_remote_without_token(monkeypatch):
     monkeypatch.setenv("KARMA_MCP_ENABLE_HTTP", "1")
     monkeypatch.delenv("KARMA_MCP_HTTP_TOKEN", raising=False)
     assert main(["--transport", "streamable-http"]) == 4
+
+
+def _local_agent_seed() -> tuple[str, str]:
+    """一把本机 agent 私钥的种子 + 它对应公钥的指纹（与后端同口径）。"""
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from karma_mcp_server.agent_signing import (
+        agent_public_key_b64,
+        agent_public_key_fingerprint,
+    )
+
+    key = Ed25519PrivateKey.generate()
+    seed = base64.b64encode(key.private_bytes_raw()).decode()
+    return seed, agent_public_key_fingerprint(agent_public_key_b64(key))
+
+
+def _backend(handler, *, runtime_key=RUNTIME_KEY, seed=""):
+    return KarmaBackend(
+        McpConfig(runtime_base_url="http://karma.test"),
+        runtime_key=runtime_key,
+        agent_private_key_seed=seed,
+        transport=httpx.MockTransport(handler),
+        credential_fn=lambda name: "",
+    )
+
+
+async def test_authorization_pins_the_local_agent_key_fingerprint():
+    """自助授权：主人签的字里必须钉住本机 agent 公钥的指纹，提交体也必须是同一串。"""
+    seed, fp = _local_agent_seed()
+    seen: dict = {}
+
+    def handler(request):
+        path = request.url.path
+        body = json.loads(request.content) if request.content else {}
+        seen["path"] = path
+        seen["body"] = body
+        if path == "/runtime/create-key":
+            return httpx.Response(
+                200, json={"key_id": "kid-fp", "runtime_key": "KRM_RT_kid-fp_secret"}
+            )
+        raise AssertionError("unexpected path " + path)
+
+    server = build_server(
+        McpConfig(runtime_base_url="http://karma.test"),
+        backend=_backend(handler, seed=seed),
+    )
+
+    preview = await _tool(server, "karma_request_authorization")(
+        permissions=["place_order"],
+        single_limit=5.0,
+        daily_limit=20.0,
+        agent_name="小爱",
+        karma_identity_id="ident-1",
+        wallet_address=WALLET,
+        agent_binding="demo-agent",
+    )
+    assert preview["ok"] is True
+    assert "agent_public_key_fingerprint:" + fp in preview["sign_message"]
+    # 有本机钥匙就不许再退回「空指纹」那种谁都能绑的老行为。
+    assert not preview["sign_message"].endswith("agent_public_key_fingerprint:")
+
+    submitted = await _tool(server, "karma_submit_authorization")(
+        wallet_signature="0xowner-sig",
+        agent_name="小爱",
+        wallet_address=WALLET,
+        permissions=["place_order"],
+        single_limit=5.0,
+        daily_limit=20.0,
+        karma_identity_id="ident-1",
+        agent_binding="demo-agent",
+    )
+    assert submitted["ok"] is True
+    assert seen["body"]["agent_public_key_fingerprint"] == fp
+
+
+async def test_authorization_auto_fills_the_bound_wallet():
+    """主人不必把钱包地址贴进聊天：MCP 用他身份上已绑定的那个地址补上。"""
+    seen: dict = {}
+
+    def handler(request):
+        path = request.url.path
+        if path.endswith("/verification"):
+            return httpx.Response(
+                200,
+                json={
+                    "identity_id": "ident-1",
+                    "status": "verified",
+                    "bound_wallet_address": WALLET,
+                },
+            )
+        body = json.loads(request.content) if request.content else {}
+        seen["path"] = path
+        seen["body"] = body
+        if path == "/runtime/create-key":
+            return httpx.Response(
+                200, json={"key_id": "kid-wallet", "runtime_key": "KRM_RT_kid-wallet_secret"}
+            )
+        raise AssertionError("unexpected path " + path)
+
+    server = _make(handler)
+
+    preview = await _tool(server, "karma_request_authorization")(
+        permissions=["place_order"],
+        single_limit=5.0,
+        daily_limit=20.0,
+        agent_name="小爱",
+        karma_identity_id="ident-1",
+        wallet_address="",
+        agent_binding="demo-agent",
+    )
+    assert preview["ok"] is True
+    assert preview["preview"]["wallet_address"] == WALLET
+    assert "wallet_address:" + WALLET in preview["sign_message"]
+    assert seen == {}  # 预览仍不写后端
+
+    submitted = await _tool(server, "karma_submit_authorization")(
+        wallet_signature="0xowner-sig",
+        agent_name="小爱",
+        wallet_address="",
+        permissions=["place_order"],
+        single_limit=5.0,
+        daily_limit=20.0,
+        karma_identity_id="ident-1",
+        agent_binding="demo-agent",
+    )
+    assert submitted["ok"] is True
+    assert seen["body"]["wallet_address"] == WALLET
+
+
+async def test_authorization_without_a_resolvable_wallet_fails_closed():
+    """读不到绑定钱包、又没显式给地址：本地就拦下，绝不拿空地址去糊一段签名串。"""
+
+    def handler(request):
+        if request.url.path.endswith("/verification"):
+            return httpx.Response(200, json={"identity_id": "ident-1", "status": "none"})
+        raise AssertionError("不该走到 create-key")
+
+    server = _make(handler)
+    out = await _tool(server, "karma_request_authorization")(
+        permissions=["place_order"],
+        single_limit=5.0,
+        daily_limit=20.0,
+        agent_name="小爱",
+        karma_identity_id="ident-1",
+        wallet_address="",
+        agent_binding="demo-agent",
+    )
+    assert out["ok"] is False
+    assert out["error"]["class"] == "invalid"
+    assert "wallet_address" in out["error"]["message"]

@@ -531,6 +531,8 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
             "runtime_key": token,
             "key_id": row.key_id,
             "permissions": row.permissions,
+            "single_limit": row.single_limit,
+            "daily_limit": row.daily_limit,
             "expire_time": expire_at_view(row.expire_at),
             "never_expires": is_never_expires(row.expire_at),
             "status": row.status,

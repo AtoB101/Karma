@@ -15,6 +15,8 @@ import httpx
 
 from karma_mcp_server.agent_signing import (
     agent_key_from_seed,
+    agent_public_key_b64,
+    agent_public_key_fingerprint,
     runtime_key_id,
     sign_runtime_request,
 )
@@ -70,6 +72,18 @@ class KarmaBackend:
 
     def key_fingerprint(self) -> str:
         return fingerprint(self.runtime_key())
+
+    def agent_key_fingerprint(self) -> str:
+        """本机 agent 公钥的 16 位 hex 指纹；没有钥匙就返回空串。
+
+        铸 Runtime Key 时把「这把钱钥匙给哪把 agent 公钥」钉进主人的钱包签名
+        消息（``agent_public_key_fingerprint`` 行）。读不到本机钥匙就不填 —— 回到
+        「签名不约束绑定公钥」的老行为，绝不因此多放行任何权限。
+        """
+        key = self._agent_key()
+        if key is None:
+            return ""
+        return agent_public_key_fingerprint(agent_public_key_b64(key))
 
     def _agent_key(self):
         seed = (

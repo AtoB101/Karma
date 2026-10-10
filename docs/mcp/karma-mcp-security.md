@@ -54,7 +54,7 @@
 2. **凭证层**：Runtime Key（不记名令牌）。未绑 Agent 公钥的 key 处于 `agent_pending`，动钱一律 403。
 3. **请求层**：已绑定公钥的 key 每个请求必须带 `X-Karma-Agent-Signature` / `X-Karma-Runtime-Timestamp` / `X-Karma-Runtime-Nonce`，服务端重建消息验签（容差 300s），**验签通过后才记 nonce**（错签不烧 nonce）。
 
-**权限与额度是钱包签名的对象**：`POST /runtime/create-key` 强制 `wallet_signature`，签名消息覆盖 `permissions`/`single_limit`/`daily_limit`/`expire_time`/`agent_binding`（`services/runtime_wallet.py:39-68`）。Agent 与模型**无法**自行扩大权限。
+**权限与额度是钱包签名的对象**：`POST /runtime/create-key` 强制 `wallet_signature`，签名消息覆盖 `permissions`/`single_limit`/`daily_limit`/`expire_time`/`agent_binding`/`agent_public_key_fingerprint`（`services/runtime_wallet.py:39-73`）。最后一行由 MCP 用**本机 agent 公钥**自动填（`karma_mcp_server.backend_client.agent_key_fingerprint`）：主人签下的是「这把钱钥匙铸给哪把 agent 公钥」。绑定那一刻服务端重算指纹（`services/runtime_key_service.assert_agent_key_matches_signed_fingerprint`），对不上（换公钥 / 偷 key 的人抢先绑）一律 403。Agent 与模型**无法**自行扩大权限。
 
 ## 5. 钱包签名的适用范围（与审计 §7.1 一致）
 
@@ -66,6 +66,7 @@
 
 - **永不出现在日志/工具返回**：`KARMA_RUNTIME_KEY` 明文、私钥、助记词、原始签名、`X-Karma-Agent-Signature` 原文。
 - 允许返回：key **指纹**、`key_id`、钱包地址**脱敏**（`0x1234…abcd`）、状态码、错误分类。
+- **钱包地址的边界**：待签文本 `sign_message` 里的 `wallet_address` 是主人本人要签的那一行，必然完整可见；此外只有**该身份本人**（或其自己的 agent，经 `X-Karma-Api-Key` 解析到本人）能读到 `GET /v1/identity/{id}/verification` 的 `bound_wallet_address`。陌生人与未认证调用拿到的公开视图里**没有**这个字段（未认证调用直接 401），状态类返回仍只给脱敏地址。
 - 日志字段白名单：`tool`、`tier`、`endpoint`、`http_status`、`error_class`、`key_fingerprint`、`request_id`。
 
 ## 7. 幂等与并发（不得自行实现）

@@ -13,7 +13,7 @@ import pytest
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
-from db.models.orm import IdentityRoleProfile, IdentityVerificationModel
+from db.models.orm import IdentityProfileModel, IdentityRoleProfile, IdentityVerificationModel
 
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
@@ -390,3 +390,33 @@ def test_a_multi_angle_bundle_still_sends_only_ciphertext():
     smuggled["payload_blob"] = "A" * 3000
     with pytest.raises(IdentityVerificationError):
         assert_no_plaintext_payload(smuggled)
+
+
+@pytest.mark.asyncio
+async def test_owner_view_carries_the_bound_wallet_strangers_do_not(client, db_session):
+    """本人视图要带上「这个身份绑定的钱包地址」；陌生人的公开视图里绝不能有。"""
+    owner, other, _ = _ids()
+    r = await client.post(
+        f"/v1/identity/{owner}/verification/submit", json=_body(), headers=_h(owner)
+    )
+    assert r.status_code == 200, r.text
+
+    wallet = "0x" + "5a" * 20
+    db_session.add(
+        IdentityProfileModel(
+            identity_id=owner,
+            display_id="Karma-ID-" + uuid.uuid4().hex[:6].upper(),
+            legal_identity_status="unbound",
+            status="active",
+            bound_wallet_address=wallet,
+        )
+    )
+    await db_session.flush()
+
+    mine = await client.get(f"/v1/identity/{owner}/verification", headers=_h(owner))
+    assert mine.status_code == 200, mine.text
+    assert mine.json()["bound_wallet_address"] == wallet
+
+    stranger = await client.get(f"/v1/identity/{owner}/verification", headers=_h(other))
+    assert stranger.status_code == 200, stranger.text
+    assert "bound_wallet_address" not in stranger.json()

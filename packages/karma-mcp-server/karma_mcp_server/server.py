@@ -347,7 +347,11 @@ def build_server(
                 "activation": activation,
                 "note": "刷脸/KYC 不能被钱包签名替代。",
             }
-            wallet = str((verification or {}).get("wallet_address") or "")
+            wallet = str(
+                (verification or {}).get("bound_wallet_address")
+                or (verification or {}).get("wallet_address")
+                or ""
+            ).strip()
             if wallet:
                 out["bound_wallet"] = redact_wallet(wallet)
             return ok(out)
@@ -436,6 +440,29 @@ def build_server(
 
     # ================= Tier 1: 授权写入 =================
 
+    async def _bound_wallet(identity_id: str) -> str:
+        """主人身份上已绑定的钱包地址；读不到就回空串 —— 绝不猜、绝不编。
+
+        只对主人本人的身份有效：服务端只在调用方就是这个身份（或其自己的 agent）
+        时才回这个字段，陌生人拿到的是没有钱包的公开视图。
+        """
+        target = (identity_id or "").strip()
+        if not target:
+            return ""
+        try:
+            view = await be.request(
+                "GET", "/v1/identity/" + target + "/verification", runtime=False
+            )
+        except KarmaToolError:
+            return ""
+        if not isinstance(view, dict):
+            return ""
+        for key in ("bound_wallet_address", "wallet_address"):
+            value = str(view.get(key) or "").strip()
+            if value:
+                return value
+        return ""
+
     def _authorization_preview(
         *,
         karma_identity_id: str,
@@ -446,6 +473,7 @@ def build_server(
         expire_time: str,
         agent_name: str,
         agent_binding: str,
+        agent_public_key_fingerprint: str = "",
     ) -> dict[str, Any]:
         if not permissions:
             raise KarmaToolError(ErrorClass.INVALID, "permissions must not be empty")
@@ -456,7 +484,8 @@ def build_server(
         if not karma_identity_id or not wallet_address or not agent_name:
             raise KarmaToolError(
                 ErrorClass.INVALID,
-                "karma_identity_id, wallet_address and agent_name are required",
+                "karma_identity_id, agent_name and a bound wallet_address are required"
+                " (wallet_address 可留空 —— MCP 会用主人身份已绑定的钱包自动补上)",
             )
         if not agent_binding:
             # 后端在 runtime_require_agent_binding 开启时拒绝不记名钥匙（谁捡到谁能花）。
@@ -475,6 +504,7 @@ def build_server(
             expire_time=(expire_time or "").strip() or None,
             agent_name=agent_name,
             agent_binding=agent_binding or None,
+            agent_public_key_fingerprint=agent_public_key_fingerprint or None,
         )
         return {
             "karma_identity_id": karma_identity_id,
@@ -485,6 +515,7 @@ def build_server(
             "expire_time": (expire_time or "").strip() or None,
             "agent_name": agent_name,
             "agent_binding": agent_binding,
+            "agent_public_key_fingerprint": agent_public_key_fingerprint,
             "sign_message": message,
         }
 
@@ -505,15 +536,22 @@ def build_server(
         """
 
         async def _run() -> dict[str, Any]:
+            identity = (karma_identity_id or "").strip()
+            wallet = (wallet_address or "").strip()
+            if not wallet:
+                # 主人不用把钱包地址贴进聊天：直接用他自己身份上已绑定的地址。
+                # 地址本身是公开的，服务端还会再校验它确实属于这个身份。
+                wallet = await _bound_wallet(identity)
             preview = _authorization_preview(
-                karma_identity_id=(karma_identity_id or "").strip(),
-                wallet_address=(wallet_address or "").strip(),
+                karma_identity_id=identity,
+                wallet_address=wallet,
                 permissions=list(permissions or []),
                 single_limit=float(single_limit),
                 daily_limit=float(daily_limit),
                 expire_time=expire_time,
                 agent_name=(agent_name or "").strip(),
                 agent_binding=(agent_binding or "").strip(),
+                agent_public_key_fingerprint=be.agent_key_fingerprint(),
             )
             return ok(
                 {
@@ -567,15 +605,19 @@ def build_server(
             identity = (karma_identity_id or "").strip()
             if not identity and be.has_runtime_key():
                 identity = await _current_identity()
+            wallet = (wallet_address or "").strip()
+            if not wallet:
+                wallet = await _bound_wallet(identity)
             preview = _authorization_preview(
                 karma_identity_id=identity,
-                wallet_address=(wallet_address or "").strip(),
+                wallet_address=wallet,
                 permissions=list(permissions or []),
                 single_limit=float(single_limit),
                 daily_limit=float(daily_limit),
                 expire_time=expire_time,
                 agent_name=(agent_name or "").strip(),
                 agent_binding=(agent_binding or "").strip(),
+                agent_public_key_fingerprint=be.agent_key_fingerprint(),
             )
             body: dict[str, Any] = {
                 "wallet_address": preview["wallet_address"],
@@ -591,6 +633,9 @@ def build_server(
             if preview["agent_binding"]:
                 body["agent_binding"] = preview["agent_binding"]
                 body["agent_id"] = preview["agent_binding"]
+            if preview["agent_public_key_fingerprint"]:
+                # 签名里的指纹行必须和这里提交的一模一样，否则服务端验签就 403。
+                body["agent_public_key_fingerprint"] = preview["agent_public_key_fingerprint"]
             return await _create_runtime_key(body)
 
         return await _guard(_run)

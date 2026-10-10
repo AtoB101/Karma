@@ -57,6 +57,7 @@ from services.identity_verification import (
     owner_view,
     public_view,
 )
+from services.identity_wallet_binding import get_bound_wallet
 from services.path_param_safety import validate_public_url_segment
 
 router = APIRouter()
@@ -158,12 +159,20 @@ async def get_identity_verification(
     validate_public_url_segment("identity_id", identity_id)
     row = await db.get(IdentityVerificationModel, identity_id)
     actor = await resolve_actor_identity_id(db, request)
+    is_owner = actor == identity_id
     if row is None:
-        if actor == identity_id:
-            return empty_view(identity_id)
+        if is_owner:
+            view = empty_view(identity_id)
+            view["bound_wallet_address"] = await get_bound_wallet(db, identity_id)
+            return view
         return {"identity_id": identity_id, "status": "none", "level": "basic", "verified_at": None}
-    if actor == identity_id:
-        return owner_view(row)
+    if is_owner:
+        # 本人视图才带上「这个身份绑定的钱包地址」：agent 铸造 Runtime Key 时
+        # 要用它把签名消息里的 wallet_address 填对，主人不必再把地址抄进聊天。
+        # 陌生人的公开视图里没有这个字段 —— 地址不是给外人枚举的。
+        view = owner_view(row)
+        view["bound_wallet_address"] = await get_bound_wallet(db, identity_id)
+        return view
     return public_view(row)
 
 
