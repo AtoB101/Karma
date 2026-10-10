@@ -93,12 +93,17 @@ class KarmaBackend:
         if ak and not runtime:
             h["X-Karma-Api-Key"] = ak
         rk = self.runtime_key()
-        if not rk:
+        # 只有要钱、要额度的 /runtime/* 才必须带钥匙；引导期的公开接口
+        # （pairing request / claim 等 runtime=False）在还没拿到钥匙时也得能发出去，
+        # 否则一台全新的机器永远开不了第一次配对，自助接入的第一步就死在这里。
+        # 带了钥匙依旧照发：怎么验是服务端的事，客户端不替它放行。
+        if not rk and runtime:
             raise KarmaToolError(
                 ErrorClass.UNAUTHORIZED,
                 "no Runtime Key configured for this MCP server",
             )
-        h["X-Karma-Runtime-Key"] = rk
+        if rk:
+            h["X-Karma-Runtime-Key"] = rk
         key = self._agent_key()
         if key is not None and self._signing_mode is True:
             h.update(

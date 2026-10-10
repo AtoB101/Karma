@@ -159,6 +159,36 @@ async def test_pairing_claim_writes_credentials_without_echoing_them(tmp_path, m
     assert str(env_path) == claimed["env_path"]
 
 
+async def test_a_brand_new_agent_needs_no_key_to_open_a_pairing_request(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    seen: list[dict] = []
+
+    def handler(request):
+        seen.append({"path": request.url.path, "headers": {k.lower(): v for k, v in request.headers.items()}})
+        if request.url.path == "/v1/agent-pairing/request":
+            return httpx.Response(
+                201,
+                json={
+                    "schema_version": "karma-agent-pairing-v1",
+                    "pairing_code": PAIRING_CODE,
+                    "user_code": "K4QP-3M2X",
+                    "request_signed": True,
+                    "verification_uri": "http://karma.test/console/?pair=K4QP-3M2X",
+                    "expires_at": "2030-01-01T00:00:00Z",
+                },
+            )
+        raise AssertionError("unexpected path " + request.url.path)
+
+    server = _make(handler, runtime_key="")
+    started = await _tool(server, "karma_connect")(agent_name="Rookie")
+    assert started["ok"] is True
+    assert started["user_code"] == "K4QP-3M2X"
+    assert started["public_key_attached"] is True
+    assert len(seen) == 1
+    assert "x-karma-runtime-key" not in seen[0]["headers"]
+    assert PAIRING_CODE not in json.dumps(started, ensure_ascii=False)
+
+
 async def test_authorization_is_signed_by_owner_wallet_not_by_mcp():
     seen: dict = {}
 

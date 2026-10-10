@@ -22,6 +22,24 @@ async def test_no_runtime_key_is_unauthorized():
     assert exc.value.error_class is ErrorClass.UNAUTHORIZED
 
 
+async def test_public_bootstrap_requests_need_no_runtime_key():
+    # 引导期的公开接口（runtime=False）不能把尚未拿到钥匙的机器挡在门外，
+    # 否则全新的 agent 连第一次配对都开不了；但要额度的 /runtime/* 依旧 fail-closed。
+    seen: dict = {}
+
+    def handler(request):
+        seen["headers"] = {k.lower(): v for k, v in request.headers.items()}
+        return httpx.Response(201, json={"pairing_code": "PC-1", "user_code": "K4QP-3M2X"})
+
+    be = _backend(handler, runtime_key="")
+    out = await be.request("POST", "/v1/agent-pairing/request", body={"agent_name": "x"}, runtime=False)
+    assert out["user_code"] == "K4QP-3M2X"
+    assert "x-karma-runtime-key" not in seen["headers"]
+    with pytest.raises(KarmaToolError) as exc:
+        await be.runtime_get("/runtime/permissions")
+    assert exc.value.error_class is ErrorClass.UNAUTHORIZED
+
+
 async def test_success_returns_json():
     be = _backend(lambda r: httpx.Response(200, json={"key_id": "kid"}))
     assert await be.runtime_get("/runtime/permissions") == {"key_id": "kid"}
