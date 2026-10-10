@@ -15,6 +15,7 @@ agent 侧脚手架（私钥签名申请、服务规格、owner 会话）与 ``te
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -300,3 +301,26 @@ async def test_resend_needs_the_owner_session(db_session, outbox):
             assert len(outbox) == 1
     finally:
         app.dependency_overrides.clear()
+
+
+def test_the_console_wires_the_email_confirm_lock():
+    """静态接线：少了任一处，主人在操作台就点不到这第三把锁。"""
+    root = Path(__file__).resolve().parents[2]
+    console = root / "apps" / "console"
+    html = (console / "pages" / "cyber" / "index.html").read_text(encoding="utf-8")
+    js = (console / "scripts" / "cyber-pairing.js").read_text(encoding="utf-8")
+    api = (console / "scripts" / "karma-public-api.js").read_text(encoding="utf-8")
+    gate = (root / "scripts" / "acceptance" / "console_last_mile_gate.sh").read_text(
+        encoding="utf-8"
+    )
+    service = (root / "services" / "agent_pairing.py").read_text(encoding="utf-8")
+
+    assert 'id="pair-notify-email"' in html
+    assert 'id="pair-email"' in html
+    assert 'id="pair-email-resend"' in html
+    assert "renderEmailConfirm" in js
+    assert "notify_email" in js
+    assert "resendPairingEmail" in api
+    assert "EMAIL_CONFIRM_TTL_SECONDS = 600" in service
+    assert 'id="pair-notify-email"' in gate
+

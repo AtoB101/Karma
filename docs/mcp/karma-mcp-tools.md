@@ -218,5 +218,7 @@
    - `GET /v1/agent-pairing/email-confirm?user_code=…&token=…`（public）→ 主人点对的那个码，200 即解锁；
    - `POST /v1/agent-pairing/email-confirm/resend`（owner）→ 重出码，旧 token 当场作废；
    - 不填 `notify_email` 时行为与从前一致，`claim` 直接交付。
+   - agent 侧：`karma_connect_claim` 在邮箱未确认时返回 `status=awaiting_email_confirm`
+     与 `show_owner`（要显示在聊天窗口的那串码）；凭据只在确认之后才交付。
 2. 授权更新：**已定** —— 后端无「原地改」入口，走**铸新 + 撤旧**（强行改会破坏后端验签预期）。
 3. 聊天侧签名下发：**未定** —— Console 已有深链；聊天侧（签名链接 / 二维码）待 S6 与平台适配一并定。

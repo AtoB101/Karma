@@ -483,3 +483,54 @@ async def test_authorization_without_a_resolvable_wallet_fails_closed():
     assert out["ok"] is False
     assert out["error"]["class"] == "invalid"
     assert "wallet_address" in out["error"]["message"]
+
+
+async def test_the_email_confirm_gate_is_relayed_to_the_owner(tmp_path, monkeypatch):
+    """第三把锁：claim 停在 awaiting_email_confirm 时，必须转达「该显示给主人的那串码」。
+
+    agent 永远拿不到解锁用的 token（它只在主人邮箱里）；这里钉住 MCP 只转发该显示的
+    那串码与状态，而且绝不放行任何凭据。
+    """
+    _isolate(tmp_path, monkeypatch)
+    calls: list[dict] = []
+
+    def handler(request):
+        path = request.url.path
+        body = json.loads(request.content) if request.content else {}
+        calls.append({"path": path, "body": body})
+        if path == "/v1/agent-pairing/request":
+            return httpx.Response(
+                200,
+                json={
+                    "pairing_code": PAIRING_CODE,
+                    "user_code": "K4QP-3M2X",
+                    "verification_uri": "https://console.karma.test/pair",
+                    "expires_at": "2026-10-10T00:05:00Z",
+                    "poll_interval_seconds": 3,
+                },
+            )
+        if path == "/v1/agent-pairing/claim":
+            return httpx.Response(
+                200,
+                json={
+                    "status": "awaiting_email_confirm",
+                    "email_confirm_state": "pending",
+                    "email_masked": "ow***@example.com",
+                    "email_confirm_expires_at": "2026-10-10T00:20:00Z",
+                    "match_code": "500099",
+                    "message_zh": "请把 match_code 报给主人：让他在确认邮件里点与它相同的那一个码。",
+                },
+            )
+        raise AssertionError("unexpected path " + path)
+
+    server = _make(handler)
+    await _tool(server, "karma_connect")(agent_name="小爱")
+    gate = await _tool(server, "karma_connect_claim")()
+
+    assert gate["ok"] is True
+    assert gate["status"] == "awaiting_email_confirm"
+    assert gate["email_confirm_state"] == "pending"
+    assert gate["email_masked"] == "ow***@example.com"
+    assert gate["show_owner"] == "500099"  # 这串是要显示在聊天窗口里的
+    assert "credentials" not in gate
+    assert PAIRING_CODE not in json.dumps(gate, ensure_ascii=False)

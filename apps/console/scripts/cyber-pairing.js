@@ -26,9 +26,12 @@
     specToken: 0,
     // 交接码到期时间（毫秒）。倒计时用完就把它变成「重新签发」。
     handoffExpiresAt: 0,
+    // 第三把锁（邮箱回执）：批准时留了邮箱才有的一段状态。
+    emailConfirm: null,
   };
 
   var handoffTimer = null;
+  var emailConfirmTimer = null;
 
   function api() { return global.cyberKarmaApi; }
   function byId(id) { return document.getElementById(id); }
@@ -253,6 +256,8 @@
     renderPerms();
     // 批准之后 agent 还是领不走：还得有主人签发的交接码（第二把锁）。
     renderHandoff(v);
+    // 第三把锁（邮箱回执）：批准时留了邮箱才有这一段。
+    renderEmailConfirm(v.email_confirm || {}, state.code);
   }
 
   /* ------------------------------------------ 交接码：主人 -> agent 的第二把锁 */
@@ -473,6 +478,8 @@
         renderApproved();
       } else {
         show(byId("pair-handoff"), false);
+        stopEmailConfirmTimer();
+        show(byId("pair-email"), false);
       }
       renderResult("");
       if (pending) await prefillDecision();
@@ -522,6 +529,11 @@
       answers.service_specs = Object.assign({}, answers.service_specs || {});
       answers.service_specs[vertical] = collected.spec;
     }
+    var notifyEmail = ((byId("pair-notify-email") || {}).value || "").trim();
+    if (notifyEmail && notifyEmail.indexOf("@") < 1) {
+      setStatus(status, "通知邮箱看起来不像一个邮箱地址", true);
+      return;
+    }
     if (state.busy) return;
     state.busy = true;
     setStatus(status, "批准中…");
@@ -533,6 +545,8 @@
         display_name: (byId("pair-name") || {}).value || undefined,
         scope_profile_id: (byId("pair-scope") || {}).value || undefined,
         answers: answers,
+        // 填了就启用第三把锁（邮箱回执）；不填 = 这一版不加这道锁。
+        notify_email: notifyEmail || undefined,
       };
       var body = await api().approvePairing(payload);
       var agent = body.agent || {};
@@ -540,12 +554,18 @@
       state.agentName = agent.name || payload.display_name || "";
       show(byId("pair-decide"), false);
       renderApproved();
+      renderEmailConfirm(body.email_confirm || {}, state.code);
       renderResult(
         "<b>已批准接入</b><p>" + esc(state.agentId) + "</p>" +
           "<p>API Key 已经放进这次配对，等它自己来领（只发一次，本页不会显示这串密钥）。</p>" +
           "<p>已批准，凭据等 agent 自己来领 —— 它下一次轮询就能拿到，你不用再给它任何码。</p>"
       );
-      setStatus(status, "已批准并交付，等 agent 领取");
+      setStatus(
+        status,
+        body.email_confirm && body.email_confirm.required
+          ? "已批准 —— 还差最后一步：到你邮箱里点对的那个码"
+          : "已批准并交付，等 agent 领取"
+      );
       document.dispatchEvent(new CustomEvent("karma-agent-connected", { detail: { agent_id: state.agentId } }));
     } catch (e) {
       // 服务端的 400 要原样摆在页面上（比如硬指标哪一项不合规），别只塞进状态栏。
@@ -713,6 +733,107 @@
     }
   }
 
+  /* ------------------------------------------- 邮箱回执：主人邮箱里的第三把锁 */
+
+  function renderEmailConfirm(ec, code) {
+    var box = byId("pair-email");
+    if (!box) return;
+    if (!ec || !ec.required) {
+      stopEmailConfirmTimer();
+      show(box, false);
+      return;
+    }
+    show(box, true);
+    var note = byId("pair-email-note");
+    if (note) {
+      note.textContent =
+        "确认邮件已发到 " + (ec.email_masked || "你的邮箱") +
+        "。把这串码报给 agent（它会显示在聊天窗口），然后在你自己的邮箱里点与它相同的那一个码。";
+    }
+    var slot = byId("pair-email-code");
+    if (slot) slot.textContent = String(ec.match_code || "");
+    state.emailConfirm = ec;
+    renderEmailConfirmState();
+    startEmailConfirmTimer();
+  }
+
+  function renderEmailConfirmState() {
+    var el = byId("pair-email-state");
+    if (!el) return;
+    var ec = state.emailConfirm || {};
+    el.classList.remove("err");
+    if (ec.confirmed_at || ec.state === "confirmed") {
+      el.textContent = "邮箱回执已确认 —— 凭据会在 agent 下一次轮询时交给它。";
+      stopEmailConfirmTimer();
+      return;
+    }
+    if (ec.state === "expired") {
+      el.textContent = "邮箱回执已过期或被作废 —— 点「重新发一封确认邮件」再走一遍。";
+      el.classList.add("err");
+      stopEmailConfirmTimer();
+      return;
+    }
+    el.textContent = "等你在邮箱里点对的那个码；点对之前 agent 领不到任何凭据。";
+  }
+
+  function stopEmailConfirmTimer() {
+    if (emailConfirmTimer) {
+      clearInterval(emailConfirmTimer);
+      emailConfirmTimer = null;
+    }
+  }
+
+  /** 主人点完邮件里的链接后，这一页要自己反应过来 —— 不再要求他手动刷新。 */
+  function startEmailConfirmTimer() {
+    stopEmailConfirmTimer();
+    emailConfirmTimer = setInterval(function () {
+      if (!state.code || !identity()) return;
+      api().lookupPairing(state.code).then(function (view) {
+        var ec = (view && view.email_confirm) || {};
+        var prev = state.emailConfirm || {};
+        // lookup 不回显 match_code（它只在批准/重发的响应里），所以保留本页已有的那串。
+        state.emailConfirm = Object.assign({}, prev, ec, {
+          match_code: ec.match_code || prev.match_code || "",
+        });
+        renderEmailConfirmState();
+        var slot = byId("pair-email-code");
+        if (slot && state.emailConfirm.match_code) slot.textContent = state.emailConfirm.match_code;
+      }, function () {});
+    }, 5000);
+  }
+
+  async function resendEmailConfirm() {
+    var status = byId("pair-status");
+    var mid = byId("pair-email-status");
+    if (!state.code) {
+      setStatus(status, "先在上面查询这条配对请求", true);
+      return;
+    }
+    var email = ((byId("pair-notify-email") || {}).value || "").trim();
+    if (!email || email.indexOf("@") < 1) {
+      setStatus(status, "重发要再填一次通知邮箱", true);
+      return;
+    }
+    if (mid) mid.textContent = "重发中…";
+    try {
+      var body = await api().resendPairingEmail({ user_code: state.code, email: email });
+      var next = {
+        required: true,
+        state: "pending",
+        match_code: body.match_code || "",
+        email_masked: body.email_masked || "",
+        expires_at: body.expires_at || "",
+      };
+      state.emailConfirm = next;
+      renderEmailConfirm(next, state.code);
+      if (mid) mid.textContent = "已重发（旧邮件里的链接作废了）";
+      setStatus(status, "确认邮件已重发");
+    } catch (e) {
+      if (mid) mid.textContent = "";
+      setStatus(status, e && e.message ? e.message : String(e), true);
+    }
+  }
+
   /* ---------------------------------------------------------------- 初始化 */
 
   function prefillFromUrl() {
@@ -743,6 +864,8 @@
     if (g) g.addEventListener("click", grant);
     var h = byId("pair-handoff-go");
     if (h) h.addEventListener("click", issueHandoff);
+    var re = byId("pair-email-resend");
+    if (re) re.addEventListener("click", resendEmailConfirm);
     var codeInput = byId("pair-code");
     if (codeInput) {
       codeInput.addEventListener("keydown", function (ev) {

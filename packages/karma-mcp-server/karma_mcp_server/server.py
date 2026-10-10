@@ -228,16 +228,30 @@ def build_server(
                 body["handoff_code"] = handoff_code.strip()
             payload = await be.request("POST", "/v1/agent-pairing/claim", body=body, runtime=False)
             status = str(payload.get("status") or "")
-            if status in ("pending", "awaiting_handoff"):
-                return ok(
-                    {
-                        "status": status,
-                        "handoff_state": payload.get("handoff_state"),
-                        "user_code": (record or {}).get("user_code") or user_code,
-                        "expires_at": payload.get("expires_at"),
-                        "ask_owner": payload.get("message_zh") or "主人还没批准（或还差交接码）。",
-                    }
-                )
+            if status in ("pending", "awaiting_handoff", "awaiting_email_confirm"):
+                out: dict[str, Any] = {
+                    "status": status,
+                    "handoff_state": payload.get("handoff_state"),
+                    "user_code": (record or {}).get("user_code") or user_code,
+                    "expires_at": payload.get("expires_at"),
+                    "ask_owner": payload.get("message_zh") or "主人还没批准（或还差交接码）。",
+                }
+                if status == "awaiting_email_confirm":
+                    # 第三把锁：主人在自己的邮箱里点「与 agent 聊天窗口显示相同的那个码」。
+                    # 这串码本来就该给主人看（它单独换不到任何东西）；解锁用的 token 只在
+                    # 邮件里，从不经过 agent —— 所以这里只转达「要显示的那串码」与状态。
+                    out.update(
+                        {
+                            "email_confirm_state": payload.get("email_confirm_state"),
+                            "email_masked": payload.get("email_masked") or "",
+                            "expires_at": payload.get("email_confirm_expires_at")
+                            or payload.get("expires_at"),
+                            "show_owner": str(payload.get("match_code") or ""),
+                            "ask_owner": payload.get("message_zh")
+                            or "请把下面这串码报给主人，让他在确认邮件里点与它相同的那一个。",
+                        }
+                    )
+                return ok(out)
             if status != "approved":
                 raise KarmaToolError(ErrorClass.CONFLICT, "pairing has nothing left to deliver")
             creds = dict(payload.get("credentials") or {})

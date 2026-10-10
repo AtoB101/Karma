@@ -1079,9 +1079,32 @@
                    agent 自报的那份只做预填；提交以这里看到的为准，否则它报错了主人只能吃 400。 -->
               <p class="pair-hint" id="pair-spec-note" hidden></p>
               <div id="pair-spec-wrap"><div id="pair-spec-form"></div></div>
+              <!-- 第三把锁（可选）：填了邮箱，agent 会把一串 6 位码显示在聊天窗口，
+                   主人在自己邮箱里点与它相同的那一个码，凭据才交出去。 -->
+              <div class="pair-row">
+                <label class="pair-label" for="pair-notify-email">通知邮箱（可选）</label>
+                <input id="pair-notify-email" type="email" placeholder="you@example.com" autocomplete="off" spellcheck="false" />
+              </div>
+              <p class="pair-hint" id="pair-email-hint">填了它 = 再加一道「邮箱回执」：agent 会把一串 6 位码显示在聊天窗口，你在自己的邮箱里点与它相同的那一个码，凭据才会交给它；点错会记一次失败，连错就把这次配对作废。不填就只有「批准」这一道。</p>
               <div class="pair-row">
                 <button type="button" class="btn primary" id="pair-approve">批准接入</button>
                 <button type="button" class="btn" id="pair-reject">拒绝</button>
+              </div>
+            </div>
+
+            <!-- 第三把锁 · 邮箱回执：批准时填了邮箱才出现。这串码要显示给主人，
+                 主人据此在自己的邮箱里点相同的那一个 —— 解锁用的 token 只在邮件里，
+                 从不经过 agent，所以「配对码泄漏」也过不了这一步。 -->
+            <div id="pair-email" hidden>
+              <div class="pair-grant-head">
+                <b>第三把锁 · 邮箱回执</b>
+                <span id="pair-email-note"></span>
+              </div>
+              <div class="pair-handoff-code" id="pair-email-code"></div>
+              <p class="pair-hint" id="pair-email-state"></p>
+              <div class="pair-row">
+                <button type="button" class="btn" id="pair-email-resend">重新发一封确认邮件</button>
+                <span class="api-status" id="pair-email-status"></span>
               </div>
             </div>
 

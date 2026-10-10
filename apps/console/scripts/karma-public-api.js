@@ -705,6 +705,11 @@
     return jsonPost("/v1/agent-pairing/attach-runtime-key", payload);
   }
 
+  /** 重发「邮箱回执」确认邮件：重出码，旧邮件里的链接当场作废。 */
+  async function resendPairingEmail(payload) {
+    return jsonPost("/v1/agent-pairing/email-confirm/resend", payload);
+  }
+
   /**
    * 签发交接码：主人念给 / 输给 agent 的那串码，3 分钟、只显示这一次。
    *
@@ -997,6 +1002,7 @@
     approvePairing,
     denyPairing,
     attachPairingRuntimeKey,
+    resendPairingEmail,
     issuePairingHandoff,
     listMyPairings,
     listOpenclawHandoffEvents,
