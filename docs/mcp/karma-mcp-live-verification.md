@@ -115,3 +115,46 @@ SUMMARY|total=22 fail=0
   「配置齐了之后整条链路真的能跑通」（真实 `smtplib` 会话 + 真实 HTTP + 真实状态机），
   但**不等于** QQ / Gmail 收件箱收得到信；凭据到位后需补一次真实投递。
 - 未在主网做任何操作；本步全部只碰测试网。
+
+## 7. Agent 自动接入：**MCP 本尊** 对测试网的真机跑通（commit `1a7c916`）
+
+6.1/6.2 验的是**后端 HTTP 层**；本节验的是**用户真正拿到的那个 MCP server**——
+用仓库里 `packages/karma-mcp-server` 的 `build_server()` 起真实工具函数，`KarmaBackend`
+不打 MockTransport，直接打 `https://karma-network.ai`。全程**真 HTTP、真状态机、无夹具残留**。
+
+### 7.1 环境事实（只读核对）
+
+| 项 | 期望 | 实测 |
+| --- | --- | --- |
+| `/opt/karma/repo` HEAD == `origin/main` | 相等 | `1a7c91610b629ad90cf13819418d2301e998ed50` |
+| `karma-api` | healthy | `Up (healthy)`，`/health` = 200 |
+| `KARMA_MAIL_*`（容器 env 与 `/opt/karma/.env`） | 0（第三把锁**已装但默认关**） | 0 |
+| owner 路由匿名访问 `/lookup` `/mine` `/approve` | 401 | 401 |
+| `karma_connect_claim` 配一个不存在的 `pairing_code` | 干净报错、不炸、不泄漏 | `{ok:false,error:{class:"invalid",http_status:404}}` |
+
+### 7.2 真机握手（MCP → 线上 API）
+
+| 步骤 | 调用 | 实测 |
+| --- | --- | --- |
+| 1 | `karma_connect("Karma E2E Probe testnet")` | 线上 `POST /v1/agent-pairing/request` **201**；返回 `user_code`/`verification_uri`/`agent_fingerprint` |
+| 2 | 本地状态文件 | 落盘 `XWEN-GCGY.json` 一类文件；`pairing_code` **只**在文件里，**任何工具返回值里都不出现**（按值比对，不只是按字段名） |
+| 3 | `karma_connect_status()` | 只读本地，不触网；不吐 `pairing_code` |
+| 4 | `karma_connect_claim(user_code=...)` | 线上 `POST /v1/agent-pairing/claim` **200**；MCP 转达 `status=pending` + `ask_owner`；**无 `credentials` / 无 `api_key` / 无 `KRM_`** |
+
+解读：未批准之前，agent 手里**什么也拿不到**——它只知道「主人还没批」。这条链路
+（agent 自助接入 → 主人批准 → 回领凭据）在没有第三方 Mock 的前提下，是通的。
+
+### 7.3 夹具清理（回到基线）
+
+- 本轮真机跑了 3 次握手，`agent_pairing.json` **199 → 202**；清理后 **202 → 199**，
+  `probe_left = []`。
+- 清理方式：按 `user_code` 从 store 删行 → `docker restart karma-api` → `/health` 回 200
+  → 复查 count 仍 199（确认 app 没有把内存副本重新写回）。
+- 临时脚本 `/tmp/_r_*.sh` / `/tmp/apr.txt` 已删。
+
+### 7.4 本节**仍然没有**验证的
+
+- **`awaiting_email_confirm` 分支没有在「MCP 本尊」上跑过真机**：触发它需要线上 SMTP 已配，
+  而测试网默认把第三把锁关着（7.1）。该分支的**后端**行为已在 6.2 验过（真 `smtplib`），
+  MCP 侧的转达是薄映射，由单测钉住线上真实响应形状。
+- **真实外部邮箱投递**仍未见（同 6.4，环境无 SMTP 凭据）。
