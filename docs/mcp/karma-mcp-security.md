@@ -56,6 +56,28 @@
 
 **权限与额度是钱包签名的对象**：`POST /runtime/create-key` 强制 `wallet_signature`，签名消息覆盖 `permissions`/`single_limit`/`daily_limit`/`expire_time`/`agent_binding`/`agent_public_key_fingerprint`（`services/runtime_wallet.py:39-73`）。最后一行由 MCP 用**本机 agent 公钥**自动填（`karma_mcp_server.backend_client.agent_key_fingerprint`）：主人签下的是「这把钱钥匙铸给哪把 agent 公钥」。绑定那一刻服务端重算指纹（`services/runtime_key_service.assert_agent_key_matches_signed_fingerprint`），对不上（换公钥 / 偷 key 的人抢先绑）一律 403。Agent 与模型**无法**自行扩大权限。
 
+### 4.1 配对与接入的三把锁（agent 自动接入）
+
+目标：用户在自己的 Agent 聊天窗口里说一句「帮我接入 Karma」就要能走完，
+而**任何知道配对码的人都拿不走凭据**。三把锁彼此独立，任一把不满足就不放行。
+
+| # | 锁 | 谁持有 | 缺了会怎样 |
+|---|---|---|---|
+| L1 | agent 私钥签名申请 + 主人在已认证会话里批准 | agent 私钥 / 主人会话 | 申请端 401；批准端 403 |
+| L2 | 可选「交接码」（主人签发、60 秒、一次性） | 主人（念给 agent） | claim 停在 `awaiting_handoff` |
+| L3 | 邮箱回执：主人邮箱里点「与 agent 聊天窗口显示相同的那个码」 | 只有主人读得到的邮箱 | claim 停在 `awaiting_email_confirm`，**不交付任何凭据** |
+
+L3 的关键约定（`services/agent_pairing.py`、`api/routes/agent_pairing.py`）：
+
+- 邮件里放 3 个候选码，只有 1 个是「对的」；真正的解锁物是**每条码各自那条链接上的 token**。
+- **明文 token 只出现在邮件正文里**；磁盘上只存 `sha256`（`_new_email_codes`），面向操作台/agent 的配对视图永不回显 token（`email_confirm_public`）。
+- `match_code` 故意要显示在 **agent 聊天窗口**：配对码泄漏者读得到它，但读不到主人邮箱，因此换不到任何东西（`test_email_confirm_is_a_real_third_lock` 里「拿 match_code 当 token」必须 409）。
+- **点错有代价**：点错/猜错都记一次失败，连错 `EMAIL_CONFIRM_MAX_ATTEMPTS=6` 次就把这次配对就地作废（`row.status=expired`），与交接码同一口径。
+- **状态对齐**：配对作废后 `email_confirm.state` 也必须是 `expired`，不能让操作台显示「还在等你点码」。
+- **出口没配就是没配**：`KARMA_MAIL_HOST`/`KARMA_MAIL_FROM`/`KARMA_MAIL_PORT` 任一为空时 `mailer.configured()==False`（`services/mailer.py`），带 `notify_email` 的批准**在创建 agent 之前**就 503，绝不静默降级成「已加锁」；发送中途失败则 502，且此时 claim 仍被闸门挡住（fail-closed）。
+- 有效期 `EMAIL_CONFIRM_TTL_SECONDS=600`；重发 = 重出码，旧 token 当场作废。
+- 不填 `notify_email` 时这一版行为与从前**完全一致**（默认不开这道锁）。
+
 ## 5. 钱包签名的适用范围（与审计 §7.1 一致）
 
 - **可签**：交易启动（TradeLaunchIntent）、凭证授权（AuthorizationVoucher）、交付/结算确认、SIWE 登录、授权策略锚定。
@@ -68,6 +90,7 @@
 - 允许返回：key **指纹**、`key_id`、钱包地址**脱敏**（`0x1234…abcd`）、状态码、错误分类。
 - **钱包地址的边界**：待签文本 `sign_message` 里的 `wallet_address` 是主人本人要签的那一行，必然完整可见；此外只有**该身份本人**（或其自己的 agent，经 `X-Karma-Api-Key` 解析到本人）能读到 `GET /v1/identity/{id}/verification` 的 `bound_wallet_address`。陌生人与未认证调用拿到的公开视图里**没有**这个字段（未认证调用直接 401），状态类返回仍只给脱敏地址。
 - 日志字段白名单：`tool`、`tier`、`endpoint`、`http_status`、`error_class`、`key_fingerprint`、`request_id`。
+- **确认邮箱只回显脱敏值**（`ow***@example.com`，`services/agent_pairing.py:_mask_email`）；邮件正文里只有短码与确认链接，**不含**任何凭据。
 
 ## 7. 幂等与并发（不得自行实现）
 
@@ -101,6 +124,7 @@
 | S11 | 工具返回错误时误报成功 | 不得发生 |
 | S12 | 敏感凭证进入日志或模型上下文 | 不得发生 |
 | S13 | 公共接口意外暴露私有风控数据 | 不得发生 |
+| S14 | 配对码泄漏者拿 `match_code` / 旧 token 抢凭据 | 拒绝；连错到上限则配对作废 |
 
 **验收口径**：每条用例都要有**真实执行记录**；未覆盖的必须显式标注为未验证。
 
@@ -115,3 +139,6 @@
    Tier 白名单 fail-closed、MCP 无签发权限（授权必须主人钱包签名）、所有写操作经后端复核。
 4. 聊天平台适配器的凭证模型（不存私钥、不把聊天账号当资金凭证）待 S6 落地。
 5. Tier-2/3 动钱工具的**真实资金端到端验收**尚未在测试环境跑通（工具注册与转发已测）。
+6. **邮箱回执的真实外部投递尚未验证**：部署环境 `KARMA_MAIL_*` 未配置，目前真机只覆盖
+   「未配 → 503」的 fail-closed 与「受控本地 SMTP 出口下的端到端链路」；真实收件箱
+   （QQ / Gmail 等）投递待 SMTP 凭据到位后补测。

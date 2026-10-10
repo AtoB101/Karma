@@ -63,6 +63,15 @@ _USER_CODE_LEN = 8
 HANDOFF_TTL_SECONDS = 180
 #: 连猜错这么多次就把这次配对就地作废（8 位码 × 31 字符表，本来就猜不动）。
 HANDOFF_MAX_ATTEMPTS = 5
+#: 邮箱回执（第三把锁）：发到主人邮箱的 3 个码，只有一个是「对的」。
+#: 码本身只是让人去核对；真正解锁的是邮件里那条链接带的 token —— token 只在邮件里，
+#: 磁盘上只有 SHA-256。所以「配对码被偷」也过不了这一步：偷的人读不到邮箱。
+EMAIL_CONFIRM_TTL_SECONDS = 600
+#: 连错这么多次就把这次配对作废（3 个码 + 2 次手滑的余量）。
+EMAIL_CONFIRM_MAX_ATTEMPTS = 6
+#: 邮件里给几个候选码（其中一个与 agent 聊天窗口里显示的那串相同）。
+EMAIL_CONFIRM_CODE_COUNT = 3
+EMAIL_CONFIRM_CODE_DIGITS = 6
 _DEFAULT_BASE_URL = "https://karma-network.ai"
 
 _LOCK = threading.Lock()
@@ -243,6 +252,181 @@ def _public_base_url() -> str:
     return (base or _DEFAULT_BASE_URL).rstrip("/")
 
 
+def _mask_email(value: str) -> str:
+    """只回显「够认出来、又抄不走」的样子：`ab***@example.com`。"""
+    addr = str(value or "").strip()
+    if "@" not in addr:
+        return ""
+    local, _, domain = addr.partition("@")
+    keep = local[:2] if len(local) > 2 else local[:1]
+    return keep + "*" * max(1, len(local) - len(keep)) + "@" + domain
+
+
+def _new_email_codes() -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """3 个 6 位码：一个是「正确的那个」，其余是干扰项。
+
+    返回 `(match_code, stored, outbound)`：`stored` 只含 token 的 SHA-256 与
+    「哪个是对的」（可以落盘）；`outbound` 含明文码与 token，**只在这一次发信里用**。
+    """
+    codes: set[str] = set()
+    while len(codes) < EMAIL_CONFIRM_CODE_COUNT:
+        codes.add(
+            "".join(secrets.choice("0123456789") for _ in range(EMAIL_CONFIRM_CODE_DIGITS))
+        )
+    ordered = sorted(codes)
+    match_code = secrets.choice(ordered)
+    stored: list[dict[str, Any]] = []
+    outbound: list[dict[str, Any]] = []
+    for code in ordered:
+        token = secrets.token_urlsafe(24)
+        is_match = code == match_code
+        stored.append({"token_sha256": _sha256_hex(token), "is_match": is_match})
+        outbound.append({"code": code, "token": token, "is_match": is_match})
+    secrets.SystemRandom().shuffle(outbound)
+    return match_code, stored, outbound
+
+
+def email_confirm_state(row: dict[str, Any]) -> str:
+    """`off` / `pending` / `expired` / `confirmed` —— 只回状态，永不回 token。"""
+    block = dict(row.get("email_confirm") or {})
+    if not block:
+        return "off"
+    if block.get("confirmed_at"):
+        return "confirmed"
+    # 配对被就地作废（连错到上限）时，这道锁也必须跟着「对齐」成 expired：
+    # 否则操作台会显示「还在等你点码」，与 claim 的真实结果打架。
+    if str(row.get("status") or "") == "expired":
+        return "expired"
+    exp = _parse_iso(str(block.get("expires_at") or ""))
+    if exp is None or _utcnow() > exp:
+        return "expired"
+    return "pending"
+
+
+def email_confirm_public(row: dict[str, Any]) -> dict[str, Any]:
+    """操作台/agent 都能看的那部分：有没有这道锁、到哪一步了。"""
+    block = dict(row.get("email_confirm") or {})
+    if not block:
+        return {"required": False, "state": "off"}
+    return {
+        "required": True,
+        "state": email_confirm_state(row),
+        "email_masked": block.get("email_masked") or "",
+        "expires_at": block.get("expires_at"),
+        "confirmed_at": block.get("confirmed_at") or "",
+        "attempts_left": max(
+            0, EMAIL_CONFIRM_MAX_ATTEMPTS - int(block.get("attempts") or 0)
+        ),
+        "code_count": int(block.get("code_count") or 0),
+    }
+
+
+def attach_email_confirm(*, user_code: str, email: str) -> dict[str, Any]:
+    """给一次**已批准**的配对挂上邮箱回执，并返回要发出去的那封信的内容。
+
+    `match_code` 是「正确的那个码」，要由 agent 显示在它的聊天窗口里；
+    `links` 是邮件里 3 个按钮各自的链接（每个带一个独立 token）。
+    重挂 = 重出码：旧码当场作废，token 一起换掉。
+    """
+    recipient = str(email or "").strip()
+    if "@" not in recipient or len(recipient) > 254:
+        raise HTTPException(400, "a usable owner email is required")
+    _ensure_loaded()
+    with _LOCK:
+        _purge_expired_unlocked()
+        row = _find_by_user_code(user_code)
+        if row is None:
+            raise HTTPException(404, "pairing code not found")
+        status = str(row.get("status") or "")
+        if status != "approved":
+            raise HTTPException(409, f"pairing is {status} — approve it first")
+        match_code, stored, outbound = _new_email_codes()
+        now = _utcnow()
+        row["email_confirm"] = {
+            "email_masked": _mask_email(recipient),
+            # 这是**故意要显示在 agent 聊天窗口里**的短码，单独知道它换不到任何东西：
+            # 真正解锁的是邮件里那条链接带的 token，它只在邮件里、磁盘上只有哈希。
+            "match_code": match_code,
+            "tokens": stored,
+            "code_count": len(stored),
+            "issued_at": _iso(now),
+            "expires_at": _iso(now + timedelta(seconds=EMAIL_CONFIRM_TTL_SECONDS)),
+            "confirmed_at": "",
+            "attempts": 0,
+        }
+        _persist_unlocked()
+        block = dict(row["email_confirm"])
+    base = _public_base_url()
+    user_code_value = str(row.get("user_code") or "")
+    return {
+        "user_code": user_code_value,
+        "match_code": match_code,
+        "codes": [item["code"] for item in outbound],
+        "links": [
+            {
+                "code": item["code"],
+                "url": (
+                    f"{base}/v1/agent-pairing/email-confirm"
+                    f"?user_code={user_code_value}&token={item['token']}"
+                ),
+            }
+            for item in outbound
+        ],
+        "expires_at": block["expires_at"],
+        "email_masked": block["email_masked"],
+        "ttl_seconds": EMAIL_CONFIRM_TTL_SECONDS,
+    }
+
+
+def verify_email_confirm(*, user_code: str, token: str) -> str:
+    """邮箱回执的唯一裁决口。
+
+    返回 `confirmed` / `wrong` / `expired` / `unknown` / `too_many`。
+    猜错（token 不存在）与点错（点了一个干扰码）都算一次失败；连错到上限就把这次
+    配对就地作废 —— 与交接码同一口径：宁可从零再来，也不留一个半开的门。
+    """
+    given = str(token or "").strip()
+    if not given:
+        return "unknown"
+    _ensure_loaded()
+    with _LOCK:
+        row = _find_by_user_code(user_code)
+        if row is None:
+            return "unknown"
+        block = dict(row.get("email_confirm") or {})
+        if not block:
+            return "unknown"
+        if block.get("confirmed_at"):
+            return "confirmed"
+        state = email_confirm_state(row)
+        if state != "pending":
+            return state
+
+        digest = _sha256_hex(given)
+        hit = None
+        for entry in list(block.get("tokens") or []):
+            if hmac.compare_digest(str(entry.get("token_sha256") or ""), digest):
+                hit = entry
+                break
+
+        if hit is not None and hit.get("is_match"):
+            block["confirmed_at"] = _iso(_utcnow())
+            row["email_confirm"] = block
+            _persist_unlocked()
+            return "confirmed"
+
+        block["attempts"] = int(block.get("attempts") or 0) + 1
+        if block["attempts"] >= EMAIL_CONFIRM_MAX_ATTEMPTS:
+            row["status"] = "expired"
+            row["delivery"] = {}
+            row["email_confirm"] = block
+            _persist_unlocked()
+            return "too_many"
+        row["email_confirm"] = block
+        _persist_unlocked()
+        return "wrong"
+
+
 def _public_key_fingerprint(public_key: str | None) -> str:
     """公钥指纹 —— 与 ``runtime_key_service.agent_binding_fingerprint`` **同一口径**。
 
@@ -406,6 +590,7 @@ def _public_view(row: dict[str, Any]) -> dict[str, Any]:
         "runtime_key_id": delivery.get("runtime_key_id") or "",
         # 交接码只回状态：明文只在「签发交接码」那一条响应里出现一次。
         "handoff_state": _handoff_state(row),
+        "email_confirm": email_confirm_public(row),
         "handoff_expires_at": row.get("handoff_expires_at"),
         "deny_reason": row.get("deny_reason") or "",
     }
@@ -709,6 +894,37 @@ def claim(*, pairing_code: str, handoff_code: str | None = None) -> dict[str, An
                 "status": status,
                 "message_zh": "这次配对没有可交付的凭据。",
                 "message_en": "This pairing has nothing left to deliver.",
+            }
+
+        # ── 邮箱回执（第三把锁）────────────────────────────────────────
+        # 主人在批准时留了确认邮箱，就要求「邮件里点对的那个码」。这一步防的是
+        # 「配对码泄漏」：偷到 pairing_code 的人能读到这里的 match_code，但他读不到
+        # 主人邮箱里的那封邮件，也就拿不到那条链接上的 token，激活不了任何凭据。
+        # 排在这里 = 先过邮箱、再看交接码，两道锁彼此独立。
+        ec_state = email_confirm_state(row)
+        if ec_state not in {"off", "confirmed"}:
+            block = dict(row.get("email_confirm") or {})
+            expired = ec_state == "expired"
+            return {
+                "status": "awaiting_email_confirm",
+                "email_confirm_state": ec_state,
+                "email_masked": block.get("email_masked") or "",
+                "email_confirm_expires_at": block.get("expires_at"),
+                "match_code": "" if expired else str(block.get("match_code") or ""),
+                "expires_at": row.get("expires_at"),
+                "poll_interval_seconds": POLL_INTERVAL_SECONDS,
+                "message_zh": (
+                    "邮箱回执过期了，请主人在操作台重新发一次确认邮件。"
+                    if expired
+                    else "请把 match_code 报给主人：让他在确认邮件里点与它相同的那一个码。"
+                    "点对了凭据才会交出来。"
+                ),
+                "message_en": (
+                    "The email confirmation expired — ask your owner to resend it."
+                    if expired
+                    else "Show match_code to your owner and ask them to click the matching "
+                    "code in the confirmation email; credentials are released after that."
+                ),
             }
 
         # ── 交付 ────────────────────────────────────────────────────────

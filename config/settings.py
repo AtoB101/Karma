@@ -759,6 +759,21 @@ class Settings(BaseSettings):
             return set()
         return {item.strip() for item in raw.split(",") if item.strip()}
 
+    # ---- 出站邮件（配对「邮箱回执」第三把锁）--------------------------------
+    # 留空 = 没有出口：配对邮箱回执这一步会 fail-closed 拒绝，绝不静默跳过。
+    # QQ/163 邮箱要用「授权码」而不是登录密码；发件人和用户名一般填同一个。
+    karma_mail_host: str = ""
+    karma_mail_port: int = 465
+    karma_mail_user: str = ""
+    karma_mail_password: str = ""
+    karma_mail_from: str = ""
+    # 465 一般用 SSL；587 一般用 STARTTLS。两个都为 false 就是明文 SMTP（仅限本机调试）。
+    karma_mail_ssl: bool = True
+    karma_mail_starttls: bool = False
+    karma_mail_timeout_seconds: int = 15
+    # 配对确认链接里用的对外地址；留空回落 PUBLIC_BASE_URL / 默认域名。
+    karma_mail_confirm_base_url: str = ""
+
     def bootstrap_approve_identity_id_set(self) -> set[str]:
         """自举审批只对哪些身份开放（平台自有的那一个）：默认**谁都不给**。
 

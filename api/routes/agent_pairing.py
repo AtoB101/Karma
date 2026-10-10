@@ -28,6 +28,7 @@ from api.middleware.rate_limit import agent_pairing_rate_limit, real_client_ip
 from api.routes.agents import connect_owner_agent
 from db.session import get_db
 from services import agent_pairing as pairing
+from services import mailer
 from services.identity_actor import resolve_actor_identity_id
 from services.runtime_key_service import (
     PublicKeyError,
@@ -108,11 +109,20 @@ class PairClaimBody(BaseModel):
     handoff_code: str | None = Field(default=None, max_length=32)
 
 
+class PairResendEmailBody(BaseModel):
+    user_code: str = Field(min_length=4, max_length=16)
+    #: 重发必须再确认一次收件邮箱 —— 不接受「服务器上次记的那个」这种隐式目标。
+    email: str = Field(min_length=3, max_length=254)
+
+
 class PairHandoffBody(BaseModel):
     user_code: str = Field(min_length=4, max_length=16)
 
 
 class PairApproveBody(BaseModel):
+    #: 主人的确认邮箱：填了就启用「邮箱回执」这第三把锁（agent 聊天窗口显示 match_code，
+    #: 主人在邮件里点与它相同的那一个码，凭据才放行）。不填 = 这一版不加这道锁。
+    notify_email: str | None = Field(default=None, max_length=254)
     user_code: str = Field(min_length=4, max_length=16)
     side: Literal["buyer", "seller"]
     vertical: str | None = Field(default=None, max_length=64)
@@ -219,6 +229,19 @@ async def approve_pairing(
     if view.get("status") != "pending":
         raise HTTPException(409, f"pairing is already {view.get('status')}")
 
+    notify_email = (body.notify_email or "").strip()
+    if notify_email:
+        # 动 agent 之前先把这道锁的出口验一遍：宁可现在就 503/400，
+        # 也不要「批准已生效、锁却没加上」的半截状态。
+        if not mailer.configured():
+            raise HTTPException(
+                503,
+                "email confirmation was requested but outbound mail is not configured "
+                "(KARMA_MAIL_HOST / KARMA_MAIL_FROM)",
+            )
+        if "@" not in notify_email or len(notify_email) > 254:
+            raise HTTPException(400, "notify_email is not a usable address")
+
     result = await connect_owner_agent(
         db,
         owner_identity_id=owner,
@@ -242,6 +265,27 @@ async def approve_pairing(
         api_key=credentials.get("api_key"),
         agent_public_key=credentials.get("agent_public_key"),
     )
+    email_confirm: dict[str, Any] = {"required": False, "state": "off"}
+    if notify_email:
+        issued = pairing.attach_email_confirm(user_code=body.user_code, email=notify_email)
+        try:
+            delivered = _send_email_confirm_mail(email=notify_email, issued=issued)
+        except mailer.MailerUnavailable as exc:
+            # attach 已经写盘 → claim 会被邮箱闸门挡住（fail-closed）；如实告诉主人去重发。
+            raise HTTPException(
+                502,
+                "pairing approved, but the confirmation email could not be sent "
+                f"({exc}); resend it from the console",
+            ) from exc
+        email_confirm = {
+            "required": True,
+            "state": "pending",
+            "email_masked": issued.get("email_masked"),
+            "expires_at": issued.get("expires_at"),
+            "delivered": delivered,
+            # 这串要念给 agent（它显示在聊天窗口里）；它单独换不到任何东西。
+            "match_code": issued.get("match_code"),
+        }
     return {
         "schema_version": "karma-agent-pairing-approve-v1",
         "pairing": record,
@@ -249,11 +293,144 @@ async def approve_pairing(
         "p1_ready": result.get("p1_ready"),
         "p1_status": result.get("p1_status"),
         "boundary_hash": result.get("boundary_hash"),
+        "email_confirm": email_confirm,
         "note_zh": (
             "已批准并交付：agent 身份已建好，API Key 已放进这次配对的交付里，"
             "它下一次轮询就会自己领走（只发一次）。控制台不再显示这串密钥。"
             "你不用再给它任何码；想再加一道手递手的确认，可以额外点「签发交接码」。"
+            + (
+                " 这次启用了「邮箱回执」：把上面 email_confirm.match_code 报给 agent，"
+                "让它在聊天窗口显示出来，然后在你自己的邮箱里点与它相同的那一个码 ——"
+                "点对了凭据才会放行。"
+                if email_confirm.get("required")
+                else ""
+            )
         ),
+    }
+
+
+def _send_email_confirm_mail(*, email: str, issued: dict[str, Any]) -> bool:
+    """把 3 个候选码发到主人邮箱。发不出去就抛 —— 绝不当成「已确认」。"""
+    codes = list(issued.get("codes") or [])
+    links = list(issued.get("links") or [])
+    ttl_minutes = max(1, int(issued.get("ttl_seconds") or 0) // 60)
+    agent_name = "你的 Agent"
+
+    text_lines = [
+        "Karma 配对确认",
+        "",
+        f"有人在 {agent_name} 的聊天窗口里发起接入 Karma，现在需要你确认。",
+        "",
+        "请核对：下面 3 个码里，只有一个和 agent 在聊天窗口里显示的那串完全相同。",
+        "点与它对应的那一行链接即可完成确认（链接只能点对一次，点错会记一次失败）。",
+        "",
+    ]
+    for item, link in zip(codes, links):
+        text_lines.append(f"  码 {item}：{link.get('url')}")
+    text_lines += [
+        "",
+        f"有效期 {ttl_minutes} 分钟。过期或想重发，请在操作台重新发一次确认邮件。",
+        "如果你没有发起过这次接入，忽略这封邮件即可 —— 没有人能仅凭它取走任何凭据。",
+        "",
+        "—— Karma",
+    ]
+
+    rows = "".join(
+        f'<li style="margin:10px 0"><b style="font-size:20px;letter-spacing:3px">{item}</b>'
+        f' &nbsp;<a href="{link.get("url")}">点这个码完成确认</a></li>'
+        for item, link in zip(codes, links)
+    )
+    html = (
+        '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:560px">'
+        "<h2>Karma 配对确认</h2>"
+        "<p>有人在 agent 的聊天窗口里发起接入 Karma，现在需要你确认。</p>"
+        "<p>下面 3 个码里，只有一个和 agent 在聊天窗口里显示的那串完全相同。"
+        "点与它对应的那一行链接即可。</p>"
+        f'<ul style="list-style:none;padding:0">{rows}</ul>'
+        f"<p>有效期约 {ttl_minutes} 分钟。过期请在操作台重发。</p>"
+        "<p>如果你没有发起过这次接入，忽略这封邮件即可。</p>"
+        "</div>"
+    )
+    mailer.send_mail(
+        to=email,
+        subject="Karma 配对确认 —— 请在下面点与 agent 显示相同的那一个码",
+        text="\n".join(text_lines),
+        html=html,
+    )
+    return True
+
+
+@public_router.get("/email-confirm")
+async def confirm_pairing_email(
+    user_code: str,
+    token: str,
+    _rl: None = Depends(agent_pairing_rate_limit),
+):
+    """邮件里那 3 条链接打到的就是这个口。token 只在邮件里 —— 邮箱才是那把钥匙。
+
+    返回一页纯 HTML：不反射任何输入、不出现任何码、不带任何外链。
+    """
+    verdict = pairing.verify_email_confirm(user_code=user_code, token=token)
+    page = {
+        "confirmed": (
+            "确认成功",
+            "配对已确认。回到与 agent 的对话，让它继续领取凭据。",
+        ),
+        "wrong": (
+            "这个码不对",
+            "请回到邮件，点与 agent 聊天窗口里显示的那个码相同的那一行。",
+        ),
+        "expired": (
+            "确认已过期",
+            "请在操作台重新发一次确认邮件，然后点新邮件里的码。",
+        ),
+        "too_many": (
+            "尝试次数用尽",
+            "这次配对已就地作废。请让 agent 重新发起接入，再从零走一遍。",
+        ),
+        "unknown": (
+            "链接无效",
+            "这封邮件的链接已经不存在了。请在操作台重新发一次确认邮件。",
+        ),
+    }
+    title, body = page.get(verdict, page["unknown"])
+    from fastapi.responses import HTMLResponse
+
+    html = (
+        '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f"<title>Karma {title}</title></head>"
+        '<body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;'
+        'max-width:520px;margin:12vh auto;padding:0 20px;line-height:1.6">'
+        f"<h2>{title}</h2><p>{body}</p></body></html>"
+    )
+    return HTMLResponse(html, status_code=200 if verdict == "confirmed" else 409)
+
+
+@owner_router.post("/email-confirm/resend")
+async def resend_pairing_email(
+    body: PairResendEmailBody,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """重发确认邮件：重出 3 个码、旧码当场作废，并把新的 match_code 交给主人。"""
+    owner = await _require_owner(db, request)
+    view = pairing.lookup_by_user_code(body.user_code)
+    if (view.get("owner_identity_id") or "") != owner:
+        raise HTTPException(403, "this pairing belongs to another identity")
+    if view.get("status") != "approved":
+        raise HTTPException(409, f"pairing is already {view.get('status')}")
+    if not mailer.configured():
+        raise HTTPException(503, "outbound mail is not configured")
+    issued = pairing.attach_email_confirm(user_code=body.user_code, email=body.email)
+    _send_email_confirm_mail(email=body.email, issued=issued)
+    return {
+        "schema_version": "karma-agent-pairing-email-confirm-v1",
+        "user_code": issued.get("user_code"),
+        "email_masked": issued.get("email_masked"),
+        "expires_at": issued.get("expires_at"),
+        "match_code": issued.get("match_code"),
+        "note_zh": "新邮件已发出，旧邮件里的码即刻作废。把 match_code 交给 agent 显示。",
     }
 
 

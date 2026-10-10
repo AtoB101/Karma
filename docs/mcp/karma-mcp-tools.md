@@ -212,5 +212,11 @@
 ## 5. 待确认项 —— 现状
 
 1. 配对码接口：**已定** —— 直接复用 `/v1/agent-pairing/request|claim`（与 `karma-openclaw` 同一通道）。
+   第 5 步在其上加了「邮箱回执」这道**可选**闸门（详见 `karma-mcp-security.md` §4.1）：
+   - `POST /v1/agent-pairing/approve` 带 `notify_email` → 3 个候选码发到主人邮箱，响应里的
+     `email_confirm.match_code` 由 agent 显示在它自己的聊天窗口；
+   - `GET /v1/agent-pairing/email-confirm?user_code=…&token=…`（public）→ 主人点对的那个码，200 即解锁；
+   - `POST /v1/agent-pairing/email-confirm/resend`（owner）→ 重出码，旧 token 当场作废；
+   - 不填 `notify_email` 时行为与从前一致，`claim` 直接交付。
 2. 授权更新：**已定** —— 后端无「原地改」入口，走**铸新 + 撤旧**（强行改会破坏后端验签预期）。
 3. 聊天侧签名下发：**未定** —— Console 已有深链；聊天侧（签名链接 / 二维码）待 S6 与平台适配一并定。
