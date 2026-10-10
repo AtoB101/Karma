@@ -65,3 +65,53 @@ SUMMARY|total=22 fail=0
 - `karma_request_refund` 与 `karma_open_dispute` 共用同一后端入口：agent 只能**发起**，
   退款/放款只能由仲裁结果驱动，MCP 层没有任何自行放款能力。
 - 买方锁仓额度由**用户自己钱包**持有；Karma 只能在这条 ERC-20 授权额内划动。
+
+## 6. Agent 自动接入：邮箱回执（第三把锁）真机验收
+
+本步（commit `b458e08`）在同一台测试网 VPS 上实测「配对 + 邮箱回执」
+（`/opt/karma/repo` HEAD=`b458e08`，`karma-api` healthy）。全程**无 Mock**：真实 HTTP、
+真实配对状态机、真实 `smtplib` 出站。
+
+### 6.1 出口未配置时（fail-closed）
+
+| 用例 | 期望 | 实测 |
+| --- | --- | --- |
+| `approve` 带 `notify_email` | 503 | 503 |
+| 被拒后该配对仍是 `pending`（不许「批准了但锁没加上」） | `pending` | `pending` |
+| `GET /v1/agent-pairing/email-confirm` 假 token | 409 + HTML | 409 |
+| owner 路由匿名调用（approve / lookup） | 401 | 401 |
+| `approve` 不带 `notify_email` | 200，`email_confirm={"required": false, "state": "off"}`，claim 正常交付 | 一致 |
+
+### 6.2 出口配好之后（受控 SMTP 出口，全链路）
+
+在 VPS 上临时起一个**受控 SMTP sink**（宿主进程监听 `0.0.0.0:2525`），把
+`KARMA_MAIL_HOST/PORT/FROM/SSL` 经 `/opt/karma/.env` 注入后 `docker compose up -d` 重建容器；
+测完**已还原 `.env` 并重建**，`mailer.configured()` 回到 `False`。
+
+| 用例 | 期望 | 实测 |
+| --- | --- | --- |
+| `approve` 带 `notify_email` | 200，`delivered=true`，`email_masked=ow***@example.com` | 一致 |
+| sink 收到的信 | 正文含 3 个候选码 + 3 条链接，**不含任何凭据** | 一致（3 码 / 3 链接，无 `karma_`） |
+| 邮箱未点之前 `claim` | `awaiting_email_confirm`，**无凭据** | 一致 |
+| 拿 `match_code` 当 token（配对码泄漏者） | 409 —— 单知道这个码换不到东西 | 409 |
+| `resend` 之后，旧邮件里的 token | 409（旧码当场作废） | 409 |
+| 点一个干扰码 | 409 | 409 |
+| 点对的那个码 | 200（再点一次仍 200，不重复扣） | 200 / 200 |
+| 确认后 `claim` | `approved` + `api_key` | 一致 |
+| 凭据是否出现在邮件正文 | 否 | 否 |
+| 用交付的 `api_key` 调 owner 端点 | 200（key 真实可用） | 200 |
+| `resend` | 200，重出码 | 200 |
+
+### 6.3 夹具清理（已执行）
+
+- 临时 owner bootstrap key + 本次 4 把 agent key 从 store 删除：**175 → 170**（回到基线）；
+- 4 个 custody 托管私钥文件删除；测试配对记录 **203 → 199**；
+- 删除后旧 owner key 实测 **401**；`.env` 已还原（`KARMA_MAIL_*` 计数 = 0），
+  `mailer.configured()=False`。
+
+### 6.4 本次**没有**声称的东西
+
+- **真实外部邮箱投递未验证**：环境没有可用的 SMTP 凭据，6.2 用的是受控 sink。它证明了
+  「配置齐了之后整条链路真的能跑通」（真实 `smtplib` 会话 + 真实 HTTP + 真实状态机），
+  但**不等于** QQ / Gmail 收件箱收得到信；凭据到位后需补一次真实投递。
+- 未在主网做任何操作；本步全部只碰测试网。
