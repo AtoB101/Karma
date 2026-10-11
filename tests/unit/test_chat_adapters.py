@@ -381,6 +381,56 @@ def test_events_normalize_both_platforms_and_ignore_junk():
     assert events.normalize_whatsapp({"entry": [{"changes": [{"value": {"statuses": [1]}}]}]}) == []
 
 
+# --------------------------------------------------------------------------
+# 安全：验签 / 鉴权必须在**解析报文之前**
+#
+# 顺序错了（先解析再验签）并不会放行任何东西，但会让未认证的调用方从 422 的
+# 字段名里读出接口形状。这组用例把顺序钉死。
+# --------------------------------------------------------------------------
+
+
+async def test_telegram_webhook_verifies_signature_before_parsing_body(client, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", TELEGRAM_SECRET)
+    bad_body = b"{not json"
+
+    # 验签不过：坏报文也只能看到 403，看不到「报文格式不对」。
+    unauthenticated = await client.post(
+        "/v1/adapters/telegram/webhook",
+        content=bad_body,
+        headers={"Content-Type": "application/json"},
+    )
+    assert unauthenticated.status_code == 403
+
+    # 验签过了：这时才轮到「报文格式不对」。
+    authenticated = await client.post(
+        "/v1/adapters/telegram/webhook",
+        content=bad_body,
+        headers={**_tg_headers(), "Content-Type": "application/json"},
+    )
+    assert authenticated.status_code == 400
+
+
+async def test_notify_authenticates_before_body_validation(client, monkeypatch):
+    bad_body = {"platform": "telegram"}  # 缺 chat_id / text
+
+    # 通道没配 → 503，跟报文无关。
+    unconfigured = await client.post("/v1/adapters/notify", json=bad_body)
+    assert unconfigured.status_code == 503
+
+    monkeypatch.setenv("KARMA_ADAPTER_NOTIFY_TOKEN", NOTIFY_TOKEN)
+
+    # token 不对 → 401，仍然轮不到报文校验。
+    wrong = await client.post(
+        "/v1/adapters/notify", json=bad_body, headers={"X-Karma-Adapter-Token": "nope"}
+    )
+    assert wrong.status_code == 401
+
+    # token 对了，报文确实是坏的 → 这时的 422 才是自己人看到的。
+    ok_token = await client.post(
+        "/v1/adapters/notify", json=bad_body, headers={"X-Karma-Adapter-Token": NOTIFY_TOKEN}
+    )
+    assert ok_token.status_code == 422
+
 def test_chat_id_is_never_logged_in_full():
     assert guard.mask_chat_id("8613800000000").endswith("0000")
     assert "86138000" not in guard.mask_chat_id("8613800000000")

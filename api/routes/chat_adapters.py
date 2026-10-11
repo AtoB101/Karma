@@ -4,8 +4,10 @@
 
 三条红线写死在这里 —— 本文件是它们唯一可能被绕过的地方：
 
-1. **不验签不放行**：Telegram 缺 ``TELEGRAM_WEBHOOK_SECRET`` → 403；
-   WhatsApp 缺 ``WHATSAPP_APP_SECRET`` → 503、签名对不上 → 403。
+1. **先验签，再解析**。任何一个端点的第一件事都是验签 / 鉴权，报文解析排在其后：
+   Telegram 缺 ``TELEGRAM_WEBHOOK_SECRET`` → 403；WhatsApp 缺 ``WHATSAPP_APP_SECRET``
+   → 503、``X-Hub-Signature-256`` 对不上 → 403；``/notify`` 缺配 → 503、token 不对 → 401。
+   顺序很要紧：解析放在验签前面，未认证的调用方就能从 422 的字段名里读出接口形状。
    平台凭据没配就是没配，不「先放过来再说」。
 2. **聊天账号不是资金凭证**：本路由没有任何一条路径能产生、扩大或动用资金权限。
    入站消息一律经 ``commands.decide``，只可能落到那几个白名单动作上。
@@ -22,7 +24,7 @@ import json
 import os
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -40,12 +42,29 @@ class NotifyBody(BaseModel):
     text: str = Field(min_length=1, max_length=guard.MAX_OUTBOUND_CHARS)
 
 
+def _require_notify_token(
+    x_karma_adapter_token: str | None = Header(default=None),
+) -> None:
+    """``/notify`` 的静态 bearer。
+
+    做成依赖而不是写在函数体里，是为了让它在 **body 校验之前** 跑：否则一个
+    body 格式不对的未认证请求会先拿到 422（连字段名一起），等于免费读接口形状。
+    """
+    expected = config.notify_token()
+    if not expected:
+        raise HTTPException(503, "adapter notify channel is not configured")
+    if not x_karma_adapter_token or not hmac.compare_digest(x_karma_adapter_token, expected):
+        raise HTTPException(401, "invalid adapter token")
+
+
 @router.get("/status")
 def adapter_status() -> dict[str, Any]:
     """通道健康视图：只回布尔与清单，绝不回显任何凭据。"""
     return {
         "platforms": list(SUPPORTED_PLATFORMS),
-        "telegram": {"webhook_configured": bool((os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip())},
+        "telegram": {
+            "webhook_configured": bool((os.getenv("TELEGRAM_WEBHOOK_SECRET") or "").strip())
+        },
         "whatsapp": {
             "webhook_configured": whatsapp.webhook_configured(),
             "send_configured": whatsapp.send_configured(),
@@ -74,7 +93,7 @@ async def whatsapp_webhook(
     request: Request,
     x_hub_signature_256: str | None = Header(default=None),
 ):
-    """WhatsApp 入站。验签用**原始字节**，所以必须先 `await request.body()`。"""
+    """WhatsApp 入站。验签用**原始字节**，所以先 `await request.body()` 再解析。"""
     if not whatsapp.webhook_configured():
         raise HTTPException(503, "whatsapp webhook is not configured")
     raw = await request.body()
@@ -91,14 +110,24 @@ async def whatsapp_webhook(
 
 @router.post("/telegram/webhook")
 async def telegram_webhook(
-    body: dict,
+    request: Request,
     x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ):
-    """Telegram 入站。认识的命令本适配器答，其余原样交回既有 concierge。"""
+    """Telegram 入站。认识的命令本适配器答，其余原样交回既有 concierge。
+
+    注意这里**不**把 body 声明成 pydantic 参数：那样 FastAPI 会先解析报文再进函数体，
+    未验签的坏报文就会拿到 422。改成先验签、再自己解析，坏报文一律 400。
+    """
     from services.telegram import bot as tg_bot
 
     if not tg_bot.verify_webhook_secret(x_telegram_bot_api_secret_token):
         raise HTTPException(403, "invalid webhook secret")
+    try:
+        body = json.loads(await request.body() or b"{}")
+    except ValueError:
+        raise HTTPException(400, "invalid json")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "invalid json")
 
     inbound = events.normalize_telegram(body)
     if not inbound:
@@ -117,14 +146,9 @@ async def telegram_webhook(
 @router.post("/notify")
 def adapter_notify(
     body: NotifyBody,
-    x_karma_adapter_token: str | None = Header(default=None),
+    _auth: None = Depends(_require_notify_token),
 ) -> dict[str, Any]:
-    """服务侧推送：把一条通知发到某个聊天会话。静态 bearer，缺配一律 503。"""
-    expected = config.notify_token()
-    if not expected:
-        raise HTTPException(503, "adapter notify channel is not configured")
-    if not x_karma_adapter_token or not hmac.compare_digest(x_karma_adapter_token, expected):
-        raise HTTPException(401, "invalid adapter token")
+    """服务侧推送：把一条通知发到某个聊天会话。鉴权在 body 校验之前完成。"""
     if body.platform not in SUPPORTED_PLATFORMS:
         raise HTTPException(400, "unsupported platform")
     try:

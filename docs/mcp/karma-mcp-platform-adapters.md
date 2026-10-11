@@ -15,8 +15,11 @@
 
 ## 2. 红线（三条，都有用例守着）
 
-1. **不验签不放行**。Telegram 缺 `TELEGRAM_WEBHOOK_SECRET` → 403；WhatsApp 缺
-   `WHATSAPP_APP_SECRET` → 503、签名对不上 → 403。凭据没配就是没配，不「先放过来」。
+1. **先验签，再解析**。Telegram 缺 `TELEGRAM_WEBHOOK_SECRET` → 403；WhatsApp 缺
+   `WHATSAPP_APP_SECRET` → 503、签名对不上 → 403；`/notify` 缺配 → 503、token 不对 → 401。
+   凭据没配就是没配，不「先放过来」。**顺序也要紧**：解析放在验签前面并不会放行任何
+   东西，但会让未认证的调用方从 422 的字段名里读出接口形状 —— 所以 Telegram webhook
+   不把 body 声明成 pydantic 参数，`/notify` 的 token 做成 `Depends`，都在解析之前跑。
 2. **聊天账号不是资金凭证**。适配器没有任何一条路径能产生 / 扩大 / 动用资金权限；
    入站消息一律经 `commands.decide`，只可能落到白名单动作上。用例
    `test_command_surface_has_no_money_entry` 拿「转账 / 下单 / 改额度」等说法逐个探过。
@@ -36,7 +39,7 @@ services/chat_adapters/
   commands.py     命令面（平台无关，故意做得很小）
   whatsapp.py     WhatsApp Cloud API 客户端 + X-Hub-Signature-256 验签 + 订阅握手
 api/routes/chat_adapters.py    FastAPI 路由（挂载于 /v1/adapters）
-tests/unit/test_chat_adapters.py   21 例（功能 + 安全）
+tests/unit/test_chat_adapters.py   23 例（功能 + 安全）
 ```
 
 `services/telegram/bot.py` 新增了一个公开包装 `deliver_reply()` —— 适配器要走
@@ -104,7 +107,7 @@ tests/unit/test_chat_adapters.py   21 例（功能 + 安全）
 
 ## 8. 安全用例清单
 
-`tests/unit/test_chat_adapters.py`（21 例，全绿）中与安全直接相关的：
+`tests/unit/test_chat_adapters.py`（23 例，全绿）中与安全直接相关的：
 
 | 用例 | 考什么 |
 |---|---|
@@ -119,4 +122,6 @@ tests/unit/test_chat_adapters.py   21 例（功能 + 安全）
 | `test_command_surface_has_no_money_entry` | 命令面无动钱入口 |
 | `test_adapter_package_never_reaches_into_money_or_keys` | 源码级：不 import 链 / 钱包 / 记账 |
 | `test_guard_blocks_credentials_but_keeps_public_hashes` | 拦凭据、不误拦公开哈希 |
+| `test_telegram_webhook_verifies_signature_before_parsing_body` | 坏报文 + 未验签 → 403（不是 422） |
+| `test_notify_authenticates_before_body_validation` | 未认证 → 503/401（不是 422） |
 | `test_outbound_refuses_to_send_a_credential` | 出站拒发 |
