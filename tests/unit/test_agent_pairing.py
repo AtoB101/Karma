@@ -684,10 +684,19 @@ async def test_unknown_codes_are_rejected_without_leaking_anything(db_session):
 
 
 def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
-    """静态接线：页面、侧栏、脚本映射三者少一个，用户就点不到这一页。"""
+    """静态接线：页面、脚本映射、侧栏落点三者少一个，用户就点不到这一页。
+
+    2026-10-11 用户口径：Agent 接入只留「授权向导 / 我的助理 Agent / 接入一个 Agent」
+    三个子项；配对（匹配接入）不再是独立子项 —— 它是「接入一个 Agent」这一页的最后
+    一块（生成包下方），跟着那一页一起露面。
+    """
     html = PAGE.read_text(encoding="utf-8")
     assert 'id="ag-pair"' in html
-    assert 'data-sub="pair"' in html
+    assert 'data-sub="pair"' not in html, "配对不再是独立子项"
+    assert 'data-page="agents" data-sub="connect"' in html, "「接入一个 Agent」得留在侧栏里"
+    # 落点：排在「接入一个 Agent」的生成包（#ag-connect / #ag-result）之后。
+    assert html.index('id="ag-connect"') < html.index('id="ag-pair"')
+    assert 'id="ag-result"' in html
     assert "cyber-pairing.js" in html
     assert 'id="pair-code"' in html
     assert 'id="pair-approve"' in html
@@ -697,8 +706,20 @@ def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
     assert 'id="pair-handoff-go"' in html
 
     console_js = (CONSOLE / "scripts" / "cyber-console.js").read_text(encoding="utf-8")
-    assert 'pair: "#ag-pair"' in console_js
-    assert 'pair: ["#ag-pair"]' in console_js
+    # 子项没有了，但点「接入一个 Agent」要把它一起翻出来 —— 否则这一页没人能点到。
+    assert 'connect: ["#agents > .ag-advanced", "#ag-pair"]' in console_js
+    assert 'wizard: "#ag-wizard"' in console_js
+    assert 'pair: ' not in console_js and 'handoff: ' not in console_js
+
+
+def test_the_pairing_deep_link_lands_on_the_connect_page():
+    """agent 转给主人的 verification_uri 就是 console/?pair=CODE。
+
+    配对卡片现在只在「接入一个 Agent」那一页露面，所以这条深链必须自己把那一页翻出来 ——
+    否则主人点开链接只会看到首页，以为链接坏了，而这一步正是他唯一一次授权。
+    """
+    js = PAIRING_JS.read_text(encoding="utf-8")
+    assert 'global.cyberSwitchPage("agents", "connect")' in js
 
 
 def test_the_pairing_card_puts_the_fingerprint_up_front_to_be_checked():

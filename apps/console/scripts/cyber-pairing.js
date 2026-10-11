@@ -849,6 +849,9 @@
     if (code && byId("pair-code")) {
       byId("pair-code").value = code;
       state.autoLookup = true;
+      // 这一页现在挂在「接入一个 Agent」底下（agent 转给主人的 verification_uri
+      // 就是这条 ?pair= 链接）：先把它翻出来，否则主人对着首页发愣，以为链接坏了。
+      if (global.cyberSwitchPage) global.cyberSwitchPage("agents", "connect");
       query();
     }
   }

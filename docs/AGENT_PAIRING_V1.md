@@ -61,7 +61,7 @@ agent 直接 `claim` 拿到凭据，回执里标 `"handoff": {"required": false,
 ## 3. 端到端时序
 
 ```
-agent                          Karma API                      主人（操作台 · Agent 接入 · 配对接入）
+agent                          Karma API                      主人（操作台 · Agent 接入 · 接入一个 Agent · 页尾配对）
   |                                |                                     |
   |-- POST /v1/agent-pairing/request -->                                |
   |<-- pairing_code + user_code + verification_uri + 15 分钟有效期 -----|
@@ -287,5 +287,5 @@ karma_pairing_local_status()                 # 本机握着什么（只报指纹
 | `services/agent_pairing.py` | 配对存储与状态机（request → approve → handoff → claim，两把锁 + 一次性交付） |
 | `api/routes/agent_pairing.py` | 公开端点 + 主人端点，`api/app.py` 里分成两个 router 挂载 |
 | `api/routes/agents.py::connect_owner_agent` | 与 `/v1/agents/owner-connect` 共用的建 agent 逻辑 |
-| `apps/console/scripts/cyber-pairing.js` | 操作台「配对接入」面板 |
+| `apps/console/scripts/cyber-pairing.js` | 操作台「接入一个 Agent」页尾的配对面板（2026-10-11：不再是独立子项） |
 | `tests/unit/test_agent_pairing.py` | 端到端 + 一次性交付 + 静态接线 + 六语言文案 |

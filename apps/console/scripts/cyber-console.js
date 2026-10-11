@@ -1311,9 +1311,8 @@
     reviews: { all: "#rv-queue", entity: "#rv-queue", developer: "#rv-queue", kyc: "#rv-queue" },
     agents: {
       wizard: "#ag-wizard",
-      pair: "#ag-pair",
       mine: "#ag-mine",
-      handoff: "#ag-handoff-card",
+      // 「接入一个 Agent」这一页的最后一块就是配对（匹配接入）。
       connect: "#agents .ag-advanced",
     },
   };
@@ -1348,11 +1347,6 @@
       }
       return;
     }
-    if (page === "agents" && sub === "handoff") {
-      var box = document.getElementById("ag-handoff");
-      // 交付包要先在「我的 Agent」里点某个 agent 才会生成，别让人对着空卡片发呆。
-      if (box && !box.innerHTML.trim()) box.innerHTML = '<p class="muted">先在「我的 Agent」里点某个 agent 的「交给 Agent」，这里会生成它的交付包。</p>';
-    }
     var map = SUB_TARGETS[page];
     if (map && map[sub]) landOn(document.querySelector(map[sub]));
   }
@@ -1386,10 +1380,11 @@
     },
     agents: {
       wizard: ["#ag-wizard"],
-      pair: ["#ag-pair"],
       mine: ["#ag-mine"],
-      handoff: ["#ag-handoff-card"],
-      connect: ["#agents > .ag-advanced"],
+      // 配对面板跟着「接入一个 Agent」一起露面（它在那一页的生成包下方）。
+      // 交付包（ag-handoff-card）不挂这里：它由 cyber-handoff.js 自己显隐 ——
+      // 挂进来会被 focus-hidden 压住，从「我的助理 Agent」点开时反而看不见。
+      connect: ["#agents > .ag-advanced", "#ag-pair"],
     },
     reviews: {
       all: ["#rv-queue"],

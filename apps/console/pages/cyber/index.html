@@ -133,9 +133,7 @@
             <div class="nav-subs">
               <button class="nav-sub" data-page="agents" data-sub="wizard"><span data-i18n="sub.agents.wizard">授权向导</span></button>
               <button class="nav-sub" data-page="agents" data-sub="mine"><span data-i18n="sub.agents.mine">我的助理 Agent</span></button>
-              <button class="nav-sub" data-page="agents" data-sub="handoff" hidden><span data-i18n="sub.agents.handoff">交给 Agent</span></button>
-              <button class="nav-sub" data-page="agents" data-sub="connect" hidden><span data-i18n="sub.agents.connect">接入一个 Agent</span></button>
-              <button class="nav-sub" data-page="agents" data-sub="pair" hidden><span data-i18n="sub.agents.pair">配对接入</span></button>
+              <button class="nav-sub" data-page="agents" data-sub="connect"><span data-i18n="sub.agents.connect">接入一个 Agent</span></button>
             </div>
           </div>
           <!-- 仲裁台：只有仲裁员 / 管理员白名单里的人看得到（caps 到位后取消 hidden）。 -->
@@ -1049,8 +1047,63 @@
             <div class="agw-result" id="agw-result" hidden></div>
           </div>
 
-          <!-- 配对码接入：agent 先发起，主人只做「批准接入 + 划额度」两个决定，
-               凭据由 Karma 直接交给持配对码的进程（本页永远不显示密钥）。 -->
+          <div class="card section" id="ag-mine" style="margin-top:20px">
+            <div class="section-header">
+              <div>
+                <h3 data-i18n="sub.agents.mine">我的助理 Agent</h3>
+                <p>当前身份卡名下的 agent、P1 就绪度、密钥托管状态；可直接给绑定档案授权额度。</p>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <span class="api-status" id="ag-list-status"></span>
+                <button type="button" class="btn" id="ag-list-refresh">刷新</button>
+              </div>
+            </div>
+            <div id="ag-list" style="margin-top:12px"></div>
+          </div>
+
+          <div class="card section" id="ag-handoff-card" style="margin-top:20px" hidden>
+            <div class="section-header">
+              <div>
+                <h3>交给 Agent · 交付包</h3>
+                <p>把这份包交给 agent 运行时即可接入：环境变量 + 运行时密钥 + 自检命令。全程不涉及你的钱包私钥或助记词。</p>
+                <p>下面「已有密钥」里每把钥匙都可以展开看「最近调用」：这把钥匙最近做了什么、哪一次被拒、为什么被拒，都在那里。</p>
+              </div>
+              <button type="button" class="btn" id="ag-handoff-close">收起</button>
+            </div>
+            <div id="ag-handoff" style="margin-top:12px"></div>
+          </div>
+
+          <details class="card section ag-advanced" style="margin-top:20px" hidden>
+            <summary>高级 · 把 agent 注册进 Karma 目录（可选）</summary>
+            <div class="section-header" style="margin-top:14px">
+              <div>
+                <h3>接入一个 Agent</h3>
+                <p>选行业 → 填硬指标 → 一键接入。agent 的运行密钥由 Karma 服务端生成并托管（可随时吊销），全程不涉及你的钱包私钥 / 助记词。</p>
+              </div>
+            </div>
+            <div class="ag-grid">
+              <div class="field"><label>方向</label><select id="ag-side"><option value="seller">我要收款（卖家 agent）</option><option value="buyer">我要付款（买家 agent）</option></select></div>
+              <div class="field"><label>行业</label><select id="ag-vertical" disabled><option value="">读取行业目录…</option></select></div>
+              <div class="field"><label>Agent 名称</label><input id="ag-name" type="text" placeholder="如 上海中央厨房配送 agent" /></div>
+              <div class="field"><label>回调地址（可选）</label><input id="ag-endpoint" type="text" placeholder="https://your-agent.example.com/karma" /></div>
+              <div class="field"><label>绑定角色档案</label><select id="ag-scope"><option value="">（暂不绑定档案）</option></select></div>
+              <div class="field"><label>无档案时自动创建</label><select id="ag-class"><option value="merchant">merchant（商家）</option><option value="enterprise">enterprise（企业）</option></select></div>
+            </div>
+            <div id="ag-spec-wrap"><div id="ag-spec-form"></div></div>
+            <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
+              <button type="button" class="btn primary" id="ag-connect">⚡ 一键接入 Agent</button>
+              <span class="api-status" id="ag-wizard-status"></span>
+            </div>
+            <div class="ag-result" id="ag-result" style="display:none"></div>
+            <details style="margin-top:12px">
+              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">原始响应</summary>
+              <pre class="out" id="ag-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
+            </details>
+          </details>
+          <!-- 配对（匹配接入）：agent 先发起，主人只做「批准接入 + 划额度」两个决定，
+               凭据由 Karma 直接交给持配对码的进程（本页永远不显示密钥）。
+               2026-10-11 用户口径：它不再是一个独立子项 —— 它是「接入一个 Agent」
+               这一页的最后一块（生成包下方），跟着那一页一起露面。 -->
           <div class="card section" id="ag-pair" style="margin-top:20px" hidden>
             <div class="section-header">
               <div>
@@ -1146,59 +1199,6 @@
             <div id="pair-result" class="pair-result" style="margin-top:12px"></div>
           </div>
 
-          <div class="card section" id="ag-mine" style="margin-top:20px">
-            <div class="section-header">
-              <div>
-                <h3 data-i18n="sub.agents.mine">我的助理 Agent</h3>
-                <p>当前身份卡名下的 agent、P1 就绪度、密钥托管状态；可直接给绑定档案授权额度。</p>
-              </div>
-              <div style="display:flex;gap:8px;align-items:center">
-                <span class="api-status" id="ag-list-status"></span>
-                <button type="button" class="btn" id="ag-list-refresh">刷新</button>
-              </div>
-            </div>
-            <div id="ag-list" style="margin-top:12px"></div>
-          </div>
-
-          <div class="card section" id="ag-handoff-card" style="margin-top:20px" hidden>
-            <div class="section-header">
-              <div>
-                <h3>交给 Agent · 交付包</h3>
-                <p>把这份包交给 agent 运行时即可接入：环境变量 + 运行时密钥 + 自检命令。全程不涉及你的钱包私钥或助记词。</p>
-                <p>下面「已有密钥」里每把钥匙都可以展开看「最近调用」：这把钥匙最近做了什么、哪一次被拒、为什么被拒，都在那里。</p>
-              </div>
-              <button type="button" class="btn" id="ag-handoff-close">收起</button>
-            </div>
-            <div id="ag-handoff" style="margin-top:12px"></div>
-          </div>
-
-          <details class="card section ag-advanced" style="margin-top:20px" hidden>
-            <summary>高级 · 把 agent 注册进 Karma 目录（可选）</summary>
-            <div class="section-header" style="margin-top:14px">
-              <div>
-                <h3>接入一个 Agent</h3>
-                <p>选行业 → 填硬指标 → 一键接入。agent 的运行密钥由 Karma 服务端生成并托管（可随时吊销），全程不涉及你的钱包私钥 / 助记词。</p>
-              </div>
-            </div>
-            <div class="ag-grid">
-              <div class="field"><label>方向</label><select id="ag-side"><option value="seller">我要收款（卖家 agent）</option><option value="buyer">我要付款（买家 agent）</option></select></div>
-              <div class="field"><label>行业</label><select id="ag-vertical" disabled><option value="">读取行业目录…</option></select></div>
-              <div class="field"><label>Agent 名称</label><input id="ag-name" type="text" placeholder="如 上海中央厨房配送 agent" /></div>
-              <div class="field"><label>回调地址（可选）</label><input id="ag-endpoint" type="text" placeholder="https://your-agent.example.com/karma" /></div>
-              <div class="field"><label>绑定角色档案</label><select id="ag-scope"><option value="">（暂不绑定档案）</option></select></div>
-              <div class="field"><label>无档案时自动创建</label><select id="ag-class"><option value="merchant">merchant（商家）</option><option value="enterprise">enterprise（企业）</option></select></div>
-            </div>
-            <div id="ag-spec-wrap"><div id="ag-spec-form"></div></div>
-            <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
-              <button type="button" class="btn primary" id="ag-connect">⚡ 一键接入 Agent</button>
-              <span class="api-status" id="ag-wizard-status"></span>
-            </div>
-            <div class="ag-result" id="ag-result" style="display:none"></div>
-            <details style="margin-top:12px">
-              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">原始响应</summary>
-              <pre class="out" id="ag-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
-            </details>
-          </details>
         </section>
 
         <section id="market" class="page">
@@ -1685,7 +1685,7 @@
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=7c7af489e26e"></script>
-    <script src="../../scripts/cyber-console.js?v=58fa5369f046"></script>
+    <script src="../../scripts/cyber-console.js?v=a42ba44bd086"></script>
     <script src="../../scripts/cyber-identity.js?v=742feb6190e5"></script>
 <script src="../../scripts/cyber-master-page.js?v=f213b05c6871"></script>
     <script src="../../scripts/cyber-face-capture.js?v=75c411042b89"></script>
@@ -1708,7 +1708,7 @@
     <script src="../../scripts/cyber-bind-requests.js?v=4b3dd8f031fd"></script>
     <!-- 一键取消绑定：和接入确认同源（都用 KarmaHandoff 出口的签名消息），排在它后面。 -->
     <script src="../../scripts/cyber-unbind-keys.js?v=dd4435d0693c"></script>
- <script src="../../scripts/cyber-pairing.js?v=56b7041c6b30"></script>
+ <script src="../../scripts/cyber-pairing.js?v=701cb9d94a2c"></script>
     <!-- 刷脸保险柜：主身份刷脸即激活 + 追加身份的同人比对（模板在本机加密 / 比对）。 -->
     <script src="../../scripts/cyber-face-vault.js?v=fb67c6687e1c"></script>
     <!-- 安全验证（2FA）：设置页那张卡 + 动额度前弹出的验证码。 -->
