@@ -265,18 +265,26 @@ curl -s https://karma-network.ai/runtime/policy  -H "X-Karma-Runtime-Key: $KARMA
 MCP 不是前提：任何会发 HTTP 的 agent 都能接入（`X-Karma-Api-Key` / `X-Karma-Runtime-Key`）。
 见 [mcp-adapter-guide.md](./mcp-adapter-guide.md)。
 
-不想手写这三个请求的，`packages/karma-openclaw` 已经把它包成 MCP 工具：
+不想手写这三个请求的，`packages/karma-openclaw` 已经把它包成 MCP 工具。名字与通用
+MCP Server（`packages/karma-mcp-server`）**统一成 `karma_connect*`** —— 用户在哪个
+Agent 里看到的都是同一套词：
 
 ```text
-karma_pairing_start(agent_name="claw-001", requested_side="seller", requested_vertical="food")
-karma_pairing_status()                       # 等批准 / 已交付
-karma_pairing_claim()                        # 批准即交付：凭据只写 ~/.karma/agent.env（0600）
-karma_pairing_local_status()                 # 本机握着什么（只报指纹）
+karma_connect(agent_name="claw-001", requested_side="seller", requested_vertical="food")
+karma_connect_claim()                        # 批准即交付：凭据只写 ~/.karma/agent.env（0600）
+karma_connect_status()                       # 本机握着什么（只读本机，不发网络请求）
 ```
 
-`karma_pairing_start` 把 `pairing_code` 落到 `~/.karma/pairing/<user_code>.json`（0600），
-返回值里没有它；`karma_pairing_claim` 返回值里没有明文凭据，只有 `sha256:…` 指纹。
+`karma_connect` 把 `pairing_code` 落到 `~/.karma/pairing/<user_code>.json`（0600），
+返回值里没有它；`karma_connect_claim` 返回值里没有明文凭据，只有 `sha256:…` 指纹。
 所以整个接入过程可以放心地出现在聊天记录里。
+
+批准进度也由 `karma_connect_claim` 回答：还没批准时它只回状态、什么都不消耗（那个一次性
+凭据只在真正交付的那一刻被吃掉），批准了就当场把凭据领回本机。这两个性质不能拆开 ——
+老实现里另有一个「查状态」的工具，它自己发一次 claim 却把返回的凭据丢掉：主人已经批准
+时，一次「查一下状态」就等于把凭据吃掉再扔掉，agent 再也领不到。所以那个工具已经删掉。
+
+（老名字 `karma_pairing_*` 仍挂着兼容别名一版，只做转发，逻辑只有一份。）
 
 ---
 

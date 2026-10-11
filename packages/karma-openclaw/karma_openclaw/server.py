@@ -37,8 +37,8 @@ def build_app() -> FastMCP:
         "karma-openclaw",
         instructions=(
             "Karma Trust Protocol — OpenClaw MCP (P0+P1). "
-            "No credentials yet? Call karma_pairing_start and hand the user_code to your "
-            "owner; once they approve in the Console, call karma_pairing_claim() — approval "
+            "No credentials yet? Call karma_connect and hand the user_code to your "
+            "owner; once they approve in the Console, call karma_connect_claim() — approval "
             "is the delivery, so nothing has to travel back to you (only if the owner "
             "additionally issues a handoff code do you pass handoff_code). Credentials are "
             "written to ~/.karma/agent.env (0600) and never echoed into the chat. "

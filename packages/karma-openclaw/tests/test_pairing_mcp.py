@@ -10,7 +10,9 @@ def _tools() -> dict:
 
 
 def test_build_app_registers_the_pairing_tools():
+    """统一命名的那三个必须在注册表里，老名字作为兼容别名也还挂着。"""
     names = set(_tools())
+    assert {"karma_connect", "karma_connect_status", "karma_connect_claim"} <= names
     assert {
         "karma_pairing_start",
         "karma_pairing_status",
@@ -21,12 +23,12 @@ def test_build_app_registers_the_pairing_tools():
 
 def test_pairing_claim_description_names_the_handoff_code():
     """描述里必须点出 handoff_code —— agent 靠它才知道要问主人要那串码。"""
-    claim = _tools()["karma_pairing_claim"]
+    claim = _tools()["karma_connect_claim"]
     desc = (claim.description or "") + " " + str(getattr(claim, "parameters", ""))
     assert "handoff_code" in desc
 
 
 def test_pairing_start_description_tells_the_agent_to_hand_the_user_code_over():
-    start = _tools()["karma_pairing_start"]
+    start = _tools()["karma_connect"]
     desc = start.description or ""
     assert "user_code" in desc

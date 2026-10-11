@@ -142,7 +142,7 @@ packages/karma-mcp-server/
   tests/
 ```
 
-**与既有包的关系**：`packages/karma-openclaw` 是**正确样板**（Runtime Key 模型、配对方向、guard）；本包把它的可复用做法收敛为通用入口。`packages/karma-mcp` 的**私钥进进程**模型作废（审计 §7-P0），不作为基础。
+**与既有包的关系**：`packages/karma-openclaw` 是**正确样板**（Runtime Key 模型、配对方向、guard）；本包把它的可复用做法收敛为通用入口。`packages/karma-mcp` 的**私钥进进程**模型作废（审计 §7-P0），不作为基础 —— 该包已于 2026-10-12 从仓库删除（无任何包或脚本依赖它，`karma-connect` 也不再指向它）。
 
 ## 11. 实施顺序（先设计后编码）
 

@@ -118,7 +118,7 @@ def _state_files() -> list:
 
 async def test_start_saves_the_pairing_code_locally_and_never_echoes_it(monkeypatch):
     calls = _install(monkeypatch, [_request_payload()])
-    out = await pt.karma_pairing_start("claw-001", requested_side="seller", requested_vertical="food")
+    out = await pt.karma_connect("claw-001", requested_side="seller", requested_vertical="food")
 
     assert calls[0]["path"] == "/v1/agent-pairing/request"
     assert calls[0]["body"]["agent_name"] == "claw-001"
@@ -159,7 +159,7 @@ async def test_start_saves_the_pairing_code_locally_and_never_echoes_it(monkeypa
 
 async def test_start_refuses_a_nameless_agent_without_calling_the_server(monkeypatch):
     calls = _install(monkeypatch, [])
-    out = await pt.karma_pairing_start("   ")
+    out = await pt.karma_connect("   ")
     assert out["ok"] is False
     assert out["error"] == "agent_name_required"
     assert calls == []
@@ -167,7 +167,7 @@ async def test_start_refuses_a_nameless_agent_without_calling_the_server(monkeyp
 
 async def test_start_surfaces_the_server_reason(monkeypatch):
     _install(monkeypatch, [_http_error(429, "too many pending pairings from this IP")])
-    out = await pt.karma_pairing_start("claw-001")
+    out = await pt.karma_connect("claw-001")
     assert out["ok"] is False
     assert out["error"] == "pairing_request_failed"
     assert "too many pending" in out["detail"]
@@ -186,8 +186,8 @@ async def test_claim_relays_the_handoff_ask_the_server_reports(monkeypatch):
             "poll_interval_seconds": 3,
         },
     ])
-    await pt.karma_pairing_start("claw-001")
-    out = await pt.karma_pairing_claim()
+    await pt.karma_connect("claw-001")
+    out = await pt.karma_connect_claim()
 
     assert out["ok"] is False
     assert out["status"] == "awaiting_handoff"
@@ -207,8 +207,8 @@ async def test_claim_lets_the_server_explain_the_hold(monkeypatch):
             "poll_interval_seconds": 3,
         },
     ])
-    await pt.karma_pairing_start("claw-001")
-    out = await pt.karma_pairing_claim()
+    await pt.karma_connect("claw-001")
+    out = await pt.karma_connect_claim()
     assert out["ask_owner"] == "这次部署仍要求交接码：请主人在操作台签发后再试。"
     # 没交接码就没凭据。本机私钥可以已经落盘（配对那一步自己生成的），
     # 但服务端发的东西一行都不许出现。
@@ -219,8 +219,8 @@ async def test_claim_lets_the_server_explain_the_hold(monkeypatch):
 
 async def test_claim_writes_the_env_file_and_only_reports_fingerprints(monkeypatch):
     calls = _install(monkeypatch, [_request_payload(), _approved_payload()])
-    started = await pt.karma_pairing_start("claw-001")
-    out = await pt.karma_pairing_claim(handoff_code="K7P2-9RVX")
+    started = await pt.karma_connect("claw-001")
+    out = await pt.karma_connect_claim(handoff_code="K7P2-9RVX")
 
     assert calls[1]["path"] == "/v1/agent-pairing/claim"
     assert calls[1]["body"] == {"pairing_code": PAIRING_CODE, "handoff_code": "K7P2-9RVX"}
@@ -266,8 +266,8 @@ async def test_claim_says_the_key_is_already_live_when_pairing_activated_it(monk
         "note": "this key is live",
     }
     _install(monkeypatch, [_request_payload(), payload])
-    await pt.karma_pairing_start("claw-001")
-    out = await pt.karma_pairing_claim()
+    await pt.karma_connect("claw-001")
+    out = await pt.karma_connect_claim()
 
     assert out["ok"] is True
     assert out["runtime_key_activated"] is True
@@ -282,8 +282,8 @@ async def test_claim_rejects_a_wrong_handoff_code(monkeypatch):
         _request_payload(),
         _http_error(403, "too many wrong handoff codes — pairing expired, start over"),
     ])
-    await pt.karma_pairing_start("claw-001")
-    out = await pt.karma_pairing_claim(handoff_code="ZZZZ-ZZZZ")
+    await pt.karma_connect("claw-001")
+    out = await pt.karma_connect_claim(handoff_code="ZZZZ-ZZZZ")
 
     assert calls[1]["body"]["handoff_code"] == "ZZZZ-ZZZZ"
     assert out["ok"] is False
@@ -295,14 +295,14 @@ async def test_claim_rejects_a_wrong_handoff_code(monkeypatch):
 
 async def test_claim_reports_an_unknown_pairing(monkeypatch):
     _install(monkeypatch, [_http_error(404, "unknown pairing_code")])
-    out = await pt.karma_pairing_claim(pairing_code="nope")
+    out = await pt.karma_connect_claim(pairing_code="nope")
     assert out["ok"] is False
     assert out["error"] == "pairing_not_found"
 
 
 async def test_claim_without_any_local_pairing_says_so(monkeypatch):
     calls = _install(monkeypatch, [])
-    out = await pt.karma_pairing_claim()
+    out = await pt.karma_connect_claim()
     assert out["ok"] is False
     assert out["error"] == "pairing_code_missing"
     assert calls == []
@@ -310,21 +310,22 @@ async def test_claim_without_any_local_pairing_says_so(monkeypatch):
 
 async def test_claim_picks_the_pairing_code_up_from_the_local_state_file(monkeypatch):
     calls = _install(monkeypatch, [_request_payload(), _approved_payload()])
-    await pt.karma_pairing_start("claw-001")
-    out = await pt.karma_pairing_claim(handoff_code="K7P2-9RVX")
+    await pt.karma_connect("claw-001")
+    out = await pt.karma_connect_claim(handoff_code="K7P2-9RVX")
     assert calls[1]["body"]["pairing_code"] == PAIRING_CODE
     assert out["status"] == "claimed"
 
 
-async def test_status_reports_the_step_without_credentials(monkeypatch):
+async def test_claim_reports_the_step_without_credentials(monkeypatch):
+    """还没批准时 claim 只回状态：什么都不消耗，也不吐凭据。"""
     _install(monkeypatch, [
         _request_payload(),
         {"status": "awaiting_handoff", "handoff_state": "active",
          "handoff_expires_at": "2026-09-25T12:03:00Z", "poll_interval_seconds": 3},
     ])
-    await pt.karma_pairing_start("claw-001")
-    out = await pt.karma_pairing_status()
-    assert out["ok"] is True
+    await pt.karma_connect("claw-001")
+    out = await pt.karma_connect_claim()
+    assert out["ok"] is False
     assert out["status"] == "awaiting_handoff"
     assert out["handoff_state"] == "active"
     assert out["user_code"] == USER_CODE
@@ -332,11 +333,13 @@ async def test_status_reports_the_step_without_credentials(monkeypatch):
     assert "credentials" not in out
 
 
-async def test_status_without_a_local_pairing_says_so(monkeypatch):
+async def test_legacy_status_alias_without_a_local_pairing_says_so(monkeypatch):
+    """老名字还挂着，但没有本机配对时照样老实说没有 —— 不装作成功。"""
     _install(monkeypatch, [])
     out = await pt.karma_pairing_status()
     assert out["ok"] is False
-    assert out["error"] == "no_local_pairing"
+    assert out["error"] == "pairing_code_missing"
+    assert out["deprecated"]
 
 
 # --------------------------------------------------------------- 本机状态
@@ -344,10 +347,10 @@ async def test_status_without_a_local_pairing_says_so(monkeypatch):
 
 async def test_local_status_reports_fingerprints_and_modes_only(monkeypatch):
     _install(monkeypatch, [_request_payload(), _approved_payload()])
-    await pt.karma_pairing_start("claw-001")
-    await pt.karma_pairing_claim(handoff_code="K7P2-9RVX")
+    await pt.karma_connect("claw-001")
+    await pt.karma_connect_claim(handoff_code="K7P2-9RVX")
 
-    out = await pt.karma_pairing_local_status()
+    out = await pt.karma_connect_status()
     assert out["ok"] is True
     assert out["env_file_present"] is True
     assert out["api_key_fingerprint"] == _fp(API_KEY)
@@ -361,7 +364,7 @@ async def test_local_status_reports_fingerprints_and_modes_only(monkeypatch):
 async def test_local_status_with_nothing_on_disk(tmp_path, monkeypatch):
     monkeypatch.setenv("KARMA_AGENT_ENV_PATH", str(tmp_path / "nope" / "agent.env"))
     monkeypatch.setenv("KARMA_PAIRING_STATE_DIR", str(tmp_path / "nope-pairing"))
-    out = await pt.karma_pairing_local_status()
+    out = await pt.karma_connect_status()
     assert out["ok"] is True
     assert out["env_file_present"] is False
     assert out["pending_pairings"] == []
@@ -381,8 +384,75 @@ def test_the_mcp_registers_the_pairing_tools():
     mcp = _FakeMcp()
     pt.register_pairing_tools(mcp)
     assert [fn.__name__ for fn in mcp.tools] == [
+        "karma_connect",
+        "karma_connect_status",
+        "karma_connect_claim",
         "karma_pairing_start",
         "karma_pairing_status",
         "karma_pairing_claim",
         "karma_pairing_local_status",
     ]
+
+
+# ------------------------------------------------------------- 命名统一与隐患
+
+async def test_connect_status_never_touches_the_network(monkeypatch):
+    """karma_connect_status 读的是本机 —— 一旦它去问服务端，就是设计走回去了。"""
+
+    async def boom(*_args, **_kwargs):
+        raise AssertionError("local status must not call the backend")
+
+    monkeypatch.setattr(pt, "api_post", boom)
+    out = await pt.karma_connect_status()
+    assert out["ok"] is True
+    assert out["pending_pairings"] == []
+
+
+async def test_legacy_status_alias_cannot_lose_credentials(monkeypatch):
+    """回归钉子：老的 ``karma_pairing_status`` 会发 claim 却把凭据丢掉。
+
+    主人已经批准时，那一次「查一下状态」等于把一次性凭据吃掉再扔掉 —— agent 再也
+    领不到，只能让主人重新批准。现在它转发给 claim：凭据照样落盘。
+    """
+    _install(monkeypatch, [_request_payload(), _approved_payload()])
+    await pt.karma_connect("claw-001")
+    out = await pt.karma_pairing_status()
+    assert out["ok"] is True
+    assert out["status"] == "claimed"
+    assert RUNTIME_KEY in _env_text()
+    assert RUNTIME_KEY not in json.dumps(out, ensure_ascii=False)
+    assert out["deprecated"]
+
+
+async def test_the_four_legacy_aliases_all_forward(monkeypatch):
+    """四个老名字都还能用，且都自带 deprecated 说明（逻辑只有一份）。"""
+    _install(monkeypatch, [_request_payload()])
+    out = await pt.karma_pairing_start("claw-001")
+    assert out["ok"] is True and out["deprecated"]
+
+    out = await pt.karma_pairing_local_status()
+    assert out["ok"] is True and out["deprecated"]
+
+    _install(monkeypatch, [_approved_payload()])
+    out = await pt.karma_pairing_claim()
+    assert out["ok"] is True and out["status"] == "claimed" and out["deprecated"]
+
+
+async def test_connect_reports_the_same_fingerprint_the_console_prints(monkeypatch):
+    """agent 自报的指纹必须与后端 ``agent_binding_fingerprint`` **逐字相同**。
+
+    主人就是拿这一串去跟操作台那张待批准卡片对的（这是「操作台这条申请 = 本机这把
+    公钥」的唯一依据）。两边差一个编码方式，核对就等于没核对 —— 所以这里直接调后端
+    那个函数比一遍，而不是各算各的。
+    """
+    from services.runtime_key_service import agent_binding_fingerprint
+
+    calls = _install(monkeypatch, [_request_payload()])
+    out = await pt.karma_connect("claw-001")
+
+    sent_key = calls[0]["body"]["public_key"]
+    assert sent_key, "申请里必须带本机公钥，否则批准不是激活"
+    assert out["public_key_attached"] is True
+    assert out["agent_fingerprint"] == agent_binding_fingerprint(sent_key)
+    assert len(out["agent_fingerprint"]) == 16
+    assert sent_key not in json.dumps(out, ensure_ascii=False)

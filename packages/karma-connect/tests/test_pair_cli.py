@@ -42,7 +42,7 @@ def test_start_failure_exits_nonzero(monkeypatch, capsys):
 
     class FakeTools:
         @staticmethod
-        async def karma_pairing_start(**_kwargs):
+        async def karma_connect(**_kwargs):
             return {"ok": False, "error": "pairing_request_failed", "detail": "nope"}
 
     monkeypatch.setattr(pair, "_tools", lambda: FakeTools)

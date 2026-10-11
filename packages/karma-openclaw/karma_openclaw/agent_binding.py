@@ -55,7 +55,7 @@ def agent_key_from_env() -> Any | None:
     """The agent's Ed25519 key, or None when no seed is configured.
 
     Reads the env var first, then the on-disk credential file -- the same file
-    ``karma_pairing_claim`` writes, so a freshly paired process can sign without
+    ``karma_connect_claim`` writes, so a freshly paired process can sign without
     waiting for its host to restart it.
     """
     from karma_openclaw.agent_env import credential

@@ -9,8 +9,8 @@ agent 报的码要经过「模型读工具结果 -> 模型复述 -> 用户手抄
 
     karma-pair start                  # 出码，打印链接
     (在操作台输码 -> 核对 -> 批准)
-    karma-pair status                 # 看批准了没
     karma-pair claim                  # 批准即交付，凭据落到本机、立刻能用（不用重启）
+    karma-pair status                 # 只读本机：手上有什么（不发网络请求）
 
 凭据落盘位置和其它实现共用：``~/.karma/agent.env``（KARMA_AGENT_ENV_PATH 可覆盖）。
 """
@@ -56,7 +56,7 @@ def _dump(payload: dict) -> None:
 
 async def cmd_start(args) -> int:
     pt = _tools()
-    out = await pt.karma_pairing_start(
+    out = await pt.karma_connect(
         agent_name=args.agent_name,
         requested_side=args.side or "",
         requested_vertical=args.vertical or "",
@@ -77,21 +77,21 @@ async def cmd_start(args) -> int:
 
 async def cmd_status(args) -> int:
     pt = _tools()
-    out = await pt.karma_pairing_status(user_code=args.user_code or "")
+    out = await pt.karma_connect_status(user_code=args.user_code or "")
     _dump(out)
     return 0 if out.get("ok") else 1
 
 
 async def cmd_local_status(args) -> int:
     pt = _tools()
-    out = await pt.karma_pairing_local_status()
+    out = await pt.karma_connect_status()
     _dump(out)
     return 0
 
 
 async def cmd_claim(args) -> int:
     pt = _tools()
-    out = await pt.karma_pairing_claim(
+    out = await pt.karma_connect_claim(
         handoff_code=args.handoff_code,
         user_code=args.user_code or "",
     )
@@ -118,11 +118,11 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--vertical", default="")
     start.set_defaults(func=lambda a: _run(a, cmd_start))
 
-    status = sub.add_parser("status", help="where is this pairing now")
+    status = sub.add_parser("status", help="what this machine holds (local only)")
     status.add_argument("--user-code", default="")
     status.set_defaults(func=lambda a: _run(a, cmd_status))
 
-    local = sub.add_parser("local-status", help="what this machine is holding")
+    local = sub.add_parser("local-status", help="alias of status")
     local.set_defaults(func=lambda a: _run(a, cmd_local_status))
 
     claim = sub.add_parser("claim", help="pick up the credentials the owner already approved")

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """凭据落在哪、以及怎么把它读回来。
 
-`karma_pairing_claim` 把凭据写到 ``~/.karma/agent.env``（0600）。但在此之前没有任何
+`karma_connect_claim` 把凭据写到 ``~/.karma/agent.env``（0600）。但在此之前没有任何
 代码会把它读回 ``os.environ`` —— 也就是说：**已经跑着的 MCP 进程永远看不到刚领到的
 凭据**，非要宿主把 MCP server 重启一次才生效。而「宿主重启」恰恰是我们不能假设用户
 做得到的那一步（OpenClaw 的 config 重载链路本身就可能坏着）。

@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """Agent 侧自助配接：自己申请接入、自己把凭据落到本机。
 
+工具名与通用 MCP Server（``packages/karma-mcp-server``）**一致**：``karma_connect``
+/ ``karma_connect_status`` / ``karma_connect_claim`` —— 用户在哪个 Agent 里看到的都是
+同一套词。老的 ``karma_pairing_*`` 名字保留成兼容别名（只转发，逻辑只有一份）。
+
 方向只有一个：**agent 出配对码 → 主人在操作台输入、核对、划额度、批准**。
 批准就是交付 —— agent 拿自己那串 ``pairing_code`` 直接领凭据，主人不必再生一串码念
 回来（那样「谁给谁码」就反了，还把一次可能被偷听的转述塞进了必经之路）。
@@ -53,6 +57,20 @@ def pairing_state_dir() -> Path:
 
 # agent_env_path 现在由 karma_openclaw.agent_env 统一定义 —— 读写用同一个解析结果，
 # 否则「写进去的」和「读回来的」可能不是同一个文件（KARMA_AGENT_ENV_PATH 覆盖时尤其）。
+
+
+def public_key_fingerprint(public_key_b64: str) -> str:
+    """公钥指纹 —— 与后端 ``runtime_key_service.agent_binding_fingerprint`` **同口径**。
+
+    口径：canonical base64(raw 32 bytes) 那串文本的 sha256 前 16 位。
+    ``agent_binding.agent_public_key_b64()`` 产出的就是 canonical 形式，所以这里直接
+    散列它。配对卡片、钥匙列表、agent 自报三处必须是同一串 hex：差一个编码方式，
+    主人手里那个「核对依据」就自相矛盾，核对等于没核对。
+    """
+    text = (public_key_b64 or "").strip()
+    if not text:
+        return ""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
 def fingerprint(secret: str | None) -> str:
@@ -112,7 +130,7 @@ def _missing_user_code() -> dict[str, Any]:
     return {
         "ok": False,
         "error": "user_code_required",
-        "hint": "Pass the user_code from karma_pairing_start (or the one on screen).",
+        "hint": "Pass the user_code from karma_connect (or the one on screen).",
     }
 
 
@@ -193,7 +211,7 @@ def _local_agent_key():
         return None, ""
 
 
-async def karma_pairing_start(
+async def karma_connect(
     agent_name: str,
     platform: str = "openclaw",
     requested_side: str = "",
@@ -205,7 +223,7 @@ async def karma_pairing_start(
     """申请接入 Karma。把返回的 user_code / verification_uri 交给主人。
 
     这一步不花任何钱、也不产生任何权限：它只是让主人在操作台里看到「谁在申请」。
-    主人批准并点「签发交接码」之后，agent 再调 karma_pairing_claim 领凭据。
+    主人批准并点「签发交接码」之后，agent 再调 karma_connect_claim 领凭据。
 
     ``pairing_code`` 不在这里回显 —— 它只落盘在本机 0600 的状态文件里。
     """
@@ -234,6 +252,8 @@ async def karma_pairing_start(
     local_key, local_pub = _local_agent_key()
     if not declared_key:
         declared_key = local_pub
+    # 指纹只证明「操作台这条申请 = 本机这把公钥」；授权本身仍要主人自己钱包签名。
+    fingerprint_of_key = public_key_fingerprint(declared_key)
     if declared_key:
         if local_key is None or local_pub != declared_key:
             return {
@@ -263,6 +283,9 @@ async def karma_pairing_start(
         "status": "pending_owner",
         "user_code": user_code,
         "verification_uri": uri,
+        # 主人核对用：操作台那张待批准卡片上显示的是同一串（全系统同一口径）。
+        "public_key_attached": bool(declared_key),
+        "agent_fingerprint": fingerprint_of_key,
         "expires_at": payload.get("expires_at"),
         "poll_interval_seconds": payload.get("poll_interval_seconds") or DEFAULT_POLL_SECONDS,
         "pairing_state_file": str(path),
@@ -272,7 +295,9 @@ async def karma_pairing_start(
         ),
         "owner_steps": [
             "打开 Karma 操作台 → Agent 接入 → 配对接入",
-            "输入 " + user_code + " → 核对 agent 名称/公钥指纹 → 点「批准」并划额度",
+            "输入 " + user_code + " → 核对 agent 名称/公钥指纹（我自报的是 "
+            + (fingerprint_of_key or "没有：这台机器上还没生成 agent 私钥")
+            + "）→ 点「批准」并划额度",
             "点「批准」并划额度就好 —— 批准完我下一次轮询自己会把凭据领走，你不用再给我任何码",
             (
                 "我已经把自己的公钥一起交上去了，所以批准那一下就是激活：我领到钥匙就能在额度内干活。"
@@ -281,55 +306,16 @@ async def karma_pairing_start(
             ),
         ],
         "next": (
-            "主人批准后调 karma_pairing_claim()（不用带任何码）。只有主人额外点过"
+            "主人批准后调 karma_connect_claim()（不用带任何码）。只有主人额外点过"
             "「签发交接码」时，才把 handoff_code 一起传进来。"
         ),
         "note": "pairing_code 只写在本机 " + str(path) + "，聊天里不出现。",
     }
 
 
-async def karma_pairing_status(user_code: str = "") -> dict[str, Any]:
-    """这次配对接进到哪一步了（等批准 / 等交接码 / 已交付 / 作废）。
-
-    读的是本机状态文件 + 服务端 claim 的结论；不会输出任何凭据。
-    """
-    pairing_code, record = _resolve_pairing_code("", user_code)
-    if not pairing_code:
-        return {
-            "ok": False,
-            "error": "no_local_pairing",
-            "hint": "Call karma_pairing_start first, or pass pairing_code explicitly.",
-        }
-    try:
-        payload = await _claim_once(pairing_code)
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": "pairing_status_failed", "detail": _server_detail(exc)}
-    out: dict[str, Any] = {
-        "ok": True,
-        "status": payload.get("status"),
-        "user_code": (record or {}).get("user_code") or user_code,
-        "handoff_state": payload.get("handoff_state"),
-        "handoff_expires_at": payload.get("handoff_expires_at"),
-        "expires_at": payload.get("expires_at"),
-        "poll_interval_seconds": payload.get("poll_interval_seconds") or DEFAULT_POLL_SECONDS,
-    }
-    if payload.get("status") == "awaiting_handoff":
-        out["ask_owner"] = (
-            "你在操作台签发的交接码过期了 —— 重新签一次，或者不再签发（不签发就是批准即交付）。"
-            if payload.get("handoff_state") == "expired"
-            else "你在操作台点过「签发交接码」，把屏幕上那串 8 位码念给我。"
-        )
-        # 服务端才是权威：它知道这次为什么卡住（老版本还要求交接码、或者别的闸）。
-        # 有它自己的话就照搬，别让 agent 用一份写死的猜测去指挥主人。
-        server_says = str(payload.get("message_zh") or "").strip()
-        if server_says:
-            out["ask_owner"] = server_says
-    return out
-
-
 def _env_file_text(agent_id: str, base_url: str, env: dict[str, str]) -> str:
     lines = [
-        "# Karma agent credentials — written by karma_pairing_claim (mode 0600).",
+        "# Karma agent credentials — written by karma_connect_claim (mode 0600).",
         "# Never paste this file into a chat, an issue, or a shared log.",
         "KARMA_AGENT_ID=" + agent_id,
         "KARMA_RUNTIME_URL=" + base_url,
@@ -341,7 +327,7 @@ def _env_file_text(agent_id: str, base_url: str, env: dict[str, str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-async def karma_pairing_claim(
+async def karma_connect_claim(
     handoff_code: str = "",
     pairing_code: str = "",
     user_code: str = "",
@@ -349,7 +335,7 @@ async def karma_pairing_claim(
 ) -> dict[str, Any]:
     """领凭据：``pairing_code``（本机）就够了 —— 主人一批准，凭据就等你来领。
 
-    默认直接调 ``karma_pairing_claim()``，不用带任何码。只有主人在操作台**主动点过**
+    默认直接调 ``karma_connect_claim()``，不用带任何码。只有主人在操作台**主动点过**
     「签发交接码」时，才需要把 ``handoff_code`` 一起传进来；那种情况下先调一次（不传码）
     会返回 ``awaiting_handoff``，去问主人要那串码再调一次。
 
@@ -362,7 +348,7 @@ async def karma_pairing_claim(
             "ok": False,
             "error": "pairing_code_missing",
             "hint": (
-                "Call karma_pairing_start first, or pass the pairing_code it saved "
+                "Call karma_connect first, or pass the pairing_code it saved "
                 "at ~/.karma/pairing/<user_code>.json"
             ),
         }
@@ -417,7 +403,7 @@ async def karma_pairing_claim(
         }
         if status == "pending":
             out["ask_owner"] = (
-                "主人还没批准。把 karma_pairing_start 给的链接/短码再发他一次。"
+                "主人还没批准。把 karma_connect 给的链接/短码再发他一次。"
             )
         elif state == "expired":
             out["ask_owner"] = "你在操作台签发的交接码过期了 —— 重新签一次，或不签发（批准即交付）。"
@@ -515,10 +501,17 @@ async def karma_pairing_claim(
     return out
 
 
-async def karma_pairing_local_status() -> dict[str, Any]:
-    """本机现在握着什么：待领取的配对 + 已落盘的凭据（只报指纹和权限位）。"""
+async def karma_connect_status(user_code: str = "") -> dict[str, Any]:
+    """本机现在握着什么：待领取的配对 + 已落盘的凭据（只报指纹和权限位）。
+
+    **不发任何网络请求**：服务端那边的批准进度由 ``karma_connect_claim`` 回答 ——
+    它还没批准时只回状态、什么都不消耗，批准了就把凭据领回来落盘。
+    """
+    wanted = (user_code or "").strip().upper()
     pending = []
     for path in _state_files():
+        if wanted and path.stem.upper() != wanted:
+            continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
@@ -559,8 +552,75 @@ async def karma_pairing_local_status() -> dict[str, Any]:
     }
 
 
+# --------------------------------------------------------------- 兼容别名
+#: 老名字（``karma_pairing_*``）留一版并继续注册：模型学会的工具名不会因为一次
+#: 升级就消失，直接删掉会让还在用旧提示词的 agent 当场调不到任何工具。逻辑只有
+#: 一份 —— 别名只做转发，返回值里带一条 ``deprecated``。下个次版本移除。
+LEGACY_ALIAS_NOTE = "deprecated alias: call %s instead (same code path)."
+
+
+async def karma_pairing_start(
+    agent_name: str,
+    platform: str = "openclaw",
+    requested_side: str = "",
+    requested_vertical: str = "",
+    self_description: str = "",
+    endpoint_url: str = "",
+    public_key: str = "",
+) -> dict[str, Any]:
+    """Deprecated: 用 ``karma_connect``。"""
+    out = await karma_connect(
+        agent_name, platform=platform, requested_side=requested_side,
+        requested_vertical=requested_vertical, self_description=self_description,
+        endpoint_url=endpoint_url, public_key=public_key,
+    )
+    out.setdefault("deprecated", LEGACY_ALIAS_NOTE % "karma_connect")
+    return out
+
+
+async def karma_pairing_status(user_code: str = "") -> dict[str, Any]:
+    """Deprecated: 用 ``karma_connect_claim``。
+
+    老实现自己发一次 claim 去探状态、却把返回里的凭据**丢掉**：主人已经批准时，
+    这一次「查一下状态」就等于把一次性凭据吃掉再扔掉，agent 再也领不到，主人只能
+    重新批准一次。现在它直接转发给 ``karma_connect_claim`` —— 没批准时只回状态、
+    什么都不消耗，批准时就把凭据落盘。
+    """
+    out = await karma_connect_claim(user_code=user_code)
+    out.setdefault("deprecated", LEGACY_ALIAS_NOTE % "karma_connect_claim")
+    return out
+
+
+async def karma_pairing_claim(
+    handoff_code: str = "",
+    pairing_code: str = "",
+    user_code: str = "",
+    wait_seconds: float = DEFAULT_WAIT_SECONDS,
+) -> dict[str, Any]:
+    """Deprecated: 用 ``karma_connect_claim``。"""
+    out = await karma_connect_claim(
+        handoff_code=handoff_code, pairing_code=pairing_code, user_code=user_code,
+        wait_seconds=wait_seconds,
+    )
+    out.setdefault("deprecated", LEGACY_ALIAS_NOTE % "karma_connect_claim")
+    return out
+
+
+async def karma_pairing_local_status() -> dict[str, Any]:
+    """Deprecated: 用 ``karma_connect_status``。"""
+    out = await karma_connect_status()
+    out.setdefault("deprecated", LEGACY_ALIAS_NOTE % "karma_connect_status")
+    return out
+
+
 def register_pairing_tools(mcp: FastMCP) -> None:
-    """把自助接入工具挂进 MCP（函数体在模块级，单测可以直接调）。"""
+    """把自助接入工具挂进 MCP（函数体在模块级，单测可以直接调）。
+
+    先挂统一命名的那三个，再挂兼容别名：新老提示词都能用，逻辑只有一份。
+    """
+    mcp.add_tool(karma_connect)
+    mcp.add_tool(karma_connect_status)
+    mcp.add_tool(karma_connect_claim)
     mcp.add_tool(karma_pairing_start)
     mcp.add_tool(karma_pairing_status)
     mcp.add_tool(karma_pairing_claim)
