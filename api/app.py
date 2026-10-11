@@ -65,6 +65,7 @@ from api.routes import (
     telegram_miniapp_commerce,
     telegram_miniapp_registry,
     telegram_miniapp_bot,
+    chat_adapters,
     identity_card,
     identity_role_profiles,
     identity_disclosures,
@@ -516,6 +517,15 @@ app.include_router(
     telegram_miniapp_bot.router,
     prefix="/v1",
     tags=["TelegramMiniAppBot"],
+    dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
+)
+# 跨平台聊天适配器（S6）—— Telegram / WhatsApp。
+# webhook 自带验签（Telegram secret header / WhatsApp X-Hub-Signature-256），
+# 所以这里不加 _protected_dependencies；/notify 用独立的静态 bearer。
+app.include_router(
+    chat_adapters.router,
+    prefix="/v1/adapters",
+    tags=["ChatAdapters"],
     dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
 )
 app.include_router(

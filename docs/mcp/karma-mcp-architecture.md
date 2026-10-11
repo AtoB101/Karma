@@ -153,9 +153,9 @@ packages/karma-mcp-server/
 | S3 | 配对 + Tier-0/1 工具（连接、身份、授权状态、授权读写/撤销） | 只读 + 授权 | 已完成 |
 | S4 | Streamable HTTP 传输 + 远程鉴权（静态 bearer token） | 远程入口 | 已完成（OAuth 2.1 待后续） |
 | S5 | Tier-2/3 工具（交易 / 证据 / 结算），每次调用强制后端复核 | 交易闭环 | 工具已注册（默认关）；真实资金 E2E 未跑 |
-| S6 | 跨平台适配器（Telegram / 微信等） | 适配说明 + 适配器 | 未开始 |
+| S6 | 跨平台适配器（**本轮只做 Telegram / WhatsApp**） | 适配说明 + 适配器 | 已完成（docs/mcp/karma-mcp-platform-adapters.md）；微信未做 |
 
-S2–S5 属第二阶段（本轮交付）；S6 属第三阶段及以后。Tier-2/3 的**真实资金端到端**必须在
+S2–S5 属第二阶段（本轮交付）；S6 属第三阶段。S6 已落地 Telegram / WhatsApp 两个平台（见 karma-mcp-platform-adapters.md），微信未做。Tier-2/3 的**真实资金端到端**必须在
 测试环境用测试资产跑通后才算验收（安全 §9），当前仅验证工具注册与后端转发。
 
 ## 12. 明确不做（本阶段）

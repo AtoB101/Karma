@@ -57,6 +57,7 @@ Start at the root [README.md](../README.md) for the repo map.
 | [KARMA_BFF_OPENMANUS_INTEGRATION.md](./KARMA_BFF_OPENMANUS_INTEGRATION.md) | OpenManus BFF |
 | [OPENCLAW_P1_DUAL_AGENT.md](./OPENCLAW_P1_DUAL_AGENT.md) | OpenClaw |
 | [mcp-adapter-guide.md](./mcp-adapter-guide.md) | MCP |
+| [mcp/karma-mcp-platform-adapters.md](./mcp/karma-mcp-platform-adapters.md) | 跨平台聊天适配器（Telegram / WhatsApp） |
 
 ## Security & acceptance
 

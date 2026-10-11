@@ -68,6 +68,16 @@ def _deliver_reply(result: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def deliver_reply(result: dict[str, Any]) -> dict[str, Any]:
+    """公开的出站入口：把 ``reply_text`` 真的发给 ``chat_id``，并回传投递状态。
+
+    原先只有私有的 ``_deliver_reply``；跨平台适配器（``services/chat_adapters``）
+    也要走同一条闸门 —— 尤其是「dev 环境默认不发真实消息」这条。与其在适配器里
+    复制一遍判断，不如把它提升成公开契约。行为与 ``_deliver_reply`` 完全一致。
+    """
+    return _deliver_reply(result)
+
+
 def miniapp_url() -> str:
     return (os.getenv("TELEGRAM_MINIAPP_URL") or "https://t.me/KarmaBot/app").rstrip("/")
 
