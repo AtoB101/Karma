@@ -91,6 +91,28 @@ need docker
 need gzip
 need tar
 
+# --------------------------------------------------------------------------
+# 互斥：同一时刻只允许一个备份进程。
+#
+# 为什么非要有：cron 里「整点那份」（:17 每小时）和「每天那份」（03:17 带演练 +
+# 离站）是**两条独立**的 cron 行，会在 03:17 同时启动。快照目录名取的是当前秒，
+# 两个进程取到同一秒就会写进同一个目录 —— manifest 互相覆盖、cp 报 File exists、
+# dump 可能半写。2026-10-12 03:17 真发生了一次：当天快照的 verify_status 变成
+# skipped，恢复演练记录被整点那份覆盖掉了（闸门 F4/F6 的证据就这么丢了）。
+#
+# 锁在**算 TS 之前**拿：拿到锁再取时间造目录名，两个进程就不可能落在同一秒。
+# 等不到锁就直接失败退出，绝不和另一个进程共写一个目录。
+# --------------------------------------------------------------------------
+mkdir -p "$BK_ROOT"
+LOCK_FILE="$BK_ROOT/.backup.lock"
+if command -v flock > /dev/null 2>&1; then
+  exec 9>"$LOCK_FILE"
+  flock -w "${KARMA_BACKUP_LOCK_WAIT:-900}" 9 \
+    || die "another backup still holds $LOCK_FILE after ${KARMA_BACKUP_LOCK_WAIT:-900}s"
+else
+  warn "flock not available - concurrent backups are not serialised"
+fi
+
 SHA=""
 if command -v sha256sum > /dev/null 2>&1; then SHA="sha256sum"; elif command -v shasum > /dev/null 2>&1; then SHA="shasum -a 256"; fi
 

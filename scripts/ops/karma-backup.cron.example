@@ -22,5 +22,9 @@
 #   * 离站目标写在 /opt/karma/.env.ops 里（见 scripts/ops/backup.env.ops.example）。
 #     没配的话快照只落在同一块盘上，闸门 F5 会一直打印 HUMAN 等人签字。
 
-17 * * * * /bin/bash /opt/karma/repo/scripts/ops/backup.sh --keep 48 >> /var/log/karma-backup.log 2>&1
-17 3 * * * /bin/bash /opt/karma/repo/scripts/ops/backup.sh --verify --offsite --keep 48 >> /var/log/karma-backup.log 2>&1
+# 整点那份**跳过 03 点**：03:17 归下面那条每天的任务，两条同时在 03:17 启动的话
+# 会一起写同一个秒级目录（2026-10-12 就是这么丢过一次演练记录）。脚本里另有
+# flock 兜底，但 cron 这层也不该制造并发。
+17 0-2,4-23 * * * /bin/bash /opt/karma/repo/scripts/ops/backup.sh --keep 48 >> /var/log/karma-backup.log 2>&1
+# 每天 03:17：备份 + 恢复演练 + 推离站，成功后紧接着把离站副本拉回再演练一次（F6）。
+17 3 * * * /bin/bash /opt/karma/repo/scripts/ops/backup.sh --verify --offsite --keep 48 >> /var/log/karma-backup.log 2>&1 && /bin/bash /opt/karma/repo/scripts/ops/backup.sh --restore-offsite >> /var/log/karma-backup.log 2>&1
