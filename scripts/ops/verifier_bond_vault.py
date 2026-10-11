@@ -344,43 +344,36 @@ def cmd_deploy(args, env) -> int:
 
 
 def encode_slash_calldata(
-    *, vault: str | None, verifier: str, victim: str | None, amount_wei: int, reason: str
+    *, vault: str | None, verifier: str, victim: str | None, amount_usdc: float, reason: str
 ) -> str:
-    """编码 ``slash(address,address,uint256,bytes32)``。
+    """罚没 calldata —— 直接走后端编码器，口径只有一份。
 
-    复用后端的 ``VAULT_ABI`` 与 ``reason_hash`` —— 链下台账和链上分账看的是同一份
-    ABI、同一套理由哈希，不另起一份实现。``vault`` 只用来建 contract 对象，不进
-    calldata；缺省用零地址占位，所以 ``--dry-run`` 不必先配金库。
+    后端 ``services.chain.verifier_bond_vault`` 用的是同一份 ``VAULT_ABI``、同一套
+    ``reason_hash``、同一个 6 位小数；``vault`` 只用来建 contract 对象（地址不进
+    calldata），缺省用零地址占位，所以 ``--dry-run`` 不必先把金库配进进程环境。
     """
-    from web3 import Web3
+    from services.chain import verifier_bond_vault
 
-    from services.chain.verifier_bond_vault import VAULT_ABI, reason_hash
-
-    contract = Web3().eth.contract(
-        address=Web3.to_checksum_address(vault or ZERO_ADDRESS), abi=VAULT_ABI
+    return verifier_bond_vault.encode_slash_calldata(
+        verifier=verifier,
+        victim=victim,
+        amount_usdc=amount_usdc,
+        reason=reason or "",
+        vault_address=vault or ZERO_ADDRESS,
     )
-    data = contract.encode_abi(
-        "slash",
-        args=[
-            Web3.to_checksum_address(verifier),
-            Web3.to_checksum_address(victim) if victim else ZERO_ADDRESS,
-            int(amount_wei),
-            reason_hash(reason or ""),
-        ],
-    )
-    return data if data.startswith("0x") else "0x" + data
 
 
 def cmd_slash(args, env) -> int:
     verifier = parse_addresses(args.verifier)[0]
     victim = parse_addresses(args.victim)[0] if args.victim else None
-    amount_wei = usdc_to_wei(_require_positive("--amount", args.amount))
+    amount_usdc = _require_positive("--amount", args.amount)
+    amount_wei = usdc_to_wei(amount_usdc)
     vault = resolve_vault_address(args)
     data = encode_slash_calldata(
         vault=vault,
         verifier=verifier,
         victim=victim,
-        amount_wei=amount_wei,
+        amount_usdc=amount_usdc,
         reason=args.reason or "",
     )
     if args.dry_run:
@@ -419,15 +412,15 @@ def cmd_slash(args, env) -> int:
 
 
 def cmd_distribute(args, env) -> int:
-    winners = parse_addresses(args.winners)
-    amount_wei = usdc_to_wei(_require_positive("--amount", args.amount))
-    abi, abi_source = _vault_abi(args)
-    vault = resolve_vault_address(args)
-    from web3 import Web3
+    from services.chain import verifier_bond_vault
 
-    contract = Web3().eth.contract(abi=abi)
-    data = contract.encode_abi("distributePool", args=[winners, amount_wei])
-    data = data if data.startswith("0x") else "0x" + data
+    winners = parse_addresses(args.winners)
+    amount_usdc = _require_positive("--amount", args.amount)
+    amount_wei = usdc_to_wei(amount_usdc)
+    vault = resolve_vault_address(args)
+    data = verifier_bond_vault.encode_distribute_pool_calldata(
+        winners=winners, amount_usdc=amount_usdc, vault_address=vault or ZERO_ADDRESS
+    )
     if args.dry_run:
         print(
             json.dumps(
@@ -436,7 +429,6 @@ def cmd_distribute(args, env) -> int:
                     "to": vault or "<VERIFIER_BOND_VAULT_ADDRESS>",
                     "winners": winners,
                     "amount_wei": amount_wei,
-                    "abi": abi_source,
                     "calldata": data,
                     "broadcast": "skipped (dry-run)",
                 },

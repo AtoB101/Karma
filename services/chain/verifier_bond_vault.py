@@ -93,10 +93,26 @@ def reason_hash(reason: str | None) -> str:
     return "0x" + digest.hex()
 
 
-def _contract() -> Any:
+#: ``slash`` 没有可指认的受害方时，受害方参数传零地址（链上会把 80% 并入罚没池）。
+ZERO_ADDRESS = "0x" + "00" * 20
+
+
+def _to_calldata_hex(data: Any) -> str:
+    """把 ``encode_abi`` 的结果统一成 ``0x…`` 字符串。
+
+    web3 6 返回 ``HexBytes``，web3 7+ 返回**带 ``0x`` 的 ``str``**。只认其中一种的话，
+    出账那一刻会以 ``AttributeError: 'str' object has no attribute 'hex'`` 炸掉 ——
+    这条路径此前没有任何测试覆盖，正是这么漏出去的。
+    """
+    if isinstance(data, str):
+        return data if data.startswith("0x") else "0x" + data
+    return "0x" + bytes(data).hex()
+
+
+def _contract(address: str | None = None) -> Any:
     from web3 import Web3
 
-    address = vault_address()
+    address = (address or vault_address() or "").strip()
     if not address:
         raise RuntimeError(
             "VERIFIER_BOND_VAULT_ADDRESS is not configured — the bond vault is not deployed yet"
@@ -110,25 +126,48 @@ def encode_slash_calldata(
     victim: str | None,
     amount_usdc: float,
     reason: str | None,
+    vault_address: str | None = None,
 ) -> str:
     """编码 ``slash(address,address,uint256,bytes32)`` 的 calldata。
 
     ``victim`` 为空时传零地址 —— 链上合约会把本该给受害方的部分也并入罚没池，
     与 ``services/bond_slash.py`` 的账目口径完全一致。
+
+    ``vault_address`` 只用来建 contract 对象（地址不进 calldata），缺省取
+    ``settings.verifier_bond_vault_address``；显式传入是为了让 ops 脚本能在
+    ``--dry-run`` 时预览 calldata，而不必先把金库配进进程环境。
     """
     from web3 import Web3
 
     verifier_addr = Web3.to_checksum_address(verifier)
-    victim_addr = (
-        Web3.to_checksum_address(victim)
-        if victim
-        else "0x0000000000000000000000000000000000000000"
-    )
-    data = _contract().encode_abi(
+    victim_addr = Web3.to_checksum_address(victim) if victim else ZERO_ADDRESS
+    data = _contract(vault_address).encode_abi(
         "slash",
         args=[verifier_addr, victim_addr, usdc_to_wei(amount_usdc), reason_hash(reason)],
     )
-    return "0x" + data.hex()
+    return _to_calldata_hex(data)
+
+
+def encode_distribute_pool_calldata(
+    *,
+    winners: list[str],
+    amount_usdc: float,
+    vault_address: str | None = None,
+) -> str:
+    """编码 ``distributePool(address[],uint256)``：把罚没池分给优秀节点。
+
+    与 ``slash`` 同一套口径（同一份 ``VAULT_ABI``、同一个 6 位小数）。发之前是否已满足
+    链上的 ``slashPool >= minPoolPayout``，由调用方自己先核对 —— 编码器不替人做判断。
+    """
+    from web3 import Web3
+
+    if not winners:
+        raise ValueError("distributePool 至少要有一个获奖地址")
+    data = _contract(vault_address).encode_abi(
+        "distributePool",
+        args=[[Web3.to_checksum_address(w) for w in winners], usdc_to_wei(amount_usdc)],
+    )
+    return _to_calldata_hex(data)
 
 
 def wei_to_amount(amount_wei: int) -> float:

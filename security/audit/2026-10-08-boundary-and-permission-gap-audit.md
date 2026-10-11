@@ -340,6 +340,12 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 - 出账是**异步**的，且**入账 / 出账主体分离**：后端只产台账 + `pending`，真正签名由治理账户完成
   （本轮测试网 = 部署者 EOA；**生产必须是多签** —— 部署脚本有守卫，admin / slasher 是 EOA 就 revert）。
   操作手册见 `docs/VERIFIER_BOND_VAULT_RUNBOOK.md`。
+- **顺带补上一个漏网的出账 bug**：`services/chain/verifier_bond_vault.encode_slash_calldata` 此前写的是
+  `"0x" + data.hex()`，而 **web3 7+ 的 `encode_abi` 返回的是带 `0x` 的 `str`**（不是 `HexBytes`）——
+  在后端 / CI 装的 web3 8.0.0 上一调用就 `AttributeError`，而这条路径**没有任何测试覆盖**，所以
+  CI 全绿也没拦住。已改成两种形状都吃下（`str` / `HexBytes` / 裸 `bytes`），并补
+  `tests/unit/test_chain_verifier_bond_vault.py`（含「与测试网这两笔链上 tx 逐字节一致」的锚点）；
+  ops CLI 改为直接调后端编码器（新增 `encode_distribute_pool_calldata`），编码口径只剩一份。
 - **主网仍未部署**：主网金库是硬前置。
 
 ## 4. 生产实测快照（测试网，只读）
@@ -400,6 +406,7 @@ G1–G9 全部落地并推送，CI 6/6 绿（`main`）：
 | `—` | G12 | 本审计文档同步（紧随上述两次提交） |
 | `—`（本轮） | G12 | **测试网金库部署 + `VERIFIER_BOND_VAULT_ADDRESS` 配置 + 首次真实出账演练**（见 §3 G12） |
 | `—`（本轮） | G12 | `scripts/ops/verifier_bond_vault.py` 运维 CLI（部署 / 状态 / 罚没 / 分池，支持 `--dry-run`）+ 单测 |
+| `—`（本轮） | G12 | 修 `encode_slash_calldata` 在 web3 7+ 的 `AttributeError`（`str` vs `HexBytes`）；新增 `encode_distribute_pool_calldata` + 与链上 tx 逐字节一致的锚点测试 |
 
 **剩余（非代码）**：
 
