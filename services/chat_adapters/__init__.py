@@ -12,6 +12,24 @@
 （平台客户端）三处；命令面 ``commands`` 与平台无关，新增平台（如微信）只需再补
 一个平台模块，不必改命令面。
 """
-from services.chat_adapters import commands, config, events, guard, outbound, whatsapp
+from services.chat_adapters import (
+    commands,
+    config,
+    events,
+    guard,
+    notify,
+    outbound,
+    session_map,
+    whatsapp,
+)
 
-__all__ = ["commands", "config", "events", "guard", "outbound", "whatsapp"]
+__all__ = [
+    "commands",
+    "config",
+    "events",
+    "guard",
+    "notify",
+    "outbound",
+    "session_map",
+    "whatsapp",
+]

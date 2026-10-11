@@ -26,20 +26,36 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from services.chat_adapters import commands, config, events, guard, outbound, whatsapp
+from services.chat_adapters import commands, config, events, guard, notify, outbound, whatsapp
 from services.chat_adapters.events import SUPPORTED_PLATFORMS
 
 router = APIRouter()
 
 
 class NotifyBody(BaseModel):
-    """后端 / 运维把一条通知推给某个会话。"""
+    """后端 / 运维把一条通知推给某个会话。
+
+    投递目标**二选一**：
+
+    - ``chat_id``：调用方已经知道会话号（平台原生 ID）。
+    - ``karma_identity_id``：调用方只知道 Karma 身份 —— 由适配器解析出会话号，
+      解析不到就不发（fail-closed）。后端因此不必持有、也不必传播会话号。
+    """
 
     platform: str = Field(min_length=1, max_length=32)
-    chat_id: str = Field(min_length=1, max_length=128)
+    chat_id: str | None = Field(default=None, max_length=128)
+    karma_identity_id: str | None = Field(default=None, max_length=128)
     text: str = Field(min_length=1, max_length=guard.MAX_OUTBOUND_CHARS)
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> NotifyBody:
+        chat_id = (self.chat_id or "").strip()
+        identity_id = (self.karma_identity_id or "").strip()
+        if bool(chat_id) == bool(identity_id):
+            raise ValueError("provide exactly one of chat_id / karma_identity_id")
+        return self
 
 
 def _require_notify_token(
@@ -151,14 +167,26 @@ def adapter_notify(
     """服务侧推送：把一条通知发到某个聊天会话。鉴权在 body 校验之前完成。"""
     if body.platform not in SUPPORTED_PLATFORMS:
         raise HTTPException(400, "unsupported platform")
-    try:
-        guard.assert_no_secret(body.text)
-    except guard.SecretLeakError:
-        raise HTTPException(400, "refusing to send text that looks like a credential")
-    result = outbound.send(
-        body.platform, body.chat_id, outbound.OutboundMessage(text=body.text)
+
+    chat_id = (body.chat_id or "").strip()
+    if chat_id:
+        # 调用方直接给了会话号：仍然先扫凭据，再发。
+        try:
+            guard.assert_no_secret(body.text)
+        except guard.SecretLeakError:
+            raise HTTPException(400, "refusing to send text that looks like a credential")
+        result = outbound.send(
+            body.platform, chat_id, outbound.OutboundMessage(text=body.text)
+        )
+        return {"ok": True, "sent": bool(result.get("sent"))}
+
+    # 调用方只给了身份：由适配器解析会话号（解析不到就不发）。
+    result = notify.notify_identity(
+        (body.karma_identity_id or "").strip(), body.text, platform=body.platform
     )
-    return {"ok": True, "sent": bool(result.get("sent"))}
+    if result.get("reason") == "refused_secret":
+        raise HTTPException(400, "refusing to send text that looks like a credential")
+    return {"ok": True, "sent": bool(result.get("sent")), "reason": result.get("reason")}
 
 
 def _dispatch_all(inbound: list[events.ChatEvent]) -> list[dict[str, Any]]:

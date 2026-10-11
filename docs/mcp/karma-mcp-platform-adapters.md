@@ -38,8 +38,10 @@ services/chat_adapters/
   outbound.py     OutboundMessage + 两套渲染 + 统一发送
   commands.py     命令面（平台无关，故意做得很小）
   whatsapp.py     WhatsApp Cloud API 客户端 + X-Hub-Signature-256 验签 + 订阅握手
+  session_map.py  身份 → 会话（**只读**，复用既有 TG 绑定；解析不到返回 None）
+  notify.py       按身份投递出站通知（旁路：失败返回结果字典，不抛回业务侧）
 api/routes/chat_adapters.py    FastAPI 路由（挂载于 /v1/adapters）
-tests/unit/test_chat_adapters.py   23 例（功能 + 安全）
+tests/unit/test_chat_adapters.py   32 例（功能 + 安全）
 ```
 
 `services/telegram/bot.py` 新增了一个公开包装 `deliver_reply()` —— 适配器要走
@@ -59,7 +61,14 @@ tests/unit/test_chat_adapters.py   23 例（功能 + 安全）
 | `POST` | `/notify` | `X-Karma-Adapter-Token` | 服务侧推送：把一条通知发到某个会话 |
 
 `/notify` 是后端 / 运维把「钥匙已激活 / 订单已结算 / 争议已开」推到聊天窗口的入口。
-**注意**：目前只提供了入口，**后端业务事件还没有自动接进来**（见 §7）。
+
+投递目标**二选一**：`chat_id`（平台原生会话号）或 `karma_identity_id`（Karma 身份）。
+给身份时由适配器自己解析会话号 —— 目前只有 **Telegram** 能解析（复用用户已经在
+MiniApp 认证 / 2FA 做过的 TG 绑定，见 `services/chat_adapters/session_map.py`，
+**只读、不新造绑定**）；WhatsApp 树内没有这种绑定，一律解析不到、**不发**
+（fail-closed，宁可漏发也不发错人）。后端因此不必持有、也不必传播会话号。
+
+**注意**：入口有了，但**后端业务事件还没有自动接进来**（见 §7）。
 
 ## 5. 命令面
 
@@ -100,14 +109,20 @@ tests/unit/test_chat_adapters.py   23 例（功能 + 安全）
   真实 phone number、Meta 侧订阅都还没配，所以「消息真的发得出、收得到」**未验证**。
 - **Telegram 侧未切换 webhook**：线上仍指向 `/v1/telegram/bot/webhook`。
   切到 `/v1/adapters/telegram/webhook` 才会多出 `/connect` 引导（其余功能不变）。
-- **没有持久化绑定**：本版适配器不知道「这个会话是谁的」。所以它不发个性化通知 ——
-  `/notify` 的 `chat_id` 由调用方给出。会话 ↔ 身份绑定需要操作台签发的一次性链接，
-  那是一个独立的安全动作（涉及一次性 token 存储），未在本轮做。
+- **会话 ↔ 身份绑定只做了「读」的那一半**：适配器现在能按 `karma_identity_id`
+  反查出会话号并投递通知 —— 但**只对 Telegram**，而且复用的是用户已在 MiniApp
+  认证 / 2FA 做过的既有绑定（`services/chat_adapters/session_map.py`，只读、不新造）。
+  WhatsApp 侧树内没有这种绑定，一律解析不到、不发。
+  **还没做**：聊天里「用一次性码把会话绑到身份」这条**写路径**（涉及一次性 token
+  存储，是一个独立的安全动作），以及操作台上的「绑定聊天渠道」按钮。
+- **后端事件仍未自动接入 `/notify`**：`services/chat_adapters/notify.py` 已提供
+  `notify_identity()`（按身份投递、失败不抛回），但把 `key_bound` / 结算 / 争议等
+  事件真的调过去，还需要在业务侧各加一处调用（改业务代码，单独立项）。
 - **操作台未加「绑定聊天渠道」按钮**：同上，属于绑定链路的后续。
 
 ## 8. 安全用例清单
 
-`tests/unit/test_chat_adapters.py`（23 例，全绿）中与安全直接相关的：
+`tests/unit/test_chat_adapters.py`（32 例，全绿）中与安全直接相关的：
 
 | 用例 | 考什么 |
 |---|---|
@@ -125,3 +140,11 @@ tests/unit/test_chat_adapters.py   23 例（功能 + 安全）
 | `test_telegram_webhook_verifies_signature_before_parsing_body` | 坏报文 + 未验签 → 403（不是 422） |
 | `test_notify_authenticates_before_body_validation` | 未认证 → 503/401（不是 422） |
 | `test_outbound_refuses_to_send_a_credential` | 出站拒发 |
+| `test_session_map_resolves_telegram_chat_from_existing_binding` | 按身份反查会话：只复用既有绑定 |
+| `test_session_map_is_fail_closed_for_whatsapp_and_unknown_identity` | 无绑定 / 身份不存在 / WhatsApp → None，不发 |
+| `test_session_map_walks_up_to_main_identity_for_a_sub_identity` | 子身份回溯主身份会话，不串号 |
+| `test_notify_identity_skips_when_there_is_no_chat_binding` | 解析不到就**根本不去发** |
+| `test_notify_identity_refuses_credential_shaped_text` | 凭据形态文本**先于**解析就被拒 |
+| `test_notify_by_identity_requires_exactly_one_target` | `chat_id` / `karma_identity_id` 二选一，否则 422 |
+| `test_notify_by_identity_reports_unbound_instead_of_failing` | 未绑定 → 200 + reason，且不回显原始标识 |
+| `test_notify_by_identity_refuses_credential_text` | 按身份投递同样拦凭据 → 400 |

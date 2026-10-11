@@ -439,3 +439,155 @@ def test_chat_id_is_never_logged_in_full():
 def test_whatsapp_signature_helper_is_constant_time_and_fails_closed(monkeypatch):
     monkeypatch.delenv("WHATSAPP_APP_SECRET", raising=False)
     assert whatsapp.verify_signature(b"{}", "sha256=deadbeef") is False
+
+
+# --------------------------------------------------------------------------
+# 会话 ↔ 身份：出站通知要能「按身份」投递（解析不到就不发）
+#
+# 这里读的是用户**已经在别处**（MiniApp 认证 / 2FA）做过的 Telegram 绑定 ——
+# 适配器只复用既有事实，不新造一套绑定，所以这组用例也是「没串号」的证明。
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def identity_store():
+    """干净的身份库：用例前后都清空（含落盘），互不影响。"""
+    from services.identity_gateway import store
+
+    store.reset_for_tests()
+    yield store
+    store.reset_for_tests()
+
+
+def _bound_identity(store, telegram_user_id: int = 4242):
+    ident = store.get_or_create_by_wallet("0x" + "ab" * 20)
+    store.bind_telegram(ident.identity_id, telegram_user_id=telegram_user_id, username="tester")
+    return ident
+
+
+def test_session_map_resolves_telegram_chat_from_existing_binding(identity_store):
+    from services.chat_adapters import session_map
+
+    ident = _bound_identity(identity_store, telegram_user_id=4242)
+    assert session_map.resolve_chat_id("telegram", ident.identity_id) == "4242"
+
+
+def test_session_map_is_fail_closed_for_whatsapp_and_unknown_identity(identity_store):
+    from services.chat_adapters import session_map
+
+    ident = _bound_identity(identity_store, telegram_user_id=77)
+    # WhatsApp 树内没有这种绑定：不猜，直接 None。
+    assert session_map.resolve_chat_id("whatsapp", ident.identity_id) is None
+    # 不存在的身份 / 空身份：一律 None。
+    assert session_map.resolve_chat_id("telegram", "kid_does_not_exist") is None
+    assert session_map.resolve_chat_id("telegram", "") is None
+
+
+def test_session_map_walks_up_to_main_identity_for_a_sub_identity(identity_store):
+    from services.chat_adapters import session_map
+
+    main = _bound_identity(identity_store, telegram_user_id=9191)
+    sub = identity_store.create_sub_identity(main.identity_id, "0x" + "cd" * 20)
+    # 子身份自己没有 TG 绑定 → 回溯到主身份的会话，不串号、也不发错人。
+    assert session_map.resolve_chat_id("telegram", sub.identity_id) == "9191"
+
+
+def test_notify_identity_skips_when_there_is_no_chat_binding(identity_store, monkeypatch):
+    from services.chat_adapters import notify
+
+    sent_calls = []
+    monkeypatch.setattr(
+        outbound, "send", lambda *a, **k: sent_calls.append(a) or {"ok": True, "sent": True}
+    )
+    result = notify.notify_identity("kid_nobody", "订单一号已结算")
+    assert result["sent"] is False and result["reason"] == "no_chat_binding"
+    assert sent_calls == []  # 解析不到就**根本不去发**
+
+
+def test_notify_identity_sends_to_the_bound_chat(identity_store, monkeypatch):
+    from services.chat_adapters import notify
+
+    ident = _bound_identity(identity_store, telegram_user_id=5555)
+    seen = {}
+
+    def _fake_send(platform, chat_id, message):
+        seen["platform"] = platform
+        seen["chat_id"] = chat_id
+        seen["text"] = message.text
+        return {"ok": True, "sent": True}
+
+    monkeypatch.setattr(outbound, "send", _fake_send)
+    result = notify.notify_identity(ident.identity_id, "订单一号已结算")
+    assert result["sent"] is True
+    assert seen == {"platform": "telegram", "chat_id": "5555", "text": "订单一号已结算"}
+    # 回执里只留会话号后 4 位，别把完整会话号散出去。
+    assert result["chat_id"] == "***5555"
+
+
+def test_notify_identity_refuses_credential_shaped_text(identity_store, monkeypatch):
+    from services.chat_adapters import notify
+
+    ident = _bound_identity(identity_store, telegram_user_id=6600)
+    monkeypatch.setattr(outbound, "send", lambda *a, **k: {"ok": True, "sent": True})
+    result = notify.notify_identity(ident.identity_id, "key KRM_RT_abcdef123456")
+    assert result["sent"] is False and result["reason"] == "refused_secret"
+
+
+async def test_notify_by_identity_requires_exactly_one_target(client, monkeypatch):
+    monkeypatch.setenv("KARMA_ADAPTER_NOTIFY_TOKEN", NOTIFY_TOKEN)
+    headers = {"X-Karma-Adapter-Token": NOTIFY_TOKEN}
+
+    both = await client.post(
+        "/v1/adapters/notify",
+        json={"platform": "telegram", "chat_id": "1", "karma_identity_id": "k", "text": "hi"},
+        headers=headers,
+    )
+    assert both.status_code == 422
+
+    neither = await client.post(
+        "/v1/adapters/notify",
+        json={"platform": "telegram", "text": "hi"},
+        headers=headers,
+    )
+    assert neither.status_code == 422
+
+
+async def test_notify_by_identity_reports_unbound_instead_of_failing(client, monkeypatch, identity_store):
+    monkeypatch.setenv("KARMA_ADAPTER_NOTIFY_TOKEN", NOTIFY_TOKEN)
+    r = await client.post(
+        "/v1/adapters/notify",
+        json={"platform": "telegram", "karma_identity_id": "kid_nobody", "text": "hi"},
+        headers={"X-Karma-Adapter-Token": NOTIFY_TOKEN},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["sent"] is False and body["reason"] == "no_chat_binding"
+    # 回执里不该出现会话号 / 身份号这类原始标识。
+    assert "kid_nobody" not in r.text
+
+
+async def test_notify_by_identity_refuses_credential_text(client, monkeypatch, identity_store):
+    monkeypatch.setenv("KARMA_ADAPTER_NOTIFY_TOKEN", NOTIFY_TOKEN)
+    r = await client.post(
+        "/v1/adapters/notify",
+        json={
+            "platform": "telegram",
+            "karma_identity_id": "kid_nobody",
+            "text": "key: KRM_RT_abcdef123456",
+        },
+        headers={"X-Karma-Adapter-Token": NOTIFY_TOKEN},
+    )
+    assert r.status_code == 400
+
+
+def test_adapter_package_only_reads_identity_bindings_never_writes():
+    """源码级不变量：适配器只**读**身份关系，不创建、不改动任何绑定。
+
+    「复用既有绑定」这句话只有在「绝不写」时才是安全的 —— 一旦适配器能写绑定，
+    聊天账号就离「凭证」只差一步（架构 §3 那条红线）。
+    """
+    banned = ("bind_telegram", "bind_by_2fa", "create_sub_identity", "get_or_create_by_wallet")
+    for path in PKG.glob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        for needle in banned:
+            assert needle not in source, f"{path.name} 不该调用 {needle}（适配器不写绑定）"
