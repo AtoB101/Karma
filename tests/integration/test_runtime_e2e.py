@@ -141,10 +141,11 @@ async def test_runtime_repeated_nonce_replays_the_first_result(client: AsyncClie
 
     # 日额度只被这一单占了一次（35），没有因为重发变成 70。
     from db.models.orm import RuntimeKeyDailySpendModel
+    from services.runtime_daily_spend import _today_iso
 
     key_id = rt.split("_")[2]
     spend = await db_session.get(
-        RuntimeKeyDailySpendModel, (key_id, datetime.utcnow().date().isoformat())
+        RuntimeKeyDailySpendModel, (key_id, _today_iso())
     )
     assert spend is not None, "下单该留下一笔当日额度占用"
     assert float(spend.amount_used) == 35.0
