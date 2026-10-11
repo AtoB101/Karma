@@ -44,7 +44,7 @@ karma-openclaw-mcp
 | `karma_connect` | **No key yet?** Ask to be connected; returns the `user_code` for your owner |
 | `karma_connect_claim` | Collect the credentials as soon as the owner approves; writes `~/.karma/agent.env` (0600) — including the local Ed25519 seed — and returns fingerprints only. Also answers "where is this pairing now": while it is unapproved it returns status only and consumes nothing |
 | `karma_connect_status` | What this machine holds: pending pairings + credential fingerprints. Local only — it never calls the backend |
-| `karma_pairing_*` | Deprecated aliases of the three above (same code path, each return carries a `deprecated` note); removed in the next minor release |
+| `karma_pairing_*` | Deprecated aliases of the three above (same code path, each return carries a `deprecated` note). **Removal date: 2026-12-01** (next minor release); see `docs/AGENT_PAIRING_V1.md` |
 | `karma_runtime_bind_key` | Bind this agent's Ed25519 public key; returns the matching code for the owner |
 | `karma_runtime_await_activation` | Wait for the owner to enter the code; then signs every request |
 | `karma_runtime_binding_status` | Where this key stands (pending / active / bearer) |

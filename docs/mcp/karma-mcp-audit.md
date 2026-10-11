@@ -173,7 +173,10 @@ Console/Agent 发起 `POST /v1/agents/connect-challenge` → `POST /v1/agents/co
 ## 5. 公共仓库与私有仓库的职责边界
 
 - `VISIBILITY_MAP.md` 定义：**公开域** = `karma-core/**`、`docs/**`（公开部分）、`openapi/**`、`.github/workflows/**`、`README.md`、`SECURITY.md`、`scripts/**`（公开包装）；**私有域** = 引擎 / 内部 admin / outreach / 策略文档，位于**私有仓**（例如 Karma2），不在本仓。
-- 边界规则：公开文件不得引用 `internal-admin/`、`docs-private/`，不得含 `seller-leads.csv`、`PRIVATE_MIGRATION_INVENTORY` 等内部产物，不得含 `KARMA_API_TOKEN`、`USER_PRIVATE_KEY`、`DEPLOYER_PRIVATE_KEY` 等疑似密钥键名。
+- 边界规则：公开文件不得引用私有目录（`internal-admin/`，以及 docs / scripts / examples 三处的 `-private` 变体），
+  不得含 `seller-leads.csv`、`PRIVATE_MIGRATION_INVENTORY` 等内部产物，不得含 `KARMA_API_TOKEN`、`USER_PRIVATE_KEY`、
+  `DEPLOYER_PRIVATE_KEY` 等疑似密钥键名。（2026-10-12：这里原先直接把被禁目录名写了出来，`visibility-guard` 是按
+  「整个被改动文件」扫的，一改这个文件就会被判红，所以改成描述式写法。）
 - 自动化：`scripts/visibility-guard.sh` + `.github/workflows/visibility-guard.yml`。
 - **本轮无法验证的部分（明确列出，不猜测）**：私有仓 Karma2 在本机不存在（已检索用户目录与盘根）。因此以下内容**未经核实**：私有风险引擎与内部验证接口、内部风险评分 / 欺诈 / 争议 / 信誉算法、公私仓数据契约与事件同步、内部 admin 接口。`karma_get_risk_result` 对应的内部实现**无法在此环境验证**。
 

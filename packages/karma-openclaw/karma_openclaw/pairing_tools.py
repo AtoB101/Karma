@@ -555,7 +555,8 @@ async def karma_connect_status(user_code: str = "") -> dict[str, Any]:
 # --------------------------------------------------------------- 兼容别名
 #: 老名字（``karma_pairing_*``）留一版并继续注册：模型学会的工具名不会因为一次
 #: 升级就消失，直接删掉会让还在用旧提示词的 agent 当场调不到任何工具。逻辑只有
-#: 一份 —— 别名只做转发，返回值里带一条 ``deprecated``。下个次版本移除。
+#: 一份 —— 别名只做转发，返回值里带一条 ``deprecated``。移除日期 2026-12-01（下一个次版本）：
+#: 届时从 register_pairing_tools 摘掉这 4 个名字并删掉这些别名函数。
 LEGACY_ALIAS_NOTE = "deprecated alias: call %s instead (same code path)."
 
 
