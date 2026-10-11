@@ -10,4 +10,5 @@ python3 -m pytest \
   packages/karma-openmanus/tests \
   packages/karma-openclaw/tests \
   packages/karma-mcp-server/tests \
+  packages/karma-connect/tests \
   "$@"

@@ -10,15 +10,17 @@ import shutil
 import sys
 from pathlib import Path
 
-from karma_connect.hosts import (DEFAULT_COMMAND, DEFAULT_NAME, KNOWN_ENV_KEYS, default_hosts,
-                                 install, parse_env)
+from karma_connect.hosts import (DEFAULT_COMMAND, DEFAULT_NAME, FORBIDDEN_ENV_KEYS,
+                                 KNOWN_ENV_KEYS, default_hosts, install, parse_env)
 
-DEFAULT_MODULE = "karma_openclaw"
+DEFAULT_MODULE = "karma_mcp_server"
 #: Without KARMA_RUNTIME_URL the MCP server falls back to http://localhost:8000 and every
 #: call dies with "All connection attempts failed" -- no user_code, no matching code.
 #: Bake the public node in so an out-of-the-box install actually talks to Karma.
 DEFAULT_ENV = {"KARMA_RUNTIME_URL": "https://karma-network.ai"}
-FALLBACK_MODULES = ("karma_openclaw", "karma_mcp.server")
+#: GUI 之外的兜底：直接 ``python -m karma_mcp_server``（同一个包，不必装 console script）。
+#: 老 ``karma_mcp``（私钥进进程）刻意不列 —— 装了也不能用。
+FALLBACK_MODULES = ("karma_mcp_server",)
 
 
 def _module_command(module: str, extra, env: dict):
@@ -98,15 +100,27 @@ def cmd_install(args) -> int:
     else:
         hosts = [host for host in hosts if host.detected()]
 
+    forbidden_env = sorted(key for key in env if key in FORBIDDEN_ENV_KEYS)
+    if forbidden_env:
+        print("refusing to install: %s must never be written into an MCP host config."
+              % ", ".join(forbidden_env), file=sys.stderr)
+        print("  karma-mcp-server refuses to start when private key material is in its "
+              "environment, so this entry would be dead on arrival.", file=sys.stderr)
+        print("  Karma wallet signatures always come from the owner's own wallet; the "
+              "agent side only ever holds a Runtime Key.", file=sys.stderr)
+        return 2
     unknown_env = [key for key in env if key not in KNOWN_ENV_KEYS]
     if unknown_env:
         print("warning: unrecognized env key(s): %s" % ", ".join(unknown_env), file=sys.stderr)
-    if not env:
-        print("warning: no --env given; the MCP server will start without Karma credentials",
+        print("  karma-mcp-server ignores these; pairing writes KARMA_RUNTIME_KEY on its own.",
               file=sys.stderr)
     if not hosts:
         print("no agent host detected on this machine.", file=sys.stderr)
         return 3
+    if not os.path.isabs(command) and shutil.which(command) is None:
+        print("warning: %r is not on PATH yet - the host will fail to start the server."
+              % command, file=sys.stderr)
+        print("  install it first: pip install ./packages/karma-mcp-server", file=sys.stderr)
 
     print("server: %s %s" % (command, " ".join(extra)))
     for key in defaults:
@@ -137,20 +151,44 @@ def cmd_install(args) -> int:
         return 0
     print("done. %d file(s) changed." % changed)
     print("next: restart the agent host so it reloads MCP servers, then have the agent call")
-    print("      karma_pairing_start, approve it in Console, and read back the 8-character code.")
+    print("      karma_connect; check the agent_fingerprint against the Console card, approve")
+    print("      it there - that approval IS the activation - then have it call")
+    print("      karma_connect_claim.")
+    print("      credentials land in ~/.karma/agent.env (0600) - nothing secret in chat.")
     return 0
+
+
+def _local_runtime_key() -> str:
+    """本机凭据文件里的 Runtime Key（配对批准后由 karma_connect_claim 落盘）。"""
+    override = os.environ.get("KARMA_AGENT_ENV_PATH")
+    path = Path(override) if override else Path.home() / ".karma" / "agent.env"
+    try:
+        text = path.expanduser().read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("KARMA_RUNTIME_KEY="):
+            return line.partition("=")[2].strip()
+    return ""
 
 
 def cmd_doctor(args) -> int:
     name, command, extra, env, _defaults = _resolve(args)
     problems = []
+    notes = []
     if not os.path.isabs(command) and shutil.which(command) is None:
-        problems.append("%r is not on PATH - pip install karma-mcp first" % command)
-    if not env.get("KARMA_RPC_URL") and not env.get("KARMA_RUNTIME_KEY"):
-        problems.append("no KARMA_RPC_URL and no KARMA_RUNTIME_KEY in env: the agent will "
-                        "reach the node but cannot spend until it pairs")
+        problems.append("%r is not on PATH - pip install ./packages/karma-mcp-server first"
+                        % command)
     if not env.get("KARMA_RUNTIME_URL"):
         problems.append("no KARMA_RUNTIME_URL: pairing would hit http://localhost:8000")
+    forbidden_env = sorted(key for key in env if key in FORBIDDEN_ENV_KEYS)
+    if forbidden_env:
+        problems.append("private key material in env (%s): karma-mcp-server refuses to start "
+                        "with those" % ", ".join(forbidden_env))
+    if not env.get("KARMA_RUNTIME_KEY") and not _local_runtime_key():
+        notes.append("not paired yet - the agent can still call karma_connect, and the Runtime "
+                     "Key lands in ~/.karma/agent.env once the owner approves")
     for host in default_hosts(workspace=args.workspace):
         if not host.detected():
             continue
@@ -160,13 +198,16 @@ def cmd_doctor(args) -> int:
             problems.append("%s: %s" % (host.key, exc))
             continue
         print("  ok   %-9s %s" % (host.key, path))
-    if problems:
+    if problems or notes:
         print()
         for problem in problems:
             print("  warn %s" % problem)
+        for note in notes:
+            print("  note %s" % note)
+    if problems:
         return 1
     print()
-    print("no problems found.")
+    print("configs look good." if notes else "no problems found.")
     return 0
 
 
@@ -175,10 +216,11 @@ def _add_common(parser):
                         help="all (default) or a comma list: codex,claude,cursor,muse,openclaw,vscode")
     parser.add_argument("--name", default=DEFAULT_NAME, help="MCP server name (default %s)" % DEFAULT_NAME)
     parser.add_argument("--command", default=None,
-                        help="server command; default is karma-mcp if on PATH, else this python")
+                        help="server command; default is %s if on PATH, else this python"
+                             % DEFAULT_COMMAND)
     parser.add_argument("--module", default=None,
-                        help="run the server as `python -m <module>` (default: %s, else %s)"
-                             % FALLBACK_MODULES)
+                        help="run the server as `python -m <module>` (default: %s)"
+                             % DEFAULT_MODULE)
     parser.add_argument("--arg", action="append", default=[],
                         help="argument for the server command (repeatable)")
     parser.add_argument("--env", action="append", default=[],

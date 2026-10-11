@@ -13,31 +13,40 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_NAME = "karma"
-DEFAULT_COMMAND = "karma-mcp"
+#: 默认指向通用薄接入层 ``packages/karma-mcp-server``。**不要**改回老包 ``karma-mcp``：
+#: 那个包把 ``KARMA_PRIVATE_KEY`` 注进 MCP 进程（安全审计判定作废），而
+#: ``karma-mcp-server`` 启动时发现私钥类键就直接拒绝启动（红线 R1）。
+DEFAULT_COMMAND = "karma-mcp-server"
 
-# Env keys a Karma MCP server understands. Used for warnings only.
+#: ``karma-mcp-server`` 真正会读的键（契约见 packages/karma-mcp-server/README.md）。
+#: 只用于提示「这个环境变量它根本不认」，不参与任何校验。
 KNOWN_ENV_KEYS = (
-    "KARMA_API_BASE",
-    "KARMA_API_KEY",
-    "KARMA_RPC_URL",
-    "KARMA_PRIVATE_KEY",
-    "KARMA_CONTRACT",
-    "KARMA_GAS",
     "KARMA_RUNTIME_URL",
     "KARMA_RUNTIME_KEY",
+    "KARMA_API_KEY",
     "KARMA_AGENT_ID",
     "KARMA_AGENT_PRIVATE_KEY",
-    "KARMA_MCP_DISCOVERY_ONLY",
-    "KARMA_PAIRING_STATE_DIR",
     "KARMA_AGENT_ENV_PATH",
-    "KARMA_OPENCLAW_HANDOFF_PATH",
-    "KARMA_OPENCLAW_ALLOW_BUYER_ACCEPT",
-    "KARMA_OPENCLAW_ALLOW_BUYER_CONFIRM",
-    "KARMA_OPENCLAW_ALLOW_SETUP_MUTATIONS",
-    "KARMA_OPENCLAW_REQUIRE_SERVER_ATTESTATION",
-    "KARMA_SIGNING_BACKEND",
+    "KARMA_MCP_STATE_DIR",
+    "KARMA_MCP_ENABLE_TIER2",
+    "KARMA_MCP_ENABLE_TIER3",
+    "KARMA_MCP_ENABLE_HTTP",
+    "KARMA_MCP_HTTP_TOKEN",
+    "KARMA_MCP_ISSUER_URL",
+    "KARMA_MCP_RESOURCE_URL",
     "PYTHONPATH",
     "PYTHONIOENCODING",
+)
+
+#: 绝不能写进宿主配置的键：``karma-mcp-server`` 启动时会检查它们并**拒绝启动**，
+#: 写进去等于给宿主配一个起不来的 server。所以安装时直接拒绝（fail-closed）。
+#: 老 ``karma-mcp`` 那套链上私钥模型（KARMA_PRIVATE_KEY / KARMA_MNEMONIC）一并列入。
+FORBIDDEN_ENV_KEYS = (
+    "KARMA_PRIVATE_KEY",
+    "KARMA_MNEMONIC",
+    "MNEMONIC",
+    "USER_PRIVATE_KEY",
+    "DEPLOYER_PRIVATE_KEY",
 )
 
 

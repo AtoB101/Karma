@@ -7,19 +7,31 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# karma_mcp_server 是默认被写进宿主的那个包；没装也能从仓库里 import，测试才自足。
+_MCP_SERVER_ROOT = Path(__file__).resolve().parents[3] / "packages" / "karma-mcp-server"
+if _MCP_SERVER_ROOT.is_dir():
+    sys.path.insert(0, str(_MCP_SERVER_ROOT))
 
-from karma_connect.hosts import default_hosts, install, parse_env, upsert_toml_table  # noqa: E402
+from karma_connect.cli import FALLBACK_MODULES
+from karma_connect.hosts import (
+    DEFAULT_COMMAND,
+    FORBIDDEN_ENV_KEYS,
+    default_hosts,
+    install,
+    parse_env,
+    upsert_toml_table,
+)
 
 
 def test_upsert_toml_table_appends_and_preserves():
     original = 'model = "x"\n\n[other]\nkey = 1\n'
-    out = upsert_toml_table(original, "mcp_servers.karma", ['command = "karma-mcp"'])
+    out = upsert_toml_table(original, "mcp_servers.karma", ['command = "karma-mcp-server"'])
     assert 'model = "x"' in out
     assert "[other]" in out
     assert "[mcp_servers.karma]" in out
     # the new table is appended, so it cannot swallow the earlier [other] block
     assert out.count("[mcp_servers.karma]") == 1
-    assert out.rstrip().endswith('command = "karma-mcp"')
+    assert out.rstrip().endswith('command = "karma-mcp-server"')
 
 
 def test_upsert_toml_table_replaces_in_place():
@@ -51,15 +63,15 @@ def test_codex_toml_install_is_idempotent(tmp_path, monkeypatch):
     host.config_path.parent.mkdir(parents=True, exist_ok=True)
     host.config_path.write_text('model = "deepseek-chat"\n', encoding="utf-8")
 
-    first = install(host, "karma", "karma-mcp", [], {"KARMA_RPC_URL": "https://rpc"})
+    first = install(host, "karma", "karma-mcp-server", [], {"KARMA_RPC_URL": "https://rpc"})
     assert first["changed"] is True
     text = host.config_path.read_text(encoding="utf-8")
     assert 'model = "deepseek-chat"' in text
     assert "[mcp_servers.karma]" in text
-    assert "command = \"karma-mcp\"" in text
+    assert "command = \"karma-mcp-server\"" in text
     assert 'KARMA_RPC_URL = "https://rpc"' in text
 
-    second = install(host, "karma", "karma-mcp", [], {"KARMA_RPC_URL": "https://rpc"})
+    second = install(host, "karma", "karma-mcp-server", [], {"KARMA_RPC_URL": "https://rpc"})
     assert second["changed"] is False
 
 
@@ -69,16 +81,16 @@ def test_json_hosts_preserve_siblings(tmp_path, monkeypatch):
         host.config_path.parent.mkdir(parents=True, exist_ok=True)
         host.config_path.write_text(json.dumps({"mcpServers": {"other": {"command": "keep-me"}}}),
                                     encoding="utf-8")
-        install(host, "karma", "karma-mcp", ["-x"], {"KARMA_CONTRACT": "0xabc"})
+        install(host, "karma", "karma-mcp-server", ["-x"], {"KARMA_CONTRACT": "0xabc"})
         data = json.loads(host.config_path.read_text(encoding="utf-8"))
         assert data["mcpServers"]["other"] == {"command": "keep-me"}
-        assert data["mcpServers"]["karma"]["command"] == "karma-mcp"
+        assert data["mcpServers"]["karma"]["command"] == "karma-mcp-server"
         assert data["mcpServers"]["karma"]["args"] == ["-x"]
 
 
 def test_muse_entry_shape(tmp_path, monkeypatch):
     host = _host("muse", tmp_path, monkeypatch)
-    install(host, "karma", "karma-mcp", [], {"KARMA_RPC_URL": "https://rpc"})
+    install(host, "karma", "karma-mcp-server", [], {"KARMA_RPC_URL": "https://rpc"})
     data = json.loads(host.config_path.read_text(encoding="utf-8"))
     assert data["schema_version"] == 1
     entry = data["mcpServers"]["karma"]
@@ -91,7 +103,7 @@ def test_openclaw_nested_bucket(tmp_path, monkeypatch):
     host = _host("openclaw", tmp_path, monkeypatch)
     host.config_path.parent.mkdir(parents=True, exist_ok=True)
     host.config_path.write_text(json.dumps({"agents": {"entries": {}}}), encoding="utf-8")
-    install(host, "karma", "karma-mcp", [], {})
+    install(host, "karma", "karma-mcp-server", [], {})
     data = json.loads(host.config_path.read_text(encoding="utf-8"))
     assert data["agents"] == {"entries": {}}
     assert data["mcp"]["servers"]["karma"]["transport"] == "stdio"
@@ -101,14 +113,14 @@ def test_vscode_only_with_workspace(tmp_path, monkeypatch):
     keys = {h.key for h in default_hosts(workspace=None)}
     assert "vscode" not in keys
     host = _host("vscode", tmp_path, monkeypatch, workspace=tmp_path)
-    install(host, "karma", "karma-mcp", [], {})
+    install(host, "karma", "karma-mcp-server", [], {})
     data = json.loads((tmp_path / ".vscode" / "mcp.json").read_text(encoding="utf-8"))
     assert data["servers"]["karma"]["type"] == "stdio"
 
 
 def test_dry_run_writes_nothing(tmp_path, monkeypatch):
     host = _host("muse", tmp_path, monkeypatch)
-    result = install(host, "karma", "karma-mcp", [], {}, dry_run=True)
+    result = install(host, "karma", "karma-mcp-server", [], {}, dry_run=True)
     assert result["dry_run"] is True
     assert not host.config_path.exists()
 
@@ -118,11 +130,11 @@ def test_module_mode_uses_this_python_and_adds_pythonpath(tmp_path, monkeypatch)
     from karma_connect.cli import _resolve
     from argparse import Namespace
 
-    args = Namespace(name=None, command=None, module="karma_mcp.server", arg=[], env=[])
+    args = Namespace(name=None, command=None, module="karma_mcp_server", arg=[], env=[])
     name, command, extra, env, defaults = _resolve(args)
     assert name == "karma"
     assert command == sys.executable
-    assert extra[:2] == ["-m", "karma_mcp.server"]
+    assert extra[:2] == ["-m", "karma_mcp_server"]
     assert env["PYTHONPATH"]
     # KARMA_RUNTIME_URL must be baked in: without it the MCP server talks to
     # http://localhost:8000 and pairing dies before it can hand out a user_code.
@@ -135,7 +147,7 @@ def test_explicit_env_beats_the_baked_default():
     from karma_connect.cli import _resolve
     from argparse import Namespace
 
-    args = Namespace(name=None, command=None, module="karma_mcp.server", arg=[],
+    args = Namespace(name=None, command=None, module="karma_mcp_server", arg=[],
                      env=["KARMA_RUNTIME_URL=http://127.0.0.1:9000"])
     _n, _c, _e, env, defaults = _resolve(args)
     assert env["KARMA_RUNTIME_URL"] == "http://127.0.0.1:9000"
@@ -147,3 +159,55 @@ def test_module_mode_rejects_unimportable_module():
 
     with pytest.raises(ValueError):
         _module_command("definitely_not_a_real_module_xyz", [], {})
+
+
+def test_default_command_is_the_thin_layer():
+    """回归钉子：默认命令必须是 karma-mcp-server。
+
+    老包 ``karma-mcp`` 把钱包私钥注进 MCP 进程（安全审计判定作废）。默认值被改回去，
+    用户就会照着 README 装一个「私钥进进程」的 server，而且装完起不来。
+    """
+    assert DEFAULT_COMMAND == "karma-mcp-server"
+    assert "karma-mcp" not in FALLBACK_MODULES
+
+
+def test_install_refuses_private_key_env(tmp_path, monkeypatch, capsys):
+    """私钥类 env 一律拒绝写盘：写了宿主也起不来（fail-closed）。"""
+    host = _host("codex", tmp_path, monkeypatch)
+    from argparse import Namespace
+
+    from karma_connect import cli
+
+    assert "KARMA_PRIVATE_KEY" in FORBIDDEN_ENV_KEYS
+    args = Namespace(host="all", name=None, command=None, module=None, arg=[],
+                     env=["KARMA_PRIVATE_KEY=0xdeadbeef"], workspace=None, dry_run=False)
+    assert cli.cmd_install(args) == 2
+    assert not host.config_path.exists()
+    assert "KARMA_PRIVATE_KEY" in capsys.readouterr().err
+
+
+def test_fallback_module_is_the_thin_layer(monkeypatch):
+    """console script 不在 PATH 上时，兜底也必须是薄接入层，而不是老包。"""
+    from argparse import Namespace
+
+    from karma_connect import cli
+
+    monkeypatch.setattr(cli.shutil, "which", lambda _cmd: None)
+    args = Namespace(name=None, command=None, module=None, arg=[], env=[])
+    _name, command, extra, _env, _defaults = cli._resolve(args)
+    assert command == sys.executable
+    assert extra[:2] == ["-m", "karma_mcp_server"]
+
+
+def test_cli_parser_builds_and_every_subcommand_parses():
+    """回归钉子：argparse 的 help 文本里 %s 对不上，会让**所有**子命令直接崩。
+
+    这类错以前没人挡（`karma-connect detect` 都起不来），所以这里把 parser 完整建一遍。
+    """
+    from karma_connect.cli import build_parser
+
+    parser = build_parser()
+    for argv in (["detect"], ["detect", "--json"], ["install", "--dry-run"],
+                 ["install", "--host", "codex,muse", "--env", "KARMA_RUNTIME_URL=https://x"],
+                 ["doctor"], ["sign-check", "--json"]):
+        assert parser.parse_args(argv).cmd == argv[0]
