@@ -154,7 +154,63 @@ SUMMARY|total=22 fail=0
 
 ### 7.4 本节**仍然没有**验证的
 
-- **`awaiting_email_confirm` 分支没有在「MCP 本尊」上跑过真机**：触发它需要线上 SMTP 已配，
-  而测试网默认把第三把锁关着（7.1）。该分支的**后端**行为已在 6.2 验过（真 `smtplib`），
-  MCP 侧的转达是薄映射，由单测钉住线上真实响应形状。
-- **真实外部邮箱投递**仍未见（同 6.4，环境无 SMTP 凭据）。
+- **`awaiting_email_confirm` 分支**当时没有在「MCP 本尊」上跑过真机 —— **已在 §8 补上**。
+- **真实外部邮箱投递**仍未见（同 6.4，环境无 SMTP 凭据）。详见 §8.4 的端口封锁结论。
+
+## 8. 第三把锁真的开了：真实 SMTP + MCP 本尊 全链路（2026-10-11）
+
+§7 欠的那一格（`awaiting_email_confirm` 没在 MCP 本尊上跑过真机）在本节补掉。这次不再
+用任何 Mock/sink，而是把**测试网 VPS 上的真实 Postfix** 接进 `KARMA_MAIL_*`，让应用真的
+走一次 `smtplib` → MTA 队列，并从队列里把**真实生成的那封邮件**取出来。
+
+### 8.1 环境准备（真实 MTA，可回滚）
+
+| 项 | 值 |
+| --- | --- |
+| 邮件出口 | 主机上的 Postfix（真实 MTA，非 sink）：`inet_interfaces=all` + `mynetworks` 含容器网段，`systemctl restart postfix` |
+| 容器→MTA 连通性 | 容器内 `smtplib.SMTP("172.18.0.1",25)` → `EHLO 250` / `NOOP 250` |
+| 应用配置 | `/opt/karma/.env` 追加 `KARMA_MAIL_HOST/PORT/FROM/SSL/STARTTLS`，`docker compose up -d --no-build app` |
+| 开关状态 | `mailer.configured()` = **True**（第三把锁真的开了）；回滚后 = **False** |
+| 回滚点 | `/root/main.cf.karma-e2e.bak`、`/root/karma.env.karma-e2e.bak` |
+
+### 8.2 全链路（MCP 本尊 → 线上 API → 真实 SMTP）
+
+| 步骤 | 调用 | 实测 |
+| --- | --- | --- |
+| 1 | MCP `karma_connect` | 线上 `POST /request` **201**，`user_code=8PF7-8KQZ` |
+| 2 | `POST /v1/agent-pairing/approve`（owner key）带 `notify_email` | **200**；`email_confirm.required=true`、`state=pending`、`delivered=true`、`email_masked=ow*********@example.com`、`match_code=665994`；`pairing.status=approved` |
+| 3 | MTA 队列 | 邮件真的投进去了：`X-Postfix-Queue-ID: 843C4108956`，`from=no-reply@karma-network.ai`，`5975` 字节，含 **3 个码 + 3 条链接**，**没有任何凭据** |
+| 4 | MCP `karma_connect_claim`（未确认） | 线上 `POST /claim` **200** → `status=awaiting_email_confirm`、`show_owner=665994`、`email_confirm_state=pending`、`email_masked=ow*********@example.com`，**无 `credentials` / 无 `KRM_`** |
+| 5 | 拿泄漏出去的 `match_code` 当 token 打确认页 | **409 校验不通过** —— 偷到显示码也换不到确认 |
+| 6 | 点**邮件里与 show_owner 相同**那一个码的链接 | **200 确认成功** |
+| 7 | 同一条链接再点一次 | **200**（幂等，不报错） |
+| 8 | MCP `karma_connect_claim`（确认后） | **`claimed`**：`agent_id=agent-b02474c8008d`、`owner_identity_id=ops-admin`、`credentials.api_key.fingerprint=3b7956452026`（只给指纹）；凭据落到本地 0600 文件 |
+| 9 | 交付的那把 key 调 `/v1/agent-pairing/mine` | **200**，`total=1`，且**响应里不回显明文 key** |
+
+解读：**「agent 显示码 → 主人在自己邮箱点对的那个 → 凭据才发放」这条链路，在真实 SMTP +
+真实状态机 + MCP 本尊上，已经端到端跑通**。第三把锁不是摆设。
+
+### 8.3 清理（全部回到基线）
+
+- `agent_pairing` 199→200→**199**；`agent_api_keys` 170→171→**170**；
+  `agent_boundaries` 177→178→**177**；`agent_profile_cards` 173→174→**173**；
+  `agent_keys/` 文件 168→169→**168**。
+- 自动创建的东西全部回收：DB `agents` / `reputation` 行、托管私钥文件、
+  profile card / boundary 记录。
+- **回收后复查**：那把 key → **401**；那条 pairing 的 `pairing_code` 再 claim → **404 unknown pairing_code**。
+- 本地含密钥的目录已 `rmtree`。
+- Postfix 回 `inet_interfaces = localhost`，队列清空（`Mail queue is empty`），
+  `/tmp` 临时件删除，`KARMA_MAIL_*` 从 `.env` 移除并 recreate 容器：
+  `mailer.configured() = False`、容器内 `KARMA_MAIL_*` 计数 = 0、owner 路由匿名仍 **401**。
+  也就是说：**线上又回到「第三把锁已装但默认关」的安全默认态。**
+
+### 8.4 本节**仍然没有**验证的
+
+- **真实外部收件箱投递**（QQ / Gmail 里真的收到信）仍未见。原因这次是**环境硬限制**，不是没做：
+  测试网所在云厂商**封掉出站 25 端口**（`gmail-smtp-in.l.google.com:25`、`smtp.qq.com:25` 均不可达），
+  所以本机直投 MX 不可能；而 **587/465 是通的**（`smtp.gmail.com:587` 可达）。
+  结论：要真投递，必须配**邮箱服务商的提交端口 + 授权码/应用专用密码**
+  （如 Gmail 应用专用密码，或 QQ 邮箱「授权码」）。环境里目前没有这类凭据
+  （仓库 secrets 只有 `VPS_SSH_KEY`；`/opt/karma/.env.ops` 的 `KARMA_ALERT_SMTP_*` 是注释掉的）。
+  凭据一旦给到，把 `KARMA_MAIL_HOST/PORT/USER/PASSWORD/SSL` 换上去即可，链路本身已经验通。
+- 未在主网做任何操作。
