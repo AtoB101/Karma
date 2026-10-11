@@ -19,6 +19,22 @@ brand-protection policy.
 3. Run local checks before opening a PR.
 4. Open a PR with a concise summary and validation steps.
 
+## Required checks on `main`
+
+`main` is protected. A change lands only through a pull request whose head has all
+five required checks green - a direct push is not the intended path.
+
+| Check | Workflow | Covers |
+| --- | --- | --- |
+| `pytest` | `python-tests.yml` | Python API + unit/integration test trees |
+| `guard` | `security-baseline-guard.yml` | security baseline + financial-function registry |
+| `security-gates` | `security-ci.yml` | security CI (auth, boundaries, money-path cases) |
+| `visibility-guard` | `visibility-guard.yml` | public/private visibility boundary |
+| `ops-scripts` | `security-ci.yml` | `scripts/ops/*` (backup, restore drill, alerts) |
+
+The protected branch requires no approving review, so **the five checks are the gate**.
+Workflow: feature branch -> PR -> wait for the five checks -> merge.
+
 ## Local checks (Python API + tests)
 
 Install dev dependencies and run the **full** pytest tree (unit, integration, and
