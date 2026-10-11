@@ -364,6 +364,30 @@ nonce:<一次性随机串>
 `tests/unit/test_console_privileged_panels.py`（三个特权工作面同规则）、
 `tests/test_verifier_network/test_node_signature.py`（签名格式 / 401 / 403 / 409 / 生产强制）。
 
+### L3-5 · 质押即准入（节点侧）：质押金库 + 罚没 / 退出闭环（已落地 2026-10-11）
+
+L3-2 把治理岗做成「押金在则岗在」，节点侧此前只到「入场券」：`verifier_nodes.stake_amount`
+只是一个记数，没绑链上锁仓、也没有罚没 / 退出路径 —— 节点作恶没有成本。这一轮把节点侧补齐：
+
+- **入场接锁仓 + 主人身份**：登记可以带 `owner_identity_id`；生产 `VERIFIER_REQUIRE_OWNER_IDENTITY=true`
+  时必填，节点钱包必须等于该身份在操作台绑定的钱包，押金必须 > 0 且由**已锁仓 USDC** 背书
+  （与治理岗同一本锁仓账）。在任判定现算、**不缓存** —— 缓存出来的「在任」等于一张会过期的通行证。
+- **链上金库**：`karma-core/contracts/core/KarmaVerifierBond.sol` —— `transferFrom` 真托管；
+  `slash()` 按 80 / 20 真分账（80% 给受害者、20% 进罚没池），罚没后低于 `minBond` 当场停用；
+  `requestUnstake` / `withdrawUnstake` 走冷却期，**冷却期内仍可被罚没**；罚没池达 `minPoolPayout`
+  后由治理 `distributePool()` 平分给优秀节点。
+- **链下台账**：`services/bond_slash.py` 先落账、后出账（`pending → submitted → settled | failed`）——
+  **没有链上 tx 不许写 settled**；`VERIFIER_BOND_VAULT_ADDRESS` 未配时停在 `pending`。挑战判负
+  （`UPHELD`）当场停用 + 记台账 + 扣声誉，按「主体 + 来源」幂等；出证 / 派活前重新算一遍押金，
+  押金失效的节点直接 403。
+- **仲裁员被推翻同期补上**：`POST /v1/arbitration/cases/{id}/overturn` —— 在庭且有质押承诺的仲裁员
+  按「立案费 × `ARBITRATION_SLASH_MULTIPLE`」罚没（上限 = 质押承诺额），`stake_amount` 当场下调 →
+  下次在任复核即 403。结算回滚**未做**，接口如实返回 `not_performed`。
+- **裁决收口**：`/v1/verifiers/challenges/{id}/resolve` 现在要仲裁员 / 管理员白名单（此前只要登录会话）。
+
+主网硬前置：链上金库要先部署、把地址配进 `VERIFIER_BOND_VAULT_ADDRESS`；没配之前罚没只落到台账、
+钱不动。门禁：`tests/test_verifier_network/test_bond_slash.py`、`tests/unit/test_arbitrator_overturn_slash.py`、
+`karma-core/contracts/test/KarmaVerifierBond.t.sol`。
 ### L4 · 只读节点
 
 把读接口做成无状态的、再加一个链上事件索引器，任何人 `docker compose up` 起一台
