@@ -16,6 +16,7 @@ CONTRACT_FILES = {
     "CircuitBreaker": CONTRACT_DIR / "CircuitBreaker.sol",
     "EmergencyFreeze": CONTRACT_DIR / "EmergencyFreeze.sol",
     "KarmaReputationAnchor": CONTRACT_DIR / "KarmaReputationAnchor.sol",
+    "KarmaVerifierBond": CONTRACT_DIR / "KarmaVerifierBond.sol",
 }
 
 ENTRY_RE = re.compile(

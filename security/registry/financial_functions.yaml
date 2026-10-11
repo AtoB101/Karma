@@ -658,6 +658,121 @@ fund_states:
     affected_asset: none (packer 权限)
     emergency_action: block
     audit_event: PackerUpdated
+  # ── KarmaVerifierBond.sol（G12 验证节点质押金库）──────────────────────
+
+  - contract: KarmaVerifierBond
+    function: stake
+    signature: stake(uint256 amount)
+    caller: 节点自己（自质押）
+    required_role: node_operator
+    risk_level: HIGH
+    affected_asset: token (ERC20 质押代币)
+    affected_amount: amount
+    affected_wallet: msg.sender
+    state: "NONE → BONDED (registered)"
+    allowed_transition: [stake]
+    emergency_action: block
+    audit_event: BondStaked
+    notes: transferFrom 真托管；累计保证金达到 minBond 才 active
+
+  - contract: KarmaVerifierBond
+    function: slash
+    signature: slash(address verifier, address victim, uint256 amount, bytes32 reason)
+    caller: slasher（链下裁决 → 罚没的落点）
+    required_role: slasher
+    risk_level: CRITICAL
+    affected_asset: token (ERC20 质押代币)
+    affected_amount: amount（≤ 该节点保证金）
+    affected_wallet: victim（80%）+ slashPool（20%）
+    state: "BONDED → BOND_SLASHED（不足 minBond 即 DEACTIVATED）"
+    allowed_transition: [slash]
+    emergency_action: block
+    audit_event: BondSlashed
+    guards: [onlySlasher, nonReentrant, victimShareBps=8000]
+    notes: 真转账；victim 为零地址则全额进池；reason 哈希用于对账
+
+  - contract: KarmaVerifierBond
+    function: distributePool
+    signature: distributePool(address[] winners, uint256 amount)
+    caller: admin（生产：治理多签 / 时间锁）
+    required_role: admin
+    risk_level: CRITICAL
+    affected_asset: token (ERC20 罚没池)
+    affected_amount: amount（≤ slashPool 且池子已达 minPoolPayout）
+    affected_wallet: winners（平分；余数给最后一名）
+    state: "POOL_FUNDED → POOL_DISTRIBUTED"
+    allowed_transition: [distributePool]
+    emergency_action: block
+    audit_event: PoolDistributed
+    guards: [onlyAdmin, nonReentrant, PoolUnderThreshold, PoolInsolvent]
+    notes: 「20% 沉淀 → 奖励优秀节点」的链上落点
+
+  - contract: KarmaVerifierBond
+    function: requestUnstake
+    signature: requestUnstake(uint256 amount)
+    caller: 节点自己
+    required_role: node_operator
+    risk_level: HIGH
+    affected_asset: token (ERC20 质押代币)
+    affected_amount: amount（冻结提取额度）
+    affected_wallet: msg.sender
+    state: "BONDED → COOLING（冷却期内仍可被罚没）"
+    allowed_transition: [requestUnstake]
+    emergency_action: block
+    audit_event: BondUnstakeRequested
+    notes: 冷却期满才放款，堵住「被挑战先跑」
+
+  - contract: KarmaVerifierBond
+    function: withdrawUnstake
+    signature: withdrawUnstake()
+    caller: 节点自己（冷却期满）
+    required_role: node_operator
+    risk_level: CRITICAL
+    affected_asset: token (ERC20 质押代币)
+    affected_amount: min(unbondAmount, 当前剩余保证金)
+    affected_wallet: msg.sender
+    state: "COOLING → WITHDRAWN（按剩余额度放款）"
+    allowed_transition: [withdrawUnstake]
+    emergency_action: block
+    audit_event: BondWithdrawn
+    guards: [nonReentrant, CooldownActive]
+    notes: 被罚没后只按剩余额度放款，不会多给
+
+  - contract: KarmaVerifierBond
+    function: setSlasher
+    caller: admin
+    required_role: admin（多签）
+    risk_level: HIGH
+    affected_asset: none（罚没执行权）
+    emergency_action: block
+    audit_event: SlasherUpdated
+
+  - contract: KarmaVerifierBond
+    function: setStakeConfig
+    caller: admin
+    required_role: admin（多签）
+    risk_level: HIGH
+    affected_asset: none（minBond / 冷却期 / 起奖线）
+    emergency_action: block
+    audit_event: StakeConfigUpdated
+
+  - contract: KarmaVerifierBond
+    function: setSlashSplit
+    caller: admin
+    required_role: admin（多签）
+    risk_level: HIGH
+    affected_asset: none（80/20 分账比例）
+    emergency_action: block
+    audit_event: SlashSplitUpdated
+
+  - contract: KarmaVerifierBond
+    function: setToken
+    caller: admin
+    required_role: admin（多签）
+    risk_level: HIGH
+    affected_asset: token（仅在金库为空时允许换）
+    emergency_action: block
+    audit_event: StakeConfigUpdated
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 信任根登记（红队报告 KARMA-RT-2026-08-27-001 §4）
