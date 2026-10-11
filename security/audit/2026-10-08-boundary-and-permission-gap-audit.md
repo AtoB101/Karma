@@ -325,8 +325,22 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
   `KarmaVerifierBond.distributePool()` 平分给优秀节点。没有可指认的受害方时 80% 也进池
   （不做无根据指认）。
 
-—— 仍属资金安全核心路径：主网未动。链上金库与 `VERIFIER_BOND_VAULT_ADDRESS` 是**主网硬前置**，
-没配好之前罚没只落到台账、钱不动。
+—— 仍属资金安全核心路径：主网未动。**测试网（Ethereum Sepolia，chainId 11155111）已于 2026-10-11
+部署金库、把地址配进 `VERIFIER_BOND_VAULT_ADDRESS`，并让罚没第一次真正出账**：
+
+- 金库 `KarmaVerifierBond` = `0x8eBCF8668a6B54872A4e747d82dB152095B21027`（部署 tx `0xdaaf67ac…`；
+  `setStakeConfig` `0xe842c3a5…`；`setSlasher` `0x19792c67…`）。参数：`minBond=5 USDC`（5,000,000）、
+  `unbondCooldown=3 天`、`minPoolPayout=1 USDC`、`victimShareBps=8000`；质押代币 = 测试网 mUSDC
+  `0x6AF606f5…`（decimals 6）。
+- **首次真实出账演练**（`stake(10) → slash(6, 80/20) → distributePool(1)`）账目自证：`slash` tx
+  `0x3cbcb6f6…` 把 6 USDC 拆成受害者 4.8（80%）+ 罚没池 1.2（20%），节点保证金 10 → 4 低于 `minBond`
+  当场 `active=false`；`distributePool` tx `0xb4c3a042…` 给两名优秀节点各 0.5、池剩 0.2；每一步
+  `solvencyGap()==0`。ops CLI（`scripts/ops/verifier_bond_vault.py`）对同样入参编出的 calldata 与这两笔
+  链上 tx 逐字节一致。
+- 出账是**异步**的，且**入账 / 出账主体分离**：后端只产台账 + `pending`，真正签名由治理账户完成
+  （本轮测试网 = 部署者 EOA；**生产必须是多签** —— 部署脚本有守卫，admin / slasher 是 EOA 就 revert）。
+  操作手册见 `docs/VERIFIER_BOND_VAULT_RUNBOOK.md`。
+- **主网仍未部署**：主网金库是硬前置。
 
 ## 4. 生产实测快照（测试网，只读）
 
@@ -341,6 +355,9 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 | `GOVERNANCE_VERIFIER_IDS` | `ops-governance,kid_5f0aa8ccf7483983a8a2a5a9` |
 | `GOVERNANCE_OPEN_JOIN` | 未设（= 关 → 治理岗只能靠白名单） |
 | `VERIFIER_REQUIRE_NODE_SIGNATURE` | `true` |
+| `VERIFIER_REQUIRE_OWNER_IDENTITY` | `true` |
+| `VERIFIER_REQUIRE_BACKED_BOND` | `true` |
+| `VERIFIER_BOND_VAULT_ADDRESS` | 已配（测试网金库，地址见 §3 G12） |
 | `LEDGER_REQUIRE_PARTY_ACTOR` | `true` |
 | `SETTLEMENT_REQUIRE_PARTY_ACTOR` | `true` |
 | `RECEIPT_REQUIRE_SIGNATURE` | `true` |
@@ -356,7 +373,7 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 3. **G5**：已落地（本轮）—— 治理发放方（白名单 ∪ 管理员）可替他人开 / 收回 verifier·arbitrator 岗。
 4. **G7 / G8 / G9**：已落地（本轮）。
 5. **G10**：人工签核；**G11**：产品拍板。
-6. **G12**：已落地（本轮，测试网）—— 见 §3 G12。
+6. **G12**：已落地（本轮，测试网）—— 测试网金库已部署、首次真实出账已验。见 §3 G12。
 
 —— 主网未动；本轮所有改动都在测试网侧代码 + 回归测试。
 
@@ -381,6 +398,8 @@ G1–G9 全部落地并推送，CI 6/6 绿（`main`）：
 | `498e37a` | G12-B | `KarmaVerifierBond` 质押金库合约 + 部署脚本 + 34 条合约测试 + 资金函数登记 |
 | `16e709b` | G12-A/B | 罚没台账 + 入场闸门 + 退出冷却 + 挑战判负罚没 + 仲裁员被推翻罚没 |
 | `—` | G12 | 本审计文档同步（紧随上述两次提交） |
+| `—`（本轮） | G12 | **测试网金库部署 + `VERIFIER_BOND_VAULT_ADDRESS` 配置 + 首次真实出账演练**（见 §3 G12） |
+| `—`（本轮） | G12 | `scripts/ops/verifier_bond_vault.py` 运维 CLI（部署 / 状态 / 罚没 / 分池，支持 `--dry-run`）+ 单测 |
 
 **剩余（非代码）**：
 
@@ -388,9 +407,10 @@ G1–G9 全部落地并推送，CI 6/6 绿（`main`）：
   H2/H3/H9/H10/H11/H12），`--strict` 下算失败 —— 需发布负责人逐项签字。已备好逐项签核清单
   （该文档「逐项 `[人工]` 签核清单（G10）」一节，含判据 / 证据位 / 签字 / 日期列）。
 
-- **G12 的主网前置（未做）**：链上 `KarmaVerifierBond` 尚未部署、`VERIFIER_BOND_VAULT_ADDRESS`
-  未配 —— 罚没只停在台账 `pending`（如实呈现，不谎报 settled）。主网前必须部署金库并接治理多签；
-  罚没池「谁算优秀节点、什么时机分配」的链下策略也留到测试网跑稳后再定。见 §3 G12。
+- **G12 的主网前置（未做）**：**主网**尚未部署 `KarmaVerifierBond`、未接治理多签 —— 主网罚没仍只停在
+  台账 `pending`（如实呈现，不谎报 settled）。**测试网（Sepolia）已完成部署、配好 `VERIFIER_BOND_VAULT_ADDRESS`
+  并跑通首次真实出账**（地址 / tx 见 §3 G12）。主网前必须部署金库、admin 与 slasher 都接多签；罚没池
+  「谁算优秀节点、什么时机分配」的链下策略也留到测试网跑稳后再定。见 §3 G12。
 
 **未覆盖 / 有意保留**：
 

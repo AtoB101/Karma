@@ -385,8 +385,11 @@ L3-2 把治理岗做成「押金在则岗在」，节点侧此前只到「入场
   下次在任复核即 403。结算回滚**未做**，接口如实返回 `not_performed`。
 - **裁决收口**：`/v1/verifiers/challenges/{id}/resolve` 现在要仲裁员 / 管理员白名单（此前只要登录会话）。
 
-主网硬前置：链上金库要先部署、把地址配进 `VERIFIER_BOND_VAULT_ADDRESS`；没配之前罚没只落到台账、
-钱不动。门禁：`tests/test_verifier_network/test_bond_slash.py`、`tests/unit/test_arbitrator_overturn_slash.py`、
+主网硬前置：**主网**金库要先部署、接治理多签，再把地址配进 `VERIFIER_BOND_VAULT_ADDRESS`；主网没配之前
+罚没只落到台账、钱不动。**测试网（Sepolia）已部署金库并跑通首次真实出账** —— 地址与 tx 见
+`security/audit/2026-10-08-boundary-and-permission-gap-audit.md` §3 G12；ops 手册见
+`docs/VERIFIER_BOND_VAULT_RUNBOOK.md`（命令 `scripts/ops/verifier_bond_vault.py`）。门禁：
+`tests/test_verifier_network/test_bond_slash.py`、`tests/unit/test_arbitrator_overturn_slash.py`、
 `karma-core/contracts/test/KarmaVerifierBond.t.sol`。
 ### L4 · 只读节点
 
