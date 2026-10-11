@@ -149,7 +149,7 @@ systemctl enable --now karma-mail-gateway
 systemctl restart karma-mail-gateway
 systemctl enable --now caddy
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
-python3 "\$DIR/mail_gateway.py" --check
+GATEWAY_ENV="\$DIR/gateway.env" python3 "\$DIR/mail_gateway.py" --check
 INSTALL
 
 say "==> uploading to ${GATEWAY_HOST}:${GATEWAY_REMOTE_DIR}"
@@ -172,3 +172,5 @@ else
 fi
 say ""
 say "    docker compose --env-file /opt/karma/.env -f deploy/docker-compose.yml up -d --no-build app"
+say ""
+say "    (open 443; ideally 80 too so Caddy can use ACME HTTP-01 -- it falls back to TLS-ALPN on 443)"
