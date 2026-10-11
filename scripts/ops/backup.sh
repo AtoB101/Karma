@@ -176,13 +176,31 @@ run_verify_dir() {
     -v "$dump_dir:/b:ro" "$VERIFY_IMAGE" > /dev/null 2>&1 \
     || { warn "cannot start verify container"; return 3; }
 
+  # 等的是**正式那个** postgres，不是 entrypoint 的临时 server。
+  # 官方镜像启动时会先起一个临时 server 跑 initdb / 建库 —— pg_isready 对**它**也回
+  # 「accepting connections」，随后 entrypoint 把它停掉再起正式的，中间那段窗口里
+  # psql 会拿到 "the database system is shutting down"。
+  # 2026-10-12 04:05 的离站回演就正好踩进这个窗口（verify 演练没事、回演挂掉，纯看运气）。
+  # 所以判据改成：pg_isready 之后，还要**连续两次真查成功、中间隔 3 秒**，才算真起来了。
   local i ok=1
   for i in $(seq 1 60); do
     docker exec "$cname" pg_isready -U "$PG_USER" -d "$PG_DB" > /dev/null 2>&1 && { ok=0; break; }
     sleep 1
   done
+  if [[ "$ok" == "0" ]]; then
+    ok=1
+    for i in $(seq 1 40); do
+      if docker exec "$cname" psql -U "$PG_USER" -d "$PG_DB" -tAc 'select 1' > /dev/null 2>&1; then
+        sleep 3
+        if docker exec "$cname" psql -U "$PG_USER" -d "$PG_DB" -tAc 'select 1' > /dev/null 2>&1; then
+          ok=0; break
+        fi
+      fi
+      sleep 1
+    done
+  fi
   if [[ "$ok" != "0" ]]; then
-    warn "verify container never became ready"
+    warn "verify container never became ready (still not accepting queries)"
     docker logs "$cname" > "$logf" 2>&1 || true
     docker rm -f "$cname" > /dev/null 2>&1 || true
     return 2
@@ -190,13 +208,24 @@ run_verify_dir() {
 
   # 恢复日志留档：出问题时证据在快照里，不用再猜
   : > "$logf"
-  local rc=0
+  local rc=0 attempt
   set +e
-  docker exec -i "$cname" psql -q -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" \
-      -c "SELECT 1" > /dev/null 2>&1
-  gunzip -c "$dump" | docker exec -i "$cname" psql -q -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" \
-      > "$logf" 2>&1
-  rc=$?
+  for attempt in 1 2 3; do
+    docker exec -i "$cname" psql -q -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" \
+        -c "SELECT 1" > /dev/null 2>&1
+    gunzip -c "$dump" | docker exec -i "$cname" psql -q -v ON_ERROR_STOP=1 -U "$PG_USER" -d "$PG_DB" \
+        > "$logf" 2>&1
+    rc=$?
+    [[ "$rc" == "0" ]] && break
+    # 只在「连接期撞上 postgres 起停窗口」时重试：那一刻一条语句都没进去，
+    # 重放是安全的（其它错误一律不重试，免得真假难辨）。
+    if grep -qE "the database system is (shutting down|starting up)|database system is in recovery" "$logf"; then
+      warn "restore hit a postgres startup/shutdown window (attempt $attempt) - retrying in 3s"
+      sleep 3
+      continue
+    fi
+    break
+  done
   set -e
   if [[ "$rc" != "0" ]]; then
     warn "restore failed (psql rc=$rc) - see $logf"

@@ -66,6 +66,7 @@ This checklist is blocking for broad public test rollout.
 | 已消项 | `B3`/`G5` 的投递证据能在常规轮询里**存活**（2026-10-02 生产实测：自检写完 `last_selftest_ok_ts` 后紧接跑一次常规轮询，该值仍在（旧版会变 `never`）；随后打尖峰 → 下一轮 `*/5` 投出 3 条 `rate_limit_spike`，`last_alert_ok_ts` 与之同时在场） |
 | 已消项 | `F5`–`F6` 离站副本已配（阿里云 OSS 香港，virtual-hosted 上传）并**从离站副本真恢复过一次**：`--offsite` 推 3 个对象，`--restore-offsite` 拉回进一次性 postgres，57 张表行数全一致 |
 | 已消项 | `F4`/`F6` 03:17 **并发互写**已修（2026-10-12）：整点 cron 与每天 cron 都在 03:17 启动，快照目录名取到同一秒 → 两个进程写同一个目录、manifest 互相覆盖，当天演练记录被整点那份盖掉。`backup.sh` 增加 `flock`（在算 TS 之前），cron 整点那行改为 `17 0-2,4-23 * * *` 避开 03 点 |
+| 已消项 | `F4`/`F6` 恢复演练的**临时 server 竞态**已修（2026-10-12 实测复现）：官方 `postgres:16-alpine` 启动时先起一个临时 server 跑 initdb / 建库，`pg_isready` 对**它**也回 OK，随后 entrypoint 把它停掉再起正式的 —— 离站回演正好撞进这段窗口，报 `the database system is shutting down`（同日 `--verify` 演练没事、回演挂掉，纯看运气）。判据改成「pg_isready 之后连续两次真查成功、中间隔 3 秒」，并在恢复期只对这类瞬态错误重试 |
 | 待签 | `A4d`（白名单里的身份号确有其人）、`E4b`（回滚/值班手册人确认）、`E6b`（基线漂移策略评审） |
 | 待签 | `H2` / `H3` / `H9`–`H12`：测试钱包、按笔锚定、私仓版本锁、OpenClaw/OpenManus/上链 smoke |
 
