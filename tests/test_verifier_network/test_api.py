@@ -281,13 +281,16 @@ async def test_get_challenge(client, db_session):
 
 
 @pytest.mark.anyio
-async def test_resolve_challenge(client, db_session):
-    """POST /v1/verifiers/challenges/{id}/resolve resolves a challenge."""
+async def test_resolve_challenge(client_sec, db_session):
+    """POST /v1/verifiers/challenges/{id}/resolve resolves a challenge.
+
+    G12 起这条路只认仲裁员 / 管理员白名单 —— 此前谁都能调，等于挑战没有后果。
+    """
     challenge = Challenge(task_id="task-ch-003", status="OPEN")
     db_session.add(challenge)
     await db_session.commit()
 
-    resp = await client.post(
+    resp = await client_sec.post(
         f"/v1/verifiers/challenges/{challenge.id}/resolve",
         json={
             "resolution": "Evidence verified, challenge dismissed",
@@ -301,13 +304,27 @@ async def test_resolve_challenge(client, db_session):
 
 
 @pytest.mark.anyio
-async def test_resolve_already_resolved_challenge(client, db_session):
+async def test_resolve_challenge_requires_operator(client, db_session):
+    """没有任何治理身份时，裁决挑战必须被拒（401/403），不能放行。"""
+    challenge = Challenge(task_id="task-ch-003b", status="OPEN")
+    db_session.add(challenge)
+    await db_session.commit()
+
+    resp = await client.post(
+        f"/v1/verifiers/challenges/{challenge.id}/resolve",
+        json={"resolution": "no credentials", "status": "DISMISSED"},
+    )
+    assert resp.status_code in (401, 403), resp.text
+
+
+@pytest.mark.anyio
+async def test_resolve_already_resolved_challenge(client_sec, db_session):
     """Cannot re-resolve an already resolved challenge."""
     challenge = Challenge(task_id="task-ch-004", status="RESOLVED", resolved_at=None)
     db_session.add(challenge)
     await db_session.commit()
 
-    resp = await client.post(
+    resp = await client_sec.post(
         f"/v1/verifiers/challenges/{challenge.id}/resolve",
         json={"resolution": "Try again", "status": "DISMISSED"},
     )

@@ -33,6 +33,11 @@ class VerifierRegisterRequest(NodeSignatureFields):
     wallet_address: str = Field(..., pattern=r"^0x[a-fA-F0-9]{40}$")
     stake_amount: float = Field(default=0.0, ge=0.0)
     endpoint_url: Optional[str] = Field(default=None)
+    # G12：声明这个节点的主人身份。**填了就走金库档** —— 节点钱包必须与该身份
+    # 绑定的钱包一致，且质押额必须由已锁仓 USDC 背书（见 services/verifier_bond.py）。
+    # 不填 = 名单档（运维/白名单直接建档，跟名单不跟押金）；
+    # 生产环境 ``VERIFIER_REQUIRE_OWNER_IDENTITY=true`` 时不填直接 422。
+    owner_identity_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class VerifierStakeUpdateRequest(NodeSignatureFields):
@@ -42,6 +47,16 @@ class VerifierStakeUpdateRequest(NodeSignatureFields):
     wallet_address —— 收了也只能是同一个值，多一个可自报的字段就是多一条歧义。
     """
     stake_amount: float = Field(..., ge=0.0)
+
+
+class VerifierUnstakeRequest(NodeSignatureFields):
+    """发起退出：冻结提取额度，开始冷却计时。
+
+    冷却期内保证金**仍可被罚没** —— 这正是冷却期的意义（堵住「出事前抢先跑」）。
+    ``amount`` 省略或为 0 表示全额退出。
+    """
+    amount: float = Field(default=0.0, ge=0.0)
+    wallet_address: Optional[str] = Field(default=None, pattern=r"^0x[a-fA-F0-9]{40}$")
 
 
 class VerifierNodeResponse(BaseModel):
@@ -55,6 +70,13 @@ class VerifierNodeResponse(BaseModel):
     is_active: bool
     endpoint_url: Optional[str] = None
     created_at: datetime
+    # ── G12 金库字段 ──
+    owner_identity_id: Optional[str] = None
+    bond_state: Optional[str] = None
+    bond_floor: Optional[float] = None
+    unbond_requested_at: Optional[datetime] = None
+    unbond_amount: Optional[float] = None
+    slash_unsettled: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -122,16 +144,66 @@ class ChallengeOpenRequest(NodeSignatureFields):
 
 
 class ChallengeResolveRequest(NodeSignatureFields):
-    """Request to resolve a challenge."""
+    """裁决一场挑战。
+
+    ``status`` 只认四个枚举值（自由文本时代结束了）：
+
+    * ``UPHELD``    挑战成立 —— **判负**：为该 task 出过证的节点被罚没、停用、扣声誉；
+    * ``OVERTURNED``挑战被推翻（原出证成立）—— 无处罚；
+    * ``DISMISSED`` 不受理 / 驳回 —— 无处罚；
+    * ``EXPIRED``   窗口过期（``check_challenge_expiry`` 也写这个值）。
+
+    ``slash_amount`` 可选：省略 = 按被罚节点**当时的全部保证金**罚（默认最重档，
+    见 services/bond_slash.py）。``victim_wallet_address`` 可选：指认 80% 的收款人；
+    不填则本该给受害方的部分也进罚没池（不做无根据的指认）。
+    """
     resolution: str
-    status: str = Field(..., pattern=r"^(RESOLVED|DISMISSED)$")
+    status: str = Field(..., pattern=r"^(UPHELD|OVERTURNED|DISMISSED|EXPIRED)$")
     wallet_address: Optional[str] = Field(default=None, pattern=r"^0x[a-fA-F0-9]{40}$")
+    slash_amount: Optional[float] = Field(default=None, ge=0.0)
+    victim_wallet_address: Optional[str] = Field(
+        default=None, pattern=r"^0x[a-fA-F0-9]{40}$"
+    )
+    victim_identity_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class BondSlashResponse(BaseModel):
+    """一笔罚没台账的对外视图。"""
+    id: str
+    subject_kind: str
+    subject_id: str
+    wallet_address: Optional[str] = None
+    victim_wallet_address: Optional[str] = None
+    victim_identity_id: Optional[str] = None
+    source_kind: str
+    source_id: str
+    amount: float
+    victim_amount: float
+    pool_amount: float
+    victim_share_bps: int
+    pool_share_bps: int
+    reason: Optional[str] = None
+    status: str
+    tx_hash: Optional[str] = None
+    attempts: int
+    last_error: Optional[str] = None
+    created_at: datetime
+    settled_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class BondSlashListResponse(BaseModel):
+    slashes: list[BondSlashResponse]
+    total: int
+    pool_total: float
+    vault_configured: bool
 
 
 class NodeSignMessageRequest(BaseModel):
     """按动作要一段待签文字：payload 就是即将发出的请求体（外加 signature_nonce）。"""
 
-    kind: str = Field(..., pattern=r"^(register|stake|attestation|challenge|challenge_resolve)$")
+    kind: str = Field(..., pattern=r"^(register|stake|unstake|attestation|challenge|challenge_resolve)$")
     payload: dict[str, Any] = Field(default_factory=dict)
 
 

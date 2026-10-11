@@ -125,7 +125,9 @@ SETTLEMENT_REQUIRE_PARTY_ACTOR=true
 RATE_LIMIT_REDIS_FAIL_CLOSED=true
 # 验证者节点写接口必须由节点自有钱包签名（生产强制）
 VERIFIER_REQUIRE_NODE_SIGNATURE=true
-
+# 节点必须声明主人身份（钱包 = 绑定钱包），押金必须由已锁仓 USDC 背书
+VERIFIER_REQUIRE_OWNER_IDENTITY=true
+VERIFIER_REQUIRE_BACKED_BOND=true
 # ── 签名密钥（Ed25519，回执签名）──
 ED25519_PRIVATE_KEY_PATH=./keys/agent_private.pem
 ED25519_PUBLIC_KEY_PATH=./keys/agent_public.pem

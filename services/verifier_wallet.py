@@ -35,6 +35,7 @@ from services.runtime_wallet import verify_personal_message
 SIGN_MESSAGE_KINDS = (
     "register",
     "stake",
+    "unstake",
     "attestation",
     "challenge",
     "challenge_resolve",
@@ -79,6 +80,21 @@ def build_node_stake_message(
             f"verifier_id:{_text(verifier_id)}",
             f"wallet_address:{_text(wallet_address)}",
             f"stake_amount:{_dec(stake_amount)}",
+            f"nonce:{_text(nonce)}",
+        ]
+    )
+
+
+def build_node_unstake_message(
+    *, verifier_id: str, wallet_address: str, amount: Any, nonce: str
+) -> str:
+    """退出动作也签名：**退出是单方面改变担保额**，比加押更需要是节点本人。"""
+    return "\n".join(
+        [
+            "Karma Verifier Node Unstake",
+            f"verifier_id:{_text(verifier_id)}",
+            f"wallet_address:{_text(wallet_address)}",
+            f"amount:{_dec(amount)}",
             f"nonce:{_text(nonce)}",
         ]
     )
@@ -174,6 +190,13 @@ def build_message(kind: str, payload: dict[str, Any] | None = None) -> str:
             verifier_id=data.get("verifier_id"),
             wallet_address=data.get("wallet_address"),
             stake_amount=data.get("stake_amount"),
+            nonce=nonce,
+        )
+    if kind == "unstake":
+        return build_node_unstake_message(
+            verifier_id=data.get("verifier_id"),
+            wallet_address=data.get("wallet_address"),
+            amount=data.get("amount"),
             nonce=nonce,
         )
     if kind == "attestation":

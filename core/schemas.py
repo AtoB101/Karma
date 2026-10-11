@@ -189,6 +189,7 @@ class ArbitrationEventType(str, Enum):
     VOTE_CAST = "vote_cast"
     CASE_DECIDED = "case_decided"
     CASE_EXECUTED = "case_executed"
+    CASE_OVERTURNED = "case_overturned"
 
 
 class ResponsibilityEdgeType(str, Enum):

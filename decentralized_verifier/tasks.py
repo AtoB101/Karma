@@ -68,13 +68,38 @@ async def _async_auto_verify(task_id: str, bundle_id: str) -> dict:
         Attestation as AttestationModel,
         VerifierNode as VerifierNodeModel,
     )
+    from services import verifier_bond
 
     async with AsyncSessionLocal() as session:
-        # Get all active verifiers
+        # Get all active verifiers, then drop the ones whose bond is no longer
+        # good (G12 P2): a node whose locked collateral was pulled — or slashed —
+        # must not be handed new work. The bond is live, so we recompute here
+        # rather than trusting the cached ``bond_state`` snapshot.
         verifier_result = await session.execute(
             select(VerifierNodeModel).where(VerifierNodeModel.is_active.is_(True))
         )
-        verifiers = verifier_result.scalars().all()
+        active_nodes = verifier_result.scalars().all()
+
+        verifiers = []
+        for node in active_nodes:
+            owner_identity_id = (node.owner_identity_id or "").strip()
+            if not owner_identity_id:
+                verifiers.append(node)
+                continue
+            state = await verifier_bond.bond_state(
+                session,
+                identity_id=owner_identity_id,
+                stake_amount=node.stake_amount,
+                unbond_requested_at=node.unbond_requested_at,
+            )
+            if state["ok"]:
+                verifiers.append(node)
+            else:
+                logger.info(
+                    "auto_verify_verifier_skipped_unbacked verifier_id=%s code=%s",
+                    node.id,
+                    state["code"],
+                )
 
         if not verifiers:
             logger.warning("auto_verify_no_active_verifiers task_id=%s", task_id)

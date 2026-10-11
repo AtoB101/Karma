@@ -5,11 +5,14 @@ import hashlib
 import json
 from datetime import datetime, timedelta
 
+import structlog
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from config.settings import settings
 from core.schemas import (
     ArbitrationArbitratorActivitySummary,
     ArbitrationAssignment,
@@ -38,10 +41,12 @@ from db.models.orm import (
     ArbitrationMaterialPackageModel,
     ArbitrationPoolMemberModel,
     ArbitrationVoteModel,
+    TaskContractModel,
 )
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
 from services import arbitration_rules as arb_rules
+from services import bond_slash, economy_policy, governance_stake
 from services.actor_guards import require_admin_actor, require_arbitration_operator
 from services.capacity_resolution import apply_capacity_resolution
 from services.identity_actor import resolve_actor_identity_id
@@ -52,6 +57,8 @@ from services.security_monitoring import (
 from services.settlement_voucher import mark_voucher_used_if_linked
 from services.settlement_amounts import normalize_amount, split_amounts
 
+
+logger = structlog.get_logger(__name__)
 router = APIRouter()
 DEFAULT_OPEN_CASE_ALERT_THRESHOLD = 5
 DEFAULT_VOTING_CASE_ALERT_THRESHOLD = 5
@@ -689,6 +696,166 @@ async def cast_vote(
         case_row.updated_at = datetime.utcnow()
     await db.flush()
     return _case_to_schema(case_row)
+
+
+class OverturnArbitrationCaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    reason: str
+    victim_wallet_address: str | None = None
+    victim_identity_id: str | None = None
+    # 省略 = 按「立案费 × ARBITRATION_SLASH_MULTIPLE」逐人罚；给了就按这个数
+    # （仍以该仲裁员的质押承诺额为上限）。
+    slash_amount: float | None = Field(default=None, ge=0.0)
+
+
+class OverturnArbitrationCaseResponse(BaseModel):
+    case_id: str
+    status: str
+    arbitration_slash_multiple: float
+    case_fee_usdc: float
+    per_arbitrator_usdc: float
+    bond_slashes: list[str]
+    slashed_arbitrators: int
+    skipped_unstaked: int
+    # 结算回滚**没有**在这条路由里做（见函数注释）：如实回一个标记，不假装。
+    settlement_reversal: str
+
+
+@router.post("/cases/{case_id}/overturn", response_model=OverturnArbitrationCaseResponse)
+async def overturn_arbitration_case(
+    case_id: str,
+    body: OverturnArbitrationCaseRequest,
+    actor: str = Depends(require_arbitration_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    """推翻一个**已执行**的裁决 —— 在庭仲裁员按立案费倍数罚没（G12 同期项）。
+
+    背景：``ARBITRATION_SLASH_MULTIPLE``（默认 2×）此前只是一条 policy ——
+    ``economy-policy`` 接口把它展示给用户，但``api/routes/arbitration.py`` 里
+    既没有上诉 / 推翻入口，也没有罚没落点。结果就是「整庭判错被推翻」= 换个人再判
+    一次，判错的人零成本。这条路由把「被推翻」补成有后果的一件事，且复用节点罚没的
+    同一套台账（``services/bond_slash.py``：先落账、后出账、80/20 分账、按来源幂等）：
+
+    * 每个**在庭且有质押承诺**的仲裁员按 ``立案费 × 倍数`` 罚没，上限是其质押承诺额；
+    * 台账当场写；``IdentityRoleProfile.stake_amount`` 当场下调 —— 低于平台下限就是
+      「押金走则岗停」：``governance_stake.assert_governor_active`` 下一次复核立刻 403；
+    * 出账同样停在 ``pending``，直到链上金库 / 治理账户把交易落定 —— 没有 tx 就没有
+      ``settled``（``services/bond_slash.py`` 的硬规矩）；
+    * **不做**结算回滚：已结算的钱要退回，是另一条独立路径（需要买/卖双方与托管状态机
+      配合）。这里如实返回 ``settlement_reversal = "not_performed"``，不假装已经退了。
+    """
+    case_row = await db.get(ArbitrationCaseModel, case_id)
+    if not case_row:
+        raise HTTPException(404, f"arbitration case {case_id} not found")
+    if case_row.status != ArbitrationCaseStatus.EXECUTED.value:
+        raise HTTPException(
+            409,
+            f"only an executed case can be overturned, got {case_row.status}",
+        )
+
+    try:
+        multiple = max(0.0, float(settings.arbitration_slash_multiple or 0.0))
+    except (TypeError, ValueError):
+        multiple = 0.0
+
+    contract = await db.get(TaskContractModel, case_row.task_id)
+    case_value = float(getattr(contract, "escrow_amount", 0.0) or 0.0)
+    fee = float(economy_policy.case_fee(case_value))
+    per_arbitrator = round(fee * multiple, 8)
+
+    assignments = (
+        await db.execute(
+            select(ArbitrationAssignmentModel).where(
+                ArbitrationAssignmentModel.case_id == case_id
+            )
+        )
+    ).scalars().all()
+
+    slashed_ids: list[str] = []
+    slashed_arbitrators = 0
+    skipped_unstaked = 0
+    victim_wallet = (body.victim_wallet_address or "").strip() or None
+    victim_identity = (body.victim_identity_id or "").strip() or None
+
+    for assignment in assignments:
+        subject_id = (assignment.arbitrator_identity_id or "").strip()
+        if not subject_id:
+            continue
+        profile = await governance_stake.governance_profile_of(
+            db, identity_id=subject_id, class_="arbitrator"
+        )
+        committed = float(getattr(profile, "stake_amount", 0.0) or 0.0) if profile else 0.0
+        if profile is None or committed <= 0:
+            # 白名单 / 运维直接建档的岗：跟名单不跟押金，没有可罚的押金 —— 记一笔跳过，
+            # 不去扣一个本来就不存在的担保（否则就是凭空造债）。
+            skipped_unstaked += 1
+            continue
+
+        wanted = float(body.slash_amount) if body.slash_amount is not None else per_arbitrator
+        amount = min(max(0.0, wanted), committed)
+        if amount <= 0:
+            skipped_unstaked += 1
+            continue
+
+        row, created = await bond_slash.record_slash(
+            db,
+            subject_kind=bond_slash.SUBJECT_ARBITRATOR_ROLE,
+            subject_id=subject_id,
+            wallet_address=None,
+            victim_wallet_address=victim_wallet,
+            victim_identity_id=victim_identity,
+            source_kind=bond_slash.SOURCE_ARBITRATION_OVERTURN,
+            source_id=case_id,
+            amount=amount,
+            reason=body.reason,
+        )
+        slashed_ids.append(row.id)
+        slashed_arbitrators += 1
+        if not created or profile is None:
+            continue
+
+        # 「押金走则岗停」：承诺额当场下调，低于下限的岗下次复核立刻 403。
+        profile.stake_amount = round(max(0.0, committed - amount), 8)
+        profile.updated_at = datetime.utcnow()
+
+    await _append_case_event(
+        db=db,
+        case_id=case_id,
+        event_type=ArbitrationEventType.CASE_OVERTURNED,
+        detail="arbitration decision overturned; bench slashed",
+        metadata={
+            "actor": actor,
+            "reason": body.reason,
+            "arbitration_slash_multiple": multiple,
+            "case_fee_usdc": fee,
+            "per_arbitrator_usdc": per_arbitrator,
+            "slashed_arbitrators": slashed_arbitrators,
+            "skipped_unstaked": skipped_unstaked,
+            "bond_slashes": slashed_ids,
+            "settlement_reversal": "not_performed",
+        },
+    )
+    case_row.updated_at = datetime.utcnow()
+    await db.commit()
+
+    logger.info(
+        "arbitration_case_overturned",
+        case_id=case_id,
+        actor=actor,
+        slashed=slashed_arbitrators,
+        skipped_unstaked=skipped_unstaked,
+    )
+    return OverturnArbitrationCaseResponse(
+        case_id=case_id,
+        status=case_row.status,
+        arbitration_slash_multiple=multiple,
+        case_fee_usdc=fee,
+        per_arbitrator_usdc=per_arbitrator,
+        bond_slashes=slashed_ids,
+        slashed_arbitrators=slashed_arbitrators,
+        skipped_unstaked=skipped_unstaked,
+        settlement_reversal="not_performed",
+    )
 
 
 @router.post("/cases/{case_id}/execute", response_model=SettlementState)

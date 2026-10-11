@@ -54,3 +54,35 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def client_sec(db_session: AsyncSession, monkeypatch) -> AsyncGenerator[AsyncClient, None]:
+    """带运维 key 的客户端：裁决挑战现在是仲裁员 / 管理员白名单动作。
+
+    与根 conftest 的 ``client_sec`` 同一套路 —— 把 ``sec-route-default`` 同时写进
+    管理员与仲裁员白名单，否则收紧后的 ``/resolve`` 会按设计 403（那是产品行为，
+    不是测试环境该有的样子）。
+    """
+    from api.app import app
+    from config.settings import settings
+    from db.session import get_db
+
+    monkeypatch.setattr(
+        settings, "auth_api_keys", "sec-route-default:sec-route-default-secret-abcdef12"
+    )
+    monkeypatch.setattr(settings, "admin_actor_ids", "sec-route-default")
+    monkeypatch.setattr(settings, "arbitrator_actor_ids", "sec-route-default")
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides = {}
+    app.dependency_overrides[get_db] = override_get_db
+
+    headers = {"X-Karma-Api-Key": "karma_sec-route-default_sec-route-default-secret-abcdef12"}
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as ac:
+        yield ac
+
+    app.dependency_overrides.clear()

@@ -96,6 +96,32 @@ class Settings(BaseSettings):
     # 光有一个登录会话不够（见 services/verifier_wallet.py）。
     # 默认关（测试网先跑通），生产强制打开。
     verifier_require_node_signature: bool = False
+
+    # ---- 验证者质押金库（G12）：质押从「入场券」升级成真担保 --------------------
+    # 背景：此前 ``verifier_nodes.stake_amount`` 只是一个记数 —— 没有锁仓背书、没有
+    # 下限，也没有罚没 / 退出闭环，所以「质押即准入」不是担保。现在把节点也做成
+    # 「跟押金走」的一档（与 services/governance_stake.py 同一套判法）：
+    #
+    #   * ``VERIFIER_MIN_BOND_USDC``：有效节点必须押够这个数（0 = 不设下限）。下限是**部署
+    #     参数**，不在启动时强制非零 —— 真正的闸门在 ``services/verifier_bond.py``：
+    #     质押必须 > 0 且由已锁仓 USDC 背书，否则 422/403；
+    #   * ``VERIFIER_REQUIRE_BACKED_BOND``：押金必须由**已锁仓 USDC** 背书
+    #     （``capacity.total_locked_usdc``）—— 与仲裁 / 治理岗看的是同一本账；
+    #   * ``VERIFIER_REQUIRE_OWNER_IDENTITY``：登记节点必须声明主人身份
+    #     （生产强制打开），否则谁都能量产匿名节点；
+    #   * ``VERIFIER_UNBOND_COOLDOWN_HOURS``：退出冷却期，冷却期内仍可被罚没；
+    #   * ``VERIFIER_BOND_VAULT_ADDRESS``：链上 ``KarmaVerifierBond`` 地址。
+    #     空 = 金库还没部署：账照记、状态照改，但罚没出账一律停在 ``pending``，
+    #     不许伪造成 ``settled``（见 services/bond_slash.py）。
+    #
+    # 罚没分账 80/20：80% 给受害方，20% 进罚没池；两个数必须相加 = 10000。
+    verifier_min_bond_usdc: float = 0.0
+    verifier_require_backed_bond: bool = True
+    verifier_require_owner_identity: bool = False
+    verifier_unbond_cooldown_hours: int = 72
+    verifier_bond_vault_address: str = ""
+    verifier_slash_victim_share_bps: int = 8000
+    verifier_slash_pool_share_bps: int = 2000
     # 仲裁：立案费 = 案值 × bps，夹在 [min, max] 之间，由**败诉方**承担。
     arbitration_fee_bps: float = 150.0
     arbitration_fee_min_usdc: float = 0.5
@@ -573,6 +599,25 @@ class Settings(BaseSettings):
                     "VERIFIER_REQUIRE_NODE_SIGNATURE must be true when APP_ENV is production "
                     "(otherwise any logged-in account can register a node, change its stake or "
                     "attest on its behalf)",
+                )
+            if not self.verifier_require_owner_identity:
+                raise ValueError(
+                    "VERIFIER_REQUIRE_OWNER_IDENTITY must be true when APP_ENV is production "
+                    "(otherwise anyone can mint anonymous nodes whose bond is tied to nobody)",
+                )
+            if not self.verifier_require_backed_bond:
+                raise ValueError(
+                    "VERIFIER_REQUIRE_BACKED_BOND must be true when APP_ENV is production "
+                    "(a stake that is not backed by locked USDC is not a collateral)",
+                )
+            try:
+                _split = int(self.verifier_slash_victim_share_bps) + int(self.verifier_slash_pool_share_bps)
+            except (TypeError, ValueError):
+                _split = -1
+            if _split != 10_000:
+                raise ValueError(
+                    "VERIFIER_SLASH_VICTIM_SHARE_BPS + VERIFIER_SLASH_POOL_SHARE_BPS must equal 10000 "
+                    "(the slash split must add up to exactly 100%)",
                 )
             if not (self.arbitrator_actor_ids or "").strip():
                 raise ValueError(

@@ -54,6 +54,7 @@ PRODUCTION_GATE_FLAGS: dict[str, str] = {
     "CHAIN_ALLOW_HOT_WALLET_PAYER": "false",
     # --- 去中心化验证者网络：节点写接口必须自带节点钱包签名 -------------------
     "VERIFIER_REQUIRE_NODE_SIGNATURE": "true",
+    "VERIFIER_REQUIRE_OWNER_IDENTITY": "true",
 }
 
 # 枚举型开关：模板里出现的取值必须落在这些值里（写错 = 生产起不来）。
