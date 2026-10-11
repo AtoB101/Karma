@@ -74,7 +74,7 @@ L3 的关键约定（`services/agent_pairing.py`、`api/routes/agent_pairing.py`
 - `match_code` 故意要显示在 **agent 聊天窗口**：配对码泄漏者读得到它，但读不到主人邮箱，因此换不到任何东西（`test_email_confirm_is_a_real_third_lock` 里「拿 match_code 当 token」必须 409）。
 - **点错有代价**：点错/猜错都记一次失败，连错 `EMAIL_CONFIRM_MAX_ATTEMPTS=6` 次就把这次配对就地作废（`row.status=expired`），与交接码同一口径。
 - **状态对齐**：配对作废后 `email_confirm.state` 也必须是 `expired`，不能让操作台显示「还在等你点码」。
-- **出口没配就是没配**：`KARMA_MAIL_HOST`/`KARMA_MAIL_FROM`/`KARMA_MAIL_PORT` 任一为空时 `mailer.configured()==False`（`services/mailer.py`），带 `notify_email` 的批准**在创建 agent 之前**就 503，绝不静默降级成「已加锁」；发送中途失败则 502，且此时 claim 仍被闸门挡住（fail-closed）。
+- **出口没配就是没配**：两条出口都没配时（`KARMA_MAIL_HOST`/`KARMA_MAIL_FROM`/`KARMA_MAIL_PORT` 任一为空，且没配齐 `KARMA_MAIL_RELAY_URL`/`KARMA_MAIL_RELAY_TOKEN`） `mailer.configured()==False`（`services/mailer.py`），带 `notify_email` 的批准**在创建 agent 之前**就 503，绝不静默降级成「已加锁」；发送中途失败则 502，且此时 claim 仍被闸门挡住（fail-closed）。
 - 有效期 `EMAIL_CONFIRM_TTL_SECONDS=600`；重发 = 重出码，旧 token 当场作废。
 - 不填 `notify_email` 时这一版行为与从前**完全一致**（默认不开这道锁）。
 
@@ -139,6 +139,8 @@ L3 的关键约定（`services/agent_pairing.py`、`api/routes/agent_pairing.py`
    Tier 白名单 fail-closed、MCP 无签发权限（授权必须主人钱包签名）、所有写操作经后端复核。
 4. 聊天平台适配器的凭证模型（不存私钥、不把聊天账号当资金凭证）待 S6 落地。
 5. Tier-2/3 动钱工具的**真实资金端到端验收**尚未在测试环境跑通（工具注册与转发已测）。
-6. **邮箱回执的真实外部投递尚未验证**：部署环境 `KARMA_MAIL_*` 未配置，目前真机只覆盖
-   「未配 → 503」的 fail-closed 与「受控本地 SMTP 出口下的端到端链路」；真实收件箱
-   （QQ / Gmail 等）投递待 SMTP 凭据到位后补测。
+6. **邮箱回执的真实外部投递尚未验证**：部署环境 `KARMA_MAIL_*` / `KARMA_MAIL_RELAY_*`
+   均未配置，目前真机只覆盖「未配 → 503」的 fail-closed 与「受控本地 SMTP 出口下的
+   端到端链路」。出境中继（方案 B，`scripts/ops/mail_gateway.py`）已在**本机**
+   跑通鉴权/校验/真实 SMTP 投递/fail-closed 与「后端 `mailer` ↔ 网关」两半对接
+   （见 `karma-mcp-live-verification.md` §9），但**境外真机与真实收件箱尚未落地**。

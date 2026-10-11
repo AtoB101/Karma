@@ -774,6 +774,16 @@ class Settings(BaseSettings):
     # 配对确认链接里用的对外地址；留空回落 PUBLIC_BASE_URL / 默认域名。
     karma_mail_confirm_base_url: str = ""
 
+    # ---- 出境邮件中继（可选）-----------------------------------------------
+    # 大陆机器到 Gmail 这类出境 SMTP 时通时断，而这里是 fail-closed 的：连不上就
+    # 503，主人反而开不了「邮箱回执」这把锁。设了 relay_url + relay_token 就把
+    # 「必须连外网 SMTP」这件事交给一台境外小服务（scripts/ops/mail_gateway.py），
+    # 本服务只用 HTTPS(443) 把邮件投过去 —— 443 对大陆机器永远通。
+    # 两个都配齐才算开了中继；只配一个一律按「没配」处理，回落直连 SMTP。
+    # token 是这条链的唯一钥匙：中继端 KARMA_GATEWAY_TOKEN 必须与它逐字节相同。
+    karma_mail_relay_url: str = ""
+    karma_mail_relay_token: str = ""
+
     def bootstrap_approve_identity_id_set(self) -> set[str]:
         """自举审批只对哪些身份开放（平台自有的那一个）：默认**谁都不给**。
 

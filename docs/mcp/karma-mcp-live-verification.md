@@ -214,3 +214,62 @@ SUMMARY|total=22 fail=0
   （仓库 secrets 只有 `VPS_SSH_KEY`；`/opt/karma/.env.ops` 的 `KARMA_ALERT_SMTP_*` 是注释掉的）。
   凭据一旦给到，把 `KARMA_MAIL_HOST/PORT/USER/PASSWORD/SSL` 换上去即可，链路本身已经验通。
 - 未在主网做任何操作。
+
+## 9. 出境邮件中继（方案 B）—— 本机全绿，境外真机待落地
+
+### 9.1 为什么要它
+
+大陆机器到出境 SMTP 的实测结论（见 §8.4）：出站 **25 端口被封**；587/465 对
+`smtp.gmail.com` **时通时断**（同机同端口，一次 4 组全断、另一次 5/5 通）—— GFW 抖动。
+而「邮箱回执」这条链是 fail-closed 的：连不上出境 SMTP 就 503，主人反而开不了这把锁。
+
+方案 B 把「必须连外网 SMTP」从大陆机器上摘出去：
+
+    mainland app  --HTTPS(443, Bearer)-->  mail_gateway.py (offshore, Caddy on 443)  --SMTP-->  inbox
+
+大陆侧只用 443 —— 443 对大陆机器永远通。
+
+> 用户已明确：**不要挂在大陆机器上**。这台中继必须落在境外。
+
+### 9.2 代码落点（都在这个仓库里）
+
+| 文件 | 作用 |
+| --- | --- |
+| `services/mailer.py` | 两条出口：`_send_via_relay`（HTTPS）/ `_send_via_smtp`（原样保留）；中继优先；url/token 缺一不可 |
+| `config/settings.py` | `karma_mail_relay_url` / `karma_mail_relay_token` |
+| `scripts/ops/mail_gateway.py` | 境外网关：纯标准库、常数时间比对 Bearer、拒转含 `karma_` 的正文、同步投递、失败 502、不落盘 |
+| `scripts/ops/deploy_mail_gateway.sh` | 推 443-only 的 Caddy + systemd 单元；缺 `GATEWAY_HOST`/`GATEWAY_SSH_KEY`/`GATEWAY_DOMAIN` 直接退出码 2 |
+| `tests/unit/test_mailer_relay.py` | 出口选择与 fail-closed 的 6 条用例 |
+
+### 9.3 本机实测（已跑，可复现）
+
+网关自身冒烟（真实 SMTP sink 真收信），**10/10 绿**：
+
+    PASS check-good-env / check-never-prints-token / check-bad-env
+    PASS healthz-200 / no-token-404 / wrong-token-404
+    PASS credential-shaped-400 / valid-send-200 / deliver-reached-sink / smtp-down-502
+
+「后端 `services.mailer` ↔ 网关」两半对接，**8/8 绿**：
+
+    PASS relay_configured / configured_with_relay_only
+    PASS backend-to-gateway-delivered / body-intact
+    PASS wrong-token-fail-closed / unreachable-relay-fail-closed
+    PASS nothing-configured / nothing-configured-fail-closed
+
+部署脚本 fail-closed 四条路径：无 env → **2**；只给 HOST → **2**；key 不是文件 → **2**；
+全给齐但主机不可达 → **3**（`ssh: connect to host 127.0.0.1 port 22: Connection refused`）。
+
+单元测试：`tests/unit/test_mailer_relay.py` **6 passed**。
+
+### 9.4 本节**还没有**验证的（如实记）
+
+- **境外真机未落地**：本轮没有任何现成境外落点（GitHub Environment `production-fly`
+  secrets 为空；`fly.toml` / `railway.toml` 都是未部署的占位）。
+  `karma-network.ai` / `api.karma-network.ai` / `www` 都解析到大陆那台 VPS。
+  所以 `deploy_mail_gateway.sh` 的**远程路径**没有真机跑过，只在本机验了它的
+  fail-closed 分支与 `bash -n` 语法。
+- **真实收件箱投递未见**：需要一台境外机器 + `GATEWAY_HOST` / `GATEWAY_SSH_KEY` /
+  `GATEWAY_DOMAIN`；跑完部署脚本后，在大陆 `/opt/karma/.env` 配
+  `KARMA_MAIL_RELAY_URL` / `KARMA_MAIL_RELAY_TOKEN` 并 recreate app，再按 §8 流程
+  重跑一遍，才能确认「信真的落到用户收件箱」。
+- 未在主网做任何操作。

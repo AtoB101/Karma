@@ -237,7 +237,7 @@ async def approve_pairing(
             raise HTTPException(
                 503,
                 "email confirmation was requested but outbound mail is not configured "
-                "(KARMA_MAIL_HOST / KARMA_MAIL_FROM)",
+                "(KARMA_MAIL_HOST / KARMA_MAIL_FROM / KARMA_MAIL_RELAY_URL)",
             )
         if "@" not in notify_email or len(notify_email) > 254:
             raise HTTPException(400, "notify_email is not a usable address")
