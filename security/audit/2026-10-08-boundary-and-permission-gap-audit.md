@@ -23,7 +23,7 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
 | G9 | `face-consistency` 直接把档案置 `verified`（审计 O1 的「操作台文案区分」未做） | 低 | **已落地（本轮）** |
 | G10 | 发布门槛 10 项 `[人工]` 未签（A4d/E4b/E6b/F6/H2/H3/H9/H10/H11/H12） | 人工 | 未签 |
 | G11 | KYC 侧对外公开留痕接口 | 待产品 | **已落地（本轮）** |
-| G12 | 节点质押只是「入场券」：`verifier_nodes.stake_amount` 未绑链上锁仓、无罚没 / 退出闭环 | 中 | **待办（本轮记账，未改代码）** |
+| G12 | 节点质押只是「入场券」：`verifier_nodes.stake_amount` 未绑链上锁仓、无罚没 / 退出闭环 | 中 | **已落地（本轮）** |
 
 ## 1. 方法与证据
 
@@ -282,7 +282,7 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
   （空历史 → 撤销一次有痕 → 本人重交后载荷留痕消失但公开历史仍在 → 再撤销累计 2 条、新的在前、
   不带 operator / verifier 身份、不带载荷字段）；该文件 **18 passed**。
 
-### G12（中）节点质押目前只是「入场券」，还不构成担保（本轮记账）
+### G12（中）节点质押从「入场券」升级为真担保（本轮已落地，测试网）
 
 节点登记（`api/routes/verifier_network.py:86`）**本来就没有人工审核环节**：门槛只有三道 ——
 节点自有 key 签名（`_enforce_node_signature:46`，生产 `VERIFIER_REQUIRE_NODE_SIGNATURE=true`）、
@@ -301,13 +301,32 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 **结论 / 口径**：要去中心化、走「纯质押准入 + 免人工」，**前提是节点侧也把出口做成自动的**
 （误判罚没 → 划走质押 + 停用；退出即失效），否则等于「审核去掉 + 担保也没上」，风险高于现状。
 
-**待办（本轮只记账，未改代码）**，等测试网跑稳再按序落地：
+**本轮已落地**（测试网先跑，主网未动）：
 
-- **A**：节点入场接锁仓质押（对齐 `governance_stake` 的 `locked_capacity_of` / `stake_state`），
-  并保持 `VERIFIER_REQUIRE_NODE_SIGNATURE=true`。
-- **B**：补节点罚没 / 退出闭环（被挑战判负 → 划走质押 + `is_active=False`），把「质押即准入」闭合。
+- **A 入场接锁仓 + 主人身份**：`VerifierRegisterRequest.owner_identity_id`；生产
+  `VERIFIER_REQUIRE_OWNER_IDENTITY=true` 时必填，且节点钱包必须等于该身份在 Console 绑定的钱包
+  （`services/verifier_bond.assert_owner_wallet_matches`）；押金必须 > 0 且由**已锁仓 USDC** 背书
+  （`assert_bond_acceptable`，与 `services/governance_stake.py` 同一本锁仓账）。判定**不缓存** ——
+  缓存出来的「在任」等于一张可以过期的通行证。并保持 `VERIFIER_REQUIRE_NODE_SIGNATURE=true`。
+- **B 罚没 / 退出闭环**：链上 `karma-core/contracts/core/KarmaVerifierBond.sol`
+  （`transferFrom` 真托管 + 80/20 分账 + 低于 `minBond` 当场停用 + 冷却退出）；
+  链下 `services/bond_slash.py` 台账**先落账、后出账**（`pending → submitted → settled | failed`，
+  **没有链上 tx 不许写 settled**；`VERIFIER_BOND_VAULT_ADDRESS` 未配就停在 `pending`）。
+  挑战判负 → `_apply_upheld_slash` 当场停用 + 记台账 + 扣声誉（按「主体 + 来源」幂等）；
+  出证 / 派活前 `assert_node_bond_ok` 现算押金；新增 `POST /{id}/unstake` 与 `/unstake/finalize`
+  （冷却期内**仍可被罚没**）；`GET /slashes` 台账。`resolve` 同步收口到
+  `require_arbitration_operator`（此前普通会话即可裁决）。
+- **仲裁员「被推翻」同期补上**：`POST /v1/arbitration/cases/{id}/overturn` —— 在庭且有质押承诺的
+  仲裁员按 `立案费 × ARBITRATION_SLASH_MULTIPLE` 罚没（上限 = 质押承诺额），复用同一套台账；
+  `identity_role_profiles.stake_amount` 当场下调 → `governance_stake.assert_governor_active`
+  下次复核即 403（押金走则岗停）。结算回滚**未做**，接口如实返回
+  `settlement_reversal="not_performed"` —— 不假装已经退了。
+- **罚没去向（口径）**：80% 给受害者、20% 进罚没池；池子累积到 `minPoolPayout` 后由治理调
+  `KarmaVerifierBond.distributePool()` 平分给优秀节点。没有可指认的受害方时 80% 也进池
+  （不做无根据指认）。
 
-—— 属资金安全核心路径（直接动钱与节点存活），故本轮不动代码。
+—— 仍属资金安全核心路径：主网未动。链上金库与 `VERIFIER_BOND_VAULT_ADDRESS` 是**主网硬前置**，
+没配好之前罚没只落到台账、钱不动。
 
 ## 4. 生产实测快照（测试网，只读）
 
@@ -337,7 +356,7 @@ H9（Karma2 版本锁）、H10（OpenClaw MCP A/B）、H11（OpenManus 冒烟）
 3. **G5**：已落地（本轮）—— 治理发放方（白名单 ∪ 管理员）可替他人开 / 收回 verifier·arbitrator 岗。
 4. **G7 / G8 / G9**：已落地（本轮）。
 5. **G10**：人工签核；**G11**：产品拍板。
-6. **G12**：本轮只记账（见 §3）—— 「免人工审核」已成立；「纯质押准入」尚需 A（入场接锁仓）+ B（罚没 / 退出）再开。
+6. **G12**：已落地（本轮，测试网）—— 见 §3 G12。
 
 —— 主网未动；本轮所有改动都在测试网侧代码 + 回归测试。
 
@@ -355,15 +374,23 @@ G1–G9 全部落地并推送，CI 6/6 绿（`main`）：
 | `97e7e99` | G5 | 治理岗发放 / 收回 API + 操作台回执 |
 | `1434a4a` | G11 | KYC 合规撤销对外公开留痕接口 |
 
+**G12（本轮，测试网）**：节点质押从「入场券」升级为真担保 —— 详见 §3 G12。
+
+| 提交 | 覆盖 | 内容 |
+|---|---|---|
+| `498e37a` | G12-B | `KarmaVerifierBond` 质押金库合约 + 部署脚本 + 34 条合约测试 + 资金函数登记 |
+| `16e709b` | G12-A/B | 罚没台账 + 入场闸门 + 退出冷却 + 挑战判负罚没 + 仲裁员被推翻罚没 |
+| `—` | G12 | 本审计文档同步（紧随上述两次提交） |
+
 **剩余（非代码）**：
 
 - **G10（人工）**：`docs/SECURITY_RELEASE_GATES.md` 的 10 项 `[人工]` 签核（A4d/E4b/E6b/F6/
   H2/H3/H9/H10/H11/H12），`--strict` 下算失败 —— 需发布负责人逐项签字。已备好逐项签核清单
   （该文档「逐项 `[人工]` 签核清单（G10）」一节，含判据 / 证据位 / 签字 / 日期列）。
 
-- **G12（待办）**：节点质押只是入场券 —— `verifier_nodes.stake_amount` 未绑链上锁仓、无罚没 /
-  退出闭环；「免人工审核」当前已成立，但「纯质押准入」需先补 A（入场接锁仓）+ B（罚没 / 退出）
-  再开。见 §3 G12。
+- **G12 的主网前置（未做）**：链上 `KarmaVerifierBond` 尚未部署、`VERIFIER_BOND_VAULT_ADDRESS`
+  未配 —— 罚没只停在台账 `pending`（如实呈现，不谎报 settled）。主网前必须部署金库并接治理多签；
+  罚没池「谁算优秀节点、什么时机分配」的链下策略也留到测试网跑稳后再定。见 §3 G12。
 
 **未覆盖 / 有意保留**：
 
