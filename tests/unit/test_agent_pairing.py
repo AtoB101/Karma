@@ -714,6 +714,8 @@ def test_the_pairing_card_puts_the_fingerprint_up_front_to_be_checked():
     assert "把这一串和你的 agent 报给你的那一串逐字核对" in js, "要教主人怎么核对"
     assert "不一致就点「拒绝」" in js, "不一致的处置必须写清楚"
     assert "这次申请没有带公钥签名" in js, "没验过签的申请要当场标出来"
+    # 没带签名 = 主人一定会多走一步（关键：别让他以为「批准完就能花」）：得用 warn 样式，不能混在普通提示里。
+    assert 'class="pair-hint err"' in js, "没带公钥签名的申请要用警示样式标出来"
     # 批准之后不能再宣称「你已经核对过」——那是我们没法验证的话。
     assert "你已经核对过" not in js
     assert "agent 交的公钥指纹你在批准那一步核对过" in js

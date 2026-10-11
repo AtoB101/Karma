@@ -58,7 +58,9 @@
 - **前置**：无（未配对时唯一可调工具）。
 - **入参**：`agent_name: str`（必填）、`identity_hint: str | None`。
 - **流程**：返回 `user_code` + `verification_uri`（主人在 Console 输码/扫码批准）。
-- **返回**：`{status, user_code, verification_uri, expires_at, public_key_attached, agent_fingerprint, next_step}`。`agent_fingerprint` = agent 公钥的 sha256 前 16 位，与操作台待批准卡片上显示的那串同构（`services/runtime_key_service.agent_binding_fingerprint`，全系统唯一口径），供主人核对「操作台这条申请就是聊天里这个 agent」。
+- **返回**：`{status, user_code, verification_uri, expires_at, public_key_attached, agent_fingerprint, next_step, activation_hint}`。`agent_fingerprint` = agent 公钥的 sha256 前 16 位，与操作台待批准卡片上显示的那串同构（`services/runtime_key_service.agent_binding_fingerprint`，全系统唯一口径），供主人核对「操作台这条申请就是聊天里这个 agent」。
+  默认路径就是**配对即激活**：MCP 会在申请里带上本机 agent 公钥 + 持有证明（签名），主人核对指纹并划额度那一下，Runtime Key 就被钉在这把公钥上，领到凭据直接能用，**不会再有 8 位匹配码**。
+  `activation_hint` 会把这一点说明；只有本机生不出 agent 私钥、申请没带公钥时，它才如实告诉 agent：主人批准后还得 `POST /runtime/bind-key` 拿 8 位匹配码、在操作台输码 + 钱包签名后才算激活。
 - **失败语义**：错误一律不改状态；`user_code` 过期需重新发起。
 - **安全**：不得仅凭聊天平台用户名认定身份（架构 §6）。
 

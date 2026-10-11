@@ -149,6 +149,7 @@ def build_server(
             path = save_pairing(payload)
             user_code = str(payload.get("user_code") or "")
             public_key = str(payload.get("public_key") or "")
+            attached = key is not None
             return ok(
                 {
                     "status": "pending_owner",
@@ -157,7 +158,7 @@ def build_server(
                     "expires_at": payload.get("expires_at"),
                     "poll_interval_seconds": payload.get("poll_interval_seconds"),
                     "state_file": str(path),
-                    "public_key_attached": key is not None,
+                    "public_key_attached": attached,
                     # 操作台待批准卡片上会显示同一串；agent 把这一串报给主人核对。
                     "agent_fingerprint": agent_public_key_fingerprint(public_key),
                     "next_step": (
@@ -166,7 +167,20 @@ def build_server(
                         + " 批准这次接入（配对码 "
                         + user_code
                         + " 只是用来对号，不必手输）；"
-                        "把上面的 agent_fingerprint 一起报给主人，让他和操作台上显示的那串核对"
+                        + (
+                            "把上面的 agent_fingerprint 一起报给主人，让他和操作台上显示的那串核对"
+                            if attached
+                            else "但这次没带公钥：批准后还要 POST /runtime/bind-key，"
+                            "把拿到的 8 位匹配码交给主人，他在操作台"
+                            "「设置 → 接入确认」输码 + 钱包签名后钥匙才算激活"
+                        )
+                    ),
+                    "activation_hint": (
+                        "批准即激活：申请里已带本机公钥的持有证明，主人核对指纹并划额度那一下，"
+                        "Runtime Key 就被钉在这把公钥上，凭据领到就能花 —— 不会再有 8 位匹配码。"
+                        if attached
+                        else "这台机器上没能生成 agent 私钥，所以这次申请没带公钥：主人批准后 Runtime Key 仍是"
+                        "未激活，你得 POST /runtime/bind-key 把返回的 8 位匹配码交给主人，他在操作台输码 + 钱包签名之后才生效。"
                     ),
                     "note": (
                         "pairing_code 只写在本机，聊天里不出现。指纹只能证明"
@@ -202,7 +216,17 @@ def build_server(
                     "agent_fingerprint": agent_public_key_fingerprint(
                         str(record.get("public_key") or "")
                     ),
-                    "next_step": "主人批准后调用 karma_connect_claim 领取凭据",
+                    "next_step": (
+                        "主人批准后调用 karma_connect_claim 领取凭据"
+                        if record.get("public_key")
+                        else "主人批准后还得 POST /runtime/bind-key 拿 8 位匹配码交给主人"
+                        "在操作台激活（这次申请没带公钥），激活后才花得出去"
+                    ),
+                    "activation_hint": (
+                        "批准即激活：申请里带了本机公钥，不会有 8 位匹配码。"
+                        if record.get("public_key")
+                        else "这次申请没带公钥：批准只交付钥匙，真正激活还要主人输 8 位匹配码 + 钱包签名。"
+                    ),
                 }
             )
 

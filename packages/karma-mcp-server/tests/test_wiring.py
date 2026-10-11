@@ -534,3 +534,49 @@ async def test_the_email_confirm_gate_is_relayed_to_the_owner(tmp_path, monkeypa
     assert gate["show_owner"] == "500099"  # 这串是要显示在聊天窗口里的
     assert "credentials" not in gate
     assert PAIRING_CODE not in json.dumps(gate, ensure_ascii=False)
+
+
+async def test_connect_tells_whether_the_key_travels_with_a_public_key(tmp_path, monkeypatch):
+    """默认就该带公钥（配对即激活）；真带不上时必须当场说清「还要 8 位匹配码」。
+
+    为什么钉这个：不带公钥的申请，主人在操作台批准后钥匙仍是未激活，还得再走一轮
+    「bind-key -> 8 位码 -> 操作台输码 + 钱包签名」。agent 若把这一步瞒着，主人会
+    以为「批准完就能花」，第一次花钱才发现被拒。所以两条分支的文案各自钉死。
+    """
+    _isolate(tmp_path, monkeypatch)
+    calls: list[dict] = []
+
+    def handler(request):
+        body = json.loads(request.content) if request.content else {}
+        calls.append({"path": request.url.path, "body": body})
+        if request.url.path == "/v1/agent-pairing/request":
+            return httpx.Response(
+                200,
+                json={
+                    "pairing_code": PAIRING_CODE,
+                    "user_code": "K4QP-3M2X",
+                    "verification_uri": "https://console.karma.test/pair",
+                },
+            )
+        raise AssertionError("unexpected path " + request.url.path)
+
+    # (1) 常态：本机会生成 agent 私钥 -> 申请带公钥 + 持有证明 -> 明说「批准即激活」
+    attached = await _tool(_make(handler), "karma_connect")(agent_name="小爱")
+    assert attached["public_key_attached"] is True
+    assert calls[-1]["body"].get("public_key") and calls[-1]["body"].get("signature")
+    assert "8 位匹配码" in attached["activation_hint"]
+    assert "不会再有 8 位匹配码" in attached["activation_hint"]
+    assert "配对码" in attached["next_step"]
+
+    # (2) 退化：拿不到本机私钥 -> 申请里没有公钥 -> 必须当场说清还要多走一步
+    monkeypatch.setattr(
+        "karma_mcp_server.agent_signing.ensure_local_agent_key", lambda: None
+    )
+    unattached = await _tool(_make(handler), "karma_connect")(agent_name="小爱")
+    assert unattached["public_key_attached"] is False
+    assert unattached["agent_fingerprint"] == ""
+    assert "public_key" not in calls[-1]["body"]
+    assert "signature" not in calls[-1]["body"]
+    assert "8 位匹配码" in unattached["activation_hint"]
+    assert "bind-key" in unattached["next_step"]
+    assert "配对码" in unattached["next_step"]
