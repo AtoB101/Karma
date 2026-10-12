@@ -3045,3 +3045,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
 "行业跟着资质走：个体助理取营业执照上的经营范围、企业助理取主体认证里的服务类别，这里不用再选一次。": "La industria sigue a sus credenciales: los asistentes de persona física toman el objeto social de la licencia y los de empresa la categoría de servicio de la verificación; no hace falta volver a elegirla aquí.",
 "子身份在「身份 · 认证」里建：类型 / 名字 / 联系方式 / 授权额度 / 单笔 / 日限 / 权限 / 行业资质，刷脸开通时就定好了。这里不重填，只做两件事：① 选一个已经建好的子身份；② 给这台 agent 起名字。点最下面那颗按钮生成接入包，写进 agent 的环境变量就行。": "Las sub-identidades se crean en “Identity · Verification”: tipo / nombre / contacto / límite concedido / tope por operación / tope diario / permisos / credenciales de industria quedan fijados cuando la verificación facial abre la tarjeta. Aquí no se vuelve a introducir nada: solo dos cosas: ① elegir una sub-identidad ya creada; ② ponerle nombre a este agent. Pulse el botón de abajo para generar el paquete de conexión y póngalo en las variables de entorno del agent.",
 });
+
+/* --- dynamic-append-33: 会话过期的 401 → 人话（karma-public-api.js 的 GATE_HINTS）--- */
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
+  "会话已过期：点页面上的「连接钱包」重新签名一次，再重试这一步。": "La sesión expiró: pulse “Connect wallet” en la página para firmar de nuevo y reintente este paso.",
+});

@@ -115,6 +115,10 @@
       match: "automation policy not saved",
       hint: "权限与边界还没保存：把第 4 步填完，再点生成。",
     },
+    {
+      match: "Authentication required",
+      hint: "会话已过期：点页面上的「连接钱包」重新签名一次，再重试这一步。",
+    },
   ];
 
   /** 命中已知闸门就返回人话；不认识的服务端 detail 原样抛，不假装看得懂。 */
@@ -126,7 +130,16 @@
     return "";
   }
 
-  async function karmaFetch(path, init) {
+  /** 会话没了（不是权限不够）—— 前者能续签，后者不该重试。两种别混。 */
+  function isSessionFailure(status, detail) {
+    if (status === 401) return true;
+    return (
+      status === 403 &&
+      String(detail || "").toLowerCase().indexOf("authentication required") >= 0
+    );
+  }
+
+  async function karmaFetchOnce(path, init) {
     const url = apiBase() + path;
     const opts = Object.assign({}, init || {});
     let timer = null;
@@ -183,6 +196,57 @@
       throw err;
     }
     return body;
+  }
+
+  /**
+   * 会话过期的自愈。
+   *
+   * SIWE 令牌只有 15 分钟，页面开着就会过期（入口门禁只在事件上重算，过期本身不产生
+   * 事件）。在那之前，一次「生成接入包」会走到最后才炸一句英文 HTTP 401，而同一时刻
+   * 「接入确认」那张卡因为同样的 401/403 一直是空的 —— 用户只会看到「匹配码不对」。
+   *
+   * 这里只对**会话类**失败动手：静默重签一次（KarmaWalletAuth.reauth），然后把这次
+   * 请求原样重放一遍；续不上就把门重新关上（karma-session-expired），并照原样抛出去。
+   * 只重放这一次，且只重放会话类失败 —— 别的 4xx/5xx 一次都不重试。
+   */
+  async function karmaFetch(path, init) {
+    try {
+      return await karmaFetchOnce(path, init);
+    } catch (e) {
+      if (!e || !isSessionFailure(e.status, e.detail)) throw e;
+      const auth = global.KarmaWalletAuth;
+      if (!auth || typeof auth.reauth !== "function" || typeof auth.readSession !== "function") throw e;
+      let session = null;
+      try {
+        session = auth.readSession();
+      } catch (_) {
+        session = null;
+      }
+      // 从来没连过钱包的访客：这不是「过期」，别把门关到他脸上（各模块自己会提示去连钱包）。
+      if (!session || !session.accessToken || !session.wallet) throw e;
+      let renewed = false;
+      try {
+        renewed = await auth.reauth();
+      } catch (_) {
+        renewed = false;
+      }
+      if (!renewed) {
+        try {
+          if (typeof auth.markExpired === "function") auth.markExpired();
+        } catch (_) {}
+        throw e;
+      }
+      // 续上了：换上新令牌把这次请求原样重放一遍（只这一次）。
+      const retry = Object.assign({}, init || {});
+      if (init && init.headers) {
+        const h = Object.assign({}, init.headers);
+        const token = String(global.KARMA_ACCESS_TOKEN || "").trim();
+        if (token) h["Authorization"] = "Bearer " + token;
+        else delete h["Authorization"];
+        retry.headers = h;
+      }
+      return await karmaFetchOnce(path, retry);
+    }
   }
 
   /** 主身份是否已激活（= 本人实名认证是否通过）。未激活不能接单、不会被撮合。 */
