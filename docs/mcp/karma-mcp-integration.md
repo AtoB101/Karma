@@ -23,12 +23,18 @@
 
 | 发行版 | 已发布版本 | 装 |
 |---|---|---|
-| `karma-mcp-server` | 0.1.0 | `pip install karma-mcp-server` |
+| `karma-mcp-server` | 0.1.1 | `pip install karma-mcp-server` |
 | `karma-openclaw` | 0.4.0 | `pip install karma-openclaw` |
 | `karma-connect` | 1.0.0 | `pip install karma-connect` |
 
 每个版本两件产物（sdist + wheel）。首次发布 2026-10-12，走的是 §7 那条 tag → workflow
 的路。发布后核对过：PyPI 上的 wheel 与 GitHub Release 上同一文件 sha256 逐字节一致。
+
+`karma-mcp-server` 0.1.1（2026-10-12）：修掉一个签名校验静默失效的 bug —— agent 公钥的
+base64 约 1/2000 会以 `0x`/`0X` 开头（只是 base64 的前两位），旧代码把它当 hex 前缀剥掉，
+公钥归一化失败 → 指纹算成空串，铸 key 时主人钱包签名里那行
+`agent_public_key_fingerprint` 就被省掉（少一道核对）。同一修复也进了服务端
+`services/runtime_key_service.py`。
 
 ### 2.2 已经 clone 了仓库
 
@@ -119,7 +125,7 @@ PY
 期望输出（版本号随包版本走）：
 
 ```text
-serverInfo.name=karma-mcp-server version=0.1.0 dist=0.1.0
+serverInfo.name=karma-mcp-server version=0.1.1 dist=0.1.1
 ```
 
 `karma-openclaw` 同理，把 `karma-mcp-server` 换成 `karma-openclaw-mcp`、`DIST =
@@ -175,12 +181,12 @@ mcp SDK 1.x 的 `FastMCP` 不把版本号转给底层 `MCPServer`，后者回落
 
 | 包 | tag | 版本 |
 |---|---|---|
-| `karma-mcp-server` | `karma-mcp-server-v0.1.0` | 0.1.0 |
+| `karma-mcp-server` | `karma-mcp-server-v0.1.1` | 0.1.1 |
 | `karma-openclaw` | `karma-openclaw-v0.4.0` | 0.4.0 |
 | `karma-connect` | `karma-connect-v1.0.0` | 1.0.0 |
 
 ```bash
-git tag karma-mcp-server-v0.1.0 && git push origin karma-mcp-server-v0.1.0
+git tag karma-mcp-server-v0.1.1 && git push origin karma-mcp-server-v0.1.1
 git tag karma-openclaw-v0.4.0   && git push origin karma-openclaw-v0.4.0
 git tag karma-connect-v1.0.0    && git push origin karma-connect-v1.0.0
 ```
