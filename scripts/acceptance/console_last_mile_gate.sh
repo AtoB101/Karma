@@ -248,6 +248,9 @@ if command -v node >/dev/null 2>&1; then
   node "$ROOT/tests/js/test_gate_error_hints.cjs"
   # 最近调用面板：切语言重画 + prune 按宿主（都是真机上踩出来的）。
   node "$ROOT/tests/js/test_key_calls_panel.cjs"
+  # 接入确认的两个宿主（一条龙第 ③ 步 + 设置页兜底）：都要画出码框、都能就地输码，
+  # 且点哪张卡片的「确认绑定」就读哪张卡片里的码（用户实测「找不到位置」的复盘）。
+  node "$ROOT/tests/js/test_console_bind_requests_hosts.cjs"
   # 站内提醒：每一份词表都要有那句带变量的整句，切了语言不许再留中文。
   node "$ROOT/tests/js/test_console_notices.cjs"
   # 复核台「可撤销的认证」：切语言不许留中文、理由不写不发请求、发起 / 确认走对接口。
