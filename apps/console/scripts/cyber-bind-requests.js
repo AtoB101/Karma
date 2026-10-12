@@ -235,7 +235,7 @@
     closeModal();
     // 落到一条龙的第 ③ 步（Agent 接入页），不是设置页 —— 主入口在那儿。
     if (global.cyberSwitchPage) {
-      try { global.cyberSwitchPage("agents", "wizard"); } catch (_) {}
+      try { global.cyberSwitchPage("agents", "connect"); } catch (_) {}
     }
     var card = document.getElementById("ag-activate") || document.getElementById("ag-bind-requests");
     if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "center" });

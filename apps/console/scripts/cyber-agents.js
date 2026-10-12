@@ -297,222 +297,75 @@
     if (spec() && CURRENT && host) return spec().collect(host);
     return { spec: {}, problems: ["请先选择行业"] };
   }
-
-
-  async function loadProfilesIntoSelect() {
-    var sel = $("#ag-scope");
-    if (!sel) return;
-    var id = identity();
-    if (!id) {
-      sel.innerHTML = '<option value="">（先连接钱包）</option>';
-      return;
-    }
-    sel.innerHTML = '<option value="">读取档案…</option>';
-    try {
-      var body = await api().listRoleProfiles(id);
-      var profiles = body.profiles || [];
-      var mine = profiles.filter(function (p) {
-        return !p.owner_identity_id || p.owner_identity_id === id;
-      });
-      var html = '<option value="">（暂不绑定档案）</option>';
-      mine.forEach(function (p) {
-        html += '<option value="' + esc(p.profile_id) + '">' +
-          esc(p.display_name || p.profile_id) + " · " + esc(p["class"] || "") + "</option>";
-      });
-      sel.innerHTML = html;
-    } catch (e) {
-      sel.innerHTML = '<option value="">（档案读取失败）</option>';
-    }
-  }
-
-  async function ensureProfile(className) {
-    var id = identity();
-    if (!id) throw new Error("请先连接钱包");
-    var body = await api().listRoleProfiles(id);
-    var existing = (body.profiles || []).find(function (p) {
-      return p["class"] === className && (!p.owner_identity_id || p.owner_identity_id === id);
-    });
-    if (existing) return existing.profile_id;
-    var created = await api().createRoleProfile({
-      owner_identity_id: id,
-      class: className,
-      display_name: className === "enterprise" ? "企业档案" : "商家档案",
-    });
-    return created.profile_id;
-  }
-
-  function setWizardStatus(msg, isErr) {
-    var node = $("#ag-wizard-status");
-    if (!node) return;
-    node.textContent = msg || "";
-    node.classList.toggle("err", !!isErr);
-  }
-
-  async function submitConnect() {
-    var out = $("#ag-out");
-    var status = $("#ag-wizard-status");
-    var side = $("#ag-side").value;
-    var vertical = $("#ag-vertical").value;
-    var id = identity();
-    if (out) out.textContent = "—";
-    if (!id) {
-      setWizardStatus("请先在顶部「连接钱包」完成认证，拿到身份卡后再接入 agent", true);
-      return;
-    }
-    if (!vertical) {
-      setWizardStatus("请选择行业", true);
-      return;
-    }
-    var answers = { industry_ids: [vertical] };
-    if (side === "seller") {
-      var collected = collectSpec();
-      if (collected.problems.length) {
-        setWizardStatus("还差 " + collected.problems.length + " 项：" + collected.problems.slice(0, 4).join("；"), true);
-        return;
-      }
-      answers.service_specs = {};
-      answers.service_specs[vertical] = collected.spec;
-    }
-    var scopeProfile = $("#ag-scope") ? $("#ag-scope").value : "";
-    if (!scopeProfile && side === "seller") {
-      try {
-        var want = $("#ag-class") && $("#ag-class").value ? $("#ag-class").value : "merchant";
-        scopeProfile = await ensureProfile(want);
-        if ($("#ag-scope")) $("#ag-scope").value = scopeProfile;
-      } catch (e) {
-        setWizardStatus("档案准备失败：" + (e.message || e), true);
-        return;
-      }
-    }
-    var payload = {
-      side: side,
-      vertical: vertical,
-      display_name: ($("#ag-name").value || "").trim() || undefined,
-      owner_identity_id: id,
-      endpoint_url: ($("#ag-endpoint").value || "").trim() || undefined,
-      scope_profile_id: scopeProfile || undefined,
-      answers: answers,
-      mint_api_key: true,
-    };
-    setWizardStatus("接入中…");
-    try {
-      var res = await api().ownerConnect(payload);
-      setWizardStatus("接入成功 · " + res.agent.agent_id);
-      if (out) out.textContent = JSON.stringify(res, null, 2);
-      rememberAgentKey(res);
-      renderConnectResult(res);
-      refreshAgents();
-      loadProfilesIntoSelect();
-      // 起步引导的第 3 步数的是「真正接入的 agent」，接入成功后要让它立刻更新。
-      document.dispatchEvent(new CustomEvent("karma-agent-connected", { detail: { agent_id: res.agent.agent_id } }));
-    } catch (e) {
-      setWizardStatus("接入失败：" + (e.message || e), true);
-      if (out) out.textContent = String(e.message || e);
-    }
-  }
-
   /**
-   * The bootstrap API key is plaintext exactly once. Keep it for this tab so the
-   * 交付包 panel can build the agent's env without asking the owner to re-connect.
+   * 一条龙第 2 步选完方向 / 行业后，选收款方向时把它注册进 Karma 目录。
+   * 复用同一个 agent 名：目录里的 agent_id 与运行时钥匙的 agent_binding 是同一个值，
+   * 事后「我的助理 Agent」与「交付包」才能按同一个 id 找到它。凭据由 Karma
+   * 服务端托管，浏览器只拿到一次明文。
    */
-  function rememberAgentKey(res) {
+  async function registerFromWizard(opts) {
+    var res = await api().ownerConnect({
+      side: opts.side,
+      vertical: opts.vertical,
+      display_name: opts.agentName,
+      owner_identity_id: identity(),
+      endpoint_url: opts.endpoint || undefined,
+      scope_profile_id: opts.profileId || undefined,
+      answers: opts.answers || {},
+      agent_id: opts.agentName,
+      mint_api_key: true,
+    });
     try {
       var creds = (res && res.credentials) || {};
-      var agentId = res && res.agent && res.agent.agent_id;
-      if (!agentId || !creds.api_key) return;
-      var bag = window.KarmaAgentKeys || (window.KarmaAgentKeys = {});
-      bag[agentId] = creds.api_key;
-    } catch (_) {}
-  }
-
-  function renderConnectResult(res) {
-    var host = $("#ag-result");
-    if (!host) return;
-    var creds = res.credentials || {};
-    var ready = res.p1_ready === true;
-    var env = res.env_snippet || {};
-    var envText = Object.keys(env).map(function (k) { return k + "=" + env[k]; }).join("\n");
-    host.style.display = "block";
-    host.innerHTML =
-      '<div class="ag-result-head">' +
-      '<b>' + esc(res.agent.name) + "</b>" +
-      '<span class="tag ' + (ready ? "ok" : "warn") + '">' + (ready ? "P1 就绪" : "P1 未就绪") + "</span>" +
-      '<span class="tag">' + esc(res.profile_id) + "</span>" +
-      "</div>" +
-      '<p class="ag-hint">身份卡：' + esc(res.agent.owner_identity_id || identity()) + " → agent：" + esc(res.agent.agent_id) + "</p>" +
-      (creds.api_key
-        ? '<div class="ag-secret"><div class="ag-secret-label">API Key（仅此一次明文显示，请立即保存）</div>' +
-          "<code>" + esc(creds.api_key) + "</code>" +
-          '<button type="button" class="btn primary" id="ag-copy-key">复制</button></div>'
-        : '<p class="err">未签发 API Key</p>') +
-      '<div class="ag-snippet"><div class="ag-secret-label">环境变量</div><pre>' + esc(envText) + "</pre>" +
-      '<button type="button" class="btn" id="ag-copy-env">复制</button></div>' +
-      '<div class="ag-next"><b>下一步</b><ol>' +
-      (res.next_steps || []).map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("") +
-      "</ol></div>" +
-      '<p class="ag-hint">agent 运行密钥由 Karma 服务端托管（0600，可随时吊销），整个流程不涉及你的钱包私钥或助记词。</p>';
-
-    var ck = $("#ag-copy-key");
-    if (ck) ck.addEventListener("click", function () { copyText(creds.api_key || ""); });
-    var ce = $("#ag-copy-env");
-    if (ce) ce.addEventListener("click", function () { copyText(envText); });
-  }
-
-  function copyText(text) {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text);
-        return;
+      var aid = (res && res.agent && res.agent.agent_id) || opts.agentName;
+      if (creds.api_key) {
+        var bag = window.KarmaAgentKeys || (window.KarmaAgentKeys = {});
+        bag[aid] = creds.api_key;
       }
     } catch (_) {}
-    var ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand("copy"); } catch (_) {}
-    ta.remove();
+    // 起步引导数的第 3 步是「真正接入的 agent」，注册成功要让它立刻更新。
+    document.dispatchEvent(new CustomEvent("karma-agent-connected", {
+      detail: { agent_id: (res && res.agent && res.agent.agent_id) || opts.agentName },
+    }));
+    refreshAgents();
+    return res;
   }
+
 
   function init() {
     if (!$("#agents")) return;
     loadIndustries();
-    loadProfilesIntoSelect();
     refreshAgents();
 
     var sideSel = $("#ag-side");
-    if (sideSel) {
-      sideSel.addEventListener("change", function () {
-        var seller = sideSel.value === "seller";
-        var wrap = $("#ag-spec-wrap");
-        if (wrap) wrap.style.display = seller ? "" : "none";
-        if (!seller) {
-          var host = $("#ag-spec-form");
-          if (host) host.innerHTML = '<p class="muted">买方身份（user profile）不需要行业硬指标，直接接入即可。</p>';
-        } else {
-          renderSpecForm($("#ag-vertical").value);
-        }
-      });
+    function applySide() {
+      var seller = sideSel && sideSel.value === "seller";
+      var wrap = $("#ag-spec-wrap");
+      if (wrap) wrap.style.display = seller ? "" : "none";
+      if (!seller) {
+        var host = $("#ag-spec-form");
+        if (host) host.innerHTML = '<p class="muted">买方身份（user profile）不需要行业硬指标，直接接入即可。</p>';
+      } else {
+        renderSpecForm($("#ag-vertical").value);
+      }
     }
+    if (sideSel) sideSel.addEventListener("change", applySide);
+    applySide();
     var vertSel = $("#ag-vertical");
     if (vertSel) {
       vertSel.addEventListener("change", function () { renderSpecForm(vertSel.value); });
     }
-    var btn = $("#ag-connect");
-    if (btn) btn.addEventListener("click", submitConnect);
     var refresh = $("#ag-list-refresh");
-    if (refresh) refresh.addEventListener("click", function () { refreshAgents(); loadProfilesIntoSelect(); });
+    if (refresh) refresh.addEventListener("click", function () { refreshAgents(); });
 
     document.addEventListener("karma-wallet-connected", function () {
-      loadProfilesIntoSelect();
       refreshAgents();
     });
     document.addEventListener("karma-session-restored", function () {
-      loadProfilesIntoSelect();
       refreshAgents();
     });
     // 新建的子身份卡要能在这个下拉里直接选到，不然刚认证完还得刷新整页。
     document.addEventListener("karma-capacity-changed", function () {
-      loadProfilesIntoSelect();
       refreshAgents();
     });
 
@@ -540,5 +393,5 @@
     init();
   }
 
-  window.KarmaAgents = { refresh: refreshAgents };
+  window.KarmaAgents = { refresh: refreshAgents, registerFromWizard: registerFromWizard, collectSpec: collectSpec };
 })();

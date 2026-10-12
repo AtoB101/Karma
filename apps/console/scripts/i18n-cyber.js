@@ -4,7 +4,10 @@
  * Phrase packs (i18n-phrase/*.js) inherit this file's ?v=, so editing either
  * requires re-running scripts/stamp_console_assets.py. Keep this note in sync
  * with any phrase-pack change so the deployed pack never stays on a stale URL.
- * Phrase-pack revision: 2026-10-12 whole-console runtime copy sweep
+ * Phrase-pack revision: 2026-10-13 one-stop Agent onboarding
+ *   (dynamic-append-31: the receiving-direction needs-an-industry hint; and the one-stop-flow overview
+ *   now says 「接入一个 Agent / 去接入」—— the 授权向导 sub-entry is gone, so no copy names it any more).
+ *   previous: 2026-10-12 whole-console runtime copy sweep
  *   (dynamic-append-29/30: ledger table header cells / assistant task cards / on-chain lock lines /
  *   developer-agreement block / face-capture hints / camera label / unsecured fragment;
  *   plus the dynamic-append-28 email-receipt block)
