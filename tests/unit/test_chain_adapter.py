@@ -18,6 +18,7 @@ from core.schemas import (
     VerificationResult,
 )
 from services.chain.settlement_adapter import (
+    ERC20_MIN_ABI,
     OnChainSettlementAdapter,
     SettlementRouter,
 )
@@ -336,3 +337,20 @@ def test_abi_includes_finalize_dispute_refund():
     assert {"finalizeSettle", "dispute", "refundOnTimeout", "bind", "settle", "unlock"} <= names
     dispute = next(e for e in KARMA_BILATERAL_ABI if e.get("name") == "dispute")
     assert [i["name"] for i in dispute["inputs"]] == ["bindingId", "evidenceHash"]
+
+
+def test_erc20_min_abi_exposes_approve() -> None:
+    """lock_agent_penalty self-approves, so the shared ERC-20 ABI needs `approve`.
+
+    Before this ABI was hoisted out of `_get_erc20` it carried only
+    balanceOf/allowance/decimals, so `lock_agent_penalty` raised ABIFunctionNotFound
+    on the first seller stake of a fresh venue (allowance starts at 0, so the
+    auto-approve branch always runs). Found by running H12 on the testnet venue.
+    """
+    entries = {entry["name"]: entry for entry in ERC20_MIN_ABI}
+    assert {"balanceOf", "allowance", "decimals", "approve"} <= set(entries)
+    approve = entries["approve"]
+    assert approve["type"] == "function"
+    assert approve["stateMutability"] == "nonpayable"
+    assert [i["type"] for i in approve["inputs"]] == ["address", "uint256"]
+    assert approve["outputs"] == [{"name": "", "type": "bool"}]

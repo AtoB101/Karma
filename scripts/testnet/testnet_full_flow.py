@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -60,6 +61,12 @@ async def main():
         "--finalize",
         action="store_true",
         help="Call finalizeSettle after settle (requires dispute window elapsed)",
+    )
+    parser.add_argument(
+        "--settle-wait",
+        type=int,
+        default=180,
+        help="Max seconds to wait for the contract settleDelaySeconds after bind",
     )
     args = parser.parse_args()
 
@@ -157,6 +164,20 @@ async def main():
             print("    ✗ settle skipped — set --buyer-bill-id/--agent-bill-id or onchain_binding_id")
             onchain_status = "missing_binding"
         else:
+            # KarmaBilateral only accepts settle() after settleDelaySeconds has elapsed
+            # since bind() (deploy/sepolia_bilateral_deployment.json -> 60s). Without this
+            # wait the smoke reverts with SettlementTooEarly and the summary reads like a
+            # chain failure instead of "too early".
+            try:
+                status = adapter.binding_status(int(contract.onchain_binding_id))
+                settle_after = int(status.get("settle_after") or 0)
+                now = int(time.time())
+                if settle_after > now:
+                    wait_s = min(settle_after - now + 3, args.settle_wait)
+                    print(f"    … settle delay: waiting {wait_s}s (settleAfter={settle_after})")
+                    time.sleep(wait_s)
+            except Exception as exc:
+                print(f"    (settle-delay check skipped: {exc})")
             try:
                 tx_result = adapter.release_payment(contract, verification, bundle, args.amount)
                 tx_hash = tx_result.tx_hash

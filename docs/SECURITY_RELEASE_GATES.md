@@ -71,7 +71,7 @@ This checklist is blocking for broad public test rollout.
 | 已消项 | `H2`：测试钱包余额改成**上链查**（`eth_getBalance`，`SETTLEMENT_OPERATOR_ADDRESS` + 库里 `a2a-buyer`/`a2a-seller` 的绑定钱包）。2026-10-12 实测 3 个地址余额均 > 0 → 机器判 `PASS`；有地址但余额为 0 记 `FAIL`，探不到链记 `HUMAN` |
 | 已消项 | `H3`：锚定改成判「**按笔写入**」（`vouchers.chain_anchor_hash` + `validate_chain_anchor_for_mode` 在场，且发布环境里**没有**全局 `CHAIN_ANCHOR_HASH`）。旧口径问的是「env 里有没有」，正好问反了 —— 全局钉死才是要防的事 |
 | 待签 | 7 条：`A4d`（白名单身份号确有其人）、`E4b`（回滚/值班手册人确认）、`E6b`（基线漂移策略评审）、`H9`（私仓版本锁）、`H10`/`H11`/`H12`（OpenClaw MCP / OpenManus smoke / 混合上链 smoke）。**签字落在发布机的 G10 台账**（`/opt/karma/state/g10-sign-off.json`），不在这个仓库里打勾，见下 |
-| 待签 | `H10`–`H12` 缺的是一个**测试网栈（venue）**，不是签字 —— 生产口径实例上这三条**跑不了**，实测证据见 Gate H 末尾那段 |
+| 待签 | `H10`–`H12` 的**测试网栈（venue）已在 2026-10-12 建成**（发布机）；`H11`（OpenManus smoke）与 `H12`（混合上链 settle）已实测跑通，`H10`（注册进用户自己的 OpenClaw）仍要人做。详见 Gate H 末尾那段 |
 
 **这轮修掉的「自己人打自己人」**（都不是业务 bug，但都会让人开始不信闸门）：
 
@@ -470,8 +470,8 @@ bash scripts/acceptance/g10-signoff.sh --revoke E4b --by "<发布负责人>"
 | 5 | `H3` `CHAIN_ANCHOR_HASH` 按笔写入 | 锚定哈希是**每笔交易写入**，不是全局 env 里钉死的一个值 | ✔（代码路径 + env 无全局值） | `api/routes/trade.py` / `vouchers.chain_anchor_hash` |
 | 6 | `H9` Karma2 `CORE_VERSION.lock` 与公开 commit 对齐 | 私有仓库的 `CORE_VERSION.lock` 指向的 commit 与对外公开的那份一致 | ✗（要私有仓库读权限；本工作机没有） | 私有仓库 Karma2 |
 | 7 | `H10` OpenClaw MCP 注册 + 签名通路 A/B | MCP 已注册，且一条签名通路**实测走通**（A/B 两组对照） | ✗ | 用户自己的 OpenClaw / MCP 侧 + 实测输出 |
-| 8 | `H11` OpenManus smoke 对着活测试网跑通 | `phase1_claw_manus_smoke.py` 对着**活的测试网栈**实测通过（不是对着 mock）—— 生产口径实例跑不了，原因见上面那段实测 | ✗（要测试网栈 + 买家自己的 key） | 测试网栈上的 run 记录 |
-| 9 | `H12` 混合上链 smoke | `RUN_TESTNET_ONCHAIN=true` + `SETTLEMENT_MODE=hybrid` 时混合上链 smoke 通过（发布环境当前未设 `SETTLEMENT_MODE`，实测跑成 `offchain`） | ✗（同上） | 测试网栈上的 run 记录 |
+| 8 | `H11` OpenManus smoke 对着活测试网跑通 | `phase1_claw_manus_smoke.py` 对着**活的测试网栈**实测通过（不是对着 mock）—— 生产口径实例跑不了，原因见上面那段实测 | 半（2026-10-12 已在发布机测试网栈上跑通，待签） | 发布机 `/opt/karma/state/g10-h11-venue-*.txt` |
+| 9 | `H12` 混合上链 smoke | `RUN_TESTNET_ONCHAIN=true` + `SETTLEMENT_MODE=hybrid` 时混合上链 smoke 通过（发布环境当前未设 `SETTLEMENT_MODE`，实测跑成 `offchain`） | 半（2026-10-12 已在发布机测试网栈上跑通，待签） | 发布机 `/opt/karma/state/g10-h12-venue-*.txt` |
 
 签完把本表 + 下面「签核记录」一起留档。脚本重跑应显示 `HUMAN 0`（或对应项转 `[机器]`）。
 
@@ -490,6 +490,34 @@ bash scripts/acceptance/g10-signoff.sh --revoke E4b --by "<发布负责人>"
 **编号勘误（2026-10-12）**：这张表上一版把第 2、3 行的条目号写错位了 ——
 「回滚方案 + 值班手册」是 `E4b`（闸门 `E4b`），「基线漂移策略」是 `E6b`（闸门 `E6b`），
 不是表里写的 `E6b` / `F6`（`F6` 是离站副本恢复，早就转成机器判的 `PASS`）。
+
+### 场地已建成（2026-10-12，发布机）
+
+照 `deploy/TESTNET_STACK-zh.md` 建了一个独立的测试网栈（compose project `karma-testnet`，与 prod 不共享
+容器 / 数据库 / Redis / state 目录）：真 PostgreSQL + 真 Redis + 真 HTTP API，复用 `karma-api:latest`
+镜像（1.6 GB 的机器**不能再 build**），API 挂 `127.0.0.1:18000`。
+
+| 条目 | 实测（2026-10-12） | 证据 |
+|---|---|---|
+| `H11` | `phase1_claw_manus_smoke.py` 对着这个活栈跑通：`/docs` 200、`launch → execution_started`、`get_trade_order pipeline=v2`、幂等重放 OK、退出码 0 | 发布机 `/opt/karma/state/g10-h11-venue-*.txt` |
+| `H12` | `SETTLEMENT_MODE=hybrid` + `RUN_TESTNET_ONCHAIN=true`，Sepolia 上整条走完：`lock`(bill 6) → 卖方质押 `lock`(bill 7) → `bind`(binding 2) → `settle`(FINALIZING) → `finalizeSettle`(SETTLED) | 发布机 `/opt/karma/state/g10-h12-venue-*.txt`、`g10-h12-onchain-*.txt` |
+| `H10` | 仍未做：要把 MCP 注册进**用户自己的** OpenClaw，只能人做 | — |
+
+**这一轮跑出来的两个真 bug（已修）**：
+
+1. `services/chain/settlement_adapter.py` 的 `_get_erc20()` 里那份 ERC-20 最小 ABI 只有
+   `balanceOf` / `allowance` / `decimals`，**没有 `approve`**，而 `lock_agent_penalty()` 在 allowance
+   不足时正好要 `erc20.functions.approve(...)` —— 卖方质押那一笔必然抛 `ABIFunctionNotFound`
+   （新场地 allowance 一定是 0，所以是必现）。已把 ABI 提成模块级 `ERC20_MIN_ABI` 并补上 `approve`，
+   `tests/unit/test_chain_adapter.py` 加了单测盯着。
+2. `scripts/testnet/testnet_full_flow.py` 是 `bind()` 完立刻 `settle()`，而合约有 60s 的
+   `settleDelaySeconds`（`deploy/sepolia_bilateral_deployment.json`），所以按文档那条命令跑
+   **settle 永远 revert**（`SettlementTooEarly`），summary 写 `onchain_status: failed` —— 看着像链上
+   出事，其实只是太早。已改成 settle 前先等 `settleAfter`（`--settle-wait`，默认上限 180s）。
+   本轮是通过 `testnet_release.py`（延迟过后）把 binding 2 结掉、再 `testnet_finalize.py` 收尾的。
+
+所以 `H11` / `H12` 现在是「**场地有了、也跑通了**」，缺的只是发布负责人过目后签字；`H10` 仍要在用户
+自己的 OpenClaw 里注册 MCP。运行输出都在发布机 `/opt/karma/state/`，签字时把路径填进台账 `evidence` 栏。
 
 ## 签核记录
 
