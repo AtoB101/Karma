@@ -4,7 +4,9 @@
  * Phrase packs (i18n-phrase/*.js) inherit this file's ?v=, so editing either
  * requires re-running scripts/stamp_console_assets.py. Keep this note in sync
  * with any phrase-pack change so the deployed pack never stays on a stale URL.
- * Phrase-pack revision: 2026-10-12 Agent onboarding one-stop (step bar + step ③ activation code + pointers moved to step ③).
+ * Phrase-pack revision: 2026-10-12 Agent onboarding one-stop + email-receipt third lock
+ *   (dynamic-append-28: confirm-email / resend / waiting-for-click copy, key event count)
+ *   and the compilePatterns value lookup fix (normalized key must not be used to read the pack).
  */
 (function (global) {
   const STORAGE_KEY = "karma_cyber_lang";
@@ -1639,6 +1641,10 @@
     const list = [];
     Object.keys(pack).forEach(function (src) {
       if (src.indexOf("{") < 0) return;
+      // 先把译文取出来：src 下面要被 normSpace 归一化（首尾空格、连续空格都会被改），
+      // 归一化之后再拿它去 pack 里取，就会取到 undefined —— 命中这条模板时
+      // lookup() 会直接抛 TypeError，整趟翻译中断（金额那一条就踩过）。
+      const value = pack[src];
       src = normSpace(src);
       let re = "";
       let i = 0;
@@ -1652,7 +1658,7 @@
         re += src.charAt(i).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         i += 1;
       }
-      list.push([new RegExp("^" + re + "$"), pack[src]]);
+      list.push([new RegExp("^" + re + "$"), value]);
     });
     list.sort(function (a, b) { return b[0].source.length - a[0].source.length; });
     PATTERN[lang] = list;

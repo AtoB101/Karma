@@ -2953,4 +2953,17 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "填了它 = 再加一道「邮箱回执」：agent 会把一串 6 位码显示在聊天窗口，你在自己的邮箱里点与它相同的那一个码，凭据才会交给它；点错会记一次失败，连错就把这次配对作废。不填就只有「批准」这一道。": "Completarlo = una cerradura más, el acuse por correo: el agent muestra un código de 6 caracteres en el chat y tú haces clic en el código igual en tu propio correo; recién ahí se entregan las credenciales. Un clic equivocado cuenta como un fallo y, tras varios, el emparejamiento se anula. Si lo dejas vacío, la aprobación es la única cerradura.",
   "第三把锁 · 邮箱回执": "Tercera cerradura · acuse por correo",
   "重新发一封确认邮件": "Reenviar el correo de confirmación",
+// --- dynamic-append-28: 邮箱回执第三把锁（确认邮件 / 重发 / 等待点码）+ 钥匙事件计数 ---
+  "通知邮箱看起来不像一个邮箱地址": "Ese correo de notificación no parece una dirección de correo electrónico",
+  "已批准 —— 还差最后一步：到你邮箱里点对的那个码": "Aprobado - falta un último paso: haz clic en el código que coincide en tu correo",
+  "确认邮件已发到 {0}。把这串码报给 agent（它会显示在聊天窗口），然后在你自己的邮箱里点与它相同的那一个码。": "Enviamos un correo de confirmación a {0}. Pásale este código al agent (lo mostrará en la ventana de chat) y luego haz clic en el código igual en tu propio correo.",
+  "邮箱回执已确认 —— 凭据会在 agent 下一次轮询时交给它。": "Recibo por correo confirmado - las credenciales se entregan al agent en su próxima consulta.",
+  "邮箱回执已过期或被作废 —— 点「重新发一封确认邮件」再走一遍。": "El recibo por correo venció o quedó anulado - pulsa \"Reenviar el correo de confirmación\" y repítelo.",
+  "等你在邮箱里点对的那个码；点对之前 agent 领不到任何凭据。": "Esperando a que hagas clic en el código correcto en tu correo; hasta entonces el agent no recibe credenciales.",
+  "先在上面查询这条配对请求": "Primero consulta esta solicitud de emparejamiento arriba",
+  "重发要再填一次通知邮箱": "Para reenviar, vuelve a escribir el correo de notificación",
+  "重发中…": "Reenviando…",
+  "已重发（旧邮件里的链接作废了）": "Reenviado (el enlace del correo anterior ya no sirve)",
+  "确认邮件已重发": "El correo de confirmación se reenvió",
+  "钥匙事件：{0}": "Eventos de la clave: {0}",
 });
