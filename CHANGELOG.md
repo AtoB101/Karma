@@ -42,6 +42,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - On-chain Emergency Freeze wired into `KarmaBilateral` (global/agent/bill/binding + `CircuitBreaker`), INV-1..10 forge tests, off-chain compromise matrix, Control Plane freeze API, funds-security console view, proof report `docs/FINANCIAL_SECURITY_PROOF.md`.
 - Documented 2026-05-17 stress/attack (3,143 tests) and testnet pre-auth (353 tests) results in `docs/public-testing/`.
 
+### Fixed
+
+- Agent 公钥 base64 以 `0x`/`0X` 开头时被误当 hex 前缀剥掉（约 1/2000 把随机钥匙），导致合法公钥被判非法、指纹算成空串。修 `services/runtime_key_service.py::normalize_agent_public_key` 与 `packages/karma-mcp-server` 的 `canonical_public_key_b64`；`karma-mcp-server` 发 0.1.1。
+
 ## [2026-05-18] — Phase 1 Open Wallet + OpenClaw local (on `main` @ `81d20b0`)
 
 ### Added

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "karma-mcp-server"
-version = "0.1.0"
+version = "0.1.1"
 description = "Karma universal Agent MCP server — thin access layer over the Karma backend"
 readme = "README.md"
 requires-python = ">=3.11"
