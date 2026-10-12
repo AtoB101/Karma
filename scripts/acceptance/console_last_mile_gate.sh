@@ -251,6 +251,10 @@ if command -v node >/dev/null 2>&1; then
   # 接入确认的两个宿主（一条龙第 ③ 步 + 设置页兜底）：都要画出码框、都能就地输码，
   # 且点哪张卡片的「确认绑定」就读哪张卡片里的码（用户实测「找不到位置」的复盘）。
   node "$ROOT/tests/js/test_console_bind_requests_hosts.cjs"
+  # 一条龙（授权向导 / 输匹配码 / 配对码接入）的运行期文案：六个脚本里的中文字面量按
+  # 「+ 拼接」还原成运行时那句（依然是补不到的分支）后查五门语言，
+  # 再在沙箱里真跑一遍渲染（待确认 / 已批准+邮箱回执 / 交接码 / 已绑定钥匙）——两边都查不到中文才算过。
+  node "$ROOT/tests/js/test_console_agent_onestop_i18n.cjs"
   # 站内提醒：每一份词表都要有那句带变量的整句，切了语言不许再留中文。
   node "$ROOT/tests/js/test_console_notices.cjs"
   # 复核台「可撤销的认证」：切语言不许留中文、理由不写不发请求、发起 / 确认走对接口。

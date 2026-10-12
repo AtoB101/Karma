@@ -2951,4 +2951,17 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "填了它 = 再加一道「邮箱回执」：agent 会把一串 6 位码显示在聊天窗口，你在自己的邮箱里点与它相同的那一个码，凭据才会交给它；点错会记一次失败，连错就把这次配对作废。不填就只有「批准」这一道。": "Fill it in = one more lock, the email receipt: the agent shows a 6-character code in the chat window, and you click the matching code in your own inbox - only then are the credentials handed over. A wrong click counts as one failure, and after too many the pairing is voided. Leave it empty and approval alone is the only lock.",
   "第三把锁 · 邮箱回执": "Third lock · email receipt",
   "重新发一封确认邮件": "Resend the confirmation email",
+// --- dynamic-append-28: 邮箱回执第三把锁（确认邮件 / 重发 / 等待点码）+ 钥匙事件计数 ---
+  "通知邮箱看起来不像一个邮箱地址": "That notification email does not look like an email address",
+  "已批准 —— 还差最后一步：到你邮箱里点对的那个码": "Approved - one last step: click the matching code in your inbox",
+  "确认邮件已发到 {0}。把这串码报给 agent（它会显示在聊天窗口），然后在你自己的邮箱里点与它相同的那一个码。": "A confirmation email went to {0}. Tell the agent this code (it will show it in the chat window), then click the matching one in your own inbox.",
+  "邮箱回执已确认 —— 凭据会在 agent 下一次轮询时交给它。": "Email receipt confirmed - the credentials are handed to the agent on its next poll.",
+  "邮箱回执已过期或被作废 —— 点「重新发一封确认邮件」再走一遍。": "The email receipt expired or was voided - press \"Resend the confirmation email\" and go through it again.",
+  "等你在邮箱里点对的那个码；点对之前 agent 领不到任何凭据。": "Waiting for you to click the right code in your inbox; until then the agent receives no credentials.",
+  "先在上面查询这条配对请求": "Look up this pairing request above first",
+  "重发要再填一次通知邮箱": "To resend, fill in the notification email again",
+  "重发中…": "Resending…",
+  "已重发（旧邮件里的链接作废了）": "Resent (the link in the old email no longer works)",
+  "确认邮件已重发": "The confirmation email was resent",
+  "钥匙事件：{0}": "Key events: {0}",
 });
