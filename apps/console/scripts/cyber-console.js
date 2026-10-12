@@ -663,8 +663,9 @@
       const gap = locked - onchain;
       set(
         "#launch-lock-state",
-        "链上锁仓 " + fmtNum(onchain) + " USDC" +
-          (gap > 1e-9 ? " · 另有 " + fmtNum(gap) + " 为台账额度（无链上资金）" : " · 已 100% 链上锚定")
+        gap > 1e-9
+          ? "链上锁仓 " + fmtNum(onchain) + " USDC · 另有 " + fmtNum(gap) + " 为台账额度（无链上资金）"
+          : "链上锁仓 " + fmtNum(onchain) + " USDC · 已 100% 链上锚定"
       );
     } else {
       set("#launch-lock-state", "已锁仓 " + fmtNum(locked) + " USDC（台账模式：未配置链上合约）");
@@ -733,9 +734,11 @@
     if (!chain.enabled) {
       const missing = (chain.missing_config || []).join("、");
       host.innerHTML =
-        '<p class="ag-hint">链上锁仓未启用' +
-        (missing ? "（缺少配置：" + missing + "）" : "") +
-        '：当前锁仓走台账模式，没有真实 USDC 进入合约。</p>';
+        '<p class="ag-hint">' +
+        (missing
+          ? "链上锁仓未启用（缺少配置：" + missing + "）：当前锁仓走台账模式，没有真实 USDC 进入合约。"
+          : "链上锁仓未启用：当前锁仓走台账模式，没有真实 USDC 进入合约。") +
+        "</p>";
       return;
     }
     const bills = (info && info.bills) || [];
@@ -818,9 +821,11 @@
       const missing = (escrow.missing_config || []).join("、");
       host.innerHTML =
         '<h4 style="margin:0 0 8px">支付授权（资金留在你的钱包）</h4>' +
-        '<p class="ag-hint">授权额度模式未启用' +
-        (missing ? "（缺少配置：" + missing + "）" : "") +
-        "：当前走链上锁仓模式。</p>";
+        '<p class="ag-hint">' +
+        (missing
+          ? "授权额度模式未启用（缺少配置：" + missing + "）：当前走链上锁仓模式。"
+          : "授权额度模式未启用：当前走链上锁仓模式。") +
+        "</p>";
       return;
     }
     const commits = (info && info.commits) || [];

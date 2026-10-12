@@ -255,6 +255,9 @@ if command -v node >/dev/null 2>&1; then
   # 「+ 拼接」还原成运行时那句（依然是补不到的分支）后查五门语言，
   # 再在沙箱里真跑一遍渲染（待确认 / 已批准+邮箱回执 / 交接码 / 已绑定钥匙）——两边都查不到中文才算过。
   node "$ROOT/tests/js/test_console_agent_onestop_i18n.cjs"
+  # 全操作台「运行期拼出来的中文」：四十来个脚本里的拼串按运行时那句还原后查五门语言
+  # （静态口径跟上面一条共用 tests/js/lib/console_i18n_static.cjs），漏一句非中文界面就冒中文。
+  node "$ROOT/tests/js/test_console_runtime_i18n.cjs"
   # 站内提醒：每一份词表都要有那句带变量的整句，切了语言不许再留中文。
   node "$ROOT/tests/js/test_console_notices.cjs"
   # 复核台「可撤销的认证」：切语言不许留中文、理由不写不发请求、发起 / 确认走对接口。

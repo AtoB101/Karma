@@ -316,10 +316,10 @@
     var note = el("mst-auth-note");
     if (note) {
       note.textContent =
-        "授权 = 告诉 Karma「这个身份最多能动用多少」。钱始终留在你自己的钱包里，验证通过才划转。" +
-        (state.locked > 0
-          ? " 主身份已锁仓 " + money(state.locked) + " USDC，已授权 " + money(state.allocated) + " USDC。"
-          : " 先在第三步锁仓，这里才有额度可分。");
+        state.locked > 0
+          ? "授权 = 告诉 Karma「这个身份最多能动用多少」。钱始终留在你自己的钱包里，验证通过才划转。 主身份已锁仓 " +
+            money(state.locked) + " USDC，已授权 " + money(state.allocated) + " USDC。"
+          : "授权 = 告诉 Karma「这个身份最多能动用多少」。钱始终留在你自己的钱包里，验证通过才划转。 先在第三步锁仓，这里才有额度可分。";
     }
   }
 
@@ -434,7 +434,11 @@
       say(el("mst-auth-status"), "减不了这么多：这个身份现在只有 " + money(current) + " USDC 额度", true);
       return;
     }
-    pushAllocations(pid, next, "已" + (action === "up" ? "加额到 " : "减额到 ") + money(next) + " USDC");
+    pushAllocations(
+      pid,
+      next,
+      action === "up" ? "已加额到 " + money(next) + " USDC" : "已减额到 " + money(next) + " USDC"
+    );
   }
 
   function bind() {

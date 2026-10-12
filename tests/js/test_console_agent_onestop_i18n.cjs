@@ -45,10 +45,14 @@ const CHAIN_FILES = [
   "karma-service-spec.js",
 ];
 
-const HAN = /[\u4e00-\u9fff]/;
-const ATTR_RE = /(placeholder|title|aria-label|alt)\s*=\s*"([^"]*)"/g;
-const ATTR_ONLY_RE = /^\s*(placeholder|title|aria-label|alt)\s*=/;
-const STOP = "+;,=?:" + String.fromCharCode(38) + "|";
+const S = require("./lib/console_i18n_static.cjs");
+
+// 静态扫描的口径（拼串还原 + 五门语言判定）与 tests/js/test_console_runtime_i18n.cjs 共用一份实现，
+// 免得两条门禁对「同一句算不算漏译」给出两种答案。
+const HAN = S.HAN;
+const looksTargetLang = S.looksTargetLang;
+const verdict = S.verdict;
+const engine = S.createEngine();
 
 let failures = 0;
 let checks = 0;
@@ -61,220 +65,20 @@ function check(name, cond, extra) {
 }
 
 /* ------------------------------------------------------------------ 源码切片 */
-
-function stripComments(s) {
-  let out = s.replace(/\/\*[\s\S]*?\*\//g, function (m) { return " ".repeat(m.length); });
-  out = out.replace(/(^|[^:\\])\/\/[^\n]*/g, function (m, p1) { return p1 + " ".repeat(m.length - p1.length); });
-  return out;
-}
-
-function unq(raw) {
-  const body = raw.slice(1, -1);
-  let out = "";
-  for (let i = 0; i < body.length; i += 1) {
-    const c = body[i];
-    if (c !== "\\") { out += c; continue; }
-    const n = body[++i];
-    if (n === "n") out += "\n";
-    else if (n === "t") out += "\t";
-    else if (n === "r") out += "\r";
-    else if (n === "u") { out += String.fromCharCode(parseInt(body.substr(i + 1, 4), 16)); i += 4; }
-    else out += n;
-  }
-  return out;
-}
-
-function literals(s) {
-  const re = /"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
-  const out = [];
-  let m;
-  while ((m = re.exec(s))) out.push({ start: m.index, end: m.index + m[0].length, value: unq(m[0]) });
-  return out;
-}
-
-function prevIsPlus(src, start) {
-  let p = start - 1;
-  while (p >= 0 && /\s/.test(src[p])) p -= 1;
-  return src[p] === "+";
-}
-
-function nextIsPlus(src, end) {
-  let q = end;
-  while (q < src.length && /\s/.test(src[q])) q += 1;
-  return src[q] === "+";
-}
-
-/** 一次 + 拼接 = 若干「操作数」：字面量，或一段表达式（括号里的整体算一段）。 */
-function operandsOf(src, lits, byStart, i) {
-  const ops = [{ lit: lits[i].value }];
-  let pos = lits[i].end;
-  let last = i;
-  for (let guard = 0; guard < 300; guard += 1) {
-    const m = /^\s*\+/.exec(src.slice(pos));
-    if (!m) break;
-    pos += m[0].length;
-    while (pos < src.length && /\s/.test(src[pos])) pos += 1;
-    const li = byStart.get(pos);
-    if (li != null) { ops.push({ lit: lits[li].value }); pos = lits[li].end; last = li; continue; }
-    const startPos = pos;
-    let depth = 0;
-    while (pos < src.length) {
-      const ch = src[pos];
-      const lj = byStart.get(pos);
-      if (lj != null) { pos = lits[lj].end; continue; }
-      if (ch === "(" || ch === "[" || ch === "{") { depth += 1; pos += 1; continue; }
-      if (ch === ")" || ch === "]" || ch === "}") {
-        if (depth === 0) break;
-        depth -= 1; pos += 1; continue;
-      }
-      if (depth === 0 && STOP.indexOf(ch) >= 0) break;
-      pos += 1;
-    }
-    if (pos === startPos) break;
-    ops.push({ expr: src.slice(startPos, pos) });
-    if (src[pos] !== "+") break;
-  }
-  return { ops: ops, last: last };
-}
-
-function buildKey(ops) {
-  let out = "";
-  let n = 0;
-  ops.forEach(function (o) {
-    if (o.lit != null) out += o.lit;
-    else out += "{" + n++ + "}";
-  });
-  return out;
-}
-
-/**
- * 把源码拼出来的串，按浏览器实际形成的文本节点切开：
- * 一个 <tag> 就是一条边界；{n} 若「前后都是标签」（'<td>' + x + '</td>'），
- * 它自己就是一个独立文本节点 —— 丢掉；否则它跟旁边的字拼在同一句里，必须留着
- * （'<span>' + title + " · 共 " + n + " 项" 就是一句）。
- */
-function segmentsOf(cand) {
-  const out = [];
-  let buf = "";
-  const flush = function () {
-    const t = buf.replace(/\s+/g, " ").trim();
-    if (t) out.push(t);
-    buf = "";
-  };
-  let i = 0;
-  while (i < cand.length) {
-    const ch = cand[i];
-    if (ch === "<") {
-      const gt = cand.indexOf(">", i);
-      if (gt < 0) { i += 1; continue; }
-      flush();
-      i = gt + 1;
-      continue;
-    }
-    const m = /^\{\d+\}/.exec(cand.slice(i));
-    if (m) {
-      const prev = i > 0 ? cand[i - 1] : "";
-      const next = cand[i + m[0].length] || "";
-      if (prev === ">" && next === "<") { flush(); i += m[0].length; continue; }
-      buf += m[0];
-      i += m[0].length;
-      continue;
-    }
-    buf += ch;
-    i += 1;
-  }
-  flush();
-  return out;
-}
-
-/* ------------------------------------------------------------------ 语言引擎 */
-
-const ENGINES = {};
-
-async function engine(lang) {
-  if (!ENGINES[lang]) {
-    const env = H.boot(lang, {});
-    const I = env.window.CYBER_I18N;
-    await new Promise(function (r) { I.ensureExt(lang, r); });
-    ENGINES[lang] = I;
-  }
-  return ENGINES[lang];
-}
-
-/**
- * 判一句：译文缺失 / 译文里还留汉字（日语除外）/ 日语里留着简体中文词 —— 都算漏。
- * 返回 null 表示这一句过关。
- */
-/**
- * 这一句是不是「已经就是目标语言」了？
- *
- * 有些脚本不是等引擎兜底翻，而是直接 T()/Tf() 把译文写进 DOM（比如「查看最近调用」）。
- * 那种句子在沙箱里拿到的就是日语/韩语，再拿它去查表当然查不到 —— 那不是漏译。
- * 判据用假名/谚文：中文原文里不会有这些字符。
- */
-function looksTargetLang(lang, text) {
-  if (lang === "ja") return /[\u3040-\u30ff]/.test(text);
-  if (lang === "ko") return /[\uac00-\ud7af]/.test(text);
-  return false;
-}
-
-function verdict(lang, out) {
-  if (out == null) return "无译文";
-  if (lang !== "ja" && HAN.test(out)) return "译文里还留汉字：" + out.slice(0, 60);
-  if (lang === "ja" && (out.indexOf("激活") >= 0 || out.indexOf("额度") >= 0)) return "日语里留着简体词：" + out.slice(0, 60);
-  return null;
-}
+// 拼串还原 / 文本节点切分 / 五门语言判定 —— 实现在 tests/js/lib/console_i18n_static.cjs。
 
 /* ------------------------------------------------------------------ A. 静态扫描 */
-
+// 这条链的文案大半是拼出来的，静态这一段把六个脚本里所有中文字面量按「+ 拼接」
+// 还原成运行时那句（占位符 -> {n}）再查五门语言 —— 走不到的分支（各类「XX失败：」）靠它兜底。
 async function staticAudit(report) {
-  for (const f of CHAIN_FILES) {
-    const src = stripComments(fs.readFileSync(path.join(SCRIPTS, f), "utf8"));
-    const lits = literals(src);
-    const byStart = new Map(lits.map(function (l, i) { return [l.start, i]; }));
-    const consumed = new Set();
-    const cands = [];
-    for (let i = 0; i < lits.length; i += 1) {
-      if (!HAN.test(lits[i].value)) continue;
-      if (nextIsPlus(src, lits[i].end) && !prevIsPlus(src, lits[i].start)) {
-        const c = operandsOf(src, lits, byStart, i);
-        for (let j = i; j <= c.last; j += 1) consumed.add(j);
-        cands.push({ kind: "chain", text: buildKey(c.ops) });
-        continue;
-      }
-      if (prevIsPlus(src, lits[i].start) || consumed.has(i)) continue;
-      cands.push({ kind: "lit", text: lits[i].value });
-    }
-    for (const cand of cands) {
-      let list;
-      if (ATTR_ONLY_RE.test(cand.text)) {
-        // 「 placeholder="如 3.50（必须是字符串）"」这种属性串：引擎翻的是属性值本身，
-        // 拿带 placeholder= 的外壳去查必然查不到（那是包装，不是文案）。
-        list = [];
-        ATTR_RE.lastIndex = 0;
-        let am;
-        while ((am = ATTR_RE.exec(cand.text))) list.push(am[2]);
-      } else {
-        list = segmentsOf(cand.text);
-      }
-      for (const rawPiece of list) {
-        const piece = rawPiece.replace(/\s+/g, " ").trim();
-        if (!HAN.test(piece)) continue;
-        for (const lang of LANGS) {
-          if (looksTargetLang(lang, piece)) continue;
-          const I = await engine(lang);
-          const r = H.resolveIn(I, lang, piece.replace(/\{\d+\}/g, "X9"));
-          const bad = verdict(lang, r.out);
-          check(
-            "静态 " + f + " [" + lang + "] " + piece.slice(0, 60),
-            !bad,
-            (bad || "") + (bad && /引擎抛错/.test(bad) ? "" : "  <= " + piece.slice(0, 90))
-          );
-        }
-      }
-    }
-  }
-  report("A. 静态扫描：" + CHAIN_FILES.length + " 个脚本 × " + LANGS.length + " 门语言");
+  const res = await S.scanFiles(CHAIN_FILES, engine, function (hit) {
+    check(
+      "静态 " + hit.file + " [" + hit.lang + "] " + hit.piece.slice(0, 60),
+      !hit.bad,
+      (hit.bad || "") + (hit.bad ? "  <= " + hit.piece.slice(0, 90) : "")
+    );
+  });
+  report("A. 静态扫描：" + res.files + " 个脚本 × " + LANGS.length + " 门语言，检查 " + res.pieces + " 句");
 }
 
 /* ------------------------------------------------------------------ B. 真跑渲染 */
