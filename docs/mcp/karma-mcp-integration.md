@@ -187,7 +187,8 @@ git tag karma-connect-v1.0.0    && git push origin karma-connect-v1.0.0
 **有 `PYPI_API_TOKEN` 就 `twine upload`**，没有就留一条 warning。
 
 仓库 secret 名字是 `PYPI_API_TOKEN`（PyPI token，用户名 `__token__`）。没配的时候想补发：
-Actions → MCP release → Run workflow → 填同一个 tag。
+Actions → MCP release → Run workflow → **用 main 上的这份 workflow** → 填同一个 tag。
+（用 tag 那份跑的是 tag 当时那一版 workflow，后续修复不会带上。）
 
 不想用 workflow、要在本机手发：
 

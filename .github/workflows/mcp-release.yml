@@ -26,7 +26,10 @@ on:
         type: string
 
 concurrency:
-  group: mcp-release-${{ github.ref }}
+  # 必须带上 tag：三个包各推一次 tag 时 github.ref 各不相同，但如果手动 dispatch
+  # 三次（ref 都是 main、只有 inputs.tag 不同），不带 tag 就会撞进同一组 —— 实测
+  # 2026-10-12 那次三个并发里被取消掉了一个（karma-openclaw 没发出去）。
+  group: mcp-release-${{ github.ref }}-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
