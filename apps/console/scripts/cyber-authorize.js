@@ -469,7 +469,7 @@
       '<span class="tag ok">已生成</span>' +
       '<span class="tag">' + esc(name) + " · " + esc(label) + "</span></div>" +
       '<p class="ag-hint">把这段原样写进 agent 的环境变量。它读到身份和边界后就能开始跑；每一步收付都要过 Karma 的验证才会真正划转。</p>' +
-      '<p class="ag-hint">这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；你在「设置 → 接入确认」输码 + 钱包签名确认之后它才生效。匹配码 3 分钟内有效，过期就让 agent 重新申请一次，钥匙不用重铸。</p>' +
+      '<p class="ag-hint">这把钥匙在激活之前动不了钱：agent 领取时会申请绑定公钥，把 8 位匹配码给你；你在第 ③ 步「激活 · 输入匹配码」输码 + 钱包签名确认之后它才生效。匹配码 3 分钟内有效，过期就让 agent 重新申请一次，钥匙不用重铸。</p>' +
       '<div class="ag-snippet"><div class="ag-secret-label">① 运行时凭据（明文只显示这一次，请立即保存）</div>' +
       "<pre>" + esc(env) + "</pre>" +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +

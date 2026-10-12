@@ -993,7 +993,7 @@
               <div class="agw-row">
                 <label class="agw-label" for="agw-agent">你的 agent 叫什么</label>
                 <input id="agw-agent" type="text" placeholder="claw-001" autocomplete="off" spellcheck="false" />
-                <span class="agw-note">每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在下面「接入确认」里输码，它才能动钱。</span>
+                <span class="agw-note">每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在这一页第 ③ 步「激活 · 输入匹配码」里输码，它才能动钱。</span>
               </div>
               <details class="agw-new-wrap">
                 <summary>＋ 新建一个子身份</summary>
@@ -1724,7 +1724,7 @@
       window.KARMA_API_KEY = window.KARMA_API_KEY || "";
       window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
     </script>
-    <script src="../../scripts/i18n-cyber.js?v=2db23f044ea5"></script>
+    <script src="../../scripts/i18n-cyber.js?v=1ae97cd58b9b"></script>
     <script src="../../scripts/lang-select.js?v=60b3643a2859"></script>
     <script src="../../scripts/karma-nodes.js?v=3e8631a9ab01"></script>
     <script src="../../scripts/karma-public-api.js?v=87e65377466c"></script>
@@ -1745,16 +1745,16 @@
     <script src="../../scripts/cyber-assistant-tasks.js?v=3084609bc881"></script>
     <script src="../../scripts/karma-service-spec.js?v=157d9b6ea723"></script>
     <script src="../../scripts/cyber-agents.js?v=689c6a375660"></script>
-    <script src="../../scripts/cyber-authorize.js?v=998640da8467"></script>
+    <script src="../../scripts/cyber-authorize.js?v=5c0b42026e17"></script>
     <!-- 最近调用面板：设置页那张「已授权 · 一键取消绑定」和交付包那张密钥清单
          用同一份实现（KarmaKeyCalls），所以必须排在两个宿主前面。 -->
     <script src="../../scripts/cyber-key-calls.js?v=93ba41801624"></script>
- <script src="../../scripts/cyber-handoff.js?v=4443cb0c212d"></script>
+ <script src="../../scripts/cyber-handoff.js?v=44ebec4ac33e"></script>
     <!-- 匹配码激活的签名消息由 cyber-handoff.js 出口提供，所以必须排在它后面。 -->
     <script src="../../scripts/cyber-bind-requests.js?v=e2ac8ed774dd"></script>
     <!-- 一键取消绑定：和接入确认同源（都用 KarmaHandoff 出口的签名消息），排在它后面。 -->
     <script src="../../scripts/cyber-unbind-keys.js?v=dd4435d0693c"></script>
- <script src="../../scripts/cyber-pairing.js?v=701cb9d94a2c"></script>
+ <script src="../../scripts/cyber-pairing.js?v=a7063405227a"></script>
     <!-- 刷脸保险柜：主身份刷脸即激活 + 追加身份的同人比对（模板在本机加密 / 比对）。 -->
     <script src="../../scripts/cyber-face-vault.js?v=fb67c6687e1c"></script>
     <!-- 安全验证（2FA）：设置页那张卡 + 动额度前弹出的验证码。 -->

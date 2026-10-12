@@ -4,7 +4,7 @@
  * Phrase packs (i18n-phrase/*.js) inherit this file's ?v=, so editing either
  * requires re-running scripts/stamp_console_assets.py. Keep this note in sync
  * with any phrase-pack change so the deployed pack never stays on a stale URL.
- * Phrase-pack revision: 2026-10-08 compliance-revocation public trace (review console + entity page).
+ * Phrase-pack revision: 2026-10-12 Agent onboarding one-stop (step bar + step ③ activation code + pointers moved to step ③).
  */
 (function (global) {
   const STORAGE_KEY = "karma_cyber_lang";
