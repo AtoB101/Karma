@@ -250,6 +250,11 @@ if command -v node >/dev/null 2>&1; then
   node "$ROOT/tests/js/test_console_fetch.cjs"
   # 服务端闸门的英文 detail → 用户看到的人话（认得的翻成人话，不认得的原样抛）。
   node "$ROOT/tests/js/test_gate_error_hints.cjs"
+  # 会话过期自愈：401 / 403 只在「会话类」失败时静默重签一次并原样重放，续不上就关门喊人话；
+  # 别的 4xx / 5xx 一次都不重试，没连过钱包的访客不被误关门（15 分钟令牌在用户眼皮底下过期的复盘）。
+  node "$ROOT/tests/js/test_console_session_recovery.cjs"
+  # 心跳：令牌到点静默续签；钱包锁着 / 换过账号一律不替用户签名，只喊一次「会话已过期」。
+  node "$ROOT/tests/js/test_console_session_watch.cjs"
   # 最近调用面板：切语言重画 + prune 按宿主（都是真机上踩出来的）。
   node "$ROOT/tests/js/test_key_calls_panel.cjs"
   # 接入确认的两个宿主（一条龙第 ③ 步 + 设置页兜底）：都要画出码框、都能就地输码，

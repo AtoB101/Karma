@@ -1040,6 +1040,98 @@
     return false;
   }
 
+  /* ------------------------------------------------- 会话续期（令牌会到点） */
+
+  /**
+   * SIWE 会话只有 15 分钟。**页面一直开着的时候，它会在用户眼皮底下过期** ——
+   * 而在本轮之前没人盯着这件事：入口门禁只在事件上重算，令牌过期本身不产生事件，
+   * ``ensureFreshToken`` 导出了却一个调用方都没有。真机上的样子正是：tab 开着不动，
+   * 之后点「生成接入包」走到最后只拿到一句英文 HTTP 401（那把钥匙的边界 / 额度
+   * 其实都还没保存），同一时刻「接入确认」那张卡也一直是空的（它走会话鉴权，
+   * 同样被 401/403 挡住）—— 用户于是以为是自己抄错了匹配码。
+   *
+   * 这里补上那一段：令牌快到点 / 已过期就**静默重签一次**（钱包仍授权时，用户只多签
+   * 一次名，不用做别的）；实在续不上，才发 ``karma-session-expired``，让入口门禁按
+   * 既有口径把门重新关上（那句话就是「会话已过期，请重新连接钱包」）。
+   */
+  var SESSION_WATCH_MS = Number(global.KARMA_SESSION_WATCH_MS) > 0
+    ? Number(global.KARMA_SESSION_WATCH_MS)
+    : 30000;
+  var sessionWatchTimer = null;
+  var reauthInFlight = null;
+  var reauthTriedFor = "";
+  var expiredNotified = false;
+
+  /**
+   * 静默重签：钱包还在授权状态时再走一遍 SIWE。
+   * 同一枚令牌只试一次 —— 否则钱包会每 30 秒弹一次签名，比过期本身更烦；
+   * 换过账号 / 钱包锁着 / 拿不到账号，一律**不替用户做主**，返回 false 交回门禁。
+   */
+  function reauth() {
+    if (reauthInFlight) return reauthInFlight;
+    reauthInFlight = (async function () {
+      var s = readSession();
+      if (!s.wallet || !s.accessToken) return false;
+      if (reauthTriedFor === s.accessToken) return false;
+      reauthTriedFor = s.accessToken;
+      var provider = activeProvider();
+      if (!provider || typeof provider.request !== "function") return false;
+      var current = "";
+      try {
+        var accts = await provider.request({ method: "eth_accounts" });
+        current = accts && accts.length ? accts[0] : "";
+      } catch (_) {
+        current = "";
+      }
+      if (!current || String(current).toLowerCase() !== String(s.wallet).toLowerCase()) return false;
+      try {
+        await signIn(provider, current, s.walletName || "钱包");
+      } catch (_) {
+        return false;
+      }
+      expiredNotified = false;
+      return true;
+    })();
+    var clear = function () { reauthInFlight = null; };
+    reauthInFlight.then(clear, clear);
+    return reauthInFlight;
+  }
+
+  /** 会话真的没救了：提示 + 把门关上（入口门禁听这个事件）。只喊一次，不刷屏。 */
+  function markExpired() {
+    if (expiredNotified) return;
+    expiredNotified = true;
+    setStatus("会话已过期 · 请重新连接钱包", false);
+    emitEvent("karma-session-expired");
+  }
+
+  /** 一次心跳。返回 'ok' | 'renewed' | 'expired' | 'none'。 */
+  async function checkSession() {
+    var st = tokenState();
+    if (st === "ok") {
+      reauthTriedFor = "";
+      expiredNotified = false;
+      return "ok";
+    }
+    if (st === "none") {
+      expiredNotified = false;
+      return "none";
+    }
+    if (await reauth()) {
+      expiredNotified = false;
+      return "renewed";
+    }
+    markExpired();
+    return "expired";
+  }
+
+  function watchSession() {
+    if (sessionWatchTimer) return;
+    try {
+      sessionWatchTimer = global.setInterval(function () { checkSession(); }, SESSION_WATCH_MS);
+    } catch (_) {}
+  }
+
   /* -------------------------------------------------------------------- bind */
 
   function bind() {
@@ -1055,6 +1147,8 @@
       btn.addEventListener("click", disconnect);
     });
     restore();
+    // 页面开着的时候也会过期：入口门禁只在事件上重算，所以这里得有人盯着心跳。
+    watchSession();
   }
 
   /** Best available wallet provider: the one used this session, else the first
@@ -1077,6 +1171,9 @@
     openPicker: openModal,
     tokenState: tokenState,
     ensureFreshToken: ensureFreshToken,
+    reauth: reauth,
+    checkSession: checkSession,
+    markExpired: markExpired,
     bind: bind,
     diagnose: diagLines,
     CATALOG: CATALOG,

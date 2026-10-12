@@ -197,3 +197,63 @@ bash scripts/security-baseline-guard.sh             -> OK（金融函数注册�
 - 更早提过、不在本轮范围的：**G10 需发布负责人逐项签字**、**G11 KYC 侧对外公开留痕接口**。
 - 旧审计 `security/audit/2026-10-13-console-entry-and-deeplink-audit.md` §7「顺带发现（未修）」里
   那条背景纹理 404，**本轮已修**（#288），该处状态已被本报告取代。
+
+
+## 7. 追加：会话过期自愈（2026-10-13 用户报「生成接入包 401 / 匹配码不对」）
+
+**现象（真实反馈）**：claw 接入 Karma、回执了匹配码，但操作台「生成接入包」报
+`生成失败：HTTP 401: Authentication required`；同一时刻「接入确认」那张卡片也一直读不出
+待确认的接入申请（用户以为是自己匹配码抄错 / 匹配码不对）。
+
+**根因（生产证据坐实，非推测）**：
+
+1. **会话令牌只有 15 分钟**（`api/middleware/auth.py` `ACCESS_TOKEN_EXPIRE_MINUTES = 15`）。
+   页面一直开着，令牌会在用户眼皮底下过期；而入口门禁只在**事件**上重算 —— 过期本身不产生
+   事件，`KarmaWalletAuth.ensureFreshToken` 虽然导出了，却**一个调用方都没有**。
+2. **401 文案逐字对上**：生产机 `curl -X PUT /v1/identities/<id>/automation-policy` 返回
+   `401 {"detail":"Authentication required"}`（`api/middleware/auth.py` `require_auth_if_enabled`），
+   与用户看到的报错**逐字相同**。
+3. **失败点在第一步**：`apps/console/scripts/cyber-authorize.js` 的 `generate()` 顺序是
+   ① `putAutomationPolicy`（`PUT /v1/identities/{id}/automation-policy`）→ ② `setAllocations`
+   → ③ 钱包签名 `runtimeCreateKey`。① 没有 2FA / 会话续期保护，401 直接落到最后 catch，
+   所以**还没走到签名**就先炸了。
+4. **匹配码「不对」是同一根因**：`apps/console/scripts/cyber-bind-requests.js` 轮询
+   `POST /runtime/list-pending-binds`（会话鉴权，`api/routes/runtime_gateway.py`
+   `resolve_actor_identity_id`，无 actor → `403`）。生产日志显示该端点每 60 秒稳定 `403`
+   （`actor_id=None`）；前端把 401/403 当「还没连钱包」静默吞掉 → 卡片一直空 → 用户以为
+   匹配码错。**匹配码本身没错，是会话被打断读不出申请列表。**
+5. **后端状态正常**：`karma-api` 容器 DB 里 `runtime_keys` 有 pending 绑定记录，配对存储
+   `agent_pairing.json` 也有 pending 记录。排除「重启导致令牌失效」—— `APP_SECRET_KEY`
+   是固定值，JWT 不因重启失效。
+
+**修法（只动操作台前端 + i18n + 测试，服务端零改动）**：
+
+- `apps/console/scripts/console-wallet-auth.js`：新增 30s 心跳 `watchSession()`（可被
+  `window.KARMA_SESSION_WATCH_MS` 覆盖）；`reauth()` 静默重签（同一枚令牌只试一次；钱包锁着
+  / 换过账号 / 拿不到账号一律**不替用户签名**）；续不上才 `markExpired()` 发
+  `karma-session-expired` 让入口门禁按既有口径关门，且**只喊一次**。
+- `apps/console/scripts/karma-public-api.js`：把 `karmaFetch` 拆成 `karmaFetchOnce`（原逻辑
+  一行未动）+ 外层自愈。**只在「会话类」失败**（`isSessionFailure`：401，或 403 且 detail 含
+  `authentication required`）时静默重签一次、换上**新令牌**把这次请求**原样重放一次**；
+  其它 4xx/5xx **一次都不重试**；没连过钱包的访客**不被误关门**（各模块自己会提示去连钱包）。
+  另新增 `GATE_HINTS`：把 `Authentication required` 翻成人话「会话已过期：点页面上的
+  『连接钱包』重新签名一次，再重试这一步。」
+- 五门语言 i18n（`en / ja / ko / es-AR / es-SV`）补齐上面那条 hint。
+
+**测试证据（真跑真代码）**：
+
+```
+node tests/js/test_console_session_recovery.cjs  -> ok  25 checks passed
+node tests/js/test_console_session_watch.cjs     -> ok  21 checks passed
+```
+
+两条都已挂进 `scripts/acceptance/console_last_mile_gate.sh`。门禁整体 `rc=0`；
+`check_console_assets`：47 条引用 0 问题；两道守卫 `rc=0`。
+
+**未验证 / 未做（如实记）**：
+
+- **真机 Playwright 未跑**（本地与 CI 都没装 `playwright`），「开一个标签页放 15 分钟再点生成」
+  的真机时序**没有自动复现**；等价证据是源码级 401 映射（生产 curl）+ 上述两条行为套件。
+  用户若在同一标签页停留超 15 分钟即可命中；若否，需再排是否有别的 401 源（已排除
+  `APP_SECRET_KEY` 轮换）。
+- 只动前端；**资金状态机 / 结算 / 运行期网关 / 授权策略服务端校验一字未改**。
