@@ -136,6 +136,12 @@ agent 侧发起。返回体里的 `pairing_code` **只出现这一次**。
 
 同一个 IP 最多同时挂 10 个未处理的请求；超过返回 429。
 
+**`verification_uri` 要靠得住，中间那一跳必须把查询串带过去。** 线上 nginx 的
+`/console` 入口曾经把 `?pair=` 吃掉，主人点开链接只看到操作台默认页（表现为
+「匹配码在哪输入」）。2026-10-13 已修为 `return 302 /console/pages/cyber/index.html$is_args$args;`，
+操作台那一侧也认 `?pair=`（`cyber-pairing.js` 的 `prefillFromUrl`，会把码预填进输入框并翻到
+「接入一个 Agent」）。改动 / 回滚口径见 `security/audit/2026-10-13-console-entry-and-deeplink-audit.md`。
+
 ### 4.2 `POST /v1/agent-pairing/claim`（公开，限流 10 次/分钟）
 
 ```json

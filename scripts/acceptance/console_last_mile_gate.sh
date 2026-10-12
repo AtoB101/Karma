@@ -268,6 +268,9 @@ if command -v node >/dev/null 2>&1; then
   # 建立子身份 · 卡片清单：整块渲染不许变成「读取失败：T is not defined」，
   # 没开通的卡要能一键刷脸开通（都是线上真实踩过的）。
   node "$ROOT/tests/js/test_console_sub_list.cjs"
+  # 操作台入口深链：?view=pairing / ?view=agents 要真的落到「接入一个 Agent」/「我的
+  # 助理 Agent」（聊天窗口发出去的就是这两条），认不出来的 view 不许乱跳。
+  node "$ROOT/tests/js/test_console_view_landing.cjs"
   # 主体认证留底的那张脸：加子身份时要在本机解得开（解不开就说明密钥约定漂了）。
   node "$ROOT/tests/js/test_console_face_package.cjs"
 

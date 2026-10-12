@@ -11,13 +11,17 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
 from services.chat_adapters import commands, events, guard, outbound, whatsapp
 
 PKG = Path(__file__).resolve().parents[2] / "services" / "chat_adapters"
+#: 操作台入口那个脚本：适配器发出去的 `?view=` 名字由它负责认。
+CONSOLE_JS = PKG.parents[1] / "apps" / "console" / "scripts" / "cyber-console.js"
 
 TELEGRAM_SECRET = "tg-secret-value"
 WA_APP_SECRET = "wa-app-secret-value"
@@ -80,6 +84,46 @@ def _tg_update(text: str) -> dict:
 # --------------------------------------------------------------------------
 # 功能：接入引导
 # --------------------------------------------------------------------------
+
+
+def test_console_links_default_to_the_operation_console(monkeypatch):
+    """接入引导发出去的地址必须落在**操作台入口**上，不是官网首页。
+
+    线上真源是 /opt/karma/.env；没配就走代码默认值。默认值必须是
+    `https://karma-network.ai/console`：`https://karma-network.ai/` 是营销页，
+    主人点进去找不到「批准配对」。nginx 在 /console 那一跳会把查询串原样带进
+    操作台（2026-10-13 修），所以 `?view=` 能一路走到前端。
+    """
+    monkeypatch.delenv("KARMA_CONSOLE_BASE_URL", raising=False)
+    monkeypatch.delenv("KARMA_CONSOLE_PAIRING_URL", raising=False)
+    from services.chat_adapters import config
+
+    assert config.console_base_url() == "https://karma-network.ai/console"
+    assert config.console_pairing_url() == "https://karma-network.ai/console/?view=pairing"
+    assert config.console_agents_url() == "https://karma-network.ai/console/?view=agents"
+
+
+def test_console_parses_every_view_the_adapters_send(monkeypatch):
+    """两边钉在一起：适配器发的 `?view=` 名字，操作台必须认得。
+
+    任一边改了名字，主人点开链接就会落回默认页 —— 那正是「找不到位置」的由来。
+    操作台侧的落点由 tests/js/test_console_view_landing.cjs 真跑一遍。
+    """
+    monkeypatch.delenv("KARMA_CONSOLE_BASE_URL", raising=False)
+    monkeypatch.delenv("KARMA_CONSOLE_PAIRING_URL", raising=False)
+    from services.chat_adapters import config
+
+    console = CONSOLE_JS.read_text(encoding="utf-8")
+    table = re.search(r"URL_VIEW_LANDINGS = \{(.*?)\n  \};", console, re.S)
+    assert table, "cyber-console.js 里的 URL_VIEW_LANDINGS 不见了"
+    known = set(re.findall(r"(\w+):\s*\[\"", table.group(1)))
+    assert known, "URL_VIEW_LANDINGS 一条落点都没有"
+
+    sent = set()
+    for url in (config.console_pairing_url(), config.console_agents_url()):
+        sent.add(parse_qs(urlparse(url).query).get("view", [""])[0])
+    assert sent <= known, f"操作台不认这几个 view：{sorted(sent - known)}"
+
 
 
 async def test_telegram_connect_reply_points_at_the_console(client, monkeypatch):
