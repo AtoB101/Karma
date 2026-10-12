@@ -167,6 +167,12 @@ jobs:
           name: dist-${{ steps.pkg.outputs.dist }}
           path: ${{ steps.pkg.outputs.dir }}/dist
 
+      - name: Install twine
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install twine
+
       - name: Publish to PyPI
         if: env.PYPI_API_TOKEN != ''
         run: |
