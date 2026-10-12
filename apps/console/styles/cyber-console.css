@@ -2840,7 +2840,7 @@ body {
   width: min(72vmin, 760px);
   height: min(72vmin, 760px);
   border-radius: 50%;
-  background-image: url("../../assets/earth-texture.jpg");
+  background-image: url("../assets/earth-texture.jpg");
   background-size: 200% 100%;
   background-repeat: repeat-x;
   animation: globe-pan 90s linear infinite;
