@@ -116,17 +116,17 @@ bash scripts/acceptance/testnet_claw_manus_gate.sh
 | # | 条件 | 负责人 | ☐ |
 |---|------|--------|---|
 | 1 | Sepolia `TESTNET_RPC_URL` + `NONCUSTODIAL_AGENT_PAYMENT_ADDRESS` + ERC20 | 链上 | ✅ 2026-10-01（RPC + ERC20 + Bilateral 三件套已在，闸门 H1） |
-| 2 | 有余额的 buyer/seller 测试钱包（或 KMS） | 链上 | ☐ 待签（钱的事，shell 判不了；闸门 H2） |
-| 3 | 每笔 testnet launch 的 `CHAIN_ANCHOR_HASH`（64 hex） | 集成 | ☐ 待签（按笔写入，不是全局 env；闸门 H3） |
+| 2 | 有余额的 buyer/seller 测试钱包（或 KMS） | 链上 | ✅ 2026-10-12（闸门 `H2` 改成**上链查余额**：结算钱包 + 库里 `a2a-buyer`/`a2a-seller` 的绑定钱包，3 个地址余额均 > 0。「够不够跑完一笔」仍由人签） |
+| 3 | 每笔 testnet launch 的 `CHAIN_ANCHOR_HASH`（64 hex） | 集成 | ✅ 2026-10-12（闸门 `H3` 机器判：`vouchers.chain_anchor_hash` 按笔写 + `validate_chain_anchor_for_mode` 在场，且发布环境里**没有**全局 `CHAIN_ANCHOR_HASH`） |
 | 4 | **Redis** 可用（生产限流 fail-closed） | SRE | ✅ 2026-10-01（闸门 H4：主机上 PONG） |
 | 5 | **PostgreSQL** 替代 SQLite | SRE | ✅ 2026-10-01（闸门 H5：`DATABASE_URL` 是 postgresql+asyncpg） |
 | 6 | `APP_SECRET_KEY`、`AUTH_API_KEYS` 强密钥 | 安全 | ✅ 2026-10-01（闸门 A2 / A4 / A4b / A4c，3 把独立钥匙） |
 | 7 | `SECURITY_ONCALL_PRIMARY` / `BACKUP` | 安全 | ✅ 2026-10-01（第二值班人已配，`E5b` 机器判「主备不是同一个人」） |
 | 8 | `deployment-manifest.json` + `verify-manifest.sh` 与链上一致 | 发布 | ✅ 2026-10-01（`scripts/acceptance/verify-manifest.sh`，8 项核对：清单/环境/链上三方对齐） |
-| 9 | Karma2 `CORE_VERSION.lock` == 公开 commit（若跑私有 verify） | 私仓 | ☐ 待签（闸门 H9） |
-| 10 | OpenClaw MCP 注册 + 路径 A/B 至少一条人工签字 | 运营 | ☐ 待签（闸门 H10） |
-| 11 | OpenManus / `phase1_claw_manus_smoke.py` 成功 | 集成 | ☐ 待签（闸门 H11） |
-| 12 | （可选）`RUN_TESTNET_ONCHAIN=true` 链上 hybrid 冒烟 | 链上 | ☐ 待签（闸门 H12） |
+| 9 | Karma2 `CORE_VERSION.lock` == 公开 commit（若跑私有 verify） | 私仓 | ☐ 待签（闸门 `H9`；要有私有仓库读权限的人才判得了） |
+| 10 | OpenClaw MCP 注册 + 路径 A/B 至少一条人工签字 | 运营 | ☐ 待签（闸门 `H10`；MCP 要注册进用户自己的 OpenClaw，只能人做） |
+| 11 | OpenManus / `phase1_claw_manus_smoke.py` 成功 | 集成 | ☐ 待签（闸门 `H11`）。**要测试网栈**：生产口径实例 `/docs`=404、且 `TRADE_LAUNCH_REQUIRE_EIP712=true` + 归属闸门会挡住 smoke；见 [`../SECURITY_RELEASE_GATES.md`](../SECURITY_RELEASE_GATES.md) 的 Gate H 实测 |
+| 12 | （可选）`RUN_TESTNET_ONCHAIN=true` 链上 hybrid 冒烟 | 链上 | ☐ 待签（闸门 `H12`）。发布环境未设 `SETTLEMENT_MODE`，实测跑成 `offchain` —— 要在测试网栈上设 `hybrid` 才跑得了上链那一段 |
 
 ### 4.1 `X402_PAYMENT_BACKEND`：一条还没定的资金安全项
 

@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "purpose": "G10 human sign-off ledger - EXAMPLE ONLY, do not put real signatures here. The live ledger is written by scripts/acceptance/g10-signoff.sh on the release host (default /opt/karma/state/g10-sign-off.json, chmod 600) and must never be committed to this public repo.",
+  "items": [
+    {
+      "item": "A4d",
+      "status": "signed",
+      "signed_by": "<release owner>",
+      "signed_at": "2026-10-12T04:30:00Z",
+      "evidence": "<where to look, e.g. the holder list kept next to /opt/karma/.env - value stays on the host>"
+    },
+    {
+      "item": "H9",
+      "status": "pending",
+      "note": "<private-repo check: needs read access to the Karma2 repo>"
+    }
+  ]
+}
