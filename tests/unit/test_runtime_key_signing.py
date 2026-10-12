@@ -108,6 +108,24 @@ def test_agent_public_key_accepts_base64_and_hex_only():
         rks.normalize_agent_public_key(base64.b64encode(b"too-short").decode())
 
 
+def test_agent_public_key_base64_may_start_with_0x():
+    """约 1/2000 把随机 Ed25519 公钥的 base64 的头两个字符就是 "0x"/"0X"。
+
+    那是 base64 的前两位，不是 hex 前缀——当成前缀剥掉，合法公钥当场被判成
+    非法，这类 agent 永远配不上对（CI 上真红过一次）。
+    """
+    lower = bytes([0xD3, 0x10]) + bytes(range(1, 31))
+    upper = bytes([0xD1, 0x70]) + bytes(range(1, 31))
+    b64_lower = base64.b64encode(lower).decode()
+    b64_upper = base64.b64encode(upper).decode()
+    assert b64_lower.startswith("0x") and b64_upper.startswith("0X")
+    assert rks.normalize_agent_public_key(b64_lower) == b64_lower
+    assert rks.normalize_agent_public_key(b64_upper) == b64_upper
+    # 两种写法仍然收敛到同一个值："0x" 前缀的 64 位 hex 照旧。
+    assert rks.normalize_agent_public_key(lower.hex()) == b64_lower
+    assert rks.normalize_agent_public_key("0x" + lower.hex()) == b64_lower
+
+
 def test_agent_public_key_accepts_the_seed_hex_the_sdk_expects():
     """SDK 允许私钥写成 hex 或 base64；两种写法推出来的公钥必须一样。"""
     seed = bytes(range(32))

@@ -59,7 +59,9 @@ def canonical_public_key_b64(public_key: str) -> str:
     if not text:
         return ""
     compact = "".join(text.split())
-    if compact[:2].lower() == "0x":
+    # 只有「0x + 64 位 hex」才是前缀写法；base64 公钥本身就可能以 0x/0X 开头
+    # （约 1/2000 把随机钥匙），误剥前缀会让这把钥匙显示不出指纹。
+    if len(compact) == 66 and compact[:2].lower() == "0x":
         compact = compact[2:]
     try:
         if len(compact) == 64 and all(c in "0123456789abcdefABCDEF" for c in compact):
