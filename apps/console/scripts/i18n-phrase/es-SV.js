@@ -211,6 +211,7 @@ window.CYBER_I18N_PHRASE["es-SV"] = {
   "原始响应": "Respuesta sin procesar",
   "去刷脸认证 →": "Ir a la verificación facial →",
   "去建子身份 →": "Crear una subidentidad →",
+  "去授权": "Asignar cupo",
   "去接入": "Conectar",
   "反面": "Dorso",
   "发现可结算的 agent": "Buscar agents liquidables",
@@ -3002,5 +3003,17 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
 
 // dynamic-append-31: 一条龙合并（授权向导 + 接入一个 Agent）
 "第 2 步：收款方向要先选行业": "Paso 2: elige un rubro para la dirección de cobro",
+
+// dynamic-append-32: 一条龙合并卡的静态文案（步骤条 / 方向选择 / 类型卡）
+"2 · 这个 agent 是什么": "2 · Qué es este agent",
+"3 · 授权额度": "3 · Cupo autorizado",
+"付款方向：直接生成接入包；收款方向：连带把它上架到 Karma 目录，好让别的 agent 找到它。换方向随时可以改，不锁死。": "Dirección de pago: se genera el paquete de conexión directamente. Dirección de cobro: además se lo publica en el directorio de Karma para que otros agents lo encuentren. Puedes cambiar la dirección cuando quieras, no queda fija.",
+"先连接钱包（顶部），四个方块从上往下走一遍，不用换页：① 选身份、起名字、定方向；② 看情况补行业硬指标；③ 划额度与边界；④ 点最下面那颗按钮生成接入包，写进 agent 的环境变量就行。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。": "Conecta la billetera primero (arriba). Recorre los cuatro bloques de arriba hacia abajo, sin cambiar de página: ① elige la identidad, ponle un nombre, define la dirección; ② completa los requisitos obligatorios del rubro si hace falta; ③ marca el cupo y los bordes; ④ toca el botón de abajo para generar el paquete de conexión y ponlo en las variables de entorno del agent. Cada subidentidad tiene sus propias credenciales, pedidos y detalle de ingresos, todo bajo la misma identidad maestra.",
+"名字 · 方向 · 行业": "Nombre · dirección · rubro",
+"它替你干什么": "Qué hace por ti",
+"我要付款（让 agent 替我花钱）": "Yo pago (dejo que el agent gaste por mí)",
+"我要收款（agent 替我接单收钱）": "Yo cobro (el agent toma pedidos y cobra por mí)",
+"起个名字，选它是替你花钱还是替你收钱；收款方向再选行业、填硬指标，别的 agent 才在 Karma 里找得到它。": "Ponle un nombre y elige si gasta por ti o cobra por ti. Si es dirección de cobro, elige el rubro y completa los requisitos obligatorios para que otros agents lo encuentren en Karma.",
+"这张卡是什么类型": "Qué tipo de tarjeta es",
 
 });
