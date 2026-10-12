@@ -284,22 +284,25 @@ function groupNode(dom, name) {
   const connect = subNode(dom, "agents", "connect");
   check("?view=pairing 高亮「接入一个 Agent」子项", !!(connect && connect.classList.contains("active")));
   const g = groupNode(dom, "agents");
-  // 主身份口径下侧栏本来就收窄（applyNavScope 不画 agents 组），所以这里不断言
-  // 分组展开 —— 深链的落点是「页 + 子项高亮」，跟侧栏可见性是两回事。
+  // Agent 接入归主身份（用户口径 2026-10-13）：主身份视角下这一组本来就看得见，
+  // 所以深链落地时它要跟着展开，用户在侧栏里也找得到自己刚落在哪儿。
+  check("?view=pairing 主身份下 agents 分组可见", !!(g && !g.classList.contains("nav-scope-hidden")));
+  check("?view=pairing 主身份下 agents 分组展开", !!(g && g.classList.contains("open")));
   check("?view=pairing 父项标成 parent-active", !!(g && g._main.classList.contains("parent-active")));
   const mine = subNode(dom, "agents", "mine");
   check("?view=pairing 不把「我的助理 Agent」也点亮", !!(mine && !mine.classList.contains("active")));
 })();
 
-// 2b. 助理身份口径：侧栏里 agent 接入本来就看得见，分组要跟着展开
+// 2b. 助理身份口径：Agent 接入 不在助理的功能区里（侧栏不画），但深链落点照样成立 ——
+//     落点只负责「翻到那一页」，功能区的收窄是 applyNavScope 的事，两件事不互相绑。
 (function () {
   const dom = boot("?view=pairing", { identityClass: "individual" });
   eq("助理身份 ?view=pairing 仍落 #agents 页", activePage(dom), "agents");
   const g = groupNode(dom, "agents");
-  check("助理身份下 agents 分组没有被人为藏掉", !!(g && !g.classList.contains("nav-scope-hidden")));
-  check("助理身份下 agents 分组展开", !!(g && g.classList.contains("open")));
+  check("助理身份下 agents 分组被功能区收窄收起来", !!(g && g.classList.contains("nav-scope-hidden")));
+  check("助理身份下 agents 分组不展开", !!(g && !g.classList.contains("open")));
   const connect = subNode(dom, "agents", "connect");
-  check("助理身份下「接入一个 Agent」子项高亮", !!(connect && connect.classList.contains("active")));
+  check("助理身份下「接入一个 Agent」子项仍高亮", !!(connect && connect.classList.contains("active")));
 })();
 
 // --------------------------------------------------------------------------

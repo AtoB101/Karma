@@ -3,10 +3,14 @@
 用户口径（2026-10）：选了哪个身份，就只显示那个身份对应的功能区 —— 不要把
 订单、收付、任务、争议、Agent 接入、技能市场、复核台、仲裁台全部挤在一起。
 
-用户口径（2026-10-10）：切到**助理身份**时，功能区只留
-订单 / 收付中心 / 任务执行 / 账单 / 争议 / Agent 接入 / 设置 这七项 ——
-身份 · 认证（建卡、主身份账房）和技能市场属于别的视角，不再画在助理页上。
+用户口径（2026-10-10，2026-10-13 修订）：切到**助理身份**时，功能区只留
+订单 / 收付中心 / 任务执行 / 账单 / 争议 / 设置 这六项 ——
+身份 · 认证（建卡、主身份账房）、Agent 接入和技能市场属于别的视角，不再画在助理页上。
 技能市场的侧栏入口已**删掉**（整页与接口都还在，只是不再挂入口）。
+
+用户口径（2026-10-13）：**Agent 接入改挂主身份的「身份 · 认证」下面**，助理身份那一档
+不再有它。理由：子身份的口径（类型 / 名字 / 权限 / 额度 / 单笔 / 日限 / 行业资质）本来就是
+主身份在「身份 · 认证」里建卡时定好的，「给这张卡接一个 agent」是建卡的下一步。
 
 钉住三件事：
 
@@ -30,8 +34,9 @@ BOOT = CONSOLE / "scripts/cyber-console.js"
 PAGE = CONSOLE / "pages/cyber/index.html"
 
 ROLES = {"master", "individual", "merchant", "enterprise", "verifier", "arbitrator", "ops_reviewer"}
-#: 助理身份（子身份）的功能区白名单：一张卡干活要用到的七块，别的都收起来。
-ASSISTANT_GROUPS = ["overview", "center", "tasks", "bills", "disputes", "agents", "settings"]
+#: 助理身份（子身份）的功能区白名单：一张卡干活要用到的六块，别的都收起来。
+#: （2026-10-13 起 Agent 接入不在这六块里 —— 它归主身份的「身份 · 认证」下面。）
+ASSISTANT_GROUPS = ["overview", "center", "tasks", "bills", "disputes", "settings"]
 #: 特权工作面 → 哪些岗位的功能区里有它（运营复核岗本来就是 verifier 类身份）。
 PRIVILEGED = {
     "reviews": {"verifier", "ops_reviewer"},
@@ -113,15 +118,27 @@ def test_every_nav_group_is_reachable_from_some_role():
     assert not missing, f"这些侧栏分组没有任何身份看得到：{missing}"
 
 
-def test_assistant_function_area_is_exactly_the_seven_work_areas():
-    """切到助理身份：功能区只有那七项，身份 · 认证和技能市场都不许再出现。"""
+def test_assistant_function_area_is_exactly_the_six_work_areas():
+    """切到助理身份：功能区只有那六项，身份 · 认证 / Agent 接入 / 技能市场都不许再出现。"""
     roles = _role_groups(BOOT.read_text(encoding="utf-8"))
     for role in ("individual", "merchant", "enterprise"):
-        assert roles[role] == ASSISTANT_GROUPS, f"{role} 的功能区不是那七项：{roles[role]}"
-        for gone in ("identity", "market", "verifier-id", "arbiter-id", "reviews"):
+        assert roles[role] == ASSISTANT_GROUPS, f"{role} 的功能区不是那六项：{roles[role]}"
+        for gone in ("identity", "agents", "market", "verifier-id", "arbiter-id", "reviews"):
             assert gone not in roles[role], f"{role} 不该把 {gone} 收进功能区"
-    # 主身份视角没动：身份 · 认证 + 账单 + 设置。
-    assert roles["master"] == ["identity", "bills", "settings"]
+    # 主身份：身份 · 认证（含 Agent 接入）+ 账单 + 设置。
+    assert roles["master"] == ["identity", "agents", "bills", "settings"]
+
+
+def test_agent_onboarding_sits_under_identity_in_the_master_area():
+    """Agent 接入挂在「身份 · 认证」下面，助理身份那一档不再有它（用户口径 2026-10-13）。"""
+    html = PAGE.read_text(encoding="utf-8")
+    order = re.findall(r'<div class="nav-group" data-group="([^"]+)"', html)
+    assert "identity" in order and "agents" in order, f"侧栏缺某一组：{order}"
+    assert order.index("agents") == order.index("identity") + 1, f"Agent 接入不在「身份 · 认证」下面：{order}"
+    roles = _role_groups(BOOT.read_text(encoding="utf-8"))
+    assert "agents" in roles["master"], "主身份的功能区里没有 Agent 接入"
+    for role in ("individual", "merchant", "enterprise"):
+        assert "agents" not in roles[role], f"{role} 的助理功能区里还挂着 Agent 接入"
 
 
 def test_the_skill_market_entry_is_gone_from_the_sidebar():

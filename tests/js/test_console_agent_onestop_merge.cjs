@@ -2,8 +2,10 @@
  * 操作台「接入一个 Agent」合并后的一条龙：一颗按钮、两个方向。
  *
  * 2026-10-13 用户口径：授权向导与旧的「接入一个 Agent」合并成同一张卡——
- * 身份 / 名字只填一次，方向决定走不走目录注册。这里把两个模块真的跑起来，
- * 点那一颗按钮，验证它按方向发出正确的调用：
+ * 身份 / 名字只填一次，方向决定走不走目录注册。这一轮又收了一次口子：这张卡上
+ * **已经定好的东西不再让用户重填**（类型 / 额度 / 单笔 / 日限 / 权限都在「身份 · 认证」
+ * 建卡时落库了，行业由资质推断），所以向导只读卡上那份 spend_policy + allocation。
+ * 这里把两个模块真的跑起来，点那一颗按钮，验证它按方向发出正确的调用：
  *   1. 收款方向：先 ownerConnect（同一个 agent 名）再 runtimeCreateKey，
  *      且目录 API Key 与标签都回到交付卡；
  *   2. 付款方向（未选行业）：只铸钥匙，不进目录；
@@ -63,35 +65,24 @@ function makeNode(id) {
 function boot(api, calls) {
   const nodes = {};
   const byId = function (id) { if (!nodes[id]) nodes[id] = makeNode(id); return nodes[id]; };
-  nodes["agw-human"] = makeNode("agw-human");
-  nodes["agw-human"].options = [{ value: "above_single" }, { value: "always" }, { value: "off" }];
 
-  const permNodes = ["request_voucher", "verify_voucher", "submit_receipt", "update_progress",
-    "request_settlement", "sync_task_status", "discover_agents", "place_order"].map(function (k) {
-    const n = makeNode("perm_" + k); n.checked = true; n.setAttribute("data-agw-perm", k); return n;
-  });
-  const typeNode = makeNode("type"); typeNode.value = "life";
-
-  const agentsHost = makeNode("agents");
   const document = {
     readyState: "complete",
     getElementById: byId,
     createElement: function () { return makeNode("__new"); },
     addEventListener: function () {}, removeEventListener: function () {},
     querySelector: function (sel) {
-      if (sel === 'input[name="agw-type"]:checked') return typeNode;
       if (sel && sel.charAt(0) === "#") return byId(sel.slice(1));
       return null;
     },
-    querySelectorAll: function (sel) {
-      if (sel === "[data-agw-perm]") return permNodes;
-      return [];
-    },
+    querySelectorAll: function () { return []; },
     dispatchEvent: function () { return true; },
     documentElement: makeNode("__html"),
     body: makeNode("__body"),
     head: makeNode("__head"),
   };
+
+  function CustomEvent(type, params) { this.type = type; this.detail = (params && params.detail) || null; }
 
   const wallet = { request: async function (m) { return m.method === "eth_requestAccounts" ? ["0xabc"] : "0xsig"; } };
   const window = {
@@ -107,12 +98,14 @@ function boot(api, calls) {
       industryTitle: function (row, fb) { return (row && row.title_zh) || fb; },
       collect: function () { return { spec: { ok: 1 }, problems: [] }; },
     },
+    CustomEvent: CustomEvent,
     CYBER_I18N: {},
-    CustomEvent: function (t, o) { this.type = t; this.detail = (o || {}).detail; },
   };
   window.window = window;
-  const sandbox = { window: window, document: document, navigator: {}, console: console,
-    setTimeout: setTimeout, clearTimeout: clearTimeout, CustomEvent: window.CustomEvent };
+  const sandbox = {
+    window: window, document: document,
+    navigator: {}, console: console,
+    setTimeout: setTimeout, clearTimeout: clearTimeout, CustomEvent: CustomEvent };
   vm.createContext(sandbox);
   for (const f of ["cyber-authorize.js", "cyber-agents.js"]) {
     const full = path.join(SCRIPTS, f);
@@ -128,17 +121,27 @@ function flush(n) {
   return p;
 }
 
-const PROFILE = { profile_id: "p_love", "class": "individual", display_name: "小爱", kyc_status: "verified", visibility: "public", status: "active", spend_policy: {} };
+// 这张卡上已经定好的边界（建卡时落的库）：8 条权限 / 单笔 50 / 日限 100 / 超单笔要确认。
+const PROFILE = {
+  profile_id: "p_love", "class": "individual", display_name: "小爱",
+  kyc_status: "verified", visibility: "public", status: "active",
+  spend_policy: {
+    permissions: ["request_voucher", "verify_voucher", "submit_receipt", "update_progress",
+      "request_settlement", "sync_task_status", "discover_agents", "place_order"],
+    single_limit: 50, daily_limit: 100, high_risk_mode: "above_single",
+  },
+};
 
 function baseApi(calls) {
   return {
     listRoleProfiles: async function () { return { profiles: [PROFILE] }; },
-    getAllocations: async function () { return { locked_usdc: 200, allocations: [{ profile_id: "p_love", allocated_credits: 0 }] }; },
+    getAllocations: async function () { return { locked_usdc: 200, allocations: [{ profile_id: "p_love", allocated_credits: 50 }] }; },
     getCapacity: async function () { return { total_locked_usdc: 200 }; },
     setAllocations: async function () { return {}; },
     putAutomationPolicy: async function () { return {}; },
     listOnboardingIndustries: async function () { return { industries: [{ industry_id: "food", group: "g", title_zh: "餐饮" }] }; },
     getOnboardingIndustry: async function () { return { industry: { industry_id: "food", title_zh: "餐饮", fields: [] } }; },
+    suggestIndustries: async function () { return { suggestions: [] }; },
     listMyAgents: async function () { return { agents: [] }; },
     ownerConnect: async function (payload) {
       calls.ownerConnect.push(payload);
@@ -147,17 +150,18 @@ function baseApi(calls) {
   };
 }
 
+// 只填「这张卡上没有的东西」：身份来自已建好的子身份、名字给这台 agent、方向 / 行业。
 function fill(env, opts) {
   const sel = env.byId("agw-identity");
   sel.value = "p_love";
   sel.fire("change");
   env.byId("agw-agent").value = opts.agentName || "claw-001";
-  env.byId("agw-amount").value = "50";
-  env.byId("agw-single").value = "100";
-  env.byId("agw-daily").value = "500";
-  env.byId("agw-ack").checked = true;
-  env.byId("ag-side").value = opts.side;
-  env.byId("ag-vertical").value = opts.vertical || "";
+  const side = env.byId("ag-side");
+  side.value = opts.side;
+  side.fire("change");
+  const vert = env.byId("ag-vertical");
+  vert.value = opts.vertical || "";
+  vert.fire("change");
 }
 
 async function main() {
@@ -167,7 +171,6 @@ async function main() {
     const env = boot(baseApi(calls), calls);
     await flush();
     fill(env, { side: "seller", vertical: "food" });
-    env.byId("ag-vertical").fire("change");
     await flush(6);
     env.byId("agw-generate").fire("click");
     await flush(8);
@@ -178,6 +181,7 @@ async function main() {
     eq("钥匙也铸了，绑同一个 agent", calls.runtimeCreateKey.length, 1);
     eq("agent_binding = agent 名", calls.runtimeCreateKey[0] && calls.runtimeCreateKey[0].agent_binding, "claw-001");
     eq("agent_id = agent 名", calls.runtimeCreateKey[0] && calls.runtimeCreateKey[0].agent_id, "claw-001");
+    eq("单笔上限取自卡上那份", calls.runtimeCreateKey[0] && calls.runtimeCreateKey[0].single_limit, 50);
     check("目录 API Key 进了交付卡", String(env.byId("agw-result").innerHTML).indexOf("ak_test") >= 0);
     eq("API Key 留在本页供交付包用", (env.window.KarmaAgentKeys || {})["claw-001"], "ak_test");
   }
@@ -188,6 +192,7 @@ async function main() {
     const env = boot(baseApi(calls), calls);
     await flush();
     fill(env, { side: "buyer", vertical: "" });
+    await flush(6);
     env.byId("agw-generate").fire("click");
     await flush(8);
     eq("付款方向：不进目录", calls.ownerConnect.length, 0);
@@ -200,6 +205,7 @@ async function main() {
     const env = boot(baseApi(calls), calls);
     await flush();
     fill(env, { side: "seller", vertical: "" });
+    await flush(6);
     env.byId("agw-generate").fire("click");
     await flush(8);
     eq("没选行业：不进目录", calls.ownerConnect.length, 0);
