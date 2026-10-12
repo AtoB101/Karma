@@ -1,0 +1,168 @@
+# MCP 三个包的「装得上、握得上手」闸门。
+#
+# 打包这条路此前没有任何 CI 覆盖：pyproject、[project.scripts]、包内 __version__
+# 只在开发树上跑过 —— 没人证明过 `python -m build` 出来的 wheel 真能装进干净环境、
+# 装出来的进程真能完成一次 MCP 握手；也没人证明过文档里给用户的那行 git URL 安装
+# （不 clone 仓库）真的装得上。这里全部做成机器闸门：
+#   1. 构建 sdist + wheel，`twine check` 卡元数据；
+#   2. wheel 装进全新 venv，入口必须落到 bin/；
+#   3. 用 stdio 真跑一次 initialize，断言 serverInfo 报的是**包**的名字与版本
+#      （修之前它报的是 mcp SDK 的版本号 1.29.1，客户端会看错）；
+#   4. 另起一个干净 venv，只按文档那行 git URL 装，再握一次手。
+#
+# 本 workflow 只构建、只验证，**不发布**。上传 PyPI 必须人工带 PYPI_TOKEN 跑
+# `python -m twine upload`，步骤见 docs/mcp/karma-mcp-integration.md。
+name: MCP packages
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-packages-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist + wheel, then check metadata
+        run: |
+          set -euo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install build twine
+          for pkg in packages/karma-mcp-server packages/karma-openclaw packages/karma-connect; do
+            echo "== build ${pkg} =="
+            ( cd "${pkg}" && python3 -m build && python3 -m twine check dist/* )
+          done
+      - name: Install every built wheel into a clean venv
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/wheels
+          /tmp/wheels/bin/python -m pip install --upgrade pip
+          for whl in packages/*/dist/*.whl; do
+            echo "== install ${whl} =="
+            /tmp/wheels/bin/python -m pip install "${whl}"
+          done
+          # 控制台入口必须真的落到 bin/：[project.scripts] 写错这里就红。
+          for exe in karma-mcp-server karma-openclaw-mcp karma-connect; do
+            test -x "/tmp/wheels/bin/${exe}"
+          done
+      - name: Handshake over stdio against the installed wheels
+        run: |
+          set -euo pipefail
+          handshake() {
+            # $1 = 用哪个 python 去跑；$2 = 发行版名；$3 = 模块名
+            echo "== handshake ${2} =="
+            PYTHON_BIN="${1}" DIST="${2}" MODULE="${3}" \
+              "${1}" - <<'PY'
+          import os
+          import sys
+
+          import anyio
+          from importlib.metadata import version as dist_version
+          from mcp import ClientSession, StdioServerParameters
+          from mcp.client.stdio import stdio_client
+
+          DIST = os.environ["DIST"]
+          MODULE = os.environ["MODULE"]
+          PYTHON_BIN = os.environ["PYTHON_BIN"]
+
+
+          async def main() -> int:
+              # cwd=/tmp：绝不能让仓库源码树抢在装好的包前面被 import 到。
+              params = StdioServerParameters(command=PYTHON_BIN, args=["-m", MODULE], cwd="/tmp")
+              async with stdio_client(params) as (read, write):
+                  async with ClientSession(read, write) as session:
+                      init = await session.initialize()
+
+              expected = dist_version(DIST)
+              name = init.serverInfo.name
+              got = init.serverInfo.version
+              print(f"{DIST}: serverInfo.name={name} version={got} dist_metadata={expected}")
+              if name != DIST:
+                  print(f"FAIL: serverInfo.name {name!r} != {DIST!r}")
+                  return 1
+              if got != expected:
+                  print(f"FAIL: serverInfo.version {got!r} != dist metadata {expected!r}")
+                  return 1
+              return 0
+
+
+          sys.exit(anyio.run(main))
+          PY
+          }
+          handshake /tmp/wheels/bin/python karma-mcp-server karma_mcp_server
+          handshake /tmp/wheels/bin/python karma-openclaw karma_openclaw
+      - name: Git-URL install (the documented one-liner) — no clone, then handshake
+        if: >-
+          github.event_name != 'pull_request' ||
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          KARMA_INSTALL_REF: ${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/gitvenv
+          /tmp/gitvenv/bin/python -m pip install --upgrade pip
+          # 文档里给用户的那行：不 clone 仓库，直接按 git URL 装。
+          /tmp/gitvenv/bin/python -m pip install \
+            "karma-mcp-server @ git+https://github.com/${GITHUB_REPOSITORY}@${KARMA_INSTALL_REF}#subdirectory=packages/karma-mcp-server"
+          /tmp/gitvenv/bin/python -m pip install \
+            "karma-connect @ git+https://github.com/${GITHUB_REPOSITORY}@${KARMA_INSTALL_REF}#subdirectory=packages/karma-connect"
+          test -x /tmp/gitvenv/bin/karma-mcp-server
+          test -x /tmp/gitvenv/bin/karma-connect
+          handshake() {
+            # $1 = 用哪个 python 去跑；$2 = 发行版名；$3 = 模块名
+            echo "== handshake ${2} =="
+            PYTHON_BIN="${1}" DIST="${2}" MODULE="${3}" \
+              "${1}" - <<'PY'
+          import os
+          import sys
+
+          import anyio
+          from importlib.metadata import version as dist_version
+          from mcp import ClientSession, StdioServerParameters
+          from mcp.client.stdio import stdio_client
+
+          DIST = os.environ["DIST"]
+          MODULE = os.environ["MODULE"]
+          PYTHON_BIN = os.environ["PYTHON_BIN"]
+
+
+          async def main() -> int:
+              # cwd=/tmp：绝不能让仓库源码树抢在装好的包前面被 import 到。
+              params = StdioServerParameters(command=PYTHON_BIN, args=["-m", MODULE], cwd="/tmp")
+              async with stdio_client(params) as (read, write):
+                  async with ClientSession(read, write) as session:
+                      init = await session.initialize()
+
+              expected = dist_version(DIST)
+              name = init.serverInfo.name
+              got = init.serverInfo.version
+              print(f"{DIST}: serverInfo.name={name} version={got} dist_metadata={expected}")
+              if name != DIST:
+                  print(f"FAIL: serverInfo.name {name!r} != {DIST!r}")
+                  return 1
+              if got != expected:
+                  print(f"FAIL: serverInfo.version {got!r} != dist metadata {expected!r}")
+                  return 1
+              return 0
+
+
+          sys.exit(anyio.run(main))
+          PY
+          }
+          handshake /tmp/gitvenv/bin/python karma-mcp-server karma_mcp_server

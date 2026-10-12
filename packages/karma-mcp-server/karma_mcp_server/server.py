@@ -20,6 +20,7 @@ from mcp.server.auth.provider import TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 
+from karma_mcp_server import __version__ as _PKG_VERSION
 from karma_mcp_server.backend_client import KarmaBackend
 from karma_mcp_server.config import McpConfig, load_config
 from karma_mcp_server.credential_store import write_env_file
@@ -56,6 +57,19 @@ MAX_ARTIFACT_CHARS = 200_000
 PLATFORM = "mcp"
 
 
+def _apply_package_version(mcp: FastMCP, version: str) -> None:
+    """把 MCP 握手里的 ``serverInfo.version`` 钉成本包版本。
+
+    mcp SDK 1.x 的 ``FastMCP`` 不把版本号转给底层 ``MCPServer``，后者会回落成
+    ``importlib.metadata.version("mcp")`` —— 客户端在握手时就只看到 SDK 的版本号
+    （例如 1.29.1），而不是本包版本，排障时这一点会把人带偏。这里显式覆盖。
+    SDK 若改了内部结构，``tests/test_mcp_server_identity.py`` 的握手断言会立刻变红。
+    """
+    server = getattr(mcp, "_mcp_server", None)
+    if server is not None and not getattr(server, "version", None):
+        server.version = version
+
+
 def build_server(
     config: McpConfig | None = None,
     *,
@@ -73,6 +87,7 @@ def build_server(
         token_verifier=token_verifier,
         auth=auth_settings,
     )
+    _apply_package_version(mcp, _PKG_VERSION)
 
     async def _guard(fn: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
         try:
