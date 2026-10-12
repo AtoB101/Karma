@@ -163,9 +163,9 @@ location = /console/ {
 换回去 + `nginx -s reload` 即可。vhost 仍未纳入仓库（§6 的口径不变），
 但 `karma-web-deploy` 不写 nginx 配置，所以下次部署不会冲掉这笔改动。
 
-### 顺带发现（未修，如实记）
+### 顺带发现（当日已修，见 #288）
 
 - `apps/console/styles/cyber-console.css` 里 `background-image: url("../../assets/earth-texture.jpg")`：
   CSS 里的相对地址是相对**样式表自己**解析的，`/console/styles/` 往上两级是站点根，
   所以这条一直指向 `/assets/earth-texture.jpg`（线上 **404**）。与本轮入口改动无关
-  （改前改后是同一条 URL），是操作台背景纹理一直没加载。要修就得改这份 CSS 并重跑打戳脚本，单独一轮做。
+  （改前改后是同一条 URL），是操作台背景纹理一直没加载。要修就得改这份 CSS 并重跑打戳脚本，单独一轮做。**（2026-10-13 当天已单独开一轮修掉：见 #288 与 `2026-10-13-console-daily-review.md`；并已固化成门禁 `scripts/check_console_assets.py` + 单测，防这类「引用落不到文件」再回来。）**

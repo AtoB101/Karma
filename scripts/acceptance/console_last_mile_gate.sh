@@ -202,6 +202,9 @@ grep -q 'register_pairing_tools' "$ROOT/packages/karma-openclaw/karma_openclaw/s
 # 静态资源版本串：部署即换 URL。真机踩过「旧脚本 + 新口径 = 用户点生成只吃 400」，
 # 所以页面里每一条 js/css 引用都要带 ?v=<内容摘要>，落后了就在这里红。
 python3 scripts/stamp_console_assets.py --check
+# 资源引用要真的落到文件：少/多算一层 ../ 就会线上 404（背景纹理踩过）。
+# 页面 src/href + CSS url() + 已加载脚本的路径字面量，按线上 /console/ 前缀解析回文件。
+python3 scripts/check_console_assets.py
 # 语言包也得跟着页面的 v 取（取包走 force-cache，地址不带 v 就会新旧混着跑）。
 grep -q 'phraseUrl' "$CONSOLE/scripts/i18n-cyber.js"
 # 服务端那句英文闸门 detail → 用户看到的人话（译文在 i18n-phrase 的五门语言里）。
@@ -210,6 +213,7 @@ grep -q 'GATE_HINTS' "$CONSOLE/scripts/karma-public-api.js"
 
 python3 -m pytest -q tests/unit/test_openclaw_pairing_tools.py
 python3 -m pytest -q tests/unit/test_console_asset_versions.py
+python3 -m pytest -q tests/unit/test_console_asset_links.py
 python3 -m pytest -q tests/unit/test_console_gate_error_hints.py
 python3 -m pytest -q tests/unit/test_console_last_mile.py
 python3 -m pytest -q tests/unit/test_console_2fa.py
