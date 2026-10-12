@@ -11,8 +11,16 @@
     },
     {
       "item": "H9",
+      "status": "failed",
+      "failed_by": "<release owner>",
+      "failed_at": "2026-10-12T05:00:00Z",
+      "reason": "<looked at it and it is NOT aligned, e.g. CORE_VERSION.lock is N commits behind public main. Do NOT bump the lock just to make the gate green>",
+      "evidence": "<where to look, e.g. the lock file path in the private repo>"
+    },
+    {
+      "item": "H10",
       "status": "pending",
-      "note": "<private-repo check: needs read access to the Karma2 repo>"
+      "note": "<3 states: signed (counts as PASS) / failed (checked, did not pass - still HUMAN) / pending (not looked at yet)>"
     }
   ]
 }
