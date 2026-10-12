@@ -690,9 +690,11 @@ def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
     三个子项；配对（匹配接入）不再是独立子项 —— 它是「接入一个 Agent」这一页的一块。
 
     2026-10-12 用户口径：「整理成一条龙，包括输入匹配码，别让流程散在几个功能里」——
-    四步（① 授权向导 → ② 生成接入包 → ③ 输匹配码激活 → ④ 配对码接入）按这个顺序
-    排在同一页上；「接入向导」与「接入一个 Agent」两个子项落到同一组块，只负责滚到
-    各自那一步。配对是主路径的第四步，所以排在可选的高级注册（#ag-connect）之前。
+    四步（① 授权向导 → ② 生成接入包 → ③ 输匹配码激活 → ④ 配对码接入）排在同一页上。
+
+    2026-10-13 用户口径：「把授权向导和接入一个 agent 合并成一个功能」——
+    侧栏只剩一个入口（connect），落在 #ag-wizard 这张合并卡上；配对仍是主路径的
+    最后一步，跟着这张卡一起露面。
     """
     html = PAGE.read_text(encoding="utf-8")
     assert 'id="ag-pair"' in html
@@ -702,8 +704,7 @@ def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
     assert html.index('id="ag-wizard"') < html.index('id="ag-handoff-card"')
     assert html.index('id="ag-handoff-card"') < html.index('id="ag-activate"')
     assert html.index('id="ag-activate"') < html.index('id="ag-pair"')
-    assert html.index('id="ag-pair"') < html.index('id="ag-connect"')
-    assert 'id="ag-result"' in html
+    assert 'id="agw-result"' in html
     assert "cyber-pairing.js" in html
     assert 'id="pair-code"' in html
     assert 'id="pair-approve"' in html
@@ -715,14 +716,10 @@ def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
     console_js = (CONSOLE / "scripts" / "cyber-console.js").read_text(encoding="utf-8")
     # 一条龙：两个子项落到同一组块上（点哪个都看见整条流程，只滚到各自那一步）。
     # 交付包 / 激活卡故意不挂进来 —— 它们由各自模块按状态显隐（挂了会被 focus-hidden 压住）。
-    assert (
-        'var AGENT_ONBOARD_BLOCKS = ["#ag-wizard", "#agents > .ag-advanced", "#ag-pair"];'
-        in console_js
-    )
-    assert "wizard: AGENT_ONBOARD_BLOCKS," in console_js
+    assert 'var AGENT_ONBOARD_BLOCKS = ["#ag-wizard", "#ag-pair"];' in console_js
     assert "connect: AGENT_ONBOARD_BLOCKS," in console_js
-    assert 'wizard: "#ag-wizard"' in console_js
-    assert 'connect: "#agents .ag-advanced"' in console_js
+    assert 'connect: "#ag-wizard"' in console_js
+    assert ".ag-advanced" not in console_js
     assert 'pair: ' not in console_js and 'handoff: ' not in console_js
 
 

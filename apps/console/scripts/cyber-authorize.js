@@ -445,7 +445,7 @@
     }).join("\n");
   }
 
-  function renderSdk(res, profile, fields, perms, amount, typeKey, displayName, agentId) {
+  function renderSdk(res, profile, fields, perms, amount, typeKey, displayName, agentId, reg) {
     var host = byId("agw-result");
     if (!host) return;
     var key = (res && res.runtime_key) || "";
@@ -463,6 +463,7 @@
       "KARMA_RUNTIME_KEY=" + key,
       "KARMA_AGENT_ID=" + agentId,
     ].join("\n");
+    var apiKey = (reg && reg.credentials && reg.credentials.api_key) || "";
     host.hidden = false;
     host.innerHTML =
       '<div class="ag-result-head"><b>接入包 · ' + esc(did) + "</b>" +
@@ -476,6 +477,11 @@
       '<button type="button" class="btn primary" id="agw-copy-env">复制接入包</button>' +
       '<button type="button" class="btn" id="agw-download-env">下载 karma-agent.env</button>' +
       "</div></div>" +
+      (apiKey
+        ? '<div class="ag-snippet"><div class="ag-secret-label">API Key（仅此一次明文显示，请立即保存）</div>' +
+          "<pre>" + esc(apiKey) + "</pre>" +
+          '<button type="button" class="btn" id="agw-copy-apikey">复制</button></div>'
+        : "") +
       '<div class="ag-snippet"><div class="ag-secret-label">② agent 读到的边界</div>' +
       '<pre data-i18n-phrase>' +
       boundary([
@@ -498,6 +504,8 @@
       "</pre></div>";
     var copy = byId("agw-copy-env");
     if (copy) copy.addEventListener("click", function () { copyText(env, copy); });
+    var cak = byId("agw-copy-apikey");
+    if (cak) cak.addEventListener("click", function () { copyText(apiKey, cak); });
     var dl = byId("agw-download-env");
     if (dl) dl.addEventListener("click", function () { download("karma-agent.env", env + "\n"); });
   }
@@ -531,6 +539,15 @@
     var perms = checkedPerms();
     if (!perms.length) { setStatus(status, "第 4 步：至少勾一项权限", true); return; }
     if (!byId("agw-ack").checked) { setStatus(status, "第 4 步：请先勾选责任确认", true); return; }
+    // 一条龙第 2 步：方向 / 行业。选了收款方向就得选行业 —— 不然目录里无从定义它是干什么的。
+    var sideEl = byId("ag-side");
+    var side = sideEl ? sideEl.value : "buyer";
+    var verticalEl = byId("ag-vertical");
+    var vertical = verticalEl ? verticalEl.value : "";
+    var endpointEl = byId("ag-endpoint");
+    var endpoint = endpointEl ? String(endpointEl.value || "").trim() : "";
+    var needRegister = !!vertical || side === "seller";
+    if (side === "seller" && !vertical) { setStatus(status, "第 2 步：收款方向要先选行业", true); return; }
     var type = selectedType() || typeOf(p);
     var human = byId("agw-human").value;
 
@@ -560,7 +577,32 @@
     renderWizard();
     var out = byId("agw-result");
     if (out) { out.hidden = true; out.innerHTML = ""; }
+    var reg = null;
     try {
+      if (needRegister) {
+        setStatus(status, "接入中…");
+        var collected = { spec: {}, problems: [] };
+        if (side === "seller") {
+          collected = global.KarmaAgents && global.KarmaAgents.collectSpec
+            ? global.KarmaAgents.collectSpec()
+            : { spec: {}, problems: ["请先选择行业"] };
+          if (collected.problems.length) {
+            setStatus(status, "还差 " + collected.problems.length + " 项：" + collected.problems.slice(0, 4).join("；"), true);
+            return;
+          }
+        }
+        var answers = { industry_ids: [vertical] };
+        if (side === "seller") { answers.service_specs = {}; answers.service_specs[vertical] = collected.spec; }
+        try {
+          reg = await global.KarmaAgents.registerFromWizard({
+            profileId: p.profile_id, agentName: agentName, endpoint: endpoint,
+            side: side, vertical: vertical, answers: answers,
+          });
+        } catch (e) {
+          setStatus(status, "接入失败：" + (e.message || e), true);
+          return;
+        }
+      }
       if (state.typeTouched) {
         setStatus(status, "① 写入子身份类型…");
         var t = TYPES[type] || TYPES.life;
@@ -623,7 +665,7 @@
         agent_id: fields.agent_binding,
         profile_id: p.profile_id,
       });
-      renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName);
+      renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName, reg);
       setStatus(status, "✅ 已生成，交付包在下面");
       await load();
       refreshOthers();

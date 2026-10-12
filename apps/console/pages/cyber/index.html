@@ -131,7 +131,6 @@
           <div class="nav-group" data-group="agents">
             <button class="nav-main" data-page="agents" aria-expanded="false"><span class="icon">◈</span><span data-i18n="nav.agents">Agent 接入</span><span class="nav-caret">▾</span></button>
             <div class="nav-subs">
-              <button class="nav-sub" data-page="agents" data-sub="wizard"><span data-i18n="sub.agents.wizard">授权向导</span></button>
               <button class="nav-sub" data-page="agents" data-sub="connect"><span data-i18n="sub.agents.connect">接入一个 Agent</span></button>
               <button class="nav-sub" data-page="agents" data-sub="mine"><span data-i18n="sub.agents.mine">我的助理 Agent</span></button>
             </div>
@@ -944,12 +943,12 @@
             <div class="section-header">
               <div>
                 <h3>接入一个 agent · 一条龙</h3>
-                <p>从授权到 agent 真正能花钱，一共四步，全在这一页从上往下走。① 在授权向导里选身份、定额度、划边界，生成接入包交给 agent；② agent 拿到包、第一次上门要动钱时会申请绑定公钥，同时拿到一串 8 位匹配码 —— 到第 ③ 步「激活」把码抄进来、签一次名，它才能动钱；④ 如果 agent 支持自助接入，让它用配对码发起，你批准即可，不用抄码。</p>
+                <p>从授权到 agent 真正能花钱，一共四步，全在这一页从上往下走。① 在「接入一个 Agent」里选身份、起名字、定额度、划边界，生成接入包交给 agent；② agent 拿到包、第一次上门要动钱时会申请绑定公钥，同时拿到一串 8 位匹配码 —— 到第 ③ 步「激活」把码抄进来、签一次名，它才能动钱；④ 如果 agent 支持自助接入，让它用配对码发起，你批准即可，不用抄码。</p>
               </div>
             </div>
             <ol class="ag-flow">
-              <li class="ag-step"><b>① 授权向导</b><span>选身份 · 定额度 · 划边界，生成接入包</span>
-                <div style="margin-top:8px"><button type="button" class="btn" data-ag-flow="ag-wizard">去授权</button></div>
+              <li class="ag-step"><b>① 接入一个 Agent</b><span>选身份 · 定额度 · 划边界，生成接入包</span>
+                <div style="margin-top:8px"><button type="button" class="btn" data-ag-flow="ag-wizard">去接入</button></div>
               </li>
               <li class="ag-step"><b>② 生成接入包</b><span>把 env + 运行时密钥交给 agent</span>
                 <div style="margin-top:8px"><button type="button" class="btn" data-ag-flow="ag-handoff-card">看交付包</button></div>
@@ -963,20 +962,22 @@
             </ol>
           </div>
 
-          <!-- 授权向导：锁仓之后的活儿一条直线做完。
-               选身份 → 授权额度 → 定类型 → 划边界 → 生成 Karma 授权 SDK。 -->
+          <!-- 接入一个 Agent · 一条龙（2026-10-13 用户口径：「授权向导」与旧的
+               「接入一个 Agent」并成同一张卡 —— 身份、名字只填一次；选了收款方向
+               才连带把它上架到 Karma 目录。四个方块的渲染在 KarmaAuthorize，
+               行业硬指标 / 上架在 KarmaAgents，两者共用同一颗「生成接入包」按钮。） -->
           <div class="card section" id="ag-wizard">
             <div class="section-header">
               <div>
-                <h3>给 agent 授权 · 4 步</h3>
-                <p>先连接钱包（顶部），按 1 → 4 填完，点最下面那颗按钮，就会得到一段「接入包」——把它写进 agent 的环境变量就行。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。</p>
+                <h3>接入一个 Agent</h3>
+                <p>先连接钱包（顶部），四个方块从上往下走一遍，不用换页：① 选身份、起名字、定方向；② 看情况补行业硬指标；③ 划额度与边界；④ 点最下面那颗按钮生成接入包，写进 agent 的环境变量就行。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。</p>
               </div>
               <span class="api-status" id="agw-status">—</span>
             </div>
             <ol class="agw-steps">
               <li><b>1 · 选身份</b><span>这个 agent 用哪个身份</span></li>
-              <li><b>2 · 授权额度</b><span>它最多能动用多少 USDC</span></li>
-              <li><b>3 · 定类型</b><span>生活 / 工作 / 企业助理</span></li>
+              <li><b>2 · 这个 agent 是什么</b><span>名字 · 方向 · 行业</span></li>
+              <li><b>3 · 授权额度</b><span>它最多能动用多少 USDC</span></li>
               <li><b>4 · 划边界</b><span>权限 · 上限 · 谁来确认</span></li>
             </ol>
 
@@ -989,11 +990,6 @@
                 <label class="agw-label" for="agw-identity">接入身份</label>
                 <select id="agw-identity"></select>
                 <span class="agw-note" id="agw-identity-note"></span>
-              </div>
-              <div class="agw-row">
-                <label class="agw-label" for="agw-agent">你的 agent 叫什么</label>
-                <input id="agw-agent" type="text" placeholder="claw-001" autocomplete="off" spellcheck="false" />
-                <span class="agw-note">每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在这一页第 ③ 步「激活 · 输入匹配码」里输码，它才能动钱。</span>
               </div>
               <details class="agw-new-wrap">
                 <summary>＋ 新建一个子身份</summary>
@@ -1008,11 +1004,45 @@
                   <span class="api-status" id="agw-new-status"></span>
                 </div>
               </details>
+              <div class="agw-block-head" style="margin-top:14px">
+                <b>这张卡是什么类型</b>
+                <span>决定这个子身份的账目可见性：企业商业助理的明细默认隐藏金额。</span>
+              </div>
+              <div class="agw-types" id="agw-types">
+                <label class="agw-type"><input type="radio" name="agw-type" value="life" /><b>生活助理</b><span>日常采买、订阅、出行</span></label>
+                <label class="agw-type"><input type="radio" name="agw-type" value="work" /><b>工作助理</b><span>接单、交付、对外协作</span></label>
+                <label class="agw-type"><input type="radio" name="agw-type" value="company" /><b>企业商业助理</b><span>公司采购与对公结算 🔒</span></label>
+              </div>
             </div>
 
             <div class="agw-block">
               <div class="agw-block-head">
-                <b>2 · 授权额度</b>
+                <b>2 · 这个 agent 是什么</b>
+                <span>起个名字，选它是替你花钱还是替你收钱；收款方向再选行业、填硬指标，别的 agent 才在 Karma 里找得到它。</span>
+              </div>
+              <div class="agw-row">
+                <label class="agw-label" for="agw-agent">你的 agent 叫什么</label>
+                <input id="agw-agent" type="text" placeholder="claw-001" autocomplete="off" spellcheck="false" />
+                <span class="agw-note">每把钥匙都要指名一个 agent：铸出来是「未激活」，agent 申请接入后拿到 8 位匹配码，你在这一页第 ③ 步「激活 · 输入匹配码」里输码，它才能动钱。</span>
+              </div>
+              <div class="agw-row">
+                <label class="agw-label" for="ag-side">它替你干什么</label>
+                <select id="ag-side">
+                  <option value="buyer">我要付款（让 agent 替我花钱）</option>
+                  <option value="seller">我要收款（agent 替我接单收钱）</option>
+                </select>
+                <span class="agw-note">付款方向：直接生成接入包；收款方向：连带把它上架到 Karma 目录，好让别的 agent 找到它。换方向随时可以改，不锁死。</span>
+              </div>
+              <div class="agw-grid">
+                <div class="field"><label>行业</label><select id="ag-vertical" disabled><option value="">读取行业目录…</option></select></div>
+                <div class="field"><label>回调地址（可选）</label><input id="ag-endpoint" type="text" placeholder="https://your-agent.example.com/karma" /></div>
+              </div>
+              <div id="ag-spec-wrap"><div id="ag-spec-form"></div></div>
+            </div>
+
+            <div class="agw-block">
+              <div class="agw-block-head">
+                <b>3 · 授权额度</b>
                 <span>从主身份的锁仓里划给这个子身份。填的是「它总共有多少」，不是在这基础上再加。</span>
               </div>
               <div class="agw-row">
@@ -1026,18 +1056,6 @@
                 </div>
               </div>
               <p class="agw-note" id="agw-amount-note">连接钱包后这里会显示还能授权多少。</p>
-            </div>
-
-            <div class="agw-block">
-              <div class="agw-block-head">
-                <b>3 · 身份类型</b>
-                <span>决定这个子身份的账目可见性：企业商业助理的明细默认隐藏金额。</span>
-              </div>
-              <div class="agw-types" id="agw-types">
-                <label class="agw-type"><input type="radio" name="agw-type" value="life" /><b>生活助理</b><span>日常采买、订阅、出行</span></label>
-                <label class="agw-type"><input type="radio" name="agw-type" value="work" /><b>工作助理</b><span>接单、交付、对外协作</span></label>
-                <label class="agw-type"><input type="radio" name="agw-type" value="company" /><b>企业商业助理</b><span>公司采购与对公结算 🔒</span></label>
-              </div>
             </div>
 
             <div class="agw-block">
@@ -1202,34 +1220,6 @@
 
             <div id="pair-result" class="pair-result" style="margin-top:12px"></div>
           </div>
-
-          <details class="card section ag-advanced" style="margin-top:20px" hidden>
-            <summary>高级 · 把 agent 注册进 Karma 目录（可选）</summary>
-            <div class="section-header" style="margin-top:14px">
-              <div>
-                <h3>接入一个 Agent</h3>
-                <p>选行业 → 填硬指标 → 一键接入。agent 的运行密钥由 Karma 服务端生成并托管（可随时吊销），全程不涉及你的钱包私钥 / 助记词。</p>
-              </div>
-            </div>
-            <div class="ag-grid">
-              <div class="field"><label>方向</label><select id="ag-side"><option value="seller">我要收款（卖家 agent）</option><option value="buyer">我要付款（买家 agent）</option></select></div>
-              <div class="field"><label>行业</label><select id="ag-vertical" disabled><option value="">读取行业目录…</option></select></div>
-              <div class="field"><label>Agent 名称</label><input id="ag-name" type="text" placeholder="如 上海中央厨房配送 agent" /></div>
-              <div class="field"><label>回调地址（可选）</label><input id="ag-endpoint" type="text" placeholder="https://your-agent.example.com/karma" /></div>
-              <div class="field"><label>绑定角色档案</label><select id="ag-scope"><option value="">（暂不绑定档案）</option></select></div>
-              <div class="field"><label>无档案时自动创建</label><select id="ag-class"><option value="merchant">merchant（商家）</option><option value="enterprise">enterprise（企业）</option></select></div>
-            </div>
-            <div id="ag-spec-wrap"><div id="ag-spec-form"></div></div>
-            <div style="display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap">
-              <button type="button" class="btn primary" id="ag-connect">⚡ 一键接入 Agent</button>
-              <span class="api-status" id="ag-wizard-status"></span>
-            </div>
-            <div class="ag-result" id="ag-result" style="display:none"></div>
-            <details style="margin-top:12px">
-              <summary style="cursor:pointer;font-size:12px;color:var(--text-dim)">原始响应</summary>
-              <pre class="out" id="ag-out" style="margin-top:10px;max-height:280px;overflow:auto">—</pre>
-            </details>
-          </details>
 
           <div class="card section" id="ag-mine" style="margin-top:20px">
             <div class="section-header">
@@ -1724,14 +1714,14 @@
       window.KARMA_API_KEY = window.KARMA_API_KEY || "";
       window.KARMA_IDENTITY_ID = window.KARMA_IDENTITY_ID || "";
     </script>
-    <script src="../../scripts/i18n-cyber.js?v=4a200be5882b"></script>
+    <script src="../../scripts/i18n-cyber.js?v=078550ead65d"></script>
     <script src="../../scripts/lang-select.js?v=60b3643a2859"></script>
     <script src="../../scripts/karma-nodes.js?v=3e8631a9ab01"></script>
     <script src="../../scripts/karma-public-api.js?v=87e65377466c"></script>
     <script src="../../scripts/console-wallet-auth.js?v=b432296bddb4"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=7c7af489e26e"></script>
-    <script src="../../scripts/cyber-console.js?v=2b375fbb7df8"></script>
+    <script src="../../scripts/cyber-console.js?v=a7465dec779d"></script>
     <script src="../../scripts/cyber-identity.js?v=56ded3484b92"></script>
 <script src="../../scripts/cyber-master-page.js?v=dc08d3fb8033"></script>
     <script src="../../scripts/cyber-face-capture.js?v=75c411042b89"></script>
@@ -1744,14 +1734,14 @@
     <!-- 助理任务执行看板：小爱等助理身份的任务页，订单 / 任务内容 / 金额 / 进度。 -->
     <script src="../../scripts/cyber-assistant-tasks.js?v=3084609bc881"></script>
     <script src="../../scripts/karma-service-spec.js?v=157d9b6ea723"></script>
-    <script src="../../scripts/cyber-agents.js?v=689c6a375660"></script>
-    <script src="../../scripts/cyber-authorize.js?v=5c0b42026e17"></script>
+    <script src="../../scripts/cyber-agents.js?v=7f81b641215f"></script>
+    <script src="../../scripts/cyber-authorize.js?v=3c096f22d0b0"></script>
     <!-- 最近调用面板：设置页那张「已授权 · 一键取消绑定」和交付包那张密钥清单
          用同一份实现（KarmaKeyCalls），所以必须排在两个宿主前面。 -->
     <script src="../../scripts/cyber-key-calls.js?v=93ba41801624"></script>
  <script src="../../scripts/cyber-handoff.js?v=44ebec4ac33e"></script>
     <!-- 匹配码激活的签名消息由 cyber-handoff.js 出口提供，所以必须排在它后面。 -->
-    <script src="../../scripts/cyber-bind-requests.js?v=e2ac8ed774dd"></script>
+    <script src="../../scripts/cyber-bind-requests.js?v=52e4f1a12307"></script>
     <!-- 一键取消绑定：和接入确认同源（都用 KarmaHandoff 出口的签名消息），排在它后面。 -->
     <script src="../../scripts/cyber-unbind-keys.js?v=dd4435d0693c"></script>
  <script src="../../scripts/cyber-pairing.js?v=a7063405227a"></script>

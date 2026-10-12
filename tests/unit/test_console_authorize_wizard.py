@@ -53,15 +53,17 @@ def test_the_page_carries_the_four_step_wizard():
     html = HTML.read_text(encoding="utf-8")
     for node in WIZARD_NODES:
         assert node in html, f"授权向导缺少 {node}"
-    for step in ("1 · 选身份", "2 · 授权额度", "3 · 定类型", "4 · 划边界"):
+    for step in ("1 · 选身份", "2 · 这个 agent 是什么", "3 · 授权额度", "4 · 划边界"):
         assert step in html, f"向导缺少步骤说明 {step}"
     assert "生成接入包" in html, "最后那一下要说清楚生成的是「接入包」"
     assert "../../scripts/cyber-authorize.js" in html, "向导脚本必须被页面加载"
     # 向导要排在「我的 Agent」之前：先授权，再管理。
     assert html.index('id="ag-wizard"') < html.index('id="ag-list"')
-    # 老的「接入一个 Agent」收进高级折叠，不删功能也不抢视线。
-    assert 'class="card section ag-advanced"' in html
-    assert 'id="ag-connect"' in html and 'id="ag-handoff-card"' in html
+    # 2026-10-13 用户口径：老的「接入一个 Agent」（原高级折叠）并进这张卡 ——
+    # 身份 / 名字只填一次，方向 / 行业直接露出来，不再有第二个入口或第二份表单。
+    assert 'class="card section ag-advanced"' not in html
+    assert 'id="ag-connect"' not in html
+    assert 'id="ag-side"' in html and 'id="ag-vertical"' in html and 'id="ag-handoff-card"' in html
 
 
 def test_the_three_assistant_types_map_to_role_profile_classes():
@@ -132,7 +134,7 @@ def test_the_wizard_names_the_agent_before_it_mints():
     assert "agent_id: fields.agent_binding" in js, "请求体要带 agent_id 做交叉校验"
     assert 'agent_binding: ""' not in js, "空绑定铸不出来，这条老写法必须删干净"
     assert '"KARMA_AGENT_ID=" + agentId' in js, "接入包要带 KARMA_AGENT_ID"
-    assert "renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName)" in js
+    assert "renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName, reg)" in js
     assert "给你的 agent 起个名字" in js, "没填名字要当场说人话"
     assert "/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(agentName)" in js
     gate = GATE.read_text(encoding="utf-8")
@@ -195,7 +197,7 @@ def test_changing_the_type_keeps_the_name_the_user_typed():
     assert "function isTypeLabel(" in js
     assert "if (isTypeLabel(p.display_name)) profileBody.display_name = t.label;" in js
     # SDK 回执要写本次选的类型与名字，不能用内存里可能已经过期的那份档案。
-    assert "renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName)" in js
+    assert "renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName, reg)" in js
     assert "var effectiveName = isTypeLabel(p.display_name) ? TYPES[type].label : p.display_name;" in js
 
 

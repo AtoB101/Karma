@@ -211,7 +211,6 @@ window.CYBER_I18N_PHRASE["es-SV"] = {
   "原始响应": "Respuesta sin procesar",
   "去刷脸认证 →": "Ir a la verificación facial →",
   "去建子身份 →": "Crear una subidentidad →",
-  "去授权": "Asignar cupo",
   "去接入": "Conectar",
   "反面": "Dorso",
   "发现可结算的 agent": "Buscar agents liquidables",
@@ -2925,8 +2924,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
   "这次申请没有带公钥签名：无法确认申请方真的持有它报的那把公钥。批准后它只能走「申请绑定 + 8 位匹配码」那条路激活。": "Esta solicitud no trae firma sobre su clave pública: no podemos confirmar que quien la pide realmente tenga esa clave. Después de aprobar, solo puede activarse por la vía solicitud de vinculación + código de 8 caracteres.",
 // --- dynamic-append-27: Agent 接入一条龙（步骤条 + 第 ③ 步输匹配码 + 指路改到第 ③ 步）---
   "接入一个 agent · 一条龙": "Conectar un agent · todo el flujo en un solo lugar",
-  "从授权到 agent 真正能花钱，一共四步，全在这一页从上往下走。① 在授权向导里选身份、定额度、划边界，生成接入包交给 agent；② agent 拿到包、第一次上门要动钱时会申请绑定公钥，同时拿到一串 8 位匹配码 —— 到第 ③ 步「激活」把码抄进来、签一次名，它才能动钱；④ 如果 agent 支持自助接入，让它用配对码发起，你批准即可，不用抄码。": "Desde la autorización hasta que el agent realmente puede gastar son cuatro pasos, todos en esta página, de arriba hacia abajo. ① En el asistente de autorización eliges la identidad, fijas los límites, marcas los bordes y generas un paquete de conexión para el agent. ② Cuando el agent recibe el paquete y por primera vez quiere mover dinero, pide vincular su clave pública y recibe un código de 8 caracteres; ve al paso ③ Activación, escribe el código y firma una vez, y recién ahí puede gastar. ④ Si el agent admite conexión autoservicio, deja que arranque con un código de emparejamiento: tú solo apruebas, sin copiar ningún código.",
-  "① 授权向导": "① Asistente de autorización",
+  "从授权到 agent 真正能花钱，一共四步，全在这一页从上往下走。① 在「接入一个 Agent」里选身份、起名字、定额度、划边界，生成接入包交给 agent；② agent 拿到包、第一次上门要动钱时会申请绑定公钥，同时拿到一串 8 位匹配码 —— 到第 ③ 步「激活」把码抄进来、签一次名，它才能动钱；④ 如果 agent 支持自助接入，让它用配对码发起，你批准即可，不用抄码。": "Desde la autorización hasta que el agent realmente puede gastar son cuatro pasos, todos en esta página, de arriba hacia abajo. ① En la tarjeta Conectar un Agent eliges la identidad, le pones un nombre, fijas los límites, marcas los bordes y generas un paquete de conexión para el agent. ② Cuando el agent recibe el paquete y por primera vez quiere mover dinero, pide vincular su clave pública y recibe un código de 8 caracteres; ve al paso ③ Activación, escribe el código y firma una vez, y recién ahí puede gastar. ④ Si el agent admite conexión autoservicio, deja que arranque con un código de emparejamiento: tú solo apruebas, sin copiar ningún código.",
+  "① 接入一个 Agent": "① Conectar un Agent",
   "选身份 · 定额度 · 划边界，生成接入包": "Elegir la identidad · fijar los límites · marcar los bordes y generar el paquete",
   "② 生成接入包": "② Generar el paquete de conexión",
   "把 env + 运行时密钥交给 agent": "Entregarle al agent el env + la clave de ejecución",
@@ -3000,5 +2999,8 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
 // --- dynamic-append-30: 全站扫描补出的两处（摄像头序号缺省名 / 未担保片段）---
 "摄像头 {0}": "Cámara {0}",
 "· 未担保 {0}，提高授权额度后可划动": "· {0} sin garantía; sube el cupo asignado para poder usarlo",
+
+// dynamic-append-31: 一条龙合并（授权向导 + 接入一个 Agent）
+"第 2 步：收款方向要先选行业": "Paso 2: elige un rubro para la dirección de cobro",
 
 });

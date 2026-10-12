@@ -209,7 +209,6 @@ window.CYBER_I18N_PHRASE["en"] = {
   "原始响应": "Raw response",
   "去刷脸认证 →": "Go to face verification →",
   "去建子身份 →": "Create a sub-identity →",
-  "去授权": "Grant a limit",
   "去接入": "Connect",
   "反面": "Back",
   "发现可结算的 agent": "Find settleable agents",
@@ -2923,8 +2922,8 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
   "这次申请没有带公钥签名：无法确认申请方真的持有它报的那把公钥。批准后它只能走「申请绑定 + 8 位匹配码」那条路激活。": "This request carried no signature over its public key: we cannot confirm the requester really holds the key it reported. After approval it can only activate through the bind request + 8-character matching code path.",
 // --- dynamic-append-27: Agent 接入一条龙（步骤条 + 第 ③ 步输匹配码 + 指路改到第 ③ 步）---
   "接入一个 agent · 一条龙": "Connect an agent · the whole flow in one place",
-  "从授权到 agent 真正能花钱，一共四步，全在这一页从上往下走。① 在授权向导里选身份、定额度、划边界，生成接入包交给 agent；② agent 拿到包、第一次上门要动钱时会申请绑定公钥，同时拿到一串 8 位匹配码 —— 到第 ③ 步「激活」把码抄进来、签一次名，它才能动钱；④ 如果 agent 支持自助接入，让它用配对码发起，你批准即可，不用抄码。": "From authorization to the agent actually spending, it is four steps, all on this page, top to bottom. ① In the grant wizard pick the identity, set the limits, draw the boundaries, and generate a connection pack for the agent. ② When the agent takes the pack and first wants to move money, it asks to bind its public key and receives an 8-character activation code - go to step ③ Activation, type the code and sign once, and only then can it spend. ④ If the agent supports self-service onboarding, let it start with a pairing code: you just approve, no code to copy.",
-  "① 授权向导": "① Grant wizard",
+  "从授权到 agent 真正能花钱，一共四步，全在这一页从上往下走。① 在「接入一个 Agent」里选身份、起名字、定额度、划边界，生成接入包交给 agent；② agent 拿到包、第一次上门要动钱时会申请绑定公钥，同时拿到一串 8 位匹配码 —— 到第 ③ 步「激活」把码抄进来、签一次名，它才能动钱；④ 如果 agent 支持自助接入，让它用配对码发起，你批准即可，不用抄码。": "From authorization to the agent actually spending, it is four steps, all on this page, top to bottom. ① In the Connect an Agent card, pick the identity, give it a name, set the limits, draw the boundaries, and generate a connection pack for the agent. ② When the agent takes the pack and first wants to move money, it asks to bind its public key and receives an 8-character activation code - go to step ③ Activation, type the code and sign once, and only then can it spend. ④ If the agent supports self-service onboarding, let it start with a pairing code: you just approve, no code to copy.",
+  "① 接入一个 Agent": "① Connect an Agent",
   "选身份 · 定额度 · 划边界，生成接入包": "Pick the identity · set the limits · draw the boundaries, then generate the pack",
   "② 生成接入包": "② Generate the connection pack",
   "把 env + 运行时密钥交给 agent": "Hand the env + runtime key to the agent",
@@ -2998,5 +2997,8 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
 // --- dynamic-append-30: 全站扫描补出的两处（摄像头序号缺省名 / 未担保片段）---
 "摄像头 {0}": "Camera {0}",
 "· 未担保 {0}，提高授权额度后可划动": "· {0} unsecured; raise the granted limit to spend it",
+
+// dynamic-append-31: 一条龙合并（授权向导 + 接入一个 Agent）
+"第 2 步：收款方向要先选行业": "Step 2: pick an industry when the direction is receiving",
 
 });

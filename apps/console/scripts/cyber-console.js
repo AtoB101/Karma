@@ -1315,10 +1315,10 @@
     },
     reviews: { all: "#rv-queue", entity: "#rv-queue", developer: "#rv-queue", kyc: "#rv-queue" },
     agents: {
-      wizard: "#ag-wizard",
+      // 一条龙（用户口径 2026-10-13）：授权向导与「接入一个 Agent」并成同一张卡，
+      // 侧栏只剩一个入口 —— 落在这张卡上，其余步骤（交付包 / 激活 / 配对）往下滚。
+      connect: "#ag-wizard",
       mine: "#ag-mine",
-      // 「接入一个 Agent」这一页的最后一块就是配对（匹配接入）。
-      connect: "#agents .ag-advanced",
     },
   };
 
@@ -1364,7 +1364,7 @@
    * 压住（从「我的助理 Agent」点开交付包时就是这么坏的）。这一点没列 = 永远可见，
    * 正好是「输匹配码这一步别藏起来」想要的。
    */
-  var AGENT_ONBOARD_BLOCKS = ["#ag-wizard", "#agents > .ag-advanced", "#ag-pair"];
+  var AGENT_ONBOARD_BLOCKS = ["#ag-wizard", "#ag-pair"];
 
   /**
    * 「右边只显示点过的那一块」：点子功能 -> 同页其它功能块收起来；点主项 -> 整页视图全恢复。
@@ -1394,10 +1394,8 @@
       developer: ["#id-developer"],
     },
     agents: {
-      // 一条龙（用户口径 2026-10-12）：接入向导 / 接入一个 Agent 是同一条流水线的
-      // 两个入口 —— 落到同一组块上，子项只负责滚到对应那一步，不再把流程切碎。
-      // 按子项收窄时，第 ③ 步「输匹配码」会被压在别的子项里，用户实测找不到。
-      wizard: AGENT_ONBOARD_BLOCKS,
+      // 一条龙（用户口径 2026-10-13）：授权向导与「接入一个 Agent」并成一张卡 ——
+      // 侧栏只剩一个入口，落在这张卡上；交付包 / 激活 / 配对往下滚就能看到。
       connect: AGENT_ONBOARD_BLOCKS,
       // 我的助理 Agent = 事后管理：只看那张清单。
       mine: ["#ag-mine"],
