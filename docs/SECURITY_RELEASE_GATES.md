@@ -135,7 +135,16 @@ This checklist is blocking for broad public test rollout.
   **`ADMIN_ACTOR_IDS` / `ARBITRATOR_ACTOR_IDS` / `GOVERNANCE_VERIFIER_IDS` 里点名的每个
   非身份号 actor 都有自己的钥匙**。最后一条是硬的：悬空白名单条目直接 FAIL ——
   一个没人管的 id 留在管理员名单里就是后门）
-- `[人工]` 运维白名单里的身份号（`kid_*` / telegram id）确有其人，且与持有人对得上 —— 待签
+- `[机器]` 白名单条目都归属得到一条真实身份记录（`A4e`）— ✅ 2026-10-12
+  （`A4c` 只保证「这个名字有自己的一把钥匙」。有钥匙、库里却查无此人的条目，用那把钥匙做的事
+  在审计里落到一串没人认领的字符串 —— `resolve_actor_identity_id` 找不到 agent 记录时会把
+  actor 原样当身份号返回，并写进 `owner_identity_id` / `created_by` 这类归属字段。
+  `A4e` 要求每个条目要么**本身**是 `identity_profiles` 里的一条身份，要么是 `agents` 里一条
+  **被真实身份认领**的 agent（`owner_identity_id` 指向真实身份）；查不到就 `FAIL`。
+  服务账号补归属走 `scripts/maintenance/register_service_actor.py`，纯数字 telegram id 机器判不了，仍归 `A4d`）
+- `[人工]` 运维白名单里的身份号（`kid_*` / telegram id）确有其人，且与持有人对得上（`A4d`）—— 待签
+  （台账条目 `A4d`。`A4e` 只筛「归属记录在不在」，这一条判的是「那个人是谁」——
+  机器判不了社会事实）
 - `[机器]` No test credentials are present in runtime env — ✅ 2026-10-01
   （`AUTH_ALLOW_DEV_KEY_FALLBACK` / `OPENCLAW_LOCAL_PHASE1_AUTO_RELAX` /
   `OPENCLAW_RELAX_DELIVERY_SIGNATURES` 均为 false，且无 `TEST_*/DEMO_*/SEED_*` 形状的凭证变量）
@@ -362,9 +371,18 @@ python3 /opt/karma/repo/scripts/ops/security_alert_poller.py --test
 并写清楚**去哪判**，不假装判过。
 
 - `[机器]` H1 链上三件套已配（`TESTNET_RPC_URL` / `ERC20_TOKEN_ADDRESS` / `KARMA_BILATERAL_ADDRESS`）
-- `[人工]` H2 买方/卖方测试钱包真的有钱（钱的事，shell 判不了）
-- `[人工]` H3 `CHAIN_ANCHOR_HASH` —— 它**本该按笔交易写入**，不是全局 env。
-  env 里有只算参考，所以机器判到 `HUMAN` 为止，让人确认「确实是按笔写」
+- `[机器]` H2 买方/卖方测试钱包真的有钱（2026-10-12 从 HUMAN 收口）
+  —— 钱不能靠 shell 数，但能**上链查**：地址取 `KARMA_GATE_FUNDED_ADDRESSES`（显式给），
+  否则取库里 `KARMA_GATE_FUNDED_IDENTITIES`（默认 `a2a-buyer,a2a-seller`）绑定的钱包，
+  再加发布环境里的 `SETTLEMENT_OPERATOR_ADDRESS`（结算钱包没钱 = 结算永远发不出去）；
+  RPC 取 `KARMA_GATE_RPC_URL`，否则 `TESTNET_RPC_URL`。余额非零 → `PASS`，有地址但余额为 0
+  → `FAIL`（那是我们自己能补的钱），探不到链 → `HUMAN`（网络问题不是钱的错）。
+- `[机器]` H3 `CHAIN_ANCHOR_HASH` 按笔写入（2026-10-12 从 HUMAN 收口）
+  —— 旧口径只问「env 里有没有」，那正好问反了：它**本该按笔写入** `vouchers.chain_anchor_hash`，
+  env 里出现一个**全局值**才是要防的事（全局钉死 = 所有交易共用同一个锚，链上对不上账）。
+  现在机器判两件事：代码里锚定确实是按笔字段写 + 有校验闸门
+  （`services/trade_pipeline_security.validate_chain_anchor_for_mode`，testnet/hybrid 下空值直接 400），
+  且发布环境里**没有**全局 `CHAIN_ANCHOR_HASH`；两条都过才 `PASS`，钉了全局值直接 `FAIL`。
 - `[机器]` H4 Redis 从主机可达（限流要 fail-closed，连不上就必须拒）
 - `[机器]` H5 `DATABASE_URL` 是 postgres 而不是 SQLite
 - 见 `A2` / `A4`：H6 `APP_SECRET_KEY` 强随机、`AUTH_API_KEYS` 已配（闸门里打印 `SKIP` 并指向那边）
@@ -376,6 +394,8 @@ python3 /opt/karma/repo/scripts/ops/security_alert_poller.py --test
   这一条以前只问「文件在不在」—— 文件在不在不是重点：清单是人写的声明，**写错了比没有更糟**
   （没有的话人会去链上查，写错了人会信它）
 - `[人工]` H9 Karma2 `CORE_VERSION.lock` 与公开 commit 对齐（私有仓库的核对）
+  —— **机器判不了，而且必须有私有仓库读权限的人才判得了**。2026-10-12 这台工作机没有 Karma2 的
+  访问权限，所以这一条**没有做过任何机器验证**：不假装判过，交给有权限的发布负责人签。
 - `[人工]` H10 OpenClaw MCP 注册 + 一条签名通路的 A/B 实测
 - `[人工]` H11 OpenManus / `phase1_claw_manus_smoke.py` 对着活的测试网跑通
 - `[人工]` H12 `RUN_TESTNET_ONCHAIN` 混合上链 smoke
@@ -411,28 +431,50 @@ H8 的清单里只有**公开的链上地址**（链上可查），私钥永远�
 
 ## 逐项 `[人工]` 签核清单（G10）
 
-`--strict` 下这 10 项未签 = 失败。它们脚本判不了（要么是「确有其人」这类社会事实，要么要外部账号 /
-私有仓库 / 真链），所以逐条列成表：**证据**一栏填「凭什么算过」，「签字」一栏由发布负责人本人签。
+`--strict` 下未签的条目不放过。它们脚本判不了（要么是「确有其人」这类社会事实，要么要外部账号 /
+私有仓库 / 真链），所以逐条列成表：**判据**一栏写「凭什么算过」，**签字**落在发布机上的
+**签核台账**（见下），**证据**一栏只写「在哪能看到」。
 
 > 规则：证据要能被第三人在事后复核；**含个人信息 / 私有仓库 / 联系方式的证据只填「在哪能看到」，
 > 不把内容写进这个公开仓库**（与 `SECURITY_ONCALL_*` / `AUTH_API_KEYS` 值同一口径）。
 
-| # | 条目 | 怎么算过（判据） | 去哪看 | 证据（填「在哪能看到」） | 签字 | 日期 |
-|---|---|---|---|---|---|---|
-| 1 | `A4d` 白名单身份号确有其人 | 白名单里点名的每个 `kid_*` / telegram id 都能对上**一个具体的人**；对不上的必须摘掉（空挂的管理员条目就是后门） | 服务器 `.env` 的 `ADMIN_ACTOR_IDS` / `ARBITRATOR_ACTOR_IDS` / `GOVERNANCE_VERIFIER_IDS` | | | |
-| 2 | `E4b` 告警端点确实有人看 + 阈值已调 | `/v1/security/ops/alerts` 有轮询 / 看板在盯；阈值取的是运营认可的 `B5`/`B6` active 策略值，不是「装完没人看」 | 告警轮询器状态 + 运维 Telegram / 看板 | | | |
-| 3 | `E6b` 回滚方案 + 值班手册已确认 | 主要负责人**读过并认可** `docs/SECURITY_INCIDENT_PLAYBOOK.md` 的步骤可执行、值班联系人对 | `docs/SECURITY_INCIDENT_PLAYBOOK.md` | | | |
-| 4 | `F6` 基线漂移策略已评审 | `baseline_window_minutes` / `baseline_drift_multiplier` 的取值经评审认可（多久的窗、漂多少倍算异常） | active 安全阈值策略 | | | |
-| 5 | `H2` 买方 / 卖方测试钱包真的有钱 | 链上余额 > 0 且够跑完一笔结算（钱的事 shell 判不了） | 链上地址余额 | | | |
-| 6 | `H3` `CHAIN_ANCHOR_HASH` 按笔写入 | 确认锚定哈希是**每笔交易写入**，而不是全局 env 里钉死的一个值 | 交易记录 / 锚定写入路径 | | | |
-| 7 | `H9` Karma2 `CORE_VERSION.lock` 与公开 commit 对齐 | 私有仓库的 `CORE_VERSION.lock` 指向的 commit 与对外公开的那份一致 | 私有仓库 Karma2 | | | |
-| 8 | `H10` OpenClaw MCP 注册 + 签名通路 A/B | MCP 已注册，且一条签名通路**实测走通**（A/B 两组对照） | OpenClaw / MCP 侧 | | | |
-| 9 | `H11` OpenManus smoke 对着活测试网跑通 | `phase1_claw_manus_smoke.py` 对着**活的**测试网实测通过（不是对着 mock） | CI / 手工 run 记录 | | | |
-| 10 | `H12` 混合上链 smoke | `RUN_TESTNET_ONCHAIN` 打开时混合上链 smoke 通过 | CI / 手工 run 记录 | | | |
+**2026-10-12 收口**：能机器判的都从这张表里拿出去了 —— `H2`（上链查余额）、`H3`（按笔锚定字段
++ 没有全局 `CHAIN_ANCHOR_HASH`）现在是机器判；`A4d` 的「归属」那一半拆成了机器判的 `A4e`。
+剩下真正要人签的是 9 条：`A4d`、`E4b`、`E6b`、`H2`、`H3`、`H9`–`H12`
+（`H2` / `H3` 在探不到链 / 判不了时才回到 `HUMAN`）。
 
-签完把本表 + 下面「签核记录」一起留档。脚本重跑 `--strict` 应显示 `HUMAN 0`（或对应项转 `[机器]`）。
+### 签核台账（不再在这个公开仓库里打勾）
 
----
+签字落在**发布机上**的一份 600 权限 JSON：`/opt/karma/state/g10-sign-off.json`
+（可用 `KARMA_G10_SIGNOFF` 指到别处）。仓库里只有样例 `security/audit/g10-sign-off.example.json`。
+
+```bash
+bash scripts/acceptance/g10-signoff.sh --show        # 现在谁签了什么
+bash scripts/acceptance/g10-signoff.sh --sign E4b --by "<发布负责人>" --evidence "<在哪能看到>"
+bash scripts/acceptance/g10-signoff.sh --revoke E4b --by "<发布负责人>"
+```
+
+闸门读到 `status=signed` 的条目会把它按 `PASS  <条目> human sign-off (signed by X on Y)` 计；
+**没签 / 台账读不到 / 这台机器没有 python3 —— 仍然是 `HUMAN`**（判不出来就不算过）。
+台账里只有「谁、什么时候、证据在哪能看到」，证据内容本身不进仓库。
+
+| # | 条目 | 怎么算过（判据） | 机器能判吗 | 去哪看 |
+|---|---|---|---|---|
+| 1 | `A4d` 白名单身份号确有其人 | 白名单里点名的每个 `kid_*` / telegram id 都能对上**一个具体的人**，且与持有人对得上 | 半（`A4e` 先判「归属记录在不在」，人判「是谁」） | 服务器 `.env` 的 `ADMIN_ACTOR_IDS` / `ARBITRATOR_ACTOR_IDS` / `GOVERNANCE_VERIFIER_IDS` + 持有人对照表（只在服务器） |
+| 2 | `E4b` 回滚方案 + 值班手册已确认 | 主要负责人**读过并认可** `docs/SECURITY_INCIDENT_PLAYBOOK.md` 的步骤可执行、值班联系人对 | ✗ | `docs/SECURITY_INCIDENT_PLAYBOOK.md` |
+| 3 | `E6b` 基线漂移策略已评审 | `baseline_window_minutes` / `baseline_drift_multiplier` 的取值经评审认可（多久的窗、漂多少倍算异常） | ✗ | active 安全阈值策略 + 运维评审记录（只在服务器） |
+| 4 | `H2` 买方 / 卖方测试钱包真的有钱 | 链上余额 > 0 且够跑完一笔结算 | ✔ / 半（探得到链就机器判 `> 0`；「够不够跑一笔」由人签） | 链上地址余额 |
+| 5 | `H3` `CHAIN_ANCHOR_HASH` 按笔写入 | 锚定哈希是**每笔交易写入**，不是全局 env 里钉死的一个值 | ✔（代码路径 + env 无全局值） | `api/routes/trade.py` / `vouchers.chain_anchor_hash` |
+| 6 | `H9` Karma2 `CORE_VERSION.lock` 与公开 commit 对齐 | 私有仓库的 `CORE_VERSION.lock` 指向的 commit 与对外公开的那份一致 | ✗（要私有仓库读权限；本工作机没有） | 私有仓库 Karma2 |
+| 7 | `H10` OpenClaw MCP 注册 + 签名通路 A/B | MCP 已注册，且一条签名通路**实测走通**（A/B 两组对照） | ✗ | OpenClaw / MCP 侧 + 实测输出 |
+| 8 | `H11` OpenManus smoke 对着活测试网跑通 | `phase1_claw_manus_smoke.py` 对着**活的**测试网实测通过（不是对着 mock） | 半（有 run 记录可复核，见下） | CI / 手工 run 记录 |
+| 9 | `H12` 混合上链 smoke | `RUN_TESTNET_ONCHAIN` 打开时混合上链 smoke 通过 | 半（同上） | CI / 手工 run 记录 |
+
+签完把本表 + 下面「签核记录」一起留档。脚本重跑应显示 `HUMAN 0`（或对应项转 `[机器]`）。
+
+**编号勘误（2026-10-12）**：这张表上一版把第 2、3 行的条目号写错位了 ——
+「回滚方案 + 值班手册」是 `E4b`（闸门 `E4b`），「基线漂移策略」是 `E6b`（闸门 `E6b`），
+不是表里写的 `E6b` / `F6`（`F6` 是离站副本恢复，早就转成机器判的 `PASS`）。
 
 ## 签核记录
 

@@ -74,6 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           for f in scripts/ops/*.sh deploy/vps/*.sh scripts/acceptance/verify-manifest.sh \
+                   scripts/acceptance/g10-signoff.sh \
                    scripts/public-beta-security-gate.sh; do
             echo "bash -n ${f}"
             bash -n "${f}"
@@ -82,7 +83,8 @@ jobs:
       - name: Python ops scripts compile
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/ops/*.py scripts/acceptance/verify_manifest.py
+          python3 -m py_compile scripts/ops/*.py scripts/maintenance/*.py \
+            scripts/acceptance/verify_manifest.py
           echo "all ops scripts parse"
 
       # `set -o pipefail` + 一个会提前退出的下游（`grep -q` / `awk ... {exit}`）= 上游拿到
@@ -124,4 +126,5 @@ jobs:
           # 单测，不用 conftest 里的任何 fixture，绕开它是正解，装整套应用依赖才是舍本逐末。
           python3 -m pytest -q --noconftest \
             tests/unit/test_ops_s3_put.py tests/unit/test_ops_alert_poller.py \
-            tests/unit/test_deployment_manifest.py
+            tests/unit/test_deployment_manifest.py \
+            tests/unit/test_register_service_actor.py

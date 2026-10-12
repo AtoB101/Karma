@@ -19,6 +19,11 @@
 #   --strict                                HUMAN 也计入失败, 给"全自动放行"用。
 #   --no-heavy                              跳过 pytest / acceptance 这类重活。
 #
+#   KARMA_G10_SIGNOFF=/opt/karma/state/g10-sign-off.json
+#                                           人工签核台账(G10)。台账里已签的条目按 PASS
+#                                           计, 没签/读不到仍是 HUMAN。签字动作走
+#                                           scripts/acceptance/g10-signoff.sh。
+#
 # 退出码: 0 = 无 FAIL; 1 = 有 FAIL (--strict 时 HUMAN 也算)。
 set -euo pipefail
 
@@ -32,7 +37,7 @@ BASE_URL=""
 ENV_EXEC_CMD=""
 
 usage() {
-  sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 while [[ $# -gt 0 ]]; do
@@ -88,7 +93,21 @@ declare -a FAILURES=()
 p() { echo "PASS  $1"; pass=$((pass + 1)); }
 f() { echo "FAIL  $1" >&2; fail=$((fail + 1)); FAILURES+=("$1"); }
 w() { echo "WARN  $1"; warn=$((warn + 1)); }
-h() { echo "HUMAN $1"; human=$((human + 1)); }
+h() {
+  # 第二个参数是 G10 条目号（A4d / E4b / ...）。带上它时先查人工签核台账：
+  # 签过就按 PASS 计，没签（或这台机器读不到台账）仍然是 HUMAN。台账路径见 G10_SIGNOFF。
+  local item="${2:-}" signed_line=""
+  if [[ -n "$item" ]]; then
+    signed_line="$(g10_signoff_line "$item" || true)"
+    if [[ -n "$signed_line" ]]; then
+      echo "PASS  ${item} human sign-off (${signed_line})"
+      pass=$((pass + 1))
+      return
+    fi
+  fi
+  echo "HUMAN $1"
+  human=$((human + 1))
+}
 
 # 只判真假的小工具
 is_true() { [[ "${1,,}" == "true" || "$1" == "1" || "${1,,}" == "yes" ]]; }
@@ -112,6 +131,51 @@ done
 if [[ -z "$_PY" ]]; then
   w "no usable python3/python on PATH - live probes (B4/C2b/D1D2) cannot run"
 fi
+
+# --------------------------------------------------------------------------
+# G10 人工签核台账。docs/SECURITY_RELEASE_GATES.md 的 G10 表里那几条「脚本判不了、
+# 必须有人签」的条目，不再靠在这个公开仓库里明文打勾 —— 台账是**发布机上**的一份
+# 600 权限 JSON（默认 /opt/karma/state/g10-sign-off.json，可用 KARMA_G10_SIGNOFF
+# 指到别处），每条记「谁、什么时候、证据在哪能看到」。证据一栏只写「在哪能看到」，
+# 个人信息 / 私有仓库 / 联系方式不进公开仓库。
+#
+# 台账里 status=signed 的条目按 PASS 计；台账不存在、读不到、没签，仍然是 HUMAN。
+# 签字动作走 scripts/acceptance/g10-signoff.sh（同样只写发布机上那个 600 文件）。
+# --------------------------------------------------------------------------
+G10_SIGNOFF="${KARMA_G10_SIGNOFF:-/opt/karma/state/g10-sign-off.json}"
+if [[ -f "$G10_SIGNOFF" && ! -r "$G10_SIGNOFF" ]]; then
+  w "G10 sign-off ledger exists but is not readable by this user (${G10_SIGNOFF})"
+fi
+if [[ -f "$G10_SIGNOFF" && -z "$_PY" ]]; then
+  w "G10 sign-off ledger present but no usable python3 here to read it (${G10_SIGNOFF})"
+fi
+
+# g10_signoff_line ITEM -> 台账说签过时回显 "signed by X on DATE"，否则什么都不回显。
+g10_signoff_line() {
+  local item="$1"
+  [[ -f "$G10_SIGNOFF" && -r "$G10_SIGNOFF" ]] || return 0
+  [[ -n "$_PY" ]] || return 0
+  "$_PY" - "$G10_SIGNOFF" "$item" <<'PYG10' || true
+import json, sys
+path, item = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(open(path, encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+items = data.get("items")
+if not isinstance(items, list):
+    raise SystemExit(0)
+for rec in items:
+    if isinstance(rec, dict) and rec.get("item") == item and rec.get("status") == "signed":
+        print("signed by %s on %s" % (rec.get("signed_by") or "?", rec.get("signed_at") or "?"))
+        break
+PYG10
+}
+
+# psql_tac SQL -> 在发布机上对 karma-postgres 跑一条只读查询（-tA 输出）。
+psql_tac() {
+  docker exec karma-postgres psql -U karma -d karma -tAc "$1" 2> /dev/null
+}
 
 PROBE_CODE=""; PROBE_RID=""; PROBE_BODY=""
 # probe METHOD URL [JSON_DATA] -> 0 拿到响应(含 4xx/5xx), 1 传输层失败
@@ -313,7 +377,46 @@ else
   if [[ "$a4c_bad" == "0" ]]; then
     p "A4c no shared secret, no short secret, every privileged actor has its own key"
   fi
-  h "A4d 运维白名单里的身份号（kid_* / telegram id）确有其人，且与持有人对得上"
+
+  # A4e —— 2026-10-12 新增：白名单条目必须**归属得到一条真实身份记录**。
+  # A4c 只问「这个名字有没有自己的钥匙」。可名字有钥匙、库里却查无此人时，用这把
+  # 钥匙做的事在审计里落到的是一串没人认领的字符串（resolve_actor_identity_id 会把
+  # 它原样当身份号返回并写进归属字段），等于白名单里挂了个后门 —— 这正是 A4c 那段
+  # 注释里说的「悬空白名单条目」。
+  # 归属的判据两条，命中任一即算：
+  #   1. 条目本身是 identity_profiles 里的一条身份（kid_* / 真人的号）；
+  #   2. 条目是 agents 里一条**能被 identity_profiles 认领**的 agent
+  #      （owner_identity_id 指向真实身份）—— 服务账号就该这样挂在责任人名下。
+  # 纯数字的 telegram id 库里没有对应的列，机器判不了，仍归 A4d 人工签。
+  if [[ "$(psql_tac 'select 1' || true)" != "1" ]]; then
+    h "A4e cannot reach the release database (docker exec karma-postgres) to attribute whitelist actors - check by hand"
+  else
+    a4e_bad=0
+    a4e_checked=0
+    for listed_var in ADMIN_ACTOR_IDS ARBITRATOR_ACTOR_IDS GOVERNANCE_VERIFIER_IDS; do
+      for listed_actor in $(ev "$listed_var" | tr ',' ' '); do
+        [[ -n "$listed_actor" ]] || continue
+        case "$listed_actor" in
+          [0-9]*) continue ;;   # telegram id：库里没有对应的列 -> 人工
+        esac
+        if [[ ! "$listed_actor" =~ ^[A-Za-z0-9._:-]{1,64}$ ]]; then
+          f "A4e ${listed_var} names '${listed_actor}' which is not a valid actor id"
+          a4e_bad=1
+          continue
+        fi
+        a4e_checked=$((a4e_checked + 1))
+        a4e_hit="$(psql_tac "select case when exists(select 1 from identity_profiles where identity_id='${listed_actor}') or exists(select 1 from agents g join identity_profiles p on p.identity_id=g.owner_identity_id where g.agent_id='${listed_actor}') then 1 else 0 end" || true)"
+        if [[ "$a4e_hit" != "1" ]]; then
+          f "A4e ${listed_var} names '${listed_actor}' but no identity_profiles/agents record can be attributed to it (dangling privileged actor)"
+          a4e_bad=1
+        fi
+      done
+    done
+    if [[ "$a4e_bad" == "0" && "$a4e_checked" -gt 0 ]]; then
+      p "A4e every privileged whitelist actor resolves to a real identity record (${a4e_checked} checked)"
+    fi
+  fi
+  h "A4d 运维白名单里的身份号（kid_* / telegram id）确有其人，且与持有人对得上" A4d
 fi
 
 # A5 - 运行环境里不该出现测试凭证
@@ -788,7 +891,7 @@ if [[ -f docs/SECURITY_INCIDENT_PLAYBOOK.md ]]; then
 else
   f "E4a docs/SECURITY_INCIDENT_PLAYBOOK.md is missing"
 fi
-h "E4b rollback plan and on-call runbook confirmed by a human"
+h "E4b rollback plan and on-call runbook confirmed by a human" E4b
 
 ONCALL_P="$(ev SECURITY_ONCALL_PRIMARY)"; ONCALL_B="$(ev SECURITY_ONCALL_BACKUP)"
 if [[ "$ALLOW_NON_PROD" == "true" ]]; then
@@ -811,7 +914,7 @@ if grep -q 'baseline_window_minutes' api/routes/security.py && grep -q 'baseline
 else
   f "E6a baseline drift controls not found in api/routes/security.py"
 fi
-h "E6b baseline drift strategy reviewed and the chosen values agreed with on-call"
+h "E6b baseline drift strategy reviewed and the chosen values agreed with on-call" E6b
 # E7 回滚演练。以前一律 HUMAN（「演练做没做过」）。现在判**留没留证据**：
 # 演练把结果写到 /opt/karma/state/security-policy-drill.json，这里校验「回滚成功」+ 不太旧。
 # 跟 F4 判恢复演练同一个思路：不接受「口头说练过」。
@@ -1204,11 +1307,95 @@ else
     f "H1 missing chain config:${h1_missing}"
   fi
 
-  # H3 每次 launch 的锚定哈希。它本该由交易流程按笔写入，环境变量里有没有只算参考。
-  if [[ -n "$(ev CHAIN_ANCHOR_HASH)" ]]; then
-    p "H3 CHAIN_ANCHOR_HASH is pinned in the release env"
+  # H2 买方/卖方测试钱包里真有钱。钱不能靠 shell 数，但能上链查：余额非零 = 钱在。
+  # 地址来源：KARMA_GATE_FUNDED_ADDRESSES（逗号分隔，显式给）；否则取库里
+  # KARMA_GATE_FUNDED_IDENTITIES（默认 a2a-buyer,a2a-seller）绑定的钱包；
+  # 再加上发布环境里的 SETTLEMENT_OPERATOR_ADDRESS（结算钱包没钱 = 结算永远发不出去）。
+  # RPC 取 KARMA_GATE_RPC_URL，否则 TESTNET_RPC_URL。探不到链记 HUMAN（网络问题不是
+  # 钱的错），有地址但余额为 0 记 FAIL（那是我们自己能补的东西）。
+  h2_addrs="$(ev KARMA_GATE_FUNDED_ADDRESSES)"
+  if [[ -z "$h2_addrs" ]]; then
+    h2_ids="$(ev KARMA_GATE_FUNDED_IDENTITIES)"
+    h2_ids="${h2_ids:-a2a-buyer,a2a-seller}"
+    h2_in="$(printf '%s' "$h2_ids" | tr ',' '\n' \
+      | sed -nE "s/^[[:space:]]*([A-Za-z0-9._-]{1,64})[[:space:]]*$/\x27\1\x27/p" | paste -sd, - || true)"
+    if [[ -n "$h2_in" ]]; then
+      h2_addrs="$(psql_tac "select string_agg(bound_wallet_address, ',') from identity_profiles where identity_id in (${h2_in}) and coalesce(bound_wallet_address, '') <> ''" || true)"
+    fi
+  fi
+  h2_owner="$(ev SETTLEMENT_OPERATOR_ADDRESS)"
+  if [[ -n "$h2_owner" ]]; then h2_addrs="${h2_addrs:+${h2_addrs},}${h2_owner}"; fi
+  h2_rpc="$(ev KARMA_GATE_RPC_URL)"; h2_rpc="${h2_rpc:-$(ev TESTNET_RPC_URL)}"
+  if [[ -z "$h2_addrs" ]]; then
+    h "H2 no test-wallet address to check (set KARMA_GATE_FUNDED_ADDRESSES) - confirm the balances by hand" H2
+  elif [[ -z "$h2_rpc" ]]; then
+    h "H2 no RPC endpoint (KARMA_GATE_RPC_URL / TESTNET_RPC_URL) - confirm the test-wallet balances by hand" H2
+  elif [[ -z "$_PY" ]]; then
+    h "H2 no usable python3 here to query balances - confirm the test-wallet balances by hand" H2
   else
-    h "H3 CHAIN_ANCHOR_HASH not in env - confirm it is written per trade (it is per-launch, not global)"
+    h2_out="$(GATE_H2_RPC="$h2_rpc" GATE_H2_ADDRS="$h2_addrs" "$_PY" - 2> /dev/null <<'PYEOF' || true
+import json, os, urllib.request
+rpc = os.environ["GATE_H2_RPC"]
+addrs, seen = [], set()
+for raw in os.environ["GATE_H2_ADDRS"].split(","):
+    a = raw.strip()
+    if len(a) == 42 and a[:2].lower() == "0x" and a.lower() not in seen:
+        seen.add(a.lower()); addrs.append(a)
+if not addrs:
+    print("noaddr=1"); raise SystemExit(0)
+zero, funded, failed = [], 0, 0
+for addr in addrs:
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "eth_getBalance",
+                       "params": [addr, "latest"]}).encode()
+    req = urllib.request.Request(rpc, data=body, method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "karma-security-gate"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            balance = int(json.loads(resp.read().decode())["result"], 16)
+    except Exception:
+        failed += 1
+        continue
+    if balance > 0:
+        funded += 1
+    else:
+        zero.append(addr)
+if zero:
+    print("zero=%s" % ",".join(zero))
+elif funded == 0:
+    print("rpc-unreachable=%d" % failed)
+else:
+    print("ok=%d" % funded)
+PYEOF
+)"
+    case "$h2_out" in
+      ok=*)   p "H2 test wallets funded on chain (${h2_out#ok=} address(es) with balance > 0)" ;;
+      zero=*) f "H2 test wallet(s) have zero balance: ${h2_out#zero=}" ;;
+      *)      h "H2 balance probe could not read the chain (${h2_out:-no-output}) - confirm by hand" H2 ;;
+    esac
+  fi
+
+  # H3 锚定哈希按笔写入。旧口径只问「env 里有没有」—— 那正好问反了：它本来就该由
+  # 交易流程按笔写进 vouchers.chain_anchor_hash，env 里出现一个**全局值**才是要防的事
+  # （全局钉死 = 所有交易共用同一个锚，链上对不上账）。所以现在机器判两件事：
+  #   1. 锚定确实是按笔字段写 + 有校验闸门（testnet/hybrid 下空值直接 400）；
+  #   2. 发布环境里**没有**全局 CHAIN_ANCHOR_HASH。
+  h3_bad=0
+  for h3_pair in "api/routes/trade.py:chain_anchor_hash" \
+                 "services/trade_pipeline_security.py:validate_chain_anchor_for_mode" \
+                 "db/models/orm.py:chain_anchor_hash"; do
+    h3_file="${h3_pair%%:*}"
+    h3_needle="${h3_pair#*:}"
+    if [[ ! -f "$h3_file" ]] || ! grep -q "$h3_needle" "$h3_file"; then
+      f "H3 ${h3_file} no longer carries ${h3_needle} - per-trade anchoring cannot be confirmed"
+      h3_bad=1
+    fi
+  done
+  if [[ -n "$(ev CHAIN_ANCHOR_HASH)" ]]; then
+    f "H3 CHAIN_ANCHOR_HASH is pinned in the release env - anchoring must be written per trade, not globally"
+    h3_bad=1
+  fi
+  if [[ "$h3_bad" == "0" ]]; then
+    p "H3 chain anchor is written per trade (vouchers.chain_anchor_hash + validate_chain_anchor_for_mode), no global CHAIN_ANCHOR_HASH pinned"
   fi
 
   # H4 / H5 运行态依赖：限流要 fail-closed，数据库必须不是 SQLite
@@ -1259,11 +1446,10 @@ else
     esac
   fi
 
-  h "H2 funded buyer/seller test wallets exist (money, cannot be judged from a shell)"
-  h "H9 Karma2 CORE_VERSION.lock matches the public commit (private-repo check)"
-  h "H10 OpenClaw MCP registration + a signed path A/B run"
-  h "H11 OpenManus / phase1_claw_manus_smoke.py passes against the live testnet"
-  h "H12 RUN_TESTNET_ONCHAIN hybrid on-chain smoke"
+  h "H9 Karma2 CORE_VERSION.lock matches the public commit (private-repo check)" H9
+  h "H10 OpenClaw MCP registration + a signed path A/B run" H10
+  h "H11 OpenManus / phase1_claw_manus_smoke.py passes against the live testnet" H11
+  h "H12 RUN_TESTNET_ONCHAIN hybrid on-chain smoke" H12
 fi
 
 # --------------------------------------------------------------------------
