@@ -37,9 +37,11 @@ pip install "karma-openclaw @ git+https://github.com/AtoB101/Karma@main#subdirec
 pip install ./packages/karma-mcp-server ./packages/karma-openclaw ./packages/karma-connect
 ```
 
-### 2.3 PyPI —— **未发布**
+### 2.3 PyPI —— **未发布**（发布路径已经建好）
 
-`pip install karma-mcp-server` 现在会 404。发布步骤见 §7，前置只有一个：一个 PyPI token。
+`pip install karma-mcp-server` 现在会 404：三个包名在 PyPI 上都还空着。桥已经搭完了
+（构建 / 元数据 / 握手 / GitHub Release / 上传都在 `.github/workflows/mcp-release.yml`），
+缺的只有两件人为的事：推 tag、配一个仓库 secret `PYPI_API_TOKEN`。见 §7。
 
 ## 3. 接进 Agent host
 
@@ -140,7 +142,9 @@ mcp SDK 1.x 的 `FastMCP` 不把版本号转给底层 `MCPServer`，后者回落
 - 同一个用例还比对 `pyproject.toml` 的 `version` 与包内 `__version__`，防两处漂移；
 - 改 SDK 若把内部结构换掉，这些断言会立刻变红（而不是悄悄退回 SDK 版本号）。
 
-## 6. CI 闸门：`.github/workflows/mcp-packages.yml`
+## 6. CI 闸门（两个 workflow）
+
+### 6.1 `mcp-packages.yml` —— 每个 PR / main
 
 | 做 | 不做 |
 |---|---|
@@ -152,23 +156,51 @@ mcp SDK 1.x 的 `FastMCP` 不把版本号转给底层 `MCPServer`，后者回落
 本地没有网络 / 没有 `setuptools` 时（例如离线 Windows 开发机）**构建不出 wheel**，
 这一步只能在 CI 里做；本地能跑的是 §4 的握手自检与包内 pytest。
 
-## 7. 发布到 PyPI（人工，带 token）
+### 6.2 `mcp-release.yml` —— tag 触发
 
-CI 只验证「构建得出来」，发布是人的动作：
+| 做 | 不做 |
+|---|---|
+| tag 里的版本号必须等于该包 `pyproject.toml` 的版本号，不等就是红 | 不推 tag 就不跑 |
+| 构建 sdist + wheel，`twine check`；装进干净 venv 真跑一次握手 | 不碰主网、不碰资金路径 |
+| 建 GitHub Release，把 sdist / wheel 挂上去 | 没有 `PYPI_API_TOKEN` 时不假装发过（只给 warning） |
+
+只有 release 那个 job 拿 `contents: write` 与 PyPI 凭据；构建那半段是只读的。
+
+## 7. 发布：推 tag，workflow 干活
+
+三个包各自独立版本，tag 就是这三条：
+
+| 包 | tag | 版本 |
+|---|---|---|
+| `karma-mcp-server` | `karma-mcp-server-v0.1.0` | 0.1.0 |
+| `karma-openclaw` | `karma-openclaw-v0.4.0` | 0.4.0 |
+| `karma-connect` | `karma-connect-v1.0.0` | 1.0.0 |
+
+```bash
+git tag karma-mcp-server-v0.1.0 && git push origin karma-mcp-server-v0.1.0
+git tag karma-openclaw-v0.4.0   && git push origin karma-openclaw-v0.4.0
+git tag karma-connect-v1.0.0    && git push origin karma-connect-v1.0.0
+```
+
+推上去之后 `.github/workflows/mcp-release.yml` 依次做：核对 tag 版本号 → build +
+`twine check` → 装进干净 venv 真跑一次握手 → 建 GitHub Release（挂上 sdist/wheel）→
+**有 `PYPI_API_TOKEN` 就 `twine upload`**，没有就留一条 warning。
+
+仓库 secret 名字是 `PYPI_API_TOKEN`（PyPI token，用户名 `__token__`）。没配的时候想补发：
+Actions → MCP release → Run workflow → 填同一个 tag。
+
+不想用 workflow、要在本机手发：
 
 ```bash
 cd packages/karma-mcp-server
 python -m pip install --upgrade build twine
-python -m build          # 产物在 dist/：.tar.gz + .whl
-python -m twine check dist/*
-
-# 先上 TestPyPI 走一遍，再上正式：
-python -m twine upload --repository testpypi dist/*
-python -m twine upload dist/*        # 需要 PYPI_TOKEN（用户名 __token__）
+python -m build && python -m twine check dist/*
+python -m twine upload --repository testpypi dist/*   # 先走 TestPyPI
+python -m twine upload dist/*                          # 再上正式
 ```
 
-发布前必须确认的单一来源：**版本号只写在 `pyproject.toml` 的 `version`**，包内
-`__version__` 由测试守着与它一致。改了版本要重跑一次 §4 的自检。
+**版本号只有一个来源**：`pyproject.toml` 的 `version`；包内 `__version__` 由测试守着与它
+一致（§5）。tag 与它不一致时，release workflow 第一步就红。
 
 ## 8. 回滚
 
@@ -181,7 +213,7 @@ python -m twine upload dist/*        # 需要 PYPI_TOKEN（用户名 __token__�
 
 ## 9. 还没做（诚实清单）
 
-- **PyPI 发布**：三个包都还没上 PyPI，前置只有一个 PyPI token（§7）。
+- **PyPI 上传**：包名还空着，构建 / 元数据 / 握手 / Release 全就位；缺的是推 tag + 仓库 secret `PYPI_API_TOKEN`（§7）。
 - **代码签名 / 制品溯源**：没有 sigstore、没有 attestation。
-- **`karma-connect` 的 PyPI 发布**：临时只能走 2.1 / 2.2 两条路。
+- 三个包都还没在 PyPI 上线，所以 §2.1 那行 git URL 是当前唯一「不 clone 仓库」的装法。
 - 远程 Streamable HTTP 的 OAuth 2.1 授权服务器接入：见 `karma-mcp-security.md`。

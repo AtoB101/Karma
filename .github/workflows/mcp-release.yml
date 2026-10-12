@@ -1,0 +1,203 @@
+# MCP 三个包的发布闸门：tag 一推，构建 → twine check → 握手 → GitHub Release
+# →（有 token 才）PyPI。
+#
+# 为什么拆成 build / release 两个 job：`contents: write`（建 Release）和 PyPI 凭据
+# 只出现在 release 这一个 job 里，构建那半段保持只读。
+#
+# tag 命名（三个包各自独立版本）：karma-mcp-server-v0.1.0 / karma-openclaw-v0.4.0 /
+# karma-connect-v1.0.0。tag 里的版本号必须等于该包 pyproject.toml 里的版本号，否则红。
+#
+# PyPI 上传要仓库 secret `PYPI_API_TOKEN`（PyPI token，用户名 __token__）。没配就只建
+# Release 并给一条 warning —— 不假装发过。手动重跑：Actions → MCP release → Run workflow
+# → 填同一个 tag。
+name: MCP release
+
+on:
+  push:
+    tags:
+      - "karma-mcp-server-v*"
+      - "karma-openclaw-v*"
+      - "karma-connect-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布/重跑的 tag，例如 karma-mcp-server-v0.1.0"
+        required: true
+        type: string
+
+concurrency:
+  group: mcp-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve tag → package
+        id: pkg
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          case "$TAG" in
+            karma-mcp-server-v*) DIST=karma-mcp-server; DIR=packages/karma-mcp-server; MODULE=karma_mcp_server ;;
+            karma-openclaw-v*)   DIST=karma-openclaw;   DIR=packages/karma-openclaw;   MODULE=karma_openclaw ;;
+            karma-connect-v*)    DIST=karma-connect;    DIR=packages/karma-connect;    MODULE=karma_connect ;;
+            *) echo "unknown tag: $TAG (expect karma-<pkg>-v<version>)"; exit 1 ;;
+          esac
+          echo "tag=$TAG"       >> "$GITHUB_OUTPUT"
+          echo "dist=$DIST"     >> "$GITHUB_OUTPUT"
+          echo "dir=$DIR"       >> "$GITHUB_OUTPUT"
+          echo "module=$MODULE" >> "$GITHUB_OUTPUT"
+          echo "resolved tag=$TAG dist=$DIST dir=$DIR module=$MODULE"
+      - name: Tag 版本号必须等于 pyproject 里的版本号
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.pkg.outputs.tag }}"
+          DIR="${{ steps.pkg.outputs.dir }}"
+          WANT="${TAG##*-v}"
+          GOT="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["project"]["version"])' "${DIR}/pyproject.toml")"
+          echo "tag 里写的版本=$WANT  pyproject 里写的版本=$GOT"
+          if [ "$WANT" != "$GOT" ]; then
+            echo "::error::tag ${TAG} 的版本号(${WANT}) != ${DIR}/pyproject.toml 的版本号(${GOT})"
+            exit 1
+          fi
+      - name: Build sdist + wheel, then check metadata
+        run: |
+          set -euo pipefail
+          DIR="${{ steps.pkg.outputs.dir }}"
+          python3 -m pip install --upgrade pip
+          python3 -m pip install build twine
+          cd "${DIR}"
+          python3 -m build
+          python3 -m twine check dist/*
+      - name: 装进干净 venv，真跑一次握手（CLI 包则查入口）
+        run: |
+          set -euo pipefail
+          DIR="${{ steps.pkg.outputs.dir }}"
+          DIST="${{ steps.pkg.outputs.dist }}"
+          MODULE="${{ steps.pkg.outputs.module }}"
+          python3 -m venv /tmp/rel
+          /tmp/rel/bin/python -m pip install --upgrade pip
+          /tmp/rel/bin/python -m pip install "${DIR}"/dist/*.whl
+          if [ "${MODULE}" = "karma_connect" ]; then
+            # 只有 CLI，没有 MCP 握手；入口必须真的落到 bin/。
+            for exe in karma-connect karma-pair karma-sign-check; do
+              test -x "/tmp/rel/bin/${exe}"
+            done
+            /tmp/rel/bin/karma-connect --help > /dev/null
+            echo "karma-connect: 三个入口都在，--help 正常"
+            exit 0
+          fi
+          PYTHON_BIN=/tmp/rel/bin/python DIST="${DIST}" MODULE="${MODULE}" \
+            /tmp/rel/bin/python - <<'PY'
+          import os
+          import sys
+
+          import anyio
+          from importlib.metadata import version as dist_version
+          from mcp import ClientSession, StdioServerParameters
+          from mcp.client.stdio import stdio_client
+
+          DIST = os.environ["DIST"]
+          MODULE = os.environ["MODULE"]
+          PYTHON_BIN = os.environ["PYTHON_BIN"]
+
+
+          async def main() -> int:
+              params = StdioServerParameters(command=PYTHON_BIN, args=["-m", MODULE], cwd="/tmp")
+              async with stdio_client(params) as (read, write):
+                  async with ClientSession(read, write) as session:
+                      init = await session.initialize()
+              expected = dist_version(DIST)
+              name, got = init.serverInfo.name, init.serverInfo.version
+              print(f"{DIST}: serverInfo.name={name} version={got} dist_metadata={expected}")
+              return 0 if (name == DIST and got == expected) else 1
+
+
+          sys.exit(anyio.run(main))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ steps.pkg.outputs.dist }}
+          path: ${{ steps.pkg.outputs.dir }}/dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve tag → package
+        id: pkg
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          case "$TAG" in
+            karma-mcp-server-v*) DIST=karma-mcp-server; DIR=packages/karma-mcp-server; MODULE=karma_mcp_server ;;
+            karma-openclaw-v*)   DIST=karma-openclaw;   DIR=packages/karma-openclaw;   MODULE=karma_openclaw ;;
+            karma-connect-v*)    DIST=karma-connect;    DIR=packages/karma-connect;    MODULE=karma_connect ;;
+            *) echo "unknown tag: $TAG (expect karma-<pkg>-v<version>)"; exit 1 ;;
+          esac
+          echo "tag=$TAG"       >> "$GITHUB_OUTPUT"
+          echo "dist=$DIST"     >> "$GITHUB_OUTPUT"
+          echo "dir=$DIR"       >> "$GITHUB_OUTPUT"
+          echo "module=$MODULE" >> "$GITHUB_OUTPUT"
+          echo "resolved tag=$TAG dist=$DIST dir=$DIR module=$MODULE"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ steps.pkg.outputs.dist }}
+          path: ${{ steps.pkg.outputs.dir }}/dist
+
+      - name: Publish to PyPI
+        if: env.PYPI_API_TOKEN != ''
+        run: |
+          set -euo pipefail
+          DIR="${{ steps.pkg.outputs.dir }}"
+          # --skip-existing：同一个版本重跑（例如上一次只传上了 sdist）不该整个红掉；
+          # 版本是不能覆盖的，所以这不会把「发错东西」藏起来。
+          python3 -m twine upload --non-interactive --skip-existing \
+            --username __token__ --password "$PYPI_API_TOKEN" \
+            "${DIR}"/dist/*
+      - name: 还没配 PYPI_API_TOKEN（只建 Release）
+        if: env.PYPI_API_TOKEN == ''
+        run: |
+          set -euo pipefail
+          echo "::warning::仓库 secret PYPI_API_TOKEN 未配置 —— 这次只构建 + 建 GitHub Release，没有上传 PyPI。"
+          {
+            echo "### 没有上传 PyPI"
+            echo ""
+            echo "\`PYPI_API_TOKEN\` 未配置：本次只做了 build + twine check + 握手 + GitHub Release。"
+            echo "配好 secret 后重跑本 workflow（指定同一个 tag）即可发布。"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: GitHub Release（挂上构建产物）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.pkg.outputs.tag }}"
+          DIR="${{ steps.pkg.outputs.dir }}"
+          if gh release view "${TAG}" > /dev/null 2>&1; then
+            echo "release ${TAG} 已存在，只补/覆盖构建产物"
+            gh release upload "${TAG}" "${DIR}"/dist/* --clobber
+          else
+            gh release create "${TAG}" --title "${TAG}" --generate-notes "${DIR}"/dist/*
+          fi
