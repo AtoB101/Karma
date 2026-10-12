@@ -8,6 +8,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- MCP 三个包首发到 PyPI：`karma-mcp-server` 0.1.0、`karma-openclaw` 0.4.0、`karma-connect` 1.0.0。推 tag `karma-<pkg>-v<version>` 即由 `.github/workflows/mcp-release.yml` 构建 + `twine check` + 握手 + 建 GitHub Release +（有 `PYPI_API_TOKEN` 时）上传 PyPI；`serverInfo.version` 也从 mcp SDK 版本改成本包版本。
 - Reputation pack-to-chain: `KarmaReputationAnchor` (non-transferable score + dividend weight, no fee waiver); 90-day rehab after slash; admin `GET/POST /v1/reputation/{id}/pack*` and `POST .../slash`.
 - Wash / fake-volume heuristics: self-deal, same wallet, dust, A↔B ping-pong, pair velocity, burst — no reputation credit; `wash_trade_flags` blocks pack until rehab.
 - Identity card opens the same reputation ledger (user/merchant/enterprise); card payload includes `reputation`; buyers and sellers both accrue on genuine settles.

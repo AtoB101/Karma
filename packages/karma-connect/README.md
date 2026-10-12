@@ -3,15 +3,14 @@
 One command that wires the **Karma MCP server** into every agent host on this machine.
 
 ```bash
+pip install karma-connect            # published on PyPI (currently 1.0.0)
+# or, from a clone:
 pip install ./packages/karma-connect
-# or, without cloning the repo:
-pip install "karma-connect @ git+https://github.com/AtoB101/Karma@main#subdirectory=packages/karma-connect"
 karma-connect detect
 karma-connect install
 ```
 
-Not on PyPI yet (`pip install karma-connect` returns 404); see
-[`docs/mcp/karma-mcp-integration.md`](../../docs/mcp/karma-mcp-integration.md).
+See [`docs/mcp/karma-mcp-integration.md`](../../docs/mcp/karma-mcp-integration.md).
 
 No JSON editing, no config file archaeology. It finds the hosts you already have
 and writes one named server entry into each.
