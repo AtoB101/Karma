@@ -1,15 +1,15 @@
 """操作台「给 agent 授权」向导：页面接线 + 与后端真实对接的系统顺序。
 
-用户在操作台里走的是这四个动作，一个不能少、顺序也不能乱：
+用户在操作台里走的是这三个动作，一个不能少、顺序也不能乱：
 
-    1 选/建子身份   POST /v1/identity/role-profiles
-    2 授权额度      PUT  /v1/capacity/{id}/allocations
-    3 定类型        PUT  /v1/identity/role-profiles/{pid}
-    4 划边界        PUT  /v1/identities/{id}/automation-policy
+    1 选身份        GET  /v1/identity/role-profiles（选一张建好的子身份卡）
+    2 划额度        PUT  /v1/capacity/{id}/allocations
+    3 划边界        PUT  /v1/identities/{id}/automation-policy
     → 生成 SDK      POST /runtime/create-key（钱包签名一次）
 
-前半段是静态接线检查（别下次改版把某一步删了），
-后半段真的跑一遍 HTTP，证明这条路在服务端是通的。
+类型 / 名字 / 权限 / 额度 / 单笔 / 日限都在「身份 · 认证 → 建立子身份」那一步落了库，
+向导不再让用户重填（见 cyber-authorize.js 的 cardPolicy）。前半段是静态接线检查
+（别下次改版把某一步删了），后半段真的跑一遍 HTTP，证明这条路在服务端是通的。
 """
 from __future__ import annotations
 
@@ -34,26 +34,27 @@ GATE = ROOT / "scripts/acceptance/console_last_mile_gate.sh"
 WIZARD_NODES = (
     'id="ag-wizard"',
     'id="agw-identity"',
+    'id="agw-card-wrap"',
+    'id="agw-card-list"',
+    'id="agw-goto-identity"',
     'id="agw-agent"',
-    'id="agw-new"',
-    'id="agw-new-name"',
-    'id="agw-amount"',
-    'id="agw-types"',
-    'id="agw-single"',
-    'id="agw-daily"',
-    'id="agw-human"',
-    'id="agw-perms"',
-    'id="agw-ack"',
+    'id="ag-vertical"',
+    'id="ag-vertical-pick"',
     'id="agw-generate"',
     'id="agw-result"',
 )
 
 
-def test_the_page_carries_the_four_step_wizard():
+def test_the_page_carries_the_three_step_wizard():
     html = HTML.read_text(encoding="utf-8")
     for node in WIZARD_NODES:
         assert node in html, f"授权向导缺少 {node}"
-    for step in ("1 · 选身份", "2 · 这个 agent 是什么", "3 · 授权额度", "4 · 划边界"):
+    # 这张卡上已经定好的边界归「身份 · 认证」建卡时定，接入页不该再有重填表单。
+    for gone in ('id="agw-amount"', 'id="agw-single"', 'id="agw-daily"', 'id="agw-human"',
+                 'id="agw-perms"', 'id="agw-ack"', 'id="agw-types"', 'id="agw-new"',
+                 'id="agw-new-name"'):
+        assert gone not in html, f"边界归建卡，接入页不该再有 {gone}"
+    for step in ("1 · 选身份", "2 · 起名字", "3 · 拿接入包"):
         assert step in html, f"向导缺少步骤说明 {step}"
     assert "生成接入包" in html, "最后那一下要说清楚生成的是「接入包」"
     assert "../../scripts/cyber-authorize.js" in html, "向导脚本必须被页面加载"
@@ -68,24 +69,26 @@ def test_the_page_carries_the_four_step_wizard():
 
 def test_the_three_assistant_types_map_to_role_profile_classes():
     js = JS.read_text(encoding="utf-8")
-    assert "生活助理" in js and "工作助理" in js and "企业商业助理" in js
-    # enterprise 是默认保密的那一类，业务助理走 individual。
-    assert 'company: { label: "企业商业助理", klass: "enterprise" }' in js
+    assert "生活助理" in js and "个体助理" in js and "企业主体" in js
+    # 三种身份卡对应的档案类别：life→individual、sole→merchant、entity→enterprise。
     assert 'life: { label: "生活助理", klass: "individual" }' in js
+    assert 'sole: { label: "个体助理", klass: "merchant" }' in js
+    assert 'entity: { label: "企业主体", klass: "enterprise" }' in js
     assert 'CLASS_TO_TYPE' in js
 
 
 def test_the_wizard_calls_the_real_endpoints_in_order():
     js = JS.read_text(encoding="utf-8")
+    # 建卡（类型 / 名字 / 权限 / 额度 / 单笔 / 日限）早在「身份 · 认证」那一步落了库，
+    # 接入向导只读那张卡：这里列出的是它真正还要打的接口。
     for call in (
         "listRoleProfiles",
-        "createRoleProfile",
         "setAllocations",
         "putAutomationPolicy",
         "runtimeCreateKey",
     ):
         assert call in js, f"向导没有调用 {call}"
-    assert "/v1/identity/role-profiles/" in js, "定类型要 PUT 到角色档案"
+    assert "createRoleProfile" not in js, "接入向导不再就地建卡：建卡归「身份 · 认证」"
     # 顺序：先策略（服务端拿它卡 Runtime Key 的权限与限额），再额度，最后签名铸造。
     order = [
         js.index("putAutomationPolicy"),
@@ -93,6 +96,10 @@ def test_the_wizard_calls_the_real_endpoints_in_order():
         js.index("runtimeCreateKey"),
     ]
     assert order == sorted(order), "保存策略 → 划额度 → 铸造，这个顺序不能反"
+    # 硬指标要在 renderWizard() 之前收：renderWizard → applySide → renderSpecForm 会
+    # 把 CURRENT 清空，收晚了这一格永远空、收款方向永远报「请先选择行业」。
+    assert js.index("global.KarmaAgents.collectSpec()") < js.index("state.busy = true;"), \
+        "collectSpec() 必须排在 renderWizard() 之前"
     # 限额是「覆盖式」写整张表，别的子身份的原值必须一起带上，否则会被清成 0。
     assert "state.allocations.forEach" in js
     assert "next[p.profile_id] = amount" in js
@@ -188,17 +195,18 @@ async def test_the_wizard_payload_survives_the_production_binding_gate(
     assert body["activation_required"] is True
 
 
-def test_changing_the_type_keeps_the_name_the_user_typed():
-    """用户给子身份起了名字，第 3 步选类型不该把它改掉。
+def test_the_wizard_never_retypes_or_renames_the_card():
+    """接入向导不该动这张卡的类型 / 名字 —— 类型和名字在建卡那一步就定了。
 
-    只有名字还是类型标签（或空）时才跟着类型改名 —— 真机第一次跑就被这条咬过：
-    「差旅助理」选完类型变成了「企业商业助理」。"""
+    2026-10-13 之前是反过来：向导里选类型会顺手把档案改名（只有名字还是类型标签时才
+    跟着改）。现在类型 / 名字归「身份 · 认证 → 建立子身份」：向导只读卡，回执里印的名字
+    就是卡上那个 display_name。"""
     js = JS.read_text(encoding="utf-8")
-    assert "function isTypeLabel(" in js
-    assert "if (isTypeLabel(p.display_name)) profileBody.display_name = t.label;" in js
-    # SDK 回执要写本次选的类型与名字，不能用内存里可能已经过期的那份档案。
+    assert "isTypeLabel" not in js, "接入向导不再判「这名字是不是类型标签」"
+    assert "createRoleProfile" not in js, "接入向导不再写档案"
+    # SDK 回执写的就是卡上的名字与卡上的类型，不用内存里可能已经过期的那份。
+    assert "var effectiveName = p.display_name || typeLabelOf(p);" in js
     assert "renderSdk(res, p, fields, perms, amount, type, effectiveName, agentName, reg)" in js
-    assert "var effectiveName = isTypeLabel(p.display_name) ? TYPES[type].label : p.display_name;" in js
 
 
 @pytest.mark.asyncio

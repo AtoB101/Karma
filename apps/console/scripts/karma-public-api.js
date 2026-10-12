@@ -648,6 +648,11 @@
     });
   }
 
+  /** 资质文本 → 行业目录建议（服务端同一套关键词匹配）。接入向导用它推行业，不再让用户选。 */
+  async function suggestIndustries(text) {
+    return jsonPost("/v1/standards/onboarding/suggest-industries", { text: String(text || ""), limit: 3 });
+  }
+
   /** Agents owned by the authenticated identity card (P1 readiness included). */
   async function listMyAgents() {
     return karmaFetch("/v1/agents/mine", { method: "GET", headers: headers() });
@@ -971,6 +976,7 @@
     listMyAgents,
     listOnboardingIndustries,
     getOnboardingIndustry,
+    suggestIndustries,
     ownerConnect,
     ownerRevokeAgent,
     listRoleProfiles,

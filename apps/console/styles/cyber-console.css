@@ -1238,11 +1238,12 @@ body.gated { overflow: hidden; }
 .id-home-sub-note { font-size: 12px; color: var(--text-dim); }
 
 /* ---------- 给 agent 授权向导（#ag-wizard）----------
-   锁仓之后的活儿收成一条直线：选身份 → 授权额度 → 定类型 → 划边界 → 生成 SDK。
-   子身份账目、权限、上限都在这张卡里一次说清，别再让用户在三个页面之间找。 */
+   2026-10-13 之后只剩两点：选一张已经建好的子身份卡 + 给这台 agent 起名字。
+   类型 / 权限 / 额度 / 单笔 / 日限 在「身份 · 认证」建卡时就定了，这里只读展示
+   （.agw-card），不再让用户在三个页面之间找。 */
 #ag-wizard .agw-steps {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   list-style: none;
   margin: 14px 0 4px;
@@ -1260,6 +1261,26 @@ body.gated { overflow: hidden; }
   padding-top: 14px;
   border-top: 1px dashed rgba(168, 85, 247, 0.2);
 }
+/* 只读的「这张卡已经定好的边界」：一格一项，告诉用户这些东西不用再填一次。 */
+#ag-wizard .agw-card {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+#ag-wizard .agw-card li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(12, 24, 44, 0.55);
+  border: 1px solid rgba(96, 165, 250, 0.18);
+}
+#ag-wizard .agw-card b { font-size: 11px; font-weight: 500; color: var(--text-dim); }
+#ag-wizard .agw-card span { font-size: 12px; overflow-wrap: anywhere; }
 #ag-wizard .agw-block-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 #ag-wizard .agw-block-head b { font-size: 14px; }
 #ag-wizard .agw-block-head span { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
@@ -1275,14 +1296,10 @@ body.gated { overflow: hidden; }
   font-size: 13px;
   font-family: inherit;
 }
-#ag-wizard .agw-row input[type="number"] { width: 130px; }
 #ag-wizard .agw-row input[type="text"] { min-width: 200px; flex: 1; }
 #ag-wizard .agw-row select { min-width: 240px; max-width: 100%; }
 #ag-wizard .agw-note { font-size: 12px; color: #6c8aac; line-height: 1.7; margin-top: 8px; }
-#ag-wizard .agw-new-wrap { margin-top: 10px; }
-#ag-wizard .agw-new-wrap > summary { cursor: pointer; font-size: 12px; color: var(--neon-cyan); }
-#ag-wizard .agw-quick { display: inline-flex; gap: 6px; flex-wrap: wrap; }
-#ag-wizard .agw-quick .chip {
+#ag-wizard .agw-row .chip {
   border: 1px solid var(--border-glow);
   background: rgba(168, 85, 247, 0.08);
   color: var(--text-main);
@@ -1291,73 +1308,7 @@ body.gated { overflow: hidden; }
   font-size: 12px;
   cursor: pointer;
 }
-#ag-wizard .agw-quick .chip:hover { background: rgba(168, 85, 247, 0.2); }
-#ag-wizard .agw-types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
-#ag-wizard .agw-type {
-  display: block;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(168, 85, 247, 0.18);
-  background: rgba(8, 14, 24, 0.5);
-  cursor: pointer;
-}
-#ag-wizard .agw-type:has(input:checked) {
-  border-color: rgba(168, 85, 247, 0.6);
-  background: rgba(168, 85, 247, 0.1);
-}
-#ag-wizard .agw-type input { margin-right: 6px; }
-#ag-wizard .agw-type b { font-size: 13px; }
-#ag-wizard .agw-type span { display: block; margin-top: 4px; font-size: 11px; color: var(--text-dim); }
-#ag-wizard .agw-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 10px; }
-#ag-wizard .agw-perms { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
-#ag-wizard .agw-perm {
-  display: block;
-  padding: 9px 11px;
-  border-radius: 10px;
-  border: 1px solid rgba(168, 85, 247, 0.14);
-  background: rgba(8, 14, 24, 0.45);
-  cursor: pointer;
-}
-#ag-wizard .agw-perm input[type="checkbox"],
-#ag-wizard .agw-ack input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 4px;
-  height: 4px;
-  flex: 0 0 auto;
-  border: 1px solid rgba(148, 178, 255, 0.55);
-  border-radius: 1px;
-  background-color: rgba(8, 14, 24, 0.7);
-  cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
-}
-#ag-wizard .agw-perm input[type="checkbox"] { margin: 2px 6px 0 0; }
-#ag-wizard .agw-ack input[type="checkbox"] { margin: 3px 2px 0 0; }
-#ag-wizard .agw-perm input[type="checkbox"]:checked,
-#ag-wizard .agw-ack input[type="checkbox"]:checked {
-  border-color: #a855f7;
-  background-color: #a855f7;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.7 9.5 3.8' fill='none' stroke='%230b1024' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-  background-size: 3px 3px;
-  background-position: center;
-  background-repeat: no-repeat;
-  box-shadow: 0 0 4px rgba(168, 85, 247, 0.5);
-}
-#ag-wizard .agw-perm b { font-size: 12px; }
-#ag-wizard .agw-perm span { display: block; margin-top: 3px; font-size: 11px; color: var(--text-dim); }
-#ag-wizard .agw-ack {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 14px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  background: rgba(148, 163, 184, 0.06);
-  font-size: 12px;
-  line-height: 1.7;
-  cursor: pointer;
-}
+#ag-wizard .agw-row .chip:hover { background: rgba(168, 85, 247, 0.2); }
 #ag-wizard .agw-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
 #ag-wizard .agw-result {
   margin-top: 16px;
@@ -1367,19 +1318,14 @@ body.gated { overflow: hidden; }
   background: rgba(74, 222, 128, 0.05);
 }
 #ag-wizard .agw-result[hidden] { display: none; }
-#agents .ag-advanced > summary { cursor: pointer; font-size: 13px; color: var(--neon-cyan); }
 
 @media (max-width: 1100px) {
   #ag-wizard .agw-steps,
-  #ag-wizard .agw-types,
-  #ag-wizard .agw-grid,
-  #ag-wizard .agw-perms { grid-template-columns: repeat(2, 1fr); }
+  #ag-wizard .agw-card { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 720px) {
   #ag-wizard .agw-steps,
-  #ag-wizard .agw-types,
-  #ag-wizard .agw-grid,
-  #ag-wizard .agw-perms { grid-template-columns: 1fr; }
+  #ag-wizard .agw-card { grid-template-columns: 1fr; }
 }
 
 /* ------------------------------------------------------------------

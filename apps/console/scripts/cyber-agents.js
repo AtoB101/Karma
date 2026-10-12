@@ -236,6 +236,11 @@
 
   var INDUSTRIES = null;
   var CURRENT = null;
+  /* 行业那一行归这里（2026-10-13 用户口径）：行业**不再让用户选** ——
+     个体助理取营业执照上的经营范围、企业助理取主体认证里的服务类别，
+     用服务端同一套关键词匹配（/v1/standards/onboarding/suggest-industries）推出来；
+     推不出来才把选择器露出来让人点「改」自己挑，不能把流程卡死。 */
+  var VERT = { profileKey: null, inferred: "" };
 
   async function loadIndustries() {
     var sel = $("#ag-vertical");
@@ -297,8 +302,89 @@
     if (spec() && CURRENT && host) return spec().collect(host);
     return { spec: {}, problems: ["请先选择行业"] };
   }
+  /** 资质文本：行业就从这张卡上读（营业执照经营范围 / 主营产品 / 服务类别…）。 */
+  function profileIndustryText(p) {
+    if (!p) return "";
+    var bag = (p && p.kyc_payload) || {};
+    var parts = [];
+    ["business_name", "business_scope", "main_products", "service_scope",
+      "service_category", "legal_name", "entity_name"].forEach(function (k) {
+      if (bag[k]) parts.push(String(bag[k]));
+    });
+    return parts.join(" ");
+  }
+
+  /** 资质文本 → 行业目录里的 industry_id（服务端同一套规则）。推不出来回空串。 */
+  async function inferVertical(p) {
+    var text = profileIndustryText(p);
+    if (!text) return "";
+    try {
+      var body = await api().suggestIndustries(text);
+      var rows = (body && body.suggestions) || [];
+      if (rows.length && rows[0].industry_id) return String(rows[0].industry_id);
+    } catch (_) {}
+    return "";
+  }
+
+  function industryTitleById(id) {
+    var rows = INDUSTRIES || [];
+    for (var i = 0; i < rows.length; i += 1) {
+      if (rows[i] && rows[i].industry_id === id) return indTitle(rows[i], id);
+    }
+    return String(id || "");
+  }
+
+  function selectedCard() {
+    var a = window.KarmaAuthorize;
+    try { return a && a.selectedProfile ? a.selectedProfile() : null; } catch (_) { return null; }
+  }
+
+  function setVerticalNote(text) {
+    var note = $("#agw-vertical-note");
+    if (note) note.textContent = text;
+  }
+
+  function openVerticalPicker(open) {
+    var pick = $("#ag-vertical-pick");
+    if (pick) pick.hidden = !open;
+  }
+
   /**
-   * 一条龙第 2 步选完方向 / 行业后，选收款方向时把它注册进 Karma 目录。
+   * 方向 / 行业那两行的唯一入口：切到收款才要行业，行业本身从卡上的资质推。
+   * 推不出来（卡上没留经营范围，比如生活助理）就把选择器露出来，说明白为什么。
+   */
+  async function applySide() {
+    var sideSel = $("#ag-side");
+    var seller = !!(sideSel && sideSel.value === "seller");
+    var row = $("#ag-vertical-row");
+    var wrap = $("#ag-spec-wrap");
+    if (row) row.hidden = !seller;
+    if (wrap) wrap.hidden = !seller;
+    if (!seller) { openVerticalPicker(false); return; }
+    if (!INDUSTRIES) await loadIndustries();
+    var card = selectedCard();
+    var key = (card && card.profile_id) || "";
+    if (VERT.profileKey !== key) {
+      VERT.profileKey = key;
+      VERT.inferred = await inferVertical(card);
+    }
+    var sel = $("#ag-vertical");
+    if (sel && !sel.value && VERT.inferred) sel.value = VERT.inferred;
+    var current = sel ? sel.value : "";
+    if (!current) {
+      openVerticalPicker(true);
+      setVerticalNote("资质里没有读到行业，点「改」选一个");
+      return;
+    }
+    openVerticalPicker(false);
+    setVerticalNote(VERT.inferred === current
+      ? industryTitleById(current) + "（来自资质认证）"
+      : industryTitleById(current));
+    await renderSpecForm(current);
+  }
+
+  /**
+   * 一条龙第 3 步选完方向 / 行业后，选收款方向时把它注册进 Karma 目录。
    * 复用同一个 agent 名：目录里的 agent_id 与运行时钥匙的 agent_binding 是同一个值，
    * 事后「我的助理 Agent」与「交付包」才能按同一个 id 找到它。凭据由 Karma
    * 服务端托管，浏览器只拿到一次明文。
@@ -338,23 +424,18 @@
     refreshAgents();
 
     var sideSel = $("#ag-side");
-    function applySide() {
-      var seller = sideSel && sideSel.value === "seller";
-      var wrap = $("#ag-spec-wrap");
-      if (wrap) wrap.style.display = seller ? "" : "none";
-      if (!seller) {
-        var host = $("#ag-spec-form");
-        if (host) host.innerHTML = '<p class="muted">买方身份（user profile）不需要行业硬指标，直接接入即可。</p>';
-      } else {
-        renderSpecForm($("#ag-vertical").value);
-      }
-    }
-    if (sideSel) sideSel.addEventListener("change", applySide);
+    if (sideSel) sideSel.addEventListener("change", function () { applySide(); });
     applySide();
     var vertSel = $("#ag-vertical");
     if (vertSel) {
-      vertSel.addEventListener("change", function () { renderSpecForm(vertSel.value); });
+      vertSel.addEventListener("change", function () {
+        // 用户自己点「改」挑的：不再标「来自资质认证」，硬指标表单跟着换。
+        setVerticalNote(industryTitleById(vertSel.value));
+        renderSpecForm(vertSel.value);
+      });
     }
+    var vertEdit = $("#agw-vertical-edit");
+    if (vertEdit) vertEdit.addEventListener("click", function () { openVerticalPicker(true); });
     var refresh = $("#ag-list-refresh");
     if (refresh) refresh.addEventListener("click", function () { refreshAgents(); });
 
@@ -393,5 +474,12 @@
     init();
   }
 
-  window.KarmaAgents = { refresh: refreshAgents, registerFromWizard: registerFromWizard, collectSpec: collectSpec };
+  window.KarmaAgents = {
+    refresh: refreshAgents,
+    registerFromWizard: registerFromWizard,
+    collectSpec: collectSpec,
+    // 方向 / 行业那一行由这里画（授权向导选完卡会喊一声 applySide）。
+    applySide: applySide,
+    inferVertical: inferVertical,
+  };
 })();

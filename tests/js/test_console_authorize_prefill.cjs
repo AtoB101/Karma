@@ -1,10 +1,14 @@
 /**
- * 授权向导 · 选已有档案时把已授额度/边界原样填回（cyber-authorize.js 的 prefillFromProfile）。
+ * 授权向导 · 选已有子身份卡时，把卡上「已经定好的边界」原样读出来（cyber-authorize.js 的 cardPolicy）。
  *
- * 线上反馈（2026-10-10）：小爱已经授过额度、权限，但「给 agent 授权」向导选它之后
- * 还是空白/默认值，等于让用户再授权一遍。这里把模块真的跑起来，钉住：
- *   1. 选一个已授权的档案，额度、单笔、日上限、人工确认、权限都要按它原样填回；
- *   2. 没授过边界的档案仍走默认权限，不把空值写进去。
+ * 2026-10-13 用户口径：这一页不再让用户重填类型 / 额度 / 单笔 / 日限 / 权限 —— 这些都在
+ * 「身份 · 认证 → 建立子身份」刷脸开通那一步落到 role profile 的 spend_policy + allocation
+ * 里了。向导只负责把这张卡上已经定好的那份**只读展示**出来（#agw-card-list），生成时也用
+ * 同一份。这里把模块真的跑起来，钉住：
+ *   1. 选一张建过边界的卡：cardPolicy() 要还原分配额度 / 单笔 / 日限 / 人工确认 / 8 条权限，
+ *      且 fromCard=true、只读面板真的写了这些值、默认值提示不出现；
+ *   2. 没建过边界的卡：退回系统默认（单笔 100 / 日限 500 / 默认 7 条权限），额度为 0、
+ *      fromCard=false —— 不把空值写进去，也不冒充用户签过的边界。
  *
  * 跑法：node tests/js/test_console_authorize_prefill.cjs
  */
@@ -62,7 +66,7 @@ function makeNode(id) {
   let html = "";
   Object.defineProperty(node, "innerHTML", {
     get: function () { return html; },
-    set: function (v) { html = v; if (v === "") node.children.length = 0; },
+    set: function (v) { html = String(v); if (html === "") node.children.length = 0; },
   });
   return node;
 }
@@ -70,8 +74,6 @@ function makeNode(id) {
 function boot(api) {
   const nodes = {};
   const byId = function (id) { if (!nodes[id]) nodes[id] = makeNode(id); return nodes[id]; };
-  nodes["agw-human"] = makeNode("agw-human");
-  nodes["agw-human"].options = [{ value: "above_single" }, { value: "always" }, { value: "off" }];
   const document = {
     readyState: "complete",
     getElementById: byId,
@@ -159,18 +161,30 @@ async function main() {
   sel.fire("change");
   await flush();
 
-  eq("额度回填成已有分配", env.byId("agw-amount").value, "50");
-  eq("单笔上限回填", env.byId("agw-single").value, "50");
-  eq("日上限回填", env.byId("agw-daily").value, "100");
-  eq("人工确认回填", env.byId("agw-human").value, "above_single");
-  const perms = env.window.KarmaAuthorize && env.window.KarmaAuthorize.state.selectedPerms;
-  check("权限回填成档案已有 8 条", Array.isArray(perms) && perms.length === 8 && perms.indexOf("verify_voucher") >= 0, JSON.stringify(perms));
+  const pol = env.window.KarmaAuthorize.cardPolicy();
+  check("cardPolicy 认得出这张卡", !!pol);
+  eq("额度取自这张卡的分配", pol.amount, 50);
+  eq("单笔上限取自这张卡", pol.single, 50);
+  eq("日上限取自这张卡", pol.daily, 100);
+  eq("人工确认取自这张卡", pol.human, "above_single");
+  check("权限取自这张卡的 8 条", Array.isArray(pol.perms) && pol.perms.length === 8 && pol.perms.indexOf("verify_voucher") >= 0, JSON.stringify(pol.perms));
+  check("边界来自卡上（fromCard）", pol.fromCard === true);
+  const cardList = String(env.byId("agw-card-list").innerHTML);
+  check("只读面板写了这张卡的额度", cardList.indexOf("50.00") >= 0, cardList);
+  check("只读面板写了这张卡的日上限", cardList.indexOf("100.00") >= 0, cardList);
+  check("建过边界的卡不显示「默认值」提示", env.byId("agw-policy-warn").hidden === true);
 
   sel.value = "p_bare";
   sel.fire("change");
   await flush();
-  const barePerms = env.window.KarmaAuthorize.state.selectedPerms;
-  check("没有边界的档案退回默认权限（不把空值写进去）", Array.isArray(barePerms) && barePerms.indexOf("place_order") >= 0, JSON.stringify(barePerms));
+
+  const barePol = env.window.KarmaAuthorize.cardPolicy();
+  eq("没有边界的卡：额度 0", barePol.amount, 0);
+  eq("没有边界的卡：单笔退回默认", barePol.single, 100);
+  eq("没有边界的卡：日限退回默认", barePol.daily, 500);
+  check("没有边界的卡：退回默认权限（含 place_order）", barePol.perms.indexOf("place_order") >= 0 && barePol.perms.length === 7, JSON.stringify(barePol.perms));
+  check("没有边界的卡：fromCard=false", barePol.fromCard === false);
+  check("没有边界的卡：给了「默认值」提示", String(env.byId("agw-policy-warn").textContent).indexOf("系统默认值") >= 0, env.byId("agw-policy-warn").textContent);
 
   console.log((failures ? "FAILED " : "ok  ") + "authorize wizard prefill: " + (checks - failures) + "/" + checks + " checks passed");
   process.exit(failures ? 1 : 0);

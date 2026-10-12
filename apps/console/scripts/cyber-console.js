@@ -1522,11 +1522,16 @@
    *      运营复核台是岗位入口，常显，子项才按能力位收。
    */
   /* 助理身份（子身份）= 一张卡干活的地方：只留订单 / 收付中心 / 任务执行 / 账单 / 争议 /
-     Agent 接入 / 设置。身份 · 认证（建卡、主身份账房）和技能市场属于别的视角，切到助理
-     身份就不画 —— 用户口径：「不要显示其他功能，要不然都混在一起了」。 */
-  var ASSISTANT_NAV_GROUPS = ["overview", "center", "tasks", "bills", "disputes", "agents", "settings"];
+     设置。身份 · 认证（建卡、主身份账房）、Agent 接入和技能市场属于别的视角，切到助理
+     身份就不画 —— 用户口径：「不要显示其他功能，要不然都混在一起了」。
+
+     2026-10-13 用户口径：**Agent 接入归主身份**，挂在「身份 · 认证」下面。理由是子身份
+     这一档本来就不建卡：类型 / 名字 / 权限 / 额度 / 单笔 / 日限 / 行业资质都是主身份在
+     「身份 · 认证」里定好的，「给这张卡接一个 agent」是建卡的下一步，不是一张卡自己
+     干活的地方。所以它从助理那七项里移出去了（那张卡仍能在主身份的功能区里被接上）。 */
+  var ASSISTANT_NAV_GROUPS = ["overview", "center", "tasks", "bills", "disputes", "settings"];
   var ROLE_NAV_GROUPS = {
-    master: ["identity", "bills", "settings"],
+    master: ["identity", "agents", "bills", "settings"],
     individual: ASSISTANT_NAV_GROUPS,
     merchant: ASSISTANT_NAV_GROUPS,
     enterprise: ASSISTANT_NAV_GROUPS,
