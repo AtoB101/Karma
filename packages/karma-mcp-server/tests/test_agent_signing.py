@@ -8,6 +8,7 @@ from karma_mcp_server.agent_signing import (
     agent_public_key_b64,
     agent_public_key_fingerprint,
     build_agent_request_message,
+    canonical_public_key_b64,
     runtime_key_id,
     sign_runtime_request,
 )
@@ -93,6 +94,22 @@ def test_public_key_fingerprint_matches_the_server_formula():
     # 空白容忍（服务端也会 strip 它收到的那串）
     assert agent_public_key_fingerprint("  " + pub_b64 + "  ") == fp
     assert agent_public_key_fingerprint("") == ""
+
+
+def test_fingerprint_survives_a_base64_key_that_starts_with_0x():
+    """约 1/2000 把随机公钥的 base64 以 "0x"/"0X" 开头，不许当成 hex 前缀剥掉。"""
+    raws = (
+        bytes([0xD3, 0x10]) + bytes(range(1, 31)),
+        bytes([0xD1, 0x70]) + bytes(range(1, 31)),
+    )
+    for raw in raws:
+        b64 = base64.b64encode(raw).decode()
+        assert b64[:2].lower() == "0x"
+        assert canonical_public_key_b64(b64) == b64
+        assert canonical_public_key_b64(raw.hex()) == b64
+        assert canonical_public_key_b64("0x" + raw.hex()) == b64
+        # 有指纹（不是空串）——否则主人的配对卡片上没有可核对的依据。
+        assert agent_public_key_fingerprint(b64) == hashlib.sha256(b64.encode()).hexdigest()[:16]
 
 
 def test_two_different_keys_never_share_a_fingerprint():
