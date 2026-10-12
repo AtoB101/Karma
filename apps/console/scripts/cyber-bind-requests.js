@@ -53,7 +53,17 @@
   function api() { return global.karmaRuntimeApi; }
   function signer() { return global.KarmaHandoff; }
   function identity() { return String(global.KARMA_IDENTITY_ID || "").trim(); }
-  function host() { return document.getElementById("bind-requests"); }
+  /* 两个宿主：一条龙第 ③ 步（#ag-activate）+ 设置页那张备用卡片（#ag-bind-requests）。
+     同一份取数、同一份签名消息，哪儿都能输码 —— 用户实测「找不到位置」，
+     主入口搬到 Agent 接入页的第 ③ 步，设置页那张留着当兜底。 */
+  function hosts() {
+    var out = [];
+    ["ag-activate-requests", "bind-requests"].forEach(function (id) {
+      var n = document.getElementById(id);
+      if (n) out.push(n);
+    });
+    return out;
+  }
   function T(zh) {
     var i18n = global.CYBER_I18N;
     return i18n && i18n.T ? i18n.T(zh) : zh;
@@ -148,25 +158,32 @@
   }
 
   function render() {
-    var h = host();
-    if (!h) return;
-    if (!state.authed && !state.requests.length && !state.loading) {
-      h.innerHTML = '<p class="ag-hint">连接钱包后，这里会显示待确认的接入请求。</p>' + noteHtml();
-    } else {
-      h.innerHTML = bodyHtml() + noteHtml();
-    }
-    var card = document.getElementById("ag-bind-requests");
-    if (card) card.classList.toggle("attention", live().length > 0);
+    var nodes = hosts();
+    if (!nodes.length) return;
+    var body =
+      !state.authed && !state.requests.length && !state.loading
+        ? '<p class="ag-hint">连接钱包后，这里会显示待确认的接入请求。</p>' + noteHtml()
+        : bodyHtml() + noteHtml();
+    nodes.forEach(function (h) {
+      h.innerHTML = body;
+    });
+    // 两张卡片一起亮：有请求时整张卡片高亮，用户一眼看到「这里要动手」。
+    ["ag-activate", "ag-bind-requests"].forEach(function (id) {
+      var card = document.getElementById(id);
+      if (card) card.classList.toggle("attention", live().length > 0);
+    });
     paintNavDot(live().length);
   }
 
-  /** 侧栏「设置」挂红点：主人不在设置页时也要看得见。 */
+  /** 侧栏「设置」与「Agent 接入」都挂红点：主人在哪一页都要看得见这一步。 */
   function paintNavDot(count) {
-    var nav = document.querySelector('.nav-main[data-page="settings"]');
-    if (!nav) return;
-    nav.classList.toggle("has-pending", count > 0);
-    if (count > 0) nav.setAttribute("title", T("有待确认的接入请求"));
-    else nav.removeAttribute("title");
+    ["settings", "agents"].forEach(function (page) {
+      var nav = document.querySelector('.nav-main[data-page="' + page + '"]');
+      if (!nav) return;
+      nav.classList.toggle("has-pending", count > 0);
+      if (count > 0) nav.setAttribute("title", T("有待确认的接入请求"));
+      else nav.removeAttribute("title");
+    });
   }
 
   /* ---- 弹窗：新请求出现时提示一次 ---- */
@@ -216,10 +233,11 @@
 
   function gotoCode() {
     closeModal();
+    // 落到一条龙的第 ③ 步（Agent 接入页），不是设置页 —— 主入口在那儿。
     if (global.cyberSwitchPage) {
-      try { global.cyberSwitchPage("settings"); } catch (_) {}
+      try { global.cyberSwitchPage("agents", "wizard"); } catch (_) {}
     }
-    var card = document.getElementById("ag-bind-requests");
+    var card = document.getElementById("ag-activate") || document.getElementById("ag-bind-requests");
     if (card && card.scrollIntoView) card.scrollIntoView({ behavior: "smooth", block: "center" });
     var rows = live();
     var input = rows.length ? inputFor(rows[0].key_id) : null;
@@ -263,14 +281,16 @@
 
   /* ---- 动作：输码确认 / 拒绝 ---- */
 
-  async function confirmBind(keyId) {
+  async function confirmBind(keyId, near) {
     var s = signer();
     if (!s || !s.buildConfirmBindMsg || !s.walletProvider) {
       state.err = "签名模块未加载，请刷新页面后再试。";
       render();
       return;
     }
-    var input = inputFor(keyId);
+    // 输码框现在有两个宿主：谁点的那颗按钮，就读它同一张卡片里的那个框。
+    var box = near && near.closest ? near.closest(".ag-snippet") : null;
+    var input = (box && box.querySelector("[data-bind-code]")) || inputFor(keyId);
     var code = s.normalizeCode(input ? input.value : "");
     if (!/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(code)) {
       state.err = "匹配码是 8 位（形如 XXXX-XXXX），请照 agent 显示的原样抄一遍";
@@ -371,7 +391,7 @@
       var confirmBtn = t.closest("[data-bind-confirm]");
       if (confirmBtn) {
         ev.preventDefault();
-        confirmBind(confirmBtn.getAttribute("data-bind-confirm"));
+        confirmBind(confirmBtn.getAttribute("data-bind-confirm"), confirmBtn);
         return;
       }
       var rejectBtn = t.closest("[data-bind-reject]");
@@ -380,7 +400,7 @@
         rejectBind(rejectBtn.getAttribute("data-bind-reject"));
         return;
       }
-      if (t.closest("#btn-bind-refresh")) {
+      if (t.closest("#btn-bind-refresh") || t.closest("#btn-activate-refresh")) {
         ev.preventDefault();
         poll();
         return;

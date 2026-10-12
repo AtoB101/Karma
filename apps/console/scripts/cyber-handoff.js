@@ -13,7 +13,7 @@
  */
 (function (global) {
   var FALLBACK_RUNTIME_URL = "https://karma-network.ai";
-  var state = { agent: null, apiKey: "", runtimeKey: "", keys: null, note: "", err: "", pendingKeyId: "" };
+  var state = { agent: null, apiKey: "", runtimeKey: "", keys: null, note: "", err: "" };
 
   /**
    * 交付给 agent 的接入地址：跟着操作台里选的那台节点走。
@@ -296,30 +296,26 @@
   function bindingHint(keys) {
     var live = (keys || []).filter(function (k) { return (k.status || "") === "active"; });
     if (!live.length) return "";
-    state.pendingKeyId = "";
     var out = "";
-    // ① 有 agent 申请了、还没输码：这是用户在操作台唯一要做的事，放最上面。
+    // ① 有 agent 申请了、还没输码：这是用户在操作台唯一要做的事。
+    // 输码口只有一个 —— 上面那条一条龙的第 ③ 步「激活 · 输入匹配码」（#ag-activate）。
+    // 这里不再自己放一个输入框：同一件事两个输入口，正是用户实测「找不到位置」的根因。
     var waiting = live.filter(function (k) {
       return k.pending_binding && !k.pending_binding.expired;
     });
     if (waiting.length) {
-      var k = waiting[0];
-      var pb = k.pending_binding || {};
-      state.pendingKeyId = k.key_id;
+      var pb = waiting[0].pending_binding || {};
       out +=
         '<div class="ag-snippet" style="margin-top:10px">' +
         '<div class="ag-secret-label">有一个 agent 正在申请接入这把密钥（还没生效）</div>' +
-        '<p class="ag-hint">让 agent 把它拿到的那串匹配码显示给你，抄进下面的框里。签名确认之后，' +
-        "这个 agent 才能用这把密钥；在确认之前它花钱的请求一律被拒。</p>" +
+        '<p class="ag-hint">让 agent 把它拿到的那串 8 位匹配码显示给你，到第 ③ 步「激活 · 输入匹配码」抄进去 + 钱包签名，' +
+        "绑定才生效；在确认之前它花钱的请求一律被拒。</p>" +
         '<p class="ag-hint">这把钥匙现在还没激活：没走完这一步，谁都拿它花不了钱。</p>' +
         '<p class="ag-hint">agent 公钥指纹：' + esc(pb.agent_fingerprint || "—") +
         " · 匹配码有效至 " + esc(String(pb.expires_at || "").slice(0, 16).replace("T", " ")) +
         " · 还能试 " + esc(pb.attempts_left == null ? "—" : pb.attempts_left) + " 次</p>" +
-        '<input id="ho-bind-code" type="text" inputmode="latin" autocomplete="off" spellcheck="false"' +
-        ' maxlength="9" placeholder="XXXX-XXXX" value="" />' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
-        btn("确认绑定（要钱包签名）", "ho-bind-confirm", "primary") +
-        btn("拒绝这次接入", "ho-bind-reject", "red") +
+        btn("↓ 去第 ③ 步输匹配码激活", "ho-goto-activate", "primary") +
         "</div>" +
         (waiting.length > 1
           ? '<p class="ag-hint">还有 ' + esc(waiting.length - 1) + " 个待确认请求，处理完这个再点「读取已有密钥」。</p>"
@@ -330,7 +326,7 @@
       if (stale.length) {
         out +=
           '<p class="ag-hint">有一个 agent 的接入申请已经过期没有确认（匹配码 3 分钟有效）：' +
-          "让 agent 重新申请一次，会把新的匹配码给你。</p>";
+          "让 agent 重新申请一次，会把新的匹配码给你，再到第 ③ 步「激活」输码。</p>";
       }
     }
     // ② 绑定总状态：绑了以后光有钥匙字符串花不了钱。
@@ -340,7 +336,7 @@
     } else {
       out +=
         '<p class="ag-hint">运行时密钥还没绑定 agent 公钥：agent 首次接入时会申请绑定，' +
-        "你在操作台输入它给的匹配码之后才生效；在绑定生效前光有钥匙就能用。</p>";
+        "你把收到的 8 位匹配码在第 ③ 步「激活」输进去、签名之后才生效；在绑定生效前光有钥匙就能用。</p>";
     }
     return out;
   }
@@ -391,7 +387,7 @@
       '<div class="ag-next" style="margin-top:14px"><b>④ 交付说明</b><ol>' +
       "<li>把上面的 env 写进 agent 运行时的环境变量（或直接下载文件）。</li>" +
       "<li>agent 用 KARMA_AGENT_ID + KARMA_API_KEY 完成身份识别；用 KARMA_RUNTIME_KEY 请求付款码、提交回执、申请结算。</li>" +
-      "<li>第一次动用这把钥匙的钱之前，agent 会申请绑定自己的公钥并把 8 位匹配码给你；你到「设置 → 接入确认」输码 + 钱包签名确认，它才能真正付款（在那之前一律被拒）。</li>" +
+      "<li>第一次动用这把钥匙的钱之前，agent 会申请绑定自己的公钥并把 8 位匹配码给你；你到第 ③ 步「激活 · 输入匹配码」输码 + 钱包签名确认，它才能真正付款（在那之前一律被拒）。</li>" +
       "<li>对方成交前会查 p1-status；这就是 Karma 对这笔收付的验证依据。</li>" +
       "<li>不再需要这个 agent 时，用下面「停用并销毁密钥」——Karma 托管的运行密钥会一并销毁。</li>" +
       "</ol></div>" +
@@ -424,8 +420,7 @@
     bind("ho-list", function () { listKeys(); });
     bind("ho-run-check", function () { runCheck(a); });
     bind("ho-revoke", function () { revoke(a); });
-    bind("ho-bind-confirm", function () { confirmBind(); });
-    bind("ho-bind-reject", function () { rejectBind(); });
+    bind("ho-goto-activate", function () { gotoActivate(); });
     bind("ho-refresh", function () { open(a.agent_id); });
   }
 
@@ -487,89 +482,6 @@
     } catch (e) {
       state.note = "";
       state.err = "读取失败：" + (e.message || e);
-    }
-    render();
-  }
-
-  // agent 把匹配码给主人 → 主人在这里输码 + 钱包签名 → 绑定才落库。
-  async function confirmBind() {
-    var keyId = state.pendingKeyId;
-    if (!keyId) { state.err = "没有待确认的接入请求，先点「读取已有密钥」"; render(); return; }
-    var input = document.getElementById("ho-bind-code");
-    var code = normalizeCode(input ? input.value : "");
-    if (!/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(code)) {
-      state.err = "匹配码是 8 位（形如 XXXX-XXXX），请照 agent 显示的原样抄一遍";
-      render();
-      return;
-    }
-    var prov = await walletProvider();
-    if (!prov) { state.err = "未检测到可用钱包，请先用右上角「连接钱包」认证"; render(); return; }
-    state.err = "";
-    state.note = "等待钱包签名…";
-    render();
-    try {
-      var accounts = await prov.request({ method: "eth_requestAccounts" });
-      var wallet = accounts[0];
-      var nonce = "console-" + Date.now().toString(36);
-      var msg = buildConfirmBindMsg({
-        key_id: keyId,
-        karma_identity_id: identity(),
-        wallet_address: wallet,
-        activation_code: code,
-        client_nonce: nonce,
-      });
-      var sig = await prov.request({ method: "personal_sign", params: [msg, wallet] });
-      var r = await global.karmaRuntimeApi.runtimeConfirmBindKey({
-        key_id: keyId,
-        karma_identity_id: identity(),
-        wallet_address: wallet,
-        wallet_signature: sig,
-        activation_code: code,
-        client_nonce: nonce,
-      });
-      await listKeys();
-      state.note =
-        "已确认绑定：" + ((r && r.agent_fingerprint) || "—") +
-        "。这个 agent 之后每个请求都要私钥签名，被偷走的钥匙单独没用。";
-    } catch (e) {
-      state.note = "";
-      state.err = "确认失败：" + (e.message || e);
-    }
-    render();
-  }
-
-  async function rejectBind() {
-    var keyId = state.pendingKeyId;
-    if (!keyId) { state.err = "没有待确认的接入请求"; render(); return; }
-    if (!global.confirm("拒绝这次接入？这个 agent 拿到的匹配码会作废，密钥本身不受影响。")) return;
-    var prov = await walletProvider();
-    if (!prov) { state.err = "未检测到可用钱包，请先用右上角「连接钱包」认证"; render(); return; }
-    state.err = "";
-    state.note = "等待钱包签名…";
-    render();
-    try {
-      var accounts = await prov.request({ method: "eth_requestAccounts" });
-      var wallet = accounts[0];
-      var nonce = "console-" + Date.now().toString(36);
-      var msg = buildRejectBindMsg({
-        key_id: keyId,
-        karma_identity_id: identity(),
-        wallet_address: wallet,
-        client_nonce: nonce,
-      });
-      var sig = await prov.request({ method: "personal_sign", params: [msg, wallet] });
-      await global.karmaRuntimeApi.runtimeRejectBindKey({
-        key_id: keyId,
-        karma_identity_id: identity(),
-        wallet_address: wallet,
-        wallet_signature: sig,
-        client_nonce: nonce,
-      });
-      await listKeys();
-      state.note = "已拒绝这次接入。要重新接入，让 agent 再申请一次。";
-    } catch (e) {
-      state.note = "";
-      state.err = "拒绝失败：" + (e.message || e);
     }
     render();
   }
@@ -692,6 +604,13 @@
   function close() {
     var c = card();
     if (c) c.hidden = true;
+  }
+
+  /** 从交付包指到一条龙第 ③ 步：顺手刷一次待确认请求，别让人看见过期的清单。 */
+  function gotoActivate() {
+    var box = document.getElementById("ag-activate");
+    if (box && box.scrollIntoView) box.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (global.KarmaBindRequests && global.KarmaBindRequests.refresh) global.KarmaBindRequests.refresh();
   }
 
   function init() {

@@ -1352,6 +1352,16 @@
   }
 
   /**
+   * 一条龙要露面的块（#agents 页）：授权向导 + 配对 + 高级注册。
+   *
+   * 交付包（#ag-handoff-card）与激活卡（#ag-activate）**故意不挂进来** —— 它们由
+   * cyber-handoff.js / cyber-bind-requests.js 自己按状态显隐；挂进来会被 focus-hidden
+   * 压住（从「我的助理 Agent」点开交付包时就是这么坏的）。这一点没列 = 永远可见，
+   * 正好是「输匹配码这一步别藏起来」想要的。
+   */
+  var AGENT_ONBOARD_BLOCKS = ["#ag-wizard", "#agents > .ag-advanced", "#ag-pair"];
+
+  /**
    * 「右边只显示点过的那一块」：点子功能 -> 同页其它功能块收起来；点主项 -> 整页视图全恢复。
    * 侧栏选什么，右边就只显示什么，不用再自己上下找。
    */
@@ -1379,12 +1389,13 @@
       developer: ["#id-developer"],
     },
     agents: {
-      wizard: ["#ag-wizard"],
+      // 一条龙（用户口径 2026-10-12）：接入向导 / 接入一个 Agent 是同一条流水线的
+      // 两个入口 —— 落到同一组块上，子项只负责滚到对应那一步，不再把流程切碎。
+      // 按子项收窄时，第 ③ 步「输匹配码」会被压在别的子项里，用户实测找不到。
+      wizard: AGENT_ONBOARD_BLOCKS,
+      connect: AGENT_ONBOARD_BLOCKS,
+      // 我的助理 Agent = 事后管理：只看那张清单。
       mine: ["#ag-mine"],
-      // 配对面板跟着「接入一个 Agent」一起露面（它在那一页的生成包下方）。
-      // 交付包（ag-handoff-card）不挂这里：它由 cyber-handoff.js 自己显隐 ——
-      // 挂进来会被 focus-hidden 压住，从「我的助理 Agent」点开时反而看不见。
-      connect: ["#agents > .ag-advanced", "#ag-pair"],
     },
     reviews: {
       all: ["#rv-queue"],
@@ -1987,6 +1998,14 @@
     document.querySelectorAll("[data-go]").forEach(function (node) {
       node.addEventListener("click", function () {
         switchPage(node.getAttribute("data-go") || "overview");
+      });
+    });
+    // 一条龙步骤条（#ag-flow，在 #agents 页里）：点一下滚到那一步，不换页。
+    // 它和子项的区别是「看得到整条流程」—— 用户不知道点哪个子项时，从这儿走。
+    document.querySelectorAll("[data-ag-flow]").forEach(function (node) {
+      node.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        landOn(document.getElementById(node.getAttribute("data-ag-flow")));
       });
     });
     bindActions();

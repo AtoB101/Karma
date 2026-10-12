@@ -310,6 +310,10 @@ def test_the_console_prompts_for_the_activation_code_from_settings():
     assert 'id="ag-bind-requests"' in html, "设置页要有接入确认卡片"
     assert 'id="bind-requests"' in html, "卡片里要留出渲染待确认请求的位置"
     assert 'id="btn-bind-refresh"' in html, "要有手动刷新按钮"
+    # 主入口在 Agent 接入那条一条龙的第 ③ 步（用户口径 2026-10-12：「找不到位置」）。
+    assert 'id="ag-activate"' in html, "一条龙第 ③ 步要有接入确认卡片"
+    assert 'id="ag-activate-requests"' in html, "第 ③ 步卡片里要留出渲染待确认请求的位置"
+    assert 'id="btn-activate-refresh"' in html, "第 ③ 步也要有手动刷新按钮"
     assert "cyber-bind-requests.js" in html, "页面必须加载这个模块"
     # 签名消息只有一份实现：新模块必须排在 cyber-handoff.js 之后并复用它。
     # 引用后面挂着 ?v=<内容摘要>（scripts/stamp_console_assets.py），所以只比路径。

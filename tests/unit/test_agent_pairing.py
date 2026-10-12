@@ -687,15 +687,22 @@ def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
     """静态接线：页面、脚本映射、侧栏落点三者少一个，用户就点不到这一页。
 
     2026-10-11 用户口径：Agent 接入只留「授权向导 / 我的助理 Agent / 接入一个 Agent」
-    三个子项；配对（匹配接入）不再是独立子项 —— 它是「接入一个 Agent」这一页的最后
-    一块（生成包下方），跟着那一页一起露面。
+    三个子项；配对（匹配接入）不再是独立子项 —— 它是「接入一个 Agent」这一页的一块。
+
+    2026-10-12 用户口径：「整理成一条龙，包括输入匹配码，别让流程散在几个功能里」——
+    四步（① 授权向导 → ② 生成接入包 → ③ 输匹配码激活 → ④ 配对码接入）按这个顺序
+    排在同一页上；「接入向导」与「接入一个 Agent」两个子项落到同一组块，只负责滚到
+    各自那一步。配对是主路径的第四步，所以排在可选的高级注册（#ag-connect）之前。
     """
     html = PAGE.read_text(encoding="utf-8")
     assert 'id="ag-pair"' in html
     assert 'data-sub="pair"' not in html, "配对不再是独立子项"
     assert 'data-page="agents" data-sub="connect"' in html, "「接入一个 Agent」得留在侧栏里"
-    # 落点：排在「接入一个 Agent」的生成包（#ag-connect / #ag-result）之后。
-    assert html.index('id="ag-connect"') < html.index('id="ag-pair"')
+    # 一条龙顺序：向导 → 交付包 → 激活 → 配对；可选的高级注册垫底。
+    assert html.index('id="ag-wizard"') < html.index('id="ag-handoff-card"')
+    assert html.index('id="ag-handoff-card"') < html.index('id="ag-activate"')
+    assert html.index('id="ag-activate"') < html.index('id="ag-pair"')
+    assert html.index('id="ag-pair"') < html.index('id="ag-connect"')
     assert 'id="ag-result"' in html
     assert "cyber-pairing.js" in html
     assert 'id="pair-code"' in html
@@ -706,9 +713,16 @@ def test_the_console_has_a_pairing_panel_wired_to_the_panel_script():
     assert 'id="pair-handoff-go"' in html
 
     console_js = (CONSOLE / "scripts" / "cyber-console.js").read_text(encoding="utf-8")
-    # 子项没有了，但点「接入一个 Agent」要把它一起翻出来 —— 否则这一页没人能点到。
-    assert 'connect: ["#agents > .ag-advanced", "#ag-pair"]' in console_js
+    # 一条龙：两个子项落到同一组块上（点哪个都看见整条流程，只滚到各自那一步）。
+    # 交付包 / 激活卡故意不挂进来 —— 它们由各自模块按状态显隐（挂了会被 focus-hidden 压住）。
+    assert (
+        'var AGENT_ONBOARD_BLOCKS = ["#ag-wizard", "#agents > .ag-advanced", "#ag-pair"];'
+        in console_js
+    )
+    assert "wizard: AGENT_ONBOARD_BLOCKS," in console_js
+    assert "connect: AGENT_ONBOARD_BLOCKS," in console_js
     assert 'wizard: "#ag-wizard"' in console_js
+    assert 'connect: "#agents .ag-advanced"' in console_js
     assert 'pair: ' not in console_js and 'handoff: ' not in console_js
 
 

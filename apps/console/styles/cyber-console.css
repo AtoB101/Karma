@@ -810,12 +810,16 @@ body.confidential [data-bind="b_released"] {
 
 
 /* ---------- Agent 接入页 (#agents) ---------- */
+/* 一条龙步骤条：四步排成一行，每步一颗按钮滚到那一段（#ag-flow）。 */
 #agents .ag-flow {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-top: 14px;
+  list-style: none;
+  padding: 0;
 }
+#agents .ag-flow .ag-step .btn { font-size: 12px; padding: 4px 10px; }
 #agents .ag-step {
   padding: 12px 14px;
   border-radius: 14px;
