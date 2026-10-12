@@ -230,6 +230,47 @@ class OnchainStatus:
     error: Optional[str] = None
 
 
+# Minimal ERC-20 surface the adapter itself drives. `approve` has to be here:
+# lock_agent_penalty() approves the bilateral contract from the agent signer when the
+# allowance is short, and a fresh venue always starts at zero allowance.
+ERC20_MIN_ABI: list[dict[str, Any]] = [
+    {
+        "name": "balanceOf",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "account", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}],
+    },
+    {
+        "name": "allowance",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [
+            {"name": "owner", "type": "address"},
+            {"name": "spender", "type": "address"},
+        ],
+        "outputs": [{"name": "", "type": "uint256"}],
+    },
+    {
+        "name": "decimals",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "uint8"}],
+    },
+    {
+        "name": "approve",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "spender", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+        ],
+        "outputs": [{"name": "", "type": "bool"}],
+    },
+]
+
+
 class OnChainSettlementAdapter:
     """
     Adapter between Karma runtime and KarmaBilateral.
@@ -344,35 +385,9 @@ class OnChainSettlementAdapter:
         if not settings.erc20_token_address:
             raise RuntimeError("ERC20_TOKEN_ADDRESS not set")
         w3 = self._get_web3()
-        erc20_abi = [
-            {
-                "name": "balanceOf",
-                "type": "function",
-                "stateMutability": "view",
-                "inputs": [{"name": "account", "type": "address"}],
-                "outputs": [{"name": "", "type": "uint256"}],
-            },
-            {
-                "name": "allowance",
-                "type": "function",
-                "stateMutability": "view",
-                "inputs": [
-                    {"name": "owner", "type": "address"},
-                    {"name": "spender", "type": "address"},
-                ],
-                "outputs": [{"name": "", "type": "uint256"}],
-            },
-            {
-                "name": "decimals",
-                "type": "function",
-                "stateMutability": "view",
-                "inputs": [],
-                "outputs": [{"name": "", "type": "uint8"}],
-            },
-        ]
         self._erc20_contract = w3.eth.contract(
             address=w3.to_checksum_address(settings.erc20_token_address),
-            abi=erc20_abi,
+            abi=ERC20_MIN_ABI,
         )
         return self._erc20_contract
 
