@@ -45,9 +45,9 @@ This checklist is blocking for broad public test rollout.
 | 项 | 值 |
 |---|---|
 | 时间 | 2026-10-12（G10 签核台账这一轮，部署后实测，`--no-heavy`；重活由 CI 覆盖） |
-| 版本 | `feat/g10-signoff-ledger`（`0c30638`） |
+| 版本 | `6a0a7b1`（签核所针对的发布；签核这一轮只改文档与台账脚本，不含业务代码） |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
-| 结果 | **PASS 53 · FAIL 0 · WARN 0 · HUMAN 7**（退出码 0；比 2026-10-02 那轮多 5 条机器判定、少 4 条待签 —— 新增 `A4e`，`H2`/`H3` 从 `HUMAN` 收口成机器判） |
+| 结果 | **PASS 58 · FAIL 0 · WARN 0 · HUMAN 2**（退出码 0；5 条人工签核签进台账后实测 —— `A4d`/`E4b`/`E6b`/`H11`/`H12` 转 `PASS`，只剩 `H9`/`H10`） |
 | 阻塞项 | 无（0 FAIL）。`E5b` 已消：第二值班人配好，`BACKUP` 与 `PRIMARY` 是两个不同的人（值只在服务器 `.env`） |
 | 已消项 | `G4`：告警出口接上 Telegram（运维专用 bot），最近一次真发送成功；`G5` 改为机器判（`last_selftest_ok_ts` 粘性证据）；`B3` 改为判**真告警真的送达过**（2026-10-02 实做投递演练）。**改完当场又踩到一个「自己人打自己人」**：常规轮询收尾是重拼状态字典，漏搬了两个粘性键，自检刚写下的证据被下一轮 `*/5` 擦掉 —— 见下面第三条 |
 | 已消项 | `B5`/`B6`/`B7`：**本轮发现 B6 其实是空的** —— `security_threshold_policies` 表 0 行，全站跑代码默认值。已激活 v2，在 `auth`/`runtime`/`verification`/`settlement` 四个关键路由组上单独收紧，冷却 10 分钟。闸门改为直读库里 active 那一行，并把文档钉版与库中版本**逐字段比对**（对不上就 FAIL） |
@@ -70,8 +70,8 @@ This checklist is blocking for broad public test rollout.
 | 已消项 | `A4e`（本轮新增，机器判）：白名单里点名的每个 actor 必须归属得到一条真实身份记录。生产实测先把两条**空挂**条目捞了出来 —— `ARBITRATOR_ACTOR_IDS=ops-arbitrator`、`GOVERNANCE_VERIFIER_IDS=ops-governance` 在库里**任何表都查不到**（`A4c` 只查「有没有自己的一把钥匙」，所以它们从 `A4c` 漏了过去）。已按「服务账号挂在责任人名下」补上归属（`scripts/maintenance/register_service_actor.py`，`ops-arbitrator`/`ops-governance` → `kid_5f0a…`），闸门现在 5 条全过 |
 | 已消项 | `H2`：测试钱包余额改成**上链查**（`eth_getBalance`，`SETTLEMENT_OPERATOR_ADDRESS` + 库里 `a2a-buyer`/`a2a-seller` 的绑定钱包）。2026-10-12 实测 3 个地址余额均 > 0 → 机器判 `PASS`；有地址但余额为 0 记 `FAIL`，探不到链记 `HUMAN` |
 | 已消项 | `H3`：锚定改成判「**按笔写入**」（`vouchers.chain_anchor_hash` + `validate_chain_anchor_for_mode` 在场，且发布环境里**没有**全局 `CHAIN_ANCHOR_HASH`）。旧口径问的是「env 里有没有」，正好问反了 —— 全局钉死才是要防的事 |
-| 待签 | 7 条：`A4d`（白名单身份号确有其人）、`E4b`（回滚/值班手册人确认）、`E6b`（基线漂移策略评审）、`H9`（私仓版本锁）、`H10`/`H11`/`H12`（OpenClaw MCP / OpenManus smoke / 混合上链 smoke）。**签字落在发布机的 G10 台账**（`/opt/karma/state/g10-sign-off.json`），不在这个仓库里打勾，见下 |
-| 待签 | `H10`–`H12` 的**测试网栈（venue）已在 2026-10-12 建成**（发布机）；`H11`（OpenManus smoke）与 `H12`（混合上链 settle）已实测跑通，`H10`（注册进用户自己的 OpenClaw）仍要人做。详见 Gate H 末尾那段 |
+| 签核 | **已签 5 条**：`A4d` / `E4b` / `E6b` / `H11` / `H12`（`signed_by=YMZAI`，2026-10-12）。**判过、未通过 1 条**：`H9`（台账记 `status=failed`，理由见 Gate H）。**待签 1 条**：`H10`（要用户在自己的 OpenClaw 里注册）。**签字落在发布机的 G10 台账**（`/opt/karma/state/g10-sign-off.json`），不在这个仓库里打勾，见下 |
+| 待签 | `H10`–`H12` 的**测试网栈（venue）已在 2026-10-12 建成**（发布机）；`H11`（OpenManus smoke）与 `H12`（混合上链 settle）已实测跑通**并已签字**，`H10`（注册进用户自己的 OpenClaw）仍要人做。详见 Gate H 末尾那段 |
 
 **这轮修掉的「自己人打自己人」**（都不是业务 bug，但都会让人开始不信闸门）：
 
@@ -397,8 +397,14 @@ python3 /opt/karma/repo/scripts/ops/security_alert_poller.py --test
   这一条以前只问「文件在不在」—— 文件在不在不是重点：清单是人写的声明，**写错了比没有更糟**
   （没有的话人会去链上查，写错了人会信它）
 - `[人工]` H9 Karma2 `CORE_VERSION.lock` 与公开 commit 对齐（私有仓库的核对）
-  —— **机器判不了，而且必须有私有仓库读权限的人才判得了**。2026-10-12 这台工作机没有 Karma2 的
-  访问权限，所以这一条**没有做过任何机器验证**：不假装判过，交给有权限的发布负责人签。
+  —— **机器判不了**。2026-10-12 这台工作机拿到了私仓读权限，所以这一条**真的核过了，
+  结论是未通过**：`CORE_VERSION.lock` 钉在 `a6cfd4a`，公开 `main` 已经是 `6a0a7b1`，
+  落后 **129** 个 commit；而边界确实动过 —— `db/`（迁移 `0061`–`0064`，含
+  `0064_verifier_bond_and_slash.py`）、`karma-core/contracts/core/KarmaVerifierBond.sol`、
+  `core/schemas.py`、`api/routes/*`、`decentralized_verifier/*`（只有 `openapi/` `schemas/`
+  `contracts/` `abi/` 没动）。
+  **把 lock 改一行让格子变绿就是假签字** —— 该做的是真同步（lock + 迁移/vendor 对齐 + env），
+  同步完再签。台账里这一条记 `status=failed`（`--fail`），闸门仍然按 `HUMAN` 计，不假装过。
 - `[人工]` H10 OpenClaw MCP 注册 + 一条签名通路的 A/B 实测
 - `[人工]` H11 OpenManus / `phase1_claw_manus_smoke.py` 对着活的测试网跑通
 - `[人工]` H12 `RUN_TESTNET_ONCHAIN` 混合上链 smoke
@@ -454,11 +460,14 @@ H8 的清单里只有**公开的链上地址**（链上可查），私钥永远�
 ```bash
 bash scripts/acceptance/g10-signoff.sh --show        # 现在谁签了什么
 bash scripts/acceptance/g10-signoff.sh --sign E4b --by "<发布负责人>" --evidence "<在哪能看到>"
+bash scripts/acceptance/g10-signoff.sh --fail H9 --by "<发布负责人>" --reason "<为什么没通过>" --evidence "<在哪能看到>"
 bash scripts/acceptance/g10-signoff.sh --revoke E4b --by "<发布负责人>"
 ```
 
 闸门读到 `status=signed` 的条目会把它按 `PASS  <条目> human sign-off (signed by X on Y)` 计；
-**没签 / 台账读不到 / 这台机器没有 python3 —— 仍然是 `HUMAN`**（判不出来就不算过）。
+**没签 / 判过没通过（`failed`）/ 台账读不到 / 这台机器没有 python3 —— 仍然是 `HUMAN`**
+（判不出来就不算过）。`failed` 是给「**真的看过了，结论是没过**」用的（比如 `H9`）：
+它和 `pending` 必须分得开 —— 否则「没通过」会被下一个人读成「还没人看过」，然后当它没发生过。
 台账里只有「谁、什么时候、证据在哪能看到」，证据内容本身不进仓库。
 
 | # | 条目 | 怎么算过（判据） | 机器能判吗 | 去哪看 |
@@ -468,7 +477,7 @@ bash scripts/acceptance/g10-signoff.sh --revoke E4b --by "<发布负责人>"
 | 3 | `E6b` 基线漂移策略已评审 | `baseline_window_minutes` / `baseline_drift_multiplier` 的取值经评审认可（多久的窗、漂多少倍算异常） | ✗ | active 安全阈值策略 + 运维评审记录（只在服务器） |
 | 4 | `H2` 买方 / 卖方测试钱包真的有钱 | 链上余额 > 0 且够跑完一笔结算 | ✔ / 半（探得到链就机器判 `> 0`；「够不够跑一笔」由人签） | 链上地址余额 |
 | 5 | `H3` `CHAIN_ANCHOR_HASH` 按笔写入 | 锚定哈希是**每笔交易写入**，不是全局 env 里钉死的一个值 | ✔（代码路径 + env 无全局值） | `api/routes/trade.py` / `vouchers.chain_anchor_hash` |
-| 6 | `H9` Karma2 `CORE_VERSION.lock` 与公开 commit 对齐 | 私有仓库的 `CORE_VERSION.lock` 指向的 commit 与对外公开的那份一致 | ✗（要私有仓库读权限；本工作机没有） | 私有仓库 Karma2 |
+| 6 | `H9` Karma2 `CORE_VERSION.lock` 与公开 commit 对齐 | 私有仓库的 `CORE_VERSION.lock` 指向的 commit 与对外公开的那份一致 | ✗（要私有仓库读权限；2026-10-12 起本工作机已有）。**本轮实测：未通过** —— `a6cfd4a` vs `6a0a7b1`，落后 129 个 commit | 私有仓库 Karma2 |
 | 7 | `H10` OpenClaw MCP 注册 + 签名通路 A/B | MCP 已注册，且一条签名通路**实测走通**（A/B 两组对照） | ✗ | 用户自己的 OpenClaw / MCP 侧 + 实测输出 |
 | 8 | `H11` OpenManus smoke 对着活测试网跑通 | `phase1_claw_manus_smoke.py` 对着**活的测试网栈**实测通过（不是对着 mock）—— 生产口径实例跑不了，原因见上面那段实测 | 半（2026-10-12 已在发布机测试网栈上跑通，待签） | 发布机 `/opt/karma/state/g10-h11-venue-*.txt` |
 | 9 | `H12` 混合上链 smoke | `RUN_TESTNET_ONCHAIN=true` + `SETTLEMENT_MODE=hybrid` 时混合上链 smoke 通过（发布环境当前未设 `SETTLEMENT_MODE`，实测跑成 `offchain`） | 半（2026-10-12 已在发布机测试网栈上跑通，待签） | 发布机 `/opt/karma/state/g10-h12-venue-*.txt` |
@@ -516,7 +525,7 @@ bash scripts/acceptance/g10-signoff.sh --revoke E4b --by "<发布负责人>"
    出事，其实只是太早。已改成 settle 前先等 `settleAfter`（`--settle-wait`，默认上限 180s）。
    本轮是通过 `testnet_release.py`（延迟过后）把 binding 2 结掉、再 `testnet_finalize.py` 收尾的。
 
-所以 `H11` / `H12` 现在是「**场地有了、也跑通了**」，缺的只是发布负责人过目后签字；`H10` 仍要在用户
+所以 `H11` / `H12` 现在是「**场地有了、跑通了、也签过字了**」；`H10` 仍要在用户
 自己的 OpenClaw 里注册 MCP。运行输出都在发布机 `/opt/karma/state/`，签字时把路径填进台账 `evidence` 栏。
 
 ## 签核记录
@@ -525,10 +534,11 @@ bash scripts/acceptance/g10-signoff.sh --revoke E4b --by "<发布负责人>"
 
 | 字段 | 值 |
 |---|---|
-| 发布版本（git sha） | `0c30638`（G10 台账这一轮，已合并进 `main`） |
+| 发布版本（git sha） | `6a0a7b1`（签核所针对的发布；签核这一轮只改文档与台账脚本，不含业务代码） |
 | 环境 | `https://karma-network.ai`（Sepolia `11155111`）+ 发布机 `root@47.82.74.68` |
-| Gate 脚本输出 | `PASS 53 / FAIL 0 / WARN 0 / HUMAN 7`（`--no-heavy`，`--env-exec 'docker exec karma-api env' --base-url https://karma-network.ai`，2026-10-12 实测） |
-| 阻塞项 | 无（0 FAIL）。7 条人工签核未完成前 `--strict` 不放过 —— 这是设计如此 |
+| Gate 脚本输出 | `PASS 58 / FAIL 0 / WARN 0 / HUMAN 2`（`--no-heavy`，`--env-exec 'docker exec karma-api env' --base-url https://karma-network.ai`，2026-10-12 实测，签核台账生效后） |
+| 阻塞项 | 无 `FAIL`。剩 `H9`（判过、未通过）与 `H10`（待用户在自己的 OpenClaw 里注册）—— `--strict` 仍不放过，这是设计如此 |
 | 签核台账 | `/opt/karma/state/g10-sign-off.json`（600，只在发布机上）；本仓库里只有样例 `security/audit/g10-sign-off.example.json` |
 | 签核人 | 由发布负责人逐项执行 `bash scripts/acceptance/g10-signoff.sh --sign <条目> --by "<姓名>"`；台账里的 `signed_at` 就是签核时间 |
-| 签核日期 | 以台账为准。**本轮：未签** —— 7 条仍待签（`A4d` / `E4b` / `E6b` / `H9` / `H10` / `H11` / `H12`） |
+| A4d 证据 | `/opt/karma/state/actor-holder-map.json`（600，发布机；声明人 `YMZAI`，声明 4 个 actor id 的持有人）+ `/opt/karma/.env` 的三个白名单变量（值只在服务器） |
+| 签核日期 | 2026-10-12 起。**已签 5 条**：`A4d` / `E4b` / `E6b` / `H11` / `H12`（`signed_by=YMZAI`）；**`H9` 记 `failed`**（判过、未通过，理由见 Gate H）；**`H10` 仍待签**（要用户自己的 OpenClaw） |

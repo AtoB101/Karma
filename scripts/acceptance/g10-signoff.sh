@@ -5,33 +5,39 @@
 # 仓库里明文打勾 —— 台账是**发布机上**的一份 600 权限 JSON：谁、什么时候、证据在哪
 # 能看到（证据一栏只写「在哪能看到」，个人信息 / 私有仓库 / 联系方式不进门）。
 #
+# 三个状态：signed（签了）/ failed（判过，没通过）/ revoked（撤签）。只有 signed 会被
+# public-beta-security-gate.sh 按 PASS 计；failed / revoked / 没签 / 读不到，仍然是
+# HUMAN —— 「判过没通过」和「还没看」是两件事，不要混成同一个 pending。
+#
 # 用法（在发布机上）:
 #   bash scripts/acceptance/g10-signoff.sh --show
 #   bash scripts/acceptance/g10-signoff.sh --sign E4b --by "YMZAI" --evidence "见 /opt/karma/state/oncall-2026-10-12.txt"
+#   bash scripts/acceptance/g10-signoff.sh --fail H9 --by "YMZAI" --reason "Karma2 lock 落后 129 commit" --evidence "<在哪能看到>"
 #   bash scripts/acceptance/g10-signoff.sh --revoke E4b --by "YMZAI"
 #   KARMA_G10_SIGNOFF=/tmp/g10.json bash scripts/acceptance/g10-signoff.sh --list
 #
-# 台账默认 /opt/karma/state/g10-sign-off.json（600）。public-beta-security-gate.sh
-# 读到 status=signed 的条目就把那一条按 PASS 计；没签、读不到，仍然是 HUMAN。
-# 本仓库里只有 security/audit/g10-sign-off.example.json 这份样例。
+# 台账默认 /opt/karma/state/g10-sign-off.json（600）。本仓库里只有样例
+# security/audit/g10-sign-off.example.json。
 set -euo pipefail
 
 ITEMS="A4d E4b E6b H2 H3 H9 H10 H11 H12"
 LEDGER="${KARMA_G10_SIGNOFF:-/opt/karma/state/g10-sign-off.json}"
-ACTION="show"; ITEM=""; BY=""; EVIDENCE=""
+ACTION="show"; ITEM=""; BY=""; EVIDENCE=""; REASON=""
 
 die()   { echo "ERR  $*" >&2; exit 2; }
-usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --sign)     ACTION="sign";   ITEM="${2:-}"; shift ;;
+    --fail)     ACTION="fail";   ITEM="${2:-}"; shift ;;
     --revoke)   ACTION="revoke"; ITEM="${2:-}"; shift ;;
     --list)     ACTION="list" ;;
     --show)     ACTION="show" ;;
     --ledger)   LEDGER="${2:-}"; shift ;;
     --by)       BY="${2:-}"; shift ;;
     --evidence) EVIDENCE="${2:-}"; shift ;;
+    --reason)   REASON="${2:-}"; shift ;;
     -h|--help)  usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
   esac
@@ -39,13 +45,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 case "$ACTION" in
-  sign|revoke)
-    [[ -n "$ITEM" ]] || die "--sign / --revoke needs an item id"
+  sign|fail|revoke)
+    [[ -n "$ITEM" ]] || die "--sign / --fail / --revoke needs an item id"
     case " $ITEMS " in
       *" $ITEM "*) ;;
       *) die "unknown G10 item '${ITEM}' (known: ${ITEMS})" ;;
     esac
-    [[ -n "$BY" ]] || die "--sign / --revoke needs --by \"<who signs>\""
+    [[ -n "$BY" ]] || die "--sign / --fail / --revoke needs --by \"<who signs>\""
+    if [[ "$ACTION" == "fail" ]]; then
+      [[ -n "$REASON" ]] || die "--fail needs --reason \"<why it did not pass>\""
+    fi
     ;;
 esac
 
@@ -58,7 +67,7 @@ done
 [[ -n "$PY" ]] || die "no usable python3 / python on PATH"
 
 G10_LEDGER="$LEDGER" G10_ACTION="$ACTION" G10_ITEM="$ITEM" \
-G10_BY="$BY" G10_EVIDENCE="$EVIDENCE" G10_ITEMS="$ITEMS" \
+G10_BY="$BY" G10_EVIDENCE="$EVIDENCE" G10_ITEMS="$ITEMS" G10_REASON="$REASON" \
   "$PY" - <<'PYEOF'
 import datetime, json, os
 
@@ -67,6 +76,7 @@ action = os.environ["G10_ACTION"]
 item = os.environ["G10_ITEM"]
 who = os.environ["G10_BY"]
 evidence = os.environ["G10_EVIDENCE"]
+reason = os.environ["G10_REASON"]
 known = os.environ["G10_ITEMS"].split()
 
 # 台账是签名本体：不跟着符号链接写（免得有人把台账指到别处），也不是「读坏了就覆盖」。
@@ -105,6 +115,10 @@ if action in ("list", "show"):
         if status == "signed":
             print("  %-4s signed   by %s on %s   evidence: %s"
                   % (key, rec.get("signed_by", "?"), rec.get("signed_at", "?"), rec.get("evidence") or "-"))
+        elif status == "failed":
+            print("  %-4s NOT-PASSED by %s on %s   reason: %s   evidence: %s"
+                  % (key, rec.get("failed_by", "?"), rec.get("failed_at", "?"),
+                     rec.get("reason") or "-", rec.get("evidence") or "-"))
         elif status == "revoked":
             print("  %-4s REVOKED  by %s on %s" % (key, rec.get("revoked_by", "?"), rec.get("revoked_at", "?")))
         else:
@@ -119,9 +133,15 @@ rec = record_for(data["items"], item)
 if action == "sign":
     rec.update({"item": item, "status": "signed", "signed_by": who, "signed_at": now,
                 "evidence": evidence or ""})
-    for stale in ("revoked_by", "revoked_at"):
+    for stale in ("revoked_by", "revoked_at", "failed_by", "failed_at", "reason"):
         rec.pop(stale, None)
     did = "SIGNED"
+elif action == "fail":
+    rec.update({"item": item, "status": "failed", "failed_by": who, "failed_at": now,
+                "reason": reason, "evidence": evidence or ""})
+    for stale in ("signed_by", "signed_at", "revoked_by", "revoked_at"):
+        rec.pop(stale, None)
+    did = "NOT-PASSED"
 else:
     rec.update({"item": item, "status": "revoked", "revoked_by": who, "revoked_at": now})
     did = "REVOKED"
