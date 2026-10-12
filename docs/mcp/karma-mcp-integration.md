@@ -1,7 +1,7 @@
 # Karma MCP 集成与发布 —— 装 / 接线 / 自检 / 发包
 
 > 对应总指令第十节交付物里的「MCP Server 实现及配置 / 客户端接入示例 / 环境变量示例 /
-> 部署、回滚说明」。口径：**只写跑过的东西**；没跑过的（PyPI 上传）明确写成「未发布」，
+> 部署、回滚说明」。口径：**只写跑过的东西**；没验证过的（例如制品签名）就写「没做」，
 > 不放「已完成」的旗子。
 >
 > 相关：`karma-mcp-architecture.md`（分层）、`karma-mcp-tools.md`（工具契约）、
@@ -19,17 +19,16 @@
 
 ## 2. 怎么装
 
-### 2.1 一行装（不 clone 仓库；今天就能用）
+### 2.1 PyPI（已发布）
 
-```bash
-pip install "karma-mcp-server @ git+https://github.com/AtoB101/Karma@main#subdirectory=packages/karma-mcp-server"
-pip install "karma-connect @ git+https://github.com/AtoB101/Karma@main#subdirectory=packages/karma-connect"
-pip install "karma-openclaw @ git+https://github.com/AtoB101/Karma@main#subdirectory=packages/karma-openclaw"
-```
+| 发行版 | 已发布版本 | 装 |
+|---|---|---|
+| `karma-mcp-server` | 0.1.0 | `pip install karma-mcp-server` |
+| `karma-openclaw` | 0.4.0 | `pip install karma-openclaw` |
+| `karma-connect` | 1.0.0 | `pip install karma-connect` |
 
-这行不是「写出来好看」：CI 的 `MCP packages` 作业里另起一个干净 venv，按上面这行装，
-再真跑一次 MCP 握手（`.github/workflows/mcp-packages.yml`）。要钉版本就把 `@main`
-换成 `@<tag>` 或 `@<sha>`。
+每个版本两件产物（sdist + wheel）。首次发布 2026-10-12，走的是 §7 那条 tag → workflow
+的路。发布后核对过：PyPI 上的 wheel 与 GitHub Release 上同一文件 sha256 逐字节一致。
 
 ### 2.2 已经 clone 了仓库
 
@@ -37,11 +36,15 @@ pip install "karma-openclaw @ git+https://github.com/AtoB101/Karma@main#subdirec
 pip install ./packages/karma-mcp-server ./packages/karma-openclaw ./packages/karma-connect
 ```
 
-### 2.3 PyPI —— **未发布**（发布路径已经建好）
+### 2.3 不 clone、也不走 PyPI（钉某个 git 版本）
 
-`pip install karma-mcp-server` 现在会 404：三个包名在 PyPI 上都还空着。桥已经搭完了
-（构建 / 元数据 / 握手 / GitHub Release / 上传都在 `.github/workflows/mcp-release.yml`），
-缺的只有两件人为的事：推 tag、配一个仓库 secret `PYPI_API_TOKEN`。见 §7。
+```bash
+pip install "karma-mcp-server @ git+https://github.com/AtoB101/Karma@main#subdirectory=packages/karma-mcp-server"
+```
+
+要钉版本就把 `@main` 换成 `@<tag>` 或 `@<sha>`。这行不是「写出来好看」：CI 的
+`MCP packages` 作业里另起一个干净 venv，按这行装，再真跑一次 MCP 握手
+（`.github/workflows/mcp-packages.yml`）。
 
 ## 3. 接进 Agent host
 
@@ -214,7 +217,5 @@ python -m twine upload dist/*                          # 再上正式
 
 ## 9. 还没做（诚实清单）
 
-- **PyPI 上传**：包名还空着，构建 / 元数据 / 握手 / Release 全就位；缺的是推 tag + 仓库 secret `PYPI_API_TOKEN`（§7）。
 - **代码签名 / 制品溯源**：没有 sigstore、没有 attestation。
-- 三个包都还没在 PyPI 上线，所以 §2.1 那行 git URL 是当前唯一「不 clone 仓库」的装法。
 - 远程 Streamable HTTP 的 OAuth 2.1 授权服务器接入：见 `karma-mcp-security.md`。

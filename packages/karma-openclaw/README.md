@@ -13,15 +13,14 @@ Stdio MCP server that attaches verifiable execution receipts and evidence bundle
 ## Install
 
 ```bash
+pip install karma-openclaw            # published on PyPI (currently 0.4.0)
+# or, from a clone:
 pip install ./packages/karma-openclaw
-# or dev mode:
+# dev mode:
 pip install -e ./packages/karma-openclaw
-# no clone? one line, from the public repo:
-pip install "karma-openclaw @ git+https://github.com/AtoB101/Karma@main#subdirectory=packages/karma-openclaw"
 ```
 
-Not on PyPI yet (`pip install karma-openclaw` returns 404); see
-[`docs/mcp/karma-mcp-integration.md`](../../docs/mcp/karma-mcp-integration.md).
+See [`docs/mcp/karma-mcp-integration.md`](../../docs/mcp/karma-mcp-integration.md).
 
 ## Run (stdio MCP)
 

@@ -31,15 +31,14 @@ Karma 通用 Agent MCP Server —— **薄接入层**。把已有后端能力接
 ## 安装
 
 ```bash
-# 在仓库根目录：
-pip install ./packages/karma-mcp-server
+pip install karma-mcp-server          # 已发布到 PyPI（当前 0.1.0）
 
-# 没 clone 过仓库（公开仓库，一行装）：
-pip install "karma-mcp-server @ git+https://github.com/AtoB101/Karma@main#subdirectory=packages/karma-mcp-server"
+# 或者，从仓库里装：
+pip install ./packages/karma-mcp-server
 ```
 
-PyPI 上**还没有**这个包（`pip install karma-mcp-server` 会 404）。装 / 接线 / 自检 /
-发包的完整口径：[`docs/mcp/karma-mcp-integration.md`](../../docs/mcp/karma-mcp-integration.md)。
+装 / 接线 / 自检 / 发包的完整口径：
+[`docs/mcp/karma-mcp-integration.md`](../../docs/mcp/karma-mcp-integration.md)。
 
 ## 运行
 
