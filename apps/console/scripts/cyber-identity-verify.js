@@ -353,7 +353,9 @@
     try {
       say(
         status,
-        "① 证件就绪，② 人脸 " + (faceFrames().length ? faceFrames().length + " 个角度" : "照片通道") + " 已就绪，正在本地加密…",
+        faceFrames().length
+          ? "① 证件就绪，② 人脸 " + faceFrames().length + " 个角度 已就绪，正在本地加密…"
+          : "① 证件就绪，② 人脸 照片通道 已就绪，正在本地加密…",
         null
       );
       var bundle = {

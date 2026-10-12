@@ -4,8 +4,10 @@
  * Phrase packs (i18n-phrase/*.js) inherit this file's ?v=, so editing either
  * requires re-running scripts/stamp_console_assets.py. Keep this note in sync
  * with any phrase-pack change so the deployed pack never stays on a stale URL.
- * Phrase-pack revision: 2026-10-12 Agent onboarding one-stop + email-receipt third lock
- *   (dynamic-append-28: confirm-email / resend / waiting-for-click copy, key event count)
+ * Phrase-pack revision: 2026-10-12 whole-console runtime copy sweep
+ *   (dynamic-append-29/30: ledger table header cells / assistant task cards / on-chain lock lines /
+ *   developer-agreement block / face-capture hints / camera label / unsecured fragment;
+ *   plus the dynamic-append-28 email-receipt block)
  *   and the compilePatterns value lookup fix (normalized key must not be used to read the pack).
  */
 (function (global) {

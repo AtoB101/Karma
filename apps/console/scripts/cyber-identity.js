@@ -226,8 +226,7 @@
 
   /*: 选择栏空着时那句话：中文是源文案（也在 i18n-phrase 里），点一下直达认证页。 */
   var UNCERTIFIED_HINT = "还没有已认证的子身份 —— 在「身份 · 认证」里认证通过一个，它就会出现在这里。";
-  /*: 有卡、但一张都没认证完时，下面那一组的前缀。 */
-  var PENDING_HINT = "还没认证完的身份卡在下面 —— 点一张去「身份 · 认证」把它认证通过，就能切过去了。";
+
   function hintNode(className, sub) {
     var node = document.createElement("p");
     node.className = className;
