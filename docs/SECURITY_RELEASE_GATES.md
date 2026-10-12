@@ -45,7 +45,7 @@ This checklist is blocking for broad public test rollout.
 | 项 | 值 |
 |---|---|
 | 时间 | 2026-10-12（G10 签核台账这一轮，部署后实测，`--no-heavy`；重活由 CI 覆盖） |
-| 版本 | `feat/g10-signoff-ledger`（`024dad37`） |
+| 版本 | `feat/g10-signoff-ledger`（`0c30638`） |
 | 环境 | `https://karma-network.ai`（Sepolia `TESTNET_CHAIN_ID=11155111`，`CHAIN_ALLOWANCE_ESCROW_ENABLED=true`） |
 | 结果 | **PASS 53 · FAIL 0 · WARN 0 · HUMAN 7**（退出码 0；比 2026-10-02 那轮多 5 条机器判定、少 4 条待签 —— 新增 `A4e`，`H2`/`H3` 从 `HUMAN` 收口成机器判） |
 | 阻塞项 | 无（0 FAIL）。`E5b` 已消：第二值班人配好，`BACKUP` 与 `PRIMARY` 是两个不同的人（值只在服务器 `.env`） |
@@ -443,8 +443,8 @@ H8 的清单里只有**公开的链上地址**（链上可查），私钥永远�
 
 **2026-10-12 收口**：能机器判的都从这张表里拿出去了 —— `H2`（上链查余额）、`H3`（按笔锚定字段
 + 没有全局 `CHAIN_ANCHOR_HASH`）现在是机器判；`A4d` 的「归属」那一半拆成了机器判的 `A4e`。
-剩下真正要人签的是 9 条：`A4d`、`E4b`、`E6b`、`H2`、`H3`、`H9`–`H12`
-（`H2` / `H3` 在探不到链 / 判不了时才回到 `HUMAN`）。
+真正要人签的是 7 条：`A4d`、`E4b`、`E6b`、`H9`–`H12`（台账里另留 `H2` / `H3` 两行，
+它们现在机器判，探不到链 / 判不了时才回到 `HUMAN`）。
 
 ### 签核台账（不再在这个公开仓库里打勾）
 
@@ -497,7 +497,7 @@ bash scripts/acceptance/g10-signoff.sh --revoke E4b --by "<发布负责人>"
 
 | 字段 | 值 |
 |---|---|
-| 发布版本（git sha） | `024dad37`（G10 台账这一轮；合并进 `main` 后以实际 sha 为准） |
+| 发布版本（git sha） | `0c30638`（G10 台账这一轮，已合并进 `main`） |
 | 环境 | `https://karma-network.ai`（Sepolia `11155111`）+ 发布机 `root@47.82.74.68` |
 | Gate 脚本输出 | `PASS 53 / FAIL 0 / WARN 0 / HUMAN 7`（`--no-heavy`，`--env-exec 'docker exec karma-api env' --base-url https://karma-network.ai`，2026-10-12 实测） |
 | 阻塞项 | 无（0 FAIL）。7 条人工签核未完成前 `--strict` 不放过 —— 这是设计如此 |
