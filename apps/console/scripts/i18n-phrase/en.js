@@ -209,6 +209,7 @@ window.CYBER_I18N_PHRASE["en"] = {
   "原始响应": "Raw response",
   "去刷脸认证 →": "Go to face verification →",
   "去建子身份 →": "Create a sub-identity →",
+  "去授权": "Grant a limit",
   "去接入": "Connect",
   "反面": "Back",
   "发现可结算的 agent": "Find settleable agents",
@@ -3000,5 +3001,17 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
 
 // dynamic-append-31: 一条龙合并（授权向导 + 接入一个 Agent）
 "第 2 步：收款方向要先选行业": "Step 2: pick an industry when the direction is receiving",
+
+// dynamic-append-32: 一条龙合并卡的静态文案（步骤条 / 方向选择 / 类型卡）
+"2 · 这个 agent 是什么": "2 · What is this agent",
+"3 · 授权额度": "3 · Granted limit",
+"付款方向：直接生成接入包；收款方向：连带把它上架到 Karma 目录，好让别的 agent 找到它。换方向随时可以改，不锁死。": "Paying direction: generate the connection pack directly. Receiving direction: also list it in the Karma directory so other agents can find it. You can switch direction anytime; it is not locked.",
+"先连接钱包（顶部），四个方块从上往下走一遍，不用换页：① 选身份、起名字、定方向；② 看情况补行业硬指标；③ 划额度与边界；④ 点最下面那颗按钮生成接入包，写进 agent 的环境变量就行。每个子身份都有独立的凭据、订单和收支明细，全部挂在同一个主身份下。": "Connect your wallet first (top). Walk the four blocks top to bottom, no page switching: ① pick the identity, name it, set the direction; ② fill in the industry hard requirements if needed; ③ draw the limit and boundaries; ④ click the bottom button to generate the connection pack and put it into the agent environment variables. Each sub-identity has its own credentials, orders and ledger, all under the same master identity.",
+"名字 · 方向 · 行业": "Name · direction · industry",
+"它替你干什么": "What it does for you",
+"我要付款（让 agent 替我花钱）": "I pay (let the agent spend for me)",
+"我要收款（agent 替我接单收钱）": "I get paid (the agent takes orders and collects for me)",
+"起个名字，选它是替你花钱还是替你收钱；收款方向再选行业、填硬指标，别的 agent 才在 Karma 里找得到它。": "Give it a name, then choose whether it spends for you or collects for you. For the receiving direction, pick an industry and fill in the hard requirements so other agents can find it in Karma.",
+"这张卡是什么类型": "What type is this card",
 
 });

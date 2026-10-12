@@ -7,6 +7,9 @@
  * Phrase-pack revision: 2026-10-13 one-stop Agent onboarding
  *   (dynamic-append-31: the receiving-direction needs-an-industry hint; and the one-stop-flow overview
  *   now says 「接入一个 Agent / 去接入」—— the 授权向导 sub-entry is gone, so no copy names it any more).
+ *   The standalone 「去授权」 entry stays for the 起步 guide identity-page button.
+ *   dynamic-append-32 also carries the merged card static copy (step titles / direction picker / type cards),
+ *   so the four blocks read in all five languages, not only Chinese.
  *   previous: 2026-10-12 whole-console runtime copy sweep
  *   (dynamic-append-29/30: ledger table header cells / assistant task cards / on-chain lock lines /
  *   developer-agreement block / face-capture hints / camera label / unsecured fragment;
