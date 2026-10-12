@@ -1783,6 +1783,40 @@
   var currentPage = "overview";
   var currentSubKey = null;
 
+  /**
+   * 地址栏深链的落点：`{操作台}/?view=pairing`（去批准一次配对）、
+   * `?view=agents`（看我的助理 agent）。
+   *
+   * 这两条不是装饰 —— 主人是从微信 / Telegram 的对话里收到链接的，落不到那一块
+   * 他就得自己在侧栏里翻（用户实测口径：「找不到位置」）。`?pair=CODE` 那条链接
+   * 由 cyber-pairing.js 自己收（它还要顺带把码预填进输入框），所以这里只用管 view。
+   *
+   * 认不出来的 view 一律忽略：地址栏不是命令通道，宁可落首页也不乱跳。
+   */
+  var URL_VIEW_LANDINGS = {
+    pairing: ["agents", "connect"],
+    agents: ["agents", "mine"],
+  };
+
+  /** 地址栏里的 view（认不出来就是空串）。没有 location 的环境也不能炸。 */
+  function urlViewName() {
+    try {
+      var q = new URLSearchParams((window.location && window.location.search) || "");
+      var name = q.get("view") || "";
+      return Object.prototype.hasOwnProperty.call(URL_VIEW_LANDINGS, name) ? name : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  /** 深链落地；没有 / 认不出来都返回 false（调用方自己去落默认页）。 */
+  function applyUrlViewLanding() {
+    var land = URL_VIEW_LANDINGS[urlViewName()];
+    if (!land) return false;
+    switchPage(land[0], land[1]);
+    return true;
+  }
+
   function switchPage(page, subKey) {
     // 「认证」已经并进「身份」：老链接 / 老按钮一律落到同一页，不留空页。
     if (page === "auth") page = "identity";
@@ -2015,7 +2049,9 @@
     bindAiToggle();
     bindLaunchGuide();
     bindIdentityHome();
-    switchPage("overview");
+    // 地址栏深链优先（接入引导 / 交付包里发出去的就是 ?view=pairing、?view=agents），
+    // 认不出来才落默认的订单页。
+    if (!applyUrlViewLanding()) switchPage("overview");
     setApiStatus(window.CYBER_I18N.t("api.status_idle"), false);
     renderLaunchGuide().catch(function () {});
     refreshEscrowCommits().catch(function () {});

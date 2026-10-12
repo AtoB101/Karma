@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 
 #: 聊天里从不回显任何地址以外的信息；接入链接指向操作台（主人已认证的会话）。
-DEFAULT_CONSOLE_BASE_URL = "https://karma-network.ai"
+DEFAULT_CONSOLE_BASE_URL = "https://karma-network.ai/console"
 
 
 def _env(name: str, default: str = "") -> str:

@@ -96,7 +96,7 @@ MiniApp 认证 / 2FA 做过的 TG 绑定，见 `services/chat_adapters/session_m
 | `WHATSAPP_API_BASE` | 否 | 默认 `https://graph.facebook.com/v21.0` |
 | `WHATSAPP_SEND_IN_DEV` | 否 | dev/test/local 默认**不发**真实消息，要发得显式打开 |
 | `KARMA_ADAPTER_NOTIFY_TOKEN` | `/notify` 必填 | 静态 bearer；没配 = 503 |
-| `KARMA_CONSOLE_BASE_URL` | 否 | 默认 `https://karma-network.ai` |
+| `KARMA_CONSOLE_BASE_URL` | 否 | 默认 `https://karma-network.ai/console` |
 | `KARMA_CONSOLE_PAIRING_URL` | 否 | 直接指定批准配对那一页 |
 
 ## 7. 还没做 / 还没验证（如实记）
