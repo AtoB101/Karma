@@ -93,3 +93,79 @@ Range: 测试网（`https://karma-network.ai`，Sepolia `TESTNET_CHAIN_ID=111551
   （它是旧域名，302 保留也无害）。
 - vhost 仍未纳入仓库（历史口径：“发过的产物”）；本轮没有改变这一点，只在审计里记明。
 - 主网（`karma-network.ai` 上的主网开关 / 真实资金）未动。
+
+## 7. 追加（同日）：入口不再“跳转”——地址栏停在 `/console`
+
+**用户复问**：「为什么操作台的域名还是 `https://karma-network.ai/console/pages/cyber/index.html`」。
+§3 那张表是 F1/F2 修完的状态：入口是 `return 302`，页面出得来，但**地址栏跟着 302 走**，
+用户看到的就是长路径。口径要求的是地址栏停在 `https://karma-network.ai/console`。
+**本节取代 §3 里那张 302 表。**
+
+**为什么不能只把 302 换成 alias**：页面里的 `<script src>` / `<link href>` 全是相对 `../../` 写的，
+而相对路径怎么解析看的是**地址栏深度**：只有落在 `/console/pages/cyber/` 上，`../../` 才指得回 `/console/`；
+地址栏收成 `/console` 以后，`../../` 会一路指到站点根，整页资源全 404。
+所以短入口这一条路由给页面钉一个跟原来**完全一样**的 `<base href="/console/pages/cyber/">`，资源解析口径不变。
+
+控制台代码、`?v=` 打戳门禁（`scripts/stamp_console_assets.py`）、`apps/console/**` 下的既有用例
+**一个字都没改** —— 打戳工具本来就是按“页面目录”解析这些相对引用的，和 `base` 是同一个口径。
+重写 45 条资源地址会连带改到打戳工具与 10 多条用例断言（那些断言钉的就是相对形式），收益不值得，风险反而更大。
+
+**改法**（`/www/server/panel/vhost/nginx/karma-site.conf`）：
+
+```nginx
+location = /console {
+    default_type text/html;
+    alias /www/wwwroot/console/pages/cyber/index.html;
+    add_header Cache-Control "no-cache";
+    sub_filter '<head>' '<head><base href="/console/pages/cyber/">';
+    sub_filter_once on;
+}
+location = /console/ {
+    rewrite ^ /console last;
+}
+```
+
+两个坑都是线上实测踩出来的（不是推演）：
+
+- **`default_type` 必须点名**：`alias` 到文件时内容类型按 URI 判，`/console` 没有扩展名，
+  默认就落到 http 块里的 `application/octet-stream` —— 浏览器会当**下载**而不是渲染，
+  而 `sub_filter` 的默认类型是 `text/html`，不匹配就不改写。第一版就是这个症状：200 但 base 没注入。
+- **`/console/` 不能照抄 `alias`**：URI 以 `/` 结尾时索引模块会往 alias 的文件路径后面再拼一个 `index.html`，
+  报 `.../index.htmlindex.html is not a directory` → 500（`/www/wwwlogs/nginx_error.log`）。
+  改成内部重写回 `/console`，不发外部跳转，地址栏保持用户输入的样子。
+
+### 线上实测（改后，VPS 本机 curl，不跟跳转）
+
+```
+/console                            200  ct=text/html        （无 Location）
+/console/                           200  ct=text/html        （无 Location）
+/console?view=agents                200  ct=text/html        查询串原样在位
+/consle  /consle/                   301  -> https://karma-network.ai/console
+/console/pages/cyber/index.html     200  ct=text/html        （长路径照旧可用）
+/health                             200  ct=application/json
+/console/index.html                 200  ct=text/html        （旧 shim，不再是入口）
+```
+
+字节级校验（证明没有别的东西被动过）：
+
+```
+长路径响应            == /www/wwwroot/console/pages/cyber/index.html   identical
+/console 响应          == 发布文件 + 恰好 1 个 <base> 标签（去掉后逐字节相同）127882 = 127847 + 35
+/console/ 响应         同上
+/console/scripts/*.js  /console/styles/*.css  == 发布物   identical（没有被改写）
+```
+
+浏览器口径的资源可达性：把短入口那份 HTML 里 42 条本地 js/css/png 引用按 `base` 解析一遍，
+逐条回源 —— **0 条不可达**。改前（302 长路径）与改后解析结果一致。
+
+**回滚**：`/www/server/panel/vhost/nginx/karma-site.conf.bak-console-short2-20261013-040932`
+（本轮之前那一版，即 §3 的 302 版；第一版尝试留的 `.bak-console-short-20261013-040827` 也在）。
+换回去 + `nginx -s reload` 即可。vhost 仍未纳入仓库（§6 的口径不变），
+但 `karma-web-deploy` 不写 nginx 配置，所以下次部署不会冲掉这笔改动。
+
+### 顺带发现（未修，如实记）
+
+- `apps/console/styles/cyber-console.css` 里 `background-image: url("../../assets/earth-texture.jpg")`：
+  CSS 里的相对地址是相对**样式表自己**解析的，`/console/styles/` 往上两级是站点根，
+  所以这条一直指向 `/assets/earth-texture.jpg`（线上 **404**）。与本轮入口改动无关
+  （改前改后是同一条 URL），是操作台背景纹理一直没加载。要修就得改这份 CSS 并重跑打戳脚本，单独一轮做。
