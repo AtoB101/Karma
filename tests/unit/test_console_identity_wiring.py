@@ -20,6 +20,15 @@ PAGE = CONSOLE / "pages" / "cyber" / "index.html"
 IDENTITY_JS = CONSOLE / "scripts" / "cyber-identity-verify.js"
 FACE_JS = CONSOLE / "scripts" / "cyber-face-capture.js"
 
+
+def _script_tag_index(html: str, name: str) -> int:
+    """脚本标签里的加载位置 —— 只认 <script src=...>，不认注释里提一句文件名。
+
+    原来直接 html.index("文件名") ：页面里任何一条注释（比如向导卡里「见 cyber-identity-verify.js」）
+    都会把它提前，把加载顺序检查耍成假红。加载顺序只该看脚本标签。
+    """
+    return html.index('src="../../scripts/%s' % name)
+
 # 身份页上「人点了 / 选了就必须有反应」的控件。
 CLICK_IDS = [
     "idv-face-open",
@@ -94,7 +103,7 @@ def test_the_create_button_actually_calls_create_sub():
 def test_face_capture_module_is_loaded_before_its_users():
     html = _page_html()
     assert "cyber-face-capture.js" in html, "刷脸取景模块必须被加载"
-    assert html.index("cyber-face-capture.js") < html.index("cyber-identity-verify.js"), (
+    assert _script_tag_index(html, "cyber-face-capture.js") < _script_tag_index(html, "cyber-identity-verify.js"), (
         "取景模块必须在 cyber-identity-verify.js 之前加载，否则按钮绑定时它还不在"
     )
 
@@ -408,7 +417,7 @@ API_JS = CONSOLE / "scripts" / "karma-public-api.js"
 def test_provider_module_is_loaded_after_the_page_it_decorates():
     html = _page_html()
     assert "cyber-identity-provider.js" in html, "服务商核验模块必须被加载"
-    assert html.index("cyber-identity-verify.js") < html.index("cyber-identity-provider.js"), (
+    assert _script_tag_index(html, "cyber-identity-verify.js") < _script_tag_index(html, "cyber-identity-provider.js"), (
         "它要在身份页模块之后加载（那个模块负责刷新页面状态）"
     )
     js = PROVIDER_JS.read_text(encoding="utf-8")
