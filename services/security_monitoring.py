@@ -564,14 +564,22 @@ def _build_recommended_actions(
             if alert.alert_type == SecurityOpsAlertType.AUTH_FAILURE_SPIKE
             and "distinct_source_count" in alert.metadata
         ]
-        if source_counts and max(source_counts) <= 1:
+        max_sources = max(source_counts) if source_counts else 0
+        if max_sources == 1:
             actions.append(
                 "Single source is retrying with a rejected credential — check whether an expired "
                 "console/agent session is still polling (re-auth the session) before rotating keys."
             )
-        else:
+        elif max_sources >= 2:
             actions.append(
                 "Rotate affected API keys and investigate top auth-failure actor/path/source dimensions."
+            )
+        else:
+            # 来源数是 0 = 这批事件没有 client_ip（升级前写下的）。不能硬说是「一个」还是
+            # 「一堆」—— 那正是这条告警要分清的两种性质，宁可老实说分不清，也别给错方向。
+            actions.append(
+                "Investigate top auth-failure actor/path dimensions; these events carry no source IP, "
+                "so a single polling client and a distributed burst cannot be told apart."
             )
     if SecurityOpsAlertType.RATE_LIMIT_SPIKE in alert_types:
         actions.append("Apply stricter endpoint-level throttles and block abusive source identities.")
