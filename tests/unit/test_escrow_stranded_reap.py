@@ -42,7 +42,13 @@ def _binding(binding_id: str, *, task_id: str = TASK, state: str = "active",
     )
 
 
-def _settlement(status: str, *, task_id: str = TASK, voucher_id: str | None = None) -> SettlementModel:
+def _settlement(
+    status: str,
+    *,
+    task_id: str = TASK,
+    voucher_id: str | None = None,
+    updated_at: datetime | None = None,
+) -> SettlementModel:
     return SettlementModel(
         settlement_id="stl-" + task_id,
         task_id=task_id,
@@ -52,6 +58,7 @@ def _settlement(status: str, *, task_id: str = TASK, voucher_id: str | None = No
         client_agent_id=BUYER,
         worker_agent_id=SELLER,
         voucher_id=voucher_id,
+        updated_at=updated_at,
     )
 
 
@@ -321,3 +328,49 @@ async def test_offchain_deployments_are_not_blocked(db_session, monkeypatch):
     await db_session.commit()
 
     await bridge.assert_receipt_path_exists(db_session, task_id=TASK)
+
+
+@pytest.mark.asyncio
+async def test_a_reverted_auto_confirm_stops_holding_the_buyers_allowance(
+    db_session, autosettle, spy
+):
+    """退回到 ``auto_confirmed`` 的单：没有任何流程会再推进它，绑定必须解开。
+
+    2026-10-13 线上：25 张 0.1 USDC 的单在链上放款失败后退回 ``auto_confirmed``，
+    而 ``auto_confirm_expired_settlements`` 只扫 ``DELIVERED`` —— 它们每一轮都不会被
+    再碰，买方被占住的授权额成了死账。
+    """
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add(_binding("70", task_id="task-stranded-autoconf"))
+    db_session.add(
+        _settlement(
+            "auto_confirmed",
+            task_id="task-stranded-autoconf",
+            updated_at=datetime.utcnow() - timedelta(hours=2),
+        )
+    )
+    await db_session.commit()
+
+    freed = await autosettle.reap_stranded(db_session)
+
+    assert [f["binding_id"] for f in freed] == ["70"]
+    assert spy["cancel"] == ["task-stranded-autoconf"]
+    assert spy["slash"] == [] and spy["submit"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_auto_confirm_is_left_alone(db_session, autosettle, spy):
+    """``auto_confirmed`` 可能只是自动放款路上的一瞬间：推进到 settled 之前不许动它。"""
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add(_binding("71", task_id="task-stranded-autoconf-fresh"))
+    db_session.add(
+        _settlement(
+            "auto_confirmed",
+            task_id="task-stranded-autoconf-fresh",
+            updated_at=datetime.utcnow(),
+        )
+    )
+    await db_session.commit()
+
+    assert await autosettle.reap_stranded(db_session) == []
+    assert spy["cancel"] == []

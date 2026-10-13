@@ -18,7 +18,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
@@ -68,10 +68,23 @@ RETRY_BACKOFF_SECONDS = 120.0
 SETTLE_DELAY_MARGIN_SECONDS = 5
 _failed_at: dict[str, float] = {}
 
+#: 有些失败重试一万次也不会好：买卖双方解析到**同一个钱包**，合约直接 ``SameOwner()``。
+#: 那不是抖动，是配置错（自成交）。过去和普通抖动一样每 ``RETRY_BACKOFF_SECONDS`` 撞一次
+#: —— 2026-10-13 实测每 ~2 分钟一条 ``escrow_autosettle_bind_failed``。改成按长退避再试，
+#: 并且同一个原因只报一次（它等的是人工修数据，不是下一轮）。
+PERMANENT_BIND_BACKOFF_SECONDS = 3600.0
+_PERMANENT_BIND_ERRORS = ("sameowner", "同一个钱包", "自成交")
+#: 每条绑定上一次「说过」的失败原因；一样的话不再重复打日志。
+_logged_bind_failures: dict[str, str] = {}
+#: 撞上永久性错误的绑定：``_backed_off`` 对它们用长退避。
+_permanent_failures: set[str] = set()
+
 
 def reset_backoff() -> None:
     """Forget failed attempts (tests, and an operator-triggered retry)."""
     _failed_at.clear()
+    _logged_bind_failures.clear()
+    _permanent_failures.clear()
 
 
 async def due_bindings(
@@ -112,10 +125,6 @@ async def due_breach_bindings(
     return list((await db.execute(stmt)).scalars().all())
 
 
-#: 结算单落在这些状态 = 业务侧早就走完了；链上绑定却还是 active，说明当初那一步
-#: 链上动作没成功（RPC 抖了、operator 没 gas、进程被重启）。台账说「完了」，
-#: 链上说「钱还被占着」—— 必须以链上为准，把它解开。
-_TERMINAL_SETTLEMENT_STATES = ("cancelled", "failed", "expired")
 _SETTLEMENT_FINAL_TO_CHAIN_ACTION = {
     "refunded": "slash",
     "settled": "settle",
@@ -130,14 +139,30 @@ STRANDED_GRACE_SECONDS = 60
 #: （正常路径上根本不会出现：任何需要绑定的动作都会先 materialize，失败就整笔回滚。）
 _DECIDED_SETTLEMENT_STATES = ("settled", "refunded", "cancelled", "failed", "expired")
 
+#: 收尾时**直接解绑定**（``cancelBinding``，钱一步没动）的结算单状态：
+#:   * 业务侧早就走完了的终局（``cancelled`` / ``failed`` / ``expired``）—— 链上绑定却还是
+#:     active，说明当初那一步链上动作没成功（RPC 抖了、operator 没 gas、进程被重启）；
+#:   * **退回来的** ``auto_confirmed`` —— 链上放款失败后
+#:     ``_revert_chain_rejected_transition`` 退回来的样子。``auto_confirm_expired_settlements``
+#:     只扫 ``DELIVERED``，不会再碰它，而它占着的还是买方实实在在的授权额。
+#: 两者处置相同：这一单没有钱要动，把绑定解开（``_SETTLEMENT_FINAL_TO_CHAIN_ACTION`` 里
+#: 没有它们的位置 —— 那两条路是真要动钱的）。
+_REAP_CANCEL_SETTLEMENT_STATES = ("cancelled", "failed", "expired", "auto_confirmed")
+
+#: ``auto_confirmed`` 只能**路过**：自动放款把状态推到那里之后，紧接着（同一次调用里）
+#: 才会推进到 ``settled``。要放满这个余量才当它「卡住了」，否则会去解一条正要放款的绑定。
+STRANDED_AUTO_CONFIRM_GRACE_SECONDS = 600.0
+
 
 async def stranded_bindings(
     db: AsyncSession, *, now: datetime | None = None, limit: int | None = None
 ) -> list[EscrowBindingModel]:
-    """业务侧已经终局、链上却还占着额度的绑定。
+    """业务侧已经终局（或者退回后没人再推进）、链上却还占着额度的绑定。
 
-    只挑「结算单已终局」的绑定：这类绑定不可能再被正常流程推进，占着的是买卖双方
+    只挑「结算单不会再往前走」的绑定：这类绑定不可能再被正常流程推进，占着的是买卖双方
     实实在在的授权额 —— 用户链上还有钱，可用额度却显示不足，一单也开不出来。
+    ``auto_confirmed`` 也在这类里，但要放满 ``STRANDED_AUTO_CONFIRM_GRACE_SECONDS``
+    才认（它可能只是自动放款路上的一瞬间）。
 
     「结算单已终局」这个条件必须落在 SQL 里。只按 ``state`` + ``created_at`` 取固定
     批量时，窗口会被「单子还在跑」的绑定占死：它们更老、排在前面，取回来又只会被
@@ -146,11 +171,23 @@ async def stranded_bindings(
     全是 in_progress / delivered / disputed，``reap_stranded`` 每轮耗 3 秒、连着 6 分钟
     0 产出，10 条「结算单已结算、链上还占着」的绑定（合计 1.00 USDC 额度）一直没被解开。
     """
-    stamp = (now or datetime.utcnow()) - timedelta(seconds=STRANDED_GRACE_SECONDS)
+    current = now or datetime.utcnow()
+    stamp = current - timedelta(seconds=STRANDED_GRACE_SECONDS)
+    # ``auto_confirmed`` 要额外放满 ``STRANDED_AUTO_CONFIRM_GRACE_SECONDS`` 才认：它可能
+    # 只是自动放款路上的一个瞬间（见那个常量的注释），不是卡住。
+    settled_back = current - timedelta(seconds=STRANDED_AUTO_CONFIRM_GRACE_SECONDS)
     decided = (
         select(SettlementModel.settlement_id)
         .where(SettlementModel.task_id == EscrowBindingModel.task_id)
-        .where(func.lower(SettlementModel.status).in_(_DECIDED_SETTLEMENT_STATES))
+        .where(
+            or_(
+                func.lower(SettlementModel.status).in_(_DECIDED_SETTLEMENT_STATES),
+                and_(
+                    func.lower(SettlementModel.status) == "auto_confirmed",
+                    SettlementModel.updated_at <= settled_back,
+                ),
+            )
+        )
         .exists()
     )
     stmt = (
@@ -200,7 +237,7 @@ async def reap_stranded(db: AsyncSession, *, now: datetime | None = None) -> lis
         if status is None:
             continue
         try:
-            if status in _TERMINAL_SETTLEMENT_STATES:
+            if status in _REAP_CANCEL_SETTLEMENT_STATES:
                 out = await escrow_settlement.cancel_for_task(db, task_id=row.task_id)
             else:
                 action = _SETTLEMENT_FINAL_TO_CHAIN_ACTION.get(status)
@@ -256,7 +293,14 @@ async def reap_stranded(db: AsyncSession, *, now: datetime | None = None) -> lis
 
 def _backed_off(binding_id: str) -> bool:
     last = _failed_at.get(binding_id)
-    return last is not None and (time.monotonic() - last) < RETRY_BACKOFF_SECONDS
+    if last is None:
+        return False
+    window = (
+        PERMANENT_BIND_BACKOFF_SECONDS
+        if binding_id in _permanent_failures
+        else RETRY_BACKOFF_SECONDS
+    )
+    return (time.monotonic() - last) < window
 
 
 async def bind_due(db: AsyncSession, *, limit: int | None = None) -> list[dict]:
@@ -288,14 +332,30 @@ async def bind_due(db: AsyncSession, *, limit: int | None = None) -> list[dict]:
             out = await escrow_settlement.materialize_pending_bind(db, task_id=model.task_id)
         except Exception as exc:  # noqa: BLE001 - 一轮里坏一笔不能拖死整轮
             _failed_at[model.task_id] = time.monotonic()
-            logger.warning(
-                "escrow_autosettle_bind_failed", task_id=model.task_id, error=str(exc)
-            )
+            reason = str(exc)
+            permanent = any(token in reason.lower() for token in _PERMANENT_BIND_ERRORS)
+            if permanent:
+                _permanent_failures.add(model.task_id)
+            # 同一个原因只说一次：永久性错误（自成交）会一直重试，每轮刷一条会把真正
+            # 的问题淹掉，而它等的是人工修数据，不是下一轮。
+            if _logged_bind_failures.get(model.task_id) != reason:
+                _logged_bind_failures[model.task_id] = reason
+                logger.warning(
+                    "escrow_autosettle_bind_failed",
+                    task_id=model.task_id,
+                    error=reason,
+                    permanent=permanent,
+                    retry_in_seconds=(
+                        PERMANENT_BIND_BACKOFF_SECONDS if permanent else RETRY_BACKOFF_SECONDS
+                    ),
+                )
             # 坏一笔也要结事务：补绑在 FOR UPDATE 里等链上回执，那个行锁不该被
             # 下一笔继承（死锁环里就有这么一条边）。
             await db.commit()
             continue
         if out:
+            _logged_bind_failures.pop(model.task_id, None)
+            _permanent_failures.discard(model.task_id)
             bound.append({"task_id": model.task_id, "result": out})
             logger.info(
                 "escrow_settlement_bound_deferred",

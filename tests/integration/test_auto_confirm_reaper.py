@@ -148,6 +148,45 @@ class TestAutoConfirmReaper:
         assert len(confirmed) == 1
 
 
+    @pytest.mark.asyncio
+    async def test_holds_without_a_success_receipt_and_never_strands(
+        self, client, db_session, activate_identity, monkeypatch
+    ):
+        """没有成功执行回执：连 ``AUTO_CONFIRMED`` 都不进 —— 进去就出不来了。
+
+        这个状态没有任何自动流程会再推进它（``auto_confirm_expired_settlements`` 只扫
+        ``DELIVERED``），买方的授权额会被永久占住；而那条拒绝还会被记成「链上腿失败」，
+        把链上腿失败告警的口径带偏（2026-10-13 那次自动刹车就是这么被点着的）。
+        """
+        from sqlalchemy import delete as _delete
+
+        import api.routes.settlement as settlement_routes
+        from db.models.orm import ReceiptModel
+        from services.chain import escrow_settlement as bridge
+
+        task_id = "task-reap-noreceipt"
+        # 先把单子正常推到 delivered（那一步链上托管还没开）。
+        await _delivered(client, activate_identity, task_id, tag="reap_noreceipt")
+        await _patch(
+            db_session, task_id, confirm_deadline_at=datetime.utcnow() - timedelta(hours=1)
+        )
+        # 抽掉这一单的执行回执 —— 模拟「交付验证过了，但一条成功执行回执都没有」。
+        await db_session.execute(
+            _delete(ReceiptModel).where(ReceiptModel.task_id == task_id)
+        )
+        await db_session.commit()
+        # 再打开托管 + 回执门禁：这一单现在放不了款。
+        monkeypatch.setattr(
+            settings, "settlement_requires_success_execution_receipt_for_seller_release", True
+        )
+        monkeypatch.setattr(bridge, "enabled", lambda: True)
+
+        confirmed = await settlement_routes.auto_confirm_expired_settlements(db_session)
+
+        assert task_id not in confirmed
+        assert (await _row(db_session, task_id)).status == TaskStatus.DELIVERED.value
+
+
 class TestReaperIsWiredIntoTheLoop:
     def test_run_forever_calls_auto_confirm(self):
         """结构回归：这个循环必须真的调用兜底，否则缺陷原样复现（没人敲那扇门）。"""

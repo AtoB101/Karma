@@ -380,6 +380,12 @@ SUMMARY|total=22 fail=0
    * 回归测试：`tests/unit/test_security_ops.py`（口径 + 迟滞 + 老事件兼容）、
      `tests/unit/test_runtime_safety_persistence.py`（时间戳活过重启、自动刹车不覆盖它）。
    * 证据：`security/audit/2026-10-13-auto-brake-self-hardening.md`。
+   * **第二轮（同日）**：那 25 张卡住的单**已定位到根因** —— 不是 RPC、不是 operator gas，
+     是这一单**一条成功执行回执都没有**；自动放款先把状态推到 `settled` 再动链，被回执门禁
+     挡下后退回 `auto_confirmed`，而这个状态没有任何自动流程会再推进它（买方额度被永久占住）。
+     修了：前置条件提到推状态机之前（没有回执连 `AUTO_CONFIRMED` 都不进）、`reap_stranded`
+     开始认退回来的 `auto_confirmed` 并解预留、自成交（合约 `SameOwner()`）在发交易前就挡下、
+     自成交失败改长退避且只报一次。证据：`security/audit/2026-10-13-stranded-auto-confirm-and-self-deal.md`。
 
 ### 11.3 本节**没有**声称的
 
