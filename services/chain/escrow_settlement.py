@@ -1319,12 +1319,23 @@ async def assert_release_verified(
             f"链上不能开结算窗口（窗口一开，保护期一过钱就自动划走，谁也拿不回来）",
         )
     if mode == SLASH:
+        # 罚没也是动钱（卖方质押 → 买方），同样要先把资金链路对一遍。
+        await _assert_funds_traceable(db, task_id=task_id, stage=mode)
         return row
     _assert_delivery_verified(row)
     await _assert_success_receipt(
         db, task_id=task_id, amount_usdc=float(row.escrow_amount or 0.0)
     )
+    # 最后一道：这一笔钱的整条链路必须互相指得着（每一笔资金都要有源头）。
+    await _assert_funds_traceable(db, task_id=task_id, stage=mode)
     return row
+
+
+async def _assert_funds_traceable(db: AsyncSession, *, task_id: str, stage: str) -> None:
+    """动钱之前把整条资金链路对一遍（每一笔资金都要有源头，见 funds_trace）。"""
+    from services.chain.funds_trace import assert_funds_traceable
+
+    await assert_funds_traceable(db, task_id=task_id, stage=stage)
 
 
 async def _assert_release_preconditions(db: AsyncSession, *, row: SettlementModel) -> None:
@@ -1356,6 +1367,8 @@ async def assert_release_preflight(db: AsyncSession, *, task_id: str) -> None:
     if row is None:
         return
     await _assert_release_preconditions(db, row=row)
+    # 前置条件过了还不够：整条资金链路得对得上（钱从哪来、要划给谁、落在哪台合约）。
+    await _assert_funds_traceable(db, task_id=task_id, stage="preflight")
 
 
 def _assert_delivery_verified(row: SettlementModel) -> None:

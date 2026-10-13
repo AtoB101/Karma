@@ -1367,3 +1367,271 @@ async def test_self_dealing_is_refused_before_any_chain_call(db_session, chain):
     assert exc.value.status == 409
     assert "自成交" in exc.value.message
     assert calls["bind"] == []
+
+
+# ------------------------- 资金溯源与对齐（2026-10-14）
+# 用户口径：每一笔资金都要有源头；结算前要能回溯整条链路，并确认各环节互相指得着。
+# 判定在 services/chain/funds_trace.py，闸挂在 assert_release_verified（PAY/SLASH）
+# 与 assert_release_preflight 上。
+
+
+def _trace_binding(**over) -> EscrowBindingModel:
+    base = {
+        "binding_id": "101",
+        "buyer_identity_id": BUYER,
+        "seller_identity_id": SELLER,
+        "buyer_bill_id": "1",
+        "seller_bill_id": "2",
+        "contract_address": "0x" + "11" * 20,
+        "task_id": TASK,
+        "amount_usdc": 30.0,
+        "state": "active",
+    }
+    base.update(over)
+    return EscrowBindingModel(**base)
+
+
+@pytest.mark.asyncio
+async def test_the_funds_trace_walks_the_whole_chain(db_session, chain):
+    """健康的单子：从买方账单/钱包、卖方账单/钱包，到链上绑定、合约、金额 —— 每一环都指得着。"""
+    bridge, _calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+    await bridge.bind_for_task(
+        db_session, task_id=TASK, buyer_identity_id=BUYER,
+        seller_identity_id=SELLER, amount_usdc=30.0,
+    )
+
+    from services.chain import funds_trace
+
+    trace = await funds_trace.trace_task_funds(db_session, task_id=TASK)
+
+    assert trace.ok, trace.issues
+    assert trace.settlement_id == "stl-" + TASK
+    assert trace.buyer_identity_id == BUYER
+    assert trace.seller_identity_id == SELLER
+    assert trace.buyer_bill_id == "1"
+    assert trace.seller_bill_id == "2"
+    assert trace.buyer_wallet == "0x" + "1".rjust(40, "0")
+    assert trace.seller_wallet == "0x" + "2".rjust(40, "0")
+    assert trace.onchain_binding_id == 101
+    assert trace.amount_usdc == 30.0
+    assert BUYER in trace.describe() and "101" in trace.describe()
+
+
+@pytest.mark.asyncio
+async def test_no_binding_means_the_money_has_no_source(db_session, chain):
+    """账上有结算结论、链上却一条绑定都没有 —— 这笔钱没有源头，一分都不许动。"""
+    bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    await db_session.commit()
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.assert_release_verified(db_session, task_id=TASK, mode="pay")
+
+    assert exc.value.status == 409
+    assert "没有链上绑定台账" in exc.value.message
+    assert calls["submit"] == []
+
+
+@pytest.mark.asyncio
+async def test_two_bills_on_one_wallet_are_refused_by_the_trace(db_session, chain):
+    """绑定台账是既成事实（外部直接写进去的）时，闸在动钱前也要拦下同一把钱包。"""
+    bridge, _calls = chain
+    shared = "0x" + "ab" * 20
+    db_session.add(settlement_row(status="settled"))
+    db_session.add(_trace_binding())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0, wallet_address=shared)])
+    arm(SELLER, [bill("2", SELLER, 20.0, wallet_address=shared)])
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.assert_release_preflight(db_session, task_id=TASK)
+
+    assert exc.value.status == 409
+    assert "同一把钱包" in exc.value.message
+
+
+@pytest.mark.asyncio
+async def test_the_trace_refuses_a_bill_that_is_not_the_partys(db_session, chain):
+    """绑定指着的那张账单不在当事人名下 —— 受款方对不上，绝不能划。"""
+    bridge, _calls = chain
+    db_session.add(settlement_row(status="settled"))
+    db_session.add(_trace_binding(buyer_bill_id="404"))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.assert_release_preflight(db_session, task_id=TASK)
+
+    assert "没有出处" in exc.value.message
+
+
+@pytest.mark.asyncio
+async def test_chain_settled_but_the_books_say_otherwise_is_refused(db_session, chain):
+    """链上钱已经划给卖方、账上却还停在 finalizing：钱动了账没动，不许再动钱。"""
+    bridge, _calls = chain
+    row = settlement_row(status="settled")
+    row.onchain_status = "finalizing"
+    db_session.add(row)
+    db_session.add(_trace_binding(state="settled"))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.assert_release_preflight(db_session, task_id=TASK)
+
+    assert "钱动了账没动" in exc.value.message
+
+
+@pytest.mark.asyncio
+async def test_a_binding_on_a_retired_contract_is_refused(db_session, chain):
+    """旧合约上的绑定链上划不动 —— 开窗也划不走钱，直接拒。"""
+    bridge, _calls = chain
+    db_session.add(settlement_row(status="settled"))
+    db_session.add(_trace_binding(contract_address="0x" + "99" * 20))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.assert_release_preflight(db_session, task_id=TASK)
+
+    assert "旧托管合约" in exc.value.message
+
+
+@pytest.mark.asyncio
+async def test_a_binding_bigger_than_the_escrow_is_refused(db_session, chain):
+    """绑定要划的比托管的还多：金额没有源头。"""
+    bridge, _calls = chain
+    db_session.add(settlement_row(status="settled"))
+    db_session.add(_trace_binding(amount_usdc=45.0))     # 托管只有 30
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.assert_release_preflight(db_session, task_id=TASK)
+
+    assert "金额没有源头" in exc.value.message
+
+
+@pytest.mark.asyncio
+async def test_a_smaller_binding_is_only_a_warning(db_session, chain):
+    """少结（部分结算 / 关窗后重绑）是合法的：只记一笔 warning，不拦单。"""
+    bridge, _calls = chain
+    db_session.add(settlement_row(status="settled"))
+    db_session.add(_trace_binding(amount_usdc=12.0))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    from services.chain import funds_trace
+
+    trace = await funds_trace.trace_task_funds(db_session, task_id=TASK)
+
+    assert trace.ok, trace.issues
+    assert any("与托管金额" in w for w in trace.warnings)
+
+
+@pytest.mark.asyncio
+async def test_a_mismatch_leaves_a_security_event(db_session, chain, monkeypatch):
+    """对不上要能追溯：一次拒绝 = 一条 FUNDS_TRACE_MISMATCH。"""
+    bridge, _calls = chain
+    db_session.add(settlement_row(status="settled"))
+    db_session.add(_trace_binding(buyer_bill_id="404"))
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    seen: list = []
+    import services.security_monitoring as monitoring
+
+    monkeypatch.setattr(
+        monitoring, "record_security_event", lambda et, **kw: seen.append((et, kw))
+    )
+
+    with pytest.raises(bridge.EscrowSettlementError):
+        await bridge.assert_release_preflight(db_session, task_id=TASK)
+
+    assert seen and seen[0][0] is monitoring.SecurityMonitoringEventType.FUNDS_TRACE_MISMATCH
+    assert seen[0][1]["metadata"]["stage"] == "preflight"
+
+
+@pytest.mark.asyncio
+async def test_cancel_is_still_allowed_on_a_mismatched_record(db_session, chain):
+    """链路对不上时取消是**出路**，不能被溯源闸挡住 —— 钱一步没动，放回额度才对。"""
+    bridge, calls = chain
+    db_session.add(settlement_row(status="in_progress"))
+    db_session.add(_trace_binding(contract_address="0x" + "99" * 20))  # 旧合约，溯源会拒
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    out = await bridge.cancel_for_task(db_session, task_id=TASK)
+
+    assert out["status"] == "cancelled"
+    assert calls["cancel"] == [101]
+
+
+@pytest.mark.asyncio
+async def test_the_finalize_tick_observes_the_trace_without_changing_behaviour(
+    db_session, chain, monkeypatch
+):
+    """动钱那一刻的回溯是**观察者**：对不上就留痕 + 告警，但绝不改结算行为。
+
+    拦人的那一刀在开窗那一步（有人等着、报得出人话）；这一轮只是「每一轮都在看」。
+    """
+    _bridge, calls = chain
+    db_session.add(settlement_row(status="settled"))
+    db_session.add(_trace_binding(buyer_bill_id="404"))     # 账单对不上
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    seen: list = []
+    import services.security_monitoring as monitoring
+
+    monkeypatch.setattr(
+        monitoring, "record_security_event", lambda et, **kw: seen.append((et, kw))
+    )
+
+    from services.chain import escrow_autosettle as autosettle
+
+    row = (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+    await autosettle._observe_funds_trace(db_session, row)
+
+    assert seen and seen[0][0] is monitoring.SecurityMonitoringEventType.FUNDS_TRACE_MISMATCH
+    assert seen[0][1]["metadata"]["stage"] == "autosettle_finalize"
+    # 观察者不发交易、不写库
+    assert calls["bind"] == [] and calls["submit"] == []
+
+
+@pytest.mark.asyncio
+async def test_the_finalize_tick_observer_stays_quiet_on_a_healthy_record(
+    db_session, chain, monkeypatch
+):
+    _bridge, _calls = chain
+    db_session.add(settlement_row(status="settled"))
+    db_session.add(_trace_binding())
+    await db_session.flush()
+    arm(BUYER, [bill("1", BUYER, 50.0)])
+    arm(SELLER, [bill("2", SELLER, 20.0)])
+
+    seen: list = []
+    import services.security_monitoring as monitoring
+
+    monkeypatch.setattr(
+        monitoring, "record_security_event", lambda et, **kw: seen.append((et, kw))
+    )
+
+    from services.chain import escrow_autosettle as autosettle
+
+    row = (await db_session.execute(select(EscrowBindingModel))).scalars().one()
+    await autosettle._observe_funds_trace(db_session, row)
+
+    assert seen == []

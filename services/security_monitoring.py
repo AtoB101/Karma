@@ -217,6 +217,10 @@ class SecurityMonitoringEventType(str, Enum):
     # 动作都不许往下走。这既是刷量信号也是链上注定 revert 的形状，被拒的每一次
     # 都要能追溯、能告警 —— 谁在试、试了多少次，是判断「有人在刷」的唯一来源。
     SELF_DEAL_REFUSED = "self_deal_refused"
+    # 资金链路对不上（2026-10-14）：动钱之前把「钱从哪来 → 挂在谁身上 → 落在哪台
+    # 合约 → 现在什么状态」整条对一遍，任一环节指不上就拒绝（见 services/chain/funds_trace.py）。
+    # 这类拒绝本身就是资金安全事件，必须可追溯、可告警。
+    FUNDS_TRACE_MISMATCH = "funds_trace_mismatch"
 
 
 @dataclass

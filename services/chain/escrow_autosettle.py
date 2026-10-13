@@ -492,6 +492,39 @@ async def _reconcile_from_chain(
     return True
 
 
+async def _observe_funds_trace(db: AsyncSession, row: EscrowBindingModel) -> None:
+    """动钱那一刻的回溯：把这一单的资金链路读一遍，对不上就留痕（**不改行为**）。
+
+    为什么这里不拦：窗口已经开了，链上钱迟早会动；真正该拦人的位置是**开窗之前**
+    （``assert_release_preflight`` / ``assert_release_verified``，那里有用户在等、
+    报得出人话）。这里只负责「每一轮都在看」，对不上就写一条安全事件 + warning ——
+    会告警，能追溯。任何异常都吞掉：观察者不许把整轮结算拖垮。
+    """
+    task_id = getattr(row, "task_id", None)
+    if not task_id:
+        return
+    try:
+        from services.chain.funds_trace import trace_task_funds
+
+        trace = await trace_task_funds(db, task_id=task_id)
+        if trace.ok:
+            return
+        logger.warning("escrow_autosettle_funds_trace_mismatch", **trace.as_log_fields())
+        from services.security_monitoring import (
+            SecurityMonitoringEventType,
+            record_security_event,
+        )
+
+        record_security_event(
+            SecurityMonitoringEventType.FUNDS_TRACE_MISMATCH,
+            metadata={"stage": "autosettle_finalize", **trace.as_log_fields()},
+        )
+    except Exception as exc:  # noqa: BLE001 - 观察者绝不许拖垮结算 tick
+        logger.debug(
+            "escrow_autosettle_funds_trace_failed", binding_id=row.binding_id, error=str(exc)
+        )
+
+
 async def settle_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
     """Execute every due binding. Returns the ones that actually settled."""
     if not escrow.escrow_enabled() or not escrow.can_server_settle():
@@ -500,6 +533,14 @@ async def settle_due(db: AsyncSession, *, now: int | None = None) -> list[dict]:
     rows = [r for r in await due_bindings(db, now=now) if not _backed_off(r.binding_id)]
     if not rows:
         return settled
+
+    # 动钱前把每一单的资金链路再回溯一遍（每一笔资金都要有源头）：链上绑定 → 账单 →
+    # 当事人 → 合约 → 金额 → 链上状态。**只观察、不改行为** —— 真正拦人的那一刀在
+    # 开窗那一步（escrow_settlement.assert_release_verified / assert_release_preflight，
+    # 那里有人等着、能报得出人话）。这里对不上就留一条 warning + 安全事件：
+    # 窗口已经开了，钱迟早会动，对不上必须留下可追溯的痕迹。
+    for _row in rows:
+        await _observe_funds_trace(db, _row)
 
     # ── 一问、一广播、一记账，三段分开 ────────────────────────────────────────
     # 原来这里是「一笔一笔：问链 -> 发交易 -> 等回执 -> 写库」，5 笔就是 5 个区块的
