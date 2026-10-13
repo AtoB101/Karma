@@ -694,17 +694,21 @@ async def attack_collusion():
         })
         if r.status_code == 201:
             tid = r.json()["task_id"]
-            # Try to assign self as worker
+            # 自成交绝对禁止（026-10-14 拍板）：这一条不再是「没拦住就记一条发现」，而是要求必须拦住。
+            # 运行时打到的是真链：接单那一刻就得 4条口径全过（同 id / 同主身份 / 同钱包 / 库里认领的钱包）。
+            # 只比 agent id 那一层拦不住「两个子身份共用一把钱包」，那正是线上脏单的形状。
             r2 = await c.patch(f"{BASE}/v1/contracts/{tid}/assign?worker_agent_id={agent}")
             if r2.status_code in (200, 201):
-                record("FRAUD", "Self-dealing (buyer == seller)", "HIGH", "VULNERABLE",
+                record("FRAUD", "Self-dealing (buyer == seller)", "CRITICAL", "VULNERABLE",
                        "Self-dealing contract allowed — wash trading for reputation farming",
-                       "Block contracts where client_agent_id == worker_agent_id")
+                       "Block contracts where client_agent_id == worker_agent_id "
+                       "(api/routes/contracts.py) AND enforce escrow_settlement."
+                       "assert_parties_not_self_dealing on every bind entry point")
             else:
-                record("FRAUD", "Self-dealing (buyer == seller)", "HIGH", "BLOCKED",
+                record("FRAUD", "Self-dealing (buyer == seller)", "CRITICAL", "BLOCKED",
                        f"Self-assignment blocked: HTTP {r2.status_code}")
         else:
-            record("FRAUD", "Self-dealing (buyer == seller)", "HIGH", "BLOCKED",
+            record("FRAUD", "Self-dealing (buyer == seller)", "CRITICAL", "BLOCKED",
                    f"Self-dealing contract blocked: HTTP {r.status_code}")
     
     # 11.2 Circular settlement (A→B→C→A) detection

@@ -321,6 +321,17 @@ def mark_settled(order_id: str) -> MiniAppOrder:
         raise KeyError("order not found")
     if order.status != OrderStatus.VERIFIED:
         raise ValueError("verification PASS required before settle")
+    # 自成交绝对禁止（纵深防御）：路由层已经拒过一次，状态机这里再拒一次 ——
+    # 结算状态一旦落下，链上那笔照样划不动（合约 ``SameOwner()``），只会留下
+    # 「账上已结算、链上一分没动」的对不上。
+    if (
+        order.buyer_wallet
+        and order.seller_wallet
+        and order.buyer_wallet.strip().lower() == order.seller_wallet.strip().lower()
+    ):
+        raise ValueError(
+            "self-dealing is not allowed: buyer and seller resolve to the same wallet"
+        )
     order.status = OrderStatus.SETTLED
     order.fulfillment_status = FulfillmentStatus.SETTLED
     _touch(order, "settled")

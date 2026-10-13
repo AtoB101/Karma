@@ -213,6 +213,10 @@ class SecurityMonitoringEventType(str, Enum):
     # 是平台最敏感的授权之一，发放与收回都必须可追溯、可告警。
     GOVERNANCE_ROLE_GRANTED = "governance_role_granted"
     GOVERNANCE_ROLE_REVOKED = "governance_role_revoked"
+    # 自成交硬禁（2026-10-14）：买方和卖方是同一把钱包 / 同一个主身份时，任何资金
+    # 动作都不许往下走。这既是刷量信号也是链上注定 revert 的形状，被拒的每一次
+    # 都要能追溯、能告警 —— 谁在试、试了多少次，是判断「有人在刷」的唯一来源。
+    SELF_DEAL_REFUSED = "self_deal_refused"
 
 
 @dataclass

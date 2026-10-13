@@ -789,34 +789,194 @@ async def _bill_wallet_address(
     return None
 
 
-async def _assert_distinct_bill_wallets(
+def _norm_wallet(value: str | None) -> str:
+    """钱包地址归一：只认长得像地址的（``0x`` + 40 hex），其余一律当「没有」。
+
+    两个身份都「没有钱包」（或都是半截脏串）不能被算成「同一个钱包」—— 那会把正常
+    单子误拒。
+    """
+    raw = (value or "").strip().lower()
+    return raw if raw.startswith("0x") and len(raw) == 42 else ""
+
+
+async def _party_owner(db: AsyncSession, party_id: str) -> str:
+    """当事人 → 账单真正挂着的那个身份（agent id 走 ``owner_identity_id``）。"""
+    return (await resolve_party_identity(db, party_id)) or (party_id or "").strip()
+
+
+async def _party_main(db: AsyncSession, party_id: str) -> str:
+    """当事人 → **同一个人**的那个主身份（agent → 主人；子身份 → 主身份）。
+
+    链上 ``SameOwner()`` 只看钱包地址，看不出「同一个人的两个子身份」—— 那一层要靠
+    身份库回溯。读不到身份库时退回当事人自己（宁可少判一条，也不能把所有人当成自成交）。
+    """
+    owner = await _party_owner(db, party_id)
+    if not owner:
+        return ""
+    try:
+        from services.identity_gateway import store as identity_store
+
+        ident = identity_store.resolve_main_identity(owner)
+        return (getattr(ident, "identity_id", None) or owner) if ident else owner
+    except Exception:  # noqa: BLE001 - 身份库读不到不该把这一单判成自成交
+        return owner
+
+
+async def _party_wallets(
+    db: AsyncSession, *, party_id: str, owner: str, main: str, bill_id: str | None
+) -> set[str]:
+    """这个当事人认领过的全部钱包地址（小写、已归一）。
+
+    三个来源都要看，缺一个就有绕过口子：
+
+    * **链上账单挂的那把** —— 合约 ``bind`` 真正比的就是它（``allowance_commits.wallet_address``）；
+    * **身份库绑的那把** —— ``services.identity_gateway.store``（建子身份时绑的）；
+    * **库里认领的那把** —— ``identity_profiles`` / ``identity_role_profiles.bound_wallet_address``。
+
+    任何一处读不到都只跳过，不拦单：判自成交的代价不能是「读不到库就谁也别做单」。
+    """
+    wallets: set[str] = set()
+    if bill_id:
+        wallets.add(
+            _norm_wallet(
+                await _bill_wallet_address(db, identity_id=owner, bill_id=bill_id)
+            )
+        )
+    try:
+        from services.identity_gateway import store as identity_store
+    except Exception:  # noqa: BLE001 - 身份库不可用时只用另外两个来源
+        identity_store = None
+    if identity_store is not None:
+        for candidate in (party_id, owner, main):
+            if not candidate:
+                continue
+            wallets.add(_norm_wallet(getattr(identity_store.get_by_id(candidate), "wallet", None)))
+    try:
+        from db.models.orm import IdentityProfileModel, IdentityRoleProfile
+
+        if main:
+            profile = await db.get(IdentityProfileModel, main)
+            if profile is not None:
+                wallets.add(_norm_wallet(getattr(profile, "bound_wallet_address", None)))
+            rows = (
+                await db.execute(
+                    select(IdentityRoleProfile.bound_wallet_address).where(
+                        IdentityRoleProfile.owner_identity_id == main
+                    )
+                )
+            ).scalars().all()
+            for raw in rows:
+                wallets.add(_norm_wallet(raw))
+    except Exception as exc:  # noqa: BLE001 - 读不到库不拦单
+        logger.debug("escrow_settlement_wallet_lookup_failed", error=str(exc))
+    wallets.discard("")
+    return wallets
+
+
+async def assert_parties_not_self_dealing(
     db: AsyncSession,
     *,
-    buyer_owner: str,
-    buyer_bill: str,
-    seller_owner: str,
-    seller_bill: str,
+    task_id: str,
+    buyer_identity_id: str | None,
+    seller_identity_id: str | None,
+    buyer_bill: str | None = None,
+    seller_bill: str | None = None,
 ) -> None:
-    """合约 ``bind`` 里 ``buyerBill.owner == sellerBill.owner`` 直接 revert ``SameOwner()``。
+    """**自成交硬禁**：买方和卖方必须是两个不同的人、两把不同的钱包。
 
-    **比的是账单主人的钱包地址，不是身份 id** —— 两个不同身份完全可能共用一把钱包。
-    2026-10-13 线上那条一直在重试的单就是这个形状：买方身份 ``kid_t23b_…`` 与卖方身份
-    ``kid_2b8b6d…`` 是两个 id，可两边账单的 ``wallet_address`` 都是 ``0x3295c96a…`` ——
-    只比身份比不出来。这里先判、判不过就报一句说得清的话，链上一笔不发。
+    为什么要判在**接单那一刻**，而不是等链上 ``SameOwner()``：合约只比钱包地址，
+    而且要等 ``bind`` 那一笔才 revert。接单走的是延迟绑定（``bind_for_task_deferred``），
+    那条路上原先**没有**这一道 —— 2026-10-13 线上那条单就是这么变成 ``pending_bind``
+    脏数据的：单子被「接受」了、额度被占住，之后 autosettle 每过一个退避周期拿一笔
+    operator gas 去撞同一堵墙。脏数据不该产生，比事后收拾便宜得多。
+
+    四条口径一起判，任一命中就 409 + 留痕，**一笔链上交易都不发**：
+
+    1. 同一个 id —— 自己买自己 / 同一个 agent 两边扮演；
+    2. 同一个**主身份** —— 同一个人开出来的两个子身份（链上看钱包看不出来）；
+    3. 同一把**钱包** —— 合约 ``bind`` 真正比的那个；
+    4. ``identity_profiles`` / ``identity_role_profiles`` 上认领过的钱包。
+
+    与 ``services/wash_trade.py`` 的分工：那边管「信誉分不发 / GMV 不记」，这里管
+    「单子根本不成立」。两条都要有 —— 只扣分不拦单，链上那笔照样白烧。
     """
-    buyer_wallet = await _bill_wallet_address(db, identity_id=buyer_owner, bill_id=buyer_bill)
-    seller_wallet = await _bill_wallet_address(db, identity_id=seller_owner, bill_id=seller_bill)
-    if buyer_wallet and seller_wallet and buyer_wallet == seller_wallet:
+    buyer = (buyer_identity_id or "").strip()
+    seller = (seller_identity_id or "").strip()
+    if not buyer or not seller:
+        return
+
+    def _refuse(*, reason: str, detail: str, message: str) -> EscrowSettlementError:
         logger.warning(
-            "escrow_settlement_same_wallet",
-            buyer_bill=str(buyer_bill),
-            seller_bill=str(seller_bill),
-            wallet=buyer_wallet,
+            "escrow_settlement_self_dealing_refused",
+            task_id=task_id,
+            reason=reason,
+            buyer_identity_id=buyer_identity_id,
+            seller_identity_id=seller_identity_id,
+            detail=detail,
         )
-        raise EscrowSettlementError(
-            409,
-            f"买方和卖方是同一个钱包（{buyer_wallet}）：合约不允许自成交（SameOwner()），"
-            "这一单不会进链 —— 给卖方换一个独立钱包身份，或者取消这一单。",
+        try:
+            from services.security_monitoring import (
+                SecurityMonitoringEventType,
+                record_security_event,
+            )
+
+            record_security_event(
+                SecurityMonitoringEventType.SELF_DEAL_REFUSED,
+                metadata={
+                    "task_id": task_id,
+                    "reason": reason,
+                    "buyer_identity_id": buyer_identity_id,
+                    "seller_identity_id": seller_identity_id,
+                    "detail": detail,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - 留痕失败绝不能让这一单过去
+            logger.warning(
+                "escrow_settlement_self_dealing_audit_failed",
+                task_id=task_id,
+                error=str(exc),
+            )
+        return EscrowSettlementError(409, message)
+
+    if buyer.lower() == seller.lower():
+        raise _refuse(
+            reason="same_party_id",
+            detail=buyer,
+            message=(
+                f"买方和卖方是同一个当事方（{buyer}）：不允许自成交（SameOwner()），"
+                "这一单不会进链 —— 自己不能买自己的单。"
+            ),
+        )
+
+    buyer_owner = await _party_owner(db, buyer)
+    seller_owner = await _party_owner(db, seller)
+    buyer_main = await _party_main(db, buyer)
+    seller_main = await _party_main(db, seller)
+    if buyer_main and seller_main and buyer_main.lower() == seller_main.lower():
+        raise _refuse(
+            reason="same_owner_identity",
+            detail=buyer_main,
+            message=(
+                f"买方和卖方解析到同一个钱包主身份（{buyer_main}）：合约不允许自成交"
+                "（SameOwner()），这一单不会进链 —— 给卖方换一个独立身份/钱包，或者取消这一单。"
+            ),
+        )
+
+    buyer_wallets = await _party_wallets(
+        db, party_id=buyer, owner=buyer_owner, main=buyer_main, bill_id=buyer_bill
+    )
+    seller_wallets = await _party_wallets(
+        db, party_id=seller, owner=seller_owner, main=seller_main, bill_id=seller_bill
+    )
+    shared = sorted(buyer_wallets & seller_wallets)
+    if shared:
+        raise _refuse(
+            reason="same_wallet",
+            detail=shared[0],
+            message=(
+                f"买方和卖方是同一个钱包（{shared[0]}）：合约不允许自成交（SameOwner()），"
+                "这一单不会进链 —— 给卖方换一个独立钱包身份，或者取消这一单。"
+            ),
         )
 
 
@@ -847,29 +1007,24 @@ async def bind_for_task(
     # 也会被判成「还没有链上锁仓额度」。
     buyer_owner = await resolve_party_identity(db, buyer_identity_id)
     seller_owner = await resolve_party_identity(db, seller_identity_id)
-    # 自成交闸：合约里 ``bind`` 对 ``buyerBill.owner == sellerBill.owner`` 直接 revert
-    # ``SameOwner()``。不问一句就发交易，等于每隔一个退避周期拿 operator 的 gas 撞同一堵墙
-    # （2026-10-13 实测：那条单一直在重试，日志里每 ~2 分钟一条）。这里先判、判不过就
-    # 报一句说得清的话，链上一笔不发。
-    if buyer_owner and seller_owner and buyer_owner == seller_owner:
-        logger.warning(
-            "escrow_settlement_same_owner",
-            task_id=task_id,
-            buyer_identity_id=buyer_identity_id,
-            seller_identity_id=seller_identity_id,
-        )
-        raise EscrowSettlementError(
-            409,
-            f"买方和卖方解析到同一个钱包主身份（{buyer_owner}）：合约不允许自成交（SameOwner()），"
-            "这一单不会进链 —— 给卖方换一个独立身份/钱包，或者取消这一单。",
-        )
+    # 自成交硬禁：判定只有一份实现，接单那条路也调它 —— 免得改一处漏一处。
+    # 先判一遍（不挑账单就能判的：同一个 id / 同一个主身份 / 身份上认领的钱包），
+    # 挑不出账单的单子没必要去读链。
+    await assert_parties_not_self_dealing(
+        db,
+        task_id=task_id,
+        buyer_identity_id=buyer_identity_id,
+        seller_identity_id=seller_identity_id,
+    )
     buyer_bill = await _pick_bill(db, identity_id=buyer_owner, role="付款方", need_usdc=amount)
     seller_bill = await _pick_bill(db, identity_id=seller_owner, role="提供方", need_usdc=stake)
-    await _assert_distinct_bill_wallets(
+    # 账单挑出来之后再判一遍：链上 ``bind`` 比的是账单挂的**钱包地址**，不是身份 id。
+    await assert_parties_not_self_dealing(
         db,
-        buyer_owner=buyer_owner,
+        task_id=task_id,
+        buyer_identity_id=buyer_identity_id,
+        seller_identity_id=seller_identity_id,
         buyer_bill=buyer_bill,
-        seller_owner=seller_owner,
         seller_bill=seller_bill,
     )
 
@@ -1024,6 +1179,18 @@ async def bind_for_task_deferred(
     for exc in checks:
         if isinstance(exc, BaseException):
             raise exc
+    buyer_bill, seller_bill = checks
+    # 自成交硬禁，判在**接单这一刻**：延迟绑定这条路原先没有这道闸，于是线上那条自成交
+    # 单被「接受」了、买方额度被占住，之后 autosettle 每过一个退避周期白烧一笔 operator
+    # gas 去撞链上的 ``SameOwner()``。挑出来的账单一起传进去，账单钱包那一层也判得上。
+    await assert_parties_not_self_dealing(
+        db,
+        task_id=task_id,
+        buyer_identity_id=buyer_identity_id,
+        seller_identity_id=seller_identity_id,
+        buyer_bill=str(buyer_bill),
+        seller_bill=str(seller_bill),
+    )
 
     # 空壳 binding 只用来把「这台合约 + 待绑定」写进结算单，不落库（_reflect 只读它的
     # contract_address；其余字段取不到就跳过）。
