@@ -652,3 +652,121 @@ async def test_a_self_dealing_bind_backs_off_hard_and_says_it_once(db_session, m
 
     autosettle._failed_at.pop("task-bind-self", None)
     await _drop_bind_rows(db_session)
+
+
+# ------------------------- 台账自愈的窗口饥饿（2026-10-14）
+# 这一遍每一轮只取 escrow_autosettle_batch 条。原先按 created_at 排 —— 条数一多，
+# 第 6 条起**永远轮不到**（线上实测 65 条 active，每轮只看最老的 5 条）。
+
+
+def test_the_probe_cutoff_is_a_pure_function(monkeypatch):
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(autosettle.settings, "escrow_reconcile_probe_interval_seconds", 300)
+    now = datetime(2026, 10, 14, 12, 0, 0, tzinfo=UTC)
+    assert autosettle._reconcile_probe_cutoff(now) == datetime(2026, 10, 14, 11, 55, 0, tzinfo=UTC)
+
+    # <= 0 退回旧行为：不限（每一轮都可以问同一条）。
+    monkeypatch.setattr(autosettle.settings, "escrow_reconcile_probe_interval_seconds", 0)
+    assert autosettle._reconcile_probe_cutoff(now) is None
+    monkeypatch.setattr(autosettle.settings, "escrow_reconcile_probe_interval_seconds", -5)
+    assert autosettle._reconcile_probe_cutoff(now) is None
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_covers_every_binding_not_just_the_oldest_five(db_session, monkeypatch):
+    """7 条绑定、每轮取 5 条：一轮一轮下来必须把 7 条**全部**问到，刚问过的不再问。
+
+    按 created_at 排的旧实现里，第 6 条起永远轮不到 —— 这就是线上那条 65→5 的饥饿。
+    取数改成「最久没问过的先问」之后，第一轮问掉 5 条、第二轮只问剩下没问过的 2 条。
+    """
+    monkeypatch.setattr(autosettle.settings, "escrow_autosettle_batch", 5)
+    monkeypatch.setattr(autosettle.settings, "escrow_reconcile_probe_interval_seconds", 300)
+    for n in range(7):
+        db_session.add(binding("70%d" % n, state="active"))
+    await db_session.commit()
+
+    asked: list[str] = []
+
+    def _state(*, binding_id, **_kw):
+        # 链上还没落定：不改台账，但这一条**这一轮问过了**。
+        asked.append(str(binding_id))
+
+    monkeypatch.setattr(autosettle.escrow, "binding_state", _state)
+
+    await autosettle.reconcile_from_chain(db_session)
+    assert len(asked) == 5, "一轮只该问 batch 条"
+    await autosettle.reconcile_from_chain(db_session)
+    assert len(asked) == 7, "第二轮只该问上一轮没问过的那两条（刚问过的让位）"
+    assert sorted(asked) == ["70%d" % n for n in range(7)], "两轮没盖满全部绑定"
+
+
+@pytest.mark.asyncio
+async def test_a_recently_probed_binding_gives_way_to_the_next_one(db_session, monkeypatch):
+    """刚问过的要让位：同一条不许把窗口里的一格一直占着。"""
+    from datetime import UTC, datetime
+
+    monkeypatch.setattr(autosettle.settings, "escrow_reconcile_probe_interval_seconds", 300)
+    fresh = binding("801", state="active")
+    stale = binding("802", state="active")
+    fresh.last_probed_at = datetime.now(UTC)
+    db_session.add(fresh)
+    db_session.add(stale)
+    await db_session.commit()
+
+    asked: list[str] = []
+
+    def _state(*, binding_id, **_kw):
+        asked.append(str(binding_id))
+
+    monkeypatch.setattr(autosettle.escrow, "binding_state", _state)
+
+    await autosettle.reconcile_from_chain(db_session)
+
+    assert asked == ["802"], "刚问过的那条不该被再问一次"
+    stamped = await db_session.get(EscrowBindingModel, "802")
+    assert stamped.last_probed_at is not None, "问完要盖章，下一轮才知道让位"
+
+
+@pytest.mark.asyncio
+async def test_a_binding_whose_probe_fails_still_gives_way(db_session, monkeypatch):
+    """问链那一步炸了也要盖章：否则一条坏绑定永远占着窗口里的一格。"""
+    monkeypatch.setattr(autosettle.settings, "escrow_reconcile_probe_interval_seconds", 300)
+    db_session.add(binding("803", state="active"))
+    await db_session.commit()
+
+    def _state(*, binding_id, **_kw):
+        raise RuntimeError("RPC 抖动")
+
+    monkeypatch.setattr(autosettle.escrow, "binding_state", _state)
+
+    await autosettle.reconcile_from_chain(db_session)
+
+    row = await db_session.get(EscrowBindingModel, "803")
+    assert row.last_probed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_the_rotation_still_advances_without_a_cutoff(db_session, monkeypatch):
+    """``interval <= 0``（退回旧行为的那一档）下也要轮转：一条都不许被饿死。
+
+    这一档不过滤「刚问过的」，但取数仍按「最久没问过的先问」——每轮 batch=1，
+    三轮回下来必须把三条都盖到（否则「不限间隔」就等于「只问最老的那条」）。
+    """
+    monkeypatch.setattr(autosettle.settings, "escrow_autosettle_batch", 1)
+    monkeypatch.setattr(autosettle.settings, "escrow_reconcile_probe_interval_seconds", 0)
+    for n in range(3):
+        db_session.add(binding("81%d" % n, state="active"))
+    await db_session.commit()
+
+    asked: list[str] = []
+
+    def _state(*, binding_id, **_kw):
+        asked.append(str(binding_id))
+
+    monkeypatch.setattr(autosettle.escrow, "binding_state", _state)
+
+    for _ in range(3):
+        await autosettle.reconcile_from_chain(db_session)
+
+    assert sorted(asked) == ["810", "811", "812"], "不限间隔也要一条一条轮着问"

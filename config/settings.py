@@ -452,6 +452,13 @@ class Settings(BaseSettings):
     # （commit / revoke / 结算放款）已经各自对过一次账。
     # <= 0 退回旧行为：每一轮 tick 都跑。
     escrow_autosettle_mirror_interval_seconds: int = 60
+    # 台账自愈（``reconcile_from_chain``）对**同一条**绑定最多每这么久回链问一次。
+    # 它每一轮只取 ``escrow_autosettle_batch`` 条（默认 5），条数一多就会「窗口饥饿」：
+    # 按 created_at 排的话，第 6 条起永远轮不到（2026-10-14 线上实测：65 条 active，
+    # 每轮只看最老的 5 条）。加上这一格之后取数改成「最久没问过的先问」，一轮一轮
+    # 把全部绑定盖到；这一格只是防止同一条被反复问、把一轮 tick 拖长。
+    # <= 0 退回旧行为：每一轮都可以问同一条（不推荐，几十条绑定会把 tick 拖垮）。
+    escrow_reconcile_probe_interval_seconds: int = 300
 
     # Payee (worker agent wallet on-chain)
     payee_address: str = ""
