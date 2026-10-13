@@ -104,6 +104,34 @@ escrow binding 状态 —— 是**这一单一条成功执行回执都没有**�
 # 4) 告警口径：settlement_transition_chain_gate_spike 不再增长（不会再有新的假链上腿失败）
 ```
 
+### 5.1 实测结果（2026-10-13，PR #297 / #298 合并并部署之后）
+
+```
+ escrow_bindings（108–140）  : cancelled 25 | settled 6 | active 2（不是这 25 条里的）
+ settlements                 : auto_confirmed / onchain_status=cancelled  = 25
+ escrow_stranded_reaped      : 25 条（14:56:12 → 15:03:15 UTC，一条一条解，0 条失败）
+ escrow_stranded_reap_failed : 0
+ runtime_safety_mode         : enabled=f（人工清闸之后没有复燃）
+ settlement_transition_audits（最近 90 分钟）: 0 条 —— 不再有新的 guard_stage=chain 拒绝
+ 告警回放 720m / 180m        : denied_count=0，escalation=none
+ 1440m 窗口                  : 仍是那批旧事件（chain_gate 21 条，最后一次 02:43:12），
+                               随窗口自然过期；CRITICAL 从未成立
+```
+
+自成交那条单（F3/F4）：
+
+```
+ escrow_settlement_same_wallet buyer_bill=0x65eb…:12 seller_bill=0x65eb…:4
+                              wallet=0x3295c96a2993c366b3db27b6ac81f85801d75f51   ← 只此一条
+ 链上锁定失败（SameOwner revert）: 0 条 —— 一笔 operator gas 都没烧
+ escrow_autosettle_bind_failed : 1 条，permanent=True retry_in_seconds=3600.0
+   （过去是每 ~2 分钟一条）
+```
+
+它的结算单仍是 `in_progress / pending_bind`（脏测试数据：买卖双方共用一把钱包，永远不会成）。
+要不要给它换一个独立钱包身份、或者直接把这一单作废，留给人决定 —— 代码现在每小时只报一次，
+而且不再发交易。
+
 ## 5b. 部署后补挖出来的一个洞（同一轮修掉）
 
 F3 第一版只比**身份**（`resolve_party_identity` 的结果）。部署到测试网后，那条一直重试的
