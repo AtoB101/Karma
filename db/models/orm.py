@@ -488,6 +488,11 @@ class EscrowBindingModel(Base):
     #: 买方在链上打过「确认放款」标记的时刻（v4 ``buyerConfirm``）。有它就不必
     #: 再等争议窗口：验证已过 + 买方自己点头，划款立刻可执行。
     buyer_confirmed_at: Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
+    #: 台账自愈（``reconcile_from_chain``）**上一次来问过链**的时刻。
+    #: 那一遍原先按 ``created_at`` 取前 N 条：条数一多，第 N+1 条起**永远轮不到**
+    #: （2026-10-14 线上实测：65 条 active，每轮只看最老的 5 条）。改成
+    #: 「最久没问过的先问」之后，一轮一轮把所有绑定都盖到。NULL = 还没问过。
+    last_probed_at:    Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
     created_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -496,6 +501,8 @@ class EscrowBindingModel(Base):
     # `state` 此前完全没有索引。
     __table_args__ = (
         Index("ix_escrow_bindings_state_created", "state", "created_at"),
+        # 台账自愈的取数：按 state 过滤 + 「最久没问过的先问 + 从没问过的排最前」。
+        Index("ix_escrow_bindings_state_probed", "state", "last_probed_at"),
     )
 
 

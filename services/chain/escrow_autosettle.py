@@ -640,6 +640,17 @@ async def _reconcile_breach_from_chain(
 _OPEN_BINDING_STATES = (ACTIVE_STATE, DUE_STATE, DUE_BREACH_STATE)
 
 
+def _reconcile_probe_cutoff(now: datetime | None = None) -> datetime | None:
+    """这一轮从哪一刻之前的「问过没」开始算过期。``None`` = 不限（旧行为）。
+
+    纯函数：给单测钉「多久算该再问一次」。``<= 0`` 退回旧行为（每一轮都可以问同一条）。
+    """
+    interval = int(settings.escrow_reconcile_probe_interval_seconds or 0)
+    if interval <= 0:
+        return None
+    return (now or datetime.now(UTC)) - timedelta(seconds=interval)
+
+
 async def reconcile_from_chain(db: AsyncSession, *, limit: int | None = None) -> list[dict]:
     """链上已经落定的绑定，把台账补齐（状态机对齐的兜底那一遍）。
 
@@ -647,21 +658,40 @@ async def reconcile_from_chain(db: AsyncSession, *, limit: int | None = None) ->
     那一步」的那些：进程重启、receipt 读取超时、或者**别人**先把 ``finalizeSettlement``
     推了（保护期一到，合约对任何地址都放行 —— autosettle 就是靠这个自动放款）。
     链上是最终事实，账上不许停在 finalizing / breaching / active。
+
+    **窗口饥饿**（2026-10-14 修）：这一遍每一轮只取 ``escrow_autosettle_batch`` 条
+    （默认 5），原先按 ``created_at`` 排 —— 绑定条数一多，第 6 条起**永远轮不到**
+    （线上实测 65 条 ``active``，每轮只看最老的 5 条，它们被反复问，剩下的从不被问）。
+    现在按「**最久没问过的先问**」取（``last_probed_at`` 从没问过的排最前），并且
+    只取「距上次问超过 ``escrow_reconcile_probe_interval_seconds``」的那些，
+    问完立刻盖时间戳。于是一轮一轮把所有绑定都盖到，同一条不会被反复问。
     """
     if not escrow.escrow_enabled() or not escrow.can_server_settle():
         return []
     aligned: list[dict] = []
-    stmt = (
-        select(EscrowBindingModel)
-        .where(EscrowBindingModel.state.in_(_OPEN_BINDING_STATES))
-        .order_by(EscrowBindingModel.created_at)
-        .limit(limit if limit is not None else settings.escrow_autosettle_batch)
-    )
+    stmt = select(EscrowBindingModel).where(EscrowBindingModel.state.in_(_OPEN_BINDING_STATES))
+    cutoff = _reconcile_probe_cutoff()
+    if cutoff is not None:
+        stmt = stmt.where(
+            or_(
+                EscrowBindingModel.last_probed_at.is_(None),
+                EscrowBindingModel.last_probed_at < cutoff,
+            )
+        )
+    stmt = stmt.order_by(
+        EscrowBindingModel.last_probed_at.asc().nullsfirst(),
+        EscrowBindingModel.created_at,
+    ).limit(limit if limit is not None else settings.escrow_autosettle_batch)
+    probed_at = datetime.now(UTC)
     for row in (await db.execute(stmt)).scalars().all():
+        # 先盖时间戳再干活：这一条**这一轮**已经问过了，哪怕问链那一步抛异常，
+        # 也应该让位给下一条（否则一条坏绑定就永远占着窗口里的一格）。
+        row.last_probed_at = probed_at
         if await _reconcile_from_chain(db, row, aligned):
             logger.info(
                 "escrow_binding_aligned_from_chain", binding_id=row.binding_id, state=row.state
             )
+    await db.flush()
     return aligned
 
 
