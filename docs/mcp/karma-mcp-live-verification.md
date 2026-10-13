@@ -273,3 +273,57 @@ SUMMARY|total=22 fail=0
   `KARMA_MAIL_RELAY_URL` / `KARMA_MAIL_RELAY_TOKEN` 并 recreate app，再按 §8 流程
   重跑一遍，才能确认「信真的落到用户收件箱」。
 - 未在主网做任何操作。
+
+## 10. Tier 2/3 全链复测（2026-10-13，沿用此前提供的测试钱包）
+
+§1–§3 那一轮用的是**当场新生成**的测试夹具。本节是 2026-10-13 的复测，刻意**沿用
+之前会话里已经用过的测试钱包**（买方 / 卖方各一把长期测试私钥），回答一个问题：
+
+> 换一批老钱包，整条链（授权 → 锁仓 → 下单 → 凭证 → 接单 → 争议）还跑不跑得通？
+
+结论：**跑得通**，`SUMMARY|total=22 fail=0`，全程真 HTTP、真状态机、真链上托管，无 Mock。
+
+### 10.1 这一轮用的钱包
+
+| 角色 | 地址 | 身份 |
+| --- | --- | --- |
+| 买方主人 | `0x3295c96a2993C366B3dB27B6ac81f85801D75f51` | `kid_t23b_8d65f4e9e4a9` |
+| 卖方 owner | `0x16fE563a56E6566809597e4aF9a1608d3e55Dd7F` | `kid_b576a3a6a97996ea3230ffc0`（agent `agent-7dcd64b12c9d`） |
+
+买方、卖方**钱包不同**是这条链路的前提：合约绑定阶段会检查
+`buyerBill.owner != sellerBill.owner`，相同直接 `SameOwner()` 回滚。
+
+### 10.2 结果
+
+```
+SUMMARY|total=22 fail=0
+```
+
+| 组 | 用例 | 结果 |
+| --- | --- | --- |
+| T1 自助授权 | 预览 → 主人钱包签名 → 铸 key → agent 公钥绑定 → 主人确认上线 | 6/6 PASS |
+| Important Fields | protocol capture → 买卖双方 `submit-encrypted` → `match-secure` 封存 MATCHED | 3/3 PASS |
+| T2 下单 | `karma_create_transaction` → 真出凭证 / 结算单 | 1/1 PASS |
+| T0 只读 | `karma_get_voucher` / `karma_get_settlement_status` / `karma_get_transaction_status` | 3/3 PASS |
+| T2 证据 | `karma_verify_evidence` 对上真实 404 裁决（**不谎报成功**） | 1/1 PASS |
+| T2 卖方接单 | `karma_accept_payment_code` 打到真实接单口 | 3/3 PASS |
+| T3 争议/退款 | `karma_open_dispute` → 结算转 `disputed` | 3/3 PASS |
+| 失败语义 | 缺 `seller_identity_id` / 重复退款 fail-closed | 2/2 PASS |
+
+### 10.3 链上 / 后端痕迹（可自行核对）
+
+| 项 | 值 |
+| --- | --- |
+| 买方 `commit()` | tx `0x211311986f0ff4d4eefa0873e98a6902ed1d7eef98e02ad27bf52d41dbcbcf39` → `allowance_commits.bill_id = 0x65eb…b6F2:12`，25 USDC，`state=open`，`backed=true` |
+| 下单产物 | `voucher_id = 9c10b3ac-e94b-4888-9026-7ce2b0b48b52`（`accepted`），`task_id = 61a2b882-1e7e-4965-bfde-ebdf8954bdcb` |
+| 结算单 | `settlement_id = ce919793-6cce-4e1f-a3fd-09ec7e6e036b`，`settlement_mode = escrow_allowance`，合约 `0x65eb…b6F2`，`status = disputed` |
+| 争议绑定 | `escrow_bindings.binding_id = 310`，买方 bill `:12` / 卖方 bill `:2`，`amount=1`、`stake=0.3`，`state=disputed`，`bind_tx = 0xa286d92a966b774349bc0fd44ddada1610bd9e1882aa79238f1c800c8ee23012` |
+| 状态机轨 | `draft → pending → accepted → in_progress → disputed`（`settlement_transition_audits`） |
+| 额度镜像 | `capacity.available=98, reserved=1, disputed=1` |
+
+### 10.4 本节**没有**声称的
+
+- 只走到 **`disputed`**：放款 / 退款要有仲裁结论才会动，MCP 层没有任何自行放款能力。
+- 未在主网做任何资金操作；全部在测试网。
+- 顺带记一个运维坑：卖方 API key 写进容器环境后**必须 `docker restart karma-api`**
+  才生效，否则卖方侧调用（如 `/v1/standards/important-fields/encrypt`）会直接 **401**。
