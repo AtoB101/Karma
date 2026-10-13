@@ -845,6 +845,9 @@ class SecurityOpsAlertType(str, Enum):
     PRIVATE_RUNTIME_ERROR_RATE = "private_runtime_error_rate"
     SETTLEMENT_TRANSITION_DENIED_SPIKE = "settlement_transition_denied_spike"
     SETTLEMENT_TRANSITION_DENIED_RATE = "settlement_transition_denied_rate"
+    # 链上腿失败（迁移合法、链上那一步没成、钱没动、autosettle 每轮重试）——
+    # 与上面两条「状态机拒绝」分开：它不接自动刹车，只报出来给人查。
+    SETTLEMENT_TRANSITION_CHAIN_GATE_SPIKE = "settlement_transition_chain_gate_spike"
     AUTH_FAILURE_BASELINE_DRIFT = "auth_failure_baseline_drift"
     RATE_LIMIT_BASELINE_DRIFT = "rate_limit_baseline_drift"
     PRIVATE_RUNTIME_ERROR_BASELINE_DRIFT = "private_runtime_error_baseline_drift"
@@ -893,8 +896,15 @@ class SecurityOpsSummary(BaseModel):
     private_runtime_error_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     private_runtime_error_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_total_count: int = 0
+    #: 只数「状态机本来就禁止这一步」（denial_class=state_machine）；链上腿失败在
+    #: ``settlement_transition_chain_gate_denied_count``，别混。
     settlement_transition_denied_count: int = 0
     settlement_transition_denied_rate: float = 0.0
+    #: 链上腿失败涉及的**单子数**（按 task 去重，autosettle 重试多少次都算一条）。
+    settlement_transition_chain_gate_denied_count: int = 0
+    #: 所有被拒事件的 denial_class 分布（state_machine / chain_gate / store_conflict），
+    #: 给运维一眼看清「拒绝到底是哪一种」。
+    settlement_transition_denied_by_class: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_denied_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_denied_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_denied_by_guard_stage: list[SecurityOpsDimensionCount] = Field(default_factory=list)
@@ -1036,6 +1046,11 @@ class RuntimeSafetyModeState(BaseModel):
     reason: Optional[str] = None
     triggered_by: Optional[str] = None
     triggered_at: Optional[datetime] = None
+    #: 最近一次**人工**把闸放回「不拦」的时刻（走 /v1/admin/controls/* 或
+    #: /v1/security/runtime/safety-mode）。自动刹车不许用比它更早的证据再把闸拉回去 ——
+    #: 否则人工清闸等于白清：窗口里那批旧事件还在，下一轮轮询立刻又点着（2026-10-13
+    #: 线上实测「清闸 2 分钟后又跳回」）。见 api/routes/security.py 的迟滞判断。
+    manual_override_at: Optional[datetime] = None
     pause_new_lock: bool = False
     pause_new_authorization: bool = False
     pause_new_task: bool = False

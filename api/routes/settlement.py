@@ -41,7 +41,11 @@ from services.runtime_safety import (
     assert_runtime_operation_allowed,
     audit_capacity_anchor_and_maybe_trip,
 )
-from services.security_monitoring import SecurityMonitoringEventType, record_security_event
+from services.security_monitoring import (
+    SecurityMonitoringEventType,
+    denial_class_for_guard_stage,
+    record_security_event,
+)
 from services.settlement_voucher import mark_voucher_used_if_linked
 from services.path_param_safety import validate_public_url_segment
 from services.settlement_party_access import (
@@ -1652,7 +1656,10 @@ async def _record_transition_audit(
         reason=reason,
         route_path=route_path,
         actor_id=actor_id,
-        metadata_={},
+        metadata_={
+            # 拒绝归类：写进审计行，事后能直接按 class 查（链上腿失败 vs 状态机拒绝）。
+            "denial_class": denial_class_for_guard_stage(guard_stage),
+        },
         created_at=datetime.utcnow(),
     )
     db.add(row)
@@ -1666,6 +1673,9 @@ async def _record_transition_audit(
             "to_status": to_status.value,
             "transition_allowed": transition_allowed,
             "guard_stage": guard_stage,
+            # 只有 state_machine 才算「非法穿越状态机」；链上腿失败（guard_stage=chain）
+            # 会被 autosettle 反复重试，把它算进拒绝率会让刹车按重试次数自己点着自己。
+            "denial_class": denial_class_for_guard_stage(guard_stage),
             "path": route_path or "unknown",
             "actor_id": actor_id or "anonymous",
             "route_group": "settlement",

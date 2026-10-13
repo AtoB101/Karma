@@ -21,6 +21,10 @@
 * 进程启动时灌一次缓存 —— 重启不再把刹车弹回「关」；
 * 后台每 ``STATE_REFRESH_SECONDS`` 重灌一次 —— 万一将来上了多 worker，刹车
   最多晚几秒全量生效，而不是只拦住 1/N。
+* 开关之外还记 ``manual_override_at``（2026-10-13，migration 0065）：最近一次
+  **人工**放闸的时刻。自动刹车拿它做迟滞 —— 人工清过闸之后，只有比它更晚发生的
+  状态机拒绝才允许再把闸拉回去；否则窗口里那批旧拒绝会让「清闸」等于白清。
+  它必须跟开关一起落库、一起在重启后恢复，所以也在 ``_SWITCH_FIELDS`` 里。
 
 写失败**不会**让刹车失效：内存里的刹车照旧生效（这是安全的那一侧），只记
 ``safety_mode_persist_failed`` 并留一条安全事件 —— 一个「按了没用」的按钮，
@@ -60,6 +64,7 @@ _SWITCH_FIELDS = (
     "reason",
     "triggered_by",
     "triggered_at",
+    "manual_override_at",
     "pause_new_lock",
     "pause_new_authorization",
     "pause_new_task",
@@ -131,6 +136,9 @@ def set_runtime_safety_mode(
                 "reason": reason or "safety mode disabled",
                 "triggered_by": actor_id or "system",
                 "triggered_at": now,
+                # 人工放闸要留时刻：自动刹车不许拿比它更早的证据再把闸拉回去，
+                # 否则清闸等于白清（窗口里那批旧拒绝还在，下一轮轮询就点着）。
+                "manual_override_at": now,
                 "pause_new_lock": False,
                 "pause_new_authorization": False,
                 "pause_new_task": False,
@@ -153,18 +161,20 @@ def set_runtime_operational_pauses(
     global _STATE
     now = datetime.utcnow()
     enabled = pause_new_lock or pause_new_authorization or pause_new_task or pause_new_settlement
-    _STATE = _STATE.model_copy(
-        update={
-            "enabled": enabled,
-            "reason": reason or ("manual operational pause update" if enabled else "operational pauses disabled"),
-            "triggered_by": actor_id or "system",
-            "triggered_at": now,
-            "pause_new_lock": pause_new_lock,
-            "pause_new_authorization": pause_new_authorization,
-            "pause_new_task": pause_new_task,
-            "pause_new_settlement": pause_new_settlement,
-        }
-    )
+    updates: dict[str, Any] = {
+        "enabled": enabled,
+        "reason": reason or ("manual operational pause update" if enabled else "operational pauses disabled"),
+        "triggered_by": actor_id or "system",
+        "triggered_at": now,
+        "pause_new_lock": pause_new_lock,
+        "pause_new_authorization": pause_new_authorization,
+        "pause_new_task": pause_new_task,
+        "pause_new_settlement": pause_new_settlement,
+    }
+    if not enabled:
+        # 全线放闸也是人工动作，同样留时刻（自动刹车不再复燃的凭据）。
+        updates["manual_override_at"] = now
+    _STATE = _STATE.model_copy(update=updates)
     return _STATE.model_copy()
 
 

@@ -359,11 +359,27 @@ SUMMARY|total=22 fail=0
    （`kind=api`：`request_hash` / `response_hash` / `http_status_code` / `latency_ms`），
    否则 `/runtime/submit-receipt` 直接 400；而没有成功执行回执，`buyer_accept` 会 409
    「at least one successful execution receipt is required before releasing funds to the seller」。
-3. **auto brake 会自我加固、清不掉（关键）**：`runtime_safety_mode` 自 2026-10-03 起
+3. **auto brake 会自我加固、清不掉（关键）—— 已修**：`runtime_safety_mode` 自 2026-10-03 起
    `pause_new_task/…/pause_new_settlement` 全开，起因是「settlement transition denied rate
-   critical alert」。但刹车开启期间产生的大量拒绝（`settlement_auto_confirm_held …
-   blocked operation 'new_settlement'`）**同样被记进那个拒绝率**，于是 02:43 人工清零 →
-   02:45 立刻自动跳回。要跑完这一笔，只能在清闸后的窗口里立刻把确认做完。
+   critical alert」。02:43 人工清零 → 02:45 立刻自动跳回，要跑完这一笔只能在清闸后的窗口里
+   抢着把确认做完。
+
+   2026-10-13 定位 + 修复（本仓库代码 + migration `0065_runtime_safety_manual_override`）：
+
+   * 真正的成因不是「刹车制造的拒绝」，而是**19 张卡在 `auto_confirmed` 的结算单**
+     （链上绑定 `bound`、`finalizeSettlement` 一直失败）被 autosettle 每轮各拒一次，
+     `guard_stage=chain`。这些「链上腿失败」被算进了**同一个**拒绝率 —— 19/88 = 21.6%
+     ≥ 20%，CRITICAL 成立。闸落下之后 autosettle 被 503 挡住（不再产生新拒绝），
+     但**窗口（运维轮询器默认 60 分钟）里那批旧事件还在**，所以人工清闸后下一轮轮询
+     用同一批证据又把闸拉回去。
+   * 修法一：拒绝按 `denial_class` 分类。`settlement_transition_denied_count/_rate`
+     只数 `state_machine`（`route`/`pipeline`，真·非法迁移）；链上腿失败另立 HIGH 告警
+     `settlement_transition_chain_gate_spike`，按结算单去重、不接自动刹车。
+   * 修法二：`manual_override_at` 迟滞。人工放闸之后，只有**比它更晚发生**的状态机
+     拒绝才允许再自动刹车。
+   * 回归测试：`tests/unit/test_security_ops.py`（口径 + 迟滞 + 老事件兼容）、
+     `tests/unit/test_runtime_safety_persistence.py`（时间戳活过重启、自动刹车不覆盖它）。
+   * 证据：`security/audit/2026-10-13-auto-brake-self-hardening.md`。
 
 ### 11.3 本节**没有**声称的
 

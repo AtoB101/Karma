@@ -50,7 +50,28 @@ v2 在**四个最关键的路由组**上单独收紧，让异常更早被发现�
 | `group:verification`（私有运行时错误） | `private_runtime_error_threshold` | 5 | **3** | 验证链路的内部错误要更早暴露 |
 | `group:runtime`（私有运行时错误） | `private_runtime_error_threshold` | 5 | **3** | 同上 |
 | `group:verification`（错误率） | `private_runtime_error_rate_threshold` | 0.25 | **0.2** | 分母大时看比例更准 |
-| `group:settlement`（状态转移被拒） | `settlement_transition_denied_threshold` | 5 | **3** | 状态机被拒是资金安全的早期信号 |
+| `group:settlement`（状态转移被拒） | `settlement_transition_denied_threshold` | 5 | **3** | 状态机被拒是资金安全的早期信号（口径见下节：只数 `state_machine`） |
+
+### 结算拒绝率的口径（2026-10-13 修订）
+
+「结算迁移被拒」有两种完全不同的成因，**不能混在一个指标里**：
+
+| denial_class | 什么时候产生 | 算不算「状态机被拒」 |
+|---|---|---|
+| `state_machine` | `guard_stage = route / pipeline`：业务状态机本来就禁止这一步 | **算**。这是「有人在非法穿越状态机」，也就是上面那条阈值想抓的东西 |
+| `chain_gate` | `guard_stage = chain`：迁移合法，链上那一步没成，账上已退回、可重试 | 不算。钱一分没动，而且 autosettle **每一轮都会重试** → 一次故障会长成一串事件 |
+| `store_conflict` | `guard_stage = store`：落库时的乐观锁冲突 | 不算 |
+
+`settlement_transition_denied_count` / `_rate` 只数 `state_machine`；分母 = 放行的迁移数
++ 被状态机拒的数（不被重试刷大）。链上腿失败另有一条 **HIGH** 告警
+`settlement_transition_chain_gate_spike`，按**结算单**去重（同一单重试 20 次 = 1 条），
+好让人去查卡住的托管绑定 —— 它**不接自动刹车**：刹车拦不住链上腿失败本身，却会把
+autosettle 的放款重试和人工恢复一起掐死。
+
+**自动刹车的迟滞**：`runtime_safety_mode.manual_override_at` 记「最近一次人工放闸」。
+自动刹车只认**比它更晚发生**的状态机拒绝；窗口里更早的旧证据不许再把闸拉回去。
+没有这一条，人工清闸等于白清 —— 窗口（运维轮询器默认 60 分钟）里那批旧事件还在，
+下一轮轮询立刻又点着（2026-10-13 线上实测：02:43 清、02:45 跳回）。
 
 **告警冷却**：`alert_cooldown_minutes = 10`。同一个告警签名 10 分钟内只投递一次 ——
 抑制的是重复投递，不是抑制检测本身（检测照跑，告警记录照写，只是不重复推送到 Telegram）。

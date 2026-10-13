@@ -1398,6 +1398,9 @@ class RuntimeSafetyModeModel(Base):
     reason:              Mapped[str | None] = mapped_column(String(512), nullable=True)
     triggered_by:        Mapped[str | None] = mapped_column(String(128), nullable=True)
     triggered_at:        Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    # 最近一次**人工**放闸的时刻（migration 0065）。自动刹车拿它做迟滞：比人工放闸更早的
+    # 拒绝不许再自动把闸拉回去。列名/类型要和 migration 逐字对应，改一边必须改另一边。
+    manual_override_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     pause_new_lock:      Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
     pause_new_authorization: Mapped[bool]   = mapped_column(Boolean, nullable=False, default=False)
     pause_new_task:      Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)

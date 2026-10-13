@@ -225,6 +225,52 @@ class SecurityMonitoringEvent:
     event_id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
+# ---------------------------------------------------------------------------
+# 拒绝归类（2026-10-13）
+# ---------------------------------------------------------------------------
+# 一次结算迁移「被拒」有两种完全不同的成因。混在同一个指标里，刹车会按**重试次数**
+# 自己把自己点着：
+#
+# * ``state_machine``（guard_stage=route/pipeline）—— 业务状态机本来就禁止这一步。
+#   这是「有人在非法穿越状态机」的真信号，也是拒绝率告警该看的唯一一类。
+# * ``chain_gate``（guard_stage=chain）—— 迁移本身合法，链上那一步没成（RPC 抖动、
+#   托管合约状态不对……），业务状态已退回、交易可重试。autosettle 每一轮都会重试
+#   这些单子，所以它天然是「一次故障 -> 一大串事件」。
+# * ``store_conflict``（guard_stage=store）—— 落库时的乐观锁冲突。
+#
+# 线上证据（2026-10-13 02:43）：19 张卡在 ``auto_confirmed`` 的结算单在同一秒被
+# autosettle 各拒一次，全部 guard_stage=chain；按事件数算 = 19/90 = 21% >= 20%，
+# CRITICAL 告警成立 -> 自动刹车；人工清闸后窗口里那批旧事件仍在，下一轮轮询又把
+# 刹车拉回去。链上腿失败的钱一分没动，不该冒充「状态机被非法穿越」。
+DENIAL_CLASS_STATE_MACHINE = "state_machine"
+DENIAL_CLASS_CHAIN_GATE = "chain_gate"
+DENIAL_CLASS_STORE_CONFLICT = "store_conflict"
+
+_STATE_MACHINE_GUARD_STAGES = frozenset({"route", "pipeline"})
+
+
+def denial_class_for_guard_stage(guard_stage: str | None) -> str:
+    """把一次拒绝的 ``guard_stage`` 归类成上面三种（写事件的一侧用它盖章）。"""
+    stage = (guard_stage or "").strip().lower()
+    if stage in _STATE_MACHINE_GUARD_STAGES:
+        return DENIAL_CLASS_STATE_MACHINE
+    if stage == "chain":
+        return DENIAL_CLASS_CHAIN_GATE
+    return DENIAL_CLASS_STORE_CONFLICT
+
+
+def _transition_denied(event: "SecurityMonitoringEvent") -> bool:
+    return not bool(event.metadata.get("transition_allowed", True))
+
+
+def _denial_class_of(event: "SecurityMonitoringEvent") -> str:
+    """老事件（升级前写的）没有 ``denial_class``，按 guard_stage 现推。"""
+    explicit = event.metadata.get("denial_class")
+    if explicit:
+        return str(explicit)
+    return denial_class_for_guard_stage(event.metadata.get("guard_stage"))
+
+
 @dataclass
 class SecurityBaselineSnapshot:
     captured_at: datetime
@@ -352,6 +398,34 @@ def _dimension_counter_with_filter(
         key = str(raw_value).strip() if raw_value else default_key
         counter[key] += 1
     return counter
+
+
+def _denial_class_dimension_counts(
+    *,
+    events: list[SecurityMonitoringEvent],
+    limit: int,
+) -> list[SecurityOpsDimensionCount]:
+    """按 denial_class 统计被拒的结算迁移。
+
+    不能直接用 ``_top_dimension_counts`` 读 ``metadata['denial_class']``：升级前写进
+    窗口的老事件没有这个字段，会被一股脑算进默认桶。这里统一走 ``_denial_class_of``
+    （没有字段就按 guard_stage 现推），新老事件口径一致。
+    """
+    stats: dict[str, SecurityOpsDimensionCount] = {}
+    for event in events:
+        if event.event_type != SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT:
+            continue
+        if not _transition_denied(event):
+            continue
+        key = _denial_class_of(event)
+        item = stats.get(key)
+        if item is None:
+            item = SecurityOpsDimensionCount(key=key, count=0, last_seen_at=event.created_at)
+            stats[key] = item
+        item.count += 1
+        if item.last_seen_at is None or event.created_at > item.last_seen_at:
+            item.last_seen_at = event.created_at
+    return sorted(stats.values(), key=lambda item: (-item.count, item.key))[:limit]
 
 
 def _parse_threshold_overrides(raw: str | None, *, as_float: bool = False) -> dict[str, float]:
@@ -494,9 +568,16 @@ def _build_recommended_actions(
     if SecurityOpsAlertType.PRIVATE_RUNTIME_ERROR_BASELINE_DRIFT in alert_types:
         actions.append("Investigate private runtime stability drift and trigger dependency failover checks.")
     if SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_SPIKE in alert_types:
-        actions.append("Review rejected settlement transitions by path/actor and investigate workflow misuse.")
+        actions.append(
+            "Review rejected settlement state-machine transitions by path/actor and investigate workflow misuse."
+        )
     if SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_RATE in alert_types:
         actions.append("Enable emergency brake controls and investigate irreversibility guard violations immediately.")
+    if SecurityOpsAlertType.SETTLEMENT_TRANSITION_CHAIN_GATE_SPIKE in alert_types:
+        actions.append(
+            "Investigate stuck settlements whose on-chain leg keeps failing (sepolia RPC / escrow binding / "
+            "operator allowance); funds did not move and autosettle retries every tick."
+        )
     if SecurityOpsAlertType.PRIVILEGED_ACTION_SPIKE in alert_types:
         actions.append(
             "Investigate arbitrator/admin-control action spike: rotate affected session credentials "
@@ -543,16 +624,44 @@ def build_security_ops_alert_report(
     arbitrator_action_count = counts.get(SecurityMonitoringEventType.ARBITRATOR_ACTION.value, 0)
     admin_control_action_count = counts.get(SecurityMonitoringEventType.ADMIN_CONTROL_ACTION.value, 0)
     privileged_action_count = arbitrator_action_count + admin_control_action_count
-    settlement_transition_denied_count = sum(
-        1
+    settlement_audits = [
+        event
         for event in events
         if event.event_type == SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT
-        and not bool(event.metadata.get("transition_allowed", True))
+    ]
+    state_machine_denials = [
+        event
+        for event in settlement_audits
+        if _transition_denied(event) and _denial_class_of(event) == DENIAL_CLASS_STATE_MACHINE
+    ]
+    chain_gate_denials = [
+        event
+        for event in settlement_audits
+        if _transition_denied(event) and _denial_class_of(event) == DENIAL_CLASS_CHAIN_GATE
+    ]
+    settlement_transition_denied_count = len(state_machine_denials)
+    # 分母 = 「真的走到状态机闸门前的迁移」：放行的 + 被状态机拒的。链上腿失败的那批
+    # 不在这里 —— 它们的拒绝由 chain-gate 告警单独报，混进来只会把分母用重试刷大、
+    # 把真攻击稀释掉。
+    settlement_transition_guard_evaluations = (
+        sum(1 for event in settlement_audits if not _transition_denied(event))
+        + settlement_transition_denied_count
     )
     settlement_transition_denied_rate = (
-        float(settlement_transition_denied_count) / float(settlement_transition_total_count)
-        if settlement_transition_total_count > 0
+        float(settlement_transition_denied_count) / float(settlement_transition_guard_evaluations)
+        if settlement_transition_guard_evaluations > 0
         else 0.0
+    )
+    # 链上腿失败按「单子」去重：同一单被 autosettle 重试 20 次是一条故障，不是 20 条。
+    settlement_transition_chain_gate_denied_count = len(
+        {
+            str(event.metadata.get("task_id") or event.metadata.get("settlement_id") or event.event_id)
+            for event in chain_gate_denials
+        }
+    )
+    # 自动刹车要判断「这批证据是不是比人工清闸还新」——没有时间戳就没法判，所以带上。
+    latest_state_machine_denied_at = (
+        max(event.created_at for event in state_machine_denials) if state_machine_denials else None
     )
     private_runtime_error_rate = (
         float(private_runtime_error_count) / float(verify_request_count)
@@ -619,26 +728,31 @@ def build_security_ops_alert_report(
         metadata_key="route_group",
         default_key="other",
     )
+    # 这几个维度服务的是「状态机拒绝」那两条告警，所以口径必须和它一致（只数
+    # state_machine）。链上腿失败另有一条 by_path 维度，见下面 chain-gate 那段。
     settlement_transition_denied_by_path_counter = _dimension_counter_with_filter(
         events=events,
         event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
         metadata_key="path",
         default_key="unknown",
-        predicate=lambda event: not bool(event.metadata.get("transition_allowed", True)),
+        predicate=lambda event: _transition_denied(event)
+        and _denial_class_of(event) == DENIAL_CLASS_STATE_MACHINE,
     )
     settlement_transition_denied_by_actor_counter = _dimension_counter_with_filter(
         events=events,
         event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
         metadata_key="actor_id",
         default_key="anonymous",
-        predicate=lambda event: not bool(event.metadata.get("transition_allowed", True)),
+        predicate=lambda event: _transition_denied(event)
+        and _denial_class_of(event) == DENIAL_CLASS_STATE_MACHINE,
     )
     settlement_transition_denied_by_guard_stage_counter = _dimension_counter_with_filter(
         events=events,
         event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
         metadata_key="guard_stage",
         default_key="route",
-        predicate=lambda event: not bool(event.metadata.get("transition_allowed", True)),
+        predicate=lambda event: _transition_denied(event)
+        and _denial_class_of(event) == DENIAL_CLASS_STATE_MACHINE,
     )
 
     baseline = _compute_baseline_reference(
@@ -856,19 +970,48 @@ def build_security_ops_alert_report(
                 )
             )
 
+    latest_state_machine_denied_iso = (
+        latest_state_machine_denied_at.isoformat() if latest_state_machine_denied_at else None
+    )
+
     if settlement_transition_denied_count >= settlement_transition_denied_threshold:
         candidate_alerts.append(
             SecurityOpsAlert(
                 severity=SecurityOpsAlertSeverity.HIGH,
                 alert_type=SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_SPIKE,
                 message=(
-                    "settlement transition guard rejects spiked to "
+                    "settlement state-machine guard rejects spiked to "
                     f"{settlement_transition_denied_count} within {window_minutes}m"
                 ),
                 metadata={
                     "settlement_transition_denied_count": settlement_transition_denied_count,
                     "settlement_transition_total_count": settlement_transition_total_count,
                     "settlement_transition_denied_rate": round(settlement_transition_denied_rate, 4),
+                    "denial_class": DENIAL_CLASS_STATE_MACHINE,
+                    "latest_denied_at": latest_state_machine_denied_iso,
+                    "threshold": settlement_transition_denied_threshold,
+                    "window_minutes": window_minutes,
+                },
+            )
+        )
+
+    # 链上腿失败是**另一类**信号：迁移合法、钱一分没动、autosettle 会一直重试。
+    # 单独报（HIGH，够进 WATCH 通知），但**不接自动刹车** —— 刹车拦不住链上腿失败
+    # 本身，反倒会把 autosettle 的放款重试和人工恢复一起掐死。
+    if settlement_transition_chain_gate_denied_count >= settlement_transition_denied_threshold:
+        candidate_alerts.append(
+            SecurityOpsAlert(
+                severity=SecurityOpsAlertSeverity.HIGH,
+                alert_type=SecurityOpsAlertType.SETTLEMENT_TRANSITION_CHAIN_GATE_SPIKE,
+                message=(
+                    "settlement chain-gate failures on "
+                    f"{settlement_transition_chain_gate_denied_count} settlement(s) "
+                    f"({len(chain_gate_denials)} retries) within {window_minutes}m "
+                    "— on-chain leg rejected, funds did not move, retries continue"
+                ),
+                metadata={
+                    "settlement_transition_chain_gate_denied_count": settlement_transition_chain_gate_denied_count,
+                    "settlement_transition_chain_gate_event_count": len(chain_gate_denials),
                     "threshold": settlement_transition_denied_threshold,
                     "window_minutes": window_minutes,
                 },
@@ -884,14 +1027,17 @@ def build_security_ops_alert_report(
                 severity=SecurityOpsAlertSeverity.CRITICAL,
                 alert_type=SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_RATE,
                 message=(
-                    "settlement transition reject-rate exceeded threshold: "
-                    f"{settlement_transition_denied_count}/{settlement_transition_total_count} "
+                    "settlement state-machine reject-rate exceeded threshold: "
+                    f"{settlement_transition_denied_count}/{settlement_transition_guard_evaluations} "
                     f"({settlement_transition_denied_rate:.2%}) in {window_minutes}m"
                 ),
                 metadata={
                     "settlement_transition_denied_count": settlement_transition_denied_count,
                     "settlement_transition_total_count": settlement_transition_total_count,
+                    "settlement_transition_guard_evaluations": settlement_transition_guard_evaluations,
                     "settlement_transition_denied_rate": round(settlement_transition_denied_rate, 4),
+                    "denial_class": DENIAL_CLASS_STATE_MACHINE,
+                    "latest_denied_at": latest_state_machine_denied_iso,
                     "threshold": settlement_transition_denied_rate_threshold,
                     "min_requests": settlement_transition_min_requests,
                     "window_minutes": window_minutes,
@@ -1135,12 +1281,17 @@ def build_security_ops_alert_report(
             settlement_transition_total_count=settlement_transition_total_count,
             settlement_transition_denied_count=settlement_transition_denied_count,
             settlement_transition_denied_rate=settlement_transition_denied_rate,
+            settlement_transition_chain_gate_denied_count=settlement_transition_chain_gate_denied_count,
+            settlement_transition_denied_by_class=_denial_class_dimension_counts(
+                events=settlement_audits,
+                limit=dimension_limit,
+            ),
             settlement_transition_denied_by_path=_top_dimension_counts(
                 events=[
                     event
-                    for event in events
-                    if event.event_type == SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT
-                    and not bool(event.metadata.get("transition_allowed", True))
+                    for event in settlement_audits
+                    if _transition_denied(event)
+                    and _denial_class_of(event) == DENIAL_CLASS_STATE_MACHINE
                 ],
                 event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
                 metadata_key="path",
@@ -1150,9 +1301,9 @@ def build_security_ops_alert_report(
             settlement_transition_denied_by_actor=_top_dimension_counts(
                 events=[
                     event
-                    for event in events
-                    if event.event_type == SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT
-                    and not bool(event.metadata.get("transition_allowed", True))
+                    for event in settlement_audits
+                    if _transition_denied(event)
+                    and _denial_class_of(event) == DENIAL_CLASS_STATE_MACHINE
                 ],
                 event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
                 metadata_key="actor_id",
@@ -1162,9 +1313,9 @@ def build_security_ops_alert_report(
             settlement_transition_denied_by_guard_stage=_top_dimension_counts(
                 events=[
                     event
-                    for event in events
-                    if event.event_type == SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT
-                    and not bool(event.metadata.get("transition_allowed", True))
+                    for event in settlement_audits
+                    if _transition_denied(event)
+                    and _denial_class_of(event) == DENIAL_CLASS_STATE_MACHINE
                 ],
                 event_type=SecurityMonitoringEventType.SETTLEMENT_TRANSITION_AUDIT,
                 metadata_key="guard_stage",
