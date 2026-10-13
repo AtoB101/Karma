@@ -327,3 +327,46 @@ SUMMARY|total=22 fail=0
 - 未在主网做任何资金操作；全部在测试网。
 - 顺带记一个运维坑：卖方 API key 写进容器环境后**必须 `docker restart karma-api`**
   才生效，否则卖方侧调用（如 `/v1/standards/important-fields/encrypt`）会直接 **401**。
+
+## 11. 完整交易闭环 —— 钱真的动了（2026-10-13，沿用此前测试钱包）
+
+§10 走到 `disputed`；本节把**同一对测试钱包**一路推到 `settled`，并断言链上 mUSDC
+真的从买方钱包划到卖方钱包（不是账本口径，是钱包余额）。
+
+### 11.1 这笔交易
+
+| 项 | 值 |
+| --- | --- |
+| 买卖双方 | 买方 `kid_t23b_8d65f4e9e4a9`（钱包 `0x3295c96a…D75f51`）/ 卖方 `agent-7dcd64b12c9d`（owner `kid_b576a3a6a97996ea3230ffc0`，钱包 `0x16fE563a…5Dd7F`）|
+| 订单 | `task 6deadd1e-339b-4a86-afe3-4b25fed36228`，`voucher 933cf969-4929-44a8-be8b-7a778a617ddb`，1.0 USDC |
+| 结算单 | `settlement b453d971-f396-47df-94c2-5653fce7b01a`，`settlement_mode=escrow_allowance`，合约 `0x65eb…b6F2` |
+| 托管绑定 | `escrow_bindings#312`：买方 bill `:12` / 卖方 bill `:2`，`amount=1`、`stake=0.3`，`state=settled` |
+| 开窗 tx | `0x90460b36a09cb401158abed2082fed563bcf92347b1169d9b2e0781396f8da95`（block 11903206，status=1）|
+| **放款 tx** | `0x25fea96e416005f9c2bb1fea4136dd2354947bc51b7edda773ebff356793b9f4`（block 11903213，status=1）|
+| 状态机 | `draft → pending → accepted → in_progress → delivered → settled` |
+| **链上余额** | 买方 `368.2750 → 367.2750`（**−1.0000**）；卖方 `636.7250 → 637.7250`（**+1.0000**）|
+
+`settlements.tx_hash` 记的是**放款那笔** `0x25fea96e…`（不是开窗那笔）—— 与
+`escrow_settlement._reflect` 里那道闸一致。
+
+### 11.2 这一节踩出来的三个真问题
+
+1. **卖方必须有一把自己名下的 Runtime Key。** agent API key 换不了 —— `/runtime/*` 只认
+   `X-Karma-Runtime-Key`，且 `submit_delivery` 要求 `ctx.karma_identity_id == worker_agent_id`。
+   给卖方铸 key 的路是通的（种子 automation policy → owner 钱包签 `create-key` →
+   `bind-key` → `confirm-bind-key`），但它**不是**「agent 接进来就自动有」的状态。
+2. **`api.generic` 这类 task_type 的回执必须带 matching extension**
+   （`kind=api`：`request_hash` / `response_hash` / `http_status_code` / `latency_ms`），
+   否则 `/runtime/submit-receipt` 直接 400；而没有成功执行回执，`buyer_accept` 会 409
+   「at least one successful execution receipt is required before releasing funds to the seller」。
+3. **auto brake 会自我加固、清不掉（关键）**：`runtime_safety_mode` 自 2026-10-03 起
+   `pause_new_task/…/pause_new_settlement` 全开，起因是「settlement transition denied rate
+   critical alert」。但刹车开启期间产生的大量拒绝（`settlement_auto_confirm_held …
+   blocked operation 'new_settlement'`）**同样被记进那个拒绝率**，于是 02:43 人工清零 →
+   02:45 立刻自动跳回。要跑完这一笔，只能在清闸后的窗口里立刻把确认做完。
+
+### 11.3 本节**没有**声称的
+
+- 只在测试网；主网未动。
+- 人工清闸（走 `/v1/admin/controls/pauses`，安全事件已留痕）是为了跑通这一笔，属**运维动作**，
+  不是代码修复 —— 上面的问题 3 依然存在。
