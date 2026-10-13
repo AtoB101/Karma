@@ -1348,6 +1348,38 @@ def _resolve_actor_id(request: Request) -> str | None:
     return resolve_agent_id_from_request(request)
 
 
+async def _fill_in_deferred_bind_for_cancel(db: AsyncSession, state: SettlementState) -> None:
+    """取消这条出口的补绑：**自成交的空头单**跳过，其余照旧。
+
+    自成交的单永远绑不上 —— 链上 ``SameOwner()`` 只看钱包地址，是决定性的，不是抖动。
+    原来的 ``_fill_in_deferred_bind`` 对它只会 409，把「取消」这条唯一不碰钱的出口也堵死：
+    线上那条脏单（settlement 97f0dc0e，2026-10-13）就是这么永久停在 ``in_progress`` 的。
+    它从未绑过、钱一分没动，取消本来就不需要 binding —— 跳过补绑，让状态机走到
+    ``cancel_for_task``（对本单返回 ``unbound``，链上一笔都不发）。
+
+    只在 ``pending_bind`` 上判：已经绑成的单走不到这里（接单那一刻自成交闸就把 bind 挡了），
+    所以这里判到的只会是脏数据。
+    """
+    from services.chain import escrow_settlement
+
+    if (
+        (getattr(state, "onchain_status", None) or "").strip().lower()
+        == escrow_settlement.PENDING_BIND
+    ):
+        hit = await escrow_settlement.detect_self_dealing(
+            db,
+            buyer_identity_id=state.client_agent_id,
+            seller_identity_id=state.worker_agent_id,
+        )
+        if hit is not None:
+            logger.warning(
+                "escrow_settlement_cancel_self_deal_unbound",
+                extra={"task_id": state.task_id, "reason": hit[0]},
+            )
+            return
+    await escrow_settlement.materialize_pending_bind(db, task_id=state.task_id)
+
+
 async def _sync_escrow_settlement(
     *,
     db: AsyncSession,
@@ -1423,7 +1455,9 @@ async def _sync_escrow_settlement(
             await _fill_in_deferred_bind()
             await escrow_settlement.slash_for_task(db, task_id=state.task_id)
         elif status == TaskStatus.CANCELLED:
-            await _fill_in_deferred_bind()
+            # 自成交的空头单跳过补绑（详见 _fill_in_deferred_bind_for_cancel）：它永远
+            # 绑不上，取消是唯一不需要 binding 的出口，别让补绑把它一起堵死。
+            await _fill_in_deferred_bind_for_cancel(db, state)
             await escrow_settlement.cancel_for_task(db, task_id=state.task_id)
     except escrow_settlement.EscrowSettlementError as exc:
         logger.warning(
