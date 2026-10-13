@@ -89,8 +89,9 @@ return —— 于是**稳定产出匿名 401**，直到用户手动重连或关�
     否则会把单来源轮询误报成分布式攻击）；
   * 全局 `AUTH_FAILURE_SPIKE` 告警的 message 带上 `from N source(s)`，metadata 带
     `distinct_source_count` 与 `top_sources`；
-  * `recommended_actions` 分叉：**单来源** → 「先查是不是过期会话在轮询，再考虑轮换密钥」；
-    多来源 → 「轮换密钥 + 查 top 来源」；
+  * `recommended_actions` **三分**：恰好**一个**来源 → 「先查是不是过期会话在轮询，再考虑轮换
+    密钥」；**两个及以上** → 「轮换密钥 + 查 top 来源」；**0 个来源**（升级前写下的老事件没有
+    `client_ip`）→ 老实说「分不清是单来源轮询还是分布式」，不硬给方向；
   * `SecurityOpsSummary.failed_auth_by_source`（`core/schemas.py` 同步加字段）。
 
 没有调低任何阈值，没有关掉任何检测 —— 检测照旧，只是从「一个数」变成「能分辨性质的数」。
@@ -114,6 +115,10 @@ return —— 于是**稳定产出匿名 401**，直到用户手动重连或关�
 * 多来源 → `distinct_source_count == 6`，建议文案含「rotate」；
 * **没有 `client_ip` 的老事件** → `distinct_source_count == 0`、`top_sources == []`
   （不把 unknown 当一个来源）。
+
+`tests/unit/test_console_session_expiry_polling.py` 新增 2 例：钉死
+`karma-session-expired` → `stopAuto()`、`karma-wallet-connected`/`karma-session-restored`
+→ 恢复 `startAuto(`。
 
 ## 5. 这一轮**没有**做的
 
