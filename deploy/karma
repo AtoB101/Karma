@@ -373,6 +373,48 @@ has_alembic_version() {
     2>/dev/null | grep -q 1
 }
 
+# alembic 自建版本表时把 version_num 定成 VARCHAR(32)，而本仓库的 revision id 比这长
+# （当前的 head 就有 35 个字符，最长的一支 47）。0050 起每个迁移都「顺带」把那列放宽
+# 一次，但**那句 ALTER 只在真的跑过迁移的库上才生效**：表结构由 create_all 建、迁移
+# 历史靠 `karma db-baseline` 盖章出来的库从没执行过它。2026-10-13 沙箱库
+# karma_testnet 实测就是这个下场 ——
+#     UPDATE alembic_version SET version_num='0065_runtime_safety_manual_override'
+#     -> StringDataRightTruncation: value too long for type character varying(32)
+# 表全建完、整个迁移事务回滚，`alembic current` 还停在 0064，看上去像「迁移写坏了」，
+# 而且这个库之后**永远**迁不动（每次都在同一步失败）。列宽换不来任何东西，所以在跑
+# 迁移/盖章**之前**统一先放宽一次。已经 255 的库（线上就是）再跑是空操作。
+alembic_version_width() {
+  docker exec karma-postgres psql -U "${POSTGRES_USER:-karma}" -d "${POSTGRES_DB:-karma}" -tAc \
+    "select character_maximum_length from information_schema.columns where table_schema='public' and table_name='alembic_version' and column_name='version_num'" \
+    2>/dev/null | tr -d '[:space:]'
+}
+
+ensure_alembic_version_width() {
+  local width
+  width="$(alembic_version_width)"
+  case "$width" in
+    "")     # 版本表还不存在：自己按 255 建出来，别让 alembic 建出 32 的那个
+      if docker exec karma-postgres psql -U "${POSTGRES_USER:-karma}" -d "${POSTGRES_DB:-karma}" -tAc \
+          "create table if not exists alembic_version (version_num varchar(255) not null, constraint alembic_version_pkc primary key (version_num))" \
+          > /dev/null 2>&1; then
+        warn "  created alembic_version.version_num at VARCHAR(255) (alembic's own default is 32, too short for this repo)"
+      else
+        warn "  could not create alembic_version; a revision id longer than 32 will fail to stamp"
+      fi
+      return 0
+      ;;
+    *[!0-9]*) return 0 ;;   # 拿不到宽度（不是 Postgres？）：别硬来
+  esac
+  [ "$width" -lt 255 ] || return 0
+  if docker exec karma-postgres psql -U "${POSTGRES_USER:-karma}" -d "${POSTGRES_DB:-karma}" -tAc \
+      "alter table alembic_version alter column version_num type varchar(255)" > /dev/null 2>&1; then
+    warn "  widened alembic_version.version_num ${width} -> 255 (this repo's revision ids are longer)"
+  else
+    warn "  could not widen alembic_version.version_num (still ${width}); a revision id longer than that will fail"
+  fi
+  return 0
+}
+
 cmd_db_baseline() {
   # 只写版本表，不动数据、不动表结构。给「表结构是 create_all 建的、从没跑过 alembic」
   # 的库用一次：声明现状等于哪个 revision，之后 alembic 只跑更新的迁移。
@@ -384,6 +426,8 @@ cmd_db_baseline() {
   need_repo
   hdr "Baseline the migration version table at $rev"
   warn "  This writes the alembic version row only; no data or schema is touched."
+  # 版本表本身得先存在且够宽：alembic stamp 会自己建表，但用的是它默认的 VARCHAR(32)。
+  ensure_alembic_version_width
   compose run --rm --no-deps -w /app app alembic stamp "$rev" || return 1
   compose run --rm --no-deps -w /app app alembic current 2>/dev/null | sed 's/^/  now at: /'
   return 0
@@ -419,6 +463,8 @@ cmd_migrate() {
     err "  然后重跑 karma migrate / karma deploy。"
     return 1
   fi
+  # 版本列宽先摆正，否则「表都建完、写版本号那一下才炸」并回滚（见上面 ensure_* 的注释）。
+  ensure_alembic_version_width
   compose run --rm --no-deps -w /app app alembic upgrade head || {
     err "  migration failed — nothing else was changed; the running container is untouched"
     return 1

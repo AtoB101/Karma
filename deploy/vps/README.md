@@ -59,6 +59,12 @@ karma migrate                              # 之后只跑更新的迁移
 
 `karma migrate` 检测到没有版本表时会直接停下来并打印这两行，不会硬跑。
 
+跑 `karma migrate` / `karma db-baseline` 之前会先把 `alembic_version.version_num` 放宽到
+`VARCHAR(255)`：alembic 自己建这张表时用的是 `VARCHAR(32)`，而本仓库的 revision id 比这长，
+写版本号那一下会抛 `StringDataRightTruncation` —— 表全建完、事务回滚，看上去像「迁移写坏了」，
+而且这个库之后永远迁不动。基线（`db-baseline`）出来的库从没跑过 0050 里那句 ALTER，所以这一步
+不能只留在迁移里（2026-10-13 沙箱库 `karma_testnet` 实测）。已经够宽的库不会出声。
+
 迁移跑在 app 容器里，因为 `alembic.ini` 里的 URL 是占位值，真实 URL 由
 `db/migrations/env.py` 从 `.env` 读（容器网络里数据库主机名是 `postgres`）。
 迁移失败时脚本直接中止，不会重建容器 —— 线上仍跑旧代码，不会半新半旧。
