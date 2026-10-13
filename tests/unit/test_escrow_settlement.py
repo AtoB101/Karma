@@ -31,11 +31,18 @@ BUYER = "kid_buyer"
 SELLER = "kid_seller"
 
 
-def bill(bill_id: str, identity_id: str, amount: float, *, state: str = "open") -> AllowanceCommitModel:
+def bill(
+    bill_id: str,
+    identity_id: str,
+    amount: float,
+    *,
+    state: str = "open",
+    wallet_address: str | None = None,
+) -> AllowanceCommitModel:
     return AllowanceCommitModel(
         bill_id=bill_id,
         identity_id=identity_id,
-        wallet_address="0x" + bill_id.rjust(40, "0"),
+        wallet_address=wallet_address or ("0x" + bill_id.rjust(40, "0")),
         chain_id=11155111,
         contract_address="0x" + "11" * 20,
         token_address="0x" + "22" * 20,
@@ -1310,6 +1317,34 @@ async def test_release_preflight_is_a_noop_without_escrow(db_session, monkeypatc
     await db_session.commit()
 
     await bridge.assert_release_preflight(db_session, task_id=TASK)
+
+
+@pytest.mark.asyncio
+async def test_two_identities_sharing_one_wallet_are_refused_before_a_chain_call(
+    db_session, chain
+):
+    """合约 ``SameOwner()`` 比的是账单主人的**钱包地址**，不是身份 id。
+
+    2026-10-13 线上那条一直重试的单就是这个形状：买方身份与卖方身份是**两个 id**，
+    可两边账单的 ``wallet_address`` 是同一个 —— 只比身份比不出来，链上白付一笔 gas。
+    """
+    bridge, calls = chain
+    shared = "0x" + "ab" * 20
+    arm(BUYER, [bill("20", BUYER, 40.0, wallet_address=shared)])
+    arm(SELLER, [bill("21", SELLER, 20.0, wallet_address=shared)])
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.bind_for_task(
+            db_session,
+            task_id=TASK,
+            buyer_identity_id=BUYER,
+            seller_identity_id=SELLER,
+            amount_usdc=30.0,
+        )
+
+    assert exc.value.status == 409
+    assert "同一个钱包" in exc.value.message
+    assert calls["bind"] == []
 
 
 @pytest.mark.asyncio

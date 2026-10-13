@@ -65,7 +65,7 @@ escrow binding 状态 —— 是**这一单一条成功执行回执都没有**�
 |---|---|---|
 | F1 | 新增 `assert_release_preflight`：把「交付验证 + 成功执行回执」这两条**与状态无关**的前置条件提到推状态机**之前**。自动放款的路上，**没有回执的单子连 `AUTO_CONFIRMED` 都不进** —— 进得去、出不来。同时那条拒绝不再冒充链上腿失败 | `services/chain/escrow_settlement.py`、`api/routes/settlement.py` |
 | F2 | 收尾缺口：`stranded_bindings` 开始认**退回来的** `auto_confirmed`（要放满 `STRANDED_AUTO_CONFIRM_GRACE_SECONDS=600s` —— 它可能只是自动放款路上的一瞬间），`reap_stranded` 对它走 `cancelBinding`（解预留、钱一步没动） | `services/chain/escrow_autosettle.py` |
-| F3 | 自成交闸：`bind_for_task` 在发交易**之前**判「买卖双方解析到同一个钱包主身份」，判不过就 409 说清原因 —— 合约里那是 `SameOwner()`，一次都不会成 | `services/chain/escrow_settlement.py` |
+| F3 | 自成交闸（两层）：`bind_for_task` 先判「买卖双方解析到同一个主身份」，再在挑出账单之后判「**两张账单挂在同一个钱包地址**」—— 判不过就 409 说清原因，链上一笔不发 | `services/chain/escrow_settlement.py` |
 | F4 | `bind_due` 对永久性错误（自成交）改成长退避（1h）＋**同一原因只报一次**：过去每 ~2 分钟刷一条 `escrow_autosettle_bind_failed` | `services/chain/escrow_autosettle.py` |
 | F5 | 链上腿失败告警文案不再声称「retries continue」：实际是**业务状态已退回、钱没动**，重试与否取决于是哪一类失败 | `services/security_monitoring.py` |
 
@@ -82,6 +82,7 @@ escrow binding 状态 —— 是**这一单一条成功执行回执都没有**�
   * `test_escrow_settlement.py::test_release_preflight_blocks_a_payout_with_no_receipt`
   * `test_escrow_settlement.py::test_release_preflight_is_a_noop_without_escrow`
   * `test_escrow_settlement.py::test_self_dealing_is_refused_before_any_chain_call`
+  * `test_escrow_settlement.py::test_two_identities_sharing_one_wallet_are_refused_before_a_chain_call`
   * `test_escrow_stranded_reap.py::test_a_reverted_auto_confirm_stops_holding_the_buyers_allowance`
   * `test_escrow_stranded_reap.py::test_a_fresh_auto_confirm_is_left_alone`
   * `test_escrow_autosettle.py::test_a_self_dealing_bind_backs_off_hard_and_says_it_once`
@@ -102,6 +103,28 @@ escrow binding 状态 —— 是**这一单一条成功执行回执都没有**�
 # 3) 买方账单的 reserved 回落
 # 4) 告警口径：settlement_transition_chain_gate_spike 不再增长（不会再有新的假链上腿失败）
 ```
+
+## 5b. 部署后补挖出来的一个洞（同一轮修掉）
+
+F3 第一版只比**身份**（`resolve_party_identity` 的结果）。部署到测试网后，那条一直重试的
+单仍然撞了一次链，日志里的错误是合约原话 `SameOwner()` —— 说明它**没被拦住**。
+
+拿数据一看就明白了：
+
+```
+ settlement 97f0dc0e…  client=kid_t23b_8d65f4e9e4a9  worker=agent-3610b5c97bb5
+ agent-3610b5c97bb5.owner_identity_id = kid_2b8b6dfca420c96a1409b8fd
+ 买方账单 0x65eb…:12 → wallet 0x3295c96a2993c366b3db27b6ac81f85801d75f51
+ 卖方账单 1          → wallet 0x3295c96a2993c366b3db27b6ac81f85801d75f51
+```
+
+**两个身份 id，同一把钱包**。合约比的是 `bill.owner`（钱包地址），不是身份 id —— 只比身份
+比不出来。补上第二层：挑出账单之后比 `wallet_address`，一样就 409。这一层不依赖身份解析，
+正是线上那个形状。
+
+（F4 的长退避 + 只报一次已经把这条单的症状压住了：部署后 40 分钟里只有 **1 条**
+`escrow_autosettle_bind_failed`，`permanent=True retry_in_seconds=3600.0`，不再是每 2 分钟一条。
+但「一小时白烧一笔 operator 的 gas」这个洞是第二层闸补上的。）
 
 ## 6. 本轮**没有**做的
 

@@ -777,6 +777,49 @@ async def resolve_party_identity(db: AsyncSession, party_id: str | None) -> str:
     return owner or resolved
 
 
+async def _bill_wallet_address(
+    db: AsyncSession, *, identity_id: str, bill_id: str
+) -> str | None:
+    """这张账单挂在哪个钱包上 —— ``bind`` 比的是它，不是身份 id。"""
+    for row in await escrow.list_commits(db, identity_id):
+        if str(row.bill_id) == str(bill_id):
+            wallet = (getattr(row, "wallet_address", "") or "").strip().lower()
+            if wallet:
+                return wallet
+    return None
+
+
+async def _assert_distinct_bill_wallets(
+    db: AsyncSession,
+    *,
+    buyer_owner: str,
+    buyer_bill: str,
+    seller_owner: str,
+    seller_bill: str,
+) -> None:
+    """合约 ``bind`` 里 ``buyerBill.owner == sellerBill.owner`` 直接 revert ``SameOwner()``。
+
+    **比的是账单主人的钱包地址，不是身份 id** —— 两个不同身份完全可能共用一把钱包。
+    2026-10-13 线上那条一直在重试的单就是这个形状：买方身份 ``kid_t23b_…`` 与卖方身份
+    ``kid_2b8b6d…`` 是两个 id，可两边账单的 ``wallet_address`` 都是 ``0x3295c96a…`` ——
+    只比身份比不出来。这里先判、判不过就报一句说得清的话，链上一笔不发。
+    """
+    buyer_wallet = await _bill_wallet_address(db, identity_id=buyer_owner, bill_id=buyer_bill)
+    seller_wallet = await _bill_wallet_address(db, identity_id=seller_owner, bill_id=seller_bill)
+    if buyer_wallet and seller_wallet and buyer_wallet == seller_wallet:
+        logger.warning(
+            "escrow_settlement_same_wallet",
+            buyer_bill=str(buyer_bill),
+            seller_bill=str(seller_bill),
+            wallet=buyer_wallet,
+        )
+        raise EscrowSettlementError(
+            409,
+            f"买方和卖方是同一个钱包（{buyer_wallet}）：合约不允许自成交（SameOwner()），"
+            "这一单不会进链 —— 给卖方换一个独立钱包身份，或者取消这一单。",
+        )
+
+
 async def bind_for_task(
     db: AsyncSession,
     *,
@@ -822,6 +865,13 @@ async def bind_for_task(
         )
     buyer_bill = await _pick_bill(db, identity_id=buyer_owner, role="付款方", need_usdc=amount)
     seller_bill = await _pick_bill(db, identity_id=seller_owner, role="提供方", need_usdc=stake)
+    await _assert_distinct_bill_wallets(
+        db,
+        buyer_owner=buyer_owner,
+        buyer_bill=buyer_bill,
+        seller_owner=seller_owner,
+        seller_bill=seller_bill,
+    )
 
     # 新单一律开在当前合约上（``_pick_bill`` 已经保证挑出来的账单属于它）。
     # 记下这一条，之后所有链上动作都打向**它自己那台**合约，升级换地址也不会
