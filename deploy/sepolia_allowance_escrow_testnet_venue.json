@@ -1,0 +1,21 @@
+{
+  "contract": "KarmaAllowanceEscrow",
+  "venue": "testnet",
+  "note": "testnet 场地的独立托管合约（与 prod 的 0x65eb… 完全分开，场地隔离）",
+  "network": "sepolia",
+  "chainId": 11155111,
+  "address": "0x2C9911F58CfDb5f097926c4aC104108f4f49743b",
+  "deployTx": "0bcc871e311998be6d5e7f3287f556379b57044f7fa3c1398ad20ab5578c22b0",
+  "setTokenAllowedTx": "3cf3d27c7750317a87378b0747fe91500ab713e851b6992fd4fa3cffcfce1475",
+  "deployedAt": "2026-10-14",
+  "admin": "0x1D147c9eefd9D1d4C4725700a05EDc6ca13975Cc",
+  "disputeResolver": "0x1D147c9eefd9D1d4C4725700a05EDc6ca13975Cc",
+  "disputeWindowSeconds": 60,
+  "settleDelaySeconds": 0,
+  "token": "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF",
+  "tokenAllowed": true,
+  "bindingVersion": 5,
+  "source": "karma-core/contracts/core/KarmaAllowanceEscrow.sol",
+  "solc": "0.8.28",
+  "prodContractForReference": "0x65eb82058F4ea707B1a0aFb2A5872eb95076b6F2"
+}
