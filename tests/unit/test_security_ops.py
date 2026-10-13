@@ -650,3 +650,104 @@ def test_unwritable_event_journal_degrades_to_memory_only(monkeypatch, tmp_path)
         assert report.summary.failed_auth_count == 1
     finally:
         clear_security_events()
+
+
+# ---------------------------------------------------------------------------
+# 失败来源（client_ip）：一个来源 vs 很多来源 ——「过期会话轮询」和「分布式撞密钥」
+# 的分水岭。2026-10-13 线上实测：单来源轮询一小时能刷 ~250 条匿名 401。
+# ---------------------------------------------------------------------------
+def test_auth_failure_spike_reports_single_source_and_self_heal_hint():
+    clear_security_events()
+    try:
+        for _ in range(6):
+            record_security_event(
+                SecurityMonitoringEventType.FAILED_AUTH,
+                metadata={
+                    "path": "/v1/capacity/kid_x",
+                    "actor_id": "anonymous",
+                    "route_group": "capacity",
+                    "client_ip": "198.51.100.7",
+                },
+            )
+        report = build_security_ops_alert_report(
+            window_minutes=30,
+            failed_auth_threshold=3,
+            dimension_limit=5,
+            alert_cooldown_minutes=0,
+        )
+        global_spikes = [
+            alert
+            for alert in report.alerts
+            if alert.alert_type.value == "auth_failure_spike"
+            and "distinct_source_count" in alert.metadata
+        ]
+        assert global_spikes, "expected the global auth_failure_spike alert"
+        assert global_spikes[0].metadata["distinct_source_count"] == 1
+        assert global_spikes[0].metadata["top_sources"] == ["198.51.100.7"]
+        assert report.summary.failed_auth_by_source[0].key == "198.51.100.7"
+        # 单来源 → 先提示「查是不是过期会话在轮询」，不是「轮换密钥」
+        assert any("expired" in action.lower() for action in report.recommended_actions)
+        assert not any("rotate" in action.lower() for action in report.recommended_actions)
+    finally:
+        clear_security_events()
+
+
+def test_auth_failure_spike_many_sources_recommends_key_rotation():
+    clear_security_events()
+    try:
+        for index in range(6):
+            record_security_event(
+                SecurityMonitoringEventType.FAILED_AUTH,
+                metadata={
+                    "path": "/v1/auth/token",
+                    "actor_id": "anonymous",
+                    "route_group": "auth",
+                    "client_ip": f"203.0.113.{index}",
+                },
+            )
+        report = build_security_ops_alert_report(
+            window_minutes=30,
+            failed_auth_threshold=3,
+            dimension_limit=5,
+            alert_cooldown_minutes=0,
+        )
+        global_spikes = [
+            alert
+            for alert in report.alerts
+            if alert.alert_type.value == "auth_failure_spike"
+            and "distinct_source_count" in alert.metadata
+        ]
+        assert global_spikes, "expected the global auth_failure_spike alert"
+        assert global_spikes[0].metadata["distinct_source_count"] == 6
+        assert any("rotate" in action.lower() for action in report.recommended_actions)
+    finally:
+        clear_security_events()
+
+
+def test_auth_failure_without_client_ip_is_not_counted_as_a_source():
+    # 升级前写下的老事件没有 client_ip：不能把它当成「第 N+1 个来源」，
+    # 否则单来源轮询会被误报成分布式攻击。
+    clear_security_events()
+    try:
+        for _ in range(6):
+            record_security_event(
+                SecurityMonitoringEventType.FAILED_AUTH,
+                metadata={"path": "/v1/capacity/kid_x", "actor_id": "anonymous", "route_group": "capacity"},
+            )
+        report = build_security_ops_alert_report(
+            window_minutes=30,
+            failed_auth_threshold=3,
+            dimension_limit=5,
+            alert_cooldown_minutes=0,
+        )
+        global_spikes = [
+            alert
+            for alert in report.alerts
+            if alert.alert_type.value == "auth_failure_spike"
+            and "distinct_source_count" in alert.metadata
+        ]
+        assert global_spikes
+        assert global_spikes[0].metadata["distinct_source_count"] == 0
+        assert global_spikes[0].metadata["top_sources"] == []
+    finally:
+        clear_security_events()
