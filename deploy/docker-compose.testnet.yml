@@ -11,6 +11,13 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    # 日志证据窗口：默认 json-file 不封顶（磁盘会被吃光），线上给过小（10m x 3 ≈ 2h
+    # 就滚没了，出事回头看什么都没有）。这里显式钉死 50m x 5 ≈ 250MB/容器。
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     environment:
       POSTGRES_USER: karma
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
@@ -28,6 +35,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *logging
     ports:
       - "6379:6379"
     volumes:
@@ -43,6 +51,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.api
     restart: unless-stopped
+    logging: *logging
     ports:
       - "8000:8000"
     env_file:

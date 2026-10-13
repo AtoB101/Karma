@@ -20,6 +20,7 @@ from api.middleware.rate_limit import (
     is_state_transition_write,
     make_rate_limit_dep,
     rate_limit,
+    real_client_ip,
     write_limit_key_for_path,
 )
 from services.security_monitoring import SecurityMonitoringEventType, record_security_event
@@ -315,6 +316,10 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
         api_key=request.headers.get("X-Karma-Api-Key"),
     )
     actor_label = actor_id or "anonymous"
+    # 记下真实客户端 IP（real_client_ip 只在 socket peer 是可信代理时才信转发头，
+    # 伪造不了）。401/429 事件带上它，运维才能一眼分清「一个客户端拿过期会话轮询」
+    # 和「一堆来源在撞密钥」—— 光看计数这两者长得一模一样（2026-10-13 线上实测）。
+    client_ip = real_client_ip(request)
     if _is_sensitive_write(path, method):
         security_audit_logger.info(
             "security_write_audit",
@@ -334,6 +339,7 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
                 "status": response.status_code,
                 "actor_id": actor_label,
                 "route_group": route_group,
+                "client_ip": client_ip,
             },
         )
     if path.startswith("/v1/") and response.status_code == 429:
@@ -345,6 +351,7 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
                 "status": response.status_code,
                 "actor_id": actor_label,
                 "route_group": route_group,
+                "client_ip": client_ip,
             },
         )
     if path == "/v1/verify" and method == "POST":

@@ -556,7 +556,23 @@ def _build_recommended_actions(
     actions: list[str] = []
     alert_types = {alert.alert_type for alert in active_alerts}
     if SecurityOpsAlertType.AUTH_FAILURE_SPIKE in alert_types:
-        actions.append("Rotate affected API keys and investigate top auth-failure actor/path dimensions.")
+        # 来源数是关键：一个来源刷一千次，多半只是有人开着过期会话的页面在轮询；
+        # 很多来源才是「有人在撞」。别把两者说成同一句建议。
+        source_counts = [
+            int(alert.metadata["distinct_source_count"])
+            for alert in active_alerts
+            if alert.alert_type == SecurityOpsAlertType.AUTH_FAILURE_SPIKE
+            and "distinct_source_count" in alert.metadata
+        ]
+        if source_counts and max(source_counts) <= 1:
+            actions.append(
+                "Single source is retrying with a rejected credential — check whether an expired "
+                "console/agent session is still polling (re-auth the session) before rotating keys."
+            )
+        else:
+            actions.append(
+                "Rotate affected API keys and investigate top auth-failure actor/path/source dimensions."
+            )
     if SecurityOpsAlertType.RATE_LIMIT_SPIKE in alert_types:
         actions.append("Apply stricter endpoint-level throttles and block abusive source identities.")
     if SecurityOpsAlertType.PRIVATE_RUNTIME_ERROR_RATE in alert_types:
@@ -692,6 +708,16 @@ def build_security_ops_alert_report(
         metadata_key="route_group",
         default_key="other",
     )
+    # 失败来源维度。升级前写下的老事件没有 client_ip，统一落到 "unknown"，不混进
+    # 真实来源里数。它存在的唯一目的：让 AUTH_FAILURE_SPIKE 能一眼看出「一个来源
+    # 在刷」还是「很多来源在撞」—— 前者多半是过期会话轮询，后者才像攻击
+    # （2026-10-13 实测：单来源轮询一小时能刷 ~250 条匿名 401）。
+    failed_auth_by_source_counter = _dimension_counter(
+        events=events,
+        event_type=SecurityMonitoringEventType.FAILED_AUTH,
+        metadata_key="client_ip",
+        default_key="unknown",
+    )
     rate_limited_by_path_counter = _dimension_counter(
         events=events,
         event_type=SecurityMonitoringEventType.RATE_LIMIT_EXCEEDED,
@@ -762,15 +788,28 @@ def build_security_ops_alert_report(
     candidate_alerts: list[SecurityOpsAlert] = []
 
     if failed_auth_count >= failed_auth_threshold:
+        # 只算「认得的」来源；unknown 不算一个来源，否则会被当成「第 N+1 个来源」，
+        # 把单来源轮询误报成分布式攻击。
+        known_sources = sorted(
+            ((key, count) for key, count in failed_auth_by_source_counter.items() if key != "unknown"),
+            key=lambda item: (-item[1], item[0]),
+        )
+        distinct_source_count = len(known_sources)
+        source_clause = f" from {distinct_source_count} source(s)" if known_sources else ""
         candidate_alerts.append(
             SecurityOpsAlert(
                 severity=SecurityOpsAlertSeverity.HIGH,
                 alert_type=SecurityOpsAlertType.AUTH_FAILURE_SPIKE,
-                message=f"authentication failures spiked to {failed_auth_count} within {window_minutes}m",
+                message=(
+                    f"authentication failures spiked to {failed_auth_count} "
+                    f"within {window_minutes}m{source_clause}"
+                ),
                 metadata={
                     "failed_auth_count": failed_auth_count,
                     "threshold": failed_auth_threshold,
                     "window_minutes": window_minutes,
+                    "distinct_source_count": distinct_source_count,
+                    "top_sources": [key for key, _ in known_sources[:dimension_limit]],
                 },
             )
         )
@@ -1242,6 +1281,13 @@ def build_security_ops_alert_report(
                 metadata_key="route_group",
                 limit=dimension_limit,
                 default_key="other",
+            ),
+            failed_auth_by_source=_top_dimension_counts(
+                events=events,
+                event_type=SecurityMonitoringEventType.FAILED_AUTH,
+                metadata_key="client_ip",
+                limit=dimension_limit,
+                default_key="unknown",
             ),
             rate_limited_by_path=_top_dimension_counts(
                 events=events,

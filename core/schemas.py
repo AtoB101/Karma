@@ -890,6 +890,9 @@ class SecurityOpsSummary(BaseModel):
     failed_auth_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     failed_auth_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     failed_auth_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
+    #: 失败来源（真实客户端 IP）。一个来源 vs 很多来源，是「过期会话轮询」和
+    #: 「分布式撞密钥」的分水岭 —— 2026-10-13 补。
+    failed_auth_by_source: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     rate_limited_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     rate_limited_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     rate_limited_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)

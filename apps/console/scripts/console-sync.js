@@ -457,9 +457,13 @@
     }
   }
 
+  // 会话过期后要能按原来的 root 恢复定时刷新，所以记住上次用的那个。
+  var _autoRoot = null;
+
   function startAuto(root) {
     stopAuto();
     var r = root || document.body;
+    _autoRoot = r;
     var ms = parseInt(r.getAttribute("data-sync-interval-ms") || String(DEFAULT_INTERVAL_MS), 10);
     if (ms < 3000) ms = 3000;
     var cb = el(r, "[data-cfg=auto_sync]") || el(document.body, "[data-cfg=auto_sync]");
@@ -539,10 +543,21 @@
 
   // A wallet just signed in, or a stored session was restored: pull this
   // identity's data straight away instead of waiting for a manual refresh.
+  // 会话重新连上 = 定时刷新也可以恢复了（见下面 karma-session-expired 的反向处理）。
   ["karma-wallet-connected", "karma-session-restored"].forEach(function (name) {
     document.addEventListener(name, function () {
       refreshAll().catch(function () {});
+      startAuto(_autoRoot || document.body);
     });
+  });
+
+  // 会话过期了就别再轮询。以前 markExpired() 只是提示 + 关上入口门禁，令牌并没有被
+  // 清掉，于是 authed 仍为 true、定时器照跑 —— 每 15 秒拿一把废 token 撞一次 401。
+  // 2026-10-13 线上实测：一次会话过期，单个端点一小时能刷出约 250 条匿名 401，把安全
+  // 报表里的 auth_failure_spike 顶成噪声，真有攻击时反而看不出来。这里把定时器停掉，
+  // 等上面那两条「重新连上」的事件再恢复。
+  document.addEventListener("karma-session-expired", function () {
+    stopAuto();
   });
 
   document.addEventListener("DOMContentLoaded", function () {
