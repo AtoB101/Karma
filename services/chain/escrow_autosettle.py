@@ -725,9 +725,30 @@ async def align_disputed_settlements(db: AsyncSession, *, limit: int | None = No
     return healed
 
 
+def _capacity_mirror_due(*, last_at: float | None, now: float, interval_seconds: int) -> bool:
+    """这一轮 tick 要不要做台账自愈。
+
+    自愈每一轮都要按身份读一次链上 ERC-20 授权额（``backing_report`` 里那次
+    同步 ``eth_call``，实测 0.5~1s/身份），是整轮 tick 里最贵的一段，所以单独
+    给一个更慢的节拍（见 ``escrow_autosettle_mirror_interval_seconds``）。
+
+    * ``interval_seconds <= 0`` —— 退回旧行为：每一轮都跑；
+    * ``last_at is None`` —— 从没跑过（进程刚起来，台账最可能和链上不一致）：
+      立刻跑一次。
+    """
+    if interval_seconds <= 0:
+        return True
+    if last_at is None:
+        return True
+    return (now - last_at) >= float(interval_seconds)
+
+
 async def run_forever() -> None:
     """The loop the API process starts when auto-settlement is switched on."""
     interval = max(3, int(settings.escrow_autosettle_interval_seconds))
+    # 台账自愈和主 tick 分频：见 ``escrow_autosettle_mirror_interval_seconds``。
+    mirror_interval = max(0, int(settings.escrow_autosettle_mirror_interval_seconds))
+    _mirror_at: float | None = None
     # 放款那一步在结算路由里（和 POST /auto-confirm 共用同一份实现），这里延迟导入：
     # services 层不在导入期反过来依赖 api 包。
     from api.routes.settlement import auto_confirm_expired_settlements
@@ -784,8 +805,17 @@ async def run_forever() -> None:
                 await _lap("voucher_reaper.restore_leaked")
                 # 台账自愈：v2 承诺必须一直等于链上的可用责任额度，否则用户锁仓
                 # 之后会看到 0 可用额度（付款码 / 任务合同 / agent 请求凭证全被拒）。
-                mirrored = await escrow.reconcile_all_capacity_mirrors(db)
-                await _lap("reconcile_capacity_mirrors")
+                # 这是整轮里最贵的一段（每身份一次链上 eth_call），按上面那个
+                # 更慢的节拍分频：没到点直接跳过，让便宜的步骤照常每 15 秒跑。
+                mirrored: list[dict] = []
+                if _capacity_mirror_due(
+                    last_at=_mirror_at,
+                    now=time.monotonic(),
+                    interval_seconds=mirror_interval,
+                ):
+                    mirrored = await escrow.reconcile_all_capacity_mirrors(db)
+                    _mirror_at = time.monotonic()
+                    await _lap("reconcile_capacity_mirrors")
                 await db.commit()
                 await _lap("commit")
             _slow = sorted(_tick_steps, key=lambda s: s[1], reverse=True)

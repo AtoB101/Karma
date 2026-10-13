@@ -445,6 +445,13 @@ class Settings(BaseSettings):
     escrow_autosettle_enabled: bool = False
     escrow_autosettle_interval_seconds: int = 15
     escrow_autosettle_batch: int = 5
+    # 台账自愈（把 v2 承诺对回链上的可用责任额度）单独走一个更慢的节拍，不跟
+    # 15 秒的主 tick 同频：它每身份要读一次链上 ERC-20 授权额（实测 0.5~1s），
+    # 7 个身份时一轮就是 3.4~7.1s，而主 tick 只隔 15 秒 —— 身份数一多，循环整轮
+    # 就被这一段吃掉，越跑越追不上。自愈只是**兜底**：正常交易在请求路径上
+    # （commit / revoke / 结算放款）已经各自对过一次账。
+    # <= 0 退回旧行为：每一轮 tick 都跑。
+    escrow_autosettle_mirror_interval_seconds: int = 60
 
     # Payee (worker agent wallet on-chain)
     payee_address: str = ""
