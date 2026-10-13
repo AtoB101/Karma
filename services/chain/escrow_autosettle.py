@@ -153,6 +153,25 @@ _REAP_CANCEL_SETTLEMENT_STATES = ("cancelled", "failed", "expired", "auto_confir
 #: 才会推进到 ``settled``。要放满这个余量才当它「卡住了」，否则会去解一条正要放款的绑定。
 STRANDED_AUTO_CONFIRM_GRACE_SECONDS = 600.0
 
+#: 孤儿绑定（同一 task 的兄弟绑定才是「最新那条」）允许**自动**收尾的前提：
+#: 这个 task 的钱**已经有结论**了 —— 要么根本不用动，要么已经在另一条绑定上落定。
+#: 任何「钱还要动」的时刻去撤，都可能把还在等受款人的额度抽走。
+_ORPHAN_CANCEL_SETTLEMENT_STATES = ("cancelled", "failed", "expired")
+#: 结算单说 ``settled`` 时，还要链上那一步真的落定（放款 / 罚没 / 撤销都算）。
+_ORPHAN_CANCEL_SETTLED_ONCHAIN_STATES = ("settled", "slashed", "cancelled")
+
+
+def _orphan_cancel_allowed(status: str | None, onchain_status: str | None) -> bool:
+    """这一个 task 的结算单，够不够格判定「孤儿可以收」。纯函数，好钉。"""
+    s = (status or "").strip().lower()
+    if s in _ORPHAN_CANCEL_SETTLEMENT_STATES:
+        # 没有任何钱要动：这一条绑定的锁定 100% 是一份不会再被用到的占位。
+        return True
+    if s == "settled":
+        # 放款已经在另一条绑定上落定：这一条同样不会再被用到。
+        return (onchain_status or "").strip().lower() in _ORPHAN_CANCEL_SETTLED_ONCHAIN_STATES
+    return False
+
 
 async def stranded_bindings(
     db: AsyncSession, *, now: datetime | None = None, limit: int | None = None
@@ -201,15 +220,15 @@ async def stranded_bindings(
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def _settlement_status(db: AsyncSession, task_id: str | None) -> str | None:
+async def _settlement_row(db: AsyncSession, task_id: str | None) -> SettlementModel | None:
     if not task_id:
         return None
-    row = (
+    return (
         await db.execute(
             select(SettlementModel).where(SettlementModel.task_id == task_id)
         )
     ).scalars().first()
-    return (row.status or "").strip().lower() if row is not None else None
+
 
 
 async def reap_stranded(db: AsyncSession, *, now: datetime | None = None) -> list[dict]:
@@ -233,9 +252,51 @@ async def reap_stranded(db: AsyncSession, *, now: datetime | None = None) -> lis
             )
             await db.commit()
             continue
-        status = await _settlement_status(db, row.task_id)
-        if status is None:
+        settlement = await _settlement_row(db, row.task_id)
+        if settlement is None:
             continue
+        status = (settlement.status or "").strip().lower()
+        # 孤儿绑定：收尾动作（cancel/submit/slash_for_task）按 task 只会碰**最新那条**，
+        # 我手上这条不是 —— 再怎么走 task 作用域的动作都落不到它头上，每轮只留一条
+        # escrow_stranded_reap_noop。这一条只能**按 binding** 收，而且只在「这个 task 的
+        # 钱已经有结论」时才收（见 _orphan_cancel_allowed）。
+        if settings.escrow_orphan_binding_cancel_enabled and _orphan_cancel_allowed(
+            status, settlement.onchain_status
+        ):
+            newest = await escrow_settlement.newest_binding_for_task(db, task_id=row.task_id)
+            if newest is not None and newest.binding_id != row.binding_id:
+                try:
+                    out = await escrow_settlement.cancel_binding_row(
+                        db, row=row, reason="orphan"
+                    )
+                except Exception as exc:  # noqa: BLE001 - 一条解不开不能拖住别的
+                    logger.warning(
+                        "escrow_orphan_binding_cancel_failed",
+                        binding_id=row.binding_id,
+                        task_id=row.task_id,
+                        settlement_status=status,
+                        error=str(exc),
+                    )
+                    await db.commit()
+                    continue
+                freed.append(
+                    {
+                        "binding_id": row.binding_id,
+                        "task_id": row.task_id,
+                        "settlement_status": status,
+                        "orphan": True,
+                        "result": out,
+                    }
+                )
+                logger.info(
+                    "escrow_orphan_binding_reaped",
+                    binding_id=row.binding_id,
+                    task_id=row.task_id,
+                    settlement_status=status,
+                    result_status=(out or {}).get("status"),
+                )
+                await db.commit()
+                continue
         try:
             if status in _REAP_CANCEL_SETTLEMENT_STATES:
                 out = await escrow_settlement.cancel_for_task(db, task_id=row.task_id)

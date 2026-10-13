@@ -94,11 +94,15 @@ def autosettle(monkeypatch):
 def spy(monkeypatch):
     from services.chain import escrow_autosettle as mod
 
-    calls: dict[str, list] = {"cancel": [], "slash": [], "submit": []}
+    calls: dict[str, list] = {"cancel": [], "slash": [], "submit": [], "cancel_row": []}
 
     async def _cancel(db, *, task_id):
         calls["cancel"].append(task_id)
         return {"status": "cancelled"}
+
+    async def _cancel_row(db, *, row, reason=None):
+        calls["cancel_row"].append((row.binding_id, reason))
+        return {"status": "cancelled", "binding_id": row.binding_id}
 
     async def _slash(db, *, task_id):
         calls["slash"].append(task_id)
@@ -111,6 +115,7 @@ def spy(monkeypatch):
     monkeypatch.setattr(mod.escrow_settlement, "cancel_for_task", _cancel)
     monkeypatch.setattr(mod.escrow_settlement, "slash_for_task", _slash)
     monkeypatch.setattr(mod.escrow_settlement, "submit_for_task", _submit)
+    monkeypatch.setattr(mod.escrow_settlement, "cancel_binding_row", _cancel_row)
     return calls
 
 
@@ -374,3 +379,109 @@ async def test_a_fresh_auto_confirm_is_left_alone(db_session, autosettle, spy):
 
     assert await autosettle.reap_stranded(db_session) == []
     assert spy["cancel"] == []
+
+
+# ------------------------- 孤儿绑定：按 binding 收尾（2026-10-14）
+# 一个 task 有多条绑定时，cancel/submit/slash_for_task 只会碰**最新那条**（内部都是
+# _find_binding(task_id)）。老的那条链上还占着买方的授权额，谁也解不开 —— 线上实测
+# task 3327dbc2 / 06797bd4 / 4538ae75 各有一条（92 / 161 / 171），每轮只留一条 noop。
+
+
+def test_the_orphan_gate_only_opens_when_the_money_has_a_conclusion():
+    """够格自动收的前提：这个 task 的钱要么不用动，要么已经在**另一条**绑定上落定。"""
+    from services.chain import escrow_autosettle as mod
+
+    allowed = mod._orphan_cancel_allowed
+    # 没有任何钱要动：直接放行，链上什么状态都收。
+    for s in ("cancelled", "failed", "expired"):
+        assert allowed(s, None) is True
+        assert allowed(s, "bound") is True
+    # settled：链上那一步必须真的落定（放款 / 罚没 / 撤销都算）。
+    for onchain in ("settled", "slashed", "cancelled"):
+        assert allowed("settled", onchain) is True
+    for onchain in ("finalizing", "bound", None):
+        assert allowed("settled", onchain) is False
+    # 钱还要动、或者还没结论：一律不碰。
+    for s in ("in_progress", "delivered", "disputed", "refunded", "auto_confirmed", None):
+        assert allowed(s, "settled") is False
+
+
+@pytest.mark.asyncio
+async def test_an_orphan_binding_is_reaped_by_binding_not_by_task(
+    db_session, autosettle, spy, monkeypatch
+):
+    """同一 task 的兄弟绑定已经 settled：孤儿要按 binding 收掉，而不是每轮 noop。"""
+    monkeypatch.setattr(autosettle.settings, "escrow_orphan_binding_cancel_enabled", True)
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add_all([
+        _binding("92", task_id="task-stranded-orphan", age_seconds=900),
+        _binding("94", task_id="task-stranded-orphan", state="settled", age_seconds=800),
+    ])
+    stl = _settlement("settled", task_id="task-stranded-orphan")
+    stl.onchain_status = "settled"
+    db_session.add(stl)
+    await db_session.commit()
+
+    freed = await autosettle.reap_stranded(db_session)
+
+    assert spy["cancel_row"] == [("92", "orphan")], "孤儿要按 binding 收"
+    assert spy["cancel"] == [] and spy["submit"] == [] and spy["slash"] == []
+    assert [f["binding_id"] for f in freed] == ["92"]
+    assert freed[0]["orphan"] is True
+
+
+@pytest.mark.asyncio
+async def test_an_orphan_is_left_alone_while_the_money_still_has_to_move(
+    db_session, autosettle, spy, monkeypatch
+):
+    """结算单说 settled、链上却还没落定：钱还要动，孤儿不许收（走老路）。"""
+    monkeypatch.setattr(autosettle.settings, "escrow_orphan_binding_cancel_enabled", True)
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add_all([
+        _binding("96", task_id="task-stranded-orphan-pending", age_seconds=900),
+        _binding("97", task_id="task-stranded-orphan-pending", state="finalizing", age_seconds=800),
+    ])
+    stl = _settlement("settled", task_id="task-stranded-orphan-pending")
+    stl.onchain_status = "finalizing"
+    db_session.add(stl)
+    await db_session.commit()
+
+    await autosettle.reap_stranded(db_session)
+
+    assert spy["cancel_row"] == [], "链上还没落定，孤儿不能收"
+    assert spy["submit"] == ["task-stranded-orphan-pending"], "该走的还是老路"
+
+
+@pytest.mark.asyncio
+async def test_the_orphan_sweep_is_off_by_default(db_session, autosettle, spy):
+    """默认关：一个 task 一条绑定的常规世界里，行为与从前一字不差。"""
+    assert autosettle.settings.escrow_orphan_binding_cancel_enabled is False
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add_all([
+        _binding("98", task_id="task-stranded-flag-off", age_seconds=900),
+        _binding("99", task_id="task-stranded-flag-off", state="settled", age_seconds=800),
+    ])
+    db_session.add(_settlement("cancelled", task_id="task-stranded-flag-off"))
+    await db_session.commit()
+
+    await autosettle.reap_stranded(db_session)
+
+    assert spy["cancel_row"] == []
+    assert spy["cancel"] == ["task-stranded-flag-off"]
+
+
+@pytest.mark.asyncio
+async def test_the_newest_binding_still_takes_the_task_scoped_road(
+    db_session, autosettle, spy, monkeypatch
+):
+    """只有一条绑定（它**就是**最新那条）时：走的还是 cancel_for_task，不是孤儿那条路。"""
+    monkeypatch.setattr(autosettle.settings, "escrow_orphan_binding_cancel_enabled", True)
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add(_binding("95", task_id="task-stranded-solo", age_seconds=900))
+    db_session.add(_settlement("cancelled", task_id="task-stranded-solo"))
+    await db_session.commit()
+
+    await autosettle.reap_stranded(db_session)
+
+    assert spy["cancel_row"] == []
+    assert spy["cancel"] == ["task-stranded-solo"]
