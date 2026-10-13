@@ -595,3 +595,60 @@ async def test_due_pulls_run_in_parallel_not_one_block_apart(db_session, monkeyp
     await db_session.execute(delete(EscrowBindingModel))
     await db_session.commit()
 
+
+
+@pytest.mark.asyncio
+async def test_a_self_dealing_bind_backs_off_hard_and_says_it_once(db_session, monkeypatch):
+    """自成交（合约 ``SameOwner()``）不是抖动：长退避 + 同一个原因只报一次。
+
+    2026-10-13 实测：那条单每 ~2 分钟重试一次、每轮刷一条 ``escrow_autosettle_bind_failed``。
+    它等的是人工修数据（给卖方换独立钱包 / 取消这一单），不是下一轮 tick。
+    """
+    await _drop_bind_rows(db_session)
+    db_session.add(pending("task-bind-self"))
+    await db_session.commit()
+
+    calls: list[str] = []
+
+    async def _boom(db, *, task_id):
+        calls.append(task_id)
+        raise RuntimeError("链上锁定失败：买方和卖方是同一个钱包（合约：SameOwner()）")
+
+    monkeypatch.setattr(autosettle.escrow_settlement, "materialize_pending_bind", _boom)
+
+    logged: list[tuple] = []
+
+    class _Recorder:
+        def warning(self, event, **kw):
+            logged.append((event, kw.get("permanent")))
+
+        def info(self, event, **kw):
+            pass
+
+    monkeypatch.setattr(autosettle, "logger", _Recorder())
+
+    autosettle._failed_at.pop("task-bind-self", None)
+    await autosettle.bind_due(db_session)
+    await autosettle.bind_due(db_session)
+    assert calls == ["task-bind-self"], "普通退避期内不该重试"
+    assert "task-bind-self" in autosettle._permanent_failures
+    assert [e for e, _ in logged].count("escrow_autosettle_bind_failed") == 1
+
+    # 越过普通退避期之后仍然不试 —— 它等的是人工修数据。
+    autosettle._failed_at["task-bind-self"] = time.monotonic() - (
+        autosettle.RETRY_BACKOFF_SECONDS + 1
+    )
+    assert await autosettle.bind_due(db_session) == []
+    assert calls == ["task-bind-self"]
+    assert [e for e, _ in logged].count("escrow_autosettle_bind_failed") == 1
+
+    # 真的过了长退避期才会再试一次（数据修好了还能自己接上）。
+    autosettle._failed_at["task-bind-self"] = time.monotonic() - (
+        autosettle.PERMANENT_BIND_BACKOFF_SECONDS + 1
+    )
+    await autosettle.bind_due(db_session)
+    assert calls == ["task-bind-self", "task-bind-self"]
+    assert [e for e, _ in logged].count("escrow_autosettle_bind_failed") == 1
+
+    autosettle._failed_at.pop("task-bind-self", None)
+    await _drop_bind_rows(db_session)

@@ -1007,7 +1007,7 @@ def build_security_ops_alert_report(
                     "settlement chain-gate failures on "
                     f"{settlement_transition_chain_gate_denied_count} settlement(s) "
                     f"({len(chain_gate_denials)} retries) within {window_minutes}m "
-                    "— on-chain leg rejected, funds did not move, retries continue"
+                    "— on-chain leg rejected; business status rolled back, funds did not move"
                 ),
                 metadata={
                     "settlement_transition_chain_gate_denied_count": settlement_transition_chain_gate_denied_count,

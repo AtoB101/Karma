@@ -1080,6 +1080,18 @@ async def _auto_confirm_release(
                 "detail": auto_dec.get("reason_zh"),
             },
         )
+    # 放款的前置条件（交付验证 + 成功执行回执）在**推状态机之前**先查掉。推到
+    # AUTO_CONFIRMED 之后才发现没有回执的话，这个状态没有任何自动流程会再推进它
+    # （auto_confirm_expired_settlements 只扫 DELIVERED），买方被占住的授权额会变成死账；
+    # 而且那条拒绝还会被记成「链上腿失败」，把告警口径和自动刹车一起带偏。
+    # 详见 services/chain/escrow_settlement.assert_release_preflight。
+    from services.chain import escrow_settlement as _escrow_preflight
+
+    if _escrow_preflight.enabled():
+        try:
+            await _escrow_preflight.assert_release_preflight(db, task_id=task_id)
+        except _escrow_preflight.EscrowSettlementError as exc:
+            raise HTTPException(exc.status, exc.message) from exc
     state.arbitration_notes = f"auto-confirmed after {state.confirm_window_hours}h window"
     state.updated_at = now
     state = await _apply_transition(db=db, store=store, state=state,

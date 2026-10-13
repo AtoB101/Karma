@@ -804,6 +804,22 @@ async def bind_for_task(
     # 也会被判成「还没有链上锁仓额度」。
     buyer_owner = await resolve_party_identity(db, buyer_identity_id)
     seller_owner = await resolve_party_identity(db, seller_identity_id)
+    # 自成交闸：合约里 ``bind`` 对 ``buyerBill.owner == sellerBill.owner`` 直接 revert
+    # ``SameOwner()``。不问一句就发交易，等于每隔一个退避周期拿 operator 的 gas 撞同一堵墙
+    # （2026-10-13 实测：那条单一直在重试，日志里每 ~2 分钟一条）。这里先判、判不过就
+    # 报一句说得清的话，链上一笔不发。
+    if buyer_owner and seller_owner and buyer_owner == seller_owner:
+        logger.warning(
+            "escrow_settlement_same_owner",
+            task_id=task_id,
+            buyer_identity_id=buyer_identity_id,
+            seller_identity_id=seller_identity_id,
+        )
+        raise EscrowSettlementError(
+            409,
+            f"买方和卖方解析到同一个钱包主身份（{buyer_owner}）：合约不允许自成交（SameOwner()），"
+            "这一单不会进链 —— 给卖方换一个独立身份/钱包，或者取消这一单。",
+        )
     buyer_bill = await _pick_bill(db, identity_id=buyer_owner, role="付款方", need_usdc=amount)
     seller_bill = await _pick_bill(db, identity_id=seller_owner, role="提供方", need_usdc=stake)
 
@@ -1092,6 +1108,37 @@ async def assert_release_verified(
         db, task_id=task_id, amount_usdc=float(row.escrow_amount or 0.0)
     )
     return row
+
+
+async def _assert_release_preconditions(db: AsyncSession, *, row: SettlementModel) -> None:
+    """放款前与状态无关的那两条前置条件：交付验证 + 成功执行回执。"""
+    _assert_delivery_verified(row)
+    await _assert_success_receipt(
+        db, task_id=row.task_id, amount_usdc=float(row.escrow_amount or 0.0)
+    )
+
+
+async def assert_release_preflight(db: AsyncSession, *, task_id: str) -> None:
+    """先查「这一单到底能不能放款」，再决定要不要推状态机。
+
+    和 :func:`assert_release_verified` 只差一点：这里**不要求** ``status == settled``。
+    状态机那一步得先落库才查得到（``_apply_transition`` 先 commit、再动链），所以要等到
+    ``submit_for_task`` 里才发现「没有成功执行回执」的话，业务状态已经被推到 settled
+    又退回来，审计里平白多出一条 ``guard_stage=chain`` 的拒绝 —— 而那是**前置条件**没过，
+    不是链上腿失败（2026-10-13 线上 19 条假链上失败就是从这里来的，差点把自动刹车拉死）。
+
+    自动放款这条路上，没有回执的单子连 ``AUTO_CONFIRMED`` 都不该进：那个状态没有任何自动
+    流程会再推进它（``auto_confirm_expired_settlements`` 只扫 ``DELIVERED``），进去就等于
+    永久占住买方的授权额。所以在推状态机之前先在这里挡下。
+    """
+    if not enabled():
+        return
+    row = (
+        await db.execute(select(SettlementModel).where(SettlementModel.task_id == task_id))
+    ).scalars().first()
+    if row is None:
+        return
+    await _assert_release_preconditions(db, row=row)
 
 
 def _assert_delivery_verified(row: SettlementModel) -> None:

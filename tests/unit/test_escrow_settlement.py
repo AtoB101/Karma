@@ -1276,3 +1276,59 @@ async def test_deferred_bind_reads_both_sides_in_parallel(db_session, chain, mon
     assert info["status"] == "pending_bind"
     assert peak >= 2, "两侧的链上读取没有并排"
     assert elapsed < 0.55, "两侧仍是一前一后：%.2fs" % elapsed
+
+
+# ------------------------- 放款前置条件要在推状态机之前查（2026-10-13）
+
+@pytest.mark.asyncio
+async def test_release_preflight_blocks_a_payout_with_no_receipt(db_session, monkeypatch):
+    """真调用回执门禁（不 mock escrow）：没有成功执行回执就不许放款。
+
+    这条路的用处是「**先查**」：状态机那一步（AUTO_CONFIRMED → SETTLED）之前就问清楚，
+    免得状态被推上去又退回来，还在审计里留下一条假的 ``guard_stage=chain`` 拒绝。
+    """
+    from services.chain import escrow_settlement as bridge
+
+    monkeypatch.setattr(bridge.escrow, "escrow_enabled", lambda: True)
+    db_session.add(settlement_row(TASK, status="delivered"))
+    await db_session.commit()
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.assert_release_preflight(db_session, task_id=TASK)
+
+    assert exc.value.status == 409
+    assert "成功执行回执" in exc.value.message
+
+
+@pytest.mark.asyncio
+async def test_release_preflight_is_a_noop_without_escrow(db_session, monkeypatch):
+    """托管没启用时这条路整段是空操作 —— 非托管部署不该被回执门禁拦住。"""
+    from services.chain import escrow_settlement as bridge
+
+    monkeypatch.setattr(bridge.escrow, "escrow_enabled", lambda: False)
+    db_session.add(settlement_row(TASK, status="delivered"))
+    await db_session.commit()
+
+    await bridge.assert_release_preflight(db_session, task_id=TASK)
+
+
+@pytest.mark.asyncio
+async def test_self_dealing_is_refused_before_any_chain_call(db_session, chain):
+    """买卖双方解析到同一个钱包主身份：合约会 revert ``SameOwner()``，别再拿 gas 撞。
+
+    2026-10-13 实测那条单一直这么重试。这里钉死：一笔链上交易都不发，报错说得清。
+    """
+    bridge, calls = chain
+
+    with pytest.raises(bridge.EscrowSettlementError) as exc:
+        await bridge.bind_for_task(
+            db_session,
+            task_id=TASK,
+            buyer_identity_id=BUYER,
+            seller_identity_id=BUYER,
+            amount_usdc=30.0,
+        )
+
+    assert exc.value.status == 409
+    assert "自成交" in exc.value.message
+    assert calls["bind"] == []
