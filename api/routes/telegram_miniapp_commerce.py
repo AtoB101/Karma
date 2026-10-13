@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 
+import structlog
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,8 @@ from services.verification_engine import (
     assert_pass_for_settle,
     run_verification,
 )
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -56,6 +59,38 @@ def _require_arbitrator(sess) -> None:
     ]
     if not any(c and c in allow for c in candidates):
         raise HTTPException(403, "dispute resolution requires a whitelisted arbitrator")
+
+
+def _refuse_self_dealing(order) -> None:
+    """自成交绝对禁止：买卖双方是同一把钱包时，MiniApp 这条链一步都不许往下走。
+
+    原来这里只把 ``self_deal`` 记进 ``public_proof``（给 karma8 Mirror 做 GMV 抵扣用），
+    结算照样放行 —— 和链上 ``SameOwner()`` 直接打架：链上根本划不动，业务却把单子
+    标成「已结算」。现在两边口径对齐：直接 409，并留一条可追溯的安全事件。
+    """
+    buyer = (order.buyer_wallet or "").strip().lower()
+    seller = (order.seller_wallet or "").strip().lower()
+    if not (buyer and seller and buyer == seller):
+        return
+    try:
+        record_security_event(
+            SecurityMonitoringEventType.SELF_DEAL_REFUSED,
+            metadata={
+                "surface": "miniapp",
+                "order_id": order.order_id,
+                "buyer_identity_id": order.buyer_identity_id,
+                "seller_identity_id": order.seller_identity_id,
+                "wallet": buyer,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - 留痕失败绝不能让这一单过去
+        logger.warning(
+            "miniapp_self_deal_audit_failed", order_id=order.order_id, error=str(exc)
+        )
+    raise HTTPException(
+        409,
+        "self-dealing is not allowed: buyer and seller resolve to the same wallet",
+    )
 
 
 def _offer_catalog() -> list[dict]:
@@ -532,6 +567,7 @@ def risk_assess(body: LockBody, authorization: str | None = Header(default=None)
     order = orders.get_order(body.order_id)
     if not order:
         raise HTTPException(404, "order not found")
+    _refuse_self_dealing(order)
     self_deal = bool(order.buyer_wallet and order.seller_wallet and order.buyer_wallet == order.seller_wallet)
     a = risk_dispute.assess_risk(
         order_id=order.order_id,
@@ -558,6 +594,7 @@ def verification_runs(body: VerifyBody, authorization: str | None = Header(defau
     if not order.evidence:
         raise HTTPException(409, "evidence required")
 
+    _refuse_self_dealing(order)
     self_deal = bool(order.buyer_wallet and order.seller_wallet and order.buyer_wallet == order.seller_wallet)
     risk = risk_dispute.latest_risk(order.order_id) or risk_dispute.assess_risk(
         order_id=order.order_id,
@@ -612,6 +649,7 @@ def settlement_finalize(body: SettleBody, authorization: str | None = Header(def
     if open_disputes:
         raise HTTPException(403, f"open dispute ({open_disputes[0].dispute_id}) — cannot settle until resolved")
 
+    _refuse_self_dealing(order)
     self_deal = bool(order.buyer_wallet and order.seller_wallet and order.buyer_wallet == order.seller_wallet)
     if order.binding_id is None:
         raise HTTPException(409, "binding_id required before settle")
