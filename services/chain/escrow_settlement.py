@@ -260,6 +260,18 @@ async def local_binding_id(
     return f"{contract}:{chain_id}"
 
 
+async def newest_binding_for_task(
+    db: AsyncSession, *, task_id: str
+) -> EscrowBindingModel | None:
+    """这个 task 上「最新那条」绑定 —— 就是 ``cancel/submit/slash_for_task`` 会碰到的那条。
+
+    有了它，调用方才能判断「我手上这条是不是孤儿」：不是最新那条时，任何 task 作用域
+    的动作都落不到它头上（2026-10-14：task 3327dbc2 / 06797bd4 / 4538ae75 各有一条
+    这样的老绑定，链上还占着买方的授权额，谁也解不开）。
+    """
+    return await _find_binding(db, task_id=task_id)
+
+
 async def find_binding(db: AsyncSession, binding_id: str) -> EscrowBindingModel | None:
     """按账上主键取一条绑定，兼容改名前的历史引用。
 
@@ -1849,6 +1861,116 @@ async def cancel_for_task(db: AsyncSession, *, task_id: str) -> dict[str, Any]:
     if voucher is not None:
         out["voucher"] = voucher
     return out
+
+
+async def cancel_binding_row(
+    db: AsyncSession, *, row: EscrowBindingModel, reason: str | None = None
+) -> dict[str, Any]:
+    """取消**指定这一条**绑定（不是「这个 task 最新那条」）。
+
+    ``cancel_for_task`` 走 ``_find_binding(task_id)``：一个 task 有多条绑定时它永远只
+    碰最新那条，老的那条（补差重绑 / 历史重试留下的）链上还占着买方的授权额，却谁也
+    解不开。线上实测（2026-10-14）：task 3327dbc2 / 06797bd4 / 4538ae75 各有一条这样
+    的孤儿绑定（92 / 161 / 171），每轮 tick 打一条 ``escrow_stranded_reap_noop``。
+
+    链上闸与 ``cancel_for_task`` **完全同口径**（钱一旦有受款人就不许撤）。唯一的差别：
+    这一路**不回写 ``settlements``**，也不动物业凭证 —— 兄弟绑定已经把那一格写成
+    ``settled``，被孤儿这次 ``cancelled`` 盖过去，操作台就会从「已结算」翻成「已取消」。
+    所以这里只动这一条绑定自己：链上 ``cancelBinding`` → 台账 ``cancelled`` →
+    ``sync_commits`` 让链上放开的额度进镜像。额度以链为准，不再单独改档案额度
+    （档案额度的释放归 task 级结算路径，重复放会凭空多出可用额度）。
+    """
+    binding_id = getattr(row, "binding_id", None)
+    if not enabled():
+        return {"status": "disabled", "binding_id": binding_id}
+    if row.state in _DONE_STATES:
+        return {"status": row.state, "binding_id": binding_id}
+    if row.state in _RESPONSIBILITY_STATES:
+        logger.warning(
+            "escrow_settlement_cancel_row_blocked_by_responsibility",
+            binding_id=binding_id,
+            task_id=row.task_id,
+            state=row.state,
+        )
+        raise EscrowSettlementError(409, _CANCEL_BLOCKED_DETAIL)
+    if row.state != ACTIVE:
+        return {"status": row.state, "binding_id": binding_id}
+
+    task_id = row.task_id or ""
+    # 链上状态机优先：台账停在 active，链上可能早就开了窗。
+    #
+    # **这里故意不用 ``adopt_chain_finalizing``**：它会 ``_reflect``，把这一条的链上事实
+    # 写进 ``settlements`` 那一格 —— 而兄弟绑定已经把那一格写成 settled 了。孤儿这一路
+    # 一个字节都不许碰 ``settlements``，所以链上开着窗就只**拒**、不改台账、不回写。
+    snapshot = await chain_snapshot(row)
+    onchain_state = None if snapshot is None else int(snapshot["state"])
+    if onchain_state == _CHAIN_FINALIZING:
+        logger.warning(
+            "escrow_settlement_cancel_row_blocked_by_chain",
+            binding_id=binding_id,
+            task_id=task_id,
+            onchain_state=onchain_state,
+        )
+        raise EscrowSettlementError(409, _CANCEL_BLOCKED_DETAIL)
+    mapped = _CHAIN_FINAL.get(onchain_state) if onchain_state is not None else None
+    if mapped is not None:
+        # 链上早就落定了（我们只是没记上）：对齐这一条就行 —— 但**不碰 settlements**。
+        was = row.state
+        row.state = mapped
+        row.updated_at = datetime.utcnow()
+        await db.flush()
+        logger.info(
+            "escrow_settlement_cancel_row_reconciled",
+            binding_id=binding_id,
+            task_id=task_id,
+            onchain_state=onchain_state,
+            state=mapped,
+        )
+        return {"status": mapped, "binding_id": binding_id, "reconciled": True, "was": was}
+    if onchain_state is not None and onchain_state not in (_CHAIN_ACTIVE, _CHAIN_DISPUTED):
+        # 认不出来的状态：不许动钱，也不许把台账改错。
+        raise EscrowSettlementError(
+            409,
+            f"链上这条绑定的状态读出来是 {onchain_state}，不是任何已知状态，取消动作已中止",
+        )
+
+    try:
+        await asyncio.to_thread(
+            escrow.cancel_binding,
+            binding_id=chain_binding_id(row),
+            contract_address=escrow.binding_contract(row),
+        )
+    except Exception as exc:
+        logger.warning(
+            "escrow_settlement_cancel_row_failed",
+            binding_id=binding_id,
+            task_id=task_id,
+            error=str(exc),
+        )
+        raise EscrowSettlementError(409, f"链上撤销锁定失败：{exc}") from exc
+    row.state = CANCELLED
+    row.updated_at = datetime.utcnow()
+    await db.flush()
+    logger.info(
+        "escrow_orphan_binding_cancelled",
+        binding_id=binding_id,
+        task_id=task_id,
+        amount_usdc=row.amount_usdc,
+        reason=reason or "orphan",
+    )
+    # 链上把买方的授权放开了，账上的镜像也得跟上（纯读链、失败只记日志）。
+    buyer = getattr(row, "buyer_identity_id", None)
+    if buyer:
+        try:
+            await escrow.sync_commits(db, buyer)
+        except Exception as exc:  # noqa: BLE001 - 台账动作，不把链上已完成的撤销判成失败
+            logger.warning(
+                "escrow_orphan_binding_sync_failed",
+                binding_id=binding_id,
+                identity_id=buyer,
+                error=str(exc),
+            )
+    return {"status": CANCELLED, "binding_id": binding_id}
 
 
 async def _release_linked_voucher(db: AsyncSession, *, task_id: str) -> dict[str, Any] | None:

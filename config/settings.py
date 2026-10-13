@@ -459,6 +459,12 @@ class Settings(BaseSettings):
     # 把全部绑定盖到；这一格只是防止同一条被反复问、把一轮 tick 拖长。
     # <= 0 退回旧行为：每一轮都可以问同一条（不推荐，几十条绑定会把 tick 拖垮）。
     escrow_reconcile_probe_interval_seconds: int = 300
+    # 孤儿绑定的自动收尾（按 binding，不按 task）。一个 task 有多条绑定时，收尾动作
+    # （cancel/submit/slash_for_task）只会碰最新那条，老的那条链上还占着买方的授权额，
+    # 谁也解不开（2026-10-14 线上实测：92 / 161 / 171）。打开后 ``reap_stranded`` 才会
+    # 对这些绑定发链上 cancelBinding。
+    # **默认关**：它会在链上发一笔交易、花 operator 的 gas，先在测试网演练再在 prod 打开。
+    escrow_orphan_binding_cancel_enabled: bool = False
 
     # Payee (worker agent wallet on-chain)
     payee_address: str = ""
