@@ -16,6 +16,7 @@ from karma_connect.cli import FALLBACK_MODULES
 from karma_connect.hosts import (
     DEFAULT_COMMAND,
     FORBIDDEN_ENV_KEYS,
+    OPENCLAW_BLOCKED_ENV,
     default_hosts,
     install,
     parse_env,
@@ -211,3 +212,76 @@ def test_cli_parser_builds_and_every_subcommand_parses():
                  ["install", "--host", "codex,muse", "--env", "KARMA_RUNTIME_URL=https://x"],
                  ["doctor"], ["sign-check", "--json"]):
         assert parser.parse_args(argv).cmd == argv[0]
+def test_openclaw_drops_blocked_env_instead_of_writing_a_dead_entry(tmp_path, monkeypatch):
+    """OpenClaw 拉起 stdio server 时会把 PYTHONPATH 丢掉（真机实测），所以干脆不写。
+
+    写进去只会得到「配置看着对、server 一起来就 Connection closed」：
+    `openclaw mcp probe karma` 打印 ``env "PYTHONPATH" is blocked for stdio startup
+    safety and was ignored``，而 `python -m karma_mcp_server` 随即 ModuleNotFoundError。
+    """
+    assert "PYTHONPATH" in OPENCLAW_BLOCKED_ENV
+    host = _host("openclaw", tmp_path, monkeypatch)
+    host.config_path.parent.mkdir(parents=True, exist_ok=True)
+    install(host, "karma", sys.executable, ["-m", "karma_mcp_server"],
+            {"KARMA_RUNTIME_URL": "https://karma-network.ai", "PYTHONPATH": "/somewhere"})
+    entry = json.loads(host.config_path.read_text(encoding="utf-8"))["mcp"]["servers"]["karma"]
+    assert "PYTHONPATH" not in entry["env"]
+    # 能用的键原样留着
+    assert entry["env"]["KARMA_RUNTIME_URL"] == "https://karma-network.ai"
+    assert entry["command"] == sys.executable
+    assert entry["args"] == ["-m", "karma_mcp_server"]
+
+
+def test_other_hosts_still_get_pythonpath(tmp_path, monkeypatch):
+    """别的宿主不丢 PYTHONPATH：那层兜底还在（用来指向没装进解释器的仓库包）。"""
+    host = _host("claude", tmp_path, monkeypatch)
+    install(host, "karma", sys.executable, ["-m", "karma_mcp_server"],
+            {"PYTHONPATH": "/somewhere"})
+    entry = json.loads(host.config_path.read_text(encoding="utf-8"))["mcpServers"]["karma"]
+    assert entry["env"]["PYTHONPATH"] == "/somewhere"
+
+
+def test_install_refuses_a_host_that_would_drop_a_needed_key(tmp_path, monkeypatch, capsys):
+    """剔除完就起不来的宿主：拒绝写，并说清楚怎么修（fail-closed，不留假配置）。"""
+    from argparse import Namespace
+
+    from karma_connect import cli
+
+    _host("openclaw", tmp_path, monkeypatch)  # 建好 OPENCLAW_STATE_DIR 的环境变量
+    (tmp_path / ".openclaw").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(cli, "_importable_without", lambda _module, _dropped: False)
+
+    args = Namespace(host="openclaw", name=None, command=None, module="karma_mcp_server",
+                     arg=[], env=[], workspace=None, dry_run=False)
+    assert cli.cmd_install(args) == 2
+    assert not (tmp_path / ".openclaw" / "openclaw.json").exists()
+    err = capsys.readouterr().err
+    assert "PYTHONPATH" in err and "pip install" in err
+
+
+def test_install_writes_openclaw_when_the_module_survives(tmp_path, monkeypatch):
+    """包真装进了这个解释器（去掉 PYTHONPATH 也 import 得动）时，照写不误。"""
+    from argparse import Namespace
+
+    from karma_connect import cli
+
+    _host("openclaw", tmp_path, monkeypatch)
+    (tmp_path / ".openclaw").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(cli, "_importable_without", lambda _module, _dropped: True)
+
+    args = Namespace(host="openclaw", name=None, command=None, module="karma_mcp_server",
+                     arg=[], env=[], workspace=None, dry_run=False)
+    assert cli.cmd_install(args) == 0
+    entry = json.loads((tmp_path / ".openclaw" / "openclaw.json").read_text(encoding="utf-8"))
+    karma = entry["mcp"]["servers"]["karma"]
+    assert "PYTHONPATH" not in karma["env"]
+    assert karma["env"]["KARMA_RUNTIME_URL"] == "https://karma-network.ai"
+
+
+def test_module_of_reads_the_dash_m_form():
+    from karma_connect.cli import _module_of
+
+    assert _module_of(["-m", "karma_mcp_server"]) == "karma_mcp_server"
+    assert _module_of(["-m", "karma_mcp_server", "--flag"]) == "karma_mcp_server"
+    assert _module_of(["karma-mcp-server"]) == ""
+    assert _module_of([]) == ""

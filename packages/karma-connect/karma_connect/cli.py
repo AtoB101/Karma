@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -72,6 +73,41 @@ def hint_for(exc, host):
     return "%s: %s" % (type(exc).__name__, exc)
 
 
+def _importable_without(module: str, dropped) -> bool:
+    """``sys.executable`` 去掉 ``dropped`` 这些键之后，还 import 得动 ``module`` 吗？
+
+    真起一个子进程问，而不是猜：宿主丢键这件事**只发生在它拉起 server 的那一刻**，
+    ``find_spec`` 在我们自己的 ``sys.path``（含 PYTHONPATH）上根本看不出区别 ——
+    真机上就是「配置写好了、探测也对、server 一起来就 Connection closed」。
+    """
+    top = module.split(".")[0]
+    env = {key: value for key, value in os.environ.items() if key not in dropped}
+    try:
+        proc = subprocess.run([sys.executable, "-c", "import %s" % top],
+                              env=env, capture_output=True, timeout=60)
+    except Exception:  # noqa: BLE001 - 起不来就是不可用，和 import 失败同等处理
+        return False
+    return proc.returncode == 0
+
+
+def _module_of(extra) -> str:
+    """``["-m", "karma_mcp_server"]`` -> ``"karma_mcp_server"``；不是 -m 形式就返回 ""。"""
+    if len(extra) >= 2 and extra[0] == "-m":
+        return extra[1]
+    return ""
+
+
+def _dead_on_host(host, env: dict, extra) -> list:
+    """这个宿主会不会把我们的启动方式弄死？返回它丢掉的键（没风险就是空表）。"""
+    module = _module_of(extra)
+    dropped = [key for key in host.blocked_env if key in env]
+    if not dropped or not module:
+        return []
+    if _importable_without(module, tuple(dropped)):
+        return []
+    return dropped
+
+
 def cmd_detect(args) -> int:
     rows = []
     for host in default_hosts(workspace=args.workspace):
@@ -122,6 +158,17 @@ def cmd_install(args) -> int:
               % command, file=sys.stderr)
         print("  install it first: pip install ./packages/karma-mcp-server", file=sys.stderr)
 
+    # 宿主会丢的键一个都不能依赖：OpenClaw 在拉起 stdio server 时把 PYTHONPATH 之类
+    # 直接丢掉，而 _module_command 恰恰靠 PYTHONPATH 让 `python -m karma_mcp_server`
+    # 找得到包。写下去只会得到「配置看着对、server 从来没起来过」。所以先真起一个
+    # 子进程验一次；验不过的宿主直接摘掉，宁可不写，也不给用户留一个假装装好了的配置。
+    dead = []
+    for host in list(hosts):
+        dropped = _dead_on_host(host, env, extra)
+        if dropped:
+            dead.append((host, dropped))
+            hosts.remove(host)
+
     print("server: %s %s" % (command, " ".join(extra)))
     for key in defaults:
         print("  default env: %s" % key)
@@ -146,6 +193,16 @@ def cmd_install(args) -> int:
     if failed:
         print("%d host(s) could not be written (the rest are done)." % len(failed))
         print("Re-run the same command in a normal terminal (not the sandbox) to finish those.")
+    if dead:
+        module = _module_of(extra) or "<module>"
+        for host, dropped in dead:
+            print("%s drops %s when it spawns a stdio server, and %r is not importable "
+                  "without it - skipping it (a written entry would never boot)."
+                  % (host.label, ", ".join(dropped), module), file=sys.stderr)
+        print("  install the server into this interpreter first:"
+              " %s -m pip install ./packages/karma-mcp-server" % sys.executable,
+              file=sys.stderr)
+        return 2
     if args.dry_run:
         print("dry run: %d file(s) would change. Re-run without --dry-run to apply." % changed)
         return 0
@@ -191,6 +248,13 @@ def cmd_doctor(args) -> int:
                      "Key lands in ~/.karma/agent.env once the owner approves")
     for host in default_hosts(workspace=args.workspace):
         if not host.detected():
+            continue
+        dropped = _dead_on_host(host, env, extra)
+        if dropped:
+            problems.append("%s drops %s at spawn time and %s is not importable without it - "
+                            "pip install ./packages/karma-mcp-server into %s"
+                            % (host.key, ", ".join(dropped), _module_of(extra), sys.executable))
+            print("  warn %-9s %s" % (host.key, host.config_path))
             continue
         try:
             path, _ = host.render(name, command, extra, env)

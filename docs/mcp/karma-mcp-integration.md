@@ -74,6 +74,48 @@ karma-connect doctor             # server 找得到吗、配置读得到吗、�
 | OpenClaw | `$OPENCLAW_STATE_DIR/openclaw.json`（默认 `~/.openclaw/openclaw.json`） | `mcp.servers.karma` |
 | VS Code | `<workspace>/.vscode/mcp.json`（要带 `--workspace`） | `servers.karma` |
 
+### 3.0 OpenClaw 特别注意：它会把 `PYTHONPATH` 丢掉
+
+OpenClaw 在拉起 stdio server 之前，会按 `host-env-security-policy` 把一批「决定子进程
+加载哪份代码」的键**从 env 里直接丢掉**：`PYTHONPATH` / `PYTHONHOME` / `NODE_PATH` /
+`NODE_OPTIONS` / `GIT_*` / 各类工具链变量。CLI 会明说：
+
+```text
+$ openclaw mcp probe karma
+[bundle-mcp] server "karma": env "PYTHONPATH" is blocked for stdio startup safety and was ignored.
+! karma: MCP error -32000: Connection closed
+```
+
+`Connection closed` 就是包根本没 import 起来。所以**对 OpenClaw，不能靠 `PYTHONPATH`
+指向仓库里的包** —— 必须真的装进「那个要被拉起的解释器」。两种都行：
+
+```bash
+# ① 直接装进宿主会用的解释器（最简单）
+"C:\...\python.exe" -m pip install karma-mcp-server
+openclaw mcp add karma --command "C:\...\python.exe" --arg -m --arg karma_mcp_server \
+  --env KARMA_RUNTIME_URL=https://karma-network.ai
+
+# ② 或者专门起一个 venv，让它当 command
+python -m venv D:\karma-mcp-venv
+D:\karma-mcp-venv\Scripts\python.exe -m pip install karma-openclaw
+openclaw mcp add karma --command "D:\karma-mcp-venv\Scripts\python.exe" \
+  --arg -m --arg karma_openclaw --env KARMA_RUNTIME_URL=https://karma-network.ai
+```
+
+`openclaw mcp add` 会**先探测再保存**（探测不过不会写），随后：
+
+```bash
+openclaw mcp list        # 条目在不在
+openclaw mcp probe karma # 期望：68 tools, ...（数字随包版本）
+openclaw mcp doctor      # 静态检查
+openclaw mcp reload      # 让跑着的网关用上新配置
+```
+
+反过来的坑：`openclaw mcp doctor` 只做静态检查，**它说 ok 不代表 server 起得来** ——
+探测（`probe`）才真的起进程。`karma-connect doctor` 会专门查这一条：如果某个宿主会丢掉
+我们依赖的键（比如 OpenClaw 丢 `PYTHONPATH`）而包又没装进那个解释器，它直接报错并让你
+`pip install`，`karma-connect install` 也**拒绝写**这种「看着装好了、其实起不来」的条目。
+
 手写也一样，等价的一段（Codex TOML）：
 
 ```toml
