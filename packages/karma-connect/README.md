@@ -51,7 +51,16 @@ twice changes nothing the second time.
 - **Codex** keeps MCP servers in TOML tables, not JSON, so the writer replaces just
   the `[mcp_servers.karma]` block and leaves your `model`, plugins and marketplaces
   alone.
-- **OpenClaw** nests under `mcp.servers`, not `mcpServers`.
+- **OpenClaw** nests under `mcp.servers`, not `mcpServers`. It also **drops a fixed set of
+  env keys from every stdio server it spawns** - `PYTHONPATH`, `PYTHONHOME`, `NODE_PATH`,
+  `NODE_OPTIONS`, `GIT_*`, ... (its `host-env-security-policy`; the CLI says so out loud:
+  `openclaw mcp probe karma` → `env "PYTHONPATH" is blocked for stdio startup safety and was
+  ignored`). Those keys pick which code a spawned interpreter loads, so the host refuses to
+  pass them. An entry that only resolves the package through `PYTHONPATH` is therefore dead
+  on arrival. So `install` never writes a blocked key, and if that leaves the server
+  unimportable it **refuses to write the entry** and tells you to
+  `pip install karma-mcp-server` into that interpreter instead. Check with
+  `karma-connect doctor` and `openclaw mcp probe karma`.
 
 ## Commands
 

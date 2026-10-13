@@ -48,6 +48,36 @@ FORBIDDEN_ENV_KEYS = (
     "USER_PRIVATE_KEY",
     "DEPLOYER_PRIVATE_KEY",
 )
+#: OpenClaw **在拉起 stdio server 之前会把这些键从它的 env 里丢掉**（2026.8.2，
+#: ``dist/infra/host-env-security-policy.json`` 的 ``blockedEverywhereKeys``；真机上看得见：
+#: ``openclaw mcp probe <name>`` 会打印 ``env "PYTHONPATH" is blocked for stdio startup
+#: safety and was ignored``）。这些都是「改哪套工具链去加载什么代码」的劫持入口，宿主宁可
+#: 丢掉也不透传。**我们这边就不能依赖它们** —— 依赖了就是「配置看着对、server 起不来」，
+#: 而 install 还会以为已经装好了。写之前先剔掉；剔完起不来的宁可不写（见 cli.py）。
+OPENCLAW_BLOCKED_ENV = (
+    "NODE_OPTIONS", "NODE_PATH", "NODE_REDIRECT_WARNINGS", "NODE_REPL_EXTERNAL_MODULE",
+    "NODE_REPL_HISTORY", "NODE_V8_COVERAGE", "PYTHONHOME", "PYTHONPATH", "PERL5LIB",
+    "PERL5OPT", "RUBYLIB", "RUBYOPT", "BASHOPTS", "BASH_ENV", "ENV", "KSH_ENV", "BROWSER",
+    "GIT_ALLOW_PROTOCOL", "GIT_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_DIR", "GIT_WORK_TREE",
+    "GIT_COMMON_DIR", "GIT_EXEC_PATH", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_NAMESPACE", "GIT_PROTOCOL_FROM_USER",
+    "GIT_SEQUENCE_EDITOR", "GIT_TEMPLATE_DIR", "GIT_SSL_NO_VERIFY", "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH", "CC", "CPP", "CXX", "CXXCPP", "CARGO_BUILD_RUSTC",
+    "CARGO_BUILD_RUSTC_WRAPPER", "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER", "CARGO_BUILD_RUSTDOC",
+    "RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER", "RUSTDOC", "CMAKE_C_COMPILER",
+    "CMAKE_CXX_COMPILER", "SHELL", "SHELLOPTS", "PS4", "GCONV_PATH", "IFS", "SSLKEYLOGFILE",
+    "JAVA_OPTS", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "JDK_JAVA_OPTIONS", "PYTHONBREAKPOINT",
+    "DOTNET_STARTUP_HOOKS", "DOTNET_ADDITIONAL_DEPS", "FPATH", "GLIBC_TUNABLES", "MAVEN_OPTS",
+    "MAKE", "MAKEFLAGS", "MFLAGS", "SBT_OPTS", "GRADLE_OPTS", "ANT_OPTS", "HGRCPATH",
+    "HGEDITOR", "HGMERGE", "EXINIT", "VIMINIT", "MYVIMRC", "GVIMINIT", "LUA_INIT",
+    "LUA_INIT_5_1", "LUA_INIT_5_2", "LUA_INIT_5_3", "LUA_INIT_5_4", "EMACSLOADPATH",
+    "RUBYSHELL", "GIT_HOOK_PATH", "SVN_EDITOR", "SVN_SSH", "BZR_EDITOR", "BZR_SSH",
+    "BZR_PLUGIN_PATH", "SUDO_ASKPASS", "JULIA_EDITOR", "CONFIG_SITE", "CONFIG_SHELL",
+    "CMAKE_TOOLCHAIN_FILE", "CATALINA_OPTS", "CORECLR_PROFILER", "HELM_PLUGINS",
+    "PACKER_PLUGIN_PATH", "VAGRANT_VAGRANTFILE", "ERL_AFLAGS", "ERL_FLAGS", "ERL_ZFLAGS",
+    "ELIXIR_ERL_OPTIONS", "R_ENVIRON", "R_PROFILE", "R_ENVIRON_USER", "R_PROFILE_USER",
+    "TCLLIBPATH", "HOSTALIASES",
+)
 
 
 def _home() -> Path:
@@ -170,6 +200,8 @@ class Host:
     toml_table: str = "mcp_servers"
     format: str = "json"
     detect_paths: tuple = field(default_factory=tuple)
+    #: 宿主会丢掉的 env 键（OpenClaw 见 OPENCLAW_BLOCKED_ENV）：渲染时一个都不写。
+    blocked_env: tuple = field(default_factory=tuple)
 
     def detected(self) -> bool:
         if not self.detect_paths:
@@ -178,6 +210,9 @@ class Host:
 
     def render(self, name: str, command: str, args, env: dict):
         """-> (path, new_text). Pure: no disk writes."""
+        # 宿主会丢的键一个都不写：写进去只会得到「配置看着对、server 起不来」。
+        if self.blocked_env:
+            env = {key: value for key, value in env.items() if key not in self.blocked_env}
         if self.format == "toml":
             current = (self.config_path.read_text(encoding="utf-8")
                        if self.config_path.exists() else "")
@@ -209,7 +244,8 @@ def default_hosts(workspace=None):
         Host("muse", "Muse Code (Meta)", "muse", cfg / "muse" / "settings.json",
              detect_paths=(cfg / "muse",)),
         Host("openclaw", "OpenClaw", "openclaw", openclaw_state / "openclaw.json",
-             json_bucket="mcp.servers", detect_paths=(openclaw_state,)),
+             json_bucket="mcp.servers", detect_paths=(openclaw_state,),
+             blocked_env=OPENCLAW_BLOCKED_ENV),
     ]
     if workspace is not None:
         hosts.append(Host("vscode", "VS Code (this workspace)", "vscode",
