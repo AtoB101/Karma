@@ -885,6 +885,68 @@ async def _party_wallets(
     return wallets
 
 
+async def detect_self_dealing(
+    db: AsyncSession,
+    *,
+    buyer_identity_id: str | None,
+    seller_identity_id: str | None,
+    buyer_bill: str | None = None,
+    seller_bill: str | None = None,
+) -> tuple[str, str, str] | None:
+    """自成交判定（**只判不抛**）：命中返回 ``(reason, detail, message)``，否则 ``None``。
+
+    判定**只有这一份实现**：``assert_parties_not_self_dealing`` 拿它来抛 409 + 留痕，
+    取消那条出口（``api/routes/settlement.py::_fill_in_deferred_bind_for_cancel``）拿它来
+    判断「这一单是不是本来就绑不上」—— 一处判据，两处使用，免得改一处漏一处。
+    """
+    buyer = (buyer_identity_id or "").strip()
+    seller = (seller_identity_id or "").strip()
+    if not buyer or not seller:
+        return None
+
+    if buyer.lower() == seller.lower():
+        return (
+            "same_party_id",
+            buyer,
+            (
+                f"买方和卖方是同一个当事方（{buyer}）：不允许自成交（SameOwner()），"
+                "这一单不会进链 —— 自己不能买自己的单。"
+            ),
+        )
+
+    buyer_owner = await _party_owner(db, buyer)
+    seller_owner = await _party_owner(db, seller)
+    buyer_main = await _party_main(db, buyer)
+    seller_main = await _party_main(db, seller)
+    if buyer_main and seller_main and buyer_main.lower() == seller_main.lower():
+        return (
+            "same_owner_identity",
+            buyer_main,
+            (
+                f"买方和卖方解析到同一个钱包主身份（{buyer_main}）：合约不允许自成交"
+                "（SameOwner()），这一单不会进链 —— 给卖方换一个独立身份/钱包，或者取消这一单。"
+            ),
+        )
+
+    buyer_wallets = await _party_wallets(
+        db, party_id=buyer, owner=buyer_owner, main=buyer_main, bill_id=buyer_bill
+    )
+    seller_wallets = await _party_wallets(
+        db, party_id=seller, owner=seller_owner, main=seller_main, bill_id=seller_bill
+    )
+    shared = sorted(buyer_wallets & seller_wallets)
+    if shared:
+        return (
+            "same_wallet",
+            shared[0],
+            (
+                f"买方和卖方是同一个钱包（{shared[0]}）：合约不允许自成交（SameOwner()），"
+                "这一单不会进链 —— 给卖方换一个独立钱包身份，或者取消这一单。"
+            ),
+        )
+    return None
+
+
 async def assert_parties_not_self_dealing(
     db: AsyncSession,
     *,
@@ -912,84 +974,47 @@ async def assert_parties_not_self_dealing(
     与 ``services/wash_trade.py`` 的分工：那边管「信誉分不发 / GMV 不记」，这里管
     「单子根本不成立」。两条都要有 —— 只扣分不拦单，链上那笔照样白烧。
     """
-    buyer = (buyer_identity_id or "").strip()
-    seller = (seller_identity_id or "").strip()
-    if not buyer or not seller:
+    hit = await detect_self_dealing(
+        db,
+        buyer_identity_id=buyer_identity_id,
+        seller_identity_id=seller_identity_id,
+        buyer_bill=buyer_bill,
+        seller_bill=seller_bill,
+    )
+    if hit is None:
         return
+    reason, detail, message = hit
+    logger.warning(
+        "escrow_settlement_self_dealing_refused",
+        task_id=task_id,
+        reason=reason,
+        buyer_identity_id=buyer_identity_id,
+        seller_identity_id=seller_identity_id,
+        detail=detail,
+    )
+    try:
+        from services.security_monitoring import (
+            SecurityMonitoringEventType,
+            record_security_event,
+        )
 
-    def _refuse(*, reason: str, detail: str, message: str) -> EscrowSettlementError:
+        record_security_event(
+            SecurityMonitoringEventType.SELF_DEAL_REFUSED,
+            metadata={
+                "task_id": task_id,
+                "reason": reason,
+                "buyer_identity_id": buyer_identity_id,
+                "seller_identity_id": seller_identity_id,
+                "detail": detail,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - 留痕失败绝不能让这一单过去
         logger.warning(
-            "escrow_settlement_self_dealing_refused",
+            "escrow_settlement_self_dealing_audit_failed",
             task_id=task_id,
-            reason=reason,
-            buyer_identity_id=buyer_identity_id,
-            seller_identity_id=seller_identity_id,
-            detail=detail,
+            error=str(exc),
         )
-        try:
-            from services.security_monitoring import (
-                SecurityMonitoringEventType,
-                record_security_event,
-            )
-
-            record_security_event(
-                SecurityMonitoringEventType.SELF_DEAL_REFUSED,
-                metadata={
-                    "task_id": task_id,
-                    "reason": reason,
-                    "buyer_identity_id": buyer_identity_id,
-                    "seller_identity_id": seller_identity_id,
-                    "detail": detail,
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 - 留痕失败绝不能让这一单过去
-            logger.warning(
-                "escrow_settlement_self_dealing_audit_failed",
-                task_id=task_id,
-                error=str(exc),
-            )
-        return EscrowSettlementError(409, message)
-
-    if buyer.lower() == seller.lower():
-        raise _refuse(
-            reason="same_party_id",
-            detail=buyer,
-            message=(
-                f"买方和卖方是同一个当事方（{buyer}）：不允许自成交（SameOwner()），"
-                "这一单不会进链 —— 自己不能买自己的单。"
-            ),
-        )
-
-    buyer_owner = await _party_owner(db, buyer)
-    seller_owner = await _party_owner(db, seller)
-    buyer_main = await _party_main(db, buyer)
-    seller_main = await _party_main(db, seller)
-    if buyer_main and seller_main and buyer_main.lower() == seller_main.lower():
-        raise _refuse(
-            reason="same_owner_identity",
-            detail=buyer_main,
-            message=(
-                f"买方和卖方解析到同一个钱包主身份（{buyer_main}）：合约不允许自成交"
-                "（SameOwner()），这一单不会进链 —— 给卖方换一个独立身份/钱包，或者取消这一单。"
-            ),
-        )
-
-    buyer_wallets = await _party_wallets(
-        db, party_id=buyer, owner=buyer_owner, main=buyer_main, bill_id=buyer_bill
-    )
-    seller_wallets = await _party_wallets(
-        db, party_id=seller, owner=seller_owner, main=seller_main, bill_id=seller_bill
-    )
-    shared = sorted(buyer_wallets & seller_wallets)
-    if shared:
-        raise _refuse(
-            reason="same_wallet",
-            detail=shared[0],
-            message=(
-                f"买方和卖方是同一个钱包（{shared[0]}）：合约不允许自成交（SameOwner()），"
-                "这一单不会进链 —— 给卖方换一个独立钱包身份，或者取消这一单。"
-            ),
-        )
+    raise EscrowSettlementError(409, message)
 
 
 async def bind_for_task(
