@@ -112,3 +112,70 @@ PYTHONPATH / 剔完起不来就拒写且不留文件 / 装进解释器后照写 
   `probe` 列出 68 工具 + 独立进程调 `karma_connect` 拿到 201）。
 - 本机 `scripts/e2e_smoke.py` 已过时（发 `worker_agent_id` 被拒、仲裁池口径也变了，
   16 步失败），且**没有任何门禁引用它**。属于遗留脚本，本轮没动。
+
+## 7. 追加（同日第二轮）：默认模型 id 坏了 —— 现象同样是「openclaw 工具报错」
+
+§6 里「OpenClaw 网关里 agent 真调一次 MCP 工具没跑」这一条，本轮补上了，并且顺带挖出
+**第二个能把 agent 侧整条锁死的坑**（根因完全不在 MCP）。
+
+### 7.1 现象
+
+agent 侧任何 turn 都过不去。在 agent 门口看，就是「openclaw 工具报错 / MCP 注册、重载不动」——
+和 §1 的现象几乎一样，很容易被当成 MCP 的问题。
+
+### 7.2 真机复现（逐字）
+
+```text
+$ openclaw models status
+Default : deepseek/to
+
+$ openclaw agent exec "…"                      # 走默认模型
+[provider-transport-fetch] response provider=deepseek api=openai-completions model=to status=400
+LLM request failed: provider rejected the request schema or tool payload.
+rawError=400 The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed to.
+[model-fallback/decision] decision=candidate_failed requested=deepseek/to … next=none
+```
+
+`D:\OpenClaw\state\openclaw.json` 里 `agents.defaults.model.primary = "deepseek/to"` ——
+一个 provider 不认的 id（`openclaw.json.bak.2/.3/.4` 里还是好的
+`deepseek/deepseek-v4-pro`，从 `bak.1` 起就变成 `deepseek/to`）。
+
+**关键干扰项**：这时 `openclaw mcp probe karma` 照样 `68 tools` 全绿 —— probe 是 CLI
+直接起进程，压根不走模型。所以只盯 MCP 侧的话，所有检查都是绿的，只有 agent 侧是红的。
+
+### 7.3 修法
+
+```bash
+openclaw models set deepseek/deepseek-v4-pro    # 写回一个真 id（自动生成 openclaw.json.bak）
+```
+
+改前副本另存为 `D:\OpenClaw\state\openclaw.json.before-model-fix`。
+
+### 7.4 验证（agent 侧，真机）
+
+```text
+$ openclaw mcp reload
+Disposed cached MCP runtimes. Active agents use new MCP config on their next runtime build.
+
+$ openclaw agent --agent main --json \
+    --message "只列出现在可用的 karma_ 开头的 MCP 工具名，不要调用任何工具"
+{ "status": "ok",
+  "result": { "meta": { "provider": "deepseek", "model": "deepseek-v4-pro", … },
+              "payloads": [ … 68 条 karma_* 工具名 … ] } }
+
+$ openclaw mcp probe karma
+- karma: 68 tools, resources, prompts, Codex approval auto
+```
+
+即：**连通层 + agent 工具面这一层现在是真的通了** —— 经由网关真实跑的 agent turn，看见
+全部 68 个 `karma_*` 工具，不再是「probe 绿、agent 红」。
+
+同一个 server 进程打后端也复验过：`karma_connect` → `POST /v1/agent-pairing/request`
+→ **201 Created**（本机沙箱只挡了它写 `~/.karma`，不改结论）。
+
+### 7.5 仍未做（如实记）
+
+- **完整链上交易闭环仍未跑**：需要**有余额的 Sepolia 买卖双方**（USDC + ETH）。当前没有
+  资金账号，也没人给过；仓库里的 `scripts/faucet.py`（mUSDC 水龙头）要 `FAUCET_KEY`
+  才能出币。本地离链那条已经绿（见 §6）。
+- 文档：`docs/mcp/karma-mcp-integration.md` 新增 §3.1 记这条坑，原 §3.1 顺延为 §3.2。

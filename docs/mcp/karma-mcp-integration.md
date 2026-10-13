@@ -124,7 +124,40 @@ command = "karma-mcp-server"
 args = []
 ```
 
-### 3.1 装上之后怎么才算通了
+### 3.1 OpenClaw 特别注意：默认模型必须是真的模型 id
+
+第二个坑与 MCP 本身无关，但会把整条链一起锁死。OpenClaw 每次起 agent turn 都要先过模型
+provider；如果 `agents.defaults.model.primary` 不是一个 provider 真认的 id，turn 会直接
+被拒：
+
+```text
+[provider-transport-fetch] response provider=deepseek api=openai-completions status=400
+LLM request failed: provider rejected the request schema or tool payload.
+rawError=400 The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed to.
+```
+
+现场实测（2026-10-13）：`openclaw.json` 里 `agents.defaults.model.primary` 从
+`deepseek/deepseek-v4-pro` 变成了 `deepseek/to`（一个不存在的 id）。后果是**所有** agent
+turn 一律 400 —— 包括 agent 自己那个「重载 MCP」的系统工具，于是现象看起来就是
+「openclaw 工具报错，MCP 注册 / 重载不动」，很容易被误判成 MCP 的问题。
+
+而 `openclaw mcp probe karma` 这时照样 `68 tools` 全绿 —— 因为 probe 是 CLI 直接起
+进程，压根不走模型。**CLI 侧绿 != agent 侧绿**，这两件事要分开验。
+
+```bash
+openclaw models list                            # 看 default 打在哪一行
+openclaw models set deepseek/deepseek-v4-pro    # 写回一个真 id
+```
+
+改完再从 **agent 侧**复核一遍（这条才是「agent 真的能看见 karma 工具」）：
+
+```bash
+openclaw agent --agent main --json --message "只列出现在可用的 karma_ 开头的 MCP 工具名，不要调用任何工具"
+```
+
+期望：回包 `result.meta.provider/model` 是刚设的那个模型，正文列出全部 `karma_*` 工具。
+
+### 3.2 装上之后怎么才算通了
 
 1. 重启 host，让它重新加载 MCP server。
 2. 让 agent 调 `karma_connect`（`agent_name` 随便它自己起名）。它回 `user_code` +
