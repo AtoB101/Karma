@@ -14,7 +14,11 @@ from core.schemas import SettlementState, SettlementTransitionAudit, TaskStatus
 from core.settlement.engine import canonical_task_status, can_transition
 from db.models.orm import SettlementModel, SettlementTransitionAuditModel
 from db.stores.settlement_store import PostgresSettlementStore
-from services.security_monitoring import SecurityMonitoringEventType, record_security_event
+from services.security_monitoring import (
+    SecurityMonitoringEventType,
+    denial_class_for_guard_stage,
+    record_security_event,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -244,7 +248,10 @@ async def record_settlement_transition_audit(
         reason=reason,
         route_path=route_path,
         actor_id=actor_id,
-        metadata_={"source": "settlement_transitions"},
+        metadata_={
+            "source": "settlement_transitions",
+            "denial_class": denial_class_for_guard_stage(guard_stage),
+        },
         created_at=datetime.utcnow(),
     )
     db.add(row)
@@ -258,6 +265,9 @@ async def record_settlement_transition_audit(
             "to_status": to_status.value,
             "transition_allowed": transition_allowed,
             "guard_stage": guard_stage,
+            # 拒绝归类（2026-10-13）：只有 state_machine 才算「非法穿越状态机」，
+            # 链上腿失败 / 落库冲突不许冒充它 —— 告警和自动刹车只看前者。
+            "denial_class": denial_class_for_guard_stage(guard_stage),
             "path": route_path or "unknown",
             "actor_id": actor_id or "anonymous",
             "route_group": "settlement",
