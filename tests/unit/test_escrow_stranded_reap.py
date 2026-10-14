@@ -485,3 +485,32 @@ async def test_the_newest_binding_still_takes_the_task_scoped_road(
 
     assert spy["cancel_row"] == []
     assert spy["cancel"] == ["task-stranded-solo"]
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_orphan_never_downgrades_a_settled_settlement(
+    db_session, autosettle, monkeypatch
+):
+    """孤儿绑定链上被撤（5=CANCELLED）：这一条照样收尾，但兄弟绑定写好的结论不许被盖。
+
+    2026-10-14 生产实测：按 binding 收尾 92 / 161 / 171 的那一轮，正好撞上一轮还在跑的
+    ``reap_stranded``（tick 慢 9.8 秒）。它读到链上 CANCELLED 就 ``_record_final`` →
+    ``reflect_final`` → ``_reflect``，把 task 4538ae75 结算单的 ``onchain_status`` 从
+    ``settled`` 写成 ``cancelled``，而同一行的 ``tx_hash`` 还指着真正划钱那笔
+    ``finalizeSettlement`` —— 操作台上的「已结算」变成「已取消」。
+    """
+    from services.chain import escrow_autosettle as mod
+
+    monkeypatch.setattr(mod.escrow, "binding_state", lambda *, binding_id, **kw: 5)
+    await db_session.execute(delete(EscrowBindingModel))
+    db_session.add(_binding("171", task_id="task-stranded-settled"))
+    stl = _settlement("settled", task_id="task-stranded-settled")
+    stl.onchain_status = "settled"
+    db_session.add(stl)
+    await db_session.commit()
+
+    freed = await autosettle.reap_stranded(db_session)
+
+    assert [f["binding_id"] for f in freed] == ["171"], "孤儿绑定本身照样收尾"
+    await db_session.refresh(stl)
+    assert stl.onchain_status == "settled", "兄弟绑定写好的结论被孤儿盖回去了"

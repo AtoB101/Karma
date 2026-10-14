@@ -552,11 +552,30 @@ async def _reflect(
 
     返回 ``False`` 表示台账上压根没有这一行 —— 这次回写**没有发生**。延迟绑定那
     一步必须看这个返回值：以为标记落了、其实没落，这一单就永远等不到 bind。
+
+    ``onchain_status`` 只升不降：这一格已经记着「钱按合约走完了」（settled / slashed）时，
+    另一条绑定后来的 ``cancelled`` 不许把它盖回去 —— 见下面那道闸。
     """
     stmt = select(SettlementModel).where(SettlementModel.task_id == task_id)
     model = (await db.execute(stmt)).scalars().first()
     if model is None:
         return False
+    if model.onchain_status in _TERMINAL_MONEY_STATUS and onchain_status != model.onchain_status:
+        # 一个 task 的钱只有一个结局：兄弟绑定已经把这一格写成 settled / slashed 了，
+        # 另一条绑定（孤儿）被收尾时读到链上 CANCELLED(5)，绝不能把这一格盖成 cancelled。
+        # 线上实测（2026-10-14）：孤儿绑定 92 / 161 / 171 被撤的那一轮，stranded 对账
+        # （_reconcile_from_chain -> _record_final -> reflect_final）把 task 4538ae75 的
+        # 结算单从 settled 翻成 cancelled —— 已放款的单子在操作台上变成「已取消」，
+        # 而同一行的 tx_hash 还指着那条绑定真正的 finalize 交易。
+        # 只拦这一格：绑定行自己的收尾（escrow_bindings.state）不在这里，照旧往前走。
+        logger.warning(
+            "escrow_settlement_refused_onchain_downgrade",
+            task_id=task_id,
+            binding_id=getattr(binding, "binding_id", None),
+            kept=model.onchain_status,
+            refused=onchain_status,
+        )
+        return True
     model.settlement_mode = "escrow_allowance"
     model.chain_id = int(settings.testnet_chain_id or 0) or None
     # 记的是**这条绑定自己**那台合约，不是「当前配置」：合约换过地址之后，
