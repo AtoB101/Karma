@@ -197,7 +197,7 @@ curl -sS -X POST "$KARMA_API/v1/verifiers/slashes/<slash_id>/status" \
 ### 5.6.2 这轮**没有**解决的（别当成已做）
 
 - 罚没池分配（④-B3）：谁算「优秀节点」、什么时机分，仍是链下治理规则。
-- 结算回滚（④-B2）：`settlement_reversals` 未做；仲裁被推翻只罚庭。
+- 结算回滚（④-B2）：`settlement_reversals` 当时未做，仲裁被推翻只罚庭 —— **2026-10-15 已落地并在真链上跑通，见 §5.7**。
 - 链上 `slash()` 会把金额**按保证金封顶**（`take = min(amount, bond)`），保证金不足时
   实际划走的少于台账数 —— 这是「按链上事件对账」的事，本轮没做，台账这时只会停在
   `pending`（不会假报 settled）。
@@ -205,6 +205,45 @@ curl -sS -X POST "$KARMA_API/v1/verifiers/slashes/<slash_id>/status" \
   `isActive=false`。生产环境的在岗节点不一定押够了，**prod 本轮不开这两个开关**。
 - 主网 `admin` / `slasher` 必须是多签；`VERIFIER_BOND_OPS_PRIVATE_KEY` 这条 EOA 通路
   不要带去主网。
+
+## 5.7 结算回滚端到端演练（④-B2，2026-10-15，Ethereum Sepolia）
+
+`docs/ARBITRATION_SETTLEMENT_REVERSAL.md` §11 的台账要能真的把钱赔出去，才敢说
+「推翻不再只罚庭」。这一节是它在**真链 + 真库**上的记录，用的还是 ④-B1 那个案件
+（`970925f2-ece0-40d0-b63f-2232baf4c3ec`，`buyer_wins` 已被推翻，托管绑定 `slashed`）。
+
+前置：金库 `0x8eBCF8668a6B54872A4e747d82dB152095B21027` 接上后端
+（`VERIFIER_BOND_VAULT_ADDRESS`）、`ARBITRATION_APPEAL_WINDOW_SECONDS=3000`、
+`ESCROW_AUTOSETTLE_ENABLED` **不设**（即「未定期间」：钱不会自动放，也不会自动退）。
+
+| 步 | 动作 | 结果 |
+|---|---|---|
+| 1 | 治理/操作人钱包自己质押 | `stake(6)` → tx `358f38ba3eb48143f7fa2240cfab9e1db9865b3113f4394ff2dabc1437c6da2f`，block 11916039；该钱包 `bondAmount=10`、`isRegistered/isActive=true`；`totalBonded=19`、`slashPool=0.4` |
+| 2 | `/overturn` 传**错的** victim（买方钱包） | **409**「调用方指认的钱包与按案件推定的不一致」；`settlement_reversals` 0 行、`bond_slashes` 0 行 —— 零写入 |
+| 3 | `/overturn` 正确调用（不传 victim，由后端推定） | 200：`settlement_reversal=recorded`、`owed=3.9`、`victim=a2a-seller`、`victim_wallet=0x9C479392…`、`funding_source=bench_bond`；同时罚庭 1 人、`skipped_unstaked=3` |
+| 4 | 再调一次 | 200、**同一个 `reversal_id`**、`attempts` 不动（幂等，不重复计债） |
+| 5 | 假 tx hash 回写 `settled` | **409**（回链核不过），`paid_amount` 仍是 0 |
+| 6 | 治理钥真 `slash(verifier, victim, 1)` | tx `d7b47bc525fb30791a54a600501ad908e8154f92e7723f23792a9de4245cc04b`，block 11916050；`totalBonded 19→18`、`slashPool 0.4→0.6`、被罚钱包 10→9（仍 ≥ `minBond=5`，`isActive` 没掉） |
+| 7 | 用那笔真 tx 回写 `settled` | 200；台账 `paid_amount 0 → 0.8`、`status pending → submitted`、`credited_txs=[那笔 tx]`、`attempts=1`；只读 API `outstanding_total_usdc 3.9 → 3.1` |
+| 8 | 同一笔 tx 再回写一次 | 200、**不再记一笔**（`paid_amount` 仍 0.8、`attempts` 仍 1） |
+
+核过的：链上那笔 tx 的 `input` 与 `services.chain.verifier_bond_vault.encode_slash_calldata()`
+编出来的 **逐字节一致**（266 hex chars），解出来的 `verifier` / `victim` / `amount_wei`
+与台账行逐项对得上；`receipt.status=1`（没 revert）；全程 `solvencyGap()==0`。
+
+**复原**：drill 档案（在庭那条 assignment + 它的角色档案 + 身份行）删净 —— 在庭名单从 4 条
+回到 3 条；`.env` 从备份还原（金库地址与 3000s 窗口撤掉，回到「金库未配 / 窗口 0」）、容器
+重建、健康检查 200、`vault_configured=false`。**罚没台账与 `settlement_reversals` 行保留**
+—— 那是真实发生的事。两份 env 留在 `/opt/karma/testnet/.env.bak-b2`（演练前）与
+`.env.b2drill`（演练中）备查。
+
+**这轮抓到的**：没有新 bug（链路在 5.6.1 那两处修复之后是通的）。但有一条口径被真链钉死了：
+`paid_amount` 只随「已 `settled`、**且**回链核过」的罚没 tx 动 —— 第 5 格那次 409 之后台账
+一个字都没变，这是它唯一敢走的路。
+
+**没解决的（别当成已做）**：欠款 3.9 只赔出去 0.8（那一笔罚没的受害方份额），余下 3.1 仍挂在
+`outstanding`；「池子补欠款」（④-B3）没做。金库里治理那个 EOA 现在仍押着 9 mUSDC（演练前
+4、演练时又 `stake(6)`、被划 1），`unbond` 有冷却期，本轮**没有**解押 —— 链上状态如实如此。
 
 ## 6. 首次真实出账（2026-10-11，Ethereum Sepolia）
 
