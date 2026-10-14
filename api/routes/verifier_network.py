@@ -43,8 +43,8 @@ from decentralized_verifier.schemas import (
     VerifierUnstakeRequest,
 )
 from services import bond_slash, verifier_bond, verifier_wallet
-from services.chain import verifier_bond_vault
 from services.actor_guards import require_admin_actor, require_arbitration_operator
+from services.chain import verifier_bond_vault
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
