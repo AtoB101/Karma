@@ -858,28 +858,30 @@ async def overturn_arbitration_case(
     )
 
 
-@router.post("/cases/{case_id}/execute", response_model=SettlementState)
-async def execute_arbitration_case(
-    case_id: str,
-    request: Request,
-    actor: str = Depends(require_arbitration_operator),
-    db: AsyncSession = Depends(get_db),
-):
-    """把裁决写回结算。
+def _appeal_window_seconds() -> int:
+    """④-A 上诉窗口长度（秒）。<= 0 = 关闭：``/execute`` 立即放款，行为与历史一致。"""
+    try:
+        return max(0, int(settings.arbitration_appeal_window_seconds or 0))
+    except (TypeError, ValueError):
+        return 0
 
-    此前这条路径**不写** ``settlement_transition_audits``，于是同一笔结算
-    经仲裁改判后在审计链上是断的。现在每次流转都补一条审计。
+
+async def _settle_from_decision(
+    *,
+    db: AsyncSession,
+    case_row: ArbitrationCaseModel,
+    actor: str,
+    route_path: str,
+) -> SettlementState:
+    """④-A 的第二段：把**已下发**的裁决真正落成钱（业务状态 + 链上那一笔）。
+
+    这一段会动钱，所以只该在窗口到点后调用：``/execute``（窗口关闭时）与
+    ``/execute-due``（窗口打开、到点后）。调用方负责先判「案件处于 decided 且
+    时间闸已过」—— 这里不重复判，避免两条路各写一套口径。
     """
     from api.routes.settlement import _record_transition_audit, _sync_escrow_settlement
 
-    case_row = await db.get(ArbitrationCaseModel, case_id)
-    if not case_row:
-        raise HTTPException(404, f"arbitration case {case_id} not found")
-    if case_row.status != ArbitrationCaseStatus.DECIDED.value:
-        raise HTTPException(409, f"arbitration case status must be decided, got {case_row.status}")
-    if not case_row.decided_outcome:
-        raise HTTPException(409, "arbitration decision is missing")
-
+    case_id = case_row.case_id
     store = PostgresSettlementStore(db)
     state = await store.get(case_row.task_id)
     if not state:
@@ -896,7 +898,7 @@ async def execute_arbitration_case(
             transition_allowed=True,
             guard_stage="arbitration_execute",
             reason=f"arbitration case {case_id} accepted",
-            route_path=f"/v1/arbitration/cases/{case_id}/execute",
+            route_path=route_path,
             actor_id=actor,
         )
         state.status = TaskStatus.ARBITRATED
@@ -928,7 +930,7 @@ async def execute_arbitration_case(
         transition_allowed=True,
         guard_stage="arbitration_execute",
         reason=notes,
-        route_path=f"/v1/arbitration/cases/{case_id}/execute",
+        route_path=route_path,
         actor_id=actor,
     )
     state.status = target
@@ -972,6 +974,98 @@ async def execute_arbitration_case(
     return state
 
 
+@router.post("/cases/{case_id}/execute", response_model=SettlementState)
+async def execute_arbitration_case(
+    case_id: str,
+    request: Request,
+    actor: str = Depends(require_arbitration_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    """把裁决写回结算（④-A 第一段：**下发**）。
+
+    此前这条路径**不写** ``settlement_transition_audits``，于是同一笔结算
+    经仲裁改判后在审计链上是断的。现在每次流转都补一条审计。
+
+    ④-A 上诉窗口关着（``ARBITRATION_APPEAL_WINDOW_SECONDS=0``，默认）时，
+    这里与历史行为逐字一致：一步落库、一步碰链。窗口打开时这里**只做两件事** ——
+    记下 ``execute_after``（到期时刻）与一条 ``case_execute_scheduled`` 事件，
+    **链上一笔都不发、钱一步不动**；窗口内推翻因此不需要任何回滚；
+    到点再由 ``/execute-due``（或 ④-A2 的 tick）把裁决落成钱。
+    """
+    case_row = await db.get(ArbitrationCaseModel, case_id)
+    if not case_row:
+        raise HTTPException(404, f"arbitration case {case_id} not found")
+    if case_row.status != ArbitrationCaseStatus.DECIDED.value:
+        raise HTTPException(409, f"arbitration case status must be decided, got {case_row.status}")
+    if not case_row.decided_outcome:
+        raise HTTPException(409, "arbitration decision is missing")
+
+    window = _appeal_window_seconds()
+    if window > 0:
+        # 幂等：重复下发不会把到期时刻往后推（否则谁多调一次，卖方就多等一轮）。
+        if case_row.execute_after is None:
+            case_row.execute_after = datetime.utcnow() + timedelta(seconds=window)
+            case_row.updated_at = datetime.utcnow()
+            await db.flush()
+            await _append_case_event(
+                db=db,
+                case_id=case_id,
+                event_type=ArbitrationEventType.CASE_EXECUTE_SCHEDULED,
+                detail="decision scheduled: payout deferred until the appeal window closes",
+                metadata={
+                    "execute_after": case_row.execute_after.isoformat(),
+                    "appeal_window_seconds": window,
+                    "decided_outcome": case_row.decided_outcome,
+                },
+            )
+            await db.commit()
+        state = await PostgresSettlementStore(db).get(case_row.task_id)
+        if not state:
+            raise HTTPException(404, f"settlement {case_row.task_id} not found")
+        return state
+
+    return await _settle_from_decision(
+        db=db,
+        case_row=case_row,
+        actor=actor,
+        route_path=f"/v1/arbitration/cases/{case_id}/execute",
+    )
+
+
+@router.post("/cases/{case_id}/execute-due", response_model=SettlementState)
+async def execute_arbitration_case_due(
+    case_id: str,
+    request: Request,
+    actor: str = Depends(require_arbitration_operator),
+    db: AsyncSession = Depends(get_db),
+):
+    """④-A 第二段：上诉窗口到点后，把裁决真正落成钱（会碰链）。
+
+    时间闸在**服务端**判：窗口还开着就 409，谁调都一样 —— 不靠调用方自觉。
+    到点了就做窗口关闭时 ``/execute`` 做的那件事，两个入口共用
+    ``_settle_from_decision``，所以口径只有一处。
+    """
+    case_row = await db.get(ArbitrationCaseModel, case_id)
+    if not case_row:
+        raise HTTPException(404, f"arbitration case {case_id} not found")
+    if case_row.status != ArbitrationCaseStatus.DECIDED.value:
+        raise HTTPException(409, f"arbitration case status must be decided, got {case_row.status}")
+    if not case_row.decided_outcome:
+        raise HTTPException(409, "arbitration decision is missing")
+    if case_row.execute_after is not None and case_row.execute_after > datetime.utcnow():
+        raise HTTPException(
+            409,
+            "appeal window is still open; the payout cannot run before "
+            f"{case_row.execute_after.isoformat()}",
+        )
+    return await _settle_from_decision(
+        db=db,
+        case_row=case_row,
+        actor=actor,
+        route_path=f"/v1/arbitration/cases/{case_id}/execute-due",
+    )
+
+
 def _sha256(payload: object) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -1001,6 +1095,7 @@ def _case_to_schema(row: ArbitrationCaseModel) -> ArbitrationCase:
         created_at=row.created_at,
         updated_at=row.updated_at,
         executed_at=row.executed_at,
+        execute_after=row.execute_after,
     )
 
 

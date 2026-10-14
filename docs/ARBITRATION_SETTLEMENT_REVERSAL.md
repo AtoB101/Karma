@@ -1,6 +1,7 @@
 # ④ 仲裁回滚（settlement reversal）落地方案
 
-> 状态：**方案（未动代码、未动合约、未动状态机）**。
+> 状态：**方案**；**④-A1（执行拆两段 + `execute_after`）已落地**（2026-10-14）。
+> 合约与业务状态机的转移表**未改**（没有加任何新边）。
 > 代码基线：`045259f5`（testnet 业务状态机那条腿已走到 `settled`）。
 > 本文所有判断都带代码位置；拿不到证据的地方明说不确定。
 
@@ -198,7 +199,7 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 
 | 阶段 | 内容 | 依赖 | 可否独立验收 |
 |---|---|---|---|
-| ④-A1 | 执行拆两段 + `execute_after` 字段 + 迁移 | 无 | 是 |
+| ④-A1 | 执行拆两段 + `execute_after` 字段 + 迁移 | 无 | **已落地**（见 8.1） |
 | ④-A2 | 后台 tick（`arbitration_execute_due`）+ 常驻进程 | ④-A1 | 是 |
 | ④-A3 | 上诉入口（窗口内改判，零链上动作） | ④-A1 | 是 |
 | ④-B1 | 金库地址接上后端 + 仲裁员质押真上链（`stake` + 记 wallet） | 金库已部署（testnet 已有） | 是 |
@@ -206,6 +207,23 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 | ④-B3 | 罚没池补足欠款 + 操作台展示 | ④-B2 | 是 |
 
 每阶段独立 PR、独立 CI、独立测试网实测，不合并做。
+
+### 8.1 ④-A1 已落地（2026-10-14）
+
+* 开关：`ARBITRATION_APPEAL_WINDOW_SECONDS`（默认 **0 = 关闭**，行为与历史逐字一致）。
+* 列：`arbitration_cases.execute_after`（迁移 `0068_arbitration_execute_after`；老行全 NULL
+  = 没有窗口，正好是关闭态的语义）。
+* `POST /v1/arbitration/cases/{id}/execute`：窗口开着时**只**记 `execute_after` + 一条
+  `case_execute_scheduled` 事件，**链上一笔不发**；重复调用不会把到期时刻往后推。
+* `POST /v1/arbitration/cases/{id}/execute-due`：窗口到点后落钱；没到点一律 409
+  （时间闸在服务端判，谁调都一样）。两个入口共用同一条落钱路径，口径只有一处。
+* 闸门跟着拆：两个入口都挂 `require_arbitration_operator`（没登录 401 / 不在白名单 403）。
+* 测试：`tests/unit/test_arbitration_appeal_window.py`（7 条）。变异验证 —— 把窗口分支
+  关掉 4 条红、把时间闸拆掉 1 条红。
+
+**注意：光有 ④-A1 时窗口还没有入口。** `/overturn` 仍要求案件已 `executed`，所以窗口
+内目前**没有**「上诉 / 改判」这个动作 —— 窗口只是把放款推迟并记下到期时刻。要让
+「推翻零成本」真正可用，必须接 ④-A3（窗口内的上诉入口）。
 
 ---
 
@@ -224,6 +242,7 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 
 ## 十、建议的下一步
 
-**只做 ④-A1 的先决动作**：给 `execute` 加 `execute_after` 字段与迁移，
-把「判决落地」和「放款」拆开，但**暂不改 tick**（先让窗口存在、手动推）。
-这一步不动钱、不动合约、不动状态机，可在测试网独立验证后再往下走。
+**④-A3（窗口内的上诉入口）**：让当事人/运维在窗口内把一个 `decided` 且未到期的案件打回去
+重判（清掉 `execute_after`、案件回到 `voting`）—— 链上一笔没发，所以这是**零回滚成本**
+的那条路，也是 ④-A1 的兑现动作：没有它，窗口是空转的。之后才是 ④-A2（tick）与
+④-B（窗口外补偿）。

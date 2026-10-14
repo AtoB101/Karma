@@ -189,6 +189,7 @@ class ArbitrationEventType(str, Enum):
     VOTE_CAST = "vote_cast"
     CASE_DECIDED = "case_decided"
     CASE_EXECUTED = "case_executed"
+    CASE_EXECUTE_SCHEDULED = "case_execute_scheduled"
     CASE_OVERTURNED = "case_overturned"
 
 
@@ -727,6 +728,8 @@ class ArbitrationCase(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     executed_at: Optional[datetime] = None
+    # ④-A 上诉窗口的到期时刻：非空表示「已下发、还没放款」。
+    execute_after: Optional[datetime] = None
 
 
 class ArbitrationAssignment(BaseModel):
