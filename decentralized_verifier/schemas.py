@@ -200,6 +200,41 @@ class BondSlashListResponse(BaseModel):
     vault_configured: bool
 
 
+class SettlementReversalResponse(BaseModel):
+    """一笔结算回滚欠款台账的对外视图（④-B2）。
+
+    ``paid_amount`` 只在对应链上 tx 回链核过之后才增加；``status`` 停在 ``pending``
+    就是「钱还没真到账」—— 这里如实呈现，不把 pending 写成 settled。
+    """
+
+    reversal_id: str
+    case_id: str
+    task_id: str
+    binding_id: Optional[str] = None
+    victim_identity_id: Optional[str] = None
+    victim_wallet: Optional[str] = None
+    owed_amount: float
+    paid_amount: float
+    funding_source: str
+    status: str
+    tx_hash: Optional[str] = None
+    attempts: int
+    last_error: Optional[str] = None
+    note: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    settled_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class SettlementReversalListResponse(BaseModel):
+    reversals: list[SettlementReversalResponse]
+    total: int
+    outstanding_total_usdc: float
+    vault_configured: bool
+
+
 class BondSlashStatusRequest(BaseModel):
     """推进一笔罚没的出账状态（④-B1）。
 

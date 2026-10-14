@@ -168,3 +168,67 @@ class BondSlash(Base):
             name="uq_bond_slash_source",
         ),
     )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Settlement Reversal Ledger（④-B2 结算回滚赔付台账）
+# ═══════════════════════════════════════════════════════════════════
+
+class SettlementReversal(Base):
+    """裁决被推翻后「该退给受害方多少钱、由哪一路出账」的台账（见 services/settlement_reversal.py）。
+
+    为什么要有它
+    ------------
+    链上没有「把钱倒回来」的原语（见 docs/ARBITRATION_SETTLEMENT_REVERSAL.md §2.3）：
+    ``SETTLED`` / ``REFUNDED`` 是终局，既不能回退状态机，也不能把已经从买方钱包
+    划走的钱再划回来。所以「被推翻」这件事的后果只能记成**一笔债**：欠谁多少、
+    这笔债由金库哪一路出账、已经真到账了多少。
+
+    三条硬规矩（与 bond_slashes 同源）：
+
+    * 受害方与欠款额**当场推定**（按案件的 ``decided_outcome`` 与链上绑定），
+      **不采信调用方口述** —— 否则谁都能把赔款指到自己的钱包；
+    * ``paid_amount`` **只在真正的链上 tx 被回链核过之后**才增加：账上的「已赔」
+      必须对应一笔真的转账，不是运维手拄的一个字符串；
+    * 幂等：同一案件对同一受害方只允许一条账（``uq_settlement_reversal_case_victim``），
+      重复 ``/overturn`` 不会重复计债。
+    """
+    __tablename__ = "settlement_reversals"
+
+    reversal_id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    # 回溯链：案件 → 任务 → 链上那条绑定（没有绑定时 binding_id 为空）。
+    case_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    binding_id: Mapped[str | None] = mapped_column(String(80))
+    # 推定出来的受害方；推不出身份 / 钱包时为空 —— 宁可空着，也不编一个收款人。
+    victim_identity_id: Mapped[str | None] = mapped_column(String(64))
+    victim_wallet: Mapped[str | None] = mapped_column(String(42))
+    # 必须还给受害方的金额（货款 + 被误划的质押，口径见 docs §11.7）。
+    owed_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # 已经**真到账**的金额：只在对应链上 tx 回链核过之后才增加。
+    paid_amount: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # 出账口径（用户裁定 2026-10-15：一律由金库出账）：bench_bond | slash_pool | platform_debt
+    funding_source: Mapped[str] = mapped_column(String(16), nullable=False, default="bench_bond")
+    # pending | submitted | settled | failed（与 bond_slashes 同名同义）
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
+    tx_hash: Mapped[str | None] = mapped_column(String(80))
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    # 口径注记（例如「等落定再算实付」「链上读不到时如何处置」），便于事后对账。
+    note: Mapped[str | None] = mapped_column(Text)
+    # 已经记进 ``paid_amount`` 的那些链上 tx（换行分隔，小写）。一条账可能由**多笔**
+    # 罚没 tx 分别出账（每个被罚仲裁员一笔），所以这里记的是「集合」而不是单个 tx ——
+    # 重复回写同一笔 tx 不会再记一次（防重复计赔）。
+    credited_txs: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "case_id", "victim_identity_id",
+            name="uq_settlement_reversal_case_victim",
+        ),
+    )

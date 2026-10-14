@@ -42,7 +42,7 @@ from decentralized_verifier.schemas import (
     VerifierStakeUpdateRequest,
     VerifierUnstakeRequest,
 )
-from services import bond_slash, verifier_bond, verifier_wallet
+from services import bond_slash, settlement_reversal, verifier_bond, verifier_wallet
 from services.actor_guards import require_admin_actor, require_arbitration_operator
 from services.chain import verifier_bond_vault
 
@@ -266,6 +266,19 @@ async def set_bond_slash_status(
     await bond_slash.settle_slash(
         db, slash_id=slash_id, status=status, tx_hash=tx_hash or None, error=body.error
     )
+
+    # ④-B2：这一笔罚没如果来自「裁决被推翻」，而且刚才是**回链核过**才标 settled 的，
+    # 那就顺手把对应的赔付台账的实付记上 —— 这是 ``paid_amount`` 唯一的增加入口。
+    # 核都核不过的（status != settled）一个字都不加：账上的「已赔」必须对应一笔真转账。
+    reversal = None
+    if status == bond_slash.STATUS_SETTLED:
+        try:
+            reversal = await settlement_reversal.credit_from_settled_slash(
+                db, slash=row, chain_proof=proof or {}
+            )
+        except settlement_reversal.SettlementReversalError as exc:
+            raise HTTPException(exc.status, exc.message) from exc
+
     await db.commit()
     await db.refresh(row)
     logger.info(
@@ -275,6 +288,8 @@ async def set_bond_slash_status(
         actor=actor,
         tx_hash=tx_hash or None,
         verified_block=(proof or {}).get("block"),
+        settlement_reversal_id=(reversal.reversal_id if reversal else None),
+        settlement_reversal_paid=(float(reversal.paid_amount) if reversal else None),
     )
     return BondSlashResponse.model_validate(row)
 
