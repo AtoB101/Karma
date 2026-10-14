@@ -151,7 +151,8 @@ class Settings(BaseSettings):
     #               ``POST /v1/arbitration/cases/{id}/execute-due``（或 ④-A2 的 tick）落钱。
     # 为什么需要它：链上没有「把钱倒回来」的原语（见
     # docs/ARBITRATION_SETTLEMENT_REVERSAL.md）—— 唯一的零成本回滚窗口，
-    # 就是「还没开链上结算窗」之前。窗口多长由产品/风控拍板（测试网建议 300）。
+    # 就是「还没开链上结算窗」之前。窗口多长由产品/风控拍板 —— 用户 2026-10-15 拍板：
+    # **测试网 3000s**（本地默认仍是 0 = 关，行为与历史逐字一致）。
     arbitration_appeal_window_seconds: int = 0
 
     # ④-A3 同一案件在窗口内最多被打回几次（防无限拖期）。窗口关着时用不到。

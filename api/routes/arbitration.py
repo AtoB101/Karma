@@ -45,9 +45,14 @@ from db.models.orm import (
     TaskContractModel,
 )
 from db.session import get_db
+from decentralized_verifier.schemas import (
+    SettlementReversalListResponse,
+    SettlementReversalResponse,
+)
 from db.stores.settlement_store import PostgresSettlementStore
 from services import arbitration_rules as arb_rules
-from services import bond_slash, economy_policy, governance_stake
+from services import bond_slash, economy_policy, governance_stake, settlement_reversal
+from services import verifier_bond
 from services.actor_guards import require_admin_actor, require_arbitration_operator
 from services.capacity_resolution import apply_capacity_resolution
 from services.identity_actor import resolve_actor_identity_id
@@ -709,11 +714,26 @@ async def cast_vote(
 class OverturnArbitrationCaseRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     reason: str
+    # ④-B2 起：赔款对象**由后端按案件推定**，这两个字段只在「与推定一致」时被接受
+    # （不一致 = 409）—— 免得调用方能随口把赔款指到别人的钱包上。
     victim_wallet_address: str | None = None
     victim_identity_id: str | None = None
     # 省略 = 按「立案费 × ARBITRATION_SLASH_MULTIPLE」逐人罚；给了就按这个数
     # （仍以该仲裁员的质押承诺额为上限）。
     slash_amount: float | None = Field(default=None, ge=0.0)
+
+
+class SettlementReversalDetail(BaseModel):
+    """`/overturn` 建出来的那条赔付台账（没有建账时为 None）。"""
+
+    reversal_id: str
+    victim_identity_id: str | None = None
+    victim_wallet: str | None = None
+    owed_amount: float
+    paid_amount: float
+    funding_source: str
+    status: str
+    basis: str | None = None
 
 
 class OverturnArbitrationCaseResponse(BaseModel):
@@ -725,8 +745,13 @@ class OverturnArbitrationCaseResponse(BaseModel):
     bond_slashes: list[str]
     slashed_arbitrators: int
     skipped_unstaked: int
-    # 结算回滚**没有**在这条路由里做（见函数注释）：如实回一个标记，不假装。
+    # ④-B2：结算回滚**有没有真做**，如实回一个枚举 —— 不假装已经退了。
+    #   recorded     建了赔付台账（档 B/C）
+    #   not_moved    钱没动（档 A）→ 零成本回滚走 /appeal，不建账
+    #   no_binding   这一单没有链上结算，谈不上回滚
+    #   self_dealing 自成交命中 → 不进赔付
     settlement_reversal: str
+    settlement_reversal_detail: SettlementReversalDetail | None = None
 
 
 @router.post("/cases/{case_id}/overturn", response_model=OverturnArbitrationCaseResponse)
@@ -736,22 +761,40 @@ async def overturn_arbitration_case(
     actor: str = Depends(require_arbitration_operator),
     db: AsyncSession = Depends(get_db),
 ):
-    """推翻一个**已执行**的裁决 —— 在庭仲裁员按立案费倍数罚没（G12 同期项）。
+    """推翻一个**已执行**的裁决 —— 在庭仲裁员按立案费倍数罚没（G12）+ 结算回滚台账（④-B2）。
 
     背景：``ARBITRATION_SLASH_MULTIPLE``（默认 2×）此前只是一条 policy ——
-    ``economy-policy`` 接口把它展示给用户，但``api/routes/arbitration.py`` 里
-    既没有上诉 / 推翻入口，也没有罚没落点。结果就是「整庭判错被推翻」= 换个人再判
-    一次，判错的人零成本。这条路由把「被推翻」补成有后果的一件事，且复用节点罚没的
-    同一套台账（``services/bond_slash.py``：先落账、后出账、80/20 分账、按来源幂等）：
+    ``economy-policy`` 接口把它展示给用户，但既没有上诉 / 推翻入口，也没有罚没落点。
+    结果就是「整庭判错被推翻」= 换个人再判一次，判错的人零成本。这条路由把「被推翻」
+    补成有后果的一件事，且复用节点罚没的同一套台账（``services/bond_slash.py``：
+    先落账、后出账、80/20 分账、按来源幂等）：
 
     * 每个**在庭且有质押承诺**的仲裁员按 ``立案费 × 倍数`` 罚没，上限是其质押承诺额；
     * 台账当场写；``IdentityRoleProfile.stake_amount`` 当场下调 —— 低于平台下限就是
       「押金走则岗停」：``governance_stake.assert_governor_active`` 下一次复核立刻 403；
     * 出账同样停在 ``pending``，直到链上金库 / 治理账户把交易落定 —— 没有 tx 就没有
-      ``settled``（``services/bond_slash.py`` 的硬规矩）；
-    * **不做**结算回滚：已结算的钱要退回，是另一条独立路径（需要买/卖双方与托管状态机
-      配合）。这里如实返回 ``settlement_reversal = "not_performed"``，不假装已经退了。
+      ``settled``（``services/bond_slash.py`` 的硬规矩）。
+
+    ④-B2 起，**钱的那一半也不再只是「如实说没做」**：链上没有「把钱倒回来」的原语
+    （``SETTLED`` / ``REFUNDED`` 是终局），所以「被推翻」的后果记成**一笔债** ——
+    ``settlement_reversals`` 台账。受害方与欠款额**当场按案件推定**，不采信调用方口述：
+
+    1. 案件必须 ``executed``；``partial`` 一律 409（细则未定，不猜比例）；
+    2. 按 ``task_id`` 找最新链上绑定；没有绑定 → 不建账、如实回 ``no_binding``；
+    3. 问链分档：``active/disputed`` → 钱没动、不建账（走 ``/appeal`` 那条零成本回滚）；
+       ``finalizing`` → 建账 ``pending``（等落定再算实付）；``settled/slashed`` → 进赔付。
+       **链上读不到一律 409、零写入**（fail-closed）；
+    4. 推定受害方与欠款额（``settlement_reversal.presume_victim``）；
+    5. 动钱之前先过 ``funds_trace.assert_funds_traceable``：整条资金链路对不上 → 409 零写入；
+    6. 自成交命中（``escrow_settlement.detect_self_dealing``）→ 不进赔付；
+    7. find-or-create：同一案件对同一受害方只有一条账，重复推翻不会重复计债。
+
+    ``paid_amount`` 只在「该案罚没行已 ``settled``」**且**「那条 tx 回链核过」之后才增加
+    （``services/settlement_reversal.py::credit_from_settled_slash``，由
+    ``POST /v1/verifiers/slashes/{id}/status`` 在 settle 成功那一刻调用）。
     """
+    from services.chain import escrow_settlement, funds_trace
+
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
@@ -759,6 +802,16 @@ async def overturn_arbitration_case(
         raise HTTPException(
             409,
             f"only an executed case can be overturned, got {case_row.status}",
+        )
+
+    outcome = (case_row.decided_outcome or "").strip() or None
+    if outcome == settlement_reversal.OUTCOME_PARTIAL:
+        # 用户裁定（2026-10-15）：细则未定期间，partial 一律 409 —— 不猜一个比例出来，
+        # 也不让一个「回滚金额算不出来」的推翻悄悄过去。
+        raise HTTPException(
+            409,
+            "partial 判决的结算回滚细则未定：本阶段一律拒绝推翻，不猜一个比例出来"
+            "（先把口径写进 docs/ARBITRATION_SETTLEMENT_REVERSAL.md §11.7 再放开）",
         )
 
     try:
@@ -771,6 +824,83 @@ async def overturn_arbitration_case(
     fee = float(economy_policy.case_fee(case_value))
     per_arbitrator = round(fee * multiple, 8)
 
+    # ── ④-B2 第一段：找绑定 → 问链 → 推定受害方（不采信调用方口述） ──────────
+    binding = await escrow_settlement.newest_binding_for_task(db, task_id=case_row.task_id)
+    chain_state: int | None = None
+    bucket = settlement_reversal.BUCKET_UNKNOWN
+    if binding is not None:
+        snapshot = await escrow_settlement.chain_snapshot(binding)
+        if snapshot is None:
+            raise HTTPException(
+                409,
+                "链上读不到这一单的托管状态：钱动没动都判断不了，一条账都不写"
+                "（读链失败默认拒绝，见 docs/ARBITRATION_SETTLEMENT_REVERSAL.md §三）",
+            )
+        chain_state = snapshot.get("state")
+        bucket = settlement_reversal.bucket_of_chain_state(chain_state)
+        if bucket == settlement_reversal.BUCKET_UNKNOWN:
+            raise HTTPException(
+                409,
+                f"链上报了一个不认识的托管状态（{chain_state!r}）：不猜它的意思，也不动账",
+            )
+
+    presumed: settlement_reversal.PresumedVictim | None = None
+    presumed_wallet: str | None = None
+    if binding is not None:
+        try:
+            presumed = settlement_reversal.presume_victim(
+                decided_outcome=outcome, binding=binding, chain_state=chain_state
+            )
+        except settlement_reversal.SettlementReversalError as exc:
+            raise HTTPException(exc.status, exc.message) from exc
+        if presumed.identity_id:
+            presumed_wallet = await get_bound_wallet(db, presumed.identity_id)
+
+    # 调用方口述的赔款对象：**只在与推定一致时**才接受（防「把赔款指给别人」）。
+    caller_wallet = (body.victim_wallet_address or "").strip() or None
+    caller_identity = (body.victim_identity_id or "").strip() or None
+    if presumed is None:
+        if caller_wallet or caller_identity:
+            raise HTTPException(
+                409,
+                "这一单没有链上结算，无从推定受害方：不接受调用方口述的赔款对象",
+            )
+    else:
+        if caller_wallet and caller_wallet.lower() != (presumed_wallet or "").lower():
+            raise HTTPException(
+                409,
+                f"调用方指认的赔款钱包 {caller_wallet} 与按案件推定的受害方不一致"
+                f"（推定：{presumed_wallet or '推不出钱包，不编'}）—— 赔款对象由后端推定",
+            )
+        if caller_identity and caller_identity != (presumed.identity_id or ""):
+            raise HTTPException(
+                409,
+                f"调用方指认的受害方 {caller_identity} 与按案件推定的受害方不一致"
+                f"（推定：{presumed.identity_id or '推不出身份'}）—— 赔款对象由后端推定",
+            )
+
+    victim_wallet = presumed_wallet if presumed else None
+    victim_identity = presumed.identity_id if presumed else None
+
+    # ── ⑤ 动钱之前最后一道：整条资金链路必须互相指得着 ──────────────────────
+    if binding is not None:
+        try:
+            await funds_trace.assert_funds_traceable(
+                db, task_id=case_row.task_id, stage="settlement_reversal"
+            )
+        except escrow_settlement.EscrowSettlementError as exc:
+            raise HTTPException(exc.status, exc.message) from exc
+
+    # ── ⑥ 自成交：命中就不进赔付（判据只有这一份实现） ──────────────────────
+    self_dealing = None
+    if binding is not None:
+        self_dealing = await escrow_settlement.detect_self_dealing(
+            db,
+            buyer_identity_id=getattr(binding, "buyer_identity_id", None),
+            seller_identity_id=getattr(binding, "seller_identity_id", None),
+        )
+
+    # ── G12：在庭且有质押承诺的仲裁员逐人罚没 ──────────────────────────────
     assignments = (
         await db.execute(
             select(ArbitrationAssignmentModel).where(
@@ -782,8 +912,6 @@ async def overturn_arbitration_case(
     slashed_ids: list[str] = []
     slashed_arbitrators = 0
     skipped_unstaked = 0
-    victim_wallet = (body.victim_wallet_address or "").strip() or None
-    victim_identity = (body.victim_identity_id or "").strip() or None
 
     for assignment in assignments:
         subject_id = (assignment.arbitrator_identity_id or "").strip()
@@ -830,6 +958,49 @@ async def overturn_arbitration_case(
         profile.stake_amount = round(max(0.0, committed - amount), 8)
         profile.updated_at = datetime.utcnow()
 
+    # ── ⑦ 幂等建账 ────────────────────────────────────────────────────────
+    reversal = None
+    reversal_outcome = settlement_reversal.REVERSAL_NO_BINDING
+    reversal_basis: str | None = None
+    if binding is None:
+        reversal_outcome = settlement_reversal.REVERSAL_NO_BINDING
+    elif bucket == settlement_reversal.BUCKET_NOT_MOVED:
+        # 钱还没动：真正的零成本回滚是 /appeal（把判决打回重投），不是记一笔债。
+        reversal_outcome = settlement_reversal.REVERSAL_NOT_MOVED
+    elif self_dealing is not None:
+        reversal_outcome = settlement_reversal.REVERSAL_SELF_DEALING
+    else:
+        reversal_basis = presumed.basis if presumed else None
+        if bucket == settlement_reversal.BUCKET_IN_WINDOW:
+            reversal_basis = f"{reversal_basis}；链上窗口还没落定，等落定再算实付"
+        reversal, _created = await settlement_reversal.record_reversal(
+            db,
+            case_id=case_id,
+            task_id=case_row.task_id,
+            binding_id=getattr(binding, "binding_id", None),
+            victim_identity_id=victim_identity,
+            victim_wallet=victim_wallet,
+            owed_amount=presumed.owed_amount if presumed else 0.0,
+            funding_source=settlement_reversal.default_funding_source(
+                bench_bonded=await settlement_reversal.case_has_bench_slashes(db, case_id=case_id)
+            ),
+            note=reversal_basis,
+        )
+        reversal_outcome = settlement_reversal.REVERSAL_RECORDED
+
+    detail = None
+    if reversal is not None:
+        detail = {
+            "reversal_id": reversal.reversal_id,
+            "victim_identity_id": reversal.victim_identity_id,
+            "victim_wallet": reversal.victim_wallet,
+            "owed_amount": float(reversal.owed_amount or 0.0),
+            "paid_amount": float(reversal.paid_amount or 0.0),
+            "funding_source": reversal.funding_source,
+            "status": reversal.status,
+            "basis": reversal_basis,
+        }
+
     await _append_case_event(
         db=db,
         case_id=case_id,
@@ -844,7 +1015,9 @@ async def overturn_arbitration_case(
             "slashed_arbitrators": slashed_arbitrators,
             "skipped_unstaked": skipped_unstaked,
             "bond_slashes": slashed_ids,
-            "settlement_reversal": "not_performed",
+            "settlement_reversal": reversal_outcome,
+            "settlement_reversal_detail": detail,
+            "chain_bucket": bucket,
         },
     )
     case_row.updated_at = datetime.utcnow()
@@ -856,6 +1029,8 @@ async def overturn_arbitration_case(
         actor=actor,
         slashed=slashed_arbitrators,
         skipped_unstaked=skipped_unstaked,
+        settlement_reversal=reversal_outcome,
+        chain_bucket=bucket,
     )
     return OverturnArbitrationCaseResponse(
         case_id=case_id,
@@ -866,7 +1041,38 @@ async def overturn_arbitration_case(
         bond_slashes=slashed_ids,
         slashed_arbitrators=slashed_arbitrators,
         skipped_unstaked=skipped_unstaked,
-        settlement_reversal="not_performed",
+        settlement_reversal=reversal_outcome,
+        settlement_reversal_detail=detail,
+    )
+
+
+@router.get("/reversals", response_model=SettlementReversalListResponse)
+async def list_settlement_reversals(
+    case_id: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    actor: str = Depends(require_admin_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """结算回滚欠款台账（④-B2）：谁该退谁多少、由金库哪一路出账、已经真到账多少。
+
+    ``paid_amount`` 只在对应链上 tx **回链核过**之后才增加（见
+    ``services/settlement_reversal.py::credit_from_settled_slash``）。所以：
+
+    * ``status=pending`` = 账已记、链上还没出账 —— 如实呈现，**不把 pending 写成 settled**；
+    * ``outstanding_total_usdc`` = 全表还没赔完的合计（``owed - paid``，失败的不算）。
+
+    只读接口：这条路上没有任何「改账」的能力，出账只有治理账户在链上做了、
+    再回链核过之后才会推进这张台账。
+    """
+    rows = await settlement_reversal.list_reversals(
+        db, case_id=case_id, status=status, limit=limit
+    )
+    return SettlementReversalListResponse(
+        reversals=[SettlementReversalResponse.model_validate(row) for row in rows],
+        total=len(rows),
+        outstanding_total_usdc=await settlement_reversal.outstanding_total(db),
+        vault_configured=verifier_bond.vault_configured(),
     )
 
 

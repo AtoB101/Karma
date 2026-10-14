@@ -229,4 +229,11 @@ curl -sS -X POST "$KARMA_API/v1/verifiers/slashes/<slash_id>/status" \
    在此之前不要假装它已经自动化。
 5. （④-B1 后）主网要把 `VERIFIER_REQUIRE_VAULT_BOND` / `ARBITRATION_REQUIRE_VAULT_BOND`
    同样开着，并先把在岗节点 / 仲裁员的钱包 stake() 进金库。
-6. 结算回滚仍未做：仲裁被推翻只罚庭，接口如实返回 `settlement_reversal="not_performed"`。
+6. 结算回滚（④-B2，2026-10-15 落地）：仲裁被推翻不再只罚庭 —— `/overturn` 当场按案件
+   **推定**受害方与欠款额、写进 `settlement_reversals` 台账，响应里的 `settlement_reversal`
+   回枚举（`recorded` / `not_moved` / `no_binding` / `self_dealing`），细节见
+   `docs/ARBITRATION_SETTLEMENT_REVERSAL.md` §11。主网前要留意的两点：
+   **① 赔款对象由后端推定**，接口不再接受「调用方随口指一个钱包」；
+   **② `paid_amount` 只会被「已 settled 且回链核过」的罚没 tx 推动**，没有别的入口。
+   测试网 `ARBITRATION_APPEAL_WINDOW_SECONDS = 3000`（用户 2026-10-15 拍板；本地默认 0 = 关）。
+   真链演练记录见 §5.7。

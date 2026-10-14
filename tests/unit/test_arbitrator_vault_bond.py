@@ -31,6 +31,7 @@ from db.models.orm import (
     ArbitrationAssignmentModel,
     ArbitrationCaseModel,
     ArbitrationPoolMemberModel,
+    EscrowBindingModel,
     IdentityProfileModel,
     IdentityRoleProfile,
     TaskContractModel,
@@ -152,6 +153,58 @@ async def _bind_wallet(db, identity_id=IDENTITY, wallet=WALLET):
         )
     )
     await db.commit()
+
+
+async def _seed_payable_binding(db, *, task_id: str) -> None:
+    """一条「钱已经动了」的托管绑定 + 两边的钱包绑定（④-B2 用）。
+
+    ``buyer_wins`` 被推翻 → 受害方是**卖方**；这里把卖方的绑定钱包设成 ``OTHER_WALLET``，
+    于是调用方传 ``OTHER_WALLET`` 正好等于后端的推定结果 —— ④-B2 起只接受这种「一致」。
+    """
+    db.add(
+        IdentityProfileModel(
+            identity_id="buyer-b1", display_id="Karma-ID-B1-buyer",
+            bound_wallet_address="0x" + "aa" * 20,
+        )
+    )
+    db.add(
+        IdentityProfileModel(
+            identity_id="seller-b1", display_id="Karma-ID-B1-seller",
+            bound_wallet_address=OTHER_WALLET,
+        )
+    )
+    db.add(
+        EscrowBindingModel(
+            binding_id="77", buyer_identity_id="buyer-b1", seller_identity_id="seller-b1",
+            buyer_bill_id="bill-buyer-b1", seller_bill_id="bill-seller-b1",
+            contract_address="0x2C9911F58CfDb5f097926c4aC104108f4f49743b",
+            scope_hash="0x" + "ab" * 32, task_id=task_id, amount_usdc=3.0,
+            stake_usdc=3.0, state="slashed",
+        )
+    )
+    await db.commit()
+
+
+def _stub_escrow_chain(monkeypatch, *, state: int) -> None:
+    """把「问链」整段换成替身：用例里没有 RPC，真读链必然是 None。"""
+    from services.chain import escrow_settlement
+    from services.chain import funds_trace as funds_trace_module
+
+    async def _snapshot(binding):
+        return {
+            "state": state, "buyer_confirmed": False, "confirmed_at": None,
+            "slash_armed": True, "settle_after": None, "closed_at": None,
+        }
+
+    async def _detect(db, *, buyer_identity_id=None, seller_identity_id=None, **_kw):
+        return None
+
+    async def _trace_ok(db, *, task_id, stage):
+        return None
+
+    monkeypatch.setattr(escrow_settlement, "chain_snapshot", _snapshot)
+    monkeypatch.setattr(escrow_settlement, "detect_self_dealing", _detect)
+    monkeypatch.setattr(funds_trace_module, "assert_funds_traceable", _trace_ok)
 
 
 # ---------------------------------------------------------------------------
@@ -391,9 +444,14 @@ async def _seed_executed_case(db, *, case_id: str, task_id: str, case_value: flo
 
 @pytest.mark.asyncio
 async def test_overturn_records_the_bound_wallet(client_sec, db_session, monkeypatch):
+    # ④-B2 起契约变了：赔款对象**由后端按案件推定**，调用方传的 victim 只有在
+    # 「与推定一致」时才被接受（不一致 / 没有绑定可推定 → 409）。所以这里有两条改动：
+    # 1) 种一条「钱已经动了」的托管绑定，让推定有依据；2) 传的 victim 正好等于推定结果。
     monkeypatch.setattr(settings, "arbitration_slash_multiple", 2.0)
     await _seed_executed_case(db_session, case_id="case-b1-a", task_id="task-b1-a")
     await _bind_wallet(db_session)
+    await _seed_payable_binding(db_session, task_id="task-b1-a")
+    _stub_escrow_chain(monkeypatch, state=4)
 
     resp = await client_sec.post(
         "/v1/arbitration/cases/case-b1-a/overturn",

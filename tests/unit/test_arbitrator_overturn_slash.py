@@ -89,7 +89,10 @@ async def test_overturn_slashes_the_bench_by_fee_multiple(client_sec, db_session
     assert body["per_arbitrator_usdc"] == 3.0
     assert body["slashed_arbitrators"] == 1
     assert body["skipped_unstaked"] == 1, "a whitelist bench member has no bond to slash"
-    assert body["settlement_reversal"] == "not_performed"
+    # ④-B2 起契约变了：这一单没有链上结算（没有 escrow_binding）→ 如实回 "no_binding"，
+    # 那条老契约值 "not_performed" 已随本阶段落地移除（见 docs/ARBITRATION_SETTLEMENT_REVERSAL.md §11.6）。
+    assert body["settlement_reversal"] == "no_binding"
+    assert body["settlement_reversal_detail"] is None
 
     profile = (
         await db_session.execute(

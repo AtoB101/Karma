@@ -382,7 +382,10 @@ L3-2 把治理岗做成「押金在则岗在」，节点侧此前只到「入场
   押金失效的节点直接 403。
 - **仲裁员被推翻同期补上**：`POST /v1/arbitration/cases/{id}/overturn` —— 在庭且有质押承诺的仲裁员
   按「立案费 × `ARBITRATION_SLASH_MULTIPLE`」罚没（上限 = 质押承诺额），`stake_amount` 当场下调 →
-  下次在任复核即 403。结算回滚**未做**，接口如实返回 `not_performed`。
+  下次在任复核即 403。④-B2 起结算回滚也接上了：后端按案件**推定**受害方与欠款额，写
+  `settlement_reversals` 台账（响应 `settlement_reversal` 回 `recorded` / `not_moved` /
+  `no_binding` / `self_dealing`），操作台展示归 ④-B3。见
+  `docs/ARBITRATION_SETTLEMENT_REVERSAL.md` §11。
 - **裁决收口**：`/v1/verifiers/challenges/{id}/resolve` 现在要仲裁员 / 管理员白名单（此前只要登录会话）。
 
 主网硬前置：**主网**金库要先部署、接治理多签，再把地址配进 `VERIFIER_BOND_VAULT_ADDRESS`；主网没配之前
