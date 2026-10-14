@@ -689,3 +689,47 @@ def test_verify_slash_tx_rejects_a_truncated_calldata(monkeypatch):
 def test_verify_slash_tx_rejects_everything_else(monkeypatch, kwargs, match):
     with pytest.raises(vbv.BondVaultUnavailable, match=match):
         _verify_with(monkeypatch, **kwargs)
+
+
+
+# ---------------------------------------------------------------------------
+# 7) 真节点的 calldata 形状：HexBytes / bytes / 裸 hex，一个都不许漏
+# ---------------------------------------------------------------------------
+def test_verify_slash_tx_accepts_hexbytes_input_like_a_real_node(monkeypatch):
+    """真节点 ``eth_getTransactionByHash`` 回的 ``input`` 是 ``HexBytes``。
+
+    ``HexBytes`` 是 ``bytes`` 子类，``str()`` 出来是 ``b"...\xa5\'\xf1..."`` 的样子 ——
+    直接 ``str(tx["input"])`` 去比选择器，永远比不上：一笔真的 slash 会被判成「不是
+    slash 调用」。测试网真链上打到过这个。
+    """
+    from hexbytes import HexBytes
+
+    proof = _verify_with(
+        monkeypatch,
+        data=HexBytes(_slash_calldata()),
+        expected_verifier=WALLET,
+        expected_victim=OTHER_WALLET,
+        expected_amount_usdc=3.0,
+    )
+    assert proof["selector"] == vbv.SLASH_SELECTOR
+    assert proof["verifier"].lower() == WALLET.lower()
+    assert proof["amount_usdc"] == 3.0
+
+
+def test_verify_slash_tx_accepts_raw_bytes_and_bare_hex(monkeypatch):
+    call = _slash_calldata()
+    for data in (bytes.fromhex(call[2:]), call[2:]):
+        proof = _verify_with(monkeypatch, data=data, expected_amount_usdc=3.0)
+        assert proof["amount_usdc"] == 3.0
+
+
+def test_decode_slash_calldata_accepts_every_hex_shape(monkeypatch):
+    from hexbytes import HexBytes
+
+    call = _slash_calldata()
+    shapes = [call, call.upper(), call[2:], bytes.fromhex(call[2:]), HexBytes(call)]
+    decoded = [vbv.decode_slash_calldata(shape) for shape in shapes]
+    for item in decoded:
+        assert item == decoded[0]
+    assert decoded[0]["verifier"].lower() == WALLET.lower()
+    assert decoded[0]["amount_wei"] == vbv.usdc_to_wei(3.0)
