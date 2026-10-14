@@ -18,7 +18,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from services import verifier_bond
-from services.chain.wallet_lock import usdc_to_wei, wei_to_usdc
+from services.chain.wallet_lock import _hexstr, usdc_to_wei, wei_to_usdc
 
 #: 只包含我们要用到的那几个函数的最小 ABI —— 够编码 calldata，不需要外部依赖。
 VAULT_ABI: list[dict[str, Any]] = [
@@ -300,7 +300,10 @@ def decode_slash_calldata(data: str) -> dict[str, Any]:
     还不够，还得是**罚了台账上那个人、那个数**；否则拿一笔罚别人的 tx 也能把这一行
     标成「已出账」。
     """
-    body = data[10:] if data.lower().startswith(SLASH_SELECTOR) else ""
+    # 真节点回的是 HexBytes（bytes 子类，``str()`` 出来是 b"..." 的样子），
+    # 有些客户端回的是不带 0x 的裸 hex —— 先归一化，否则选择器永远比不上。
+    data = _hexstr(data)
+    body = data[10:] if data.startswith(SLASH_SELECTOR) else ""
     if len(body) < 192:
         raise BondVaultUnavailable(
             "slash calldata is truncated: %d hex chars after the selector (need >= 192)"
@@ -365,7 +368,7 @@ def verify_slash_tx_sync(
         raise BondVaultUnavailable(
             "transaction %s was sent to %s, not to the bond vault %s" % (tx_hash, to or "<none>", address)
         )
-    data = str(_field(tx, "input", "") or "")
+    data = _hexstr(_field(tx, "input", ""))
     if not data.lower().startswith(SLASH_SELECTOR):
         raise BondVaultUnavailable(
             "transaction %s does not call slash(address,address,uint256,bytes32)" % tx_hash
