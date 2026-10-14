@@ -614,6 +614,7 @@ async def cast_vote(
 
     row = ArbitrationVoteModel(
         case_id=case_id,
+        vote_round=int(case_row.vote_round or 0),
         arbitrator_identity_id=body.arbitrator_identity_id,
         decision=body.decision.value,
         partial_percent=body.partial_percent,
@@ -643,6 +644,7 @@ async def cast_vote(
             "actor_mismatch": actor_mismatch,
             "decision": row.decision,
             "partial_percent": row.partial_percent,
+            "vote_round": row.vote_round,
         },
     )
     if actor_mismatch:
@@ -657,8 +659,12 @@ async def cast_vote(
             },
         )
 
+    # ④-A3：只数**本轮**的票。上一轮的票留在库里当审计，但不再决定结果。
     votes_result = await db.execute(
-        select(ArbitrationVoteModel).where(ArbitrationVoteModel.case_id == case_id)
+        select(ArbitrationVoteModel).where(
+            ArbitrationVoteModel.case_id == case_id,
+            ArbitrationVoteModel.vote_round == int(case_row.vote_round or 0),
+        )
     )
     votes = votes_result.scalars().all()
     if len(votes) >= case_row.required_arbitrators:
@@ -1066,6 +1072,136 @@ async def execute_arbitration_case_due(
     )
 
 
+class AppealArbitrationCaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    appellant: str
+    reason: str
+
+
+class AppealArbitrationCaseResponse(BaseModel):
+    case_id: str
+    status: str
+    vote_round: int
+    appeal_count: int
+    previous_outcome: str | None = None
+    previous_execute_after: datetime | None = None
+    # 这次上诉**没碰链、没碰钱**（窗口内放款还没发生）：如实回标记，不假装。
+    chain_action: str
+
+
+def _max_appeals() -> int:
+    """同一案件在窗口内最多被打回几次。<= 0 = 不限（默认 3）。"""
+    try:
+        return int(settings.arbitration_max_appeals or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+@router.post("/cases/{case_id}/appeal", response_model=AppealArbitrationCaseResponse)
+async def appeal_arbitration_case(
+    case_id: str,
+    body: AppealArbitrationCaseRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """④-A3：窗口内上诉 —— 把「已下发、还没放款」的裁决打回去重审。
+
+    这条路的全部价值是**零成本**：链上一笔还没发，所以「推翻」不需要任何回滚，
+    只要把案子从 ``decided`` 打回 ``voting``、清掉 ``execute_after``（取消已排期的
+    放款）就完事。窗口一过（``execute_after`` 到点）这里一律 409 —— 那时候钱要么
+    已经在路上、要么已经落地，只能走 ④-B 的「只能赔、不能倒」。
+
+    票按**轮次**计：打回时 ``vote_round += 1``，上一轮的票留在库里当审计，
+    但不再参与计票 —— 否则打回之后随便再来一票，就会把旧结果立刻重新「投」出来。
+    """
+    case_row = await db.get(ArbitrationCaseModel, case_id)
+    if not case_row:
+        raise HTTPException(404, f"arbitration case {case_id} not found")
+
+    if _appeal_window_seconds() <= 0:
+        raise HTTPException(
+            409,
+            "appeal window is disabled (ARBITRATION_APPEAL_WINDOW_SECONDS=0); "
+            "there is nothing to appeal into",
+        )
+    if case_row.status != ArbitrationCaseStatus.DECIDED.value:
+        raise HTTPException(409, f"arbitration case status must be decided, got {case_row.status}")
+    if case_row.execute_after is None:
+        raise HTTPException(
+            409,
+            "this payout was never scheduled with an appeal window; call /execute first",
+        )
+    if case_row.execute_after <= datetime.utcnow():
+        raise HTTPException(
+            409,
+            "the appeal window already closed at "
+            f"{case_row.execute_after.isoformat()}; reopening the case would not undo the payout",
+        )
+
+    limit = _max_appeals()
+    if limit > 0 and int(case_row.appeal_count or 0) >= limit:
+        raise HTTPException(
+            409,
+            f"this case has already been appealed {case_row.appeal_count} time(s); "
+            f"the limit is {limit}",
+        )
+
+    # 只有当事人（立案人 / 结算双方）本人，或白名单运维岗代提，才能上诉。
+    state = await PostgresSettlementStore(db).get(case_row.task_id)
+    parties = {case_row.opened_by}
+    if state is not None:
+        if state.client_agent_id:
+            parties.add(state.client_agent_id)
+        if state.worker_agent_id:
+            parties.add(state.worker_agent_id)
+    if body.appellant not in parties and not arb_rules.caller_is_operator(request):
+        raise HTTPException(403, "only a party to the dispute may appeal this case")
+    await arb_rules.require_identity_binding(db, request, body.appellant, what="appeal")
+
+    # 安全门：窗口内链上还不许有受款人。读链失败默认拒绝（见 §七.4）。
+    from services.chain import escrow_settlement
+
+    try:
+        await escrow_settlement.assert_no_payee_yet(db, task_id=case_row.task_id)
+    except escrow_settlement.EscrowSettlementError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
+
+    previous_outcome = case_row.decided_outcome
+    previous_execute_after = case_row.execute_after
+
+    case_row.status = ArbitrationCaseStatus.VOTING.value
+    case_row.decided_outcome = None
+    case_row.final_partial_percent = None
+    case_row.execute_after = None
+    case_row.vote_round = int(case_row.vote_round or 0) + 1
+    case_row.appeal_count = int(case_row.appeal_count or 0) + 1
+    case_row.updated_at = datetime.utcnow()
+    await _append_case_event(
+        db=db,
+        case_id=case_id,
+        event_type=ArbitrationEventType.CASE_APPEAL_OPENED,
+        detail="in-window appeal: decision reopened for a fresh round of votes",
+        metadata={
+            "appellant": body.appellant,
+            "reason": body.reason,
+            "previous_outcome": previous_outcome,
+            "previous_execute_after": previous_execute_after.isoformat(),
+            "vote_round": case_row.vote_round,
+            "appeal_count": case_row.appeal_count,
+        },
+    )
+    await db.commit()
+    return AppealArbitrationCaseResponse(
+        case_id=case_row.case_id,
+        status=case_row.status,
+        vote_round=case_row.vote_round,
+        appeal_count=case_row.appeal_count,
+        previous_outcome=previous_outcome,
+        previous_execute_after=previous_execute_after,
+        chain_action="none",
+    )
+
+
 def _sha256(payload: object) -> str:
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -1096,6 +1232,8 @@ def _case_to_schema(row: ArbitrationCaseModel) -> ArbitrationCase:
         updated_at=row.updated_at,
         executed_at=row.executed_at,
         execute_after=row.execute_after,
+        vote_round=int(row.vote_round or 0),
+        appeal_count=int(row.appeal_count or 0),
     )
 
 

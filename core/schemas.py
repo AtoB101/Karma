@@ -190,6 +190,7 @@ class ArbitrationEventType(str, Enum):
     CASE_DECIDED = "case_decided"
     CASE_EXECUTED = "case_executed"
     CASE_EXECUTE_SCHEDULED = "case_execute_scheduled"
+    CASE_APPEAL_OPENED = "case_appeal_opened"
     CASE_OVERTURNED = "case_overturned"
 
 
@@ -730,6 +731,9 @@ class ArbitrationCase(BaseModel):
     executed_at: Optional[datetime] = None
     # ④-A 上诉窗口的到期时刻：非空表示「已下发、还没放款」。
     execute_after: Optional[datetime] = None
+    # ④-A3 窗口内上诉：票按轮次计；上诉把案子打回 voting 并开新一轮。
+    vote_round: int = Field(default=0, ge=0)
+    appeal_count: int = Field(default=0, ge=0)
 
 
 class ArbitrationAssignment(BaseModel):

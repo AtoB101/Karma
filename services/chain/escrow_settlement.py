@@ -171,6 +171,36 @@ def enabled() -> bool:
     return bool(escrow.escrow_enabled())
 
 
+async def assert_no_payee_yet(db: AsyncSession, *, task_id: str) -> None:
+    """④-A3 窗口逻辑的安全门：链上还不许有受款人。
+
+    ``active`` / ``disputed`` 之外的任何状态都意味着 ``submitSettlement`` 已经开过窗
+    （``finalizing``）或者钱已经落到某一边（``settled`` / ``slashed``）—— 那种时候
+    「把案子打回重审」是在骗自己：钱已经动了，重审也倒不回来。宁可报错。
+
+    托管没启用时是空操作（本地/单测没有链）；读不到链上状态时**默认拒绝**。
+    """
+    if not enabled():
+        return
+    binding = await newest_binding_for_task(db, task_id=task_id)
+    if binding is None:
+        raise EscrowSettlementError(
+            409, "no on-chain binding for this task; refusing in-window appeal"
+        )
+    snapshot = await chain_snapshot(binding)
+    if not snapshot:
+        raise EscrowSettlementError(
+            409, "cannot read the on-chain binding state; refusing in-window appeal"
+        )
+    state = int(snapshot.get("state") or 0)
+    if state not in (_CHAIN_ACTIVE, _CHAIN_DISPUTED):
+        raise EscrowSettlementError(
+            409,
+            f"on-chain binding is past the point of no return (state={state}); "
+            "reopening the case would not undo the payout",
+        )
+
+
 async def assert_receipt_path_exists(db: AsyncSession, *, task_id: str) -> None:
     """锁真钱之前先问一句：这一单的执行回执，将来真的写得进来吗。
 
