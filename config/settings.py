@@ -129,6 +129,15 @@ class Settings(BaseSettings):
     arbitration_fee_loser_pays: bool = True
     # 整庭裁决被推翻：按立案费的这个倍数罚没该庭抵押。
     arbitration_slash_multiple: float = 2.0
+    # 上诉窗口（④-A，2026-10-14）：裁决「下发」与「放款」之间插一段缓冲。
+    #   0（默认）= 关闭：``/execute`` 与历史行为**完全一致**（落库 + 碰链一步走）。
+    #   >0        = 打开：``/execute`` 只记 ``execute_after``（到期时刻），**链上一笔不发、
+    #               钱一步不动**；窗口内推翻零成本；到点由
+    #               ``POST /v1/arbitration/cases/{id}/execute-due``（或 ④-A2 的 tick）落钱。
+    # 为什么需要它：链上没有「把钱倒回来」的原语（见
+    # docs/ARBITRATION_SETTLEMENT_REVERSAL.md）—— 唯一的零成本回滚窗口，
+    # 就是「还没开链上结算窗」之前。窗口多长由产品/风控拍板（测试网建议 300）。
+    arbitration_appeal_window_seconds: int = 0
 
     # Comma-separated identity ids allowed to hold governance role profiles
     # (class=verifier / arbitrator). Empty means nobody can self-create one over the

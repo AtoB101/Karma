@@ -619,6 +619,8 @@ class ArbitrationCaseModel(Base):
     required_arbitrators:   Mapped[int]      = mapped_column(Integer, nullable=False, default=3)
     decided_outcome:        Mapped[str|None] = mapped_column(String(16))
     final_partial_percent:  Mapped[float|None] = mapped_column(Float)
+    # ④-A 上诉窗口：裁决下发后、放款之前的到期时刻。NULL = 没有窗口（立即执行）。
+    execute_after:          Mapped[datetime|None] = mapped_column(UTCDateTime)
     created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     executed_at:            Mapped[datetime|None] = mapped_column(UTCDateTime)
