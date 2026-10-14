@@ -135,6 +135,7 @@ def _chain_config(monkeypatch):
     """\u9ed8\u8ba4\uff1a\u91d1\u5e93\u914d\u597d\u3001RPC \u6709\u5730\u5740\u3001\u4e24\u4e2a\u95f8\u95e8\u90fd\u5173\u3002\u6bcf\u6761\u7528\u4f8b\u5404\u81ea\u8986\u76d6\u3002"""
     monkeypatch.setattr(settings, "verifier_bond_vault_address", VAULT)
     monkeypatch.setattr(settings, "testnet_rpc_url", RPC)
+    monkeypatch.setattr(settings, "verifier_bond_rpc_url", "")
     monkeypatch.setattr(settings, "arbitration_require_vault_bond", False)
     monkeypatch.setattr(settings, "verifier_require_vault_bond", False)
     yield
@@ -175,6 +176,16 @@ def test_read_bonds_is_fail_closed_without_rpc(monkeypatch):
     monkeypatch.setattr(settings, "testnet_rpc_url", "")
     with pytest.raises(vbv.BondVaultUnavailable, match="TESTNET_RPC_URL"):
         vbv.read_bonds_sync([WALLET])
+
+
+def test_rpc_prefers_the_bond_specific_url(monkeypatch):
+    """读链的 RPC 口径与 ops CLI 对齐：VERIFIER_BOND_RPC_URL > TESTNET_RPC_URL。"""
+    monkeypatch.setattr(settings, "verifier_bond_rpc_url", "https://bond.invalid")
+    monkeypatch.setattr(settings, "testnet_rpc_url", "https://testnet.invalid")
+    assert vbv._configured_rpc_url() == "https://bond.invalid"
+    assert vbv._configured_rpc_url("https://explicit.invalid") == "https://explicit.invalid"
+    monkeypatch.setattr(settings, "verifier_bond_rpc_url", "")
+    assert vbv._configured_rpc_url() == "https://testnet.invalid"
 
 
 def test_read_bonds_maps_an_rpc_error_to_unavailable_never_to_zero(monkeypatch):

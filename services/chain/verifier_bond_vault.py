@@ -203,16 +203,23 @@ class BondVaultUnavailable(RuntimeError):
 
 
 def _configured_vault_address() -> str:
-    """模块级院子：避开同名参数 ``vault_address`` 的遮蔽。"""
+    """模块级助手：避开同名参数 ``vault_address`` 的遮蔽。"""
     from services import verifier_bond
 
     return verifier_bond.vault_address()
 
 
 def _configured_rpc_url(explicit: str | None = None) -> str:
+    """读链用的 RPC：显式参数 > ``VERIFIER_BOND_RPC_URL`` > ``TESTNET_RPC_URL``。
+
+    与 ``scripts/ops/verifier_bond_vault.py`` 的 ``resolve_rpc`` 同一个顺序 —— 两个进程读链的口径
+    不一样，运维时就会出现「脚本读得到、后端读不到」的鬼故事。
+    """
     from config.settings import settings
 
-    return (explicit or settings.testnet_rpc_url or "").strip()
+    return (
+        explicit or settings.verifier_bond_rpc_url or settings.testnet_rpc_url or ""
+    ).strip()
 
 
 def read_bonds_sync(

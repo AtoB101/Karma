@@ -128,6 +128,9 @@ class Settings(BaseSettings):
     verifier_require_owner_identity: bool = False
     verifier_unbond_cooldown_hours: int = 72
     verifier_bond_vault_address: str = ""
+    # ④-B1：读链用的 RPC。缺省回落到 ``TESTNET_RPC_URL``；与 ops CLI 同名同序，
+    # 避免「脚本读得到、后端读不到」。
+    verifier_bond_rpc_url: str = ""
     verifier_slash_victim_share_bps: int = 8000
     verifier_slash_pool_share_bps: int = 2000
 
