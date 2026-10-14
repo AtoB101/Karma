@@ -181,6 +181,16 @@ def _signer(key_env: str, env: dict[str, str]):
         raise CliError("环境变量 %s 里的私钥不可用：%s" % (key_env, exc)) from exc
 
 
+def _build(fn, signer):
+    """建交易必须带 ``from``。
+
+    不带 ``from`` 时 web3 会拿零地址去做 gas 估算 —— 任何按 ``msg.sender`` 判权限的
+    函数（approve / stake / setSlasher / setStakeConfig）都会在估算这一步就 revert，
+    真交易根本发不出去。质押人的钥匙只有质押人自己有，所以这里的 from 就是 signer。
+    """
+    return fn.build_transaction({"from": signer.address})
+
+
 def _load_artifact(path: str) -> tuple[list, str]:
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -335,7 +345,7 @@ def cmd_deploy(args, env) -> int:
     tx_hash, receipt = _send(
         w3,
         signer,
-        factory.constructor(admin, token, min_bond).build_transaction({}),
+        _build(factory.constructor(admin, token, min_bond), signer),
         gas=int(args.gas),
     )
     vault_address = receipt["contractAddress"]
@@ -346,9 +356,9 @@ def cmd_deploy(args, env) -> int:
 
     vault = w3.eth.contract(address=vault_address, abi=abi)
     if admin == signer.address:
-        cfg_tx, _ = _send(w3, signer, vault.functions.setStakeConfig(
-            min_bond, cooldown, min_pool).build_transaction({}))
-        slasher_tx, _ = _send(w3, signer, vault.functions.setSlasher(slasher).build_transaction({}))
+        cfg_tx, _ = _send(w3, signer, _build(
+            vault.functions.setStakeConfig(min_bond, cooldown, min_pool), signer))
+        slasher_tx, _ = _send(w3, signer, _build(vault.functions.setSlasher(slasher), signer))
         print("setStakeConfig_tx=%s" % cfg_tx)
         print("setSlasher_tx=%s" % slasher_tx)
     else:
@@ -420,7 +430,7 @@ def cmd_stake(args, env) -> int:
     if allowance < amount_wei:
         approve_tx, _ = _send(
             w3, signer,
-            erc20.functions.approve(vault, amount_wei).build_transaction({}),
+            _build(erc20.functions.approve(vault, amount_wei), signer),
         )
         print("approve_tx=%s" % approve_tx)
     else:
@@ -428,7 +438,7 @@ def cmd_stake(args, env) -> int:
 
     contract = w3.eth.contract(address=vault, abi=abi)
     stake_tx, receipt = _send(
-        w3, signer, contract.functions.stake(amount_wei).build_transaction({})
+        w3, signer, _build(contract.functions.stake(amount_wei), signer)
     )
     print("stake_tx=%s" % stake_tx)
     print("stake_block=%s" % receipt["blockNumber"])

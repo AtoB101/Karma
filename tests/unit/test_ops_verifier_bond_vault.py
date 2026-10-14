@@ -239,3 +239,140 @@ def test_usdc_to_wei_uses_six_decimals():
     cli = _load_cli()
     assert cli.usdc_to_wei(1) == 1_000_000
     assert cli.usdc_to_wei(0.5) == 500_000
+
+
+# ---------------------------------------------------------------------------
+# 广播路径：建交易必须带 from
+# ---------------------------------------------------------------------------
+from types import SimpleNamespace
+
+from hexbytes import HexBytes
+
+TOKEN = "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF"
+STAKE_WALLET = "0x9C479392C27ac5f44cBF50ceB2f099aDD665475f"
+TX_HASH = HexBytes("0x" + "ab" * 32)
+
+
+class _ViewFn:
+    """只读调用：``fn(x).call()``。"""
+
+    def __init__(self, value):
+        self._value = value
+
+    def call(self):
+        return self._value
+
+
+class _WriteFn:
+    """写调用：记录 build_transaction 的入参。"""
+
+    def __init__(self, name, built):
+        self._name = name
+        self._built = built
+
+    def build_transaction(self, overrides):
+        self._built.append((self._name, dict(overrides)))
+        return {"to": VAULT, "data": "0xdead"}
+
+
+class _Fns:
+    def __init__(self, built, values):
+        self._built = built
+        self._values = values
+
+    def __getattr__(self, name):
+        if name in self._values:
+            value = self._values[name]
+
+            def _view(*_args):
+                return _ViewFn(value)
+
+            return _view
+
+        def _write(*_args):
+            return _WriteFn(name, self._built)
+
+        return _write
+
+
+class _Contract:
+    def __init__(self, built, values):
+        self.functions = _Fns(built, values)
+
+
+class _Receipt(dict):
+    """web3 的回执既能下标取，也能点取（``receipt.status``）。"""
+
+    def __getattr__(self, name):
+        return self[name]
+
+
+class _Eth:
+    chain_id = 11155111
+    gas_price = 1_000_000_000
+
+    def __init__(self, built, signed):
+        self._built = built
+        self._signed = signed
+
+    def contract(self, address=None, abi=None, **_kw):
+        if address == TOKEN:
+            return _Contract(self._built, {"allowance": 0})
+        return _Contract(
+            self._built,
+            {"bondAmount": 10_000_000, "isRegistered": True, "isActive": True},
+        )
+
+    def get_transaction_count(self, _address):
+        return 5
+
+    def estimate_gas(self, _tx):
+        return 60_000
+
+    def send_raw_transaction(self, _raw):
+        return TX_HASH
+
+    def wait_for_transaction_receipt(self, _tx_hash, timeout=None):
+        return _Receipt(status=1, gasUsed=55_000, blockNumber=11915205)
+
+
+def _stake_rig(monkeypatch, cli):
+    built, signed = [], []
+
+    def _sign(tx):
+        signed.append(dict(tx))
+        return SimpleNamespace(raw_transaction=b"\x02")
+
+    w3 = SimpleNamespace(eth=_Eth(built, signed))
+    signer = SimpleNamespace(address=STAKE_WALLET, sign_transaction=_sign)
+    monkeypatch.setattr(cli, "_connect", lambda _rpc: w3)
+    monkeypatch.setattr(cli, "_signer", lambda _key_env, _env: signer)
+    return built, signed
+
+
+def test_stake_broadcasts_with_the_signer_as_from(capsys, monkeypatch):
+    """不带 from 的话 web3 会拿零地址估算 gas，approve / stake 会在估算处就 revert。"""
+    cli = _load_cli()
+    built, signed = _stake_rig(monkeypatch, cli)
+    rc = cli.main([
+        "stake", "--vault", VAULT, "--token", TOKEN, "--amount", "10",
+        "--key-env", "DRILL_SELLER_KEY", "--rpc", "http://127.0.0.1:1",
+    ])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert [name for name, _ in built] == ["approve", "stake"]
+    for name, overrides in built:
+        assert overrides.get("from") == STAKE_WALLET, name
+    assert [tx["from"] for tx in signed] == [STAKE_WALLET, STAKE_WALLET]
+    assert "stake_tx=%s" % TX_HASH.hex() in captured.out
+    assert "bond_amount_wei=10000000" in captured.out
+
+
+def test_cli_builds_every_transaction_through_the_from_helper():
+    """源码守卫：只允许一个 build_transaction 调用点，且必须带 from。"""
+    lines = [
+        line.strip()
+        for line in CLI_PATH.read_text(encoding="utf-8").splitlines()
+        if "build_transaction(" in line
+    ]
+    assert lines == ['return fn.build_transaction({"from": signer.address})']
