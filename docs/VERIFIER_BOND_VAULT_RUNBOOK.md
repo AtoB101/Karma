@@ -157,6 +157,55 @@ curl -sS -X POST "$KARMA_API/v1/verifiers/slashes/<slash_id>/status" \
 **不变的东西**：后端仍不签名、不新增落钱路径；`settled` 仍然必须带 tx hash；
 主网零改动。`stake()` 进金库属于**质押人自己的钱**，所以不走后端热钱包。
 
+## 5.6 测试网端到端演练（④-B1，2026-10-15，Ethereum Sepolia）
+
+这一节是「质押 → 准入 → 出账 → 台账回写」四段在**真链 + 真库**上跑通的记录。
+金库 `0x8eBCF8668a6B54872A4e747d82dB152095B21027`，mUSDC
+`0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF`，`minBond = 5`。
+
+| 段 | 动作 | 链上/库里结果 |
+|---|---|---|
+| 1 | 质押人自己 `approve` + `stake(10)` | tx `0x63a40914479cfa0f196874186381e9f2c9aaf5fee80cfb33168bdc23239f6af1`，block 11915327；`totalBonded 4 → 14`，该钱包 `bondAmount=10`、`isRegistered=true`、`isActive=true` |
+| 2 | 闸门（`VERIFIER_REQUIRE_VAULT_BOND=true`） | 绑了这个钱包的身份 PASS（`active`）；换成 150 的质押额 → `below_bond` 拒；没绑钱包的身份 → 409 `no_wallet` |
+| 3 | 治理钥真 `slash(1 mUSDC)` | tx `0x4a1e20d0d8802d1015464446050a8d561584b521a869d56297d8950e2283892e`，block 11915330；`totalBonded 14 → 13`、`slashPool 0.2 → 0.4`、被罚钱包保证金 10 → 9 |
+| 4 | `/overturn` → 3 条 `bond_slashes` | 有绑定钱包的那条带上钱包；没绑的两条 `wallet_address` 为空（不编） |
+| 5 | `settled` 回写 | 假 tx hash → **409**；没钱包的台账行 → **409**；真 tx → **200**，台账落 `settled` + `tx_hash` |
+
+全程 `solvencyGap() == 0`；链上那两笔的 `input` 与
+`services.chain.verifier_bond_vault` 编出来的 calldata **逐字节一致**。
+演练结束后已复原：drill 档案删净、三个开关从 `.env` 与容器里撤掉、健康检查 200；
+**罚没台账保留**（那是真实发生的事）。
+
+### 5.6.1 这轮真链抓出的两个 bug（都已修，且都不可能在假链上发现）
+
+1. **`build_transaction` 不带 `from`**（#319）：web3 会拿零地址做 gas 估算，凡是按
+   `msg.sender` 判权限的函数（`approve` / `stake` / `setSlasher` / `setStakeConfig`）
+   在估算这一步就 revert，真交易根本发不出去 —— 链上表现是
+   `execution reverted, data 0x`，而同一份 calldata 带 `from` 的 `eth_call` 是好的。
+   现在全文件只有一个建交易入口 `_build(fn, signer)`，永远带 `from`；有一条源码守卫
+   测试盯着「只允许这一个调用点」。
+2. **`verify_slash_tx_sync` 直接 `str(tx["input"])`**（#320）：真节点回的是
+   `HexBytes`（`bytes` 子类），`str()` 出来是 `b"...\xa5'\xf1..."` 的样子，选择器
+   比对永远为假 —— **一笔真的链上 slash 被判成「不是 slash 调用」**，台账只能停在
+   `pending`。现在 calldata 一律走 `wallet_lock._hexstr`（bytes / HexBytes / 带不带
+   `0x` 的裸 hex 都归一）。
+
+教训写在这：**假链全绿不等于真链能跑**。上面两处都是 mock 与真节点的**形状差异**
+（`from` 缺省、`HexBytes` vs `str`），单测里用 dict 和 0x 字符串喂料是照不出来的 ——
+所以本节这种「真链 + 真库」演练必须在新链路进生产前跑一遍。
+
+### 5.6.2 这轮**没有**解决的（别当成已做）
+
+- 罚没池分配（④-B3）：谁算「优秀节点」、什么时机分，仍是链下治理规则。
+- 结算回滚（④-B2）：`settlement_reversals` 未做；仲裁被推翻只罚庭。
+- 链上 `slash()` 会把金额**按保证金封顶**（`take = min(amount, bond)`），保证金不足时
+  实际划走的少于台账数 —— 这是「按链上事件对账」的事，本轮没做，台账这时只会停在
+  `pending`（不会假报 settled）。
+- 测试网金库的 `admin` / `slasher` 那个 EOA 自己押了 4 mUSDC，但低于 `minBond=5`，所以
+  `isActive=false`。生产环境的在岗节点不一定押够了，**prod 本轮不开这两个开关**。
+- 主网 `admin` / `slasher` 必须是多签；`VERIFIER_BOND_OPS_PRIVATE_KEY` 这条 EOA 通路
+  不要带去主网。
+
 ## 6. 首次真实出账（2026-10-11，Ethereum Sepolia）
 
 回归账目自证的样板（`stake(10) → slash(6) → distributePool(1)`）：
