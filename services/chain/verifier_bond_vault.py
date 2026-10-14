@@ -293,11 +293,35 @@ async def read_bond(
 SLASH_SELECTOR = "0xa527f1dc"
 
 
+def decode_slash_calldata(data: str) -> dict[str, Any]:
+    """解出 ``slash(address,address,uint256,bytes32)`` 的实参。
+
+    为什么要解：台账里写「已出账」必须对应**这一笔**出账 —— 只验「是金库的一笔 slash」
+    还不够，还得是**罚了台账上那个人、那个数**；否则拿一笔罚别人的 tx 也能把这一行
+    标成「已出账」。
+    """
+    body = data[10:] if data.lower().startswith(SLASH_SELECTOR) else ""
+    if len(body) < 192:
+        raise BondVaultUnavailable(
+            "slash calldata is truncated: %d hex chars after the selector (need >= 192)"
+            % len(body)
+        )
+    return {
+        "verifier": "0x" + body[24:64],
+        "victim": "0x" + body[88:128],
+        "amount_wei": int(body[128:192], 16),
+        "reason": ("0x" + body[192:256]) if len(body) >= 256 else None,
+    }
+
+
 def verify_slash_tx_sync(
     tx_hash: str,
     *,
     vault_address: str | None = None,
     rpc_url: str | None = None,
+    expected_verifier: str | None = None,
+    expected_victim: str | None = None,
+    expected_amount_usdc: float | None = None,
 ) -> dict[str, Any]:
     """回链上确认「这笔 tx 真的是本金库的一笔 slash()」。
 
@@ -306,7 +330,9 @@ def verify_slash_tx_sync(
 
     1. 交易已上链且 ``status == 1``（没 revert）；
     2. ``to`` 就是当前配的金库；
-    3. ``input`` 的选择器就是 ``slash(...)``。
+    3. ``input`` 的选择器就是 ``slash(...)``；
+    4. 带上台账行的预期值时，calldata 里**被罚的钱包 / 受害方 / 金额**
+       逐一对得上（否则一笔罚别人的 tx 也能把这一行标成已出账）。
 
     任一项查不到 / 不对 → 抛 ``BondVaultUnavailable``：宁可回写不了，也不写一个假的「已出账」。
     """
@@ -344,11 +370,34 @@ def verify_slash_tx_sync(
         raise BondVaultUnavailable(
             "transaction %s does not call slash(address,address,uint256,bytes32)" % tx_hash
         )
+    call = decode_slash_calldata(data)
+    wallet = (expected_verifier or "").strip().lower()
+    if wallet and call["verifier"].lower() != wallet:
+        raise BondVaultUnavailable(
+            "transaction %s slashed %s, not the wallet on the ledger row (%s)"
+            % (tx_hash, call["verifier"], wallet)
+        )
+    victim = (expected_victim or "").strip().lower()
+    if victim and call["victim"].lower() != victim:
+        raise BondVaultUnavailable(
+            "transaction %s paid %s, not the victim on the ledger row (%s)"
+            % (tx_hash, call["victim"], victim)
+        )
+    if expected_amount_usdc is not None:
+        wanted_wei = usdc_to_wei(float(expected_amount_usdc))
+        if call["amount_wei"] != wanted_wei:
+            raise BondVaultUnavailable(
+                "transaction %s slashed %d wei, but the ledger row says %d wei"
+                % (tx_hash, call["amount_wei"], wanted_wei)
+            )
     return {
         "tx_hash": tx_hash,
         "vault": address,
         "block": _field(receipt, "blockNumber"),
         "selector": SLASH_SELECTOR,
+        "verifier": call["verifier"],
+        "victim": call["victim"],
+        "amount_usdc": wei_to_amount(call["amount_wei"]),
     }
 
 
@@ -357,10 +406,19 @@ async def verify_slash_tx(
     *,
     vault_address: str | None = None,
     rpc_url: str | None = None,
+    expected_verifier: str | None = None,
+    expected_victim: str | None = None,
+    expected_amount_usdc: float | None = None,
 ) -> dict[str, Any]:
     """``verify_slash_tx_sync`` 的非阻塞包装。"""
     return await asyncio.to_thread(
-        verify_slash_tx_sync, tx_hash, vault_address=vault_address, rpc_url=rpc_url
+        verify_slash_tx_sync,
+        tx_hash,
+        vault_address=vault_address,
+        rpc_url=rpc_url,
+        expected_verifier=expected_verifier,
+        expected_victim=expected_victim,
+        expected_amount_usdc=expected_amount_usdc,
     )
 
 

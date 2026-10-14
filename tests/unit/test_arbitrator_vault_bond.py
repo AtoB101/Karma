@@ -500,6 +500,56 @@ async def test_settled_requires_an_onchain_slash_tx(client_sec, db_session, monk
 
 
 @pytest.mark.asyncio
+async def test_settled_refuses_a_ledger_row_with_no_wallet(client_sec, db_session, monkeypatch):
+    """没指认钱包就没有可对账的链上对象：拒绝，不写一个笼统的「已出账」。"""
+
+    async def _must_not_be_called(*args, **kwargs):
+        raise AssertionError("no wallet on the row: the chain must not even be asked")
+
+    monkeypatch.setattr(vbv, "verify_slash_tx", _must_not_be_called)
+    row, _ = await bond_slash.record_slash(
+        db_session,
+        subject_kind=bond_slash.SUBJECT_ARBITRATOR_ROLE,
+        subject_id=IDENTITY,
+        wallet_address=None,
+        source_kind=bond_slash.SOURCE_ARBITRATION_OVERTURN,
+        source_id="case-b1-nowallet",
+        amount=3.0,
+    )
+    await db_session.commit()
+    resp = await client_sec.post(
+        f"/v1/verifiers/slashes/{row.id}/status",
+        json={"status": "settled", "tx_hash": "0x" + "ab" * 32},
+    )
+    assert resp.status_code == 409, resp.text
+    assert "no wallet on the ledger" in resp.text
+    assert (await db_session.get(BondSlash, row.id)).status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_settled_asks_the_chain_about_this_rows_wallet_and_amount(
+    client_sec, db_session, monkeypatch
+):
+    """链上核验不能只问「是不是一笔 slash」—— 必须带上**这一行台账**的预期值。"""
+    seen = {}
+
+    async def _spy(tx_hash, **kwargs):
+        seen.update(kwargs)
+        return {"tx_hash": tx_hash, "vault": VAULT, "block": 7, "selector": vbv.SLASH_SELECTOR}
+
+    monkeypatch.setattr(vbv, "verify_slash_tx", _spy)
+    row = await _pending_slash(db_session, source_id="case-b1-spy")
+    resp = await client_sec.post(
+        f"/v1/verifiers/slashes/{row.id}/status",
+        json={"status": "settled", "tx_hash": "0x" + "cd" * 32},
+    )
+    assert resp.status_code == 200, resp.text
+    assert seen["expected_verifier"] == WALLET
+    assert seen["expected_victim"] == OTHER_WALLET
+    assert seen["expected_amount_usdc"] == 3.0
+
+
+@pytest.mark.asyncio
 async def test_settled_lands_when_the_chain_confirms_the_slash(
     client_sec, db_session, monkeypatch
 ):
@@ -570,7 +620,19 @@ def test_verify_slash_tx_is_fail_closed_without_a_vault(monkeypatch):
         vbv.verify_slash_tx_sync("0x" + "ab" * 32)
 
 
-def _verify_with(monkeypatch, *, status=1, to=VAULT, data=None):
+def _slash_calldata(*, verifier=WALLET, victim=OTHER_WALLET, amount=3.0, words=4):
+    """构造 ``slash(address,address,uint256,bytes32)`` 的 calldata（每个参数一个 32 字节字）。"""
+    parts = [
+        vbv.SLASH_SELECTOR,
+        verifier.lower()[2:].rjust(64, "0"),
+        victim.lower()[2:].rjust(64, "0"),
+        ("%x" % vbv.usdc_to_wei(amount)).rjust(64, "0"),
+        "00" * 32,
+    ]
+    return "".join(parts[: max(1, words)])
+
+
+def _verify_with(monkeypatch, *, status=1, to=VAULT, data=None, **expect):
     """用假链跑一遍 ``verify_slash_tx_sync``。"""
     tx_hash = "0x" + "ab" * 32
     monkeypatch.setitem(
@@ -578,16 +640,42 @@ def _verify_with(monkeypatch, *, status=1, to=VAULT, data=None):
         "web3",
         _fake_web3_module(
             receipt={"status": status, "to": to, "blockNumber": 4242},
-            tx={"input": data if data is not None else (vbv.SLASH_SELECTOR + "00" * 64)},
+            tx={"input": data if data is not None else _slash_calldata()},
         ),
     )
-    return vbv.verify_slash_tx_sync(tx_hash)
+    return vbv.verify_slash_tx_sync(tx_hash, **expect)
 
 
 def test_verify_slash_tx_accepts_a_real_slash_call(monkeypatch):
-    proof = _verify_with(monkeypatch)
+    proof = _verify_with(
+        monkeypatch,
+        expected_verifier=WALLET,
+        expected_victim=OTHER_WALLET,
+        expected_amount_usdc=3.0,
+    )
     assert proof["block"] == 4242
     assert proof["selector"] == vbv.SLASH_SELECTOR
+    assert proof["verifier"].lower() == WALLET.lower()
+    assert proof["victim"].lower() == OTHER_WALLET.lower()
+    assert proof["amount_usdc"] == 3.0
+
+
+def test_verify_slash_tx_rejects_a_hash_that_slashed_someone_else(monkeypatch):
+    """拿一笔罚别人的 tx 来顶台账：不认。"""
+    with pytest.raises(vbv.BondVaultUnavailable, match="slashed"):
+        _verify_with(
+            monkeypatch, data=_slash_calldata(verifier=OTHER_WALLET), expected_verifier=WALLET
+        )
+
+
+def test_verify_slash_tx_rejects_a_hash_with_a_different_amount(monkeypatch):
+    with pytest.raises(vbv.BondVaultUnavailable, match="ledger row says"):
+        _verify_with(monkeypatch, data=_slash_calldata(amount=9.0), expected_amount_usdc=3.0)
+
+
+def test_verify_slash_tx_rejects_a_truncated_calldata(monkeypatch):
+    with pytest.raises(vbv.BondVaultUnavailable, match="truncated"):
+        _verify_with(monkeypatch, data=_slash_calldata(words=2))
 
 
 @pytest.mark.parametrize(

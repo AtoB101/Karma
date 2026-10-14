@@ -220,8 +220,10 @@ async def set_bond_slash_status(
 
     **没有链上 tx 就没有 settled**（``services/bond_slash.py`` 的硬规矩）。所以 ``settled``
     这一档不只要求带 tx hash，还要回链上核验：这笔交易必须已上链、没有 revert、
-    收款方是当前配置的质押金库、调用的是 ``slash(address,address,uint256,bytes32)``。核不过就 409 ——
-    台账里的「已出账」必须对应一笔真的出账，而不是运维手拄的一个字符串。
+    收款方是当前配置的质押金库、调用的是 ``slash(address,address,uint256,bytes32)``，
+    而且 calldata 里**被罚的钱包 / 受害方 / 金额**逐一对得上这一行台账。核不过就 409 ——
+    台账里的「已出账」必须对应一笔真的出账，而不是运维手拄的一个字符串
+    （也不能拿一笔罚别人的 tx 来顶账）。
 
     为什么单独有这个入口：钱是治理账户在链上动的，后端只负责如实记账。没有这一格，
     罚没台账会永远停在 ``pending``，``pool_total`` 也会一直把未出账的钱算进池子。
@@ -238,8 +240,22 @@ async def set_bond_slash_status(
             raise HTTPException(
                 422, "a settled bond slash must carry the tx hash that moved the money"
             )
+        ledger_wallet = (row.wallet_address or "").strip()
+        if not ledger_wallet:
+            # 没有指认钱包的台账行，链上无从对账 —— 宁可发不出出账，也不写一个笼统的「已出账」。
+            raise HTTPException(
+                409,
+                "bond slash %s has no wallet on the ledger: there is nothing on-chain "
+                "to point at. Bind the identity's wallet and stake it in the vault "
+                "before overturning, then the row will carry it." % slash_id,
+            )
         try:
-            proof = await verifier_bond_vault.verify_slash_tx(tx_hash)
+            proof = await verifier_bond_vault.verify_slash_tx(
+                tx_hash,
+                expected_verifier=ledger_wallet,
+                expected_victim=row.victim_wallet_address,
+                expected_amount_usdc=row.amount,
+            )
         except verifier_bond_vault.BondVaultUnavailable as exc:
             raise HTTPException(
                 409,
