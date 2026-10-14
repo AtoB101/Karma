@@ -36,6 +36,7 @@ from services.actor_guards import (
     caller_is_privileged,
 )
 from services.identity_actor import resolve_actor_identity_id
+from services import verifier_bond
 
 EPSILON = 1e-9
 
@@ -67,6 +68,14 @@ def min_stake_amount() -> float:
 
 def backed_stake_required() -> bool:
     return bool(settings.arbitration_require_backed_stake)
+
+def vault_bond_required() -> bool:
+    """仲裁员的质押是否必须真的锁在链上金库里（④-B1）。
+
+    账面背书（``capacity.total_locked_usdc``）只能证明「这笔额度被占住了」，
+    不能证明「链上拿得到这笔钱」。金库没配时这一档不生效。
+    """
+    return bool(settings.arbitration_require_vault_bond)
 
 
 def stake_coverage_multiple() -> float:
@@ -135,6 +144,15 @@ async def assert_arbitrator_covers_case(
             "arbitrator stake %.6f does not cover the case value %.6f "
             "(stake must exceed case value x %.2f) for %s"
             % (stake, case_value, stake_coverage_multiple(), what),
+        )
+    if vault_bond_required():
+        # 「押金在则岗在」：派庭后把押金撤下去的人，不能继续投。
+        # 冷却期内押金仍在金库里、仍可被罚没，所以冷却期不会误伤。
+        await verifier_bond.assert_vault_bond_covers(
+            db,
+            identity_id=identity_id,
+            stake_amount=stake,
+            what=what,
         )
     return stake
 
@@ -208,6 +226,15 @@ async def assert_stake_acceptable(
         raise HTTPException(
             422,
             "arbitrator stake %.6f is below the platform minimum %.6f" % (stake_amount, floor),
+        )
+    if vault_bond_required():
+        # 回链上核对：该身份绑定的钱包必须已在金库 stake() 过，且链上余额 ≥ 质押额。
+        # 与 backed_stake 独立：关了后者不能顺带把这一档也关掉。
+        await verifier_bond.assert_vault_bond_covers(
+            db,
+            identity_id=identity_id,
+            stake_amount=stake_amount,
+            what="arbitration pool join",
         )
     if not backed_stake_required():
         return

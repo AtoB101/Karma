@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -198,6 +198,20 @@ class BondSlashListResponse(BaseModel):
     total: int
     pool_total: float
     vault_configured: bool
+
+
+class BondSlashStatusRequest(BaseModel):
+    """推进一笔罚没的出账状态（④-B1）。
+
+    ``settled`` 这一档不只要求带 tx hash，还要能在链上验成「本金库的一笔
+    ``slash()``」—— 对外声明的「已出账」必须对应一笔真的出账。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(..., pattern=r"^(submitted|settled|failed)$")
+    tx_hash: Optional[str] = Field(default=None, max_length=80)
+    error: Optional[str] = Field(default=None, max_length=2000)
 
 
 class NodeSignMessageRequest(BaseModel):

@@ -91,6 +91,15 @@ def vault_configured() -> bool:
     return bool(vault_address())
 
 
+def vault_bond_required() -> bool:
+    """节点质押是否必须真的在链上金库里（④-B1）。
+
+    关着的时候质押只看账面背书（锁仓额度），与历史行为一致；打开后
+    —— 链上 ``slash()`` 只认金库里那笔 ``Bond`` —— 还要回链上核对"bondAmount >= 质押额"。
+    """
+    return bool(settings.verifier_require_vault_bond)
+
+
 def victim_share_bps() -> int:
     try:
         return int(settings.verifier_slash_victim_share_bps)
@@ -222,6 +231,122 @@ async def assert_owner_wallet_matches(
 
 
 # ---------------------------------------------------------------------------
+# 链上金库背书（④-B1）：“质押”到底在不在金库里
+# ---------------------------------------------------------------------------
+
+
+async def vault_bond_state(
+    db: AsyncSession,
+    *,
+    identity_id: str,
+    wallet_address: str | None = None,
+    stake_amount: float | None = None,
+) -> dict[str, Any]:
+    """回链上核对：「这个身份的钱包在金库里押了多少」。
+
+    ``code`` 只有这几种：
+
+    ================  ============================================
+    ``vault_unconfigured`` 金库没部署（没配地址）
+    ``no_wallet``          这个身份还没绑定钱包
+    ``vault_unavailable``  RPC / 合约读不到 —— **不当成 0**，fail-closed
+    ``not_registered``     钱包在金库里没登记（没 ``stake()`` 过）
+    ``below_bond``         链上余额不够质押额
+    ``active``             链上确认有够额的押金
+    ================  ============================================
+
+    钱包取参数优先（节点传 ``node.wallet_address``），否则取该身份在 Console
+    绑定的那个钱包（与 ``assert_owner_wallet_matches`` 同一个“身份根”口径）。
+    """
+    from services.chain import verifier_bond_vault
+
+    stake = float(stake_amount or 0.0)
+    wallet = (wallet_address or "").strip().lower()
+    if not wallet:
+        wallet = ((await get_bound_wallet(db, identity_id)) or "").strip().lower()
+    base: dict[str, Any] = {
+        "identity_id": identity_id,
+        "wallet": wallet or None,
+        "stake_amount": stake,
+        "vault": verifier_bond_vault.vault_address(),
+        "onchain_bond_usdc": 0.0,
+        "registered": False,
+        "active": False,
+    }
+    if not verifier_bond_vault.vault_configured():
+        return {
+            **base,
+            "code": "vault_unconfigured",
+            "ok": False,
+            "detail": "金库还没部署（VERIFIER_BOND_VAULT_ADDRESS 为空），链上押金无从核对",
+        }
+    if not wallet:
+        return {
+            **base,
+            "code": "no_wallet",
+            "ok": False,
+            "detail": "身份 %s 还没绑定钱包：先在 Console 绑定钱包，再用它在金库 stake()" % identity_id,
+        }
+    try:
+        reading = await verifier_bond_vault.read_bond(wallet)
+    except verifier_bond_vault.BondVaultUnavailable as exc:
+        return {**base, "code": "vault_unavailable", "ok": False, "detail": str(exc)}
+    if reading is None:
+        return {**base, "code": "no_wallet", "ok": False, "detail": "没给钱包，无从核对"}
+
+    bond = float(reading.get("bond_usdc") or 0.0)
+    registered = bool(reading.get("registered"))
+    state = {
+        **base,
+        "onchain_bond_usdc": round(bond, 8),
+        "registered": registered,
+        "active": bool(reading.get("active")),
+    }
+    if not registered:
+        return {
+            **state,
+            "code": "not_registered",
+            "ok": False,
+            "detail": "钱包 %s 在金库里还没登记：先用这个钱包发一笔 stake()" % wallet,
+        }
+    if bond + EPSILON < stake:
+        return {
+            **state,
+            "code": "below_bond",
+            "ok": False,
+            "detail": "链上押金 %.6f 低于声明的质押额 %.6f：先 stake() 补足，或下调质押额" % (bond, stake),
+        }
+    return {**state, "code": "active", "ok": True, "detail": "链上押金 %.6f ≥ 质押额 %.6f" % (bond, stake)}
+
+
+async def assert_vault_bond_covers(
+    db: AsyncSession,
+    *,
+    identity_id: str,
+    stake_amount: float | None,
+    what: str,
+    wallet_address: str | None = None,
+) -> dict[str, Any]:
+    """质押必须由链上金库背书：不合格一律 409，并把差在哪说清楚。
+
+    为什么是拒绝而不是放行：链上 ``slash()`` 只能划金库里那笔 ``Bond``。
+    押金不在金库，「判负当场生效」就只剩一张空头承诺。
+    """
+    state = await vault_bond_state(
+        db,
+        identity_id=identity_id,
+        wallet_address=wallet_address,
+        stake_amount=stake_amount,
+    )
+    if state["ok"]:
+        return state
+    raise HTTPException(
+        409,
+        "on-chain bond is required for %s but %s: %s" % (what, state["code"], state["detail"]),
+    )
+
+
+# ---------------------------------------------------------------------------
 # 在任判定（每次出证 / 派活都要过这一关）
 # ---------------------------------------------------------------------------
 
@@ -249,6 +374,14 @@ async def assert_node_bond_ok(
         raise HTTPException(
             403,
             "this verifier node is not active right now (%s): %s" % (what, describe(state)),
+        )
+    if vault_bond_required():
+        await assert_vault_bond_covers(
+            db,
+            identity_id=identity_id,
+            stake_amount=getattr(node, "stake_amount", 0.0),
+            what=what,
+            wallet_address=getattr(node, "wallet_address", None),
         )
     return state
 

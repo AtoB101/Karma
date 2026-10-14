@@ -29,6 +29,7 @@ from decentralized_verifier.schemas import (
     AttestationSubmitRequest,
     BondSlashListResponse,
     BondSlashResponse,
+    BondSlashStatusRequest,
     ChallengeOpenRequest,
     ChallengeResolveRequest,
     ChallengeResponse,
@@ -42,7 +43,8 @@ from decentralized_verifier.schemas import (
     VerifierUnstakeRequest,
 )
 from services import bond_slash, verifier_bond, verifier_wallet
-from services.actor_guards import require_arbitration_operator
+from services.chain import verifier_bond_vault
+from services.actor_guards import require_admin_actor, require_arbitration_operator
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -205,6 +207,60 @@ async def list_bond_slashes(
         pool_total=await bond_slash.pool_total(db),
         vault_configured=verifier_bond.vault_configured(),
     )
+
+
+@router.post("/slashes/{slash_id}/status", response_model=BondSlashResponse)
+async def set_bond_slash_status(
+    slash_id: str,
+    body: BondSlashStatusRequest,
+    actor: str = Depends(require_admin_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """罚没出账的最后一格：把台账从 pending 推到 submitted / settled / failed（G12）。
+
+    **没有链上 tx 就没有 settled**（``services/bond_slash.py`` 的硬规矩）。所以 ``settled``
+    这一档不只要求带 tx hash，还要回链上核验：这笔交易必须已上链、没有 revert、
+    收款方是当前配置的质押金库、调用的是 ``slash(address,address,uint256,bytes32)``。核不过就 409 ——
+    台账里的「已出账」必须对应一笔真的出账，而不是运维手拄的一个字符串。
+
+    为什么单独有这个入口：钱是治理账户在链上动的，后端只负责如实记账。没有这一格，
+    罚没台账会永远停在 ``pending``，``pool_total`` 也会一直把未出账的钱算进池子。
+    """
+    row = await db.get(BondSlashModel, slash_id)
+    if row is None:
+        raise HTTPException(404, f"bond slash {slash_id} not found")
+
+    status = (body.status or "").strip().lower()
+    tx_hash = (body.tx_hash or "").strip()
+    proof: dict | None = None
+    if status == bond_slash.STATUS_SETTLED:
+        if not tx_hash:
+            raise HTTPException(
+                422, "a settled bond slash must carry the tx hash that moved the money"
+            )
+        try:
+            proof = await verifier_bond_vault.verify_slash_tx(tx_hash)
+        except verifier_bond_vault.BondVaultUnavailable as exc:
+            raise HTTPException(
+                409,
+                f"cannot mark {slash_id} settled: tx {tx_hash} could not be verified against "
+                f"the bond vault ({exc})",
+            ) from exc
+
+    await bond_slash.settle_slash(
+        db, slash_id=slash_id, status=status, tx_hash=tx_hash or None, error=body.error
+    )
+    await db.commit()
+    await db.refresh(row)
+    logger.info(
+        "bond_slash_status_set",
+        slash_id=slash_id,
+        status=status,
+        actor=actor,
+        tx_hash=tx_hash or None,
+        verified_block=(proof or {}).get("block"),
+    )
+    return BondSlashResponse.model_validate(row)
 
 
 @router.get("/{verifier_id}", response_model=VerifierNodeResponse)
