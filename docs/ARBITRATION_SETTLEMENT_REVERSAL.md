@@ -492,6 +492,14 @@ tx —— 一条账可能由多笔罚没 tx 分别出账，重复回写同一笔
 **迁移兼容**：`create_all` 可能先建出这张表（应用 lifespan），所以迁移用原生 DDL +
 `IF NOT EXISTS`，与 0060-0069 同一写法；`downgrade` 只 `DROP TABLE`，不碰任何既有表。
 
+**真链演练（2026-10-15，testnet，Ethereum Sepolia）—— 8 格全绿，记录见
+`docs/VERIFIER_BOND_VAULT_RUNBOOK.md` §5.7**：传错的 victim → **409 且零写入**；正确调用 →
+`owed=3.9` / `victim=a2a-seller` / `funding_source=bench_bond`；重复调用**幂等**（同一个
+`reversal_id`）；假 tx hash 回写 → **409** 且 `paid_amount` 纹丝不动；真 `slash(1 mUSDC)`
+（tx `d7b47bc5…`）回写 → `paid_amount 0→0.8`、`status=submitted`、`outstanding 3.9→3.1`；
+同一笔 tx 再回写**不重复计**；链上 calldata 与本地编码**逐字节一致**、`solvencyGap()==0`。
+演练后 drill 档案删净、开关复原，台账保留。
+
 **没做、也不打算在本阶段做的**：见 11.9。真链演练记录落在
 `docs/VERIFIER_BOND_VAULT_RUNBOOK.md`（与 ④-B1 的 §5.6 同一处）。
 
