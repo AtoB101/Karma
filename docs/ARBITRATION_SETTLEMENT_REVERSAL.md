@@ -1,6 +1,6 @@
 # ④ 仲裁回滚（settlement reversal）落地方案
 
-> 状态：**方案**；**④-A1（执行拆两段 + `execute_after`）与 ④-A3（窗口内上诉入口）已落地**（2026-10-14）。
+> 状态：**方案**；**④-A1（执行拆两段 + `execute_after`）、④-A3（窗口内上诉入口）与 ④-A2（到点常驻 tick）已落地**（2026-10-14）。
 > 合约与业务状态机的转移表**未改**（没有加任何新边）。
 > 代码基线：`045259f5`（testnet 业务状态机那条腿已走到 `settled`）。
 > 本文所有判断都带代码位置；拿不到证据的地方明说不确定。
@@ -200,7 +200,7 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 | 阶段 | 内容 | 依赖 | 可否独立验收 |
 |---|---|---|---|
 | ④-A1 | 执行拆两段 + `execute_after` 字段 + 迁移 | 无 | **已落地**（见 8.1） |
-| ④-A2 | 后台 tick（`arbitration_execute_due`）+ 常驻进程 | ④-A1 | 是（**未做**：到点目前靠人工调） |
+| ④-A2 | 后台 tick（`arbitration_execute_due`）+ 常驻进程 | ④-A1 | **已落地**（见 8.3） |
 | ④-A3 | 上诉入口（窗口内改判，零链上动作） | ④-A1 | **已落地**（见 8.2） |
 | ④-B1 | 金库地址接上后端 + 仲裁员质押真上链（`stake` + 记 wallet） | 金库已部署（testnet 已有） | 是 |
 | ④-B2 | `settlement_reversals` 台账 + `/overturn` 接上赔付 | ④-B1 | 是 |
@@ -246,12 +246,38 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 * 测试：`tests/unit/test_arbitration_appeal_reopen.py`（9 条）。变异验证 —— 把计票里的
   轮次过滤拆掉，`test_previous_round_votes_cannot_decide_the_new_round` 变红。
 
+### 8.3 ④-A2 已落地（2026-10-14）
+
+* **不新造调度器**：复用已经存在的那一个常驻循环 —— API 进程 lifespan 里的
+  `services/chain/escrow_autosettle.run_forever()`（`api/app.py:150`，`ESCROW_AUTOSETTLE_ENABLED`
+  控制；prod 已开，testnet 实测时临时打开）。窗口到点的仲裁裁决作为这一轮 tick 里的
+  一个新步骤 `execute_due_arbitration_cases`（`api/routes/arbitration.py`），**不另起进程、
+  不引 celery / APScheduler**（仓库里本来就没有这两样）。
+* **口径只有一处**：tick 与人工 `POST /cases/{id}/execute-due` 调的是同一个
+  `_settle_from_decision`，没有第二条落钱路径。审计链靠 `route_path` 区分
+  （`…/execute-due (autosettle tick)` vs `…/execute-due`）。
+* **只挑到点的**：`status='decided'` + `execute_after` 非空 + `execute_after <= now()`。
+  窗口关着（默认）时案件从不留 `execute_after`，这一步是空操作 —— prod 行为逐字不变。
+* **不双放款**（这条路上最贵的错误）：落钱前对案件行 `SELECT … FOR UPDATE SKIP LOCKED`，
+  人工 `/execute-due` 也改成同一把 `FOR UPDATE`；谁先拿到锁谁放款，另一个 re-check 后
+  必然看到 `executed` 从而 409。拿到锁后状态/时间闸再判一次（锁等到的可能是别人已落完的单）。
+* **一条坏不拖住别的**：每条案件各自提交，失败 `rollback` + 按 `RETRY_BACKOFF_SECONDS`
+  退避（复用 autosettle 的 `_failed_at`），链上门禁 / 结算行缺失一律当失败 —— 整条回滚，
+  案件留在 `decided`，绝不出现「账上已结算、链上一分没动」。
+* 测试：`tests/unit/test_arbitration_autosettle_due.py`（9 条）。变异验证 —— 拆掉失败分支的
+  `rollback` → `test_one_bad_case_does_not_block_the_next` 变红；同时拆掉 SQL 时间过滤与
+  re-check → `test_tick_skips_a_case_whose_window_is_still_open` 变红。
+* **单测跑在 SQLite 上**（方言不渲染 `FOR UPDATE`），所以用例钉的是**顺序**与 **re-check
+  逻辑**；那把真正的行锁由 Postgres 在 testnet 上实测。
+
 ---
 
 ## 九、未做 / 依赖 / 不确定项（如实）
 
 - **主网零改动**：本方案未在主网做任何变更。
-- **testnet 无常驻 autosettle/tick 进程**：④-A2 必须一并解决，否则窗口到点靠人工推。
+- **testnet 现在没有开 `ESCROW_AUTOSETTLE_ENABLED`**（默认 false）—— ④-A2 的代码已在，
+  但测试网这条循环默认不跑；prod 是开的（窗口默认 0，这一步在 prod 是空操作）。
+  测试网要到点自动放款，需显式打开该开关。
 - **仲裁员质押未上链**（见 5.1）：④-B 的链上赔付通路今天发不出交易。
 - **`partial` 判决的回滚**：本方案按「补偿欠款」处理，未设计按比例的部分回滚细则，
   需要产品确认（未定）。
@@ -263,9 +289,7 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 
 ## 十、建议的下一步
 
-**④-A2（窗口到点的常驻 tick）**：到点自动调 `/execute-due`，把「人工推」换掉 ——
-`/execute-due` 已经就位，缺的只是调度与常驻进程。
-
-之后才是 ④-B（窗口外补偿）：④-B1 把 `VERIFIER_BOND_VAULT_ADDRESS` 接进后端
+④-A 三步（`execute_after` / 窗口内上诉 / 到点常驻 tick）都已落地，主网仍是「窗口关」的
+历史行为。接下来是 ④-B：④-B1 把 `VERIFIER_BOND_VAULT_ADDRESS` 接进后端
 （现在是 unset，罚没一律停在 `pending`），④-B2 建 `settlement_reversals` 台账并把
 `/overturn` 接上赔付，④-B3 罚没池补欠款 + 操作台展示。

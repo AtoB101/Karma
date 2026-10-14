@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from datetime import datetime, timedelta
 
 import structlog
@@ -1051,7 +1052,16 @@ async def execute_arbitration_case_due(
     到点了就做窗口关闭时 ``/execute`` 做的那件事，两个入口共用
     ``_settle_from_decision``，所以口径只有一处。
     """
-    case_row = await db.get(ArbitrationCaseModel, case_id)
+    # 行级锁：tick（④-A2）和人工 /execute-due 会同时看到这一条 decided 案件，
+    # 谁先拿到锁谁放款，另一个 re-check 后必然看到 executed 从而 409 —— 双放款
+    # 是这条路上最贵的错误，闸门必须落在 SQL 里，不能只靠「读一次判一次」。
+    case_row = (
+        await db.execute(
+            select(ArbitrationCaseModel)
+            .where(ArbitrationCaseModel.case_id == case_id)
+            .with_for_update()
+        )
+    ).scalars().first()
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
     if case_row.status != ArbitrationCaseStatus.DECIDED.value:
@@ -1070,6 +1080,89 @@ async def execute_arbitration_case_due(
         actor=actor,
         route_path=f"/v1/arbitration/cases/{case_id}/execute-due",
     )
+
+
+async def execute_due_arbitration_cases(
+    db: AsyncSession,
+    *,
+    now: datetime | None = None,
+    limit: int | None = None,
+    actor: str = "arbitration-execute-due-autosettle",
+) -> list[str]:
+    """④-A2：上诉窗口到点后，由常驻 tick 把裁决落成钱（会碰链）。
+
+    这是 ``/execute-due`` 的**批处理姊妹**，两者共用 ``_settle_from_decision``：
+    口径只有一处 —— tick 只是「没人按按钮时的那个 somebody」。
+
+    安全边界（这条路会动钱，逐条钉死）：
+
+    * **只挑到点的**：``status='decided'``、``execute_after`` 非空且已过点。
+      窗口还开着的案件永远进不来，tick 不改变「窗口内链上零动作」这句话。
+    * **行级锁**：落钱前对案件行 ``SELECT ... FOR UPDATE SKIP LOCKED``，与人工
+      ``/execute-due``（同一把锁）串行；发现用的选号不加锁，锁只按需拿。
+    * **re-check**：拿到锁后状态/时间闸再判一次 —— 锁等到的可能是别人已落完的单。
+    * **一条坏不拖住别的**：每条各自提交，失败回滚 + 退避，绝不让一条异常把整批
+      已放的行一起回滚。
+    * **失败默认拒绝**：链上门禁 / 结算行缺失抛出来一律当失败，什么都不落。
+    """
+    from services.chain.escrow_autosettle import RETRY_BACKOFF_SECONDS, _failed_at
+
+    current = now or datetime.utcnow()
+    ids_stmt = (
+        select(ArbitrationCaseModel.case_id)
+        .where(ArbitrationCaseModel.status == ArbitrationCaseStatus.DECIDED.value)
+        .where(ArbitrationCaseModel.execute_after.is_not(None))
+        .where(ArbitrationCaseModel.execute_after <= current)
+        .order_by(ArbitrationCaseModel.execute_after)
+        .limit(limit if limit is not None else settings.escrow_autosettle_batch)
+    )
+    case_ids = list((await db.execute(ids_stmt)).scalars().all())
+    if not case_ids:
+        return []
+
+    executed: list[str] = []
+    for case_id in case_ids:
+        backoff_key = f"arb-due:{case_id}"
+        last = _failed_at.get(backoff_key)
+        if last is not None and (time.monotonic() - last) < RETRY_BACKOFF_SECONDS:
+            continue
+        try:
+            case_row = (
+                await db.execute(
+                    select(ArbitrationCaseModel)
+                    .where(ArbitrationCaseModel.case_id == case_id)
+                    .with_for_update(skip_locked=True)
+                )
+            ).scalars().first()
+            if case_row is None:
+                # 别人正拿着这一行（人工 /execute-due 或上一轮 tick）：这一轮跳过。
+                continue
+            if (
+                case_row.status != ArbitrationCaseStatus.DECIDED.value
+                or case_row.execute_after is None
+                or case_row.execute_after > datetime.utcnow()
+                or not case_row.decided_outcome
+            ):
+                continue
+            await _settle_from_decision(
+                db=db,
+                case_row=case_row,
+                actor=actor,
+                route_path=f"/v1/arbitration/cases/{case_id}/execute-due (autosettle tick)",
+            )
+            await db.commit()
+            _failed_at.pop(backoff_key, None)
+            executed.append(case_id)
+        except Exception as exc:  # noqa: BLE001 - 一条坏不能拖住整批
+            await db.rollback()
+            _failed_at[backoff_key] = time.monotonic()
+            logger.warning(
+                "arbitration_execute_due_tick_failed",
+                case_id=case_id,
+                error=str(exc),
+            )
+            continue
+    return executed
 
 
 class AppealArbitrationCaseRequest(BaseModel):

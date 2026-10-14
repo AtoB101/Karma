@@ -884,6 +884,9 @@ async def run_forever() -> None:
     # 放款那一步在结算路由里（和 POST /auto-confirm 共用同一份实现），这里延迟导入：
     # services 层不在导入期反过来依赖 api 包。
     from api.routes.settlement import auto_confirm_expired_settlements
+    # ④-A2：上诉窗口到点的仲裁裁决也交给这个 tick 推（与 /execute-due 共用
+    # _settle_from_decision）。同样延迟导入，services 层不在导入期反向依赖 api 包。
+    from api.routes.arbitration import execute_due_arbitration_cases
     logger.info("escrow_autosettle_started", interval_seconds=interval)
     while True:
         try:
@@ -918,6 +921,13 @@ async def run_forever() -> None:
                     db, limit=settings.escrow_autosettle_batch
                 )
                 await _lap("auto_confirm_expired_settlements")
+                # ④-A2：仲裁裁决「下发」后上诉窗口到点、又没人按 /execute-due 的案件：
+                # 由这个 tick 把裁决落成钱（与 /execute-due 共用 _settle_from_decision）。
+                # 窗口关着（默认）时这类案件根本不存在（execute_after 恒为空），是空操作。
+                arbitration_due = await execute_due_arbitration_cases(
+                    db, limit=settings.escrow_autosettle_batch
+                )
+                await _lap("execute_due_arbitration_cases")
                 # 业务侧已经终局、链上还占着额度的绑定：把它们推到最后一步，
                 # 别让用户的可用额度被一个永远不会再有人推进的绑定吃住。
                 freed = await reap_stranded(db)
@@ -977,6 +987,8 @@ async def run_forever() -> None:
                 logger.info("voucher_reserved_restore_tick", identities=len(returned))
             if auto_confirmed:
                 logger.info("settlement_auto_confirm_tick", settled=len(auto_confirmed))
+            if arbitration_due:
+                logger.info("arbitration_execute_due_tick", executed=len(arbitration_due))
         except asyncio.CancelledError:
             logger.info("escrow_autosettle_stopped")
             raise
