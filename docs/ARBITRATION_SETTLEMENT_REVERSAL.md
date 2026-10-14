@@ -1,6 +1,6 @@
 # ④ 仲裁回滚（settlement reversal）落地方案
 
-> 状态：**方案**；**④-A1（执行拆两段 + `execute_after`）已落地**（2026-10-14）。
+> 状态：**方案**；**④-A1（执行拆两段 + `execute_after`）与 ④-A3（窗口内上诉入口）已落地**（2026-10-14）。
 > 合约与业务状态机的转移表**未改**（没有加任何新边）。
 > 代码基线：`045259f5`（testnet 业务状态机那条腿已走到 `settled`）。
 > 本文所有判断都带代码位置；拿不到证据的地方明说不确定。
@@ -200,8 +200,8 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 | 阶段 | 内容 | 依赖 | 可否独立验收 |
 |---|---|---|---|
 | ④-A1 | 执行拆两段 + `execute_after` 字段 + 迁移 | 无 | **已落地**（见 8.1） |
-| ④-A2 | 后台 tick（`arbitration_execute_due`）+ 常驻进程 | ④-A1 | 是 |
-| ④-A3 | 上诉入口（窗口内改判，零链上动作） | ④-A1 | 是 |
+| ④-A2 | 后台 tick（`arbitration_execute_due`）+ 常驻进程 | ④-A1 | 是（**未做**：到点目前靠人工调） |
+| ④-A3 | 上诉入口（窗口内改判，零链上动作） | ④-A1 | **已落地**（见 8.2） |
 | ④-B1 | 金库地址接上后端 + 仲裁员质押真上链（`stake` + 记 wallet） | 金库已部署（testnet 已有） | 是 |
 | ④-B2 | `settlement_reversals` 台账 + `/overturn` 接上赔付 | ④-B1 | 是 |
 | ④-B3 | 罚没池补足欠款 + 操作台展示 | ④-B2 | 是 |
@@ -221,9 +221,30 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 * 测试：`tests/unit/test_arbitration_appeal_window.py`（7 条）。变异验证 —— 把窗口分支
   关掉 4 条红、把时间闸拆掉 1 条红。
 
-**注意：光有 ④-A1 时窗口还没有入口。** `/overturn` 仍要求案件已 `executed`，所以窗口
-内目前**没有**「上诉 / 改判」这个动作 —— 窗口只是把放款推迟并记下到期时刻。要让
-「推翻零成本」真正可用，必须接 ④-A3（窗口内的上诉入口）。
+**④-A3 补上了这个入口**（见 8.2）：窗口内可以把裁决打回去重审，链上一笔不发。
+`/overturn`（窗口**外**的推翻）仍要求案件已 `executed`，那条路属于 ④-B —— 钱已经动了，
+只能赔、不能倒。两者不是一回事，别把窗口内上诉当成 `/overturn` 的替代品。
+
+### 8.2 ④-A3 已落地（2026-10-14）
+
+* 开关：沿用 ④-A1 的 `ARBITRATION_APPEAL_WINDOW_SECONDS`（窗口关着时这个入口一律 409，
+  等于不存在）；限次：`ARBITRATION_MAX_APPEALS`（默认 **3**，<= 0 = 不限）。
+* `POST /v1/arbitration/cases/{id}/appeal`：把 `decided` 且**未到期**的案件打回 `voting`，
+  清 `decided_outcome` / `final_partial_percent` / `execute_after`，`vote_round += 1`，
+  落一条 `case_appeal_opened` 事件。**链上一笔不发、结算一步不动** —— 这就是「推翻零成本」。
+* 谁来提：当事人（立案人 / 结算买卖双方）本人，或 `ARBITRATOR_ACTOR_IDS ∪ ADMIN_ACTOR_IDS`
+  白名单运维岗代提；两条路都过 `require_identity_binding`。
+* 票按**轮次**计（迁移 `0069_arbitration_appeal_rounds`）：`arbitration_votes.vote_round`，
+  唯一键从 `(case_id, arbitrator_identity_id)` 换成
+  `(case_id, vote_round, arbitrator_identity_id)`。老行一律 `vote_round = 0`，所以升级前后
+  对老案件的计票口径逐字一致。**只把状态改回 `voting` 而不分轮 = 没打回**：重审里随便
+  再来一票就会把旧结论重新投出来 —— 这是这条路上最容易写错的地方（有用例专门钉它）。
+* 链上门禁（§七.4 落地）：`services/chain/escrow_settlement.assert_no_payee_yet()` ——
+  `getBinding().state` 必须 ∈ `{active(1), disputed(6)}`；已经 `finalizing` / 落定的一律 409，
+  读不到链上状态也 409（默认拒绝）。托管没启用时是空操作。
+* 打回之后原来的 `/execute-due` 自然失效（案件已不在 `decided`，409）。
+* 测试：`tests/unit/test_arbitration_appeal_reopen.py`（9 条）。变异验证 —— 把计票里的
+  轮次过滤拆掉，`test_previous_round_votes_cannot_decide_the_new_round` 变红。
 
 ---
 
@@ -242,7 +263,9 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 
 ## 十、建议的下一步
 
-**④-A3（窗口内的上诉入口）**：让当事人/运维在窗口内把一个 `decided` 且未到期的案件打回去
-重判（清掉 `execute_after`、案件回到 `voting`）—— 链上一笔没发，所以这是**零回滚成本**
-的那条路，也是 ④-A1 的兑现动作：没有它，窗口是空转的。之后才是 ④-A2（tick）与
-④-B（窗口外补偿）。
+**④-A2（窗口到点的常驻 tick）**：到点自动调 `/execute-due`，把「人工推」换掉 ——
+`/execute-due` 已经就位，缺的只是调度与常驻进程。
+
+之后才是 ④-B（窗口外补偿）：④-B1 把 `VERIFIER_BOND_VAULT_ADDRESS` 接进后端
+（现在是 unset，罚没一律停在 `pending`），④-B2 建 `settlement_reversals` 台账并把
+`/overturn` 接上赔付，④-B3 罚没池补欠款 + 操作台展示。

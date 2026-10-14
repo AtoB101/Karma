@@ -139,6 +139,9 @@ class Settings(BaseSettings):
     # 就是「还没开链上结算窗」之前。窗口多长由产品/风控拍板（测试网建议 300）。
     arbitration_appeal_window_seconds: int = 0
 
+    # ④-A3 同一案件在窗口内最多被打回几次（防无限拖期）。窗口关着时用不到。
+    arbitration_max_appeals: int = 3
+
     # Comma-separated identity ids allowed to hold governance role profiles
     # (class=verifier / arbitrator). Empty means nobody can self-create one over the
     # API; the operational grant path is scripts/ops/grant_governance_role.py on the

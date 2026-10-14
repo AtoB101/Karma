@@ -46,8 +46,8 @@ async def _seed_decided_case(db, *, case_id: str, task_id: str, escrow: float = 
             task_id=task_id,
             escrow_amount=escrow,
             currency="USD",
-            # ????? settlement ?? disputed ??? arbitrated
-            # ?api/routes/arbitration.py:220-238??? ? decided ???????????
+            # 注意：settlement 必须是 disputed→仲裁立案后才有的 arbitrated，
+            # 见 api/routes/arbitration.py:220-238；写 disputed 会撞持久化守卫。
             status=TaskStatus.ARBITRATED.value,
             client_agent_id="buyer-a1",
             worker_agent_id="seller-a1",
@@ -214,6 +214,8 @@ async def test_due_on_an_already_executed_case_is_rejected(client_sec, db_sessio
     resp = await client_sec.post("/v1/arbitration/cases/case-a1-done/execute-due", json={})
     assert resp.status_code == 409, resp.text
     assert seen == [TaskStatus.SETTLED], "第二次不许再放一次款（重复放款 = 双花）"
+
+
 @pytest.mark.asyncio
 async def test_due_is_operator_only(client_sec, db_session, monkeypatch):
     """两个入口都是运维岗：没登录/坏 key 401、登录但不在白名单 403。

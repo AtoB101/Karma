@@ -621,6 +621,9 @@ class ArbitrationCaseModel(Base):
     final_partial_percent:  Mapped[float|None] = mapped_column(Float)
     # ④-A 上诉窗口：裁决下发后、放款之前的到期时刻。NULL = 没有窗口（立即执行）。
     execute_after:          Mapped[datetime|None] = mapped_column(UTCDateTime)
+    # ④-A3 窗口内上诉：票按轮次计；appeal_count 记「被打回几次」（限次用）。
+    vote_round:             Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
+    appeal_count:           Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     executed_at:            Mapped[datetime|None] = mapped_column(UTCDateTime)
@@ -669,10 +672,16 @@ class ArbitrationVoteModel(Base):
     decision:               Mapped[str]      = mapped_column(String(16), nullable=False)
     partial_percent:        Mapped[float|None] = mapped_column(Float)
     rationale:              Mapped[str|None] = mapped_column(Text)
+    # ④-A3 第几轮的票。老行一律 0（没有轮次概念的那些票就是第 0 轮）。
+    vote_round:             Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     voted_at:               Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     __table_args__ = (
-        UniqueConstraint("case_id", "arbitrator_identity_id", name="uq_arbitration_vote"),
+        # 同一仲裁员在**同一轮**只能投一票。轮次必须进约束：上诉把案子打回重审后，
+        # 同一批仲裁员得能再投一次，老的 (case_id, arbitrator) 会直接把重审堵死。
+        UniqueConstraint(
+            "case_id", "vote_round", "arbitrator_identity_id", name="uq_arbitration_vote_round"
+        ),
     )
 
 
