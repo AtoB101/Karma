@@ -235,16 +235,84 @@ describe: 资金来源：a2a-buyer 的账单 1（0xd91acb5d…）；受款方：
 10 正是这一单的货款。钱在 `finalizeSettlement` 那一刻从买方钱包**直划**卖方，
 合约全程零持有。
 
-## 七、还没做的（如实列）
+## 七、部署后验证（同一份提交 = `038e4f07`，2026-10-14）
 
-* **prod 那条脏行（task `0e5737ff…`）要等这份迁移上线**才会被归一。合并部署后需要
-  核对一次「prod `step_index<1` 的行数 = 0」。
-* testnet 现场这次是**先归一数据、再跑放款**（现场代码还没有 §4.1 的写入侧修复）。
-  写入侧修复的现场验证放在部署之后：重启 testnet api → 重新开一单 → 确认管道写下的
-  回执 `step_index=1` 且读得出来。
-* `escrow_settlement.assert_release_verified` 的钱闸这次**没有被走到**：这一单的
-  `escrow_bindings#1` 在 `2026-10-14` 早先的托管演练里就已经 `settled`，`submit_for_task`
-  按设计**提前返回**（「链上已经落定，别重复开窗」）。也就是说这一轮验证的是
-  **业务状态机那条腿**；「业务状态机开链上窗」那条顺序正确的全链闭环还没在 testnet 上跑过
-  （需要一条 binding 仍是 `active` 的新单）。
-* 本轮只动 testnet；prod 的数据一个字节没动（除了这次要上的迁移）。
+squash 合入 main 是 `038e4f0727e35db31361337e9413c76bfe2fb9f3`（PR #311），
+`Deploy to VPS` 绿。部署后逐项核对：
+
+| 检查 | 结果 |
+|------|------|
+| `/opt/karma/repo` HEAD | `038e4f07…` = `.last-deploy-sha` |
+| prod `alembic_version` | `0067_receipt_step_index_one_based` |
+| prod `execution_receipts` 里 `step_index < 1` 的行数 | **0** |
+| prod 那条脏行 `acf1977e…`（task `0e5737ff…`） | `step_index` 现在 = **1** |
+| prod `/health` | 200 |
+| prod 容器里的 `services/trade_auto_execution.py` | 含 `latest_step`、**不含** `step_index=0` |
+| testnet `alembic_version` | `0065 → 0066 → 0067`（现场跑 `alembic upgrade head`） |
+| testnet api 重启后 `/health` | 200；容器代码同款（含 `latest_step`） |
+
+也就是说：**prod 那条会把卖方收钱打挂的脏行，已经被迁移归一了。**
+
+### 7.1 写入侧修复的现场验证（新开一单）
+
+部署后在 testnet 重新开一单（`POST /v1/trade/orders/launch`，买方 key，
+`Idempotency-Key=codex-settle-leg-20261014-1`）：
+
+* order `65b783a7-1c81-41d0-8164-84bc096cce44` → task
+  `6a007218-badb-48b4-82e3-5174b058bdb0`，settlement
+  `2174a004-c30c-4f6c-a3f7-e2ba8fc2f3d4`，确认 `status=execution_started`；
+* 管道写下的回执 `53fab1d9-97cf-4bf9-a94a-1bf464dedf0b`：
+  **`step_index=1`**（修复前是 0）；
+* `GET /v1/receipts/task/6a007218…` → **HTTP 200**（这条路以前是 500）。
+
+### 7.2 「顺序正确」的全链闭环也跑通了（同一条新单）
+
+这一单的 binding **不是**早就落定的，所以 `submit_for_task` 没有提前返回 ——
+`assert_release_verified` 那道**钱闸第一次被真的走过去了**：
+
+```
+launch        → ACCEPTED → bind_for_task_deferred（只落标记，不动链）
+submit        → DELIVERED                                  200
+buyer-accept  → SETTLED
+   _fill_in_deferred_bind → materialize_pending_bind     → 真链上 bind
+   submit_for_task → assert_release_verified 通过
+        （status=settled ✓ / 交付验证：无场景自动放行 ✓ / 成功回执 ✓ / funds_trace ✓）
+   → submitSettlement 开结算窗（pull_after = +60s，SETTLEMENT_DISPUTE_WINDOW=60）
+   → buyerConfirm（买方本人确认）
+窗口到点 → escrow_autosettle.settle_due → finalizeSettlement
+```
+
+四笔真交易（Sepolia 11155111，`0x2C9911F5…`）：
+
+| 步骤 | tx |
+|------|----|
+| bind | `0x2c718a117c0b13a66908c830ef17894238b47b66e33314200a72754690ef103c` |
+| submitSettlement | `0x9eebb053dee9d0ecfc81821ae7ac0bc2eb9b072313368ee2c97c0ab07290baab` |
+| buyerConfirm | `0xd365f78c429853b27ad4b4201b2b8a4c7c3f576d3a4d64e6d56bb5c21d135f9f` |
+| finalizeSettlement | `0xd5ae5333150b38f132f21c65139ed24341786c4957fbddd041bbc9ddbbebdb53` |
+
+结果：
+
+* `settlements`：`status=settled`、`onchain_status=settled`、`released_amount=10`、
+  `tx_hash=0xd5ae5333…`、`onchain_binding_id=4`；
+* `escrow_bindings#4`：`state=settled`，三条 tx 哈希（bind / submit / finalize）齐；
+* 状态机审计流水：`draft→pending→accepted→in_progress→delivered→settled`，
+  每一步 `transition_allowed=t` / `guard_stage=store`；
+* **钱真的动了**（mUSDC）：买方 `0xD91acb5D…` 36 → **26**，卖方 `0x9C479392…`
+  19 → **29**；买方账单 1 的 `spent_usdc` 14 → **24**（= 本单 10 + 上一单 10 + 早先演练 4）；
+* `funds_trace`：两条 task 都 `ok=True`、**无 issue、无 warning**。
+
+> testnet 场地上**没有**常驻的 autosettle 进程（`escrow_autosettle` 不在环境里），
+> 所以窗口到点是由手动调用 `escrow_autosettle.settle_due(db)` 收的尾 —— 那正是 autosettle
+> 每一轮跑的那个函数，不是另一条路径。
+
+## 八、还没做的（如实列）
+
+* **主网**：一个字节没动。prod 只多了一次数据迁移（`0067`）。
+* **testnet 没有常驻 autosettle**：窗口到点要人（或脚本）推一把。要让它真的「自动」，
+  得在场地里把那个跑 `run_forever()` 的进程起起来 —— 本轮没做。
+* **`escrow_bindings#1` 那条历史绑定**（task `eec1d64b…`）是 `2026-10-14` 早先托管演练
+  留下的：钱早就划完、链上早就 `settled`，业务状态这轮才补上。两条腿现在**是对齐的**，
+  但它的成交顺序是「先链后账」，不是生产里的正常顺序。生产顺序那份由 §7.2 的新单证明。
+* **`_assert_delivery_verified` / P7 交付验证门**这两轮都是「无场景 → 自动放行」。
+  物理/票务类场景（要 VERIFIED 才放行）在 testnet 上还没造过。
