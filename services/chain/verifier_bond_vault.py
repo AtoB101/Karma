@@ -13,6 +13,8 @@ Karma 后端全程不持有、不索取、不传输任何私钥 / 助记词。�
 """
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Iterable
 from typing import Any
 
 from services import verifier_bond
@@ -34,6 +36,20 @@ VAULT_ABI: list[dict[str, Any]] = [
             {"name": "victimAmount", "type": "uint256"},
             {"name": "poolAmount", "type": "uint256"},
         ],
+    },
+    {
+        "type": "function",
+        "name": "stake",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "amount", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
+        "type": "function",
+        "name": "isRegistered",
+        "stateMutability": "view",
+        "inputs": [{"name": "verifier", "type": "address"}],
+        "outputs": [{"name": "", "type": "bool"}],
     },
     {
         "type": "function",
@@ -172,3 +188,245 @@ def encode_distribute_pool_calldata(
 
 def wei_to_amount(amount_wei: int) -> float:
     return wei_to_usdc(int(amount_wei))
+
+# ---------------------------------------------------------------------------
+# 只读：金库里到底押了多少钱（④-B1）
+# ---------------------------------------------------------------------------
+
+
+class BondVaultUnavailable(RuntimeError):
+    """金库读不到（没配 / RPC 不通 / 合约调用失败）。
+
+    绝不当成「余额 0」：把「读不到」当成「没质押」会在 RPC 抖动时误停一个合格的岗，
+    当成「有质押」则会让没押金的人过关 —— 两种都错，所以只能抛，由调用方 fail-closed。
+    """
+
+
+def _configured_vault_address() -> str:
+    """模块级助手：避开同名参数 ``vault_address`` 的遮蔽。"""
+    from services import verifier_bond
+
+    return verifier_bond.vault_address()
+
+
+def _configured_rpc_url(explicit: str | None = None) -> str:
+    """读链用的 RPC：显式参数 > ``VERIFIER_BOND_RPC_URL`` > ``TESTNET_RPC_URL``。
+
+    与 ``scripts/ops/verifier_bond_vault.py`` 的 ``resolve_rpc`` 同一个顺序 —— 两个进程读链的口径
+    不一样，运维时就会出现「脚本读得到、后端读不到」的鬼故事。
+    """
+    from config.settings import settings
+
+    return (
+        explicit or settings.verifier_bond_rpc_url or settings.testnet_rpc_url or ""
+    ).strip()
+
+
+def read_bonds_sync(
+    wallets: Iterable[str],
+    *,
+    vault_address: str | None = None,
+    rpc_url: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """批量读「这些钱包在金库里押了多少」。返回 ``{小写钱包: {...}}``。
+
+    只读：不签名、不发交易。金额取链上 ``bondAmount``，**不接受调用方自报**。
+    """
+    address = (vault_address or _configured_vault_address() or "").strip()
+    if not address:
+        raise BondVaultUnavailable("VERIFIER_BOND_VAULT_ADDRESS is not configured")
+    rpc = _configured_rpc_url(rpc_url)
+    if not rpc:
+        raise BondVaultUnavailable("TESTNET_RPC_URL is not configured")
+    wanted = [w for w in ((w or "").strip().lower() for w in wallets) if w]
+    if not wanted:
+        return {}
+    from web3 import Web3
+
+    try:
+        w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 20}))
+        contract = w3.eth.contract(address=Web3.to_checksum_address(address), abi=VAULT_ABI)
+        out: dict[str, dict[str, Any]] = {}
+        for wallet in wanted:
+            checksum = Web3.to_checksum_address(wallet)
+            out[wallet] = {
+                "wallet": wallet,
+                "vault": address,
+                "registered": bool(contract.functions.isRegistered(checksum).call()),
+                "active": bool(contract.functions.isActive(checksum).call()),
+                "bond_usdc": wei_to_amount(contract.functions.bondAmount(checksum).call()),
+            }
+        return out
+    except BondVaultUnavailable:
+        raise
+    except Exception as exc:  # noqa: BLE001 - 转成一个明确的「查不清」，不让上层把它当成 0
+        raise BondVaultUnavailable("bond vault read failed: %s" % exc) from exc
+
+
+async def read_bonds(
+    wallets: Iterable[str],
+    *,
+    vault_address: str | None = None,
+    rpc_url: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """``read_bonds_sync`` 的非阻塞包装（链上读不占事件循环）。"""
+    return await asyncio.to_thread(
+        read_bonds_sync, list(wallets), vault_address=vault_address, rpc_url=rpc_url
+    )
+
+
+async def read_bond(
+    wallet: str | None,
+    *,
+    vault_address: str | None = None,
+    rpc_url: str | None = None,
+) -> dict[str, Any] | None:
+    """单钱包读取；没给钱包返回 ``None``（不去猜）。"""
+    key = (wallet or "").strip().lower()
+    if not key:
+        return None
+    return (await read_bonds([key], vault_address=vault_address, rpc_url=rpc_url)).get(key)
+
+
+
+#: ``slash(address,address,uint256,bytes32)`` 的 4 字节选择器。
+SLASH_SELECTOR = "0xa527f1dc"
+
+
+def decode_slash_calldata(data: str) -> dict[str, Any]:
+    """解出 ``slash(address,address,uint256,bytes32)`` 的实参。
+
+    为什么要解：台账里写「已出账」必须对应**这一笔**出账 —— 只验「是金库的一笔 slash」
+    还不够，还得是**罚了台账上那个人、那个数**；否则拿一笔罚别人的 tx 也能把这一行
+    标成「已出账」。
+    """
+    body = data[10:] if data.lower().startswith(SLASH_SELECTOR) else ""
+    if len(body) < 192:
+        raise BondVaultUnavailable(
+            "slash calldata is truncated: %d hex chars after the selector (need >= 192)"
+            % len(body)
+        )
+    return {
+        "verifier": "0x" + body[24:64],
+        "victim": "0x" + body[88:128],
+        "amount_wei": int(body[128:192], 16),
+        "reason": ("0x" + body[192:256]) if len(body) >= 256 else None,
+    }
+
+
+def verify_slash_tx_sync(
+    tx_hash: str,
+    *,
+    vault_address: str | None = None,
+    rpc_url: str | None = None,
+    expected_verifier: str | None = None,
+    expected_victim: str | None = None,
+    expected_amount_usdc: float | None = None,
+) -> dict[str, Any]:
+    """回链上确认「这笔 tx 真的是本金库的一笔 slash()」。
+
+    为什么不能只相信操作人的一个字符串：台账里的 ``settled`` 是对外声明「钱已经划过去了」。
+    一个手拄的 tx hash 能把它变成谎言。所以这里要逐项核：
+
+    1. 交易已上链且 ``status == 1``（没 revert）；
+    2. ``to`` 就是当前配的金库；
+    3. ``input`` 的选择器就是 ``slash(...)``；
+    4. 带上台账行的预期值时，calldata 里**被罚的钱包 / 受害方 / 金额**
+       逐一对得上（否则一笔罚别人的 tx 也能把这一行标成已出账）。
+
+    任一项查不到 / 不对 → 抛 ``BondVaultUnavailable``：宁可回写不了，也不写一个假的「已出账」。
+    """
+    address = (vault_address or _configured_vault_address() or "").strip()
+    if not address:
+        raise BondVaultUnavailable("VERIFIER_BOND_VAULT_ADDRESS is not configured")
+    rpc = _configured_rpc_url(rpc_url)
+    if not rpc:
+        raise BondVaultUnavailable("TESTNET_RPC_URL is not configured")
+    from web3 import Web3
+
+    from services.chain.wallet_lock import _field
+
+    try:
+        w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={"timeout": 20}))
+        receipt = w3.eth.get_transaction_receipt(tx_hash)
+        if receipt is None:
+            raise BondVaultUnavailable("transaction %s is not mined yet" % tx_hash)
+        tx = w3.eth.get_transaction(tx_hash)
+    except BondVaultUnavailable:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise BondVaultUnavailable("could not read transaction %s: %s" % (tx_hash, exc)) from exc
+
+    status = _field(receipt, "status", 0)
+    if int(status or 0) != 1:
+        raise BondVaultUnavailable("transaction %s reverted on-chain" % tx_hash)
+    to = str(_field(receipt, "to", "") or "").strip().lower()
+    if to != address.lower():
+        raise BondVaultUnavailable(
+            "transaction %s was sent to %s, not to the bond vault %s" % (tx_hash, to or "<none>", address)
+        )
+    data = str(_field(tx, "input", "") or "")
+    if not data.lower().startswith(SLASH_SELECTOR):
+        raise BondVaultUnavailable(
+            "transaction %s does not call slash(address,address,uint256,bytes32)" % tx_hash
+        )
+    call = decode_slash_calldata(data)
+    wallet = (expected_verifier or "").strip().lower()
+    if wallet and call["verifier"].lower() != wallet:
+        raise BondVaultUnavailable(
+            "transaction %s slashed %s, not the wallet on the ledger row (%s)"
+            % (tx_hash, call["verifier"], wallet)
+        )
+    victim = (expected_victim or "").strip().lower()
+    if victim and call["victim"].lower() != victim:
+        raise BondVaultUnavailable(
+            "transaction %s paid %s, not the victim on the ledger row (%s)"
+            % (tx_hash, call["victim"], victim)
+        )
+    if expected_amount_usdc is not None:
+        wanted_wei = usdc_to_wei(float(expected_amount_usdc))
+        if call["amount_wei"] != wanted_wei:
+            raise BondVaultUnavailable(
+                "transaction %s slashed %d wei, but the ledger row says %d wei"
+                % (tx_hash, call["amount_wei"], wanted_wei)
+            )
+    return {
+        "tx_hash": tx_hash,
+        "vault": address,
+        "block": _field(receipt, "blockNumber"),
+        "selector": SLASH_SELECTOR,
+        "verifier": call["verifier"],
+        "victim": call["victim"],
+        "amount_usdc": wei_to_amount(call["amount_wei"]),
+    }
+
+
+async def verify_slash_tx(
+    tx_hash: str,
+    *,
+    vault_address: str | None = None,
+    rpc_url: str | None = None,
+    expected_verifier: str | None = None,
+    expected_victim: str | None = None,
+    expected_amount_usdc: float | None = None,
+) -> dict[str, Any]:
+    """``verify_slash_tx_sync`` 的非阻塞包装。"""
+    return await asyncio.to_thread(
+        verify_slash_tx_sync,
+        tx_hash,
+        vault_address=vault_address,
+        rpc_url=rpc_url,
+        expected_verifier=expected_verifier,
+        expected_victim=expected_victim,
+        expected_amount_usdc=expected_amount_usdc,
+    )
+
+
+def encode_stake_calldata(*, amount_usdc: float, vault_address: str | None = None) -> str:
+    """编码 ``stake(uint256)``：质押人用**自己的钱包**签这一笔。
+
+    后端只编码，不签名 —— 与 ``slash`` / ``distributePool`` 同一条安全模型：
+    后端全程不持有、不索取、不传输任何私钥。
+    """
+    data = _contract(vault_address).encode_abi("stake", args=[usdc_to_wei(amount_usdc)])
+    return _to_calldata_hex(data)

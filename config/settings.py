@@ -68,6 +68,14 @@ class Settings(BaseSettings):
     # （例如 1.5 = 抵押至少是案值的 1.5 倍）。生产环境不允许小于 1.0。
     arbitration_stake_coverage_multiple: float = 1.0
 
+    # ④-B1（2026-10-15）：仲裁员的质押必须**真的锁在链上金库**（KarmaVerifierBond），
+    # 不只是账面上的 ``capacity.total_locked_usdc``。打开后入池 / 投票都回链上核对：
+    # 该身份在 Console 绑定的钱包必须已在金库 ``stake()`` 过、且 ``bondAmount >= 质押额``。
+    # 为什么要有这一档：账面质押可以用锁仓额度「充数」，但链上 ``slash()`` 只认
+    # 金库里那笔 ``Bond`` —— 押金不在金库，罚没出账就没有可划的钱，「质押即准入」是空的。
+    # 金库没配（VERIFIER_BOND_VAULT_ADDRESS 为空）时这一档**不生效**（测试网先跑通）。
+    arbitration_require_vault_bond: bool = False
+
     # ---- 收益口径（policy preview，2026-10-08）--------------------------------
     # 这一组数是**对外公布的收益标准**：操作台「验证者身份 / 仲裁者身份」两页把它
     # 原样摊给申请人看（见 services/economy_policy.py + GET /v1/console/economy-policy）。
@@ -120,8 +128,15 @@ class Settings(BaseSettings):
     verifier_require_owner_identity: bool = False
     verifier_unbond_cooldown_hours: int = 72
     verifier_bond_vault_address: str = ""
+    # ④-B1：读链用的 RPC。缺省回落到 ``TESTNET_RPC_URL``；与 ops CLI 同名同序，
+    # 避免「脚本读得到、后端读不到」。
+    verifier_bond_rpc_url: str = ""
     verifier_slash_victim_share_bps: int = 8000
     verifier_slash_pool_share_bps: int = 2000
+
+    # ④-B1：节点质押同样要求真的在链上金库里（口径与仲裁员一致，见
+    # arbitration_require_vault_bond）。节点钱包取 ``verifier_nodes.wallet_address``。
+    verifier_require_vault_bond: bool = False
     # 仲裁：立案费 = 案值 × bps，夹在 [min, max] 之间，由**败诉方**承担。
     arbitration_fee_bps: float = 150.0
     arbitration_fee_min_usdc: float = 0.5

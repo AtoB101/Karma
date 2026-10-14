@@ -26,6 +26,7 @@
   python scripts/ops/verifier_bond_vault.py status --address 0xNode
   python scripts/ops/verifier_bond_vault.py slash --dry-run \
       --verifier 0xNode --amount 6 --victim 0xVictim --reason "challenge 42 upheld"
+  python scripts/ops/verifier_bond_vault.py stake --amount 150 --key-env A2A_SELLER_KEY
   python scripts/ops/verifier_bond_vault.py deploy --dry-run \
       --artifact out/KarmaVerifierBond.json --token 0xToken \
       --min-bond 5 --cooldown-hours 72 --min-pool-payout 1
@@ -53,6 +54,19 @@ EXIT_FAILED = 3
 DEFAULT_KEY_ENV = "VERIFIER_BOND_OPS_PRIVATE_KEY"
 DEPLOY_GAS_CEILING = 12_000_000
 ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+#: 质押人自己签的两步：先给金库 approve、再 stake。只要这三个函数。
+ERC20_ABI = [
+    {"type": "function", "name": "approve", "stateMutability": "nonpayable",
+     "inputs": [{"name": "spender", "type": "address"}, {"name": "amount", "type": "uint256"}],
+     "outputs": [{"name": "", "type": "bool"}]},
+    {"type": "function", "name": "allowance", "stateMutability": "view",
+     "inputs": [{"name": "owner", "type": "address"}, {"name": "spender", "type": "address"}],
+     "outputs": [{"name": "", "type": "uint256"}]},
+    {"type": "function", "name": "balanceOf", "stateMutability": "view",
+     "inputs": [{"name": "account", "type": "address"}],
+     "outputs": [{"name": "", "type": "uint256"}]},
+]
 
 #: ``status`` 读的全量视图函数名 —— 只有 ABI 里真的有的才会读。
 VIEW_FUNCTIONS = (
@@ -363,6 +377,74 @@ def encode_slash_calldata(
     )
 
 
+def cmd_stake(args, env) -> int:
+    """质押人用**自己的钱包**质押：approve + stake。
+
+    这一步走的是质押人自己的钥匙（``--key-env``），不是治理钥。金库里那笔 ``Bond``
+    即「质押即准入」里真正担保的那笔钱 —— 链上 ``slash()`` 只能划它。
+    """
+    amount_usdc = _require_positive("--amount", args.amount)
+    amount_wei = usdc_to_wei(amount_usdc)
+    vault = resolve_vault_address(args)
+    token = (getattr(args, "token", None) or env.get("ERC20_TOKEN_ADDRESS") or "").strip()
+    abi, abi_source = _vault_abi(args)
+    if args.dry_run:
+        print(
+            json.dumps(
+                {
+                    "action": "stake",
+                    "to": vault or "<VERIFIER_BOND_VAULT_ADDRESS>",
+                    "token": token or "<ERC20_TOKEN_ADDRESS>",
+                    "amount_wei": amount_wei,
+                    "abi": abi_source,
+                    "steps": ["approve(vault, amount) if allowance is short", "stake(amount)"],
+                    "broadcast": "skipped (dry-run)",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return EXIT_OK
+    if not vault:
+        raise CliError("没配金库：用 --vault，或设 VERIFIER_BOND_VAULT_ADDRESS")
+    if not token:
+        raise UsageError("stake 需要质押代币地址：--token，或设 ERC20_TOKEN_ADDRESS")
+
+    from web3 import Web3
+
+    signer = _signer(args.key_env, env)
+    w3 = _connect(resolve_rpc(args, env))
+    vault = Web3.to_checksum_address(vault)
+    erc20 = w3.eth.contract(address=Web3.to_checksum_address(token), abi=ERC20_ABI)
+    allowance = int(erc20.functions.allowance(signer.address, vault).call())
+    if allowance < amount_wei:
+        approve_tx, _ = _send(
+            w3, signer,
+            erc20.functions.approve(vault, amount_wei).build_transaction({}),
+        )
+        print("approve_tx=%s" % approve_tx)
+    else:
+        print("approve_tx=skipped (allowance %d >= %d)" % (allowance, amount_wei))
+
+    contract = w3.eth.contract(address=vault, abi=abi)
+    stake_tx, receipt = _send(
+        w3, signer, contract.functions.stake(amount_wei).build_transaction({})
+    )
+    print("stake_tx=%s" % stake_tx)
+    print("stake_block=%s" % receipt["blockNumber"])
+    print("stake_gasUsed=%s" % receipt["gasUsed"])
+    print("stake_wallet=%s" % signer.address)
+    print("stake_amount_wei=%s" % amount_wei)
+    print("vault=%s" % vault)
+
+    # 读回：质押完必须能在链上看到，不靠脚本自报
+    bond_wei = int(contract.functions.bondAmount(signer.address).call())
+    print("bond_amount_wei=%s" % bond_wei)
+    print("bond_isRegistered=%s" % bool(contract.functions.isRegistered(signer.address).call()))
+    print("bond_isActive=%s" % bool(contract.functions.isActive(signer.address).call()))
+    return EXIT_OK
+
+
 def cmd_slash(args, env) -> int:
     verifier = parse_addresses(args.verifier)[0]
     victim = parse_addresses(args.victim)[0] if args.victim else None
@@ -468,7 +550,7 @@ def _add_common_options(parser: argparse.ArgumentParser, *, sub: bool = False) -
     parser.add_argument("--artifact", default=default,
                         help="forge build 产出的 KarmaVerifierBond.json（含 abi + bytecode）")
     parser.add_argument("--key-env", default=argparse.SUPPRESS if sub else DEFAULT_KEY_ENV,
-                        help="从哪个环境变量读签名私钥（默认 %s）" % DEFAULT_KEY_ENV)
+                        help="从哪个环境变量读签名私钥（默认 %s；stake 时传质押人自己的钥）" % DEFAULT_KEY_ENV)
     parser.add_argument("--dry-run", action="store_true",
                         default=argparse.SUPPRESS if sub else False,
                         help="只打印将要发的内容，不广播、不碰链")
@@ -499,6 +581,12 @@ def build_parser() -> argparse.ArgumentParser:
     deploy.add_argument("--gas", type=int, default=DEPLOY_GAS_CEILING,
                         help="部署 gas 上限（默认 %d；via_ir 创建成本约 9.2M）" % DEPLOY_GAS_CEILING)
     deploy.set_defaults(func=cmd_deploy)
+
+    stake = sub.add_parser("stake", help="质押：质押人自己的钱包 approve + stake（④-B1）")
+    _add_common_options(stake, sub=True)
+    stake.add_argument("--amount", type=float, required=True, help="质押金额（USDC）")
+    stake.add_argument("--token", help="质押 ERC20 地址（缺省取 ERC20_TOKEN_ADDRESS）")
+    stake.set_defaults(func=cmd_stake)
 
     slash = sub.add_parser("slash", help="罚没：编码 + 签名 + 广播（治理动作）")
     _add_common_options(slash, sub=True)

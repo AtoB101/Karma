@@ -51,6 +51,7 @@ from services import bond_slash, economy_policy, governance_stake
 from services.actor_guards import require_admin_actor, require_arbitration_operator
 from services.capacity_resolution import apply_capacity_resolution
 from services.identity_actor import resolve_actor_identity_id
+from services.identity_wallet_binding import get_bound_wallet
 from services.security_monitoring import (
     SecurityMonitoringEventType,
     record_security_event,
@@ -804,11 +805,15 @@ async def overturn_arbitration_case(
             skipped_unstaked += 1
             continue
 
+        # ④-B1：指认「罚谁的钱包」—— 链上 ``slash(address)`` 只认地址，不认身份 id。
+        # 没有绑定钱包时不编一个：台账照记（债是真的），出账停在 pending、
+        # ``slash_instructions`` 回 verifier=null —— 宁可发不出 tx，也不乱指认一个钱包。
+        slashed_wallet = await get_bound_wallet(db, subject_id)
         row, created = await bond_slash.record_slash(
             db,
             subject_kind=bond_slash.SUBJECT_ARBITRATOR_ROLE,
             subject_id=subject_id,
-            wallet_address=None,
+            wallet_address=slashed_wallet,
             victim_wallet_address=victim_wallet,
             victim_identity_id=victim_identity,
             source_kind=bond_slash.SOURCE_ARBITRATION_OVERTURN,
