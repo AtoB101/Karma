@@ -1,6 +1,7 @@
 # ④ 仲裁回滚（settlement reversal）落地方案
 
-> 状态：**方案**；**④-A1（执行拆两段 + `execute_after`）、④-A3（窗口内上诉入口）与 ④-A2（到点常驻 tick）已落地**（2026-10-14）。
+> 状态：**④-A1 / ④-A2 / ④-A3 已落地**（2026-10-14）；**④-B1 已落地并在测试网真链实测**（2026-10-15，见 §5.6 与 `VERIFIER_BOND_VAULT_RUNBOOK.md`）；
+> **④-B2 为方案、待批**（§十一）。
 > 合约与业务状态机的转移表**未改**（没有加任何新边）。
 > 代码基线：`045259f5`（testnet 业务状态机那条腿已走到 `settled`）。
 > 本文所有判断都带代码位置；拿不到证据的地方明说不确定。
@@ -293,3 +294,150 @@ testnet-api 环境变量：ALLOWANCE_ESCROW_ADDRESS      = 0x2C9911F5...49743b  
 历史行为。接下来是 ④-B：④-B1 把 `VERIFIER_BOND_VAULT_ADDRESS` 接进后端
 （现在是 unset，罚没一律停在 `pending`），④-B2 建 `settlement_reversals` 台账并把
 `/overturn` 接上赔付，④-B3 罚没池补欠款 + 操作台展示。
+
+**④-B1 已于 2026-10-15 落地并真链实测**（`build_transaction` 带 `from`、`HexBytes` 归一，两处只有真链才暴露的 bug 都已修；见 `VERIFIER_BOND_VAULT_RUNBOOK.md` §5.6）。**④-B2 的具体落地方案见 §十一（待批）。**
+
+## 十一、④-B2 落地方案：`settlement_reversals` 台账 + `/overturn` 接上赔付（2026-10-15）
+
+> 状态：**方案，待批**。④-B1 已落地并已在测试网真链实测（见 §5.6）。
+> 本节所有判断都对着**当前 main**（`11b639f`）与**测试网真库**核过，附证据。
+
+### 11.1 一句话
+
+回滚**不改终局状态机、不发新链上原语**：新增一张「欠谁多少、这笔钱由哪个来源出」的台账
+`settlement_reversals`，`/overturn` 当场按**推定**（不采信调用方口述）把它写出来；
+出账仍守 ④-B1 那条硬规矩 —— **没有链上 tx 就没有 `settled`，`paid_amount` 一个子儿都不会动**。
+
+### 11.2 这次核到的具体事实（不是推测）
+
+测试网真库只读核对，`case 970925f2-ece0-40d0-b63f-2232baf4c3ec`：
+
+| 事实 | 值 |
+|---|---|
+| `arbitration_cases` | `status=executed`、`decided_outcome=buyer_wins`、`task_id=task-arb-a1-171639`、`settlement_id=3d827927…` |
+| `escrow_bindings`（按 `task_id` 关联） | `binding_id=8`、`state=slashed`、`amount_usdc=3`、`stake_usdc=0.9`、`contract_address=0x2C9911F5…` |
+| `settlements` | `client=a2a-buyer`、`worker=a2a-seller`、`escrow_amount=3`、`released=0`、`refunded=3`、`onchain_binding_id=8` |
+| 双方钱包（`identity_profiles.bound_wallet_address`） | buyer `0xD91acb5D…`、seller `0x9C479392…` |
+
+**结论**：钱确实动了（`slashed`）= 档 C，受害方与金额都能从库里**推**出来 —— 这是一条
+现成的、可真机演练的 fixture。
+
+同时核到的两处**现状缺口**：
+
+1. `/overturn` 的赔付对象今天是**调用方传进来的参数**（`body.victim_wallet_address` /
+   `victim_identity_id`，`api/routes/arbitration.py:785-786`，直接透传给 `record_slash`）。
+   → 「赔给谁」不能由调用方随口给，必须按案件推定。
+2. 迁移基线是 `db/migrations/versions/0069_arbitration_appeal_rounds.py` → 本阶段是 `0070`。
+
+### 11.3 数据模型（迁移 `0070_settlement_reversals`）
+
+| 列 | 说明 |
+|---|---|
+| `reversal_id` | 主键（uuid） |
+| `case_id` / `task_id` / `binding_id` | 回溯链：案件 → 任务 → 链上那条绑定 |
+| `victim_identity_id` / `victim_wallet` | **推定**出来的受害方；推不出钱包就 `NULL`（不编） |
+| `owed_amount` | 必须还给受害方的金额（源头见 11.4 第 4 步） |
+| `paid_amount` | **已真实到账**的金额，只在对应链上 tx 被核过之后才增加 |
+| `funding_source` | `bench_bond` / `slash_pool` / `platform_debt`（当前这台账打算从哪出） |
+| `status` | `pending` / `submitted` / `settled` / `failed`（与 `bond_slash` 同名同义） |
+| `tx_hash` / `attempts` / `last_error` / `settled_at` | 与 `bond_slash.BondSlash` 逐字对齐 |
+
+**幂等键**：`UniqueConstraint(case_id, victim_identity_id)` —— 同一案件对同一受害方只可能有一条账。
+`funding_source` 是**动态**的（先 `bench_bond`，不够再 `platform_debt`），所以它不进唯一键。
+
+### 11.4 `/overturn` 接上赔付（7 步，每一步失败都默认拒绝）
+
+1. **前置**（已有）：案件必须 `executed` 且有 `decided_outcome`。
+2. **找绑定**：按 `task_id` 取最新 `escrow_bindings`。**没有绑定** → 不动钱、不建台账，
+   `settlement_reversal="no_binding"`（如实：这一单没有链上结算，谈不上回滚）。
+3. **问链**（`escrow_settlement.chain_snapshot`）分档（沿用 §三 的表）：
+   * 档 A `active(1)/disputed(6)`：钱没动 → **不建赔付台账**，返回 `"not_moved"`，
+     提示走 `/appeal`（零成本回滚那条路）；
+   * 档 B `finalizing(2)`：钱在窗口里还没走 → 建台账、`status=pending`，注记「等落定再算实付」；
+   * 档 C `settled(3)/slashed(4)`：钱动了 → 建台账并进入赔付通道。
+   * **链上读不到** → 409，一条账都不写（fail-closed，`chain_snapshot` 返回 `None` 时也一样）。
+4. **推定受害方与欠款额**（**不采信调用方参数**）：
+   * `seller_wins` → 货款已付给卖方 → `victim = 买方`，`owed = binding.amount_usdc`；
+   * `buyer_wins` → 货款没付、卖方质押被划 → `victim = 卖方`，`owed = binding.amount_usdc`
+     （**要不要再加回被误划的质押：见 11.7 第 2 条，待拍板**）；
+   * `partial` → **本阶段一律 409「partial 回滚细则未定」**，不猜一个比例出来；
+   * 受害方钱包：`binding.buyer_identity_id / seller_identity_id` →
+     `identity_profiles.bound_wallet_address`；取不到 → `victim_wallet=NULL`、台账照记、
+     `status=pending`（赔付通路发不出 tx，如实停住，不编地址）；
+   * 调用方传的 `victim_wallet_address` / `victim_identity_id` **只在与推定一致时**被接受，
+     不一致（或推定成功却传了别人）→ **409**。这条是防「把赔款指给别人」。
+5. **`assert_funds_traceable(task_id, stage="settlement_reversal")`**（`services/chain/funds_trace.py:317`）：
+   资金来源链路对不上 → 409，且**一条账都不写**。
+6. **自成交**：`escrow_settlement.detect_self_dealing`（`:937`）命中 → 不进赔付通道
+   （与托管同一份判据，不另写一套）。
+7. **幂等**：find-or-create，沿用 `bond_slash.record_slash`（`services/bond_slash.py:84`）的写法；
+   重复 `/overturn` 不会重复计债。
+
+### 11.5 出账：钱从哪来，什么时候才算「已赔」
+
+优先级（沿用 §五）：
+
+1. **被推翻那一庭的质押**：这条通路 ④-B1 **已经打通**（`bond_slashes` → 治理账户真发链上
+   `slash(verifier, victim, …)` → `/slashes/{id}/status` 回链核 calldata → `settled`）。
+   B2 要补的只有一件事：`victim_wallet_address` 从「调用方传」改成「按 11.4 推定」，
+   这样金库按 `victimShareBps` 分出来的 80% 才真的落在受损方钱包上。
+2. **不足部分** → `settlement_reversals` 台账记「欠」。
+   `paid_amount` 的增加条件（**两条都要满足，缺一不可**）：
+   * 该案 `bond_slashes` 行**已 `settled`**；
+   * 那条 tx **回链核过**（复用 ④-B1 的 `verify_slash_tx`，核对被罚钱包 / 受害方 / 金额）。
+   只 settled 没核 tx 的、或者核出来受害方不是同一个钱包的 —— 一律不加。
+3. **池子补欠款**（`funding_source='slash_pool'` 的出账）**不在本阶段**：
+   金库现有原语只有 `slash()`（罚）与 `distributePool()`（按人头奖励成员），
+   **没有「把池子钱转给某个受害方」这条**。要新增它就是新增链上原语 —— 那必须单独方案 + 单独审计，
+   归 ④-B3。
+
+**本阶段不发任何新交易**：B2 只写账与推定，链上动作全部沿用 ④-B1 已实测的那条路。
+
+### 11.6 接口与操作台
+
+* `/overturn` 响应：`settlement_reversal` 从单一字面量改成明确枚举 ——
+  `recorded`（建了台账）/ `not_moved`（档 A）/ `no_binding`（没有链上结算）/
+  `not_performed`（本阶段仍不做的那些，如实保留），并新增 `settlement_reversal_detail`
+  （`reversal_id` / `victim_identity_id` / `victim_wallet` / `owed_amount` / `funding_source` / `status`）。
+* **这会改现有契约**：`tests/unit/test_arbitrator_overturn_slash.py:92` 现在钉的是
+  `== "not_performed"`。本阶段**显式改这条测试**并在 PR 里写明（不是顺手改）。
+* 新增只读 `GET /v1/arbitration/reversals`（`require_admin_actor`）：列出欠款台账 +
+  每条的资金来源与实付。操作台展示归 ④-B3（一次改太多容易漏）。
+
+### 11.7 要你拍板的（我不替你定）
+
+1. **`partial` 判决的回滚细则**：按比例谁欠谁多少 —— 未定，B2 一律 409（不猜）。
+2. **`buyer_wins` 被推翻时，被误划走的那笔卖方质押算不算进欠款**：
+   两个口径差一笔钱（本例是 0.9 USDC），而且那笔钱现在在**买方**钱包里、追不回来。
+   净额口径（只欠 `escrow_amount`）/ 总额口径（`escrow_amount + 被误划质押`，其中一部分算
+   对买方的债权）—— 这是产品与法务口径，不是技术选择。
+3. **`platform_debt` 最终由谁出账、什么时限**：不定这个，欠款可能永远挂在 `pending`。
+4. **上诉窗口时长**（④-A 遗留）：测试网先 300s 是否合适。
+
+### 11.8 测试与验收（按老规矩：本地 → 变异 → CI → 合并 → 部署 → 真链演练）
+
+* 新增 `tests/unit/test_settlement_reversals.py`，至少钉住：
+  * 幂等：同一案件重复 `/overturn` 只出一条账；
+  * 档 A 不建台账、档 C 建台账、档 B `pending`；链上读不到 → 409 且零写入；
+  * 受害方按 `decided_outcome` **两个方向**各推一次，推出来的钱包与库里绑的一致；
+  * 调用方传一个**别人**的钱包 → 409（这条要单独钉，它防的是最贵的错误）；
+  * `funds_trace` 不过 → 409 且零写入；自成交 → 不建赔付；
+  * `partial` → 409；
+  * `paid_amount` 在没有 tx 时**纹丝不动**；`settled` 不带 tx 一律拒绝。
+* 变异验证：逐条拆（409 改放行、幂等键去掉、`funds_trace` 调用挪走、`paid_amount` 无条件增加），
+  要求每条都被抓；文件按字节还原。
+* **真链演练**（testnet，用 11.2 那条现成 fixture）：
+  1. 传**错的** victim → 409；
+  2. 正确调用 → 台账出现 `owed=3`、`victim=a2a-seller`、`victim_wallet=0x9C479392…`；
+  3. `bond_slashes` 真出账（治理钥 `slash`）→ `settled` → `paid_amount` 增加；链上核 calldata；
+  4. 用完复原（drill 档案删净、开关撤掉），台账保留。
+* 主网：本轮**零改动**（与 ④ 前几段一致）。
+
+### 11.9 本阶段**不做**的（写在这儿，免得被当成已做）
+
+* 不给业务状态机加回退边：`SETTLED` / `REFUNDED` 仍是**终局**（§2.3）；
+* 不动托管合约、不发明「链上倒钱」原语；
+* 池子补欠款 + 操作台展示（④-B3）；
+* `partial` 的比例细则（等 11.7 拍板）。
+
+---
