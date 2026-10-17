@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Karma Testnet — MVVS Dashboard</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --border:#30363d; --text:#c9d1d9; --green:#3fb950; --red:#f85149; --yellow:#d2991d; --blue:#58a6ff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; padding:24px; }
+  h1 { font-size:24px; margin-bottom:4px; } h2 { font-size:18px; margin:24px 0 12px; }
+  .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:600; }
+  .badge-pass { background:#1a3a1a; color:var(--green); } .badge-fail { background:#3a1a1a; color:var(--red); }
+  .badge-warn { background:#3a2e1a; color:var(--yellow); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px,1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px; }
+  .card h3 { font-size:14px; margin-bottom:8px; color:var(--blue); }
+  .stat { font-size:28px; font-weight:700; } .stat-label { font-size:12px; color:#8b949e; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; }
+  th, td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--border); font-size:13px; }
+  th { color:#8b949e; font-weight:500; }
+  .check-pass { color:var(--green); } .check-fail { color:var(--red); } .check-warn { color:var(--yellow); }
+  .scene-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px,1fr)); gap:12px; }
+  .scene-card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px; text-align:center; }
+  .scene-card .icon { font-size:28px; margin-bottom:6px; }
+  .scene-card .name { font-size:13px; font-weight:600; }
+  .scene-card .status { font-size:11px; margin-top:4px; }
+  .ref { font-size:11px; color:#8b949e; margin-top:32px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>🛡️ Karma Testnet Dashboard</h1>
+    <span style="font-size:13px; color:#8b949e;">MVVS V1.0 — Minimum Viable Verification Standards</span>
+  </div>
+  <div>
+    <span class="badge badge-pass" id="overall-badge">Checking...</span>
+  </div>
+</div>
+
+<div class="grid" id="stats-grid"></div>
+
+<h2>📋 Scene Readiness</h2>
+<div class="scene-grid" id="scene-grid"></div>
+
+<h2>🔍 P0 Checklist</h2>
+<table id="p0-table"><tbody></tbody></table>
+
+<h2>📊 Recent Activity</h2>
+<table id="recent-table">
+  <thead><tr><th>Task</th><th>Service</th><th>Status</th><th>Risk</th><th>MVVS</th></tr></thead>
+  <tbody><tr><td colspan="5" style="text-align:center;color:#8b949e;">Loading...</td></tr></tbody>
+</table>
+
+<p class="ref">MVVS V1.0 · Karma Trust Protocol · Sentinel 🛡️</p>
+
+<script>
+const API = '/v1';
+
+async function fetchJSON(url) {
+  try { const r = await fetch(url); return r.ok ? r.json() : null; } catch { return null; }
+}
+
+function badge(text, type) {
+  const cls = type === 'pass' ? 'badge-pass' : type === 'fail' ? 'badge-fail' : 'badge-warn';
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+// Stats
+function renderStats(data) {
+  const stats = [
+    { label:'Total Tasks', value:data?.total_tasks || 0 },
+    { label:'Settled', value:data?.settled || 0 },
+    { label:'Disputed', value:data?.disputed || 0 },
+    { label:'MVVS Compliant', value:data?.mvvs_compliant || 0 },
+  ];
+  document.getElementById('stats-grid').innerHTML = stats.map(s =>
+    `<div class="card"><div class="stat-label">${s.label}</div><div class="stat">${s.value}</div></div>`
+  ).join('');
+}
+
+// Scene readiness (static for MVP)
+const scenes = [
+  { id:1, name:'API / MCP 调用', icon:'🔌', ready:true, risk:'L1', settlement:'Auto' },
+  { id:4, name:'链上操作', icon:'⛓️', ready:true, risk:'L1', settlement:'Auto' },
+  { id:2, name:'数据服务', icon:'📊', ready:true, risk:'L2', settlement:'Confirm' },
+  { id:3, name:'AI 内容生成', icon:'🤖', ready:true, risk:'L2', settlement:'Manual' },
+  { id:5, name:'A2A 外包', icon:'🔗', ready:'pending', risk:'L3', settlement:'Dispute' },
+  { id:6, name:'OTC / Token', icon:'💱', ready:false, risk:'L4', settlement:'Blocked' },
+];
+
+function renderScenes() {
+  document.getElementById('scene-grid').innerHTML = scenes.map(s => {
+    const readyBadge = s.ready === true ? badge('Ready','pass') :
+      s.ready === 'pending' ? badge('Soon','warn') : badge('Blocked','fail');
+    return `<div class="scene-card">
+      <div class="icon">${s.icon}</div>
+      <div class="name">${s.name}</div>
+      <div class="status">${badge('L'+s.risk.charAt(1),'warn')} ${badge(s.settlement,'pass')}</div>
+      <div class="status">${readyBadge}</div>
+    </div>`;
+  }).join('');
+}
+
+// P0 Checklist
+const p0Checks = [
+  { id:1, name:'创建任务', ok:true }, { id:2, name:'买家授权签名', ok:true },
+  { id:3, name:'卖家接受签名', ok:true }, { id:4, name:'input_hash 生成', ok:true },
+  { id:5, name:'output_hash 生成', ok:true }, { id:6, name:'evidence_bundle_hash 生成', ok:true },
+  { id:7, name:'delivery_rule 绑定', ok:true }, { id:8, name:'API/MCP 自动验真', ok:true },
+  { id:9, name:'手动确认', ok:true }, { id:10, name:'超时自动确认', ok:true },
+  { id:11, name:'dispute 创建', ok:true }, { id:12, name:'dispute reason_code', ok:true },
+  { id:13, name:'settlement_status 状态机', ok:true }, { id:14, name:'交易详情页', ok:true },
+  { id:15, name:'evidence 查看页', ok:true }, { id:16, name:'测试网 dashboard', ok:true },
+];
+
+function renderP0() {
+  document.querySelector('#p0-table tbody').innerHTML = p0Checks.map(c =>
+    `<tr><td>${c.id}</td><td>${c.name}</td><td class="check-pass">${c.ok ? '✅' : '❌'}</td></tr>`
+  ).join('');
+  const passCount = p0Checks.filter(c => c.ok).length;
+  document.getElementById('overall-badge').textContent = `P0: ${passCount}/16 ✅`;
+  document.getElementById('overall-badge').className = passCount === 16 ? 'badge badge-pass' : 'badge badge-warn';
+}
+
+// Init
+renderScenes();
+renderP0();
+renderStats({});
+
+// Try live data
+(async () => {
+  const stats = await fetchJSON(API + '/settlement/stats');
+  if (stats) renderStats(stats);
+  const recent = await fetchJSON(API + '/settlement/recent?limit=5');
+  if (recent?.length) {
+    document.querySelector('#recent-table tbody').innerHTML = recent.map(r =>
+      `<tr>
+        <td style="font-family:monospace;font-size:12px;">${(r.task_id||'').slice(0,12)}...</td>
+        <td>${r.service_type||'generic'}</td>
+        <td>${r.settlement_status||'draft'}</td>
+        <td>${badge(r.risk_level||'L1','warn')}</td>
+        <td>${r.mvvs_compliant ? badge('YES','pass') : badge('NO','fail')}</td>
+      </tr>`
+    ).join('');
+  }
+})();
+</script>
+</body>
+</html>
