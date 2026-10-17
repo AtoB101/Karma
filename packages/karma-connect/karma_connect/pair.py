@@ -7,7 +7,7 @@ agent 报的码要经过「模型读工具结果 -> 模型复述 -> 用户手抄
 这个命令直接用同一份 MCP 工具实现（``karma_openclaw.pairing_tools``），把「申请 -> 批准
 -> 领凭据」拆成用户看得见的三步：
 
-    karma-pair start                  # 出码，打印链接
+    karma-pair start                  # 出码，并打开主人批准页
     (在操作台输码 -> 核对 -> 批准)
     karma-pair claim                  # 批准即交付，凭据落到本机、立刻能用（不用重启）
     karma-pair status                 # 只读本机：手上有什么（不发网络请求）
@@ -22,6 +22,7 @@ import importlib.util
 import json
 import os
 import sys
+import webbrowser
 from pathlib import Path
 
 DEFAULT_RUNTIME_URL = "https://karma-network.ai"
@@ -54,6 +55,16 @@ def _dump(payload: dict) -> None:
     sys.stdout.flush()
 
 
+def _open_verification_uri(uri: str) -> bool:
+    """打开主人批准页；无桌面环境（headless）时安全失败，不抛异常。"""
+    if not uri:
+        return False
+    try:
+        return bool(webbrowser.open(uri, new=2))
+    except Exception:
+        return False
+
+
 async def cmd_start(args) -> int:
     pt = _tools()
     out = await pt.karma_connect(
@@ -69,8 +80,15 @@ async def cmd_start(args) -> int:
         print("  · 'Rate limit exceeded' -> 一分钟内请求超过 10 次，等一会儿再来",
               file=sys.stderr)
         return 1
-    print("\n把上面的 user_code 填进操作台（或直接打开 verification_uri 那条链接）。",
-          file=sys.stderr)
+    uri = str(out.get("verification_uri") or "")
+    if uri and not getattr(args, "no_open", False):
+        if _open_verification_uri(uri):
+            print("\n已为你打开主人批准页：" + uri, file=sys.stderr)
+            print("主人在页面里选卡 + 划额度 + 签名批准，完成后回到这里跑 karma-pair claim。", file=sys.stderr)
+        else:
+            print("\n没能自动打开浏览器（无桌面环境？），请主人手动打开：" + uri, file=sys.stderr)
+    else:
+        print("\n把上面的 user_code 填进操作台（或直接打开 verification_uri 那条链接）。", file=sys.stderr)
     print("批准之后直接跑：karma-pair claim（不用带码 —— 批准就是交付）", file=sys.stderr)
     return 0
 
@@ -116,6 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--agent-name", default="", help="what this agent calls itself")
     start.add_argument("--side", default="", choices=["", "buyer", "seller"])
     start.add_argument("--vertical", default="")
+    start.add_argument("--no-open", action="store_true",
+                       help="do not auto-open the owner approval page in a browser")
     start.set_defaults(func=lambda a: _run(a, cmd_start))
 
     status = sub.add_parser("status", help="what this machine holds (local only)")
