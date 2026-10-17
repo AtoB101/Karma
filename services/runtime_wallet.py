@@ -207,3 +207,32 @@ def build_unbind_key_message(
             f"client_nonce:{client_nonce}",
         ]
     )
+
+
+def build_agent_pairing_approve_message(
+    *,
+    user_code: str,
+    wallet_address: str,
+    side: str,
+    vertical: str,
+    scope_profile_id: str,
+    nonce: str,
+    expires_at: str,
+) -> str:
+    """主人在聊天窗口里填好授权后、拉起钱包签的那段文字。
+
+    把 user_code、额度档位（scope_profile_id）、边界（side/vertical）和一次性
+    nonce/有效期一起钉进签名里：签名 = 主人对「这条接入 + 这个边界」的同意。
+    """
+    return "\n".join(
+        [
+            "Karma Agent Pairing Approve",
+            f"user_code:{user_code}",
+            f"wallet_address:{wallet_address}",
+            f"side:{side}",
+            f"vertical:{vertical}",
+            f"scope_profile_id:{scope_profile_id}",
+            f"nonce:{nonce}",
+            f"expires_at:{expires_at}",
+        ]
+    )

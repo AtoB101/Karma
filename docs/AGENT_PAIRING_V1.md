@@ -277,9 +277,17 @@ Agent 里看到的都是同一套词：
 
 ```text
 karma_connect(agent_name="claw-001", requested_side="seller", requested_vertical="food")
+karma_connect_authorize(user_code, wallet_address, side, vertical, scope_profile_id)  # 窗口内填授权 -> 出待签挑战 + sign_url
+karma_connect_authorize_submit(challenge_id, signature)                                # 主人钱包签完回填，验签即批准
 karma_connect_claim()                        # 批准即交付：凭据只写 ~/.karma/agent.env（0600）
 karma_connect_status()                       # 本机握着什么（只读本机，不发网络请求）
 ```
+
+**窗口内授权（可跳过操作台页面）**：主人不必去控制台点页面 —— 在聊天里说清钱包地址、
+买卖身份和额度档位，agent 调 `karma_connect_authorize` 拿到一段 `Karma Agent Pairing
+Approve` 待签文字和 `sign_url`；主人点 `sign_url`（只跳一次钱包）签完，签名页自动回填
+`/v1/agent-pairing/approve-signed`，验签（钱包 personal_sign + 钱包已绑主身份）即批准，
+agent 再 `karma_connect_claim` 领凭据。权限边界与额度全程在窗口内完成，只有钱包签名跳一次。
 
 `karma_connect` 把 `pairing_code` 落到 `~/.karma/pairing/<user_code>.json`（0600），
 返回值里没有它；`karma_connect_claim` 返回值里没有明文凭据，只有 `sha256:…` 指纹。

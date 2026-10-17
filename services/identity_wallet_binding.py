@@ -90,3 +90,24 @@ async def get_bound_wallet(db: AsyncSession, karma_identity_id: str) -> str | No
     if not profile or not profile.bound_wallet_address:
         return None
     return profile.bound_wallet_address
+
+
+async def resolve_identity_id_by_wallet(
+    db: AsyncSession, wallet_address: str
+) -> str | None:
+    """由已绑定钱包反查主身份 id —— 签名批准走的就是这条：钱包签了 = 主人本人。"""
+    wallet = _norm_wallet(wallet_address)
+    if not wallet.startswith("0x") or len(wallet) != 42:
+        return None
+    from sqlalchemy import func, select
+
+    row = (
+        await db.execute(
+            select(IdentityProfileModel.identity_id)
+            .where(func.lower(IdentityProfileModel.bound_wallet_address) == wallet)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row:
+        return str(row).strip()
+    return None

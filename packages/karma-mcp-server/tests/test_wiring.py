@@ -623,3 +623,56 @@ async def test_connect_can_skip_opening_the_approval_page(tmp_path, monkeypatch)
     out = await _tool(_make(handler), "karma_connect")(agent_name="小爱", open_approval_page=False)
     assert out["approval_page_opened"] is False
     assert opened == []
+
+
+async def test_connect_authorize_requests_a_wallet_sign_challenge(tmp_path, monkeypatch):
+    """窗口内授权第一步：把主人填好的边界交给后端换一段待签文字。"""
+    _isolate(tmp_path, monkeypatch)
+    calls: list[dict] = []
+    wallet = "0x" + "a" * 40
+
+    def handler(request):
+        body = json.loads(request.content) if request.content else {}
+        calls.append({"path": request.url.path, "body": body})
+        if request.url.path == "/v1/agent-pairing/approve-challenge":
+            return httpx.Response(
+                200,
+                json={
+                    "challenge_id": "nonce123",
+                    "user_code": "K4QP-3M2X",
+                    "sign_url": "https://karma-network.ai/v1/agent-pairing/sign?challenge_id=nonce123",
+                    "message": "Karma Agent Pairing Approve\nuser_code:K4QP-3M2X",
+                    "expires_at": "2026-10-17T00:10:00Z",
+                },
+            )
+        raise AssertionError("unexpected path " + request.url.path)
+
+    out = await _tool(_make(handler), "karma_connect_authorize")(
+        user_code="K4QP-3M2X", wallet_address=wallet, side="buyer", vertical="food"
+    )
+    assert out["ok"] is True
+    assert out["status"] == "ready_to_sign"
+    assert calls[-1]["path"] == "/v1/agent-pairing/approve-challenge"
+    assert calls[-1]["body"]["wallet_address"] == wallet
+    assert calls[-1]["body"]["side"] == "buyer"
+
+
+async def test_connect_authorize_submit_posts_the_wallet_signature(tmp_path, monkeypatch):
+    """窗口内授权第二步：把钱包签名回填，后端验签即批准。"""
+    _isolate(tmp_path, monkeypatch)
+    calls: list[dict] = []
+
+    def handler(request):
+        body = json.loads(request.content) if request.content else {}
+        calls.append({"path": request.url.path, "body": body})
+        if request.url.path == "/v1/agent-pairing/approve-signed":
+            return httpx.Response(200, json={"status": "approved"})
+        raise AssertionError("unexpected path " + request.url.path)
+
+    out = await _tool(_make(handler), "karma_connect_authorize_submit")(
+        challenge_id="nonce123", signature="0x" + "b" * 130
+    )
+    assert out["ok"] is True
+    assert out["status"] == "approved"
+    assert calls[-1]["path"] == "/v1/agent-pairing/approve-signed"
+    assert calls[-1]["body"]["challenge_id"] == "nonce123"

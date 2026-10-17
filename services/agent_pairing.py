@@ -1061,3 +1061,154 @@ def list_for_owner(owner_identity_id: str) -> list[dict[str, Any]]:
         ]
     rows.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
     return [_public_view(r) for r in rows]
+
+
+#: 窗口内授权签名的一次性挑战有效期（秒）。
+APPROVE_CHALLENGE_TTL_SECONDS = 600
+_APPROVE_CHALLENGES: dict[str, dict[str, Any]] = {}
+_CHALLENGE_LOCK = threading.Lock()
+
+
+def _norm_wallet(addr: str) -> str:
+    return (addr or "").strip().lower()
+
+
+def reset_approve_challenges() -> None:
+    """Test hook: 清空待签挑战。"""
+    with _CHALLENGE_LOCK:
+        _APPROVE_CHALLENGES.clear()
+
+
+def _public_sign_url(challenge_id: str) -> str:
+    return f"{_public_base_url()}/v1/agent-pairing/sign?challenge_id={challenge_id}"
+
+
+def get_approve_challenge(challenge_id: str) -> dict[str, Any]:
+    """签名页加载待签内容（只回文字和有效期，不含任何密钥）。"""
+    cid = (challenge_id or "").strip()
+    with _CHALLENGE_LOCK:
+        challenge = _APPROVE_CHALLENGES.get(cid)
+    if challenge is None:
+        raise HTTPException(404, "challenge not found or already consumed")
+    if _parse_iso(challenge["expires_at"]) and _parse_iso(challenge["expires_at"]) < _utcnow():
+        raise HTTPException(410, "challenge expired — ask the agent to prepare a new one")
+    return {
+        "challenge_id": challenge["challenge_id"],
+        "message": challenge["message"],
+        "expires_at": challenge["expires_at"],
+    }
+
+
+def issue_approve_challenge(
+    *,
+    user_code: str,
+    wallet_address: str,
+    side: str,
+    vertical: str = "",
+    scope_profile_id: str = "",
+) -> dict[str, Any]:
+    """给一条 pending 配对签发「窗口内批准」的待签挑战。
+
+    不写任何凭据、不发任何钱：只返回一段人话可读的待签文字和一个一次性 nonce。
+    """
+    _ensure_loaded()
+    wallet = _norm_wallet(wallet_address)
+    if not (wallet.startswith("0x") and len(wallet) == 42):
+        raise HTTPException(400, "wallet_address must be a 0x-prefixed 20-byte address")
+    side_norm = (side or "").strip()
+    if side_norm not in {"buyer", "seller"}:
+        raise HTTPException(400, "side must be buyer or seller")
+
+    with _LOCK:
+        _purge_expired_unlocked()
+        row = _find_by_user_code(user_code)
+        if row is None:
+            raise HTTPException(404, "pairing code not found — check it with the agent and retry")
+        if str(row.get("status") or "") != "pending":
+            raise HTTPException(409, f"pairing is already {row.get('status')}")
+
+    nonce = secrets.token_hex(16)
+    expires = _utcnow() + timedelta(seconds=APPROVE_CHALLENGE_TTL_SECONDS)
+    expires_at = _iso(expires)
+    vertical_norm = (vertical or str(row.get("requested_vertical") or "")).strip()[:64]
+    profile_norm = (scope_profile_id or "").strip()[:128]
+
+    from services.runtime_wallet import build_agent_pairing_approve_message
+
+    message = build_agent_pairing_approve_message(
+        user_code=str(row.get("user_code") or ""),
+        wallet_address=wallet,
+        side=side_norm,
+        vertical=vertical_norm,
+        scope_profile_id=profile_norm,
+        nonce=nonce,
+        expires_at=expires_at,
+    )
+    with _CHALLENGE_LOCK:
+        _APPROVE_CHALLENGES[nonce] = {
+            "challenge_id": nonce,
+            "user_code": user_code,
+            "wallet_address": wallet,
+            "side": side_norm,
+            "vertical": vertical_norm,
+            "scope_profile_id": profile_norm,
+            "expires_at": expires_at,
+            "message": message,
+        }
+    return {
+        "challenge_id": nonce,
+        "user_code": str(row.get("user_code") or ""),
+        "message": message,
+        "expires_at": expires_at,
+        "expires_in_seconds": APPROVE_CHALLENGE_TTL_SECONDS,
+        "sign_url": _public_sign_url(nonce),
+    }
+
+
+async def consume_approve_challenge(
+    *, db: Any, challenge_id: str, signature: str
+) -> dict[str, Any]:
+    """验签并消费一次性挑战：签名对 = 主人同意，钱包反查主身份后返回批准所需字段。"""
+    from services.identity_wallet_binding import resolve_identity_id_by_wallet
+    from services.runtime_wallet import verify_personal_message
+
+    cid = (challenge_id or "").strip()
+    if not cid:
+        raise HTTPException(400, "challenge_id is required")
+    with _CHALLENGE_LOCK:
+        challenge = _APPROVE_CHALLENGES.get(cid)
+    if challenge is None:
+        raise HTTPException(404, "challenge not found or already consumed")
+    expires_dt = _parse_iso(challenge["expires_at"])
+    if expires_dt and expires_dt < _utcnow():
+        with _CHALLENGE_LOCK:
+            _APPROVE_CHALLENGES.pop(cid, None)
+        raise HTTPException(410, "challenge expired — ask the agent to prepare a new one")
+
+    verify_personal_message(
+        message=challenge["message"],
+        wallet_address=challenge["wallet_address"],
+        wallet_signature=signature,
+    )
+
+    owner_identity_id = await resolve_identity_id_by_wallet(
+        db, challenge["wallet_address"]
+    )
+    if not owner_identity_id:
+        with _CHALLENGE_LOCK:
+            _APPROVE_CHALLENGES.pop(cid, None)
+        raise HTTPException(
+            403,
+            "wallet is not bound to a Karma identity — connect this wallet in the console first",
+        )
+
+    with _CHALLENGE_LOCK:
+        _APPROVE_CHALLENGES.pop(cid, None)
+    return {
+        "owner_identity_id": owner_identity_id,
+        "user_code": challenge["user_code"],
+        "wallet_address": challenge["wallet_address"],
+        "side": challenge["side"],
+        "vertical": challenge["vertical"],
+        "scope_profile_id": challenge["scope_profile_id"],
+    }

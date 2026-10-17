@@ -231,6 +231,92 @@ def build_server(
 
         return await _guard(_run)
 
+    async def karma_connect_authorize(
+        user_code: str,
+        wallet_address: str,
+        side: str,
+        vertical: str = "",
+        scope_profile_id: str = "",
+    ) -> dict[str, Any]:
+        """窗口内完成授权配置并生成钱包待签挑战（不跳操作台页面）。
+
+        主人在聊天里说清钱包地址、买卖身份（buyer/seller）、额度档位
+        （scope_profile_id，可空）后，调这个工具拿到待签文字 + sign_url；
+        主人点 sign_url（只跳一次钱包）签完，再调 karma_connect_authorize_submit
+        回填签名，验签即批准。
+        """
+
+        async def _run() -> dict[str, Any]:
+            if not (user_code or "").strip():
+                raise KarmaToolError(ErrorClass.INVALID, "user_code is required")
+            if not (wallet_address or "").strip():
+                raise KarmaToolError(ErrorClass.INVALID, "wallet_address is required")
+            payload = await be.request(
+                "POST",
+                "/v1/agent-pairing/approve-challenge",
+                body={
+                    "user_code": user_code.strip(),
+                    "wallet_address": wallet_address.strip(),
+                    "side": (side or "").strip(),
+                    "vertical": (vertical or "").strip(),
+                    "scope_profile_id": (scope_profile_id or "").strip(),
+                },
+                runtime=False,
+            )
+            if not isinstance(payload, dict) or not payload.get("challenge_id"):
+                raise KarmaToolError(
+                    ErrorClass.BACKEND, "approve-challenge returned no challenge_id"
+                )
+            return ok(
+                {
+                    "status": "ready_to_sign",
+                    "challenge_id": payload.get("challenge_id"),
+                    "user_code": payload.get("user_code"),
+                    "sign_url": payload.get("sign_url"),
+                    "message_to_sign": payload.get("message"),
+                    "expires_at": payload.get("expires_at"),
+                    "next_step": (
+                        "请主人在聊天窗口里点开 sign_url 完成钱包签名（只跳这一次钱包）；"
+                        "签名页会自己回填并批准，签完就调 karma_connect_claim 领凭据。"
+                    ),
+                }
+            )
+
+        return await _guard(_run)
+
+    async def karma_connect_authorize_submit(
+        challenge_id: str, signature: str
+    ) -> dict[str, Any]:
+        """把主人钱包签名回填，验签即批准（不依赖操作台会话）。"""
+
+        async def _run() -> dict[str, Any]:
+            if not (challenge_id or "").strip():
+                raise KarmaToolError(ErrorClass.INVALID, "challenge_id is required")
+            if not (signature or "").strip():
+                raise KarmaToolError(ErrorClass.INVALID, "signature is required")
+            payload = await be.request(
+                "POST",
+                "/v1/agent-pairing/approve-signed",
+                body={
+                    "challenge_id": challenge_id.strip(),
+                    "signature": signature.strip(),
+                },
+                runtime=False,
+            )
+            status = (
+                str(payload.get("status") or "approved")
+                if isinstance(payload, dict)
+                else "approved"
+            )
+            return ok(
+                {
+                    "status": status,
+                    "next_step": "现在调 karma_connect_claim() 领取凭据（只发一次）。",
+                }
+            )
+
+        return await _guard(_run)
+
     async def karma_connect_status(user_code: str = "") -> dict[str, Any]:
         """这次配对接进到哪一步了。
 
@@ -1232,6 +1318,8 @@ def build_server(
     tier_groups: dict[int, list[Any]] = {
         0: [
             karma_connect,
+            karma_connect_authorize,
+            karma_connect_authorize_submit,
             karma_connect_status,
             karma_connect_claim,
             karma_get_connection_status,
