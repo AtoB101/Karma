@@ -1,0 +1,136 @@
+<!-- Karma Console — OpenClaw One-Click Connect Panel -->
+<link rel="stylesheet" href="../styles/console.css" />
+
+<div class="openclaw-connect-panel" data-openclaw-connect>
+  <h2>⚡ One-Click Connect — OpenClaw ↔ Karma</h2>
+  <p class="subtitle">Auto-discover, probe, and generate agent connection manifests.</p>
+
+  <!-- Inputs -->
+  <div class="connect-inputs">
+    <div class="input-group">
+      <label for="oc-gateway">OpenClaw Gateway URL</label>
+      <input type="text" id="oc-gateway" data-oc-gateway
+             placeholder="http://127.0.0.1:18789" />
+    </div>
+    <div class="input-group">
+      <label for="oc-karma-api">Karma API Base</label>
+      <input type="text" id="oc-karma-api" data-cfg="api_base"
+             placeholder="http://localhost:8000" />
+    </div>
+    <div class="input-group">
+      <label for="oc-agent-id">Agent ID</label>
+      <input type="text" id="oc-agent-id" data-cfg="identity_id"
+             placeholder="worker-001" />
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="connect-actions">
+    <button class="btn btn-primary" data-action="oc-connect" style="font-size:1.1rem; padding:12px 24px;">
+      ⚡ Connect
+    </button>
+    <button class="btn" data-oc-download disabled>📥 Download manifest.json</button>
+    <button class="btn" data-action="oc-copy">📋 Copy Manifest</button>
+  </div>
+
+  <!-- Status -->
+  <div class="connect-status">
+    <div class="status-row">
+      <span class="status" data-oc-probe-status></span>
+    </div>
+    <div class="status-row">
+      <span class="status" data-oc-karma-status></span>
+    </div>
+    <div class="summary" data-oc-summary></div>
+  </div>
+
+  <!-- Manifest output -->
+  <pre class="manifest-output" data-oc-manifest></pre>
+
+  <!-- Setup instructions -->
+  <div class="setup-instructions" data-oc-instructions></div>
+</div>
+
+<style>
+.openclaw-connect-panel {
+  max-width: 720px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: var(--card-bg, #1a1a2e);
+  border-radius: 12px;
+  border: 1px solid var(--border, #2a2a4a);
+  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--fg, #e0e0e0);
+}
+.openclaw-connect-panel h2 { margin: 0 0 0.25rem 0; font-size: 1.5rem; }
+.openclaw-connect-panel .subtitle { color: #888; margin: 0 0 1.5rem 0; font-size: 0.9rem; }
+.connect-inputs { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; }
+@media (max-width: 600px) { .connect-inputs { grid-template-columns: 1fr; } }
+.input-group { display: flex; flex-direction: column; }
+.input-group label { font-size: 0.8rem; color: #888; margin-bottom: 0.25rem; }
+.input-group input {
+  padding: 8px 12px;
+  border: 1px solid var(--border, #2a2a4a);
+  border-radius: 6px;
+  background: var(--input-bg, #0d0d1a);
+  color: var(--fg, #e0e0e0);
+  font-size: 0.9rem;
+  font-family: monospace;
+}
+.input-group input:focus { border-color: #7c3aed; outline: none; }
+.connect-actions { display: flex; gap: 0.75rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.btn {
+  padding: 8px 16px;
+  border: 1px solid var(--border, #2a2a4a);
+  border-radius: 6px;
+  background: var(--input-bg, #0d0d1a);
+  color: var(--fg, #e0e0e0);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.btn:hover { background: #2a2a4a; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+.btn-primary:hover { background: #6d28d9; }
+.connect-status { margin-bottom: 1rem; }
+.status-row { margin-bottom: 0.25rem; }
+.status { font-size: 0.85rem; font-family: monospace; }
+.status.ok { color: #4ade80; }
+.status.err { color: #f87171; }
+.status.info { color: #fbbf24; }
+.summary { font-size: 0.9rem; margin-top: 0.5rem; font-weight: 600; }
+.manifest-output {
+  background: #0d0d1a;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 0.8rem;
+  overflow-x: auto;
+  max-height: 240px;
+  white-space: pre-wrap;
+  margin-bottom: 1.5rem;
+  color: #a78bfa;
+}
+.setup-instructions {
+  background: #0d0d1a;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1rem 1.5rem;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+.setup-instructions h3 { margin: 0 0 0.5rem 0; color: #a78bfa; }
+.setup-instructions h4 { margin: 1rem 0 0.25rem 0; color: #888; }
+.setup-instructions pre {
+  background: #111122;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  margin: 0.25rem 0;
+}
+.setup-instructions code { color: #4ade80; }
+.setup-instructions p { margin: 0.25rem 0; color: #888; }
+</style>
+
+<script src="../scripts/karma-openclaw-connect.js"></script>
