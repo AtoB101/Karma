@@ -33,16 +33,6 @@ def _clear_rate_limits():
     clear_memory_rate_limits()
 
 
-# ---------------------------------------------------------------------------
-# Event loop
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
 
 @pytest.fixture(autouse=True)
 def _legacy_bearer_keys_allowed_in_tests(monkeypatch) -> None:
@@ -95,7 +85,7 @@ def reset_runtime_safety_mode_between_tests() -> None:
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def test_engine():
     engine = create_async_engine(TEST_DB_URL, echo=False)
     async with engine.begin() as conn:
