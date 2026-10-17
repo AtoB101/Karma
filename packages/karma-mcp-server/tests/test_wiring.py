@@ -592,8 +592,8 @@ async def test_connect_tells_whether_the_key_travels_with_a_public_key(tmp_path,
     assert "配对码" in unattached["next_step"]
 
 
-async def test_connect_opens_the_approval_page_by_default(tmp_path, monkeypatch):
-    """默认就该把批准页直接弹给主人 —— 不再只回一串链接让 agent 转达。"""
+async def test_connect_does_not_open_the_approval_page_by_default(tmp_path, monkeypatch):
+    """默认在聊天窗口内完成授权 —— 不再自动弹操作台批准页。"""
     _isolate(tmp_path, monkeypatch)
     opened: list[str] = []
 
@@ -604,8 +604,23 @@ async def test_connect_opens_the_approval_page_by_default(tmp_path, monkeypatch)
 
     monkeypatch.setattr("karma_mcp_server.server._open_approval_page", lambda uri: (opened.append(uri) or True, None))
     out = await _tool(_make(handler), "karma_connect")(agent_name="小爱")
+    assert out["approval_page_opened"] is False
+    assert opened == []
+
+
+async def test_connect_can_open_the_approval_page_when_requested(tmp_path, monkeypatch):
+    """open_approval_page=True 时把批准页弹给主人（兜底用法）。"""
+    _isolate(tmp_path, monkeypatch)
+    opened: list[str] = []
+
+    def handler(request):
+        if request.url.path == "/v1/agent-pairing/request":
+            return httpx.Response(200, json={"pairing_code": PAIRING_CODE, "user_code": "K4QP-3M2X", "verification_uri": "https://console.karma.test/pair"})
+        raise AssertionError("unexpected path " + request.url.path)
+
+    monkeypatch.setattr("karma_mcp_server.server._open_approval_page", lambda uri: (opened.append(uri) or True, None))
+    out = await _tool(_make(handler), "karma_connect")(agent_name="小爱", open_approval_page=True)
     assert out["approval_page_opened"] is True
-    assert out["approval_page_open_error"] is None
     assert opened == ["https://console.karma.test/pair"]
 
 
