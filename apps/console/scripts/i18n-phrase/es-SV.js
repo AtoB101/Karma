@@ -3044,6 +3044,19 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
 "2 · 给这台 agent 起个名字": "2 · Ponerle nombre a este agent",
 "行业跟着资质走：个体助理取营业执照上的经营范围、企业助理取主体认证里的服务类别，这里不用再选一次。": "La industria sigue a sus credenciales: los asistentes de persona física toman el objeto social de la licencia y los de empresa la categoría de servicio de la verificación; no hace falta volver a elegirla aquí.",
 "子身份在「身份 · 认证」里建：类型 / 名字 / 联系方式 / 授权额度 / 单笔 / 日限 / 权限 / 行业资质，刷脸开通时就定好了。这里不重填，只做两件事：① 选一个已经建好的子身份；② 给这台 agent 起名字。点最下面那颗按钮生成接入包，写进 agent 的环境变量就行。": "Las sub-identidades se crean en “Identity · Verification”: tipo / nombre / contacto / límite concedido / tope por operación / tope diario / permisos / credenciales de industria quedan fijados cuando la verificación facial abre la tarjeta. Aquí no se vuelve a introducir nada: solo dos cosas: ① elegir una sub-identidad ya creada; ② ponerle nombre a este agent. Pulse el botón de abajo para generar el paquete de conexión y póngalo en las variables de entorno del agent.",
+  "BitPie 比特派": "BitPie",
+  "WalletConnect SDK 加载失败（请检查网络或 CDN 可达性）": "No se pudo cargar el SDK de WalletConnect (revise la red o el acceso al CDN).",
+  "WalletConnect SDK 未正确加载": "El SDK de WalletConnect no se cargó correctamente.",
+  "比特派：请使用 Bitpie App 扫描二维码或复制 URI 连接": "BitPie: escanee el código QR con la app Bitpie o copie la URI para conectarse.",
+  "已切换账户 ·": "Cuenta cambiada ·",
+  "注意：当前网络 chainId": "Atención: red actual chainId",
+  "，Karma 使用 Sepolia (11155111)": ", Karma usa Sepolia (11155111)",
+  "比特派钱包已断开": "Billetera BitPie desconectada",
+  "扫码连接（无插件钱包）": "Conectar escaneando (billetera sin extensión)",
+  "点一下会出现二维码：用比特派 App「发现」页扫码授权，或复制链接到钱包里打开。": "Al pulsarlo aparece un código QR: escanéelo desde la página “Descubrir” de la app Bitpie para autorizar, o copie el enlace y ábralo en su billetera.",
+  "初始化比特派连接…": "Inicializando la conexión con BitPie…",
+  "比特派连接失败：": "Falló la conexión con BitPie: ",
+  "已取消连接或钱包拒绝授权": "Conexión cancelada o la billetera rechazó la autorización",
 });
 
 /* --- dynamic-append-33: 会话过期的 401 → 人话（karma-public-api.js 的 GATE_HINTS）--- */

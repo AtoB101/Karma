@@ -3042,6 +3042,19 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
 "2 · 给这台 agent 起个名字": "2 · Name this agent",
 "行业跟着资质走：个体助理取营业执照上的经营范围、企业助理取主体认证里的服务类别，这里不用再选一次。": "The industry follows your credentials: sole-proprietor assistants take the business scope on the licence, enterprise assistants take the service category from entity verification — no need to pick it again here.",
 "子身份在「身份 · 认证」里建：类型 / 名字 / 联系方式 / 授权额度 / 单笔 / 日限 / 权限 / 行业资质，刷脸开通时就定好了。这里不重填，只做两件事：① 选一个已经建好的子身份；② 给这台 agent 起名字。点最下面那颗按钮生成接入包，写进 agent 的环境变量就行。": "Sub-identities are created under “Identity · Verification”: type / name / contact / grant limit / per-order cap / daily cap / permissions / industry credentials are all fixed when face verification opens the card. Nothing is re-entered here — just two things: ① pick a sub-identity you already created; ② name this agent. Click the button at the bottom to generate the connect kit and put it in the agent's environment variables.",
+  "BitPie 比特派": "BitPie",
+  "WalletConnect SDK 加载失败（请检查网络或 CDN 可达性）": "WalletConnect SDK failed to load (check your network or CDN reachability).",
+  "WalletConnect SDK 未正确加载": "WalletConnect SDK did not load correctly.",
+  "比特派：请使用 Bitpie App 扫描二维码或复制 URI 连接": "BitPie: scan the QR code with the Bitpie App or copy the URI to connect.",
+  "已切换账户 ·": "Account switched ·",
+  "注意：当前网络 chainId": "Note: current network chainId",
+  "，Karma 使用 Sepolia (11155111)": ", Karma uses Sepolia (11155111)",
+  "比特派钱包已断开": "BitPie wallet disconnected",
+  "扫码连接（无插件钱包）": "Scan to connect (no-extension wallet)",
+  "点一下会出现二维码：用比特派 App「发现」页扫码授权，或复制链接到钱包里打开。": "Tapping this shows a QR code: scan it from the “Discover” page in the Bitpie App to authorise, or copy the link and open it in your wallet.",
+  "初始化比特派连接…": "Initialising BitPie connection…",
+  "比特派连接失败：": "BitPie connection failed: ",
+  "已取消连接或钱包拒绝授权": "Connection cancelled or the wallet rejected the authorisation",
 });
 
 /* --- dynamic-append-33: 会话过期的 401 → 人话（karma-public-api.js 的 GATE_HINTS）--- */
