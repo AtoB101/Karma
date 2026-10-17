@@ -230,13 +230,16 @@ async def karma_connect(
     self_description: str = "",
     endpoint_url: str = "",
     public_key: str = "",
-    open_approval_page: bool = True,
+    open_approval_page: bool = False,
 ) -> dict[str, Any]:
-    """申请接入 Karma。默认自动打开主人批准页，再把 user_code / verification_uri 交给主人。
+    """申请接入 Karma。默认在聊天窗口内完成授权（不自动开操作台）。
 
-    这一步不花任何钱、也不产生任何权限：它只是让主人在操作台里看到「谁在申请」。
-    主人批准并点「签发交接码」之后，agent 再调 karma_connect_claim 领凭据。
-    有桌面环境时批准页会直接弹给主人（open_approval_page=False 可关掉）。
+    这一步不花任何钱、也不产生任何权限：只是让服务端看到「谁在申请」。
+    拿到 user_code 后，请主人在聊天里直接给出钱包地址、身份（buyer/seller）
+    和额度档（scope_profile_id，可空），再调 karma_connect_authorize 生成
+    只跳一次钱包的签名链接；签名回填后调 karma_connect_claim 领凭据。
+    只有主人坚持走操作台时，才用返回里的 verification_uri 兜底链接
+    （open_approval_page=True 可让本工具顺手把它弹给主人）。
 
     ``pairing_code`` 不在这里回显 —— 它只落盘在本机 0600 的状态文件里。
     """
@@ -309,24 +312,21 @@ async def karma_connect(
         "poll_interval_seconds": payload.get("poll_interval_seconds") or DEFAULT_POLL_SECONDS,
         "pairing_state_file": str(path),
         "hand_to_owner": (
-            "把这一行交给主人：" + (uri or user_code) + " —— 他在 Karma 操作台里"
-            "输入 " + user_code + " 就能看到是谁在申请接入。"
+            "请主人直接在聊天里回复：钱包地址（0x…）、身份 buyer/seller、额度档（可选）。"
+            "我用 karma_connect_authorize 生成只跳一次钱包的签名链接，不必打开操作台。"
+            "（备用兜底：操作台 " + (uri or "") + "，配对码 " + user_code + "。）"
         ),
         "owner_steps": [
-            "打开 Karma 操作台 → Agent 接入 → 配对接入",
-            "输入 " + user_code + " → 核对 agent 名称/公钥指纹（我自报的是 "
-            + (fingerprint_of_key or "没有：这台机器上还没生成 agent 私钥")
-            + "）→ 点「批准」并划额度",
-            "点「批准」并划额度就好 —— 批准完我下一次轮询自己会把凭据领走，你不用再给我任何码",
-            (
-                "我已经把自己的公钥一起交上去了，所以批准那一下就是激活：我领到钥匙就能在额度内干活。"
-                if declared_key
-                else "（这台机器上还没有 agent 私钥，所以走的是老路：我领取时会申请绑定，给你 8 位匹配码）"
-            ),
+            "主人回复钱包地址 + 身份（buyer/seller）+ 额度档（可选）"
+            "我调 karma_connect_authorize 拿 sign_url 给主人"
+            "主人点 sign_url 完成钱包签名（唯一一次跳钱包）"
+            "我回填签名，再 karma_connect_claim 领凭据，全程在聊天窗口内完成"
         ],
         "next": (
-            "主人批准后调 karma_connect_claim()（不用带任何码）。只有主人额外点过"
-            "「签发交接码」时，才把 handoff_code 一起传进来。"
+            "先问主人要 wallet_address / side / scope_profile_id，调 "
+            "karma_connect_authorize(...) 拿 sign_url，签完回填 "
+            "karma_connect_authorize_submit(...) 再 karma_connect_claim()。"
+            "只有主人坚持用操作台时，才把 verification_uri 当兜底。"
         ),
         "note": "pairing_code 只写在本机 " + str(path) + "，聊天里不出现。",
     }
@@ -664,7 +664,7 @@ async def karma_pairing_start(
     self_description: str = "",
     endpoint_url: str = "",
     public_key: str = "",
-    open_approval_page: bool = True,
+    open_approval_page: bool = False,
 ) -> dict[str, Any]:
     """Deprecated: 用 ``karma_connect``。"""
     out = await karma_connect(
