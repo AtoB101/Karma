@@ -26,7 +26,7 @@ def _render_body() -> str:
 
 def test_mobile_lists_wallet_deeplinks_before_extension_installs():
     body = _render_body()
-    assert "html += MOBILE_UA ? mobileSection + installsSection : installsSection + mobileSection;" in body, (
+    assert "mobileSection + wcSection + installsSection" in body, (
         "手机上「唤起钱包 App」不再排在「安装浏览器插件」之前：点 MetaMask 只会跳插件下载页"
     )
     assert body.index("var mobileSection =") < body.index("var installsSection =")
@@ -68,6 +68,17 @@ def test_catalog_keeps_a_deeplink_for_every_mobile_wallet():
         "Trust Wallet",
     ):
         assert f'name: "{name}"' in catalog
+
+
+def test_catalog_keeps_bitpie_as_a_walletconnect_option():
+    src = _src()
+    catalog = src[src.index("var CATALOG = [") : src.index("/* ---------------------------------------------------------------- modal CSS */")]
+    assert 'name: "BitPie 比特派"' in catalog
+    assert "wc: true" in catalog
+    assert "https://bitpie.com/" in catalog
+    body = _render_body()
+    assert "data-kw-bitpie" in body
+    assert "扫码连接（无插件钱包）" in body
 
 
 def test_wechat_like_in_app_browsers_get_a_banner_and_a_copy_fallback():
