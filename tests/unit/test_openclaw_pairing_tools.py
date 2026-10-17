@@ -385,6 +385,8 @@ def test_the_mcp_registers_the_pairing_tools():
     pt.register_pairing_tools(mcp)
     assert [fn.__name__ for fn in mcp.tools] == [
         "karma_connect",
+        "karma_connect_authorize",
+        "karma_connect_authorize_submit",
         "karma_connect_status",
         "karma_connect_claim",
         "karma_pairing_start",
