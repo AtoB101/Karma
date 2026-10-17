@@ -65,7 +65,7 @@ python -m pytest -q -c pyproject.toml
 
 - **S2 薄层**：配置 / 凭据（只读）/ Agent Ed25519 逐请求签名（与服务端逐字对齐）/
   后端客户端（错误分类 + `client_nonce`）/ 凭据 0600 落盘 / stdio 入口。
-- **S3 配对与身份**：`karma_connect` → `karma_connect_status` → `karma_connect_claim`
+- **S3 配对与身份**：`karma_connect`（自动打开主人批准页）→ `karma_connect_status` → `karma_connect_claim`
   （配对码只落本机文件，凭据只回指纹）；身份核验、授权状态、策略、交易 / 结算 / 信誉查询。
 - **S3 授权读写**：`karma_request_authorization`（预览，不写后端）→
   `karma_submit_authorization`（主人钱包签名后铸造）→ `karma_update_authorization`

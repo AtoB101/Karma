@@ -15,6 +15,7 @@ import hashlib
 import json
 
 import httpx
+import pytest
 from karma_mcp_server.backend_client import KarmaBackend
 from karma_mcp_server.config import McpConfig
 from karma_mcp_server.redact import fingerprint
@@ -39,6 +40,15 @@ def _make(handler, *, runtime_key=RUNTIME_KEY):
 
 def _tool(server, name):
     return server._tool_manager.get_tool(name).fn
+
+
+@pytest.fixture(autouse=True)
+def _never_open_browser_in_tests(monkeypatch):
+    """测试里绝不允许真的弹浏览器；需要观察打开行为时再单独覆盖。"""
+    monkeypatch.setattr(
+        "karma_mcp_server.server._open_approval_page",
+        lambda uri: (False, None),
+    )
 
 
 def _verify_pairing_signature(body: dict) -> None:
@@ -580,3 +590,36 @@ async def test_connect_tells_whether_the_key_travels_with_a_public_key(tmp_path,
     assert "8 位匹配码" in unattached["activation_hint"]
     assert "bind-key" in unattached["next_step"]
     assert "配对码" in unattached["next_step"]
+
+
+async def test_connect_opens_the_approval_page_by_default(tmp_path, monkeypatch):
+    """默认就该把批准页直接弹给主人 —— 不再只回一串链接让 agent 转达。"""
+    _isolate(tmp_path, monkeypatch)
+    opened: list[str] = []
+
+    def handler(request):
+        if request.url.path == "/v1/agent-pairing/request":
+            return httpx.Response(200, json={"pairing_code": PAIRING_CODE, "user_code": "K4QP-3M2X", "verification_uri": "https://console.karma.test/pair"})
+        raise AssertionError("unexpected path " + request.url.path)
+
+    monkeypatch.setattr("karma_mcp_server.server._open_approval_page", lambda uri: (opened.append(uri) or True, None))
+    out = await _tool(_make(handler), "karma_connect")(agent_name="小爱")
+    assert out["approval_page_opened"] is True
+    assert out["approval_page_open_error"] is None
+    assert opened == ["https://console.karma.test/pair"]
+
+
+async def test_connect_can_skip_opening_the_approval_page(tmp_path, monkeypatch):
+    """open_approval_page=False 时不得碰浏览器 —— 宿主已经自己打开过了。"""
+    _isolate(tmp_path, monkeypatch)
+    opened: list[str] = []
+
+    def handler(request):
+        if request.url.path == "/v1/agent-pairing/request":
+            return httpx.Response(200, json={"pairing_code": PAIRING_CODE, "user_code": "K4QP-3M2X", "verification_uri": "https://console.karma.test/pair"})
+        raise AssertionError("unexpected path " + request.url.path)
+
+    monkeypatch.setattr("karma_mcp_server.server._open_approval_page", lambda uri: (opened.append(uri) or True, None))
+    out = await _tool(_make(handler), "karma_connect")(agent_name="小爱", open_approval_page=False)
+    assert out["approval_page_opened"] is False
+    assert opened == []
