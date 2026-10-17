@@ -32,3 +32,11 @@ def test_pairing_start_description_tells_the_agent_to_hand_the_user_code_over():
     start = _tools()["karma_connect"]
     desc = start.description or ""
     assert "user_code" in desc
+
+
+def test_pairing_start_description_names_the_auto_open_page():
+    """描述里必须点出 open_approval_page —— agent 才知道批准页会自动弹给主人。"""
+    start = _tools()["karma_connect"]
+    desc = start.description or ""
+    assert "open_approval_page" in desc
+    assert "自动" in desc

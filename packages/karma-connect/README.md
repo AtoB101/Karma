@@ -73,9 +73,9 @@ twice changes nothing the second time.
 
 1. Restart the agent host so it reloads MCP servers.
 2. Have the agent call `karma_connect` (`agent_name` = whatever it calls itself). It
-   prints a `user_code` and a `verification_uri` - open that link in Karma Console,
-   check the `agent_fingerprint` on the card matches the one the agent showed you,
-   set the limits, and approve.
+   auto-opens the Karma Console approval page (and still returns the `verification_uri`
+   as a fallback). Check the `agent_fingerprint` on the card matches the one the agent
+   showed you, set the limits, and approve.
 3. Have the agent call `karma_connect_claim`. Approval **is** activation, so the
    credentials come back directly - there is no 8-character code to relay.
 4. Credentials land in `~/.karma/agent.env` (0600). Nothing secret travels through chat.

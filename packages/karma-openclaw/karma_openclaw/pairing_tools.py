@@ -32,6 +32,7 @@ import json
 import os
 import stat
 import time
+import webbrowser
 from pathlib import Path
 from typing import Any
 
@@ -211,6 +212,16 @@ def _local_agent_key():
         return None, ""
 
 
+def _open_approval_page(uri: str) -> tuple[bool, str | None]:
+    """打开主人批准页；无桌面环境（headless）时安全失败，不抛异常。"""
+    if not uri:
+        return False, None
+    try:
+        return bool(webbrowser.open(uri, new=2)), None
+    except Exception as exc:  # noqa: BLE001
+        return False, type(exc).__name__ + ": " + str(exc)
+
+
 async def karma_connect(
     agent_name: str,
     platform: str = "openclaw",
@@ -219,11 +230,13 @@ async def karma_connect(
     self_description: str = "",
     endpoint_url: str = "",
     public_key: str = "",
+    open_approval_page: bool = True,
 ) -> dict[str, Any]:
-    """申请接入 Karma。把返回的 user_code / verification_uri 交给主人。
+    """申请接入 Karma。默认自动打开主人批准页，再把 user_code / verification_uri 交给主人。
 
     这一步不花任何钱、也不产生任何权限：它只是让主人在操作台里看到「谁在申请」。
     主人批准并点「签发交接码」之后，agent 再调 karma_connect_claim 领凭据。
+    有桌面环境时批准页会直接弹给主人（open_approval_page=False 可关掉）。
 
     ``pairing_code`` 不在这里回显 —— 它只落盘在本机 0600 的状态文件里。
     """
@@ -278,11 +291,17 @@ async def karma_connect(
     path = _save_pairing(payload)
     user_code = str(payload.get("user_code") or "")
     uri = str(payload.get("verification_uri") or "")
+    approval_page_opened = False
+    approval_page_open_error = None
+    if open_approval_page:
+        approval_page_opened, approval_page_open_error = _open_approval_page(uri)
     return {
         "ok": True,
         "status": "pending_owner",
         "user_code": user_code,
         "verification_uri": uri,
+        "approval_page_opened": approval_page_opened,
+        "approval_page_open_error": approval_page_open_error,
         # 主人核对用：操作台那张待批准卡片上显示的是同一串（全系统同一口径）。
         "public_key_attached": bool(declared_key),
         "agent_fingerprint": fingerprint_of_key,
@@ -568,12 +587,14 @@ async def karma_pairing_start(
     self_description: str = "",
     endpoint_url: str = "",
     public_key: str = "",
+    open_approval_page: bool = True,
 ) -> dict[str, Any]:
     """Deprecated: 用 ``karma_connect``。"""
     out = await karma_connect(
         agent_name, platform=platform, requested_side=requested_side,
         requested_vertical=requested_vertical, self_description=self_description,
         endpoint_url=endpoint_url, public_key=public_key,
+        open_approval_page=open_approval_page,
     )
     out.setdefault("deprecated", LEGACY_ALIAS_NOTE % "karma_connect")
     return out

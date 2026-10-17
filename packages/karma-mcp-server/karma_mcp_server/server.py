@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import webbrowser
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -55,6 +56,16 @@ INSTRUCTIONS = (
 MAX_ARTIFACT_CHARS = 200_000
 
 PLATFORM = "mcp"
+
+
+def _open_approval_page(uri: str) -> tuple[bool, str | None]:
+    """打开主人批准页；无桌面环境（headless）时安全失败，不抛异常。"""
+    if not uri:
+        return False, None
+    try:
+        return bool(webbrowser.open(uri, new=2)), None
+    except Exception as exc:  # noqa: BLE001
+        return False, type(exc).__name__ + ": " + str(exc)
 
 
 def _apply_package_version(mcp: FastMCP, version: str) -> None:
@@ -119,11 +130,15 @@ def build_server(
     # ================= Tier 0: 连接 =================
 
     async def karma_connect(
-        agent_name: str, self_description: str = "", platform: str = PLATFORM
+        agent_name: str,
+        self_description: str = "",
+        platform: str = PLATFORM,
+        open_approval_page: bool = True,
     ) -> dict[str, Any]:
-        """申请接入 Karma：返回 user_code 与 verification_uri 交给主人。
+        """申请接入 Karma：返回 user_code 与 verification_uri，并默认自动打开主人批准页。
 
         这一步不花钱、也不产生任何权限 —— 只是让主人在操作台看到「谁在申请」。
+        有桌面环境时会把批准页直接弹给主人（open_approval_page=False 可关掉）。
         pairing_code 只落在本机 0600 文件里，聊天里不出现。
         """
 
@@ -165,11 +180,20 @@ def build_server(
             user_code = str(payload.get("user_code") or "")
             public_key = str(payload.get("public_key") or "")
             attached = key is not None
+            verification_uri = str(payload.get("verification_uri") or "")
+            approval_page_opened = False
+            approval_page_open_error = None
+            if open_approval_page:
+                approval_page_opened, approval_page_open_error = _open_approval_page(
+                    verification_uri
+                )
             return ok(
                 {
                     "status": "pending_owner",
                     "user_code": user_code,
-                    "verification_uri": payload.get("verification_uri"),
+                    "verification_uri": verification_uri,
+                    "approval_page_opened": approval_page_opened,
+                    "approval_page_open_error": approval_page_open_error,
                     "expires_at": payload.get("expires_at"),
                     "poll_interval_seconds": payload.get("poll_interval_seconds"),
                     "state_file": str(path),

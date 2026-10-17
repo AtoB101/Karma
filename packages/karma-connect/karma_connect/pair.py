@@ -71,6 +71,7 @@ async def cmd_start(args) -> int:
         agent_name=args.agent_name,
         requested_side=args.side or "",
         requested_vertical=args.vertical or "",
+        open_approval_page=False,
     )
     _dump(out)
     if not out.get("ok"):

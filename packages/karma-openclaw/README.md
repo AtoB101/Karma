@@ -45,7 +45,7 @@ karma-openclaw-mcp
 | `karma_submit_evidence_bundle` | Package receipts into a verifiable bundle |
 | `karma_get_evidence_bundle` | Retrieve a previously submitted bundle |
 | `karma_validate_handoff` | Verify operator handoff for high-risk actions |
-| `karma_connect` | **No key yet?** Ask to be connected; returns the `user_code` for your owner |
+| `karma_connect` | **No key yet?** Ask to be connected; returns the `user_code` and auto-opens the owner approval page (`open_approval_page=False` to disable) |
 | `karma_connect_claim` | Collect the credentials as soon as the owner approves; writes `~/.karma/agent.env` (0600) — including the local Ed25519 seed — and returns fingerprints only. Also answers "where is this pairing now": while it is unapproved it returns status only and consumes nothing |
 | `karma_connect_status` | What this machine holds: pending pairings + credential fingerprints. Local only — it never calls the backend |
 | `karma_pairing_*` | Deprecated aliases of the three above (same code path, each return carries a `deprecated` note). **Removal date: 2026-12-01** (next minor release); see `docs/AGENT_PAIRING_V1.md` |
@@ -62,6 +62,7 @@ travel through the chat:
 
 ```text
 karma_connect(agent_name="claw-001", requested_side="seller", requested_vertical="food")
+  -> auto-opens the owner approval page in the browser
   -> user_code "QKFS-3J5Z" + verification_uri + agent_fingerprint
      # hand these to your owner: they compare agent_fingerprint with the Console card,
      # so "the request in the Console" is provably "this machine's public key"
