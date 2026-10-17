@@ -48,3 +48,52 @@ def test_start_failure_exits_nonzero(monkeypatch, capsys):
     monkeypatch.setattr(pair, "_tools", lambda: FakeTools)
     args = pair.build_parser().parse_args(["start", "--agent-name", "x"])
     assert asyncio.run(pair.cmd_start(args)) == 1
+
+
+def test_start_parses_no_open_flag():
+    args = pair.build_parser().parse_args(["start", "--agent-name", "x", "--no-open"])
+    assert args.no_open is True
+
+
+def test_start_opens_verification_uri_on_success(monkeypatch, capsys):
+    """成功拿到 verification_uri 时要自动弹出主人批准页。"""
+    import asyncio
+
+    opened = []
+
+    class FakeTools:
+        @staticmethod
+        async def karma_connect(**_kwargs):
+            return {
+                "ok": True,
+                "user_code": "K4QP-3M2X",
+                "verification_uri": "https://karma-network.ai/console/?pair=K4QP-3M2X",
+            }
+
+    monkeypatch.setattr(pair, "_tools", lambda: FakeTools)
+    monkeypatch.setattr(pair.webbrowser, "open", lambda uri, new=0: opened.append(uri) or True)
+    args = pair.build_parser().parse_args(["start", "--agent-name", "x"])
+    assert asyncio.run(pair.cmd_start(args)) == 0
+    assert opened == ["https://karma-network.ai/console/?pair=K4QP-3M2X"]
+
+
+def test_start_skips_open_when_no_open(monkeypatch, capsys):
+    """--no-open 要关掉自动弹窗口。"""
+    import asyncio
+
+    opened = []
+
+    class FakeTools:
+        @staticmethod
+        async def karma_connect(**_kwargs):
+            return {
+                "ok": True,
+                "user_code": "K4QP-3M2X",
+                "verification_uri": "https://karma-network.ai/console/?pair=K4QP-3M2X",
+            }
+
+    monkeypatch.setattr(pair, "_tools", lambda: FakeTools)
+    monkeypatch.setattr(pair.webbrowser, "open", lambda uri, new=0: opened.append(uri) or True)
+    args = pair.build_parser().parse_args(["start", "--agent-name", "x", "--no-open"])
+    assert asyncio.run(pair.cmd_start(args)) == 0
+    assert opened == []
