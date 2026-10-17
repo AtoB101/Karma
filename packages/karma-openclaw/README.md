@@ -46,6 +46,8 @@ karma-openclaw-mcp
 | `karma_get_evidence_bundle` | Retrieve a previously submitted bundle |
 | `karma_validate_handoff` | Verify operator handoff for high-risk actions |
 | `karma_connect` | **No key yet?** Ask to be connected; returns the `user_code` and auto-opens the owner approval page (`open_approval_page=False` to disable) |
+| `karma_connect_authorize` | Prepare an in-window approval: owner's wallet + limits -> sign challenge + `sign_url` |
+| `karma_connect_authorize_submit` | Submit the owner's wallet signature; approves the pairing without a console session |
 | `karma_connect_claim` | Collect the credentials as soon as the owner approves; writes `~/.karma/agent.env` (0600) — including the local Ed25519 seed — and returns fingerprints only. Also answers "where is this pairing now": while it is unapproved it returns status only and consumes nothing |
 | `karma_connect_status` | What this machine holds: pending pairings + credential fingerprints. Local only — it never calls the backend |
 | `karma_pairing_*` | Deprecated aliases of the three above (same code path, each return carries a `deprecated` note). **Removal date: 2026-12-01** (next minor release); see `docs/AGENT_PAIRING_V1.md` |

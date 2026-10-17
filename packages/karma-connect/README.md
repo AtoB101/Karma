@@ -72,10 +72,10 @@ twice changes nothing the second time.
 ## After installing
 
 1. Restart the agent host so it reloads MCP servers.
-2. Have the agent call `karma_connect` (`agent_name` = whatever it calls itself). It
-   auto-opens the Karma Console approval page (and still returns the `verification_uri`
-   as a fallback). Check the `agent_fingerprint` on the card matches the one the agent
-   showed you, set the limits, and approve.
+2. Have the agent call `karma_connect` (`agent_name` = whatever it calls itself). Either
+   approve in the console, or go fully in-window: `karma_connect_authorize` collects your
+   wallet + limits in chat, then you click the returned `sign_url` once to sign in your
+   wallet; `karma_connect_authorize_submit` finalizes the approval without a console page.
 3. Have the agent call `karma_connect_claim`. Approval **is** activation, so the
    credentials come back directly - there is no 8-character code to relay.
 4. Credentials land in `~/.karma/agent.env` (0600). Nothing secret travels through chat.

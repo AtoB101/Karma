@@ -13,6 +13,7 @@ def test_build_app_registers_the_pairing_tools():
     """统一命名的那三个必须在注册表里，老名字作为兼容别名也还挂着。"""
     names = set(_tools())
     assert {"karma_connect", "karma_connect_status", "karma_connect_claim"} <= names
+    assert {"karma_connect_authorize", "karma_connect_authorize_submit"} <= names
     assert {
         "karma_pairing_start",
         "karma_pairing_status",

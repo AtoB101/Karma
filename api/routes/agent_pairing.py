@@ -21,6 +21,7 @@ import json
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -531,3 +532,165 @@ async def attach_runtime_key(
     )
     await db.commit()
     return result
+
+
+class PairApproveChallengeBody(BaseModel):
+    user_code: str = Field(min_length=4, max_length=16)
+    wallet_address: str = Field(min_length=42, max_length=42)
+    side: Literal["buyer", "seller"]
+    vertical: str | None = Field(default=None, max_length=64)
+    scope_profile_id: str | None = Field(default=None, max_length=128)
+
+    @field_validator("wallet_address")
+    @classmethod
+    def _safe_wallet(cls, v: str) -> str:
+        w = (v or "").strip()
+        if not (w.startswith("0x") and len(w) == 42):
+            raise ValueError("wallet_address must be a 0x-prefixed 20-byte address")
+        return w
+
+    @field_validator("vertical", "scope_profile_id", mode="before")
+    @classmethod
+    def _safe_optional(cls, v: object) -> str | None:
+        return validate_safe_storage_text_optional(
+            None if v is None else str(v), field="pair_approve_challenge"
+        )
+
+
+class PairApproveSignedBody(BaseModel):
+    challenge_id: str = Field(min_length=8, max_length=128)
+    signature: str = Field(min_length=130, max_length=256)
+
+
+@public_router.post("/approve-challenge")
+async def approve_challenge(
+    body: PairApproveChallengeBody,
+    _rl: None = Depends(agent_pairing_rate_limit),
+):
+    """窗口内授权第一步：给 pending 配对签发钱包待签挑战（不写任何凭据）。"""
+    return pairing.issue_approve_challenge(
+        user_code=body.user_code,
+        wallet_address=body.wallet_address,
+        side=body.side,
+        vertical=body.vertical or "",
+        scope_profile_id=body.scope_profile_id or "",
+    )
+
+
+@public_router.post("/approve-signed")
+async def approve_signed(
+    body: PairApproveSignedBody,
+    db: AsyncSession = Depends(get_db),
+    _rl: None = Depends(agent_pairing_rate_limit),
+):
+    """窗口内授权第二步：钱包签名回填，验签即批准（不依赖操作台会话）。"""
+    challenge = await pairing.consume_approve_challenge(
+        db=db, challenge_id=body.challenge_id, signature=body.signature
+    )
+    view = pairing.lookup_by_user_code(challenge["user_code"])
+    if str(view.get("status") or "") != "pending":
+        raise HTTPException(409, f"pairing is already {view.get('status')}")
+
+    result = await connect_owner_agent(
+        db,
+        owner_identity_id=challenge["owner_identity_id"],
+        side=challenge["side"],
+        vertical=challenge["vertical"] or view.get("requested_vertical"),
+        display_name=view.get("agent_name"),
+        self_description=view.get("self_description"),
+        endpoint_url=view.get("endpoint_url"),
+        scope_profile_id=challenge["scope_profile_id"] or None,
+        answers=dict(view.get("requested_answers") or {}),
+    )
+    agent = result["agent"]
+    agent_id = getattr(agent, "agent_id", None) or (agent or {}).get("agent_id")
+    credentials = dict(result.get("credentials") or {})
+    record = pairing.approve(
+        user_code=challenge["user_code"],
+        owner_identity_id=challenge["owner_identity_id"],
+        agent_id=str(agent_id),
+        api_key=credentials.get("api_key"),
+        agent_public_key=credentials.get("agent_public_key"),
+    )
+    return {
+        "schema_version": "karma-agent-pairing-approve-v1",
+        "status": "approved",
+        "pairing": record,
+        "agent": agent,
+        "p1_ready": result.get("p1_ready"),
+        "boundary_hash": result.get("boundary_hash"),
+        "note_zh": "已批准：agent 现在调 karma_connect_claim 就能领到凭据（只发一次）。",
+    }
+
+
+_SIGN_PAGE_HTML = """<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karma 授权签名</title>
+<style>
+body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;max-width:640px;margin:40px auto;padding:0 16px;line-height:1.6}
+pre{white-space:pre-wrap;word-break:break-word;background:#0f172a;color:#e2e8f0;padding:16px;border-radius:10px}
+button{background:#4f46e5;color:#fff;border:0;padding:12px 18px;border-radius:10px;font-size:16px;cursor:pointer}
+button:disabled{opacity:.6;cursor:wait}
+#status{margin-top:16px;color:#0f172a}
+</style>
+</head>
+<body>
+<h1>Karma 授权签名</h1>
+<p>以下内容是主人本次批准的授权边界，请核对后签名：</p>
+<pre id="msg">正在加载待签内容…</pre>
+<button id="sign">拉起钱包签名</button>
+<pre id="status"></pre>
+<script>
+var challengeId = new URLSearchParams(location.search).get("challenge_id") || "";
+var messageToSign = "";
+var signBtn = document.getElementById("sign");
+var statusBox = document.getElementById("status");
+function setStatus(text){ statusBox.textContent = text; }
+async function load(){
+  if(!challengeId){ setStatus("缺少 challenge_id。"); return; }
+  try{
+    var r = await fetch("/v1/agent-pairing/approve-challenge/" + encodeURIComponent(challengeId));
+    var d = await r.json();
+    if(!r.ok){ setStatus("加载失败：" + JSON.stringify(d)); return; }
+    messageToSign = d.message || "";
+    document.getElementById("msg").textContent = messageToSign;
+  }catch(e){ setStatus("网络错误：" + e); }
+}
+async function sign(){
+  signBtn.disabled = true;
+  if(!window.ethereum){ setStatus("未检测到浏览器钱包扩展（MetaMask 等）。"); signBtn.disabled = false; return; }
+  try{
+    var accounts = await window.ethereum.request({method:"eth_requestAccounts"});
+    var account = accounts[0];
+    var sig = await window.ethereum.request({method:"personal_sign", params:[messageToSign, account]});
+    var r = await fetch("/v1/agent-pairing/approve-signed", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({challenge_id: challengeId, signature: sig})
+    });
+    var d = await r.json();
+    setStatus(r.ok ? "已批准！回到 agent 让它调用 karma_connect_claim 领取凭据。" : "批准失败：" + JSON.stringify(d));
+  }catch(e){ setStatus("签名失败：" + e); }
+  signBtn.disabled = false;
+}
+document.getElementById("sign").addEventListener("click", sign);
+load();
+</script>
+</body>
+</html>
+"""
+
+
+@public_router.get("/approve-challenge/{challenge_id}")
+async def get_approve_challenge(challenge_id: str):
+    """签名页加载待签文字（只回文字和有效期，不含密钥）。"""
+    return pairing.get_approve_challenge(challenge_id)
+
+
+@public_router.get("/sign", response_class=HTMLResponse)
+async def approve_sign_page(challenge_id: str = ""):
+    """最小签名页：核对授权内容 -> 拉起浏览器钱包 personal_sign -> 回填签名。"""
+    return HTMLResponse(_SIGN_PAGE_HTML)

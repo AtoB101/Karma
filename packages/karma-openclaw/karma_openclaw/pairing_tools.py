@@ -332,6 +332,83 @@ async def karma_connect(
     }
 
 
+async def karma_connect_authorize(
+    user_code: str,
+    wallet_address: str,
+    side: str,
+    vertical: str = "",
+    scope_profile_id: str = "",
+) -> dict[str, Any]:
+    """窗口内完成授权配置并生成钱包待签挑战（不跳操作台页面）。
+
+    主人在聊天里说清钱包地址、买卖身份（buyer/seller）、额度档位
+    （scope_profile_id，可空）后，调这个工具拿到待签文字 + sign_url；
+    主人点 sign_url（只跳一次钱包）签完，再调 karma_connect_authorize_submit
+    回填签名，验签即批准。
+    """
+    if not (user_code or "").strip():
+        return {"ok": False, "error": "user_code_required", "hint": "call karma_connect first."}
+    if not (wallet_address or "").strip():
+        return {
+            "ok": False,
+            "error": "wallet_address_required",
+            "hint": "ask your owner for the wallet that will approve this pairing.",
+        }
+    try:
+        payload = await api_post(
+            "/v1/agent-pairing/approve-challenge",
+            {
+                "user_code": user_code.strip(),
+                "wallet_address": wallet_address.strip(),
+                "side": (side or "").strip(),
+                "vertical": (vertical or "").strip(),
+                "scope_profile_id": (scope_profile_id or "").strip(),
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": "approve_challenge_failed", "detail": _server_detail(exc)}
+    if not isinstance(payload, dict) or not payload.get("challenge_id"):
+        return {"ok": False, "error": "approve_challenge_unexpected", "detail": str(payload)[:300]}
+    return {
+        "ok": True,
+        "status": "ready_to_sign",
+        "challenge_id": payload.get("challenge_id"),
+        "user_code": payload.get("user_code"),
+        "sign_url": payload.get("sign_url"),
+        "message_to_sign": payload.get("message"),
+        "expires_at": payload.get("expires_at"),
+        "hand_to_owner": "请主人在聊天窗口里点开 sign_url 完成钱包签名（只跳这一次钱包）。",
+        "next": "签名页会自己回填并批准；然后调 karma_connect_claim() 领凭据。",
+    }
+
+
+async def karma_connect_authorize_submit(
+    challenge_id: str, signature: str
+) -> dict[str, Any]:
+    """把主人钱包签名回填，验签即批准（不依赖操作台会话）。"""
+    if not (challenge_id or "").strip():
+        return {"ok": False, "error": "challenge_id_required", "hint": "call karma_connect_authorize first."}
+    if not (signature or "").strip():
+        return {"ok": False, "error": "signature_required", "hint": "sign in the wallet first, then pass the signature."}
+    try:
+        payload = await api_post(
+            "/v1/agent-pairing/approve-signed",
+            {"challenge_id": challenge_id.strip(), "signature": signature.strip()},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": "approve_submit_failed", "detail": _server_detail(exc)}
+    status = (
+        str(payload.get("status") or "approved")
+        if isinstance(payload, dict)
+        else "approved"
+    )
+    return {
+        "ok": True,
+        "status": status,
+        "next": "现在调 karma_connect_claim() 领取凭据（只发一次）。",
+    }
+
+
 def _env_file_text(agent_id: str, base_url: str, env: dict[str, str]) -> str:
     lines = [
         "# Karma agent credentials — written by karma_connect_claim (mode 0600).",
@@ -641,6 +718,8 @@ def register_pairing_tools(mcp: FastMCP) -> None:
     先挂统一命名的那三个，再挂兼容别名：新老提示词都能用，逻辑只有一份。
     """
     mcp.add_tool(karma_connect)
+    mcp.add_tool(karma_connect_authorize)
+    mcp.add_tool(karma_connect_authorize_submit)
     mcp.add_tool(karma_connect_status)
     mcp.add_tool(karma_connect_claim)
     mcp.add_tool(karma_pairing_start)
