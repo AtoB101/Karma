@@ -21,7 +21,31 @@ primary_region = "iad"
   # TELEGRAM_MINIAPP_URL = "https://t.me/KarmaBot/app"
   # WalletConnect：默认使用官方 relay（wss://relay.walletconnect.org）
   # WC v2 不支持自建 bridge 替换 relay；自建时需 fork relayer 并在此覆盖
+  # WalletConnect projectId（公开值，可放 [env]；也可用 `fly secrets set WC_PROJECT_ID=...` 覆盖）
+  # 到 https://cloud.walletconnect.com 创建；供 Console 比特派连接与 MiniApp 使用
+  WC_PROJECT_ID = ""
   WC_BRIDGE_URL = "wss://relay.walletconnect.org"
+  # --- 生产安全闸门：APP_ENV=production 时 Settings 强制校验，缺一项启动失败 ---
+  APP_ENV = "production"
+  AUTH_ENFORCE_PROTECTED_ROUTES = "true"
+  AUTH_ALLOW_DEV_KEY_FALLBACK = "false"
+  RATE_LIMIT_REDIS_FAIL_CLOSED = "true"
+  RECEIPT_REQUIRE_SIGNATURE = "true"
+  LEDGER_REQUIRE_PARTY_ACTOR = "true"
+  SETTLEMENT_REQUIRE_PARTY_ACTOR = "true"
+  RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY = "true"
+  RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS = "true"
+  RUNTIME_REQUIRE_HANDOFF_ATTESTATION = "true"
+  RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING = "true"
+  RUNTIME_DAILY_SPEND_PERSIST = "true"
+  TRADE_LAUNCH_REQUIRE_EIP712 = "true"
+  KARMA_SIGNING_BACKEND = "client_only"
+  X402_PAYMENT_BACKEND = "sepolia"
+  OPENCLAW_RELAX_DELIVERY_SIGNATURES = "false"
+  OPENCLAW_LOCAL_PHASE1_AUTO_RELAX = "false"
+  CHAIN_ALLOW_HOT_WALLET_PAYER = "false"
+  # 以下必须通过 `fly secrets set` 提供强值，否则 production 启动失败：
+  #   APP_SECRET_KEY / AUTH_API_KEYS / ARBITRATOR_ACTOR_IDS / DATABASE_URL / REDIS_URL
   KARMA_ENV = "production"
 
 [http_service]
