@@ -18,8 +18,13 @@
  *   4. personal_sign(message) -> signature.
  *   5. POST /v1/auth/siwe/verify {nonce, signature, address} -> identity + token.
  *
+ * Bitpie 是纯手机钱包：没有浏览器插件，也没有 bitpie:// 深链，只能走
+ * WalletConnect（扫码 / URI）。projectId 是公开值（非密钥），优先从服务端
+ * /v1/info 取，取不到再用 window.KARMA_WC_PROJECT_ID（自托管兜底）。
+ *
  * When no wallet is installed the module opens a wallet picker with download
- * links and mobile deep links instead of dead-ending on "no plugin detected".
+ * links, mobile deep links and a Bitpie WalletConnect button instead of
+ * dead-ending on "no plugin detected".
  */
 (function (global) {
   "use strict";
@@ -45,6 +50,15 @@
   var APP_BROWSER = /micromessenger|weibo|feishu|lark|dingtalk|douyin|toutiao|alipayclient/i.test(
     (global.navigator && global.navigator.userAgent) || ""
   );
+
+  /* Bitpie 是纯手机钱包：没有浏览器插件，也没有 bitpie:// 深链，只能走
+     WalletConnect 扫码 / URI。projectId 是公开值（非密钥），优先从服务端
+     /v1/info 取，取不到再用 window.KARMA_WC_PROJECT_ID（自托管兜底）。 */
+  var WC_PROJECT_ID_FALLBACK = "REPLACE_WITH_WALLETCONNECT_PROJECT_ID";
+  var WC_PROJECT_ID = null;
+  var WC_SDK_URL = "https://unpkg.com/@walletconnect/ethereum-provider@2.17.2/dist/index.umd.js";
+  var WC_CHAIN_ID = 11155111; // Sepolia —— 与 Karma 测试网一致
+  var wcProviderRef = null;
 
   /* ------------------------------------------------------------------ utils */
 
@@ -306,6 +320,12 @@
     return "浏览器钱包";
   }
 
+  /** Bitpie App 注入的 provider（手机 DApp 浏览器里挂在 window.bitpie.ethereum）。 */
+  function bitpieInjectedProvider() {
+    var bp = global.bitpie || global.Bitpie || {};
+    return bp.ethereum && typeof bp.ethereum.request === "function" ? bp.ethereum : null;
+  }
+
   /**
    * 有些钱包插件（尤其国产插件的老版本）只给 window.ethereum 挂 sendAsync / send，
    * 没有 request。以前这类插件会被当成「没装钱包」，用户点了没反应。
@@ -375,6 +395,20 @@
       }
       out.push(e);
     });
+    var bitpie = bitpieInjectedProvider();
+    if (bitpie) {
+      var seen = false;
+      for (var j = 0; j < out.length; j++) {
+        if (out[j].raw === bitpie || out[j].provider === bitpie) seen = true;
+      }
+      if (!seen) {
+        out.push({
+          info: { uuid: "bitpie-injected", name: "BitPie 比特派", icon: "" },
+          provider: bitpie,
+          raw: bitpie,
+        });
+      }
+    }
     return out;
   }
 
@@ -384,6 +418,113 @@
       if (list[i].info.name === name) return list[i];
     }
     return null;
+  }
+
+  /* ------------------------------------------------ WalletConnect (Bitpie) */
+
+  async function resolveProjectId() {
+    if (WC_PROJECT_ID) return WC_PROJECT_ID;
+    var explicit = global.KARMA_WC_PROJECT_ID;
+    if (explicit && explicit !== WC_PROJECT_ID_FALLBACK) {
+      WC_PROJECT_ID = explicit;
+      return WC_PROJECT_ID;
+    }
+    try {
+      var res = await fetch(apiBase() + "/v1/info");
+      if (res.ok) {
+        var data = await res.json();
+        var wc = data && data.walletconnect;
+        var pid = wc && (wc.project_id || wc.projectId);
+        if (pid && pid !== WC_PROJECT_ID_FALLBACK) {
+          WC_PROJECT_ID = pid;
+          return WC_PROJECT_ID;
+        }
+      }
+    } catch (_) {}
+    WC_PROJECT_ID = WC_PROJECT_ID_FALLBACK;
+    return WC_PROJECT_ID;
+  }
+
+  function loadWalletConnectSdk() {
+    if (global.WalletConnectEthereumProvider) {
+      return Promise.resolve(global.WalletConnectEthereumProvider);
+    }
+    return new Promise(function (resolve, reject) {
+      var script = document.createElement("script");
+      script.src = WC_SDK_URL;
+      script.async = true;
+      script.onload = function () {
+        resolve(global.WalletConnectEthereumProvider);
+      };
+      script.onerror = function () {
+        reject(new Error(T("WalletConnect SDK 加载失败（请检查网络或 CDN 可达性）")));
+      };
+      (document.head || document.documentElement).appendChild(script);
+    });
+  }
+
+  async function getWalletConnectProvider() {
+    if (wcProviderRef) return wcProviderRef;
+
+    await loadWalletConnectSdk();
+    var ns = global.WalletConnectEthereumProvider || {};
+    var EthereumProvider = ns.EthereumProvider || ns.default || ns;
+    if (typeof EthereumProvider.init !== "function") {
+      throw new Error(T("WalletConnect SDK 未正确加载"));
+    }
+
+    var metadataUrl = "http://127.0.0.1:8000";
+    try {
+      if (global.location && global.location.origin && global.location.origin !== "null") {
+        metadataUrl = global.location.origin;
+      }
+    } catch (_) {}
+
+    var provider = await EthereumProvider.init({
+      projectId: await resolveProjectId(),
+      chains: [WC_CHAIN_ID],
+      optionalChains: [WC_CHAIN_ID],
+      showQrModal: true,
+      metadata: {
+        name: "Karma Console",
+        description: "Karma AI Agent non-custodial settlement",
+        url: metadataUrl,
+        icons: [],
+      },
+    });
+
+    provider.on("display_uri", function (uri) {
+      setStatus(T("比特派：请使用 Bitpie App 扫描二维码或复制 URI 连接"), null);
+      try {
+        document.dispatchEvent(new CustomEvent("karma-wallet-uri", { detail: uri }));
+      } catch (_) {}
+    });
+    provider.on("accountsChanged", function (accounts) {
+      if (accounts && accounts[0]) {
+        setStatus(T("已切换账户 · ") + shortAddr(accounts[0]), true);
+      }
+    });
+    provider.on("chainChanged", function (cid) {
+      var id =
+        typeof cid === "string" && cid.indexOf(":") !== -1
+          ? Number(cid.split(":")[1])
+          : Number(cid);
+      if (id !== WC_CHAIN_ID) {
+        setStatus(T("注意：当前网络 chainId ") + id + T("，Karma 使用 Sepolia (11155111)"), false);
+      }
+    });
+    provider.on("disconnect", function () {
+      wcProviderRef = null;
+      clearSession();
+      setStatus(T("比特派钱包已断开"), null);
+      resetWalletUi();
+      try {
+        emitEvent("karma-wallet-disconnected");
+      } catch (_) {}
+    });
+
+    wcProviderRef = provider;
+    return provider;
   }
 
   /* ------------------------------------------------------- wallet catalogue */
@@ -478,6 +619,12 @@
       deep: function (u) {
         return "https://link.trustwallet.com/open_url?coin_id=60&url=" + encodeURIComponent(u);
       },
+    },
+    {
+      name: "BitPie 比特派",
+      install: "https://bitpie.com/",
+      icon: "🅿️",
+      wc: true,
     },
   ];
 
@@ -729,7 +876,29 @@
         "</details>"
       : '<p class="kw-sec">安装钱包（浏览器插件）</p>' + installGrid();
 
-    html += MOBILE_UA ? mobileSection + installsSection : installsSection + mobileSection;
+    var wcWallets = CATALOG.filter(function (w) {
+      return w.wc;
+    });
+    var wcSection = "";
+    if (wcWallets.length) {
+      wcSection = '<p class="kw-sec">扫码连接（无插件钱包）</p><div class="kw-list">';
+      wcWallets.forEach(function (w) {
+        wcSection +=
+          '<button type="button" class="kw-item" data-kw-bitpie><span class="kw-ico">' +
+          w.icon +
+          '</span><span class="kw-name">' +
+          esc(w.name) +
+          '</span><span class="kw-tag">扫码连接</span></button>';
+      });
+      wcSection += "</div>";
+      wcSection +=
+        '<p class="kw-hint">点一下会出现二维码：用比特派 App「发现」页扫码授权，' +
+        "或复制链接到钱包里打开。</p>";
+    }
+
+    html += MOBILE_UA
+      ? mobileSection + wcSection + installsSection
+      : installsSection + mobileSection + wcSection;
 
     var s = readSession();
     if (s.wallet && tokenState() !== "ok") {
@@ -753,6 +922,12 @@
           if (e.info.uuid === uuid) picked = e;
         });
         if (picked) connectWith(picked);
+      });
+    });
+    all("[data-kw-bitpie]", body).forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var r = connectBitpie();
+        if (r && r.catch) r.catch(function () {});
       });
     });
   }
@@ -933,8 +1108,21 @@
   }
 
   function disconnect() {
+    if (wcProviderRef && typeof wcProviderRef.disconnect === "function") {
+      try {
+        wcProviderRef.disconnect();
+      } catch (_) {}
+    }
+    wcProviderRef = null;
     clearSession();
     setStatus("已断开钱包", null);
+    resetWalletUi();
+    try {
+      emitEvent("karma-wallet-disconnected");
+    } catch (_) {}
+  }
+
+  function resetWalletUi() {
     all(".id-main").forEach(function (n) {
       n.textContent = "—";
     });
@@ -943,9 +1131,40 @@
       chip.textContent = "未连接";
       chip.style.color = "";
     }
+  }
+
+  async function connectBitpie() {
+    closeModal();
+    setStatus(T("初始化比特派连接…"), null);
+    var provider;
     try {
-      emitEvent("karma-wallet-disconnected");
-    } catch (_) {}
+      provider = await getWalletConnectProvider();
+    } catch (e) {
+      remember(e);
+      setStatus(failText(T("比特派连接失败："), e), false);
+      return null;
+    }
+    var accounts;
+    try {
+      accounts =
+        provider.accounts && provider.accounts.length ? provider.accounts : await provider.enable();
+    } catch (e) {
+      remember(e);
+      setStatus(T("已取消连接或钱包拒绝授权"), false);
+      return null;
+    }
+    if (!accounts || !accounts.length) {
+      lastError = T("钱包未返回账户");
+      setStatus(T("钱包未返回账户"), false);
+      return null;
+    }
+    try {
+      return await signIn(provider, accounts[0], "BitPie 比特派");
+    } catch (e) {
+      remember(e);
+      setStatus(failText(T("登录失败："), e), false);
+      throw e;
+    }
   }
 
   function hasWallet() {
@@ -1164,6 +1383,7 @@
     activeProvider: activeProvider,
     connect: connect,
     connectWith: connectWith,
+    connectBitpie: connectBitpie,
     disconnect: disconnect,
     readSession: readSession,
     hasWallet: hasWallet,

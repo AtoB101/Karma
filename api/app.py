@@ -627,6 +627,9 @@ async def info():
         "version": "0.1.0",
         "docs": "/docs",
         "schemas": "/v1/schemas",
+        "walletconnect": {
+            "project_id": (settings.wc_project_id or "").strip(),
+        },
         "important_fields_standard": {
             "catalog": "/v1/standards/important-fields",
             "scenes": "/v1/standards/important-fields/scenes",
