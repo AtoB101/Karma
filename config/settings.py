@@ -237,6 +237,10 @@ class Settings(BaseSettings):
     # Empty in non-development environments defaults to no cross-origin allowance until configured.
     cors_allow_origins: str = ""
 
+    # WalletConnect projectId (public, non-secret) for Browser DApp connections
+    # (Telegram MiniApp + Console Bitpie). Create at https://cloud.walletconnect.com.
+    wc_project_id: str = ""
+
     # Database
     database_url: str = "postgresql+asyncpg://karma:karma@localhost:5432/karma_db"
     database_pool_size: int = 20
