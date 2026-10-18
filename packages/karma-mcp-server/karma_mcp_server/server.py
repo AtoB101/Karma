@@ -133,12 +133,16 @@ def build_server(
         agent_name: str,
         self_description: str = "",
         platform: str = PLATFORM,
-        open_approval_page: bool = True,
+        open_approval_page: bool = False,
     ) -> dict[str, Any]:
-        """申请接入 Karma：返回 user_code 与 verification_uri，并默认自动打开主人批准页。
+        """申请接入 Karma：返回 user_code / verification_uri，默认在聊天窗口内完成授权。
 
-        这一步不花钱、也不产生任何权限 —— 只是让主人在操作台看到「谁在申请」。
-        有桌面环境时会把批准页直接弹给主人（open_approval_page=False 可关掉）。
+        这一步不花钱、也不产生任何权限 —— 只是让服务端看到「谁在申请」。
+        拿到 user_code 后，主人在聊天里给出钱包地址、身份（buyer/seller）和额度档
+        （scope_profile_id，可空），调 karma_connect_authorize 生成只跳一次钱包的
+        签名链接；签名回填后调 karma_connect_claim 领凭据。
+        只有主人坚持走操作台时，才用返回里的 verification_uri 兜底
+        （open_approval_page=True 可让本工具顺手把它弹给主人）。
         pairing_code 只落在本机 0600 文件里，聊天里不出现。
         """
 
@@ -201,13 +205,12 @@ def build_server(
                     # 操作台待批准卡片上会显示同一串；agent 把这一串报给主人核对。
                     "agent_fingerprint": agent_public_key_fingerprint(public_key),
                     "next_step": (
-                        "请主人打开 "
-                        + str(payload.get("verification_uri") or "Karma 操作台")
-                        + " 批准这次接入（配对码 "
-                        + user_code
-                        + " 只是用来对号，不必手输）；"
+                        "在聊天窗口内完成授权：问主人要 wallet_address、side（buyer/seller）、"
+                        "scope_profile_id（可空），调 karma_connect_authorize 拿 sign_url；"
+                        "主人点 sign_url 只跳一次钱包，签完回填 karma_connect_authorize_submit，"
+                        "再 karma_connect_claim 领凭据。配对码 " + user_code + " 只用于对号；"
                         + (
-                            "把上面的 agent_fingerprint 一起报给主人，让他和操作台上显示的那串核对"
+                            "把上面的 agent_fingerprint 一起报给主人核对。"
                             if attached
                             else "但这次没带公钥：批准后还要 POST /runtime/bind-key，"
                             "把拿到的 8 位匹配码交给主人，他在操作台"
@@ -222,9 +225,8 @@ def build_server(
                         "未激活，你得 POST /runtime/bind-key 把返回的 8 位匹配码交给主人，他在操作台输码 + 钱包签名之后才生效。"
                     ),
                     "note": (
-                        "pairing_code 只写在本机，聊天里不出现。指纹只能证明"
-                        "「操作台这条申请 = 本机这把公钥」，不等于主人已确认授权对象"
-                        "（授权要主人自己钱包签名）。"
+                        "pairing_code 只写在本机，聊天里不出现。默认不再自动打开操作台批准页；"
+                        "授权在聊天窗口内用 karma_connect_authorize 完成，只有钱包签名会跳一次钱包。"
                     ),
                 }
             )
