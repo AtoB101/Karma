@@ -75,7 +75,6 @@ contract KarmaBilateral {
     error FundsFrozen(uint8 scope, uint256 until);
     error InvalidAddress();
     error InvalidSplit();
-    error AmountTooLarge();
     error TooManyTokens();
     error AttestationRequired(uint256 bindingId);
     error GatewayNotSet();
@@ -177,6 +176,7 @@ contract KarmaBilateral {
     uint256 private _bindingCounter;
 
     mapping(uint256 => bytes32) private _bills;
+    mapping(uint256 => uint256) private _billAmounts;
     mapping(address => uint8)      public tokenIds;
     mapping(uint8 => address)      public idToToken;
     uint8 private _tokenCounter;
@@ -330,20 +330,18 @@ contract KarmaBilateral {
     // ─────────────────────────────────────────────────────────────────────────
     //  PACKED BILL STORAGE
     //  Each BillToken is a single bytes32 slot:
-    //    [ owner:160 | tokenId:8 | state:8 | amount:80 ]
+    //    [ owner:160 | tokenId:8 | state:8 ]  (amount stored separately)
     // ─────────────────────────────────────────────────────────────────────────
 
-    uint256 private constant BILL_AMOUNT_MASK = (uint256(1) << 80) - 1;
-    uint256 private constant BILL_STATE_MASK  = uint256(0xFF) << 80;
+    uint256 private constant BILL_STATE_MASK = uint256(0xFF) << 80;
 
-    function _packBill(address owner, uint8 tokenId, BillState state, uint256 amount)
+    function _packBill(address owner, uint8 tokenId, BillState state)
         internal pure returns (bytes32 packed)
     {
         packed = bytes32(
             (uint256(uint160(owner)) << 96)
             | (uint256(tokenId) << 88)
             | (uint256(state) << 80)
-            | amount
         );
     }
 
@@ -357,10 +355,6 @@ contract KarmaBilateral {
 
     function _billState(bytes32 b) internal pure returns (BillState) {
         return BillState(uint8(uint256(b) >> 80));
-    }
-
-    function _billAmount(bytes32 b) internal pure returns (uint256) {
-        return uint256(b) & BILL_AMOUNT_MASK;
     }
 
     function _billToken(bytes32 b) internal view returns (address) {
@@ -384,8 +378,6 @@ contract KarmaBilateral {
         if (!tokenAllowed[token]) revert TokenNotAllowed();
         if (amount == 0)          revert ZeroAmount();
         if (token == address(0))  revert ZeroAddress();
-        if (amount > BILL_AMOUNT_MASK) revert AmountTooLarge();
-
         uint8 tokenId = tokenIds[token];
         if (tokenId == 0) revert TokenNotAllowed();
 
@@ -393,7 +385,8 @@ contract KarmaBilateral {
         if (!ok) revert TransferFailed();
 
         unchecked { billId = ++_billCounter; }
-        _bills[billId] = _packBill(msg.sender, tokenId, BillState.MINTED, amount);
+        _bills[billId] = _packBill(msg.sender, tokenId, BillState.MINTED);
+        _billAmounts[billId] = amount;
 
         totalLocked[token]     += amount;
         freeBalance[msg.sender] += amount;
@@ -435,8 +428,8 @@ contract KarmaBilateral {
         });
 
         address token    = _billToken(buyerBill);
-        uint256 buyerAmt = _billAmount(buyerBill);
-        uint256 agentAmt = _billAmount(agentBill);
+        uint256 buyerAmt = _billAmounts[buyerBillId];
+        uint256 agentAmt = _billAmounts[agentBillId];
         pendingBatchAmount[token] += buyerAmt + agentAmt;
 
         _moveFreeTobound(_billOwner(buyerBill), buyerAmt);
@@ -494,8 +487,8 @@ contract KarmaBilateral {
         bindingTaskId[bindingId]       = taskId;
 
         address token    = _billToken(buyerBill);
-        uint256 buyerAmt = _billAmount(buyerBill);
-        uint256 agentAmt = _billAmount(agentBill);
+        uint256 buyerAmt = _billAmounts[buyerBillId];
+        uint256 agentAmt = _billAmounts[agentBillId];
         pendingBatchAmount[token] += buyerAmt + agentAmt;
 
         _moveFreeTobound(_billOwner(buyerBill), buyerAmt);
@@ -537,8 +530,8 @@ contract KarmaBilateral {
         if (intent.buyer != _billOwner(buyerBill)) revert IntentPartyMismatch("buyer");
         if (intent.seller != _billOwner(agentBill)) revert IntentPartyMismatch("seller");
         uint256 sellerStake = (intent.amount * intent.penaltyRate) / 10_000;
-        if (intent.amount != _billAmount(buyerBill) || sellerStake != _billAmount(agentBill))
-            revert IntentAmountMismatch(intent.amount, _billAmount(buyerBill), _billAmount(agentBill));
+        if (intent.amount != _billAmounts[buyerBillId] || sellerStake != _billAmounts[agentBillId])
+            revert IntentAmountMismatch(intent.amount, _billAmounts[buyerBillId], _billAmounts[agentBillId]);
         if (intent.expiresAt < block.timestamp) revert IntentExpired(intent.expiresAt);
         if (intent.serviceType == bytes32(0)) revert ZeroAmount();
 
@@ -572,8 +565,8 @@ contract KarmaBilateral {
         }
 
         address token    = _billToken(buyerBill);
-        uint256 buyerAmt = _billAmount(buyerBill);
-        uint256 agentAmt = _billAmount(agentBill);
+        uint256 buyerAmt = _billAmounts[buyerBillId];
+        uint256 agentAmt = _billAmounts[agentBillId];
         pendingBatchAmount[token] += buyerAmt + agentAmt;
 
         _moveFreeTobound(_billOwner(buyerBill), buyerAmt);
@@ -658,9 +651,6 @@ contract KarmaBilateral {
         if (block.timestamp < windowEnd) {
             revert FinalizeWindowOpen(windowEnd);
         }
-
-        bytes32 buyerBill = _bills[b.buyerBillId];
-        bytes32 agentBill = _bills[b.agentBillId];
 
         _executeSettle(bindingId, b, b.buyerBillId, b.agentBillId, b.proofHash);
     }
@@ -774,9 +764,7 @@ contract KarmaBilateral {
         uint256 windowEnd = arb.startedAt + evidenceWindow;
         if (block.timestamp < windowEnd) revert FinalizeWindowOpen(windowEnd);
 
-        bytes32 buyerBill = _bills[b.buyerBillId];
-        bytes32 agentBill = _bills[b.agentBillId];
-        uint256 totalPool = _billAmount(buyerBill) + _billAmount(agentBill);
+        uint256 totalPool = _billAmounts[b.buyerBillId] + _billAmounts[b.agentBillId];
 
         // Large disputes normally require admin (DAO governance in future).
         // SECURITY: after evidence window + largeDisputeTimeoutSeconds with no
@@ -908,9 +896,6 @@ contract KarmaBilateral {
         ArbitrationRecord storage arb = arbitrations[bindingId];
         if (arb.startedAt != 0) arb.resolved = true;
 
-        bytes32 buyerBill = _bills[b.buyerBillId];
-        bytes32 agentBill = _bills[b.agentBillId];
-
         emit DisputeResolved(bindingId, buyerShareBps);
         _executeSplit(bindingId, b, b.buyerBillId, b.agentBillId, buyerShareBps);
     }
@@ -935,7 +920,7 @@ contract KarmaBilateral {
         bytes32 agentBill = _bills[b.agentBillId];
 
         _executeRefund(bindingId, b, b.buyerBillId, b.agentBillId);
-        emit BindingRefunded(bindingId, _billAmount(buyerBill), _billAmount(agentBill));
+        emit BindingRefunded(bindingId, _billAmounts[b.buyerBillId], _billAmounts[b.agentBillId]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -949,7 +934,7 @@ contract KarmaBilateral {
         _requireBillState(billId, _billState(bill), BillState.MINTED);
 
         address token  = _billToken(bill);
-        uint256 amount = _billAmount(bill);
+        uint256 amount = _billAmounts[billId];
 
         if (freeBalance[msg.sender] < amount) {
             revert InsufficientFreeBalance(msg.sender, freeBalance[msg.sender], amount);
@@ -1028,19 +1013,19 @@ contract KarmaBilateral {
     // ─────────────────────────────────────────────────────────────────────────
 
     function getBill(uint256 billId) external view returns (BillToken memory) {
-        return _decodeBill(_bills[billId]);
+        return _decodeBill(billId, _bills[billId]);
     }
 
     function bills(uint256 billId) external view returns (BillToken memory) {
-        return _decodeBill(_bills[billId]);
+        return _decodeBill(billId, _bills[billId]);
     }
 
-    function _decodeBill(bytes32 packed) private view returns (BillToken memory bill) {
+    function _decodeBill(uint256 billId, bytes32 packed) private view returns (BillToken memory bill) {
         bill = BillToken({
             owner:  _billOwner(packed),
             state:  _billState(packed),
             token:  _billToken(packed),
-            amount: _billAmount(packed)
+            amount: _billAmounts[billId]
         });
     }
 
@@ -1224,8 +1209,8 @@ contract KarmaBilateral {
         address token       = _billToken(buyerBill);
         address buyerOwner  = _billOwner(buyerBill);
         address agentOwner  = _billOwner(agentBill);
-        uint256 buyerAmount = _billAmount(buyerBill);
-        uint256 agentAmount = _billAmount(agentBill);
+        uint256 buyerAmount = _billAmounts[buyerBillId];
+        uint256 agentAmount = _billAmounts[agentBillId];
 
         b.state     = BindingState.SETTLED;
         b.proofHash = proofHash;
@@ -1268,8 +1253,8 @@ contract KarmaBilateral {
         address token       = _billToken(buyerBill);
         address buyerOwner  = _billOwner(buyerBill);
         address agentOwner  = _billOwner(agentBill);
-        uint256 buyerAmount = _billAmount(buyerBill);
-        uint256 agentAmount = _billAmount(agentBill);
+        uint256 buyerAmount = _billAmounts[buyerBillId];
+        uint256 agentAmount = _billAmounts[agentBillId];
 
         b.state = BindingState.REFUNDED;
 
@@ -1298,14 +1283,14 @@ contract KarmaBilateral {
         address token       = _billToken(buyerBill);
         address buyerOwner  = _billOwner(buyerBill);
         address agentOwner  = _billOwner(agentBill);
-        uint256 totalPool   = _billAmount(buyerBill) + _billAmount(agentBill);
+        uint256 totalPool   = _billAmounts[buyerBillId] + _billAmounts[agentBillId];
         uint256 buyerPayout = (totalPool * buyerShareBps) / 10_000;
         uint256 agentPayout = totalPool - buyerPayout;
 
         b.state = BindingState.SETTLED;
 
-        _decrementBound(buyerOwner, _billAmount(buyerBill));
-        _decrementBound(agentOwner, _billAmount(agentBill));
+        _decrementBound(buyerOwner, _billAmounts[buyerBillId]);
+        _decrementBound(agentOwner, _billAmounts[agentBillId]);
         _burnBill(buyerBillId, buyerBill, "dispute-resolved");
         _burnBill(agentBillId, agentBill, "dispute-resolved");
 
@@ -1324,7 +1309,7 @@ contract KarmaBilateral {
 
     function _burnBill(uint256 billId, bytes32 bill, string memory reason) internal {
         address token  = _billToken(bill);
-        uint256 amount = _billAmount(bill);
+        uint256 amount = _billAmounts[billId];
         _bills[billId] = _setBillState(bill, BillState.BURNED);
         totalLocked[token] -= amount;
         emit BillBurned(billId, _billOwner(bill), amount, reason);
