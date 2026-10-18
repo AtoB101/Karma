@@ -25,11 +25,14 @@ const KARMA_BILATERAL_ABI = [
   "function settle(uint256 bindingId, bytes32 proofHash)",
   "function finalizeSettle(uint256 bindingId)",
   "function dispute(uint256 bindingId, bytes32 evidenceHash)",
+  "function submitArbitrationEvidence(uint256 bindingId, bytes32 evidenceHash)",
+  "function autoResolveArbitration(uint256 bindingId)",
+  "function resolveDispute(uint256 bindingId, uint16 buyerShareBps)",
   "function refundOnTimeout(uint256 bindingId)",
   "function unlock(uint256 billId)",
   "function finalizeAfter(uint256 bindingId) view returns (uint256)",
-  "function getBill(uint256 billId) view returns (tuple(uint256 billId, address owner, address token, uint256 amount, uint8 state, uint256 mintedAt))",
-  "function getBinding(uint256 bindingId) view returns (tuple(uint256 bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash, uint8 state, uint256 createdAt, uint256 settleAfter, bytes32 proofHash, uint256 disputedAt, address disputeInitiator))",
+  "function getBill(uint256 billId) view returns (tuple(address owner, uint8 state, address token, uint256 amount))",
+  "function getBinding(uint256 bindingId) view returns (tuple(uint256 bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash, uint8 state, uint256 createdAt, uint256 settleAfter, bytes32 proofHash, uint256 settleSubmittedAt, uint256 disputedAt, address disputeInitiator))",
   "function getIntentPackage(uint256 bindingId) view returns (tuple(address buyer, address seller, bytes32 serviceType, bytes requirements, uint256 amount, uint256 penaltyRate, uint256 deadline, uint256 expiresAt, bytes32 proofSchema, address verifier, uint256 disputeWindow))",
   "function checkInvariant(address token) view returns (bool)",
   "function setTokenAllowed(address token, bool allowed)",
@@ -42,7 +45,7 @@ const KARMA_BILATERAL_ABI = [
   "function attestationGateway() view returns (address)",
   "event BillMinted(uint256 indexed billId, address indexed owner, address token, uint256 amount)",
   "event BillsBound(uint256 indexed bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash)",
-  "event IntentBound(uint256 indexed bindingId, bytes32 serviceType, uint256 amount)",
+  "event IntentBound(uint256 indexed bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 intentHash)",
   "event BindingSettled(uint256 indexed bindingId, bytes32 proofHash, uint256 buyerAmount, uint256 agentAmount)",
 ];
 
@@ -103,12 +106,11 @@ export const BindingState = { ACTIVE: 0, PENDING: 1, FINALIZING: 2, SETTLED: 3, 
 export const PartyType = { SUPPLIER: 0, BUYER: 1, VERIFIER: 2 } as const;
 
 export interface BillToken {
-  billId:   bigint;
-  owner:    string;
-  token:    string;
-  amount:   bigint;
-  state:    number;
-  mintedAt: bigint;
+  billId: bigint;
+  owner:  string;
+  token:  string;
+  amount: bigint;
+  state:  number;
 }
 
 export interface Binding {
@@ -120,6 +122,7 @@ export interface Binding {
   createdAt:        bigint;
   settleAfter:      bigint;
   proofHash:        string;
+  settleSubmittedAt: bigint;
   disputedAt:       bigint;
   disputeInitiator: string;
 }
@@ -284,6 +287,27 @@ export class KarmaBilateral extends BaseClient {
     return receipt.hash;
   }
 
+  /** Submit / update evidence for a DISPUTED binding during the evidence window. */
+  async submitArbitrationEvidence(bindingId: bigint, evidenceHash: string): Promise<string> {
+    const tx = await this.contract.submitArbitrationEvidence(bindingId, evidenceHash);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  }
+
+  /** Anyone may trigger after the evidence window closes; applies auto-resolution rules. */
+  async autoResolveArbitration(bindingId: bigint): Promise<string> {
+    const tx = await this.contract.autoResolveArbitration(bindingId);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  }
+
+  /** Admin: resolve a dispute with an explicit buyer share in basis points. */
+  async resolveDispute(bindingId: bigint, buyerShareBps: bigint): Promise<string> {
+    const tx = await this.contract.resolveDispute(bindingId, buyerShareBps);
+    const receipt = await tx.wait();
+    return receipt.hash;
+  }
+
   /** Refund when settle timeout elapses without a valid settlement. */
   async refundOnTimeout(bindingId: bigint): Promise<string> {
     const tx = await this.contract.refundOnTimeout(bindingId);
@@ -305,12 +329,11 @@ export class KarmaBilateral extends BaseClient {
   async getBill(billId: bigint): Promise<BillToken> {
     const raw = await this.contract.getBill(billId);
     return {
-      billId:   raw.billId,
-      owner:    raw.owner,
-      token:    raw.token,
-      amount:   raw.amount,
-      state:    raw.state,
-      mintedAt: raw.mintedAt,
+      billId,
+      owner:  raw.owner,
+      token:  raw.token,
+      amount: raw.amount,
+      state:  raw.state,
     };
   }
 
@@ -325,6 +348,7 @@ export class KarmaBilateral extends BaseClient {
       createdAt:        raw.createdAt,
       settleAfter:      raw.settleAfter,
       proofHash:        raw.proofHash,
+      settleSubmittedAt: raw.settleSubmittedAt,
       disputedAt:       raw.disputedAt,
       disputeInitiator: raw.disputeInitiator,
     };

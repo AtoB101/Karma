@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
-RPC = os.environ.get("TESTNET_RPC_URL", "https://sepolia.infura.io/v3/")
+RPC = os.environ.get("TESTNET_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
 KARMA = os.environ.get("KARMA_BILATERAL_ADDRESS", "")
 USDC = os.environ.get("ERC20_TOKEN_ADDRESS", "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF")
 KEY = os.environ.get("TESTNET_PRIVATE_KEY", "")
@@ -28,7 +28,7 @@ app = FastAPI(title="KarmaBilateral API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 def send(fn, gas=500000):
-    tx = fn.build_transaction({"from": account.address, "nonce": w3.eth.get_transaction_count(account.address), "gas": gas})
+    tx = fn.build_transaction({"from": account.address, "nonce": w3.eth.get_transaction_count(account.address, "pending"), "gas": gas})
     return w3.eth.wait_for_transaction_receipt(w3.eth.send_raw_transaction(account.sign_transaction(tx).raw_transaction))
 
 class LockRequest(BaseModel):
@@ -60,7 +60,7 @@ async def lock(body: LockRequest):
     except:
         bill_id = 0
     bill = contract.functions.getBill(bill_id).call()
-    return {"bill_id": bill_id, "owner": bill[1], "token": bill[2], "amount": bill[3], "state": ["MINTED","BOUND","BURNED"][bill[4]]}
+    return {"bill_id": bill_id, "owner": bill[0], "token": bill[2], "amount": bill[3], "state": ["MINTED","BOUND","BURNED"][bill[1]]}
 
 @app.post("/v1/bilateral/bind")
 async def bind(body: BindRequest):
@@ -71,7 +71,7 @@ async def bind(body: BindRequest):
     except:
         bid = 0
     b = contract.functions.getBinding(bid).call()
-    return {"binding_id": bid, "buyer_bill_id": b[1], "agent_bill_id": b[2], "state": ["ACTIVE","FINALIZING","SETTLED","DISPUTED","REFUNDED"][b[4]]}
+    return {"binding_id": bid, "buyer_bill_id": b[1], "agent_bill_id": b[2], "state": ["ACTIVE","PENDING","FINALIZING","SETTLED","DISPUTED","REFUNDED"][b[4]]}
 
 @app.post("/v1/bilateral/settle")
 async def settle(body: SettleRequest):
@@ -96,10 +96,10 @@ def _status(bid):
     ab = contract.functions.getBill(b[2]).call()
     return {
         "binding_id": bid,
-        "state": ["ACTIVE","FINALIZING","SETTLED","DISPUTED","REFUNDED"][b[4]],
+        "state": ["ACTIVE","PENDING","FINALIZING","SETTLED","DISPUTED","REFUNDED"][b[4]],
         "bill_states": [
-            {"bill_id": bb[0], "owner": bb[1], "amount": bb[3], "state": ["MINTED","BOUND","BURNED"][bb[4]]},
-            {"bill_id": ab[0], "owner": ab[1], "amount": ab[3], "state": ["MINTED","BOUND","BURNED"][ab[4]]},
+            {"bill_id": b[1], "owner": bb[0], "amount": bb[3], "state": ["MINTED","BOUND","BURNED"][bb[1]]},
+            {"bill_id": b[2], "owner": ab[0], "amount": ab[3], "state": ["MINTED","BOUND","BURNED"][ab[1]]},
         ],
         "can_settle": b[4] == 0,
         "can_dispute": b[4] == 1,
@@ -122,7 +122,7 @@ async def faucet(address: str):
     if bal < amt:
         raise HTTPException(503, "Faucet dry — admin needs more mUSDC")
     tx = usdc.functions.transfer(Web3.to_checksum_address(address), amt).build_transaction({
-        "from": account.address, "nonce": w3.eth.get_transaction_count(account.address), "gas": 100000,
+        "from": account.address, "nonce": w3.eth.get_transaction_count(account.address, "pending"), "gas": 100000,
     })
     signed = account.sign_transaction(tx)
     h = w3.eth.send_raw_transaction(signed.raw_transaction)
