@@ -38,12 +38,10 @@ interface IKarmaBilateral {
     // ═══════════════════════════ Structs ═════════════════════════════════════
 
     struct BillToken {
-        uint256 billId;
         address owner;
+        BillState state;
         address token;
         uint256 amount;
-        BillState state;
-        uint256 mintedAt;
     }
 
     struct Binding {
@@ -138,7 +136,6 @@ interface IKarmaBilateral {
 
     function getBill(uint256 billId) external view returns (BillToken memory);
     function getBinding(uint256 bindingId) external view returns (Binding memory);
-    function ownerBills(address owner) external view returns (uint256[] memory);
 
     /// @notice Returns true if totalBillSupply[token] == totalLocked[token].
     function checkInvariant(address token) external view returns (bool);

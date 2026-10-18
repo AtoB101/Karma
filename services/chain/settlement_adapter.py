@@ -399,7 +399,7 @@ class OnChainSettlementAdapter:
         tx = fn.build_transaction(
             {
                 "from": account.address,
-                "nonce": w3.eth.get_transaction_count(account.address),
+                "nonce": w3.eth.get_transaction_count(account.address, "pending"),
                 "chainId": chain_id,
             }
         )
@@ -627,8 +627,8 @@ class OnChainSettlementAdapter:
             "state": state,
             "buyer_bill_id": int(b[1]),
             "agent_bill_id": int(b[2]),
-            "buyer_bill": {"bill_id": int(bb[0]), "owner": bb[1], "amount": int(bb[3]), "state": int(bb[4])},
-            "agent_bill": {"bill_id": int(ab[0]), "owner": ab[1], "amount": int(ab[3]), "state": int(ab[4])},
+            "buyer_bill": {"bill_id": int(b[1]), "owner": bb[0], "amount": int(bb[3]), "state": int(bb[1])},
+            "agent_bill": {"bill_id": int(b[2]), "owner": ab[0], "amount": int(ab[3]), "state": int(ab[1])},
             "usdc_locked": int(bb[3]) + int(ab[3]),
             "settle_after": settle_after,
             "can_settle": state in (0, 1) and settle_after <= now,

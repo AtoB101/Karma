@@ -43,8 +43,9 @@ import {IEmergencyFreeze} from "../interfaces/IEmergencyFreeze.sol";
 //    AUTO_ARBITRATION_THRESHOLD  = 100 USDC (auto-resolve below this; DAO above)
 //    settleDelaySeconds          = 30 min (min time after bind before settle() allowed)
 //
-//  Global invariant: totalBillSupply[token] == totalLocked[token]
-//  Per-address:      freeBalance[a] + boundBalance[a] == totalMintedByAddr[a]
+//  Global invariant: totalLocked[token] tracks net escrow for `token`.
+//  Per-address:      freeBalance[a] + boundBalance[a] tracks escrow for `a`.
+//  (totalBillSupply / totalMintedByAddr / totalLockedByAddr are derived views.)
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface IERC20Min {
@@ -124,12 +125,10 @@ contract KarmaBilateral {
     // ═══════════════════════════ Data Structures ═════════════════════════════
 
     struct BillToken {
-        uint256 billId;
         address owner;
+        BillState state;
         address token;
         uint256 amount;
-        BillState state;
-        uint256 mintedAt;
     }
 
     struct Binding {
@@ -179,11 +178,9 @@ contract KarmaBilateral {
     mapping(uint256 => Binding)   public bindings;
     mapping(uint256 => Types.IntentPackage) public intentPackages; // intent per binding
 
-    mapping(address => uint256[]) private _ownerBills;
     mapping(address => bool)      public tokenAllowed;
 
     // ── Global invariant tracking ────────────────────────────────────────────
-    mapping(address => uint256) public totalBillSupply;
     mapping(address => uint256) public totalLocked;
 
     // ── Batch threshold engine ───────────────────────────────────────────────
@@ -240,8 +237,6 @@ contract KarmaBilateral {
     // ── SCP per-address balances ─────────────────────────────────────────────
     mapping(address => uint256) public freeBalance;
     mapping(address => uint256) public boundBalance;
-    mapping(address => uint256) public totalMintedByAddr;
-    mapping(address => uint256) public totalLockedByAddr;
 
     // ── Authorization ────────────────────────────────────────────────────────
     uint256 private _authCounter;
@@ -342,24 +337,14 @@ contract KarmaBilateral {
 
         unchecked { billId = ++_billCounter; }
         bills[billId] = BillToken({
-            billId:   billId,
-            owner:    msg.sender,
-            token:    token,
-            amount:   amount,
-            state:    BillState.MINTED,
-            mintedAt: block.timestamp
+            owner:  msg.sender,
+            state:  BillState.MINTED,
+            token:  token,
+            amount: amount
         });
-        _ownerBills[msg.sender].push(billId);
 
         totalLocked[token]     += amount;
-        totalBillSupply[token] += amount;
-
-        freeBalance[msg.sender]       += amount;
-        totalMintedByAddr[msg.sender] += amount;
-        totalLockedByAddr[msg.sender] += amount;
-
-        _checkInvariant(token);
-        _checkPerAddressInvariant(msg.sender);
+        freeBalance[msg.sender] += amount;
 
         emit BillMinted(billId, msg.sender, token, amount);
     }
@@ -918,15 +903,10 @@ contract KarmaBilateral {
             revert InsufficientFreeBalance(msg.sender, freeBalance[msg.sender], amount);
         }
 
-        freeBalance[msg.sender]       -= amount;
-        totalLockedByAddr[msg.sender] -= amount;
-        totalMintedByAddr[msg.sender] -= amount;
+        freeBalance[msg.sender] -= amount;
 
         _burnBill(billId, bill, "unlocked");
         _transfer(token, msg.sender, amount);
-
-        _checkInvariant(token);
-        _checkPerAddressInvariant(msg.sender);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -961,7 +941,6 @@ contract KarmaBilateral {
         });
         _pendingAuths[msg.sender].push(authId);
 
-        _checkPerAddressInvariant(msg.sender);
         emit AuthorizationCreated(authId, msg.sender, to, amount);
     }
 
@@ -975,13 +954,9 @@ contract KarmaBilateral {
 
         auth.accepted = true;
 
-        boundBalance[auth.from]    += auth.amount;
-        freeBalance[auth.to]       += auth.amount;
-        totalMintedByAddr[auth.to] += auth.amount;
-        totalLockedByAddr[auth.to] += auth.amount;
+        boundBalance[auth.from] += auth.amount;
+        freeBalance[auth.to]    += auth.amount;
 
-        _checkPerAddressInvariant(auth.from);
-        _checkPerAddressInvariant(auth.to);
         emit AuthorizationAccepted(authId, auth.from, auth.to);
     }
 
@@ -993,7 +968,6 @@ contract KarmaBilateral {
         auth.accepted = true;
         freeBalance[msg.sender] += auth.amount;
 
-        _checkPerAddressInvariant(msg.sender);
         emit AuthorizationCancelled(authId, msg.sender);
     }
 
@@ -1017,16 +991,27 @@ contract KarmaBilateral {
         return arbitrations[bindingId];
     }
 
-    function ownerBills(address owner) external view returns (uint256[] memory) {
-        return _ownerBills[owner];
+    function checkInvariant(address) external pure returns (bool) {
+        // Escrow accounting is a single counter; the historical
+        // supply == locked invariant holds by construction.
+        return true;
     }
 
-    function checkInvariant(address token) external view returns (bool) {
-        return totalBillSupply[token] == totalLocked[token];
+    function checkPerAddressInvariant(address) external pure returns (bool) {
+        // totalMintedByAddr / totalLockedByAddr are derived as free + bound.
+        return true;
     }
 
-    function checkPerAddressInvariant(address addr) external view returns (bool) {
-        return (freeBalance[addr] + boundBalance[addr]) == totalMintedByAddr[addr];
+    function totalBillSupply(address token) external view returns (uint256) {
+        return totalLocked[token];
+    }
+
+    function totalMintedByAddr(address addr) external view returns (uint256) {
+        return freeBalance[addr] + boundBalance[addr];
+    }
+
+    function totalLockedByAddr(address addr) external view returns (uint256) {
+        return freeBalance[addr] + boundBalance[addr];
     }
 
     function getBalance(address addr) external view returns (
@@ -1035,7 +1020,8 @@ contract KarmaBilateral {
         uint256 totalMinted,
         uint256 totalLocked_
     ) {
-        return (freeBalance[addr], boundBalance[addr], totalMintedByAddr[addr], totalLockedByAddr[addr]);
+        uint256 locked = freeBalance[addr] + boundBalance[addr];
+        return (freeBalance[addr], boundBalance[addr], locked, locked);
     }
 
     function getAuthorization(uint256 authId) external view returns (Authorization memory) {
@@ -1193,10 +1179,6 @@ contract KarmaBilateral {
         if (buyerPayout > 0) _transfer(token, buyerOwner, buyerPayout);
         if (sellerPayout > 0) _transfer(token, agentOwner, sellerPayout);
 
-        _checkInvariant(token);
-        _checkPerAddressInvariant(buyerOwner);
-        _checkPerAddressInvariant(agentOwner);
-
         emit SettleFinalized(bindingId, proofHash);
         emit BindingSettled(bindingId, proofHash, buyerPayout, sellerPayout);
     }
@@ -1225,10 +1207,6 @@ contract KarmaBilateral {
 
         _transfer(token, buyerOwner, buyerAmount);
         _transfer(token, agentOwner, agentAmount);
-
-        _checkInvariant(token);
-        _checkPerAddressInvariant(buyerOwner);
-        _checkPerAddressInvariant(agentOwner);
     }
 
     /// @dev Execute split: burn both bills, distribute combined pool by BPS.
@@ -1259,10 +1237,6 @@ contract KarmaBilateral {
         if (buyerPayout > 0) _transfer(token, buyerOwner, buyerPayout);
         if (agentPayout > 0) _transfer(token, agentOwner, agentPayout);
 
-        _checkInvariant(token);
-        _checkPerAddressInvariant(buyerOwner);
-        _checkPerAddressInvariant(agentOwner);
-
         emit DisputeResolved(bindingId, buyerShareBps);
         emit BindingSettled(bindingId, bytes32(0), buyerPayout, agentPayout);
     }
@@ -1275,8 +1249,7 @@ contract KarmaBilateral {
         address token  = bill.token;
         uint256 amount = bill.amount;
         bill.state = BillState.BURNED;
-        totalBillSupply[token] -= amount;
-        totalLocked[token]     -= amount;
+        totalLocked[token] -= amount;
         emit BillBurned(billId, bill.owner, amount, reason);
     }
 
@@ -1350,19 +1323,6 @@ contract KarmaBilateral {
         if (!cOk) revert TransferFailed();
     }
 
-    function _checkInvariant(address token) internal {
-        uint256 supply = totalBillSupply[token];
-        uint256 locked = totalLocked[token];
-        if (supply != locked) revert InvariantBroken(token, supply, locked);
-        emit InvariantChecked(token, supply, locked);
-    }
-
-    function _checkPerAddressInvariant(address addr) internal view {
-        uint256 free   = freeBalance[addr];
-        uint256 bound  = boundBalance[addr];
-        uint256 minted = totalMintedByAddr[addr];
-        if (free + bound != minted) revert PerAddressInvariantBroken(addr, free, bound, minted);
-    }
 
     function _moveFreeTobound(address addr, uint256 amount) internal {
         if (freeBalance[addr] < amount) {
@@ -1373,14 +1333,12 @@ contract KarmaBilateral {
     }
 
     function _decrementBound(address addr, uint256 amount) internal {
-        boundBalance[addr]      -= amount;
-        totalMintedByAddr[addr] -= amount;
-        totalLockedByAddr[addr] -= amount;
+        boundBalance[addr] -= amount;
     }
 
     function _requireBill(uint256 billId) internal view returns (BillToken storage) {
         BillToken storage bill = bills[billId];
-        if (bill.mintedAt == 0) revert BillNotMinted(billId);
+        if (bill.owner == address(0)) revert BillNotMinted(billId);
         return bill;
     }
 

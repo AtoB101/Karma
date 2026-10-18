@@ -11,6 +11,7 @@ Reads config from environment:
 from __future__ import annotations
 
 import os
+import threading
 from functools import lru_cache
 
 from web3 import Web3
@@ -41,6 +42,45 @@ _ABI = [
         "outputs": [],
     },
     {
+        "name": "finalizeSettle", "type": "function", "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
+        "name": "dispute", "type": "function", "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "evidenceHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "submitArbitrationEvidence", "type": "function", "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "evidenceHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "autoResolveArbitration", "type": "function", "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
+        "name": "resolveDispute", "type": "function", "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "buyerShareBps", "type": "uint16"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "refundOnTimeout", "type": "function", "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
         "name": "unlock", "type": "function", "stateMutability": "nonpayable",
         "inputs":  [{"name": "billId", "type": "uint256"}],
         "outputs": [],
@@ -51,12 +91,10 @@ _ABI = [
         "outputs": [{
             "name": "", "type": "tuple",
             "components": [
-                {"name": "billId",   "type": "uint256"},
-                {"name": "owner",    "type": "address"},
-                {"name": "token",    "type": "address"},
-                {"name": "amount",   "type": "uint256"},
-                {"name": "state",    "type": "uint8"},
-                {"name": "mintedAt", "type": "uint256"},
+                {"name": "owner",  "type": "address"},
+                {"name": "state",  "type": "uint8"},
+                {"name": "token",  "type": "address"},
+                {"name": "amount", "type": "uint256"},
             ],
         }],
     },
@@ -74,6 +112,7 @@ _ABI = [
                 {"name": "createdAt",        "type": "uint256"},
                 {"name": "settleAfter",      "type": "uint256"},
                 {"name": "proofHash",        "type": "bytes32"},
+                {"name": "settleSubmittedAt", "type": "uint256"},
                 {"name": "disputedAt",       "type": "uint256"},
                 {"name": "disputeInitiator", "type": "address"},
             ],
@@ -92,7 +131,7 @@ _ABI = [
     },
     # events
     {
-        "name": "BillMinted", "type": "event",
+        "name": "BillMinted", "type": "event", "anonymous": False,
         "inputs": [
             {"name": "billId", "type": "uint256", "indexed": True},
             {"name": "owner",  "type": "address", "indexed": True},
@@ -101,7 +140,16 @@ _ABI = [
         ],
     },
     {
-        "name": "BillsBound", "type": "event",
+        "name": "BillBurned", "type": "event", "anonymous": False,
+        "inputs": [
+            {"name": "billId", "type": "uint256", "indexed": True},
+            {"name": "owner",  "type": "address", "indexed": True},
+            {"name": "amount", "type": "uint256", "indexed": False},
+            {"name": "reason", "type": "string",  "indexed": False},
+        ],
+    },
+    {
+        "name": "BillsBound", "type": "event", "anonymous": False,
         "inputs": [
             {"name": "bindingId",   "type": "uint256", "indexed": True},
             {"name": "buyerBillId", "type": "uint256", "indexed": False},
@@ -110,7 +158,7 @@ _ABI = [
         ],
     },
     {
-        "name": "BindingSettled", "type": "event",
+        "name": "BindingSettled", "type": "event", "anonymous": False,
         "inputs": [
             {"name": "bindingId",   "type": "uint256", "indexed": True},
             {"name": "proofHash",   "type": "bytes32", "indexed": False},
@@ -118,10 +166,64 @@ _ABI = [
             {"name": "agentAmount", "type": "uint256", "indexed": False},
         ],
     },
+    {
+        "name": "BindingRefunded", "type": "event", "anonymous": False,
+        "inputs": [
+            {"name": "bindingId",   "type": "uint256", "indexed": True},
+            {"name": "buyerAmount", "type": "uint256", "indexed": False},
+            {"name": "agentAmount", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "DisputeRaised", "type": "event", "anonymous": False,
+        "inputs": [
+            {"name": "bindingId", "type": "uint256", "indexed": True},
+            {"name": "initiator", "type": "address", "indexed": True},
+            {"name": "evidenceHash", "type": "bytes32", "indexed": False},
+        ],
+    },
+    {
+        "name": "ArbitrationEvidenceSubmitted", "type": "event", "anonymous": False,
+        "inputs": [
+            {"name": "bindingId", "type": "uint256", "indexed": True},
+            {"name": "submitter", "type": "address", "indexed": True},
+            {"name": "evidenceHash", "type": "bytes32", "indexed": False},
+        ],
+    },
+    {
+        "name": "ArbitrationAutoResolved", "type": "event", "anonymous": False,
+        "inputs": [
+            {"name": "bindingId", "type": "uint256", "indexed": True},
+            {"name": "buyerWon", "type": "bool", "indexed": False},
+            {"name": "buyerShare", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "DisputeResolved", "type": "event", "anonymous": False,
+        "inputs": [
+            {"name": "bindingId", "type": "uint256", "indexed": True},
+            {"name": "buyerShareBps", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "SettleSubmitted", "type": "event", "anonymous": False,
+        "inputs": [
+            {"name": "bindingId", "type": "uint256", "indexed": True},
+            {"name": "proofHash", "type": "bytes32", "indexed": False},
+            {"name": "finalizeAfter", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "SettleFinalized", "type": "event", "anonymous": False,
+        "inputs": [
+            {"name": "bindingId", "type": "uint256", "indexed": True},
+            {"name": "proofHash", "type": "bytes32", "indexed": False},
+        ],
+    },
 ]
 
 _BILL_STATE    = {0: "MINTED", 1: "BOUND", 2: "BURNED"}
-_BINDING_STATE = {0: "ACTIVE", 1: "PENDING", 2: "SETTLED", 3: "DISPUTED", 4: "REFUNDED"}
+_BINDING_STATE = {0: "ACTIVE", 1: "PENDING", 2: "FINALIZING", 3: "SETTLED", 4: "DISPUTED", 5: "REFUNDED"}
 
 
 @lru_cache(maxsize=1)
@@ -129,7 +231,7 @@ def _client():
     rpc      = os.environ["KARMA_RPC_URL"]
     pk       = os.environ["KARMA_PRIVATE_KEY"]
     contract = os.environ["KARMA_CONTRACT"]
-    gas      = int(os.getenv("KARMA_GAS", "300000"))
+    gas      = int(os.getenv("KARMA_GAS", "2000000"))
 
     w3      = Web3(Web3.HTTPProvider(rpc))
     account = w3.eth.account.from_key(pk)
@@ -137,16 +239,27 @@ def _client():
     return w3, account, karma, gas
 
 
+_SEND_LOCK = threading.Lock()
+
+
+def _estimate_gas(fn, w3, account, gas) -> int:
+    try:
+        return int(fn.estimate_gas({"from": account.address}) * 1.3)
+    except Exception:
+        return gas
+
+
 def _send(fn) -> dict:
     w3, account, _, gas = _client()
-    tx = fn.build_transaction({
-        "from":  account.address,
-        "nonce": w3.eth.get_transaction_count(account.address),
-        "gas":   gas,
-    })
-    signed   = account.sign_transaction(tx)
-    tx_hash  = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt  = w3.eth.wait_for_transaction_receipt(tx_hash)
+    with _SEND_LOCK:
+        tx = fn.build_transaction({
+            "from":  account.address,
+            "nonce": w3.eth.get_transaction_count(account.address, "pending"),
+            "gas":   _estimate_gas(fn, w3, account, gas),
+        })
+        signed   = account.sign_transaction(tx)
+        tx_hash  = w3.eth.send_raw_transaction(signed.raw_transaction)
+        receipt  = w3.eth.wait_for_transaction_receipt(tx_hash)
     return {"tx_hash": receipt.transactionHash.hex(), "status": receipt.status}
 
 
@@ -157,14 +270,15 @@ def _approve(token: str, amount: int) -> None:
 
 
 def _send_raw(fn, w3, account, gas) -> None:
-    tx = fn.build_transaction({
-        "from":  account.address,
-        "nonce": w3.eth.get_transaction_count(account.address),
-        "gas":   gas,
-    })
-    signed  = account.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    w3.eth.wait_for_transaction_receipt(tx_hash)
+    with _SEND_LOCK:
+        tx = fn.build_transaction({
+            "from":  account.address,
+            "nonce": w3.eth.get_transaction_count(account.address, "pending"),
+            "gas":   _estimate_gas(fn, w3, account, gas),
+        })
+        signed  = account.sign_transaction(tx)
+        tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+        w3.eth.wait_for_transaction_receipt(tx_hash)
 
 
 # ── Public functions called by MCP tools ──────────────────────────────────────
@@ -210,9 +324,8 @@ def chain_get_bill(bill_id: int) -> dict:
     _, _, karma, _ = _client()
     r = karma.functions.getBill(bill_id).call()
     return {
-        "bill_id":   r[0], "owner": r[1], "token": r[2], "amount": r[3],
-        "state":     _BILL_STATE.get(r[4], str(r[4])),
-        "minted_at": r[5],
+        "bill_id": bill_id, "owner": r[0], "state": _BILL_STATE.get(r[1], str(r[1])),
+        "token": r[2], "amount": r[3],
     }
 
 
@@ -223,8 +336,8 @@ def chain_get_binding(binding_id: int) -> dict:
         "binding_id":       r[0], "buyer_bill_id": r[1], "agent_bill_id": r[2],
         "scope_hash":       r[3].hex(), "state": _BINDING_STATE.get(r[4], str(r[4])),
         "created_at":       r[5], "settle_after": r[6],
-        "proof_hash":       r[7].hex(), "disputed_at": r[8],
-        "dispute_initiator": r[9],
+        "proof_hash":       r[7].hex(), "settle_submitted_at": r[8],
+        "disputed_at":      r[9], "dispute_initiator": r[10],
     }
 
 

@@ -61,6 +61,9 @@ bind()            → Bills BOUND, Binding ACTIVE
 settle()          → Binding FINALIZING (dispute window open; USDC still locked)
 finalizeSettle()  → Binding SETTLED; bills BURNED; USDC released
 dispute()         → Binding DISPUTED (within window)
+submitArbitrationEvidence() → evidence submission in DISPUTED
+autoResolveArbitration()   → auto-resolution after evidence window
+resolveDispute()           → admin resolves with buyer share
 refundOnTimeout() → Binding REFUNDED (settle timeout)
 unlock()          → reclaim MINTED unbound bill
 ```
@@ -74,7 +77,7 @@ Invariant: `totalBillSupply[token] == totalLocked[token]`.
 | Method | Description |
 |--------|-------------|
 | `lock` / `bind` / `settle` / `finalizeSettle` | Happy path |
-| `dispute` / `refundOnTimeout` / `unlock` | Branches |
+| `dispute` / `submitArbitrationEvidence` / `autoResolveArbitration` / `resolveDispute` / `refundOnTimeout` / `unlock` | Branches |
 | `getBill` / `getBinding` / `finalizeAfter` / `checkInvariant` | Views |
 
 ---

@@ -99,6 +99,36 @@ _ABI = [
         ],
         "outputs": [],
     },
+    # submitArbitrationEvidence (DISPUTED -> evidence window)
+    {
+        "name": "submitArbitrationEvidence",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "evidenceHash", "type": "bytes32"},
+        ],
+        "outputs": [],
+    },
+    # autoResolveArbitration (after evidence window; small disputes auto-resolve)
+    {
+        "name": "autoResolveArbitration",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    # resolveDispute (admin-only; large disputes, buyerShareBps in bps)
+    {
+        "name": "resolveDispute",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "buyerShareBps", "type": "uint16"},
+        ],
+        "outputs": [],
+    },
     # refundOnTimeout
     {
         "name": "refundOnTimeout",
@@ -133,12 +163,10 @@ _ABI = [
                 "name": "",
                 "type": "tuple",
                 "components": [
-                    {"name": "billId",   "type": "uint256"},
-                    {"name": "owner",    "type": "address"},
-                    {"name": "token",    "type": "address"},
-                    {"name": "amount",   "type": "uint256"},
-                    {"name": "state",    "type": "uint8"},
-                    {"name": "mintedAt", "type": "uint256"},
+                    {"name": "owner",  "type": "address"},
+                    {"name": "state",  "type": "uint8"},
+                    {"name": "token",  "type": "address"},
+                    {"name": "amount", "type": "uint256"},
                 ],
             }
         ],
@@ -161,6 +189,7 @@ _ABI = [
                     {"name": "createdAt",        "type": "uint256"},
                     {"name": "settleAfter",      "type": "uint256"},
                     {"name": "proofHash",        "type": "bytes32"},
+                    {"name": "settleSubmittedAt", "type": "uint256"},
                     {"name": "disputedAt",       "type": "uint256"},
                     {"name": "disputeInitiator", "type": "address"},
                 ],
@@ -189,6 +218,7 @@ _ABI = [
     {
         "name": "BillMinted",
         "type": "event",
+        "anonymous": False,
         "inputs": [
             {"name": "billId", "type": "uint256", "indexed": True},
             {"name": "owner",  "type": "address", "indexed": True},
@@ -197,8 +227,20 @@ _ABI = [
         ],
     },
     {
+        "name": "BillBurned",
+        "type": "event",
+        "anonymous": False,
+        "inputs": [
+            {"name": "billId", "type": "uint256", "indexed": True},
+            {"name": "owner",  "type": "address", "indexed": True},
+            {"name": "amount", "type": "uint256", "indexed": False},
+            {"name": "reason", "type": "string",  "indexed": False},
+        ],
+    },
+    {
         "name": "BillsBound",
         "type": "event",
+        "anonymous": False,
         "inputs": [
             {"name": "bindingId",   "type": "uint256", "indexed": True},
             {"name": "buyerBillId", "type": "uint256", "indexed": False},
@@ -209,11 +251,80 @@ _ABI = [
     {
         "name": "BindingSettled",
         "type": "event",
+        "anonymous": False,
         "inputs": [
             {"name": "bindingId",   "type": "uint256", "indexed": True},
             {"name": "proofHash",   "type": "bytes32", "indexed": False},
             {"name": "buyerAmount", "type": "uint256", "indexed": False},
             {"name": "agentAmount", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "BindingRefunded",
+        "type": "event",
+        "anonymous": False,
+        "inputs": [
+            {"name": "bindingId",   "type": "uint256", "indexed": True},
+            {"name": "buyerAmount", "type": "uint256", "indexed": False},
+            {"name": "agentAmount", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "DisputeRaised",
+        "type": "event",
+        "anonymous": False,
+        "inputs": [
+            {"name": "bindingId",   "type": "uint256", "indexed": True},
+            {"name": "initiator",   "type": "address", "indexed": True},
+            {"name": "evidenceHash", "type": "bytes32", "indexed": False},
+        ],
+    },
+    {
+        "name": "ArbitrationEvidenceSubmitted",
+        "type": "event",
+        "anonymous": False,
+        "inputs": [
+            {"name": "bindingId",   "type": "uint256", "indexed": True},
+            {"name": "submitter",   "type": "address", "indexed": True},
+            {"name": "evidenceHash", "type": "bytes32", "indexed": False},
+        ],
+    },
+    {
+        "name": "ArbitrationAutoResolved",
+        "type": "event",
+        "anonymous": False,
+        "inputs": [
+            {"name": "bindingId",  "type": "uint256", "indexed": True},
+            {"name": "buyerWon",   "type": "bool",    "indexed": False},
+            {"name": "buyerShare", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "DisputeResolved",
+        "type": "event",
+        "anonymous": False,
+        "inputs": [
+            {"name": "bindingId",    "type": "uint256", "indexed": True},
+            {"name": "buyerShareBps", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "SettleSubmitted",
+        "type": "event",
+        "anonymous": False,
+        "inputs": [
+            {"name": "bindingId",    "type": "uint256", "indexed": True},
+            {"name": "proofHash",    "type": "bytes32", "indexed": False},
+            {"name": "finalizeAfter", "type": "uint256", "indexed": False},
+        ],
+    },
+    {
+        "name": "SettleFinalized",
+        "type": "event",
+        "anonymous": False,
+        "inputs": [
+            {"name": "bindingId", "type": "uint256", "indexed": True},
+            {"name": "proofHash", "type": "bytes32", "indexed": False},
         ],
     },
 ]
@@ -233,12 +344,11 @@ BINDING_STATE = {
 
 @dataclass
 class BillToken:
-    bill_id:   int
-    owner:     str
-    token:     str
-    amount:    int
-    state:     str
-    minted_at: int
+    bill_id: int
+    owner:   str
+    token:   str
+    amount:  int
+    state:   str
 
 
 @dataclass
@@ -251,6 +361,7 @@ class Binding:
     created_at:       int
     settle_after:     int
     proof_hash:       bytes
+    settle_submitted_at: int
     disputed_at:      int
     dispute_initiator: str
 
@@ -274,7 +385,7 @@ class KarmaBilateral:
         rpc_url: str,
         private_key: str,
         contract_address: str,
-        gas: int = 300_000,
+        gas: int = 2_000_000,
     ) -> None:
         self.w3 = Web3(Web3.HTTPProvider(rpc_url))
         self._account = self.w3.eth.account.from_key(private_key)
@@ -283,6 +394,7 @@ class KarmaBilateral:
             abi=_ABI,
         )
         self.gas = gas
+        self._nonce: Optional[int] = None
 
     # ── Core three methods ────────────────────────────────────────────────────
 
@@ -360,6 +472,25 @@ class KarmaBilateral:
         evidence = _to_bytes32(evidence_hash)
         return self._send(self._contract.functions.dispute(binding_id, evidence))
 
+    def submit_arbitration_evidence(self, binding_id: int, evidence_hash: bytes | str) -> TxReceipt:
+        """Submit / update evidence for a DISPUTED binding during the evidence window."""
+        evidence = _to_bytes32(evidence_hash)
+        return self._send(self._contract.functions.submitArbitrationEvidence(binding_id, evidence))
+
+    submitArbitrationEvidence = submit_arbitration_evidence
+
+    def auto_resolve_arbitration(self, binding_id: int) -> TxReceipt:
+        """Auto-resolve a small dispute after the evidence window closes."""
+        return self._send(self._contract.functions.autoResolveArbitration(binding_id))
+
+    autoResolveArbitration = auto_resolve_arbitration
+
+    def resolve_dispute(self, binding_id: int, buyer_share_bps: int) -> TxReceipt:
+        """Admin-only resolution for large disputes; buyerShareBps is in basis points."""
+        return self._send(self._contract.functions.resolveDispute(binding_id, buyer_share_bps))
+
+    resolveDispute = resolve_dispute
+
     def refund_on_timeout(self, binding_id: int) -> TxReceipt:
         """Refund when settle timeout elapses without a valid settlement."""
         return self._send(self._contract.functions.refundOnTimeout(binding_id))
@@ -379,8 +510,8 @@ class KarmaBilateral:
     def get_bill(self, bill_id: int) -> BillToken:
         raw = self._contract.functions.getBill(bill_id).call()
         return BillToken(
-            bill_id=raw[0], owner=raw[1], token=raw[2], amount=raw[3],
-            state=BILL_STATE.get(raw[4], str(raw[4])), minted_at=raw[5],
+            bill_id=bill_id, owner=raw[0], state=BILL_STATE.get(raw[1], str(raw[1])),
+            token=raw[2], amount=raw[3],
         )
 
     def get_binding(self, binding_id: int) -> Binding:
@@ -389,7 +520,8 @@ class KarmaBilateral:
             binding_id=raw[0], buyer_bill_id=raw[1], agent_bill_id=raw[2],
             scope_hash=raw[3], state=BINDING_STATE.get(raw[4], str(raw[4])),
             created_at=raw[5], settle_after=raw[6], proof_hash=raw[7],
-            disputed_at=raw[8], dispute_initiator=raw[9],
+            settle_submitted_at=raw[8], disputed_at=raw[9],
+            dispute_initiator=raw[10],
         )
 
     def check_invariant(self, token: str) -> bool:
@@ -406,36 +538,64 @@ class KarmaBilateral:
         )
         self._send(erc20.functions.approve(self._contract.address, amount))
 
-    def _send(self, fn, value: int = 0) -> TxReceipt:
-        """Send transaction with error handling."""
+    def _next_nonce(self) -> int:
+        """Monotonic per-account nonce, re-synced from the pending pool on demand."""
+        if self._nonce is None:
+            self._nonce = self.w3.eth.get_transaction_count(self._account.address, "pending")
+        nonce = self._nonce
+        self._nonce += 1
+        return nonce
+
+    def _estimate_gas(self, fn, nonce: int, value: int) -> int:
+        """Estimate gas with a 30% buffer; fall back to the configured ceiling."""
         try:
-            tx = fn.build_transaction({
-                "from":  self._account.address,
-                "nonce": self.w3.eth.get_transaction_count(self._account.address),
-                "gas":   self.gas,
+            estimated = fn.estimate_gas({
+                "from": self._account.address,
+                "nonce": nonce,
                 "value": value,
             })
-        except Exception as e:
-            raise TransactionError(f"build_transaction failed: {e}") from e
+            return int(estimated * 1.3)
+        except Exception:
+            return self.gas
 
-        try:
-            signed  = self._account.sign_transaction(tx)
-            tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-            if receipt.status != 1:
-                raise TransactionError(f"tx {tx_hash.hex()} reverted")
-            return receipt
-        except ValueError as e:
-            if "nonce" in str(e).lower():
-                raise NonceError(str(e)) from e
-            if "insufficient funds" in str(e).lower():
-                raise BalanceError(str(e)) from e
-            raise TransactionError(str(e)) from e
-        except Exception as e:
-            raise TransactionError(f"send failed: {e}") from e
+    def _send(self, fn, value: int = 0) -> TxReceipt:
+        """Send transaction with error handling and nonce retry."""
+        last_nonce_error: Exception | None = None
+        for _ in range(2):
+            nonce = self._next_nonce()
+            try:
+                tx = fn.build_transaction({
+                    "from":  self._account.address,
+                    "nonce": nonce,
+                    "gas":   self._estimate_gas(fn, nonce, value),
+                    "value": value,
+                })
+            except Exception as e:
+                raise TransactionError(f"build_transaction failed: {e}") from e
+
+            try:
+                signed  = self._account.sign_transaction(tx)
+                tx_hash = self.w3.eth.send_raw_transaction(signed.raw_transaction)
+                receipt = self.w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+                if receipt.status != 1:
+                    raise TransactionError(f"tx {tx_hash.hex()} reverted")
+                return receipt
+            except ValueError as e:
+                message = str(e).lower()
+                if "nonce" in message:
+                    last_nonce_error = e
+                    self._nonce = None  # force re-sync from the pending pool
+                    continue
+                if "insufficient funds" in message:
+                    raise BalanceError(str(e)) from e
+                raise TransactionError(str(e)) from e
+            except Exception as e:
+                raise TransactionError(f"send failed: {e}") from e
+
+        raise NonceError(str(last_nonce_error)) from last_nonce_error
 
     def get_nonce(self) -> int:
-        return self.w3.eth.get_transaction_count(self._account.address)
+        return self.w3.eth.get_transaction_count(self._account.address, "pending")
 
     def get_balance(self, token: str | None = None) -> int:
         """Get ETH balance or ERC-20 token balance."""

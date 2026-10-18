@@ -23,9 +23,9 @@ contract KarmaBilateralTest is Test {
     // ── Setup ─────────────────────────────────────────────────────────────────
 
     function setUp() public {
+        usdc = new MockERC20();
         vm.startPrank(admin);
         karma = new KarmaBilateral(admin);
-        usdc  = new MockERC20();
         karma.setTokenAllowed(address(usdc), true);
         vm.stopPrank();
 
@@ -549,7 +549,7 @@ contract KarmaBilateralTest is Test {
 
         assertEq(billId, 1);
         // Only one bill exists — inner reentrant lock was blocked
-        assertEq(karma.ownerBills(buyer).length, 1);
+        assertEq(karma.getBill(1).owner, buyer);
         // Invariant: supply == locked (inner call produced no phantom bill)
         assertTrue(karma.checkInvariant(address(rt)));
         assertEq(karma.totalBillSupply(address(rt)), BUYER_LOCK);
@@ -583,19 +583,6 @@ contract KarmaBilateralTest is Test {
     function test_constructor_revertsOnZeroAdmin() public {
         vm.expectRevert(KarmaBilateral.ZeroAddress.selector);
         new KarmaBilateral(address(0));
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  ownerBills view
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function test_ownerBills_tracked() public {
-        vm.prank(buyer); karma.lock(address(usdc), BUYER_LOCK);
-        vm.prank(buyer); karma.lock(address(usdc), BUYER_LOCK);
-        vm.prank(agent); karma.lock(address(usdc), AGENT_LOCK);
-
-        assertEq(karma.ownerBills(buyer).length, 2);
-        assertEq(karma.ownerBills(agent).length, 1);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

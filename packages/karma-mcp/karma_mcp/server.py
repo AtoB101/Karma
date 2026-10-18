@@ -163,7 +163,7 @@ def karma_get_bill(bill_id: int) -> dict[str, Any]:
     Read the current state of a Bill Token.
 
     Returns:
-        {bill_id, owner, token, amount, state, minted_at}
+        {bill_id, owner, token, amount, state}
 
     state is one of: MINTED | BOUND | BURNED
     """
@@ -177,9 +177,10 @@ def karma_get_binding(binding_id: int) -> dict[str, Any]:
 
     Returns:
         {binding_id, buyer_bill_id, agent_bill_id, scope_hash, state,
-         created_at, settle_after, proof_hash, disputed_at, dispute_initiator}
+         created_at, settle_after, proof_hash, settle_submitted_at,
+         disputed_at, dispute_initiator}
 
-    state is one of: ACTIVE | PENDING | SETTLED | DISPUTED | REFUNDED
+    state is one of: ACTIVE | PENDING | FINALIZING | SETTLED | DISPUTED | REFUNDED
     """
     return chain_get_binding(binding_id)
 
