@@ -54,15 +54,17 @@ def test_manifest_parses_and_passes_shape_check():
 def test_manifest_pins_the_deployed_base_sepolia_addresses():
     contracts = _manifest()["contracts"]
     assert contracts["erc20_token"]["address"] == "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-    assert contracts["bilateral"]["address"] == "0x3D633d55Bb7bDD4Af55a92C0F48dd25B7f06c3A5"
-    assert contracts["verifier_registry"]["address"] == "0xa5f5927D44002F0A8f53984bFD8058eA654E2650"
-    assert contracts["evidence_chain"]["address"] == "0x1A34c6e31aD7E2180250c16eEDfaD1485C2286Ff"
-    assert contracts["scoring_engine"]["address"] == "0x8c8A6E018fb6F5c48969899aE1335F05E675Ec03"
-    assert contracts["circuit_breaker"]["address"] == "0x65376016D7f27f82E293cbd0F78DB3b48e0a7b8A"
-    assert contracts["emergency_freeze"]["address"] == "0x19b4CD0cCCDd25acED81cC1f9C1B7f2d11645fb4"
-    assert contracts["reputation_anchor"]["address"] == "0x09e3FEfc653D4Ded3ee12C62A5Ff508673a75dF3"
-    assert contracts["identity_registry"]["address"] == "0xec5B627fD821c6aBF0404e06997D347953eD1333"
-    assert contracts["attestation_gateway"]["address"] == "0x330B87AB67cf288F13dA0c4e5e67fF665F4ec15e"
+    assert contracts["bilateral"]["address"] == "0xF7839e77960f04B68D0Ea635DB3a21738489A6BF"
+    assert contracts["verifier_registry"]["address"] == "0x7697688496C3cF7b7Dcc95d9f083331083Ed3044"
+    assert contracts["evidence_chain"]["address"] == "0x3Cc75097cB8a9348F729a4d75C5f871bC91d547b"
+    assert contracts["scoring_engine"]["address"] == "0x270aD22068E6D64D1C57D7C0f8A0945100b4e868"
+    assert contracts["circuit_breaker"]["address"] == "0xa304D5dEE7B8f89c04CCc0C90C3b7F35F5D8316B"
+    assert contracts["emergency_freeze"]["address"] == "0x5255969C9dbcfE7Fee3CfFFD7d9D177c937B6738"
+    assert contracts["reputation_anchor"]["address"] == "0x5c662c7c2B5240412394df28a9be55571963CEe1"
+    assert contracts["identity_registry"]["address"] == "0xB1864034EFFF2dE1be91d06960F3C1c239726AF2"
+    assert contracts["attestation_gateway"]["address"] == "0x94A1C830F9084dd6F7d8C34287486Fd7e462597f"
+    assert contracts["fee_bridge"]["address"] == "0x5352efdfFf7B371E2E5EF82F6Df5C8D95ae3cae8"
+    assert contracts["admin_timelock"]["address"] == "0x94bd215e391ef625448EC9f14ef50D4fA34D653A"
     assert _manifest()["chain_id"] == 84532
 
 
@@ -213,7 +215,7 @@ def test_onchain_flags_a_contract_with_no_code(monkeypatch):
     buf = io.StringIO()
     with redirect_stdout(buf):
         fails = vm.check_onchain(manifest, "https://rpc.invalid")
-    assert fails == 10  # 十个合约地址都没有代码
+    assert fails == 12  # 十二个合约地址都没有代码
     assert "has no code" in buf.getvalue()
 
 
