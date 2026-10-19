@@ -462,6 +462,91 @@ contract KarmaBilateralAttestationTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Anti-grief challenge stake (P2-9)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_setChallengeStake_onlyArbitrator() public {
+        vm.prank(stranger);
+        vm.expectRevert(KarmaAttestationGateway.NotArbitrator.selector);
+        gateway.setChallengeStake(address(usdc), 1_000_000);
+    }
+
+    function test_setChallengeStake_rejectsTokenZeroWithAmount() public {
+        vm.prank(arbitrator);
+        vm.expectRevert(KarmaAttestationGateway.InvalidAddress.selector);
+        gateway.setChallengeStake(address(0), 1_000_000);
+    }
+
+    function test_raiseChallenge_requiresStakeWhenConfigured() public {
+        vm.prank(arbitrator);
+        gateway.setChallengeStake(address(usdc), 1_000_000);
+
+        _setupAttestationBinding();
+        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
+
+        // Without allowance the transferFrom fails → revert.
+        vm.prank(stranger);
+        vm.expectRevert(KarmaAttestationGateway.ChallengeStakeTransferFailed.selector);
+        gateway.raiseChallenge(TASK_ID, "grief", "ipfs://challenge");
+
+        // After approving the gateway, the challenge locks the stake.
+        vm.prank(stranger);
+        usdc.approve(address(gateway), 1_000_000);
+        vm.prank(stranger);
+        gateway.raiseChallenge(TASK_ID, "grief", "ipfs://challenge");
+
+        assertEq(gateway.challengerOf(TASK_ID), stranger);
+        assertEq(gateway.challengeStakeOf(TASK_ID), 1_000_000);
+        assertEq(usdc.balanceOf(stranger), 500_000_000 - 1_000_000);
+        assertEq(usdc.balanceOf(address(gateway)), 1_000_000);
+    }
+
+    function test_resolveChallenge_refundsStakeWhenUpheld() public {
+        vm.prank(arbitrator);
+        gateway.setChallengeStake(address(usdc), 1_000_000);
+
+        _setupAttestationBinding();
+        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
+
+        vm.prank(stranger);
+        usdc.approve(address(gateway), 1_000_000);
+        vm.prank(stranger);
+        gateway.raiseChallenge(TASK_ID, "valid", "ipfs://challenge");
+
+        uint256 strangerBefore = usdc.balanceOf(stranger);
+        uint256 arbitratorBefore = usdc.balanceOf(arbitrator);
+
+        vm.prank(arbitrator);
+        gateway.resolveChallenge(TASK_ID, true); // upheld → refund
+
+        assertEq(usdc.balanceOf(stranger), strangerBefore + 1_000_000);
+        assertEq(usdc.balanceOf(arbitrator), arbitratorBefore);
+        assertEq(gateway.challengeStakeOf(TASK_ID), 0);
+    }
+
+    function test_resolveChallenge_slashesStakeWhenOverruled() public {
+        vm.prank(arbitrator);
+        gateway.setChallengeStake(address(usdc), 1_000_000);
+
+        _setupAttestationBinding();
+        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
+
+        vm.prank(stranger);
+        usdc.approve(address(gateway), 1_000_000);
+        vm.prank(stranger);
+        gateway.raiseChallenge(TASK_ID, "grief", "ipfs://challenge");
+
+        uint256 arbitratorBefore = usdc.balanceOf(arbitrator);
+
+        vm.prank(arbitrator);
+        gateway.resolveChallenge(TASK_ID, false); // overruled → slash
+
+        assertEq(usdc.balanceOf(arbitrator), arbitratorBefore + 1_000_000);
+        assertEq(usdc.balanceOf(stranger), 500_000_000 - 1_000_000);
+        assertEq(gateway.challengeStakeOf(TASK_ID), 0);
+    }
+
     //  Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
