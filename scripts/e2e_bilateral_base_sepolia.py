@@ -211,7 +211,7 @@ def main() -> int:
 
     # -- 2. Admin: allowlist token + shorten windows for the test ---------
     tl_call(w3, admin, timelock, KARMA, karma.functions.setTokenAllowed(mock_addr, True)._encode_transaction_data())
-    tl_call(w3, admin, timelock, KARMA, karma.functions.setDisputeWindow(SETTLE_DELAY)._encode_transaction_data())
+    tl_call(w3, admin, timelock, KARMA, karma.functions.setSettleDelay(SETTLE_DELAY)._encode_transaction_data())
     tl_call(w3, admin, timelock, KARMA, karma.functions.setOptimisticDisputeWindow(FINALIZE_WINDOW)._encode_transaction_data())
     print(f"windows  settle_delay={SETTLE_DELAY}s finalize={FINALIZE_WINDOW}s")
 

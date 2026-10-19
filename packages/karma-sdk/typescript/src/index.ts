@@ -37,7 +37,7 @@ const KARMA_BILATERAL_ABI = [
   "function checkInvariant(address token) view returns (bool)",
   "function setTokenAllowed(address token, bool allowed)",
   "function setBatchThreshold(address token, uint256 threshold)",
-  "function setDisputeWindow(uint256 seconds_)",
+  "function setSettleDelay(uint256 seconds_)",
   "function setSettleTimeout(uint256 seconds_)",
   "function setAttestationGateway(address gateway)",
   "function admin() view returns (address)",
@@ -381,8 +381,8 @@ export class KarmaBilateral extends BaseClient {
     await tx.wait();
   }
 
-  async setDisputeWindow(seconds: bigint): Promise<void> {
-    const tx = await this.contract.setDisputeWindow(seconds);
+  async setSettleDelay(seconds: bigint): Promise<void> {
+    const tx = await this.contract.setSettleDelay(seconds);
     await tx.wait();
   }
 

@@ -181,7 +181,7 @@ def main() -> int:
     print(f"mock     {mock_addr}")
 
     tl_call(w3, admin, timelock, KARMA, karma.functions.setTokenAllowed(mock_addr, True)._encode_transaction_data())
-    tl_call(w3, admin, timelock, KARMA, karma.functions.setDisputeWindow(SETTLE_DELAY)._encode_transaction_data())
+    tl_call(w3, admin, timelock, KARMA, karma.functions.setSettleDelay(SETTLE_DELAY)._encode_transaction_data())
     tl_call(w3, admin, timelock, KARMA, karma.functions.setOptimisticDisputeWindow(DISPUTE_WINDOW)._encode_transaction_data())
     tl_call(w3, admin, timelock, KARMA, karma.functions.setEvidenceWindow(EVIDENCE_WINDOW)._encode_transaction_data())
     tl_call(w3, admin, timelock, KARMA, karma.functions.setSettleTimeout(SETTLE_TIMEOUT)._encode_transaction_data())

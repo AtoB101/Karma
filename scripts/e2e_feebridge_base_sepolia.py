@@ -126,7 +126,7 @@ def main() -> int:
     # 2. wire
     treasury, buyback, developer = (Account.create().address for _ in range(3))
     send_tx(w3, admin, karma.functions.setTokenAllowed(mock_addr, True))
-    send_tx(w3, admin, karma.functions.setDisputeWindow(0))           # no settle delay
+    send_tx(w3, admin, karma.functions.setSettleDelay(0))           # no settle delay
     send_tx(w3, admin, karma.functions.setOptimisticDisputeWindow(0)) # no finalize window
     send_tx(w3, admin, bridge.functions.setCore(karma_addr))
     send_tx(w3, admin, bridge.functions.setToken(mock_addr))
