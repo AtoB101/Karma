@@ -157,6 +157,15 @@ contract VerifierRegistry {
     function removeVerifier(address wallet) external onlyAdmin {
         if (verifiers[wallet].wallet == address(0)) revert VerifierNotFound();
         delete verifiers[wallet];
+
+        uint256 len = verifierList.length;
+        for (uint256 i = 0; i < len; i++) {
+            if (verifierList[i] == wallet) {
+                verifierList[i] = verifierList[len - 1];
+                verifierList.pop();
+                break;
+            }
+        }
         emit VerifierRemoved(wallet);
     }
 
@@ -296,7 +305,7 @@ contract VerifierRegistry {
         if (v.wallet == address(0)) revert VerifierNotFound();
 
         if (amount > 0 && stakingToken != address(0)) {
-            IStakingToken(stakingToken).transfer(verifier, amount);
+            if (!IStakingToken(stakingToken).transfer(verifier, amount)) revert TransferFailed();
             v.totalEarnings += amount;
         }
         emit VerifierRewarded(verifier, amount);
