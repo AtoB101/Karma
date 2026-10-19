@@ -1,11 +1,13 @@
 # Karma public contracts (karma-core). CI and local `forge` use this file at repo root.
+# Compile settings mirror karma-core/contracts/foundry.toml (the version the
+# contracts are actually built and tested against). `src` is scoped to core so
+# `forge build` does not compile test files or the nested forge-std checkout.
 [profile.default]
-src = "karma-core/contracts"
+src = "karma-core/contracts/core"
 test = "karma-core/contracts/test"
 script = "karma-core/contracts/script"
 out = "out"
 libs = ["lib"]
-solc_version = "0.8.28"
+solc_version = "0.8.24"
 optimizer = true
-optimizer_runs = 1000
 via_ir = true
