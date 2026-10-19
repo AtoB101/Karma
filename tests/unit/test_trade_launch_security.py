@@ -31,7 +31,7 @@ async def test_expired_trade_launch_attestation_rejected():
         task_precision=1.0,
         launch_nonce="n1",
         deadline_unix=int(time.time()) - 3600,
-        chain_id=11155111,
+        chain_id=settings.testnet_chain_id,
         verifying_contract="0x0000000000000000000000000000000000000000",
     )
     sig = sign_trade_launch_typed_data(private_key=acct.key, typed_data=ctx.to_typed_data())
