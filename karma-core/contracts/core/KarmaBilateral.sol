@@ -88,6 +88,7 @@ contract KarmaBilateral {
     error EvidenceAlreadySubmitted(uint256 bindingId, address submitter);
     error ArbitrationNotStarted(uint256 bindingId);
     error ArbitrationAlreadyResolved(uint256 bindingId);
+    error ArbitrationEvidenceWindowOpen(uint256 windowEnd);
     error LargeDisputeRequiresAdmin(uint256 bindingId, uint256 totalPool);
     // Layer 2 — TEE (future)
     error TEENotImplemented();
@@ -892,9 +893,14 @@ contract KarmaBilateral {
             revert WrongBindingState(bindingId, BindingState.DISPUTED, b.state);
         }
 
-        // Mark arbitration resolved if it exists
+        // SECURITY: admin may not resolve before the evidence window closes —
+        // both parties must have had their chance to submit evidence first.
         ArbitrationRecord storage arb = arbitrations[bindingId];
-        if (arb.startedAt != 0) arb.resolved = true;
+        if (arb.startedAt == 0) revert ArbitrationNotStarted(bindingId);
+        uint256 windowEnd = arb.startedAt + evidenceWindow;
+        if (block.timestamp < windowEnd) revert ArbitrationEvidenceWindowOpen(windowEnd);
+
+        arb.resolved = true;
 
         emit DisputeResolved(bindingId, buyerShareBps);
         _executeSplit(bindingId, b, b.buyerBillId, b.agentBillId, buyerShareBps);
