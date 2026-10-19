@@ -62,7 +62,7 @@ print("deployed KarmaBilateral:", kb.address)
 
 # ── 2. Wire: allow token + zero the windows for a fast E2E ──
 send(admin, kb.functions.setTokenAllowed(Web3.to_checksum_address(USDC), True))
-send(admin, kb.functions.setDisputeWindow(0))            # settle delay = 0
+send(admin, kb.functions.setSettleDelay(0))            # settle delay = 0
 send(admin, kb.functions.setOptimisticDisputeWindow(0))  # dispute window = 0
 
 # ── 3. Fund seller with penalty + approve both ──

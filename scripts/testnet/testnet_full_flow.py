@@ -202,7 +202,7 @@ async def main():
         except Exception as e:
             print(f"    ✗ finalize failed (dispute window open?): {e}")
             if onchain_status == "finalizing":
-                print("    hint: wait disputeWindowSeconds then re-run testnet_finalize.py")
+                print("    hint: wait settleDelaySeconds then re-run testnet_finalize.py")
 
     print(f"\n{'='*60}")
     print("  FINAL SUMMARY")

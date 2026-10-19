@@ -121,7 +121,7 @@ test("SettleDelay revert", t_settle_delay)
 
 # 4. Settle
 import time as _time
-_settle_delay = karma.functions.disputeWindowSeconds().call()
+_settle_delay = karma.functions.settleDelaySeconds().call()
 print(f"  ⏳ Waiting {_settle_delay}s for settle delay...")
 _time.sleep(_settle_delay + 5)
 
@@ -171,7 +171,7 @@ def t_happy_path():
     buyer_before = usdc.functions.balanceOf(BUYER).call()
     agent_before = usdc.functions.balanceOf(AGENT).call()
     send_tx(karma.functions.settle(bid2, PROOF), buyer_acct)
-    dw = karma.functions.disputeWindow().call()
+    dw = karma.functions.optimisticDisputeWindow().call()
     _time.sleep(dw + 5)
     send_tx(karma.functions.finalizeSettle(bid2), admin_acct)
     b = karma.functions.getBinding(bid2).call()
