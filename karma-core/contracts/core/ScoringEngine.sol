@@ -311,7 +311,6 @@ contract ScoringEngine {
         // Supplier: weight completion + speed + dispute outcomes
         // Buyer:    weight confirmation speed - malicious disputes
         // Verifier: weight accuracy + volume - slashes
-        PartyType pType = partyTypes[address(this)]; // dummy — we don't use this
         // Simplified composite for now — just return stored reputationScore
         // (individual dimensions updated by their respective functions)
         return sv.reputationScore;

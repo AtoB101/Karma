@@ -70,4 +70,41 @@ contract VerifierRegistryAccessControlTest is Test {
         vm.expectRevert(VerifierRegistry.Unauthorized.selector);
         registry.recordAttestation(verifier, true);
     }
+
+    function test_register_isInactive_whenMinStakeSet() public {
+        // setUp registers with minStake = 1, so the verifier must stake first.
+        assertFalse(registry.isActiveVerifier(verifier));
+    }
+
+    function test_stake_activatesWhenMinStakeMet() public {
+        token.mint(verifier, 10);
+
+        vm.startPrank(verifier);
+        token.approve(address(registry), type(uint256).max);
+        registry.stake(1);
+        vm.stopPrank();
+
+        assertTrue(registry.isActiveVerifier(verifier));
+        (, , , uint256 stakeAmt, , , , ) = registry.verifiers(verifier);
+        assertEq(stakeAmt, 1);
+    }
+
+    function test_slash_transfersToSlashRecipient() public {
+        token.mint(verifier, 10);
+
+        vm.startPrank(verifier);
+        token.approve(address(registry), type(uint256).max);
+        registry.stake(10);
+        vm.stopPrank();
+
+        uint256 adminBefore = token.balanceOf(admin);
+        vm.prank(admin);
+        registry.slash(verifier, 10, "false_attestation");
+
+        // Slashed stake is really transferred to the default slashRecipient.
+        assertEq(token.balanceOf(admin), adminBefore + 10);
+        (, , bool active, uint256 stakeAmt, , , , ) = registry.verifiers(verifier);
+        assertEq(stakeAmt, 0);
+        assertFalse(active);
+    }
 }

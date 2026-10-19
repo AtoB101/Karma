@@ -87,7 +87,7 @@ class Settings(BaseSettings):
     # 改这里的数 = 改页面上公示的数；真要改结算口径，得连同上面那几条一起改。
     #
     # 结算手续费（bps of GMV；真正的费率与拆分在 karma-economy 的 FeeBridge，这里只作展示）。
-    settlement_fee_bps: float = 20.0
+    settlement_fee_bps: float = 50.0
     # 验证者网络：案值 ≥ 这个数才启动门限核验，小额单走平台单机核验。
     verifier_network_min_case_usdc: float = 100.0
     # 每条**计入门限**的有效出证 = 案值 × bps，夹在 [min, max] 之间。
