@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Test, console} from "forge-std/Test.sol";
 import {KarmaBilateral} from "../core/KarmaBilateral.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
+import {ScoringEngine} from "../core/ScoringEngine.sol";
 
 contract KarmaBilateralTest is Test {
 
@@ -356,6 +357,7 @@ contract KarmaBilateralTest is Test {
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
+        vm.warp(block.timestamp + karma.evidenceWindow() + 1);
 
         uint256 buyerBefore = usdc.balanceOf(buyer);
         uint256 agentBefore = usdc.balanceOf(agent);
@@ -373,6 +375,7 @@ contract KarmaBilateralTest is Test {
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
+        vm.warp(block.timestamp + karma.evidenceWindow() + 1);
 
         uint256 agentBefore = usdc.balanceOf(agent);
 
@@ -388,6 +391,7 @@ contract KarmaBilateralTest is Test {
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
+        vm.warp(block.timestamp + karma.evidenceWindow() + 1);
 
         uint256 buyerBefore = usdc.balanceOf(buyer);
         uint256 agentBefore = usdc.balanceOf(agent);
@@ -407,6 +411,7 @@ contract KarmaBilateralTest is Test {
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
+        vm.warp(block.timestamp + karma.evidenceWindow() + 1);
 
         uint256 buyerBefore = usdc.balanceOf(buyer);
         uint256 agentBefore = usdc.balanceOf(agent);
@@ -430,6 +435,18 @@ contract KarmaBilateralTest is Test {
 
         vm.prank(stranger);
         vm.expectRevert(KarmaBilateral.Unauthorized.selector);
+        karma.resolveDispute(bindingId, 5_000);
+    }
+
+    function test_resolveDispute_revertsBeforeEvidenceWindow() public {
+        (, , uint256 bindingId) = _setupBinding();
+        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.prank(buyer); karma.settle(bindingId, PROOF);
+        vm.prank(buyer); karma.dispute(bindingId, PROOF);
+
+        uint256 windowEnd = block.timestamp + karma.evidenceWindow();
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.ArbitrationEvidenceWindowOpen.selector, windowEnd));
         karma.resolveDispute(bindingId, 5_000);
     }
 
@@ -517,6 +534,7 @@ contract KarmaBilateralTest is Test {
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
+        vm.warp(block.timestamp + karma.evidenceWindow() + 1);
         vm.prank(admin); karma.resolveDispute(bindingId, 7_000);
         assertTrue(karma.checkInvariant(address(usdc)));
     }
@@ -586,6 +604,61 @@ contract KarmaBilateralTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Reputation gate (P2-8)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_reputationGate_disabledByDefault() public {
+        _setupBinding();
+    }
+
+    function test_reputationGate_blocksLowScoreAgent() public {
+        ScoringEngine engine = new ScoringEngine(admin);
+        vm.startPrank(admin);
+        karma.setScoringEngine(address(engine));
+        karma.setMinReputationScore(6_000);
+        vm.stopPrank();
+
+        vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
+        vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
+
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.ReputationTooLow.selector, agent, 0, 6_000));
+        karma.bind(bb, ab, SCOPE);
+    }
+
+    function test_reputationGate_allowsSufficientScoreAgent() public {
+        ScoringEngine engine = new ScoringEngine(admin);
+        vm.startPrank(admin);
+        engine.registerParty(agent, ScoringEngine.PartyType.SUPPLIER);
+        karma.setScoringEngine(address(engine));
+        karma.setMinReputationScore(5_000);
+        vm.stopPrank();
+
+        vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
+        vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
+        vm.prank(buyer);
+        uint256 bindingId = karma.bind(bb, ab, SCOPE);
+
+        assertEq(uint8(karma.getBinding(bindingId).state), uint8(KarmaBilateral.BindingState.ACTIVE));
+    }
+
+    function test_reputationGate_appliesToBindWithAttestation() public {
+        ScoringEngine engine = new ScoringEngine(admin);
+        vm.startPrank(admin);
+        karma.setScoringEngine(address(engine));
+        karma.setMinReputationScore(6_000);
+        karma.setAttestationGateway(address(0xABCD));
+        vm.stopPrank();
+
+        vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
+        vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
+
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.ReputationTooLow.selector, agent, 0, 6_000));
+        karma.bindWithAttestation(bb, ab, SCOPE, keccak256("task-001"));
+    }
+
     //  Helpers
     // ─────────────────────────────────────────────────────────────────────────
 

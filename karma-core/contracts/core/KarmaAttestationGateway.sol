@@ -3,6 +3,12 @@ pragma solidity ^0.8.24;
 
 import {VerifierRegistry} from "./VerifierRegistry.sol";
 
+/// @notice Minimal ERC-20 interface for the anti-grief challenge stake.
+interface IChallengeStakeToken {
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+}
+
 /// @notice Minimal KarmaBilateral interface consumed by the Gateway.
 interface IKarmaBilateral {
     function settle(uint256 bindingId, bytes32 proofHash) external;
@@ -54,6 +60,9 @@ contract KarmaAttestationGateway {
     error TaskBindingMismatch(bytes32 taskId, uint256 bindingId, bytes32 bindingTaskId);
     error FailedAttestationsBlock(uint256 failCount, uint256 required);
     error ChallengeWindowTooShort(uint256 minimum, uint256 provided);
+    error ChallengeStakeNotConfigured();
+    error ChallengeStakeTransferFailed();
+    error NotTaskPublisher(address caller);
 
     /// @dev Hard floor for the challenge window. Prevents the arbitrator key
     ///      from zeroing out the challenge window and settling instantly.
@@ -78,6 +87,12 @@ contract KarmaAttestationGateway {
     /// @notice Default challenge-window duration in seconds.
     uint256 public challengeWindowDuration;
 
+    /// @notice ERC-20 token required as challenge stake (address(0) = disabled).
+    address public challengeStakeToken;
+
+    /// @notice Amount of challengeStakeToken locked per challenge (0 = disabled).
+    uint256 public challengeStakeAmount;
+
     // ─────────────────────── Per-Task State ──────────────────────────────────
 
     /// @notice taskId → evidence hash committed at publication time.
@@ -97,6 +112,15 @@ contract KarmaAttestationGateway {
 
     /// @notice taskId → challenge resolution (true = resolved).
     mapping(bytes32 taskId => bool) public challengeResolved;
+
+    /// @notice taskId → address of the challenger (for stake settlement).
+    mapping(bytes32 taskId => address) public challengerOf;
+
+    /// @notice taskId → challenge stake locked by the challenger.
+    mapping(bytes32 taskId => uint256) public challengeStakeOf;
+
+    /// @notice taskId → address → whether address may publish evidence (buyer/agent).
+    mapping(bytes32 taskId => mapping(address => bool)) public taskPublishers;
 
     /// @notice taskId → verifier → has submitted attestation.
     mapping(bytes32 taskId => mapping(address => bool)) public attestationSubmitted;
@@ -150,6 +174,10 @@ contract KarmaAttestationGateway {
     );
 
     event ChallengeWindowDurationUpdated(uint256 newDuration);
+    event ChallengeStakeConfigUpdated(address indexed token, uint256 amount);
+    event ChallengeStakeRefunded(bytes32 indexed taskId, address indexed challenger, uint256 amount);
+    event ChallengeStakeSlashed(bytes32 indexed taskId, address indexed challenger, uint256 amount);
+    event TaskPublishersRegistered(bytes32 indexed taskId, address buyer, address agent);
 
     // ──────────────────────────── Constructor ───────────────────────────────
 
@@ -189,6 +217,17 @@ contract KarmaAttestationGateway {
 
     // ═══════════════════════════ Evidence ════════════════════════════════════
 
+    /// @notice Record the buyer and agent as the only parties allowed to publish
+    ///         evidence for a task. Callable only by KarmaBilateral at bind time.
+    ///         Prevents a stranger from front-running publishEvidence with a
+    ///         poisoned hash that would permanently block settlement.
+    function registerTaskPublisher(bytes32 taskId, address buyer, address agent) external {
+        if (msg.sender != bilateralContract) revert Unauthorized();
+        taskPublishers[taskId][buyer] = true;
+        taskPublishers[taskId][agent] = true;
+        emit TaskPublishersRegistered(taskId, buyer, agent);
+    }
+
     /// @notice Publish evidence for a task before attestations begin.
     ///         Creates an immutable on-chain record of the evidence hash + CID.
     /// @param taskId Unique task identifier.
@@ -199,6 +238,7 @@ contract KarmaAttestationGateway {
         bytes32 evidenceHash,
         string calldata _cid
     ) external {
+        if (!taskPublishers[taskId][msg.sender]) revert NotTaskPublisher(msg.sender);
         if (taskEvidence[taskId] != bytes32(0)) revert EvidenceAlreadyPublished();
         taskEvidence[taskId] = evidenceHash;
         taskEvidenceCid[taskId] = _cid;
@@ -361,7 +401,7 @@ contract KarmaAttestationGateway {
     // ═══════════════════════════ Challenge ═════════════════════════════
 
     /// @notice Raise a challenge against a task during the challenge window.
-    ///         Anyone can challenge; no stake is required for raising.
+    ///         Anyone can challenge; when configured, a stake is required.
     /// @param taskId Task identifier being challenged.
     /// @param reason Human-readable reason code (e.g. "evidence_hash_mismatch").
     /// @param evidenceCid IPFS CID of challenge evidence.
@@ -373,6 +413,19 @@ contract KarmaAttestationGateway {
         if (taskEvidence[taskId] == bytes32(0)) revert TaskNotFound();
         if (block.timestamp > challengeEnd[taskId]) revert ChallengeWindowOpen();
         if (challenged[taskId]) revert ChallengeAlreadyRaised();
+
+        // Anti-griefing: when configured, the challenger locks stake so that
+        // spurious challenges carry a real cost. Refunded if upheld, slashed
+        // to the arbitrator if overruled.
+        uint256 stakeAmount = challengeStakeAmount;
+        if (stakeAmount > 0) {
+            if (challengeStakeToken == address(0)) revert ChallengeStakeNotConfigured();
+            if (!IChallengeStakeToken(challengeStakeToken).transferFrom(msg.sender, address(this), stakeAmount)) {
+                revert ChallengeStakeTransferFailed();
+            }
+            challengerOf[taskId] = msg.sender;
+            challengeStakeOf[taskId] = stakeAmount;
+        }
 
         challenged[taskId] = true;
         emit ChallengeRaised(taskId, msg.sender, reason, evidenceCid);
@@ -389,6 +442,25 @@ contract KarmaAttestationGateway {
 
         challengeResolved[taskId] = true;
         challengeUpheld[taskId] = upheld;
+
+        // Settle the challenge stake: refund if upheld, slash if overruled.
+        uint256 stakeAmount = challengeStakeOf[taskId];
+        if (stakeAmount > 0) {
+            address challenger = challengerOf[taskId];
+            challengeStakeOf[taskId] = 0;
+            if (upheld) {
+                if (!IChallengeStakeToken(challengeStakeToken).transfer(challenger, stakeAmount)) {
+                    revert ChallengeStakeTransferFailed();
+                }
+                emit ChallengeStakeRefunded(taskId, challenger, stakeAmount);
+            } else {
+                if (!IChallengeStakeToken(challengeStakeToken).transfer(arbitrator, stakeAmount)) {
+                    revert ChallengeStakeTransferFailed();
+                }
+                emit ChallengeStakeSlashed(taskId, challenger, stakeAmount);
+            }
+        }
+
         emit ChallengeResolvedEvent(taskId, upheld, msg.sender);
     }
 
@@ -405,6 +477,17 @@ contract KarmaAttestationGateway {
         }
         challengeWindowDuration = _duration;
         emit ChallengeWindowDurationUpdated(_duration);
+    }
+
+    /// @notice Configure the anti-grief challenge stake (only the arbitrator).
+    /// @param token  ERC-20 token required as stake (address(0) disables).
+    /// @param amount Amount locked per challenge (0 disables the requirement).
+    function setChallengeStake(address token, uint256 amount) external {
+        if (msg.sender != arbitrator) revert NotArbitrator();
+        if (amount > 0 && token == address(0)) revert InvalidAddress();
+        challengeStakeToken = token;
+        challengeStakeAmount = amount;
+        emit ChallengeStakeConfigUpdated(token, amount);
     }
 
     // ═══════════════════════════ Views ═══════════════════════════════════════
