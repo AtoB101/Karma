@@ -113,21 +113,14 @@ contract DeployKarmaBilateral is Script {
         uint256 tlThreshold = vm.envOr("TIMELOCK_THRESHOLD", uint256(1));
         uint256 tlDelay     = vm.envOr("TIMELOCK_DELAY",     uint256(0));
 
-        AdminTimelock tl = new AdminTimelock(_singleton(vm.addr(deployerKey)), 1, 0);
-        address admin = address(tl);
+        // SECURITY: AdminTimelock is deployed AFTER startBroadcast below. Creating
+        // it before startBroadcast leaves the on-chain admin as a dead, code-less
+        // address, silently no-op'ing every _tl() wiring call.
+        AdminTimelock tl;
+        address admin;
         bool    useMock       = vm.envOr("USE_MOCK_TOKEN",     false);
         address testProvider  = vm.envOr("TEST_PROVIDER",      address(0));
         address testBuyer     = vm.envOr("TEST_BUYER",         address(0));
-
-        // Fee bridge: 0.5% fee split 3/3/2/2 (treasury / verifier / buyback / developer).
-        address treasury   = vm.envOr("TREASURY_ADDRESS",   admin);
-        address buyback    = vm.envOr("BUYBACK_ADDRESS",    admin);
-        address developer  = vm.envOr("DEVELOPER_ADDRESS",  admin);
-        uint256 feeBps     = vm.envOr("FEE_BPS",            uint256(50));
-        uint256 splitT     = vm.envOr("SPLIT_TREASURY",     uint256(3));
-        uint256 splitV     = vm.envOr("SPLIT_VERIFIER",     uint256(3));
-        uint256 splitB     = vm.envOr("SPLIT_BUYBACK",      uint256(2));
-        uint256 splitD     = vm.envOr("SPLIT_DEVELOPER",    uint256(2));
 
         // ── MAINNET GUARD ────────────────────────────────────────────────────
         // SECURITY: admin is the immutable AdminTimelock. On any non-testnet
@@ -153,6 +146,24 @@ contract DeployKarmaBilateral is Script {
         uint256 verifierN       = vm.envOr("VERIFIER_THRESHOLD", uint256(3));
         uint256 verifierM       = vm.envOr("VERIFIER_TOTAL",     uint256(5));
 
+        address paymentToken;
+
+        vm.startBroadcast(deployerKey);
+
+        // ── AdminTimelock (deployed here so it is actually broadcast) ──────
+        tl = new AdminTimelock(_singleton(vm.addr(deployerKey)), 1, 0);
+        admin = address(tl);
+
+        // Fee bridge: 0.5% fee split 3/3/2/2 (treasury / verifier / buyback / developer).
+        address treasury   = vm.envOr("TREASURY_ADDRESS",   admin);
+        address buyback    = vm.envOr("BUYBACK_ADDRESS",    admin);
+        address developer  = vm.envOr("DEVELOPER_ADDRESS",  admin);
+        uint256 feeBps     = vm.envOr("FEE_BPS",            uint256(50));
+        uint256 splitT     = vm.envOr("SPLIT_TREASURY",     uint256(3));
+        uint256 splitV     = vm.envOr("SPLIT_VERIFIER",     uint256(3));
+        uint256 splitB     = vm.envOr("SPLIT_BUYBACK",      uint256(2));
+        uint256 splitD     = vm.envOr("SPLIT_DEVELOPER",    uint256(2));
+
         console.log("=== Karma Protocol Full Stack Deployment ===");
         console.log("Chain ID             ", block.chainid);
         console.log("Deployer             ", vm.addr(deployerKey));
@@ -160,10 +171,6 @@ contract DeployKarmaBilateral is Script {
         console.log("Arbitrator           ", arbitrator);
         console.log("Attestation N-of-M   ", verifierN);
         console.log("Challenge window     ", challengeWindow);
-
-        address paymentToken;
-
-        vm.startBroadcast(deployerKey);
 
         // ── 0. Token (MockERC20 or USDC) ──────────────────────────────────────
         if (useMock) {

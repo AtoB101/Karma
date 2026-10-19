@@ -31,7 +31,7 @@ from eth_abi import encode
 
 RPC = os.getenv("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
 CHAIN_ID = 84532
-KARMA = "0x3D633d55Bb7bDD4Af55a92C0F48dd25B7f06c3A5"
+KARMA = "0xF7839e77960f04B68D0Ea635DB3a21738489A6BF"
 ADMIN_KEY = os.getenv("ADMIN_PRIVATE_KEY", "")
 
 AMOUNT = 10_000_000          # 10 mUSDC (6 decimals)
