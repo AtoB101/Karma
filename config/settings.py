@@ -408,7 +408,7 @@ class Settings(BaseSettings):
 
     # Testnet RPC
     testnet_rpc_url: str = ""
-    testnet_chain_id: int = 11155111  # Sepolia default
+    testnet_chain_id: int = 84532  # Base Sepolia default
 
     # Wallet used to sign and submit transactions (NEVER commit a real key)
     testnet_private_key: str = ""

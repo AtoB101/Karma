@@ -51,19 +51,25 @@ def test_manifest_parses_and_passes_shape_check():
     assert fails == 0, output
 
 
-def test_manifest_pins_the_deployed_sepolia_addresses():
+def test_manifest_pins_the_deployed_base_sepolia_addresses():
     contracts = _manifest()["contracts"]
-    assert contracts["erc20_token"]["address"] == "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF"
-    assert contracts["bilateral"]["address"] == "0x496d178a5D32E9410E52bD5800602BDEe81B2A91"
-    assert contracts["allowance_escrow"]["address"] == "0x65eb82058F4ea707B1a0aFb2A5872eb95076b6F2"
-    assert contracts["settlement_operator"]["address"] == "0x1D147c9eefd9D1d4C4725700a05EDc6ca13975Cc"
-    assert _manifest()["chain_id"] == 11155111
+    assert contracts["erc20_token"]["address"] == "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+    assert contracts["bilateral"]["address"] == "0x3D633d55Bb7bDD4Af55a92C0F48dd25B7f06c3A5"
+    assert contracts["verifier_registry"]["address"] == "0xa5f5927D44002F0A8f53984bFD8058eA654E2650"
+    assert contracts["evidence_chain"]["address"] == "0x1A34c6e31aD7E2180250c16eEDfaD1485C2286Ff"
+    assert contracts["scoring_engine"]["address"] == "0x8c8A6E018fb6F5c48969899aE1335F05E675Ec03"
+    assert contracts["circuit_breaker"]["address"] == "0x65376016D7f27f82E293cbd0F78DB3b48e0a7b8A"
+    assert contracts["emergency_freeze"]["address"] == "0x19b4CD0cCCDd25acED81cC1f9C1B7f2d11645fb4"
+    assert contracts["reputation_anchor"]["address"] == "0x09e3FEfc653D4Ded3ee12C62A5Ff508673a75dF3"
+    assert contracts["identity_registry"]["address"] == "0xec5B627fD821c6aBF0404e06997D347953eD1333"
+    assert contracts["attestation_gateway"]["address"] == "0x330B87AB67cf288F13dA0c4e5e67fF665F4ec15e"
+    assert _manifest()["chain_id"] == 84532
 
 
-def test_settlement_operator_is_marked_as_an_eoa():
-    # 它是钱包不是合约：链上本来就没有代码，写成 contract 会让链上核对永远红。
-    entry = _manifest()["contracts"]["settlement_operator"]
-    assert entry["kind"] == "eoa"
+def test_every_deployed_entry_is_a_contract():
+    # 本轮 Base Sepolia 部署是完整双边协议栈，全部是合约，没有独立的结算运营钱包。
+    for name, entry in _manifest()["contracts"].items():
+        assert entry["kind"] == "contract", name
 
 
 def test_manifest_never_contains_key_material():
@@ -87,7 +93,7 @@ def test_shape_rejects_a_short_address():
 
 def test_shape_rejects_a_duplicated_address():
     manifest = _manifest()
-    manifest["contracts"]["allowance_escrow"]["address"] = manifest["contracts"]["bilateral"]["address"]
+    manifest["contracts"]["verifier_registry"]["address"] = manifest["contracts"]["bilateral"]["address"]
     fails, output = _shape(manifest)
     assert fails == 1
     assert "reuses the address" in output
@@ -125,7 +131,7 @@ def test_shape_rejects_a_missing_chain_id():
 def test_env_check_is_case_insensitive_on_addresses():
     manifest = _manifest()
     env = {entry["env"]: entry["address"].lower() for entry in manifest["contracts"].values()}
-    env["TESTNET_CHAIN_ID"] = "11155111"
+    env["TESTNET_CHAIN_ID"] = "84532"
     fails, output = _env(manifest, env)
     assert fails == 0, output
 
@@ -133,7 +139,7 @@ def test_env_check_is_case_insensitive_on_addresses():
 def test_env_check_flags_a_different_address():
     manifest = _manifest()
     env = {entry["env"]: entry["address"] for entry in manifest["contracts"].values()}
-    env["TESTNET_CHAIN_ID"] = "11155111"
+    env["TESTNET_CHAIN_ID"] = "84532"
     env["KARMA_BILATERAL_ADDRESS"] = "0x0000000000000000000000000000000000000001"
     fails, output = _env(manifest, env)
     assert fails == 1
@@ -180,8 +186,14 @@ def _fake_rpc(responses):
 
 def test_onchain_accepts_code_on_contracts_and_funds_on_the_eoa(monkeypatch):
     manifest = _manifest()
+    manifest["contracts"]["settlement_operator"] = {
+        "address": "0x" + "11" * 20,
+        "kind": "eoa",
+        "env": "SETTLEMENT_OPERATOR_ADDRESS",
+        "role": "结算运营钱包（测试注入）",
+    }
     monkeypatch.setattr(vm, "rpc_call", _fake_rpc({
-        "eth_chainId": "0xaa36a7",
+        "eth_chainId": "0x14a34",
         "eth_getCode": lambda params: "0x" + "00" * 32,
         "eth_getBalance": "0x1bc16d674ec80000",
     }))
@@ -194,21 +206,27 @@ def test_onchain_accepts_code_on_contracts_and_funds_on_the_eoa(monkeypatch):
 def test_onchain_flags_a_contract_with_no_code(monkeypatch):
     manifest = _manifest()
     monkeypatch.setattr(vm, "rpc_call", _fake_rpc({
-        "eth_chainId": "0xaa36a7",
+        "eth_chainId": "0x14a34",
         "eth_getCode": "0x",
         "eth_getBalance": "0x1bc16d674ec80000",
     }))
     buf = io.StringIO()
     with redirect_stdout(buf):
         fails = vm.check_onchain(manifest, "https://rpc.invalid")
-    assert fails == 3  # 三个合约地址都没有代码
+    assert fails == 10  # 十个合约地址都没有代码
     assert "has no code" in buf.getvalue()
 
 
 def test_onchain_flags_an_unfunded_operator_wallet(monkeypatch):
     manifest = _manifest()
+    manifest["contracts"]["settlement_operator"] = {
+        "address": "0x" + "11" * 20,
+        "kind": "eoa",
+        "env": "SETTLEMENT_OPERATOR_ADDRESS",
+        "role": "结算运营钱包（测试注入）",
+    }
     monkeypatch.setattr(vm, "rpc_call", _fake_rpc({
-        "eth_chainId": "0xaa36a7",
+        "eth_chainId": "0x14a34",
         "eth_getCode": "0x" + "00" * 8,
         "eth_getBalance": "0x0",
     }))
@@ -254,7 +272,7 @@ def test_unreachable_rpc_does_not_hide_an_env_mismatch(monkeypatch):
     """链上探不到只是「这一项没查成」，已经查出来的不一致照样要判红。"""
     manifest = _manifest()
     env = {entry["env"]: entry["address"] for entry in manifest["contracts"].values()}
-    env["TESTNET_CHAIN_ID"] = "11155111"
+    env["TESTNET_CHAIN_ID"] = "84532"
     env["KARMA_BILATERAL_ADDRESS"] = "0x0000000000000000000000000000000000000001"
 
     monkeypatch.setattr(vm, "load_manifest", lambda path: manifest)

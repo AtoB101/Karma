@@ -29,7 +29,7 @@ def test_trade_launch_attestation_satisfies_voucher_commitment(monkeypatch):
         task_precision=1.0,
         launch_nonce="nonce-abc",
         deadline_unix=future_deadline_unix(offset_seconds=600),
-        chain_id=11155111,
+        chain_id=settings.testnet_chain_id,
         verifying_contract="0x0000000000000000000000000000000000000000",
     )
     sig = sign_trade_launch_typed_data(private_key=acct.key, typed_data=ctx.to_typed_data())

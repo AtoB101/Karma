@@ -37,7 +37,7 @@ def require_eip712() -> bool:
 
 
 def chain_id() -> int:
-    return int(os.getenv("A2A_EIP712_CHAIN_ID", os.getenv("KARMA_CHAIN_ID", "11155111")))
+    return int(os.getenv("A2A_EIP712_CHAIN_ID", os.getenv("KARMA_CHAIN_ID", "84532")))
 
 
 def verifying_contract() -> str:

@@ -125,7 +125,7 @@ def test_trade_launch_attestation_deadline_stable_in_any_timezone(monkeypatch):
         task_precision=1.0,
         launch_nonce="nonce-tz",
         deadline_unix=deadline,
-        chain_id=11155111,
+        chain_id=settings.testnet_chain_id,
         verifying_contract="0x0000000000000000000000000000000000000000",
     )
     sig = sign_trade_launch_typed_data(private_key=acct.key, typed_data=ctx.to_typed_data())
