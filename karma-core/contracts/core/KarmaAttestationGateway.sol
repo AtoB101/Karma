@@ -62,6 +62,7 @@ contract KarmaAttestationGateway {
     error ChallengeWindowTooShort(uint256 minimum, uint256 provided);
     error ChallengeStakeNotConfigured();
     error ChallengeStakeTransferFailed();
+    error NotTaskPublisher(address caller);
 
     /// @dev Hard floor for the challenge window. Prevents the arbitrator key
     ///      from zeroing out the challenge window and settling instantly.
@@ -118,6 +119,9 @@ contract KarmaAttestationGateway {
     /// @notice taskId → challenge stake locked by the challenger.
     mapping(bytes32 taskId => uint256) public challengeStakeOf;
 
+    /// @notice taskId → address → whether address may publish evidence (buyer/agent).
+    mapping(bytes32 taskId => mapping(address => bool)) public taskPublishers;
+
     /// @notice taskId → verifier → has submitted attestation.
     mapping(bytes32 taskId => mapping(address => bool)) public attestationSubmitted;
 
@@ -173,6 +177,7 @@ contract KarmaAttestationGateway {
     event ChallengeStakeConfigUpdated(address indexed token, uint256 amount);
     event ChallengeStakeRefunded(bytes32 indexed taskId, address indexed challenger, uint256 amount);
     event ChallengeStakeSlashed(bytes32 indexed taskId, address indexed challenger, uint256 amount);
+    event TaskPublishersRegistered(bytes32 indexed taskId, address buyer, address agent);
 
     // ──────────────────────────── Constructor ───────────────────────────────
 
@@ -212,6 +217,17 @@ contract KarmaAttestationGateway {
 
     // ═══════════════════════════ Evidence ════════════════════════════════════
 
+    /// @notice Record the buyer and agent as the only parties allowed to publish
+    ///         evidence for a task. Callable only by KarmaBilateral at bind time.
+    ///         Prevents a stranger from front-running publishEvidence with a
+    ///         poisoned hash that would permanently block settlement.
+    function registerTaskPublisher(bytes32 taskId, address buyer, address agent) external {
+        if (msg.sender != bilateralContract) revert Unauthorized();
+        taskPublishers[taskId][buyer] = true;
+        taskPublishers[taskId][agent] = true;
+        emit TaskPublishersRegistered(taskId, buyer, agent);
+    }
+
     /// @notice Publish evidence for a task before attestations begin.
     ///         Creates an immutable on-chain record of the evidence hash + CID.
     /// @param taskId Unique task identifier.
@@ -222,6 +238,7 @@ contract KarmaAttestationGateway {
         bytes32 evidenceHash,
         string calldata _cid
     ) external {
+        if (!taskPublishers[taskId][msg.sender]) revert NotTaskPublisher(msg.sender);
         if (taskEvidence[taskId] != bytes32(0)) revert EvidenceAlreadyPublished();
         taskEvidence[taskId] = evidenceHash;
         taskEvidenceCid[taskId] = _cid;

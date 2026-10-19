@@ -9,6 +9,11 @@ interface IScoringEngine {
     function getReputationScore(address party) external view returns (uint256);
 }
 
+/// @notice Minimal attestation gateway hook used to register evidence publishers.
+interface IKarmaAttestationGateway {
+    function registerTaskPublisher(bytes32 taskId, address buyer, address agent) external;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  KarmaBilateral — Bilateral Lock + Bill Token + KarmaFSM + Threshold Batch
 //                   + Single Commitment Principle (SCP)
@@ -502,6 +507,7 @@ contract KarmaBilateral {
 
         requiresAttestation[bindingId] = true;
         bindingTaskId[bindingId]       = taskId;
+        IKarmaAttestationGateway(attestationGateway).registerTaskPublisher(taskId, _billOwner(buyerBill), _billOwner(agentBill));
 
         address token    = _billToken(buyerBill);
         uint256 buyerAmt = _billAmounts[buyerBillId];
@@ -580,6 +586,9 @@ contract KarmaBilateral {
         if (intent.verifier != address(0)) {
             requiresAttestation[bindingId] = true;
             bindingTaskId[bindingId] = intentHash;
+            if (attestationGateway != address(0)) {
+                IKarmaAttestationGateway(attestationGateway).registerTaskPublisher(intentHash, _billOwner(buyerBill), _billOwner(agentBill));
+            }
         }
 
         address token    = _billToken(buyerBill);
