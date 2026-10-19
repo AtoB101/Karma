@@ -4,6 +4,11 @@ pragma solidity ^0.8.24;
 import {Types} from "../libraries/Types.sol";
 import {IEmergencyFreeze} from "../interfaces/IEmergencyFreeze.sol";
 
+/// @notice Minimal ScoringEngine view used by the optional reputation gate.
+interface IScoringEngine {
+    function getReputationScore(address party) external view returns (uint256);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  KarmaBilateral — Bilateral Lock + Bill Token + KarmaFSM + Threshold Batch
 //                   + Single Commitment Principle (SCP)
@@ -67,6 +72,7 @@ contract KarmaBilateral {
     error BillNotMinted(uint256 billId);
     error BindingNotFound(uint256 bindingId);
     error BuyerAgentSameAddress();
+    error ReputationTooLow(address agent, uint256 score, uint256 required);
     error TransferFailed();
     error InvariantBroken(address token, uint256 supply, uint256 locked);
     error PerAddressInvariantBroken(address addr, uint256 free, uint256 bound, uint256 minted);
@@ -217,6 +223,12 @@ contract KarmaBilateral {
     ///         funds can never be frozen indefinitely by admin inaction.
     uint256 public largeDisputeTimeoutSeconds = 7 days;
 
+    /// @notice Optional reputation gate: scoring engine source (address(0) = disabled).
+    address public scoringEngine;
+
+    /// @notice Agents below this reputation score are rejected by bind (0 = disabled).
+    uint256 public minReputationScore;
+
     /// @dev Hard ceiling on feeBridge-quoted fees, in basis points (10%).
     ///      SECURITY: the feeBridge address is admin-controlled; a malicious
     ///      bridge could otherwise quoteFee() up to 100% of the pool. This cap
@@ -256,6 +268,8 @@ contract KarmaBilateral {
     event BillMinted(uint256 indexed billId, address indexed owner, address token, uint256 amount);
     event BillBurned(uint256 indexed billId, address indexed owner, uint256 amount, string reason);
     event BillsBound(uint256 indexed bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash);
+    event ScoringEngineUpdated(address indexed scoringEngine);
+    event MinReputationScoreUpdated(uint256 minScore);
     event BindingSettled(uint256 indexed bindingId, bytes32 proofHash, uint256 buyerAmount, uint256 agentAmount);
     event BindingRefunded(uint256 indexed bindingId, uint256 buyerAmount, uint256 agentAmount);
     event DisputeResolved(uint256 indexed bindingId, uint256 buyerShareBps);
@@ -409,6 +423,7 @@ contract KarmaBilateral {
         _requireBillState(agentBillId, _billState(agentBill), BillState.MINTED);
         if (_billTokenId(buyerBill) != _billTokenId(agentBill)) revert TokenNotAllowed();
         if (_billOwner(buyerBill) == _billOwner(agentBill)) revert BuyerAgentSameAddress();
+        _enforceReputationGate(_billOwner(agentBill));
 
         _bills[buyerBillId] = _setBillState(buyerBill, BillState.BOUND);
         _bills[agentBillId] = _setBillState(agentBill, BillState.BOUND);
@@ -465,6 +480,7 @@ contract KarmaBilateral {
         _requireBillState(agentBillId, _billState(agentBill), BillState.MINTED);
         if (_billTokenId(buyerBill) != _billTokenId(agentBill)) revert TokenNotAllowed();
         if (_billOwner(buyerBill) == _billOwner(agentBill)) revert BuyerAgentSameAddress();
+        _enforceReputationGate(_billOwner(agentBill));
 
         _bills[buyerBillId] = _setBillState(buyerBill, BillState.BOUND);
         _bills[agentBillId] = _setBillState(agentBill, BillState.BOUND);
@@ -526,6 +542,7 @@ contract KarmaBilateral {
         _requireBillState(agentBillId, _billState(agentBill), BillState.MINTED);
         if (_billTokenId(buyerBill) != _billTokenId(agentBill)) revert TokenNotAllowed();
         if (_billOwner(buyerBill) == _billOwner(agentBill)) revert BuyerAgentSameAddress();
+        _enforceReputationGate(_billOwner(agentBill));
 
         // ═══ Intent validation ═══
         if (intent.buyer != _billOwner(buyerBill)) revert IntentPartyMismatch("buyer");
@@ -1115,6 +1132,18 @@ contract KarmaBilateral {
         emit TokenAllowed(token, allowed);
     }
 
+    /// @notice Set the reputation scoring engine (address(0) disables the gate).
+    function setScoringEngine(address engine) external onlyAdmin {
+        scoringEngine = engine;
+        emit ScoringEngineUpdated(engine);
+    }
+
+    /// @notice Set the minimum agent reputation score required to bind (0 disables).
+    function setMinReputationScore(uint256 minScore) external onlyAdmin {
+        minReputationScore = minScore;
+        emit MinReputationScoreUpdated(minScore);
+    }
+
     function setBatchThreshold(address token, uint256 threshold) external onlyAdmin {
         batchThreshold[token] = threshold;
         emit BatchThresholdUpdated(token, threshold);
@@ -1391,6 +1420,14 @@ contract KarmaBilateral {
         if (!cOk) revert TransferFailed();
     }
 
+
+    /// @dev Reputation gate: when configured, reject agents below the minimum
+    ///      reputation score. Disabled when scoringEngine is unset or score is 0.
+    function _enforceReputationGate(address agent) internal view {
+        if (scoringEngine == address(0) || minReputationScore == 0) return;
+        uint256 score = IScoringEngine(scoringEngine).getReputationScore(agent);
+        if (score < minReputationScore) revert ReputationTooLow(agent, score, minReputationScore);
+    }
 
     function _moveFreeTobound(address addr, uint256 amount) internal {
         if (freeBalance[addr] < amount) {
