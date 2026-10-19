@@ -14,6 +14,10 @@ Flow:
   buyer/agent lock 10 each -> bind -> settle (FINALIZING) -> finalize (SETTLED)
   -> assert bills burned + invariant holds + payouts land correctly.
 
+Note on reads: the public Base Sepolia RPC is eventually consistent, so an
+eth_call right after a transaction can hit a lagging node and return stale
+state. Every post-transaction read below therefore polls with retries.
+
 Env:
   ADMIN_PRIVATE_KEY   required: Base Sepolia deployer/admin key
   BUYER_PRIVATE_KEY   optional: buyer key (defaults to a fresh random account)
@@ -75,11 +79,62 @@ def fund(w3: Web3, admin, to_address: str, value: int):
         "to": Web3.to_checksum_address(to_address),
         "value": value,
         "gas": 21000,
+        "gasPrice": w3.eth.gas_price,
         "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
     }
     signed = admin.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
     return w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+
+
+def latest_ts(w3: Web3) -> int:
+    return w3.eth.get_block("latest")["timestamp"]
+
+
+def poll_until(cond, label: str, timeout: int = 60, interval: int = 5) -> bool:
+    """Retry a read until cond() is truthy (handles RPC eventual consistency)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if cond():
+            return True
+        print(f"\r    waiting for {label}...", end="", flush=True)
+        time.sleep(interval)
+    print("")
+    return cond()
+
+
+def wait_for_binding(client: KarmaBilateral, binding_id: int, predicate, label: str,
+                     timeout: int = 60, interval: int = 5):
+    """Poll getBinding until `predicate(binding)` holds (handles RPC lag)."""
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        binding = client.get_binding(binding_id)
+        last = binding
+        print(f"\r    getBinding -> state={binding.state} "
+              f"settleSubmittedAt={binding.settle_submitted_at}",
+              end="", flush=True)
+        if predicate(binding):
+            print("")
+            return binding
+        time.sleep(interval)
+    print("")
+    raise TimeoutError(
+        f"binding {binding_id} did not reach {label}: "
+        f"last state={last.state if last else '?'}"
+    )
+
+
+def wait_for_finalize_target(client: KarmaBilateral, binding_id: int,
+                             timeout: int = 60, interval: int = 5) -> int:
+    """Poll finalizeAfter until it returns a non-zero timestamp."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        target = client.finalize_after(binding_id)
+        if target and target > 0:
+            return target
+        time.sleep(interval)
+    raise TimeoutError(f"finalizeAfter stayed 0 for binding {binding_id}")
 
 
 def countdown(seconds: int, label: str):
@@ -151,14 +206,17 @@ def main() -> int:
     buyer_bill = buyer_k.lock(mock_addr, AMOUNT, approve=True)
     agent_bill = agent_k.lock(mock_addr, AMOUNT, approve=True)
     print(f"  buyer bill {buyer_bill}, agent bill {agent_bill}")
-    assert buyer_k.get_bill(buyer_bill).state == "MINTED"
-    assert agent_k.get_bill(agent_bill).state == "MINTED"
-    assert buyer_k.check_invariant(mock_addr), "invariant broken after lock"
+    assert poll_until(lambda: buyer_k.get_bill(buyer_bill).state == "MINTED",
+                      "buyer bill MINTED")
+    assert poll_until(lambda: agent_k.get_bill(agent_bill).state == "MINTED",
+                      "agent bill MINTED")
+    assert poll_until(lambda: buyer_k.check_invariant(mock_addr), "invariant after lock")
 
     print("\n== bind (buyer signs) ==")
     scope = Web3.keccak(text="base-sepolia-e2e")
     binding_id = buyer_k.bind(buyer_bill, agent_bill, scope)
-    binding = buyer_k.get_binding(binding_id)
+    binding = wait_for_binding(buyer_k, binding_id, lambda b: b.state == "ACTIVE",
+                               label="ACTIVE")
     print(f"  binding {binding_id}, state={binding.state}")
     assert binding.state == "ACTIVE"
     assert binding.settle_submitted_at == 0
@@ -167,8 +225,11 @@ def main() -> int:
 
     print("\n== settle -> FINALIZING ==")
     proof = Web3.keccak(text="ipfs://base-sepolia-proof")
-    buyer_k.settle(binding_id, proof)
-    binding = buyer_k.get_binding(binding_id)
+    settle_receipt = buyer_k.settle(binding_id, proof)
+    print(f"  settle tx={settle_receipt.transactionHash.hex()} "
+          f"status={settle_receipt.status}")
+    binding = wait_for_binding(buyer_k, binding_id, lambda b: b.state == "FINALIZING",
+                               label="FINALIZING")
     print(f"  state={binding.state}, settle_submitted_at={binding.settle_submitted_at}")
     assert binding.state == "FINALIZING"
     assert binding.settle_submitted_at > 0
@@ -176,20 +237,36 @@ def main() -> int:
     countdown(FINALIZE_WINDOW + 5, "finalize window")
 
     print("\n== finalizeSettle -> SETTLED ==")
-    buyer_k.finalize_settle(binding_id)
-    binding = buyer_k.get_binding(binding_id)
+    target = wait_for_finalize_target(buyer_k, binding_id)
+    print(f"  finalize_after={target}, latest_block_ts={latest_ts(w3)}")
+    # Absorb small block-timestamp skew between RPC nodes.
+    while latest_ts(w3) < target:
+        print(f"\r  waiting: block ts {latest_ts(w3)} < {target}", end="", flush=True)
+        time.sleep(10)
+    print("")
+    binding = wait_for_binding(buyer_k, binding_id, lambda b: b.state == "FINALIZING",
+                               label="FINALIZING (pre-finalize)")
+    finalize_receipt = buyer_k.finalize_settle(binding_id)
+    print(f"  finalize tx={finalize_receipt.transactionHash.hex()} "
+          f"status={finalize_receipt.status}")
+    binding = wait_for_binding(buyer_k, binding_id, lambda b: b.state == "SETTLED",
+                               label="SETTLED")
     print(f"  state={binding.state}")
     assert binding.state == "SETTLED"
 
     # -- 5. Assertions: bills burned, invariant, payouts ------------------
-    assert buyer_k.get_bill(buyer_bill).state == "BURNED"
-    assert agent_k.get_bill(agent_bill).state == "BURNED"
-    assert buyer_k.check_invariant(mock_addr), "invariant broken after settle"
+    assert poll_until(lambda: buyer_k.get_bill(buyer_bill).state == "BURNED",
+                      "buyer bill BURNED")
+    assert poll_until(lambda: agent_k.get_bill(agent_bill).state == "BURNED",
+                      "agent bill BURNED")
+    assert poll_until(lambda: buyer_k.check_invariant(mock_addr), "invariant after settle")
+    assert poll_until(lambda: mock.functions.balanceOf(buyer.address).call() == buyer_initial - AMOUNT,
+                      "buyer payout")
+    assert poll_until(lambda: mock.functions.balanceOf(agent.address).call() == agent_initial + AMOUNT,
+                      "agent payout")
 
     buyer_final = mock.functions.balanceOf(buyer.address).call()
     agent_final = mock.functions.balanceOf(agent.address).call()
-    assert buyer_final == buyer_initial - AMOUNT, f"buyer payout wrong: {buyer_final}"
-    assert agent_final == agent_initial + AMOUNT, f"agent payout wrong: {agent_final}"
 
     print("\n== RESULT ==")
     print(f"  buyer: {buyer_initial / 1e6} -> {buyer_final / 1e6} mUSDC (paid {AMOUNT / 1e6})")
