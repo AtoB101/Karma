@@ -216,7 +216,7 @@ contract DeployKarmaBilateral is Script {
         KarmaBilateral karma = new KarmaBilateral(admin);
         _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setTokenAllowed, (paymentToken, true)));
         _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setBatchThreshold, (paymentToken, batchThreshold)));
-        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setDisputeWindow, (disputeWindow)));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setSettleDelay, (disputeWindow)));
         _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setSettleTimeout, (settleTimeout)));
         _tl(tl, address(scoring), abi.encodeCall(ScoringEngine.setAuthorizedSettler, (address(karma))));
 

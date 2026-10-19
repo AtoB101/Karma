@@ -226,12 +226,12 @@ contract KarmaBilateralTest is Test {
         uint256 agentBefore = usdc.balanceOf(agent);
 
         // advance past dispute window
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
 
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
         // settle() enters FINALIZING; finalizeSettle() burns bills and releases USDC
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         karma.finalizeSettle(bindingId);
 
         KarmaBilateral.Binding memory b = karma.getBinding(bindingId);
@@ -246,11 +246,11 @@ contract KarmaBilateralTest is Test {
 
     function test_settle_billsAreBurned() public {
         (uint256 bb, uint256 ab, uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
         // finalizeSettle burns bills
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         karma.finalizeSettle(bindingId);
 
         assertEq(uint8(karma.getBill(bb).state), uint8(KarmaBilateral.BillState.BURNED));
@@ -259,11 +259,11 @@ contract KarmaBilateralTest is Test {
 
     function test_settle_invariantHoldsAfterSettle() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
         // finalizeSettle burns bills, zeroing supply and locked
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         karma.finalizeSettle(bindingId);
 
         assertTrue(karma.checkInvariant(address(usdc)));
@@ -275,7 +275,7 @@ contract KarmaBilateralTest is Test {
         (, , uint256 bindingId) = _setupBinding();
 
         // Must pre-compute settleAfter BEFORE vm.prank — view calls consume the prank
-        uint256 settleAfter = block.timestamp + karma.disputeWindowSeconds();
+        uint256 settleAfter = block.timestamp + karma.settleDelaySeconds();
 
         vm.prank(buyer);
         vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.SettleDelayActive.selector, settleAfter));
@@ -284,7 +284,7 @@ contract KarmaBilateralTest is Test {
 
     function test_settle_revertsIfStranger() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
 
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.NoDisputeAccess.selector, bindingId));
@@ -302,7 +302,7 @@ contract KarmaBilateralTest is Test {
         // state is PENDING — settle delay waived, but finalizeSettle still needed
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         karma.finalizeSettle(bindingId);
 
         assertEq(uint8(karma.getBinding(bindingId).state), uint8(KarmaBilateral.BindingState.SETTLED));
@@ -315,7 +315,7 @@ contract KarmaBilateralTest is Test {
     function test_dispute_transitionsToDisputed() public {
         (, , uint256 bindingId) = _setupBinding();
         // dispute requires FINALIZING state (after settle)
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
 
         vm.prank(buyer);
@@ -327,7 +327,7 @@ contract KarmaBilateralTest is Test {
     function test_dispute_revertsIfStranger() public {
         (, , uint256 bindingId) = _setupBinding();
         // dispute requires FINALIZING state (after settle)
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
 
         vm.prank(stranger);
@@ -337,7 +337,7 @@ contract KarmaBilateralTest is Test {
 
     function test_dispute_revertsIfAlreadyDisputed() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
 
@@ -354,7 +354,7 @@ contract KarmaBilateralTest is Test {
 
     function test_resolveDispute_fullBuyer() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
         vm.warp(block.timestamp + karma.evidenceWindow() + 1);
@@ -372,7 +372,7 @@ contract KarmaBilateralTest is Test {
 
     function test_resolveDispute_revertsAgentWipeoutWithoutCounterEvidence() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
         vm.warp(block.timestamp + karma.evidenceWindow() + 1);
@@ -386,7 +386,7 @@ contract KarmaBilateralTest is Test {
 
     function test_resolveDispute_split() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
         vm.prank(agent); karma.submitArbitrationEvidence(bindingId, PROOF);
@@ -406,7 +406,7 @@ contract KarmaBilateralTest is Test {
 
     function test_resolveDispute_revertsWipeoutWhenBothSubmitted() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
         vm.prank(agent); karma.submitArbitrationEvidence(bindingId, PROOF);
@@ -424,7 +424,7 @@ contract KarmaBilateralTest is Test {
     function test_resolveDispute_fuzz(uint16 bps) public {
         vm.assume(bps >= 100 && bps <= 9_900);
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
         vm.prank(agent); karma.submitArbitrationEvidence(bindingId, PROOF);
@@ -446,7 +446,7 @@ contract KarmaBilateralTest is Test {
 
     function test_resolveDispute_revertsIfNotAdmin() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
 
@@ -457,7 +457,7 @@ contract KarmaBilateralTest is Test {
 
     function test_resolveDispute_revertsBeforeEvidenceWindow() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
 
@@ -520,7 +520,7 @@ contract KarmaBilateralTest is Test {
 
         assertTrue(karma.checkInvariant(address(usdc)));
 
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
 
         vm.prank(buyer); karma.settle(bind1, PROOF);
         assertTrue(karma.checkInvariant(address(usdc)));
@@ -529,7 +529,7 @@ contract KarmaBilateralTest is Test {
         assertTrue(karma.checkInvariant(address(usdc)));
 
         // finalizeSettle needed to burn bills and zero supply/locked
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         karma.finalizeSettle(bind1);
         karma.finalizeSettle(bind2);
 
@@ -548,7 +548,7 @@ contract KarmaBilateralTest is Test {
 
     function test_invariant_holdsAfterDispute() public {
         (, , uint256 bindingId) = _setupBinding();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
         vm.prank(agent); karma.submitArbitrationEvidence(bindingId, PROOF);

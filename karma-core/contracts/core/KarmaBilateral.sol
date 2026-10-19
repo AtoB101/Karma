@@ -39,7 +39,7 @@ interface IKarmaAttestationGateway {
 //      invalid      -> immediate refund
 //
 //  SCP:
-//    authorize / accept / cancelAuthorization / unlock
+//    unlock
 //
 //  KarmaIdentity:
 //    registerIdentity / addSubAgent / removeSubAgent / setSubAgentAllowance
@@ -113,10 +113,6 @@ contract KarmaBilateral {
     error ZKInvalidProof();
     // SCP
     error InsufficientFreeBalance(address addr, uint256 available, uint256 requested);
-    error AuthorizationNotFound(uint256 authId);
-    error AuthorizationAlreadyAccepted(uint256 authId);
-    error AuthorizationExpired(uint256 authId);
-    error NotAuthorizationRecipient(uint256 authId);
     // IntentPackage errors
     error IntentPartyMismatch(string party);
     error IntentAmountMismatch(uint256 intent, uint256 buyer, uint256 agent);
@@ -170,17 +166,6 @@ contract KarmaBilateral {
         uint256 agentSubmittedAt;    // 0 if not yet submitted
         uint256 startedAt;           // when dispute() was called
         bool    resolved;
-    }
-
-    struct Authorization {
-        uint256 authId;
-        address from;
-        address to;
-        address token;
-        uint256 amount;
-        bool    accepted;
-        uint256 createdAt;
-        uint256 expiresAt;
     }
 
     // ═══════════════════════════ Storage ═════════════════════════════════════
@@ -257,7 +242,7 @@ contract KarmaBilateral {
     /// @notice Pending replacement gateway (two-step change).
     address public pendingAttestationGateway;
     /// @notice Timestamp after which a pending gateway change may be applied.
-    uint256 public pendingGatewayApplyTime;
+    uint256 internal pendingGatewayApplyTime;
     /// @notice Delay for gateway replacement (0 on testnet; > 0 on mainnet).
     uint256 public gatewayChangeDelay = 24 hours;
     mapping(uint256 => bytes32) public bindingTaskId;
@@ -275,11 +260,6 @@ contract KarmaBilateral {
     // ── SCP per-address balances ─────────────────────────────────────────────
     mapping(address => uint256) public freeBalance;
     mapping(address => uint256) public boundBalance;
-
-    // ── Authorization ────────────────────────────────────────────────────────
-    uint256 private _authCounter;
-    mapping(uint256 => Authorization) public authorizations;
-    mapping(address => uint256[])     private _pendingAuths;
 
     // ── Reentrancy guard (EIP-1153 transient storage) ─────────────────────
 
@@ -317,10 +297,6 @@ contract KarmaBilateral {
     event DisputeRaised(uint256 indexed bindingId, address indexed initiator, bytes32 evidenceHash);
     event ArbitrationEvidenceSubmitted(uint256 indexed bindingId, address indexed submitter, bytes32 evidenceHash);
     event ArbitrationAutoResolved(uint256 indexed bindingId, bool buyerWon, uint256 buyerShare);
-    // SCP events
-    event AuthorizationCreated(uint256 indexed authId, address indexed from, address indexed to, uint256 amount);
-    event AuthorizationAccepted(uint256 indexed authId, address indexed from, address indexed to);
-    event AuthorizationCancelled(uint256 indexed authId, address indexed from);
     event EmergencyGuardUpdated(address indexed guard);
 
     // ═══════════════════════════ Constructor ═════════════════════════════════
@@ -1017,76 +993,10 @@ contract KarmaBilateral {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  SCP — authorize / accept / cancelAuthorization
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function authorize(
-        address token,
-        uint256 amount,
-        address to,
-        uint256 expiresAt
-    ) external nonReentrant returns (uint256 authId) {
-        if (!tokenAllowed[token]) revert TokenNotAllowed();
-        if (amount == 0)          revert ZeroAmount();
-        if (to == address(0))     revert ZeroAddress();
-        if (freeBalance[msg.sender] < amount) {
-            revert InsufficientFreeBalance(msg.sender, freeBalance[msg.sender], amount);
-        }
-
-        freeBalance[msg.sender] -= amount;
-
-        unchecked { authId = ++_authCounter; }
-        authorizations[authId] = Authorization({
-            authId:    authId,
-            from:      msg.sender,
-            to:        to,
-            token:     token,
-            amount:    amount,
-            accepted:  false,
-            createdAt: block.timestamp,
-            expiresAt: expiresAt
-        });
-        _pendingAuths[msg.sender].push(authId);
-
-        emit AuthorizationCreated(authId, msg.sender, to, amount);
-    }
-
-    function accept(uint256 authId) external nonReentrant {
-        Authorization storage auth = _requireAuth(authId);
-        if (auth.to != msg.sender) revert NotAuthorizationRecipient(authId);
-        if (auth.accepted)         revert AuthorizationAlreadyAccepted(authId);
-        if (auth.expiresAt != 0 && block.timestamp > auth.expiresAt) {
-            revert AuthorizationExpired(authId);
-        }
-
-        auth.accepted = true;
-
-        boundBalance[auth.from] += auth.amount;
-        freeBalance[auth.to]    += auth.amount;
-
-        emit AuthorizationAccepted(authId, auth.from, auth.to);
-    }
-
-    function cancelAuthorization(uint256 authId) external nonReentrant {
-        Authorization storage auth = _requireAuth(authId);
-        if (auth.from != msg.sender) revert Unauthorized();
-        if (auth.accepted)           revert AuthorizationAlreadyAccepted(authId);
-
-        auth.accepted = true;
-        freeBalance[msg.sender] += auth.amount;
-
-        emit AuthorizationCancelled(authId, msg.sender);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     //  VIEW FUNCTIONS
     // ─────────────────────────────────────────────────────────────────────────
 
     function getBill(uint256 billId) external view returns (BillToken memory) {
-        return _decodeBill(billId, _bills[billId]);
-    }
-
-    function bills(uint256 billId) external view returns (BillToken memory) {
         return _decodeBill(billId, _bills[billId]);
     }
 
@@ -1117,21 +1027,8 @@ contract KarmaBilateral {
         return true;
     }
 
-    function checkPerAddressInvariant(address) external pure returns (bool) {
-        // totalMintedByAddr / totalLockedByAddr are derived as free + bound.
-        return true;
-    }
-
     function totalBillSupply(address token) external view returns (uint256) {
         return totalLocked[token];
-    }
-
-    function totalMintedByAddr(address addr) external view returns (uint256) {
-        return freeBalance[addr] + boundBalance[addr];
-    }
-
-    function totalLockedByAddr(address addr) external view returns (uint256) {
-        return freeBalance[addr] + boundBalance[addr];
     }
 
     function getBalance(address addr) external view returns (
@@ -1142,10 +1039,6 @@ contract KarmaBilateral {
     ) {
         uint256 locked = freeBalance[addr] + boundBalance[addr];
         return (freeBalance[addr], boundBalance[addr], locked, locked);
-    }
-
-    function getAuthorization(uint256 authId) external view returns (Authorization memory) {
-        return authorizations[authId];
     }
 
     /// @notice Return the timestamp when finalizeSettle() becomes callable.
@@ -1161,16 +1054,6 @@ contract KarmaBilateral {
         ArbitrationRecord storage arb = arbitrations[bindingId];
         if (arb.startedAt == 0) return 0;
         return arb.startedAt + evidenceWindow;
-    }
-
-    /// @dev Deprecated alias for settleDelaySeconds (ABI compatibility).
-    function disputeWindowSeconds() external view returns (uint256) {
-        return settleDelaySeconds;
-    }
-
-    /// @dev Deprecated alias for optimisticDisputeWindow (ABI compatibility).
-    function disputeWindow() external view returns (uint256) {
-        return optimisticDisputeWindow;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1207,14 +1090,9 @@ contract KarmaBilateral {
     }
 
     /// @notice Set minimum time after bind() before settle() can be called.
-    function setSettleDelay(uint256 seconds_) public onlyAdmin {
+    function setSettleDelay(uint256 seconds_) external onlyAdmin {
         settleDelaySeconds = seconds_;
         emit SettleDelayUpdated(seconds_);
-    }
-
-    /// @dev Deprecated alias for setSettleDelay (kept for ABI compatibility).
-    function setDisputeWindow(uint256 seconds_) external onlyAdmin {
-        setSettleDelay(seconds_);
     }
 
     /// @notice Set Layer 1 dispute window duration (after settle() submission).
@@ -1546,9 +1424,4 @@ contract KarmaBilateral {
         if (actual != expected) revert WrongBillState(billId, expected, actual);
     }
 
-    function _requireAuth(uint256 authId) internal view returns (Authorization storage) {
-        Authorization storage auth = authorizations[authId];
-        if (auth.createdAt == 0) revert AuthorizationNotFound(authId);
-        return auth;
-    }
 }

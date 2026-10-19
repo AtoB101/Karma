@@ -95,11 +95,11 @@ contract KarmaBilateralFeeBridgeTest is Test {
 
     function _settle(uint256 bindingId) internal {
         // past settle delay
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
         // past optimistic dispute window → finalize (FeeBridge runs here)
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         karma.finalizeSettle(bindingId);
     }
 

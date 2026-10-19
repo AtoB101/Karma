@@ -62,10 +62,10 @@ contract FinancialFreezeTest is Test {
         freeze.freezeGlobal(7 days, "critical");
         assertTrue(freeze.isGlobalFrozen());
 
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.FundsFrozen.selector, uint8(1), freeze.globalFreezeUntil()));
         karma.finalizeSettle(bindingId);
 
@@ -101,10 +101,10 @@ contract FinancialFreezeTest is Test {
         uint256 bindingId = _bind();
         vm.prank(admin);
         breaker.emergencyPause("scp");
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.FundsFrozen.selector, uint8(5), type(uint256).max));
         karma.finalizeSettle(bindingId);
     }
@@ -123,14 +123,14 @@ contract FinancialFreezeTest is Test {
 
     function test_bindingFreezeBlocksFinalize() public {
         uint256 bindingId = _bind();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
 
         vm.prank(admin);
         freeze.freezeBinding(bindingId, 7 days, "investigate");
 
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         vm.expectRevert();
         karma.finalizeSettle(bindingId);
     }
@@ -141,7 +141,7 @@ contract FinancialFreezeTest is Test {
         freeze.freezeGlobal(1 hours, "pause");
         vm.prank(admin);
         freeze.unfreezeGlobal();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
     }

@@ -168,7 +168,7 @@ contract KarmaIntentPackageTest is Test {
         bytes32 proof = keccak256("proof:delivered");
 
         // Fast-forward past settle delay
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(seller);
         karma.settle(id, proof);
 
@@ -331,7 +331,7 @@ contract KarmaIntentPackageTest is Test {
         uint256 id = _lockAndBind(buyer, seller, PRICE, address(0));
         bytes32 proof = keccak256("proof:delivered");
 
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(seller);
         karma.settle(id, proof);
 
@@ -361,7 +361,7 @@ contract KarmaIntentPackageTest is Test {
         uint256 id = karma.bindWithIntent(intent, bBill, aBill);
 
         // First settle (puts binding into FINALIZING, required for dispute)
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(seller);
         karma.settle(id, keccak256("proof:done"));
 
@@ -383,7 +383,7 @@ contract KarmaIntentPackageTest is Test {
         bytes32 proof = keccak256("proof:delivered");
 
         // Seller settles
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(seller);
         karma.settle(id, proof);
 
@@ -406,12 +406,12 @@ contract KarmaIntentPackageTest is Test {
         bytes32 proof = keccak256("proof:delivered");
 
         // Seller settles after settle delay (30 min)
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(seller);
         karma.settle(id, proof);
 
         // Warp past settleSubmittedAt + disputeWindow (24 hours)
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         vm.prank(seller);
         karma.finalizeSettle(id);
 
