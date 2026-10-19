@@ -12,6 +12,7 @@ import {EmergencyFreeze}         from "../core/EmergencyFreeze.sol";
 import {KarmaReputationAnchor}   from "../core/KarmaReputationAnchor.sol";
 import {KarmaIdentityRegistry}   from "../core/KarmaIdentityRegistry.sol";
 import {KarmaFeeBridge}          from "../core/KarmaFeeBridge.sol";
+import {AdminTimelock}           from "../core/AdminTimelock.sol";
 import {MockERC20}               from "../test/mocks/MockERC20.sol";
 
 /// @notice Deploy the full Karma protocol stack to Base Sepolia (or any EVM chain).
@@ -38,8 +39,12 @@ import {MockERC20}               from "../test/mocks/MockERC20.sol";
 ///
 /// Required env vars:
 ///   DEPLOYER_PRIVATE_KEY   hex private key of deployer
-///   ADMIN_ADDRESS          contract admin / owner (can be multisig)
 ///   ARBITRATOR_ADDRESS     address authorized to resolve attestation challenges
+///
+/// Admin is always a multisig-governed AdminTimelock (no single EOA).
+///   TIMELOCK_OWNERS        JSON array of owner addresses, e.g. ["0x..","0x.."]
+///   TIMELOCK_THRESHOLD     N in N-of-M owners (default: 1; >= 2 on mainnet)
+///   TIMELOCK_DELAY         timelock delay in seconds (default: 0; > 0 on mainnet)
 ///
 /// Optional env vars:
 ///   USE_MOCK_TOKEN          set to "true" to deploy MockERC20 instead of USDC
@@ -79,10 +84,37 @@ contract DeployKarmaBilateral is Script {
             || chainId == 31337;     // local foundry
     }
 
+    function _singleton(address a) internal pure returns (address[] memory out) {
+        out = new address[](1);
+        out[0] = a;
+    }
+
+    /// @dev Schedule + execute a timelock action. Valid while the timelock is in
+    ///      its bootstrap state (single owner, threshold 1, zero delay).
+    function _tl(AdminTimelock tl, address target, bytes memory data) internal {
+        bytes32 id = tl.schedule(target, 0, data);
+        tl.execute(id);
+    }
+
     function run() external {
         uint256 deployerKey   = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address admin         = vm.envOr("ADMIN_ADDRESS",      vm.addr(deployerKey));
-        address arbitrator    = vm.envOr("ARBITRATOR_ADDRESS", admin);
+        address arbitrator    = vm.envOr("ARBITRATOR_ADDRESS", vm.addr(deployerKey));
+
+        // ── Admin: multisig-governed timelock (replaces single-EOA admin) ─
+        // Bootstrap as deployer-only / threshold 1 / zero delay so this
+        // script can wire the stack atomically; reconfigured to the final
+        // multisig config at the end via self-governance.
+        address[] memory tlOwners;
+        if (vm.envExists("TIMELOCK_OWNERS")) {
+            tlOwners = vm.parseJsonAddressArray(vm.envString("TIMELOCK_OWNERS"), "$");
+        } else {
+            tlOwners = _singleton(vm.addr(deployerKey));
+        }
+        uint256 tlThreshold = vm.envOr("TIMELOCK_THRESHOLD", uint256(1));
+        uint256 tlDelay     = vm.envOr("TIMELOCK_DELAY",     uint256(0));
+
+        AdminTimelock tl = new AdminTimelock(_singleton(vm.addr(deployerKey)), 1, 0);
+        address admin = address(tl);
         bool    useMock       = vm.envOr("USE_MOCK_TOKEN",     false);
         address testProvider  = vm.envOr("TEST_PROVIDER",      address(0));
         address testBuyer     = vm.envOr("TEST_BUYER",         address(0));
@@ -98,16 +130,20 @@ contract DeployKarmaBilateral is Script {
         uint256 splitD     = vm.envOr("SPLIT_DEVELOPER",    uint256(2));
 
         // ── MAINNET GUARD ────────────────────────────────────────────────────
-        // SECURITY: admin is immutable after deploy and holds fee-bridge
-        // control, dispute arbitration, and gateway repointing rights. On any
-        // non-testnet chain it MUST be a contract wallet (Safe / multisig) —
-        // a single EOA key compromises the whole system.
+        // SECURITY: admin is the immutable AdminTimelock. On any non-testnet
+        // chain the FINAL multisig config must be non-trivial: threshold >= 2
+        // and a positive delay. A threshold-1 / zero-delay timelock would be
+        // equivalent to a single EOA.
         if (!_isTestnet(block.chainid)) {
-            require(admin.code.length > 0,
-                "MAINNET GUARD: ADMIN_ADDRESS must be a multisig contract (e.g. Safe), not an EOA");
+            require(tlThreshold >= 2,
+                "MAINNET GUARD: TIMELOCK_THRESHOLD must be >= 2");
+            require(tlDelay > 0,
+                "MAINNET GUARD: TIMELOCK_DELAY must be > 0");
+            require(tlOwners.length >= tlThreshold,
+                "MAINNET GUARD: not enough TIMELOCK_OWNERS for threshold");
             require(arbitrator.code.length > 0,
                 "MAINNET GUARD: ARBITRATOR_ADDRESS must be a multisig contract, not an EOA");
-            console.log("[MAINNET GUARD] admin + arbitrator verified as contract wallets");
+            console.log("[MAINNET GUARD] timelock multisig + arbitrator verified");
         }
 
         uint256 batchThreshold  = vm.envOr("BATCH_THRESHOLD",    uint256(1_000_000_000));
@@ -157,8 +193,8 @@ contract DeployKarmaBilateral is Script {
 
         // ── 1. VerifierRegistry ───────────────────────────────────────────────
         VerifierRegistry registry = new VerifierRegistry(admin);
-        registry.setThresholds(verifierN, verifierM);
-        registry.setStakingConfig(paymentToken, 100_000_000, 10_000_000);
+        _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setThresholds, (verifierN, verifierM)));
+        _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setStakingConfig, (paymentToken, 100_000_000, 10_000_000)));
 
         // ── 2. EvidenceChain ──────────────────────────────────────────────────
         EvidenceChain evidence = new EvidenceChain(admin);
@@ -168,26 +204,26 @@ contract DeployKarmaBilateral is Script {
 
         // ── 4. KarmaBilateral ─────────────────────────────────────────────────
         KarmaBilateral karma = new KarmaBilateral(admin);
-        karma.setTokenAllowed(paymentToken, true);
-        karma.setBatchThreshold(paymentToken, batchThreshold);
-        karma.setDisputeWindow(disputeWindow);
-        karma.setSettleTimeout(settleTimeout);
-        scoring.setAuthorizedSettler(address(karma));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setTokenAllowed, (paymentToken, true)));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setBatchThreshold, (paymentToken, batchThreshold)));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setDisputeWindow, (disputeWindow)));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setSettleTimeout, (settleTimeout)));
+        _tl(tl, address(scoring), abi.encodeCall(ScoringEngine.setAuthorizedSettler, (address(karma))));
 
         // Fee bridge wiring: pull 0.5% of every settled pool and split it.
         KarmaFeeBridge feeBridge = new KarmaFeeBridge(admin);
-        feeBridge.setCore(address(karma));
-        feeBridge.setToken(paymentToken);
-        feeBridge.setFeeBps(feeBps);
-        feeBridge.setSplit(splitT, splitV, splitB, splitD);
-        feeBridge.setDestinations(treasury, address(registry), buyback, developer);
-        karma.setFeeBridge(address(feeBridge));
-        registry.setSlashRecipient(treasury);
+        _tl(tl, address(feeBridge), abi.encodeCall(KarmaFeeBridge.setCore, (address(karma))));
+        _tl(tl, address(feeBridge), abi.encodeCall(KarmaFeeBridge.setToken, (paymentToken)));
+        _tl(tl, address(feeBridge), abi.encodeCall(KarmaFeeBridge.setFeeBps, (feeBps)));
+        _tl(tl, address(feeBridge), abi.encodeCall(KarmaFeeBridge.setSplit, (splitT, splitV, splitB, splitD)));
+        _tl(tl, address(feeBridge), abi.encodeCall(KarmaFeeBridge.setDestinations, (treasury, address(registry), buyback, developer)));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setFeeBridge, (address(feeBridge))));
+        _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setSlashRecipient, (treasury)));
 
         CircuitBreaker breaker = new CircuitBreaker(admin);
         EmergencyFreeze freeze = new EmergencyFreeze(admin);
-        freeze.setCircuitBreaker(address(breaker));
-        karma.setEmergencyGuard(address(freeze));
+        _tl(tl, address(freeze), abi.encodeCall(EmergencyFreeze.setCircuitBreaker, (address(breaker))));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setEmergencyGuard, (address(freeze))));
 
         KarmaReputationAnchor reputationAnchor = new KarmaReputationAnchor(admin);
         KarmaIdentityRegistry identityRegistry = new KarmaIdentityRegistry(address(karma));
@@ -201,9 +237,16 @@ contract DeployKarmaBilateral is Script {
         );
 
         // ── 6. Wire ───────────────────────────────────────────────────────────
-        karma.setAttestationGateway(address(gateway));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setAttestationGateway, (address(gateway))));
         // Privilege: only Gateway may recordAttestation / rewardVerifier
-        registry.setAuthorizedCaller(address(gateway), true);
+        _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setAuthorizedCaller, (address(gateway), true)));
+
+        // ── Reconfigure timelock to the final multisig config ─────────────
+        if (tlDelay != 0 || tlThreshold != 1 ||
+            tlOwners.length != 1 || tlOwners[0] != vm.addr(deployerKey)) {
+            _tl(tl, address(tl), abi.encodeCall(AdminTimelock.reconfigure, (tlOwners, tlThreshold, tlDelay)));
+            console.log("Timelock reconfigured: owners/threshold/delay applied");
+        }
 
         vm.stopBroadcast();
 
@@ -228,6 +271,7 @@ contract DeployKarmaBilateral is Script {
         // ── Output ────────────────────────────────────────────────────────────
         console.log("");
         console.log("=== Deployed Addresses ===");
+        console.log("TIMELOCK  ", address(tl));
         console.log("TOKEN     ", paymentToken);
         console.log("REGISTRY  ", address(registry));
         console.log("EVIDENCE  ", address(evidence));
