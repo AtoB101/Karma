@@ -32,7 +32,7 @@ contract KarmaFeeBridgeTest is Test {
         registry = new VerifierRegistry(admin);
 
         karma.setTokenAllowed(address(usdc), true);
-        karma.setDisputeWindow(0);          // no settle delay
+        karma.setSettleDelay(0);          // no settle delay
         karma.setOptimisticDisputeWindow(0); // no finalize delay
 
         bridge = new KarmaFeeBridge(admin);

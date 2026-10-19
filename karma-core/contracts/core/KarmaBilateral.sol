@@ -39,7 +39,7 @@ interface IKarmaAttestationGateway {
 //      invalid      -> immediate refund
 //
 //  SCP:
-//    authorize / accept / cancelAuthorization / unlock
+//    unlock
 //
 //  KarmaIdentity:
 //    registerIdentity / addSubAgent / removeSubAgent / setSubAgentAllowance
@@ -89,6 +89,8 @@ contract KarmaBilateral {
     error TooManyTokens();
     error AttestationRequired(uint256 bindingId);
     error GatewayNotSet();
+    error NoPendingGatewayUpdate();
+    error GatewayUpdateNotReady(uint256 applyTime);
     // Layer 1 — Optimistic settlement
     error SettleDelayActive(uint256 endsAt);         // too early to call settle()
     error FinalizeWindowOpen(uint256 endsAt);        // dispute window not yet closed
@@ -101,6 +103,8 @@ contract KarmaBilateral {
     error ArbitrationAlreadyResolved(uint256 bindingId);
     error ArbitrationEvidenceWindowOpen(uint256 windowEnd);
     error LargeDisputeRequiresAdmin(uint256 bindingId, uint256 totalPool);
+    error SplitMustMatchEvidence();
+    error SplitOutsideRange(uint16 buyerShareBps);
     // Layer 2 — TEE (future)
     error TEENotImplemented();
     error TEEInvalidAttestation();
@@ -109,10 +113,6 @@ contract KarmaBilateral {
     error ZKInvalidProof();
     // SCP
     error InsufficientFreeBalance(address addr, uint256 available, uint256 requested);
-    error AuthorizationNotFound(uint256 authId);
-    error AuthorizationAlreadyAccepted(uint256 authId);
-    error AuthorizationExpired(uint256 authId);
-    error NotAuthorizationRecipient(uint256 authId);
     // IntentPackage errors
     error IntentPartyMismatch(string party);
     error IntentAmountMismatch(uint256 intent, uint256 buyer, uint256 agent);
@@ -168,17 +168,6 @@ contract KarmaBilateral {
         bool    resolved;
     }
 
-    struct Authorization {
-        uint256 authId;
-        address from;
-        address to;
-        address token;
-        uint256 amount;
-        bool    accepted;
-        uint256 createdAt;
-        uint256 expiresAt;
-    }
-
     // ═══════════════════════════ Storage ═════════════════════════════════════
 
     address public immutable admin;
@@ -207,10 +196,10 @@ contract KarmaBilateral {
     // ── Settlement timing ────────────────────────────────────────────────────
 
     /// @notice Minimum time after bind() before settle() can be called.
-    uint256 public disputeWindowSeconds = 30 minutes;
+    uint256 public settleDelaySeconds = 30 minutes;
 
     /// @notice Time after settle() during which buyer can dispute (Layer 1).
-    uint256 public disputeWindow = 24 hours;
+    uint256 public optimisticDisputeWindow = 24 hours;
 
     /// @notice Time from dispute() during which both parties submit evidence.
     uint256 public evidenceWindow = 72 hours;
@@ -240,11 +229,22 @@ contract KarmaBilateral {
     ///      is hardcoded and cannot be changed by anyone, including admin.
     uint256 public constant MAX_FEE_BPS = 1_000;
 
+    /// @dev Bounds for admin dispute resolution when both parties submitted
+    ///      evidence. Prevents a unilateral wipeout (0% or 100%).
+    uint256 public constant MIN_ADMIN_SPLIT_BPS = 100;    // 1%
+    uint256 public constant MAX_ADMIN_SPLIT_BPS = 9_900;  // 99%
+
     // ── Arbitration ──────────────────────────────────────────────────────────
     mapping(uint256 => ArbitrationRecord) public arbitrations;
 
     // ── Attestation gate ─────────────────────────────────────────────────────
     address public attestationGateway;
+    /// @notice Pending replacement gateway (two-step change).
+    address public pendingAttestationGateway;
+    /// @notice Timestamp after which a pending gateway change may be applied.
+    uint256 internal pendingGatewayApplyTime;
+    /// @notice Delay for gateway replacement (0 on testnet; > 0 on mainnet).
+    uint256 public gatewayChangeDelay = 24 hours;
     mapping(uint256 => bytes32) public bindingTaskId;
     mapping(uint256 => bool)    public requiresAttestation;
 
@@ -260,11 +260,6 @@ contract KarmaBilateral {
     // ── SCP per-address balances ─────────────────────────────────────────────
     mapping(address => uint256) public freeBalance;
     mapping(address => uint256) public boundBalance;
-
-    // ── Authorization ────────────────────────────────────────────────────────
-    uint256 private _authCounter;
-    mapping(uint256 => Authorization) public authorizations;
-    mapping(address => uint256[])     private _pendingAuths;
 
     // ── Reentrancy guard (EIP-1153 transient storage) ─────────────────────
 
@@ -282,10 +277,12 @@ contract KarmaBilateral {
     event TokenAllowed(address indexed token, bool allowed);
     event InvariantChecked(address indexed token, uint256 supply, uint256 locked);
     event AttestationGatewayUpdated(address indexed gateway);
+    event AttestationGatewayProposed(address indexed gateway, uint256 applyTime);
+    event GatewayChangeDelayUpdated(uint256 delay_);
     event TreasuryUpdated(address indexed treasury);
     event FeeBridgeUpdated(address indexed feeBridge);
     event BindingDeveloperUpdated(uint256 indexed bindingId, address indexed developer);
-    event DisputeWindowUpdated(uint256 seconds_);
+    event SettleDelayUpdated(uint256 seconds_);
     event OptimisticDisputeWindowUpdated(uint256 seconds_);
     event EvidenceWindowUpdated(uint256 seconds_);
     event AutoArbitrationThresholdUpdated(uint256 amount);
@@ -300,10 +297,6 @@ contract KarmaBilateral {
     event DisputeRaised(uint256 indexed bindingId, address indexed initiator, bytes32 evidenceHash);
     event ArbitrationEvidenceSubmitted(uint256 indexed bindingId, address indexed submitter, bytes32 evidenceHash);
     event ArbitrationAutoResolved(uint256 indexed bindingId, bool buyerWon, uint256 buyerShare);
-    // SCP events
-    event AuthorizationCreated(uint256 indexed authId, address indexed from, address indexed to, uint256 amount);
-    event AuthorizationAccepted(uint256 indexed authId, address indexed from, address indexed to);
-    event AuthorizationCancelled(uint256 indexed authId, address indexed from);
     event EmergencyGuardUpdated(address indexed guard);
 
     // ═══════════════════════════ Constructor ═════════════════════════════════
@@ -441,7 +434,7 @@ contract KarmaBilateral {
             scopeHash:        scopeHash,
             state:            BindingState.ACTIVE,
             createdAt:        block.timestamp,
-            settleAfter:      block.timestamp + disputeWindowSeconds,
+            settleAfter:      block.timestamp + settleDelaySeconds,
             proofHash:        bytes32(0),
             settleSubmittedAt: 0,
             disputedAt:       0,
@@ -498,7 +491,7 @@ contract KarmaBilateral {
             scopeHash:        scopeHash,
             state:            BindingState.ACTIVE,
             createdAt:        block.timestamp,
-            settleAfter:      block.timestamp + disputeWindowSeconds,
+            settleAfter:      block.timestamp + settleDelaySeconds,
             proofHash:        bytes32(0),
             settleSubmittedAt: 0,
             disputedAt:       0,
@@ -572,7 +565,7 @@ contract KarmaBilateral {
             scopeHash:        intentHash,
             state:            BindingState.ACTIVE,
             createdAt:        block.timestamp,
-            settleAfter:      block.timestamp + disputeWindowSeconds,
+            settleAfter:      block.timestamp + settleDelaySeconds,
             proofHash:        bytes32(0),
             settleSubmittedAt: 0,
             disputedAt:       0,
@@ -618,7 +611,7 @@ contract KarmaBilateral {
     ///           - Caller must be buyer or agent.
     ///           - If ACTIVE: block.timestamp must be >= settleAfter (settle delay).
     ///           - Binding transitions to FINALIZING; USDC is NOT released yet.
-    ///           - Call finalizeSettle() after disputeWindow to complete settlement.
+    ///           - Call finalizeSettle() after optimisticDisputeWindow to complete settlement.
     ///
     ///         Attested path (via KarmaAttestationGateway):
     ///           - Only the gateway may call; N-of-M quorum already verified.
@@ -658,7 +651,7 @@ contract KarmaBilateral {
             b.proofHash        = proofHash;
             b.settleSubmittedAt = block.timestamp;
 
-            emit SettleSubmitted(bindingId, proofHash, block.timestamp + disputeWindow);
+            emit SettleSubmitted(bindingId, proofHash, block.timestamp + optimisticDisputeWindow);
         }
     }
 
@@ -674,7 +667,7 @@ contract KarmaBilateral {
             revert WrongBindingState(bindingId, BindingState.FINALIZING, b.state);
         }
 
-        uint256 windowEnd = b.settleSubmittedAt + disputeWindow;
+        uint256 windowEnd = b.settleSubmittedAt + optimisticDisputeWindow;
         if (block.timestamp < windowEnd) {
             revert FinalizeWindowOpen(windowEnd);
         }
@@ -697,8 +690,8 @@ contract KarmaBilateral {
             revert WrongBindingState(bindingId, BindingState.FINALIZING, b.state);
         }
 
-        // Dispute window: [settleSubmittedAt, settleSubmittedAt + disputeWindow)
-        uint256 windowEnd = b.settleSubmittedAt + disputeWindow;
+        // Dispute window: [settleSubmittedAt, settleSubmittedAt + optimisticDisputeWindow)
+        uint256 windowEnd = b.settleSubmittedAt + optimisticDisputeWindow;
         if (block.timestamp >= windowEnd) {
             revert DisputeWindowClosed(windowEnd);
         }
@@ -926,6 +919,27 @@ contract KarmaBilateral {
         uint256 windowEnd = arb.startedAt + evidenceWindow;
         if (block.timestamp < windowEnd) revert ArbitrationEvidenceWindowOpen(windowEnd);
 
+        // SECURITY: a single admin (or captured governance) must not be able to
+        // unilaterally wipe out either party. The split must be consistent with
+        // the submitted evidence:
+        //   - one side only -> that side's evidence-backed outcome (0% / 100%)
+        //   - both sides    -> a bounded split, never a 0% / 100% wipeout
+        //   - neither side  -> conservative buyer refund (100%)
+        bool buyerSubmitted = arb.buyerSubmittedAt != 0;
+        bool agentSubmitted = arb.agentSubmittedAt != 0;
+
+        if (buyerSubmitted && agentSubmitted) {
+            if (buyerShareBps < MIN_ADMIN_SPLIT_BPS || buyerShareBps > MAX_ADMIN_SPLIT_BPS) {
+                revert SplitOutsideRange(buyerShareBps);
+            }
+        } else if (buyerSubmitted && !agentSubmitted) {
+            if (buyerShareBps != 10_000) revert SplitMustMatchEvidence();
+        } else if (!buyerSubmitted && agentSubmitted) {
+            if (buyerShareBps != 0) revert SplitMustMatchEvidence();
+        } else {
+            if (buyerShareBps != 10_000) revert SplitMustMatchEvidence();
+        }
+
         arb.resolved = true;
 
         emit DisputeResolved(bindingId, buyerShareBps);
@@ -979,76 +993,10 @@ contract KarmaBilateral {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  SCP — authorize / accept / cancelAuthorization
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function authorize(
-        address token,
-        uint256 amount,
-        address to,
-        uint256 expiresAt
-    ) external nonReentrant returns (uint256 authId) {
-        if (!tokenAllowed[token]) revert TokenNotAllowed();
-        if (amount == 0)          revert ZeroAmount();
-        if (to == address(0))     revert ZeroAddress();
-        if (freeBalance[msg.sender] < amount) {
-            revert InsufficientFreeBalance(msg.sender, freeBalance[msg.sender], amount);
-        }
-
-        freeBalance[msg.sender] -= amount;
-
-        unchecked { authId = ++_authCounter; }
-        authorizations[authId] = Authorization({
-            authId:    authId,
-            from:      msg.sender,
-            to:        to,
-            token:     token,
-            amount:    amount,
-            accepted:  false,
-            createdAt: block.timestamp,
-            expiresAt: expiresAt
-        });
-        _pendingAuths[msg.sender].push(authId);
-
-        emit AuthorizationCreated(authId, msg.sender, to, amount);
-    }
-
-    function accept(uint256 authId) external nonReentrant {
-        Authorization storage auth = _requireAuth(authId);
-        if (auth.to != msg.sender) revert NotAuthorizationRecipient(authId);
-        if (auth.accepted)         revert AuthorizationAlreadyAccepted(authId);
-        if (auth.expiresAt != 0 && block.timestamp > auth.expiresAt) {
-            revert AuthorizationExpired(authId);
-        }
-
-        auth.accepted = true;
-
-        boundBalance[auth.from] += auth.amount;
-        freeBalance[auth.to]    += auth.amount;
-
-        emit AuthorizationAccepted(authId, auth.from, auth.to);
-    }
-
-    function cancelAuthorization(uint256 authId) external nonReentrant {
-        Authorization storage auth = _requireAuth(authId);
-        if (auth.from != msg.sender) revert Unauthorized();
-        if (auth.accepted)           revert AuthorizationAlreadyAccepted(authId);
-
-        auth.accepted = true;
-        freeBalance[msg.sender] += auth.amount;
-
-        emit AuthorizationCancelled(authId, msg.sender);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
     //  VIEW FUNCTIONS
     // ─────────────────────────────────────────────────────────────────────────
 
     function getBill(uint256 billId) external view returns (BillToken memory) {
-        return _decodeBill(billId, _bills[billId]);
-    }
-
-    function bills(uint256 billId) external view returns (BillToken memory) {
         return _decodeBill(billId, _bills[billId]);
     }
 
@@ -1079,21 +1027,8 @@ contract KarmaBilateral {
         return true;
     }
 
-    function checkPerAddressInvariant(address) external pure returns (bool) {
-        // totalMintedByAddr / totalLockedByAddr are derived as free + bound.
-        return true;
-    }
-
     function totalBillSupply(address token) external view returns (uint256) {
         return totalLocked[token];
-    }
-
-    function totalMintedByAddr(address addr) external view returns (uint256) {
-        return freeBalance[addr] + boundBalance[addr];
-    }
-
-    function totalLockedByAddr(address addr) external view returns (uint256) {
-        return freeBalance[addr] + boundBalance[addr];
     }
 
     function getBalance(address addr) external view returns (
@@ -1106,16 +1041,12 @@ contract KarmaBilateral {
         return (freeBalance[addr], boundBalance[addr], locked, locked);
     }
 
-    function getAuthorization(uint256 authId) external view returns (Authorization memory) {
-        return authorizations[authId];
-    }
-
     /// @notice Return the timestamp when finalizeSettle() becomes callable.
     ///         Returns 0 if the binding is not in FINALIZING state.
     function finalizeAfter(uint256 bindingId) external view returns (uint256) {
         Binding storage b = bindings[bindingId];
         if (b.state != BindingState.FINALIZING) return 0;
-        return b.settleSubmittedAt + disputeWindow;
+        return b.settleSubmittedAt + optimisticDisputeWindow;
     }
 
     /// @notice Return the timestamp when the evidence window closes for a DISPUTED binding.
@@ -1159,14 +1090,14 @@ contract KarmaBilateral {
     }
 
     /// @notice Set minimum time after bind() before settle() can be called.
-    function setDisputeWindow(uint256 seconds_) external onlyAdmin {
-        disputeWindowSeconds = seconds_;
-        emit DisputeWindowUpdated(seconds_);
+    function setSettleDelay(uint256 seconds_) external onlyAdmin {
+        settleDelaySeconds = seconds_;
+        emit SettleDelayUpdated(seconds_);
     }
 
     /// @notice Set Layer 1 dispute window duration (after settle() submission).
     function setOptimisticDisputeWindow(uint256 seconds_) external onlyAdmin {
-        disputeWindow = seconds_;
+        optimisticDisputeWindow = seconds_;
         emit OptimisticDisputeWindowUpdated(seconds_);
     }
 
@@ -1198,8 +1129,36 @@ contract KarmaBilateral {
 
     function setAttestationGateway(address gateway) external onlyAdmin {
         if (gateway == address(0)) revert InvalidAddress();
-        attestationGateway = gateway;
-        emit AttestationGatewayUpdated(gateway);
+        // First-time wiring may be immediate (bootstrap). Re-pointing an
+        // already-set gateway must pass through the timelocked two-step path so
+        // no single admin action can instantly swap the settlement gate.
+        if (attestationGateway == address(0)) {
+            attestationGateway = gateway;
+            emit AttestationGatewayUpdated(gateway);
+            return;
+        }
+        pendingAttestationGateway = gateway;
+        pendingGatewayApplyTime = block.timestamp + gatewayChangeDelay;
+        emit AttestationGatewayProposed(gateway, pendingGatewayApplyTime);
+    }
+
+    /// @notice Apply a proposed gateway replacement once the delay has elapsed.
+    ///         Permissionless — the delay, not access control, is the guard.
+    function applyAttestationGateway() external {
+        address pending = pendingAttestationGateway;
+        if (pending == address(0)) revert NoPendingGatewayUpdate();
+        if (block.timestamp < pendingGatewayApplyTime) revert GatewayUpdateNotReady(pendingGatewayApplyTime);
+        pendingAttestationGateway = address(0);
+        pendingGatewayApplyTime = 0;
+        attestationGateway = pending;
+        emit AttestationGatewayUpdated(pending);
+    }
+
+    /// @notice Set the gateway replacement delay (0 allowed on testnet only;
+    ///         deployer enforces > 0 on mainnet).
+    function setGatewayChangeDelay(uint256 delay_) external onlyAdmin {
+        gatewayChangeDelay = delay_;
+        emit GatewayChangeDelayUpdated(delay_);
     }
 
     /// @notice One-time/operational wiring to karma-economy Treasury.
@@ -1465,9 +1424,4 @@ contract KarmaBilateral {
         if (actual != expected) revert WrongBillState(billId, expected, actual);
     }
 
-    function _requireAuth(uint256 authId) internal view returns (Authorization storage) {
-        Authorization storage auth = authorizations[authId];
-        if (auth.createdAt == 0) revert AuthorizationNotFound(authId);
-        return auth;
-    }
 }

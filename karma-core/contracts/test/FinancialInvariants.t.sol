@@ -84,10 +84,10 @@ contract FinancialInvariantsTest is Test {
     /// INV-4: no double settlement
     function test_INV4_doubleFinalizeReverts() public {
         (, , uint256 bindingId) = _bind();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         karma.finalizeSettle(bindingId);
         vm.expectRevert();
         karma.finalizeSettle(bindingId);
@@ -97,7 +97,7 @@ contract FinancialInvariantsTest is Test {
     /// INV-5: unauthorized actor cannot move funds
     function test_INV5_strangerCannotSettleOrUnlock() public {
         (uint256 bb, , uint256 bindingId) = _bind();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(attacker);
         vm.expectRevert();
         karma.settle(bindingId, PROOF);
@@ -128,7 +128,7 @@ contract FinancialInvariantsTest is Test {
     /// INV-8: replay / TEE stub cannot skip guards
     function test_INV8_replaySettleAfterSettledFails() public {
         (, , uint256 bindingId) = _bind();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
         vm.prank(buyer);
@@ -139,12 +139,12 @@ contract FinancialInvariantsTest is Test {
     /// INV-9: dispute blocks ordinary settlement
     function test_INV9_disputeBlocksFinalize() public {
         (, , uint256 bindingId) = _bind();
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
         vm.prank(buyer);
         karma.dispute(bindingId, keccak256("ev"));
-        vm.warp(block.timestamp + karma.disputeWindow() + 1);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
         vm.expectRevert();
         karma.finalizeSettle(bindingId);
     }

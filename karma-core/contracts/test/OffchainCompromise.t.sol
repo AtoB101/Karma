@@ -39,7 +39,7 @@ contract OffchainCompromiseTest is Test {
         uint256 ab = karma.lock(address(usdc), 10_000_000);
         vm.prank(buyer);
         uint256 id = karma.bind(bb, ab, keccak256("t"));
-        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
 
         address[3] memory attackers = [backend, verifier, db];
         for (uint256 i; i < attackers.length; i++) {

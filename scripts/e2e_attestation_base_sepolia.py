@@ -32,6 +32,7 @@ from eth_abi import encode
 RPC = os.getenv("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
 CHAIN_ID = 84532
 KARMA = "0xF7839e77960f04B68D0Ea635DB3a21738489A6BF"
+TIMELOCK = "0x94bd215e391ef625448EC9f14ef50D4fA34D653A"
 ADMIN_KEY = os.getenv("ADMIN_PRIVATE_KEY", "")
 
 AMOUNT = 10_000_000          # 10 mUSDC (6 decimals)
@@ -78,6 +79,32 @@ def latest_ts(w3):
     return w3.eth.get_block("latest")["timestamp"]
 
 
+def tl_call(w3, admin, timelock, target, data, gas=3_000_000):
+    """Route an admin-only call through the AdminTimelock (schedule + execute)."""
+    tx = timelock.functions.schedule(target, 0, data).build_transaction({
+        "from": admin.address,
+        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "gas": gas,
+    })
+    signed = admin.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+    if receipt.status != 1:
+        raise RuntimeError(f"timelock schedule reverted: {tx_hash.hex()}")
+    action_id = timelock.events.Scheduled().process_receipt(receipt)[0]["args"]["id"]
+    tx = timelock.functions.execute(action_id).build_transaction({
+        "from": admin.address,
+        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "gas": gas,
+    })
+    signed = admin.sign_transaction(tx)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+    if receipt.status != 1:
+        raise RuntimeError(f"timelock execute reverted: {tx_hash.hex()}")
+    return receipt
+
+
 
 def _wait_until(cond, label, timeout=60, interval=5):
     deadline = time.time() + timeout
@@ -106,13 +133,15 @@ def main() -> int:
 
     karma_artifact = load(OUT / "KarmaBilateral.sol" / "KarmaBilateral.json")
     karma = w3.eth.contract(address=Web3.to_checksum_address(KARMA), abi=karma_artifact["abi"])
+    timelock_artifact = load(OUT / "AdminTimelock.sol" / "AdminTimelock.json")
+    timelock = w3.eth.contract(address=Web3.to_checksum_address(TIMELOCK), abi=timelock_artifact["abi"])
 
     # 1. fresh MockERC20 (open mint)
     mock_artifact = load(OUT / "MockERC20.sol" / "MockERC20.json")
     Mock = w3.eth.contract(abi=mock_artifact["abi"], bytecode=mock_artifact["bytecode"]["object"])
     mock_addr = send_tx(w3, admin, Mock.constructor())["contractAddress"]
     mock = w3.eth.contract(address=mock_addr, abi=mock_artifact["abi"])
-    send_tx(w3, admin, karma.functions.setTokenAllowed(mock_addr, True))
+    tl_call(w3, admin, timelock, KARMA, karma.functions.setTokenAllowed(mock_addr, True)._encode_transaction_data())
     print(f"mock     {mock_addr}")
 
     # 2. fresh VerifierRegistry with real staking (minStake 1 mUSDC)
@@ -143,7 +172,13 @@ def main() -> int:
     gw_addr = send_tx(w3, admin, Gw.constructor(reg_addr, KARMA, admin.address, CHALLENGE_WINDOW))["contractAddress"]
     gateway = w3.eth.contract(address=gw_addr, abi=gw_artifact["abi"])
     send_tx(w3, admin, registry.functions.setAuthorizedCaller(gw_addr, True))
-    send_tx(w3, admin, karma.functions.setAttestationGateway(gw_addr))
+    # Re-point the already-deployed Karma to the fresh gateway. The deployed
+    # Karma admin is the AdminTimelock, and re-pointing is a two-step change:
+    # set delay 0 (testnet) -> propose -> apply.
+    tl_call(w3, admin, timelock, KARMA, karma.functions.setGatewayChangeDelay(0)._encode_transaction_data())
+    tl_call(w3, admin, timelock, KARMA, karma.functions.setAttestationGateway(gw_addr)._encode_transaction_data())
+    send_tx(w3, admin, karma.functions.applyAttestationGateway())
+    assert karma.functions.attestationGateway().call() == gw_addr
     print(f"gateway  {gw_addr} (challengeWindow={CHALLENGE_WINDOW}s)")
 
     # 5. buyer + agent lock
