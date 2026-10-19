@@ -11,6 +11,7 @@ import {CircuitBreaker}          from "../core/CircuitBreaker.sol";
 import {EmergencyFreeze}         from "../core/EmergencyFreeze.sol";
 import {KarmaReputationAnchor}   from "../core/KarmaReputationAnchor.sol";
 import {KarmaIdentityRegistry}   from "../core/KarmaIdentityRegistry.sol";
+import {KarmaFeeBridge}          from "../core/KarmaFeeBridge.sol";
 import {MockERC20}               from "../test/mocks/MockERC20.sol";
 
 /// @notice Deploy the full Karma protocol stack to Base Sepolia (or any EVM chain).
@@ -51,6 +52,14 @@ import {MockERC20}               from "../test/mocks/MockERC20.sol";
 ///   CHALLENGE_WINDOW        gateway challenge window in seconds (default: 3600)
 ///   VERIFIER_THRESHOLD      N in N-of-M (default: 3)
 ///   VERIFIER_TOTAL          M in N-of-M (default: 5)
+///   FEE_BPS                 fee rate in basis points (default: 50 = 0.5%)
+///   SPLIT_TREASURY          treasury parts out of 10 (default: 3)
+///   SPLIT_VERIFIER          verifier-pool parts out of 10 (default: 3)
+///   SPLIT_BUYBACK           buyback parts out of 10 (default: 2)
+///   SPLIT_DEVELOPER         developer parts out of 10 (default: 2)
+///   TREASURY_ADDRESS        fee treasury / slash recipient (default: admin)
+///   BUYBACK_ADDRESS         token buyback operator (default: admin)
+///   DEVELOPER_ADDRESS       developer reward recipient (default: admin)
 ///
 /// Base Sepolia USDC: 0x036CbD53842c5426634e7929541eC2318f3dCF7e
 contract DeployKarmaBilateral is Script {
@@ -77,6 +86,16 @@ contract DeployKarmaBilateral is Script {
         bool    useMock       = vm.envOr("USE_MOCK_TOKEN",     false);
         address testProvider  = vm.envOr("TEST_PROVIDER",      address(0));
         address testBuyer     = vm.envOr("TEST_BUYER",         address(0));
+
+        // Fee bridge: 0.5% fee split 3/3/2/2 (treasury / verifier / buyback / developer).
+        address treasury   = vm.envOr("TREASURY_ADDRESS",   admin);
+        address buyback    = vm.envOr("BUYBACK_ADDRESS",    admin);
+        address developer  = vm.envOr("DEVELOPER_ADDRESS",  admin);
+        uint256 feeBps     = vm.envOr("FEE_BPS",            uint256(50));
+        uint256 splitT     = vm.envOr("SPLIT_TREASURY",     uint256(3));
+        uint256 splitV     = vm.envOr("SPLIT_VERIFIER",     uint256(3));
+        uint256 splitB     = vm.envOr("SPLIT_BUYBACK",      uint256(2));
+        uint256 splitD     = vm.envOr("SPLIT_DEVELOPER",    uint256(2));
 
         // ── MAINNET GUARD ────────────────────────────────────────────────────
         // SECURITY: admin is immutable after deploy and holds fee-bridge
@@ -155,6 +174,16 @@ contract DeployKarmaBilateral is Script {
         karma.setSettleTimeout(settleTimeout);
         scoring.setAuthorizedSettler(address(karma));
 
+        // Fee bridge wiring: pull 0.5% of every settled pool and split it.
+        KarmaFeeBridge feeBridge = new KarmaFeeBridge(admin);
+        feeBridge.setCore(address(karma));
+        feeBridge.setToken(paymentToken);
+        feeBridge.setFeeBps(feeBps);
+        feeBridge.setSplit(splitT, splitV, splitB, splitD);
+        feeBridge.setDestinations(treasury, address(registry), buyback, developer);
+        karma.setFeeBridge(address(feeBridge));
+        registry.setSlashRecipient(treasury);
+
         CircuitBreaker breaker = new CircuitBreaker(admin);
         EmergencyFreeze freeze = new EmergencyFreeze(admin);
         freeze.setCircuitBreaker(address(breaker));
@@ -182,6 +211,8 @@ contract DeployKarmaBilateral is Script {
         require(karma.admin()                 == admin,           "karma admin mismatch");
         require(karma.tokenAllowed(paymentToken),                 "token not allowlisted");
         require(karma.attestationGateway()    == address(gateway), "gateway not wired");
+        require(karma.feeBridge()             == address(feeBridge), "fee bridge not wired");
+        require(registry.slashRecipient()     == treasury, "slash recipient not wired");
         require(gateway.bilateralContract()   == address(karma),  "bilateral not wired");
         require(address(gateway.registry())   == address(registry), "registry not wired");
         require(registry.authorizedCallers(address(gateway)),     "gateway not authorized on registry");
@@ -207,6 +238,10 @@ contract DeployKarmaBilateral is Script {
         console.log("IDENTITY   ", address(identityRegistry));
         console.log("KARMA     ", address(karma));
         console.log("GATEWAY   ", address(gateway));
+        console.log("FEE_BRIDGE", address(feeBridge));
+        console.log("TREASURY  ", treasury);
+        console.log("BUYBACK   ", buyback);
+        console.log("DEVELOPER ", developer);
         console.log("");
         console.log("=== Env Vars for SDK ===");
         console.log("PAYMENT_TOKEN=");
@@ -231,6 +266,7 @@ contract DeployKarmaBilateral is Script {
         console.log(address(scoring));
         console.log(address(karma));
         console.log(address(gateway));
+        console.log(address(feeBridge));
         if (useMock) {
             console.log(paymentToken);
         }

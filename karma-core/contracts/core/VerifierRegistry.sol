@@ -70,6 +70,9 @@ contract VerifierRegistry {
     /// @notice Base reward per verified binding (in staking token).
     uint256 public verificationReward;
 
+    /// @notice Recipient of slashed stake (protocol treasury by default).
+    address public slashRecipient;
+
     // ──────────────────────────────── Events ─────────────────────────────────
 
     event VerifierRegistered(
@@ -98,6 +101,7 @@ contract VerifierRegistry {
     event VerifierSlashed(address indexed verifier, uint256 amount, string reason);
     event VerifierRewarded(address indexed verifier, uint256 amount);
     event StakingConfigUpdated(uint256 minStake, uint256 reward);
+    event SlashRecipientUpdated(address indexed recipient);
     event AuthorizedCallerUpdated(address indexed caller, bool allowed);
 
     // ──────────────────────────────── Constructor ────────────────────────────
@@ -106,6 +110,7 @@ contract VerifierRegistry {
     constructor(address admin_) {
         if (admin_ == address(0)) revert InvalidAddress();
         admin = admin_;
+        slashRecipient = admin_;
     }
 
     // ────────────────────────────── Admin Functions ──────────────────────────
@@ -118,14 +123,16 @@ contract VerifierRegistry {
         emit AuthorizedCallerUpdated(caller, allowed);
     }
 
-    /// @notice Register a new verifier node.
+    /// @notice Register a new verifier node (inactive until minStake is met).
     /// @param wallet Verifier's Ethereum address.
     /// @param endpointUrl Verifier's API endpoint for off-chain attestation.
-    /// @param stakeAmount Optional initial stake (may be zero for testnet).
+    /// @dev The legacy stakeAmount argument is deprecated and ignored. Verifiers
+    ///      deposit real stake via stake() to become active; when minStake is 0
+    ///      the requirement is trivially met and registration activates directly.
     function registerVerifier(
         address wallet,
         string calldata endpointUrl,
-        uint256 stakeAmount
+        uint256 /* stakeAmount */
     ) external onlyAdmin {
         if (wallet == address(0)) revert InvalidAddress();
         if (verifiers[wallet].wallet != address(0)) revert VerifierAlreadyRegistered();
@@ -133,8 +140,8 @@ contract VerifierRegistry {
         verifiers[wallet] = VerifierInfo({
             wallet: wallet,
             endpointUrl: endpointUrl,
-            active: true,
-            stakeAmount: stakeAmount,
+            active: minStake == 0,
+            stakeAmount: 0,
             successCount: 0,
             falseAttestationCount: 0,
             totalEarnings: 0,
@@ -142,7 +149,7 @@ contract VerifierRegistry {
         });
         verifierList.push(wallet);
 
-        emit VerifierRegistered(wallet, endpointUrl, stakeAmount);
+        emit VerifierRegistered(wallet, endpointUrl, 0);
 
         // Auto-bump totalVerifiers if exceeding current config.
         uint256 activeCount = _activeCount();
@@ -183,6 +190,13 @@ contract VerifierRegistry {
         if (verifiers[wallet].wallet == address(0)) revert VerifierNotFound();
         verifiers[wallet].active = true;
         emit VerifierActivated(wallet);
+    }
+
+    /// @notice Set where slashed stake is routed (protocol treasury by default).
+    function setSlashRecipient(address recipient) external onlyAdmin {
+        if (recipient == address(0)) revert InvalidAddress();
+        slashRecipient = recipient;
+        emit SlashRecipientUpdated(recipient);
     }
 
     /// @notice Update the N-of-M threshold parameters.
@@ -255,6 +269,15 @@ contract VerifierRegistry {
         minStake = minStake_;
         verificationReward = reward;
         emit StakingConfigUpdated(minStake_, reward);
+
+        // If the minimum was raised, deactivate any verifier now under-staked.
+        for (uint256 i = 0; i < verifierList.length; i++) {
+            VerifierInfo storage v = verifiers[verifierList[i]];
+            if (v.active && v.stakeAmount < minStake_) {
+                v.active = false;
+                emit VerifierSuspended(verifierList[i]);
+            }
+        }
     }
 
     /// @notice Verifier stakes tokens to meet minimum requirement.
@@ -263,8 +286,14 @@ contract VerifierRegistry {
         VerifierInfo storage v = verifiers[msg.sender];
         if (v.wallet == address(0)) revert VerifierNotFound();
 
-        IStakingToken(stakingToken).transferFrom(msg.sender, address(this), amount);
+        if (!IStakingToken(stakingToken).transferFrom(msg.sender, address(this), amount)) {
+            revert TransferFailed();
+        }
         v.stakeAmount += amount;
+        if (!v.active && v.stakeAmount >= minStake) {
+            v.active = true;
+            emit VerifierActivated(msg.sender);
+        }
         emit VerifierStaked(msg.sender, amount, v.stakeAmount);
     }
 
@@ -275,7 +304,7 @@ contract VerifierRegistry {
         if (v.stakeAmount < amount + minStake) revert InsufficientStake();
 
         v.stakeAmount -= amount;
-        IStakingToken(stakingToken).transfer(msg.sender, amount);
+        if (!IStakingToken(stakingToken).transfer(msg.sender, amount)) revert TransferFailed();
         emit VerifierUnstaked(msg.sender, amount, v.stakeAmount);
     }
 
@@ -291,9 +320,17 @@ contract VerifierRegistry {
         v.stakeAmount -= amount;
         v.slashedAmount += amount;
 
+        // Real transfer of the slashed stake to the protocol treasury.
+        if (amount > 0 && stakingToken != address(0)) {
+            if (!IStakingToken(stakingToken).transfer(slashRecipient, amount)) {
+                revert TransferFailed();
+            }
+        }
+
         // If stake falls below minimum, deactivate
         if (v.stakeAmount < minStake) {
             v.active = false;
+            emit VerifierSuspended(verifier);
         }
 
         emit VerifierSlashed(verifier, amount, reason);
