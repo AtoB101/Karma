@@ -214,6 +214,8 @@ contract KarmaBilateralAdvancedTest is Test {
         // Dispute first
         vm.prank(buyer);
         karma.dispute(bindingId, PROOF);
+        vm.prank(agent);
+        karma.submitArbitrationEvidence(bindingId, PROOF);
         vm.warp(block.timestamp + karma.evidenceWindow() + 1);
 
         // Configure attack: transfer() will try to call dispute() again
@@ -534,6 +536,7 @@ contract KarmaBilateralAdvancedTest is Test {
         vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer); karma.settle(bindingId, PROOF);
         vm.prank(buyer); karma.dispute(bindingId, PROOF);
+        vm.prank(agent); karma.submitArbitrationEvidence(bindingId, PROOF);
         assertEq(uint8(karma.getBinding(bindingId).state), uint8(KarmaBilateral.BindingState.DISPUTED));
         vm.warp(block.timestamp + karma.evidenceWindow() + 1);
 

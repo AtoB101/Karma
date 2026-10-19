@@ -112,6 +112,7 @@ contract DeployKarmaBilateral is Script {
         }
         uint256 tlThreshold = vm.envOr("TIMELOCK_THRESHOLD", uint256(1));
         uint256 tlDelay     = vm.envOr("TIMELOCK_DELAY",     uint256(0));
+        uint256 gwDelay     = vm.envOr("GATEWAY_CHANGE_DELAY", uint256(0));
 
         // SECURITY: AdminTimelock is deployed AFTER startBroadcast below. Creating
         // it before startBroadcast leaves the on-chain admin as a dead, code-less
@@ -136,7 +137,9 @@ contract DeployKarmaBilateral is Script {
                 "MAINNET GUARD: not enough TIMELOCK_OWNERS for threshold");
             require(arbitrator.code.length > 0,
                 "MAINNET GUARD: ARBITRATOR_ADDRESS must be a multisig contract, not an EOA");
-            console.log("[MAINNET GUARD] timelock multisig + arbitrator verified");
+            require(gwDelay > 0,
+                "MAINNET GUARD: GATEWAY_CHANGE_DELAY must be > 0");
+            console.log("[MAINNET GUARD] timelock multisig + arbitrator + gateway delay verified");
         }
 
         uint256 batchThreshold  = vm.envOr("BATCH_THRESHOLD",    uint256(1_000_000_000));
@@ -245,6 +248,9 @@ contract DeployKarmaBilateral is Script {
 
         // ── 6. Wire ───────────────────────────────────────────────────────────
         _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setAttestationGateway, (address(gateway))));
+        // Gateway replacement delay: 0 on testnet (fast re-point for E2E),
+        // > 0 enforced by the mainnet guard above.
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setGatewayChangeDelay, (gwDelay)));
         // Privilege: only Gateway may recordAttestation / rewardVerifier
         _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setAuthorizedCaller, (address(gateway), true)));
 

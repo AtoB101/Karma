@@ -123,6 +123,32 @@ contract KarmaBilateralAttestationTest is Test {
         karma.setAttestationGateway(address(0));
     }
 
+    function test_gatewayChange_requiresTwoStepDelay() public {
+        // setUp() already wired `gateway`; re-pointing must not be instant.
+        address replacement = makeAddr("replacementGateway");
+
+        vm.startPrank(admin);
+        karma.setAttestationGateway(replacement);
+        assertEq(karma.attestationGateway(), address(gateway));
+        assertEq(karma.pendingAttestationGateway(), replacement);
+        vm.stopPrank();
+
+        // Applying before the delay elapses reverts.
+        vm.expectRevert();
+        karma.applyAttestationGateway();
+
+        // Fast-forward past the default 24h delay and apply.
+        vm.warp(block.timestamp + karma.gatewayChangeDelay() + 1);
+        karma.applyAttestationGateway();
+        assertEq(karma.attestationGateway(), replacement);
+        assertEq(karma.pendingAttestationGateway(), address(0));
+    }
+
+    function test_gatewayChange_applyWithoutPendingReverts() public {
+        vm.expectRevert(KarmaBilateral.NoPendingGatewayUpdate.selector);
+        karma.applyAttestationGateway();
+    }
+
     function test_bindWithAttestation_revertsIfZeroTaskId() public {
         vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
         vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);

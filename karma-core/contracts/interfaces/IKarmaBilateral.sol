@@ -146,6 +146,8 @@ interface IKarmaBilateral {
     function batchThreshold(address token) external view returns (uint256);
     function tokenAllowed(address token) external view returns (bool);
     function disputeWindowSeconds() external view returns (uint256);
+    function settleDelaySeconds() external view returns (uint256);
+    function optimisticDisputeWindow() external view returns (uint256);
     function settleTimeoutSeconds() external view returns (uint256);
 
     // ═══════════════════════════ Admin ════════════════════════════════════════
@@ -153,5 +155,10 @@ interface IKarmaBilateral {
     function setTokenAllowed(address token, bool allowed) external;
     function setBatchThreshold(address token, uint256 threshold) external;
     function setDisputeWindow(uint256 seconds_) external;
+    function setSettleDelay(uint256 seconds_) external;
+    function setOptimisticDisputeWindow(uint256 seconds_) external;
     function setSettleTimeout(uint256 seconds_) external;
+    function setAttestationGateway(address gateway) external;
+    function applyAttestationGateway() external;
+    function setGatewayChangeDelay(uint256 delay_) external;
 }
