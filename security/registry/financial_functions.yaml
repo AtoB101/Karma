@@ -237,40 +237,6 @@ contract_functions:
     emergency_action: allow_refund
     audit_event: BillUnlocked
 
-  - contract: KarmaBilateral
-    function: authorize
-    caller: master agent
-    required_role: master_agent
-    risk_level: HIGH
-    affected_asset: 授权额度
-    affected_amount: allowance
-    state: "授权状态机"
-    emergency_action: block
-    audit_event: AuthorizationCreated
-
-  - contract: KarmaBilateral
-    function: accept
-    caller: 被授权方
-    required_role: authorizee
-    risk_level: MEDIUM
-    affected_asset: 授权额度
-    emergency_action: block
-    audit_event: AuthorizationAccepted
-    notes: >
-      已知记账语义问题（红队报告 KARMA-RT-2026-08-27-001 §A6）：accept 不要求
-      from 名下真有绑定资金支撑，收款方会凭空多出"幽灵 freeBalance"，totalLockedByAddr
-      被污染。无法直接提现（unlock 需 bill），但未来"余额直付"类功能可能误用——
-      新增资金函数时必须检查幽灵余额不可作为支付来源（对应 INV-10 扩展）。
-
-  - contract: KarmaBilateral
-    function: cancelAuthorization
-    caller: master agent
-    required_role: master_agent
-    risk_level: MEDIUM
-    affected_asset: 授权额度
-    emergency_action: allow_refund
-    audit_event: AuthorizationCanceled
-
   - contract: KarmaIdentityRegistry
     function: registerIdentity
     caller: master agent
@@ -328,13 +294,13 @@ contract_functions:
     audit_event: BatchThresholdChanged
 
   - contract: KarmaBilateral
-    function: setDisputeWindow
+    function: setSettleDelay
     caller: admin
     required_role: admin (多签)
     risk_level: HIGH
-    affected_asset: 争议窗口（资金规则）
+    affected_asset: 结算延迟（资金规则）
     emergency_action: block
-    audit_event: DisputeWindowChanged
+    audit_event: SettleDelayUpdated
     guards: [窗口下限校验]
 
   - contract: KarmaBilateral
