@@ -115,19 +115,26 @@ def main() -> int:
     send_tx(w3, admin, karma.functions.setTokenAllowed(mock_addr, True))
     print(f"mock     {mock_addr}")
 
-    # 2. fresh VerifierRegistry (no staking token/reward for this pass)
+    # 2. fresh VerifierRegistry with real staking (minStake 1 mUSDC)
     reg_artifact = load(OUT / "VerifierRegistry.sol" / "VerifierRegistry.json")
     Reg = w3.eth.contract(abi=reg_artifact["abi"], bytecode=reg_artifact["bytecode"]["object"])
     reg_addr = send_tx(w3, admin, Reg.constructor(admin.address))["contractAddress"]
     registry = w3.eth.contract(address=reg_addr, abi=reg_artifact["abi"])
-    send_tx(w3, admin, registry.functions.setStakingConfig("0x0000000000000000000000000000000000000000", 0, 0))
+    MIN_STAKE = 1_000_000  # 1 mUSDC
+    send_tx(w3, admin, registry.functions.setStakingConfig(mock_addr, MIN_STAKE, 0))
     print(f"registry {reg_addr}")
 
-    # 3. register 3 verifiers
+    # 3. register 3 verifiers (inactive) and stake to activate
     verifiers = [Account.create() for _ in range(3)]
     for i, v in enumerate(verifiers):
+        if w3.eth.get_balance(v.address) < ETH_STIPEND:
+            fund(w3, admin, v.address, ETH_STIPEND)
         send_tx(w3, admin, registry.functions.registerVerifier(v.address, f"https://v{i+1}.e2e.karma", 0))
-        print(f"  verifier {i+1} {v.address}")
+        send_tx(w3, admin, mock.functions.mint(v.address, MIN_STAKE))
+        send_tx(w3, v, mock.functions.approve(reg_addr, MIN_STAKE))
+        send_tx(w3, v, registry.functions.stake(MIN_STAKE))
+        assert registry.functions.isActiveVerifier(v.address).call()
+        print(f"  verifier {i+1} {v.address} active")
     send_tx(w3, admin, registry.functions.setThresholds(3, 3))
 
     # 4. fresh gateway with 60s challenge window

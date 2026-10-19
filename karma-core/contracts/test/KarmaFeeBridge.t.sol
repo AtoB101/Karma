@@ -83,9 +83,10 @@ contract KarmaFeeBridgeTest is Test {
         assertEq(usdc.balanceOf(buyback), buybackAmt);
         assertEq(usdc.balanceOf(developer), developerAmt);
 
-        // Seller receives the pool minus the fee; buyer's lock is the payment.
-        assertEq(usdc.balanceOf(agent), total - expectedFee);
-        assertEq(usdc.balanceOf(buyer), 0);
+        // Buyer's lock is the payment (no payout); seller gets its lock back
+        // plus the buyer's payment, minus the fee.
+        assertEq(usdc.balanceOf(buyer), 1_000_000_000 - BUYER_LOCK);
+        assertEq(usdc.balanceOf(agent), 1_000_000_000 - AGENT_LOCK + (total - expectedFee));
     }
 
     function test_zeroFeeStillRecordsGmv() public {
@@ -96,7 +97,7 @@ contract KarmaFeeBridgeTest is Test {
 
         assertEq(bridge.totalFeesCollected(), 0);
         assertEq(bridge.totalGmvRecorded(), BUYER_LOCK + AGENT_LOCK);
-        assertEq(usdc.balanceOf(agent), BUYER_LOCK + AGENT_LOCK);
+        assertEq(usdc.balanceOf(agent), 1_000_000_000 - AGENT_LOCK + BUYER_LOCK + AGENT_LOCK);
     }
 
     function test_setSplitRejectsNonTenParts() public {
