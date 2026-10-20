@@ -26,6 +26,17 @@ sys.path.insert(0, str(ROOT / "packages" / "karma-sdk" / "python"))
 
 from web3 import Web3
 from eth_account import Account
+
+_NONCES: dict = {}
+
+
+def _nonce(w3, acct):
+    key = acct.address.lower()
+    n = _NONCES.get(key)
+    if n is None:
+        n = w3.eth.get_transaction_count(acct.address, "pending")
+    _NONCES[key] = n + 1
+    return n
 from eth_keys import keys
 from eth_abi import encode
 
@@ -33,6 +44,9 @@ RPC = os.getenv("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
 CHAIN_ID = 84532
 KARMA = "0x8718AD6B0c62687a591F41A8d4a5f72d20f4a611"
 TIMELOCK = "0xD2e0f34bE2302DF8CE6F282229dba903e1A96DDB"
+FEE_BRIDGE = "0xf4D21e3C29Fb8b48C849a83050dD482CC2839B20"
+USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+FEE_BPS = 50
 ADMIN_KEY = os.getenv("ADMIN_PRIVATE_KEY", "")
 
 AMOUNT = 10_000_000          # 10 mUSDC (6 decimals)
@@ -50,7 +64,7 @@ def load(path: Path):
 def send_tx(w3, acct, fn, gas=3_000_000):
     tx = fn.build_transaction({
         "from": acct.address,
-        "nonce": w3.eth.get_transaction_count(acct.address, "pending"),
+        "nonce": _nonce(w3, acct),
         "gas": gas,
     })
     signed = acct.sign_transaction(tx)
@@ -68,7 +82,7 @@ def fund(w3, admin, to, value):
         "value": value,
         "gas": 21000,
         "gasPrice": w3.eth.gas_price,
-        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "nonce": _nonce(w3, admin),
     }
     signed = admin.sign_transaction(tx)
     h = w3.eth.send_raw_transaction(signed.raw_transaction)
@@ -83,7 +97,7 @@ def tl_call(w3, admin, timelock, target, data, gas=3_000_000):
     """Route an admin-only call through the AdminTimelock (schedule + execute)."""
     tx = timelock.functions.schedule(target, 0, data).build_transaction({
         "from": admin.address,
-        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "nonce": _nonce(w3, admin),
         "gas": gas,
     })
     signed = admin.sign_transaction(tx)
@@ -94,7 +108,7 @@ def tl_call(w3, admin, timelock, target, data, gas=3_000_000):
     action_id = timelock.events.Scheduled().process_receipt(receipt)[0]["args"]["id"]
     tx = timelock.functions.execute(action_id).build_transaction({
         "from": admin.address,
-        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "nonce": _nonce(w3, admin),
         "gas": gas,
     })
     signed = admin.sign_transaction(tx)
@@ -142,6 +156,9 @@ def main() -> int:
     mock_addr = send_tx(w3, admin, Mock.constructor())["contractAddress"]
     mock = w3.eth.contract(address=mock_addr, abi=mock_artifact["abi"])
     tl_call(w3, admin, timelock, KARMA, karma.functions.setTokenAllowed(mock_addr, True)._encode_transaction_data())
+    fee_bridge_artifact = load(OUT / "KarmaFeeBridge.sol" / "KarmaFeeBridge.json")
+    fee_bridge = w3.eth.contract(address=Web3.to_checksum_address(FEE_BRIDGE), abi=fee_bridge_artifact["abi"])
+    tl_call(w3, admin, timelock, FEE_BRIDGE, fee_bridge.functions.setToken(mock_addr)._encode_transaction_data())
     print(f"mock     {mock_addr}")
 
     # 2. fresh VerifierRegistry with real staking (minStake 1 mUSDC)
@@ -162,7 +179,8 @@ def main() -> int:
         send_tx(w3, admin, mock.functions.mint(v.address, MIN_STAKE))
         send_tx(w3, v, mock.functions.approve(reg_addr, MIN_STAKE))
         send_tx(w3, v, registry.functions.stake(MIN_STAKE))
-        assert registry.functions.isActiveVerifier(v.address).call()
+        _wait_until(lambda: registry.functions.isActiveVerifier(v.address).call(),
+                    f"verifier {i+1} active")
         print(f"  verifier {i+1} {v.address} active")
     send_tx(w3, admin, registry.functions.setThresholds(3, 3))
 
@@ -178,7 +196,8 @@ def main() -> int:
     tl_call(w3, admin, timelock, KARMA, karma.functions.setGatewayChangeDelay(0)._encode_transaction_data())
     tl_call(w3, admin, timelock, KARMA, karma.functions.setAttestationGateway(gw_addr)._encode_transaction_data())
     send_tx(w3, admin, karma.functions.applyAttestationGateway())
-    assert karma.functions.attestationGateway().call() == gw_addr
+    _wait_until(lambda: karma.functions.attestationGateway().call() == gw_addr,
+                "attestation gateway applied")
     print(f"gateway  {gw_addr} (challengeWindow={CHALLENGE_WINDOW}s)")
 
     # 5. buyer + agent lock
@@ -209,7 +228,9 @@ def main() -> int:
     # 7. publish evidence
     evidence_hash = Web3.keccak(text="ipfs://base-sepolia-attestation-e2e-proof")
     cid = "ipfs://bafy-attestation-e2e"
-    send_tx(w3, admin, gateway.functions.publishEvidence(task_id, evidence_hash, cid))
+    send_tx(w3, buyer, gateway.functions.publishEvidence(task_id, evidence_hash, cid))
+    _wait_until(lambda: gateway.functions.taskEvidence(task_id).call() == evidence_hash,
+                "taskEvidence recorded")
     print(f"evidence {cid} hash={evidence_hash.hex()}")
 
     # 8. verifiers sign + submit EIP-712 attestations
@@ -219,6 +240,8 @@ def main() -> int:
         _submit_attestation(w3, gateway, v, task_id, True)
         print(f"  attestation {i+1}/3 from {v.address}")
 
+    _wait_until(lambda: gateway.functions.isQuorumReached(task_id).call(),
+                "attestation quorum reached")
     print(f"quorum   {gateway.functions.isQuorumReached(task_id).call()} "
           f"valid={gateway.functions.validAttestationCount(task_id).call()}")
 
@@ -240,12 +263,18 @@ def main() -> int:
     print(f"binding state={state} (expect 3=SETTLED)")
     assert state == 3, f"expected SETTLED(3), got {state}"
 
+    fee = (2 * AMOUNT * FEE_BPS) // 10_000
+    _wait_until(lambda: (mock.functions.balanceOf(buyer.address).call() == 0
+                         and mock.functions.balanceOf(agent.address).call() == 2 * AMOUNT - fee),
+                "payouts settled")
     buyer_final = mock.functions.balanceOf(buyer.address).call()
     agent_final = mock.functions.balanceOf(agent.address).call()
-    print(f"payout   buyer={buyer_final/1e6} agent={agent_final/1e6} mUSDC")
+    print(f"payout   buyer={buyer_final/1e6} agent={agent_final/1e6} mUSDC (fee {fee/1e6})")
     assert buyer_final == 0
-    assert agent_final == 2 * AMOUNT
+    assert agent_final == 2 * AMOUNT - fee
     assert karma.functions.checkInvariant(mock_addr).call()
+
+    tl_call(w3, admin, timelock, FEE_BRIDGE, fee_bridge.functions.setToken(USDC)._encode_transaction_data())
 
     print("\nP0-1 ATTESTATION E2E PASSED")
     print(f"  taskId={task_id.hex()}")

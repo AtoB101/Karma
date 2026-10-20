@@ -4,7 +4,8 @@
 Two independent on-chain flows, both through the already-deployed contracts:
 
   A) Dispute:  lock -> bind -> settle -> dispute (DISPUTED) -> agent evidence
-               -> resolveDispute via AdminTimelock -> SETTLED (buyer wins 100%).
+               -> 100% resolve rejected (SplitOutsideRange) -> 50/50 bounded
+               resolveDispute via AdminTimelock -> SETTLED.
   B) Refund:   lock -> bind -> wait settleTimeout -> refundOnTimeout -> REFUNDED.
 
 Because the redeployed stack's admin is the AdminTimelock, every admin-only
@@ -27,6 +28,17 @@ sys.path.insert(0, str(ROOT / "packages" / "karma-sdk" / "python"))
 
 from web3 import Web3
 from eth_account import Account
+
+_NONCES: dict = {}
+
+
+def _nonce(w3, acct):
+    key = acct.address.lower()
+    n = _NONCES.get(key)
+    if n is None:
+        n = w3.eth.get_transaction_count(acct.address, "pending")
+    _NONCES[key] = n + 1
+    return n
 from karma_sdk import KarmaBilateral
 
 RPC = os.getenv("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
@@ -56,7 +68,7 @@ def load_artifact(path: Path):
 def send_tx(w3: Web3, acct, fn, gas: int = 2_000_000):
     tx = fn.build_transaction({
         "from": acct.address,
-        "nonce": w3.eth.get_transaction_count(acct.address, "pending"),
+        "nonce": _nonce(w3, acct),
         "gas": gas,
     })
     signed = acct.sign_transaction(tx)
@@ -74,7 +86,7 @@ def fund(w3: Web3, admin, to_address: str, value: int):
         "value": value,
         "gas": 21000,
         "gasPrice": w3.eth.gas_price,
-        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "nonce": _nonce(w3, admin),
     }
     signed = admin.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
@@ -85,7 +97,7 @@ def tl_call(w3: Web3, admin, timelock, target: str, data: bytes, gas: int = 3_00
     """Route an admin-only call through the AdminTimelock (schedule + execute)."""
     tx = timelock.functions.schedule(target, 0, data).build_transaction({
         "from": admin.address,
-        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "nonce": _nonce(w3, admin),
         "gas": gas,
     })
     signed = admin.sign_transaction(tx)
@@ -96,7 +108,7 @@ def tl_call(w3: Web3, admin, timelock, target: str, data: bytes, gas: int = 3_00
     action_id = timelock.events.Scheduled().process_receipt(receipt)[0]["args"]["id"]
     tx = timelock.functions.execute(action_id).build_transaction({
         "from": admin.address,
-        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "nonce": _nonce(w3, admin),
         "gas": gas,
     })
     signed = admin.sign_transaction(tx)
@@ -230,18 +242,30 @@ def main() -> int:
     binding = wait_for_binding(agent_k, binding_id, lambda b: b.state == "DISPUTED", "DISPUTED")
     print(f"agent evidence submitted -> state={binding.state}")
 
-    # Wait for the evidence window, then admin resolves via timelock (buyer 100%).
+    # Wait for the evidence window, then admin resolves via timelock.
     countdown(EVIDENCE_WINDOW + 5, "evidence window")
-    tl_call(w3, admin, timelock, KARMA, karma.functions.resolveDispute(binding_id, 10_000)._encode_transaction_data())
+
+    # P1-5 SECURITY: with evidence from both sides, a 100% buyer award is
+    # forbidden (SplitOutsideRange) so governance cannot unilaterally wipe out
+    # a party. Verify the constraint is enforced on-chain.
+    try:
+        tl_call(w3, admin, timelock, KARMA, karma.functions.resolveDispute(binding_id, 10_000)._encode_transaction_data())
+        print("  ERROR: 100% resolve was not rejected")
+        return 1
+    except RuntimeError:
+        print("  100% resolve correctly rejected (SplitOutsideRange)")
+
+    # A bounded 50/50 split is valid and settles.
+    tl_call(w3, admin, timelock, KARMA, karma.functions.resolveDispute(binding_id, 5_000)._encode_transaction_data())
     binding = wait_for_binding(buyer_k, binding_id, lambda b: b.state == "SETTLED", "SETTLED")
     print(f"resolved -> state={binding.state}")
     assert binding.state == "SETTLED"
     assert poll_until(lambda: buyer_k.get_bill(buyer_bill).state == "BURNED", "buyer bill BURNED")
     assert poll_until(lambda: agent_k.get_bill(agent_bill).state == "BURNED", "agent bill BURNED")
-    assert poll_until(lambda: mock.functions.balanceOf(buyer.address).call() == 2 * AMOUNT, "buyer wins full pool")
-    assert poll_until(lambda: mock.functions.balanceOf(agent.address).call() == 0, "agent paid out")
+    assert poll_until(lambda: mock.functions.balanceOf(buyer.address).call() == AMOUNT, "buyer 50% back")
+    assert poll_until(lambda: mock.functions.balanceOf(agent.address).call() == AMOUNT, "agent 50% back")
     assert poll_until(lambda: buyer_k.check_invariant(mock_addr), "invariant after dispute")
-    print(f"FLOW A PASSED: buyer {AMOUNT/1e6} -> {2*AMOUNT/1e6}, agent {AMOUNT/1e6} -> 0, invariant=True")
+    print(f"FLOW A PASSED: 100% rejected, 50/50 resolves; buyer {AMOUNT/1e6}, agent {AMOUNT/1e6}, invariant=True")
 
     # ======================================================================
     #  Flow B: refundOnTimeout
