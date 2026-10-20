@@ -613,13 +613,13 @@ contract KarmaIntentPackageTest is Test {
         assertTrue(scores.isHighReputation(seller));
     }
 
-    function test_scoring_unregisteredParty_skipped() public {
+    function test_scoring_unregisteredParty_autoRegistered() public {
         vm.prank(admin);
         scores.setAuthorizedSettler(address(this));
 
-        // stranger is not registered — scoring should skip without revert
+        // stranger is not registered — the write path lazy-registers, then bumps.
         scores.recordSettlement(stranger, buyer, address(0), true, 10000);
-        assertEq(scores.getReputationScore(stranger), 0); // never set
+        assertGt(scores.getReputationScore(stranger), 5000);
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

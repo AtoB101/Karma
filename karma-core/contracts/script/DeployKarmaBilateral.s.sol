@@ -221,6 +221,7 @@ contract DeployKarmaBilateral is Script {
         _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setSettleDelay, (disputeWindow)));
         _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setSettleTimeout, (settleTimeout)));
         _tl(tl, address(scoring), abi.encodeCall(ScoringEngine.setAuthorizedSettler, (address(karma))));
+        _tl(tl, address(scoring), abi.encodeCall(ScoringEngine.setVerifierRegistry, (address(registry))));
 
         // Fee bridge wiring: pull 0.5% of every settled pool and split it.
         KarmaFeeBridge feeBridge = new KarmaFeeBridge(admin);
@@ -233,6 +234,7 @@ contract DeployKarmaBilateral is Script {
         _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setSlashRecipient, (treasury)));
         // P2-7: fee bridge credits the registry reward pool (separate from stake).
         _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setRewardAllocator, (address(feeBridge))));
+        _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setScoringEngine, (address(scoring))));
         // P2-8: reputation gate source + minimum agent score (0 disables).
         _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setScoringEngine, (address(scoring))));
         _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setMinReputationScore, (minRepScore)));
@@ -294,6 +296,8 @@ contract DeployKarmaBilateral is Script {
         require(karma.minReputationScore()      == minRepScore,        "reputation gate not wired");
         require(registry.getRequiredThreshold() == verifierN,     "threshold mismatch");
         require(scoring.admin()               == admin,           "scoring admin");
+        require(scoring.verifierRegistry()      == address(registry), "scoring registry not wired");
+        require(registry.scoringEngine()        == address(scoring),  "registry scoring not wired");
         require(evidence.admin()              == admin,           "evidence admin");
         require(karma.emergencyGuard()        == address(freeze), "freeze guard not wired");
         require(freeze.circuitBreaker()       == address(breaker), "breaker not wired");
