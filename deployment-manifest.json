@@ -4,7 +4,7 @@
   "chain_id": 84532,
   "rpc_url": "https://sepolia.base.org",
   "explorer_url": "https://sepolia.basescan.org",
-  "verified_on": "2026-10-19",
+  "verified_on": "2026-10-20",
   "note": "Base Sepolia 测试网（chain 84532）双边协议栈部署事实清单。地址公开可查，不是密钥；私钥只在服务器 .env 里，永远不进这个仓库。改合约地址时必须同步改这里，否则 verify-manifest.sh 会红。",
   "chain_bindings": {
     "chain_id": "TESTNET_CHAIN_ID"
@@ -17,67 +17,67 @@
       "role": "结算用 ERC20（官方 Base Sepolia 测试 USDC）"
     },
     "bilateral": {
-      "address": "0xF7839e77960f04B68D0Ea635DB3a21738489A6BF",
+      "address": "0x8718AD6B0c62687a591F41A8d4a5f72d20f4a611",
       "kind": "contract",
       "env": "KARMA_BILATERAL_ADDRESS",
       "role": "双边托管 / active+reserved==locked 不变量所在"
     },
     "verifier_registry": {
-      "address": "0x7697688496C3cF7b7Dcc95d9f083331083Ed3044",
+      "address": "0x7340eAfde59c74b5CbB2241dDdEEC4963E50B0D4",
       "kind": "contract",
       "env": "KARMA_VERIFIER_REGISTRY",
       "role": "验证者注册表 / 质押阈值与白名单"
     },
     "evidence_chain": {
-      "address": "0x3Cc75097cB8a9348F729a4d75C5f871bC91d547b",
+      "address": "0xfB1C39606DB526685D9C601CDc95a85eb7da41c3",
       "kind": "contract",
       "env": "KARMA_EVIDENCE_CHAIN",
       "role": "证据链 / 争议证据与仲裁记录"
     },
     "scoring_engine": {
-      "address": "0x270aD22068E6D64D1C57D7C0f8A0945100b4e868",
+      "address": "0xD18BF9955BE006c9d3c1505f7bF790973d92FB5d",
       "kind": "contract",
       "env": "KARMA_SCORING_ENGINE",
       "role": "评分引擎 / authorized settler"
     },
     "circuit_breaker": {
-      "address": "0xa304D5dEE7B8f89c04CCc0C90C3b7F35F5D8316B",
+      "address": "0x52fCC069A9196da384734526a1DD0134aE4Ce4fF",
       "kind": "contract",
       "env": "KARMA_CIRCUIT_BREAKER",
       "role": "断路器 / 紧急熔断"
     },
     "emergency_freeze": {
-      "address": "0x5255969C9dbcfE7Fee3CfFFD7d9D177c937B6738",
+      "address": "0x2aF76c5c678Fff9202A983B227f13231A0fA4a1D",
       "kind": "contract",
       "env": "KARMA_EMERGENCY_FREEZE",
       "role": "紧急冻结守卫"
     },
     "reputation_anchor": {
-      "address": "0x5c662c7c2B5240412394df28a9be55571963CEe1",
+      "address": "0xCd6291482eb33b894eB3973230358eEB14Fc9E03",
       "kind": "contract",
       "env": "KARMA_REPUTATION_ANCHOR_ADDRESS",
       "role": "信誉打包锚点"
     },
     "identity_registry": {
-      "address": "0xB1864034EFFF2dE1be91d06960F3C1c239726AF2",
+      "address": "0x17A2d2e1C25086177dEE480898dFA01cb73e45e4",
       "kind": "contract",
       "env": "KARMA_IDENTITY_REGISTRY",
       "role": "身份注册表"
     },
     "attestation_gateway": {
-      "address": "0x94A1C830F9084dd6F7d8C34287486Fd7e462597f",
+      "address": "0xC99110C058716F77675f4777D993910eC3B4cE32",
       "kind": "contract",
       "env": "KARMA_ATTESTATION_GATEWAY",
       "role": "证明网关 / 仲裁与 verifier 奖励"
     },
     "fee_bridge": {
-      "address": "0x5352efdfFf7B371E2E5EF82F6Df5C8D95ae3cae8",
+      "address": "0xf4D21e3C29Fb8b48C849a83050dD482CC2839B20",
       "kind": "contract",
       "env": "KARMA_FEE_BRIDGE_ADDRESS",
       "role": "手续费桥 / 0.5% 分账 treasury 3 · verifier 3 · buyback 2 · developer 2"
     },
     "admin_timelock": {
-      "address": "0x94bd215e391ef625448EC9f14ef50D4fA34D653A",
+      "address": "0xD2e0f34bE2302DF8CE6F282229dba903e1A96DDB",
       "kind": "contract",
       "env": "KARMA_ADMIN_TIMELOCK_ADDRESS",
       "role": "管理时间锁 / 协议 admin，兼 treasury 与 slash 收款"
