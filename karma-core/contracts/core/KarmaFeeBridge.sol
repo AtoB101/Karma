@@ -14,6 +14,11 @@ interface IFeeBridgeToken {
     function transfer(address to, uint256 amount) external returns (bool);
 }
 
+/// @notice Verifier reward pool (VerifierRegistry) reward-accounting hook.
+interface IVerifierRewardPool {
+    function creditRewards(uint256 amount) external;
+}
+
 contract KarmaFeeBridge {
     // Errors
 
@@ -181,9 +186,23 @@ contract KarmaFeeBridge {
         uint256 developerAmt = fee - treasuryAmt - verifierAmt - buybackAmt;
 
         if (treasuryAmt > 0) _transferOut(treasury, treasuryAmt);
-        if (verifierAmt > 0) _transferOut(verifierPool, verifierAmt);
+        if (verifierAmt > 0) {
+            _transferOut(verifierPool, verifierAmt);
+            _creditVerifierRewards(verifierPool, verifierAmt);
+        }
         if (buybackAmt > 0) _transferOut(buybackSink, buybackAmt);
         if (developerAmt > 0) _transferOut(developerDestination, developerAmt);
+    }
+
+    /// @dev Best-effort reward accounting: the VerifierRegistry exposes
+    ///      creditRewards() so verifier payouts draw from a dedicated pool.
+    ///      A non-registry verifierPool simply receives the tokens without
+    ///      reward accounting (call failure is ignored).
+    function _creditVerifierRewards(address pool, uint256 amount) internal {
+        (bool ok, ) = pool.call(abi.encodeWithSelector(IVerifierRewardPool.creditRewards.selector, amount));
+        if (!ok) {
+            // verifierPool does not implement reward accounting.
+        }
     }
 
     function _transferOut(address to, uint256 amount) internal {

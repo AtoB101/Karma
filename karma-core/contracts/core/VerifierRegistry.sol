@@ -24,6 +24,7 @@ contract VerifierRegistry {
     error ThresholdExceedsTotal();
     error InsufficientStake();
     error TransferFailed();
+    error InsufficientRewardPool();
     error StakingTokenNotSet();
 
     // ──────────────────────────────── Immutables ─────────────────────────────
@@ -73,6 +74,13 @@ contract VerifierRegistry {
     /// @notice Recipient of slashed stake (protocol treasury by default).
     address public slashRecipient;
 
+    /// @notice Reward tokens credited by the fee bridge, kept separate from
+    ///         staked funds so reward payouts never dilute slashable stake.
+    uint256 public rewardPool;
+
+    /// @notice Sole address allowed to credit the reward pool (fee bridge).
+    address public rewardAllocator;
+
     // ──────────────────────────────── Events ─────────────────────────────────
 
     event VerifierRegistered(
@@ -103,6 +111,8 @@ contract VerifierRegistry {
     event StakingConfigUpdated(uint256 minStake, uint256 reward);
     event SlashRecipientUpdated(address indexed recipient);
     event AuthorizedCallerUpdated(address indexed caller, bool allowed);
+    event RewardPoolCredited(uint256 amount);
+    event RewardAllocatorUpdated(address indexed allocator);
 
     // ──────────────────────────────── Constructor ────────────────────────────
 
@@ -197,6 +207,21 @@ contract VerifierRegistry {
         if (recipient == address(0)) revert InvalidAddress();
         slashRecipient = recipient;
         emit SlashRecipientUpdated(recipient);
+    }
+
+    /// @notice Set the sole reward-pool allocator (typically the fee bridge).
+    function setRewardAllocator(address allocator) external onlyAdmin {
+        if (allocator == address(0)) revert InvalidAddress();
+        rewardAllocator = allocator;
+        emit RewardAllocatorUpdated(allocator);
+    }
+
+    /// @notice Credit reward tokens (already transferred by the fee bridge) into
+    ///         the verifier reward pool. Only the reward allocator may call.
+    function creditRewards(uint256 amount) external onlyRewardAllocator {
+        if (amount == 0) return;
+        rewardPool += amount;
+        emit RewardPoolCredited(amount);
     }
 
     /// @notice Update the N-of-M threshold parameters.
@@ -337,13 +362,19 @@ contract VerifierRegistry {
     }
 
     /// @notice Pay verification reward to verifier after successful attestation.
+    /// @dev Payouts are drawn exclusively from the reward pool credited by the
+    ///      fee bridge, never from verifier stake held by this registry.
     function rewardVerifier(address verifier, uint256 amount) external onlyAuthorizedCaller {
         VerifierInfo storage v = verifiers[verifier];
         if (v.wallet == address(0)) revert VerifierNotFound();
+        if (amount > rewardPool) revert InsufficientRewardPool();
 
-        if (amount > 0 && stakingToken != address(0)) {
-            if (!IStakingToken(stakingToken).transfer(verifier, amount)) revert TransferFailed();
+        if (amount > 0) {
+            rewardPool -= amount;
             v.totalEarnings += amount;
+            if (stakingToken != address(0)) {
+                if (!IStakingToken(stakingToken).transfer(verifier, amount)) revert TransferFailed();
+            }
         }
         emit VerifierRewarded(verifier, amount);
     }
@@ -368,6 +399,11 @@ contract VerifierRegistry {
     /// @dev Admin retains operational access; Gateway (etc.) must be authorized explicitly.
     modifier onlyAuthorizedCaller() {
         if (msg.sender != admin && !authorizedCallers[msg.sender]) revert Unauthorized();
+        _;
+    }
+
+    modifier onlyRewardAllocator() {
+        if (msg.sender != rewardAllocator) revert Unauthorized();
         _;
     }
 }

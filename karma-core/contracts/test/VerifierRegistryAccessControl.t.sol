@@ -12,6 +12,7 @@ contract VerifierRegistryAccessControlTest is Test {
 
     address internal admin = makeAddr("admin");
     address internal gateway = makeAddr("gateway");
+    address internal rewardAllocator = makeAddr("rewardAllocator");
     address internal stranger = makeAddr("stranger");
     address internal verifier = makeAddr("verifier");
 
@@ -22,6 +23,7 @@ contract VerifierRegistryAccessControlTest is Test {
         registry.setStakingConfig(address(token), 1, 100);
         registry.registerVerifier(verifier, "https://v.example", 0);
         registry.setAuthorizedCaller(gateway, true);
+        registry.setRewardAllocator(rewardAllocator);
         vm.stopPrank();
 
         token.mint(address(registry), 1_000_000);
@@ -47,12 +49,37 @@ contract VerifierRegistryAccessControlTest is Test {
     }
 
     function test_rewardVerifier_okForGateway() public {
+        vm.prank(rewardAllocator);
+        registry.creditRewards(100);
+
         vm.prank(gateway);
         registry.rewardVerifier(verifier, 100);
         assertEq(token.balanceOf(verifier), 100);
+        assertEq(registry.rewardPool(), 0);
+    }
+
+    function test_rewardVerifier_revertsWhenPoolInsufficient() public {
+        vm.prank(gateway);
+        vm.expectRevert(VerifierRegistry.InsufficientRewardPool.selector);
+        registry.rewardVerifier(verifier, 100);
+    }
+
+    function test_creditRewards_revertsForStranger() public {
+        vm.prank(stranger);
+        vm.expectRevert(VerifierRegistry.Unauthorized.selector);
+        registry.creditRewards(100);
+    }
+
+    function test_creditRewards_okForAllocator() public {
+        vm.prank(rewardAllocator);
+        registry.creditRewards(100);
+        assertEq(registry.rewardPool(), 100);
     }
 
     function test_adminCanCallPrivilegedWrites() public {
+        vm.prank(rewardAllocator);
+        registry.creditRewards(50);
+
         vm.startPrank(admin);
         registry.recordAttestation(verifier, false);
         registry.rewardVerifier(verifier, 50);
