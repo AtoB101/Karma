@@ -44,6 +44,7 @@ contract ScoringEngine {
 
     address public immutable admin;
     address public authorizedSettler;                    // KarmaBilateral contract
+    address public verifierRegistry;                     // VerifierRegistry (slash hook)
 
     mapping(address => Types.ScoringVector) public scores;
     mapping(address => PartyType) public partyTypes;
@@ -54,6 +55,7 @@ contract ScoringEngine {
     event ScoreVectorUpdated(address indexed party);
     event PartyRegistered(address indexed party, PartyType pType);
     event AuthorizedSettlerUpdated(address indexed settler);
+    event VerifierRegistryUpdated(address indexed registry);
 
     // ═══════════════════════════ Modifiers ════════════════════════════════════
 
@@ -79,6 +81,34 @@ contract ScoringEngine {
     function setAuthorizedSettler(address settler) external onlyAdmin {
         authorizedSettler = settler;
         emit AuthorizedSettlerUpdated(settler);
+    }
+
+    /// @notice Set the VerifierRegistry allowed to report verifier slashes.
+    function setVerifierRegistry(address registry) external onlyAdmin {
+        verifierRegistry = registry;
+        emit VerifierRegistryUpdated(registry);
+    }
+
+    /// @dev Lazy-register a party so the write path works without explicit admin registration.
+    function _ensureRegistered(address party, PartyType pType) internal {
+        if (party == address(0) || scores[party].lastUpdated != 0) return;
+        partyTypes[party] = pType;
+        scores[party] = Types.ScoringVector({
+            totalTransactions: 0,
+            reputationScore: DEFAULT_SCORE,
+            completionRate: DEFAULT_SCORE,
+            avgCompletionSpeed: DEFAULT_SCORE,
+            disputeRate: 0,
+            disputeWinRate: DEFAULT_SCORE,
+            penaltyCount: 0,
+            confirmationSpeed: DEFAULT_SCORE,
+            maliciousDisputeRate: 0,
+            verificationAccuracy: DEFAULT_SCORE,
+            verificationVolume: 0,
+            slashedCount: 0,
+            lastUpdated: block.timestamp
+        });
+        emit PartyRegistered(party, pType);
     }
 
     function registerParty(address party, PartyType pType) external onlyAdmin {
@@ -120,6 +150,9 @@ contract ScoringEngine {
         external
         onlySettler
     {
+        _ensureRegistered(seller, PartyType.SUPPLIER);
+        _ensureRegistered(buyer, PartyType.BUYER);
+        if (verifier != address(0)) _ensureRegistered(verifier, PartyType.VERIFIER);
         _updateSellerSettlement(seller, completedOnTime, speedRatio);
         _updateBuyerSettlement(buyer);
         if (verifier != address(0)) {
@@ -143,6 +176,9 @@ contract ScoringEngine {
         external
         onlySettler
     {
+        _ensureRegistered(seller, PartyType.SUPPLIER);
+        _ensureRegistered(buyer, PartyType.BUYER);
+        if (verifier != address(0)) _ensureRegistered(verifier, PartyType.VERIFIER);
         _updateSellerDispute(seller, sellerWon, wasPenalty);
         _updateBuyerDispute(buyer, !sellerWon);
         if (verifier != address(0)) {
@@ -151,7 +187,9 @@ contract ScoringEngine {
     }
 
     /// @notice Called when a verifier is slashed for bad verification.
-    function recordVerifierSlashed(address verifier) external onlyAdmin {
+    function recordVerifierSlashed(address verifier) external {
+        if (msg.sender != admin && msg.sender != verifierRegistry) revert Unauthorized();
+        _ensureRegistered(verifier, PartyType.VERIFIER);
         Types.ScoringVector storage sv = scores[verifier];
         sv.slashedCount += 1;
         sv.verificationAccuracy = _decayScore(sv.verificationAccuracy, PENALTY_WEIGHT, 0);
@@ -164,6 +202,7 @@ contract ScoringEngine {
     /// @param buyer    The customer
     /// @param speedRatio  How fast they confirmed (10000 = instant, <10000 = slow)
     function recordBuyerConfirmation(address buyer, uint256 speedRatio) external onlySettler {
+        _ensureRegistered(buyer, PartyType.BUYER);
         Types.ScoringVector storage sv = scores[buyer];
         sv.confirmationSpeed = _rollingAvg(sv.confirmationSpeed, speedRatio, sv.totalTransactions);
         sv.reputationScore = _computeComposite(sv);

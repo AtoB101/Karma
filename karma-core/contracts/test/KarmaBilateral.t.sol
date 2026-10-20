@@ -677,6 +677,46 @@ contract KarmaBilateralTest is Test {
         karma.bindWithAttestation(bb, ab, SCOPE, keccak256("task-001"));
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Reputation write path (P2-8: settle/dispute actually update scores)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_reputationWrite_settleAutoRegistersAndBumpsScores() public {
+        ScoringEngine engine = new ScoringEngine(admin);
+        vm.startPrank(admin);
+        karma.setScoringEngine(address(engine));
+        engine.setAuthorizedSettler(address(karma));
+        vm.stopPrank();
+
+        (, , uint256 bindingId) = _setupBinding();
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
+        vm.prank(buyer);
+        karma.settle(bindingId, PROOF);
+        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
+        karma.finalizeSettle(bindingId);
+
+        // Auto-registration + settle bump: agent above neutral, buyer above neutral.
+        assertGt(engine.getReputationScore(agent), 5_000);
+        assertGt(engine.getReputationScore(buyer), 5_000);
+    }
+
+    function test_reputationWrite_refundPenalizesSeller() public {
+        ScoringEngine engine = new ScoringEngine(admin);
+        vm.startPrank(admin);
+        karma.setScoringEngine(address(engine));
+        engine.setAuthorizedSettler(address(karma));
+        vm.stopPrank();
+
+        (, , uint256 bindingId) = _setupBinding();
+        vm.warp(block.timestamp + karma.settleTimeoutSeconds() + 1);
+        vm.prank(buyer);
+        karma.refundOnTimeout(bindingId);
+
+        // Seller failed to settle: penalized below neutral; buyer wins (no penalty).
+        assertLt(engine.getReputationScore(agent), 5_000);
+        assertEq(engine.getReputationScore(buyer), 5_000);
+    }
+
     //  Helpers
     // ─────────────────────────────────────────────────────────────────────────
 

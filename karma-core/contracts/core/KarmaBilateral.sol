@@ -7,6 +7,8 @@ import {IEmergencyFreeze} from "../interfaces/IEmergencyFreeze.sol";
 /// @notice Minimal ScoringEngine view used by the optional reputation gate.
 interface IScoringEngine {
     function getReputationScore(address party) external view returns (uint256);
+    function recordSettlement(address seller, address buyer, address verifier, bool completedOnTime, uint256 speedRatio) external;
+    function recordDisputeResolution(address seller, address buyer, address verifier, bool sellerWon, bool wasPenalty) external;
 }
 
 /// @notice Minimal attestation gateway hook used to register evidence publishers.
@@ -1198,6 +1200,20 @@ contract KarmaBilateral {
     //  INTERNAL — settlement execution helpers
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// @dev Best-effort reputation write: settlement raises seller/buyer score.
+    function _tryRecordSettlement(address seller, address buyer, bool onTime) internal {
+        address engine = scoringEngine;
+        if (engine == address(0)) return;
+        try IScoringEngine(engine).recordSettlement(seller, buyer, address(0), onTime, 10_000) {} catch {}
+    }
+
+    /// @dev Best-effort reputation write: dispute outcome adjusts seller/buyer score.
+    function _tryRecordDispute(address seller, address buyer, bool sellerWon, bool wasPenalty) internal {
+        address engine = scoringEngine;
+        if (engine == address(0)) return;
+        try IScoringEngine(engine).recordDisputeResolution(seller, buyer, address(0), sellerWon, wasPenalty) {} catch {}
+    }
+
     /// @dev Finalize settlement: burn both bills, release USDC to each owner.
     function _executeSettle(
         uint256 bindingId,
@@ -1242,6 +1258,7 @@ contract KarmaBilateral {
 
         emit SettleFinalized(bindingId, proofHash);
         emit BindingSettled(bindingId, proofHash, buyerPayout, sellerPayout);
+        _tryRecordSettlement(agentOwner, buyerOwner, true);
     }
 
     /// @dev Execute refund: burn both bills, return USDC to respective owners.
@@ -1270,6 +1287,9 @@ contract KarmaBilateral {
 
         _transfer(token, buyerOwner, buyerAmount);
         _transfer(token, agentOwner, agentAmount);
+
+        // Seller failed to settle on time: buyer wins, seller penalized.
+        _tryRecordDispute(agentOwner, buyerOwner, false, true);
     }
 
     /// @dev Execute split: burn both bills, distribute combined pool by BPS.
@@ -1304,6 +1324,20 @@ contract KarmaBilateral {
 
         emit DisputeResolved(bindingId, buyerShareBps);
         emit BindingSettled(bindingId, bytes32(0), buyerPayout, agentPayout);
+
+        bool sellerWon;
+        bool wasPenalty;
+        if (buyerShareBps == 0) {
+            sellerWon = true;
+            wasPenalty = false;
+        } else if (buyerShareBps == 10_000) {
+            sellerWon = false;
+            wasPenalty = true;
+        } else {
+            sellerWon = false;
+            wasPenalty = false;
+        }
+        _tryRecordDispute(agentOwner, buyerOwner, sellerWon, wasPenalty);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

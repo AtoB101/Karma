@@ -12,6 +12,9 @@ interface IStakingToken {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function transfer(address to, uint256 amount) external returns (bool);
 }
+interface IScoringEngine {
+    function recordVerifierSlashed(address verifier) external;
+}
 
 contract VerifierRegistry {
     // ──────────────────────────────────── Errors ──────────────────────────────
@@ -81,6 +84,9 @@ contract VerifierRegistry {
     /// @notice Sole address allowed to credit the reward pool (fee bridge).
     address public rewardAllocator;
 
+    /// @notice Scoring engine notified on slash (address(0) disables the hook).
+    address public scoringEngine;
+
     // ──────────────────────────────── Events ─────────────────────────────────
 
     event VerifierRegistered(
@@ -113,6 +119,7 @@ contract VerifierRegistry {
     event AuthorizedCallerUpdated(address indexed caller, bool allowed);
     event RewardPoolCredited(uint256 amount);
     event RewardAllocatorUpdated(address indexed allocator);
+    event ScoringEngineUpdated(address indexed engine);
 
     // ──────────────────────────────── Constructor ────────────────────────────
 
@@ -207,6 +214,12 @@ contract VerifierRegistry {
         if (recipient == address(0)) revert InvalidAddress();
         slashRecipient = recipient;
         emit SlashRecipientUpdated(recipient);
+    }
+
+    /// @notice Set the scoring engine notified on verifier slash (0 disables hook).
+    function setScoringEngine(address engine) external onlyAdmin {
+        scoringEngine = engine;
+        emit ScoringEngineUpdated(engine);
     }
 
     /// @notice Set the sole reward-pool allocator (typically the fee bridge).
@@ -356,6 +369,11 @@ contract VerifierRegistry {
         if (v.stakeAmount < minStake) {
             v.active = false;
             emit VerifierSuspended(verifier);
+        }
+
+        // Best-effort reputation write: penalize the slashed verifier.
+        if (scoringEngine != address(0)) {
+            try IScoringEngine(scoringEngine).recordVerifierSlashed(verifier) {} catch {}
         }
 
         emit VerifierSlashed(verifier, amount, reason);
