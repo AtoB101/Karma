@@ -42,6 +42,8 @@ contract KarmaFeeBridgeTest is Test {
         bridge.setSplit(3, 3, 2, 2);
         bridge.setDestinations(treasury, address(registry), buyback, developer);
         karma.setFeeBridge(address(bridge));
+        registry.setStakingConfig(address(usdc), 1, 1);
+        registry.setRewardAllocator(address(bridge));
         vm.stopPrank();
 
         usdc.mint(buyer, 1_000_000_000);
@@ -80,6 +82,7 @@ contract KarmaFeeBridgeTest is Test {
 
         assertEq(usdc.balanceOf(treasury), treasuryAmt);
         assertEq(usdc.balanceOf(address(registry)), verifierAmt);
+        assertEq(registry.rewardPool(), verifierAmt);
         assertEq(usdc.balanceOf(buyback), buybackAmt);
         assertEq(usdc.balanceOf(developer), developerAmt);
 
@@ -117,5 +120,28 @@ contract KarmaFeeBridgeTest is Test {
             abi.encodeWithSelector(KarmaFeeBridge.FeeMismatch.selector, uint256(0), uint256(100))
         );
         bridge.collectAndRecord(bytes32(0), buyer, agent, developer, 0, 100);
+    }
+
+    function test_verifierRewardPaidFromCreditedPool() public {
+        _settle();
+
+        address verifier = makeAddr("verifier");
+        vm.prank(admin);
+        registry.registerVerifier(verifier, "https://v.example", 0);
+
+        uint256 verifierAmt = (bridge.totalFeesCollected() * 3) / 10;
+        assertGt(verifierAmt, 0);
+        assertEq(registry.rewardPool(), verifierAmt);
+
+        uint256 before = usdc.balanceOf(verifier);
+        vm.prank(admin);
+        registry.rewardVerifier(verifier, verifierAmt);
+        assertEq(usdc.balanceOf(verifier), before + verifierAmt);
+        assertEq(registry.rewardPool(), 0);
+
+        // Rewards cannot overdraw the pool (protects staked funds).
+        vm.prank(admin);
+        vm.expectRevert(VerifierRegistry.InsufficientRewardPool.selector);
+        registry.rewardVerifier(verifier, 1);
     }
 }

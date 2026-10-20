@@ -699,14 +699,19 @@ contract KarmaIntentPackageTest is Test {
     }
 
     function test_verifierRegistry_reward() public {
-        vm.prank(admin);
+        vm.startPrank(admin);
         verifierReg.setStakingConfig(address(karmaToken), 100_000_000, 500_000);
+        verifierReg.setRewardAllocator(admin);
+        vm.stopPrank();
 
         karmaToken.mint(address(verifierReg), 10_000_000);
-        vm.prank(admin);
+        vm.startPrank(admin);
+        verifierReg.creditRewards(500_000);
         verifierReg.rewardVerifier(verifier, 500_000);
+        vm.stopPrank();
 
         assertEq(karmaToken.balanceOf(verifier), 500_000);
+        assertEq(verifierReg.rewardPool(), 0);
     }
 
     function test_verifierRegistry_stakeWithoutTokenSet_reverts() public {

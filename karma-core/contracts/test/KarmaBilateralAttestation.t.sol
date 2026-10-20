@@ -639,6 +639,31 @@ contract KarmaBilateralAttestationTest is Test {
     }
 
     /// @dev Registers 3 additional verifiers (4/5/6) for mixed-vote scenarios.
+    function test_attestation_doesNotBlockWhenRewardPoolEmpty() public {
+        vm.startPrank(admin);
+        // minStake 0 keeps already-registered verifiers active; reward path enabled.
+        registry.setStakingConfig(address(usdc), 0, 10_000_000);
+        registry.setRewardAllocator(admin);
+        vm.stopPrank();
+
+        _setupAttestationBinding();
+        vm.prank(buyer);
+        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
+
+        // Reward pool empty: attestation must still succeed (reward deferred).
+        _submitAttestation(verifier1Pk, verifier1, TASK_ID, true);
+        assertEq(registry.rewardPool(), 0);
+        assertEq(usdc.balanceOf(verifier1), 0);
+
+        // Once the pool is funded (token + credit), the verifier is paid from it.
+        usdc.mint(address(registry), 10_000_000);
+        vm.prank(admin);
+        registry.creditRewards(10_000_000);
+        _submitAttestation(verifier2Pk, verifier2, TASK_ID, true);
+        assertEq(usdc.balanceOf(verifier2), 10_000_000);
+        assertEq(registry.rewardPool(), 0);
+    }
+
     function _registerExtraVerifiers() internal {
         verifier4 = vm.addr(verifier4Pk);
         verifier5 = vm.addr(verifier5Pk);

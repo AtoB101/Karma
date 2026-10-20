@@ -166,6 +166,8 @@ contract DeployKarmaBilateral is Script {
         uint256 splitV     = vm.envOr("SPLIT_VERIFIER",     uint256(3));
         uint256 splitB     = vm.envOr("SPLIT_BUYBACK",      uint256(2));
         uint256 splitD     = vm.envOr("SPLIT_DEVELOPER",    uint256(2));
+        uint256 minRepScore  = vm.envOr("MIN_REPUTATION_SCORE", uint256(0));
+        uint256 challengeStake = vm.envOr("CHALLENGE_STAKE",   uint256(0));
 
         console.log("=== Karma Protocol Full Stack Deployment ===");
         console.log("Chain ID             ", block.chainid);
@@ -229,6 +231,11 @@ contract DeployKarmaBilateral is Script {
         _tl(tl, address(feeBridge), abi.encodeCall(KarmaFeeBridge.setDestinations, (treasury, address(registry), buyback, developer)));
         _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setFeeBridge, (address(feeBridge))));
         _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setSlashRecipient, (treasury)));
+        // P2-7: fee bridge credits the registry reward pool (separate from stake).
+        _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setRewardAllocator, (address(feeBridge))));
+        // P2-8: reputation gate source + minimum agent score (0 disables).
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setScoringEngine, (address(scoring))));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setMinReputationScore, (minRepScore)));
 
         CircuitBreaker breaker = new CircuitBreaker(admin);
         EmergencyFreeze freeze = new EmergencyFreeze(admin);
@@ -254,6 +261,16 @@ contract DeployKarmaBilateral is Script {
         // Privilege: only Gateway may recordAttestation / rewardVerifier
         _tl(tl, address(registry), abi.encodeCall(VerifierRegistry.setAuthorizedCaller, (address(gateway), true)));
 
+        // P2-9: anti-grief challenge stake (only the arbitrator may configure it).
+        if (challengeStake > 0) {
+            if (arbitrator != vm.addr(deployerKey)) {
+                console.log("WARN: CHALLENGE_STAKE set but arbitrator != deployer; skipping setChallengeStake");
+            } else {
+                gateway.setChallengeStake(paymentToken, challengeStake);
+                console.log("Challenge stake configured ", challengeStake, " ", paymentToken);
+            }
+        }
+
         // ── Reconfigure timelock to the final multisig config ─────────────
         if (tlDelay != 0 || tlThreshold != 1 ||
             tlOwners.length != 1 || tlOwners[0] != vm.addr(deployerKey)) {
@@ -272,6 +289,9 @@ contract DeployKarmaBilateral is Script {
         require(gateway.bilateralContract()   == address(karma),  "bilateral not wired");
         require(address(gateway.registry())   == address(registry), "registry not wired");
         require(registry.authorizedCallers(address(gateway)),     "gateway not authorized on registry");
+        require(registry.rewardAllocator()      == address(feeBridge), "reward allocator not wired");
+        require(karma.scoringEngine()           == address(scoring),   "scoring engine not wired");
+        require(karma.minReputationScore()      == minRepScore,        "reputation gate not wired");
         require(registry.getRequiredThreshold() == verifierN,     "threshold mismatch");
         require(scoring.admin()               == admin,           "scoring admin");
         require(evidence.admin()              == admin,           "evidence admin");

@@ -306,10 +306,17 @@ contract KarmaAttestationGateway {
         registry.recordAttestation(msg.sender, valid);
 
         // 7. Pay verification reward on successful attestation when configured.
+        //    The reward pool is funded by settlement fees, so it may be empty at
+        //    attestation time. A missing pool must never block the attestation:
+        //    swallow the revert and defer the reward until fees have accrued.
         if (valid) {
             uint256 reward = registry.verificationReward();
             if (reward > 0 && registry.stakingToken() != address(0)) {
-                registry.rewardVerifier(msg.sender, reward);
+                try registry.rewardVerifier(msg.sender, reward) {
+                    // rewarded from the fee-funded pool
+                } catch {
+                    // reward pool not yet funded — attestation still succeeds
+                }
             }
         }
 
