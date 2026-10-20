@@ -84,3 +84,14 @@ packages/karma-a2a-bridge/data/
 *.sqlite3
 mvp_data/
 .forge-cache/
+
+# Forge cache + nested dependency checkout (generated locally, never commit)
+.cache/
+karma-core/contracts/lib/
+
+# Built SDK bundle (regenerated at build time, never commit)
+packages/sdk/dist/
+
+# Editor / tool backups
+*.bak
+

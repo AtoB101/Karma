@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """KarmaBilateral Sepolia Testnet Full Test Suite"""
-import json, time, sys
+import json, time, sys, os
 
-RPC = "https://sepolia.infura.io/v3/a9a3c01e8b98471eb79d07eb16553236"
+RPC = os.environ.get("SEPOLIA_RPC", "")
 USDC = "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF"
-ADMIN_KEY = "2f9cf6d82fb25f2cf8d4ccfd34bd54b0d8ad5dda0e3b0b99a4280a14dde4690a"
-BUYER_KEY = "a3bd6e441963f0b097458d5658884633eaeb1dec8e0142e4f23ce64ebe10b3df"
-AGENT_KEY = "0c85cad5f38c90311e4b1a069e95b76954988222492ccb418c8f115af3f56d94"
+ADMIN_KEY = os.environ.get("SEPOLIA_ADMIN_KEY", "")
+BUYER_KEY = os.environ.get("SEPOLIA_BUYER_KEY", "")
+AGENT_KEY = os.environ.get("SEPOLIA_AGENT_KEY", "")
+if not RPC or not ADMIN_KEY or not BUYER_KEY or not AGENT_KEY:
+    raise SystemExit(
+        "Required env vars: SEPOLIA_RPC, SEPOLIA_ADMIN_KEY, SEPOLIA_BUYER_KEY, SEPOLIA_AGENT_KEY"
+    )
 ADMIN = "0x7Ed437E5786AB0d217D52937da4fF4790998d94C"
 BUYER = "0x3295c96a2993C366B3dB27B6ac81f85801D75f51"
 AGENT = "0x16fE563a56E6566809597e4aF9a1608d3e55Dd7F"

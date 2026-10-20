@@ -4,6 +4,7 @@ Buyer (W1) locks the full order; seller (W2) locks the 10% penalty; then
 bind -> settle -> finalizeSettle releases the buyer's payment to the seller.
 """
 import json
+import os
 import time
 
 from web3 import Web3
@@ -11,8 +12,10 @@ from eth_account import Account
 
 RPC = "https://ethereum-sepolia-rpc.publicnode.com"
 USDC = "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF"
-BUYER_KEY = "a3bd6e441963f0b097458d5658884633eaeb1dec8e0142e4f23ce64ebe10b3df"
-SELLER_KEY = "0c85cad5f38c90311e4b1a069e95b76954988222492ccb418c8f115af3f56d94"
+BUYER_KEY = os.environ.get("SEPOLIA_BUYER_KEY", "")
+SELLER_KEY = os.environ.get("SEPOLIA_AGENT_KEY", "")
+if not BUYER_KEY or not SELLER_KEY:
+    raise SystemExit("Required env vars: SEPOLIA_BUYER_KEY, SEPOLIA_AGENT_KEY")
 
 w3 = Web3(Web3.HTTPProvider(RPC))
 assert w3.is_connected()

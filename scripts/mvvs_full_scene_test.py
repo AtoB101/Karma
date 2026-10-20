@@ -51,7 +51,7 @@ WALLETS = {
     },
 }
 
-RPC_URL = "https://sepolia.infura.io/v3/a9a3c01e8b98471eb79d07eb16553236"
+RPC_URL = os.environ.get("SEPOLIA_RPC", "")
 API_BASE = "http://127.0.0.1:8000/v1"
 CHAIN_ID = 11155111
 
