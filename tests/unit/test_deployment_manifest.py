@@ -54,17 +54,17 @@ def test_manifest_parses_and_passes_shape_check():
 def test_manifest_pins_the_deployed_base_sepolia_addresses():
     contracts = _manifest()["contracts"]
     assert contracts["erc20_token"]["address"] == "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-    assert contracts["bilateral"]["address"] == "0x47FEb8f28c72F4f31B94cD1b9A8E8ec43102f040"
-    assert contracts["verifier_registry"]["address"] == "0x07A7e5Ce96fed80Cc551Bad452604d55Db9118B3"
-    assert contracts["evidence_chain"]["address"] == "0x30E83cC339a77c92584e346A8b1050200f3eEB33"
-    assert contracts["scoring_engine"]["address"] == "0xAC17280E7553C101579cd57560Cc4E3B6F733103"
-    assert contracts["circuit_breaker"]["address"] == "0x63FFA4ab38fdAaD46970f48DE1CC77a42B6E265F"
-    assert contracts["emergency_freeze"]["address"] == "0xD31E03a59FD6782A508DA4690b93C510F27b5998"
-    assert contracts["reputation_anchor"]["address"] == "0x335Ff627EBF30412A09415b4a104012ed22d8951"
-    assert contracts["identity_registry"]["address"] == "0x501D4d766C933Bcf6C136fE1E222fBaF05b375f4"
-    assert contracts["attestation_gateway"]["address"] == "0x07180aB17D46eC61A877b924112Eff7DDAC1821b"
-    assert contracts["fee_bridge"]["address"] == "0x57E4fEE51C5Ac7Dc78D791BA21bE2Cc6680793Bc"
-    assert contracts["admin_timelock"]["address"] == "0x24acbC04A4f39F922a24449032657baA9003Cb96"
+    assert contracts["bilateral"]["address"] == "0x5d76d51aD4C31a072A06957B7F5c17E49065406c"
+    assert contracts["verifier_registry"]["address"] == "0xc8702B3726Cfb5B0CD63BD7dE0bA9aa8515ed9c7"
+    assert contracts["evidence_chain"]["address"] == "0x25Ed2394fcC530afb09E68405dDa9183feA35ede"
+    assert contracts["scoring_engine"]["address"] == "0x2CD573c8A0507E97D51b7816854d935fa3a5bB3E"
+    assert contracts["circuit_breaker"]["address"] == "0xA3c718fcACd6C03CC02076E7C06a9a7Bd4fA3166"
+    assert contracts["emergency_freeze"]["address"] == "0xdf16a5925f385EFb32849f6E1A9c493C5F982b66"
+    assert contracts["reputation_anchor"]["address"] == "0x91BD6ef312974fab8A4fE8E4b26Dae2D8e0bE8c2"
+    assert contracts["identity_registry"]["address"] == "0x0A95CAA2067567DC66884EfBbA75551035d1A45e"
+    assert contracts["attestation_gateway"]["address"] == "0x638A04cF5750127F8F97e32e733E7f5B984E8Dae"
+    assert contracts["fee_bridge"]["address"] == "0xDe0eB88e6A8858d099a9d5E392ea7C9b859A59D9"
+    assert contracts["admin_timelock"]["address"] == "0x08B8E188e805982E3124e8c6C89C108236B311c6"
     assert _manifest()["chain_id"] == 84532
 
 

@@ -7,6 +7,7 @@ import {IEmergencyFreeze} from "../interfaces/IEmergencyFreeze.sol";
 /// @notice Minimal ScoringEngine view used by the optional reputation gate.
 interface IScoringEngine {
     function getReputationScore(address party) external view returns (uint256);
+    function isRegistered(address party) external view returns (bool);
     function recordSettlement(address seller, address buyer, address verifier, bool completedOnTime, uint256 speedRatio) external;
     function recordDisputeResolution(address seller, address buyer, address verifier, bool sellerWon, bool wasPenalty) external;
 }
@@ -1425,8 +1426,12 @@ contract KarmaBilateral {
 
     /// @dev Reputation gate: when configured, reject agents below the minimum
     ///      reputation score. Disabled when scoringEngine is unset or score is 0.
+    ///      First-order exemption: an unregistered agent is allowed their first
+    ///      order and is lazy-registered at the default score on settlement, so
+    ///      the gate does not lock out cold-start suppliers.
     function _enforceReputationGate(address agent) internal view {
         if (scoringEngine == address(0) || minReputationScore == 0) return;
+        if (!IScoringEngine(scoringEngine).isRegistered(agent)) return;
         uint256 score = IScoringEngine(scoringEngine).getReputationScore(agent);
         if (score < minReputationScore) revert ReputationTooLow(agent, score, minReputationScore);
     }
