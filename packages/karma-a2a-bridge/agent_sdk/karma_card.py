@@ -30,7 +30,7 @@ def build_card(
             ))
     import os
     ext = AgentCardKarmaExt(
-        contract_address=contract_address or "0xF7839e77960f04B68D0Ea635DB3a21738489A6BF",
+        contract_address=contract_address or "0x8718AD6B0c62687a591F41A8d4a5f72d20f4a611",
         verifier_registry=os.getenv("KARMA_VERIFIER_REGISTRY", ""),
         attestation_gateway=os.getenv("KARMA_ATTESTATION_GATEWAY", ""),
         supports_attestation=bool(
