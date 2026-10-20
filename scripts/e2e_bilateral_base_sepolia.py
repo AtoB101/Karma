@@ -37,6 +37,17 @@ sys.path.insert(0, str(ROOT / "packages" / "karma-sdk" / "python"))
 
 from web3 import Web3
 from eth_account import Account
+
+_NONCES: dict = {}
+
+
+def _nonce(w3, acct):
+    key = acct.address.lower()
+    n = _NONCES.get(key)
+    if n is None:
+        n = w3.eth.get_transaction_count(acct.address, "pending")
+    _NONCES[key] = n + 1
+    return n
 from karma_sdk import KarmaBilateral
 
 RPC = os.getenv("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
@@ -68,7 +79,7 @@ def load_artifact(path: Path):
 def send_tx(w3: Web3, acct, fn, gas: int = 2_000_000):
     tx = fn.build_transaction({
         "from": acct.address,
-        "nonce": w3.eth.get_transaction_count(acct.address, "pending"),
+        "nonce": _nonce(w3, acct),
         "gas": gas,
     })
     signed = acct.sign_transaction(tx)
@@ -82,7 +93,7 @@ def tl_call(w3: Web3, admin, timelock, target: str, data: bytes, gas: int = 3_00
     """Route an admin-only call through the AdminTimelock (schedule + execute)."""
     tx = timelock.functions.schedule(target, 0, data).build_transaction({
         "from": admin.address,
-        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "nonce": _nonce(w3, admin),
         "gas": gas,
     })
     signed = admin.sign_transaction(tx)
@@ -93,7 +104,7 @@ def tl_call(w3: Web3, admin, timelock, target: str, data: bytes, gas: int = 3_00
     action_id = timelock.events.Scheduled().process_receipt(receipt)[0]["args"]["id"]
     tx = timelock.functions.execute(action_id).build_transaction({
         "from": admin.address,
-        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "nonce": _nonce(w3, admin),
         "gas": gas,
     })
     signed = admin.sign_transaction(tx)
@@ -111,7 +122,7 @@ def fund(w3: Web3, admin, to_address: str, value: int):
         "value": value,
         "gas": 21000,
         "gasPrice": w3.eth.gas_price,
-        "nonce": w3.eth.get_transaction_count(admin.address, "pending"),
+        "nonce": _nonce(w3, admin),
     }
     signed = admin.sign_transaction(tx)
     tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
