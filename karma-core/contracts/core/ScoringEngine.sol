@@ -220,6 +220,11 @@ contract ScoringEngine {
         return scores[party].reputationScore;
     }
 
+    /// @notice True once a party has been registered (or lazy-registered).
+    function isRegistered(address party) external view returns (bool) {
+        return scores[party].lastUpdated != 0;
+    }
+
     function isHighReputation(address party) external view returns (bool) {
         return scores[party].reputationScore >= 7_000;
     }

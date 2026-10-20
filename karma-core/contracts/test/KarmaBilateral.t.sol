@@ -630,7 +630,24 @@ contract KarmaBilateralTest is Test {
         _setupBinding();
     }
 
-    function test_reputationGate_blocksLowScoreAgent() public {
+    function test_reputationGate_blocksRegisteredLowScoreAgent() public {
+        ScoringEngine engine = new ScoringEngine(admin);
+        vm.startPrank(admin);
+        engine.registerParty(agent, ScoringEngine.PartyType.SUPPLIER);
+        karma.setScoringEngine(address(engine));
+        karma.setMinReputationScore(6_000);
+        vm.stopPrank();
+
+        vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
+        vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
+
+        // Registered at default 5000, below the 6000 gate -> rejected.
+        vm.prank(buyer);
+        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.ReputationTooLow.selector, agent, 5_000, 6_000));
+        karma.bind(bb, ab, SCOPE);
+    }
+
+    function test_reputationGate_unregisteredAgentIsExempt() public {
         ScoringEngine engine = new ScoringEngine(admin);
         vm.startPrank(admin);
         karma.setScoringEngine(address(engine));
@@ -640,9 +657,10 @@ contract KarmaBilateralTest is Test {
         vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
         vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
 
+        // Unregistered agent gets a first-order exemption (cold-start).
         vm.prank(buyer);
-        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.ReputationTooLow.selector, agent, 0, 6_000));
-        karma.bind(bb, ab, SCOPE);
+        uint256 bindingId = karma.bind(bb, ab, SCOPE);
+        assertEq(uint8(karma.getBinding(bindingId).state), uint8(KarmaBilateral.BindingState.ACTIVE));
     }
 
     function test_reputationGate_allowsSufficientScoreAgent() public {
@@ -664,6 +682,7 @@ contract KarmaBilateralTest is Test {
     function test_reputationGate_appliesToBindWithAttestation() public {
         ScoringEngine engine = new ScoringEngine(admin);
         vm.startPrank(admin);
+        engine.registerParty(agent, ScoringEngine.PartyType.SUPPLIER);
         karma.setScoringEngine(address(engine));
         karma.setMinReputationScore(6_000);
         karma.setAttestationGateway(address(0xABCD));
@@ -673,7 +692,7 @@ contract KarmaBilateralTest is Test {
         vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
 
         vm.prank(buyer);
-        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.ReputationTooLow.selector, agent, 0, 6_000));
+        vm.expectRevert(abi.encodeWithSelector(KarmaBilateral.ReputationTooLow.selector, agent, 5_000, 6_000));
         karma.bindWithAttestation(bb, ab, SCOPE, keccak256("task-001"));
     }
 
