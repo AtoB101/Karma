@@ -42,9 +42,9 @@ from eth_abi import encode
 
 RPC = os.getenv("BASE_SEPOLIA_RPC", "https://sepolia.base.org")
 CHAIN_ID = 84532
-KARMA = "0x7DBA256537EdCF30856E7fc762244182c3d8415f"
-TIMELOCK = "0x11fb386261238D6CA14C14dF0653A1B1F5548F79"
-FEE_BRIDGE = "0x6FA6DDc654488AC2178a17e5257539Cc0176444e"
+KARMA = "0x3fC260D90D62fCd16F748732dD08Ab4bF98F152D"
+TIMELOCK = "0x57bB003B06812F0C65390f0326EAF7260E20F4CC"
+FEE_BRIDGE = "0x9961a8D301A0b9c31D2Cf112620CACFF61eE9570"
 USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 FEE_BPS = 50
 ADMIN_KEY = os.getenv("ADMIN_PRIVATE_KEY", "")
@@ -61,32 +61,54 @@ def load(path: Path):
         return json.load(fh)
 
 
+def _reset_nonce(w3, acct):
+    _NONCES[acct.address.lower()] = w3.eth.get_transaction_count(acct.address, "pending")
+
+
 def send_tx(w3, acct, fn, gas=3_000_000):
-    tx = fn.build_transaction({
-        "from": acct.address,
-        "nonce": _nonce(w3, acct),
-        "gas": gas,
-    })
-    signed = acct.sign_transaction(tx)
-    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
-    if receipt.status != 1:
-        raise RuntimeError(f"tx {tx_hash.hex()} reverted")
-    return receipt
+    last = None
+    for attempt in range(8):
+        try:
+            tx = fn.build_transaction({
+                "from": acct.address,
+                "nonce": _nonce(w3, acct),
+                "gas": gas,
+            })
+            signed = acct.sign_transaction(tx)
+            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            if receipt.status != 1:
+                raise RuntimeError(f"tx {tx_hash.hex()} reverted")
+            return receipt
+        except Exception as e:
+            last = e
+            _reset_nonce(w3, acct)
+            print(f"  send_tx retry {attempt+1}/8 ({type(e).__name__})", flush=True)
+            time.sleep(2 * (attempt + 1))
+    raise last
 
 
 def fund(w3, admin, to, value):
-    tx = {
-        "from": admin.address,
-        "to": Web3.to_checksum_address(to),
-        "value": value,
-        "gas": 21000,
-        "gasPrice": w3.eth.gas_price,
-        "nonce": _nonce(w3, admin),
-    }
-    signed = admin.sign_transaction(tx)
-    h = w3.eth.send_raw_transaction(signed.raw_transaction)
-    return w3.eth.wait_for_transaction_receipt(h, timeout=120)
+    last = None
+    for attempt in range(8):
+        try:
+            tx = {
+                "from": admin.address,
+                "to": Web3.to_checksum_address(to),
+                "value": value,
+                "gas": 21000,
+                "gasPrice": w3.eth.gas_price,
+                "nonce": _nonce(w3, admin),
+            }
+            signed = admin.sign_transaction(tx)
+            h = w3.eth.send_raw_transaction(signed.raw_transaction)
+            return w3.eth.wait_for_transaction_receipt(h, timeout=120)
+        except Exception as e:
+            last = e
+            _reset_nonce(w3, admin)
+            print(f"  fund retry {attempt+1}/8 ({type(e).__name__})", flush=True)
+            time.sleep(2 * (attempt + 1))
+    raise last
 
 
 def latest_ts(w3):
