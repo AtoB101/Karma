@@ -17,67 +17,67 @@
       "role": "结算用 ERC20（官方 Base Sepolia 测试 USDC）"
     },
     "bilateral": {
-      "address": "0x7DBA256537EdCF30856E7fc762244182c3d8415f",
+      "address": "0x3fC260D90D62fCd16F748732dD08Ab4bF98F152D",
       "kind": "contract",
       "env": "KARMA_BILATERAL_ADDRESS",
       "role": "双边托管 / active+reserved==locked 不变量所在"
     },
     "verifier_registry": {
-      "address": "0xd5713EBABb48d5011130997B1DDDd1d3CD905F03",
+      "address": "0xC68Fd35A2217559B73d84E550f5c5b84009A2e4F",
       "kind": "contract",
       "env": "KARMA_VERIFIER_REGISTRY",
       "role": "验证者注册表 / 质押阈值与白名单"
     },
     "evidence_chain": {
-      "address": "0x0B6F93c58F27E2F5075F635579571E6a3abb6526",
+      "address": "0x51d7E773DFcce4f3B2b2d923fbc29CcDF6a9bE54",
       "kind": "contract",
       "env": "KARMA_EVIDENCE_CHAIN",
       "role": "证据链 / 争议证据与仲裁记录"
     },
     "scoring_engine": {
-      "address": "0x51743A1F800876eeca76B94d619F3a469A16eb9B",
+      "address": "0x505145B39b809732906C2663A64168D946C353Af",
       "kind": "contract",
       "env": "KARMA_SCORING_ENGINE",
       "role": "评分引擎 / authorized settler"
     },
     "circuit_breaker": {
-      "address": "0xcD01F3C44aD2a810Bd5a05d852AaB3ED95736269",
+      "address": "0x0F39c6c3a81e72F10bE21c0Fff7E698a9B813Eb6",
       "kind": "contract",
       "env": "KARMA_CIRCUIT_BREAKER",
       "role": "断路器 / 紧急熔断"
     },
     "emergency_freeze": {
-      "address": "0xDE747DC0b6cda46Df9a29e4cE06f06792e91aB80",
+      "address": "0xae1FcD08b888d1301b1C71183E2726bb2B5D88B8",
       "kind": "contract",
       "env": "KARMA_EMERGENCY_FREEZE",
       "role": "紧急冻结守卫"
     },
     "reputation_anchor": {
-      "address": "0x9D1746f17bBc7F3C5d1c45b36Ec51F3b692B15c7",
+      "address": "0x1B7365a4A2CbC785F8b9d493b4F3AB87f7B4dF27",
       "kind": "contract",
       "env": "KARMA_REPUTATION_ANCHOR_ADDRESS",
       "role": "信誉打包锚点"
     },
     "identity_registry": {
-      "address": "0xA98818849A75cbfab4615c5Af5087e03B8e009B7",
+      "address": "0x3DFF3008Ea3c7cc42Ba7989411b00BC7E5Ef760e",
       "kind": "contract",
       "env": "KARMA_IDENTITY_REGISTRY",
       "role": "身份注册表"
     },
     "attestation_gateway": {
-      "address": "0x0342F3EB2df3a657B0234Ca0d5cbDD352386dD09",
+      "address": "0x82772891aFF05c157bE6f1b2ad82567af0D1286f",
       "kind": "contract",
       "env": "KARMA_ATTESTATION_GATEWAY",
       "role": "证明网关 / 仲裁与 verifier 奖励"
     },
     "fee_bridge": {
-      "address": "0x6FA6DDc654488AC2178a17e5257539Cc0176444e",
+      "address": "0x9961a8D301A0b9c31D2Cf112620CACFF61eE9570",
       "kind": "contract",
       "env": "KARMA_FEE_BRIDGE_ADDRESS",
       "role": "手续费桥 / 0.5% 分账 treasury 3 · verifier 3 · buyback 2 · developer 2"
     },
     "admin_timelock": {
-      "address": "0x11fb386261238D6CA14C14dF0653A1B1F5548F79",
+      "address": "0x57bB003B06812F0C65390f0326EAF7260E20F4CC",
       "kind": "contract",
       "env": "KARMA_ADMIN_TIMELOCK_ADDRESS",
       "role": "管理时间锁 / 协议 admin，兼 treasury 与 slash 收款"
