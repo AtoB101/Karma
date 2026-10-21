@@ -6,6 +6,7 @@
 import hashlib
 import hmac
 import json
+import os
 import time
 import urllib.parse
 
@@ -42,7 +43,7 @@ def webhook(update: dict) -> dict:
     return r.json()
 
 
-acct = Account.from_key("a3bd6e441963f0b097458d5658884633eaeb1dec8e0142e4f23ce64ebe10b3df")  # W1 买方
+acct = Account.from_key(os.environ["SEPOLIA_BUYER_KEY"])  # W1 买方
 seller_acct = Account.create()  # 卖方（与买方不同钱包，避免触发 self_deal 风控）
 
 with httpx.Client(base_url=BASE, timeout=30) as c:

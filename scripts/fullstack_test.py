@@ -37,8 +37,8 @@ RPC = "https://ethereum-sepolia-rpc.publicnode.com"
 CHAIN_ID = 11155111
 ESCROW_ADDR = "0xce335327c35FB9797Bd949A5D312c4f0ecD75444"
 
-W1_pk = "a3bd6e441963f0b097458d5658884633eaeb1dec8e0142e4f23ce64ebe10b3df"
-W2_pk = "0c85cad5f38c90311e4b1a069e95b76954988222492ccb418c8f115af3f56d94"
+W1_pk = os.environ.get("SEPOLIA_BUYER_KEY", "")
+W2_pk = os.environ.get("SEPOLIA_AGENT_KEY", "")
 
 with open("/tmp/solc-out/MinimalEscrow.abi") as f:
     ESCROW_ABI = json.load(f)

@@ -226,6 +226,22 @@ SELECT key_id, karma_identity_id, agent_name, created_at
 
 ---
 
+
+---
+
+## 仓库侧泄露密钥（2026-10-20 红队全量测试发现）
+
+红队全量测试发现以下凭证以明文硬编码在仓库内，且已进入 git 历史。**仅从 HEAD 删除不够，必须作废并换新。**
+
+| 凭证 | 原位置 | 处置 |
+|---|---|---|
+| 水龙头管理员私钥（Sepolia） | `scripts/faucet.py` 等 | 改为 `FAUCET_KEY`；**立即轮换** |
+| 3 个测试网私钥（W1/W2/W3） | 10 个脚本 + `apps/telegram_miniapp/index.html` | 改为 `SEPOLIA_ADMIN_KEY` / `SEPOLIA_BUYER_KEY` / `SEPOLIA_AGENT_KEY`；**立即轮换** |
+| Infura API key | 5 个脚本 | 改为 `SEPOLIA_RPC`；**到 Infura 后台作废并换新** |
+| Anvil 默认私钥 | 4 个本地 demo 脚本 | 公开 dev fixture，无需轮换 |
+
+> 代码清理见 `docs/FULL_TEST_REDTEAM_CLEANUP_RUNBOOK.md`（Part 2.5 / Part 3）。
+> 换新后按上文「轮换记录」追加一行，并把新值只放到服务器/CI 的 secret，勿再回填仓库。
 ## 相关
 
 - `docs/SECURITY_RELEASE_GATES.md`（Gate A 的 `A2b`、运维 service agent 钥匙一览）
@@ -233,3 +249,4 @@ SELECT key_id, karma_identity_id, agent_name, created_at
 - `docs/DEPLOY_PIPELINE.md`（`VPS_SSH_KEY` 的轮换）
 - `docs/runtime-key-guide.md`（runtime key 的签发 / 吊销 / 重铸）
 - `scripts/public-beta-security-gate.sh`（判据）
+
