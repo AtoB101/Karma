@@ -57,6 +57,18 @@ _ABI = [
         ],
         "outputs": [{"name": "billId", "type": "uint256"}],
     },
+    # lockFor — sub-agent delegated lock (mints Bill to master, pulls from master)
+    {
+        "name": "lockFor",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "token",  "type": "address"},
+            {"name": "amount", "type": "uint256"},
+            {"name": "master", "type": "address"},
+        ],
+        "outputs": [{"name": "billId", "type": "uint256"}],
+    },
     # bind
     {
         "name": "bind",
@@ -202,6 +214,20 @@ _ABI = [
         "stateMutability": "view",
         "inputs": [{"name": "token", "type": "address"}],
         "outputs": [{"name": "", "type": "bool"}],
+    },
+    {
+        "name": "identityRegistry",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [],
+        "outputs": [{"name": "", "type": "address"}],
+    },
+    {
+        "name": "freeBalance",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "", "type": "address"}],
+        "outputs": [{"name": "", "type": "uint256"}],
     },
     # ERC-20 approve helper ABI (used internally)
     {
@@ -420,6 +446,28 @@ class KarmaBilateral:
         logs = self._contract.events.BillMinted().process_receipt(receipt)
         return int(logs[0]["args"]["billId"])
 
+    def lock_for(self, token: str, amount: int, master: str) -> int:
+        """
+        Sub-agent delegated lock: the signing wallet locks `amount` of `master`'s
+        token and mints the Bill Token to `master`. Requires the signing wallet
+        to hold an active sub-agent grant (see KarmaIdentityRegistry).
+
+        Args:
+            token:   ERC-20 contract address (must be allowlisted)
+            amount:  Amount in token base units
+            master:  Master whose USDC is pulled and who receives the Bill Token
+
+        Returns:
+            billId of the newly minted Bill Token (owned by `master`)
+        """
+        receipt = self._send(self._contract.functions.lockFor(
+            Web3.to_checksum_address(token),
+            amount,
+            Web3.to_checksum_address(master),
+        ))
+        logs = self._contract.events.BillMinted().process_receipt(receipt)
+        return int(logs[0]["args"]["billId"])
+
     def bind(
         self,
         buyer_bill_id: int,
@@ -528,6 +576,16 @@ class KarmaBilateral:
         """Returns True if totalBillSupply[token] == totalLocked[token]."""
         return self._contract.functions.checkInvariant(
             Web3.to_checksum_address(token)
+        ).call()
+
+    def identity_registry(self) -> str:
+        """Address of the KarmaIdentityRegistry wired to this settlement core."""
+        return self._contract.functions.identityRegistry().call()
+
+    def free_balance(self, address: str) -> int:
+        """Unbound escrow balance credited to `address` (bounds sub-agent grants)."""
+        return self._contract.functions.freeBalance(
+            Web3.to_checksum_address(address)
         ).call()
 
     # ── Internal helpers ──────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import { ethers } from "ethers";
 
 const KARMA_BILATERAL_ABI = [
   "function lock(address token, uint256 amount) returns (uint256 billId)",
+  "function lockFor(address token, uint256 amount, address master) returns (uint256 billId)",
   "function bind(uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash) returns (uint256 bindingId)",
   "function bindWithIntent(tuple(address buyer, address seller, bytes32 serviceType, bytes requirements, uint256 amount, uint256 penaltyRate, uint256 deadline, uint256 expiresAt, bytes32 proofSchema, bytes32[] requiredProofFields, address verifier, uint256 disputeWindow, address[] arbitrators) intent, uint256 buyerBillId, uint256 sellerBillId) returns (uint256 bindingId)",
   "function settle(uint256 bindingId, bytes32 proofHash)",
@@ -42,6 +43,8 @@ const KARMA_BILATERAL_ABI = [
   "function setAttestationGateway(address gateway)",
   "function admin() view returns (address)",
   "function tokenAllowed(address) view returns (bool)",
+  "function identityRegistry() view returns (address)",
+  "function freeBalance(address) view returns (uint256)",
   "function attestationGateway() view returns (address)",
   "event BillMinted(uint256 indexed billId, address indexed owner, address token, uint256 amount)",
   "event BillsBound(uint256 indexed bindingId, uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash)",
@@ -90,6 +93,19 @@ const EVIDENCE_CHAIN_ABI = [
   "function getEvidence(bytes32 evidenceHash) view returns (tuple(bytes32 evidenceType, uint256 bindingId, address submitter, bytes data, uint256 timestamp, bool isValid, bytes32 hash))",
   "function getEvidenceCount(uint256 bindingId) view returns (uint256)",
   "function admin() view returns (address)",
+];
+
+const KARMA_IDENTITY_REGISTRY_ABI = [
+  "function registerIdentity(bytes32 masterAgentId)",
+  "function addSubAgent(address subWallet, bytes32 subAgentId)",
+  "function removeSubAgent(address subWallet)",
+  "function setSubAgentBounds(address subWallet, uint256 allowance, uint256 perTxLimit, uint256 expiresAt)",
+  "function isAuthorized(address subWallet, uint256 amount) view returns (bool)",
+  "function getSubAgents(address master) view returns (tuple(address subWallet, bytes32 subAgentId, address master, uint256 allowance, uint256 perTxLimit, uint256 expiresAt, uint8 status, uint256 addedAt, uint256 removedAt)[])",
+  "function getIdentity(address master) view returns (tuple(address masterWallet, bytes32 masterAgentId, bool registered))",
+  "function getMasterOf(address subWallet) view returns (address)",
+  "function getMaster(bytes32 subAgentId) view returns (address)",
+  "function bilateral() view returns (address)",
 ];
 
 const ERC20_ABI = [
@@ -189,6 +205,24 @@ export interface Evidence {
   hash:         string;
 }
 
+export interface SubAgent {
+  subWallet:   string;
+  subAgentId:  string;
+  master:      string;
+  allowance:   bigint;
+  perTxLimit:  bigint;
+  expiresAt:   bigint;
+  status:      number;
+  addedAt:     bigint;
+  removedAt:   bigint;
+}
+
+export interface KarmaIdentity {
+  masterWallet:  string;
+  masterAgentId: string;
+  registered:    boolean;
+}
+
 export interface ClientOptions {
   rpc:         string;
   privateKey:  string;
@@ -224,6 +258,19 @@ export class KarmaBilateral extends BaseClient {
     const tx2 = await this.contract.lock(token, amount);
     const receipt = await tx2.wait();
     // Parse BillMinted event
+    const log = receipt.logs.find((l: any) => {
+      try { return this.contract.interface.parseLog({ topics: l.topics as string[], data: l.data })?.name === "BillMinted"; }
+      catch { return false; }
+    });
+    if (!log) throw new Error("BillMinted event not found");
+    const parsed = this.contract.interface.parseLog({ topics: log.topics as string[], data: log.data });
+    return parsed!.args.billId;
+  }
+
+  /** Sub-agent delegated lock: signing wallet locks master's token, mints Bill to master. */
+  async lockFor(token: string, amount: bigint, master: string): Promise<bigint> {
+    const tx = await this.contract.lockFor(token, amount, master);
+    const receipt = await tx.wait();
     const log = receipt.logs.find((l: any) => {
       try { return this.contract.interface.parseLog({ topics: l.topics as string[], data: l.data })?.name === "BillMinted"; }
       catch { return false; }
@@ -388,6 +435,62 @@ export class KarmaBilateral extends BaseClient {
 
   async admin(): Promise<string> { return this.contract.admin(); }
   async attestationGateway(): Promise<string> { return this.contract.attestationGateway(); }
+  async identityRegistry(): Promise<string> { return this.contract.identityRegistry(); }
+  async freeBalance(address: string): Promise<bigint> { return this.contract.freeBalance(address); }
+}
+
+// ── KarmaIdentityRegistry Client ─────────────────────────────────────────────────────────────
+
+export class KarmaIdentityRegistry extends BaseClient {
+  constructor(opts: ClientOptions) {
+    super(opts, KARMA_IDENTITY_REGISTRY_ABI);
+  }
+
+  /** Register the signing wallet as a master identity. */
+  async registerIdentity(masterAgentId: string): Promise<void> {
+    const tx = await this.contract.registerIdentity(masterAgentId);
+    await tx.wait();
+  }
+
+  /** Add an active sub-agent wallet under the signing master. */
+  async addSubAgent(subWallet: string, subAgentId: string): Promise<void> {
+    const tx = await this.contract.addSubAgent(subWallet, subAgentId);
+    await tx.wait();
+  }
+
+  /** Deactivate a sub-agent (reverts if it holds bound balance). */
+  async removeSubAgent(subWallet: string): Promise<void> {
+    const tx = await this.contract.removeSubAgent(subWallet);
+    await tx.wait();
+  }
+
+  /** Set a sub-agent spending envelope: budget, per-tx cap, expiry. */
+  async setSubAgentBounds(subWallet: string, allowance: bigint, perTxLimit: bigint, expiresAt: bigint = 0n): Promise<void> {
+    const tx = await this.contract.setSubAgentBounds(subWallet, allowance, perTxLimit, expiresAt);
+    await tx.wait();
+  }
+
+  async isAuthorized(subWallet: string, amount: bigint): Promise<boolean> {
+    return this.contract.isAuthorized(subWallet, amount);
+  }
+
+  async getSubAgents(master: string): Promise<SubAgent[]> {
+    const raw = await this.contract.getSubAgents(master);
+    return raw.map((s: any) => ({
+      subWallet: s.subWallet, subAgentId: s.subAgentId, master: s.master,
+      allowance: s.allowance, perTxLimit: s.perTxLimit, expiresAt: s.expiresAt,
+      status: s.status, addedAt: s.addedAt, removedAt: s.removedAt,
+    }));
+  }
+
+  async getIdentity(master: string): Promise<KarmaIdentity> {
+    const raw = await this.contract.getIdentity(master);
+    return { masterWallet: raw.masterWallet, masterAgentId: raw.masterAgentId, registered: raw.registered };
+  }
+
+  async getMasterOf(subWallet: string): Promise<string> { return this.contract.getMasterOf(subWallet); }
+  async getMaster(subAgentId: string): Promise<string> { return this.contract.getMaster(subAgentId); }
+  async bilateral(): Promise<string> { return this.contract.bilateral(); }
 }
 
 // ── VerifierRegistry Client ───────────────────────────────────────────────────
@@ -585,4 +688,4 @@ export async function quickBind(
 }
 
 // ── Re-export ABIs ────────────────────────────────────────────────────────────
-export { KARMA_BILATERAL_ABI, VERIFIER_REGISTRY_ABI, SCORING_ENGINE_ABI, EVIDENCE_CHAIN_ABI, ERC20_ABI };
+export { KARMA_BILATERAL_ABI, VERIFIER_REGISTRY_ABI, SCORING_ENGINE_ABI, EVIDENCE_CHAIN_ABI, KARMA_IDENTITY_REGISTRY_ABI, ERC20_ABI };
