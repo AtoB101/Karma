@@ -1,6 +1,6 @@
 # Base Sepolia 红队实测 V1（多签仲裁 + 真质押栈）
 
-Generated: `2026-10-21T21:53:09Z`
+Generated: `2026-10-21T22:08:22Z`
 Chain: `84532`（Base Sepolia） · RPC: `https://sepolia.base.org`
 
 ## Verdict
@@ -33,11 +33,11 @@ timelock 为 testnet bootstrap 态（`minDelay=0`、`threshold=1`、owner=部署
 
 | # | 流程 | 脚本 | 结果 | 会话 |
 |---|------|------|------|------|
-| 1 | 争议（dispute → resolve） | `scripts/e2e_dispute_refund_base_sepolia.py` Flow A | PASS | 本会话 2026-10-21 |
-| 2 | 退款（refundOnTimeout） | `scripts/e2e_dispute_refund_base_sepolia.py` Flow B | PASS | 本会话 2026-10-21 |
-| 3 | 真质押罚没（slash） | `scripts/e2e_slash_base_sepolia.py` | PASS | 本会话 2026-10-21 |
-| 4 | attestation 结算 | `scripts/e2e_attestation_base_sepolia.py` | PASS | 部署会话 2026-10-21 |
-| 5 | 手续费分账 | `scripts/e2e_feebridge_base_sepolia.py` | PASS | 2026-10-21（隔离部署） |
+| 1 | 争议（dispute → resolve） | `scripts/e2e_dispute_refund_base_sepolia.py` Flow A | PASS | 2026-10-21 |
+| 2 | 退款（refundOnTimeout） | `scripts/e2e_dispute_refund_base_sepolia.py` Flow B | PASS | 2026-10-21 |
+| 3 | 真质押罚没（slash） | `scripts/e2e_slash_base_sepolia.py` | PASS | 2026-10-21 |
+| 4 | attestation 结算 | `scripts/e2e_attestation_base_sepolia.py` | PASS | 2026-10-21 |
+| 5 | 手续费分账 | `scripts/e2e_feebridge_base_sepolia.py` | PASS | 2026-10-21 |
 
 ## 流程明细
 
@@ -65,14 +65,23 @@ timelock 为 testnet bootstrap 态（`minDelay=0`、`threshold=1`、owner=部署
   treasury `0xb689894bc7E8B3b14008AeF9c9A13Aa0B95dD8be`。
 
 ### 4) attestation 结算
-- 3 验证者真实质押 USDC → quorum=True → `bindWithAttestation` → 发布证据 →
-  3-of-3 EIP-712 签名 → 60s 挑战窗口 → `settleWithAttestation` → binding #1 SETTLED。
+- 3 验证者真实质押 USDC → quorum=True（valid=3）→ `bindWithAttestation` →
+  `requiresAttestation=True` → 发布证据 → 3-of-3 EIP-712 签名 → 60s 挑战窗口 →
+  `settleWithAttestation` → binding #4 SETTLED（state=3）。
 - 结算：buyer 0.0 / agent 19.9 mUSDC（0.5% 手续费 0.1），`checkInvariant` 通过。
-- taskId `64c61b9296…5cc74`，gateway `0x46cb1d89…`（脚本自部署）。
+- taskId `64c61b9297167fbf28781a386c200ea94a37bdabda6547fc866207a09c05cc74`。
+- gateway `0x392077B87af2CA78dF0BF0698F24aee2990d343A`，
+  registry `0x08b9f3ab603123957dc43A455D59C47E9D91aF61`，
+  mock `0xc70ffC83498Cb75c9Bd419D3754F1B795Bcc7685`（均脚本自部署）。
+- 验证者：`0x408051d5d925811343a925Cd3045D07c6DE6341a`、`0x960b871fC642376B3D35dd527272CDE110529793`、
+  `0x27e53c292F9CDceFC18c57F22c88FB565af0315f`。
 
 ### 5) 手续费分账（0.5%，3/3/2/2）
 - fee 0.1 mUSDC（GMV 20）；split treasury 0.03 / verifier 0.03 / buyback 0.02 / developer 0.02。
-- 隔离部署，不触碰 pinned 栈。
+- 隔离部署：karma `0xE9ef3A3C9B50517501B10dE3D71eAF71a6E7A89e`、
+  bridge `0x6bD7CA8593705E2279D67B6833e157d5A9A6B93B`、
+  registry `0x1d15310cEBFf1D2e1d0aa8a703978118a128f712`、
+  mock `0xF8Ad1B5c75ad663EBCFB0c13709dD03ee368b2B4`。
 
 ## 复现命令
 
@@ -91,5 +100,5 @@ python scripts\e2e_feebridge_base_sepolia.py
   主网应由治理时间锁执行，且需正延迟）。
 - timelock 当前 `threshold=1`、`delay=0` 仅限 testnet bootstrap；主网必须 `threshold≥2` 且 `delay>0`
   （部署脚本含 MAINNET GUARD）。
-- 部署者 ETH 余额已降至约 0.004，继续跑 E2E 需先补水。
-- feebridge 为隔离部署，结果反映 FeeBridge 合约逻辑，与 pinned 栈地址无关。
+- attestation 运行中出现的 `MismatchedABI` 日志为 SDK 事件 ABI 不完整所致（已被丢弃，不影响断言）。
+- feebridge / slash 均为隔离部署，结果反映各自合约逻辑，不触碰 pinned 栈。
