@@ -59,11 +59,14 @@ def _fake_ctx(public_key: str) -> rks.RuntimeKeyContext:
 
 
 @pytest.fixture(autouse=True)
-def _clean_signing_state(monkeypatch):
+def _clean_signing_state(monkeypatch, tmp_path):
     """签名模式是进程级缓存：别让上一条用例的结论漏到下一条。"""
     oc_http.reset_signing_mode()
     for name in ("KARMA_AGENT_PRIVATE_KEY", "KARMA_AGENT_ID", "KARMA_RUNTIME_KEY"):
         monkeypatch.delenv(name, raising=False)
+    # 隔离本机凭据文件：agent_key_from_env 会回落到 ~/.karma/agent.env，
+    # 若不指向空路径，装有凭据的开发机会让「无凭据」类用例误读到真实私钥。
+    monkeypatch.setenv('KARMA_AGENT_ENV_PATH', str(tmp_path / 'agent.env'))
     yield
     oc_http.reset_signing_mode()
 
