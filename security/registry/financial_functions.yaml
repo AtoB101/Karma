@@ -265,14 +265,14 @@ contract_functions:
     audit_event: SubAgentRemoved
 
   - contract: KarmaIdentityRegistry
-    function: setSubAgentAllowance
+    function: setSubAgentBounds
     caller: master agent
     required_role: master_agent
     risk_level: HIGH
     affected_asset: 子代理可动用额度
     affected_amount: allowance
     emergency_action: block
-    audit_event: SubAgentAllowanceSet
+    audit_event: SubAgentBoundsUpdated
 
   # admin 配置函数 — 全部影响资金规则
   - contract: KarmaBilateral

@@ -45,7 +45,7 @@ interface IKarmaAttestationGateway {
 //    unlock
 //
 //  KarmaIdentity:
-//    registerIdentity / addSubAgent / removeSubAgent / setSubAgentAllowance
+//    registerIdentity / addSubAgent / removeSubAgent / setSubAgentBounds
 //
 //  Attestation gate (existing N-of-M path via KarmaAttestationGateway):
 //    bindWithAttestation / settle() from gateway -> immediate settlement
