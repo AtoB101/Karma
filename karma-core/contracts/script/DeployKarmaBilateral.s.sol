@@ -98,7 +98,7 @@ contract DeployKarmaBilateral is Script {
 
     function run() external {
         uint256 deployerKey   = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address arbitrator    = vm.envOr("ARBITRATOR_ADDRESS", vm.addr(deployerKey));
+        address arbitrator    = vm.envOr("ARBITRATOR_ADDRESS", address(0)); // default: multisig timelock
 
         // ── Admin: multisig-governed timelock (replaces single-EOA admin) ─
         // Bootstrap as deployer-only / threshold 1 / zero delay so this
@@ -156,6 +156,9 @@ contract DeployKarmaBilateral is Script {
         // ── AdminTimelock (deployed here so it is actually broadcast) ──────
         tl = new AdminTimelock(_singleton(vm.addr(deployerKey)), 1, 0);
         admin = address(tl);
+
+        // Default arbitrator is the multisig timelock (no single-EOA challenge resolution).
+        if (arbitrator == address(0)) arbitrator = admin;
 
         // Fee bridge: 0.5% fee split 3/3/2/2 (treasury / verifier / buyback / developer).
         address treasury   = vm.envOr("TREASURY_ADDRESS",   admin);
@@ -266,12 +269,15 @@ contract DeployKarmaBilateral is Script {
 
         // P2-9: anti-grief challenge stake (only the arbitrator may configure it).
         if (challengeStake > 0) {
-            if (arbitrator != vm.addr(deployerKey)) {
-                console.log("WARN: CHALLENGE_STAKE set but arbitrator != deployer; skipping setChallengeStake");
-            } else {
+            if (arbitrator == admin) {
+                // arbitrator is the timelock -> route the call through governance
+                _tl(tl, address(gateway), abi.encodeCall(KarmaAttestationGateway.setChallengeStake, (paymentToken, challengeStake)));
+            } else if (arbitrator == vm.addr(deployerKey)) {
                 gateway.setChallengeStake(paymentToken, challengeStake);
-                console.log("Challenge stake configured ", challengeStake, " ", paymentToken);
+            } else {
+                console.log("WARN: CHALLENGE_STAKE set but arbitrator is an external contract; configure setChallengeStake from that contract");
             }
+            console.log("Challenge stake configured ", challengeStake, " ", paymentToken);
         }
 
         // ── Reconfigure timelock to the final multisig config ─────────────
@@ -355,3 +361,5 @@ contract DeployKarmaBilateral is Script {
         }
     }
 }
+
+
