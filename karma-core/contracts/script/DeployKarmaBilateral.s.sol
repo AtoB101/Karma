@@ -246,6 +246,7 @@ contract DeployKarmaBilateral is Script {
 
         KarmaReputationAnchor reputationAnchor = new KarmaReputationAnchor(admin);
         KarmaIdentityRegistry identityRegistry = new KarmaIdentityRegistry(address(karma));
+        _tl(tl, address(karma), abi.encodeCall(KarmaBilateral.setIdentityRegistry, (address(identityRegistry))));
 
         // ── 5. KarmaAttestationGateway ────────────────────────────────────────
         KarmaAttestationGateway gateway = new KarmaAttestationGateway(
@@ -286,6 +287,7 @@ contract DeployKarmaBilateral is Script {
         require(karma.admin()                 == admin,           "karma admin mismatch");
         require(karma.tokenAllowed(paymentToken),                 "token not allowlisted");
         require(karma.attestationGateway()    == address(gateway), "gateway not wired");
+        require(karma.identityRegistry()     == address(identityRegistry), "identity registry not wired");
         require(karma.feeBridge()             == address(feeBridge), "fee bridge not wired");
         require(registry.slashRecipient()     == treasury, "slash recipient not wired");
         require(gateway.bilateralContract()   == address(karma),  "bilateral not wired");

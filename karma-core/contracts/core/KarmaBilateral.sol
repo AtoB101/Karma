@@ -17,6 +17,11 @@ interface IKarmaAttestationGateway {
     function registerTaskPublisher(bytes32 taskId, address buyer, address agent) external;
 }
 
+/// @notice Minimal identity-registry hook used to enforce sub-agent budgets.
+interface IKarmaIdentityRegistry {
+    function consumeAuthorization(address subWallet, uint256 amount) external returns (bool);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  KarmaBilateral — Bilateral Lock + Bill Token + KarmaFSM + Threshold Batch
 //                   + Single Commitment Principle (SCP)
@@ -120,6 +125,9 @@ contract KarmaBilateral {
     error IntentPartyMismatch(string party);
     error IntentAmountMismatch(uint256 intent, uint256 buyer, uint256 agent);
     error IntentExpired(uint256 expiredAt);
+    // Sub-agent authorization
+    error IdentityRegistryNotSet();
+    error SubAgentNotAuthorized(address subWallet, uint256 amount);
 
     // ═══════════════════════════ State Machines ══════════════════════════════
 
@@ -222,6 +230,8 @@ contract KarmaBilateral {
 
     /// @notice Optional reputation gate: scoring engine source (address(0) = disabled).
     address public scoringEngine;
+    /// @notice Optional identity registry enforcing sub-agent budgets (address(0) = disabled).
+    address public identityRegistry;
 
     /// @notice Agents below this reputation score are rejected by bind (0 = disabled).
     uint256 public minReputationScore;
@@ -284,6 +294,7 @@ contract KarmaBilateral {
     event GatewayChangeDelayUpdated(uint256 delay_);
     event TreasuryUpdated(address indexed treasury);
     event FeeBridgeUpdated(address indexed feeBridge);
+    event IdentityRegistryUpdated(address indexed identityRegistry);
     event BindingDeveloperUpdated(uint256 indexed bindingId, address indexed developer);
     event SettleDelayUpdated(uint256 seconds_);
     event OptimisticDisputeWindowUpdated(uint256 seconds_);
@@ -330,6 +341,11 @@ contract KarmaBilateral {
     function setEmergencyGuard(address guard) external onlyAdmin {
         emergencyGuard = guard;
         emit EmergencyGuardUpdated(guard);
+    }
+
+    function setIdentityRegistry(address registry_) external onlyAdmin {
+        identityRegistry = registry_;
+        emit IdentityRegistryUpdated(registry_);
     }
 
     function _requirePayoutNotFrozen(uint256 bindingId) internal view {
@@ -408,6 +424,40 @@ contract KarmaBilateral {
         freeBalance[msg.sender] += amount;
 
         emit BillMinted(billId, msg.sender, token, amount);
+    }
+
+    /// @notice Sub-agent delegated lock: a registered sub-wallet locks `amount`
+    ///         of `master`'s USDC (master must have approved this contract) and
+    ///         mints the Bill Token to `master`. Enforced against the identity
+    ///         registry's per-transaction / expiry / remaining-budget bounds.
+    function lockFor(address token, uint256 amount, address master)
+        external
+        nonReentrant
+        returns (uint256 billId)
+    {
+        if (master == address(0)) revert ZeroAddress();
+        address registry = identityRegistry;
+        if (registry == address(0)) revert IdentityRegistryNotSet();
+        if (!IKarmaIdentityRegistry(registry).consumeAuthorization(msg.sender, amount)) {
+            revert SubAgentNotAuthorized(msg.sender, amount);
+        }
+        if (!tokenAllowed[token]) revert TokenNotAllowed();
+        if (amount == 0)          revert ZeroAmount();
+        if (token == address(0))  revert ZeroAddress();
+        uint8 tokenId = tokenIds[token];
+        if (tokenId == 0) revert TokenNotAllowed();
+
+        bool ok = IERC20Min(token).transferFrom(master, address(this), amount);
+        if (!ok) revert TransferFailed();
+
+        unchecked { billId = ++_billCounter; }
+        _bills[billId] = _packBill(master, tokenId, BillState.MINTED);
+        _billAmounts[billId] = amount;
+
+        totalLocked[token]  += amount;
+        freeBalance[master] += amount;
+
+        emit BillMinted(billId, master, token, amount);
     }
 
     /// @notice Bilaterally bind buyer and agent Bill Tokens.

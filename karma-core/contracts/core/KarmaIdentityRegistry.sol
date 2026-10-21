@@ -18,6 +18,7 @@ contract KarmaIdentityRegistry {
     error SubAgentHasBoundBalance(address sub, uint256 bound);
     error PerTxLimitExceedsAllowance(uint256 perTxLimit, uint256 allowance);
     error ExpiryInPast(uint256 expiresAt);
+    error UnauthorizedCaller();
     error ZeroAddress();
     error ZeroAmount();
 
@@ -168,6 +169,29 @@ contract KarmaIdentityRegistry {
             if (sa.expiresAt != 0 && sa.expiresAt <= block.timestamp) return false;
             if (sa.perTxLimit != 0 && amount > sa.perTxLimit) return false;
             return amount <= sa.allowance;
+        }
+        return false;
+    }
+
+    /// @notice Atomically checks and consumes `amount` of a sub-agent's remaining
+    ///         allowance on behalf of the settlement core. Only the bilateral
+    ///         core may call. Returns true (and decrements allowance) when the
+    ///         spend respects active status, expiry, per-tx and budget bounds.
+    function consumeAuthorization(address subWallet, uint256 amount) external returns (bool) {
+        if (msg.sender != bilateral) revert UnauthorizedCaller();
+        address master = subAgentMaster[subWallet];
+        if (master == address(0) || !identities[master].registered) return false;
+
+        bytes32[] storage ids = _masterSubAgentIds[master];
+        uint256 len = ids.length;
+        for (uint256 i = 0; i < len; i++) {
+            SubAgent storage sa = subAgentById[ids[i]];
+            if (sa.subWallet != subWallet || sa.status != SubAgentStatus.ACTIVE) continue;
+            if (sa.expiresAt != 0 && sa.expiresAt <= block.timestamp) return false;
+            if (sa.perTxLimit != 0 && amount > sa.perTxLimit) return false;
+            if (amount > sa.allowance) return false;
+            sa.allowance -= amount;
+            return true;
         }
         return false;
     }

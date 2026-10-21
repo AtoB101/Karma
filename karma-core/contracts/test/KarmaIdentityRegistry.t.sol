@@ -163,4 +163,63 @@ contract KarmaIdentityRegistryTest is Test {
 
         assertFalse(registry.isAuthorized(sub, 1));
     }
+
+    function testConsumeAuthorizationOnlyBilateral() public {
+        _addSub(sub, SUB_ID);
+        bilateral.setFree(master, 1000);
+        vm.prank(master);
+        registry.setSubAgentBounds(sub, 100, 50, block.timestamp + 1 days);
+
+        vm.prank(stranger);
+        vm.expectRevert(KarmaIdentityRegistry.UnauthorizedCaller.selector);
+        registry.consumeAuthorization(sub, 10);
+    }
+
+    function testConsumeAuthorizationDecrementsAllowance() public {
+        _addSub(sub, SUB_ID);
+        bilateral.setFree(master, 1000);
+        vm.prank(master);
+        registry.setSubAgentBounds(sub, 100, 50, block.timestamp + 1 days);
+
+        vm.prank(address(bilateral));
+        assertTrue(registry.consumeAuthorization(sub, 40));
+
+        KarmaIdentityRegistry.SubAgent[] memory subs = registry.getSubAgents(master);
+        assertEq(subs.length, 1);
+        assertEq(subs[0].allowance, 60);
+
+        assertTrue(registry.isAuthorized(sub, 50));
+        assertFalse(registry.isAuthorized(sub, 61));
+    }
+
+    function testConsumeAuthorizationRejectsOverPerTx() public {
+        _addSub(sub, SUB_ID);
+        bilateral.setFree(master, 1000);
+        vm.prank(master);
+        registry.setSubAgentBounds(sub, 100, 50, block.timestamp + 1 days);
+
+        vm.prank(address(bilateral));
+        assertFalse(registry.consumeAuthorization(sub, 51));
+    }
+
+    function testConsumeAuthorizationRejectsOverAllowance() public {
+        _addSub(sub, SUB_ID);
+        bilateral.setFree(master, 1000);
+        vm.prank(master);
+        registry.setSubAgentBounds(sub, 100, 50, block.timestamp + 1 days);
+
+        vm.prank(address(bilateral));
+        assertFalse(registry.consumeAuthorization(sub, 101));
+    }
+
+    function testConsumeAuthorizationRejectsExpired() public {
+        _addSub(sub, SUB_ID);
+        bilateral.setFree(master, 1000);
+        vm.prank(master);
+        registry.setSubAgentBounds(sub, 100, 50, block.timestamp + 1 days);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        vm.prank(address(bilateral));
+        assertFalse(registry.consumeAuthorization(sub, 10));
+    }
 }
