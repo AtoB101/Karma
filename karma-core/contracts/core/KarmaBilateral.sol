@@ -407,29 +407,12 @@ contract KarmaBilateral {
         nonReentrant
         returns (uint256 billId)
     {
-        if (!tokenAllowed[token]) revert TokenNotAllowed();
-        if (amount == 0)          revert ZeroAmount();
-        if (token == address(0))  revert ZeroAddress();
-        uint8 tokenId = tokenIds[token];
-        if (tokenId == 0) revert TokenNotAllowed();
-
-        bool ok = IERC20Min(token).transferFrom(msg.sender, address(this), amount);
-        if (!ok) revert TransferFailed();
-
-        unchecked { billId = ++_billCounter; }
-        _bills[billId] = _packBill(msg.sender, tokenId, BillState.MINTED);
-        _billAmounts[billId] = amount;
-
-        totalLocked[token]     += amount;
-        freeBalance[msg.sender] += amount;
-
-        emit BillMinted(billId, msg.sender, token, amount);
+        billId = _lock(token, amount, msg.sender);
     }
 
     /// @notice Sub-agent delegated lock: a registered sub-wallet locks `amount`
-    ///         of `master`'s USDC (master must have approved this contract) and
-    ///         mints the Bill Token to `master`. Enforced against the identity
-    ///         registry's per-transaction / expiry / remaining-budget bounds.
+    ///         of `master`'s USDC and mints the Bill Token to `master`. Enforced
+    ///         against the identity registry's per-tx / expiry / budget bounds.
     function lockFor(address token, uint256 amount, address master)
         external
         nonReentrant
@@ -441,23 +424,32 @@ contract KarmaBilateral {
         if (!IKarmaIdentityRegistry(registry).consumeAuthorization(msg.sender, amount)) {
             revert SubAgentNotAuthorized(msg.sender, amount);
         }
+        billId = _lock(token, amount, master);
+    }
+
+    /// @dev Shared escrow entry: validate token, pull `amount` of `owner`'s
+    ///      funds and mint a Bill Token to `owner`.
+    function _lock(address token, uint256 amount, address owner)
+        private
+        returns (uint256 billId)
+    {
         if (!tokenAllowed[token]) revert TokenNotAllowed();
         if (amount == 0)          revert ZeroAmount();
         if (token == address(0))  revert ZeroAddress();
         uint8 tokenId = tokenIds[token];
         if (tokenId == 0) revert TokenNotAllowed();
 
-        bool ok = IERC20Min(token).transferFrom(master, address(this), amount);
+        bool ok = IERC20Min(token).transferFrom(owner, address(this), amount);
         if (!ok) revert TransferFailed();
 
         unchecked { billId = ++_billCounter; }
-        _bills[billId] = _packBill(master, tokenId, BillState.MINTED);
+        _bills[billId] = _packBill(owner, tokenId, BillState.MINTED);
         _billAmounts[billId] = amount;
 
-        totalLocked[token]  += amount;
-        freeBalance[master] += amount;
+        totalLocked[token] += amount;
+        freeBalance[owner] += amount;
 
-        emit BillMinted(billId, master, token, amount);
+        emit BillMinted(billId, owner, token, amount);
     }
 
     /// @notice Bilaterally bind buyer and agent Bill Tokens.
@@ -479,34 +471,7 @@ contract KarmaBilateral {
         _bills[buyerBillId] = _setBillState(buyerBill, BillState.BOUND);
         _bills[agentBillId] = _setBillState(agentBill, BillState.BOUND);
 
-        unchecked { bindingId = ++_bindingCounter; }
-        bindings[bindingId] = Binding({
-            bindingId:        bindingId,
-            buyerBillId:      buyerBillId,
-            agentBillId:      agentBillId,
-            scopeHash:        scopeHash,
-            state:            BindingState.ACTIVE,
-            createdAt:        block.timestamp,
-            settleAfter:      block.timestamp + settleDelaySeconds,
-            proofHash:        bytes32(0),
-            settleSubmittedAt: 0,
-            disputedAt:       0,
-            disputeInitiator: address(0)
-        });
-
-        address token    = _billToken(buyerBill);
-        uint256 buyerAmt = _billAmounts[buyerBillId];
-        uint256 agentAmt = _billAmounts[agentBillId];
-        pendingBatchAmount[token] += buyerAmt + agentAmt;
-
-        _moveFreeTobound(_billOwner(buyerBill), buyerAmt);
-        _moveFreeTobound(_billOwner(agentBill), agentAmt);
-
-        if (batchThreshold[token] > 0 && pendingBatchAmount[token] >= batchThreshold[token]) {
-            bindings[bindingId].state = BindingState.PENDING;
-        }
-
-        emit BillsBound(bindingId, buyerBillId, agentBillId, scopeHash);
+        bindingId = _finalizeBind(buyerBillId, agentBillId, scopeHash);
     }
 
     /// @notice Bind with N-of-M attestation requirement.
@@ -536,38 +501,12 @@ contract KarmaBilateral {
         _bills[buyerBillId] = _setBillState(buyerBill, BillState.BOUND);
         _bills[agentBillId] = _setBillState(agentBill, BillState.BOUND);
 
-        unchecked { bindingId = ++_bindingCounter; }
-        bindings[bindingId] = Binding({
-            bindingId:        bindingId,
-            buyerBillId:      buyerBillId,
-            agentBillId:      agentBillId,
-            scopeHash:        scopeHash,
-            state:            BindingState.ACTIVE,
-            createdAt:        block.timestamp,
-            settleAfter:      block.timestamp + settleDelaySeconds,
-            proofHash:        bytes32(0),
-            settleSubmittedAt: 0,
-            disputedAt:       0,
-            disputeInitiator: address(0)
-        });
+        bindingId = _finalizeBind(buyerBillId, agentBillId, scopeHash);
 
         requiresAttestation[bindingId] = true;
         bindingTaskId[bindingId]       = taskId;
         IKarmaAttestationGateway(attestationGateway).registerTaskPublisher(taskId, _billOwner(buyerBill), _billOwner(agentBill));
 
-        address token    = _billToken(buyerBill);
-        uint256 buyerAmt = _billAmounts[buyerBillId];
-        uint256 agentAmt = _billAmounts[agentBillId];
-        pendingBatchAmount[token] += buyerAmt + agentAmt;
-
-        _moveFreeTobound(_billOwner(buyerBill), buyerAmt);
-        _moveFreeTobound(_billOwner(agentBill), agentAmt);
-
-        if (batchThreshold[token] > 0 && pendingBatchAmount[token] >= batchThreshold[token]) {
-            bindings[bindingId].state = BindingState.PENDING;
-        }
-
-        emit BillsBound(bindingId, buyerBillId, agentBillId, scopeHash);
         emit AttestationBindingRegistered(bindingId, taskId);
     }
 
@@ -610,20 +549,7 @@ contract KarmaBilateral {
 
         bytes32 intentHash = keccak256(abi.encode(intent));
 
-        unchecked { bindingId = ++_bindingCounter; }
-        bindings[bindingId] = Binding({
-            bindingId:        bindingId,
-            buyerBillId:      buyerBillId,
-            agentBillId:      agentBillId,
-            scopeHash:        intentHash,
-            state:            BindingState.ACTIVE,
-            createdAt:        block.timestamp,
-            settleAfter:      block.timestamp + settleDelaySeconds,
-            proofHash:        bytes32(0),
-            settleSubmittedAt: 0,
-            disputedAt:       0,
-            disputeInitiator: address(0)
-        });
+        bindingId = _finalizeBind(buyerBillId, agentBillId, intentHash);
 
         // Store the full intent on-chain for verification + audit
         intentPackages[bindingId] = intent;
@@ -637,6 +563,33 @@ contract KarmaBilateral {
             }
         }
 
+        emit IntentBound(bindingId, buyerBillId, agentBillId, intentHash);
+    }
+
+    /// @dev Shared bind finalization: allocate the binding, move free→bound
+    ///      balances and apply the batch threshold. Deduped across bind paths.
+    function _finalizeBind(uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash)
+        internal
+        returns (uint256 bindingId)
+    {
+        bytes32 buyerBill = _bills[buyerBillId];
+        bytes32 agentBill = _bills[agentBillId];
+
+        unchecked { bindingId = ++_bindingCounter; }
+        bindings[bindingId] = Binding({
+            bindingId:        bindingId,
+            buyerBillId:      buyerBillId,
+            agentBillId:      agentBillId,
+            scopeHash:        scopeHash,
+            state:            BindingState.ACTIVE,
+            createdAt:        block.timestamp,
+            settleAfter:      block.timestamp + settleDelaySeconds,
+            proofHash:        bytes32(0),
+            settleSubmittedAt: 0,
+            disputedAt:       0,
+            disputeInitiator: address(0)
+        });
+
         address token    = _billToken(buyerBill);
         uint256 buyerAmt = _billAmounts[buyerBillId];
         uint256 agentAmt = _billAmounts[agentBillId];
@@ -649,8 +602,7 @@ contract KarmaBilateral {
             bindings[bindingId].state = BindingState.PENDING;
         }
 
-        emit BillsBound(bindingId, buyerBillId, agentBillId, intentHash);
-        emit IntentBound(bindingId, buyerBillId, agentBillId, intentHash);
+        emit BillsBound(bindingId, buyerBillId, agentBillId, scopeHash);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
