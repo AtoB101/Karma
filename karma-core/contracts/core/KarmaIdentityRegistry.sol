@@ -16,6 +16,9 @@ contract KarmaIdentityRegistry {
     error AllowanceExceedsFreeBalance(uint256 total, uint256 free);
     error SubAgentNotFound(address sub);
     error SubAgentHasBoundBalance(address sub, uint256 bound);
+    error PerTxLimitExceedsAllowance(uint256 perTxLimit, uint256 allowance);
+    error ExpiryInPast(uint256 expiresAt);
+    error UnauthorizedCaller();
     error ZeroAddress();
     error ZeroAmount();
 
@@ -29,6 +32,8 @@ contract KarmaIdentityRegistry {
         bytes32    subAgentId;
         address    master;
         uint256    allowance;
+        uint256    perTxLimit;
+        uint256    expiresAt;
         SubAgentStatus status;
         uint256    addedAt;
         uint256    removedAt;
@@ -49,7 +54,7 @@ contract KarmaIdentityRegistry {
     event IdentityRegistered(address indexed masterWallet, bytes32 masterAgentId);
     event SubAgentAdded(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
     event SubAgentDeactivated(address indexed masterWallet, address indexed subWallet, bytes32 subAgentId);
-    event SubAgentAllowanceUpdated(address indexed masterWallet, address indexed subWallet, uint256 allowance);
+    event SubAgentBoundsUpdated(address indexed masterWallet, address indexed subWallet, uint256 allowance, uint256 perTxLimit, uint256 expiresAt);
 
     constructor(address bilateral_) {
         bilateral = bilateral_;
@@ -78,6 +83,8 @@ contract KarmaIdentityRegistry {
             subAgentId: subAgentId,
             master:     msg.sender,
             allowance:  0,
+            perTxLimit: 0,
+            expiresAt:  0,
             status:     SubAgentStatus.ACTIVE,
             addedAt:    block.timestamp,
             removedAt:  0
@@ -100,31 +107,93 @@ contract KarmaIdentityRegistry {
             revert SubAgentHasBoundBalance(subWallet, bound);
         }
 
-        sa.status    = SubAgentStatus.INACTIVE;
-        sa.allowance = 0;
-        sa.removedAt = block.timestamp;
+        sa.status     = SubAgentStatus.INACTIVE;
+        sa.allowance  = 0;
+        sa.perTxLimit = 0;
+        sa.expiresAt  = 0;
+        sa.removedAt  = block.timestamp;
         activeSubAgents[msg.sender] -= 1;
 
         emit SubAgentDeactivated(msg.sender, subWallet, subAgentId);
     }
 
-    function setSubAgentAllowance(address subWallet, uint256 allowance) external {
+    /// @notice Sets the spending envelope for an active sub-agent.
+    /// @dev allowance is the cumulative grant; perTxLimit caps a single spend
+    ///      (0 means no per-transaction cap); expiresAt is a unix timestamp
+    ///      (0 means no expiry). Total allowance across active sub-agents can
+    ///      never exceed the master's free balance.
+    function setSubAgentBounds(
+        address subWallet,
+        uint256 allowance,
+        uint256 perTxLimit,
+        uint256 expiresAt
+    ) external {
         _requireIdentity(msg.sender);
         bytes32 subAgentId = _findActiveSubAgentId(msg.sender, subWallet);
-        subAgentById[subAgentId].allowance = allowance;
+        if (perTxLimit > allowance) revert PerTxLimitExceedsAllowance(perTxLimit, allowance);
+        if (expiresAt != 0 && expiresAt <= block.timestamp) revert ExpiryInPast(expiresAt);
+
+        SubAgent storage sa = subAgentById[subAgentId];
+        sa.allowance  = allowance;
+        sa.perTxLimit = perTxLimit;
+        sa.expiresAt  = expiresAt;
 
         uint256 totalAllowance = 0;
         bytes32[] storage ids = _masterSubAgentIds[msg.sender];
         uint256 len = ids.length;
         for (uint256 i = 0; i < len; i++) {
-            SubAgent storage sa = subAgentById[ids[i]];
-            if (sa.status == SubAgentStatus.ACTIVE) totalAllowance += sa.allowance;
+            SubAgent storage other = subAgentById[ids[i]];
+            if (other.status == SubAgentStatus.ACTIVE) totalAllowance += other.allowance;
         }
         uint256 free = IKarmaBilateralBalances(bilateral).freeBalance(msg.sender);
         if (totalAllowance > free) {
             revert AllowanceExceedsFreeBalance(totalAllowance, free);
         }
-        emit SubAgentAllowanceUpdated(msg.sender, subWallet, allowance);
+        emit SubAgentBoundsUpdated(msg.sender, subWallet, allowance, perTxLimit, expiresAt);
+    }
+
+    /// @notice Returns whether a sub-wallet may spend `amount` on behalf of its
+    ///         registered master right now. Enforces active status, expiry and
+    ///         the per-transaction cap; the cumulative grant is checked against
+    ///         `allowance` (a static envelope, not a spend-tracking ledger).
+    function isAuthorized(address subWallet, uint256 amount) external view returns (bool) {
+        address master = subAgentMaster[subWallet];
+        if (master == address(0)) return false;
+        if (!identities[master].registered) return false;
+
+        bytes32[] storage ids = _masterSubAgentIds[master];
+        uint256 len = ids.length;
+        for (uint256 i = 0; i < len; i++) {
+            SubAgent storage sa = subAgentById[ids[i]];
+            if (sa.subWallet != subWallet || sa.status != SubAgentStatus.ACTIVE) continue;
+            if (sa.expiresAt != 0 && sa.expiresAt <= block.timestamp) return false;
+            if (sa.perTxLimit != 0 && amount > sa.perTxLimit) return false;
+            return amount <= sa.allowance;
+        }
+        return false;
+    }
+
+    /// @notice Atomically checks and consumes `amount` of a sub-agent's remaining
+    ///         allowance on behalf of the settlement core. Only the bilateral
+    ///         core may call. Returns true (and decrements allowance) when the
+    ///         spend respects active status, expiry, per-tx and budget bounds.
+    function consumeAuthorization(address subWallet, uint256 amount) external returns (bool) {
+        if (msg.sender != bilateral) revert UnauthorizedCaller();
+        address master = subAgentMaster[subWallet];
+        if (master == address(0) || !identities[master].registered) return false;
+
+        bytes32[] storage ids = _masterSubAgentIds[master];
+        uint256 len = ids.length;
+        for (uint256 i = 0; i < len; i++) {
+            SubAgent storage sa = subAgentById[ids[i]];
+            if (sa.subWallet != subWallet || sa.status != SubAgentStatus.ACTIVE) continue;
+            if (sa.expiresAt != 0 && sa.expiresAt <= block.timestamp) return false;
+            if (sa.perTxLimit != 0 && amount > sa.perTxLimit) return false;
+            if (amount > sa.allowance) return false;
+            sa.allowance -= amount;
+            return true;
+        }
+        return false;
     }
 
     // ── View getters ────────────────────────────────────────────────────────
