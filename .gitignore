@@ -28,6 +28,8 @@ venv/
 !**/.env.example
 !**/.env.*.example
 *.pem
+# public AWS Nitro root CA trust anchor (not a private key)
+!scripts/tee_attestation/root.pem
 *.key
 docker-compose.override.yml
 
