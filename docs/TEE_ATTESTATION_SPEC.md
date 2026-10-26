@@ -62,6 +62,44 @@ past `settleAfter`, and that `teeVerifier` is non-zero.
 4. On success, `KarmaBilateral` executes the settlement and emits
    `TEESettled(bindingId, imageHash)`.
 
+## Proof object identity (canonical)
+
+A "proof" is one object, defined as this deterministic chain:
+
+```
+evidence_bundle   -> canonical JSON (sorted keys, no whitespace)
+                  -> SHA-256
+                  -> proofHash (bytes32, exactly the 32-byte digest)
+
+(bindingId, proofHash, imageHash)
+                  -> EIP-712 digest (below)
+                  -> secp256k1 signature by the enclave
+                  -> teeAttestation = abi.encode(imageHash, v, r, s)
+```
+
+`proofHash` is **not** an opaque keccak placeholder. Its canonical value is the
+raw 32-byte SHA-256 of the canonical evidence bundle:
+
+```
+proofHash = SHA256(canonical_json_bytes(bundle_dict))   # 32 bytes == bytes32
+imageHash = keccak256(PCR0)                              # 32 bytes == bytes32
+```
+
+SHA-256 is used for the bundle digest (not keccak256) because it is the evidence
+layer's zero-dependency digest and its 32-byte output is exactly a bytes32. The
+canonical serialization is `json.dumps(obj, sort_keys=True, separators=(",", ":"))`,
+shared with `decentralized_verifier/rules/hashing.py`.
+
+Reference implementations of this exact chain:
+
+- `decentralized_verifier/rules/hashing.py::proof_hash_bytes32` — evidence-side.
+- `scripts/tee_attestation/eip712_settlement.py::proof_hash_from_bundle` — TEE-side.
+- `scripts/tee_attestation/settlement_vector.json` — pinned golden vector covering
+  bundle -> proofHash -> digest -> signature -> attestation.
+
+Pin test: `tests/unit/test_proof_identity.py` asserts the two implementations
+agree byte-for-byte and that the golden vector is exactly this chain's output.
+
 ## EIP-712 digest (exact)
 
 ```

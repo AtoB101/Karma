@@ -23,6 +23,7 @@ enclave address.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -41,6 +42,25 @@ ADDRESS_BYTES = 32
 
 def _bytes32(value: int) -> bytes:
     return value.to_bytes(32, "big")
+
+
+def canonical_bundle_bytes(bundle: dict) -> bytes:
+    """Canonical evidence-bundle serialization (sorted keys, no whitespace).
+
+    Must match `decentralized_verifier/rules/hashing.py:canonical_json_bytes`.
+    """
+    return json.dumps(bundle, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def proof_hash_from_bundle(bundle: dict) -> bytes:
+    """bytes32 `proofHash` = SHA256(canonical_json_bytes(bundle)).
+
+    This is the single canonical bridge between the off-chain evidence package
+    and the on-chain commitment in `settle` / `settleWithTEE`. SHA-256 (not
+    keccak256) because it is the evidence layer's zero-dependency digest and its
+    32-byte output is exactly a bytes32.
+    """
+    return hashlib.sha256(canonical_bundle_bytes(bundle)).digest()
 
 
 def compute_domain_separator(chain_id: int, verifying_contract: str) -> bytes:
@@ -93,8 +113,31 @@ def main() -> int:
     #   python scripts/tee_attestation/eip712_settlement.py 0x<verifier>
     verifying_contract = sys.argv[1] if len(sys.argv) > 1 else "0x0000000000000000000000000000000000000000"
     binding_id = 1
-    proof_hash = keccak(text="execution-proof")
-    image_hash = keccak(text="nitro-image-pcr0")
+    pcr0 = bytes(range(48))  # fixed 48-byte SHA384 image measurement
+    image_hash = keccak(pcr0)  # imageHash = keccak256(PCR0)
+
+    example_bundle = {
+        "evidence_version": "1.0",
+        "bill_id": "bill-golden-1",
+        "agent_id": "agent-golden-1",
+        "buyer_wallet": "0x0000000000000000000000000000000000000001",
+        "seller_wallet": "0x0000000000000000000000000000000000000002",
+        "service_type": "api-call",
+        "price": "1000000",
+        "token": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        "input_hash": "0x" + "11" * 32,
+        "output_hash": "0x" + "22" * 32,
+        "execution_result": "success",
+        "failure_reason": "",
+        "started_at": "2026-01-01T00:00:00Z",
+        "completed_at": "2026-01-01T00:00:01Z",
+        "model_or_runtime": "nitro-golden",
+        "evidence_uri": "ipfs://golden",
+        "signature": "0x" + "33" * 32,
+        "settlement_status": "settled",
+        "dispute_status": "none",
+    }
+    proof_hash = proof_hash_from_bundle(example_bundle)
 
     domain_separator = compute_domain_separator(chain_id, verifying_contract)
     out = sign_settlement("0x" + "11" * 32, domain_separator, binding_id, proof_hash, image_hash)
@@ -111,7 +154,13 @@ def main() -> int:
         "teeTypehash": "0x" + TEE_TYPEHASH.hex(),
         "bindingId": binding_id,
         "proofHash": "0x" + proof_hash.hex(),
+        "proofHashSource": {
+            "algorithm": "sha256",
+            "input": "canonical_json_bytes(evidence_bundle)",
+            "bundle": example_bundle,
+        },
         "imageHash": "0x" + image_hash.hex(),
+        "imageHashSource": {"algorithm": "keccak256", "input": "PCR0", "pcr0": pcr0.hex()},
         "enclaveAddress": enclave_addr,
         **out,
     }
