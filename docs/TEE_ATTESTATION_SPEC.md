@@ -18,8 +18,8 @@ without running Solidity.
 - **Attester (operator role).** Verifies the raw Nitro attestation quote
   off-chain against the vendor root of trust, then calls `registerEnclave`.
 - **`TEESettlementVerifier`.** On-chain registry that binds an enclave address to
-  its `imageHash` (PCR-derived measurement) and verifies per-settlement
-  signatures with a single `ecrecover`.
+  its `imageHash = keccak256(PCR0)` and verifies per-settlement signatures with
+  a single `ecrecover`.
 - **`KarmaBilateral`.** Entry point `settleWithTEE`; delegates signature
   verification to `TEESettlementVerifier` and then executes the settlement.
 
@@ -42,10 +42,13 @@ past `settleAfter`, and that `teeVerifier` is non-zero.
 
 ## Registration flow (off-chain quote verification)
 
-1. Enclave boots and produces a Nitro attestation quote containing the PCR0 /
-   image measurement (`imageHash`) and its secp256k1 public address.
-2. The operator (attester) verifies the quote against the vendor root of trust
-   using the reference verifier (see below) or an audited equivalent.
+1. Enclave boots and produces a Nitro attestation document: a COSE_Sign1
+   (RFC 9052) whose payload carries PCR0 (the 48-byte SHA384 image measurement),
+   a timestamp, and `user_data`. The enclave's secp256k1 address is carried in
+   `user_data` as a 20-byte value.
+2. The operator (attester) verifies the document against the vendor root of trust
+   using the reference verifier (see below) or an audited equivalent, then derives
+   `imageHash = keccak256(PCR0)` and `enclaveAddress` from `user_data`.
 3. The attester calls `TEESettlementVerifier.registerEnclave(enclaveAddress, imageHash)`.
    This binds `enclaveAddress -> (imageHash, active=true, registeredAt)`.
 
@@ -107,6 +110,31 @@ Not protected (explicit non-goals):
 - `proofHash` semantics (what the execution proof actually contains) are defined
   separately by the evidence-bundle standard; this verifier only authenticates
   that an enclave signed over a given hash.
+
+## Attester reference implementation
+
+The off-chain hardware-verification half lives in `scripts/tee_attestation/`:
+
+- `nitro_attestation.py` — decodes the COSE_Sign1 document, rebuilds the exact
+  `Sig_structure`, verifies the ES384 signature with the leaf certificate, walks
+  the `x5c` chain to the trusted root, checks timestamp freshness, and extracts
+  `PCR0` / `imageHash` / `user_data`. Raises `NitroAttestationError` on any
+  failure. No network, no chain access — pure and auditable.
+- `attester_cli.py` — `verify` (off-chain only, prints JSON) and `register`
+  (verifies then broadcasts `registerEnclave`).
+- `root.pem` — AWS Nitro Enclaves Root CA G1, fetched from the official
+  `AWS_NitroEnclaves_Root-G1.zip`. The verifier trusts this anchor; it is not
+  transmitted inside the attestation document.
+
+Reproduce a verification:
+
+```
+python scripts/tee_attestation/attester_cli.py verify ./attestation.cose     --root-ca scripts/tee_attestation/root.pem --max-age 300
+```
+
+Unit coverage for the byte-level rules (Sig_structure shape, ES384, chain
+validation, freshness, PCR whitelist, x5c extraction) is in
+`tests/unit/test_nitro_attestation.py`.
 
 ## Independent verification
 
