@@ -58,8 +58,9 @@ contract FinancialInvariantsTest is Test {
     /// INV-2: verification / TEE / ZK result cannot alone authorize payout
     function test_INV2_teeAndZkNeverRelease() public {
         (, , uint256 bindingId) = _bind();
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
-        vm.expectRevert(KarmaBilateral.TEENotImplemented.selector);
+        vm.expectRevert(KarmaBilateral.TEEVerifierNotSet.selector);
         karma.settleWithTEE(bindingId, PROOF, hex"deadbeef");
         vm.prank(buyer);
         vm.expectRevert(KarmaBilateral.ZKNotImplemented.selector);

@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Types} from "../libraries/Types.sol";
 import {IEmergencyFreeze} from "../interfaces/IEmergencyFreeze.sol";
+import {ITEESettlementVerifier} from "../interfaces/ITEESettlementVerifier.sol";
 
 /// @notice Minimal ScoringEngine view used by the optional reputation gate.
 interface IScoringEngine {
@@ -36,10 +37,10 @@ interface IKarmaIdentityRegistry {
 //    submitArbitrationEvidence(bindingId, h) submit counter-evidence (agent side)
 //    autoResolveArbitration(bindingId)      auto-resolve small disputes after evidence window
 //
-//  Layer 2 — TEE (interface reserved, not yet implemented):
+//  Layer 2 — TEE (enclave attestation via TEESettlementVerifier):
 //    settleWithTEE(bindingId, proofHash, teeAttestation)
 //      valid attestation -> skip dispute window, immediate settlement
-//      invalid           -> fallback to Layer 1 optimistic flow
+//      invalid           -> revert (callers use optimistic settle() as fallback)
 //
 //  Layer 3 — ZK (interface reserved, not yet implemented):
 //    settleWithZKProof(bindingId, proofHash, zkProof)
@@ -113,9 +114,8 @@ contract KarmaBilateral {
     error LargeDisputeRequiresAdmin(uint256 bindingId, uint256 totalPool);
     error SplitMustMatchEvidence();
     error SplitOutsideRange(uint16 buyerShareBps);
-    // Layer 2 — TEE (future)
-    error TEENotImplemented();
-    error TEEInvalidAttestation();
+    // Layer 2 — TEE
+    error TEEVerifierNotSet();
     // Layer 3 — ZK (future)
     error ZKNotImplemented();
     error ZKInvalidProof();
@@ -266,6 +266,8 @@ contract KarmaBilateral {
     address public treasury;
     /// @notice karma-economy FeeBridge — preferred fee + GMV recording path.
     address public feeBridge;
+    /// @notice Optional TEE settlement verifier (address(0) disables Layer 2).
+    address public teeVerifier;
     /// @notice Optional BUILDER attribution per binding (FeeBridge.developer).
     /// @dev Zero address → fall back to seller (agent bill owner) at settle.
     mapping(uint256 => address) public bindingDeveloper;
@@ -294,6 +296,8 @@ contract KarmaBilateral {
     event GatewayChangeDelayUpdated(uint256 delay_);
     event TreasuryUpdated(address indexed treasury);
     event FeeBridgeUpdated(address indexed feeBridge);
+    event TEEVerifierUpdated(address indexed verifier);
+    event TEESettled(uint256 indexed bindingId, bytes32 imageHash);
     event IdentityRegistryUpdated(address indexed identityRegistry);
     event BindingDeveloperUpdated(uint256 indexed bindingId, address indexed developer);
     event SettleDelayUpdated(uint256 seconds_);
@@ -341,6 +345,12 @@ contract KarmaBilateral {
     function setEmergencyGuard(address guard) external onlyAdmin {
         emergencyGuard = guard;
         emit EmergencyGuardUpdated(guard);
+    }
+
+    /// @notice Point the core at a TEE settlement verifier (address(0) disables).
+    function setTEEVerifier(address verifier_) external onlyAdmin {
+        teeVerifier = verifier_;
+        emit TEEVerifierUpdated(verifier_);
     }
 
     function setIdentityRegistry(address registry_) external onlyAdmin {
@@ -829,37 +839,45 @@ contract KarmaBilateral {
     //  LAYER 2 — TEE Verification (interface reserved, not yet implemented)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice [LAYER 2 — NOT YET IMPLEMENTED]
-    ///         Settle by verifying a TEE (Trusted Execution Environment) hardware
-    ///         attestation report. Valid attestation skips the Layer 1 dispute window;
-    ///         invalid attestation falls back to the optimistic flow.
+    /// @notice [LAYER 2] Settle by verifying a TEE (enclave) attestation.
+    ///         The enclave signs an EIP-712 digest over (bindingId, proofHash,
+    ///         imageHash); the verifier checks the signer is a registered active
+    ///         enclave whose image matches, then settlement completes immediately
+    ///         (skipping the Layer 1 dispute window).
     ///
-    ///         Future implementation:
-    ///           bytes teeAttestation = abi.encode(
-    ///               reportData,    // bytes32: keccak256(bindingId || proofHash)
-    ///               mrEnclave,     // bytes32: expected measurement of enclave
-    ///               mrSigner,      // bytes32: signing authority
-    ///               isvSvn,        // uint16:  security version number
-    ///               signature      // bytes:   ECDSA over the report
-    ///           );
-    ///           Verification: ITEEVerifier(teeVerifier).verify(teeAttestation)
-    ///           If valid  -> _executeSettle()  (immediate, no dispute window)
-    ///           If invalid -> _beginOptimisticSettle() (fallback to Layer 1)
+    ///         teeAttestation = abi.encode(imageHash, v, r, s)
+    ///           imageHash  bytes32: expected enclave image measurement (PCR)
+    ///           v,r,s      secp256k1 signature over the TeeSettlement digest
+    ///
+    ///         An invalid attestation reverts; callers use the optimistic
+    ///         settle() path as fallback.
     ///
     /// @param  bindingId      Binding to settle.
     /// @param  proofHash      keccak256 of execution proof.
-    /// @param  teeAttestation ABI-encoded TEE attestation report + signature.
+    /// @param  teeAttestation ABI-encoded (imageHash, v, r, s).
     function settleWithTEE(
         uint256 bindingId,
         bytes32 proofHash,
         bytes calldata teeAttestation
     ) external nonReentrant {
-        // Suppress unused variable warnings for stub
-        bindingId;
-        proofHash;
-        teeAttestation;
-        // TODO: Layer 2 implementation
-        revert TEENotImplemented();
+        Binding storage b = _requireBinding(bindingId);
+        if (b.state != BindingState.ACTIVE && b.state != BindingState.PENDING) {
+            revert WrongBindingState(bindingId, BindingState.ACTIVE, b.state);
+        }
+        if (b.state == BindingState.ACTIVE && block.timestamp < b.settleAfter) {
+            revert SettleDelayActive(b.settleAfter);
+        }
+
+        address verifier = teeVerifier;
+        if (verifier == address(0)) revert TEEVerifierNotSet();
+
+        (bytes32 imageHash, uint8 v, bytes32 r, bytes32 s) =
+            abi.decode(teeAttestation, (bytes32, uint8, bytes32, bytes32));
+
+        ITEESettlementVerifier(verifier).verifySettlement(bindingId, proofHash, imageHash, v, r, s);
+
+        _executeSettle(bindingId, b, b.buyerBillId, b.agentBillId, proofHash);
+        emit TEESettled(bindingId, imageHash);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

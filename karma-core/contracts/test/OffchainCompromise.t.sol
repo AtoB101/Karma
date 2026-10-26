@@ -74,8 +74,9 @@ contract OffchainCompromiseTest is Test {
         uint256 ab = karma.lock(address(usdc), 10_000_000);
         vm.prank(buyer);
         uint256 id = karma.bind(bb, ab, keccak256("t"));
+        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(verifier);
-        vm.expectRevert(KarmaBilateral.TEENotImplemented.selector);
+        vm.expectRevert(KarmaBilateral.TEEVerifierNotSet.selector);
         karma.settleWithTEE(id, keccak256("attestation"), hex"00");
     }
 }
