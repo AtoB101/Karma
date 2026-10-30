@@ -3061,3 +3061,33 @@ Object.assign(window.CYBER_I18N_PHRASE["en"], {
 Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "会话已过期：点页面上的「连接钱包」重新签名一次，再重试这一步。": "Session expired: tap “Connect wallet” on the page to sign in again, then retry this step.",
 });
+
+/* --- dynamic-append-34: 接入授权向导（cyber-onboarding-flow.js）--- */
+Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
+  "请确认": "Please confirm",
+  "下面这步需要你本人确认。": "This step needs your personal confirmation.",
+  "责任确认": "Responsibility acknowledgement",
+  "勾选后表示你已阅读并接受该边界。": "Check to confirm you have read and accept this boundary.",
+  "钱包签名": "Wallet signature",
+  "请在钱包里签名确认。": "Please sign in your wallet to confirm.",
+  "对照码配对": "Matching code",
+  "把 agent 展示的 8 位码输入下方确认。": "Enter the 8-character code shown by the agent below to confirm.",
+  "信息确认": "Information",
+  "核对后点继续。": "Review, then tap Continue.",
+  "第 {0} / {1} 步 · {2}": "Step {0} / {1} · {2}",
+  "这一步在保护：{0}": "This step protects: {0}",
+  "请在钱包里对上面的内容签名。": "Please sign the message above in your wallet.",
+  "连接钱包并签名": "Connect wallet and sign",
+  "请核对 agent 出示的对照码：": "Verify the matching code shown by the agent:",
+  "输入 8 位对照码": "Enter the 8-character matching code",
+  "我已阅读并接受上面的责任边界": "I have read and accept the responsibility boundary above",
+  "接入授权完成": "Onboarding authorization complete",
+  "七步授权已全部完成，agent 可以继续铸钥匙与配对。": "All seven authorization steps are complete. The agent can now mint its runtime key and pair.",
+  "已取消接入": "Onboarding cancelled",
+  "你已终止本次接入，未产生任何资金划转。": "You have cancelled onboarding. No funds were moved.",
+});
+
+/* --- dynamic-append-35: WalletConnect 未配置提示（console-wallet-auth.js）--- */
+Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
+  "WalletConnect 未配置：请在服务端 /v1/info 提供 walletconnect.project_id": "WalletConnect not configured: provide walletconnect.project_id in server /v1/info",
+});
