@@ -14,7 +14,8 @@
  *   1. KarmaWalletAuth.activeProvider()          （操作台已连接的钱包）
  *   2. KarmaWalletAuth.entries()                 （EIP-6963 发现的钱包）
  *   3. window.ethereum                           （MetaMask 等注入式钱包）
- *   4. WalletConnect                             （需 window.KARMA_WC_PROJECT_ID）
+ *   4. WalletConnect                             （projectId 取自服务端 /v1/info，
+ *                                                  window.KARMA_WC_PROJECT_ID 兜底）
  *
  * 暴露 global.KarmaOnboardingWallet.sign(payload, onSigned, onError)。
  * payload 为 prompt.payload（含 sign_message），或直接传字符串。
@@ -71,32 +72,89 @@
     }
   }
 
-  function loadScript(src) {
+  function apiBase() {
+    var raw = global.KARMA_API_BASE;
+    if (raw === undefined || raw === null || String(raw).trim() === "") {
+      try {
+        if (global.location && /^https?:$/.test(global.location.protocol)) {
+          return global.location.origin;
+        }
+      } catch (_) {}
+      return "http://127.0.0.1:8000";
+    }
+    return String(raw).trim().replace(/\/$/, "");
+  }
+
+  var wcProjectIdCache = null;
+
+  async function resolveProjectId() {
+    if (wcProjectIdCache) return wcProjectIdCache;
+    var explicit = global.KARMA_WC_PROJECT_ID;
+    if (explicit && String(explicit).trim() !== "") {
+      wcProjectIdCache = String(explicit).trim();
+      return wcProjectIdCache;
+    }
+    try {
+      var res = await global.fetch(apiBase() + "/v1/info");
+      if (res.ok) {
+        var data = await res.json();
+        var wc = data && data.walletconnect;
+        var pid = wc && (wc.project_id || wc.projectId);
+        if (pid) {
+          wcProjectIdCache = String(pid);
+          return wcProjectIdCache;
+        }
+      }
+    } catch (_) {}
+    // 不缓存失败：下次调用还可以重试（节点 failover 后 project_id 才可用）。
+    return "";
+  }
+
+  function loadWalletConnectSdk() {
+    var ns = global.WalletConnectEthereumProvider;
+    if (ns) return Promise.resolve(ns);
     return new Promise(function (resolve, reject) {
-      var s = global.document.createElement("script");
-      s.src = src;
-      s.onload = function () { resolve(); };
-      s.onerror = function () { reject(new Error("walletconnect-sdk-load-failed")); };
-      global.document.head.appendChild(s);
+      var script = global.document.createElement("script");
+      script.src = WC_SDK_URL;
+      script.async = true;
+      script.onload = function () { resolve(global.WalletConnectEthereumProvider); };
+      script.onerror = function () { reject(new Error("walletconnect-sdk-load-failed")); };
+      (global.document.head || global.document.documentElement).appendChild(script);
     });
   }
 
   async function walletConnectProvider() {
     if (wcProviderRef) return wcProviderRef;
-    var projectId = global.KARMA_WC_PROJECT_ID;
-    if (!projectId || String(projectId).trim() === "") {
+    await loadWalletConnectSdk();
+    var ns = global.WalletConnectEthereumProvider || {};
+    var EthereumProvider = ns.EthereumProvider || ns.default || ns;
+    if (typeof EthereumProvider.init !== "function") {
+      throw new Error("walletconnect-sdk-missing");
+    }
+
+    var metadataUrl = "http://127.0.0.1:8000";
+    try {
+      if (global.location && global.location.origin && global.location.origin !== "null") {
+        metadataUrl = global.location.origin;
+      }
+    } catch (_) {}
+
+    var projectId = await resolveProjectId();
+    if (!projectId) {
       throw new Error("walletconnect-project-id-missing");
     }
-    var wc = global.EthereumProvider;
-    if (!wc) {
-      await loadScript(WC_SDK_URL);
-      wc = global.EthereumProvider;
-    }
-    if (!wc) throw new Error("walletconnect-sdk-missing");
-    wcProviderRef = await wc.init({
-      projectId: String(projectId).trim(),
+
+    wcProviderRef = await EthereumProvider.init({
+      projectId: projectId,
       chains: [11155111],
+      optionalChains: [11155111],
       showQrModal: true,
+      metadata: {
+        name: "Karma Console",
+        description: "Karma AI Agent non-custodial settlement",
+        url: metadataUrl,
+        icons: [],
+      },
     });
     return wcProviderRef;
   }
@@ -104,11 +162,7 @@
   async function resolveProvider() {
     var p = injectedProvider();
     if (p && typeof p.request === "function") return p;
-    try {
-      return await walletConnectProvider();
-    } catch (e) {
-      throw e;
-    }
+    return await walletConnectProvider();
   }
 
   async function requestAccounts(provider) {

@@ -117,7 +117,8 @@ KarmaOnboardingFlow.render(prompt, container, function (action, value) {
   `KarmaOnboardingWallet.sign(payload, onSigned, onError)`，只调
   `eth_requestAccounts / eth_accounts / personal_sign`，从不接触私钥/助记词。
 - provider 解析顺序：`KarmaWalletAuth.activeProvider()` → EIP-6963 发现 →
-  `window.ethereum`（MetaMask）→ WalletConnect（需 `window.KARMA_WC_PROJECT_ID`）。
+  `window.ethereum`（MetaMask）→ WalletConnect（projectId 优先取服务端
+  `/v1/info` 的 `walletconnect.project_id`，`window.KARMA_WC_PROJECT_ID` 兜底）。
 
 在操作台里，钱包适配器复用 `console-wallet-auth.js` 已连接的钱包；
 在裸 agent 页面里，注入 MetaMask 或配 `KARMA_WC_PROJECT_ID` 即可独立工作。
