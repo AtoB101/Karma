@@ -107,6 +107,21 @@ KarmaOnboardingFlow.render(prompt, container, function (action, value) {
 }, options);
 ```
 
+## 五·五、真实钱包签名适配器
+
+`wallet_sign` 步骤（owner_identity / runtime_key_mint）默认自动接入真实钱包：
+
+- 前端组件 `cyber-onboarding-flow.js` 未注入 `options.walletSign` 时，
+  自动回落到 `global.KarmaOnboardingWallet.sign`。
+- `apps/console/scripts/cyber-onboarding-wallet.js` 暴露
+  `KarmaOnboardingWallet.sign(payload, onSigned, onError)`，只调
+  `eth_requestAccounts / eth_accounts / personal_sign`，从不接触私钥/助记词。
+- provider 解析顺序：`KarmaWalletAuth.activeProvider()` → EIP-6963 发现 →
+  `window.ethereum`（MetaMask）→ WalletConnect（需 `window.KARMA_WC_PROJECT_ID`）。
+
+在操作台里，钱包适配器复用 `console-wallet-auth.js` 已连接的钱包；
+在裸 agent 页面里，注入 MetaMask 或配 `KARMA_WC_PROJECT_ID` 即可独立工作。
+
 ## 六、官方 agent 接入模板（agent 开发者照着做）
 
 1. 读标准：`GET /v1/standards/onboarding/authorization-flow` 拿七步定义。

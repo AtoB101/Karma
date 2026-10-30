@@ -92,9 +92,15 @@
       body.appendChild(el("p", "kof-note", (prompt.payload && prompt.payload.note_zh) || "请在钱包里对上面的内容签名。"));
       var signBtn = el("button", "kof-btn kof-sign", "连接钱包并签名");
       signBtn.addEventListener("click", function () {
-        if (typeof options.walletSign === "function") {
-          options.walletSign(prompt.payload || {}, function (signed) {
+        var walletSigner = options.walletSign;
+        if (typeof walletSigner !== "function" && global.KarmaOnboardingWallet) {
+          walletSigner = global.KarmaOnboardingWallet.sign;
+        }
+        if (typeof walletSigner === "function") {
+          walletSigner(prompt.payload || {}, function (signed) {
             respond("sign", signed);
+          }, function (err) {
+            respond("cancel", { error: String((err && err.message) || err) });
           });
         } else {
           respond("sign", {
