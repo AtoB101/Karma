@@ -1,0 +1,123 @@
+{
+  "schema_version": "karma-agent-onboarding-authorization-v1",
+  "title": "Karma Agent Onboarding Authorization Flow",
+  "title_zh": "Karma Agent 接入授权流程",
+  "description_zh": "每个 agent 接入必须按本流程逐步取得主人授权。每一步都定义：谁授权、用什么方式授权、给用户看的提示语、以及这一步在保护什么。agent 与操作台共用这一份事实来源，避免各写一套流程走偏。",
+  "authorization_type_enum": {
+    "siwe_signature": "主人钱包 SIWE 签名（登录/会话）",
+    "yes_no": "操作台弹窗，主人点确认/拒绝",
+    "responsibility_ack": "主人勾选责任确认（打开自动化前置）",
+    "wallet_signature": "主人钱包 personal_sign 一次性签名",
+    "matching_code": "8 位人眼对照码 + agent Ed25519 签名",
+    "platform_attestation": "平台背书签收，无需主人操作",
+    "none": "无人类授权步骤"
+  },
+  "steps": [
+    {
+      "step_id": "owner_identity",
+      "order": 1,
+      "title_zh": "主人认证（钱包登录）",
+      "title_en": "Owner sign-in (SIWE)",
+      "summary_zh": "主人连接钱包完成 SIWE 登录，建立操作台会话。",
+      "who": "owner",
+      "authorization_type": "siwe_signature",
+      "prompt_zh": "连接钱包登录操作台，建立你的主人身份。",
+      "prompt_en": "Connect your wallet to sign in as the owner.",
+      "protects_zh": "之后所有授权动作都以这次 SIWE 会话为根，防止别人冒名授权。",
+      "auto_when_zh": "永不自动；会话过期必须重签。",
+      "reversible": true
+    },
+    {
+      "step_id": "role_declaration",
+      "order": 2,
+      "title_zh": "声明接入身份",
+      "title_en": "Declare profile",
+      "summary_zh": "主人选身份（用户/商家/企业），agent 按行业模板自填能力与服务边界。",
+      "who": "owner",
+      "authorization_type": "yes_no",
+      "prompt_zh": "确认以「{profile}」身份接入？agent 自填的能力与服务边界如下，请核对。",
+      "prompt_en": "Confirm onboarding as {profile}. Review the self-declared capabilities and boundaries.",
+      "protects_zh": "目录里别家 agent 读到的能力/边界真实可问责；主人对声明负责。",
+      "auto_when_zh": "用户身份可一键确认；商家/企业必须逐项核对服务指标。",
+      "reversible": true
+    },
+    {
+      "step_id": "funding_bounds",
+      "order": 3,
+      "title_zh": "设定资金边界",
+      "title_en": "Set funding bounds",
+      "summary_zh": "主人设定单笔上限、日上限、权限集与人工确认模式（high_risk_mode）。",
+      "who": "owner",
+      "authorization_type": "responsibility_ack",
+      "prompt_zh": "设定它每笔最多花多少、每天最多花多少、哪些动作需要你确认，并勾选责任确认。",
+      "prompt_en": "Set per-order and daily limits, permissions, and when the agent must ask you. Acknowledge the responsibility boundary.",
+      "protects_zh": "资金上限与权限；responsibility_acknowledged=true 是打开自动化的硬前置。",
+      "auto_when_zh": "永不自动；责任确认缺失时，任何自动/预授权都拒绝。",
+      "reversible": true
+    },
+    {
+      "step_id": "runtime_key_mint",
+      "order": 4,
+      "title_zh": "铸运行时钥匙",
+      "title_en": "Mint runtime key",
+      "summary_zh": "主人在钱包签一次名，生成 agent 的运行时钥匙。",
+      "who": "owner",
+      "authorization_type": "wallet_signature",
+      "prompt_zh": "钱包签名一次，生成 agent 的运行时钥匙（密钥明文只显示这一次）。",
+      "prompt_en": "Sign once in your wallet to mint the agent runtime key (the secret is shown only once).",
+      "protects_zh": "服务端强制钥匙的权限/单笔/日限必须等于第 3 步保存的策略，不能超出。",
+      "auto_when_zh": "永不自动；必须主人钱包签名。",
+      "reversible": false
+    },
+    {
+      "step_id": "agent_pairing",
+      "order": 5,
+      "title_zh": "agent 配对（公钥 + 对照码）",
+      "title_en": "Agent pairing",
+      "summary_zh": "agent 申请绑定 Ed25519 公钥，主人在操作台核对指纹并输 8 位对照码。",
+      "who": "owner_and_agent",
+      "authorization_type": "matching_code",
+      "prompt_zh": "核对 agent 公钥指纹，并输入 agent 出示的 8 位对照码完成配对。",
+      "prompt_en": "Verify the agent public-key fingerprint and enter the 8-character matching code.",
+      "protects_zh": "钥匙不被冒领：pairing_code 只发一次、磁盘只存哈希，8 位码只用于人眼核对。",
+      "auto_when_zh": "永不自动；主人主动铸钥匙的路径可跳过本步。",
+      "reversible": true
+    },
+    {
+      "step_id": "binding_attestation",
+      "order": 6,
+      "title_zh": "绑定生效与平台签收",
+      "title_en": "Binding attestation",
+      "summary_zh": "服务端返回平台签名的 binding_scope 回执，agent 可自证绑定成立。",
+      "who": "platform",
+      "authorization_type": "platform_attestation",
+      "prompt_zh": "（自动）平台签收绑定范围，无需主人操作。",
+      "prompt_en": "(Automatic) The platform attests to the binding scope.",
+      "protects_zh": "agent 能独立验证「绑的确实是我」，而不是平台或 agent 单方面声称。",
+      "auto_when_zh": "始终自动。",
+      "reversible": false
+    },
+    {
+      "step_id": "runtime_spend",
+      "order": 7,
+      "title_zh": "运行时逐笔授权",
+      "title_en": "Runtime per-order authorization",
+      "summary_zh": "接入后 agent 每次动钱按 high_risk_mode 决定是否弹主人确认。",
+      "who": "owner",
+      "authorization_type": "yes_no",
+      "prompt_zh": "这笔 {amount} USDC 由 agent 下单，是否确认？",
+      "prompt_en": "The agent is placing an order for {amount} USDC. Confirm?",
+      "protects_zh": "每一笔资金去向；取消/退款/改价/换商家永远不自动，必须主人确认。",
+      "auto_when_zh": "high_risk_mode=above_single 时额度内自动、超限确认；=always 每笔确认；=off 额度内全自动。",
+      "reversible": false
+    }
+  ],
+  "agent_read_apis": [
+    "GET /v1/standards/onboarding/authorization-flow"
+  ],
+  "console_flow_hint_zh": [
+    "操作台接入向导按 step_id 顺序推进，每一步完成后才亮下一步",
+    "授权类型是枚举值，前端按 authorization_type 渲染对应控件（签名按钮/确认弹窗/对照码输入框）",
+    "runtime_spend 是持续授权，不是一次性步骤"
+  ]
+}

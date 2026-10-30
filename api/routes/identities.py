@@ -299,7 +299,7 @@ class AutomationPolicyBody(BaseModel):
     single_limit: float = Field(gt=0)
     daily_limit: float = Field(gt=0)
     permissions: list[str]
-    high_risk_mode: str = "always"
+    high_risk_mode: str = "above_single"
     responsibility_acknowledged: bool = False
     preauth_enabled: bool = False
     allowed_task_types: list[str] = Field(default_factory=list)

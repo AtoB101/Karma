@@ -4,7 +4,10 @@
  * Phrase packs (i18n-phrase/*.js) inherit this file's ?v=, so editing either
  * requires re-running scripts/stamp_console_assets.py. Keep this note in sync
  * with any phrase-pack change so the deployed pack never stays on a stale URL.
- * Phrase-pack revision: 2026-10-17 Bitpie WalletConnect connect copy
+ * Phrase-pack revision: 2026-10-20 interactive onboarding authorization wizard
+ *   (dynamic-append-34: cyber-onboarding-flow.js 七步接入授权向导的 21 句文案;
+ *   dynamic-append-35: console-wallet-auth.js 的 WalletConnect 未配置提示)
+ *   previous: 2026-10-17 Bitpie WalletConnect connect copy
  *   (dynamic-append-31: the receiving-direction needs-an-industry hint; and the one-stop-flow overview
  *   now says 「接入一个 Agent / 去接入」—— the 授权向导 sub-entry is gone, so no copy names it any more).
  *   The standalone 「去授权」 entry stays for the 起步 guide identity-page button.

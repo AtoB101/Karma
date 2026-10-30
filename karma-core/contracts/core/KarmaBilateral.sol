@@ -70,6 +70,7 @@ interface IKarmaIdentityRegistry {
 interface IERC20Min {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
 }
 
 contract KarmaBilateral {
@@ -1044,9 +1045,16 @@ contract KarmaBilateral {
         return arbitrations[bindingId];
     }
 
-    function checkInvariant(address) external pure returns (bool) {
-        // Escrow accounting is a single counter; the historical
-        // supply == locked invariant holds by construction.
+    /// @notice Verify escrow conservation for `token`.
+    /// @dev    Every entry (lock) adds both the on-chain balance and
+    ///         `totalLocked`; every exit (settle / refund / split / unlock)
+    ///         removes both. Divergence means tokens leaked in or out of the
+    ///         escrow ledger (e.g. a direct transfer to this contract, or a
+    ///         payout without a matching burn). Reverts on divergence.
+    function checkInvariant(address token) external view returns (bool) {
+        uint256 balance = IERC20Min(token).balanceOf(address(this));
+        uint256 locked = totalLocked[token];
+        if (balance != locked) revert InvariantBroken(token, balance, locked);
         return true;
     }
 

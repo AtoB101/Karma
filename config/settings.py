@@ -237,7 +237,7 @@ class Settings(BaseSettings):
     # Empty in non-development environments defaults to no cross-origin allowance until configured.
     cors_allow_origins: str = ""
 
-    # WalletConnect projectId (public, non-secret) for Browser DApp connections
+    # WalletConnect projectId (public, non-secret) for Browser DApp connections (env: WC_PROJECT_ID)
     # (Telegram MiniApp + Console Bitpie). Create at https://cloud.walletconnect.com.
     wc_project_id: str = ""
 

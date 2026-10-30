@@ -77,6 +77,7 @@ from api.routes import (
     developers,
     escrow,
     payment_ledger,
+    onboarding_authorization,
 )
 
 logger = structlog.get_logger(__name__)
@@ -484,6 +485,7 @@ app.include_router(
 )
 # Public catalog — both buyer/seller agents read without auth
 app.include_router(standards.router, prefix="/v1/standards", tags=["Standards"])
+app.include_router(onboarding_authorization.router, prefix="/v1/onboarding-authorization", tags=["OnboardingAuthorization"], dependencies=_protected_dependencies)
 app.include_router(
     confirmations.router,
     prefix="/v1/confirmations",
@@ -643,6 +645,7 @@ async def info():
         },
         "agent_onboarding_template": {
             "catalog": "/v1/standards/onboarding",
+            "authorization_flow": "/v1/standards/onboarding/authorization-flow",
             "connect": "/v1/agents/connect-from-template",
             "one_click": "/v1/agents/one-click-connect",
             "verticals": "/v1/agents/one-click-verticals",

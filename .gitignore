@@ -36,6 +36,7 @@ docker-compose.override.yml
 # Python tooling / coverage
 *.egg-info/
 .pytest_cache/
+.pytest_basetemp/
 .coverage
 htmlcov/
 .mypy_cache/

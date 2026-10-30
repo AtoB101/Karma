@@ -14,8 +14,10 @@ GitHub Pages root keep working.
 - The legacy multi-page console (Receiving / Payments / Agents / Evidence / Disputes /
   Trade / Dashboard / MVVS / Verifier Explorer / OpenClaw Connect) has been removed.
   `pages/cyber/` is now the only console UI.
-- The Cyber Console stores API base / key / identity in `localStorage` (dev
-  convenience); do not use shared machines for production secrets.
+- The Cyber Console stores the API base / node choice in `localStorage` (a user
+  preference). API key / identity / session token live in `sessionStorage` only and
+  are migrated out of `localStorage` on first load — do not use shared machines for
+  production secrets.
 - API base resolution: unset means local dev (`http://127.0.0.1:8000`), an explicitly
   empty string means **same origin** (production reverse proxy). See
   `scripts/karma-public-api.js` (`karmaResolveApiBase`).

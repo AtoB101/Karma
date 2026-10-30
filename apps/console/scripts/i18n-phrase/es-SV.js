@@ -3063,3 +3063,33 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"], {
 Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
   "会话已过期：点页面上的「连接钱包」重新签名一次，再重试这一步。": "La sesión expiró: pulse “Connect wallet” en la página para firmar de nuevo y reintente este paso.",
 });
+
+/* --- dynamic-append-34: 接入授权向导（cyber-onboarding-flow.js）--- */
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
+  "请确认": "Confirme, por favor",
+  "下面这步需要你本人确认。": "Este paso necesita su confirmación personal.",
+  "责任确认": "Reconocimiento de responsabilidad",
+  "勾选后表示你已阅读并接受该边界。": "Marque la casilla para confirmar que leyó y acepta este límite.",
+  "钱包签名": "Firma de la billetera",
+  "请在钱包里签名确认。": "Firme en su billetera para confirmar.",
+  "对照码配对": "Código de emparejamiento",
+  "把 agent 展示的 8 位码输入下方确认。": "Ingrese el código de 8 caracteres que muestra el agente para confirmar.",
+  "信息确认": "Información",
+  "核对后点继续。": "Revise y toque Continuar.",
+  "第 {0} / {1} 步 · {2}": "Paso {0} / {1} · {2}",
+  "这一步在保护：{0}": "Este paso protege: {0}",
+  "请在钱包里对上面的内容签名。": "Firme el contenido de arriba en su billetera.",
+  "连接钱包并签名": "Conectar la billetera y firmar",
+  "请核对 agent 出示的对照码：": "Verifique el código de emparejamiento que muestra el agente:",
+  "输入 8 位对照码": "Ingrese el código de emparejamiento de 8 caracteres",
+  "我已阅读并接受上面的责任边界": "Leí y acepto el límite de responsabilidad de arriba",
+  "接入授权完成": "Autorización de conexión completa",
+  "七步授权已全部完成，agent 可以继续铸钥匙与配对。": "Los siete pasos de autorización están completos. El agente ya puede emitir su clave de ejecución y emparejarse.",
+  "已取消接入": "Conexión cancelada",
+  "你已终止本次接入，未产生任何资金划转。": "Canceló esta conexión. No se movió ningún fondo.",
+});
+
+/* --- dynamic-append-35: WalletConnect 未配置提示（console-wallet-auth.js）--- */
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
+  "WalletConnect 未配置：请在服务端 /v1/info 提供 walletconnect.project_id": "WalletConnect no está configurado: proporcione walletconnect.project_id en el /v1/info del servidor",
+});

@@ -13,7 +13,29 @@
 """
 from __future__ import annotations
 
+import getpass
 import os
+import tempfile
+from pathlib import Path
+
+
+def _default_basetemp_writable() -> bool:
+    """Windows 沙箱下，系统临时目录里的 pytest-of-<user> 可能被另一个账号占用，
+    tmp_path 会以 PermissionError 起不来。这里只探测默认基目录是否可写。"""
+    root = Path(tempfile.gettempdir()) / f"pytest-of-{getpass.getuser()}"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        probe = root / ".karma-write-probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
+def pytest_configure(config):
+    if not _default_basetemp_writable():
+        config.option.basetemp = str(Path(config.rootpath) / ".pytest_basetemp")
 
 
 def pytest_collection_modifyitems(session, config, items):

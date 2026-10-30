@@ -126,3 +126,21 @@ def test_suggest_industries_from_chinese_text():
 def test_profile_card_store():
     save_profile_card("agent-1", {"profile_id": "merchant", "description": "x"})
     assert get_profile_card("agent-1")["description"] == "x"
+
+def test_authorization_flow_has_seven_ordered_steps():
+    flow = obt.authorization_flow()
+    assert flow["schema_version"] == "karma-agent-onboarding-authorization-v1"
+    step_ids = [s["step_id"] for s in flow["steps"]]
+    assert step_ids == [
+        "owner_identity",
+        "role_declaration",
+        "funding_bounds",
+        "runtime_key_mint",
+        "agent_pairing",
+        "binding_attestation",
+        "runtime_spend",
+    ]
+    for step in flow["steps"]:
+        assert step["authorization_type"] in flow["authorization_type_enum"]
+        assert step["prompt_zh"]
+        assert step["protects_zh"]
