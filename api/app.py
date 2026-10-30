@@ -643,6 +643,7 @@ async def info():
         },
         "agent_onboarding_template": {
             "catalog": "/v1/standards/onboarding",
+            "authorization_flow": "/v1/standards/onboarding/authorization-flow",
             "connect": "/v1/agents/connect-from-template",
             "one_click": "/v1/agents/one-click-connect",
             "verticals": "/v1/agents/one-click-verticals",

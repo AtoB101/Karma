@@ -82,15 +82,30 @@
     return String(raw).trim();
   }
 
+  /** 一次性迁移：老版本把 API key / identity 落在 localStorage，这里把它们挪进
+   *  sessionStorage 并删掉 localStorage 副本，密钥不再长期落盘。 */
+  function migrateLegacySecrets() {
+    try {
+      [LS_KEY, LS_ID].forEach(function (k) {
+        var legacy = localStorage.getItem(k);
+        if (legacy && !sessionStorage.getItem(k)) {
+          sessionStorage.setItem(k, legacy);
+        }
+        localStorage.removeItem(k);
+      });
+    } catch (_) {}
+  }
+
   function loadCfgIntoInputs() {
     try {
+      migrateLegacySecrets();
       if (el("[data-cfg=api_base]")) el("[data-cfg=api_base]").value = displayBase();
       if (el("[data-cfg=api_key]"))
         el("[data-cfg=api_key]").value =
-          sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY) || window.KARMA_API_KEY || "";
+          sessionStorage.getItem(LS_KEY) || window.KARMA_API_KEY || "";
       if (el("[data-cfg=identity_id]"))
         el("[data-cfg=identity_id]").value =
-          sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID) || window.KARMA_IDENTITY_ID || "";
+          sessionStorage.getItem(LS_ID) || window.KARMA_IDENTITY_ID || "";
       if (el("[data-cfg=task_ids]"))
         el("[data-cfg=task_ids]").value = localStorage.getItem(LS_TASKS) || "";
       if (el("[data-cfg=auto_sync]")) el("[data-cfg=auto_sync]").checked = localStorage.getItem(LS_AUTO) === "1";
@@ -108,6 +123,8 @@
       // Security: API key / identity are session-only, never persisted long-term.
       sessionStorage.setItem(LS_KEY, key);
       sessionStorage.setItem(LS_ID, id);
+      localStorage.removeItem(LS_KEY);
+      localStorage.removeItem(LS_ID);
       localStorage.setItem(LS_TASKS, tasks);
       if (auto !== undefined) localStorage.setItem(LS_AUTO, auto ? "1" : "");
     } catch (_) {}

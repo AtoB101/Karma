@@ -481,8 +481,8 @@
       var i = el(document.body, "[data-cfg=identity_id]");
       var t = el(document.body, "[data-cfg=task_ids]");
       if (b && !b.value.trim()) b.value = localStorage.getItem(LS_BASE) || "";
-      if (k && !k.value.trim()) k.value = sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY) || "";
-      if (i && !i.value.trim()) i.value = sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID) || "";
+      if (k && !k.value.trim()) k.value = sessionStorage.getItem(LS_KEY) || "";
+      if (i && !i.value.trim()) i.value = sessionStorage.getItem(LS_ID) || "";
       if (t && !t.value.trim()) t.value = localStorage.getItem(LS_TASKS) || "";
     } catch (_) {}
   }

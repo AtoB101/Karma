@@ -54,7 +54,7 @@
   /* Bitpie 是纯手机钱包：没有浏览器插件，也没有 bitpie:// 深链，只能走
      WalletConnect 扫码 / URI。projectId 是公开值（非密钥），优先从服务端
      /v1/info 取，取不到再用 window.KARMA_WC_PROJECT_ID（自托管兜底）。 */
-  var WC_PROJECT_ID_FALLBACK = "REPLACE_WITH_WALLETCONNECT_PROJECT_ID";
+  // 未配置时留空：调用方必须明确失败，不能用假 id 去初始化 WalletConnect。
   var WC_PROJECT_ID = null;
   var WC_SDK_URL = "https://unpkg.com/@walletconnect/ethereum-provider@2.17.2/dist/index.umd.js";
   var WC_CHAIN_ID = 11155111; // Sepolia —— 与 Karma 测试网一致
@@ -425,7 +425,7 @@
   async function resolveProjectId() {
     if (WC_PROJECT_ID) return WC_PROJECT_ID;
     var explicit = global.KARMA_WC_PROJECT_ID;
-    if (explicit && explicit !== WC_PROJECT_ID_FALLBACK) {
+    if (explicit) {
       WC_PROJECT_ID = explicit;
       return WC_PROJECT_ID;
     }
@@ -435,14 +435,14 @@
         var data = await res.json();
         var wc = data && data.walletconnect;
         var pid = wc && (wc.project_id || wc.projectId);
-        if (pid && pid !== WC_PROJECT_ID_FALLBACK) {
+        if (pid) {
           WC_PROJECT_ID = pid;
           return WC_PROJECT_ID;
         }
       }
     } catch (_) {}
-    WC_PROJECT_ID = WC_PROJECT_ID_FALLBACK;
-    return WC_PROJECT_ID;
+    // 不缓存失败：下次调用还可以重试（例如节点层 failover 后 project_id 才可用）。
+    return "";
   }
 
   function loadWalletConnectSdk() {
@@ -480,8 +480,13 @@
       }
     } catch (_) {}
 
+    var wcProjectId = await resolveProjectId();
+    if (!wcProjectId) {
+      throw new Error(T("WalletConnect 未配置：请在服务端 /v1/info 提供 walletconnect.project_id"));
+    }
+
     var provider = await EthereumProvider.init({
-      projectId: await resolveProjectId(),
+      projectId: wcProjectId,
       chains: [WC_CHAIN_ID],
       optionalChains: [WC_CHAIN_ID],
       showQrModal: true,

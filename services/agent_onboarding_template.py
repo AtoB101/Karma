@@ -38,6 +38,41 @@ def load_onboarding_catalog() -> dict[str, Any]:
     return data
 
 
+AUTH_FLOW_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "packages"
+    / "evidence-schema"
+    / "agent-onboarding-authorization-flow.v1.json"
+)
+
+
+@lru_cache(maxsize=1)
+def load_authorization_flow() -> dict[str, Any]:
+    if not AUTH_FLOW_PATH.is_file():
+        raise FileNotFoundError(f"onboarding authorization flow missing: {AUTH_FLOW_PATH}")
+    data = json.loads(AUTH_FLOW_PATH.read_text(encoding="utf-8"))
+    if data.get("schema_version") != "karma-agent-onboarding-authorization-v1":
+        raise OnboardingError("unsupported onboarding authorization schema_version")
+    return data
+
+
+def authorization_flow() -> dict[str, Any]:
+    cat = load_authorization_flow()
+    return {
+        "schema_version": cat.get("schema_version"),
+        "title": cat.get("title"),
+        "title_zh": cat.get("title_zh"),
+        "description_zh": cat.get("description_zh"),
+        "authorization_type_enum": cat.get("authorization_type_enum"),
+        "steps": cat.get("steps"),
+        "agent_read_apis": cat.get("agent_read_apis"),
+        "console_flow_hint_zh": cat.get("console_flow_hint_zh"),
+        "catalog_path": "packages/evidence-schema/agent-onboarding-authorization-flow.v1.json",
+    }
+
+
+
+
 def list_profiles() -> list[dict[str, Any]]:
     cat = load_onboarding_catalog()
     out = []

@@ -39,6 +39,7 @@ from services.important_fields_capture import (
 )
 from services.agent_onboarding_template import (
     OnboardingError,
+    authorization_flow,
     get_industry,
     get_profile,
     list_industries,
@@ -167,6 +168,12 @@ async def get_onboarding_standard() -> dict[str, Any]:
         "agent_read_apis": cat.get("agent_read_apis"),
         "catalog_path": "packages/evidence-schema/agent-onboarding-template.v1.json",
     }
+
+
+@router.get("/onboarding/authorization-flow")
+async def get_onboarding_authorization_flow() -> dict[str, Any]:
+    """Canonical step-by-step onboarding authorization flow (per-step owner consent)."""
+    return authorization_flow()
 
 
 @router.get("/onboarding/profiles")
