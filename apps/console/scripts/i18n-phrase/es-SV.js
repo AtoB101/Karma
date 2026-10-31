@@ -3093,3 +3093,36 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
 Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
   "WalletConnect 未配置：请在服务端 /v1/info 提供 walletconnect.project_id": "WalletConnect no está configurado: proporcione walletconnect.project_id en el /v1/info del servidor",
 });
+
+
+/* --- dynamic-append-36: grant approval page (cyber-grant-approval.js) --- */
+Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
+  "授权审批": "Aprobación de gasto",
+  "请核对 agent 请求的消费授权，确认无误后再签名。": "Revise el gasto autorizado que pidió el agent y firme para confirmar.",
+  "币种": "Moneda",
+  "总额上限": "Límite total",
+  "单笔上限": "Límite por operación",
+  "用途范围": "Alcance de uso",
+  "请输入 agent 在对话里展示的核对码": "Ingrese el código de confirmación que el agent mostró en el chat",
+  "剩余时间": "Tiempo restante",
+  "剩余尝试次数": "Intentos restantes",
+  "批准后，agent 将只能在额度内消费，超出自动停止。": "Tras aprobar, el agent solo podrá gastar dentro del límite; lo que lo supere se detiene automáticamente.",
+  "取消并返回": "Cancelar y volver",
+  "授权请求已过期": "Solicitud de aprobación vencida",
+  "这次授权已经超时，请让 agent 重新发起一次。": "Esta solicitud venció. Pídale al agent que inicie una nueva.",
+  "该授权请求已经处理过了": "Esta solicitud de aprobación ya fue procesada",
+  "这次授权已经生效或已被撤销，无需重复操作。": "Esta autorización ya está activa o fue revocada; no es necesario hacer nada.",
+  "授权已生效": "Autorización activa",
+  "agent 已获得消费授权，可在额度内自主花钱。": "El agent ya tiene autorización de gasto y puede gastar por su cuenta dentro del límite.",
+  "你随时可以在操作台里查看、暂停或撤销这份授权。": "Puede ver, pausar o revocar esta autorización cuando quiera desde la consola.",
+  "授权未创建，agent 仍不能替你花钱。": "No se creó ningún permiso; el agent todavía no puede gastar por usted.",
+  "加载失败，请刷新重试": "No se pudo cargar — recargue e intente de nuevo",
+  "正在连接钱包…": "Conectando la billetera…",
+  "正在获取待签文本…": "Obteniendo el texto a firmar…",
+  "请在钱包里签名": "Firme en su billetera",
+  "签名失败": "Falló la firma",
+  "连接失败": "Falló la conexión",
+  "核对码不匹配，请重新输入": "El código de confirmación no coincide — intente de nuevo",
+  "授权请求不存在": "Solicitud de aprobación no encontrada",
+  "缺少授权请求编号": "Falta el id de la solicitud de aprobación",
+});

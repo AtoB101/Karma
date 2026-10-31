@@ -3091,3 +3091,36 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
 Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "WalletConnect 未配置：请在服务端 /v1/info 提供 walletconnect.project_id": "WalletConnect not configured: provide walletconnect.project_id in server /v1/info",
 });
+
+
+/* --- dynamic-append-36: grant approval page (cyber-grant-approval.js) --- */
+Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
+  "授权审批": "Spending grant approval",
+  "请核对 agent 请求的消费授权，确认无误后再签名。": "Review the spending grant the agent requested, then sign to confirm.",
+  "币种": "Currency",
+  "总额上限": "Total limit",
+  "单笔上限": "Per-transaction limit",
+  "用途范围": "Purpose scope",
+  "请输入 agent 在对话里展示的核对码": "Enter the confirmation code shown by the agent in your chat",
+  "剩余时间": "Time remaining",
+  "剩余尝试次数": "Attempts remaining",
+  "批准后，agent 将只能在额度内消费，超出自动停止。": "After approval, the agent can only spend within the limit; anything beyond it stops automatically.",
+  "取消并返回": "Cancel and go back",
+  "授权请求已过期": "Approval request expired",
+  "这次授权已经超时，请让 agent 重新发起一次。": "This request has timed out. Ask the agent to start a new one.",
+  "该授权请求已经处理过了": "This approval request has already been handled",
+  "这次授权已经生效或已被撤销，无需重复操作。": "This authorization is already active or has been revoked; no further action is needed.",
+  "授权已生效": "Authorization active",
+  "agent 已获得消费授权，可在额度内自主花钱。": "The agent now has spending authorization and can spend on its own within the limit.",
+  "你随时可以在操作台里查看、暂停或撤销这份授权。": "You can view, pause, or revoke this authorization anytime in the console.",
+  "授权未创建，agent 仍不能替你花钱。": "No grant was created; the agent still cannot spend on your behalf.",
+  "加载失败，请刷新重试": "Failed to load — refresh and try again",
+  "正在连接钱包…": "Connecting wallet…",
+  "正在获取待签文本…": "Fetching the text to sign…",
+  "请在钱包里签名": "Please sign in your wallet",
+  "签名失败": "Signing failed",
+  "连接失败": "Connection failed",
+  "核对码不匹配，请重新输入": "Confirmation code does not match — try again",
+  "授权请求不存在": "Approval request not found",
+  "缺少授权请求编号": "Missing approval request id",
+});

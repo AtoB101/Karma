@@ -472,6 +472,9 @@ app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement
 app.include_router(payment_ledger.router, prefix="/v1/payments", tags=["PaymentLedger"], dependencies=_protected_dependencies)
 app.include_router(bilateral.router, tags=["Bilateral"])
 app.include_router(spending_grants.router, tags=["SpendingGrants"], dependencies=_protected_dependencies)
+# Owner-facing approval half is wallet-signed (like the console), so it must stay
+# reachable without an agent session even when protected routes require auth.
+app.include_router(spending_grants.approval_router, tags=["SpendingGrants"])
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
 app.include_router(reviews.router,   prefix="/v1/reviews",    tags=["Reviews"],   dependencies=_protected_dependencies)
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)

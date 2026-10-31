@@ -235,7 +235,7 @@ if command -v node >/dev/null 2>&1; then
   for pack in "$CONSOLE"/scripts/i18n-phrase/*.js; do
     node --check "$pack"
   done
-  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js karma-service-spec.js cyber-pairing.js cyber-payments.js cyber-console.js cyber-orders.js cyber-order-flow.js cyber-assistant-tasks.js cyber-identity.js cyber-identity-verify.js cyber-bind-requests.js cyber-key-calls.js cyber-unbind-keys.js cyber-reviews.js; do
+  for js in karma-public-api.js console-sync.js console-wallet-auth.js console-entry-gate.js cyber-actions.js cyber-authorize.js karma-service-spec.js cyber-pairing.js cyber-payments.js cyber-console.js cyber-orders.js cyber-order-flow.js cyber-assistant-tasks.js cyber-identity.js cyber-identity-verify.js cyber-bind-requests.js cyber-key-calls.js cyber-unbind-keys.js cyber-reviews.js cyber-grant-approval.js; do
     node --check "$CONSOLE/scripts/$js"
   done
   for js in karma-nodes.js cyber-node-panel.js cyber-handoff.js; do
@@ -298,4 +298,9 @@ if command -v node >/dev/null 2>&1; then
   fi
 fi
 
-echo "OK   cyber console gate finished"
+
+# 官方域消费授权审批页：agent 发起申请 -> 主人在独立页输核对码 + 钱包签名 -> 落 grant。
+grep -q 'cyber-grant-approval.js' "$CONSOLE/pages/grant-approval/index.html"
+grep -q 'sign-message' "$ROOT/api/routes/spending_grants.py"
+grep -q 'approval-request' "$ROOT/api/routes/spending_grants.py"
+grep -q 'grant-approval' "$ROOT/services/grant_approval.py"echo "OK   cyber console gate finished"

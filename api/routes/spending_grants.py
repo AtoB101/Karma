@@ -6,7 +6,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.session import get_db
+from api.middleware.auth import get_current_agent_id
 from db.models.orm import SpendingGrantModel
+from services import grant_approval
 from services import spending_grant as grants
 from services.identity_wallet_binding import resolve_identity_id_by_wallet
 from services.runtime_wallet import verify_personal_message
@@ -145,3 +147,74 @@ async def resume_grant(grant_id: str, body: GrantActionBody, db: AsyncSession = 
     await grants.resume_grant(db, grant=grant)
     await db.commit()
     return grants._grant_to_dict(grant)
+
+
+
+class ApprovalRequestBody(BaseModel):
+    agent_name: str = Field(min_length=1, max_length=128)
+    agent_public_key: str | None = Field(default=None, max_length=256)
+    currency: str = Field(default="USDC", max_length=16)
+    token_address: str | None = Field(default=None, max_length=42)
+    total_limit: float = Field(gt=0)
+    per_tx_limit: float = Field(gt=0)
+    purpose_scope: list[str] = Field(default_factory=list)
+    expires_at: str | None = Field(default=None, max_length=64)
+
+
+class ApproveBody(BaseModel):
+    confirmation_code: str = Field(min_length=6, max_length=16)
+    wallet_address: str = Field(min_length=42, max_length=42)
+    wallet_signature: str = Field(min_length=132, max_length=132)
+
+
+@router.post("/approval-request")
+async def request_approval(body: ApprovalRequestBody, actor: str = Depends(get_current_agent_id)):
+    """Agent opens an owner approval request for a spending grant."""
+    return grant_approval.issue_grant_approval(
+        agent_id=actor,
+        agent_name=body.agent_name,
+        agent_public_key=body.agent_public_key,
+        currency=body.currency,
+        token_address=body.token_address,
+        total_limit=body.total_limit,
+        per_tx_limit=body.per_tx_limit,
+        purpose_scope=body.purpose_scope,
+        expires_at=body.expires_at,
+    )
+
+
+
+approval_router = APIRouter(prefix="/v1/spending-grants", tags=["SpendingGrants"])
+
+
+@approval_router.get("/approval/{challenge_id}")
+async def get_approval(challenge_id: str):
+    """Owner-side read of a pending approval request (capability URL)."""
+    return grant_approval.public_view(challenge_id)
+
+
+@approval_router.post("/approval/{challenge_id}/approve")
+async def approve_approval(
+    challenge_id: str,
+    body: ApproveBody,
+    db: AsyncSession = Depends(get_db),
+):
+    """Owner signs the grant terms with their wallet; the grant is created on success."""
+    grant = await grant_approval.approve_grant_approval(
+        db,
+        challenge_id=challenge_id,
+        confirmation_code=body.confirmation_code,
+        wallet_address=body.wallet_address,
+        wallet_signature=body.wallet_signature,
+    )
+    await db.commit()
+    return grant
+
+
+@approval_router.get("/approval/{challenge_id}/sign-message")
+async def approval_sign_message(
+    challenge_id: str,
+    wallet_address: str = Query(min_length=42, max_length=42),
+):
+    """The exact EIP-191 text the owner must sign with this wallet."""
+    return {"challenge_id": challenge_id, "message": grant_approval.sign_message_for(challenge_id, wallet_address)}
