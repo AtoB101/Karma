@@ -731,6 +731,26 @@
     return jsonPost("/v1/agents/owner-revoke", { agent_id: agentId });
   }
 
+  /** Owner-side spending-grant management (budgeted authorization). */
+  async function listSpendingGrants(ownerIdentityId) {
+    const q = ownerIdentityId
+      ? "?owner_identity_id=" + encodeURIComponent(ownerIdentityId)
+      : "";
+    return karmaFetch("/v1/spending-grants" + q, { method: "GET", headers: headers() });
+  }
+
+  async function listGrantEvents(grantId) {
+    const q = "?grant_id=" + encodeURIComponent(grantId);
+    return karmaFetch("/v1/spending-grants/events" + q, { method: "GET", headers: headers() });
+  }
+
+  async function grantAction(action, grantId, payload) {
+    return jsonPost(
+      "/v1/spending-grants/" + encodeURIComponent(grantId) + "/" + encodeURIComponent(action),
+      payload
+    );
+  }
+
   function jsonPost(path, payload, extraHeaders) {
     const h = { ...headers(), "Content-Type": "application/json" };
     if (extraHeaders) {
@@ -1038,6 +1058,9 @@
     listSettlementTransitions,
     listAgents,
     listMyAgents,
+    listSpendingGrants,
+    listGrantEvents,
+    grantAction,
     listOnboardingIndustries,
     getOnboardingIndustry,
     suggestIndustries,

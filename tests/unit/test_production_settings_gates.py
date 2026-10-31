@@ -59,6 +59,8 @@ def test_production_accepts_full_gates():
         ("arbitrator_actor_ids", ""),
         ("chain_allow_hot_wallet_payer", True),
         ("registration_require_funding", False),
+        # 关掉 owner 签名的 spending grant = 把整个预算授权门拆掉（第 5 项生产收紧）
+        ("spending_grant_enforced", False),
         # 仲裁员的抵押必须覆盖案值：生产环境不允许把倍数调到 1.0 以下
         ("arbitration_stake_coverage_multiple", 0.5),
         # 没有真实锁仓背书的「质押」不算抵押

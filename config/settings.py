@@ -717,6 +717,12 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "RECEIPT_REQUIRE_SIGNATURE must be true when APP_ENV is production",
                 )
+            if not self.spending_grant_enforced:
+                raise ValueError(
+                    "SPENDING_GRANT_ENFORCED must be true when APP_ENV is production "
+                    "(otherwise the operator can disable the owner-signed spending grant "
+                    "and every agent spend path loses its budgeted authorization gate)",
+                )
             if not self.ledger_require_party_actor:
                 raise ValueError(
                     "LEDGER_REQUIRE_PARTY_ACTOR must be true when APP_ENV is production",

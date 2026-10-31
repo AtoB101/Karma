@@ -1202,6 +1202,21 @@
             <div id="ag-list" style="margin-top:12px"></div>
           </div>
 
+          <!-- 消费授权管理：主人视角查看/暂停/恢复/撤销/调低每份授权；渲染见 cyber-grants.js。 -->
+          <div class="card section" id="grant-management" style="margin-top:20px">
+            <div class="section-header">
+              <div>
+                <h3>消费授权</h3>
+                <p>查看、暂停、恢复、撤销或调低每份消费授权；每次变动都留审计记录。</p>
+              </div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <span class="api-status" id="grant-status"></span>
+                <button type="button" class="btn" id="grant-refresh">刷新</button>
+              </div>
+            </div>
+            <div id="grant-list" style="margin-top:12px"></div>
+          </div>
+
         </section>
 
         <section id="market" class="page">
@@ -1684,7 +1699,7 @@
     <script src="../../scripts/i18n-cyber.js?v=606181e0b49d"></script>
     <script src="../../scripts/lang-select.js?v=60b3643a2859"></script>
     <script src="../../scripts/karma-nodes.js?v=3e8631a9ab01"></script>
-    <script src="../../scripts/karma-public-api.js?v=add37dde9a6f"></script>
+    <script src="../../scripts/karma-public-api.js?v=52555c477718"></script>
     <script src="../../scripts/console-wallet-auth.js?v=68720e12bad5"></script>
     <script src="../../scripts/console-entry-gate.js?v=18957c684476"></script>
     <script src="../../scripts/cyber-actions.js?v=7c7af489e26e"></script>
@@ -1732,6 +1747,8 @@
     <script src="../../scripts/cyber-verifier-identity.js?v=2ec93b930094"></script>
     <script src="../../scripts/cyber-arbitrator-identity.js?v=0d23f437b06d"></script>
     <script src="../../scripts/cyber-node-panel.js?v=95f1085ecf02"></script>
+    <!-- 消费授权管理：主人视角的授权列表页（暂停/恢复/撤销/调低额度）。 -->
+    <script src="../../scripts/cyber-grants.js?v=c87c0ad834a0"></script>
     <script src="../../scripts/background-globe.js?v=64512e726378"></script>
   </body>
 </html>

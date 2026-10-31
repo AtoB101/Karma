@@ -189,3 +189,88 @@ async def test_lifecycle_events_are_recorded(db_session):
     res = await db_session.execute(select(SpendingGrantEventModel).order_by(SpendingGrantEventModel.id))
     types = [row.event_type for row in res.scalars()]
     assert types == ["created", "spend", "revoked"]
+
+@pytest.mark.asyncio
+async def test_create_grant_persists_agent_name(db_session):
+    terms = _terms()
+    grant = await spending_grant.create_grant(
+        db_session,
+        owner_identity_id="owner-1",
+        wallet_address=WALLET,
+        wallet_signature=_signature(terms),
+        agent_name="  OpenClaw 采购助手  ",
+        **terms,
+    )
+    await db_session.commit()
+    assert grant.agent_name == "OpenClaw 采购助手"
+    assert spending_grant._grant_to_dict(grant)["agent_name"] == "OpenClaw 采购助手"
+
+
+@pytest.mark.asyncio
+async def test_create_grant_without_agent_name_is_none(db_session):
+    terms = _terms()
+    grant = await _create(db_session, terms)
+    await db_session.commit()
+    assert grant.agent_name is None
+
+
+@pytest.mark.asyncio
+async def test_reduce_grant_lowers_limit_and_records_event(db_session):
+    grant = await _create(db_session, _terms(total_limit=100.0, per_tx_limit=50.0))
+    await db_session.commit()
+    await spending_grant.reduce_grant(db_session, grant=grant, new_total_limit=60.0, reason="tighten budget")
+    await db_session.commit()
+
+    reloaded = await spending_grant.get_grant(db_session, "grant-1")
+    assert reloaded.total_limit == pytest.approx(60.0)
+    assert reloaded.status == "active"
+
+    events = await spending_grant.list_grant_events(db_session, grant_id="grant-1")
+    types = [e.event_type for e in events]
+    assert types == ["limit_reduced", "created"]
+
+
+@pytest.mark.asyncio
+async def test_reduce_grant_rejects_increase(db_session):
+    grant = await _create(db_session, _terms(total_limit=100.0))
+    await db_session.commit()
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.reduce_grant(db_session, grant=grant, new_total_limit=120.0)
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_reduce_grant_rejects_below_used(db_session):
+    grant = await _create(db_session, _terms(total_limit=100.0, per_tx_limit=100.0))
+    await db_session.commit()
+    await spending_grant.record_spend(db_session, grant_id="grant-1", amount=30.0)
+    await db_session.commit()
+    reloaded = await spending_grant.get_grant(db_session, "grant-1")
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.reduce_grant(db_session, grant=reloaded, new_total_limit=20.0)
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_reduce_grant_rejects_non_active(db_session):
+    grant = await _create(db_session, _terms())
+    await db_session.commit()
+    await spending_grant.revoke_grant(db_session, grant=grant, reason="done")
+    await db_session.commit()
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.reduce_grant(db_session, grant=grant, new_total_limit=10.0)
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_list_grant_events_scopes_by_owner(db_session):
+    await _create(db_session, _terms(grant_id="grant-a"))
+    await db_session.commit()
+    await _create(db_session, _terms(grant_id="grant-b", agent_id="agent-2", nonce="nonce-654321"))
+    await db_session.commit()
+
+    rows = await spending_grant.list_grant_events(db_session, owner_identity_id="owner-1")
+    grant_ids = {e.grant_id for e in rows}
+    assert grant_ids == {"grant-a", "grant-b"}
+    assert all(e.owner_identity_id == "owner-1" for e in rows)
+

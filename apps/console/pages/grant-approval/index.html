@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Karma — Spending Grant Approval</title>
+    <link rel="icon" type="image/png" href="../../assets/favicon.png" />
+    <link rel="stylesheet" href="../../styles/cyber-console.css?v=58da3ce15004" />
+    <style>
+      .grant-shell {
+        min-height: 100vh;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 48px 20px;
+        box-sizing: border-box;
+      }
+      .grant-card {
+        width: 100%;
+        max-width: 560px;
+        background: var(--bg-card);
+        border: 1px solid var(--border-glow);
+        border-radius: 16px;
+        box-shadow: var(--shadow-card);
+        padding: 28px 26px;
+        box-sizing: border-box;
+      }
+      .grant-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 6px;
+      }
+      .grant-brand img { width: 34px; height: 34px; }
+      .grant-brand h1 {
+        font-family: var(--font-display);
+        font-size: 18px;
+        color: var(--text-main);
+        letter-spacing: 0.04em;
+      }
+      .grant-lang-row {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 18px;
+      }
+      .grant-lang-row .lang-select {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        border: none;
+        background: transparent;
+      }
+      .grant-title {
+        font-family: var(--font-display);
+        font-size: 22px;
+        color: var(--text-main);
+        margin-bottom: 8px;
+      }
+      .grant-sub {
+        font-size: 13px;
+        line-height: 1.7;
+        color: var(--text-dim);
+        margin-bottom: 18px;
+      }
+      .grant-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .grant-kv {
+        background: rgba(7, 11, 18, 0.6);
+        border: 1px solid rgba(168, 85, 247, 0.18);
+        border-radius: 10px;
+        padding: 10px 12px;
+      }
+      .grant-kv-label {
+        font-size: 11px;
+        color: var(--text-dim);
+        margin-bottom: 4px;
+        letter-spacing: 0.04em;
+      }
+      .grant-kv-value {
+        font-size: 14px;
+        color: var(--text-main);
+        word-break: break-all;
+      }
+      .grant-code {
+        margin-bottom: 14px;
+      }
+      .grant-code-label {
+        display: block;
+        font-size: 12px;
+        color: var(--text-dim);
+        margin-bottom: 6px;
+      }
+      .grant-input {
+        width: 100%;
+        box-sizing: border-box;
+        background: #070b12;
+        border: 1px solid var(--border-glow);
+        color: var(--text-main);
+        border-radius: 10px;
+        padding: 11px 12px;
+        font-size: 15px;
+        letter-spacing: 0.14em;
+      }
+      .grant-error { color: #ff8a9a; font-size: 12px; margin-top: 6px; }
+      .grant-meta {
+        display: flex;
+        gap: 18px;
+        margin-bottom: 14px;
+        font-size: 12px;
+        color: var(--text-dim);
+      }
+      .grant-meta-item { display: flex; align-items: center; gap: 6px; }
+      .grant-meta-item b { color: var(--neon-mint); font-weight: 600; }
+      .grant-note {
+        font-size: 12px;
+        line-height: 1.7;
+        color: var(--text-dim);
+        border-left: 3px solid var(--border-glow);
+        padding-left: 10px;
+        margin-bottom: 18px;
+      }
+      .grant-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+      .grant-root .api-status { margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <div class="bg"></div>
+    <div class="grid-overlay"></div>
+    <main class="grant-shell">
+      <div class="grant-card">
+        <div class="grant-brand">
+          <img src="../../assets/globe-cyber.png" alt="Karma" />
+          <h1>Karma</h1>
+        </div>
+        <div class="grant-lang-row">
+          <label class="lang-select">
+            <span data-i18n="api.lang">语言</span>
+            <select id="grantLang" class="lang-select">
+              <option value="zh-CN">中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="ko">한국어</option>
+              <option value="es-AR">Español (AR)</option>
+              <option value="es-SV">Español (SV)</option>
+            </select>
+          </label>
+        </div>
+        <div id="grantBody"></div>
+      </div>
+    </main>
+    <script>
+      window.KARMA_API_BASE = window.KARMA_API_BASE || "";
+      window.KARMA_WC_PROJECT_ID = window.KARMA_WC_PROJECT_ID || "";
+    </script>
+    <script src="../../scripts/i18n-cyber.js?v=606181e0b49d"></script>
+    <script src="../../scripts/lang-select.js?v=60b3643a2859"></script>
+    <script src="../../scripts/cyber-onboarding-wallet.js?v=876c107a613f"></script>
+    <script src="../../scripts/cyber-grant-approval.js?v=2fe2022d9bbd"></script>
+  </body>
+</html>
