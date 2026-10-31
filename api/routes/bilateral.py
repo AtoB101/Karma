@@ -2,18 +2,28 @@
 
 These are the endpoints the karma-openclaw MCP tools call, so agents can drive
 lock/bind/settle/finalize with plain X-Karma-Api-Key auth (no HMAC).
+
+Agent-side ``lock`` is a spend: it is gated by a signed spending grant
+(``services.spending_grant``). A grant-less, expired, paused, revoked, or
+insufficient grant rejects the lock before any on-chain money moves.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.middleware.auth import require_auth_if_enabled
+from api.middleware.auth import require_auth_if_enabled, resolve_agent_id_from_request
+from db.session import get_db
+from services import spending_grant
 from services.chain.settlement_adapter import OnChainSettlementAdapter
 
 router = APIRouter(prefix="/v1/bilateral", tags=["bilateral"])
 
 _adapter: OnChainSettlementAdapter | None = None
+
+#: Decimal base for on-chain USDC amounts (6 decimals).
+_TOKEN_DECIMALS = 6
 
 
 def _chain() -> OnChainSettlementAdapter:
@@ -45,11 +55,32 @@ class RelayRequest(BaseModel):
 
 
 @router.post("/lock")
-async def lock(body: LockRequest, _auth=Depends(require_auth_if_enabled)):
+async def lock(
+    body: LockRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_auth_if_enabled),
+):
+    grant = None
+    amount_human: float | None = None
+    if body.role == "agent":
+        agent_id = resolve_agent_id_from_request(request)
+        if not agent_id:
+            raise HTTPException(401, "agent identity required for agent-side lock")
+        amount_human = float(body.amount) / (10 ** _TOKEN_DECIMALS)
+        grant = await spending_grant.assert_spend_allowed(
+            db,
+            agent_id=agent_id,
+            token_address=body.token,
+            amount=amount_human,
+        )
     try:
         bill_id = _chain().lock_direct(body.token, body.amount, body.role)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"on-chain lock failed: {e}") from e
+    if grant is not None and amount_human is not None:
+        await spending_grant.record_spend(db, grant_id=grant.grant_id, amount=amount_human)
+        await db.commit()
     return {"bill_id": bill_id, "token": body.token, "amount": body.amount, "state": "MINTED"}
 
 

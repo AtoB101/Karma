@@ -1424,3 +1424,38 @@ class RuntimeSafetyModeModel(Base):
     pause_new_task:      Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
     pause_new_settlement: Mapped[bool]      = mapped_column(Boolean, nullable=False, default=False)
     updated_at:          Mapped[datetime]   = mapped_column(UTCDateTime, nullable=False, default=datetime.utcnow)
+
+class SpendingGrantModel(Base):
+    """Owner-approved spending allowance for an agent (budgeted authorization).
+
+    The owner signs the canonical terms with their wallet (EIP-191 personal
+    message built by ``services/spending_grant.build_grant_message``) and the
+    signature + signed message are stored on the row, so the grant is
+    self-certifying rather than just a server-side record. Renewal is not
+    allowed by default: a new grant is a new record with a new signature.
+    """
+
+    __tablename__ = "spending_grants"
+
+    grant_id:             Mapped[str]       = mapped_column(String(64), primary_key=True, default=_uuid)
+    owner_identity_id:    Mapped[str]       = mapped_column(String(128), nullable=False, index=True)
+    owner_wallet_address: Mapped[str]       = mapped_column(String(42), nullable=False)
+    agent_id:             Mapped[str]       = mapped_column(String(128), nullable=False, index=True)
+    agent_public_key:     Mapped[str | None] = mapped_column(String(256), nullable=True)
+    currency:             Mapped[str]       = mapped_column(String(16), nullable=False, default="USDC")
+    token_address:        Mapped[str | None] = mapped_column(String(42), nullable=True)
+    total_limit:          Mapped[float]     = mapped_column(Float, nullable=False)
+    per_tx_limit:         Mapped[float]     = mapped_column(Float, nullable=False)
+    used_amount:          Mapped[float]     = mapped_column(Float, nullable=False, default=0.0)
+    purpose_scope:        Mapped[list]      = mapped_column(JSON, nullable=False, default=list)
+    status:               Mapped[str]       = mapped_column(String(16), nullable=False, default="active")
+    expires_at:           Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    nonce:                Mapped[str]       = mapped_column(String(64), nullable=False)
+    signature:            Mapped[str]       = mapped_column(String(256), nullable=False)
+    signed_message:       Mapped[str]       = mapped_column(Text, nullable=False)
+    last_used_at:         Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_denied_reason:   Mapped[str | None] = mapped_column(String(256), nullable=True)
+    revoked_at:           Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    revoke_reason:        Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at:           Mapped[datetime]  = mapped_column(UTCDateTime, default=datetime.utcnow)
+    updated_at:           Mapped[datetime]  = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
