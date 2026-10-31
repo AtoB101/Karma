@@ -3125,4 +3125,13 @@ Object.assign(window.CYBER_I18N_PHRASE["es-SV"] || {}, {
   "核对码不匹配，请重新输入": "El código de confirmación no coincide — intente de nuevo",
   "授权请求不存在": "Solicitud de aprobación no encontrada",
   "缺少授权请求编号": "Falta el id de la solicitud de aprobación",
+  "已消费": "Gastado",
+  "额度调低": "Límite reducido",
+  "暂无授权": "Sin autorizaciones",
+  "连接钱包后，这里会显示你给 agent 批的消费授权。": "Conecta tu billetera para ver las autorizaciones de gasto que aprobaste para agentes.",
+  "调低额度": "Bajar límite",
+  "新的总额上限": "Nuevo límite total",
+  "只能调低，不能调高": "Solo se puede bajar, no subir",
+  "最近动态": "Actividad reciente",
+  "剩余": "Restante",
 });

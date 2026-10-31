@@ -15,7 +15,7 @@ from services.runtime_wallet import verify_personal_message
 
 router = APIRouter(prefix="/v1/spending-grants", tags=["SpendingGrants"])
 
-_ACTION_LABELS = {"revoke": "Revoke", "pause": "Pause", "resume": "Resume"}
+_ACTION_LABELS = {"revoke": "Revoke", "pause": "Pause", "resume": "Resume", "reduce": "Reduce"}
 
 
 class CreateGrantBody(BaseModel):
@@ -23,6 +23,7 @@ class CreateGrantBody(BaseModel):
     wallet_address: str = Field(min_length=42, max_length=42)
     wallet_signature: str = Field(min_length=132, max_length=132)
     agent_id: str = Field(min_length=1, max_length=128)
+    agent_name: str | None = Field(default=None, max_length=128)
     agent_public_key: str | None = Field(default=None, max_length=256)
     currency: str = Field(default="USDC", max_length=16)
     token_address: str | None = Field(default=None, max_length=42)
@@ -39,6 +40,13 @@ class GrantActionBody(BaseModel):
     reason: str | None = Field(default=None, max_length=256)
 
 
+class ReduceGrantBody(BaseModel):
+    wallet_address: str = Field(min_length=42, max_length=42)
+    wallet_signature: str = Field(min_length=132, max_length=132)
+    new_total_limit: float = Field(gt=0)
+    reason: str | None = Field(default=None, max_length=256)
+
+
 def _action_message(action: str, grant_id: str, wallet_address: str) -> str:
     label = _ACTION_LABELS.get(action, action)
     return "\n".join(
@@ -46,6 +54,17 @@ def _action_message(action: str, grant_id: str, wallet_address: str) -> str:
             f"Karma Spending Grant {label}",
             f"grant_id:{grant_id}",
             f"wallet_address:{wallet_address}",
+        ]
+    )
+
+
+def _reduce_message(grant_id: str, wallet_address: str, new_total_limit: float) -> str:
+    return "\n".join(
+        [
+            "Karma Spending Grant Reduce",
+            f"grant_id:{grant_id}",
+            f"wallet_address:{wallet_address}",
+            f"new_total_limit:{new_total_limit}",
         ]
     )
 
@@ -74,6 +93,7 @@ async def create_grant(body: CreateGrantBody, db: AsyncSession = Depends(get_db)
         wallet_address=body.wallet_address,
         wallet_signature=body.wallet_signature,
         agent_id=body.agent_id,
+        agent_name=body.agent_name,
         agent_public_key=body.agent_public_key,
         currency=body.currency,
         token_address=body.token_address,
@@ -106,6 +126,24 @@ async def list_grants(
 ):
     rows = await grants.list_grants(db, owner_identity_id=owner_identity_id, agent_id=agent_id)
     return {"grants": [grants._grant_to_dict(g) for g in rows], "count": len(rows)}
+
+
+@router.get("/events")
+async def list_events(
+    grant_id: str | None = Query(default=None, max_length=64),
+    owner_identity_id: str | None = Query(default=None, max_length=128),
+    agent_id: str | None = Query(default=None, max_length=128),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = await grants.list_grant_events(
+        db,
+        grant_id=grant_id,
+        owner_identity_id=owner_identity_id,
+        agent_id=agent_id,
+        limit=limit,
+    )
+    return {"events": [grants._event_to_dict(e) for e in rows], "count": len(rows)}
 
 
 @router.get("/{grant_id}")
@@ -147,6 +185,46 @@ async def resume_grant(grant_id: str, body: GrantActionBody, db: AsyncSession = 
     await grants.resume_grant(db, grant=grant)
     await db.commit()
     return grants._grant_to_dict(grant)
+
+
+@router.post("/{grant_id}/reduce")
+async def reduce_grant(grant_id: str, body: ReduceGrantBody, db: AsyncSession = Depends(get_db)):
+    grant = await grants.get_grant(db, grant_id)
+    if grant is None:
+        raise HTTPException(404, "grant not found")
+    verify_personal_message(
+        message=_reduce_message(grant.grant_id, body.wallet_address, body.new_total_limit),
+        wallet_address=body.wallet_address,
+        wallet_signature=body.wallet_signature,
+    )
+    if grant.owner_wallet_address.lower() != body.wallet_address.lower():
+        raise HTTPException(403, "wallet is not the grant owner")
+    await grants.reduce_grant(db, grant=grant, new_total_limit=body.new_total_limit, reason=body.reason)
+    await db.commit()
+    return grants._grant_to_dict(grant)
+
+
+@router.get("/{grant_id}/action-message")
+async def action_message(
+    grant_id: str,
+    action: str = Query(min_length=1, max_length=16),
+    wallet_address: str = Query(min_length=42, max_length=42),
+    new_total_limit: float | None = Query(default=None, gt=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """The exact EIP-191 text the owner signs for a management action."""
+    grant = await grants.get_grant(db, grant_id)
+    if grant is None:
+        raise HTTPException(404, "grant not found")
+    if action == "reduce":
+        if new_total_limit is None:
+            raise HTTPException(400, "new_total_limit is required for reduce")
+        message = _reduce_message(grant.grant_id, wallet_address, new_total_limit)
+    elif action in _ACTION_LABELS:
+        message = _action_message(action, grant.grant_id, wallet_address)
+    else:
+        raise HTTPException(400, f"unsupported action: {action}")
+    return {"grant_id": grant.grant_id, "action": action, "message": message}
 
 
 

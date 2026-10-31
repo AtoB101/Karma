@@ -1441,6 +1441,7 @@ class SpendingGrantModel(Base):
     owner_identity_id:    Mapped[str]       = mapped_column(String(128), nullable=False, index=True)
     owner_wallet_address: Mapped[str]       = mapped_column(String(42), nullable=False)
     agent_id:             Mapped[str]       = mapped_column(String(128), nullable=False, index=True)
+    agent_name:           Mapped[str | None] = mapped_column(String(128), nullable=True)
     agent_public_key:     Mapped[str | None] = mapped_column(String(256), nullable=True)
     currency:             Mapped[str]       = mapped_column(String(16), nullable=False, default="USDC")
     token_address:        Mapped[str | None] = mapped_column(String(42), nullable=True)

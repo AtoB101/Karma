@@ -226,3 +226,17 @@ async def test_approval_routes_end_to_end(db_session):
     finally:
         await client.aclose()
         app.dependency_overrides.pop(get_db, None)
+
+@pytest.mark.asyncio
+async def test_approve_persists_agent_name_on_grant(db_session):
+    await _bind_wallet(db_session, WALLET.address)
+    ch = _issue(agent_name="OpenClaw 采购助手")
+    grant = await _approve(db_session, ch)
+    await db_session.commit()
+    assert grant["agent_name"] == "OpenClaw 采购助手"
+
+    row = (await db_session.execute(
+        __import__("sqlalchemy").select(SpendingGrantModel).where(SpendingGrantModel.grant_id == grant["grant_id"])
+    )).scalar_one()
+    assert row.agent_name == "OpenClaw 采购助手"
+

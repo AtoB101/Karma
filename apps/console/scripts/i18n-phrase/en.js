@@ -3123,4 +3123,13 @@ Object.assign(window.CYBER_I18N_PHRASE["en"] || {}, {
   "核对码不匹配，请重新输入": "Confirmation code does not match — try again",
   "授权请求不存在": "Approval request not found",
   "缺少授权请求编号": "Missing approval request id",
+  "已消费": "Spent",
+  "额度调低": "Limit lowered",
+  "暂无授权": "No grants yet",
+  "连接钱包后，这里会显示你给 agent 批的消费授权。": "Connect your wallet to see the spending grants you approved for agents.",
+  "调低额度": "Lower limit",
+  "新的总额上限": "New total limit",
+  "只能调低，不能调高": "Can only be lowered, not raised",
+  "最近动态": "Recent activity",
+  "剩余": "Remaining",
 });

@@ -402,6 +402,7 @@ async def approve_grant_approval(
         db,
         owner_identity_id=owner_identity_id,
         wallet_signature=wallet_signature,
+        agent_name=(str(row.get("agent_name") or "").strip() or None),
         **terms,
     )
 

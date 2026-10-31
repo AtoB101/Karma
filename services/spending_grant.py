@@ -139,6 +139,7 @@ async def create_grant(
     wallet_signature: str,
     agent_id: str,
     agent_public_key: str | None,
+    agent_name: str | None = None,
     currency: str,
     token_address: str | None,
     total_limit: float,
@@ -198,6 +199,7 @@ async def create_grant(
         owner_identity_id=owner_identity_id,
         owner_wallet_address=wallet_address.lower(),
         agent_id=agent_id,
+        agent_name=(agent_name or "").strip() or None,
         agent_public_key=agent_public_key,
         currency=currency or "USDC",
         token_address=token_address,
@@ -249,6 +251,7 @@ def _grant_to_dict(grant: SpendingGrantModel) -> dict[str, Any]:
         "owner_identity_id": grant.owner_identity_id,
         "owner_wallet_address": grant.owner_wallet_address,
         "agent_id": grant.agent_id,
+        "agent_name": grant.agent_name,
         "agent_public_key": grant.agent_public_key,
         "currency": grant.currency,
         "token_address": grant.token_address,
@@ -374,3 +377,79 @@ async def resume_grant(db: AsyncSession, *, grant: SpendingGrantModel) -> Spendi
     record_event(db, grant_id=grant.grant_id, owner_identity_id=grant.owner_identity_id, agent_id=grant.agent_id, event_type="resumed")
     logger.info("spending_grant_resumed", grant_id=grant.grant_id)
     return grant
+
+def _event_to_dict(event: SpendingGrantEventModel) -> dict[str, Any]:
+    """Serialize one audit event for the management UI."""
+    return {
+        "id": event.id,
+        "grant_id": event.grant_id,
+        "owner_identity_id": event.owner_identity_id,
+        "agent_id": event.agent_id,
+        "event_type": event.event_type,
+        "amount": event.amount,
+        "reason": event.reason,
+        "endpoint": event.endpoint,
+        "created_at": event.created_at.isoformat() if event.created_at else None,
+    }
+
+
+async def list_grant_events(
+    db: AsyncSession,
+    *,
+    grant_id: str | None = None,
+    owner_identity_id: str | None = None,
+    agent_id: str | None = None,
+    limit: int = 100,
+) -> list[SpendingGrantEventModel]:
+    """Latest audit events for one grant or one owner's grants (newest first)."""
+    stmt = select(SpendingGrantEventModel)
+    if grant_id:
+        stmt = stmt.where(SpendingGrantEventModel.grant_id == grant_id)
+    if owner_identity_id:
+        stmt = stmt.where(SpendingGrantEventModel.owner_identity_id == owner_identity_id)
+    if agent_id:
+        stmt = stmt.where(SpendingGrantEventModel.agent_id == agent_id)
+    stmt = stmt.order_by(
+        SpendingGrantEventModel.created_at.desc(),
+        SpendingGrantEventModel.id.desc(),
+    ).limit(max(1, min(limit, 500)))
+    res = await db.execute(stmt)
+    return list(res.scalars())
+
+
+async def reduce_grant(
+    db: AsyncSession,
+    *,
+    grant: SpendingGrantModel,
+    new_total_limit: float,
+    reason: str | None = None,
+) -> SpendingGrantModel:
+    """Downward-only limit change: immediate, no new approval, fully audited.
+
+    Raising the limit always requires a fresh owner approval (a new grant), so
+    this path only permits decreases and only while the grant is still active.
+    """
+    if grant.status != ACTIVE_STATUS:
+        raise HTTPException(409, f"grant is {grant.status}, not active")
+    if _expired(grant):
+        raise HTTPException(409, "grant has expired and cannot be reduced")
+    if new_total_limit <= 0:
+        raise HTTPException(400, "new_total_limit must be positive")
+    if new_total_limit >= grant.total_limit - 1e-9:
+        raise HTTPException(400, "limit can only be reduced, not increased")
+    if new_total_limit < grant.used_amount - 1e-9:
+        raise HTTPException(400, "new_total_limit cannot fall below the already-spent amount")
+    grant.total_limit = round(new_total_limit, 6)
+    await db.flush()
+    record_event(
+        db,
+        grant_id=grant.grant_id,
+        owner_identity_id=grant.owner_identity_id,
+        agent_id=grant.agent_id,
+        event_type="limit_reduced",
+        amount=grant.total_limit,
+        reason=(reason or "").strip()[:256],
+    )
+    logger.info("spending_grant_reduced", grant_id=grant.grant_id, total_limit=grant.total_limit)
+    return grant
+
