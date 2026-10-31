@@ -303,4 +303,5 @@ fi
 grep -q 'cyber-grant-approval.js' "$CONSOLE/pages/grant-approval/index.html"
 grep -q 'sign-message' "$ROOT/api/routes/spending_grants.py"
 grep -q 'approval-request' "$ROOT/api/routes/spending_grants.py"
-grep -q 'grant-approval' "$ROOT/services/grant_approval.py"echo "OK   cyber console gate finished"
+grep -q 'grant-approval' "$ROOT/services/grant_approval.py"
+echo "OK   cyber console gate finished"
