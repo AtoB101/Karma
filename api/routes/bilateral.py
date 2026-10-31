@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import require_auth_if_enabled, resolve_agent_id_from_request
+from config.settings import settings
 from db.session import get_db
 from services import spending_grant
 from services.chain.settlement_adapter import OnChainSettlementAdapter
@@ -63,7 +64,7 @@ async def lock(
 ):
     grant = None
     amount_human: float | None = None
-    if body.role == "agent":
+    if settings.spending_grant_enforced and body.role == "agent":
         agent_id = resolve_agent_id_from_request(request)
         if not agent_id:
             raise HTTPException(401, "agent identity required for agent-side lock")
@@ -79,7 +80,13 @@ async def lock(
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"on-chain lock failed: {e}") from e
     if grant is not None and amount_human is not None:
-        await spending_grant.record_spend(db, grant_id=grant.grant_id, amount=amount_human)
+        await spending_grant.record_spend(
+            db,
+            grant_id=grant.grant_id,
+            amount=amount_human,
+            owner_identity_id=grant.owner_identity_id,
+            agent_id=grant.agent_id,
+        )
         await db.commit()
     return {"bill_id": bill_id, "token": body.token, "amount": body.amount, "state": "MINTED"}
 

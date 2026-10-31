@@ -1459,3 +1459,24 @@ class SpendingGrantModel(Base):
     revoke_reason:        Mapped[str | None] = mapped_column(String(256), nullable=True)
     created_at:           Mapped[datetime]  = mapped_column(UTCDateTime, default=datetime.utcnow)
     updated_at:           Mapped[datetime]  = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class SpendingGrantEventModel(Base):
+    """Audit trail for spending grants — every create/revoke/pause/resume/spend/deny.
+
+    The gate must leave a queryable record when it rejects, not just a log line:
+    owners need to see *why* an agent was refused, and regulators/auditors need
+    the full lifecycle of every grant. Writes are best-effort side-channel (see
+    ``services/spending_grant.record_event``).
+    """
+
+    __tablename__ = "spending_grant_events"
+
+    id:                  Mapped[int]       = mapped_column(Integer, primary_key=True, autoincrement=True)
+    grant_id:            Mapped[str]       = mapped_column(String(64), nullable=False, index=True)
+    owner_identity_id:   Mapped[str]       = mapped_column(String(128), nullable=False, index=True)
+    agent_id:            Mapped[str]       = mapped_column(String(128), nullable=False, index=True)
+    event_type:          Mapped[str]       = mapped_column(String(24), nullable=False, index=True)
+    amount:              Mapped[float | None] = mapped_column(Float, nullable=True)
+    reason:              Mapped[str | None] = mapped_column(String(256), nullable=True)
+    endpoint:            Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at:          Mapped[datetime]  = mapped_column(UTCDateTime, default=datetime.utcnow, index=True)

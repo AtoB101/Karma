@@ -51,6 +51,18 @@ def _legacy_bearer_keys_allowed_in_tests(monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _spending_grant_gate_disabled_in_tests(monkeypatch) -> None:
+    """花钱必须有 owner 签名 grant 这条闸门，在测试里默认放开。
+
+    生产默认是**开**的（``SPENDING_GRANT_ENFORCED=true``）：建单 / lock 等花钱
+    动作在服务端查授权，没授权/过期/超额/撤销一律 403。大量用例考的是机制本身，
+    并没有预置 grant，这里放开让它们继续考该考的东西；
+    「闸门真的拦得住」由 tests/unit/test_spending_grant.py 专门考。
+    """
+    monkeypatch.setattr(settings, "spending_grant_enforced", False)
+
+
+@pytest.fixture(autouse=True)
 def _no_chain_event_lookups_in_unit_tests(monkeypatch) -> None:
     """单元测试永远不碰链。
 

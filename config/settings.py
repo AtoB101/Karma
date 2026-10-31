@@ -573,6 +573,9 @@ class Settings(BaseSettings):
     # 打开之后不存在「不记名钥匙」—— 光拿到 KRM_RT_… 什么都做不了：
     # 服务端只认「agent 公钥 + 逐请求签名」，而公钥要主人在操作台输码才绑得上。
     runtime_require_agent_binding: bool = True
+    # 花钱必须有一张 owner 钱包签名的 spending grant（无授权/过期/超额/撤销一律拒）。
+    # 生产默认 true；测试里由 autouse fixture 关闭（见 tests/conftest.py）。
+    spending_grant_enforced: bool = True
 
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":

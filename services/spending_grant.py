@@ -7,8 +7,8 @@ message), so the grant is self-certifying rather than just a server-side row.
 
 This module provides the primitive plus the hard server-side gate: every spend
 entry point must call :func:`assert_spend_allowed` before moving money, and
-:func:`record_spend` after the money actually moved. Rejections update the grant
-row so they stay queryable.
+:func:`record_spend` after the money actually moved. Rejections write a
+``deny`` event row so they stay queryable, not just a log line.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models.orm import SpendingGrantModel
+from db.models.orm import SpendingGrantModel, SpendingGrantEventModel
 
 logger = structlog.get_logger(__name__)
 
@@ -72,6 +72,63 @@ def _utcnow() -> datetime:
 
 def _expired(grant: SpendingGrantModel) -> bool:
     return bool(grant.expires_at and grant.expires_at < _utcnow())
+
+
+def record_event(
+    db: AsyncSession,
+    *,
+    grant_id: str,
+    owner_identity_id: str,
+    agent_id: str,
+    event_type: str,
+    amount: float | None = None,
+    reason: str | None = None,
+    endpoint: str | None = None,
+) -> None:
+    """Append an audit event to the current transaction (committed by the caller)."""
+    db.add(
+        SpendingGrantEventModel(
+            grant_id=grant_id,
+            owner_identity_id=owner_identity_id,
+            agent_id=agent_id,
+            event_type=event_type,
+            amount=amount,
+            reason=reason,
+            endpoint=endpoint,
+        )
+    )
+
+
+async def _record_deny_safe(
+    db: AsyncSession,
+    *,
+    grant_id: str,
+    owner_identity_id: str,
+    agent_id: str,
+    reason: str,
+) -> None:
+    """Persist a denial even though the request is about to be rejected.
+
+    Side-channel: discard any half-written request state, write the deny row,
+    commit, and never let audit failure affect the request.
+    """
+    try:
+        await db.rollback()
+        db.add(
+            SpendingGrantEventModel(
+                grant_id=grant_id or "",
+                owner_identity_id=owner_identity_id or "",
+                agent_id=agent_id or "",
+                event_type="deny",
+                reason=(reason or "")[:256],
+            )
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def create_grant(
@@ -156,6 +213,7 @@ async def create_grant(
     )
     db.add(grant)
     await db.flush()
+    record_event(db, grant_id=grant_id, owner_identity_id=owner_identity_id, agent_id=agent_id, event_type="created")
     logger.info(
         "spending_grant_created",
         grant_id=grant_id,
@@ -214,17 +272,28 @@ async def assert_spend_allowed(
     agent_id: str,
     token_address: str | None,
     amount: float,
+    owner_identity_id: str | None = None,
 ) -> SpendingGrantModel:
     """Hard server-side gate: reject spend with no active, unexpired, sufficient grant."""
-    res = await db.execute(
+    stmt = (
         select(SpendingGrantModel)
         .where(SpendingGrantModel.agent_id == agent_id)
         .where(SpendingGrantModel.status == ACTIVE_STATUS)
-        .order_by(SpendingGrantModel.created_at.desc())
     )
+    if owner_identity_id:
+        stmt = stmt.where(SpendingGrantModel.owner_identity_id == owner_identity_id)
+    stmt = stmt.order_by(SpendingGrantModel.created_at.desc())
+    res = await db.execute(stmt)
     grants = list(res.scalars())
     if not grants:
-        _deny(grants=None, agent_id=agent_id, reason="no active spending grant")
+        await _record_deny_safe(
+            db,
+            grant_id="",
+            owner_identity_id=owner_identity_id or "",
+            agent_id=agent_id,
+            reason="no active spending grant",
+        )
+        raise HTTPException(status_code=403, detail="spending grant denied: no active spending grant")
     for grant in grants:
         if _expired(grant):
             continue
@@ -236,15 +305,15 @@ async def assert_spend_allowed(
         if amount > remaining + 1e-9:
             continue
         return grant
-    _deny(grants=grants, agent_id=agent_id, reason="no grant covers this spend")
-
-
-def _deny(*, grants: list[SpendingGrantModel] | None, agent_id: str, reason: str) -> None:
-    logger.warning(
-        "spending_grant_denied",
+    reason = "no grant covers this spend"
+    await _record_deny_safe(
+        db,
+        grant_id=grants[0].grant_id,
+        owner_identity_id=owner_identity_id or grants[0].owner_identity_id,
         agent_id=agent_id,
         reason=reason,
     )
+    logger.warning("spending_grant_denied", agent_id=agent_id, reason=reason)
     raise HTTPException(status_code=403, detail=f"spending grant denied: {reason}")
 
 
@@ -253,6 +322,8 @@ async def record_spend(
     *,
     grant_id: str,
     amount: float,
+    owner_identity_id: str | None = None,
+    agent_id: str | None = None,
 ) -> None:
     """Atomically increment the grant's used_amount after money actually moved."""
     await db.execute(
@@ -261,6 +332,14 @@ async def record_spend(
         .values(used_amount=SpendingGrantModel.used_amount + amount, last_used_at=_utcnow())
     )
     await db.flush()
+    record_event(
+        db,
+        grant_id=grant_id,
+        owner_identity_id=owner_identity_id or "",
+        agent_id=agent_id or "",
+        event_type="spend",
+        amount=amount,
+    )
 
 
 async def revoke_grant(db: AsyncSession, *, grant: SpendingGrantModel, reason: str) -> SpendingGrantModel:
@@ -270,6 +349,7 @@ async def revoke_grant(db: AsyncSession, *, grant: SpendingGrantModel, reason: s
     grant.revoked_at = _utcnow()
     grant.revoke_reason = (reason or "").strip()[:256]
     await db.flush()
+    record_event(db, grant_id=grant.grant_id, owner_identity_id=grant.owner_identity_id, agent_id=grant.agent_id, event_type="revoked", reason=grant.revoke_reason)
     logger.info("spending_grant_revoked", grant_id=grant.grant_id, reason=grant.revoke_reason)
     return grant
 
@@ -279,6 +359,7 @@ async def pause_grant(db: AsyncSession, *, grant: SpendingGrantModel) -> Spendin
         raise HTTPException(409, f"grant is {grant.status}, not active")
     grant.status = "paused"
     await db.flush()
+    record_event(db, grant_id=grant.grant_id, owner_identity_id=grant.owner_identity_id, agent_id=grant.agent_id, event_type="paused")
     logger.info("spending_grant_paused", grant_id=grant.grant_id)
     return grant
 
@@ -290,5 +371,6 @@ async def resume_grant(db: AsyncSession, *, grant: SpendingGrantModel) -> Spendi
         raise HTTPException(409, "grant has expired and cannot be resumed")
     grant.status = "active"
     await db.flush()
+    record_event(db, grant_id=grant.grant_id, owner_identity_id=grant.owner_identity_id, agent_id=grant.agent_id, event_type="resumed")
     logger.info("spending_grant_resumed", grant_id=grant.grant_id)
     return grant

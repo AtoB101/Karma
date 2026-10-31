@@ -5,7 +5,9 @@ import pytest
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from fastapi import HTTPException
+from sqlalchemy import select
 
+from db.models.orm import SpendingGrantEventModel
 from services import spending_grant
 
 PRIVATE_KEY = "0x1111111111111111111111111111111111111111111111111111111111111111"
@@ -148,3 +150,42 @@ async def test_token_mismatch_is_denied(db_session):
         await spending_grant.assert_spend_allowed(
             db_session, agent_id="agent-1", token_address="0x" + "0" * 40, amount=5.0
         )
+
+@pytest.mark.asyncio
+async def test_owner_scoped_enforcement(db_session):
+    await _create(db_session, _terms())
+    await db_session.commit()
+    with pytest.raises(HTTPException):
+        await spending_grant.assert_spend_allowed(
+            db_session, agent_id="agent-1", owner_identity_id="owner-2", token_address=TOKEN, amount=5.0
+        )
+
+
+@pytest.mark.asyncio
+async def test_deny_event_is_persisted(db_session):
+    with pytest.raises(HTTPException):
+        await spending_grant.assert_spend_allowed(
+            db_session, agent_id="nobody", token_address=TOKEN, amount=5.0
+        )
+    res = await db_session.execute(
+        select(SpendingGrantEventModel).where(SpendingGrantEventModel.event_type == "deny")
+    )
+    rows = list(res.scalars())
+    assert len(rows) == 1
+    assert rows[0].agent_id == "nobody"
+    assert "grant" in (rows[0].reason or "")
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_events_are_recorded(db_session):
+    grant = await _create(db_session, _terms())
+    await db_session.commit()
+    await spending_grant.record_spend(
+        db_session, grant_id="grant-1", amount=5.0, owner_identity_id="owner-1", agent_id="agent-1"
+    )
+    await db_session.commit()
+    await spending_grant.revoke_grant(db_session, grant=grant, reason="done")
+    await db_session.commit()
+    res = await db_session.execute(select(SpendingGrantEventModel).order_by(SpendingGrantEventModel.id))
+    types = [row.event_type for row in res.scalars()]
+    assert types == ["created", "spend", "revoked"]
