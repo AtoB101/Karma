@@ -45,7 +45,7 @@ from db.session import get_db
 from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
 from services.agent_automation_policy import get_automation_policy
-from services import console_2fa
+from services import console_2fa, spending_grant
 from services.console_2fa import TwoFactorError
 from services.console_notice import (
     NOTICE_KEY_BOUND,
@@ -1537,6 +1537,34 @@ class RuntimePlaceOrderBody(BaseModel):
     important_fields_capture_id: Optional[str] = Field(default=None, max_length=128)
 
 
+async def _enforce_spending_grant(
+    db: AsyncSession,
+    ctx: RuntimeKeyContext,
+    amount: float,
+):
+    """Agent spend requires an owner-signed spending grant (production default).
+
+    Returns the covering grant when enforcement is on; returns None when the
+    gate is disabled (dev/test). Rejects when the runtime key is not bound to
+    an agent, or when no active, unexpired, sufficient grant covers the spend.
+    """
+    if not settings.spending_grant_enforced:
+        return None
+    agent_id = (ctx.agent_binding or "").strip()
+    if not agent_id:
+        raise HTTPException(
+            status_code=403,
+            detail="spending grant denied: runtime key is not bound to an agent",
+        )
+    return await spending_grant.assert_spend_allowed(
+        db,
+        agent_id=agent_id,
+        owner_identity_id=(ctx.karma_identity_id or "").strip(),
+        token_address=None,
+        amount=amount,
+    )
+
+
 @router.post("/place-order")
 @runtime_call_logged("place-order")
 async def runtime_place_order(
@@ -1554,6 +1582,7 @@ async def runtime_place_order(
     * 单笔 ≤ 自动额度 → 正常建单出凭证；钱依然要验收通过才真正划转。
     """
     assert_permission(ctx, "place_order")
+    grant = await _enforce_spending_grant(db, ctx, float(body.amount))
     if body.seller_identity_id:
         validate_public_url_segment("seller_identity_id", body.seller_identity_id)
     replayed = await _nonce_claim(db, ctx, "place-order", body.client_nonce, body)
@@ -1606,6 +1635,14 @@ async def runtime_place_order(
     else:
         # 没出凭证 = 这一单没真的动用额度（例如只到「等主人确认」）——把占的额度放回去。
         await release_daily_spend(db, key_id=ctx.key_id, amount=float(body.amount))
+    if grant is not None and payload.get("voucher_id"):
+        await spending_grant.record_spend(
+            db,
+            grant_id=grant.grant_id,
+            amount=float(body.amount),
+            owner_identity_id=ctx.karma_identity_id,
+            agent_id=ctx.agent_binding,
+        )
     await db.commit()
     payload["requested_by_identity_id"] = ctx.karma_identity_id
     payload["profile_id"] = ctx.profile_id
@@ -1630,6 +1667,7 @@ async def runtime_request_voucher(
 ):
     assert_permission(ctx, "request_voucher")
     v = body.voucher
+    grant = await _enforce_spending_grant(db, ctx, float(v.amount))
     if v.buyer_identity_id != ctx.karma_identity_id:
         raise HTTPException(status_code=403, detail="voucher buyer_identity_id must match runtime key identity")
     if ctx.profile_id and not v.profile_id:
@@ -1654,6 +1692,14 @@ async def runtime_request_voucher(
         db, key_id=ctx.key_id, amount=float(v.amount), daily_limit=ctx.daily_limit
     ):
         raise HTTPException(status_code=403, detail="amount exceeds runtime key daily_limit")
+    if grant is not None:
+        await spending_grant.record_spend(
+            db,
+            grant_id=grant.grant_id,
+            amount=float(v.amount),
+            owner_identity_id=ctx.karma_identity_id,
+            agent_id=ctx.agent_binding,
+        )
     await db.commit()
     await _nonce_record(
         db, ctx, "request-voucher", body.client_nonce, out.model_dump(mode="json"), status_code=201

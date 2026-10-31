@@ -92,9 +92,15 @@
       body.appendChild(el("p", "kof-note", (prompt.payload && prompt.payload.note_zh) || "请在钱包里对上面的内容签名。"));
       var signBtn = el("button", "kof-btn kof-sign", "连接钱包并签名");
       signBtn.addEventListener("click", function () {
-        if (typeof options.walletSign === "function") {
-          options.walletSign(prompt.payload || {}, function (signed) {
+        var walletSigner = options.walletSign;
+        if (typeof walletSigner !== "function" && global.KarmaOnboardingWallet) {
+          walletSigner = global.KarmaOnboardingWallet.sign;
+        }
+        if (typeof walletSigner === "function") {
+          walletSigner(prompt.payload || {}, function (signed) {
             respond("sign", signed);
+          }, function (err) {
+            respond("cancel", { error: String((err && err.message) || err) });
           });
         } else {
           respond("sign", {
@@ -104,8 +110,9 @@
         }
       });
       body.appendChild(signBtn);
-      body.appendChild(el("button", "kof-btn kof-cancel", "取消"));
-      body.querySelector(".kof-cancel").addEventListener("click", function () { respond("cancel", {}); });
+      var cancelBtn = el("button", "kof-btn kof-cancel", "取消");
+      cancelBtn.addEventListener("click", function () { respond("cancel", {}); });
+      body.appendChild(cancelBtn);
     } else if (type === "matching_code") {
       body.appendChild(el("p", "kof-code-label", "请核对 agent 出示的对照码："));
       body.appendChild(el("div", "kof-match-code", prompt.payload && prompt.payload.match_code));
@@ -119,8 +126,9 @@
         respond("confirm", { code: input.value });
       });
       body.appendChild(confirm);
-      body.appendChild(el("button", "kof-btn kof-reject", "拒绝"));
-      body.querySelector(".kof-reject").addEventListener("click", function () { respond("reject", {}); });
+      var rejectBtn = el("button", "kof-btn kof-reject", "拒绝");
+      rejectBtn.addEventListener("click", function () { respond("reject", {}); });
+      body.appendChild(rejectBtn);
     } else if (type === "ack") {
       var label = el("label", "kof-ack");
       var cb = el("input", "kof-checkbox");
@@ -133,12 +141,14 @@
       cb.addEventListener("change", function () { ackConfirm.disabled = !cb.checked; });
       ackConfirm.addEventListener("click", function () { respond("confirm", {}); });
       body.appendChild(ackConfirm);
-      body.appendChild(el("button", "kof-btn kof-reject", "拒绝"));
-      body.querySelector(".kof-reject").addEventListener("click", function () { respond("reject", {}); });
+      var ackRejectBtn = el("button", "kof-btn kof-reject", "拒绝");
+      ackRejectBtn.addEventListener("click", function () { respond("reject", {}); });
+      body.appendChild(ackRejectBtn);
     } else if (type === "info") {
       body.appendChild(el("p", "kof-note", prompt.body_zh || ""));
-      body.appendChild(el("button", "kof-btn kof-continue", "继续"));
-      body.querySelector(".kof-continue").addEventListener("click", function () { respond("continue", {}); });
+      var contBtn = el("button", "kof-btn kof-continue", "继续");
+      contBtn.addEventListener("click", function () { respond("continue", {}); });
+      body.appendChild(contBtn);
     } else {
       body.appendChild(footer(respond, prompt.actions || ["confirm", "reject"]));
     }

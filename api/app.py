@@ -78,6 +78,7 @@ from api.routes import (
     escrow,
     payment_ledger,
     onboarding_authorization,
+    spending_grants,
 )
 
 logger = structlog.get_logger(__name__)
@@ -470,6 +471,7 @@ app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verificati
 app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_rate_limited_rw)
 app.include_router(payment_ledger.router, prefix="/v1/payments", tags=["PaymentLedger"], dependencies=_protected_dependencies)
 app.include_router(bilateral.router, tags=["Bilateral"])
+app.include_router(spending_grants.router, tags=["SpendingGrants"], dependencies=_protected_dependencies)
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
 app.include_router(reviews.router,   prefix="/v1/reviews",    tags=["Reviews"],   dependencies=_protected_dependencies)
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)
