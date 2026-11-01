@@ -63,6 +63,18 @@ def _spending_grant_gate_disabled_in_tests(monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _protected_route_auth_disabled_in_tests(monkeypatch) -> None:
+    """Protected-route auth gate is off in tests by default.
+
+    Production default is **on** (``AUTH_ENFORCE_PROTECTED_ROUTES=true``): every
+    protected router requires a valid bearer/API-key identity. Most tests exercise
+    mechanism without pre-seeding identities, so this fixture opts them out;
+    the gate itself is covered by tests/unit/test_auth_security.py.
+    """
+    monkeypatch.setattr(settings, "auth_enforce_protected_routes", False)
+
+
+@pytest.fixture(autouse=True)
 def _no_chain_event_lookups_in_unit_tests(monkeypatch) -> None:
     """单元测试永远不碰链。
 

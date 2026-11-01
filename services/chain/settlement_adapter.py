@@ -108,12 +108,10 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
                 "name": "",
                 "type": "tuple",
                 "components": [
-                    {"name": "billId", "type": "uint256"},
                     {"name": "owner", "type": "address"},
+                    {"name": "state", "type": "uint8"},
                     {"name": "token", "type": "address"},
                     {"name": "amount", "type": "uint256"},
-                    {"name": "state", "type": "uint8"},
-                    {"name": "mintedAt", "type": "uint256"},
                 ],
             }
         ],
