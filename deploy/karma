@@ -463,10 +463,25 @@ cmd_migrate() {
     err "  然后重跑 karma migrate / karma deploy。"
     return 1
   fi
+  # 未跟踪的迁移脚本会凭空造出第二个 alembic head：git 看不到（fast-forward 不清除），
+  # 但 bind mount 会把它带进容器，于是 `upgrade head` 报 Multiple head revisions。
+  # 先在主机侧兜底排查，别让部署死在一个服务器本地残留文件上。
+  local stray_migrations
+  stray_migrations="$(git -C "$REPO_DIR" status --porcelain -- db/migrations/versions | grep '^??' || true)"
+  if [ -n "$stray_migrations" ]; then
+    err "  db/migrations/versions 里有未跟踪的迁移脚本（会在容器里造出第二个 head）："
+    printf '%s\n' "$stray_migrations" | sed 's/^/    /'
+    err "  先备份移出仓库目录，再重跑："
+    err "    mkdir -p /opt/karma/backup-migrations && mv <那个文件> /opt/karma/backup-migrations/"
+    return 1
+  fi
   # 版本列宽先摆正，否则「表都建完、写版本号那一下才炸」并回滚（见上面 ensure_* 的注释）。
   ensure_alembic_version_width
   compose run --rm --no-deps -w /app app alembic upgrade head || {
     err "  migration failed — nothing else was changed; the running container is untouched"
+    # 多 head 是最常见的坑：把当前 heads 打出来，排查不用再进容器跑一次。
+    err "  current alembic heads:"
+    compose run --rm --no-deps -w /app app alembic heads 2>/dev/null | sed 's/^/    /' || true
     return 1
   }
   compose run --rm --no-deps -w /app app alembic current 2>/dev/null | sed 's/^/  now at: /'
