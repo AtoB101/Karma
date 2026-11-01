@@ -320,6 +320,43 @@ async def assert_spend_allowed(
     raise HTTPException(status_code=403, detail=f"spending grant denied: {reason}")
 
 
+async def assert_agent_authorized(
+    db: AsyncSession,
+    *,
+    agent_id: str,
+    owner_identity_id: str | None = None,
+) -> SpendingGrantModel:
+    """Require at least one active, unexpired grant for an agent (status only).
+
+    Settlement / finalize steps do not move new money, but they must not be
+    performed by an agent whose grant was revoked, paused, or expired. This is
+    deliberately a lighter check than assert_spend_allowed -- it does
+    not consume allowance and does not compare amounts.
+    """
+    stmt = (
+        select(SpendingGrantModel)
+        .where(SpendingGrantModel.agent_id == agent_id)
+        .where(SpendingGrantModel.status == ACTIVE_STATUS)
+    )
+    if owner_identity_id:
+        stmt = stmt.where(SpendingGrantModel.owner_identity_id == owner_identity_id)
+    stmt = stmt.order_by(SpendingGrantModel.created_at.desc())
+    res = await db.execute(stmt)
+    for grant in res.scalars():
+        if not _expired(grant):
+            return grant
+    reason = "no active spending grant"
+    await _record_deny_safe(
+        db,
+        grant_id="",
+        owner_identity_id=owner_identity_id or "",
+        agent_id=agent_id,
+        reason=reason,
+    )
+    logger.warning("spending_grant_denied", agent_id=agent_id, reason=reason)
+    raise HTTPException(status_code=403, detail=f"spending grant denied: {reason}")
+
+
 async def record_spend(
     db: AsyncSession,
     *,
