@@ -10,13 +10,13 @@ allowed by default — a new grant is a new signed record.
 uses ``IF NOT EXISTS`` to stay race-safe on deploy.
 
 Revision ID: 0061_spending_grant
-Revises: 0060_runtime_safety_mode
+Revises: 0070_settlement_reversals
 Create Date: 2026-11-01
 """
 from alembic import op
 
 revision = "0061_spending_grant"
-down_revision = "0060_runtime_safety_mode"
+down_revision = "0070_settlement_reversals"
 branch_labels = None
 depends_on = None
 
