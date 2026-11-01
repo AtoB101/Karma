@@ -34,6 +34,14 @@ def _chain() -> OnChainSettlementAdapter:
     return _adapter
 
 
+def _binding_payment_human(binding_id: int) -> float:
+    """Payment released to the agent at settle (buyer bill amount, human units)."""
+    status = _chain().binding_status(binding_id)
+    buyer = status.get("buyer_bill") or {}
+    raw = int(buyer.get("amount") or 0)
+    return float(raw) / (10 ** _TOKEN_DECIMALS)
+
+
 class LockRequest(BaseModel):
     token: str = Field(description="ERC-20 token address")
     amount: int = Field(description="Amount in base units (6 decimals for USDC)")
@@ -116,7 +124,12 @@ async def settle(
         agent_id = resolve_agent_id_from_request(request)
         if not agent_id:
             raise HTTPException(401, "agent identity required for settle")
-        await spending_grant.assert_agent_authorized(db, agent_id=agent_id)
+        await spending_grant.assert_spend_allowed(
+            db,
+            agent_id=agent_id,
+            token_address=None,
+            amount=_binding_payment_human(body.binding_id),
+        )
     try:
         _chain().settle_direct(body.binding_id, body.proof_hash)
     except Exception as e:  # noqa: BLE001
@@ -143,7 +156,12 @@ async def finalize(
         agent_id = resolve_agent_id_from_request(request)
         if not agent_id:
             raise HTTPException(401, "agent identity required for finalize")
-        await spending_grant.assert_agent_authorized(db, agent_id=agent_id)
+        await spending_grant.assert_spend_allowed(
+            db,
+            agent_id=agent_id,
+            token_address=None,
+            amount=_binding_payment_human(binding_id),
+        )
     try:
         _chain().finalize_binding(binding_id)
     except Exception as e:  # noqa: BLE001

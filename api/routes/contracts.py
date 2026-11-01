@@ -10,11 +10,13 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
+from api.middleware.auth import resolve_agent_id_from_request
 from core.schemas import TaskContract
 from db.session import get_db
-from db.models.orm import CapacityModel, TaskContractModel
+from db.models.orm import AgentModel, CapacityModel, TaskContractModel
 from db.stores.settlement_store import PostgresSettlementStore
 from services.actor_guards import caller_is_privileged
+from services import spending_grant
 from services.path_param_safety import validate_public_url_segment
 from services.settlement_party_access import actor_identity_ids, require_party_read
 from services.signing import sha256_of
@@ -70,6 +72,7 @@ class CreateContractRequest(BaseModel):
 @router.post("", response_model=TaskContract, status_code=201)
 async def create_contract(
     body: CreateContractRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     if body.task_id is not None:
@@ -94,6 +97,19 @@ async def create_contract(
         )
     # 链上只有 6 位小数；多出来的位数在链上不存在，账实就会对不平。
     assert_token_precision(body.escrow_amount, field="escrow_amount")
+    if settings.spending_grant_enforced:
+        actor_id = resolve_agent_id_from_request(request)
+        if not actor_id:
+            raise HTTPException(401, "agent identity required to create contract")
+        agent = await db.get(AgentModel, actor_id)
+        if agent is not None and agent.owner_identity_id:
+            await spending_grant.assert_spend_allowed(
+                db,
+                agent_id=actor_id,
+                owner_identity_id=agent.owner_identity_id,
+                token_address=None,
+                amount=float(body.escrow_amount),
+            )
     cap = await db.get(CapacityModel, body.client_agent_id)
     if cap is not None and float(cap.available_credits) + 1e-9 < float(body.escrow_amount):
         raise HTTPException(

@@ -40,7 +40,8 @@ class Settings(BaseSettings):
     # Required in production for secure token issuance / API-key auth.
     auth_api_keys: str = ""
     # If enabled, all protected API routers require valid auth headers.
-    auth_enforce_protected_routes: bool = False
+    # Secure by default; development/test opt out explicitly (tests/conftest.py).
+    auth_enforce_protected_routes: bool = True
     # When true with AUTH_ENFORCE_PROTECTED_ROUTES, accept karma_{agent}_{secret} keys that are not
     # listed in AUTH_API_KEYS (development convenience). Must stay false in production.
     auth_allow_dev_key_fallback: bool = False

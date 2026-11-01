@@ -50,7 +50,12 @@ def chain_mock():
     mock = MagicMock()
     mock.settle_direct.return_value = MagicMock()
     mock.finalize_binding.return_value = MagicMock()
-    mock.binding_status.return_value = {"binding_id": 1, "state": 2}
+    mock.binding_status.return_value = {
+        "binding_id": 1,
+        "state": 2,
+        "buyer_bill": {"bill_id": 10, "owner": "0x" + "cd" * 20, "amount": 5_000_000, "state": 2},
+        "agent_bill": {"bill_id": 11, "owner": "0x" + "ef" * 20, "amount": 1_000_000, "state": 2},
+    }
     with patch("api.routes.bilateral._chain", return_value=mock):
         yield mock
 
@@ -111,6 +116,47 @@ async def test_settle_allows_agent_with_active_grant(db_session, enforce, chain_
             )
             assert r.status_code == 200, r.text
             chain_mock.settle_direct.assert_called_once()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_settle_denies_insufficient_grant(db_session, enforce, chain_mock):
+    db_session.add(
+        SpendingGrantModel(
+            grant_id="g-small",
+            owner_identity_id="owner-1",
+            owner_wallet_address="0x" + "ab" * 20,
+            agent_id=AGENT,
+            currency="USDC",
+            token_address=None,
+            total_limit=10.0,
+            per_tx_limit=1.0,
+            used_amount=0.0,
+            purpose_scope=[],
+            status="active",
+            expires_at=None,
+            nonce="n",
+            signature="",
+            signed_message="",
+        )
+    )
+    await db_session.commit()
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/v1/bilateral/settle",
+                json={"binding_id": 1, "proof_hash": "0x" + "ab" * 32},
+                headers={"x-karma-api-key": API_KEY},
+            )
+            assert r.status_code == 403, r.text
+            assert "no grant covers this spend" in r.text
     finally:
         app.dependency_overrides.clear()
 
