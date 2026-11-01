@@ -25,6 +25,7 @@ from core.schemas import (
 )
 from core.settlement.engine import can_transition, canonical_task_status
 from db.models.orm import (
+    AgentModel,
     CapacityModel,
     ProgressReceiptModel,
     SettlementModel,
@@ -34,7 +35,7 @@ from db.models.orm import (
 from db.session import get_db
 from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
-from services import atomic_ledger
+from services import atomic_ledger, spending_grant
 from services.capacity_resolution import apply_capacity_resolution, move_reserved_to_disputed
 from services.auto_arbitration_rules import adjust_auto_split_for_rules, build_auto_arbitration_context
 from services.runtime_safety import (
@@ -219,6 +220,18 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
     if not math.isfinite(float(escrow_amount)):
         raise HTTPException(400, "escrow_amount must be a finite number")
     assert_token_precision(escrow_amount, field="escrow_amount")
+    if settings.spending_grant_enforced:
+        actor_id = resolve_agent_id_from_request(request)
+        if actor_id:
+            agent = await db.get(AgentModel, actor_id)
+            if agent is not None and agent.owner_identity_id:
+                await spending_grant.assert_spend_allowed(
+                    db,
+                    agent_id=actor_id,
+                    owner_identity_id=agent.owner_identity_id,
+                    token_address=None,
+                    amount=float(escrow_amount),
+                )
     if voucher_id:
         vrow = await db.get(VoucherModel, voucher_id)
         if not vrow:

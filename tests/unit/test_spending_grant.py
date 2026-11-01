@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from datetime import datetime
 from eth_account import Account
 from eth_account.messages import encode_defunct
 from fastapi import HTTPException
@@ -273,4 +274,51 @@ async def test_list_grant_events_scopes_by_owner(db_session):
     grant_ids = {e.grant_id for e in rows}
     assert grant_ids == {"grant-a", "grant-b"}
     assert all(e.owner_identity_id == "owner-1" for e in rows)
+
+
+@pytest.mark.asyncio
+async def test_assert_agent_authorized_requires_active_grant(db_session):
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.assert_agent_authorized(db_session, agent_id="no-grant-agent")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_assert_agent_authorized_passes_with_active_grant(db_session):
+    await _create(db_session, _terms())
+    await db_session.commit()
+    grant = await spending_grant.assert_agent_authorized(db_session, agent_id="agent-1")
+    assert grant.grant_id == "grant-1"
+
+
+@pytest.mark.asyncio
+async def test_assert_agent_authorized_rejects_revoked_grant(db_session):
+    grant = await _create(db_session, _terms())
+    await db_session.commit()
+    await spending_grant.revoke_grant(db_session, grant=grant, reason="revoked")
+    await db_session.commit()
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.assert_agent_authorized(db_session, agent_id="agent-1")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_assert_agent_authorized_rejects_expired_grant(db_session):
+    grant = await _create(db_session, _terms())
+    grant.expires_at = datetime(2020, 1, 1)
+    await db_session.commit()
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.assert_agent_authorized(db_session, agent_id="agent-1")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_assert_agent_authorized_ignores_allowance(db_session):
+    await _create(db_session, _terms(total_limit=1.0, per_tx_limit=1.0))
+    await db_session.commit()
+    # 已经花光额度（used == total），放款/结算仍应只查「授权是否存活」，不查剩余额度。
+    await spending_grant.record_spend(db_session, grant_id="grant-1", amount=1.0)
+    await db_session.commit()
+    grant = await spending_grant.assert_agent_authorized(db_session, agent_id="agent-1")
+    assert grant.grant_id == "grant-1"
 

@@ -106,7 +106,17 @@ async def bind(body: BindRequest, _auth=Depends(require_auth_if_enabled)):
 
 
 @router.post("/settle")
-async def settle(body: SettleRequest, _auth=Depends(require_auth_if_enabled)):
+async def settle(
+    body: SettleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_auth_if_enabled),
+):
+    if settings.spending_grant_enforced:
+        agent_id = resolve_agent_id_from_request(request)
+        if not agent_id:
+            raise HTTPException(401, "agent identity required for settle")
+        await spending_grant.assert_agent_authorized(db, agent_id=agent_id)
     try:
         _chain().settle_direct(body.binding_id, body.proof_hash)
     except Exception as e:  # noqa: BLE001
@@ -123,7 +133,17 @@ async def status(binding_id: int):
 
 
 @router.post("/finalize/{binding_id}")
-async def finalize(binding_id: int, _auth=Depends(require_auth_if_enabled)):
+async def finalize(
+    binding_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_auth_if_enabled),
+):
+    if settings.spending_grant_enforced:
+        agent_id = resolve_agent_id_from_request(request)
+        if not agent_id:
+            raise HTTPException(401, "agent identity required for finalize")
+        await spending_grant.assert_agent_authorized(db, agent_id=agent_id)
     try:
         _chain().finalize_binding(binding_id)
     except Exception as e:  # noqa: BLE001
