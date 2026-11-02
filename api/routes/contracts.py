@@ -102,14 +102,14 @@ async def create_contract(
         if not actor_id:
             raise HTTPException(401, "agent identity required to create contract")
         agent = await db.get(AgentModel, actor_id)
-        if agent is not None and agent.owner_identity_id:
-            await spending_grant.assert_spend_allowed(
-                db,
-                agent_id=actor_id,
-                owner_identity_id=agent.owner_identity_id,
-                token_address=None,
-                amount=float(body.escrow_amount),
-            )
+        owner_id = agent.owner_identity_id if agent is not None else None
+        await spending_grant.assert_spend_allowed(
+            db,
+            agent_id=actor_id,
+            owner_identity_id=owner_id,
+            token_address=None,
+            amount=float(body.escrow_amount),
+        )
     cap = await db.get(CapacityModel, body.client_agent_id)
     if cap is not None and float(cap.available_credits) + 1e-9 < float(body.escrow_amount):
         raise HTTPException(

@@ -89,3 +89,46 @@ async def test_create_contract_denies_agent_without_grant(db_session, enforce):
             assert "spending grant denied" in r.text
     finally:
         app.dependency_overrides.clear()
+
+async def _seed_ownerless_agent(db) -> None:
+    db.add(
+        AgentModel(
+            agent_id=AGENT,
+            name="buyer-agent",
+            role="buyer",
+            public_key="pk",
+            owner_identity_id=None,
+        )
+    )
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_create_contract_denies_ownerless_agent_without_grant(db_session, enforce):
+    await _seed_ownerless_agent(db_session)
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/v1/contracts",
+                json={
+                    "client_agent_id": AGENT,
+                    "title": "t",
+                    "description": "d",
+                    "expected_output_schema": {},
+                    "expected_step_count": 1,
+                    "escrow_amount": 5000.0,
+                    "deadline_at": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
+                },
+                headers={"x-karma-api-key": API_KEY},
+            )
+            assert r.status_code == 403, r.text
+            assert "spending grant denied" in r.text
+    finally:
+        app.dependency_overrides.clear()
+
