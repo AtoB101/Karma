@@ -285,6 +285,13 @@ class TaskContract(BaseModel):
     escrow_amount: float = Field(ge=0.0, description="Amount held in escrow")
     currency: str = Field(default="USD")
     deadline_at: datetime = Field(description="Hard deadline for task completion")
+    # Optional foreign-trade clause template (enters terms hash when present)
+    quality_standard: Optional[str] = Field(default=None, max_length=2048)
+    inspection_standard: Optional[str] = Field(default=None, max_length=2048)
+    shipment_terms: Optional[str] = Field(default=None, max_length=2048)
+    delivery_criteria: Optional[str] = Field(default=None, max_length=2048)
+    penalty: Optional[str] = Field(default=None, max_length=2048)
+    arbitration_rules: Optional[str] = Field(default=None, max_length=2048)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     contract_hash: Optional[str] = Field(
         default=None,

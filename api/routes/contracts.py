@@ -39,6 +39,12 @@ class CreateContractRequest(BaseModel):
     escrow_amount: float
     currency: str = Field(default="USD", max_length=16)
     deadline_at: datetime
+    quality_standard: str | None = Field(default=None, max_length=2048)
+    inspection_standard: str | None = Field(default=None, max_length=2048)
+    shipment_terms: str | None = Field(default=None, max_length=2048)
+    delivery_criteria: str | None = Field(default=None, max_length=2048)
+    penalty: str | None = Field(default=None, max_length=2048)
+    arbitration_rules: str | None = Field(default=None, max_length=2048)
 
     @field_validator("title")
     @classmethod
@@ -59,6 +65,21 @@ class CreateContractRequest(BaseModel):
     @classmethod
     def _safe_client_agent_id(cls, v: str) -> str:
         return validate_safe_storage_text(v, field="client_agent_id")
+
+    @model_validator(mode="after")
+    def _safe_trade_clauses(self) -> "CreateContractRequest":
+        for field in (
+            "quality_standard",
+            "inspection_standard",
+            "shipment_terms",
+            "delivery_criteria",
+            "penalty",
+            "arbitration_rules",
+        ):
+            value = getattr(self, field)
+            if value is not None:
+                setattr(self, field, validate_safe_storage_text(value, field=field))
+        return self
 
     @model_validator(mode="after")
     def _limit_schema_json_size(self) -> "CreateContractRequest":
@@ -137,6 +158,12 @@ async def create_contract(
         escrow_amount=contract.escrow_amount,
         currency=contract.currency,
         deadline_at=contract.deadline_at,
+        quality_standard=contract.quality_standard,
+        inspection_standard=contract.inspection_standard,
+        shipment_terms=contract.shipment_terms,
+        delivery_criteria=contract.delivery_criteria,
+        penalty=contract.penalty,
+        arbitration_rules=contract.arbitration_rules,
         contract_hash=contract.contract_hash,
         terms_hash=contract.terms_hash,
         contract_status=contract.contract_status,
@@ -271,6 +298,53 @@ async def get_contract_terms(
     }
 
 
+@router.get("/{task_id}/anchor")
+async def get_contract_anchor(
+    task_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Dispute-resolution anchor check: does the on-chain binding scopeHash equal
+    the signed contract terms_hash? Returns the evidence an arbitrator needs."""
+    validate_public_url_segment("task_id", task_id)
+    row = await db.get(TaskContractModel, task_id)
+    if not row:
+        raise HTTPException(404, f"Contract {task_id} not found")
+    await require_party_read(
+        db,
+        request,
+        _contract_party_ids(row) | await _settlement_party_ids(db, task_id),
+        public_read=bool(settings.task_records_public_read),
+    )
+    state = await PostgresSettlementStore(db).get(task_id)
+    binding_id = getattr(state, "onchain_binding_id", None) if state else None
+    result: dict = {
+        "task_id": task_id,
+        "terms_hash": row.terms_hash,
+        "onchain_binding_id": binding_id,
+        "onchain_scope_hash": None,
+        "anchored": False,
+        "note": "",
+    }
+    if not row.terms_hash:
+        result["note"] = "contract has no terms_hash"
+        return result
+    if binding_id is None:
+        result["note"] = "binding not yet on-chain"
+        return result
+    try:
+        from services.chain.settlement_adapter import OnChainSettlementAdapter
+        chain_scope = OnChainSettlementAdapter().binding_status(binding_id).get("scope_hash")
+        result["onchain_scope_hash"] = chain_scope
+        expected = order_contract.terms_hash_bytes32(row.terms_hash)
+        result["anchored"] = bool(chain_scope and chain_scope.lower() == expected.lower())
+        if not result["anchored"]:
+            result["note"] = "on-chain scopeHash does not match signed terms_hash"
+    except Exception as exc:  # noqa: BLE001
+        result["note"] = f"on-chain read failed: {exc}"
+    return result
+
+
 def _contract_party_ids(row: TaskContractModel) -> set[str]:
     ids = {row.client_agent_id}
     if getattr(row, "worker_agent_id", None):
@@ -339,6 +413,12 @@ def _row_to_contract(row: TaskContractModel) -> TaskContract:
         escrow_amount=row.escrow_amount,
         currency=row.currency,
         deadline_at=row.deadline_at,
+        quality_standard=row.quality_standard,
+        inspection_standard=row.inspection_standard,
+        shipment_terms=row.shipment_terms,
+        delivery_criteria=row.delivery_criteria,
+        penalty=row.penalty,
+        arbitration_rules=row.arbitration_rules,
         contract_hash=row.contract_hash,
         terms_hash=row.terms_hash,
         contract_status=row.contract_status or "draft",

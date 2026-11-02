@@ -85,6 +85,14 @@ async def test_contract_sign_flow_and_bind_gate(db_session, relaxed):
             assert r.status_code == 200, r.text
             assert r.json()["terms_hash"] == terms_hash
 
+            # anchor endpoint: no on-chain binding yet → not anchored
+            r = await client.get(f"/v1/contracts/{task_id}/anchor")
+            assert r.status_code == 200, r.text
+            anchor = r.json()
+            assert anchor["terms_hash"] == terms_hash
+            assert anchor["anchored"] is False
+            assert anchor["note"] == "binding not yet on-chain"
+
         # bind gate: unsigned contract rejected
         draft = await db_session.get(TaskContractModel, "task-sign-2")
         if draft is None:
