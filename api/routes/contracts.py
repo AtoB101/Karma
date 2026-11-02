@@ -167,6 +167,7 @@ async def create_contract(
         contract_hash=contract.contract_hash,
         terms_hash=contract.terms_hash,
         contract_status=contract.contract_status,
+        version=contract.version,
         created_at=contract.created_at,
     ))
     return contract
@@ -197,6 +198,34 @@ class SignContractRequest(BaseModel):
     signature: str = Field(min_length=1, max_length=1024)
     address: str | None = Field(default=None, max_length=42)
     public_key: str | None = Field(default=None, max_length=512)
+
+
+class ReviseContractRequest(BaseModel):
+    """Counter-proposal: only fields explicitly provided are changed; everything else stays."""
+    title: str | None = Field(default=None, max_length=512)
+    description: str | None = Field(default=None, max_length=32768)
+    expected_output_schema: dict | None = None
+    expected_step_count: int | None = Field(default=None, ge=1, le=1_000_000)
+    escrow_amount: float | None = None
+    currency: str | None = Field(default=None, max_length=16)
+    deadline_at: datetime | None = None
+    quality_standard: str | None = Field(default=None, max_length=2048)
+    inspection_standard: str | None = Field(default=None, max_length=2048)
+    shipment_terms: str | None = Field(default=None, max_length=2048)
+    delivery_criteria: str | None = Field(default=None, max_length=2048)
+    penalty: str | None = Field(default=None, max_length=2048)
+    arbitration_rules: str | None = Field(default=None, max_length=2048)
+
+    @model_validator(mode="after")
+    def _safe_revise_strings(self) -> "ReviseContractRequest":
+        for field in (
+            "title", "description", "currency", "quality_standard", "inspection_standard",
+            "shipment_terms", "delivery_criteria", "penalty", "arbitration_rules",
+        ):
+            value = getattr(self, field)
+            if value is not None:
+                setattr(self, field, validate_safe_storage_text(value, field=field))
+        return self
 
 
 def _order_contract_chain_id() -> int:
@@ -261,6 +290,57 @@ async def sign_contract(
             row.signed_at = datetime.utcnow()
     elif row.buyer_signature or row.worker_signature:
         row.contract_status = order_contract.STATUS_BUYER_SIGNED
+    return _row_to_contract(row)
+
+
+@router.post("/{task_id}/revise")
+async def revise_contract(
+    task_id: str,
+    body: ReviseContractRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Counter-proposal: bump the version, recompute terms_hash, and require re-signing."""
+    validate_public_url_segment("task_id", task_id)
+    row = await db.get(TaskContractModel, task_id)
+    if not row:
+        raise HTTPException(404, f"Contract {task_id} not found")
+
+    state = await PostgresSettlementStore(db).get(task_id)
+    if state and getattr(state, "onchain_binding_id", None) is not None:
+        raise HTTPException(409, "contract already anchored on-chain; cannot revise")
+
+    actor_ids = await actor_identity_ids(db, request)
+    parties = {row.client_agent_id}
+    if row.worker_agent_id:
+        parties.add(row.worker_agent_id)
+    if actor_ids and not (parties & actor_ids) and not caller_is_privileged(request):
+        raise HTTPException(403, "only a contract party may revise")
+
+    changes = body.model_dump(exclude_unset=True)
+    if not changes:
+        raise HTTPException(422, "no fields to revise")
+    for field, value in changes.items():
+        if field in ("task_id", "client_agent_id"):
+            continue
+        if field == "expected_output_schema" and value is None:
+            continue
+        setattr(row, field, value)
+
+    if "escrow_amount" in changes:
+        escrow = float(changes["escrow_amount"])
+        if escrow < settings.escrow_min_amount - 1e-9 or escrow > settings.escrow_max_amount + 1e-9:
+            raise HTTPException(400, "escrow_amount out of range")
+        assert_token_precision(escrow, field="escrow_amount")
+
+    row.version = int(row.version or 1) + 1
+    row.terms_hash = order_contract.terms_hash_hex(order_contract.build_terms(_row_to_contract(row)))
+    row.contract_status = order_contract.STATUS_DRAFT
+    row.buyer_signature = None
+    row.buyer_address = None
+    row.worker_signature = None
+    row.worker_public_key = None
+    row.signed_at = None
     return _row_to_contract(row)
 
 
@@ -422,6 +502,7 @@ def _row_to_contract(row: TaskContractModel) -> TaskContract:
         contract_hash=row.contract_hash,
         terms_hash=row.terms_hash,
         contract_status=row.contract_status or "draft",
+        version=row.version or 1,
         buyer_signature=row.buyer_signature,
         buyer_address=row.buyer_address,
         worker_signature=row.worker_signature,

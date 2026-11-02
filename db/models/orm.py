@@ -193,6 +193,7 @@ class TaskContractModel(Base):
     contract_hash:          Mapped[str|None] = mapped_column(String(64))
     terms_hash:             Mapped[str|None] = mapped_column(String(64))
     contract_status:        Mapped[str]      = mapped_column(String(24), default="draft")
+    version:               Mapped[int]      = mapped_column(Integer, default=1)
     buyer_signature:        Mapped[str|None] = mapped_column(String(256))
     buyer_address:          Mapped[str|None] = mapped_column(String(42))
     worker_signature:       Mapped[str|None] = mapped_column(String(256))
