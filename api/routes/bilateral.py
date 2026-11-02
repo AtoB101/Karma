@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.middleware.auth import require_auth_if_enabled, resolve_agent_id_from_request
 from config.settings import settings
 from db.session import get_db
-from services import spending_grant
+from db.models.orm import TaskContractModel
+from services import order_contract, spending_grant
 from services.chain.settlement_adapter import OnChainSettlementAdapter
 
 router = APIRouter(prefix="/v1/bilateral", tags=["bilateral"])
@@ -52,6 +53,10 @@ class BindRequest(BaseModel):
     buyer_bill_id: int
     agent_bill_id: int
     scope_hash: str = Field(description="0x-prefixed 32-byte hex")
+    task_id: str | None = Field(
+        default=None,
+        description="Optional contract task_id; when set, the contract must be signed by both parties and scope_hash must equal its terms_hash",
+    )
 
 
 class SettleRequest(BaseModel):
@@ -99,8 +104,32 @@ async def lock(
     return {"bill_id": bill_id, "token": body.token, "amount": body.amount, "state": "MINTED"}
 
 
+async def _require_signed_contract_for_bind(
+    db: AsyncSession,
+    task_id: str,
+    scope_hash: str,
+) -> None:
+    """Bind gate: a task_id-bound bind must reference a dual-signed contract whose
+    terms_hash equals the on-chain scopeHash being anchored."""
+    row = await db.get(TaskContractModel, task_id)
+    if not row:
+        raise HTTPException(404, f"Contract {task_id} not found")
+    if not row.terms_hash:
+        raise HTTPException(409, "contract has no terms_hash; recreate the contract")
+    if (row.contract_status or "draft") != order_contract.STATUS_SIGNED:
+        raise HTTPException(409, "contract is not signed by both parties")
+    if order_contract.terms_hash_bytes32(row.terms_hash) != scope_hash.strip().lower():
+        raise HTTPException(409, "scope_hash does not match the signed contract terms_hash")
+
+
 @router.post("/bind")
-async def bind(body: BindRequest, _auth=Depends(require_auth_if_enabled)):
+async def bind(
+    body: BindRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_auth_if_enabled),
+):
+    if body.task_id is not None:
+        await _require_signed_contract_for_bind(db, body.task_id, body.scope_hash)
     try:
         binding_id = _chain().bind_direct(body.buyer_bill_id, body.agent_bill_id, body.scope_hash)
     except Exception as e:  # noqa: BLE001

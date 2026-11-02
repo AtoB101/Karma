@@ -16,7 +16,7 @@ from db.session import get_db
 from db.models.orm import AgentModel, CapacityModel, TaskContractModel
 from db.stores.settlement_store import PostgresSettlementStore
 from services.actor_guards import caller_is_privileged
-from services import spending_grant
+from services import order_contract, spending_grant
 from services.path_param_safety import validate_public_url_segment
 from services.settlement_party_access import actor_identity_ids, require_party_read
 from services.signing import sha256_of
@@ -124,6 +124,8 @@ async def create_contract(
         data.pop("task_id", None)
     contract = TaskContract(**data)
     contract.contract_hash = sha256_of(contract.model_dump(exclude={"contract_hash"}))
+    contract.terms_hash = order_contract.terms_hash_hex(order_contract.build_terms(contract))
+    contract.contract_status = order_contract.STATUS_DRAFT
 
     db.add(TaskContractModel(
         task_id=contract.task_id,
@@ -136,6 +138,8 @@ async def create_contract(
         currency=contract.currency,
         deadline_at=contract.deadline_at,
         contract_hash=contract.contract_hash,
+        terms_hash=contract.terms_hash,
+        contract_status=contract.contract_status,
         created_at=contract.created_at,
     ))
     return contract
@@ -159,6 +163,112 @@ async def get_contract(task_id: str, request: Request, db: AsyncSession = Depend
         public_read=bool(settings.task_records_public_read),
     )
     return _row_to_contract(row)
+
+
+class SignContractRequest(BaseModel):
+    role: str = Field(pattern="^(buyer|worker)$")
+    signature: str = Field(min_length=1, max_length=1024)
+    address: str | None = Field(default=None, max_length=42)
+    public_key: str | None = Field(default=None, max_length=512)
+
+
+def _order_contract_chain_id() -> int:
+    return settings.order_contract_eip712_chain_id or settings.testnet_chain_id
+
+
+@router.post("/{task_id}/sign")
+async def sign_contract(
+    task_id: str,
+    body: SignContractRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Collect a buyer (EIP-712) or worker (Ed25519) signature on the termsHash."""
+    validate_public_url_segment("task_id", task_id)
+    row = await db.get(TaskContractModel, task_id)
+    if not row:
+        raise HTTPException(404, f"Contract {task_id} not found")
+    if not row.terms_hash:
+        raise HTTPException(409, "contract has no terms_hash; recreate the contract")
+
+    terms = order_contract.build_terms(_row_to_contract(row))
+    if order_contract.terms_hash_hex(terms) != row.terms_hash:
+        raise HTTPException(409, "terms_hash mismatch: contract fields changed after creation")
+
+    if body.role == "buyer":
+        if row.buyer_signature:
+            raise HTTPException(409, "buyer already signed")
+        if not body.address:
+            raise HTTPException(422, "address is required for buyer signature")
+        try:
+            order_contract.verify_buyer_signature(
+                buyer_address=body.address,
+                buyer_signature=body.signature,
+                terms_hash=row.terms_hash,
+                task_id=task_id,
+                chain_id=_order_contract_chain_id(),
+                verifying_contract=settings.order_contract_eip712_verifying_contract,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        row.buyer_signature = body.signature
+        row.buyer_address = body.address
+    else:
+        if not row.worker_agent_id:
+            raise HTTPException(409, "assign a worker before the worker signs")
+        if row.worker_signature:
+            raise HTTPException(409, "worker already signed")
+        if not body.public_key:
+            raise HTTPException(422, "public_key is required for worker signature")
+        if not order_contract.verify_worker_signature(
+            terms_hash=row.terms_hash,
+            signature_b64=body.signature,
+            public_key_b64=body.public_key,
+        ):
+            raise HTTPException(422, "invalid worker signature")
+        row.worker_signature = body.signature
+        row.worker_public_key = body.public_key
+
+    if row.buyer_signature and row.worker_signature:
+        row.contract_status = order_contract.STATUS_SIGNED
+        if not row.signed_at:
+            row.signed_at = datetime.utcnow()
+    elif row.buyer_signature or row.worker_signature:
+        row.contract_status = order_contract.STATUS_BUYER_SIGNED
+    return _row_to_contract(row)
+
+
+@router.get("/{task_id}/terms")
+async def get_contract_terms(
+    task_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return signed order terms + signatures — the ruling artifact for disputes."""
+    validate_public_url_segment("task_id", task_id)
+    row = await db.get(TaskContractModel, task_id)
+    if not row:
+        raise HTTPException(404, f"Contract {task_id} not found")
+    await require_party_read(
+        db,
+        request,
+        _contract_party_ids(row) | await _settlement_party_ids(db, task_id),
+        public_read=bool(settings.task_records_public_read),
+    )
+    contract = _row_to_contract(row)
+    return {
+        "task_id": row.task_id,
+        "terms_hash": row.terms_hash,
+        "contract_status": row.contract_status,
+        "terms": order_contract.build_terms(contract),
+        "buyer": {"address": row.buyer_address, "signature": row.buyer_signature},
+        "worker": {
+            "agent_id": row.worker_agent_id,
+            "public_key": row.worker_public_key,
+            "signature": row.worker_signature,
+        },
+        "signed_at": row.signed_at.isoformat() if row.signed_at else None,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
 
 
 def _contract_party_ids(row: TaskContractModel) -> set[str]:
@@ -230,5 +340,12 @@ def _row_to_contract(row: TaskContractModel) -> TaskContract:
         currency=row.currency,
         deadline_at=row.deadline_at,
         contract_hash=row.contract_hash,
+        terms_hash=row.terms_hash,
+        contract_status=row.contract_status or "draft",
+        buyer_signature=row.buyer_signature,
+        buyer_address=row.buyer_address,
+        worker_signature=row.worker_signature,
+        worker_public_key=row.worker_public_key,
+        signed_at=row.signed_at,
         created_at=row.created_at,
     )
