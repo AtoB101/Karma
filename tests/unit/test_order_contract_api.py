@@ -132,3 +132,32 @@ async def test_contract_sign_flow_and_bind_gate(db_session, relaxed):
         )
     finally:
         app.dependency_overrides.clear()
+
+@pytest.mark.asyncio
+async def test_dispute_anchor_gate_contract_checks(db_session, relaxed):
+    # missing contract → 404
+    with pytest.raises(Exception) as exc:
+        await bilateral_routes._require_contract_anchor(db_session, "missing-contract", 1)
+    assert exc.value.status_code == 404
+
+    # draft (unsigned) contract → 409, before any on-chain read
+    db_session.add(
+        TaskContractModel(
+            task_id="draft-anchor-1",
+            client_agent_id="buyer-x",
+            title="t",
+            description="d",
+            expected_output_schema={},
+            expected_step_count=1,
+            escrow_amount=1.0,
+            currency="USD",
+            deadline_at=datetime.utcnow(),
+            terms_hash="ab" * 32,
+            contract_status="draft",
+        )
+    )
+    await db_session.commit()
+    with pytest.raises(Exception) as exc:
+        await bilateral_routes._require_contract_anchor(db_session, "draft-anchor-1", 1)
+    assert exc.value.status_code == 409
+
