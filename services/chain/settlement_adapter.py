@@ -590,6 +590,15 @@ class OnChainSettlementAdapter:
             account=self._get_account(),
         )
 
+    def dispute_direct(self, binding_id: int, evidence_hash: str) -> ChainTxResult:
+        """Open an on-chain dispute (freeze the binding) with an evidence hash."""
+        self._require_hot_wallet_allowed()
+        bilateral = self._get_bilateral()
+        return self._send_tx(
+            bilateral.functions.dispute(int(binding_id), _to_bytes32(evidence_hash)),
+            account=self._get_account(),
+        )
+
     def relay_signed_tx(self, raw_tx_hex: str) -> ChainTxResult:
         """Broadcast a client-signed raw transaction (relay model, no hot wallet).
 

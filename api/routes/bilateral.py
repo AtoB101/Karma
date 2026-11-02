@@ -64,6 +64,15 @@ class SettleRequest(BaseModel):
     proof_hash: str = Field(description="0x-prefixed 32-byte hex proof hash")
 
 
+class DisputeRequest(BaseModel):
+    binding_id: int
+    evidence_hash: str = Field(description="0x-prefixed 32-byte hex evidence hash")
+    task_id: str | None = Field(
+        default=None,
+        description="Optional contract task_id; when set, the on-chain binding scopeHash must equal the signed contract terms_hash",
+    )
+
+
 class RelayRequest(BaseModel):
     raw_tx: str = Field(description="0x-prefixed client-signed raw transaction")
 
@@ -164,6 +173,47 @@ async def settle(
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"on-chain settle failed: {e}") from e
     return _chain().binding_status(body.binding_id)
+
+
+async def _require_contract_anchor(db: AsyncSession, task_id: str, binding_id: int) -> None:
+    """Dispute gate: the on-chain binding must anchor the signed contract termsHash."""
+    row = await db.get(TaskContractModel, task_id)
+    if not row:
+        raise HTTPException(404, f"Contract {task_id} not found")
+    if not row.terms_hash:
+        raise HTTPException(409, "contract has no terms_hash; recreate the contract")
+    if (row.contract_status or "draft") != order_contract.STATUS_SIGNED:
+        raise HTTPException(409, "contract is not signed by both parties")
+    try:
+        status = _chain().binding_status(binding_id)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"on-chain status failed: {e}") from e
+    chain_scope = status.get("scope_hash")
+    expected = order_contract.terms_hash_bytes32(row.terms_hash)
+    if not chain_scope or chain_scope.lower() != expected.lower():
+        raise HTTPException(
+            409, "on-chain binding scopeHash does not match the signed contract terms_hash"
+        )
+
+
+@router.post("/dispute")
+async def dispute(
+    body: DisputeRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_auth_if_enabled),
+):
+    if body.task_id is not None:
+        await _require_contract_anchor(db, body.task_id, body.binding_id)
+    try:
+        result = _chain().dispute_direct(body.binding_id, body.evidence_hash)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"on-chain dispute failed: {e}") from e
+    return {
+        "binding_id": body.binding_id,
+        "tx_hash": result.tx_hash,
+        "status": result.status,
+        "state": "DISPUTED",
+    }
 
 
 @router.get("/status/{binding_id}")
