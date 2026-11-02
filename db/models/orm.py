@@ -185,6 +185,13 @@ class TaskContractModel(Base):
     currency:               Mapped[str]      = mapped_column(String(8), default="USD")
     deadline_at:            Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     contract_hash:          Mapped[str|None] = mapped_column(String(64))
+    terms_hash:             Mapped[str|None] = mapped_column(String(64))
+    contract_status:        Mapped[str]      = mapped_column(String(24), default="draft")
+    buyer_signature:        Mapped[str|None] = mapped_column(String(256))
+    buyer_address:          Mapped[str|None] = mapped_column(String(42))
+    worker_signature:       Mapped[str|None] = mapped_column(String(256))
+    worker_public_key:      Mapped[str|None] = mapped_column(String(256))
+    signed_at:              Mapped[datetime|None] = mapped_column(UTCDateTime)
     created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     receipts:   Mapped[list[ReceiptModel]]    = relationship("ReceiptModel",    back_populates="contract", lazy="selectin")

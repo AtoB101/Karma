@@ -525,6 +525,9 @@ class Settings(BaseSettings):
     trade_launch_eip712_chain_id: int | None = None  # None → testnet_chain_id
     trade_launch_eip712_verifying_contract: str = "0x0000000000000000000000000000000000000000"
     trade_launch_signature_ttl_seconds: int = 600
+    # Order contract (M1) — dual-party signing + on-chain termsHash anchor
+    order_contract_eip712_chain_id: int | None = None  # None → testnet_chain_id
+    order_contract_eip712_verifying_contract: str = "0x0000000000000000000000000000000000000000"
     # client_only | external | local | env — local/env sign server-side (dev/CI only)
     karma_signing_backend: str = "client_only"
     karma_signing_dev_private_key: str = ""

@@ -290,6 +290,17 @@ class TaskContract(BaseModel):
         default=None,
         description="SHA-256 of canonical JSON — set by runtime on creation",
     )
+    # Order-contract terms + dual-party signatures (M1)
+    terms_hash: Optional[str] = Field(
+        default=None,
+        description="SHA-256 of canonical order terms (on-chain scopeHash source)",
+    )
+    contract_status: str = Field(default="draft", description="draft | buyer_signed | signed")
+    buyer_signature: Optional[str] = Field(default=None, description="EIP-712 buyer wallet signature")
+    buyer_address: Optional[str] = Field(default=None, description="Buyer wallet address that signed")
+    worker_signature: Optional[str] = Field(default=None, description="Ed25519 worker signature (base64)")
+    worker_public_key: Optional[str] = Field(default=None, description="Worker Ed25519 public key (base64)")
+    signed_at: Optional[datetime] = Field(default=None, description="When both signatures were collected")
     # Optional on-chain bilateral handles (KarmaBilateral)
     onchain_binding_id: Optional[int] = Field(
         default=None, description="KarmaBilateral bindingId after bind()"
