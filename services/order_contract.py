@@ -64,6 +64,12 @@ def build_terms(contract: TaskContract) -> dict[str, Any]:
         "escrow_amount": _fmt_amount(contract.escrow_amount),
         "currency": contract.currency,
         "deadline_at": _iso(contract.deadline_at),
+        "quality_standard": contract.quality_standard or "",
+        "inspection_standard": contract.inspection_standard or "",
+        "shipment_terms": contract.shipment_terms or "",
+        "delivery_criteria": contract.delivery_criteria or "",
+        "penalty": contract.penalty or "",
+        "arbitration_rules": contract.arbitration_rules or "",
     }
 
 

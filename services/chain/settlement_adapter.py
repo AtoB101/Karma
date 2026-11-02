@@ -625,6 +625,7 @@ class OnChainSettlementAdapter:
             "state": state,
             "buyer_bill_id": int(b[1]),
             "agent_bill_id": int(b[2]),
+            "scope_hash": "0x" + bytes(b[3]).hex(),
             "buyer_bill": {"bill_id": int(b[1]), "owner": bb[0], "amount": int(bb[3]), "state": int(bb[1])},
             "agent_bill": {"bill_id": int(b[2]), "owner": ab[0], "amount": int(ab[3]), "state": int(ab[1])},
             "usdc_locked": int(bb[3]) + int(ab[3]),

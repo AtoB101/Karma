@@ -99,3 +99,28 @@ def test_terms_hash_bytes32_normalization():
     assert order_contract.terms_hash_bytes32(h) == h.lower()
     with pytest.raises(ValueError):
         order_contract.terms_hash_bytes32("short")
+
+def test_trade_clauses_enter_terms_hash():
+    base = order_contract.terms_hash_hex(order_contract.build_terms(_contract()))
+    with_clauses = order_contract.terms_hash_hex(
+        order_contract.build_terms(
+            _contract(
+                quality_standard="ISO 9001",
+                inspection_standard="SGS pre-shipment",
+                shipment_terms="CIF Shanghai",
+                delivery_criteria="within 30 days",
+                penalty="0.1% per day late",
+                arbitration_rules="SIAC",
+            )
+        )
+    )
+    assert base != with_clauses
+
+
+def test_trade_clauses_empty_do_not_change_hash():
+    a = order_contract.terms_hash_hex(order_contract.build_terms(_contract()))
+    b = order_contract.terms_hash_hex(
+        order_contract.build_terms(_contract(quality_standard=None, penalty=None))
+    )
+    assert a == b
+
