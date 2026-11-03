@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models.orm import SpendingGrantModel, SpendingGrantEventModel
@@ -28,6 +28,9 @@ logger = structlog.get_logger(__name__)
 _TOKEN_DECIMALS = 6
 
 ACTIVE_STATUS = "active"
+
+#: Float comparison tolerance for allowance guards.
+_GRANT_EPS = 1e-9
 
 
 def build_grant_message(
@@ -378,6 +381,98 @@ async def record_spend(
         owner_identity_id=owner_identity_id or "",
         agent_id=agent_id or "",
         event_type="spend",
+        amount=amount,
+    )
+
+
+async def reserve_spend(
+    db: AsyncSession,
+    *,
+    grant_id: str,
+    amount: float,
+) -> SpendingGrantModel:
+    """Atomically check-and-deduct ``amount`` from one grant.
+
+    The guard and the increment happen in a single conditional UPDATE, so two
+    concurrent callers can never both pass the limit check and both deduct: the
+    second UPDATE matches zero rows and raises 403. Call this *before* moving
+    money, and release_spend() if the downstream move fails.
+    """
+    if amount <= 0:
+        raise HTTPException(400, "amount must be positive")
+
+    result = await db.execute(
+        update(SpendingGrantModel)
+        .where(SpendingGrantModel.grant_id == grant_id)
+        .where(SpendingGrantModel.status == ACTIVE_STATUS)
+        .where(or_(
+            SpendingGrantModel.expires_at.is_(None),
+            SpendingGrantModel.expires_at > _utcnow(),
+        ))
+        .where(SpendingGrantModel.per_tx_limit >= amount - _GRANT_EPS)
+        .where(
+            SpendingGrantModel.used_amount + amount
+            <= SpendingGrantModel.total_limit + _GRANT_EPS
+        )
+        .values(
+            used_amount=SpendingGrantModel.used_amount + amount,
+            last_used_at=_utcnow(),
+        )
+    )
+    if result.rowcount != 1:
+        reason = "grant not found, inactive, expired, or insufficient allowance"
+        await _record_deny_safe(
+            db,
+            grant_id=grant_id,
+            owner_identity_id="",
+            agent_id="",
+            reason=reason,
+        )
+        logger.warning("spending_grant_reserve_denied", grant_id=grant_id, reason=reason)
+        raise HTTPException(403, f"spending grant denied: {reason}")
+    await db.flush()
+
+    grant = (
+        await db.execute(
+            select(SpendingGrantModel)
+            .where(SpendingGrantModel.grant_id == grant_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    record_event(
+        db,
+        grant_id=grant_id,
+        owner_identity_id=grant.owner_identity_id or "",
+        agent_id=grant.agent_id or "",
+        event_type="spend",
+        amount=amount,
+    )
+    return grant
+
+
+async def release_spend(
+    db: AsyncSession,
+    *,
+    grant_id: str,
+    amount: float,
+) -> None:
+    """Atomically return a previously reserved amount (e.g. a failed on-chain
+    move). The decrement is guarded so used_amount never goes negative."""
+    if amount <= 0:
+        return
+    await db.execute(
+        update(SpendingGrantModel)
+        .where(SpendingGrantModel.grant_id == grant_id)
+        .where(SpendingGrantModel.used_amount >= amount - _GRANT_EPS)
+        .values(used_amount=SpendingGrantModel.used_amount - amount)
+    )
+    await db.flush()
+    record_event(
+        db,
+        grant_id=grant_id,
+        owner_identity_id="",
+        agent_id="",
+        event_type="release",
         amount=amount,
     )
 

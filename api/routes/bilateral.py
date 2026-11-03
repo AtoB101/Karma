@@ -99,24 +99,32 @@ async def lock(
         if not agent_id:
             raise HTTPException(401, "agent identity required for agent-side lock")
         amount_human = float(body.amount) / (10 ** _TOKEN_DECIMALS)
-        grant = await spending_grant.assert_spend_allowed(
+        # Read-only pre-pick of a covering grant (fast-fail before hitting chain).
+        selected = await spending_grant.assert_spend_allowed(
             db,
             agent_id=agent_id,
             token_address=body.token,
             amount=amount_human,
         )
+        # Atomic check-and-deduct: two concurrent locks cannot both consume the
+        # same allowance. Released below if the on-chain lock fails.
+        grant = await spending_grant.reserve_spend(
+            db,
+            grant_id=selected.grant_id,
+            amount=amount_human,
+        )
     try:
         bill_id = _chain().lock_direct(body.token, body.amount, body.role)
     except Exception as e:  # noqa: BLE001
+        if grant is not None and amount_human is not None:
+            await spending_grant.release_spend(
+                db,
+                grant_id=grant.grant_id,
+                amount=amount_human,
+            )
+            await db.commit()
         raise HTTPException(502, f"on-chain lock failed: {e}") from e
-    if grant is not None and amount_human is not None:
-        await spending_grant.record_spend(
-            db,
-            grant_id=grant.grant_id,
-            amount=amount_human,
-            owner_identity_id=grant.owner_identity_id,
-            agent_id=grant.agent_id,
-        )
+    if grant is not None:
         await db.commit()
     return {"bill_id": bill_id, "token": body.token, "amount": body.amount, "state": "MINTED"}
 
