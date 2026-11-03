@@ -91,6 +91,7 @@ _AGENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{1,63}$")
 _RESTRICTED_KEY_ALLOWED_PATH_PREFIXES = (
     "/v1/spending-grants/approval-request",
     "/v1/spending-grants/approval/",
+    "/v1/agents/first-key/upgrade",
 )
 
 
