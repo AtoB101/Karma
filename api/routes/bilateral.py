@@ -113,6 +113,16 @@ async def lock(
     return {"bill_id": bill_id, "token": body.token, "amount": body.amount, "state": "MINTED"}
 
 
+async def _persist_contract_binding(db: AsyncSession, task_id: str, binding_id: int) -> None:
+    """Write the chain binding id back to the contract row so revise/anchor can
+    detect anchoring without relying on a settlement row existing."""
+    row = await db.get(TaskContractModel, task_id)
+    if row is None:
+        return
+    row.onchain_binding_id = binding_id
+    await db.commit()
+
+
 async def _require_signed_contract_for_bind(
     db: AsyncSession,
     task_id: str,
@@ -143,6 +153,8 @@ async def bind(
         binding_id = _chain().bind_direct(body.buyer_bill_id, body.agent_bill_id, body.scope_hash)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"on-chain bind failed: {e}") from e
+    if body.task_id is not None:
+        await _persist_contract_binding(db, body.task_id, binding_id)
     return {
         "binding_id": binding_id,
         "buyer_bill_id": body.buyer_bill_id,
@@ -182,6 +194,10 @@ async def _require_contract_anchor(db: AsyncSession, task_id: str, binding_id: i
         raise HTTPException(404, f"Contract {task_id} not found")
     if not row.terms_hash:
         raise HTTPException(409, "contract has no terms_hash; recreate the contract")
+    if getattr(row, "onchain_binding_id", None) is not None and row.onchain_binding_id != binding_id:
+        raise HTTPException(
+            409, "binding_id does not match the contract's on-chain binding"
+        )
     if (row.contract_status or "draft") != order_contract.STATUS_SIGNED:
         raise HTTPException(409, "contract is not signed by both parties")
     try:

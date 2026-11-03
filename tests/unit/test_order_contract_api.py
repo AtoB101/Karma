@@ -231,3 +231,31 @@ async def test_contract_revise_flow_requires_resign(db_session, relaxed):
     finally:
         app.dependency_overrides.clear()
 
+
+@pytest.mark.asyncio
+async def test_contract_revise_locked_after_onchain_bind(db_session, relaxed):
+    """A contract anchored by the bilateral bind path (binding id on the contract
+    row) must reject revision with 409, even without a settlement row."""
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/v1/contracts", json=_body("task-revise-locked"))
+            assert r.status_code == 201, r.text
+            task_id = r.json()["task_id"]
+
+            row = await db_session.get(TaskContractModel, task_id)
+            row.onchain_binding_id = 42
+            await db_session.commit()
+
+            r = await client.post(
+                f"/v1/contracts/{task_id}/revise",
+                json={"escrow_amount": 5100.0},
+            )
+            assert r.status_code == 409, r.text
+            assert "already anchored on-chain" in r.text
+    finally:
+        app.dependency_overrides.clear()

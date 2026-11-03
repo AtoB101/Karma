@@ -27,7 +27,8 @@ Karma 的订购合同解决三件事：
 - **worker 不进条款**：worker 是下单后指派，条款哈希只锁定"交易内容"；worker 身份由其
   Ed25519 签名绑定。
 - **可协商修订**：`POST /{task_id}/revise` 让任一方（buyer/worker）提出反提案——只改传入字段，
-  版本 +1、重算 `termsHash`、清空旧签名、回到 `draft`，双方对新版本重新签。**链上锚定后锁定不可改。**
+  版本 +1、重算 `termsHash`、清空旧签名、回到 `draft`，双方对新版本重新签。**链上锚定后锁定不可改**：
+  `bind` 成功后服务端把链上 `binding_id` 写回合同行，`revise` 发现已锚定即返回 409。
 
 ## 3. 完整流程
 
@@ -52,7 +53,7 @@ Karma 的订购合同解决三件事：
 | POST | `/v1/contracts/{task_id}/sign` | 买家/worker 分签，验签后推进状态 |
 | POST | `/v1/contracts/{task_id}/revise` | 反提案：改条款 → 版本+1、重算 terms_hash、双方重签 |
 | GET | `/v1/contracts/{task_id}/terms` | 签署版条款 + 双方签名 + `terms_hash`（裁决依据） |
-| GET | `/v1/contracts/{task_id}/anchor` | 链上 `scopeHash` 与 `terms_hash` 比对结果 |
+| GET | `/v1/contracts/{task_id}/anchor` | 链上 `scopeHash` 与 `terms_hash` 比对结果（双边流程也直读链上） |
 | POST | `/v1/bilateral/bind` | 传 `task_id` 时强制「双签 + scopeHash==termsHash」 |
 | POST | `/v1/bilateral/dispute` | 传 `task_id` 时强制「链上 scopeHash==termsHash」 |
 
@@ -82,8 +83,11 @@ Karma 的订购合同解决三件事：
 
 ## 7. 安全模型与边界
 
-- **已做**：服务端 bind/dispute 强校验双签 + 链上 `termsHash` 锚点；`spending_grant`
-  控制 lock 额度；建单/结算/放款均有 grant 门。
+- **已做**：服务端 bind/dispute 强校验双签 + 链上 `termsHash` 锚点；`bind` 成功后把链上
+  `binding_id` 写回合同行，`revise` 一经锚定即 409；`spending_grant` 控制 lock 额度；
+  建单/结算/放款均有 grant 门。
 - **未做（刻意）**：合约级双签校验 —— worker 是 Ed25519，EVM 原生无法低成本验证，
   且合约已接近 EIP-170 上限。当前以"服务端强校验 + 链上锚点"作为等价约束。
+- **签名身份自证**：buyer 地址与 worker 公钥当前只做"密钥有效性"校验，不比对注册身份，
+  任何持有密钥的人签名即视为本人；身份核验依赖上游 KYC 落地后收紧。
 - **仍属上游/运行侧**：官网审批页部署、身份核验（KYC）、主网多签治理。

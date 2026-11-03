@@ -199,6 +199,7 @@ class TaskContractModel(Base):
     worker_signature:       Mapped[str|None] = mapped_column(String(256))
     worker_public_key:      Mapped[str|None] = mapped_column(String(256))
     signed_at:              Mapped[datetime|None] = mapped_column(UTCDateTime)
+    onchain_binding_id:     Mapped[int|None] = mapped_column(Integer, nullable=True)
     created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     receipts:   Mapped[list[ReceiptModel]]    = relationship("ReceiptModel",    back_populates="contract", lazy="selectin")

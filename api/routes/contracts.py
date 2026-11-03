@@ -309,6 +309,8 @@ async def revise_contract(
     state = await PostgresSettlementStore(db).get(task_id)
     if state and getattr(state, "onchain_binding_id", None) is not None:
         raise HTTPException(409, "contract already anchored on-chain; cannot revise")
+    if getattr(row, "onchain_binding_id", None) is not None:
+        raise HTTPException(409, "contract already anchored on-chain; cannot revise")
 
     actor_ids = await actor_identity_ids(db, request)
     parties = {row.client_agent_id}
@@ -398,6 +400,8 @@ async def get_contract_anchor(
     )
     state = await PostgresSettlementStore(db).get(task_id)
     binding_id = getattr(state, "onchain_binding_id", None) if state else None
+    if binding_id is None:
+        binding_id = getattr(row, "onchain_binding_id", None)
     result: dict = {
         "task_id": task_id,
         "terms_hash": row.terms_hash,
