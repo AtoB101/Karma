@@ -161,3 +161,73 @@ async def test_dispute_anchor_gate_contract_checks(db_session, relaxed):
         await bilateral_routes._require_contract_anchor(db_session, "draft-anchor-1", 1)
     assert exc.value.status_code == 409
 
+@pytest.mark.asyncio
+async def test_contract_revise_flow_requires_resign(db_session, relaxed):
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/v1/contracts", json=_body("task-revise-1"))
+            assert r.status_code == 201, r.text
+            task_id = r.json()["task_id"]
+            terms_hash = r.json()["terms_hash"]
+
+            buyer = Account.create()
+            r = await client.post(
+                f"/v1/contracts/{task_id}/sign",
+                json={"role": "buyer", "signature": order_contract.sign_buyer(
+                    private_key=buyer.key, terms_hash=terms_hash, task_id=task_id, chain_id=84532,
+                ), "address": buyer.address},
+            )
+            assert r.status_code == 200, r.text
+
+            row = await db_session.get(TaskContractModel, task_id)
+            row.worker_agent_id = "worker-1"
+            await db_session.commit()
+
+            worker_key = Ed25519PrivateKey.generate()
+            w_sig, w_pub = order_contract.sign_worker(terms_hash, worker_key)
+            r = await client.post(
+                f"/v1/contracts/{task_id}/sign",
+                json={"role": "worker", "signature": w_sig, "public_key": w_pub},
+            )
+            assert r.json()["contract_status"] == "signed"
+
+            # worker counter-proposes: revise amount + add a delivery criterion
+            r = await client.post(
+                f"/v1/contracts/{task_id}/revise",
+                json={"escrow_amount": 5100.0, "delivery_criteria": "within 20 days"},
+            )
+            assert r.status_code == 200, r.text
+            rev = r.json()
+            assert rev["version"] == 2
+            assert rev["contract_status"] == "draft"
+            assert rev["terms_hash"] != terms_hash
+            new_hash = rev["terms_hash"]
+
+            # old signatures are invalidated; both parties must re-sign
+            r = await client.post(
+                f"/v1/contracts/{task_id}/sign",
+                json={"role": "buyer", "signature": order_contract.sign_buyer(
+                    private_key=buyer.key, terms_hash=new_hash, task_id=task_id, chain_id=84532,
+                ), "address": buyer.address},
+            )
+            assert r.json()["contract_status"] == "buyer_signed"
+            w_sig2, w_pub2 = order_contract.sign_worker(new_hash, worker_key)
+            r = await client.post(
+                f"/v1/contracts/{task_id}/sign",
+                json={"role": "worker", "signature": w_sig2, "public_key": w_pub2},
+            )
+            assert r.json()["contract_status"] == "signed"
+            assert r.json()["version"] == 2
+
+            # bind gate now validates against the new terms_hash
+            await bilateral_routes._require_signed_contract_for_bind(
+                db_session, task_id, "0x" + new_hash
+            )
+    finally:
+        app.dependency_overrides.clear()
+

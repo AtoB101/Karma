@@ -303,6 +303,7 @@ class TaskContract(BaseModel):
         description="SHA-256 of canonical order terms (on-chain scopeHash source)",
     )
     contract_status: str = Field(default="draft", description="draft | buyer_signed | signed")
+    version: int = Field(default=1, description="Contract revision version; increments on revise")
     buyer_signature: Optional[str] = Field(default=None, description="EIP-712 buyer wallet signature")
     buyer_address: Optional[str] = Field(default=None, description="Buyer wallet address that signed")
     worker_signature: Optional[str] = Field(default=None, description="Ed25519 worker signature (base64)")

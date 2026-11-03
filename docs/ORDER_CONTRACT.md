@@ -26,6 +26,8 @@ Karma 的订购合同解决三件事：
   即 `termsHash`（复用现有合约，不改合约）。
 - **worker 不进条款**：worker 是下单后指派，条款哈希只锁定"交易内容"；worker 身份由其
   Ed25519 签名绑定。
+- **可协商修订**：`POST /{task_id}/revise` 让任一方（buyer/worker）提出反提案——只改传入字段，
+  版本 +1、重算 `termsHash`、清空旧签名、回到 `draft`，双方对新版本重新签。**链上锚定后锁定不可改。**
 
 ## 3. 完整流程
 
@@ -33,6 +35,7 @@ Karma 的订购合同解决三件事：
 1. POST /v1/contracts             创建合同（DRAFT），返回 terms_hash
 2. POST /v1/contracts/{id}/sign   买家 EIP-712 签名  → buyer_signed
 3. (指派 worker)
+   ── 可协商：worker 反提案 `revise` → 版本+1 → 双方对新版本重签 ──
 4. POST /v1/contracts/{id}/sign   worker Ed25519 签名 → signed
 5. POST /v1/bilateral/lock        双方各自 lock USDC，铸 Bill
 6. POST /v1/bilateral/bind        传 scope_hash=terms_hash 与 task_id → 链上锚定
@@ -47,6 +50,7 @@ Karma 的订购合同解决三件事：
 |---|---|---|
 | POST | `/v1/contracts` | 创建合同（DRAFT），计算 `terms_hash` |
 | POST | `/v1/contracts/{task_id}/sign` | 买家/worker 分签，验签后推进状态 |
+| POST | `/v1/contracts/{task_id}/revise` | 反提案：改条款 → 版本+1、重算 terms_hash、双方重签 |
 | GET | `/v1/contracts/{task_id}/terms` | 签署版条款 + 双方签名 + `terms_hash`（裁决依据） |
 | GET | `/v1/contracts/{task_id}/anchor` | 链上 `scopeHash` 与 `terms_hash` 比对结果 |
 | POST | `/v1/bilateral/bind` | 传 `task_id` 时强制「双签 + scopeHash==termsHash」 |
