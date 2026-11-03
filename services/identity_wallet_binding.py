@@ -111,3 +111,27 @@ async def resolve_identity_id_by_wallet(
     if row:
         return str(row).strip()
     return None
+
+
+async def resolve_identity_ids_by_wallet(
+    db: AsyncSession, wallet_address: str
+) -> list[str]:
+    """Every identity bound to ``wallet_address``, oldest first.
+
+    Used to detect ambiguity: one wallet can own several identities (buyer +
+    merchant), so a bare wallet reverse-lookup cannot pick the owner of a given
+    agent. Callers should prefer the agent's explicit ``owner_identity_id``.
+    """
+    wallet = _norm_wallet(wallet_address)
+    if not wallet.startswith("0x") or len(wallet) != 42:
+        return []
+    from sqlalchemy import func, select
+
+    rows = (
+        await db.execute(
+            select(IdentityProfileModel.identity_id)
+            .where(func.lower(IdentityProfileModel.bound_wallet_address) == wallet)
+            .order_by(IdentityProfileModel.created_at.asc())
+        )
+    ).scalars()
+    return [str(r).strip() for r in rows if r]
