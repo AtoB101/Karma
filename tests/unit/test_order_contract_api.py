@@ -11,9 +11,35 @@ from httpx import ASGITransport, AsyncClient
 from api.app import app
 from api.routes import bilateral as bilateral_routes
 from config.settings import settings
-from db.models.orm import TaskContractModel
+from db.models.orm import AgentModel, IdentityProfileModel, TaskContractModel
 from db.session import get_db
 from services import order_contract
+
+
+async def _seed_buyer_identity(db, agent_id: str, buyer_address: str) -> None:
+    db.add(IdentityProfileModel(
+        identity_id=f"owner-{agent_id}",
+        display_id=f"owner-{agent_id}",
+        bound_wallet_address=buyer_address,
+    ))
+    db.add(AgentModel(
+        agent_id=agent_id,
+        name=agent_id,
+        role="buyer",
+        public_key="",
+        owner_identity_id=f"owner-{agent_id}",
+    ))
+    await db.commit()
+
+
+async def _seed_worker_agent(db, agent_id: str, public_key_b64: str) -> None:
+    db.add(AgentModel(
+        agent_id=agent_id,
+        name=agent_id,
+        role="worker",
+        public_key=public_key_b64,
+    ))
+    await db.commit()
 
 
 def _body(task_id: str = "task-sign-1") -> dict:
@@ -46,6 +72,8 @@ async def test_contract_sign_flow_and_bind_gate(db_session, relaxed):
     transport = ASGITransport(app=app)
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            buyer = Account.create()
+            await _seed_buyer_identity(db_session, "buyer-1", buyer.address)
             r = await client.post("/v1/contracts", json=_body())
             assert r.status_code == 201, r.text
             created = r.json()
@@ -55,7 +83,6 @@ async def test_contract_sign_flow_and_bind_gate(db_session, relaxed):
             assert len(terms_hash) == 64
 
             # buyer signs with a fresh wallet
-            buyer = Account.create()
             sig = order_contract.sign_buyer(
                 private_key=buyer.key, terms_hash=terms_hash, task_id=task_id, chain_id=84532,
             )
@@ -73,6 +100,7 @@ async def test_contract_sign_flow_and_bind_gate(db_session, relaxed):
 
             worker_key = Ed25519PrivateKey.generate()
             w_sig, w_pub = order_contract.sign_worker(terms_hash, worker_key)
+            await _seed_worker_agent(db_session, "worker-1", w_pub)
             r = await client.post(
                 f"/v1/contracts/{task_id}/sign",
                 json={"role": "worker", "signature": w_sig, "public_key": w_pub},
@@ -170,12 +198,12 @@ async def test_contract_revise_flow_requires_resign(db_session, relaxed):
     transport = ASGITransport(app=app)
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            buyer = Account.create()
+            await _seed_buyer_identity(db_session, "buyer-1", buyer.address)
             r = await client.post("/v1/contracts", json=_body("task-revise-1"))
             assert r.status_code == 201, r.text
             task_id = r.json()["task_id"]
             terms_hash = r.json()["terms_hash"]
-
-            buyer = Account.create()
             r = await client.post(
                 f"/v1/contracts/{task_id}/sign",
                 json={"role": "buyer", "signature": order_contract.sign_buyer(
@@ -190,6 +218,7 @@ async def test_contract_revise_flow_requires_resign(db_session, relaxed):
 
             worker_key = Ed25519PrivateKey.generate()
             w_sig, w_pub = order_contract.sign_worker(terms_hash, worker_key)
+            await _seed_worker_agent(db_session, "worker-1", w_pub)
             r = await client.post(
                 f"/v1/contracts/{task_id}/sign",
                 json={"role": "worker", "signature": w_sig, "public_key": w_pub},
@@ -231,3 +260,31 @@ async def test_contract_revise_flow_requires_resign(db_session, relaxed):
     finally:
         app.dependency_overrides.clear()
 
+
+@pytest.mark.asyncio
+async def test_contract_revise_locked_after_onchain_bind(db_session, relaxed):
+    """A contract anchored by the bilateral bind path (binding id on the contract
+    row) must reject revision with 409, even without a settlement row."""
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post("/v1/contracts", json=_body("task-revise-locked"))
+            assert r.status_code == 201, r.text
+            task_id = r.json()["task_id"]
+
+            row = await db_session.get(TaskContractModel, task_id)
+            row.onchain_binding_id = 42
+            await db_session.commit()
+
+            r = await client.post(
+                f"/v1/contracts/{task_id}/revise",
+                json={"escrow_amount": 5100.0},
+            )
+            assert r.status_code == 409, r.text
+            assert "already anchored on-chain" in r.text
+    finally:
+        app.dependency_overrides.clear()

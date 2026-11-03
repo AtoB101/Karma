@@ -71,6 +71,43 @@ KARMA_BILATERAL_ABI: list[dict[str, Any]] = [
         "outputs": [],
     },
     {
+        "name": "getArbitration",
+        "type": "function",
+        "stateMutability": "view",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [
+            {
+                "name": "",
+                "type": "tuple",
+                "components": [
+                    {"name": "buyerEvidenceHash", "type": "bytes32"},
+                    {"name": "agentEvidenceHash", "type": "bytes32"},
+                    {"name": "buyerSubmittedAt", "type": "uint256"},
+                    {"name": "agentSubmittedAt", "type": "uint256"},
+                    {"name": "startedAt", "type": "uint256"},
+                    {"name": "resolved", "type": "bool"},
+                ],
+            }
+        ],
+    },
+    {
+        "name": "resolveDispute",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [
+            {"name": "bindingId", "type": "uint256"},
+            {"name": "buyerShareBps", "type": "uint16"},
+        ],
+        "outputs": [],
+    },
+    {
+        "name": "autoResolveArbitration",
+        "type": "function",
+        "stateMutability": "nonpayable",
+        "inputs": [{"name": "bindingId", "type": "uint256"}],
+        "outputs": [],
+    },
+    {
         "name": "refundOnTimeout",
         "type": "function",
         "stateMutability": "nonpayable",
@@ -596,6 +633,42 @@ class OnChainSettlementAdapter:
         bilateral = self._get_bilateral()
         return self._send_tx(
             bilateral.functions.dispute(int(binding_id), _to_bytes32(evidence_hash)),
+            account=self._get_account(),
+        )
+
+    def arbitration_status(self, binding_id: int) -> dict:
+        """Read the on-chain ArbitrationRecord for a disputed binding."""
+        bilateral = self._get_bilateral()
+        arb = bilateral.functions.getArbitration(int(binding_id)).call()
+        return {
+            "binding_id": int(binding_id),
+            "buyer_evidence_hash": "0x" + bytes(arb[0]).hex(),
+            "agent_evidence_hash": "0x" + bytes(arb[1]).hex(),
+            "buyer_submitted_at": int(arb[2]),
+            "agent_submitted_at": int(arb[3]),
+            "started_at": int(arb[4]),
+            "resolved": bool(arb[5]),
+        }
+
+    def resolve_dispute(self, binding_id: int, buyer_share_bps: int) -> ChainTxResult:
+        """Admin/DAO resolves a DISPUTED binding with a bounded buyer split (BPS).
+
+        The chain enforces the split against submitted evidence and the evidence
+        window, so this is a relay — not an override of the on-chain constraints.
+        """
+        self._require_hot_wallet_allowed()
+        bilateral = self._get_bilateral()
+        return self._send_tx(
+            bilateral.functions.resolveDispute(int(binding_id), int(buyer_share_bps)),
+            account=self._get_account(),
+        )
+
+    def auto_resolve_dispute(self, binding_id: int) -> ChainTxResult:
+        """Trigger conservative auto-resolution after the evidence window closes."""
+        self._require_hot_wallet_allowed()
+        bilateral = self._get_bilateral()
+        return self._send_tx(
+            bilateral.functions.autoResolveArbitration(int(binding_id)),
             account=self._get_account(),
         )
 

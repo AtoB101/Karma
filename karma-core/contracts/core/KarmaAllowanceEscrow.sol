@@ -134,7 +134,7 @@ contract KarmaAllowanceEscrow {
 
     mapping(address => bool) public tokenAllowed;
     mapping(uint256 => Bill) public bills;
-    mapping(uint256 => Binding) public bindings;
+    mapping(uint256 => Binding) private bindings;
     mapping(address => uint256[]) private _ownerBills;
     uint256 private _billCounter;
     uint256 private _bindingCounter;

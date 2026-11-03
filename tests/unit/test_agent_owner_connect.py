@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from api.app import app
 from api.middleware.auth import validate_api_key_for_agent
-from db.models.orm import Base
+from db.models.orm import Base, IdentityProfileModel
 from db.session import get_db
 from services.agent_bootstrap_credentials import has_minted_api_key, reset_bootstrap_keys
 from services.agent_key_store import has_agent_key, load_agent_signer
@@ -168,13 +168,20 @@ async def test_owner_connect_passes_production_gates(db_session, monkeypatch):
             assert signer is not None
             assert signer.public_key_b64 == body["agent"]["public_key"]
 
-            # The prod gates we care about actually closed.
-            assert body["p1_ready"] is True, body.get("p1_status")
+            # Prod gates close; but the owner has not yet bound a wallet, so the
+            # agent must NOT be advertised as p1_ready (no self-attested KYC).
+            assert body["p1_ready"] is False, body.get("p1_status")
             gaps = (body.get("p1_status") or {}).get("gaps") or []
-            assert gaps == [], gaps
+            assert "owner_wallet_bound" in gaps, gaps
+
+            # Bind the owner wallet (signature-verified step elsewhere) -> p1 flips true.
+            owner_profile = await db_session.get(IdentityProfileModel, OWNER)
+            owner_profile.bound_wallet_address = "0x" + "3c" * 20
+            await db_session.commit()
 
             st = await client.get(f"/v1/agents/{agent_id}/p1-status")
             assert st.status_code == 200
+            assert st.json()["p1_ready"] is True
 
             mine = await client.get("/v1/agents/mine", headers={"X-Karma-Identity-Id": OWNER})
             assert mine.status_code == 200, mine.text

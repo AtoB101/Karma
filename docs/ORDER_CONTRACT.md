@@ -27,7 +27,10 @@ Karma 的订购合同解决三件事：
 - **worker 不进条款**：worker 是下单后指派，条款哈希只锁定"交易内容"；worker 身份由其
   Ed25519 签名绑定。
 - **可协商修订**：`POST /{task_id}/revise` 让任一方（buyer/worker）提出反提案——只改传入字段，
-  版本 +1、重算 `termsHash`、清空旧签名、回到 `draft`，双方对新版本重新签。**链上锚定后锁定不可改。**
+  版本 +1、重算 `termsHash`、清空旧签名、回到 `draft`，双方对新版本重新签。**链上锚定后锁定不可改**：
+  `bind` 成功后服务端把链上 `binding_id` 写回合同行，`revise` 发现已锚定即返回 409。
+- **版本留档**：`revise` 覆盖前把旧版本快照存入 `task_contract_versions`（版本号、完整条款、双方签名），
+  链上锚定的那一版永远可查，`GET /terms?version=N` 可取回历史版本。
 
 ## 3. 完整流程
 
@@ -51,8 +54,8 @@ Karma 的订购合同解决三件事：
 | POST | `/v1/contracts` | 创建合同（DRAFT），计算 `terms_hash` |
 | POST | `/v1/contracts/{task_id}/sign` | 买家/worker 分签，验签后推进状态 |
 | POST | `/v1/contracts/{task_id}/revise` | 反提案：改条款 → 版本+1、重算 terms_hash、双方重签 |
-| GET | `/v1/contracts/{task_id}/terms` | 签署版条款 + 双方签名 + `terms_hash`（裁决依据） |
-| GET | `/v1/contracts/{task_id}/anchor` | 链上 `scopeHash` 与 `terms_hash` 比对结果 |
+| GET | `/v1/contracts/{task_id}/terms` | 签署版条款 + 双方签名 + `terms_hash`（裁决依据）；`?version=N` 读历史版本 |
+| GET | `/v1/contracts/{task_id}/anchor` | 链上 `scopeHash` 与 `terms_hash` 比对结果（双边流程也直读链上） |
 | POST | `/v1/bilateral/bind` | 传 `task_id` 时强制「双签 + scopeHash==termsHash」 |
 | POST | `/v1/bilateral/dispute` | 传 `task_id` 时强制「链上 scopeHash==termsHash」 |
 
@@ -72,6 +75,7 @@ Karma 的订购合同解决三件事：
 - 用 `GET /v1/contracts/{task_id}/anchor` 确认**链上锚定的就是这份条款**
   （`anchored: true` 表示链上 `scopeHash == terms_hash`）。
 - 任何单方改条款 → `terms_hash` 变 → 与链上不符 → 无效。
+- 链上锚定后回看被锚定版本：`GET /v1/contracts/{task_id}/terms?version=N`。
 
 ## 6. 外贸条款模板（可选）
 
@@ -82,8 +86,13 @@ Karma 的订购合同解决三件事：
 
 ## 7. 安全模型与边界
 
-- **已做**：服务端 bind/dispute 强校验双签 + 链上 `termsHash` 锚点；`spending_grant`
-  控制 lock 额度；建单/结算/放款均有 grant 门。
+- **已做**：服务端 bind/dispute 强校验双签 + 链上 `termsHash` 锚点；`bind` 成功后把链上
+  `binding_id` 写回合同行，`revise` 一经锚定即 409，且每次修订前旧版本落库留档；
+  `spending_grant` 控制 lock 额度；建单/结算/放款均有 grant 门（结算/放款只验存在 active grant，
+  不按金额二次扣额——资金在 lock 时已入账）。
 - **未做（刻意）**：合约级双签校验 —— worker 是 Ed25519，EVM 原生无法低成本验证，
   且合约已接近 EIP-170 上限。当前以"服务端强校验 + 链上锚点"作为等价约束。
+- **签名身份绑定（服务端）**：buyer 签名地址必须等于买方 agent 的绑定钱包，worker 公钥必须等于
+  已注册 worker agent 的公钥，不匹配返回 422。这仍是"比对注册身份"而非 KYC——注册身份本身
+  是否可信依赖上游核验。
 - **仍属上游/运行侧**：官网审批页部署、身份核验（KYC）、主网多签治理。

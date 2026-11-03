@@ -1,19 +1,27 @@
 """Karma API — Task Contracts"""
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 import json
 import math
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
 from api.middleware.auth import resolve_agent_id_from_request
 from core.schemas import TaskContract
 from db.session import get_db
-from db.models.orm import AgentModel, CapacityModel, TaskContractModel
+from db.models.orm import (
+    AgentModel,
+    CapacityModel,
+    IdentityProfileModel,
+    TaskContractModel,
+    TaskContractVersionModel,
+)
 from db.stores.settlement_store import PostgresSettlementStore
 from services.actor_guards import caller_is_privileged
 from services import order_contract, spending_grant
@@ -232,6 +240,36 @@ def _order_contract_chain_id() -> int:
     return settings.order_contract_eip712_chain_id or settings.testnet_chain_id
 
 
+async def _buyer_bound_wallet(db: AsyncSession, client_agent_id: str) -> str | None:
+    """Resolve the client agent's owner wallet — the address the buyer must sign with."""
+    buyer_agent = await db.get(AgentModel, client_agent_id)
+    if buyer_agent is None or not buyer_agent.owner_identity_id:
+        return None
+    identity = await db.get(IdentityProfileModel, buyer_agent.owner_identity_id)
+    if identity is None:
+        return None
+    return (identity.bound_wallet_address or "").strip() or None
+
+
+def _same_ed25519_public_key(registered: str, presented: str) -> bool:
+    """Compare Ed25519 public keys tolerant of hex / base64 / 0x-prefix encodings."""
+    def _norm(value: str) -> bytes | None:
+        value = (value or "").strip()
+        if not value:
+            return None
+        try:
+            if value.startswith("0x"):
+                return bytes.fromhex(value[2:])
+            if len(value) == 64:
+                return bytes.fromhex(value)
+            return base64.b64decode(value)
+        except Exception:
+            return None
+
+    a, b = _norm(registered), _norm(presented)
+    return a is not None and a == b
+
+
 @router.post("/{task_id}/sign")
 async def sign_contract(
     task_id: str,
@@ -266,6 +304,9 @@ async def sign_contract(
             )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
+        bound_wallet = await _buyer_bound_wallet(db, row.client_agent_id)
+        if not bound_wallet or bound_wallet.lower() != body.address.strip().lower():
+            raise HTTPException(422, "buyer address does not match the client agent's bound wallet")
         row.buyer_signature = body.signature
         row.buyer_address = body.address
     else:
@@ -281,6 +322,10 @@ async def sign_contract(
             public_key_b64=body.public_key,
         ):
             raise HTTPException(422, "invalid worker signature")
+        worker_agent = await db.get(AgentModel, row.worker_agent_id)
+        registered_pub = (worker_agent.public_key or "").strip() if worker_agent else ""
+        if not registered_pub or not _same_ed25519_public_key(registered_pub, body.public_key):
+            raise HTTPException(422, "worker public_key does not match the registered agent key")
         row.worker_signature = body.signature
         row.worker_public_key = body.public_key
 
@@ -291,6 +336,27 @@ async def sign_contract(
     elif row.buyer_signature or row.worker_signature:
         row.contract_status = order_contract.STATUS_BUYER_SIGNED
     return _row_to_contract(row)
+
+
+async def _snapshot_contract_version(db: AsyncSession, row: TaskContractModel) -> None:
+    """Persist the pre-revision state so the terms version anchored on-chain
+    can always be reconstructed for dispute resolution."""
+    db.add(
+        TaskContractVersionModel(
+            task_id=row.task_id,
+            version=int(row.version or 1),
+            terms_hash=row.terms_hash,
+            terms=order_contract.build_terms(_row_to_contract(row)),
+            worker_agent_id=row.worker_agent_id,
+            contract_status=row.contract_status or "draft",
+            buyer_signature=row.buyer_signature,
+            buyer_address=row.buyer_address,
+            worker_signature=row.worker_signature,
+            worker_public_key=row.worker_public_key,
+            signed_at=row.signed_at,
+        )
+    )
+    await db.flush()
 
 
 @router.post("/{task_id}/revise")
@@ -309,6 +375,8 @@ async def revise_contract(
     state = await PostgresSettlementStore(db).get(task_id)
     if state and getattr(state, "onchain_binding_id", None) is not None:
         raise HTTPException(409, "contract already anchored on-chain; cannot revise")
+    if getattr(row, "onchain_binding_id", None) is not None:
+        raise HTTPException(409, "contract already anchored on-chain; cannot revise")
 
     actor_ids = await actor_identity_ids(db, request)
     parties = {row.client_agent_id}
@@ -320,6 +388,7 @@ async def revise_contract(
     changes = body.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(422, "no fields to revise")
+    await _snapshot_contract_version(db, row)
     for field, value in changes.items():
         if field in ("task_id", "client_agent_id"):
             continue
@@ -349,6 +418,7 @@ async def get_contract_terms(
     task_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
+    version: int | None = None,
 ):
     """Return signed order terms + signatures — the ruling artifact for disputes."""
     validate_public_url_segment("task_id", task_id)
@@ -361,6 +431,30 @@ async def get_contract_terms(
         _contract_party_ids(row) | await _settlement_party_ids(db, task_id),
         public_read=bool(settings.task_records_public_read),
     )
+    if version is not None:
+        hist = (await db.execute(
+            select(TaskContractVersionModel).where(
+                TaskContractVersionModel.task_id == task_id,
+                TaskContractVersionModel.version == version,
+            )
+        )).scalar_one_or_none()
+        if hist is None:
+            raise HTTPException(404, f"Contract {task_id} version {version} not found")
+        return {
+            "task_id": task_id,
+            "version": hist.version,
+            "terms_hash": hist.terms_hash,
+            "contract_status": hist.contract_status,
+            "terms": hist.terms,
+            "buyer": {"address": hist.buyer_address, "signature": hist.buyer_signature},
+            "worker": {
+                "agent_id": hist.worker_agent_id,
+                "public_key": hist.worker_public_key,
+                "signature": hist.worker_signature,
+            },
+            "signed_at": hist.signed_at.isoformat() if hist.signed_at else None,
+            "created_at": hist.created_at.isoformat() if hist.created_at else None,
+        }
     contract = _row_to_contract(row)
     return {
         "task_id": row.task_id,
@@ -398,6 +492,8 @@ async def get_contract_anchor(
     )
     state = await PostgresSettlementStore(db).get(task_id)
     binding_id = getattr(state, "onchain_binding_id", None) if state else None
+    if binding_id is None:
+        binding_id = getattr(row, "onchain_binding_id", None)
     result: dict = {
         "task_id": task_id,
         "terms_hash": row.terms_hash,

@@ -199,6 +199,7 @@ class TaskContractModel(Base):
     worker_signature:       Mapped[str|None] = mapped_column(String(256))
     worker_public_key:      Mapped[str|None] = mapped_column(String(256))
     signed_at:              Mapped[datetime|None] = mapped_column(UTCDateTime)
+    onchain_binding_id:     Mapped[int|None] = mapped_column(Integer, nullable=True)
     created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
 
     receipts:   Mapped[list[ReceiptModel]]    = relationship("ReceiptModel",    back_populates="contract", lazy="selectin")
@@ -208,6 +209,36 @@ class TaskContractModel(Base):
         lazy="selectin",
     )
     settlement: Mapped[SettlementModel|None]  = relationship("SettlementModel", back_populates="contract", uselist=False, lazy="selectin")
+
+
+# ---------------------------------------------------------------------------
+# Task Contract Version (ruling-artifact revision trail)
+# ---------------------------------------------------------------------------
+
+
+class TaskContractVersionModel(Base):
+    """Immutable snapshot of a contract revision — the off-chain trail an
+    arbitrator uses to prove which terms version was anchored on-chain."""
+
+    __tablename__ = "task_contract_versions"
+
+    id:                 Mapped[int]       = mapped_column(Integer, primary_key=True, autoincrement=True)
+    task_id:            Mapped[str]       = mapped_column(String(64), ForeignKey("task_contracts.task_id"), nullable=False, index=True)
+    version:            Mapped[int]       = mapped_column(Integer, nullable=False)
+    terms_hash:         Mapped[str|None]  = mapped_column(String(64))
+    terms:              Mapped[dict]      = mapped_column(JSON, nullable=False)
+    worker_agent_id:    Mapped[str|None]  = mapped_column(String(64))
+    contract_status:    Mapped[str]       = mapped_column(String(24), default="draft")
+    buyer_signature:    Mapped[str|None]  = mapped_column(String(256))
+    buyer_address:      Mapped[str|None]  = mapped_column(String(42))
+    worker_signature:   Mapped[str|None]  = mapped_column(String(256))
+    worker_public_key:  Mapped[str|None]  = mapped_column(String(256))
+    signed_at:          Mapped[datetime|None] = mapped_column(UTCDateTime)
+    created_at:         Mapped[datetime]  = mapped_column(UTCDateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("task_id", "version", name="uq_task_contract_version"),
+    )
 
 
 # ---------------------------------------------------------------------------

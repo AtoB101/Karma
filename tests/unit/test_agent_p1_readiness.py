@@ -5,7 +5,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from db.models.orm import Base
+from db.models.orm import Base, IdentityProfileModel
 from services.agent_boundary import clear_agent_boundaries, get_agent_boundary
 from services.agent_directory import connect_agent, refresh_p1_ready
 from services.agent_onboarding_template import materialize_onboarding
@@ -44,6 +44,8 @@ def _reset_stores():
 async def _p1_merchant(db: AsyncSession, agent_id: str = "m-food-1"):
     owner = f"owner-{agent_id}"
     await ensure_owner_identity(db, owner, display_hint="面馆主人")
+    owner_profile = await db.get(IdentityProfileModel, owner)
+    owner_profile.bound_wallet_address = "0x" + "1a" * 20
     mat = materialize_onboarding(
         profile_id="merchant",
         answers={
@@ -123,6 +125,17 @@ async def test_plain_connect_not_p1_ready(db_session):
     assert status["p1_ready"] is False
     assert "identity_class_set" in status["gaps"]
     assert "owner_identity_bound" in status["gaps"]
+
+
+@pytest.mark.asyncio
+async def test_p1_not_ready_without_owner_wallet(db_session):
+    row, owner = await _p1_merchant(db_session, agent_id="m-unbound-wallet")
+    owner_profile = await db_session.get(IdentityProfileModel, owner)
+    owner_profile.bound_wallet_address = None
+    await db_session.flush()
+    status = await evaluate_p1_readiness(db_session, row.agent_id)
+    assert status["p1_ready"] is False
+    assert "owner_wallet_bound" in status["gaps"]
 
 
 @pytest.mark.asyncio

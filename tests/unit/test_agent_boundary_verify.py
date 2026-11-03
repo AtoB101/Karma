@@ -6,7 +6,7 @@ import pytest_asyncio
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from db.models.orm import Base
+from db.models.orm import Base, IdentityProfileModel
 from services import agent_boundary as ab
 from services.agent_boundary import get_agent_boundary, materialize_agent_boundary
 from services.agent_boundary_verify import (
@@ -55,6 +55,8 @@ def _reset():
 async def _ready_merchant(db: AsyncSession, agent_id: str = "p2-food"):
     owner = f"owner-{agent_id}"
     await ensure_owner_identity(db, owner, display_hint="P2主人")
+    owner_profile = await db.get(IdentityProfileModel, owner)
+    owner_profile.bound_wallet_address = "0x" + "2b" * 20
     mat = materialize_onboarding(
         profile_id="merchant",
         answers={

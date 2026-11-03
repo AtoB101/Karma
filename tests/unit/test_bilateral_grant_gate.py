@@ -121,7 +121,7 @@ async def test_settle_allows_agent_with_active_grant(db_session, enforce, chain_
 
 
 @pytest.mark.asyncio
-async def test_settle_denies_insufficient_grant(db_session, enforce, chain_mock):
+async def test_settle_allows_when_amount_exceeds_per_tx_limit(db_session, enforce, chain_mock):
     db_session.add(
         SpendingGrantModel(
             grant_id="g-small",
@@ -155,8 +155,10 @@ async def test_settle_denies_insufficient_grant(db_session, enforce, chain_mock)
                 json={"binding_id": 1, "proof_hash": "0x" + "ab" * 32},
                 headers={"x-karma-api-key": API_KEY},
             )
-            assert r.status_code == 403, r.text
-            assert "no grant covers this spend" in r.text
+            # settle does not consume allowance or compare amounts: money was
+            # already spent at lock, so a small per_tx_limit must not block payout.
+            assert r.status_code == 200, r.text
+            chain_mock.settle_direct.assert_called_once()
     finally:
         app.dependency_overrides.clear()
 
