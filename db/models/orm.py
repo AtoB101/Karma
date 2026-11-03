@@ -1541,3 +1541,18 @@ class SpendingReservationModel(Base):
     agent_id:   Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
     amount:     Mapped[float]    = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+
+
+class ProofRecordModel(Base):
+    """Content-addressed proof payload (data availability for on-chain hashes).
+
+    The chain only stores ``proof_hash``; this table makes the actual bytes
+    retrievable so an arbitrator can verify the hash is backed by real data,
+    not a bare digest.
+    """
+    __tablename__ = "proof_records"
+
+    proof_hash: Mapped[str]      = mapped_column(String(64), primary_key=True)
+    payload:     Mapped[str]     = mapped_column(Text, nullable=False)
+    meta:        Mapped[dict]    = mapped_column(JSON, nullable=False, default=dict)
+    created_at:  Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)

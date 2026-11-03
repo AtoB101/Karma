@@ -282,3 +282,86 @@ async def test_finalize_allows_agent_with_reservation(db_session, enforce, chain
             chain_mock.finalize_binding.assert_called_once()
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_settle_stores_proof_payload(db_session, enforce, chain_mock):
+    from db.models.orm import ProofRecordModel
+    from services import proof_availability
+
+    await _seed_grant(db_session)
+    await _seed_reservation(db_session)
+    payload = '{"delivery": "ok"}'
+    proof_hash = proof_availability.compute_proof_hash(payload)
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/v1/bilateral/settle",
+                json={"binding_id": 1, "proof_hash": proof_hash, "proof_payload": payload},
+                headers={"x-karma-api-key": API_KEY},
+            )
+            assert r.status_code == 200, r.text
+        row = await db_session.get(ProofRecordModel, proof_hash)
+        assert row is not None
+        assert row.payload == payload
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_settle_rejects_payload_hash_mismatch(db_session, enforce, chain_mock):
+    from services import proof_availability
+
+    await _seed_grant(db_session)
+    await _seed_reservation(db_session)
+    proof_hash = proof_availability.compute_proof_hash("expected-payload")
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/v1/bilateral/settle",
+                json={"binding_id": 1, "proof_hash": proof_hash, "proof_payload": "different-payload"},
+                headers={"x-karma-api-key": API_KEY},
+            )
+            assert r.status_code == 409
+            assert "hash mismatch" in r.text
+            chain_mock.settle_direct.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_settle_requires_proof_availability_when_enabled(db_session, enforce, chain_mock, monkeypatch):
+    monkeypatch.setattr(settings, "require_proof_availability", True)
+
+    await _seed_grant(db_session)
+    await _seed_reservation(db_session)
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/v1/bilateral/settle",
+                json={"binding_id": 1, "proof_hash": "0x" + "ab" * 32},
+                headers={"x-karma-api-key": API_KEY},
+            )
+            assert r.status_code == 409
+            assert "no retrievable payload" in r.text
+            chain_mock.settle_direct.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()

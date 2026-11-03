@@ -18,7 +18,7 @@ from api.middleware.auth import require_auth_if_enabled, resolve_agent_id_from_r
 from config.settings import settings
 from db.session import get_db
 from db.models.orm import TaskContractModel
-from services import order_contract, spending_grant
+from services import order_contract, proof_availability, spending_grant
 from services.actor_guards import require_arbitration_operator
 from services.chain.settlement_adapter import OnChainSettlementAdapter
 
@@ -57,6 +57,10 @@ class BindRequest(BaseModel):
 class SettleRequest(BaseModel):
     binding_id: int
     proof_hash: str = Field(description="0x-prefixed 32-byte hex proof hash")
+    proof_payload: str | None = Field(
+        default=None,
+        description="Optional proof payload; when set, sha256(payload) must equal proof_hash and the payload is stored for later retrieval (data availability)",
+    )
 
 
 class DisputeRequest(BaseModel):
@@ -220,6 +224,15 @@ async def settle(
         await spending_grant.assert_bill_covered_by_grant(
             db, bill_id=agent_bill_id, agent_id=agent_id
         )
+    if body.proof_payload is not None:
+        await proof_availability.store_proof(
+            db,
+            payload=body.proof_payload,
+            proof_hash=body.proof_hash,
+        )
+        await db.commit()
+    if settings.require_proof_availability:
+        await proof_availability.assert_proof_available(db, body.proof_hash)
     try:
         _chain().settle_direct(body.binding_id, body.proof_hash)
     except Exception as e:  # noqa: BLE001
