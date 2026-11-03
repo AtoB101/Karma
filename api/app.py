@@ -31,6 +31,7 @@ from api.routes import (
     agent_first_key,
     settlement_channel,
     proofs,
+    batch_settlement,
     auth,
     contracts,
     receipts,
@@ -406,6 +407,7 @@ app.include_router(
 app.include_router(agent_first_key.router, tags=["AgentFirstKey"])
 app.include_router(settlement_channel.router, tags=["SettlementChannel"])
 app.include_router(proofs.router, tags=["ProofAvailability"])
+app.include_router(batch_settlement.router, tags=["SettlementBatch"])
 app.include_router(
     agent_pairing.owner_router,
     prefix="/v1/agent-pairing",
