@@ -636,7 +636,7 @@ contract KarmaBilateral {
     /// @notice Submit settlement proof. Starts the dispute window (Layer 1).
     ///
     ///         Standard path (no attestation):
-    ///           - Caller must be buyer or agent.
+    ///           - Caller must be buyer, agent, or the trusted settleOperator.
     ///           - If ACTIVE: block.timestamp must be >= settleAfter (settle delay).
     ///           - Binding transitions to FINALIZING; USDC is NOT released yet.
     ///           - Call finalizeSettle() after optimisticDisputeWindow to complete settlement.
