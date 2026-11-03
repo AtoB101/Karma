@@ -93,6 +93,7 @@ async def lock(
     _auth=Depends(require_auth_if_enabled),
 ):
     grant = None
+    agent_id = None
     amount_human: float | None = None
     if settings.spending_grant_enforced and body.role == "agent":
         agent_id = resolve_agent_id_from_request(request)
@@ -124,9 +125,28 @@ async def lock(
             )
             await db.commit()
         raise HTTPException(502, f"on-chain lock failed: {e}") from e
-    if grant is not None:
+    if grant is not None and agent_id is not None and amount_human is not None:
+        await spending_grant.link_bill_to_grant(
+            db,
+            bill_id=bill_id,
+            grant_id=grant.grant_id,
+            agent_id=agent_id,
+            amount=amount_human,
+        )
         await db.commit()
     return {"bill_id": bill_id, "token": body.token, "amount": body.amount, "state": "MINTED"}
+
+
+def _agent_bill_id(status: dict) -> int | None:
+    """Extract the agent bill id from a binding status payload."""
+    if not isinstance(status, dict):
+        return None
+    agent_bill = status.get("agent_bill")
+    if isinstance(agent_bill, dict) and agent_bill.get("bill_id") is not None:
+        return int(agent_bill["bill_id"])
+    if status.get("agent_bill_id") is not None:
+        return int(status["agent_bill_id"])
+    return None
 
 
 async def _persist_contract_binding(db: AsyncSession, task_id: str, binding_id: int) -> None:
@@ -190,7 +210,16 @@ async def settle(
         agent_id = resolve_agent_id_from_request(request)
         if not agent_id:
             raise HTTPException(401, "agent identity required for settle")
-        await spending_grant.assert_agent_authorized(db, agent_id=agent_id)
+        try:
+            status = _chain().binding_status(body.binding_id)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"on-chain status failed: {e}") from e
+        agent_bill_id = _agent_bill_id(status)
+        if agent_bill_id is None:
+            raise HTTPException(409, "binding has no agent bill")
+        await spending_grant.assert_bill_covered_by_grant(
+            db, bill_id=agent_bill_id, agent_id=agent_id
+        )
     try:
         _chain().settle_direct(body.binding_id, body.proof_hash)
     except Exception as e:  # noqa: BLE001
@@ -262,7 +291,16 @@ async def finalize(
         agent_id = resolve_agent_id_from_request(request)
         if not agent_id:
             raise HTTPException(401, "agent identity required for finalize")
-        await spending_grant.assert_agent_authorized(db, agent_id=agent_id)
+        try:
+            status = _chain().binding_status(binding_id)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"on-chain status failed: {e}") from e
+        agent_bill_id = _agent_bill_id(status)
+        if agent_bill_id is None:
+            raise HTTPException(409, "binding has no agent bill")
+        await spending_grant.assert_bill_covered_by_grant(
+            db, bill_id=agent_bill_id, agent_id=agent_id
+        )
     try:
         _chain().finalize_binding(binding_id)
     except Exception as e:  # noqa: BLE001

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from api.app import app
 from config.settings import settings
-from db.models.orm import SpendingGrantModel
+from db.models.orm import SpendingGrantModel, SpendingReservationModel
 from db.session import get_db
 
 AGENT = "agent-1"
@@ -34,6 +34,18 @@ async def _seed_grant(db) -> None:
             nonce="n",
             signature="",
             signed_message="",
+        )
+    )
+    await db.commit()
+
+
+async def _seed_reservation(db, *, bill_id=11, grant_id="g1", agent_id=AGENT, amount=1.0) -> None:
+    db.add(
+        SpendingReservationModel(
+            bill_id=bill_id,
+            grant_id=grant_id,
+            agent_id=agent_id,
+            amount=amount,
         )
     )
     await db.commit()
@@ -101,6 +113,7 @@ async def test_settle_denies_agent_without_grant(db_session, enforce, chain_mock
 @pytest.mark.asyncio
 async def test_settle_allows_agent_with_active_grant(db_session, enforce, chain_mock):
     await _seed_grant(db_session)
+    await _seed_reservation(db_session)
 
     async def override_get_db():
         yield db_session
@@ -142,6 +155,7 @@ async def test_settle_allows_when_amount_exceeds_per_tx_limit(db_session, enforc
         )
     )
     await db_session.commit()
+    await _seed_reservation(db_session, grant_id="g-small")
 
     async def override_get_db():
         yield db_session
@@ -177,5 +191,94 @@ async def test_finalize_denies_agent_without_grant(db_session, enforce, chain_mo
                 headers={"x-karma-api-key": API_KEY},
             )
             assert r.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_settle_denies_bill_without_reservation(db_session, enforce, chain_mock):
+    await _seed_grant(db_session)
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/v1/bilateral/settle",
+                json={"binding_id": 1, "proof_hash": "0x" + "ab" * 32},
+                headers={"x-karma-api-key": API_KEY},
+            )
+            assert r.status_code == 403
+            assert "not locked under a spending grant" in r.text
+            chain_mock.settle_direct.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_settle_denies_reservation_for_other_agent(db_session, enforce, chain_mock):
+    await _seed_grant(db_session)
+    await _seed_reservation(db_session, agent_id="agent-other")
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/v1/bilateral/settle",
+                json={"binding_id": 1, "proof_hash": "0x" + "ab" * 32},
+                headers={"x-karma-api-key": API_KEY},
+            )
+            assert r.status_code == 403
+            assert "belongs to another agent" in r.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_finalize_denies_bill_without_reservation(db_session, enforce, chain_mock):
+    await _seed_grant(db_session)
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/v1/bilateral/finalize/1",
+                headers={"x-karma-api-key": API_KEY},
+            )
+            assert r.status_code == 403
+            chain_mock.finalize_binding.assert_not_called()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_finalize_allows_agent_with_reservation(db_session, enforce, chain_mock):
+    await _seed_grant(db_session)
+    await _seed_reservation(db_session)
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            r = await client.post(
+                "/v1/bilateral/finalize/1",
+                headers={"x-karma-api-key": API_KEY},
+            )
+            assert r.status_code == 200, r.text
+            chain_mock.finalize_binding.assert_called_once()
     finally:
         app.dependency_overrides.clear()

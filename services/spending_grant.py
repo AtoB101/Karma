@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models.orm import SpendingGrantModel, SpendingGrantEventModel
+from db.models.orm import SpendingGrantModel, SpendingGrantEventModel, SpendingReservationModel
 
 logger = structlog.get_logger(__name__)
 
@@ -475,6 +475,68 @@ async def release_spend(
         event_type="release",
         amount=amount,
     )
+
+
+async def link_bill_to_grant(
+    db: AsyncSession,
+    *,
+    bill_id: int,
+    grant_id: str,
+    agent_id: str,
+    amount: float,
+) -> SpendingReservationModel:
+    """Persist ``bill_id -> grant`` so settle/finalize can verify a locked bill
+    was reserved under the caller's grant."""
+    reservation = SpendingReservationModel(
+        bill_id=int(bill_id),
+        grant_id=grant_id,
+        agent_id=agent_id,
+        amount=float(amount),
+    )
+    db.add(reservation)
+    await db.flush()
+    return reservation
+
+
+async def get_bill_reservation(
+    db: AsyncSession, bill_id: int
+) -> SpendingReservationModel | None:
+    """Return the reservation for a locked bill, if any."""
+    res = await db.execute(
+        select(SpendingReservationModel).where(
+            SpendingReservationModel.bill_id == int(bill_id)
+        )
+    )
+    return res.scalar_one_or_none()
+
+
+async def assert_bill_covered_by_grant(
+    db: AsyncSession,
+    *,
+    bill_id: int,
+    agent_id: str,
+) -> SpendingReservationModel:
+    """settle/finalize gate: the bill must have been locked under the caller's grant.
+
+    Closes the "any active grant can settle any binding" gap — a settle or
+    finalize now requires a reservation row proving this agent locked this
+    exact bill, and that the grant is still active and unexpired.
+    """
+    reservation = await get_bill_reservation(db, int(bill_id))
+    if reservation is None:
+        raise HTTPException(
+            403, "spending grant denied: bill was not locked under a spending grant"
+        )
+    if reservation.agent_id != agent_id:
+        raise HTTPException(
+            403, "spending grant denied: bill belongs to another agent"
+        )
+    grant = await get_grant(db, reservation.grant_id)
+    if grant is None or grant.status != ACTIVE_STATUS or _expired(grant):
+        raise HTTPException(
+            403, "spending grant denied: grant is revoked, paused, or expired"
+        )
+    return reservation
 
 
 async def revoke_grant(db: AsyncSession, *, grant: SpendingGrantModel, reason: str) -> SpendingGrantModel:

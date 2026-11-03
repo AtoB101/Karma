@@ -1526,3 +1526,18 @@ class SpendingGrantEventModel(Base):
     reason:              Mapped[str | None] = mapped_column(String(256), nullable=True)
     endpoint:            Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at:          Mapped[datetime]  = mapped_column(UTCDateTime, default=datetime.utcnow, index=True)
+
+
+class SpendingReservationModel(Base):
+    """Links a locked on-chain bill to the grant that reserved its allowance.
+
+    ``settle``/``finalize`` use this to verify the binding's agent bill was
+    locked under the *caller's* grant, instead of merely "some active grant".
+    """
+    __tablename__ = "spending_reservations"
+
+    bill_id:    Mapped[int]      = mapped_column(Integer, primary_key=True)
+    grant_id:   Mapped[str]      = mapped_column(String(64), nullable=False, index=True)
+    agent_id:   Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
+    amount:     Mapped[float]    = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
