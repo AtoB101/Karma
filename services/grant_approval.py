@@ -37,7 +37,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services import spending_grant as grants
-from services.identity_wallet_binding import resolve_identity_id_by_wallet
+from services.identity_wallet_binding import get_bound_wallet, resolve_identity_ids_by_wallet
 from services.runtime_wallet import verify_personal_message
 
 _STORE_PATH = Path(__file__).resolve().parents[1] / ".karma_data" / "grant_approval.json"
@@ -235,6 +235,55 @@ def _require_pending_unlocked(row: dict[str, Any]) -> None:
         raise HTTPException(409, f"approval request is already {row.get('status')}")
 
 
+async def _resolve_owner_identity(
+    db: AsyncSession,
+    *,
+    agent_id: str,
+    wallet_address: str,
+) -> str:
+    """Pick the owner identity for a grant approval without wallet ambiguity.
+
+    The agent's explicit ``owner_identity_id`` wins: the signing wallet must be
+    bound to *that* identity, so two agents owned by one wallet across two
+    identity rows never cross-assign. Only when the agent has no owner binding do
+    we fall back to a wallet reverse-lookup, and then only if exactly one identity
+    matches - otherwise the caller must bind the agent's owner explicitly.
+    """
+    wallet = (wallet_address or "").strip().lower()
+    if agent_id:
+        from sqlalchemy import select
+
+        from db.models.orm import AgentModel
+
+        owner = (
+            await db.execute(
+                select(AgentModel.owner_identity_id).where(AgentModel.agent_id == agent_id)
+            )
+        ).scalar_one_or_none()
+        if owner:
+            owner_id = str(owner).strip()
+            bound = await get_bound_wallet(db, owner_id)
+            if bound and bound.lower() == wallet:
+                return owner_id
+            raise HTTPException(
+                403,
+                "signing wallet does not match the agent's owner identity",
+            )
+
+    ids = await resolve_identity_ids_by_wallet(db, wallet)
+    if len(ids) == 1:
+        return ids[0]
+    if not ids:
+        raise HTTPException(
+            403,
+            "wallet is not bound to a Karma identity — connect this wallet in the console first",
+        )
+    raise HTTPException(
+        403,
+        "wallet is bound to multiple identities — bind the agent's owner identity explicitly",
+    )
+
+
 def sign_message_for(challenge_id: str, wallet_address: str) -> str:
     """The exact EIP-191 text the owner must sign for this wallet address."""
     _ensure_loaded()
@@ -391,12 +440,11 @@ async def approve_grant_approval(
             _persist_unlocked()
             raise
 
-    owner_identity_id = await resolve_identity_id_by_wallet(db, wallet_address)
-    if not owner_identity_id:
-        raise HTTPException(
-            403,
-            "wallet is not bound to a Karma identity — connect this wallet in the console first",
-        )
+    owner_identity_id = await _resolve_owner_identity(
+        db,
+        agent_id=str(row.get("agent_id") or ""),
+        wallet_address=wallet_address,
+    )
 
     grant = await grants.create_grant(
         db,

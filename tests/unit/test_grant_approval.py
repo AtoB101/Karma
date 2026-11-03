@@ -240,3 +240,78 @@ async def test_approve_persists_agent_name_on_grant(db_session):
     )).scalar_one()
     assert row.agent_name == "OpenClaw 采购助手"
 
+
+
+@pytest.mark.asyncio
+async def test_approve_resolves_owner_via_agent_binding_amid_multiple_identities(db_session):
+    # One wallet owns two identities (buyer + worker). Each agent pins its own
+    # owner identity, so grant approval must land on the right identity instead
+    # of whichever identity row was created first.
+    from db.models.orm import AgentModel
+
+    await _bind_wallet(db_session, WALLET.address, identity_id="owner-buyer")
+    await _bind_wallet(db_session, WALLET.address, identity_id="owner-worker")
+    db_session.add_all([
+        AgentModel(
+            agent_id="agent-buyer", name="Buyer Agent", role="buyer",
+            public_key="buyer-public-key", owner_identity_id="owner-buyer",
+        ),
+        AgentModel(
+            agent_id="agent-worker", name="Worker Agent", role="worker",
+            public_key="worker-public-key", owner_identity_id="owner-worker",
+        ),
+    ])
+    await db_session.commit()
+
+    buyer_grant = await _approve(db_session, _issue(agent_id="agent-buyer"))
+    await db_session.commit()
+    assert buyer_grant["owner_identity_id"] == "owner-buyer"
+
+    worker_grant = await _approve(db_session, _issue(agent_id="agent-worker"))
+    await db_session.commit()
+    assert worker_grant["owner_identity_id"] == "owner-worker"
+
+
+@pytest.mark.asyncio
+async def test_approve_rejects_ambiguous_wallet_without_agent_owner_binding(db_session):
+    # Same wallet, two identities, but the agent has no explicit owner binding:
+    # a bare wallet reverse-lookup is ambiguous and must be refused, not guessed.
+    from db.models.orm import AgentModel
+
+    await _bind_wallet(db_session, WALLET.address, identity_id="owner-a")
+    await _bind_wallet(db_session, WALLET.address, identity_id="owner-b")
+    db_session.add(
+        AgentModel(
+            agent_id="agent-ambiguous", name="Ambiguous Agent", role="buyer",
+            public_key="ambiguous-public-key", owner_identity_id=None,
+        )
+    )
+    await db_session.commit()
+
+    ch = _issue(agent_id="agent-ambiguous")
+    with pytest.raises(HTTPException) as exc:
+        await _approve(db_session, ch)
+    assert exc.value.status_code == 403
+    assert "multiple identities" in str(exc.value.detail).lower()
+
+
+@pytest.mark.asyncio
+async def test_approve_rejects_wallet_not_matching_agent_owner_identity(db_session):
+    # The agent pins owner identity X, but the signing wallet is bound only to Y:
+    # cross-assignment must be refused.
+    from db.models.orm import AgentModel
+
+    await _bind_wallet(db_session, WALLET.address, identity_id="owner-y")
+    db_session.add(
+        AgentModel(
+            agent_id="agent-x", name="Agent X", role="buyer",
+            public_key="x-public-key", owner_identity_id="owner-x",
+        )
+    )
+    await db_session.commit()
+
+    ch = _issue(agent_id="agent-x")
+    with pytest.raises(HTTPException) as exc:
+        await _approve(db_session, ch)
+    assert exc.value.status_code == 403
+    assert "does not match" in str(exc.value.detail).lower()
