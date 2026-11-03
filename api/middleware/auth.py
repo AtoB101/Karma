@@ -85,8 +85,52 @@ bearer_scheme = HTTPBearer(auto_error=False)
 api_key_header = APIKeyHeader(name="X-Karma-Api-Key", auto_error=False)
 _AGENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{1,63}$")
 
+#: Path prefixes a permission-scoped "first key" may still reach. Everything else
+#: is denied in ``get_current_agent_id``, so a restricted key cannot spend, settle,
+#: mint, or mutate anything beyond opening the owner-approval handshake.
+_RESTRICTED_KEY_ALLOWED_PATH_PREFIXES = (
+    "/v1/spending-grants/approval-request",
+    "/v1/spending-grants/approval/",
+)
+
+
+def _minted_api_key_scope(api_key: str) -> Optional[list[str]]:
+    """Scope of a *minted* API key, or ``None`` when the key is not minted.
+
+    Configured ``AUTH_API_KEYS`` are always full-scope and return ``None`` here, so
+    callers only ever restrict keys that were minted with an explicit scope.
+    """
+    parsed = _parse_api_key(api_key)
+    if not parsed:
+        return None
+    agent_id, secret = parsed
+    try:
+        from services.agent_bootstrap_credentials import (
+            minted_key_scope,
+            verify_minted_api_key,
+        )
+
+        if not verify_minted_api_key(agent_id, secret):
+            return None
+        return minted_key_scope(agent_id)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _enforce_minted_key_scope(api_key: str, path: str) -> None:
+    scope = _minted_api_key_scope(api_key)
+    if scope is None or "*" in scope:
+        return
+    if any(path.startswith(prefix) for prefix in _RESTRICTED_KEY_ALLOWED_PATH_PREFIXES):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="this key is scoped to grant application only; it cannot perform this action",
+    )
+
 
 async def get_current_agent_id(
+    request: Request,
     bearer: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
     api_key: Optional[str] = Security(api_key_header),
 ) -> str:
@@ -105,6 +149,7 @@ async def get_current_agent_id(
     if api_key:
         agent_id = _validate_api_key(api_key)
         if agent_id:
+            _enforce_minted_key_scope(api_key, request.url.path)
             return agent_id
 
     raise HTTPException(
@@ -213,11 +258,12 @@ def _parse_api_key(api_key: str) -> Optional[tuple[str, str]]:
 # ---------------------------------------------------------------------------
 
 async def get_optional_agent_id(
+    request: Request,
     bearer: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
     api_key: Optional[str] = Security(api_key_header),
 ) -> Optional[str]:
     try:
-        return await get_current_agent_id(bearer, api_key)
+        return await get_current_agent_id(request, bearer, api_key)
     except HTTPException:
         return None
 
