@@ -193,8 +193,8 @@ contract KarmaBilateral {
     mapping(address => uint8)      public tokenIds;
     mapping(uint8 => address)      public idToToken;
     uint8 private _tokenCounter;
-    mapping(uint256 => Binding)   public bindings;
-    mapping(uint256 => Types.IntentPackage) public intentPackages; // intent per binding
+    mapping(uint256 => Binding)   private bindings;
+    mapping(uint256 => Types.IntentPackage) private intentPackages; // intent per binding
 
     mapping(address => bool)      public tokenAllowed;
 
