@@ -116,3 +116,43 @@ async def test_assert_proofs_available_passes_when_stored(db_session):
     )
     await db_session.commit()
     await batch_settlement.assert_batch_proofs_available(db_session, items)
+
+@pytest.mark.asyncio
+async def test_build_route_end_to_end(client):
+    payload = '{"delivery": "POD-2026-001", "inspected": true}'
+    proof_hash = proof_availability.compute_proof_hash(payload)
+
+    store = await client.post(
+        "/v1/proofs", json={"payload": payload, "proof_hash": proof_hash}
+    )
+    assert store.status_code == 201, store.text
+
+    resp = await client.post(
+        "/v1/settlement-batch/build", json={"items": [_item(2, 1, payload)]}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["count"] == 1
+    assert body["anchor_hash"].startswith("0x")
+    assert body["calldata"].startswith("0x")
+    assert body["items"][0]["binding_id"] == 2
+
+
+@pytest.mark.asyncio
+async def test_build_route_rejects_unavailable_proof(client):
+    resp = await client.post(
+        "/v1/settlement-batch/build", json={"items": [_item(1, 1, "never-stored")]}
+    )
+    assert resp.status_code == 409, resp.text
+
+
+@pytest.mark.asyncio
+async def test_build_route_rejects_bad_signature(client):
+    payload = "stored-payload"
+    proof_hash = proof_availability.compute_proof_hash(payload)
+    await client.post("/v1/proofs", json={"payload": payload, "proof_hash": proof_hash})
+
+    item = _item(3, 1, payload, key=KEY_B, signer=ADDR_A)
+    resp = await client.post("/v1/settlement-batch/build", json={"items": [item]})
+    assert resp.status_code == 403, resp.text
+
