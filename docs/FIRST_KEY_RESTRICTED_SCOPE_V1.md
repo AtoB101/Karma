@@ -56,12 +56,48 @@ python -m pytest tests/unit/test_restricted_first_key.py tests/unit/test_grant_a
 设备/IP 数量上限、过期拒绝、无 grant 升级 403、有 grant 升级成功且旧密钥失效、
 以及受限钥匙经真实 HTTP 依赖被花钱路由拒绝、在升级路径放行。
 
-## 4. 尚未完成（生产收紧，下一步）
+## 4. 接入模板
+
+**Python（agent 侧）** — `packages/karma-openclaw/karma_openclaw/first_key.py`：
+
+```python
+from karma_openclaw.first_key import acquire, upgrade, device_id
+
+# 1. 新 agent 拿首把钥匙（challenge -> claim，一次往返）
+issued = acquire(agent_name="我的采购助手")
+# issued: {agent_id, api_key, scope=["grant:apply"], expires_at, next_step}
+
+# 2. 用这把钥匙发起授权申请（官方审批页走主人钱包签名）
+#    POST /v1/spending-grants/approval-request  （X-Karma-Api-Key: issued["api_key"]）
+
+# 3. 主人批准后，换发全量钥匙
+full = upgrade()
+# full: {agent_id, api_key, scope=["*"], active_grants}
+```
+
+`device_id()` 会生成并持久化一个稳定的设备号到 `~/.karma/agent.env`
+（`KARMA_DEVICE_ID`），challenge 与 claim 必须同设备同来源 IP。
+
+**裸 HTTP 模板**（任意 SDK / 控制台照此实现）：
+
+```text
+POST /v1/agents/first-key/challenge   {device_id, agent_name?}
+        -> {challenge_id, challenge, expires_in_seconds}
+POST /v1/agents/first-key/claim       {challenge_id, challenge, device_id}
+        -> {agent_id, api_key(仅此一次), scope:["grant:apply"], expires_at}
+POST /v1/spending-grants/approval-request  (X-Karma-Api-Key: api_key)
+        -> 主人打开 approval_uri 输入核对码 + 钱包签名批准 grant
+POST /v1/agents/first-key/upgrade     (X-Karma-Api-Key: api_key)
+        -> 有活跃 grant 时 -> {api_key(全量), scope:["*"]}
+```
+
+## 5. 尚未完成（生产收紧，下一步）
 
 1. **生产模式验证**：`AUTH_ENFORCE_PROTECTED_ROUTES=true` 下把
    `challenge → claim → approval-request → 官方审批页 → upgrade` 端到端跑一遍，
    确认匿名不能绕过。
-2. **SDK/操作台接入**：把首把钥匙的 `device_id` 生成、challenge/claim 调用
-   封进 SDK 与操作台，普通用户按模板流程点授权即可。
+2. **操作台 UI 模板**：首把钥匙当前以 SDK/API 形式接入；如需在操作台页面做
+   可视化向导，照上面的裸 HTTP 模板实现，并把文案接入 `i18n-cyber.js` 的五语
+   phrase pack（走 `scripts/stamp_console_assets.py` 打版本戳）。
 3. **更强防机器人**：当前 challenge 是“一次往返 + 设备/IP 绑定 + 限流”，
    没有 PoW/人机验证；若被批量刷铸造，可再加 work-factor 或邮箱/钱包验证。
