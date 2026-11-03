@@ -184,6 +184,9 @@ contract KarmaBilateral {
 
     address public immutable admin;
     address public emergencyGuard;
+    /// @notice Trusted off-chain verifier allowed to call settle() for many
+    ///         bindings via the SettlementBatch contract. Address(0) disables.
+    address public settleOperator;
 
     uint256 private _billCounter;
     uint256 private _bindingCounter;
@@ -317,6 +320,7 @@ contract KarmaBilateral {
     event ArbitrationEvidenceSubmitted(uint256 indexed bindingId, address indexed submitter, bytes32 evidenceHash);
     event ArbitrationAutoResolved(uint256 indexed bindingId, bool buyerWon, uint256 buyerShare);
     event EmergencyGuardUpdated(address indexed guard);
+    event SettleOperatorUpdated(address indexed operator);
 
     // ═══════════════════════════ Constructor ═════════════════════════════════
 
@@ -346,6 +350,14 @@ contract KarmaBilateral {
     function setEmergencyGuard(address guard) external onlyAdmin {
         emergencyGuard = guard;
         emit EmergencyGuardUpdated(guard);
+    }
+
+    /// @notice Grant/revoke the off-chain batch-settlement operator role.
+    ///         The operator is trusted to have verified signatures, sequence
+    ///         numbers and proof data availability before settling on-chain.
+    function setSettleOperator(address operator_) external onlyAdmin {
+        settleOperator = operator_;
+        emit SettleOperatorUpdated(operator_);
     }
 
     /// @notice Point the core at a TEE settlement verifier (address(0) disables).
@@ -655,7 +667,11 @@ contract KarmaBilateral {
             _executeSettle(bindingId, b, b.buyerBillId, b.agentBillId, proofHash);
         } else {
             // ── Standard path: Layer 1 optimistic settlement.
-            if (msg.sender != _billOwner(buyerBill) && msg.sender != _billOwner(agentBill)) {
+            if (
+                msg.sender != _billOwner(buyerBill) &&
+                msg.sender != _billOwner(agentBill) &&
+                msg.sender != settleOperator
+            ) {
                 revert NoDisputeAccess(bindingId);
             }
             // Settle delay only applies to ACTIVE state (not PENDING/batch)
