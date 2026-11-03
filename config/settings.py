@@ -580,6 +580,8 @@ class Settings(BaseSettings):
     # 花钱必须有一张 owner 钱包签名的 spending grant（无授权/过期/超额/撤销一律拒）。
     # 生产默认 true；测试里由 autouse fixture 关闭（见 tests/conftest.py）。
     spending_grant_enforced: bool = True
+    # settle 的 proof_hash 必须有可检索的 proof 数据（DA），生产可打开。
+    require_proof_availability: bool = False
 
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":

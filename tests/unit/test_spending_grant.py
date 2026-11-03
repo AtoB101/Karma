@@ -322,3 +322,96 @@ async def test_assert_agent_authorized_ignores_allowance(db_session):
     grant = await spending_grant.assert_agent_authorized(db_session, agent_id="agent-1")
     assert grant.grant_id == "grant-1"
 
+
+
+# --- reserve_spend / release_spend (atomic check-and-deduct) ---
+
+@pytest.mark.asyncio
+async def test_reserve_spend_deducts_atomically(db_session):
+    await _create(db_session, _terms(per_tx_limit=100.0))
+    await db_session.commit()
+
+    grant = await spending_grant.reserve_spend(db_session, grant_id="grant-1", amount=30.0)
+    await db_session.commit()
+
+    assert grant.used_amount == pytest.approx(30.0)
+    reloaded = await spending_grant.get_grant(db_session, "grant-1")
+    assert reloaded.used_amount == pytest.approx(30.0)
+    assert reloaded.total_limit - reloaded.used_amount == pytest.approx(70.0)
+
+
+@pytest.mark.asyncio
+async def test_reserve_spend_rejects_over_total_limit(db_session):
+    await _create(db_session, _terms())
+    await db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.reserve_spend(db_session, grant_id="grant-1", amount=100.01)
+    assert exc.value.status_code == 403
+    reloaded = await spending_grant.get_grant(db_session, "grant-1")
+    assert reloaded.used_amount == pytest.approx(0.0)
+
+
+@pytest.mark.asyncio
+async def test_reserve_spend_rejects_over_per_tx_limit(db_session):
+    await _create(db_session, _terms())
+    await db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.reserve_spend(db_session, grant_id="grant-1", amount=10.01)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_reserve_spend_cannot_double_spend_same_allowance(db_session):
+    await _create(db_session, _terms(total_limit=100.0, per_tx_limit=100.0))
+    await db_session.commit()
+
+    await spending_grant.reserve_spend(db_session, grant_id="grant-1", amount=80.0)
+    await db_session.commit()
+
+    # Second reservation of 80 would push used_amount to 160 > total_limit 100.
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.reserve_spend(db_session, grant_id="grant-1", amount=80.0)
+    assert exc.value.status_code == 403
+    reloaded = await spending_grant.get_grant(db_session, "grant-1")
+    assert reloaded.used_amount == pytest.approx(80.0)
+
+
+@pytest.mark.asyncio
+async def test_reserve_spend_rejects_expired_grant(db_session):
+    from datetime import timedelta
+    from sqlalchemy import update
+
+    await _create(db_session, _terms())
+    await db_session.commit()
+    await db_session.execute(
+        update(spending_grant.SpendingGrantModel)
+        .where(spending_grant.SpendingGrantModel.grant_id == "grant-1")
+        .values(expires_at=datetime.utcnow() - timedelta(seconds=1))
+    )
+    await db_session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        await spending_grant.reserve_spend(db_session, grant_id="grant-1", amount=5.0)
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_release_spend_returns_allowance_and_never_goes_negative(db_session):
+    await _create(db_session, _terms(per_tx_limit=100.0))
+    await db_session.commit()
+
+    await spending_grant.reserve_spend(db_session, grant_id="grant-1", amount=30.0)
+    await db_session.commit()
+
+    await spending_grant.release_spend(db_session, grant_id="grant-1", amount=30.0)
+    await db_session.commit()
+    reloaded = await spending_grant.get_grant(db_session, "grant-1")
+    assert reloaded.used_amount == pytest.approx(0.0)
+
+    # Releasing more than reserved must not drive used_amount negative.
+    await spending_grant.release_spend(db_session, grant_id="grant-1", amount=100.0)
+    await db_session.commit()
+    reloaded = await spending_grant.get_grant(db_session, "grant-1")
+    assert reloaded.used_amount == pytest.approx(0.0)

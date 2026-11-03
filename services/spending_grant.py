@@ -17,10 +17,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models.orm import SpendingGrantModel, SpendingGrantEventModel
+from db.models.orm import SpendingGrantModel, SpendingGrantEventModel, SpendingReservationModel
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +28,9 @@ logger = structlog.get_logger(__name__)
 _TOKEN_DECIMALS = 6
 
 ACTIVE_STATUS = "active"
+
+#: Float comparison tolerance for allowance guards.
+_GRANT_EPS = 1e-9
 
 
 def build_grant_message(
@@ -380,6 +383,160 @@ async def record_spend(
         event_type="spend",
         amount=amount,
     )
+
+
+async def reserve_spend(
+    db: AsyncSession,
+    *,
+    grant_id: str,
+    amount: float,
+) -> SpendingGrantModel:
+    """Atomically check-and-deduct ``amount`` from one grant.
+
+    The guard and the increment happen in a single conditional UPDATE, so two
+    concurrent callers can never both pass the limit check and both deduct: the
+    second UPDATE matches zero rows and raises 403. Call this *before* moving
+    money, and release_spend() if the downstream move fails.
+    """
+    if amount <= 0:
+        raise HTTPException(400, "amount must be positive")
+
+    result = await db.execute(
+        update(SpendingGrantModel)
+        .where(SpendingGrantModel.grant_id == grant_id)
+        .where(SpendingGrantModel.status == ACTIVE_STATUS)
+        .where(or_(
+            SpendingGrantModel.expires_at.is_(None),
+            SpendingGrantModel.expires_at > _utcnow(),
+        ))
+        .where(SpendingGrantModel.per_tx_limit >= amount - _GRANT_EPS)
+        .where(
+            SpendingGrantModel.used_amount + amount
+            <= SpendingGrantModel.total_limit + _GRANT_EPS
+        )
+        .values(
+            used_amount=SpendingGrantModel.used_amount + amount,
+            last_used_at=_utcnow(),
+        )
+    )
+    if result.rowcount != 1:
+        reason = "grant not found, inactive, expired, or insufficient allowance"
+        await _record_deny_safe(
+            db,
+            grant_id=grant_id,
+            owner_identity_id="",
+            agent_id="",
+            reason=reason,
+        )
+        logger.warning("spending_grant_reserve_denied", grant_id=grant_id, reason=reason)
+        raise HTTPException(403, f"spending grant denied: {reason}")
+    await db.flush()
+
+    grant = (
+        await db.execute(
+            select(SpendingGrantModel)
+            .where(SpendingGrantModel.grant_id == grant_id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    record_event(
+        db,
+        grant_id=grant_id,
+        owner_identity_id=grant.owner_identity_id or "",
+        agent_id=grant.agent_id or "",
+        event_type="spend",
+        amount=amount,
+    )
+    return grant
+
+
+async def release_spend(
+    db: AsyncSession,
+    *,
+    grant_id: str,
+    amount: float,
+) -> None:
+    """Atomically return a previously reserved amount (e.g. a failed on-chain
+    move). The decrement is guarded so used_amount never goes negative."""
+    if amount <= 0:
+        return
+    await db.execute(
+        update(SpendingGrantModel)
+        .where(SpendingGrantModel.grant_id == grant_id)
+        .where(SpendingGrantModel.used_amount >= amount - _GRANT_EPS)
+        .values(used_amount=SpendingGrantModel.used_amount - amount)
+    )
+    await db.flush()
+    record_event(
+        db,
+        grant_id=grant_id,
+        owner_identity_id="",
+        agent_id="",
+        event_type="release",
+        amount=amount,
+    )
+
+
+async def link_bill_to_grant(
+    db: AsyncSession,
+    *,
+    bill_id: int,
+    grant_id: str,
+    agent_id: str,
+    amount: float,
+) -> SpendingReservationModel:
+    """Persist ``bill_id -> grant`` so settle/finalize can verify a locked bill
+    was reserved under the caller's grant."""
+    reservation = SpendingReservationModel(
+        bill_id=int(bill_id),
+        grant_id=grant_id,
+        agent_id=agent_id,
+        amount=float(amount),
+    )
+    db.add(reservation)
+    await db.flush()
+    return reservation
+
+
+async def get_bill_reservation(
+    db: AsyncSession, bill_id: int
+) -> SpendingReservationModel | None:
+    """Return the reservation for a locked bill, if any."""
+    res = await db.execute(
+        select(SpendingReservationModel).where(
+            SpendingReservationModel.bill_id == int(bill_id)
+        )
+    )
+    return res.scalar_one_or_none()
+
+
+async def assert_bill_covered_by_grant(
+    db: AsyncSession,
+    *,
+    bill_id: int,
+    agent_id: str,
+) -> SpendingReservationModel:
+    """settle/finalize gate: the bill must have been locked under the caller's grant.
+
+    Closes the "any active grant can settle any binding" gap — a settle or
+    finalize now requires a reservation row proving this agent locked this
+    exact bill, and that the grant is still active and unexpired.
+    """
+    reservation = await get_bill_reservation(db, int(bill_id))
+    if reservation is None:
+        raise HTTPException(
+            403, "spending grant denied: bill was not locked under a spending grant"
+        )
+    if reservation.agent_id != agent_id:
+        raise HTTPException(
+            403, "spending grant denied: bill belongs to another agent"
+        )
+    grant = await get_grant(db, reservation.grant_id)
+    if grant is None or grant.status != ACTIVE_STATUS or _expired(grant):
+        raise HTTPException(
+            403, "spending grant denied: grant is revoked, paused, or expired"
+        )
+    return reservation
 
 
 async def revoke_grant(db: AsyncSession, *, grant: SpendingGrantModel, reason: str) -> SpendingGrantModel:

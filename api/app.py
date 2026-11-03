@@ -29,6 +29,8 @@ from api.routes import (
     agents,
     agent_pairing,
     agent_first_key,
+    settlement_channel,
+    proofs,
     auth,
     contracts,
     receipts,
@@ -402,6 +404,8 @@ app.include_router(
 )
 # Self-serve first key: unauthenticated by design (the caller has no key yet).
 app.include_router(agent_first_key.router, tags=["AgentFirstKey"])
+app.include_router(settlement_channel.router, tags=["SettlementChannel"])
+app.include_router(proofs.router, tags=["ProofAvailability"])
 app.include_router(
     agent_pairing.owner_router,
     prefix="/v1/agent-pairing",
