@@ -236,6 +236,7 @@ async def evaluate_p1_readiness(
         "identity_class_set": False,
         "owner_identity_bound": False,
         "owner_identity_active": False,
+        "owner_wallet_bound": False,
         "public_key_bound": False,
         "public_key_not_platform_default": False,
         "profile_card_present": False,
@@ -274,8 +275,16 @@ async def evaluate_p1_readiness(
         else:
             gaps.append("owner_identity_active")
             details["owner_identity"] = "missing_or_inactive"
+        # Wallet binding is a signature-verified (non-self-attested) step; without
+        # it the owner is a stub and the agent must not be treated as p1_ready.
+        if owner and (owner.bound_wallet_address or "").strip():
+            checks["owner_wallet_bound"] = True
+        else:
+            gaps.append("owner_wallet_bound")
+            details["owner_wallet"] = "unbound"
     else:
         gaps.append("owner_identity_bound")
+        gaps.append("owner_wallet_bound")
 
     pk = row.public_key
     if not _is_placeholder_public_key(pk):
