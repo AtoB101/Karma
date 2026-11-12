@@ -404,7 +404,7 @@ contract KarmaBilateralAdvancedTest is Test {
 
         (uint256 bb, uint256 ab, uint256 bindingId) = _setupBinding();
 
-        // Threshold is 0; pendingBatchAmount is non-zero but threshold is 0 → no PENDING
+        // Threshold is 0; batch accounting is skipped, so the binding stays ACTIVE.
         assertEq(uint8(karma.getBinding(bindingId).state), uint8(KarmaBilateral.BindingState.ACTIVE));
 
         vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);

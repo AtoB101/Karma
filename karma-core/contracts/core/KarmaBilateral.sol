@@ -616,13 +616,17 @@ contract KarmaBilateral {
         address token    = _billToken(buyerBill);
         uint256 buyerAmt = _billAmounts[buyerBillId];
         uint256 agentAmt = _billAmounts[agentBillId];
-        pendingBatchAmount[token] += buyerAmt + agentAmt;
-
         _moveFreeTobound(_billOwner(buyerBill), buyerAmt);
         _moveFreeTobound(_billOwner(agentBill), agentAmt);
 
-        if (batchThreshold[token] > 0 && pendingBatchAmount[token] >= batchThreshold[token]) {
-            bindings[bindingId].state = BindingState.PENDING;
+        // Batch threshold engine is opt-in: without a threshold we skip the
+        // pendingBatchAmount accounting so the standard bind/settle path never
+        // pays storage gas for a feature it is not using.
+        if (batchThreshold[token] > 0) {
+            pendingBatchAmount[token] += buyerAmt + agentAmt;
+            if (pendingBatchAmount[token] >= batchThreshold[token]) {
+                bindings[bindingId].state = BindingState.PENDING;
+            }
         }
 
         emit BillsBound(bindingId, buyerBillId, agentBillId, scopeHash);
@@ -1133,6 +1137,9 @@ contract KarmaBilateral {
 
     function setBatchThreshold(address token, uint256 threshold) external onlyAdmin {
         batchThreshold[token] = threshold;
+        if (threshold == 0) {
+            pendingBatchAmount[token] = 0;
+        }
         emit BatchThresholdUpdated(token, threshold);
     }
 
@@ -1284,7 +1291,9 @@ contract KarmaBilateral {
         _burnBill(buyerBillId, buyerBill, "settled");
         _burnBill(agentBillId, agentBill, "settled");
 
-        pendingBatchAmount[token] -= (buyerAmount + agentAmount);
+        if (batchThreshold[token] > 0) {
+            pendingBatchAmount[token] -= (buyerAmount + agentAmount);
+        }
 
         uint256 totalPool = buyerAmount + agentAmount;
         address developer = bindingDeveloper[bindingId];
@@ -1328,7 +1337,9 @@ contract KarmaBilateral {
         _burnBill(buyerBillId, buyerBill, "refunded");
         _burnBill(agentBillId, agentBill, "refunded");
 
-        pendingBatchAmount[token] -= (buyerAmount + agentAmount);
+        if (batchThreshold[token] > 0) {
+            pendingBatchAmount[token] -= (buyerAmount + agentAmount);
+        }
 
         _transfer(token, buyerOwner, buyerAmount);
         _transfer(token, agentOwner, agentAmount);
@@ -1362,7 +1373,9 @@ contract KarmaBilateral {
         _burnBill(buyerBillId, buyerBill, "dispute-resolved");
         _burnBill(agentBillId, agentBill, "dispute-resolved");
 
-        pendingBatchAmount[token] -= totalPool;
+        if (batchThreshold[token] > 0) {
+            pendingBatchAmount[token] -= totalPool;
+        }
 
         if (buyerPayout > 0) _transfer(token, buyerOwner, buyerPayout);
         if (agentPayout > 0) _transfer(token, agentOwner, agentPayout);

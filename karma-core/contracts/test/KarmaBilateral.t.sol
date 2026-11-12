@@ -196,7 +196,19 @@ contract KarmaBilateralTest is Test {
         karma.bind(buyerBill, agentBill2, SCOPE);
     }
 
-    function test_bind_accumulatesPendingBatchAmount() public {
+    function test_bind_skipsBatchAccountingWithoutThreshold() public {
+        vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
+        vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
+        vm.prank(buyer); karma.bind(bb, ab, SCOPE);
+
+        // No batch threshold configured -> the opt-in engine never writes its counter.
+        assertEq(karma.pendingBatchAmount(address(usdc)), 0);
+    }
+
+    function test_bind_accumulatesBatchAccountingWithThreshold() public {
+        vm.prank(admin);
+        karma.setBatchThreshold(address(usdc), 1_000_000_000);
+
         vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
         vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
         vm.prank(buyer); karma.bind(bb, ab, SCOPE);
